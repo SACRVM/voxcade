@@ -298,6 +298,11 @@ Pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) says what
 to check before sending one. For anything bigger than a fix, open an
 issue first, so nobody builds what will not fit.
 
+## Supporting it
+
+Voxcade is free and stays free. If it is useful to you, you can support
+its making: [github.com/sponsors/SACRVM](https://github.com/sponsors/SACRVM).
+
 ## Licence
 
 zlib ([LICENSE.txt](LICENSE.txt)): the engine, the games that come with
