@@ -64,6 +64,11 @@ one window; HELP there explains the Lua API by example; BUILD packs your
 game to pass on. A first game in five minutes:
 https://voxca.de/quickstart.html
 
+CLAUDE in the IDE's console starts Claude Code, an AI agent that helps
+with your game. It is Anthropic's program, to install yourself
+(https://claude.com/claude-code); it needs a Claude subscription or an
+API key, and asks you to sign in the first time it starts there.
+
 While a game plays, F5 starts it again and F9 keeps the run as a replay.
 The key left of 1 (^ on a German keyboard, ` on a US one) opens the
 console: a line of Lua run in the game (player.state.score = 5000).

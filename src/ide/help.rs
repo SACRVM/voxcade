@@ -9,7 +9,8 @@ use egui::{RichText, TextStyle};
 use crate::gui::{ACCENT, PANEL, QUIET, TEXT};
 
 /// A topic: its title, what it says, what goes into `conf.lua` (inside
-/// `function conf(c)`; may be empty) and `main.lua`.
+/// `function conf(c)`; may be empty) and `main.lua` (empty where a topic
+/// is about the IDE itself: Claude in the console).
 pub struct Topic {
     pub title: &'static str,
     pub text: &'static str,
@@ -869,6 +870,13 @@ function on_tick()
 end
 "##,
     },
+    Topic {
+        title: "CLAUDE IN THE CONSOLE",
+        text: "CLAUDE in the console below starts Claude Code, an AI agent that helps you make your game: it reads and changes the game's files and sees the IDE. It is Anthropic's program, not a part of Voxcade: install it yourself (claude.com/claude-code). It needs a Claude subscription or an API key; you sign in the first time it starts in the console, and /login there changes the account later. The gear at the top right says whether it starts with the IDE.",
+        conf: "",
+        files: &[],
+        code: "",
+    },
 ];
 
 /// The first topic's title: every name of the API with what it does.
@@ -904,8 +912,11 @@ pub fn ui(ui: &mut egui::Ui, chosen: &mut usize) {
                         code(ui, topic.conf);
                         ui.add_space(12.0);
                     }
-                    ui.label(RichText::new("MAIN.LUA").small().color(QUIET));
-                    code(ui, topic.code);
+                    // (A topic about the IDE itself has no code.)
+                    if !topic.code.is_empty() {
+                        ui.label(RichText::new("MAIN.LUA").small().color(QUIET));
+                        code(ui, topic.code);
+                    }
                     for (name, text) in topic.files {
                         ui.add_space(12.0);
                         ui.label(RichText::new(name.to_uppercase()).small().color(QUIET));

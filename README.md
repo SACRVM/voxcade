@@ -79,7 +79,9 @@ The game's logic, its scenarios and its assets on the left; the one file
 open in the middle (Lua with its mistakes marked as you type and the API's
 names offered, levels and models as pictures to turn); below, the console:
 your shell in the game folder, and CLAUDE, Claude Code with this game's
-conversation, seeing the IDE through MCP. PLAY plays the game right there
+conversation, seeing the IDE through MCP (Claude Code is Anthropic's, to
+install yourself; it needs a Claude subscription or an API key, and asks
+you to sign in the first time it starts in the console). PLAY plays the game right there
 (PLAY SCENARIO from a scenario), OUTPUT shows its errors with a way to the
 line and takes lines of Lua while it plays. Levels and models open in
 editors of their own (blocks, voxels, BOX and SPHERE, BEVEL, SYMMETRY).
