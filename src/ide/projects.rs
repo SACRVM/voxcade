@@ -266,6 +266,13 @@ impl StartPage {
         self.find_own();
     }
 
+    /// NEW GAME's form open with `name` typed and JUMP & RUN chosen, as a
+    /// picture of it wants it (`voxcade ide --shot FILE --open new:NAME`).
+    pub fn show_new(&mut self, name: &str) {
+        let template = TEMPLATES.iter().position(|t| t.name == "JUMP & RUN").unwrap_or(0);
+        self.new = Some(NewGame { name: name.to_string(), template, trouble: None });
+    }
+
     /// Says what went wrong.
     pub fn tell(&mut self, message: String) {
         self.message = Some(message);

@@ -273,6 +273,10 @@ impl Window {
 fn shot_start(opts: &ShotOptions) -> Result<()> {
     // A picture looks for a new version only at a feed named for it.
     let mut page = projects::StartPage::new(prefs::Prefs::load(&prefs::Prefs::path()).unwrap_or_default(), None, std::env::var_os("VOXCADE_UPDATE_FEED").is_some());
+    // `--open new:NAME`: NEW GAME's form with the name typed.
+    if let Some(name) = opts.open.as_deref().and_then(|o| o.strip_prefix("new:")) {
+        page.show_new(name);
+    }
     let mut canvas = crate::headless::Canvas::new(opts.width, opts.height, false)?;
     let ctx = egui::Context::default();
     crate::gui::style(&ctx);
