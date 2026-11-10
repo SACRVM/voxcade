@@ -18,3 +18,4 @@ research_notes/
 games/*/shots/
 games/*/.mcp.json
 .firepit/knowledge-pinned.md
+.mcp.json

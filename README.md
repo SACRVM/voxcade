@@ -20,7 +20,8 @@ the GPU does the drawing, and the games are written like
 **Get it:** [voxca.de](https://voxca.de/) has the downloads, [how to
 install](https://voxca.de/install.html) step by step and a [quick
 start](https://voxca.de/quickstart.html) to a first game of your own.
-Voxcade is free, under the zlib licence ([LICENSE.txt](LICENSE.txt)), as
+Voxcade is free, under the zlib licence ([LICENSE.txt](LICENSE.txt),
+[NOTICE.txt](NOTICE.txt) for what it covers), as
 LÖVE is: a game you make with it is yours, to give away or to sell.
 
 ## The games

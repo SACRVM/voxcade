@@ -42,7 +42,7 @@ def main():
     # games to show: they stay in the source.
     shutil.copytree(source / "games", out / "games", ignore=shutil.ignore_patterns("bench", "arena", "shots", ".mcp.json"))
     shutil.copytree(source / "lua", out / "lua")
-    for text in ["dist/README.txt", "dist/LIESMICH.txt", "LICENSE.txt"]:
+    for text in ["dist/README.txt", "dist/LIESMICH.txt", "LICENSE.txt", "NOTICE.txt"]:
         # Windows' own editor wants its line ends.
         (out / Path(text).name).write_text((repo / text).read_text(), newline="\r\n" if args.system == "windows" else "\n")
     program = Path(args.program)

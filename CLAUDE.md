@@ -14,11 +14,13 @@ for are suggestions to make in the reply, not changes to ship (an unasked
 x-ray silhouette was removed again).
 
 Voxcade is free under the zlib licence, as LÖVE (the user, 2026-11-10;
-`LICENSE.txt`: the program, the games that come with it and the
-templates; games made with it are their makers'). Money, if any, comes
+`LICENSE.txt`, and `NOTICE.txt` for what it covers: the program, the
+games that come with it and the templates; games made with it are their makers'). Money, if any, comes
 from donations and from services for commercial games, never from the
-engine. The source becomes public later, once what is private in the
-repo is out of it.
+engine. The source is public since 2026-11-10 (SACRVM/voxcade, its history
+begun anew; the earlier one is the private SACRVM/voxcade-archive, the
+remote `archive`, never pushed to the public one), and its Builds
+workflow makes the releases the website offers.
 
 Pull requests from others are welcome (the user, 2026-11-10; the
 repository is public, `CONTRIBUTING.md` says how). The author's own work

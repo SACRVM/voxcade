@@ -3,8 +3,7 @@
 # dist/README.txt); on each system the games' replays must play out as
 # recorded. Started by hand (Actions > Builds > Run workflow) or by
 # pushing a version tag (v0.4.0 ...), which makes a release of them; not
-# on every push: on a private repo macOS minutes count ten times against
-# the quota, Windows twice.
+# on every push (a release is a decision; the builds take half an hour).
 name: Builds
 
 on:
