@@ -1,0 +1,23 @@
+# Voxcade replay: BunnyFarm, 106 ticks, quit, score 0
+version = 1
+game = "BunnyFarm"
+fingerprint = "b73061415fda9e9a"
+ticks = 106
+outcome = "quit"
+score = 0
+input = "none:3;act:1;none:20;act:1;none:20;back:1;none:60"
+checks = ["e57ddc6093a5185e"]
+scenario = "fox_buys"
+
+[[controls]]
+at = 0
+device = "keyboard"
+language = "de"
+
+[controls.keys]
+act = "SPACE"
+back = "X"
+bag = "TAB"
+next = "E"
+pause = "ESCAPE"
+prev = "Q"

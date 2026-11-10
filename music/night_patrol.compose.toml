@@ -1,0 +1,13 @@
+# Dark and menacing, More Blood's march: the flat second, a drone, a snare.
+# python3 tools/compose.py music/night_patrol.compose.toml
+
+title = "Night Patrol"
+out = "night_patrol.mml"
+style = "dark"
+key = "d"
+tempo = 108
+seed = 4
+moods = ["Dark"]
+scale = "modal"
+melody = "some"
+variation = "most"        # bars vary within a section (tools/compose.py)

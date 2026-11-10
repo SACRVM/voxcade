@@ -1,0 +1,13 @@
+# Action: fast, driving, for shooting and running.
+# python3 tools/compose.py music/hot_pursuit.compose.toml
+
+title = "Hot Pursuit"
+out = ["hot_pursuit.mml", "../templates/shooter/music/hot_pursuit.mml"]
+style = "action"
+key = "a"
+tempo = 144
+seed = 5
+moods = ["Rebellious", "Empowered"]
+scale = "minor"
+melody = "some"
+variation = "most"        # bars vary within a section (tools/compose.py)

@@ -1,0 +1,115 @@
+; Jungle Pulse: made by tools/midi2mml.py from jungle_pulse.import.toml;
+; run it again after changing the import file (this file is overwritten).
+; measured 143.89 BPM, notes 7% of a 16th off the grid on average
+
+#title Jungle Pulse
+#tempo 144
+
+@lead    square duty=0.25 pwm=0.1 pwm_speed=0.6 attack=0.01 decay=0.25 sustain=0.6 release=0.15 vibrato=0.012 vibrato_speed=5.5 vibrato_delay=0.15 volume=0.34
+@stab    square duty=0.5 attack=0.003 decay=0.12 sustain=0.35 release=0.06 lowpass=3200 volume=0.24
+@pulse   square duty=0.125 attack=0.002 decay=0.07 sustain=0.25 release=0.03 lowpass=1800 volume=0.3
+@bass    triangle attack=0.002 decay=0.2 sustain=0.8 release=0.05 volume=0.8
+@brass   saw attack=0.02 decay=0.2 sustain=0.6 release=0.12 lowpass=1700 vibrato=0.008 vibrato_delay=0.2 volume=0.26
+@kick    triangle freq=120 sweep=-30 sweep_time=0.09 attack=0.001 decay=0.12 sustain=0 release=0.01 volume=0.9
+@snare   noise freq=5500 attack=0.001 decay=0.13 sustain=0 release=0.02 volume=0.45
+@tom     triangle freq=170 sweep=-12 sweep_time=0.15 attack=0.001 decay=0.16 sustain=0 release=0.02 volume=0.7
+@rim     noise freq=9000 attack=0.001 decay=0.02 sustain=0 release=0.005 volume=0.32
+@hat     noise freq=14000 attack=0.001 decay=0.03 sustain=0 release=0.01 volume=0.16
+@openhat noise freq=13000 attack=0.001 decay=0.16 sustain=0 release=0.02 volume=0.16
+@crash   noise freq=11000 attack=0.001 decay=0.9 sustain=0 release=0.1 lowpass=9000 volume=0.26
+
+; A: jungle_pulse/vocals.mid channels [1, 3], high, 96 notes
+A: @lead v13 q7 l16 r1 | r2. o5 c4 | d8 r2. r8 | r2 c4 r4
+A: o4 g8 r2 r8 g8 o5 d8 | c8. d16 r8 c4 f4&16 e16 | d1 | r1
+A: r2. o4 g8 d8 | c8. f16 r8 o3 a8 f4 c8 a8 | a+8 g2&8 a+8 o4 g16 a+16 | a8. f16 c4 o3 a16 o4 c16 f16 a16 a+16 o5 c16 f16 a16
+A: r1 | r2. r8 c8 | r8. d16 r8 d8 c8. c8. o4 a8 | r8. o5 d16 r8 o4 a+8 g2
+A: r1 | r1 | r1 | r1
+A: a+8. a16 a+8 g8 o5 c8. o4 a16 o5 c8 o4 c8 | d8. f16 r2 r8 c16 d16 | d+4 r8 a+8 a4 f+8 d8 | o3 a+8. o4 c8. d2 g16 a16
+A: a+8. a16 a+4 o5 c8. o4 a16 o5 c8 c8 | d8. c8. o4 a+4. o5 c16 d16 c16 d16 | d+2&8 d8 c8 o4 a+8 | o5 d1&
+A: d8. r2 d16 r4 | r1 | r1 | r1
+A: o4 a8. f16 c8 o3 a+8 a8 a+8 o4 c8 o3 f8 | o4 g4 r2. | r1 | r1
+A: r1 | r1 | r1 | r1
+
+; S: jungle_pulse/synth.mid channels [0], high, 175 notes
+S: @stab v11 q7 l16 p-25 r16 o5 g16 r16 o4 g16 r8 a16 r16 a16 a16 r16 a16 a8 r8 | a+16 r8 a+16 r16 a+16 o5 c16 o4 a+16 o5 c16 c16 r8 c4 | o4 a+8 g16 g16 o5 d16 o4 g16 g16 o5 c16 r16 o4 g16 o5 c16 o4 g16 o5 c16 o4 a+16 a16 r16 | f16 r16 a16 f16 r16 a16 f16 r16 o5 c4 o4 a4
+S: r8. g16 r8 g8. g16 r8 g8 o5 d8 | c8. d8. c4 f4. | d4.&16 c16 r8 o4 a16 r8. a+16 g16 | o5 c16 c16 r16 c16 r16 o4 f16 o5 c8 r16 o4 f16 o5 c8 r16 o4 f16 g8
+S: r2. g8 r8 | r8. f8. r2 r8 | r2. r8 g16 a+16 | a8. f16 r8 g16 r8. f16 a16 a+16 o5 c16 f16 a16
+S: o4 g16 r8 g16 r4. a+16 r16 g16 a+16 o5 d+16 o4 g16 | a8 a16 g16 a16 r16 f16 a16 a16 r16 a16 r16 a16 f16 o5 c16 o4 f16 | r8. o5 d16 r8 d8 c8. f8. d16 r16 | d8. c16 r8 o4 g8 g2
+S: r16 g16 r2. r8 | r1 | r8 g16 r16 g16 a16 o5 d16 o4 g16 a16 o5 d16 o4 g16 a16 o5 d16 o4 g16 a16 o5 d16 | f+8 d16 f+16 d16 o4 a16 o5 f+16 d16 r4 r16 o4 g16 a16 r16
+S: a+8. a+8. a+8 o5 c4. c8 | o4 a+8. a+8. a+2&8 | r8. g8. a+8 a4 r8 f+8 | g8. r8. g16 r4. r16 a+16 a16
+S: r8. a+4. r8 o5 c16 r8 c8 | d8. c8. o4 a+4. o5 c16 d16 c16 d16 | d+2&8 d8 c8 c8 | d1&
+S: d2. r4 | r8 o4 g16 r8 g16 r8 f16 r8 f16 r4 | r8 g16 r8 o5 d16 r8 o4 f16 r8 f16 r4 | r8 g16 r4 r16 f16 r8 f16 r8 g16 r16
+S: a8. f16 r2. | g1 | r8. g16 r8 g16 r2 r16 | r1
+S: f1 | g8. r8. f8 r4 f8 g8 | r1 | r1
+
+; P: jungle_pulse/synth.mid channels [0], low, 344 notes
+P: @pulse v11 q7 l16 p25 r16 o3 g16 g16 a+16 g16 g16 o4 c16 o3 g16 g16 o4 c16 o3 g16 g16 o4 c8 r8 | o3 g16 g16 g16 r16 g16 g16 r16 g16 g16 r16 g16 g16 r4 | a+8 o4 d+16 d+16 r16 d+16 d+16 r16 o3 a+16 o4 d+16 d+16 d+16 d+16 r8. | c16 c16 r8 c16 c16 r16 c16 c4 c4
+P: o3 g16 r16 g16 g16 g16 g16 g16 r16 g16 g16 g16 g16 o4 d16 o3 g16 g16 g16 | g16 g16 g16 g16 g16 r16 g16 g16 g16 r16 g16 g16 g16 g16 g16 g16 | r16 g16 g16 g16 g16 g16 g16 g16 g16 g16 g16 g16 r16 g16 g16 g16 | o4 c16 c16 o3 g16 o4 c16 o3 g16 g16 o4 c16 o3 g16 g16 g16 o4 c16 o3 g16 r16 g16 g8
+P: g16 g16 g16 g16 g16 g16 g16 o4 d16 o3 g16 o4 d16 o3 g16 r16 g16 g16 g16 g16 | o4 c8. c16 r16 c16 o3 a16 o4 c16 r16 c8. c8 o3 a16 o4 c16 | o3 a+8 g8. a+8. a+8. g16 r8 a+8 | o4 c16 c8. c4 o3 a16 o4 c16 c8. c8.
+P: r16 d+16 o3 g16 o4 c16 d+16 o3 g16 g16 a+16 o4 d+16 o3 g16 r16 o4 d+16 c16 d+16 r16 c16 | d8 d8. o3 a16 r8. a16 r16 a16 o4 d16 o3 a16 r16 a16 | r8 g16 g8 g16 g8 o4 c16 c8 c16 c8 c16 c16 | r16 o3 a+16 a+16 o4 d+16 o3 a+16 a+16 o4 d+16 o3 a+16 a+8 a+16 a+16 a16 r16 a16 r16
+P: g+16 g+8 g+16 g+16 g16 r16 g+16 r16 g16 g+8 g+16 g16 r16 g+16 | g+16 g16 g+16 r8 g16 g+8 g+16 g16 r16 g+16 r16 g16 g+16 r16 | a16 g16 r4. r16 a8. r8. a16 | r2 r8 o4 d16 d16 d16 r8 d16
+P: o3 a+8. o4 d8. d8 c2 | c16 r16 o3 g16 o4 d8 o3 g16 g8 g16 r8 g16 g8 g16 a+16 | o4 c16 o3 g16 g16 o4 c16 o3 g16 g16 o4 c16 o3 g16 a8 a16 a8 r16 a16 r16 | g16 g8 g16 r8 g16 g16 g8 g16 r16 g16 r16 g16 g16
+P: r16 a+16 r16 a+16 r16 a+16 a+16 a+16 o4 c16 c16 r8 c16 c8 c16 | o3 a8 r16 a16 r16 a16 g16 g16 r8 g16 g16 o4 d16 o3 g16 o4 d16 o3 g16 | g+8 g+16 g+8 g+16 r8 g+16 g+8 g+16 g+16 g+16 g+8 | a8 a16 a16 a16 a8 a16 a16 a4&16 a8&
+P: a2. r4 | g8 r16 g8 r16 g8 r16 g8 r16 g8 g8 | g16 g16 r16 g16 g16 r8 g16 r16 g16 g16 r16 g16 g8 g16 | g8 r16 g8 o4 d16 o3 g8 r16 g8 r16 a+16 g16 r16 g16
+P: r4 o4 c8 o3 a+8 a8 a+8 o4 c8 r8 | o3 g1 | r8 g16 r16 g16 g16 r16 g16 o4 c16 o3 g16 a+16 g16 o4 c16 c+16 o3 a+16 g16 | a+1
+P: o4 c2.&16 o3 a16 r8 | g8 r16 o4 d16 r16 o3 g16 o4 c8 r16 c16 r16 o3 g16 o4 c8 o3 g8 | r16 g16 o4 d16 o3 g16 r16 o4 d16 r16 o3 g16 o4 c16 r16 c16 c+16 c16 o3 a+16 a16 r16 | g4. r2 r8
+
+; B: jungle_pulse/bass.mid channels [1], low, 311 notes
+B: @bass v13 q7 l16 r16 o2 g16 g16 g16 r2 r8 g16 g16 | g16 g16 g16 g16 r4. r16 g16 g8 f16 f16 | d+16 d+16 d+16 d+16 r2. | f16 f16 f16 f16 f16 f8 f16 f16 f16 f8 f16 f16 f16 f16
+B: g8 g16 g16 g16 g16 g8 g16 g16 g16 g16 g8 g16 g16 | g16 g16 g16 g16 g8 g16 g16 g8 g16 g16 g16 g16 g16 g16& | g16 g16 g16 g16 g16 g16 g16 g16 g16 g16 g16 g8 g16 g16 g16 | g16 g16 g8 g16 g16 g16 g16 g16 g16 g16 g8 g16 g16 g16
+B: g16 g16 g16 g16 g16 g16 g16 g16 g16 g16 g8 g16 g16 g16 g16 | f16 f16 f8 f16 f8 f8 f8. f8. f16 | d+8 d+8. d+8. d+8. d+8. d+8 | f16 f8. f8. f8. f8. f8.
+B: r8. o3 c16 r8 c8. r8. c16 r8 c16 | o2 d8 d8. d8. r4 d16 d8 d16 | r8 g16 g8 g16 g8 f16 f8 f16 f8 f16 f16& | f16 d+16 d+8 d+16 d+8 d+16 d+8 d+16 d+16 d8 d8
+B: g+16 g+8 g+16 g+8. g+8 g+16 g+8 g+16 g+8 g+16 | g+8 g+16 r8 g+16 g+8 g+16 g+8 g+16 r8 g+8 | d2&8 d8. r8. | d16 r2. r8.
+B: d+2 f4. f8& | f16 g8 g16 r8 g16 g8. g8 g16 g8 g16 | r8 o3 c16 c8 c16 c8 o2 d16 d8 d16 r8 d16 d16 | g16 g16 g16 r8 g16 g8 g16 g8. g8 g16 g16
+B: d+16 d+16 r8 d+16 d+8 d+16 f8. f8 f16 f8 | d16 r8 d16 d8 g16 g8. g8 g16 g16 g8 | g+16 g+8 g+16 g+8 g+16 r8 g+16 g+8 g+16 r8 g+16 | d8 d16 d8 d16 d8 d2
+B: r4 r16 o3 d4.&16 o2 d4 | g2.&8 g8 | g16 g8 g16 g8. g8 g16 g8 g16 g8 g16 | d+8. d+8 d+16 d+8 d+16 r8 d+16 d+8. d+16
+B: f16 f16 r8 f16 f8 f16 r8 f16 f8 f16 f8 | g16 g8 g16 g8 g16 g8 g16 g8 g16 g8 g16 | r8 g16 g8 g16 g8 g16 g8 g16 r8 g16 g16 | d+16 d+16 d+8 d+16 r8 d+16 d+8 d+16 r8 d+16 d+8&
+B: d+16 f8 f16 f16 f8 f2&16 | g8 r4 g8 r4 f8 g8 | r2. f16 d+16 f16 f16 | g4 d8 r2 r8
+
+; E: jungle_pulse/brass.mid channels [1, 4], high, 70 notes
+E: @brass v11 q7 l16 p35 r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r4. o4 g16 r16 o5 c8 r16 o4 a16 r16 f16 c16 r16 | f8 r16 f16 r16 d16 f8 r8 o3 a+16 r16 a+16 r16 o4 c16 d16 | g8. c16 c8 a+8 a8 f+16 r16 f+8 d8 | o3 a+8. o4 g16 r16 o3 a+16 o4 g8 r16 o3 a+16 a+16 r16 o4 d8 g16 a16
+E: a+8. a16 r16 d+16 a+16 r16 o5 c8 r16 o4 a8 r16 a16 r16 | o5 d8 r16 f8 r16 o4 a+4. o5 c16 d16 c16 d16 | d+8. c16 r16 c16 c16 r8 c16 d8 c8 d16 c16 | d8. o4 a8 a16 a16 a8. a8. a8.
+E: a16 a8. a8. a8. r4. | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r1 | r16 g4&16 g4. f8 g8& | g2.&8 a8 | g1
+
+; D: jungle_pulse/drums.mid channels [9], drums, 171 notes
+D: v13 q8 l16 r16 @kick c2.&16 c16 c16 | c2&8 c16 c16 c16 @tom c16 c16 c16 | @kick c1& | c4.&16 @tom c16 @kick c8 c16 c16 @snare c4
+D: @kick c4 @snare c8. @kick c8. c8 @snare c4 | @kick c4 @snare c8. @kick c8. c8 @snare c4 | @kick c4 @snare c8. @kick c8. c8 @snare c4 | @kick c4 @snare c8. @kick c8. c8 @snare c8 @kick c8
+D: c4 @snare c8. @kick c8. c8 @snare c4 | @kick c4 @snare c8. @kick c8. c8 @snare c4 | @kick c4 @snare c8. @kick c8. c8 @snare c4 | @kick c4 @snare c8 @tom c16 c16 c16 c16 @kick c16 c16 @snare c16 c16 c16 c16
+D: @kick c4 @snare c4 @kick c8 c8 @snare c4 | @kick c4 @snare c8. @kick c8. c8 @snare c4 | @kick c4 @snare c4 @kick c4 @snare c4 | @kick c4 @snare c4 @kick c8 c16 c16 c8 c16 c16
+D: c4 c4 c4 c4 | c4 c4 c4 c4 | c4 c4 c4 c8 @snare c16 @kick c16 | c16 c16 c16 c16 c16 c16 c16 c16 c8 @tom c16 c16 c4
+D: @kick c4 c4 c4 c4 | c4 c4 c4 c4 | c4 c4 c2& | c1&
+D: c1& | c1& | c2.&8 c8 | c4 c4 c4 c4&
+D: c2. @snare c16 c16 c16 c16 | @kick c4 c4 c4 c4 | c4 c4 c4 c4 | c4 c4 c4 c4
+D: c4 c4 c4 c4 | c4 c4 c4 c4 | c4 c4 c4 c4 | c4 c4 c4 c4
+D: c4 c4 c8. c16 c4 | c4. c4. c8 c8& | c2. @snare c4 | @kick c16 r2. r8.
+
+; H: jungle_pulse/drums.mid channels [9], drums, 222 notes
+H: v13 q8 l16 p15 r16 @hat c2.&8. | c1 | c1 | c16 c16 c16 c16 c16 c16 c16 c2&16
+H: @crash c8 @hat c16 c16 c8 c16 c16 c16 c16 c16 c16 c8 c16 c16 | c16 c16 c16 c16 c8 c16 c16 c16 c16 c16 c16 c8 c16 c16 | c16 c16 c16 c16 c8 c16 c16 c16 c16 c16 c16 c8 c16 c16 | c16 c16 c16 c16 c8 c16 c16 c16 c16 c16 c16 c8 @openhat c8
+H: @hat c16 c16 c16 c16 c8 c16 c16 c16 c16 c16 c16 c8 c16 c16 | c16 c16 c16 c16 c8 c16 c16 c16 c16 c16 c16 c8 c16 c16 | c16 c16 c16 c16 c8 c16 c16 c16 c16 c16 c16 c8 c16 c16 | c16 c16 c16 c16 c8 c16 c16 c16 c16 c16 c16 c8 c16 c16
+H: @crash c8 @hat c16 c16 c8 c16 c16 c16 c16 c16 c16 c8 c16 c16 | c16 c16 c16 c16 c8 c16 c16 c16 c16 c16 c16 c8 c16 c16 | c16 c16 c16 c16 c8 c16 c16 c16 c16 c16 c16 c8 c16 c16 | c16 c16 c16 c16 c8 c16 c16 c16 c16 c16 c16 c8 c16 c16
+H: @crash c2 @hat c2 | c2 c2 | c2 c2& | c1
+H: @crash c2 @hat c2 | c2 c2 | c2 c2& | c1&
+H: c1& | c1& | c1& | c1&
+H: c1 | @crash c8 @openhat c4 c4 c4 c8& | c8 c4 c4 c4 c8& | c8 c4 c4 c4 c8&
+H: c8 c4 c4 c4 c8 | @crash c8 @openhat c4 c4 c4 c8& | c8 c4 c4 c4 c8& | c8 c4 c4 c4 c8&
+H: c8 c4 c4 c4 c16 r16 | r1 | r1 | r1
+
+; K: jungle_pulse/percussion.mid channels [9], drums, 61 notes
+K: v12 q8 l16 p-15 r1 | r1 | r1 | r1
+K: r1 | r1 | r1 | r1
+K: r1 | r1 | r1 | r1
+K: r1 | r1 | r1 | r1
+K: r1 | r1 | r1 | r1
+K: r2 @rim c4 c4 | c4 c4 c4 c4 | c4 c4 c4 c4 | c4 c4 c4 c4
+K: c4 c4 c4 c4 | c4 c4 c4 c4 | c4 c4 c4 c4 | c4 c2.&
+K: c2.&8 c8& | c8 c4 c4 c4 c8& | c8 c4 c4 c4 c8& | c8 c4 c4 c4 c8&
+K: c8 c4 c4 c4 c8& | c8 c4 c4 c4 c8& | c8 c4 c4 c4 c8& | c8 c4 c4 c4 c8&
+K: c8 c4 c4 c4 c16 r16 | r1 | r1 | r1

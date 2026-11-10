@@ -1,0 +1,19 @@
+# Voxcade replay: Arena, 600 ticks, quit, score 0
+version = 1
+game = "Arena"
+fingerprint = "d229c17b1a136f5b"
+ticks = 600
+outcome = "quit"
+score = 0
+input = "right+fire:60;up:60;up+jump:20;left+fire:80;grenade:2;down:60;none:30;right+jump:40;up+fire:200;none:48"
+checks = ["b8aacedbd0a63d9f", "406f0b3717e7b47c", "6c2cf5e3f7a18435", "38a006a9bf4f33e0", "de2b335bc9da4583", "cc2ff6fd7a4b3016", "1590a1521ff72275", "8ccea086c57720f4", "3413978ce7681fe7", "1ddb5eff373ace69"]
+
+[[controls]]
+at = 0
+
+[controls.keys]
+fire = ""
+grenade = ""
+jump = ""
+pause = ""
+strafe = ""

@@ -1,0 +1,72 @@
+Voxcade
+=======
+
+Starten
+  Windows  Doppelklick auf voxcade (voxcade.exe)
+  Linux    Doppelklick auf start-voxcade.sh (oder im Terminal: ./voxcade)
+Der Launcher öffnet sich. PLAY startet ein Spiel. EDIT öffnet es in der
+IDE, der Werkstatt, in der Spiele entstehen. NEW GAME beginnt ein eigenes.
+Der Launcher und die IDE sind auf Englisch, die Menüs der Spiele auch
+auf Deutsch.
+
+Spielen
+  Tasten   Tastatur oder Gamepad. Jedes Spiel zeigt beim Start seine
+           Tasten. Alle zum Nachsehen und Ändern: Pause, EINSTELLUNGEN,
+           STEUERUNG.
+  Pause    Escape, oder START am Gamepad. Von dort weiter, in die
+           EINSTELLUNGEN, neu starten oder zurück zum Titel. BEENDEN auf
+           dem Titel schließt das Spiel.
+  Bild     EINSTELLUNGEN, BILD: VOLLBILD und SCHATTEN (niedriger stellen,
+           wenn das Spiel langsam läuft).
+  Sprache  EINSTELLUNGEN, SPRACHE: Deutsch, Englisch oder Französisch für
+           die Menüs. Beim ersten Start gilt die Sprache des Systems.
+  Zu zweit Ein zweiter Spieler steigt mit START an einem zweiten Gamepad
+           ein, oder mit Return an der Tastatur (Pulsar und Spiele, die
+           für zwei gemacht sind).
+
+Zusammen spielen übers Netz (Pulsar, jedes Spiel für zwei oder mehr)
+  Internet Der Gastgeber wählt NETZWERK, IM INTERNET ÖFFNEN. Kurz darauf
+           zeigt seine Pausenseite den Code des Spiels, sechs Zeichen wie
+           DX67A3, und der Code liegt in der Zwischenablage: Schick ihn
+           deinen Freunden. Sie wählen NETZWERK, BEITRETEN, CODE EINGEBEN. Beide Bildschirme zeigen dann dieselben vier Zeichen:
+           Sagt sie euch, und der Gastgeber lässt den anderen auf seiner
+           Pausenseite herein (EINLASSEN). In Router oder Firewall ist nichts zu
+           öffnen.
+  Zu Hause Einer wählt NETZWERK, SPIEL ÖFFNEN, die anderen NETZWERK,
+           BEITRETEN und wählen das Spiel aus der Liste. Nur der Gastgeber muss das
+           Spiel hereinlassen: Windows fragt einmal (für private
+           Netzwerke erlauben); unter Linux mit Firewall:
+           sudo ufw allow 26500/udp
+  Alle brauchen dieselbe Version von Voxcade.
+
+Neue Versionen
+  Der Launcher sieht beim Start nach, ob es eine gibt (eine kleine Datei
+  von voxca.de; das lässt sich dort abschalten). UPDATE NOW holt sie,
+  prüft sie und setzt sie ein. Was vorher hier lag, wandert in den
+  Ordner before-update; eigene Spiele, Einstellungen, Bestenlisten und
+  Spielstände bleiben.
+
+Wenn es nicht startet
+  Bring den Grafiktreiber auf den neuesten Stand: Voxcade braucht Grafik
+  mit Vulkan oder, unter Windows, DirectX 12. Windows meldet beim ersten
+  Mal vielleicht, es habe deinen PC geschützt (Voxcade ist noch nicht
+  signiert): Weitere Informationen, dann Trotzdem ausführen. Linux
+  braucht glibc 2.39 oder neuer (Ubuntu 24.04, Linux Mint 22, Fedora 40,
+  Debian 13 oder neuer). Mehr Hilfe: https://voxca.de/de/install.html
+
+Entfernen
+  Lösch diesen Ordner. Einstellungen, Bestenlisten und Spielstände liegen
+  in deinem Benutzerordner (Windows: %APPDATA%\voxcade, Linux:
+  ~/.config/voxcade); eigene Spiele im Ordner Voxcade in deinem
+  Benutzerordner. Unter Linux trägt der Launcher Voxcade außerdem mit
+  seinem Icon ins Anwendungsmenü ein:
+  ~/.local/share/applications/voxcade.desktop und
+  ~/.local/share/icons/hicolor/256x256/apps/voxcade.png
+
+Voxcade ist frei, unter der zlib-Lizenz (LICENSE.txt, englisch): Nutz
+es, mach Spiele damit, verschenk oder verkauf sie. Ein Spiel, das du
+machst, gehört dir.
+
+Spiele machen: Der Teil dazu steht in README.txt (englisch, wie die IDE
+und die Lua-API), der Schnellstart auf Deutsch unter
+https://voxca.de/de/quickstart.html

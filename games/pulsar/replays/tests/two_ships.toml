@@ -1,0 +1,33 @@
+# Voxcade replay: Pulsar, 1500 ticks, quit, score 1750
+version = 1
+game = "Pulsar"
+fingerprint = "8664e90e22590e8d"
+ticks = 1500
+outcome = "quit"
+score = 1750
+input = "fire:300;left+fire:200;right+fire:300;fire+bomb:5;fire:695"
+checks = ["2a50745757488a77", "492ed875892363b8", "534db73db6882f92", "8846146bac8fb221", "772e700792bc6deb", "63e2ea0fe65a41bd", "df0108db55e8af8c", "79930e75df1c7148", "56ef7be35abc2d6d", "84d8b91aa9451dde", "3fe21cd20f3d887b", "4815135f9ad2be36", "31fdba212d3adc44", "5f33b9aaa1bc94a3", "f030e6795b297d39", "4cfa8046d2226965", "61dc25a101478965", "262a4e3511d71a1b", "9403ca68dca42959", "d28bc5ebeb78eab6", "ef39421f1b3569ee", "7e27347773d15d21", "ef604a077dee4c60", "c53c51a91f4d9a40", "307752c9a7c11cfd"]
+
+[[controls]]
+at = 0
+device = "keyboard"
+language = "en"
+
+[controls.keys]
+bomb = "X"
+fire = "Z"
+pause = "ESCAPE"
+
+[[seats]]
+seat = 2
+input = "away:200;right+fire:300;left+fire:300;fire+bomb:5;fire:695"
+
+[[seats.controls]]
+at = 200
+device = "keyboard"
+language = "en"
+
+[seats.controls.keys]
+bomb = "X"
+fire = "Z"
+pause = "ESCAPE"

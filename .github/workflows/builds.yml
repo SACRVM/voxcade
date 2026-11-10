@@ -1,0 +1,195 @@
+# Ready-to-run builds: Linux and Windows (macOS on Intel when asked by
+# hand), SDL3 built into the program, the games beside it (see
+# dist/README.txt); on each system the games' replays must play out as
+# recorded. Started by hand (Actions > Builds > Run workflow) or by
+# pushing a version tag (v0.4.0 ...), which makes a release of them; not
+# on every push: on a private repo macOS minutes count ten times against
+# the quota, Windows twice.
+name: Builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      macos:
+        description: macOS on Intel too (its minutes count ten times)
+        type: boolean
+        default: false
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+  # Runs on older macOS than the runner's (the Intel Mac mini).
+  MACOSX_DEPLOYMENT_TARGET: "10.15"
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      # Linux and Windows; macOS on GitHub's last Intel runner (supported
+      # until August 2027) only when started by hand with it. Apple silicon
+      # (macos-latest, aarch64-apple-darwin) comes later. A tag's run has
+      # no inputs: the two.
+      matrix:
+        include: >-
+          ${{ fromJSON(inputs.macos && '[
+          {"name": "linux-x86_64", "os": "ubuntu-24.04", "target": "x86_64-unknown-linux-gnu"},
+          {"name": "windows-x86_64", "os": "windows-latest", "target": "x86_64-pc-windows-msvc"},
+          {"name": "macos-intel", "os": "macos-15-intel", "target": "x86_64-apple-darwin"}
+          ]' || '[
+          {"name": "linux-x86_64", "os": "ubuntu-24.04", "target": "x86_64-unknown-linux-gnu"},
+          {"name": "windows-x86_64", "os": "windows-latest", "target": "x86_64-pc-windows-msvc"}
+          ]') }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # What SDL needs to build its video and audio backends; at run time it
+      # opens them only where they are installed.
+      - name: SDL build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build pkg-config \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libxkbcommon-dev libwayland-dev libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
+            libdbus-1-dev libudev-dev
+
+      - name: Build
+        run: cargo build --release --locked --features static-sdl --target ${{ matrix.target }}
+
+      # Every game's replays must play out as recorded on every system: the
+      # simulation has to compute the same bits on Linux, Windows and macOS.
+      # Going back 8 ticks again and again and playing on, as rollback over
+      # a network would (docs/multiplayer.md, stage 0), they must too.
+      - name: Replays play out the same
+        shell: bash
+        run: |
+          for game in games/*/; do
+            "target/${{ matrix.target }}/release/voxcade" check "${game%/}" --rollback 8
+          done
+
+      # Network play (docs/multiplayer.md, stage 4): machines on simulated
+      # networks play the same ticks, the digest of every hash the same on
+      # every system as in .github/soak-1000.txt (after a change to the
+      # protocol: `voxcade soak 1000 --digest .github/soak-1000.txt`); two
+      # programs play Pulsar over 127.0.0.1, the guest coming late, and
+      # record the same run byte for byte.
+      - name: The network plays the same
+        shell: bash
+        run: |
+          bin="target/${{ matrix.target }}/release/voxcade"
+          "$bin" soak 1000 --digest soak.txt
+          # Windows' checkout gives the file CRLF line ends.
+          test "$(tr -d '\r' < soak.txt)" = "$(tr -d '\r' < .github/soak-1000.txt)"
+          "$bin" inspect games/pulsar --host 26500 --frames 600 --input "fire:200;left+fire:200;right+fire:200" --record host.toml > host.json &
+          sleep 2
+          "$bin" inspect games/pulsar --join 127.0.0.1:26500 --input "right+fire:300;left:300" --record guest.toml > guest.json
+          wait
+          cmp host.toml guest.toml
+          rm soak.txt host.toml guest.toml host.json guest.json
+
+      # Across the internet (docs/multiplayer.md, stage 6, steps 2 and 3):
+      # iroh carries a host and three guests at 60 Hz directly, each bound
+      # of the trial held (Voxcade's own network thread: the datagrams'
+      # size, a machine vanishing, the main loop's frames; no relay). Two
+      # programs play Pulsar as players do, through our server: the host
+      # gets its code at our matchmaker, the guest joins by it only
+      # through our relay, coming late: the same run byte for byte. The
+      # relay's latency under load is not Voxcade's to measure (it is the
+      # relay's and the route's).
+      - name: The network across the internet
+        shell: bash
+        run: |
+          bin="target/${{ matrix.target }}/release/voxcade"
+          "$bin" nettest direct --seconds 5
+          "$bin" inspect games/pulsar --host internet --frames 1200 --input "fire:400;left+fire:400;right+fire:400" --record host.toml > host.json 2> host.log &
+          for i in $(seq 1 120); do grep -q "code: " host.log 2>/dev/null && break; sleep 0.25; done
+          code="$(grep -o 'code: [A-Z0-9]*' host.log | head -1 | cut -d' ' -f2)"
+          if [ -z "$code" ]; then cat host.log; echo "no code from our matchmaker"; exit 1; fi
+          VOXCADE_REACH=relayed "$bin" inspect games/pulsar --join "$code" --input "right+fire:300;left:300" --record guest.toml > guest.json 2> guest.log
+          wait
+          grep -q "through the relay" guest.log
+          cmp host.toml guest.toml
+          rm host.toml guest.toml host.json guest.json host.log guest.log
+
+      # The program, the games, a start script for every game and the IDE,
+      # and the licences of what is built into the program
+      # (tools/package.py, tools/third_party_licenses.py).
+      - name: Put the folder together
+        shell: bash
+        run: |
+          dir="voxcade-${{ matrix.name }}"
+          case "${{ runner.os }}" in
+            Windows) system=windows py=python exe=voxcade.exe ;;
+            macOS) system=macos py=python3 exe=voxcade ;;
+            *) system=linux py=python3 exe=voxcade ;;
+          esac
+          "$py" tools/package.py --system "$system" --target "${{ matrix.target }}" \
+            --program "target/${{ matrix.target }}/release/$exe" --out "$dir"
+          # An artifact's zip drops the executable bit: Linux and macOS get a
+          # tar inside it.
+          if [ "${{ runner.os }}" != Windows ]; then
+            tar czf "$dir.tar.gz" "$dir"
+            rm -r "$dir"
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: voxcade-${{ matrix.name }}
+          path: voxcade-${{ matrix.name }}*
+          if-no-files-found: error
+
+  # A version tag (v0.4.0) makes a release of the builds: Linux a tar (it
+  # keeps the executable bit) holding a folder named by the version;
+  # Windows a zip with the files at its top, since Explorer's Extract All
+  # makes the folder itself (a folder inside would be one folder deeper);
+  # the notes are the tag's message (git tag -a).
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: built
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          version="${tag#v}"
+          mkdir work out
+          for art in built/*/; do
+            art="$(basename "$art")"
+            name="voxcade-$version-${art#voxcade-}"
+            if [ -f "built/$art/$art.tar.gz" ]; then
+              tar xzf "built/$art/$art.tar.gz" -C work
+              mv "work/$art" "work/$name"
+              tar czf "out/$name.tar.gz" -C work "$name"
+            else
+              src="built/$art/$art"
+              [ -d "$src" ] || src="built/$art"
+              cp -r "$src" "work/$name"
+              (cd "work/$name" && zip -qr "../../out/$name.zip" .)
+            fi
+          done
+          ls -l out
+          sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha)"
+          gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq .message > notes.md \
+            || echo "Voxcade $version" > notes.md
+          gh release create "$tag" out/* --repo "$GITHUB_REPOSITORY" \
+            --title "Voxcade $version" --notes-file notes.md

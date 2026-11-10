@@ -1,0 +1,95 @@
+# Main Theme (made with Suno, turned into MIDI): which tracks become which
+# voice. Run `python3 tools/midi2mml.py games/moreblood/music/main_theme.import.toml`
+# to write main_theme.mml, then tweak either file.
+
+title = "Main Theme"
+out = "main_theme.mml"
+# The groove from the first crash (bar 8) up to the closing cadence (57):
+# the free intro and the slowing ending left out, so it loops cleanly.
+crop = [8, 55]
+
+[instruments]
+lead    = "square duty=0.25 pwm=0.1 pwm_speed=0.5 attack=0.015 decay=0.3 sustain=0.65 release=0.2 vibrato=0.012 vibrato_speed=5 vibrato_delay=0.2 volume=0.34"
+counter = "saw attack=0.02 decay=0.25 sustain=0.55 release=0.15 lowpass=1900 vibrato=0.008 vibrato_delay=0.25 volume=0.22"
+maj     = "square duty=0.5 arp=0,4,7 arp_speed=50 attack=0.005 decay=0.3 sustain=0.5 release=0.15 lowpass=2600 volume=0.2"
+min     = "square duty=0.5 arp=0,3,7 arp_speed=50 attack=0.005 decay=0.3 sustain=0.5 release=0.15 lowpass=2600 volume=0.2"
+fifth   = "square duty=0.5 arp=0,7,12 arp_speed=50 attack=0.005 decay=0.3 sustain=0.5 release=0.15 lowpass=2600 volume=0.2"
+stab    = "square duty=0.5 attack=0.005 decay=0.2 sustain=0.4 release=0.1 lowpass=2600 volume=0.2"
+bass    = "triangle attack=0.002 decay=0.2 sustain=0.8 release=0.05 volume=0.8"
+kick    = "triangle freq=120 sweep=-30 sweep_time=0.09 attack=0.001 decay=0.12 sustain=0 release=0.01 volume=0.9"
+snare   = "noise freq=5500 attack=0.001 decay=0.13 sustain=0 release=0.02 volume=0.45"
+clap    = "noise freq=4000 attack=0.001 decay=0.09 sustain=0 release=0.02 lowpass=5000 volume=0.32"
+tom     = "triangle freq=170 sweep=-12 sweep_time=0.15 attack=0.001 decay=0.16 sustain=0 release=0.02 volume=0.7"
+rim     = "noise freq=9000 attack=0.001 decay=0.02 sustain=0 release=0.005 volume=0.3"
+hat     = "noise freq=14000 attack=0.001 decay=0.03 sustain=0 release=0.01 volume=0.16"
+openhat = "noise freq=13000 attack=0.001 decay=0.16 sustain=0 release=0.02 volume=0.16"
+crash   = "noise freq=11000 attack=0.001 decay=0.9 sustain=0 release=0.1 lowpass=9000 volume=0.26"
+
+# The melody (the woodwinds double it, so they are left out here).
+[[part]]
+channel = "A"
+file = "main_theme/vocals.mid"
+midi_channels = [0, 2, 4, 6]
+pick = "high"
+instrument = "lead"
+volume = 13
+
+# The keyboard's chords as arpeggios.
+[[part]]
+channel = "C"
+file = "main_theme/keyboard.mid"
+midi_channels = [0]
+pick = "chords"
+chords = { major = "maj", minor = "min", fifth = "fifth", note = "stab" }
+octave = 1
+fill_gaps = 1
+volume = 11
+pan = -30
+
+# Round bass, an octave up from the lower of the doubled octaves, kept
+# between C2 and B2 where the source drops its low notes.
+[[part]]
+channel = "B"
+file = "main_theme/bass.mid"
+midi_channels = [1]
+pick = "low"
+instrument = "bass"
+octave = 1
+fold = [36, 47]
+fill_gaps = 1
+volume = 13
+
+# Sitar and trombone moments.
+[[part]]
+channel = "E"
+file = "main_theme/brass.mid"
+pick = "high"
+instrument = "counter"
+volume = 11
+pan = 30
+
+[[part]]
+channel = "D"
+file = "main_theme/drums.mid"
+midi_channels = [9]
+pick = "drums"
+drums = { 36 = "kick", 35 = "kick", 38 = "snare", 40 = "snare", 43 = "tom", 45 = "tom", 47 = "tom", 50 = "tom" }
+volume = 13
+
+[[part]]
+channel = "H"
+file = "main_theme/drums.mid"
+midi_channels = [9]
+pick = "drums"
+drums = { 49 = "crash", 57 = "crash", 46 = "openhat", 42 = "hat", 44 = "hat", 37 = "rim" }
+volume = 13
+pan = 15
+
+[[part]]
+channel = "K"
+file = "main_theme/percussion.mid"
+midi_channels = [9]
+pick = "drums"
+drums = { 39 = "clap" }
+volume = 12
+pan = -15

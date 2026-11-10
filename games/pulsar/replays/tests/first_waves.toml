@@ -1,0 +1,18 @@
+# Voxcade replay: Pulsar, 1200 ticks, quit, score 2300
+version = 1
+game = "Pulsar"
+fingerprint = "8664e90e22590e8d"
+ticks = 1200
+outcome = "quit"
+score = 2300
+input = "none:60;fire:120;right+fire:40;fire:100;left+fire:80;up+fire:30;fire:120;down+fire:30;fire+bomb:2;right+fire:60;fire:200;left+fire:60;fire:298"
+checks = ["a09c74671cf5b370", "f883cd91fb29cc9d", "712409a7428265e4", "42260efc77f94d7d", "a7d893260e7d2193", "0c8253a196a9793e", "c4fde25572d2c1c3", "23af33eac19bad32", "664c100bbca27802", "e85c184a5bc6cc3b", "0ba975c03805236e", "744357b2ad3f2c8c", "b9701347aefd61bf", "b7ce91734145a8e2", "a7546e3a9c3c1a69", "6500d945ff54d318", "5118652487d6e893", "e20603299d7f5178", "d47ab1bb9eceb0ae", "569dfa54e710b47b"]
+
+[[controls]]
+at = 0
+device = "keyboard"
+
+[controls.keys]
+bomb = "X"
+fire = "Z"
+pause = "ESCAPE"

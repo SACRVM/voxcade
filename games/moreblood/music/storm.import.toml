@@ -1,0 +1,75 @@
+# Storm Is Coming (made with Suno; audio stems "Storm Is Coming Stems (150BPM).zip", 150 BPM, E minor).
+# The stems were turned into MIDI with
+#   python3 tools/audio2midi.py --bpm 150 --out games/moreblood/music/storm <Drums Bass Synth .mp3>
+# then: python3 tools/midi2mml.py games/moreblood/music/storm.import.toml
+# Keyboard and the quieter stems were left out: echoes of the synth and the
+# bass (typical Suno), or bleed from the separation.
+
+title = "Storm Is Coming"
+out = "storm.mml"
+bpm = 150
+
+[instruments]
+# The same kit and SID sounds as End Boss, so the songs belong together.
+lead    = "square duty=0.5 pwm=0.22 pwm_speed=0.6 attack=0.004 decay=0.18 sustain=0.5 release=0.1 cutoff=3600 cutoff_end=1400 cutoff_time=0.2 resonance=0.3 vibrato=0.012 vibrato_speed=6 vibrato_delay=0.12 volume=0.3"
+echo    = "square duty=0.5 pwm=0.22 pwm_speed=0.6 attack=0.004 decay=0.18 sustain=0.5 release=0.1 cutoff=2400 cutoff_end=1400 cutoff_time=0.2 resonance=0.3 vibrato=0.012 vibrato_speed=6 vibrato_delay=0.12 volume=0.3"
+bass    = "saw attack=0.002 decay=0.1 sustain=0.35 release=0.04 cutoff=1600 cutoff_end=300 cutoff_time=0.12 resonance=0.5 volume=0.7"
+kick    = "triangle freq=180 sweep=-22 sweep_time=0.05 attack=0.001 decay=0.17 sustain=0 release=0.02 sidechain=0.5 sidechain_release=0.2 volume=1"
+snare   = "noise freq=3500 attack=0.001 decay=0.16 sustain=0 release=0.03 lowpass=6000 duck=0 volume=0.42"
+hat     = "noise freq=15000 attack=0.001 decay=0.025 sustain=0 release=0.01 duck=0 volume=0.18"
+openhat = "noise freq=13000 attack=0.001 decay=0.14 sustain=0 release=0.02 duck=0 volume=0.2"
+crash   = "noise freq=11000 attack=0.001 decay=0.9 sustain=0 release=0.1 lowpass=9000 duck=0 volume=0.24"
+
+# The synth's melody, the top voice, kept between G3 and C6.
+[[part]]
+channel = "A"
+file = "storm/synth.mid"
+pick = "high"
+fold = [55, 84]
+instrument = "lead"
+volume = 12
+pan = -20
+
+# Its C64 echo: the same line a dotted 8th later, a third as loud as
+# the line (two thirds was too much: it sounded like the melody doubled),
+# darker, across.
+[[part]]
+channel = "E"
+file = "storm/synth.mid"
+pick = "high"
+fold = [55, 84]
+instrument = "echo"
+delay = 3
+volume = 4
+pan = 25
+
+# Bass, kept between C2 and B2.
+[[part]]
+channel = "B"
+file = "storm/bass.mid"
+pick = "low"
+fold = [36, 47]
+instrument = "bass"
+volume = 13
+
+[[part]]
+channel = "D"
+file = "storm/drums.mid"
+pick = "drums"
+drums = { 36 = "kick" }
+volume = 14
+
+[[part]]
+channel = "C"
+file = "storm/drums.mid"
+pick = "drums"
+drums = { 38 = "snare" }
+volume = 13
+
+[[part]]
+channel = "H"
+file = "storm/drums.mid"
+pick = "drums"
+drums = { 49 = "crash", 46 = "openhat", 42 = "hat" }
+volume = 13
+pan = 15

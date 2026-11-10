@@ -1,0 +1,15 @@
+# Pulsar's song: driving synths for a space shooter whose waves come on its
+# bars, in layers the game's tension brings in (music.intensity).
+# python3 tools/compose.py music/pulsar_drive.compose.toml
+
+title = "Pulsar Drive"
+out = ["pulsar_drive.mml", "../games/pulsar/music/pulsar_drive.mml"]
+style = "space"
+key = "d"
+tempo = 120
+seed = 3
+moods = ["Rebellious", "Empowered", "Triumphant"]
+scale = "minor"
+melody = "some"
+variation = "most"        # bars vary within a section (tools/compose.py)
+adaptive = true           # layers by the game's tension: drums, broken chords, melody

@@ -1,0 +1,180 @@
+; Night Patrol: made by tools/compose.py from music/night_patrol.compose.toml
+; (dark, D minor, 108 bpm, seed 4). Run the recipe
+; again after changing it, or edit this file by hand. Chords from
+; free-midi-chords by Ludovic Drolez (MIT, tools/progressions.toml).
+;
+; A: im bIIM bIIIM bIIM (modal): Dm Eb F Eb
+; B: bVIM bVIIm im bIIM (modal): Bb Cm Dm Eb
+; Form, 8 bars each: intro A | theme A | theme A | bridge B | bridge B | break A | theme A | turn B
+; Variation: most (every fourth bar walks and pushes, the broken chords turn, ghost notes on the hi-hat, later themes answer backwards).
+
+#title Night Patrol
+#tempo 108
+
+@lead   square duty=0.5 attack=0.01 decay=0.3 sustain=0.55 release=0.25 lowpass=1600 vibrato=0.012 vibrato_speed=5.5 vibrato_delay=0.2 volume=0.3
+@echo   square duty=0.5 attack=0.01 decay=0.3 sustain=0.5 release=0.3 lowpass=1000 volume=0.3
+@pad    saw attack=0.6 decay=0.8 sustain=0.7 release=0.9 lowpass=600 volume=0.12
+@bass   square duty=0.5 attack=0.002 decay=0.12 sustain=0.6 release=0.05 lowpass=1100 volume=0.45
+@drone  saw attack=0.6 decay=0.5 sustain=0.8 release=0.8 lowpass=420 vibrato=0.004 vibrato_speed=0.5 volume=0.3
+@kick   triangle freq=120 sweep=-30 sweep_time=0.09 attack=0.001 decay=0.12 sustain=0 release=0.01 volume=0.85
+@snare  noise freq=5500 attack=0.001 decay=0.13 sustain=0 release=0.02 lowpass=4500 volume=0.34
+@roll   noise freq=5000 attack=0.001 decay=0.06 sustain=0 release=0.01 lowpass=4500 volume=0.22
+@hat    noise freq=14000 attack=0.001 decay=0.03 sustain=0 release=0.01 lowpass=6000 volume=0.1
+@arp1   square duty=0.5 arp=0,4,7 attack=0.01 decay=0.4 sustain=0.45 release=0.3 lowpass=2000 arp_speed=50 volume=0.14
+@arp2   square duty=0.5 arp=0,3,7 attack=0.01 decay=0.4 sustain=0.45 release=0.3 lowpass=2000 arp_speed=50 volume=0.14
+
+; The melody, in some sections only, and its echo a little later.
+A: @lead v12 q7 l16 p-15 r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: o4 f4. g8 a4 o5 c4 | o4 a+4. g8 f2 | f4. g8 a4 o5 c4 | o4 a+4. g8 f2
+A: f8 g8 o5 c4 d8 c8 o4 a4 | d+2. r4 | f4. g8 a4 o5 c4 | o4 d+2. r4
+A: f4. g8 a4 o5 c4 | o4 a+4. g8 f2 | a4. o5 c8 d4 c4 | o4 a+4. g8 f2
+A: a8 g8 d4 c8 d8 f4 | a+2. r4 | o5 c4. d8 c4 d4 | o4 d+2. r4
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: f4. g8 a4 o5 c4 | o4 a+4. g8 f2 | f2 g8 a4. | a+4 g4 f8 d+4.
+A: d8 f8 a4 o5 c8 o4 a8 g4 | d+2. r4 | f4. g8 a4 o5 c4 | o4 d+2. r4
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+E: @echo v4 q7 l16 p40 r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r8. o4 f4. g8 a4 o5 c16& | c8. o4 a+4. g8 f4&16& | f8. f4. g8 a4 o5 c16& | c8. o4 a+4. g8 f4&16&
+E: f8. f8 g8 o5 c4 d8 c8 o4 a16& | a8. d+2. r16 | r8. f4. g8 a4 o5 c16& | c8. o4 d+2. r16
+E: r8. f4. g8 a4 o5 c16& | c8. o4 a+4. g8 f4&16& | f8. a4. o5 c8 d4 c16& | c8. o4 a+4. g8 f4&16&
+E: f8. a8 g8 d4 c8 d8 f16& | f8. a+2. r16 | r8. o5 c4. d8 c4 d16& | d8. o4 d+2. r16
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r8. f4. g8 a4 o5 c16& | c8. o4 a+4. g8 f4&16& | f8. f2 g8 a8.& | a8. a+4 g4 f8 d+8.&
+E: d+8. d8 f8 a4 o5 c8 o4 a8 g16& | g8. d+2. r16 | r8. f4. g8 a4 o5 c16& | c8. o4 d+2. r16
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+
+; The chords as a pad of three voices.
+P: @pad q8 l16 p-30 v8 o4 d1 | d+1 | c1 | o3 a+1
+P: a1 | a+1 | o4 c1 | o3 a+1
+P: v10 a1 | a+1 | o4 c1 | o3 a+1
+P: a1 | a+1 | o4 c1 | o3 a+1
+P: a1 | a+1 | o4 c1 | o3 a+1
+P: a1 | a+1 | o4 c1 | o3 a+1&
+P: a+1 | o4 c1 | d1 | d+1
+P: d1 | d+1 | d1 | d+1
+P: d1 | d+1 | d1 | d+1
+P: d1 | d+1 | d1 | d+1
+P: v11 d1 | d+1 | c1 | o3 a+1
+P: a1 | a+1 | o4 c1 | o3 a+1
+P: v10 a1 | a+1 | o4 c1 | o3 a+1
+P: a1 | a+1 | o4 c1 | o3 a+1
+P: v9 a+1 | o4 c1 | d1 | d+1
+P: d1 | d+1 | d1 | d+1
+Q: @pad q8 l16 p0 v8 o4 f1 | g1 | f1 | d+1
+Q: d1 | d+1 | f1 | d+1
+Q: v10 d1 | d+1 | f1 | d+1
+Q: d1 | d+1 | f1 | d+1
+Q: d1 | d+1 | f1 | d+1
+Q: d1 | d+1 | f1 | d+1
+Q: d1 | d+1 | f1 | g1
+Q: f1 | g1 | f1 | g1
+Q: f1 | g1 | f1 | g1
+Q: f1 | g1 | f1 | g1
+Q: v11 f1 | g1 | f1 | d+1
+Q: d1 | d+1 | f1 | d+1
+Q: v10 d1 | d+1 | f1 | d+1
+Q: d1 | d+1 | f1 | d+1
+Q: v9 d1 | d+1 | f1 | g1
+Q: f1 | g1 | f1 | g1
+R: @pad q8 l16 p30 v8 o4 a1 | a+1 | a1 | g1
+R: f1 | g1 | a1 | g1
+R: v10 f1 | g1 | a1 | g1
+R: f1 | g1 | a1 | g1
+R: f1 | g1 | a1 | g1
+R: f1 | g1 | a1 | g1
+R: f1 | g1 | a1 | a+1&
+R: a+1 | o5 c1 | o4 a1 | a+1&
+R: a+1 | o5 c1 | o4 a1 | a+1&
+R: a+1 | o5 c1 | o4 a1 | a+1
+R: v11 a1 | a+1 | a1 | g1
+R: f1 | g1 | a1 | g1
+R: v10 f1 | g1 | a1 | g1
+R: f1 | g1 | a1 | g1
+R: v9 f1 | g1 | a1 | a+1&
+R: a+1 | o5 c1 | o4 a1 | a+1
+
+; The bass.
+B: @bass v12 q6 l16 o2 d4 d4 d4 d4 | d+4 d+4 d+4 d+4 | f4 f4 f4 f4 | d+4 d+4 d+4 d+4
+B: d4 d4 d4 d4 | d+4 d+4 d+4 d+4 | f4 f4 f4 f4 | d+4 d+4 d+4 d+4
+B: d8 d8 o3 d8 o2 d8 d+8 d8 c8 d8 | d+8 d+8 o3 d+8 o2 d+8 e8 d+8 c+8 d+8 | f8 f8 o3 f8 o2 f8 f+8 f8 d+8 f8 | d+8 d+8 o3 d+8 o2 d+8 e8 d+8 c8 c+8
+B: d8 d8 o3 d8 o2 d8 d+8 d8 c8 d8 | d+8 d+8 o3 d+8 o2 d+8 e8 d+8 c+8 d+8 | f8 f8 o3 f8 o2 f8 f+8 f8 d+8 f8 | d+8 d+8 o3 d+8 o2 d+8 e8 d+8 c8 c+8
+B: d8 d8 o3 d8 o2 d8 d+8 d8 c8 d8 | d+8 d+8 o3 d+8 o2 d+8 e8 d+8 c+8 d+8 | f8 f8 o3 f8 o2 f8 f+8 f8 d+8 f8 | d+8 d+8 o3 d+8 o2 d+8 e8 d+8 c8 c+8
+B: d8 d8 o3 d8 o2 d8 d+8 d8 c8 d8 | d+8 d+8 o3 d+8 o2 d+8 e8 d+8 c+8 d+8 | f8 f8 o3 f8 o2 f8 f+8 f8 d+8 f8 | d+8 d+8 o3 d+8 o2 d+8 e8 d+8 o1 g+8 a8
+B: o2 a+8 a+8 o3 a+8 o2 a+8 b8 a+8 g+8 a+8 | c8 c8 o3 c8 o2 c8 c+8 c8 o1 a+8 o2 c8 | d8 d8 o3 d8 o2 d8 d+8 d8 c8 d8 | d+8 d+8 o3 d+8 o2 d+8 e8 d+8 o1 g+8 a8
+B: o2 a+8 a+8 o3 a+8 o2 a+8 b8 a+8 g+8 a+8 | c8 c8 o3 c8 o2 c8 c+8 c8 o1 a+8 o2 c8 | d8 d8 o3 d8 o2 d8 d+8 d8 c8 d8 | d+8 d+8 o3 d+8 o2 d+8 e8 d+8 o1 g+8 a8
+B: o2 a+8 a+8 o3 a+8 o2 a+8 b8 a+8 g+8 a+8 | c8 c8 o3 c8 o2 c8 c+8 c8 o1 a+8 o2 c8 | d8 d8 o3 d8 o2 d8 d+8 d8 c8 d8 | d+8 d+8 o3 d+8 o2 d+8 e8 d+8 o1 g+8 a8
+B: o2 a+8 a+8 o3 a+8 o2 a+8 b8 a+8 g+8 a+8 | c8 c8 o3 c8 o2 c8 c+8 c8 o1 a+8 o2 c8 | d8 d8 o3 d8 o2 d8 d+8 d8 c8 d8 | d+8 d+8 o3 d+8 o2 d+8 e8 d+8 c8 c+8
+B: d4 d4 d4 d4 | d+4 d+4 d+4 d+4 | f4 f4 f4 f4 | d+4 d+4 d+4 d+4
+B: d4 d4 d4 d4 | d+4 d+4 d+4 d+4 | f4 f4 f4 f4 | d+4 d+4 d+4 d+4
+B: d8 d8 o3 d8 o2 d8 d+8 d8 c8 d8 | d+8 d+8 o3 d+8 o2 d+8 e8 d+8 c+8 d+8 | f8 f8 o3 f8 o2 f8 f+8 f8 d+8 f8 | d+8 d+8 o3 d+8 o2 d+8 e8 d+8 c8 c+8
+B: d8 d8 o3 d8 o2 d8 d+8 d8 c8 d8 | d+8 d+8 o3 d+8 o2 d+8 e8 d+8 c+8 d+8 | f8 f8 o3 f8 o2 f8 f+8 f8 d+8 f8 | d+8 d+8 o3 d+8 o2 d+8 e8 d+8 o1 g+8 a8
+B: o2 a+8 a+8 o3 a+8 o2 a+8 b8 a+8 g+8 a+8 | c8 c8 o3 c8 o2 c8 c+8 c8 o1 a+8 o2 c8 | d8 d8 o3 d8 o2 d8 d+8 d8 c8 d8 | d+8 d+8 o3 d+8 o2 d+8 e8 d+8 o1 g+8 a8
+B: o2 a+8 a+8 o3 a+8 o2 a+8 b8 a+8 g+8 a+8 | c8 c8 o3 c8 o2 c8 c+8 c8 o1 a+8 o2 c8 | d8 d8 o3 d8 o2 d8 d+8 d8 c8 d8 | d+8 d+8 o3 d+8 o2 d+8 e8 d+8 c8 c+8
+
+; The chords as arpeggios, in the bridges.
+C: v8 q8 l16 p-35 r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: @arp1 o3 a+1 | @arp2 o4 c1 | d1 | @arp1 d+1
+C: o3 a+1 | @arp2 o4 c1 | d1 | @arp1 d+1
+C: o3 a+1 | @arp2 o4 c1 | d1 | @arp1 d+1
+C: o3 a+1 | @arp2 o4 c1 | d1 | @arp1 d+1
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: o3 a+1 | @arp2 o4 c1 | d1 | @arp1 d+1
+C: o3 a+1 | @arp2 o4 c1 | d1 | @arp1 d+1
+
+; A drone on the tonic.
+F: @drone v11 q8 l16 p25 o2 d1& | d1& | d1& | d1&
+F: d1& | d1& | d1& | d1
+F: d1& | d1& | d1& | d1&
+F: d1& | d1& | d1& | d1
+F: d1& | d1& | d1& | d1&
+F: d1& | d1& | d1& | d1
+F: d1& | d1& | d1& | d1&
+F: d1& | d1& | d1& | d1
+F: d1& | d1& | d1& | d1&
+F: d1& | d1& | d1& | d1
+F: d1& | d1& | d1& | d1&
+F: d1& | d1& | d1& | d1
+F: d1& | d1& | d1& | d1&
+F: d1& | d1& | d1& | d1
+F: d1& | d1& | d1& | d1&
+F: d1& | d1& | d1& | d1
+
+; Drums.
+D: v12 q8 l16 p10 v12 @kick c4 @hat c8 c8 c8 c8 c8 c8 | @kick c4 @hat c8 c8 c8 c8 c8 c8 | @kick c4 @hat c8 c8 c8 c8 c8 c8 | @kick c16 v6 @hat c8. v12 c8 c8 c8 c8 c8 c8
+D: @kick c4 @hat c16 v6 c16 v12 c8 c8 c8 c8 c8 | @kick c16 v6 @hat c8. v12 c8 c8 c8 c8 c8 c8 | @kick c4 @hat c8 c8 c8 c8 c8 c8 | @kick c4 @hat c8 c8 c8 c8 c8 c8
+D: @kick c8 @hat c8 @snare c16 v6 @hat c16 v12 c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c16 v6 @hat c16 v12 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c16 v6 @roll c16
+D: v12 @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c16 v6 @hat c16 v12 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c16 v6 @hat c16 v12 @kick c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @roll c16 c16 c16 c16 @snare c8 c8
+D: @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c16 v6 c16 v12 @kick c8 c8 @snare c8 @hat c16 v6 @roll c16
+D: v12 @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @roll c16 c16 c16 c16 @snare c8 c8
+D: @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c16 v6 @hat c16 v12 c8 | @kick c16 v6 @hat c16 v12 c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c16 v6 @hat c16 v12 @kick c8 @snare c8 @hat c16 v6 @roll c16
+D: v12 @kick c8 @hat c8 @snare c16 v6 @hat c16 v12 c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @roll c16 c16 c16 c16 @snare c8 c8
+D: @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c16 v6 @hat c16 v12 @kick c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c16 v6 @roll c16
+D: v12 @kick c8 @hat c8 @snare c8 @hat c8 @kick c16 v6 @hat c16 v12 @kick c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @roll c16 c16 c16 c16 @snare c8 c8
+D: r1 | r1 | r1 | r1
+D: r1 | r1 | r1 | r1
+D: @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c16 v6 @hat c16 v12 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c16 v6 @roll c16
+D: v12 @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c16 v6 @hat c16 v12 c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @roll c16 c16 c16 c16 @snare c8 c8
+D: @kick c4 @hat c16 v6 c16 v12 c8 c8 c8 c8 c8 | @kick c4 @hat c8 c8 c8 c8 c8 c8 | @kick c8. v6 @hat c16 v12 c8 c8 c8 c8 c8 c8 | @kick c4 @hat c8 c16 v6 c16 v12 c8 c8 c8 c8
+D: @kick c4 @hat c8 c8 c16 v6 c16 v12 c8 c8 c8 | @kick c4 @hat c8 c8 c8 c8 c8 c8 | @kick c4 @hat c8 c8 c8 c8 c8 c8 | @kick c8 @hat c8 @snare c8 @hat c8 @roll c16 c16 c16 c16 @snare c8 c8

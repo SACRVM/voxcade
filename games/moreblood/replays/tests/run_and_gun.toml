@@ -1,0 +1,19 @@
+# Voxcade replay: More Blood, 1800 ticks, quit, score 950
+version = 1
+game = "More Blood"
+fingerprint = "020086d2f84936a0"
+ticks = 1800
+outcome = "quit"
+score = 950
+input = "up:120;up+fire:60;left+up:40;up+fire:80;right+fire+strafe:40;up+grenade:2;up:60;right+up+fire:60;up+fire:200;up+grenade:2;up+fire:120;left+fire:40;up+fire:300;up+grenade:2;up+fire:300;right+fire:80;up+fire:290;none:4"
+checks = ["a1760972de962171", "cf2f2ef6483c49ab", "20a3edbdd8a73f5e", "9551d984a75b5c20", "6e5ded275a5f8a72", "abb04dec9e1667ca", "dac548695f1f7e37", "9be6a05931804204", "7fe55bd1e87bd5fd", "7c0d523851c2bd58", "9c043d9389306415", "8349095d9902d1fa", "e25e61cbcf7f9fe7", "4eb308751064a91d", "e3138f2b774bf382", "930a0af58ade6797", "765071efbb92c015", "3c5e824496fe90eb", "52a1c3e51b592df0", "3c93e8b7a4a5e8c2", "4c7065eb27864ed7", "3497e5026c4e87c8", "4cec1e97c307483c", "6e6382d5a512b18f", "101997f938d0562e", "c29113e3be93635a", "56bb89c548a4dc22", "a6bfb2c1cd8fd011", "b60d7acf9affa8a7", "f437d1b04b0971da"]
+
+[[controls]]
+at = 0
+
+[controls.keys]
+fire = ""
+grenade = ""
+jump = ""
+pause = ""
+strafe = ""

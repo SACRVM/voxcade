@@ -1,0 +1,22 @@
+# Voxcade replay: BunnyFarm, 6203 ticks, quit, score 0
+version = 1
+game = "BunnyFarm"
+fingerprint = "bbb8c2d8a72e6b85"
+ticks = 6203
+outcome = "quit"
+score = 0
+input = "down:78;right:92;down:1;act:1;none:10;right:18;down:1;act:1;none:10;right:18;down:1;act:1;none:10;next:1;right:18;down:1;act:1;none:10;right:18;down:1;act:1;none:5010;act:1;none:10;left:18;down:1;act:1;none:10;left:18;down:1;act:1;none:10;left:18;down:1;act:1;none:10;left:18;down:1;act:1;none:40;right:200;up:15;act:1;none:5;right:1;none:5;act:1;none:5;act:1;none:5;left:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;act:1;none:5;back:1;none:5;down:15;left:295;up:89;act:1;none:5;act:1;none:5;down:1;none:3;act:1;none:60"
+checks = ["57804daea9c22f5a", "e2a133730ac6205a", "68dd3179ccfc1182", "7737ae3a9a63523d", "c3d1d875991c00fd", "45bb73c1757ebe3f", "a4b7f8bf0f48f610", "1c0ba3aa44e98104", "7e21f5a2a65bc1f1", "793ee4664f331451", "2c044959f1b2b195", "b291769834dc594d", "a39fffd5b0f53ee6", "bc8aac6874a6e29d", "f554e504954154aa", "b92a5e1fdadb91ce", "c0807afcb513aa6c", "c5f4c3b83a3787dd", "c5be9f5bc22ee402", "c9b5ad805d6a1552", "4286ece69eabeb92", "d5f2ee2954add97f", "ba90dc3e9f6472ce", "1751a969f3277cde", "265353438b10edbe", "611dfd4613a96bb5", "0e93575db8820e22", "e70167bfe900b2d7", "ee4212606a0d335d", "c7356031d0fdefa7", "d789db547d2ffea5", "5e6ac5ce1be77510", "70fe4130b1deb23c", "66dea68be99bd9d4", "d59922a8452e2c8a", "381d53de049d260e", "431049527c68c9c4", "13ee895db6449419", "a7d6c07c9be81f06", "f88100a43f94706f", "bb287b946debc450", "7145adc64e4ebcf8", "b2b05e3b4638b969", "b52148de2af5bf8b", "e2d66858727928b7", "8860a6df82c57cd0", "db531ff60540a238", "01d058212dccdebb", "735685c9dc930f7a", "736b806cd3120ad5", "8f67436c0667356e", "c9ebbd6ef19bd0ac", "db8154395fc775f9", "218fc5b106734d7e", "1343fd6187ee48ae", "b68ec8beaa37f865", "9fa24f0118f7b729", "604d7af47f280f30", "8b1e9c981e9d78a5", "4bd86b227d6e273c", "ceb78643ab135c16", "3d2cec014521b149", "cd8129a10e1714c9", "c21c6321dfe6ec5d", "0b3e6c70f6cb29ba", "3eff1c89d0b5e5e7", "5cf03cc1ceede39a", "71292c5a73cc74dd", "469f345c7b914ecf", "65b8cdfc4a7176a1", "8f87f2098edf84f0", "6f7ba51adbef8e65", "db67465a768a274a", "b91f96d3e5ddfcd1", "fb2ac86b5cfa64bc", "181f2d75d14e230c", "99fffd9d0c077be8", "94b52db0793b3df9", "4738ee548012f7f3", "de3657ed9552f85a", "52551e206318eebc", "c70d82b398f6b112", "3fa3ffc198bdd8e1", "7cd136b7ab0d3d75", "a666c29ec20df62f", "8043cf9552ae1f56", "6dfe49e8ad9be219", "9d7839cefc5a66eb", "c89dcc28de881421", "d943909892eda7d5", "195b64e0aa70809f", "ff7a8e41781b027d", "058b0612c66c851b", "1852ff62a58b9c27", "3077e41896f10643", "eb93feb4e902ae52", "59494e67570e597c", "426f8394400dbe59", "ed9dfa7610097c72", "4ba65cf617539113", "006e6a64a74e4328", "d57f09d486f62b1f", "2c01c3f296a224a1"]
+
+[[controls]]
+at = 0
+device = "keyboard"
+language = "de"
+
+[controls.keys]
+act = "SPACE"
+back = "X"
+bag = "TAB"
+next = "E"
+pause = "ESCAPE"
+prev = "Q"

@@ -1,0 +1,364 @@
+# Voxcade replay: BunnyFarm, 753 ticks, quit, score 0
+version = 1
+game = "BunnyFarm"
+fingerprint = "bbb8c2d8a72e6b85"
+ticks = 753
+outcome = "quit"
+score = 0
+input = "act:1;none:5;down:1;none:3;act:1;none:10;back:1;none:600;act:1;none:5;down:1;none:3;act:1;none:120"
+checks = ["cbf503f1269a7e7b", "f544692efc1cde7b", "15c1c56c881dbe6c", "a65e0002feb4f2be", "a4087d2825066400", "3fabb5771cf4ea29", "d0d5ddb6e8cdc0e5", "fac3070b9f0e0732", "4bf2081a75c5b8d7", "505c94c34382fede", "0203183b01a98bd4", "76555960ac528b6a"]
+from = '''
+format = 1
+game = "BunnyFarm"
+version = 6
+level = "01_farm"
+ticks = 1
+rng = "5f3a9c17d2e4b801"
+size = [0, 0, 0]
+
+[states]
+world = """
+{
+  awake = 360,
+  barn = {
+    animals = {},
+    bred = {},
+    intro = false,
+    last_buy = -99,
+    next = 1,
+    stables = {
+      chicken = false,
+      cow = false,
+      sheep = false,
+    },
+    stock = false,
+  },
+  beds = {
+    [1] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [2] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [3] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [4] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [5] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [6] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [7] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [8] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [9] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [10] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [11] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [12] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [13] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [14] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [15] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [16] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [17] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [18] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [19] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [20] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [21] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [22] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [23] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [24] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+  },
+  collection = {},
+  kitchen = {
+    jobs = {
+      [1] = false,
+      [2] = false,
+      [3] = false,
+    },
+    pots = 1,
+  },
+  mail = {
+    bonus = false,
+    gift = true,
+    goals = {
+      [1] = {
+        coins = 54,
+        got = 0,
+        kind = "sell",
+        need = 13,
+        xp = 36,
+      },
+      [2] = {
+        coins = 49,
+        got = 0,
+        kind = "harvest",
+        need = 11,
+        xp = 33,
+      },
+      [3] = {
+        coins = 45,
+        got = 0,
+        kind = "order",
+        need = 1,
+        xp = 30,
+      },
+    },
+    orders = {
+      [1] = {
+        coins = 62,
+        goods = {
+          [1] = {
+            count = 4,
+            item = "wheat",
+          },
+        },
+        xp = 4,
+      },
+      [2] = {
+        coins = 108,
+        goods = {
+          [1] = {
+            count = 7,
+            item = "wheat",
+          },
+        },
+        xp = 6,
+      },
+      [3] = {
+        coins = 62,
+        goods = {
+          [1] = {
+            count = 4,
+            item = "wheat",
+          },
+        },
+        xp = 4,
+      },
+    },
+    refill = {
+      [1] = 0,
+      [2] = 0,
+      [3] = 0,
+    },
+  },
+  market = {
+    buy = {
+      blueberry = 1,
+      cabbage = 1,
+      carrot = 1,
+      cauliflower = 1,
+      cucumber = 1,
+      eggplant = 1,
+      pumpkin = 1,
+      radish = 1,
+      tomato = 1,
+      turnip = 1,
+      wheat = 1,
+    },
+    sell = {
+      blueberry = 1,
+      cabbage = 1,
+      carrot = 1,
+      cauliflower = 1,
+      cucumber = 1,
+      eggplant = 1,
+      pumpkin = 1,
+      radish = 1,
+      tomato = 1,
+      turnip = 1,
+      wheat = 1,
+    },
+  },
+  now = 1190,
+  recipes = {
+    bread = true,
+  },
+  reckoning = false,
+  rows = 2,
+  ticks = 1,
+  year = {
+    number = 1,
+    start = 61,
+    stats = {
+      born = 0,
+      cooked = 0,
+      earned = 0,
+      fed = 0,
+      harvests = 0,
+      orders = 0,
+      sold = 0,
+    },
+  },
+}"""
+player = """
+{
+  bag = 8,
+  can = false,
+  carrots = 1,
+  coins = 40,
+  energy = 90,
+  food = 80,
+  hand = "carrot",
+  inventory = {
+    seed_carrot = 3,
+    seed_wheat = 2,
+  },
+  level = 1,
+  mood = 70,
+  score = 0,
+  xp = 0,
+}"""
+level = "{}"
+
+[figure]
+at = [408.5, 302.5, 16.0]
+facing = [0, -1]
+'''
+
+[[controls]]
+at = 0
+device = "keyboard"
+language = "de"
+
+[controls.keys]
+act = "SPACE"
+back = "X"
+bag = "TAB"
+next = "E"
+pause = "ESCAPE"
+prev = "Q"

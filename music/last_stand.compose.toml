@@ -1,0 +1,13 @@
+# Action for a boss or the last level.
+# python3 tools/compose.py music/last_stand.compose.toml
+
+title = "Last Stand"
+out = "last_stand.mml"
+style = "action"
+key = "e"
+tempo = 150
+seed = 6
+moods = ["Triumphant", "Rebellious"]
+scale = "modal"
+melody = "some"
+variation = "most"        # bars vary within a section (tools/compose.py)

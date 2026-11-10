@@ -1,0 +1,159 @@
+; Under the Dunes: made by tools/compose.py from music/under_the_dunes.compose.toml
+; (mysterious, E major, 92 bpm, seed 3). Run the recipe
+; again after changing it, or edit this file by hand. Chords from
+; free-midi-chords by Ludovic Drolez (MIT, tools/progressions.toml).
+;
+; A: I V ivm bVIM (modal): E B Am C
+; B: im viim/i im bii/i (modal): Em Ebm/E Em Fm/E
+; Form, 8 bars each: intro A | theme A | theme A | bridge B | bridge B | break A | theme A | turn B
+; Variation: most (every fourth bar walks and pushes, the broken chords turn, ghost notes on the hi-hat, later themes answer backwards).
+
+#title Under the Dunes
+#tempo 92
+
+@lead   square duty=0.5 attack=0.03 decay=0.4 sustain=0.5 release=0.4 lowpass=1300 vibrato=0.01 vibrato_speed=4.5 vibrato_delay=0.35 volume=0.32
+@echo   square duty=0.5 attack=0.03 decay=0.4 sustain=0.45 release=0.5 lowpass=900 volume=0.32
+@pad    saw attack=0.8 decay=1.0 sustain=0.7 release=1.0 lowpass=700 volume=0.13
+@harp   triangle attack=0.005 decay=0.6 sustain=0.15 release=0.5 lowpass=1800 volume=0.18
+@bass   triangle attack=0.01 decay=0.35 sustain=0.65 release=0.25 volume=0.6
+@kick   triangle freq=90 sweep=-24 sweep_time=0.1 attack=0.001 decay=0.18 sustain=0 release=0.02 volume=0.55
+@tick   noise freq=9000 attack=0.001 decay=0.03 sustain=0 release=0.01 lowpass=5000 volume=0.07
+@rim    noise freq=4000 attack=0.001 decay=0.08 sustain=0 release=0.02 lowpass=3000 volume=0.16
+
+; The melody, in some sections only, and its echo a little later.
+A: @lead v12 q7 l16 p-15 r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: o4 e4 g+4. b8 f+4 | o3 b2. r4 | b4 o4 d+4. f+8 c+4 | o3 b2. r4
+A: o4 c8 e8 a4 f+2 | e4 c4 r2 | c4 g4. a8 e4 | c2. r4
+A: g+4 o5 c+4. e8 o4 b4 | e2. r4 | f+4 a4. b8 g+4 | d+2. r4
+A: e8 c8 f+4 a2 | o5 c4 e4 r2 | e4 o4 a4. o5 c8 o4 g4 | c2. r4
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: e4 g+4. b8 f+4 | o3 b2. r4 | r4 b2. | o4 d+4 g+8 f+4. c+4
+A: c8 e8 a4 f+2 | e4 c4 r2 | c4 g4. a8 e4 | c2. r4
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+E: @echo v4 q7 l16 p40 r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r4 o4 e4 g+4. b8 | f+4 o3 b2. | r4 b4 o4 d+4. f+8 | c+4 o3 b2.
+E: r4 o4 c8 e8 a4 f+4& | f+4 e4 c4 r4 | r4 c4 g4. a8 | e4 c2.
+E: r4 g+4 o5 c+4. e8 | o4 b4 e2. | r4 f+4 a4. b8 | g+4 d+2.
+E: r4 e8 c8 f+4 a4& | a4 o5 c4 e4 r4 | r4 e4 o4 a4. o5 c8 | o4 g4 c2.
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r4 e4 g+4. b8 | f+4 o3 b2. | r2 b2& | b4 o4 d+4 g+8 f+4.
+E: c+4 c8 e8 a4 f+4& | f+4 e4 c4 r4 | r4 c4 g4. a8 | e4 c2.
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+
+; The chords as a pad of three voices.
+P: @pad q8 l16 p-30 v8 o3 g+1& | g+1 | b1& | b1
+P: o4 c1& | c1& | c1& | c1
+P: v10 o3 b1& | b1& | b1& | b1
+P: o4 c1& | c1& | c1& | c1
+P: o3 b1& | b1& | b1& | b1
+P: o4 c1& | c1& | c1& | c1
+P: o3 b1& | b1 | a+1& | a+1
+P: b1& | b1 | o4 c1& | c1
+P: o3 b1& | b1 | a+1& | a+1
+P: b1& | b1 | o4 c1& | c1
+P: v11 o3 b1& | b1& | b1& | b1
+P: o4 c1& | c1& | c1& | c1
+P: v10 o3 b1& | b1& | b1& | b1
+P: o4 c1& | c1& | c1& | c1
+P: v9 o3 b1& | b1 | a+1& | a+1
+P: b1& | b1 | o4 c1& | c1
+Q: @pad q8 l16 p0 v8 o4 e1& | e1 | d+1& | d+1
+Q: e1& | e1& | e1& | e1
+Q: v10 e1& | e1 | d+1& | d+1
+Q: e1& | e1& | e1& | e1&
+Q: e1& | e1 | d+1& | d+1
+Q: e1& | e1& | e1& | e1&
+Q: e1& | e1 | d+1& | d+1
+Q: e1& | e1 | f1& | f1
+Q: e1& | e1 | d+1& | d+1
+Q: e1& | e1 | f1& | f1
+Q: v11 e1& | e1 | d+1& | d+1
+Q: e1& | e1& | e1& | e1
+Q: v10 e1& | e1 | d+1& | d+1
+Q: e1& | e1& | e1& | e1
+Q: v9 e1& | e1 | d+1& | d+1
+Q: e1& | e1 | f1& | f1
+R: @pad q8 l16 p30 v8 o4 b1& | b1 | f+1& | f+1
+R: a1& | a1 | g1& | g1
+R: v10 g+1& | g+1 | f+1& | f+1
+R: a1& | a1 | g1& | g1
+R: g+1& | g+1 | f+1& | f+1
+R: a1& | a1 | g1& | g1&
+R: g1& | g1 | f+1& | f+1
+R: g1& | g1 | g+1& | g+1
+R: g1& | g1 | f+1& | f+1
+R: g1& | g1 | g+1& | g+1
+R: v11 g+1& | g+1 | f+1& | f+1
+R: a1& | a1 | g1& | g1
+R: v10 g+1& | g+1 | f+1& | f+1
+R: a1& | a1 | g1& | g1
+R: v9 g1& | g1 | f+1& | f+1
+R: g1& | g1 | g+1& | g+1
+
+; The bass.
+B: @bass v12 q6 l16 o2 e1 | e1 | b1 | b1
+B: a1 | a1 | c1 | c1
+B: e4. e4. o1 b4 | o2 e4. e4. o1 b4 | o2 b4. b4. f+4 | b4. b4. g+4
+B: a4. a4. e4 | a4. a4. e4 | c4. c4. o1 g4 | o2 c4. c4. d+4
+B: e4. e4. o1 b4 | o2 e4. e4. o1 b4 | o2 b4. b4. f+4 | b4. b4. g+4
+B: a4. a4. e4 | a4. a4. e4 | c4. c4. o1 g4 | o2 c4. c4. d+4
+B: e4. e4. o1 b4 | o2 e4. e4. o1 b4 | o2 e4. e4. o1 b4 | o2 e4. e4. d+4
+B: e4. e4. o1 b4 | o2 e4. e4. o1 b4 | o2 e4. e4. o1 b4 | o2 e4. e4. d+4
+B: e4. e4. o1 b4 | o2 e4. e4. o1 b4 | o2 e4. e4. o1 b4 | o2 e4. e4. d+4
+B: e4. e4. o1 b4 | o2 e4. e4. o1 b4 | o2 e4. e4. o1 b4 | o2 e4. e4. d+4
+B: e1 | e1 | b1 | b1
+B: a1 | a1 | c1 | c1
+B: e4. e4. o1 b4 | o2 e4. e4. o1 b4 | o2 b4. b4. f+4 | b4. b4. g+4
+B: a4. a4. e4 | a4. a4. e4 | c4. c4. o1 g4 | o2 c4. c4. d+4
+B: e4. e4. o1 b4 | o2 e4. e4. o1 b4 | o2 e4. e4. o1 b4 | o2 e4. e4. d+4
+B: e4. e4. o1 b4 | o2 e4. e4. o1 b4 | o2 e4. e4. o1 b4 | o2 e4. e4. d+4
+
+; The chords broken, in the bridges.
+C: v7 q8 l16 p-40 r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: @harp o3 g8 b8 o4 e8 o3 b8 g8 b8 o4 e8 g8 | e8 o3 b8 g8 b8 o4 e8 g8 o3 g8 b8 | a+8 o4 d+8 f+8 a+8 o3 a+8 o4 d+8 f+8 d+8 | f+8 a+8 o3 a+8 o4 d+8 f+8 d+8 o3 a+8 o4 d+8
+C: o3 g8 b8 o4 e8 o3 b8 g8 b8 o4 e8 g8 | e8 o3 b8 g8 b8 o4 e8 g8 o3 g8 b8 | g+8 o4 c8 f8 g+8 o3 g+8 o4 c8 f8 c8 | f8 g+8 o3 g+8 o4 c8 f8 c8 o3 g+8 o4 c8
+C: o3 g8 b8 o4 e8 o3 b8 g8 b8 o4 e8 g8 | e8 o3 b8 g8 b8 o4 e8 g8 o3 g8 b8 | a+8 o4 d+8 f+8 a+8 o3 a+8 o4 d+8 f+8 d+8 | f+8 a+8 o3 a+8 o4 d+8 f+8 d+8 o3 a+8 o4 d+8
+C: o3 g8 b8 o4 e8 o3 b8 g8 b8 o4 e8 g8 | e8 o3 b8 g8 b8 o4 e8 g8 o3 g8 b8 | g+8 o4 c8 f8 g+8 o3 g+8 o4 c8 f8 c8 | f8 g+8 o3 g+8 o4 c8 f8 c8 o3 g+8 o4 c8
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: o3 g8 b8 o4 e8 o3 b8 g8 b8 o4 e8 g8 | e8 o3 b8 g8 b8 o4 e8 g8 o3 g8 b8 | a+8 o4 d+8 f+8 a+8 o3 a+8 o4 d+8 f+8 d+8 | f+8 a+8 o3 a+8 o4 d+8 f+8 d+8 o3 a+8 o4 d+8
+C: o3 g8 b8 o4 e8 o3 b8 g8 b8 o4 e8 g8 | e8 o3 b8 g8 b8 o4 e8 g8 o3 g8 b8 | g+8 o4 c8 f8 g+8 o3 g+8 o4 c8 f8 c8 | f8 g+8 o3 g+8 o4 c8 f8 c8 o3 g+8 o4 c8
+
+; Drums.
+D: v12 q8 l16 p10 v12 @kick c4 @tick c4 c8. v6 c16 v12 c4 | @kick c4 @tick c4 c4 c4 | @kick c4 @tick c4 c4 c4 | @kick c4 @tick c4 c4 c4
+D: @kick c4 @tick c4 c4 c4 | @kick c4 @tick c4 c4 c4 | @kick c8. v6 @tick c16 v12 c4 c4 c4 | @kick c4 @tick c4 c4 c4
+D: @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c8. v6 @tick c16 v12 c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c16 v6 @tick c16 v12 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c16 v6 @tick c16 v12 c8. v6 @rim c16
+D: v12 @kick c16 v6 @tick c8. v12 c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c16 v6 @tick c16 v12 c4 | @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c8 @tick c8. v6 @rim c16
+D: v12 @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c16 v6 @tick c16 v12 c8. v6 @rim c16
+D: v12 @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c8. v6 @tick c16 v12 c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c16 v6 @tick c16 v12 c8. v6 @rim c16
+D: v12 @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c16 v6 @tick c16 v12 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c8 @tick c8. v6 @rim c16
+D: v12 @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c8. v6 @tick c16 v12 c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c8. v6 c16 v12 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c8 @tick c8. v6 @rim c16
+D: v12 @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c8 @tick c8. v6 @rim c16
+D: v12 @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c16 v6 @tick c8. v12 c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c8 @tick c8. v6 @rim c16
+D: r1 | r1 | r1 | r1
+D: r1 | r1 | r1 | r1
+D: v12 @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c8. v6 c16 v12 @rim c8 @kick c8 @tick c8. v6 @rim c16
+D: v12 @kick c4 @tick c4 @rim c16 v6 @tick c16 v12 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c8 @tick c4 | @kick c4 @tick c4 @rim c8 @kick c8 @tick c8. v6 @rim c16
+D: v12 @kick c4 @tick c4 c16 v6 c8. v12 c4 | @kick c4 @tick c4 c4 c4 | @kick c4 @tick c4 c4 c4 | @kick c4 @tick c4 c4 c4
+D: @kick c4 @tick c4 c4 c4 | @kick c4 @tick c4 c4 c4 | @kick c8. v6 @tick c16 v12 c4 c4 c4 | @kick c4 @tick c4 c4 c4

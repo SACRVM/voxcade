@@ -1,0 +1,76 @@
+[package]
+name = "voxcade"
+version = "0.4.1"
+license = "Zlib"
+edition = "2024"
+description = "A voxel arcade engine: fixed camera, full-screen destructible worlds, built for agent-assisted game making."
+publish = false
+
+[dependencies]
+anyhow = "1.0.104"
+bytemuck = { version = "1.25.2", features = ["derive"] }
+dot_vox = "5.2.0"
+libc = "0.2.190"
+glam = { version = "0.34.1", features = ["bytemuck"] }
+libm = "0.2.16"
+png = "0.18.1"
+pollster = "1.0.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+toml = "1.1.8"
+wgpu = "30.0.1"
+sdl3 = { version = "0.20.0", features = ["raw-window-handle"] }
+gif = "0.14.2"
+# Lua 5.4 built from source: the games' scripts (src/lua).
+mlua = { version = "0.12.2", features = ["lua54", "vendored", "anyhow"] }
+egui = { version = "0.37.0", default-features = false, features = ["default_fonts", "monochrome_emoji_fonts"] }
+egui-wgpu = { version = "0.37.0", default-features = false }
+alacritty_terminal = { version = "0.26.0", default-features = false }
+zip = { version = "9.0.5", default-features = false, features = ["deflate-flate2"] }
+# Game files by their content (src/files.rs): the store, sealed sets, replays
+# that carry them.
+blake3 = "1.8.7"
+base64 = "0.22"
+iroh = "1.4.1"
+# The matchmaker's words (../matchmaker, SACRVM/matchmaker): rooms, codes, the list.
+matchmaker-protocol = { git = "https://github.com/SACRVM/matchmaker", rev = "ca061f3c56b5e3f265af64c0ccc8ca6670b5f276" }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+# New versions (src/update.rs): the feed and the package over HTTPS (iroh
+# brings reqwest and rustls in already), its checksum, a Linux package's tar.
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std"] }
+sha2 = "0.11.1"
+flate2 = "1.1.10"
+tar = "0.4"
+
+# The program carries the library's name; its own docs would collide.
+[[bin]]
+name = "voxcade"
+path = "src/main.rs"
+doc = false
+
+# The second game, in Rust on the engine alone; `cargo test` plays its
+# replays too.
+[[example]]
+name = "rust_digger"
+path = "examples/rust_digger/main.rs"
+test = true
+
+# The program's icon on Windows (build.rs).
+[build-dependencies]
+winresource = "0.1"
+
+[features]
+# SDL3 built from source and linked into the program (needs CMake and a C
+# compiler): one file to hand to testers, no SDL to install. The builds on
+# GitHub Actions use it (.github/workflows/builds.yml); without it the
+# system's SDL3 is used.
+static-sdl = ["sdl3/build-from-source-static"]
+
+# Keep the engine fast in debug builds: the game must feel like an arcade
+# machine even while iterating.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

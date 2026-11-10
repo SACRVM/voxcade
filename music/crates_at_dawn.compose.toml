@@ -1,0 +1,13 @@
+# A calm puzzle song in a major key: Sokovox plays it first.
+# python3 tools/compose.py music/crates_at_dawn.compose.toml
+
+title = "Crates at Dawn"
+out = ["crates_at_dawn.mml", "../games/sokovox/music/crates_at_dawn.mml"]
+style = "calm"
+key = "f"
+tempo = 84
+seed = 1
+moods = ["Peaceful", "Tender", "Relaxed"]
+scale = "major"
+melody = "some"
+variation = "most"        # bars vary within a section (tools/compose.py)

@@ -1,0 +1,13 @@
+# Bright and bouncy, a sunny jump & run (Voxfox played it, a game since removed).
+# python3 tools/compose.py music/sunny_hills.compose.toml
+
+title = "Sunny Hills"
+out = ["sunny_hills.mml", "../games/bunnyfarm/music/sunny_hills.mml"]
+style = "bright"
+key = "g"
+tempo = 128
+seed = 1
+moods = ["Joyful", "Playful"]
+scale = "major"
+melody = "some"
+variation = "most"        # bars vary within a section (tools/compose.py)

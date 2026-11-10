@@ -1,0 +1,42 @@
+{
+  // Firepit project config (JSONC). Schema and Linux semantics:
+  // ../firepit-template/.firepit/config.json
+  //
+  // The bar is kept short: the launcher (every game to PLAY or EDIT), the
+  // build, the checks, the site, git. Each game and the IDE on each are
+  // in the panel only ("bar": false), as is everything rare.
+
+  "version": 1,
+  "id": "voxcade",
+
+  "commands": [
+    {"group": "Run", "name": "launcher", "description": "Builds and opens the launcher: every game to PLAY or EDIT, NEW GAME, new versions.", "type": "shell", "command": "cargo", "args": ["run", "--release", "--"], "window": "reuse:launcher", "keepOpenOnError": true},
+    {"group": "Run", "name": "moreblood", "description": "Starts More Blood, the desert run.", "type": "shell", "command": "cargo", "args": ["run", "--release", "--", "run", "games/moreblood"], "window": "reuse:moreblood", "keepOpenOnError": true, "bar": false},
+    {"group": "Run", "name": "voxkeep", "description": "Starts Voxkeep, the castle at night.", "type": "shell", "command": "cargo", "args": ["run", "--release", "--", "run", "games/voxkeep"], "window": "reuse:voxkeep", "keepOpenOnError": true, "bar": false},
+    {"group": "Run", "name": "sokovox", "description": "Starts Sokovox, Sokoban in voxels.", "type": "shell", "command": "cargo", "args": ["run", "--release", "--", "run", "games/sokovox"], "window": "reuse:sokovox", "keepOpenOnError": true, "bar": false},
+    {"group": "Run", "name": "pulsar", "description": "Starts Pulsar, the space shooter on the music's beat.", "type": "shell", "command": "cargo", "args": ["run", "--release", "--", "run", "games/pulsar"], "window": "reuse:pulsar", "keepOpenOnError": true, "bar": false},
+    {"group": "Run", "name": "bunnyfarm", "description": "Starts BunnyFarm, the farming game.", "type": "shell", "command": "cargo", "args": ["run", "--release", "--", "run", "games/bunnyfarm"], "window": "reuse:bunnyfarm", "keepOpenOnError": true, "bar": false},
+    {"group": "Run", "name": "arena", "description": "Starts the Arena, a yard to blow apart.", "type": "shell", "command": "cargo", "args": ["run", "--release", "--", "run", "games/arena"], "window": "reuse:arena", "keepOpenOnError": true, "bar": false},
+    {"group": "IDE", "name": "moreblood", "description": "Opens the IDE on More Blood, the desert run.", "type": "shell", "command": "cargo", "args": ["run", "--release", "--", "ide", "games/moreblood"], "window": "reuse:ide-moreblood", "keepOpenOnError": true, "bar": false},
+    {"group": "IDE", "name": "voxkeep", "description": "Opens the IDE on Voxkeep, the castle at night.", "type": "shell", "command": "cargo", "args": ["run", "--release", "--", "ide", "games/voxkeep"], "window": "reuse:ide-voxkeep", "keepOpenOnError": true, "bar": false},
+    {"group": "IDE", "name": "sokovox", "description": "Opens the IDE on Sokovox, Sokoban in voxels.", "type": "shell", "command": "cargo", "args": ["run", "--release", "--", "ide", "games/sokovox"], "window": "reuse:ide-sokovox", "keepOpenOnError": true, "bar": false},
+    {"group": "IDE", "name": "pulsar", "description": "Opens the IDE on Pulsar, the space shooter on the music's beat.", "type": "shell", "command": "cargo", "args": ["run", "--release", "--", "ide", "games/pulsar"], "window": "reuse:ide-pulsar", "keepOpenOnError": true, "bar": false},
+    {"group": "IDE", "name": "bunnyfarm", "description": "Opens the IDE on BunnyFarm, the farming game.", "type": "shell", "command": "cargo", "args": ["run", "--release", "--", "ide", "games/bunnyfarm"], "window": "reuse:ide-bunnyfarm", "keepOpenOnError": true, "bar": false},
+    {"group": "IDE", "name": "arena", "description": "Opens the IDE on the Arena, a yard to blow apart.", "type": "shell", "command": "cargo", "args": ["run", "--release", "--", "ide", "games/arena"], "window": "reuse:ide-arena", "keepOpenOnError": true, "bar": false},
+    {"group": "Build", "name": "release", "description": "Release build; warnings and errors come back into the chat.", "type": "shell", "command": "cargo", "args": ["build", "--release"], "window": "inline"},
+    {"group": "Build", "name": "package", "description": "Puts this system's package together in builds/voxcade-linux as the Builds workflow ships it.", "type": "shell", "command": "bash", "args": ["scripts/package.sh"], "window": "inline", "bar": false},
+    {"group": "Test", "name": "verify", "description": "Build, tests, clippy and every game's replays; the result comes back into the chat.", "type": "shell", "command": "bash", "args": [".claude/skills/voxcade-verify/scripts/verify.sh"], "window": "inline"},
+    {"group": "Test", "name": "replays", "description": "Plays every game's replays without a window and says whether each runs as recorded.", "type": "shell", "command": "bash", "args": ["scripts/check-replays.sh"], "window": "inline", "bar": false},
+    {"group": "Site", "name": "preview", "description": "Serves the website from ../voxca.de on 127.0.0.1:8766.", "type": "shell", "command": "python3", "args": ["-m", "http.server", "8766", "--bind", "127.0.0.1", "--directory", "../voxca.de"], "window": "reuse:site", "longRunning": true, "bar": false},
+    {"group": "Site", "name": "bake", "description": "Bakes the website's pages in every language from its words and posts.", "type": "shell", "command": "python3", "args": ["tools/bake.py"], "window": "inline", "cwd": "../voxca.de", "bar": false},
+    {"group": "Open", "name": "site", "description": "The website, voxca.de.", "type": "url", "url": "https://voxca.de/"},
+    {"group": "Open", "name": "builds", "description": "The Builds workflow's runs on GitHub.", "type": "url", "url": "https://github.com/SACRVM/voxcade/actions/workflows/builds.yml"},
+    {"group": "Open", "name": "releases", "description": "The releases on GitHub.", "type": "url", "url": "https://github.com/SACRVM/voxcade/releases", "bar": false},
+    {"group": "Open", "name": "folder", "description": "Opens the project's folder in the file manager.", "type": "shell", "command": "xdg-open", "args": ["."], "window": "inline", "bar": false},
+    {"group": "Open", "name": "shots", "description": "Opens the folder with the rendered frames.", "type": "shell", "command": "xdg-open", "args": ["shots"], "window": "inline", "bar": false},
+    {"group": "Git", "name": "status", "description": "Branch and changed files.", "type": "shell", "command": "git", "args": ["status", "--short", "--branch"], "window": "inline"},
+    {"group": "Git", "name": "unpushed", "description": "The commits not pushed yet.", "type": "shell", "command": "git", "args": ["log", "--oneline", "@{u}..HEAD"], "window": "inline"},
+    {"group": "Claude", "name": "verify", "description": "Asks Claude to check the last change and report honestly what could not be checked.", "type": "claude-prompt", "prompt": "Check the last change with the voxcade-verify skill: build, tests, clippy, every game's replays, and a shot looked at where the picture could have changed. Say what you could not check.", "bar": false},
+    {"group": "Claude", "name": "look", "description": "Asks Claude to render a frame of a game and say what it sees.", "type": "claude-prompt", "prompt": "Render a frame of the game we are working on with the shot command, look at the PNG and tell me what you see and what looks off.", "bar": false}
+  ]
+}

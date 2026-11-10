@@ -1,0 +1,19 @@
+# Voxcade replay: Voxkeep, 5094 ticks, won, score 8650
+version = 1
+game = "Voxkeep"
+fingerprint = "3fdc6058517a8fae"
+ticks = 5094
+outcome = "won"
+score = 8650
+input = "right:65;right+jump:12;right:40;none:10;right:52;right+jump:12;right:16;none:25;left:85;none:8;right+jump:16;right:3;right+jump:14;right:10;none:30;right:46;none:4;left+jump:16;left:3;left+jump:14;left:8;none:30;left:150;none:10;right:46;right+jump:16;right:12;none:20;right:20;none:6;up:80;left:90;none:5;right:68;none:5;down:60;none:34;right:95;right+jump:16;right:3;right+jump:14;right:27;none:50;right:81;none:57;right+jump:14;right:18;right+jump:14;none:30;right:74;none:12;up:110;left:94;left+jump:14;left:6;none:20;left:81;none:150;right:50;none:85;right:16;none:80;right:55;up:80;left:30;left+jump:14;left:30;left+jump:14;left:123;right:12;interact:2;none:238;right:36;none:110;left:40;interact:2;left:5;none:18;right:58;right+jump:6;right:27;right+jump:8;right:32;right+jump:6;right:50;up:70;left:99;right:190;none:30;left:40;left+jump:14;left:121;none:172;right:18;none:86;right:6;right+jump:12;right:10;none:20;right+jump:14;right:36;interact:2;right:22;none:20;left:8;none:340;left:140;none:20;left+jump:16;left:60;none:60;left:60;right:20;none:40"
+checks = ["af1b02a95427667a", "297ee5ec05bee184", "d6b76d83a1be491b", "b30db6d05b315f05", "f89eef85005ae202", "5fca15dc70cf7f86", "617acc0838d771df", "3b2e3b3c937ece11", "b9bb4520c5c04dfd", "7106f9bb36de6a7f", "87b53ea7f875c2ab", "48375c35985f58c0", "08153016b5c95f96", "d16a83d3473df9b3", "6a8618479fc4759b", "d78a260f15fe26be", "0876407b4e44504e", "9ef6b19458a9490e", "affe6c5a2d37a273", "109b3fe0aab93335", "659923ecc93af5be", "e76a45924a621548", "7fe52f5a6ac9a051", "89a774c11d247dbd", "489e88b5a7ba51a8", "5c551b53bf0bc60f", "e3e428ae8a8e5b05", "0775b7983fecba2a", "09a60c2c8b50d8ff", "61ab51784f7f847b", "927a717353a182dd", "2818b4a534553bec", "0042079d4e0302af", "e938b4e2b20b1c5f", "ef1736197c933a71", "d77391b6038aa28a", "08a0d7db671b8bc3", "b205d02b7fe8d9e1", "3b75aa9df9d00c33", "751b5d23568fc297", "c8f03cb42dea4163", "04b3a0ef54b42b2b", "587062e41036082c", "2b2b2e6128844cc7", "4915be2fe70f6941", "8453eaba68a3be0d", "9fb9796c6381b59a", "83c093c2899b03fc", "f59e3c4028ae1104", "0248cf1b70026081", "40b4a51061686cd6", "1718e7ac0a3fb600", "0b647123cd27444c", "4a148ae2b0d17a56", "5a75272226fa4d34", "d56b2654c0cf5772", "72cc8791b9e82fa8", "5c20275c73300fab", "48a860d0e6daf986", "26c7bab559a9d04c", "ae97c6ac020ceed4", "3184e4c497e23c67", "b280e79f763a3bd6", "4cf1ad043d411593", "7773a77b543cc5e4", "9e49f66f9665c421", "f79221137bf8b3cf", "d3c6774e22140365", "83282fd8934d6cc2", "146c66ab93a3f792", "7df82205dab6d7c4", "4081c6bc9846f9e7", "a471a9eed761f1b6", "47dde8db63dc716a", "569118720ddad6e2", "a2e56c8c38f12209", "d759e5be259882fe", "2835ad64f49e0fbb", "66a8c6402edf90f9", "0af0a6c43999ae0b", "c800d07375fbb002", "d45dfe0a8481f69b", "9c101ea2a085f6c7", "e5d650ded6bada7d"]
+
+[[controls]]
+at = 0
+device = "keyboard"
+
+[controls.keys]
+interact = "E"
+jump = "SPACE"
+pause = "ESCAPE"
+restart = "R"

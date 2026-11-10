@@ -1,0 +1,100 @@
+# End Boss (made with Suno, turned into MIDI): techno, retro meets modern.
+# Run `python3 tools/midi2mml.py games/moreblood/music/end_boss.import.toml`
+# to write end_boss.mml, then tweak either file.
+#
+# 8-bar phrases: the riffs alone (bars 0-7), the kick from bar 8 with open
+# hats on the offbeats, a break around 45-62, then the drive with 16th hats,
+# clap and rim to the end (92).
+#
+# Left out, being echoes of other stems (typical Suno): the keyboard and the
+# pitched part of the drum track (the synth riff again), vocals and brass
+# (the synth's notes), the percussion's claps (the drums' claps).
+
+title = "End Boss"
+out = "end_boss.mml"
+# From the kick coming in to the end, so it loops back onto the drop.
+crop = [8, 91]
+timing = "drums"
+drift_window = 3
+
+[instruments]
+# Riff and bass through the SID filter, swept shut on every note; the kick
+# pumps everything but the other drums (sidechain).
+riff    = "square duty=0.25 pwm=0.15 pwm_speed=0.3 attack=0.002 decay=0.12 sustain=0.3 release=0.05 cutoff=3200 cutoff_end=700 cutoff_time=0.14 resonance=0.4 volume=0.26"
+echo    = "square duty=0.25 pwm=0.15 pwm_speed=0.3 attack=0.002 decay=0.12 sustain=0.3 release=0.05 cutoff=2200 cutoff_end=500 cutoff_time=0.14 resonance=0.3 volume=0.26"
+bass    = "saw attack=0.002 decay=0.1 sustain=0.35 release=0.04 cutoff=1600 cutoff_end=260 cutoff_time=0.12 resonance=0.55 volume=0.7"
+kick    = "triangle freq=180 sweep=-22 sweep_time=0.05 attack=0.001 decay=0.17 sustain=0 release=0.02 sidechain=0.55 sidechain_release=0.22 volume=1"
+snare   = "noise freq=5500 attack=0.001 decay=0.12 sustain=0 release=0.02 duck=0 volume=0.4"
+clap    = "noise freq=3500 attack=0.001 decay=0.16 sustain=0 release=0.03 lowpass=6000 duck=0 volume=0.42"
+rim     = "square freq=1800 attack=0.001 decay=0.025 sustain=0 release=0.005 duck=0 volume=0.16"
+hat     = "noise freq=15000 attack=0.001 decay=0.025 sustain=0 release=0.01 duck=0 volume=0.18"
+openhat = "noise freq=13000 attack=0.001 decay=0.14 sustain=0 release=0.02 duck=0 volume=0.2"
+crash   = "noise freq=11000 attack=0.001 decay=0.9 sustain=0 release=0.1 lowpass=9000 duck=0 volume=0.24"
+
+# The synth riff, the top of its octaves, lifted out of the bass's way.
+[[part]]
+channel = "S"
+file = "end_boss/synth.mid"
+pick = "high"
+fold = [48, 79]
+instrument = "riff"
+volume = 12
+pan = -25
+
+# Its C64 echo: the same riff a dotted 8th later, a third as loud as
+# the line (two thirds was too much: it sounded like the melody doubled),
+# darker, across.
+[[part]]
+channel = "E"
+file = "end_boss/synth.mid"
+pick = "high"
+fold = [48, 79]
+instrument = "echo"
+delay = 3
+volume = 4
+pan = 25
+
+# Rolling bass, kept between C2 and B2.
+[[part]]
+channel = "B"
+file = "end_boss/bass.mid"
+pick = "low"
+instrument = "bass"
+fold = [36, 47]
+volume = 13
+
+# Four on the floor: every kick pulled onto the beat.
+[[part]]
+channel = "D"
+file = "end_boss/drums.mid"
+midi_channels = [9]
+pick = "drums"
+drums = { 36 = "kick", 35 = "kick" }
+snap = 4
+volume = 14
+
+[[part]]
+channel = "C"
+file = "end_boss/drums.mid"
+midi_channels = [9]
+pick = "drums"
+drums = { 39 = "clap", 38 = "snare", 40 = "snare" }
+volume = 13
+
+[[part]]
+channel = "H"
+file = "end_boss/drums.mid"
+midi_channels = [9]
+pick = "drums"
+drums = { 49 = "crash", 57 = "crash", 46 = "openhat", 42 = "hat", 44 = "hat" }
+volume = 13
+pan = 15
+
+[[part]]
+channel = "R"
+file = "end_boss/drums.mid"
+midi_channels = [9]
+pick = "drums"
+drums = { 37 = "rim" }
+volume = 11
+pan = -20

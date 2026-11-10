@@ -1,0 +1,22 @@
+# Voxcade replay: BunnyFarm, 9406 ticks, quit, score 0
+version = 1
+game = "BunnyFarm"
+fingerprint = "bbb8c2d8a72e6b85"
+ticks = 9406
+outcome = "quit"
+score = 0
+input = "down:125;right:34;act:1;none:5;back:1;none:3;right:262;up:56;act:1;none:5;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;act:1;none:10;back:1;none:5;down:20;left:203;down:1;none:3;next:1;none:3;next:1;none:3;act:1;none:15;next:1;none:3;act:1;none:2315;act:1;none:15;act:1;none:2315;act:1;none:15;down:32;left:62;act:1;none:5;act:1;none:10;down:1;none:3;bag:1;none:10;back:1;none:3800;act:1;none:10"
+checks = ["57804daea9c22f5a", "60eb4c2f376b79aa", "63ec671f9545d038", "56769aefb2715004", "4f6a1803f551d131", "07829a69ff8c7789", "4ce041529b06c2f3", "df3a3b66f260dfcf", "1a1a61a426d63f20", "e89d829da1004905", "4749a4bc6d9d3f5d", "61602695cea9c8ee", "c29fe2c7ed1b719b", "313ce3f7d4a2fcb1", "b8938051ce35b77d", "e353d2d2d0cbbb2c", "a3675a4d7aa29033", "75a51c65ebea8f9f", "d7c4f0819202ea1c", "5703d777bfadd69c", "9362e6ee05ae07c8", "1c01e6f34a961177", "3042494414cc0f3a", "1ffaec395921264f", "0eb9210910b131a2", "997ab66c7cfbd846", "3c23117fb8479019", "75cebfa6bac0581b", "c51258403719082e", "44c0de694bc44d7d", "e33d8231b8e6cb87", "0b1ed5da83a5b2c1", "7aa615205322613d", "1535dfc9c17f6557", "6826824ed117a567", "9401a910d1b1c083", "6711494de42317b4", "eb9a08f75b1140b1", "87c710d5008e8637", "281ab0020c874c00", "b1059c5b783a8303", "0c74819c06822844", "bd96de7f4f729e12", "a776d146d2035bc5", "bd86e1deafbde9b2", "cc8e6903e9dd27ce", "794c59c2cc6fc1f9", "06206b64df152ca1", "11e17abe48e47c7e", "0a1eb27a5fac24b9", "46d41353a5368703", "d597df243bfc23f2", "445d6944499eb155", "a60075de85a9323d", "601b36a19d784ae6", "be5683642d072c4d", "71d22726ec3e942f", "e33aa1b3477190ff", "664b299c0b77f400", "48d65f84e59b436e", "2c63bcd840b1c3d0", "64615394efaf8535", "906a23d211cfccf6", "a6ee01eb8b02074c", "23ec4276afb53ba1", "2844c683f0e8cbbd", "776d260d452c7f34", "8aba435e2ee056ad", "7c6bc42f20339efc", "56c786e636928aa3", "ee691ef9be2635e7", "7d5d6b197940306f", "1cddcc9d83130064", "d8398c7eca64e851", "48d52a5aab51a2c7", "60fb46e75039c90a", "f2645211549f9415", "06fd40c35fa2a765", "fdab83d621d9b329", "1f7f17be3c374037", "dbf80e517414bd4e", "f820565f00b2cf58", "684571f13fe89884", "782e99988da8d1bc", "5a5a22314868c8d4", "05d2d9800a0c5e6e", "d1871b5d5c559737", "dbb3bb61bcb6e456", "743e9c6c4e539824", "8c8e6f38b29078c6", "7a7912ec86c214db", "63b964f6614647b8", "78f103e5b1eb2181", "5cace44861a5a09a", "45776ad31aa87cd7", "39e9cecef3c170eb", "a63c59304230885a", "a2cb4b849d846201", "c8a4fdaf7a5ca371", "cbc44941d1dcbfc5", "067a22f144de5867", "f6350c3da07d9edb", "98cc8f0741ed5d7e", "45e998658093a13e", "6fbf264a419e5261", "94147f467787cc91", "a8cacdc26802e9ee", "23c2cf77fc0568b0", "ddad912969a0c0d9", "5b1638fbd8cd9b7b", "47877acfa117cf2a", "b1c19d0cb55442a5", "b27abe60b1a83cdb", "3a24d2ad9ded9725", "3f2d428c5dfd10af", "d26e6679dd8ef5e2", "ed86ffc5c32eb36c", "805b48907a0bd9bc", "bf3875222e6ae9f1", "c0dd446da24ea919", "dd44cd78d613fc8a", "e61e56c52eed24cd", "22d0aa4cf17df082", "b21a3bd2f659dd64", "73564dbe4e89704e", "69cedc3e9e4a49fb", "4e4b9246c34cd08a", "b3ee6fd31bb952cb", "7d6ddedc75c8cea0", "3e1c4d9353c8a0aa", "02630928b573d049", "81c62395131291ec", "d1105e204d19347a", "e0e6eddb9e4bb3d8", "78f695da749de04f", "e0ffedf2d89567bd", "740b67beb8930aa3", "b6804d190759006b", "9c8142ffe7754b65", "244b81bda5a2d412", "8379c50d06cf622b", "5ee26e4801d90a4e", "16b25621c0a0402e", "76b76c790593424f", "312773817336b51a", "b9f28026479e94a1", "37198f21f2b26b90", "5cc7161510d9f903", "dc524d40679a830a", "ffbda54a2496410d", "2b418d92fa548fad", "351be59ac3bf50d4", "762e6335af7787d5", "ee8ee33a1828acb3", "7f476938772d6735", "ff37bbde9ae42237"]
+
+[[controls]]
+at = 0
+device = "keyboard"
+language = "de"
+
+[controls.keys]
+act = "SPACE"
+back = "X"
+bag = "TAB"
+next = "E"
+pause = "ESCAPE"
+prev = "Q"

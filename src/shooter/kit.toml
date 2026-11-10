@@ -1,0 +1,224 @@
+# The shooter kit: weapons and kinds of things at the scale of figures
+# about 10 voxels tall (the behaviours' defaults: a soldier's or a
+# hostage's lengths and speeds left unset follow its model's height;
+# voxcade kinds GAME prints what is in effect), a library to copy into
+# a game's conf.lua (as c.weapons.NAME = { ... }, c.things.NAME = { ... }),
+# nothing more: a game has exactly the weapons and things it writes (the
+# tests play with these). c.player.attacks binds a game's weapons to its
+# actions, c.state.player gives a run its gun and inventory; soldiers and
+# gunships name the weapons they fire.
+#
+# They say how things move and fight; what a pickup gives, what a kill or a
+# rescue is worth, freeing a hostage, checkpoints, lives and the goal are
+# the game's code (main.lua, More Blood's): props say what the code reads
+# of a kind, family which kinds go together.
+#
+# A kind's model shows frames for what it does (unset: the model's own
+# layout, 0 standing, 1 in the air, the rest walking, a frame every half
+# its height walked; a gunship's every frame turning the rotor in flight,
+# 30 a second):
+#   frames = { idle = { 0, 1 }, walk = { 2, 5 }, jump = { 6, 6 } }
+#                           # a soldier's or a hostage's: standing, walking,
+#                           # in the air; a gunship's idle (parked) and fly.
+#                           # A set may say more: { first = 2, last = 5,
+#                           # fps = 8 } its speed, stride = 6 a frame every
+#                           # 6 voxels walked instead, loop = false once (its
+#                           # last frame held)
+#   fps    = 10             # how fast its frames go where a set does not say
+#   spin   = 120            # its model turns round, degrees a second (a pickup)
+#   swing  = { leg_left = 30, leg_right = -30 }   # a model of parts (its objects
+#                           # named in the file): parts swinging as it walks,
+#                           # degrees forward first (below 0: back first)
+# The player's are c.player.frames and c.player.fps; its dust is
+# c.player.stride, step_dust, landing and landing_dust, as a soldier's
+# (below), and while hits do nothing it blinks, c.player.blink = 4 ticks
+# shown, as many not (0: steady).
+
+[weapons.rifle]
+label = "Rifle"
+cooldown = 9            # ticks between shots
+speed = 170             # voxels a second
+life = 1.0              # seconds a round flies
+damage = 1
+blast = 3.4             # crater where it hits the world (0: sparks)
+sound = "shot"
+
+[weapons.machine_gun]
+like = "rifle"
+label = "MG"
+cooldown = 4
+life = 0.9
+spread = 0.07           # how far rounds stray, with aim assist
+ammo = 150              # rounds an inventory holds (the item machine_gun)
+
+[weapons.rockets]
+label = "Rockets"
+cooldown = 32
+speed = 110
+life = 1.6
+damage = 6
+blast = 6
+rocket = true           # blows up where it hits, hurting everyone near
+friendly_fire = false   # but not its shooter's team
+ammo = 8
+sound = "rocket"
+
+[weapons.knife]
+label = "Knife"
+reach = 6.5             # a blow: this far, along the ground, to one in front ...
+cone = 145.08           # ... within this many degrees of the way it faces, at its height
+cooldown = 16
+damage = 4
+noise = 0               # silent: nobody hears it, nobody sees the man fall
+sound = "knife"
+
+[weapons.grenade]
+label = "Grenade"
+throw = 42              # a full throw; it goes off just after landing
+blast = 4.5
+damage = 6              # to everyone in the blast
+friendly_fire = false   # it spares its thrower's team
+sound = "throw"
+ammo = 99               # an inventory holds this many
+auto = false            # one a press
+
+[weapons.enemy_rifle]
+label = "Rifle"
+cooldown = 70
+jitter = 50             # and a random number of ticks below this on top
+speed = 80
+life = 2.0
+spread = 0.08
+sound = "enemy_shot"
+
+[weapons.enemy_grenade]
+like = "grenade"
+ammo = 0                # the enemies carry no inventory
+damage = 2
+friendly_fire = true
+cooldown = 150
+jitter = 70
+
+[weapons.door_gun]
+label = "Door gun"
+cooldown = 6            # between the rounds of a burst
+burst = 4
+pause = 110             # after a burst
+speed = 100
+life = 2.5
+spread = 0.04
+sound = "enemy_shot"
+
+[weapons.rocket_pods]
+label = "Rocket pods"
+cooldown = 260          # the first after half of it
+speed = 75
+life = 3.0
+damage = 2
+blast = 6
+rocket = true
+sound = "rocket"
+
+[things.rifleman]
+behaviour = "soldier"   # walks about, wakes on sight or noise, keeps his distance, fires along the 8 ways
+hp = 1
+team = "enemies"        # their rounds and blows hurt other teams, not their own
+weapon = "enemy_rifle"
+speed = 24
+idle_speed = 10
+accel = 300
+sight = 60
+hearing = 70            # gunfire (rounds hitting near him: half that)
+blast_hearing = 130
+active = 150            # further from the player he waits
+range = 95
+distance = 32           # the distance he keeps from the player
+                        # stride = 5: a puff of dust every this many voxels he walks (half his height unset) ...
+step_dust = 3           # ... of this many specks (0: none)
+landing = 2             # landing from higher than this, voxels, raises a puff ...
+landing_dust = 10       # ... of this many specks
+family = "soldiers"
+props = { worth = 100, knife_worth = 150 }   # what the game's code adds for him
+
+[things.guard]
+like = "rifleman"
+
+[things.grenadier]
+like = "rifleman"
+hp = 2
+weapon = "enemy_grenade"
+distance = 44
+
+[things.hut]
+behaviour = "spawner"   # sends its men while the player is near
+spawns = "rifleman"
+count = 2
+first = 60              # ticks
+every = 420
+range = 120
+# ahead = [0, 1]        # only while the hut lies north of him (by more than ahead_by, his height)
+not_near = 0            # nobody comes out while he is nearer than this
+
+[things.hostage]
+behaviour = "captive"   # touched this near, freed by the code (state.freed), then runs off
+speed = 30
+accel = 399
+reach = 8
+flee = "away"           # freed, it runs away from the player ([0, -1]: south; or a place's name)
+hp = 1                  # a blast kills it
+immune = ["round", "melee"]
+props = { worth = 500 }
+
+[things.gunship]
+behaviour = "gunship"
+team = "enemies"
+immune = ["melee"]
+hp = 30
+weapon = "door_gun"
+rockets = "rocket_pods"
+speed = 35
+altitude = 17           # over the pad it took off from
+clearance = 4           # at least this over what stands below
+offset = [0, 65]        # where it holds from the player (x east, y north)
+wake = 130              # it lifts off when the player comes this close
+size = [12, 24, 8]      # hit box: across, along, high
+gun = [0, 12, 1.5]      # the guns' muzzles (across, mirrored; along; up)
+pods = [5, 2.5, 2.5]    # the rocket pods' fronts
+side_on = false         # true: it turns its side to the player, the gun on that side fires
+crash_blast = 9
+crash_damage = 6        # to those near where it crashes
+props = { worth = 5000 }
+
+[things.machine_gun]
+behaviour = "pickup"    # it lies there, touched by the player's hips within reach; the code gives
+frame = 0               # its model's frame
+reach = 5
+bob_ticks = 20          # it bobs up and down, this many ticks each way, by bob voxels
+                        # (a fifth of its model's height unset; 0: it lies still)
+family = "pickups"
+props = { weapon = "machine_gun", ammo = 150, worth = 50 }
+
+[things.rockets]
+like = "machine_gun"
+frame = 1
+props = { weapon = "rockets", ammo = 8, worth = 50 }
+
+[things.grenades]
+behaviour = "pickup"
+frame = 2
+reach = 5
+family = "pickups"
+props = { grenades = 5, worth = 50 }
+
+[things.health]
+behaviour = "pickup"
+frame = 3
+reach = 5
+family = "pickups"
+props = { heal = 2, worth = 50 }
+
+[things.checkpoint]     # no behaviour: a line the code moves the player's checkpoint past
+
+[things.goal]           # no behaviour: touched within reach, the code wins
+reach = 9
+props = { worth = 2000 }

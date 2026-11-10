@@ -1,0 +1,196 @@
+; Pulsar Drive: made by tools/compose.py from music/pulsar_drive.compose.toml
+; (space, D minor, 120 bpm, seed 3). Run the recipe
+; again after changing it, or edit this file by hand. Chords from
+; free-midi-chords by Ludovic Drolez (MIT, tools/progressions.toml).
+;
+; A: i VI VII v (minor): Dm Bb C Am
+; B: v i iv VII (minor): Am Dm Gm C
+; Form, 8 bars each: intro A | theme A | theme A | bridge B | bridge B | break A | theme A | bridge B | theme A | turn B
+; Variation: most (every fourth bar walks and pushes, the broken chords turn, ghost notes on the hi-hat, later themes answer backwards).
+
+#title Pulsar Drive
+#tempo 120
+; Layers by the game's tension (music.intensity): the pads and the bass always.
+#layer D 0.3
+#layer C 0.55
+#layer A E 0.8
+
+@lead   square duty=0.5 attack=0.01 decay=0.3 sustain=0.55 release=0.25 lowpass=2600 vibrato=0.01 vibrato_speed=5.5 vibrato_delay=0.25 volume=0.27
+@echo   square duty=0.5 attack=0.01 decay=0.3 sustain=0.5 release=0.3 lowpass=1500 volume=0.27
+@pad    saw attack=0.5 decay=0.8 sustain=0.7 release=0.9 lowpass=700 volume=0.12
+@harp   square duty=0.5 attack=0.002 decay=0.16 sustain=0.1 release=0.1 lowpass=2100 volume=0.12
+@bass   saw attack=0.002 decay=0.18 sustain=0.45 release=0.06 cutoff=900 cutoff_end=280 cutoff_time=0.15 resonance=0.35 volume=0.4
+@kick   triangle freq=120 sweep=-30 sweep_time=0.08 attack=0.001 decay=0.13 sustain=0 release=0.01 volume=0.8 sidechain=0.2
+@snare  noise freq=5000 attack=0.001 decay=0.15 sustain=0 release=0.02 lowpass=4500 volume=0.28 duck=0
+@roll   noise freq=5000 attack=0.001 decay=0.05 sustain=0 release=0.01 lowpass=4500 volume=0.18 duck=0
+@hat    noise freq=13000 attack=0.001 decay=0.02 sustain=0 release=0.01 lowpass=7000 volume=0.07 duck=0
+
+; The melody, in some sections only, and its echo a little later.
+A: @lead v12 q7 l16 p-15 r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: o4 f8 a8 o5 c4 f4 c4 | o4 a+4 f2. | e8 a8 a+4 o5 d4 o4 a+4 | e4 c2.
+A: d4 f4 g8 f8 c4 | d2 r2 | c8 e8 g4 a+4 g4 | a2. r4
+A: a8 o5 d8 f4 c4 o4 g4 | f4 d2. | e8 a8 a+4 o5 d4 o4 a+4 | e4 c2.
+A: d4 c4 d8 f8 a4 | o5 d2 r2 | e8 c8 d4 g4 d4 | o4 a2. r4
+A: a4 o5 c4 d8 c8 o4 g4 | f2 r2 | g4 f4 e8 f8 a+4 | o5 c2 r2
+A: o4 a8 o5 d8 e4 c4 o4 g4 | f4 d2. | d4 e4 f8 e8 c4 | c2. r4
+A: a4 o5 c4 d8 c8 o4 g4 | f2 r2 | g4 f4 e8 f8 a+4 | o5 c2 r2
+A: o4 a8 o5 d8 e4 c4 o4 g4 | f4 d2. | d4 e4 f8 e8 c4 | c2. r4
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: f8 a8 o5 c4 f4 c4 | o4 a+4 f2. | e2. a4 | o5 c4 e4 c4 o4 a8 e8
+A: f4 g4 a8 g8 d4 | d2 r2 | c8 e8 g4 a+4 g4 | a2. r4
+A: a4 o5 c4 d8 c8 o4 g4 | f2 r2 | g4 f4 e8 f8 a+4 | o5 c2 r2
+A: o4 a8 o5 d8 e4 c4 o4 g4 | f4 d2. | d4 e4 f8 e8 c4 | c2. r4
+A: f8 a8 o5 c4 f4 c4 | o4 a+4 f2. | e2. a4 | o5 c4 e4 c4 o4 a8 e8
+A: f4 g4 a8 g8 d4 | d2 r2 | c8 e8 g4 a+4 g4 | a2. r4
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+E: @echo v4 q7 l16 p40 r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r8. o4 f8 a8 o5 c4 f4 c16& | c8. o4 a+4 f2&16& | f8. e8 a8 a+4 o5 d4 o4 a+16& | a+8. e4 c2&16&
+E: c8. d4 f4 g8 f8 c16& | c8. d2 r4 r16 | r8. c8 e8 g4 a+4 g16& | g8. a2. r16
+E: r8. a8 o5 d8 f4 c4 o4 g16& | g8. f4 d2&16& | d8. e8 a8 a+4 o5 d4 o4 a+16& | a+8. e4 c2&16&
+E: c8. d4 c4 d8 f8 a16& | a8. o5 d2 r4 r16 | r8. e8 c8 d4 g4 d16& | d8. o4 a2. r16
+E: r8. a4 o5 c4 d8 c8 o4 g16& | g8. f2 r4 r16 | r8. g4 f4 e8 f8 a+16& | a+8. o5 c2 r4 r16
+E: r8. o4 a8 o5 d8 e4 c4 o4 g16& | g8. f4 d2&16& | d8. d4 e4 f8 e8 c16& | c8. c2. r16
+E: r8. a4 o5 c4 d8 c8 o4 g16& | g8. f2 r4 r16 | r8. g4 f4 e8 f8 a+16& | a+8. o5 c2 r4 r16
+E: r8. o4 a8 o5 d8 e4 c4 o4 g16& | g8. f4 d2&16& | d8. d4 e4 f8 e8 c16& | c8. c2. r16
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r8. f8 a8 o5 c4 f4 c16& | c8. o4 a+4 f2&16& | f8. e2. a16& | a8. o5 c4 e4 c4 o4 a16&
+E: a16 e8 f4 g4 a8 g8 d16& | d8. d2 r4 r16 | r8. c8 e8 g4 a+4 g16& | g8. a2. r16
+E: r8. a4 o5 c4 d8 c8 o4 g16& | g8. f2 r4 r16 | r8. g4 f4 e8 f8 a+16& | a+8. o5 c2 r4 r16
+E: r8. o4 a8 o5 d8 e4 c4 o4 g16& | g8. f4 d2&16& | d8. d4 e4 f8 e8 c16& | c8. c2. r16
+E: r8. f8 a8 o5 c4 f4 c16& | c8. o4 a+4 f2&16& | f8. e2. a16& | a8. o5 c4 e4 c4 o4 a16&
+E: a16 e8 f4 g4 a8 g8 d16& | d8. d2 r4 r16 | r8. c8 e8 g4 a+4 g16& | g8. a2. r16
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+
+; The chords as a pad of three voices.
+P: @pad q8 l16 p-30 v8 o4 d1& | d1 | c1& | c1
+P: d1& | d1 | c1& | c1
+P: v10 d1& | d1 | c1& | c1
+P: d1& | d1 | c1& | c1
+P: d1& | d1 | c1& | c1
+P: d1& | d1 | c1& | c1&
+P: c1 | d1& | d1 | e1&
+P: e1 | f1 | g1& | g1
+P: a1& | a1 | g1& | g1
+P: a1& | a1 | g1& | g1
+P: v11 a1 | a+1 | g1 | a1&
+P: a1 | a+1 | g1 | a1
+P: v10 a1 | a+1 | g1 | a1&
+P: a1 | a+1 | g1 | a1&
+P: a1& | a1 | g1& | g1
+P: a1& | a1 | g1& | g1
+P: a1 | a+1 | g1 | a1&
+P: a1 | a+1 | g1 | a1
+P: v9 a1& | a1 | g1& | g1
+P: a1& | a1 | g1& | g1
+Q: @pad q8 l16 p0 v8 o4 f1& | f1 | e1& | e1
+Q: f1& | f1 | e1& | e1
+Q: v10 f1& | f1 | e1& | e1
+Q: f1& | f1 | e1& | e1
+Q: f1& | f1 | e1& | e1
+Q: f1& | f1 | e1& | e1&
+Q: e1 | f1 | g1& | g1
+Q: a1& | a1 | a+1 | o5 c1&
+Q: c1 | d1 | o4 a+1 | o5 c1&
+Q: c1 | d1 | o4 a+1 | o5 c1
+Q: v11 d1& | d1 | c1& | c1
+Q: d1& | d1 | c1& | c1
+Q: v10 d1& | d1 | c1& | c1
+Q: d1& | d1 | c1& | c1&
+Q: c1 | d1 | o4 a+1 | o5 c1&
+Q: c1 | d1 | o4 a+1 | o5 c1
+Q: d1& | d1 | c1& | c1
+Q: d1& | d1 | c1& | c1
+Q: v9 c1 | d1 | o4 a+1 | o5 c1&
+Q: c1 | d1 | o4 a+1 | o5 c1
+R: @pad q8 l16 p30 v8 o4 a1 | a+1 | g1 | a1&
+R: a1 | a+1 | g1 | a1
+R: v10 a1 | a+1 | g1 | a1&
+R: a1 | a+1 | g1 | a1&
+R: a1 | a+1 | g1 | a1&
+R: a1 | a+1 | g1 | a1&
+R: a1& | a1 | a+1 | o5 c1&
+R: c1 | d1& | d1 | e1&
+R: e1 | f1 | d1 | e1&
+R: e1 | f1 | d1 | e1
+R: v11 f1& | f1 | e1& | e1
+R: f1& | f1 | e1& | e1
+R: v10 f1& | f1 | e1& | e1
+R: f1& | f1 | e1& | e1&
+R: e1 | f1 | d1 | e1&
+R: e1 | f1 | d1 | e1
+R: f1& | f1 | e1& | e1
+R: f1& | f1 | e1& | e1
+R: v9 e1 | f1 | d1 | e1&
+R: e1 | f1 | d1 | e1
+
+; The bass.
+B: @bass v12 q6 l16 o2 d2 d2 | a+2 a+2 | c2 c2 | a2 a2
+B: d2 d2 | a+2 a+2 | c2 c2 | a2 a2
+B: d8 d8 o3 d8 o2 d8 d8 d8 o3 d8 o2 a8 | a+8 a+8 o3 a+8 o2 a+8 a+8 a+8 o3 a+8 f8 | o2 c8 c8 o3 c8 o2 c8 c8 c8 o3 c8 o2 g8 | a8 a8 o3 a8 o2 a8 a8 a8 o1 a+8 o2 c8
+B: d8 d8 o3 d8 o2 d8 d8 d8 o3 d8 o2 a8 | a+8 a+8 o3 a+8 o2 a+8 a+8 a+8 o3 a+8 f8 | o2 c8 c8 o3 c8 o2 c8 c8 c8 o3 c8 o2 g8 | a8 a8 o3 a8 o2 a8 a8 a8 o1 a+8 o2 c8
+B: d8 d8 o3 d8 o2 d8 d8 d8 o3 d8 o2 a8 | a+8 a+8 o3 a+8 o2 a+8 a+8 a+8 o3 a+8 f8 | o2 c8 c8 o3 c8 o2 c8 c8 c8 o3 c8 o2 g8 | a8 a8 o3 a8 o2 a8 a8 a8 o1 a+8 o2 c8
+B: d8 d8 o3 d8 o2 d8 d8 d8 o3 d8 o2 a8 | a+8 a+8 o3 a+8 o2 a+8 a+8 a+8 o3 a+8 f8 | o2 c8 c8 o3 c8 o2 c8 c8 c8 o3 c8 o2 g8 | a8 a8 o3 a8 o2 a8 a8 a8 f8 g8
+B: a8 a8 o3 a8 o2 a8 a8 a8 o3 a8 e8 | o2 d8 d8 o3 d8 o2 d8 d8 d8 o3 d8 o2 a8 | g8 g8 o3 g8 o2 g8 g8 g8 o3 g8 d8 | o2 c8 c8 o3 c8 o2 c8 c8 c8 f8 g8
+B: a8 a8 o3 a8 o2 a8 a8 a8 o3 a8 e8 | o2 d8 d8 o3 d8 o2 d8 d8 d8 o3 d8 o2 a8 | g8 g8 o3 g8 o2 g8 g8 g8 o3 g8 d8 | o2 c8 c8 o3 c8 o2 c8 c8 c8 f8 g8
+B: a8 a8 o3 a8 o2 a8 a8 a8 o3 a8 e8 | o2 d8 d8 o3 d8 o2 d8 d8 d8 o3 d8 o2 a8 | g8 g8 o3 g8 o2 g8 g8 g8 o3 g8 d8 | o2 c8 c8 o3 c8 o2 c8 c8 c8 f8 g8
+B: a8 a8 o3 a8 o2 a8 a8 a8 o3 a8 e8 | o2 d8 d8 o3 d8 o2 d8 d8 d8 o3 d8 o2 a8 | g8 g8 o3 g8 o2 g8 g8 g8 o3 g8 d8 | o2 c8 c8 o3 c8 o2 c8 c8 c8 o1 a+8 o2 c8
+B: d2 d2 | a+2 a+2 | c2 c2 | a2 a2
+B: d2 d2 | a+2 a+2 | c2 c2 | a2 a2
+B: d8 d8 o3 d8 o2 d8 d8 d8 o3 d8 o2 a8 | a+8 a+8 o3 a+8 o2 a+8 a+8 a+8 o3 a+8 f8 | o2 c8 c8 o3 c8 o2 c8 c8 c8 o3 c8 o2 g8 | a8 a8 o3 a8 o2 a8 a8 a8 o1 a+8 o2 c8
+B: d8 d8 o3 d8 o2 d8 d8 d8 o3 d8 o2 a8 | a+8 a+8 o3 a+8 o2 a+8 a+8 a+8 o3 a+8 f8 | o2 c8 c8 o3 c8 o2 c8 c8 c8 o3 c8 o2 g8 | a8 a8 o3 a8 o2 a8 a8 a8 f8 g8
+B: a8 a8 o3 a8 o2 a8 a8 a8 o3 a8 e8 | o2 d8 d8 o3 d8 o2 d8 d8 d8 o3 d8 o2 a8 | g8 g8 o3 g8 o2 g8 g8 g8 o3 g8 d8 | o2 c8 c8 o3 c8 o2 c8 c8 c8 f8 g8
+B: a8 a8 o3 a8 o2 a8 a8 a8 o3 a8 e8 | o2 d8 d8 o3 d8 o2 d8 d8 d8 o3 d8 o2 a8 | g8 g8 o3 g8 o2 g8 g8 g8 o3 g8 d8 | o2 c8 c8 o3 c8 o2 c8 c8 c8 o1 a+8 o2 c8
+B: d8 d8 o3 d8 o2 d8 d8 d8 o3 d8 o2 a8 | a+8 a+8 o3 a+8 o2 a+8 a+8 a+8 o3 a+8 f8 | o2 c8 c8 o3 c8 o2 c8 c8 c8 o3 c8 o2 g8 | a8 a8 o3 a8 o2 a8 a8 a8 o1 a+8 o2 c8
+B: d8 d8 o3 d8 o2 d8 d8 d8 o3 d8 o2 a8 | a+8 a+8 o3 a+8 o2 a+8 a+8 a+8 o3 a+8 f8 | o2 c8 c8 o3 c8 o2 c8 c8 c8 o3 c8 o2 g8 | a8 a8 o3 a8 o2 a8 a8 a8 f8 g8
+B: a8 a8 o3 a8 o2 a8 a8 a8 o3 a8 e8 | o2 d8 d8 o3 d8 o2 d8 d8 d8 o3 d8 o2 a8 | g8 g8 o3 g8 o2 g8 g8 g8 o3 g8 d8 | o2 c8 c8 o3 c8 o2 c8 c8 c8 f8 g8
+B: a8 a8 o3 a8 o2 a8 a8 a8 o3 a8 e8 | o2 d8 d8 o3 d8 o2 d8 d8 d8 o3 d8 o2 a8 | g8 g8 o3 g8 o2 g8 g8 g8 o3 g8 d8 | o2 c8 c8 o3 c8 o2 c8 c8 c8 o1 a+8 o2 c8
+
+; The chords broken, in the bridges.
+C: v7 q8 l16 p-40 @harp o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 | o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 | o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 | o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16
+C: o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 | o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 | o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 | o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16
+C: o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 | o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 | o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 | o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16
+C: o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 | o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 | o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 | o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16
+C: o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 | o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 | o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 | o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16
+C: o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 | o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 | o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 | o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16
+C: o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 | o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 | o3 g16 a+16 o4 d16 o3 a+16 g16 a+16 o4 d16 g16 o3 g16 a+16 o4 d16 o3 a+16 g16 a+16 o4 d16 g16 | o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16
+C: o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 | o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 | o3 g16 a+16 o4 d16 o3 a+16 g16 a+16 o4 d16 g16 o3 g16 a+16 o4 d16 o3 a+16 g16 a+16 o4 d16 g16 | o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16
+C: o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 | o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 | o3 g16 a+16 o4 d16 o3 a+16 g16 a+16 o4 d16 g16 o3 g16 a+16 o4 d16 o3 a+16 g16 a+16 o4 d16 g16 | o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16
+C: o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 | o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 | o3 g16 a+16 o4 d16 o3 a+16 g16 a+16 o4 d16 g16 o3 g16 a+16 o4 d16 o3 a+16 g16 a+16 o4 d16 g16 | o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16
+C: o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 | o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 | o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 | o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16
+C: o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 | o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 | o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 | o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16
+C: o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 | o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 | o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 | o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16
+C: o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 | o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 | o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 | o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16
+C: o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 | o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 | o3 g16 a+16 o4 d16 o3 a+16 g16 a+16 o4 d16 g16 o3 g16 a+16 o4 d16 o3 a+16 g16 a+16 o4 d16 g16 | o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16
+C: o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 | o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 | o3 g16 a+16 o4 d16 o3 a+16 g16 a+16 o4 d16 g16 o3 g16 a+16 o4 d16 o3 a+16 g16 a+16 o4 d16 g16 | o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16
+C: o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 | o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 | o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 | o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16
+C: o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 | o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 o3 a+16 o4 d16 f16 a+16 o3 a+16 o4 d16 f16 d16 | o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 | o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16
+C: o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 | o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 | o3 g16 a+16 o4 d16 o3 a+16 g16 a+16 o4 d16 g16 o3 g16 a+16 o4 d16 o3 a+16 g16 a+16 o4 d16 g16 | o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16
+C: o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 o3 a16 o4 c16 e16 c16 o3 a16 o4 c16 e16 a16 | o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 o3 a16 o4 d16 f16 a16 o3 a16 o4 d16 f16 d16 | o3 g16 a+16 o4 d16 o3 a+16 g16 a+16 o4 d16 g16 o3 g16 a+16 o4 d16 o3 a+16 g16 a+16 o4 d16 g16 | o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16 o3 g16 o4 c16 e16 g16 o3 g16 o4 c16 e16 c16
+
+; Drums.
+D: v12 q8 l16 p10 v12 @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c16 v6 c16 v12 @kick c8 @hat c8 | @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 | @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 | @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8
+D: @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 | @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 | @kick c8 @hat c16 v6 c16 v12 @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 | @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8
+D: @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c16 v6 c16 v12 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c16 v6 @hat c16 v12 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c16 v6 c16 v12 @snare c8 @hat c16 v6 @roll c16
+D: v12 @kick c16 v6 @hat c16 v12 c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c16 v6 c16 v12 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @roll c16 c16 c16 c16 @snare c8 c8
+D: @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c16 v6 @roll c16
+D: v12 @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c16 v6 c16 v12 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c16 v6 c16 v12 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @roll c16 c16 c16 c16 @snare c8 c8
+D: @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c16 v6 c16 v12 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c16 v6 @hat c16 v12 c8 @snare c8 @hat c16 v6 @roll c16
+D: v12 @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @roll c16 c16 c16 c16 @snare c8 c8
+D: @kick c8 @hat c16 v6 c16 v12 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c16 v6 c16 v12 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c16 v6 @roll c16
+D: v12 @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @roll c16 c16 c16 c16 @snare c8 c8
+D: @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 | @kick c16 v6 @hat c16 v12 c8 @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 | @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 | @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8
+D: @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 | @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 | @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 @kick c8 @hat c8 | @kick c8 @hat c8 @kick c8 @hat c16 v6 c16 v12 @kick c8 @hat c8 @kick c8 @hat c8
+D: @kick c8 @hat c8 @snare c8 @hat c8 @kick c16 v6 @hat c16 v12 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c16 v6 @roll c16
+D: v12 @kick c8 @hat c8 @snare c8 @hat c8 @kick c16 v6 @hat c16 v12 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @roll c16 c16 c16 c16 @snare c8 c8
+D: @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c16 v6 c16 v12 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c16 v6 @roll c16
+D: v12 @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c16 v6 c16 v12 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @roll c16 c16 c16 c16 @snare c8 c8
+D: @kick c8 @hat c8 @snare c16 v6 @hat c16 v12 c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c16 v6 c16 v12 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c16 v6 @roll c16
+D: v12 @kick c8 @hat c8 @snare c8 @hat c8 @kick c16 v6 @hat c16 v12 c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c16 v6 c16 v12 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @roll c16 c16 c16 c16 @snare c8 c8
+D: @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c16 v6 @hat c16 v12 c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c16 v6 @roll c16
+D: v12 @kick c8 @hat c16 v6 c16 v12 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c16 v6 @hat c16 v12 c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @hat c8 @snare c8 @hat c8 | @kick c8 @hat c8 @snare c8 @hat c8 @roll c16 c16 c16 c16 @snare c8 c8

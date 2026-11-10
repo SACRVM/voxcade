@@ -1,0 +1,43 @@
+Voxcade
+Copyright (c) 2026 Marcus Wilhelm (SACRVM)
+
+This software is provided 'as-is', without any express or implied
+warranty. In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software
+   in a product, an acknowledgment in the product documentation would be
+   appreciated but is not required.
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+3. This notice may not be removed or altered from any source distribution.
+
+
+What this covers
+----------------
+
+The licence above (the zlib licence, as LÖVE has it) covers the Voxcade
+program, the games that come with it (More Blood, Voxkeep, Sokovox,
+Pulsar, BunnyFarm: their code, figures, levels, sounds and songs) and
+the templates new games begin from. In short: use it for free, make
+games with it, give them away or sell them, and pass the program on
+with them. A game you make with Voxcade is yours alone.
+
+Not ours to license, and passed on under their own terms:
+
+- Sokovox's puzzles are Microban by David W. Skinner, free to pass on
+  provided they remain properly credited (games/sokovox/levels/).
+- Several songs are composed from chord progressions of free-midi-chords
+  by Ludovic Drolez (MIT License).
+- The big letters of the games' titles are drawn from Fira Sans
+  Compressed Heavy (SIL Open Font License 1.1).
+- The libraries built into the program: THIRD-PARTY-LICENSES.txt.
+
+The online services (the game codes, the list of games, the relay) are
+offered as they are, without a promise that they stay; they are no part
+of this licence.

@@ -1,0 +1,138 @@
+; Quiet Warehouse: made by tools/compose.py from music/quiet_warehouse.compose.toml
+; (calm, A minor, 76 bpm, seed 2). Run the recipe
+; again after changing it, or edit this file by hand. Chords from
+; free-midi-chords by Ludovic Drolez (MIT, tools/progressions.toml).
+;
+; A: i VI III VII (minor): Am F C G
+; B: VI7 VII6 i VII6 (minor): Fmaj7 G6 Am G6
+; Form, 8 bars each: intro A | theme A | theme A | bridge B | bridge B | break A | theme A | turn B
+; Variation: most (every fourth bar walks and pushes, the broken chords turn, ghost notes on the hi-hat, later themes answer backwards).
+
+#title Quiet Warehouse
+#tempo 76
+
+@lead   triangle attack=0.02 decay=0.4 sustain=0.55 release=0.35 vibrato=0.008 vibrato_speed=5 vibrato_delay=0.3 volume=0.45
+@echo   triangle attack=0.02 decay=0.4 sustain=0.5 release=0.4 lowpass=1400 volume=0.45
+@pad    triangle attack=0.5 decay=0.8 sustain=0.75 release=0.9 lowpass=1600 volume=0.16
+@harp   triangle attack=0.005 decay=0.5 sustain=0.2 release=0.4 lowpass=2200 volume=0.2
+@bass   triangle attack=0.01 decay=0.3 sustain=0.7 release=0.2 volume=0.6
+
+; The melody, in some sections only, and its echo a little later.
+A: @lead v12 q7 l16 p-15 r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: o4 a4 o5 c4 e2 | c2 o4 a4 r4 | a4 o5 c4 f2 | c2 o4 a4 r4
+A: g4. a8 o5 d2 | c4 o4 g4 e2 | d4 e4 g2 | g2. r4
+A: a4 o5 c4 e2 | c2 o4 a4 r4 | o5 c4 d4 g2 | c2 o4 a4 r4
+A: o5 c4. o4 a8 e2 | g4 o5 c4 d2 | g4 f4 d2 | o4 g2. r4
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+A: a4 o5 c4 e2 | c2 o4 a4 r4 | r4 a4 o5 c2 | f2 c4 o4 a4
+A: g4. a8 o5 d2 | c4 o4 g4 e2 | d4 e4 g2 | g2. r4
+A: r1 | r1 | r1 | r1
+A: r1 | r1 | r1 | r1
+E: @echo v4 q7 l16 p40 r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r4 o4 a4 o5 c4 e4& | e4 c2 o4 a4 | r4 a4 o5 c4 f4& | f4 c2 o4 a4
+E: r4 g4. a8 o5 d4& | d4 c4 o4 g4 e4& | e4 d4 e4 g4& | g4 g2.
+E: r4 a4 o5 c4 e4& | e4 c2 o4 a4 | r4 o5 c4 d4 g4& | g4 c2 o4 a4
+E: r4 o5 c4. o4 a8 e4& | e4 g4 o5 c4 d4& | d4 g4 f4 d4& | d4 o4 g2.
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+E: r4 a4 o5 c4 e4& | e4 c2 o4 a4 | r2 a4 o5 c4& | c4 f2 c4
+E: o4 a4 g4. a8 o5 d4& | d4 c4 o4 g4 e4& | e4 d4 e4 g4& | g4 g2.
+E: r1 | r1 | r1 | r1
+E: r1 | r1 | r1 | r1
+
+; The chords as a pad of three voices.
+P: @pad q8 l16 p-30 v8 o3 a1& | a1& | a1& | a1
+P: o4 c1& | c1 | o3 b1& | b1
+P: v10 o4 c1& | c1& | c1& | c1&
+P: c1& | c1 | o3 b1& | b1
+P: o4 c1& | c1& | c1& | c1&
+P: c1& | c1 | o3 b1& | b1
+P: o4 c1& | c1 | d1& | d1
+P: c1& | c1 | d1& | d1
+P: c1& | c1 | d1& | d1
+P: c1& | c1 | d1& | d1
+P: v11 c1& | c1& | c1& | c1&
+P: c1& | c1 | o3 b1& | b1
+P: v10 o4 c1& | c1& | c1& | c1&
+P: c1& | c1 | o3 b1& | b1
+P: v9 o4 c1& | c1 | d1& | d1
+P: c1& | c1 | d1& | d1
+Q: @pad q8 l16 p0 v8 o4 e1& | e1 | f1& | f1
+Q: e1& | e1 | d1& | d1
+Q: v10 e1& | e1 | f1& | f1
+Q: e1& | e1 | d1& | d1
+Q: e1& | e1 | f1& | f1
+Q: e1& | e1 | d1& | d1
+Q: e1& | e1& | e1& | e1&
+Q: e1& | e1& | e1& | e1&
+Q: e1& | e1& | e1& | e1&
+Q: e1& | e1& | e1& | e1
+Q: v11 e1& | e1 | f1& | f1
+Q: e1& | e1 | d1& | d1
+Q: v10 e1& | e1 | f1& | f1
+Q: e1& | e1 | d1& | d1
+Q: v9 e1& | e1& | e1& | e1&
+Q: e1& | e1& | e1& | e1
+R: @pad q8 l16 p30 v8 o5 c1& | c1& | c1& | c1
+R: o4 g1& | g1& | g1& | g1
+R: v10 a1& | a1& | a1& | a1
+R: g1& | g1& | g1& | g1
+R: a1& | a1& | a1& | a1
+R: g1& | g1& | g1& | g1
+R: a1& | a1 | b1& | b1
+R: a1& | a1 | b1& | b1
+R: a1& | a1 | b1& | b1
+R: a1& | a1 | b1& | b1
+R: v11 a1& | a1& | a1& | a1
+R: g1& | g1& | g1& | g1
+R: v10 a1& | a1& | a1& | a1
+R: g1& | g1& | g1& | g1
+R: v9 a1& | a1 | b1& | b1
+R: a1& | a1 | b1& | b1
+
+; The bass.
+B: @bass v12 q6 l16 o2 a1 | a1 | f1 | f1
+B: o3 c1 | c1 | o2 g1 | g1
+B: a2 o3 e2 | o2 a2 o3 e2 | o2 f2 o3 c2 | o2 f2 o3 c4 o1 b4
+B: o3 c2 g2 | c2 g2 | o2 g2 o3 d2 | o2 g2 o3 d4 o2 g4
+B: a2 o3 e2 | o2 a2 o3 e2 | o2 f2 o3 c2 | o2 f2 o3 c4 o1 b4
+B: o3 c2 g2 | c2 g2 | o2 g2 o3 d2 | o2 g2 o3 d4 o2 e4
+B: f2 o3 c2 | o2 f2 o3 c2 | o2 g2 o3 d2 | o2 g2 o3 d4 o2 g4
+B: a2 o3 e2 | o2 a2 o3 e2 | o2 g2 o3 d2 | o2 g2 o3 d4 o2 e4
+B: f2 o3 c2 | o2 f2 o3 c2 | o2 g2 o3 d2 | o2 g2 o3 d4 o2 g4
+B: a2 o3 e2 | o2 a2 o3 e2 | o2 g2 o3 d2 | o2 g2 o3 d4 o2 g4
+B: a1 | a1 | f1 | f1
+B: o3 c1 | c1 | o2 g1 | g1
+B: a2 o3 e2 | o2 a2 o3 e2 | o2 f2 o3 c2 | o2 f2 o3 c4 o1 b4
+B: o3 c2 g2 | c2 g2 | o2 g2 o3 d2 | o2 g2 o3 d4 o2 e4
+B: f2 o3 c2 | o2 f2 o3 c2 | o2 g2 o3 d2 | o2 g2 o3 d4 o2 g4
+B: a2 o3 e2 | o2 a2 o3 e2 | o2 g2 o3 d2 | o2 g2 o3 d4 o2 g4
+
+; The chords broken, in the bridges.
+C: v7 q8 l16 p-40 r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: @harp o3 a8 o4 c8 f8 c8 o3 a8 o4 c8 f8 a8 | f8 c8 o3 a8 o4 c8 f8 a8 o3 a8 o4 c8 | o3 g8 b8 o4 d8 g8 o3 g8 b8 o4 d8 o3 b8 | o4 d8 g8 o3 g8 b8 o4 d8 o3 b8 g8 b8
+C: a8 o4 c8 e8 c8 o3 a8 o4 c8 e8 a8 | e8 c8 o3 a8 o4 c8 e8 a8 o3 a8 o4 c8 | o3 g8 b8 o4 d8 g8 o3 g8 b8 o4 d8 o3 b8 | o4 d8 g8 o3 g8 b8 o4 d8 o3 b8 g8 b8
+C: a8 o4 c8 f8 c8 o3 a8 o4 c8 f8 a8 | f8 c8 o3 a8 o4 c8 f8 a8 o3 a8 o4 c8 | o3 g8 b8 o4 d8 g8 o3 g8 b8 o4 d8 o3 b8 | o4 d8 g8 o3 g8 b8 o4 d8 o3 b8 g8 b8
+C: a8 o4 c8 e8 c8 o3 a8 o4 c8 e8 a8 | e8 c8 o3 a8 o4 c8 e8 a8 o3 a8 o4 c8 | o3 g8 b8 o4 d8 g8 o3 g8 b8 o4 d8 o3 b8 | o4 d8 g8 o3 g8 b8 o4 d8 o3 b8 g8 b8
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: r1 | r1 | r1 | r1
+C: a8 o4 c8 f8 c8 o3 a8 o4 c8 f8 a8 | f8 c8 o3 a8 o4 c8 f8 a8 o3 a8 o4 c8 | o3 g8 b8 o4 d8 g8 o3 g8 b8 o4 d8 o3 b8 | o4 d8 g8 o3 g8 b8 o4 d8 o3 b8 g8 b8
+C: a8 o4 c8 e8 c8 o3 a8 o4 c8 e8 a8 | e8 c8 o3 a8 o4 c8 e8 a8 o3 a8 o4 c8 | o3 g8 b8 o4 d8 g8 o3 g8 b8 o4 d8 o3 b8 | o4 d8 g8 o3 g8 b8 o4 d8 o3 b8 g8 b8

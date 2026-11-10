@@ -1,0 +1,22 @@
+# Voxcade replay: BunnyFarm, 3913 ticks, quit, score 0
+version = 1
+game = "BunnyFarm"
+fingerprint = "bbb8c2d8a72e6b85"
+ticks = 3913
+outcome = "quit"
+score = 0
+input = "down:98;right:295;up:29;act:1;none:5;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;down:1;none:2;act:1;none:10;back:1;none:5;down:20;left:203;down:1;none:3;next:1;none:3;next:1;none:3;act:1;none:15;act:1;none:3115;act:1;none:30;act:1;none:30"
+checks = ["57804daea9c22f5a", "770167a7e2653380", "f435f73f3c993cf1", "9f2df3c506308f57", "00f6f99b988a685d", "dd9e19b9c9801d53", "e0ce23c3fc98c6e6", "9ad722c8dfd045a0", "7b66ceae13993b66", "0f0810efe7d93114", "457ce57717478ec2", "38efd01761929924", "18e44b311b6dd33c", "cb2d54609ebd985a", "981cdc220f9aafcf", "713076d2b08ed420", "a4639a5ebb40b609", "16fdfd67c4b5251f", "02b29f1349156aa7", "622990f2a375ac8d", "4ad555b0975b89fc", "65c0e15d611043ac", "994d8ef585129ae7", "be1d98e956c0e826", "47b83b222918d1e2", "3a21ca6c93c2eb27", "f5092e68944ccbb5", "0cadbe312b87909a", "e99b0d296a20a5f2", "4e507df0e4093536", "ae0540a910710699", "7e1815d733979bcd", "9456d4556485301b", "28d86857674d476f", "6719a062b25b4c1e", "095565671497f645", "cd1dd014a5f5018d", "95d6794b146680e8", "fab87179ea22b5a8", "4ebb2e7185554512", "e57b5388eda1677e", "3dcb22099f77fbb7", "df100d744969f774", "327e8e4dc4ca8ac5", "28550af75b82fe9d", "71de8bed0166660c", "270fb424ed008721", "00db0904785d4447", "567953b8d966fe16", "b723b82045946915", "83973f49e7e0c3f7", "415dc7fbd56d044d", "682ef27b1d8271b9", "713da238fb0dfb31", "a7f09adcc875a7e2", "a9bc15860daf82c6", "9dfc6b15177ebe4f", "1dcb657738729128", "8188c8d9df63994d", "0f11c089dc0a1eea", "a5ad2ae14542e5fa", "843a3bd978191ff2", "787af837a82e1955", "ba612ce1b85b9602", "7c9f1d18b41aff4b"]
+
+[[controls]]
+at = 0
+device = "keyboard"
+language = "de"
+
+[controls.keys]
+act = "SPACE"
+back = "X"
+bag = "TAB"
+next = "E"
+pause = "ESCAPE"
+prev = "Q"

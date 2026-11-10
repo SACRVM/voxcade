@@ -1,0 +1,13 @@
+# Mysterious, modal: exploring, something hidden.
+# python3 tools/compose.py music/under_the_dunes.compose.toml
+
+title = "Under the Dunes"
+out = ["under_the_dunes.mml", "../games/voxkeep/music/under_the_dunes.mml", "../templates/platformer/music/under_the_dunes.mml"]
+style = "mysterious"
+key = "e"
+tempo = 92
+seed = 3
+moods = ["Mysterious"]
+scale = "modal"
+melody = "some"
+variation = "most"        # bars vary within a section (tools/compose.py)

@@ -1,0 +1,18 @@
+# Voxcade replay: Pulsar, 2700 ticks, quit, score 6250
+version = 1
+game = "Pulsar"
+fingerprint = "8664e90e22590e8d"
+ticks = 2700
+outcome = "quit"
+score = 6250
+input = "none:60;fire:120;right+fire:40;fire:100;left+fire:80;up+fire:30;fire:120;down+fire:30;fire+bomb:2;right+fire:60;fire:200;left+fire:60;fire:298;left+fire:50;fire:120;right+fire:90;fire:100;left+fire:40;up+fire:20;fire:150;down+fire:20;fire+bomb:2;fire:160;right+fire:30;fire:118;left+fire:60;fire:200;right+fire:60;fire:280"
+checks = ["a09c74671cf5b370", "f883cd91fb29cc9d", "712409a7428265e4", "42260efc77f94d7d", "a7d893260e7d2193", "0c8253a196a9793e", "c4fde25572d2c1c3", "23af33eac19bad32", "664c100bbca27802", "e85c184a5bc6cc3b", "0ba975c03805236e", "744357b2ad3f2c8c", "b9701347aefd61bf", "b7ce91734145a8e2", "a7546e3a9c3c1a69", "6500d945ff54d318", "5118652487d6e893", "e20603299d7f5178", "d47ab1bb9eceb0ae", "569dfa54e710b47b", "e5051243b9f0ba3a", "7bd810368861f45a", "168c9e3d699b0350", "557fea6bfd485c97", "5958bfd6ac8a3d71", "6514818c71ede41c", "30379a2e63079dbc", "91e990999e897a85", "6e5b185f0247031e", "31dc761cd217c2d8", "f7b1cc5a3a59bd18", "58a51fcb6edee7b5", "ffe008047f68d3f6", "7b39d392315de77f", "94cbee97eed93982", "96d52102e194916b", "a34bd9738ce2a978", "669c32b236704860", "92c81edf5915cccd", "0fd0da46982bef85", "8b018a64d6c06ca6", "f8587adae159fdbb", "9fc3dd00bf8fd5dc", "d8f6a76cd31e1666", "8023168162b3f4cb"]
+
+[[controls]]
+at = 0
+device = "keyboard"
+
+[controls.keys]
+bomb = "X"
+fire = "Z"
+pause = "ESCAPE"

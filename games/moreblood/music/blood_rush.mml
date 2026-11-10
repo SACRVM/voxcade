@@ -1,0 +1,141 @@
+; Blood Rush: made by tools/midi2mml.py from blood_rush.import.toml;
+; run it again after changing the import file (this file is overwritten).
+; measured 120.00 BPM, notes 0% of a 16th off the grid on average
+
+#title Blood Rush
+#tempo 120
+
+@lead    saw attack=0.004 decay=0.2 sustain=0.5 release=0.12 cutoff=2800 cutoff_end=1200 cutoff_time=0.25 resonance=0.35 vibrato=0.01 vibrato_speed=5.5 vibrato_delay=0.15 volume=0.26
+@echo    saw attack=0.004 decay=0.2 sustain=0.5 release=0.12 cutoff=1866 cutoff_end=1200 cutoff_time=0.25 resonance=0.35 vibrato=0.01 vibrato_speed=5.5 vibrato_delay=0.15 volume=0.26
+@bass    square duty=0.5 pwm=0.15 pwm_speed=0.25 attack=0.002 decay=0.12 sustain=0.45 release=0.05 cutoff=1200 cutoff_end=320 cutoff_time=0.15 resonance=0.4 volume=0.6
+@kick    triangle freq=180 sweep=-22 sweep_time=0.05 attack=0.001 decay=0.17 sustain=0 release=0.02 sidechain=0.4 sidechain_release=0.25 volume=1
+@snare   noise freq=3500 attack=0.001 decay=0.16 sustain=0 release=0.03 lowpass=6000 duck=0 volume=0.42
+@hat     noise freq=15000 attack=0.001 decay=0.025 sustain=0 release=0.01 duck=0 volume=0.18
+@openhat noise freq=13000 attack=0.001 decay=0.14 sustain=0 release=0.02 duck=0 volume=0.2
+@crash   noise freq=11000 attack=0.001 decay=0.9 sustain=0 release=0.1 lowpass=9000 duck=0 volume=0.24
+
+; A: blood_rush/synth.mid channels all, high, 1153 notes
+A: @lead v12 q7 l16 p-20 o4 c+16 d+16 g16 c+16 g+16 c16 f16 g16 c16 d+16 g16 g16 a+16 c16 d+16 f16 | c16 d+16 g16 g16 g+16 c16 f16 g16 c16 d+16 a+16 c+16 g+16 c16 f16 g16 | c16 d+16 g16 g16 g+16 c+16 f16 g16 c+16 d+16 g16 c16 a+16 c+16 d+16 f16 | c16 d+16 g16 c16 g+16 c+16 f16 g16 c16 d+16 a+16 c16 o5 d16 c16 o4 d16 d+16
+A: c16 d+16 g16 c16 g+16 c16 f16 o3 b16 o4 c+16 d+16 g16 c16 a+16 c+16 d+16 f16 | c16 d+16 g16 c+16 g+16 c16 f16 g16 c16 d+16 a+16 c16 g+16 c16 f16 g16 | c16 d+16 g16 c16 g+16 c16 f16 g16 c16 d+16 g16 c16 a+16 c16 d+16 f16 | c16 d+16 g16 c16 g+16 c16 f16 g16 c+16 d+16 a+16 c16 o5 d16 c16 o4 d16 d+16
+A: c16 d+16 g16 c16 g+16 c16 f16 g16 c16 d+16 g16 c16 a+16 c16 d+16 f16 | c16 d+16 g16 c16 g+16 c16 f16 g16 c16 d+16 a+16 c16 g+16 c16 f16 g16 | c16 d+16 g16 c16 g+16 c16 f16 g16 c16 d+16 g16 c16 a+16 c16 d+16 f16 | c16 d+16 g16 c16 g+16 c16 f16 g16 c16 d+16 a+16 c16 o5 d16 o4 c16 d16 d+16
+A: o6 c16 o5 g16 d+16 c16 f16 d+16 c16 o6 c16 o5 c16 g16 d+16 o6 c16 o5 c16 o4 d+16 d16 c16 | o5 c16 o4 g16 d+16 o5 c16 o4 g16 o5 d+16 d16 o6 c16 o5 d16 g16 d+16 f16 d16 d+16 o4 f16 g16 | o6 c16 o5 g16 d+16 o6 c16 o5 f16 d+16 c16 o6 c16 o5 c16 g16 d+16 o6 c16 o5 c16 o4 d+16 d+16 c16 | o5 c16 o4 g16 d+16 o5 c16 o4 g16 o5 d+16 d16 o6 c16 o5 d16 g16 d+16 f16 d16 d+16 o4 f16 g16
+A: o5 c16 o4 g16 g16 d+16 g+16 g16 d+16 o5 c16 o4 d+16 o5 c16 o4 g16 d+16 g+16 g16 f16 d+16 | o5 c16 o4 g16 g16 d+16 g+16 g16 d+16 o5 d16 o4 d+16 o5 d+16 o4 g16 d+16 g+16 g16 f16 d+16 | o5 c16 o4 g+16 g16 c16 g16 g16 d+16 o5 d16 o4 d+16 o5 c16 o4 g16 d+16 g+16 g16 d+16 c16 | o5 c16 o4 g+16 g16 c16 g+16 g16 d+16 o5 d16 o4 g+16 o5 d+16 o4 g+16 o5 d16 f16 o4 g+16 o5 g16 d+16
+A: g+16 d+16 o4 g16 o5 d+16 o4 g+16 o5 d+16 f16 d+16 o3 g+16 o5 d+16 g16 d+16 o4 c16 o5 d+8 r16 | g16 o4 g16 o5 c16 g16 c16 d+16 c16 f16 o4 g8 o5 d+16 o4 g16 o5 d16 o4 g16 a+16 g16 | o5 g8 c16 g16 c16 d+16 c16 f16 o4 g8 o5 d+16 o4 g16 o5 d16 o4 g16 a+16 o5 c16 | a+16 o4 a+16 o5 d+16 a+16 d16 d+16 d16 d+16 o4 a+8 o5 d+16 o4 a+16 o5 d16 o4 a+16 o5 d+16 o4 a+16
+A: o5 g16 o4 a+16 o5 d+16 g16 o4 a+16 o5 g16 d+16 g+16 o4 a+16 o5 g+16 d+16 o4 a+16 o5 g16 d16 g16 g+16 | g16 o4 g16 o5 c16 g16 c16 d+16 c16 f16 o4 g8 o5 d+16 o4 g16 o5 d16 o4 g16 a+16 g16 | o5 g8 c16 g16 c16 d+16 c16 f16 o4 g8 o5 d+16 o4 g16 o5 d16 o4 g16 a+16 o5 c16 | a+16 o4 a+16 o5 d+16 a+16 d16 d+16 d16 d+16 o4 a+8 o5 d+16 o4 a+16 o5 d16 o4 a+16 o5 d+16 o4 a+16
+A: o5 g16 o4 a+16 o5 d+16 g16 o4 a+16 o5 g16 o4 e16 o5 g+16 o4 a+16 o5 g+16 d+16 o4 a+16 o5 g16 d16 g16 g+16 | f16 o4 g+16 f+8 o5 c16 o4 f+16 o5 c16 d+16 o4 f16 g+16 o5 d+16 o4 f+16 o5 d16 o4 g+16 f+16 g+16 | o5 g+8 c16 g+16 c16 g+16 c16 d+16 o4 f16 g+16 o5 d+16 o4 g+16 o5 d16 o4 g+16 o5 d+16 o4 g+16 | o5 g16 o4 g16 o5 c16 g16 c16 g16 c16 d+16 o4 g8 o5 d+16 o4 g16 o5 d16 o4 g16 a+16 g16
+A: o5 g8 c16 g16 c16 g16 c16 d+16 o4 a+16 o5 d16 d+16 d16 d+16 o4 a+16 o5 d+16 g16 | g+16 o4 g+16 o5 c16 g+16 c16 g+16 c16 d+16 o4 f16 g+16 o5 d+16 o4 g+16 o5 d16 o4 g+16 o5 g16 o4 g+16 | o5 g+8 c16 g+16 c16 g+16 c16 d+16 o4 f16 g+16 o5 d+16 o4 g+16 o5 d16 o4 g+16 o5 d+16 o4 g+16 | o5 g16 o4 g16 b16 o5 g16 o4 b16 o5 g16 o4 b16 o5 d16 o4 g8 o5 c16 o4 g16 o5 d16 o4 g16 b16 g16
+A: o5 g8 o4 b16 o5 g16 o4 b16 o5 g16 o4 b16 o5 f16 o4 b16 o5 f16 o4 b16 f16 o5 d16 o4 f16 b16 f16 | o6 c16 o5 g16 d+16 o6 c16 o5 d+16 o6 c16 o5 d16 d+16 o6 c16 o5 g16 d16 o6 c16 o4 g16 o5 d+16 o4 a+16 o5 c16 | d16 o4 a+16 g16 o5 d16 d+16 o4 g16 o5 c16 d16 d16 d16 o4 d+16 f16 d16 d+16 o3 a+16 o4 c16 | o6 c16 o5 g16 d+16 o6 c16 o5 d+16 o6 c16 o5 d16 d+16 o6 c16 o4 g16 o5 d16 o6 c16 o4 g16 o5 d+16 o4 a+16 o5 c16
+A: d16 o4 a+16 g16 o5 d16 d+16 o4 g16 o5 c16 d16 o4 g16 o5 d16 o4 d+16 f16 d16 d+16 o3 a+16 o4 c16 | o6 c16 o5 g16 d+16 o6 c16 o5 d+16 o6 c16 o5 d16 d+16 o6 c16 o4 g16 o5 d16 o4 f16 o5 d16 d+16 o4 a+16 o5 c16 | d16 o4 a+16 g16 o5 d16 d+16 o4 g16 o5 c16 d16 o4 g16 o5 d16 o4 d+16 f16 d16 d+16 o3 a+16 o4 c16 | g16 d+16 c16 g16 d+16 g16 c16 g16 d+16 g16 g16 g16 d+16 g16 c16 g16
+A: f16 g16 c16 g16 d+16 g16 g16 g16 d+16 g16 c16 g16 d+16 g16 c16 g16 | o6 c16 o5 g16 d+16 c16 d+16 d+16 d16 d+16 o6 c16 o4 g16 o5 d16 f16 g16 d+16 o4 a+16 o5 c16 | d16 o4 a+16 g16 o5 d16 d+16 o4 g16 o5 c16 d16 o4 g16 o5 d16 o4 d+16 f16 d16 d+16 o3 a+16 o4 g16 | o6 c16 o5 g16 d+16 o6 c16 o5 d+16 d+16 d16 d+16 o6 c16 o5 g16 d16 f16 g16 d+16 o4 a+16 c16
+A: o5 d16 o4 a+16 g16 o5 d16 d+16 o4 g16 o5 c16 d16 o4 g16 o5 d16 o4 d+16 f16 d+16 d+16 o3 a+16 o4 c16 | o6 c16 o5 g16 d+16 o6 c16 o5 d+16 d+16 d16 d+16 o6 c16 o5 g16 d16 f16 g16 d+16 o4 a+16 o5 c16 | d16 o4 a+16 g16 o5 d16 d+16 o4 g16 o5 c16 d16 o4 g16 o5 d16 o4 d+16 f16 d16 d+16 o3 a+16 o4 f16 | g16 g16 c16 g16 d+16 g16 c16 g16 d+16 g16 c16 g16 d+16 g16 c16 g16
+A: f16 g16 c16 g16 d+16 g16 c16 g16 d+16 g16 c16 g16 d+16 g16 c16 g16 | o6 c16 o5 g16 d+16 o6 c16 o5 d+16 d+16 d16 d+16 o6 c16 o4 g16 o5 d16 f16 g16 d+16 o4 a+16 c16 | o5 d16 o4 a+16 o5 d16 d16 d+16 o4 g16 o5 c16 d16 o4 g16 o5 d16 o4 d+16 o5 d16 o4 d16 d+16 o3 a+16 o4 c16 | o6 c16 o5 g16 d+16 o6 c16 o5 d+16 d+16 d16 d+16 o6 c16 o5 g16 d+16 f16 g16 d+16 o4 a+16 c16
+A: o5 d16 o4 a+16 o5 d16 d16 d+16 o4 g16 o5 c16 d16 o4 g16 o5 d16 o4 d+16 f16 d16 d+16 o3 a+16 o4 d16 | o6 c16 o5 g16 d+16 o6 c16 o5 d+16 d+16 d16 d+16 o6 c16 o5 g16 d16 f16 g16 d+16 o4 a+16 o5 c16 | d16 o4 a+16 g16 o5 d16 d+16 o4 g16 o5 c16 d16 o4 g16 o5 d16 o4 d+16 f16 d16 f16 o3 a+16 o4 f16 | g16 g16 c16 g16 d+16 g16 c16 g16 d+16 g16 c16 g16 d+16 g16 c16 g16
+A: f16 g16 c16 g16 d+16 g16 c16 g16 d+16 g16 g16 g16 d+16 g16 g16 d+16 | c16 d+16 g16 c16 g+16 c16 f16 g16 c16 d+16 g16 c16 g16 c16 d+16 f16 | c16 d+16 g16 c16 g+16 c16 f16 g16 c16 d+16 g16 c16 g+16 g16 f16 g16 | c16 d+16 g16 c16 g+16 c16 f16 g16 c16 d+16 g16 c16 g16 g16 d+16 f16
+A: c16 d+16 g16 c16 g+16 c16 f16 g16 g16 d+16 g16 g16 o5 d16 o4 c16 d16 d+16 | c16 d+16 g16 g16 g+16 c16 f16 g16 c16 e16 g16 g16 g16 g16 d+16 f16 | c16 d+16 g16 c16 g+16 c16 f16 g16 g16 d+16 g16 g16 g+16 d+16 f16 g16 | c16 d+16 g16 c16 g+16 c16 f16 g16 g16 d+16 g16 g16 g16 g16 g16 f16
+A: c16 d+16 g16 c16 g+16 c16 f16 g16 c16 d+16 g16 g16 o5 d16 c16 o4 d16 d+16 | o6 c16 o5 g16 d+16 o6 c16 o5 d+16 d+16 d16 d+16 o6 c16 o5 g16 d16 f16 g16 d+16 o4 a+16 o5 c16 | d16 o4 a+16 g16 o5 d16 d+16 o4 g16 o5 c16 d16 o4 g16 o5 d16 o4 d+16 f16 d16 d+16 o3 a+16 o4 c16 | o6 c16 o5 g16 d+16 o6 c16 o5 d+16 d+16 d16 d+16 o6 c16 o4 g16 o5 d16 f16 g16 d+16 o4 a+16 o5 c16
+A: d16 o4 a+16 g16 o5 d16 d+16 o4 g16 o5 c16 d16 d16 d16 o4 d+16 f16 d16 d+16 o3 a+16 o4 c16 | o3 g+8 o4 c+4 r2 r8
+
+; E: blood_rush/synth.mid channels all, high, 1153 notes
+E: @echo v4 q7 l16 p25 r8. o4 c+16 d+16 g16 c+16 g+16 c16 f16 g16 c16 d+16 g16 g16 a+16 | c16 d+16 f16 c16 d+16 g16 g16 g+16 c16 f16 g16 c16 d+16 a+16 c+16 g+16 | c16 f16 g16 c16 d+16 g16 g16 g+16 c+16 f16 g16 c+16 d+16 g16 c16 a+16 | c+16 d+16 f16 c16 d+16 g16 c16 g+16 c+16 f16 g16 c16 d+16 a+16 c16 o5 d16
+E: c16 o4 d16 d+16 c16 d+16 g16 c16 g+16 c16 f16 o3 b16 o4 c+16 d+16 g16 c16 a+16 | c+16 d+16 f16 c16 d+16 g16 c+16 g+16 c16 f16 g16 c16 d+16 a+16 c16 g+16 | c16 f16 g16 c16 d+16 g16 c16 g+16 c16 f16 g16 c16 d+16 g16 c16 a+16 | c16 d+16 f16 c16 d+16 g16 c16 g+16 c16 f16 g16 c+16 d+16 a+16 c16 o5 d16
+E: c16 o4 d16 d+16 c16 d+16 g16 c16 g+16 c16 f16 g16 c16 d+16 g16 c16 a+16 | c16 d+16 f16 c16 d+16 g16 c16 g+16 c16 f16 g16 c16 d+16 a+16 c16 g+16 | c16 f16 g16 c16 d+16 g16 c16 g+16 c16 f16 g16 c16 d+16 g16 c16 a+16 | c16 d+16 f16 c16 d+16 g16 c16 g+16 c16 f16 g16 c16 d+16 a+16 c16 o5 d16
+E: o4 c16 d16 d+16 o6 c16 o5 g16 d+16 c16 f16 d+16 c16 o6 c16 o5 c16 g16 d+16 o6 c16 o5 c16 | o4 d+16 d16 c16 o5 c16 o4 g16 d+16 o5 c16 o4 g16 o5 d+16 d16 o6 c16 o5 d16 g16 d+16 f16 d16 | d+16 o4 f16 g16 o6 c16 o5 g16 d+16 o6 c16 o5 f16 d+16 c16 o6 c16 o5 c16 g16 d+16 o6 c16 o5 c16 | o4 d+16 d+16 c16 o5 c16 o4 g16 d+16 o5 c16 o4 g16 o5 d+16 d16 o6 c16 o5 d16 g16 d+16 f16 d16
+E: d+16 o4 f16 g16 o5 c16 o4 g16 g16 d+16 g+16 g16 d+16 o5 c16 o4 d+16 o5 c16 o4 g16 d+16 g+16 | g16 f16 d+16 o5 c16 o4 g16 g16 d+16 g+16 g16 d+16 o5 d16 o4 d+16 o5 d+16 o4 g16 d+16 g+16 | g16 f16 d+16 o5 c16 o4 g+16 g16 c16 g16 g16 d+16 o5 d16 o4 d+16 o5 c16 o4 g16 d+16 g+16 | g16 d+16 c16 o5 c16 o4 g+16 g16 c16 g+16 g16 d+16 o5 d16 o4 g+16 o5 d+16 o4 g+16 o5 d16 f16
+E: o4 g+16 o5 g16 d+16 g+16 d+16 o4 g16 o5 d+16 o4 g+16 o5 d+16 f16 d+16 o3 g+16 o5 d+16 g16 d+16 o4 c16 | o5 d+8 r16 g16 o4 g16 o5 c16 g16 c16 d+16 c16 f16 o4 g8 o5 d+16 o4 g16 o5 d16 | o4 g16 a+16 g16 o5 g8 c16 g16 c16 d+16 c16 f16 o4 g8 o5 d+16 o4 g16 o5 d16 | o4 g16 a+16 o5 c16 a+16 o4 a+16 o5 d+16 a+16 d16 d+16 d16 d+16 o4 a+8 o5 d+16 o4 a+16 o5 d16
+E: o4 a+16 o5 d+16 o4 a+16 o5 g16 o4 a+16 o5 d+16 g16 o4 a+16 o5 g16 d+16 g+16 o4 a+16 o5 g+16 d+16 o4 a+16 o5 g16 | d16 g16 g+16 g16 o4 g16 o5 c16 g16 c16 d+16 c16 f16 o4 g8 o5 d+16 o4 g16 o5 d16 | o4 g16 a+16 g16 o5 g8 c16 g16 c16 d+16 c16 f16 o4 g8 o5 d+16 o4 g16 o5 d16 | o4 g16 a+16 o5 c16 a+16 o4 a+16 o5 d+16 a+16 d16 d+16 d16 d+16 o4 a+8 o5 d+16 o4 a+16 o5 d16
+E: o4 a+16 o5 d+16 o4 a+16 o5 g16 o4 a+16 o5 d+16 g16 o4 a+16 o5 g16 o4 e16 o5 g+16 o4 a+16 o5 g+16 d+16 o4 a+16 o5 g16 | d16 g16 g+16 f16 o4 g+16 f+8 o5 c16 o4 f+16 o5 c16 d+16 o4 f16 g+16 o5 d+16 o4 f+16 o5 d16 | o4 g+16 f+16 g+16 o5 g+8 c16 g+16 c16 g+16 c16 d+16 o4 f16 g+16 o5 d+16 o4 g+16 o5 d16 | o4 g+16 o5 d+16 o4 g+16 o5 g16 o4 g16 o5 c16 g16 c16 g16 c16 d+16 o4 g8 o5 d+16 o4 g16 o5 d16
+E: o4 g16 a+16 g16 o5 g8 c16 g16 c16 g16 c16 d+16 o4 a+16 o5 d16 d+16 d16 d+16 | o4 a+16 o5 d+16 g16 g+16 o4 g+16 o5 c16 g+16 c16 g+16 c16 d+16 o4 f16 g+16 o5 d+16 o4 g+16 o5 d16 | o4 g+16 o5 g16 o4 g+16 o5 g+8 c16 g+16 c16 g+16 c16 d+16 o4 f16 g+16 o5 d+16 o4 g+16 o5 d16 | o4 g+16 o5 d+16 o4 g+16 o5 g16 o4 g16 b16 o5 g16 o4 b16 o5 g16 o4 b16 o5 d16 o4 g8 o5 c16 o4 g16 o5 d16
+E: o4 g16 b16 g16 o5 g8 o4 b16 o5 g16 o4 b16 o5 g16 o4 b16 o5 f16 o4 b16 o5 f16 o4 b16 f16 o5 d16 | o4 f16 b16 f16 o6 c16 o5 g16 d+16 o6 c16 o5 d+16 o6 c16 o5 d16 d+16 o6 c16 o5 g16 d16 o6 c16 o4 g16 | o5 d+16 o4 a+16 o5 c16 d16 o4 a+16 g16 o5 d16 d+16 o4 g16 o5 c16 d16 d16 d16 o4 d+16 f16 d16 | d+16 o3 a+16 o4 c16 o6 c16 o5 g16 d+16 o6 c16 o5 d+16 o6 c16 o5 d16 d+16 o6 c16 o4 g16 o5 d16 o6 c16 o4 g16
+E: o5 d+16 o4 a+16 o5 c16 d16 o4 a+16 g16 o5 d16 d+16 o4 g16 o5 c16 d16 o4 g16 o5 d16 o4 d+16 f16 d16 | d+16 o3 a+16 o4 c16 o6 c16 o5 g16 d+16 o6 c16 o5 d+16 o6 c16 o5 d16 d+16 o6 c16 o4 g16 o5 d16 o4 f16 o5 d16 | d+16 o4 a+16 o5 c16 d16 o4 a+16 g16 o5 d16 d+16 o4 g16 o5 c16 d16 o4 g16 o5 d16 o4 d+16 f16 d16 | d+16 o3 a+16 o4 c16 g16 d+16 c16 g16 d+16 g16 c16 g16 d+16 g16 g16 g16 d+16
+E: g16 c16 g16 f16 g16 c16 g16 d+16 g16 g16 g16 d+16 g16 c16 g16 d+16 | g16 c16 g16 o6 c16 o5 g16 d+16 c16 d+16 d+16 d16 d+16 o6 c16 o4 g16 o5 d16 f16 g16 | d+16 o4 a+16 o5 c16 d16 o4 a+16 g16 o5 d16 d+16 o4 g16 o5 c16 d16 o4 g16 o5 d16 o4 d+16 f16 d16 | d+16 o3 a+16 o4 g16 o6 c16 o5 g16 d+16 o6 c16 o5 d+16 d+16 d16 d+16 o6 c16 o5 g16 d16 f16 g16
+E: d+16 o4 a+16 c16 o5 d16 o4 a+16 g16 o5 d16 d+16 o4 g16 o5 c16 d16 o4 g16 o5 d16 o4 d+16 f16 d+16 | d+16 o3 a+16 o4 c16 o6 c16 o5 g16 d+16 o6 c16 o5 d+16 d+16 d16 d+16 o6 c16 o5 g16 d16 f16 g16 | d+16 o4 a+16 o5 c16 d16 o4 a+16 g16 o5 d16 d+16 o4 g16 o5 c16 d16 o4 g16 o5 d16 o4 d+16 f16 d16 | d+16 o3 a+16 o4 f16 g16 g16 c16 g16 d+16 g16 c16 g16 d+16 g16 c16 g16 d+16
+E: g16 c16 g16 f16 g16 c16 g16 d+16 g16 c16 g16 d+16 g16 c16 g16 d+16 | g16 c16 g16 o6 c16 o5 g16 d+16 o6 c16 o5 d+16 d+16 d16 d+16 o6 c16 o4 g16 o5 d16 f16 g16 | d+16 o4 a+16 c16 o5 d16 o4 a+16 o5 d16 d16 d+16 o4 g16 o5 c16 d16 o4 g16 o5 d16 o4 d+16 o5 d16 o4 d16 | d+16 o3 a+16 o4 c16 o6 c16 o5 g16 d+16 o6 c16 o5 d+16 d+16 d16 d+16 o6 c16 o5 g16 d+16 f16 g16
+E: d+16 o4 a+16 c16 o5 d16 o4 a+16 o5 d16 d16 d+16 o4 g16 o5 c16 d16 o4 g16 o5 d16 o4 d+16 f16 d16 | d+16 o3 a+16 o4 d16 o6 c16 o5 g16 d+16 o6 c16 o5 d+16 d+16 d16 d+16 o6 c16 o5 g16 d16 f16 g16 | d+16 o4 a+16 o5 c16 d16 o4 a+16 g16 o5 d16 d+16 o4 g16 o5 c16 d16 o4 g16 o5 d16 o4 d+16 f16 d16 | f16 o3 a+16 o4 f16 g16 g16 c16 g16 d+16 g16 c16 g16 d+16 g16 c16 g16 d+16
+E: g16 c16 g16 f16 g16 c16 g16 d+16 g16 c16 g16 d+16 g16 g16 g16 d+16 | g16 g16 d+16 c16 d+16 g16 c16 g+16 c16 f16 g16 c16 d+16 g16 c16 g16 | c16 d+16 f16 c16 d+16 g16 c16 g+16 c16 f16 g16 c16 d+16 g16 c16 g+16 | g16 f16 g16 c16 d+16 g16 c16 g+16 c16 f16 g16 c16 d+16 g16 c16 g16
+E: g16 d+16 f16 c16 d+16 g16 c16 g+16 c16 f16 g16 g16 d+16 g16 g16 o5 d16 | o4 c16 d16 d+16 c16 d+16 g16 g16 g+16 c16 f16 g16 c16 e16 g16 g16 g16 | g16 d+16 f16 c16 d+16 g16 c16 g+16 c16 f16 g16 g16 d+16 g16 g16 g+16 | d+16 f16 g16 c16 d+16 g16 c16 g+16 c16 f16 g16 g16 d+16 g16 g16 g16
+E: g16 g16 f16 c16 d+16 g16 c16 g+16 c16 f16 g16 c16 d+16 g16 g16 o5 d16 | c16 o4 d16 d+16 o6 c16 o5 g16 d+16 o6 c16 o5 d+16 d+16 d16 d+16 o6 c16 o5 g16 d16 f16 g16 | d+16 o4 a+16 o5 c16 d16 o4 a+16 g16 o5 d16 d+16 o4 g16 o5 c16 d16 o4 g16 o5 d16 o4 d+16 f16 d16 | d+16 o3 a+16 o4 c16 o6 c16 o5 g16 d+16 o6 c16 o5 d+16 d+16 d16 d+16 o6 c16 o4 g16 o5 d16 f16 g16
+E: d+16 o4 a+16 o5 c16 d16 o4 a+16 g16 o5 d16 d+16 o4 g16 o5 c16 d16 d16 d16 o4 d+16 f16 d16 | d+16 o3 a+16 o4 c16 o3 g+8 o4 c+4 r4. r16
+
+; B: blood_rush/bass.mid channels all, low, 538 notes
+B: @bass v13 q7 l16 r1 | r1 | r1 | r1
+B: o2 c8 c8 b16 c8 c16 b16 a+16 c8 r8 a+16 c16 | c8 c8 r16 c8 c16 r16 c16 c8 r16 d+16 a+16 g+16 | g+8 g+8 r16 g+8 g+8 g+16 g+8 r8 g16 g+16 | g+8 g+8 r16 g+8 g+8 g+16 g+8 r16 d+16 a+16 c16
+B: c8 c8 r16 c8 c8 c16 c8 r8 a+16 c16 | c8 c8 r16 c8 c8 c16 c8 r16 d+16 d16 c16 | g+8 g+8 r16 g+8 g+8 g+8. r8 g16 g+16 | g+8 g+8 r16 g+8 g+8 g+16 g+8 g16 d+16 d16 c16
+B: c8 c8 r16 c8 c8 c16 c8 r8 a+16 c16 | c8 c8 r16 c8 c8 c16 c8 r16 d+16 a+16 c16 | g+8 g+8 r16 g+8 g+8 g+16 g+8 r8 g16 g+16 | g+8 g+8 r16 g+8 g+8 g+16 g+8 r16 d+16 a+16 c16
+B: d+8 d+8 r16 d+8 d+8 d+16 d+8 r8 d16 d+16 | d+8 d+8 r16 d+8 d+8 d+16 d+8 r16 f16 d16 d+16 | g+8 g+8 g+16 g+8 g+8 g+16 g+8 r8 g16 g+16 | f8 f8 r16 f8 f8 f16 f8 r8 d+16 f16&
+B: f16 r2. r8. | c+16 c16 c16 c16 r16 c16 c16 c16 r16 c8 c16 r16 c16 a+16 c16 | c+16 c16 c16 c16 r16 c16 c16 c16 r16 c8 c16 r16 c16 a+16 c16 | c+16 g+16 g+16 g+8 g+16 g+16 g+8 g+16 g+16 g+8 g+16 g+16 g+16
+B: c+16 d+16 d+16 d+16 r16 d+16 d+16 d+16 r16 d+16 d+16 d+16 r16 d16 d+16 d+16& | d+16 c16 c16 c16 r16 c16 c16 c16 r16 c16 c16 c16 r16 c16 a+16 c16 | c16 c16 c16 c16 r16 c16 c16 c16 r16 c16 c16 c16 r16 c16 a+16 c16 | r16 g+16 g+16 g+8 g+16 g+16 g+16 g+16 g+16 g+16 g+8 g+16 g+16 g+16
+B: r16 d+16 d+16 d+16 r16 d+16 d+16 d+16 r16 d+16 d+16 d+16 r16 d16 d+16 d+16 | r16 f16 f16 f16 r16 f16 f16 f16 r16 f16 f16 f16 r16 f16 f16 f16 | r16 f16 f16 f16 r16 f16 f16 f16 r16 f16 f16 f16 r16 f16 d+16 f16 | r16 c16 c16 c16 r16 c16 c16 c16 r16 c16 c16 c16 r16 c16 a+16 c16
+B: r16 c16 c16 c16 r16 c16 c16 c16 r16 c16 c16 c16 r16 c16 a+16 c16 | r16 f16 f16 f16 r16 f16 f16 f16 r16 f8 f16 r16 f16 f16 f16 | r16 f16 f16 f16 r16 f16 f16 f16 r16 f16 f16 f16 r16 f16 d+16 f16 | r16 g16 g16 g16 r16 g16 g16 g16 r16 g16 g16 g16 r16 g16 g16 g16
+B: r1 | r1 | r1 | c1&
+B: c2&8 r4. | g+1 | a+1 | f1&
+B: f2.&16 r8. | r16 c16 c16 c16 r16 c16 c16 c16 r16 c8 c16 r16 c8 c16 | r16 c8 c16 r16 c16 c16 c16 r16 c8 c16 r16 c16 a+16 c16 | r16 g+8 g+16 r16 g+8 g+16 r16 g+8 g+16 r16 g+16 g+8
+B: r16 a+8 a+16 r16 a+8. r16 a+8 a+16 r16 a+16 a+16 a+16 | r16 f16 f16 f16 r16 f16 f16 f16 r16 f16 f16 f16 r16 f16 f16 f16 | r16 f16 f16 f16 r16 f16 f16 f16 r16 f8 f16 r16 f16 d+16 f16 | r16 g16 g16 g16 r16 g16 g16 g16 r16 g16 g16 g16 r16 g16 g16 g16
+B: r16 g16 g16 g16 r16 g16 g16 g16 r16 g8. r16 g16 f16 g16 | r16 c8 c16 r16 c16 c16 c16 r16 c8 c16 r16 c8 c16 | r16 c16 c8 r16 c8 c16 r16 c8 c16 r16 c16 a+16 c16 | r16 g+8 g+16 r16 g+16 g+8 r16 g+16 g+16 g+16 r16 g+16 g+8
+B: r16 a+8 a+16 r16 a+16 a+16 a+16 r16 a+8 a+16 r16 a+16 a+16 a+16 | r16 f16 f16 f16 r16 f16 f16 f16 r16 f8 f16 r16 f16 f16 f16 | r16 f16 f16 f16 r16 f16 f16 f16 r16 f16 f16 f16 r16 f16 d+16 f16 | r16 g16 g16 g16 r16 g16 g16 g16 r16 g16 g16 g16 r16 g16 g16 g16
+B: r1 | c16 r16 c8 r16 c8 c8 c8 r8. a+16 c16& | c16 r16 c8 r16 c8 c8 c8 r8 c16 a+16 c16 | g+8 g+8 r16 g+8 g+8 g+8. r8 g16 g+16&
+B: g+8 g+8 r16 g+8 g+8 g+8. r16 g+16 a+16 c16& | c16 r16 c8 r16 c8 c16 r16 c8 r8. a+16 c16& | c16 r16 c8 r16 c8 c16 r16 c8 r8 c16 a+16 c16 | g+8 g+8 r16 g+8 g+8 g+8. r8 g16 g+16&
+B: g+8 g+8 r16 g+8 g+8 g+8. r16 g+16 a+8 | r1 | r1 | r1
+B: r1 | g+8 g16 f+16 c16 g+16 c2&8
+
+; D: blood_rush/drums.mid channels all, drums, 173 notes
+D: v14 q8 l16 r1 | r1 | r1 | r1
+D: @kick c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4.
+D: c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4.
+D: c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4.
+D: c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4. | c8. c8. c4 c8. c8.
+D: c1 | c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4.
+D: c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4.
+D: c4.&16 c8. c8. c8. | c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4.
+D: c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4.&
+D: c1& | c1& | c1& | c1&
+D: c1& | c1& | c1& | c1&
+D: c2&8 c4 c8 | c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4.
+D: c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4.
+D: c8. c8. c4 c8. c8. | c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4.
+D: c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4.&
+D: c1 | c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4.
+D: c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4. | c4.&16 c8. c4.
+D: c4.&16 c8. c8. c8. | c1& | c1& | c1&
+D: c1 | c16 r2. r8.
+
+; C: blood_rush/drums.mid channels all, drums, 133 notes
+C: v13 q8 l16 r1 | r1 | r1 | r1
+C: r4 @snare c2 c4& | c4 c2 c4& | c4 c2 c4& | c4 c2 c4&
+C: c4 c2 c4& | c4 c2 c4& | c4 c2 c4& | c4 c4&16 c8. c8 c16 c16&
+C: c4 c2 c4& | c4 c2 c4& | c4 c2 c4& | c4 c2 c4&
+C: c4 c2 c4& | c4 c2 c4& | c4 c2 c4& | c16 c8. c4&16 c8 c16 c8 c16 c16&
+C: c2. c16 c16 c16 c16& | c4 c2 c4& | c4 c2 c4& | c4 c2 c4&
+C: c4 c2 c4& | c4 c2 c4& | c4 c2 c4& | c4 c2 c4&
+C: c4 c4&16 c8. c8 c16 c16& | c4 c2 c4& | c4 c2 c4& | c4 c2 c4&
+C: c4 c2 c4& | c4 c2 c4& | c4 c2 c4& | c4 c2 c4&
+C: c1& | c1& | c1& | c1&
+C: c1& | c1& | c1& | c1&
+C: c2. c16 c8.& | c4 c2 c4& | c4 c2 c4& | c4 c2 c4&
+C: c4 c2 c4& | c4 c2 c4& | c4 c2 c4& | c4 c2 c4&
+C: c16 c8. c4&16 c8 c16 c8 c16 c16& | c4 c2 c4& | c4 c2 c4& | c4 c2 c4&
+C: c4 c2 c4& | c4 c2 c4& | c4 c2 c4& | c4 c2 c4&
+C: c1& | c4 c2 c4& | c4 c2 c4& | c4 c2 c4&
+C: c4 c2 c4& | c4 c2 c4& | c4 c2 c4& | c4 c2 c4&
+C: c4 c4&16 c8. c8 c16 c16 | r1 | r1 | r1
+C: r1 | r1
+
+; H: blood_rush/drums.mid channels all, drums, 306 notes
+H: v13 q8 l16 p15 r1 | r1 | r1 | r1
+H: r1 | r1 | r1 | r1
+H: r1 | r1 | r1 | r1
+H: r1 | r1 | r1 | r1
+H: r1 | r2 r8 @openhat c4 @hat c8& | c4. c4 c4 c8& | c8 c4 @openhat c8 @hat c8 @openhat c8. c8.&
+H: c1 | c8 @hat c16 c8. c8 c8 c4 c8& | c8 c4 c8 c8 c4 c8 | c8 c4 c8 c8 c4 c8&
+H: c8 c4 c8 c8 c4 c8& | c8 c4 c8 c8 c4 c8 | c8 c4 c8 c8 c16 c8. c8& | c8 c4 c8 c8 c16 c8. c8&
+H: c8 c4 c8 c8 c4. | @openhat c8 @hat c4 c8 c8 c16 c8. c8& | c8 c4 c8 c8 c4 c8 | c8 c4 c8 c8 c16 c8. c8&
+H: c8 c4 c8 c8 c4 c8& | c8 c4 c8 c8 c16 c8. c8 | c8 c4 c8 c8 c16 c8. c8 | c8 c4 c8 c8 c4 c8&
+H: c1& | c1& | c1& | c1&
+H: c1& | c1& | c1& | c1&
+H: c1 | c8 c4 c8 c8 c4 c16 c16& | c8 c4 c8 c8 c4 c8& | c8 c4 c8 c8 c4 c8&
+H: c8 c4 c8 c8 c4 c8 | c8 c4 c8 c8 c4 c8 | c8 c4 c16 c16 c8 c4 c16 c16 | c8 c4 c16 c16 c8 c4 c16 c16
+H: c8 c4 c16 c16 c8 c4. | @openhat c8 c4 @hat c16 c16 c8 c4 c16 c16 | c8 c4 c8 c8 c4 c8& | c8 c4 c8 c8 c4 c16 c16
+H: c8 c4 c16 c16 c8 c4 c8 | c8 c4 c8 c8 c4 c8 | c8 c4 c16 c16 c8 c16 c8. c16 c16 | c8 c16 c8. c16 c16 c8 c16 c8. c16 c16&
+H: c1 | c16 c16 c16 c16 c8 c16 c16 c16 c16 c16 c8 c16 c16 c16 | c16 c16 c16 c8. c16 c16 c16 c16 c16 c8. c16 c16 | c16 c16 c16 c8. c16 c16 c16 c16 c16 c8 c16 c16 c16
+H: c16 c16 c16 c8 c16 c16 c16 c16 c16 c16 c8. c16 c16 | c16 c16 c16 c8 c16 c16 c16 c16 c16 c16 c8 c16 c16 c16 | c16 c16 c16 c8 c16 c16 c16 c16 c16 c16 c8 c16 c16 c16 | c16 c16 c16 c8 c16 c16 c16 c16 c16 c16 c8 c16 c16 c16
+H: c16 c16 c16 c8 c16 c16 c16 c8 c16 c8 c16 c16 r16 | r1 | r1 | r1
+H: r1 | r1

@@ -1,0 +1,52 @@
+; More Blood: the march through the canyon. Dark, menacing, C64 style.
+; D minor with the flat second (e-flat) in the bass for the threat, a low
+; drone underneath, chords as fast arpeggios, a military snare.
+;
+; 4 bars intro (bass, drone, hats), 8 bars theme, 8 bars rising, then
+; it starts over. Save this file while the game runs to hear changes.
+
+#title Desert March
+#tempo 112
+
+@lead   square duty=0.25 pwm=0.12 pwm_speed=0.7 attack=0.01 decay=0.3 sustain=0.55 release=0.25 vibrato=0.012 vibrato_speed=5.5 vibrato_delay=0.2 volume=0.36
+@bass   square duty=0.5 attack=0.002 decay=0.12 sustain=0.6 release=0.05 lowpass=1100 volume=0.5
+@min    square duty=0.5 arp=0,3,7 arp_speed=50 attack=0.01 decay=0.4 sustain=0.45 release=0.3 lowpass=2500 volume=0.2
+@maj    square duty=0.5 arp=0,4,7 arp_speed=50 attack=0.01 decay=0.4 sustain=0.45 release=0.3 lowpass=2500 volume=0.2
+@drone  saw attack=0.6 decay=0.5 sustain=0.8 release=0.8 lowpass=420 vibrato=0.004 vibrato_speed=0.5 volume=0.38
+@kick   triangle freq=120 sweep=-30 sweep_time=0.09 attack=0.001 decay=0.12 sustain=0 release=0.01 volume=0.9
+@snare  noise freq=5500 attack=0.001 decay=0.13 sustain=0 release=0.02 volume=0.45
+@roll   noise freq=5000 attack=0.001 decay=0.06 sustain=0 release=0.01 volume=0.3
+@hat    noise freq=14000 attack=0.001 decay=0.035 sustain=0 release=0.01 volume=0.18
+
+; One bar of bass per chord: root, root, octave, root, then a turn.
+$bd = o2 d d o3 d o2 d e- d c d
+$bb = o1 b- b- o2 b- o1 b- o2 c o1 b- a b-
+$ba = o1 a a o2 a o1 a b- a g+ a
+$bg = o2 g g o3 g o2 g a- g f g
+$bc = o2 c c o3 c o2 c d c o1 b- o2 c
+
+; One bar of drums.
+$intro = @kick c4 @hat c8 c8 c8 c8 c8 c8
+$beat  = @kick c8 @hat c8 @snare c8 @hat c8 @kick c8 @kick c8 @snare c8 @hat c8
+$fill  = @kick c8 @hat c8 @snare c8 @hat c8 @roll c16 c16 c16 c16 @snare c8 c8
+
+;    intro           | theme: Dm Dm Bb A Dm Gm Bb A               | rising: Gm Gm Dm Dm Bb C A A
+A: @lead v13 o4 l8 r1 r1 r1 r1
+A: d4. e- d4 c4 | <a2.> r4 | d4. f e-4 d4 | c+2. r4 | a4. b- a4 g4 | f4 g f e-4 d4 | d4 f4 b-4 a4 | e2 c+4 <a4>
+A: >d4. c <b-4 a4 | g2 b-4 >d4< | f4. e d4 f4 | a2. r4 | b-4 a b- >d4 c4< | >e4 d4 c4< b-4 | a2 g+4 a4 | e2. r4
+
+B: @bass v12 q6 l8 $bd $bd $bb $ba
+B: $bd $bd $bb $ba $bd $bg $bb $ba
+B: $bg $bg $bd $bd $bb $bc $ba $ba
+
+C: @min v9 q8 p-35 o4 d1 d1 @maj o3 b-1 a1
+C: @min o4 d1 d1 @maj o3 b-1 a1 @min o4 d1 o3 g1 @maj b-1 a1
+C: @min o3 g1 g1 o4 d1 d1 @maj o3 b-1 o4 c1 o3 a1 a1
+
+D: l8 p10 [$intro]4
+D: [$beat]3 $fill [$beat]3 $fill
+D: [$beat]3 $fill [$beat]2 $fill $fill
+
+E: @drone v11 q8 p25 o2 d1 d1 o1 b-1 a1
+E: o2 d1 d1 o1 b-1 a1 o2 d1 o1 g1 b-1 a1
+E: o1 g1 g1 o2 d1 d1 o1 b-1 o2 c1 o1 a1 a1

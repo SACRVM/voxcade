@@ -1,0 +1,400 @@
+# Voxcade replay: BunnyFarm, 531 ticks, won, score 13928
+version = 1
+game = "BunnyFarm"
+fingerprint = "bbb8c2d8a72e6b85"
+ticks = 531
+outcome = "won"
+score = 13928
+input = "none:500;act:1;none:30"
+checks = ["de259bd4e36da366", "e86636389b62f5ab", "4658b0cfccec03ae", "cd60d9f420901b8e", "8c9bae7a165515dc", "59e677c6cdf00830", "e95fbc9619bf179c", "c38be6c37f803893"]
+from = '''
+format = 1
+game = "BunnyFarm"
+version = 6
+level = "01_farm"
+ticks = 1
+rng = "5f3a9c17d2e4b801"
+size = [0, 0, 0]
+
+[states]
+world = """
+{
+  awake = 360,
+  barn = {
+    animals = {},
+    bred = {},
+    intro = false,
+    last_buy = -99,
+    next = 1,
+    stables = {
+      chicken = false,
+      cow = false,
+      sheep = false,
+    },
+    stock = false,
+  },
+  beds = {
+    [1] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [2] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [3] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [4] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [5] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [6] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [7] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [8] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [9] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [10] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [11] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [12] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [13] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [14] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [15] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [16] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [17] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [18] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [19] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [20] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [21] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [22] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [23] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+    [24] = {
+      crop = false,
+      fert = 0,
+      left = 0,
+      total = 0,
+      watered = false,
+    },
+  },
+  collection = {
+    blueberry = true,
+    bread = true,
+    carrot = true,
+    cauliflower = true,
+    chicken_brown = true,
+    chicken_rainbow = true,
+    chicken_white = true,
+    egg = true,
+    jam = true,
+    moonberry = true,
+    radish = true,
+    rainbow_egg = true,
+    sheep_white = true,
+    tomato = true,
+    wheat = true,
+    wool = true,
+  },
+  kitchen = {
+    jobs = {
+      [1] = false,
+      [2] = false,
+      [3] = false,
+    },
+    pots = 1,
+  },
+  mail = {
+    bonus = false,
+    gift = true,
+    goals = {
+      [1] = {
+        coins = 45,
+        got = 0,
+        kind = "order",
+        need = 1,
+        xp = 30,
+      },
+      [2] = {
+        coins = 80,
+        got = 0,
+        kind = "cook",
+        need = 3,
+        xp = 60,
+      },
+      [3] = {
+        coins = 60,
+        got = 0,
+        kind = "harvest",
+        need = 14,
+        xp = 40,
+      },
+    },
+    orders = {
+      [1] = {
+        coins = 1161,
+        goods = {
+          [1] = {
+            count = 4,
+            item = "cabbage",
+          },
+          [2] = {
+            count = 1,
+            item = "sauce",
+          },
+        },
+        xp = 70,
+      },
+      [2] = {
+        coins = 561,
+        goods = {
+          [1] = {
+            count = 7,
+            item = "wheat",
+          },
+          [2] = {
+            count = 3,
+            item = "blueberry",
+          },
+          [3] = {
+            count = 5,
+            item = "radish",
+          },
+        },
+        xp = 34,
+      },
+      [3] = {
+        coins = 256,
+        goods = {
+          [1] = {
+            count = 3,
+            item = "blueberry",
+          },
+          [2] = {
+            count = 1,
+            item = "bread",
+          },
+        },
+        xp = 15,
+      },
+    },
+    refill = {
+      [1] = 0,
+      [2] = 0,
+      [3] = 0,
+    },
+  },
+  market = {
+    buy = {
+      blueberry = 1,
+      cabbage = 1,
+      carrot = 1,
+      cauliflower = 1,
+      cucumber = 1,
+      eggplant = 1,
+      pumpkin = 1,
+      radish = 1,
+      tomato = 1,
+      turnip = 1,
+      wheat = 1,
+    },
+    sell = {
+      blueberry = 1,
+      cabbage = 1,
+      carrot = 1,
+      cauliflower = 1,
+      cucumber = 1,
+      eggplant = 1,
+      pumpkin = 1,
+      radish = 1,
+      tomato = 1,
+      turnip = 1,
+      wheat = 1,
+    },
+  },
+  now = 80750,
+  recipes = {
+    bread = true,
+  },
+  reckoning = false,
+  rows = 2,
+  ticks = 1,
+  year = {
+    number = 1,
+    start = 61,
+    stats = {
+      born = 5,
+      cooked = 37,
+      earned = 18342,
+      fed = 64,
+      harvests = 412,
+      orders = 29,
+      sold = 288,
+    },
+  },
+}"""
+player = """
+{
+  bag = 16,
+  can = false,
+  carrots = 1,
+  coins = 9000,
+  energy = 90,
+  food = 80,
+  hand = "carrot",
+  inventory = {
+    blueberry = 20,
+    jar = 2,
+    seed_carrot = 3,
+    seed_wheat = 2,
+    wheat = 60,
+  },
+  level = 7,
+  mood = 70,
+  score = 0,
+  xp = 0,
+}"""
+level = "{}"
+
+[figure]
+at = [408.5, 298.5, 16.0]
+facing = [0, -1]
+'''
+
+[[controls]]
+at = 0
+device = "keyboard"
+language = "de"
+
+[controls.keys]
+act = "SPACE"
+back = "X"
+bag = "TAB"
+next = "E"
+pause = "ESCAPE"
+prev = "Q"

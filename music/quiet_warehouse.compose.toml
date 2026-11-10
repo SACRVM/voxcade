@@ -1,0 +1,13 @@
+# A calm puzzle song in a minor key: Sokovox's second.
+# python3 tools/compose.py music/quiet_warehouse.compose.toml
+
+title = "Quiet Warehouse"
+out = ["quiet_warehouse.mml", "../games/sokovox/music/quiet_warehouse.mml", "../games/bunnyfarm/music/quiet_warehouse.mml"]
+style = "calm"
+key = "a"
+tempo = 76
+seed = 2
+moods = ["Peaceful", "Tender", "Hopeful"]
+scale = "minor"
+melody = "some"
+variation = "most"        # bars vary within a section (tools/compose.py)

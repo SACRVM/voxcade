@@ -1,0 +1,23 @@
+# Voxcade replay: BunnyFarm, 314 ticks, quit, score 0
+version = 1
+game = "BunnyFarm"
+fingerprint = "5d45aee45e1536a0"
+ticks = 314
+outcome = "quit"
+score = 0
+input = "none:3;act:1;none:5;down:1;none:3;act:1;none:300"
+checks = ["bee3ca37e995a7d4", "002943495f39fb5e", "687a25bfe403e78b", "728924f96376d482", "878d06566b6a48c0"]
+scenario = "wolf_night"
+
+[[controls]]
+at = 0
+device = "keyboard"
+language = "de"
+
+[controls.keys]
+act = "SPACE"
+back = "X"
+bag = "TAB"
+next = "E"
+pause = "ESCAPE"
+prev = "Q"

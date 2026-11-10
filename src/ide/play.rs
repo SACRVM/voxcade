@@ -1,0 +1,449 @@
+//! Play in the IDE's main area: the game straight from its folder, no
+//! title and no menus, stepped at the simulation's fixed tick and drawn
+//! into a texture of its own on the IDE's GPU, as big as the area. Its
+//! sounds and music come out of the player's speaker, its keys and pads
+//! are bound as the player set them (`controls::read_input`, as `voxcade
+//! run` reads them). It holds still while the main area shows a file or
+//! the window is elsewhere; a file saved comes in at once (hot reload),
+//! and a script's error halts it until mended (`trouble`). Its runs are
+//! recorded as `voxcade run` records them (`replay::Runs`: kept in the
+//! config folder from 10 s on, F9 puts one in the game's `replays/`; a
+//! run with a file saved during it is not kept).
+
+use std::path::{Path, PathBuf};
+use std::time::Instant;
+
+use anyhow::Result;
+
+use crate::controls::{Device, PadStyle};
+use crate::game::Game;
+use crate::saves::Slots;
+use crate::menu::Menu;
+use crate::render::Renderer;
+use crate::replay::Runs;
+use crate::session::{Reloaded, Scene, Session};
+use crate::settings::Settings;
+use crate::sim::DT;
+use crate::watch::FolderWatch;
+
+/// The format it is drawn in: the games' own, as the headless canvas's.
+const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+
+/// Ticks a frame may catch up before time is dropped (as the game's).
+const MAX_CATCH_UP: u32 = 5;
+
+/// What the game is drawn into, and its name to egui.
+struct Target {
+    texture: wgpu::Texture,
+    view: wgpu::TextureView,
+    size: [u32; 2],
+    id: egui::TextureId,
+}
+
+/// A game being played.
+pub struct Play<G: Game> {
+    dir: PathBuf,
+    game: Session<G>,
+    renderer: Renderer,
+    mask: crate::mesh::FaceMask,
+    target: Option<Target>,
+    settings: Settings,
+    watch: FolderWatch,
+    speaker: Option<crate::audio::Speaker>,
+    runs: Runs,
+    /// Files that would not load since last asked (for OUTPUT).
+    failed: Vec<String>,
+    /// Time not yet stepped, and when the last frame was (None: held, so
+    /// it goes on without catching up).
+    accumulator: f32,
+    last: Option<Instant>,
+    /// The scenario every run of it begins from (PLAY SCENARIO; F5 too).
+    scenario: Option<String>,
+    /// Who plays on which seat (`c.players`): pads and the keyboard's
+    /// halves, as in a window of the game.
+    seating: crate::seating::Seating,
+}
+
+impl<G: Game> Play<G> {
+    /// The game in `dir`, its sound through `speaker` (none in tests),
+    /// begun from `scenario` if one is given.
+    pub fn start(dir: &Path, device: &wgpu::Device, queue: &wgpu::Queue, speaker: Option<crate::audio::Speaker>, scenario: Option<&str>) -> Result<Self> {
+        let mut game = Session::<G>::load_with(dir, Slots::on_disk(dir))?;
+        begin(&mut game, scenario)?;
+        let mut settings = Settings::load(&crate::settings::path_for(dir));
+        settings.adopt(game.actions(), &game.default_keys(), &game.default_pad());
+        settings.offer_languages(&game.cfg.languages);
+        settings.system_languages = crate::settings::system_languages();
+        crate::controls::label_keys(&mut settings);
+        game.options = settings.options();
+        let mut renderer = Renderer::new(device, FORMAT, 64, 64);
+        let mask = game.face_mask();
+        renderer.rebuild_all(device, queue, game.world_mut(), &mask);
+        let mut runs = Runs::new(dir);
+        runs.start(&game);
+        let seating = crate::seating::Seating::new(game.cfg.players);
+        let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), accumulator: 0.0, last: None, scenario: scenario.map(str::to_string), seating };
+        play.music();
+        Ok(play)
+    }
+
+    /// The game from its files again (F5), as it starts.
+    pub fn restart(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
+        self.runs.end(&self.game);
+        self.game = Session::<G>::load_with(&self.dir, Slots::on_disk(&self.dir))?;
+        begin(&mut self.game, self.scenario.as_deref())?;
+        self.runs.start(&self.game);
+        self.game.options = self.settings.options();
+        self.mask = self.game.face_mask();
+        self.renderer.rebuild_all(device, queue, self.game.world_mut(), &self.mask);
+        self.music();
+        Ok(())
+    }
+
+    /// A console line run in the game between two ticks (the line under
+    /// OUTPUT, the agent's `eval`): what it answered. It is part of the run.
+    pub fn eval(&mut self, line: &str) -> Result<String> {
+        self.game.eval(line)
+    }
+
+    /// The player's song for the game.
+    fn music(&mut self) {
+        let songs = self.game.cfg.audio.music.files().len();
+        self.game.select_song(self.settings.song.min(songs.saturating_sub(1)));
+        self.game.music_changed = true;
+    }
+
+    /// What seat 1 holds now, the other seats' set on the game for the
+    /// ticks to come (`keys`: the keyboard, while the game has it).
+    pub fn read(&mut self, keys: Option<&sdl3::keyboard::KeyboardState>, pads: &[sdl3::gamepad::Gamepad]) -> crate::input::Input {
+        use crate::seating::Keys;
+        let seating = &self.seating;
+        if seating.alone() {
+            return crate::controls::read_input(keys, pads, &self.settings, self.game.actions());
+        }
+        let of_seat = |seat: usize| pads.iter().filter(|p| p.id().ok().and_then(|id| seating.pad_seat(id.raw())) == Some(seat)).collect::<Vec<_>>();
+        for seat in 2..=seating.seats() {
+            let input = crate::controls::read_seat(keys, seating.keys(seat), &of_seat(seat), self.settings.pad_of(seat), &self.settings, self.game.actions());
+            let controls = match seating.keys(seat) {
+                Keys::Whole => crate::controls::Controls::of(self.game.actions(), Device::Keyboard, PadStyle::default(), &self.settings),
+                Keys::Nothing => crate::controls::Controls::of_pad(self.game.actions(), PadStyle::default(), self.settings.pad_of(seat), &self.settings),
+                half => crate::controls::Controls::of_half(self.game.actions(), half, &self.settings),
+            };
+            self.game.set_seat(seat, seating.taken(seat).then_some(input));
+            self.game.set_seat_controls(seat, controls);
+        }
+        crate::controls::read_seat(keys, seating.keys(1), &of_seat(1), &self.settings.pad, &self.settings, self.game.actions())
+    }
+
+    /// A pad's START: a seat taken (a pad no seat has), else nothing.
+    pub fn pad_start(&mut self, pad: u32, plugged: &[u32]) {
+        if !self.seating.alone()
+            && let crate::seating::Start::Join(seat) = self.seating.pad_start(pad, plugged, None)
+        {
+            self.game.set_seat(seat, Some(crate::input::Input::default()));
+        }
+    }
+
+    /// The keyboard's start key (unless the game binds it): a seat taken,
+    /// the keyboard shared (seat 1 plays on it here).
+    pub fn keyboard_start(&mut self) {
+        let name = crate::seating::KEYBOARD_START;
+        if !self.seating.alone()
+            && self.settings.keys.action_of(name).is_none()
+            && let crate::seating::Start::Join(seat) = self.seating.keyboard_start(None)
+        {
+            self.game.set_seat(seat, Some(crate::input::Input::default()));
+        }
+    }
+
+    /// What stops the game: a script's error (its file and line in it) or
+    /// a file that would not load.
+    pub fn trouble(&self) -> Option<String> {
+        self.game.trouble()
+    }
+
+    /// Holds it still (the main area shows a file, the window is
+    /// elsewhere): no ticks, no sound.
+    pub fn hold(&mut self) {
+        if self.last.take().is_some()
+            && let Some(s) = &self.speaker
+        {
+            s.hold(true);
+        }
+    }
+
+    /// What was saved since comes in (hot reload; held too, so a file
+    /// mended takes away the error that stopped it): whether anything did.
+    pub fn reload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
+        let changed = self.watch.poll();
+        let mut rebuild = false;
+        for path in &changed {
+            match self.game.reload(path) {
+                Ok(Reloaded::World) => rebuild = true,
+                Ok(_) => {}
+                Err(e) => {
+                    let name = path.strip_prefix(&self.dir).unwrap_or(path).display().to_string();
+                    self.failed.push(format!("{name} would not load: {e:#}"));
+                }
+            }
+        }
+        if rebuild {
+            self.game.options = self.settings.options();
+            self.mask = self.game.face_mask();
+            self.renderer.rebuild_all(device, queue, self.game.world_mut(), &self.mask);
+        }
+        !changed.is_empty()
+    }
+
+    /// What the game said since last asked, for OUTPUT: files that would
+    /// not load, and what its script printed.
+    pub fn said(&mut self) -> Vec<(super::output::Kind, String)> {
+        let failed = self.failed.drain(..).map(|f| (super::output::Kind::Error, f));
+        let printed = self.game.printed().into_iter().map(|p| (super::output::Kind::Print, p));
+        failed.chain(printed).collect()
+    }
+
+    /// Whether the run is won or lost (PRESS START: the IDE has no title
+    /// to go back to, so it starts over).
+    pub fn over(&self) -> bool {
+        self.game.game.outcome().is_some()
+    }
+
+    /// Puts the run being played, or else the last one, in the game's
+    /// `replays/` (F9); where it went.
+    pub fn keep(&self) -> Result<PathBuf> {
+        self.runs.keep(&self.game)
+    }
+
+    /// What the player plays with, for the ticks to come: the keyboard
+    /// here.
+    fn controls(&mut self) {
+        let controls = self.game.player_controls(Device::Keyboard, PadStyle::default(), &self.settings);
+        self.game.set_controls(controls);
+    }
+
+    /// Steps `ticks` ticks with `input` at once (a shot, a test; not
+    /// recorded).
+    pub fn step(&mut self, ticks: u32, input: &crate::input::Input) {
+        self.controls();
+        for _ in 0..ticks {
+            self.game.step(input);
+        }
+    }
+
+    /// A frame: what changed on disk comes in, the ticks due are stepped
+    /// with `input`, and the game is drawn into its texture, `size`
+    /// pixels big (egui told of it). Its name to egui.
+    pub fn frame(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, egui: &mut egui_wgpu::Renderer, size: [u32; 2], input: &crate::input::Input) -> egui::TextureId {
+        let now = Instant::now();
+        if self.last.is_none()
+            && let Some(s) = &self.speaker
+        {
+            s.hold(false);
+        }
+        let elapsed = self.last.map_or(0.0, |l| (now - l).as_secs_f32().min(0.25));
+        self.last = Some(now);
+        self.reload(device, queue);
+
+        // The music (started over when it changed), the player's volume.
+        let music_gain = self.settings.music_gain();
+        if let Some(mut mixer) = self.speaker.as_mut().and_then(|s| s.lock()) {
+            let held = self.game.fading();
+            self.game.feed_music(&mut mixer, held);
+            mixer.set_music_volume(self.game.cfg.audio.music_volume * music_gain);
+        }
+
+        // The ticks due.
+        self.controls();
+        self.accumulator += elapsed;
+        let mut ticks = 0;
+        while self.accumulator >= DT && ticks < MAX_CATCH_UP {
+            self.game.fades = true;
+            self.game.step(input);
+            self.runs.step(&self.game);
+            if !self.game.game.sim().sounds.is_empty()
+                && let Some(mut mixer) = self.speaker.as_mut().and_then(|s| s.lock())
+            {
+                self.game.play_sounds(&mut mixer, self.settings.sound_gain());
+            }
+            self.accumulator -= DT;
+            ticks += 1;
+        }
+        if ticks == MAX_CATCH_UP {
+            self.accumulator = 0.0;
+        }
+        self.draw(device, queue, egui, size)
+    }
+
+    /// Draws the game as it stands into its texture, `size` pixels big;
+    /// its name to egui.
+    pub fn draw(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, egui: &mut egui_wgpu::Renderer, size: [u32; 2]) -> egui::TextureId {
+        self.renderer.update_chunks(device, queue, self.game.world_mut(), &self.mask);
+        if self.target.as_ref().is_none_or(|t| t.size != size) {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("play"),
+                size: wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            });
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            self.renderer.resize(device, size[0], size[1]);
+            let id = match &self.target {
+                Some(t) => {
+                    egui.update_egui_texture_from_wgpu_texture(device, &view, wgpu::FilterMode::Linear, t.id);
+                    t.id
+                }
+                None => egui.register_native_texture(device, &view, wgpu::FilterMode::Linear),
+            };
+            self.target = Some(Target { texture, view, size, id });
+        }
+        let target = self.target.as_ref().expect("made above");
+        let aspect = size[0] as f32 / size[1].max(1) as f32;
+        let frame = self.game.menu_frame(&Menu::default(), &self.settings, self.accumulator / DT, aspect, Scene::Play);
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("play") });
+        self.renderer.render(device, queue, &mut encoder, &target.view, &frame);
+        queue.submit([encoder.finish()]);
+        target.id
+    }
+
+    /// The game as last drawn, as a PNG (for the agent: what the player
+    /// sees).
+    pub fn picture(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Vec<u8>> {
+        let t = self.target.as_ref().ok_or_else(|| anyhow::anyhow!("the game has not been drawn yet"))?;
+        let rgba = crate::headless::read_texture(device, queue, &t.texture)?;
+        crate::headless::png_bytes(t.size[0], t.size[1], &rgba)
+    }
+
+    /// Ends it: its run over (kept if long enough), its texture freed.
+    pub fn end(mut self, egui: &mut egui_wgpu::Renderer) {
+        self.runs.end(&self.game);
+        if let Some(t) = &self.target {
+            egui.free_texture(&t.id);
+        }
+    }
+
+    /// The game's state as one number (for tests).
+    #[cfg(test)]
+    pub fn state_hash(&self) -> u64 {
+        self.game.game.state_hash()
+    }
+}
+
+/// The file and line a game's trouble names (`main.lua:12: ...`), if it
+/// names one.
+pub fn line_of(trouble: &str) -> Option<(String, usize)> {
+    let at = trouble.find(".lua:")?;
+    let start = trouble[..at].rfind(|c: char| !(c.is_ascii_alphanumeric() || "_./-".contains(c))).map_or(0, |i| i + 1);
+    let file = &trouble[start..at + 4];
+    let digits: String = trouble[at + 5..].chars().take_while(char::is_ascii_digit).collect();
+    Some((file.to_string(), digits.parse().ok()?))
+}
+
+/// A fresh run begun from `scenario`: a mistake in the scenario's code
+/// stops the game, shown over it until mended (as one in `main.lua`); a
+/// scenario that is not there is said at once.
+fn begin<G: Game>(game: &mut Session<G>, scenario: Option<&str>) -> Result<()> {
+    if let Some(name) = scenario
+        && let Err(e) = game.start_scenario(name)
+        && game.game.halted().is_none()
+    {
+        return Err(e);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Played, the game steps as `voxcade shot` steps it (the same state
+    /// after the same ticks and keys) and is drawn into a texture of the
+    /// area's size.
+    #[test]
+    fn play_steps_and_draws_into_its_panel() {
+        let canvas = crate::headless::Canvas::new(320, 180, false).unwrap();
+        let (device, queue, _) = canvas.gpu();
+        let dir = Path::new("games/voxkeep");
+        let mut play = Play::<crate::Voxcade>::start(dir, device, queue, None, None).unwrap();
+        let mut shot = Session::<crate::Voxcade>::load(dir).unwrap();
+        let right = crate::input::Input { right: true, ..Default::default() };
+        play.step(90, &right);
+        for _ in 0..90 {
+            shot.step(&right);
+        }
+        assert_eq!(play.state_hash(), shot.game.state_hash(), "stepped as a shot steps");
+        let mut egui = egui_wgpu::Renderer::new(device, FORMAT, egui_wgpu::RendererOptions::default());
+        let id = play.draw(device, queue, &mut egui, [320, 180]);
+        assert_eq!(play.draw(device, queue, &mut egui, [320, 180]), id, "the same texture while the size stays");
+        assert_eq!(play.target.as_ref().map(|t| t.size), Some([320, 180]));
+        assert!(play.trouble().is_none());
+        play.end(&mut egui);
+    }
+
+    /// A game stopped by a script's error and held takes in the file
+    /// mended: the error goes, without a tick played.
+    #[test]
+    fn a_held_game_takes_in_the_mended_script() {
+        let canvas = crate::headless::Canvas::new(64, 64, false).unwrap();
+        let (device, queue, _) = canvas.gpu();
+        let dir = std::env::temp_dir().join(format!("voxcade-play-mend-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 32, 32, 8 }\nend\n").unwrap();
+        std::fs::write(dir.join("main.lua"), "function on_tick()\n  local t = nil\n  local x = t.x\nend\n").unwrap();
+        let mut play = Play::<crate::Voxcade>::start(&dir, device, queue, None, None).unwrap();
+        play.step(1, &crate::input::Input::default());
+        let trouble = play.trouble().expect("stopped");
+        assert_eq!(line_of(&trouble), Some(("main.lua".into(), 3)), "{trouble}");
+        play.hold();
+        // (A file counts as saved once it stood still for a look.)
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(dir.join("main.lua"), "function on_tick()\nend\n").unwrap();
+        let mut came = false;
+        for _ in 0..12 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            came |= play.reload(device, queue);
+        }
+        assert!(came && play.trouble().is_none(), "mended: {:?}", play.trouble());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The run played is recorded: F9 puts it in the game's replays,
+    /// and it plays through as it was played.
+    #[test]
+    fn a_run_played_is_kept_with_f9() {
+        let canvas = crate::headless::Canvas::new(64, 64, false).unwrap();
+        let (device, queue, _) = canvas.gpu();
+        let dir = std::env::temp_dir().join(format!("voxcade-play-keep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 32, 32, 8 }\nend\n").unwrap();
+        std::fs::write(dir.join("main.lua"), "function on_tick()\n  if input.right then player.state.score = player.state.score + 1 end\nend\n").unwrap();
+        let mut play = Play::<crate::Voxcade>::start(&dir, device, queue, None, None).unwrap();
+        let mut egui = egui_wgpu::Renderer::new(device, FORMAT, egui_wgpu::RendererOptions::default());
+        let right = crate::input::Input { right: true, ..Default::default() };
+        for _ in 0..4 {
+            play.frame(device, queue, &mut egui, [64, 64], &right);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        let path = play.keep().unwrap();
+        assert!(path.starts_with(dir.join("replays")), "{}", path.display());
+        let replay = crate::replay::Replay::load(&path).unwrap();
+        assert!(replay.ticks > 0 && replay.score as u64 == replay.ticks, "{} ticks, {} points", replay.ticks, replay.score);
+        assert!(matches!(crate::replay::play_through::<crate::Voxcade>(&dir, &replay).unwrap(), crate::replay::Verdict::Same));
+        play.end(&mut egui);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A script's error names its file and line.
+    #[test]
+    fn a_games_trouble_names_its_line() {
+        assert_eq!(line_of("main.lua:12: attempt to index a nil value (tick 30)"), Some(("main.lua".into(), 12)));
+        assert_eq!(line_of("in levels/a.lua:3: boom"), Some(("levels/a.lua".into(), 3)));
+        assert_eq!(line_of("conf.lua could not be read"), None);
+    }
+}

@@ -1,0 +1,22 @@
+# Voxcade replay: BunnyFarm, 1325 ticks, quit, score 0
+version = 1
+game = "BunnyFarm"
+fingerprint = "bbb8c2d8a72e6b85"
+ticks = 1325
+outcome = "quit"
+score = 0
+input = "down:78;right:92;down:1;act:1;none:10;right:18;down:1;act:1;none:10;right:18;down:1;act:1;none:10;next:1;right:18;down:1;act:1;none:10;right:18;down:1;act:1;none:10;right:131;up:10;act:1;none:20;down:1;none:15;down:1;none:15;act:1;none:12;act:1;none:12;act:1;none:12;act:1;none:30;back:1;none:10;down:10;left:110;down:1;act:1;none:12;down:17;act:1;none:12;left:18;down:1;act:1;none:12;left:18;down:1;act:1;none:30;left:145;up:103;act:1;none:30;down:1;none:20;act:1;none:200"
+checks = ["57804daea9c22f5a", "e2a133730ac6205a", "68dd3179ccfc1182", "7737ae3a9a63523d", "c3d1d875991c00fd", "c37e4ea0f39920c3", "61a50d6dd54a2ece", "e7e35592abfd1f1e", "874697e4f01a37d7", "8acb1bdec52b9b04", "d25fe3a0c8b6d0b1", "5e20f25dfac76dff", "488bc57630bb1d44", "d1dd60a2b6ee6bfc", "e62bde819b5a3111", "3340babc137fbfb8", "42b9af792fb6a911", "b4076524224c423e", "fcd212c89f6e7006", "170f1c2c2e625f7d", "a6ac033f33bb0e5f", "682b3e93c7540330"]
+
+[[controls]]
+at = 0
+device = "keyboard"
+language = "de"
+
+[controls.keys]
+act = "SPACE"
+back = "X"
+bag = "TAB"
+next = "E"
+pause = "ESCAPE"
+prev = "Q"
