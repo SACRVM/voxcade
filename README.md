@@ -3,8 +3,8 @@
 A voxel arcade engine. Everything is made of little cubes, everything can be
 blown apart, and it has to feel like an arcade machine. Every classic 2D
 genre, played in voxels: a game is a folder of Lua (or a crate in Rust),
-it plays the same every time, and an IDE with Claude Code in it makes the
-next one.
+it plays the same every time, and the next one is yours to make: in an
+IDE with its own voxel and level editors, an agent along if you like.
 
 Voxcade picks up where [Voxatron](https://www.lexaloffle.com/voxatron.php)
 left off: the world fills the whole screen instead of sitting in a box,
@@ -78,16 +78,23 @@ cargo run --release -- ide games/bunnyfarm
 The game's logic, its scenarios and its assets on the left; the one file
 open in the middle (Lua with its mistakes marked as you type and the API's
 names offered, levels and models as pictures to turn); below, the console:
-your shell in the game folder, and CLAUDE, Claude Code with this game's
-conversation, seeing the IDE through MCP (Claude Code is Anthropic's, to
-install yourself; it needs a Claude subscription or an API key, and asks
-you to sign in the first time it starts in the console). PLAY plays the game right there
-(PLAY SCENARIO from a scenario), OUTPUT shows its errors with a way to the
-line and takes lines of Lua while it plays. Levels and models open in
-editors of their own (blocks, voxels, BOX and SPHERE, BEVEL, SYMMETRY).
-BUILD packs the program and the game into a zip for each system; HELP
-shows the Lua API by example; NEW begins a game from a template (empty,
-jump & run, shooter). See [docs/ide.md](docs/ide.md).
+your shell in the game folder. PLAY plays the game right there (PLAY
+SCENARIO from a scenario), OUTPUT shows its errors with a way to the line
+and takes lines of Lua while it plays. Levels and models open in editors
+of their own (blocks, voxels, BOX and SPHERE, BEVEL, SYMMETRY). BUILD
+packs the program and the game into a zip for each system; HELP shows the
+Lua API by example; NEW begins a game from a template (empty, jump & run,
+shooter). See [docs/ide.md](docs/ide.md).
+
+An agent along, if you like: CLAUDE in the console starts Claude Code
+with this game's conversation. It sees what you see (a frame, the game's
+state, a line of Lua tried in the running game, through MCP) and helps
+where you ask; the game stays yours, its rules a few readable files of
+Lua, its figures and levels shaped in the editors. Claude Code is
+Anthropic's, to install yourself; it needs a Claude subscription or an
+API key, and asks you to sign in the first time it starts in the console.
+Nothing in Voxcade needs it: the agent starts only when you ask, and the
+IDE's settings leave the whole console out.
 
 ## Write a game in Lua
 
