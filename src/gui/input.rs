@@ -25,6 +25,18 @@ pub struct Input {
     composing: bool,
 }
 
+/// Whether windows keep the keyboard for egui while the system's focus is
+/// elsewhere (`keep_focus`).
+static KEEP_FOCUS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// From now on a window that lost the system's focus still counts as
+/// focused for its panels: for an IDE another session uses (`ide --remote`),
+/// whose keys come as events while the person works in another window.
+/// Without it egui lets go of every text field and the keys go nowhere.
+pub fn keep_focus(on: bool) {
+    KEEP_FOCUS.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 impl Default for Input {
     fn default() -> Self {
         Self { start: Instant::now(), events: Vec::new(), modifiers: Modifiers::default(), scale: 1.0, focused: true, composing: false }
@@ -100,7 +112,9 @@ impl Input {
             SdlEvent::Window { win_event, .. } => match win_event {
                 WindowEvent::MouseLeave => self.events.push(Event::PointerGone),
                 WindowEvent::FocusGained | WindowEvent::FocusLost => {
-                    self.focused = matches!(win_event, WindowEvent::FocusGained);
+                    // (Used by another session, `keep_focus`, a window
+                    // elsewhere still takes its keys.)
+                    self.focused = matches!(win_event, WindowEvent::FocusGained) || KEEP_FOCUS.load(std::sync::atomic::Ordering::Relaxed);
                     self.events.push(Event::WindowFocused(self.focused));
                 }
                 _ => {}

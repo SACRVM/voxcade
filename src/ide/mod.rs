@@ -364,6 +364,8 @@ fn shot_start(opts: &ShotOptions) -> Result<()> {
 /// `remote` it answers the console's tools (`console_send`,
 /// `console_read`) for another session testing it.
 pub fn run<G: Game>(first: Option<&Path>, remote: bool) -> Result<()> {
+    // Another session's keys arrive while the person works elsewhere.
+    crate::gui::input::keep_focus(remote);
     let mut window = Window::open()?;
     let mut next = match first {
         Some(dir) => Next::Game(dir.to_path_buf()),
