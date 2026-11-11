@@ -225,7 +225,13 @@ nearest; its replay `tests/two_ships`);
   without the engine's CLAUDE.md and engine skills, with its own memory);
   a program that asks for the mouse (Claude Code's full
   screen) hears it, Shift held it is the console's; signs Hack lacks from
-  the system's fonts (`gui/fonts.rs`).
+  the system's fonts (`gui/fonts.rs`). A path in the console under
+  the mouse is underlined and a click opens it in the main area (the
+  user's wish: nobody leaves the IDE to see what the agent made): a file
+  of the game at its line (`main.lua:12`), a picture from anywhere,
+  shown only (`console::word_at`, `resolve`,
+  `Shell::open_from_console`); the agent's brief tells it to name such
+  paths on a line of their own.
   Editors open in windows of their own (the user's choice), not in the
   main area, on the IDE's GPU (`window::Gpu`): a level and its blocks
   the level editor (at the block; every level in `levels/` listed under
@@ -252,7 +258,12 @@ nearest; its replay `tests/two_ships`);
   change (`ide/buffer.rs`, a journal in the config folder against
   crashes; a change on disk comes in, or the IDE asks whose to keep).
   PLAY plays the game in the main area (`ide/play.rs`, no title or
-  menus; Escape back to the file, F5 over, F9 keeps the run, STOP; runs
+  menus; a file saved comes in at once, and where the game would now
+  begin otherwise (`Session::start_mark`: the world's voxels and the
+  states as a fresh load has them, or a restart-only setting) the fresh
+  game takes over with a line in OUTPUT, so what an agent builds in
+  `on_level_start` shows without F5; a change to the rules alone keeps
+  the run; Escape back to the file, F5 over, F9 keeps the run, STOP; runs
   recorded as in `voxcade run`; a script's error with
   TO THE LINE, the line marked in the file until mended); `--shot
   --play TICKS` draws it (with `--open` the file over the game held).
