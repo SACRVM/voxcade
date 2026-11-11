@@ -97,6 +97,11 @@ impl Output {
         Ok(())
     }
 
+    /// Every line as plain text, in order (COPY ALL).
+    pub fn text(&self) -> String {
+        self.lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n")
+    }
+
     /// Forgets every line (CLEAR).
     pub fn clear(&mut self) {
         self.lines.clear();

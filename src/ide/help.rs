@@ -526,7 +526,7 @@ end
     },
     Topic {
         title: "PLAY A SOUND",
-        text: "A sound is a file of your game in the folder sounds, a few numbers a line: a wave (square, saw, triangle, sine or noise), a pitch in Hz, how long it holds and fades in seconds, how loud from 0 to 1. Only what differs from the defaults is written; sweep slides the pitch and jump lifts it once, both in semitones (12 an octave). The file's name is the sound's: play it by that name at a place, a thing or a point. A .wav file in sounds plays as it is.",
+        text: "A sound is a file of your game in the folder sounds (the plus beside SOUNDS makes one, PLAY SOUND plays it), a few numbers a line: a wave (square, saw, triangle, sine or noise), a pitch in Hz, how long it holds and fades in seconds, how loud from 0 to 1. Only what differs from the defaults is written; sweep slides the pitch and jump lifts it once, both in semitones (12 an octave). The file's name is the sound's: play it by that name at a place, a thing or a point. A .wav file in sounds plays as it is.",
         conf: "",
         files: &[("sounds/beep.toml", "# a short high beep\nwave = \"square\"\nfreq = 880\nhold = 0.05\ndecay = 0.2\nvolume = 0.3\n")],
         code: r##"function on_tick()
@@ -946,7 +946,7 @@ fn code(ui: &mut egui::Ui, text: &str) {
     egui::Frame::new().fill(PANEL).corner_radius(4.0).inner_margin(egui::Margin::same(12)).show(ui, |ui| {
         ui.horizontal_top(|ui| {
             let font = TextStyle::Monospace.resolve(ui.style());
-            let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap: f32| ui.fonts_mut(|f| f.layout_job(super::code::highlight(text.as_str(), &font, true)));
+            let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap: f32| ui.fonts_mut(|f| f.layout_job(super::code::highlight(text.as_str(), &font, super::code::Syntax::Lua)));
             let mut shown = text;
             ui.add(egui::TextEdit::multiline(&mut shown).code_editor().frame(egui::Frame::NONE).desired_rows(1).desired_width(ui.available_width() - 80.0).layouter(&mut layouter));
             if ui.button("COPY").on_hover_text("Copies all of it, to paste into your file.").clicked() {

@@ -283,7 +283,24 @@ nearest; its replay `tests/two_ships`);
   there (a plus in the heading names a new one), PLAY SCENARIO over one plays
   the game from it (F5 begins it again); while the game plays, a line
   under OUTPUT runs Lua in it (the console), its answer in OUTPUT.
-  Songs play from the main area (PLAY SONG). Reading the keys
+  SOUNDS (`sounds/NAME.toml` and `.wav`, always there, a plus makes a
+  blip to change) lists the game's sounds, and below them in the quiet
+  colour, "built in", the ones the engine and the ready-made rules bring
+  that it has no file for (`Game::sounds`, passed to `Shell::with_sounds`);
+  one opens in the main area read-only with MAKE IT YOURS, which copies
+  it into `sounds/`. A sound is text to change in the main area (the
+  editor of the Lua files without the Lua parts: `ide/code.rs` `Syntax`,
+  read after every change by `audio::sound::read`, its mistake "LINE n:
+  why" with the line marked, comments, strings and numbers coloured, no
+  completion yet), a line of words of what it is (`ide/sounds.rs`), PLAY
+  SOUND (the text as it stands rendered by `SoundBank::put`, through a
+  speaker of its own at the game's sound volume and the player's) and
+  under the text USED: the lines of the game's Lua that name it in quotes,
+  a click opening the file there (`sounds::used`, where songs naming a
+  sound as an instrument are to come). A song (`.mml`) is text to change
+  too, parsed after every change (`music::parse`), PLAY SONG plays the text
+  as it stands. Every text one can change says SAVED or NOT SAVED YET above
+  it, left of the buttons, and Ctrl+S saves at once. Songs play from the main area (PLAY SONG). Reading the keys
   (`controls::read_input`), the speaker (`audio::speaker`) and the
   player's options (`Settings::options`) are shared with `voxcade run`.
   BUILD packs the program and the game into `builds/<game>-<system>.zip`

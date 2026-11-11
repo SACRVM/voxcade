@@ -17,12 +17,14 @@ use super::console::Console;
 use super::files::Files;
 use super::memory::Memory;
 use super::preview::Preview;
+use super::sounds;
 use super::terminal;
+use crate::audio::sound::{self, SoundDef};
 
 
 /// What the main area shows of the open file.
 enum Shown {
-    /// A script or a text it reads, to change.
+    /// A script or a text it reads, a sound or a song, to change.
     Code(Box<Buffer>),
     /// Any other text, to read.
     Text(String),
@@ -110,7 +112,31 @@ pub struct Shell {
     output_shown: bool,
     reported: Option<String>,
     output_saved: std::time::Instant,
+    /// The sounds the game's code brings (a kit's, the engine's), which it
+    /// has no file for until MAKE IT YOURS; the one of them shown in the
+    /// main area, by name.
+    brought: Vec<(&'static str, SoundDef)>,
+    builtin: Option<&'static str>,
+    /// A sound open: its line of words (with the text it was made from),
+    /// and where the game's code names it (looked for again now and then).
+    sound_line: Option<(String, String)>,
+    used: Option<Used>,
+    /// What PLAY SOUND asked the speaker to play, and how loud.
+    heard: Option<(std::sync::Arc<[f32]>, f32)>,
+    /// Where the rows of USED were drawn (for the tests' mouse).
+    #[cfg(test)]
+    used_rows: Vec<egui::Rect>,
 }
+
+/// Where the game's code names the sound open.
+struct Used {
+    name: String,
+    rows: Vec<sounds::Use>,
+    at: std::time::Instant,
+}
+
+/// How long the places a sound is used are kept before looking again.
+const USED_FOR: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// The game being played, as the main area shows it.
 #[derive(Default)]
@@ -135,6 +161,8 @@ pub enum Ask {
     /// A song (its file) to play, and silence again.
     Listen(String),
     Hush,
+    /// The sound PLAY SOUND made ready (`Shell::heard`) to play once.
+    Sound,
     /// Another game, or the system's dialog to pick a folder (the menu on
     /// the game's name, the settings).
     Project(Wish),
@@ -199,6 +227,13 @@ A: @lead v12 q7 o4 l8 c e g e c e g e | a g f e d4 d4 | c e g e c e g e | f e d 
 B: @bass v12 q7 o2 l4 c c c c | f f c c | c c c c | f f g g
 ";
 
+/// A new sound (the plus at SOUNDS): a short blip to change, with the one
+/// line saying what the file is.
+fn new_sound(name: &str) -> String {
+    let blip = SoundDef::Synth(crate::audio::Synth { freq: 660.0, hold: 0.04, decay: 0.12, volume: 0.3, ..Default::default() });
+    sound::write(&blip, &[format!("{name}: a sound, a few numbers a line; level:sound(\"{name}\", player) plays it.")])
+}
+
 /// A name being typed for a new file under a heading (a plus).
 struct Naming {
     sort: String,
@@ -215,6 +250,7 @@ fn new_what(sort: &str) -> Option<&'static str> {
         "Logic" => "New Lua file",
         "Scenarios" => "New scenario",
         "Models" => "New model",
+        "Sounds" => "New sound",
         "Music" => "New song",
         _ => return None,
     })
@@ -229,6 +265,7 @@ fn new_file(dir: &Path, sort: &str, typed: &str) -> Result<String, String> {
         "Logic" => ("", "lua"),
         "Scenarios" => ("scenarios/", "lua"),
         "Models" => ("", "vox"),
+        "Sounds" => ("sounds/", "toml"),
         "Music" => ("music/", "mml"),
         _ => return Err("Nothing is made here.".into()),
     };
@@ -258,7 +295,14 @@ impl Shell {
             memory.open = files.logic.iter().find(|f| *f == "main.lua").or(files.logic.first()).cloned();
         }
         let restore = memory.open.as_ref().and_then(|f| memory.scroll.get(f).copied());
-        Self { title, dir: dir.to_path_buf(), files, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, #[cfg(test)] headings: Vec::new(), cfg, preview: None, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, reported: None, output_saved: std::time::Instant::now() }
+        Self { title, dir: dir.to_path_buf(), files, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, #[cfg(test)] headings: Vec::new(), cfg, preview: None, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, reported: None, output_saved: std::time::Instant::now(), brought: Vec::new(), builtin: None, sound_line: None, used: None, heard: None, #[cfg(test)] used_rows: Vec::new() }
+    }
+
+    /// The sounds the game's code brings (`Game::sounds`), listed under
+    /// SOUNDS for the ones the game has no file for.
+    pub fn with_sounds(mut self, brought: Vec<(&'static str, SoundDef)>) -> Self {
+        self.brought = brought;
+        self
     }
 
     /// The IDE's settings kept at `path` (`Prefs::path`); the agent
@@ -419,7 +463,7 @@ impl Shell {
 
     /// Shows `path` (in the game folder) in the main area.
     pub fn open(&mut self, path: &str) {
-        if self.outside.take().is_some() {
+        if self.outside.take().is_some() || self.builtin.take().is_some() {
             self.unload();
         }
         if self.memory.open.as_deref() == Some(path) {
@@ -450,6 +494,8 @@ impl Shell {
     fn unload(&mut self) {
         self.shown = None;
         self.message = None;
+        self.sound_line = None;
+        self.used = None;
         if let Some(p) = self.preview.take() {
             self.spare = Some(p);
         }
@@ -560,7 +606,7 @@ impl Shell {
     }
 
     /// Makes the file `typed` names under the heading `sort` (a file of
-    /// logic, a scenario, a model or a song, each a small one to change)
+    /// logic, a scenario, a model, a sound or a song, each a small one to change)
     /// and opens it; its path, or why not (nothing is ever overwritten).
     pub fn make_file(&mut self, sort: &str, typed: &str) -> Result<String, String> {
         let path = new_file(&self.dir, sort, typed)?;
@@ -572,6 +618,7 @@ impl Shell {
             "Logic" => Ok(std::fs::write(&full, NEW_LUA.replace("IDENT", &ident).replace("NAME", name))?),
             "Scenarios" => Ok(std::fs::write(&full, NEW_SCENARIO)?),
             "Music" => Ok(std::fs::write(&full, NEW_SONG.replace("NAME", name))?),
+            "Sounds" => Ok(std::fs::write(&full, new_sound(name))?),
             _ => crate::editor::frames::ModelFile::begun(&full).save(),
         });
         made.map_err(|e| format!("{path}: {e:#}"))?;
@@ -607,7 +654,9 @@ impl Shell {
         if self.listening.is_some() {
             return self.hush();
         }
-        if let Some(path) = self.memory.open.clone().filter(|p| p.ends_with(".mml")) {
+        // (A song with a mistake plays nothing: the mistake stands above it.)
+        let mistaken = matches!(&self.shown, Some(Shown::Code(b)) if b.code.error.is_some());
+        if let Some(path) = self.memory.open.clone().filter(|p| p.ends_with(".mml") && !mistaken) {
             self.listening = Some(path.clone());
             self.asks.push(Ask::Listen(path));
         }
@@ -630,10 +679,64 @@ impl Shell {
     /// set for music.
     pub fn song(&self, path: &str) -> anyhow::Result<crate::audio::music::Player> {
         let file = self.dir.join(path);
-        let text = std::fs::read_to_string(&file).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
+        // As the text stands now, saved or not.
+        let text = match (&self.shown, self.memory.open.as_deref()) {
+            (Some(Shown::Code(b)), Some(open)) if open == path => b.code.text.clone(),
+            _ => std::fs::read_to_string(&file).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?,
+        };
         let song = crate::audio::music::parse(&text).map_err(|e| anyhow::anyhow!("{path}: {e:#}"))?;
         let gain = crate::settings::Settings::load(&crate::settings::path_for(&self.dir)).music_gain();
         Ok(crate::audio::music::Player::new(song, self.cfg.audio.music_volume * gain))
+    }
+
+    /// PLAY SOUND: the sound open (as its text stands now) rendered for the
+    /// speaker, which takes it with `heard` after `Ask::Sound`.
+    pub fn play_sound(&mut self) {
+        let def = match (&self.shown, &self.memory.open, self.builtin) {
+            _ if self.builtin.is_some() => self.brought.iter().find(|(n, _)| Some(*n) == self.builtin).map(|(_, d)| d.clone()),
+            (Some(Shown::Code(b)), ..) => b.code.sound.clone(),
+            (_, Some(path), _) if path.ends_with(".wav") => Some(sounds::recording_of(path)),
+            _ => None,
+        };
+        // (A sound that cannot be read, or is silent, plays nothing: the line
+        // above its text says why.)
+        let Some(def) = def.filter(|d| *d != SoundDef::Silent) else { return };
+        match sounds::render(&def, &self.dir) {
+            Ok(samples) if samples.is_empty() => {}
+            Ok(samples) => {
+                // At the game's volume and the player's, as the game plays a
+                // sound in the middle of the view.
+                let gain = crate::settings::Settings::load(&crate::settings::path_for(&self.dir)).sound_gain();
+                self.heard = Some((samples, self.cfg.audio.volume.max(0.0) * gain));
+                self.message = None;
+                self.asks.push(Ask::Sound);
+            }
+            Err(e) => self.tell(format!("{e:#}")),
+        }
+    }
+
+    /// The sound PLAY SOUND made ready, with its volume.
+    pub fn heard(&mut self) -> Option<(std::sync::Arc<[f32]>, f32)> {
+        self.heard.take()
+    }
+
+    /// MAKE IT YOURS: the built-in sound `name` copied into the game as
+    /// `sounds/NAME.toml`, and opened.
+    pub fn make_it_yours(&mut self, name: &str) {
+        let Some((_, def)) = self.brought.iter().find(|(n, _)| *n == name) else { return };
+        let path = format!("sounds/{name}.toml");
+        if !self.dir.join(&path).exists() {
+            let text = sound::write(def, &[format!("{name}: a sound the game brought, copied here to change; the game now plays this one.")]);
+            let made = std::fs::create_dir_all(self.dir.join("sounds")).and_then(|()| std::fs::write(self.dir.join(&path), text));
+            if let Err(e) = made {
+                return self.tell(format!("{path}: {e}"));
+            }
+        }
+        self.files = super::files::Files::scan(&self.dir);
+        self.builtin = None;
+        self.unload();
+        self.open(&path);
+        self.back_to_file();
     }
 
     /// BUILD: the text being changed saved, the game and this program
@@ -703,6 +806,9 @@ impl Shell {
         if self.stage.as_ref().is_some_and(|s| s.shown) {
             return json!({ "area": "game", "game": game, "file": self.memory.open });
         }
+        if let Some(name) = self.builtin {
+            return json!({ "area": "file", "file": { "kind": format!("the built-in sound {name}, read-only; MAKE IT YOURS copies it into the game") }, "game": game });
+        }
         let mut file = json!({ "path": self.outside.as_ref().map(|p| p.display().to_string()).or_else(|| self.memory.open.clone()) });
         match (&self.shown, &self.memory.open) {
             (Some(Shown::Code(buffer)), Some(path)) => {
@@ -720,14 +826,23 @@ impl Shell {
                     }
                 }
                 file["unsaved"] = json!(buffer.unsaved());
+                if path.ends_with(".mml") {
+                    file["kind"] = json!("a song (MML), to change; PLAY SONG over it plays it");
+                } else if sounds::name_of(path).is_some() {
+                    file["kind"] = json!("a sound, to change; PLAY SOUND over it plays it");
+                }
                 if let Some((line, why)) = &buffer.code.error {
                     file["unreadable"] = json!({ "line": line, "why": why });
+                }
+                if path.ends_with(".mml") {
+                    file["playing"] = json!(self.listening.is_some());
                 }
             }
             (Some(Shown::Text(_)), Some(path)) if path.ends_with(".mml") => {
                 file["kind"] = json!("a song (MML), to read; PLAY SONG over it plays it");
                 file["playing"] = json!(self.listening.is_some());
             }
+            (Some(Shown::Note(_)), Some(path)) if sounds::name_of(path).is_some() => file["kind"] = json!("a sound recording; PLAY SOUND over it plays it"),
             (Some(Shown::Text(_)), _) => file["kind"] = json!("text, to read"),
             (Some(Shown::Image(_)), _) => file["kind"] = json!("picture"),
             _ if self.preview.is_some() => file["kind"] = json!("a model, block or level, shown as a picture; its editor opens with EDIT"),
@@ -746,7 +861,7 @@ impl Shell {
         if let (Some(Shown::Code(buffer)), Some(path)) = (&self.shown, &self.memory.open)
             && let Some((line, why)) = &buffer.code.error
         {
-            out.push(format!("{path}:{line}: {why}"));
+            out.push(if *line > 0 { format!("{path}:{line}: {why}") } else { format!("{path}: {why}") });
         }
         let recent: Vec<String> = self.output.errors(5).iter().map(|l| l.text.clone()).collect();
         if !recent.is_empty() {
@@ -840,6 +955,11 @@ impl Shell {
 
     /// A frame of the window.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        // Ctrl+S saves the text at once (it is saved by itself a second after
+        // the last change anyway); with the game shown the keys are its.
+        if !self.stage.as_ref().is_some_and(|s| s.shown) && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S)) {
+            self.flush();
+        }
         egui::Panel::top("bar").frame(egui::Frame::new().fill(GROUND).inner_margin(egui::Margin::symmetric(16, 10))).show(ui, |ui| {
             // The name centred on the buttons' height.
             ui.spacing_mut().interact_size.y = ui.text_style_height(&TextStyle::Button) + 2.0 * ui.spacing().button_padding.y;
@@ -918,12 +1038,12 @@ impl Shell {
                 });
             });
         });
-        let (mut clicked, mut edit, mut made) = (None, None, None);
+        let (mut clicked, mut edit, mut made, mut builtin) = (None, None, None, None);
         // The margins on the right lie inside the scroll areas, so that their
         // bars sit at the edge.
         egui::Panel::left("files").default_size(250.0).frame(egui::Frame::new().fill(PANEL).inner_margin(egui::Margin { left: 14, right: 0, top: 12, bottom: 12 })).show(ui, |ui| {
             egui::ScrollArea::vertical().content_margin(egui::Margin { right: 6, ..egui::Margin::ZERO }).show(ui, |ui| {
-                let open = if self.outside.is_some() { None } else { self.memory.open.clone() };
+                let open = if self.outside.is_some() || self.builtin.is_some() { None } else { self.memory.open.clone() };
                 #[cfg(test)]
                 self.headings.clear();
                 // Each sort of file under its name, which opens and closes
@@ -1012,12 +1132,24 @@ impl Shell {
                         if files.is_empty() && self.naming.as_ref().is_none_or(|n| n.sort != sort) {
                             let none = match sort {
                                 "Scenarios" => "None yet: runs begun late, to try what happens there.",
-                                "Models" => "None yet: the plus makes one.",
-                                "Music" => "None yet: the plus makes one.",
+                                "Models" | "Sounds" | "Music" => "None yet: the plus makes one.",
                                 _ => "",
                             };
                             if !none.is_empty() {
                                 ui.label(RichText::new(none).small().color(QUIET));
+                            }
+                        }
+                        // The sounds the game has from the engine and its
+                        // ready-made rules, which no file of its own replaces.
+                        if sort == "Sounds" {
+                            for (name, _) in &self.brought {
+                                if files.iter().any(|f| sounds::name_of(f) == Some(name)) {
+                                    continue;
+                                }
+                                let on = self.builtin == Some(*name) && self.outside.is_none();
+                                if crate::gui::row(ui, name, TextStyle::Body, if on { ACCENT } else { QUIET }, on, Some("built in")).clicked() {
+                                    builtin = Some(*name);
+                                }
                             }
                         }
                     });
@@ -1027,6 +1159,16 @@ impl Shell {
         if let Some(path) = clicked {
             self.open(&path);
             self.back_to_file();
+            self.help = false;
+        }
+        if let Some(name) = builtin {
+            // Shown like a file, which is let go of (saved) first.
+            self.flush();
+            self.hush();
+            self.outside = None;
+            self.unload();
+            self.builtin = Some(name);
+            self.hide_game();
             self.help = false;
         }
         if let Some(path) = edit.filter(|p| self.editable(p)) {
@@ -1058,6 +1200,9 @@ impl Shell {
                 }
                 if pressed.clear {
                     self.output.clear();
+                }
+                if pressed.copy_all {
+                    ui.ctx().copy_text(self.output.text());
                 }
                 if !folded {
                     if self.output_shown {
@@ -1142,6 +1287,7 @@ impl Shell {
                 {
                     go = Some(at);
                 }
+                copy_button(ui, trouble);
             });
             ui.add_space(8.0);
         }
@@ -1161,6 +1307,87 @@ impl Shell {
         }
         if let Some((file, line)) = go {
             stage.shown = false;
+            self.open(&file);
+            self.goto = Some((line, true));
+        }
+    }
+
+    /// Whether the text shown is saved: "SAVED" when the file holds what is
+    /// shown, "NOT SAVED YET" between a change and the autosave (None: no
+    /// text to change).
+    fn saved_word(&self) -> Option<&'static str> {
+        match &self.shown {
+            Some(Shown::Code(b)) => Some(if b.unsaved() { "NOT SAVED YET" } else { "SAVED" }),
+            _ => None,
+        }
+    }
+
+    /// Where the game's code names the sound `name`, looked for afresh when
+    /// it is another sound or a second has gone.
+    fn refresh_used(&mut self, name: &str) {
+        if self.used.as_ref().is_none_or(|u| u.name != name || u.at.elapsed() >= USED_FOR) {
+            let rows = sounds::used(&self.dir, &self.files.logic, name);
+            self.used = Some(Used { name: name.to_string(), rows, at: std::time::Instant::now() });
+        }
+    }
+
+    /// What is said under USED of the sound `name` beside the lines that
+    /// name it: that the game's own rules play it, when it is one of the
+    /// sounds they bring.
+    fn rules_say(&self, name: &str) -> Vec<String> {
+        if !self.brought.iter().any(|(n, _)| *n == name) {
+            return Vec::new();
+        }
+        let core = crate::audio::CORE_FILES.iter().any(|(n, _)| *n == name);
+        vec![if core { "Played by the engine itself, when the world is hit, blown up or falls apart.".into() } else { "Played by the game's ready-made rules.".to_string() }]
+    }
+
+    /// A sound the game brings, shown in the main area: what it is, PLAY
+    /// SOUND, MAKE IT YOURS, its text to read, and where it is used.
+    fn builtin_ui(&mut self, ui: &mut egui::Ui, name: &'static str) {
+        let Some(def) = self.brought.iter().find(|(n, _)| *n == name).map(|(_, d)| d.clone()) else {
+            self.builtin = None;
+            return;
+        };
+        let line = format!("{} Built in: the game has no file of its own for it.", sounds::describe(&def, &self.dir));
+        let (mut play, mut yours) = (false, false);
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(line).color(QUIET));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(16.0);
+                play = ui.button("PLAY SOUND").on_hover_text("Plays the sound as it stands, at the game's sound volume.").clicked();
+                yours = ui.button("MAKE IT YOURS").on_hover_text(format!("Copies it into your game as sounds/{name}.toml, to change. The game then plays yours.")).clicked();
+            });
+        });
+        if let Some(message) = &self.message {
+            error_row(ui, message, message);
+        }
+        ui.add_space(10.0);
+        self.refresh_used(name);
+        let rows = self.used.as_ref().map(|u| u.rows.clone()).unwrap_or_default();
+        let says = self.rules_say(name);
+        let (mut rects, mut go) = (Vec::new(), None);
+        let text = sound::write(&def, &[]);
+        egui::ScrollArea::both().id_salt(("builtin", name)).auto_shrink([false, false]).content_margin(egui::Margin { right: 12, bottom: 14, ..egui::Margin::ZERO }).show(ui, |ui| {
+            let font = TextStyle::Monospace.resolve(ui.style());
+            let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap: f32| ui.fonts_mut(|f| f.layout_job(super::code::highlight(text.as_str(), &font, super::code::Syntax::Sound)));
+            let mut shown = text.as_str();
+            ui.add(egui::TextEdit::multiline(&mut shown).code_editor().frame(egui::Frame::NONE).desired_width(f32::INFINITY).layouter(&mut layouter));
+            go = used_ui(ui, name, &says, &rows, &mut rects);
+        });
+        #[cfg(test)]
+        {
+            self.used_rows = rects;
+        }
+        if play {
+            self.play_sound();
+        }
+        if yours {
+            self.make_it_yours(name);
+        }
+        if let Some((file, line)) = go {
+            self.builtin = None;
+            self.hide_game();
             self.open(&file);
             self.goto = Some((line, true));
         }
@@ -1193,14 +1420,18 @@ impl Shell {
             });
             return;
         }
+        if let Some(name) = self.builtin {
+            return self.builtin_ui(ui, name);
+        }
         let Some(path) = self.memory.open.clone() else {
             ui.label(RichText::new("Nothing here yet.").color(QUIET));
             return;
         };
         if self.shown.is_none() {
-            // Scripts and the texts they read are to change, the rest to
-            // look at.
-            self.shown = Some(if self.files.logic.contains(&path) || self.files.scenarios.contains(&path) {
+            // Scripts and the texts they read, sounds and songs are to
+            // change, the rest to look at.
+            let to_change = self.files.logic.contains(&path) || self.files.scenarios.contains(&path) || path.ends_with(".mml") || (path.ends_with(".toml") && sounds::name_of(&path).is_some());
+            self.shown = Some(if to_change {
                 match Buffer::open(&self.dir, &path, &self.memory_path.with_extension("journal")) {
                     Ok(buffer) => Shown::Code(Box::new(buffer)),
                     Err(e) => Shown::Note(format!("{e:#}")),
@@ -1227,9 +1458,21 @@ impl Shell {
                 _ => {}
             }
         }
+        // What the text says is read afresh if it changed (its line of words and
+        // its mistake stand above it).
+        if let Some(Shown::Code(b)) = &mut self.shown {
+            b.code.check();
+        }
+        // Whether the text shown is saved (a word above it, left of the buttons).
+        let saved = self.saved_word();
         // What an editor opens: a line of what it is, and EDIT; a song:
         // what it is, and PLAY.
-        if let Some(facts) = self.facts.clone() {
+        let facts = match &self.shown {
+            // A song's line follows its text.
+            Some(Shown::Code(b)) if path.ends_with(".mml") => Some(b.code.song.clone().unwrap_or_else(|| "The song cannot be read.".into())),
+            _ => self.facts.clone(),
+        };
+        if let Some(facts) = facts {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(facts).color(QUIET));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1242,13 +1485,15 @@ impl Shell {
                         if ui.button("STOP SONG").on_hover_text("Ends the song.").clicked() {
                             self.listen();
                         }
-                    } else if ui.button("PLAY SONG").on_hover_text("Plays the song as saved, at the game's music volume.").clicked() {
+                    } else if ui.button("PLAY SONG").on_hover_text("Plays the song as it stands, at the game's music volume.").clicked() {
                         self.listen();
                     }
+                    saved_label(ui, saved);
                 });
             });
-            if let Some(message) = &self.message {
-                ui.label(RichText::new(message).color(ERROR));
+            // (A text to change shows it with its own messages.)
+            if !matches!(self.shown, Some(Shown::Code(_))) && let Some(message) = &self.message {
+                error_row(ui, message, message);
             }
             ui.add_space(10.0);
         }
@@ -1260,12 +1505,55 @@ impl Shell {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(16.0);
                     play = ui.button("PLAY SCENARIO").on_hover_text("Plays the game from it (saved first); F5 begins it again.").clicked();
+                    saved_label(ui, saved);
                 });
             });
             ui.add_space(6.0);
             if play {
                 self.play_scenario(name);
             }
+        } else if saved.is_some() && !path.ends_with(".mml") && sounds::name_of(&path).is_none() {
+            // Any other text to change: the word alone.
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(16.0);
+                    saved_label(ui, saved);
+                });
+            });
+            ui.add_space(6.0);
+        }
+        // A sound: what it is in words, and PLAY SOUND; where it is used
+        // lies under its text.
+        let sound_name = sounds::name_of(&path).map(str::to_string);
+        let mut play_sound = false;
+        if sound_name.is_some() {
+            let key = match &self.shown {
+                Some(Shown::Code(b)) => format!("{path}\0{}", b.code.text),
+                _ => path.clone(),
+            };
+            if self.sound_line.as_ref().is_none_or(|(k, _)| *k != key) {
+                let line = match &self.shown {
+                    Some(Shown::Code(b)) => b.code.sound.as_ref().map_or_else(|| "The sound cannot be read.".to_string(), |def| sounds::describe(def, &self.dir)),
+                    _ => sounds::describe(&sounds::recording_of(&path), &self.dir),
+                };
+                self.sound_line = Some((key, line));
+            }
+            let line = self.sound_line.as_ref().map(|(_, l)| l.clone()).unwrap_or_default();
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(line).color(QUIET));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(16.0);
+                    play_sound = ui.button("PLAY SOUND").on_hover_text("Plays the sound as it stands, at the game's sound volume.").clicked();
+                    saved_label(ui, saved);
+                });
+            });
+            if !matches!(self.shown, Some(Shown::Code(_))) && let Some(message) = &self.message {
+                error_row(ui, message, message);
+            }
+            ui.add_space(6.0);
+        }
+        if play_sound {
+            self.play_sound();
         }
         if let Some(preview) = &mut self.preview {
             // Down to the console, the scroll bar's room kept at the right.
@@ -1319,7 +1607,9 @@ impl Shell {
                 ui.add_space(8.0);
             }
             if let Some((line, why)) = &buffer.code.error {
-                ui.label(RichText::new(format!("LINE {line}: {why}")).color(ERROR));
+                // Copied with the file's name, to stand alone when pasted.
+                let (shown, copy) = if *line > 0 { (format!("LINE {line}: {why}"), format!("{path} line {line}: {why}")) } else { (why.clone(), format!("{path}: {why}")) };
+                error_row(ui, &shown, &copy);
                 ui.add_space(8.0);
             }
             // Where the game played stopped, if in this file: its line
@@ -1330,19 +1620,27 @@ impl Shell {
             if let Some((file, line, trouble)) = stopped {
                 let first = trouble.lines().next().unwrap_or("");
                 let why = first.split_once(&format!("{file}:{line}:")).map_or(first, |(_, why)| why.trim());
-                ui.label(RichText::new(format!("THE GAME STOPPED AT LINE {line}: {why}")).color(ERROR));
+                error_row(ui, &format!("THE GAME STOPPED AT LINE {line}: {why}"), &format!("{file} line {line}: {why}"));
                 ui.add_space(8.0);
             }
             if let Some(message) = &self.message {
-                ui.label(RichText::new(message).color(ERROR));
+                error_row(ui, message, message);
                 ui.add_space(8.0);
             }
         }
+        let (mut used_rows, mut says) = (Vec::new(), Vec::new());
+        if let Some(name) = &sound_name {
+            self.refresh_used(name);
+            used_rows = self.used.as_ref().map(|u| u.rows.clone()).unwrap_or_default();
+            says = self.rules_say(name);
+        }
+        let (mut rects, mut go_used) = (Vec::new(), None);
         let mut scroll = egui::ScrollArea::both().id_salt(&path).auto_shrink([false, false]).content_margin(egui::Margin { right: 12, bottom: 14, ..egui::Margin::ZERO });
         if let Some(offset) = self.restore.take() {
             scroll = scroll.vertical_scroll_offset(offset);
         }
-        let out = scroll.show(ui, |ui| match self.shown.as_mut().expect("loaded above") {
+        let out = scroll.show(ui, |ui| {
+            match self.shown.as_mut().expect("loaded above") {
             Shown::Code(buffer) => {
                 if buffer.code.ui(ui, id) {
                     buffer.edited(std::time::Instant::now());
@@ -1361,9 +1659,93 @@ impl Shell {
                     ui.label(RichText::new(note.as_str()).color(QUIET));
                 }
             }
+            }
+            if let Some(name) = &sound_name {
+                go_used = used_ui(ui, name, &says, &used_rows, &mut rects);
+            }
         });
         self.memory.scroll.insert(path, out.state.clamped_offset().y);
+        #[cfg(test)]
+        {
+            self.used_rows = rects;
+        }
+        if let Some((file, line)) = go_used {
+            self.hide_game();
+            self.help = false;
+            self.open(&file);
+            self.goto = Some((line, true));
+        }
     }
+}
+
+/// COPY, small and quiet: puts `text` on the clipboard.
+fn copy_button(ui: &mut egui::Ui, text: &str) {
+    let button = ui.small_button("COPY").on_hover_text("Copies the message, to paste to someone who can help.");
+    #[cfg(test)]
+    COPY_BUTTONS.with(|b| b.borrow_mut().push(button.rect));
+    if button.clicked() {
+        ui.ctx().copy_text(text.to_string());
+    }
+}
+
+// Where the COPY buttons were drawn since last taken (for the tests' mouse).
+#[cfg(test)]
+thread_local! {
+    static COPY_BUTTONS: std::cell::RefCell<Vec<egui::Rect>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// A mistake in red with COPY at its right end: `copy` is the whole
+/// message as it stands alone (the file's name in front).
+fn error_row(ui: &mut egui::Ui, shown: &str, copy: &str) {
+    // The message takes the room left of COPY and breaks into lines
+    // there: a long one cannot push the button out of the window.
+    ui.horizontal_top(|ui| {
+        let room = (ui.available_width() - 96.0).max(120.0);
+        ui.allocate_ui_with_layout(egui::vec2(room, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+            ui.set_max_width(room);
+            ui.add(egui::Label::new(RichText::new(shown).color(ERROR)).wrap());
+        });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+            ui.add_space(16.0);
+            copy_button(ui, copy);
+        });
+    });
+}
+
+/// The word saying whether the text shown is saved, small and quiet.
+fn saved_label(ui: &mut egui::Ui, saved: Option<&str>) {
+    if let Some(word) = saved {
+        ui.label(RichText::new(word).small().color(QUIET)).on_hover_text("The text is saved by itself a second after the last change; Ctrl+S saves it at once.");
+    }
+}
+
+/// Where a sound is used, under its text: USED, then what the game's code
+/// says of it (`says`) and each line of it that names it, clicked to open
+/// there (the file and the line returned; `rects` where the rows are).
+fn used_ui(ui: &mut egui::Ui, name: &str, says: &[String], rows: &[sounds::Use], rects: &mut Vec<egui::Rect>) -> Option<(String, usize)> {
+    let mut go = None;
+    ui.add_space(18.0);
+    ui.label(RichText::new("USED").small().color(QUIET));
+    ui.add_space(4.0);
+    for said in says {
+        ui.label(RichText::new(said).color(QUIET));
+    }
+    if says.is_empty() && rows.is_empty() {
+        ui.label(RichText::new(format!("Nothing in the game plays it yet: level:sound(\"{name}\", player) does.")).color(QUIET));
+    }
+    for row in rows {
+        let shown: String = row.text.chars().take(100).collect();
+        let at = ui.horizontal(|ui| {
+            let place = ui.add(egui::Label::new(RichText::new(format!("{}:{}", row.file, row.line)).color(ACCENT)).sense(egui::Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand);
+            let text = ui.add(egui::Label::new(RichText::new(shown).text_style(TextStyle::Monospace).color(QUIET)).sense(egui::Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand);
+            place.clicked() || text.clicked()
+        });
+        rects.push(at.response.rect);
+        if at.inner {
+            go = Some((row.file.clone(), row.line));
+        }
+    }
+    go
 }
 
 /// A picture, its pixels as whole squares, as large as fit.
@@ -1418,8 +1800,9 @@ fn load(file: &Path, path: &str, ctx: &egui::Context) -> Shown {
             }
             Err(e) => Shown::Note(format!("{e:#}")),
         },
-        // What a model is stands above it (`facts`).
+        // What a model is stands above it (`facts`), and what a sound is.
         "vox" => Shown::Note(String::new()),
+        "wav" if sounds::name_of(path).is_some() => Shown::Note(String::new()),
         _ => match std::fs::read(file) {
             Ok(bytes) => match String::from_utf8(bytes) {
                 Ok(text) => Shown::Text(text),
@@ -1724,8 +2107,8 @@ mod tests {
         key(ctx, shell, egui::Key::Enter);
     }
 
-    /// A game without models, songs or scenarios still has the headings
-    /// LOGIC, SCENARIOS, MODELS and MUSIC, each with a plus; LEVELS and
+    /// A game without models, sounds, songs or scenarios still has the headings
+    /// LOGIC, SCENARIOS, MODELS, SOUNDS and MUSIC, each with a plus; LEVELS and
     /// the like only when there are some.
     #[test]
     fn the_headings_with_a_plus_are_always_there() {
@@ -1735,8 +2118,8 @@ mod tests {
         frame(&ctx, &mut shell);
         frame(&ctx, &mut shell);
         let sorts: Vec<&str> = shell.headings.iter().map(|(s, ..)| s.as_str()).collect();
-        assert_eq!(sorts, ["Logic", "Scenarios", "Models", "Music"]);
-        assert_eq!(shell.files.assets.iter().map(|g| (g.name, g.files.len())).collect::<Vec<_>>(), [("Models", 0), ("Music", 0)]);
+        assert_eq!(sorts, ["Logic", "Scenarios", "Models", "Sounds", "Music"]);
+        assert_eq!(shell.files.assets.iter().map(|g| (g.name, g.files.len())).collect::<Vec<_>>(), [("Models", 0), ("Sounds", 0), ("Music", 0)]);
         for (sort, plus, head) in &shell.headings {
             assert!(head.contains_rect(*plus), "{sort}: the plus lies on its row");
         }
@@ -1778,7 +2161,7 @@ mod tests {
         let ctx = egui::Context::default();
         frame(&ctx, &mut shell);
         frame(&ctx, &mut shell);
-        for (sort, typed, path) in [("Logic", "Market Stall", "market_stall.lua"), ("Scenarios", "late", "scenarios/late.lua"), ("Models", "Hero", "hero.vox"), ("Music", "theme.mml", "music/theme.mml")] {
+        for (sort, typed, path) in [("Logic", "Market Stall", "market_stall.lua"), ("Scenarios", "late", "scenarios/late.lua"), ("Models", "Hero", "hero.vox"), ("Sounds", "Coin Pick", "sounds/coin_pick.toml"), ("Music", "theme.mml", "music/theme.mml")] {
             type_a_name(&ctx, &mut shell, sort, typed);
             assert!(dir.join(path).is_file(), "{path} made");
             assert!(shell.naming.is_none(), "{path}: the field is gone");
@@ -1787,6 +2170,10 @@ mod tests {
             frame(&ctx, &mut shell);
         }
         assert_eq!(std::fs::read_to_string(dir.join("scenarios/late.lua")).unwrap(), NEW_SCENARIO);
+        // The sound reads, says what it is and how to play it.
+        let blip = std::fs::read_to_string(dir.join("sounds/coin_pick.toml")).unwrap();
+        assert!(blip.starts_with("# coin_pick: ") && blip.contains("level:sound(\"coin_pick\", player)"), "{blip}");
+        assert!(matches!(sound::read("sounds/coin_pick.toml", &blip), Ok(SoundDef::Synth(_))));
         let lua = std::fs::read_to_string(dir.join("market_stall.lua")).unwrap();
         assert!(lua.contains("local market_stall = require(\"market_stall\")") && lua.contains("return market_stall"), "{lua}");
         // A name taken is refused, the file stays.
@@ -1844,6 +2231,240 @@ mod tests {
         game.step(&crate::input::Input::default());
         assert!(game.game.halted().is_none(), "{:?}", game.game.halted());
         assert!(game.game.inspect().to_string().contains("hello from tools"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A game with sounds of its own: `conf.lua` names "coin" in a kind,
+    /// `main.lua` plays it, `bell` is never played.
+    fn sound_game(name: &str) -> (PathBuf, PathBuf) {
+        let (dir, memory) = bare_game(name);
+        std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 64, 64, 16 }\n  c.player.spawn = { 32, 32 }\n  c.actions = { \"jump\" }\n  c.things.gem = { sound = \"coin\" }\nend\n").unwrap();
+        std::fs::write(dir.join("main.lua"), "function on_tick()\n  if world.tick == 5 then\n    level:sound(\"coin\", player)\n  end\nend\n").unwrap();
+        std::fs::create_dir_all(dir.join("sounds")).unwrap();
+        std::fs::write(dir.join("sounds/coin.toml"), "# a coin\nwave = \"triangle\"\nfreq = 880\nhold = 0.04\ndecay = 0.16\nsweep = -12\n").unwrap();
+        std::fs::write(dir.join("sounds/bell.toml"), "wave = \"sine\"\n").unwrap();
+        (dir, memory)
+    }
+
+    /// The text open takes `text` typed at its end, as a person types.
+    fn type_into_text(ctx: &egui::Context, shell: &mut Shell, text: &str) {
+        shell.back_to_file();
+        frame_with(ctx, shell, vec![]);
+        frame_with(ctx, shell, vec![]);
+        frame_with(ctx, shell, vec![egui::Event::Text(text.into())]);
+        frame_with(ctx, shell, vec![]);
+    }
+
+    fn buffer(shell: &Shell) -> &Buffer {
+        match &shell.shown {
+            Some(Shown::Code(b)) => b,
+            _ => panic!("no text open"),
+        }
+    }
+
+    /// SOUNDS is always listed, the game's sounds in it and none under
+    /// OTHER; the sounds the game brings but has no file for follow, built
+    /// in, and a file of the same name takes one off the list.
+    #[test]
+    fn sounds_have_a_group_of_their_own() {
+        let (dir, memory) = sound_game("group");
+        std::fs::write(dir.join("sounds/boom.wav"), "RIFF").unwrap();
+        let mut shell = shell_on(&dir, &memory).with_sounds(crate::audio::core_sounds());
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        let groups: Vec<(&str, Vec<&str>)> = shell.files.assets.iter().map(|g| (g.name, g.files.iter().map(String::as_str).collect())).collect();
+        assert!(groups.contains(&("Sounds", vec!["sounds/bell.toml", "sounds/boom.wav", "sounds/coin.toml"])), "{groups:?}");
+        assert!(groups.iter().all(|(n, f)| *n == "Sounds" || !f.iter().any(|f| f.starts_with("sounds/"))), "none under OTHER: {groups:?}");
+        // The built-in ones: those of the core, none of them replaced by a file.
+        std::fs::write(dir.join("sounds/impact.toml"), "wave = \"noise\"\n").unwrap();
+        shell.files = Files::scan(&dir);
+        let listed: Vec<&str> = shell.brought.iter().map(|(n, _)| *n).filter(|n| !shell.files.has(&format!("sounds/{n}.toml"))).collect();
+        assert_eq!(listed, ["explosion", "crumble"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A built-in sound opens read-only in the main area with its text;
+    /// MAKE IT YOURS writes it as the game's own file, which then shows
+    /// as one of the game's.
+    #[test]
+    fn a_builtin_sound_is_made_yours() {
+        let (dir, memory) = sound_game("yours");
+        let mut shell = shell_on(&dir, &memory).with_sounds(crate::audio::core_sounds());
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        shell.builtin = Some("explosion");
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        assert!(shell.used.as_ref().is_some_and(|u| u.name == "explosion" && u.rows.is_empty()));
+        assert!(shell.rules_say("explosion")[0].starts_with("Played by the engine itself"));
+        assert!(!dir.join("sounds/explosion.toml").exists(), "looking writes nothing");
+        shell.make_it_yours("explosion");
+        let text = std::fs::read_to_string(dir.join("sounds/explosion.toml")).unwrap();
+        assert!(text.starts_with("# explosion: ") && sound::read("explosion.toml", &text).is_ok(), "{text}");
+        assert!(shell.builtin.is_none() && shell.files.has("sounds/explosion.toml") && shell.memory.open.as_deref() == Some("sounds/explosion.toml"));
+        frame(&ctx, &mut shell);
+        assert!(matches!(shell.shown, Some(Shown::Code(_))), "now it is text to change");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A sound says what it is in words; a mistake typed into it shows its
+    /// line and marks it, mended it clears.
+    #[test]
+    fn a_sound_is_text_with_a_line_of_words_and_its_mistakes() {
+        let (dir, memory) = sound_game("text");
+        let mut shell = shell_on(&dir, &memory);
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        shell.open("sounds/coin.toml");
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        assert_eq!(shell.sound_line.as_ref().map(|(_, l)| l.as_str()), Some("A sound: 0.20 s, a triangle wave falling an octave."));
+        // A mistake on a line of its own, typed at the end.
+        type_into_text(&ctx, &mut shell, "frq = 1\n");
+        let error = buffer(&shell).code.error.clone();
+        assert!(error.as_ref().is_some_and(|(line, why)| *line == 7 && why.starts_with("frq: no such field")), "{error:?}");
+        assert_eq!(shell.sound_line.as_ref().map(|(_, l)| l.as_str()), Some("The sound cannot be read."));
+        assert!(shell.errors().starts_with("sounds/coin.toml:7: frq: no such field"), "{}", shell.errors());
+        // Mended: the line gone.
+        if let Some(Shown::Code(b)) = &mut shell.shown {
+            b.code.text = b.code.text.replace("frq = 1\n", "");
+        }
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        assert!(buffer(&shell).code.error.is_none());
+        assert!(shell.sound_line.as_ref().is_some_and(|(_, l)| l.starts_with("A sound: 0.20 s")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// USED lists the lines of the game's scripts that name the sound, in
+    /// quotes, and a click opens the file there; a sound nothing names
+    /// says so; PLAY SOUND renders the text as it stands.
+    #[test]
+    fn a_sound_shows_where_it_is_used() {
+        let (dir, memory) = sound_game("used");
+        let mut shell = shell_on(&dir, &memory);
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        shell.open("sounds/coin.toml");
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        let rows: Vec<(String, usize, String)> = shell.used.as_ref().unwrap().rows.iter().map(|u| (u.file.clone(), u.line, u.text.clone())).collect();
+        assert_eq!(rows, [("conf.lua".to_string(), 5, "c.things.gem = { sound = \"coin\" }".to_string()), ("main.lua".to_string(), 3, "level:sound(\"coin\", player)".to_string())]);
+        assert_eq!(shell.used_rows.len(), 2, "two rows drawn");
+        // A click on the second opens main.lua at its line.
+        let second = shell.used_rows[1].center();
+        click(&ctx, &mut shell, second);
+        assert_eq!(shell.memory.open.as_deref(), Some("main.lua"));
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        let cursor = egui::TextEdit::load_state(&ctx, egui::Id::unique(("code", "main.lua"))).and_then(|s| s.cursor.char_range()).map(|r| r.primary.index.0);
+        let text = &buffer(&shell).code.text;
+        let line = text[..text.char_indices().nth(cursor.unwrap_or(0)).map_or(text.len(), |(b, _)| b)].matches('\n').count() + 1;
+        assert_eq!(line, 3, "its cursor on the line");
+        // Nothing names the bell.
+        shell.open("sounds/bell.toml");
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        assert!(shell.used.as_ref().is_some_and(|u| u.name == "bell" && u.rows.is_empty()) && shell.used_rows.is_empty());
+        // PLAY SOUND asks the speaker for the text as it stands.
+        type_into_text(&ctx, &mut shell, "# louder\n");
+        shell.play_sound();
+        assert_eq!(shell.take_asks(), [Ask::Sound]);
+        let (samples, volume) = shell.heard().expect("rendered");
+        assert!(!samples.is_empty() && volume > 0.0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A song's text is changed and saved; a mistake in it shows its line
+    /// and PLAY SONG takes the text as it stands.
+    #[test]
+    fn a_song_is_text_to_change() {
+        let (dir, memory) = bare_game("songtext");
+        let mut shell = shell_on(&dir, &memory);
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        shell.make_file("Music", "tune").unwrap();
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        assert!(matches!(shell.shown, Some(Shown::Code(_))), "a song is text to change");
+        type_into_text(&ctx, &mut shell, "\n#bogus 1\n");
+        let error = buffer(&shell).code.error.clone();
+        assert!(error.as_ref().is_some_and(|(_, why)| why.contains("unknown #bogus")), "{error:?}");
+        let line = error.unwrap().0;
+        assert_eq!(buffer(&shell).code.text.lines().nth(line - 1), Some("#bogus 1"), "the line is the one with the mistake");
+        // Saved by the autosave, and PLAY SONG reads the text as it stands.
+        assert!(shell.song("music/tune.mml").is_err(), "the text as it stands: it cannot be read now");
+        shell.tick(std::time::Instant::now() + super::super::buffer::SAVE_AFTER);
+        assert!(std::fs::read_to_string(dir.join("music/tune.mml")).unwrap().contains("#bogus 1"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// SAVED while the file holds what is shown, NOT SAVED YET between a
+    /// change and the autosave; Ctrl+S saves at once.
+    #[test]
+    fn the_text_says_whether_it_is_saved() {
+        let (dir, memory) = sound_game("saved");
+        let mut shell = shell_on(&dir, &memory);
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        shell.open("sounds/coin.toml");
+        frame(&ctx, &mut shell);
+        assert_eq!(shell.saved_word(), Some("SAVED"));
+        type_into_text(&ctx, &mut shell, "# one\n");
+        assert_eq!(shell.saved_word(), Some("NOT SAVED YET"));
+        assert!(!std::fs::read_to_string(dir.join("sounds/coin.toml")).unwrap().contains("# one"));
+        shell.tick(std::time::Instant::now() + super::super::buffer::SAVE_AFTER);
+        assert_eq!(shell.saved_word(), Some("SAVED"), "the autosave");
+        assert!(std::fs::read_to_string(dir.join("sounds/coin.toml")).unwrap().contains("# one"));
+        // Ctrl+S at once.
+        type_into_text(&ctx, &mut shell, "# two\n");
+        assert_eq!(shell.saved_word(), Some("NOT SAVED YET"));
+        let ctrl_s = |pressed| egui::Event::Key { key: egui::Key::S, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::COMMAND };
+        frame_with(&ctx, &mut shell, vec![ctrl_s(true)]);
+        frame_with(&ctx, &mut shell, vec![ctrl_s(false)]);
+        assert_eq!(shell.saved_word(), Some("SAVED"));
+        assert!(std::fs::read_to_string(dir.join("sounds/coin.toml")).unwrap().contains("# two"), "written at once");
+        // A script says it too.
+        shell.open("main.lua");
+        frame(&ctx, &mut shell);
+        assert_eq!(shell.saved_word(), Some("SAVED"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A frame with `events`; what the frame asked to be copied.
+    fn copied_in(ctx: &egui::Context, shell: &mut Shell, events: Vec<egui::Event>) -> Vec<String> {
+        let time = ctx.input(|i| i.time) + 0.1;
+        let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 720.0))), time: Some(time), events, ..Default::default() };
+        let out = ctx.run_ui(raw, |ui| shell.ui(ui));
+        out.platform_output.commands.iter().filter_map(|c| if let egui::OutputCommand::CopyText(t) = c { Some(t.clone()) } else { None }).collect()
+    }
+
+    /// COPY at a mistake's right end copies it with the file's name in
+    /// front; COPY ALL over OUTPUT copies every line.
+    #[test]
+    fn a_mistake_and_the_output_can_be_copied() {
+        let (dir, memory) = sound_game("copy");
+        let mut shell = shell_on(&dir, &memory);
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        shell.open("sounds/coin.toml");
+        frame(&ctx, &mut shell);
+        type_into_text(&ctx, &mut shell, "frq = 1\n");
+        COPY_BUTTONS.with(|b| b.borrow_mut().clear());
+        frame(&ctx, &mut shell);
+        let at = COPY_BUTTONS.with(|b| b.borrow().first().copied()).expect("a COPY button at the mistake").center();
+        let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        copied_in(&ctx, &mut shell, vec![egui::Event::PointerMoved(at)]);
+        copied_in(&ctx, &mut shell, vec![button(true)]);
+        let copied = copied_in(&ctx, &mut shell, vec![button(false)]);
+        assert_eq!(copied, ["sounds/coin.toml line 7: frq: no such field (did you mean freq?)"]);
+        // OUTPUT's COPY ALL: the lines in order.
+        shell.output.add(Kind::Note, "one", None, false);
+        shell.output.add(Kind::Error, "two", None, false);
+        shell.output_shown = true;
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        assert!(shell.output.text().ends_with("one\ntwo"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -21,6 +21,7 @@ mod preview;
 mod projects;
 mod remote;
 mod shell;
+mod sounds;
 mod templates;
 mod terminal;
 
@@ -172,7 +173,8 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
     let start = opts.console.clone().map_or(Start::Nothing, Start::Command);
     let console = Console::new(dir.to_path_buf(), start, Arc::new(|| {}));
     let cfg = crate::session::config::<G>(dir)?;
-    let mut shell = Shell::new(dir, cfg, std::env::temp_dir().join(format!("voxcade-ide-shot-{}.toml", std::process::id())), console);
+    let brought = G::sounds(&cfg);
+    let mut shell = Shell::new(dir, cfg, std::env::temp_dir().join(format!("voxcade-ide-shot-{}.toml", std::process::id())), console).with_sounds(brought);
     shell.animate = false;
     // `--open help` shows HELP as it opens, at every name of the API
     // (`help:N` the example N, from 1); anything else is a file.
@@ -536,7 +538,8 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
     // The bridge for `voxcade mcp` (the agent), woken the same way.
     let bridge = bridge::Bridge::open(&bridge::lock_path(dir), dir, wake.clone()).map_err(|e| eprintln!("no MCP bridge: {e:#}")).ok();
     let console = Console::new(dir.to_path_buf(), Start::Shell, wake.clone());
-    let mut shell = Shell::new(dir, cfg, memory::Memory::path_for(dir), console).with_prefs(prefs::Prefs::path()).with_output(output::Output::path_for(dir));
+    let brought = G::sounds(&cfg);
+    let mut shell = Shell::new(dir, cfg, memory::Memory::path_for(dir), console).with_sounds(brought).with_prefs(prefs::Prefs::path()).with_output(output::Output::path_for(dir));
     // The editors' windows, on the IDE's GPU.
     let mut editors: Vec<(Editing, crate::editor::EditorWindow)> = Vec::new();
     // The game being played in the main area, and whether the window has
@@ -550,6 +553,9 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
     // A song played from its file (PLAY over a .mml), through a speaker of
     // its own while it plays.
     let mut song: Option<crate::audio::Speaker> = None;
+    // A sound played from its text (PLAY SOUND): its speaker stays open
+    // once opened, so the next sound comes at once.
+    let mut blip: Option<crate::audio::Speaker> = None;
     // When egui wants to draw again (None: only after an event), and when
     // the open text is due to be saved or looked at on disk.
     let mut repaint_at = Some(Instant::now());
@@ -804,6 +810,20 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
                 },
                 // The speaker closed with it.
                 Ask::Hush => drop(song.take()),
+                Ask::Sound => {
+                    if let Some((samples, volume)) = shell.heard() {
+                        if blip.is_none() {
+                            blip = crate::audio::speaker(sdl);
+                        }
+                        match blip.as_mut().and_then(|s| s.lock()) {
+                            Some(mut mixer) => {
+                                mixer.set_drive(shell.drive());
+                                mixer.play("heard", &samples, volume, 0.0);
+                            }
+                            None => shell.tell("No sound: the speaker would not open.".into()),
+                        }
+                    }
+                }
                 // Another game (from the menu on the name), the dialog to
                 // pick one, or where NEW puts games.
                 Ask::Project(projects::Wish::Open(to)) => break 'project Next::Game(to),

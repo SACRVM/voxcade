@@ -1,8 +1,8 @@
 //! A game folder as the IDE lists it: its logic (the Lua scripts, and the
 //! text files they `read`), its scenarios (`scenarios/NAME.lua`: runs
 //! begun late, to try things) and its assets in a few groups (the level,
-//! models, blocks, images, music, the rest; the models and the music
-//! listed even when empty). Hidden files and the recorded
+//! models, blocks, images, sounds, music, the rest; the models, sounds and
+//! music listed even when empty). Hidden files and the recorded
 //! runs (`replays/`) are left out.
 
 use std::path::Path;
@@ -23,10 +23,10 @@ pub struct Group {
 }
 
 /// The groups, in the order the IDE shows them.
-const GROUPS: [&str; 6] = ["Levels", "Models", "Blocks", "Images", "Music", "Other"];
+const GROUPS: [&str; 7] = ["Levels", "Models", "Blocks", "Images", "Sounds", "Music", "Other"];
 
 /// The sorts listed even with no file.
-const ALWAYS: [&str; 2] = ["Models", "Music"];
+const ALWAYS: [&str; 3] = ["Models", "Sounds", "Music"];
 
 /// How deep the IDE looks into the folder's folders.
 const DEPTH: usize = 5;
@@ -63,14 +63,17 @@ impl Files {
                 "vox" if f.starts_with("blocks/") => 2,
                 "vox" => 1,
                 "png" => 3,
-                "mml" => 4,
-                _ => 5,
+                // The sounds the game plays by name: the files of `sounds/`
+                // itself (a recording beside them is not one).
+                "toml" | "wav" if f.starts_with("sounds/") && !f["sounds/".len()..].contains('/') => 4,
+                "mml" => 5,
+                _ => 6,
             };
             groups[group].push(f);
         }
         // The game's own two first, the other scripts after them.
         files.logic.sort_by_key(|f| (["conf.lua", "main.lua"].iter().position(|n| n == f).unwrap_or(2), f.clone()));
-        // The models and the music always have their place (the IDE's plus
+        // The models, sounds and music always have their place (the IDE's plus
         // there makes the first one); the other sorts show when there are some.
         files.assets = GROUPS.iter().zip(groups).filter(|(name, g)| !g.is_empty() || ALWAYS.contains(name)).map(|(&name, files)| Group { name, files }).collect();
         files
@@ -126,6 +129,9 @@ mod tests {
             ("blocks/stone.vox", ""),
             ("level.json", "{}"),
             ("back.png", ""),
+            ("sounds/coin.toml", "wave = \"sine\""),
+            ("sounds/boom.wav", ""),
+            ("sounds/raw/deep.wav", ""),
             ("music/song.mml", ""),
             ("replays/tests/run.toml", ""),
             (".luarc.json", "{}"),
@@ -146,8 +152,9 @@ mod tests {
                 ("Models", vec!["hero.vox"]),
                 ("Blocks", vec!["blocks/stone.vox"]),
                 ("Images", vec!["back.png"]),
+                ("Sounds", vec!["sounds/boom.wav", "sounds/coin.toml"]),
                 ("Music", vec!["music/song.mml"]),
-                ("Other", vec!["levels/README.txt", "tiled/level.json"]),
+                ("Other", vec!["levels/README.txt", "sounds/raw/deep.wav", "tiled/level.json"]),
             ]
         );
         assert!(files.has("blocks/stone.vox") && !files.has("replays/tests/run.toml"));

@@ -164,6 +164,11 @@ impl Mixer {
         self.music.as_ref().is_none_or(music::Player::over)
     }
 
+    /// Whether nothing sounds: no voice plays and no music is set.
+    pub fn idle(&self) -> bool {
+        self.voices.is_empty() && self.music.is_none()
+    }
+
     /// Keeps the music with a game's clock (`music::Player::follow`).
     pub fn follow_music(&mut self, target: u64) {
         if let Some(m) = &mut self.music {
@@ -273,7 +278,29 @@ impl Drop for Speaker {
     /// that thread.
     fn drop(&mut self) {
         if let Some(stream) = self.stream.take() {
-            let _ = std::thread::Builder::new().name("audio close".into()).spawn(move || drop(stream));
+            let _ = std::thread::Builder::new().name("audio close".into()).spawn(move || {
+                let _one = ONE_AT_A_TIME.lock();
+                drop(stream);
+            });
+        }
+    }
+}
+
+/// A stream is opened or closed, never both at once: SDL takes its sound
+/// server's loop down with the last stream, and a stream opened meanwhile
+/// reached into it (PLAY SOUND pressed twice in the IDE crashed it).
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+/// The right to open a stream, waited for a moment while one closes: a
+/// close that hangs (a sound server gone) must not hold the window.
+fn may_open() -> Option<MutexGuard<'static, ()>> {
+    let until = std::time::Instant::now() + std::time::Duration::from_millis(500);
+    loop {
+        match ONE_AT_A_TIME.try_lock() {
+            Ok(guard) => return Some(guard),
+            Err(std::sync::TryLockError::Poisoned(p)) => return Some(p.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) if std::time::Instant::now() < until => std::thread::sleep(std::time::Duration::from_millis(5)),
+            Err(_) => return None,
         }
     }
 }
@@ -310,6 +337,10 @@ pub fn speaker(sdl: &sdl3::Sdl) -> Option<Speaker> {
     let spec = sdl3::audio::AudioSpec { freq: Some(SAMPLE_RATE as i32), channels: Some(2), format: Some(sdl3::audio::AudioFormat::f32_sys()) };
     let (mixer, held) = (Arc::new(Mutex::new(Mixer::default())), Arc::new(AtomicBool::new(false)));
     let feed = Feed { mixer: mixer.clone(), held: held.clone(), buf: Vec::new() };
+    let Some(_one) = may_open() else {
+        eprintln!("no sound: the speaker opened before is still closing");
+        return None;
+    };
     let audio = sdl.audio().map_err(|e| anyhow::anyhow!("initialising SDL audio: {e}"));
     match audio.and_then(|a| a.open_playback_stream(&spec, feed).map_err(|e| anyhow::anyhow!("opening audio: {e}"))) {
         Ok(stream) => match stream.resume() {

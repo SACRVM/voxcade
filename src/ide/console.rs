@@ -30,6 +30,8 @@ pub struct Heading {
     pub agent: bool,
     /// CLEAR, over the output.
     pub clear: bool,
+    /// COPY ALL, over the output.
+    pub copy_all: bool,
 }
 
 /// Selected letters' ground, as in the rest of the IDE.
@@ -229,6 +231,9 @@ impl Console {
             if *output {
                 if ui.button("CLEAR").on_hover_text("Forgets every line of the output.").clicked() {
                     pressed.clear = true;
+                }
+                if ui.button("COPY ALL").on_hover_text("Copies every line of the output.").clicked() {
+                    pressed.copy_all = true;
                 }
                 return;
             }

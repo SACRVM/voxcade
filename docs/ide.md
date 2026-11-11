@@ -406,11 +406,22 @@ Stage by stage (the plan of 2026-10-18):
    camera, blocks as they lie in the level), and its frames play on the
    voxel editor's panel (PLAY, PAUSE) and in the IDE's picture, which has
    no floor (the editor's, to build on), PAUSE, PREV and NEXT above it
-   (test `a_models_frames_are_held_and_stepped`). A song (`.mml`) shows as text
-   under a line of what it is (title, length, channels) with PLAY SONG:
-   it plays as saved, at the game's music volume and the player's, through
-   a speaker of its own; opening another file or playing the game ends
-   it (test `a_song_plays_until_something_else_is_open`).
+   (test `a_models_frames_are_held_and_stepped`). A song (`.mml`) is text to
+   change under a line of what it is (title, length, channels) with PLAY
+   SONG: it is parsed after every change (a mistake shows "LINE n: why" and
+   marks the line; inside a channel, its first line) and plays as it
+   stands, at the game's music volume and the player's, through a speaker
+   of its own; opening another file or playing the game ends it (test
+   `a_song_plays_until_something_else_is_open`). A sound (`sounds/NAME.toml`,
+   or a `.wav`) has its group SOUNDS, always there, with a plus; the
+   sounds the game brings from the engine and its rules are listed under
+   them as "built in" and open read-only with MAKE IT YOURS. In the main
+   area a sound is text to change under a line in words of what it is and
+   PLAY SOUND (the text as it stands), its mistakes shown like Lua's, and
+   under the text USED: the lines of the game's scripts that name it, each
+   opening the file there. Sound maker controls (dice, faders) come later.
+   Every text one can change says SAVED or NOT SAVED YET and Ctrl+S saves
+   at once.
 6. **The MCP bridge** (done): the IDE listens on 127.0.0.1 at a free port
    and writes the port and a random token into
    `config_dir()/ide/<game>.lock` (mode 0600, gone when the IDE closes;
