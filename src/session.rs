@@ -2088,7 +2088,10 @@ impl Voxels<'_> {
 
     fn finish(mut self) -> Vec<Instance> {
         self.see_through.sort_by(|a, b| b.0.total_cmp(&a.0));
+        let from = self.opaque.len();
         self.opaque.extend(self.see_through.into_iter().map(|(_, i)| i));
+        // Water and glass are one body: the faces between their cubes go.
+        crate::render::join_see_through(&mut self.opaque[from..]);
         self.opaque
     }
 }

@@ -265,6 +265,34 @@ pub fn hide_inner_faces(instances: &mut [Instance]) {
     });
 }
 
+/// Marks the faces two see-through unit cubes share, so water, glass and
+/// the like are one joined body and not a grid of darker stripes where the
+/// faces between cubes blend on top of each other. Only cubes in
+/// neighbouring cells that lie alike within their cells (a column raised by
+/// a wave does not, and keeps its faces) and are not turned freely join;
+/// colours may differ. Opaque cubes are left alone, and so are bits already
+/// set. Needs every see-through cube of the frame at once.
+pub fn join_see_through(instances: &mut [Instance]) {
+    let joins = |i: &Instance| i.pos_size[3] == 1.0 && i.fx[1] < 255 && i.turn == [0; 4];
+    let cell = |i: &Instance| glam::Vec3::from_slice(&i.pos_size[..3]).floor().as_ivec3();
+    let mut at: crate::world::CellMap<glam::Vec3> = crate::world::CellMap::default();
+    for i in instances.iter().filter(|i| joins(i)) {
+        at.insert(cell(i), glam::Vec3::from_slice(&i.pos_size[..3]) - cell(i).as_vec3());
+    }
+    if at.len() < 2 {
+        return;
+    }
+    for i in instances.iter_mut().filter(|i| joins(i)) {
+        let c = cell(i);
+        let within = glam::Vec3::from_slice(&i.pos_size[..3]) - c.as_vec3();
+        for (bit, d) in crate::mesh::DIRS.iter().enumerate() {
+            if at.get(&(c + *d)).is_some_and(|w| (*w - within).abs().max_element() <= 0.01) {
+                i.fx[2] |= 1 << bit;
+            }
+        }
+    }
+}
+
 /// A light from a flash or an explosion.
 #[derive(Clone, Copy)]
 pub struct Light {
@@ -1579,6 +1607,39 @@ mod tests {
             assert_eq!(v[2].fx[2], 0b10_0000, "-z");
             assert_eq!(v[3].fx[2], 0, "a cube on its own");
             assert_eq!(v[4].fx[2], 0, "a see-through cube");
+        }
+    }
+
+    /// See-through cubes join where they lie alike in neighbouring cells:
+    /// the faces they share go, a raised, turned or opaque neighbour keeps
+    /// them, and a patch keeps only its outside.
+    #[test]
+    fn see_through_cubes_join_where_they_touch() {
+        use super::{Instance, join_see_through};
+        let cube = |x: f32, y: f32, z: f32| Instance { pos_size: [x + 0.5, y + 0.5, z + 0.5, 1.0], color: [50, 130, 200, 140], fx: [0, 140, 0, 0], shade: [0; 4], turn: [0; 4] };
+        // Bits in mesh::DIRS order: +x, -x, +y, -y, +z, -z.
+        let mut v = vec![cube(0.0, 0.0, 0.0), Instance { color: [255, 255, 255, 140], ..cube(1.0, 0.0, 0.0) }];
+        join_see_through(&mut v);
+        assert_eq!((v[0].fx[2], v[1].fx[2]), (0b01, 0b10), "the shared faces, different colours");
+        let mut v = vec![cube(0.0, 0.0, 0.0), Instance { fx: [0, 255, 0, 0], ..cube(1.0, 0.0, 0.0) }];
+        join_see_through(&mut v);
+        assert_eq!((v[0].fx[2], v[1].fx[2]), (0, 0), "beside an opaque cube");
+        let mut v = vec![cube(0.0, 0.0, 0.0), cube(1.0, 0.0, 0.3)];
+        join_see_through(&mut v);
+        assert_eq!((v[0].fx[2], v[1].fx[2]), (0, 0), "a neighbour raised by 0.3");
+        let mut v = vec![cube(0.0, 0.0, 0.0), Instance { turn: [10, 0, 0, 100], ..cube(1.0, 0.0, 0.0) }];
+        join_see_through(&mut v);
+        assert_eq!((v[0].fx[2], v[1].fx[2]), (0, 0), "a freely turned neighbour");
+        let mut v = vec![cube(0.0, 0.0, 0.0), cube(1.0, 0.0, 0.0)];
+        v[0].fx[2] = 0b10_0000;
+        join_see_through(&mut v);
+        assert_eq!(v[0].fx[2], 0b10_0001, "bits set before stay");
+        let mut v: Vec<Instance> = (0..3).flat_map(|y| (0..3).map(move |x| cube(x as f32, y as f32, 0.0))).collect();
+        join_see_through(&mut v);
+        for (n, i) in v.iter().enumerate() {
+            let (x, y) = (n % 3, n / 3);
+            let side = (x < 2) as u8 | ((x > 0) as u8) << 1 | ((y < 2) as u8) << 2 | ((y > 0) as u8) << 3;
+            assert_eq!(i.fx[2], side, "cube {x},{y} of a patch: its inner sides only, tops and bottoms stay");
         }
     }
 

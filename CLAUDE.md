@@ -860,7 +860,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   passes -> composite onto the surface (`src/post.wgsl`). Instances are
   opaque first, then see-through ones sorted far to near
   (`FrameData::see_through`); see-through cubes write no depth and cast no
-  shadow. Actor models get see-through voxels from MagicaVoxel's glass
+  shadow. See-through cubes that touch, flush in neighbouring cells,
+  draw none of the faces between them (`render::join_see_through`, in
+  `Voxels::finish`: water of `frame:cube`s is one joined body, not a
+  grid of darker stripes; the user, 2026-11-11: for everything, a
+  model's glass too, so Voxkeep's gem is lighter than it was). Actor models get see-through voxels from MagicaVoxel's glass
   (`_trans`) or blend (`_alpha`) material on a colour (`vox::see_through`,
   carried as the colour's alpha); the Huey's cockpit is the example (the
   user's idea). Glass with a roughness (`_rough`) mirrors and glints (the
