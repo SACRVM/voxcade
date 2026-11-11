@@ -272,7 +272,19 @@ pub fn hide_inner_faces(instances: &mut [Instance]) {
 /// a wave does not, and keeps its faces) and are not turned freely join;
 /// colours may differ. Opaque cubes are left alone, and so are bits already
 /// set. Needs every see-through cube of the frame at once.
-pub fn join_see_through(instances: &mut [Instance]) {
+///
+/// One sort of shared face stays (the user's idea): a skin for every layer
+/// of the body, each a whole plane without a grid, so it shows how thick it
+/// is by itself: three voxels of water are as dense as three sheets were.
+/// The layers lie across the body where it is thin at that cube (water
+/// lies flat, a pane of glass may stand, the user: the shortest run of
+/// see-through cubes through it, along x, y or z, where that is half the
+/// next or less); where it is about as thick every way, a block or a gem,
+/// across the way turned most towards the eye (`toward`, from the cubes to
+/// the eye; the upright one in a near tie, as a view from above at 45
+/// degrees is). Of the two faces shared along that
+/// way the one facing the eye stays.
+pub fn join_see_through(instances: &mut [Instance], toward: Vec3) {
     let joins = |i: &Instance| i.pos_size[3] == 1.0 && i.fx[1] < 255 && i.turn == [0; 4];
     let cell = |i: &Instance| glam::Vec3::from_slice(&i.pos_size[..3]).floor().as_ivec3();
     let mut at: crate::world::CellMap<glam::Vec3> = crate::world::CellMap::default();
@@ -282,11 +294,36 @@ pub fn join_see_through(instances: &mut [Instance]) {
     if at.len() < 2 {
         return;
     }
+    // The ways by how much they face the eye, the most first.
+    let a = toward.abs();
+    let first = if a.z >= 0.8 * a.max_element() { 2 } else if a.y >= a.x { 1 } else { 0 };
+    let mut ways = [first, (first + 1) % 3, (first + 2) % 3];
+    if a[ways[2]] > a[ways[1]] {
+        ways.swap(1, 2);
+    }
+    // No run is counted further than this each way: thick is thick.
+    const FAR: i32 = 16;
     for i in instances.iter_mut().filter(|i| joins(i)) {
         let c = cell(i);
         let within = glam::Vec3::from_slice(&i.pos_size[..3]) - c.as_vec3();
+        let joined = |to: glam::IVec3| at.get(&to).is_some_and(|w| (*w - within).abs().max_element() <= 0.01);
+        // How many cubes the body is through here, along each way.
+        let run = |axis: usize| {
+            let step = crate::mesh::DIRS[axis * 2];
+            let count = |d: glam::IVec3| (1..=FAR).take_while(|n| joined(c + d * *n)).count();
+            1 + count(step) + count(-step)
+        };
+        let runs = [run(0), run(1), run(2)];
+        // Thin here: half as far through as any other way, or less. A
+        // body about as thick every way (a gem's middle) goes by the view,
+        // or its cubes would each choose their own and the skins lie in
+        // patches.
+        let mut sorted = runs;
+        sorted.sort_unstable();
+        let across = if sorted[0] * 2 <= sorted[1] { *ways.iter().find(|w| runs[**w] == sorted[0]).expect("one is the shortest") } else { ways[0] };
+        let kept = across * 2 + (toward[across] < 0.0) as usize;
         for (bit, d) in crate::mesh::DIRS.iter().enumerate() {
-            if at.get(&(c + *d)).is_some_and(|w| (*w - within).abs().max_element() <= 0.01) {
+            if bit != kept && joined(c + *d) {
                 i.fx[2] |= 1 << bit;
             }
         }
@@ -1619,23 +1656,60 @@ mod tests {
         let cube = |x: f32, y: f32, z: f32| Instance { pos_size: [x + 0.5, y + 0.5, z + 0.5, 1.0], color: [50, 130, 200, 140], fx: [0, 140, 0, 0], shade: [0; 4], turn: [0; 4] };
         // Bits in mesh::DIRS order: +x, -x, +y, -y, +z, -z.
         let mut v = vec![cube(0.0, 0.0, 0.0), Instance { color: [255, 255, 255, 140], ..cube(1.0, 0.0, 0.0) }];
-        join_see_through(&mut v);
+        join_see_through(&mut v, glam::Vec3::Z);
         assert_eq!((v[0].fx[2], v[1].fx[2]), (0b01, 0b10), "the shared faces, different colours");
         let mut v = vec![cube(0.0, 0.0, 0.0), Instance { fx: [0, 255, 0, 0], ..cube(1.0, 0.0, 0.0) }];
-        join_see_through(&mut v);
+        join_see_through(&mut v, glam::Vec3::Z);
         assert_eq!((v[0].fx[2], v[1].fx[2]), (0, 0), "beside an opaque cube");
         let mut v = vec![cube(0.0, 0.0, 0.0), cube(1.0, 0.0, 0.3)];
-        join_see_through(&mut v);
+        join_see_through(&mut v, glam::Vec3::Z);
         assert_eq!((v[0].fx[2], v[1].fx[2]), (0, 0), "a neighbour raised by 0.3");
         let mut v = vec![cube(0.0, 0.0, 0.0), Instance { turn: [10, 0, 0, 100], ..cube(1.0, 0.0, 0.0) }];
-        join_see_through(&mut v);
+        join_see_through(&mut v, glam::Vec3::Z);
         assert_eq!((v[0].fx[2], v[1].fx[2]), (0, 0), "a freely turned neighbour");
         let mut v = vec![cube(0.0, 0.0, 0.0), cube(1.0, 0.0, 0.0)];
         v[0].fx[2] = 0b10_0000;
-        join_see_through(&mut v);
+        join_see_through(&mut v, glam::Vec3::Z);
         assert_eq!(v[0].fx[2], 0b10_0001, "bits set before stay");
+        // A skin a layer, across the body where it is thinnest. Water two
+        // deep and three wide each way, from above: the top between its
+        // layers stays, every side between its cubes goes.
+        let up = glam::Vec3::new(0.0, -0.7, 0.7);
+        let slab = |v: &mut Vec<Instance>| {
+            for z in 0..2 {
+                for y in 0..3 {
+                    for x in 0..3 {
+                        v.push(cube(x as f32, y as f32, z as f32));
+                    }
+                }
+            }
+        };
+        let mut v = Vec::new();
+        slab(&mut v);
+        join_see_through(&mut v, up);
+        assert_eq!(v[4].fx[2], 0b00_1111, "the lower layer's middle: its sides go, its top stays (nothing below it)");
+        assert_eq!(v[9 + 4].fx[2], 0b10_1111, "the upper layer's middle: its sides and its bottom go");
+        // A pane of glass standing, one cube thick: one skin, no layers,
+        // though the view is from above.
+        let mut v: Vec<Instance> = (0..3).flat_map(|z| (0..3).map(move |x| cube(x as f32, 0.0, z as f32))).collect();
+        join_see_through(&mut v, up);
+        assert_eq!(v[4].fx[2], 0b11_0011, "a standing pane's middle: every face shared goes");
+        // A pane two thick, six wide and high: layers across it, the far
+        // one's near side stays.
+        let mut v: Vec<Instance> = (0..2).flat_map(|y| (0..6).flat_map(move |z| (0..6).map(move |x| cube(x as f32, y as f32, z as f32)))).collect();
+        join_see_through(&mut v, up);
+        assert_eq!((v[7].fx[2], v[36 + 7].fx[2]), (0b11_0111, 0b11_0011), "two thick: the near pane loses its far side, the far one keeps its near side");
+        // A block as wide as it is deep and high: across the view. From
+        // above the tops between its layers stay, from the south the near sides.
+        let block = || -> Vec<Instance> { (0..8).map(|n| cube((n & 1) as f32, (n >> 1 & 1) as f32, (n >> 2) as f32)).collect() };
+        let mut v = block();
+        join_see_through(&mut v, up);
+        assert_eq!((v[0].fx[2], v[4].fx[2]), (0b00_0101, 0b10_0101), "a block from above");
+        let mut v = block();
+        join_see_through(&mut v, glam::Vec3::new(0.0, -1.0, 0.2));
+        assert_eq!((v[0].fx[2], v[2].fx[2]), (0b01_0101, 0b01_0001), "a block from the south");
         let mut v: Vec<Instance> = (0..3).flat_map(|y| (0..3).map(move |x| cube(x as f32, y as f32, 0.0))).collect();
-        join_see_through(&mut v);
+        join_see_through(&mut v, glam::Vec3::Z);
         for (n, i) in v.iter().enumerate() {
             let (x, y) = (n % 3, n / 3);
             let side = (x < 2) as u8 | ((x > 0) as u8) << 1 | ((y < 2) as u8) << 2 | ((y > 0) as u8) << 3;

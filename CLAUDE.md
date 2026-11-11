@@ -861,10 +861,16 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   opaque first, then see-through ones sorted far to near
   (`FrameData::see_through`); see-through cubes write no depth and cast no
   shadow. See-through cubes that touch, flush in neighbouring cells,
-  draw none of the faces between them (`render::join_see_through`, in
-  `Voxels::finish`: water of `frame:cube`s is one joined body, not a
-  grid of darker stripes; the user, 2026-11-11: for everything, a
-  model's glass too, so Voxkeep's gem is lighter than it was). Actor models get see-through voxels from MagicaVoxel's glass
+  draw as one body (`render::join_see_through`, in `Voxels::finish`):
+  the faces between them go, but for a skin a layer (the user's idea,
+  2026-11-11: several skins on top of each other, not one), so water
+  made of `frame:cube`s is no grid of darker stripes and still shows
+  how deep it is. The layers lie across the body where it is clearly
+  thin at that cube (water lies flat, glass may stand: the shortest run
+  of see-through cubes, half the next or less), else across the way the
+  view looks most (a block, Voxkeep's gem); of a seam's two faces the
+  one towards the eye stays. For everything see-through, a model's
+  glass too. Actor models get see-through voxels from MagicaVoxel's glass
   (`_trans`) or blend (`_alpha`) material on a colour (`vox::see_through`,
   carried as the colour's alpha); the Huey's cockpit is the example (the
   user's idea). Glass with a roughness (`_rough`) mirrors and glints (the

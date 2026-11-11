@@ -2090,8 +2090,13 @@ impl Voxels<'_> {
         self.see_through.sort_by(|a, b| b.0.total_cmp(&a.0));
         let from = self.opaque.len();
         self.opaque.extend(self.see_through.into_iter().map(|(_, i)| i));
-        // Water and glass are one body: the faces between their cubes go.
-        crate::render::join_see_through(&mut self.opaque[from..]);
+        // Water and glass are one body: the faces between their cubes go,
+        // but for the one towards the eye, a skin a layer.
+        let cubes = &mut self.opaque[from..];
+        if !cubes.is_empty() {
+            let middle = cubes.iter().map(|i| Vec3::from_slice(&i.pos_size[..3])).sum::<Vec3>() / cubes.len() as f32;
+            crate::render::join_see_through(cubes, self.eye - middle);
+        }
         self.opaque
     }
 }
