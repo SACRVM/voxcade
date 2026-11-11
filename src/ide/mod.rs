@@ -510,7 +510,8 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
     // The editors' windows, on the IDE's GPU.
     let mut editors: Vec<(Editing, crate::editor::EditorWindow)> = Vec::new();
     // The game being played in the main area, and whether the window has
-    // the focus (elsewhere the game holds still).
+    // the focus (elsewhere the game holds still, unless the IDE answers
+    // another session, `remote`).
     let mut play: Option<Play<G>> = None;
     let mut focused = true;
     // A song played from its file (PLAY over a .mml), through a speaker of
@@ -673,7 +674,7 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
         // once the file is mended.
         if let (Some(p), Some(stage)) = (&mut play, &mut shell.stage)
             && stage.trouble.is_some()
-            && !(stage.shown && focused)
+            && !(stage.shown && (focused || remote))
         {
             if p.reload(&screen.device, &screen.queue) {
                 stage.trouble = p.trouble();
@@ -749,7 +750,9 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
         let keys = shell.keys_to_game(ctx);
         let mut running = false;
         if let (Some(p), Some(stage)) = (&mut play, &mut shell.stage) {
-            match stage.wanted.filter(|_| stage.shown && focused) {
+            // (For another session testing it, `--remote`, it runs on with
+            // the window elsewhere: what it fetches is the game as it goes.)
+            match stage.wanted.filter(|_| stage.shown && (focused || remote)) {
                 Some(size) => {
                     // The pads always, the keyboard while the game has it.
                     let state = events.keyboard_state();

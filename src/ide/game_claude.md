@@ -25,11 +25,13 @@ here in two or three sentences, and keep it true as the game changes.
 
 ## Keeping versions
 
-This folder is a git repository. After a change that works and that the
-person is content with, commit it, with a short message saying what the
-game can do now. That is the way back when something goes wrong: say so
-when it would help ("we can go back to how it was before the lava").
-Never rewrite what is committed, and push nothing unless asked.
+This folder is a git repository. After every step that works (you
+looked at it, no error), commit it yourself, without asking, with a
+short message saying what the game can do now. A commit here stays on
+this machine and is the way back when something goes wrong or the
+person does not like a step: say so when it would help ("we can go back
+to how it was before the lava"), and go back when they ask. Never
+rewrite what is committed, and push nothing unless asked.
 
 If the person wants the game on GitHub: help them, step by step. Ask
 whether it shall be private or public (private unless they say
