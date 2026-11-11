@@ -98,7 +98,7 @@ end
 
 -- The HUD: each player's hearts and lives in a corner on top (the first
 -- left, the second right), the score and the pickups taken under them;
--- PRESS START where a seat is free; at the end STAGE CLEAR or GAME OVER
+-- PLAYER 2: PRESS START where a seat is free; at the end STAGE CLEAR or GAME OVER
 -- dropping in.
 local TEXT, NUMBERS, RED = { 240, 230, 204 }, { 255, 214, 90 }, { 230, 58, 48 }
 
@@ -159,7 +159,7 @@ local function hud(frame)
       if p then
         corner(frame, p, seat == 2)
       elseif world.tick // 30 % 2 == 0 then
-        local text = "PRESS START"
+        local text = "PLAYER " .. seat .. ": PRESS START"
         frame:text(text, seat == 2 and frame.width - 3 - frame:text_width(text) or 3, 4)
       end
     end

@@ -79,7 +79,7 @@ end
 
 -- The HUD: each player's hearts and lives on top, the score under them,
 -- the gun and the grenades at the bottom (the first player's on the left,
--- the second's on the right); PRESS START where a seat is free; the
+-- the second's on the right); PLAYER 2: PRESS START where a seat is free; the
 -- messages dropping in.
 local TEXT, NUMBERS, RED = { 240, 230, 204 }, { 255, 214, 90 }, { 230, 58, 48 }
 
@@ -139,7 +139,7 @@ function on_draw(frame)
     if p then
       corner(frame, seat, p)
     elseif world.tick // 30 % 2 == 0 then
-      local text = "PRESS START"
+      local text = "PLAYER " .. seat .. ": PRESS START"
       frame:text(text, left_of(frame, seat, frame:text_width(text)), 4)
     end
   end

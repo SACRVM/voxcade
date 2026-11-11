@@ -224,6 +224,7 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
             {
                 let first = stage.picture.is_none();
                 stage.picture = Some(p.draw(device, queue, &mut painter.renderer, size));
+                stage.keys = p.keys();
                 stage.trouble = p.trouble();
                 stage.unloaded = p.unloaded();
                 settled &= !first;
@@ -791,8 +792,8 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
             match ask {
                 Ask::Play(scenario) => match Play::<G>::start(dir, &screen.device, &screen.queue, crate::audio::speaker(sdl), scenario.as_deref()) {
                     Ok(p) => {
+                        shell.stage = Some(Stage { shown: true, keys: p.keys(), ..Stage::default() });
                         play = Some(p);
-                        shell.stage = Some(Stage { shown: true, ..Stage::default() });
                         shell.start_mended();
                         start_watch = None;
                     }
@@ -808,6 +809,13 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
                         p.end(&mut painter.renderer);
                     }
                     shell.stage = None;
+                }
+                Ask::Again => {
+                    if let Some(p) = &mut play
+                        && let Err(e) = p.restart(&screen.device, &screen.queue)
+                    {
+                        shell.tell(format!("{e:#}"));
+                    }
                 }
                 Ask::Eval(line) => match play.as_mut() {
                     Some(p) => {
@@ -876,6 +884,7 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
                     stage.picture = Some(p.frame(&screen.device, &screen.queue, &mut painter.renderer, size, &held));
                     stage.trouble = p.trouble();
                     stage.unloaded = p.unloaded();
+                    stage.keys = p.keys();
                     running = true;
                 }
                 None => p.hold(),

@@ -225,7 +225,10 @@ nearest; its replay `tests/two_ships`);
   folder (`ide/<game>.toml`).
   Below the main area the console: the user's shell in the game folder
   (`ide/terminal.rs` over `alacritty_terminal`, `ide/console.rs` the
-  panel), CLAUDE starts Claude Code as the IDE's settings say (the gear
+  panel), CLAUDE looks for Claude Code's program first (`claude::Finder`; missing:
+  nothing is typed, the console says what an agent is and where to get
+  Claude Code, LOOK AGAIN; started with the IDE the console stays folded
+  and the bar says NO AGENT FOUND), then starts it as the IDE's settings say (the gear
   at the top right, `ide/prefs.rs`, `config_dir()/ide/settings/ide.toml`:
   the console shown or not at all, the agent, and `ide/claude.rs`: with
   the IDE, going on with each game's conversation by its session id,
@@ -267,7 +270,9 @@ nearest; its replay `tests/two_ships`);
   change (`ide/buffer.rs`, a journal in the config folder against
   crashes; a change on disk comes in, or the IDE asks whose to keep).
   PLAY plays the game in the main area (`ide/play.rs`, no title or
-  menus; a file saved comes in at once, and where the game would now
+  menus; its keys on a line under it, `play::keys_of`, the keyboard's
+  names; AGAIN beside STOP begins it anew, a game held behind the file
+  has BACK TO THE GAME in place of PLAY; a file saved comes in at once, and where the game would now
   begin otherwise (`Session::start_mark`: the world's voxels and the
   states as a fresh load has them, or a restart-only setting) the fresh
   game takes over with a line in OUTPUT, so what an agent builds in

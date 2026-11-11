@@ -303,7 +303,18 @@ Stage by stage (the plan of 2026-10-18):
    Ctrl+Shift+C/V copy and paste; what the mouse selects goes to the
    system's selection too (Linux's primary), a middle click pastes it; the
    clipboard refusing is said in the bar (tests
-   `what_is_selected_is_copied`). CLAUDE types `claude` and gives the
+   `what_is_selected_is_copied`). CLAUDE first looks for the agent's
+   program (`claude::Finder`: PATH, `~/.local/bin`, `~/.claude/local`,
+   `~/.npm-global/bin`, then the user's login shell's `command -v`, once,
+   three seconds at most, shown nowhere); missing, it types nothing and the
+   console says in plain words what an agent is, that it is a program of its
+   own needing a subscription or credit, where to get Claude Code (the
+   address opens in the browser), that the IDE works without one and
+   where to choose the agent, with LOOK AGAIN (finds it after installing
+   and starts it); started with the IDE it leaves the console folded over
+   a first-time maker's game and the bar says NO AGENT FOUND (the
+   owner's wording: "einen Agenten, zum Beispiel Claude Code"; tests
+   `a_missing_agent_is_explained_and_nothing_is_typed`). Found, it types `claude` and gives the
    console the keys (asked for after egui's own focus rule, which took
    them back: the click was elsewhere; test
    `claude_gives_the_console_the_keys`). How, the IDE's settings say: the
@@ -368,8 +379,16 @@ Stage by stage (the plan of 2026-10-18):
    out of `app.rs` for it, `voxcade run` uses them as before). The game
    has the keys while it shows and nothing else has them (a click in the
    console takes them, one on the game gives them back); Escape goes
-   back to the file and the game holds still, PLAY shows it again, F5
-   starts it over, STOP ends it; the window elsewhere holds it too. A file
+   back to the file and the game holds still, BACK TO THE GAME in the bar
+   (instead of PLAY; a game that waits behind the file says so) shows it
+   again, AGAIN (F5) starts it over, from its scenario if it was played
+   from one, STOP ends it; the window elsewhere holds it too. Under
+   the game a line says what its keys do (`MOVE ARROWS · JUMP SPACE`: moving, then
+   the game's actions by their names with the keys as the player's keyboard
+   names them, `play::keys_of`, the same the game's own controls menu
+   shows; the keyboard's, the IDE plays with no pad's; tests
+   `the_keys_line_names_the_actions_and_their_keys`,
+   `again_and_back_to_the_game`). A file
    saved comes in at once (hot reload); a script's error halts it, named
    above the picture with TO THE LINE, which opens the file there, its
    line marked and the error named above it until the game takes the

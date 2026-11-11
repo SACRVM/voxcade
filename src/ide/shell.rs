@@ -162,6 +162,10 @@ pub struct Shell {
     looping: bool,
     again_at: Option<std::time::Instant>,
     fading: Option<maker::Fader>,
+    /// Where the agent's program is looked for, and whether it was not
+    /// found when last looked (the console says so, instead of the shell).
+    finder: super::claude::Finder,
+    no_agent: bool,
     /// Where the rows of USED were drawn (for the tests' mouse).
     #[cfg(test)]
     used_rows: Vec<egui::Rect>,
@@ -202,6 +206,9 @@ pub struct Stage {
     /// A file of the game that would not load when it changed (it plays on
     /// as it was), until it loads again.
     pub unloaded: Option<String>,
+    /// The keys of the game as seat 1 plays it (`Play::keys`): what each
+    /// does and the key as the keyboard names it, shown under the game.
+    pub keys: Vec<(String, String)>,
 }
 
 /// What the window asks of the game, and of the speaker.
@@ -210,6 +217,9 @@ pub enum Ask {
     /// The game played, begun from a scenario if one is named.
     Play(Option<String>),
     Stop,
+    /// The game begun anew from the start (F5), from its scenario if it
+    /// was played from one.
+    Again,
     /// A line of Lua run in the game being played (the line under OUTPUT).
     Eval(String),
     /// A song (its file) to play, and silence again.
@@ -361,7 +371,7 @@ impl Shell {
             memory.open = files.logic.iter().find(|f| *f == "main.lua").or(files.logic.first()).cloned();
         }
         let restore = memory.open.as_ref().and_then(|f| memory.scroll.get(f).copied());
-        Self { title, dir: dir.to_path_buf(), files, listing, list_at: std::time::Instant::now() + LIST_EVERY, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, renaming: None, asking: None, gone: None, previous: None, #[cfg(test)] undo_button: None, deleted_dir: crate::settings::config_dir().join("ide").join("deleted").join(crate::settings::game_name(dir)), #[cfg(test)] headings: Vec::new(), cfg, preview: None, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, building: None, start_failed: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, console_seen: None, console_dragged: false, reported: None, output_saved: std::time::Instant::now(), brought: Vec::new(), builtin: None, sound_line: None, used: None, heard: None, rolls: 0, looping: false, again_at: None, fading: None, #[cfg(test)] used_rows: Vec::new() }
+        Self { title, dir: dir.to_path_buf(), files, listing, list_at: std::time::Instant::now() + LIST_EVERY, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, renaming: None, asking: None, gone: None, previous: None, #[cfg(test)] undo_button: None, deleted_dir: crate::settings::config_dir().join("ide").join("deleted").join(crate::settings::game_name(dir)), #[cfg(test)] headings: Vec::new(), cfg, preview: None, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, building: None, start_failed: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, console_seen: None, console_dragged: false, reported: None, output_saved: std::time::Instant::now(), brought: Vec::new(), builtin: None, sound_line: None, used: None, heard: None, rolls: 0, looping: false, again_at: None, fading: None, #[cfg(test)] finder: super::claude::Finder::in_dirs(Vec::new()), #[cfg(not(test))] finder: super::claude::Finder::system(), no_agent: false, #[cfg(test)] used_rows: Vec::new() }
     }
 
     /// The sounds the game's code brings (`Game::sounds`), listed under
@@ -385,14 +395,28 @@ impl Shell {
             self.console.tell(Some(format!("the settings: {e:#}")));
         }
         if self.prefs.console && self.prefs.claude.with_ide {
-            self.start_agent(false);
+            self.start_agent(false, false);
         }
         self
     }
 
     /// Starts the agent in the console as the settings say (`fresh`: a new
-    /// conversation, the console started anew for it).
-    fn start_agent(&mut self, fresh: bool) {
+    /// conversation, the console started anew for it; `asked`: someone
+    /// pressed a button for it). Its program is looked for first: if it is
+    /// not there nothing is typed, the console says what an agent is and
+    /// where to get one (`agent_missing`), and the console opens for it
+    /// only if it was asked for (started with the IDE, a first-time
+    /// maker's game is not covered by it; the bar says NO AGENT FOUND).
+    fn start_agent(&mut self, fresh: bool, asked: bool) {
+        self.no_agent = !self.finder.finds(self.prefs.agent.program());
+        if self.no_agent {
+            self.console.tell(Some("NO AGENT FOUND".into()));
+            if asked {
+                self.memory.console_folded = false;
+                self.output_shown = false;
+            }
+            return;
+        }
         let mcp = self.prefs_path.as_ref().map(|p| p.with_file_name("mcp.json"));
         let mut trouble = None;
         if let Some(file) = mcp.as_ref().filter(|_| self.prefs.claude.connect)
@@ -518,7 +542,7 @@ impl Shell {
         };
         ui.add_space(6.0);
         if ui.add_enabled(self.prefs.console, egui::Button::new("NEW CONVERSATION")).on_hover_text("Starts the console anew, Claude in a new conversation (the last one stays with Claude Code: claude --resume finds it).").clicked() {
-            self.start_agent(true);
+            self.start_agent(true, true);
             ui.close();
         }
         ui.label(RichText::new(said).small().color(QUIET));
@@ -697,6 +721,16 @@ impl Shell {
                 self.flush();
                 self.asks.push(Ask::Play(None));
             }
+        }
+    }
+
+    /// AGAIN: the game shown, begun anew from the start (as F5 does).
+    pub fn again(&mut self) {
+        self.hush();
+        (self.notice, self.help) = (None, false);
+        if let Some(stage) = &mut self.stage {
+            stage.shown = true;
+            self.asks.push(Ask::Again);
         }
     }
 
@@ -1184,11 +1218,19 @@ impl Shell {
                     }
                     // PLAY starts the game (saving first) or shows it again,
                     // STOP ends it.
+                    // A game held behind the file (after Escape) is gone back
+                    // to with BACK TO THE GAME; AGAIN begins it anew.
                     let shown = self.stage.as_ref().is_some_and(|s| s.shown);
+                    let held = self.stage.is_some() && !shown;
                     if self.stage.is_some() && ui.button("STOP").on_hover_text("Ends the game.").clicked() {
                         self.asks.push(Ask::Stop);
                     }
-                    if !shown && ui.button("PLAY").on_hover_text("Plays the game here, straight in (saved first).").clicked() {
+                    if self.stage.is_some() && ui.button("AGAIN").on_hover_text("Begins the game again from the start, as F5 does (from its scenario, if it was played from one).").clicked() {
+                        self.again();
+                        ui.memory_mut(|m| m.request_focus(game_id()));
+                    }
+                    let (word, tip) = if held { ("BACK TO THE GAME", "The game waits behind the file, as you left it: shows it again (Escape comes back to the file).") } else { ("PLAY", "Plays the game here, straight in (saved first).") };
+                    if !shown && ui.button(word).on_hover_text(tip).clicked() {
                         self.play();
                         ui.memory_mut(|m| m.request_focus(game_id()));
                     }
@@ -1237,7 +1279,7 @@ impl Shell {
                             }
                         }
                     } else if shown {
-                        ui.label(RichText::new("ESCAPE back to the file · F5 from the start (ENTER once over) · F9 keeps the run").small().color(QUIET));
+                        ui.label(RichText::new("ESCAPE back to the file · F5 again · F9 keeps the run").small().color(QUIET));
                     }
                 });
             });
@@ -1483,7 +1525,7 @@ impl Shell {
                 let pressed = self.console.heading(ui, &mut self.memory.console_folded, self.prefs.agent, self.prefs.claude.connect, &mut self.output_shown, self.output.unseen);
                 if pressed.agent {
                     self.output_shown = false;
-                    self.start_agent(false);
+                    self.start_agent(false, true);
                 }
                 if pressed.clear {
                     self.output.clear();
@@ -1502,6 +1544,10 @@ impl Shell {
                             self.help = false;
                             self.open(&file);
                             self.goto = Some((line, true));
+                        }
+                    } else if self.no_agent {
+                        if agent_missing(ui, self.prefs.agent) {
+                            self.start_agent(false, true);
                         }
                     } else {
                         self.console.body(ui);
@@ -1578,6 +1624,22 @@ impl Shell {
     /// The main area playing the game: its picture filling it (what stops
     /// it is said above, by `main`), the keys its while it has the focus.
     fn game(&mut self, ui: &mut egui::Ui) {
+        let keys = self.stage.as_ref().map(|s| s.keys.clone()).unwrap_or_default();
+        // The game's keys on a line under it (wrapping, never wider than
+        // the room), the picture takes what is left.
+        if !keys.is_empty() {
+            egui::Panel::bottom("keys line").frame(egui::Frame::new().inner_margin(egui::Margin { left: 0, right: 12, top: 6, bottom: 8 })).show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for (i, (what, key)) in keys.iter().enumerate() {
+                        if i > 0 {
+                            ui.label(RichText::new("·").color(QUIET));
+                        }
+                        ui.label(RichText::new(what).color(QUIET));
+                        ui.label(RichText::new(key).color(TEXT));
+                    }
+                });
+            });
+        }
         let Some(stage) = &mut self.stage else { return };
         let room = egui::vec2(ui.available_width() - 20.0, ui.available_height() - 14.0).max(egui::vec2(1.0, 1.0));
         let (rect, response) = ui.allocate_exact_size(room, egui::Sense::click());
@@ -2265,6 +2327,33 @@ fn game_error_row(ui: &mut egui::Ui, shown: &str, copy: &str, line: bool) -> (bo
         });
     });
     (go, show)
+}
+
+/// What the console shows where the agent's program was not found: what an
+/// agent is, that it is a program of its own with a maker's subscription or
+/// credit behind it, where to get it (the address opens in the browser),
+/// that the IDE works without one and where the agent is chosen. LOOK
+/// AGAIN, pressed after installing it: true.
+fn agent_missing(ui: &mut egui::Ui, agent: Agent) -> bool {
+    let mut again = false;
+    egui::ScrollArea::vertical().auto_shrink([false, false]).content_margin(egui::Margin { left: 20, right: 20, top: 12, bottom: 12 }).show(ui, |ui| {
+        ui.set_max_width(680.0f32.min(ui.available_width()));
+        ui.label(RichText::new("NO AGENT FOUND").color(ACCENT));
+        ui.add_space(6.0);
+        ui.add(egui::Label::new(RichText::new("An agent is a helper you tell in plain words what your game should do: it writes the files for you. It is a program of its own that has to be installed first, for example Claude Code, which needs a subscription or credit with its maker.").color(TEXT)).wrap());
+        ui.add_space(6.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new(format!("Get {}:", agent.called())).color(TEXT));
+            if ui.link(agent.home()).on_hover_text("Opens the page in your browser.").clicked() {
+                crate::update::show(agent.home());
+            }
+        });
+        ui.add_space(6.0);
+        ui.add(egui::Label::new(RichText::new("The IDE works without one: everything else here needs none.").color(TEXT)).wrap());
+        ui.add_space(10.0);
+        again = ui.button("LOOK AGAIN").on_hover_text("Looks once more for the agent, after you installed it, and starts it when it is there.").clicked();
+    });
+    again
 }
 
 /// The word saying whether the text shown is saved, small and quiet.
@@ -3538,11 +3627,136 @@ mod tests {
         let mut settings = Prefs::default();
         settings.claude.with_ide = true;
         settings.save(&prefs).unwrap();
-        let shell = shell_on(&dir, &memory).with_prefs(prefs.clone());
+        let mut shell = shell_on(&dir, &memory);
+        shell.finder = super::super::claude::Finder::in_dirs(vec![fake_agent("console-agent")]);
+        let shell = shell.with_prefs(prefs.clone());
         assert!(!shell.memory.console_folded);
+        assert!(shell.console.typed().starts_with("claude "), "typed: {}", shell.console.typed());
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(prefs.with_file_name("agents"));
         let _ = std::fs::remove_file(&prefs);
+        let _ = std::fs::remove_file(&memory);
+    }
+
+    /// A folder with a program called `claude` that runs (nothing starts it).
+    fn fake_agent(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("voxcade-agent-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let program = dir.join("claude");
+        std::fs::write(&program, "#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        dir
+    }
+
+    /// Where the word `word` was drawn (its middle), for a click.
+    fn at_word(texts: &[(String, egui::Pos2)], word: &str) -> egui::Pos2 {
+        texts.iter().find(|(t, _)| t == word).unwrap_or_else(|| panic!("no {word} in {texts:?}")).1
+    }
+
+    /// The agent's program missing: CLAUDE types nothing; the console says in
+    /// plain words what an agent is, where to get one, that the IDE works
+    /// without it and where to choose it; LOOK AGAIN finds it once it is
+    /// installed and starts it.
+    #[test]
+    fn a_missing_agent_is_explained_and_nothing_is_typed() {
+        let (dir, memory) = bare_game("no-agent");
+        let _ = std::fs::remove_file(&memory);
+        let mut shell = shell_on(&dir, &memory);
+        let ctx = egui::Context::default();
+        shell.start_agent(false, true);
+        assert!(shell.no_agent && shell.console.typed().is_empty(), "nothing typed");
+        assert!(!shell.memory.console_folded, "asked for: the console opens");
+        let texts = drawn_text(&ctx, &mut shell, vec![]);
+        for word in ["NO AGENT FOUND", "An agent is a helper", "Claude Code", "subscription or credit", "https://claude.com/claude-code", "works without one", "LOOK AGAIN"] {
+            assert!(says(&texts, word), "{word} in {texts:?}");
+        }
+        // Looking again with nothing installed changes nothing.
+        let at = at_word(&texts, "LOOK AGAIN");
+        click(&ctx, &mut shell, at);
+        assert!(shell.no_agent && shell.console.typed().is_empty());
+        // Installed: LOOK AGAIN finds it and types its command.
+        let bin = fake_agent("no-agent");
+        shell.finder = super::super::claude::Finder::in_dirs(vec![bin.clone()]);
+        let at = at_word(&drawn_text(&ctx, &mut shell, vec![]), "LOOK AGAIN");
+        click(&ctx, &mut shell, at);
+        assert!(!shell.no_agent, "found");
+        assert!(shell.console.typed().starts_with("claude "), "typed: {}", shell.console.typed());
+        assert!(!says(&drawn_text(&ctx, &mut shell, vec![]), "NO AGENT FOUND"));
+        let _ = std::fs::remove_dir_all(&bin);
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&memory);
+    }
+
+    /// Started with the IDE and no agent: nothing typed, the console stays
+    /// folded over the maker's game, and the bar says NO AGENT FOUND.
+    #[test]
+    fn a_missing_agent_does_not_open_the_console_by_itself() {
+        let (dir, memory) = bare_game("no-agent-start");
+        let _ = std::fs::remove_file(&memory);
+        let prefs = dir.with_extension("ide.toml");
+        let mut settings = Prefs::default();
+        settings.claude.with_ide = true;
+        settings.save(&prefs).unwrap();
+        let mut shell = shell_on(&dir, &memory).with_prefs(prefs.clone());
+        assert!(shell.no_agent && shell.memory.console_folded && shell.console.typed().is_empty());
+        let ctx = egui::Context::default();
+        assert!(says(&drawn_text(&ctx, &mut shell, vec![]), "NO AGENT FOUND"), "said in the bar");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(prefs.with_file_name("agents"));
+        let _ = std::fs::remove_file(&prefs);
+        let _ = std::fs::remove_file(&memory);
+    }
+
+    /// The game's keys stand on a line under it: moving, then each action by
+    /// its own name with its key.
+    #[test]
+    fn the_games_keys_stand_under_it() {
+        let (dir, memory, mut shell) = managed_game("keys-line");
+        let ctx = egui::Context::default();
+        shell.stage = Some(Stage { shown: true, keys: vec![("MOVE".into(), "ARROWS".into()), ("JUMP".into(), "Y".into()), ("FIRE".into(), "X".into())], ..Stage::default() });
+        let texts = drawn_text(&ctx, &mut shell, vec![]);
+        for word in ["MOVE", "ARROWS", "JUMP", "Y", "FIRE", "X"] {
+            assert!(texts.iter().any(|(t, _)| t == word), "{word} in {texts:?}");
+        }
+        let row = |w: &str| at_word(&texts, w);
+        assert!(row("MOVE").y > 500.0 && (row("MOVE").y - row("FIRE").y).abs() < 1.0, "on a line low in the main area");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&memory);
+    }
+
+    /// AGAIN beside STOP begins the game anew and shows it; once the game is
+    /// held behind a file the bar says BACK TO THE GAME instead of PLAY, with
+    /// STOP and AGAIN still there; shown, neither is.
+    #[test]
+    fn again_and_back_to_the_game() {
+        let (dir, memory, mut shell) = managed_game("again");
+        let ctx = egui::Context::default();
+        assert!(!says(&drawn_text(&ctx, &mut shell, vec![]), "AGAIN"), "no game, nothing to begin again");
+        assert!(drawn_text(&ctx, &mut shell, vec![]).iter().any(|(t, _)| t == "PLAY"));
+        shell.stage = Some(Stage { shown: true, ..Stage::default() });
+        let texts = drawn_text(&ctx, &mut shell, vec![]);
+        assert!(texts.iter().any(|(t, _)| t == "STOP") && texts.iter().any(|(t, _)| t == "AGAIN"));
+        assert!(!texts.iter().any(|(t, _)| t == "PLAY" || t == "BACK TO THE GAME"), "playing: neither");
+        // Held behind the file.
+        shell.back_to_file();
+        let texts = drawn_text(&ctx, &mut shell, vec![]);
+        assert!(texts.iter().any(|(t, _)| t == "BACK TO THE GAME"), "{texts:?}");
+        assert!(!texts.iter().any(|(t, _)| t == "PLAY") && texts.iter().any(|(t, _)| t == "STOP") && texts.iter().any(|(t, _)| t == "AGAIN"));
+        click(&ctx, &mut shell, at_word(&texts, "BACK TO THE GAME"));
+        assert!(shell.stage.as_ref().unwrap().shown, "the game again");
+        assert!(shell.take_asks().is_empty(), "shown, not begun anew");
+        // AGAIN asks for a new start, from the held state too, and shows the game.
+        shell.back_to_file();
+        let texts = drawn_text(&ctx, &mut shell, vec![]);
+        click(&ctx, &mut shell, at_word(&texts, "AGAIN"));
+        assert_eq!(shell.take_asks(), [Ask::Again]);
+        assert!(shell.stage.as_ref().unwrap().shown);
+        let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_file(&memory);
     }
 

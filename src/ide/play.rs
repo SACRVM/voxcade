@@ -150,6 +150,12 @@ impl<G: Game> Play<G> {
         crate::controls::read_seat(keys, seating.keys(1), &of_seat(1), &self.settings.pad, &self.settings, self.game.actions())
     }
 
+    /// The keys of seat 1 as the window's controls menu would show them
+    /// (`keys_of`): the keyboard's or the pad's, as that seat plays here.
+    pub fn keys(&self) -> Vec<(String, String)> {
+        keys_of(self.game.actions(), self.seating.keys(1), &self.settings)
+    }
+
     /// A pad's START: a seat taken (a pad no seat has), else nothing.
     pub fn pad_start(&mut self, pad: u32, plugged: &[u32]) {
         if !self.seating.alone()
@@ -398,6 +404,29 @@ pub fn begins<G: Game>(dir: &Path) -> Result<()> {
     begin(&mut game, None)
 }
 
+/// What seat 1 does with which key, for the line under the game: moving
+/// first (the arrows and WASD; a half of the keyboard its own four keys;
+/// the pad's d-pad), then the game's actions in its order by their own
+/// names in capitals, each with its key (or button) as the keyboard in use
+/// labels it (`Controls::of`, the same the game's own menu shows); an
+/// action nothing is bound to is left out.
+pub fn keys_of(actions: &[&str], seat: crate::seating::Keys, settings: &Settings) -> Vec<(String, String)> {
+    use crate::controls::Controls;
+    use crate::seating::Keys;
+    let (moving, controls) = match seat {
+        Keys::Whole => ("ARROWS".to_string(), Controls::of(actions, Device::Keyboard, PadStyle::default(), settings)),
+        Keys::Nothing => ("D-PAD".to_string(), Controls::of_pad(actions, PadStyle::default(), &settings.pad, settings)),
+        half => {
+            let bound = settings.keys_of(half);
+            let ways: Vec<String> = ["up", "left", "down", "right"].iter().filter_map(|w| Some(settings.key_label(bound?.get(w).first()?))).collect();
+            (if ways.len() == 4 { ways.join(" ") } else { "ARROWS".to_string() }, Controls::of_half(actions, half, settings))
+        }
+    };
+    let mut line = vec![("MOVE".to_string(), moving)];
+    line.extend(actions.iter().filter_map(|a| Some((a.to_uppercase(), controls.keys.get(*a).filter(|k| !k.is_empty())?.clone()))));
+    line
+}
+
 /// The file and line a game's trouble names (`main.lua:12: ...`), if it
 /// names one.
 pub fn line_of(trouble: &str) -> Option<(String, usize)> {
@@ -592,5 +621,45 @@ mod tests {
         assert_eq!(line_of("main.lua:12: attempt to index a nil value (tick 30)"), Some(("main.lua".into(), 12)));
         assert_eq!(line_of("in levels/a.lua:3: boom"), Some(("levels/a.lua".into(), 3)));
         assert_eq!(line_of("conf.lua could not be read"), None);
+    }
+
+    /// The line under the game names moving and then each action of the game
+    /// by its own name with its key as the keyboard in use labels it (a German
+    /// keyboard's Y for the bindings' Z); an action with no key is left out.
+    #[test]
+    fn the_keys_line_names_the_actions_and_their_keys() {
+        use crate::controls::Bindings;
+        use crate::seating::Keys;
+        let mut settings = Settings::default();
+        settings.adopt(&["jump", "fire", "bomb"], &Bindings::new(&[("jump", &["Z"]), ("fire", &["X"])]), &Bindings::new(&[("jump", &["south"])]));
+        settings.key_names.insert("Z".into(), "Y".into());
+        let line = |seat| keys_of(&["jump", "fire", "bomb"], seat, &settings).into_iter().map(|(a, k)| format!("{a} {k}")).collect::<Vec<_>>();
+        assert_eq!(line(Keys::Whole), ["MOVE ARROWS", "JUMP Y", "FIRE X"]);
+        assert_eq!(line(Keys::Nothing), ["MOVE D-PAD", "JUMP A"], "a pad's buttons");
+        assert_eq!(line(Keys::Left)[0].split(' ').count(), 5, "a half's own four keys: {:?}", line(Keys::Left));
+    }
+
+    /// AGAIN (`restart`) begins the game from the start again, from its
+    /// scenario if it was played from one.
+    #[test]
+    fn again_begins_from_the_scenario_again() {
+        let canvas = crate::headless::Canvas::new(64, 64, false).unwrap();
+        let (device, queue, _) = canvas.gpu();
+        let dir = std::env::temp_dir().join(format!("voxcade-play-again-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("scenarios")).unwrap();
+        std::fs::write(dir.join("conf.lua"), CONF).unwrap();
+        std::fs::write(dir.join("main.lua"), "function on_tick()\n  player.state.score = player.state.score + 1\nend\n").unwrap();
+        std::fs::write(dir.join("scenarios/late.lua"), "return {\n  about = \"late\",\n  setup = function()\n    player.state.score = 1000\n  end,\n}\n").unwrap();
+        let mut play = Play::<crate::Voxcade>::start(&dir, device, queue, None, Some("late")).unwrap();
+        play.step(5, &crate::input::Input::default());
+        assert_eq!(play.game.game.sim().tick, 5);
+        play.restart(device, queue).unwrap();
+        assert_eq!(play.game.game.sim().tick, 0, "from the start");
+        play.step(3, &crate::input::Input::default());
+        assert_eq!(play.scenario.as_deref(), Some("late"), "the scenario again");
+        let score = play.eval("player.state.score").unwrap();
+        assert!(score.contains("1003"), "begun from the scenario's 1000, three ticks on: {score}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

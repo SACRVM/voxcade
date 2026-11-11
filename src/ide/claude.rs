@@ -109,6 +109,90 @@ impl Claude {
     }
 }
 
+/// Where the agent's program is looked for before it is started: the
+/// folders of the system's PATH and the usual places Claude Code puts
+/// itself (`~/.local/bin`, `~/.claude/local`, `~/.npm-global/bin`), and
+/// then, once, the user's own shell (`command -v` through a login shell:
+/// its PATH may be longer than the IDE's).
+#[derive(Clone, Debug)]
+pub struct Finder {
+    /// Only these folders (a test's); None: the system's.
+    dirs: Option<Vec<PathBuf>>,
+}
+
+impl Finder {
+    /// The system's PATH, the usual places and the user's shell.
+    #[cfg_attr(test, allow(dead_code))]
+    pub fn system() -> Self {
+        Self { dirs: None }
+    }
+
+    /// Only the folders `dirs`, no shell asked (a test's).
+    #[cfg(test)]
+    pub fn in_dirs(dirs: Vec<PathBuf>) -> Self {
+        Self { dirs: Some(dirs) }
+    }
+
+    /// Whether `program` (a name, or a path) can be started.
+    pub fn finds(&self, program: &str) -> bool {
+        let Some(dirs) = &self.dirs else {
+            let mut dirs: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+            if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from) {
+                dirs.extend([home.join(".local/bin"), home.join(".claude/local"), home.join(".npm-global/bin")]);
+            }
+            return in_folders(program, &dirs) || shell_finds(program);
+        };
+        in_folders(program, dirs)
+    }
+}
+
+/// Whether `program` is a runnable file in one of `dirs` (a path with a
+/// folder in it is looked at as it is).
+fn in_folders(program: &str, dirs: &[PathBuf]) -> bool {
+    let runs = |file: &Path| {
+        let Ok(meta) = std::fs::metadata(file) else { return false };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            meta.is_file() && meta.permissions().mode() & 0o111 != 0
+        }
+        #[cfg(not(unix))]
+        {
+            meta.is_file()
+        }
+    };
+    let named = |dir: &Path| {
+        let base = dir.join(program);
+        runs(&base) || (cfg!(windows) && ["exe", "cmd", "bat"].iter().any(|e| runs(&base.with_added_extension(e))))
+    };
+    if program.contains('/') || program.contains('\\') {
+        return named(Path::new(""));
+    }
+    dirs.iter().any(|d| named(d))
+}
+
+/// Whether the user's login shell finds `program` (`command -v`, at most
+/// three seconds, nothing shown); only on systems with such a shell.
+fn shell_finds(program: &str) -> bool {
+    if cfg!(windows) || program.is_empty() || !program.chars().all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c)) {
+        return false;
+    }
+    let shell = std::env::var_os("SHELL").map_or_else(|| PathBuf::from("/bin/sh"), PathBuf::from);
+    let Ok(mut child) = std::process::Command::new(shell).arg("-lc").arg(format!("command -v {program}")).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn() else { return false };
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if std::time::Instant::now() < until => std::thread::sleep(std::time::Duration::from_millis(20)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+    }
+}
+
 /// What Claude is told as it starts (`brief`): its part, and for a game
 /// inside the engine's source the settings that keep the engine's own
 /// notes and skills from it.
@@ -330,5 +414,25 @@ mod tests {
         std::fs::write(root.join("projects").join(&path).join("x; rm.jsonl"), "{}\n").unwrap();
         assert!(fresh.command(dir, "Voxkeep", false, None, &Briefing::default()).contains("--session-id"));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The agent's program is found in the folders given (a file that runs),
+    /// by a path as it is, and not found where it is not there or cannot run.
+    #[cfg(unix)]
+    #[test]
+    fn a_program_is_looked_for_in_the_folders() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("voxcade-finder-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let finder = Finder::in_dirs(vec![dir.clone()]);
+        assert!(!finder.finds("voxcade-no-such-agent"), "nothing there");
+        std::fs::write(dir.join("voxcade-no-such-agent"), "#!/bin/sh\n").unwrap();
+        assert!(!finder.finds("voxcade-no-such-agent"), "a file that cannot run is no program");
+        std::fs::set_permissions(dir.join("voxcade-no-such-agent"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(finder.finds("voxcade-no-such-agent"), "found");
+        assert!(!Finder::in_dirs(Vec::new()).finds("voxcade-no-such-agent"), "not in other folders");
+        assert!(Finder::in_dirs(Vec::new()).finds(&dir.join("voxcade-no-such-agent").to_string_lossy()), "a path as it is");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -104,6 +104,13 @@ impl Console {
         self.started
     }
 
+    /// What was typed for the shell and not sent yet (nothing runs in a
+    /// console started `Nothing`).
+    #[cfg(test)]
+    pub fn typed(&self) -> String {
+        String::from_utf8_lossy(&self.typed).into_owned()
+    }
+
     /// Whether the shell wrote something since the console was last in view.
     #[cfg(test)]
     pub fn news(&self) -> bool {

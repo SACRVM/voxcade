@@ -79,6 +79,21 @@ impl Agent {
         }
     }
 
+    /// The program the console starts for it (the first word of its
+    /// command), looked for before it is typed.
+    pub fn program(self) -> &'static str {
+        match self {
+            Agent::Claude => "claude",
+        }
+    }
+
+    /// Where to get it, for someone who has none.
+    pub fn home(self) -> &'static str {
+        match self {
+            Agent::Claude => "https://claude.com/claude-code",
+        }
+    }
+
     /// The file in a game folder where the game's own notes for it live.
     pub fn notes_file(self) -> &'static str {
         match self {

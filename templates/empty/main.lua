@@ -30,15 +30,15 @@ end
 
 -- Each player's figure, a model (hero.vox, hero2.vox: reshape them in
 -- the voxel editor): frame:model draws it where the player is on its way
--- from tick to tick, so it glides. PRESS START at the top right while a
+-- from tick to tick, so it glides. PLAYER 2: PRESS START at the top right while a
 -- seat is free.
 function on_draw(frame)
   for _, p in ipairs(level:players()) do
     frame:model(p.seat == 2 and "hero2.vox" or "hero.vox", p)
   end
-  for _, p in ipairs(world.players) do
+  for seat, p in ipairs(world.players) do
     if not p then
-      local text = "PRESS START"
+      local text = "PLAYER " .. seat .. ": PRESS START"
       frame:text(text, frame.width - 3 - frame:text_width(text), 4)
     end
   end
