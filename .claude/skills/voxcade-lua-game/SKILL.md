@@ -263,6 +263,10 @@ c.things.crate = { model = "crate.vox" }           -- no behaviour: main.lua mov
 - Feedback on hits and pickups: `screen:shake(amount)`,
   `world:hitstop(ticks)`, `screen:flash(strength)`, `frame:light`; how much
   and when is the voxcade-game-feel skill's subject.
+- The sound's pressure: `c.audio.drive` (0 to 12, default 0), how hard the
+  game's sound is pushed into the limiter, in decibels: 0 as it is, more
+  makes it denser and louder; music you listen to for long tires sooner
+  when dense.
 - Music: `c.audio.music = { "music/song.mml" }`. For a new song write a
   recipe for `tools/compose.py` (styles calm, mysterious, dark, action, space,
   bright) or pick one from the library `music/`; copy it into the game.

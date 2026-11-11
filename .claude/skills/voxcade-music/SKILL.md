@@ -105,6 +105,7 @@ The user makes songs in Suno (Pro) and exports MIDI or audio stems.
 ```lua
 c.audio.music = { "music/sunny_hills.mml" }   -- one or more: keys 1..9 switch while playing
 c.audio.music_volume = 0.4
+c.audio.drive = 0          -- how hard the game's sound is pushed into the limiter, in decibels: 0 as it is, more makes it denser and louder; music you listen to for long tires sooner when dense (0 to 12)
 c.title_screen.music = "music/storm.mml"      -- the title's own (default: the first song)
 ```
 

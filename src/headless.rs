@@ -915,14 +915,21 @@ fn film_sound<G: Game>(dir: &Path, replay: &Replay, first: u64, last: u64) -> Re
         game.stopped()?;
         game.feed_music(&mut mixer, false);
         mixer.set_music_volume(game.cfg.audio.music_volume * settings.music_gain());
+        mixer.set_drive(game.cfg.audio.drive);
         game.play_sounds(&mut mixer, settings.sound_gain());
         mixer.mix(&mut buf);
         if tick >= first {
             samples.extend_from_slice(&buf);
         }
     }
+    // The limiter holds the sound back by its look-ahead: off the front,
+    // and its tail played out, so the sound lies on the picture.
+    let mut tail = vec![0.0f32; mixer.latency() * 2];
+    mixer.mix(&mut tail);
+    samples.extend_from_slice(&tail);
+    samples.drain(..tail.len());
     let wav = std::env::temp_dir().join(format!("voxcade-film-{}.wav", std::process::id()));
-    write_wav(&wav, &samples, 2, false)?;
+    write_wav(&wav, &samples, 2)?;
     Ok(wav)
 }
 
@@ -1207,8 +1214,9 @@ pub fn sounds<G: Game>(dir: &Path, out: &Path, only: Option<&str>) -> Result<()>
         }
         all.extend(std::iter::repeat_n(0.0, pause));
     }
-    write_wav(out, &all, 1, true)?;
-    println!("wrote {} ({:.1}s)", out.display(), all.len() as f32 / SAMPLE_RATE as f32);
+    let (limited, said) = limit(&all, 1, cfg.audio.drive);
+    write_wav(out, &limited, 1)?;
+    println!("wrote {} ({:.1}s; {said})", out.display(), all.len() as f32 / SAMPLE_RATE as f32);
     Ok(())
 }
 
@@ -1217,12 +1225,12 @@ pub fn sounds<G: Game>(dir: &Path, out: &Path, only: Option<&str>) -> Result<()>
 pub fn music<G: Game>(dir: &Path, out: &Path, seconds: Option<f32>) -> Result<()> {
     let game = Session::<G>::load(dir)?;
     let file = game.song_file().context("conf.lua names no music (c.audio.music)")?.to_string();
-    song(&dir.join(&file), Some(game.cfg.audio.music_volume), out, seconds)
+    song(&dir.join(&file), Some((game.cfg.audio.music_volume, game.cfg.audio.drive)), out, seconds)
 }
 
-/// Writes one song file as a stereo WAV, at a game's music volume (the
-/// engine's default without one).
-pub fn song(file: &Path, volume: Option<f32>, out: &Path, seconds: Option<f32>) -> Result<()> {
+/// Writes one song file as a stereo WAV, at a game's music volume and
+/// drive (the engine's defaults without a game).
+pub fn song(file: &Path, game: Option<(f32, f32)>, out: &Path, seconds: Option<f32>) -> Result<()> {
     use crate::audio::SAMPLE_RATE;
 
     let text = std::fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
@@ -1234,29 +1242,43 @@ pub fn song(file: &Path, volume: Option<f32>, out: &Path, seconds: Option<f32>) 
         let list: Vec<String> = lengths.iter().map(|(c, l)| format!("{c} {l:.2}s")).collect();
         println!("warning: channels differ in length: {}", list.join(", "));
     }
-    let volume = volume.unwrap_or_else(|| crate::config::AudioConfig::default().music_volume);
+    let defaults = crate::config::AudioConfig::default();
+    let (volume, drive) = game.unwrap_or((defaults.music_volume, defaults.drive));
     let samples = crate::audio::music::Player::new(song, volume).render(seconds);
-    write_wav(out, &samples, 2, true)?;
+    let (limited, said) = limit(&samples, 2, drive);
+    write_wav(out, &limited, 2)?;
     let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
     println!(
-        "wrote {} ({:.1}s; '{title}' is {length:.1}s long, peak {peak:.2})",
+        "wrote {} ({:.1}s; '{title}' is {length:.1}s long, peak {peak:.2}; {said})",
         out.display(),
         samples.len() as f32 / 2.0 / SAMPLE_RATE as f32
     );
     Ok(())
 }
 
-/// 16-bit PCM, softly clipped like the mixer does.
-/// `soft_clip`: round off what goes past full scale (the mixer's output
-/// already is).
-fn write_wav(out: &Path, samples: &[f32], channels: u16, soft_clip: bool) -> Result<()> {
+/// A recording through the mixer's limiter at the game's drive, on time
+/// (`limiter::limit_whole`): what the speaker plays. With what the limiter
+/// did and how loud it is.
+fn limit(samples: &[f32], channels: usize, drive: f32) -> (Vec<f32>, String) {
+    use crate::audio::{SAMPLE_RATE, limiter, loudness};
+
+    let mut lim = limiter::Limiter::with(SAMPLE_RATE, limiter::Options { drive_db: f64::from(drive), ..limiter::Options::default() });
+    let limited = limiter::limit_whole(&mut lim, samples, channels);
+    let t = lim.read_telemetry();
+    let limiting = if t.duty_cycle > 0.0 { format!("limited {:.1} dB at most, {:.1} % of the time", -t.gain_reduction_db, t.duty_cycle * 100.0) } else { "never limited".into() };
+    let lufs = loudness::integrated_lufs(&limited, channels, SAMPLE_RATE);
+    (limited, format!("{limiting}; {lufs:.1} LUFS"))
+}
+
+/// 16-bit PCM. The sound has been through the limiter (the mixer's, or
+/// `limit`'s), so nothing reaches full scale; clamped all the same.
+fn write_wav(out: &Path, samples: &[f32], channels: u16) -> Result<()> {
     use crate::audio::SAMPLE_RATE;
 
     if let Some(parent) = out.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
-    let clip = |s: f32| if soft_clip { s.tanh() } else { s.clamp(-1.0, 1.0) };
-    let data: Vec<u8> = samples.iter().flat_map(|&s| ((clip(s) * 32767.0) as i16).to_le_bytes()).collect();
+    let data: Vec<u8> = samples.iter().flat_map(|&s| ((s.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes()).collect();
     let mut wav = b"RIFF".to_vec();
     wav.extend((36 + data.len() as u32).to_le_bytes());
     wav.extend(b"WAVEfmt ");

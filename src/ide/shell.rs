@@ -621,6 +621,11 @@ impl Shell {
         }
     }
 
+    /// How hard the game's sound goes into the limiter (`c.audio.drive`).
+    pub fn drive(&self) -> f32 {
+        self.cfg.audio.drive
+    }
+
     /// The song in `path` to play, at the volume the game and the player
     /// set for music.
     pub fn song(&self, path: &str) -> anyhow::Result<crate::audio::music::Player> {

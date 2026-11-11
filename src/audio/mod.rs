@@ -4,6 +4,8 @@
 //! engine has a sound for every event; a game's `[sounds]` replaces any of
 //! them. Sounds are placed in stereo by where they happen on screen.
 
+pub mod limiter;
+pub mod loudness;
 pub mod music;
 pub mod synth;
 pub mod wav;
@@ -148,15 +150,28 @@ struct Voice {
 }
 
 /// Mixes the music and the sounds that are playing; runs in the audio thread.
-#[derive(Default)]
 pub struct Mixer {
     voices: Vec<Voice>,
     music: Option<music::Player>,
     /// The music held where it is (a game that reads its beats, paused).
     music_held: bool,
+    /// The last stage: holds the mix under -1 dBTP (`limiter`).
+    limiter: limiter::Limiter,
+}
+
+impl Default for Mixer {
+    fn default() -> Self {
+        Self { voices: Vec::new(), music: None, music_held: false, limiter: limiter::Limiter::new(SAMPLE_RATE) }
+    }
 }
 
 impl Mixer {
+    /// How many frames later the mix comes out than it is made: the
+    /// limiter's look-ahead (66 at 44.1 kHz, 1.5 ms).
+    pub fn latency(&self) -> usize {
+        self.limiter.latency_samples()
+    }
+
     /// Starts a song from the top (None: silence).
     pub fn set_music(&mut self, player: Option<music::Player>) {
         self.music = player;
@@ -190,6 +205,11 @@ impl Mixer {
     /// The title of the song that plays.
     pub fn music_title(&self) -> Option<&str> {
         self.music.as_ref().map(music::Player::title)
+    }
+
+    /// How hard the mix goes into the limiter, in dB (`c.audio.drive`).
+    pub fn set_drive(&mut self, drive_db: f32) {
+        self.limiter.set_drive_db(f64::from(drive_db));
     }
 
     pub fn set_music_volume(&mut self, volume: f32) {
@@ -231,10 +251,11 @@ impl Mixer {
             }
         }
         self.voices.retain(|v| v.at < v.samples.len());
-        // Soft clipping instead of hard distortion when much plays at once.
-        for s in out.iter_mut() {
-            *s = s.tanh();
-        }
+        // When much plays at once, turned down just enough to stay under the
+        // ceiling, both sides alike, and back up slowly; a mix under it comes
+        // out as it is, 1.5 ms later. (It went through tanh, which bent
+        // anything loud a little, 0.5 out as 0.46, and held no ceiling.)
+        self.limiter.process_interleaved_stereo(out);
     }
 }
 
@@ -361,15 +382,36 @@ mod tests {
         assert!(bank.get("explosion").is_some(), "a missing file falls back to the game's own sound");
     }
 
+    /// Everything at once, loud, stays under the limiter's ceiling (by
+    /// BS.1770's true peak), mixed in blocks as the device asks for them.
+    #[test]
+    fn a_loud_mix_stays_under_the_ceiling() {
+        let mut mixer = Mixer::default();
+        for i in 0..MAX_VOICES {
+            let synth = Synth { wave: if i % 3 == 0 { Wave::Noise } else { Wave::Square }, freq: 60.0 + 70.0 * i as f32, volume: 1.0, ..Synth::default() };
+            mixer.play(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"][i % 12], &Arc::from(synth.render()), 1.0, (i as f32 / 24.0) - 1.0);
+        }
+        let mut all = Vec::new();
+        let mut block = vec![0.0f32; 1024];
+        for _ in 0..20 {
+            mixer.mix(&mut block);
+            all.extend_from_slice(&block);
+        }
+        let ceiling = mixer.limiter.ceiling();
+        assert!(limiter::true_peak_stereo(&all) <= ceiling * 1.001, "true peak {:.3} dBTP", limiter::db_tp(limiter::true_peak_stereo(&all)));
+        assert!(all.iter().fold(0.0f32, |m, s| m.max(s.abs())) > ceiling * 0.9, "it plays");
+    }
+
     /// A sound on the left of the view plays louder on the left.
     #[test]
     fn sounds_are_placed_in_stereo() {
         let (gain, pan) = place(Vec3::new(-50.0, 0.0, 0.0), Vec3::ZERO, 200.0);
         let mut mixer = Mixer::default();
         mixer.play("shot", &Arc::from(vec![0.5f32; 100]), gain, pan);
-        let mut out = vec![0.0; 40];
+        let mut out = vec![0.0; 200];
         mixer.mix(&mut out);
-        assert!(out[0] > out[1] * 1.5, "left {} right {}", out[0], out[1]);
+        let at = mixer.latency() * 2;
+        assert!(out[at] > out[at + 1] * 1.5, "left {} right {}", out[at], out[at + 1]);
         let (far, _) = place(Vec3::new(400.0, 0.0, 0.0), Vec3::ZERO, 200.0);
         assert!(far < gain * 0.3, "far away is not much quieter ({far} vs {gain})");
     }

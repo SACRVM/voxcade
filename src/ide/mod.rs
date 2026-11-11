@@ -787,7 +787,10 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
                             song = crate::audio::speaker(sdl);
                         }
                         match song.as_mut().and_then(|s| s.lock()) {
-                            Some(mut mixer) => mixer.set_music(Some(player)),
+                            Some(mut mixer) => {
+                                mixer.set_drive(shell.drive());
+                                mixer.set_music(Some(player));
+                            }
                             None => {
                                 shell.listening = None;
                                 shell.tell("No sound: the speaker would not open.".into());

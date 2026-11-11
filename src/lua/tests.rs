@@ -676,6 +676,22 @@ fn the_player_gets_the_music_back() {
     assert!(start_error(&dir).contains("c.audio.boss_music is no more"), "{}", start_error(&dir));
 }
 
+/// `c.audio.drive` pushes the game's sound into the limiter, 0 to 12
+/// decibels; outside that it is a mistake that names it.
+#[test]
+fn the_drive_is_from_0_to_12() {
+    let dir = std::env::temp_dir().join(format!("voxcade-lua-drive-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("main.lua"), "function on_tick() end\n").unwrap();
+    for bad in ["13", "-1", "0/0"] {
+        std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.world.size = {{ 16, 16, 8 }}\n  c.audio.drive = {bad}\nend\n")).unwrap();
+        assert!(start_error(&dir).contains("c.audio.drive"), "{bad}: {}", start_error(&dir));
+    }
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 16, 16, 8 }\n  c.audio.drive = 6\nend\n").unwrap();
+    assert_eq!(Session::<crate::Voxcade>::load(&dir).unwrap().cfg.audio.drive, 6.0);
+}
+
 /// The shooter's things too: a soldier switched off stands where physics
 /// leaves him, `thing:launch` moves him and the player; the player's own
 /// rules stay on (no thing of a kind yet).

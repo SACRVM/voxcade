@@ -834,13 +834,20 @@ impl Default for UiConfig {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default, deny_unknown_fields)]
 pub struct AudioConfig {
-    /// Loudness of all sounds, 0..1 (more distorts softly).
+    /// Loudness of all sounds, 0..1 (more is held under the ceiling by the
+    /// limiter, `audio::limiter`).
     pub volume: f32,
     /// Music as MML text (see `audio::music`), relative to the game folder:
     /// one file, or a list the keys 1..9 switch between while playing.
     #[serde(skip_serializing_if = "Songs::is_none")]
     pub music: Songs,
     pub music_volume: f32,
+    /// How hard the game's sound is pushed into the limiter, in decibels:
+    /// 0 as it is, more makes it denser and louder; music you listen to for
+    /// long tires sooner when dense. 0 to 12. The limiter's drive (the JUST
+    /// mastering stage's own input gain), on sounds and music together,
+    /// after the player's volumes; the game's choice, not the player's.
+    pub drive: f32,
     /// No more: which song plays when is the game's code (`music:play`),
     /// never a kit's. Kept to say so to a `conf.lua` that sets it.
     #[serde(skip_serializing)]
@@ -873,7 +880,7 @@ impl Songs {
 
 impl Default for AudioConfig {
     fn default() -> Self {
-        Self { volume: 0.8, music: Songs::None, music_volume: 0.5, boss_music: None }
+        Self { volume: 0.8, music: Songs::None, music_volume: 0.5, drive: 0.0, boss_music: None }
     }
 }
 

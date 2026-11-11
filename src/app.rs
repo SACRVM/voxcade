@@ -938,6 +938,7 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
                 };
             }
             mixer.set_music_volume(game.cfg.audio.music_volume * settings.music_gain());
+            mixer.set_drive(game.cfg.audio.drive);
         }
 
         // The players page shows the run's seats while playing, else the

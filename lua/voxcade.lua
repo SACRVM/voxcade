@@ -633,6 +633,7 @@ function on_pickup(thing, item) end
 
 ---@class Conf.audio
 ---@field [string] any
+---@field drive number How hard the game's sound is pushed into the limiter, in decibels (0 to 12): 0 as it is, more makes it denser and louder; music you listen to for long tires sooner when dense.
 ---@field music_volume number
 ---@field volume number
 

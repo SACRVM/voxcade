@@ -384,6 +384,14 @@ fn function(name: &str, doc: &str, params: &[(&str, &str)], returns: &str) -> St
     out + &format!("function {name}({}) end\n", names.join(", "))
 }
 
+/// What a key of `conf.lua` means, where its name alone does not say
+/// enough: section, key, its line in the definitions.
+const CONF_DOCS: &[(&str, &str, &str)] = &[(
+    "audio",
+    "drive",
+    "How hard the game's sound is pushed into the limiter, in decibels (0 to 12): 0 as it is, more makes it denser and louder; music you listen to for long tires sooner when dense.",
+)];
+
 /// `Conf` and its sections from the engine's defaults: completion for
 /// `c.` in `conf.lua` (the ready-made rules' sections and keys are left open).
 fn conf_classes() -> String {
@@ -396,7 +404,8 @@ fn conf_classes() -> String {
                 out += &format!("---@field {key} Conf.{key}\n");
                 sections += &format!("\n---@class Conf.{key}\n---@field [string] any\n");
                 for (k, v) in t {
-                    sections += &format!("---@field {k} {}\n", lua_type(v));
+                    let doc = CONF_DOCS.iter().find(|(s, n, _)| s == key && n == k).map_or(String::new(), |(_, _, d)| format!(" {d}"));
+                    sections += &format!("---@field {k} {}{doc}\n", lua_type(v));
                 }
             }
             other => out += &format!("---@field {key} {}\n", lua_type(other)),

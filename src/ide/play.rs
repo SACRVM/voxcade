@@ -292,6 +292,7 @@ impl<G: Game> Play<G> {
             let held = self.game.fading();
             self.game.feed_music(&mut mixer, held);
             mixer.set_music_volume(self.game.cfg.audio.music_volume * music_gain);
+            mixer.set_drive(self.game.cfg.audio.drive);
         }
 
         // The ticks due.

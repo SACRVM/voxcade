@@ -458,6 +458,9 @@ pub fn config_in<G: Game>(files: &Files) -> Result<GameConfig> {
             anyhow::bail!("c.languages: \"{lang}\" twice");
         }
     }
+    if !(0.0..=12.0).contains(&cfg.audio.drive) {
+        anyhow::bail!("c.audio.drive = {}: from 0 to 12 (decibels the sound is pushed into the limiter; 0 leaves it as it is)", cfg.audio.drive);
+    }
     if cfg.audio.boss_music.is_some() {
         anyhow::bail!("c.audio.boss_music is no more: which song plays when is your game's code, music:play(\"end_boss\") while the boss is up and music:play() after (the song in c.audio.music)");
     }
@@ -2896,6 +2899,7 @@ mod tests {
             print(&c, b"{}\n")
         };
         assert_eq!(with(&|c| (c.light.ambient, c.audio.music_volume, c.camera.view_width) = (0.6, 0.5, 300.0)), base, "the look or the sound changed it");
+        assert_eq!(with(&|c| c.audio.drive = 6.0), base, "the drive into the limiter changed it");
         assert_eq!(print(&cfg, b"{}\r\n"), base, "a level file with Windows line ends changes it");
         assert_ne!(with(&|c| c.physics.gravity = 530.0), base);
         assert_ne!(with(&|c| c.effects.hitstop = 3), base);
