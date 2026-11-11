@@ -309,7 +309,16 @@ nearest; its replay `tests/two_ships`);
   edit's undo (UNDO and Ctrl+Z alike). A song (`.mml`) is text to change
   too, parsed after every change (`music::parse`), PLAY SONG plays the text
   as it stands. Every text one can change says SAVED or NOT SAVED YET above
-  it, left of the buttons, and Ctrl+S saves at once. Songs play from the main area (PLAY SONG). Reading the keys
+  it, left of the buttons, and Ctrl+S saves at once. RENAME and DELETE
+  (`ide/shell/manage.rs`; a right click on a row, and small beside SAVED
+  over the open file) for the logic, scenarios, models, sounds, songs,
+  images and the rest, not `main.lua`/`conf.lua`, levels or blocks (off
+  with the reason on hover): the name typed in place as the plus's, the
+  lines of the game's Lua naming the file (a sound's quoted name,
+  `require`, a model's, song's or other file's quoted path) changed only
+  if the user says so; DELETE asks nothing, the system's trash (`trash`
+  crate, else `config_dir()/ide/deleted/<game>/`) and UNDO in the bar for 8
+  s from the bytes kept in memory (up to 8 MB). Songs play from the main area (PLAY SONG). Reading the keys
   (`controls::read_input`), the speaker (`audio::speaker`) and the
   player's options (`Settings::options`) are shared with `voxcade run`.
   BUILD packs the program and the game into `builds/<game>-<system>.zip`
@@ -985,7 +994,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   about the middle of where they meet (`parts_of`); a kind's `swing`
   swings parts with its steps (`session::swinging`), `frame:model`'s pose
   turns them by name (`Drawing::model_posed`, `part_chain`); a part a draw
-  in the bank. Only the picture: the simulation sees the whole frame
+  in the bank; posed, a part's depth is taken a little nearer the eye the
+  further out it hangs (`ModelDraw::nearer`, the shader's `PART_NEARER`),
+  so a bent limb's faces in one plane with its parent's do not flicker.
+  Only the picture: the simulation sees the whole frame
   (tests `a_figure_hangs_each_part_on_what_it_touches`,
   `a_figures_parts_turn_about_their_joints`). Nothing is scaled: every
   voxel the same size. With `snap` on, positions are whole voxels and the

@@ -20,6 +20,8 @@ use super::preview::Preview;
 use super::maker;
 use super::sounds;
 use super::terminal;
+mod manage;
+use manage::{Act, Gone, Question, Renaming};
 use crate::audio::sound::{self, SoundDef};
 
 
@@ -61,6 +63,18 @@ pub struct Shell {
     message: Option<String>,
     /// A name being typed for a new file (a plus at a heading).
     naming: Option<Naming>,
+    /// A name being typed for a file of the list (RENAME), the question
+    /// about the lines that name it, the file just deleted (UNDO), the file
+    /// open before this one, and the folder a file goes to when the system's
+    /// trash will not take it.
+    renaming: Option<Renaming>,
+    asking: Option<Question>,
+    gone: Option<Gone>,
+    previous: Option<String>,
+    deleted_dir: PathBuf,
+    /// Where UNDO was drawn (for the tests' mouse).
+    #[cfg(test)]
+    undo_button: Option<egui::Rect>,
     /// Where the pluses and their headings were drawn (for the tests' mouse).
     #[cfg(test)]
     headings: Vec<(String, egui::Rect, egui::Rect)>,
@@ -305,7 +319,7 @@ impl Shell {
             memory.open = files.logic.iter().find(|f| *f == "main.lua").or(files.logic.first()).cloned();
         }
         let restore = memory.open.as_ref().and_then(|f| memory.scroll.get(f).copied());
-        Self { title, dir: dir.to_path_buf(), files, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, #[cfg(test)] headings: Vec::new(), cfg, preview: None, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, reported: None, output_saved: std::time::Instant::now(), brought: Vec::new(), builtin: None, sound_line: None, used: None, heard: None, rolls: 0, looping: false, again_at: None, fading: None, #[cfg(test)] used_rows: Vec::new() }
+        Self { title, dir: dir.to_path_buf(), files, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, renaming: None, asking: None, gone: None, previous: None, #[cfg(test)] undo_button: None, deleted_dir: crate::settings::config_dir().join("ide").join("deleted").join(crate::settings::game_name(dir)), #[cfg(test)] headings: Vec::new(), cfg, preview: None, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, reported: None, output_saved: std::time::Instant::now(), brought: Vec::new(), builtin: None, sound_line: None, used: None, heard: None, rolls: 0, looping: false, again_at: None, fading: None, #[cfg(test)] used_rows: Vec::new() }
     }
 
     /// The sounds the game's code brings (`Game::sounds`), listed under
@@ -481,6 +495,7 @@ impl Shell {
         }
         self.flush();
         self.hush();
+        self.previous = self.memory.open.clone();
         self.memory.open = Some(path.to_string());
         self.unload();
         self.restore = Some(self.memory.scroll.get(path).copied().unwrap_or(0.0));
@@ -980,6 +995,7 @@ impl Shell {
         if !self.stage.as_ref().is_some_and(|s| s.shown) && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S)) {
             self.flush();
         }
+        let (mut undo, mut forget_gone) = (false, false);
         egui::Panel::top("bar").frame(egui::Frame::new().fill(GROUND).inner_margin(egui::Margin::symmetric(16, 10))).show(ui, |ui| {
             // The name centred on the buttons' height.
             ui.spacing_mut().interact_size.y = ui.text_style_height(&TextStyle::Button) + 2.0 * ui.spacing().button_padding.y;
@@ -1050,7 +1066,24 @@ impl Shell {
                             None => (self.notice, self.notice_until) = (None, None),
                         }
                     }
-                    if let Some(notice) = &self.notice {
+                    // A file just deleted: what was done, and UNDO for a few seconds.
+                    if let Some(gone) = &self.gone {
+                        match gone.until.checked_duration_since(std::time::Instant::now()) {
+                            Some(left) => {
+                                ui.ctx().request_repaint_after(left);
+                                if gone.can_undo() {
+                                    let button = ui.button("UNDO").on_hover_text("Puts the file back as it was.");
+                                    #[cfg(test)]
+                                    {
+                                        self.undo_button = Some(button.rect);
+                                    }
+                                    undo |= button.clicked();
+                                }
+                                ui.add(egui::Label::new(RichText::new(&gone.said).small().color(QUIET)).truncate()).on_hover_text(&gone.said);
+                            }
+                            None => forget_gone = true,
+                        }
+                    } else if let Some(notice) = &self.notice {
                         ui.label(RichText::new(notice).small().color(QUIET));
                     } else if shown {
                         ui.label(RichText::new("ESCAPE back to the file · F5 from the start (ENTER once over) · F9 keeps the run").small().color(QUIET));
@@ -1058,7 +1091,16 @@ impl Shell {
                 });
             });
         });
+        if forget_gone {
+            self.gone = None;
+        }
+        if undo {
+            self.undo();
+        }
         let (mut clicked, mut edit, mut made, mut builtin) = (None, None, None, None);
+        let mut managed: Option<(Act, String)> = None;
+        let mut renamed: Option<(String, String)> = None;
+        let mut stop_renaming = false;
         // The margins on the right lie inside the scroll areas, so that their
         // bars sit at the edge.
         egui::Panel::left("files").default_size(250.0).frame(egui::Frame::new().fill(PANEL).inner_margin(egui::Margin { left: 14, right: 0, top: 12, bottom: 12 })).show(ui, |ui| {
@@ -1104,6 +1146,10 @@ impl Shell {
                         state.toggle(ui);
                     }
                     arrow(ui, at, state.openness(ui.ctx()));
+                    // A file being renamed from the main area: its heading opens.
+                    if self.renaming.as_ref().is_some_and(|r| r.fresh && files.contains(&r.path)) {
+                        state.set_open(true);
+                    }
                     state.show_body_unindented(ui, |ui| {
                         // The name being typed for a new file, first.
                         if let Some(naming) = self.naming.as_mut().filter(|n| n.sort == sort) {
@@ -1138,6 +1184,46 @@ impl Shell {
                         // two have the same name.
                         let base = |f: &str| f.rsplit('/').next().unwrap_or(f).to_string();
                         for f in files {
+                            // A file being renamed: its name typed in its place.
+                            if let Some(r) = self.renaming.as_mut().filter(|r| r.path == *f) {
+                                let (ext, mut enter, mut cancel) = (format!(".{}", manage::split_name(f).2), false, false);
+                                ui.horizontal(|ui| {
+                                    ui.add_space(INSET);
+                                    let id = ui.make_persistent_id(("renaming", f.as_str()));
+                                    let room = if ext.len() > 1 { 12.0 + 7.0 * ext.len() as f32 } else { 0.0 };
+                                    let edit = ui.add(egui::TextEdit::singleline(&mut r.text).id(id).font(TextStyle::Body).desired_width((ui.available_width() - room).max(60.0)));
+                                    if ext.len() > 1 {
+                                        ui.label(RichText::new(&ext).small().color(QUIET));
+                                    }
+                                    if std::mem::take(&mut r.fresh) {
+                                        // The name is selected, to be typed over.
+                                        let mut state = egui::TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
+                                        state.cursor.set_char_range(Some(egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(r.text.chars().count()))));
+                                        state.store(ui.ctx(), id);
+                                        edit.request_focus();
+                                        edit.scroll_to_me(None);
+                                    }
+                                    if edit.lost_focus() {
+                                        enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                                        // Anything but Enter leaves it (a click elsewhere too).
+                                        cancel = !enter;
+                                        if enter {
+                                            // (A name that cannot be keeps the field, with the keys.)
+                                            ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+                                            edit.request_focus();
+                                        }
+                                    }
+                                });
+                                if let Some(problem) = &r.problem {
+                                    ui.label(RichText::new(problem).small().color(ERROR));
+                                }
+                                if cancel {
+                                    stop_renaming = true;
+                                } else if enter {
+                                    renamed = Some((f.clone(), r.text.clone()));
+                                }
+                                continue;
+                            }
                             let short = sort != "Logic" && files.iter().filter(|g| base(g) == base(f)).count() == 1;
                             let on = open.as_deref() == Some(f.as_str());
                             let response = crate::gui::row(ui, &if short { base(f) } else { f.clone() }, TextStyle::Body, if on { ACCENT } else { TEXT }, on, None);
@@ -1148,6 +1234,16 @@ impl Shell {
                             if response.double_clicked() {
                                 edit = Some(f.clone());
                             }
+                            // A right click: RENAME and DELETE.
+                            let why = manage::why_not(f, sort);
+                            response.context_menu(|ui| {
+                                for (word, act, tip) in [("RENAME", Act::Rename, "Gives the file another name, typed here in the list."), ("DELETE", Act::Delete, "Moves the file to the trash. UNDO shows for a few seconds.")] {
+                                    if ui.add_enabled(why.is_none(), egui::Button::new(word)).on_hover_text(tip).on_disabled_hover_text(why.unwrap_or("")).clicked() {
+                                        managed = Some((act, f.clone()));
+                                        ui.close();
+                                    }
+                                }
+                            });
                         }
                         if files.is_empty() && self.naming.as_ref().is_none_or(|n| n.sort != sort) {
                             let none = match sort {
@@ -1204,6 +1300,22 @@ impl Shell {
                 }
             }
         }
+        if let Some((act, path)) = managed {
+            self.manage(act, &path);
+        }
+        if stop_renaming {
+            self.renaming = None;
+        }
+        if let Some((path, typed)) = renamed {
+            match self.rename(&path, &typed) {
+                Ok(()) => self.renaming = None,
+                Err(problem) => {
+                    if let Some(r) = &mut self.renaming {
+                        r.problem = Some(problem);
+                    }
+                }
+            }
+        }
         // The console below the main area, folded to its heading or as
         // high as dragged; or none (CONSOLE).
         let folded = self.memory.console_folded;
@@ -1249,6 +1361,7 @@ impl Shell {
             }
         }
         egui::CentralPanel::default().frame(egui::Frame::new().fill(GROUND).inner_margin(egui::Margin { left: 20, right: 0, top: 14, bottom: 0 })).show(ui, |ui| self.main(ui));
+        self.question_ui(ui);
         // NEW's form over everything; the game begun opens.
         if let Some(new) = &mut self.new_game {
             match new.ui(ui.ctx(), &self.prefs.projects_dir(), &self.prefs) {
@@ -1483,8 +1596,12 @@ impl Shell {
         if let Some(Shown::Code(b)) = &mut self.shown {
             b.code.check();
         }
-        // Whether the text shown is saved (a word above it, left of the buttons).
+        // Whether the text shown is saved (a word above it, left of the buttons),
+        // and RENAME and DELETE beside it (off with the reason for a file the
+        // game needs).
         let saved = self.saved_word();
+        let why_not = self.files.sort_of(&path).map_or(Some("This is not a file of the game."), |group| manage::why_not(&path, group));
+        let mut act = None;
         // What an editor opens: a line of what it is, and EDIT; a song:
         // what it is, and PLAY.
         let facts = match &self.shown {
@@ -1492,6 +1609,7 @@ impl Shell {
             Some(Shown::Code(b)) if path.ends_with(".mml") => Some(b.code.song.clone().unwrap_or_else(|| "The song cannot be read.".into())),
             _ => self.facts.clone(),
         };
+        let had_facts = facts.is_some();
         if let Some(facts) = facts {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(facts).color(QUIET));
@@ -1508,6 +1626,7 @@ impl Shell {
                     } else if ui.button("PLAY SONG").on_hover_text("Plays the song as it stands, at the game's music volume.").clicked() {
                         self.listen();
                     }
+                    act = act.or(manage::buttons(ui, why_not));
                     saved_label(ui, saved);
                 });
             });
@@ -1525,6 +1644,7 @@ impl Shell {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(16.0);
                     play = ui.button("PLAY SCENARIO").on_hover_text("Plays the game from it (saved first); F5 begins it again.").clicked();
+                    act = act.or(manage::buttons(ui, why_not));
                     saved_label(ui, saved);
                 });
             });
@@ -1532,11 +1652,12 @@ impl Shell {
             if play {
                 self.play_scenario(name);
             }
-        } else if saved.is_some() && !path.ends_with(".mml") && sounds::name_of(&path).is_none() {
-            // Any other text to change: the word alone.
+        } else if !had_facts && sounds::name_of(&path).is_none() {
+            // Any other file: its buttons, and the word if it is a text to change.
             ui.horizontal(|ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(16.0);
+                    act = act.or(manage::buttons(ui, why_not));
                     saved_label(ui, saved);
                 });
             });
@@ -1564,6 +1685,7 @@ impl Shell {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(16.0);
                     play_sound = ui.button("PLAY SOUND").on_hover_text("Plays the sound as it stands, at the game's sound volume.").clicked();
+                    act = act.or(manage::buttons(ui, why_not));
                     saved_label(ui, saved);
                 });
             });
@@ -1580,6 +1702,10 @@ impl Shell {
         }
         if play_sound {
             self.play_sound();
+        }
+        if let Some(act) = act {
+            self.manage(act, &path);
+            return;
         }
         if let Some(preview) = &mut self.preview {
             // Down to the console, the scroll bar's room kept at the right.
@@ -2662,6 +2788,278 @@ mod tests {
         frame(&ctx, &mut shell);
         assert_eq!(shell.saved_word(), Some("SAVED"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A game of every sort of file to rename: a module main.lua requires, a
+    /// scenario, a model, a song, an image and a text, and sounds as
+    /// `sound_game` has them. The folder a deleted file goes to is in the
+    /// temp dir too.
+    fn managed_game(name: &str) -> (PathBuf, PathBuf, Shell) {
+        let (dir, memory) = sound_game(name);
+        std::fs::write(dir.join("tools.lua"), "return {}\n").unwrap();
+        std::fs::create_dir_all(dir.join("scenarios")).unwrap();
+        std::fs::write(dir.join("scenarios/late.lua"), NEW_SCENARIO).unwrap();
+        crate::editor::frames::ModelFile::begun(&dir.join("hero.vox")).save().unwrap();
+        std::fs::create_dir_all(dir.join("music")).unwrap();
+        std::fs::write(dir.join("music/tune.mml"), NEW_SONG.replace("NAME", "tune")).unwrap();
+        std::fs::write(dir.join("back.png"), "not a picture").unwrap();
+        std::fs::write(dir.join("notes.txt"), "remember").unwrap();
+        let mut shell = shell_on(&dir, &memory);
+        shell.deleted_dir = dir.with_extension("deleted");
+        let _ = std::fs::remove_dir_all(&shell.deleted_dir);
+        (dir, memory, shell)
+    }
+
+    fn clean_up(dir: &Path, shell: &Shell) {
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_dir_all(&shell.deleted_dir);
+        let _ = std::fs::remove_dir_all(shell.memory_path.with_extension("journal"));
+    }
+
+    /// Every sort of file is renamed under the name typed, its ending kept,
+    /// the list read anew; where nothing names it nothing is asked.
+    #[test]
+    fn each_sort_of_file_is_renamed() {
+        let (dir, _, mut shell) = managed_game("rename-sorts");
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        for (from, typed, to) in [
+            ("tools.lua", "Kit", "kit.lua"),
+            ("scenarios/late.lua", "soon", "scenarios/soon.lua"),
+            ("hero.vox", "knight.vox", "knight.vox"),
+            ("sounds/bell.toml", "chime", "sounds/chime.toml"),
+            ("music/tune.mml", "song", "music/song.mml"),
+            ("back.png", "sky", "sky.png"),
+            ("notes.txt", "Read Me", "Read_Me.txt"),
+        ] {
+            let bytes = std::fs::read(dir.join(from)).unwrap();
+            assert_eq!(shell.rename(from, typed), Ok(()), "{from}");
+            assert!(shell.asking.is_none(), "{from}: nothing names it, nothing is asked");
+            assert!(!dir.join(from).exists(), "{from} gone");
+            assert_eq!(std::fs::read(dir.join(to)).unwrap(), bytes, "{to} has its bytes");
+            assert!(shell.files.has(to) && !shell.files.has(from), "{to} listed anew");
+            frame(&ctx, &mut shell);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        clean_up(&dir, &shell);
+    }
+
+    /// The open file stays open under its new name with its cursor and its
+    /// scroll; a text not saved yet is saved first, and no journal is left
+    /// under the old name.
+    #[test]
+    fn the_open_file_stays_open_when_renamed() {
+        let (dir, _, mut shell) = managed_game("rename-open");
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        shell.open("tools.lua");
+        frame(&ctx, &mut shell);
+        type_into_text(&ctx, &mut shell, "-- typed\n");
+        assert!(buffer(&shell).unsaved());
+        let journal = shell.journals().join("tools.lua");
+        assert!(journal.exists(), "the text is in the journal");
+        shell.memory.cursor.insert("tools.lua".into(), 4);
+        shell.memory.scroll.insert("tools.lua".into(), 30.0);
+        assert_eq!(shell.rename("tools.lua", "kit"), Ok(()));
+        assert!(!journal.exists() && !shell.journals().join("kit.lua").exists(), "no journal left behind");
+        assert!(std::fs::read_to_string(dir.join("kit.lua")).unwrap().ends_with("-- typed\n"), "saved first");
+        assert_eq!(shell.memory.open.as_deref(), Some("kit.lua"));
+        assert_eq!((shell.memory.cursor.get("kit.lua"), shell.memory.scroll.get("kit.lua")), (Some(&4), Some(&30.0)));
+        assert!(!shell.memory.cursor.contains_key("tools.lua") && !shell.memory.scroll.contains_key("tools.lua"));
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        assert!(buffer(&shell).code.text.ends_with("-- typed\n") && !buffer(&shell).unsaved(), "shown under the new name");
+        // The IDE's memory on disk says so too.
+        assert_eq!(Memory::load(&shell.memory_path).open.as_deref(), Some("kit.lua"));
+        clean_up(&dir, &shell);
+    }
+
+    /// main.lua and conf.lua keep their names and stay; a name taken is
+    /// refused, the files left; levels and blocks are not yet.
+    #[test]
+    fn what_the_game_needs_is_not_renamed_or_deleted() {
+        let (dir, _, mut shell) = managed_game("rename-refused");
+        std::fs::write(dir.join("level.json"), "{}").unwrap();
+        shell.files = Files::scan(&dir);
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        for file in ["main.lua", "conf.lua"] {
+            let err = shell.rename(file, "other").unwrap_err();
+            assert!(err.contains("needs main.lua and conf.lua"), "{err}");
+            shell.delete(file);
+            assert!(dir.join(file).is_file() && shell.gone.is_none(), "{file} stays");
+            shell.begin_rename(file);
+            assert!(shell.renaming.is_none());
+        }
+        assert!(shell.rename("level.json", "other").unwrap_err().starts_with("Not yet"));
+        shell.delete("level.json");
+        assert!(dir.join("level.json").is_file() && shell.gone.is_none());
+        assert_eq!(shell.rename("sounds/coin.toml", "bell"), Err("sounds/bell.toml is already there.".into()));
+        assert_eq!(shell.rename("tools.lua", "a/b"), Err("A name cannot hold a folder: no / in it.".into()));
+        assert_eq!(shell.rename("tools.lua", " "), Err("Type a name first.".into()));
+        assert!(dir.join("sounds/coin.toml").is_file() && dir.join("tools.lua").is_file());
+        // The disabled buttons say why (the open file is main.lua).
+        frame(&ctx, &mut shell);
+        clean_up(&dir, &shell);
+    }
+
+    /// The lines naming a sound are asked about: CANCEL changes nothing,
+    /// ONLY THE FILE renames the file alone, CHANGE THEM changes the
+    /// lines too, also in a text open that has changes of its own.
+    #[test]
+    fn the_lines_naming_a_sound_are_asked_about() {
+        use manage::Answer;
+        let (dir, _, mut shell) = managed_game("rename-asks");
+        let (conf, main) = (std::fs::read_to_string(dir.join("conf.lua")).unwrap(), std::fs::read_to_string(dir.join("main.lua")).unwrap());
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        assert_eq!(shell.rename("sounds/coin.toml", "ring"), Ok(()));
+        let q = shell.asking.as_ref().expect("asked");
+        assert_eq!((q.rows.len(), q.sentence().as_str()), (2, "2 lines of your game play this sound by its name. Change them too?"));
+        frame(&ctx, &mut shell);
+        assert!(dir.join("sounds/coin.toml").exists(), "nothing done before the answer");
+        shell.answer(Answer::Cancel);
+        assert!(shell.asking.is_none() && dir.join("sounds/coin.toml").exists() && !dir.join("sounds/ring.toml").exists());
+        // ONLY THE FILE.
+        assert_eq!(shell.rename("sounds/coin.toml", "ring"), Ok(()));
+        shell.answer(Answer::OnlyTheFile);
+        assert!(dir.join("sounds/ring.toml").is_file() && !dir.join("sounds/coin.toml").exists());
+        assert_eq!((std::fs::read_to_string(dir.join("conf.lua")).unwrap(), std::fs::read_to_string(dir.join("main.lua")).unwrap()), (conf.clone(), main.clone()), "the lines as they were");
+        // CHANGE THEM, main.lua open with a change not saved yet.
+        shell.rename("sounds/ring.toml", "coin").unwrap();
+        shell.answer(Answer::OnlyTheFile);
+        shell.open("main.lua");
+        frame(&ctx, &mut shell);
+        type_into_text(&ctx, &mut shell, "-- mine\n");
+        assert_eq!(shell.rename("sounds/coin.toml", "ring"), Ok(()));
+        shell.answer(Answer::Change);
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        shell.tick(std::time::Instant::now() + super::super::buffer::SAVE_AFTER);
+        assert_eq!(std::fs::read_to_string(dir.join("conf.lua")).unwrap(), conf.replace("\"coin\"", "\"ring\""));
+        let main_now = std::fs::read_to_string(dir.join("main.lua")).unwrap();
+        assert_eq!(main_now, format!("{}-- mine\n", main.replace("\"coin\"", "\"ring\"")), "the change and the new name both, on disk");
+        assert_eq!(buffer(&shell).code.text, main_now, "the open text took it in");
+        assert!(shell.notice.as_deref().is_some_and(|n| n.starts_with("RENAMED coin.toml TO ring.toml")), "{:?}", shell.notice);
+        // A module, a model and a song are asked about by their own lines.
+        std::fs::write(dir.join("main.lua"), "local tools = require \"tools\"\nm = \"hero.vox\"\nplay(\"music/tune.mml\")\n").unwrap();
+        shell.files = Files::scan(&dir);
+        shell.unload();
+        for (from, typed, line) in [("tools.lua", "kit", "require \"kit\""), ("hero.vox", "knight", "m = \"knight.vox\""), ("music/tune.mml", "song", "play(\"music/song.mml\")")] {
+            assert_eq!(shell.rename(from, typed), Ok(()));
+            assert_eq!(shell.asking.as_ref().map(|q| q.rows.len()), Some(1), "{from}");
+            shell.answer(Answer::Change);
+            assert!(std::fs::read_to_string(dir.join("main.lua")).unwrap().contains(line), "{line}");
+        }
+        clean_up(&dir, &shell);
+    }
+
+    /// DELETE asks nothing: the file goes away, the notice says what still
+    /// names it; the file open before it takes the main area; UNDO puts the
+    /// same bytes back and opens it again.
+    #[test]
+    fn a_deleted_file_can_be_put_back() {
+        let (dir, _, mut shell) = managed_game("delete-undo");
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        shell.open("main.lua");
+        shell.open("sounds/coin.toml");
+        frame(&ctx, &mut shell);
+        let bytes = std::fs::read(dir.join("sounds/coin.toml")).unwrap();
+        shell.delete("sounds/coin.toml");
+        assert!(!dir.join("sounds/coin.toml").exists() && !shell.files.has("sounds/coin.toml"));
+        let gone = shell.gone.as_ref().expect("a notice with UNDO");
+        assert_eq!(gone.said, "DELETED coin.toml · conf.lua and main.lua still play it in 2 lines");
+        assert!(gone.can_undo() && gone.until > std::time::Instant::now() + std::time::Duration::from_secs(6));
+        assert_eq!(std::fs::read(shell.deleted_dir.join("sounds/coin.toml")).unwrap(), bytes, "kept where it went");
+        assert_eq!(shell.memory.open.as_deref(), Some("main.lua"), "the file open before it");
+        frame(&ctx, &mut shell);
+        assert!(matches!(shell.shown, Some(Shown::Code(_))));
+        // UNDO.
+        shell.undo();
+        assert_eq!(std::fs::read(dir.join("sounds/coin.toml")).unwrap(), bytes);
+        assert!(shell.gone.is_none() && shell.files.has("sounds/coin.toml") && !shell.deleted_dir.join("sounds/coin.toml").exists());
+        assert_eq!(shell.memory.open.as_deref(), Some("sounds/coin.toml"), "open again");
+        frame(&ctx, &mut shell);
+        assert!(buffer(&shell).code.sound.is_some());
+        // A file nothing names says nothing more; one not open leaves the open one be.
+        shell.delete("sounds/bell.toml");
+        assert_eq!(shell.gone.as_ref().map(|g| g.said.as_str()), Some("DELETED bell.toml"));
+        assert_eq!(shell.memory.open.as_deref(), Some("sounds/coin.toml"));
+        // The notice goes after its time, with the bytes.
+        shell.gone.as_mut().unwrap().until = std::time::Instant::now();
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        assert!(shell.gone.is_none(), "gone after its time");
+        clean_up(&dir, &shell);
+    }
+
+    /// The open file deleted with none before it leaves nothing open; the
+    /// UNDO button is on the bar and a click on it puts the file back; a
+    /// journal of the file is gone with it.
+    #[test]
+    fn deleting_the_only_open_file_leaves_the_area_empty() {
+        let (dir, _, mut shell) = managed_game("delete-open");
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        shell.open("tools.lua");
+        frame(&ctx, &mut shell);
+        type_into_text(&ctx, &mut shell, "-- typed\n");
+        shell.previous = None;
+        shell.delete("tools.lua");
+        assert!(!shell.journals().join("tools.lua").exists(), "no journal left");
+        assert_eq!(shell.memory.open, None);
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        assert!(shell.shown.is_none(), "nothing shown");
+        // What was saved on the way out is what comes back.
+        shell.undo();
+        assert!(std::fs::read_to_string(dir.join("tools.lua")).unwrap().ends_with("-- typed\n"));
+        assert_eq!(shell.memory.open.as_deref(), Some("tools.lua"));
+        // The same through the button.
+        shell.delete("notes.txt");
+        frame(&ctx, &mut shell);
+        let undo = shell.undo_button.expect("UNDO drawn on the bar");
+        click(&ctx, &mut shell, undo.center());
+        assert!(dir.join("notes.txt").is_file() && shell.gone.is_none(), "UNDO clicked");
+        clean_up(&dir, &shell);
+    }
+
+    /// A name typed in place in the list: the field takes the name (the
+    /// ending is beside it, not typed), Enter takes it, Escape leaves it, a
+    /// name that cannot be is said in plain words and the field stays.
+    #[test]
+    fn a_name_is_typed_in_place_in_the_list() {
+        let (dir, _, mut shell) = managed_game("rename-field");
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        shell.begin_rename("sounds/bell.toml");
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        assert!(shell.renaming.as_ref().is_some_and(|r| r.text == "bell" && !r.fresh));
+        frame_with(&ctx, &mut shell, vec![egui::Event::Text("coin".into())]);
+        key(&ctx, &mut shell, egui::Key::Enter);
+        assert_eq!(shell.renaming.as_ref().and_then(|r| r.problem.as_deref()), Some("sounds/coin.toml is already there."));
+        frame_with(&ctx, &mut shell, vec![egui::Event::Text("x".into())]);
+        key(&ctx, &mut shell, egui::Key::Escape);
+        assert!(shell.renaming.is_none() && dir.join("sounds/bell.toml").is_file(), "Escape leaves it");
+        // Enter takes it (the old name is selected: typing replaces it).
+        shell.begin_rename("sounds/bell.toml");
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        frame_with(&ctx, &mut shell, vec![egui::Event::Text("Chime".into())]);
+        key(&ctx, &mut shell, egui::Key::Enter);
+        assert!(shell.renaming.is_none() && dir.join("sounds/chime.toml").is_file() && !dir.join("sounds/bell.toml").exists());
+        // A right click on a row opens a menu (RENAME, DELETE).
+        let at = egui::pos2(60.0, heading(&shell, "Logic").1.bottom() + 16.0);
+        let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed, modifiers: egui::Modifiers::NONE };
+        frame_with(&ctx, &mut shell, vec![egui::Event::PointerMoved(at)]);
+        frame_with(&ctx, &mut shell, vec![button(true)]);
+        frame_with(&ctx, &mut shell, vec![button(false)]);
+        frame_with(&ctx, &mut shell, vec![]);
+        assert!(egui::Popup::is_any_open(&ctx), "the menu is open");
+        clean_up(&dir, &shell);
     }
 
     /// A frame with `events`; what the frame asked to be copied.

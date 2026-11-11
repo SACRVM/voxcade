@@ -83,6 +83,18 @@ impl Files {
     pub fn has(&self, path: &str) -> bool {
         self.logic.iter().chain(&self.scenarios).chain(self.assets.iter().flat_map(|g| &g.files)).any(|f| f == path)
     }
+
+    /// The heading the list shows the file under: "Logic", "Scenarios" or
+    /// an asset group's name (None: the folder has no such file).
+    pub fn sort_of(&self, path: &str) -> Option<&'static str> {
+        if self.logic.iter().any(|f| f == path) {
+            return Some("Logic");
+        }
+        if self.scenarios.iter().any(|f| f == path) {
+            return Some("Scenarios");
+        }
+        self.assets.iter().find(|g| g.files.iter().any(|f| f == path)).map(|g| g.name)
+    }
 }
 
 /// Every file under `dir/prefix`, its path from `dir`.

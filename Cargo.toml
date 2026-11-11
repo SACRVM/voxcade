@@ -44,6 +44,8 @@ rustls = { version = "0.23.46", default-features = false, features = ["ring", "s
 sha2 = "0.11.1"
 flate2 = "1.1.10"
 tar = "0.4"
+# The IDE's DELETE moves a file to the system's trash.
+trash = "5.3.0"
 
 # The program carries the library's name; its own docs would collide.
 [[bin]]

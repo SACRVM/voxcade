@@ -439,6 +439,27 @@ Stage by stage (the plan of 2026-10-18):
    go back over the same steps.
    Every text one can change says SAVED or NOT SAVED YET and Ctrl+S saves
    at once.
+   **RENAME and DELETE** (`ide/shell/manage.rs`): for the logic, the
+   scenarios, models, sounds, songs and the images and the rest, by a right
+   click on a row of the list and by two small words beside SAVED over the
+   open file (a first-time user does not find a right click). RENAME types
+   the name in place in the list, as the plus does (the ending beside the
+   field, not typed; the plus's checks, an image's name may keep capitals
+   and dots); the open file stays open under its new name with its cursor
+   and scroll, a text not saved is saved first, no journal is left under
+   the old name. The lines of the game's Lua that name the file are
+   asked about ("3 lines of your game play this sound by its name. Change
+   them too?": CHANGE THEM, ONLY THE FILE, CANCEL): a sound by its quoted
+   name, a Lua file by `require`, a model, a song and any other file by its
+   quoted path; a scenario is named by nothing. DELETE asks nothing: the file
+   goes to the system's trash (`trash` crate; if it will not, into
+   `config_dir()/ide/deleted/<game>/`, said in OUTPUT) and the bar shows
+   DELETED, what in the game still names it, and UNDO for 20 seconds (the
+   bytes of a file up to 8 MB are kept in memory; a bigger one has UNDO only
+   from our own folder, from the system's trash only by hand). `main.lua` and
+   `conf.lua` stay (the game needs them), levels and blocks not yet (the
+   level files link to them by name), the buttons off with the reason in
+   their hover.
 6. **The MCP bridge** (done): the IDE listens on 127.0.0.1 at a free port
    and writes the port and a random token into
    `config_dir()/ide/<game>.lock` (mode 0600, gone when the IDE closes;
