@@ -351,8 +351,8 @@ Stage by stage (the plan of 2026-10-18):
    IDE asks (KEEP MINE, TAKE THE NEW). The IDE draws only when something
    happened (an event, a change on disk, a save).
    **Scenarios** (2026-10-29): `scenarios/NAME.lua` listed under a heading
-   of their own below the logic, always there (NEW SCENARIO a file to
-   fill in); PLAY SCENARIO over one plays the game from it (F5 begins it
+   of their own below the logic, always there (a plus in the heading, as at LOGIC, MODELS and MUSIC:
+   a name typed in place makes a small file to change); PLAY SCENARIO over one plays the game from it (F5 begins it
    again). While the game plays, a line under OUTPUT runs Lua in it
    between two ticks, its answer in OUTPUT (up and down bring earlier
    lines back); the agent's `eval` does the same.

@@ -56,6 +56,11 @@ pub struct Shell {
     edits: Vec<String>,
     /// What went wrong opening one, to show.
     message: Option<String>,
+    /// A name being typed for a new file (a plus at a heading).
+    naming: Option<Naming>,
+    /// Where the pluses and their headings were drawn (for the tests' mouse).
+    #[cfg(test)]
+    headings: Vec<(String, egui::Rect, egui::Rect)>,
     /// The game's settings (the light and camera previews use).
     cfg: crate::config::GameConfig,
     /// The picture of the model, block or level open, and the one before
@@ -144,7 +149,7 @@ pub fn game_id() -> egui::Id {
 /// change it).
 const LOOK_EVERY: std::time::Duration = std::time::Duration::from_millis(500);
 
-/// A new scenario's file (NEW SCENARIO), to fill in.
+/// A new scenario's file (the plus at SCENARIOS), to fill in.
 const NEW_SCENARIO: &str = "\
 -- A scenario: a run begun late, to try what happens there without
 -- playing to it first (docs/game-model.md, \"Scenarios and the console\").
@@ -160,6 +165,88 @@ return {
 }
 ";
 
+/// A new Lua file (the plus at LOGIC): `NAME` is the file's name, `IDENT` the name as a Lua variable.
+const NEW_LUA: &str = "\
+-- NAME.lua: a file of the game's code. main.lua takes it in while the game
+-- starts, at its top (not inside a handler):
+--   local IDENT = require(\"NAME\")
+-- and gets back what this file returns (true if it returns nothing). The
+-- files share main.lua's globals; saving one runs the game's code anew.
+local IDENT = {}
+
+function IDENT.hello()
+  return \"hello from NAME\"
+end
+
+return IDENT
+";
+
+/// A new song (the plus at MUSIC): four bars over and over, a tune and a bass.
+const NEW_SONG: &str = "\
+; NAME: a short song to change. The format is described at the top of
+; src/audio/music.rs: notes c d e f g a b (+ sharp, - flat), a length
+; (4 quarter, 8 eighth), o4 the octave, l8 the default length, v12 the
+; volume, | only marks a bar. A game plays it with c.audio.music or
+; music:play(\"music/NAME.mml\"); saving it plays it anew.
+
+#title NAME
+#tempo 110
+
+@lead triangle attack=0.02 decay=0.3 sustain=0.6 release=0.2 vibrato=0.006 vibrato_speed=5 volume=0.5
+@bass triangle attack=0.01 decay=0.3 sustain=0.7 release=0.2 volume=0.6
+
+A: @lead v12 q7 o4 l8 c e g e c e g e | a g f e d4 d4 | c e g e c e g e | f e d c g2
+B: @bass v12 q7 o2 l4 c c c c | f f c c | c c c c | f f g g
+";
+
+/// A name being typed for a new file under a heading (a plus).
+struct Naming {
+    sort: String,
+    text: String,
+    /// Why the last Enter made nothing.
+    problem: Option<String>,
+    /// Its field is to take the keys, once.
+    fresh: bool,
+}
+
+/// What a plus at a heading makes, and its hover text (`None`: no plus there).
+fn new_what(sort: &str) -> Option<&'static str> {
+    Some(match sort {
+        "Logic" => "New Lua file",
+        "Scenarios" => "New scenario",
+        "Models" => "New model",
+        "Music" => "New song",
+        _ => return None,
+    })
+}
+
+/// The file a name typed under the heading `sort` stands for, and its text
+/// (a model's bytes are made by the editor's writer, not here): the name
+/// lower case, spaces `_`, `.lua` and the like left off if typed; letters,
+/// digits, `_` and `-` only. A plain sentence says why not.
+fn new_file(dir: &Path, sort: &str, typed: &str) -> Result<String, String> {
+    let (folder, ext) = match sort {
+        "Logic" => ("", "lua"),
+        "Scenarios" => ("scenarios/", "lua"),
+        "Models" => ("", "vox"),
+        "Music" => ("music/", "mml"),
+        _ => return Err("Nothing is made here.".into()),
+    };
+    let name = typed.trim().to_lowercase().replace(' ', "_");
+    let name = name.strip_suffix(&format!(".{ext}")).unwrap_or(&name);
+    if name.is_empty() {
+        return Err("Type a name first.".into());
+    }
+    if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-') {
+        return Err("A name takes letters, digits, _ and - only.".into());
+    }
+    let path = format!("{folder}{name}.{ext}");
+    if dir.join(&path).exists() {
+        return Err(format!("{path} is already there."));
+    }
+    Ok(path)
+}
+
 impl Shell {
     /// The IDE on the game in `dir` (its settings `cfg`), remembering in
     /// `memory_path`, with `console`; what was open last is open again.
@@ -171,7 +258,7 @@ impl Shell {
             memory.open = files.logic.iter().find(|f| *f == "main.lua").or(files.logic.first()).cloned();
         }
         let restore = memory.open.as_ref().and_then(|f| memory.scroll.get(f).copied());
-        Self { title, dir: dir.to_path_buf(), files, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, cfg, preview: None, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, reported: None, output_saved: std::time::Instant::now() }
+        Self { title, dir: dir.to_path_buf(), files, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, #[cfg(test)] headings: Vec::new(), cfg, preview: None, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, reported: None, output_saved: std::time::Instant::now() }
     }
 
     /// The IDE's settings kept at `path` (`Prefs::path`); the agent
@@ -472,18 +559,27 @@ impl Shell {
         });
     }
 
-    /// NEW SCENARIO: a scenario's file to fill in, opened.
-    pub fn new_scenario(&mut self) {
-        let free = (1..).map(|n| if n == 1 { "scenarios/new.lua".to_string() } else { format!("scenarios/new_{n}.lua") }).find(|f| !self.dir.join(f).exists()).unwrap_or_default();
-        let made = std::fs::create_dir_all(self.dir.join("scenarios")).and_then(|()| std::fs::write(self.dir.join(&free), NEW_SCENARIO));
-        match made {
-            Ok(()) => {
-                self.files = super::files::Files::scan(&self.dir);
-                self.open(&free);
-                self.back_to_file();
-            }
-            Err(e) => self.tell(format!("{free}: {e}")),
-        }
+    /// Makes the file `typed` names under the heading `sort` (a file of
+    /// logic, a scenario, a model or a song, each a small one to change)
+    /// and opens it; its path, or why not (nothing is ever overwritten).
+    pub fn make_file(&mut self, sort: &str, typed: &str) -> Result<String, String> {
+        let path = new_file(&self.dir, sort, typed)?;
+        let name = path.rsplit('/').next().and_then(|n| n.rsplit_once('.')).map_or("", |(n, _)| n);
+        let ident: String = name.chars().map(|c| if c == '-' { '_' } else { c }).collect();
+        let ident = if ident.starts_with(|c: char| c.is_ascii_digit()) { format!("m_{ident}") } else { ident };
+        let full = self.dir.join(&path);
+        let made = std::fs::create_dir_all(full.parent().unwrap_or(&self.dir)).map_err(anyhow::Error::from).and_then(|()| match sort {
+            "Logic" => Ok(std::fs::write(&full, NEW_LUA.replace("IDENT", &ident).replace("NAME", name))?),
+            "Scenarios" => Ok(std::fs::write(&full, NEW_SCENARIO)?),
+            "Music" => Ok(std::fs::write(&full, NEW_SONG.replace("NAME", name))?),
+            _ => crate::editor::frames::ModelFile::begun(&full).save(),
+        });
+        made.map_err(|e| format!("{path}: {e:#}"))?;
+        self.files = super::files::Files::scan(&self.dir);
+        self.open(&path);
+        self.back_to_file();
+        self.help = false;
+        Ok(path)
     }
 
     /// A line run in the game being played, and what it answered, into
@@ -817,12 +913,14 @@ impl Shell {
                 });
             });
         });
-        let (mut clicked, mut edit, mut new_scenario) = (None, None, false);
+        let (mut clicked, mut edit, mut made) = (None, None, None);
         // The margins on the right lie inside the scroll areas, so that their
         // bars sit at the edge.
         egui::Panel::left("files").default_size(250.0).frame(egui::Frame::new().fill(PANEL).inner_margin(egui::Margin { left: 14, right: 0, top: 12, bottom: 12 })).show(ui, |ui| {
             egui::ScrollArea::vertical().content_margin(egui::Margin { right: 6, ..egui::Margin::ZERO }).show(ui, |ui| {
                 let open = if self.outside.is_some() { None } else { self.memory.open.clone() };
+                #[cfg(test)]
+                self.headings.clear();
                 // Each sort of file under its name, which opens and closes
                 // it: the logic, then the assets, the big groups closed at
                 // first.
@@ -836,11 +934,60 @@ impl Shell {
                     }
                     let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), ui.make_persistent_id(sort), open_at_first);
                     let header = crate::gui::row(ui, &format!("{} ({})", sort.to_uppercase(), files.len()), TextStyle::Small, QUIET, false, None);
-                    if header.clicked() {
+                    let at = egui::pos2(header.rect.right() - INSET - 4.0, header.rect.center().y);
+                    // A plus of its own left of the arrow (over the row, so it
+                    // takes its clicks): a new file there, its name typed
+                    // below.
+                    let mut over_plus = false;
+                    if let Some(tip) = new_what(sort) {
+                        let rect = egui::Rect::from_center_size(egui::pos2(at.x - 26.0, at.y), egui::vec2(24.0, 22.0));
+                        let plus = ui.interact(rect, ui.make_persistent_id((sort, "plus")), egui::Sense::click()).on_hover_text(tip);
+                        over_plus = ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| rect.contains(p));
+                        if plus.hovered() {
+                            ui.painter().rect_filled(rect, 3.0, crate::gui::ROW_HOVERED);
+                        }
+                        #[cfg(test)]
+                        self.headings.push((sort.to_string(), rect, header.rect));
+                        let colour = if plus.hovered() { TEXT } else { QUIET };
+                        ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, "+", TextStyle::Body.resolve(ui.style()), colour);
+                        if plus.clicked() {
+                            self.naming = Some(Naming { sort: sort.to_string(), text: String::new(), problem: None, fresh: true });
+                            state.set_open(true);
+                        }
+                    }
+                    if header.clicked() && !over_plus {
                         state.toggle(ui);
                     }
-                    arrow(ui, egui::pos2(header.rect.right() - INSET - 4.0, header.rect.center().y), state.openness(ui.ctx()));
+                    arrow(ui, at, state.openness(ui.ctx()));
                     state.show_body_unindented(ui, |ui| {
+                        // The name being typed for a new file, first.
+                        if let Some(naming) = self.naming.as_mut().filter(|n| n.sort == sort) {
+                            let (mut enter, mut cancel) = (false, false);
+                            ui.horizontal(|ui| {
+                                ui.add_space(INSET);
+                                let edit = ui.add(egui::TextEdit::singleline(&mut naming.text).font(TextStyle::Body).hint_text("name, then Enter").desired_width(f32::INFINITY));
+                                if std::mem::take(&mut naming.fresh) {
+                                    edit.request_focus();
+                                }
+                                if edit.lost_focus() {
+                                    enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                                    cancel = ui.input(|i| i.key_pressed(egui::Key::Escape)) || (!enter && naming.text.is_empty());
+                                    if enter {
+                                        // (The file made opens in a text that would take the key too.)
+                                        ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+                                        edit.request_focus();
+                                    }
+                                }
+                            });
+                            if let Some(problem) = &naming.problem {
+                                ui.label(RichText::new(problem).small().color(ERROR));
+                            }
+                            if cancel {
+                                self.naming = None;
+                            } else if enter {
+                                made = Some((sort.to_string(), naming.text.clone()));
+                            }
+                        }
                         // The scripts by their paths; assets say what they
                         // are by their group: the name alone, the path where
                         // two have the same name.
@@ -857,12 +1004,15 @@ impl Shell {
                                 edit = Some(f.clone());
                             }
                         }
-                        if sort == "Scenarios" {
-                            if files.is_empty() {
-                                ui.label(RichText::new("None yet: runs begun late, to try what happens there.").small().color(QUIET));
-                            }
-                            if ui.small_button("NEW SCENARIO").on_hover_text("A scenario's file to fill in: the states as late in the game, set up in code.").clicked() {
-                                new_scenario = true;
+                        if files.is_empty() && self.naming.as_ref().is_none_or(|n| n.sort != sort) {
+                            let none = match sort {
+                                "Scenarios" => "None yet: runs begun late, to try what happens there.",
+                                "Models" => "None yet: the plus makes one.",
+                                "Music" => "None yet: the plus makes one.",
+                                _ => "",
+                            };
+                            if !none.is_empty() {
+                                ui.label(RichText::new(none).small().color(QUIET));
                             }
                         }
                     });
@@ -877,8 +1027,15 @@ impl Shell {
         if let Some(path) = edit.filter(|p| self.editable(p)) {
             self.edits.push(path);
         }
-        if new_scenario {
-            self.new_scenario();
+        if let Some((sort, typed)) = made {
+            match self.make_file(&sort, &typed) {
+                Ok(_) => self.naming = None,
+                Err(problem) => {
+                    if let Some(n) = &mut self.naming {
+                        n.problem = Some(problem);
+                    }
+                }
+            }
         }
         // The console below the main area, folded to its heading or as
         // high as dragged; or none (CONSOLE).
@@ -1500,5 +1657,188 @@ mod tests {
         assert_eq!(shell.take_asks(), [Ask::Listen(song.into()), Ask::Hush, Ask::Play(None)], "the game ends it");
         let _ = std::fs::remove_file(&memory);
         let _ = std::fs::remove_dir_all(memory.with_extension("journal"));
+    }
+
+    /// A bare game folder to try the plus signs on: no model, no song, no
+    /// scenario.
+    fn bare_game(name: &str) -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("voxcade-shell-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 64, 64, 16 }\n  c.player.spawn = { 32, 32 }\n  c.actions = { \"jump\" }\nend\n").unwrap();
+        std::fs::write(dir.join("main.lua"), "function on_tick() end\n").unwrap();
+        (dir.clone(), std::env::temp_dir().join(format!("voxcade-shell-{name}-{}.toml", std::process::id())))
+    }
+
+    fn shell_on(dir: &Path, memory: &Path) -> Shell {
+        let console = Console::new(dir.to_path_buf(), Start::Nothing, std::sync::Arc::new(|| {}));
+        Shell::new(dir, crate::session::config::<crate::Voxcade>(dir).unwrap(), memory.to_path_buf(), console)
+    }
+
+    /// A frame with `events`, a tenth of a second later than the one before (so that
+    /// folding finishes).
+    fn frame_with(ctx: &egui::Context, shell: &mut Shell, events: Vec<egui::Event>) {
+        let time = ctx.input(|i| i.time) + 0.1;
+        let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 720.0))), time: Some(time), events, ..Default::default() };
+        let _ = ctx.run_ui(raw, |ui| shell.ui(ui));
+    }
+
+    /// A click of the left button at `at`, with a frame before it (the
+    /// mouse arrives) and after.
+    fn click(ctx: &egui::Context, shell: &mut Shell, at: egui::Pos2) {
+        let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        frame_with(ctx, shell, vec![egui::Event::PointerMoved(at)]);
+        frame_with(ctx, shell, vec![button(true)]);
+        frame_with(ctx, shell, vec![button(false)]);
+        for _ in 0..4 {
+            frame_with(ctx, shell, vec![]);
+        }
+    }
+
+    fn click_plus(ctx: &egui::Context, shell: &mut Shell, sort: &str) {
+        let at = heading(shell, sort).0.center();
+        click(ctx, shell, at);
+    }
+
+    fn key(ctx: &egui::Context, shell: &mut Shell, key: egui::Key) {
+        let event = |pressed| egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::NONE };
+        frame_with(ctx, shell, vec![event(true)]);
+        frame_with(ctx, shell, vec![event(false)]);
+    }
+
+    /// The plus at a heading and the heading's row, as drawn last.
+    fn heading(shell: &Shell, sort: &str) -> (egui::Rect, egui::Rect) {
+        shell.headings.iter().find(|(s, ..)| s == sort).map(|(_, p, h)| (*p, *h)).unwrap_or_else(|| panic!("no heading {sort}: {:?}", shell.headings.iter().map(|h| &h.0).collect::<Vec<_>>()))
+    }
+
+    /// A name typed under a heading, with the plus clicked and Enter hit.
+    fn type_a_name(ctx: &egui::Context, shell: &mut Shell, sort: &str, name: &str) {
+        click_plus(ctx, shell, sort);
+        assert!(shell.naming.as_ref().is_some_and(|n| n.sort == sort), "the plus asks for a name under {sort}");
+        frame_with(ctx, shell, vec![egui::Event::Text(name.into())]);
+        key(ctx, shell, egui::Key::Enter);
+    }
+
+    /// A game without models, songs or scenarios still has the headings
+    /// LOGIC, SCENARIOS, MODELS and MUSIC, each with a plus; LEVELS and
+    /// the like only when there are some.
+    #[test]
+    fn the_headings_with_a_plus_are_always_there() {
+        let (dir, memory) = bare_game("headings");
+        let mut shell = shell_on(&dir, &memory);
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        let sorts: Vec<&str> = shell.headings.iter().map(|(s, ..)| s.as_str()).collect();
+        assert_eq!(sorts, ["Logic", "Scenarios", "Models", "Music"]);
+        assert_eq!(shell.files.assets.iter().map(|g| (g.name, g.files.len())).collect::<Vec<_>>(), [("Models", 0), ("Music", 0)]);
+        for (sort, plus, head) in &shell.headings {
+            assert!(head.contains_rect(*plus), "{sort}: the plus lies on its row");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The plus does not fold its heading and the rest of the row does;
+    /// a plus on a folded heading unfolds it.
+    #[test]
+    fn the_plus_and_the_fold_are_apart() {
+        let (dir, memory) = bare_game("fold");
+        let mut shell = shell_on(&dir, &memory);
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        let below = |shell: &Shell| heading(shell, "Music").1.top();
+        let open = below(&shell);
+        let (plus, row) = heading(&shell, "Models");
+        click(&ctx, &mut shell, egui::pos2(row.left() + 40.0, row.center().y));
+        let folded = below(&shell);
+        assert!(folded < open, "the row folds it: {folded} < {open}");
+        click_plus(&ctx, &mut shell, "Models");
+        assert!(shell.naming.as_ref().is_some_and(|n| n.sort == "Models"), "the plus asks for a name");
+        assert!(below(&shell) > folded, "and unfolds the heading to make room for it");
+        // On an open heading it folds nothing.
+        let before = below(&shell);
+        click_plus(&ctx, &mut shell, "Models");
+        assert!(below(&shell) >= before, "an open heading stays open");
+        let _ = plus;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Each plus makes its file under the name typed, it is listed at once and open; a name taken is
+    /// refused, with the old file left; Escape lets go of the field.
+    #[test]
+    fn a_plus_makes_a_file_of_its_sort() {
+        let (dir, memory) = bare_game("make");
+        let mut shell = shell_on(&dir, &memory);
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        for (sort, typed, path) in [("Logic", "Market Stall", "market_stall.lua"), ("Scenarios", "late", "scenarios/late.lua"), ("Models", "Hero", "hero.vox"), ("Music", "theme.mml", "music/theme.mml")] {
+            type_a_name(&ctx, &mut shell, sort, typed);
+            assert!(dir.join(path).is_file(), "{path} made");
+            assert!(shell.naming.is_none(), "{path}: the field is gone");
+            assert!(shell.files.has(path), "{path} listed at once");
+            assert_eq!(shell.memory.open.as_deref(), Some(path), "{path} open");
+            frame(&ctx, &mut shell);
+        }
+        assert_eq!(std::fs::read_to_string(dir.join("scenarios/late.lua")).unwrap(), NEW_SCENARIO);
+        let lua = std::fs::read_to_string(dir.join("market_stall.lua")).unwrap();
+        assert!(lua.contains("local market_stall = require(\"market_stall\")") && lua.contains("return market_stall"), "{lua}");
+        // A name taken is refused, the file stays.
+        std::fs::write(dir.join("hero.vox"), "mine").unwrap();
+        type_a_name(&ctx, &mut shell, "Models", "HERO");
+        assert_eq!(std::fs::read(dir.join("hero.vox")).unwrap(), b"mine");
+        assert_eq!(shell.naming.as_ref().and_then(|n| n.problem.as_deref()), Some("hero.vox is already there."));
+        frame(&ctx, &mut shell);
+        key(&ctx, &mut shell, egui::Key::Escape);
+        assert!(shell.naming.is_none(), "Escape cancels");
+        // Nothing, or a sign a name cannot have.
+        assert_eq!(shell.make_file("Logic", "  "), Err("Type a name first.".into()));
+        assert_eq!(shell.make_file("Logic", "a/b"), Err("A name takes letters, digits, _ and - only.".into()));
+        assert_eq!(shell.make_file("Logic", "main"), Err("main.lua is already there.".into()));
+        assert_eq!(std::fs::read_to_string(dir.join("main.lua")).unwrap(), "function on_tick() end\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An empty field loses focus: it goes away.
+    #[test]
+    fn an_empty_name_field_goes_away_when_left() {
+        let (dir, memory) = bare_game("leave");
+        let mut shell = shell_on(&dir, &memory);
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        click_plus(&ctx, &mut shell, "Music");
+        assert!(shell.naming.is_some());
+        click(&ctx, &mut shell, egui::pos2(700.0, 400.0));
+        assert!(shell.naming.is_none(), "left empty");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What the plus makes works: the model loads and draws, the song
+    /// parses, the Lua file can be required by the game's main.lua.
+    #[test]
+    fn what_a_plus_makes_works() {
+        let (dir, memory) = bare_game("works");
+        let mut shell = shell_on(&dir, &memory);
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        for (sort, name) in [("Logic", "tools"), ("Models", "blob"), ("Music", "tune")] {
+            shell.make_file(sort, name).unwrap();
+        }
+        let model = crate::vox::load_model(&dir.join("blob.vox")).unwrap();
+        assert!(model.frames.len() == 1 && model.frames[0].len() == 64 && model.size == glam::IVec3::splat(8), "{:?} {}", model.size, model.frames[0].len());
+        shell.open("blob.vox");
+        frame(&ctx, &mut shell);
+        assert!(shell.preview.is_some(), "it shows as a picture: {:?}", shell.message);
+        let song = crate::audio::music::parse(&std::fs::read_to_string(dir.join("music/tune.mml")).unwrap()).unwrap();
+        assert!(song.names.len() == 2 && song.length > 0 && song.channel_lengths().iter().all(|(_, l)| (*l - song.channel_lengths()[0].1).abs() < 0.01), "{:?}", song.channel_lengths());
+        std::fs::write(dir.join("main.lua"), "local tools = require(\"tools\")\nfunction on_world_start() world.state.said = tools.hello() end\n").unwrap();
+        use crate::game::Game;
+        let mut game = crate::session::Session::<crate::Voxcade>::load(&dir).unwrap();
+        game.step(&crate::input::Input::default());
+        assert!(game.game.halted().is_none(), "{:?}", game.game.halted());
+        assert!(game.game.inspect().to_string().contains("hello from tools"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

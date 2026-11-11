@@ -71,6 +71,21 @@ impl ModelFile {
         Ok(Self { path: path.to_path_buf(), frames, materials, scenes: data.scenes, layers: data.layers, laid_out })
     }
 
+    /// A new model to begin with (the IDE's NEW MODEL): one frame, 8 voxels
+    /// each way, a cube of 4 standing on the floor in one colour. Not saved
+    /// until `save`.
+    pub fn begun(path: &Path) -> Self {
+        let mut frame = Block::empty(8);
+        for z in 0..4 {
+            for y in 2..6 {
+                for x in 2..6 {
+                    let _ = frame.set(IVec3::new(x, y, z), Some([204, 112, 72]));
+                }
+            }
+        }
+        Self { path: path.to_path_buf(), laid_out: vec![frame.size], frames: vec![frame], materials: Vec::new(), scenes: Vec::new(), layers: Vec::new() }
+    }
+
     /// Every colour of its frames, each once, in the order they come.
     pub fn colours(&self) -> Vec<[u8; 3]> {
         let mut all = Vec::new();

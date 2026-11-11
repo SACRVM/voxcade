@@ -1,7 +1,8 @@
 //! A game folder as the IDE lists it: its logic (the Lua scripts, and the
 //! text files they `read`), its scenarios (`scenarios/NAME.lua`: runs
 //! begun late, to try things) and its assets in a few groups (the level,
-//! models, blocks, images, music, the rest). Hidden files and the recorded
+//! models, blocks, images, music, the rest; the models and the music
+//! listed even when empty). Hidden files and the recorded
 //! runs (`replays/`) are left out.
 
 use std::path::Path;
@@ -23,6 +24,9 @@ pub struct Group {
 
 /// The groups, in the order the IDE shows them.
 const GROUPS: [&str; 6] = ["Levels", "Models", "Blocks", "Images", "Music", "Other"];
+
+/// The sorts listed even with no file.
+const ALWAYS: [&str; 2] = ["Models", "Music"];
 
 /// How deep the IDE looks into the folder's folders.
 const DEPTH: usize = 5;
@@ -66,7 +70,9 @@ impl Files {
         }
         // The game's own two first, the other scripts after them.
         files.logic.sort_by_key(|f| (["conf.lua", "main.lua"].iter().position(|n| n == f).unwrap_or(2), f.clone()));
-        files.assets = GROUPS.iter().zip(groups).filter(|(_, g)| !g.is_empty()).map(|(&name, files)| Group { name, files }).collect();
+        // The models and the music always have their place (the IDE's plus
+        // there makes the first one); the other sorts show when there are some.
+        files.assets = GROUPS.iter().zip(groups).filter(|(name, g)| !g.is_empty() || ALWAYS.contains(name)).map(|(&name, files)| Group { name, files }).collect();
         files
     }
 
