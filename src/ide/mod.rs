@@ -58,10 +58,27 @@ enum Editing {
     Model(String),
 }
 
+/// Why a call may not be answered, if it may not: typing into the console
+/// is running commands in the user's shell, past the agent's permission
+/// prompts, so the console's tools are only for an IDE started with
+/// `--remote` (another session's, testing), never the game's own agent.
+fn refused(tool: &str, remote: bool) -> Option<String> {
+    (matches!(tool, "console_send" | "console_read") && !remote).then(|| format!("{tool} is not allowed: the IDE was not started with --remote (voxcade ide <game> --remote)"))
+}
+
+/// The most lines `console_read` gives, and what it gives without being
+/// asked.
+const READ_MOST: usize = 2000;
+const READ_LINES: usize = 200;
+
 /// Answers a call of the agent's (`voxcade mcp`, through the bridge): what
-/// the user sees, a file shown, the game played, stopped or looked at.
-fn answer<G: Game>(call: bridge::Call, shell: &mut Shell, ctx: &egui::Context, play: Option<&mut Play<G>>, screen: &crate::window::Screen) {
+/// the user sees, a file shown, the game played, stopped or looked at; with
+/// `remote` the console too.
+fn answer<G: Game>(call: bridge::Call, shell: &mut Shell, ctx: &egui::Context, play: Option<&mut Play<G>>, screen: &crate::window::Screen, remote: bool) {
     use serde_json::json;
+    if let Some(why) = refused(&call.tool, remote) {
+        return call.fail(&why);
+    }
     let text = |t: String| json!({ "type": "text", "text": t });
     let text_of = text;
     let args = call.args.clone();
@@ -97,6 +114,20 @@ fn answer<G: Game>(call: bridge::Call, shell: &mut Shell, ctx: &egui::Context, p
             (None, _) => call.fail("No game plays in the IDE: play starts one (inspect and shot take --do without the IDE)."),
             (_, None) => call.fail("eval needs line: the Lua to run in the game"),
         },
+        "console_send" => match args["text"].as_str() {
+            Some(line) => match shell.console_mut().send(line, args["enter"].as_bool().unwrap_or(true)) {
+                Ok(said) => call.answer(vec![text(said)]),
+                Err(why) => call.fail(&why),
+            },
+            None => call.fail("console_send needs text: what to type into the console"),
+        },
+        "console_read" => {
+            let lines = args["lines"].as_u64().map_or(READ_LINES, |n| (n as usize).clamp(1, READ_MOST));
+            match shell.console().read(lines) {
+                Ok(said) => call.answer(vec![text(if said.is_empty() { "(the console shows nothing)".into() } else { said })]),
+                Err(why) => call.fail(&why),
+            }
+        }
         "game_frame" => match play.map(|p| p.picture(&screen.device, &screen.queue)) {
             Some(Ok(png)) => call.answer(vec![json!({ "type": "image", "data": crate::mcp::base64(&png), "mimeType": "image/png" })]),
             Some(Err(e)) => call.fail(&format!("{e:#}")),
@@ -303,8 +334,10 @@ fn shot_start(opts: &ShotOptions) -> Result<()> {
 }
 
 /// Opens the IDE in a window on the game in `first` (or its start page)
-/// until it is closed; another game opens in the same window.
-pub fn run<G: Game>(first: Option<&Path>) -> Result<()> {
+/// until it is closed; another game opens in the same window. With
+/// `remote` it answers the console's tools (`console_send`,
+/// `console_read`) for another session testing it.
+pub fn run<G: Game>(first: Option<&Path>, remote: bool) -> Result<()> {
     let mut window = Window::open()?;
     let mut next = match first {
         Some(dir) => Next::Game(dir.to_path_buf()),
@@ -312,7 +345,7 @@ pub fn run<G: Game>(first: Option<&Path>) -> Result<()> {
     };
     loop {
         next = match next {
-            Next::Game(dir) => match project::<G>(&mut window, &dir) {
+            Next::Game(dir) => match project::<G>(&mut window, &dir, remote) {
                 Ok(next) => next,
                 // A game that would not open: the start page says why.
                 Err(e) => Next::Start(Some(format!("{}: {e:#}", dir.display()))),
@@ -459,7 +492,7 @@ fn present(screen: &mut crate::window::Screen, painter: &mut Painter, ctx: &egui
 
 /// The game in `dir` in the IDE's window until it is closed or another is
 /// opened (the menu on its name); what the window shows next.
-fn project<G: Game>(window: &mut Window, dir: &Path) -> Result<Next> {
+fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Next> {
     use sdl3::event::{Event, WindowEvent};
 
     let cfg = crate::session::config::<G>(dir)?;
@@ -619,7 +652,7 @@ fn project<G: Game>(window: &mut Window, dir: &Path) -> Result<Next> {
         // What the agent asks through the bridge.
         for call in bridge.as_ref().map(bridge::Bridge::calls).unwrap_or_default() {
             happened = true;
-            answer(call, &mut shell, ctx, play.as_mut(), screen);
+            answer(call, &mut shell, ctx, play.as_mut(), screen, remote);
         }
         // The text being changed saved when due, the disk looked at.
         let (changed, next) = shell.tick(Instant::now());
@@ -821,6 +854,20 @@ fn project<G: Game>(window: &mut Window, dir: &Path) -> Result<Next> {
 mod tests {
     use super::*;
     use sdl3::event::Event;
+
+    /// The console's tools are answered only by an IDE started with
+    /// `--remote`; the other tools never wait on it.
+    #[test]
+    fn the_console_tools_need_remote() {
+        for tool in ["console_send", "console_read"] {
+            let why = refused(tool, false).expect("refused without --remote");
+            assert!(why.contains("--remote"), "{why}");
+            assert_eq!(refused(tool, true), None);
+        }
+        for tool in ["view_state", "open", "play", "eval", "errors"] {
+            assert_eq!(refused(tool, false), None);
+        }
+    }
 
     /// An editor window's events go to it, the IDE's own and the
     /// program's (quit, the console's wake) to the IDE.

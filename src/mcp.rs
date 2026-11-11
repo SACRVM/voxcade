@@ -4,7 +4,12 @@
 //! `inspect`), so nothing a game prints reaches the protocol; `api` reads
 //! the Lua API's register (`lua::api`). The IDE's tools (`view_state`,
 //! `open`, `game_frame`, `errors`, `play`, `stop`) go to the IDE running on
-//! the game, through its bridge (`ide::bridge`). A tool's game is the
+//! the game, through its bridge (`ide::bridge`). With `--remote` two more
+//! (`console_send`, `console_read`) type into the IDE's console and read
+//! it, for another session testing the agent there: they run commands in
+//! the user's shell, so the game's own agent never gets them (the IDE's
+//! `.mcp.json` has no `--remote`, and the IDE answers them only when it
+//! was started with `--remote` too). A tool's game is the
 //! folder the server runs in unless named. Claude Code takes it with a
 //! `.mcp.json` in the game folder (the IDE's MCP button writes one), or
 //! `claude mcp add voxcade -- /path/to/voxcade mcp`.
@@ -20,8 +25,9 @@ use serde_json::{Value, json};
 /// The protocol versions it speaks, the newest first.
 const VERSIONS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
-/// Answers requests from stdin until it closes.
-pub fn serve() -> Result<()> {
+/// Answers requests from stdin until it closes; `remote`: with the console
+/// tools.
+pub fn serve(remote: bool) -> Result<()> {
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout().lock();
     for line in stdin.lock().lines() {
@@ -30,7 +36,7 @@ pub fn serve() -> Result<()> {
             continue;
         }
         let reply = match serde_json::from_str::<Value>(&line) {
-            Ok(msg) => answer(&msg),
+            Ok(msg) => answer_as(&msg, remote),
             Err(e) => Some(json!({ "jsonrpc": "2.0", "id": null, "error": { "code": -32700, "message": format!("not JSON: {e}") } })),
         };
         if let Some(reply) = reply {
@@ -41,8 +47,14 @@ pub fn serve() -> Result<()> {
     Ok(())
 }
 
-/// The reply to one message (none to a notification).
+/// The reply to one message of a server without `--remote`.
+#[cfg(test)]
 fn answer(msg: &Value) -> Option<Value> {
+    answer_as(msg, false)
+}
+
+/// The reply to one message (none to a notification).
+fn answer_as(msg: &Value, remote: bool) -> Option<Value> {
     let id = msg.get("id")?.clone();
     let params = msg.get("params").cloned().unwrap_or(Value::Null);
     let result = match msg.get("method").and_then(Value::as_str).unwrap_or("") {
@@ -60,11 +72,11 @@ fn answer(msg: &Value) -> Option<Value> {
             }))
         }
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({ "tools": tools() })),
+        "tools/list" => Ok(json!({ "tools": tools(remote) })),
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
-            Ok(match call(name, &args) {
+            Ok(match call(name, &args, remote) {
                 Ok(content) => json!({ "content": content }),
                 Err(e) => json!({ "content": [text(&e)], "isError": true }),
             })
@@ -86,7 +98,7 @@ fn prop(kind: &str, about: &str) -> Value {
     json!({ "type": kind, "description": about })
 }
 
-fn tools() -> Value {
+fn tools(remote: bool) -> Value {
     let game = prop("string", "The game folder (with conf.lua and main.lua), e.g. games/sokovox; by default the folder this server runs in");
     let at_ide = || json!({ "type": "object", "properties": { "game": game } });
     let frames = |default: u32| prop("integer", &format!("Ticks to play, 60 a second (default {default})"));
@@ -94,7 +106,7 @@ fn tools() -> Value {
     let others = json!({ "type": "array", "items": { "type": "string" }, "description": "In a game of several players (c.players), the keys of the players after the first, seat 2 first, as input is written; 'away:ticks' while nobody sits there (a seat taken when its keys begin). Example: ['away:60;left:40', 'right:100']" });
     let scenario = prop("string", "Begin the run from this scenario (scenarios/NAME.lua: a late situation set up in code; the scenarios tool lists them)");
     let lines = json!({ "type": "array", "items": { "type": "string" }, "description": "Lines of Lua run in the game before its first tick, after the scenario, as the console runs them (e.g. 'player.state.score = 5000', 'require(\"wolf\").night()'); each one's answer is reported" });
-    json!([
+    let mut all = json!([
         {
             "name": "shot",
             "description": "Plays the game for some ticks without a window and returns the last frame as a PNG, with what the engine reports (the player, things, sounds, timings). See what the player sees.",
@@ -170,11 +182,33 @@ fn tools() -> Value {
             "description": "Runs a line of Lua in the game being played in the IDE, between two ticks, as its console does (states, the game's functions by require; a line asks a level change, a save, at once) and returns its answer; the user sees it in OUTPUT, and it is recorded with the run.",
             "inputSchema": { "type": "object", "properties": { "line": prop("string", "The Lua to run, e.g. 'player.state.score = 5000' or 'world.state.day'"), "game": game }, "required": ["line"] },
         },
-    ])
+    ]);
+    if remote {
+        all.as_array_mut().expect("a list").extend([
+            json!({
+                "name": "console_send",
+                "description": "Types text into the console of the Voxcade IDE open on the game (the user's shell, or Claude Code, the game's agent, running in it) as if pasted, then presses Enter unless enter is false. This runs commands in the user's shell: for testing the IDE's agent only. Read what it says with console_read.",
+                "inputSchema": { "type": "object", "properties": {
+                    "text": prop("string", "What to type: a shell command, or a prompt for the agent"),
+                    "enter": prop("boolean", "Press Enter after it (default true), so a shell runs it and Claude Code takes it; false leaves it in the line"),
+                    "game": game,
+                }, "required": ["text"] },
+            }),
+            json!({
+                "name": "console_read",
+                "description": "What the console of the Voxcade IDE open on the game shows now, as plain text: the last lines, scrollback included, without blank lines at the end.",
+                "inputSchema": { "type": "object", "properties": { "lines": prop("integer", "How many lines from the end (default 200, at most 2000)"), "game": game } },
+            }),
+        ]);
+    }
+    all
 }
 
 /// The IDE's tools, answered by the IDE running on the game.
 const IDE_TOOLS: [&str; 7] = ["view_state", "open", "game_frame", "errors", "play", "stop", "eval"];
+
+/// The IDE's console tools, listed and passed on only with `--remote`.
+const REMOTE_TOOLS: [&str; 2] = ["console_send", "console_read"];
 
 /// A string argument, if given.
 fn arg<'a>(args: &'a Value, name: &str) -> Option<&'a str> {
@@ -182,17 +216,17 @@ fn arg<'a>(args: &'a Value, name: &str) -> Option<&'a str> {
 }
 
 /// Runs a tool; its content, or what went wrong.
-fn call(name: &str, args: &Value) -> Result<Vec<Value>, String> {
-    call_with(name, args, crate::ide::bridge::lock_path)
+fn call(name: &str, args: &Value, remote: bool) -> Result<Vec<Value>, String> {
+    call_with(name, args, remote, crate::ide::bridge::lock_path)
 }
 
 /// Runs a tool, an IDE's through the lock `lock_for` gives for its game
 /// folder.
-fn call_with(name: &str, args: &Value, lock_for: impl Fn(&Path) -> PathBuf) -> Result<Vec<Value>, String> {
+fn call_with(name: &str, args: &Value, remote: bool, lock_for: impl Fn(&Path) -> PathBuf) -> Result<Vec<Value>, String> {
     // The game named, else the folder the server runs in if it is one.
     let folder = || arg(args, "game").map(str::to_string).or_else(|| Path::new("conf.lua").is_file().then(|| ".".to_string()));
     let game = || folder().ok_or_else(|| "which game? (game: the game folder; this server does not run in one)".to_string());
-    if IDE_TOOLS.contains(&name) {
+    if IDE_TOOLS.contains(&name) || (remote && REMOTE_TOOLS.contains(&name)) {
         return crate::ide::bridge::call(&lock_for(Path::new(&game()?)), name, args);
     }
     let frames = |default: u64| args.get("frames").and_then(Value::as_u64).unwrap_or(default).to_string();
@@ -271,7 +305,7 @@ fn call_with(name: &str, args: &Value, lock_for: impl Fn(&Path) -> PathBuf) -> R
             (true, said) => Ok(vec![text(&said)]),
             (false, said) => Err(said),
         },
-        other => Err(format!("no tool {other} (shot, check, run, things, scenarios, api, {})", IDE_TOOLS.join(", "))),
+        other => Err(format!("no tool {other} (shot, check, run, things, scenarios, api, {}{})", IDE_TOOLS.join(", "), if remote { format!(", {}", REMOTE_TOOLS.join(", ")) } else { String::new() })),
     }
 }
 
@@ -336,6 +370,25 @@ mod tests {
         assert_eq!(unknown["error"]["code"], -32601);
     }
 
+    /// The console's tools are listed only for `--remote`, and a server
+    /// without it passes none on.
+    #[test]
+    fn the_console_tools_come_only_with_remote() {
+        let list = |remote| {
+            let list = answer_as(&json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }), remote).unwrap();
+            list["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect::<Vec<_>>()
+        };
+        let (plain, remote) = (list(false), list(true));
+        assert!(!plain.iter().any(|n| n.starts_with("console_")), "{plain:?}");
+        assert_eq!(remote[..plain.len()], plain[..], "the others as they are");
+        assert_eq!(remote[plain.len()..], ["console_send", "console_read"]);
+        let never = |_: &Path| -> PathBuf { panic!("no bridge call without --remote") };
+        let no = call_with("console_send", &json!({ "game": "games/voxkeep", "text": "ls" }), false, never).unwrap_err();
+        assert!(no.contains("no tool console_send"), "{no}");
+        let said = answer_as(&json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": "console_read", "arguments": { "game": "games/voxkeep" } } }), false).unwrap();
+        assert_eq!(said["result"]["isError"], true);
+    }
+
     /// The IDE's tools go to the IDE running on the game, through its
     /// bridge, and come back as its answer; without an IDE they say so.
     #[test]
@@ -352,10 +405,10 @@ mod tests {
             }
         });
         let args = json!({ "game": "games/voxkeep" });
-        let seen = call_with("view_state", &args, |_| lock.clone()).unwrap();
+        let seen = call_with("view_state", &args, false, |_| lock.clone()).unwrap();
         done.store(true, std::sync::atomic::Ordering::Relaxed);
         assert_eq!(seen[0]["text"], "main.lua open");
-        let none = call_with("view_state", &args, |_| std::env::temp_dir().join("voxcade-no-ide.lock")).unwrap_err();
+        let none = call_with("view_state", &args, false, |_| std::env::temp_dir().join("voxcade-no-ide.lock")).unwrap_err();
         assert!(none.contains("not running"), "{none}");
         ide.join().unwrap();
     }

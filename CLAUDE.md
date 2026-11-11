@@ -180,6 +180,23 @@ nearest; its replay `tests/two_ships`);
   writes the game folder's `.mcp.json` when the user presses it; else the
   user adds it to Claude Code themselves (`claude mcp add voxcade --
   /path/to/voxcade mcp`), never edit their config.
+- Trying the IDE's agent from this session (the user's idea, 2026-11-11:
+  the games we make with the IDE live in `~/Projects/repos/voxcade-games/`,
+  the IDE's projects folder here, each with its own agent, out of this
+  session's way): `voxcade ide <game> --remote` answers two more tools,
+  `console_send` (a prompt typed into the console, for the agent there)
+  and `console_read` (what the console shows), listed only by `voxcade
+  mcp --remote`. `python3 tools/ide_call.py <game> TOOL ['{json}']` calls
+  any of the IDE's tools: `play`, `console_send '{"text": "..."}'`,
+  `console_read` until the agent is done, `game_frame`. Typing into the
+  console is running commands in the user's shell, past the agent's
+  prompts: the game's own agent never gets these tools (its
+  `--mcp-config` is `voxcade mcp` without the flag, and an IDE started
+  without it refuses). Start the IDE for it with the user's own shell
+  and without this session's marks, or the console shows another shell
+  and Claude Code keeps no transcript: `env -u CLAUDE_CODE_CHILD_SESSION
+  SHELL=/bin/fish voxcade ide <game> --remote` (a window on the user's
+  desktop: say so).
 - Levels of voxel blocks (`docs/tiles.md`): `voxcade import <game>
   <tiled-map.json>` brings a Tiled map in once (Tiled draws in 2D: it is
   only a way in); `voxcade edit <game>` opens the editor in a window (the

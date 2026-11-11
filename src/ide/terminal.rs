@@ -232,6 +232,23 @@ pub fn paste_bytes(text: &str, bracketed: bool) -> Vec<u8> {
     }
 }
 
+/// The last `lines` lines of what the terminal holds, the scrollback
+/// too, as plain text: lines that wrapped joined, trailing blanks of each
+/// line and blank lines at the end cut off.
+pub fn history_text<T>(term: &Term<T>, lines: usize) -> String {
+    let (top, bottom) = (term.topmost_line(), term.bottommost_line());
+    let text = term.bounds_to_string(Point::new(top, Column(0)), Point::new(bottom, Column(term.columns().saturating_sub(1))));
+    last_lines(&text, lines)
+}
+
+/// The last `n` lines of `text` (at least one), without blank ones at the
+/// end and without spaces at the ends of lines.
+pub fn last_lines(text: &str, n: usize) -> String {
+    let all: Vec<&str> = text.lines().map(str::trim_end).collect();
+    let end = all.iter().rposition(|l| !l.is_empty()).map_or(0, |i| i + 1);
+    all[end.saturating_sub(n.max(1))..end].join("\n")
+}
+
 /// One cell as drawn.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Glyph {
@@ -568,6 +585,26 @@ mod tests {
         assert!(text(&picture(&t)).iter().all(|l| l.chars().count() <= 6), "wrapped: {:?}", text(&picture(&t)));
         t.resize(Size { columns: 20, lines: 5 });
         assert_eq!(text(&picture(&t)), before);
+    }
+
+    /// What `console_read` returns: the scrollback too, the last lines
+    /// asked for, no blank ones at the end.
+    #[test]
+    fn the_terminal_reads_out_as_plain_text() {
+        let t = term(10, 3, b"one  \r\ntwo\r\nthree\r\nfour\r\n\r\n");
+        assert_eq!(history_text(&t, 200), "one\ntwo\nthree\nfour", "scrollback included, blanks at the end cut");
+        assert_eq!(history_text(&t, 2), "three\nfour");
+        assert_eq!(history_text(&t, 0), "four", "at least one line");
+        assert_eq!(history_text(&term(10, 3, b""), 5), "");
+        assert_eq!(last_lines("a  \n\nb\n\n\n", 10), "a\n\nb");
+    }
+
+    /// Pasted text goes in as the program asked: marked, or with the
+    /// breaks a terminal sends.
+    #[test]
+    fn pasted_text_is_marked_when_asked() {
+        assert_eq!(paste_bytes("a\nb", true), b"\x1b[200~a\nb\x1b[201~");
+        assert_eq!(paste_bytes("a\nb", false), b"a\rb");
     }
 
     /// Keys as a terminal sends them: the cursor keys by the program's

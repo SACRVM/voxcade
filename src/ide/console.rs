@@ -132,6 +132,26 @@ impl Console {
         }
     }
 
+    /// The agent's remote (`console_send`): `text` pasted as the program
+    /// asked, then Enter if `enter`; what to answer, or why not.
+    pub fn send(&mut self, text: &str, enter: bool) -> Result<String, String> {
+        let Some(t) = self.terminal.as_ref().filter(|t| !t.ended()) else {
+            return Err("the console has no program running (it starts when the console is drawn: show it, or press CLAUDE)".into());
+        };
+        t.paste(text);
+        if enter {
+            t.write(&b"\r"[..]);
+        }
+        Ok(format!("{} characters typed into the console{}", text.chars().count(), if enter { ", then Enter" } else { "" }))
+    }
+
+    /// What the terminal holds, the last `lines` lines as plain text
+    /// (`console_read`).
+    pub fn read(&self, lines: usize) -> Result<String, String> {
+        let t = self.terminal.as_ref().ok_or("the console has not started (it starts when the console is drawn)")?;
+        Ok(t.with(|term| terminal::history_text(term, lines)))
+    }
+
     /// The heading: CONSOLE and OUTPUT to switch between as tabs
     /// (`output`: the output shown; `unseen` its errors not seen yet), the
     /// arrow that folds it (only the arrow); for the console the button

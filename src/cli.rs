@@ -40,8 +40,8 @@ USAGE:
   voxcade sheet  <game-dir> <model> [--out FILE]
   voxcade import <game-dir> <tiled-map.json> [--file NAME] [--over]
   voxcade edit   <game-dir> [--block NAME | --things | --model FILE] [--shot FILE] [--view YAW,PITCH] [--size WxH]
-  voxcade ide    [<game-dir>] [--shot FILE] [--open PATH] [--console CMD] [--play TICKS] [--size WxH]
-  voxcade mcp
+  voxcade ide    [<game-dir>] [--shot FILE] [--open PATH] [--console CMD] [--play TICKS] [--size WxH] [--remote]
+  voxcade mcp    [--remote]
   voxcade film   <game-dir> <replay-file> [--from S] [--to S] [--fps N] [--size WxH]
                  [--max-mb N] [--out FILE.mp4|.webm|.gif]
   voxcade sounds <game-dir> [--out FILE] [--only NAME]
@@ -150,7 +150,10 @@ ide   opens the IDE on a game (docs/ide.md): its logic and assets on the
       window (--open: that file, or help for HELP's list of every name,
       help:N its topic N; --console: CMD run in the console, waited
       for; --play: the game played in the main area, TICKS in, or with
-      --open held behind the file; default 1920x1080).
+      --open held behind the file; default 1920x1080). --remote lets
+      another session type into the console and read it (`voxcade mcp
+      --remote`: console_send, console_read); without it the IDE
+      refuses both.
 api   lists the Lua API (the names containing NAME); --lua writes the
       definitions for editors (LuaLS: completion and checks) to FILE,
       lua/voxcade.lua beside the program.
@@ -160,6 +163,9 @@ kinds prints the game's kinds of things and weapons with every number in
 mcp   serves the engine's tools to an agent over MCP on stdin/stdout:
       shot (a frame as an image), check, run, things, api. Claude Code:
         claude mcp add voxcade -- /path/to/voxcade mcp
+      --remote adds console_send and console_read: type into the IDE's
+      console and read it, for a session testing the agent there (run
+      the IDE with --remote too; never in the game's own .mcp.json).
 film  renders a replay as a video with its music and sounds (.mp4: H.264
       and AAC, plays everywhere; .webm: VP9 and Opus; through ffmpeg) or
       as a GIF without sound (built in). --from/--to cut it (seconds),
@@ -514,8 +520,13 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
             };
             let mut opts = crate::ide::ShotOptions { open: None, console: None, play: None, width: 1920, height: 1080, out: PathBuf::new() };
             let mut shot = false;
+            let mut remote = false;
             let mut it = args[if dir.is_some() { 2 } else { 1 }..].iter();
             while let Some(flag) = it.next() {
+                if flag == "--remote" {
+                    remote = true;
+                    continue;
+                }
                 let value = it.next().with_context(|| format!("{flag} needs a value"))?;
                 match flag.as_str() {
                     "--open" => opts.open = Some(value.clone()),
@@ -532,9 +543,9 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                     other => bail!("unknown option {other}"),
                 }
             }
-            if shot { crate::ide::shot::<G>(dir.as_deref(), &opts) } else { crate::ide::run::<G>(dir.as_deref()) }
+            if shot { crate::ide::shot::<G>(dir.as_deref(), &opts) } else { crate::ide::run::<G>(dir.as_deref(), remote) }
         }
-        Some("mcp") => crate::mcp::serve(),
+        Some("mcp") => crate::mcp::serve(args[1..].iter().any(|a| a == "--remote")),
         Some("sounds") => {
             let dir = game_dir(&args)?;
             let mut out = PathBuf::from("shots/sounds.wav");
@@ -583,7 +594,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
         // Started by a double click: the launcher (the IDE's start page).
         None => {
             crate::desktop::keep_entry();
-            crate::ide::run::<G>(None)
+            crate::ide::run::<G>(None, false)
         }
         Some("--version" | "-V" | "version") => {
             println!("voxcade {}", crate::update::VERSION);
