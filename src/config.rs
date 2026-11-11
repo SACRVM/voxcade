@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::audio::SoundDef;
+use crate::audio::GameSound;
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default)]
@@ -28,10 +28,11 @@ pub struct GameConfig {
     pub transition: TransitionConfig,
     pub audio: AudioConfig,
     pub ui: UiConfig,
-    /// What events sound like, replacing the engine's sounds: a `.wav`
-    /// file, "none", a recording with `rate` and `bits` to make it lo-fi,
-    /// or synth numbers (see `audio::Synth`).
-    pub sounds: BTreeMap<String, SoundDef>,
+    /// The game's own sounds by name: its files in `sounds/` (`NAME.toml`,
+    /// `NAME.wav`; `audio::sound`), read with the config, never written in
+    /// it (`c.sounds` is refused). One of a kit's names replaces the kit's.
+    #[serde(skip)]
+    pub sounds: BTreeMap<String, GameSound>,
     pub markers: MarkersConfig,
     /// The kinds of things the game has (`[things.NAME]`): each names its
     /// behaviour (the game's), may build on another (`like = "other"`) and

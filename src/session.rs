@@ -444,6 +444,10 @@ pub fn config<G: Game>(dir: &Path) -> Result<GameConfig> {
 pub fn config_in<G: Game>(files: &Files) -> Result<GameConfig> {
     let mut cfg = GameConfig::default();
     G::conf(files, &mut cfg)?;
+    if cfg.game.contains_key("sounds") {
+        anyhow::bail!("c.sounds is no more: a sound is a file now, sounds/NAME.toml, called by its name (wave = \"square\", freq = 880, a line each); `voxcade sounds {} --to-files` writes yours from conf.lua, then take the c.sounds lines out", files.dir().display());
+    }
+    cfg.sounds = audio::sound::read_folder(files)?;
     let sections = G::sections(&cfg);
     if let Some(unknown) = cfg.game.keys().find(|k| !sections.contains(&k.as_str())) {
         let own = if sections.is_empty() { String::new() } else { format!(" (the game's own: c.{})", sections.join(", c.")) };
@@ -763,7 +767,7 @@ impl<G: Game> Session<G> {
         let songs = song_timings(&files, &cfg);
         let game = G::load(Setup { files: &files, cfg: &cfg, world: first.world.clone(), markers: first.markers.clone(), models: &models, levels: levels.clone(), slots: slots.listing(), slot_texts: slots.texts(), replayed: slots.replayed().to_vec(), songs: songs.clone() })?;
         let cue = game.music().map(|c| c.song);
-        let sounds = SoundBank::load(&files, &cfg.sounds, &G::sounds(&cfg));
+        let sounds = SoundBank::load(&files, &cfg.sounds, &G::sounds(&cfg))?;
         let actions = G::actions(&cfg);
         let song_titles = song_titles(&files, &cfg);
         let cfg_ui = cfg.ui.clone();
@@ -920,6 +924,11 @@ impl<G: Game> Session<G> {
         if self.files.is_sealed() {
             return Ok(Reloaded::Nothing);
         }
+        // A file gone counts in the sounds' folder only (a sound taken
+        // away); elsewhere the game keeps what it read.
+        if !changed.exists() && !audio::sound::in_folder(&self.dir, changed) {
+            return Ok(Reloaded::Nothing);
+        }
         self.take_in(changed)
     }
 
@@ -961,7 +970,7 @@ impl<G: Game> Session<G> {
             self.models = Models::load_for::<G>(&self.files, &self.cfg)?;
             self.game.reshape(&self.models);
             self.touched = true;
-            self.sounds = SoundBank::load(&self.files, &self.cfg.sounds, &G::sounds(&self.cfg));
+            self.sounds = SoundBank::load(&self.files, &self.cfg.sounds, &G::sounds(&self.cfg))?;
             self.rebuild_bank();
             self.place_props();
             // The camera or sun may have moved, which changes the face set.
@@ -993,8 +1002,15 @@ impl<G: Game> Session<G> {
             self.rebuild_bank();
             return Ok(Reloaded::Models);
         }
-        if self.sounds.files.iter().any(|f| same_file(f, changed)) {
-            self.sounds = SoundBank::load(&self.files, &self.cfg.sounds, &G::sounds(&self.cfg));
+        if audio::sound::in_folder(&self.dir, changed) {
+            return self.reload_sounds();
+        }
+        let reading = self.sounds.reading(changed);
+        if !reading.is_empty() {
+            let all = audio::sound::all(&G::sounds(&self.cfg), &self.cfg.sounds);
+            for (name, def, file) in all.into_iter().filter(|(n, ..)| reading.contains(n)) {
+                self.sounds.put(&self.files, name, &def).with_context(|| file.unwrap_or_default())?;
+            }
             return Ok(Reloaded::Sounds);
         }
         let block = self.cfg.world.blocks.is_some() && is_block_file(&self.dir, changed);
@@ -1018,6 +1034,33 @@ impl<G: Game> Session<G> {
             return Ok(Reloaded::Models);
         }
         Ok(Reloaded::Nothing)
+    }
+
+    /// A file in `sounds/` came, changed or went: the sounds are read
+    /// again (a mistake keeps them as they were), and only those that
+    /// differ are made anew. A name come or gone is the game's to know
+    /// (`Game::sounds_changed`: `level:sound` finds it).
+    fn reload_sounds(&mut self) -> Result<Reloaded> {
+        let own = audio::sound::read_folder(&self.files)?;
+        let names = |own: &BTreeMap<String, audio::GameSound>| own.keys().cloned().collect::<Vec<_>>();
+        if names(&own) != names(&self.cfg.sounds) {
+            let mut cfg = self.cfg.clone();
+            cfg.sounds = own.clone();
+            self.game.sounds_changed(&cfg)?;
+        }
+        let brought = G::sounds(&self.cfg);
+        let before = audio::sound::all(&brought, &self.cfg.sounds);
+        let now = audio::sound::all(&brought, &own);
+        for (name, def, file) in &now {
+            if !before.iter().any(|(n, d, _)| n == name && d == def) {
+                self.sounds.put(&self.files, name, def).with_context(|| file.clone().unwrap_or_else(|| format!("{name} (built in)")))?;
+            }
+        }
+        for (name, ..) in before.iter().filter(|(n, ..)| !now.iter().any(|(m, ..)| m == n)) {
+            self.sounds.put(&self.files, name, &audio::SoundDef::Silent)?;
+        }
+        self.cfg.sounds = own;
+        Ok(Reloaded::Sounds)
     }
 
     /// The actions the game's input carries besides the directions.

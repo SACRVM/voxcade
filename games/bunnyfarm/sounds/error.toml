@@ -1,0 +1,8 @@
+wave = "triangle"
+freq = 247
+sweep = -5.003829
+attack = 0.01
+hold = 0.03
+decay = 0.14
+lowpass = 700
+volume = 0.1

@@ -58,9 +58,5 @@ function conf(c)
   c.audio.music = { "music/crates_at_dawn.mml", "music/quiet_warehouse.mml" }
   c.audio.music_volume = 0.4
 
-  c.sounds.step = { wave = "noise", freq = 2400, freq_end = 900, sustain = 0.005, decay = 0.04, lowpass = 2000, volume = 0.12 }
-  c.sounds.push = { wave = "noise", freq = 700, freq_end = 300, attack = 0.01, sustain = 0.08, decay = 0.08, lowpass = 900, volume = 0.3 }
-  c.sounds.home = { wave = "triangle", freq = 784, sustain = 0.06, decay = 0.25, arp = 1.5, arp_at = 0.05, volume = 0.35 }
-  c.sounds.solved = { wave = "square", freq = 523, duty = 0.3, sustain = 0.3, decay = 0.6, arp = 1.26, arp_at = 0.08, vibrato = 0.01, volume = 0.25 }
-  c.sounds.undo = { wave = "square", freq = 660, freq_end = 330, duty = 0.25, sustain = 0.02, decay = 0.06, volume = 0.12 }
+  -- the sounds are files, sounds/NAME.toml, played by their names (level:sound)
 end

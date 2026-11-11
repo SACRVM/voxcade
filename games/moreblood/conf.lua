@@ -341,10 +341,11 @@ function conf(c)
   c.audio.music = { "music/move_on.mml", "music/blood_rush.mml", "music/storm.mml", "music/end_boss.mml" }
   c.audio.music_volume = 0.45
 
-  -- replace any of the engine's sounds (list them: voxcade sounds games/moreblood)
-  -- c.sounds.explosion = "sfx/boom.wav"
-  -- c.sounds.down = { file = "sfx/scream.wav", rate = 7000, bits = 8 }   -- lo-fi speech, early-90s style
-  -- c.sounds.shot = { wave = "noise", freq = 9000, freq_end = 1500, sustain = 0.015, decay = 0.14 }
+  -- A file in sounds/ replaces the engine's sound of its name (list them:
+  -- voxcade sounds games/moreblood --list): sounds/explosion.wav as it is;
+  -- sounds/down.toml with file = "sfx/scream.wav", rate = 7000, bits = 8 for
+  -- lo-fi speech, early-90s style; sounds/shot.toml with wave = "noise",
+  -- freq = 9000, sweep = -31, hold = 0.015, decay = 0.14.
 
   c.debris.settle = 0.7
   c.debris.max_particles = 30000

@@ -1,0 +1,9 @@
+# level:explode's, for every explosion
+wave = "noise"
+freq = 900
+sweep = -34.882687
+hold = 0.05
+decay = 0.45
+punch = 0.6
+lowpass = 3000
+lowpass_end = 300

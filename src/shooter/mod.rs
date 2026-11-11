@@ -21,7 +21,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use glam::{IVec3, Vec3};
 
-use crate::audio::{Synth, Wave};
+use crate::audio::SoundDef;
 use crate::config::GameConfig;
 use crate::game::{Game, ModelSpec, Outcome, Setup};
 use crate::session::{Drawing, Models};
@@ -107,82 +107,33 @@ impl Controls {
     }
 }
 
-/// Its sound events by name, with the sounds they make to start with.
-pub fn sounds() -> Vec<(&'static str, Synth)> {
-    Sfx::ALL.iter().map(|&sfx| (sfx.name(), default_sound(sfx))).collect()
-}
+/// The kit's own sounds' files, built in (`sounds/`); its `impact`,
+/// `explosion` and `crumble` are the engine's (`audio::CORE_FILES`).
+pub const SOUND_FILES: &[(&str, &str)] = &[
+    ("shot", include_str!("sounds/shot.toml")),
+    ("enemy_shot", include_str!("sounds/enemy_shot.toml")),
+    ("rocket", include_str!("sounds/rocket.toml")),
+    ("knife", include_str!("sounds/knife.toml")),
+    ("throw", include_str!("sounds/throw.toml")),
+    ("splat", include_str!("sounds/splat.toml")),
+    ("hurt", include_str!("sounds/hurt.toml")),
+    ("down", include_str!("sounds/down.toml")),
+    ("pickup", include_str!("sounds/pickup.toml")),
+    ("rescue", include_str!("sounds/rescue.toml")),
+    ("jump", include_str!("sounds/jump.toml")),
+    ("land", include_str!("sounds/land.toml")),
+    ("checkpoint", include_str!("sounds/checkpoint.toml")),
+    ("win", include_str!("sounds/win.toml")),
+    ("game_over", include_str!("sounds/game_over.toml")),
+    ("rotor", include_str!("sounds/rotor.toml")),
+];
 
-/// The sound each event makes unless `c.sounds` says otherwise.
-fn default_sound(sfx: Sfx) -> Synth {
-    use Wave::*;
-    let s = Synth::default();
-    match sfx {
-        // A sharp crack that falls off.
-        Sfx::Shot => Synth {
-            wave: Noise, freq: 9000.0, freq_end: Some(1500.0), sustain: 0.015, decay: 0.14, punch: 0.6,
-            lowpass: Some(7000.0), lowpass_end: Some(1200.0), volume: 0.42, ..s
-        },
-        Sfx::EnemyShot => Synth {
-            wave: Noise, freq: 7000.0, freq_end: Some(1200.0), sustain: 0.015, decay: 0.15, punch: 0.5,
-            lowpass: Some(5000.0), lowpass_end: Some(900.0), volume: 0.34, ..s
-        },
-        Sfx::Rocket => Synth {
-            wave: Noise, freq: 2500.0, freq_end: Some(600.0), attack: 0.02, sustain: 0.12, decay: 0.4,
-            lowpass: Some(2600.0), lowpass_end: Some(500.0), volume: 0.5, ..s
-        },
-        Sfx::Knife => Synth {
-            wave: Noise, freq: 6000.0, freq_end: Some(12000.0), attack: 0.02, sustain: 0.02, decay: 0.07,
-            lowpass: Some(9000.0), volume: 0.28, ..s
-        },
-        Sfx::Impact | Sfx::Explosion | Sfx::Crumble => crate::audio::core_sound(sfx.name()),
-        Sfx::Throw => Synth { wave: Sine, freq: 280.0, freq_end: Some(560.0), sustain: 0.04, decay: 0.12, volume: 0.25, ..s },
-        Sfx::Splat => Synth {
-            wave: Noise, freq: 1800.0, freq_end: Some(300.0), sustain: 0.03, decay: 0.28, punch: 0.4,
-            lowpass: Some(1600.0), lowpass_end: Some(350.0), volume: 0.55, ..s
-        },
-        Sfx::Hurt => Synth {
-            wave: Square, freq: 240.0, freq_end: Some(110.0), duty: 0.3, sustain: 0.05, decay: 0.18, punch: 0.4,
-            volume: 0.32, ..s
-        },
-        Sfx::Down => Synth {
-            wave: Saw, freq: 330.0, freq_end: Some(55.0), sustain: 0.3, decay: 0.9, vibrato: 0.08,
-            vibrato_speed: 9.0, lowpass: Some(3000.0), volume: 0.4, ..s
-        },
-        // A coin: one note, then a fourth up; a hollow square, softened
-        // (a thinner pulse carries a thump and buzzes).
-        Sfx::Pickup => Synth {
-            wave: Square, freq: 988.0, sustain: 0.09, decay: 0.22, arp: 1.335, arp_at: 0.06,
-            lowpass: Some(5000.0), lowpass_end: Some(3000.0), volume: 0.2, ..s
-        },
-        Sfx::Rescue => Synth {
-            wave: Triangle, freq: 523.0, sustain: 0.16, decay: 0.35, arp: 1.498, arp_at: 0.1, vibrato: 0.01,
-            volume: 0.5, ..s
-        },
-        Sfx::Jump => Synth { wave: Square, freq: 220.0, freq_end: Some(520.0), duty: 0.2, sustain: 0.04, decay: 0.1, volume: 0.16, ..s },
-        Sfx::Land => Synth {
-            wave: Noise, freq: 1200.0, freq_end: Some(300.0), sustain: 0.01, decay: 0.08, lowpass: Some(900.0),
-            volume: 0.3, ..s
-        },
-        Sfx::Checkpoint => Synth {
-            wave: Triangle, freq: 659.0, sustain: 0.1, decay: 0.3, arp: 2.0, arp_at: 0.08, volume: 0.45, ..s
-        },
-        // Won: a soft call, a note and its octave, ringing out (the user:
-        // the square that was here sounded nasty).
-        Sfx::Win => Synth {
-            wave: Triangle, freq: 392.0, sustain: 0.35, decay: 0.8, arp: 2.0, arp_at: 0.16,
-            vibrato: 0.008, vibrato_speed: 5.0, lowpass: Some(3000.0), volume: 0.3, ..s
-        },
-        Sfx::GameOver => Synth {
-            wave: Square, freq: 196.0, freq_end: Some(82.0), sustain: 0.5, decay: 0.9, vibrato: 0.02,
-            vibrato_speed: 5.0, lowpass: Some(1600.0), lowpass_end: Some(700.0), volume: 0.24, ..s
-        },
-        // A rotor chop, repeated while it flies: the blade's slap, bright
-        // enough to cut through the music's bass and kick, falling to a thud.
-        Sfx::Rotor => Synth {
-            wave: Noise, freq: 2400.0, freq_end: Some(500.0), sustain: 0.012, decay: 0.075, punch: 0.7,
-            lowpass: Some(2600.0), lowpass_end: Some(600.0), volume: 0.42, ..s
-        },
-    }
+/// Its sound events by name, with the sounds they make unless the game has
+/// a file of that name (`sounds/NAME.toml`).
+pub fn sounds() -> Vec<(&'static str, SoundDef)> {
+    let mut all = crate::audio::sound::builtin(SOUND_FILES);
+    all.extend(crate::audio::core_sounds());
+    Sfx::ALL.iter().map(|sfx| all.iter().find(|(n, _)| *n == sfx.name()).cloned().unwrap_or_else(|| panic!("the shooter's {} has no file", sfx.name()))).collect()
 }
 
 #[derive(Clone, Copy, Default, Debug)]
@@ -1261,7 +1212,7 @@ impl Game for Shooter {
         pad()
     }
 
-    fn sounds(_cfg: &GameConfig) -> Vec<(&'static str, Synth)> {
+    fn sounds(_cfg: &GameConfig) -> Vec<(&'static str, SoundDef)> {
         sounds()
     }
 

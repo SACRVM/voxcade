@@ -1,0 +1,11 @@
+# A coin: one note, then a fourth up; a hollow square, softened (a thinner
+# pulse carries a thump and buzzes).
+wave = "square"
+freq = 988
+hold = 0.09
+decay = 0.22
+jump = 5.002077
+jump_at = 0.06
+lowpass = 5000
+lowpass_end = 3000
+volume = 0.2

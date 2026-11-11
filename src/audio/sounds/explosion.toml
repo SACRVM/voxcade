@@ -1,0 +1,10 @@
+# A thump and a long rumble.
+wave = "noise"
+freq = 1400
+sweep = -35.512296
+hold = 0.08
+decay = 1.1
+punch = 0.9
+lowpass = 2200
+lowpass_end = 140
+volume = 0.95

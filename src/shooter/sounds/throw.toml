@@ -1,0 +1,6 @@
+wave = "sine"
+freq = 280
+sweep = 12
+hold = 0.04
+decay = 0.12
+volume = 0.25

@@ -236,8 +236,16 @@ c.things.crate = { model = "crate.vox" }           -- no behaviour: main.lua mov
 - Scores: the code counts in `player.state.score`; `c.scored = true`
   gives the game a high score table (with a kit or without). `c.high_scores` is the table to beat:
   ten lines `{ "ABC", 1000 }`.
-- Sounds: `c.sounds.NAME = { wave = "square", freq = 440, ... }` (synth
-  settings, `src/audio/`), played with `level:sound(NAME, at)`.
+- Sounds are files, `sounds/NAME.toml` (or `sounds/NAME.wav` as it is),
+  played by the file's name with `level:sound(NAME, at)` or a kind's
+  `sound = "NAME"`; a file of a kit's sound's name replaces it, `silent =
+  true` silences it. A line a number, only what differs from the
+  defaults: `wave = "square"` (saw, triangle, sine, noise), `freq` (Hz),
+  `sweep` (semitones the pitch slides over the sound, -12 an octave down),
+  `attack`, `hold`, `decay` (seconds), `jump` and `jump_at` (one jump in
+  semitones: 5 a fourth), `punch`, `vibrato`, `lowpass`, `volume` (0 to
+  1). `voxcade sounds GAME --list` shows them all; a mistake names the
+  file, the line and the word. `c.sounds` in conf.lua is refused.
 - The HUD is the game's, drawn in `on_draw` (the kits draw none):
   `frame.width`/`frame.height` (UI voxels, from the top left),
   `frame:text(text, x, y, color, size)` (size 2 and up: the big letters;

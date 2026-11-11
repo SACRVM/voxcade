@@ -1,0 +1,6 @@
+wave = "saw"
+freq = 600
+sweep = 7.01955
+hold = 0.02
+decay = 0.12
+volume = 0.16

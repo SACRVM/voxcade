@@ -1,0 +1,9 @@
+wave = "square"
+freq = 523
+duty = 0.3
+hold = 0.3
+decay = 0.6
+vibrato = 0.01
+jump = 4.001085
+jump_at = 0.08
+volume = 0.25

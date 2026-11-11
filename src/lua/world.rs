@@ -1200,7 +1200,7 @@ impl UserData for LevelView {
             level_here(lua, "level:sound")?;
             let at = to_point(lua, &at, "level:sound")?;
             change(lua, "level:sound", |h| {
-                let Some(&event) = h.sounds.iter().find(|s| **s == name) else { return Err(mlua::Error::runtime(format!("no sound called '{name}' (c.sounds: {})", h.sounds.join(", ")))) };
+                let Some(&event) = h.sounds.iter().find(|s| **s == name) else { return Err(mlua::Error::runtime(format!("no sound called '{name}': a sound is a file, sounds/{name}.toml (the game's: {})", h.sounds.join(", ")))) };
                 h.host.sim_mut().sound(event, at, volume.unwrap_or(1.0));
                 Ok(())
             })

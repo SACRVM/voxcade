@@ -1,0 +1,6 @@
+wave = "triangle"
+freq = 659
+decay = 0.3
+jump = 12
+jump_at = 0.08
+volume = 0.45

@@ -13,7 +13,7 @@ use std::path::Path;
 
 use anyhow::Result;
 use glam::{IVec2, IVec3, Vec3};
-use voxcade::audio::{Synth, Wave};
+use voxcade::audio::SoundDef;
 use voxcade::config::{GameConfig, ShadowStyle};
 use voxcade::controls::Bindings;
 use voxcade::files::Files;
@@ -96,13 +96,10 @@ impl Game for Digger {
         Bindings::new(&[("jump", &["south"]), ("fire", &["west", "righttrigger"])])
     }
 
-    fn sounds(_cfg: &GameConfig) -> Vec<(&'static str, Synth)> {
-        let s = Synth::default();
-        vec![
-            ("jump", Synth { wave: Wave::Square, freq: 220.0, freq_end: Some(520.0), duty: 0.2, sustain: 0.04, decay: 0.1, volume: 0.16, ..s.clone() }),
-            ("explosion", Synth { wave: Wave::Noise, freq: 1400.0, freq_end: Some(180.0), sustain: 0.08, decay: 1.1, punch: 0.9, lowpass: Some(2200.0), lowpass_end: Some(140.0), volume: 0.95, ..s.clone() }),
-            ("crumble", Synth { wave: Wave::Noise, freq: 700.0, freq_end: Some(120.0), attack: 0.03, sustain: 0.25, decay: 0.7, lowpass: Some(1100.0), lowpass_end: Some(160.0), volume: 0.6, ..s }),
-        ]
+    /// The engine's explosion and crumble; its jump is a file of its own,
+    /// `sounds/jump.toml`, as any game's.
+    fn sounds(_cfg: &GameConfig) -> Vec<(&'static str, SoundDef)> {
+        voxcade::audio::core_sounds().into_iter().filter(|(name, _)| *name != "impact").collect()
     }
 
     /// Rolling hills of earth under grass, stone deeper down, on bedrock:

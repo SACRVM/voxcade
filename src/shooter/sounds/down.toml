@@ -1,0 +1,9 @@
+wave = "saw"
+freq = 330
+sweep = -31.01955
+hold = 0.3
+decay = 0.9
+vibrato = 0.08
+vibrato_speed = 9
+lowpass = 3000
+volume = 0.4

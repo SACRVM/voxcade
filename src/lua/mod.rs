@@ -42,7 +42,7 @@ use anyhow::{Context, Result};
 use glam::Vec3;
 use mlua::{AnyUserData, Function, Table};
 
-use crate::audio::Synth;
+use crate::audio::SoundDef;
 use crate::config::{GameConfig, UiConfig};
 use crate::controls::Bindings;
 use crate::files::Files;
@@ -924,9 +924,10 @@ impl<K: Kit> LuaGame<K> {
             .collect())
     }
 
-    /// The sound events' names.
+    /// The sounds' names: the kit's (or the engine's) and the game's own
+    /// files'.
     fn sound_names(cfg: &GameConfig) -> Arc<Vec<&'static str>> {
-        Arc::new(Self::sounds(cfg).into_iter().map(|(n, _)| n).collect())
+        Arc::new(crate::audio::sound::all(&Self::sounds(cfg), &cfg.sounds).into_iter().map(|(n, ..)| n).collect())
     }
 
     /// Places what the level's markers stand for, lifted out of anything
@@ -962,12 +963,13 @@ impl<K: Kit> LuaGame<K> {
         Ok(kinds.iter().position(|k| k.name == seats.of(1)).filter(|_| !kit))
     }
 
-    /// A kind's `sound` is one the game has (`c.sounds`, the kit's).
+    /// A kind's `sound` is one the game has (its files in sounds/, the
+    /// kit's).
     fn check_kinds_sounds(cfg: &GameConfig, kinds: &[Kind]) -> Result<()> {
         let sounds = Self::sound_names(cfg);
         for k in kinds {
             if let Some(s) = k.sound.filter(|s| !sounds.contains(s)) {
-                anyhow::bail!("c.things.{}.sound = \"{s}\": no sound called that (c.sounds, and the ready-made rules': {})", k.name, sounds.join(", "));
+                anyhow::bail!("c.things.{}.sound = \"{s}\": no sound called that (a sound is a file, sounds/{s}.toml; the game's and the ready-made rules': {})", k.name, sounds.join(", "));
             }
         }
         Ok(())
@@ -1969,16 +1971,18 @@ impl<K: Kit> Game for LuaGame<K> {
         pad
     }
 
-    /// The kit's sound events (or the engine's) and the ones the game names
-    /// in `c.sounds`.
-    fn sounds(cfg: &GameConfig) -> Vec<(&'static str, Synth)> {
-        let mut sounds = if with::<K>(cfg) { K::sounds(cfg) } else { crate::audio::core_sounds() };
-        for name in cfg.sounds.keys() {
-            if !sounds.iter().any(|(n, _)| n == name) {
-                sounds.push((crate::names::intern(name), Synth::default()));
-            }
-        }
-        sounds
+    /// The kit's sounds (or the engine's); the game's files in sounds/
+    /// replace and add to them.
+    fn sounds(cfg: &GameConfig) -> Vec<(&'static str, SoundDef)> {
+        if with::<K>(cfg) { K::sounds(cfg) } else { crate::audio::core_sounds() }
+    }
+
+    /// A sound file came or went: `level:sound` and the kinds know the
+    /// names there are now.
+    fn sounds_changed(&mut self, cfg: &GameConfig) -> Result<()> {
+        Self::check_kinds_sounds(cfg, &self.stage.kinds)?;
+        self.stage.sounds = Self::sound_names(cfg);
+        Ok(())
     }
 
     /// The kit's models or the kinds' (their shapes count for the

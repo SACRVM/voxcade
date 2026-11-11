@@ -314,7 +314,8 @@ nearest; its replay `tests/two_ships`);
   --input ...`, `-- check examples/rust_digger`); keys `left right up down
   jump fire`. `cargo test` plays its replays too.
 - Hear without playing: `cargo run --release -- sounds <game>` (every sound
-  in a row) and `-- music <game>` (the song; or `-- music FILE.mml`, one
+  in a row; `--list` says each one's file or that it is built in, its
+  length and peak) and `-- music <game>` (the song; or `-- music FILE.mml`, one
   song) write WAVs to `shots/`. You
   cannot listen: check them as a spectrogram (numpy + PIL), and the
   printed lengths, peaks and channel-length warnings. `shot` prints which
@@ -626,7 +627,25 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   by their kind's name (test `a_reload_keeps_things_by_their_kind`).
 - The simulation only reports sounds (`Sim::sounds`: events by name); the
   engine turns them into audio (`Session::play_sounds`) so the simulation
-  stays deterministic. The speaker (`audio::Speaker`) keeps its mixer
+  stays deterministic. A sound is a file of the game (the owner,
+  2026-11-11; `src/audio/sound.rs`): `sounds/NAME.toml`, a few numbers a
+  line, only what differs, or `sounds/NAME.wav`; its name is the file's
+  (two files of one name are a mistake). Its words are one register with
+  MML's instruments (`src/audio/words.rs`, test
+  `a_word_means_the_same_in_a_sound_and_an_instrument`): `hold` (not
+  `sustain`, MML's level), `sweep` and `jump`/`jump_at` in semitones
+  (the synth goes on in Hz and ratios inside, exactly). A mistake names
+  the file, the line and the word; ranges are checked; a sound lasts 10
+  s at most, fades over 5 ms at least, a recording 3 ms in and out, a
+  pulse off duty 0.5 plays round zero. The engine's and the kits' own
+  sounds are such files, built in (`src/audio/sounds/`,
+  `src/shooter/sounds/`, `src/platformer/sounds/`; test
+  `the_kits_sound_files_are_their_names`); a game's file of the same
+  name replaces one, `silent = true` silences it. `c.sounds` is refused
+  (`voxcade sounds GAME --to-files` writes an older game's). A file in
+  `sounds/` saved, new or gone while playing makes only that sound anew
+  (`Session::reload_sounds`). Sounds are in neither the fingerprint nor
+  the state hash. The speaker (`audio::Speaker`) keeps its mixer
   behind a lock of its own that SDL's callback holds only while mixing;
   the window and the IDE never lock SDL's audio stream, never pause its
   device, and close it on a thread of their own and leave SDL unquit at
@@ -637,7 +656,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   names, `Settings::adopt`), sound events and behaviours are names the
   game lists (`Game::sounds`, `Game::behaviours`), markers the names of its
   kinds of things. A new shooter event needs an
-  `Sfx` variant, a name, and a sound in `shooter::default_sound`.
+  `Sfx` variant, a name, and its file in `src/shooter/sounds/` (listed in
+  `shooter::SOUND_FILES`).
 - The game opens on a title screen (`c.title_screen`: its own camera
   position and width, props, flyby, logo, music, `light_menu` for light
   letters over a dark scene like Sokovox's; or a logo of its own as a

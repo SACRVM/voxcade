@@ -1,0 +1,8 @@
+wave = "square"
+freq = 240
+sweep = -13.50637
+duty = 0.3
+hold = 0.05
+decay = 0.18
+punch = 0.4
+volume = 0.32

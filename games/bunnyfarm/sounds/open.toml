@@ -1,0 +1,6 @@
+wave = "triangle"
+freq = 660
+sweep = 7.01955
+hold = 0.02
+decay = 0.06
+volume = 0.2

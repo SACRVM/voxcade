@@ -41,7 +41,12 @@ judge by ear.
   C64 style; its four songs (Move On, Blood Rush, Storm Is Coming, End
   Boss) belong together. Older songs stay in the repo, out of the list.
 - Pulse waves off duty 0.5 carry a DC offset (thumps, lost headroom):
-  avoid them unless a song needs that thin sound.
+  avoid them unless a song needs that thin sound. (A sound file's pulse
+  is played round zero; MML's are not yet.)
+- An instrument's words are one register with a sound file's
+  (`src/audio/words.rs`): a word both know means the same, in the same
+  unit (`sweep` in semitones, `attack` and `decay` in seconds). MML's
+  `sustain` is a level; a sound's time at full volume is `hold`.
 
 ## A song from a recipe
 

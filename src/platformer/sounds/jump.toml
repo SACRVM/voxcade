@@ -1,0 +1,6 @@
+wave = "square"
+freq = 330
+sweep = 12
+hold = 0.05
+decay = 0.08
+volume = 0.22

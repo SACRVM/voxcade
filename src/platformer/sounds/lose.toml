@@ -1,0 +1,5 @@
+wave = "square"
+sweep = -24
+hold = 0.3
+decay = 0.4
+volume = 0.25

@@ -63,8 +63,11 @@ the earlier idea of separate editors that feel like a game (`engine.md`,
 | Terminal and agent | A PTY and a terminal emulator running Claude Code (or Codex, Gemini CLI). | – |
 | The IDE's MCP | The agent sees what the user sees and can show things. | `voxcade mcp` (step 4) |
 
-Sounds and music get no editor of their own: they open as text (MML,
-synth numbers) with a play key. A library of background songs ships with
+A sound is a file of the game, `sounds/NAME.toml` (a few numbers a line,
+in words shared with MML's instruments: `src/audio/words.rs`) or
+`sounds/NAME.wav`; an editor of its own is planned (a kind of sound to
+pick, a dice that only gives good ones, a few named sliders over the
+text). Songs open as text (MML) with a play key. A library of background songs ships with
 the editor for games that need only something simple (`music/`, made by
 `tools/compose.py` from chord progressions and moods); a "song from a
 mood" button would move that tool to Rust, so users need no Python.

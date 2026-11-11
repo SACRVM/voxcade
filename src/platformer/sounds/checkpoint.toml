@@ -1,0 +1,6 @@
+wave = "triangle"
+freq = 660
+hold = 0.06
+jump = 4.937116
+jump_at = 0.06
+volume = 0.25

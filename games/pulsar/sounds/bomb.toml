@@ -1,0 +1,6 @@
+wave = "noise"
+freq = 300
+sweep = -34.882687
+hold = 0.4
+decay = 1
+volume = 0.9

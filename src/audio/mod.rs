@@ -1,130 +1,111 @@
 //! Sound: what the simulation's events sound like, and the mixer that plays
-//! them. Every sound is either synthesized from a few numbers (`Synth`) or
-//! a `.wav` recording, which can be crushed to early-90s quality. The
-//! engine has a sound for every event; a game's `[sounds]` replaces any of
-//! them. Sounds are placed in stereo by where they happen on screen.
+//! them. A sound is a file of the game (`sound`: `sounds/NAME.toml`, a few
+//! numbers for the synthesizer, or a `.wav` recording, which can be
+//! crushed to early-90s quality), its words in one register with MML's
+//! (`words`). The engine and the kits bring sounds of their own, files of
+//! the same kind built in; a game's file of the same name replaces one.
+//! Sounds are placed in stereo by where they happen on screen.
 
 pub mod limiter;
 pub mod loudness;
 pub mod music;
+pub mod sound;
 pub mod synth;
 pub mod wav;
+pub mod words;
 
-use std::collections::HashMap;
-use std::path::PathBuf;
+use std::collections::{BTreeMap, HashMap};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use anyhow::{Context, Result};
 use glam::Vec3;
-use serde::{Deserialize, Serialize};
 
+pub use sound::{GameSound, Recording, SoundDef};
 pub use synth::{SAMPLE_RATE, Synth, Wave};
+
+/// The engine's own sounds' files, built in (`sounds/`).
+pub const CORE_FILES: &[(&str, &str)] = &[
+    ("impact", include_str!("sounds/impact.toml")),
+    ("explosion", include_str!("sounds/explosion.toml")),
+    ("crumble", include_str!("sounds/crumble.toml")),
+];
 
 /// The engine's own sound events (the simulation's core reports them): a
 /// shot chipping the world, an explosion, a piece of the world coming down.
-pub fn core_sounds() -> Vec<(&'static str, Synth)> {
-    ["impact", "explosion", "crumble"].into_iter().map(|name| (name, core_sound(name))).collect()
+pub fn core_sounds() -> Vec<(&'static str, SoundDef)> {
+    sound::builtin(CORE_FILES)
 }
 
-/// How an engine event sounds unless a game says otherwise.
-pub fn core_sound(name: &str) -> Synth {
-    use Wave::*;
-    let s = Synth::default();
-    match name {
-        "impact" => Synth { wave: Noise, freq: 5000.0, freq_end: Some(1500.0), sustain: 0.01, decay: 0.09, lowpass: Some(4000.0), lowpass_end: Some(900.0), volume: 0.22, ..s },
-        // A thump and a long rumble.
-        "explosion" => Synth { wave: Noise, freq: 1400.0, freq_end: Some(180.0), sustain: 0.08, decay: 1.1, punch: 0.9, lowpass: Some(2200.0), lowpass_end: Some(140.0), volume: 0.95, ..s },
-        "crumble" => Synth { wave: Noise, freq: 700.0, freq_end: Some(120.0), attack: 0.03, sustain: 0.25, decay: 0.7, lowpass: Some(1100.0), lowpass_end: Some(160.0), volume: 0.6, ..s },
-        _ => s,
-    }
-}
-
-/// How a game says what an event sounds like.
-#[derive(Deserialize, Serialize, Clone, Debug)]
-#[serde(untagged)]
-pub enum SoundDef {
-    /// A `.wav` file in the game folder, or "none" for silence.
-    File(String),
-    /// A recording, made lo-fi if asked: down to `rate` Hz and `bits` bits
-    /// (7000 and 8 sound like the speech in Wolfenstein 3D).
-    Sample(Sample),
-    Synth(Synth),
-}
-
-#[derive(Deserialize, Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct Sample {
-    pub file: String,
-    #[serde(default)]
-    pub rate: Option<u32>,
-    #[serde(default)]
-    pub bits: Option<u32>,
-    #[serde(default = "full")]
-    pub volume: f32,
-}
-
-fn full() -> f32 {
-    1.0
-}
+/// The fade at both ends of a recording, in seconds: it may start or stop
+/// anywhere in its wave, a click.
+const RECORDING_FADE: f32 = 0.003;
 
 /// The sound of every event, ready to play.
 #[derive(Default)]
 pub struct SoundBank {
     sounds: HashMap<&'static str, Arc<[f32]>>,
-    /// Files the sounds came from (for hot reload).
-    pub files: Vec<PathBuf>,
+    /// The recordings each sound was read from (for hot reload).
+    read: Vec<(PathBuf, &'static str)>,
 }
 
 impl SoundBank {
-    /// The engine's sounds with the game's on top. Problems with a game's
-    /// sound are reported and that event keeps the engine's sound.
-    /// The game's sounds: each of its events (`defaults`, by name, with
-    /// the sound it makes unless `c.sounds` says otherwise in `defs`).
-    pub fn load(files: &crate::files::Files, defs: &std::collections::BTreeMap<String, SoundDef>, defaults: &[(&'static str, Synth)]) -> Self {
+    /// The game's sounds: those it brings (`brought`, a kit's or the
+    /// engine's, `Game::sounds`), each replaced by the game's own file of
+    /// that name (`own`, `sound::read_folder`), and the game's others. A
+    /// recording that will not play is a mistake naming its file.
+    pub fn load(files: &crate::files::Files, own: &BTreeMap<String, GameSound>, brought: &[(&'static str, SoundDef)]) -> Result<Self> {
         let mut bank = SoundBank::default();
-        for (name, _) in defs.iter().filter(|(name, _)| !defaults.iter().any(|(n, _)| n == name)) {
-            let known: Vec<_> = defaults.iter().map(|(n, _)| *n).collect();
-            eprintln!("warning: c.sounds.{name}: no such event (events: {})", known.join(", "));
+        for (name, def, file) in sound::all(brought, own) {
+            bank.put(files, name, &def).with_context(|| file.unwrap_or_else(|| format!("{name} (built in)")))?;
         }
-        for (name, synth) in defaults {
-            let samples = match defs.get(*name) {
-                None => synth.render(),
-                Some(def) => match bank.render(files, def) {
-                    Ok(samples) => samples,
-                    Err(e) => {
-                        eprintln!("warning: c.sounds.{name}: {e:#}");
-                        synth.render()
-                    }
-                },
-            };
-            if !samples.is_empty() {
-                bank.sounds.insert(name, samples.into());
-            }
-        }
-        bank
+        Ok(bank)
     }
 
-    fn render(&mut self, files: &crate::files::Files, def: &SoundDef) -> anyhow::Result<Vec<f32>> {
-        Ok(match def {
-            SoundDef::File(file) if file == "none" => Vec::new(),
-            SoundDef::File(file) => {
-                let path = files.path(file);
-                self.files.push(path.clone());
-                wav::load(files, &path)?
-            }
-            SoundDef::Sample(s) => {
-                let path = files.path(&s.file);
-                self.files.push(path.clone());
-                let samples = wav::crush(&wav::load(files, &path)?, s.rate, s.bits);
-                samples.into_iter().map(|x| x * s.volume).collect()
+    /// Renders one sound anew (its file changed) and keeps it by `name`.
+    pub fn put(&mut self, files: &crate::files::Files, name: &'static str, def: &SoundDef) -> Result<()> {
+        self.read.retain(|(_, n)| *n != name);
+        self.sounds.remove(name);
+        let samples = match def {
+            SoundDef::Silent => Vec::new(),
+            SoundDef::Recording(r) => {
+                let path = files.path(&r.file);
+                self.read.push((path.clone(), name));
+                recording(&wav::load(files, &path)?, r)?
             }
             SoundDef::Synth(synth) => synth.render(),
-        })
+        };
+        if !samples.is_empty() {
+            self.sounds.insert(name, samples.into());
+        }
+        Ok(())
+    }
+
+    /// The sounds read from a recording at `path`.
+    pub fn reading(&self, path: &Path) -> Vec<&'static str> {
+        self.read.iter().filter(|(p, _)| p == path).map(|(_, n)| *n).collect()
     }
 
     pub fn get(&self, name: &str) -> Option<&Arc<[f32]>> {
         self.sounds.get(name)
     }
+}
+
+/// A recording as it plays: crushed if asked, at its volume, faded in and
+/// out over a few milliseconds, and no longer than a sound may last.
+fn recording(samples: &[f32], r: &Recording) -> Result<Vec<f32>> {
+    let length = samples.len() as f32 / SAMPLE_RATE as f32;
+    anyhow::ensure!(length <= synth::LONGEST, "{length:.1} seconds long; a sound lasts {} seconds at most (longer is music: c.audio.music)", synth::LONGEST);
+    let mut out: Vec<f32> = wav::crush(samples, r.rate, r.bits).into_iter().map(|x| x * r.volume).collect();
+    let fade = ((RECORDING_FADE * SAMPLE_RATE as f32) as usize).min(out.len() / 2);
+    let count = out.len();
+    for i in 0..fade {
+        let g = i as f32 / fade as f32;
+        out[i] *= g;
+        out[count - 1 - i] *= g;
+    }
+    Ok(out)
 }
 
 /// Gain and stereo pan (-1 left .. 1 right) of a sound at `at` heard from
@@ -352,34 +333,91 @@ mod tests {
     /// Every event has a sound of its own, and none is silent or too loud.
     #[test]
     fn every_event_has_a_sound() {
-        let defaults = crate::shooter::sounds();
-        let bank = SoundBank::load(&crate::files::Files::folder(std::path::Path::new(".")), &Default::default(), &defaults);
-        for (name, _) in &defaults {
-            let samples = bank.get(name).unwrap_or_else(|| panic!("{name} has no sound"));
-            let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
-            assert!(peak > 0.05 && peak <= 1.0, "{name} peaks at {peak}");
+        for brought in [crate::shooter::sounds(), <crate::platformer::Platformer as crate::game::Game>::sounds(&Default::default()), core_sounds()] {
+            let bank = SoundBank::load(&crate::files::Files::folder(Path::new(".")), &Default::default(), &brought).unwrap();
+            for (name, _) in &brought {
+                let samples = bank.get(name).unwrap_or_else(|| panic!("{name} has no sound"));
+                let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+                assert!(peak > 0.05 && peak <= 1.0, "{name} peaks at {peak}");
+            }
         }
     }
 
-    /// `c.sounds` names a sound as a file, as a lo-fi recording, or by synth numbers.
+    /// The kits' sounds are files built in, read by the same reader as a
+    /// game's: one for every name the kit plays, none more.
     #[test]
-    fn sounds_can_be_files_samples_or_synths() {
-        let cfg: crate::config::GameConfig = toml::from_str(
-            r#"
-            [sounds]
-            explosion = "sfx/boom.wav"
-            down = { file = "sfx/mein_leben.wav", rate = 7000, bits = 8 }
-            shot = { wave = "noise", freq = 9000, freq_end = 1500, decay = 0.14 }
-            jump = "none"
-            "#,
-        )
-        .unwrap();
-        assert!(matches!(&cfg.sounds["explosion"], SoundDef::File(f) if f == "sfx/boom.wav"));
-        assert!(matches!(&cfg.sounds["down"], SoundDef::Sample(s) if s.rate == Some(7000) && s.bits == Some(8)));
-        assert!(matches!(&cfg.sounds["shot"], SoundDef::Synth(s) if s.wave == Wave::Noise && s.freq_end == Some(1500.0)));
-        let bank = SoundBank::load(&crate::files::Files::folder(std::path::Path::new(".")), &cfg.sounds, &crate::shooter::sounds());
-        assert!(bank.get("jump").is_none(), "'none' should be silent");
-        assert!(bank.get("explosion").is_some(), "a missing file falls back to the game's own sound");
+    fn the_kits_sound_files_are_their_names() {
+        let mut shooter: Vec<&str> = crate::shooter::SOUND_FILES.iter().chain(CORE_FILES).map(|(n, _)| *n).collect();
+        let mut events: Vec<&str> = crate::shooter::Sfx::ALL.iter().map(|s| s.name()).collect();
+        shooter.sort();
+        events.sort();
+        assert_eq!(shooter, events, "the shooter's files and its sounds");
+        let platformer: Vec<&str> = crate::platformer::SOUND_FILES.iter().map(|(n, _)| *n).collect();
+        let named: Vec<&str> = <crate::platformer::Platformer as crate::game::Game>::sounds(&Default::default()).into_iter().map(|(n, _)| n).collect();
+        assert_eq!(platformer, named, "the platformer's files and its sounds");
+        // Each a file of its own folder, as `include_str!` names it.
+        for (dir, list) in [("src/shooter/sounds", crate::shooter::SOUND_FILES), ("src/platformer/sounds", crate::platformer::SOUND_FILES), ("src/audio/sounds", CORE_FILES)] {
+            let mut on_disk: Vec<String> = std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join(dir)).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+            on_disk.sort();
+            let mut listed: Vec<String> = list.iter().map(|(n, _)| format!("{n}.toml")).collect();
+            listed.sort();
+            assert_eq!(on_disk, listed, "{dir}");
+            for (name, text) in list {
+                sound::read(&format!("{dir}/{name}.toml"), text).unwrap_or_else(|e| panic!("{e:#}"));
+            }
+        }
+    }
+
+    /// A game's file replaces the kit's sound of its name, `silent`
+    /// silences one, a new name is one more; a recording plays faded in and
+    /// out and no longer than a sound may last.
+    #[test]
+    fn a_games_file_replaces_the_kits_sound() {
+        let dir = std::env::temp_dir().join(format!("voxcade-bank-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sounds")).unwrap();
+        std::fs::write(dir.join("sounds/shot.toml"), "wave = \"sine\"\nfreq = 300\nhold = 0\ndecay = 0.05\n").unwrap();
+        std::fs::write(dir.join("sounds/rotor.toml"), "silent = true\n").unwrap();
+        std::fs::write(dir.join("sounds/beep.toml"), "freq = 880\n").unwrap();
+        // A recording of a second's full-scale square at 22050 Hz.
+        let samples: Vec<i16> = (0..22050).map(|i| if i % 100 < 50 { 30000 } else { -30000 }).collect();
+        std::fs::write(dir.join("sounds/scream.wav"), wav_file(&samples, 22050)).unwrap();
+        let files = crate::files::Files::folder(&dir);
+        let own = sound::read_folder(&files).unwrap();
+        let bank = SoundBank::load(&files, &own, &crate::shooter::sounds()).unwrap();
+        assert_eq!(bank.get("shot").unwrap().len(), (0.05 * SAMPLE_RATE as f32).ceil() as usize, "the game's shot");
+        assert!(bank.get("rotor").is_none(), "silent");
+        assert!(bank.get("beep").is_some() && bank.get("splat").is_some(), "the game's own and the kit's");
+        let scream = bank.get("scream").unwrap();
+        assert_eq!(scream.len(), SAMPLE_RATE as usize, "a second");
+        assert!(scream[0].abs() < 1e-6 && scream[scream.len() - 1].abs() < 0.01, "faded in and out");
+        assert!(scream[SAMPLE_RATE as usize / 2].abs() > 0.9, "and full between");
+        // Eleven seconds is no sound.
+        let long: Vec<i16> = vec![1000; 11 * 22050];
+        std::fs::write(dir.join("sounds/scream.wav"), wav_file(&long, 22050)).unwrap();
+        let own = sound::read_folder(&files).unwrap();
+        let e = SoundBank::load(&files, &own, &[]).err().expect("too long");
+        assert_eq!(format!("{e:#}"), "sounds/scream.wav: 11.0 seconds long; a sound lasts 10 seconds at most (longer is music: c.audio.music)");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A mono 16-bit WAV file of `samples` at `rate`.
+    fn wav_file(samples: &[i16], rate: u32) -> Vec<u8> {
+        let data: Vec<u8> = samples.iter().flat_map(|s| s.to_le_bytes()).collect();
+        let mut wav = b"RIFF".to_vec();
+        wav.extend((36 + data.len() as u32).to_le_bytes());
+        wav.extend(b"WAVEfmt ");
+        wav.extend(16u32.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());
+        wav.extend(rate.to_le_bytes());
+        wav.extend((rate * 2).to_le_bytes());
+        wav.extend(2u16.to_le_bytes());
+        wav.extend(16u16.to_le_bytes());
+        wav.extend(b"data");
+        wav.extend((data.len() as u32).to_le_bytes());
+        wav.extend(&data);
+        wav
     }
 
     /// Everything at once, loud, stays under the limiter's ceiling (by

@@ -16,7 +16,8 @@ pub struct Topic {
     pub text: &'static str,
     pub conf: &'static str,
     pub code: &'static str,
-    /// Lua files of the game's own besides main.lua (`require`): name, text.
+    /// The game's own files besides main.lua (Lua files it `require`s, a
+    /// sound in `sounds/`): name, text.
     pub files: &'static [(&'static str, &'static str)],
 }
 
@@ -525,9 +526,9 @@ end
     },
     Topic {
         title: "PLAY A SOUND",
-        text: "Describe a sound in conf.lua: a wave, a pitch, how long it lasts. Then play it by its name at a place: a thing, or a point.",
-        conf: r##"c.sounds.beep = { wave = "square", freq = 880, sustain = 0.05, decay = 0.2, volume = 0.3 }"##,
-        files: &[],
+        text: "A sound is a file of your game in the folder sounds, a few numbers a line: a wave (square, saw, triangle, sine or noise), a pitch in Hz, how long it holds and fades in seconds, how loud from 0 to 1. Only what differs from the defaults is written; sweep slides the pitch and jump lifts it once, both in semitones (12 an octave). The file's name is the sound's: play it by that name at a place, a thing or a point. A .wav file in sounds plays as it is.",
+        conf: "",
+        files: &[("sounds/beep.toml", "# a short high beep\nwave = \"square\"\nfreq = 880\nhold = 0.05\ndecay = 0.2\nvolume = 0.3\n")],
         code: r##"function on_tick()
   -- a beep every second, from the middle of the level
   if world.tick % 60 == 0 then
@@ -979,6 +980,7 @@ mod tests {
             }
             std::fs::write(dir.join("main.lua"), topic.code).unwrap();
             for (name, text) in topic.files {
+                std::fs::create_dir_all(dir.join(name).parent().unwrap()).unwrap();
                 std::fs::write(dir.join(name), text).unwrap();
             }
             // A model the example names stands for one of the reader's.

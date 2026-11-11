@@ -1,0 +1,10 @@
+# A sharp crack that falls off.
+wave = "noise"
+freq = 9000
+sweep = -31.01955
+hold = 0.015
+decay = 0.14
+punch = 0.6
+lowpass = 7000
+lowpass_end = 1200
+volume = 0.42

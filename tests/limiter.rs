@@ -75,7 +75,7 @@ fn the_callbacks_path_allocates_nothing() {
     assert_eq!(count, 0, "the limiter allocated {count} times");
 
     let mut mixer = Mixer::default();
-    let sound: std::sync::Arc<[f32]> = Synth { wave: Wave::Noise, sustain: 2.0, volume: 1.0, ..Synth::default() }.render().into();
+    let sound: std::sync::Arc<[f32]> = Synth { wave: Wave::Noise, hold: 2.0, volume: 1.0, ..Synth::default() }.render().into();
     for i in 0..8 {
         mixer.play(["a", "b", "c", "d"][i % 4], &sound, 1.0, 0.0);
     }

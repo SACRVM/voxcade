@@ -14,7 +14,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::audio::Synth;
+use crate::audio::SoundDef;
 use crate::config::{GameConfig, UiConfig};
 use crate::controls::Bindings;
 use crate::font::DisplayFont;
@@ -142,9 +142,11 @@ pub trait Game: Sized + 'static {
         Bindings::default()
     }
 
-    /// Its sound events by name, with the sounds they make unless the
-    /// config says otherwise (`sounds`).
-    fn sounds(_cfg: &GameConfig) -> Vec<(&'static str, Synth)> {
+    /// The sounds its code brings by name (a kit's, the engine's: files
+    /// built in, `audio::sound::builtin`). The game's own files in
+    /// `sounds/` (`GameConfig::sounds`) replace them by name and add to
+    /// them.
+    fn sounds(_cfg: &GameConfig) -> Vec<(&'static str, SoundDef)> {
         Vec::new()
     }
 
@@ -405,6 +407,13 @@ pub trait Game: Sized + 'static {
 
     /// Puts the player at (x, y) as if it started there (`shot --at`).
     fn place_player(&mut self, _x: f32, _y: f32) {}
+
+    /// A sound file came or went while it runs (`cfg.sounds` has the
+    /// game's sounds now): a game that checks sounds by name knows the new
+    /// names. A mistake (a kind's sound gone) keeps the old.
+    fn sounds_changed(&mut self, _cfg: &GameConfig) -> Result<()> {
+        Ok(())
+    }
 
     /// Its config changed while it runs.
     fn apply_config(&mut self, cfg: &GameConfig) -> Result<()> {

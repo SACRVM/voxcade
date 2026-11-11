@@ -42,7 +42,7 @@ actions, always short.
 
 | Means | In a kit (Rust) | From Lua | Simulation or picture | Player switch |
 |---|---|---|---|---|
-| sound event | `self.sim.sound(name, at, vol)`; sounds in `c.sounds` | `level:sound(name, at, vol)` | picture (audio) | volume |
+| sound event | `self.sim.sound(name, at, vol)`; sounds are files, `sounds/NAME.toml` | `level:sound(name, at, vol)` | picture (audio) | volume |
 | hit stop | `self.sim.freeze = self.sim.freeze.max(ticks)`; `c.effects.hitstop` | `world:hitstop(ticks)` (60 at most) | **simulation** | — |
 | screen shake | `self.sim.shake = (self.sim.shake + x).min(1.0)` (0..1, dies down by itself) | `screen:shake(amount)`; `level:explode` shakes too | picture: the camera only | SHAKE |
 | screen flash | `self.sim.screen_flash` (0..1, fades) | `screen:flash(strength)` (times `c.effects.screen_flash`) | picture | FLASHES |
@@ -91,7 +91,7 @@ game by hand.
 
 Built from the means above; take two or three per event, not all.
 
-- **Jump:** a short rising sound (square, `freq` up to `freq_end`), a
+- **Jump:** a short rising sound (square, `sweep` up 12, an octave), a
   small dust puff at the feet (`sim.dust(feet, 4, ground colour)`), the
   jump frame.
 - **Landing from high** (falling faster than about the jump's take-off
@@ -103,8 +103,8 @@ Built from the means above; take two or three per event, not all.
   `on_touch`).
 - **Hurt:** the hero's blink (the platformer has it) or white flash, the
   knockback, a low saw, 1–2 ticks hit stop, small shake.
-- **Pickup:** a bright rising arpeggio (triangle, `arp` 1.5 after
-  `arp_at` 0.04), the sparkle, a short light in the pickup's colour, the
+- **Pickup:** a bright rising arpeggio (triangle, `jump` 7, a fifth, at
+  `jump_at` 0.04), the sparkle, a short light in the pickup's colour, the
   HUD count.
 - **Explosion:** `level:explode`/`fireball` with flares, screen flash and
   shake 0.35 or more scaled by size, debris.
@@ -143,13 +143,29 @@ changes the game: the replays are recorded anew and the reply says so.
 
 ## Sounds
 
-`c.sounds.NAME = { wave = "square", freq = 330, freq_end = 660, duty = 0.5,
-sustain = 0.05, decay = 0.08, volume = 0.22 }`. The synth (`src/audio/
-synth.rs`): `wave` square, saw, sine, triangle, noise; pitch `freq` gliding to
-`freq_end`; `attack`, `sustain`, `decay`; `punch` (a loud start); `arp`
-and `arp_at` (a jump in pitch: coins, jingles); `vibrato`; `lowpass` to
-`lowpass_end` (rumble, muffling); `volume`. Keep `duty` at 0.5 unless a
-thin sound is wanted (other duties carry a DC offset and thump).
+A sound is a file, `sounds/NAME.toml`, called by its name; a file of a
+kit's sound's name replaces the kit's (`voxcade sounds games/NAME --list`
+says which there are and where each comes from):
+
+```toml
+# a jump: up an octave
+wave = "square"
+freq = 330
+sweep = 12
+hold = 0.05
+decay = 0.08
+volume = 0.22
+```
+
+The words (`src/audio/words.rs`, one register with MML's instruments):
+`wave` square, saw, sine, triangle, noise; pitch `freq` (Hz) sliding
+`sweep` semitones over the sound; `attack`, `hold`, `decay` (seconds, 10
+at most together); `punch` (a loud start); `jump` and `jump_at` (one jump
+in pitch, semitones: coins, jingles); `vibrato`, `vibrato_speed`;
+`lowpass` to `lowpass_end` (rumble, muffling); `volume` (0 to 1). A
+recording: `file = "recordings/x.wav"` with `rate` and `bits` for lo-fi,
+or `sounds/NAME.wav` as it is; `silent = true` for none. A pulse off
+`duty` 0.5 sounds thinner; the engine plays it round zero (no DC offset).
 `voxcade sounds games/NAME --only NAME` writes one to `shots/sounds.wav`;
 you cannot hear it, so look at it (length, peak, a spectrogram) and let
 the user listen.

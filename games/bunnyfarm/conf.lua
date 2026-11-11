@@ -139,16 +139,7 @@ function conf(c)
   c.audio.music = { "music/sunny_hills.mml", "music/quiet_warehouse.mml" }
   c.audio.music_volume = 0.4
 
-  c.sounds.sow = { wave = "noise", freq = 1800, freq_end = 600, sustain = 0.02, decay = 0.08, lowpass = 2400, volume = 0.18 }
-  c.sounds.harvest = { wave = "triangle", freq = 520, freq_end = 780, sustain = 0.03, decay = 0.12, volume = 0.3 }
-  c.sounds.coin = { wave = "triangle", freq = 880, arp = 1.5, arp_at = 0.05, sustain = 0.04, decay = 0.16, volume = 0.25 }
-  c.sounds.levelup = { wave = "triangle", freq = 523, arp = 1.5, arp_at = 0.08, sustain = 0.18, decay = 0.4, volume = 0.3 }
-  c.sounds.eat = { wave = "noise", freq = 900, freq_end = 500, sustain = 0.03, decay = 0.1, lowpass = 1600, volume = 0.2 }
-  c.sounds.sleep = { wave = "sine", freq = 440, freq_end = 220, sustain = 0.2, decay = 0.6, volume = 0.25 }
-  c.sounds.error = { wave = "triangle", freq = 247, freq_end = 185, attack = 0.01, sustain = 0.03, decay = 0.14, lowpass = 700, volume = 0.1 }
-  c.sounds.open = { wave = "triangle", freq = 660, freq_end = 990, sustain = 0.02, decay = 0.06, volume = 0.2 }
-  c.sounds.mend = { wave = "noise", freq = 700, freq_end = 300, punch = 0.6, sustain = 0.01, decay = 0.07, lowpass = 1100, volume = 0.3 }
-  c.sounds.water = { wave = "noise", freq = 2600, freq_end = 1400, sustain = 0.12, decay = 0.25, lowpass = 3200, lowpass_end = 1600, volume = 0.16 }
+  -- the sounds are files, sounds/NAME.toml, played by their names (level:sound)
 
   -- The HUD's pictures, 7 by 7: a letter a colour, . empty.
   local GOLD, GOLD_DARK, GOLD_LIGHT = { 244, 200, 70 }, { 184, 132, 40 }, { 255, 236, 150 }

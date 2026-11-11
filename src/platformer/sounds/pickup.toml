@@ -1,0 +1,7 @@
+wave = "triangle"
+freq = 880
+hold = 0.04
+decay = 0.15
+jump = 7.01955
+jump_at = 0.04
+volume = 0.3

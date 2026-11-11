@@ -1194,11 +1194,11 @@ pub fn sounds<G: Game>(dir: &Path, out: &Path, only: Option<&str>) -> Result<()>
     use crate::audio::{SAMPLE_RATE, SoundBank};
 
     let cfg = crate::session::config::<G>(dir)?;
-    let defaults = G::sounds(&cfg);
-    let bank = SoundBank::load(&crate::files::Files::folder(dir), &cfg.sounds, &defaults);
-    let names: Vec<&str> = defaults.iter().map(|(n, _)| *n).collect();
+    let brought = G::sounds(&cfg);
+    let bank = SoundBank::load(&crate::files::Files::folder(dir), &cfg.sounds, &brought)?;
+    let names: Vec<&str> = crate::audio::sound::all(&brought, &cfg.sounds).into_iter().map(|(n, ..)| n).collect();
     let events: Vec<&str> = match only {
-        Some(name) => vec![*names.iter().find(|n| **n == name).with_context(|| format!("no event named '{name}' (events: {})", names.join(", ")))?],
+        Some(name) => vec![*names.iter().find(|n| **n == name).with_context(|| format!("no sound called '{name}' (the game's: {})", names.join(", ")))?],
         None => names.clone(),
     };
     let pause = SAMPLE_RATE as usize / 2;
@@ -1218,6 +1218,134 @@ pub fn sounds<G: Game>(dir: &Path, out: &Path, only: Option<&str>) -> Result<()>
     write_wav(out, &limited, 1)?;
     println!("wrote {} ({:.1}s; {said})", out.display(), all.len() as f32 / SAMPLE_RATE as f32);
     Ok(())
+}
+
+/// Lists the game's sounds: each one's name, where it comes from (the
+/// game's file, or built in: the ready-made rules' or the engine's), how
+/// long it lasts and its peak (dBFS, before the game's volume).
+pub fn sound_list<G: Game>(dir: &Path) -> Result<()> {
+    use crate::audio::{SAMPLE_RATE, SoundBank};
+
+    let cfg = crate::session::config::<G>(dir)?;
+    let brought = G::sounds(&cfg);
+    let bank = SoundBank::load(&crate::files::Files::folder(dir), &cfg.sounds, &brought)?;
+    let core = crate::audio::CORE_FILES;
+    for (name, _, file) in crate::audio::sound::all(&brought, &cfg.sounds) {
+        let from = match file {
+            Some(file) => file,
+            None if core.iter().any(|(n, _)| *n == name) => "the engine's".to_string(),
+            None => "the ready-made rules'".to_string(),
+        };
+        match bank.get(name) {
+            Some(samples) => {
+                let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+                println!("{name:<13} {from:<24} {:5.2}s  peak {:6.1} dB", samples.len() as f32 / SAMPLE_RATE as f32, 20.0 * peak.max(1e-9).log10());
+            }
+            None => println!("{name:<13} {from:<24} silent"),
+        }
+    }
+    Ok(())
+}
+
+/// Writes every sound of the game's `c.sounds` (in `conf.lua`, the way
+/// sounds were made before they were files) as a file in `sounds/`, and
+/// says which lines to take out of `conf.lua` (it changes nothing there:
+/// the game is the maker's).
+pub fn sounds_to_files<G: Game>(dir: &Path) -> Result<()> {
+    use crate::audio::sound;
+
+    let files = crate::files::Files::folder(dir);
+    let mut cfg = crate::config::GameConfig::default();
+    G::conf(&files, &mut cfg)?;
+    let Some(table) = cfg.game.get("sounds") else {
+        println!("conf.lua has no c.sounds: nothing to write");
+        return Ok(());
+    };
+    let table = table.as_table().context("c.sounds: a table of sounds by name")?;
+    let conf = files.read_to_string("conf.lua").unwrap_or_default();
+    let lines: Vec<&str> = conf.lines().collect();
+    let statements = sound_statements(&lines);
+    std::fs::create_dir_all(dir.join(sound::FOLDER))?;
+    for (name, value) in table {
+        if name.is_empty() || name.starts_with('.') || name.contains(['/', '\\', ':']) {
+            bail!("c.sounds[\"{name}\"]: a sound's name is its file's, sounds/NAME.toml: no / or : in it");
+        }
+        let (def, notes) = sound::from_conf(name, value)?;
+        let comments = statements.iter().find(|s| s.name.as_deref() == Some(name.as_str())).map(|s| s.comments.clone()).unwrap_or_default();
+        let file = format!("{}/{name}.toml", sound::FOLDER);
+        let path = dir.join(&file);
+        if path.exists() {
+            println!("{file} is there already: left as it is (c.sounds.{name} may differ)");
+            continue;
+        }
+        let text = sound::write(&def, &comments);
+        std::fs::write(&path, &text).with_context(|| format!("writing {}", path.display()))?;
+        println!("wrote {file}");
+        for note in notes {
+            println!("  {note}");
+        }
+        if let sound::SoundDef::Synth(s) = &def
+            && s.wave == crate::audio::Wave::Square
+            && s.duty != 0.5
+        {
+            println!("  duty {}: the engine now plays a pulse off 0.5 round zero, without the DC offset it had (the same tone, no thump)", s.duty);
+        }
+        if let Err(e) = sound::read(&file, &text) {
+            println!("  it will not load as it is: {e:#}");
+        }
+    }
+    if !statements.is_empty() {
+        println!("Now take these lines out of conf.lua (the game will not load while it has c.sounds):");
+        for s in &statements {
+            for (n, line) in lines.iter().enumerate().take(s.to + 1).skip(s.from) {
+                println!("  {:4}: {line}", n + 1);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A statement of `conf.lua` that sets `c.sounds` (lines `from` to `to`,
+/// from 0), the comment lines just above it among them, and those
+/// comments (and one at its end) to keep in the sound's file.
+pub(crate) struct Statement {
+    pub name: Option<String>,
+    pub from: usize,
+    pub to: usize,
+    pub comments: Vec<String>,
+}
+
+pub(crate) fn sound_statements(lines: &[&str]) -> Vec<Statement> {
+    let code = |l: &str| l.split("--").next().unwrap_or("").to_string();
+    let mut found = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let c = code(lines[i]);
+        let Some(at) = c.find("c.sounds") else {
+            i += 1;
+            continue;
+        };
+        let rest = &c[at + "c.sounds".len()..];
+        let name = rest.strip_prefix('.').map(|r| r.chars().take_while(|ch| ch.is_alphanumeric() || *ch == '_').collect::<String>()).or_else(|| rest.strip_prefix("[\"").and_then(|r| r.split('"').next()).map(str::to_string)).filter(|n| !n.is_empty());
+        let mut to = i;
+        let mut depth = c.matches('{').count() as i64 - c.matches('}').count() as i64;
+        while depth > 0 && to + 1 < lines.len() {
+            to += 1;
+            let c = code(lines[to]);
+            depth += c.matches('{').count() as i64 - c.matches('}').count() as i64;
+        }
+        let mut from = i;
+        while from > 0 && lines[from - 1].trim_start().starts_with("--") {
+            from -= 1;
+        }
+        let mut comments: Vec<String> = lines[from..i].iter().map(|l| l.trim_start().trim_start_matches('-').trim().to_string()).collect();
+        if let Some((_, tail)) = lines[to].split_once("--") {
+            comments.push(tail.trim().to_string());
+        }
+        found.push(Statement { name, from, to, comments });
+        i = to + 1;
+    }
+    found
 }
 
 /// Writes the game's music as a stereo WAV file: once through, or for

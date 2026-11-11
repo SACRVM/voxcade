@@ -76,16 +76,7 @@ function conf(c)
 
   c.audio.music = { "music/pulsar_drive.mml" }
   c.audio.music_volume = 0.45
-  c.sounds.shot = { wave = "square", freq = 1400, freq_end = 500, sustain = 0.01, decay = 0.07, volume = 0.18 }
-  -- level:explode's, for every explosion
-  c.sounds.explosion = { wave = "noise", freq = 900, freq_end = 120, sustain = 0.05, decay = 0.45, punch = 0.6, lowpass = 3000, lowpass_end = 300, volume = 0.5 }
-  c.sounds.shield = { wave = "triangle", freq = 1200, freq_end = 300, sustain = 0.03, decay = 0.25, volume = 0.4 }
-  c.sounds.hit = { wave = "square", freq = 300, freq_end = 120, sustain = 0.01, decay = 0.08, volume = 0.3 }
-  c.sounds.zap = { wave = "saw", freq = 600, freq_end = 900, sustain = 0.02, decay = 0.12, volume = 0.16 }
-  c.sounds.bomb = { wave = "noise", freq = 300, freq_end = 40, sustain = 0.4, decay = 1.0, volume = 0.9 }
-  c.sounds.power = { wave = "triangle", freq = 500, freq_end = 1500, sustain = 0.1, decay = 0.2, volume = 0.4 }
-  c.sounds.arm = { wave = "square", freq = 900, freq_end = 1800, sustain = 0.05, decay = 0.1, volume = 0.25 }   -- a mine set off
-  c.sounds.die = { wave = "noise", freq = 700, freq_end = 50, sustain = 0.2, decay = 1.0, volume = 0.9 }
+  -- the sounds are files, sounds/NAME.toml, played by their names (level:sound)
 
   c.title_screen.at = { 240, 700 }   -- out among the asteroids, the ship not yet in sight
   c.title_screen.view_width = 180

@@ -1,0 +1,7 @@
+# a mine set off
+wave = "square"
+freq = 900
+sweep = 12
+hold = 0.05
+decay = 0.1
+volume = 0.25

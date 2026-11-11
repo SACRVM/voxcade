@@ -245,8 +245,9 @@ claude mcp add voxcade -- /path/to/voxcade mcp
   voxel blocks (`levels/*.json`, shaped in the level editor; a Tiled map
   brought in once with `voxcade import`; [docs/tiles.md](docs/tiles.md)),
   one `.vox` scene (the Arena), or a world made in code (Sokovox).
-- **Sound:** every sound synthesized from a few numbers (`c.sounds`, like
-  sfxr) or a recording; `voxcade sounds <game>` writes them to a WAV.
+- **Sound:** every sound a file of the game, `sounds/NAME.toml`, a few
+  numbers for the synthesizer (like sfxr), or a `.wav` recording;
+  `voxcade sounds <game>` writes them to a WAV.
 - **Music:** MML text on SID-like voices (pulse, saw, triangle, noise,
   the SID's filter, arpeggios, ducking), played anew on every save. Songs
   from chord progressions with `tools/compose.py` (the library in

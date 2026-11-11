@@ -30,7 +30,7 @@ use std::sync::Arc;
 use glam::{IVec2, IVec3, Vec2, Vec3};
 
 use kinds::{KindRules, Rules};
-use crate::audio::synth::{Synth, Wave};
+use crate::audio::SoundDef;
 use crate::config::GameConfig;
 use crate::controls::Bindings;
 use crate::game::{Game, ModelSpec, Outcome, Setup};
@@ -185,21 +185,17 @@ pub struct Platformer {
     markers: Arc<Vec<Marker>>,
 }
 
-/// The sound each event makes unless `c.sounds` says otherwise.
-fn default_sound(name: &str) -> Synth {
-    use Wave::*;
-    let s = Synth::default();
-    match name {
-        "jump" => Synth { wave: Square, freq: 330.0, freq_end: Some(660.0), duty: 0.5, sustain: 0.05, decay: 0.08, volume: 0.22, ..s },
-        "stomp" => Synth { wave: Square, freq: 220.0, freq_end: Some(110.0), duty: 0.5, sustain: 0.03, decay: 0.12, punch: 0.5, volume: 0.3, ..s },
-        "hurt" => Synth { wave: Saw, freq: 300.0, freq_end: Some(120.0), sustain: 0.08, decay: 0.15, volume: 0.3, ..s },
-        "pickup" => Synth { wave: Triangle, freq: 880.0, sustain: 0.04, decay: 0.15, arp: 1.5, arp_at: 0.04, volume: 0.3, ..s },
-        "door" => Synth { wave: Triangle, freq: 523.0, sustain: 0.2, decay: 0.5, arp: 1.26, arp_at: 0.1, volume: 0.32, ..s },
-        "checkpoint" => Synth { wave: Triangle, freq: 660.0, sustain: 0.06, decay: 0.2, arp: 1.33, arp_at: 0.06, volume: 0.25, ..s },
-        "lose" => Synth { wave: Square, freq: 440.0, freq_end: Some(110.0), duty: 0.5, sustain: 0.3, decay: 0.4, volume: 0.25, ..s },
-        _ => s,
-    }
-}
+/// The kit's sounds' files, built in (`sounds/`), in the order of
+/// `SOUNDS`; a game's file of the same name replaces one.
+pub const SOUND_FILES: &[(&str, &str)] = &[
+    ("jump", include_str!("sounds/jump.toml")),
+    ("stomp", include_str!("sounds/stomp.toml")),
+    ("hurt", include_str!("sounds/hurt.toml")),
+    ("pickup", include_str!("sounds/pickup.toml")),
+    ("door", include_str!("sounds/door.toml")),
+    ("checkpoint", include_str!("sounds/checkpoint.toml")),
+    ("lose", include_str!("sounds/lose.toml")),
+];
 
 impl Platformer {
     pub fn new(world: World, cfg: &GameConfig, rules: Rules, frames: BTreeMap<String, usize>, markers: &[Marker]) -> Self {
@@ -949,8 +945,9 @@ impl Game for Platformer {
         Bindings::new(&[("jump", &["south"])])
     }
 
-    fn sounds(_cfg: &GameConfig) -> Vec<(&'static str, Synth)> {
-        SOUNDS.iter().map(|&n| (n, default_sound(n))).collect()
+    fn sounds(_cfg: &GameConfig) -> Vec<(&'static str, SoundDef)> {
+        let all = crate::audio::sound::builtin(SOUND_FILES);
+        SOUNDS.iter().map(|name| all.iter().find(|(n, _)| n == name).cloned().unwrap_or_else(|| panic!("the platformer's {name} has no file"))).collect()
     }
 
     /// The kinds' models (their heights count for the simulation).

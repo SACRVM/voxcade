@@ -1254,7 +1254,7 @@ impl<A: Kit, B: Kit> Game for Either<A, B> {
         if Self::first(cfg) { A::default_pad(cfg) } else { B::default_pad(cfg) }
     }
 
-    fn sounds(cfg: &GameConfig) -> Vec<(&'static str, crate::audio::synth::Synth)> {
+    fn sounds(cfg: &GameConfig) -> Vec<(&'static str, crate::audio::SoundDef)> {
         if Self::first(cfg) { A::sounds(cfg) } else { B::sounds(cfg) }
     }
 

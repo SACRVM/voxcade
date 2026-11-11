@@ -1,0 +1,11 @@
+# A rotor chop, repeated while it flies: the blade's slap, bright enough to
+# cut through the music's bass and kick, falling to a thud.
+wave = "noise"
+freq = 2400
+sweep = -27.156413
+hold = 0.012
+decay = 0.075
+punch = 0.7
+lowpass = 2600
+lowpass_end = 600
+volume = 0.42

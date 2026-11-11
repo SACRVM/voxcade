@@ -37,14 +37,23 @@ impl FolderWatch {
         found
     }
 
-    /// Files that changed and have been stable since the previous poll.
+    /// Files that changed and have been stable since the previous poll,
+    /// and files gone since (a sound taken away: the reload sees it is
+    /// no more).
     pub fn poll(&mut self) -> Vec<PathBuf> {
         if self.last_poll.elapsed() < INTERVAL {
             return Vec::new();
         }
         self.last_poll = Instant::now();
-        let mut changed = Vec::new();
-        for (path, modified) in self.scan() {
+        let now = self.scan();
+        let mut gone: Vec<PathBuf> = self.known.keys().filter(|p| !now.contains_key(*p)).cloned().collect();
+        gone.sort();
+        for path in &gone {
+            self.known.remove(path);
+            self.settling.remove(path);
+        }
+        let mut changed = gone;
+        for (path, modified) in now {
             if self.known.get(&path) == Some(&modified) {
                 self.settling.remove(&path);
                 continue;
@@ -73,5 +82,32 @@ fn scan_dir(dir: &Path, depth: u32, found: &mut HashMap<PathBuf, SystemTime>) {
         {
             found.insert(entry.path(), modified);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A file new, changed (once it stopped changing) or gone is told.
+    #[test]
+    fn a_file_gone_is_told_too() {
+        let dir = std::env::temp_dir().join(format!("voxcade-watch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sounds")).unwrap();
+        std::fs::write(dir.join("sounds/zap.toml"), "freq = 600\n").unwrap();
+        let mut watch = FolderWatch::new(&dir);
+        let poll = |watch: &mut FolderWatch| {
+            watch.last_poll = Instant::now() - INTERVAL;
+            watch.poll()
+        };
+        assert!(poll(&mut watch).is_empty());
+        std::fs::remove_file(dir.join("sounds/zap.toml")).unwrap();
+        assert_eq!(poll(&mut watch), [dir.join("sounds/zap.toml")]);
+        assert!(poll(&mut watch).is_empty(), "told once");
+        std::fs::write(dir.join("sounds/zap.toml"), "freq = 300\n").unwrap();
+        assert!(poll(&mut watch).is_empty(), "settling");
+        assert_eq!(poll(&mut watch), [dir.join("sounds/zap.toml")]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

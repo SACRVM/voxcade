@@ -692,6 +692,107 @@ fn the_drive_is_from_0_to_12() {
     assert_eq!(Session::<crate::Voxcade>::load(&dir).unwrap().cfg.audio.drive, 6.0);
 }
 
+/// A sound is a file: `sounds/x.toml` plays as "x"; `c.sounds` in
+/// conf.lua is refused with the way out; a name with no file halts the
+/// script saying where sounds come from.
+#[test]
+fn a_sound_is_a_file_of_the_game() {
+    let dir = folder("sound-file", "function on_tick()\n  level:sound(\"zap\", { x = 8, y = 8, z = 0 })\nend\n");
+    std::fs::create_dir_all(dir.join("sounds")).unwrap();
+    std::fs::write(dir.join("sounds/zap.toml"), "wave = \"saw\"\nfreq = 600\nsweep = 7\n").unwrap();
+    let mut g = game_in(&dir);
+    steps(&mut g, 3);
+    assert_eq!(halted(&g), "");
+    assert!(g.game.stage.host.sim().sounds.iter().any(|s| s.name == "zap"), "it plays");
+    assert!(g.sounds.get("zap").is_some() && g.sounds.get("explosion").is_some(), "the game's and the engine's");
+    std::fs::write(dir.join("conf.lua"), CONF.replace("c.things.miner = {}", "c.things.miner = {}\n  c.sounds.zap = { wave = \"saw\" }")).unwrap();
+    let e = start_error(&dir);
+    assert!(e.starts_with("c.sounds is no more: a sound is a file now, sounds/NAME.toml") && e.contains("--to-files"), "{e}");
+    std::fs::write(dir.join("conf.lua"), CONF).unwrap();
+    std::fs::remove_file(dir.join("sounds/zap.toml")).unwrap();
+    let mut g = game_in(&dir);
+    steps(&mut g, 3);
+    assert!(halted(&g).contains("no sound called 'zap': a sound is a file, sounds/zap.toml (the game's: impact, explosion, crumble)"), "{}", halted(&g));
+}
+
+/// A sound file saved while the game runs is made anew, and only it; a
+/// new one is there to play at once, one taken away falls back to the
+/// kit's of its name or is gone. A sealed game plays its sounds from its
+/// files, and an applied one is made anew as well.
+#[test]
+fn a_sound_file_comes_in_while_playing() {
+    let dir = kit_folder("sound-reload", "", "function on_tick()\n  if world.state.boom then level:sound(\"boom\", { x = 8, y = 8, z = 0 }) end\nend\n");
+    std::fs::create_dir_all(dir.join("sounds")).unwrap();
+    std::fs::write(dir.join("sounds/zap.toml"), "freq = 600\n").unwrap();
+    std::fs::write(dir.join("sounds/shot.toml"), "wave = \"sine\"\nhold = 0\ndecay = 0.05\n").unwrap();
+    let mut g = game_in(&dir);
+    let kits_shot = g.sounds.get("splat").unwrap().clone();
+    let zap = g.sounds.get("zap").unwrap().clone();
+    let reload = |g: &mut Session<LuaGame>, file: &str| g.reload(&dir.join(file)).unwrap();
+    // One changed: only it is made anew.
+    std::fs::write(dir.join("sounds/zap.toml"), "freq = 300\ndecay = 0.4\n").unwrap();
+    assert_eq!(reload(&mut g, "sounds/zap.toml"), crate::session::Reloaded::Sounds);
+    assert!(!std::sync::Arc::ptr_eq(g.sounds.get("zap").unwrap(), &zap), "zap made anew");
+    assert!(std::sync::Arc::ptr_eq(g.sounds.get("splat").unwrap(), &kits_shot), "the others kept");
+    // One new: the script may play it now.
+    std::fs::write(dir.join("sounds/boom.toml"), "wave = \"noise\"\n").unwrap();
+    assert_eq!(reload(&mut g, "sounds/boom.toml"), crate::session::Reloaded::Sounds);
+    g.eval("world.state.boom = true").unwrap();
+    steps(&mut g, 2);
+    assert_eq!(halted(&g), "");
+    assert!(g.game.stage.host.sim().sounds.iter().any(|s| s.name == "boom"), "the new sound plays");
+    // A mistake keeps the sounds as they were and says where.
+    std::fs::write(dir.join("sounds/zap.toml"), "freq = 300\ndecay = 40\n").unwrap();
+    let e = format!("{:#}", g.reload(&dir.join("sounds/zap.toml")).unwrap_err());
+    assert_eq!(e, "sounds/zap.toml line 2: decay = 40: from 0 to 10 seconds (fading from full volume to silence at the end, 0.005 at least)");
+    assert_eq!(g.trouble(), Some(e));
+    // The game's shot taken away: the kit's again.
+    let games_shot = g.sounds.get("shot").unwrap().len();
+    std::fs::remove_file(dir.join("sounds/shot.toml")).unwrap();
+    std::fs::write(dir.join("sounds/zap.toml"), "freq = 300\n").unwrap();
+    assert_eq!(reload(&mut g, "sounds/shot.toml"), crate::session::Reloaded::Sounds);
+    assert_ne!(g.sounds.get("shot").unwrap().len(), games_shot, "the kit's shot");
+    assert_eq!(g.trouble(), None);
+    // A file gone elsewhere changes nothing.
+    assert_eq!(g.reload(&dir.join("gone.vox")).unwrap(), crate::session::Reloaded::Nothing);
+
+    // Sealed: the sounds are its files', whatever the folder holds since.
+    let store = crate::files::Store::at(&std::env::temp_dir().join(format!("voxcade-sound-store-{}", std::process::id())));
+    let (_, files) = crate::files::Files::seal(&dir, &store).unwrap();
+    let mut sealed = Session::<LuaGame>::load_from(files, crate::saves::Slots::default()).unwrap();
+    assert!(sealed.sounds.get("boom").is_some() && sealed.sounds.get("zap").is_some(), "its files' sounds");
+    std::fs::remove_file(dir.join("sounds/boom.toml")).unwrap();
+    assert_eq!(sealed.reload(&dir.join("sounds/boom.toml")).unwrap(), crate::session::Reloaded::Nothing, "the folder is none of a sealed game's");
+    std::fs::write(dir.join("sounds/zap.toml"), "freq = 1200\ndecay = 0.6\n").unwrap();
+    let before = sealed.sounds.get("zap").unwrap().len();
+    let changes = sealed.files.changes_since(&store).unwrap();
+    assert_eq!(sealed.apply(std::sync::Arc::new(changes)).unwrap(), crate::session::Reloaded::Sounds);
+    assert_ne!(sealed.sounds.get("zap").unwrap().len(), before, "applied, made anew");
+    assert!(sealed.sounds.get("boom").is_none(), "and the one taken away is gone");
+}
+
+/// `voxcade sounds GAME --to-files` writes each of `c.sounds` as a file,
+/// with the comments that told about it, the numbers in the file's words,
+/// exactly as they sounded.
+#[test]
+fn the_converter_writes_c_sounds_as_files() {
+    let dir = folder("sound-convert", "function on_tick() end\n");
+    let conf = CONF.replace("c.things.miner = {}", "c.things.miner = {}\n  -- a laser\n  c.sounds.shot = { wave = \"square\", freq = 1400, freq_end = 500, sustain = 0.01, decay = 0.07, volume = 0.18 }\n  c.sounds.coin = {\n    wave = \"triangle\", freq = 880, arp = 1.5, arp_at = 0.05,\n  }   -- a coin\n  c.sounds.rotor = \"none\"");
+    std::fs::write(dir.join("conf.lua"), &conf).unwrap();
+    crate::headless::sounds_to_files::<LuaGame>(&dir).unwrap();
+    assert_eq!(std::fs::read_to_string(dir.join("sounds/shot.toml")).unwrap(), "# a laser\nwave = \"square\"\nfreq = 1400\nsweep = -17.825122\nhold = 0.01\ndecay = 0.07\nvolume = 0.18\n");
+    assert_eq!(std::fs::read_to_string(dir.join("sounds/coin.toml")).unwrap(), "# a coin\nwave = \"triangle\"\nfreq = 880\njump = 7.01955\njump_at = 0.05\n");
+    assert_eq!(std::fs::read_to_string(dir.join("sounds/rotor.toml")).unwrap(), "silent = true\n");
+    let lines: Vec<&str> = conf.lines().collect();
+    let found: Vec<(Option<String>, usize, usize)> = crate::headless::sound_statements(&lines).into_iter().map(|s| (s.name, s.from, s.to)).collect();
+    let first = lines.iter().position(|l| l.contains("-- a laser")).unwrap();
+    assert_eq!(found, [(Some("shot".into()), first, first + 1), (Some("coin".into()), first + 2, first + 4), (Some("rotor".into()), first + 5, first + 5)]);
+    // Taken out of conf.lua, the game plays them.
+    std::fs::write(dir.join("conf.lua"), CONF).unwrap();
+    let g = game_in(&dir);
+    assert!(g.sounds.get("shot").is_some() && g.sounds.get("coin").is_some());
+}
+
 /// The shooter's things too: a soldier switched off stands where physics
 /// leaves him, `thing:launch` moves him and the player; the player's own
 /// rules stay on (no thing of a kind yet).
@@ -3119,8 +3220,10 @@ function on_tick()
   if world.tick == 2 then level.state.b.state.hp = 0 end
 end
 "#;
-    let conf = "  c.things.box.effect = \"poof.vox\"\n  c.things.box.sound = \"poof\"\n  c.sounds.poof = { wave = \"noise\", freq = 700, decay = 0.1 }\n";
+    let conf = "  c.things.box.effect = \"poof.vox\"\n  c.things.box.sound = \"poof\"\n";
     let dir = events_folder("goes", main, conf);
+    std::fs::create_dir_all(dir.join("sounds")).unwrap();
+    std::fs::write(dir.join("sounds/poof.toml"), "wave = \"noise\"\nfreq = 700\ndecay = 0.1\n").unwrap();
     std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("games/arena/player.vox"), dir.join("poof.vox")).unwrap();
     let mut g = game_in(&dir);
     steps(&mut g, 3);

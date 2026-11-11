@@ -366,7 +366,7 @@ game's settings are code (the user's choice: "nur im Code, fertig").
 - **A game is a folder.** `conf.lua` (`function conf(c) ... end`) sets the
   settings over the engine's defaults: `c.title`, `c.physics.gravity`,
   `c.things.rifleman = { ... }`, `c.weapons.rifle = { ... }`, `c.actions`,
-  `c.keys`, `c.sounds.jump = { ... }`. It runs in the sandbox; a misspelt
+  `c.keys`. It runs in the sandbox; a misspelt
   setting or a wrong type is an error that names it (`c.things.gem.hit`).
   `main.lua` holds its handlers, `on_world_start()` (once, the run's
   states, no level yet), `on_level_start(how)` (a level begins: build it,
@@ -376,6 +376,20 @@ game's settings are code (the user's choice: "nur im Code, fertig").
   are optional. (Version 2 of the API, `docs/game-model.md`: the
   old `load(world)`, `tick(world, input)` and `draw(world, out)` are
   refused with their new names.)
+- **Sounds** (`src/audio/sound.rs`): a sound is a file of the game,
+  `sounds/NAME.toml` (a few numbers a line: `wave`, `freq`, `sweep` and
+  `jump` in semitones, `attack`, `hold`, `decay` in seconds, `volume`;
+  only what differs from the defaults) or `sounds/NAME.wav` as it is,
+  called by its file's name (`level:sound("coin", at)`, a kind's `sound =
+  "coin"`). Its words are one register with MML's instruments
+  (`src/audio/words.rs`), a word both know meaning the same in both. A
+  mistake names the file, the line and the word. The engine's and the
+  kits' own sounds are files of the same kind built in
+  (`src/audio/sounds/`, `src/shooter/sounds/`, `src/platformer/sounds/`);
+  a game's file of the same name replaces one, `silent = true` silences
+  it. `c.sounds` in `conf.lua` is refused (`voxcade sounds GAME
+  --to-files` writes an older game's as files). Sounds count for no
+  replay: they are in neither the fingerprint nor the state hash.
 - **Levels** (`src/levels.rs`): the files in a game's `levels/` folder,
   all read when it loads, in the order of their names (numbers as
   numbers); a level of blocks, a map or a `.vox` world as `c.world` says,

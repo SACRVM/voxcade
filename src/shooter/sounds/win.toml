@@ -1,0 +1,12 @@
+# Won: a soft call, a note and its octave, ringing out (the user: the square
+# that was here sounded nasty).
+wave = "triangle"
+freq = 392
+hold = 0.35
+decay = 0.8
+vibrato = 0.008
+vibrato_speed = 5
+jump = 12
+jump_at = 0.16
+lowpass = 3000
+volume = 0.3

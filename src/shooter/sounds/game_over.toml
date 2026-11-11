@@ -1,0 +1,10 @@
+wave = "square"
+freq = 196
+sweep = -15.085894
+hold = 0.5
+decay = 0.9
+vibrato = 0.02
+vibrato_speed = 5
+lowpass = 1600
+lowpass_end = 700
+volume = 0.24

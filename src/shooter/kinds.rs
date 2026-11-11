@@ -332,7 +332,8 @@ pub struct WeaponRules {
     /// How many of its rounds an inventory holds: the player's weapon's rounds
     /// are an item of its name (0: it never runs out).
     pub ammo: u32,
-    /// The sound a shot makes: the kit's or one of `c.sounds`.
+    /// The sound a shot makes: the kit's or one of the game's files in
+    /// `sounds/`.
     pub sound: crate::names::Name,
     /// A blow, not a shot: it reaches this far (voxels, along the ground)
     /// to one in front, within `cone` degrees, at the attacker's height.
@@ -534,7 +535,7 @@ impl Rules {
                 let mut all: Vec<&str> = Sfx::ALL.iter().map(|f| f.name()).chain(cfg.sounds.keys().map(String::as_str)).collect();
                 all.sort();
                 all.dedup();
-                bail!("c.weapons.{name}.sound = \"{sound}\": no sound called that (c.sounds, and the ready-made rules': {})", all.join(", "));
+                bail!("c.weapons.{name}.sound = \"{sound}\": no sound called that (a sound is a file, sounds/{sound}.toml; the game's and the ready-made rules': {})", all.join(", "));
             }
         }
         let tables = resolve_like("weapons", &tables)?;

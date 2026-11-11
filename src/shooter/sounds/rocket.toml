@@ -1,0 +1,8 @@
+wave = "noise"
+freq = 2500
+sweep = -24.706724
+attack = 0.02
+hold = 0.12
+decay = 0.4
+lowpass = 2600
+lowpass_end = 500

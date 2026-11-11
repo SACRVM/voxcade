@@ -356,7 +356,7 @@ code: the engine offers the parts, the script decides.
 | `level.arrived` | where the player came into this level (a place, with its name): a game without the engine's figure for the player stands its hero there |
 | `level:voxel(x, y, z)`, `level:solid(x, y, z)`, `level:set_voxel(…)`, `level:fill(…)`, `level:ground(x, y)` | its voxels (`solid`: whether bodies stand on it; soft voxels are not) |
 | `level:spawn(kind, x, y, options?)`, `level:thing(name or id)`, `level:things(kind or family?)`, `level:count(kind or family?)` | its things; `options`: `{ z =, name =, facing =, props =, state = }`; a thing that died is no longer listed or counted (only its picture lingers until its rules take it away) |
-| `level:explode(at, radius)`, `level:sound(name, at, volume?)` | what happens in it |
+| `level:explode(at, radius)`, `level:sound(name, at, volume?)` | what happens in it (a sound by its file's name: `sounds/NAME.toml` or `.wav`, or one the engine or a kit brings) |
 | `level.camera:follow(thing)`, `level.camera:look_at(x, y)` | where the camera looks |
 
 ### `player`: the one who plays

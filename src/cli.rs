@@ -44,7 +44,7 @@ USAGE:
   voxcade mcp    [--remote]
   voxcade film   <game-dir> <replay-file> [--from S] [--to S] [--fps N] [--size WxH]
                  [--max-mb N] [--out FILE.mp4|.webm|.gif]
-  voxcade sounds <game-dir> [--out FILE] [--only NAME]
+  voxcade sounds <game-dir> [--out FILE] [--only NAME] | --list | --to-files
   voxcade music  <game-dir>|<song.mml> [--out FILE] [--seconds N]
   voxcade pads   [--seconds N]
 
@@ -175,9 +175,12 @@ film  renders a replay as a video with its music and sounds (.mp4: H.264
       --max-mb keeps a video under that size (a chat's upload limit).
       Default: the whole replay, 1920x1080, 60 fps, shots/film.mp4; a GIF
       480x270, 20 fps, 10 s.
-sounds writes every event's sound one after another as a WAV file (or
+sounds writes every sound of the game one after another as a WAV file (or
       just one with --only), to listen to them without playing.
-      Default: shots/sounds.wav.
+      Default: shots/sounds.wav. --list lists them: where each comes from
+      (a file in sounds/, or built in), its length and peak. --to-files
+      writes the c.sounds of an older conf.lua as files in sounds/ and
+      says which lines to take out (sounds are files now).
 pads  lists the controllers SDL sees (and whether it knows them as
       gamepads), then shows what they send for N seconds.
 music writes the game's music (c.audio.music), or one song file, as a
@@ -555,6 +558,11 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
             let mut only = None;
             let mut it = args[2..].iter();
             while let Some(flag) = it.next() {
+                match flag.as_str() {
+                    "--list" => return headless::sound_list::<G>(&dir),
+                    "--to-files" => return headless::sounds_to_files::<G>(&dir),
+                    _ => {}
+                }
                 let value = it.next().with_context(|| format!("{flag} needs a value"))?;
                 match flag.as_str() {
                     "--out" => out = PathBuf::from(value),

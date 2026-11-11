@@ -221,7 +221,7 @@ function Level:explode(at, radius) end
 ---@param team? string
 function Level:clear_rounds(team) end
 
----Plays a sound at a place: one named in c.sounds, or one the engine or the ready-made rules bring.
+---Plays a sound at a place, by its name: a file of the game, sounds/NAME.toml (or NAME.wav), or one the engine or the ready-made rules bring.
 ---@param name string
 ---@param at Thing|Point
 ---@param volume? number
@@ -620,7 +620,6 @@ function on_pickup(thing, item) end
 ---@field physics Conf.physics
 ---@field player Conf.player
 ---@field scored boolean
----@field sounds table<string, any>
 ---@field things table<string, any>
 ---@field title string
 ---@field title_screen Conf.title_screen
