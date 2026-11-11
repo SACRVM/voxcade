@@ -312,6 +312,31 @@ impl World {
         self.chunks.get(&cc).map(|c| &**c)
     }
 
+    /// The whole world as one number: its size, palette, soft and one-way
+    /// colours, stage and every chunk's voxels, the chunks in the order of
+    /// their sorted keys (the map's own order is not the same from run to
+    /// run). Read-only; how a level begins, for `Session::start_mark`.
+    pub fn content_hash(&self) -> u64 {
+        let mut h = crate::hash::Stable::default();
+        h.i32(self.size.x).i32(self.size.y).i32(self.size.z);
+        for c in &self.palette {
+            h.bytes(c);
+        }
+        for i in 0..256 {
+            h.u64(self.soft[i] as u64 | (self.oneway[i] as u64) << 1);
+        }
+        match self.stage {
+            Some((a, b)) => h.u64(1).i32(a.x).i32(a.y).i32(a.z).i32(b.x).i32(b.y).i32(b.z),
+            None => h.u64(0),
+        };
+        let mut keys = self.chunk_keys();
+        keys.sort_by_key(|k| (k.z, k.y, k.x));
+        for cc in keys {
+            h.i32(cc.x).i32(cc.y).i32(cc.z).bytes(&self.chunks[&cc].voxels);
+        }
+        h.finish()
+    }
+
     pub fn chunk_keys(&self) -> Vec<IVec3> {
         self.chunks.keys().copied().collect()
     }

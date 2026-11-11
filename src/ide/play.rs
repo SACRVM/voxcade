@@ -62,6 +62,10 @@ pub struct Play<G: Game> {
     /// Who plays on which seat (`c.players`): pads and the keyboard's
     /// halves, as in a window of the game.
     seating: crate::seating::Seating,
+    /// How the run being played began (`Session::start_mark`).
+    mark: u64,
+    /// What the play says of itself, for OUTPUT (`said`).
+    notes: Vec<String>,
 }
 
 impl<G: Game> Play<G> {
@@ -82,22 +86,30 @@ impl<G: Game> Play<G> {
         let mut runs = Runs::new(dir);
         runs.start(&game);
         let seating = crate::seating::Seating::new(game.cfg.players);
-        let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), accumulator: 0.0, last: None, scenario: scenario.map(str::to_string), seating };
+        let mark = game.start_mark();
+        let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), accumulator: 0.0, last: None, scenario: scenario.map(str::to_string), seating, mark, notes: Vec::new() };
         play.music();
         Ok(play)
     }
 
     /// The game from its files again (F5), as it starts.
     pub fn restart(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
+        let mut fresh = Session::<G>::load_with(&self.dir, Slots::on_disk(&self.dir))?;
+        begin(&mut fresh, self.scenario.as_deref())?;
+        self.adopt(fresh, device, queue);
+        Ok(())
+    }
+
+    /// `fresh`, a game just begun, plays in place of the one played.
+    fn adopt(&mut self, fresh: Session<G>, device: &wgpu::Device, queue: &wgpu::Queue) {
         self.runs.end(&self.game);
-        self.game = Session::<G>::load_with(&self.dir, Slots::on_disk(&self.dir))?;
-        begin(&mut self.game, self.scenario.as_deref())?;
+        self.game = fresh;
+        self.mark = self.game.start_mark();
         self.runs.start(&self.game);
         self.game.options = self.settings.options();
         self.mask = self.game.face_mask();
         self.renderer.rebuild_all(device, queue, self.game.world_mut(), &self.mask);
         self.music();
-        Ok(())
     }
 
     /// A console line run in the game between two ticks (the line under
@@ -177,15 +189,25 @@ impl<G: Game> Play<G> {
     pub fn reload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
         let changed = self.watch.poll();
         let mut rebuild = false;
+        let mut took = false;
+        let mut failed = false;
         for path in &changed {
             match self.game.reload(path) {
-                Ok(Reloaded::World) => rebuild = true,
-                Ok(_) => {}
+                Ok(Reloaded::World) => (rebuild, took) = (true, true),
+                Ok(Reloaded::Nothing) => {}
+                Ok(_) => took = true,
                 Err(e) => {
+                    failed = true;
                     let name = path.strip_prefix(&self.dir).unwrap_or(path).display().to_string();
                     self.failed.push(format!("{name} would not load: {e:#}"));
                 }
             }
+        }
+        // What a level is built from is built when it begins: if the game
+        // would begin otherwise now, it begins anew (a number of the rules
+        // alone goes on).
+        if took && !failed && self.begins_otherwise(device, queue) {
+            return true;
         }
         if rebuild {
             self.game.options = self.settings.options();
@@ -195,12 +217,31 @@ impl<G: Game> Play<G> {
         !changed.is_empty()
     }
 
-    /// What the game said since last asked, for OUTPUT: files that would
-    /// not load, and what its script printed.
+    /// Whether the game as the files have it now begins otherwise than the
+    /// run being played did (the world's voxels, the first states, the
+    /// settings that wait for a restart): then it plays anew from the
+    /// fresh game, said in OUTPUT. A game that would not load or begin
+    /// leaves things as they are.
+    fn begins_otherwise(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
+        let Ok(mut fresh) = Session::<G>::load_with(&self.dir, Slots::on_disk(&self.dir)) else { return false };
+        if begin(&mut fresh, self.scenario.as_deref()).is_err() || fresh.trouble().is_some() {
+            return false;
+        }
+        if fresh.start_mark() == self.mark && self.game.cfg.restart_only(&fresh.cfg).is_empty() {
+            return false;
+        }
+        self.adopt(fresh, device, queue);
+        self.notes.push("The game's beginning changed: begun anew.".to_string());
+        true
+    }
+
+    /// What the game said since last asked, for OUTPUT: what it did of
+    /// itself, files that would not load, and what its script printed.
     pub fn said(&mut self) -> Vec<(super::output::Kind, String)> {
+        let notes = self.notes.drain(..).map(|n| (super::output::Kind::Note, n));
         let failed = self.failed.drain(..).map(|f| (super::output::Kind::Error, f));
         let printed = self.game.printed().into_iter().map(|p| (super::output::Kind::Print, p));
-        failed.chain(printed).collect()
+        notes.chain(failed).chain(printed).collect()
     }
 
     /// Whether the run is won or lost (PRESS START: the IDE has no title
@@ -409,6 +450,88 @@ mod tests {
             came |= play.reload(device, queue);
         }
         assert!(came && play.trouble().is_none(), "mended: {:?}", play.trouble());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A game in a folder of its own with `main` as its `main.lua`: played
+    /// a few ticks.
+    fn played(name: &str, conf: &str, main: &str, device: &wgpu::Device, queue: &wgpu::Queue) -> (PathBuf, Play<crate::Voxcade>) {
+        let dir = std::env::temp_dir().join(format!("voxcade-play-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("conf.lua"), conf).unwrap();
+        std::fs::write(dir.join("main.lua"), main).unwrap();
+        let mut play = Play::<crate::Voxcade>::start(&dir, device, queue, None, None).unwrap();
+        play.step(5, &crate::input::Input::default());
+        (dir, play)
+    }
+
+    /// Writes `main` over `main.lua` and waits for the play to take it in.
+    fn saved(dir: &Path, file: &str, text: &str, play: &mut Play<crate::Voxcade>, device: &wgpu::Device, queue: &wgpu::Queue) {
+        // (A file counts as saved once it stood still for a look.)
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(dir.join(file), text).unwrap();
+        let mut came = false;
+        for _ in 0..12 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            came |= play.reload(device, queue);
+        }
+        assert!(came, "{file} came in");
+    }
+
+    const CONF: &str = "function conf(c)\n  c.world.size = { 32, 32, 8 }\nend\n";
+
+    fn floor(play: &Play<crate::Voxcade>) -> [u8; 3] {
+        let w = &play.game.game.sim().world;
+        let c = w.palette[w.get(glam::IVec3::new(3, 3, 0)) as usize];
+        [c[0], c[1], c[2]]
+    }
+
+    fn noted(play: &mut Play<crate::Voxcade>) -> bool {
+        play.said().iter().any(|(k, t)| matches!(k, super::super::output::Kind::Note) && t.contains("begun anew"))
+    }
+
+    const GREEN: &str = "function on_level_start(how)\n  level:fill(0, 0, 0, 31, 31, 0, \"#00ff00\")\nend\nfunction on_tick()\nend\n";
+
+    /// How the level is built changed: the game being played begins anew
+    /// and shows the new floor.
+    #[test]
+    fn a_changed_level_begins_the_game_anew() {
+        let canvas = crate::headless::Canvas::new(64, 64, false).unwrap();
+        let (device, queue, _) = canvas.gpu();
+        let (dir, mut play) = played("level", CONF, GREEN, device, queue);
+        assert_eq!(floor(&play), [0, 255, 0]);
+        assert_eq!(play.game.game.sim().tick, 5);
+        saved(&dir, "main.lua", &GREEN.replace("#00ff00", "#ff0000"), &mut play, device, queue);
+        assert_eq!(floor(&play), [255, 0, 0], "the new floor");
+        assert_eq!(play.game.game.sim().tick, 0, "begun anew");
+        assert!(noted(&mut play));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A number of the rules alone: the run goes on.
+    #[test]
+    fn a_changed_rule_keeps_the_run_going() {
+        let canvas = crate::headless::Canvas::new(64, 64, false).unwrap();
+        let (device, queue, _) = canvas.gpu();
+        let main = "function on_level_start(how)\n  level:fill(0, 0, 0, 31, 31, 0, \"#00ff00\")\nend\nfunction on_tick()\n  player.state.score = player.state.score + 1\nend\n";
+        let (dir, mut play) = played("rule", CONF, main, device, queue);
+        saved(&dir, "main.lua", &main.replace("+ 1", "+ 2"), &mut play, device, queue);
+        assert_eq!(play.game.game.sim().tick, 5, "played on");
+        assert_eq!(floor(&play), [0, 255, 0]);
+        assert!(!noted(&mut play));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A setting that waits for a restart changed in `conf.lua`.
+    #[test]
+    fn a_restart_only_setting_begins_the_game_anew() {
+        let canvas = crate::headless::Canvas::new(64, 64, false).unwrap();
+        let (device, queue, _) = canvas.gpu();
+        let (dir, mut play) = played("conf", CONF, GREEN, device, queue);
+        saved(&dir, "conf.lua", "function conf(c)\n  c.world.size = { 32, 32, 8 }\n  c.player.spawn = { 10, 10 }\nend\n", &mut play, device, queue);
+        assert_eq!(play.game.game.sim().tick, 0, "begun anew");
+        assert!(noted(&mut play));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

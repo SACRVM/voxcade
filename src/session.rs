@@ -1271,6 +1271,18 @@ impl<G: Game> Session<G> {
         parts
     }
 
+    /// How a run of the game begins, as one number: the world's voxels and
+    /// the state's parts (`sections` but the ticks played), taken before
+    /// any tick (read-only; the IDE's play compares it after a reload).
+    pub fn start_mark(&self) -> u64 {
+        let mut h = crate::hash::Stable::default();
+        h.u64(self.game.sim().world.content_hash());
+        for (name, part) in self.game.state_sections() {
+            h.bytes(name.as_bytes()).u64(part);
+        }
+        h.finish()
+    }
+
     /// What this machine has of the game: its seats and its player's
     /// language (`game::Local`; at one machine all of them, the default).
     pub fn set_local(&mut self, local: crate::game::Local) {
