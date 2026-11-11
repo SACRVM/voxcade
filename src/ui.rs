@@ -1217,7 +1217,7 @@ fn logo(out: &mut Vec<Instance>, letters: &mut Vec<ModelDraw>, view: &MenuView, 
             let t = now - (i as u64 * LETTER_DELAY * 2) as f32;
             if let Some(lift) = drop_lift(t, 90.0, 0.2) {
                 let origin = Vec3::new(x0 + at.x, y0 + at.y + lift + bob(t, now, i, view.logo_bob), at.z);
-                letters.push(ModelDraw { voxels: voxels.clone(), origin, turn: 0, rot: glam::Quat::IDENTITY, shift: glam::Vec3::ZERO, tint: None });
+                letters.push(ModelDraw { voxels: voxels.clone(), origin, turn: 0, rot: glam::Quat::IDENTITY, shift: glam::Vec3::ZERO, tint: None, nearer: 0.0 });
             }
         }
         return;
@@ -1240,7 +1240,7 @@ fn logo(out: &mut Vec<Instance>, letters: &mut Vec<ModelDraw>, view: &MenuView, 
             if let Some(lift) = drop_lift(tl, 90.0, 0.2) {
                 let lift = lift + bob(tl, now, k, view.logo_bob);
                 match view.logo_bank.get(n).and_then(|line| line.get(i)) {
-                    Some(voxels) => letters.push(ModelDraw { voxels: voxels.clone(), origin: Vec3::new(x, y + lift, 0.0), turn: 0, rot: glam::Quat::IDENTITY, shift: glam::Vec3::ZERO, tint: None }),
+                    Some(voxels) => letters.push(ModelDraw { voxels: voxels.clone(), origin: Vec3::new(x, y + lift, 0.0), turn: 0, rot: glam::Quat::IDENTITY, shift: glam::Vec3::ZERO, tint: None, nearer: 0.0 }),
                     None => extrude(out, g, x, y + lift, *color, logo_depth(height), finish.with(cracks, (n * 100 + i) as u32)),
                 }
             }

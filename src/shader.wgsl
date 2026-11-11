@@ -126,6 +126,9 @@ struct Actor {
     origin: vec4<f32>,
     // rgb: the flash colour, w: 1 while it flashes
     tint: vec4<f32>,
+    // x: how many steps nearer the eye its depth is taken (a posed
+    // figure's part, render::ModelDraw::nearer)
+    extra: vec4<f32>,
     // Turned freely after the quarter turns (0 0 0 1: not at all), then
     // shifted by pivot.xyz (render::turned_centre); pivot.w 1: off the grid.
     rot: vec4<f32>,
@@ -178,8 +181,21 @@ fn vs_model(
     // Off the grid (a part shifted, if not turned): its shadow asks at the
     // voxel's middle.
     out.centre.w = max(out.centre.w, actor.pivot.w);
+    // A part of a posed figure: its depth taken a little nearer the eye,
+    // the further out it hangs the more, its place in the picture kept.
+    // Where a bent limb's faces lie in one plane with its parent's, one of
+    // them is plainly in front.
+    if (actor.extra.x > 0.0) {
+        let toward = normalize(g.eye.xyz - out.world);
+        let near = g.view_proj * vec4<f32>(out.world + toward * actor.extra.x * PART_NEARER, 1.0);
+        out.clip.z = near.z / near.w * out.clip.w;
+    }
     return out;
 }
+
+// How much nearer a figure's part is taken a step, in voxels: more than the
+// depth buffer's grain at the game's distances, far less than can be seen.
+const PART_NEARER: f32 = 0.03;
 
 // How far behind a model its outline lies, in voxels: relief steps less
 // deep than this hide it, a part standing further before another shows it.

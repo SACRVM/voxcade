@@ -78,6 +78,12 @@ pub struct ModelDraw {
     pub shift: Vec3,
     /// Every voxel this colour (a flash).
     pub tint: Option<[u8; 3]>,
+    /// How many steps nearer the eye its depth is taken (`PART_NEARER` of
+    /// a voxel each, the picture's place unchanged): a posed figure's part
+    /// by how far down the figure it hangs, so where a bent limb's faces
+    /// lie in one plane with its parent's the part further out wins,
+    /// instead of both flickering through each other. 0: as it lies.
+    pub nearer: f32,
 }
 
 /// Where a voxel of a freely turned model has its centre: `local` its
@@ -199,6 +205,8 @@ struct ActorData {
     origin: [f32; 4],
     /// rgb: the flash colour, w: 1 while it flashes.
     tint: [f32; 4],
+    /// x: how many steps nearer the eye its depth is taken (`ModelDraw::nearer`).
+    extra: [f32; 4],
     /// The free turn (xyzw; 0 0 0 1 none), and the shift after it (xyz;
     /// w 1 when it is off the grid at all).
     rot: [f32; 4],
@@ -1328,7 +1336,7 @@ impl Renderer {
             let mut places = vec![0u8; all_models * ACTOR_STRIDE];
             for (m, place) in frame.models.iter().chain(&frame.ui_models).zip(places.as_chunks_mut::<ACTOR_STRIDE>().0) {
                 let tint = m.tint.map_or([0.0; 4], |[r, g, b]| [f32::from(r) / 255.0, f32::from(g) / 255.0, f32::from(b) / 255.0, 1.0]);
-                let data = ActorData { origin: m.origin.extend(m.turn as f32).to_array(), tint, rot: m.rot.to_array(), pivot: m.shift.extend(if off_grid(m.rot, m.shift) { 1.0 } else { 0.0 }).to_array() };
+                let data = ActorData { origin: m.origin.extend(m.turn as f32).to_array(), tint, extra: [m.nearer, 0.0, 0.0, 0.0], rot: m.rot.to_array(), pivot: m.shift.extend(if off_grid(m.rot, m.shift) { 1.0 } else { 0.0 }).to_array() };
                 place[..size_of::<ActorData>()].copy_from_slice(bytemuck::bytes_of(&data));
             }
             queue.write_buffer(&self.actors, 0, &places);

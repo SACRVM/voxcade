@@ -2207,7 +2207,7 @@ pub fn posing<'a>(pose: &'a [(String, [f32; 3])], under: impl Fn(&str) -> Quat +
 /// What `draw` puts down at once: its voxels in the bank (if there), the
 /// see-through ones and all the visible ones (indices into the frame), its
 /// turn and its shift (`render::turned_centre`).
-type Piece<'a> = (Option<std::ops::Range<u32>>, &'a [u32], &'a [u32], Quat, Vec3);
+type Piece<'a> = (Option<std::ops::Range<u32>>, &'a [u32], &'a [u32], Quat, Vec3, f32);
 
 /// Draws one frame of a model with its feet at `origin`, turned in quarter
 /// turns (model forward is +y) around a whole-voxel pivot, and freely by
@@ -2250,17 +2250,27 @@ fn draw(
     // directions, seen after the quarter turns and the free turn).
     let mut pieces: Vec<Piece> = Vec::new();
     if model.parts.is_empty() {
-        pieces.push((model.bank.get(frame).cloned(), &model.glass[frame], &model.visible[frame], rot, crate::render::turn_about(rot, about)));
+        pieces.push((model.bank.get(frame).cloned(), &model.glass[frame], &model.visible[frame], rot, crate::render::turn_about(rot, about), 0.0));
     } else {
         let mut chain: Vec<Option<(Quat, Vec3)>> = vec![None; model.parts.len()];
         let centre = Vec3::new(0.5, 0.5, 0.0);
+        // Posed, a part's depth is taken nearer by how far down the figure
+        // it hangs (`ModelDraw::nearer`); at rest nothing overlaps.
+        let posed = pose.iter().any(|q| *q != Quat::IDENTITY);
+        let steps = |mut i: usize| {
+            let mut n = 0.0;
+            while let Some(p) = model.parts[i].parent.filter(|_| n < 16.0) {
+                (i, n) = (p, n + 1.0);
+            }
+            n
+        };
         for i in 0..model.parts.len() {
             let (own, b) = part_chain(model, pose, i, &mut chain);
             let seen = quarter_turn * own * quarter_turn.inverse();
             let shift = about + rot * (-(seen * centre) + quarter_turn * (own * centre) + quarter_turn * (b - centre) + centre - about);
             let p = &model.parts[i];
             let bank = (!model.bank.is_empty()).then(|| p.bank.clone());
-            pieces.push((bank, &p.glass, &p.visible, rot * seen, shift));
+            pieces.push((bank, &p.glass, &p.visible, rot * seen, shift, if posed { steps(i) } else { 0.0 }));
         }
     }
     // What each set of lit faces (bits in mesh::DIRS order) becomes after
@@ -2272,10 +2282,10 @@ fn draw(
     });
     let turned_faces: [i8; 64] = std::array::from_fn(|mask| (0..6).filter(|f| mask >> f & 1 == 1).fold(0, |bits, f| bits | 1 << to[f]));
     let voxels = &model.frames[frame];
-    for (bank, glass, visible, rot, shift) in pieces {
+    for (bank, glass, visible, rot, shift, nearer) in pieces {
         let as_cubes = match (on_gpu.as_deref_mut(), bank) {
             (Some(on_gpu), Some(voxels)) => {
-                on_gpu.push(ModelDraw { voxels, origin, turn, rot, shift, tint: tint.map(|[r, g, b, _]| [r, g, b]) });
+                on_gpu.push(ModelDraw { voxels, origin, turn, rot, shift, tint: tint.map(|[r, g, b, _]| [r, g, b]), nearer });
                 glass
             }
             _ => visible,
@@ -2846,6 +2856,16 @@ mod tests {
         for look in [IVec2::X, IVec2::NEG_Y, IVec2::NEG_X] {
             cubes(look, turning(20.0, 0.0, 10.0), &[turning(0.0, 0.0, 5.0), turning(30.0, 0.0, 0.0), turning(0.0, -40.0, 0.0), turning(0.0, 60.0, 0.0)]);
         }
+        // Posed, a part's depth is taken nearer the further out it hangs, so
+        // faces of two parts in one plane do not flicker (a bent elbow); at
+        // rest every part lies as it is.
+        let nearer = |pose: &[Quat]| {
+            let mut on_gpu = Vec::new();
+            draw(&mut |_, _, _, _, _| {}, Some(&mut on_gpu), &m, 0, origin, IVec2::Y, Quat::IDENTITY, pose, None);
+            on_gpu.iter().map(|d| d.nearer).collect::<Vec<f32>>()
+        };
+        assert_eq!(nearer(&[]), [0.0; 4], "at rest");
+        assert_eq!(nearer(&[Quat::IDENTITY, Quat::IDENTITY, turning(-90.0, 0.0, 0.0), Quat::IDENTITY]), [0.0, 1.0, 1.0, 2.0], "body, head, arm, hand");
     }
 
     /// A free turn of a quarter puts every voxel where the quarter turn
