@@ -6,6 +6,7 @@
 return {
   about = "The player in the floor's far corner",
   setup = function()
-    player:place({ x = level.size.x - 8, y = level.size.y - 8, z = 1 })
+    local x, y = level.size.x - 8, level.size.y - 8
+    player:place({ x = x, y = y, z = level:ground(x, y) })   -- on the ground there
   end,
 }

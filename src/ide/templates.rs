@@ -34,6 +34,8 @@ pub const TEMPLATES: [Template; 3] = [
         about: "A floor and a figure the arrows walk; every rule is yours to write.",
         files: &[
             file!("empty", "conf.lua"),
+            file!("empty", "hero.vox"),
+            file!("empty", "hero2.vox"),
             file!("empty", "main.lua"),
             file!("empty", "scenarios/far_corner.lua"),
         ],

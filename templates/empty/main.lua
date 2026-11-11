@@ -1,13 +1,23 @@
--- A floor, and the players their keys walk about. Everything that
+-- A ground, and the players their keys walk about. Everything that
 -- changes while playing goes into a state: world.state for the run,
 -- level.state for the level being played and its things, player.state
 -- (p.state: each player's), thing.state; voxcade api lists what there is.
 
--- Each seat's colour: player 1 red, player 2 blue.
-local COLORS = { { 200, 90, 60 }, { 60, 110, 200 } }
+-- The ground in layers, from the bottom up: each a colour and how many
+-- voxels thick. Whatever digs or blasts into it lays the next one bare.
+local GROUND = {
+  { "#6f6f73", 4 },   -- stone
+  { "#6b5138", 3 },   -- earth
+  { "#5a6e4a", 1 },   -- grass
+}
 
 function on_level_start(how)
-  level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 0, "#5a6e4a")
+  local z = 0
+  for _, layer in ipairs(GROUND) do
+    local color, thick = layer[1], layer[2]
+    level:fill(0, 0, z, level.size.x - 1, level.size.y - 1, z + thick - 1, color)
+    z = z + thick
+  end
 end
 
 function on_tick()
@@ -18,20 +28,13 @@ function on_tick()
   end
 end
 
--- Each player as cubes, a voxel each: a body in its seat's colour and a
--- head; PRESS START at the top right while a seat is free.
+-- Each player's figure, a model (hero.vox, hero2.vox: reshape them in
+-- the voxel editor): frame:model draws it where the player is on its way
+-- from tick to tick, so it glides. PRESS START at the top right while a
+-- seat is free.
 function on_draw(frame)
   for _, p in ipairs(level:players()) do
-    for dx = -1, 1 do
-      for dy = -1, 1 do
-        for z = 0, 4 do
-          frame:cube(p.x + dx, p.y + dy, p.z + z, COLORS[p.seat])
-        end
-        for z = 5, 7 do
-          frame:cube(p.x + dx, p.y + dy, p.z + z, { 240, 210, 180 })
-        end
-      end
-    end
+    frame:model(p.seat == 2 and "hero2.vox" or "hero.vox", p)
   end
   for _, p in ipairs(world.players) do
     if not p then

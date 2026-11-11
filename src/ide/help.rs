@@ -973,6 +973,10 @@ mod tests {
             std::fs::create_dir_all(&dir).unwrap();
             let conf = format!("{}  {}\n{}", &base[..at], topic.conf.replace('\n', "\n  "), &base[at..]);
             std::fs::write(dir.join("conf.lua"), conf).unwrap();
+            // The template's figures, as a game begun from it has them.
+            for model in ["hero.vox", "hero2.vox"] {
+                std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("templates/empty").join(model), dir.join(model)).unwrap();
+            }
             std::fs::write(dir.join("main.lua"), topic.code).unwrap();
             for (name, text) in topic.files {
                 std::fs::write(dir.join(name), text).unwrap();
