@@ -17,6 +17,7 @@ use super::console::Console;
 use super::files::Files;
 use super::memory::Memory;
 use super::preview::Preview;
+use super::maker;
 use super::sounds;
 use super::terminal;
 use crate::audio::sound::{self, SoundDef};
@@ -123,6 +124,15 @@ pub struct Shell {
     used: Option<Used>,
     /// What PLAY SOUND asked the speaker to play, and how loud.
     heard: Option<(std::sync::Arc<[f32]>, f32)>,
+    /// The sound maker over a sound open: how many rolls so far (a part of
+    /// the next one's seed), and the fader held, if one is.
+    rolls: u64,
+    /// LOOP: the sound open plays again and again, a short pause between,
+    /// until switched off (or another file is opened, or the game played);
+    /// when it is due next.
+    looping: bool,
+    again_at: Option<std::time::Instant>,
+    fading: Option<maker::Fader>,
     /// Where the rows of USED were drawn (for the tests' mouse).
     #[cfg(test)]
     used_rows: Vec<egui::Rect>,
@@ -295,7 +305,7 @@ impl Shell {
             memory.open = files.logic.iter().find(|f| *f == "main.lua").or(files.logic.first()).cloned();
         }
         let restore = memory.open.as_ref().and_then(|f| memory.scroll.get(f).copied());
-        Self { title, dir: dir.to_path_buf(), files, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, #[cfg(test)] headings: Vec::new(), cfg, preview: None, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, reported: None, output_saved: std::time::Instant::now(), brought: Vec::new(), builtin: None, sound_line: None, used: None, heard: None, #[cfg(test)] used_rows: Vec::new() }
+        Self { title, dir: dir.to_path_buf(), files, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, #[cfg(test)] headings: Vec::new(), cfg, preview: None, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, reported: None, output_saved: std::time::Instant::now(), brought: Vec::new(), builtin: None, sound_line: None, used: None, heard: None, rolls: 0, looping: false, again_at: None, fading: None, #[cfg(test)] used_rows: Vec::new() }
     }
 
     /// The sounds the game's code brings (`Game::sounds`), listed under
@@ -520,7 +530,15 @@ impl Shell {
             let _ = self.output.save();
             self.output_saved = now;
         }
-        let Some(Shown::Code(buffer)) = &mut self.shown else { return (false, std::time::Duration::from_secs(3600)) };
+        // LOOP: the sound again once it has sounded and the pause is over.
+        if self.looping && self.again_at.is_none_or(|at| now >= at) {
+            self.again_at = None;
+            self.play_sound();
+            // (A sound that would not play ends the loop: nothing to wait for.)
+            self.looping = self.again_at.is_some();
+        }
+        let again = self.again_at.filter(|_| self.looping).map(|at| at.saturating_duration_since(now));
+        let Some(Shown::Code(buffer)) = &mut self.shown else { return (false, again.unwrap_or(std::time::Duration::from_secs(3600))) };
         let mut changed = false;
         if now >= self.look_at {
             changed |= buffer.look();
@@ -533,7 +551,7 @@ impl Shell {
                 changed = true;
             }
         }
-        let next = buffer.due(now).unwrap_or(LOOK_EVERY).min(self.look_at.saturating_duration_since(now));
+        let next = buffer.due(now).unwrap_or(LOOK_EVERY).min(self.look_at.saturating_duration_since(now)).min(again.unwrap_or(LOOK_EVERY));
         (changed, next)
     }
 
@@ -665,6 +683,7 @@ impl Shell {
     /// Ends the song playing, if one is (another file opened, the game
     /// played).
     fn hush(&mut self) {
+        (self.looping, self.again_at) = (false, None);
         if self.listening.take().is_some() {
             self.asks.push(Ask::Hush);
         }
@@ -707,6 +726,7 @@ impl Shell {
                 // At the game's volume and the player's, as the game plays a
                 // sound in the middle of the view.
                 let gain = crate::settings::Settings::load(&crate::settings::path_for(&self.dir)).sound_gain();
+                self.again_at = Some(std::time::Instant::now() + std::time::Duration::from_secs_f32(samples.len() as f32 / crate::audio::SAMPLE_RATE as f32) + LOOP_PAUSE);
                 self.heard = Some((samples, self.cfg.audio.volume.max(0.0) * gain));
                 self.message = None;
                 self.asks.push(Ask::Sound);
@@ -829,7 +849,7 @@ impl Shell {
                 if path.ends_with(".mml") {
                     file["kind"] = json!("a song (MML), to change; PLAY SONG over it plays it");
                 } else if sounds::name_of(path).is_some() {
-                    file["kind"] = json!("a sound, to change; PLAY SOUND over it plays it");
+                    file["kind"] = json!("a sound, to change; PLAY SOUND over it plays it, a sort's button (COIN, JUMP, ...) rolls a fresh one, the faders move it");
                 }
                 if let Some((line, why)) = &buffer.code.error {
                     file["unreadable"] = json!({ "line": line, "why": why });
@@ -1552,6 +1572,12 @@ impl Shell {
             }
             ui.add_space(6.0);
         }
+        // A sound of numbers to change: the maker between its line and its text.
+        let id = egui::Id::unique(("code", path.as_str()));
+        if sound_name.is_some() && path.ends_with(".toml") && matches!(self.shown, Some(Shown::Code(_))) {
+            play_sound |= self.maker_ui(ui, id);
+            ui.add_space(10.0);
+        }
         if play_sound {
             self.play_sound();
         }
@@ -1562,7 +1588,6 @@ impl Shell {
             return;
         }
         // A line to go to (a game's error): the cursor there, in view.
-        let id = egui::Id::unique(("code", path.as_str()));
         let mut focus = focus;
         if let (Some((line, keys)), Some(Shown::Code(buffer))) = (goto, &self.shown) {
             let at: usize = buffer.code.text.split('\n').take(line.saturating_sub(1)).map(|l| l.chars().count() + 1).sum();
@@ -1677,6 +1702,148 @@ impl Shell {
         }
     }
 }
+
+impl Shell {
+    /// The sound maker over the sound open (`maker`; its text in the text
+    /// edit `id`): a dice and a row of sorts, then UNDO, a row of faders.
+    /// Every change is the text rewritten in the buffer, as typing is, and
+    /// one step back for UNDO and Ctrl+Z alike; a roll and UNDO play the
+    /// sound at once. Whether it is to play now because a fader was let go.
+    fn maker_ui(&mut self, ui: &mut egui::Ui, id: egui::Id) -> bool {
+        let ctx = ui.ctx().clone();
+        let (mut rolled, mut back, mut play) = (None, false, false);
+        let can_go_back = matches!(&self.shown, Some(Shown::Code(b)) if b.code.can_go_back(&ctx, id));
+        ui.horizontal_wrapped(|ui| {
+            play = ui.button("PLAY").on_hover_text("Plays the sound as it stands (as PLAY SOUND at the top right does).").clicked();
+            if ui.add(egui::Button::new("LOOP").selected(self.looping)).on_hover_text("Plays the sound again and again with a short pause, so you hear what the faders and your typing do. Press again to stop.").clicked() {
+                self.looping = !self.looping;
+                self.again_at = None;
+                play |= self.looping;
+            }
+            ui.add_space(18.0);
+            dice(ui).on_hover_text("These roll the dice: each press makes a new sound of that sort, never the same twice. Press one again for another.");
+            for sort in maker::Sort::ALL {
+                if ui.button(sort.word()).on_hover_text(sort.hover()).clicked() {
+                    rolled = Some(sort);
+                }
+            }
+            ui.add_space(18.0);
+            back = ui.add_enabled(can_go_back, egui::Button::new("UNDO")).on_hover_text("Back to the sound before the last change (a roll, a fader or typing); again for the one before. Ctrl+Z in the text does the same.").clicked();
+        });
+        if let Some(sort) = rolled {
+            self.roll(&ctx, sort);
+        }
+        if back {
+            self.go_back(&ctx);
+        }
+        let Some(Shown::Code(buffer)) = &mut self.shown else { return false };
+        let now = std::time::Instant::now();
+        // The faders, where the text says a sound of numbers.
+        ui.add_space(6.0);
+        let synth = match &buffer.code.sound {
+            Some(SoundDef::Synth(s)) => Some(s.clone()),
+            _ => None,
+        };
+        let fading = &mut self.fading;
+        ui.add_enabled_ui(synth.is_some(), |ui| {
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = 22.0;
+                for fader in maker::Fader::ALL {
+                    let (lo, hi) = fader.range();
+                    let mut value = synth.as_ref().map_or(lo, |s| fader.place(s));
+                    let held = ui
+                        .allocate_ui_with_layout(egui::vec2(FADER_WIDTH, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(fader.word()).on_hover_text(fader.hover());
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    ui.label(RichText::new(fader.shown(value)).small().color(QUIET));
+                                });
+                            });
+                            ui.spacing_mut().slider_width = FADER_WIDTH;
+                            ui.add(egui::Slider::new(&mut value, lo..=hi).logarithmic(fader.logarithmic()).show_value(false)).on_hover_text(fader.hover()).on_disabled_hover_text("The faders move a sound made of numbers; this text is not one now (a recording, silent, or a mistake in it).")
+                        })
+                        .inner;
+                    let down = held.is_pointer_button_down_on() || held.dragged();
+                    if held.changed()
+                        && let Some(s) = &synth
+                    {
+                        // Marked before the first change of a move, after its last.
+                        if *fading != Some(fader) {
+                            buffer.code.mark(&ctx, id);
+                            *fading = Some(fader);
+                        }
+                        buffer.code.text = maker::faded(&buffer.code.text, s, fader, value);
+                        buffer.code.check();
+                        buffer.edited(now);
+                    }
+                    if *fading == Some(fader) && !down {
+                        buffer.code.mark(&ctx, id);
+                        *fading = None;
+                        play = true;
+                    }
+                }
+            });
+        });
+        play
+    }
+}
+
+impl Shell {
+    /// The text edit of the file open.
+    fn code_id(&self) -> Option<(String, egui::Id)> {
+        let path = self.memory.open.clone()?;
+        let id = egui::Id::unique(("code", path.as_str()));
+        Some((path, id))
+    }
+
+    /// A sort's button: the sound open replaced by a fresh one
+    /// of `sort` (its leading comments kept), one step back for UNDO, and
+    /// played.
+    fn roll(&mut self, ctx: &egui::Context, sort: maker::Sort) {
+        let Some((_, id)) = self.code_id() else { return };
+        let Some(Shown::Code(buffer)) = &mut self.shown else { return };
+        self.rolls += 1;
+        let clock = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64);
+        let fresh = maker::fresh(&buffer.code.text, &maker::roll(sort, clock ^ self.rolls.rotate_left(32)));
+        buffer.code.mark(ctx, id);
+        buffer.code.text = fresh;
+        buffer.code.check();
+        buffer.code.mark(ctx, id);
+        buffer.edited(std::time::Instant::now());
+        self.play_sound();
+    }
+
+    /// UNDO: the text a step back, as Ctrl+Z in it, and played.
+    fn go_back(&mut self, ctx: &egui::Context) {
+        let Some((_, id)) = self.code_id() else { return };
+        let Some(Shown::Code(buffer)) = &mut self.shown else { return };
+        if buffer.code.go_back(ctx, id) {
+            buffer.edited(std::time::Instant::now());
+            self.play_sound();
+        }
+    }
+}
+
+/// How wide a fader of the sound maker is.
+const FADER_WIDTH: f32 = 150.0;
+
+/// A dice showing five, drawn (no font has one we can count on): the sign
+/// that the buttons after it roll.
+fn dice(ui: &mut egui::Ui) -> egui::Response {
+    let side = ui.text_style_height(&egui::TextStyle::Button) + 2.0 * ui.spacing().button_padding.y;
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(side + 4.0, side), egui::Sense::hover());
+    let face = egui::Rect::from_center_size(rect.center(), egui::vec2(side - 2.0, side - 2.0));
+    let ink = ui.visuals().text_color();
+    ui.painter().rect_stroke(face, 4.0, egui::Stroke::new(1.5, ink), egui::StrokeKind::Inside);
+    let step = face.width() * 0.26;
+    for (x, y) in [(-1.0, -1.0), (1.0, -1.0), (0.0, 0.0), (-1.0, 1.0), (1.0, 1.0)] {
+        ui.painter().circle_filled(face.center() + egui::vec2(x * step, y * step), 2.2, ink);
+    }
+    response
+}
+
+/// The pause between a sound's end and its next go under LOOP.
+const LOOP_PAUSE: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// COPY, small and quiet: puts `text` on the clipboard.
 fn copy_button(ui: &mut egui::Ui, text: &str) {
@@ -2372,6 +2539,72 @@ mod tests {
         assert_eq!(shell.take_asks(), [Ask::Sound]);
         let (samples, volume) = shell.heard().expect("rendered");
         assert!(!samples.is_empty() && volume > 0.0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The sound maker: a sort's button replaces the sound with a fresh one
+    /// of its sort (the leading comment kept) and plays it; UNDO goes back
+    /// over the rolls one by one, and Ctrl+Z in the text over the same
+    /// steps; what the maker made is saved as typing is.
+    #[test]
+    fn the_maker_rolls_and_goes_back() {
+        let (dir, memory) = sound_game("maker");
+        let mut shell = shell_on(&dir, &memory);
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        shell.open("sounds/coin.toml");
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        let text = |shell: &Shell| buffer(shell).code.text.clone();
+        let first = text(&shell);
+        shell.roll(&ctx, maker::Sort::Blast);
+        let blast = text(&shell);
+        assert!(blast.starts_with("# a coin\nwave = \"noise\"\n"), "{blast}");
+        assert!(matches!(buffer(&shell).code.sound, Some(SoundDef::Synth(_))) && buffer(&shell).code.error.is_none());
+        assert_eq!(shell.take_asks(), [Ask::Sound], "played at once");
+        assert!(shell.heard().is_some());
+        assert_eq!(shell.saved_word(), Some("NOT SAVED YET"));
+        frame(&ctx, &mut shell);
+        shell.roll(&ctx, maker::Sort::Coin);
+        frame(&ctx, &mut shell);
+        assert!(text(&shell) != blast && text(&shell).starts_with("# a coin\n"));
+        // UNDO: the blast, then the sound as it was.
+        shell.go_back(&ctx);
+        assert_eq!(text(&shell), blast);
+        frame(&ctx, &mut shell);
+        shell.go_back(&ctx);
+        assert_eq!(text(&shell), first);
+        assert_eq!(shell.take_asks(), [Ask::Sound, Ask::Sound, Ask::Sound]);
+        // LOOP: the sound again once it has sounded and its pause is over,
+        // until another file is opened.
+        (shell.looping, shell.again_at) = (true, None);
+        let now = std::time::Instant::now();
+        shell.tick(now);
+        assert_eq!(shell.take_asks(), [Ask::Sound], "at once");
+        shell.tick(now);
+        assert_eq!(shell.take_asks(), [], "not before it has sounded");
+        let (_, next) = shell.tick(now);
+        assert!(next <= std::time::Duration::from_secs(3), "the window wakes for it: {next:?}");
+        shell.tick(now + std::time::Duration::from_secs(5));
+        assert_eq!(shell.take_asks(), [Ask::Sound], "again");
+        shell.hush();
+        shell.tick(now + std::time::Duration::from_secs(20));
+        assert_eq!(shell.take_asks(), [], "switched off");
+        // Ctrl+Z in the text goes back over a roll too.
+        shell.roll(&ctx, maker::Sort::Jump);
+        assert!(text(&shell).contains("sweep = "));
+        shell.back_to_file();
+        frame(&ctx, &mut shell);
+        frame(&ctx, &mut shell);
+        let ctrl_z = |pressed| egui::Event::Key { key: egui::Key::Z, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::COMMAND };
+        frame_with(&ctx, &mut shell, vec![ctrl_z(true)]);
+        frame_with(&ctx, &mut shell, vec![ctrl_z(false)]);
+        assert_eq!(text(&shell), first, "Ctrl+Z");
+        // Saved as typing is.
+        shell.roll(&ctx, maker::Sort::Hit);
+        shell.tick(std::time::Instant::now() + super::super::buffer::SAVE_AFTER);
+        assert_eq!(std::fs::read_to_string(dir.join("sounds/coin.toml")).unwrap(), text(&shell));
+        assert!(sound::read("sounds/coin.toml", &text(&shell)).is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

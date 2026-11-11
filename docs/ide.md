@@ -65,9 +65,9 @@ the earlier idea of separate editors that feel like a game (`engine.md`,
 
 A sound is a file of the game, `sounds/NAME.toml` (a few numbers a line,
 in words shared with MML's instruments: `src/audio/words.rs`) or
-`sounds/NAME.wav`; an editor of its own is planned (a kind of sound to
-pick, a dice that only gives good ones, a few named sliders over the
-text). Songs open as text (MML) with a play key. A library of background songs ships with
+`sounds/NAME.wav`; over its text the sound maker (`src/ide/maker.rs`):
+a kind of sound to pick, a dice that only gives good ones, a few named
+faders, all writing the text. Songs open as text (MML) with a play key. A library of background songs ships with
 the editor for games that need only something simple (`music/`, made by
 `tools/compose.py` from chord progressions and moods); a "song from a
 mood" button would move that tool to Rust, so users need no Python.
@@ -419,7 +419,24 @@ Stage by stage (the plan of 2026-10-18):
    area a sound is text to change under a line in words of what it is and
    PLAY SOUND (the text as it stands), its mistakes shown like Lua's, and
    under the text USED: the lines of the game's scripts that name it, each
-   opening the file there. Sound maker controls (dice, faders) come later.
+   opening the file there. Between the line and the text the sound maker
+   (`ide/maker.rs`): COIN, JUMP, SHOT, BLAST, HIT, POWER UP and BLIP each
+   roll a fresh sound of that sort from a small table of ranges in the
+   file's words and play it, a dice drawn before them as their sign (the
+   same sort pressed again rolls another), UNDO goes back a step; before
+   them PLAY (the way to PLAY SOUND at the top right is long) and LOOP,
+   which plays the sound again and again, half a second between, until
+   switched off, another file is opened or the game played; every rolled sound
+   is rendered and measured first (`maker::good`: loud enough, not longer
+   than the sort's, mostly between 80 Hz and 8 kHz, not below 30 Hz for
+   long, round zero, quiet at its end) and drawn again if it fails (test
+   `the_dice_gives_back_only_good_sounds`). The faders PITCH, LENGTH,
+   SLIDE, BRIGHT and PUNCH each move words of their own (freq; hold and
+   decay together; sweep; lowpass, off at the top; punch), read their
+   place from the text and play the sound when let go. Every change is the
+   text rewritten through `toml_edit`, its comments kept, into the buffer
+   as typing is, and a step of the text edit's own undo: UNDO and Ctrl+Z
+   go back over the same steps.
    Every text one can change says SAVED or NOT SAVED YET and Ctrl+S saves
    at once.
 6. **The MCP bridge** (done): the IDE listens on 127.0.0.1 at a free port

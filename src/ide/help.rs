@@ -526,7 +526,7 @@ end
     },
     Topic {
         title: "PLAY A SOUND",
-        text: "A sound is a file of your game in the folder sounds (the plus beside SOUNDS makes one, PLAY SOUND plays it), a few numbers a line: a wave (square, saw, triangle, sine or noise), a pitch in Hz, how long it holds and fades in seconds, how loud from 0 to 1. Only what differs from the defaults is written; sweep slides the pitch and jump lifts it once, both in semitones (12 an octave). The file's name is the sound's: play it by that name at a place, a thing or a point. A .wav file in sounds plays as it is.",
+        text: "A sound is a file of your game in the folder sounds (the plus beside SOUNDS makes one, PLAY SOUND plays it; over its text COIN, JUMP and the other sorts roll a fresh one each time they are pressed, UNDO goes back, and the faders change it), a few numbers a line: a wave (square, saw, triangle, sine or noise), a pitch in Hz, how long it holds and fades in seconds, how loud from 0 to 1. Only what differs from the defaults is written; sweep slides the pitch and jump lifts it once, both in semitones (12 an octave). The file's name is the sound's: play it by that name at a place, a thing or a point. A .wav file in sounds plays as it is.",
         conf: "",
         files: &[("sounds/beep.toml", "# a short high beep\nwave = \"square\"\nfreq = 880\nhold = 0.05\ndecay = 0.2\nvolume = 0.3\n")],
         code: r##"function on_tick()

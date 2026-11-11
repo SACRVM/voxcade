@@ -199,6 +199,38 @@ impl Code {
         changed
     }
 
+    /// A step for the text's undo (the text edit `id`'s own, which Ctrl+Z
+    /// goes back over): the text as it stands now. A change made from
+    /// outside the text (the sound maker) is marked before and after, so
+    /// it is one step back, as typing is.
+    pub fn mark(&self, ctx: &egui::Context, id: egui::Id) {
+        let mut state = egui::TextEdit::load_state(ctx, id).unwrap_or_default();
+        let at = here(&state, &self.text);
+        let mut undoer = state.undoer();
+        undoer.add_undo(&(at, self.text.clone()));
+        state.set_undoer(undoer);
+        state.cursor.set_char_range(Some(at));
+        state.store(ctx, id);
+    }
+
+    /// Whether there is a step to go back to.
+    pub fn can_go_back(&self, ctx: &egui::Context, id: egui::Id) -> bool {
+        egui::TextEdit::load_state(ctx, id).is_some_and(|s| s.undoer().has_undo(&(here(&s, &self.text), self.text.clone())))
+    }
+
+    /// Goes back a step, as Ctrl+Z in the text does; whether there was one.
+    pub fn go_back(&mut self, ctx: &egui::Context, id: egui::Id) -> bool {
+        let Some(mut state) = egui::TextEdit::load_state(ctx, id) else { return false };
+        let mut undoer = state.undoer();
+        let Some((at, text)) = undoer.undo(&(here(&state, &self.text), self.text.clone())).cloned() else { return false };
+        state.set_undoer(undoer);
+        state.cursor.set_char_range(Some(at));
+        state.store(ctx, id);
+        self.text = text;
+        self.check();
+        true
+    }
+
     /// Takes the name chosen: what is typed of it becomes it (a method's
     /// or function's with its opening bracket, a callback's with its
     /// parameters), the cursor after it.
@@ -224,6 +256,19 @@ impl Code {
 /// Where the cursor of the text edit `id` stands (chars).
 fn cursor(ctx: &egui::Context, id: egui::Id) -> Option<usize> {
     egui::TextEdit::load_state(ctx, id).and_then(|s| s.cursor.char_range()).map(|r| r.primary.index.0)
+}
+
+/// The cursor of a text edit's `state` inside `text`, as the text edit
+/// itself feeds its undo (at the start if it has none).
+fn here(state: &egui::text_edit::TextEditState, text: &str) -> CCursorRange {
+    let count = text.chars().count();
+    let mut range = state.cursor.char_range().unwrap_or(CCursorRange::one(CCursor::new(0)));
+    for end in [&mut range.primary, &mut range.secondary] {
+        if end.index.0 > count {
+            *end = CCursor::new(count);
+        }
+    }
+    range
 }
 
 /// The byte where char `at` of `text` begins.

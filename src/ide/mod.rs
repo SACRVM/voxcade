@@ -12,6 +12,7 @@ mod console;
 mod export;
 mod files;
 mod help;
+mod maker;
 mod memory;
 mod output;
 mod play;
