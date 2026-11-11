@@ -492,6 +492,45 @@ pub fn key_bytes(key: egui::Key, m: egui::Modifiers, mode: TermMode) -> Option<V
     })
 }
 
+/// The text of the line shown at `line` of the view, rows the terminal
+/// wrapped joined (at most a screenful each way), as letters with the cell
+/// each came from (its line of the view, possibly above or below it, and
+/// its column), and the index of the letter at `column`.
+pub fn line_at<T>(term: &Term<T>, line: usize, column: usize) -> (Vec<char>, Vec<(i32, usize)>, Option<usize>) {
+    let grid = term.grid();
+    let (top, bottom) = (term.topmost_line().0, term.bottommost_line().0);
+    let offset = grid.display_offset() as i32;
+    let columns = term.columns();
+    let row = line as i32 - offset;
+    let wraps = |l: i32| columns > 0 && grid[alacritty_terminal::index::Line(l)][Column(columns - 1)].flags.contains(Flags::WRAPLINE);
+    let reach = term.screen_lines() as i32;
+    let mut first = row;
+    while first > top && first > row - reach && wraps(first - 1) {
+        first -= 1;
+    }
+    let (mut chars, mut cells, mut at) = (Vec::new(), Vec::new(), None);
+    let mut l = first;
+    loop {
+        for c in 0..columns {
+            let cell = &grid[alacritty_terminal::index::Line(l)][Column(c)];
+            if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
+                continue;
+            }
+            // (A wide letter answers for its second cell too.)
+            if l == row && (c == column || (cell.flags.contains(Flags::WIDE_CHAR) && c + 1 == column)) {
+                at = Some(chars.len());
+            }
+            chars.push(cell.c);
+            cells.push((l + offset, c));
+        }
+        if l >= bottom || l >= row + reach || !wraps(l) {
+            break;
+        }
+        l += 1;
+    }
+    (chars, cells, at)
+}
+
 /// Which half of the cell a point at `x` cells from the left lies in.
 pub fn side(x: f32) -> Side {
     if x.fract() < 0.5 { Side::Left } else { Side::Right }
@@ -551,6 +590,19 @@ mod tests {
         assert_eq!(mouse_bytes(Mouse::Release(0), 0, 0, none, old).unwrap(), [0x1b, b'[', b'M', 35, 33, 33]);
         assert_eq!(mouse_bytes(Mouse::Moved(Some(0)), 0, 0, none, old), None, "no drags unless asked");
         assert_eq!(mouse_bytes(Mouse::Press(0), 300, 0, none, old), None);
+    }
+
+    /// A line the terminal wrapped is read whole, from either of its rows.
+    #[test]
+    fn a_wrapped_line_is_read_whole() {
+        let t = term(10, 4, b"a /tmp/x/pic.png b\r\nnext");
+        let (chars, cells, at) = line_at(&t, 1, 3);
+        assert_eq!(chars.iter().collect::<String>().trim_end(), "a /tmp/x/pic.png b", "joined");
+        assert_eq!(at.map(|i| chars[i]), Some('p'), "the cell under the mouse");
+        assert_eq!(cells[at.unwrap()], (1, 3));
+        assert_eq!(cells[0], (0, 0), "its first row is above");
+        let (chars, _, _) = line_at(&t, 2, 0);
+        assert_eq!(chars.iter().collect::<String>().trim_end(), "next", "the next line apart");
     }
 
     fn term(columns: u16, lines: u16, bytes: &[u8]) -> Term<VoidListener> {

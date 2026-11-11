@@ -67,6 +67,12 @@ pub struct Console {
     /// at once, and after the MCP button), and what went wrong writing it.
     mcp: Option<bool>,
     mcp_failed: Option<String>,
+    /// The path under the mouse: its cells (line of the view, column),
+    /// and what it names, looked at once for each path the mouse comes to
+    /// (the file's place and the line asked for; None: no such file here).
+    link: Option<Link>,
+    /// A path clicked (the file and its line), for the owner.
+    opened: Option<(PathBuf, Option<usize>)>,
     /// What went wrong starting the agent, to say.
     trouble: Option<String>,
     /// A command was typed into this shell (the agent's), for systems
@@ -78,7 +84,7 @@ impl Console {
     /// A console in the game folder `dir` running `start`; `wake` wakes
     /// the window (from another thread) when there is output to draw.
     pub fn new(dir: PathBuf, start: Start, wake: Arc<dyn Fn() + Send + Sync>) -> Self {
-        Self { dir, start, wake, terminal: None, failed: None, typed: Vec::new(), take_keys: false, selected: None, wants_selection: false, held: None, told: None, wheel: 0.0, mcp: None, mcp_failed: None, trouble: None, typed_once: false }
+        Self { dir, start, wake, terminal: None, failed: None, typed: Vec::new(), take_keys: false, selected: None, wants_selection: false, held: None, told: None, wheel: 0.0, mcp: None, mcp_failed: None, link: None, opened: None, trouble: None, typed_once: false }
     }
 
     /// Types `command` (and Enter) into the shell, `anew`: a new one
@@ -117,6 +123,12 @@ impl Console {
     /// Text just selected with the mouse, once.
     pub fn take_selected(&mut self) -> Option<String> {
         self.selected.take()
+    }
+
+    /// A file clicked in the console (its path as found, existing, and the
+    /// line after it), once.
+    pub fn take_opened(&mut self) -> Option<(PathBuf, Option<usize>)> {
+        self.opened.take()
     }
 
     /// Whether a middle click asked for the system's selection, once.
@@ -359,6 +371,41 @@ impl Console {
                 self.wants_selection = true;
             }
         }
+        // A path in the text under the mouse (where the console has the
+        // mouse: not while a program hears it, unless Shift is held): lit,
+        // and a click opens it.
+        let hover = if heard { None } else { response.hover_pos() };
+        match hover {
+            Some(pos) => {
+                let (x, y) = at(pos);
+                let (column, line) = ((x.max(0.0) as usize).min(size.columns as usize - 1), (y.max(0.0) as usize).min(size.lines as usize - 1));
+                let (chars, cells, index) = terminal.with(|t| terminal::line_at(t, line, column));
+                match index.and_then(|i| word_at(&chars, i)) {
+                    Some(word) => {
+                        // (The file is looked for only when the path is
+                        // another than the one looked at before.)
+                        if self.link.as_ref().is_none_or(|l| l.text != word.path) {
+                            self.link = Some(Link { text: word.path.clone(), cells: Vec::new(), target: resolve(&self.dir, &word.path), line: word.line });
+                        }
+                        let link = self.link.as_mut().expect("set above");
+                        link.line = word.line;
+                        link.cells = if link.target.is_some() { cells[word.start..word.end].to_vec() } else { Vec::new() };
+                    }
+                    None => self.link = None,
+                }
+            }
+            None => self.link = None,
+        }
+        let target = self.link.as_ref().and_then(|l| l.target.clone().map(|t| (t, l.line)));
+        if target.is_some() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if response.clicked()
+            && !response.double_clicked()
+            && let Some(target) = target
+        {
+            self.opened = Some(target);
+        }
         if response.hovered() {
             self.wheel += ui.input(|i| i.smooth_scroll_delta().y) / cell.y;
             let lines = self.wheel.trunc() as i32;
@@ -419,8 +466,98 @@ impl Console {
             }
         }
 
-        draw(ui, inner, cell, &font, &terminal.with(|t| terminal::picture(t)), focused);
+        let mut picture = terminal.with(|t| terminal::picture(t));
+        if let Some(link) = &self.link {
+            for &(line, column) in &link.cells {
+                if let Some(glyph) = usize::try_from(line).ok().and_then(|y| picture.lines.get_mut(y)).and_then(|l| l.get_mut(column)) {
+                    glyph.underline = true;
+                }
+            }
+        }
+        draw(ui, inner, cell, &font, &picture, focused);
     }
+}
+
+/// The path under the mouse, for what it names.
+struct Link {
+    /// The path as written, without the line.
+    text: String,
+    cells: Vec<(i32, usize)>,
+    target: Option<PathBuf>,
+    line: Option<usize>,
+}
+
+/// A path-like word found in a line of text.
+#[derive(Debug, PartialEq)]
+pub struct Word {
+    /// Where it lies in the letters: from `start`, up to `end` (not in it),
+    /// the line and column after the path included.
+    pub start: usize,
+    pub end: usize,
+    /// The path, and the line after it (`main.lua:12`, `main.lua:12:5`;
+    /// the column is dropped).
+    pub path: String,
+    pub line: Option<usize>,
+}
+
+/// The path-like word at the letter `at` of `chars`: a run without spaces,
+/// brackets, quotes and a full stop, comma, colon or semicolon at its end
+/// taken off, then an optional `:LINE` or `:LINE:COLUMN` taken from its end.
+/// None where `at` is on a space or on what was taken off.
+pub fn word_at(chars: &[char], at: usize) -> Option<Word> {
+    let blank = |c: char| c.is_whitespace() || c == '\0';
+    if chars.get(at).is_none_or(|&c| blank(c)) {
+        return None;
+    }
+    let (mut start, mut end) = (at, at + 1);
+    while start > 0 && !blank(chars[start - 1]) {
+        start -= 1;
+    }
+    while end < chars.len() && !blank(chars[end]) {
+        end += 1;
+    }
+    while start < end && "([{\"'`<".contains(chars[start]) {
+        start += 1;
+    }
+    while end > start && ")]}\"'`>.,:;".contains(chars[end - 1]) {
+        end -= 1;
+    }
+    if at < start || at >= end {
+        return None;
+    }
+    let word: String = chars[start..end].iter().collect();
+    let mut path = word.as_str();
+    let mut numbers = Vec::new();
+    while numbers.len() < 2 {
+        match path.rsplit_once(':') {
+            Some((head, tail)) if !head.is_empty() && !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_digit()) => match tail.parse::<usize>() {
+                Ok(n) => {
+                    numbers.push(n);
+                    path = head;
+                }
+                Err(_) => break,
+            },
+            _ => break,
+        }
+    }
+    // (Two numbers: the column came off first, the line last.)
+    let line = numbers.last().copied();
+    Some(Word { start, end, path: path.to_string(), line })
+}
+
+/// The file the word `path` names, relative to the game folder `dir` or
+/// absolute: only an existing file, and only one inside the game folder or
+/// a picture (the agent's, made elsewhere); as an absolute path with no
+/// links in it.
+pub fn resolve(dir: &std::path::Path, path: &str) -> Option<PathBuf> {
+    let given = std::path::Path::new(path);
+    let full = if given.is_absolute() { given.to_path_buf() } else { dir.join(given) };
+    if !full.is_file() {
+        return None;
+    }
+    let full = full.canonicalize().ok()?;
+    let picture = full.extension().is_some_and(|e| e.eq_ignore_ascii_case("png"));
+    (picture || full.starts_with(dir.canonicalize().ok()?)).then_some(full)
 }
 
 /// Whether the game folder's `.mcp.json` names `voxcade mcp`.
@@ -512,6 +649,7 @@ fn draw(ui: &egui::Ui, inner: Rect, cell: Vec2, font: &FontId, picture: &termina
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     /// CLAUDE pressed gives the console the keys (asked for in the
     /// click's own frame, egui took them back: the click was elsewhere).
@@ -656,6 +794,92 @@ mod tests {
         assert!(console.terminal.as_ref().unwrap().with(|t| t.selection.is_none()), "the console selected nothing");
         drop(console);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A path in the console's text lights while the mouse is over it and
+    /// a click reports it, once; a word that is no file does neither.
+    #[test]
+    fn a_path_in_the_console_is_clicked_open() {
+        let dir = Path::new("games/voxkeep").to_path_buf();
+        let mut console = Console::new(dir, Start::Command("printf 'see main.lua:3 and gone.lua'; sleep 3".into()), Arc::new(|| {}));
+        let ctx = egui::Context::default();
+        let mut time = 0.0;
+        let mut frame = |events: Vec<egui::Event>, console: &mut Console| {
+            time += 1.0 / 60.0;
+            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 400.0))), events, time: Some(time), ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| console.body(ui));
+        };
+        frame(Vec::new(), &mut console);
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !console.terminal.as_ref().unwrap().with(|t| terminal::picture(t)).lines[0].iter().map(|g| g.c).collect::<String>().contains("gone.lua") {
+            assert!(std::time::Instant::now() < until, "the text came");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let font = ctx.global_style().text_styles[&TextStyle::Monospace].clone();
+        let cell = ctx.fonts_mut(|f| Vec2::new(f.glyph_width(&font, 'M'), f.row_height(&font)));
+        let over = |column: f32| (MARGIN + Vec2::new(column * cell.x, 0.5 * cell.y)).to_pos2();
+        let button = |at: Pos2, pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        // On a space, and on a word that is no file: nothing.
+        frame(vec![egui::Event::PointerMoved(over(3.5))], &mut console);
+        frame(vec![button(over(3.5), true)], &mut console);
+        frame(vec![button(over(3.5), false)], &mut console);
+        assert!(console.link.is_none() && console.take_opened().is_none(), "a space");
+        frame(vec![egui::Event::PointerMoved(over(19.5))], &mut console);
+        frame(vec![button(over(19.5), true)], &mut console);
+        frame(vec![button(over(19.5), false)], &mut console);
+        assert!(console.link.as_ref().is_some_and(|l| l.cells.is_empty()) && console.take_opened().is_none(), "no such file");
+        // On main.lua:3, lit all along, and a click reports it.
+        frame(vec![egui::Event::PointerMoved(over(6.5))], &mut console);
+        let cells = console.link.as_ref().map(|l| l.cells.clone()).unwrap_or_default();
+        assert_eq!(cells, (4..=13).map(|c| (0, c)).collect::<Vec<_>>(), "main.lua:3 lit");
+        frame(vec![button(over(6.5), true)], &mut console);
+        frame(vec![button(over(6.5), false)], &mut console);
+        let (file, line) = console.take_opened().expect("clicked");
+        assert!(file.ends_with("games/voxkeep/main.lua") && line == Some(3), "{file:?} {line:?}");
+        assert!(console.take_opened().is_none(), "once");
+    }
+
+    /// A path in a line of text: found under the column, with its line,
+    /// brackets and a full stop taken off.
+    #[test]
+    fn a_path_is_found_in_a_line() {
+        let chars = |s: &str| s.chars().collect::<Vec<_>>();
+        let found = |s: &str, at: usize| word_at(&chars(s), at).map(|w| (w.path, w.line));
+        let line = "Bild: /tmp/x/gras.png ok";
+        assert_eq!(found(line, 8), Some(("/tmp/x/gras.png".into(), None)));
+        assert_eq!(found(line, 20), Some(("/tmp/x/gras.png".into(), None)), "its last letter");
+        assert_eq!(found(line, 5), None, "on a space");
+        assert_eq!(found(line, 1), Some(("Bild".into(), None)), "a word before it: no colon kept");
+        assert_eq!(found("see main.lua:6", 6), Some(("main.lua".into(), Some(6))));
+        assert_eq!(found("see main.lua:6:12 now", 6), Some(("main.lua".into(), Some(6))), "the column is dropped");
+        assert_eq!(found("(see `src/a.rs:40`.)", 8), Some(("src/a.rs".into(), Some(40))), "brackets and quotes");
+        assert_eq!(found("(src/a.rs).", 0), None, "on the bracket");
+        assert_eq!(found("in main.lua.", 6), Some(("main.lua".into(), None)), "the full stop");
+        assert_eq!(found("main.lua:", 2), Some(("main.lua".into(), None)), "a colon at the end");
+        let w = word_at(&chars("x [a/b.png:3] y"), 4).unwrap();
+        assert_eq!((w.start, w.end), (3, 12), "the range of path and line");
+    }
+
+    /// A path names a file relative to the game folder or absolutely; only
+    /// if it exists, and inside the game folder or a picture.
+    #[test]
+    fn a_path_names_an_existing_file() {
+        let root = std::env::temp_dir().join(format!("voxcade-console-links-{}", std::process::id()));
+        let (game, other) = (root.join("game"), root.join("other"));
+        std::fs::create_dir_all(&game).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        for f in [game.join("main.lua"), other.join("pic.png"), other.join("notes.txt")] {
+            std::fs::write(f, "x").unwrap();
+        }
+        let canonical = |p: PathBuf| p.canonicalize().unwrap();
+        assert_eq!(resolve(&game, "main.lua"), Some(canonical(game.join("main.lua"))), "relative");
+        assert_eq!(resolve(&game, game.join("main.lua").to_str().unwrap()), Some(canonical(game.join("main.lua"))), "absolute");
+        assert_eq!(resolve(&game, "gone.lua"), None, "missing");
+        assert_eq!(resolve(&game, "."), None, "a folder");
+        assert_eq!(resolve(&game, other.join("pic.png").to_str().unwrap()), Some(canonical(other.join("pic.png"))), "a picture elsewhere");
+        assert_eq!(resolve(&game, other.join("notes.txt").to_str().unwrap()), None, "other files elsewhere");
+        assert_eq!(resolve(&game, "../other/notes.txt"), None, "out of the folder by dots");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// The MCP button names voxcade mcp in the game folder's .mcp.json,

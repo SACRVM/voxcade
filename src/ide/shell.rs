@@ -41,6 +41,10 @@ pub struct Shell {
     /// The open file as shown (loaded on the first frame it is open), and
     /// what it is when an editor opens it.
     shown: Option<Shown>,
+    /// A picture from outside the game folder shown instead of the open
+    /// file (one the agent made, clicked in the console): to look at, never
+    /// remembered as open.
+    outside: Option<PathBuf>,
     facts: Option<String>,
     /// How far down to scroll the file just opened, once.
     restore: Option<f32>,
@@ -167,7 +171,7 @@ impl Shell {
             memory.open = files.logic.iter().find(|f| *f == "main.lua").or(files.logic.first()).cloned();
         }
         let restore = memory.open.as_ref().and_then(|f| memory.scroll.get(f).copied());
-        Self { title, dir: dir.to_path_buf(), files, memory, memory_path, shown: None, facts: None, restore, console, level, edits: Vec::new(), message: None, cfg, preview: None, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, reported: None, output_saved: std::time::Instant::now() }
+        Self { title, dir: dir.to_path_buf(), files, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, cfg, preview: None, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, reported: None, output_saved: std::time::Instant::now() }
     }
 
     /// The IDE's settings kept at `path` (`Prefs::path`); the agent
@@ -328,6 +332,9 @@ impl Shell {
 
     /// Shows `path` (in the game folder) in the main area.
     pub fn open(&mut self, path: &str) {
+        if self.outside.take().is_some() {
+            self.unload();
+        }
         if self.memory.open.as_deref() == Some(path) {
             return;
         }
@@ -564,6 +571,28 @@ impl Shell {
         self.goto = line.map(|l| (l, false));
     }
 
+    /// A path clicked in the console (resolved by it: an existing file,
+    /// inside the game folder or a picture): a file of the game opens as a
+    /// click in the list opens it, at `line` if given; a picture from
+    /// elsewhere is shown to look at, the game's files untouched; what
+    /// else lies in the game folder is not opened.
+    pub fn open_from_console(&mut self, file: &Path, line: Option<usize>) {
+        let inside = self.dir.canonicalize().ok().and_then(|root| file.strip_prefix(root).ok().map(|r| r.to_string_lossy().replace('\\', "/")));
+        self.help = false;
+        match inside {
+            Some(path) if self.files.has(&path) => self.go_to(&path, line),
+            _ if file.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")) => {
+                self.flush();
+                self.hush();
+                self.hide_game();
+                self.outside = Some(file.to_path_buf());
+                self.unload();
+                self.restore = None;
+            }
+            _ => {}
+        }
+    }
+
     /// What the user sees, for the agent (`view_state`): the game, or the
     /// file open with its cursor, selection, changes and the line Lua
     /// cannot read.
@@ -573,7 +602,7 @@ impl Shell {
         if self.stage.as_ref().is_some_and(|s| s.shown) {
             return json!({ "area": "game", "game": game, "file": self.memory.open });
         }
-        let mut file = json!({ "path": self.memory.open });
+        let mut file = json!({ "path": self.outside.as_ref().map(|p| p.display().to_string()).or_else(|| self.memory.open.clone()) });
         match (&self.shown, &self.memory.open) {
             (Some(Shown::Code(buffer)), Some(path)) => {
                 let text = &buffer.code.text;
@@ -793,7 +822,7 @@ impl Shell {
         // bars sit at the edge.
         egui::Panel::left("files").default_size(250.0).frame(egui::Frame::new().fill(PANEL).inner_margin(egui::Margin { left: 14, right: 0, top: 12, bottom: 12 })).show(ui, |ui| {
             egui::ScrollArea::vertical().content_margin(egui::Margin { right: 6, ..egui::Margin::ZERO }).show(ui, |ui| {
-                let open = self.memory.open.clone();
+                let open = if self.outside.is_some() { None } else { self.memory.open.clone() };
                 // Each sort of file under its name, which opens and closes
                 // it: the logic, then the assets, the big groups closed at
                 // first.
@@ -882,6 +911,9 @@ impl Shell {
                         }
                     } else {
                         self.console.body(ui);
+                        if let Some((file, line)) = self.console.take_opened() {
+                            self.open_from_console(&file, line);
+                        }
                     }
                 }
             });
@@ -982,6 +1014,22 @@ impl Shell {
         }
         if self.help {
             return super::help::ui(ui, &mut self.help_topic);
+        }
+        if let Some(file) = self.outside.clone() {
+            if self.shown.is_none() {
+                self.shown = Some(load(&file, &file.to_string_lossy(), ui.ctx()));
+                self.facts = None;
+            }
+            ui.label(RichText::new(format!("{} (not a file of the game, to look at)", file.display())).color(QUIET));
+            ui.add_space(10.0);
+            egui::ScrollArea::both().id_salt("outside").auto_shrink([false, false]).content_margin(egui::Margin { right: 12, bottom: 14, ..egui::Margin::ZERO }).show(ui, |ui| match self.shown.as_ref() {
+                Some(Shown::Image(texture)) => picture(ui, texture),
+                Some(Shown::Note(note)) => {
+                    ui.label(RichText::new(note.as_str()).color(QUIET));
+                }
+                _ => {}
+            });
+            return;
         }
         let Some(path) = self.memory.open.clone() else {
             ui.label(RichText::new("Nothing here yet.").color(QUIET));
@@ -1145,13 +1193,7 @@ impl Shell {
                 let mut text = text.as_str();
                 ui.add(egui::TextEdit::multiline(&mut text).code_editor().frame(egui::Frame::NONE).desired_width(f32::INFINITY));
             }
-            Shown::Image(texture) => {
-                // Pixels as whole squares, as large as fit.
-                let size = texture.size_vec2();
-                let room = ui.available_size();
-                let scale = (room.x / size.x).min(room.y / size.y).floor().max(1.0);
-                ui.image((texture.id(), size * scale));
-            }
+            Shown::Image(texture) => picture(ui, texture),
             Shown::Note(note) => {
                 if !note.is_empty() {
                     ui.label(RichText::new(note.as_str()).color(QUIET));
@@ -1160,6 +1202,14 @@ impl Shell {
         });
         self.memory.scroll.insert(path, out.state.clamped_offset().y);
     }
+}
+
+/// A picture, its pixels as whole squares, as large as fit.
+fn picture(ui: &mut egui::Ui, texture: &egui::TextureHandle) {
+    let size = texture.size_vec2();
+    let room = ui.available_size();
+    let scale = (room.x / size.x).min(room.y / size.y).floor().max(1.0);
+    ui.image((texture.id(), size * scale));
 }
 
 /// A line of what a file an editor opens is (`level`: the game's level of
@@ -1261,6 +1311,43 @@ mod tests {
         assert!(matches!(shell.shown, Some(Shown::Note(_))) && shell.preview.is_some(), "a model: its picture");
         let _ = std::fs::remove_file(&memory);
         let _ = std::fs::remove_dir_all(memory.with_extension("journal"));
+    }
+
+    /// A path clicked in the console: a file of the game opens at its line,
+    /// a picture from elsewhere shows as a picture and is not remembered as
+    /// open, any other file elsewhere opens nothing.
+    #[test]
+    fn a_clicked_path_opens_in_the_main_area() {
+        let dir = Path::new("games/voxkeep");
+        let memory = std::env::temp_dir().join(format!("voxcade-shell-clicked-{}.toml", std::process::id()));
+        let _ = std::fs::remove_file(&memory);
+        let console = Console::new(dir.to_path_buf(), Start::Nothing, std::sync::Arc::new(|| {}));
+        let mut shell = Shell::new(dir, crate::session::config::<crate::Voxcade>(dir).unwrap(), memory.clone(), console);
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        let elsewhere = std::env::temp_dir().join(format!("voxcade-shell-clicked-{}", std::process::id()));
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        let png = elsewhere.join("gras.png");
+        std::fs::copy("games/pulsar/ground/height.png", &png).unwrap();
+        std::fs::write(elsewhere.join("notes.txt"), "x").unwrap();
+        shell.open_from_console(&png, None);
+        frame(&ctx, &mut shell);
+        assert!(matches!(shell.shown, Some(Shown::Image(_))), "the picture from outside");
+        assert_eq!(shell.opened(), Some("main.lua"), "the open file is still the game's");
+        shell.save().unwrap();
+        assert_eq!(Memory::load(&memory).open.as_deref(), Some("main.lua"), "only the game's files are remembered");
+        assert!(shell.state(&ctx)["file"]["path"].as_str().is_some_and(|p| p.ends_with("gras.png")), "the agent sees it");
+        shell.open_from_console(&elsewhere.join("notes.txt"), None);
+        assert!(shell.outside.is_some(), "another file elsewhere changes nothing");
+        // A file of the game: its text, at the line.
+        let main = Path::new("games/voxkeep/main.lua").canonicalize().unwrap();
+        shell.open_from_console(&main, Some(3));
+        frame(&ctx, &mut shell);
+        assert!(shell.outside.is_none() && matches!(shell.shown, Some(Shown::Code(_))), "main.lua again");
+        assert_eq!(shell.goto, None, "the line was gone to");
+        let _ = std::fs::remove_file(&memory);
+        let _ = std::fs::remove_dir_all(memory.with_extension("journal"));
+        let _ = std::fs::remove_dir_all(&elsewhere);
     }
 
     /// A text opens with its cursor where it stood last time; the
