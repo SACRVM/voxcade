@@ -301,9 +301,30 @@ pub fn pad_held(pad: &Gamepad, name: &str) -> bool {
     }
 }
 
+/// Which keys are down: the keyboard, or the keyboard with keys held
+/// besides by another session driving the IDE (`ide::remote`).
+pub trait KeyState {
+    fn pressed(&self, key: Scancode) -> bool;
+}
+
+impl KeyState for KeyboardState<'_> {
+    fn pressed(&self, key: Scancode) -> bool {
+        self.is_scancode_pressed(key)
+    }
+}
+
+/// The keyboard's keys and these besides.
+pub struct WithHeld<'a>(pub &'a KeyboardState<'a>, pub &'a [Scancode]);
+
+impl KeyState for WithHeld<'_> {
+    fn pressed(&self, key: Scancode) -> bool {
+        self.0.is_scancode_pressed(key) || self.1.contains(&key)
+    }
+}
+
 /// What the player holds: moving on the arrows and WASD, the d-pad and the
 /// left stick; the rest as the settings bind it.
-pub fn read_input(keys: Option<&KeyboardState>, pads: &[Gamepad], settings: &crate::settings::Settings, actions: &[&str]) -> crate::input::Input {
+pub fn read_input(keys: Option<&dyn KeyState>, pads: &[Gamepad], settings: &crate::settings::Settings, actions: &[&str]) -> crate::input::Input {
     read_seat(keys, crate::seating::Keys::Whole, &pads.iter().collect::<Vec<_>>(), &settings.pad, settings, actions)
 }
 
@@ -311,11 +332,11 @@ pub fn read_input(keys: Option<&KeyboardState>, pads: &[Gamepad], settings: &cra
 /// of the keyboard (`half`: all of it as the settings bind it, moving on
 /// the arrows and WASD; a half by its own keys, its directions too) and
 /// its pads by their buttons (`pad`, `Settings::pad_of`).
-pub fn read_seat(keys: Option<&KeyboardState>, half: crate::seating::Keys, pads: &[&Gamepad], pad: &Bindings, settings: &crate::settings::Settings, actions: &[&str]) -> crate::input::Input {
+pub fn read_seat(keys: Option<&dyn KeyState>, half: crate::seating::Keys, pads: &[&Gamepad], pad: &Bindings, settings: &crate::settings::Settings, actions: &[&str]) -> crate::input::Input {
     use crate::seating::Keys;
     // (No keyboard: the pads alone, while the keys are elsewhere.)
     let keys = keys.filter(|_| half != Keys::Nothing);
-    let held = |c: Scancode| keys.is_some_and(|k| k.is_scancode_pressed(c));
+    let held = |c: Scancode| keys.is_some_and(|k| k.pressed(c));
     let own = settings.keys_of(half);
     let named = |names: &[String]| names.iter().filter_map(|n| Scancode::from_name(n)).any(held);
     let any = |codes: &[Scancode], way: &str| match half {

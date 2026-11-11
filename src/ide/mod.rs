@@ -19,6 +19,7 @@ mod prefs;
 pub use prefs::is_notes_file;
 mod preview;
 mod projects;
+mod remote;
 mod shell;
 mod templates;
 mod terminal;
@@ -61,10 +62,11 @@ enum Editing {
 
 /// Why a call may not be answered, if it may not: typing into the console
 /// is running commands in the user's shell, past the agent's permission
-/// prompts, so the console's tools are only for an IDE started with
+/// prompts, and the pointer and keys are a person's hands, so these tools
+/// (the console's, and `remote::TOOLS`) are only for an IDE started with
 /// `--remote` (another session's, testing), never the game's own agent.
 fn refused(tool: &str, remote: bool) -> Option<String> {
-    (matches!(tool, "console_send" | "console_read") && !remote).then(|| format!("{tool} is not allowed: the IDE was not started with --remote (voxcade ide <game> --remote)"))
+    ((matches!(tool, "console_send" | "console_read") || remote::TOOLS.contains(&tool)) && !remote).then(|| format!("{tool} is not allowed: the IDE was not started with --remote (voxcade ide <game> --remote)"))
 }
 
 /// The most lines `console_read` gives, and what it gives without being
@@ -75,10 +77,14 @@ const READ_LINES: usize = 200;
 /// Answers a call of the agent's (`voxcade mcp`, through the bridge): what
 /// the user sees, a file shown, the game played, stopped or looked at; with
 /// `remote` the console too.
-fn answer<G: Game>(call: bridge::Call, shell: &mut Shell, ctx: &egui::Context, play: Option<&mut Play<G>>, screen: &crate::window::Screen, remote: bool) {
+fn answer<G: Game>(call: bridge::Call, shell: &mut Shell, ctx: &egui::Context, play: Option<&mut Play<G>>, screen: &crate::window::Screen, remote: bool, hands: (&mut remote::Remote, &[remote::WindowInfo])) {
     use serde_json::json;
     if let Some(why) = refused(&call.tool, remote) {
         return call.fail(&why);
+    }
+    // The windows' tools: the pointer, the keys, pictures of the windows.
+    if remote::TOOLS.contains(&call.tool.as_str()) {
+        return hands.0.submit(call, hands.1);
     }
     let text = |t: String| json!({ "type": "text", "text": t });
     let text_of = text;
@@ -236,6 +242,25 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
     crate::headless::write_png(&opts.out, opts.width, opts.height, &pixels)?;
     println!("{}: {} open", opts.out.display(), shell.opened().unwrap_or("nothing"));
     Ok(())
+}
+
+/// The IDE's windows as the remote tools list them: the main one first,
+/// then the editors'.
+fn window_infos(screen: &crate::window::Screen, editors: &[(Editing, crate::editor::EditorWindow)]) -> Vec<remote::WindowInfo> {
+    let main = remote::WindowInfo {
+        id: screen.window.id(),
+        title: screen.window.title().to_string(),
+        width: screen.config.width,
+        height: screen.config.height,
+        density: screen.window.pixel_density(),
+        keyboard: screen.window.has_input_focus(),
+        main: true,
+    };
+    let others = editors.iter().map(|(_, e)| {
+        let (title, width, height, density, keyboard) = e.info();
+        remote::WindowInfo { id: e.id(), title, width, height, density, keyboard, main: false }
+    });
+    std::iter::once(main).chain(others).collect()
 }
 
 /// What the IDE's window shows next: a game, the start page (saying what
@@ -411,7 +436,7 @@ fn start_page(window: &mut Window, message: Option<String>) -> Result<Next> {
         }
         let delay = out.viewport_output.get(&egui::ViewportId::ROOT).map_or(Duration::MAX, |v| v.repaint_delay);
         repaint_at = Instant::now().checked_add(delay);
-        if !present(screen, painter, ctx, out, size) {
+        if !present(screen, painter, ctx, out, size, false).0 {
             repaint_at = Some(Instant::now());
         }
     }
@@ -474,20 +499,23 @@ fn platform(platform: &egui::PlatformOutput, cursor: &mut (egui::CursorIcon, Opt
 }
 
 /// Paints egui's frame `out` onto the window; false when the window's
-/// surface had to be set up anew (another frame is due).
-fn present(screen: &mut crate::window::Screen, painter: &mut Painter, ctx: &egui::Context, out: egui::FullOutput, size: [u32; 2]) -> bool {
+/// surface had to be set up anew (another frame is due). With `capture`
+/// the frame is also read back, as PNG bytes, before it is shown (none if
+/// the window was not drawn).
+fn present(screen: &mut crate::window::Screen, painter: &mut Painter, ctx: &egui::Context, out: egui::FullOutput, size: [u32; 2], capture: bool) -> (bool, Option<Result<Vec<u8>, String>>) {
     match screen.surface.get_current_texture() {
         wgpu::CurrentSurfaceTexture::Success(texture) | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
             let view = texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
             painter.paint(&screen.device, &screen.queue, &view, ctx, out, size);
+            let picture = capture.then(|| screen.picture(&texture.texture).map_err(|e| format!("{e:#}")));
             screen.queue.present(texture);
-            true
+            (true, picture)
         }
         wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
             screen.surface.configure(&screen.device, &screen.config);
-            false
+            (false, None)
         }
-        _ => true,
+        _ => (true, None),
     }
 }
 
@@ -514,6 +542,9 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
     // another session, `remote`).
     let mut play: Option<Play<G>> = None;
     let mut focused = true;
+    // Another session's hands (`--remote`): its pointer, keys and pictures
+    // of the windows.
+    let mut hands = remote::Remote::new(sdl.event().context("SDL events")?.event_sender());
     // A song played from its file (PLAY over a .mml), through a speaker of
     // its own while it plays.
     let mut song: Option<crate::audio::Speaker> = None;
@@ -525,7 +556,7 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
         // (The editors' panels may want to be drawn again too.)
         // (And a pad plugged in opens once it has settled.)
         pads.settle();
-        let until = editors.iter().filter_map(|(_, e)| e.wakes_at()).chain(repaint_at).chain(pads.wakes_at()).fold(tick_at, Instant::min);
+        let until = editors.iter().filter_map(|(_, e)| e.wakes_at()).chain(repaint_at).chain(pads.wakes_at()).chain(hands.wakes_at(Instant::now())).fold(tick_at, Instant::min);
         let timeout = until.saturating_duration_since(Instant::now());
         let first = if timeout.is_zero() { events.poll_event() } else { events.wait_event_timeout(timeout.max(Duration::from_millis(1))) };
         woken.store(false, Ordering::Release);
@@ -533,9 +564,11 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
         // Whether something happened that the IDE's window shows.
         let mut happened = false;
         for event in first.into_iter().chain(events.poll_iter().collect::<Vec<_>>()) {
+            // A real mouse takes the synthetic pointer's mark away.
+            hands.saw(&event);
             // An editor's window takes its own events; closed, it goes.
             if let Route::Editor(id) = route(&event, screen.window.id()) {
-                let shift = crate::editor::shift_held(events);
+                let shift = crate::editor::shift_held(events) || hands.shift();
                 if let Some(i) = editors.iter().position(|(_, e)| e.id() == id)
                     && !editors[i].1.handle(&event, shift)
                 {
@@ -652,9 +685,28 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
             }
         }
         // What the agent asks through the bridge.
-        for call in bridge.as_ref().map(bridge::Bridge::calls).unwrap_or_default() {
+        let calls = bridge.as_ref().map(bridge::Bridge::calls).unwrap_or_default();
+        let windows = if remote && (!calls.is_empty() || hands.busy()) { window_infos(screen, &editors) } else { Vec::new() };
+        for call in calls {
             happened = true;
-            answer(call, &mut shell, ctx, play.as_mut(), screen, remote);
+            answer(call, &mut shell, ctx, play.as_mut(), screen, remote, (&mut hands, &windows));
+        }
+        // The pointer, keys and pictures another session asked for: the
+        // next step of its call, and the marks and pictures asked of the
+        // windows.
+        let capture = if hands.busy() {
+            let now = Instant::now();
+            hands.run(now, &windows);
+            happened = true;
+            hands.capturing(now)
+        } else {
+            None
+        };
+        for (_, editor) in &mut editors {
+            editor.set_marker(hands.marker(editor.id()));
+            if let Some((_, late)) = capture.filter(|c| c.0 == editor.id()) {
+                editor.want_picture(late);
+            }
         }
         // The text being changed saved when due, the disk looked at.
         let (changed, next) = shell.tick(Instant::now());
@@ -688,7 +740,14 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
         }
         let size = [screen.config.width, screen.config.height];
         let pixels_per_point = screen.window.display_scale();
-        let out = ctx.run_ui(input.take(size, pixels_per_point, screen.window.pixel_density()), |ui| shell.ui(ui));
+        let raw = input.take(size, pixels_per_point, screen.window.pixel_density());
+        let marker = hands.marker(screen.window.id()).map(|(x, y)| input.point(x, y));
+        let out = ctx.run_ui(raw, |ui| {
+            shell.ui(ui);
+            if let Some(tip) = marker {
+                crate::gui::marker::paint(ui.ctx(), tip);
+            }
+        });
         // The open file's picture, drawn anew if it changed (shown from the
         // next frame on when it is new).
         let pictured = shell.render(&screen.device, &screen.queue, &mut painter.renderer);
@@ -756,7 +815,10 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
                 Some(size) => {
                     // The pads always, the keyboard while the game has it.
                     let state = events.keyboard_state();
-                    let held = p.read(keys.then_some(&state), &pads.open);
+                    // (And the keys another session holds down for it.)
+                    let extra = hands.held(Instant::now());
+                    let with = crate::controls::WithHeld(&state, &extra);
+                    let held = p.read(keys.then_some(&with), &pads.open);
                     stage.picture = Some(p.frame(&screen.device, &screen.queue, &mut painter.renderer, size, &held));
                     stage.trouble = p.trouble();
                     running = true;
@@ -832,10 +894,21 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
             if let Err(e) = editor.draw() {
                 shell.tell(format!("{e:#}"));
             }
+            if let Some(picture) = editor.take_picture() {
+                hands.captured(editor.id(), picture);
+            }
         }
 
-        if !present(screen, painter, ctx, out, size) {
+        // A picture of this window asked for: taken once the frame is
+        // settled (egui wants no frame at once), or as it is when it has
+        // waited long.
+        let take = capture.is_some_and(|(id, late)| id == screen.window.id() && (late || (!delay.is_zero() && !pictured)));
+        let (shown, picture) = present(screen, painter, ctx, out, size, take);
+        if !shown {
             repaint_at = Some(Instant::now());
+        }
+        if let Some(picture) = picture {
+            hands.captured(screen.window.id(), picture);
         }
     };
     // Leaving the game: the text being changed saved, the run being played
@@ -863,7 +936,7 @@ mod tests {
     /// `--remote`; the other tools never wait on it.
     #[test]
     fn the_console_tools_need_remote() {
-        for tool in ["console_send", "console_read"] {
+        for tool in ["console_send", "console_read", "windows", "window_shot", "pointer", "scroll", "keys"] {
             let why = refused(tool, false).expect("refused without --remote");
             assert!(why.contains("--remote"), "{why}");
             assert_eq!(refused(tool, true), None);

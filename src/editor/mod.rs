@@ -234,6 +234,13 @@ pub struct EditorWindow {
     /// to be drawn again (None: only after an event).
     dirty: bool,
     repaint_at: Option<Instant>,
+    /// Another session driving the IDE (`ide::remote`): where its pointer
+    /// is (the window's points; an arrow is drawn there), a picture of the
+    /// window asked for (`Some(late)`: also if the panels are not settled)
+    /// and the one drawn.
+    marker: Option<(f32, f32)>,
+    capture: Option<bool>,
+    picture: Option<Result<Vec<u8>, String>>,
 }
 
 impl EditorWindow {
@@ -283,6 +290,9 @@ impl EditorWindow {
             drawn_at: None,
             dirty: true,
             repaint_at: None,
+            marker: None,
+            capture: None,
+            picture: None,
         })
     }
 
@@ -294,6 +304,34 @@ impl EditorWindow {
     /// Its window's SDL id: the events that are its.
     pub fn id(&self) -> u32 {
         self.screen.window.id()
+    }
+
+    /// Its title, size in pixels, pixels to one of SDL's points (the
+    /// mouse's) and whether it has the keyboard.
+    pub fn info(&self) -> (String, u32, u32, f32, bool) {
+        (self.screen.window.title().to_string(), self.screen.config.width, self.screen.config.height, self.screen.window.pixel_density(), self.screen.window.has_input_focus())
+    }
+
+    /// Where a synthetic pointer is (SDL's points), if it is.
+    pub fn set_marker(&mut self, at: Option<(f32, f32)>) {
+        if self.marker != at {
+            self.marker = at;
+            self.dirty = true;
+        }
+    }
+
+    /// A picture of the window is wanted of the next frame drawn (`late`:
+    /// even if the panels are still moving).
+    pub fn want_picture(&mut self, late: bool) {
+        if self.capture != Some(late) {
+            self.capture = Some(late);
+            self.dirty = true;
+        }
+    }
+
+    /// The picture asked for, once drawn (PNG bytes), or why not.
+    pub fn take_picture(&mut self) -> Option<Result<Vec<u8>, String>> {
+        self.picture.take()
     }
 
     /// Brings the window to the front.
@@ -469,7 +507,13 @@ impl EditorWindow {
         let size = [screen.config.width, screen.config.height];
         let raw = input.take(size, screen.window.display_scale(), screen.window.pixel_density());
         let mut drawn = panels::Shown::default();
-        let out = gui.run_ui(raw, |ui| drawn = panels::ui(ui, ed, view, figures, thumbs));
+        let marker = self.marker.map(|(x, y)| input.point(x, y));
+        let out = gui.run_ui(raw, |ui| {
+            drawn = panels::ui(ui, ed, view, figures, thumbs);
+            if let Some(tip) = marker {
+                crate::gui::marker::paint(ui.ctx(), tip);
+            }
+        });
         let acted = !drawn.clicked.is_empty();
         for action in drawn.clicked {
             view::act(ed, view, action);
@@ -477,6 +521,8 @@ impl EditorWindow {
         view.inset = inset(&drawn.rects, gui.content_rect());
         (*keys, *rects) = (drawn.keys, drawn.rects);
         let delay = out.viewport_output.get(&egui::ViewportId::ROOT).map_or(Duration::MAX, |v| v.repaint_delay);
+        // A picture asked for is taken once the panels have settled.
+        let capture = self.capture.is_some_and(|late| late || (!acted && !delay.is_zero()));
         // A click changes what the panels show: once more at once.
         self.repaint_at = if acted { Some(Instant::now()) } else { Instant::now().checked_add(delay) };
 
@@ -496,6 +542,10 @@ impl EditorWindow {
                 renderer.render(&screen.device, &screen.queue, &mut encoder, &target, &frame);
                 screen.queue.submit([encoder.finish()]);
                 painter.paint(&screen.device, &screen.queue, &target, gui, out, size);
+                if capture {
+                    self.capture = None;
+                    self.picture = Some(screen.picture(&texture.texture).map_err(|e| format!("{e:#}")));
+                }
                 screen.queue.present(texture);
             }
             wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {

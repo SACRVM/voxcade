@@ -6,9 +6,12 @@
 It speaks MCP to `voxcade mcp --remote` in the game folder, which passes
 the call on to the IDE there (`voxcade ide GAME_DIR --remote`). Tools:
 view_state, open, game_frame, errors, play, stop, eval, and with --remote
-console_send (a prompt for the agent in the IDE's console) and
-console_read (what the console shows). A picture is written beside the
-game's folder name in the current directory and its path printed.
+console_send (a prompt for the agent in the IDE's console),
+console_read (what the console shows), windows, window_shot, pointer,
+scroll and keys (a picture of a window, a synthetic mouse and keyboard:
+`pointer '{"x": 100, "y": 40}'`, `keys '{"keys": "ctrl+s"}'`). A picture is
+written beside the game's folder name in the current directory and its
+path printed.
 """
 import base64
 import json

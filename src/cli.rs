@@ -151,9 +151,10 @@ ide   opens the IDE on a game (docs/ide.md): its logic and assets on the
       help:N its topic N; --console: CMD run in the console, waited
       for; --play: the game played in the main area, TICKS in, or with
       --open held behind the file; default 1920x1080). --remote lets
-      another session type into the console and read it (`voxcade mcp
-      --remote`: console_send, console_read); without it the IDE
-      refuses both.
+      another session type into the console and read it, and use the
+      IDE's windows as a person does (`voxcade mcp --remote`:
+      console_send, console_read, windows, window_shot, pointer,
+      scroll, keys); without it the IDE refuses them all.
 api   lists the Lua API (the names containing NAME); --lua writes the
       definitions for editors (LuaLS: completion and checks) to FILE,
       lua/voxcade.lua beside the program.
@@ -163,9 +164,11 @@ kinds prints the game's kinds of things and weapons with every number in
 mcp   serves the engine's tools to an agent over MCP on stdin/stdout:
       shot (a frame as an image), check, run, things, api. Claude Code:
         claude mcp add voxcade -- /path/to/voxcade mcp
-      --remote adds console_send and console_read: type into the IDE's
-      console and read it, for a session testing the agent there (run
-      the IDE with --remote too; never in the game's own .mcp.json).
+      --remote adds console_send and console_read (type into the IDE's
+      console and read it) and windows, window_shot, pointer, scroll,
+      keys (pictures of the IDE's windows, a synthetic mouse and
+      keyboard), for a session testing the IDE (run the IDE with
+      --remote too; never in the game's own .mcp.json).
 film  renders a replay as a video with its music and sounds (.mp4: H.264
       and AAC, plays everywhere; .webm: VP9 and Opus; through ffmpeg) or
       as a GIF without sound (built in). --from/--to cut it (seconds),

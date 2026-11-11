@@ -196,7 +196,16 @@ nearest; its replay `tests/two_ships`);
   and without this session's marks, or the console shows another shell
   and Claude Code keeps no transcript: `env -u CLAUDE_CODE_CHILD_SESSION
   SHELL=/bin/fish voxcade ide <game> --remote` (a window on the user's
-  desktop: say so).
+  desktop: say so). The same channel gives the IDE a person's hands
+  (`ide/remote.rs`): `windows` (ids, titles, sizes), `window_shot` (a
+  PNG of any window, the main one or an editor's, as drawn now, after a
+  tooltip's delay if the pointer rests), `pointer` (move, click,
+  double_click, press, release, drag; buttons, modifiers), `scroll` and
+  `keys` (a chord, or `text`; `hold_ms` holds it for the game too). The
+  input is real SDL events pushed into SDL's queue with the window's id
+  (mouse id `SYNTHETIC`, so a real mouse takes the arrow marking the
+  synthetic pointer away); x and y are pixels in that window's picture.
+  Click the game once for it to have the keys, as a person would.
 - Levels of voxel blocks (`docs/tiles.md`): `voxcade import <game>
   <tiled-map.json>` brings a Tiled map in once (Tiled draws in 2D: it is
   only a way in); `voxcade edit <game>` opens the editor in a window (the
@@ -267,8 +276,11 @@ nearest; its replay `tests/two_ships`);
   recorded as in `voxcade run`; a script's error with
   TO THE LINE, the line marked in the file until mended); `--shot
   --play TICKS` draws it (with `--open` the file over the game held).
-  The scenarios under a heading of their own below the logic, always
-  there (NEW SCENARIO a file to fill in), PLAY SCENARIO over one plays
+  The headings LOGIC, SCENARIOS, MODELS and MUSIC are always there, each with a plus
+  left of the arrow: a name typed in place makes a small Lua file, scenario,
+  model or song to change (`Shell::make_file`; no leaving the IDE for a first
+  file). The scenarios under a heading of their own below the logic, always
+  there (a plus in the heading names a new one), PLAY SCENARIO over one plays
   the game from it (F5 begins it again); while the game plays, a line
   under OUTPUT runs Lua in it (the console), its answer in OUTPUT.
   Songs play from the main area (PLAY SONG). Reading the keys

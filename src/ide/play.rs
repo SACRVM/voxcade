@@ -127,7 +127,7 @@ impl<G: Game> Play<G> {
 
     /// What seat 1 holds now, the other seats' set on the game for the
     /// ticks to come (`keys`: the keyboard, while the game has it).
-    pub fn read(&mut self, keys: Option<&sdl3::keyboard::KeyboardState>, pads: &[sdl3::gamepad::Gamepad]) -> crate::input::Input {
+    pub fn read(&mut self, keys: Option<&dyn crate::controls::KeyState>, pads: &[sdl3::gamepad::Gamepad]) -> crate::input::Input {
         use crate::seating::Keys;
         let seating = &self.seating;
         if seating.alone() {

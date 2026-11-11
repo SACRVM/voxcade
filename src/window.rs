@@ -80,6 +80,9 @@ impl Screen {
         config.format = format;
         config.present_mode = present_mode;
         config.desired_maximum_frame_latency = 1;
+        // Readable, so another session driving the IDE can be handed a
+        // picture of a window (`Screen::picture`).
+        config.usage |= caps.usages & wgpu::TextureUsages::COPY_SRC;
         surface.configure(&device, &config);
         Ok(Self { surface, device, queue, config, window, gpu })
     }
@@ -111,6 +114,35 @@ impl Screen {
     pub fn share(&self, x: f32, y: f32) -> (f32, f32) {
         let (w, h) = self.window.size();
         (x / w.max(1) as f32, y / h.max(1) as f32)
+    }
+
+    /// The window's frame in `texture` (the surface's, drawn but not yet
+    /// presented) as PNG bytes.
+    pub fn picture(&self, texture: &wgpu::Texture) -> Result<Vec<u8>> {
+        if !texture.usage().contains(wgpu::TextureUsages::COPY_SRC) {
+            bail!("this system's window cannot be read back");
+        }
+        use wgpu::TextureFormat as F;
+        let format = self.config.format;
+        if !matches!(format, F::Rgba8Unorm | F::Rgba8UnormSrgb | F::Bgra8Unorm | F::Bgra8UnormSrgb | F::Rgb10a2Unorm) {
+            bail!("a window of format {format:?} cannot be read back");
+        }
+        let mut rgba = crate::headless::read_texture(&self.device, &self.queue, texture)?;
+        for px in rgba.as_chunks_mut::<4>().0 {
+            match format {
+                F::Bgra8Unorm | F::Bgra8UnormSrgb => px.swap(0, 2),
+                // Ten bits to a colour, red lowest.
+                F::Rgb10a2Unorm => {
+                    let v = u32::from_le_bytes([px[0], px[1], px[2], px[3]]);
+                    for (i, c) in px[..3].iter_mut().enumerate() {
+                        *c = (((v >> (10 * i)) & 0x3ff) >> 2) as u8;
+                    }
+                }
+                _ => {}
+            }
+            px[3] = 255;
+        }
+        crate::headless::png_bytes(texture.width(), texture.height(), &rgba)
     }
 
     /// Draws a frame and shows it.

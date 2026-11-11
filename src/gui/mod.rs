@@ -6,6 +6,7 @@
 
 pub mod fonts;
 pub mod input;
+pub mod marker;
 
 use egui::{Color32, FontId, TextStyle};
 
