@@ -1,9 +1,9 @@
 //! BUILD: the game as one zip file for this system, to pass on: the
 //! program (this one), the game folder beside it under `games/`, a
 //! launcher to double-click and a short README, all in a folder named for
-//! the game. Left out: hidden files (the editors' and agents' settings)
-//! and the scripted regression runs (`replays/tests/`); the replays the
-//! title plays stay. Unsigned (macOS asks once, as the README says).
+//! the game. Left out: hidden files (the editors' and agents' settings),
+//! the scripted regression runs (`replays/tests/`) and earlier builds
+//! (`builds/`); the replays the title plays stay. Unsigned (macOS asks once, as the README says).
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -22,9 +22,17 @@ fn system() -> &'static str {
 }
 
 /// Where the build of the game in `dir` goes: `builds/<game>-<system>.zip`
-/// in the folder the IDE runs in.
+/// in the game's own folder (a new game's `.gitignore` leaves it out; the
+/// list and the next build leave it out too).
 pub fn out_path(dir: &Path) -> PathBuf {
-    PathBuf::from("builds").join(format!("{}-{}.zip", crate::settings::game_name(dir), system()))
+    dir.join("builds").join(format!("{}-{}.zip", crate::settings::game_name(dir), system()))
+}
+
+/// Opens the folder `zip` lies in in the system's file manager.
+pub fn show_in_folder(zip: &Path) {
+    if let Some(folder) = zip.parent() {
+        crate::update::show(&folder.to_string_lossy());
+    }
 }
 
 /// Packs the game in `dir` (called `title`) with the program at `program`
@@ -90,13 +98,13 @@ fn readme(title: &str, name: &str, launcher: &str) -> String {
 }
 
 /// The files under `dir/prefix` a build takes, their paths from `dir`:
-/// not hidden, not the regression runs, not an agent's notes.
+/// not hidden, not the regression runs, not earlier builds, not an agent's notes.
 fn walk(dir: &Path, prefix: &str, out: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir.join(prefix)) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         let path = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
-        if name.starts_with('.') || path == "replays/tests" || (prefix.is_empty() && super::is_notes_file(&name)) {
+        if name.starts_with('.') || path == "replays/tests" || path == "builds" || (prefix.is_empty() && super::is_notes_file(&name)) {
             continue;
         }
         match entry.file_type() {
@@ -110,6 +118,22 @@ fn walk(dir: &Path, prefix: &str, out: &mut Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The build goes into the game's own folder, and a build does not pack
+    /// the builds before it.
+    #[test]
+    fn a_build_lands_in_the_games_folder_and_is_not_packed_again() {
+        let dir = std::env::temp_dir().join(format!("voxcade-export-where-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("builds")).unwrap();
+        std::fs::write(dir.join("main.lua"), "x").unwrap();
+        std::fs::write(dir.join("builds/old.zip"), "x").unwrap();
+        assert_eq!(out_path(&dir).parent(), Some(dir.join("builds").as_path()));
+        let mut files = Vec::new();
+        walk(&dir, "", &mut files);
+        assert_eq!(files, ["main.lua"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// The agent's notes at the top of a game folder are not packed (a file
     /// by that name deeper down is the game's).

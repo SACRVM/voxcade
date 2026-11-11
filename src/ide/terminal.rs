@@ -8,7 +8,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
@@ -80,6 +80,8 @@ struct Shared {
     ended: AtomicBool,
     /// Text the program asked to put on the clipboard (OSC 52).
     copies: Mutex<Vec<String>>,
+    /// How many times output arrived (what a folded console shows quietly).
+    arrivals: AtomicU64,
     wake: Box<dyn Fn() + Send + Sync>,
 }
 
@@ -97,6 +99,9 @@ impl EventListener for Listener {
             }
             Event::ClipboardStore(_, text) => self.0.copies.lock().expect("copies").push(text),
             Event::Exit => self.0.ended.store(true, Ordering::Release),
+            Event::Wakeup => {
+                self.0.arrivals.fetch_add(1, Ordering::Relaxed);
+            }
             _ => {}
         }
         (self.0.wake)();
@@ -136,7 +141,7 @@ impl Terminal {
         let shell = Some(pty.child().id());
         #[cfg(not(unix))]
         let shell = None;
-        let shared = Arc::new(Shared { sender: OnceLock::new(), ended: AtomicBool::new(false), copies: Mutex::default(), wake: Box::new(wake) });
+        let shared = Arc::new(Shared { sender: OnceLock::new(), ended: AtomicBool::new(false), copies: Mutex::default(), arrivals: AtomicU64::new(0), wake: Box::new(wake) });
         let term = Arc::new(FairMutex::new(Term::new(Config::default(), &size, Listener(shared.clone()))));
         let reader = EventLoop::new(term.clone(), Listener(shared.clone()), pty, true, false).context("the console's reader")?;
         let sender = reader.channel();
@@ -186,6 +191,12 @@ impl Terminal {
             return Some(false);
         }
         foreground_job(self.shell?)
+    }
+
+    /// How many times output has arrived since the start: it changes when
+    /// the program wrote something new.
+    pub fn arrivals(&self) -> u64 {
+        self.shared.arrivals.load(Ordering::Relaxed)
     }
 
     /// The text the program asked to copy since last asked.

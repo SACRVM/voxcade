@@ -17,8 +17,13 @@ pub struct Memory {
     pub scroll: BTreeMap<String, f32>,
     /// Where the cursor stood in each text, in characters from its start.
     pub cursor: BTreeMap<String, usize>,
-    /// The console folded away to its heading.
+    /// The console folded away to its heading. A game opened for the first
+    /// time (no memory of it yet) has it folded: the IDE starts it so
+    /// (`Shell::new`); what the user does with it is kept from then on.
     pub console_folded: bool,
+    /// How high the user dragged the console, in points (None: as the IDE
+    /// first sets it).
+    pub console_height: Option<f32>,
 }
 
 impl Memory {

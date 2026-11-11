@@ -2,8 +2,8 @@
 //! text files they `read`), its scenarios (`scenarios/NAME.lua`: runs
 //! begun late, to try things) and its assets in a few groups (the level,
 //! models, blocks, images, sounds, music, the rest; the models, sounds and
-//! music listed even when empty). Hidden files and the recorded
-//! runs (`replays/`) are left out.
+//! music listed even when empty). Hidden files, the recorded runs
+//! (`replays/`) and what BUILD made (`builds/`) are left out.
 
 use std::path::Path;
 
@@ -33,10 +33,23 @@ const DEPTH: usize = 5;
 
 impl Files {
     /// The game folder `dir` as the IDE lists it.
+    #[cfg(test)]
     pub fn scan(dir: &Path) -> Self {
+        Self::from_names(dir, Self::names(dir))
+    }
+
+    /// The names of the folder's files as the list would show them, sorted:
+    /// no reading of any file, so cheap enough to look at every second to
+    /// see whether `scan` has anything new to say.
+    pub fn names(dir: &Path) -> Vec<String> {
         let mut all = Vec::new();
         walk(dir, "", 0, &mut all);
         all.sort();
+        all
+    }
+
+    /// The folder's files as the IDE lists them, from their `names`.
+    pub fn from_names(dir: &Path, all: Vec<String>) -> Self {
         let scripts: Vec<String> = all.iter().filter(|f| f.ends_with(".lua")).filter_map(|f| std::fs::read_to_string(dir.join(f)).ok()).collect();
         let read_by_a_script = |f: &str| scripts.iter().any(|s| s.contains(&format!("read(\"{f}\")")) || s.contains(&format!("read('{f}')")));
         let mut files = Files::default();
@@ -108,7 +121,7 @@ fn walk(dir: &Path, prefix: &str, depth: usize, out: &mut Vec<String>) {
         let path = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
         match entry.file_type() {
             Ok(t) if t.is_dir() => {
-                if depth + 1 < DEPTH && !(prefix.is_empty() && name == "replays") {
+                if depth + 1 < DEPTH && !(prefix.is_empty() && (name == "replays" || name == "builds")) {
                     walk(dir, &path, depth + 1, out);
                 }
             }

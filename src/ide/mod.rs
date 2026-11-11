@@ -177,6 +177,11 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
     let brought = G::sounds(&cfg);
     let mut shell = Shell::new(dir, cfg, std::env::temp_dir().join(format!("voxcade-ide-shot-{}.toml", std::process::id())), console).with_sounds(brought);
     shell.animate = false;
+    // A command run in the console is meant to be seen: unfolded (else a
+    // shot shows a game's console as a game opens, folded).
+    if opts.console.is_some() {
+        shell.unfold_console();
+    }
     // `--open help` shows HELP as it opens, at every name of the API
     // (`help:N` the example N, from 1); anything else is a file.
     match opts.open.as_deref().and_then(|o| o.strip_prefix("help")) {
@@ -211,7 +216,7 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
             if play.is_none() {
                 let mut p = Play::<G>::start(dir, device, queue, None, None)?;
                 p.step(ticks, &crate::input::Input::default());
-                shell.stage = Some(Stage { shown: opts.open.is_none(), trouble: p.trouble(), ..Stage::default() });
+                shell.stage = Some(Stage { shown: opts.open.is_none(), trouble: p.trouble(), unloaded: p.unloaded(), ..Stage::default() });
                 play = Some(p);
             }
             if let (Some(p), Some(stage)) = (&mut play, &mut shell.stage)
@@ -220,6 +225,7 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
                 let first = stage.picture.is_none();
                 stage.picture = Some(p.draw(device, queue, &mut painter.renderer, size));
                 stage.trouble = p.trouble();
+                stage.unloaded = p.unloaded();
                 settled &= !first;
             }
         }
@@ -561,6 +567,9 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
     // the open text is due to be saved or looked at on disk.
     let mut repaint_at = Some(Instant::now());
     let mut tick_at = Instant::now();
+    // While the game would not start: its files watched, so the red line
+    // goes once they are mended.
+    let mut start_watch: Option<crate::watch::FolderWatch> = None;
     let next = 'project: loop {
         // (The editors' panels may want to be drawn again too.)
         // (And a pad plugged in opens once it has settled.)
@@ -734,11 +743,25 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
         // meanwhile, looked for a few times a second: the line marked goes
         // once the file is mended.
         if let (Some(p), Some(stage)) = (&mut play, &mut shell.stage)
-            && stage.trouble.is_some()
+            && (stage.trouble.is_some() || stage.unloaded.is_some())
             && !(stage.shown && (focused || remote))
         {
             if p.reload(&screen.device, &screen.queue) {
                 stage.trouble = p.trouble();
+                stage.unloaded = p.unloaded();
+                happened = true;
+            }
+            tick_at = tick_at.min(Instant::now() + Duration::from_millis(250));
+        }
+        // A game that would not start, its files changed: begun in the
+        // background to see (no window); the red line goes if it would.
+        if !shell.start_failed() {
+            start_watch = None;
+        }
+        if let Some(watch) = &mut start_watch {
+            if !watch.poll().is_empty() && play::begins::<G>(dir).is_ok() {
+                shell.start_mended();
+                start_watch = None;
                 happened = true;
             }
             tick_at = tick_at.min(Instant::now() + Duration::from_millis(250));
@@ -770,8 +793,13 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
                     Ok(p) => {
                         play = Some(p);
                         shell.stage = Some(Stage { shown: true, ..Stage::default() });
+                        shell.start_mended();
+                        start_watch = None;
                     }
-                    Err(e) => shell.tell(format!("{e:#}")),
+                    Err(e) => {
+                        shell.wont_start(format!("{e:#}"));
+                        start_watch = Some(crate::watch::FolderWatch::new(dir));
+                    }
                 },
                 Ask::Stop => {
                     if let Some(mut p) = play.take() {
@@ -847,6 +875,7 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
                     let held = p.read(keys.then_some(&with), &pads.open);
                     stage.picture = Some(p.frame(&screen.device, &screen.queue, &mut painter.renderer, size, &held));
                     stage.trouble = p.trouble();
+                    stage.unloaded = p.unloaded();
                     running = true;
                 }
                 None => p.hold(),

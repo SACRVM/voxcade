@@ -32,6 +32,11 @@ pub struct Buffer {
     pub theirs: Option<String>,
     /// The text came back from the journal (a crash before it was saved).
     pub restored: bool,
+    /// The file is gone from the folder (the agent, or anything outside the
+    /// IDE, removed or renamed it): the text is kept here and nothing is
+    /// written, so the file does not come back by itself; `put_back` saves
+    /// it again.
+    pub gone: bool,
 }
 
 impl Buffer {
@@ -46,7 +51,7 @@ impl Buffer {
         let text = kept.unwrap_or_else(|| on_disk.clone());
         let stamp = modified(&file);
         let changed = restored.then(Instant::now);
-        Ok(Self { file, journal, code: Code::new(path, text), on_disk, stamp, changed, theirs: None, restored })
+        Ok(Self { file, journal, code: Code::new(path, text), on_disk, stamp, changed, theirs: None, restored, gone: false })
     }
 
     /// Whether the text has changes not yet saved.
@@ -68,18 +73,22 @@ impl Buffer {
     /// answer); whether it did.
     pub fn tick(&mut self, now: Instant) -> Result<bool> {
         match self.changed {
-            Some(at) if self.theirs.is_none() && now.duration_since(at) >= SAVE_AFTER => self.save().map(|()| true),
+            Some(at) if self.theirs.is_none() && !self.gone && now.duration_since(at) >= SAVE_AFTER => self.save().map(|()| true),
             _ => Ok(false),
         }
     }
 
     /// How long until it saves (None: nothing to save).
     pub fn due(&self, now: Instant) -> Option<Duration> {
-        self.changed.filter(|_| self.theirs.is_none()).map(|at| SAVE_AFTER.saturating_sub(now.duration_since(at)))
+        self.changed.filter(|_| self.theirs.is_none() && !self.gone).map(|at| SAVE_AFTER.saturating_sub(now.duration_since(at)))
     }
 
     /// Saves the text now if it has changes (before Play, on leaving it).
     pub fn save(&mut self) -> Result<()> {
+        // (A file that is gone is not written: its text stays in the journal.)
+        if self.gone {
+            return Ok(());
+        }
         self.changed = None;
         if self.unsaved() && self.theirs.is_none() {
             crate::blocks::save_at_once(&self.file, self.code.text.as_bytes())?;
@@ -91,18 +100,39 @@ impl Buffer {
         Ok(())
     }
 
+    /// SAVE AGAIN: writes the text of a file that is gone back into the
+    /// folder, where it was.
+    pub fn put_back(&mut self) -> Result<()> {
+        if let Some(folder) = self.file.parent() {
+            std::fs::create_dir_all(folder).with_context(|| format!("making {}", folder.display()))?;
+        }
+        crate::blocks::save_at_once(&self.file, self.code.text.as_bytes())?;
+        self.on_disk = self.code.text.clone();
+        self.stamp = modified(&self.file);
+        self.gone = false;
+        self.theirs = None;
+        self.changed = None;
+        let _ = std::fs::remove_file(&self.journal);
+        self.restored = false;
+        Ok(())
+    }
+
     /// Looks whether the file changed on disk: it comes in when the text
     /// has no changes of its own, else it waits in `theirs`. Whether there
     /// is something new to show.
     pub fn look(&mut self) -> bool {
         let stamp = modified(&self.file);
+        // Gone from the folder, or back (made again by the same name).
+        let gone = stamp.is_none() && !self.file.exists();
+        let flipped = gone != self.gone;
+        self.gone = gone;
         if stamp == self.stamp {
-            return false;
+            return flipped;
         }
         self.stamp = stamp;
-        let Ok(text) = std::fs::read_to_string(&self.file) else { return false };
+        let Ok(text) = std::fs::read_to_string(&self.file) else { return flipped };
         if text == self.on_disk || self.theirs.as_ref() == Some(&text) {
-            return false;
+            return flipped;
         }
         if self.unsaved() {
             self.theirs = Some(text);

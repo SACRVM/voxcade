@@ -419,7 +419,7 @@ impl Shell {
         if let Err(e) = std::fs::rename(self.dir.join(from), self.dir.join(to)) {
             return self.tell(format!("{from}: {e}"));
         }
-        self.files = super::Files::scan(&self.dir);
+        self.rescan();
         // The journal of a text not saved when the IDE last stopped.
         let journals = self.journals();
         let (old_journal, new_journal) = (journals.join(from.replace(['/', '\\'], "%")), journals.join(to.replace(['/', '\\'], "%")));
@@ -503,7 +503,7 @@ impl Shell {
         let said = self.gone.as_ref().map(|g| g.said.clone()).unwrap_or_default();
         self.report(Kind::Note, said, None);
         self.notice = None;
-        self.files = super::Files::scan(&self.dir);
+        self.rescan();
         self.used = None;
         if self.previous.as_deref() == Some(path) {
             self.previous = None;
@@ -537,7 +537,7 @@ impl Shell {
         if let (Some(_), Place::Folder(copy)) = (&g.bytes, &g.place) {
             let _ = std::fs::remove_file(copy);
         }
-        self.files = super::Files::scan(&self.dir);
+        self.rescan();
         self.used = None;
         if let Some(v) = g.scroll {
             self.memory.scroll.insert(g.path.clone(), v);

@@ -80,13 +80,40 @@ pub struct Console {
     /// A command was typed into this shell (the agent's), for systems
     /// that cannot tell what runs (`busy`).
     typed_once: bool,
+    /// Whether the console was ever drawn open: only then is the shell
+    /// started (a console kept folded runs nothing).
+    started: bool,
+    /// The terminal's `arrivals` when the console was last in view: more
+    /// now means news while it is folded or under OUTPUT.
+    seen: u64,
+    news: bool,
 }
 
 impl Console {
     /// A console in the game folder `dir` running `start`; `wake` wakes
     /// the window (from another thread) when there is output to draw.
     pub fn new(dir: PathBuf, start: Start, wake: Arc<dyn Fn() + Send + Sync>) -> Self {
-        Self { dir, start, wake, terminal: None, failed: None, typed: Vec::new(), take_keys: false, selected: None, wants_selection: false, held: None, told: None, wheel: 0.0, mcp: None, mcp_failed: None, link: None, opened: None, trouble: None, typed_once: false }
+        Self { dir, start, wake, terminal: None, failed: None, typed: Vec::new(), take_keys: false, selected: None, wants_selection: false, held: None, told: None, wheel: 0.0, mcp: None, mcp_failed: None, link: None, opened: None, trouble: None, typed_once: false, started: false, seen: 0, news: false }
+    }
+
+    /// Whether the console was opened and drawn, so the shell was asked
+    /// for (it starts then, never before: a console folded from the start
+    /// runs nothing).
+    #[cfg(test)]
+    pub fn started(&self) -> bool {
+        self.started
+    }
+
+    /// Whether the shell wrote something since the console was last in view.
+    #[cfg(test)]
+    pub fn news(&self) -> bool {
+        self.news
+    }
+
+    /// How many times output arrived in the shell.
+    #[cfg(test)]
+    pub fn arrivals(&self) -> u64 {
+        self.terminal.as_ref().map_or(0, Terminal::arrivals)
     }
 
     /// Types `command` (and Enter) into the shell, `anew`: a new one
@@ -174,6 +201,15 @@ impl Console {
     /// mcp`, for the output CLEAR. A band of its own, a line under it: what
     /// scrolls below stays apart.
     pub fn heading(&mut self, ui: &mut egui::Ui, folded: &mut bool, agent: Agent, told_of_ide: bool, output: &mut bool, unseen: usize) -> Heading {
+        // News: the program wrote since the console was last in view (the
+        // CONSOLE tab says so quietly, in the accent colour, while it is
+        // folded or under OUTPUT).
+        let arrivals = self.terminal.as_ref().map_or(0, Terminal::arrivals);
+        if !*folded && !*output {
+            self.seen = arrivals;
+        }
+        let news = arrivals != self.seen;
+        self.news = news;
         let height = ui.text_style_height(&TextStyle::Button) + 2.0 * ui.spacing().button_padding.y + 8.0;
         let (id, rect) = ui.allocate_space(egui::vec2(ui.available_width(), height));
         ui.painter().rect_filled(rect, 0.0, PANEL);
@@ -214,7 +250,8 @@ impl Console {
             response.on_hover_cursor(egui::CursorIcon::PointingHand)
         };
         inner.add_space(-10.0);
-        if tab(&mut inner, RichText::new("CONSOLE").color(if *output { QUIET } else { TEXT }), !*output).on_hover_text("The shell in the game folder, Claude's place.").clicked() {
+        let console_tab = if news { RichText::new("CONSOLE •").color(ACCENT) } else { RichText::new("CONSOLE").color(if *output { QUIET } else { TEXT }) };
+        if tab(&mut inner, console_tab, !*output).on_hover_text(if news { "The shell in the game folder, Claude's place. Something new was written in it." } else { "The shell in the game folder, Claude's place." }).clicked() {
             (*output, *folded) = (false, false);
         }
         inner.add_space(4.0);
@@ -259,6 +296,7 @@ impl Console {
 
     /// The terminal, filling what is left of `ui`.
     pub fn body(&mut self, ui: &mut egui::Ui) {
+        self.started = true;
         let id = Id::unique("terminal");
         let rect = ui.available_rect_before_wrap();
         ui.advance_cursor_after_rect(rect);

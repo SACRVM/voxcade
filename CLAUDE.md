@@ -321,8 +321,20 @@ nearest; its replay `tests/two_ships`);
   s from the bytes kept in memory (up to 8 MB). Songs play from the main area (PLAY SONG). Reading the keys
   (`controls::read_input`), the speaker (`audio::speaker`) and the
   player's options (`Settings::options`) are shared with `voxcade run`.
-  BUILD packs the program and the game into `builds/<game>-<system>.zip`
-  (`ide/export.rs`, git-ignored; no hidden files, no `replays/tests/`).
+  BUILD packs the program and the game into the game's own
+  `builds/<game>-<system>.zip` on a thread of its own (`ide/export.rs`,
+  git-ignored, left out of the list and of the next build; no hidden
+  files, no `replays/tests/`); the bar says BUILDING…, then where it went
+  with SHOW IN FOLDER, or BUILD FAILED in red with COPY. What is wrong
+  with the game (a halted script, a file that would not load, a game that
+  would not start) is a red line over the main area whatever it shows
+  (`Shell::game_error`: TO THE LINE, SHOW, COPY). The list follows the
+  folder (names polled once a second, `Shell::look_at_folder`: what the
+  agent makes appears; an open file that goes is said, its text kept). The
+  console is folded to its bar for a game opened the first time, the
+  shell started only on the first unfolding; folded and height are kept in
+  `ide/<game>.toml`, `CONSOLE •` says news while folded; an agent that
+  starts with the IDE has it open.
   OPEN beside the game's name (games opened last, another folder) and
   NEW (from a template into the projects folder, `~/Voxcade` or the
   settings'; every new game a git repository with its first commit,

@@ -486,7 +486,11 @@ Stage by stage (the plan of 2026-10-18):
    this system. The bar says where it went. Test
    `an_export_holds_the_game_and_runs` (unpacked, the game has the same
    fingerprint and plays); a real build ran `check` and `shot` from a
-   folder of its own.
+   folder of its own. (2026-11-11, the usability review: the zip goes into
+   the game's own `builds/`, which the list and the next build leave out;
+   it is packed on a thread of its own, the bar says BUILDING… and then
+   BUILT with the zip's path and SHOW IN FOLDER, or BUILD FAILED in red
+   with COPY; test `build_works_in_the_background_and_lands_in_the_games_folder`.)
 8. **Projects** (2026-10-20, the user's choices: a projects folder, a
    template to choose, OPEN and NEW in the bar, not in a menu on the
    name, and a start page): beside the game's name OPEN, the games opened
@@ -538,6 +542,23 @@ Stage by stage (the plan of 2026-10-18):
    errors too (tests `the_output_is_kept_for_the_next_time`,
    `the_game_reports_into_the_output`,
    `what_a_script_prints_is_kept_for_the_ide`).
+11. **Seen at a glance** (2026-11-11, the usability review, findings 2, 5,
+   6, 14, 30): the list is read again when the folder's names change
+   (`Shell::look_at_folder`: names only, once a second, polled as
+   `watch.rs` polls, no inotify), so what the agent makes is there at once
+   (a file open that goes says so, its text kept, SAVE AGAIN; test
+   `the_open_file_vanishing_is_said_and_not_recreated`). The console is
+   folded to its bar for a game opened the first time, the shell started
+   only when it is first unfolded; folded or not and the height dragged to
+   are kept in `ide/<game>.toml` (an agent that starts with the IDE has it
+   open); while it is folded, `CONSOLE •` in the accent colour says the
+   shell wrote something (`Terminal::arrivals`), OUTPUT's red count the
+   errors. What is wrong with the game (a script's error that halted it,
+   a file that would not load, a game that would not start) is one red
+   line over whatever the main area shows, with TO THE LINE, SHOW (OUTPUT,
+   the console unfolded) and COPY, gone once mended (tests
+   `the_console_is_folded_until_wanted_and_remembered`,
+   `the_games_error_shows_over_whatever_is_open`).
 
 ## Sources
 

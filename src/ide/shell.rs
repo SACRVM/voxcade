@@ -41,6 +41,11 @@ pub struct Shell {
     title: String,
     dir: PathBuf,
     files: Files,
+    /// The folder's file names as last looked at, and when to look next
+    /// (once a second: a file the agent makes comes into the list by
+    /// itself).
+    listing: Vec<String>,
+    list_at: std::time::Instant,
     memory: Memory,
     memory_path: PathBuf,
     /// The open file as shown (loaded on the first frame it is open), and
@@ -102,8 +107,14 @@ pub struct Shell {
     focus_code: bool,
     /// What the last BUILD made (or why not), what F9 did; until when
     /// (None: until the next).
-    notice: Option<String>,
+    notice: Option<Notice>,
     notice_until: Option<std::time::Instant>,
+    /// BUILD at work on a thread of its own: its answer, and where the zip
+    /// goes.
+    building: Option<(std::sync::mpsc::Receiver<anyhow::Result<u64>>, PathBuf)>,
+    /// Why the game would not start (PLAY found no game to begin), until it
+    /// starts or the files are mended (`start_mended`).
+    start_failed: Option<String>,
     /// The song playing (its file), started with PLAY SONG over it.
     pub listening: Option<String>,
     /// The IDE's settings (the gear at the top right) and where they are
@@ -125,6 +136,10 @@ pub struct Shell {
     /// The line under OUTPUT while the game plays: Lua run in it.
     lua: crate::prompt::Prompt,
     output_shown: bool,
+    /// The console's height as last drawn, and whether it changed since the
+    /// mouse went down on it (to be kept when the mouse is let go).
+    console_seen: Option<f32>,
+    console_dragged: bool,
     reported: Option<String>,
     output_saved: std::time::Instant,
     /// The sounds the game's code brings (a kit's, the engine's), which it
@@ -162,6 +177,18 @@ struct Used {
 /// How long the places a sound is used are kept before looking again.
 const USED_FOR: std::time::Duration = std::time::Duration::from_secs(1);
 
+/// What the bar along the top says beside the buttons.
+enum Notice {
+    /// A sentence, quiet (what F9 did, a rename).
+    Said(String),
+    /// BUILD at work.
+    Building,
+    /// BUILD made the zip at the path (the sentence says where, and how big).
+    Built(PathBuf, String),
+    /// BUILD could not, and why.
+    Failed(String),
+}
+
 /// The game being played, as the main area shows it.
 #[derive(Default)]
 pub struct Stage {
@@ -172,6 +199,9 @@ pub struct Stage {
     pub wanted: Option<[u32; 2]>,
     /// What stops it (a script's error).
     pub trouble: Option<String>,
+    /// A file of the game that would not load when it changed (it plays on
+    /// as it was), until it loads again.
+    pub unloaded: Option<String>,
 }
 
 /// What the window asks of the game, and of the speaker.
@@ -200,6 +230,11 @@ pub fn game_id() -> egui::Id {
 /// How often the open file is compared with the disk (the agent may
 /// change it).
 const LOOK_EVERY: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// How often the folder's file names are compared with the list (names
+/// only, no file read; polled, as `watch.rs` does, so no inotify watch is
+/// used).
+const LIST_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// A new scenario's file (the plus at SCENARIOS), to fill in.
 const NEW_SCENARIO: &str = "\
@@ -313,13 +348,20 @@ impl Shell {
     /// `memory_path`, with `console`; what was open last is open again.
     pub fn new(dir: &Path, cfg: crate::config::GameConfig, memory_path: PathBuf, console: Console) -> Self {
         let (title, level) = (cfg.title.clone(), cfg.world.blocks.as_ref().map(|b| b.file.clone()));
-        let files = Files::scan(dir);
+        let listing = Files::names(dir);
+        let files = Files::from_names(dir, listing.clone());
+        // A game never opened here has its console folded until it is wanted;
+        // what the user does with it is remembered from then on.
+        let first_time = !memory_path.exists();
         let mut memory = Memory::load(&memory_path);
+        if first_time {
+            memory.console_folded = true;
+        }
         if memory.open.as_ref().is_none_or(|f| !files.has(f)) {
             memory.open = files.logic.iter().find(|f| *f == "main.lua").or(files.logic.first()).cloned();
         }
         let restore = memory.open.as_ref().and_then(|f| memory.scroll.get(f).copied());
-        Self { title, dir: dir.to_path_buf(), files, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, renaming: None, asking: None, gone: None, previous: None, #[cfg(test)] undo_button: None, deleted_dir: crate::settings::config_dir().join("ide").join("deleted").join(crate::settings::game_name(dir)), #[cfg(test)] headings: Vec::new(), cfg, preview: None, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, reported: None, output_saved: std::time::Instant::now(), brought: Vec::new(), builtin: None, sound_line: None, used: None, heard: None, rolls: 0, looping: false, again_at: None, fading: None, #[cfg(test)] used_rows: Vec::new() }
+        Self { title, dir: dir.to_path_buf(), files, listing, list_at: std::time::Instant::now() + LIST_EVERY, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, renaming: None, asking: None, gone: None, previous: None, #[cfg(test)] undo_button: None, deleted_dir: crate::settings::config_dir().join("ide").join("deleted").join(crate::settings::game_name(dir)), #[cfg(test)] headings: Vec::new(), cfg, preview: None, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, building: None, start_failed: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, console_seen: None, console_dragged: false, reported: None, output_saved: std::time::Instant::now(), brought: Vec::new(), builtin: None, sound_line: None, used: None, heard: None, rolls: 0, looping: false, again_at: None, fading: None, #[cfg(test)] used_rows: Vec::new() }
     }
 
     /// The sounds the game's code brings (`Game::sounds`), listed under
@@ -545,6 +587,25 @@ impl Shell {
             let _ = self.output.save();
             self.output_saved = now;
         }
+        // BUILD's answer, looked for while it works (a tenth of a second).
+        let mut built = false;
+        let mut wait = None;
+        if let Some((receive, out)) = self.building.take() {
+            match receive.try_recv() {
+                Ok(made) => {
+                    self.built(made, out);
+                    built = true;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    self.building = Some((receive, out));
+                    wait = Some(std::time::Duration::from_millis(100));
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.built(Err(anyhow::anyhow!("the packing stopped unexpectedly")), out);
+                    built = true;
+                }
+            }
+        }
         // LOOP: the sound again once it has sounded and the pause is over.
         if self.looping && self.again_at.is_none_or(|at| now >= at) {
             self.again_at = None;
@@ -553,8 +614,15 @@ impl Shell {
             self.looping = self.again_at.is_some();
         }
         let again = self.again_at.filter(|_| self.looping).map(|at| at.saturating_duration_since(now));
-        let Some(Shown::Code(buffer)) = &mut self.shown else { return (false, again.unwrap_or(std::time::Duration::from_secs(3600))) };
-        let mut changed = false;
+        // The folder's file names: a file made, removed or renamed from
+        // outside comes into the list (or goes from it).
+        let mut changed = built;
+        if now >= self.list_at {
+            changed |= self.look_at_folder();
+            self.list_at = now + LIST_EVERY;
+        }
+        let to_list = self.list_at.saturating_duration_since(now).min(wait.unwrap_or(LIST_EVERY));
+        let Some(Shown::Code(buffer)) = &mut self.shown else { return (changed, again.unwrap_or(std::time::Duration::from_secs(3600)).min(to_list)) };
         if now >= self.look_at {
             changed |= buffer.look();
             self.look_at = now + LOOK_EVERY;
@@ -566,8 +634,38 @@ impl Shell {
                 changed = true;
             }
         }
-        let next = buffer.due(now).unwrap_or(LOOK_EVERY).min(self.look_at.saturating_duration_since(now)).min(again.unwrap_or(LOOK_EVERY));
+        let next = buffer.due(now).unwrap_or(LOOK_EVERY).min(self.look_at.saturating_duration_since(now)).min(again.unwrap_or(LOOK_EVERY)).min(to_list);
         (changed, next)
+    }
+
+    /// Reads the list anew (the IDE itself made, renamed or deleted a file).
+    fn rescan(&mut self) {
+        self.listing = Files::names(&self.dir);
+        self.files = Files::from_names(&self.dir, self.listing.clone());
+    }
+
+    /// Compares the folder's file names with the list, and reads the list
+    /// anew if they differ; whether it did (a frame is due then). What the
+    /// list keeps of itself (the headings folded, the scroll, a name being
+    /// typed) is not touched; a file open that is gone says so in the main
+    /// area (`main`), its text kept.
+    fn look_at_folder(&mut self) -> bool {
+        let names = Files::names(&self.dir);
+        if names == self.listing {
+            return false;
+        }
+        self.files = Files::from_names(&self.dir, names.clone());
+        self.listing = names;
+        // A name being typed for a file that is gone has no row to stand in.
+        if self.renaming.as_ref().is_some_and(|r| !self.files.has(&r.path)) {
+            self.renaming = None;
+        }
+        // The text open learns at once that its file is gone (or back), so
+        // that its autosave does not make the file again.
+        if let Some(Shown::Code(buffer)) = &mut self.shown {
+            buffer.look();
+        }
+        true
     }
 
     /// Lets go of the pictures it drew (the game is left).
@@ -655,7 +753,7 @@ impl Shell {
             _ => crate::editor::frames::ModelFile::begun(&full).save(),
         });
         made.map_err(|e| format!("{path}: {e:#}"))?;
-        self.files = super::files::Files::scan(&self.dir);
+        self.rescan();
         self.open(&path);
         self.back_to_file();
         self.help = false;
@@ -767,7 +865,7 @@ impl Shell {
                 return self.tell(format!("{path}: {e}"));
             }
         }
-        self.files = super::files::Files::scan(&self.dir);
+        self.rescan();
         self.builtin = None;
         self.unload();
         self.open(&path);
@@ -775,18 +873,44 @@ impl Shell {
     }
 
     /// BUILD: the text being changed saved, the game and this program
-    /// packed into one zip (`export.rs`); what came of it shown in the bar.
+    /// packed into one zip in the game's `builds/` (`export.rs`) on a thread
+    /// of its own, so the window goes on; the bar says BUILDING… and then
+    /// what came of it (`built`).
     pub fn build(&mut self) {
+        if self.building.is_some() {
+            return;
+        }
         self.flush();
         let out = super::export::out_path(&self.dir);
-        let made = crate::cli::program().map_err(anyhow::Error::from).and_then(|program| super::export::export(&self.dir, &self.title, &program, &out));
+        let (dir, title, to) = (self.dir.clone(), self.title.clone(), out.clone());
+        let (send, receive) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let made = crate::cli::program().map_err(anyhow::Error::from).and_then(|program| super::export::export(&dir, &title, &program, &to));
+            let _ = send.send(made);
+        });
+        self.building = Some((receive, out));
+        (self.notice, self.notice_until) = (Some(Notice::Building), None);
+    }
+
+    /// BUILD's answer: where the zip is and how big, or why it was not made.
+    fn built(&mut self, made: anyhow::Result<u64>, out: PathBuf) {
         self.notice_until = None;
-        let (kind, said) = match made {
-            Ok(bytes) => (Kind::Note, format!("BUILT {} ({:.1} MB)", out.canonicalize().unwrap_or(out).display(), bytes as f64 / 1e6)),
-            Err(e) => (Kind::Error, format!("BUILD FAILED: {e:#}")),
-        };
-        self.report(kind, said.clone(), None);
-        self.notice = Some(said);
+        match made {
+            Ok(bytes) => {
+                let zip = out.canonicalize().unwrap_or(out);
+                // (From the game's folder: the whole path would not fit the
+                // bar, and its end is what tells.)
+                let dir = self.dir.canonicalize().unwrap_or_else(|_| self.dir.clone());
+                let said = format!("BUILT {} ({:.1} MB)", zip.strip_prefix(&dir).unwrap_or(&zip).display(), bytes as f64 / 1e6);
+                self.report(Kind::Note, said.clone(), None);
+                self.notice = Some(Notice::Built(zip, said));
+            }
+            Err(e) => {
+                let said = format!("BUILD FAILED: {e:#}");
+                self.report(Kind::Error, said.clone(), None);
+                self.notice = Some(Notice::Failed(said));
+            }
+        }
     }
 
     /// Ends the game.
@@ -958,7 +1082,7 @@ impl Shell {
     /// did).
     pub fn note(&mut self, text: String) {
         self.report(Kind::Note, text.clone(), None);
-        self.notice = Some(text);
+        self.notice = Some(Notice::Said(text));
         self.notice_until = Some(std::time::Instant::now() + std::time::Duration::from_secs(5));
     }
 
@@ -966,6 +1090,13 @@ impl Shell {
     pub fn tell(&mut self, message: String) {
         self.report(Kind::Error, message.clone(), None);
         self.message = Some(message);
+    }
+
+    /// Unfolds the console (a shot of one that runs a command), and shows
+    /// the console and not OUTPUT.
+    pub fn unfold_console(&mut self) {
+        self.memory.console_folded = false;
+        self.output_shown = false;
     }
 
     /// The console.
@@ -996,6 +1127,7 @@ impl Shell {
             self.flush();
         }
         let (mut undo, mut forget_gone) = (false, false);
+        let mut show_zip: Option<PathBuf> = None;
         egui::Panel::top("bar").frame(egui::Frame::new().fill(GROUND).inner_margin(egui::Margin::symmetric(16, 10))).show(ui, |ui| {
             // The name centred on the buttons' height.
             ui.spacing_mut().interact_size.y = ui.text_style_height(&TextStyle::Button) + 2.0 * ui.spacing().button_padding.y;
@@ -1084,13 +1216,35 @@ impl Shell {
                             None => forget_gone = true,
                         }
                     } else if let Some(notice) = &self.notice {
-                        ui.label(RichText::new(notice).small().color(QUIET));
+                        // (Truncated, with the whole in its hover text: a long
+                        // path never pushes the buttons about.)
+                        match notice {
+                            Notice::Said(text) => {
+                                ui.add(egui::Label::new(RichText::new(text).small().color(QUIET)).truncate()).on_hover_text(text);
+                            }
+                            Notice::Building => {
+                                ui.label(RichText::new("BUILDING…").small().color(ACCENT));
+                            }
+                            Notice::Built(zip, said) => {
+                                if ui.button("SHOW IN FOLDER").on_hover_text("Opens the folder the zip lies in.").clicked() {
+                                    show_zip = Some(zip.clone());
+                                }
+                                ui.add(egui::Label::new(RichText::new(said).small().color(QUIET)).truncate()).on_hover_text(said);
+                            }
+                            Notice::Failed(said) => {
+                                copy_button(ui, said);
+                                ui.add(egui::Label::new(RichText::new(said).small().color(ERROR)).truncate()).on_hover_text(said);
+                            }
+                        }
                     } else if shown {
                         ui.label(RichText::new("ESCAPE back to the file · F5 from the start (ENTER once over) · F9 keeps the run").small().color(QUIET));
                     }
                 });
             });
         });
+        if let Some(zip) = show_zip {
+            super::export::show_in_folder(&zip);
+        }
         if forget_gone {
             self.gone = None;
         }
@@ -1317,14 +1471,15 @@ impl Shell {
             }
         }
         // The console below the main area, folded to its heading or as
-        // high as dragged; or none (CONSOLE).
+        // high as dragged (and kept so); or none (CONSOLE). A game's first
+        // time it is folded: the bar only, the room is the main area's.
         let folded = self.memory.console_folded;
         if self.prefs.console {
             // At first almost half the window: room for Claude Code's
             // screens.
-            let tall = 0.45 * ui.available_height();
+            let tall = self.memory.console_height.unwrap_or(0.45 * ui.available_height());
             let panel = if folded { egui::Panel::bottom("console folded") } else { egui::Panel::bottom("console").resizable(true).default_size(tall).min_size(120.0) };
-            panel.frame(egui::Frame::new().fill(terminal::BACKGROUND)).show(ui, |ui| {
+            let shown = panel.frame(egui::Frame::new().fill(terminal::BACKGROUND)).show(ui, |ui| {
                 let pressed = self.console.heading(ui, &mut self.memory.console_folded, self.prefs.agent, self.prefs.claude.connect, &mut self.output_shown, self.output.unseen);
                 if pressed.agent {
                     self.output_shown = false;
@@ -1356,6 +1511,21 @@ impl Shell {
                     }
                 }
             });
+            // The height the user dragged it to, kept once the mouse is let go.
+            if !folded && !self.memory.console_folded {
+                let height = shown.response.rect.height();
+                if self.console_seen.is_some_and(|h| (h - height).abs() > 0.5) && ui.input(|i| i.pointer.any_down()) {
+                    self.console_dragged = true;
+                }
+                self.console_seen = Some(height);
+                if self.console_dragged && !ui.input(|i| i.pointer.any_down()) {
+                    self.console_dragged = false;
+                    self.memory.console_height = Some(height);
+                    let _ = self.save();
+                }
+            } else {
+                (self.console_seen, self.console_dragged) = (None, false);
+            }
             if self.memory.console_folded != folded {
                 let _ = self.save();
             }
@@ -1405,25 +1575,10 @@ impl Shell {
         }
     }
 
-    /// The main area playing the game: what stops it above (a click there
-    /// goes to its line), its picture filling the rest, the keys its while
-    /// it has the focus.
+    /// The main area playing the game: its picture filling it (what stops
+    /// it is said above, by `main`), the keys its while it has the focus.
     fn game(&mut self, ui: &mut egui::Ui) {
         let Some(stage) = &mut self.stage else { return };
-        let mut go = None;
-        if let Some(trouble) = &stage.trouble {
-            ui.horizontal_wrapped(|ui| {
-                // Its first line (the game's own panel has the rest).
-                ui.label(RichText::new(trouble.lines().next().unwrap_or("")).color(ERROR));
-                if let Some(at) = super::play::line_of(trouble)
-                    && ui.button("TO THE LINE").clicked()
-                {
-                    go = Some(at);
-                }
-                copy_button(ui, trouble);
-            });
-            ui.add_space(8.0);
-        }
         let room = egui::vec2(ui.available_width() - 20.0, ui.available_height() - 14.0).max(egui::vec2(1.0, 1.0));
         let (rect, response) = ui.allocate_exact_size(room, egui::Sense::click());
         let pixels = ui.ctx().pixels_per_point();
@@ -1438,11 +1593,6 @@ impl Shell {
         if let Some(id) = stage.picture {
             ui.painter().image(id, rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
         }
-        if let Some((file, line)) = go {
-            stage.shown = false;
-            self.open(&file);
-            self.goto = Some((line, true));
-        }
     }
 
     /// Whether the text shown is saved: "SAVED" when the file holds what is
@@ -1450,6 +1600,7 @@ impl Shell {
     /// text to change).
     fn saved_word(&self) -> Option<&'static str> {
         match &self.shown {
+            Some(Shown::Code(b)) if b.gone => Some("FILE GONE"),
             Some(Shown::Code(b)) => Some(if b.unsaved() { "NOT SAVED YET" } else { "SAVED" }),
             _ => None,
         }
@@ -1526,8 +1677,73 @@ impl Shell {
         }
     }
 
-    /// The main area: the open file.
+    /// What stops the game or a file of it, as one line in red over
+    /// whatever the main area shows: its first line, TO THE LINE where it
+    /// names one of the game's files, SHOW (OUTPUT, the console unfolded)
+    /// and COPY. It goes when the files are mended. None: all is well.
+    fn game_error(&self) -> Option<(String, String)> {
+        let first = |t: &str| t.lines().next().unwrap_or("").to_string();
+        let stage = self.stage.as_ref();
+        if let Some(t) = stage.and_then(|s| s.trouble.as_deref()) {
+            Some((format!("THE GAME STOPPED: {}", first(t)), t.to_string()))
+        } else if let Some(t) = stage.and_then(|s| s.unloaded.as_deref()) {
+            Some((first(t), t.to_string()))
+        } else {
+            self.start_failed.as_deref().map(|t| (format!("THE GAME WOULD NOT START: {}", first(t)), t.to_string()))
+        }
+    }
+
+    /// The game would not start (PLAY, or the game as the files are now):
+    /// said in the red line and in OUTPUT, until it starts or the files are
+    /// mended.
+    pub fn wont_start(&mut self, why: String) {
+        let at = super::play::line_of(&why);
+        self.report(Kind::Error, format!("THE GAME WOULD NOT START: {}", why.lines().next().unwrap_or("")), at);
+        self.start_failed = Some(why);
+    }
+
+    /// The game starts, or loads again: the red line for it goes.
+    pub fn start_mended(&mut self) {
+        self.start_failed = None;
+    }
+
+    /// Whether the game would not start, as far as is known.
+    pub fn start_failed(&self) -> bool {
+        self.start_failed.is_some()
+    }
+
+    /// SHOW: OUTPUT in the console below, which unfolds (and is there
+    /// again if the settings had it off).
+    fn show_output(&mut self) {
+        self.prefs.console = true;
+        self.output_shown = true;
+        self.memory.console_folded = false;
+        let _ = self.save();
+    }
+
+    /// The main area: the red line of what is wrong with the game, over the
+    /// open file (or the game, HELP, nothing).
     fn main(&mut self, ui: &mut egui::Ui) {
+        if let Some((said, copy)) = self.game_error() {
+            let at = super::play::line_of(&copy).filter(|(file, _)| self.files.has(file));
+            let (go, show) = game_error_row(ui, &said, &copy, at.is_some());
+            ui.add_space(8.0);
+            if show {
+                self.show_output();
+            }
+            if let (true, Some((file, line))) = (go, at) {
+                self.hide_game();
+                self.help = false;
+                self.outside = None;
+                self.open(&file);
+                self.goto = Some((line, true));
+            }
+        }
+        self.main_area(ui);
+    }
+
+    /// The main area: the open file.
+    fn main_area(&mut self, ui: &mut egui::Ui) {
         // Asked for the text open, once: the line to go to, the keys to it
         // (gone if what shows is no text).
         let (goto, focus) = (self.goto.take(), std::mem::take(&mut self.focus_code));
@@ -1560,6 +1776,14 @@ impl Shell {
             ui.label(RichText::new("Nothing here yet.").color(QUIET));
             return;
         };
+        // The open file gone from the folder (the agent, or anything outside
+        // the IDE, removed or renamed it): said plainly, nothing made again
+        // by itself. A text keeps its text (SAVE AGAIN, below); anything else
+        // has nothing to show.
+        if !self.files.has(&path) && !matches!(self.shown, Some(Shown::Code(_))) {
+            ui.label(RichText::new(format!("{path} is gone from the game folder: it was removed or renamed outside the IDE. Choose another file in the list.")).color(ACCENT));
+            return;
+        }
         if self.shown.is_none() {
             // Scripts and the texts they read, sounds and songs are to
             // change, the rest to look at.
@@ -1740,7 +1964,17 @@ impl Shell {
             }
         }
         // A text being changed: what it asks of the user above it.
+        let mut put_back = false;
         if let Some(Shown::Code(buffer)) = &mut self.shown {
+            if buffer.gone {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new(format!("{path} is gone from the game folder: it was removed or renamed outside the IDE. Its text is kept here.")).color(ACCENT));
+                    if ui.button("SAVE AGAIN").on_hover_text(format!("Writes the text back into the game folder as {path}.")).clicked() {
+                        put_back = true;
+                    }
+                });
+                ui.add_space(8.0);
+            }
             if buffer.theirs.is_some() {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Changed outside while you changed it too.").color(ACCENT));
@@ -1764,20 +1998,24 @@ impl Shell {
                 ui.add_space(8.0);
             }
             // Where the game played stopped, if in this file: its line
-            // marked until the game takes the file anew.
+            // marked until the game takes the file anew (the red line over the
+            // main area says why).
             let trouble = self.stage.as_ref().and_then(|s| s.trouble.as_deref());
             let stopped = trouble.and_then(|t| super::play::line_of(t).filter(|(file, _)| *file == path).map(|(file, line)| (file, line, t)));
             buffer.code.stopped = stopped.as_ref().map(|(_, line, _)| *line);
-            if let Some((file, line, trouble)) = stopped {
-                let first = trouble.lines().next().unwrap_or("");
-                let why = first.split_once(&format!("{file}:{line}:")).map_or(first, |(_, why)| why.trim());
-                error_row(ui, &format!("THE GAME STOPPED AT LINE {line}: {why}"), &format!("{file} line {line}: {why}"));
-                ui.add_space(8.0);
-            }
             if let Some(message) = &self.message {
                 error_row(ui, message, message);
                 ui.add_space(8.0);
             }
+            if put_back {
+                match buffer.put_back() {
+                    Ok(()) => self.message = None,
+                    Err(e) => self.message = Some(format!("{e:#}")),
+                }
+            }
+        }
+        if put_back {
+            self.rescan();
         }
         let (mut used_rows, mut says) = (Vec::new(), Vec::new());
         if let Some(name) = &sound_name {
@@ -2003,6 +2241,30 @@ fn error_row(ui: &mut egui::Ui, shown: &str, copy: &str) {
             copy_button(ui, copy);
         });
     });
+}
+
+/// The red line of what is wrong with the game: the message in the room
+/// left of the buttons, breaking into lines there (a long one cannot push
+/// them out of the window), TO THE LINE if `line`, SHOW and COPY at the
+/// right end. Whether TO THE LINE and SHOW were pressed.
+fn game_error_row(ui: &mut egui::Ui, shown: &str, copy: &str, line: bool) -> (bool, bool) {
+    let (mut go, mut show) = (false, false);
+    ui.horizontal_top(|ui| {
+        let room = (ui.available_width() - if line { 290.0 } else { 170.0 }).max(120.0);
+        ui.allocate_ui_with_layout(egui::vec2(room, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+            ui.set_max_width(room);
+            ui.add(egui::Label::new(RichText::new(shown).color(ERROR)).wrap());
+        });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+            ui.add_space(16.0);
+            copy_button(ui, copy);
+            show = ui.small_button("SHOW").on_hover_text("Shows OUTPUT below, where the whole message is.").clicked();
+            if line {
+                go = ui.small_button("TO THE LINE").on_hover_text("Opens the file at the line the message names.").clicked();
+            }
+        });
+    });
+    (go, show)
 }
 
 /// The word saying whether the text shown is saved, small and quiet.
@@ -2259,7 +2521,7 @@ mod tests {
     }
 
     /// SHOW THE CONSOLE off leaves the console out altogether; on, it is
-    /// back.
+    /// back (unfolded, as it was).
     #[test]
     fn the_console_can_be_left_out() {
         let dir = Path::new("games/voxkeep");
@@ -2270,7 +2532,10 @@ mod tests {
         let ctx = egui::Context::default();
         let drawn = |ctx: &egui::Context| ctx.viewport(|v| v.prev_pass.widgets.contains(egui::Id::unique("terminal")));
         frame(&ctx, &mut shell);
-        assert!(drawn(&ctx), "there at first");
+        assert!(!drawn(&ctx), "folded at first");
+        shell.unfold_console();
+        frame(&ctx, &mut shell);
+        assert!(drawn(&ctx), "there once unfolded");
         shell.prefs.console = false;
         frame(&ctx, &mut shell);
         assert!(!drawn(&ctx), "left out");
@@ -2940,7 +3205,7 @@ mod tests {
         let main_now = std::fs::read_to_string(dir.join("main.lua")).unwrap();
         assert_eq!(main_now, format!("{}-- mine\n", main.replace("\"coin\"", "\"ring\"")), "the change and the new name both, on disk");
         assert_eq!(buffer(&shell).code.text, main_now, "the open text took it in");
-        assert!(shell.notice.as_deref().is_some_and(|n| n.starts_with("RENAMED coin.toml TO ring.toml")), "{:?}", shell.notice);
+        assert!(matches!(&shell.notice, Some(Notice::Said(n)) if n.starts_with("RENAMED coin.toml TO ring.toml")));
         // A module, a model and a song are asked about by their own lines.
         std::fs::write(dir.join("main.lua"), "local tools = require \"tools\"\nm = \"hero.vox\"\nplay(\"music/tune.mml\")\n").unwrap();
         shell.files = Files::scan(&dir);
@@ -3097,5 +3362,311 @@ mod tests {
         frame(&ctx, &mut shell);
         assert!(shell.output.text().ends_with("one\ntwo"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A frame with `events` and what it drew: the texts, and where (the
+    /// middle of each).
+    fn drawn_text(ctx: &egui::Context, shell: &mut Shell, events: Vec<egui::Event>) -> Vec<(String, egui::Pos2)> {
+        let time = ctx.input(|i| i.time) + 0.1;
+        let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 720.0))), time: Some(time), events, ..Default::default() };
+        let out = ctx.run_ui(raw, |ui| shell.ui(ui));
+        out.shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t) => Some((t.galley.text().to_string(), t.pos + t.galley.rect.center().to_vec2())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn says(texts: &[(String, egui::Pos2)], word: &str) -> bool {
+        texts.iter().any(|(t, _)| t.contains(word))
+    }
+
+    /// Time to look at the folder, as a later moment (the tick is given it).
+    fn later() -> std::time::Instant {
+        std::time::Instant::now() + LIST_EVERY * 2
+    }
+
+    /// A file the agent makes in the folder comes into the list by itself,
+    /// one removed goes from it, a rename is both; what the list keeps (the
+    /// open file, a name being typed) is not disturbed; nothing is read
+    /// again while the names are the same.
+    #[test]
+    fn the_list_sees_what_is_made_outside() {
+        let (dir, memory, mut shell) = managed_game("outside-list");
+        let ctx = egui::Context::default();
+        shell.open("main.lua");
+        shell.naming = Some(Naming { sort: "Scenarios".into(), text: "half a na".into(), problem: None, fresh: false });
+        frame(&ctx, &mut shell);
+        let mut at = later();
+        let mut look = |shell: &mut Shell| {
+            at += LIST_EVERY * 2;
+            shell.tick(at)
+        };
+        let (changed, next) = look(&mut shell);
+        assert!(!changed && next <= LIST_EVERY, "nothing new: no frame due, a look within a second");
+        std::fs::write(dir.join("scenarios/boss.lua"), NEW_SCENARIO).unwrap();
+        crate::editor::frames::ModelFile::begun(&dir.join("enemy.vox")).save().unwrap();
+        assert!(!shell.has("scenarios/boss.lua"), "not before the look");
+        let (changed, _) = look(&mut shell);
+        assert!(changed, "a frame is due");
+        assert!(shell.has("scenarios/boss.lua") && shell.has("enemy.vox"));
+        assert!(shell.take_asks().is_empty());
+        assert_eq!(shell.opened(), Some("main.lua"), "the open file stays");
+        assert_eq!(shell.naming.as_ref().map(|n| n.text.as_str()), Some("half a na"), "a name being typed is left alone");
+        assert!(says(&drawn_text(&ctx, &mut shell, vec![]), "boss"), "and it is in the list");
+        std::fs::rename(dir.join("scenarios/boss.lua"), dir.join("scenarios/last.lua")).unwrap();
+        std::fs::remove_file(dir.join("enemy.vox")).unwrap();
+        assert!(look(&mut shell).0);
+        assert!(shell.has("scenarios/last.lua") && !shell.has("scenarios/boss.lua") && !shell.has("enemy.vox"));
+        let texts = drawn_text(&ctx, &mut shell, vec![]);
+        assert!(says(&texts, "last") && !says(&texts, "boss"));
+        // A file being renamed in the list whose file goes: the field goes.
+        shell.renaming = Some(manage::Renaming { path: "scenarios/last.lua".into(), text: "last".into(), problem: None, fresh: false });
+        std::fs::remove_file(dir.join("scenarios/last.lua")).unwrap();
+        look(&mut shell);
+        assert!(shell.renaming.is_none());
+        clean_up(&dir, &shell);
+        let _ = std::fs::remove_file(&memory);
+    }
+
+    /// The open file made away with outside the IDE: the main area says so
+    /// in plain words; a text keeps its text (with changes too), is not
+    /// written again by itself, and SAVE AGAIN puts it back; a picture has
+    /// nothing to show but the sentence.
+    #[test]
+    fn the_open_file_vanishing_is_said_and_not_recreated() {
+        let (dir, memory, mut shell) = managed_game("vanishing");
+        let ctx = egui::Context::default();
+        shell.open("scenarios/late.lua");
+        frame(&ctx, &mut shell);
+        type_into_text(&ctx, &mut shell, "-- mine\n");
+        std::fs::remove_file(dir.join("scenarios/late.lua")).unwrap();
+        let later = later();
+        shell.tick(later);
+        assert!(!shell.has("scenarios/late.lua"));
+        let texts = drawn_text(&ctx, &mut shell, vec![]);
+        assert!(says(&texts, "scenarios/late.lua is gone from the game folder") && says(&texts, "SAVE AGAIN") && says(&texts, "FILE GONE"), "{texts:?}");
+        // The autosave's second goes by, and the folder is looked at again.
+        shell.tick(later + super::super::buffer::SAVE_AFTER * 3);
+        shell.flush();
+        assert!(!dir.join("scenarios/late.lua").exists(), "not made again by itself");
+        assert!(buffer(&shell).code.text.contains("-- mine"), "the text is kept");
+        // SAVE AGAIN writes it back, the changes in it.
+        let at = drawn_text(&ctx, &mut shell, vec![]).into_iter().find(|(t, _)| t == "SAVE AGAIN").expect("the button").1;
+        click(&ctx, &mut shell, at);
+        let back = std::fs::read_to_string(dir.join("scenarios/late.lua")).unwrap();
+        assert!(back.contains("-- mine") && shell.has("scenarios/late.lua"), "put back: {back}");
+        assert_eq!(shell.saved_word(), Some("SAVED"));
+        // A picture: nothing to keep, only the sentence.
+        std::fs::write(dir.join("back.png"), "x").unwrap();
+        shell.tick(later + LIST_EVERY * 4);
+        shell.open("back.png");
+        frame(&ctx, &mut shell);
+        std::fs::remove_file(dir.join("back.png")).unwrap();
+        shell.tick(later + LIST_EVERY * 8);
+        assert!(says(&drawn_text(&ctx, &mut shell, vec![]), "back.png is gone from the game folder"));
+        clean_up(&dir, &shell);
+        let _ = std::fs::remove_file(&memory);
+    }
+
+    /// A game opened for the first time has its console folded: only its
+    /// bar, no shell started; the arrow (and the tabs and CLAUDE) unfold it,
+    /// the arrow folds it again, and what was done is remembered for the next
+    /// time, an older memory without the height included.
+    #[test]
+    fn the_console_is_folded_until_wanted_and_remembered() {
+        let (dir, memory) = bare_game("console-folded");
+        let _ = std::fs::remove_file(&memory);
+        let mut shell = shell_on(&dir, &memory);
+        let ctx = egui::Context::default();
+        let arrow = egui::pos2(1280.0 - INSET - 4.0, 720.0 - 15.0);
+        for _ in 0..3 {
+            frame(&ctx, &mut shell);
+        }
+        assert!(shell.memory.console_folded && !shell.console().started(), "folded, nothing started");
+        click(&ctx, &mut shell, arrow);
+        frame(&ctx, &mut shell);
+        assert!(!shell.memory.console_folded && shell.console().started(), "unfolded by the arrow, the shell asked for");
+        assert!(!Memory::load(&memory).console_folded, "remembered unfolded");
+        let again = shell_on(&dir, &memory);
+        assert!(!again.memory.console_folded, "and unfolded the next time");
+        // (Its bar is now at the top of the console.)
+        let top = 720.0 - shell.console_seen.expect("unfolded") + 15.0;
+        click(&ctx, &mut shell, egui::pos2(arrow.x, top));
+        assert!(shell.memory.console_folded && Memory::load(&memory).console_folded, "folded again by the arrow");
+        // A tab unfolds it too (CONSOLE at the left of the bar).
+        let tab = drawn_text(&ctx, &mut shell, vec![]).into_iter().find(|(t, _)| t == "CONSOLE").expect("the tab").1;
+        click(&ctx, &mut shell, tab);
+        assert!(!shell.memory.console_folded);
+        // What an older IDE wrote has no height: it loads, unfolded as it said.
+        std::fs::write(&memory, "open = \"main.lua\"\nconsole_folded = false\n").unwrap();
+        let old = shell_on(&dir, &memory);
+        assert!(!old.memory.console_folded && old.memory.console_height.is_none());
+        // The height the user dragged to is the height it opens at.
+        std::fs::write(&memory, "open = \"main.lua\"\nconsole_folded = false\nconsole_height = 200.0\n").unwrap();
+        let mut tall = shell_on(&dir, &memory);
+        let ctx = egui::Context::default();
+        for _ in 0..3 {
+            frame(&ctx, &mut tall);
+        }
+        assert!(tall.console_seen.is_some_and(|h| (h - 200.0).abs() < 3.0), "{:?}", tall.console_seen);
+        // Dragged by its top edge, let go: kept.
+        let (from, to) = (egui::pos2(640.0, 720.0 - 200.0), egui::pos2(640.0, 720.0 - 320.0));
+        let button = |at, pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        frame_with(&ctx, &mut tall, vec![egui::Event::PointerMoved(from)]);
+        frame_with(&ctx, &mut tall, vec![button(from, true)]);
+        frame_with(&ctx, &mut tall, vec![egui::Event::PointerMoved(to)]);
+        frame_with(&ctx, &mut tall, vec![egui::Event::PointerMoved(to)]);
+        frame_with(&ctx, &mut tall, vec![button(to, false)]);
+        frame_with(&ctx, &mut tall, vec![]);
+        let kept = Memory::load(&memory).console_height.expect("kept");
+        assert!(kept > 280.0, "{kept}");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&memory);
+        let _ = std::fs::remove_dir_all(memory.with_extension("journal"));
+    }
+
+    /// START WITH THE IDE (the agent in the console) behaves as before: the
+    /// console is unfolded and the agent asked for.
+    #[test]
+    fn an_agent_that_starts_with_the_ide_has_the_console_open() {
+        let (dir, memory) = bare_game("console-agent");
+        let _ = std::fs::remove_file(&memory);
+        let prefs = dir.with_extension("ide.toml");
+        let mut settings = Prefs::default();
+        settings.claude.with_ide = true;
+        settings.save(&prefs).unwrap();
+        let shell = shell_on(&dir, &memory).with_prefs(prefs.clone());
+        assert!(!shell.memory.console_folded);
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(prefs.with_file_name("agents"));
+        let _ = std::fs::remove_file(&prefs);
+        let _ = std::fs::remove_file(&memory);
+    }
+
+    /// While the console is folded a quiet sign says the shell wrote
+    /// something new (in the accent colour, a dot), and it goes once the
+    /// console is in view again.
+    #[test]
+    fn a_folded_console_shows_that_something_was_written() {
+        let (dir, memory) = bare_game("console-news");
+        let _ = std::fs::remove_file(&memory);
+        let console = Console::new(dir.clone(), Start::Command("echo one; sleep 1; echo two".into()), std::sync::Arc::new(|| {}));
+        let mut shell = Shell::new(&dir, crate::session::config::<crate::Voxcade>(&dir).unwrap(), memory.clone(), console);
+        let ctx = egui::Context::default();
+        shell.unfold_console();
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while shell.console().arrivals() == 0 && std::time::Instant::now() < until {
+            frame_with(&ctx, &mut shell, vec![]);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(!shell.console().news(), "in view: nothing new");
+        shell.memory.console_folded = true;
+        while !shell.console().news() && std::time::Instant::now() < until {
+            frame_with(&ctx, &mut shell, vec![]);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(shell.console().news(), "written while folded");
+        assert!(says(&drawn_text(&ctx, &mut shell, vec![]), "CONSOLE •"));
+        shell.memory.console_folded = false;
+        frame_with(&ctx, &mut shell, vec![]);
+        assert!(!shell.console().news(), "seen");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&memory);
+    }
+
+    /// What is wrong with the game is a red line over whatever the main area
+    /// shows (a sound, nothing, HELP, the game), with TO THE LINE, SHOW and
+    /// COPY; it goes when the game is mended.
+    #[test]
+    fn the_games_error_shows_over_whatever_is_open() {
+        let (dir, memory, mut shell) = managed_game("error-line");
+        let ctx = egui::Context::default();
+        shell.open("sounds/coin.toml");
+        shell.stage = Some(Stage::default());
+        frame(&ctx, &mut shell);
+        assert!(!says(&drawn_text(&ctx, &mut shell, vec![]), "THE GAME STOPPED"), "all is well");
+        shell.stage.as_mut().unwrap().trouble = Some("main.lua:3: attempt to index a nil value\nstack traceback:\n\t[C]: in ?".into());
+        let texts = drawn_text(&ctx, &mut shell, vec![]);
+        assert!(says(&texts, "THE GAME STOPPED: main.lua:3: attempt to index a nil value"), "over a sound: {texts:?}");
+        assert!(!says(&texts, "stack traceback"), "its first line");
+        assert!(["TO THE LINE", "SHOW", "COPY"].iter().all(|b| says(&texts, b)));
+        // Over HELP, the game and nothing.
+        shell.help = true;
+        assert!(says(&drawn_text(&ctx, &mut shell, vec![]), "THE GAME STOPPED"), "over HELP");
+        shell.help = false;
+        shell.stage.as_mut().unwrap().shown = true;
+        assert!(says(&drawn_text(&ctx, &mut shell, vec![]), "THE GAME STOPPED"), "over the game");
+        shell.stage.as_mut().unwrap().shown = false;
+        shell.memory.open = None;
+        shell.unload();
+        let texts = drawn_text(&ctx, &mut shell, vec![]);
+        assert!(says(&texts, "THE GAME STOPPED") && says(&texts, "Nothing here yet."), "over nothing");
+        // A file that would not load, and a game that would not start.
+        shell.stage.as_mut().unwrap().trouble = None;
+        shell.stage.as_mut().unwrap().unloaded = Some("sounds/coin.toml would not load: LINE 2: nope".into());
+        assert!(says(&drawn_text(&ctx, &mut shell, vec![]), "sounds/coin.toml would not load"));
+        shell.stage = None;
+        shell.wont_start("conf.lua:2: unexpected symbol".into());
+        let texts = drawn_text(&ctx, &mut shell, vec![]);
+        assert!(says(&texts, "THE GAME WOULD NOT START: conf.lua:2: unexpected symbol") && says(&texts, "TO THE LINE"));
+        assert!(shell.output.errors(5).iter().any(|l| l.text.starts_with("THE GAME WOULD NOT START") && l.at == Some(("conf.lua".into(), 2))), "and in OUTPUT");
+        // SHOW: OUTPUT, the console unfolded (and there, though the settings left it out).
+        shell.prefs.console = false;
+        let at = texts.iter().find(|(t, _)| t == "SHOW").expect("SHOW").1;
+        click(&ctx, &mut shell, at);
+        assert!(shell.prefs.console && shell.output_shown && !shell.memory.console_folded);
+        // TO THE LINE: the file at the line.
+        let at = drawn_text(&ctx, &mut shell, vec![]).into_iter().find(|(t, _)| t == "TO THE LINE").expect("the button").1;
+        click(&ctx, &mut shell, at);
+        assert_eq!(shell.opened(), Some("conf.lua"));
+        // Mended: the line goes.
+        shell.start_mended();
+        assert!(!says(&drawn_text(&ctx, &mut shell, vec![]), "TO THE LINE"));
+        clean_up(&dir, &shell);
+        let _ = std::fs::remove_file(&memory);
+    }
+
+    /// BUILD says BUILDING… while it packs (the window goes on), makes the
+    /// zip in the game's own folder under `builds/`, and says where, with
+    /// SHOW IN FOLDER; a build that cannot says why, in red, with COPY. The
+    /// list does not show `builds/`.
+    #[test]
+    fn build_works_in_the_background_and_lands_in_the_games_folder() {
+        let (dir, memory) = bare_game("build");
+        let mut shell = shell_on(&dir, &memory);
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        shell.build();
+        assert!(says(&drawn_text(&ctx, &mut shell, vec![]), "BUILDING…"));
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        while shell.building.is_some() && std::time::Instant::now() < until {
+            shell.tick(std::time::Instant::now());
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        let Some(Notice::Built(zip, said)) = &shell.notice else { panic!("built") };
+        let name = crate::settings::game_name(&dir);
+        assert!(zip.starts_with(dir.canonicalize().unwrap().join("builds")) && zip.is_file(), "{zip:?}");
+        assert!(said.starts_with("BUILT ") && said.contains(&format!("{name}-")), "{said}");
+        let texts = drawn_text(&ctx, &mut shell, vec![]);
+        assert!(says(&texts, "SHOW IN FOLDER") && says(&texts, "BUILT "), "{texts:?}");
+        assert!(!shell.files.assets.iter().any(|g| g.files.iter().any(|f| f.starts_with("builds/"))), "not listed");
+        assert!(!Files::names(&dir).iter().any(|f| f.starts_with("builds/")));
+        // A build that cannot: `builds` is a file.
+        std::fs::remove_dir_all(dir.join("builds")).unwrap();
+        std::fs::write(dir.join("builds"), "in the way").unwrap();
+        shell.build();
+        while shell.building.is_some() && std::time::Instant::now() < until {
+            shell.tick(std::time::Instant::now());
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(matches!(&shell.notice, Some(Notice::Failed(w)) if w.starts_with("BUILD FAILED: ")), "failed");
+        let texts = drawn_text(&ctx, &mut shell, vec![]);
+        assert!(says(&texts, "BUILD FAILED") && says(&texts, "COPY"));
+        assert!(shell.output.errors(2).iter().any(|l| l.text.starts_with("BUILD FAILED")));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&memory);
     }
 }

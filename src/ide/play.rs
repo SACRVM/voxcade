@@ -53,6 +53,9 @@ pub struct Play<G: Game> {
     runs: Runs,
     /// Files that would not load since last asked (for OUTPUT).
     failed: Vec<String>,
+    /// The files that would not load when they changed, by name, with what
+    /// was said; a file leaves when it loads again or is gone.
+    unloaded: std::collections::BTreeMap<String, String>,
     /// Time not yet stepped, and when the last frame was (None: held, so
     /// it goes on without catching up).
     accumulator: f32,
@@ -87,7 +90,7 @@ impl<G: Game> Play<G> {
         runs.start(&game);
         let seating = crate::seating::Seating::new(game.cfg.players);
         let mark = game.start_mark();
-        let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), accumulator: 0.0, last: None, scenario: scenario.map(str::to_string), seating, mark, notes: Vec::new() };
+        let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), unloaded: Default::default(), accumulator: 0.0, last: None, scenario: scenario.map(str::to_string), seating, mark, notes: Vec::new() };
         play.music();
         Ok(play)
     }
@@ -192,15 +195,22 @@ impl<G: Game> Play<G> {
         let mut took = false;
         let mut failed = false;
         for path in &changed {
+            let name = path.strip_prefix(&self.dir).unwrap_or(path).display().to_string();
+            let mut this_failed = false;
             match self.game.reload(path) {
                 Ok(Reloaded::World) => (rebuild, took) = (true, true),
                 Ok(Reloaded::Nothing) => {}
                 Ok(_) => took = true,
                 Err(e) => {
-                    failed = true;
-                    let name = path.strip_prefix(&self.dir).unwrap_or(path).display().to_string();
-                    self.failed.push(format!("{name} would not load: {e:#}"));
+                    (failed, this_failed) = (true, true);
+                    let said = format!("{name} would not load: {e:#}");
+                    self.failed.push(said.clone());
+                    self.unloaded.insert(name.clone(), said);
                 }
+            }
+            // Loaded again (or gone): no longer in the way.
+            if !this_failed || !path.exists() {
+                self.unloaded.remove(&name);
             }
         }
         // What a level is built from is built when it begins: if the game
@@ -242,6 +252,12 @@ impl<G: Game> Play<G> {
         let failed = self.failed.drain(..).map(|f| (super::output::Kind::Error, f));
         let printed = self.game.printed().into_iter().map(|p| (super::output::Kind::Print, p));
         notes.chain(failed).chain(printed).collect()
+    }
+
+    /// A file of the game that would not load when it last changed (the
+    /// first, if several), what was said of it; None once they all load.
+    pub fn unloaded(&self) -> Option<String> {
+        self.unloaded.values().next().cloned()
     }
 
     /// Whether the run is won or lost (PRESS START: the IDE has no title
@@ -373,6 +389,13 @@ impl<G: Game> Play<G> {
     pub fn state_hash(&self) -> u64 {
         self.game.game.state_hash()
     }
+}
+
+/// Whether the game in `dir` as its files are now begins (what PLAY finds
+/// out first), without a window: the error if not.
+pub fn begins<G: Game>(dir: &Path) -> Result<()> {
+    let mut game = Session::<G>::load_with(dir, Slots::on_disk(dir))?;
+    begin(&mut game, None)
 }
 
 /// The file and line a game's trouble names (`main.lua:12: ...`), if it
