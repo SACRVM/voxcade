@@ -78,6 +78,19 @@ impl Agent {
             Agent::Claude => "CLAUDE",
         }
     }
+
+    /// The file in a game folder where the game's own notes for it live.
+    pub fn notes_file(self) -> &'static str {
+        match self {
+            Agent::Claude => "CLAUDE.md",
+        }
+    }
+}
+
+/// Whether `name` (a file at the top of a game folder) is some agent's
+/// notes: not part of the game, so neither built, sealed nor listed as one.
+pub fn is_notes_file(name: &str) -> bool {
+    Agent::ALL.iter().any(|a| a.notes_file() == name)
 }
 
 impl Prefs {

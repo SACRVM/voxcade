@@ -267,7 +267,13 @@ nearest; its replay `tests/two_ships`);
   (`ide/export.rs`, git-ignored; no hidden files, no `replays/tests/`).
   OPEN beside the game's name (games opened last, another folder) and
   NEW (from a template into the projects folder, `~/Voxcade` or the
-  settings'); `voxcade ide` without a game shows the start page; one
+  settings'; every new game a git repository with its first commit,
+  where git is there, `templates::begin_repository`; with the form's
+  tick WITH CLAUDE CODE, on when the console is shown, the game's own
+  notes for its agent, `CLAUDE.md` from `ide/game_claude.md`: the user,
+  2026-11-11: nobody is forced to use Claude, other agents may come; the
+  notes are no part of the game, left out of BUILD and of the sealed
+  files); `voxcade ide` without a game shows the start page; one
   window shows one game after another (`ide/projects.rs`). HELP shows the
   Lua API by example (`ide/help.rs`: plain English, whole files to copy,
   each run as a game by `every_example_runs`). Below, CONSOLE and OUTPUT

@@ -40,7 +40,8 @@ pub fn hash(bytes: &[u8]) -> String {
 }
 
 /// The folders of a game folder that hold no part of the game: what BUILD
-/// leaves out, and the recorded runs.
+/// leaves out, and the recorded runs. (An agent's notes at the top of the
+/// folder, `CLAUDE.md`, are none of the game either: `ide::is_notes_file`.)
 const NOT_THE_GAME: [&str; 4] = ["builds", "shots", "target", "replays"];
 
 /// A game folder's files as the engine reads them.
@@ -230,7 +231,7 @@ fn gather(dir: &Path, folder: &Path, files: &mut BTreeMap<String, File>) -> Resu
     entries.sort_by_key(|e| e.file_name());
     for entry in entries {
         let Some(name) = entry.file_name().to_str().map(str::to_string) else { continue };
-        if name.starts_with('.') || (folder == dir && NOT_THE_GAME.contains(&name.as_str())) {
+        if name.starts_with('.') || (folder == dir && (NOT_THE_GAME.contains(&name.as_str()) || crate::ide::is_notes_file(&name))) {
             continue;
         }
         let kind = entry.file_type()?;
@@ -325,12 +326,13 @@ mod tests {
         std::fs::create_dir_all(game.join("levels")).unwrap();
         std::fs::create_dir_all(game.join(".git")).unwrap();
         std::fs::create_dir_all(game.join("shots")).unwrap();
+        std::fs::write(game.join("CLAUDE.md"), "notes").unwrap();
         std::fs::write(game.join("main.lua"), "-- one").unwrap();
         std::fs::write(game.join("levels/01.json"), "{}").unwrap();
         std::fs::write(game.join(".git/HEAD"), "x").unwrap();
         std::fs::write(game.join("shots/a.png"), "x").unwrap();
         let (set, files) = Files::seal(&game, &store).unwrap();
-        assert_eq!(set.keys().collect::<Vec<_>>(), ["levels/01.json", "main.lua"], "hidden files and shots/ are none of the game");
+        assert_eq!(set.keys().collect::<Vec<_>>(), ["levels/01.json", "main.lua"], "hidden files, shots/ and the agent's notes at the top are none of the game");
         assert_eq!(files.set().unwrap(), set);
         std::fs::write(game.join("main.lua"), "-- two").unwrap();
         std::fs::write(game.join("levels/02.json"), "{}").unwrap();

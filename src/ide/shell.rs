@@ -744,7 +744,7 @@ impl Shell {
                         });
                 }
                 if ui.button("NEW").on_hover_text("Begins a new game from a template, in the projects folder (settings).").clicked() {
-                    self.new_game = Some(NewGame::default());
+                    self.new_game = Some(NewGame::new(&self.prefs));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // The settings, apart from the game's buttons.
@@ -892,7 +892,7 @@ impl Shell {
         egui::CentralPanel::default().frame(egui::Frame::new().fill(GROUND).inner_margin(egui::Margin { left: 20, right: 0, top: 14, bottom: 0 })).show(ui, |ui| self.main(ui));
         // NEW's form over everything; the game begun opens.
         if let Some(new) = &mut self.new_game {
-            match new.ui(ui.ctx(), &self.prefs.projects_dir()) {
+            match new.ui(ui.ctx(), &self.prefs.projects_dir(), &self.prefs) {
                 Form::Open => {}
                 Form::Cancelled => self.new_game = None,
                 Form::Created(dir) => {

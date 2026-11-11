@@ -9,6 +9,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
+use super::prefs::Agent;
+
+/// The game's own notes for an agent, `{title}` and `{template}` to fill.
+const NOTES: &str = include_str!("game_claude.md");
+
 /// A game to begin from.
 pub struct Template {
     /// Its name in the IDE, and a line of what it is.
@@ -81,9 +86,69 @@ pub fn folder_for(projects: &Path, name: &str) -> PathBuf {
     projects.join(folder.trim_matches('-'))
 }
 
+/// What came of making the game a git repository.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Git {
+    /// `git` is not there, or would not start a repository.
+    Without,
+    /// A repository, but the first commit did not happen (no identity set).
+    Started,
+    /// A repository with the first commit.
+    Committed,
+}
+
+impl Git {
+    /// One plain sentence of it, for where the IDE says such things (NEW
+    /// has no place for a remark that is no error yet).
+    #[allow(dead_code)]
+    pub fn said(self) -> &'static str {
+        match self {
+            Git::Without => "git is not installed, so the game is no git repository.",
+            Git::Started => "The game is a git repository, but its first commit did not happen (git needs your name and email: git config --global user.name, user.email).",
+            Git::Committed => "The game is a git repository, with its first commit made.",
+        }
+    }
+}
+
+/// A game begun: its folder and what became of its repository.
+#[derive(Debug)]
+pub struct Begun {
+    pub dir: PathBuf,
+    #[allow(dead_code)]
+    pub git: Git,
+}
+
+/// Makes the folder `dir` a git repository: `.gitignore` for what BUILD and
+/// the pictures write, `git init`, everything added, a first commit saying
+/// `message` under the user's own identity (`identity`: environment
+/// variables to give the git programs besides, for a test). Never fails:
+/// what did not work is said in what it returns.
+pub fn begin_repository(dir: &Path, message: &str, identity: &[(&str, &str)]) -> Git {
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .envs(identity.iter().copied())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    };
+    if !git(&["init", "-q"]) {
+        return Git::Without;
+    }
+    // Written even if the rest fails: the folder is the user's to commit.
+    let _ = std::fs::write(dir.join(".gitignore"), "builds/\nshots/\n");
+    if git(&["add", "-A"]) && git(&["commit", "-q", "-m", message]) { Git::Committed } else { Git::Started }
+}
+
 /// Begins the game called `name` from `template` in a new folder in
-/// `projects`; the folder.
-pub fn create(template: &Template, projects: &Path, name: &str) -> Result<PathBuf> {
+/// `projects`, with the agent's notes for the game (`notes`: its file's
+/// name comes from the agent) and as a git repository; the folder and what
+/// git did.
+pub fn create(template: &Template, projects: &Path, name: &str, notes: Option<Agent>) -> Result<Begun> {
     let name = name.trim();
     if name.is_empty() {
         bail!("the game needs a name");
@@ -107,7 +172,13 @@ pub fn create(template: &Template, projects: &Path, name: &str) -> Result<PathBu
         };
         std::fs::write(&path, bytes).with_context(|| format!("writing {}", path.display()))?;
     }
-    Ok(dir)
+    if let Some(agent) = notes {
+        let text = NOTES.replace("{title}", name).replace("{template}", &template.name.to_lowercase());
+        let path = dir.join(agent.notes_file());
+        std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
+    }
+    let git = begin_repository(&dir, &format!("A new game from the {} template", template.name.to_lowercase()), &[]);
+    Ok(Begun { dir, git })
 }
 
 #[cfg(test)]
@@ -122,7 +193,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&projects);
         for (i, template) in TEMPLATES.iter().enumerate() {
             let name = format!("Test Game {i}");
-            let dir = create(template, &projects, &name).unwrap();
+            let dir = create(template, &projects, &name, Some(Agent::Claude)).unwrap().dir;
             assert_eq!(dir, projects.join(format!("test-game-{i}")));
             let mut game = crate::session::Session::<crate::Voxcade>::load(&dir).unwrap();
             assert_eq!(game.cfg.title, name, "{}", template.name);
@@ -130,9 +201,66 @@ mod tests {
                 game.step(&crate::input::Input { right: true, ..Default::default() });
             }
             assert!(game.trouble().is_none(), "{}: {:?}", template.name, game.trouble());
-            assert!(create(template, &projects, &name).is_err(), "taken");
+            assert!(create(template, &projects, &name, None).is_err(), "taken");
         }
-        assert!(create(&TEMPLATES[0], &projects, "  ").is_err(), "no name");
+        assert!(create(&TEMPLATES[0], &projects, "  ", None).is_err(), "no name");
+        let _ = std::fs::remove_dir_all(&projects);
+    }
+
+    /// The tick in NEW puts the game's notes for the agent in, named for the
+    /// agent, with the game's name and the template's in them; without it
+    /// there is no such file. The notes are no part of the game: the
+    /// fingerprint stays and a change to them reloads nothing.
+    #[test]
+    fn the_notes_come_with_the_tick_and_are_no_part_of_the_game() {
+        let projects = std::env::temp_dir().join(format!("voxcade-notes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&projects);
+        let with = create(&TEMPLATES[1], &projects, "Lava Run", Some(Agent::Claude)).unwrap().dir;
+        let without = create(&TEMPLATES[1], &projects, "Dry Run", None).unwrap().dir;
+        let notes = std::fs::read_to_string(with.join("CLAUDE.md")).unwrap();
+        assert!(notes.starts_with("# Lava Run\n") && notes.contains("the jump & run template"), "{notes}");
+        assert!(!notes.contains("{title}") && !notes.contains("{template}"));
+        assert!(!without.join("CLAUDE.md").exists());
+        // Both are the same game but for the title: the notes change nothing.
+        let mut a = crate::session::Session::<crate::Voxcade>::load(&with).unwrap();
+        let mut b = crate::session::Session::<crate::Voxcade>::load(&without).unwrap();
+        assert_eq!(a.fingerprint().unwrap(), b.fingerprint().unwrap());
+        let before = a.fingerprint().unwrap();
+        std::fs::write(with.join("CLAUDE.md"), "# changed\n").unwrap();
+        assert!(matches!(a.reload(&with.join("CLAUDE.md")).unwrap(), crate::session::Reloaded::Nothing));
+        assert_eq!(crate::session::Session::<crate::Voxcade>::load(&with).unwrap().fingerprint().unwrap(), before);
+        for _ in 0..30 {
+            b.step(&crate::input::Input::default());
+        }
+        assert!(b.trouble().is_none());
+        let _ = std::fs::remove_dir_all(&projects);
+    }
+
+    /// A new game is a git repository when git is there: one commit with
+    /// the notes in it (given an identity), `.gitignore` written; and
+    /// whatever git does, making the game does not fail.
+    #[test]
+    fn a_new_game_is_a_git_repository() {
+        let git = |dir: &Path, args: &[&str]| std::process::Command::new("git").arg("-C").arg(dir).args(args).output();
+        let projects = std::env::temp_dir().join(format!("voxcade-git-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&projects);
+        let begun = create(&TEMPLATES[0], &projects, "Git Game", Some(Agent::Claude)).unwrap();
+        if git(&begun.dir, &["--version"]).is_err() {
+            assert_eq!(begun.git, Git::Without);
+            return;
+        }
+        assert_ne!(begun.git, Git::Without);
+        assert_eq!(std::fs::read_to_string(begun.dir.join(".gitignore")).unwrap(), "builds/\nshots/\n");
+        // With an identity of the test's own the commit is sure to be made.
+        let who = [("GIT_AUTHOR_NAME", "T"), ("GIT_AUTHOR_EMAIL", "t@example.com"), ("GIT_COMMITTER_NAME", "T"), ("GIT_COMMITTER_EMAIL", "t@example.com")];
+        let dir = projects.join("again");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("main.lua"), "").unwrap();
+        assert_eq!(begin_repository(&dir, "A new game from the test template", &who), Git::Committed);
+        let log = String::from_utf8(git(&dir, &["log", "--format=%s"]).unwrap().stdout).unwrap();
+        assert_eq!(log.trim(), "A new game from the test template");
+        let files = String::from_utf8(git(&dir, &["ls-files"]).unwrap().stdout).unwrap();
+        assert_eq!(files.lines().collect::<Vec<_>>(), [".gitignore", "main.lua"]);
         let _ = std::fs::remove_dir_all(&projects);
     }
 

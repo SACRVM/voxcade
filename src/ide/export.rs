@@ -90,13 +90,13 @@ fn readme(title: &str, name: &str, launcher: &str) -> String {
 }
 
 /// The files under `dir/prefix` a build takes, their paths from `dir`:
-/// not hidden, not the regression runs.
+/// not hidden, not the regression runs, not an agent's notes.
 fn walk(dir: &Path, prefix: &str, out: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir.join(prefix)) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         let path = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
-        if name.starts_with('.') || path == "replays/tests" {
+        if name.starts_with('.') || path == "replays/tests" || (prefix.is_empty() && super::is_notes_file(&name)) {
             continue;
         }
         match entry.file_type() {
@@ -110,6 +110,23 @@ fn walk(dir: &Path, prefix: &str, out: &mut Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The agent's notes at the top of a game folder are not packed (a file
+    /// by that name deeper down is the game's).
+    #[test]
+    fn a_build_leaves_the_agents_notes_out() {
+        let dir = std::env::temp_dir().join(format!("voxcade-export-notes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("levels")).unwrap();
+        for file in ["main.lua", "CLAUDE.md", "levels/CLAUDE.md", ".gitignore"] {
+            std::fs::write(dir.join(file), "x").unwrap();
+        }
+        let mut files = Vec::new();
+        walk(&dir, "", &mut files);
+        files.sort();
+        assert_eq!(files, ["levels/CLAUDE.md", "main.lua"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// A build holds the program, the game (no hidden files, no regression
     /// runs), its launcher and README; unpacked, the game loads as the

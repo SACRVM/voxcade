@@ -59,10 +59,12 @@ fn short(dir: &Path) -> String {
 }
 
 /// NEW's form while it is open: the game's name and its template.
-#[derive(Default)]
 pub struct NewGame {
     name: String,
     template: usize,
+    /// The tick: the game's notes for the agent go into it (ticked at
+    /// first when the settings show the console).
+    notes: bool,
     trouble: Option<String>,
 }
 
@@ -76,8 +78,14 @@ pub enum Form {
 }
 
 impl NewGame {
-    /// The form over everything; the new game goes into `projects`.
-    pub fn ui(&mut self, ctx: &egui::Context, projects: &Path) -> Form {
+    /// The form as the settings leave it.
+    pub fn new(prefs: &Prefs) -> Self {
+        Self { name: String::new(), template: 0, notes: prefs.console, trouble: None }
+    }
+
+    /// The form over everything; the new game goes into `projects`, with
+    /// the agent's notes if ticked (the agent the settings name).
+    pub fn ui(&mut self, ctx: &egui::Context, projects: &Path, prefs: &Prefs) -> Form {
         let mut form = Form::Open;
         let modal = egui::Modal::new(egui::Id::unique("new game")).frame(egui::Frame::popup(&ctx.global_style()).fill(crate::gui::PANEL).inner_margin(egui::Margin::same(20))).show(ctx, |ui| {
             ui.set_width(520.0);
@@ -97,6 +105,11 @@ impl NewGame {
                 egui::Frame::new().inner_margin(egui::Margin { left: indent, ..egui::Margin::ZERO }).show(ui, |ui| ui.label(RichText::new(t.about).small().color(QUIET)));
                 ui.add_space(4.0);
             }
+            ui.checkbox(&mut self.notes, format!("WITH {}", prefs.agent.name())).on_hover_text(format!(
+                "Puts a file {} into the game, with the game's own notes for {}: what it is, what was decided, how you work on it. Nothing in Voxcade needs it.",
+                prefs.agent.notes_file(),
+                prefs.agent.called()
+            ));
             if let Some(trouble) = &self.trouble {
                 ui.add_space(6.0);
                 ui.label(RichText::new(trouble).color(ERROR));
@@ -105,8 +118,9 @@ impl NewGame {
             let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             ui.horizontal(|ui| {
                 if ui.button("CREATE").clicked() || enter {
-                    match templates::create(&TEMPLATES[self.template], projects, &self.name) {
-                        Ok(dir) => form = Form::Created(dir),
+                    match templates::create(&TEMPLATES[self.template], projects, &self.name, self.notes.then_some(prefs.agent)) {
+                        // What git did (`begun.git.said()`) has no place to be said yet.
+                        Ok(begun) => form = Form::Created(begun.dir),
                         Err(e) => self.trouble = Some(format!("{e:#}")),
                     }
                 }
@@ -270,7 +284,7 @@ impl StartPage {
     /// picture of it wants it (`voxcade ide --shot FILE --open new:NAME`).
     pub fn show_new(&mut self, name: &str) {
         let template = TEMPLATES.iter().position(|t| t.name == "JUMP & RUN").unwrap_or(0);
-        self.new = Some(NewGame { name: name.to_string(), template, trouble: None });
+        self.new = Some(NewGame { name: name.to_string(), template, notes: self.prefs.console, trouble: None });
     }
 
     /// Says what went wrong.
@@ -478,7 +492,7 @@ impl StartPage {
         egui::Panel::bottom("launcher foot").frame(egui::Frame::new().fill(PANEL).inner_margin(egui::Margin::symmetric(28, 12))).show(ui, |ui| {
             ui.horizontal(|ui| {
                 if ui.button("NEW GAME").on_hover_text("Begins a game of your own from a template, in the projects folder.").clicked() {
-                    self.new = Some(NewGame::default());
+                    self.new = Some(NewGame::new(&self.prefs));
                 }
                 if ui.button("OPEN A FOLDER").on_hover_text("Opens a game's folder (the one with its conf.lua) in the IDE.").clicked() {
                     wish = Some(Wish::Browse);
@@ -558,7 +572,7 @@ impl StartPage {
             });
         });
         if let Some(new) = &mut self.new {
-            match new.ui(ui.ctx(), &self.prefs.projects_dir()) {
+            match new.ui(ui.ctx(), &self.prefs.projects_dir(), &self.prefs) {
                 Form::Open => {}
                 Form::Cancelled => self.new = None,
                 Form::Created(dir) => {

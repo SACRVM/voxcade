@@ -16,6 +16,7 @@ mod memory;
 mod output;
 mod play;
 mod prefs;
+pub use prefs::is_notes_file;
 mod preview;
 mod projects;
 mod shell;
