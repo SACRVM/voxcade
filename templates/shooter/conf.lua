@@ -47,7 +47,8 @@ function conf(c)
   c.weapons.grenade = {
     label = "Grenade",
     throw = 42,                     -- a full throw; it goes off just after landing
-    blast = 4.5,
+    blast = 4.5,                    -- its crater, a ball this far around where it lies; one about as far as
+                                    -- the figure is tall (22 here) opens a way through a wall
     damage = 6,                     -- to everyone in the blast
     friendly_fire = false,          -- it spares its thrower
     sound = "throw",
