@@ -167,8 +167,8 @@ fn try_op(ed: &mut Editor, figures: &Figures, op: &ShotOp) -> Result<()> {
         ShotOp::Turn(name, by, axis) if *axis < 2 => {
             let item = find(ed, name)?;
             ed.choose_item(Some(item));
-            anyhow::ensure!(ed.chosen_thing().is_some_and(|t| t.model.is_some()), "--turn {name} --about x or y: only a piece of a model tips");
-            anyhow::ensure!(ed.tip(*axis, *by), "--turn {name} --by {by}: this game turns things on the grid, in quarter turns (c.camera.turns = \"free\" for any angle; a solid piece keeps to them too)");
+            anyhow::ensure!(ed.chosen_thing().is_some_and(|t| t.model.is_some()), "--rotate {name} --about x or y: only a piece of a model tips");
+            anyhow::ensure!(ed.tip(*axis, *by), "--rotate {name} --by {by}: this game turns things on the grid, in quarter turns (c.camera.rotates = \"free\" for any angle; a solid piece keeps to them too)");
         }
         ShotOp::Turn(name, by, _) => {
             let item = find(ed, name)?;
@@ -178,7 +178,7 @@ fn try_op(ed: &mut Editor, figures: &Figures, op: &ShotOp) -> Result<()> {
                     ed.turn_item(1);
                 }
             } else if let Some(t) = ed.chosen_thing() {
-                anyhow::ensure!(ed.free_turns, "--turn {name} --by {by}: this game turns things on the grid, in quarter turns (c.camera.turns = \"free\" for any angle)");
+                anyhow::ensure!(ed.free_turns, "--rotate {name} --by {by}: this game turns things on the grid, in quarter turns (c.camera.rotates = \"free\" for any angle)");
                 let b = model::room::bearing_of(t);
                 ed.set_field(Field::Turn, b + by);
             }
@@ -251,7 +251,7 @@ fn open<G: Game>(dir: &Path, level: Option<&str>, block: Option<&str>, things: b
     // Things turned off the quarter turns in a game on the grid: asked
     // before the level opens, nothing changed until answered.
     let off = ed.level.off_grid();
-    if cfg.camera.turns == crate::config::Turns::Quarter && !off.is_empty() {
+    if cfg.camera.rotates == crate::config::Rotates::Quarter && !off.is_empty() {
         ed.question = Some(off.iter().map(|t| t.called()).collect());
     }
     ed.kinds = cfg.things.keys().cloned().collect();
@@ -260,14 +260,14 @@ fn open<G: Game>(dir: &Path, level: Option<&str>, block: Option<&str>, things: b
         if let Some(m) = table.get("model").and_then(|m| m.as_str()) {
             ed.kind_models.insert(kind.clone(), m.to_string());
         }
-        if table.get("behaviour").is_none() {
+        if table.get("behavior").is_none() {
             ed.still_kinds.insert(kind.clone());
         }
-        if table.get("turns").and_then(|t| t.as_str()) == Some("free") {
+        if table.get("rotates").and_then(|t| t.as_str()) == Some("free") {
             ed.free_kinds.insert(kind.clone());
         }
     }
-    ed.free_turns = cfg.camera.turns == crate::config::Turns::Free;
+    ed.free_turns = cfg.camera.rotates == crate::config::Rotates::Free;
     ed.game_light = cfg.light.clone();
     ed.scenes = crate::levels::scene_files(dir, &cfg);
     if things {
@@ -387,7 +387,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     view.level_settings = opts.level_settings;
     if opts.turn_handles {
         view::act(&mut ed, &mut view, view::Action::HandleMode(true));
-        anyhow::ensure!(view.turn_mode(&ed), "--handles turn: what is chosen does not turn (a piece of a model or a place does)");
+        anyhow::ensure!(view.turn_mode(&ed), "--handles rotate: what is chosen does not turn (a piece of a model or a place does)");
     }
     if opts.add_menu {
         view::act(&mut ed, &mut view, view::Action::AddMenu);
@@ -1383,7 +1383,7 @@ mod tests {
     /// step and its step back (each written as it is taken).
     #[test]
     fn the_editor_keeps_what_it_does_not_shape() {
-        let dir = game_with_pieces("pieces-kept", "  c.camera.turns = \"free\"\n", crate::grid::tests::PIECES);
+        let dir = game_with_pieces("pieces-kept", "  c.camera.rotates = \"free\"\n", crate::grid::tests::PIECES);
         let text = std::fs::read_to_string(dir.join("level.toml")).unwrap();
         let (mut ed, ..) = open::<crate::Voxcade>(&dir, Some("level.toml"), None, false).unwrap();
         assert!(ed.question.is_none(), "a game that turns things freely asks nothing");
@@ -1428,7 +1428,7 @@ mod tests {
         view::act(&mut ed, &mut view, view::Action::AlignAll);
         assert!(ed.question.is_none() && ed.level.off_grid().is_empty());
         let aligned = std::fs::read_to_string(dir.join("level.toml")).unwrap();
-        assert_eq!(aligned, text.replace("turn = 45", "facing = \"east\""), "written at once, nothing else changed");
+        assert_eq!(aligned, text.replace("rotation = 45", "facing = \"east\""), "written at once, nothing else changed");
         assert_eq!(ed.steps(), 1);
         ed.undo();
         assert_eq!(std::fs::read_to_string(dir.join("level.toml")).unwrap(), text, "a step back");

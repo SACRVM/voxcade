@@ -550,6 +550,18 @@ impl Reader<'_> {
         Ok(IVec3::new(t[0] as i32, t[1] as i32, t[2] as i32))
     }
 
+    /// A field of `table` under a name it had before Voxcade took other
+    /// tools' words (`renamed`: each old name and its new one) is a
+    /// mistake naming the new one and the command that renames it.
+    pub fn renamed(&self, table: &dyn TableLike, renamed: &[(&str, &str)], what: &str) -> Result<()> {
+        for (old, new) in renamed {
+            if let Some((_, v)) = table.iter().find(|(k, _)| k == old) {
+                return Err(self.fail(v.span(), format!("{what}: '{old}' is called '{new}' now (voxcade upgrade renames it)")));
+            }
+        }
+        Ok(())
+    }
+
     /// Only the fields `allowed` may be in `table`, `what` named in the
     /// mistake.
     pub fn only(&self, table: &dyn TableLike, allowed: &[&str], what: &str) -> Result<()> {

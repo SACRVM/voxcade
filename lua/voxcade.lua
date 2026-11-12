@@ -63,8 +63,8 @@
 ---@field x? number Its top left on the HUD (else in the middle).
 ---@field y? number
 
----@class Turn How much further a model is turned, in degrees (frame:model).
----@field turn? number Round, clockwise seen from above (90: a quarter to the right).
+---@class Rotation How much further a model is rotated, in degrees (frame:model).
+---@field rotation? number Round, clockwise seen from above (90: a quarter to the right).
 ---@field pitch? number Its nose up (below 0: down).
 ---@field roll? number Its right side down, as when banking right (below 0: its left).
 
@@ -173,7 +173,7 @@ function Level:solid(x, y, z) end
 ---@return integer
 function Level:ground(x, y) end
 
----Places a thing of a kind (c.things) at x, y, on the ground there unless options.z is given; options.facing turns it, options.state is its first state, options.name its name (one thing's in the level), options.props what your code reads of it over its kind's props. A kind without a behaviour falls to the ground; with fixed = true (c.things.NAME.fixed) it stays exactly where it is put. With ready-made rules (c.kit) their kinds stand where a marker there would place them. The camera follows the player; in a game without a figure for it (no c.player.kind), the first thing placed. Pieces ("piece") come only from a level's file.
+---Places a thing of a kind (c.things) at x, y, on the ground there unless options.z is given; options.facing turns it, options.state is its first state, options.name its name (one thing's in the level), options.props what your code reads of it over its kind's props. A kind without a behavior falls to the ground; with fixed = true (c.things.NAME.fixed) it stays exactly where it is put. With ready-made rules (c.kit) their kinds stand where a marker there would place them. The camera follows the player; in a game without a figure for it (no c.player.kind), the first thing placed. Pieces ("piece") come only from a level's file.
 ---@param kind string
 ---@param x number
 ---@param y number
@@ -262,7 +262,7 @@ local Player = {}
 ---@field props table What your code reads of it, fixed while it lives: its kind's props (c.things.NAME.props = { worth = 100 }) and what level:spawn gave it. Only to read; what changes goes in thing.state.
 local Thing = {}
 
----Walks this tick the way given at this speed (voxels a second), facing it; it falls, steps up ledges and lands by itself. Only things your script moves (a kind with no behaviour in c.things, or one whose behaviour thing:enable switched off).
+---Walks this tick the way given at this speed (voxels a second), facing it; it falls, steps up ledges and lands by itself. Only things your script moves (a kind with no behavior in c.things, or one whose behavior thing:enable switched off).
 ---@param way Way
 ---@param speed number
 function Thing:walk(way, speed) end
@@ -317,16 +317,16 @@ function Thing:in_block(kind) end
 ---@param height number
 function Thing:bounce(height) end
 
----Sets it moving the way given at this speed (voxels a second), and up as high as rise (voxels) if given, standing or in the air: a dash (player:launch(player.facing, 240)), a wall jump, a knockback. Physics carries it on, and ready-made rules steer it on from there (the hero as the player presses, a soldier as he means to go); switch them off for a while with thing:enable to keep them out of it. Things your script moves, things whose behaviour is off, the player, the hero, walkers, hoppers, soldiers and hostages.
+---Sets it moving the way given at this speed (voxels a second), and up as high as rise (voxels) if given, standing or in the air: a dash (player:launch(player.facing, 240)), a wall jump, a knockback. Physics carries it on, and ready-made rules steer it on from there (the hero as the player presses, a soldier as he means to go); switch them off for a while with thing:enable to keep them out of it. Things your script moves, things whose behavior is off, the player, the hero, walkers, hoppers, soldiers and hostages.
 ---@param way Way
 ---@param speed number
 ---@param rise? number
 function Thing:launch(way, speed, rise) end
 
----Switches its ready-made behaviour (its kind's, c.things.NAME.behaviour: "hero", "walker", "soldier", ...) off or on again. Off, it does nothing by itself: it still falls, is hit and touched, and your script moves it like its own (thing:walk, thing:jump, thing:launch). A stunned hero, an end walk, a frozen enemy. Until it leaves its level (the hero: until the next level). Not yet the shooter's player, who is no thing of a kind.
----@param behaviour string
+---Switches its ready-made behavior (its kind's, c.things.NAME.behavior: "hero", "walker", "soldier", ...) off or on again. Off, it does nothing by itself: it still falls, is hit and touched, and your script moves it like its own (thing:walk, thing:jump, thing:launch). A stunned hero, an end walk, a frozen enemy. Until it leaves its level (the hero: until the next level). Not yet the shooter's player, who is no thing of a kind.
+---@param behavior string
 ---@param on boolean
-function Thing:enable(behaviour, on) end
+function Thing:enable(behavior, on) end
 
 ---It takes an item of c.items (one, or count): into its state.inventory (the player's: player.state.inventory), no more than the item's stack; how many it took. on_pickup runs in the next tick's events.
 ---@param item string
@@ -404,13 +404,13 @@ function Screen:flash(strength) end
 ---@field alpha number How far into the tick this picture is, 0 to 1: add it to a count of ticks for motion that runs smooth between them.
 local Frame = {}
 
----Draws a model (a kind's or one in c.models) where the thing stands in the level, facing its way; index is which of its frames (from 0); without it, its kind's frames for what it does (c.things.NAME.frames: idle standing, walk, jump in the air), else the model's own: frame 0 standing, 1 in the air, the rest walking, a frame every half its height walked. A model's pivot is its cell size / 2 across and deep (the middle cell of an odd size): of an even size it lies one voxel off the middle, so facing -y or sideways it fills cells one voxel higher on the axis a turn flips than facing +y (use odd sizes where that matters). turn turns it further, freely, in degrees about its middle (the voxel at half its height over its pivot): { roll = 20 } banks a ship to the right, { turn = 45 } faces a diagonal, { pitch = 10 } lifts its nose; roll is taken first, then pitch, then turn (a level's piece with turn, pitch and roll is drawn so). Turned, its voxels leave the grid, but for quarter turns (90 degrees each, any of the three); a kind with turns = "free" in c.things faces exactly its way by itself (a diagonal too), without, its quarter turns. pose moves a figure made of parts (a model whose objects have names in the file: head, body, arm_left ...): each part by its name, a turn about its joint, what hangs on it moving along: { head = { turn = 30 }, arm_right = { pitch = 90 } } raises the right arm forward. Over its kind's swing (c.things.NAME.swing: parts swinging as it walks).
+---Draws a model (a kind's or one in c.models) where the thing stands in the level, facing its way; index is which of its frames (from 0); without it, its kind's frames for what it does (c.things.NAME.frames: idle standing, walk, jump in the air), else the model's own: frame 0 standing, 1 in the air, the rest walking, a frame every half its height walked. A model's pivot is its cell size / 2 across and deep (the middle cell of an odd size): of an even size it lies one voxel off the middle, so facing -y or sideways it fills cells one voxel higher on the axis a turn flips than facing +y (use odd sizes where that matters). rotation turns it further, freely, in degrees about its middle (the voxel at half its height over its pivot): { roll = 20 } banks a ship to the right, { rotation = 45 } faces a diagonal, { pitch = 10 } lifts its nose; roll is taken first, then pitch, then rotation (a level's piece with rotation, pitch and roll is drawn so). Rotated, its voxels leave the grid, but for quarter turns (90 degrees each, any of the three); a kind with rotates = "free" in c.things faces exactly its way by itself (a diagonal too), without, its quarter turns. pose moves a figure made of parts (a model whose objects have names in the file: head, body, arm_left ...): each part by its name, a rotation about its joint, what hangs on it moving along: { head = { rotation = 30 }, arm_right = { pitch = 90 } } raises the right arm forward. Over its kind's swing (c.things.NAME.swing: parts swinging as it walks).
 ---@param file string
 ---@param thing Thing
 ---@param index? integer
----@param turn? Turn
----@param pose? table<string, Turn>
-function Frame:model(file, thing, index, turn, pose) end
+---@param rotation? Rotation
+---@param pose? table<string, Rotation>
+function Frame:model(file, thing, index, rotation, pose) end
 
 ---Draws one voxel in the level, at x, y, z in the level's voxels (alpha below 255: see-through; glow from 0 to 1).
 ---@param x number

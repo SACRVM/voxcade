@@ -1,6 +1,6 @@
 //! The platformer as a Lua game's kit (`c.kit = "platformer"`): its
-//! behaviours run by themselves, the script sees its things, counts them
-//! and may take their hits; kinds without a behaviour are the script's own,
+//! behaviors run by themselves, the script sees its things, counts them
+//! and may take their hits; kinds without a behavior are the script's own,
 //! moved after its `on_tick`.
 
 use glam::Vec3;
@@ -159,7 +159,7 @@ impl Host for Platformer {
         }
         let Some((kind, at, facing, hp)) = figure else { return Ok(None) };
         if !matches!(self.rules.kinds.get(kind).map(|k| &k.rules), Some(KindRules::Hero(_))) {
-            return Err(format!("a {} is no hero (its behaviour is not \"hero\")", self.rules.kinds.get(kind).map_or("?", |k| k.name.as_str())));
+            return Err(format!("a {} is no hero (its behavior is not \"hero\")", self.rules.kinds.get(kind).map_or("?", |k| k.name.as_str())));
         }
         self.seating = true;
         let id = self.place(kind, at);
@@ -308,7 +308,7 @@ impl Host for Platformer {
                 (h.jumping, h.climbing, h.edge, h.pulling, h.riding) = (false, false, None, 0, None);
             }
             (None, Brain::Walker { .. } | Brain::Hopper { .. }) | (Some(_), _) | (None, Brain::Script(_)) => {}
-            _ => return Err(format!("a {} moves by its ready-made rules (thing:enable(\"{}\", false) first)", self.rules.kinds[t.kind].name, kinds::behaviour_name(&self.rules.kinds[t.kind].rules))),
+            _ => return Err(format!("a {} moves by its ready-made rules (thing:enable(\"{}\", false) first)", self.rules.kinds[t.kind].name, kinds::behavior_name(&self.rules.kinds[t.kind].rules))),
         }
         t.body.vel = vel;
         t.body.on_ground &= vel.z <= 0.0;
@@ -318,19 +318,19 @@ impl Host for Platformer {
         Ok(())
     }
 
-    /// A figure's behaviour off (it stands as physics has it, the script
+    /// A figure's behavior off (it stands as physics has it, the script
     /// moves it) or on again; the hero's until the next level.
-    fn enable(&mut self, id: Id, behaviour: &str, on: bool) -> Result<(), String> {
+    fn enable(&mut self, id: Id, behavior: &str, on: bool) -> Result<(), String> {
         let hero = self.hero == Some(id) || (id.raw() == u32::MAX && self.hero.is_some());
         let id = if hero { self.hero.expect("a hero") } else { id };
         let Some(t) = self.things.get_mut(id) else { return Err("it is gone".into()) };
         let k = &self.rules.kinds[t.kind];
-        let has = kinds::behaviour_name(&k.rules);
+        let has = kinds::behavior_name(&k.rules);
         if has.is_empty() {
-            return Err(format!("a {} has no ready-made behaviour: your script moves it", k.name));
+            return Err(format!("a {} has no ready-made behavior: your script moves it", k.name));
         }
-        if has != behaviour {
-            return Err(format!("a {}'s behaviour is \"{has}\", not \"{behaviour}\"", k.name));
+        if has != behavior {
+            return Err(format!("a {}'s behavior is \"{has}\", not \"{behavior}\"", k.name));
         }
         match (on, t.off.is_some()) {
             (false, false) => t.off = Some(Default::default()),

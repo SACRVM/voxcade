@@ -499,10 +499,10 @@ fn kit_folder(name: &str, conf: &str, main: &str) -> crate::scratch::Scratch {
 
 /// With `c.kit = "shooter"` the kit's things run by themselves; the script
 /// counts them, sets their hits, keeps the score, and moves its own kinds
-/// (those without a behaviour) after its `on_tick`.
+/// (those without a behavior) after its `on_tick`.
 #[test]
 fn a_lua_game_plays_with_the_shooter_kit() {
-    let conf = "  c.things.crate = { model = \"player.vvx\", hp = 3 }\n  c.things.medkit = { behaviour = \"pickup\", reach = 5 }";
+    let conf = "  c.things.crate = { model = \"player.vvx\", hp = 3 }\n  c.things.medkit = { behavior = \"pickup\", reach = 5 }";
     let main = r#"
 function on_level_start(how)
   level.state.crate = level:spawn("crate", 230, 150)
@@ -812,7 +812,7 @@ function on_tick()
   end
 end
 "#;
-    let mut g = game_in(&kit_folder("off", "  c.things.rifleman = { behaviour = \"soldier\", model = \"player.vvx\", weapon = \"enemy_rifle\" }", main));
+    let mut g = game_in(&kit_folder("off", "  c.things.rifleman = { behavior = \"soldier\", model = \"player.vvx\", weapon = \"enemy_rifle\" }", main));
     steps(&mut g, 65);
     assert_eq!(halted(&g), "");
     let yes = format!("{:?}", super::Value::Bool(true));
@@ -878,7 +878,7 @@ fn the_kits_keep_no_game_in_them() {
 /// has one so called.
 #[test]
 fn a_hostage_runs_to_a_place_some_level_has() {
-    let conf = "  c.things.hostage = { behaviour = \"captive\", model = \"player.vvx\", flee = \"exit\" }";
+    let conf = "  c.things.hostage = { behavior = \"captive\", model = \"player.vvx\", flee = \"exit\" }";
     let e = Session::<LuaGame>::load(&kit_folder("flee", conf, "")).map(|_| ()).unwrap_err();
     assert!(format!("{e:#}").contains("c.things.hostage.flee = \"exit\": no level has a place called exit"), "{e:#}");
 }
@@ -888,7 +888,7 @@ fn a_hostage_runs_to_a_place_some_level_has() {
 /// player (its kind's `flee`, "away" unless it says otherwise).
 #[test]
 fn the_code_frees_a_hostage() {
-    let conf = "  c.things.hostage = { behaviour = \"captive\", model = \"player.vvx\", reach = 8 }";
+    let conf = "  c.things.hostage = { behavior = \"captive\", model = \"player.vvx\", reach = 8 }";
     let main = r#"
 function on_level_start(how)
   level.state.h = level:spawn("hostage", player.x, player.y + 5)
@@ -1038,7 +1038,7 @@ end
 /// game has not is a mistake with the names it has.
 #[test]
 fn the_code_attacks() {
-    let conf = "  c.things.turret = { model = \"player.vvx\" }\n  c.things.man = { behaviour = \"soldier\", model = \"player.vvx\", weapon = \"enemy_rifle\", hp = 3, sight = 0, hearing = 0 }";
+    let conf = "  c.things.turret = { model = \"player.vvx\" }\n  c.things.man = { behavior = \"soldier\", model = \"player.vvx\", weapon = \"enemy_rifle\", hp = 3, sight = 0, hearing = 0 }";
     let main = r#"
 function on_level_start(how)
   level.state.turret = level:spawn("turret", player.x, player.y + 40)
@@ -1068,7 +1068,7 @@ end
 /// The kit moves its own things: the script may not.
 #[test]
 fn the_kits_things_move_by_its_rules() {
-    let conf = "  c.things.medkit = { behaviour = \"pickup\" }";
+    let conf = "  c.things.medkit = { behavior = \"pickup\" }";
     let main = "function on_tick() level:things(\"medkit\")[1]:walk({ x = 1, y = 0 }, 30) end\nfunction on_level_start(how) level:spawn(\"medkit\", 300, 150) end\n";
     let mut g = game_in(&kit_folder("kit-moves", conf, main));
     steps(&mut g, 1);
@@ -1076,17 +1076,17 @@ fn the_kits_things_move_by_its_rules() {
 }
 
 /// A kit the program does not have is named; without a kit, a kind with a
-/// behaviour is a mistake.
+/// behavior is a mistake.
 #[test]
-fn an_unknown_kit_and_a_behaviour_without_one_are_named() {
+fn an_unknown_kit_and_a_behavior_without_one_are_named() {
     let dir = kit_folder("no-kit", "  c.kit = \"racer\"", "");
     let e = start_error(&dir);
     assert!(e.contains("c.kit = \"racer\": there is no such kit (this program's: \"shooter\", \"platformer\")"), "{e}");
-    let dir = folder("behaviour", "function on_world_start() end\n");
+    let dir = folder("behavior", "function on_world_start() end\n");
     let conf = std::fs::read_to_string(dir.join("conf.lua")).unwrap();
-    std::fs::write(dir.join("conf.lua"), conf.replace("c.things.gem = { hp = 2 }", "c.things.gem = { behaviour = \"soldier\" }")).unwrap();
+    std::fs::write(dir.join("conf.lua"), conf.replace("c.things.gem = { hp = 2 }", "c.things.gem = { behavior = \"soldier\" }")).unwrap();
     let e = start_error(&dir);
-    assert!(e.contains("c.things.gem.behaviour = \"soldier\": no behaviours without a kit"), "{e}");
+    assert!(e.contains("c.things.gem.behavior = \"soldier\": no behaviors without a kit"), "{e}");
 }
 
 
@@ -1552,7 +1552,7 @@ fn a_kit_stands_on_a_world_the_script_built() {
     assert_eq!(g.game.focus().map(|b| b.pos.z), Some(4.0), "on the sand, not in it");
 
     let dir = crate::scratch::Scratch::new("lua-built-platformer");
-    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3, lives = 3, taken = 0 }\n  c.world.size = { 96, 16, 48 }\n  c.things.hero = { behaviour = \"hero\", height = 14 }\nend\n").unwrap();
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3, lives = 3, taken = 0 }\n  c.world.size = { 96, 16, 48 }\n  c.things.hero = { behavior = \"hero\", height = 14 }\nend\n").unwrap();
     std::fs::write(dir.join("main.lua"), "function on_level_start(how)\n  level:fill(0, 0, 0, 95, 15, 3, \"#776655\")\n  level.state.hero = level:spawn(\"hero\", 40, 8)\nend\nfunction on_tick()\n  world.state.alive = level:thing(level.state.hero) ~= nil\nend\n").unwrap();
     let mut g = game_in(&dir);
     steps(&mut g, 30);
@@ -1561,14 +1561,14 @@ fn a_kit_stands_on_a_world_the_script_built() {
     assert_eq!(g.game.focus().map(|b| b.pos.z), Some(4.0), "on the floor it built");
 }
 
-/// A behaviour switched off (`thing:enable`) leaves the thing to physics
+/// A behavior switched off (`thing:enable`) leaves the thing to physics
 /// and the script: the hero no longer follows the keys and the script
 /// walks it up to a wall, which `thing.wall` finds; `thing:launch` throws
 /// it back; switched on, it follows the keys again; a walker off stands.
 #[test]
 fn the_code_switches_rules_off_and_launches() {
     let dir = crate::scratch::Scratch::new("lua-enable");
-    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3 }\n  c.world.size = { 128, 16, 64 }\n  c.things.hero = { behaviour = \"hero\", height = 14 }\n  c.things.slug = { behaviour = \"walker\", height = 6 }\nend\n").unwrap();
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3 }\n  c.world.size = { 128, 16, 64 }\n  c.things.hero = { behavior = \"hero\", height = 14 }\n  c.things.slug = { behavior = \"walker\", height = 6 }\nend\n").unwrap();
     let main = r##"
 function on_level_start(how)
   level:fill(0, 0, 0, 127, 15, 3, "#776655")
@@ -1619,7 +1619,7 @@ end
 
     // Mistakes name what is wrong.
     for (line, says) in [
-        ("level.state.slug:enable('hero', false)", "a slug's behaviour is \"walker\", not \"hero\""),
+        ("level.state.slug:enable('hero', false)", "a slug's behavior is \"walker\", not \"hero\""),
         ("level:spawn('slug', 30, 8):launch({ x = 1, y = 0 }, 10)", ""),
         ("player.state.pose = 'dash'", "a hero has no frames called 'dash'"),
     ] {
@@ -2139,7 +2139,7 @@ fn a_restart_stands_the_player_on_what_was_built() {
 /// more.
 fn platformer_levels(name: &str, main: &str, conf: &str, more: &[(&str, [i32; 3])]) -> crate::scratch::Scratch {
     let dir = levels_folder(name, main, &[("a", &[])]);
-    std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = {{ hp = 3, lives = 3, taken = 0 }}\n  c.world.blocks = {{ file = \"level.toml\" }}\n  c.things.hero = {{ behaviour = \"hero\", height = 6 }}\n  c.things.door = {{ behaviour = \"prop\", stands = true }}\n{conf}end\n")).unwrap();
+    std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = {{ hp = 3, lives = 3, taken = 0 }}\n  c.world.blocks = {{ file = \"level.toml\" }}\n  c.things.hero = {{ behavior = \"hero\", height = 6 }}\n  c.things.door = {{ behavior = \"prop\", stands = true }}\n{conf}end\n")).unwrap();
     let path = dir.join("levels/a.toml");
     let mut level = crate::grid::GridLevel::read(&path).unwrap();
     for (kind, at) in std::iter::once(&("hero", [3, 2, 4])).chain(more) {
@@ -2330,7 +2330,7 @@ function on_tick()
   world.state.first = world.items[1].name .. world.items[2].stack
 end
 "#;
-    let conf = "  c.items.key = { stack = 2, order = 2 }\n  c.items.amulet = { order = 1 }\n  c.things.key = { behaviour = \"pickup\", props = { item = \"key\", worth = 50 } }\n";
+    let conf = "  c.items.key = { stack = 2, order = 2 }\n  c.items.amulet = { order = 1 }\n  c.things.key = { behavior = \"pickup\", props = { item = \"key\", worth = 50 } }\n";
     let dir = platformer_levels("inventory", main, conf, &[("key", [6, 2, 4]), ("key", [8, 2, 4]), ("key", [10, 2, 4])]);
     let mut g = game_in(&dir);
     for _ in 0..40 {
@@ -2369,7 +2369,7 @@ fn inventories_hold_items_by_name_up_to_their_stack() {
 /// What names the player's kind or an item is checked when the game loads.
 #[test]
 fn the_players_kind_and_the_items_are_checked_at_load() {
-    let dir = platformer_levels("bad-item", "", "  c.items.key = {}\n  c.things.key = { behaviour = \"pickup\", item = \"kye\" }\n", &[]);
+    let dir = platformer_levels("bad-item", "", "  c.items.key = {}\n  c.things.key = { behavior = \"pickup\", item = \"kye\" }\n", &[]);
     assert!(start_error(&dir).contains("c.things.key.item is no more: what a pickup gives is your code's"), "{}", start_error(&dir));
     let dir = platformer_levels("kit-player-kind", "", "  c.player.kind = \"hero\"\n", &[]);
     assert!(start_error(&dir).contains("c.player.kind = \"hero\": the ready-made rules (c.kit) bring their own player"), "{}", start_error(&dir));
@@ -2702,7 +2702,7 @@ function on_level_start(how) level:spawn("rifleman", player.x, player.y - 24) en
 function on_hit(thing, by, damage) world.state.hits = (world.state.hits or 0) + damage; world.state.by = tostring(by) end
 function on_death(thing, by) world.state.dead = thing.kind .. " " .. math.floor(thing.y) end
 "#;
-    let mut g = game_in(&kit_folder("kit-events", "  c.things.rifleman = { behaviour = \"soldier\", weapon = \"enemy_rifle\" }", main));
+    let mut g = game_in(&kit_folder("kit-events", "  c.things.rifleman = { behavior = \"soldier\", weapon = \"enemy_rifle\" }", main));
     let fire = g.actions().iter().position(|a| *a == "fire").unwrap();
     for _ in 0..240 {
         g.step(&Input { actions: 1 << fire, ..Input::default() });
@@ -2713,7 +2713,7 @@ function on_death(thing, by) world.state.dead = thing.kind .. " " .. math.floor(
     assert!(state(&mut g, "dead").contains("114, 105, 102, 108, 101, 109, 97, 110"), "the rifleman's death: {}", state(&mut g, "dead"));
 
     let main = "function on_touch(a, b) if b.kind == 'key' then player:take('key') b:remove() end end\nfunction on_pickup(thing, item) world.state.got = tostring(thing) .. ' ' .. item .. ' ' .. player.state.inventory[item] end\n";
-    let conf = "  c.items.key = { stack = 3 }\n  c.things.key = { behaviour = \"pickup\" }\n";
+    let conf = "  c.items.key = { stack = 3 }\n  c.things.key = { behavior = \"pickup\" }\n";
     let mut g = game_in(&platformer_levels("kit-pickup-event", main, conf, &[("key", [6, 2, 4])]));
     for _ in 0..20 {
         g.step(&Input { right: true, ..Input::default() });
@@ -2823,7 +2823,7 @@ function on_level_start(how) level.state.man = level:spawn("rifleman", player.x 
 function on_death(thing, by) world.state.fell = thing.kind .. " " .. tostring(by) end
 function on_tick() if world.tick == 2 then level.state.man:hurt(5, player) end end
 "#;
-    let mut g = game_in(&kit_folder("kit-hurt", "  c.things.rifleman = { behaviour = \"soldier\", weapon = \"enemy_rifle\" }", main));
+    let mut g = game_in(&kit_folder("kit-hurt", "  c.things.rifleman = { behavior = \"soldier\", weapon = \"enemy_rifle\" }", main));
     // His fall holds the game still a few ticks (hit stop) before it is told.
     steps(&mut g, 20);
     assert_eq!(halted(&g), "");
@@ -3259,7 +3259,7 @@ fn a_fall_is_told_once_while_the_code_waits() {
     use crate::grid::{BlockEntry, GridLevel, Kind};
     let main = "function on_fall_out(t) world.state.fell = (world.state.fell or 0) + 1 end\n";
     let dir = levels_folder("fall-once", main, &[("a", &[])]);
-    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3, lives = 3, taken = 0 }\n  c.world.blocks = { file = \"level.toml\", below = 16 }\n  c.things.hero = { behaviour = \"hero\", height = 6 }\nend\n").unwrap();
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3, lives = 3, taken = 0 }\n  c.world.blocks = { file = \"level.toml\", below = 16 }\n  c.things.hero = { behavior = \"hero\", height = 6 }\nend\n").unwrap();
     // Nothing to stand on.
     let mut level = GridLevel::new(4, glam::IVec3::new(4, 1, 2));
     level.blocks.push(BlockEntry { name: "rock".into(), kind: Kind::Solid });
@@ -3284,7 +3284,7 @@ fn the_jump_and_run_rules_as_code() {
     let dir = levels_folder("jump-and-run-rules", &main, &[("a", &[])]);
     std::fs::write(
         dir.join("conf.lua"),
-        "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3, lives = 3, taken = 0 }\n  c.world.blocks = { file = \"level.toml\", below = 16 }\n  c.physics.gravity = 400\n  c.things.hero = { behaviour = \"hero\", height = 6, speed = 60 }\n  c.things.gem = { behaviour = \"pickup\", height = 4, family = \"pickups\", props = { worth = 100 }, sound = \"pickup\" }\n  c.things.checkpoint = { behaviour = \"prop\", stands = true, height = 8 }\n  c.things.door = { behaviour = \"prop\", stands = true, height = 8 }\nend\n",
+        "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3, lives = 3, taken = 0 }\n  c.world.blocks = { file = \"level.toml\", below = 16 }\n  c.physics.gravity = 400\n  c.things.hero = { behavior = \"hero\", height = 6, speed = 60 }\n  c.things.gem = { behavior = \"pickup\", height = 4, family = \"pickups\", props = { worth = 100 }, sound = \"pickup\" }\n  c.things.checkpoint = { behavior = \"prop\", stands = true, height = 8 }\n  c.things.door = { behavior = \"prop\", stands = true, height = 8 }\nend\n",
     )
     .unwrap();
     // A floor of 12 cells, a pit two cells wide in it.
@@ -3405,16 +3405,17 @@ end
 }
 
 /// A game turns its models freely when it chooses: frame:model's turn,
-/// or a kind with turns = "free" facing exactly its way (a diagonal);
-/// otherwise its models stay on the grid in quarter turns. A turn has
-/// only turn, pitch and roll; turns is only "quarter" or "free".
+/// or a kind with rotates = "free" facing exactly its way (a diagonal);
+/// otherwise its models stay on the grid in quarter turns. A rotation has
+/// only rotation, pitch and roll (turn, its old name, says the new one);
+/// rotates is only "quarter" or "free".
 #[test]
 fn a_game_turns_its_models_freely() {
     let conf = r#"
 function conf(c)
   c.world.size = { 64, 64, 16 }
   c.things.miner = { model = "player.vvx" }
-  c.things.rover = { model = "player.vvx", turns = "free" }
+  c.things.rover = { model = "player.vvx", rotates = "free" }
 end
 "#;
     let main = r#"
@@ -3449,9 +3450,13 @@ end
     std::fs::write(dir.join("main.lua"), wrong).unwrap();
     let g = game_in(&dir);
     let _ = g.frame(1.0, 16.0 / 9.0);
-    assert!(halted(&g).contains("a turn has turn, pitch and roll in degrees ({ roll = 20 }), not 'spin'"), "{}", halted(&g));
-    std::fs::write(dir.join("conf.lua"), conf.replace("turns = \"free\"", "turns = \"round\"")).unwrap();
-    assert!(start_error(&dir).contains("c.things.rover.turns: \"round\" is neither \"quarter\""), "{}", start_error(&dir));
+    assert!(halted(&g).contains("a rotation has rotation, pitch and roll in degrees ({ roll = 20 }), not 'spin'"), "{}", halted(&g));
+    std::fs::write(dir.join("main.lua"), main.replace("{ roll = 30, pitch = 5 }", "{ turn = 30 }")).unwrap();
+    let g = game_in(&dir);
+    let _ = g.frame(1.0, 16.0 / 9.0);
+    assert!(halted(&g).contains("frame:model: 'turn' is called 'rotation' now: { rotation = 45 }"), "{}", halted(&g));
+    std::fs::write(dir.join("conf.lua"), conf.replace("rotates = \"free\"", "rotates = \"round\"")).unwrap();
+    assert!(start_error(&dir).contains("c.things.rover.rotates: \"round\" is neither \"quarter\""), "{}", start_error(&dir));
 }
 
 /// The camera stays where the game pointed it (level.camera:look_at) while
@@ -4165,8 +4170,8 @@ end
     steps(&mut g, 40);
     assert_eq!(state(&mut g, "sign"), "Int(7)", "placed, it stays there");
     assert_eq!(state(&mut g, "rock"), "Int(1)", "on the floor");
-    // With a behaviour it is the ready-made rules' to move: a mistake.
-    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"shooter\"\n  c.things.sign = { behaviour = \"soldier\", fixed = true }\nend\n").unwrap();
+    // With a behavior it is the ready-made rules' to move: a mistake.
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"shooter\"\n  c.things.sign = { behavior = \"soldier\", fixed = true }\nend\n").unwrap();
     let err = start_error(&dir);
     assert!(err.contains("c.things.sign.fixed"), "{err}");
 }
@@ -4341,19 +4346,19 @@ fn too_many_lights_keep_the_nearest() {
     let _ = target;
 }
 
-/// A piece turned off the quarter turns (`turn = 30`) is the game's
+/// A piece turned off the quarter turns (`rotation = 30`) is the game's
 /// choice: in a game on the grid the level does not load, and the mistake
-/// names the things and both ways out; with `c.camera.turns = "free"` it
+/// names the things and both ways out; with `c.camera.rotates = "free"` it
 /// faces its bearing. A quarter turn written as degrees is on the grid.
 #[test]
 fn free_turns_are_the_games_choice() {
-    let turned = ROOM.replace("facing = \"east\"", "turn = 30");
+    let turned = ROOM.replace("facing = \"east\"", "rotation = 30");
     let e = start_error(&pieces_folder("turned", "", &turned, ""));
-    assert!(e.contains("'stove' (line 5)") && e.contains("sets things on the grid") && e.contains("c.camera.turns = \"free\"") && e.contains("editor"), "{e}");
-    let mut g = game_in(&pieces_folder("turned-free", "  c.camera.turns = \"free\"\n", &turned, ""));
+    assert!(e.contains("'stove' (line 5)") && e.contains("sets things on the grid") && e.contains("c.camera.rotates = \"free\"") && e.contains("editor"), "{e}");
+    let mut g = game_in(&pieces_folder("turned-free", "  c.camera.rotates = \"free\"\n", &turned, ""));
     assert_eq!(halted(&g), "");
     assert_eq!(said(&mut g, "level:thing('stove').facing.y"), "1", "its nearest way, north");
-    let quarter = ROOM.replace("facing = \"east\"", "turn = 90");
+    let quarter = ROOM.replace("facing = \"east\"", "rotation = 90");
     let mut g = game_in(&pieces_folder("turned-quarter", "", &quarter, ""));
     assert_eq!(said(&mut g, "level:thing('stove').facing.x"), "1", "90 is east, on the grid");
 }
@@ -4458,11 +4463,11 @@ fn a_solid_piece_holds_bodies_up_and_stops_them() {
 /// that turns things freely too: the mistake names it and the way out.
 #[test]
 fn a_solid_piece_keeps_to_the_quarter_turns() {
-    let level = ROOM.replace("facing = \"east\"", "turn = 30\nsolid = true");
-    let e = start_error(&pieces_folder("solid-turned", "  c.camera.turns = \"free\"\n", &level, ""));
+    let level = ROOM.replace("facing = \"east\"", "rotation = 30\nsolid = true");
+    let e = start_error(&pieces_folder("solid-turned", "  c.camera.rotates = \"free\"\n", &level, ""));
     assert!(e.contains("'stove' (line 5)") && e.contains("solid but turned 30 degrees") && e.contains("quarter turns"), "{e}");
-    let quarter = ROOM.replace("facing = \"east\"", "turn = 90\nsolid = true");
-    let mut g = game_in(&pieces_folder("solid-quarter", "  c.camera.turns = \"free\"\n", &quarter, ""));
+    let quarter = ROOM.replace("facing = \"east\"", "rotation = 90\nsolid = true");
+    let mut g = game_in(&pieces_folder("solid-quarter", "  c.camera.rotates = \"free\"\n", &quarter, ""));
     assert_eq!(halted(&g), "");
     assert_eq!(said(&mut g, "level:solid(10, 20, 3)"), "true");
 }
@@ -4474,7 +4479,7 @@ fn the_hero_stands_on_a_solid_piece() {
     let dir = crate::scratch::Scratch::new("pieces-solid-hero");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("levels")).unwrap();
-    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3 }\n  c.things.hero = { behaviour = \"hero\", height = 6 }\nend\n").unwrap();
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3 }\n  c.things.hero = { behavior = \"hero\", height = 6 }\nend\n").unwrap();
     std::fs::write(dir.join("slab.vvx"), SLAB).unwrap();
     let wall = "format = \"voxcade voxel 1\"\nsize = [4, 20, 20]\n\n[palette]\na = { color = \"#806040\" }\n\n[[frame]]\nlayers = \"\"\"\naaaa *20\n*20\n\"\"\"\n";
     std::fs::write(dir.join("wall.vvx"), wall).unwrap();
@@ -4516,10 +4521,10 @@ fn a_scenario_may_only_name_a_level() {
     assert_eq!(halted(&g), "");
 }
 
-/// A thing of a kind its level's file turns (`facing`, `turn`) starts
+/// A thing of a kind its level's file turns (`facing`, `rotation`) starts
 /// facing so, as `level:spawn`'s facing turns it: the nearest of the four
 /// ways for a kind on the grid, the bearing exactly for one that turns
-/// freely; a kind with a behaviour turned in a file does not load.
+/// freely; a kind with a behavior turned in a file does not load.
 #[test]
 fn a_thing_of_a_kind_faces_as_its_file_turns_it() {
     let main = r#"
@@ -4533,9 +4538,9 @@ function on_level_start(how)
 end
 "#;
     let dir = levels_folder("kind-facing", main, &[("a", &[])]);
-    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.toml\" }\n  c.player.spawn = { 2, 2 }\n  c.things.box = {}\n  c.things.wisp = { turns = \"free\" }\nend\n").unwrap();
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.toml\" }\n  c.player.spawn = { 2, 2 }\n  c.things.box = {}\n  c.things.wisp = { rotates = \"free\" }\nend\n").unwrap();
     let path = dir.join("levels/a.toml");
-    let things = "\n[[thing]]\nname = \"door\"\nkind = \"box\"\nat = [8, 2, 4]\nturn = 100\n\n[[thing]]\nname = \"plain\"\nkind = \"box\"\nat = [4, 2, 4]\n\n[[thing]]\nname = \"wisp\"\nkind = \"wisp\"\nat = [12, 2, 4]\nturn = 30\n";
+    let things = "\n[[thing]]\nname = \"door\"\nkind = \"box\"\nat = [8, 2, 4]\nrotation = 100\n\n[[thing]]\nname = \"plain\"\nkind = \"box\"\nat = [4, 2, 4]\n\n[[thing]]\nname = \"wisp\"\nkind = \"wisp\"\nat = [12, 2, 4]\nrotation = 30\n";
     std::fs::write(&path, std::fs::read_to_string(&path).unwrap() + things).unwrap();
     // The file reads and writes it as it says.
     let level = crate::grid::GridLevel::read(&path).unwrap();
@@ -4545,15 +4550,15 @@ end
     steps(&mut g, 1);
     assert_eq!(halted(&g), "");
     let state = &g.game.inspect()["state"];
-    assert_eq!(state["door"], 10, "turn 100 on the grid: east, {state}");
+    assert_eq!(state["door"], 10, "rotation 100 on the grid: east, {state}");
     assert_eq!(state["plain"], -1, "unturned: as a script's thing stands, {state}");
     assert_eq!((state["wisp_x"].as_i64(), state["wisp_y"].as_i64()), (Some(0), Some(1000)), "its way among the four: north, {state}");
-    // Drawn facing exactly 30 degrees (`turns = "free"` draws by it).
+    // Drawn facing exactly 30 degrees (`rotates = "free"` draws by it).
     let wisp = g.game.stage.named("wisp").unwrap();
     let facing = g.game.stage.host.get(crate::sim::things::Id::from_raw(wisp)).unwrap().body.facing;
     assert!((facing.x - 0.5).abs() < 1e-4 && (facing.y - 0.866).abs() < 1e-3, "turned freely: {facing}");
-    // A kind with a behaviour turns by its rules: refused as the game loads.
-    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"platformer\"\n  c.world.blocks = { file = \"level.toml\" }\n  c.player.spawn = { 2, 2 }\n  c.things.box = { behaviour = \"pickup\" }\n  c.things.wisp = { turns = \"free\" }\nend\n").unwrap();
+    // A kind with a behavior turns by its rules: refused as the game loads.
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"platformer\"\n  c.world.blocks = { file = \"level.toml\" }\n  c.player.spawn = { 2, 2 }\n  c.things.box = { behavior = \"pickup\" }\n  c.things.wisp = { rotates = \"free\" }\nend\n").unwrap();
     let e = start_error(&dir);
     assert!(e.contains("ready-made rules"), "{e}");
 }

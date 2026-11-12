@@ -66,9 +66,9 @@ fn is_gunship(t: &Thing) -> bool {
     matches!(t.brain, Brain::Gunship(_))
 }
 
-/// The behaviours of the shooter's kinds of things (`[things.NAME]
-/// behaviour`, `kinds`).
-pub const BEHAVIOURS: [&str; 5] = ["soldier", "spawner", "captive", "gunship", "pickup"];
+/// The behaviors of the shooter's kinds of things (`[things.NAME]
+/// behavior`, `kinds`).
+pub const BEHAVIORS: [&str; 5] = ["soldier", "spawner", "captive", "gunship", "pickup"];
 
 /// The keys for its actions to start with.
 pub fn keys() -> Bindings {
@@ -528,7 +528,7 @@ impl Shooter {
 
     /// A changed config; its own sections read anew (an error leaves
     /// them as they were). Things keep their kind by its name; a kind gone,
-    /// or now with another behaviour, takes its things with it.
+    /// or now with another behavior, takes its things with it.
     pub fn apply_config(&mut self, cfg: &GameConfig) -> anyhow::Result<()> {
         let own = ShooterConfig::from_game(cfg)?;
         let shapes = Arc::clone(&self.shapes);
@@ -1194,8 +1194,8 @@ impl Game for Shooter {
         ShooterConfig::SECTIONS.to_vec()
     }
 
-    fn behaviours(_cfg: &GameConfig) -> Vec<&'static str> {
-        BEHAVIOURS.to_vec()
+    fn behaviors(_cfg: &GameConfig) -> Vec<&'static str> {
+        BEHAVIORS.to_vec()
     }
 
     /// The actions its player's attacks and moves name (`c.player.attacks`,
@@ -1247,7 +1247,7 @@ impl Game for Shooter {
         }
         // Several players: each a figure of a kind of the game's.
         if setup.cfg.players > 1 && setup.cfg.player.kind.is_none() {
-            anyhow::bail!("c.players = {}: each player's figure is a kind of thing without behaviour (c.things.hero = {{ model = \"player.vvx\" }}), named by c.player.kind = {{ \"hero\", \"hero2\" }} (or one for all)", setup.cfg.players);
+            anyhow::bail!("c.players = {}: each player's figure is a kind of thing without behavior (c.things.hero = {{ model = \"player.vvx\" }}), named by c.player.kind = {{ \"hero\", \"hero2\" }} (or one for all)", setup.cfg.players);
         }
         let shapes = shapes_of(setup.models, &rules)?;
         let places = setup.levels.list.first().map(|l| l.places.clone()).unwrap_or_default();

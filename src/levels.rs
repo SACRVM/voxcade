@@ -347,7 +347,7 @@ pub(crate) fn says_level(game: &Files, path: &Path) -> bool {
 /// of pieces whatever it says).
 fn one(game: &Files, cfg: &GameConfig, kind: Kind, path: &Path) -> Result<Made> {
     let names = crate::sim::things::names(cfg);
-    let free = cfg.camera.turns == crate::config::Turns::Free;
+    let free = cfg.camera.rotates == crate::config::Rotates::Free;
     match (kind, &cfg.world.blocks) {
         (Kind::Blocks, Some(blocks)) => crate::grid::load_at(game, blocks, path, &names, free),
         (Kind::World, _) if says_level(game, path) => crate::grid::load_at(game, &crate::config::BlocksConfig::default(), path, &names, free),

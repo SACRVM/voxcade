@@ -38,7 +38,7 @@ same replay; a difference always means something changed.
 ```
 
 It builds the release binary (every `voxcade` command below uses it, so a
-stale binary shows old behaviour), runs `cargo test --release`, lists
+stale binary shows old behavior), runs `cargo test --release`, lists
 clippy's warnings as `file:line` and plays every game's replays. Clippy
 had warnings before your change too: only a warning in a line you touched
 is yours; leave the others alone. Never run `cargo fmt` (the code is

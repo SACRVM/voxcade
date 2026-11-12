@@ -1,6 +1,6 @@
-//! The shooter as a Lua game's kit (`c.kit = "shooter"`): its behaviours
+//! The shooter as a Lua game's kit (`c.kit = "shooter"`): its behaviors
 //! run by themselves, the script sees its things, counts them and may take
-//! their hits; kinds without a behaviour are the script's own, moved after
+//! their hits; kinds without a behavior are the script's own, moved after
 //! its `on_tick`.
 
 use glam::{IVec2, IVec3, Vec3};
@@ -356,7 +356,7 @@ impl Host for Shooter {
                 (None, Brain::Soldier(_) | Brain::Captive(_) | Brain::Player(_)) => {}
                 _ => {
                     let k = &self.rules.kinds[t.kind];
-                    return Err(format!("a {} moves by its ready-made rules (thing:enable(\"{}\", false) first)", k.name, kinds::behaviour_name(&k.rules)));
+                    return Err(format!("a {} moves by its ready-made rules (thing:enable(\"{}\", false) first)", k.name, kinds::behavior_name(&k.rules)));
                 }
             }
             &mut t.body
@@ -366,21 +366,21 @@ impl Host for Shooter {
         Ok(())
     }
 
-    /// A thing's behaviour off (physics and the script move it) or on
+    /// A thing's behavior off (physics and the script move it) or on
     /// again. The player is no thing of a kind yet: its rules stay.
-    fn enable(&mut self, id: Id, behaviour: &str, on: bool) -> Result<(), String> {
+    fn enable(&mut self, id: Id, behavior: &str, on: bool) -> Result<(), String> {
         let id = self.own(id);
         if id.raw() == PLAYER || matches!(self.things.get(id).map(|t| &t.brain), Some(Brain::Player(_))) {
             return Err("the shooter's players move by their keys: their rules stay on (level.state.held holds them)".into());
         }
         let Some(t) = self.things.get_mut(id) else { return Err("it is gone".into()) };
         let k = &self.rules.kinds[t.kind];
-        let has = kinds::behaviour_name(&k.rules);
+        let has = kinds::behavior_name(&k.rules);
         if has.is_empty() {
-            return Err(format!("a {} has no ready-made behaviour: your script moves it", k.name));
+            return Err(format!("a {} has no ready-made behavior: your script moves it", k.name));
         }
-        if has != behaviour {
-            return Err(format!("a {}'s behaviour is \"{has}\", not \"{behaviour}\"", k.name));
+        if has != behavior {
+            return Err(format!("a {}'s behavior is \"{has}\", not \"{behavior}\"", k.name));
         }
         match (on, t.off.is_some()) {
             (false, false) => t.off = Some(Default::default()),
@@ -413,7 +413,7 @@ impl Host for Shooter {
         self.seated(seat)
     }
 
-    /// A seat's figure of `kind` (one without behaviour: the players' keys
+    /// A seat's figure of `kind` (one without behavior: the players' keys
     /// move it) standing at `at`, its gun and rounds the run's start or
     /// what it had; or taken away (its gun and rounds kept for its return).
     fn put_seat(&mut self, seat: usize, figure: Option<(usize, Vec3, Option<IVec2>, i32)>) -> Result<Option<Id>, String> {
@@ -428,7 +428,7 @@ impl Host for Shooter {
         let Some((kind, at, facing, hp)) = figure else { return Ok(None) };
         let k = &self.rules.kinds[kind];
         if !matches!(k.rules, KindRules::Script) {
-            return Err(format!("c.player.kind: a player's figure moves by its keys, a {} by its behaviour (c.things.{}.behaviour)", k.name, k.name));
+            return Err(format!("c.player.kind: a player's figure moves by its keys, a {} by its behavior (c.things.{}.behavior)", k.name, k.name));
         }
         let height = self.shapes.kind(k).height();
         let at = crate::sim::stand_at(&self.sim.world, at, height, self.sim.half());

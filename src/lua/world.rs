@@ -123,7 +123,7 @@ impl Stage {
         let name = self.kinds[kind].name.clone();
         self.thing_mut(id)?
             .moved
-            .ok_or_else(|| mlua::Error::runtime(format!("{what}: a {name} moves by its ready-made rules (its behaviour); the script moves kinds without one, and things whose behaviour is off (thing:enable)")))
+            .ok_or_else(|| mlua::Error::runtime(format!("{what}: a {name} moves by its ready-made rules (its behavior); the script moves kinds without one, and things whose behavior is off (thing:enable)")))
     }
 
     /// Takes `new` as what happens at the tick's end if it counts: going on
@@ -1136,7 +1136,7 @@ impl UserData for LevelView {
             let id = change(lua, "level:spawn", |h| {
                 let k = h.kind(&kind)?;
                 if o.facing.is_some() && !h.kinds[k].scripted {
-                    return Err(mlua::Error::runtime(format!("level:spawn: facing: a {kind} turns by its ready-made rules (its behaviour); facing is for kinds the script moves")));
+                    return Err(mlua::Error::runtime(format!("level:spawn: facing: a {kind} turns by its ready-made rules (its behavior); facing is for kinds the script moves")));
                 }
                 let id = h.host.spawn(k, x, y, o.z).map_err(|e| mlua::Error::runtime(format!("level:spawn: {e}")))?;
                 if let Some(way) = o.facing {
@@ -1545,11 +1545,11 @@ impl UserData for ThingRef {
                 h.host.launch(Id::from_raw(id), way * speed + Vec3::Z * up).map_err(|e| mlua::Error::runtime(format!("thing:launch: {e}")))
             })
         });
-        m.add_method("enable", |lua, t, (behaviour, on): (String, bool)| {
+        m.add_method("enable", |lua, t, (behavior, on): (String, bool)| {
             change(lua, "thing:enable", |h| {
                 let Some(id) = h.target(t.0) else { return Err(h.no_target(t.0, "player:enable")) };
                 h.thing(t.0)?;
-                h.host.enable(Id::from_raw(id), &behaviour, on).map_err(|e| mlua::Error::runtime(format!("thing:enable: {e}")))
+                h.host.enable(Id::from_raw(id), &behavior, on).map_err(|e| mlua::Error::runtime(format!("thing:enable: {e}")))
             })
         });
         m.add_method("bounce", |lua, t, height: f32| {
@@ -2235,18 +2235,22 @@ impl UserData for ControlsView {
     }
 }
 
-/// `frame:model`'s turn: degrees round, nose up, rolled (each 0 unless
-/// given), any other key a mistake.
+/// `frame:model`'s rotation: degrees round, nose up, rolled (each 0
+/// unless given), any other key a mistake (`turn`, its name before, says
+/// the new one).
 fn turning(t: &Table) -> mlua::Result<[f32; 3]> {
-    const KEYS: [&str; 3] = ["turn", "pitch", "roll"];
+    const KEYS: [&str; 3] = ["rotation", "pitch", "roll"];
     for pair in t.pairs::<Value, Value>() {
         let (key, _) = pair?;
         let name = match &key {
             Value::String(k) => k.to_string_lossy(),
             other => format!("{other:?}"),
         };
+        if name == "turn" {
+            return Err(mlua::Error::runtime("frame:model: 'turn' is called 'rotation' now: { rotation = 45 }"));
+        }
         if !KEYS.contains(&name.as_str()) {
-            return Err(mlua::Error::runtime(format!("frame:model: a turn has turn, pitch and roll in degrees ({{ roll = 20 }}), not '{name}'")));
+            return Err(mlua::Error::runtime(format!("frame:model: a rotation has rotation, pitch and roll in degrees ({{ roll = 20 }}), not '{name}'")));
         }
     }
     let get = |key: &str| -> mlua::Result<f32> {
@@ -2254,10 +2258,10 @@ fn turning(t: &Table) -> mlua::Result<[f32; 3]> {
             Value::Nil => Ok(0.0),
             Value::Integer(i) => Ok(i as f32),
             Value::Number(n) if n.is_finite() => Ok(n as f32),
-            _ => Err(mlua::Error::runtime(format!("frame:model: the turn's {key} is a number of degrees"))),
+            _ => Err(mlua::Error::runtime(format!("frame:model: the rotation's {key} is a number of degrees"))),
         }
     };
-    Ok([get("turn")?, get("pitch")?, get("roll")?])
+    Ok([get("rotation")?, get("pitch")?, get("roll")?])
 }
 
 /// The empty part of `frame:bar`.
@@ -2331,21 +2335,21 @@ impl UserData for Frame {
 
     fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
         m.add_meta_method(MetaMethod::ToString, |_, _, ()| Ok("frame"));
-        m.add_method_mut("model", |_, o, (file, thing, frame, turn, pose): (String, Value, Option<usize>, Option<Table>, Option<Table>)| {
+        m.add_method_mut("model", |_, o, (file, thing, frame, rotation, pose): (String, Value, Option<usize>, Option<Table>, Option<Table>)| {
             let thing = thing_id(&thing, "frame:model")?;
             if !o.known.contains_key(&file) {
                 return Err(mlua::Error::runtime(format!("frame:model: no model called '{file}' (the game knows a kind's model in c.things, and the files listed in c.models: list it there)")));
             }
-            let turn = match turn {
+            let turn = match rotation {
                 Some(t) => turning(&t)?,
                 None => [0.0; 3],
             };
-            // A figure of parts posed: each part by its name, a turn.
+            // A figure of parts posed: each part by its name, a rotation.
             let mut posed = Vec::new();
             if let Some(pose) = pose {
                 let parts = o.parts.get(&file);
                 for pair in pose.pairs::<String, Table>() {
-                    let (part, t) = pair.map_err(|_| mlua::Error::runtime("frame:model: a pose is parts by name, each a turn: { head = { turn = 20 } }"))?;
+                    let (part, t) = pair.map_err(|_| mlua::Error::runtime("frame:model: a pose is parts by name, each a rotation: { head = { rotation = 20 } }"))?;
                     match parts {
                         None => return Err(mlua::Error::runtime(format!("frame:model: {file} is no figure of parts (its objects named in the file) to pose"))),
                         Some(names) if !names.contains(&part) => return Err(mlua::Error::runtime(format!("frame:model: {file} has no part '{part}' (its parts: {})", names.join(", ")))),

@@ -1118,7 +1118,7 @@ pub fn sheet<G: Game>(dir: &Path, opts: &SheetOptions) -> Result<()> {
     let mut rows: Vec<(u32, u32, Vec<Vec<u8>>)> = Vec::new();
     // A figure of parts a kind swings: its walk, a stride every half its
     // height, in eight steps through two strides.
-    let swing = crate::sim::things::defs(&game.cfg, &G::behaviours(&game.cfg))
+    let swing = crate::sim::things::defs(&game.cfg, &G::behaviors(&game.cfg))
         .ok()
         .and_then(|defs| defs.into_iter().find(|d| d.model.as_deref() == Some(opts.model.as_str()) && !d.swing.is_empty()).map(|d| d.swing))
         .filter(|_| !m.parts.is_empty());

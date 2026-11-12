@@ -308,12 +308,14 @@ def save(name, p, soft=False):
     PREFABS[name] = (f"prefabs/{name}.vvx", low, soft)
 
 
-def place(name, x, y, turn=0):
-    """Stands a prefab on the ground at (x, y), sunk in as far as it reaches below z 0."""
+def place(name, x, y, quarters=0):
+    """Stands a prefab on the ground at (x, y), sunk in as far as it reaches
+    below z 0, turned `quarters` quarter turns anticlockwise (its rotation
+    in degrees clockwise)."""
     sink = PREFABS[name][1]
     entry = {"prefab": name, "at": [x, y] if sink == 0 else [x, y, int(heights[y, x]) + sink]}
-    if turn:
-        entry["turn"] = turn
+    if quarters % 4:
+        entry["rotation"] = -90 * quarters % 360
     PLACE.append(entry)
 
 

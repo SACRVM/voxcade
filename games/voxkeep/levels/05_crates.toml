@@ -10,7 +10,7 @@ plank = "solid"
 ladder = "ladder"
 spikes = "hazard"
 
-[legend]              # a sign is a block as it lies: its name, or the name and a turn (0 to 47)
+[legend]              # a sign is a block as it lies: its name, or the name and an orientation (0 to 47)
 s = "stone"
 w = "wall"
 

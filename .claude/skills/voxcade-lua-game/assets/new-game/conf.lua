@@ -11,6 +11,6 @@ function conf(c)
   c.keys = { jump = { "Space", "Z" } } -- places on a US keyboard, labelled as the player's prints them
   c.pad = { jump = { "south" } }
 
-  c.things.hero = { hp = 3 }          -- a kind without a behaviour: main.lua moves it
+  c.things.hero = { hp = 3 }          -- a kind without a behavior: main.lua moves it
   c.player.kind = "hero"              -- the player is one: player.state.hp is its hits
 end

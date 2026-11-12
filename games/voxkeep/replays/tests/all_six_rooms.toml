@@ -1,7 +1,7 @@
 # Voxcade replay: Voxkeep, 5094 ticks, won, score 8650
 version = 1
 game = "Voxkeep"
-fingerprint = "459374a5cb3b9e44"
+fingerprint = "3d8224d44615c73d"
 ticks = 5094
 outcome = "won"
 score = 8650

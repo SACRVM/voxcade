@@ -362,7 +362,7 @@ def level():
         k = rnd.randrange(8)
         x = rnd.randrange(10, SIZE[0] - 10)
         z = rnd.randrange(2, FLY - 14)
-        place.append({"prefab": f"rock_{k}", "at": [x, y, z], "turn": rnd.randrange(4)})
+        place.append({"prefab": f"rock_{k}", "at": [x, y, z], "rotation": -90 * rnd.randrange(4) % 360})
         y += rnd.randrange(30, 90)
 
     size, voxels = station(240)

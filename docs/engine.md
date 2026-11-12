@@ -48,7 +48,7 @@ Doom homage (the user loved Doom).
                       \                       /
                        \                     /
   building   things and their parts (body, model, health, weapon,
-  blocks     behaviour, trigger, inventory), cameras, movement, aiming,
+  blocks     behavior, trigger, inventory), cameras, movement, aiming,
              pathfinding, grids, dialogue, saving, scenes
                                   |
   core       voxel world and chunks, rendering, light, effects, sound,
@@ -143,7 +143,7 @@ right and Voxcade takes over:
   function on_draw(frame) ... end       -- every picture, drawn on frame
   ```
 
-  This is the Rust `Game` trait in Lua. A kit (the shooter's behaviours)
+  This is the Rust `Game` trait in Lua. A kit (the shooter's behaviors)
   is a building block on top for whoever wants to get there faster, never
   a must: a game may write everything itself.
 - **A game is a folder** (LÖVE: `main.lua` and `conf.lua`; Voxcade the
@@ -159,19 +159,19 @@ right and Voxcade takes over:
 What stays different on purpose: LÖVE steps with a varying `dt` and is not
 deterministic; Voxcade keeps the fixed tick, or replays, `shot` and
 multiplayer are lost. And Voxcade carries building blocks (things,
-behaviours, title, menus, effects) that LÖVE leaves to libraries.
+behaviors, title, menus, effects) that LÖVE leaves to libraries.
 
 ### The game model
 
 - **Things with parts.** Everything that acts is a thing made of parts:
   body (movement, collision), model (`.vvx` frames or parts), health, weapon,
-  behaviour, trigger, pickup, inventory, and whatever a genre needs. Kinds
+  behavior, trigger, pickup, inventory, and whatever a genre needs. Kinds
   of things are defined in data (`c.things.rifleman` in `conf.lua`: model, hit
-  points, speed, weapon, behaviour) and spawned by markers, scripts or
+  points, speed, weapon, behavior) and spawned by markers, scripts or
   other things. Today's hard-wired kinds (rifleman, grenadier, guard,
   hostage, hut, gunship, pickups) become such definitions over the engine's
   built-in parts.
-- **Behaviours** are built-in (Rust, set by numbers: "shooter", "patrol",
+- **Behaviors** are built-in (Rust, set by numbers: "shooter", "patrol",
   "chase", "turret") or written in Lua. Lua gets events (`on_tick`,
   `on_hit`, `on_death`, `on_enter`, `on_use`, timers) and gives orders.
 - **Scenes** (title, levels, cutscenes, menus) and the flow between them,
@@ -185,18 +185,18 @@ behaviours, title, menus, effects) that LÖVE leaves to libraries.
   world, each with an id that stays with it, its kind, the parts the engine
   knows (a body, health, the white flash after a hit) and a brain, the
   game's own state for it (a type it chooses, the shooter's `Brain`). A
-  game runs its behaviours as systems, each over its own things in that
+  game runs its behaviors as systems, each over its own things in that
   order, so every run goes the same.
-- **Kinds in data**: `c.things.NAME` in `conf.lua`, with a `behaviour`, a
-  `model`, `hp` and the behaviour's numbers; `like = "other"` builds on
+- **Kinds in data**: `c.things.NAME` in `conf.lua`, with a `behavior`, a
+  `model`, `hp` and the behavior's numbers; `like = "other"` builds on
   another kind (More Blood's guard is like the rifleman with `hp = 4`).
   Markers place things by their kind's name. A mistake says where it
   stands; a reload keeps every thing by its kind's name.
-- **The shooter kit**: the behaviours soldier, spawner, captive, gunship,
+- **The shooter kit**: the behaviors soldier, spawner, captive, gunship,
   pickup (checkpoints and goals are the game's things), and weapons as
   data, `c.weapons.NAME` (cooldown, speed, life, damage, blast, spread,
   burst, throw, ammo, reach, sound), the game's alone (`src/shooter/kit.toml` writes the kit's
-  weapons and every behaviour's kind out to copy from). The player's
+  weapons and every behavior's kind out to copy from). The player's
   attacks are bound to actions (`c.player.attacks`), a run's arsenal is
   `c.state.player`. To scripts the player is a thing (`player`, its
   figure the shooter's own); inside the kit he is still its own struct:
@@ -275,7 +275,7 @@ src/sim/          the simulation's core every game shares (Sim)
 src/lua/          the Lua door: LuaGame<K>, the sandbox, the world API,
                   conf.lua, the API's register (step 4)
 src/mcp.rs        voxcade mcp: the tools for an agent
-src/shooter/      the shooter kit: its behaviours and weapons (More Blood its first game)
+src/shooter/      the shooter kit: its behaviors and weapons (More Blood its first game)
 examples/rust_digger/  a second game in ~270 lines, the engine alone
 ```
 
@@ -308,7 +308,7 @@ fn step(&mut self, input: &Input) {
 **What a game gives** (`trait Game`, all but five with a default):
 
 - Its words: `actions` (the input's bits besides the four directions; keys,
-  gamepad buttons, replays and `shot` scripts name them), `behaviours` (what
+  gamepad buttons, replays and `shot` scripts name them), `behaviors` (what
   its kinds of things, `c.things.NAME`, may do; markers place them by the
   kind's name), `sounds` (events by name with their
   default synth), `sections` (its own tables of the config, which count for
@@ -373,7 +373,7 @@ game's settings are code (the user's choice: "nur im Code, fertig").
   `main.lua` holds its handlers, `on_world_start()` (once, the run's
   states, no level yet), `on_level_start(how)` (a level begins: build it,
   place things; `how` is `"start"` until levels come), `on_tick()` (60
-  times a second, after the kit's behaviours) and `on_draw(frame)`; both
+  times a second, after the kit's behaviors) and `on_draw(frame)`; both
   files
   are optional. (Version 2 of the API, `docs/game-model.md`: the
   old `load(world)`, `tick(world, input)` and `draw(world, out)` are
@@ -433,10 +433,10 @@ game's settings are code (the user's choice: "nur im Code, fertig").
   for the replays. `c.world.size` without a map makes an empty world the
   script builds.
 - **The kit** (`c.kit = "shooter"`, `lua::host::Kit`): the shooter's
-  behaviours run by themselves; the script sees its things through one
+  behaviors run by themselves; the script sees its things through one
   trait (`lua::host::Host`), counts them, takes their hits, keeps the
-  score. Kinds without a behaviour are the script's, moved by `on_tick`.
-  What its behaviours do to things it reports (`Sim::events`), and the
+  score. Kinds without a behavior are the script's, moved by `on_tick`.
+  What its behaviors do to things it reports (`Sim::events`), and the
   script hears it (`on_hit`, `on_death`, `on_fall_out`) with the touches
   the engine finds (`on_touch`): what they mean is the game's code
   (points, pickups, checkpoints, a life lost, the helipad in More Blood's
@@ -811,7 +811,7 @@ over a LAN or the internet.
 
 | Genre | Camera | Movement | Systems |
 |---|---|---|---|
-| Top-down shooter (More Blood) | follows the player | 8-way, strafe | aiming rule, enemy behaviours, spawners, pickups, bosses |
+| Top-down shooter (More Blood) | follows the player | 8-way, strafe | aiming rule, enemy behaviors, spawners, pickups, bosses |
 | Vertical and horizontal scroller (1942, R-Type) | scrolls by itself | ship in the screen | waves, bullet patterns, power-ups |
 | Jump & run, side scroller | from the side, follows | platformer controller | moving platforms, collectibles, checkpoints |
 | RPG, adventure, dungeon | follows, or screen by screen | 4/8-way, on a grid | dialogue, inventory, stats, quests, saving, mouse pointing, light in the grid |
@@ -858,7 +858,7 @@ Phase 1, the engine:
    plays as before (its replays bit for bit), and Digger is a second game
    in Rust on the engine alone.
 3. **Things and parts** (done, 2026-10-15, "The game model" above): More
-   Blood's kinds are definitions over built-in parts and behaviours (a
+   Blood's kinds are definitions over built-in parts and behaviors (a
    shooter kit), its weapons data; the whole state is kept and brought back
    in memory. The recorded replays play out exactly the same.
 4. **Lua 5.4** (done, 2026-10-16, "The Lua door" above): sandboxed,

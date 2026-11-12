@@ -15,7 +15,7 @@
 //! (`Game::halted`, `reload_code`).
 //!
 //! A game may play with ready-made rules (`c.kit`, `host::Kit`): their
-//! behaviours run by themselves each tick, the script's `on_tick` after
+//! behaviors run by themselves each tick, the script's `on_tick` after
 //! them; without them the world holds only what the script moves
 //! (`host::Plain`).
 
@@ -128,8 +128,8 @@ static NO_FRAMES: std::collections::BTreeMap<String, crate::sim::things::Frames>
 /// A kind's swing where there is no kind: none.
 static NO_SWING: std::collections::BTreeMap<String, f32> = std::collections::BTreeMap::new();
 
-/// A thing of a kind that its level's file turns (`facing`, `turn`)
-/// must be one the script moves: a kind with a behaviour turns by its
+/// A thing of a kind that its level's file turns (`facing`, `rotation`)
+/// must be one the script moves: a kind with a behavior turns by its
 /// ready-made rules, as `level:spawn`'s facing says.
 fn check_facings(levels: &crate::levels::Levels, kinds: &[Kind]) -> Result<()> {
     for level in &levels.list {
@@ -137,7 +137,7 @@ fn check_facings(levels: &crate::levels::Levels, kinds: &[Kind]) -> Result<()> {
             if let (Some(_), Some(k)) = (f, kinds.get(m.kind))
                 && !k.scripted
             {
-                anyhow::bail!("level {}: a {} faces as its ready-made rules turn it (its behaviour): facing and turn in a level's file are for kinds without one, as level:spawn's facing", level.name, k.name);
+                anyhow::bail!("level {}: a {} faces as its ready-made rules turn it (its behavior): facing and turn in a level's file are for kinds without one, as level:spawn's facing", level.name, k.name);
             }
         }
     }
@@ -925,7 +925,7 @@ impl<K: Kit> LuaGame<K> {
     /// The kinds of things the config defines, their heights from their
     /// models (`old`: kept from there while a kind's model stays).
     fn kinds(cfg: &GameConfig, height: impl Fn(&str, Option<&str>) -> f32) -> Result<Vec<Kind>> {
-        let defs = things::defs(cfg, &Self::behaviours(cfg))?;
+        let defs = things::defs(cfg, &Self::behaviors(cfg))?;
         // A family is asked for by its name where a kind's would do
         // (`level:things("enemies")`): never a kind's name.
         for d in &defs {
@@ -934,7 +934,7 @@ impl<K: Kit> LuaGame<K> {
             }
         }
         // The players' figures of ready-made rules that play several (the
-        // shooter's, of kinds without behaviour) are theirs, not the
+        // shooter's, of kinds without behavior) are theirs, not the
         // script's: their rules move them and keep their hit points.
         let figures: Vec<String> = match &cfg.player.kind {
             Some(k) if with::<K>(cfg) && cfg.players > 1 && K::plays_several(cfg) => k.names().into_iter().map(str::to_string).collect(),
@@ -946,7 +946,7 @@ impl<K: Kit> LuaGame<K> {
                 let height = height(&d.name, d.model.as_deref());
                 let sound = d.sound.map(|s| crate::names::intern(&s));
                 let figure = figures.contains(&d.name);
-                Kind { name: d.name, model: d.model, height, hp: d.hp.unwrap_or(0), has_hp: d.hp.is_some() || d.behaviour.is_some() || figure, scripted: d.behaviour.is_none() && !figure, props: d.props, families: d.families, effect: d.effect, sound, reach: d.reach, team: d.team, free_turn: d.free_turn, spin: d.spin, fixed: d.fixed, frames: d.frames, swing: d.swing }
+                Kind { name: d.name, model: d.model, height, hp: d.hp.unwrap_or(0), has_hp: d.hp.is_some() || d.behavior.is_some() || figure, scripted: d.behavior.is_none() && !figure, props: d.props, families: d.families, effect: d.effect, sound, reach: d.reach, team: d.team, free_turn: d.free_turn, spin: d.spin, fixed: d.fixed, frames: d.frames, swing: d.swing }
             })
             .collect())
     }
@@ -2022,8 +2022,8 @@ impl<K: Kit> Game for LuaGame<K> {
         if with::<K>(cfg) { K::sections(cfg) } else { Vec::new() }
     }
 
-    fn behaviours(cfg: &GameConfig) -> Vec<&'static str> {
-        if with::<K>(cfg) { K::behaviours(cfg) } else { Vec::new() }
+    fn behaviors(cfg: &GameConfig) -> Vec<&'static str> {
+        if with::<K>(cfg) { K::behaviors(cfg) } else { Vec::new() }
     }
 
     /// The kit's actions, then the game's own (`c.actions`).
@@ -2084,7 +2084,7 @@ impl<K: Kit> Game for LuaGame<K> {
             }
         }
         // What shows when a thing goes: every kind's.
-        let effects: Vec<String> = things::defs(cfg, &Self::behaviours(cfg)).map(|defs| defs.into_iter().filter_map(|d| d.effect.filter(|e| !e.bursts()).map(|e| e.model)).collect()).unwrap_or_default();
+        let effects: Vec<String> = things::defs(cfg, &Self::behaviors(cfg)).map(|defs| defs.into_iter().filter_map(|d| d.effect.filter(|e| !e.bursts()).map(|e| e.model)).collect()).unwrap_or_default();
         for file in cfg.models.iter().chain(cfg.items.values().filter_map(|i| i.model.as_ref())).chain(effects.iter()) {
             if !specs.iter().any(|s| &s.file == file) {
                 specs.push(ModelSpec { name: file.clone(), file: file.clone(), shaped: false });
@@ -2635,7 +2635,7 @@ impl<K: Kit> Game for LuaGame<K> {
         self.stage.host.sim_mut()
     }
 
-    /// A tick: the kit's behaviours (if it has one), the script's
+    /// A tick: the kit's behaviors (if it has one), the script's
     /// `on_tick`, then the script's things move (the way they were told to walk,
     /// falling, landing); without a kit the debris and the camera too.
     fn step(&mut self, input: &Input) {

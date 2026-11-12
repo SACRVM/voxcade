@@ -142,7 +142,7 @@ function conf(c)
   }
 
   c.things.rifleman = {
-    behaviour = "soldier",  -- walks about, wakes on sight or noise, keeps his distance, fires along the 8 ways
+    behavior = "soldier",  -- walks about, wakes on sight or noise, keeps his distance, fires along the 8 ways
     model = "enemy.vvx",
     hp = 2,                 -- rifle hits he takes (the player's shots find him in a narrow cone)
     team = "enemies",       -- their rounds and blows hurt other teams, not their own
@@ -175,7 +175,7 @@ function conf(c)
   }
 
   c.things.hut = {
-    behaviour = "spawner",  -- sends its men while the player is this close
+    behavior = "spawner",  -- sends its men while the player is this close
     spawns = "rifleman",
     count = 2,
     first = 60,             -- ticks
@@ -185,7 +185,7 @@ function conf(c)
   }
 
   c.things.hostage = {
-    behaviour = "captive",
+    behavior = "captive",
     model = "hostage.vvx",
     speed = 60,             -- running off, a little faster than the enemies chase
     accel = 798,
@@ -197,7 +197,7 @@ function conf(c)
   }
 
   c.things.gunship = {  -- the gunship parked on the helipad: the goal opens once it is down
-    behaviour = "gunship",
+    behavior = "gunship",
     model = "huey.vvx",     -- frames turn the rotor (hind.vvx: the attack helicopter)
     hp = 60,                -- rifle rounds (a rocket or a blast counts 6)
     team = "enemies",
@@ -222,7 +222,7 @@ function conf(c)
 
   -- Pickups lie there; what each gives is main.lua's (props).
   c.things.machine_gun = {
-    behaviour = "pickup",
+    behavior = "pickup",
     model = "pickups.vvx",  -- models: machine gun, rockets, grenades, health
     frame = 0,
     reach = 9,              -- this close it is touched
@@ -237,7 +237,7 @@ function conf(c)
   }
 
   c.things.grenades = {
-    behaviour = "pickup",
+    behavior = "pickup",
     model = "pickups.vvx",
     frame = 2,
     reach = 9,
@@ -246,7 +246,7 @@ function conf(c)
   }
 
   c.things.health = {
-    behaviour = "pickup",
+    behavior = "pickup",
     model = "pickups.vvx",
     frame = 3,
     reach = 9,

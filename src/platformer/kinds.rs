@@ -1,4 +1,4 @@
-//! The kinds of things as the platformer's behaviours read them (`Rules`):
+//! The kinds of things as the platformer's behaviors read them (`Rules`):
 //! every number that makes a hero a hero, an opossum a walker, a lift a
 //! platform. A thing's `kind` is its place in `Rules::kinds`. The defaults
 //! are the kit's (`kit.toml`), at the scale of Sunny Land's pictures.
@@ -45,11 +45,11 @@ pub struct Kind {
     pub rules: KindRules,
 }
 
-/// What a kind does: its behaviour and the numbers it reads. How things
+/// What a kind does: its behavior and the numbers it reads. How things
 /// move, never what a touch means: that is the game's code (`on_touch`).
 #[derive(Clone, Debug)]
 pub enum KindRules {
-    /// No behaviour: a Lua game's script moves it.
+    /// No behavior: a Lua game's script moves it.
     Script,
     Hero(HeroRules),
     Walker(WalkerRules),
@@ -73,9 +73,9 @@ impl KindRules {
     }
 }
 
-/// The behaviour's name as `c.things.NAME.behaviour` writes it (none for
+/// The behavior's name as `c.things.NAME.behavior` writes it (none for
 /// the script's kinds).
-pub fn behaviour_name(rules: &KindRules) -> &'static str {
+pub fn behavior_name(rules: &KindRules) -> &'static str {
     match rules {
         KindRules::Script => "",
         KindRules::Hero(_) => "hero",
@@ -249,7 +249,7 @@ impl Default for PlatformRules {
     }
 }
 
-/// How tall the figures were that a behaviour's defaults were tuned on
+/// How tall the figures were that a behavior's defaults were tuned on
 /// (Sunny Land's fox, opossum, frog and eagle): a kind of another height
 /// that leaves a length or speed unset gets it scaled to its own height.
 pub const TUNED_ON: [(&str, f32); 4] = [("hero", 20.0), ("walker", 16.0), ("hopper", 18.0), ("flyer", 24.0)];
@@ -264,7 +264,7 @@ fn scale(own: &toml::Table, f: f32, keys: &mut [(&str, &mut f32)]) {
     }
 }
 
-/// The keys every kind may have besides its behaviour's (and the
+/// The keys every kind may have besides its behavior's (and the
 /// engine's, `things::COMMON`).
 #[derive(Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
@@ -294,7 +294,7 @@ impl Rules {
     /// The kinds from the config; `size` gives a model's size (None: no
     /// such model).
     pub fn from_game(cfg: &GameConfig, size: impl Fn(&str) -> Option<IVec3>) -> Result<Self> {
-        let defs = things::defs(cfg, &super::BEHAVIOURS)?;
+        let defs = things::defs(cfg, &super::BEHAVIORS)?;
         let kinds = defs
             .iter()
             .map(|def| -> Result<Kind> {
@@ -318,17 +318,17 @@ impl Rules {
                     Some(file) => size(file).with_context(|| format!("c.things.{name}.model = \"{file}\": no such model"))?,
                     None => IVec3::ONE,
                 };
-                // Its height over the one its behaviour's defaults were
+                // Its height over the one its behavior's defaults were
                 // tuned on (none known: as tuned).
                 let tall = common.height.or(def.model.as_ref().map(|_| size.z as f32));
-                let f = |behaviour: &str| match (tall, TUNED_ON.iter().find(|(b, _)| *b == behaviour)) {
+                let f = |behavior: &str| match (tall, TUNED_ON.iter().find(|(b, _)| *b == behavior)) {
                     (Some(h), Some((_, on))) => h.max(1.0) / on,
                     _ => 1.0,
                 };
-                let rules = match def.behaviour.as_deref() {
+                let rules = match def.behavior.as_deref() {
                     None => {
                         if let Some(key) = own.keys().next() {
-                            bail!("c.things.{name}.{key}: a kind without a behaviour (the script's) has a model and hp, nothing more");
+                            bail!("c.things.{name}.{key}: a kind without a behavior (the script's) has a model and hp, nothing more");
                         }
                         KindRules::Script
                     }
@@ -372,7 +372,7 @@ impl Rules {
                     Some("platform") => KindRules::Platform(read("platform")?.try_into().with_context(|| format!("c.things.{name}"))?),
                     Some("prop") => KindRules::Prop(read("prop")?.try_into().with_context(|| format!("c.things.{name}"))?),
                     Some("crate") => KindRules::Crate(read("crate")?.try_into().with_context(|| format!("c.things.{name}"))?),
-                    Some(other) => bail!("c.things.{name}.behaviour = \"{other}\": no such behaviour"),
+                    Some(other) => bail!("c.things.{name}.behavior = \"{other}\": no such behavior"),
                 };
                 Ok(Kind {
                     name: name.clone(),
@@ -381,7 +381,7 @@ impl Rules {
                     width: common.width.unwrap_or(cfg.physics.body_width).max(1.0),
                     height: common.height.unwrap_or(size.z as f32).max(1.0),
                     size,
-                    // Names its behaviour does not play are poses the game
+                    // Names its behavior does not play are poses the game
                     // sets (`thing.state.pose`).
                     frames: def.frames.clone(),
                     fps: def.fps,
@@ -409,8 +409,8 @@ impl Rules {
             .iter()
             .filter(|k| k.name != crate::grid::PIECE)
             .map(|k| {
-                let behaviour = behaviour_name(&k.rules);
-                let mut keys = vec![("behaviour", if behaviour.is_empty() { "nil".into() } else { text(behaviour) })];
+                let behavior = behavior_name(&k.rules);
+                let mut keys = vec![("behavior", if behavior.is_empty() { "nil".into() } else { text(behavior) })];
                 if let Some(m) = &k.model {
                     keys.push(("model", text(m)));
                 }
@@ -461,17 +461,17 @@ mod tests {
         cfg
     }
 
-    /// A figure of another height than the one its behaviour was tuned on
+    /// A figure of another height than the one its behavior was tuned on
     /// gets the lengths and speeds it leaves unset scaled to its height;
     /// what it sets, and the counts and times, stay; `voxcade kinds` prints
     /// them all.
     #[test]
     fn unset_lengths_and_speeds_follow_the_height() {
         let mut cfg = GameConfig { kit: Some("platformer".into()), ..GameConfig::default() };
-        cfg.things.insert("mouse".into(), toml::from_str("behaviour = \"hero\"\nheight = 10\njump = 9").unwrap());
-        cfg.things.insert("fox".into(), toml::from_str("behaviour = \"hero\"\nheight = 20").unwrap());
-        cfg.things.insert("bug".into(), toml::from_str("behaviour = \"walker\"\nheight = 8").unwrap());
-        cfg.things.insert("blob".into(), toml::from_str("behaviour = \"walker\"").unwrap());
+        cfg.things.insert("mouse".into(), toml::from_str("behavior = \"hero\"\nheight = 10\njump = 9").unwrap());
+        cfg.things.insert("fox".into(), toml::from_str("behavior = \"hero\"\nheight = 20").unwrap());
+        cfg.things.insert("bug".into(), toml::from_str("behavior = \"walker\"\nheight = 8").unwrap());
+        cfg.things.insert("blob".into(), toml::from_str("behavior = \"walker\"").unwrap());
         let r = Rules::from_game(&cfg, |_| None).unwrap();
         let hero = |name: &str| match &r.kinds[r.find(name).unwrap()].rules {
             KindRules::Hero(h) => h.clone(),
@@ -486,19 +486,19 @@ mod tests {
             _ => unreachable!(),
         };
         assert_eq!((walker("bug"), walker("blob")), (30.0, 60.0), "no height known: as tuned");
-        assert!(r.numbers().iter().any(|l| l.starts_with("c.things.mouse = { behaviour = \"hero\"") && l.contains("speed = 75,")), "{:?}", r.numbers());
+        assert!(r.numbers().iter().any(|l| l.starts_with("c.things.mouse = { behavior = \"hero\"") && l.contains("speed = 75,")), "{:?}", r.numbers());
     }
 
-    /// A kind that names only its behaviour is the kit's of that behaviour:
-    /// the numbers in `kit.toml` are the behaviours' defaults.
+    /// A kind that names only its behavior is the kit's of that behavior:
+    /// the numbers in `kit.toml` are the behaviors' defaults.
     #[test]
-    fn the_kits_kinds_are_the_behaviours_defaults() {
+    fn the_kits_kinds_are_the_behaviors_defaults() {
         let mut cfg = kit();
-        for b in super::super::BEHAVIOURS {
-            cfg.things.insert(format!("bare_{b}"), toml::from_str(&format!("behaviour = \"{b}\"")).unwrap());
+        for b in super::super::BEHAVIORS {
+            cfg.things.insert(format!("bare_{b}"), toml::from_str(&format!("behavior = \"{b}\"")).unwrap());
         }
         let r = Rules::from_game(&cfg, |_| None).unwrap();
-        for b in super::super::BEHAVIOURS {
+        for b in super::super::BEHAVIORS {
             let (bare, kit) = (&r.kinds[r.find(&format!("bare_{b}")).unwrap()], &r.kinds[r.find(b).unwrap()]);
             assert_eq!(format!("{:?}", bare.rules), format!("{:?}", kit.rules), "a bare {b} is not the kit's");
         }
@@ -508,11 +508,11 @@ mod tests {
     #[test]
     fn mistakes_in_kinds_are_named() {
         let mut cfg = kit();
-        cfg.things.insert("fox".into(), toml::from_str("behaviour = \"hero\"\njumpp = 3").unwrap());
+        cfg.things.insert("fox".into(), toml::from_str("behavior = \"hero\"\njumpp = 3").unwrap());
         let e = format!("{:#}", Rules::from_game(&cfg, |_| None).unwrap_err());
         assert!(e.contains("c.things.fox") && e.contains("jumpp"), "{e}");
         let mut cfg = kit();
-        cfg.things.insert("gem".into(), toml::from_str("behaviour = \"pickup\"\nmodel = \"gem.vox\"").unwrap());
+        cfg.things.insert("gem".into(), toml::from_str("behavior = \"pickup\"\nmodel = \"gem.vox\"").unwrap());
         let e = format!("{:#}", Rules::from_game(&cfg, |_| None).unwrap_err());
         assert!(e.contains("no such model"), "{e}");
     }

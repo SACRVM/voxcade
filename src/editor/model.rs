@@ -426,7 +426,7 @@ pub struct Editor {
     source: String,
     source_level: GridLevel,
     /// Among the pieces (`room.rs`): the game turns things freely
-    /// (`c.camera.turns = "free"`, any angle) or on the grid; what is
+    /// (`c.camera.rotates = "free"`, any angle) or on the grid; what is
     /// chosen; what hangs on the mouse to be set down, and the spot under
     /// it; what is dragged and how far from the spot it was taken; the
     /// field whose next setting joins the last step (a number dragged is
@@ -462,8 +462,8 @@ pub struct Editor {
     /// What is hidden in the editor alone (`room::Hidden`).
     hidden: room::Hidden,
     /// The game's kinds (`c.things`) as a level's things of them turn:
-    /// their models' files; those without a behaviour (only they face as
-    /// the file turns them); those that turn freely (`turns = "free"`).
+    /// their models' files; those without a behavior (only they face as
+    /// the file turns them); those that turn freely (`rotates = "free"`).
     pub kind_models: std::collections::BTreeMap<String, String>,
     pub still_kinds: std::collections::BTreeSet<String>,
     pub free_kinds: std::collections::BTreeSet<String>,

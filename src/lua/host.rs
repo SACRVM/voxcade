@@ -2,7 +2,7 @@
 //! things in one list, the score, how the run ends and what the camera
 //! follows. Without a kit it is `Plain`: only things the script moves. A
 //! kit (`Kit`, the shooter) brings its own things and rules; its kinds
-//! without a behaviour are the script's, moved the same way.
+//! without a behavior are the script's, moved the same way.
 
 use std::any::Any;
 use std::sync::Arc;
@@ -21,7 +21,7 @@ use crate::sim::things::{Id, Things, Walk};
 use crate::sim::{Body, Sim, stand_on_ground};
 
 /// A kind of thing as a Lua game has it: its name, model, height, the hits
-/// it takes, and whether the script moves it (no behaviour of a kit's).
+/// it takes, and whether the script moves it (no behavior of a kit's).
 #[derive(Clone, Debug)]
 pub struct Kind {
     pub name: String,
@@ -43,7 +43,7 @@ pub struct Kind {
     pub reach: Option<f32>,
     /// Whose side it is on (`team`).
     pub team: Option<String>,
-    /// Drawn facing exactly its way (`turns = "free"`).
+    /// Drawn facing exactly its way (`rotates = "free"`).
     pub free_turn: bool,
     /// How fast its model turns round as it is drawn, degrees a second.
     pub spin: f32,
@@ -285,7 +285,7 @@ pub trait Host: Any {
     }
 
     /// The keys its rules keep in thing `id`'s state besides `hp`: a
-    /// behaviour's switches, a prop's `pose`.
+    /// behavior's switches, a prop's `pose`.
     fn thing_keys(&self, _id: Id) -> &'static [&'static str] {
         &[]
     }
@@ -385,10 +385,10 @@ pub trait Host: Any {
         }
     }
 
-    /// Switches a thing's ready-made behaviour off or on (`thing:enable`):
+    /// Switches a thing's ready-made behavior off or on (`thing:enable`):
     /// off, physics and the script move it as one of its own.
-    fn enable(&mut self, _id: Id, _behaviour: &str, _on: bool) -> Result<(), String> {
-        Err("it has no ready-made behaviour (they come with c.kit)".into())
+    fn enable(&mut self, _id: Id, _behavior: &str, _on: bool) -> Result<(), String> {
+        Err("it has no ready-made behavior (they come with c.kit)".into())
     }
 
     /// Sends a thing up at `speed` (voxels a second), standing or not
@@ -408,7 +408,7 @@ pub trait Host: Any {
 }
 
 /// A kit a Lua game may play with (`c.kit`): a game of its own whose
-/// behaviours run by themselves, the script's `on_tick` after them; what
+/// behaviors run by themselves, the script's `on_tick` after them; what
 /// they do to things it reports (`Sim::events`) and the script hears.
 pub trait Kit: Game + Host + Clone {
     /// Whether `c.kit = name` asks for it.
@@ -1001,7 +1001,7 @@ impl Stage {
             };
             self.names.insert(id.raw(), own.unwrap_or_else(|| format!("{}_{n}", k.name)));
         }
-        // (Only kinds without a behaviour have a way in a file: `LuaGame`
+        // (Only kinds without a behavior have a way in a file: `LuaGame`
         // refuses the rest as it loads.)
         for (id, way) in turned {
             let _ = self.host.face(id, way);
@@ -1307,8 +1307,8 @@ impl<A: Kit, B: Kit> Game for Either<A, B> {
         if Self::first(cfg) { A::sections(cfg) } else { B::sections(cfg) }
     }
 
-    fn behaviours(cfg: &GameConfig) -> Vec<&'static str> {
-        if Self::first(cfg) { A::behaviours(cfg) } else { B::behaviours(cfg) }
+    fn behaviors(cfg: &GameConfig) -> Vec<&'static str> {
+        if Self::first(cfg) { A::behaviors(cfg) } else { B::behaviors(cfg) }
     }
 
     fn actions(cfg: &GameConfig) -> Vec<&'static str> {
@@ -1500,8 +1500,8 @@ impl<A: Kit, B: Kit> Host for Either<A, B> {
         each!(self, k => k.launch(id, vel))
     }
 
-    fn enable(&mut self, id: Id, behaviour: &str, on: bool) -> Result<(), String> {
-        each!(self, k => k.enable(id, behaviour, on))
+    fn enable(&mut self, id: Id, behavior: &str, on: bool) -> Result<(), String> {
+        each!(self, k => k.enable(id, behavior, on))
     }
 
     fn thing_keys(&self, id: Id) -> &'static [&'static str] {

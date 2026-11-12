@@ -16,8 +16,9 @@ grain = 0.45
 hut = "prefabs/hut.vvx"
 tower = "prefabs/tower.vvx"
 
-# What stands on the map, in order: a prefab (turn: quarter turns
-# anticlockwise) or a thing of a kind; at x, y on the ground, or x, y, z.
+# What stands on the map, in order: a prefab (rotation: degrees clockwise
+# seen from above, in quarter turns) or a thing of a kind; at x, y on the
+# ground, or x, y, z.
 [[put]]
 prefab = "tower"
 at = [880, 220]

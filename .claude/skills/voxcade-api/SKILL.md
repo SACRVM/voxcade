@@ -80,7 +80,7 @@ forever.
   `the_register_is_what_the_scripts_see`), then `voxcade api --lua
   lua/voxcade.lua` (test `the_editors_definitions_are_up_to_date`).
 - **Plain English** in its doc line, for people who do not know the
-  engine: no "kit", no "behaviour" without saying what it means (the
+  engine: no "kit", no "behavior" without saying what it means (the
   user's rule; the IDE shows these lines in HELP and on hover).
 - **A HELP example** when it is something a game typically does
   (`src/ide/help.rs`): a whole `main.lua` to copy, run as a game by
@@ -101,7 +101,7 @@ forever.
 The user's words, and the API's: world (the whole game), level (a place
 to play, an RPG's zone too), state (what changes), props (what the level
 editor set on one thing), place (a named spot in a level), item, inventory,
-ready-made rules (behaviours, a list per kind; families group kinds),
+ready-made rules (behaviors, a list per kind; families group kinds),
 kept (a kind or a level's memory across visits). Handlers say what
 happened: `on_world_start`, `on_world_end(result)`,
 `on_level_start(how)`, `on_level_end(why)`, `on_tick`, `on_draw`,

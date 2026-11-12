@@ -1,4 +1,4 @@
-//! The kinds of things and the weapons as the shooter's behaviours read
+//! The kinds of things and the weapons as the shooter's behaviors read
 //! them (`Rules`): every number that makes a rifleman a rifleman, a hut a
 //! hut, a gunship a gunship and a rifle a rifle. A thing's `kind` is its
 //! place in `Rules::kinds`; a weapon's its place in `Rules::weapons`.
@@ -83,7 +83,7 @@ pub struct Kind {
     pub team: Option<&'static str>,
     /// What does not hurt it.
     pub immune: Immune,
-    /// Drawn facing exactly its way (`turns = "free"`).
+    /// Drawn facing exactly its way (`rotates = "free"`).
     pub free_turn: bool,
     /// How fast its model turns round as it is drawn, degrees a second.
     pub spin: f32,
@@ -131,9 +131,9 @@ fn scale(params: &toml::Table, f: f32, keys: &mut [(&str, &mut f32)]) {
     }
 }
 
-/// The behaviour's name as `c.things.NAME.behaviour` writes it (none for
+/// The behavior's name as `c.things.NAME.behavior` writes it (none for
 /// the script's kinds).
-pub fn behaviour_name(rules: &KindRules) -> &'static str {
+pub fn behavior_name(rules: &KindRules) -> &'static str {
     match rules {
         KindRules::Script => "",
         KindRules::Soldier(_) => "soldier",
@@ -144,10 +144,10 @@ pub fn behaviour_name(rules: &KindRules) -> &'static str {
     }
 }
 
-/// What a kind does: the behaviour and its numbers.
+/// What a kind does: the behavior and its numbers.
 #[derive(Clone, Debug)]
 pub enum KindRules {
-    /// No behaviour: a Lua game's script moves it (`lua::host::Kit`).
+    /// No behavior: a Lua game's script moves it (`lua::host::Kit`).
     Script,
     Soldier(SoldierRules),
     Spawner(SpawnerRules),
@@ -441,7 +441,7 @@ impl Rules {
             lines.push(conf_line("weapons", name, &keys));
         }
         for k in self.kinds.iter().filter(|k| k.name != crate::grid::PIECE) {
-            let mut keys = vec![("behaviour", text(behaviour_name(&k.rules)))];
+            let mut keys = vec![("behavior", text(behavior_name(&k.rules)))];
             if let Some(m) = &k.model {
                 keys.push(("model", text(m)));
             }
@@ -509,7 +509,7 @@ impl Rules {
 
     /// The rules a game's config gives: its weapons (`c.weapons.NAME`, the
     /// game's alone: `kit.toml` has the kit's to copy) and its kinds of
-    /// things (`c.things.NAME`, the shooter's behaviours).
+    /// things (`c.things.NAME`, the shooter's behaviors).
     /// A kind that leaves a length or speed unset gets the default scaled
     /// to its height (`tall`: a model file's, if known) from the height it
     /// was tuned on (`TUNED_ON`).
@@ -579,7 +579,7 @@ impl Rules {
             bail!("c.weapons.held: held is the word for the gun in hand, no weapon's name");
         }
 
-        let defs = things::defs(cfg, &super::BEHAVIOURS)?;
+        let defs = things::defs(cfg, &super::BEHAVIORS)?;
         let kind_index = |name: &str, what: &str| {
             defs.iter().position(|d| d.name == name).with_context(|| format!("{what} = \"{name}\": there is no c.things.{name}"))
         };
@@ -594,10 +594,10 @@ impl Rules {
                 let here_written = format!("c.things.{name}");
                 let parts = |hp: bool, model: bool| -> Result<()> {
                     if !hp && def.hp.is_some() {
-                        bail!("c.things.{name}.hp: a {} takes no hits", def.behaviour.as_deref().unwrap_or("thing"));
+                        bail!("c.things.{name}.hp: a {} takes no hits", def.behavior.as_deref().unwrap_or("thing"));
                     }
                     if !model && def.model.is_some() {
-                        bail!("c.things.{name}.model: a {} is not drawn", def.behaviour.as_deref().unwrap_or("thing"));
+                        bail!("c.things.{name}.model: a {} is not drawn", def.behavior.as_deref().unwrap_or("thing"));
                     }
                     Ok(())
                 };
@@ -607,7 +607,7 @@ impl Rules {
                 let factor = || def.model.as_deref().and_then(tall).map_or(1.0, |h| h.max(1.0) / TUNED_ON);
                 // Numbers the kit no longer reads: what a thing is worth and
                 // what it gives are the game's code.
-                let moved: &[(&str, &str)] = match def.behaviour.as_deref() {
+                let moved: &[(&str, &str)] = match def.behavior.as_deref() {
                     Some("pickup") => &[
                         ("weapon", "what a pickup gives is your code's: props = { weapon = \"machine_gun\", ammo = 150 }, and player.state.weapon, player.state.ammo in on_touch"),
                         ("grenades", "what a pickup gives is your code's: props = { grenades = 5 }, and player.state.grenades in on_touch"),
@@ -631,13 +631,13 @@ impl Rules {
                     bail!("c.things.{name}.{key} is no more: {instead} (docs/game-model.md)");
                 }
                 let (team, immune) = (def.team.as_deref().map(crate::names::intern), Immune::of(&def.immune));
-                let Some(behaviour) = def.behaviour.as_deref() else {
+                let Some(behavior) = def.behavior.as_deref() else {
                     if let Some(key) = def.params.keys().next() {
-                        bail!("c.things.{name}.{key}: a kind without a behaviour (the script's) has a model and hp, nothing more");
+                        bail!("c.things.{name}.{key}: a kind without a behavior (the script's) has a model and hp, nothing more");
                     }
                     return Ok(Kind { name: name.clone(), model: def.model.clone(), hp: def.hp.unwrap_or(0), reach: def.reach, team, immune, free_turn: def.free_turn, spin: def.spin, frames: def.frames.clone(), swing: def.swing.clone(), rules: KindRules::Script });
                 };
-                let rules = match behaviour {
+                let rules = match behavior {
                     "soldier" => {
                         parts(true, true)?;
                         written::<SoldierSpec>(own, &here_written)?;
@@ -658,7 +658,7 @@ impl Rules {
                             bail!("c.things.{name}.spawns: the kind of soldier it sends");
                         }
                         let spawns = kind_index(&spec.spawns, &here("spawns"))?;
-                        if defs[spawns].behaviour.as_deref() != Some("soldier") {
+                        if defs[spawns].behavior.as_deref() != Some("soldier") {
                             bail!("c.things.{name}.spawns = \"{}\": a hut sends soldiers", spec.spawns);
                         }
                         let ahead = match spec.ahead.map(glam::Vec2::from) {
@@ -690,7 +690,7 @@ impl Rules {
                         let bob = spec.bob.unwrap_or_else(|| def.model.as_deref().and_then(tall).map_or(1, |h| (h as u32 / 5).max(1)));
                         KindRules::Pickup(PickupRules { frame: spec.frame, reach: def.reach.unwrap_or(PickupRules::default().reach), bob, bob_ticks: spec.bob_ticks })
                     }
-                    other => bail!("c.things.{name}.behaviour = \"{other}\": not the shooter's"),
+                    other => bail!("c.things.{name}.behavior = \"{other}\": not the shooter's"),
                 };
                 let hp = def.hp.unwrap_or(match rules {
                     KindRules::Soldier(_) | KindRules::Captive(_) => 1,
@@ -707,11 +707,11 @@ impl Rules {
 }
 
 /// Reads a table as it is written, without what it is like or the keys the
-/// engine reads (`like`, `behaviour`, `model`, `hp`): an unknown key or a
+/// engine reads (`like`, `behavior`, `model`, `hp`): an unknown key or a
 /// wrong value is reported where it stands.
 fn written<T: serde::de::DeserializeOwned>(table: &toml::Table, what: &str) -> Result<()> {
     let mut table = table.clone();
-    for key in ["like", "behaviour", "model", "hp"] {
+    for key in ["like", "behavior", "model", "hp"] {
         table.remove(key);
     }
     // A kind's keys every kind has (`sim::things::Def`).
@@ -903,17 +903,17 @@ mod tests {
         Rules::from_game(cfg, &ShooterConfig::from_game(cfg)?, &|_| None)
     }
 
-    /// A kind that says only its behaviour gets the numbers of the kit's
-    /// kind of that behaviour (kit.toml writes the defaults out).
+    /// A kind that says only its behavior gets the numbers of the kit's
+    /// kind of that behavior (kit.toml writes the defaults out).
     #[test]
-    fn the_kits_kinds_are_the_behaviours_defaults() {
+    fn the_kits_kinds_are_the_behaviors_defaults() {
         let mut cfg = kit();
         for (name, table) in [
-            ("bare_soldier", "behaviour = \"soldier\"\nweapon = \"enemy_rifle\""),
-            ("bare_hut", "behaviour = \"spawner\"\nspawns = \"rifleman\""),
-            ("bare_hostage", "behaviour = \"captive\""),
-            ("bare_gunship", "behaviour = \"gunship\"\nweapon = \"door_gun\"\nrockets = \"rocket_pods\""),
-            ("bare_pickup", "behaviour = \"pickup\""),
+            ("bare_soldier", "behavior = \"soldier\"\nweapon = \"enemy_rifle\""),
+            ("bare_hut", "behavior = \"spawner\"\nspawns = \"rifleman\""),
+            ("bare_hostage", "behavior = \"captive\""),
+            ("bare_gunship", "behavior = \"gunship\"\nweapon = \"door_gun\"\nrockets = \"rocket_pods\""),
+            ("bare_pickup", "behavior = \"pickup\""),
         ] {
             cfg.things.insert(name.into(), toml::from_str(table).unwrap());
         }
@@ -934,9 +934,9 @@ mod tests {
     #[test]
     fn frames_and_bobbing_are_the_games() {
         let mut cfg = kit();
-        cfg.things.insert("walker".into(), toml::from_str("behaviour = \"soldier\"\nweapon = \"enemy_rifle\"\nstride = 7\nstep_dust = 0\nfps = 4\nframes = { idle = { first = 0, last = 1 }, walk = { first = 2, last = 5, stride = 6 } }").unwrap());
-        cfg.things.insert("crate".into(), toml::from_str("behaviour = \"pickup\"\nmodel = \"crate.vox\"").unwrap());
-        cfg.things.insert("still".into(), toml::from_str("behaviour = \"pickup\"\nmodel = \"crate.vox\"\nbob = 0\nbob_ticks = 8").unwrap());
+        cfg.things.insert("walker".into(), toml::from_str("behavior = \"soldier\"\nweapon = \"enemy_rifle\"\nstride = 7\nstep_dust = 0\nfps = 4\nframes = { idle = { first = 0, last = 1 }, walk = { first = 2, last = 5, stride = 6 } }").unwrap());
+        cfg.things.insert("crate".into(), toml::from_str("behavior = \"pickup\"\nmodel = \"crate.vox\"").unwrap());
+        cfg.things.insert("still".into(), toml::from_str("behavior = \"pickup\"\nmodel = \"crate.vox\"\nbob = 0\nbob_ticks = 8").unwrap());
         cfg.player.game.insert("frames".into(), toml::from_str::<toml::Table>("jump = { first = 6, last = 7, loop = false }").unwrap().into());
         let r = Rules::from_game(&cfg, &ShooterConfig::from_game(&cfg).unwrap(), &|file| (file == "crate.vox").then_some(15.0)).unwrap();
         let walker = &r.kinds[r.find("walker").unwrap()].frames;
@@ -956,13 +956,13 @@ mod tests {
     #[test]
     fn unset_lengths_and_speeds_follow_the_height() {
         let mut cfg = kit();
-        cfg.things.insert("giant".into(), toml::from_str("behaviour = \"soldier\"\nmodel = \"giant.vox\"\nweapon = \"enemy_rifle\"\nsight = 100").unwrap());
+        cfg.things.insert("giant".into(), toml::from_str("behavior = \"soldier\"\nmodel = \"giant.vox\"\nweapon = \"enemy_rifle\"\nsight = 100").unwrap());
         let r = Rules::from_game(&cfg, &ShooterConfig::from_game(&cfg).unwrap(), &|file| (file == "giant.vox").then_some(22.0)).unwrap();
         let giant = r.soldier(r.find("giant").unwrap());
         let rifleman = r.soldier(r.find("rifleman").unwrap());
         assert_eq!((giant.speed, giant.sight, giant.distance), (24.0 * 2.2, 100.0, 32.0 * 2.2), "2.2 times as tall, its own sight");
         assert_eq!(rifleman.speed, 24.0, "no model known: as tuned");
-        assert!(r.numbers().iter().any(|l| l.starts_with("c.things.giant = { behaviour = \"soldier\"") && l.contains("sight = 100,")), "{:?}", r.numbers());
+        assert!(r.numbers().iter().any(|l| l.starts_with("c.things.giant = { behavior = \"soldier\"") && l.contains("sight = 100,")), "{:?}", r.numbers());
     }
 
     /// A game's weapons are its own (`kit.toml` has the kit's to copy): one
@@ -997,20 +997,20 @@ mod tests {
             cfg.player.game = more.player.game;
             rules(&cfg).map(|_| ()).expect_err(text).to_string()
         };
-        assert!(error("[things.x]\nbehaviour = \"soldier\"\nsped = 3\n").contains("c.things.x"));
-        assert!(error("[things.x]\nbehaviour = \"soldier\"\nweapon = \"bow\"\n").contains("no c.weapons.bow"));
-        assert!(error("[things.x]\nbehaviour = \"soldier\"\n").contains("c.things.x.weapon: the weapon it attacks with"));
-        assert!(error("[things.x]\nbehaviour = \"spawner\"\n").contains("spawns"));
-        assert!(error("[things.x]\nbehaviour = \"spawner\"\nspawns = \"hostage\"\n").contains("sends soldiers"));
-        assert!(error("[things.x]\nbehaviour = \"spawner\"\nspawns = \"rifleman\"\nhp = 3\n").contains("takes no hits"));
-        assert!(error("[things.x]\nbehaviour = \"spawner\"\nspawns = \"rifleman\"\nmodel = \"hut.vox\"\n").contains("not drawn"));
-        assert!(error("[things.x]\nbehaviour = \"checkpoint\"\n").contains("is no more"));
-        assert!(error("[things.x]\nbehaviour = \"pickup\"\nheal = 2\n").contains("c.things.x.heal is no more"));
-        assert!(error("[things.x]\nbehaviour = \"pickup\"\nweapon = \"door_gun\"\n").contains("c.things.x.weapon is no more"));
-        assert!(error("[things.x]\nbehaviour = \"gunship\"\nkeep = 35\n").contains("offset = { 0, 64 }"));
-        assert!(error("[things.x]\nbehaviour = \"spawner\"\nspawns = \"rifleman\"\nahead = [0, 0]\n").contains("c.things.x.ahead: a way"));
+        assert!(error("[things.x]\nbehavior = \"soldier\"\nsped = 3\n").contains("c.things.x"));
+        assert!(error("[things.x]\nbehavior = \"soldier\"\nweapon = \"bow\"\n").contains("no c.weapons.bow"));
+        assert!(error("[things.x]\nbehavior = \"soldier\"\n").contains("c.things.x.weapon: the weapon it attacks with"));
+        assert!(error("[things.x]\nbehavior = \"spawner\"\n").contains("spawns"));
+        assert!(error("[things.x]\nbehavior = \"spawner\"\nspawns = \"hostage\"\n").contains("sends soldiers"));
+        assert!(error("[things.x]\nbehavior = \"spawner\"\nspawns = \"rifleman\"\nhp = 3\n").contains("takes no hits"));
+        assert!(error("[things.x]\nbehavior = \"spawner\"\nspawns = \"rifleman\"\nmodel = \"hut.vox\"\n").contains("not drawn"));
+        assert!(error("[things.x]\nbehavior = \"checkpoint\"\n").contains("is no more"));
+        assert!(error("[things.x]\nbehavior = \"pickup\"\nheal = 2\n").contains("c.things.x.heal is no more"));
+        assert!(error("[things.x]\nbehavior = \"pickup\"\nweapon = \"door_gun\"\n").contains("c.things.x.weapon is no more"));
+        assert!(error("[things.x]\nbehavior = \"gunship\"\nkeep = 35\n").contains("offset = { 0, 64 }"));
+        assert!(error("[things.x]\nbehavior = \"spawner\"\nspawns = \"rifleman\"\nahead = [0, 0]\n").contains("c.things.x.ahead: a way"));
         let mut cfg = kit();
-        cfg.things.extend(toml::from_str::<GameConfig>("[things.x]\nbehaviour = \"captive\"\nflee = [0, 0]\n").unwrap().things);
+        cfg.things.extend(toml::from_str::<GameConfig>("[things.x]\nbehavior = \"captive\"\nflee = [0, 0]\n").unwrap().things);
         let e = format!("{:#}", rules(&cfg).map(|_| ()).unwrap_err());
         assert!(e.contains("c.things.x") && e.contains("flee: a way"), "{e}");
         assert!(error("[weapons]\nbullet_speed = 3\n").contains("c.weapons.bullet_speed"));

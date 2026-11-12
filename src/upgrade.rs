@@ -34,8 +34,11 @@ struct Step {
     left: Option<fn(&Path) -> bool>,
 }
 
-/// Every step, oldest first.
+/// Every step, oldest first. "rotation and behavior" goes first of those
+/// of 0.6.0, though it came last: the other steps read the game's text
+/// files and `conf.lua` with the words of now.
 const STEPS: &[Step] = &[
+    Step { since: "0.6.0", name: "rotation and behavior", plan: words::plan, apply: words::apply, left: Some(words::left) },
     Step { since: "0.6.0", name: "models as text", plan: models::plan, apply: models::apply, left: None },
     Step { since: "0.6.0", name: "no recorded sounds", plan: recordings::plan, apply: recordings::plan, left: None },
     Step { since: "0.6.0", name: "levels as text", plan: levels::plan, apply: levels::apply, left: Some(levels::left) },
@@ -581,7 +584,7 @@ mod legacy {
                 (name, entry)
             })
             .collect();
-        let put = m.place.into_iter().map(|p| Put { prefab: p.prefab, thing: p.marker, at: p.at, turn: p.turn }).collect();
+        let put = m.place.into_iter().map(|p| Put { prefab: p.prefab, thing: p.marker, at: p.at, rotation: Put::rotation_of(p.turn) }).collect();
         Ok(MapData { size: m.size, ground: Ground { height: g.height, material: g.material, bedrock: g.bedrock, materials }, prefabs, put, places: m.places })
     }
 
@@ -637,6 +640,15 @@ fn toml_maps(dir: &Path) -> Vec<PathBuf> {
     found.into_iter().filter(|p| std::fs::read_to_string(dir.join(p)).is_ok_and(|t| t.trim_start().starts_with(&format!("format = \"{}\"", crate::map::FORMAT)))).collect()
 }
 
+/// A map of the game as text, read with the words of now though its file
+/// may still have those of before (a dry run's later steps read it before
+/// "rotation and behavior" has changed it).
+fn read_map(dir: &Path, p: &Path) -> Result<crate::map::MapData> {
+    let text = std::fs::read_to_string(dir.join(p)).with_context(|| format!("reading {}", dir.join(p).display()))?;
+    let text = words::now(p, &text)?;
+    crate::map::MapData::read(&text).with_context(|| named(p))
+}
+
 /// Where the game's worlds and prefabs are.
 mod scenes {
     use super::*;
@@ -653,7 +665,7 @@ mod scenes {
         }
         for toml in toml_maps(dir) {
             let folder = toml.parent().unwrap_or(Path::new("")).to_path_buf();
-            if let Ok(m) = std::fs::read_to_string(dir.join(&toml)).map_err(anyhow::Error::from).and_then(|t| crate::map::MapData::read(&t)) {
+            if let Ok(m) = read_map(dir, &toml) {
                 prefabs.extend(m.prefabs.values().map(|p| clean(&folder.join(&p.file))));
             }
         }
@@ -1109,7 +1121,7 @@ pub(crate) mod worlds {
     fn map_names(dir: &Path, prefabs: &[PathBuf]) -> Result<Vec<(PathBuf, String, String)>> {
         let mut out = Vec::new();
         for m in toml_maps(dir) {
-            let data = crate::map::MapData::read(&std::fs::read_to_string(dir.join(&m))?).with_context(|| named(&m))?;
+            let data = read_map(dir, &m)?;
             let folder = m.parent().unwrap_or(Path::new(""));
             for p in data.prefabs.values() {
                 let file = folder.join(&p.file);
@@ -1178,6 +1190,401 @@ pub(crate) mod worlds {
         } else if !self::markers(dir).is_empty() {
             out.push("conf.lua still sets c.markers in a way this step cannot take out: take those lines out by hand (the markers are in the files now)".into());
         }
+        Ok(out)
+    }
+}
+
+/// Step 0.6.0: Voxcade says what other tools say (the owner, 2026-11-12:
+/// "turn" meant five things, and British spellings go). A level's thing
+/// `turn` is `rotation`, its legend's `turn` (a block's way of lying, one
+/// of 48) `orientation`; a map's `[[put]]` `turn` (quarter turns
+/// anticlockwise) `rotation` in degrees clockwise, as a level's thing's
+/// (`map::Put::rotation_of`: turn 1 is 270, 2 is 180, 3 is 90); in
+/// `conf.lua` a kind's `behaviour` `behavior` and its `turns` `rotates`,
+/// `c.camera.turns` `c.camera.rotates`, a title prop's `turn` `rotation`
+/// in degrees as a map's; `frame:model`'s `turn` (a rotation, a pose's
+/// part) `rotation`.
+///
+/// The text files are changed key by key (comments, order and the rest as
+/// they were) and read back before they are written. Lua is changed token
+/// by token, never by guessing: in `conf.lua` the keys where the settings
+/// have them (the word `behaviour` in its comments too, as it names the
+/// key); elsewhere the `turn` keys of tables written into a `:model(...)`
+/// call. A `turn` key in any other table of the game's Lua is the game's
+/// own, or a rotation built apart from the call: the step names its line
+/// and leaves it (the game says so when it reaches `frame:model`).
+mod words {
+    use std::ops::Range;
+
+    use toml_edit::{Document, Item};
+
+    use super::*;
+    use crate::lua::lex::{self, Kind};
+
+    /// The changes to one file: its text before and after, and what was
+    /// changed in words.
+    struct Change {
+        file: PathBuf,
+        before: String,
+        after: String,
+        said: Vec<String>,
+    }
+
+    /// The line a byte of a text is on, from 1.
+    fn line_at(text: &str, at: usize) -> usize {
+        text[..at.min(text.len())].matches('\n').count() + 1
+    }
+
+    /// The text with each range replaced (the ranges apart from one another).
+    fn edited(src: &str, mut edits: Vec<(Range<usize>, String)>) -> String {
+        edits.sort_by_key(|(r, _)| r.start);
+        let mut out = src.to_string();
+        for (range, with) in edits.into_iter().rev() {
+            out.replace_range(range, &with);
+        }
+        out
+    }
+
+    /// The legend's head and a map's head of its `[[put]]`s as the engine
+    /// wrote them before.
+    pub(super) const OLD_LEGEND_HEAD: &str = "[legend]              # a sign is a block as it lies: its name, or the name and a turn (0 to 47)";
+    pub(super) const OLD_PUT_HEAD: &str = "# What stands on the map, in order: a prefab (turn: quarter turns\n# anticlockwise) or a thing of a kind; at x, y on the ground, or x, y, z.";
+
+    /// What a `.toml` of the game is by its format line: a level, a map or
+    /// neither.
+    fn format_of(text: &str) -> Option<&'static str> {
+        let first = text.lines().map(str::trim).find(|l| !l.is_empty() && !l.starts_with('#'))?;
+        if first.starts_with(&format!("format = \"{}\"", crate::grid::FORMAT)) {
+            Some("level")
+        } else if first.starts_with(&format!("format = \"{}\"", crate::map::FORMAT)) {
+            Some("map")
+        } else {
+            None
+        }
+    }
+
+    /// A level's or a map's text with the new words, and what changed.
+    fn text_file(file: &Path, src: &str) -> Result<Option<Change>> {
+        let Some(sort) = format_of(src) else { return Ok(None) };
+        let doc = Document::parse(src).map_err(|e| anyhow::anyhow!("{}: {}", named(file), e.message()))?;
+        let top = doc.as_table();
+        let mut edits: Vec<(Range<usize>, String)> = Vec::new();
+        let mut said = Vec::new();
+        let key_span = |t: &dyn toml_edit::TableLike, key: &str| -> Option<(Range<usize>, Range<usize>)> {
+            let (k, v) = t.get_key_value(key)?;
+            Some((k.span()?, v.span()?))
+        };
+        let plural = |n: usize| if n == 1 { "" } else { "s" };
+        if sort == "level" {
+            let mut legend = 0;
+            if let Some(entries) = top.get("legend").and_then(Item::as_table_like) {
+                for (_, entry) in entries.iter() {
+                    if let Some(t) = entry.as_table_like()
+                        && let Some((k, _)) = key_span(t, "turn")
+                    {
+                        edits.push((k, "orientation".into()));
+                        legend += 1;
+                    }
+                }
+            }
+            let mut things = 0;
+            if let Some(tables) = top.get("thing").and_then(crate::vvx::tables) {
+                for t in tables {
+                    if let Some((k, _)) = key_span(t, "turn") {
+                        edits.push((k, "rotation".into()));
+                        things += 1;
+                    }
+                }
+            }
+            if legend > 0 {
+                said.push(format!("{}: the legend's turn becomes orientation ({legend} sign{})", named(file), plural(legend)));
+            }
+            if things > 0 {
+                said.push(format!("{}: a thing's turn becomes rotation, the same degrees ({things} thing{})", named(file), plural(things)));
+            }
+            if let Some(at) = src.find(OLD_LEGEND_HEAD) {
+                edits.push((at..at + OLD_LEGEND_HEAD.len(), crate::grid::LEGEND_HEAD.into()));
+            }
+        } else {
+            let mut puts = 0;
+            if let Some(tables) = top.get("put").and_then(crate::vvx::tables) {
+                for t in tables {
+                    let Some((k, v)) = key_span(t, "turn") else { continue };
+                    let Some(quarters) = t.get("turn").and_then(Item::as_integer) else {
+                        bail!("{}:{}: turn must be a whole number of quarter turns", named(file), line_at(src, k.start));
+                    };
+                    let rotation = crate::map::Put::rotation_of(quarters as i32);
+                    // A turn that comes round to none: its line goes.
+                    if rotation == 0 {
+                        let begin = src[..k.start].rfind('\n').map_or(0, |i| i + 1);
+                        let end = src[v.end..].find('\n').map_or(src.len(), |i| v.end + i + 1);
+                        edits.push((begin..end, String::new()));
+                    } else {
+                        edits.push((k.start..v.end, format!("rotation = {rotation}")));
+                    }
+                    puts += 1;
+                }
+            }
+            if puts > 0 {
+                said.push(format!("{}: a [[put]]'s turn (quarter turns anticlockwise) becomes rotation in degrees clockwise: turn = 1 is rotation = 270, 2 is 180, 3 is 90 ({puts} put{})", named(file), plural(puts)));
+            }
+            if let Some(at) = src.find(OLD_PUT_HEAD) {
+                edits.push((at..at + OLD_PUT_HEAD.len(), crate::map::PUT_HEAD.into()));
+            }
+        }
+        if edits.is_empty() {
+            return Ok(None);
+        }
+        let after = edited(src, edits);
+        // Read back: the new text is a level or a map again.
+        let back = if sort == "level" { crate::grid::GridLevel::from_text(&after).map(|_| ()) } else { crate::map::MapData::read(&after).map(|_| ()) };
+        back.with_context(|| format!("{} with the new words does not read", named(file)))?;
+        if said.is_empty() {
+            said.push(format!("{}: its comment names the new words", named(file)));
+        }
+        Ok(Some(Change { file: file.to_path_buf(), before: src.to_string(), after, said }))
+    }
+
+    /// A level's or a map's text with the words of now.
+    pub fn now(file: &Path, src: &str) -> Result<String> {
+        Ok(text_file(file, src)?.map_or_else(|| src.to_string(), |c| c.after))
+    }
+
+    /// A token of Lua that counts (no comment): its text and place, and
+    /// whether the bracket it stands in is a table's (`{`).
+    struct Tok<'a> {
+        text: &'a str,
+        kind: Kind,
+        range: Range<usize>,
+        in_table: bool,
+    }
+
+    fn tokens(src: &str) -> Vec<Tok<'_>> {
+        let mut open: Vec<&str> = Vec::new();
+        let mut out = Vec::new();
+        // Brackets, and the blocks of code (a function in a table is code).
+        for s in lex::spans(src).into_iter().filter(|s| s.kind != Kind::Comment) {
+            let text = &src[s.range.clone()];
+            let closes = match s.kind {
+                Kind::Symbol => matches!(text, "}" | ")" | "]"),
+                Kind::Keyword => matches!(text, "end" | "until"),
+                _ => false,
+            };
+            if closes {
+                open.pop();
+            }
+            out.push(Tok { text, kind: s.kind, range: s.range, in_table: open.last() == Some(&"{") });
+            let opens = match s.kind {
+                Kind::Symbol => matches!(text, "{" | "(" | "["),
+                Kind::Keyword => matches!(text, "function" | "do" | "if" | "repeat"),
+                _ => false,
+            };
+            if opens {
+                open.push(text);
+            }
+        }
+        out
+    }
+
+    /// Whether token `i` is a key in a table constructor (`{ key = ...`),
+    /// not a name of a list of names (`local a, b = ...`).
+    fn is_key(toks: &[Tok], i: usize) -> bool {
+        toks[i].in_table && toks.get(i + 1).is_some_and(|t| t.text == "=") && i > 0 && matches!(toks[i - 1].text, "{" | "," | ";")
+    }
+
+    /// The names of a chain ending at token `i` (`c.things.slime`), first
+    /// to last.
+    fn chain<'a>(toks: &[Tok<'a>], i: usize) -> Vec<&'a str> {
+        let mut out = vec![toks[i].text];
+        let mut j = i;
+        while j >= 2 && toks[j - 1].text == "." && toks[j - 2].kind == Kind::Name {
+            j -= 2;
+            out.insert(0, toks[j].text);
+        }
+        out
+    }
+
+    /// Where each name of `conf.lua` that is a key or a field lies among
+    /// the settings: its path from `c` (`things`, `slime`, `behaviour`;
+    /// `[]` an element of a list, `?` a table the path is not known of).
+    fn paths<'a>(toks: &[Tok<'a>]) -> Vec<(usize, Vec<&'a str>)> {
+        let mut stack: Vec<Vec<&'a str>> = Vec::new();
+        let mut out = Vec::new();
+        // The settings' path a chain names (its first name `c`, or a local).
+        let from_c = |names: Vec<&'a str>| -> Vec<&'a str> { if names.len() > 1 { names[1..].to_vec() } else { vec!["?"] } };
+        for i in 0..toks.len() {
+            match toks[i].text {
+                "{" => {
+                    let path = if i >= 2 && toks[i - 1].text == "=" && toks[i - 2].kind == Kind::Name {
+                        if is_key(toks, i - 2) {
+                            let mut p = stack.last().cloned().unwrap_or_else(|| vec!["?"]);
+                            p.push(toks[i - 2].text);
+                            p
+                        } else {
+                            from_c(chain(toks, i - 2))
+                        }
+                    } else if i >= 1 && matches!(toks[i - 1].text, "{" | "," | ";") && !stack.is_empty() {
+                        let mut p = stack.last().cloned().unwrap_or_default();
+                        p.push("[]");
+                        p
+                    } else {
+                        vec!["?"]
+                    };
+                    stack.push(path);
+                }
+                "}" => {
+                    stack.pop();
+                }
+                _ if toks[i].kind == Kind::Name => {
+                    if is_key(toks, i) && !stack.is_empty() {
+                        let mut p = stack.last().cloned().unwrap_or_default();
+                        p.push(toks[i].text);
+                        out.push((i, p));
+                    } else if i >= 1 && toks[i - 1].text == "." {
+                        out.push((i, from_c(chain(toks, i))));
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// Whether a path is `pattern`'s (`*` any one name).
+    fn matches(path: &[&str], pattern: &[&str]) -> bool {
+        path.len() == pattern.len() && path.iter().zip(pattern).all(|(p, q)| *q == "*" || p == q)
+    }
+
+    /// The edits to a Lua file, and the names left that the step cannot
+    /// place (their byte, what to write).
+    type Edits = (Vec<(Range<usize>, String)>, Vec<(usize, String)>);
+
+    const PROP_TURN: &str = "a title prop's turn (quarter turns anticlockwise) is rotation, degrees clockwise: turn = 1 is rotation = 270";
+
+    /// `conf.lua` with the new words.
+    pub(super) fn conf_edits(src: &str) -> Edits {
+        let toks = tokens(src);
+        let (mut edits, mut left) = (Vec::new(), Vec::new());
+        for (i, path) in paths(&toks) {
+            match toks[i].text {
+                // The word is the setting's wherever it stands.
+                "behaviour" => edits.push((toks[i].range.clone(), "behavior".to_string())),
+                "turns" if matches(&path, &["camera", "turns"]) || matches(&path, &["things", "*", "turns"]) => edits.push((toks[i].range.clone(), "rotates".to_string())),
+                "turns" => left.push((toks[i].range.start, "turns: if it is a kind's or the camera's, write rotates".to_string())),
+                "turn" if matches(&path, &["title_screen", "props", "[]", "turn"]) => {
+                    // turn = N (a whole number, minus perhaps): rotation in degrees.
+                    let (eq, mut v) = (i + 1, i + 2);
+                    let minus = toks.get(v).is_some_and(|t| t.text == "-");
+                    if minus {
+                        v += 1;
+                    }
+                    let number = toks.get(v).filter(|t| t.kind == Kind::Number).and_then(|t| t.text.parse::<i32>().ok());
+                    match (toks.get(eq).map(|t| t.text), number) {
+                        (Some("="), Some(q)) => {
+                            let rotation = crate::map::Put::rotation_of(if minus { -q } else { q });
+                            edits.push((toks[i].range.start..toks[v].range.end, format!("rotation = {rotation}")));
+                        }
+                        _ => left.push((toks[i].range.start, PROP_TURN.to_string())),
+                    }
+                }
+                // A turn the step cannot place (props[2].turn): perhaps a prop's.
+                "turn" if path.contains(&"?") => left.push((toks[i].range.start, format!("if it is a title prop's turn: {PROP_TURN}"))),
+                _ => {}
+            }
+        }
+        // Its comments speak of the key as it is called now.
+        for s in lex::spans(src).into_iter().filter(|s| s.kind == Kind::Comment) {
+            let text = &src[s.range.clone()];
+            let new = text.replace("behaviour", "behavior").replace("Behaviour", "Behavior");
+            if new != text {
+                edits.push((s.range, new));
+            }
+        }
+        (edits, left)
+    }
+
+    /// Another Lua file of the game with the new words: the `turn` keys of
+    /// the tables written into a `:model(...)` call; the `turn` keys of
+    /// other tables are left.
+    fn lua_edits(src: &str) -> Edits {
+        let toks = tokens(src);
+        let mut inside = vec![false; toks.len()];
+        for i in 0..toks.len() {
+            if toks[i].text == "model" && i >= 1 && toks[i - 1].text == ":" && toks.get(i + 1).is_some_and(|t| t.text == "(") {
+                let mut depth = 0;
+                for (j, t) in toks.iter().enumerate().skip(i + 1) {
+                    match t.text {
+                        "(" => depth += 1,
+                        ")" => depth -= 1,
+                        _ => {}
+                    }
+                    inside[j] = true;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+            }
+        }
+        let (mut edits, mut left) = (Vec::new(), Vec::new());
+        for i in 0..toks.len() {
+            if toks[i].kind == Kind::Name && toks[i].text == "turn" && is_key(&toks, i) {
+                if inside[i] {
+                    edits.push((toks[i].range.clone(), "rotation".to_string()));
+                } else {
+                    left.push((toks[i].range.start, "if this table goes to frame:model (a rotation, or a part's in a pose), its turn is rotation now".to_string()));
+                }
+            }
+        }
+        (edits, left)
+    }
+
+    /// Every change the step would make to the game in `dir`, and the lines
+    /// it leaves to the author.
+    fn changes(dir: &Path) -> Result<(Vec<Change>, Vec<String>)> {
+        let mut out = Vec::new();
+        let mut left = Vec::new();
+        for p in files_ending(dir, "toml") {
+            let src = std::fs::read_to_string(dir.join(&p)).unwrap_or_default();
+            out.extend(text_file(&p, &src)?);
+        }
+        for p in files_ending(dir, "lua") {
+            let Ok(src) = std::fs::read_to_string(dir.join(&p)) else { continue };
+            let (edits, rest) = if p == Path::new("conf.lua") { conf_edits(&src) } else { lua_edits(&src) };
+            for (at, what) in rest {
+                left.push(format!("{}:{} is left as it is: {what}", named(&p), line_at(&src, at)));
+            }
+            if edits.is_empty() {
+                continue;
+            }
+            let after = edited(&src, edits);
+            let (old, new): (Vec<&str>, Vec<&str>) = (src.lines().collect(), after.lines().collect());
+            let said = old.iter().zip(&new).enumerate().filter(|(_, (a, b))| a != b).map(|(n, (_, b))| format!("{}:{} becomes: {}", named(&p), n + 1, b.trim())).collect();
+            out.push(Change { file: p, before: src, after, said });
+        }
+        Ok((out, left))
+    }
+
+    pub fn left(dir: &Path) -> bool {
+        changes(dir).is_ok_and(|(c, _)| !c.is_empty())
+    }
+
+    pub fn plan(dir: &Path) -> Result<Vec<String>> {
+        let (changes, left) = changes(dir)?;
+        Ok(changes.into_iter().flat_map(|c| c.said).chain(left).collect())
+    }
+
+    pub fn apply(dir: &Path) -> Result<Vec<String>> {
+        let (changes, left) = changes(dir)?;
+        let mut out = Vec::new();
+        for c in changes {
+            let path = dir.join(&c.file);
+            if std::fs::read_to_string(&path)? != c.before {
+                bail!("{} changed while the upgrade read it; nothing written to it", named(&c.file));
+            }
+            crate::blocks::save_at_once(&path, c.after.as_bytes())?;
+            out.extend(c.said.into_iter().map(|l| l.replacen(" becomes: ", " now: ", 1).replacen(" becomes ", " became ", 1)));
+        }
+        out.extend(left);
         Ok(out)
     }
 }
@@ -1288,7 +1695,8 @@ mod tests {
         std::fs::write(dir.join("sounds/scream.wav"), b"RIFF").unwrap();
         let Standing::Older { made: None, steps } = standing(&dir).unwrap() else { panic!("not older") };
         assert_eq!(steps.len(), STEPS.len());
-        assert!(steps[1].would.iter().any(|l| l.starts_with("sounds/scream.wav is a recording") && l.contains("sounds/scream.toml")), "{:?}", steps[1].would);
+        let sounds = steps.iter().find(|s| s.name == "no recorded sounds").unwrap();
+        assert!(sounds.would.iter().any(|l| l.starts_with("sounds/scream.wav is a recording") && l.contains("sounds/scream.toml")), "{:?}", sounds.would);
         let dry = upgrade(&dir, true).unwrap().join("\n");
         assert!(dry.contains("robot.vox becomes robot.vvx (a figure of 2 parts)") && dry.contains("world.vox is a world or a map's prefab") && dry.contains("world.vox becomes world.vvx (a world, 8 by 8 by 4 voxels") && dry.contains("would say c.voxcade"), "{dry}");
         assert!(dir.join("robot.vox").is_file() && std::fs::read_to_string(dir.join("conf.lua")).unwrap() == conf, "a dry run changes nothing");
@@ -1302,6 +1710,129 @@ mod tests {
         opens(&dir).unwrap();
         assert!(upgrade(&dir, false).unwrap().join("\n").contains("nothing to do"));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A game with every word Voxcade said before it took other tools'
+    /// (`turn`, `turns`, `behaviour`) in its levels, its map, `conf.lua` and
+    /// its Lua.
+    fn game_of_old_words(dir: &Path, version_line: &str) {
+        std::fs::create_dir_all(dir.join("levels")).unwrap();
+        std::fs::create_dir_all(dir.join("blocks")).unwrap();
+        std::fs::create_dir_all(dir.join("ground")).unwrap();
+        let conf = format!(
+            "-- A kind's behaviour moves it.\nfunction conf(c)\n{version_line}  c.kit = \"platformer\"\n  c.camera.turns = \"free\"\n  c.things.gem = {{ behaviour = \"pickup\", model = \"gem.vvx\", turns = \"free\" }}\n  c.things.bat = {{ model = \"gem.vvx\" }}\n  c.things.bat.behaviour = \"flyer\"\n  c.things.bat.frames = {{ turn = {{ 0, 0 }} }}\n  c.title_screen.props = {{\n    {{ model = \"gem.vvx\", at = {{ 10, 10 }}, turn = 1 }},\n    {{ model = \"gem.vvx\", at = {{ 20, 10 }} }},\n  }}\n  c.world.blocks = {{ file = \"levels/01.toml\" }}\nend\n"
+        );
+        std::fs::write(dir.join("conf.lua"), conf).unwrap();
+        let main = "local SPIN = { turn = 3 }   -- the game's own\n\nfunction on_draw(frame)\n  local a, turn = 1, 2\n  frame:model(\"gem.vvx\", player, 0, { turn = 45, pitch = 10 }, { head = { turn = 30 } })\nend\n";
+        std::fs::write(dir.join("main.lua"), main).unwrap();
+        std::fs::write(dir.join("gem.vvx"), "format = \"voxcade voxel 1\"\nsize = [1, 1, 1]\n\n[palette]\na = \"#ff0000\"\n\n[[frame]]\nlayers = \"\"\"\na\n\"\"\"\n").unwrap();
+        let mut lv = crate::grid::GridLevel::new(2, glam::IVec3::new(3, 1, 2));
+        lv.blocks.push(crate::grid::BlockEntry { name: "rock".into(), kind: crate::grid::Kind::Solid });
+        lv.cells[1] = crate::grid::Cell { block: 1, turn: crate::blocks::Turn::MIRROR };
+        let mut chair = crate::grid::Thing::new("gem", [1, 1, 2]);
+        chair.facing = Some(crate::grid::Facing::Turn(30.0));
+        lv.things.push(chair);
+        // Written as the engine wrote it before.
+        let text = crate::grid::text::write(&lv, &crate::grid::Legend::default())
+            .replace(crate::grid::LEGEND_HEAD, words::OLD_LEGEND_HEAD)
+            .replace("orientation = ", "turn = ")
+            .replace("rotation = 30", "turn = 30    # askew");
+        assert!(text.contains("turn = 30    # askew") && text.contains(", turn = "), "{text}");
+        std::fs::write(dir.join("levels/01.toml"), text).unwrap();
+        crate::headless::write_png(&dir.join("ground/height.png"), 16, 16, &[3, 3, 3, 255].repeat(256)).unwrap();
+        let mut post = crate::scene::Scene::new(glam::IVec3::new(3, 2, 1));
+        post.colours = vec![[200, 10, 10], [10, 200, 10]];
+        post.cells = vec![1, 1, 2, 0, 0, 1];
+        std::fs::write(dir.join("post.vvx"), post.write()).unwrap();
+        let mut map = format!("format = \"{}\"\nsize = [16, 16, 8]\n\n[ground]\nheight = \"ground/height.png\"\n\n[[ground.materials]]\nsurface = [\"#00ff00\"]\n\n[prefabs]\npost = \"post.vvx\"\n\n{}\n", crate::map::FORMAT, words::OLD_PUT_HEAD);
+        for (q, at) in [(0, [3, 3]), (1, [8, 3]), (2, [3, 8]), (3, [8, 8]), (5, [12, 12])] {
+            map += &format!("[[put]]\nprefab = \"post\"\nat = [{}, {}]\n{}\n", at[0], at[1], if q == 0 { String::new() } else { format!("turn = {q}\n") });
+        }
+        std::fs::write(dir.join("map.toml"), map).unwrap();
+    }
+
+    /// What an old map's prefab put on the ground: each voxel turned by
+    /// `turn` quarter turns anticlockwise about its pivot, as the engine did
+    /// before (`map::turn`, written out again here).
+    fn old_post_cells(at: [i32; 2], quarters: i32) -> Vec<glam::IVec3> {
+        let pivot = glam::IVec3::new(1, 1, 0);
+        let cells = [(0, 0), (1, 0), (2, 0), (2, 1)].map(|(x, y)| glam::IVec3::new(x, y, 0) - pivot);
+        cells
+            .iter()
+            .map(|&l| {
+                let t = match quarters.rem_euclid(4) {
+                    0 => l,
+                    1 => glam::IVec3::new(-l.y, l.x, l.z),
+                    2 => glam::IVec3::new(-l.x, -l.y, l.z),
+                    _ => glam::IVec3::new(l.y, -l.x, l.z),
+                };
+                glam::IVec3::new(at[0], at[1], 3) + t
+            })
+            .collect()
+    }
+
+    /// An older game's words are Voxcade's of now: a level's thing turn its
+    /// rotation, the legend's turn an orientation, a map's quarter turns
+    /// degrees clockwise building the same world, conf.lua's behaviour,
+    /// turns and a title prop's turn, frame:model's turn in the call;
+    /// comments kept; a dry run changes nothing; a second run nothing more.
+    /// A game made before 0.6.0 and one stating 0.6.0 alike.
+    #[test]
+    fn the_old_words_become_other_tools_words() {
+        for (name, line) in [("words-0.5", "  -- made before 0.6.0\n"), ("words-0.6", "  c.voxcade = \"0.6.0\"\n")] {
+            let dir = crate::scratch::Scratch::new(name);
+            game_of_old_words(&dir, line);
+            let Standing::Older { steps, .. } = standing(&dir).unwrap() else { panic!("{name}: not older") };
+            let words = steps.iter().find(|s| s.name == "rotation and behavior").expect("the step");
+            let would = words.would.join("\n");
+            for says in [
+                "levels/01.toml: the legend's turn becomes orientation (1 sign)",
+                "levels/01.toml: a thing's turn becomes rotation, the same degrees (1 thing)",
+                "map.toml: a [[put]]'s turn (quarter turns anticlockwise) becomes rotation in degrees clockwise: turn = 1 is rotation = 270, 2 is 180, 3 is 90 (4 puts)",
+                "conf.lua:1 becomes: -- A kind's behavior moves it.",
+                "conf.lua:5 becomes: c.camera.rotates = \"free\"",
+                "conf.lua:6 becomes: c.things.gem = { behavior = \"pickup\", model = \"gem.vvx\", rotates = \"free\" }",
+                "conf.lua:8 becomes: c.things.bat.behavior = \"flyer\"",
+                "conf.lua:11 becomes: { model = \"gem.vvx\", at = { 10, 10 }, rotation = 270 },",
+                "main.lua:5 becomes: frame:model(\"gem.vvx\", player, 0, { rotation = 45, pitch = 10 }, { head = { rotation = 30 } })",
+                "main.lua:1 is left as it is: if this table goes to frame:model",
+            ] {
+                assert!(would.contains(says), "{name}: {says}\n{would}");
+            }
+            assert!(!would.contains("conf.lua:9") && !would.contains("main.lua:4"), "a frame set called turn and a local are the game's: {would}");
+            let before: Vec<_> = ["conf.lua", "main.lua", "map.toml", "levels/01.toml"].iter().map(|f| std::fs::read_to_string(dir.join(f)).unwrap()).collect();
+            let dry = upgrade(&dir, true).unwrap().join("\n");
+            assert!(dry.contains("rotation and behavior (Voxcade 0.6.0):") && dry.contains("conf.lua:5 becomes"), "{dry}");
+            let after: Vec<_> = ["conf.lua", "main.lua", "map.toml", "levels/01.toml"].iter().map(|f| std::fs::read_to_string(dir.join(f)).unwrap()).collect();
+            assert_eq!(before, after, "a dry run changes nothing");
+
+            let done = upgrade(&dir, false).unwrap().join("\n");
+            assert!(done.contains("conf.lua:5 now: c.camera.rotates = \"free\"") && done.contains("levels/01.toml: the legend's turn became orientation"), "{done}");
+            let conf = std::fs::read_to_string(dir.join("conf.lua")).unwrap();
+            assert!(conf.contains("-- A kind's behavior moves it.") && conf.contains("c.things.bat.frames = { turn = { 0, 0 } }"), "{conf}");
+            let level = std::fs::read_to_string(dir.join("levels/01.toml")).unwrap();
+            assert!(level.contains(crate::grid::LEGEND_HEAD) && level.contains("rotation = 30    # askew") && level.contains(", orientation = ") && !level.contains("turn"), "{level}");
+            let map = std::fs::read_to_string(dir.join("map.toml")).unwrap();
+            assert!(map.contains(crate::map::PUT_HEAD) && map.contains("rotation = 270\n") && map.contains("rotation = 180\n") && map.contains("rotation = 90\n") && !map.contains("turn ="), "{map}");
+            // The map builds the world the old one did, voxel for voxel.
+            let (world, _, _) = crate::map::load_map(&dir.join("map.toml"), &[]).unwrap();
+            for (q, at) in [(0, [3, 3]), (1, [8, 3]), (2, [3, 8]), (3, [8, 8]), (5, [12, 12])] {
+                let cells = old_post_cells(at, q);
+                assert!(cells.iter().all(|&c| world.get(c) != 0), "turn = {q}: the post where it stood");
+                assert_eq!(world.palette[world.get(cells[2]) as usize], [10, 200, 10, 255], "turn = {q}: its green end where it was");
+            }
+            let mut cfg = crate::config::GameConfig::default();
+            crate::lua::conf::run(&crate::files::Files::folder(&dir), &mut cfg).unwrap();
+            assert_eq!((cfg.camera.rotates, cfg.title_screen.props[0].rotation), (crate::config::Rotates::Free, 270));
+            assert_eq!(cfg.things["gem"]["behavior"].as_str(), Some("pickup"));
+            assert!(crate::grid::GridLevel::read(&dir.join("levels/01.toml")).unwrap().things[0].facing == Some(crate::grid::Facing::Turn(30.0)));
+            let again = upgrade(&dir, false).unwrap().join("\n");
+            assert!(again.contains("nothing to do"), "{name}: {again}");
+            opens(&dir).unwrap();
+        }
+        // What the step cannot place is said with its line, and left.
+        let (edits, left) = words::conf_edits("function conf(c)\n  c.title_screen.props[2].turn = 2\n  local kind = { turns = \"free\" }\nend\n");
+        assert!(edits.is_empty() && left.len() == 2, "{left:?}");
     }
 
     /// A one-model `.vox`: voxels as x, y, z, colour index; colours for

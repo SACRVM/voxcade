@@ -1,7 +1,7 @@
 //! Levels built of voxel blocks in a 3D grid (`docs/tiles.md`). A level
 //! file (`levels/NAME.toml`, text: `text`) names its blocks
 //! (`blocks/NAME.vvx`) and what each is to the game, holds a block and its
-//! turn for every cell, and the things placed freely, in voxels. Loading stamps the blocks into the world's
+//! orientation for every cell, and the things placed freely, in voxels. Loading stamps the blocks into the world's
 //! voxels, so destruction, physics and meshing go on as ever; the cells'
 //! kinds stay for the game's rules (`CellKinds`: ladders, hazards).
 //!
@@ -192,8 +192,8 @@ impl Way {
 }
 
 /// Which way a piece faces: one of the four ways, or a bearing in degrees
-/// (`turn`, clockwise seen from above, north 0) where the game turns things
-/// freely (`c.camera.turns = "free"`).
+/// (`rotation`, clockwise seen from above, north 0) where the game
+/// rotates things freely (`c.camera.rotates = "free"`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Facing {
     Way(Way),
@@ -325,7 +325,7 @@ impl Thing {
         self.kind == PIECE
     }
 
-    /// Whether it is turned off the quarter turns, round (`turn = 30`) or
+    /// Whether it is turned off the quarter turns, round (`rotation = 30`) or
     /// tipped (`pitch`, `roll`): what a game on the grid cannot show so.
     pub fn off_grid(&self) -> bool {
         self.facing.is_some_and(Facing::off_grid) || self.pitch.rem_euclid(90.0) != 0.0 || self.roll.rem_euclid(90.0) != 0.0
@@ -425,10 +425,10 @@ impl GridLevel {
         if self.has_grid() { self.size * self.n } else { self.size }
     }
 
-    /// The things turned off the quarter turns (`turn = 30`): what a game
+    /// The things turned off the quarter turns (`rotation = 30`): what a game
     /// on the grid cannot show so, each as a mistake names it.
     pub fn off_grid(&self) -> Vec<&Thing> {
-        // (A thing of a kind turns as its kind does: freely with `turns =
+        // (A thing of a kind turns as its kind does: freely with `rotates =
         // "free"`, else to the nearest of the four ways.)
         self.things.iter().filter(|t| t.is_piece() && t.off_grid()).collect()
     }
@@ -489,6 +489,9 @@ impl GridLevel {
 pub const EXTENSION: &str = "toml";
 /// The format and the version this engine reads and writes.
 pub const FORMAT: &str = "voxcade level 1";
+
+/// The line that heads a level's `[legend]` as the engine writes it.
+pub const LEGEND_HEAD: &str = "[legend]              # a sign is a block as it lies: its name, or the name and an orientation (0 to 47)";
 const FORMAT_NAME: &str = "voxcade level";
 const VERSION: u32 = 1;
 
@@ -520,7 +523,7 @@ impl View {
 }
 
 /// What a level's file says besides the level: which way its layers read
-/// and its signs, each a block's name and turn. Kept when the editor
+/// and its signs, each a block's name and orientation. Kept when the editor
 /// writes the level again, so a changed cell is a changed character.
 #[derive(Clone, Debug, Default)]
 pub struct Legend {
@@ -552,10 +555,10 @@ impl Legend {
 /// wall = "decor"
 /// stone = "solid"
 ///
-/// [legend]              # a sign is a block as it lies: its name, or with a turn (0 to 47)
+/// [legend]              # a sign is a block as it lies: its name, or the name and an orientation (0 to 47)
 /// w = "wall"
 /// s = "stone"
-/// S = { block = "stone", turn = 17 }
+/// S = { block = "stone", orientation = 17 }
 ///
 /// [cells]
 /// layers = """
@@ -572,7 +575,7 @@ impl Legend {
 /// name = "lamp"         # its name in the level (level:thing("lamp")); else its kind's and a number
 /// model = "room/lamp.vvx"
 /// at = [212, 40, 0]
-/// facing = "west"       # north, east, south (the default) or west; or turn = 30 where c.camera.turns = "free"
+/// facing = "west"       # north, east, south (the default) or west; or rotation = 30 where c.camera.rotates = "free"
 /// light = { at = [3, 3, 41], radius = 60, color = "#ffd9a0" }   # at: from the pivot in the model's voxels
 ///
 /// [[thing]]             # a piece with two lights that holds bodies up and stops them
@@ -630,8 +633,8 @@ impl Legend {
 /// is put, anywhere, on a wall or in the air; its `at` is where the
 /// model's pivot stands (the cell `size / 2` across and deep on its floor,
 /// `vvx::pivot`), as every thing's, so `thing.x` is `at`'s x and a half
-/// (the middle of that cell) with the grid's low corner added. `turn` is a
-/// bearing, degrees clockwise seen from above: 0 faces north (a model's
+/// (the middle of that cell) with the grid's low corner added. `rotation`
+/// is a bearing, degrees clockwise seen from above: 0 faces north (a model's
 /// own forward, away from the camera), 90 east, 180 south, 270 west. Names
 /// are one thing's and one area's; every mistake says its line.
 pub mod text {
@@ -698,11 +701,11 @@ pub mod text {
         for b in &level.blocks {
             out += &format!("{} = \"{}\"\n", key(&b.name), b.kind.name());
         }
-        out += "\n[legend]              # a sign is a block as it lies: its name, or the name and a turn (0 to 47)\n";
+        out += &format!("\n{LEGEND_HEAD}\n");
         for (c, sign) in &legend {
             match c.turn.number() {
                 0 => out += &format!("{sign} = {}\n", vvx::quoted(&name(c))),
-                t => out += &format!("{sign} = {{ block = {}, turn = {t} }}\n", vvx::quoted(&name(c))),
+                t => out += &format!("{sign} = {{ block = {}, orientation = {t} }}\n", vvx::quoted(&name(c))),
             }
         }
         let dots = ".".repeat(width);
@@ -755,7 +758,7 @@ pub mod text {
     fn facing_text(f: Facing) -> (&'static str, String) {
         match f {
             Facing::Way(w) => ("facing", format!("\"{}\"", w.name())),
-            Facing::Turn(turn) => ("turn", format!("{turn}")),
+            Facing::Turn(turn) => ("rotation", format!("{turn}")),
         }
     }
 
@@ -1164,7 +1167,7 @@ pub mod text {
                     if ka == kb {
                         field(src, s, kb, Some(vb), None, &mut mine)?;
                     } else {
-                        // facing = "east" for turn = 30, or the other way.
+                        // facing = "east" for rotation = 30, or the other way.
                         let (k, v) = spans(s.table, ka)?;
                         mine.push((k.start..v.end, format!("{kb} = {vb}")));
                     }
@@ -1179,16 +1182,16 @@ pub mod text {
         }
         // Tipped further: its line after the way it faces, removed at 0.
         if was.pitch != now.pitch {
-            let after = ["turn", "facing", "at"].into_iter().find(|k| s.table.contains_key(k));
+            let after = ["rotation", "facing", "at"].into_iter().find(|k| s.table.contains_key(k));
             field(src, s, "pitch", (now.pitch != 0.0).then(|| number(now.pitch)), after, &mut mine)?;
         }
         if was.roll != now.roll {
             // (A pitch line new too goes in at the same place, before it.)
-            let after = ["pitch", "turn", "facing", "at"].into_iter().find(|k| s.table.contains_key(k));
+            let after = ["pitch", "rotation", "facing", "at"].into_iter().find(|k| s.table.contains_key(k));
             field(src, s, "roll", (now.roll != 0.0).then(|| number(now.roll)), after, &mut mine)?;
         }
         if was.solid != now.solid {
-            let after = ["roll", "pitch", "turn", "facing", "at"].into_iter().find(|k| s.table.contains_key(k));
+            let after = ["roll", "pitch", "rotation", "facing", "at"].into_iter().find(|k| s.table.contains_key(k));
             field(src, s, "solid", now.solid.then(|| "true".to_string()), after, &mut mine)?;
         }
         if was.lights != now.lights {
@@ -1249,7 +1252,7 @@ pub mod text {
     }
 
     /// The level's text with every thing turned off the quarter turns
-    /// (`turn = 30`) facing its nearest way instead (`facing = "north"`; a
+    /// (`rotation = 30`) facing its nearest way instead (`facing = "north"`; a
     /// turn right between two goes clockwise: `Way::nearest`), the rest of
     /// the file as it was, to the character: what a game on the grid shows.
     pub fn align(src: &str) -> Result<String> {
@@ -1260,7 +1263,7 @@ pub mod text {
         {
             let degrees = |value: &Item| value.as_float().or_else(|| value.as_integer().map(|i| i as f64));
             for t in tables {
-                if let Some((key, value)) = t.get_key_value("turn")
+                if let Some((key, value)) = t.get_key_value("rotation")
                     && let Some(turn) = degrees(value)
                     && Facing::Turn(turn).off_grid()
                     && let (Some(k), Some(v)) = (key.span(), value.span())
@@ -1412,21 +1415,22 @@ pub mod text {
                 let (block, turn) = match (entry.as_str(), entry.as_table_like()) {
                     (Some(name), _) => (name.to_string(), 0),
                     (None, Some(t)) => {
-                        r.only(t, &["block", "turn"], &format!("the legend's '{sign}'"))?;
+                        r.renamed(t, &[("turn", "orientation")], &format!("the legend's '{sign}'"))?;
+                        r.only(t, &["block", "orientation"], &format!("the legend's '{sign}'"))?;
                         let name = t.get("block").and_then(Item::as_str).ok_or_else(|| r.fail(entry.span(), format!("the legend's '{sign}' needs block = \"name\"")))?;
-                        let turn = match t.get("turn") {
+                        let turn = match t.get("orientation") {
                             None => 0,
                             Some(i) => {
-                                let v = r.number(i, "turn")?;
+                                let v = r.number(i, "orientation")?;
                                 if v.fract() != 0.0 || !(0.0..Turn::COUNT as f32).contains(&v) {
-                                    return Err(r.fail(i.span(), format!("turn must be a whole number from 0 to {}", Turn::COUNT - 1)));
+                                    return Err(r.fail(i.span(), format!("orientation must be a whole number from 0 to {}", Turn::COUNT - 1)));
                                 }
                                 v as u8
                             }
                         };
                         (name.to_string(), turn)
                     }
-                    _ => return Err(r.fail(entry.span(), format!("the legend's '{sign}' must be a block's name, or {{ block = \"name\", turn = 1 }}"))),
+                    _ => return Err(r.fail(entry.span(), format!("the legend's '{sign}' must be a block's name, or {{ block = \"name\", orientation = 1 }}"))),
                 };
                 let number = level.blocks.iter().position(|b| b.name == block).ok_or_else(|| r.fail(entry.span(), format!("the legend's '{sign}': no block '{block}' in [blocks]")))?;
                 cells_of.push((sign.to_string(), Cell { block: number as u16 + 1, turn: Turn::from_number(turn).expect("checked") }));
@@ -1552,7 +1556,8 @@ pub mod text {
         };
         if let Some(item) = top.get("thing") {
             for t in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "things must be tables: [[thing]] with kind (or model) and at"))? {
-                r.only(t, &["name", "kind", "model", "at", "facing", "turn", "pitch", "roll", "solid", "light", "lights"], "a thing")?;
+                r.renamed(t, &[("turn", "rotation")], "a thing")?;
+                r.only(t, &["name", "kind", "model", "at", "facing", "rotation", "pitch", "roll", "solid", "light", "lights"], "a thing")?;
                 let line = line_of_table(r, t);
                 let here = |why: &str| if line > 0 { anyhow!("line {line}: {why}") } else { anyhow!("{why}") };
                 let name = text(t, "name", "a thing")?;
@@ -1582,15 +1587,15 @@ pub mod text {
                     None => false,
                     Some(item) => item.as_bool().ok_or_else(|| r.fail(item.span(), "solid must be true or false"))?,
                 };
-                let facing = match (t.get("facing"), t.get("turn")) {
-                    (Some(_), Some(turn)) => return Err(r.fail(turn.span(), "a thing faces a way (facing = \"south\") or turns (turn = 30), not both")),
+                let facing = match (t.get("facing"), t.get("rotation")) {
+                    (Some(_), Some(turn)) => return Err(r.fail(turn.span(), "a thing faces a way (facing = \"south\") or has a rotation (rotation = 30), not both")),
                     (Some(f), None) => match f.as_str().and_then(Way::of_name) {
                         Some(w) => Some(Facing::Way(w)),
-                        None => return Err(r.fail(f.span(), "facing must be \"north\", \"east\", \"south\" or \"west\" (or turn = degrees, where the game turns things freely)")),
+                        None => return Err(r.fail(f.span(), "facing must be \"north\", \"east\", \"south\" or \"west\" (or rotation = degrees, where the game rotates things freely)")),
                     },
                     (None, Some(turn)) => match turn.as_float().or_else(|| turn.as_integer().map(|i| i as f64)).filter(|v| v.is_finite() && v.abs() <= 1e6) {
                         Some(v) => Some(Facing::Turn(v)),
-                        None => return Err(r.fail(turn.span(), "turn must be degrees clockwise seen from above (north 0, east 90, south 180, west 270)")),
+                        None => return Err(r.fail(turn.span(), "rotation must be degrees clockwise seen from above (north 0, east 90, south 180, west 270)")),
                     },
                     (None, None) => None,
                 };
@@ -1688,7 +1693,7 @@ pub fn off_grid_mistake(off: &[&Thing]) -> String {
     let more = if off.len() > 5 { format!(" and {} more", off.len() - 5) } else { String::new() };
     let (which, are) = if off.len() == 1 { ("thing", "is") } else { ("things", "are") };
     format!(
-        "this game sets things on the grid, in quarter turns, but {} {which} of this level {are} turned off them: {}{more}. Allow free turns in conf.lua (c.camera.turns = \"free\"), or open the level in the editor to align them (each to its nearest way)",
+        "this game sets things on the grid, in quarter turns, but {} {which} of this level {are} turned off them: {}{more}. Allow free rotation in conf.lua (c.camera.rotates = \"free\"), or open the level in the editor to align them (each to its nearest way)",
         off.len(),
         shown.join(", ")
     )
@@ -1712,7 +1717,7 @@ pub fn off_grid_solid(t: &Thing) -> String {
 /// The level in the file at `path` (one of a game's `levels/`): its blocks
 /// in the world's voxels, its things as markers, its pieces, places and
 /// areas in the world's voxels. `free`: the game turns things freely
-/// (`c.camera.turns`); else a piece turned off the quarter turns is a
+/// (`c.camera.rotates`); else a piece turned off the quarter turns is a
 /// mistake. A piece's model missing is a mistake naming its line.
 pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], free: bool) -> Result<crate::levels::Made> {
     let dir = game.dir();
@@ -1988,7 +1993,7 @@ pub(crate) mod tests {
         // Taller than deep: seen from the front, the top row first; the
         // block's name gives its sign, a turned one the capital.
         assert!(text.contains("view = \"front\"") && text.contains("\n79 = \"solid\"") && text.contains("plank = \"oneway\""), "{text}");
-        assert!(text.contains("p = { block = \"plank\", turn = ") && text.contains("7 = \"79\""), "{text}");
+        assert!(text.contains("p = { block = \"plank\", orientation = ") && text.contains("7 = \"79\""), "{text}");
         assert!(text.contains("layers = \"\"\"\n.....\n.....\n77...\n\n....p\n.....\n.....\n\"\"\""), "{text}");
         assert!(text.contains("[[thing]]\nkind = \"fox\"\nat = [6, 2, 4]") && text.contains("facing = [0, -1]"), "{text}");
         // Mistakes say the line.
@@ -2042,7 +2047,7 @@ light = { radius = 120.5, color = "#a0b8ff" }
 name = "chair"
 model = "room/chair.vvx"
 at = [60, 150, 0]
-turn = 45
+rotation = 45
 
 [[thing]]
 kind = "walker"
@@ -2129,9 +2134,9 @@ size = [40, 30, 40]
         // Turned off the grid and back on: the key and the value.
         let mut now = was.clone();
         now.things[0].facing = Some(Facing::Turn(30.0));
-        check(&now, &["turn = 30"]);
+        check(&now, &["rotation = 30"]);
         now.things[3].facing = Some(Facing::Way(Way::West));
-        let out = check(&now, &["turn = 30", "facing = \"west\""]);
+        let out = check(&now, &["rotation = 30", "facing = \"west\""]);
         assert!(out.contains("# the lamp by the window\n[[thing]]"));
         // A name and a light given, a light's reach.
         let mut now = was.clone();
@@ -2327,7 +2332,8 @@ size = [40, 30, 40]
             ("name = \"stove\"\nmodel", "kind = \"stove\"\nmodel", "kind = \"stove\" and a model"),
             ("name = \"moon\"", "kind = \"piece\"\nname = \"moon\"\n[[thing]]\nkind = \"piece\"", "a piece is a model set down"),
             ("facing = \"south\"", "facing = \"down\"", "line 8: facing must be \"north\", \"east\", \"south\" or \"west\""),
-            ("facing = \"south\"", "facing = \"south\"\nturn = 10", "line 9: a thing faces a way (facing = \"south\") or turns (turn = 30), not both"),
+            ("facing = \"south\"", "facing = \"south\"\nrotation = 10", "line 9: a thing faces a way (facing = \"south\") or has a rotation (rotation = 30), not both"),
+            ("facing = \"south\"", "turn = 10", "line 8: a thing: 'turn' is called 'rotation' now (voxcade upgrade renames it)"),
             ("radius = 60, ", "", "line 14: a light needs radius = N"),
             ("color = \"#ffd9a0\"", "color = \"orange\"", "line 14: a light's color must be \"#rrggbb\""),
             ("kind = \"walker\"\n", "", "a thing needs kind = \"name\""),
@@ -2356,9 +2362,9 @@ size = [40, 30, 40]
             assert_eq!(Way::nearest(turn), way, "{turn}");
         }
         assert!(!Facing::Turn(270.0).off_grid() && Facing::Turn(-90.0).bearing() == -90.0, "quarter turns are on the grid");
-        let src = format!("# a room\n{}", PIECES.replace("turn = 45", "turn = 45    # a chair askew"));
+        let src = format!("# a room\n{}", PIECES.replace("rotation = 45", "rotation = 45    # a chair askew"));
         let aligned = text::align(&src).unwrap();
-        assert_eq!(aligned, src.replace("turn = 45", "facing = \"east\""));
+        assert_eq!(aligned, src.replace("rotation = 45", "facing = \"east\""));
         assert!(GridLevel::from_text(&aligned).unwrap().off_grid().is_empty());
         assert_eq!(text::align(&aligned).unwrap(), aligned, "nothing left to align");
     }

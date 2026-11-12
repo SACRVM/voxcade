@@ -330,7 +330,7 @@ fn chosen(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, item: 
             if t.model.is_some() {
                 piece_rows(ui, ed, figures, t, shown);
             } else if ed.kind_turns(t) {
-                // A thing of a kind without a behaviour: round only.
+                // A thing of a kind without a behavior: round only.
                 let free = ed.free_kinds.contains(&t.kind);
                 let tip = if free { "Round, clockwise seen from above: 0 away from the camera, 180 towards it" } else { "Round, clockwise seen from above, in quarter turns (its kind turns on the grid)" };
                 row(ui, "ROTATE", "Degrees. Or drag its ring.", |ui| {

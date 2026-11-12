@@ -88,7 +88,7 @@ fn question(ui: &mut egui::Ui, file: &str, names: &[String], shown: &mut Shown) 
             ui.add_space(12.0);
             // The words short; what they mean on hover.
             let count = if names.len() == 1 { "1 THING".to_string() } else { format!("{} THINGS", names.len()) };
-            ui.label(RichText::new(format!("{count} OFF THE GRID")).color(TEXT).heading()).on_hover_text("Turned freely (turn = 30 and the like); this game sets things on the grid, in quarter turns");
+            ui.label(RichText::new(format!("{count} OFF THE GRID")).color(TEXT).heading()).on_hover_text("Turned freely (rotation = 30 and the like); this game sets things on the grid, in quarter turns");
             ui.add_space(12.0);
             let more = if names.len() > 4 { format!(" and {} more", names.len() - 4) } else { String::new() };
             ui.label(RichText::new(format!("{}{more}", names.iter().take(4).cloned().collect::<Vec<_>>().join(", "))).color(WARNING));
@@ -97,7 +97,7 @@ fn question(ui: &mut egui::Ui, file: &str, names: &[String], shown: &mut Shown) 
             ui.horizontal(|ui| {
                 let width = 2.0 * 180.0 + ui.spacing().item_spacing.x;
                 ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
-                let tips = ["Turns each to its nearest way (a step back undoes it)", "Leaves the level as it is; or allow free turns in conf.lua: c.camera.turns = \"free\""];
+                let tips = ["Turns each to its nearest way (a step back undoes it)", "Leaves the level as it is; or allow free rotation in conf.lua: c.camera.rotates = \"free\""];
                 for ((label, action), tip) in [("ALIGN ALL", Action::AlignAll), ("DON'T OPEN", Action::DontOpen)].into_iter().zip(tips) {
                     if ui.add_sized([180.0, 36.0], egui::Button::new(RichText::new(label).color(if action == Action::AlignAll { ACCENT } else { TEXT }))).on_hover_text(tip).clicked() {
                         shown.clicked.push(action);

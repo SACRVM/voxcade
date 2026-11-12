@@ -103,7 +103,7 @@ impl Models {
             }
         }
         let models = Self::load(files, cfg, specs)?;
-        for d in crate::sim::things::defs(cfg, &G::behaviours(cfg))? {
+        for d in crate::sim::things::defs(cfg, &G::behaviors(cfg))? {
             if d.swing.is_empty() {
                 continue;
             }
@@ -450,7 +450,7 @@ const FLYBY_TIME: f32 = 5.0;
 
 /// The game's config: the engine's defaults, then what the game sets
 /// (`Game::conf`), checked: sections only the game reads, kinds with
-/// behaviours it has.
+/// behaviors it has.
 pub fn config<G: Game>(dir: &Path) -> Result<GameConfig> {
     config_in::<G>(&Files::folder(dir))
 }
@@ -468,7 +468,7 @@ pub fn config_in<G: Game>(files: &Files) -> Result<GameConfig> {
         let own = if sections.is_empty() { String::new() } else { format!(" (the game's own: c.{})", sections.join(", c.")) };
         anyhow::bail!("c.{unknown}: no such section{own}");
     }
-    crate::sim::things::defs(&cfg, &G::behaviours(&cfg))?;
+    crate::sim::things::defs(&cfg, &G::behaviors(&cfg))?;
     for (i, lang) in cfg.languages.iter().enumerate() {
         if lang.len() != 2 || !lang.bytes().all(|b| b.is_ascii_lowercase()) {
             anyhow::bail!("c.languages[{}]: \"{lang}\" is no language: two small letters as \"de\", \"en\", \"fr\"", i + 1);
@@ -850,7 +850,7 @@ impl<G: Game> Session<G> {
             .iter()
             .map(|prop| {
                 let Some(m) = self.models.props.get(&prop.model) else { return 0 };
-                let reach = if prop.turn % 2 != 0 { IVec2::new(m.size.y, m.size.x) } else { m.size.truncate() } / 2;
+                let reach = if prop.rotation % 180 != 0 { IVec2::new(m.size.y, m.size.x) } else { m.size.truncate() } / 2;
                 let at = IVec2::new(prop.at[0] as i32, prop.at[1] as i32);
                 let mut tops = Vec::new();
                 for y in (at.y - reach.y..=at.y + reach.y).step_by(3) {
@@ -1797,7 +1797,7 @@ impl<G: Game> Session<G> {
             out.fade = opacity;
             for (prop, &ground) in self.cfg.title_screen.props.iter().zip(&self.props_ground) {
                 let Some(m) = self.models.props.get(&prop.model) else { continue };
-                let look = [IVec2::Y, IVec2::NEG_X, IVec2::NEG_Y, IVec2::X][prop.turn.rem_euclid(4) as usize];
+                let look = prop.look();
                 let origin = IVec3::new(prop.at[0] as i32, prop.at[1] as i32, ground).as_vec3();
                 out.put_model(m, 0, origin, look, Quat::IDENTITY, None);
             }
@@ -2202,7 +2202,8 @@ fn look_turn(look: IVec2) -> Quat {
 /// its top leans right). They are taken roll first, then pitch, then the
 /// turn round: the rotation `Rz(-turn) · Rx(pitch) · Ry(roll)`, so the turn
 /// round stays the bearing seen from above whatever the other two (a
-/// level's piece writes the same three words, `grid::Thing`).
+/// level's piece and `frame:model` write it `rotation`, `pitch`, `roll`,
+/// `grid::Thing`).
 /// All 0 is no turn at all.
 pub fn turning(turn: f32, pitch: f32, roll: f32) -> Quat {
     if turn == 0.0 && pitch == 0.0 && roll == 0.0 {
@@ -2220,7 +2221,7 @@ pub fn spinning(spin: f32, ticks: f32) -> Quat {
 
 /// The turn that shows a body's model facing exactly its way on the ground
 /// while its quarter turn is its `look` (a figure drawn at its diagonal),
-/// for a kind that turns freely (`free`, `turns = "free"`): none when it
+/// for a kind that turns freely (`free`, `rotates = "free"`): none when it
 /// does not, or faces straight along `look`.
 pub fn facing(free: bool, body: &Body) -> Quat {
     let (facing, look) = (body.facing, body.look);
@@ -3181,7 +3182,7 @@ mod tests {
     /// fills the same cells at every turn. An even size has one more cell
     /// on the low side of the pivot than on the high side; an axis that
     /// a turn flips (a half turn flips both, a quarter turn one) then
-    /// fills the cells one voxel higher than unturned. Free turns (`turns
+    /// fills the cells one voxel higher than unturned. Free turns (`rotates
     /// = "free"`, `frame:model`'s turn) land on the same cells as the
     /// quarter turns.
     #[test]

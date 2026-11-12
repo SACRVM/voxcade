@@ -44,9 +44,9 @@ USAGE:
   voxcade edit   <game-dir> [--level FILE] [--block NAME | --things | --model FILE [--part NAME [--parent NAME] [--joint X,Y,Z]]
                  [--move-part NAME --by X,Y,Z] [--move-joint NAME --by X,Y,Z]] [--stamp] [--shot FILE [--align]] [--view YAW,PITCH] [--size WxH]
                  [--choose NAME] [--game-view] [--picker] [--lights-off] [--add|--hang MODEL|light|place|area --at X,Y,Z]
-                 [--move NAME --at X,Y,Z] [--turn NAME --by DEG [--about x|y|z]] [--lay NAME] [--copy NAME --at X,Y,Z] [--remove NAME]
-                 [--rename NAME --to NEW] [--light NAME [--radius N] [--colour #rrggbb] [--at X,Y,Z]] [--room-size X,Y,Z]
-                 [--choose-light K] [--menu NAME|floor|voxel] [--add-menu] [--level-settings] [--handles move|turn] [--hover arrow-x|ring-z|face-y|...]
+                 [--move NAME --at X,Y,Z] [--rotate NAME --by DEG [--about x|y|z]] [--lay NAME] [--copy NAME --at X,Y,Z] [--remove NAME]
+                 [--rename NAME --to NEW] [--light NAME [--radius N] [--color #rrggbb] [--at X,Y,Z]] [--room-size X,Y,Z]
+                 [--choose-light K] [--menu NAME|floor|voxel] [--add-menu] [--level-settings] [--handles move|rotate] [--hover arrow-x|ring-z|face-y|...]
                  [--hide NAME] [--click X,Y]
   voxcade ide    [<game-dir>] [--shot FILE] [--open PATH] [--console CMD] [--play TICKS] [--size WxH] [--remote]
   voxcade mcp    [--remote]
@@ -180,9 +180,9 @@ edit  opens the editor on a game's level: of voxel blocks, the level (its
       models and lights set down, places, areas) opens among its pieces,
       as a level of blocks with PIECES; --shot tries changes there in
       turn, writing nothing: --add a model (its path) or a light, place
-      or area --at a spot (--hang: left on the mouse there), --move, --turn (--by degrees round;
+      or area --at a spot (--hang: left on the mouse there), --move, --rotate (--by degrees round;
       --about x tips it nose up, --about y rolls it, kept on its floor), --lay (a quarter about x), --copy,
-      --remove, --rename, --light (a piece's first: --radius, --colour,
+      --remove, --rename, --light (a piece's first: --radius, --color,
       --at where it shines from), --add-light (one more on the piece, the
       same words after it), --solid (a piece's voxels hold bodies up),
       --room-size; then --choose one by its name,
@@ -190,7 +190,7 @@ edit  opens the editor on a game's level: of voxel blocks, the level (its
       pictures, --lights-off the view without the lights; the chosen one
       shows its handles, --choose-light K chooses its light K (0 the
       first), --hover lights a handle as under the mouse (arrow-x, ring-z,
-      face-y, face-y-low ...; a part's joint's arrow-x ... too), --handles turn shows its rings instead of its arrows, --menu voxel the voxel editor's
+      face-y, face-y-low ...; a part's joint's arrow-x ... too), --handles rotate shows its rings instead of its arrows, --menu voxel the voxel editor's
       menu of what is under the middle of the view, --menu opens the right-click menu of a
       thing (or of the floor under the middle: floor), --add-menu ADD's,
       --level-settings shows LEVEL in the inspector.
@@ -716,13 +716,14 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                         let spot = three(flag, value)?;
                         anyhow::ensure!(opts.ops.last_mut().is_some_and(|op| op.at(spot)), "--at follows --add, --move, --copy, --light or --add-light (where its light shines from)");
                     }
-                    "--turn" => {
-                        let by = it.next().filter(|b| *b == "--by").and(it.next()).context("--turn NAME --by DEGREES")?;
+                    "--turn" | "--colour" => bail!("{flag} is called {} now", if flag == "--turn" { "--rotate" } else { "--color" }),
+                    "--rotate" => {
+                        let by = it.next().filter(|b| *b == "--by").and(it.next()).context("--rotate NAME --by DEGREES")?;
                         opts.ops.push(crate::editor::ShotOp::Turn(value.clone(), by.parse().context("--by DEGREES")?, 2));
                     }
                     "--about" => match opts.ops.last_mut() {
                         Some(crate::editor::ShotOp::Turn(_, _, axis)) => *axis = ["x", "y", "z"].iter().position(|a| a == value).context("--about x, y or z")?,
-                        _ => bail!("--about follows --turn NAME --by DEGREES"),
+                        _ => bail!("--about follows --rotate NAME --by DEGREES"),
                     },
                     "--lay" => opts.ops.push(crate::editor::ShotOp::Turn(value.clone(), 90.0, 0)),
                     "--menu" => opts.menu = Some(value.clone()),
@@ -742,8 +743,8 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                     "--handles" => {
                         opts.turn_handles = match value.as_str() {
                             "move" => false,
-                            "turn" => true,
-                            _ => bail!("--handles move or turn"),
+                            "rotate" => true,
+                            _ => bail!("--handles move or rotate"),
                         }
                     }
                     "--choose-light" => opts.choose_light = Some(value.parse().context("--choose-light K (0 the first)")?),
@@ -751,7 +752,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                         let to = it.next().filter(|b| *b == "--to").and(it.next()).context("--rename NAME --to NEW")?;
                         opts.ops.push(crate::editor::ShotOp::Rename(value.clone(), to.clone()));
                     }
-                    "--radius" | "--colour" | "--color" => match opts.ops.last_mut() {
+                    "--radius" | "--color" => match opts.ops.last_mut() {
                         Some(crate::editor::ShotOp::Light(_, radius, colour, _, _)) => {
                             if flag == "--radius" {
                                 *radius = Some(value.parse().context("--radius N")?);

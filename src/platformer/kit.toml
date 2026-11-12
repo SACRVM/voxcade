@@ -2,14 +2,14 @@
 # pictures (a tile 16 voxels; the fox 20 tall, the opossum 16, the frog 18,
 # the eagle 24), a starting point to copy into a game's conf.lua (as
 # c.things.NAME = { ... }), nothing more: a game has exactly the things it
-# defines. The numbers here are the behaviours' defaults: a kind sets only
+# defines. The numbers here are the behaviors' defaults: a kind sets only
 # the ones it changes, and the lengths and speeds it leaves unset follow
 # its height (half as tall, half as fast and high; voxcade kinds GAME
 # prints what is in effect). They say how things move;
 # what a touch means (a stomp, a pickup, a door, spikes, a life lost) is
 # the game's code (main.lua: on_touch, on_tick, on_death, on_fall_out).
 #
-# Every kind may set, besides its behaviour's numbers:
+# Every kind may set, besides its behavior's numbers:
 #   width  = 12             # its body across and deep (the physics' without;
 #                           # at most as deep as the lane, a block's depth)
 #   height = 20             # its body's height (its model's without)
@@ -35,13 +35,13 @@
 #   sound  = "stomp"        # heard where one of its things goes
 #   props  = { worth = 100 }  # what the game's code reads (thing.props)
 #   family = "enemies"      # a family, or a list of them
-# The frames' names are what the behaviour plays: the hero idle, run,
+# The frames' names are what the behavior plays: the hero idle, run,
 # jump, fall, crouch, hurt, climb, hang, pull; a walker walk; a hopper
 # idle, jump; a flyer fly; a pickup spin; a prop the pose the game sets
 # (thing.state.pose, idle at first); a platform idle.
 
 [things.hero]
-behaviour = "hero"
+behavior = "hero"
 speed = 150             # running, voxels a second
 accel = 1200            # how quickly it gets there on the ground
 air_accel = 800         # and in the air
@@ -68,26 +68,26 @@ air_jumps = 0           # jumps it may make again in the air before landing (1: 
 air_jump = 20           # ... each this high from where it is then, voxels
 
 [things.walker]
-behaviour = "walker"
+behavior = "walker"
 speed = 60              # voxels a second
 ledges = true           # turns at a ledge as at a wall
 
 [things.hopper]
-behaviour = "hopper"
+behavior = "hopper"
 every = 120             # ticks between hops, left and right in turn
 hop = [100, 200]        # how far and high: voxels a second across and up
 
 [things.flyer]
-behaviour = "flyer"
+behavior = "flyer"
 range = 50              # up and down from where it is placed, voxels
 period = 120            # ticks for once up and down
 face_hero = true        # it turns to the hero; false: it keeps the way it was placed
 
 [things.pickup]
-behaviour = "pickup"    # it spins; what it gives is the game's code
+behavior = "pickup"    # it spins; what it gives is the game's code
 
 [things.platform]
-behaviour = "platform"  # to and fro; the game's code may send it to one end to stay:
+behavior = "platform"  # to and fro; the game's code may send it to one end to stay:
                         # thing.state.goal = "end" or "start" (out of a wall, a trapdoor, a lift), nil: to and fro
 travel = [64, 0]        # how far it goes from where it is placed, across and up
 speed = 30              # voxels a second
@@ -95,10 +95,10 @@ pause = 30              # ticks it waits at each end
 crushes = false         # coming down onto the hero: true hurts it (a trap), false waits above it
 
 [things.prop]
-behaviour = "prop"
+behavior = "prop"
 stands = false          # true: it stands on the floor below where it is placed (a door, spikes)
 
 [things.crate]
-behaviour = "crate"     # the hero pushes it by walking into it: it falls over edges, is stood on,
+behavior = "crate"     # the hero pushes it by walking into it: it falls over edges, is stood on,
                         # walkers turn at it, it holds down what it lies on (a plate: your code)
 push = 30               # pushed this fast at most, voxels a second

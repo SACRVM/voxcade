@@ -35,7 +35,7 @@ following the window (a vertical shooter's field, whole in any window).
 (changed 2026-10-22, the user's decision; it was "quarter turns only, no
 free rotation"). The world is the one voxel grid, and every voxel is the
 same size: nothing is scaled. Models turn in quarter turns on the grid
-unless the game chooses otherwise: a kind with `turns = "free"` faces
+unless the game chooses otherwise: a kind with `rotates = "free"` faces
 exactly its way (a diagonal too), and `frame:model` turns a model any way
 (a ship banking, something tumbling); its voxels leave the grid then. The
 user: Minecraft lives from it, and turning parts is the quick way to

@@ -32,7 +32,35 @@ pub fn run(files: &Files, cfg: &mut GameConfig) -> Result<()> {
     c.set_metatable(Some(meta))?;
     sandbox.call_start::<()>(&conf, c.clone())?;
     let value = from_lua(&Value::Table(c), Some(&defaults), "c")?;
+    renamed(&value)?;
     *cfg = value.try_into().map_err(|e: toml::de::Error| anyhow::anyhow!("conf.lua: {}", e.message()))?;
+    Ok(())
+}
+
+/// A setting under the name it had before Voxcade took other tools' words
+/// (`turn`, `turns`, `behaviour`) is a mistake naming the new one.
+fn renamed(c: &toml::Value) -> Result<()> {
+    let say = |old: String, new: String| -> Result<()> { bail!("conf.lua: {old} is called {new} now (voxcade upgrade renames it)") };
+    if c.get("camera").and_then(|t| t.get("turns")).is_some() {
+        return say("c.camera.turns".into(), "c.camera.rotates".into());
+    }
+    if let Some(things) = c.get("things").and_then(toml::Value::as_table) {
+        for (name, kind) in things {
+            for (old, new) in crate::sim::things::RENAMED {
+                if kind.get(old).is_some() {
+                    return say(format!("c.things.{name}.{old}"), format!("c.things.{name}.{new}"));
+                }
+            }
+        }
+    }
+    if let Some(props) = c.get("title_screen").and_then(|t| t.get("props")).and_then(toml::Value::as_array) {
+        for (i, prop) in props.iter().enumerate() {
+            if let Some(turn) = prop.get("turn") {
+                let was = turn.as_integer().map_or(String::new(), |q| format!(": turn = {q} is rotation = {}", crate::map::Put::rotation_of(q as i32)));
+                bail!("conf.lua: c.title_screen.props[{}].turn (quarter turns anticlockwise) is called rotation now, in degrees clockwise{was} (voxcade upgrade renames it)", i + 1);
+            }
+        }
+    }
     Ok(())
 }
 
@@ -144,5 +172,24 @@ mod tests {
         assert!(e.contains("c.things.gem.hit"), "{e}");
         assert!(conf("function conf(c) c.title = os.time() end").is_err(), "the sandbox let os in");
         assert!(conf("x = 1").unwrap_err().to_string().contains("conf(c)"));
+    }
+
+    /// The settings' names from before Voxcade took other tools' words are
+    /// refused with their new names; the new ones are taken.
+    #[test]
+    fn an_old_name_says_the_new_one() {
+        for (line, says) in [
+            ("c.camera.turns = 'free'", "c.camera.turns is called c.camera.rotates now"),
+            ("c.things.gem = { behaviour = 'pickup' }", "c.things.gem.behaviour is called c.things.gem.behavior now"),
+            ("c.things.gem = { turns = 'free' }", "c.things.gem.turns is called c.things.gem.rotates now"),
+            ("c.title_screen.props = { { model = 'a.vvx', at = { 1, 2 }, turn = 1 } }", "c.title_screen.props[1].turn (quarter turns anticlockwise) is called rotation now, in degrees clockwise: turn = 1 is rotation = 270"),
+        ] {
+            let e = conf(&format!("function conf(c) {line} end")).unwrap_err().to_string();
+            assert!(e.contains(says) && e.contains("voxcade upgrade"), "{line}: {e}");
+        }
+        let cfg = conf("function conf(c) c.camera.rotates = 'free'; c.things.gem = { behavior = 'pickup', rotates = 'free' }; c.title_screen.props = { { model = 'a.vvx', at = { 1, 2 }, rotation = 270 } } end").unwrap();
+        assert_eq!(cfg.camera.rotates, crate::config::Rotates::Free);
+        assert_eq!((cfg.title_screen.props[0].rotation, cfg.title_screen.props[0].look()), (270, glam::IVec2::NEG_X));
+        assert!(conf("function conf(c) c.title_screen.props = { { model = 'a.vvx', at = { 1, 2 }, rotation = 45 } } end").unwrap_err().to_string().contains("quarter turns"));
     }
 }

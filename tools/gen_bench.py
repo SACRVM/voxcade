@@ -67,8 +67,8 @@ for row in range(4):
     for col in range(10):
         x = (40 + col * 18) * SCALE
         y = (60 + row * 16) * SCALE
-        props.append(f'    {{ model = "{FIGURES[(row + col) % 4]}", at = {{ {x}, {y} }}, turn = 2 }},')
-props.append(f'    {{ model = "huey.vvx", at = {{ {130 * SCALE}, {150 * SCALE} }}, turn = 1 }},')
+        props.append(f'    {{ model = "{FIGURES[(row + col) % 4]}", at = {{ {x}, {y} }}, rotation = 180 }},')
+props.append(f'    {{ model = "huey.vvx", at = {{ {130 * SCALE}, {150 * SCALE} }}, rotation = 270 }},')
 S = SCALE
 # The Voxcade these files are for: the engine's own version.
 VERSION = next(line.split('"')[1] for line in (ROOT / "Cargo.toml").read_text().splitlines() if line.startswith("version"))

@@ -12,7 +12,7 @@ fn config(things: &[(&str, &str)]) -> GameConfig {
     cfg.physics.max_fall = 300.0;
     cfg.physics.body_width = 12.0;
     cfg.state.player = toml::from_str("hp = 3").unwrap();
-    let mut all = vec![("fox", "behaviour = \"hero\"\nheight = 20")];
+    let mut all = vec![("fox", "behavior = \"hero\"\nheight = 20")];
     all.extend_from_slice(things);
     for (name, toml) in all {
         cfg.things.insert(name.into(), toml::from_str(toml).unwrap());
@@ -155,7 +155,7 @@ fn a_jump_pressed_early_waits_for_the_ground() {
 #[test]
 fn a_hurt_costs_a_heart_the_last_lays_the_hero_down() {
     use crate::lua::host::Host;
-    let cfg = config(&[("opossum", "behaviour = \"walker\"\nheight = 10\nspeed = 0")]);
+    let cfg = config(&[("opossum", "behavior = \"walker\"\nheight = 10\nspeed = 0")]);
     let world = flat_world(IVec3::new(96, 16, 64));
     let mut g = game(world, &cfg, &[("fox", IVec3::new(20, 8, 1)), ("opossum", IVec3::new(48, 8, 1))]);
     let opossum = g.things.iter().find(|t| Some(t.id) != g.hero).unwrap().id;
@@ -187,7 +187,7 @@ fn a_hurt_costs_a_heart_the_last_lays_the_hero_down() {
 /// A platform carries who stands on it, step by step, in whole voxels.
 #[test]
 fn a_platform_carries_its_rider() {
-    let cfg = config(&[("ferry", "behaviour = \"platform\"\nmodel = \"platform.vox\"\ntravel = [40, 0]\nspeed = 30\npause = 0")]);
+    let cfg = config(&[("ferry", "behavior = \"platform\"\nmodel = \"platform.vox\"\ntravel = [40, 0]\nspeed = 30\npause = 0")]);
     let mut world = flat_world(IVec3::new(128, 16, 64));
     // No floor under the platform's way: the hero stands on it or falls.
     for y in 0..16 {
@@ -217,7 +217,7 @@ fn a_platform_carries_its_rider() {
 #[test]
 fn a_double_jump_goes_again_from_the_air() {
     let top = |air_jumps: u32, second_at: usize| {
-        let cfg = config(&[("jumper", &format!("behaviour = \"hero\"\nheight = 14\nwidth = 6\njump = 22\nair_jumps = {air_jumps}\nair_jump = 12"))]);
+        let cfg = config(&[("jumper", &format!("behavior = \"hero\"\nheight = 14\nwidth = 6\njump = 22\nair_jumps = {air_jumps}\nair_jump = 12"))]);
         let mut g = game(flat_world(IVec3::new(64, 16, 128)), &cfg, &[("jumper", IVec3::new(30, 8, 1))]);
         let start = hero(&g).pos.z;
         let mut top = start;
@@ -241,7 +241,7 @@ fn a_double_jump_goes_again_from_the_air() {
 /// the hero is gone); one that crushes hurts it and goes on.
 #[test]
 fn a_platform_coming_down_waits_or_crushes() {
-    let lift = |crushes: bool| config(&[("lift", &format!("behaviour = \"platform\"\nmodel = \"platform.vox\"\ntravel = [0, -40]\nspeed = 40\npause = 0\ncrushes = {crushes}"))]);
+    let lift = |crushes: bool| config(&[("lift", &format!("behavior = \"platform\"\nmodel = \"platform.vox\"\ntravel = [0, -40]\nspeed = 40\npause = 0\ncrushes = {crushes}"))]);
     for crushes in [false, true] {
         let mut g = game(flat_world(IVec3::new(128, 16, 64)), &lift(crushes), &[("lift", IVec3::new(40, 8, 45)), ("fox", IVec3::new(40, 8, 1))]);
         let lift_z = |g: &Platformer| g.things.iter().find(|t| matches!(t.brain, Brain::Platform(_))).unwrap().body.pos.z;
@@ -269,7 +269,7 @@ fn a_platform_coming_down_waits_or_crushes() {
 /// settings change while the game runs, not only once placed anew.
 #[test]
 fn a_reload_turns_a_bat_to_its_kinds_way() {
-    let bat = |facing: &str| config(&[("bat", &format!("behaviour = \"flyer\"\nface_hero = false{facing}"))]);
+    let bat = |facing: &str| config(&[("bat", &format!("behavior = \"flyer\"\nface_hero = false{facing}"))]);
     let mut g = game(flat_world(IVec3::new(64, 16, 64)), &bat(""), &[("bat", IVec3::new(10, 8, 20)), ("fox", IVec3::new(40, 8, 1))]);
     let look = |g: &Platformer| g.things.iter().find(|t| matches!(t.brain, Brain::Flyer { .. })).unwrap().body.look;
     assert_eq!(look(&g), glam::IVec2::X, "towards the middle, as placed");
@@ -282,7 +282,7 @@ fn a_reload_turns_a_bat_to_its_kinds_way() {
 /// head on the hole's edge.
 #[test]
 fn a_climber_moves_to_the_ladders_middle() {
-    let cfg = config(&[("climber", "behaviour = \"hero\"\nheight = 14\nwidth = 6\nclimb = 40\ngrab = 6\npull = 24")]);
+    let cfg = config(&[("climber", "behavior = \"hero\"\nheight = 14\nwidth = 6\nclimb = 40\ngrab = 6\npull = 24")]);
     // A ceiling 30 to 40 high with a hole at x 20..30, a ladder up through it.
     let mut world = flat_world(IVec3::new(64, 16, 80));
     for z in 30..40 {
@@ -314,7 +314,7 @@ fn a_climber_moves_to_the_ladders_middle() {
 /// its top and stands there, as on a plank; down takes it down again.
 #[test]
 fn a_ladders_top_holds_from_above() {
-    let cfg = config(&[("climber", "behaviour = \"hero\"\nheight = 14\nwidth = 6\nclimb = 40")]);
+    let cfg = config(&[("climber", "behavior = \"hero\"\nheight = 14\nwidth = 6\nclimb = 40")]);
     let mut world = flat_world(IVec3::new(64, 16, 80));
     for z in 30..40 {
         for y in 0..16 {
@@ -349,7 +349,7 @@ fn a_ladders_top_holds_from_above() {
 #[test]
 fn a_platform_told_a_goal_goes_there_and_stays() {
     use crate::lua::host::{Host, Kept};
-    let cfg = config(&[("slab", "behaviour = \"platform\"\nmodel = \"platform.vox\"\ntravel = [30, 0]\nspeed = 60\npause = 0")]);
+    let cfg = config(&[("slab", "behavior = \"platform\"\nmodel = \"platform.vox\"\ntravel = [30, 0]\nspeed = 60\npause = 0")]);
     let mut g = game(flat_world(IVec3::new(128, 16, 64)), &cfg, &[("slab", IVec3::new(40, 8, 20)), ("fox", IVec3::new(100, 8, 1))]);
     let slab = g.things.iter().find(|t| matches!(t.brain, Brain::Platform(_))).unwrap().id;
     let x = |g: &Platformer| g.things.get(slab).unwrap().body.pos.x;
@@ -376,7 +376,7 @@ fn a_platform_told_a_goal_goes_there_and_stays() {
 /// and the hero stands on it as on the floor; a walker turns at it.
 #[test]
 fn a_crate_is_pushed_falls_and_is_stood_on() {
-    let cfg = config(&[("box", "behaviour = \"crate\"\nwidth = 10\nheight = 10\npush = 30"), ("snail", "behaviour = \"walker\"\nheight = 8\nspeed = 20")]);
+    let cfg = config(&[("box", "behavior = \"crate\"\nwidth = 10\nheight = 10\npush = 30"), ("snail", "behavior = \"walker\"\nheight = 8\nspeed = 20")]);
     // A floor 20 high with a pit 12 wide and 10 deep at x 60..72.
     let mut world = flat_world(IVec3::new(128, 16, 64));
     for y in 0..16 {
@@ -435,7 +435,7 @@ fn a_crate_is_pushed_falls_and_is_stood_on() {
 /// the kit takes no life and touches nothing, it keeps the hero falling.
 #[test]
 fn falling_out_is_told_nothing_more() {
-    let cfg = config(&[("gem", "behaviour = \"pickup\"\nheight = 6")]);
+    let cfg = config(&[("gem", "behavior = \"pickup\"\nheight = 6")]);
     // Ground 20 high over open space, as a level with room below it; a pit
     // from x 70 on down to the world's floor.
     let mut world = World::new(IVec3::new(200, 16, 64), flat_world(IVec3::ONE).palette);
@@ -459,7 +459,7 @@ fn falling_out_is_told_nothing_more() {
 /// time.
 #[test]
 fn a_restored_platformer_game_plays_on_the_same() {
-    let cfg = config(&[("frog", "behaviour = \"hopper\"\nheight = 10"), ("eagle", "behaviour = \"flyer\"\nheight = 10")]);
+    let cfg = config(&[("frog", "behavior = \"hopper\"\nheight = 10"), ("eagle", "behavior = \"flyer\"\nheight = 10")]);
     let mut g = game(plateau(), &cfg, &[("fox", IVec3::new(10, 8, 20)), ("frog", IVec3::new(60, 8, 1)), ("eagle", IVec3::new(80, 8, 30))]);
     let input = |t: usize| keys(t % 90 < 50, t % 90 >= 70, t % 40 < 12);
     for t in 0..100 {
@@ -482,7 +482,7 @@ fn a_restored_platformer_game_plays_on_the_same() {
 /// looking the way it was placed.
 #[test]
 fn a_flyer_faces_the_hero_unless_told_not_to() {
-    let cfg = config(&[("eagle", "behaviour = \"flyer\"\nheight = 10\nrange = 2"), ("bat", "behaviour = \"flyer\"\nheight = 10\nrange = 2\nface_hero = false")]);
+    let cfg = config(&[("eagle", "behavior = \"flyer\"\nheight = 10\nrange = 2"), ("bat", "behavior = \"flyer\"\nheight = 10\nrange = 2\nface_hero = false")]);
     let mut g = game(flat_world(IVec3::new(128, 16, 64)), &cfg, &[("fox", IVec3::new(10, 8, 1)), ("eagle", IVec3::new(40, 8, 30)), ("bat", IVec3::new(70, 8, 30))]);
     let look = |g: &Platformer, kind: &str| g.things.iter().find(|t| g.rules.kinds[t.kind].name == kind).unwrap().body.look;
     g.run(&NONE);
@@ -499,10 +499,10 @@ fn a_flyer_faces_the_hero_unless_told_not_to() {
 /// of the kinds; a kind gone takes its things with it.
 #[test]
 fn a_reload_keeps_things_by_their_kind() {
-    let cfg = config(&[("gem", "behaviour = \"pickup\"\nheight = 6"), ("frog", "behaviour = \"hopper\"\nheight = 10")]);
+    let cfg = config(&[("gem", "behavior = \"pickup\"\nheight = 6"), ("frog", "behavior = \"hopper\"\nheight = 10")]);
     let mut g = game(flat_world(IVec3::new(96, 16, 32)), &cfg, &[("fox", IVec3::new(10, 8, 1)), ("gem", IVec3::new(30, 8, 1)), ("frog", IVec3::new(60, 8, 1))]);
-    let mut cfg = config(&[("frog", "behaviour = \"hopper\"\nheight = 10\nevery = 30")]);
-    cfg.things.insert("aaa".into(), toml::from_str("behaviour = \"prop\"").unwrap());
+    let mut cfg = config(&[("frog", "behavior = \"hopper\"\nheight = 10\nevery = 30")]);
+    cfg.things.insert("aaa".into(), toml::from_str("behavior = \"prop\"").unwrap());
     g.apply_config(&cfg).unwrap();
     let kinds: Vec<&str> = g.things.iter().map(|t| g.rules.kinds[t.kind].name.as_str()).collect();
     assert_eq!(kinds, ["fox", "frog"]);
@@ -515,9 +515,9 @@ fn a_reload_keeps_things_by_their_kind() {
 #[test]
 fn what_stands_is_put_on_the_ground() {
     let cfg = config(&[
-        ("gem", "behaviour = \"pickup\"\nheight = 6"),
-        ("door", "behaviour = \"prop\"\nstands = true\nheight = 20"),
-        ("torch", "behaviour = \"prop\"\nheight = 6"),
+        ("gem", "behavior = \"pickup\"\nheight = 6"),
+        ("door", "behavior = \"prop\"\nstands = true\nheight = 20"),
+        ("torch", "behavior = \"prop\"\nheight = 6"),
     ]);
     let things = [("fox", IVec3::new(10, 8, 1)), ("gem", IVec3::new(30, 8, 20)), ("door", IVec3::new(70, 8, 20)), ("torch", IVec3::new(90, 8, 20))];
     let g = game(flat_world(IVec3::new(128, 16, 64)), &cfg, &things);
@@ -551,17 +551,17 @@ fn jump_times(numbers: &str) -> (u32, u32) {
 /// as heavy, they take about the same.
 #[test]
 fn falling_is_quicker_than_rising() {
-    let (up, down) = jump_times("behaviour = \"hero\"\nheight = 20\nhang = 1.0");
+    let (up, down) = jump_times("behavior = \"hero\"\nheight = 20\nhang = 1.0");
     assert!((down as f32) < up as f32 * 0.9, "up {up}, down {down}");
-    let (up, down) = jump_times("behaviour = \"hero\"\nheight = 20\nhang = 1.0\nfall_gravity = 1.0");
+    let (up, down) = jump_times("behavior = \"hero\"\nheight = 20\nhang = 1.0\nfall_gravity = 1.0");
     assert!(up.abs_diff(down) <= 2, "up {up}, down {down}");
 }
 
 /// With jump held the top of the jump is lighter: the hero stays up longer.
 #[test]
 fn holding_jump_hangs_at_the_top() {
-    let plain = jump_times("behaviour = \"hero\"\nheight = 20\nhang = 1.0\nfall_gravity = 1.0");
-    let hung = jump_times("behaviour = \"hero\"\nheight = 20\nhang = 0.5\nfall_gravity = 1.0");
+    let plain = jump_times("behavior = \"hero\"\nheight = 20\nhang = 1.0\nfall_gravity = 1.0");
+    let hung = jump_times("behavior = \"hero\"\nheight = 20\nhang = 0.5\nfall_gravity = 1.0");
     assert!(hung.0 + hung.1 >= plain.0 + plain.1 + 3, "{hung:?} against {plain:?}");
 }
 
@@ -578,7 +578,7 @@ fn a_head_clipping_a_ceiling_edge_slips_past() {
         }
     }
     let peak = |corner: u32, x: i32| {
-        let cfg = config(&[("fox", &*format!("behaviour = \"hero\"\nheight = 20\ncorner = {corner}"))]);
+        let cfg = config(&[("fox", &*format!("behavior = \"hero\"\nheight = 20\ncorner = {corner}"))]);
         let mut g = game(world.clone(), &cfg, &[("fox", IVec3::new(x, 8, 1))]);
         g.run(&NONE);
         let mut top: f32 = 0.0;
@@ -630,7 +630,7 @@ fn ledge(high: i32) -> World {
 /// Runs right and jumps against the wall, then (`up`) presses up: where
 /// the hero ends and what it showed on the way.
 fn at_the_wall(high: i32, grab: f32, up: bool) -> (Vec3, Vec<&'static str>) {
-    let cfg = config(&[("fox", &*format!("behaviour = \"hero\"\nheight = 20\ngrab = {grab}\npull = 20"))]);
+    let cfg = config(&[("fox", &*format!("behavior = \"hero\"\nheight = 20\ngrab = {grab}\npull = 20"))]);
     let mut g = game(ledge(high), &cfg, &[("fox", IVec3::new(30, 8, 1))]);
     let mut shown = Vec::new();
     for i in 0..150 {
@@ -669,7 +669,7 @@ fn a_ledge_too_high_is_caught_and_climbed() {
 /// Hanging, down lets go: the hero drops to the floor.
 #[test]
 fn down_lets_go_of_the_edge() {
-    let cfg = config(&[("fox", "behaviour = \"hero\"\nheight = 20\ngrab = 8")]);
+    let cfg = config(&[("fox", "behavior = \"hero\"\nheight = 20\ngrab = 8")]);
     let mut g = game(ledge(52), &cfg, &[("fox", IVec3::new(30, 8, 1))]);
     for i in 0..60 {
         g.run(&keys(true, false, (20..40).contains(&i)));
@@ -681,14 +681,14 @@ fn down_lets_go_of_the_edge() {
     assert!(hero(&g).on_ground && hero(&g).pos.z == 1.0, "back on the floor: {:?}", hero(&g).pos);
 }
 
-/// A kind's frames are named for what its behaviour plays: a prop's
+/// A kind's frames are named for what its behavior plays: a prop's
 /// `idle` goes round (Voxkeep's torches burn), and it shows the pose the
 /// game sets (`thing.state.pose`); any figure shows a pose the game sets
 /// over its rules' own animation, from when it was set, until set to nil;
 /// every animation of the hero has its name.
 #[test]
-fn frames_are_named_for_what_a_behaviour_plays() {
-    let cfg = config(&[("torch", "behaviour = \"prop\"\nframes = { idle = [0, 1] }\nfps = 6")]);
+fn frames_are_named_for_what_a_behavior_plays() {
+    let cfg = config(&[("torch", "behavior = \"prop\"\nframes = { idle = [0, 1] }\nfps = 6")]);
     let world = flat_world(IVec3::new(64, 16, 32));
     let mut g = game(world, &cfg, &[("torch", IVec3::new(32, 8, 1))]);
     let torch = g.things.iter().next().unwrap().id;
@@ -698,14 +698,14 @@ fn frames_are_named_for_what_a_behaviour_plays() {
         shown.insert(g.frame(g.things.get(torch).unwrap()));
     }
     assert_eq!(shown.into_iter().collect::<Vec<_>>(), [0, 1], "the torch burns");
-    let door = config(&[("door", "behaviour = \"prop\"\nframes = { shut = [0, 0], open = [1, 1] }")]);
+    let door = config(&[("door", "behavior = \"prop\"\nframes = { shut = [0, 0], open = [1, 1] }")]);
     let mut g = game(flat_world(IVec3::new(64, 16, 32)), &door, &[("door", IVec3::new(32, 8, 1))]);
     let id = g.things.iter().next().unwrap().id;
     assert_eq!(g.frame(g.things.get(id).unwrap()), 0, "shut at first");
     crate::lua::host::Host::set_thing_value(&mut g, id, "pose", crate::lua::host::Kept::Text("open".into())).unwrap();
     assert_eq!(g.frame(g.things.get(id).unwrap()), 1, "open once the game says so");
     assert!(crate::lua::host::Host::set_thing_value(&mut g, id, "pose", crate::lua::host::Kept::Text("ajar".into())).unwrap_err().contains("no frames called 'ajar'"));
-    let posed = config(&[("slime", "behaviour = \"walker\"\nframes = { walk = [0, 1], burn = [2, 3] }\nfps = 60")]);
+    let posed = config(&[("slime", "behavior = \"walker\"\nframes = { walk = [0, 1], burn = [2, 3] }\nfps = 60")]);
     let mut g = game(flat_world(IVec3::new(64, 16, 32)), &posed, &[("slime", IVec3::new(32, 8, 1))]);
     let slime = g.things.iter().find(|t| matches!(t.brain, Brain::Walker { .. })).unwrap().id;
     let shown = |g: &Platformer| g.frame(g.things.get(slime).unwrap());
@@ -737,7 +737,7 @@ fn frames_are_named_for_what_a_behaviour_plays() {
 /// kind's effect may say its speed too.
 #[test]
 fn each_set_of_frames_has_its_own_speed() {
-    let cfg = config(&[("torch", "behaviour = \"prop\"\nfps = 60\nframes = { idle = { first = 0, last = 1, fps = 2 }, quick = [2, 3], flare = { first = 4, last = 6, fps = 60, loop = false } }")]);
+    let cfg = config(&[("torch", "behavior = \"prop\"\nfps = 60\nframes = { idle = { first = 0, last = 1, fps = 2 }, quick = [2, 3], flare = { first = 4, last = 6, fps = 60, loop = false } }")]);
     let mut g = game(flat_world(IVec3::new(64, 16, 32)), &cfg, &[("torch", IVec3::new(32, 8, 1))]);
     let torch = g.things.iter().next().unwrap().id;
     let shown = |g: &Platformer| g.frame(g.things.get(torch).unwrap());
@@ -766,13 +766,13 @@ fn each_set_of_frames_has_its_own_speed() {
         ("{ idle = { first = 0 } }", "frames.idle (first, last, fps, stride, loop)"),
         ("{ idle = { first = 0, last = 1, speed = 2 } }", "frames.idle (first, last, fps, stride, loop)"),
     ] {
-        let cfg = config(&[("torch", &format!("behaviour = \"prop\"\nframes = {frames}"))]);
+        let cfg = config(&[("torch", &format!("behavior = \"prop\"\nframes = {frames}"))]);
         let err = format!("{:#}", Rules::from_game(&cfg, |_| None).unwrap_err());
         assert!(err.contains(says), "{frames}: {err}");
     }
     let def = |effect: &str| {
-        let cfg = config(&[("slime", &format!("behaviour = \"walker\"\neffect = {effect}"))]);
-        crate::sim::things::defs(&cfg, &super::BEHAVIOURS).map(|d| d.into_iter().find(|d| d.name == "slime").unwrap().effect.unwrap())
+        let cfg = config(&[("slime", &format!("behavior = \"walker\"\neffect = {effect}"))]);
+        crate::sim::things::defs(&cfg, &super::BEHAVIORS).map(|d| d.into_iter().find(|d| d.name == "slime").unwrap().effect.unwrap())
     };
     assert_eq!(def("\"poof.vox\"").unwrap().fps, crate::sim::things::EFFECT_FPS);
     assert_eq!(def("{ model = \"poof.vox\", fps = 20 }").unwrap(), crate::sim::things::Effect { model: "poof.vox".into(), fps: 20.0 });

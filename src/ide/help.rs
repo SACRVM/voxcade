@@ -826,9 +826,9 @@ end
     },
     Topic {
         title: "ROTATE A MODEL",
-        text: "Models stand on the grid in quarter turns unless your game turns them. A kind with turns = \"free\" faces exactly the way it goes, a diagonal too. frame:model turns a model further, in degrees about its middle: turn (round, clockwise seen from above), pitch (its nose up) and roll (its right side down, as a ship banks to the right). ship.vvx stands for a model of yours.",
+        text: "Models stand on the grid in quarter turns unless your game rotates them. A kind with rotates = \"free\" faces exactly the way it goes, a diagonal too. frame:model rotates a model further, in degrees about its middle: rotation (round, clockwise seen from above), pitch (its nose up) and roll (its right side down, as a ship banks to the right). ship.vvx stands for a model of yours.",
         conf: r##"c.player.kind = "ship"
-c.things.ship = { model = "ship.vvx", turns = "free" }"##,
+c.things.ship = { model = "ship.vvx", rotates = "free" }"##,
         files: &[],
         code: r##"function on_level_start(how)
   level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 0, "#2a3040")

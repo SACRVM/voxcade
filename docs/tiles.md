@@ -80,11 +80,11 @@ wall = "decor"
 stone = "solid"
 spikes = "hazard"
 
-[legend]              # a sign is a block as it lies: its name, or the name and a turn (0 to 47)
+[legend]              # a sign is a block as it lies: its name, or the name and an orientation (0 to 47)
 s = "stone"
 S = "spikes"
 w = "wall"
-t = { block = "stone", turn = 17 }
+t = { block = "stone", orientation = 17 }
 
 [cells]
 layers = """
@@ -101,7 +101,7 @@ kind = "gem"
 at = [45, 5, 12]      # where its feet stand, in voxels from the grid's low corner
 
 [[thing]]
-kind = "tuer"         # a kind without a behaviour may face a way (or turn = degrees)
+kind = "tuer"         # a kind without a behavior may face a way (or rotation = degrees)
 at = [80, 5, 0]
 facing = "east"
 
@@ -130,8 +130,8 @@ facing = [0, -1]
   places and areas come in their order (things are made in it).
 - **Pieces, lights and areas** (2026-11-12): a `[[thing]]` with a
   `model` instead of a kind is a piece, a model set down by its pivot
-  (`at`, anywhere: on a wall, in the air), `facing = "east"` (or `turn =
-  30` where the game turns things freely, `c.camera.turns = "free"`),
+  (`at`, anywhere: on a wall, in the air), `facing = "east"` (or `rotation =
+  30` where the game rotates things freely, `c.camera.rotates = "free"`),
   perhaps with a `light = { at, radius, color }` (or `lights = [ ... ]`
   for several) and `solid = true` (its voxels hold bodies up, quarter
   turns only); one with only a light is a light alone. A level may have
@@ -152,7 +152,7 @@ facing = [0, -1]
   daylight). In the view the chosen one has handles (`handles.rs`):
   arrows along X, Y and Z (red, green, blue) move it by whole voxels,
   rings rotate it (about its own right side, its forward and the upright:
-  each ring one of pitch, roll and turn; quarters on the grid, freely
+  each ring one of pitch, roll and rotation; quarters on the grid, freely
   otherwise, a quarter within 5 degrees taken), an area's faces size it,
   a light of a piece chosen has arrows along the model's own axes; the
   thing itself is dragged over the floor at its height. Beside it COPY,
@@ -165,8 +165,8 @@ facing = [0, -1]
   a box only for a light alone, a place or an area); ADD sets down on
   the face of the voxel met. The mark at a row's left (as the figure
   editor's parts have it) hides a thing in the editor only: not drawn,
-  not clicked, nothing written. A thing of a kind without a behaviour
-  rotates as a piece does (`facing` or `turn` in the file; a quarter
+  not clicked, nothing written. A thing of a kind without a behavior
+  rotates as a piece does (`facing` or `rotation` in the file; a quarter
   unless its kind turns freely), shows its kind under its name, and EDIT
   opens its kind's model. Keys as before (arrows nudge, Page Up and Down
   raise, T rotates, Delete removes, F2 names, Escape lets go and puts a
@@ -182,8 +182,9 @@ facing = [0, -1]
   own (text, `src/vvx.rs`; a `.vox` until 0.6.0, `voxcade upgrade` brings
   them over) of exactly N by N by N voxels, written at once
   through a hidden file beside it so a running game never reads half a
-  block. A cell lies its block in any of 48 turns: quarter turns about
-  the three axes, mirrored or not (`Turn`); Tiled's flips are among them.
+  block. A cell lies its block in any of 48 orientations (`orientation`
+  in the legend): quarter turns about the three axes, mirrored or not
+  (`blocks::Turn`); Tiled's flips are among them.
 - **Levels** (`src/grid.rs`, `c.world.blocks = { file, margin, below,
   backdrops }`): `levels/NAME.toml` (or `level.toml`; JSON until 0.6.0,
   `voxcade upgrade` brings it over) holds the block size, the grid's size

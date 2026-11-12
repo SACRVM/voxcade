@@ -209,8 +209,8 @@ mod tests {
         assert_eq!(spot, Some(IVec3::new(100, 98, 20)), "before the picture's front face (y 99)");
     }
 
-    /// A thing of a kind without a behaviour rotates as a piece does
-    /// (ROTATE 90° and its field write `facing`); one with a behaviour does
+    /// A thing of a kind without a behavior rotates as a piece does
+    /// (ROTATE 90° and its field write `facing`); one with a behavior does
     /// not; EDIT opens its kind's model.
     #[test]
     fn a_thing_of_a_kind_rotates_and_edits_its_model() {

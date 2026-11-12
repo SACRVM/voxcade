@@ -909,7 +909,7 @@ mod tests {
     fn a_step_whose_thing_is_gone_writes_nothing() {
         let (mut ed, dir) = room("gone-thing");
         ed.choose_item(ed.find("chair"));
-        let text = saved(&dir).replace("[[thing]]\nname = \"chair\"\nmodel = \"room/chair.vvx\"\nat = [60, 150, 0]\nturn = 45\n\n", "");
+        let text = saved(&dir).replace("[[thing]]\nname = \"chair\"\nmodel = \"room/chair.vvx\"\nat = [60, 150, 0]\nrotation = 45\n\n", "");
         assert_ne!(text, saved(&dir));
         outside(&dir, &text);
         ed.turn_item(1);

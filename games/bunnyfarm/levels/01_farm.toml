@@ -25,59 +25,59 @@ flowers_a = "decor"
 flowers_b = "decor"
 tufts = "decor"
 
-[legend]              # a sign is a block as it lies: its name, or the name and a turn (0 to 47)
-g = { block = "grass_b", turn = 3 }
-G = { block = "grass_a", turn = 1 }
+[legend]              # a sign is a block as it lies: its name, or the name and an orientation (0 to 47)
+g = { block = "grass_b", orientation = 3 }
+G = { block = "grass_a", orientation = 1 }
 r = "grass_b"
-R = { block = "grass_a", turn = 3 }
-a = { block = "grass_b", turn = 1 }
+R = { block = "grass_a", orientation = 3 }
+a = { block = "grass_b", orientation = 1 }
 A = "grass_a"
-s = { block = "grass_b", turn = 2 }
-S = { block = "grass_a", turn = 2 }
+s = { block = "grass_b", orientation = 2 }
+S = { block = "grass_a", orientation = 2 }
 y = "yard"
-p = { block = "path_end", turn = 18 }
-P = { block = "path_straight", turn = 17 }
+p = { block = "path_end", orientation = 18 }
+P = { block = "path_straight", orientation = 17 }
 t = "path_bend"
 T = "path_straight"
 h = "path_join"
-H = { block = "path_join", turn = 3 }
-b = { block = "path_bend", turn = 17 }
-f = { block = "fallow", turn = 1 }
+H = { block = "path_join", orientation = 3 }
+b = { block = "path_bend", orientation = 17 }
+f = { block = "fallow", orientation = 1 }
 F = "fallow"
-l = { block = "fallow", turn = 3 }
-L = { block = "fallow", turn = 2 }
+l = { block = "fallow", orientation = 3 }
+L = { block = "fallow", orientation = 2 }
 o = "soil"
-e = { block = "path_end", turn = 3 }
-O = { block = "pond_corner", turn = 18 }
-n = { block = "pond_side", turn = 3 }
-N = { block = "pond_corner", turn = 3 }
+e = { block = "path_end", orientation = 3 }
+O = { block = "pond_corner", orientation = 18 }
+n = { block = "pond_side", orientation = 3 }
+N = { block = "pond_corner", orientation = 3 }
 d = "pond_corner"
 D = "pond_side"
-c = { block = "pond_corner", turn = 17 }
-u = { block = "tufts", turn = 3 }
-w = { block = "flowers_a", turn = 1 }
-W = { block = "flowers_b", turn = 3 }
-E = { block = "flowers_a", turn = 2 }
-i = { block = "flowers_a", turn = 3 }
+c = { block = "pond_corner", orientation = 17 }
+u = { block = "tufts", orientation = 3 }
+w = { block = "flowers_a", orientation = 1 }
+W = { block = "flowers_b", orientation = 3 }
+E = { block = "flowers_a", orientation = 2 }
+i = { block = "flowers_a", orientation = 3 }
 U = "tufts"
-j = { block = "tufts", turn = 1 }
+j = { block = "tufts", orientation = 1 }
 B = "flowers_b"
 k = "flowers_a"
-m = { block = "tufts", turn = 2 }
-q = { block = "flowers_b", turn = 2 }
-v = { block = "flowers_b", turn = 1 }
-C = { block = "fence_corner", turn = 18 }
+m = { block = "tufts", orientation = 2 }
+q = { block = "flowers_b", orientation = 2 }
+v = { block = "flowers_b", orientation = 1 }
+C = { block = "fence_corner", orientation = 18 }
 I = "fence_straight"
-J = { block = "fence_join", turn = 3 }
-x = { block = "fence_corner", turn = 3 }
-z = { block = "fence_straight", turn = 17 }
-K = { block = "fence_join", turn = 18 }
-M = { block = "fence_end", turn = 3 }
+J = { block = "fence_join", orientation = 3 }
+x = { block = "fence_corner", orientation = 3 }
+z = { block = "fence_straight", orientation = 17 }
+K = { block = "fence_join", orientation = 18 }
+M = { block = "fence_end", orientation = 3 }
 Q = "fence_end"
 V = "fence_join"
-X = { block = "fence_join", turn = 17 }
+X = { block = "fence_join", orientation = 17 }
 Y = "fence_corner"
-Z = { block = "fence_corner", turn = 17 }
+Z = { block = "fence_corner", orientation = 17 }
 
 [cells]
 layers = """

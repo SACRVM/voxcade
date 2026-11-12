@@ -1,5 +1,5 @@
 # The shooter kit: weapons and kinds of things at the scale of figures
-# about 10 voxels tall (the behaviours' defaults: a soldier's or a
+# about 10 voxels tall (the behaviors' defaults: a soldier's or a
 # hostage's lengths and speeds left unset follow its model's height;
 # voxcade kinds GAME prints what is in effect), a library to copy into
 # a game's conf.lua (as c.weapons.NAME = { ... }, c.things.NAME = { ... }),
@@ -121,7 +121,7 @@ rocket = true
 sound = "rocket"
 
 [things.rifleman]
-behaviour = "soldier"   # walks about, wakes on sight or noise, keeps his distance, fires along the 8 ways
+behavior = "soldier"   # walks about, wakes on sight or noise, keeps his distance, fires along the 8 ways
 hp = 1
 team = "enemies"        # their rounds and blows hurt other teams, not their own
 weapon = "enemy_rifle"
@@ -151,7 +151,7 @@ weapon = "enemy_grenade"
 distance = 44
 
 [things.hut]
-behaviour = "spawner"   # sends its men while the player is near
+behavior = "spawner"   # sends its men while the player is near
 spawns = "rifleman"
 count = 2
 first = 60              # ticks
@@ -161,7 +161,7 @@ range = 120
 not_near = 0            # nobody comes out while he is nearer than this
 
 [things.hostage]
-behaviour = "captive"   # touched this near, freed by the code (state.freed), then runs off
+behavior = "captive"   # touched this near, freed by the code (state.freed), then runs off
 speed = 30
 accel = 399
 reach = 8
@@ -171,7 +171,7 @@ immune = ["round", "melee"]
 props = { worth = 500 }
 
 [things.gunship]
-behaviour = "gunship"
+behavior = "gunship"
 team = "enemies"
 immune = ["melee"]
 hp = 30
@@ -191,7 +191,7 @@ crash_damage = 6        # to those near where it crashes
 props = { worth = 5000 }
 
 [things.machine_gun]
-behaviour = "pickup"    # it lies there, touched by the player's hips within reach; the code gives
+behavior = "pickup"    # it lies there, touched by the player's hips within reach; the code gives
 frame = 0               # its model's frame
 reach = 5
 bob_ticks = 20          # it bobs up and down, this many ticks each way, by bob voxels
@@ -205,21 +205,21 @@ frame = 1
 props = { weapon = "rockets", ammo = 8, worth = 50 }
 
 [things.grenades]
-behaviour = "pickup"
+behavior = "pickup"
 frame = 2
 reach = 5
 family = "pickups"
 props = { grenades = 5, worth = 50 }
 
 [things.health]
-behaviour = "pickup"
+behavior = "pickup"
 frame = 3
 reach = 5
 family = "pickups"
 props = { heal = 2, worth = 50 }
 
-[things.checkpoint]     # no behaviour: a line the code moves the player's checkpoint past
+[things.checkpoint]     # no behavior: a line the code moves the player's checkpoint past
 
-[things.goal]           # no behaviour: touched within reach, the code wins
+[things.goal]           # no behavior: touched within reach, the code wins
 reach = 9
 props = { worth = 2000 }

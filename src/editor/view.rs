@@ -208,14 +208,14 @@ pub enum Face {
 
 /// The side the game shows of the model `file` (its path in the game
 /// folder) as a run starts: of a block its front as it lies; of a figure
-/// (a kind with it whose behaviour walks or flies) the side it looks to,
+/// (a kind with it whose behavior walks or flies) the side it looks to,
 /// the hero right, the others left; else its front.
 pub fn face_of(file: &str, cfg: &GameConfig) -> Face {
     if file.starts_with(&format!("{}/", crate::blocks::FOLDER)) {
         return Face::Block;
     }
-    let behaviour = cfg.things.values().filter(|t| t.get("model").and_then(|m| m.as_str()) == Some(file)).find_map(|t| t.get("behaviour").and_then(|b| b.as_str()));
-    match behaviour {
+    let behavior = cfg.things.values().filter(|t| t.get("model").and_then(|m| m.as_str()) == Some(file)).find_map(|t| t.get("behavior").and_then(|b| b.as_str()));
+    match behavior {
         Some("hero") => Face::Right,
         Some(b) if SIDEWAYS.contains(&b) => Face::Left,
         _ => Face::Front,
@@ -610,7 +610,7 @@ fn turned_to(way: crate::grid::Way, l: IVec3) -> IVec3 {
     }
 }
 
-/// Behaviours whose things go about seen from the side.
+/// Behaviors whose things go about seen from the side.
 const SIDEWAYS: [&str; 4] = ["hero", "walker", "hopper", "flyer"];
 /// A kind without a model.
 const MARKER: [u8; 3] = [150, 200, 240];
@@ -619,8 +619,8 @@ impl Figures {
     pub fn load(dir: &Path, cfg: &GameConfig) -> Self {
         let mut figures = BTreeMap::new();
         for (kind, table) in &cfg.things {
-            let behaviour = table.get("behaviour").and_then(|b| b.as_str());
-            let sideways = behaviour.is_some_and(|b| SIDEWAYS.contains(&b));
+            let behavior = table.get("behavior").and_then(|b| b.as_str());
+            let sideways = behavior.is_some_and(|b| SIDEWAYS.contains(&b));
             let number = |key: &str| table.get(key).and_then(|v| v.as_float().or(v.as_integer().map(|i| i as f64)));
             let model = table.get("model").and_then(|m| m.as_str()).and_then(|file| crate::vox::load_model(&dir.join(file)).ok());
             // Facing each way as a level's file may turn it (its forward
@@ -649,7 +649,7 @@ impl Figures {
                             // to the right, the other figures to the left,
                             // anything else to the camera.
                             let l = p - pivot;
-                            let l = match (sideways, behaviour) {
+                            let l = match (sideways, behavior) {
                                 (true, Some("hero")) => IVec3::new(l.y, -l.x, l.z),
                                 (true, _) => IVec3::new(-l.y, l.x, l.z),
                                 _ => IVec3::new(-l.x, -l.y, l.z),
@@ -1950,11 +1950,11 @@ mod tests {
     #[test]
     fn a_model_is_seen_as_the_game_shows_it() {
         let mut cfg = GameConfig::default();
-        cfg.things.insert("fox".into(), toml::toml! { behaviour = "hero"
+        cfg.things.insert("fox".into(), toml::toml! { behavior = "hero"
         model = "fox.vox" });
-        cfg.things.insert("sign".into(), toml::toml! { behaviour = "prop"
+        cfg.things.insert("sign".into(), toml::toml! { behavior = "prop"
         model = "sign.vox" });
-        cfg.things.insert("bat".into(), toml::toml! { behaviour = "flyer"
+        cfg.things.insert("bat".into(), toml::toml! { behavior = "flyer"
         model = "bat.vox" });
         let faces = ["fox.vox", "bat.vox", "sign.vox", "other.vox", "blocks/27.vox"].map(|f| face_of(f, &cfg));
         assert_eq!(faces, [Face::Right, Face::Left, Face::Front, Face::Front, Face::Block]);

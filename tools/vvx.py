@@ -350,8 +350,9 @@ def _level_order(size, front):
 
 def read_level(path):
     """A level of blocks as {"block", "size", "view", "blocks": [(name,
-    kind)], "legend": {sign: (name, turn)} in the file's order, "cells":
-    {(x, y, z): (block number from 1, turn)}, "things", "places"}."""
+    kind)], "legend": {sign: (name, orientation)} in the file's order,
+    "cells": {(x, y, z): (block number from 1, orientation)}, "things",
+    "places"}."""
     with open(path, "rb") as f:
         data = tomllib.load(f)
     if data.get("format") != LEVEL_FORMAT:
@@ -360,7 +361,7 @@ def read_level(path):
     names = [n for n, _ in blocks]
     legend = {}
     for sign, e in data.get("legend", {}).items():
-        legend[sign] = (e, 0) if isinstance(e, str) else (e["block"], e.get("turn", 0))
+        legend[sign] = (e, 0) if isinstance(e, str) else (e["block"], e.get("orientation", 0))
     width = len(next(iter(legend), "a"))
     view = data.get("view", "above")
     order = _level_order(data["size"], view == "front")
@@ -383,8 +384,8 @@ def read_level(path):
             for x, p in enumerate(ps):
                 sign = row[x * width:(x + 1) * width]
                 if sign.strip("."):
-                    name, turn = legend[sign]
-                    cells[p] = (names.index(name) + 1, turn)
+                    name, orientation = legend[sign]
+                    cells[p] = (names.index(name) + 1, orientation)
     return {"block": data["block"], "size": data["size"], "view": view, "blocks": blocks, "legend": legend, "cells": cells,
             "things": data.get("thing", []), "places": data.get("place", [])}
 
@@ -392,11 +393,12 @@ def read_level(path):
 def write_level(path, block, size, blocks, cells, things=(), places=(), kept=None, view=None):
     """A level of voxel blocks: `block` voxels each way, `size` cells (x
     across, y deep from the front, z up), `blocks` [(name, kind)],
-    `cells` {(x, y, z): (block number from 1, turn)}, `things` [{"kind",
-    "at"}], `places` [{"name", "at", "facing"?}]. As the editor writes it:
-    the signs of `kept` ({sign: (name, turn)}, a level read) and its `view`
-    kept; a new one seen from the front when taller than deep, else from
-    above; a new sign a pair of block and turn, its name's letters first."""
+    `cells` {(x, y, z): (block number from 1, orientation)}, `things`
+    [{"kind", "at"}], `places` [{"name", "at", "facing"?}]. As the editor
+    writes it: the signs of `kept` ({sign: (name, orientation)}, a level
+    read) and its `view` kept; a new one seen from the front when taller
+    than deep, else from above; a new sign a pair of block and
+    orientation, its name's letters first."""
     sx, sy, sz = size
     front = view == "front" if view else sz > sy
     order = _level_order(size, front)
@@ -409,9 +411,9 @@ def write_level(path, block, size, blocks, cells, things=(), places=(), kept=Non
                     pairs.append(c)
     width = 1 if len(pairs) <= len(SIGNS) else 2
     taken, sign_of, legend = [], {}, []
-    for sign, (name, turn) in (kept or {}).items():
+    for sign, (name, orientation) in (kept or {}).items():
         taken.append(sign)
-        c = next((c for c in pairs if blocks[c[0] - 1][0] == name and c[1] == turn), None)
+        c = next((c for c in pairs if blocks[c[0] - 1][0] == name and c[1] == orientation), None)
         if len(sign) == width and c and c not in sign_of:
             sign_of[c] = sign
             legend.append(c)
@@ -436,10 +438,10 @@ def write_level(path, block, size, blocks, cells, things=(), places=(), kept=Non
         text += 'view = "above"        # each layer the grid seen from above, the bottom layer first, its far row first\n'
     text += "\n[blocks]              # blocks/NAME.vvx, each what it is to the game\n"
     text += "".join(f'{key(n)} = "{k}"\n' for n, k in blocks)
-    text += "\n[legend]              # a sign is a block as it lies: its name, or the name and a turn (0 to 47)\n"
+    text += "\n[legend]              # a sign is a block as it lies: its name, or the name and an orientation (0 to 47)\n"
     for c in legend:
         name = blocks[c[0] - 1][0]
-        text += f'{sign_of[c]} = "{name}"\n' if c[1] == 0 else f'{sign_of[c]} = {{ block = "{name}", turn = {c[1]} }}\n'
+        text += f'{sign_of[c]} = "{name}"\n' if c[1] == 0 else f'{sign_of[c]} = {{ block = "{name}", orientation = {c[1]} }}\n'
     dots = "." * width
 
     def runs(items):
@@ -494,8 +496,9 @@ def read_map(path):
 def write_map(path, size, ground, prefabs, put, places=()):
     """A map: `size` voxels, `ground` {"height", "material"?, "bedrock"?,
     "materials": [{"key"?, "surface", "depth", ...}]}, `prefabs` {name:
-    file or {"file", "soft"}}, `put` [{"prefab" or "thing", "at", "turn"?}]
-    in order, `places` [{"name", "at", "facing"?}]."""
+    file or {"file", "soft"}}, `put` [{"prefab" or "thing", "at",
+    "rotation"?}] in order (rotation: degrees clockwise seen from above, in
+    quarter turns), `places` [{"name", "at", "facing"?}]."""
     q = lambda s: '"%s"' % s
     lst = lambda xs: "[" + ", ".join(q(x) for x in xs) + "]"
     num = lambda v: ("%d" % v) if float(v).is_integer() else repr(float(v))
@@ -525,13 +528,13 @@ def write_map(path, size, ground, prefabs, put, places=()):
             text += f"{name} = {{ file = {q(p['file'])}, soft = true }}\n"
         else:
             text += f"{name} = {q(p['file'] if isinstance(p, dict) else p)}\n"
-    text += "\n# What stands on the map, in order: a prefab (turn: quarter turns\n# anticlockwise) or a thing of a kind; at x, y on the ground, or x, y, z.\n"
+    text += "\n# What stands on the map, in order: a prefab (rotation: degrees clockwise\n# seen from above, in quarter turns) or a thing of a kind; at x, y on the\n# ground, or x, y, z.\n"
     for e in put:
         text += "[[put]]\n"
         text += f"prefab = {q(e['prefab'])}\n" if "prefab" in e else f"thing = {q(e['thing'])}\n"
         text += "at = [" + ", ".join(str(v) for v in e["at"]) + "]\n"
-        if e.get("turn"):
-            text += f"turn = {e['turn']}\n"
+        if e.get("rotation", 0) % 360:
+            text += f"rotation = {e['rotation'] % 360}\n"
         text += "\n"
     for p in places:
         text += '[[place]]\nname = "%s"\nat = [%d, %d, %d]\n' % (p["name"], *p["at"])

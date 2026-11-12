@@ -81,12 +81,12 @@ function conf(c)
   c.player.jump = 17
   c.player.muzzle = { 7.5, 12.5 }   -- where shots leave the gun: ahead of the feet, above them
 
-  -- The players' figures: no behaviour, their keys move them.
+  -- The players' figures: no behavior, their keys move them.
   c.things.hero = { model = "player.vvx" }
   c.things.hero2 = { like = "hero", model = "player2.vvx" }   -- the second, in blue
 
   c.things.rifleman = {
-    behaviour = "soldier",          -- walks about, wakes on sight or noise, fires along the 8 ways
+    behavior = "soldier",          -- walks about, wakes on sight or noise, fires along the 8 ways
     model = "enemy.vvx",
     hp = 2,
     team = "enemies",               -- their rounds hurt other teams, not their own

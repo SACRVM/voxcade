@@ -820,7 +820,7 @@ impl Editor {
                     _ => {
                         h = make(at + Vec3::new(0.5, 0.5, 0.0));
                         h.arrows = world;
-                        // A thing of a kind without a behaviour turns round.
+                        // A thing of a kind without a behavior turns round.
                         if self.kind_turns(t) {
                             h.rings[2] = Some(Vec3::Z);
                         }
@@ -1095,7 +1095,7 @@ impl Editor {
     }
 
     /// Whether a thing of a kind faces as the level's file turns it: a
-    /// kind without a behaviour (one with turns by its ready-made rules).
+    /// kind without a behavior (one with turns by its ready-made rules).
     pub fn kind_turns(&self, t: &Thing) -> bool {
         !t.is_piece() && self.still_kinds.contains(&t.kind)
     }
@@ -1335,7 +1335,7 @@ mod tests {
         ed.free_turns = true;
         ed.set_field(Field::Turn, 100.0);
         assert_eq!(ed.level.things[0].facing, Some(Facing::Turn(100.0)));
-        assert!(saved(&dir).contains("at = [40, 150, 0]\nturn = 100\n"), "{}", saved(&dir));
+        assert!(saved(&dir).contains("at = [40, 150, 0]\nrotation = 100\n"), "{}", saved(&dir));
         ed.turn_item(1);
         assert_eq!(ed.level.things[0].facing, Some(Facing::Turn(190.0)), "a quarter on, off the grid still");
         ed.set_field(Field::Turn, 268.0);

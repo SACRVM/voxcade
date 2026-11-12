@@ -62,8 +62,8 @@ game by hand.
 - **On the grid, or turned freely.** Models are never scaled: every
   voxel the same size. They stand in quarter turns unless the game turns
   them freely (the user's decision: turning is the quick way to motion):
-  `frame:model`'s turn (`{ roll = 20 }`: a ship banking with its speed
-  across, a spin on a kill, a wreck tumbling) and a kind's `turns =
+  `frame:model`'s rotation (`{ roll = 20 }`: a ship banking with its speed
+  across, a spin on a kill, a wreck tumbling) and a kind's `rotates =
   "free"` (facing exactly its way). Squash and stretch, anticipation,
   impact poses and landing crouches are frames drawn by hand into the
   model (the fox's crouch and jump frames), chosen by state.
@@ -75,7 +75,7 @@ game by hand.
   shifts) change how replays play: the change is then meant, the replays
   are recorded anew with `voxcade check --update`, and the reply says so
   (the voxcade-verify skill). `c.effects.hitstop` is part of the replays'
-  fingerprint. A new number a behaviour reads goes into the kit's rules
+  fingerprint. A new number a behavior reads goes into the kit's rules
   (`kinds.rs`, `kit.toml`), with the test that keeps the two the same.
 - **The player's switches.** SHAKE and FLASHES in the settings turn those
   off (motion sickness, flashing lights). Shake through `sim.shake` and

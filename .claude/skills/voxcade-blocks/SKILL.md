@@ -57,7 +57,7 @@ were tried and rejected as fake 3D. So:
   picture; `"above"`: the bottom layer first, its far row first, a farm
   as its map), `[blocks]` (name = kind, in the editor's order),
   `[legend]` (a sign a block as it lies: `s = "stone"`, turned `S = {
-  block = "stone", turn = 17 }`, turn 0..47), `[cells]` with `layers`
+  block = "stone", orientation = 17 }`, orientation 0..47), `[cells]` with `layers`
   (rows of signs, `.` empty, ` *N` and `*N` repeats as in a `.vvx`),
   `[[thing]]` (`kind`, `at = [x, y, z]` in voxels from the grid's low
   corner, y = N/2 the middle of the front row), `[[place]]` (`name`,

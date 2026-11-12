@@ -121,9 +121,9 @@ pub trait Game: Sized + 'static {
         Vec::new()
     }
 
-    /// The behaviours its kinds of things may have (`[things.NAME]
-    /// behaviour`; markers place the things by their kind's name).
-    fn behaviours(_cfg: &GameConfig) -> Vec<&'static str> {
+    /// The behaviors its kinds of things may have (`[things.NAME]
+    /// behavior`; markers place the things by their kind's name).
+    fn behaviors(_cfg: &GameConfig) -> Vec<&'static str> {
         Vec::new()
     }
 

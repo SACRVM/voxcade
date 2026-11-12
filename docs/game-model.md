@@ -89,8 +89,8 @@ ready-made goals' `wins = false` (gone in stage 7, goals are the code's); `goal_
 gone, More Blood wins in its `main.lua` (its replays recorded anew with
 `--update`: the same play, the kit's state the same at every second, the
 script's counter now in the hash). After the run's end the script hears
-nothing more. Not yet: the lists of behaviours (stage 8: `thing:enable`
-switches the one behaviour a kind has since stage D), a death show
+nothing more. Not yet: the lists of behaviors (stage 8: `thing:enable`
+switches the one behavior a kind has since stage D), a death show
 playing on under a hold, `thing.state.invulnerable` for things other
 than the player.
 
@@ -281,17 +281,17 @@ engine's own kind `"piece"` (last among the kinds, so the game's keep
 their places; a game's own kind may not take the name), fixed where the
 file puts its pivot, drawn by the engine, its model any `.vvx` of the
 game the level names (part of the fingerprint as a level file is).
-`facing` names one of the four ways; `turn` (a bearing, clockwise from
-north) needs `c.camera.turns = "free"`, the game's choice for every
+`facing` names one of the four ways; `rotation` (a bearing, clockwise
+from north) needs `c.camera.rotates = "free"`, the game's choice for every
 level and the editor's, else the level does not load and the mistake
 names each thing turned off the grid and both ways out (allow free turns,
 or align them in the editor: `grid::text::align`, a tie going clockwise).
-A thing of a kind takes `facing` or `turn` too (2026-11-12): it starts
+A thing of a kind takes `facing` or `rotation` too (2026-11-12): it starts
 facing that way, as `level:spawn`'s `facing` turns it (`thing:face`;
 `lua::host::Stage::name_things` turns each thing the file turns, its
-kind's markers in order). Only a kind without a behaviour, which the
-script moves: one with a behaviour turns by its ready-made rules, and
-its level does not load (`check_facings`). A kind with `turns = "free"`
+kind's markers in order). Only a kind without a behavior, which the
+script moves: one with a behavior turns by its ready-made rules, and
+its level does not load (`check_facings`). A kind with `rotates = "free"`
 faces the bearing exactly, any other the nearest of the four ways;
 `pitch` and `roll` stay the pieces'.
 A piece's `at` is its pivot cell (the model's cell `size / 2` across and
@@ -300,18 +300,18 @@ read `at + 0.5`, the middle of that cell (the grid's low corner added):
 a cube put relative to a piece goes at `math.floor(thing.x) + dx`.
 A piece may be tipped besides (2026-11-12): `pitch` (its nose up, about
 its own right side) and `roll` (its right side down, about its own
-forward), degrees, the words and the order `frame:model`'s turn has
-(`session::turning`): the rotation is `Rz(-turn) · Rx(pitch) ·
-Ry(roll)`, roll taken first, then pitch, then the turn round, so `turn`
-(or `facing`) stays the bearing seen from above whatever the other two,
+forward), degrees, the words and the order `frame:model`'s rotation has
+(`session::turning`): the rotation is `Rz(-rotation) · Rx(pitch) ·
+Ry(roll)`, roll taken first, then pitch, then the rotation round, so
+`rotation` (or `facing`) stays the bearing seen from above whatever the other two,
 and a piece is drawn exactly as `frame:model` draws a thing facing north
-with `{ turn = turn, pitch = pitch, roll = roll }`. All three turn about
+with `{ rotation = rotation, pitch = pitch, roll = roll }`. All three turn about
 the same point, the middle of the voxel at half the model's height over
 the pivot cell (`render::turn_centre`: a model 30 tall turns about 15.5
 up, one 21 tall about 10.5): a voxel's middle, so a quarter turn about
 any axis puts every voxel on the grid again. Written only when not 0, on
 the grid only 0, 90, 180 or 270 each (the level names a piece off them,
-as it does a `turn`; ALIGN ALL takes the nearest quarter, a 0 taking its
+as it does a `rotation`; ALIGN ALL takes the nearest quarter, a 0 taking its
 line out). A solid piece may lie any of the 24 ways a box can; its cells
 are exactly where it is drawn (`session::piece_cells`, test
 `a_solid_piece_turned_any_way_is_where_it_is_drawn`). Laid down, a piece
@@ -459,7 +459,7 @@ level starts before `on_level_start` and moved like any thing the script
 moves (`player:walk`). A game without a figure for the player (Sokovox)
 still has `player`, for its state and score, standing nowhere: reading
 where it stands is a mistake that says so. Abilities gained in play (a double jump, more speed, a key's
-door) are keys in `player.state`, read by the behaviours, never global
+door) are keys in `player.state`, read by the behaviors, never global
 settings. Several players: `player` is seat 1, the others are in
 `world.players` ("Several players" below: a design, not built yet).
 
@@ -473,10 +473,10 @@ settings. Several players: `player` is seat 1, the others are in
 | `thing.state` | its state, as long as it lives |
 | `thing.props` | what the level editor set on this one thing (a door's `to` and `at`), typed and defaulted by its kind; read-only |
 | `thing.x`, `.y`, `.z`, `.on_ground`, `.facing`, `.wall` | its body, read-only: the physics' (`wall`: the way to a wall right beside it, or nil) |
-| `thing:walk(way, speed)`, `:face(way)`, `:jump(height)`, `:place(x, y, z?)` or `:place(place)` | moving things the script moves: kinds without behaviours, and things whose behaviours are all switched off; placed at a place, a thing faces its facing |
+| `thing:walk(way, speed)`, `:face(way)`, `:jump(height)`, `:place(x, y, z?)` or `:place(place)` | moving things the script moves: kinds without behaviors, and things whose behaviors are all switched off; placed at a place, a thing faces its facing |
 | `thing:launch(way, speed, rise?)` | sets it moving, standing or not (a dash, a wall jump, a knockback): the script's things, those switched off, and the figures of ready-made rules, which steer on from there |
 | `thing:near(other, distance)`, `thing:ahead(distance)` | asking |
-| `thing:enable(behaviour, on)` | a behaviour switched on or off for this one thing, until it leaves its level (the player: until the next level is entered) |
+| `thing:enable(behavior, on)` | a behavior switched on or off for this one thing, until it leaves its level (the player: until the next level is entered) |
 | `thing:remove()` | it goes at the tick's end (still readable until then); events that already happened this tick are still delivered, no new ones come |
 
 ### `input`, `controls`, `screen`, `music`, and `on_draw`'s `frame`
@@ -521,8 +521,8 @@ settings. Several players: `player` is seat 1, the others are in
   `frame:cube`, `frame:model`, `frame:light`). An action in braces in a
   text is its key as the player sees it (`"PRESS {jump}"`, as
   `controls:key`), `{{` a brace.
-  `frame:model` turns a model further (`turn`) and poses a figure of
-  parts (`pose`: each part by its name, a turn about its joint): only the
+  `frame:model` rotates a model further (`rotation`) and poses a figure
+  of parts (`pose`: each part by its name, a rotation about its joint): only the
   picture, decided anew each frame from the states, as a kind's `swing`
   (parts swinging with its steps) is decided from its body.
   `frame:model` of a file the game does not know (no kind's `model`, no
@@ -535,8 +535,8 @@ settings. Several players: `player` is seat 1, the others are in
   the pivot) the pivot lies one cell off the middle, so a turn that flips
   an axis (facing -y flips both ways, facing +x or -x one) fills the
   cells one voxel higher on it (-1 to 2): facing -y a 4 by 4 model lies
-  one voxel up and to the right of facing +y. Free turns (`turns =
-  "free"`, `turn`) land on the same cells. To keep an even model in one
+  one voxel up and to the right of facing +y. Free turns (`rotates =
+  "free"`, `rotation`) land on the same cells. To keep an even model in one
   place whichever way it faces, give it an odd size, or place it by its
   middle and allow the voxel. So where a model lies in the world (its low
   corner `lo`) and its pivot cell (`at`, a piece's) differ by the way it
@@ -554,7 +554,7 @@ settings. Several players: `player` is seat 1, the others are in
   | west | x 10, y 8 to 11 |
 
   (pinned by `an_even_sized_model_shifts_a_voxel_when_it_turns`). Turned
-  freely (`frame:model`'s turn, a piece's `turn`, `pitch`, `roll`) a
+  freely (`frame:model`'s rotation, a piece's `rotation`, `pitch`, `roll`) a
   model turns about the middle of the voxel at half its height over the
   pivot cell (`render::turn_centre`, z `size.z / 2 + 0.5`, halves
   rounded down; until 2026-11-12 half its height exactly, which put an
@@ -691,7 +691,7 @@ fade out ─► on_level_end(why) ─► on_world_end(result) ─► high scores
 ### Inside a level
 
 Every tick, in order (detailed under "A tick, in order"): input, the
-ready-made behaviours, their events to the script, `on_tick`, the tick's
+ready-made behaviors, their events to the script, `on_tick`, the tick's
 end. `on_draw` runs for every picture and only looks.
 
 ### Leaving a level
@@ -798,10 +798,10 @@ Three ways to stop things, none of them a stack of scenes:
 | Hold | What stops | What runs | For |
 |---|---|---|---|
 | The engine's pause (Escape) | everything: no ticks | the pause menu; nothing is called on return | pausing |
-| `level.state.held = true` | the ready-made behaviours, physics, touches, timers of the level; a dying thing's death show plays on | `on_tick`, `on_draw`, `input`; `world.tick` counts | dialogue, an inventory, a shop, a tally, a continue screen, a death animation, an RPG's battle over the map |
+| `level.state.held = true` | the ready-made behaviors, physics, touches, timers of the level; a dying thing's death show plays on | `on_tick`, `on_draw`, `input`; `world.tick` counts | dialogue, an inventory, a shop, a tally, a continue screen, a death animation, an RPG's battle over the map |
 | `world:hitstop(ticks)` | everything, `on_tick` too, a second at most | the picture | the punch of a hit |
 
-`thing:enable(behaviour, false)` stops one thing's rules (the player's
+`thing:enable(behavior, false)` stops one thing's rules (the player's
 during an end walk, while the world runs on), and a thing whose rules are
 all off is moved by the script. A hold and the switches belong to the
 visit: the next level starts without them. An overlay's own keys are the
@@ -919,7 +919,7 @@ numbers that follow a state (enemies faster on the second loop).
 
 1. Input is read (with several players each seat's, and the seats
    taken and left this tick).
-2. The ready-made behaviours run, kind by kind in their list's order
+2. The ready-made behaviors run, kind by kind in their list's order
    (not while the level is held).
 3. The events go to the script, every one, none dropped: first seats
    taken and left (`on_player_join`, `on_player_leave`, under a hold too);
@@ -964,7 +964,7 @@ touches there touches without `on_touch`.
 - **What a level file is.** As the game's `c.world` says: a level of
   voxel blocks (`c.world.blocks`: margin, backdrops for every level), a
   map, or a world (`.vvx`, `crate::scene`).
-- **Settings per level** (its title, its music, the player's behaviour
+- **Settings per level** (its title, its music, the player's behavior
   in it: a top-down overworld with jump & run dungeons, GB Studio's proven
   cross) live in the level file, set in the level editor.
 - **Places.** A level holds named places, each with a facing if it
@@ -1007,12 +1007,12 @@ touches there touches without `on_touch`.
   not in `c.items`, or counting outside 0 to its stack, stops the game at
   the end of the tick, naming the key.
 
-## Kinds, behaviours and families
+## Kinds, behaviors and families
 
-- **Behaviours are a list per kind**, run in that order:
-  `c.things.thug = { behaviours = { "brawler", "flash" }, … }`. They come
+- **Behaviors are a list per kind**, run in that order:
+  `c.things.thug = { behaviors = { "brawler", "flash" }, … }`. They come
   from any of the engine's sets (jump & run, shooter, later a brawler's,
-  an adventure's); `c.kit` goes. Each behaviour's numbers are the kind's,
+  an adventure's); `c.kit` goes. Each behavior's numbers are the kind's,
   overridden per placed thing by its props. `thing:enable(name, on)`
   switches one off for one thing.
 - **Families** group kinds: `c.things.thug = { family = { "enemies" } }`.
@@ -1023,8 +1023,8 @@ touches there touches without `on_touch`.
   exactly where it is spawned or placed (`level:spawn(..., { z = 12 })`,
   `thing:place`): no gravity, no landing on voxels, `thing:walk`, `push`
   and `jump` move nothing. For kinds the script moves, so the ones
-  without a behaviour (and the same in a game with a kit); on a kind with
-  a behaviour it is a mistake, for its ready-made rules move it.
+  without a behavior (and the same in a game with a kit); on a kind with
+  a behavior it is a mistake, for its ready-made rules move it.
 - **`like = "other"`** builds a kind on another, as today.
 - **Props are declared** with their type and default:
   `c.things.door = { props = { to = "level", at = "place", locked = false } }`.
@@ -1421,14 +1421,14 @@ picture's, `frame.players`, a character select through `p.state.kind`.
 
 - **A Mario-like jump & run:** levels `01_meadow` … in `levels/`.
   `on_touch(player, flag)`: `level.state.clear = 0`, the player's hero
-  behaviour off; `on_tick` walks the player to the castle, counts the time
+  behavior off; `on_tick` walks the player to the castle, counts the time
   into `player.state.score`, then `world:go_to(level.next)` or, after the
   last, `world:win()`. Checkpoints set `player.state.checkpoint`;
   `on_death(player)`: hold the level, a counter, then
   `world:restart(player.state.checkpoint)` or `world:lose()` with no lives
   left.
 - **A jump & run RPG** (Voxkeep grown): zones are levels, the overworld
-  top-down (the player's behaviour set in that level's file), dungeons
+  top-down (the player's behavior set in that level's file), dungeons
   jump & run. Doors carry `to` and `at`; `on_touch` sends the player
   through. The hero has `player.state.hp`, an inventory (keys, potions)
   and abilities (`player.state.double_jump`); a locked door checks
@@ -1437,7 +1437,7 @@ picture's, `frame.players`, a character select through `p.state.kind`.
 - **Zak McKracken meets Double Dragon:** rooms are levels; items in the
   inventory; `on_interact` for talking and opening, `on_use(user, item,
   target)` for "use key on door" (later; with a pointer for
-  point-and-click); thugs `behaviours = { "brawler" }` in the family
+  point-and-click); thugs `behaviors = { "brawler" }` in the family
   `enemies`, `on_hit` and `on_death` for the fights; `world.state` for the
   story so far; save games on.
 - **Sokovox:** one level made in code; `world.state.puzzle` says which;
@@ -1491,15 +1491,15 @@ Shovel Knight, Super Meat Boy).
 | A player arriving on a door trigger fires it at once | GB Studio; RPG Maker fires touches only after a step | contacts at arrival count as touching |
 | Checkpoints live past a death but not past the next level | Celeste 2, Mari0, Shovel Knight, Unity's 3D Game Kit | `player.state.checkpoint`, a place name the engine forgets on the next level; `world:restart()` goes there |
 | Lives are optional; instant retry is first class | Super Meat Boy, Celeste, Shovel Knight; Mari0 sets lives per map pack | lives are the game's, in `player.state` |
-| Overlays as a scene stack rebuild or lose the world behind them | GB Studio (the stack reloads the scene), Hawkthorne (enter runs again), RPG Maker (works only because its state lives apart) | no stack: the engine's pause, a level hold, behaviour switches |
+| Overlays as a scene stack rebuild or lose the world behind them | GB Studio (the stack reloads the scene), Hawkthorne (enter runs again), RPG Maker (works only because its state lives apart) | no stack: the engine's pause, a level hold, behavior switches |
 | A hold that stops the world but not the overlay's code is the common need | Godot (process modes), HaxeFlixel (sub-states), GB Studio (pause logic), AGS (`PauseGame`), Unity (Chop Chop's states) | `level.state.held` |
 | Time scales and timers that run on under a pause, or a pause that leaks into the next scene | Unity (`timeScale`), Godot (timers), HaxeFlixel (global tweens), Construct (the player can still fire) | the hold stops the rules, not the script; it belongs to the visit |
 | A key held across a level change counted as a new press loops restarts | HaxeFlixel (issue 2270) | held keys stay held, no new press |
 | Blocking scripts cannot be saved or replayed | AGS, GB Studio, RPG Maker | sequences as data in states |
 | `on_death` fired when a level unloads | Construct (`isEndingLayout`) | only for deaths, once |
 | Saves as memory dumps or project hashes break on every update | GB Studio, AGS, GameMaker (`game_save` deprecated), RPG Maker | saves are states by name, a version, defaults and `on_save_loaded` |
-| Mixable behaviours per object type, in list order, switchable per instance; families | Construct | behaviour lists, `thing:enable`, families |
-| A player controller per scene is a proven cross | GB Studio | the player's behaviour per level, in the level file |
+| Mixable behaviors per object type, in list order, switchable per instance; families | Construct | behavior lists, `thing:enable`, families |
+| A player controller per scene is a proven cross | GB Studio | the player's behavior per level, in the level file |
 | Global tuning for abilities leaks between scenes and is not saved | GB Studio (engine fields) | abilities in `player.state` |
 | Typed per-instance variables shown in the editor | GameMaker (Variable Definitions), Godot (`@export`) | declared props |
 | Autoload or global sprawl | Godot | five globals, nothing more |
@@ -1540,7 +1540,7 @@ Team Meat's design writing.
 | `thing.hp` | `thing.state.hp` |
 | `thing.look` | `thing.facing` |
 | `out:…` | `frame:…`; `out:key`, `out.device`: `controls:key`, `controls.device` (everywhere), or the action in braces in `frame:text` |
-| `c.kit = "platformer"`, `behaviour = "walker"` | `behaviours = { "walker" }` (the kit implied by the behaviours) |
+| `c.kit = "platformer"`, `behavior = "walker"` | `behaviors = { "walker" }` (the kit implied by the behaviors) |
 
 The ready-made rules' score, lives and hit points (the platformer's
 hearts) came into `player.state` and `thing.state` in stage 2 without

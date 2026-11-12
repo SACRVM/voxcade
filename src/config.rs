@@ -41,7 +41,7 @@ pub struct GameConfig {
     pub sounds: BTreeMap<String, GameSound>,
     pub markers: MarkersConfig,
     /// The kinds of things the game has (`[things.NAME]`): each names its
-    /// behaviour (the game's), may build on another (`like = "other"`) and
+    /// behavior (the game's), may build on another (`like = "other"`) and
     /// says what differs; markers place them by name (`sim::things::defs`).
     pub things: BTreeMap<String, toml::Table>,
     /// The building kit a Lua game plays with (`"shooter"`), if any.
@@ -148,7 +148,7 @@ pub const MOST_PLAYERS: u32 = 16;
 /// or one for each seat in turn, the last for the seats after it. Ready-
 /// made rules bring their own player in a game of one; in a game of
 /// several the jump & run's heroes are of these kinds, and the shooter's
-/// soldiers (kinds without behaviour: their keys move them).
+/// soldiers (kinds without behavior: their keys move them).
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 #[serde(untagged)]
 pub enum SeatKinds {
@@ -509,15 +509,32 @@ impl Default for TitleScreenConfig {
     }
 }
 
-/// A model placed in the title scene, on the ground at `at`, turned
-/// `turn` quarters anticlockwise.
+/// A model placed in the title scene, on the ground at `at`, rotated
+/// `rotation` degrees clockwise seen from above (as a level's thing's), in
+/// quarter turns.
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct PropConfig {
     pub model: String,
     pub at: [f32; 2],
-    #[serde(default)]
-    pub turn: i32,
+    #[serde(default, deserialize_with = "quarter_degrees")]
+    pub rotation: i32,
+}
+
+impl PropConfig {
+    /// The way its model looks: its rotation as a quarter turn.
+    pub fn look(&self) -> glam::IVec2 {
+        [glam::IVec2::Y, glam::IVec2::X, glam::IVec2::NEG_Y, glam::IVec2::NEG_X][(self.rotation / 90).rem_euclid(4) as usize]
+    }
+}
+
+/// Degrees in quarter turns: 0, 90, 180, 270 (or another multiple of 90).
+fn quarter_degrees<'de, D: serde::Deserializer<'de>>(d: D) -> Result<i32, D::Error> {
+    let degrees = i32::deserialize(d)?;
+    if degrees % 90 != 0 {
+        return Err(serde::de::Error::custom(format!("rotation = {degrees}: a title's prop stands in quarter turns, 0, 90, 180 or 270 degrees")));
+    }
+    Ok(degrees)
 }
 
 /// Palette indices that placed things instead of voxels in a world or a
@@ -593,18 +610,18 @@ pub struct CameraConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hold: Option<Vec<f32>>,
     /// How the game sets things down: on the grid in quarter turns (the
-    /// default), or turned freely (`turns = "free"`: a level's pieces at
-    /// any bearing, `turn = 30`). The game's choice for every level, and
+    /// default), or rotated freely (`rotates = "free"`: a level's pieces at
+    /// any bearing, `rotation = 30`). The game's choice for every level, and
     /// what the level editor offers; a level turned off the quarter turns
     /// in a game on the grid does not load.
-    #[serde(skip_serializing_if = "Turns::is_quarter")]
-    pub turns: Turns,
+    #[serde(skip_serializing_if = "Rotates::is_quarter")]
+    pub rotates: Rotates,
 }
 
-/// How a game sets things down (`c.camera.turns`).
+/// How a game sets things down (`c.camera.rotates`).
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-pub enum Turns {
+pub enum Rotates {
     /// On the grid: the four ways, in quarter turns.
     #[default]
     Quarter,
@@ -612,15 +629,15 @@ pub enum Turns {
     Free,
 }
 
-impl Turns {
+impl Rotates {
     fn is_quarter(&self) -> bool {
-        *self == Turns::Quarter
+        *self == Rotates::Quarter
     }
 }
 
 impl Default for CameraConfig {
     fn default() -> Self {
-        Self { pitch: 35.0, yaw: 0.0, fov: 40.0, view_width: 200.0, view_height: None, view_at_least: None, follow: 0.2, snap: true, follow_height: None, stop_at_edges: false, hold: None, turns: Turns::Quarter }
+        Self { pitch: 35.0, yaw: 0.0, fov: 40.0, view_width: 200.0, view_height: None, view_at_least: None, follow: 0.2, snap: true, follow_height: None, stop_at_edges: false, hold: None, rotates: Rotates::Quarter }
     }
 }
 
@@ -976,7 +993,7 @@ impl GameConfig {
             ("player.spawn", self.player.spawn != new.player.spawn),
             ("player.kind", self.player.kind != new.player.kind),
             ("players", self.players != new.players),
-            ("camera.turns", self.camera.turns != new.camera.turns),
+            ("camera.rotates", self.camera.rotates != new.camera.rotates),
         ] {
             if differs {
                 changed.push(name);
@@ -999,7 +1016,7 @@ impl GameConfig {
         new.player.spawn = self.player.spawn;
         new.player.kind = self.player.kind.clone();
         new.players = self.players;
-        new.camera.turns = self.camera.turns;
+        new.camera.rotates = self.camera.rotates;
     }
 }
 

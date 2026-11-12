@@ -1,6 +1,6 @@
 //! The platformer: a kit for jump & runs seen from the side (`c.kit =
 //! "platformer"`), building blocks for many (Voxkeep and the jump & run
-//! template are built on it). Its behaviours run as systems in a fixed
+//! template are built on it). Its behaviors run as systems in a fixed
 //! order every tick (platforms, the hero, walkers, hoppers, flyers, then
 //! what the hero touches), each over its own things in the order they
 //! came, and its state hash takes the things in that order: keep both, or
@@ -40,8 +40,8 @@ use crate::sim::things::{Id, Things, Walk};
 use crate::sim::{Body, DT, Event, Ledge, Sim, Who, body_hits};
 use crate::world::{Hold, Marker, World};
 
-/// The behaviours a kind may have (`c.things.NAME.behaviour`).
-pub const BEHAVIOURS: [&str; 8] = ["hero", "walker", "hopper", "flyer", "pickup", "platform", "prop", "crate"];
+/// The behaviors a kind may have (`c.things.NAME.behavior`).
+pub const BEHAVIORS: [&str; 8] = ["hero", "walker", "hopper", "flyer", "pickup", "platform", "prop", "crate"];
 
 /// Its actions besides the four directions.
 pub const ACTIONS: [&str; 1] = ["jump"];
@@ -929,8 +929,8 @@ fn edge(world: &World, pos: Vec3, half: f32, height: f32, f: f32, r: &kinds::Her
 impl Game for Platformer {
     type Snapshot = Platformer;
 
-    fn behaviours(_cfg: &GameConfig) -> Vec<&'static str> {
-        BEHAVIOURS.to_vec()
+    fn behaviors(_cfg: &GameConfig) -> Vec<&'static str> {
+        BEHAVIORS.to_vec()
     }
 
     fn actions(_cfg: &GameConfig) -> Vec<&'static str> {
@@ -953,7 +953,7 @@ impl Game for Platformer {
     /// The kinds' models (their heights count for the simulation).
     fn models(cfg: &GameConfig) -> anyhow::Result<Vec<ModelSpec>> {
         let mut specs: Vec<ModelSpec> = Vec::new();
-        let defs = crate::sim::things::defs(cfg, &BEHAVIOURS)?;
+        let defs = crate::sim::things::defs(cfg, &BEHAVIORS)?;
         for file in defs.iter().filter_map(|d| d.model.clone()) {
             if !specs.iter().any(|s| s.file == file) {
                 specs.push(ModelSpec { name: file.clone(), file, shaped: true });

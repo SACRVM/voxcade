@@ -56,8 +56,8 @@ function conf(c)
                     family = "enemies", props = { worth = 50, fires = 0 } }
   c.things.power = { model = "power.vvx", reach = 14 }
   -- The fighters and mantas face the way they fly, a diagonal too.
-  c.things.fighter.turns = "free"
-  c.things.swooper.turns = "free"
+  c.things.fighter.rotates = "free"
+  c.things.swooper.rotates = "free"
 
   c.camera.pitch = 62               -- from high above, a little ahead
   c.camera.fov = 40

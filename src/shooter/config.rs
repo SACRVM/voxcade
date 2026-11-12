@@ -1,6 +1,6 @@
 //! The shooter's part of the config: `c.weapons` (the aim assist and the
 //! weapons, `c.weapons.NAME`) and its keys in `c.player`. Its kinds of
-//! things are the engine's `[things.NAME]` with the shooter's behaviours;
+//! things are the engine's `[things.NAME]` with the shooter's behaviors;
 //! `kinds` reads both into the rules. The engine leaves these to the game
 //! (`GameConfig::game`, `PlayerConfig::game`); read here, a section or key
 //! the shooter does not know is an error.

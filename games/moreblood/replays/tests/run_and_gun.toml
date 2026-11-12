@@ -1,7 +1,7 @@
 # Voxcade replay: More Blood, 1800 ticks, quit, score 950
 version = 1
 game = "More Blood"
-fingerprint = "8d5a9ac251c23c6a"
+fingerprint = "d25e4a3377aa7925"
 ticks = 1800
 outcome = "quit"
 score = 950

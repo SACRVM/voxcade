@@ -81,7 +81,7 @@ fn run_with(mut sim: Shooter, script: &str, mut rules: Classic) -> Vec<u64> {
 }
 
 /// The kit's state as one number, without the things a Lua game's script
-/// moves: the checkpoints and the goal, kinds without a behaviour since
+/// moves: the checkpoints and the goal, kinds without a behavior since
 /// stage 7, stand still here (nothing moves them without a script) and
 /// were no things of the hash before.
 fn kit_hash(sim: &Shooter) -> u64 {
@@ -112,7 +112,7 @@ const MAX_HP: i32 = 5;
 
 impl Classic {
     fn new(cfg: &GameConfig) -> Self {
-        let props = crate::sim::things::defs(cfg, &BEHAVIOURS).unwrap().into_iter().map(|d| d.props).collect();
+        let props = crate::sim::things::defs(cfg, &BEHAVIORS).unwrap().into_iter().map(|d| d.props).collect();
         Self { props, respawn: Vec3::ZERO, down_at: None, tick: 0, lives: 3 }
     }
 

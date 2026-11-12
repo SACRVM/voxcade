@@ -61,7 +61,7 @@ setting:
 - `src/shooter/kit.toml`, `src/platformer/kit.toml`: the kits' kinds (and
   the shooter's weapons) written out with every number and a comment, to
   copy; a game has only what its `conf.lua` writes (a kind's unset numbers
-  are its behaviour's defaults, lengths and speeds scaled to the kind's
+  are its behavior's defaults, lengths and speeds scaled to the kind's
   height; a weapon is all the game's). `voxcade kinds <game>` prints every
   number in effect.
 - The kit, the actions and keys, the level, the markers and the player's
@@ -112,8 +112,8 @@ drawn by the engine (no `frame:model` for it), holds nobody up unless
 exactly where it is drawn, quarter turns only; a floor and walls of
 pieces need no `level:fill`) and is touched like any thing; its model is any `.vvx` of the
 game, named in the file only. `facing = "south"` (north, east, south, the
-default, west); `turn = 30` (a bearing, clockwise from north) only with
-`c.camera.turns = "free"`, else the level does not load and the mistake
+default, west); `rotation = 30` (a bearing, clockwise from north) only with
+`c.camera.rotates = "free"`, else the level does not load and the mistake
 names the things (the editor offers ALIGN ALL). `light = { at = [0, 0,
 12], radius = 40, color = "#ffd9a0" }`: `at` from the pivot in the
 model's voxels, turning with it; `lights = [ {...}, {...} ]` for
@@ -129,30 +129,30 @@ or { x, y, z })`. Names in the file are `thing.name` (`level:thing("lamp")`).
 ### Kinds of things (`c.things.NAME`)
 
 ```lua
-c.things.opossum = { behaviour = "walker", model = "opossum.vvx", width = 14, height = 16,
+c.things.opossum = { behavior = "walker", model = "opossum.vvx", width = 14, height = 16,
                      frames = { walk = { 0, 5 } }, effect = "poof.vvx" }
 c.things.guard = { like = "rifleman", hp = 4 }     -- a kind built on another
-c.things.crate = { model = "crate.vvx" }           -- no behaviour: main.lua moves it
+c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua moves it
 ```
 
 - Turning: models stand in quarter turns on the grid unless the game
-  chooses otherwise. `turns = "free"` in a kind draws its things facing
+  chooses otherwise. `rotates = "free"` in a kind draws its things facing
   exactly their way (a diagonal too); `frame:model(file, thing, index,
-  { turn = 45, pitch = 10, roll = 20 })` turns a model further in
+  { rotation = 45, pitch = 10, roll = 20 })` rotates a model further in
   degrees about its middle (round clockwise from above, the nose up, the
   right side down: a ship banking with its speed across). Only the
   picture turns; the voxels leave the grid, never change size.
-- A kind with a `behaviour` belongs to the kit, which moves it; without
+- A kind with a `behavior` belongs to the kit, which moves it; without
   one it is the script's (`thing:walk`, `jump`, `face`, `place` in
   `on_tick`). `thing:enable("walker", false)` switches a kit thing's
-  behaviour off (the hero's too: a stun, an end walk): physics and the
+  behavior off (the hero's too: a stun, an end walk): physics and the
   script move it then, until it is switched on again or the level ends.
   `thing:launch(way, speed, rise?)` sets a thing moving (a dash, a wall
   jump, a knockback; the kit steers on unless switched off),
   `thing.wall` is the way to a wall beside it or nil.
 - Poses: any figure of the platformer shows `thing.state.pose` (a name of
   its `frames`) over its own animation while set, `nil` gives its own
-  back (`player.state.pose` for the hero); frames a behaviour does not
+  back (`player.state.pose` for the hero); frames a behavior does not
   play are poses. A set of frames goes round at the kind's `fps` (10), or
   as it says: `idle = { first = 0, last = 1, fps = 2 }` (a slow breath
   beside a quick run), `walk = { first = 1, last = 4, stride = 6 }` (a
@@ -175,7 +175,7 @@ c.things.crate = { model = "crate.vvx" }           -- no behaviour: main.lua mov
   root). A kind's `swing = { leg_left = 30, leg_right = -30, arm_left =
   -25, arm_right = 25 }` swings them as it walks (degrees forward first;
   less than 0: back first): a walk without walk frames. In `on_draw`,
-  `frame:model(file, thing, nil, nil, { head = { turn = 20 }, arm_right =
+  `frame:model(file, thing, nil, nil, { head = { rotation = 20 }, arm_right =
   { pitch = 90 } })` poses them by name (an attack, a wave, a look round),
   over the swing. A name the model lacks is a mistake naming its parts.
 - The player: with a kit, the kit's (the platformer's hero, the
@@ -202,7 +202,7 @@ c.things.crate = { model = "crate.vvx" }           -- no behaviour: main.lua mov
   gone; Voxkeep's enemies); `spin = 120` turns a kind's model round,
   degrees a second (Voxkeep's gem), only the picture; `fixed = true` keeps
   a kind's things where they are spawned or placed (no gravity; a sign
-  hung in the air), for kinds without a behaviour.
+  hung in the air), for kinds without a behavior.
 - The shooter kit (`c.kit = "shooter"`): soldier, spawner, captive
   (caged until the code sets `thing.state.freed = true`, then runs off),
   gunship, pickup (lies there, touched within `reach`); weapons in
@@ -325,7 +325,7 @@ c.things.crate = { model = "crate.vvx" }           -- no behaviour: main.lua mov
 ```lua
 function on_world_start() end   -- once, at the start: the run's states (world.state, player.state); no level yet
 function on_level_start(how) end -- a level begins: build it, spawn, give level.state its first values
-function on_tick() end          -- 60 times a second, after the kit's behaviours
+function on_tick() end          -- 60 times a second, after the kit's behaviors
 function on_draw(frame) end     -- every picture, only looking: frame:model, frame:cube, frame:text ("PRESS {jump}": the player's key), the HUD
 function on_touch(a, b, where) end -- two things begin to touch (once; a is the player; where: "top" landed on b, "bottom", "side"); on_touch_end(a, b) when they part
 function on_death(thing, by, weapon) end -- hit points ran out (once); also on_hit(thing, by, damage, weapon), on_pickup(thing, item), on_interact(thing, by), on_fall_out(thing)
@@ -334,7 +334,7 @@ function on_death(thing, by, weapon) end -- hit points ran out (once); also on_h
 Several players (`docs/game-model.md`, "Several players"; HELP's TWO
 PLAYERS; every template plays two): `c.players = 2`
 gives seats, `c.player.kind = { "red", "blue" }` a figure for each (with
-the shooter kit kinds without behaviour, its keys move them, each its
+the shooter kit kinds without behavior, its keys move them, each its
 own hit points, `p.state.weapon` and rounds in `p.state.inventory`),
 `c.camera.hold =
 { 120, 80 }` keeps them on one screen. `player` is seat 1 only: a rule

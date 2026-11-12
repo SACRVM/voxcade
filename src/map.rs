@@ -29,7 +29,7 @@
 //! [[put]]
 //! prefab = "palm_0"
 //! at = [120, 300]
-//! turn = 1
+//! rotation = 270
 //!
 //! [[put]]
 //! thing = "rifleman"
@@ -49,7 +49,8 @@
 //! (rising and falling by up to `wobble`). A prefab stands with its pivot
 //! (the cell in the middle of its bottom layer, size / 2) on `at`; `at`
 //! with two numbers stands on the ground there, with three it is exact.
-//! `turn` is the number of quarter turns, anticlockwise seen from above.
+//! `rotation` turns it about its pivot, degrees clockwise seen from above
+//! (as a level's thing's `rotation`), in quarter turns: 0, 90, 180 or 270.
 //! The `put`s come in order: a later one covers an earlier one, and the
 //! things come in that order (a prefab's markers, `crate::scene`, where
 //! it stands). A soft prefab (grass, shrubs) is seen and can be blown
@@ -140,7 +141,26 @@ pub struct Put {
     pub prefab: Option<String>,
     pub thing: Option<String>,
     pub at: Vec<i32>,
-    pub turn: i32,
+    /// Degrees clockwise seen from above, a multiple of 90.
+    pub rotation: i32,
+}
+
+/// The head of a map's `[[put]]`s as the engine writes it.
+pub const PUT_HEAD: &str = "# What stands on the map, in order: a prefab (rotation: degrees clockwise\n# seen from above, in quarter turns) or a thing of a kind; at x, y on the\n# ground, or x, y, z.";
+
+impl Put {
+    /// Its rotation as quarter turns anticlockwise seen from above (0 to 3),
+    /// as a prefab's cells are turned (`turn`).
+    pub fn quarters(&self) -> i32 {
+        (-self.rotation / 90).rem_euclid(4)
+    }
+
+    /// The rotation of `quarters` anticlockwise quarter turns (a map's
+    /// `turn` before Voxcade took other tools' words): degrees clockwise,
+    /// 0 to 270.
+    pub fn rotation_of(quarters: i32) -> i32 {
+        (-90 * quarters).rem_euclid(360)
+    }
 }
 
 /// A number as TOML writes it: whole numbers without a point.
@@ -203,7 +223,7 @@ impl MapData {
                 out += &format!("{key} = {}\n", vvx::quoted(&p.file));
             }
         }
-        out += "\n# What stands on the map, in order: a prefab (turn: quarter turns\n# anticlockwise) or a thing of a kind; at x, y on the ground, or x, y, z.\n";
+        out += &format!("\n{PUT_HEAD}\n");
         for p in &self.put {
             out += "[[put]]\n";
             if let Some(name) = &p.prefab {
@@ -213,8 +233,8 @@ impl MapData {
                 out += &format!("thing = {}\n", vvx::quoted(kind));
             }
             out += &format!("at = [{}]\n", p.at.iter().map(i32::to_string).collect::<Vec<_>>().join(", "));
-            if p.turn != 0 {
-                out += &format!("turn = {}\n", p.turn);
+            if p.rotation != 0 {
+                out += &format!("rotation = {}\n", p.rotation);
             }
             out += "\n";
         }
@@ -314,7 +334,11 @@ impl MapData {
         let mut put = Vec::new();
         if let Some(item) = top.get("put") {
             for t in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "what stands on the map must be tables: [[put]]"))? {
-                r.only(t, &["prefab", "thing", "at", "turn"], "a [[put]]")?;
+                if let Some(old) = t.get("turn") {
+                    let was = old.as_integer().map_or(String::new(), |q| format!(": turn = {q} is rotation = {}", Put::rotation_of(q as i32)));
+                    return Err(r.fail(old.span(), format!("a [[put]]: 'turn' (quarter turns anticlockwise) is called 'rotation' now, in degrees clockwise{was} (voxcade upgrade renames it)")));
+                }
+                r.only(t, &["prefab", "thing", "at", "rotation"], "a [[put]]")?;
                 let at_item = t.get("at").ok_or_else(|| anyhow!("a [[put]] has no at (line {})", t.get("prefab").or(t.get("thing")).and_then(Item::span).map_or(0, |s| vvx::line_of(src, s.start))))?;
                 let wrong = || r.fail(at_item.span(), "at must be x, y (on the ground) or x, y, z, whole numbers");
                 let at: Vec<i32> = at_item.as_array().filter(|a| (2..=3).contains(&a.len())).ok_or_else(wrong)?.iter().map(|v| v.as_integer().map(|v| v as i32).ok_or_else(wrong)).collect::<Result<_>>()?;
@@ -322,7 +346,11 @@ impl MapData {
                 if prefab.is_some() == thing.is_some() {
                     return Err(r.fail(at_item.span(), "a [[put]] is a prefab = \"name\" or a thing = \"kind\", one of them"));
                 }
-                put.push(Put { prefab, thing, at, turn: whole(t, "turn", 0)? });
+                let rotation = whole(t, "rotation", 0)?;
+                if rotation % 90 != 0 {
+                    return Err(r.fail(t.get("rotation").and_then(Item::span), format!("rotation = {rotation}: a prefab stands in quarter turns, 0, 90, 180 or 270 degrees")));
+                }
+                put.push(Put { prefab, thing, at, rotation });
             }
         }
         let mut places = Vec::new();
@@ -657,10 +685,10 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
                     .get(name.as_str())
                     .ok_or_else(|| anyhow!("{}: put {n}: no prefab named '{name}'", path.display()))?;
                 for &(l, i) in &prefab.voxels {
-                    world.set_raw(at + turn(l, place.turn), i);
+                    world.set_raw(at + turn(l, place.quarters()), i);
                 }
                 for &(l, kind) in &prefab.markers {
-                    found.push(Marker { kind, cell: at + turn(l, place.turn) });
+                    found.push(Marker { kind, cell: at + turn(l, place.quarters()) });
                 }
             }
             (None, Some(name)) => {
@@ -753,11 +781,20 @@ mod tests {
             size: [8, 8, 16],
             ground: Ground { height: "height.png".into(), material: None, bedrock: Some("#000001".into()), materials: vec![Material { surface: vec!["#00ff00".into()], strata: vec!["#0000ff".into()], ..Material::default() }] },
             prefabs: BTreeMap::from([("post".to_string(), PrefabEntry { file: "post.vvx".into(), soft: false })]),
-            put: vec![Put { prefab: Some("post".into()), thing: None, at: vec![2, 1], turn: 1 }, Put { prefab: None, thing: Some("goal".into()), at: vec![6, 6], turn: 0 }],
+            put: vec![Put { prefab: Some("post".into()), thing: None, at: vec![2, 1], rotation: 270 }, Put { prefab: None, thing: Some("goal".into()), at: vec![6, 6], rotation: 0 }],
             places: Vec::new(),
         };
         let text = map.write();
         assert_eq!(MapData::read(&text).unwrap(), map, "{text}");
+        assert!(text.contains("at = [2, 1]\nrotation = 270\n"), "{text}");
+        let e = format!("{:#}", MapData::read(&text.replace("rotation = 270", "turn = 1")).unwrap_err());
+        assert!(e.contains("'turn' (quarter turns anticlockwise) is called 'rotation' now, in degrees clockwise: turn = 1 is rotation = 270"), "{e}");
+        assert!(format!("{:#}", MapData::read(&text.replace("rotation = 270", "rotation = 45")).unwrap_err()).contains("quarter turns"));
+        // Clockwise degrees and the anticlockwise quarters the cells turn by.
+        for (quarters, rotation) in [(0, 0), (1, 270), (2, 180), (3, 90), (-1, 90), (5, 270)] {
+            assert_eq!(Put::rotation_of(quarters), rotation);
+            assert_eq!(Put { prefab: None, thing: None, at: vec![0, 0], rotation }.quarters(), quarters.rem_euclid(4));
+        }
         std::fs::write(dir.join("map.toml"), text).unwrap();
 
         let (goal, enemy) = (0, 1);

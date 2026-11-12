@@ -9,7 +9,7 @@ level, player, things; everything that changes in a state; `on_` events;
 levels, items, save games; the voxcade-api skill): read it before adding
 any name to it.
 
-Build what the user asks for. Effects, features or behaviour they did not ask
+Build what the user asks for. Effects, features or behavior they did not ask
 for are suggestions to make in the reply, not changes to ship (an unasked
 x-ray silhouette was removed again).
 
@@ -64,7 +64,7 @@ its own beside this one (`../matchmaker`, to be public as
 SACRVM/matchmaker, the user's: "mach ein extra Projekt draus"), run on
 our server, a TLS proxy in front.
 `src/shooter/` is a shooter kit, building blocks for many shooters (More
-Blood, its first game, was a prototype): `Shooter`, its behaviours
+Blood, its first game, was a prototype): `Shooter`, its behaviors
 soldier, spawner, captive, gunship, pickup as systems over its `Brain`s;
 the kinds and weapons as rules (`kinds.rs`; `kit.toml` a library of
 kinds and weapons to copy, merged into no game); drawing; `script.rs`
@@ -241,7 +241,7 @@ nearest; its replay `tests/two_ships`);
   on the chosen one (`src/editor/handles.rs`, knowing nothing of levels:
   arrows X red, Y green, Z blue, rings, an area's faces), buttons beside
   it, a right-click menu whose entries are each also a visible control
-  (`stage::menu_entries`). A piece turns by `turn`, `pitch` and `roll`
+  (`stage::menu_entries`). A piece turns by `rotation`, `pitch` and `roll`
   (`docs/game-model.md`).
 - The IDE (`src/ide/`, `docs/ide.md`; phase 2, built in stages):
   `voxcade ide <game>` opens it in a window (the user's), `--shot FILE
@@ -559,10 +559,22 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   them; the generators write those (byte for byte what the upgrade made
   of the games' files; gen_moreblood, gen_arena's player and pulsar's
   `make_models.py` still write `.vox` figures, to import).
+- Names say what other tools say (the owner, 2026-11-12: "turn" meant
+  five things; LÖVE's and the common words, American spelling): a
+  bearing is a `rotation` (degrees clockwise seen from above, north 0: a
+  level's thing, a map's `[[put]]` and a title prop in quarter turns,
+  `frame:model`'s `{ rotation, pitch, roll }`, type `Rotation`), a
+  block's way of lying in a level's legend its `orientation` (0 to 47),
+  a kind's or the camera's `rotates = "free"`, a kind's `behavior`;
+  `--rotate` and `--color` on the command line. The old names are
+  refused with the new one; the upgrade step "rotation and behavior"
+  brings a game over (a map's `turn` q is `rotation = -90 q mod 360`). A
+  new name an author writes or reads follows suit (no colour, centre,
+  grey in a key, a field or a flag); prose may stay as it is.
 - Levels and worlds are text (`docs/tiles.md`, 2026-11-12). A level of
   blocks is `levels/NAME.toml` ("voxcade level 1", `grid::text`): `block`,
   `size`, `view`, `[blocks]` (name = kind), `[legend]` (a sign a block
-  and its turn: `s = "stone"`, `S = { block = "stone", turn = 17 }`),
+  and its orientation: `s = "stone"`, `S = { block = "stone", orientation = 17 }`),
   `[cells]` with `layers` as a `.vvx`'s, `[[thing]]` and `[[place]]`.
   `view = "front"`: each layer the grid seen from the front, the front
   layer first, its top row first (a side view's room reads as the
@@ -572,7 +584,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   ("voxcade map 1", `map::MapData`): `size`, `[ground]` (the height and
   material PNGs, `[[ground.materials]]`), `[prefabs]` (name = file, or
   `{ file, soft = true }`), `[[put]]` in order (`prefab` with `at` and
-  `turn`, or `thing` by kind), `[[place]]`. A world or a prefab is a
+  `rotation`, degrees clockwise in quarter turns, or `thing` by kind),
+  `[[place]]`. A world or a prefab is a
   `.vvx` of one frame (`src/scene.rs`): its n-th palette colour is the
   world's number n (state hash, replays and saves keep numbers, so the
   palette's order is the meaning, never the voxels' order), `r = { marker
@@ -600,7 +613,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   files of its time), and its replay is version 2, naming its files by
   hash (`files`, `applies`; the bytes in `Store::local()` or `carried`,
   which F9 puts in). The
-  shooter's behaviours run as systems in a fixed order (player, soldiers,
+  shooter's behaviors run as systems in a fixed order (player, soldiers,
   gunships, hostages, grenades, bullets, debris, level, camera), each over
   its own things in the order they came, and its hash takes the things
   grouped the same way: keep both orders, or every random draw moves. A
@@ -637,7 +650,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (`Kit::plays_several`: a hero for each seat, `seat_heroes`, each its
   keys and hearts, `Host::put_seat`, `hold_back`), the shooter kit too
   (every seat's player a figure of `c.player.kind`'s, a kind without
-  behaviour, `Brain::Player` with its `Seated`: hit points, gun, rounds,
+  behavior, `Brain::Player` with its `Seated`: hit points, gun, rounds,
   down; seat 1's as well, the kit's own `Player` only in a game of one,
   so More Blood and the pins stay byte for byte; the systems go for the
   nearest player in the fight, `Shooter::fighters`; a round or a blast
@@ -754,7 +767,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `main.lua` that keeps state anyway (`replay::guard`, `Game::hidden`). A
   script's error halts the game (file, line, tick) until the file is
   mended; `shot` and `check` end with it. The kits report what their
-  behaviours do to things (`Sim::events`: hits, deaths, pickups) and the
+  behaviors do to things (`Sim::events`: hits, deaths, pickups) and the
   engine tells the script after their rules, with the touches it finds
   itself (`on_hit`, `on_death`, `on_fall_out`, `on_pickup`, `on_touch`,
   `on_touch_end`, `on_interact`; `LuaGame::tell_events`); after the run's end the script
@@ -779,16 +792,16 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   "provided they remain properly credited" (his words): keep his name in
   the game (the HUD's last line), `games/sokovox/levels/README.txt`, and
   his file as he published it.
-- Kinds of things are data (`c.things.NAME`: `behaviour`, `model`, `hp`,
-  the behaviour's numbers; `like = "other"`), weapons too
+- Kinds of things are data (`c.things.NAME`: `behavior`, `model`, `hp`,
+  the behavior's numbers; `like = "other"`), weapons too
   (`c.weapons.NAME`, the game's alone: `src/shooter/kit.toml` has the
   kit's to copy; `c.player.attacks` binds them to actions, `c.state.player`
   says what a run starts with). Markers place things by their kind's
   name (`{ marker = "rifleman" }` in a world's or prefab's palette, a
   map's `[[put]]` with `thing = "rifleman"`). A new number a
-  behaviour reads goes into its kind's rules (`shooter::kinds`, a default
+  behavior reads goes into its kind's rules (`shooter::kinds`, a default
   in the spec and in `kit.toml`, test
-  `the_kits_kinds_are_the_behaviours_defaults`), not into a section of
+  `the_kits_kinds_are_the_behaviors_defaults`), not into a section of
   its own. Mistakes name the table that makes them; a reload keeps things
   by their kind's name (test `a_reload_keeps_things_by_their_kind`).
 - The simulation only reports sounds (`Sim::sounds`: events by name); the
@@ -825,8 +838,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   left SDL's stream locked: BunnyFarm froze and could not be quit). The engine knows no shooter words: input is the four
   directions plus the game's actions by name (`input::Input`,
   `Game::actions`, More Blood's `shooter::ACTIONS`; keys bound by those
-  names, `Settings::adopt`), sound events and behaviours are names the
-  game lists (`Game::sounds`, `Game::behaviours`), markers the names of its
+  names, `Settings::adopt`), sound events and behaviors are names the
+  game lists (`Game::sounds`, `Game::behaviors`), markers the names of its
   kinds of things. A new shooter event needs an
   `Sfx` variant, a name, and its file in `src/shooter/sounds/` (listed in
   `shooter::SOUND_FILES`).
@@ -976,7 +989,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   shapes. No unit conversion. Counts and times may stay
   constants. Effect speeds scale with `physics.body_width`
   (`Sim::effect_scale`). A kind's unset lengths and speeds are its
-  behaviour's defaults scaled from the figure they were tuned on
+  behavior's defaults scaled from the figure they were tuned on
   (`TUNED_ON` in the kits' `kinds.rs`: the shooter's 10 voxels, Sunny
   Land's fox, opossum, frog and eagle) to the kind's own height; counts,
   times and the weapons' numbers are not scaled. `voxcade kinds` prints
@@ -1124,8 +1137,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   picture only). A game may turn models freely, its choice (the user's
   decision 2026-10-22; it was Voxatron's quarter-turns-only rule:
   Minecraft lives from it, and turning parts is the quick way to
-  animation): a kind's `turns = "free"` faces exactly its way,
-  `frame:model`'s turn (degrees round, pitch, roll) and
+  animation): a kind's `rotates = "free"` faces exactly its way,
+  `frame:model`'s rotation (degrees round, pitch, roll) and
   `Drawing::model_turned` any way, about the pivot cell's middle at half
   the model's height (`render::turned_centre`, the shader's `rotate`,
   `ModelDraw::rot` and `shift`, `Instance::turn`); unturned models draw
@@ -1200,7 +1213,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   height map and a material map, `.vvx` prefabs placed in `map.toml`. Never
   go back to one huge world for them (More Blood's was 90 MB, over
   GitHub's file limit). A prefab's anchor is the middle cell of its bottom
-  layer (size / 2); `turn` is anticlockwise quarter turns. Test:
+  layer (size / 2); `rotation` is degrees clockwise seen from above, in
+  quarter turns (as a level's thing's). Test:
   `a_map_builds_ground_prefabs_and_markers`.
 - A figure of parts in the voxel editor (`editor/figure.rs`; asked by
   a game of the owner's, the user's plan 2026-11-12) is shaped whole, never part by
@@ -1238,7 +1252,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `level:thing(name)`, kind "piece"), bring a light or be a light alone
   (`thing.state.light` its brightness), beside `[[place]]` and `[[area]]`
   (`level.areas.NAME`, `area:holds`); a level needs no blocks. Pieces
-  are things, not voxels: they hold nobody up. `c.camera.turns =
+  are things, not voxels: they hold nobody up. `c.camera.rotates =
   "free"` lets things turn off the quarter turns; a game on the grid
   names such things, and the editor asks before opening their level
   (ALIGN ALL, DON'T OPEN: the user's wording). The level editor shapes
@@ -1251,10 +1265,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   one's hollow before the big one; boxes only for lights, places,
   areas), ADD sets down on the face met; the mark at a row's left hides
   a thing in the editor only (HIDE, ONLY THIS, SHOW ALL; nothing
-  written). A thing of a kind without a behaviour takes `facing`/`turn`
+  written). A thing of a kind without a behavior takes `facing`/`rotation`
   in the file as a piece does (it starts so in the game:
-  `Stage::name_things`; a kind with a behaviour is refused,
-  `check_facings`; `turns = "free"` kinds exactly, others the nearest
+  `Stage::name_things`; a kind with a behavior is refused,
+  `check_facings`; `rotates = "free"` kinds exactly, others the nearest
   way), ROTATE and EDIT (its kind's model) in the editor. The words a
   person reads: the terms of LÖVE, Blender, Godot, Unity, MagicaVoxel
   (ROTATE, RADIUS, COLOR, POSITION; one set of tools in both editors,

@@ -4,7 +4,7 @@
 //! smoke and crashes in a big blast (More Blood's code wins at the helipad
 //! only once one is down).
 //!
-//! Its numbers come from its kind (`[things.NAME]`, behaviour "gunship")
+//! Its numbers come from its kind (`[things.NAME]`, behavior "gunship")
 //! and its weapons (`[weapons.NAME]`).
 
 use glam::{IVec2, IVec3, Vec3};

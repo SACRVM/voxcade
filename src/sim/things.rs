@@ -4,7 +4,7 @@
 //! of the game's definitions it is), the parts the engine knows (a body to
 //! stand and move with, health, a white flash after a hit) and its brain:
 //! the game's own state for it, a type the game chooses (the shooter's
-//! `Brain`). A game runs its behaviours as systems, each going through the
+//! `Brain`). A game runs its behaviors as systems, each going through the
 //! things it moves in this order, so every run goes the same.
 //!
 //! Plain data throughout: a copy of the list is a copy of every thing
@@ -20,14 +20,14 @@ use super::{Body, Motion};
 use crate::config::{GameConfig, resolve_like};
 
 /// A kind of thing as the config defines it (`things.NAME`), with what it
-/// is like filled in: its behaviour (one of the game's; none: the game's
+/// is like filled in: its behavior (one of the game's; none: the game's
 /// script moves it), the parts the engine knows (its model's file, the hits
 /// it takes, the numbers the game's code reads, its families) and the
-/// rest, for its behaviour to read.
+/// rest, for its behavior to read.
 #[derive(Clone, Debug)]
 pub struct Def {
     pub name: String,
-    pub behaviour: Option<String>,
+    pub behavior: Option<String>,
     pub model: Option<String>,
     pub hp: Option<i32>,
     /// What the game's code reads of its things (`thing.props`), by name:
@@ -49,7 +49,7 @@ pub struct Def {
     /// What does not hurt it: `round`, `melee`, `blast` (a hostage the
     /// rounds fly past).
     pub immune: Vec<String>,
-    /// Drawn facing exactly its way, off the grid (`turns = "free"`), not
+    /// Drawn facing exactly its way, off the grid (`rotates = "free"`), not
     /// in quarter turns (`"quarter"`, the default): the game's choice.
     pub free_turn: bool,
     /// How fast its model turns round its upright axis as it is drawn,
@@ -191,9 +191,9 @@ impl Effect {
     }
 }
 
-/// The keys every kind has besides `like`, `behaviour`, `model` and `hp`
-/// (`Def`): a behaviour's own numbers are the rest.
-pub const COMMON: [&str; 12] = ["props", "family", "effect", "sound", "reach", "team", "immune", "turns", "spin", "frames", "fps", "swing"];
+/// The keys every kind has besides `like`, `behavior`, `model` and `hp`
+/// (`Def`): a behavior's own numbers are the rest.
+pub const COMMON: [&str; 12] = ["props", "family", "effect", "sound", "reach", "team", "immune", "rotates", "spin", "frames", "fps", "swing"];
 
 /// The player's team (a kind's `team` names others).
 pub const PLAYER_TEAM: &str = "player";
@@ -201,32 +201,36 @@ pub const PLAYER_TEAM: &str = "player";
 /// What can hurt a thing, for `immune`.
 pub const HARMS: [&str; 3] = ["round", "melee", "blast"];
 
-/// Behaviours that were and are no more: what to write instead.
+/// A kind's keys under the names they had before Voxcade took other
+/// tools' words, and their names now.
+pub const RENAMED: [(&str, &str); 2] = [("behaviour", "behavior"), ("turns", "rotates")];
+
+/// Behaviors that were and are no more: what to write instead.
 const RETIRED: [(&str, &str); 3] = [
-    ("goal", "a goal is a thing your code answers: a kind of its own (the platformer's behaviour = \"prop\", stands = true; or none, touched within its reach), and on_touch: world:win(), world:go_to"),
-    ("checkpoint", "a checkpoint is a thing your code answers: a kind without a behaviour (or the platformer's prop), and player.state.checkpoint = b.name in on_touch or on_tick"),
-    ("hazard", "spikes are a thing your code answers: a kind with a family (the platformer's behaviour = \"prop\"), and in on_tick: if #player:touching(\"hazards\") > 0 then player:hurt(1) end"),
+    ("goal", "a goal is a thing your code answers: a kind of its own (the platformer's behavior = \"prop\", stands = true; or none, touched within its reach), and on_touch: world:win(), world:go_to"),
+    ("checkpoint", "a checkpoint is a thing your code answers: a kind without a behavior (or the platformer's prop), and player.state.checkpoint = b.name in on_touch or on_tick"),
+    ("hazard", "spikes are a thing your code answers: a kind with a family (the platformer's behavior = \"prop\"), and in on_tick: if #player:touching(\"hazards\") > 0 then player:hurt(1) end"),
 ];
 
 /// The kinds of things a game defines, in the order of their names: a
-/// thing's and a marker's `kind` is the place here. `behaviours` are the
+/// thing's and a marker's `kind` is the place here. `behaviors` are the
 /// game's; any other is a mistake in `conf.lua`.
-pub fn defs(cfg: &GameConfig, behaviours: &[&str]) -> Result<Vec<Def>> {
+pub fn defs(cfg: &GameConfig, behaviors: &[&str]) -> Result<Vec<Def>> {
     if cfg.things.contains_key(crate::grid::PIECE) {
         bail!("c.things.{0}: '{0}' is the engine's own kind, of the models and lights a level sets down; call yours otherwise", crate::grid::PIECE);
     }
-    let mut defs = own_defs(cfg, behaviours)?;
+    let mut defs = own_defs(cfg, behaviors)?;
     defs.push(piece());
     Ok(defs)
 }
 
 /// The kind of the pieces a level sets down (`grid::PIECE`), last among
-/// the kinds so the game's keep their places: no behaviour, no model of
+/// the kinds so the game's keep their places: no behavior, no model of
 /// its own (each piece has its own), fixed where it is put.
 fn piece() -> Def {
     Def {
         name: crate::grid::PIECE.to_string(),
-        behaviour: None,
+        behavior: None,
         model: None,
         hp: None,
         props: toml::Table::new(),
@@ -246,25 +250,30 @@ fn piece() -> Def {
     }
 }
 
-fn own_defs(cfg: &GameConfig, behaviours: &[&str]) -> Result<Vec<Def>> {
+fn own_defs(cfg: &GameConfig, behaviors: &[&str]) -> Result<Vec<Def>> {
     resolve_like("things", &cfg.things)?
         .into_iter()
         .map(|(name, mut params)| {
             let what = |key: &str| format!("c.things.{name}.{key}");
-            let behaviour = params.remove("behaviour").map(|b| b.as_str().map(str::to_string).with_context(|| what("behaviour"))).transpose()?;
-            if let Some(b) = &behaviour
-                && !behaviours.contains(&b.as_str())
+            for (old, new) in RENAMED {
+                if params.contains_key(old) {
+                    bail!("{} is called {} now (voxcade upgrade renames it)", what(old), what(new));
+                }
+            }
+            let behavior = params.remove("behavior").map(|b| b.as_str().map(str::to_string).with_context(|| what("behavior"))).transpose()?;
+            if let Some(b) = &behavior
+                && !behaviors.contains(&b.as_str())
                 && let Some((_, instead)) = RETIRED.iter().find(|(r, _)| r == b)
             {
-                bail!("c.things.{name}.behaviour = \"{b}\" is no more: {instead} (docs/game-model.md)");
+                bail!("c.things.{name}.behavior = \"{b}\" is no more: {instead} (docs/game-model.md)");
             }
-            if let Some(b) = &behaviour
-                && !behaviours.contains(&b.as_str())
+            if let Some(b) = &behavior
+                && !behaviors.contains(&b.as_str())
             {
-                if behaviours.is_empty() {
-                    bail!("c.things.{name}.behaviour = \"{b}\": no behaviours without a kit (c.kit)");
+                if behaviors.is_empty() {
+                    bail!("c.things.{name}.behavior = \"{b}\": no behaviors without a kit (c.kit)");
                 }
-                bail!("c.things.{name}.behaviour = \"{b}\": no such behaviour (behaviours: {})", behaviours.join(", "));
+                bail!("c.things.{name}.behavior = \"{b}\": no such behavior (behaviors: {})", behaviors.join(", "));
             }
             let model = params.remove("model").map(|m| m.as_str().map(str::to_string).with_context(|| what("model"))).transpose()?;
             let hp = params.remove("hp").map(|h| h.as_integer().map(|h| h as i32).with_context(|| what("hp"))).transpose()?;
@@ -306,10 +315,10 @@ fn own_defs(cfg: &GameConfig, behaviours: &[&str]) -> Result<Vec<Def>> {
             if let Some(harm) = immune.iter().find(|h| !HARMS.contains(&h.as_str())) {
                 bail!("{}: \"{harm}\" is none of {}", what("immune"), HARMS.join(", "));
             }
-            let free_turn = match text("turns", &mut params)?.as_deref() {
+            let free_turn = match text("rotates", &mut params)?.as_deref() {
                 None | Some("quarter") => false,
                 Some("free") => true,
-                Some(other) => bail!("{}: \"{other}\" is neither \"quarter\" (on the grid, the default) nor \"free\" (facing exactly its way)", what("turns")),
+                Some(other) => bail!("{}: \"{other}\" is neither \"quarter\" (on the grid, the default) nor \"free\" (facing exactly its way)", what("rotates")),
             };
             let spin = match params.remove("spin") {
                 None => 0.0,
@@ -320,8 +329,8 @@ fn own_defs(cfg: &GameConfig, behaviours: &[&str]) -> Result<Vec<Def>> {
                 Some(toml::Value::Boolean(b)) => b,
                 Some(_) => bail!("{}: true or false (a thing that stays where it is put)", what("fixed")),
             };
-            if fixed && behaviour.is_some() {
-                bail!("{}: a kind with a behaviour is moved by its ready-made rules; fixed is for kinds the script moves (no behaviour)", what("fixed"));
+            if fixed && behavior.is_some() {
+                bail!("{}: a kind with a behavior is moved by its ready-made rules; fixed is for kinds the script moves (no behavior)", what("fixed"));
             }
             let fps = match params.remove("fps") {
                 None => FPS,
@@ -343,7 +352,7 @@ fn own_defs(cfg: &GameConfig, behaviours: &[&str]) -> Result<Vec<Def>> {
                     .collect::<Result<_>>()?,
                 Some(_) => bail!("{}: parts by name and how far they swing (swing = {{ leg_left = 30, leg_right = -30 }})", what("swing")),
             };
-            Ok(Def { name, behaviour, model, hp, props, families, effect, sound, reach, team, immune, free_turn, spin, fixed, frames, fps, swing, params })
+            Ok(Def { name, behavior, model, hp, props, families, effect, sound, reach, team, immune, free_turn, spin, fixed, frames, fps, swing, params })
         })
         .collect()
 }
@@ -491,19 +500,19 @@ mod tests {
     use super::*;
 
     /// A kind like another has the other's keys and its own on top; a
-    /// circle, an unknown one and a missing behaviour are mistakes.
+    /// circle, an unknown one and a missing behavior are mistakes.
     #[test]
     fn kinds_build_on_one_another() {
         let defs_of = |text: &str| own_defs(&toml::from_str(text).unwrap(), &["walker", "door"]);
-        let found = defs_of("[things.b]\nlike = \"a\"\nhp = 4\n[things.a]\nbehaviour = \"walker\"\nmodel = \"a.vox\"\nhp = 2\nspeed = 3\n").unwrap();
+        let found = defs_of("[things.b]\nlike = \"a\"\nhp = 4\n[things.a]\nbehavior = \"walker\"\nmodel = \"a.vox\"\nhp = 2\nspeed = 3\n").unwrap();
         assert_eq!(found.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["a", "b"], "kinds go by name");
-        assert_eq!((found[1].behaviour.as_deref(), found[1].model.as_deref(), found[1].hp), (Some("walker"), Some("a.vox"), Some(4)));
+        assert_eq!((found[1].behavior.as_deref(), found[1].model.as_deref(), found[1].hp), (Some("walker"), Some("a.vox"), Some(4)));
         assert_eq!(found[1].params.get("speed").and_then(|v| v.as_integer()), Some(3));
         assert!(!found[1].params.contains_key("like"));
         assert!(defs_of("[things.a]\nlike = \"b\"\n[things.b]\nlike = \"a\"\n").unwrap_err().to_string().contains("circle"));
         assert!(defs_of("[things.a]\nlike = \"c\"\n").unwrap_err().to_string().contains("no c.things.c"));
-        assert_eq!(defs_of("[things.a]\nhp = 2\n").unwrap()[0].behaviour, None, "without one the game's script moves it");
-        assert!(defs_of("[things.a]\nbehaviour = \"flyer\"\n").unwrap_err().to_string().contains("no such behaviour"));
+        assert_eq!(defs_of("[things.a]\nhp = 2\n").unwrap()[0].behavior, None, "without one the game's script moves it");
+        assert!(defs_of("[things.a]\nbehavior = \"flyer\"\n").unwrap_err().to_string().contains("no such behavior"));
     }
 
     /// Every game has the kind of the pieces a level sets down, last
@@ -513,7 +522,7 @@ mod tests {
     fn the_pieces_kind_comes_last() {
         let found = defs(&toml::from_str("[things.zebra]\n[things.apple]\n").unwrap(), &[]).unwrap();
         assert_eq!(found.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["apple", "zebra", crate::grid::PIECE]);
-        assert!(found[2].fixed && found[2].behaviour.is_none() && found[2].model.is_none());
+        assert!(found[2].fixed && found[2].behavior.is_none() && found[2].model.is_none());
         assert!(defs(&toml::from_str("[things.piece]\n").unwrap(), &[]).unwrap_err().to_string().contains("the engine's own kind"));
     }
 
