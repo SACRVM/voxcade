@@ -217,8 +217,9 @@ look at each with `voxcade sheet`. A generator's first result is a
 placeholder: say so, and go round again.
 
 The user builds the same way in the voxel editor: BOX (Q) and SPHERE
-(S) drag a footprint on a face, + and - give it depth, a click sets it
-(Alt only fills empty voxels, Ctrl cuts; Shift held is PICK in every tool), BEVEL (F) cuts a box's
+(S) drag a footprint on a face and let go: it is set right there, fresh
+(outlined) until the next action, + and - its depth in place (Alt only
+fills empty voxels, Ctrl cuts; Shift held is PICK in every tool), BEVEL (F) cuts a box's
 edges as `rbox` does, SYMMETRY (Y) mirrors every tool left to right.
 Suggest them when the user shapes a figure by hand.
 

@@ -981,7 +981,7 @@ impl<K: Kit> LuaGame<K> {
                 body.face(way);
                 body.prev = body.pos;
             }
-            if p.light.is_some() {
+            if !p.lights.is_empty() {
                 self.stage.lights.insert(id.raw(), 1.0);
             }
             self.stage.pieces.insert(id.raw(), p.clone());
@@ -1868,7 +1868,8 @@ impl<K: Kit> LuaGame<K> {
         match (self.kit(), self.plain()) {
             (Some(kit), _) => {
                 let moved_on = self.stage.level != 0 || self.stage.visits.iter().enumerate().any(|(i, &v)| v != (i == 0) as u32);
-                if script.state.is_none() && script.player.is_none() && script.level.is_none() && script.kept.is_empty() && script.data.is_empty() && !moved_on && !self.uses_music && self.stage.lights.is_empty() {
+                let solid = self.stage.host.sim().world.pieces.is_some();
+                if script.state.is_none() && script.player.is_none() && script.level.is_none() && script.kept.is_empty() && script.data.is_empty() && !moved_on && !self.uses_music && self.stage.lights.is_empty() && !solid {
                     let only = kit.state_hash();
                     for name in PARTS {
                         mark(name, only);
@@ -1918,6 +1919,14 @@ impl<K: Kit> LuaGame<K> {
         // before).
         for (id, b) in &stage.lights {
             s.u64(0x6c69_6768).u64(*id as u64).f32(*b);
+        }
+        // The solid pieces taken away, in a level that has some (others
+        // hash as before).
+        if let Some(solids) = &stage.host.sim().world.pieces {
+            s.u64(0x736f_6c69);
+            for i in solids.lifted() {
+                s.u64(i as u64);
+            }
         }
         mark(PARTS[6], s.finish());
         // The seats: once a second was taken, or a player's own keys set
@@ -2308,6 +2317,14 @@ impl<K: Kit> Game for LuaGame<K> {
         self.moves_sun
     }
 
+    fn daylight(&self) -> crate::session::Daylight {
+        self.stage.levels.list.get(self.stage.level).map(|l| l.daylight).unwrap_or_default()
+    }
+
+    fn suns(&self) -> Vec<Vec3> {
+        self.stage.levels.suns()
+    }
+
     fn start_failed(&self) -> bool {
         !self.started
     }
@@ -2404,8 +2421,13 @@ impl<K: Kit> Game for LuaGame<K> {
                 let key = key.to_string().unwrap_or_else(|_| "?".into());
                 anyhow::ensure!(["about", "level", "place", "setup"].contains(&key.as_str()), "{path}: no field called '{key}' (about, level, place, setup)");
             }
-            let setup: Function = table.raw_get::<Option<Function>>("setup")?.with_context(|| format!("{path}: setup is the function that sets the run up: setup = function() ... end"))?;
+            // A scenario that names where the run begins needs no setup.
+            let setup: Option<Function> = table.raw_get("setup")?;
             let (level, place): (Option<String>, Option<String>) = (table.raw_get("level")?, table.raw_get("place")?);
+            anyhow::ensure!(
+                setup.is_some() || level.is_some() || place.is_some(),
+                "{path}: a scenario says where the run begins (level = \"name\", place = \"name\") or sets it up: setup is the function that sets the run up: setup = function() ... end"
+            );
             match (level, place) {
                 (Some(level), place) => {
                     let Some(index) = game.stage.levels.find(&level) else {
@@ -2424,7 +2446,10 @@ impl<K: Kit> Game for LuaGame<K> {
                 (None, Some(_)) => anyhow::bail!("{path}: a place belongs to a level: level = \"...\", place = \"...\""),
                 (None, None) => {}
             }
-            game.with_world(|sb, _| sb.call_start::<()>(&setup, ()))
+            match &setup {
+                Some(setup) => game.with_world(|sb, _| sb.call_start::<()>(setup, ())),
+                None => Ok(()),
+            }
         });
         if let Err(e) = set_up {
             self.halt(anyhow::anyhow!("{e:#}"));
@@ -2763,15 +2788,19 @@ impl<K: Kit> Game for LuaGame<K> {
             if let Some(model) = &p.model {
                 out.model_turned(model, 0, out.body_origin(t.body), t.body.look, crate::session::facing(true, t.body), None);
             }
+            // Its lights, all as bright as its state says (one brightness for
+            // them all; a light of its own each would be a list of them).
             let brightness = self.stage.lights.get(&id).copied().unwrap_or(0.0);
-            if let Some(l) = p.light.filter(|_| brightness > 0.0) {
-                // Its offset in the model's own voxels, turned with it (a
-                // bearing clockwise seen from above, the model's forward +y).
+            if brightness > 0.0 {
                 let (sin, cos) = crate::sim::math::sin_cos((p.facing.bearing() as f32).to_radians());
-                let o = l.at.as_vec3();
-                let turned = Vec3::new(o.x * cos + o.y * sin, -o.x * sin + o.y * cos, o.z);
-                let at = t.body.pos + Vec3::Z * 0.5 + turned;
-                out.light(Light { pos: at, radius: l.radius, color: l.color.map(|c| c * brightness) });
+                for l in &p.lights {
+                    // Its offset in the model's own voxels, turned with it (a
+                    // bearing clockwise seen from above, the model's forward +y).
+                    let o = l.at.as_vec3();
+                    let turned = Vec3::new(o.x * cos + o.y * sin, -o.x * sin + o.y * cos, o.z);
+                    let at = t.body.pos + Vec3::Z * 0.5 + turned;
+                    out.light(Light { pos: at, radius: l.radius, color: l.color.map(|c| c * brightness) });
+                }
             }
         }
         for e in &self.stage.effects {

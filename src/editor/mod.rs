@@ -38,7 +38,7 @@ pub struct ShotOptions {
     pub parent: Option<String>,
     pub joint: Option<glam::Vec3>,
     /// BOX or SPHERE set where the mouse is (the middle of the view), then
-    /// drawn again.
+    /// drawn again, no more fresh (`held` alone: fresh, outlined).
     pub stamp: bool,
     /// The level's things, not its blocks.
     pub things: bool,
@@ -48,7 +48,7 @@ pub struct ShotOptions {
     /// before the shot (without: the question is what is drawn).
     pub align: bool,
     /// The tool chosen (its word: box, sphere, add ...), and for BOX and
-    /// SPHERE the size of the shape held at the mouse.
+    /// SPHERE the size of the shape set under the mouse.
     pub tool: Option<String>,
     pub held: Option<glam::IVec3>,
     /// The camera turned (yaw) and tilted (pitch), in degrees.
@@ -70,7 +70,8 @@ pub struct ShotOptions {
 /// (its path in the game folder; or `light`, `place`, `area`) set down at
 /// a spot; an item (by its name) moved to a spot, turned by degrees,
 /// removed, copied to a spot, renamed; a piece's light set (its reach,
-/// its colour `#rrggbb`, where it shines from in the model); the room's
+/// its colour `#rrggbb`, where it shines from in the model; `true`: a
+/// light more on it, else its first); a piece made solid; the room's
 /// size.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ShotOp {
@@ -81,7 +82,8 @@ pub enum ShotOp {
     Remove(String),
     Copy(String, Option<glam::IVec3>),
     Rename(String, String),
-    Light(String, Option<f64>, Option<String>, Option<glam::IVec3>),
+    Light(String, Option<f64>, Option<String>, Option<glam::IVec3>, bool),
+    Solid(String),
     Size(glam::IVec3),
 }
 
@@ -90,7 +92,7 @@ impl ShotOp {
     pub fn at(&mut self, spot: glam::IVec3) -> bool {
         match self {
             ShotOp::Add(_, at) | ShotOp::Hang(_, at) | ShotOp::Move(_, at) | ShotOp::Copy(_, at) => *at = Some(spot),
-            ShotOp::Light(_, _, _, from) => *from = Some(spot),
+            ShotOp::Light(_, _, _, from, _) => *from = Some(spot),
             _ => return false,
         }
         true
@@ -163,24 +165,34 @@ fn try_op(ed: &mut Editor, figures: &Figures, op: &ShotOp) -> Result<()> {
             let item = find(ed, name)?;
             ed.rename(item, to).map_err(|e| anyhow::anyhow!("--rename {name}: {e}"))?;
         }
-        ShotOp::Light(name, radius, colour, from) => {
+        ShotOp::Light(name, radius, colour, from, more) => {
             let item = find(ed, name)?;
             anyhow::ensure!(matches!(item, Item::Thing(_)), "--light {name}: only a piece has a light");
             ed.choose_item(Some(item));
-            if ed.chosen_thing().is_some_and(|t| t.light.is_none()) {
+            if *more || ed.chosen_thing().is_some_and(|t| t.lights.is_empty()) {
                 let top = ed.chosen_thing().and_then(|t| t.model.as_deref()).and_then(|m| figures.model(m)).map_or(10, |m| m.size.z);
-                ed.set_light(true, top);
+                ed.add_piece_light(top);
             }
+            // The light added last, else the first.
+            let k = if *more { ed.chosen_thing().map_or(0, |t| t.lights.len().saturating_sub(1)) } else { 0 };
             if let Some(r) = radius {
-                ed.set_field(Field::Radius, *r);
+                ed.set_field(Field::Radius(k), *r);
             }
             if let Some(c) = colour {
-                ed.set_colour(c);
+                ed.set_colour(k, c);
             }
             if let Some(at) = from {
                 for axis in 0..3 {
-                    ed.set_field(Field::LightAt(axis), at[axis] as f64);
+                    ed.set_field(Field::LightAt(k, axis), at[axis] as f64);
                 }
+            }
+        }
+        ShotOp::Solid(name) => {
+            let item = find(ed, name)?;
+            ed.choose_item(Some(item));
+            ed.set_solid(true);
+            if let Some(why) = &ed.message {
+                anyhow::bail!("--solid {name}: {why}");
             }
         }
         ShotOp::Size(size) => {
@@ -214,6 +226,7 @@ fn open<G: Game>(dir: &Path, level: Option<&str>, block: Option<&str>, things: b
     ed.kinds = cfg.things.keys().cloned().collect();
     ed.held_kind = ed.kinds.first().cloned();
     ed.free_turns = cfg.camera.turns == crate::config::Turns::Free;
+    ed.game_light = cfg.light.clone();
     ed.scenes = crate::levels::scene_files(dir, &cfg);
     if things {
         ed.switch(Layer::Things);
@@ -271,9 +284,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     if let Some(word) = &opts.tool {
         let tool = model::Tool::of(ed.scope, ed.layer).iter().copied().find(|t| t.label(ed.scope).eq_ignore_ascii_case(word));
         ed.choose(tool.with_context(|| format!("--tool {word}: no such tool here"))?);
-        if ed.forms() {
-            ed.held_form = Some(model::Held { size: opts.held.unwrap_or(glam::IVec3::new(5, 5, 3)).max(glam::IVec3::ONE), at: None });
-        }
+
     }
     if opts.shift {
         ed.shift_pick(true);
@@ -322,8 +333,8 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     let mut painter = crate::gui::Painter::new(canvas.gpu().0, wgpu::TextureFormat::Rgba8Unorm, true);
     let (mut input, mut thumbs, mut drawn) = (crate::gui::input::Input::default(), panels::Thumbs::default(), panels::Shown::default());
     let mut last = None;
-    // With --stamp twice: the shape set, then all drawn again.
-    for pass in 0..=opts.stamp as usize {
+    // With --held or --stamp twice: the shape set, then all drawn again.
+    for pass in 0..=(opts.stamp || opts.held.is_some()) as usize {
         for step in 0..120 {
             let mut raw = input.take([opts.width, opts.height], 1.0, 1.0);
             raw.time = Some((pass * 120 + step) as f64 / 60.0);
@@ -348,12 +359,17 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         } else {
             view.hover = view.aim(&ed, aspect, mx, my);
         }
-        if opts.stamp && pass == 0 {
+        // BOX or SPHERE: a shape --held big set where the mouse is, fresh
+        // (--stamp: and no more fresh, as the next action leaves it).
+        if (opts.held.is_some() || opts.stamp) && pass == 0 {
             if !ed.forms() {
-                bail!("--stamp sets BOX or SPHERE: --tool box or --tool sphere");
+                bail!("--held and --stamp set BOX or SPHERE: --tool box or --tool sphere");
             }
-            ed.place_form(view.hover, false, false);
-            ed.drop_form();
+            let hit = view.hover.context("--held: nothing under the mouse in the middle of the view")?;
+            ed.set_form_at(hit, opts.held.unwrap_or(glam::IVec3::new(5, 5, 3)).max(glam::IVec3::ONE), false);
+            if opts.stamp {
+                ed.drop_form();
+            }
             ed.follow_figure();
             view.follow_origin(&ed);
             shown.update(&ed)?;
@@ -390,15 +406,16 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     );
     // Among the pieces: what is set down, the chosen one first.
     if ed.among_pieces() {
-        let lights = ed.level.things.iter().filter(|t| t.light.is_some()).count();
-        println!("pieces: {} things ({lights} with light), {} places, {} areas, the level {:?} voxels", ed.level.things.len(), ed.level.places.len(), ed.level.areas.len(), ed.level.voxels().to_array());
+        let lights: usize = ed.level.things.iter().map(|t| t.lights.len()).sum();
+        println!("pieces: {} things ({lights} lights), {} places, {} areas, the level {:?} voxels", ed.level.things.len(), ed.level.places.len(), ed.level.areas.len(), ed.level.voxels().to_array());
         if let Some(item) = ed.chosen {
             let t = match item {
                 model::Item::Thing(i) => Some(&ed.level.things[i]),
                 _ => None,
             };
             let facing = t.and_then(|t| t.facing).map_or(String::new(), |f| format!(", facing {f:?}"));
-            let light = t.and_then(|t| t.light.as_ref()).map_or(String::new(), |l| format!(", light {l:?}"));
+            let light = t.map_or(String::new(), |t| t.lights.iter().map(|l| format!(", light {l:?}")).collect());
+            let light = if t.is_some_and(|t| t.solid) { format!("{light}, solid") } else { light };
             println!("chosen: {} at {:?}{facing}{light}", ed.label_of(item).0, ed.at_of(item).unwrap_or_default());
         }
     }
@@ -573,9 +590,6 @@ pub struct EditorWindow {
     /// Steps there were when the last left click came: a double click
     /// takes back what its first click did.
     steps_at_click: usize,
-    /// BOX and SPHERE: where the mouse was when the shape was drawn (it
-    /// stays there until the mouse moves on).
-    drawn_at: Option<model::Hit>,
     /// Something happened since the last frame, and when the panels want
     /// to be drawn again (None: only after an event).
     dirty: bool,
@@ -635,7 +649,6 @@ impl EditorWindow {
             keys: Vec::new(),
             rects: Vec::new(),
             steps_at_click: 0,
-            drawn_at: None,
             dirty: true,
             repaint_at: None,
             marker: None,
@@ -748,7 +761,7 @@ impl EditorWindow {
             }
             return true;
         }
-        let Self { screen, renderer, ed, view, shown, figures, cfg, keys, rects, gui, input, steps_at_click, drawn_at, .. } = self;
+        let Self { screen, renderer, ed, view, shown, figures, cfg, keys, rects, gui, input, steps_at_click, .. } = self;
         self.dirty = true;
         let aspect = screen.aspect();
         // The mouse over the panels (or a list or picker of theirs open
@@ -784,9 +797,9 @@ impl EditorWindow {
                 let shift = keymod.intersects(Mod::LSHIFTMOD | Mod::RSHIFTMOD);
                 match key {
                     // BOX and SPHERE: the shape a voxel deeper or shallower.
-                    Keycode::Plus | Keycode::Equals | Keycode::KpPlus if ed.forms() => ed.deepen(1, view.hover),
-                    Keycode::Minus | Keycode::KpMinus if ed.forms() => ed.deepen(-1, view.hover),
-                    Keycode::Escape if ed.forms() && ed.drop_form() => *drawn_at = None,
+                    Keycode::Plus | Keycode::Equals | Keycode::KpPlus if ed.forms() => ed.deepen(1),
+                    Keycode::Minus | Keycode::KpMinus if ed.forms() => ed.deepen(-1),
+                    Keycode::Escape if ed.forms() && ed.drop_form() => {}
                     Keycode::Z if ctrl && shift => ed.redo(),
                     Keycode::Z if ctrl => ed.undo(),
                     Keycode::Y if ctrl => ed.redo(),
@@ -839,14 +852,11 @@ impl EditorWindow {
                     }
                 } else if ed.forms() {
                     // BOX and SPHERE: the footprint dragged out on its face's
-                    // plane; a shape drawn follows the mouse once it moves on.
+                    // plane.
                     view.hover = if over { None } else { view.aim(ed, aspect, sx, sy) };
                     if mousestate.left() && ed.drawing.is_some() {
                         let (origin, dir) = view.ray(ed, aspect, sx, sy);
                         ed.draw_form(origin, dir);
-                    } else if drawn_at.is_some() && view.hover != *drawn_at {
-                        *drawn_at = None;
-                        ed.let_form_follow();
                     }
                 } else {
                     view.hover = if over { None } else { view.aim(ed, aspect, sx, sy) };
@@ -896,18 +906,12 @@ impl EditorWindow {
                     }
                 }
             }
-            // BOX and SPHERE: a click without a drag sets the shape held
-            // (Alt: only where empty; Ctrl: cut away), a drag holds the
-            // footprint as the shape, where it was drawn.
+            // BOX and SPHERE: the footprint let go is set right where it
+            // was drawn (Alt: only where empty; Ctrl, held as it was
+            // pressed: cut away), fresh for + and - until the next action.
             Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } if ed.forms() => {
-                if let Some(d) = ed.drawing {
-                    if d.end == d.start && ed.held_form.is_some() {
-                        ed.drawing = None;
-                        ed.place_form(view.hover, view.cut, view.only_empty);
-                    } else {
-                        ed.hold_drawn();
-                        *drawn_at = view.hover;
-                    }
+                if ed.drawing.is_some() {
+                    ed.set_drawn(view.only_empty);
                 }
             }
             Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } => ed.release(),

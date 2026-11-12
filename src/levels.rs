@@ -40,14 +40,19 @@ impl Place {
 
 /// A piece as a level sets it down (`grid::PIECE`): its name in the file,
 /// its model (none: a light alone), the cell its pivot stands on in the
-/// world's voxels, the way it faces and the light it brings.
+/// world's voxels, the way it faces, the lights it brings (all dimmed
+/// together by `thing.state.light`), whether its voxels are solid (the
+/// world's `Solids` hold them, by `index`: its place among the level's
+/// pieces).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Piece {
     pub name: Option<String>,
     pub model: Option<String>,
     pub cell: IVec3,
     pub facing: crate::grid::Facing,
-    pub light: Option<PieceLight>,
+    pub lights: Vec<PieceLight>,
+    pub solid: bool,
+    pub index: usize,
 }
 
 /// A piece's light: where it shines from in the model's own voxels from
@@ -81,7 +86,7 @@ impl Area {
 
 /// A level as made from its file: its world, the markers that place its
 /// things (and the name the file gives each, if it does), the files it
-/// came from, its places, its pieces and areas.
+/// came from, its places, its pieces and areas, its own daylight.
 pub struct Made {
     pub world: World,
     pub markers: Vec<Marker>,
@@ -90,6 +95,7 @@ pub struct Made {
     pub marker_names: Vec<Option<String>>,
     pub pieces: Vec<Piece>,
     pub areas: Vec<Area>,
+    pub daylight: crate::session::Daylight,
 }
 
 /// One level as it was read.
@@ -105,16 +111,19 @@ pub struct Level {
     pub marker_names: Vec<Option<String>>,
     pub pieces: Vec<Piece>,
     pub areas: Vec<Area>,
+    /// Its own daylight (`[light]` in its file): what it sets of the
+    /// picture's daylight over the game's `c.light`.
+    pub daylight: crate::session::Daylight,
 }
 
 impl Level {
     /// A level of a world, markers and places, nothing set down.
     pub fn plain(name: &str, world: World, markers: Vec<Marker>, places: Vec<Place>) -> Self {
-        Self { name: name.to_string(), world, markers, places, marker_names: Vec::new(), pieces: Vec::new(), areas: Vec::new() }
+        Self { name: name.to_string(), world, markers, places, marker_names: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight: Default::default() }
     }
 
     fn of(name: String, made: Made) -> Self {
-        Self { name, world: made.world, markers: made.markers, places: made.places, marker_names: made.marker_names, pieces: made.pieces, areas: made.areas }
+        Self { name, world: made.world, markers: made.markers, places: made.places, marker_names: made.marker_names, pieces: made.pieces, areas: made.areas, daylight: made.daylight }
     }
 }
 
@@ -139,6 +148,18 @@ impl Levels {
         for m in self.list.iter().flat_map(|l| l.pieces.iter().filter_map(|p| p.model.clone())) {
             if !out.contains(&m) {
                 out.push(m);
+            }
+        }
+        out
+    }
+
+    /// The suns the levels set (`[light]`'s `sun`), each once: the meshes
+    /// keep the faces each of them lights.
+    pub fn suns(&self) -> Vec<Vec3> {
+        let mut out: Vec<Vec3> = Vec::new();
+        for s in self.list.iter().filter_map(|l| l.daylight.sun) {
+            if !out.contains(&s) {
+                out.push(s);
             }
         }
         out
@@ -325,7 +346,7 @@ fn one(game: &Files, cfg: &GameConfig, kind: Kind, path: &Path) -> Result<Made> 
         (Kind::Map, _) => crate::map::load_map_at(game, path, &names),
         _ => {
             let (world, found) = crate::scene::load_in(game, path)?.world(&names).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
-            Ok(Made { world, markers: found, files: vec![path.to_path_buf()], places: Vec::new(), marker_names: Vec::new(), pieces: Vec::new(), areas: Vec::new() })
+            Ok(Made { world, markers: found, files: vec![path.to_path_buf()], places: Vec::new(), marker_names: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight: Default::default() })
         }
     }
 }

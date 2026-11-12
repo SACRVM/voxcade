@@ -1026,6 +1026,10 @@ impl Stage {
             if let Some((kind, at, look)) = going.filter(|_| !self.dead.contains(&id) && !self.fallen.contains(&id)) {
                 self.goes(kind, at, look);
             }
+            // A solid piece's cells go with it (`world::Solids`).
+            if let Some(i) = self.pieces.get(&id).filter(|p| p.solid).map(|p| p.index) {
+                self.host.sim_mut().world.lift_piece(i);
+            }
             self.host.remove(Id::from_raw(id));
         }
         // What died and went is read no more; the dead that went are no

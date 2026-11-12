@@ -84,6 +84,73 @@ pub enum Hold {
     Above,
 }
 
+/// The solid pieces a level sets down (`solid = true`): the cells their
+/// models' voxels fill, which hold bodies up and stop them, bullets and
+/// debris too, though the world's voxels there stay empty (the model draws
+/// them, and the world's palette stays the game's). By each piece's place
+/// among the level's pieces; a piece the game takes away (`thing:remove`)
+/// is lifted at the tick's end, its cells free again. A blast does not
+/// blow them away, and they hold up no voxels of the world.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Solids {
+    /// Every cell a piece fills, and how many pieces fill it.
+    cells: CellMap<u16>,
+    /// Each solid piece's cells, by its place among the level's pieces.
+    of: std::collections::BTreeMap<usize, Arc<Vec<IVec3>>>,
+    /// The pieces taken away, by their places.
+    lifted: std::collections::BTreeSet<usize>,
+}
+
+impl Solids {
+    /// The pieces' cells, each by its place among the level's pieces.
+    pub fn new(pieces: impl IntoIterator<Item = (usize, Arc<Vec<IVec3>>)>) -> Self {
+        let mut out = Self::default();
+        for (i, cells) in pieces {
+            for c in cells.iter() {
+                *out.cells.entry(*c).or_insert(0) += 1;
+            }
+            out.of.insert(i, cells);
+        }
+        out
+    }
+
+    /// Whether a solid piece fills the cell.
+    #[inline]
+    pub fn holds(&self, p: IVec3) -> bool {
+        self.cells.contains_key(&p)
+    }
+
+    /// The pieces taken away so far, in order.
+    pub fn lifted(&self) -> impl Iterator<Item = usize> + '_ {
+        self.lifted.iter().copied()
+    }
+
+    /// How many cells the pieces fill.
+    pub fn len(&self) -> usize {
+        self.cells.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cells.is_empty()
+    }
+
+    /// Takes the piece at place `i` away: its cells are free where no other
+    /// piece fills them. Whether it was there.
+    fn lift(&mut self, i: usize) -> bool {
+        let Some(cells) = self.of.get(&i).cloned().filter(|_| !self.lifted.contains(&i)) else { return false };
+        for c in cells.iter() {
+            if let Some(n) = self.cells.get_mut(c) {
+                *n -= 1;
+                if *n == 0 {
+                    self.cells.remove(c);
+                }
+            }
+        }
+        self.lifted.insert(i);
+        true
+    }
+}
+
 /// A copy of a world is cheap: the copies share their chunks until one of
 /// them writes to a chunk, which then becomes its own (`Arc::make_mut`).
 /// So a game's whole state can be kept and brought back (`Session::snapshot`).
@@ -107,6 +174,9 @@ pub struct World {
     pub stage: Option<(IVec3, IVec3)>,
     /// A level's cells by what they are, for the game's rules (`grid`).
     pub cells: Option<Arc<crate::grid::CellKinds>>,
+    /// The cells its solid pieces fill (`Solids`); None without any, the
+    /// cost of a lookup only where a level has them.
+    pub pieces: Option<Arc<Solids>>,
     chunks: CellMap<Arc<Chunk>>,
     dirty: CellSet,
     /// Every voxel written since the world was made, as one number: each
@@ -118,7 +188,7 @@ pub struct World {
 
 impl World {
     pub fn new(size: IVec3, palette: [[u8; 4]; 256]) -> Self {
-        Self { size, palette, soft: [false; 256], oneway: [false; 256], stage: None, cells: None, chunks: CellMap::default(), dirty: CellSet::default(), changes: 0 }
+        Self { size, palette, soft: [false; 256], oneway: [false; 256], stage: None, cells: None, pieces: None, chunks: CellMap::default(), dirty: CellSet::default(), changes: 0 }
     }
 
     /// The palette index of a colour (opaque), added to the palette if it
@@ -177,10 +247,32 @@ impl World {
         }
     }
 
-    /// Whether a voxel inside the world is there and not soft.
+    /// Whether a voxel inside the world is there and not soft, or a solid
+    /// piece fills the cell.
     pub fn solid(&self, p: IVec3) -> bool {
+        self.voxel_solid(p) || self.piece_at(p)
+    }
+
+    /// Whether the world's own voxel there is there and not soft (what a
+    /// blast can take; a solid piece's cell is not one).
+    pub fn voxel_solid(&self, p: IVec3) -> bool {
         let v = self.get(p);
         v != 0 && !self.soft[v as usize]
+    }
+
+    /// Whether a solid piece fills the cell (`Solids`).
+    #[inline]
+    pub fn piece_at(&self, p: IVec3) -> bool {
+        self.pieces.as_ref().is_some_and(|s| s.holds(p))
+    }
+
+    /// Takes the solid piece at place `i` among the level's pieces away
+    /// (the game removed it): its cells free. Whether it was there.
+    pub fn lift_piece(&mut self, i: usize) -> bool {
+        match &mut self.pieces {
+            Some(s) if s.of.contains_key(&i) && !s.lifted.contains(&i) => Arc::make_mut(s).lift(i),
+            _ => false,
+        }
     }
 
     /// Solid for anything that moves: the ground below the world and its
@@ -208,7 +300,9 @@ impl World {
             return Hold::Solid;
         }
         let v = self.get(p) as usize;
-        if v == 0 || self.soft[v] {
+        if self.piece_at(p) {
+            Hold::Solid
+        } else if v == 0 || self.soft[v] {
             Hold::Free
         } else if self.oneway[v] {
             Hold::Above
@@ -333,6 +427,15 @@ impl World {
         keys.sort_by_key(|k| (k.z, k.y, k.x));
         for cc in keys {
             h.i32(cc.x).i32(cc.y).i32(cc.z).bytes(&self.chunks[&cc].voxels);
+        }
+        // Solid pieces' cells, where a level has them (others as before).
+        if let Some(p) = &self.pieces {
+            for (i, cells) in &p.of {
+                h.u64(*i as u64).u64(p.lifted.contains(i) as u64);
+                for c in cells.iter() {
+                    h.i32(c.x).i32(c.y).i32(c.z);
+                }
+            }
         }
         h.finish()
     }

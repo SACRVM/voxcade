@@ -765,8 +765,11 @@ pub enum Action {
     /// PLACE, ADD AREA; the chosen one turned a quarter (1 clockwise, -1
     /// back), copied onto the mouse, removed, renamed (its name being typed
     /// in the list; or no more), its model opened in the model editor; a
-    /// number set (`Field`); a piece's light on or off (at its model's
-    /// top), its colour; GAME VIEW; the lights in the view on or off.
+    /// number set (`Field`); a light more on a piece (the first at its
+    /// model's top), one of them taken away, its colour; the piece solid or
+    /// not; the level's daylight: its own (from the game's), the sun's or
+    /// the sky's colour (`true`: the sun's), as the game's again; GAME
+    /// VIEW; the lights in the view on or off.
     ChooseItem(Option<Item>),
     AddModel,
     Piece(usize),
@@ -779,8 +782,13 @@ pub enum Action {
     Rename(Option<Item>),
     EditModel,
     Set(room::Field, f64),
-    Light(bool, i32),
-    LightColour([u8; 3]),
+    AddPieceLight(i32),
+    RemoveLight(u8),
+    LightColour(u8, [u8; 3]),
+    Solid(bool),
+    DayOwn,
+    DayColour(bool, [u8; 3]),
+    DayAsGame,
     GameView,
     Lights,
 }
@@ -888,7 +896,7 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::DeleteFrame => ed.delete_frame(),
         Action::Trim => ed.trim(),
         Action::Play => view.playing = !view.playing,
-        Action::Bevel => ed.bevel = !ed.bevel,
+        Action::Bevel => ed.toggle_bevel(),
         Action::Symmetry => ed.symmetry = !ed.symmetry,
         Action::Part(p) => ed.choose_part(p),
         Action::Hide(p) => ed.hide_part(p),
@@ -931,8 +939,13 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::Rename(item) => (view.renaming, view.rename_problem) = (item, None),
         Action::EditModel => ed.edit_model(),
         Action::Set(field, v) => ed.set_field(field, v),
-        Action::Light(on, top) => ed.set_light(on, top),
-        Action::LightColour([r, g, b]) => ed.set_colour(&format!("#{r:02x}{g:02x}{b:02x}")),
+        Action::AddPieceLight(top) => ed.add_piece_light(top),
+        Action::RemoveLight(k) => ed.remove_piece_light(k as usize),
+        Action::LightColour(k, [r, g, b]) => ed.set_colour(k as usize, &format!("#{r:02x}{g:02x}{b:02x}")),
+        Action::Solid(on) => ed.set_solid(on),
+        Action::DayOwn => ed.day_own(),
+        Action::DayColour(sun, [r, g, b]) => ed.set_day_colour(sun, &format!("#{r:02x}{g:02x}{b:02x}")),
+        Action::DayAsGame => ed.day_as_game(),
         Action::GameView => view.game_view(ed),
         Action::Lights => view.lights = !view.lights,
     }
@@ -963,7 +976,10 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     let grid = ed.grid();
     let view_proj = view.view_proj(orbit, aspect);
     let eye = crate::camera::eye(&orbit.camera(), orbit.target, aspect);
-    let sun = Vec3::from(light.sun).normalize_or(Vec3::NEG_Z);
+    // The level's own daylight over the game's (`[light]`), in the level
+    // only; a block or a model in the game's.
+    let own = ed.level.daylight.as_ref().filter(|_| ed.scope == Scope::Level).map(crate::grid::Daylight::picture).unwrap_or_default();
+    let sun = own.sun.unwrap_or_else(|| Vec3::from(light.sun)).normalize_or(Vec3::NEG_Z);
     // A figure's part is shaped in the figure: the room is the figure's
     // (with the part's box), the floor under it all.
     let (room_lo, room_hi) = match ed.figure_box() {
@@ -1051,9 +1067,35 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
             see_through = instances.len() - start;
         }
     } else if ed.forms() {
+        // The shape set last, while fresh (what + and - act on): a quiet
+        // outline along its box's edges.
+        if let Some((lo, hi)) = ed.form_box().filter(|_| ed.drawing.is_none()) {
+            let (lo, hi) = (lo.as_vec3() * u, (hi + 1).as_vec3() * u);
+            let thin = 0.12 * u;
+            let start = instances.len();
+            for a in 0..3 {
+                let (b, c) = ((a + 1) % 3, (a + 2) % 3);
+                for (sb, sc) in [(lo[b], lo[c]), (lo[b], hi[c]), (hi[b], lo[c]), (hi[b], hi[c])] {
+                    let n = ((hi[a] - lo[a]) / (thin * 0.8)).ceil().max(1.0) as i32;
+                    for k in 0..=n {
+                        let mut p = Vec3::ZERO;
+                        (p[a], p[b], p[c]) = (lo[a] + (hi[a] - lo[a]) * k as f32 / n as f32, sb, sc);
+                        instances.push(Instance { pos_size: [p.x, p.y, p.z, thin], color: [225, 220, 205, 255], fx: [0, 120, 0, 0], shade: [0; 4], turn: [0; 4] });
+                    }
+                }
+            }
+            instances[start..].sort_by(|a, b| far(a).total_cmp(&far(b)));
+            see_through = instances.len() - start;
+        }
         // The shape BOX or SPHERE would make, see-through: its surface,
         // in the colour held (red to cut), far to near.
-        let cells = ed.form_cells_now(view.hover, view.cut);
+        // Before a press, the cell a footprint would begin at.
+        let mut cells = ed.form_cells_now();
+        if ed.drawing.is_none()
+            && let Some(hit) = view.hover
+        {
+            cells.push(if view.cut { hit.cell } else { hit.cell + if hit.normal == IVec3::ZERO { IVec3::Z } else { hit.normal } });
+        }
         let all: crate::world::CellSet = cells.iter().copied().collect();
         let color = if view.cut || ed.drawing.is_some_and(|d| d.cut) { [230, 70, 60, 255] } else { [ed.colour[0], ed.colour[1], ed.colour[2], 255] };
         let start = instances.len();
@@ -1061,8 +1103,10 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
             let p = (c.as_vec3() + 0.5) * u;
             instances.push(Instance { pos_size: [p.x, p.y, p.z, u * 1.02], color, fx: [0, 110, 0, 0], shade: [0; 4], turn: [0; 4] });
         }
-        instances[start..].sort_by(|a, b| far(a).total_cmp(&far(b)));
-        see_through = instances.len() - start;
+        if !cells.is_empty() {
+            instances[start..].sort_by(|a, b| far(a).total_cmp(&far(b)));
+            see_through = instances.len() - start;
+        }
     } else if let Some(c) = view.hover.and_then(|hit| ed.target(hit)).filter(|_| !ed.among_pieces()) {
         let color = match ed.tool {
             Tool::Remove => [230, 70, 60, 255],
@@ -1093,16 +1137,16 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         light_vp,
         remember: false,
         sun_dir: sun,
-        sun_color: light.sun_color,
+        sun_color: own.sun_color.unwrap_or(light.sun_color),
         depth_bias: 0.3 / depth_range,
-        ambient: light.ambient,
-        shadow: light.shadow,
+        ambient: own.ambient.unwrap_or(light.ambient),
+        shadow: own.shadow.unwrap_or(light.shadow),
         shadow_style: match light.shadow_style {
             ShadowStyle::Smooth => 0.0,
             ShadowStyle::Voxel => 1.0,
             ShadowStyle::VoxelSoft => 2.0,
         },
-        sky: light.sky,
+        sky: own.sky.unwrap_or(light.sky),
         reflection: light.reflection,
         reflection_horizon: light.reflection_horizon,
         metal_sweep: 0.0,
@@ -1140,10 +1184,7 @@ pub fn lights(ed: &Editor, middle: Vec3) -> Vec<crate::render::Light> {
         .level
         .things
         .iter()
-        .filter_map(|t| {
-            let l = t.light.as_ref()?;
-            Some(crate::render::Light { pos: room::light_spot(t)?, radius: l.radius as f32, color: l.rgb() })
-        })
+        .flat_map(|t| room::light_spots(t).map(|(pos, l)| crate::render::Light { pos, radius: l.radius as f32, color: l.rgb() }))
         .collect();
     lights.sort_by(|a, b| a.pos.distance_squared(middle).total_cmp(&b.pos.distance_squared(middle)));
     lights.truncate(crate::render::MAX_LIGHTS);
@@ -1170,7 +1211,7 @@ pub fn item_along(ed: &Editor, figures: &Figures, origin: Vec3, dir: Vec3) -> Op
             continue;
         }
         if t.model.is_none() {
-            let spot = room::light_spot(t).unwrap_or(at);
+            let spot = room::light_spots(t).next().map_or(at, |(spot, _)| spot);
             take(&mut best, ray_box(origin, dir, spot - 3.0, spot + 3.0), Item::Thing(i));
             continue;
         }
@@ -1278,7 +1319,7 @@ pub fn marks(ed: &Editor, view: &View, figures: &Figures, aspect: f32, inset: gl
         }
         // A light: a ring in its colour where it shines from; a light
         // alone with its line down to the floor and its name.
-        if let (Some(l), Some(spot)) = (&t.light, room::light_spot(t)) {
+        for (spot, l) in room::light_spots(t) {
             let rgb = l.rgb().map(|c| (c * 255.0) as u8);
             let alone = t.model.is_none();
             if alone {
@@ -1451,7 +1492,7 @@ mod tests {
         assert_eq!(shining.len(), 2);
         assert_eq!(shining[0].pos, Vec3::new(212.5, 40.5, 0.5) + room::rotation_of(&ed.level.things[1]) * Vec3::new(3.0, 3.0, 41.0), "the lamp's, from its model's voxels");
         for k in 0..20 {
-            ed.level.things.push(crate::grid::Thing { light: Some(crate::grid::ThingLight { at: None, radius: 5.0, color: None }), ..crate::grid::Thing::new(crate::grid::PIECE, [k, 0, 0]) });
+            ed.level.things.push(crate::grid::Thing { lights: vec![crate::grid::ThingLight { at: None, radius: 5.0, color: None }], ..crate::grid::Thing::new(crate::grid::PIECE, [k, 0, 0]) });
         }
         assert_eq!(lights(&ed, Vec3::ZERO).len(), crate::render::MAX_LIGHTS);
         let _ = std::fs::remove_dir_all(&dir);

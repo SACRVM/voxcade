@@ -194,6 +194,18 @@ pub trait Game: Sized + 'static {
         false
     }
 
+    /// The daylight of the level being played, as its file sets it
+    /// (`[light]`): what it leaves out is `c.light`'s. Only the picture.
+    fn daylight(&self) -> crate::session::Daylight {
+        Default::default()
+    }
+
+    /// The suns every level of the game sets (`[light]`'s `sun`): the
+    /// meshes keep the faces each lights.
+    fn suns(&self) -> Vec<glam::Vec3> {
+        Vec::new()
+    }
+
     /// A file of its code changed while it runs: takes it in, keeping the
     /// game's state; whether the file was its code.
     fn reload_code(&mut self, _files: &crate::files::Files, _file: &Path) -> Result<bool> {

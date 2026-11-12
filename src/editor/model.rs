@@ -73,7 +73,8 @@ pub enum Tool {
     /// tool before.
     Pick,
     /// In a block or a model: a box drawn on a face (its footprint
-    /// dragged, its depth by + and -), then set with a click (`Held`).
+    /// dragged), set where it was drawn as the mouse lets go; fresh until
+    /// the next action, its depth by + and - (`Fresh`).
     Box,
     /// The same, an ellipsoid in that box.
     Sphere,
@@ -109,14 +110,22 @@ impl Tool {
     }
 }
 
-/// The shape BOX or SPHERE holds on the mouse: its size along the grid's
-/// directions, and, while it stands where it was drawn, its low corner
-/// and the way its depth goes (None once the mouse moved on: then it
-/// stands at the face pointed at, its depth out of it).
+/// The shape BOX or SPHERE set last, fresh until the next action: + and -
+/// make it deeper or shallower in place, BEVEL cuts its edges or not, each
+/// still the one step that set it (UNDO takes it away whole). Its low
+/// corner and size as before that step (a model's box may have grown with
+/// it: `shift`, how far its voxels moved), the way its depth goes, and how
+/// it was set: cutting, only where empty.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Held {
+pub struct Fresh {
+    pub lo: IVec3,
     pub size: IVec3,
-    pub at: Option<(IVec3, IVec3)>,
+    pub way: IVec3,
+    pub cut: bool,
+    pub only_empty: bool,
+    pub shift: IVec3,
+    /// The steps there were once it was set: another step since ends it.
+    steps: usize,
 }
 
 /// A shape's footprint being dragged out on a face's plane: the cell it
@@ -265,7 +274,7 @@ impl Sheet {
     }
 }
 
-/// The level's cells, blocks, things, places and areas as a step back
+/// The level's cells, blocks, things, places, areas and daylight as a step back
 /// brings them back.
 #[derive(Clone, PartialEq)]
 struct LevelState {
@@ -275,6 +284,8 @@ struct LevelState {
     things: Vec<Thing>,
     places: Vec<Place>,
     areas: Vec<Area>,
+    /// (Boxed: the steps stay small.)
+    daylight: Option<Box<crate::grid::Daylight>>,
 }
 
 /// One step of the history, before and after.
@@ -341,10 +352,11 @@ pub struct Editor {
     /// grown on the low sides), and since the view last followed them.
     grown: IVec3,
     pub moved: IVec3,
-    /// BOX and SPHERE: the footprint being dragged out, the shape held on
-    /// the mouse, the depth a new footprint gets, edges cut back (BEVEL).
+    /// BOX and SPHERE: the footprint being dragged out, the shape set last
+    /// while it is fresh, the depth a new footprint gets, edges cut back
+    /// (BEVEL).
     pub drawing: Option<Drawing>,
-    pub held_form: Option<Held>,
+    pub fresh: Option<Fresh>,
     pub depth: i32,
     pub bevel: bool,
     /// Every tool's voxel mirrored left to right about the box's middle
@@ -379,6 +391,9 @@ pub struct Editor {
     /// one step back); the model EDIT MODEL asked to open; the game's
     /// worlds and prefabs, which are no models to set down.
     pub free_turns: bool,
+    /// The game's daylight (`c.light`): what a level's own DAYLIGHT starts
+    /// from and leaves to it.
+    pub game_light: crate::config::LightConfig,
     pub chosen: Option<Item>,
     pub hanging: Option<Hanging>,
     pub hang_spot: Option<IVec3>,
@@ -428,7 +443,7 @@ impl Editor {
             grown: IVec3::ZERO,
             moved: IVec3::ZERO,
             drawing: None,
-            held_form: None,
+            fresh: None,
             depth: 1,
             bevel: false,
             symmetry: false,
@@ -439,6 +454,7 @@ impl Editor {
             dry: false,
             question: None,
             free_turns: false,
+            game_light: Default::default(),
             chosen: None,
             hanging: None,
             hang_spot: None,
@@ -499,7 +515,7 @@ impl Editor {
             grown: IVec3::ZERO,
             moved: IVec3::ZERO,
             drawing: None,
-            held_form: None,
+            fresh: None,
             depth: 1,
             bevel: false,
             symmetry: false,
@@ -512,6 +528,7 @@ impl Editor {
             source: String::new(),
             source_level: GridLevel::new(1, IVec3::ZERO),
             free_turns: false,
+            game_light: Default::default(),
             chosen: None,
             hanging: None,
             hang_spot: None,
@@ -555,6 +572,9 @@ impl Editor {
     }
 
     pub fn choose(&mut self, tool: Tool) {
+        if tool != self.tool {
+            self.fresh = None;
+        }
         if tool == Tool::Pick && self.tool != Tool::Pick {
             self.before_pick = self.tool;
         }
@@ -922,8 +942,10 @@ impl Editor {
     }
 
     /// BOX or SPHERE pressed at a hit: a footprint begins on the face's
-    /// plane, before it (or, to `cut`, in the voxel itself).
+    /// plane, before it (or, to `cut`, in the voxel itself); the shape set
+    /// before is fresh no more.
     pub fn begin_form(&mut self, hit: Hit, cut: bool) {
+        self.fresh = None;
         let normal = way_out(hit);
         let start = if cut { hit.cell } else { hit.cell + normal };
         self.drawing = Some(Drawing { start, normal, end: start, cut });
@@ -947,12 +969,10 @@ impl Editor {
         d.end = end.clamp(d.start - 255, d.start + 255);
     }
 
-    /// Where the shape of BOX or SPHERE would go now, its low and high
-    /// corner, the mouse at `hover` (`cut`: into the voxels): the footprint
-    /// being dragged out (as deep as `depth`), the shape held where it was
-    /// drawn, or standing at the face pointed at (its depth out of it,
-    /// centred there across it).
-    pub fn form_box(&self, hover: Option<Hit>, cut: bool) -> Option<(IVec3, IVec3)> {
+    /// The box BOX or SPHERE shows now, its low and high corner: the
+    /// footprint being dragged out (as deep as `depth`), or the shape set
+    /// last while it is fresh, where it stands.
+    pub fn form_box(&self) -> Option<(IVec3, IVec3)> {
         if let Some(d) = &self.drawing {
             let (a, way) = (axis_of(d.normal), deep_way(d.normal, d.cut));
             let (mut lo, mut hi) = (d.start.min(d.end), d.start.max(d.end));
@@ -963,23 +983,13 @@ impl Editor {
             }
             return Some((lo, hi));
         }
-        let held = self.held_form?;
-        if let Some((lo, _)) = held.at {
-            return Some((lo, lo + held.size - 1));
-        }
-        let hit = hover?;
-        let normal = way_out(hit);
-        let c = if cut { hit.cell } else { hit.cell + normal };
-        let (a, way) = (axis_of(normal), deep_way(normal, cut));
-        let mut lo = c - (held.size - 1) / 2;
-        lo[a] = if way[a] > 0 { c[a] } else { c[a] - held.size[a] + 1 };
-        Some((lo, lo + held.size - 1))
+        let f = self.fresh?;
+        Some((f.lo + f.shift, f.lo + f.shift + f.size - 1))
     }
 
-    /// The cells the shape would fill now (with SYMMETRY their mirrors
+    /// The cells of the shape in `lo..=hi` (with SYMMETRY their mirrors
     /// too, about the box as it stands).
-    pub fn form_cells_now(&self, hover: Option<Hit>, cut: bool) -> Vec<IVec3> {
-        let Some((lo, hi)) = self.form_box(hover, cut) else { return Vec::new() };
+    fn shape_cells(&self, lo: IVec3, hi: IVec3) -> Vec<IVec3> {
         let mut cells = form_cells(self.tool, lo, hi, self.bevel);
         if self.symmetry {
             let mirrored: Vec<IVec3> = cells.iter().filter_map(|&c| self.mirror(c)).collect();
@@ -989,84 +999,113 @@ impl Editor {
         cells
     }
 
-    /// The footprint dragged out becomes the shape held, standing where it
-    /// was drawn.
-    pub fn hold_drawn(&mut self) {
-        let Some((lo, hi)) = self.form_box(None, false) else { return };
-        let Some(d) = self.drawing.take() else { return };
-        self.held_form = Some(Held { size: hi - lo + 1, at: Some((lo, deep_way(d.normal, d.cut))) });
-    }
-
-    /// The shape held follows the mouse from now on.
-    pub fn let_form_follow(&mut self) {
-        if let Some(held) = &mut self.held_form {
-            held.at = None;
+    /// The cells the footprint being dragged out would fill: what the view
+    /// shows of it.
+    pub fn form_cells_now(&self) -> Vec<IVec3> {
+        match (self.drawing.is_some(), self.form_box()) {
+            (true, Some((lo, hi))) => self.shape_cells(lo, hi),
+            _ => Vec::new(),
         }
     }
 
-    /// The shape a voxel deeper (`by` 1) or shallower (-1): the footprint
-    /// being dragged out (and the next ones), the shape held along the way
-    /// it was drawn while it stands there, else along the face pointed at.
-    pub fn deepen(&mut self, by: i32, hover: Option<Hit>) {
-        let Some(held) = self.held_form.as_mut().filter(|_| self.drawing.is_none()) else {
+    /// The footprint let go: the shape set right where it was drawn
+    /// (filling in the colour held, only where empty with `only_empty`, or
+    /// cutting away as it was drawn), one step; fresh until the next action.
+    pub fn set_drawn(&mut self, only_empty: bool) {
+        let Some((lo, hi)) = self.form_box().filter(|_| self.drawing.is_some()) else { return };
+        let Some(d) = self.drawing.take() else { return };
+        let fresh = Fresh { lo, size: hi - lo + 1, way: deep_way(d.normal, d.cut), cut: d.cut, only_empty, shift: IVec3::ZERO, steps: 0 };
+        self.depth = fresh.size[axis_of(fresh.way)];
+        self.set_fresh(fresh);
+    }
+
+    /// Sets `fresh` as one step and keeps it fresh (nothing set: none).
+    fn set_fresh(&mut self, mut fresh: Fresh) {
+        let before = self.steps();
+        let shift = self.place_cells(fresh.lo, fresh.lo + fresh.size - 1, fresh.cut, fresh.only_empty);
+        if self.steps() == before {
+            self.fresh = None;
+            return;
+        }
+        (fresh.shift, fresh.steps) = (shift, self.steps());
+        self.fresh = Some(fresh);
+    }
+
+    /// The fresh shape, if it is still the last step: its step taken back
+    /// quietly, to be set again changed (+, -, BEVEL).
+    fn take_fresh_back(&mut self) -> Option<Fresh> {
+        let fresh = self.fresh.take().filter(|f| f.steps == self.steps() && self.drawing.is_none() && self.stroke.is_none())?;
+        let step = self.past.pop()?;
+        self.go(&step, false);
+        self.moved -= fresh.shift;
+        Some(fresh)
+    }
+
+    /// A voxel deeper (`by` 1) or shallower (-1): the shape set last while
+    /// it is fresh, in place (its step still one); else the depth the next
+    /// footprint gets (the one being dragged out too).
+    pub fn deepen(&mut self, by: i32) {
+        let Some(mut fresh) = self.take_fresh_back() else {
             self.depth = (self.depth + by).clamp(1, 256);
             return;
         };
-        let (a, at) = match held.at {
-            Some((lo, way)) => (axis_of(way), Some((lo, way))),
-            None => match hover {
-                Some(hit) => (axis_of(way_out(hit)), None),
-                None => return,
-            },
-        };
-        let deeper = (held.size[a] + by).clamp(1, 256);
-        if let Some((mut lo, way)) = at {
-            // Drawn into the voxels or down a face: it grows from its far end.
-            if way[a] < 0 {
-                lo[a] -= deeper - held.size[a];
-            }
-            held.at = Some((lo, way));
+        let a = axis_of(fresh.way);
+        let deeper = (fresh.size[a] + by).clamp(1, 256);
+        // Drawn into the voxels or down a face: it grows from its far end.
+        if fresh.way[a] < 0 {
+            fresh.lo[a] -= deeper - fresh.size[a];
         }
-        held.size[a] = deeper;
+        fresh.size[a] = deeper;
         self.depth = deeper;
+        self.set_fresh(fresh);
     }
 
-    /// The shape held let go (Escape): whether there was one.
+    /// BEVEL on or off; the shape set last, while fresh, set again so.
+    pub fn toggle_bevel(&mut self) {
+        let fresh = self.take_fresh_back();
+        self.bevel = !self.bevel;
+        if let Some(fresh) = fresh {
+            self.set_fresh(fresh);
+        }
+    }
+
+    /// Escape: the footprint being dragged out let go, the shape set last
+    /// fresh no more (it stays); whether there was either.
     pub fn drop_form(&mut self) -> bool {
-        let had = self.held_form.is_some() || self.drawing.is_some();
-        (self.held_form, self.drawing) = (None, None);
+        let had = self.fresh.is_some() || self.drawing.is_some();
+        (self.fresh, self.drawing) = (None, None);
         had
     }
 
-    /// The shape set where `form_box` says: filling in the colour held
-    /// (only where empty with `only_empty`), or cutting away; mirrored too
-    /// with SYMMETRY. A model's box grows to hold it; a block's stays, what
-    /// lies outside left out. One step, saved; the shape stays held.
-    pub fn place_form(&mut self, hover: Option<Hit>, cut: bool, only_empty: bool) {
-        let mut cells = self.form_cells_now(hover, cut);
+    /// Sets the shape in `lo..=hi`: filling in the colour held (only where
+    /// empty with `only_empty`), or cutting away; mirrored too with
+    /// SYMMETRY. A model's box grows to hold it (how far its voxels moved
+    /// comes back); a block's stays, what lies outside left out. One step,
+    /// saved.
+    fn place_cells(&mut self, lo: IVec3, hi: IVec3, cut: bool, only_empty: bool) -> IVec3 {
+        let mut cells = self.shape_cells(lo, hi);
         if cells.is_empty() || self.shape().is_none() {
-            return;
+            return IVec3::ZERO;
         }
         self.stroke = Some(match self.scope {
-            Scope::Level | Scope::Figure => return,
+            Scope::Level | Scope::Figure => return IVec3::ZERO,
             Scope::Block(i) => Step::Block(i, self.blocks[i].clone(), self.blocks[i].clone()),
             Scope::Frame(_) => Step::Model(self.shaped(), Shaped::default()),
         });
         self.grown = IVec3::ZERO;
+        let mut moved = IVec3::ZERO;
         if matches!(self.scope, Scope::Frame(_)) && !cut {
             let (lo, hi) = cells.iter().fold((cells[0], cells[0]), |(lo, hi), &c| (lo.min(c), hi.max(c)));
             match self.grow_model_to(lo, hi) {
                 Some(shift) => {
                     cells.iter_mut().for_each(|c| *c += shift);
-                    if let Some(Held { at: Some((lo, _)), .. }) = &mut self.held_form {
-                        *lo += shift;
-                    }
+                    moved = shift;
                 }
                 None => self.message = Some("a model holds 256 voxels each way at most".into()),
             }
         }
         let colour = self.colour;
-        let Some(block) = self.shape_mut() else { return };
+        let Some(block) = self.shape_mut() else { return moved };
         let mut trouble = None;
         for c in cells {
             if block.index(c).is_none() {
@@ -1088,11 +1127,25 @@ impl Editor {
             self.message = trouble;
         }
         self.release();
+        moved
+    }
+
+    /// A shape `size` big set at a face (`hit`, centred on it across, its
+    /// depth out of it; `cut`: into the voxels), fresh: what `--shot
+    /// --held` shows.
+    pub fn set_form_at(&mut self, hit: Hit, size: IVec3, cut: bool) {
+        let normal = way_out(hit);
+        let c = if cut { hit.cell } else { hit.cell + normal };
+        let (a, way) = (axis_of(normal), deep_way(normal, cut));
+        let mut lo = c - (size - 1) / 2;
+        lo[a] = if way[a] > 0 { c[a] } else { c[a] - size[a] + 1 };
+        self.set_fresh(Fresh { lo, size, way, cut, only_empty: false, shift: IVec3::ZERO, steps: 0 });
     }
 
     /// Takes the last step back.
     pub fn undo(&mut self) {
         self.release();
+        self.fresh = None;
         self.tuning = None;
         self.tuned = None;
         if let Some(step) = self.past.pop() {
@@ -1104,6 +1157,7 @@ impl Editor {
     /// Takes the last step taken back again.
     pub fn redo(&mut self) {
         self.release();
+        self.fresh = None;
         self.tuning = None;
         self.tuned = None;
         if let Some(step) = self.future.pop() {
@@ -1176,6 +1230,7 @@ impl Editor {
         self.level.things = s.things.clone();
         self.level.places = s.places.clone();
         self.level.areas = s.areas.clone();
+        self.level.daylight = s.daylight.as_deref().cloned();
     }
 
     /// A copy of the block shown or held, under a new number, held (and
@@ -1490,7 +1545,7 @@ impl Editor {
 
     fn level_state(&self) -> LevelState {
         let l = &self.level;
-        LevelState { size: l.size, cells: l.cells.clone(), table: l.blocks.clone(), things: l.things.clone(), places: l.places.clone(), areas: l.areas.clone() }
+        LevelState { size: l.size, cells: l.cells.clone(), table: l.blocks.clone(), things: l.things.clone(), places: l.places.clone(), areas: l.areas.clone(), daylight: l.daylight.clone().map(Box::new) }
     }
 
     /// The next frame of the model shown (`by` on, back when negative,
@@ -2260,43 +2315,71 @@ pub(crate) mod tests {
         assert_eq!(form_cells(Tool::Box, lo, IVec3::new(4, 0, 0), true).len(), 5, "a bar keeps its ends");
     }
 
-    /// BOX on a model: a footprint dragged out on the top face, a voxel
-    /// deeper, held and set with a click; the box grows to hold it; with
-    /// SYMMETRY the other side too; Alt fills only where empty, Ctrl
-    /// cuts; each a step.
+    /// BOX on a model: a footprint dragged out on the top face and let go
+    /// is set right there (its depth the last one used, 1 at first), the
+    /// box grown to hold it; fresh, + and - change its depth in place and
+    /// BEVEL its edges, still one step, UNDO takes it away whole; the next
+    /// drag begins a new one and leaves the first; Alt fills only where
+    /// empty, Ctrl cuts; with SYMMETRY the other side too.
     #[test]
-    fn a_box_is_drawn_held_and_set() {
+    fn a_box_is_set_where_it_is_drawn() {
         let dir = model_folder("box");
         let mut ed = Editor::open_model(&dir, "thing.vvx").unwrap();
         ed.choose(Tool::Box);
         ed.colour = [10, 200, 10];
-        // On top of the voxel at (1, 0, 4), dragged to x 3, two deep.
+        let first = ed.grid();
+        let green = |ed: &Editor, x: i32, z: i32| ed.shape().unwrap().colour_at(IVec3::new(x, 0, z)) == Some([10, 200, 10]);
+        // On top of the voxel at (1, 0, 4), dragged to x 3, let go.
         ed.begin_form(Hit { cell: IVec3::new(1, 0, 4), normal: IVec3::Z }, false);
         ed.draw_form(Vec3::new(3.5, 0.5, 30.0), Vec3::NEG_Z);
-        ed.deepen(1, None);
-        assert_eq!(ed.form_box(None, false), Some((IVec3::new(1, 0, 5), IVec3::new(3, 0, 6))));
-        ed.hold_drawn();
-        assert_eq!(ed.held_form.map(|h| h.size), Some(IVec3::new(3, 1, 2)));
-        ed.place_form(None, false, false);
+        assert_eq!(ed.form_box(), Some((IVec3::new(1, 0, 5), IVec3::new(3, 0, 5))), "one deep at first");
+        ed.set_drawn(false);
+        assert!(ed.drawing.is_none() && ed.fresh.is_some());
         // Up, and across on both sides of the pivot (the model stands where
         // it stood): its voxels a column to the right.
-        assert_eq!((ed.grid(), ed.moved), (IVec3::new(5, 2, 7), IVec3::X), "grown right and up to hold it");
-        let frame = ed.shape().unwrap();
-        assert!((2..=4).all(|x| (5..=6).all(|z| frame.colour_at(IVec3::new(x, 0, z)) == Some([10, 200, 10]))));
-        assert_eq!(ed.steps(), 1);
-        // Following the mouse: a 3 by 1 by 2 box centred on the face pointed
-        // at, cut away with Ctrl (into the voxels).
-        ed.let_form_follow();
-        let hit = Hit { cell: IVec3::new(3, 0, 6), normal: IVec3::Z };
-        assert_eq!(ed.form_box(Some(hit), true), Some((IVec3::new(2, 0, 5), IVec3::new(4, 0, 6))));
-        ed.place_form(Some(hit), true, false);
-        assert!((2..=4).all(|x| ed.shape().unwrap().get(IVec3::new(x, 0, 6)) == 0), "cut away");
+        assert_eq!((ed.grid(), ed.moved), (IVec3::new(5, 2, 6), IVec3::X), "grown right and up to hold it");
+        assert!((2..=4).all(|x| green(&ed, x, 5)) && ed.steps() == 1);
+        assert_eq!(ed.form_box(), Some((IVec3::new(2, 0, 5), IVec3::new(4, 0, 5))), "fresh where it stands now");
+        // Fresh: a voxel deeper, in place, still one step.
+        ed.deepen(1);
+        assert_eq!((ed.grid(), ed.moved, ed.steps(), ed.depth), (IVec3::new(5, 2, 7), IVec3::X, 1, 2));
+        assert!((2..=4).all(|x| green(&ed, x, 5) && green(&ed, x, 6)));
+        ed.deepen(1);
+        ed.deepen(-1);
+        assert!(!green(&ed, 3, 7) && green(&ed, 3, 6) && ed.steps() == 1, "back to two deep");
+        // UNDO: the whole box away.
         ed.undo();
-        assert_eq!(ed.shape().unwrap().colour_at(IVec3::new(3, 0, 6)), Some([10, 200, 10]), "the cut taken back");
+        assert_eq!((ed.grid(), ed.steps(), ed.fresh), (first, 0, None));
+        // A new one, two deep (the depth used last), then another drag: the
+        // first stays as it is, + acts on the second.
+        ed.begin_form(Hit { cell: IVec3::new(1, 0, 4), normal: IVec3::Z }, false);
+        ed.draw_form(Vec3::new(3.5, 0.5, 30.0), Vec3::NEG_Z);
+        ed.set_drawn(false);
+        assert_eq!(ed.form_box(), Some((IVec3::new(2, 0, 5), IVec3::new(4, 0, 6))));
+        ed.begin_form(Hit { cell: IVec3::new(0, 1, 4), normal: IVec3::Z }, false);
+        ed.set_drawn(false);
+        ed.deepen(1);
+        assert!(green(&ed, 3, 6) && !green(&ed, 3, 7), "the first as it was");
+        assert_eq!(ed.steps(), 2);
+        // Escape: fresh no more; + is the next footprint's depth.
+        assert!(ed.drop_form());
+        let shape = ed.shape().unwrap().clone();
+        ed.deepen(1);
+        assert!(*ed.shape().unwrap() == shape && ed.depth == 4);
+        ed.depth = 2;
+        // Ctrl: cut into the voxels as drawn.
+        ed.begin_form(Hit { cell: IVec3::new(3, 0, 6), normal: IVec3::Z }, true);
+        ed.draw_form(Vec3::new(4.5, 0.5, 30.0), Vec3::NEG_Z);
+        ed.set_drawn(false);
+        assert!((3..=4).all(|x| ed.shape().unwrap().get(IVec3::new(x, 0, 6)) == 0 && ed.shape().unwrap().get(IVec3::new(x, 0, 5)) == 0), "cut two deep");
+        ed.undo();
+        assert!(green(&ed, 3, 6), "the cut taken back");
         // Alt: only where empty; the box's own voxels keep their colour.
         ed.colour = [255, 255, 0];
-        ed.place_form(Some(Hit { cell: IVec3::new(3, 0, 4), normal: IVec3::Z }), false, true);
-        assert_eq!(ed.shape().unwrap().colour_at(IVec3::new(3, 0, 5)), Some([10, 200, 10]));
+        ed.depth = 1;
+        ed.begin_form(Hit { cell: IVec3::new(3, 0, 4), normal: IVec3::Z }, false);
+        ed.set_drawn(true);
+        assert!(green(&ed, 3, 5), "filled only where empty");
         // SYMMETRY: a voxel added at the left, its mirror at the right.
         ed.symmetry = true;
         ed.choose(Tool::Add);
@@ -2305,6 +2388,27 @@ pub(crate) mod tests {
         ed.release();
         let frame = ed.shape().unwrap();
         assert!(frame.get(IVec3::new(0, 1, 1)) != 0 && frame.get(IVec3::new(w - 1, 1, 1)) != 0, "both sides");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BEVEL on a fresh box cuts its edges in place, one step still; a
+    /// sphere set the same way, in a block.
+    #[test]
+    fn bevel_and_sphere_act_on_the_fresh_form() {
+        let dir = model_folder("bevel");
+        let mut ed = Editor::open_model(&dir, "thing.vvx").unwrap();
+        ed.choose(Tool::Box);
+        ed.depth = 3;
+        ed.begin_form(Hit { cell: IVec3::new(0, 0, 4), normal: IVec3::Z }, false);
+        ed.draw_form(Vec3::new(2.5, 2.5, 30.0), Vec3::NEG_Z);
+        ed.set_drawn(false);
+        let (lo, hi) = ed.form_box().unwrap();
+        let count = |ed: &Editor| (lo.z..=hi.z).flat_map(|z| (lo.y..=hi.y).flat_map(move |y| (lo.x..=hi.x).map(move |x| IVec3::new(x, y, z)))).filter(|c| ed.shape().unwrap().get(*c) != 0).count();
+        assert_eq!(count(&ed), 27);
+        ed.toggle_bevel();
+        assert_eq!((count(&ed), ed.steps()), (7, 1), "its edges and corners cut, one step");
+        ed.choose(Tool::Sphere);
+        assert!(ed.fresh.is_none(), "another tool: fresh no more");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2351,16 +2455,14 @@ pub(crate) mod tests {
         ed.choose(Tool::Add);
         ed.shift_pick(false);
         assert_eq!(ed.tool, Tool::Add);
-        // BOX with a shape held: it stays held through the pick.
+        // BOX: picking and back.
         ed.choose(Tool::Box);
-        ed.held_form = Some(Held { size: IVec3::new(3, 1, 2), at: None });
         ed.colour = [0, 0, 0];
         ed.shift_pick(true);
         assert!(!ed.forms(), "no shape drawn while PICK");
         ed.press(top);
         ed.shift_pick(false);
         assert_eq!((ed.tool, ed.colour), (Tool::Box, [10, 200, 10]));
-        assert_eq!(ed.held_form.map(|h| h.size), Some(IVec3::new(3, 1, 2)), "the shape stays on the mouse");
         assert!(ed.forms());
         let _ = std::fs::remove_dir_all(&dir);
     }

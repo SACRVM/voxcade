@@ -286,17 +286,43 @@ north) needs `c.camera.turns = "free"`, the game's choice for every
 level and the editor's, else the level does not load and the mistake
 names each thing turned off the grid and both ways out (allow free turns,
 or align them in the editor: `grid::text::align`, a tie going clockwise).
+A piece's `at` is its pivot cell (the model's cell `size / 2` across and
+deep, on its floor; "A model's pivot" below), and `thing.x`, `thing.y`
+read `at + 0.5`, the middle of that cell (the grid's low corner added):
+a cube put relative to a piece goes at `math.floor(thing.x) + dx`.
 A piece may bring a light (`light = { at, radius, color }`, `at` from the
-pivot in the model's voxels, turning with it), or be a light alone; its
-brightness is `thing.state.light` (0 to 1, 1 at first; an engine key
-kept in `Stage::lights`: snapshots, saves by the piece's name, and the
-state hash only where a level has lights, so earlier replays stay as
-they were). A picture shows the 16 lights nearest the middle of the view
-(`render::MAX_LIGHTS`). `[[area]]` is a named box: `level.areas.NAME`,
+pivot in the model's voxels, turning with it) or several (`lights = [ {
+... }, { ... } ]`: a lamp's flame and its wider glow; `light =` is a list
+of one, both on one thing a mistake), or be a light alone; all its
+lights move and turn with it, and `thing.state.light` (0 to 1, 1 at
+first) dims them together (an engine key kept in `Stage::lights`:
+snapshots, saves by the piece's name, and the state hash only where a
+level has lights, so earlier replays stay as they were). A light of its
+own each would come later as a list, `thing.state.lights[k]` (1 at
+first, multiplied with `light`), so `light` keeps its meaning. A picture
+shows the 16 lights nearest the middle of the view
+(`render::MAX_LIGHTS`), each light of a piece counting. A piece with
+`solid = true` holds bodies up and stops them, rounds and debris too,
+exactly in the cells its model is drawn in (`session::quarter_cells`, its
+first frame, glass blocking as the rest): the level's world keeps them
+beside its voxels (`world::Solids`, consulted by `World::solid`,
+`blocks` and `hold`), so its voxels stay empty (`level:voxel` says 0,
+`level:solid` true), the model draws them once, and the world's palette
+is not touched. Only in quarter turns: a solid piece turned off them
+does not load, in a game that turns freely too. It does not move; taken
+away (`thing:remove`) its cells are free at the tick's end with it; a
+blast does not blow it away, and it holds no voxels of the world up
+(they fall as before). Which were taken away is in the state hash only
+where a level has solid pieces. A level's file may have its own
+daylight, `[light]` with `c.light`'s words (`sun`, `sun_color`,
+`ambient`, `shadow`, `sky`; colours `"#rrggbb"`): over the game's for
+that level, under `frame:daylight` in `on_draw`, the picture only (no
+hash); the meshes keep the faces every level's sun lights (`Game::suns`).
+`[[area]]` is a named box: `level.areas.NAME`,
 `area:holds(thing or point)`. Names given in the file are the things'
 names (`level:thing(name)`); unnamed ones keep their kind and number. Not
-yet: a piece that holds bodies up (its voxels solid), areas' events,
-setting a light's colour or reach in code, the editor shaping pieces.
+yet: areas' events, setting a light's colour or reach in code, a light's
+own brightness.
 
 ## Why
 
@@ -469,16 +495,32 @@ settings. Several players: `player` is seat 1, the others are in
   `frame:model` of a file the game does not know (no kind's `model`, no
   `c.models`, item or effect names it) stops the game with a mistake.
 - **A model's pivot** is the cell `size / 2` (whole voxels, rounded
-  down) across and deep, on the floor: a thing's position is that cell,
-  and a model turns about its middle. For an odd size that is the middle
-  cell and the model fills the same cells at every turn. For an even size
-  (4 across: cells -2, -1, 0, 1 from the pivot) the pivot lies one cell
-  off the middle, so a turn that flips an axis (facing -y flips both
-  ways, facing +x or -x one) fills the cells one voxel higher on it
-  (-1 to 2): facing -y a 4 by 4 model lies one voxel up and to the right
-  of facing +y. Free turns (`turns = "free"`, `turn`) land on the same
-  cells. To keep an even model in one place whichever way it faces, give
-  it an odd size, or place it by its middle and allow the voxel. A
+  down) across and deep of the model's own box, on the floor: a thing's
+  position is that cell, and a model turns about its middle. For an odd
+  size that is the middle cell and the model fills the same cells at
+  every turn. For an even size (4 across: its own cells -2, -1, 0, 1 from
+  the pivot) the pivot lies one cell off the middle, so a turn that flips
+  an axis (facing -y flips both ways, facing +x or -x one) fills the
+  cells one voxel higher on it (-1 to 2): facing -y a 4 by 4 model lies
+  one voxel up and to the right of facing +y. Free turns (`turns =
+  "free"`, `turn`) land on the same cells. To keep an even model in one
+  place whichever way it faces, give it an odd size, or place it by its
+  middle and allow the voxel. So where a model lies in the world (its low
+  corner `lo`) and its pivot cell (`at`, a piece's) differ by the way it
+  faces: facing north (+y, the model's own forward) `at = lo + size / 2`
+  on each axis; facing south (-y, a piece's way unless its file says),
+  both axes flipped, `at = lo + (size - 1) / 2` (halves rounded down;
+  the same for an odd size). A model 4 across and 1 deep, its own cells
+  -2 to 1 from its pivot, with `at = [10, 10, 0]`:
+
+  | facing | the cells it fills |
+  |---|---|
+  | north | x 8 to 11, y 10 |
+  | east | x 10, y 9 to 12 |
+  | south | x 9 to 12, y 10 |
+  | west | x 10, y 8 to 11 |
+
+  (pinned by `an_even_sized_model_shifts_a_voxel_when_it_turns`). A
   model's file (`.vvx`, `src/vvx.rs`) measures its frames' and parts'
   `at` and the joints from this cell, so growing a part moves nothing
   else and the model keeps standing where it stood.
@@ -897,8 +939,9 @@ touches there touches without `on_touch`.
   level of a run starts there too. Levels of blocks and maps hold places;
   a world (`.vvx`) has no room for names, so it has only its start.
 - **Pieces and areas.** A level's file sets down pieces (models fixed
-  where it puts them, lights), each a thing of the kind `"piece"`, and
-  names areas (`level.areas`). Its things may have names of the file's;
+  where it puts them, lights, solid ones holding bodies up), each a thing
+  of the kind `"piece"`, names areas (`level.areas`) and may set its own
+  daylight (`[light]`). Its things may have names of the file's;
   a name is one thing's in the level, checked as the game loads, as a
   piece's model is (a missing file names the level and the line).
 - **Replays** start at the first level (or at the save or `--level` they
@@ -1016,7 +1059,9 @@ says so).
 
 - **A scenario** is a named start of a run, written as code:
   `scenarios/NAME.lua` in the game folder gives back a table, all of it
-  but `setup` optional:
+  optional but that it says where the run begins (`level`, `place`) or
+  sets it up (`setup`): a scenario of a level alone, `return { level =
+  "cellar" }`, begins the run there:
 
   ```lua
   -- scenarios/wolf_night.lua

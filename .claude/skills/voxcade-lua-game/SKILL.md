@@ -107,16 +107,23 @@ When you make a model (in a script or by hand in the voxel editor):
 
 A level of blocks holds pieces too. A piece (`thing.kind` is `"piece"`)
 stays exactly where the file puts its pivot (on a wall, in the air), is
-drawn by the engine (no `frame:model` for it), holds nobody up (the floor
-is voxels) and is touched like any thing; its model is any `.vvx` of the
+drawn by the engine (no `frame:model` for it), holds nobody up unless
+`solid = true` (then its voxels hold bodies up and stop them and rounds,
+exactly where it is drawn, quarter turns only; a floor and walls of
+pieces need no `level:fill`) and is touched like any thing; its model is any `.vvx` of the
 game, named in the file only. `facing = "south"` (north, east, south, the
 default, west); `turn = 30` (a bearing, clockwise from north) only with
 `c.camera.turns = "free"`, else the level does not load and the mistake
 names the things (the editor offers ALIGN ALL). `light = { at = [0, 0,
 12], radius = 40, color = "#ffd9a0" }`: `at` from the pivot in the
-model's voxels, turning with it; `thing.state.light` is its brightness,
-0 off to 1 (1 at first), kept by saves; more than 16 lights in view: the
-16 nearest the middle of the view shine. `level.areas.NAME:holds(thing
+model's voxels, turning with it; `lights = [ {...}, {...} ]` for
+several (a flame and its glow); `thing.state.light` dims all of them, 0
+off to 1 (1 at first), kept by saves; more than 16 lights in view: the
+16 nearest the middle of the view shine, each light counting. A piece's
+`at` is its pivot cell and `thing.x` reads `at + 0.5`: a cube beside it
+goes at `math.floor(thing.x) + dx`. A level's own daylight: `[light]`
+in its file with `c.light`'s words (`sun = [x, y, z]`, `sun_color`,
+`ambient`, `shadow`, `sky`), `frame:daylight` still the last word. `level.areas.NAME:holds(thing
 or { x, y, z })`. Names in the file are `thing.name` (`level:thing("lamp")`).
 
 ### Kinds of things (`c.things.NAME`)
@@ -439,7 +446,8 @@ itself is the voxcade-api skill's subject.
   boss, the last room, day 40 of a farm, a full inventory, an event) is
   tried from a scenario, never by playing there first: `scenarios/NAME.lua`
   gives back `{ about = "...", level = "...", place = "...", setup =
-  function() ... end }` (all but setup optional); setup runs once before
+  function() ... end }` (all optional, but a scenario names a level, a
+  place or a setup: `{ level = "cellar" }` alone begins there); setup runs once before
   the first tick, as `on_tick` could, `require` giving the game's
   modules. Where the states are many, give the scenarios words of the
   game's (BunnyFarm's `setup.lua`: `set.day(12, "21:30")`,

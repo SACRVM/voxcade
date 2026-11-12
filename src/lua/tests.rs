@@ -2979,7 +2979,7 @@ fn scenarios_and_console_lines_say_what_went_wrong() {
         ("gone", "no scenario 'gone' (the game's: bare, broken, odd, plain)"),
         ("plain", "scenarios/plain.lua: a scenario gives back a table"),
         ("odd", "scenarios/odd.lua: no field called 'start' (about, level, place, setup)"),
-        ("bare", "scenarios/bare.lua: setup is the function that sets the run up"),
+        ("bare", "scenarios/bare.lua: a scenario says where the run begins (level = \"name\", place = \"name\") or sets it up"),
         ("broken", "scenarios/broken.lua:3:"),
     ] {
         let mut g = game_in(&dir);
@@ -4407,4 +4407,124 @@ fn a_run_in_a_room_of_pieces_plays_back_the_same() {
     let replay = recorder.replay(&g).unwrap();
     assert!(replay.scenario.as_deref() == Some("lamp_off"));
     assert!(matches!(crate::replay::play_through::<LuaGame>(&dir, &replay).unwrap(), crate::replay::Verdict::Same));
+}
+
+/// A slab 20 across, 20 deep and 4 high, its pivot in the middle of its
+/// floor (cells -10 to 9 across and deep).
+const SLAB: &str = "format = \"voxcade voxel 1\"\nsize = [20, 20, 4]\n\n[palette]\na = { color = \"#806040\" }\n\n[[frame]]\nlayers = \"\"\"\naaaaaaaaaaaaaaaaaaaa *20\n*4\n\"\"\"\n";
+
+/// A piece with two lights (a flame and its glow) shines with both, each
+/// from its own place, turning with the piece; `thing.state.light` dims
+/// them together.
+#[test]
+fn a_pieces_lights_dim_together() {
+    let level = ROOM.replace("light = { at = [0, 0, 3], radius = 30, color = \"#ff8000\" }", "lights = [\n  { at = [0, 0, 3], radius = 10, color = \"#ff8000\" },\n  { at = [1, 0, 3], radius = 30, color = \"#ffffff\" },\n]");
+    let mut g = game_in(&pieces_folder("two-lights", "", &level, ""));
+    assert_eq!(halted(&g), "");
+    let frame = |g: &Session<LuaGame>| g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+    let (flame, glow) = (glam::Vec3::new(40.5, 30.5, 15.5), glam::Vec3::new(39.5, 30.5, 15.5));
+    assert_eq!((lights_at(&frame(&g), flame), lights_at(&frame(&g), glow)), (vec![[1.0, 128.0 / 255.0, 0.0]], vec![[1.0; 3]]), "facing south, the model's +x is the camera's left");
+    said(&mut g, "level:thing('lamp').state.light = 0.5");
+    assert_eq!((lights_at(&frame(&g), flame), lights_at(&frame(&g), glow)), (vec![[0.5, 64.0 / 255.0, 0.0]], vec![[0.5; 3]]));
+    assert_eq!(frame(&g).lights.len(), 3, "the lamp's two and the moon");
+}
+
+/// A solid piece holds a body up (in the air too) and stops it, exactly
+/// where its model is drawn; taken away (`thing:remove`), its voxels let
+/// everything through at the tick's end; a snapshot brings it back; the
+/// world's own voxels stay empty there and it is no part of a blast.
+#[test]
+fn a_solid_piece_holds_bodies_up_and_stops_them() {
+    let level = "format = \"voxcade level 1\"\nsize = [64, 64, 40]\n\n[[thing]]\nname = \"table\"\nmodel = \"slab.vvx\"\nat = [32, 32, 10]\nsolid = true\n\n[[thing]]\nname = \"wall\"\nmodel = \"slab.vvx\"\nat = [32, 10, 0]\nsolid = true\n\n[[place]]\nname = \"start\"\nat = [30, 30, 30]\n";
+    let dir = pieces_folder("solid", "", level, "function on_tick() player:walk(input.dir, 40) end\n");
+    std::fs::write(dir.join("slab.vvx"), SLAB).unwrap();
+    let mut g = game_in(&dir);
+    steps(&mut g, 90);
+    assert_eq!(halted(&g), "");
+    assert_eq!(said(&mut g, "player.z"), "14.0", "standing on the table's top");
+    assert_eq!(said(&mut g, "level:solid(32, 32, 13)"), "true");
+    assert_eq!(said(&mut g, "level:voxel(32, 32, 13)"), "0", "no voxel of the world: the model draws it");
+    // Facing south (as a piece does unless its file says), an even size
+    // flipped: cells -9 to 10 from the pivot, as it is drawn.
+    assert_eq!(said(&mut g, "level:solid(22, 32, 13)") + &said(&mut g, "level:solid(23, 32, 13)") + &said(&mut g, "level:solid(42, 32, 13)") + &said(&mut g, "level:solid(43, 32, 13)"), "falsetruetruefalse");
+    let kept = g.snapshot().unwrap();
+    let hash = g.game.state_hash();
+    said(&mut g, "level:explode({ x = 32, y = 32, z = 14 }, 6)");
+    assert_eq!(said(&mut g, "level:solid(32, 32, 13)"), "true", "a blast leaves it");
+    said(&mut g, "level:thing('table'):remove()");
+    assert_eq!(said(&mut g, "level:solid(32, 32, 13)"), "false", "gone at the tick's end");
+    assert_ne!(g.game.state_hash(), hash);
+    steps(&mut g, 90);
+    assert_eq!(said(&mut g, "player.z + 0"), "0.0", "fallen to the floor");
+    g.restore(&kept);
+    assert_eq!(said(&mut g, "level:solid(32, 32, 13)"), "true", "a snapshot brings it back");
+    // Walking into the wall's side: stopped at its face (y 10 + 10).
+    said(&mut g, "player:place(32, 40, 0)");
+    for _ in 0..90 {
+        g.step(&Input { down: true, ..Input::default() });
+    }
+    let y: f32 = said(&mut g, "player.y").parse().unwrap();
+    assert!((21.0..24.0).contains(&y), "stopped by the wall at y {y}");
+}
+
+/// A solid piece turned off the quarter turns does not load, in a game
+/// that turns things freely too: the mistake names it and the way out.
+#[test]
+fn a_solid_piece_keeps_to_the_quarter_turns() {
+    let level = ROOM.replace("facing = \"east\"", "turn = 30\nsolid = true");
+    let e = start_error(&pieces_folder("solid-turned", "  c.camera.turns = \"free\"\n", &level, ""));
+    assert!(e.contains("'stove' (line 5)") && e.contains("solid but turned 30 degrees") && e.contains("quarter turns"), "{e}");
+    let quarter = ROOM.replace("facing = \"east\"", "turn = 90\nsolid = true");
+    let mut g = game_in(&pieces_folder("solid-quarter", "  c.camera.turns = \"free\"\n", &quarter, ""));
+    assert_eq!(halted(&g), "");
+    assert_eq!(said(&mut g, "level:solid(10, 20, 3)"), "true");
+}
+
+/// The jump & run's hero stands on a solid piece's top and is stopped by
+/// its side.
+#[test]
+fn the_hero_stands_on_a_solid_piece() {
+    let dir = std::env::temp_dir().join(format!("voxcade-pieces-solid-hero-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("levels")).unwrap();
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3 }\n  c.things.hero = { behaviour = \"hero\", height = 6 }\nend\n").unwrap();
+    std::fs::write(dir.join("slab.vvx"), SLAB).unwrap();
+    let wall = "format = \"voxcade voxel 1\"\nsize = [4, 20, 20]\n\n[palette]\na = { color = \"#806040\" }\n\n[[frame]]\nlayers = \"\"\"\naaaa *20\n*20\n\"\"\"\n";
+    std::fs::write(dir.join("wall.vvx"), wall).unwrap();
+    let floor = "format = \"voxcade voxel 1\"\nsize = [128, 16, 2]\n\n[palette]\na = { color = \"#605040\" }\n\n[[frame]]\nlayers = \"\"\"\n".to_string() + &"a".repeat(128) + " *16\n*2\n\"\"\"\n";
+    std::fs::write(dir.join("floor.vvx"), floor).unwrap();
+    // A floor of a piece too: the hero walks on it (the world below the
+    // level would be falling out of it).
+    let level = "format = \"voxcade level 1\"\nsize = [128, 16, 60]\n\n[[thing]]\nkind = \"hero\"\nat = [48, 8, 30]\n\n[[thing]]\nname = \"floor\"\nmodel = \"floor.vvx\"\nat = [64, 8, 0]\nfacing = \"north\"\nsolid = true\n\n[[thing]]\nname = \"table\"\nmodel = \"slab.vvx\"\nat = [48, 8, 10]\nsolid = true\n\n[[thing]]\nname = \"wall\"\nmodel = \"wall.vvx\"\nat = [100, 8, 2]\nfacing = \"north\"\nsolid = true\n";
+    std::fs::write(dir.join("levels/room.toml"), level).unwrap();
+    std::fs::write(dir.join("main.lua"), "").unwrap();
+    let mut g = game_in(&dir);
+    assert_eq!(halted(&g), "");
+    steps(&mut g, 90);
+    assert_eq!(said(&mut g, "player.z"), "14.0", "on the table's top");
+    // On the floor, running right into the wall (x 98 to 101).
+    said(&mut g, "player:place(80, 8, 2)");
+    for _ in 0..120 {
+        g.step(&Input { right: true, ..Input::default() });
+    }
+    let (x, z): (f32, f32) = (said(&mut g, "player.x").parse().unwrap(), said(&mut g, "player.z").parse().unwrap());
+    assert!(x < 98.0 && x > 90.0 && z == 2.0, "stopped by the wall at {x}, {z}");
+}
+
+/// A scenario that only names where the run begins (a level, a place
+/// there) needs no setup; one that says nothing at all is a mistake.
+#[test]
+fn a_scenario_may_only_name_a_level() {
+    let dir = levels_folder("scenario-level", "function on_level_start(how) world.state.how = how end\n", &[("a", &[]), ("b", &[("door", [6, 2, 4])])]);
+    std::fs::create_dir_all(dir.join("scenarios")).unwrap();
+    std::fs::write(dir.join("scenarios/in_b.lua"), "return { about = \"the second room\", level = \"b\" }\n").unwrap();
+    std::fs::write(dir.join("scenarios/at_door.lua"), "return { level = \"b\", place = \"door\" }\n").unwrap();
+    let mut g = game_in(&dir);
+    g.start_scenario("in_b").unwrap();
+    assert_eq!((said(&mut g, "level.name"), halted(&g)), ("\"b\"".to_string(), String::new()));
+    let mut g = game_in(&dir);
+    g.start_scenario("at_door").unwrap();
+    assert_eq!(said(&mut g, "level.arrived.name"), "\"door\"");
+    steps(&mut g, 5);
+    assert_eq!(halted(&g), "");
 }

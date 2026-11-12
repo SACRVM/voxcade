@@ -127,18 +127,21 @@ facing = [0, -1]
   `model` instead of a kind is a piece, a model set down by its pivot
   (`at`, anywhere: on a wall, in the air), `facing = "east"` (or `turn =
   30` where the game turns things freely, `c.camera.turns = "free"`),
-  perhaps with a `light = { at, radius, color }`; one with only a light
-  is a light alone. A `[[thing]]` may have a `name` (one thing's in the
+  perhaps with a `light = { at, radius, color }` (or `lights = [ ... ]`
+  for several) and `solid = true` (its voxels hold bodies up, quarter
+  turns only); one with only a light is a light alone. A level may have
+  its own daylight, `[light]` with `c.light`'s words. A `[[thing]]` may have a `name` (one thing's in the
   level). `[[area]]` is a named box (`name`, `at` its low corner,
   `size`). A level without `block` has no grid: `size` is its voxels and
   it holds only what is set down (a stage of models). The editor opens
   such a level among its pieces (`src/editor/room.rs`; a level of blocks
-  that holds some has PIECES beside BLOCKS and THINGS): a list of what
+  has PIECES beside BLOCKS and THINGS): a list of what
   is set down, places and areas; one chosen in the list or the view,
   dragged over the floor at its height, nudged by the arrows, raised by
   Page Up and Down, turned (T; any angle where the game turns freely),
-  copied, removed, renamed, its light switched on and tuned, its model
-  opened in the model editor; ADD MODEL, LIGHT, PLACE and AREA hang a new
+  copied, removed, renamed, its lights added (ADD LIGHT), tuned and
+  removed one by one, made SOLID, its model opened in the model editor;
+  with nothing chosen, DAYLIGHT (the level's own, or as the game); ADD MODEL, LIGHT, PLACE and AREA hang a new
   one on the mouse until a click sets it down; GAME VIEW looks as the
   game's camera. Every step is saved at once over the file's own text
   (`grid::text::rewrite`): what did not change stays to the character,

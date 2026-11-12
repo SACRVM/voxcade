@@ -136,7 +136,7 @@ function World:lose() end
 ---@field camera Camera Where the camera looks: level.camera:follow(thing), level.camera:look_at(x, y).
 local Level = {}
 
----The voxel at a cell: its palette index, 0 empty.
+---The voxel at a cell: its palette index, 0 empty (a solid piece's cells too: its model draws them, level:solid says they block).
 ---@param x integer
 ---@param y integer
 ---@param z integer
@@ -160,7 +160,7 @@ function Level:set_voxel(x, y, z, voxel) end
 ---@param voxel integer|string|nil
 function Level:fill(x0, y0, z0, x1, y1, z1, voxel) end
 
----Whether the voxel at a cell stops bodies (soft voxels, grass and shrubs, do not).
+---Whether the cell stops bodies: a voxel there (soft voxels, grass and shrubs, do not), or a solid piece's (solid = true in the level's file).
 ---@param x integer
 ---@param y integer
 ---@param z integer
@@ -247,9 +247,9 @@ local Player = {}
 ---@class Thing A thing in the level, by its id.
 ---@field id integer|nil Its number, never given to another thing in the same run; nil for the player, who belongs to no level.
 ---@field kind string|nil The name of its kind (c.things); "piece" for a model or a light the level's file set down (it stays exactly where it is put, as a kind with fixed = true); nil for a player of no kind (the one the ready-made shooter rules make from c.player).
----@field state table Its state while it lives: thing.state.hp, the hits it still takes, where its kind has hp (c.things.NAME.hp at the start; the engine keeps it, a script reads and sets it: at 0 on_death runs), inventory (a chest's, a trader's: items by name and how many), pose for a figure of the jump & run's ready-made rules (which set of its frames it shows, c.things.NAME.frames: a prop's, a door's or a sign's always, "open", "idle" the first; another's while you set one, over its rules' own animation, from the tick it was set: "attack", then nil for its own again; the hero's is player.state.pose), goal for a platform of the jump & run's ready-made rules ("end" or "start": it goes to that end of its travel and stays there, a platform out of a wall, a trapdoor, a lift; nil: to and fro again), freed for a hostage of the ready-made shooter rules (set true: the cage bursts, it runs off), flying for its gunship (up in the air fighting; only to read), light for a piece that brings a light (a lamp the level's file set down: how bright it shines, 0 off to 1, 1 at first; its colour and reach are the file's), and anything of the game's own. It goes when the thing goes.
----@field x number Where it stands: the middle of its feet.
----@field y number Where it stands: the middle of its feet.
+---@field state table Its state while it lives: thing.state.hp, the hits it still takes, where its kind has hp (c.things.NAME.hp at the start; the engine keeps it, a script reads and sets it: at 0 on_death runs), inventory (a chest's, a trader's: items by name and how many), pose for a figure of the jump & run's ready-made rules (which set of its frames it shows, c.things.NAME.frames: a prop's, a door's or a sign's always, "open", "idle" the first; another's while you set one, over its rules' own animation, from the tick it was set: "attack", then nil for its own again; the hero's is player.state.pose), goal for a platform of the jump & run's ready-made rules ("end" or "start": it goes to that end of its travel and stays there, a platform out of a wall, a trapdoor, a lift; nil: to and fro again), freed for a hostage of the ready-made shooter rules (set true: the cage bursts, it runs off), flying for its gunship (up in the air fighting; only to read), light for a piece that brings light (a lamp the level's file set down: how bright all its lights shine together, 0 off to 1, 1 at first; their colours, places and reach are the file's), and anything of the game's own. It goes when the thing goes.
+---@field x number Where it stands: the middle of its feet. A piece's is the middle of the cell its file's at names (at + 0.5): a cube for it goes at math.floor(thing.x) + dx.
+---@field y number Where it stands: the middle of its feet. A piece's is the middle of the cell its file's at names (at + 0.5): a cube for it goes at math.floor(thing.x) + dx.
 ---@field z number The height of its feet.
 ---@field on_ground boolean Whether it stands on something.
 ---@field wall Way|nil The way to a wall right beside it (within half a voxel), higher than a step (the way it faces first), or nil: a wall jump, a wall slide.

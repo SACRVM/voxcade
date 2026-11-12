@@ -873,7 +873,7 @@ end
     },
     Topic {
         title: "A ROOM OF PIECES",
-        text: "A level can be a file of pieces: models set down where they stand (on the floor, on a wall or in the air), facing a way, and lights. levels/room.toml says them, each a [[thing]] with its name, its model (or only a light), where it stands and the way it faces; [[place]] is where the player arrives, [[area]] a named box. The pieces stay where they are; level:thing(name) finds one, and thing.state.light is how bright its light shines (0 off, 1 on). level.areas.NAME:holds(player) says whether the player stands in the area. Pieces hold nobody up: the floor is the level's voxels, filled here in code.",
+        text: "A level can be a file of pieces: models set down where they stand (on the floor, on a wall or in the air), facing a way, and lights. levels/room.toml says them, each a [[thing]] with its name, its model (or only a light), where it stands and the way it faces; [[place]] is where the player arrives, [[area]] a named box. A piece with solid = true holds the player up and stops it, as the floor and the stove here do; light = { ... } gives it a light, lights = [ ... ] several (the lamp's flame and its glow). The pieces stay where they are; level:thing(name) finds one, and thing.state.light is how bright its lights shine (0 off, 1 on). level.areas.NAME:holds(player) says whether the player stands in the area.",
         conf: r##"c.world.size = nil             -- no world made in code: the level is levels/room.toml
 c.actions = { "interact" }
 c.keys = { interact = { "E" } }
@@ -883,20 +883,31 @@ c.pad = { interact = { "west" } }"##,
 size = [96, 64, 32]
 
 [[thing]]
+name = "floor"
+model = "room/floor.vvx"
+at = [48, 32, 0]
+facing = "north"
+solid = true
+
+[[thing]]
 name = "stove"
 model = "room/stove.vvx"
-at = [20, 48, 0]
+at = [20, 48, 1]
 facing = "south"
+solid = true
 
 [[thing]]
 name = "lamp"
 model = "room/lamp.vvx"
-at = [70, 46, 0]
-light = { at = [0, 0, 12], radius = 40, color = "#ffd9a0" }
+at = [70, 46, 1]
+lights = [
+  { at = [0, 0, 12], radius = 12, color = "#ffb060" },
+  { at = [0, 0, 12], radius = 40, color = "#ffd9a0" },
+]
 
 [[place]]
 name = "start"
-at = [48, 20, 0]
+at = [48, 20, 1]
 facing = "north"
 
 [[area]]
@@ -904,16 +915,13 @@ name = "by_the_stove"
 at = [8, 30, 0]
 size = [28, 26, 20]
 "##),
+            ("room/floor.vvx", "format = \"voxcade voxel 1\"\nsize = [96, 64, 1]\n\n[palette]\na = { color = \"#5b4a3a\" }\n\n[[frame]]\nlayers = \"\"\"\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *64\n\"\"\"\n"),
             ("room/stove.vvx", "format = \"voxcade voxel 1\"\nsize = [7, 5, 9]\n\n[palette]\ni = { color = \"#3a3d44\" }\nf = { color = \"#e8742c\" }\n\n[[frame]]\nlayers = \"\"\"\niiiiiii *5\n*2\n\niifffii\niiiiiii *4\n*3\n\niiiiiii *5\n*2\n\n.......\n.......\n...i...\n.......\n.......\n*2\n\"\"\"\n"),
             ("room/lamp.vvx", "format = \"voxcade voxel 1\"\nsize = [3, 3, 14]\n\n[palette]\nb = { color = \"#2b2b2f\" }\ns = { color = \"#e9d8a6\" }\n\n[[frame]]\nlayers = \"\"\"\n.b.\nbbb\n.b.\n\n...\n.b.\n...\n*10\n\nsss *3\n*3\n\"\"\"\n"),
         ],
-        code: r##"-- The room is levels/room.toml: a stove, a lamp with its light, where
--- the player starts, and an area by the stove.
-function on_level_start(how)
-  -- a floor: the pieces stand on it, but hold nobody up
-  level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 0, "#5b4a3a")
-end
-
+        code: r##"-- The room is levels/room.toml: a floor and a stove that hold the
+-- player up, a lamp with its two lights, where the player starts, and an
+-- area by the stove.
 function on_tick()
   for _, p in ipairs(level:players()) do
     p:walk(p.input.dir, 40)

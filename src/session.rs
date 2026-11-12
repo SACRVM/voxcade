@@ -1464,16 +1464,29 @@ impl<G: Game> Session<G> {
         }
     }
 
+    /// The sun of the level being played: its file's (`[light]`), else
+    /// `c.light`'s.
     pub fn sun(&self) -> Vec3 {
-        Vec3::from(self.cfg.light.sun).normalize_or(Vec3::NEG_Z)
+        self.game.daylight().sun.unwrap_or_else(|| Vec3::from(self.cfg.light.sun)).normalize_or(Vec3::NEG_Z)
     }
 
-    /// The faces the meshes hold: those a view ray or the sun can hit; for
-    /// a game that moves its sun (`frame:daylight`), every face a sun above
-    /// the horizon can.
+    /// The faces the meshes hold: those a view ray or the sun can hit, the
+    /// suns of every level (`[light]`) with `c.light`'s, so a level entered
+    /// finds its faces there; for a game that moves its sun
+    /// (`frame:daylight`), every face a sun above the horizon can.
     pub fn face_mask(&self) -> FaceMask {
         let rays = camera::corner_rays(&self.cfg.camera);
-        if self.game.moves_sun() { mesh::face_mask_any_sun(&rays) } else { mesh::face_mask(&rays, self.sun()) }
+        if self.game.moves_sun() {
+            return mesh::face_mask_any_sun(&rays);
+        }
+        let mut mask = mesh::face_mask(&rays, Vec3::from(self.cfg.light.sun).normalize_or(Vec3::NEG_Z));
+        for sun in self.game.suns() {
+            let more = mesh::face_mask(&rays, sun.normalize_or(Vec3::NEG_Z));
+            for (m, o) in mask.iter_mut().zip(more) {
+                *m |= o;
+            }
+        }
+        mask
     }
 
     /// Where a body's feet are drawn, `alpha` of the way into the tick.
@@ -1807,9 +1820,17 @@ impl<G: Game> Session<G> {
             }
         }
         let Drawing { voxels, draws: models, lights: game_lights, daylight, .. } = out;
-        // The daylight the game set for this picture, else c.light's; the
-        // shadows fitted to its sun.
+        // The daylight the game set for this picture, else its level's
+        // (`[light]`), else c.light's; the shadows fitted to its sun.
+        let level = self.game.daylight();
         let day = daylight.unwrap_or_default();
+        let day = Daylight {
+            sun: day.sun.or(level.sun),
+            sun_color: day.sun_color.or(level.sun_color),
+            ambient: day.ambient.or(level.ambient),
+            shadow: day.shadow.or(level.shadow),
+            sky: day.sky.or(level.sky),
+        };
         let light = &self.cfg.light;
         let drawn = day.sun.map(|s| s.normalize_or(Vec3::NEG_Z));
         self.drawn_sun.set(drawn);
@@ -2339,6 +2360,32 @@ fn draw(
             put(corner, [r, g, b, color[3]], metal.and_then(|m| m.get(k)).copied().unwrap_or(0), glow.and_then(|g| g.get(k)).copied().unwrap_or(0), lit, snorm);
         }
     }
+}
+
+/// The cells a model's first frame fills (every voxel, glass too: a
+/// figure's parts as they stand), facing `look` in quarter turns, from its
+/// pivot's cell: exactly where `draw` puts its voxels on the grid. What a
+/// solid piece holds up (`world::Solids`).
+pub fn quarter_cells(model: &VoxModel, look: IVec2) -> Vec<IVec3> {
+    let pivot = IVec3::new(model.size.x / 2, model.size.y / 2, 0);
+    let turn = match (look.x, look.y) {
+        (0, 1) => 0,
+        (1, 0) => 1,
+        (0, -1) => 2,
+        _ => 3,
+    };
+    let mut cells: Vec<IVec3> = model.frames.first().map_or(Vec::new(), |f| {
+        f.iter()
+            .map(|(v, _)| {
+                let l = *v - pivot;
+                let (x, y) = crate::render::quarter(l.x, l.y, turn);
+                IVec3::new(x, y, l.z)
+            })
+            .collect()
+    });
+    cells.sort_unstable_by_key(|c| (c.z, c.y, c.x));
+    cells.dedup();
+    cells
 }
 
 /// A model's frame as cubes, every voxel that shows, as a game draws it
@@ -3098,6 +3145,27 @@ mod tests {
         }
         // A free half turn fills the cells of the quarter turns' second.
         assert_eq!(cells(IVec3::new(4, 4, 2), IVec2::Y, turning(180.0, 0.0, 0.0)), ([-1, -1], [2, 2]), "a free half turn");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The cells a solid piece fills (`quarter_cells`) are exactly where
+    /// its model's voxels are drawn, every quarter turn, an even size too;
+    /// the hidden ones inside count as well.
+    #[test]
+    fn a_solid_pieces_cells_are_where_it_is_drawn() {
+        let dir = std::env::temp_dir().join(format!("voxcade-cells-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("box.vox");
+        crate::vox::write_figure(&file, &[("box", IVec3::new(4, 5, 3), IVec3::ZERO)]);
+        let m = crate::vox::load_model(&file).unwrap();
+        for look in [IVec2::Y, IVec2::X, IVec2::NEG_Y, IVec2::NEG_X] {
+            let cells = quarter_cells(&m, look);
+            assert_eq!(cells.len(), 4 * 5 * 3, "every voxel, {look}");
+            let mut drawn = Vec::new();
+            let origin = Vec3::new(100.0, 200.0, 7.0);
+            draw(&mut |corner: Vec3, _, _, _, _, _| drawn.push((corner - origin).round().as_ivec3()), None, &m, 0, origin, look, Quat::IDENTITY, &[], None);
+            assert!(!drawn.is_empty() && drawn.iter().all(|c| cells.contains(c)), "drawn where it is solid, {look}");
+        }
         std::fs::remove_dir_all(&dir).ok();
     }
 

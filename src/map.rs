@@ -678,7 +678,7 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
     world.soft = palette.soft;
     world.mark_all_dirty();
     let places = map.places.iter().map(|p| crate::levels::Place::new(&p.name, IVec3::from(p.at).as_vec3() + glam::Vec3::new(0.5, 0.5, 0.0), p.facing)).collect();
-    Ok(crate::levels::Made { world, markers: found, files: sources, places, marker_names: Vec::new(), pieces: Vec::new(), areas: Vec::new() })
+    Ok(crate::levels::Made { world, markers: found, files: sources, places, marker_names: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight: Default::default() })
 }
 
 const SEED: i64 = 0x5EED;

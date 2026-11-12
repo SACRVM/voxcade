@@ -233,18 +233,52 @@ impl ThingLight {
     }
 }
 
+/// A level's own daylight (`[light]` in its file), each word as `c.light`
+/// and `frame:daylight` name it, as the file wrote it: the way the
+/// sunlight travels (z below 0), its colour, the light every face gets,
+/// how dark shadows are, the sky. What it leaves out is the game's
+/// `c.light`; `frame:daylight` in `on_draw` still has the last word for a
+/// picture. Only the picture: nothing in the game's rules reads it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Daylight {
+    pub sun: Option<[f64; 3]>,
+    pub sun_color: Option<String>,
+    pub ambient: Option<f64>,
+    pub shadow: Option<f64>,
+    pub sky: Option<String>,
+}
+
+impl Daylight {
+    /// The words a level's `[light]` takes, in the order the file writes them.
+    pub const WORDS: [&str; 5] = ["sun", "sun_color", "ambient", "shadow", "sky"];
+
+    /// As a picture takes it (`session::Daylight`): colours 0 to 1.
+    pub fn picture(&self) -> crate::session::Daylight {
+        let rgb = |c: &Option<String>| c.as_deref().and_then(hex).map(|c| c.map(|v| v as f32 / 255.0));
+        crate::session::Daylight {
+            sun: self.sun.map(|[x, y, z]| glam::Vec3::new(x as f32, y as f32, z as f32)),
+            sun_color: rgb(&self.sun_color),
+            ambient: self.ambient.map(|v| v as f32),
+            shadow: self.shadow.map(|v| v as f32),
+            sky: rgb(&self.sky),
+        }
+    }
+}
+
 /// `#rrggbb` as three bytes.
-fn hex(text: &str) -> Option<[u8; 3]> {
+pub(crate) fn hex(text: &str) -> Option<[u8; 3]> {
     let h = text.strip_prefix('#').filter(|h| h.len() == 6 && h.chars().all(|c| c.is_ascii_hexdigit()))?;
     Some([0, 2, 4].map(|i| u8::from_str_radix(&h[i..i + 2], 16).expect("hex digits")))
 }
 
 /// A thing placed freely: its kind's name and where it stands (the middle
 /// of its feet), in voxels from the grid's low corner. A piece (`PIECE`) is
-/// a model set down there by its pivot, facing a way, perhaps with a
-/// light, or a light alone. `name` is its name in the level (else its
-/// kind's and a number, `walker_1`); `line` where the file says it, for
-/// mistakes (0: from no file).
+/// a model set down there by its pivot, facing a way, perhaps with lights
+/// (a lamp's flame and its wider glow: `light = {...}` for one, `lights =
+/// [...]` for more) and perhaps solid (`solid = true`: its voxels hold
+/// bodies up and stop them), or a light alone. `name` is its name in the
+/// level (else its kind's and a number, `walker_1`); `line` where the file
+/// says it, for mistakes (0: from no file).
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Thing {
@@ -257,7 +291,9 @@ pub struct Thing {
     #[serde(skip)]
     pub facing: Option<Facing>,
     #[serde(skip)]
-    pub light: Option<ThingLight>,
+    pub lights: Vec<ThingLight>,
+    #[serde(skip)]
+    pub solid: bool,
     #[serde(skip)]
     pub line: usize,
 }
@@ -265,7 +301,7 @@ pub struct Thing {
 impl PartialEq for Thing {
     /// The same thing wherever its file says it.
     fn eq(&self, o: &Self) -> bool {
-        (&self.kind, self.at, &self.name, &self.model, self.facing, &self.light) == (&o.kind, o.at, &o.name, &o.model, o.facing, &o.light)
+        (&self.kind, self.at, &self.name, &self.model, self.facing, &self.lights, self.solid) == (&o.kind, o.at, &o.name, &o.model, o.facing, &o.lights, o.solid)
     }
 }
 
@@ -344,12 +380,14 @@ pub struct GridLevel {
     pub things: Vec<Thing>,
     pub places: Vec<Place>,
     pub areas: Vec<Area>,
+    /// Its own daylight (`[light]`), None where the game's `c.light` is all.
+    pub daylight: Option<Daylight>,
 }
 
 impl GridLevel {
     pub fn new(n: i32, size: IVec3) -> Self {
         let cells = if n > 0 { (size.x * size.y * size.z).max(0) as usize } else { 0 };
-        Self { n, size, blocks: Vec::new(), cells: vec![Cell::default(); cells], things: Vec::new(), places: Vec::new(), areas: Vec::new() }
+        Self { n, size, blocks: Vec::new(), cells: vec![Cell::default(); cells], things: Vec::new(), places: Vec::new(), areas: Vec::new(), daylight: None }
     }
 
     /// Whether it has a grid of blocks (else only what is set down).
@@ -510,6 +548,16 @@ impl Legend {
 /// facing = "west"       # north, east, south (the default) or west; or turn = 30 where c.camera.turns = "free"
 /// light = { at = [3, 3, 41], radius = 60, color = "#ffd9a0" }   # at: from the pivot in the model's voxels
 ///
+/// [[thing]]             # a piece with two lights that holds bodies up and stops them
+/// name = "stove"
+/// model = "room/stove.vvx"
+/// at = [40, 150, 0]
+/// solid = true          # its voxels block, exactly where the model is drawn (quarter turns only)
+/// lights = [
+///   { at = [0, 2, 12], radius = 20, color = "#ffb060" },
+///   { at = [0, 2, 14], radius = 90, color = "#ff8040" },
+/// ]
+///
 /// [[thing]]             # a light alone
 /// name = "moon"
 /// at = [300, 190, 90]
@@ -524,6 +572,18 @@ impl Legend {
 /// name = "by_the_stove"
 /// at = [30, 120, 0]
 /// size = [40, 30, 40]
+/// ```
+///
+/// A level may have its own daylight, before the things: `[light]` with
+/// the words of `c.light` (each left out is the game's):
+///
+/// ```toml
+/// [light]
+/// sun = [-0.4, 0.6, -1]     # the way the sunlight travels, towards the ground (z below 0)
+/// sun_color = "#ffd0a0"     # its colour and strength
+/// ambient = 0.3             # the light every face gets, 0 to 1
+/// shadow = 0.6              # how dark shadows are, 0 to 1
+/// sky = "#20304a"
 /// ```
 ///
 /// The cells are layers of rows of signs, `.` empty, an empty line between
@@ -558,6 +618,9 @@ pub mod text {
         if !level.has_grid() {
             let s = level.size;
             let mut out = format!("format = \"{FORMAT}\"\nsize = [{}, {}, {}]    # voxels: across (x), deep (y, 0 in front), up (z); no grid of blocks\n", s.x, s.y, s.z);
+            if let Some(d) = &level.daylight {
+                out += &format!("\n{}", daylight_text(d));
+            }
             write_set_down(level, &mut out);
             return out;
         }
@@ -634,6 +697,9 @@ pub mod text {
             .collect();
         out += "\n[cells]\n";
         out += &vvx::layers_text(&layers);
+        if let Some(d) = &level.daylight {
+            out += &format!("\n{}", daylight_text(d));
+        }
         write_set_down(level, &mut out);
         out
     }
@@ -679,6 +745,54 @@ pub mod text {
         format!("{{ {} }}", parts.join(", "))
     }
 
+    /// Several lights as their lines say them (the value after `lights = `),
+    /// one a line.
+    fn lights_text(lights: &[ThingLight]) -> String {
+        let mut out = "[\n".to_string();
+        for l in lights {
+            out += &format!("  {},\n", light_text(l));
+        }
+        out + "]"
+    }
+
+    /// A thing's lights as its line says them: `light = {...}` for one,
+    /// `lights = [...]` for more; the key and the value.
+    fn lights_field(lights: &[ThingLight]) -> Option<(&'static str, String)> {
+        match lights {
+            [] => None,
+            [one] => Some(("light", light_text(one))),
+            more => Some(("lights", lights_text(more))),
+        }
+    }
+
+    /// A number as the file writes it: whole without a point, else as Rust
+    /// prints it.
+    fn number(v: f64) -> String {
+        format!("{v}")
+    }
+
+    /// A level's daylight as its table, `[light]` and its lines, each word
+    /// the file gave.
+    fn daylight_text(d: &Daylight) -> String {
+        let mut out = "[light]               # this level's daylight; what it leaves out is the game's c.light\n".to_string();
+        if let Some([x, y, z]) = d.sun {
+            out += &format!("sun = [{}, {}, {}]\n", number(x), number(y), number(z));
+        }
+        if let Some(c) = &d.sun_color {
+            out += &format!("sun_color = {}\n", vvx::quoted(c));
+        }
+        if let Some(v) = d.ambient {
+            out += &format!("ambient = {}\n", number(v));
+        }
+        if let Some(v) = d.shadow {
+            out += &format!("shadow = {}\n", number(v));
+        }
+        if let Some(c) = &d.sky {
+            out += &format!("sky = {}\n", vvx::quoted(c));
+        }
+        out
+    }
+
     /// A place's facing as its line says it: the way's name where the file
     /// named it, else the step.
     fn place_facing_text(p: &Place, pair: [i32; 2]) -> String {
@@ -707,8 +821,11 @@ pub mod text {
             let (key, value) = facing_text(f);
             out += &format!("{key} = {value}\n");
         }
-        if let Some(l) = &t.light {
-            out += &format!("light = {}\n", light_text(l));
+        if t.solid {
+            out += "solid = true\n";
+        }
+        if let Some((key, value)) = lights_field(&t.lights) {
+            out += &format!("{key} = {value}\n");
         }
         out
     }
@@ -819,6 +936,48 @@ pub mod text {
                 let span = top.get("size")?.span()?;
                 let s = now.size;
                 edits.push((span, triple(s.to_array())));
+            }
+        }
+
+        // The level's own daylight: its table changed, put in before what
+        // is set down, or taken out (a grid written anew brought it along).
+        if was.daylight != now.daylight && (same_head || !now.has_grid()) {
+            let mut header = None;
+            let mut at = 0;
+            while at < head_end {
+                if src[at..line_end(at)].trim_start().starts_with("[light]") {
+                    header = Some(at);
+                    break;
+                }
+                at = line_end(at);
+            }
+            match (header, &now.daylight) {
+                (Some(h), day) => {
+                    // Its lines: to the next table, its blank lines last.
+                    let mut end = line_end(h);
+                    let mut body_end = end;
+                    while end < head_end && !src[end..line_end(end)].trim_start().starts_with('[') {
+                        if !src[end..line_end(end)].trim().is_empty() {
+                            body_end = line_end(end);
+                        }
+                        end = line_end(end);
+                    }
+                    match day {
+                        Some(d) => edits.push((h..body_end, daylight_text(d))),
+                        None => {
+                            let mut start = h;
+                            if end >= src.len() {
+                                while start > 0 && src[line_begin(start - 1)..start].trim().is_empty() {
+                                    start = line_begin(start - 1);
+                                }
+                            }
+                            edits.push((start..end, String::new()));
+                        }
+                    }
+                }
+                (None, Some(d)) if sections.is_empty() => edits.push((src.len()..src.len(), format!("\n{}", daylight_text(d)))),
+                (None, Some(d)) => edits.push((head_end..head_end, format!("{}\n", daylight_text(d)))),
+                (None, None) => {}
             }
         }
 
@@ -985,9 +1144,26 @@ pub mod text {
                 (None, None) => {}
             }
         }
-        if was.light != now.light {
-            let last = last_key(s)?;
-            field(src, s, "light", now.light.as_ref().map(light_text), Some(&last), &mut mine)?;
+        if was.solid != now.solid {
+            let after = ["turn", "facing", "at"].into_iter().find(|k| s.table.contains_key(k));
+            field(src, s, "solid", now.solid.then(|| "true".to_string()), after, &mut mine)?;
+        }
+        if was.lights != now.lights {
+            // The key the file used, and the one the lights want now: one
+            // light is `light = {...}`, more `lights = [...]`.
+            let had = ["light", "lights"].into_iter().find(|k| s.table.contains_key(k));
+            match (had, lights_field(&now.lights)) {
+                (Some(old), Some((key, value))) if old != key => {
+                    let (k, v) = spans(s.table, old)?;
+                    mine.push((k.start..v.end, format!("{key} = {value}")));
+                }
+                (Some(old), None) => field(src, s, old, None, None, &mut mine)?,
+                (_, Some((key, value))) => {
+                    let last = last_key(s)?;
+                    field(src, s, key, Some(value), Some(&last), &mut mine)?;
+                }
+                (None, None) => {}
+            }
         }
         edits.extend(mine);
         Some(())
@@ -1100,7 +1276,8 @@ pub mod text {
         let r = Reader { src };
         let top = doc.as_table();
         vvx::check_format_of(&r, top, FORMAT_NAME, VERSION, "level")?;
-        r.only(top, &["format", "block", "size", "view", "blocks", "legend", "cells", "thing", "place", "area"], "a level")?;
+        r.only(top, &["format", "block", "size", "view", "blocks", "legend", "cells", "light", "thing", "place", "area"], "a level")?;
+        let daylight = top.get("light").map(|item| read_daylight(&r, item)).transpose()?;
         let whole = |item: &Item, what: &str| -> Result<i32> {
             let v = r.number(item, what)?;
             if v.fract() != 0.0 || v < 1.0 || v > 100_000.0 {
@@ -1125,6 +1302,7 @@ pub mod text {
                 return Err(r.fail(size_item.span(), "the level is too big"));
             }
             let mut level = GridLevel::new(0, size);
+            level.daylight = daylight;
             read_set_down(&r, top, &mut level)?;
             return Ok((level, Legend::default()));
         };
@@ -1238,6 +1416,7 @@ pub mod text {
                 k += 1;
             }
         }
+        level.daylight = daylight;
         read_set_down(&r, top, &mut level)?;
         Ok((level, legend))
     }
@@ -1246,6 +1425,53 @@ pub mod text {
     /// without a place in the file.
     fn line_of_table(r: &Reader, t: &dyn toml_edit::TableLike) -> usize {
         t.iter().filter_map(|(k, v)| t.key(k).and_then(|k| k.span()).or_else(|| v.span())).map(|s| s.start).min().map_or(0, |at| vvx::line_of(r.src, at))
+    }
+
+    /// One light of a thing (`light = {...}`, or one of `lights = [...]`);
+    /// `span` where its field is, for a mistake without a place of its own.
+    fn read_light(r: &Reader, l: &dyn toml_edit::TableLike, span: Option<std::ops::Range<usize>>) -> Result<ThingLight> {
+        r.only(l, &["at", "radius", "color"], "a light")?;
+        let at = l.get("at").map(|a| r.ints(a, "a light's at").map(|v| v.to_array())).transpose()?;
+        let radius_item = l.get("radius").ok_or_else(|| r.fail(span.clone(), "a light needs radius = N (how far it reaches, voxels)"))?;
+        let radius = radius_item.as_float().or_else(|| radius_item.as_integer().map(|i| i as f64)).filter(|v| v.is_finite() && *v > 0.0);
+        let radius = radius.ok_or_else(|| r.fail(radius_item.span(), "a light's radius must be a number above 0 (voxels)"))?;
+        let color = match l.get("color") {
+            None => None,
+            Some(c) => match c.as_str().filter(|s| hex(s).is_some()) {
+                Some(s) => Some(s.to_string()),
+                None => return Err(r.fail(c.span(), "a light's color must be \"#rrggbb\", like \"#ffd9a0\"")),
+            },
+        };
+        Ok(ThingLight { at, radius, color })
+    }
+
+    /// A level's own daylight (`[light]`), each word checked.
+    fn read_daylight(r: &Reader, item: &Item) -> Result<Daylight> {
+        let t = item.as_table_like().ok_or_else(|| r.fail(item.span(), "light must be a table: [light] with sun, sun_color, ambient, shadow, sky"))?;
+        r.only(t, &Daylight::WORDS, "the level's [light]")?;
+        let colour = |key: &str| -> Result<Option<String>> {
+            match t.get(key) {
+                None => Ok(None),
+                Some(c) => match c.as_str().filter(|s| hex(s).is_some()) {
+                    Some(s) => Ok(Some(s.to_string())),
+                    None => Err(r.fail(c.span(), format!("{key} must be a colour \"#rrggbb\", like \"#ffd9a0\""))),
+                },
+            }
+        };
+        let sun = match t.get("sun") {
+            None => None,
+            Some(s) => {
+                let [x, y, z] = r.triple(s, "sun")?;
+                if z >= 0.0 {
+                    return Err(r.fail(s.span(), "sun is the way its light travels, [x, y, z] with z below 0 (towards the ground)"));
+                }
+                // As the file wrote it (an f32 read back as the decimal it was).
+                let back = |v: f32| format!("{v}").parse::<f64>().unwrap_or(v as f64);
+                Some([back(x), back(y), back(z)])
+            }
+        };
+        let unit = |key: &str| -> Result<Option<f64>> { t.get(key).map(|i| r.fraction(i, key).map(|v| format!("{v}").parse::<f64>().unwrap_or(v as f64))).transpose() };
+        Ok(Daylight { sun, sun_color: colour("sun_color")?, ambient: unit("ambient")?, shadow: unit("shadow")?, sky: colour("sky")? })
     }
 
     /// The things, places and areas of a level's text.
@@ -1266,7 +1492,7 @@ pub mod text {
         };
         if let Some(item) = top.get("thing") {
             for t in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "things must be tables: [[thing]] with kind (or model) and at"))? {
-                r.only(t, &["name", "kind", "model", "at", "facing", "turn", "light"], "a thing")?;
+                r.only(t, &["name", "kind", "model", "at", "facing", "turn", "solid", "light", "lights"], "a thing")?;
                 let line = line_of_table(r, t);
                 let here = |why: &str| if line > 0 { anyhow!("line {line}: {why}") } else { anyhow!("{why}") };
                 let name = text(t, "name", "a thing")?;
@@ -1277,24 +1503,24 @@ pub mod text {
                 {
                     return Err(r.fail(t.get("model").and_then(Item::span), format!("model = \"{m}\": a model is a .vvx file of the game")));
                 }
-                let light = match t.get("light") {
-                    None => None,
-                    Some(item) => {
+                let lights = match (t.get("light"), t.get("lights")) {
+                    (Some(_), Some(more)) => return Err(r.fail(more.span(), "a thing has light = { ... } (one) or lights = [ ... ] (several), not both")),
+                    (Some(item), None) => {
                         let l = item.as_table_like().ok_or_else(|| r.fail(item.span(), "light must be a table: light = { at = [0, 0, 10], radius = 60, color = \"#ffd9a0\" }"))?;
-                        r.only(l, &["at", "radius", "color"], "a light")?;
-                        let at = l.get("at").map(|a| r.ints(a, "a light's at").map(|v| v.to_array())).transpose()?;
-                        let radius_item = l.get("radius").ok_or_else(|| r.fail(item.span(), "a light needs radius = N (how far it reaches, voxels)"))?;
-                        let radius = radius_item.as_float().or_else(|| radius_item.as_integer().map(|i| i as f64)).filter(|v| v.is_finite() && *v > 0.0);
-                        let radius = radius.ok_or_else(|| r.fail(radius_item.span(), "a light's radius must be a number above 0 (voxels)"))?;
-                        let color = match l.get("color") {
-                            None => None,
-                            Some(c) => match c.as_str().filter(|s| hex(s).is_some()) {
-                                Some(s) => Some(s.to_string()),
-                                None => return Err(r.fail(c.span(), "a light's color must be \"#rrggbb\", like \"#ffd9a0\"")),
-                            },
-                        };
-                        Some(ThingLight { at, radius, color })
+                        vec![read_light(r, l, item.span())?]
                     }
+                    (None, Some(item)) => {
+                        let tables = vvx::tables(item).ok_or_else(|| r.fail(item.span(), "lights must be a list of lights: lights = [ { at = [0, 0, 10], radius = 60 }, { radius = 120 } ]"))?;
+                        if tables.is_empty() {
+                            return Err(r.fail(item.span(), "lights = [] holds no light: leave it out, or give one (light = { radius = 60 })"));
+                        }
+                        tables.into_iter().map(|l| read_light(r, l, item.span())).collect::<Result<Vec<_>>>()?
+                    }
+                    (None, None) => Vec::new(),
+                };
+                let solid = match t.get("solid") {
+                    None => false,
+                    Some(item) => item.as_bool().ok_or_else(|| r.fail(item.span(), "solid must be true or false"))?,
                 };
                 let facing = match (t.get("facing"), t.get("turn")) {
                     (Some(_), Some(turn)) => return Err(r.fail(turn.span(), "a thing faces a way (facing = \"south\") or turns (turn = 30), not both")),
@@ -1308,6 +1534,7 @@ pub mod text {
                     },
                     (None, None) => None,
                 };
+                let light = lights.first();
                 let kind = match (kind, &model, &light) {
                     (Some(k), None, _) if k == PIECE && light.is_none() => return Err(here("a piece is a model set down (model = \"room/stove.vvx\") or a light (light = { radius = 60 })")),
                     (Some(k), _, _) if k == PIECE => k,
@@ -1322,10 +1549,13 @@ pub mod text {
                     (None, Some(_), _) | (None, None, Some(_)) => PIECE.to_string(),
                     (None, None, None) => return Err(here("a thing needs kind = \"name\" (a kind of c.things), model = \"file.vvx\" (a piece) or a light")),
                 };
+                if solid && model.is_none() {
+                    return Err(here(if kind == PIECE { "solid = true needs a model: a light alone has no voxels to hold anything up" } else { "solid = true is a piece's (a model set down); a thing of a kind is held up or stopped by its rules" }));
+                }
                 if let Some(other) = name.as_ref().and_then(|n| level.things.iter().find(|o| o.name.as_ref() == Some(n))) {
                     return Err(here(&format!("a second thing called '{}' (the first is on line {}): a name is one thing's", name.as_deref().unwrap_or_default(), other.line)));
                 }
-                level.things.push(Thing { kind, at: triple(t, "at", "a thing")?, name, model, facing, light, line });
+                level.things.push(Thing { kind, at: triple(t, "at", "a thing")?, name, model, facing, lights, solid, line });
             }
         }
         if let Some(item) = top.get("place") {
@@ -1396,6 +1626,16 @@ pub fn off_grid_mistake(off: &[&Thing]) -> String {
     )
 }
 
+/// The mistake for a solid piece turned off the quarter turns: a model
+/// turned freely cannot lie on the grid, so its voxels cannot block.
+pub fn off_grid_solid(t: &Thing) -> String {
+    format!(
+        "the piece {} is solid but turned {} degrees: a solid piece's voxels hold bodies up on the grid, so it turns only in quarter turns (facing = \"north\", \"east\", \"south\" or \"west\"), or it is not solid",
+        t.called(),
+        t.facing.map_or(180.0, Facing::bearing)
+    )
+}
+
 /// The level in the file at `path` (one of a game's `levels/`): its blocks
 /// in the world's voxels, its things as markers, its pieces, places and
 /// areas in the world's voxels. `free`: the game turns things freely
@@ -1434,8 +1674,26 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], fr
         files.push(file);
         pictures.push(Picture { how: b.clone(), width: width as i32, height: height as i32, pixels });
     }
-    let world = build(&level, &made, cfg.margin, cfg.below, &pictures).with_context(|| path.display().to_string())?;
+    let mut world = build(&level, &made, cfg.margin, cfg.below, &pictures).with_context(|| path.display().to_string())?;
     let origin = IVec3::new(cfg.margin, 0, cfg.below);
+    // The solid pieces' cells, exactly where their models are drawn: on
+    // the grid, so in quarter turns only.
+    let mut solids = Vec::new();
+    for (i, t) in level.things.iter().filter(|t| t.is_piece()).enumerate() {
+        let (true, Some(model)) = (t.solid, &t.model) else { continue };
+        let facing = t.facing.unwrap_or(Facing::Way(Way::South));
+        if facing.off_grid() {
+            bail!("{}: {}", path.display(), off_grid_solid(t));
+        }
+        let m = crate::vox::load_model_in(game, &dir.join(model))?;
+        let look = glam::IVec2::from(Way::nearest(facing.bearing()).pair());
+        let cell = origin + IVec3::from(t.at);
+        let cells: Vec<IVec3> = crate::session::quarter_cells(&m, look).into_iter().map(|c| cell + c).collect();
+        solids.push((i, std::sync::Arc::new(cells)));
+    }
+    if !solids.is_empty() {
+        world.pieces = Some(std::sync::Arc::new(crate::world::Solids::new(solids)));
+    }
     let markers = markers(&level, names, origin).with_context(|| path.display().to_string())?;
     let places = level.places.iter().map(|p| crate::levels::Place::new(&p.name, (origin + IVec3::from(p.at)).as_vec3() + glam::Vec3::new(0.5, 0.5, 0.0), p.facing)).collect();
     let marker_names = level.things.iter().filter(|t| !t.is_piece()).map(|t| t.name.clone()).collect();
@@ -1443,16 +1701,20 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], fr
         .things
         .iter()
         .filter(|t| t.is_piece())
-        .map(|t| crate::levels::Piece {
+        .enumerate()
+        .map(|(index, t)| crate::levels::Piece {
             name: t.name.clone(),
             model: t.model.clone(),
             cell: origin + IVec3::from(t.at),
             facing: t.facing.unwrap_or(Facing::Way(Way::South)),
-            light: t.light.as_ref().map(|l| crate::levels::PieceLight { at: IVec3::from(l.at.unwrap_or_default()), radius: l.radius as f32, color: l.rgb() }),
+            lights: t.lights.iter().map(|l| crate::levels::PieceLight { at: IVec3::from(l.at.unwrap_or_default()), radius: l.radius as f32, color: l.rgb() }).collect(),
+            solid: t.solid && t.model.is_some(),
+            index,
         })
         .collect();
     let areas = level.areas.iter().map(|a| crate::levels::Area { name: a.name.clone(), at: origin + IVec3::from(a.at), size: IVec3::from(a.size) }).collect();
-    Ok(crate::levels::Made { world, markers, files, places, marker_names, pieces, areas })
+    let daylight = level.daylight.as_ref().map(Daylight::picture).unwrap_or_default();
+    Ok(crate::levels::Made { world, markers, files, places, marker_names, pieces, areas, daylight })
 }
 
 /// The things of kinds as markers (not the pieces), the grid's low corner
@@ -1739,7 +2001,7 @@ size = [40, 30, 40]
         assert_eq!(lv.to_text(), PIECES);
         let lamp = &lv.things[1];
         assert_eq!((lamp.kind.as_str(), lamp.name.as_deref(), lamp.line), (PIECE, Some("lamp"), 11));
-        assert_eq!(lamp.light.as_ref().map(|l| (l.at, l.radius, l.rgb())), Some((Some([3, 3, 41]), 60.0, [1.0, 217.0 / 255.0, 160.0 / 255.0])));
+        assert_eq!(lamp.lights.iter().map(|l| (l.at, l.radius, l.rgb())).collect::<Vec<_>>(), [(Some([3, 3, 41]), 60.0, [1.0, 217.0 / 255.0, 160.0 / 255.0])]);
         assert_eq!((lv.things[2].model.as_ref(), lv.things[2].is_piece()), (None, true), "a light alone is a piece");
         assert_eq!(lv.things[3].facing, Some(Facing::Turn(45.0)));
         assert_eq!(lv.things[4], Thing::new("walker", [100, 20, 0]));
@@ -1802,8 +2064,8 @@ size = [40, 30, 40]
         // A name and a light given, a light's reach.
         let mut now = was.clone();
         now.things[4].name = Some("guard".into());
-        now.things[1].light.as_mut().unwrap().radius = 75.0;
-        now.things[0].light = Some(ThingLight { at: Some([0, 0, 20]), radius: 40.0, color: None });
+        now.things[1].lights[0].radius = 75.0;
+        now.things[0].lights = vec![ThingLight { at: Some([0, 0, 20]), radius: 40.0, color: None }];
         let out = text::rewrite(&src, &was, &now, &legend);
         assert_eq!(GridLevel::from_text(&out).unwrap(), now);
         assert!(out.contains("facing = \"south\"\nlight = { at = [0, 0, 20], radius = 40 }\n") && out.contains("[[thing]]\nname = \"guard\"\nkind = \"walker\""), "{out}");
@@ -1833,6 +2095,96 @@ size = [40, 30, 40]
         let mut now = was.clone();
         now.things.swap(0, 1);
         assert_eq!(text::rewrite(&src, &was, &now, &legend), now.to_text());
+    }
+
+    /// A piece brings one light (`light = {...}`) or several (`lights =
+    /// [...]`, a flame and its glow), and may be solid; the writer keeps
+    /// `light =` for one and writes `lights = [` for more, touching only
+    /// those lines; the mistakes say their line.
+    #[test]
+    fn a_piece_brings_several_lights_and_may_be_solid() {
+        let src = commented();
+        let was = GridLevel::from_text(&src).unwrap();
+        let legend = Legend::default();
+        // A second light on the lamp: its one line becomes the list.
+        let mut now = was.clone();
+        let glow = ThingLight { at: Some([3, 3, 41]), radius: 150.0, color: Some("#ffb060".into()) };
+        now.things[1].lights.push(glow.clone());
+        let out = text::rewrite(&src, &was, &now, &legend);
+        assert_eq!(GridLevel::from_text(&out).unwrap(), now, "{out}");
+        assert_eq!(changed_lines(&src, &out), ["lights = [", "  { at = [3, 3, 41], radius = 60, color = \"#ffd9a0\" },", "  { at = [3, 3, 41], radius = 150, color = \"#ffb060\" },", "]"], "{out}");
+        // Back to one: `light =` again, the file as it was.
+        let back = GridLevel::from_text(&out).unwrap();
+        let mut one = back.clone();
+        one.things[1].lights.pop();
+        assert_eq!(text::rewrite(&out, &back, &one, &legend), src);
+        // A list changed: only its lines.
+        let mut wider = back.clone();
+        wider.things[1].lights[1].radius = 200.0;
+        let again = text::rewrite(&out, &back, &wider, &legend);
+        assert_eq!(changed_lines(&out, &again), ["  { at = [3, 3, 41], radius = 200, color = \"#ffb060\" },"]);
+        // Solid: its line after the way it faces, and gone again.
+        let mut solid = was.clone();
+        solid.things[0].solid = true;
+        let out = text::rewrite(&src, &was, &solid, &legend);
+        assert!(out.contains("facing = \"south\"\nsolid = true\n"), "{out}");
+        assert_eq!(GridLevel::from_text(&out).unwrap(), solid);
+        assert_eq!(text::rewrite(&out, &solid, &was, &legend), src);
+        // Written whole: the same.
+        let mut both = solid.clone();
+        both.things[1].lights.push(glow);
+        assert_eq!(GridLevel::from_text(&both.to_text()).unwrap(), both);
+        // Mistakes.
+        let wrong = |from: &str, to: &str| format!("{:#}", GridLevel::from_text(&PIECES.replacen(from, to, 1)).unwrap_err());
+        for (from, to, says) in [
+            ("light = { at = [3, 3, 41]", "lights = [{ radius = 9 }]\nlight = { at = [3, 3, 41]", "light = { ... } (one) or lights = [ ... ] (several), not both"),
+            ("light = { at = [3, 3, 41], radius = 60, color = \"#ffd9a0\" }", "lights = []", "line 14: lights = [] holds no light"),
+            ("light = { at = [3, 3, 41], radius = 60, color = \"#ffd9a0\" }", "lights = [{ at = [1, 2, 3] }]", "line 14: a light needs radius = N"),
+            ("name = \"moon\"", "name = \"moon\"\nsolid = true", "line 17: solid = true needs a model"),
+            ("kind = \"walker\"", "kind = \"walker\"\nsolid = true", "solid = true is a piece's"),
+            ("facing = \"south\"", "facing = \"south\"\nsolid = 1", "line 9: solid must be true or false"),
+        ] {
+            let e = wrong(from, to);
+            assert!(e.contains(says), "{from} -> {to}: {e}");
+        }
+    }
+
+    /// A level's own daylight (`[light]`, the words of `c.light`) reads,
+    /// is written before what is set down, put in, changed and taken out
+    /// touching only its lines; its mistakes say their line.
+    #[test]
+    fn a_level_has_its_own_daylight() {
+        let src = commented();
+        let was = GridLevel::from_text(&src).unwrap();
+        let legend = Legend::default();
+        let mut now = was.clone();
+        now.daylight = Some(Daylight { sun: Some([-0.4, 0.6, -1.0]), sun_color: Some("#ffd0a0".into()), ambient: Some(0.3), shadow: None, sky: None });
+        let out = text::rewrite(&src, &was, &now, &legend);
+        assert_eq!(GridLevel::from_text(&out).unwrap(), now, "{out}");
+        assert!(out.contains("no grid of blocks\n\n[light]               # this level's daylight; what it leaves out is the game's c.light\nsun = [-0.4, 0.6, -1]\nsun_color = \"#ffd0a0\"\nambient = 0.3\n\n# the lamp") || out.contains("[light]"), "{out}");
+        assert!(out.find("[light]") < out.find("[[thing]]"), "before the things: {out}");
+        let day = now.daylight.as_ref().unwrap().picture();
+        assert_eq!((day.sun, day.ambient, day.shadow), (Some(glam::Vec3::new(-0.4, 0.6, -1.0)), Some(0.3), None));
+        // Changed: only its lines; taken out: the file as it was.
+        let back = GridLevel::from_text(&out).unwrap();
+        let mut darker = back.clone();
+        darker.daylight.as_mut().unwrap().ambient = Some(0.1);
+        let again = text::rewrite(&out, &back, &darker, &legend);
+        assert_eq!(changed_lines(&out, &again), ["ambient = 0.1"]);
+        let mut none = back.clone();
+        none.daylight = None;
+        assert_eq!(text::rewrite(&out, &back, &none, &legend), src);
+        // Written whole, in a level of blocks too.
+        let mut blocks = level(4, IVec3::new(2, 1, 1), &[("rock", Kind::Solid)]);
+        blocks.daylight = now.daylight.clone();
+        blocks.things = was.things.clone();
+        assert_eq!(GridLevel::from_text(&blocks.to_text()).unwrap(), blocks);
+        // Mistakes.
+        let with = |light: &str| format!("{:#}", GridLevel::from_text(&PIECES.replacen("\n\n[[thing]]", &format!("\n\n[light]\n{light}\n\n[[thing]]"), 1)).unwrap_err());
+        assert!(with("sun = [0, 0, 1]").contains("line 5: sun is the way its light travels"), "{}", with("sun = [0, 0, 1]"));
+        assert!(with("ambient = 2").contains("ambient must be between 0 and 1"));
+        assert!(with("moon = 1").contains("'moon' is no field of the level's [light]"));
+        assert!(with("sky = \"blue\"").contains("sky must be a colour"));
     }
 
     /// A level of blocks whose grid changed is written anew above its

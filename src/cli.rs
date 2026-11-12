@@ -165,7 +165,8 @@ edit  opens the editor on a game's level: of voxel blocks, the level (its
       figure's part, --parent NAME and --joint X,Y,Z set its rig, the
       joint as the printed tree has it; the mouse in the middle of the
       view; --view turns the camera; --tool WORD chooses a tool, BOX and
-      SPHERE holding a shape --held X,Y,Z big, --stamp setting it there,
+      SPHERE setting a shape --held X,Y,Z big under the mouse, fresh
+      (outlined), --stamp setting it and no more fresh,
       --shift as with Shift held (the tool is PICK);
       default 1920x1080). A level whose pieces are turned off the quarter
       turns, in a game that sets things on the grid, asks before it
@@ -175,8 +176,10 @@ edit  opens the editor on a game's level: of voxel blocks, the level (its
       as a level of blocks with PIECES; --shot tries changes there in
       turn, writing nothing: --add a model (its path) or a light, place
       or area --at a spot (--hang: left on the mouse there), --move, --turn (--by degrees), --copy,
-      --remove, --rename, --light (a piece's: --radius, --colour, --at
-      where it shines from), --room-size; then --choose one by its name,
+      --remove, --rename, --light (a piece's first: --radius, --colour,
+      --at where it shines from), --add-light (one more on the piece, the
+      same words after it), --solid (a piece's voxels hold bodies up),
+      --room-size; then --choose one by its name,
       --game-view looks as the game's camera, --picker shows ADD MODEL's
       list, --lights-off the view without the lights.
 ide   opens the IDE on a game (docs/ide.md): its logic and assets on the
@@ -691,11 +694,13 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                     "--move" => opts.ops.push(crate::editor::ShotOp::Move(value.clone(), None)),
                     "--copy" => opts.ops.push(crate::editor::ShotOp::Copy(value.clone(), None)),
                     "--remove" => opts.ops.push(crate::editor::ShotOp::Remove(value.clone())),
-                    "--light" => opts.ops.push(crate::editor::ShotOp::Light(value.clone(), None, None, None)),
+                    "--light" => opts.ops.push(crate::editor::ShotOp::Light(value.clone(), None, None, None, false)),
+                    "--add-light" => opts.ops.push(crate::editor::ShotOp::Light(value.clone(), None, None, None, true)),
+                    "--solid" => opts.ops.push(crate::editor::ShotOp::Solid(value.clone())),
                     "--room-size" => opts.ops.push(crate::editor::ShotOp::Size(three(flag, value)?)),
                     "--at" => {
                         let spot = three(flag, value)?;
-                        anyhow::ensure!(opts.ops.last_mut().is_some_and(|op| op.at(spot)), "--at follows --add, --move, --copy or --light (where its light shines from)");
+                        anyhow::ensure!(opts.ops.last_mut().is_some_and(|op| op.at(spot)), "--at follows --add, --move, --copy, --light or --add-light (where its light shines from)");
                     }
                     "--turn" => {
                         let by = it.next().filter(|b| *b == "--by").and(it.next()).context("--turn NAME --by DEGREES")?;
@@ -706,14 +711,14 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                         opts.ops.push(crate::editor::ShotOp::Rename(value.clone(), to.clone()));
                     }
                     "--radius" | "--colour" | "--color" => match opts.ops.last_mut() {
-                        Some(crate::editor::ShotOp::Light(_, radius, colour, _)) => {
+                        Some(crate::editor::ShotOp::Light(_, radius, colour, _, _)) => {
                             if flag == "--radius" {
                                 *radius = Some(value.parse().context("--radius N")?);
                             } else {
                                 *colour = Some(value.clone());
                             }
                         }
-                        _ => bail!("{flag} follows --light NAME"),
+                        _ => bail!("{flag} follows --light NAME or --add-light NAME"),
                     },
                     "--model" => opts.model = Some(value.clone()),
                     "--part" => opts.part = Some(value.clone()),

@@ -1572,6 +1572,34 @@ pub(crate) mod tests {
         assert_eq!(sim.world.get(IVec3::new(10, 30, 2)), 0, "the blast left the grass");
     }
 
+    /// The rounds stop at a solid piece of a level (`world::Solids`), with
+    /// sparks where they hit; it stops the player too, and a blast does not
+    /// take it away (the world's own voxels there stay empty).
+    #[test]
+    fn rounds_stop_at_a_solid_piece() {
+        let mut world = flat_world(IVec3::new(64, 64, 16));
+        let cells: Vec<IVec3> = (0..64).flat_map(|x| (1..8).map(move |z| IVec3::new(x, 30, z))).collect();
+        world.pieces = Some(Arc::new(crate::world::Solids::new([(0, Arc::new(cells))])));
+        let mut cfg = kit();
+        cfg.player.spawn = [32.0, 20.0];
+        let mut sim = Shooter::new(world, &cfg, shapes(), &[]);
+        sim.player.body.face(Vec3::Y);
+        let mut flew = false;
+        for tick in 0..30 {
+            sim.step(&Controls { fire: tick < 2, ..Controls::default() });
+            assert!(sim.bullets.iter().all(|b| b.pos.y < 31.0), "a round went through");
+            flew |= !sim.bullets.is_empty();
+        }
+        let hit = flew;
+        assert!(hit && sim.bullets.is_empty(), "the round hit the piece");
+        for _ in 0..40 {
+            sim.step(&Controls { up: true, ..Controls::default() });
+        }
+        assert!(sim.player.body.pos.y < 30.0, "the piece stopped the player at y {}", sim.player.body.pos.y);
+        sim.explode(Vec3::new(10.5, 30.5, 2.5), 3.0);
+        assert!(sim.world.solid(IVec3::new(10, 30, 2)) && sim.world.get(IVec3::new(10, 30, 2)) == 0, "a blast leaves it");
+    }
+
     /// However often the same spot is bombed, the bottom layer stays: there
     /// is no blowing a hole through the floor.
     #[test]

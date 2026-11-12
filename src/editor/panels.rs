@@ -93,13 +93,13 @@ fn question(ui: &mut egui::Ui, file: &str, names: &[String], shown: &mut Shown) 
             let more = if names.len() > 4 { format!(" and {} more", names.len() - 4) } else { String::new() };
             ui.label(RichText::new(format!("{}{more}", names.iter().take(4).cloned().collect::<Vec<_>>().join(", "))).color(WARNING));
             ui.add_space(8.0);
-            ui.label(RichText::new("ALIGN ALL turns each to its nearest way (a step back undoes it). Or allow free turns in conf.lua: c.camera.turns = \"free\".").color(QUIET));
             ui.add_space(24.0);
             ui.horizontal(|ui| {
                 let width = 2.0 * 180.0 + ui.spacing().item_spacing.x;
                 ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
-                for (label, action) in [("ALIGN ALL", Action::AlignAll), ("DON'T OPEN", Action::DontOpen)] {
-                    if ui.add_sized([180.0, 36.0], egui::Button::new(RichText::new(label).color(if action == Action::AlignAll { ACCENT } else { TEXT }))).clicked() {
+                let tips = ["Turns each to its nearest way (a step back undoes it)", "Leaves the level as it is; or allow free turns in conf.lua: c.camera.turns = \"free\""];
+                for ((label, action), tip) in [("ALIGN ALL", Action::AlignAll), ("DON'T OPEN", Action::DontOpen)].into_iter().zip(tips) {
+                    if ui.add_sized([180.0, 36.0], egui::Button::new(RichText::new(label).color(if action == Action::AlignAll { ACCENT } else { TEXT }))).on_hover_text(tip).clicked() {
                         shown.clicked.push(action);
                     }
                 }
@@ -109,21 +109,23 @@ fn question(ui: &mut egui::Ui, file: &str, names: &[String], shown: &mut Shown) 
 }
 
 /// A small quiet heading, as the IDE's list has.
-fn heading(ui: &mut egui::Ui, text: &str) {
+fn heading(ui: &mut egui::Ui, text: &str) -> egui::Response {
     ui.add_space(6.0);
-    ui.label(RichText::new(text.to_uppercase()).small().color(QUIET));
+    ui.label(RichText::new(text.to_uppercase()).small().color(QUIET))
 }
 
 /// A row that does `action` (its key at the end), lit when `on`.
-fn row(ui: &mut egui::Ui, shown: &mut Shown, label: &str, action: Action, on: bool) {
+fn row(ui: &mut egui::Ui, shown: &mut Shown, label: &str, action: Action, on: bool) -> egui::Response {
     let key = key_of(action);
     if let Some(k) = key {
         shown.keys.push((k, action));
     }
     let hint = key.map(String::from);
-    if crate::gui::row(ui, label, TextStyle::Body, if on { ACCENT } else { TEXT }, on, hint.as_deref()).clicked() {
+    let response = crate::gui::row(ui, label, TextStyle::Body, if on { ACCENT } else { TEXT }, on, hint.as_deref());
+    if response.clicked() {
         shown.clicked.push(action);
     }
+    response
 }
 
 /// Buttons side by side, each with its key after its word.
@@ -174,10 +176,8 @@ fn column(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
             heading(ui, "Level");
             row(ui, shown, "BLOCKS", Action::Layer(Layer::Blocks), !things);
             row(ui, shown, "THINGS", Action::Layer(Layer::Things), things);
-            // (Offered where the level holds pieces, places or areas.)
-            if has_pieces(ed) {
-                row(ui, shown, "PIECES", Action::Layer(Layer::Pieces), false);
-            }
+            // Always: a level of blocks gets its first piece there.
+            row(ui, shown, "PIECES", Action::Layer(Layer::Pieces), false);
             if things {
                 if let Some(kind) = &ed.held_kind {
                     heading(ui, "Held");
@@ -242,17 +242,16 @@ fn column(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
         heading(ui, "Tools");
     }
     for &tool in Tool::of(ed.scope, ed.layer) {
-        row(ui, shown, tool.label(ed.scope), Action::Tool(tool), ed.tool == tool);
+        let response = row(ui, shown, tool.label(ed.scope), Action::Tool(tool), ed.tool == tool);
+        if matches!(tool, Tool::Box | Tool::Sphere) {
+            response.on_hover_text("Drag a footprint on a face: let go and it is set there. + and - its depth while it is fresh (outlined). Alt: only where empty. Ctrl: cuts. Escape: done with it.");
+        }
     }
     if ed.shape().is_some() {
         if ed.resting_tool() == Tool::Box {
             row(ui, shown, "BEVEL", Action::Bevel, ed.bevel);
         }
         row(ui, shown, "SYMMETRY", Action::Symmetry, ed.symmetry);
-        // (Kept while Shift makes the tool PICK, so the column does not jump.)
-        if matches!(ed.resting_tool(), Tool::Box | Tool::Sphere) && ed.scope != Scope::Level {
-            ui.label(RichText::new("Drag on a face, + and - its depth, click sets it. Alt: only where empty. Ctrl: cuts. Escape lets go.").small().color(QUIET));
-        }
     }
     if ed.shape().is_some() {
         heading(ui, "Colour");
@@ -281,7 +280,7 @@ fn parts(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, shown: &mut Shown) {
     let s = figure.model.size;
     heading(ui, &format!("Figure {name}"));
     ui.label(RichText::new(format!("{} × {} × {} voxels, {} parts", s.x, s.y, s.z, figure.parts().len())).color(QUIET));
-    heading(ui, "Parts");
+    heading(ui, "Parts").on_hover_text("Choose a part to shape it and set what it hangs on. The rings in the view: where each part turns.");
     for &(p, depth) in &figure.tree {
         let (hidden, chosen) = (figure.hidden[p], figure.selected == Some(p));
         let indent = depth as f32 * 14.0;
@@ -331,9 +330,7 @@ fn parts(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, shown: &mut Shown) {
     if figure.hidden.iter().any(|&h| h) {
         buttons(ui, shown, &[("SHOW ALL", Action::ShowAll)]);
     }
-    if figure.selected.is_none() {
-        ui.label(RichText::new("Choose a part to shape it and set what it hangs on. The rings in the view: where each part turns.").small().color(QUIET));
-    }
+
 }
 
 /// A figure's column: its parts, and the chosen part's parent and joint;
@@ -419,7 +416,7 @@ fn rig(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, p: usize, shown: &mut Sh
     ui.label(format!("PARENT {}", part.parent.map_or("none: the root", |q| figure.parts()[q].name.as_str())));
     quiet(ui, if by_hand { "set by hand" } else { "found by the rules" });
     if ed.picking_parent {
-        ui.label(RichText::new("Click the part it hangs on in the list.").small().color(ACCENT));
+        ui.label(RichText::new("choosing its parent").small().color(ACCENT)).on_hover_text("Click the part it hangs on in the list.");
         buttons(ui, shown, &[("CANCEL", Action::PickParent)]);
     } else if by_hand {
         buttons(ui, shown, &[("CHOOSE", Action::PickParent), ("BY THE RULES", Action::ParentWorkedOut)]);
@@ -469,7 +466,7 @@ pub fn joints(ui: &egui::Ui, ed: &Editor, view: &View, rects: &[egui::Rect]) {
     // The editor's quiet word, at the foot of the view.
     // (BOX and SPHERE in a figure say how they go there: the column has
     // no room for it.)
-    let forms = (ed.part_mode().is_some() && ed.forms()).then_some("Drag on a face, + and - its depth, click sets it. Alt: only where empty. Ctrl: cuts. Escape lets go.");
+    let forms = (ed.part_mode().is_some() && ed.forms()).then_some("DRAG SETS   + - DEPTH   ALT ONLY EMPTY   CTRL CUTS   ESC DONE");
     if let Some(hint) = ed.hint.as_deref().or(forms) {
         painter.text(free.left_bottom() + egui::vec2(16.0, -14.0), egui::Align2::LEFT_BOTTOM, hint, TextStyle::Body.resolve(ui.style()), QUIET);
     }
@@ -578,7 +575,7 @@ fn bar(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs: &
             }
         }
         Scope::Figure => {
-            ui.label(RichText::new("Choose a part on the right to shape it. Drag with the right button to turn the figure, with the middle one to move it; the wheel brings it nearer.").color(QUIET));
+            ui.label(RichText::new("RIGHT DRAG TURNS   MIDDLE DRAG MOVES   WHEEL NEARER").color(QUIET));
         }
         Scope::Frame(_) if ed.figure.is_some() => figure_bar(ui, ed, shown),
         Scope::Block(_) | Scope::Frame(_) => colours(ui, ed, shown),
@@ -614,12 +611,6 @@ fn colours(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
             shown.clicked.push(Action::Colour(c));
         }
     }
-}
-
-/// Whether a level of blocks holds pieces, places or areas (the PIECES row
-/// is offered then).
-fn has_pieces(ed: &Editor) -> bool {
-    ed.level.things.iter().any(|t| t.is_piece()) || !ed.level.places.is_empty() || !ed.level.areas.is_empty()
 }
 
 /// A colour of three bytes as egui's.
@@ -664,10 +655,10 @@ fn pieces_column(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures,
         Some(item) => chosen(ui, ed, view, figures, item, shown),
         None => {
             ui.add_space(8.0);
-            ui.label(RichText::new("Click something in the view or the list to choose it. ADD below sets a new one down.").small().color(QUIET));
+            daylight(ui, ed, shown);
         }
     }
-    let lights = ed.level.things.iter().filter(|t| t.light.is_some()).count();
+    let lights: usize = ed.level.things.iter().map(|t| t.lights.len()).sum();
     if lights > crate::render::MAX_LIGHTS {
         ui.add_space(8.0);
         ui.label(RichText::new(format!("{lights} lights: the game shows the {} nearest the middle of its view.", crate::render::MAX_LIGHTS)).small().color(WARNING));
@@ -687,12 +678,13 @@ fn list(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
     ui.data_mut(|d| d.insert_temp(seen_id, ed.chosen));
     let groups: [(&str, Vec<Item>, &str); 3] = [
         ("In the level", (0..ed.level.things.len()).map(Item::Thing).collect(), "Nothing set down yet."),
-        ("Places", (0..ed.level.places.len()).map(Item::Place).collect(), "None: a place is where a player arrives."),
-        ("Areas", (0..ed.level.areas.len()).map(Item::Area).collect(), "None: an area is a box your code asks about."),
+        ("Places", (0..ed.level.places.len()).map(Item::Place).collect(), "None yet."),
+        ("Areas", (0..ed.level.areas.len()).map(Item::Area).collect(), "None yet."),
     ];
+    let about = ["Click one here or in the view to choose it; ADD below sets a new one down.", "A place is where a player arrives (world:go_to).", "An area is a box your code asks about (level.areas.NAME)."];
     egui::ScrollArea::vertical().id_salt("pieces list").max_height(room).auto_shrink([false, true]).show(ui, |ui| {
-        for (title, items, none) in groups {
-            heading(ui, title);
+        for ((title, items, none), about) in groups.into_iter().zip(about) {
+            heading(ui, title).on_hover_text(about);
             if items.is_empty() {
                 ui.label(RichText::new(none).small().color(QUIET));
             }
@@ -704,7 +696,7 @@ fn list(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
                 }
                 let (label, named) = ed.label_of(item);
                 let light = match item {
-                    Item::Thing(i) => ed.level.things[i].light.as_ref().map(|l| bytes_of(l.color.as_deref())),
+                    Item::Thing(i) => ed.level.things[i].lights.first().map(|l| bytes_of(l.color.as_deref())),
                     _ => None,
                 };
                 let colour = if chosen { ACCENT } else if named { TEXT } else { QUIET };
@@ -776,9 +768,18 @@ fn rename_field(ui: &mut egui::Ui, ed: &Editor, view: &View, item: Item, shown: 
 /// A number of the chosen one on a line of its own: its word, the number
 /// (dragged, or clicked and typed), and - and + by `step`.
 fn number(ui: &mut egui::Ui, shown: &mut Shown, word: &str, value: f64, field: Field, step: f64, range: std::ops::RangeInclusive<f64>) {
+    number_tip(ui, shown, word, value, field, step, range, None);
+}
+
+/// `number`, what it means said on hovering its word (`tip`).
+#[allow(clippy::too_many_arguments)]
+fn number_tip(ui: &mut egui::Ui, shown: &mut Shown, word: &str, value: f64, field: Field, step: f64, range: std::ops::RangeInclusive<f64>, tip: Option<&str>) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(50.0, ui.text_style_height(&TextStyle::Body)), egui::Sense::hover());
+        let (rect, word_response) = ui.allocate_exact_size(egui::vec2(64.0, ui.text_style_height(&TextStyle::Body)), egui::Sense::hover());
+        if let Some(tip) = tip {
+            word_response.on_hover_text(tip);
+        }
         ui.painter().text(rect.left_center(), egui::Align2::LEFT_CENTER, word, TextStyle::Small.resolve(ui.style()), QUIET);
         let mut v = value;
         let drag = ui.add_sized([58.0, 24.0], egui::DragValue::new(&mut v).speed(0.25).range(range.clone()).fixed_decimals(0));
@@ -812,18 +813,22 @@ fn chosen(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, item: 
     };
     heading(ui, &format!("Chosen {what}"));
     let (label, named) = ed.label_of(item);
-    if view.renaming != Some(item) {
-        ui.label(RichText::new(&label).color(if named { ACCENT } else { QUIET }).heading());
-    }
-    // What the game's code asks for it by: said once, quietly.
+    // What the game's code asks for it by: on hover, over its name.
     let asked = match (item, named) {
         (_, false) => "No name yet: RENAME gives it one, so the game's code can find it.".to_string(),
         (Item::Thing(_), true) => format!("The game's code finds it by its name: level:thing(\"{label}\")"),
         (Item::Place(_), true) => format!("The game's code sends a player here: world:go_to(level, \"{label}\")"),
         (Item::Area(_), true) => format!("The game's code asks about it: level.areas.{label}"),
     };
-    quiet(ui, &asked);
-    buttons(ui, shown, &[("RENAME", Action::Rename(Some(item)))]);
+    if view.renaming != Some(item) {
+        ui.label(RichText::new(&label).color(if named { ACCENT } else { QUIET }).heading()).on_hover_text(&asked);
+    }
+    if !named {
+        quiet(ui, "no name");
+    }
+    if ui.button("RENAME").on_hover_text(&asked).clicked() {
+        shown.clicked.push(Action::Rename(Some(item)));
+    }
     if let Some(model) = thing.and_then(|t| t.model.as_ref()) {
         ui.add_space(4.0);
         quiet(ui, model);
@@ -867,9 +872,8 @@ fn chosen(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, item: 
         match thing.filter(|_| ed.free_turns) {
             // Turned freely: its angle, a quarter at a time too.
             Some(t) => {
-                number(ui, shown, "ANGLE", room::bearing_of(t).rem_euclid(360.0), Field::Turn, 15.0, 0.0..=360.0);
+                number_tip(ui, shown, "ANGLE", room::bearing_of(t).rem_euclid(360.0), Field::Turn, 15.0, 0.0..=360.0, Some("Degrees clockwise seen from above: 0 away from the camera, 180 towards it."));
                 buttons(ui, shown, &[("TURN A QUARTER", Action::TurnItem(1))]);
-                quiet(ui, "Degrees clockwise seen from above: 0 away from the camera, 180 towards it.");
             }
             None => {
                 ui.horizontal(|ui| {
@@ -901,54 +905,117 @@ fn chosen(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, item: 
     });
 }
 
-/// A thing's light: a piece's switched on or off; where it shines from in
-/// the model, how far it reaches, its colour (a few at once, or any).
+/// A piece's lights, each where it shines from in the model, how far it
+/// reaches and its colour (a few at once, or any), REMOVE beside it; ADD
+/// LIGHT for one more (a lamp's flame and its wider glow); a light alone is
+/// its one light. Then whether the piece is SOLID.
 fn light(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, t: &crate::grid::Thing, shown: &mut Shown) {
     let alone = t.model.is_none();
     if !t.is_piece() {
         return;
     }
-    heading(ui, "Light");
-    if !alone {
-        let on = t.light.is_some();
-        let top = t.model.as_deref().and_then(|m| figures.model(m)).map_or(10, |m| m.size.z);
-        let mut job = egui::text::LayoutJob::default();
-        job.append(if on { "ON" } else { "OFF" }, 0.0, egui::TextFormat { font_id: TextStyle::Button.resolve(ui.style()), color: if on { ACCENT } else { TEXT }, ..Default::default() });
-        if ui.selectable_label(on, job).on_hover_text(if on { "The piece gives no light" } else { "The piece gives light, from its top at first" }).clicked() {
-            shown.clicked.push(Action::Light(!on, top));
-        }
+    heading(ui, if t.lights.len() > 1 { "Lights" } else { "Light" });
+    if !alone && t.lights.is_empty() {
+        ui.label(RichText::new("none").small().color(QUIET));
     }
-    let Some(l) = &t.light else { return };
-    if !alone {
-        let at = l.at.unwrap_or_default();
-        ui.label(RichText::new("Shines from (the model's voxels, from where it stands):").small().color(QUIET));
-        for (axis, word) in ["X", "Y", "Z UP"].iter().enumerate() {
-            number(ui, shown, word, at[axis] as f64, Field::LightAt(axis), 1.0, -1000.0..=1000.0);
-        }
-    }
-    number(ui, shown, "REACH", l.radius, Field::Radius, 10.0, 1.0..=2000.0);
-    let now = bytes_of(l.color.as_deref());
-    ui.horizontal_wrapped(|ui| {
-        let mut c = now;
-        if egui::color_picker::color_edit_button_srgb(ui, &mut c).on_hover_text("Any colour").changed() {
-            shown.clicked.push(Action::LightColour(c));
-        }
-        ui.add_space(6.0);
-        for (hex, like) in room::LIGHT_COLOURS {
-            let c = bytes_of(Some(hex));
-            if swatch(ui, c, 20.0, c == now, None).on_hover_text(format!("Like {like}")).clicked() {
-                shown.clicked.push(Action::LightColour(c));
+    let many = t.lights.len() > 1;
+    for (k, l) in t.lights.iter().enumerate() {
+        if !alone {
+            ui.horizontal(|ui| {
+                let c = bytes_of(l.color.as_deref());
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+                ui.painter().rect_filled(rect, 2.0, rgb(c));
+                ui.label(RichText::new(if many { format!("LIGHT {}", k + 1) } else { "LIGHT".into() }).color(TEXT));
+                if ui.small_button("REMOVE").on_hover_text("This light goes; UNDO brings it back").clicked() {
+                    shown.clicked.push(Action::RemoveLight(k as u8));
+                }
+            });
+            let at = l.at.unwrap_or_default();
+            let tip = "Where it shines from: the model's voxels, from where the piece stands; it turns with the piece.";
+            ui.label(RichText::new("SHINES FROM").small().color(QUIET)).on_hover_text(tip);
+            for (axis, word) in ["X", "Y", "Z UP"].iter().enumerate() {
+                number_tip(ui, shown, word, at[axis] as f64, Field::LightAt(k, axis), 1.0, -1000.0..=1000.0, Some(tip));
             }
         }
-    });
+        number_tip(ui, shown, "REACH", l.radius, Field::Radius(k), 10.0, 1.0..=2000.0, Some("How far it reaches, in voxels"));
+        let now = bytes_of(l.color.as_deref());
+        ui.horizontal_wrapped(|ui| {
+            let mut c = now;
+            if egui::color_picker::color_edit_button_srgb(ui, &mut c).on_hover_text("Any colour").changed() {
+                shown.clicked.push(Action::LightColour(k as u8, c));
+            }
+            ui.add_space(6.0);
+            for (hex, like) in room::LIGHT_COLOURS {
+                let c = bytes_of(Some(hex));
+                if swatch(ui, c, 20.0, c == now, None).on_hover_text(format!("Like {like}")).clicked() {
+                    shown.clicked.push(Action::LightColour(k as u8, c));
+                }
+            }
+        });
+        ui.add_space(4.0);
+    }
+    if alone {
+        return;
+    }
+    let top = t.model.as_deref().and_then(|m| figures.model(m)).map_or(10, |m| m.size.z);
+    let hint = if t.lights.is_empty() { "The piece gives light, from its top at first" } else { "One more light on the piece (a flame and its wider glow): it moves and turns with it, and thing.state.light dims them all" };
+    if ui.button("ADD LIGHT").on_hover_text(hint).clicked() {
+        shown.clicked.push(Action::AddPieceLight(top));
+    }
+    ui.add_space(6.0);
+    let on = t.solid;
+    let mut job = egui::text::LayoutJob::default();
+    job.append(if on { "SOLID" } else { "NOT SOLID" }, 0.0, egui::TextFormat { font_id: TextStyle::Button.resolve(ui.style()), color: if on { ACCENT } else { TEXT }, ..Default::default() });
+    let tip = if on { "Its voxels hold bodies up and stop them, bullets too. Click: they let everything through" } else { "Click: its voxels hold bodies up and stop them (a floor, a wall, a table), exactly where the model is drawn" };
+    if ui.selectable_label(on, job).on_hover_text(tip).clicked() {
+        shown.clicked.push(Action::Solid(!on));
+    }
     let _ = ed;
+}
+
+/// The level's own daylight, when nothing is chosen: as the game's (OWN
+/// DAYLIGHT gives the level one, from the game's), or where the sun stands
+/// and how high, its colour, the light every face gets, how dark shadows
+/// are, the sky; AS THE GAME again. The view shows it at once.
+fn daylight(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+    heading(ui, "Daylight");
+    let Some(day) = &ed.level.daylight else {
+        ui.label(RichText::new("as the game").small().color(QUIET)).on_hover_text("The game's daylight: c.light in conf.lua");
+        if ui.button("OWN DAYLIGHT").on_hover_text("This level gets a daylight of its own, starting from the game's").clicked() {
+            shown.clicked.push(Action::DayOwn);
+        }
+        return;
+    };
+    let g = &ed.game_light;
+    let (from, height) = room::sun_stands(day.sun.unwrap_or(g.sun.map(|v| v as f64)));
+    number_tip(ui, shown, "SUN", from, Field::SunFrom, 15.0, 0.0..=360.0, Some("Where the sun stands: degrees round, clockwise seen from above, 0 away from the camera"));
+    number_tip(ui, shown, "HIGH", height, Field::SunHeight, 5.0, 1.0..=90.0, Some("How high the sun stands over the horizon, in degrees: 90 straight above"));
+    let hex = |c: [f32; 3]| c.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8);
+    let sun_now = day.sun_color.as_deref().map_or(hex(g.sun_color), |c| bytes_of(Some(c)));
+    let sky_now = day.sky.as_deref().map_or(hex(g.sky), |c| bytes_of(Some(c)));
+    for (word, sun, now) in [("SUNLIGHT", true, sun_now), ("SKY", false, sky_now)] {
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(64.0, ui.text_style_height(&TextStyle::Body)), egui::Sense::hover());
+            ui.painter().text(rect.left_center(), egui::Align2::LEFT_CENTER, word, TextStyle::Small.resolve(ui.style()), QUIET);
+            let mut c = now;
+            if egui::color_picker::color_edit_button_srgb(ui, &mut c).on_hover_text("Any colour").changed() {
+                shown.clicked.push(Action::DayColour(sun, c));
+            }
+        });
+    }
+    let percent = |v: Option<f64>, game: f32| (v.unwrap_or(game as f64) * 100.0).round();
+    number_tip(ui, shown, "AMBIENT", percent(day.ambient, g.ambient), Field::Ambient, 5.0, 0.0..=100.0, Some("The light every face gets, 0 to 100"));
+    number_tip(ui, shown, "SHADOW", percent(day.shadow, g.shadow), Field::Shadow, 5.0, 0.0..=100.0, Some("How dark shadows are, 0 to 100"));
+    if ui.button("AS THE GAME").on_hover_text("This level's daylight goes: the game's again").clicked() {
+        shown.clicked.push(Action::DayAsGame);
+    }
 }
 
 /// ADD MODEL's list: the game's models by folder, each with a small
 /// picture; a click hangs one on the mouse.
 fn picker(ui: &mut egui::Ui, ed: &Editor, thumbs: &mut Thumbs, shown: &mut Shown) {
     heading(ui, "Add a model");
-    ui.label(RichText::new("Click one, then click in the view where it is to stand.").small().color(QUIET));
+
     buttons(ui, shown, &[("CANCEL", Action::AddModel)]);
     let choices = ed.model_choices();
     if choices.is_empty() {
@@ -973,7 +1040,7 @@ fn picker(ui: &mut egui::Ui, ed: &Editor, thumbs: &mut Thumbs, shown: &mut Shown
                 crate::gui::row(ui, stem, TextStyle::Body, TEXT, false, None)
             })
             .inner;
-        if response.on_hover_text(file.as_str()).clicked() {
+        if response.on_hover_text(format!("{file}: click, then click in the view where it is to stand")).clicked() {
             shown.clicked.push(Action::Piece(i));
         }
     }

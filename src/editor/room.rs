@@ -36,9 +36,20 @@ pub enum Hanging {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Field {
     At(usize),
-    LightAt(usize),
-    Radius,
-    Colour,
+    /// A light of the chosen piece (by its place among its lights): where
+    /// it shines from (an axis), its reach, its colour.
+    LightAt(usize, usize),
+    Radius(usize),
+    Colour(usize),
+    /// The level's daylight: where the sun stands (degrees round from
+    /// north, clockwise seen from above) and how high (degrees over the
+    /// horizon), the light every face gets and how dark shadows are (in
+    /// hundredths), the sun's colour and the sky's.
+    SunFrom,
+    SunHeight,
+    Ambient,
+    Shadow,
+    DayColour,
     Turn,
     Size(usize),
     LevelSize(usize),
@@ -85,13 +96,35 @@ pub fn rotation_of(t: &Thing) -> Quat {
     Quat::from_rotation_z(-(bearing_of(t) as f32).to_radians())
 }
 
-/// Where a thing's light shines from in the level's voxels: its offset in
-/// the model's own voxels turned with it, from the middle of the pivot's
+/// Where a thing's light `l` shines from in the level's voxels: its offset
+/// in the model's own voxels turned with it, from the middle of the pivot's
 /// cell half a voxel up, as the game puts it.
-pub fn light_spot(t: &Thing) -> Option<Vec3> {
-    let l = t.light.as_ref()?;
+pub fn light_spot(t: &Thing, l: &ThingLight) -> Vec3 {
     let offset = IVec3::from(l.at.unwrap_or_default()).as_vec3();
-    Some(IVec3::from(t.at).as_vec3() + Vec3::splat(0.5) + rotation_of(t) * offset)
+    IVec3::from(t.at).as_vec3() + Vec3::splat(0.5) + rotation_of(t) * offset
+}
+
+/// Where each of a thing's lights shines from, with the light.
+pub fn light_spots(t: &Thing) -> impl Iterator<Item = (Vec3, &ThingLight)> {
+    t.lights.iter().map(move |l| (light_spot(t, l), l))
+}
+
+/// The way the sunlight travels for a sun standing `from` degrees round
+/// (clockwise seen from above, north 0) and `height` degrees over the
+/// horizon, as a level's `[light]` writes it (three places after the point).
+pub fn sun_way(from: f64, height: f64) -> [f64; 3] {
+    let (b, h) = (from.to_radians(), height.clamp(1.0, 90.0).to_radians());
+    let round = |v: f64| (v * 1000.0).round() / 1000.0 + 0.0;
+    [round(-h.cos() * b.sin()), round(-h.cos() * b.cos()), round(-h.sin())]
+}
+
+/// Where a sun travelling `way` stands: degrees round from north and over
+/// the horizon (`sun_way` back).
+pub fn sun_stands(way: [f64; 3]) -> (f64, f64) {
+    let [x, y, z] = way;
+    let flat = (x * x + y * y).sqrt();
+    let from = if flat < 1e-9 { 0.0 } else { (-x).atan2(-y).to_degrees().rem_euclid(360.0) };
+    (((from * 10.0).round() / 10.0) % 360.0, ((-z).atan2(flat).to_degrees() * 10.0).round() / 10.0)
 }
 
 /// Where a ray (from `origin` along `dir`, in voxels) meets the level at
@@ -325,7 +358,7 @@ impl Editor {
     pub fn add_light(&mut self) {
         let name = self.name_for(Item::Thing(0), "light");
         let light = ThingLight { at: None, radius: LIGHT_RADIUS, color: Some(NEW_COLOUR.into()) };
-        self.hang(Hanging::Thing(Thing { name: Some(name), light: Some(light), ..Thing::new(PIECE, [0; 3]) }));
+        self.hang(Hanging::Thing(Thing { name: Some(name), lights: vec![light], ..Thing::new(PIECE, [0; 3]) }));
     }
 
     /// ADD PLACE: a place on the mouse, facing the camera.
@@ -458,6 +491,9 @@ impl Editor {
             }
             return;
         }
+        if let Some(day) = self.day_field(field, v) {
+            return self.change(Some(field), |l| l.daylight = Some(day));
+        }
         let Some(item) = self.chosen else { return };
         let free = self.free_turns;
         self.change(Some(field), |l| match (field, item) {
@@ -470,19 +506,20 @@ impl Editor {
                     Item::Area(i) => l.areas[i].at[a] = v,
                 }
             }
-            (Field::LightAt(a), Item::Thing(i)) => {
-                if let Some(light) = &mut l.things[i].light {
+            (Field::LightAt(k, a), Item::Thing(i)) => {
+                if let Some(light) = l.things[i].lights.get_mut(k) {
                     let mut at = light.at.unwrap_or_default();
                     at[a.min(2)] = whole;
                     light.at = Some(at);
                 }
             }
-            (Field::Radius, Item::Thing(i)) => {
-                if let Some(light) = &mut l.things[i].light {
+            (Field::Radius(k), Item::Thing(i)) => {
+                if let Some(light) = l.things[i].lights.get_mut(k) {
                     light.radius = v.round().clamp(1.0, 2000.0);
                 }
             }
-            (Field::Turn, Item::Thing(i)) if l.things[i].is_piece() => l.things[i].facing = Some(facing_at(v, free)),
+            // A solid piece keeps to the quarter turns.
+            (Field::Turn, Item::Thing(i)) if l.things[i].is_piece() => l.things[i].facing = Some(facing_at(v, free && !l.things[i].solid)),
             (Field::Size(a), Item::Area(i)) => l.areas[i].size[a.min(2)] = whole.clamp(1, 4096),
             _ => {}
         });
@@ -517,26 +554,106 @@ impl Editor {
         }
     }
 
-    /// LIGHT: the chosen piece's light on (at `top`, its model's top, from
-    /// its pivot, warm) or off. A light alone is its light, always on.
-    pub fn set_light(&mut self, on: bool, top: i32) {
+    /// ADD LIGHT on the chosen piece: one more light (the first at `top`,
+    /// its model's top, from its pivot; another beside the last, wider),
+    /// warm. A light alone stays one light.
+    pub fn add_piece_light(&mut self, top: i32) {
         let Some(Item::Thing(i)) = self.chosen else { return };
         if self.level.things[i].model.is_none() {
             return;
         }
-        let light = on.then(|| ThingLight { at: Some([0, 0, top]), radius: PIECE_RADIUS, color: Some(NEW_COLOUR.into()) });
-        self.change(None, |l| l.things[i].light = light);
+        let light = match self.level.things[i].lights.last() {
+            None => ThingLight { at: Some([0, 0, top]), radius: PIECE_RADIUS, color: Some(NEW_COLOUR.into()) },
+            Some(last) => ThingLight { radius: (last.radius * 2.0).min(2000.0), ..last.clone() },
+        };
+        self.change(None, |l| l.things[i].lights.push(light));
     }
 
-    /// The chosen one's light's colour (`#rrggbb`).
-    pub fn set_colour(&mut self, hex: &str) {
+    /// REMOVE beside a light of the chosen piece: that light taken away. A
+    /// light alone keeps its one light.
+    pub fn remove_piece_light(&mut self, k: usize) {
+        let Some(Item::Thing(i)) = self.chosen else { return };
+        if self.level.things[i].model.is_none() || k >= self.level.things[i].lights.len() {
+            return;
+        }
+        self.change(None, |l| drop(l.things[i].lights.remove(k)));
+    }
+
+    /// The colour (`#rrggbb`) of the chosen one's light `k`.
+    pub fn set_colour(&mut self, k: usize, hex: &str) {
         let Some(Item::Thing(i)) = self.chosen else { return };
         let hex = hex.to_string();
-        self.change(Some(Field::Colour), |l| {
-            if let Some(light) = &mut l.things[i].light {
+        self.change(Some(Field::Colour(k)), |l| {
+            if let Some(light) = l.things[i].lights.get_mut(k) {
                 light.color = Some(hex);
             }
         });
+    }
+
+    /// SOLID: the chosen piece's voxels hold bodies up and stop them (or no
+    /// more). Refused, with why, for a piece turned off the quarter turns:
+    /// its voxels would lie off the grid.
+    pub fn set_solid(&mut self, on: bool) {
+        let Some(Item::Thing(i)) = self.chosen else { return };
+        let t = &self.level.things[i];
+        if t.model.is_none() {
+            return;
+        }
+        if on && t.facing.is_some_and(Facing::off_grid) {
+            self.message = Some(format!("{} is turned {}°: only a piece in quarter turns can be solid (its voxels must lie on the grid). TURN it to a way first.", self.label_of(Item::Thing(i)).0, bearing_of(t)));
+            return;
+        }
+        self.message = None;
+        self.change(None, |l| l.things[i].solid = on);
+    }
+
+    /// The level's daylight with a number of DAYLIGHT set (None: not one of
+    /// its fields); unset words taken from the game's `c.light`.
+    fn day_field(&self, field: Field, v: f64) -> Option<crate::grid::Daylight> {
+        let mut day = self.level.daylight.clone().unwrap_or_default();
+        let game = &self.game_light;
+        let sun = day.sun.unwrap_or(game.sun.map(|c| c as f64));
+        let (from, height) = sun_stands(sun);
+        let hundredths = |v: f64| (v.round().clamp(0.0, 100.0)) / 100.0;
+        match field {
+            Field::SunFrom => day.sun = Some(sun_way(v.rem_euclid(360.0), height)),
+            Field::SunHeight => day.sun = Some(sun_way(from, v.clamp(1.0, 90.0))),
+            Field::Ambient => day.ambient = Some(hundredths(v)),
+            Field::Shadow => day.shadow = Some(hundredths(v)),
+            _ => return None,
+        }
+        Some(day)
+    }
+
+    /// The level's daylight's sun colour (`sun`) or sky's (`#rrggbb`).
+    pub fn set_day_colour(&mut self, sun: bool, hex: &str) {
+        let mut day = self.level.daylight.clone().unwrap_or_default();
+        if sun {
+            day.sun_color = Some(hex.to_string());
+        } else {
+            day.sky = Some(hex.to_string());
+        }
+        self.change(Some(Field::DayColour), |l| l.daylight = Some(day));
+    }
+
+    /// OWN DAYLIGHT: the level gets a daylight of its own, as the game's
+    /// is now (`c.light`), to change from there.
+    pub fn day_own(&mut self) {
+        let g = &self.game_light;
+        let hex = |c: [f32; 3]| {
+            let [r, g, b] = c.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8);
+            format!("#{r:02x}{g:02x}{b:02x}")
+        };
+        let (from, height) = sun_stands(g.sun.map(|v| v as f64));
+        let unit = |v: f32| (v as f64 * 100.0).round() / 100.0;
+        let day = crate::grid::Daylight { sun: Some(sun_way(from, height)), sun_color: Some(hex(g.sun_color)), ambient: Some(unit(g.ambient)), shadow: Some(unit(g.shadow)), sky: Some(hex(g.sky)) };
+        self.change(None, |l| l.daylight = Some(day));
+    }
+
+    /// AS THE GAME: the level's own daylight taken out (the game's
+    /// `c.light` again).
+    pub fn day_as_game(&mut self) {
+        self.change(None, |l| l.daylight = None);
     }
 
     /// EDIT MODEL: the chosen piece's model asked to open in the model
@@ -756,31 +873,88 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A piece's light switched on at its model's top, tuned (where it
-    /// shines from, its reach, its colour) and off; a light alone's reach.
-    /// Where it shines from turns with the piece.
+    /// A piece's lights: ADD LIGHT puts the first at its model's top and
+    /// another beside it, wider; each tuned (where it shines from, its
+    /// reach, its colour) and removed on its own; a light alone keeps its
+    /// one light. Where a light shines from turns with the piece.
     #[test]
-    fn a_light_is_added_and_tuned() {
+    fn a_pieces_lights_are_added_and_tuned() {
         let (mut ed, dir) = room("light", false);
         ed.choose_item(Some(Item::Thing(0)));
-        ed.set_light(true, 24);
-        assert_eq!(read(&dir).things[0].light, Some(ThingLight { at: Some([0, 0, 24]), radius: PIECE_RADIUS, color: Some(NEW_COLOUR.into()) }));
-        ed.set_field(Field::LightAt(1), 3.0);
-        ed.set_field(Field::Radius, 90.4);
-        ed.set_colour("#a0b8ff");
-        let l = read(&dir).things[0].light.clone().unwrap();
+        ed.add_piece_light(24);
+        assert_eq!(read(&dir).things[0].lights, [ThingLight { at: Some([0, 0, 24]), radius: PIECE_RADIUS, color: Some(NEW_COLOUR.into()) }]);
+        ed.set_field(Field::LightAt(0, 1), 3.0);
+        ed.set_field(Field::Radius(0), 90.4);
+        ed.set_colour(0, "#a0b8ff");
+        let l = read(&dir).things[0].lights[0].clone();
         assert_eq!((l.at, l.radius, l.color.as_deref()), (Some([0, 3, 24]), 90.0, Some("#a0b8ff")));
         // Facing south, a light 3 voxels to the model's front is 3 towards
         // the camera.
-        assert_eq!(light_spot(&ed.level.things[0]), Some(Vec3::new(40.5, 147.5, 24.5)));
-        ed.set_light(false, 24);
-        assert!(read(&dir).things[0].light.is_none());
+        assert_eq!(light_spot(&ed.level.things[0], &l), Vec3::new(40.5, 147.5, 24.5));
+        // A second: beside the first, twice as far; tuned on its own; the
+        // file says them as a list.
+        ed.add_piece_light(24);
+        ed.set_colour(1, "#ffb060");
+        let lights = read(&dir).things[0].lights.clone();
+        assert_eq!((lights.len(), lights[1].at, lights[1].radius, lights[0].color.as_deref()), (2, Some([0, 3, 24]), 180.0, Some("#a0b8ff")));
+        assert!(saved(&dir).contains("lights = [\n  { at = [0, 3, 24], radius = 90, color = \"#a0b8ff\" },\n  { at = [0, 3, 24], radius = 180, color = \"#ffb060\" },\n]\n"), "{}", saved(&dir));
+        ed.remove_piece_light(0);
+        assert_eq!(read(&dir).things[0].lights.iter().map(|l| l.radius).collect::<Vec<_>>(), [180.0], "the other one stays");
+        assert!(saved(&dir).contains("light = { at = [0, 3, 24], radius = 180"), "one light: light = again");
+        ed.remove_piece_light(0);
+        assert!(read(&dir).things[0].lights.is_empty());
         assert_eq!(saved(&dir), PIECES, "on, tuned and off again: as it was");
         ed.choose_item(Some(Item::Thing(2)));
-        ed.set_light(false, 0);
-        assert!(ed.level.things[2].light.is_some(), "a light alone is its light");
-        ed.set_field(Field::Radius, 200.0);
+        ed.add_piece_light(0);
+        ed.remove_piece_light(0);
+        assert_eq!(ed.level.things[2].lights.len(), 1, "a light alone is its one light");
+        ed.set_field(Field::Radius(0), 200.0);
         assert!(saved(&dir).contains("light = { radius = 200, color = \"#a0b8ff\" }"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// SOLID on a piece in quarter turns writes its line; on a piece turned
+    /// freely it is refused with why, nothing written; a solid piece keeps
+    /// to the quarter turns when its angle is set.
+    #[test]
+    fn a_piece_is_made_solid_on_the_grid_only() {
+        let (mut ed, dir) = room("solid", true);
+        ed.choose_item(Some(Item::Thing(0)));
+        ed.set_solid(true);
+        assert!(read(&dir).things[0].solid && saved(&dir).contains("facing = \"south\"\nsolid = true\n"));
+        ed.set_field(Field::Turn, 100.0);
+        assert_eq!(ed.level.things[0].facing, Some(Facing::Way(Way::East)), "a solid piece turns in quarters");
+        ed.set_solid(false);
+        assert!(!read(&dir).things[0].solid);
+        // The chair stands at 45 degrees.
+        ed.choose_item(Some(Item::Thing(3)));
+        let before = saved(&dir);
+        ed.set_solid(true);
+        assert!(ed.message.as_deref().is_some_and(|m| m.contains("only a piece in quarter turns can be solid")), "{:?}", ed.message);
+        assert_eq!(saved(&dir), before, "nothing written");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// DAYLIGHT: the level's own (from the game's), the sun moved round
+    /// and up, its colour, the light every face gets; AS THE GAME takes
+    /// it out. The sun's way and where it stands read back the same.
+    #[test]
+    fn a_level_gets_its_own_daylight() {
+        let (mut ed, dir) = room("daylight", false);
+        ed.game_light.sun = [0.0, -1.0, -1.0];
+        ed.day_own();
+        let day = read(&dir).daylight.unwrap();
+        assert_eq!((day.sun, day.ambient), (Some([0.0, -0.707, -0.707]), Some(ed.game_light.ambient as f64 * 100.0).map(|v| v.round() / 100.0)));
+        assert_eq!(sun_stands(day.sun.unwrap()), (0.0, 45.0), "a sun from the north, halfway up");
+        ed.set_field(Field::SunFrom, 90.0);
+        ed.set_field(Field::SunHeight, 30.0);
+        ed.set_field(Field::Ambient, 25.0);
+        ed.set_day_colour(false, "#203040");
+        let day = read(&dir).daylight.unwrap();
+        assert_eq!((sun_stands(day.sun.unwrap()), day.ambient, day.sky.as_deref()), ((90.0, 30.0), Some(0.25), Some("#203040")));
+        assert_eq!(day.sun, Some([-0.866, -0.0, -0.5]).map(|s: [f64; 3]| s.map(|v| v + 0.0)));
+        ed.day_as_game();
+        assert_eq!(saved(&dir), PIECES, "as the game: the file as it was");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

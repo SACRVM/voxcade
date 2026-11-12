@@ -693,7 +693,7 @@ impl Sim {
                     let cell = IVec3::new(x, y, z);
                     let mid = cell.as_vec3() + 0.5;
                     let out = Vec3::new(mid.x - feet.x, mid.y - feet.y, 0.0);
-                    if out.length() > radius || (bedrock && z == 0) || !self.world.solid(cell) {
+                    if out.length() > radius || (bedrock && z == 0) || !self.world.voxel_solid(cell) {
                         continue;
                     }
                     let v = self.world.get(cell);

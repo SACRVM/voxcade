@@ -285,13 +285,18 @@ nearest; its replay `tests/two_ships`);
   --model FILE`; in a
   block or a model BOX and SPHERE besides the voxel tools, the user's
   idea so people build as the agents' scripts do: a footprint dragged on
-  a face's plane, + and - its depth, a click sets it (Alt: only where
-  empty, Ctrl: cut), then it stays on the mouse to stamp, Escape lets go;
+  a face's plane is set right where it was drawn as the mouse lets go
+  (Alt: only where empty, Ctrl: cut; its depth the last one used, 1 at
+  first; the owner: a box stuck to the mouse is not what anyone expects),
+  and stays fresh, outlined, until the next action: + and - its depth in
+  place, BEVEL its edges, still the one step UNDO takes away whole
+  (`editor::model::Fresh`); no stamping it again;
   Shift held is PICK in every tool (the owner: PICK while Shift is held, the
-  tool before back when it is let go; `Editor::shift_pick`, a shape held
-  stays on the mouse, the window losing focus lets go; `--shot --shift`);
+  tool before back when it is let go; `Editor::shift_pick`, the window
+  losing focus lets go; `--shot --shift`);
   BEVEL cuts a box's edges, SYMMETRY mirrors every tool left to right;
-  `editor::model::form_cells`, `--shot --tool box --held X,Y,Z`);
+  `editor::model::form_cells`, `--shot --tool box --held X,Y,Z` sets one
+  that big under the mouse, fresh, `--stamp` no more fresh);
   `editor::EditorWindow` takes its window's events (`ide::route`). A
   double click in the list or EDIT above the file opens one; the main
   area shows it as a picture (`ide/preview.rs`, the editor's view
@@ -966,6 +971,13 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   use `World::blocks`/`World::solid`, never `get() != 0`. The user wants
   grass and shrubs you can walk through. Test:
   `soft_voxels_let_bodies_and_bullets_through`.
+- A level's solid pieces (`solid = true` on a `[[thing]]` with a model)
+  block in the cells their models are drawn in, kept beside the voxels
+  (`world::Solids`, quarter turns only): `World::solid`, `blocks` and
+  `hold` see them, `get` and the meshes do not (the model draws them, the
+  palette is untouched), a blast leaves them, `thing:remove` frees them at
+  the tick's end. Tests: `a_solid_piece_holds_bodies_up_and_stops_them`,
+  `the_hero_stands_on_a_solid_piece`, `rounds_stop_at_a_solid_piece`.
 - Strafing aims the way the player's model looks, along it, never
   diagonally (the user: shots went off at a slant after running
   diagonally). Test: `strafing_fires_the_way_the_model_looks`.
