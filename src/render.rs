@@ -137,6 +137,7 @@ impl ModelBank {
         model.bank = (0..model.frames.len())
             .map(|f| {
                 let start = self.voxels.len() as u32;
+                let opaque: crate::world::CellSet = model.frames[f].iter().filter(|(_, c)| c[3] == 255).map(|(v, _)| *v).collect();
                 for &k in &model.visible[f] {
                     let k = k as usize;
                     let (v, color) = model.frames[f][k];
@@ -146,7 +147,7 @@ impl ModelBank {
                     let l = (v - pivot).as_vec3();
                     let metal = model.metal.get(f).and_then(|m| m.get(k)).copied().unwrap_or(0);
                     let shade = model.shade.get(f).and_then(|s| s.get(k)).copied().unwrap_or([0; 4]);
-                    self.voxels.push(Instance { pos_size: [l.x, l.y, l.z, 1.0], color, fx: [0, 255, 0, metal], shade, turn: [0; 4] });
+                    self.voxels.push(Instance { pos_size: [l.x, l.y, l.z, 1.0], color, fx: [0, 255, covered(&opaque, v), metal], shade, turn: [0; 4] });
                 }
                 start..self.voxels.len() as u32
             })
@@ -154,6 +155,7 @@ impl ModelBank {
         // A figure's parts: each its own run, its joints' faces too.
         for part in &mut model.parts {
             let start = self.voxels.len() as u32;
+            let opaque: crate::world::CellSet = part.voxels.iter().map(|&k| model.frames[0][k as usize]).filter(|(_, c)| c[3] == 255).map(|(v, _)| v).collect();
             for &k in &part.visible {
                 let k = k as usize;
                 let (v, color) = model.frames[0][k];
@@ -163,7 +165,7 @@ impl ModelBank {
                 let l = (v - pivot).as_vec3();
                 let metal = model.metal.first().and_then(|m| m.get(k)).copied().unwrap_or(0);
                 let shade = model.shade.first().and_then(|s| s.get(k)).copied().unwrap_or([0; 4]);
-                self.voxels.push(Instance { pos_size: [l.x, l.y, l.z, 1.0], color, fx: [0, 255, 0, metal], shade, turn: [0; 4] });
+                self.voxels.push(Instance { pos_size: [l.x, l.y, l.z, 1.0], color, fx: [0, 255, covered(&opaque, v), metal], shade, turn: [0; 4] });
             }
             part.bank = start..self.voxels.len() as u32;
         }
@@ -211,6 +213,16 @@ struct ActorData {
     /// w 1 when it is off the grid at all).
     rot: [f32; 4],
     pivot: [f32; 4],
+}
+
+/// The faces of the voxel at `v` that another opaque voxel of its model (or
+/// of its part) lies against, as bits in `mesh::DIRS` order, in the model's
+/// own directions. They are not drawn: seen nearly edge on, such a face
+/// between two voxels of a surface lies at the surface's own depth along
+/// the edge, and won single pixels there (dots in the neighbouring face's
+/// shade all over a turned figure).
+fn covered(opaque: &crate::world::CellSet, v: IVec3) -> u8 {
+    mesh::DIRS.iter().enumerate().filter(|(_, d)| opaque.contains(&(v + **d))).fold(0, |bits, (bit, _)| bits | 1 << bit)
 }
 
 /// Model draws' uniforms lie this far apart (the most any GPU asks).

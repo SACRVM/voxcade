@@ -177,7 +177,7 @@ fn vs_model(
         c = vec4<f32>(actor.tint.rgb, color.a);
     }
     let lit = vec4<f32>(rotate(actor.rot, vec3<f32>(quarter(shade.xy, k), shade.z)), shade.w);
-    var out = cube(pos, normal.xyz, own, model_centre(pos_size.xyz), pos_size.w, c, fx, lit, actor.rot);
+    var out = cube_at(model_corner(pos_size.xyz, pos * pos_size.w), normal.xyz, own, model_centre(pos_size.xyz), c, fx, lit, actor.rot);
     // Off the grid (a part shifted, if not turned): its shadow asks at the
     // voxel's middle.
     out.centre.w = max(out.centre.w, actor.pivot.w);
@@ -217,7 +217,7 @@ fn vs_model_outline(
 ) -> VOut {
     let grown = pos_size.w + 2.0 * g.outline.w;
     let flat = vec4<f32>(g.outline.rgb, 1.0);
-    var out = cube(pos, normal.xyz, normal.xyz, model_centre(pos_size.xyz), grown, flat, vec4<f32>(0.0, 1.0, 0.0, 0.0), vec4<f32>(0.0), actor.rot);
+    var out = cube_at(model_corner(pos_size.xyz, pos * grown), normal.xyz, normal.xyz, model_centre(pos_size.xyz), flat, vec4<f32>(0.0, 1.0, 0.0, 0.0), vec4<f32>(0.0), actor.rot);
     out.world += normalize(out.world - g.eye.xyz) * OUTLINE_BEHIND;
     out.clip = g.view_proj * vec4<f32>(out.world, 1.0);
     return out;
@@ -237,14 +237,43 @@ fn cube(
     shade: vec4<f32>,
     q: vec4<f32>,
 ) -> VOut {
-    let world = centre + rotate(q, pos * size);
+    return cube_at(centre + rotate(q, pos * size), normal, own, centre, color, fx, shade, q);
+}
+
+// A corner of a model's voxel in the world: `off` is the corner from the
+// voxel's middle. A turned model's corner is summed in the model's own
+// grid first, exactly, and then turned: two voxels side by side get the
+// very same number for the corner they share. Turned each from its own
+// middle, they differed in the last bit, and single pixels of what lies
+// behind showed between them.
+fn model_corner(local: vec3<f32>, off: vec3<f32>) -> vec3<f32> {
+    if (actor.pivot.w > 0.5) {
+        let k = u32(actor.origin.w);
+        let corner = vec3<f32>(quarter(local.xy, k), local.z);
+        return actor.origin.xyz + actor.pivot.xyz + rotate(actor.rot, corner + 0.5 + off);
+    }
+    return model_centre(local) + rotate(actor.rot, off);
+}
+
+// A cube's corner at `world`, worked out by the caller.
+fn cube_at(
+    world: vec3<f32>,
+    normal: vec3<f32>,
+    own: vec3<f32>,
+    centre: vec3<f32>,
+    color: vec4<f32>,
+    fx: vec4<f32>,
+    shade: vec4<f32>,
+    q: vec4<f32>,
+) -> VOut {
     var out: VOut;
     out.clip = g.view_proj * vec4<f32>(world, 1.0);
     // fx.z: the faces a neighbouring cube covers (bits in mesh::DIRS order:
     // +x -x +y -y +z -z). They are not drawn: where they meet the
     // neighbour's surface at the same depth they would show as seams.
     let hidden = u32(round(fx.z * 255.0));
-    let face = face_index(normal);
+    // counted in the model's own directions, as the bits are
+    let face = face_index(own);
     if (((hidden >> face) & 1u) == 1u) {
         out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
     }
@@ -291,7 +320,7 @@ fn vs_model_shadow(
     @location(0) pos: vec3<f32>,
     @location(2) pos_size: vec4<f32>,
 ) -> @builtin(position) vec4<f32> {
-    return g.light_vp * vec4<f32>(model_centre(pos_size.xyz) + rotate(actor.rot, pos * pos_size.w), 1.0);
+    return g.light_vp * vec4<f32>(model_corner(pos_size.xyz, pos * pos_size.w), 1.0);
 }
 
 @vertex
