@@ -2341,6 +2341,18 @@ fn draw(
     }
 }
 
+/// A model's frame as cubes, every voxel that shows, as a game draws it
+/// with its feet at `origin` facing `look` and turned `turn` freely after
+/// (`Drawing::model_turned`): the opaque ones into `opaque`, the glass into
+/// `glass`. The level editor's pieces, so they look as in the game.
+pub fn model_cubes(model: &VoxModel, frame: usize, origin: Vec3, look: IVec2, turn: Quat, opaque: &mut Vec<Instance>, glass: &mut Vec<Instance>) {
+    let mut put = |corner: Vec3, color: [u8; 4], metal: u8, glow: u8, shade: [i8; 4], turn: [i8; 4]| {
+        let instance = Instance { pos_size: (corner + 0.5).extend(1.0).to_array(), color, fx: [glow, color[3], 0, metal], shade, turn };
+        if color[3] < 255 { glass.push(instance) } else { opaque.push(instance) }
+    };
+    draw(&mut put, None, model, frame, origin, look, turn, &[], None);
+}
+
 /// Where part `i` of a figure stands, posed: the turn and the shift that
 /// take a voxel's middle (from the pivot cell's minimum corner, in the
 /// model's own directions) to where it is, each part turned about its

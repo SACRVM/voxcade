@@ -42,6 +42,9 @@ USAGE:
   voxcade import <game-dir> <model.vox>... [--as PATH.vvx]
   voxcade upgrade <game-dir> [--dry]
   voxcade edit   <game-dir> [--level FILE] [--block NAME | --things | --model FILE [--part NAME [--parent NAME] [--joint X,Y,Z]]] [--stamp] [--shot FILE [--align]] [--view YAW,PITCH] [--size WxH]
+                 [--choose NAME] [--game-view] [--picker] [--lights-off] [--add|--hang MODEL|light|place|area --at X,Y,Z]
+                 [--move NAME --at X,Y,Z] [--turn NAME --by DEG] [--copy NAME --at X,Y,Z] [--remove NAME]
+                 [--rename NAME --to NEW] [--light NAME [--radius N] [--colour #rrggbb] [--at X,Y,Z]] [--room-size X,Y,Z]
   voxcade ide    [<game-dir>] [--shot FILE] [--open PATH] [--console CMD] [--play TICKS] [--size WxH] [--remote]
   voxcade mcp    [--remote]
   voxcade film   <game-dir> <replay-file> [--from S] [--to S] [--fps N] [--size WxH]
@@ -150,7 +153,7 @@ upgrade brings a game made for an older Voxcade up to date: every step
       did; --dry only says what it would do. It commits nothing, and says
       first when the folder has changes git has not committed. A game for
       an older Voxcade does not open until then; one for a newer neither.
-edit  opens the editor on a game's level of voxel blocks: the level (its
+edit  opens the editor on a game's level: of voxel blocks, the level (its
       things with --things; another than the config's with --level FILE,
       levels/02_crypt.toml), or a block of it (--block); or on a model of
       the game, any size, its frames (--model FILE, its path in the game
@@ -167,8 +170,15 @@ edit  opens the editor on a game's level of voxel blocks: the level (its
       default 1920x1080). A level whose pieces are turned off the quarter
       turns, in a game that sets things on the grid, asks before it
       opens: ALIGN ALL or DON'T OPEN; --align answers ALIGN ALL for the
-      shot (nothing written). A level without blocks, only pieces, does
-      not open yet.
+      shot (nothing written). A level without blocks (a room of pieces:
+      models and lights set down, places, areas) opens among its pieces,
+      as a level of blocks with PIECES; --shot tries changes there in
+      turn, writing nothing: --add a model (its path) or a light, place
+      or area --at a spot (--hang: left on the mouse there), --move, --turn (--by degrees), --copy,
+      --remove, --rename, --light (a piece's: --radius, --colour, --at
+      where it shines from), --room-size; then --choose one by its name,
+      --game-view looks as the game's camera, --picker shows ADD MODEL's
+      list, --lights-off the view without the lights.
 ide   opens the IDE on a game (docs/ide.md): its logic and assets on the
       left, the one thing open in the main area, the console with your
       shell below; without one, its start page (games opened last, OPEN,
@@ -638,8 +648,13 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
         }
         Some("edit") => {
             let dir = opened(&args)?;
-            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new() };
+            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new(), ops: Vec::new(), choose: None, game_view: false, picker: false, lights_off: false };
             let mut shot = false;
+            let three = |flag: &str, value: &str| -> Result<glam::IVec3> {
+                let n: Vec<i32> = value.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>().with_context(|| format!("{flag} X,Y,Z"))?;
+                let [x, y, z] = n[..] else { bail!("{flag} X,Y,Z: three numbers") };
+                Ok(glam::IVec3::new(x, y, z))
+            };
             let mut it = args[2..].iter();
             while let Some(flag) = it.next() {
                 if flag == "--things" || flag == "--stamp" {
@@ -648,6 +663,15 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                 }
                 if flag == "--shift" || flag == "--align" {
                     (opts.shift, opts.align) = (opts.shift || flag == "--shift", opts.align || flag == "--align");
+                    continue;
+                }
+                match flag.as_str() {
+                    "--game-view" => opts.game_view = true,
+                    "--picker" => opts.picker = true,
+                    "--lights-off" => opts.lights_off = true,
+                    _ => {}
+                }
+                if matches!(flag.as_str(), "--game-view" | "--picker" | "--lights-off") {
                     continue;
                 }
                 let value = it.next().with_context(|| format!("{flag} needs a value"))?;
@@ -660,6 +684,37 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                         opts.held = Some(glam::IVec3::new(x, y, z));
                     }
                     "--block" => opts.block = Some(value.clone()),
+                    // Among the pieces: changes tried in turn, nothing written.
+                    "--choose" => opts.choose = Some(value.clone()),
+                    "--add" => opts.ops.push(crate::editor::ShotOp::Add(value.clone(), None)),
+                    "--hang" => opts.ops.push(crate::editor::ShotOp::Hang(value.clone(), None)),
+                    "--move" => opts.ops.push(crate::editor::ShotOp::Move(value.clone(), None)),
+                    "--copy" => opts.ops.push(crate::editor::ShotOp::Copy(value.clone(), None)),
+                    "--remove" => opts.ops.push(crate::editor::ShotOp::Remove(value.clone())),
+                    "--light" => opts.ops.push(crate::editor::ShotOp::Light(value.clone(), None, None, None)),
+                    "--room-size" => opts.ops.push(crate::editor::ShotOp::Size(three(flag, value)?)),
+                    "--at" => {
+                        let spot = three(flag, value)?;
+                        anyhow::ensure!(opts.ops.last_mut().is_some_and(|op| op.at(spot)), "--at follows --add, --move, --copy or --light (where its light shines from)");
+                    }
+                    "--turn" => {
+                        let by = it.next().filter(|b| *b == "--by").and(it.next()).context("--turn NAME --by DEGREES")?;
+                        opts.ops.push(crate::editor::ShotOp::Turn(value.clone(), by.parse().context("--by DEGREES")?));
+                    }
+                    "--rename" => {
+                        let to = it.next().filter(|b| *b == "--to").and(it.next()).context("--rename NAME --to NEW")?;
+                        opts.ops.push(crate::editor::ShotOp::Rename(value.clone(), to.clone()));
+                    }
+                    "--radius" | "--colour" | "--color" => match opts.ops.last_mut() {
+                        Some(crate::editor::ShotOp::Light(_, radius, colour, _)) => {
+                            if flag == "--radius" {
+                                *radius = Some(value.parse().context("--radius N")?);
+                            } else {
+                                *colour = Some(value.clone());
+                            }
+                        }
+                        _ => bail!("{flag} follows --light NAME"),
+                    },
                     "--model" => opts.model = Some(value.clone()),
                     "--part" => opts.part = Some(value.clone()),
                     "--parent" => opts.parent = Some(value.clone()),

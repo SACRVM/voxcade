@@ -794,6 +794,12 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
             if let Err(e) = editor.draw() {
                 shell.tell(format!("{e:#}"));
             }
+            // EDIT MODEL in a level's editor: the model in a window of its
+            // own, as one opened from the list.
+            if let Some(model) = editor.take_model_edit() {
+                shell.ask_edit(model);
+                repaint_at = Some(Instant::now());
+            }
         }
         // An editor answered DON'T OPEN goes.
         editors.retain(|(_, e)| !e.closing());
@@ -1062,6 +1068,12 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
         for (_, editor) in &mut editors {
             if let Err(e) = editor.draw() {
                 shell.tell(format!("{e:#}"));
+            }
+            // EDIT MODEL in a level's editor: the model in a window of its
+            // own, as one opened from the list.
+            if let Some(model) = editor.take_model_edit() {
+                shell.ask_edit(model);
+                repaint_at = Some(Instant::now());
             }
             if let Some(picture) = editor.take_picture() {
                 hands.captured(editor.id(), picture);

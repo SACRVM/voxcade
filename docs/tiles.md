@@ -131,11 +131,19 @@ facing = [0, -1]
   is a light alone. A `[[thing]]` may have a `name` (one thing's in the
   level). `[[area]]` is a named box (`name`, `at` its low corner,
   `size`). A level without `block` has no grid: `size` is its voxels and
-  it holds only what is set down (a stage of models); the editor does not
-  open such a level yet, and keeps every piece, light, place and area of
-  a level of blocks as the file has them (a level turned off the grid in
-  a game on the grid asks first: ALIGN ALL or DON'T OPEN). `grid::text`
-  has the whole format.
+  it holds only what is set down (a stage of models). The editor opens
+  such a level among its pieces (`src/editor/room.rs`; a level of blocks
+  that holds some has PIECES beside BLOCKS and THINGS): a list of what
+  is set down, places and areas; one chosen in the list or the view,
+  dragged over the floor at its height, nudged by the arrows, raised by
+  Page Up and Down, turned (T; any angle where the game turns freely),
+  copied, removed, renamed, its light switched on and tuned, its model
+  opened in the model editor; ADD MODEL, LIGHT, PLACE and AREA hang a new
+  one on the mouse until a click sets it down; GAME VIEW looks as the
+  game's camera. Every step is saved at once over the file's own text
+  (`grid::text::rewrite`): what did not change stays to the character,
+  comments too. A level turned off the grid in a game on the grid asks
+  first: ALIGN ALL or DON'T OPEN. `grid::text` has the whole format.
 
 ## Built (2026-10-16)
 

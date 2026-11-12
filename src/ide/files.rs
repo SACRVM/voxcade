@@ -31,7 +31,7 @@ pub struct Group {
 const GROUPS: [&str; 7] = ["Levels", "Models", "Blocks", "Images", "Sounds", "Music", "Other"];
 
 /// The sorts listed even with no file.
-const ALWAYS: [&str; 3] = ["Models", "Sounds", "Music"];
+const ALWAYS: [&str; 4] = ["Levels", "Models", "Sounds", "Music"];
 
 /// How deep the IDE looks into the folder's folders.
 const DEPTH: usize = 5;
@@ -94,8 +94,9 @@ impl Files {
         }
         // The game's own two first, the other scripts after them.
         files.logic.sort_by_key(|f| (["conf.lua", "main.lua"].iter().position(|n| n == f).unwrap_or(2), f.clone()));
-        // The models, sounds and music always have their place (the IDE's plus
-        // there makes the first one); the other sorts show when there are some.
+        // The levels, models, sounds and music always have their place (the
+        // IDE's plus there makes the first one); the other sorts show when
+        // there are some.
         files.assets = GROUPS.iter().zip(groups).filter(|(name, g)| !g.is_empty() || ALWAYS.contains(name)).map(|(&name, files)| Group { name, files }).collect();
         files
     }

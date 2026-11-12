@@ -1173,7 +1173,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   layer (size / 2); `turn` is anticlockwise quarter turns. Test:
   `a_map_builds_ground_prefabs_and_markers`.
 - A figure of parts in the voxel editor (`editor/figure.rs`; asked by
-  MAUERFALL, the user's plan 2026-11-12) is shaped whole, never part by
+  a game of the owner's, the user's plan 2026-11-12) is shaped whole, never part by
   part in a view of its own (the user: "kein fan von parts separat
   bearbeiten"): the tree of parts on the right (indented by parent,
   warnings in words: touches nothing, could as well hang on another), the
@@ -1192,6 +1192,22 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   --shot OUT [--part NAME --parent NAME --joint X,Y,Z --tool box --held
   X,Y,Z --stamp --view YAW,PITCH]` to look. To come:
   posing with the numbers for Lua, mirrored pairs, the game's view.
+- A level of pieces (`grid::text`, `editor/room.rs`; asked by a game of
+  the owner's, 2026-11-12): a level's `[[thing]]` can be a piece (a
+  `.vvx` set down anywhere, fixed, named for the code:
+  `level:thing(name)`, kind "piece"), bring a light or be a light alone
+  (`thing.state.light` its brightness), beside `[[place]]` and `[[area]]`
+  (`level.areas.NAME`, `area:holds`); a level needs no blocks. Pieces
+  are things, not voxels: they hold nobody up. `c.camera.turns =
+  "free"` lets things turn off the quarter turns; a game on the grid
+  names such things, and the editor asks before opening their level
+  (ALIGN ALL, DON'T OPEN: the user's wording). The level editor shapes
+  it without code: the list on the right, ADD MODEL from the game's
+  models, drag over the floor, X/Y/Z rows, TURN, COPY, REMOVE, RENAME,
+  EDIT MODEL, a light tuned by looking, ADD PLACE, ADD AREA, GAME VIEW;
+  every step saved, a change touching only its lines of the file
+  (`grid::text::rewrite`, comments kept). `voxcade edit GAME --level
+  FILE --shot OUT [--choose NAME --add MODEL --at X,Y,Z ...]` to look.
 
 ## Firepit inbox
 

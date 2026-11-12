@@ -307,8 +307,9 @@ impl PartialEq for Area {
 /// A named place a player arrives at (`world:go_to(level, place)`): where
 /// its feet stand, in voxels from the grid's low corner, and the way it
 /// faces (south when not given); `named`: the file says the way by its
-/// name (`"east"`), else as a step (`[1, 0]`).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// name (`"east"`), else as a step (`[1, 0]`); `line` where the file says
+/// it (0: from no file), as a thing's.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Place {
     pub name: String,
@@ -317,6 +318,15 @@ pub struct Place {
     pub facing: Option<[i32; 2]>,
     #[serde(skip)]
     pub named: bool,
+    #[serde(skip)]
+    pub line: usize,
+}
+
+impl PartialEq for Place {
+    /// The same place wherever its file says it.
+    fn eq(&self, o: &Self) -> bool {
+        (&self.name, self.at, self.facing, self.named) == (&o.name, o.at, o.facing, o.named)
+    }
 }
 
 /// A level as its file holds it: blocks in a grid, things and pieces set
@@ -632,48 +642,391 @@ pub mod text {
     /// sketch in `docs/tiles.md` writes it, a field left out when the file
     /// left it out.
     fn write_set_down(level: &GridLevel, out: &mut String) {
-        let triple = |[x, y, z]: [i32; 3]| format!("[{x}, {y}, {z}]");
         for t in &level.things {
-            *out += "\n[[thing]]\n";
-            if let Some(name) = &t.name {
-                *out += &format!("name = {}\n", vvx::quoted(name));
-            }
-            // A piece says what it is by its model or its light.
-            if !t.is_piece() {
-                *out += &format!("kind = {}\n", vvx::quoted(&t.kind));
-            }
-            if let Some(model) = &t.model {
-                *out += &format!("model = {}\n", vvx::quoted(model));
-            }
-            *out += &format!("at = {}\n", triple(t.at));
-            match t.facing {
-                Some(Facing::Way(w)) => *out += &format!("facing = \"{}\"\n", w.name()),
-                Some(Facing::Turn(turn)) => *out += &format!("turn = {turn}\n"),
-                None => {}
-            }
-            if let Some(l) = &t.light {
-                let mut parts = Vec::new();
-                if let Some(at) = l.at {
-                    parts.push(format!("at = {}", triple(at)));
-                }
-                parts.push(format!("radius = {}", l.radius));
-                if let Some(c) = &l.color {
-                    parts.push(format!("color = {}", vvx::quoted(c)));
-                }
-                *out += &format!("light = {{ {} }}\n", parts.join(", "));
-            }
+            *out += &format!("\n{}", thing_text(t));
         }
         for p in &level.places {
-            *out += &format!("\n[[place]]\nname = {}\nat = {}\n", vvx::quoted(&p.name), triple(p.at));
-            match p.facing {
-                Some(pair) if p.named && Way::of_pair(pair).is_some() => *out += &format!("facing = \"{}\"\n", Way::of_pair(pair).expect("one of the four").name()),
-                Some([x, y]) => *out += &format!("facing = [{x}, {y}]\n"),
-                None => {}
-            }
+            *out += &format!("\n{}", place_text(p));
         }
         for a in &level.areas {
-            *out += &format!("\n[[area]]\nname = {}\nat = {}\nsize = {}\n", vvx::quoted(&a.name), triple(a.at), triple(a.size));
+            *out += &format!("\n{}", area_text(a));
         }
+    }
+
+    /// Three whole numbers as the file writes them.
+    fn triple([x, y, z]: [i32; 3]) -> String {
+        format!("[{x}, {y}, {z}]")
+    }
+
+    /// The way a thing faces as its line says it: the key and the value.
+    fn facing_text(f: Facing) -> (&'static str, String) {
+        match f {
+            Facing::Way(w) => ("facing", format!("\"{}\"", w.name())),
+            Facing::Turn(turn) => ("turn", format!("{turn}")),
+        }
+    }
+
+    /// A light as its line says it (the value after `light = `).
+    fn light_text(l: &ThingLight) -> String {
+        let mut parts = Vec::new();
+        if let Some(at) = l.at {
+            parts.push(format!("at = {}", triple(at)));
+        }
+        parts.push(format!("radius = {}", l.radius));
+        if let Some(c) = &l.color {
+            parts.push(format!("color = {}", vvx::quoted(c)));
+        }
+        format!("{{ {} }}", parts.join(", "))
+    }
+
+    /// A place's facing as its line says it: the way's name where the file
+    /// named it, else the step.
+    fn place_facing_text(p: &Place, pair: [i32; 2]) -> String {
+        match Way::of_pair(pair) {
+            Some(w) if p.named => format!("\"{}\"", w.name()),
+            _ => format!("[{}, {}]", pair[0], pair[1]),
+        }
+    }
+
+    /// A thing as its table, `[[thing]]` and its lines, each field as the
+    /// sketch writes it, a field left out when the file left it out.
+    fn thing_text(t: &Thing) -> String {
+        let mut out = "[[thing]]\n".to_string();
+        if let Some(name) = &t.name {
+            out += &format!("name = {}\n", vvx::quoted(name));
+        }
+        // A piece says what it is by its model or its light.
+        if !t.is_piece() {
+            out += &format!("kind = {}\n", vvx::quoted(&t.kind));
+        }
+        if let Some(model) = &t.model {
+            out += &format!("model = {}\n", vvx::quoted(model));
+        }
+        out += &format!("at = {}\n", triple(t.at));
+        if let Some(f) = t.facing {
+            let (key, value) = facing_text(f);
+            out += &format!("{key} = {value}\n");
+        }
+        if let Some(l) = &t.light {
+            out += &format!("light = {}\n", light_text(l));
+        }
+        out
+    }
+
+    fn place_text(p: &Place) -> String {
+        let mut out = format!("[[place]]\nname = {}\nat = {}\n", vvx::quoted(&p.name), triple(p.at));
+        if let Some(pair) = p.facing {
+            out += &format!("facing = {}\n", place_facing_text(p, pair));
+        }
+        out
+    }
+
+    fn area_text(a: &Area) -> String {
+        format!("[[area]]\nname = {}\nat = {}\nsize = {}\n", vvx::quoted(&a.name), triple(a.at), triple(a.size))
+    }
+
+    /// The level `now` written over the text it was read from (`src`, which
+    /// says `was`), so that what did not change stays as it was, to the
+    /// character, comments too: a changed field is its value changed on
+    /// its line, a field come or gone its line; a new thing, place or area
+    /// comes after the last of its sort, one taken away goes with its
+    /// lines (and the comments right above it). A grid that changed is
+    /// written anew with the signs of `kept` (as `write`). Where the text
+    /// cannot be followed so (a text that does not read, things in another
+    /// order than the file's), the level is written whole (`write`).
+    pub fn rewrite(src: &str, was: &GridLevel, now: &GridLevel, kept: &Legend) -> String {
+        if was == now && GridLevel::from_text(src).is_ok_and(|l| l == *was) {
+            return src.to_string();
+        }
+        over(src, was, now, kept).unwrap_or_else(|| write(now, kept))
+    }
+
+    /// The sorts of what is set down, as the file names their tables.
+    const SORTS: [&str; 3] = ["thing", "place", "area"];
+
+    /// One `[[thing]]`, `[[place]]` or `[[area]]` of a text: its sort (its
+    /// place in `SORTS`), its place among those of its sort, where its
+    /// text begins (the comments right above its header with it), where
+    /// its header is, and its table.
+    struct Section<'a> {
+        sort: usize,
+        k: usize,
+        start: usize,
+        header: usize,
+        table: &'a dyn toml_edit::TableLike,
+    }
+
+    /// `rewrite`, or None where it cannot follow the text.
+    fn over(src: &str, was: &GridLevel, now: &GridLevel, kept: &Legend) -> Option<String> {
+        if was.has_grid() != now.has_grid() || !src.ends_with('\n') {
+            return None;
+        }
+        let doc = Document::parse(src).ok()?;
+        let top = doc.as_table();
+        let line_begin = |at: usize| src[..at].rfind('\n').map_or(0, |i| i + 1);
+        let line_end = |at: usize| src[at.min(src.len())..].find('\n').map_or(src.len(), |i| at + i + 1);
+        // Every section with where its text begins.
+        let mut sections: Vec<Section> = Vec::new();
+        for (sort, key) in SORTS.iter().enumerate() {
+            let Some(item) = top.get(key) else { continue };
+            let tables = item.as_array_of_tables()?;
+            for (k, t) in tables.iter().enumerate() {
+                let first = t.iter().filter_map(|(key, v)| t.key(key).and_then(|k| k.span()).or_else(|| v.span())).map(|s| s.start).min()?;
+                // Its header: the nearest line above that begins with [[.
+                let mut header = line_begin(first);
+                while !src[header..].trim_start().starts_with(&format!("[[{key}]]")) {
+                    if header == 0 {
+                        return None;
+                    }
+                    header = line_begin(header - 1);
+                }
+                // The comments right above it are its.
+                let mut start = header;
+                while start > 0 {
+                    let above = line_begin(start - 1);
+                    if !src[above..start].trim_start().starts_with('#') {
+                        break;
+                    }
+                    start = above;
+                }
+                sections.push(Section { sort, k, start, header, table: t as &dyn toml_edit::TableLike });
+            }
+        }
+        sections.sort_by_key(|s| s.header);
+        // Past the first section only sections' headers.
+        if let Some(first) = sections.first() {
+            let mut at = first.header;
+            while at < src.len() {
+                let line = src[at..line_end(at)].trim_start();
+                if line.starts_with('[') && !SORTS.iter().any(|key| line.starts_with(&format!("[[{key}]]"))) {
+                    return None;
+                }
+                at = line_end(at);
+            }
+        }
+        let ends: Vec<usize> = (0..sections.len()).map(|i| sections.get(i + 1).map_or(src.len(), |s| s.start)).collect();
+        let head_end = sections.first().map_or(src.len(), |s| s.start);
+        let mut edits: Vec<(std::ops::Range<usize>, String)> = Vec::new();
+
+        // The grid, or a level's size.
+        let same_head = was.n == now.n && was.size == now.size && was.blocks == now.blocks && was.cells == now.cells;
+        if !same_head {
+            if now.has_grid() {
+                let bare = GridLevel { things: Vec::new(), places: Vec::new(), areas: Vec::new(), ..now.clone() };
+                let gap = if sections.is_empty() { "" } else { "\n" };
+                edits.push((0..head_end, format!("{}{gap}", write(&bare, kept))));
+            } else {
+                let span = top.get("size")?.span()?;
+                let s = now.size;
+                edits.push((span, triple(s.to_array())));
+            }
+        }
+
+        // Each sort: what became of the file's own, and the new ones after
+        // the last of them.
+        let lines: [Vec<usize>; 3] = [was.things.iter().map(|t| t.line).collect(), was.places.iter().map(|p| p.line).collect(), was.areas.iter().map(|a| a.line).collect()];
+        let now_lines: [Vec<usize>; 3] = [now.things.iter().map(|t| t.line).collect(), now.places.iter().map(|p| p.line).collect(), now.areas.iter().map(|a| a.line).collect()];
+        let mut appended = String::new();
+        for sort in 0..3 {
+            // The file's own (their place among the was's), then the new.
+            let of = |line: usize| (line > 0).then(|| lines[sort].iter().position(|&l| l == line)).flatten();
+            let origins: Vec<Option<usize>> = now_lines[sort].iter().map(|&l| of(l)).collect();
+            let own: Vec<usize> = origins.iter().flatten().copied().collect();
+            if own.windows(2).any(|w| w[0] >= w[1]) || origins.iter().skip_while(|o| o.is_some()).any(Option::is_some) {
+                return None;
+            }
+            let of_sort: Vec<usize> = (0..sections.len()).filter(|&i| sections[i].sort == sort).collect();
+            if of_sort.len() != lines[sort].len() {
+                return None;
+            }
+            for (k, &i) in of_sort.iter().enumerate() {
+                let s = &sections[i];
+                debug_assert_eq!(s.k, k);
+                match origins.iter().position(|o| *o == Some(k)) {
+                    // Taken away: its text goes; the last one's blank lines
+                    // above too.
+                    None => {
+                        let mut start = s.start;
+                        if ends[i] == src.len() {
+                            while start > 0 && src[line_begin(start - 1)..start].trim().is_empty() {
+                                start = line_begin(start - 1);
+                            }
+                        }
+                        edits.push((start..ends[i], String::new()));
+                    }
+                    Some(j) => {
+                        let changed = match sort {
+                            0 => thing_edits(src, s, &was.things[k], &now.things[j], &mut edits),
+                            1 => place_edits(src, s, &was.places[k], &now.places[j], &mut edits),
+                            _ => area_edits(src, s, &was.areas[k], &now.areas[j], &mut edits),
+                        };
+                        if changed.is_none() {
+                            // Written anew from its header on (its comments
+                            // above kept).
+                            let body = match sort {
+                                0 => thing_text(&now.things[j]),
+                                1 => place_text(&now.places[j]),
+                                _ => area_text(&now.areas[j]),
+                            };
+                            let end = s.table.iter().filter_map(|(_, v)| v.span()).map(|v| line_end(v.end)).max()?;
+                            edits.push((s.header..end, body));
+                        }
+                    }
+                }
+            }
+            // The new ones: after the last of their sort, else at the end.
+            let new: Vec<String> = origins
+                .iter()
+                .enumerate()
+                .filter(|(_, o)| o.is_none())
+                .map(|(j, _)| match sort {
+                    0 => thing_text(&now.things[j]),
+                    1 => place_text(&now.places[j]),
+                    _ => area_text(&now.areas[j]),
+                })
+                .collect();
+            if new.is_empty() {
+                continue;
+            }
+            match of_sort.last().map(|&i| ends[i]).filter(|&e| e < src.len()) {
+                Some(at) => edits.push((at..at, new.iter().map(|t| format!("{t}\n")).collect())),
+                None => appended += &new.iter().map(|t| format!("\n{t}")).collect::<String>(),
+            }
+        }
+        if !appended.is_empty() {
+            edits.push((src.len()..src.len(), appended));
+        }
+        // From the last to the first, so that the places stay right; where
+        // one is taken away and another put at its start, the taking first.
+        edits.sort_by_key(|(r, _)| (r.start, r.end));
+        if edits.windows(2).any(|w| w[0].0.end > w[1].0.start) {
+            return None;
+        }
+        let mut out = src.to_string();
+        for (range, with) in edits.into_iter().rev() {
+            out.replace_range(range, &with);
+        }
+        Some(out)
+    }
+
+    /// The spans of a key of a table and of its value.
+    fn spans(t: &dyn toml_edit::TableLike, key: &str) -> Option<(std::ops::Range<usize>, std::ops::Range<usize>)> {
+        let (k, v) = t.get_key_value(key)?;
+        Some((k.span()?, v.span()?))
+    }
+
+    /// The edits of one field of a section: its value changed, its line
+    /// put in after the line `after` ends (`None`: after the header), or
+    /// taken out. None where its place is not known.
+    fn field(src: &str, s: &Section, key: &str, now: Option<String>, after: Option<&str>, edits: &mut Vec<(std::ops::Range<usize>, String)>) -> Option<()> {
+        let line_begin = |at: usize| src[..at].rfind('\n').map_or(0, |i| i + 1);
+        let line_end = |at: usize| src[at.min(src.len())..].find('\n').map_or(src.len(), |i| at + i + 1);
+        match (spans(s.table, key), now) {
+            (Some((_, v)), Some(value)) => {
+                if src[v.clone()] != value {
+                    edits.push((v, value));
+                }
+            }
+            (Some((k, v)), None) => edits.push((line_begin(k.start)..line_end(v.end), String::new())),
+            (None, Some(value)) => {
+                let at = match after {
+                    Some(key) => line_end(spans(s.table, key)?.1.end),
+                    None => line_end(s.header),
+                };
+                edits.push((at..at, format!("{key} = {value}\n")));
+            }
+            (None, None) => {}
+        }
+        Some(())
+    }
+
+    /// Where the last field of a section ends: the key a new line goes
+    /// after.
+    fn last_key(s: &Section) -> Option<String> {
+        s.table.iter().filter_map(|(k, v)| Some((k.to_string(), v.span()?.end))).max_by_key(|(_, end)| *end).map(|(k, _)| k)
+    }
+
+    /// The edits that make a thing's section say `now` instead of `was`;
+    /// None where they cannot (it is written anew).
+    fn thing_edits(src: &str, s: &Section, was: &Thing, now: &Thing, edits: &mut Vec<(std::ops::Range<usize>, String)>) -> Option<()> {
+        if was == now {
+            return Some(());
+        }
+        if was.kind != now.kind || was.model.is_some() != now.model.is_some() {
+            return None;
+        }
+        let mut mine = Vec::new();
+        if was.name != now.name {
+            field(src, s, "name", now.name.as_deref().map(vvx::quoted), None, &mut mine)?;
+        }
+        if was.model != now.model {
+            field(src, s, "model", now.model.as_deref().map(vvx::quoted), None, &mut mine)?;
+        }
+        if was.at != now.at {
+            field(src, s, "at", Some(triple(now.at)), None, &mut mine)?;
+        }
+        if was.facing != now.facing {
+            match (was.facing, now.facing) {
+                (Some(a), Some(b)) => {
+                    let ((ka, _), (kb, vb)) = (facing_text(a), facing_text(b));
+                    if ka == kb {
+                        field(src, s, kb, Some(vb), None, &mut mine)?;
+                    } else {
+                        // facing = "east" for turn = 30, or the other way.
+                        let (k, v) = spans(s.table, ka)?;
+                        mine.push((k.start..v.end, format!("{kb} = {vb}")));
+                    }
+                }
+                (None, Some(b)) => {
+                    let (key, value) = facing_text(b);
+                    field(src, s, key, Some(value), Some("at"), &mut mine)?;
+                }
+                (Some(a), None) => field(src, s, facing_text(a).0, None, None, &mut mine)?,
+                (None, None) => {}
+            }
+        }
+        if was.light != now.light {
+            let last = last_key(s)?;
+            field(src, s, "light", now.light.as_ref().map(light_text), Some(&last), &mut mine)?;
+        }
+        edits.extend(mine);
+        Some(())
+    }
+
+    fn place_edits(src: &str, s: &Section, was: &Place, now: &Place, edits: &mut Vec<(std::ops::Range<usize>, String)>) -> Option<()> {
+        if was == now {
+            return Some(());
+        }
+        let mut mine = Vec::new();
+        if was.name != now.name {
+            field(src, s, "name", Some(vvx::quoted(&now.name)), None, &mut mine)?;
+        }
+        if was.at != now.at {
+            field(src, s, "at", Some(triple(now.at)), None, &mut mine)?;
+        }
+        if was.facing != now.facing || was.named != now.named {
+            field(src, s, "facing", now.facing.map(|pair| place_facing_text(now, pair)), Some("at"), &mut mine)?;
+        }
+        edits.extend(mine);
+        Some(())
+    }
+
+    fn area_edits(src: &str, s: &Section, was: &Area, now: &Area, edits: &mut Vec<(std::ops::Range<usize>, String)>) -> Option<()> {
+        if was == now {
+            return Some(());
+        }
+        let mut mine = Vec::new();
+        if was.name != now.name {
+            field(src, s, "name", Some(vvx::quoted(&now.name)), None, &mut mine)?;
+        }
+        if was.at != now.at {
+            field(src, s, "at", Some(triple(now.at)), None, &mut mine)?;
+        }
+        if was.size != now.size {
+            field(src, s, "size", Some(triple(now.size)), None, &mut mine)?;
+        }
+        edits.extend(mine);
+        Some(())
     }
 
     /// The level's text with every thing turned off the quarter turns
@@ -992,7 +1345,7 @@ pub mod text {
                         (Some([v[0] as i32, v[1] as i32]), false)
                     }
                 };
-                level.places.push(Place { name: name.to_string(), at: triple(t, "at", "a place")?, facing, named });
+                level.places.push(Place { name: name.to_string(), at: triple(t, "at", "a place")?, facing, named, line: line_of_table(r, t) });
             }
         }
         if let Some(item) = top.get("area") {
@@ -1295,7 +1648,7 @@ pub(crate) mod tests {
         put(&mut lv, IVec3::new(1, 0, 0), 1, Turn::NONE);
         put(&mut lv, IVec3::new(4, 1, 2), 2, Turn::from_tiled(true, false, true));
         lv.things.push(Thing::new("fox", [6, 2, 4]));
-        lv.places.push(Place { name: "door".into(), at: [1, 2, 3], facing: Some([0, -1]), named: false });
+        lv.places.push(Place { name: "door".into(), at: [1, 2, 3], facing: Some([0, -1]), named: false, line: 0 });
         let text = lv.to_text();
         assert_eq!(GridLevel::from_text(&text).unwrap(), lv, "{text}");
         // Taller than deep: seen from the front, the top row first; the
@@ -1399,6 +1752,103 @@ size = [40, 30, 40]
         let text = blocks.to_text();
         assert_eq!(GridLevel::from_text(&text).unwrap(), blocks);
         assert!(text.ends_with(PIECES.split_once("\n\n").unwrap().1), "{text}");
+    }
+
+    /// The lines of `b` that are not those of `a` at the same place, and
+    /// how many lines each has: what a rewrite touched.
+    fn changed_lines(a: &str, b: &str) -> Vec<String> {
+        let (x, y): (Vec<&str>, Vec<&str>) = (a.lines().collect(), b.lines().collect());
+        // As many lines: those that differ; else what lies between the
+        // common head and tail.
+        if x.len() == y.len() {
+            return x.iter().zip(&y).filter(|(p, q)| p != q).map(|(_, q)| q.to_string()).collect();
+        }
+        let head = x.iter().zip(&y).take_while(|(p, q)| p == q).count();
+        let tail = x.iter().rev().zip(y.iter().rev()).take_while(|(p, q)| p == q).count().min(x.len().min(y.len()) - head);
+        y[head..y.len() - tail].iter().map(|l| l.to_string()).collect()
+    }
+
+    /// The room's text with comments, as a person may have written it.
+    fn commented() -> String {
+        format!("# the kitchen\n{}", PIECES.replace("[[thing]]\nname = \"lamp\"", "# the lamp by the window\n[[thing]]\nname = \"lamp\"").replace("at = [40, 150, 0]", "at = [40, 150, 0]    # by the wall"))
+    }
+
+    /// A level written over its text keeps it to the character where it
+    /// did not change, comments too; a change is its own lines only, and
+    /// it reads back as the level.
+    #[test]
+    fn a_rewrite_touches_only_what_changed() {
+        let src = commented();
+        let was = GridLevel::from_text(&src).unwrap();
+        let legend = Legend::default();
+        assert_eq!(text::rewrite(&src, &was, &was, &legend), src, "untouched: the same text");
+        let check = |now: &GridLevel, lines: &[&str]| {
+            let out = text::rewrite(&src, &was, now, &legend);
+            assert_eq!(&GridLevel::from_text(&out).unwrap(), now, "{out}");
+            assert_eq!(changed_lines(&src, &out), lines, "{out}");
+            out
+        };
+        // A thing moved: its at, its comment kept.
+        let mut now = was.clone();
+        now.things[0].at = [50, 150, 0];
+        check(&now, &["at = [50, 150, 0]    # by the wall"]);
+        // Turned off the grid and back on: the key and the value.
+        let mut now = was.clone();
+        now.things[0].facing = Some(Facing::Turn(30.0));
+        check(&now, &["turn = 30"]);
+        now.things[3].facing = Some(Facing::Way(Way::West));
+        let out = check(&now, &["turn = 30", "facing = \"west\""]);
+        assert!(out.contains("# the lamp by the window\n[[thing]]"));
+        // A name and a light given, a light's reach.
+        let mut now = was.clone();
+        now.things[4].name = Some("guard".into());
+        now.things[1].light.as_mut().unwrap().radius = 75.0;
+        now.things[0].light = Some(ThingLight { at: Some([0, 0, 20]), radius: 40.0, color: None });
+        let out = text::rewrite(&src, &was, &now, &legend);
+        assert_eq!(GridLevel::from_text(&out).unwrap(), now);
+        assert!(out.contains("facing = \"south\"\nlight = { at = [0, 0, 20], radius = 40 }\n") && out.contains("[[thing]]\nname = \"guard\"\nkind = \"walker\""), "{out}");
+        assert!(out.contains("radius = 75, color"), "{out}");
+        // Taken away: its lines and the comment above it; new ones after
+        // the last of their sort, a new area at the end.
+        let mut now = was.clone();
+        now.things.remove(1);
+        now.things.push(Thing { name: Some("rug".into()), model: Some("room/rug.vvx".into()), ..Thing::new(PIECE, [5, 5, 0]) });
+        now.places.push(Place { name: "back".into(), at: [1, 2, 0], facing: Some([0, 1]), named: true, line: 0 });
+        now.areas.push(Area { name: "hall".into(), at: [0, 0, 0], size: [9, 9, 9], line: 0 });
+        let out = text::rewrite(&src, &was, &now, &legend);
+        assert_eq!(GridLevel::from_text(&out).unwrap(), now, "{out}");
+        assert!(!out.contains("lamp by the window") && !out.contains("name = \"lamp\""), "{out}");
+        assert!(out.contains("kind = \"walker\"\nat = [100, 20, 0]\n\n[[thing]]\nname = \"rug\""), "{out}");
+        assert!(out.contains("facing = [1, 1]\n\n[[place]]\nname = \"back\"\nat = [1, 2, 0]\nfacing = \"north\"\n\n[[area]]"), "{out}");
+        assert!(out.ends_with("size = [40, 30, 40]\n\n[[area]]\nname = \"hall\"\nat = [0, 0, 0]\nsize = [9, 9, 9]\n"), "{out}");
+        // The last one taken away leaves no blank line behind.
+        let mut now = was.clone();
+        now.areas.clear();
+        assert!(text::rewrite(&src, &was, &now, &legend).ends_with("facing = [1, 1]\n"));
+        // The room's size: its value.
+        let mut now = was.clone();
+        now.size = IVec3::new(200, 200, 120);
+        check(&now, &["size = [200, 200, 120]    # voxels: across (x), deep (y, 0 in front), up (z); no grid of blocks"]);
+        // Things in another order than the file's: written whole.
+        let mut now = was.clone();
+        now.things.swap(0, 1);
+        assert_eq!(text::rewrite(&src, &was, &now, &legend), now.to_text());
+    }
+
+    /// A level of blocks whose grid changed is written anew above its
+    /// pieces, which stay as they were, comments too.
+    #[test]
+    fn a_rewritten_grid_keeps_the_pieces_text() {
+        let mut lv = level(4, IVec3::new(3, 1, 1), &[("rock", Kind::Solid)]);
+        put(&mut lv, IVec3::ZERO, 1, Turn::NONE);
+        let src = format!("{}\n{}", lv.to_text(), commented().split_once("\n\n").unwrap().1);
+        let was = GridLevel::from_text(&src).unwrap();
+        let mut now = was.clone();
+        put(&mut now, IVec3::new(2, 0, 0), 1, Turn::NONE);
+        let out = text::rewrite(&src, &was, &now, &Legend::of_text(&src));
+        assert_eq!(GridLevel::from_text(&out).unwrap(), now);
+        assert_eq!(changed_lines(&src, &out), ["r.r"], "{out}");
+        assert!(out.contains("at = [40, 150, 0]    # by the wall"));
     }
 
     /// Every mistake of a level's set-down part says its line and what is

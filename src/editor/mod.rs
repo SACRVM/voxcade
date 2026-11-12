@@ -56,6 +56,143 @@ pub struct ShotOptions {
     pub width: u32,
     pub height: u32,
     pub out: PathBuf,
+    /// Among the pieces: changes tried in turn (nothing written), the item
+    /// chosen after them (by its name), the view as the game's camera
+    /// sees, ADD MODEL's list shown, the lights off.
+    pub ops: Vec<ShotOp>,
+    pub choose: Option<String>,
+    pub game_view: bool,
+    pub picker: bool,
+    pub lights_off: bool,
+}
+
+/// A change `--shot` tries among the pieces, to see what it does: a model
+/// (its path in the game folder; or `light`, `place`, `area`) set down at
+/// a spot; an item (by its name) moved to a spot, turned by degrees,
+/// removed, copied to a spot, renamed; a piece's light set (its reach,
+/// its colour `#rrggbb`, where it shines from in the model); the room's
+/// size.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ShotOp {
+    Add(String, Option<glam::IVec3>),
+    Hang(String, Option<glam::IVec3>),
+    Move(String, Option<glam::IVec3>),
+    Turn(String, f64),
+    Remove(String),
+    Copy(String, Option<glam::IVec3>),
+    Rename(String, String),
+    Light(String, Option<f64>, Option<String>, Option<glam::IVec3>),
+    Size(glam::IVec3),
+}
+
+impl ShotOp {
+    /// The spot `--at` gives the change before it.
+    pub fn at(&mut self, spot: glam::IVec3) -> bool {
+        match self {
+            ShotOp::Add(_, at) | ShotOp::Hang(_, at) | ShotOp::Move(_, at) | ShotOp::Copy(_, at) => *at = Some(spot),
+            ShotOp::Light(_, _, _, from) => *from = Some(spot),
+            _ => return false,
+        }
+        true
+    }
+}
+
+/// Tries a change among the pieces (`--shot`), as the panels would make it.
+fn try_op(ed: &mut Editor, figures: &Figures, op: &ShotOp) -> Result<()> {
+    use model::{Field, Hanging, Item};
+    let find = |ed: &Editor, name: &str| ed.find(name).with_context(|| format!("the level has nothing called '{name}'"));
+    // What hangs on the mouse set down exactly at a spot.
+    let set_at = |ed: &mut Editor, at: glam::IVec3| {
+        match &mut ed.hanging {
+            Some(Hanging::Thing(t)) => t.at = at.to_array(),
+            Some(Hanging::Place(p)) => p.at = at.to_array(),
+            Some(Hanging::Area(a)) => a.at = at.to_array(),
+            None => {}
+        }
+        ed.hang_spot = Some(at);
+        ed.set_down();
+    };
+    match op {
+        ShotOp::Add(what, at) | ShotOp::Hang(what, at) => {
+            match what.as_str() {
+                "light" => ed.add_light(),
+                "place" => ed.add_place(),
+                "area" => ed.add_area(),
+                model => {
+                    anyhow::ensure!(ed.dir.join(model).is_file(), "--add {model}: no such model in the game folder");
+                    ed.add_piece(model);
+                }
+            }
+            let at = at.context("--add and --hang need --at X,Y,Z after them")?;
+            match op {
+                // Left on the mouse, where it would stand.
+                ShotOp::Hang(..) => ed.hang_at(Some(at)),
+                _ => set_at(ed, at),
+            }
+        }
+        ShotOp::Move(name, at) => {
+            ed.choose_item(Some(find(ed, name)?));
+            let at = at.context("--move needs --at X,Y,Z after it")?;
+            for axis in 0..3 {
+                ed.set_field(Field::At(axis), at[axis] as f64);
+            }
+        }
+        ShotOp::Turn(name, by) => {
+            let item = find(ed, name)?;
+            ed.choose_item(Some(item));
+            if by.rem_euclid(90.0) == 0.0 {
+                for _ in 0..(by / 90.0).rem_euclid(4.0) as i32 {
+                    ed.turn_item(1);
+                }
+            } else if let Some(t) = ed.chosen_thing() {
+                anyhow::ensure!(ed.free_turns, "--turn {name} --by {by}: this game turns things on the grid, in quarter turns (c.camera.turns = \"free\" for any angle)");
+                let b = model::room::bearing_of(t);
+                ed.set_field(Field::Turn, b + by);
+            }
+        }
+        ShotOp::Remove(name) => {
+            ed.choose_item(Some(find(ed, name)?));
+            ed.remove_item();
+        }
+        ShotOp::Copy(name, at) => {
+            ed.choose_item(Some(find(ed, name)?));
+            ed.copy_item();
+            set_at(ed, at.context("--copy needs --at X,Y,Z after it")?);
+        }
+        ShotOp::Rename(name, to) => {
+            let item = find(ed, name)?;
+            ed.rename(item, to).map_err(|e| anyhow::anyhow!("--rename {name}: {e}"))?;
+        }
+        ShotOp::Light(name, radius, colour, from) => {
+            let item = find(ed, name)?;
+            anyhow::ensure!(matches!(item, Item::Thing(_)), "--light {name}: only a piece has a light");
+            ed.choose_item(Some(item));
+            if ed.chosen_thing().is_some_and(|t| t.light.is_none()) {
+                let top = ed.chosen_thing().and_then(|t| t.model.as_deref()).and_then(|m| figures.model(m)).map_or(10, |m| m.size.z);
+                ed.set_light(true, top);
+            }
+            if let Some(r) = radius {
+                ed.set_field(Field::Radius, *r);
+            }
+            if let Some(c) = colour {
+                ed.set_colour(c);
+            }
+            if let Some(at) = from {
+                for axis in 0..3 {
+                    ed.set_field(Field::LightAt(axis), at[axis] as f64);
+                }
+            }
+        }
+        ShotOp::Size(size) => {
+            for axis in 0..3 {
+                ed.set_field(Field::LevelSize(axis), size[axis] as f64);
+            }
+        }
+    }
+    if let Some(m) = &ed.message {
+        bail!("{m}");
+    }
+    Ok(())
 }
 
 /// Opens the editor on the game in `dir`, on its `level` (a file in the
@@ -65,7 +202,7 @@ fn open<G: Game>(dir: &Path, level: Option<&str>, block: Option<&str>, things: b
     let cfg = crate::session::config::<G>(dir)?;
     let file = match level {
         Some(file) => file.to_string(),
-        None => model::level_file(&cfg)?,
+        None => model::level_file(dir, &cfg)?,
     };
     let mut ed = Editor::open(dir, &file)?;
     // Things turned off the quarter turns in a game on the grid: asked
@@ -76,6 +213,8 @@ fn open<G: Game>(dir: &Path, level: Option<&str>, block: Option<&str>, things: b
     }
     ed.kinds = cfg.things.keys().cloned().collect();
     ed.held_kind = ed.kinds.first().cloned();
+    ed.free_turns = cfg.camera.turns == crate::config::Turns::Free;
+    ed.scenes = crate::levels::scene_files(dir, &cfg);
     if things {
         ed.switch(Layer::Things);
     }
@@ -140,13 +279,38 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         ed.shift_pick(true);
     }
     let aspect = opts.width as f32 / opts.height as f32;
+    let mut figures = Figures::load(dir, &cfg).with_pieces(dir, &ed.level);
+    // The changes tried among the pieces, then the one chosen, the view.
+    if !opts.ops.is_empty() || opts.choose.is_some() {
+        if ed.level.has_grid() {
+            ed.switch(Layer::Pieces);
+        }
+        anyhow::ensure!(ed.question.is_none(), "the level asks first whether to align its things (--align)");
+    }
+    for op in &opts.ops {
+        try_op(&mut ed, &figures, op)?;
+        figures.follow(dir, &ed);
+    }
+    if let Some(name) = &opts.choose {
+        let item = ed.find(name).with_context(|| format!("--choose {name}: the level has nothing called so"))?;
+        ed.choose_item(Some(item));
+    }
+    view.aspect = aspect;
+    // (Where the panels will lie, for the view's middle: as in a window.)
+    view.inset = glam::Vec2::new(panels::COLUMN / opts.width as f32, panels::BAR / opts.height as f32);
+    if opts.game_view {
+        view.game_view(&ed);
+    }
+    if opts.choose.is_some() {
+        view.bring_into_view(&ed);
+    }
     if let Some((yaw, pitch)) = opts.view {
         let orbit = view.orbit(ed.scope);
         orbit.yaw = yaw;
         orbit.pitch = pitch.clamp(-85.0, 85.0);
     }
+    (view.picker, view.lights) = (opts.picker, !opts.lights_off);
     let mut shown = Shown::new(&ed)?;
-    let figures = Figures::load(dir, &cfg).with_pieces(dir, &ed.level);
     // A shot holds a model's frames still (the one shaped shows).
     view.playing = false;
     let mut canvas = crate::headless::Canvas::new(opts.width, opts.height, false)?;
@@ -166,6 +330,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
             let out = ctx.run_ui(raw, |ui| {
                 drawn = panels::ui(ui, &ed, &view, &figures, &mut thumbs);
                 panels::joints(ui, &ed, &view, &drawn.rects);
+                panels::marks(ui, &ed, &view, &figures, &drawn.rects);
             });
             let settled = step >= 2 && out.viewport_output.get(&egui::ViewportId::ROOT).is_none_or(|v| v.repaint_delay == Duration::MAX);
             if settled {
@@ -223,6 +388,20 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         keys,
         aim
     );
+    // Among the pieces: what is set down, the chosen one first.
+    if ed.among_pieces() {
+        let lights = ed.level.things.iter().filter(|t| t.light.is_some()).count();
+        println!("pieces: {} things ({lights} with light), {} places, {} areas, the level {:?} voxels", ed.level.things.len(), ed.level.places.len(), ed.level.areas.len(), ed.level.voxels().to_array());
+        if let Some(item) = ed.chosen {
+            let t = match item {
+                model::Item::Thing(i) => Some(&ed.level.things[i]),
+                _ => None,
+            };
+            let facing = t.and_then(|t| t.facing).map_or(String::new(), |f| format!(", facing {f:?}"));
+            let light = t.and_then(|t| t.light.as_ref()).map_or(String::new(), |l| format!(", light {l:?}"));
+            println!("chosen: {} at {:?}{facing}{light}", ed.label_of(item).0, ed.at_of(item).unwrap_or_default());
+        }
+    }
     // A figure's parts as the list has them, how each hangs and what is
     // wrong with it.
     if let Some(figure) = &ed.figure {
@@ -269,30 +448,100 @@ fn among_things(ed: &Editor) -> bool {
 pub fn run<G: Game>(dir: &Path, level: Option<&str>, block: Option<&str>, things: bool, model: Option<&str>) -> Result<()> {
     let sdl = sdl3::init().context("initialising SDL")?;
     let video = sdl.video().context("initialising SDL video")?;
-    let mut window = match model {
+    let first = match model {
         Some(file) => EditorWindow::open_model::<G>(&video, dir, file, None)?,
         None => EditorWindow::open::<G>(&video, dir, level, block, things, None)?,
     };
+    // The level's window, and a model's for each EDIT MODEL (on its GPU).
+    let mut windows = vec![first];
     let mut events = sdl.event_pump().context("SDL events")?;
     loop {
-        window.draw()?;
+        for w in &mut windows {
+            w.draw()?;
+        }
+        let asked: Vec<String> = windows.iter_mut().filter_map(EditorWindow::take_model_edit).collect();
+        for file in asked {
+            if let Some(w) = windows.iter_mut().find(|w| w.model_file() == Some(file.as_str())) {
+                w.raise();
+                continue;
+            }
+            match EditorWindow::open_model::<G>(&video, dir, &file, Some(windows[0].gpu())) {
+                Ok(w) => windows.push(w),
+                Err(e) => windows[0].say(format!("{e:#}")),
+            }
+        }
         // DON'T OPEN: nothing was touched.
-        if window.closing() {
+        windows.retain(|w| !w.closing());
+        if windows.is_empty() {
             return Ok(());
         }
         // Drawn only after something happened (or when its panels ask):
         // the editor sits still otherwise.
-        let first = match window.wakes_at() {
+        let first = match windows.iter().filter_map(EditorWindow::wakes_at).min() {
             None => Some(events.wait_event()),
             Some(at) => events.wait_event_timeout(at.saturating_duration_since(Instant::now()).max(Duration::from_millis(1))),
         };
         for event in first.into_iter().chain(events.poll_iter().collect::<Vec<_>>()) {
             let shift = shift_held(&events);
-            if !window.handle(&event, shift) {
-                return Ok(());
+            match event.get_window_id() {
+                // Each window its own events; one closed goes.
+                Some(id) => {
+                    if let Some(k) = windows.iter().position(|w| w.id() == id)
+                        && !windows[k].handle(&event, shift)
+                    {
+                        windows.remove(k);
+                    }
+                }
+                None if matches!(event, sdl3::event::Event::Quit { .. }) => return Ok(()),
+                None => {}
             }
         }
+        if windows.is_empty() {
+            return Ok(());
+        }
     }
+}
+
+/// A key among the pieces (not typed into a field): Escape lets go of what
+/// hangs on the mouse, closes ADD MODEL's list or a name being typed, else
+/// chooses nothing; the arrows nudge the chosen one across and in depth,
+/// as the view looks (Shift: by 10), Page Up and Page Down (and + and -)
+/// raise and lower it; T turns it (Shift: the other way), Delete and
+/// Backspace remove it, F2 renames it. Whether the key was one of these.
+fn pieces_key(ed: &mut Editor, view: &mut View, key: sdl3::keyboard::Keycode, keymod: sdl3::keyboard::Mod) -> bool {
+    use sdl3::keyboard::{Keycode, Mod};
+    if keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD | Mod::LGUIMOD | Mod::RGUIMOD | Mod::LALTMOD | Mod::RALTMOD) {
+        return false;
+    }
+    let by = if keymod.intersects(Mod::LSHIFTMOD | Mod::RSHIFTMOD) { 10 } else { 1 };
+    // Away from the eye and to the right, as the view is turned.
+    let yaw = view.level.yaw.to_radians();
+    let ahead = if yaw.sin().abs() > yaw.cos().abs() { glam::IVec3::new(yaw.sin().signum() as i32, 0, 0) } else { glam::IVec3::new(0, yaw.cos().signum() as i32, 0) };
+    let right = glam::IVec3::new(ahead.y, -ahead.x, 0);
+    match key {
+        Keycode::Escape => {
+            if view.renaming.is_some() {
+                view.renaming = None;
+            } else if !ed.drop_hanging() {
+                if view.picker {
+                    view.picker = false;
+                } else {
+                    ed.choose_item(None);
+                }
+            }
+        }
+        Keycode::Up => ed.nudge(ahead * by),
+        Keycode::Down => ed.nudge(-ahead * by),
+        Keycode::Right => ed.nudge(right * by),
+        Keycode::Left => ed.nudge(-right * by),
+        Keycode::PageUp | Keycode::Plus | Keycode::Equals | Keycode::KpPlus => ed.nudge(glam::IVec3::Z * by),
+        Keycode::PageDown | Keycode::Minus | Keycode::KpMinus => ed.nudge(-glam::IVec3::Z * by),
+        Keycode::T => ed.turn_item(if by > 1 { -1 } else { 1 }),
+        Keycode::Delete | Keycode::Backspace if ed.hanging.is_none() => ed.remove_item(),
+        Keycode::F2 => view.renaming = ed.chosen,
+        _ => return false,
+    }
+    true
 }
 
 /// Whether a shift key is down.
@@ -439,6 +688,28 @@ impl EditorWindow {
         self.picture.take()
     }
 
+    /// The model EDIT MODEL asked to open (its path in the game folder),
+    /// once.
+    pub fn take_model_edit(&mut self) -> Option<String> {
+        self.ed.wants_model.take()
+    }
+
+    /// The GPU it draws with, to open another window on.
+    pub fn gpu(&self) -> &crate::window::Gpu {
+        self.screen.gpu()
+    }
+
+    /// The model file it shapes, if it shapes one.
+    pub fn model_file(&self) -> Option<&str> {
+        self.ed.model.as_ref().map(|_| self.ed.file.as_str())
+    }
+
+    /// Says a mistake over its panels (one of another window, say).
+    pub fn say(&mut self, text: String) {
+        self.ed.message = Some(text);
+        self.dirty = true;
+    }
+
     /// Brings the window to the front.
     pub fn raise(&mut self) {
         self.screen.window.raise();
@@ -477,7 +748,7 @@ impl EditorWindow {
             }
             return true;
         }
-        let Self { screen, renderer, ed, view, shown, figures, keys, rects, gui, input, steps_at_click, drawn_at, .. } = self;
+        let Self { screen, renderer, ed, view, shown, figures, cfg, keys, rects, gui, input, steps_at_click, drawn_at, .. } = self;
         self.dirty = true;
         let aspect = screen.aspect();
         // The mouse over the panels (or a list or picker of theirs open
@@ -502,6 +773,12 @@ impl EditorWindow {
                 view.only_empty = false;
                 ed.shift_pick(false);
             }
+            // Back to the level: the pieces' models as their files are now
+            // (one changed in the model editor shows).
+            Event::Window { win_event: WindowEvent::FocusGained, .. } if ed.scope == Scope::Level => {
+                *figures = Figures::load(&ed.dir, cfg).with_pieces(&ed.dir, &ed.level);
+            }
+            Event::KeyDown { keycode: Some(key), keymod, .. } if ed.among_pieces() && !gui.egui_wants_keyboard_input() && pieces_key(ed, view, key, keymod) => {}
             Event::KeyDown { keycode: Some(key), keymod, .. } if !gui.egui_wants_keyboard_input() => {
                 let ctrl = keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD | Mod::LGUIMOD | Mod::RGUIMOD);
                 let shift = keymod.intersects(Mod::LSHIFTMOD | Mod::RSHIFTMOD);
@@ -547,7 +824,15 @@ impl EditorWindow {
                     view.orbit(ed.scope).turn(dx, dy);
                 }
                 let over = over(x, y) && !mousestate.left();
-                if among_things(ed) {
+                if ed.among_pieces() {
+                    let (origin, dir) = view.voxel_ray(aspect, sx, sy);
+                    if mousestate.left() && ed.dragging().is_some() {
+                        ed.drag_item(origin, dir);
+                    } else if ed.hanging.is_some() {
+                        ed.hang_at(if over { None } else { view::floor_spot(&shown.world, origin, dir) });
+                    }
+                    view.over = if over || ed.hanging.is_some() { None } else { view::item_along(ed, figures, origin, dir) };
+                } else if among_things(ed) {
                     (view.spot, view.under) = if over { (None, None) } else { view.aim_things(ed, shown, figures, aspect, sx, sy) };
                     if mousestate.left() {
                         ed.drag_thing(view.spot);
@@ -574,7 +859,18 @@ impl EditorWindow {
             }
             Event::MouseButtonDown { mouse_btn: MouseButton::Left, clicks, x, y, .. } if !over(x, y) => {
                 let (sx, sy) = screen.share(x, y);
-                if among_things(ed) {
+                if ed.among_pieces() {
+                    // What hangs on the mouse set down; else the item under
+                    // it chosen, to be dragged (nothing: none chosen).
+                    let (origin, dir) = view.voxel_ray(aspect, sx, sy);
+                    if ed.hanging.is_some() {
+                        ed.hang_at(view::floor_spot(&shown.world, origin, dir));
+                        ed.set_down();
+                    } else if clicks < 2 {
+                        ed.press_item(view::item_along(ed, figures, origin, dir), origin, dir);
+                        view.renaming = None;
+                    }
+                } else if among_things(ed) {
                     // A second click of a double click would put down or
                     // take away a second thing at once.
                     if clicks < 2 {
@@ -641,17 +937,26 @@ impl EditorWindow {
         let mut drawn = panels::Shown::default();
         let marker = self.marker.map(|(x, y)| input.point(x, y));
         // A figure's parts as its frames stand now (a stroke, a step back),
-        // the view kept on it.
+        // the view kept on it; the pieces' models, a new one's too.
         ed.follow_figure();
         view.follow_origin(ed);
+        figures.follow(&ed.dir, ed);
+        view.aspect = screen.aspect();
         let out = gui.run_ui(raw, |ui| {
             drawn = panels::ui(ui, ed, view, figures, thumbs);
             panels::joints(ui, ed, view, &drawn.rects);
+            panels::marks(ui, ed, view, figures, &drawn.rects);
             if let Some(tip) = marker {
                 crate::gui::marker::paint(ui.ctx(), tip);
             }
         });
-        let acted = !drawn.clicked.is_empty();
+        let acted = !drawn.clicked.is_empty() || drawn.renamed.is_some();
+        if let Some((item, typed)) = drawn.renamed.take() {
+            match ed.rename(item, &typed) {
+                Ok(()) => (view.renaming, view.rename_problem) = (None, None),
+                Err(problem) => view.rename_problem = Some(problem),
+            }
+        }
         for action in drawn.clicked {
             // DON'T OPEN: the window goes, the file untouched.
             if action == view::Action::DontOpen {
@@ -742,10 +1047,18 @@ mod tests {
         ed.choose(model::Tool::Pick);
         ed.press_thing(None, Some(at));
         assert_eq!(ed.held_kind.as_deref(), Some("walker"));
-        // A level without blocks is not opened (nothing of it written).
+        // A level without blocks opens among its pieces, nothing written.
         std::fs::write(dir.join("room.toml"), crate::grid::tests::PIECES).unwrap();
-        let e = format!("{:#}", open::<crate::Voxcade>(&dir, Some("room.toml"), None, false).err().unwrap());
-        assert!(e.contains("without blocks") && e.contains("left as it is"), "{e}");
+        let (room, view, _) = open::<crate::Voxcade>(&dir, Some("room.toml"), None, false).unwrap();
+        assert!(room.among_pieces() && room.free_turns && view.level.zoom >= 360.0);
+        assert_eq!(std::fs::read_to_string(dir.join("room.toml")).unwrap(), crate::grid::tests::PIECES);
+        // Its level is the first in levels/ where the config names none.
+        std::fs::create_dir_all(dir.join("levels")).unwrap();
+        std::fs::write(dir.join("levels/02_b.toml"), crate::grid::tests::PIECES).unwrap();
+        std::fs::write(dir.join("levels/10_a.toml"), crate::grid::tests::PIECES).unwrap();
+        std::fs::write(dir.join("levels/notes.toml"), "a = 1\n").unwrap();
+        assert_eq!(model::level_file(&dir, &crate::config::GameConfig::default()).unwrap(), "levels/02_b.toml");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A level turned off the grid in a game on the grid asks before it

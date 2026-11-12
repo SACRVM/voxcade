@@ -309,6 +309,8 @@ fn new_sound(name: &str) -> String {
 struct Naming {
     sort: String,
     text: String,
+    /// A new level: of blocks (else a room of pieces).
+    blocks: bool,
     /// Why the last Enter made nothing.
     problem: Option<String>,
     /// Its field is to take the keys, once.
@@ -323,6 +325,7 @@ fn new_what(sort: &str) -> Option<&'static str> {
         "Models" => "New model",
         "Sounds" => "New sound",
         "Music" => "New song",
+        "Levels" => "New level",
         _ => return None,
     })
 }
@@ -338,6 +341,7 @@ fn new_file(dir: &Path, sort: &str, typed: &str) -> Result<String, String> {
         "Models" => ("", "vvx"),
         "Sounds" => ("sounds/", "toml"),
         "Music" => ("music/", "mml"),
+        "Levels" => ("levels/", "toml"),
         _ => return Err("Nothing is made here.".into()),
     };
     let name = typed.trim().to_lowercase().replace(' ', "_");
@@ -797,6 +801,35 @@ impl Shell {
         Ok(path)
     }
 
+    /// Makes the level `typed` names in `levels/` and opens it in the level
+    /// editor: a room of pieces as big as the game's camera shows (or a
+    /// plain size), or a level of blocks with the blocks, the block size
+    /// and the grid of the game's first level of blocks, its cells empty.
+    pub fn make_level(&mut self, typed: &str, blocks: bool) -> Result<String, String> {
+        let path = new_file(&self.dir, "Levels", typed)?;
+        let level = if blocks {
+            let first = self.level.clone().into_iter().chain(crate::editor::model::level_file(&self.dir, &self.cfg).ok()).find_map(|f| crate::grid::GridLevel::read(&self.dir.join(f)).ok().filter(|l| l.has_grid()));
+            match first {
+                Some(l) => crate::grid::GridLevel { blocks: l.blocks.clone(), ..crate::grid::GridLevel::new(l.n, l.size) },
+                None => crate::grid::GridLevel::new(10, glam::IVec3::new(24, 2, 13)),
+            }
+        } else {
+            let cam = &self.cfg.camera;
+            let wide = cam.view_at_least.map_or(cam.view_width, |[w, _]| w);
+            let round = |v: f32| ((v / 10.0).round() as i32 * 10).max(10);
+            crate::grid::GridLevel::new(0, glam::IVec3::new(round(wide), round(wide * 0.6), round(wide * 0.4)))
+        };
+        let full = self.dir.join(&path);
+        let made = std::fs::create_dir_all(full.parent().unwrap_or(&self.dir)).map_err(anyhow::Error::from).and_then(|()| Ok(std::fs::write(&full, level.to_text())?));
+        made.map_err(|e| format!("{path}: {e:#}"))?;
+        self.rescan();
+        self.open(&path);
+        self.back_to_file();
+        self.help = false;
+        self.edits.push(path.clone());
+        Ok(path)
+    }
+
     /// A line run in the game being played, and what it answered, into
     /// OUTPUT (the user's, or the agent's `eval`).
     pub fn evaluated(&mut self, line: &str, said: &anyhow::Result<String>) {
@@ -1116,7 +1149,9 @@ impl Shell {
     /// Whether `path` is a level of blocks the level editor opens: the one
     /// the config names, and in a game of blocks each in `levels/`.
     pub fn is_level(&self, path: &str) -> bool {
-        self.level.as_deref() == Some(path) || (self.level.is_some() && path.starts_with("levels/") && path.ends_with(".toml"))
+        let in_levels = path.starts_with("levels/") && path.ends_with(".toml");
+        // (In a game of worlds a level of pieces says what it is.)
+        self.level.as_deref() == Some(path) || (in_levels && (self.level.is_some() || crate::levels::says_level(&crate::files::Files::disk(), &self.dir.join(path))))
     }
 
     /// Whether `path` is a world or a map's prefab (`crate::scene`): shown,
@@ -1130,6 +1165,14 @@ impl Shell {
     /// editor is open.
     pub fn first_level(&self) -> Option<&str> {
         self.level.as_deref()
+    }
+
+    /// Asks for `path` to be opened in an editor (a model a level's editor
+    /// wants shaped).
+    pub fn ask_edit(&mut self, path: String) {
+        if self.editable(&path) {
+            self.edits.push(path);
+        }
     }
 
     /// The files asked to be opened in an editor since last asked.
@@ -1359,7 +1402,7 @@ impl Shell {
                         let colour = if plus.hovered() { TEXT } else { QUIET };
                         ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, "+", TextStyle::Body.resolve(ui.style()), colour);
                         if plus.clicked() {
-                            self.naming = Some(Naming { sort: sort.to_string(), text: String::new(), problem: None, fresh: true });
+                            self.naming = Some(Naming { sort: sort.to_string(), text: String::new(), blocks: false, problem: None, fresh: true });
                             state.set_open(true);
                         }
                     }
@@ -1391,13 +1434,26 @@ impl Shell {
                                     }
                                 }
                             });
+                            // A new level: a room of pieces, or (where the game
+                            // has blocks) a level of blocks.
+                            if sort == "Levels" && self.dir.join(crate::blocks::FOLDER).is_dir() {
+                                ui.horizontal(|ui| {
+                                    ui.add_space(INSET);
+                                    for (blocks, word, tip) in [(false, "ROOM OF PIECES", "Models and lights set down anywhere"), (true, "LEVEL OF BLOCKS", "A grid of the game's blocks")] {
+                                        if ui.selectable_label(naming.blocks == blocks, RichText::new(word).small()).on_hover_text(tip).clicked() {
+                                            naming.blocks = blocks;
+                                            naming.fresh = true;
+                                        }
+                                    }
+                                });
+                            }
                             if let Some(problem) = &naming.problem {
                                 ui.label(RichText::new(problem).small().color(ERROR));
                             }
                             if cancel {
                                 self.naming = None;
                             } else if enter {
-                                made = Some((sort.to_string(), naming.text.clone()));
+                                made = Some((sort.to_string(), naming.text.clone(), naming.blocks));
                             }
                         }
                         // The scripts by their paths; assets say what they
@@ -1511,8 +1567,9 @@ impl Shell {
         if let Some(path) = edit.filter(|p| self.editable(p)) {
             self.edits.push(path);
         }
-        if let Some((sort, typed)) = made {
-            match self.make_file(&sort, &typed) {
+        if let Some((sort, typed, blocks)) = made {
+            let made = if sort == "Levels" { self.make_level(&typed, blocks) } else { self.make_file(&sort, &typed) };
+            match made {
                 Ok(_) => self.naming = None,
                 Err(problem) => {
                     if let Some(n) = &mut self.naming {
@@ -2453,6 +2510,7 @@ fn facts(file: &Path, path: &str, level: bool) -> String {
     let plural = |n: usize, one: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") };
     if level {
         return match crate::grid::GridLevel::read(file) {
+            Ok(l) if !l.has_grid() => format!("A level of pieces, without blocks: {} by {} by {} voxels, {}, {}, {}.", l.size.x, l.size.y, l.size.z, plural(l.things.len(), "thing"), plural(l.places.len(), "place"), plural(l.areas.len(), "area")),
             Ok(l) => format!("The level: {} by {} by {} cells of {} voxels, {}, {}.", l.size.x, l.size.y, l.size.z, l.n, plural(l.blocks.len(), "block"), plural(l.things.len(), "thing")),
             Err(e) => format!("{e:#}"),
         };
@@ -2831,8 +2889,8 @@ mod tests {
     }
 
     /// A game without models, sounds, songs or scenarios still has the headings
-    /// LOGIC, SCENARIOS, MODELS, SOUNDS and MUSIC, each with a plus; LEVELS and
-    /// the like only when there are some.
+    /// LOGIC, SCENARIOS, LEVELS, MODELS, SOUNDS and MUSIC, each with a plus;
+    /// BLOCKS and the like only when there are some.
     #[test]
     fn the_headings_with_a_plus_are_always_there() {
         let (dir, memory) = bare_game("headings");
@@ -2841,8 +2899,8 @@ mod tests {
         frame(&ctx, &mut shell);
         frame(&ctx, &mut shell);
         let sorts: Vec<&str> = shell.headings.iter().map(|(s, ..)| s.as_str()).collect();
-        assert_eq!(sorts, ["Logic", "Scenarios", "Models", "Sounds", "Music"]);
-        assert_eq!(shell.files.assets.iter().map(|g| (g.name, g.files.len())).collect::<Vec<_>>(), [("Models", 0), ("Sounds", 0), ("Music", 0)]);
+        assert_eq!(sorts, ["Logic", "Scenarios", "Levels", "Models", "Sounds", "Music"]);
+        assert_eq!(shell.files.assets.iter().map(|g| (g.name, g.files.len())).collect::<Vec<_>>(), [("Levels", 0), ("Models", 0), ("Sounds", 0), ("Music", 0)]);
         for (sort, plus, head) in &shell.headings {
             assert!(head.contains_rect(*plus), "{sort}: the plus lies on its row");
         }
@@ -2884,7 +2942,7 @@ mod tests {
         let ctx = egui::Context::default();
         frame(&ctx, &mut shell);
         frame(&ctx, &mut shell);
-        for (sort, typed, path) in [("Logic", "Market Stall", "market_stall.lua"), ("Scenarios", "late", "scenarios/late.lua"), ("Models", "Hero", "hero.vvx"), ("Sounds", "Coin Pick", "sounds/coin_pick.toml"), ("Music", "theme.mml", "music/theme.mml")] {
+        for (sort, typed, path) in [("Logic", "Market Stall", "market_stall.lua"), ("Scenarios", "late", "scenarios/late.lua"), ("Models", "Hero", "hero.vvx"), ("Sounds", "Coin Pick", "sounds/coin_pick.toml"), ("Music", "theme.mml", "music/theme.mml"), ("Levels", "Cellar", "levels/cellar.toml")] {
             type_a_name(&ctx, &mut shell, sort, typed);
             assert!(dir.join(path).is_file(), "{path} made");
             assert!(shell.naming.is_none(), "{path}: the field is gone");
@@ -2893,6 +2951,12 @@ mod tests {
             frame(&ctx, &mut shell);
         }
         assert_eq!(std::fs::read_to_string(dir.join("scenarios/late.lua")).unwrap(), NEW_SCENARIO);
+        // A new level is a room of pieces as big as the game's view (no
+        // blocks here to ask about), and opens in the level editor.
+        let room = crate::grid::GridLevel::read(&dir.join("levels/cellar.toml")).unwrap();
+        assert!(!room.has_grid() && room.voxels().x >= 10, "{room:?}");
+        assert!(shell.take_edits().contains(&"levels/cellar.toml".to_string()));
+        assert!(shell.is_level("levels/cellar.toml"), "a level of pieces is a level in a game of worlds too");
         // The sound reads, says what it is and how to play it.
         let blip = std::fs::read_to_string(dir.join("sounds/coin_pick.toml")).unwrap();
         assert!(blip.starts_with("# coin_pick: ") && blip.contains("level:sound(\"coin_pick\", player)"), "{blip}");
@@ -3561,7 +3625,7 @@ mod tests {
         let (dir, memory, mut shell) = managed_game("outside-list");
         let ctx = egui::Context::default();
         shell.open("main.lua");
-        shell.naming = Some(Naming { sort: "Scenarios".into(), text: "half a na".into(), problem: None, fresh: false });
+        shell.naming = Some(Naming { sort: "Scenarios".into(), text: "half a na".into(), blocks: false, problem: None, fresh: false });
         frame(&ctx, &mut shell);
         let mut at = later();
         let mut look = |shell: &mut Shell| {

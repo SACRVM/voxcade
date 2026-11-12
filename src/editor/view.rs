@@ -9,8 +9,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
-use glam::{IVec3, Mat4, Vec3, Vec4};
+use glam::{IVec3, Mat4, Quat, Vec3, Vec4};
 
+use super::model::room::{self, Hanging, Item};
 use super::model::{Editor, Hit, Layer, Scope, Tool};
 use crate::blocks::{Block, Turn};
 use crate::config::{CameraConfig, GameConfig, LightConfig, ShadowStyle};
@@ -19,18 +20,23 @@ use crate::render::{FrameData, Instance};
 use crate::world::World;
 
 /// How the camera looks at what is shown: turned about it (degrees), how
-/// wide the view is there (voxels), and where it looks.
+/// wide the view is there (voxels), where it looks, and how wide it opens
+/// (the field of view, degrees: the editors' 40, or the game's).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Orbit {
     pub yaw: f32,
     pub pitch: f32,
     pub zoom: f32,
     pub target: Vec3,
+    pub fov: f32,
 }
+
+/// The editors' field of view.
+pub const FOV: f32 = 40.0;
 
 impl Orbit {
     pub fn camera(&self) -> CameraConfig {
-        CameraConfig { yaw: self.yaw, pitch: self.pitch, fov: 40.0, view_width: self.zoom, ..CameraConfig::default() }
+        CameraConfig { yaw: self.yaw, pitch: self.pitch, fov: self.fov, view_width: self.zoom, ..CameraConfig::default() }
     }
 
     /// Turned by a drag across `dx` and down `dy` (shares of the screen):
@@ -101,6 +107,19 @@ pub struct View {
     /// when last drawn (`Editor::origin`): the view goes with the figure
     /// when another part is chosen or a part's box grows on its low side.
     pub origin: Option<IVec3>,
+    /// Among the pieces: the game's camera (GAME VIEW looks as it does),
+    /// the window's shape, the models listed to choose one to set down
+    /// (ADD MODEL), the lights shining in the view or not (the view only),
+    /// and the item the mouse is over.
+    pub game: CameraConfig,
+    pub aspect: f32,
+    pub picker: bool,
+    pub lights: bool,
+    pub over: Option<Item>,
+    /// The item whose name is being typed in the list, and why the last
+    /// name typed was refused.
+    pub renaming: Option<Item>,
+    pub rename_problem: Option<String>,
 }
 
 /// How fast a model's frames play (on the editor's panel, in the IDE's
@@ -166,14 +185,14 @@ impl View {
     /// A first look: the level from the front, a little from above, where
     /// the game's player starts; a block from the front left.
     pub fn new(ed: &Editor, cfg: &GameConfig) -> Self {
-        let n = ed.level.n as f32;
+        let n = ed.level.n.max(1) as f32;
         let size = ed.level.size.as_vec3() * n;
         let margin = cfg.world.blocks.as_ref().map_or(0, |b| b.margin) as f32;
         let x = (cfg.player.spawn[0] - margin).clamp(0.0, size.x);
         let column = (x / n) as i32;
         let top = (0..ed.level.size.z).rev().find(|&z| (0..ed.level.size.y).any(|y| ed.level.cell(IVec3::new(column, y, z)).block != 0));
         let z = top.map_or(size.z / 2.0, |t| (t + 1) as f32 * n);
-        let level = Orbit { yaw: 0.0, pitch: cfg.camera.pitch, zoom: cfg.camera.view_width, target: Vec3::new(x, n / 2.0, z) };
+        let level = Orbit { yaw: 0.0, pitch: cfg.camera.pitch, zoom: cfg.camera.view_width, target: Vec3::new(x, n / 2.0, z), fov: FOV };
         let face = face_of(&ed.file, cfg);
         let block = match ed.scope {
             // A model as the game shows it as a run starts (`face`), a
@@ -187,11 +206,70 @@ impl View {
                     Face::Front => 160.0,
                     Face::Block => -30.0,
                 };
-                Orbit { yaw, pitch: 20.0, zoom: (size.max_element() * 2.8).max(16.0), target: size / 2.0 }
+                Orbit { yaw, pitch: 20.0, zoom: (size.max_element() * 2.8).max(16.0), target: size / 2.0, fov: FOV }
             }
-            _ => Orbit { yaw: -30.0, pitch: 25.0, zoom: n * 4.5, target: Vec3::splat(n / 2.0) },
+            _ => Orbit { yaw: -30.0, pitch: 25.0, zoom: n * 4.5, target: Vec3::splat(n / 2.0), fov: FOV },
         };
-        Self { level, block, hover: None, spot: None, under: None, choosing: false, inset: glam::Vec2::ZERO, face, playing: true, floor: true, cut: false, only_empty: false, origin: ed.origin() }
+        let mut view = Self {
+            level,
+            block,
+            hover: None,
+            spot: None,
+            under: None,
+            choosing: false,
+            inset: glam::Vec2::ZERO,
+            face,
+            playing: true,
+            floor: true,
+            cut: false,
+            only_empty: false,
+            origin: ed.origin(),
+            game: cfg.camera.clone(),
+            aspect: 16.0 / 9.0,
+            picker: false,
+            lights: true,
+            over: None,
+            renaming: None,
+            rename_problem: None,
+        };
+        // A level without blocks: the whole room as the game looks.
+        if !ed.level.has_grid() {
+            view.game_view(ed);
+            let room = ed.level.voxels().as_vec3();
+            view.level.zoom = view.level.zoom.max(room.x * 1.6).max(room.y * 2.0);
+            // Its walls up to the top in view too.
+            view.level.target.z = room.z * 0.3;
+        }
+        view
+    }
+
+    /// The chosen item brought into the view if it lies outside the room
+    /// the panels leave (chosen in the list): the view moved to have it in
+    /// the middle, not turned.
+    pub fn bring_into_view(&mut self, ed: &Editor) {
+        let Some(at) = ed.chosen.and_then(|i| ed.at_of(i)) else { return };
+        let p = IVec3::from(at).as_vec3() + Vec3::new(0.5, 0.5, 0.0);
+        let c = self.view_proj(&self.level, self.aspect) * p.extend(1.0);
+        let (x, y) = (c.x / c.w, c.y / c.w);
+        let inside = c.w > 0.0 && x > -0.9 && x < 0.9 - 2.0 * self.inset.x && y < 0.9 && y > -0.9 + 2.0 * self.inset.y;
+        if !inside {
+            self.level.target = p;
+        }
+    }
+
+    /// GAME VIEW: the level as the game's camera sees it (its turn, tilt,
+    /// field of view and width), its middle on the floor.
+    pub fn game_view(&mut self, ed: &Editor) {
+        let g = &self.game;
+        let width = match (g.view_at_least, g.view_height) {
+            (Some([w, h]), _) => w.max(h * self.aspect),
+            (None, Some(h)) => h * self.aspect,
+            (None, None) => g.view_width,
+        };
+        let room = ed.level.voxels().as_vec3();
+        // As wide in the room the panels leave as the game's whole window.
+        let width = width / (1.0 - self.inset.x).max(0.3);
+        self.level = Orbit { yaw: g.yaw, pitch: g.pitch, zoom: width.max(4.0), target: Vec3::new(room.x / 2.0, room.y / 2.0, 0.0), fov: g.fov };
     }
 
     pub fn orbit(&mut self, scope: Scope) -> &mut Orbit {
@@ -231,11 +309,17 @@ impl View {
     /// cells.
     pub fn ray(&self, ed: &Editor, aspect: f32, x: f32, y: f32) -> (Vec3, Vec3) {
         let (orbit, unit) = match ed.scope {
-            Scope::Level => (&self.level, ed.level.n as f32),
+            Scope::Level => (&self.level, ed.level.n.max(1) as f32),
             Scope::Block(_) | Scope::Frame(_) | Scope::Figure => (&self.block, 1.0),
         };
         let (origin, dir) = mouse_ray(self.view_proj(orbit, aspect), x, y);
         (origin / unit, dir)
+    }
+
+    /// The ray through a point of the screen (shares) in the level's
+    /// voxels.
+    pub fn voxel_ray(&self, aspect: f32, x: f32, y: f32) -> (Vec3, Vec3) {
+        mouse_ray(self.view_proj(&self.level, aspect), x, y)
     }
 
     /// Where a point of the screen (shares) points among the level's
@@ -396,8 +480,9 @@ impl Shown {
 /// one's voxels from where it stands, as games at rest show it, a figure
 /// (it walks or flies) seen from the side, anything else turned to the
 /// camera; a kind without a model a pale column as wide and tall as its
-/// body.
-pub struct Figures(BTreeMap<String, Figure>);
+/// body. And the models the level's pieces are made of (by their files),
+/// drawn as the game draws them (`session::model_cubes`).
+pub struct Figures(BTreeMap<String, Figure>, BTreeMap<String, crate::vox::VoxModel>);
 
 struct Figure {
     /// Voxels and colours, from the spot it stands on.
@@ -460,7 +545,50 @@ impl Figures {
             let (lo, hi) = if voxels.is_empty() { (IVec3::ZERO, IVec3::ONE) } else { (lo, hi) };
             figures.insert(kind.clone(), Figure { voxels, lo, hi });
         }
-        Self(figures)
+        Self(figures, BTreeMap::new())
+    }
+
+    /// The model of the file `model` (its path in the game folder), if it
+    /// was loaded (`with_pieces`, `load_models`).
+    pub fn model(&self, model: &str) -> Option<&crate::vox::VoxModel> {
+        self.1.get(model)
+    }
+
+    /// Loads the models of `files` not loaded yet (a model that does not
+    /// read is left out: the game says why).
+    pub fn load_models<'a>(&mut self, dir: &Path, files: impl IntoIterator<Item = &'a str>) {
+        for file in files {
+            if !self.1.contains_key(file)
+                && let Ok(m) = crate::vox::load_model(&dir.join(file))
+            {
+                self.1.insert(file.to_string(), m);
+            }
+        }
+    }
+
+    /// The models of the level's pieces and of what hangs on the mouse,
+    /// loaded where new.
+    pub fn follow(&mut self, dir: &Path, ed: &Editor) {
+        let hanging = match &ed.hanging {
+            Some(Hanging::Thing(t)) => t.model.as_deref(),
+            _ => None,
+        };
+        let files: Vec<String> = ed.level.things.iter().filter_map(|t| t.model.clone()).chain(hanging.map(str::to_string)).collect();
+        if files.iter().any(|f| !self.1.contains_key(f)) {
+            self.load_models(dir, files.iter().map(String::as_str));
+        }
+    }
+
+    /// The box round a model's voxels from its pivot cell's low corner,
+    /// unturned (a piece without a model: a small box round its light).
+    pub fn piece_box(&self, t: &crate::grid::Thing) -> (Vec3, Vec3) {
+        match t.model.as_deref().and_then(|m| self.model(m)) {
+            Some(m) => {
+                let lo = -IVec3::new(m.size.x / 2, m.size.y / 2, 0).as_vec3();
+                (lo, lo + m.size.as_vec3())
+            }
+            None => (Vec3::new(-2.0, -2.0, 0.0), Vec3::new(3.0, 3.0, 4.0)),
+        }
     }
 
     /// The level's pieces too (`grid::PIECE`): each model it sets down,
@@ -495,6 +623,7 @@ impl Figures {
                 let (lo, hi) = if voxels.is_empty() { (IVec3::ZERO, IVec3::ONE) } else { (lo, hi) };
                 self.0.insert(format!("{model}@{}", way.name()), Figure { voxels, lo, hi });
             }
+            self.1.insert(model.clone(), m);
         }
         self
     }
@@ -528,6 +657,24 @@ impl Figures {
     /// way (rows from the top): its width, height and pixels.
     pub fn picture(&self, kind: &str, fit: i32) -> (i32, i32, Vec<Option<[u8; 3]>>) {
         let Some(f) = self.0.get(kind) else { return (0, 0, Vec::new()) };
+        picture_of(&f.voxels, f.lo, f.hi, fit)
+    }
+}
+
+/// Voxels seen from the front (the nearest of each column), as a picture
+/// at most `fit` pixels each way (rows from the top).
+pub fn front_picture(voxels: &[(IVec3, [u8; 3])], fit: i32) -> (i32, i32, Vec<Option<[u8; 3]>>) {
+    if voxels.is_empty() {
+        return (1, 1, vec![None]);
+    }
+    let lo = voxels.iter().fold(IVec3::MAX, |a, v| a.min(v.0));
+    let hi = voxels.iter().fold(IVec3::MIN, |a, v| a.max(v.0 + 1));
+    picture_of(voxels, lo, hi, fit)
+}
+
+fn picture_of(voxels: &[(IVec3, [u8; 3])], lo: IVec3, hi: IVec3, fit: i32) -> (i32, i32, Vec<Option<[u8; 3]>>) {
+    {
+        let f = Figure { voxels: voxels.to_vec(), lo, hi };
         let size = f.hi - f.lo;
         let mut front: Vec<Option<(i32, [u8; 3])>> = vec![None; (size.x * size.z) as usize];
         for &(l, c) in &f.voxels {
@@ -612,6 +759,30 @@ pub enum Action {
     /// window closes, the file untouched).
     AlignAll,
     DontOpen,
+    /// Among the pieces: one chosen (in the list; None: nothing); ADD
+    /// MODEL (the models listed, or no more), a model of the list set on
+    /// the mouse (its place in `Editor::model_choices`), ADD LIGHT, ADD
+    /// PLACE, ADD AREA; the chosen one turned a quarter (1 clockwise, -1
+    /// back), copied onto the mouse, removed, renamed (its name being typed
+    /// in the list; or no more), its model opened in the model editor; a
+    /// number set (`Field`); a piece's light on or off (at its model's
+    /// top), its colour; GAME VIEW; the lights in the view on or off.
+    ChooseItem(Option<Item>),
+    AddModel,
+    Piece(usize),
+    AddLight,
+    AddPlace,
+    AddArea,
+    TurnItem(i8),
+    CopyItem,
+    RemoveItem,
+    Rename(Option<Item>),
+    EditModel,
+    Set(room::Field, f64),
+    Light(bool, i32),
+    LightColour([u8; 3]),
+    GameView,
+    Lights,
 }
 
 /// The key an action answers to (the panels show it beside its word): a
@@ -643,7 +814,12 @@ pub fn key_of(action: Action) -> Option<char> {
         Action::Choose => 'N',
         Action::Frame(-1) => 'V',
         Action::Frame(_) => 'X',
-        Action::CopyFrame => 'C',
+        Action::AddModel => 'A',
+        Action::AddLight => 'L',
+        Action::AddPlace => 'P',
+        Action::TurnItem(1) => 'T',
+        Action::CopyItem | Action::CopyFrame => 'C',
+        Action::GameView => 'G',
         Action::DeleteFrame => 'D',
         Action::Trim => 'M',
         _ => return None,
@@ -731,6 +907,39 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
             }
         }
         Action::Forget(c) => ed.forget_colour(c),
+        Action::ChooseItem(item) => {
+            ed.choose_item(item);
+            view.renaming = None;
+            view.bring_into_view(ed);
+        }
+        Action::AddModel => {
+            view.picker = !view.picker;
+            ed.drop_hanging();
+        }
+        Action::Piece(i) => {
+            if let Some(file) = ed.model_choices().get(i) {
+                ed.add_piece(file);
+            }
+            view.picker = false;
+        }
+        Action::AddLight => ed.add_light(),
+        Action::AddPlace => ed.add_place(),
+        Action::AddArea => ed.add_area(),
+        Action::TurnItem(by) => ed.turn_item(by as i32),
+        Action::CopyItem => ed.copy_item(),
+        Action::RemoveItem => ed.remove_item(),
+        Action::Rename(item) => (view.renaming, view.rename_problem) = (item, None),
+        Action::EditModel => ed.edit_model(),
+        Action::Set(field, v) => ed.set_field(field, v),
+        Action::Light(on, top) => ed.set_light(on, top),
+        Action::LightColour([r, g, b]) => ed.set_colour(&format!("#{r:02x}{g:02x}{b:02x}")),
+        Action::GameView => view.game_view(ed),
+        Action::Lights => view.lights = !view.lights,
+    }
+    // What hangs on the mouse goes when the picker opens or the level is
+    // left; a name being typed when another is chosen.
+    if view.picker || !ed.among_pieces() {
+        ed.drop_hanging();
     }
     // The figure made again at once (a part chosen, its rig set), and the
     // view kept on it.
@@ -746,7 +955,7 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
 /// panels are egui's, `panels.rs`, drawn over it). Without the mouse's
 /// marks it is the IDE's preview too.
 pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: &LightConfig, aspect: f32) -> FrameData {
-    let n = ed.level.n;
+    let n = ed.level.n.max(1);
     let (orbit, unit) = match ed.scope {
         Scope::Level => (&view.level, n),
         Scope::Block(_) | Scope::Frame(_) | Scope::Figure => (&view.block, 1),
@@ -768,12 +977,22 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     let mut instances = Vec::new();
     let u = unit as f32;
     let (floor_lo, floor_size) = if ed.figure_box().is_some() { (room_lo, room_hi - room_lo) } else { (IVec3::ZERO, grid) };
+    // A level without blocks: tiles of `ROOM_TILE` voxels to stand
+    // things on.
+    let (floor_lo, floor_size, u) = if ed.scope == Scope::Level && !ed.level.has_grid() {
+        (IVec3::ZERO, (grid + ROOM_TILE - 1) / ROOM_TILE, ROOM_TILE as f32)
+    } else {
+        (floor_lo, floor_size, u)
+    };
     for y in floor_lo.y..floor_lo.y + floor_size.y * view.floor as i32 {
         for x in floor_lo.x..floor_lo.x + floor_size.x {
             let shade = if (x + y).rem_euclid(2) == 0 { [58, 56, 66, 255] } else { [66, 64, 74, 255] };
             instances.push(Instance { pos_size: [(x as f32 + 0.5) * u, (y as f32 + 0.5) * u, (floor_lo.z as f32 - 0.5) * u, u], color: shade, fx: [0, 255, 0, 0], shade: [0; 4], turn: [0; 4] });
         }
     }
+    let u = unit as f32;
+    // The pieces' glass, and what hangs on the mouse, see-through.
+    let mut glass = Vec::new();
     let things = ed.scope == Scope::Level && ed.layer == Layer::Things;
     if ed.scope == Scope::Level {
         // The thing the tool would work on tinted by what it would do.
@@ -785,7 +1004,29 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         };
         for (i, t) in ed.level.things.iter().enumerate() {
             let tint = (Some(i) == marked && ed.tool != Tool::Add).then_some(tint);
+            // A piece as the game draws it, at its very turn.
+            if let Some(m) = t.model.as_deref().and_then(|m| figures.model(m)) {
+                let start = instances.len();
+                let (look, rot) = room::turn_of(t.facing);
+                crate::session::model_cubes(m, 0, IVec3::from(t.at).as_vec3(), look, rot, &mut instances, &mut glass);
+                if let Some(tint) = tint {
+                    for c in &mut instances[start..] {
+                        let [r, g, b] = [0, 1, 2].map(|k| ((c.color[k] as u16 + tint[k] as u16) / 2) as u8);
+                        c.color = [r, g, b, c.color[3]];
+                    }
+                }
+                continue;
+            }
             figures.cubes(&Figures::key(t), IVec3::from(t.at), tint, 255, &mut instances);
+        }
+        // A piece hanging on the mouse, see-through where it would stand.
+        if let (Some(Hanging::Thing(t)), Some(_)) = (&ed.hanging, ed.hang_spot)
+            && let Some(m) = t.model.as_deref().and_then(|m| figures.model(m))
+        {
+            let (look, rot) = room::turn_of(t.facing);
+            let mut cubes = Vec::new();
+            crate::session::model_cubes(m, 0, IVec3::from(t.at).as_vec3(), look, rot, &mut cubes, &mut glass);
+            glass.extend(cubes.into_iter().map(|c| Instance { fx: [c.fx[0], 130, c.fx[2], c.fx[3]], ..c }));
         }
     }
     // Where the tool would work: a see-through cube there, or the held kind
@@ -801,6 +1042,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         through = figure.cubes(lo, &mut instances);
         crate::render::join_see_through(&mut through, eye - grid.as_vec3() / 2.0);
     }
+    through.extend(glass);
     if things {
         if let (Tool::Add, Some(at), Some(kind)) = (ed.tool, view.spot, &ed.held_kind) {
             let start = instances.len();
@@ -821,7 +1063,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         }
         instances[start..].sort_by(|a, b| far(a).total_cmp(&far(b)));
         see_through = instances.len() - start;
-    } else if let Some(c) = view.hover.and_then(|hit| ed.target(hit)) {
+    } else if let Some(c) = view.hover.and_then(|hit| ed.target(hit)).filter(|_| !ed.among_pieces()) {
         let color = match ed.tool {
             Tool::Remove => [230, 70, 60, 255],
             Tool::Pick => [255, 255, 255, 255],
@@ -870,7 +1112,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         haze_color: [0.0; 3],
         haze_start: 1.0,
         haze_depth: 1.0,
-        lights: Vec::new(),
+        lights: if view.lights && ed.scope == Scope::Level { lights(ed, orbit.target) } else { Vec::new() },
         glow: 0.0,
         shadow_map: SHADOW_MAP,
         tilt_shift: 0.0,
@@ -885,6 +1127,222 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         ui: Vec::new(),
         ui_view_proj: Mat4::IDENTITY,
     }
+}
+
+/// The size of the floor's tiles in a level without blocks (voxels).
+pub const ROOM_TILE: i32 = 10;
+
+/// The lights of the level's pieces as the game shows them at their
+/// brightest: the `MAX_LIGHTS` nearest `middle` (the view's), as the game
+/// takes those nearest its view's.
+pub fn lights(ed: &Editor, middle: Vec3) -> Vec<crate::render::Light> {
+    let mut lights: Vec<crate::render::Light> = ed
+        .level
+        .things
+        .iter()
+        .filter_map(|t| {
+            let l = t.light.as_ref()?;
+            Some(crate::render::Light { pos: room::light_spot(t)?, radius: l.radius as f32, color: l.rgb() })
+        })
+        .collect();
+    lights.sort_by(|a, b| a.pos.distance_squared(middle).total_cmp(&b.pos.distance_squared(middle)));
+    lights.truncate(crate::render::MAX_LIGHTS);
+    lights
+}
+
+/// The item a ray (in voxels) meets first: a piece by its turned box, a
+/// thing of a kind by its body, a light alone or a place by a small box
+/// round it; an area only where nothing else is met.
+pub fn item_along(ed: &Editor, figures: &Figures, origin: Vec3, dir: Vec3) -> Option<Item> {
+    let mut best: Option<(f32, Item)> = None;
+    fn take(best: &mut Option<(f32, Item)>, d: Option<f32>, item: Item) {
+        if let Some(d) = d
+            && best.is_none_or(|(b, _)| d < b)
+        {
+            *best = Some((d, item));
+        }
+    }
+    for (i, t) in ed.level.things.iter().enumerate() {
+        let at = IVec3::from(t.at).as_vec3();
+        if !t.is_piece() {
+            let (lo, hi) = figures.bounds(&t.kind);
+            take(&mut best, ray_box(origin, dir, at + lo.as_vec3(), at + hi.as_vec3()), Item::Thing(i));
+            continue;
+        }
+        if t.model.is_none() {
+            let spot = room::light_spot(t).unwrap_or(at);
+            take(&mut best, ray_box(origin, dir, spot - 3.0, spot + 3.0), Item::Thing(i));
+            continue;
+        }
+        // Into the piece's own unturned room: about its pivot's middle.
+        let (lo, hi) = figures.piece_box(t);
+        let middle = Vec3::new(0.5, 0.5, 0.0);
+        let back = room::rotation_of(t).inverse();
+        take(&mut best, ray_box(middle + back * (origin - at - middle), back * dir, lo, hi), Item::Thing(i));
+    }
+    for (i, p) in ed.level.places.iter().enumerate() {
+        let at = IVec3::from(p.at).as_vec3() + Vec3::new(0.5, 0.5, 0.0);
+        take(&mut best, ray_box(origin, dir, at - Vec3::new(4.0, 4.0, 0.0), at + Vec3::new(4.0, 4.0, 10.0)), Item::Place(i));
+    }
+    if best.is_none() {
+        for (i, a) in ed.level.areas.iter().enumerate() {
+            let at = IVec3::from(a.at).as_vec3();
+            take(&mut best, ray_box(origin, dir, at, at + IVec3::from(a.size).as_vec3()), Item::Area(i));
+        }
+    }
+    best.map(|(_, i)| i)
+}
+
+/// The spot a ray (in voxels) points at to set something down: before the
+/// face of the level's voxels it meets, or on the floor.
+pub fn floor_spot(world: &World, origin: Vec3, dir: Vec3) -> Option<IVec3> {
+    let hit = super::model::pick(origin, dir, world.size, |c| c.cmpge(IVec3::ZERO).all() && world.get(c) != 0)?;
+    Some(hit.cell + if hit.normal == IVec3::ZERO { IVec3::Z } else { hit.normal })
+}
+
+/// How a mark over the 3D view is drawn: the chosen one's, the others',
+/// a quiet one's (the room's edges, the item the mouse is over).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tone {
+    Chosen,
+    Plain,
+    Quiet,
+}
+
+/// What the view marks over the voxels among the pieces, on the screen
+/// (shares from the top left): lines (boxes, arrows, a light's line down
+/// to the floor), rings (lights, in their colour; places), see-through
+/// faces (areas) and names.
+#[derive(Default, Debug)]
+pub struct Marks {
+    pub lines: Vec<(glam::Vec2, glam::Vec2, Tone)>,
+    pub rings: Vec<(glam::Vec2, f32, Option<[u8; 3]>, Tone)>,
+    pub faces: Vec<([glam::Vec2; 4], Tone)>,
+    pub names: Vec<(glam::Vec2, String, Tone)>,
+}
+
+/// The marks among the pieces (`aspect`, the panels taking `inset`).
+pub fn marks(ed: &Editor, view: &View, figures: &Figures, aspect: f32, inset: glam::Vec2) -> Marks {
+    let mut out = Marks::default();
+    if !ed.among_pieces() {
+        return out;
+    }
+    let view_proj = Mat4::from_translation(Vec3::new(-inset.x, inset.y, 0.0)) * view.level.view_proj(aspect);
+    let on_screen = |p: Vec3| {
+        let c = view_proj * p.extend(1.0);
+        (c.w > 1e-3).then(|| glam::Vec2::new((c.x / c.w + 1.0) / 2.0, (1.0 - c.y / c.w) / 2.0))
+    };
+    let mut line = |out: &mut Marks, a: Vec3, b: Vec3, tone: Tone| {
+        if let (Some(a), Some(b)) = (on_screen(a), on_screen(b)) {
+            out.lines.push((a, b, tone));
+        }
+    };
+    // A box's twelve edges, its corners turned by `turn` about `about`.
+    let boxed = |out: &mut Marks, line: &mut dyn FnMut(&mut Marks, Vec3, Vec3, Tone), lo: Vec3, hi: Vec3, turn: Quat, about: Vec3, tone: Tone| {
+        let corner = |k: usize| {
+            let p = Vec3::new(if k & 1 == 0 { lo.x } else { hi.x }, if k & 2 == 0 { lo.y } else { hi.y }, if k & 4 == 0 { lo.z } else { hi.z });
+            about + turn * (p - about)
+        };
+        for k in 0..8 {
+            for bit in [1, 2, 4] {
+                if k & bit == 0 {
+                    line(out, corner(k), corner(k | bit), tone);
+                }
+            }
+        }
+    };
+    let tone_of = |item: Item| if ed.chosen == Some(item) { Tone::Chosen } else { Tone::Plain };
+    let things: Vec<(Option<Item>, &crate::grid::Thing)> = ed.level.things.iter().enumerate().map(|(i, t)| (Some(Item::Thing(i)), t)).chain(match &ed.hanging {
+        Some(Hanging::Thing(t)) if ed.hang_spot.is_some() => Some((None, t)),
+        _ => None,
+    }).collect();
+    for (item, t) in things {
+        let at = IVec3::from(t.at).as_vec3();
+        let tone = item.map_or(Tone::Plain, tone_of);
+        let marked = item.is_none() || tone == Tone::Chosen || item == view.over;
+        if (t.model.is_some() || !t.is_piece()) && marked {
+            let (lo, hi, turn) = if t.is_piece() {
+                let (lo, hi) = figures.piece_box(t);
+                (lo, hi, room::rotation_of(t))
+            } else {
+                let (lo, hi) = figures.bounds(&t.kind);
+                (lo.as_vec3(), hi.as_vec3(), Quat::IDENTITY)
+            };
+            let shown = if item == view.over && tone != Tone::Chosen && item.is_some() { Tone::Quiet } else { tone };
+            boxed(&mut out, &mut line, at + lo, at + hi, turn, at + Vec3::new(0.5, 0.5, 0.0), shown);
+            if tone == Tone::Chosen
+                && let Some(p) = on_screen(at + Vec3::new(0.5, 0.5, hi.z + 2.0))
+            {
+                out.names.push((p, ed.label_of(item.expect("chosen")).0, Tone::Chosen));
+            }
+        }
+        // A light: a ring in its colour where it shines from; a light
+        // alone with its line down to the floor and its name.
+        if let (Some(l), Some(spot)) = (&t.light, room::light_spot(t)) {
+            let rgb = l.rgb().map(|c| (c * 255.0) as u8);
+            let alone = t.model.is_none();
+            if alone {
+                line(&mut out, spot, Vec3::new(spot.x, spot.y, 0.0), Tone::Quiet);
+            }
+            if let Some(p) = on_screen(spot) {
+                let size = if alone { 7.0 } else { 5.0 };
+                out.rings.push((p, if tone == Tone::Chosen { size + 2.0 } else { size }, Some(rgb), tone));
+                if alone && let Some(item) = item {
+                    out.names.push((p + glam::Vec2::new(0.0, -0.025), ed.label_of(item).0, tone));
+                }
+            }
+        }
+    }
+    let places: Vec<(Option<Item>, &crate::grid::Place)> = ed.level.places.iter().enumerate().map(|(i, p)| (Some(Item::Place(i)), p)).chain(match &ed.hanging {
+        Some(Hanging::Place(p)) if ed.hang_spot.is_some() => Some((None, p)),
+        _ => None,
+    }).collect();
+    for (item, p) in places {
+        let tone = item.map_or(Tone::Plain, tone_of);
+        let feet = IVec3::from(p.at).as_vec3() + Vec3::new(0.5, 0.5, 0.0);
+        // A ring on the floor and an arrow the way it faces.
+        let round: Vec<Vec3> = (0..=16).map(|k| feet + Quat::from_rotation_z(k as f32 / 16.0 * std::f32::consts::TAU) * Vec3::new(4.0, 0.0, 0.0)).collect();
+        for w in round.windows(2) {
+            line(&mut out, w[0], w[1], tone);
+        }
+        let [fx, fy] = p.facing.unwrap_or([0, -1]);
+        let way = Vec3::new(fx as f32, fy as f32, 0.0).normalize_or(Vec3::NEG_Y);
+        let tip = feet + way * 12.0;
+        line(&mut out, feet + way * 4.0, tip, tone);
+        for side in [1.0f32, -1.0] {
+            line(&mut out, tip, tip - way * 4.0 + Vec3::new(-way.y, way.x, 0.0) * 3.0 * side, tone);
+        }
+        if let (Some(item), Some(at)) = (item, on_screen(feet + Vec3::Z * 3.0)) {
+            out.names.push((at + glam::Vec2::new(0.0, 0.02), ed.label_of(item).0, tone));
+        }
+    }
+    let areas: Vec<(Option<Item>, &crate::grid::Area)> = ed.level.areas.iter().enumerate().map(|(i, a)| (Some(Item::Area(i)), a)).chain(match &ed.hanging {
+        Some(Hanging::Area(a)) if ed.hang_spot.is_some() => Some((None, a)),
+        _ => None,
+    }).collect();
+    for (item, a) in areas {
+        let tone = item.map_or(Tone::Plain, tone_of);
+        let (lo, hi) = (IVec3::from(a.at).as_vec3(), (IVec3::from(a.at) + IVec3::from(a.size)).as_vec3());
+        boxed(&mut out, &mut line, lo, hi, Quat::IDENTITY, lo, tone);
+        // Its six faces, see-through.
+        for axis in 0..3 {
+            for side in [lo[axis], hi[axis]] {
+                let (u, v) = ((axis + 1) % 3, (axis + 2) % 3);
+                let corner = |cu: f32, cv: f32| {
+                    let mut p = Vec3::ZERO;
+                    (p[axis], p[u], p[v]) = (side, cu, cv);
+                    on_screen(p)
+                };
+                if let (Some(a), Some(b), Some(c), Some(d)) = (corner(lo[u], lo[v]), corner(hi[u], lo[v]), corner(hi[u], hi[v]), corner(lo[u], hi[v])) {
+                    out.faces.push(([a, b, c, d], tone));
+                }
+            }
+        }
+        if let (Some(item), Some(at)) = (item, on_screen(Vec3::new(lo.x, lo.y, hi.z))) {
+            out.names.push((at + glam::Vec2::new(0.0, -0.02), ed.label_of(item).0, tone));
+        }
+    }
+    out
 }
 
 /// A joint of a figure as FIGURE marks it over the 3D view: where (shares
@@ -934,7 +1392,7 @@ mod tests {
     #[test]
     fn a_ray_through_the_middle_of_the_screen_meets_the_target() {
         for (yaw, pitch) in [(0.0, 15.0), (200.0, 20.0), (30.0, -50.0), (90.0, 85.0)] {
-            let orbit = Orbit { yaw, pitch, zoom: 70.0, target: Vec3::new(8.0, 3.0, 5.0) };
+            let orbit = Orbit { yaw, pitch, zoom: 70.0, target: Vec3::new(8.0, 3.0, 5.0), fov: FOV };
             let (origin, dir) = mouse_ray(orbit.view_proj(16.0 / 9.0), 0.5, 0.5);
             let off = (orbit.target - origin).reject_from(dir).length();
             assert!(off < 0.01, "{yaw}, {pitch}: misses by {off}");
@@ -970,6 +1428,32 @@ mod tests {
         assert_eq!(down(8.5, 2.5), (Some(IVec3::new(8, 2, 0)), Some(0)), "over the gem, on the floor");
         assert_eq!(down(2.5, 1.5), (Some(IVec3::new(2, 2, 4)), None), "on the block's top");
         assert_eq!(down(8.5, 6.5), (Some(IVec3::new(8, 6, 0)), None), "the floor of the back row");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Among the pieces a click finds the thing or place under the mouse
+    /// before an area round it, an area where nothing else is; the lights
+    /// shine as the game puts them, the 16 nearest the view's middle.
+    #[test]
+    fn the_mouse_finds_pieces_and_lights_shine() {
+        let dir = std::env::temp_dir().join(format!("voxcade-view-pieces-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("room.toml"), crate::grid::tests::PIECES).unwrap();
+        let mut ed = Editor::open(&dir, "room.toml").unwrap();
+        let figures = Figures::load(&dir, &GameConfig::default());
+        let down = |ed: &Editor, x: f32, y: f32| item_along(ed, &figures, Vec3::new(x, y, 500.0), Vec3::NEG_Z);
+        assert_eq!(down(&ed, 40.5, 150.5), Some(Item::Thing(0)), "the stove, in the area by it");
+        assert_eq!(down(&ed, 31.0, 13.0), Some(Item::Place(0)), "the door, the first of two places there");
+        assert_eq!(down(&ed, 65.0, 125.0), Some(Item::Area(0)), "the area, nothing else there");
+        assert_eq!(down(&ed, 200.0, 100.0), None);
+        let shining = lights(&ed, Vec3::ZERO);
+        assert_eq!(shining.len(), 2);
+        assert_eq!(shining[0].pos, Vec3::new(212.5, 40.5, 0.5) + room::rotation_of(&ed.level.things[1]) * Vec3::new(3.0, 3.0, 41.0), "the lamp's, from its model's voxels");
+        for k in 0..20 {
+            ed.level.things.push(crate::grid::Thing { light: Some(crate::grid::ThingLight { at: None, radius: 5.0, color: None }), ..crate::grid::Thing::new(crate::grid::PIECE, [k, 0, 0]) });
+        }
+        assert_eq!(lights(&ed, Vec3::ZERO).len(), crate::render::MAX_LIGHTS);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -340,7 +340,7 @@ impl MapData {
                         Some([v[0], v[1]])
                     }
                 };
-                places.push(crate::grid::Place { name, at, facing, named: false });
+                places.push(crate::grid::Place { name, at, facing, named: false, line: 0 });
             }
         }
         Ok(Self { size: size.to_array(), ground, prefabs, put, places })

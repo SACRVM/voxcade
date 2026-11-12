@@ -69,7 +69,8 @@ impl Preview {
 
     fn of(ed: Editor, dir: &Path, cfg: &GameConfig) -> Result<Self> {
         let mut view = View::new(&ed, cfg);
-        view.floor = false;
+        // (A room of pieces stands on the editor's floor, else it floats.)
+        view.floor = ed.model.is_none() && !ed.level.has_grid();
         let shown = Shown::new(&ed)?;
         let figures = if ed.model.is_some() { Figures::load(dir, &GameConfig::default()) } else { Figures::load(dir, cfg).with_pieces(dir, &ed.level) };
         Ok(Self { ed, view, shown, figures, cfg: cfg.clone(), renderer: None, target: None, wanted: None, dirty: true, meshed: false, fitted: false, paused: false })
@@ -183,10 +184,16 @@ impl Preview {
     fn fit(&mut self, aspect: f32) {
         use crate::editor::model::Scope;
         let scope = self.ed.scope;
-        let n = self.ed.level.n as f32;
+        let n = self.ed.level.n.max(1) as f32;
         let (target, wide, high) = match scope {
+            // A level without blocks: its room seen whole from the game's
+            // side, a little from above.
+            Scope::Level if !self.ed.level.has_grid() => {
+                let size = self.ed.level.voxels().as_vec3();
+                (glam::Vec3::new(size.x / 2.0, size.y / 2.0, size.z / 4.0), size.x * 1.3, size.z * 1.6)
+            }
             Scope::Level => {
-                let size = self.ed.level.size.as_vec3() * n;
+                let size = self.ed.level.voxels().as_vec3();
                 (glam::Vec3::new(size.x / 2.0, n / 2.0, size.z / 2.0), size.x, size.z)
             }
             _ => {

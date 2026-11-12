@@ -1909,7 +1909,7 @@ fn levels_folder(name: &str, main: &str, levels: &[LevelPlaces]) -> PathBuf {
         let mut level = GridLevel::new(4, IVec3::new(4, 1, 1));
         level.blocks.push(BlockEntry { name: "rock".into(), kind: Kind::Solid });
         level.cells.fill(Cell { block: 1, turn: Default::default() });
-        level.places = places.iter().map(|(n, at)| Place { name: n.to_string(), at: *at, facing: Some([1, 0]), named: false }).collect();
+        level.places = places.iter().map(|(n, at)| Place { name: n.to_string(), at: *at, facing: Some([1, 0]), named: false, line: 0 }).collect();
         level.save(&dir.join("levels").join(format!("{level_name}.toml"))).unwrap();
     }
     let mut rock = Block::empty(4);
@@ -2121,7 +2121,7 @@ fn a_level_change_shows_the_next_level_where_it_starts() {
     let mut taller = GridLevel::new(4, glam::IVec3::new(4, 1, 2));
     taller.blocks.push(BlockEntry { name: "rock".into(), kind: Kind::Solid });
     taller.cells.fill(Cell { block: 1, turn: Default::default() });
-    taller.places = vec![crate::grid::Place { name: "east".into(), at: [12, 2, 8], facing: None, named: false }];
+    taller.places = vec![crate::grid::Place { name: "east".into(), at: [12, 2, 8], facing: None, named: false, line: 0 }];
     taller.save(&dir.join("levels/b.toml")).unwrap();
     let mut g = game_in(&dir);
     steps(&mut g, 1);

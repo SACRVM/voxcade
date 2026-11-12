@@ -16,6 +16,8 @@
 //! props): PLACE puts one of the held kind where the mouse points (on a
 //! surface, or before a wall, in the middle of the row's depth), REMOVE
 //! takes one away, MOVE drags one to another place, PICK takes up its kind.
+//! And a third, its pieces (`room.rs`): models and lights set down freely
+//! in voxels, places and areas, all a level without blocks has.
 
 use std::path::{Path, PathBuf};
 
@@ -25,7 +27,11 @@ use glam::{IVec3, Vec3};
 use super::figure::Figure;
 use super::frames::{ModelFile, Shaped};
 use crate::blocks::{self, Block, Turn};
-use crate::grid::{BlockEntry, Cell, GridLevel, Kind, Thing};
+use crate::grid::{Area, BlockEntry, Cell, GridLevel, Kind, Place, Thing};
+
+#[path = "room.rs"]
+pub mod room;
+pub use room::{Field, Hanging, Item};
 
 /// What the editor shows: the level, one block of it (its place in the
 /// level's blocks), or a frame of a model (an editor opened on a model has
@@ -40,11 +46,14 @@ pub enum Scope {
     Figure,
 }
 
-/// What the level's tools work on: its blocks, or its things.
+/// What the level's tools work on: its blocks, its things, or its pieces
+/// (models and lights set down freely, places and areas: `room.rs`; a
+/// level without blocks has only those).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layer {
     Blocks,
     Things,
+    Pieces,
 }
 
 /// The tools, the same four on both levels (named by `Tool::label`).
@@ -76,6 +85,8 @@ impl Tool {
         match (scope, layer) {
             (Scope::Level, Layer::Blocks) => &[Tool::Add, Tool::Remove, Tool::Paint, Tool::Pick],
             (Scope::Level, Layer::Things) => &[Tool::Add, Tool::Remove, Tool::Move, Tool::Pick],
+            // (Pieces are chosen and dragged, their words on the panels.)
+            (Scope::Level, Layer::Pieces) => &[],
             (Scope::Block(_) | Scope::Frame(_), _) => &[Tool::Add, Tool::Remove, Tool::Paint, Tool::Deep, Tool::Box, Tool::Sphere, Tool::Pick],
             (Scope::Figure, _) => &[],
         }
@@ -254,13 +265,16 @@ impl Sheet {
     }
 }
 
-/// The level's cells, blocks and things as a step back brings them back.
+/// The level's cells, blocks, things, places and areas as a step back
+/// brings them back.
 #[derive(Clone, PartialEq)]
 struct LevelState {
     size: IVec3,
     cells: Vec<Cell>,
     table: Vec<BlockEntry>,
     things: Vec<Thing>,
+    places: Vec<Place>,
+    areas: Vec<Area>,
 }
 
 /// One step of the history, before and after.
@@ -352,31 +366,52 @@ pub struct Editor {
     /// turns in a game that sets things on the grid (as mistakes name
     /// them). ALIGN ALL or DON'T OPEN answers it (`align_all`).
     pub question: Option<Vec<String>>,
+    /// The level's text as it was opened and the level it says: a save
+    /// writes the level over it (`grid::text::rewrite`), so that what did
+    /// not change stays as it was, comments too.
+    source: String,
+    source_level: GridLevel,
+    /// Among the pieces (`room.rs`): the game turns things freely
+    /// (`c.camera.turns = "free"`, any angle) or on the grid; what is
+    /// chosen; what hangs on the mouse to be set down, and the spot under
+    /// it; what is dragged and how far from the spot it was taken; the
+    /// field whose next setting joins the last step (a number dragged is
+    /// one step back); the model EDIT MODEL asked to open; the game's
+    /// worlds and prefabs, which are no models to set down.
+    pub free_turns: bool,
+    pub chosen: Option<Item>,
+    pub hanging: Option<Hanging>,
+    pub hang_spot: Option<IVec3>,
+    dragging: Option<(Item, IVec3)>,
+    tuned: Option<(Option<Item>, Field)>,
+    pub wants_model: Option<String>,
+    pub scenes: Vec<String>,
 }
 
 impl Editor {
     /// Opens the level `file` of the game in `dir`, with its blocks and
     /// tileset.
     pub fn open(dir: &Path, file: &str) -> Result<Self> {
-        let level = GridLevel::read(&dir.join(file))?;
-        // A level of pieces alone is the next stage's to shape: refused,
-        // so nothing of it is written over.
-        if !level.has_grid() {
-            bail!("{file} is a level without blocks, of pieces set down: the level editor does not shape those yet (the next stage). The file is left as it is.");
-        }
+        let path = dir.join(file);
+        let source = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        let level = GridLevel::from_text(&source).with_context(|| path.display().to_string())?;
         let blocks = level.load_blocks(dir)?;
         let sheet_path = dir.join(blocks::FOLDER).join(crate::tiled::SHEET);
-        let sheet = if sheet_path.exists() { Some(Sheet::load(&sheet_path, level.n)?) } else { None };
+        let sheet = if sheet_path.exists() && level.has_grid() { Some(Sheet::load(&sheet_path, level.n)?) } else { None };
         let held = Cell { block: (!level.blocks.is_empty()) as u16, turn: Turn::NONE };
         let colour = blocks.first().and_then(|b| b.colours().first().copied()).unwrap_or([200, 200, 200]);
+        // A level without blocks is its pieces.
+        let layer = if level.has_grid() { Layer::Blocks } else { Layer::Pieces };
         Ok(Self {
             dir: dir.to_path_buf(),
             file: file.to_string(),
+            source_level: level.clone(),
+            source,
             level,
             blocks,
             sheet,
             scope: Scope::Level,
-            layer: Layer::Blocks,
+            layer,
             tool: Tool::Add,
             before_pick: Tool::Add,
             shifted: false,
@@ -403,6 +438,14 @@ impl Editor {
             hint: None,
             dry: false,
             question: None,
+            free_turns: false,
+            chosen: None,
+            hanging: None,
+            hang_spot: None,
+            dragging: None,
+            tuned: None,
+            wants_model: None,
+            scenes: Vec::new(),
         })
     }
 
@@ -466,6 +509,16 @@ impl Editor {
             hint: None,
             dry: false,
             question: None,
+            source: String::new(),
+            source_level: GridLevel::new(1, IVec3::ZERO),
+            free_turns: false,
+            chosen: None,
+            hanging: None,
+            hang_spot: None,
+            dragging: None,
+            tuned: None,
+            wants_model: None,
+            scenes: Vec::new(),
         })
     }
 
@@ -828,6 +881,7 @@ impl Editor {
     /// is saved.
     pub fn release(&mut self) {
         self.moving = None;
+        self.dragging = None;
         let Some(stroke) = self.stroke.take() else { return };
         let step = match stroke {
             // Strokes keep the level or a block; nothing is taken out.
@@ -859,6 +913,7 @@ impl Editor {
         self.past.push(step);
         self.future.clear();
         self.tuning = None;
+        self.tuned = None;
     }
 
     /// Whether the tool is BOX or SPHERE (in a block or a model).
@@ -1039,6 +1094,7 @@ impl Editor {
     pub fn undo(&mut self) {
         self.release();
         self.tuning = None;
+        self.tuned = None;
         if let Some(step) = self.past.pop() {
             self.go(&step, false);
             self.future.push(step);
@@ -1049,6 +1105,7 @@ impl Editor {
     pub fn redo(&mut self) {
         self.release();
         self.tuning = None;
+        self.tuned = None;
         if let Some(step) = self.future.pop() {
             self.go(&step, true);
             self.past.push(step);
@@ -1105,6 +1162,7 @@ impl Editor {
         {
             self.scope = Scope::Level;
         }
+        self.keep_choice();
         self.save(step);
         if problem.is_some() {
             self.message = problem;
@@ -1116,6 +1174,8 @@ impl Editor {
         self.level.cells = s.cells.clone();
         self.level.blocks = s.table.clone();
         self.level.things = s.things.clone();
+        self.level.places = s.places.clone();
+        self.level.areas = s.areas.clone();
     }
 
     /// A copy of the block shown or held, under a new number, held (and
@@ -1429,7 +1489,8 @@ impl Editor {
     }
 
     fn level_state(&self) -> LevelState {
-        LevelState { size: self.level.size, cells: self.level.cells.clone(), table: self.level.blocks.clone(), things: self.level.things.clone() }
+        let l = &self.level;
+        LevelState { size: l.size, cells: l.cells.clone(), table: l.blocks.clone(), things: l.things.clone(), places: l.places.clone(), areas: l.areas.clone() }
     }
 
     /// The next frame of the model shown (`by` on, back when negative,
@@ -1733,20 +1794,39 @@ impl Editor {
             return;
         }
         let done = match step {
-            Step::Level(..) | Step::Delete(..) => self.level.save(&self.dir.join(&self.file)),
+            Step::Level(..) | Step::Delete(..) => self.save_level(),
             Step::Block(i, ..) => self.blocks[*i].save(&blocks::path(&self.dir, &self.level.blocks[*i].name)),
             Step::Model(..) => self.model.as_mut().map_or(Ok(()), ModelFile::save),
         };
         self.message = done.err().map(|e| format!("{e:#}"));
     }
+
+    /// Writes the level over the text it was opened from
+    /// (`grid::text::rewrite`): what did not change stays as it was.
+    fn save_level(&self) -> Result<()> {
+        let mut names: Vec<&str> = self.level.blocks.iter().map(|b| b.name.as_str()).collect();
+        names.sort_unstable();
+        if let Some(w) = names.windows(2).find(|w| w[0] == w[1]) {
+            bail!("the level names block '{}' twice", w[0]);
+        }
+        let path = self.dir.join(&self.file);
+        let text = crate::grid::text::rewrite(&self.source, &self.source_level, &self.level, &crate::grid::Legend::of_file(&path));
+        blocks::save_at_once(&path, text.as_bytes())
+    }
 }
 
-/// The level file a game's config names (`c.world.blocks.file`).
-pub fn level_file(cfg: &crate::config::GameConfig) -> Result<String> {
-    match &cfg.world.blocks {
-        Some(b) => Ok(b.file.clone()),
-        None => bail!("this game's level is not made of blocks (c.world.blocks; `voxcade import` brings a Tiled map in)"),
+/// The level file a game's config names (`c.world.blocks.file`), else its
+/// first level in `levels/` (a level of pieces in a game of worlds).
+pub fn level_file(dir: &Path, cfg: &crate::config::GameConfig) -> Result<String> {
+    if let Some(b) = &cfg.world.blocks {
+        return Ok(b.file.clone());
     }
+    let files = crate::files::Files::disk();
+    let mut found: Vec<String> = std::fs::read_dir(dir.join("levels"))
+        .map(|d| d.flatten().map(|e| e.path()).filter(|p| crate::levels::says_level(&files, p)).filter_map(|p| p.file_name().map(|n| format!("levels/{}", n.to_string_lossy()))).collect())
+        .unwrap_or_default();
+    found.sort_by(|a, b| crate::levels::natural(a, b));
+    found.into_iter().next().context("this game has no level to edit: no c.world.blocks, and no level file in levels/ (format = \"voxcade level 1\")")
 }
 
 #[cfg(test)]
