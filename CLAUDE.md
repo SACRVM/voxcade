@@ -231,9 +231,12 @@ nearest; its replay `tests/two_ships`);
   <tiled-map.json>` brings a Tiled map in once (Tiled draws in 2D: it is
   only a way in); `voxcade edit <game>` opens the editor in a window (the
   user's), `--shot FILE [--block NAME | --things] [--view YAW,PITCH]`
-  draws it without one, to look at. Among a level's pieces it has three
-  zones (`src/editor/stage.rs`, the owner, 2026-11-12: no stacked column,
-  no sentences, never a scroll inside a scroll): a top bar, the outliner
+  draws it without one, to look at. Every scope of it (a level of
+  blocks, its pieces, a block, a model, a figure) has the same three
+  zones (`src/editor/zones.rs`, the shared parts; `stage.rs` the pieces',
+  `shaping.rs` the voxel editor's and the level of blocks'; the owner,
+  2026-11-12: no stacked column, no sentences, never a scroll inside a
+  scroll, one way of working in both editors): a top bar, the outliner
   left, the inspector right (a grid of short rows); in the view handles
   on the chosen one (`src/editor/handles.rs`, knowing nothing of levels:
   arrows X red, Y green, Z blue, rings, an area's faces), buttons beside
@@ -1215,9 +1218,19 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `a_figure_without_a_rig_hangs_as_before`). A figure saved stays a
   figure, each part where it stood (`ModelFile::parts`, its `at` from the
   pivot; a part grown past the box grows `size` about the pivot, a part
-  under the floor raises every part). `voxcade edit GAME --model FILE
-  --shot OUT [--part NAME --parent NAME --joint X,Y,Z --tool box --held
-  X,Y,Z --stamp --view YAW,PITCH]` to look. To come:
+  under the floor raises every part). A part moves as a piece in a level
+  does (the owner: "ich will objekte verschieben"; no mode to switch):
+  its arrows at its middle, heads only, or POSITION, by whole voxels, one
+  step a drag; what hangs on it moves along, hand-set joints too
+  (`Editor::move_part`; the root moves the whole figure). The joint is a
+  grip of its own, the ring with a line to the part's middle: dragged,
+  it goes across the view by halves (the axis most along the view left
+  to the JOINT field; `grab_joint`), tests
+  `a_part_moves_with_what_hangs_on_it`,
+  `a_joint_is_dragged_by_its_ring_in_one_step`. `voxcade edit GAME
+  --model FILE --shot OUT [--part NAME --parent NAME --joint X,Y,Z
+  --move-part NAME --by X,Y,Z --move-joint NAME --by X,Y,Z --tool box
+  --held X,Y,Z --stamp --view YAW,PITCH]` to look. To come:
   posing with the numbers for Lua, mirrored pairs, the game's view.
 - A level of pieces (`grid::text`, `editor/room.rs`; asked by a game of
   the owner's, 2026-11-12): a level's `[[thing]]` can be a piece (a

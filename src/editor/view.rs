@@ -65,6 +65,30 @@ impl Orbit {
     }
 }
 
+/// The first look at a level of blocks `size` voxels big (its start at
+/// `x`), from the front at the game's tilt, in the room the panels leave
+/// (as a 1600 by 900 window has it): the whole level, a little room
+/// round it; or, for a level far wider than it is high (a long
+/// side-scroller, which shown whole would be a strip), all of its height,
+/// from its start (or its left end) on. GAME VIEW is the game's camera.
+pub fn frame_level(size: Vec3, x: f32, pitch: f32) -> Orbit {
+    use super::zones::{INSPECTOR, OUTLINER, TOP};
+    let (w, h) = (1600.0, 900.0);
+    let (room_w, room_h) = (w - OUTLINER - INSPECTOR, h - TOP);
+    // How wide the view must be to show the level's width, and its height
+    // (the view is as wide as the window; the room a share of it).
+    // (The near edge looks wider at a tilt: more room across.)
+    let for_width = size.x * 1.25 * w / room_w;
+    // (Seen at the tilt: its height and some of its depth up the screen.)
+    let p = pitch.to_radians();
+    let tall = size.z * p.cos().abs() + size.y * p.sin().abs();
+    let for_height = tall * 1.15 * (room_w / room_h) * w / room_w;
+    let zoom = if for_width <= for_height * 2.5 { for_width.max(for_height) } else { for_height };
+    let seen = zoom * room_w / w;
+    let middle_x = if zoom >= for_width { size.x / 2.0 } else { x.max(seen / 2.0 - size.x * 0.02).min(size.x - seen / 2.0) };
+    Orbit { yaw: 0.0, pitch, zoom: zoom.max(16.0), target: Vec3::new(middle_x, size.y / 2.0, size.z / 2.0), fov: FOV }
+}
+
 /// The ray through a point of the screen (shares, from the top left):
 /// where it starts and which way it goes.
 pub fn mouse_ray(view_proj: Mat4, x: f32, y: f32) -> (Vec3, Vec3) {
@@ -130,6 +154,8 @@ pub struct View {
     /// TURN was pressed for this item (its rings shown, not its arrows);
     /// any other choice is in MOVE.
     pub turning: Option<Item>,
+    /// In a figure, the chosen part's joint's ring under the mouse (lit).
+    pub ring_hover: bool,
     pub menu: Option<Menu>,
     pub before_game: Option<Orbit>,
     pub level_settings: bool,
@@ -153,6 +179,12 @@ pub enum MenuOn {
     Item(Item),
     Floor(IVec3),
     Add,
+    /// The voxel editor's: a voxel (its cell in the grid shown, and the
+    /// figure's part there), a frame, a part, a level's block.
+    Voxel(IVec3, Option<u16>),
+    Frame(usize),
+    Part(usize),
+    Block(usize),
 }
 
 /// How fast a model's frames play (on the editor's panel, in the IDE's
@@ -215,8 +247,8 @@ pub fn seen(frame: &Block, face: Face) -> (i32, i32, Vec<Option<[u8; 3]>>) {
 }
 
 impl View {
-    /// A first look: the level from the front, a little from above, where
-    /// the game's player starts; a block from the front left.
+    /// A first look: the level from the front at the game's tilt, whole
+    /// (`frame_level`); a block from the front left.
     pub fn new(ed: &Editor, cfg: &GameConfig) -> Self {
         let n = ed.level.n.max(1) as f32;
         let size = ed.level.size.as_vec3() * n;
@@ -225,7 +257,7 @@ impl View {
         let column = (x / n) as i32;
         let top = (0..ed.level.size.z).rev().find(|&z| (0..ed.level.size.y).any(|y| ed.level.cell(IVec3::new(column, y, z)).block != 0));
         let z = top.map_or(size.z / 2.0, |t| (t + 1) as f32 * n);
-        let level = Orbit { yaw: 0.0, pitch: cfg.camera.pitch, zoom: cfg.camera.view_width, target: Vec3::new(x, n / 2.0, z), fov: FOV };
+        let level = if ed.level.has_grid() { frame_level(size, x, cfg.camera.pitch) } else { Orbit { yaw: 0.0, pitch: cfg.camera.pitch, zoom: cfg.camera.view_width, target: Vec3::new(x, n / 2.0, z), fov: FOV } };
         let face = face_of(&ed.file, cfg);
         let block = match ed.scope {
             // A model as the game shows it as a run starts (`face`), a
@@ -266,6 +298,7 @@ impl View {
             rename_problem: None,
             grip_hover: None,
             turning: None,
+            ring_hover: false,
             menu: None,
             before_game: None,
             level_settings: false,
@@ -876,6 +909,30 @@ pub enum Action {
     /// The chosen one's handles: MOVE (false, its arrows) or TURN (true,
     /// its rings).
     HandleMode(bool),
+    /// The voxel editor's and the level of blocks': a menu opened on a
+    /// block, a frame or a part of the outliner (at egui's point); a block
+    /// opened to shape; a frame shaped; a copy of a frame or a block, one
+    /// taken out (by its place); the fresh box's depth; the chosen part's
+    /// parent (None: as the rules find it) and its joint along an axis
+    /// (as its fields show it); a voxel's colour taken up, a voxel erased
+    /// (the menu on a voxel).
+    BlockMenu(usize, [f32; 2]),
+    FrameMenu(usize, [f32; 2]),
+    PartMenu(usize, [f32; 2]),
+    OpenBlock(usize),
+    GoFrame(usize),
+    CopyFrameOf(usize),
+    DeleteFrameOf(usize),
+    CloneOf(usize),
+    DeleteOf(usize),
+    Depth(i32),
+    ParentTo(Option<u16>),
+    JointTo(u8, f32),
+    PickAt(IVec3),
+    EraseAt(IVec3),
+    /// A figure's chosen part moved to a place along an axis (its POSITION
+    /// field).
+    PartAt(u8, i32),
 }
 
 /// The key an action answers to (the panels show it beside its word): a
@@ -1051,13 +1108,84 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::FacePlace(way) => ed.face_place(way),
         Action::HandleMode(turn) => view.turning = if turn { ed.chosen } else { None },
         Action::TurnView(by) => {
-            view.level.yaw = (view.level.yaw + 45.0 * by as f32).rem_euclid(360.0);
+            let orbit = view.orbit(ed.scope);
+            orbit.yaw = (orbit.yaw + 45.0 * by as f32).rem_euclid(360.0);
             view.before_game = None;
         }
         Action::ZoomView(by) => {
-            view.level.zoom_by(by as f32 * 2.0);
+            view.orbit(ed.scope).zoom_by(by as f32 * 2.0);
             view.before_game = None;
         }
+        Action::BlockMenu(i, at) => {
+            if ed.scope == Scope::Level {
+                ed.hold(i);
+            }
+            view.menu = Some(Menu { on: MenuOn::Block(i), at });
+        }
+        Action::FrameMenu(f, at) => view.menu = Some(Menu { on: MenuOn::Frame(f), at }),
+        Action::PartMenu(p, at) => view.menu = Some(Menu { on: MenuOn::Part(p), at }),
+        Action::OpenBlock(i) => {
+            if ed.scope != Scope::Level {
+                ed.back_to_level();
+            }
+            ed.hold(i);
+            ed.open_block(i);
+            view.choosing = false;
+        }
+        Action::GoFrame(f) => {
+            if let Scope::Frame(now) = ed.scope {
+                ed.step_frame(f as i32 - now as i32);
+            }
+        }
+        Action::CopyFrameOf(f) => {
+            if let Scope::Frame(now) = ed.scope {
+                ed.step_frame(f as i32 - now as i32);
+            }
+            ed.copy_frame();
+        }
+        Action::DeleteFrameOf(f) => {
+            if let Scope::Frame(now) = ed.scope {
+                ed.step_frame(f as i32 - now as i32);
+            }
+            ed.delete_frame();
+        }
+        Action::CloneOf(i) => {
+            ed.hold(i);
+            if let Err(e) = ed.clone_block() {
+                ed.message = Some(format!("{e:#}"));
+            }
+        }
+        Action::DeleteOf(i) => {
+            ed.hold(i);
+            ed.delete_block();
+        }
+        Action::Depth(d) => {
+            let now = ed.fresh.filter(|_| ed.drawing.is_none()).map_or(ed.depth, |f| {
+                let a = (0..3).max_by_key(|&a| f.way[a].abs()).unwrap_or(2);
+                f.size[a]
+            });
+            ed.deepen(d.clamp(1, 256) - now);
+        }
+        Action::ParentTo(p) => ed.set_parent(p.map(usize::from)),
+        Action::JointTo(axis, v) => {
+            if let Some(figure) = &ed.figure
+                && let Some(p) = figure.selected
+            {
+                let mut j = figure.joint(p);
+                j[axis.min(2) as usize] = (v * 2.0).round() / 2.0;
+                let at = j + figure.low.as_vec3();
+                ed.set_joint(Some(at));
+            }
+        }
+        Action::PartAt(axis, v) => {
+            if let Some(now) = ed.part_at() {
+                let mut by = IVec3::ZERO;
+                by[axis.min(2) as usize] = v - now[axis.min(2) as usize];
+                ed.move_part(by);
+            }
+        }
+        Action::PickAt(cell) => ed.pick_at(cell),
+        Action::EraseAt(cell) => ed.erase_at(cell),
         Action::Tip(axis, quarters) => {
             ed.tip(axis as usize, quarters as f64 * 90.0);
         }
@@ -1093,7 +1221,7 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
     if view.picker || !ed.among_pieces() {
         ed.drop_hanging();
     }
-    if !matches!(action, Action::OpenMenu(..) | Action::AddMenu) {
+    if !matches!(action, Action::OpenMenu(..) | Action::AddMenu | Action::BlockMenu(..) | Action::FrameMenu(..) | Action::PartMenu(..)) {
         view.menu = None;
     }
     // The figure made again at once (a part chosen, its rig set), and the
@@ -1198,9 +1326,11 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     let mut through = Vec::new();
     if let (Some(figure), Some((lo, _))) = (&ed.figure, ed.figure_box()) {
         through = figure.cubes(lo, &mut instances);
-        crate::render::join_see_through(&mut through, eye - grid.as_vec3() / 2.0);
     }
+    // The pieces' glass joined too, as the game joins it: one body, not a
+    // grid of every cube's faces blended over each other.
     through.extend(glass);
+    crate::render::join_see_through(&mut through, eye - grid.as_vec3() / 2.0);
     if things {
         if let (Tool::Add, Some(at), Some(kind)) = (ed.tool, view.spot, &ed.held_kind) {
             let start = instances.len();

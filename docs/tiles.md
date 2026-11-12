@@ -188,7 +188,26 @@ facing = [0, -1]
   behind); a tile's class in the tileset is its block's kind; objects
   become things. The tileset stays as `blocks/tiles.png` for new blocks.
 - **The editor** (`voxcade edit <game>`, `src/editor/`): one window, two
-  levels, the game's own light and shadows, seen from any side.
+  levels, the game's own light and shadows, seen from any side. Every
+  scope of it (a level of blocks, its things, its pieces, a block, a
+  model's frames, a figure of parts) is laid out the same way
+  (`zones.rs`, the owner, 2026-11-12: of one cast, one way of working):
+  a bar along the top (what is open, + something, UNDO, REDO; on the
+  right how the view looks), the outliner on the left (the level's
+  blocks or kinds, a model's frames, a figure's parts as their tree, each
+  a row with its small picture or sign; a right click its menu), the
+  inspector on the right (short rows of a word and its controls: the
+  tools in a row, BEVEL, SYMMETRY, a fresh box's DEPTH, the colours as
+  swatches and the held one's GLASS, METAL, ROUGH, GLOW; a block's kind
+  and turns; a part's PARENT, a menu, and JOINT, three fields); in the
+  view a right click's menu (on a voxel PICK COLOUR, ERASE, SHAPE the
+  part there; on a level's block OPEN, COPY, REMOVE), the chosen part's
+  joint as arrows (their heads grab, a drag moves it by halves of a
+  voxel, one step; Escape back), a click in the figure whole shapes the
+  part under it, and the view's own buttons. No sentences on the panels:
+  what a control does is its tooltip, with its key; what the editor did
+  or would not is a short line over the view, its whole words on hover.
+  (`shaping.rs` for these, `stage.rs` for the pieces.)
   - Level: PLACE, REMOVE, REPLACE, PICK blocks in the cells; the held
     block shown with its kind (click: the next kind), TURN (about the
     upright), ROLL (about the line of sight), MIRROR; NEW draws a block out
@@ -201,16 +220,16 @@ facing = [0, -1]
     top or floating before a wall, in the middle of the row's depth (the
     lane); REMOVE takes one away, MOVE drags one elsewhere, PICK takes up
     its kind (A, E, M, I). The kinds of `c.things` lie along the bottom
-    as small pictures (a kind without a model: a pale column as wide and
+    as small pictures in the outliner (a kind without a model: a pale column as wide and
     tall as its body), the held one see-through where it would stand,
     the one under the mouse tinted by the tool.
   - Block (a double click on a cell, or the held block's picture clicked
     again): ADD, ERASE, PAINT, PICK voxels, DEEP PAINT (the voxel and
     every one behind it, through the block); TURN turns the block itself
     a quarter about the upright (a side shaped as the front brought
-    round); CLONE (the copy opens), DELETE; the block's colours big along
-    the bottom, the level's other colours small, any colour from the
-    picker under COLOUR; BACK (or Escape) returns.
+    round); COPY (the copy opens), REMOVE; the block's colours big in
+    the inspector, the level's other colours small, any colour from the
+    picker beside HELD; BACK (or Escape) returns.
   - The mouse: left works the tool (a stroke works on the surface it began
     on: one layer added or taken off), right drag turns, middle or shift
     and right drag moves, the wheel zooms (over the bar: scrolls).

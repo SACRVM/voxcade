@@ -53,6 +53,9 @@ pub struct Handles {
     pub rings: [Option<Vec3>; 3],
     pub faces: Option<(Vec3, Vec3)>,
     pub body: Vec<Vec3>,
+    /// Only the arrows' heads grab (where a press on the shaft's line has
+    /// work of its own: the voxel editor's tools).
+    pub heads_only: bool,
 }
 
 /// A ring's radius and where an arrow's shaft begins, as shares of an
@@ -162,7 +165,7 @@ fn plane_of(n: Vec3) -> (Vec3, Vec3) {
 impl Handles {
     /// Handles at `centre` `length` long: no arrows, rings or faces yet.
     pub fn at(centre: Vec3, length: f32) -> Self {
-        Self { centre, length, ring: length * RING, arrows: [None; 3], rings: [None; 3], faces: None, body: Vec::new() }
+        Self { centre, length, ring: length * RING, arrows: [None; 3], rings: [None; 3], faces: None, body: Vec::new(), heads_only: false }
     }
 
     /// The thing's outline on the screen: the box round its points.
@@ -245,7 +248,7 @@ impl Handles {
         let on_body = body.is_some_and(|b| in_box(mouse, b, 0.0));
         for s in self.shapes(view_proj, screen).into_iter().filter(|s| !s.dim) {
             let d = match s.what {
-                What::Shaft if on_body => f32::MAX,
+                What::Shaft if on_body || self.heads_only => f32::MAX,
                 What::Ring if on_body => f32::MAX,
                 What::Shaft => to_segment(mouse, s.points[0], s.points[1]),
                 What::Ring => {

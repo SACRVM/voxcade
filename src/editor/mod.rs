@@ -12,7 +12,9 @@ pub mod frames;
 pub mod handles;
 pub mod model;
 pub mod panels;
+pub mod shaping;
 pub mod stage;
+pub mod zones;
 pub mod view;
 
 use std::path::{Path, PathBuf};
@@ -78,12 +80,15 @@ pub struct ShotOptions {
     pub hover: Option<String>,
     /// The chosen one's handles in TURN (its rings), else MOVE.
     pub turn_handles: bool,
+    /// A figure's parts moved by whole voxels (`--move-part`), joints by
+    /// halves (`--move-joint`, true), in turn: by the part's name.
+    pub part_moves: Vec<(String, glam::Vec3, bool)>,
 }
 
 /// A change `--shot` tries among the pieces, to see what it does: a model
 /// (its path in the game folder; or `light`, `place`, `area`) set down at
 /// a spot; an item (by its name) moved to a spot, turned by degrees,
-/// removed, copied to a spot, renamed; a piece's light set (its reach,
+/// removed, copied to a spot, renamed; a piece's light set (its radius,
 /// its colour `#rrggbb`, where it shines from in the model; `true`: a
 /// light more on it, else its first); a piece made solid; the room's
 /// size.
@@ -302,6 +307,22 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     } else if opts.parent.is_some() || opts.joint.is_some() {
         bail!("--parent and --joint set the rig of the part --part names");
     }
+    for (name, by, joint) in &opts.part_moves {
+        let p = part_of(&ed, name)?;
+        if ed.figure.as_ref().and_then(|f| f.selected) != Some(p) {
+            view::act(&mut ed, &mut view, view::Action::Part(p));
+        }
+        if *joint {
+            let figure = ed.figure.as_ref().context("--move-joint: no figure")?;
+            anyhow::ensure!(!ed.root_chosen(), "--move-joint {name}: the root turns about nothing, it has no joint");
+            let at = figure.joint(p) + figure.low.as_vec3() + (*by * 2.0).round() / 2.0;
+            ed.set_joint(Some(at));
+        } else {
+            ed.move_part(by.round().as_ivec3());
+        }
+        ed.follow_figure();
+        view.follow_origin(&ed);
+    }
     if let Some(word) = &opts.tool {
         let tool = model::Tool::of(ed.scope, ed.layer).iter().copied().find(|t| t.label(ed.scope).eq_ignore_ascii_case(word));
         ed.choose(tool.with_context(|| format!("--tool {word}: no such tool here"))?);
@@ -332,7 +353,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     view.aspect = aspect;
     // (Where the panels will lie, for the view's middle: as in a window.)
     let (w, h) = (opts.width as f32, opts.height as f32);
-    view.set_room(if ed.among_pieces() { [stage::OUTLINER / w, stage::TOP / h, stage::INSPECTOR / w, 0.0] } else { [0.0, 0.0, panels::COLUMN / w, panels::BAR / h] });
+    view.set_room([zones::OUTLINER / w, zones::TOP / h, zones::INSPECTOR / w, 0.0]);
     if opts.game_view {
         view::act(&mut ed, &mut view, view::Action::GameView);
     }
@@ -395,11 +416,16 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         let (mx, my) = (0.5 - view.inset.x / 2.0, 0.5 - view.inset.y / 2.0);
         // Among the pieces after the panels are laid out: a menu open, a
         // handle under the mouse (the room is known now).
-        if pass == 0 && ed.among_pieces() {
+        if pass == 0 {
             let screen = ctx.content_rect();
             if let Some(name) = &opts.menu {
                 let at = egui::pos2(screen.left() + mx * screen.width(), screen.top() + my * screen.height());
-                if name == "floor" {
+                if !ed.among_pieces() {
+                    // The voxel editor's, of what is under the middle.
+                    anyhow::ensure!(name == "voxel", "--menu voxel: the menu of the voxel (the part, the block) under the middle of the view");
+                    let on = voxel_menu(&ed, &view, aspect, mx, my).context("--menu voxel: nothing under the middle of the view")?;
+                    view.menu = Some(view::Menu { on, at: [at.x, at.y] });
+                } else if name == "floor" {
                     let (origin, dir) = view.voxel_ray(aspect, mx, my);
                     let spot = view::floor_spot(&shown.world, origin, dir).context("--menu floor: no floor under the middle of the view")?;
                     view.menu = Some(view::Menu { on: view::MenuOn::Floor(spot), at: [at.x, at.y] });
@@ -545,6 +571,53 @@ pub(crate) fn room_of(drawn: &panels::Shown, screen: egui::Rect) -> (egui::Rect,
         // by their own sizes as before.
         (None, [right, bottom, ..]) => (egui::Rect::from_min_max(screen.min, egui::pos2(right.left(), bottom.top())), [0.0, 0.0, right.width() / w, bottom.height() / h]),
         (None, _) => (screen, [0.0; 4]),
+    }
+}
+
+/// How near the mouse must be to the joint's ring to take it (points).
+pub(crate) const RING_GRAB: f32 = 9.0;
+
+/// Whether the mouse (egui's point) is on the chosen part's joint's ring
+/// (only the ring itself takes the mouse: around it the tools work).
+pub(crate) fn on_ring(ed: &Editor, view: &View, room: egui::Rect, mouse: egui::Pos2) -> bool {
+    let vp = view.view_proj(&view.block, room.width() / room.height().max(1.0));
+    let Some(spot) = ed.joint_spot() else { return false };
+    handles::project(vp, glam::Vec2::new(room.width(), room.height()), spot).is_some_and(|(p, _)| p.distance(glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top())) <= RING_GRAB)
+}
+
+/// The arrow of the chosen part under the mouse (egui's point): which,
+/// the handles, the view's matrix, the mouse in the room's pixels.
+fn joint_under(ed: &Editor, view: &View, room: egui::Rect, mouse: egui::Pos2) -> Option<(handles::Grip, handles::Handles, glam::Mat4, glam::Vec2)> {
+    let vp = view.view_proj(&view.block, room.width() / room.height().max(1.0));
+    let h = ed.part_handles(vp)?;
+    let at = glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top());
+    let grip = h.grip_at(vp, glam::Vec2::new(room.width(), room.height()), at)?;
+    Some((grip, h, vp, at))
+}
+
+/// The menu a right click at a point of the screen (shares) opens in the
+/// voxel editor or the level of blocks: of the voxel there (and the part
+/// it is of), of the part there in the figure whole, of the block there in
+/// the level.
+fn voxel_menu(ed: &Editor, view: &View, aspect: f32, sx: f32, sy: f32) -> Option<view::MenuOn> {
+    let (origin, dir) = view.ray(ed, aspect, sx, sy);
+    let part = || ed.figure.as_ref().zip(ed.figure_box()).and_then(|(f, (lo, _))| f.part_at(lo, origin, dir));
+    match ed.scope {
+        Scope::Figure => part().map(view::MenuOn::Part),
+        Scope::Level if ed.layer == Layer::Blocks => {
+            let hit = view.aim(ed, aspect, sx, sy)?;
+            let block = ed.level.cell(hit.cell).block;
+            (block != 0).then(|| view::MenuOn::Block(block as usize - 1))
+        }
+        Scope::Level => None,
+        Scope::Block(_) | Scope::Frame(_) => {
+            let filled = view.aim(ed, aspect, sx, sy).map(|h| h.cell).filter(|&c| ed.shape().is_some_and(|b| b.get(c) != 0));
+            match (filled, part()) {
+                (Some(c), p) => Some(view::MenuOn::Voxel(c, p.map(|p| p as u16))),
+                (None, Some(p)) => Some(view::MenuOn::Part(p)),
+                (None, None) => None,
+            }
+        }
     }
 }
 
@@ -866,7 +939,12 @@ impl EditorWindow {
         let aspect = screen.aspect();
         // The mouse over the panels (or a list or picker of theirs open
         // there) is theirs, not the 3D view's.
-        let over = |x: f32, y: f32| rects.iter().any(|r| r.contains(input.point(x, y))) || gui.egui_wants_pointer_input();
+        // (By where the mouse is now, not where egui last saw it: a click
+        // whose motion, press and release come at once is the view's.)
+        let over = |x: f32, y: f32| {
+            let p = input.point(x, y);
+            rects.iter().any(|r| r.contains(p)) || gui.egui_is_using_pointer() || gui.layer_id_at(p).is_some_and(|l| l.order != egui::Order::Background)
+        };
         match *event {
             Event::Quit { .. } | Event::Window { win_event: WindowEvent::CloseRequested, .. } => return false,
             Event::Window { win_event: WindowEvent::PixelSizeChanged(w, h), .. } => screen.resize(renderer, w, h),
@@ -907,7 +985,10 @@ impl EditorWindow {
                     Keycode::Left => ed.step_frame(-1),
                     Keycode::Right => ed.step_frame(1),
                     Keycode::Escape => {
-                        if view.choosing {
+                        if view.menu.is_some() {
+                            view.menu = None;
+                        } else if ed.cancel_joint() {
+                        } else if view.choosing {
                             view.choosing = false;
                         } else {
                             view::act(ed, view, view::Action::Back);
@@ -945,6 +1026,11 @@ impl EditorWindow {
                     view.right_press = None;
                 }
                 let over = over(x, y) && !mousestate.left();
+                if !ed.among_pieces() {
+                    let free = !(over || mousestate.left());
+                    view.ring_hover = free && on_ring(ed, view, gui.content_rect(), input.point(x, y));
+                    view.grip_hover = if !free || view.ring_hover { None } else { joint_under(ed, view, gui.content_rect(), input.point(x, y)).map(|(g, ..)| g) };
+                }
                 if ed.among_pieces() {
                     let (origin, dir) = view.voxel_ray(aspect, sx, sy);
                     let room = gui.content_rect();
@@ -965,6 +1051,16 @@ impl EditorWindow {
                     if mousestate.left() {
                         ed.drag_thing(view.spot);
                     }
+                } else if ed.joint_drag().is_some() && mousestate.left() {
+                    // A joint's arrow dragged.
+                    let room = gui.content_rect();
+                    let mouse = input.point(x, y);
+                    let vp = view.view_proj(&view.block, room.width() / room.height().max(1.0));
+                    let ray = view.ray(ed, aspect, sx, sy);
+                    ed.drag_joint(vp, glam::Vec2::new(room.width(), room.height()), glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top()), ray);
+                    // (A part moved moves the grid shown: the view keeps the
+                    // figure still at once, for the next motion's ray.)
+                    view.follow_origin(ed);
                 } else if ed.forms() {
                     // BOX and SPHERE: the footprint dragged out on its face's
                     // plane.
@@ -984,7 +1080,30 @@ impl EditorWindow {
             }
             Event::MouseButtonDown { mouse_btn: MouseButton::Left, clicks, x, y, .. } if !over(x, y) => {
                 let (sx, sy) = screen.share(x, y);
-                if ed.among_pieces() {
+                let ring = !ed.among_pieces() && on_ring(ed, view, gui.content_rect(), input.point(x, y));
+                let joint = if ring { None } else { joint_under(ed, view, gui.content_rect(), input.point(x, y)) };
+                if !ed.among_pieces() {
+                    view.menu = None;
+                }
+                if ring {
+                    // The joint's ring: dragged across the view.
+                    let look = crate::camera::view_dir(&view.block.camera());
+                    ed.grab_joint(view.ray(ed, aspect, sx, sy), look);
+                } else if let Some((grip, h, vp, mouse)) = joint {
+                    // The part's arrow: dragged until let go.
+                    let room = gui.content_rect();
+                    if let Some(drag) = handles::Drag::begin(&h, grip, vp, glam::Vec2::new(room.width(), room.height()), mouse, view.ray(ed, aspect, sx, sy)) {
+                        ed.grab_part(drag, h);
+                    }
+                } else if ed.scope == Scope::Figure {
+                    // The figure whole: a click chooses the part under it.
+                    let (origin, dir) = view.ray(ed, aspect, sx, sy);
+                    if let (Some(figure), Some((lo, _))) = (&ed.figure, ed.figure_box())
+                        && let Some(p) = figure.part_at(lo, origin, dir)
+                    {
+                        view::act(ed, view, view::Action::Part(p));
+                    }
+                } else if ed.among_pieces() {
                     // What hangs on the mouse set down; a handle of the
                     // chosen one grabbed; else the item under it chosen, to
                     // be dragged (nothing: none chosen, the level shown); a
@@ -1048,7 +1167,21 @@ impl EditorWindow {
             Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } => ed.release(),
             // A right click (not a drag) among the pieces: the menu of what
             // is under the mouse (chosen), or of the floor there.
-            Event::MouseButtonDown { mouse_btn: MouseButton::Right, x, y, .. } => view.right_press = (!over(x, y) && ed.among_pieces()).then_some((x, y)),
+            Event::MouseButtonDown { mouse_btn: MouseButton::Right, x, y, .. } => view.right_press = (!over(x, y)).then_some((x, y)),
+            Event::MouseButtonUp { mouse_btn: MouseButton::Right, x, y, .. } if !ed.among_pieces() => {
+                // The voxel editor and the level of blocks: the menu of the
+                // voxel (the part) or the block under the mouse.
+                if view.right_press.take().is_some() {
+                    let (sx, sy) = screen.share(x, y);
+                    let at = input.point(x, y);
+                    if let Some(on) = voxel_menu(ed, view, aspect, sx, sy) {
+                        if let view::MenuOn::Block(i) = on {
+                            ed.hold(i);
+                        }
+                        view.menu = Some(view::Menu { on, at: [at.x, at.y] });
+                    }
+                }
+            }
             Event::MouseButtonUp { mouse_btn: MouseButton::Right, x, y, .. } => {
                 if view.right_press.take().is_some() && ed.among_pieces() && ed.hanging.is_none() {
                     let (sx, sy) = screen.share(x, y);

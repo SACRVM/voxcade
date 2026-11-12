@@ -346,7 +346,7 @@ hash); the meshes keep the faces every level's sun lights (`Game::suns`).
 `[[area]]` is a named box: `level.areas.NAME`,
 `area:holds(thing or point)`. Names given in the file are the things'
 names (`level:thing(name)`); unnamed ones keep their kind and number. Not
-yet: areas' events, setting a light's colour or reach in code, a light's
+yet: areas' events, setting a light's colour or radius in code, a light's
 own brightness.
 
 ## Why

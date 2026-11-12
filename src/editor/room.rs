@@ -31,14 +31,14 @@ pub enum Hanging {
 }
 
 /// A number set from the panels or the keys: where the chosen one stands
-/// (x, y, z), its light's place in its model and its reach, its turn, an
+/// (x, y, z), its light's place in its model and its radius, its turn, an
 /// area's size, the level's size; the arrow keys' nudges; a light's
 /// colour being picked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Field {
     At(usize),
     /// A light of the chosen piece (by its place among its lights): where
-    /// it shines from (an axis), its reach, its colour.
+    /// it shines from (an axis), its radius, its colour.
     LightAt(usize, usize),
     Radius(usize),
     Colour(usize),
@@ -67,7 +67,7 @@ pub enum Field {
 /// what it is like.
 pub const LIGHT_COLOURS: [(&str, &str); 6] = [("#ffd9a0", "a lamp"), ("#ffb060", "a candle"), ("#ffffff", "white"), ("#a0b8ff", "the moon"), ("#a0ffc0", "green"), ("#ff8070", "red")];
 
-/// A new light's reach (a piece's, a light alone's) and colour, a new
+/// A new light's radius (a piece's, a light alone's) and colour, a new
 /// area's size.
 const PIECE_RADIUS: f64 = 60.0;
 const LIGHT_RADIUS: f64 = 80.0;
@@ -1291,7 +1291,7 @@ mod tests {
 
     /// A piece's lights: ADD LIGHT puts the first at its model's top and
     /// another beside it, wider; each tuned (where it shines from, its
-    /// reach, its colour) and removed on its own; a light alone keeps its
+    /// radius, its colour) and removed on its own; a light alone keeps its
     /// one light. Where a light shines from turns with the piece.
     #[test]
     fn a_pieces_lights_are_added_and_tuned() {

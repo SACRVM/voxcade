@@ -126,6 +126,24 @@ impl Figure {
         said
     }
 
+    /// The part a ray (in the grid shown, its parts moved there by
+    /// `shift`) meets first, of those not hidden.
+    pub fn part_at(&self, shift: IVec3, origin: glam::Vec3, dir: glam::Vec3) -> Option<usize> {
+        let frame = &self.model.frames[0];
+        let mut best: Option<(f32, usize)> = None;
+        for (p, part) in self.model.parts.iter().enumerate().filter(|&(p, _)| !self.hidden[p]) {
+            for &k in &part.visible {
+                let at = (frame[k as usize].0 + shift).as_vec3();
+                if let Some(d) = super::view::ray_box(origin, dir, at, at + 1.0)
+                    && best.is_none_or(|(b, _)| d < b)
+                {
+                    best = Some((d, p));
+                }
+            }
+        }
+        best.map(|(_, p)| p)
+    }
+
     /// The figure as cubes, every part not hidden at its place moved by
     /// `shift` (into the grid shown), but the chosen one, which the view
     /// draws itself as it is being shaped: the others dimmed while one is
@@ -174,7 +192,7 @@ mod tests {
     use super::*;
     use crate::editor::model::{Editor, Hit, Scope};
     use crate::editor::view::{Action, View, act};
-    use glam::IVec3;
+    use glam::{IVec3, Vec3};
 
     /// A figure in a folder of its own: a body, a head on it, an arm
     /// apart from it with a hand on the arm, a scarf on body and head
@@ -431,6 +449,154 @@ mod tests {
         act(&mut ed, &mut view, Action::ParentWorkedOut);
         act(&mut ed, &mut view, Action::JointWorkedOut);
         assert_eq!(on_disk(&file)["arm"], was);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The joint's ring: pressed and dragged, the joint goes across the
+    /// view (along the two axes most across it: from the front, X and Z)
+    /// by halves of a voxel, one step for the drag; Escape puts it back
+    /// with no step; its field sets it too. The root has no ring.
+    #[test]
+    fn a_joint_is_dragged_by_its_ring_in_one_step() {
+        let dir = figure("joint-ring");
+        let mut ed = Editor::open_model(&dir, "figure.vvx").unwrap();
+        let mut view = View::new(&ed, &crate::config::GameConfig::default());
+        let arm = part(&ed, "arm");
+        act(&mut ed, &mut view, Action::Part(arm));
+        let joint = |ed: &mut Editor| {
+            ed.follow_figure();
+            ed.figure.as_ref().unwrap().joint(arm)
+        };
+        let start = joint(&mut ed);
+        let (lo, _) = ed.figure_box().unwrap();
+        let spot = ed.joint_spot().unwrap();
+        assert_eq!(spot, start + lo.as_vec3());
+        // From the front (looking along +y): rays straight in.
+        let ray = |p: Vec3| (p - Vec3::Y * 50.0, Vec3::Y);
+        let steps = ed.steps();
+        assert!(ed.grab_joint(ray(spot), Vec3::Y));
+        for k in 1..=6 {
+            ed.drag_joint(glam::Mat4::IDENTITY, glam::Vec2::ONE, glam::Vec2::ZERO, ray(spot + Vec3::new(k as f32 * 0.5, 0.0, k as f32 * 0.25)));
+        }
+        ed.release();
+        assert_eq!((joint(&mut ed), ed.steps()), (start + Vec3::new(3.0, 0.0, 1.5), steps + 1), "across the view, by halves, one step");
+        ed.undo();
+        assert_eq!(joint(&mut ed), start);
+        // Escape while dragging: as it was, no step.
+        ed.grab_joint(ray(spot), Vec3::Y);
+        ed.drag_joint(glam::Mat4::IDENTITY, glam::Vec2::ONE, glam::Vec2::ZERO, ray(spot + Vec3::X * 2.0));
+        assert_ne!(joint(&mut ed), start);
+        assert!(ed.cancel_joint());
+        assert_eq!((joint(&mut ed), ed.steps()), (start, steps));
+        // The field: Z to 5.5, a step.
+        act(&mut ed, &mut view, Action::JointTo(2, 5.5));
+        assert_eq!((joint(&mut ed).z, ed.steps()), (5.5, steps + 1));
+        // The root turns about nothing: no ring.
+        let body = part(&ed, "body");
+        act(&mut ed, &mut view, Action::Part(body));
+        assert!(ed.joint_spot().is_none());
+    }
+
+    /// A part moved (its arrows, its POSITION, `move_part`) takes those
+    /// hanging on it along by the same whole voxels, and a joint set by
+    /// hand on any of them; the others stay; one step takes it all back;
+    /// the file reads back the same figure shifted. The root moves the
+    /// whole figure from its pivot.
+    #[test]
+    fn a_part_moves_with_what_hangs_on_it() {
+        let dir = figure("move-part");
+        let file = dir.join("figure.vvx");
+        let mut ed = Editor::open_model(&dir, "figure.vvx").unwrap();
+        let mut view = View::new(&ed, &crate::config::GameConfig::default());
+        let arm = part(&ed, "arm");
+        let tree: std::collections::BTreeMap<String, Option<String>> = on_disk(&file).into_iter().map(|(n, (_, parent, ..))| (n, parent)).collect();
+        assert_eq!(tree["hand"].as_deref(), Some("arm"), "the hand hangs on the arm");
+        act(&mut ed, &mut view, Action::Part(arm));
+        // The arm's joint set by hand: it goes along.
+        let j = ed.figure.as_ref().unwrap().joint(arm) + ed.figure.as_ref().unwrap().low.as_vec3();
+        ed.set_joint(Some(j));
+        let before = on_disk(&file);
+        let text = std::fs::read_to_string(&file).unwrap();
+        let steps = ed.steps();
+        let by = IVec3::new(2, 0, 1);
+        let x = ed.part_at().unwrap().x + 2;
+        act(&mut ed, &mut view, Action::PartAt(0, x));
+        let z = ed.part_at().unwrap().z + 1;
+        act(&mut ed, &mut view, Action::PartAt(2, z));
+        assert_eq!(ed.steps(), steps + 2, "a typed value a step");
+        let after = on_disk(&file);
+        let shifted = |v: &Vec<[i32; 3]>| v.iter().map(|p| [p[0] + by.x, p[1] + by.y, p[2] + by.z]).collect::<Vec<_>>();
+        for name in ["arm", "hand"] {
+            assert_eq!(after[name].0, shifted(&before[name].0), "{name} along");
+        }
+        for name in ["body", "head", "scarf"] {
+            assert_eq!(after[name].0, before[name].0, "{name} stays");
+        }
+        assert_eq!(Vec3::from(after["arm"].2), Vec3::from(before["arm"].2) + by.as_vec3(), "the hand-set hinge on the arm along");
+        assert_eq!(after["hand"].1, before["hand"].1, "the hand still hangs on the arm");
+        ed.undo();
+        ed.undo();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), text, "steps back: the file as it was");
+        // A drag of its X arrow: one step, whole voxels.
+        let orbit = crate::editor::view::Orbit { yaw: 20.0, pitch: 25.0, zoom: 60.0, target: Vec3::splat(3.0), fov: crate::editor::view::FOV };
+        let screen = glam::Vec2::new(1600.0, 900.0);
+        let vp = orbit.view_proj(screen.x / screen.y);
+        let h = ed.part_handles(vp).unwrap();
+        let shapes = h.shapes(vp, screen);
+        let head = shapes.iter().find(|s| s.grip == crate::editor::handles::Grip::Arrow(0) && s.what == crate::editor::handles::What::Head).unwrap().points[0] - glam::Vec2::new(3.0, 0.0);
+        assert_eq!(h.grip_at(vp, screen, head), Some(crate::editor::handles::Grip::Arrow(0)));
+        let ray = |p: glam::Vec2| crate::editor::view::mouse_ray(vp, p.x / screen.x, p.y / screen.y);
+        let drag = crate::editor::handles::Drag::begin(&h, crate::editor::handles::Grip::Arrow(0), vp, screen, head, ray(head)).unwrap();
+        let x0 = ed.part_at().unwrap().x;
+        assert!(ed.grab_part(drag, h.clone()));
+        let far = crate::editor::handles::project(vp, screen, h.centre + Vec3::X * (h.length + 3.2)).unwrap().0;
+        let along = crate::editor::handles::project(vp, screen, h.centre + Vec3::X * h.length).unwrap().0;
+        let to = head + (far - along);
+        ed.drag_joint(vp, screen, to, ray(to));
+        ed.release();
+        assert_eq!((ed.part_at().unwrap().x - x0, ed.steps()), (3, steps + 1));
+        ed.undo();
+        // The root moves them all.
+        let all = on_disk(&file);
+        let body = part(&ed, "body");
+        act(&mut ed, &mut view, Action::Part(body));
+        ed.move_part(IVec3::X);
+        let moved = on_disk(&file);
+        for (name, (voxels, ..)) in &all {
+            assert_eq!(moved[name].0, voxels.iter().map(|p| [p[0] + 1, p[1], p[2]]).collect::<Vec<_>>(), "{name}");
+        }
+    }
+
+    /// The view's right click: on a voxel PICK COLOUR and ERASE (and the
+    /// other part there to shape); the figure whole a part's menu; a click
+    /// in the figure whole chooses the part under the mouse; PICK COLOUR
+    /// and ERASE do what they say, ERASE a step.
+    #[test]
+    fn a_right_click_on_a_voxel_offers_what_can_be_done_there() {
+        use crate::editor::view::MenuOn;
+        let dir = figure("voxel-menu");
+        let mut ed = Editor::open_model(&dir, "figure.vvx").unwrap();
+        let mut view = View::new(&ed, &crate::config::GameConfig::default());
+        let words = |ed: &Editor, on| crate::editor::shaping::menu_entries(ed, on).into_iter().map(|(w, ..)| w).collect::<Vec<_>>();
+        let (body, head) = (part(&ed, "body"), part(&ed, "head"));
+        assert_eq!(words(&ed, MenuOn::Part(head)), ["SHAPE HEAD", "HIDE"]);
+        // From high above the figure's middle: the head on top.
+        let (lo, size) = ed.figure_box().unwrap();
+        let top = Vec3::new(lo.x as f32 + 2.5, lo.y as f32 + 2.5, 100.0);
+        assert_eq!(ed.figure.as_ref().unwrap().part_at(lo, top, Vec3::NEG_Z), Some(head));
+        let _ = size;
+        act(&mut ed, &mut view, Action::Part(body));
+        let cell = (0..ed.grid().x).flat_map(|x| (0..ed.grid().z).map(move |z| IVec3::new(x, 1, z))).find(|&c| ed.shape().is_some_and(|b| b.get(c) != 0)).unwrap();
+        assert_eq!(words(&ed, MenuOn::Voxel(cell, Some(head as u16))), ["PICK COLOUR", "ERASE", "SHAPE HEAD"]);
+        let held = ed.colour;
+        ed.colour = [1, 2, 3];
+        act(&mut ed, &mut view, Action::PickAt(cell));
+        assert_eq!(ed.colour, ed.shape().unwrap().colour_at(cell).unwrap());
+        let _ = held;
+        let steps = ed.steps();
+        act(&mut ed, &mut view, Action::EraseAt(cell));
+        assert_eq!((ed.shape().unwrap().get(cell), ed.steps()), (0, steps + 1));
+        assert_eq!(words(&ed, MenuOn::Voxel(cell, None)), ["PICK COLOUR"], "nothing there to erase");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

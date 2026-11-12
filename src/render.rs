@@ -1741,6 +1741,25 @@ mod tests {
         let mut v = block();
         join_see_through(&mut v, glam::Vec3::new(0.0, -1.0, 0.2));
         assert_eq!((v[0].fx[2], v[2].fx[2]), (0b01_0101, 0b01_0001), "a block from the south");
+        // A sheet of glass one cube thick, standing or lying flat, seen
+        // from any pitch: no face between its cubes is left, only its two
+        // sides toward and away from the eye (the editor's pieces once
+        // showed every row's top as a line, not joined at all).
+        for pitch in [5.0f32, 25.0, 40.0, 60.0, 85.0] {
+            let (s, c) = pitch.to_radians().sin_cos();
+            let toward = glam::Vec3::new(0.1, -c, s);
+            let standing: Vec<Instance> = (0..5).flat_map(|z| (0..6).map(move |x| cube(x as f32, 0.0, z as f32))).collect();
+            let lying: Vec<Instance> = (0..5).flat_map(|y| (0..6).map(move |x| cube(x as f32, y as f32, 0.0))).collect();
+            for (mut v, sides, name) in [(standing, 0b00_1100u8, "standing"), (lying, 0b11_0000, "lying")] {
+                join_see_through(&mut v, toward);
+                for i in &v {
+                    let at = glam::Vec3::from_slice(&i.pos_size[..3]).floor().as_ivec3();
+                    let shared = crate::mesh::DIRS.iter().enumerate().filter(|(_, d)| v.iter().any(|o| glam::Vec3::from_slice(&o.pos_size[..3]).floor().as_ivec3() == at + **d)).fold(0u8, |b, (k, _)| b | 1 << k);
+                    assert_eq!(i.fx[2], shared, "a {name} sheet at {pitch} degrees, cube {at}: every face it shares goes");
+                    assert_eq!(i.fx[2] & sides, 0, "a {name} sheet at {pitch} degrees, cube {at}: its two sides stay");
+                }
+            }
+        }
         let mut v: Vec<Instance> = (0..3).flat_map(|y| (0..3).map(move |x| cube(x as f32, y as f32, 0.0))).collect();
         join_see_through(&mut v, glam::Vec3::Z);
         for (n, i) in v.iter().enumerate() {

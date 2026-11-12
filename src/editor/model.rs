@@ -33,6 +33,33 @@ use crate::grid::{Area, BlockEntry, Cell, GridLevel, Kind, Place, Thing};
 pub mod room;
 pub use room::{Field, Hanging, Item};
 
+/// A joint's arrow being dragged: the drag, the handles as they were at
+/// the press, where the joint was (from the pivot), how many steps there
+/// were then and whether it moved since.
+#[derive(Clone, Debug)]
+pub struct JointDrag {
+    pub drag: Option<(super::handles::Drag, super::handles::Handles)>,
+    start: Vec3,
+    steps: usize,
+    moved: bool,
+    /// The part itself dragged by an arrow; how far it went.
+    pub part: bool,
+    applied: IVec3,
+    /// The joint's ring dragged: the axis left out (the one most along
+    /// the view) and where the ray met the plane across it at the press.
+    ring: Option<(usize, Vec3)>,
+}
+
+/// Where a ray (from `origin` along `dir`) meets the plane where axis `n`
+/// is `at`; None if it runs along it or away.
+fn plane_hit(origin: Vec3, dir: Vec3, n: usize, at: f32) -> Option<Vec3> {
+    if dir[n].abs() < 1e-5 {
+        return None;
+    }
+    let t = (at - origin[n]) / dir[n];
+    (t > 0.0).then(|| origin + dir * t)
+}
+
 /// What the editor shows: the level, one block of it (its place in the
 /// level's blocks), or a frame of a model (an editor opened on a model has
 /// only those), or a figure of parts whole (FIGURE, `figure.rs`) with no
@@ -409,6 +436,10 @@ pub struct Editor {
     pub sizes: std::collections::BTreeMap<String, IVec3>,
     pub chosen_light: Option<usize>,
     gripped: Option<room::Gripped>,
+    /// A figure's joint being dragged by its arrow, and whether the next
+    /// change to the model joins the last step (the drag's).
+    joint_drag: Option<JointDrag>,
+    join_next: bool,
     put_away: Vec<(usize, Vec<crate::grid::ThingLight>)>,
 }
 
@@ -474,6 +505,8 @@ impl Editor {
             sizes: Default::default(),
             chosen_light: None,
             gripped: None,
+            joint_drag: None,
+            join_next: false,
             put_away: Vec::new(),
         })
     }
@@ -552,6 +585,8 @@ impl Editor {
             sizes: Default::default(),
             chosen_light: None,
             gripped: None,
+            joint_drag: None,
+            join_next: false,
             put_away: Vec::new(),
         })
     }
@@ -635,6 +670,27 @@ impl Editor {
         if !self.shifted {
             self.tool = self.before_pick;
         }
+    }
+
+    /// The colour of the voxel at `cell` held (the menu on a voxel's PICK
+    /// COLOUR; the tool stays as it is).
+    pub fn pick_at(&mut self, cell: IVec3) {
+        if let Some(colour) = self.shape().and_then(|b| b.colour_at(cell)) {
+            self.colour = colour;
+        }
+    }
+
+    /// The voxel at `cell` taken away (the menu on a voxel's ERASE), as
+    /// ERASE would; a step. The tool stays as it is.
+    pub fn erase_at(&mut self, cell: IVec3) {
+        if !matches!(self.scope, Scope::Block(_) | Scope::Frame(_)) {
+            return;
+        }
+        let tool = self.tool;
+        self.tool = Tool::Remove;
+        self.press(Hit { cell, normal: IVec3::Z });
+        self.release();
+        self.tool = tool;
     }
 
     /// The block shown (in a block), or the one held (in the level).
@@ -920,6 +976,7 @@ impl Editor {
         self.moving = None;
         self.dragging = None;
         self.gripped = None;
+        self.joint_drag = None;
         let Some(stroke) = self.stroke.take() else { return };
         let step = match stroke {
             // Strokes keep the level or a block; nothing is taken out.
@@ -1799,6 +1856,165 @@ impl Editor {
         self.change_model_file(|m| m.parts.iter_mut().filter(|o| o.name == name).for_each(|o| o.joint = at));
     }
 
+    /// Where the chosen part's joint lies in the grid shown (its ring).
+    pub fn joint_spot(&self) -> Option<Vec3> {
+        let figure = self.figure.as_ref()?;
+        let p = figure.selected.filter(|_| self.part_mode().is_some() && !self.root_chosen())?;
+        let (lo, _) = self.figure_box()?;
+        Some(figure.joint(p) + lo.as_vec3())
+    }
+
+    /// The press on the chosen part's joint's ring, the mouse's ray (in the
+    /// grid shown) and the way the view looks: the joint dragged across
+    /// the view, along the two axes that lie most across it (the third by
+    /// the JOINT field), by halves of a voxel, until let go (one step) or
+    /// Escape (back as it was, no step).
+    pub fn grab_joint(&mut self, (origin, dir): (Vec3, Vec3), look: Vec3) -> bool {
+        let (Some(p), Some(spot)) = (self.chosen(), self.joint_spot()) else { return false };
+        let n = (0..3).max_by(|&a, &b| look[a].abs().total_cmp(&look[b].abs())).unwrap_or(1);
+        let Some(hit) = plane_hit(origin, dir, n, spot[n]) else { return false };
+        let start = self.figure.as_ref().map_or(Vec3::ZERO, |f| f.joint(p) + f.low.as_vec3());
+        self.release();
+        self.joint_drag = Some(JointDrag { drag: None, start, steps: self.past.len(), moved: false, part: false, applied: IVec3::ZERO, ring: Some((n, hit)) });
+        true
+    }
+
+    /// The press on an arrow of the chosen part itself (MOVE, `h` as
+    /// `part_handles` gave them): the part dragged along its axis by whole
+    /// voxels, those hanging on it along, until let go (one step) or
+    /// Escape (back as it was, no step).
+    pub fn grab_part(&mut self, drag: super::handles::Drag, h: super::handles::Handles) -> bool {
+        if self.chosen().is_none() {
+            return false;
+        }
+        self.release();
+        self.joint_drag = Some(JointDrag { drag: Some((drag, h)), start: Vec3::ZERO, steps: self.past.len(), moved: false, part: true, applied: IVec3::ZERO, ring: None });
+        true
+    }
+
+    /// The chosen part's arrows (MOVE): along X, Y, Z from its box's
+    /// middle in the grid shown, their heads clear of its box, the heads
+    /// only grabbing (the tools work on the shafts' line).
+    pub fn part_handles(&self, view_proj: glam::Mat4) -> Option<super::handles::Handles> {
+        self.figure.as_ref()?.selected.filter(|_| self.part_mode().is_some())?;
+        let size = self.shape()?.size.as_vec3();
+        let centre = size / 2.0;
+        let mut h = super::handles::Handles::at(centre, super::handles::world_size(view_proj, centre, 0.1));
+        h.arrows = [Some(Vec3::X), Some(Vec3::Y), Some(Vec3::Z)];
+        h.body = (0..8).map(|k| Vec3::new(if k & 1 == 0 { 0.0 } else { size.x }, if k & 2 == 0 { 0.0 } else { size.y }, if k & 4 == 0 { 0.0 } else { size.z })).collect();
+        h.heads_only = true;
+        Some(h)
+    }
+
+    /// Where the chosen part stands from the pivot (its `at` in the file,
+    /// before any raise).
+    pub fn part_at(&self) -> Option<IVec3> {
+        let (figure, model) = (self.figure.as_ref()?, self.model.as_ref()?);
+        let name = &figure.parts()[figure.selected?].name;
+        model.parts.iter().find(|o| &o.name == name).map(|o| o.low)
+    }
+
+    /// Whether the chosen part is the figure's root (it hangs on nothing:
+    /// no joint of its own).
+    pub fn root_chosen(&self) -> bool {
+        self.figure.as_ref().and_then(|f| Some(f.parts()[f.selected?].parent.is_none())).unwrap_or(false)
+    }
+
+    /// The parts that go along when part `p` moves: it and those hanging
+    /// on it, theirs too (as the figure hangs them, by hand or by the
+    /// rules), by their names.
+    fn moving_with(&self, p: usize) -> Vec<String> {
+        let Some(figure) = &self.figure else { return Vec::new() };
+        let parts = figure.parts();
+        let mut out = vec![p];
+        let mut k = 0;
+        while k < out.len() {
+            let q = out[k];
+            let more: Vec<usize> = (0..parts.len()).filter(|&c| parts[c].parent == Some(q) && !out.contains(&c)).collect();
+            out.extend(more);
+            k += 1;
+        }
+        out.into_iter().map(|q| parts[q].name.clone()).collect()
+    }
+
+    /// The chosen part moved by `by` voxels, those hanging on it along: its
+    /// place (`at`) in the file, and a joint set by hand with it (a hinge is
+    /// on the leaf; a joint the rules find is found anew); a step. The
+    /// root moves the whole figure from its pivot (where it stands in the
+    /// game).
+    pub fn move_part(&mut self, by: IVec3) {
+        self.follow_figure();
+        let Some(p) = self.chosen() else { return };
+        if by == IVec3::ZERO {
+            return;
+        }
+        let names = self.moving_with(p);
+        self.change_model_file(|m| {
+            for o in m.parts.iter_mut().filter(|o| names.contains(&o.name)) {
+                o.low += by;
+                if let Some(j) = &mut o.joint {
+                    *j += by.as_vec3();
+                }
+            }
+        });
+        self.follow_figure();
+    }
+
+    /// The joint being dragged, if one is.
+    pub fn joint_drag(&self) -> Option<&JointDrag> {
+        self.joint_drag.as_ref()
+    }
+
+    /// The mouse dragged on with a joint's arrow (as `Drag::amount` takes
+    /// it): the joint where the drag puts it, the drag's one step.
+    pub fn drag_joint(&mut self, view_proj: glam::Mat4, screen: glam::Vec2, mouse: glam::Vec2, ray: (Vec3, Vec3)) {
+        let Some(mut d) = self.joint_drag.take() else { return };
+        if let Some((drag, h)) = &mut d.drag {
+            // The part: the grid shown goes with it, so the ray and the
+            // view as they were at the press.
+            let back = d.applied.as_vec3();
+            let vp = view_proj * glam::Mat4::from_translation(-back);
+            let amount = drag.amount(h, vp, screen, mouse, (ray.0 + back, ray.1));
+            let along = h.direction(drag.grip).unwrap_or(Vec3::ZERO);
+            let to = (along * amount).round().as_ivec3();
+            if to != d.applied {
+                self.join_next = d.moved && self.past.len() > d.steps;
+                self.move_part(to - d.applied);
+                self.join_next = false;
+                (d.applied, d.moved) = (to, true);
+            }
+        } else if let Some((n, from)) = d.ring
+            && let Some(hit) = plane_hit(ray.0, ray.1, n, from[n])
+        {
+            let mut by = hit - from;
+            by[n] = 0.0;
+            let at = d.start + (by * 2.0).round() / 2.0;
+            if let (Some(p), Some(figure)) = (self.chosen(), &self.figure) {
+                let now = figure.joint(p) + figure.low.as_vec3();
+                if now != at {
+                    // One step for the whole drag: the first change makes
+                    // it, the next ones take its place.
+                    self.join_next = d.moved && self.past.len() > d.steps;
+                    self.set_joint(Some(at));
+                    self.join_next = false;
+                    self.follow_figure();
+                    d.moved = true;
+                }
+            }
+        }
+        self.joint_drag = Some(d);
+    }
+
+    /// Escape while a joint is dragged: as it was, no step.
+    pub fn cancel_joint(&mut self) -> bool {
+        let Some(d) = self.joint_drag.take() else { return false };
+        if d.moved && self.past.len() > d.steps {
+            self.undo();
+            self.future.pop();
+        }
+        true
+    }
+
     /// The model's frames and a figure's parts as they stand.
     fn shaped(&self) -> Shaped {
         self.model.as_ref().map_or_else(Shaped::default, ModelFile::shaped)
@@ -1814,13 +2030,22 @@ impl Editor {
     /// (nothing if it changes nothing).
     fn change_model_file(&mut self, change: impl FnOnce(&mut ModelFile)) {
         self.release();
+        // A drag's next change joins the step its first made.
+        let joined = match (self.join_next, self.past.pop()) {
+            (true, Some(Step::Model(before, _))) => Some(before),
+            (_, last) => {
+                self.past.extend(last);
+                None
+            }
+        };
         let Some(model) = &mut self.model else { return };
         let before = model.shaped();
         change(model);
         model.list_new_colours();
-        if model.is(&before) {
+        if model.is(&before) && joined.is_none() {
             return;
         }
+        let before = joined.unwrap_or(before);
         let step = Step::Model(before, model.shaped());
         self.save(&step);
         self.past.push(step);

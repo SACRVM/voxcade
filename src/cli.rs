@@ -41,11 +41,12 @@ USAGE:
   voxcade import <game-dir> <tiled-map.json> [--file NAME] [--over]
   voxcade import <game-dir> <model.vox>... [--as PATH.vvx]
   voxcade upgrade <game-dir> [--dry]
-  voxcade edit   <game-dir> [--level FILE] [--block NAME | --things | --model FILE [--part NAME [--parent NAME] [--joint X,Y,Z]]] [--stamp] [--shot FILE [--align]] [--view YAW,PITCH] [--size WxH]
+  voxcade edit   <game-dir> [--level FILE] [--block NAME | --things | --model FILE [--part NAME [--parent NAME] [--joint X,Y,Z]]
+                 [--move-part NAME --by X,Y,Z] [--move-joint NAME --by X,Y,Z]] [--stamp] [--shot FILE [--align]] [--view YAW,PITCH] [--size WxH]
                  [--choose NAME] [--game-view] [--picker] [--lights-off] [--add|--hang MODEL|light|place|area --at X,Y,Z]
                  [--move NAME --at X,Y,Z] [--turn NAME --by DEG [--about x|y|z]] [--lay NAME] [--copy NAME --at X,Y,Z] [--remove NAME]
                  [--rename NAME --to NEW] [--light NAME [--radius N] [--colour #rrggbb] [--at X,Y,Z]] [--room-size X,Y,Z]
-                 [--choose-light K] [--menu NAME|floor] [--add-menu] [--level-settings] [--handles move|turn] [--hover arrow-x|ring-z|face-y|...]
+                 [--choose-light K] [--menu NAME|floor|voxel] [--add-menu] [--level-settings] [--handles move|turn] [--hover arrow-x|ring-z|face-y|...]
   voxcade ide    [<game-dir>] [--shot FILE] [--open PATH] [--console CMD] [--play TICKS] [--size WxH] [--remote]
   voxcade mcp    [--remote]
   voxcade film   <game-dir> <replay-file> [--from S] [--to S] [--fps N] [--size WxH]
@@ -164,7 +165,9 @@ edit  opens the editor on a game's level: of voxel blocks, the level (its
       and joint set by hand). --shot draws it as it opens into a PNG
       instead of a window, writing nothing (--part NAME chooses a
       figure's part, --parent NAME and --joint X,Y,Z set its rig, the
-      joint as the printed tree has it; the mouse in the middle of the
+      joint as the printed tree has it; --move-part NAME --by X,Y,Z
+      moves a part by whole voxels, what hangs on it along, --move-joint
+      NAME --by X,Y,Z its joint by halves; the mouse in the middle of the
       view; --view turns the camera; --tool WORD chooses a tool, BOX and
       SPHERE setting a shape --held X,Y,Z big under the mouse, fresh
       (outlined), --stamp setting it and no more fresh,
@@ -186,7 +189,8 @@ edit  opens the editor on a game's level: of voxel blocks, the level (its
       pictures, --lights-off the view without the lights; the chosen one
       shows its handles, --choose-light K chooses its light K (0 the
       first), --hover lights a handle as under the mouse (arrow-x, ring-z,
-      face-y, face-y-low ...), --handles turn shows its rings instead of its arrows, --menu opens the right-click menu of a
+      face-y, face-y-low ...; a part's joint's arrow-x ... too), --handles turn shows its rings instead of its arrows, --menu voxel the voxel editor's
+      menu of what is under the middle of the view, --menu opens the right-click menu of a
       thing (or of the floor under the middle: floor), --add-menu ADD's,
       --level-settings shows LEVEL in the inspector.
 ide   opens the IDE on a game (docs/ide.md): its logic and assets on the
@@ -658,7 +662,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
         }
         Some("edit") => {
             let dir = opened(&args)?;
-            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new(), ops: Vec::new(), choose: None, game_view: false, picker: false, lights_off: false, choose_light: None, menu: None, add_menu: false, level_settings: false, hover: None, turn_handles: false };
+            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new(), ops: Vec::new(), choose: None, game_view: false, picker: false, lights_off: false, choose_light: None, menu: None, add_menu: false, level_settings: false, hover: None, turn_handles: false, part_moves: Vec::new() };
             let mut shot = false;
             let three = |flag: &str, value: &str| -> Result<glam::IVec3> {
                 let n: Vec<i32> = value.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>().with_context(|| format!("{flag} X,Y,Z"))?;
@@ -721,6 +725,12 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                     },
                     "--lay" => opts.ops.push(crate::editor::ShotOp::Turn(value.clone(), 90.0, 0)),
                     "--menu" => opts.menu = Some(value.clone()),
+                    "--move-part" | "--move-joint" => {
+                        let by = it.next().filter(|b| *b == "--by").and(it.next()).with_context(|| format!("{flag} NAME --by X,Y,Z"))?;
+                        let n: Vec<f32> = by.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>().with_context(|| format!("{flag} NAME --by X,Y,Z"))?;
+                        let [x, y, z] = n[..] else { bail!("{flag} NAME --by X,Y,Z: three numbers") };
+                        opts.part_moves.push((value.clone(), glam::Vec3::new(x, y, z), flag == "--move-joint"));
+                    }
                     "--hover" => opts.hover = Some(value.clone()),
                     "--handles" => {
                         opts.turn_handles = match value.as_str() {

@@ -25,84 +25,33 @@ use super::model::room::{self, Field, Item};
 use super::model::{Editor, Layer};
 use super::panels::{Shown, Thumbs};
 use super::view::{Action, Figures, MenuOn, View, key_of};
+use super::zones::{self, AXIS, AXIS_LIT, FIELD, LABEL, Sort, keyed, list_row, rgb, row, small};
 use crate::grid::Way;
 use crate::gui::{ACCENT, ERROR, QUIET, TEXT, WARNING};
 
-/// How tall the top bar is, how wide the outliner and the inspector: fixed,
-/// so the view does not move when the choice changes.
-pub const TOP: f32 = 46.0;
-pub const OUTLINER: f32 = 220.0;
-pub const INSPECTOR: f32 = 300.0;
-/// The inspector's words before a row's fields.
-const LABEL: f32 = 64.0;
-/// A number field's width (an axis letter and four digits).
-const FIELD: f32 = 64.0;
 /// More rows than this in the outliner: a field to find one by its name.
 const FILTER_FROM: usize = 15;
-
-/// The axes' colours, as the handles and the fields' letters have them: X
-/// red, Y green, Z blue.
-pub const AXIS: [Color32; 3] = [Color32::from_rgb(232, 92, 84), Color32::from_rgb(118, 204, 96), Color32::from_rgb(92, 148, 240)];
-/// The same lit (under the mouse, dragged).
-pub const AXIS_LIT: [Color32; 3] = [Color32::from_rgb(255, 170, 160), Color32::from_rgb(196, 250, 170), Color32::from_rgb(170, 205, 255)];
 
 /// The pieces' panels: the top bar, the outliner, the inspector, and over
 /// the view the buttons at the chosen one, a menu if one is open and ADD
 /// MODEL's pictures. Where the view's room is (`shown.free`).
 pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs: &mut Thumbs, shown: &mut Shown) {
-    let bar = egui::Frame::new().fill(crate::gui::PANEL).inner_margin(egui::Margin::symmetric(12, 6));
-    let side = egui::Frame::new().fill(crate::gui::PANEL).inner_margin(egui::Margin::symmetric(10, 10));
-    let top = egui::Panel::top("stage top").exact_size(TOP).resizable(false).frame(bar).show(ui, |ui| top_bar(ui, ed, view, shown));
-    let left = egui::Panel::left("stage outliner").exact_size(OUTLINER).resizable(false).frame(side).show(ui, |ui| outliner(ui, ed, view, shown));
-    let right = egui::Panel::right("stage inspector").exact_size(INSPECTOR).resizable(false).frame(side).show(ui, |ui| {
-        egui::ScrollArea::vertical().id_salt("inspector").auto_shrink([false, false]).show(ui, |ui| inspector(ui, ed, view, figures, shown));
-    });
-    let screen = ui.ctx().content_rect();
-    let free = Rect::from_min_max(Pos2::new(left.response.rect.right(), top.response.rect.bottom()), Pos2::new(right.response.rect.left(), screen.bottom()));
-    shown.rects.extend([right.response.rect, top.response.rect, left.response.rect]);
-    shown.free = Some(free);
+    let free = zones::layout(ui, shown, |ui, shown| top_bar(ui, ed, view, shown), |ui, shown| outliner(ui, ed, view, shown), |ui, shown| inspector(ui, ed, view, figures, shown));
     if let Some(m) = &ed.message {
-        let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("stage message")));
-        let galley = painter.layout(m.clone(), TextStyle::Body.resolve(ui.style()), ERROR, free.width() - 40.0);
-        let rect = Rect::from_min_size(free.min + Vec2::new(16.0, 12.0), galley.size()).expand(6.0);
-        painter.rect_filled(rect, 4.0, Color32::from_rgba_unmultiplied(24, 23, 30, 230));
-        painter.galley(rect.min + Vec2::splat(6.0), galley, ERROR);
+        zones::mistake(ui, free, m, shown);
     }
     beside(ui, ed, view, free, shown);
-    view_buttons(ui, free, shown);
+    zones::view_buttons(ui, free, shown);
     menu(ui, ed, view, free, shown);
     if view.picker {
         picker(ui, ed, free, thumbs, shown);
     }
 }
 
-/// A button whose key is shown after its word, quiet (and works while the
-/// panels show it).
-fn keyed(ui: &mut egui::Ui, shown: &mut Shown, label: &str, action: Action, on: Option<bool>, tip: &str) -> egui::Response {
-    let key = key_of(action);
-    if let Some(k) = key {
-        shown.keys.push((k, action));
-    }
-    let mut job = egui::text::LayoutJob::default();
-    let colour = if on == Some(true) { ACCENT } else { TEXT };
-    job.append(label, 0.0, egui::TextFormat { font_id: TextStyle::Button.resolve(ui.style()), color: colour, ..Default::default() });
-    if let Some(k) = key {
-        job.append(&format!(" {k}"), 0.0, egui::TextFormat { font_id: TextStyle::Small.resolve(ui.style()), color: QUIET, valign: egui::Align::Center, ..Default::default() });
-    }
-    // A toggle looks as a button does, lit while on: everything one can
-    // click has a frame.
-    let response = ui.add(egui::Button::new(job).selected(on == Some(true)));
-    let response = if tip.is_empty() { response } else { response.on_hover_text(tip) };
-    if response.clicked() {
-        shown.clicked.push(action);
-    }
-    response
-}
-
 /// The top bar: the level open (and in a level of blocks the three layers),
 /// ADD, UNDO, REDO; on the right GAME VIEW, LIGHTS, LEVEL.
 fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
-    ui.horizontal_centered(|ui| {
+    {
         let name = std::path::Path::new(&ed.file).file_stem().map_or(String::new(), |s| s.to_string_lossy().into_owned());
         ui.label(RichText::new(name.to_uppercase()).color(TEXT)).on_hover_text(&ed.file);
         ui.add_space(14.0);
@@ -136,59 +85,7 @@ fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
             }
             keyed(ui, shown, "GAME VIEW", Action::GameView, Some(view.before_game.is_some()), "Look as the game's camera does; again: back");
         });
-    });
-}
-
-/// A small sign for what an item is, quiet, in a square `size` big at
-/// `at` (its middle).
-fn sign(painter: &egui::Painter, at: Pos2, sort: Sort, colour: Color32) {
-    let s = egui::Stroke::new(1.5, colour);
-    let r = 5.0;
-    match sort {
-        Sort::Piece => {
-            // A box seen from a corner.
-            painter.rect_stroke(Rect::from_center_size(at + Vec2::new(-1.0, 1.0), Vec2::splat(r * 1.6)), 1.0, s, egui::StrokeKind::Middle);
-            painter.line_segment([at + Vec2::new(-r * 0.8 - 1.0, -r * 0.8 + 1.0), at + Vec2::new(-r * 0.8 + 2.0, -r * 0.8 - 2.0)], s);
-            painter.line_segment([at + Vec2::new(-r * 0.8 + 2.0, -r * 0.8 - 2.0), at + Vec2::new(r * 0.8 + 2.0, -r * 0.8 - 2.0)], s);
-            painter.line_segment([at + Vec2::new(r * 0.8 + 2.0, -r * 0.8 - 2.0), at + Vec2::new(r * 0.8 + 2.0, r * 0.8 - 2.0)], s);
-        }
-        Sort::Light => {
-            painter.circle_stroke(at, r * 0.7, s);
-            for k in 0..8 {
-                let a = k as f32 * std::f32::consts::FRAC_PI_4;
-                let d = Vec2::new(a.cos(), a.sin());
-                painter.line_segment([at + d * r * 1.0, at + d * r * 1.4], s);
-            }
-        }
-        Sort::Kind => {
-            painter.circle_stroke(at + Vec2::new(0.0, -r * 0.7), r * 0.45, s);
-            painter.line_segment([at + Vec2::new(0.0, -r * 0.2), at + Vec2::new(0.0, r * 0.6)], s);
-            painter.line_segment([at + Vec2::new(-r * 0.6, r * 1.1), at + Vec2::new(0.0, r * 0.6)], s);
-            painter.line_segment([at + Vec2::new(r * 0.6, r * 1.1), at + Vec2::new(0.0, r * 0.6)], s);
-        }
-        Sort::Place => {
-            painter.circle_stroke(at + Vec2::new(0.0, r * 0.4), r * 0.8, s);
-            painter.line_segment([at + Vec2::new(0.0, r * 0.4), at + Vec2::new(0.0, -r * 1.2)], s);
-            painter.line_segment([at + Vec2::new(0.0, -r * 1.2), at + Vec2::new(-r * 0.5, -r * 0.6)], s);
-            painter.line_segment([at + Vec2::new(0.0, -r * 1.2), at + Vec2::new(r * 0.5, -r * 0.6)], s);
-        }
-        Sort::Area => {
-            let b = Rect::from_center_size(at, Vec2::splat(r * 2.2));
-            for (a, c) in [(b.left_top(), Vec2::X), (b.left_top(), Vec2::Y), (b.right_top(), -Vec2::X), (b.right_top(), Vec2::Y), (b.left_bottom(), Vec2::X), (b.left_bottom(), -Vec2::Y), (b.right_bottom(), -Vec2::X), (b.right_bottom(), -Vec2::Y)] {
-                painter.line_segment([a, a + c * r * 0.8], s);
-            }
-        }
     }
-}
-
-/// What sort of item a row is.
-#[derive(Clone, Copy, PartialEq)]
-enum Sort {
-    Piece,
-    Light,
-    Kind,
-    Place,
-    Area,
 }
 
 fn sort_of(ed: &Editor, item: Item) -> Sort {
@@ -204,11 +101,6 @@ fn sort_of(ed: &Editor, item: Item) -> Sort {
         Item::Place(_) => Sort::Place,
         Item::Area(_) => Sort::Area,
     }
-}
-
-/// A colour of three bytes as egui's.
-fn rgb(c: [u8; 3]) -> Color32 {
-    Color32::from_rgb(c[0], c[1], c[2])
 }
 
 /// `#rrggbb` as three bytes (white if it is none).
@@ -242,35 +134,15 @@ fn what_of(ed: &Editor, item: Item) -> String {
     format!("{label}\n{what}\n{code}")
 }
 
-/// One row of the outliner: the item's sign, its name (cut at the edge),
-/// its light's colour at the end; chosen, marked.
+/// One row of the outliner: the item's sign, its name, its light's colour
+/// at the end; chosen, marked.
 fn outline_row(ui: &mut egui::Ui, ed: &Editor, item: Item, chosen: bool) -> egui::Response {
     let (label, named) = ed.label_of(item);
-    let height = ui.text_style_height(&TextStyle::Body) + 8.0;
-    let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), egui::Sense::click());
-    let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
-    if chosen || response.hovered() {
-        painter.rect_filled(rect, 3.0, if chosen { crate::gui::ROW_OPEN } else { crate::gui::ROW_HOVERED });
-    }
-    if chosen {
-        painter.rect_filled(Rect::from_min_size(rect.min, Vec2::new(3.0, rect.height())), 1.0, ACCENT);
-    }
-    let colour = if chosen { ACCENT } else if named { TEXT } else { QUIET };
-    sign(&painter, Pos2::new(rect.left() + 14.0, rect.center().y), sort_of(ed, item), if chosen { ACCENT } else { QUIET });
     let light = match item {
-        Item::Thing(i) => ed.level.things[i].lights.first().map(|l| bytes_of(l.color.as_deref())),
+        Item::Thing(i) => ed.level.things[i].lights.first().map(|l| rgb(bytes_of(l.color.as_deref()))),
         _ => None,
     };
-    let room = rect.width() - 30.0 - if light.is_some() { 18.0 } else { 4.0 };
-    let font = TextStyle::Body.resolve(ui.style());
-    let mut job = egui::text::LayoutJob::simple_singleline(label, font, colour);
-    job.wrap = egui::text::TextWrapping::truncate_at_width(room);
-    let galley = ui.fonts_mut(|f| f.layout_job(job));
-    painter.galley(Pos2::new(rect.left() + 28.0, rect.center().y - galley.size().y / 2.0), galley, colour);
-    if let Some(c) = light {
-        painter.circle_filled(Pos2::new(rect.right() - 10.0, rect.center().y), 4.0, rgb(c));
-    }
-    response.on_hover_text(what_of(ed, item))
+    list_row(ui, sort_of(ed, item), None, &label, 0.0, chosen, !named, light, None, &what_of(ed, item))
 }
 
 /// The outliner: the three groups with their counts, each folding at its
@@ -280,8 +152,9 @@ fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
     let rows = ed.level.things.len() + ed.level.places.len() + ed.level.areas.len();
     let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
     if rows > FILTER_FROM {
-        let field = ui.add(egui::TextEdit::singleline(&mut filter).hint_text("find").desired_width(f32::INFINITY));
-        field.on_hover_text("Only the names with these letters");
+        zones::beside_bar(ui, |ui| {
+            ui.add(egui::TextEdit::singleline(&mut filter).hint_text("find").desired_width(f32::INFINITY)).on_hover_text("Only the names with these letters");
+        });
         ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
         ui.add_space(4.0);
     } else {
@@ -302,18 +175,7 @@ fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
     egui::ScrollArea::vertical().id_salt("outliner").auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
         for ((title, items), tip) in groups.into_iter().zip(tips) {
-            let open_id = egui::Id::unique(("stage group", title));
-            let open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(true);
-            let (rect, heading) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ui.text_style_height(&TextStyle::Small) + 12.0), egui::Sense::click());
-            if heading.hovered() {
-                ui.painter().rect_filled(rect, 3.0, crate::gui::ROW_HOVERED);
-            }
-            crate::gui::arrow(ui, Pos2::new(rect.left() + 8.0, rect.center().y), if open { 1.0 } else { 0.0 });
-            ui.painter().text(Pos2::new(rect.left() + 20.0, rect.center().y), egui::Align2::LEFT_CENTER, format!("{title} {}", items.len()), TextStyle::Small.resolve(ui.style()), QUIET);
-            if heading.on_hover_text(tip).clicked() {
-                ui.data_mut(|d| d.insert_temp(open_id, !open));
-            }
-            if !open {
+            if !zones::group(ui, title, Some(items.len()), tip) {
                 continue;
             }
             for item in items {
@@ -340,41 +202,17 @@ fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
     let _ = view;
 }
 
-/// A row of the inspector: its word (what it is on hover), then what is
-/// laid in it.
-fn row(ui: &mut egui::Ui, word: &str, tip: &str, add: impl FnOnce(&mut egui::Ui)) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
-        ui.spacing_mut().button_padding = egui::vec2(6.0, 3.0);
-        let (rect, response) = ui.allocate_exact_size(Vec2::new(LABEL, ui.text_style_height(&TextStyle::Body) + 6.0), egui::Sense::hover());
-        ui.painter().text(rect.left_center(), egui::Align2::LEFT_CENTER, word, TextStyle::Small.resolve(ui.style()), QUIET);
-        if !tip.is_empty() {
-            response.on_hover_text(tip);
-        }
-        add(ui);
-    });
-}
-
-/// A number field with its letter before the number in its axis's colour
-/// (`axis` 0..2; else quiet): dragged sideways or typed.
+/// A number field of the level (`zones::number`): its value set as `set`
+/// (degrees to a tenth, voxels and hundredths whole).
 #[allow(clippy::too_many_arguments)]
 fn field(ui: &mut egui::Ui, shown: &mut Shown, letter: &str, axis: Option<usize>, value: f64, set: Field, speed: f64, range: std::ops::RangeInclusive<f64>, tip: &str, width: f32) {
-    let colour = axis.map_or(QUIET, |a| AXIS[a]);
-    let mut v = value;
-    // Voxels and hundredths whole; degrees to a tenth.
     let decimals = if matches!(set, Field::Turn | Field::Pitch | Field::Roll | Field::SunFrom | Field::SunHeight) { 1 } else { 0 };
-    let drag = egui::DragValue::new(&mut v).speed(speed).range(range).min_decimals(0).max_decimals(decimals).prefix(RichText::new(format!("{letter} ")).color(colour).small());
-    let response = ui.add_sized([width, ui.text_style_height(&TextStyle::Body) + 8.0], drag);
-    let response = if tip.is_empty() { response } else { response.on_hover_text(tip) };
-    if response.changed() && v != value {
-        shown.clicked.push(Action::Set(set, v));
-    }
+    zones::number(ui, shown, letter, axis, value, decimals, speed, range, tip, width, |v| Action::Set(set, v));
 }
 
 /// The inspector: the chosen one (or the level, with LEVEL or nothing
 /// chosen).
 fn inspector(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, shown: &mut Shown) {
-    ui.spacing_mut().item_spacing.y = 8.0;
     match ed.chosen.filter(|_| !view.level_settings) {
         Some(item) => chosen(ui, ed, view, figures, item, shown),
         None => level(ui, ed, shown),
@@ -474,9 +312,9 @@ fn chosen(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, item: 
             if t.model.is_some() {
                 piece_rows(ui, ed, figures, t, shown);
             } else if t.is_piece() {
-                // A light alone: its colour and reach.
+                // A light alone: its colour and radius.
                 if let Some(l) = t.lights.first() {
-                    row(ui, "LIGHT", "Its colour and how far it reaches", |ui| light_controls(ui, l, 0, shown));
+                    row(ui, "LIGHT", "Its colour and how far it shines (its radius)", |ui| light_controls(ui, l, 0, shown));
                 }
             }
         }
@@ -503,13 +341,13 @@ fn chosen(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, item: 
     }
 }
 
-/// A light's colour (the picker on a click), its reach.
+/// A light's colour (the picker on a click), its radius.
 fn light_controls(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, shown: &mut Shown) {
     let mut c = bytes_of(l.color.as_deref());
     if egui::color_picker::color_edit_button_srgb(ui, &mut c).on_hover_text("Its colour").changed() {
         shown.clicked.push(Action::LightColour(k as u8, c));
     }
-    field(ui, shown, "REACH", None, l.radius, Field::Radius(k), 1.0, 1.0..=2000.0, "How far it reaches, in voxels", 96.0);
+    field(ui, shown, "RADIUS", None, l.radius, Field::Radius(k), 1.0, 1.0..=2000.0, "How far it shines, in voxels (radius in the level's file)", 104.0);
 }
 
 /// A piece's rows: TURN, SOLID (and LIGHT + without one), its lights.
@@ -654,6 +492,12 @@ pub fn handles_on_screen(ed: &Editor, view: &View, screen: Rect) -> Option<(hand
 pub fn paint_handles(painter: &egui::Painter, ed: &Editor, view: &View, screen: Rect) {
     let Some((h, vp, _)) = handles_on_screen(ed, view, screen) else { return };
     let lit = ed.gripped().map(|g| g.drag.grip).or(view.grip_hover);
+    paint(painter, &h, vp, screen, lit);
+}
+
+/// Handles over the view (`painter`, the window's room `screen`), the one
+/// `lit` lit: the rings first, quieter behind, the faces, then the arrows.
+pub fn paint(painter: &egui::Painter, h: &handles::Handles, vp: glam::Mat4, screen: Rect, lit: Option<Grip>) {
     let size = glam::Vec2::new(screen.width(), screen.height());
     let at = |p: glam::Vec2| screen.min + Vec2::new(p.x, p.y);
     for s in h.shapes(vp, size) {
@@ -680,12 +524,12 @@ pub fn paint_handles(painter: &egui::Painter, ed: &Editor, view: &View, screen: 
     }
 }
 
-/// The buttons at the chosen one, over its handles (kept inside the
-/// view): MOVE or TURN, and what is done to it most, a word each.
+/// The buttons at the chosen one, over its handles (`zones::bar_at`):
+/// MOVE or TURN, and what is done to it most, a word each.
 fn beside(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut Shown) {
     let Some(item) = ed.chosen.filter(|_| ed.hanging.is_none() && ed.gripped().is_none() && ed.dragging().is_none() && !view.picker) else { return };
     let screen = ui.ctx().content_rect();
-    let Some((_, _, bounds)) = handles_on_screen(ed, view, screen) else { return };
+    let Some((h, vp, bounds)) = handles_on_screen(ed, view, screen) else { return };
     if !bounds.is_positive() {
         return;
     }
@@ -695,87 +539,25 @@ fn beside(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut S
         _ => false,
     };
     let turns = ed.can_turn();
-    // How wide the row is (as it was drawn last for this one; else as its
-    // words are in the panels' type), to keep it inside the view.
-    let kept: Option<(Item, bool, f32)> = ui.data(|d| d.get_temp(egui::Id::unique("stage beside width")));
-    let width = kept.filter(|k| k.0 == item && k.1 == turns).map_or(if piece { 345.0 } else if turns { 234.0 } else { 122.0 }, |k| k.2);
-    // Over its handles, beginning at the thing's middle and running to the
-    // right; slid left only as far as the view's edge asks (it never
-    // jumps to the other side), under the handles where the top is near.
-    let middle = handles_on_screen(ed, view, screen).and_then(|(h, vp, _)| handles::project(vp, glam::Vec2::new(screen.width(), screen.height()), h.centre)).map_or(bounds.center().x, |(p, _)| screen.left() + p.x);
-    let x = (middle - 16.0).min(free.right() - 8.0 - width).max(free.left() + 8.0);
-    let y = if bounds.top() - 38.0 >= free.top() + 8.0 { bounds.top() - 38.0 } else { (bounds.bottom() + 8.0).min(free.bottom() - 40.0) };
-    let at = Pos2::new(x, y);
+    let middle = handles::project(vp, glam::Vec2::new(screen.width(), screen.height()), h.centre).map_or(bounds.center().x, |(p, _)| screen.left() + p.x);
     let turning = view.turn_mode(ed);
-    let area = egui::Area::new(egui::Id::unique("stage beside")).order(egui::Order::Foreground).fixed_pos(at).show(ui.ctx(), |ui| {
-        egui::Frame::new().fill(Color32::from_rgba_unmultiplied(31, 29, 38, 235)).corner_radius(4.0).inner_margin(egui::Margin::same(4)).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                ui.spacing_mut().button_padding = egui::vec2(8.0, 3.0);
-                // MOVE (its arrows) or TURN (its rings), one lit.
-                if turns {
-                    for (word, turn, tip) in [("MOVE", false, "Arrows: move it along X, Y, Z (or drag it over the floor)"), ("TURN", true, "Rings: turn it about its sides and the upright")] {
-                        let mut job = egui::text::LayoutJob::default();
-                        job.append(word, 0.0, egui::TextFormat { font_id: TextStyle::Small.resolve(ui.style()), color: if turning == turn { ACCENT } else { TEXT }, ..Default::default() });
-                        if ui.add(egui::Button::new(job).selected(turning == turn)).on_hover_text(tip).clicked() {
-                            shown.clicked.push(Action::HandleMode(turn));
-                        }
-                    }
-                    ui.add_space(6.0);
-                }
-                small(ui, shown, "COPY", Action::CopyItem, "Copy it: the copy hangs on the mouse, a click sets it down  C");
-                small(ui, shown, "REMOVE", Action::RemoveItem, "Remove it (UNDO brings it back)  Del");
-                if piece {
-                    small(ui, shown, "EDIT", Action::EditModel, "Open its model in the voxel editor  E (or double click it)");
-                    let mut job = egui::text::LayoutJob::default();
-                    job.append("LIGHT", 0.0, egui::TextFormat { font_id: TextStyle::Small.resolve(ui.style()), color: if lights { ACCENT } else { TEXT }, ..Default::default() });
-                    let tip = if lights { "Its light: on. Click: off (again: on as it was)" } else { "Its light: off. Click: on" };
-                    if ui.add(egui::Button::new(job).selected(lights)).on_hover_text(tip).clicked() {
-                        shown.clicked.push(Action::SwitchLight);
-                    }
-                }
-            });
-        });
+    let guess = if piece { 345.0 } else if turns { 234.0 } else { 122.0 };
+    let rect = zones::bar_at(ui, &format!("stage beside {item:?} {turns}"), middle, bounds, free, guess, shown, |ui, shown| {
+        // MOVE (its arrows) or TURN (its rings), one lit.
+        if turns {
+            zones::small(ui, shown, "MOVE", Action::HandleMode(false), Some(!turning), "Arrows: move it along X, Y, Z (or drag it over the floor)");
+            zones::small(ui, shown, "TURN", Action::HandleMode(true), Some(turning), "Rings: turn it about its sides and the upright");
+            ui.add_space(6.0);
+        }
+        small(ui, shown, "COPY", Action::CopyItem, None, "Copy it: the copy hangs on the mouse, a click sets it down  C");
+        small(ui, shown, "REMOVE", Action::RemoveItem, None, "Remove it (UNDO brings it back)  Del");
+        if piece {
+            small(ui, shown, "EDIT", Action::EditModel, None, "Open its model in the voxel editor  E (or double click it)");
+            let tip = if lights { "Its light: on. Click: off (again: on as it was)" } else { "Its light: off. Click: on" };
+            small(ui, shown, "LIGHT", Action::SwitchLight, Some(lights), tip);
+        }
     });
-    shown.rects.push(area.response.rect);
-    ui.data_mut(|d| {
-        d.insert_temp(egui::Id::unique("stage beside rect"), area.response.rect);
-        d.insert_temp(egui::Id::unique("stage beside width"), (item, turns, area.response.rect.width()));
-    });
-    shown.keys.extend([('C', Action::CopyItem)]);
-    if piece {
-        shown.keys.push(('E', Action::EditModel));
-    }
-}
-
-/// A small button of a word, its tooltip naming its key.
-fn small(ui: &mut egui::Ui, shown: &mut Shown, word: &str, action: Action, tip: &str) {
-    if ui.button(RichText::new(word).small()).on_hover_text(tip).clicked() {
-        shown.clicked.push(action);
-    }
-}
-
-/// The view's own buttons in its lower right corner: turn it, nearer and
-/// further, the way back to the start; what the mouse does there, on hover.
-fn view_buttons(ui: &mut egui::Ui, free: Rect, shown: &mut Shown) {
-    let at = free.right_bottom() + Vec2::new(-12.0, -12.0);
-    let area = egui::Area::new(egui::Id::unique("stage view buttons")).order(egui::Order::Foreground).pivot(egui::Align2::RIGHT_BOTTOM).fixed_pos(at).show(ui.ctx(), |ui| {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 3.0;
-            ui.spacing_mut().button_padding = egui::vec2(8.0, 3.0);
-            for (word, action, tip) in [
-                ("<", Action::TurnView(-1), "Turn the view (or drag with the right mouse button)"),
-                (">", Action::TurnView(1), "Turn the view (or drag with the right mouse button)"),
-                ("-", Action::ZoomView(-1), "Further away (or the mouse wheel; the middle button drags the view along)"),
-                ("+", Action::ZoomView(1), "Nearer (or the mouse wheel; the middle button drags the view along)"),
-            ] {
-                if ui.button(RichText::new(word).color(QUIET)).on_hover_text(tip).clicked() {
-                    shown.clicked.push(action);
-                }
-            }
-        });
-    });
-    shown.rects.push(area.response.rect);
+    ui.data_mut(|d| d.insert_temp(egui::Id::unique("stage beside rect"), rect));
 }
 
 /// What a menu offers: on a thing what is done to it (a piece of a model
@@ -812,6 +594,8 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<(String, Action, Option<&'st
                 _ => {}
             }
         }
+        // (The voxel editor's: `shaping::menu_entries`.)
+        MenuOn::Voxel(..) | MenuOn::Frame(_) | MenuOn::Part(_) | MenuOn::Block(_) => {}
     }
     entries
 }
@@ -829,21 +613,9 @@ fn menu(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut Sho
     if entries.is_empty() {
         return;
     }
-    let area = egui::Area::new(egui::Id::unique("stage menu")).order(egui::Order::Foreground).fixed_pos(at).constrain_to(free).show(ui.ctx(), |ui| {
-        egui::Frame::popup(ui.style()).show(ui, |ui| {
-            ui.set_width(200.0);
-            ui.spacing_mut().item_spacing.y = 0.0;
-            for (word, action, key) in entries {
-                if crate::gui::row(ui, &word, TextStyle::Body, TEXT, false, key).clicked() {
-                    shown.clicked.push(action);
-                }
-            }
-        });
-    });
-    if area.response.clicked_elsewhere() && !matches!(m.on, MenuOn::Add) {
+    if zones::menu(ui, at, free, entries, shown) && !matches!(m.on, MenuOn::Add) {
         shown.clicked.push(Action::CloseMenu);
     }
-    shown.rects.push(area.response.rect);
 }
 
 /// ADD MODEL: the game's models as pictures with their names, over the
@@ -855,7 +627,8 @@ fn picker(ui: &mut egui::Ui, ed: &Editor, free: Rect, thumbs: &mut Thumbs, shown
     let at = Pos2::new(free.center().x - width / 2.0, free.top() + 24.0);
     let filter_id = egui::Id::unique("stage picker filter");
     let area = egui::Area::new(egui::Id::unique("stage picker")).order(egui::Order::Foreground).fixed_pos(at).show(ui.ctx(), |ui| {
-        egui::Frame::popup(ui.style()).inner_margin(egui::Margin::same(12)).show(ui, |ui| {
+        egui::Frame::popup(ui.style()).inner_margin(egui::Margin { left: 12, right: 0, top: 12, bottom: 12 }).show(ui, |ui| {
+            zones::flush(ui);
             ui.set_width(width);
             let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
             ui.horizontal(|ui| {
@@ -866,6 +639,7 @@ fn picker(ui: &mut egui::Ui, ed: &Editor, free: Rect, thumbs: &mut Thumbs, shown
                     ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(12.0);
                     if ui.button("×").on_hover_text("Close  Esc").clicked() {
                         shown.clicked.push(Action::AddModel);
                     }
