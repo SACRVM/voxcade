@@ -41,6 +41,7 @@ pub mod render;
 pub mod replay;
 pub mod rng;
 pub mod saves;
+pub(crate) mod scratch;
 pub mod scene;
 pub mod seating;
 pub mod settings;

@@ -168,7 +168,8 @@ mod tests {
 
     #[test]
     fn the_settings_come_back() {
-        let path = std::env::temp_dir().join(format!("voxcade-prefs-{}", std::process::id())).join("settings").join("ide.toml");
+        let scratch = crate::scratch::Scratch::new("prefs");
+        let path = scratch.join("settings").join("ide.toml");
         assert_eq!(Prefs::load(&path).unwrap(), Prefs::default());
         let mut prefs = Prefs { console: false, ..Prefs::default() };
         prefs.claude.with_ide = true;
@@ -186,7 +187,7 @@ mod tests {
     /// Claude's choices from before the settings were here come with them.
     #[test]
     fn claudes_choices_from_before_come_along() {
-        let ide = std::env::temp_dir().join(format!("voxcade-prefs-before-{}", std::process::id()));
+        let ide = crate::scratch::Scratch::new("prefs-before");
         std::fs::create_dir_all(&ide).unwrap();
         std::fs::write(ide.join("claude.toml"), "with_ide = true\nresume = true\nconnect = true\n[sessions]\nvoxkeep = \"81fd2a14\"\n").unwrap();
         let prefs = Prefs::load(&ide.join("settings").join("ide.toml")).unwrap();

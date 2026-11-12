@@ -453,7 +453,7 @@ mod tests {
     /// files are read through its files (sealed ones too).
     #[test]
     fn the_folder_holds_the_games_sounds() {
-        let dir = std::env::temp_dir().join(format!("voxcade-sounds-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("sounds");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sounds")).unwrap();
         std::fs::write(dir.join("sounds/coin.toml"), "wave = \"triangle\"\n").unwrap();

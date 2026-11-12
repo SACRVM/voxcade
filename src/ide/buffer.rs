@@ -170,19 +170,19 @@ fn modified(file: &Path) -> Option<SystemTime> {
 mod tests {
     use super::*;
 
-    fn folder(name: &str) -> (PathBuf, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("voxcade-buffer-{name}-{}", std::process::id()));
+    fn folder(name: &str) -> (PathBuf, PathBuf, crate::scratch::Scratch) {
+        let dir = crate::scratch::Scratch::new(&format!("buffer-{name}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("game")).unwrap();
         std::fs::write(dir.join("game/main.lua"), "function on_tick() end\n").unwrap();
-        (dir.join("game"), dir.join("journal"))
+        (dir.join("game"), dir.join("journal"), dir)
     }
 
     /// A change not yet saved is in the journal; the IDE gone before it
     /// saved, the file opened again has it back, and saves it.
     #[test]
     fn a_buffer_survives_a_crash_in_the_journal() {
-        let (game, journals) = folder("crash");
+        let (game, journals, _dir) = folder("crash");
         let mut b = Buffer::open(&game, "main.lua", &journals).unwrap();
         b.code.text = "function on_tick() player.state.score = 1 end\n".into();
         b.edited(Instant::now());
@@ -202,7 +202,7 @@ mod tests {
     /// nothing is saved over it meanwhile.
     #[test]
     fn an_outside_change_reloads_a_clean_buffer() {
-        let (game, journals) = folder("outside");
+        let (game, journals, _dir) = folder("outside");
         let mut b = Buffer::open(&game, "main.lua", &journals).unwrap();
         let write = |text: &str| {
             // Its time set ahead: written twice in a moment, a file may

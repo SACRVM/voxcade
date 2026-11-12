@@ -41,7 +41,7 @@ struct Game {
     guests: Vec<Visitor>,
     /// Where games ran apart, as the host found it.
     aparts: Vec<(Machine, Apart)>,
-    reports: PathBuf,
+    reports: crate::scratch::Scratch,
 }
 
 impl Game {
@@ -50,8 +50,8 @@ impl Game {
         session.set_clock(1_761_000_000);
         let keys = Script::new(parse_script(host_keys, session.actions()).unwrap());
         let mut host = Hosting::new(&session, mix(seed) | 1, "host").unwrap();
-        let reports = std::env::temp_dir().join(format!("voxcade-net-reports-{seed}-{}", std::process::id()));
-        host.reports_to = Some(reports.clone());
+        let reports = crate::scratch::Scratch::new(&format!("net-reports-{seed}"));
+        host.reports_to = Some(reports.to_path_buf());
         Self { net: SimNet::new(seed, link), now: 0, dir: dir.to_path_buf(), game: session, host, keys, owed: 0, last: None, next_frame: 0, held: false, guests: Vec::new(), aparts: Vec::new(), reports }
     }
 
@@ -106,7 +106,7 @@ impl Game {
                 }
                 v.next_frame += 16_667;
                 let dir = v.dir.clone().unwrap_or_else(|| self.dir.clone());
-                let reports = self.reports.clone();
+                let reports = self.reports.to_path_buf();
                 let join = v.join.get_or_insert_with(|| {
                     let mut j = Joining::new(&dir, Guest::new(0, [n as u8 + 1; 16], mix(n as u64), "guest", "test", now));
                     j.reports_to = Some(reports);
@@ -191,7 +191,8 @@ fn pulsar_plays_on_two_machines() {
     let recorded = game.agree();
     assert!(recorded.ticks >= 1450 && !recorded.seats.is_empty(), "{} ticks, seats {:?}", recorded.ticks, recorded.seats.len());
     assert_eq!(game.guests[0].locals.seat(1), Some(2), "the guest sits on seat 2");
-    let path = std::env::temp_dir().join(format!("voxcade-net-pulsar-{}.toml", std::process::id()));
+    let scratch = crate::scratch::Scratch::new("net-pulsar");
+    let path = scratch.join("run.toml");
     recorded.save(&path).unwrap();
     assert_eq!(play_through::<Lua>(&pulsar(), &Replay::load(&path).unwrap()).unwrap(), Verdict::Same, "the host's recording plays back");
 }
@@ -214,10 +215,8 @@ fn a_guest_coming_late_plays_the_run_through() {
 }
 
 /// A game for two that saves.
-fn saving_game() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("voxcade-net-saves-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn saving_game() -> crate::scratch::Scratch {
+    let dir = crate::scratch::Scratch::new("net-saves");
     std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 64, 64, 16 }\n  c.player.spawn = { 32, 32 }\n  c.actions = { \"jump\" }\n  c.players = 2\n  c.saves = { slots = 2 }\n  c.things.hero = {}\n  c.player.kind = \"hero\"\nend\n").unwrap();
     std::fs::write(
         dir.join("main.lua"),
@@ -304,14 +303,14 @@ fn what_was_played_differing_is_the_networks() {
 /// file before it plays.
 #[test]
 fn a_guest_whose_files_differ_is_told_which() {
-    let copy = std::env::temp_dir().join(format!("voxcade-net-copy-{}", std::process::id()));
+    let copy = crate::scratch::Scratch::new("net-copy");
     let _ = std::fs::remove_dir_all(&copy);
     copy_dir(&pulsar(), &copy);
     let main = std::fs::read_to_string(copy.join("main.lua")).unwrap();
     std::fs::write(copy.join("main.lua"), main + "\nlocal ANOTHER = 1\n").unwrap();
     let mut game = Game::new(&pulsar(), 6, Link::lan(), "fire:600");
     game.guest(0, "fire:600");
-    game.guests[0].dir = Some(copy.clone());
+    game.guests[0].dir = Some(copy.to_path_buf());
     game.to(3_000_000);
     let state = game.guests[0].join.as_ref().unwrap().state();
     assert!(matches!(&state, Joined::Gone(why) if why.contains("main.lua differs")), "{state:?}");
@@ -331,10 +330,8 @@ fn copy_dir(from: &Path, to: &Path) {
 
 /// A game for two that starts its level anew at ticks 300 and 600, where
 /// a check of the recording falls, with a fade.
-fn restarting_game() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("voxcade-net-fades-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn restarting_game() -> crate::scratch::Scratch {
+    let dir = crate::scratch::Scratch::new("net-fades");
     std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 64, 64, 16 }\n  c.player.spawn = { 32, 32 }\n  c.actions = { \"jump\" }\n  c.players = 2\n  c.things.hero = {}\n  c.player.kind = \"hero\"\n  c.transition.fade = 0.4\nend\n").unwrap();
     std::fs::write(
         dir.join("main.lua"),

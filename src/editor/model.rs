@@ -401,6 +401,15 @@ pub struct Editor {
     tuned: Option<(Option<Item>, Field)>,
     pub wants_model: Option<String>,
     pub scenes: Vec<String>,
+    /// The pieces' models' sizes by their files (`Figures`: what turning
+    /// one about its middle and keeping it on the floor need); the light
+    /// of the chosen piece chosen (its place among its lights: the arrows
+    /// move it in the model); the handle being dragged; lights a piece was
+    /// switched off from (by its place in the list), to switch on again.
+    pub sizes: std::collections::BTreeMap<String, IVec3>,
+    pub chosen_light: Option<usize>,
+    gripped: Option<room::Gripped>,
+    put_away: Vec<(usize, Vec<crate::grid::ThingLight>)>,
 }
 
 impl Editor {
@@ -462,6 +471,10 @@ impl Editor {
             tuned: None,
             wants_model: None,
             scenes: Vec::new(),
+            sizes: Default::default(),
+            chosen_light: None,
+            gripped: None,
+            put_away: Vec::new(),
         })
     }
 
@@ -536,6 +549,10 @@ impl Editor {
             tuned: None,
             wants_model: None,
             scenes: Vec::new(),
+            sizes: Default::default(),
+            chosen_light: None,
+            gripped: None,
+            put_away: Vec::new(),
         })
     }
 
@@ -902,6 +919,7 @@ impl Editor {
     pub fn release(&mut self) {
         self.moving = None;
         self.dragging = None;
+        self.gripped = None;
         let Some(stroke) = self.stroke.take() else { return };
         let step = match stroke {
             // Strokes keep the level or a block; nothing is taken out.
@@ -1382,6 +1400,12 @@ impl Editor {
         for t in &mut self.level.things {
             if let Some(f) = t.facing.filter(|f| f.off_grid()) {
                 t.facing = Some(crate::grid::Facing::Way(crate::grid::Way::nearest(f.bearing())));
+            }
+            // Tipped: the nearest quarter (a tie goes up), where it stands.
+            for d in [&mut t.pitch, &mut t.roll] {
+                if d.rem_euclid(90.0) != 0.0 {
+                    *d = crate::grid::Way::nearest(*d).bearing();
+                }
             }
         }
         self.release();
@@ -1893,8 +1917,8 @@ pub(crate) mod tests {
     /// A game folder with a 3 by 2 by 2 level of one block (a solid cube,
     /// grey) in cell (0, 0, 0), and a tileset of two tiles (1 red, 2
     /// nothing).
-    pub(crate) fn folder(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("voxcade-editor-{name}-{}", std::process::id()));
+    pub(crate) fn folder(name: &str) -> crate::scratch::Scratch {
+        let dir = crate::scratch::Scratch::new(&format!("editor-{name}"));
         let _ = std::fs::remove_dir_all(&dir);
         let mut level = GridLevel::new(N, IVec3::new(3, 2, 2));
         level.blocks.push(BlockEntry { name: "1".into(), kind: Kind::Solid });
@@ -2292,10 +2316,8 @@ pub(crate) mod tests {
 
     /// A model of two frames 3 by 2 by 5, a glass colour among its
     /// colours: a column in the near row, its top glass in the first frame.
-    fn model_folder(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("voxcade-editor-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+    fn model_folder(name: &str) -> crate::scratch::Scratch {
+        let dir = crate::scratch::Scratch::new(&format!("editor-{name}"));
         let frame = |top: char| format!("[[frame]]\nlayers = \"\"\"\n{}...\n.{top}.\n\"\"\"\n", "...\n.a.\n\n".repeat(4));
         let text = format!("format = \"{}\"\nsize = [3, 2, 5]\n\n[palette]\na = \"#c82828\"\nb = {{ color = \"#78c8ff\", glass = 0.5 }}\n\n{}\n{}", crate::vvx::FORMAT, frame('b'), frame('a'));
         std::fs::write(dir.join("thing.vvx"), text).unwrap();

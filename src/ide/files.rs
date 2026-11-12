@@ -154,7 +154,7 @@ mod tests {
     /// listed.
     #[test]
     fn a_game_folder_splits_into_logic_and_assets() {
-        let dir = std::env::temp_dir().join(format!("voxcade-ide-files-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("ide-files");
         let _ = std::fs::remove_dir_all(&dir);
         for (path, text) in [
             ("main.lua", "-- see levels/README.txt\nlocal levels = read(\"levels/one.txt\")"),
@@ -206,7 +206,7 @@ mod tests {
     /// ignores is not listed either, and a `!` brings a file back.
     #[test]
     fn the_list_leaves_out_what_is_ignored() {
-        let dir = std::env::temp_dir().join(format!("voxcade-ide-ignored-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("ide-ignored");
         let _ = std::fs::remove_dir_all(&dir);
         for (path, text) in [
             ("main.lua", ""),

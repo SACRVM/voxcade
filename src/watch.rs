@@ -92,7 +92,7 @@ mod tests {
     /// A file new, changed (once it stopped changing) or gone is told.
     #[test]
     fn a_file_gone_is_told_too() {
-        let dir = std::env::temp_dir().join(format!("voxcade-watch-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("watch");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sounds")).unwrap();
         std::fs::write(dir.join("sounds/zap.toml"), "freq = 600\n").unwrap();

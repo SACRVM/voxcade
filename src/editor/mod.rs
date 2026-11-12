@@ -9,8 +9,10 @@
 
 pub mod figure;
 pub mod frames;
+pub mod handles;
 pub mod model;
 pub mod panels;
+pub mod stage;
 pub mod view;
 
 use std::path::{Path, PathBuf};
@@ -19,7 +21,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 
 use crate::game::Game;
-use model::{Editor, Layer, Scope};
+use model::{Editor, Item, Layer, Scope};
 use view::{Figures, Shown, View};
 
 /// How `voxcade edit --shot` draws the editor without a window.
@@ -64,6 +66,18 @@ pub struct ShotOptions {
     pub game_view: bool,
     pub picker: bool,
     pub lights_off: bool,
+    /// Among the pieces, after the changes: the chosen piece's light (its
+    /// place among its lights) chosen; the menu of an item open (by its
+    /// name; `floor`: of the floor under the middle of the view), ADD's
+    /// menu open, LEVEL pressed; a handle under the mouse (`arrow-x`,
+    /// `ring-z`, `face-y`, `face-y-low` ...).
+    pub choose_light: Option<usize>,
+    pub menu: Option<String>,
+    pub add_menu: bool,
+    pub level_settings: bool,
+    pub hover: Option<String>,
+    /// The chosen one's handles in TURN (its rings), else MOVE.
+    pub turn_handles: bool,
 }
 
 /// A change `--shot` tries among the pieces, to see what it does: a model
@@ -78,7 +92,8 @@ pub enum ShotOp {
     Add(String, Option<glam::IVec3>),
     Hang(String, Option<glam::IVec3>),
     Move(String, Option<glam::IVec3>),
-    Turn(String, f64),
+    /// Turned by degrees about an axis (0 x: pitch, 1 y: roll, 2 z: round).
+    Turn(String, f64, usize),
     Remove(String),
     Copy(String, Option<glam::IVec3>),
     Rename(String, String),
@@ -139,7 +154,13 @@ fn try_op(ed: &mut Editor, figures: &Figures, op: &ShotOp) -> Result<()> {
                 ed.set_field(Field::At(axis), at[axis] as f64);
             }
         }
-        ShotOp::Turn(name, by) => {
+        ShotOp::Turn(name, by, axis) if *axis < 2 => {
+            let item = find(ed, name)?;
+            ed.choose_item(Some(item));
+            anyhow::ensure!(ed.chosen_thing().is_some_and(|t| t.model.is_some()), "--turn {name} --about x or y: only a piece of a model tips");
+            anyhow::ensure!(ed.tip(*axis, *by), "--turn {name} --by {by}: this game turns things on the grid, in quarter turns (c.camera.turns = \"free\" for any angle; a solid piece keeps to them too)");
+        }
+        ShotOp::Turn(name, by, _) => {
             let item = find(ed, name)?;
             ed.choose_item(Some(item));
             if by.rem_euclid(90.0) == 0.0 {
@@ -299,6 +320,8 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         anyhow::ensure!(ed.question.is_none(), "the level asks first whether to align its things (--align)");
     }
     for op in &opts.ops {
+        figures.follow(dir, &ed);
+        ed.sizes = figures.sizes();
         try_op(&mut ed, &figures, op)?;
         figures.follow(dir, &ed);
     }
@@ -308,12 +331,25 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     }
     view.aspect = aspect;
     // (Where the panels will lie, for the view's middle: as in a window.)
-    view.inset = glam::Vec2::new(panels::COLUMN / opts.width as f32, panels::BAR / opts.height as f32);
+    let (w, h) = (opts.width as f32, opts.height as f32);
+    view.set_room(if ed.among_pieces() { [stage::OUTLINER / w, stage::TOP / h, stage::INSPECTOR / w, 0.0] } else { [0.0, 0.0, panels::COLUMN / w, panels::BAR / h] });
     if opts.game_view {
-        view.game_view(&ed);
+        view::act(&mut ed, &mut view, view::Action::GameView);
     }
     if opts.choose.is_some() {
         view.bring_into_view(&ed);
+    }
+    if let Some(k) = opts.choose_light {
+        ed.choose_light(Some(k));
+        anyhow::ensure!(ed.chosen_light == Some(k), "--choose-light {k}: the chosen piece has no light {k} (they count from 0)");
+    }
+    view.level_settings = opts.level_settings;
+    if opts.turn_handles {
+        view::act(&mut ed, &mut view, view::Action::HandleMode(true));
+        anyhow::ensure!(view.turn_mode(&ed), "--handles turn: what is chosen does not turn (a piece of a model or a place does)");
+    }
+    if opts.add_menu {
+        view::act(&mut ed, &mut view, view::Action::AddMenu);
     }
     if let Some((yaw, pitch)) = opts.view {
         let orbit = view.orbit(ed.scope);
@@ -334,14 +370,17 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     let (mut input, mut thumbs, mut drawn) = (crate::gui::input::Input::default(), panels::Thumbs::default(), panels::Shown::default());
     let mut last = None;
     // With --held or --stamp twice: the shape set, then all drawn again.
-    for pass in 0..=(opts.stamp || opts.held.is_some()) as usize {
+    let again = opts.stamp || opts.held.is_some() || opts.menu.is_some() || opts.hover.is_some();
+    for pass in 0..=again as usize {
         for step in 0..120 {
             let mut raw = input.take([opts.width, opts.height], 1.0, 1.0);
             raw.time = Some((pass * 120 + step) as f64 / 60.0);
+            ed.sizes = figures.sizes();
             let out = ctx.run_ui(raw, |ui| {
                 drawn = panels::ui(ui, &ed, &view, &figures, &mut thumbs);
-                panels::joints(ui, &ed, &view, &drawn.rects);
-                panels::marks(ui, &ed, &view, &figures, &drawn.rects);
+                let free = room_of(&drawn, ui.ctx().content_rect()).0;
+                panels::joints(ui, &ed, &view, free);
+                panels::marks(ui, &ed, &view, &figures, free);
             });
             let settled = step >= 2 && out.viewport_output.get(&egui::ViewportId::ROOT).is_none_or(|v| v.repaint_delay == Duration::MAX);
             if settled {
@@ -351,9 +390,44 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
             let (device, queue, _) = canvas.gpu();
             painter.skip(device, queue, out);
         }
-        view.inset = inset(&drawn.rects, ctx.content_rect());
+        view.set_room(room_of(&drawn, ctx.content_rect()).1);
         // The mouse in the middle of the view.
         let (mx, my) = (0.5 - view.inset.x / 2.0, 0.5 - view.inset.y / 2.0);
+        // Among the pieces after the panels are laid out: a menu open, a
+        // handle under the mouse (the room is known now).
+        if pass == 0 && ed.among_pieces() {
+            let screen = ctx.content_rect();
+            if let Some(name) = &opts.menu {
+                let at = egui::pos2(screen.left() + mx * screen.width(), screen.top() + my * screen.height());
+                if name == "floor" {
+                    let (origin, dir) = view.voxel_ray(aspect, mx, my);
+                    let spot = view::floor_spot(&shown.world, origin, dir).context("--menu floor: no floor under the middle of the view")?;
+                    view.menu = Some(view::Menu { on: view::MenuOn::Floor(spot), at: [at.x, at.y] });
+                } else {
+                    let item = ed.find(name).with_context(|| format!("--menu {name}: the level has nothing called so"))?;
+                    // At the thing as it stands on the screen.
+                    let at = stage::handles_on_screen(&ed, &view, screen).map_or(at, |(_, _, b)| b.center());
+                    view::act(&mut ed, &mut view, view::Action::OpenMenu(item, [at.x, at.y]));
+                }
+            }
+            if let Some(word) = &opts.hover {
+                let axis = |c: &str| ["x", "y", "z"].iter().position(|a| *a == c).with_context(|| format!("--hover {word}: arrow-x, ring-z, face-y, face-y-low and the like"));
+                let parts: Vec<&str> = word.split('-').collect();
+                view.grip_hover = Some(match parts[..] {
+                    ["arrow", a] => handles::Grip::Arrow(axis(a)?),
+                    ["ring", a] => handles::Grip::Ring(axis(a)?),
+                    ["face", a] => handles::Grip::Face(axis(a)?, true),
+                    ["face", a, "low"] => handles::Grip::Face(axis(a)?, false),
+                    _ => bail!("--hover {word}: arrow-x, ring-z, face-y, face-y-low and the like"),
+                });
+            }
+            if (opts.menu.is_some() || opts.hover.is_some())
+                && let Some(out) = last.take()
+            {
+                let (device, queue, _) = canvas.gpu();
+                painter.skip(device, queue, out);
+            }
+        }
         if among_things(&ed) {
             (view.spot, view.under) = view.aim_things(&ed, &shown, &figures, aspect, mx, my);
         } else {
@@ -404,8 +478,17 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         keys,
         aim
     );
-    // Among the pieces: what is set down, the chosen one first.
+    // Among the pieces: what is set down, the chosen one first; where the
+    // handles and the buttons beside the chosen one lie (to count how far
+    // the mouse goes).
     if ed.among_pieces() {
+        let screen = ctx.content_rect();
+        if let Some((_, _, b)) = stage::handles_on_screen(&ed, &view, screen) {
+            println!("handles: {:.0},{:.0} to {:.0},{:.0}", b.left(), b.top(), b.right(), b.bottom());
+        }
+        if let Some(r) = ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::unique("stage beside rect"))).filter(|_| ed.chosen.is_some()) {
+            println!("buttons: {:.0},{:.0} to {:.0},{:.0}", r.left(), r.top(), r.right(), r.bottom());
+        }
         let lights: usize = ed.level.things.iter().map(|t| t.lights.len()).sum();
         println!("pieces: {} things ({lights} lights), {} places, {} areas, the level {:?} voxels", ed.level.things.len(), ed.level.places.len(), ed.level.areas.len(), ed.level.voxels().to_array());
         if let Some(item) = ed.chosen {
@@ -414,6 +497,10 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
                 _ => None,
             };
             let facing = t.and_then(|t| t.facing).map_or(String::new(), |f| format!(", facing {f:?}"));
+            let facing = match t {
+                Some(t) if t.pitch != 0.0 || t.roll != 0.0 => format!("{facing}, pitch {}, roll {}", t.pitch, t.roll),
+                _ => facing,
+            };
             let light = t.map_or(String::new(), |t| t.lights.iter().map(|l| format!(", light {l:?}")).collect());
             let light = if t.is_some_and(|t| t.solid) { format!("{light}, solid") } else { light };
             println!("chosen: {} at {:?}{facing}{light}", ed.label_of(item).0, ed.at_of(item).unwrap_or_default());
@@ -445,12 +532,19 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     Ok(())
 }
 
-/// How much of the window (`screen`, egui's points) the panels at `rects`
-/// take: the right one across, the bottom one up.
-pub(crate) fn inset(rects: &[egui::Rect], screen: egui::Rect) -> glam::Vec2 {
-    match rects {
-        [right, bottom, ..] => glam::Vec2::new(right.width() / screen.width().max(1.0), bottom.height() / screen.height().max(1.0)),
-        _ => glam::Vec2::ZERO,
+/// The room the panels a frame drew (`drawn`) leave the 3D view in the
+/// window (`screen`, egui's points), and as shares of it (left, top,
+/// right, bottom: `View::set_room`): among the pieces between the
+/// outliner, the top bar and the inspector, else left of the column and
+/// above the bar.
+pub(crate) fn room_of(drawn: &panels::Shown, screen: egui::Rect) -> (egui::Rect, [f32; 4]) {
+    let (w, h) = (screen.width().max(1.0), screen.height().max(1.0));
+    match (drawn.free, &drawn.rects[..]) {
+        (Some(free), _) => (free, [(free.left() - screen.left()) / w, (free.top() - screen.top()) / h, (screen.right() - free.right()) / w, (screen.bottom() - free.bottom()) / h]),
+        // The column on the right and the bar along the bottom, measured
+        // by their own sizes as before.
+        (None, [right, bottom, ..]) => (egui::Rect::from_min_max(screen.min, egui::pos2(right.left(), bottom.top())), [0.0, 0.0, right.width() / w, bottom.height() / h]),
+        (None, _) => (screen, [0.0; 4]),
     }
 }
 
@@ -537,7 +631,13 @@ fn pieces_key(ed: &mut Editor, view: &mut View, key: sdl3::keyboard::Keycode, ke
     let right = glam::IVec3::new(ahead.y, -ahead.x, 0);
     match key {
         Keycode::Escape => {
-            if view.renaming.is_some() {
+            // A menu, a drag (all back as it was), the name typed, what
+            // hangs on the mouse, ADD MODEL's pictures, the choice: the
+            // nearest goes first.
+            if view.menu.is_some() {
+                view.menu = None;
+            } else if ed.cancel_drag() {
+            } else if view.renaming.is_some() {
                 view.renaming = None;
             } else if !ed.drop_hanging() {
                 if view.picker {
@@ -833,18 +933,33 @@ impl EditorWindow {
                 let (dx, dy) = screen.share(xrel, yrel);
                 if mousestate.middle() || (mousestate.right() && shift) {
                     view.orbit(ed.scope).pan(dx, dy, aspect);
+                    view.before_game = None;
                 } else if mousestate.right() {
                     view.orbit(ed.scope).turn(dx, dy);
+                    view.before_game = None;
+                }
+                // The right button dragged: no click, no menu.
+                if let Some((px, py)) = view.right_press
+                    && (px - x).abs() + (py - y).abs() > 5.0
+                {
+                    view.right_press = None;
                 }
                 let over = over(x, y) && !mousestate.left();
                 if ed.among_pieces() {
                     let (origin, dir) = view.voxel_ray(aspect, sx, sy);
-                    if mousestate.left() && ed.dragging().is_some() {
+                    let room = gui.content_rect();
+                    let mouse = input.point(x, y);
+                    if mousestate.left() && ed.gripped().is_some() {
+                        let vp = view.view_proj(&view.level, room.width() / room.height().max(1.0));
+                        ed.drag_grip(vp, glam::Vec2::new(room.width(), room.height()), glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top()), (origin, dir));
+                    } else if mousestate.left() && ed.dragging().is_some() {
                         ed.drag_item(origin, dir);
                     } else if ed.hanging.is_some() {
                         ed.hang_at(if over { None } else { view::floor_spot(&shown.world, origin, dir) });
                     }
-                    view.over = if over || ed.hanging.is_some() { None } else { view::item_along(ed, figures, origin, dir) };
+                    let busy = over || ed.hanging.is_some() || mousestate.left();
+                    view.grip_hover = if busy { None } else { stage::grip_under(ed, view, room, mouse) };
+                    view.over = if busy || view.grip_hover.is_some() { None } else { view::item_along(ed, figures, origin, dir) };
                 } else if among_things(ed) {
                     (view.spot, view.under) = if over { (None, None) } else { view.aim_things(ed, shown, figures, aspect, sx, sy) };
                     if mousestate.left() {
@@ -870,15 +985,31 @@ impl EditorWindow {
             Event::MouseButtonDown { mouse_btn: MouseButton::Left, clicks, x, y, .. } if !over(x, y) => {
                 let (sx, sy) = screen.share(x, y);
                 if ed.among_pieces() {
-                    // What hangs on the mouse set down; else the item under
-                    // it chosen, to be dragged (nothing: none chosen).
+                    // What hangs on the mouse set down; a handle of the
+                    // chosen one grabbed; else the item under it chosen, to
+                    // be dragged (nothing: none chosen, the level shown); a
+                    // double click opens a piece's model.
                     let (origin, dir) = view.voxel_ray(aspect, sx, sy);
+                    let room = gui.content_rect();
+                    let mouse = input.point(x, y);
+                    view.menu = None;
+                    let picked = view::pick_along(ed, figures, origin, dir);
                     if ed.hanging.is_some() {
                         ed.hang_at(view::floor_spot(&shown.world, origin, dir));
                         ed.set_down();
-                    } else if clicks < 2 {
-                        ed.press_item(view::item_along(ed, figures, origin, dir), origin, dir);
-                        view.renaming = None;
+                    } else if clicks >= 2 {
+                        if let Some((item @ Item::Thing(i), _)) = picked
+                            && ed.level.things[i].model.is_some()
+                        {
+                            ed.choose_item(Some(item));
+                            ed.edit_model();
+                        }
+                    } else if let (Some(grip), Some((h, vp, _))) = (stage::grip_under(ed, view, room, mouse), stage::handles_on_screen(ed, view, room)) {
+                        ed.grab(grip, h, vp, glam::Vec2::new(room.width(), room.height()), glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top()), (origin, dir));
+                    } else {
+                        ed.press_item(picked.map(|(item, _)| item), origin, dir);
+                        ed.choose_light(picked.and_then(|(_, light)| light));
+                        (view.renaming, view.level_settings) = (None, false);
                     }
                 } else if among_things(ed) {
                     // A second click of a double click would put down or
@@ -915,8 +1046,39 @@ impl EditorWindow {
                 }
             }
             Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } => ed.release(),
+            // A right click (not a drag) among the pieces: the menu of what
+            // is under the mouse (chosen), or of the floor there.
+            Event::MouseButtonDown { mouse_btn: MouseButton::Right, x, y, .. } => view.right_press = (!over(x, y) && ed.among_pieces()).then_some((x, y)),
+            Event::MouseButtonUp { mouse_btn: MouseButton::Right, x, y, .. } => {
+                if view.right_press.take().is_some() && ed.among_pieces() && ed.hanging.is_none() {
+                    let (sx, sy) = screen.share(x, y);
+                    let (origin, dir) = view.voxel_ray(aspect, sx, sy);
+                    let at = input.point(x, y);
+                    let room = gui.content_rect();
+                    // On the chosen one's handles (or within them, where
+                    // the ray meets nothing): its menu.
+                    let on_handles = stage::grip_under(ed, view, room, at).is_some() || stage::handles_on_screen(ed, view, room).is_some_and(|(_, _, b)| b.contains(at));
+                    match (view::pick_along(ed, figures, origin, dir), ed.chosen) {
+                        (_, Some(item)) if stage::grip_under(ed, view, room, at).is_some() => view::act(ed, view, view::Action::OpenMenu(item, [at.x, at.y])),
+                        (Some((item, light)), _) => {
+                            let light = if ed.chosen == Some(item) { ed.chosen_light.or(light) } else { light };
+                            view::act(ed, view, view::Action::OpenMenu(item, [at.x, at.y]));
+                            ed.choose_light(light);
+                        }
+                        (None, Some(item)) if on_handles => view::act(ed, view, view::Action::OpenMenu(item, [at.x, at.y])),
+                        (None, _) => {
+                            if let Some(spot) = view::floor_spot(&shown.world, origin, dir) {
+                                view.menu = Some(view::Menu { on: view::MenuOn::Floor(spot), at: [at.x, at.y] });
+                            }
+                        }
+                    }
+                }
+            }
             // Over the panels the wheel scrolls them (egui), else it zooms.
-            Event::MouseWheel { y, mouse_x, mouse_y, .. } if !over(mouse_x, mouse_y) => view.orbit(ed.scope).zoom_by(y),
+            Event::MouseWheel { y, mouse_x, mouse_y, .. } if !over(mouse_x, mouse_y) => {
+                view.orbit(ed.scope).zoom_by(y);
+                view.before_game = None;
+            }
             _ => {}
         }
         // The view goes with a model's voxels when its box grew on the
@@ -945,11 +1107,13 @@ impl EditorWindow {
         ed.follow_figure();
         view.follow_origin(ed);
         figures.follow(&ed.dir, ed);
+        ed.sizes = figures.sizes();
         view.aspect = screen.aspect();
         let out = gui.run_ui(raw, |ui| {
             drawn = panels::ui(ui, ed, view, figures, thumbs);
-            panels::joints(ui, ed, view, &drawn.rects);
-            panels::marks(ui, ed, view, figures, &drawn.rects);
+            let free = room_of(&drawn, ui.ctx().content_rect()).0;
+            panels::joints(ui, ed, view, free);
+            panels::marks(ui, ed, view, figures, free);
             if let Some(tip) = marker {
                 crate::gui::marker::paint(ui.ctx(), tip);
             }
@@ -961,7 +1125,7 @@ impl EditorWindow {
                 Err(problem) => view.rename_problem = Some(problem),
             }
         }
-        for action in drawn.clicked {
+        for action in std::mem::take(&mut drawn.clicked) {
             // DON'T OPEN: the window goes, the file untouched.
             if action == view::Action::DontOpen {
                 self.closing = true;
@@ -969,7 +1133,7 @@ impl EditorWindow {
             }
             view::act(ed, view, action);
         }
-        view.inset = inset(&drawn.rects, gui.content_rect());
+        view.set_room(room_of(&drawn, gui.content_rect()).1);
         (*keys, *rects) = (drawn.keys, drawn.rects);
         let delay = out.viewport_output.get(&egui::ViewportId::ROOT).map_or(Duration::MAX, |v| v.repaint_delay);
         // A picture asked for is taken once the panels have settled.
@@ -1020,7 +1184,7 @@ mod tests {
     /// The editor's test level with the sketch's things, places and areas
     /// after its cells (`grid::tests::PIECES`), in a game folder whose
     /// `conf.lua` adds `conf`.
-    fn game_with_pieces(name: &str, conf: &str, pieces: &str) -> std::path::PathBuf {
+    fn game_with_pieces(name: &str, conf: &str, pieces: &str) -> crate::scratch::Scratch {
         let dir = model::tests::folder(name);
         let level = std::fs::read_to_string(dir.join("level.toml")).unwrap();
         let set_down = pieces.split_once("\n\n").unwrap().1;

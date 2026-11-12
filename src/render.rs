@@ -95,10 +95,21 @@ pub fn turned_centre(origin: Vec3, local: Vec3, shift: Vec3, rot: Quat) -> Vec3 
 }
 
 /// The shift that turns a model by `rot` about the point `about` (from the
-/// pivot cell's minimum corner): a whole model's, the pivot cell's middle
-/// at half its height.
+/// pivot cell's minimum corner): a whole model's, `turn_centre`.
 pub fn turn_about(rot: Quat, about: Vec3) -> Vec3 {
     about - rot * about
+}
+
+/// Where a whole model of `size` turns freely (from the pivot cell's
+/// minimum corner): the middle of the voxel over the pivot cell at half the
+/// model's height, rounded down (a model 20 tall: the middle of its 11th
+/// voxel, 10.5 up; 21 tall: 10.5 too). A voxel's middle, not the line
+/// between two, so that a quarter turn about any axis (a cupboard laid on
+/// its side, stood on its head) puts every voxel on the grid again: what a
+/// solid piece needs (`session::piece_cells`). Turns round the upright
+/// axis do not depend on the height.
+pub fn turn_centre(size: IVec3) -> Vec3 {
+    Vec3::new(0.5, 0.5, (size.z / 2) as f32 + 0.5)
 }
 
 /// Whether a draw leaves the grid: turned, or shifted (a figure's part).

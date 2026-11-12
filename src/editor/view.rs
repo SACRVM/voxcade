@@ -120,6 +120,39 @@ pub struct View {
     /// name typed was refused.
     pub renaming: Option<Item>,
     pub rename_problem: Option<String>,
+    /// Among the pieces: the handle under the mouse (lit), the menu open
+    /// (a right click's, or ADD's on the top bar), the camera before GAME
+    /// VIEW (to go back to; None: GAME VIEW is off), the level's own
+    /// settings shown in the inspector (LEVEL), the spot a model picked
+    /// from ADD MODEL goes to (a right click's on the floor), where the
+    /// right button went down (a click without dragging opens the menu).
+    pub grip_hover: Option<super::handles::Grip>,
+    /// TURN was pressed for this item (its rings shown, not its arrows);
+    /// any other choice is in MOVE.
+    pub turning: Option<Item>,
+    pub menu: Option<Menu>,
+    pub before_game: Option<Orbit>,
+    pub level_settings: bool,
+    pub picker_spot: Option<IVec3>,
+    pub right_press: Option<(f32, f32)>,
+    /// How much of the window the panels leave the view: shares of it on
+    /// the left, at the top, on the right and at the bottom.
+    pub room: [f32; 4],
+}
+
+/// A menu over the view: on what (a thing, empty floor at a spot, or the
+/// top bar's ADD) and where its corner is (egui's points).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Menu {
+    pub on: MenuOn,
+    pub at: [f32; 2],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MenuOn {
+    Item(Item),
+    Floor(IVec3),
+    Add,
 }
 
 /// How fast a model's frames play (on the editor's panel, in the IDE's
@@ -231,6 +264,14 @@ impl View {
             over: None,
             renaming: None,
             rename_problem: None,
+            grip_hover: None,
+            turning: None,
+            menu: None,
+            before_game: None,
+            level_settings: false,
+            picker_spot: None,
+            right_press: None,
+            room: [0.0; 4],
         };
         // A level without blocks: the whole room as the game looks.
         if !ed.level.has_grid() {
@@ -243,6 +284,19 @@ impl View {
         view
     }
 
+    /// Whether the chosen one shows its rings (TURN), else its arrows.
+    pub fn turn_mode(&self, ed: &Editor) -> bool {
+        self.turning.is_some() && self.turning == ed.chosen && ed.can_turn()
+    }
+
+    /// The room the panels leave the view (shares of the window: left,
+    /// top, right, bottom): the view's middle is its middle.
+    pub fn set_room(&mut self, room: [f32; 4]) {
+        let [l, t, r, b] = room;
+        self.room = room;
+        self.inset = glam::Vec2::new(r - l, b - t);
+    }
+
     /// The chosen item brought into the view if it lies outside the room
     /// the panels leave (chosen in the list): the view moved to have it in
     /// the middle, not turned.
@@ -251,7 +305,8 @@ impl View {
         let p = IVec3::from(at).as_vec3() + Vec3::new(0.5, 0.5, 0.0);
         let c = self.view_proj(&self.level, self.aspect) * p.extend(1.0);
         let (x, y) = (c.x / c.w, c.y / c.w);
-        let inside = c.w > 0.0 && x > -0.9 && x < 0.9 - 2.0 * self.inset.x && y < 0.9 && y > -0.9 + 2.0 * self.inset.y;
+        let [l, t, r, b] = self.room;
+        let inside = c.w > 0.0 && x > -0.9 + 2.0 * l && x < 0.9 - 2.0 * r && y < 0.9 - 2.0 * t && y > -0.9 + 2.0 * b;
         if !inside {
             self.level.target = p;
         }
@@ -268,7 +323,7 @@ impl View {
         };
         let room = ed.level.voxels().as_vec3();
         // As wide in the room the panels leave as the game's whole window.
-        let width = width / (1.0 - self.inset.x).max(0.3);
+        let width = width / (1.0 - self.room[0] - self.room[2]).max(0.3);
         self.level = Orbit { yaw: g.yaw, pitch: g.pitch, zoom: width.max(4.0), target: Vec3::new(room.x / 2.0, room.y / 2.0, 0.0), fov: g.fov };
     }
 
@@ -548,6 +603,11 @@ impl Figures {
         Self(figures, BTreeMap::new())
     }
 
+    /// The sizes of the models loaded, by their files (`Editor::sizes`).
+    pub fn sizes(&self) -> BTreeMap<String, IVec3> {
+        self.1.iter().map(|(f, m)| (f.clone(), m.size)).collect()
+    }
+
     /// The model of the file `model` (its path in the game folder), if it
     /// was loaded (`with_pieces`, `load_models`).
     pub fn model(&self, model: &str) -> Option<&crate::vox::VoxModel> {
@@ -791,6 +851,31 @@ pub enum Action {
     DayAsGame,
     GameView,
     Lights,
+    /// Among the pieces: a thing's menu opened (on the one in the list
+    /// right-clicked, at egui's point), closed; ADD's menu on the top bar
+    /// opened or closed; the chosen piece's lights on or off; a light of
+    /// the chosen piece chosen (None: the piece); a light, place or area
+    /// (0, 1, 2) set down at a spot of the floor, ADD MODEL's picker opened
+    /// for a spot; the level's own settings in the inspector; a place
+    /// facing a way; the chosen piece turned by quarters about an axis (0
+    /// pitch, 1 roll, 2 round).
+    OpenMenu(Item, [f32; 2]),
+    CloseMenu,
+    AddMenu,
+    SwitchLight,
+    ChooseLight(Option<u8>),
+    AddAt(u8, IVec3),
+    AddModelAt(IVec3),
+    LevelSettings,
+    FacePlace(crate::grid::Way),
+    Tip(u8, i8),
+    /// The view's own buttons: turned an eighth round (1 clockwise seen
+    /// from above, -1 back), nearer (1) or further (-1).
+    TurnView(i8),
+    ZoomView(i8),
+    /// The chosen one's handles: MOVE (false, its arrows) or TURN (true,
+    /// its rings).
+    HandleMode(bool),
 }
 
 /// The key an action answers to (the panels show it beside its word): a
@@ -826,6 +911,7 @@ pub fn key_of(action: Action) -> Option<char> {
         Action::AddLight => 'L',
         Action::AddPlace => 'P',
         Action::TurnItem(1) => 'T',
+        Action::EditModel => 'E',
         Action::CopyItem | Action::CopyFrame => 'C',
         Action::GameView => 'G',
         Action::DeleteFrame => 'D',
@@ -917,18 +1003,63 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::Forget(c) => ed.forget_colour(c),
         Action::ChooseItem(item) => {
             ed.choose_item(item);
-            view.renaming = None;
+            (view.renaming, view.menu, view.level_settings) = (None, None, false);
             view.bring_into_view(ed);
         }
         Action::AddModel => {
             view.picker = !view.picker;
+            (view.menu, view.picker_spot) = (None, None);
             ed.drop_hanging();
         }
         Action::Piece(i) => {
             if let Some(file) = ed.model_choices().get(i) {
                 ed.add_piece(file);
+                // Picked for a spot of the floor (a right click's): set
+                // down there at once.
+                if let Some(spot) = view.picker_spot.take() {
+                    ed.hang_at(Some(spot));
+                    ed.set_down();
+                }
             }
             view.picker = false;
+        }
+        Action::OpenMenu(item, at) => {
+            if ed.chosen != Some(item) {
+                ed.choose_item(Some(item));
+            }
+            view.menu = Some(Menu { on: MenuOn::Item(item), at });
+        }
+        Action::CloseMenu => view.menu = None,
+        Action::AddMenu => view.menu = if view.menu.is_some_and(|m| m.on == MenuOn::Add) { None } else { Some(Menu { on: MenuOn::Add, at: [0.0; 2] }) },
+        Action::SwitchLight => ed.switch_light(),
+        Action::ChooseLight(k) => ed.choose_light(k.map(usize::from)),
+        Action::AddAt(what, spot) => {
+            match what {
+                0 => ed.add_light(),
+                1 => ed.add_place(),
+                _ => ed.add_area(),
+            }
+            if let Some(h) = ed.hanging.clone() {
+                ed.add_at(h, spot);
+            }
+        }
+        Action::AddModelAt(spot) => {
+            ed.drop_hanging();
+            (view.picker, view.picker_spot) = (true, Some(spot));
+        }
+        Action::LevelSettings => view.level_settings = !view.level_settings,
+        Action::FacePlace(way) => ed.face_place(way),
+        Action::HandleMode(turn) => view.turning = if turn { ed.chosen } else { None },
+        Action::TurnView(by) => {
+            view.level.yaw = (view.level.yaw + 45.0 * by as f32).rem_euclid(360.0);
+            view.before_game = None;
+        }
+        Action::ZoomView(by) => {
+            view.level.zoom_by(by as f32 * 2.0);
+            view.before_game = None;
+        }
+        Action::Tip(axis, quarters) => {
+            ed.tip(axis as usize, quarters as f64 * 90.0);
         }
         Action::AddLight => ed.add_light(),
         Action::AddPlace => ed.add_place(),
@@ -946,13 +1077,24 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::DayOwn => ed.day_own(),
         Action::DayColour(sun, [r, g, b]) => ed.set_day_colour(sun, &format!("#{r:02x}{g:02x}{b:02x}")),
         Action::DayAsGame => ed.day_as_game(),
-        Action::GameView => view.game_view(ed),
+        // GAME VIEW on and off: off, the camera as it was before.
+        Action::GameView => match view.before_game.take() {
+            Some(orbit) => view.level = orbit,
+            None => {
+                view.before_game = Some(view.level);
+                view.game_view(ed);
+            }
+        },
         Action::Lights => view.lights = !view.lights,
     }
     // What hangs on the mouse goes when the picker opens or the level is
-    // left; a name being typed when another is chosen.
+    // left; a name being typed when another is chosen; a menu once one of
+    // its entries is taken.
     if view.picker || !ed.among_pieces() {
         ed.drop_hanging();
+    }
+    if !matches!(action, Action::OpenMenu(..) | Action::AddMenu) {
+        view.menu = None;
     }
     // The figure made again at once (a part chosen, its rig set), and the
     // view kept on it.
@@ -1023,7 +1165,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
             // A piece as the game draws it, at its very turn.
             if let Some(m) = t.model.as_deref().and_then(|m| figures.model(m)) {
                 let start = instances.len();
-                let (look, rot) = room::turn_of(t.facing);
+                let (look, rot) = room::turn_of(t);
                 crate::session::model_cubes(m, 0, IVec3::from(t.at).as_vec3(), look, rot, &mut instances, &mut glass);
                 if let Some(tint) = tint {
                     for c in &mut instances[start..] {
@@ -1039,7 +1181,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         if let (Some(Hanging::Thing(t)), Some(_)) = (&ed.hanging, ed.hang_spot)
             && let Some(m) = t.model.as_deref().and_then(|m| figures.model(m))
         {
-            let (look, rot) = room::turn_of(t.facing);
+            let (look, rot) = room::turn_of(t);
             let mut cubes = Vec::new();
             crate::session::model_cubes(m, 0, IVec3::from(t.at).as_vec3(), look, rot, &mut cubes, &mut glass);
             glass.extend(cubes.into_iter().map(|c| Instance { fx: [c.fx[0], 130, c.fx[2], c.fx[3]], ..c }));
@@ -1184,7 +1326,7 @@ pub fn lights(ed: &Editor, middle: Vec3) -> Vec<crate::render::Light> {
         .level
         .things
         .iter()
-        .flat_map(|t| room::light_spots(t).map(|(pos, l)| crate::render::Light { pos, radius: l.radius as f32, color: l.rgb() }))
+        .flat_map(|t| room::light_spots(t, ed.size_of(t)).map(|(pos, l)| crate::render::Light { pos, radius: l.radius as f32, color: l.rgb() }))
         .collect();
     lights.sort_by(|a, b| a.pos.distance_squared(middle).total_cmp(&b.pos.distance_squared(middle)));
     lights.truncate(crate::render::MAX_LIGHTS);
@@ -1195,40 +1337,51 @@ pub fn lights(ed: &Editor, middle: Vec3) -> Vec<crate::render::Light> {
 /// thing of a kind by its body, a light alone or a place by a small box
 /// round it; an area only where nothing else is met.
 pub fn item_along(ed: &Editor, figures: &Figures, origin: Vec3, dir: Vec3) -> Option<Item> {
-    let mut best: Option<(f32, Item)> = None;
-    fn take(best: &mut Option<(f32, Item)>, d: Option<f32>, item: Item) {
+    pick_along(ed, figures, origin, dir).map(|(item, _)| item)
+}
+
+/// `item_along`, and a piece's own light when the ray meets that first (a
+/// small box round where it shines from): its place among the lights.
+pub fn pick_along(ed: &Editor, figures: &Figures, origin: Vec3, dir: Vec3) -> Option<(Item, Option<usize>)> {
+    let mut best: Option<(f32, (Item, Option<usize>))> = None;
+    fn take(best: &mut Option<(f32, (Item, Option<usize>))>, d: Option<f32>, item: Item, light: Option<usize>) {
         if let Some(d) = d
             && best.is_none_or(|(b, _)| d < b)
         {
-            *best = Some((d, item));
+            *best = Some((d, (item, light)));
         }
     }
     for (i, t) in ed.level.things.iter().enumerate() {
         let at = IVec3::from(t.at).as_vec3();
         if !t.is_piece() {
             let (lo, hi) = figures.bounds(&t.kind);
-            take(&mut best, ray_box(origin, dir, at + lo.as_vec3(), at + hi.as_vec3()), Item::Thing(i));
+            take(&mut best, ray_box(origin, dir, at + lo.as_vec3(), at + hi.as_vec3()), Item::Thing(i), None);
             continue;
         }
+        let size = ed.size_of(t);
         if t.model.is_none() {
-            let spot = room::light_spots(t).next().map_or(at, |(spot, _)| spot);
-            take(&mut best, ray_box(origin, dir, spot - 3.0, spot + 3.0), Item::Thing(i));
+            let spot = room::light_spots(t, size).next().map_or(at, |(spot, _)| spot);
+            take(&mut best, ray_box(origin, dir, spot - 3.0, spot + 3.0), Item::Thing(i), None);
             continue;
         }
-        // Into the piece's own unturned room: about its pivot's middle.
+        // Into the piece's own unturned room: about where it turns.
         let (lo, hi) = figures.piece_box(t);
-        let middle = Vec3::new(0.5, 0.5, 0.0);
+        let about = room::centre_in(size);
         let back = room::rotation_of(t).inverse();
-        take(&mut best, ray_box(middle + back * (origin - at - middle), back * dir, lo, hi), Item::Thing(i));
+        take(&mut best, ray_box(about + back * (origin - at - about), back * dir, lo, hi), Item::Thing(i), None);
+        // Its lights before it, a little nearer (they sit on or in it).
+        for (k, (spot, _)) in room::light_spots(t, size).enumerate() {
+            take(&mut best, ray_box(origin, dir, spot - 1.5, spot + 1.5).map(|d| d - 2.0), Item::Thing(i), Some(k));
+        }
     }
     for (i, p) in ed.level.places.iter().enumerate() {
         let at = IVec3::from(p.at).as_vec3() + Vec3::new(0.5, 0.5, 0.0);
-        take(&mut best, ray_box(origin, dir, at - Vec3::new(4.0, 4.0, 0.0), at + Vec3::new(4.0, 4.0, 10.0)), Item::Place(i));
+        take(&mut best, ray_box(origin, dir, at - Vec3::new(4.0, 4.0, 0.0), at + Vec3::new(4.0, 4.0, 10.0)), Item::Place(i), None);
     }
     if best.is_none() {
         for (i, a) in ed.level.areas.iter().enumerate() {
             let at = IVec3::from(a.at).as_vec3();
-            take(&mut best, ray_box(origin, dir, at, at + IVec3::from(a.size).as_vec3()), Item::Area(i));
+            take(&mut best, ray_box(origin, dir, at, at + IVec3::from(a.size).as_vec3()), Item::Area(i), None);
         }
     }
     best.map(|(_, i)| i)
@@ -1301,25 +1454,33 @@ pub fn marks(ed: &Editor, view: &View, figures: &Figures, aspect: f32, inset: gl
         let at = IVec3::from(t.at).as_vec3();
         let tone = item.map_or(Tone::Plain, tone_of);
         let marked = item.is_none() || tone == Tone::Chosen || item == view.over;
+        let size = ed.size_of(t);
         if (t.model.is_some() || !t.is_piece()) && marked {
-            let (lo, hi, turn) = if t.is_piece() {
+            let (lo, hi, turn, about) = if t.is_piece() {
                 let (lo, hi) = figures.piece_box(t);
-                (lo, hi, room::rotation_of(t))
+                (lo, hi, room::rotation_of(t), room::centre_in(size))
             } else {
                 let (lo, hi) = figures.bounds(&t.kind);
-                (lo.as_vec3(), hi.as_vec3(), Quat::IDENTITY)
+                (lo.as_vec3(), hi.as_vec3(), Quat::IDENTITY, Vec3::ZERO)
             };
-            let shown = if item == view.over && tone != Tone::Chosen && item.is_some() { Tone::Quiet } else { tone };
-            boxed(&mut out, &mut line, at + lo, at + hi, turn, at + Vec3::new(0.5, 0.5, 0.0), shown);
-            if tone == Tone::Chosen
-                && let Some(p) = on_screen(at + Vec3::new(0.5, 0.5, hi.z + 2.0))
+            let hovered = item == view.over && tone != Tone::Chosen && item.is_some();
+            let shown = if hovered { Tone::Quiet } else { tone };
+            boxed(&mut out, &mut line, at + lo, at + hi, turn, at + about, shown);
+            // Its name over it, chosen or under the mouse: the top of its
+            // box as it lies.
+            let top = (0..8).map(|k| (turn * (Vec3::new(if k & 1 == 0 { lo.x } else { hi.x }, if k & 2 == 0 { lo.y } else { hi.y }, if k & 4 == 0 { lo.z } else { hi.z }) - about)).z + about.z).fold(f32::MIN, f32::max);
+            // (The chosen one's name is in the outliner and the inspector:
+            // over it here it would lie under its handles.)
+            if hovered
+                && let Some(p) = on_screen(at + Vec3::new(0.5, 0.5, top + 2.0))
             {
-                out.names.push((p, ed.label_of(item.expect("chosen")).0, Tone::Chosen));
+                out.names.push((p, ed.label_of(item.expect("hovered")).0, Tone::Plain));
             }
         }
         // A light: a ring in its colour where it shines from; a light
         // alone with its line down to the floor and its name.
-        for (spot, l) in room::light_spots(t) {
+        for (k, (spot, l)) in room::light_spots(t, size).enumerate() {
+            let tone = if tone == Tone::Chosen && ed.chosen_light.is_some_and(|c| c != k) { Tone::Plain } else { tone };
             let rgb = l.rgb().map(|c| (c * 255.0) as u8);
             let alone = t.model.is_none();
             if alone {
@@ -1328,7 +1489,7 @@ pub fn marks(ed: &Editor, view: &View, figures: &Figures, aspect: f32, inset: gl
             if let Some(p) = on_screen(spot) {
                 let size = if alone { 7.0 } else { 5.0 };
                 out.rings.push((p, if tone == Tone::Chosen { size + 2.0 } else { size }, Some(rgb), tone));
-                if alone && let Some(item) = item {
+                if alone && tone != Tone::Chosen && let Some(item) = item {
                     out.names.push((p + glam::Vec2::new(0.0, -0.025), ed.label_of(item).0, tone));
                 }
             }
@@ -1477,9 +1638,7 @@ mod tests {
     /// shine as the game puts them, the 16 nearest the view's middle.
     #[test]
     fn the_mouse_finds_pieces_and_lights_shine() {
-        let dir = std::env::temp_dir().join(format!("voxcade-view-pieces-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::scratch::Scratch::new("view-pieces");
         std::fs::write(dir.join("room.toml"), crate::grid::tests::PIECES).unwrap();
         let mut ed = Editor::open(&dir, "room.toml").unwrap();
         let figures = Figures::load(&dir, &GameConfig::default());

@@ -450,7 +450,7 @@ mod tests {
     /// bridge, and come back as its answer; without an IDE they say so.
     #[test]
     fn mcp_forwards_to_a_running_ide() {
-        let (bridge, lock) = crate::ide::bridge::tests::running("mcp");
+        let (bridge, lock, _scratch) = crate::ide::bridge::tests::running("mcp");
         let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let ide = std::thread::spawn({
             let done = done.clone();

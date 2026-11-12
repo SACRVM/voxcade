@@ -20,10 +20,8 @@ end
 "#;
 
 /// A game folder with this `main.lua` (and the conf above).
-fn folder(name: &str, main: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("voxcade-lua-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn folder(name: &str, main: &str) -> crate::scratch::Scratch {
+    let dir = crate::scratch::Scratch::new(&format!("lua-{name}"));
     std::fs::write(dir.join("conf.lua"), CONF).unwrap();
     std::fs::write(dir.join("main.lua"), main).unwrap();
     dir
@@ -404,9 +402,7 @@ fn saving_a_block_rebuilds_the_level() {
     use crate::grid::{BlockEntry, Cell, GridLevel, Kind};
     use crate::session::Reloaded;
     use glam::IVec3;
-    let dir = std::env::temp_dir().join(format!("voxcade-lua-blocks-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::scratch::Scratch::new("lua-blocks");
     std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.toml\" }\n  c.player.spawn = { 2, 2 }\nend\n").unwrap();
     std::fs::write(dir.join("main.lua"), "function on_world_start() end\n").unwrap();
     let mut level = GridLevel::new(4, IVec3::new(2, 1, 1));
@@ -478,10 +474,8 @@ fn a_restored_lua_game_plays_on_the_same() {
 
 /// A game folder on the Arena's ground with the shooter kit, its own
 /// `conf.lua` lines and this `main.lua`.
-fn kit_folder(name: &str, conf: &str, main: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("voxcade-kit-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn kit_folder(name: &str, conf: &str, main: &str) -> crate::scratch::Scratch {
+    let dir = crate::scratch::Scratch::new(&format!("kit-{name}"));
     let arena = Path::new(env!("CARGO_MANIFEST_DIR")).join("games/arena");
     for file in ["world.vvx", "player.vvx"] {
         std::fs::copy(arena.join(file), dir.join(file)).unwrap();
@@ -548,7 +542,7 @@ end
 /// it, and the songs' beats count for replays.
 #[test]
 fn a_game_goes_with_its_music() {
-    let dir = std::env::temp_dir().join(format!("voxcade-lua-music-{}", std::process::id()));
+    let dir = crate::scratch::Scratch::new("lua-music");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("music")).unwrap();
     std::fs::write(dir.join("music/drive.mml"), "#tempo 120\n@a square duty=0.5\nA: c1 c1 c1 c1\n").unwrap();
@@ -654,7 +648,7 @@ end
 /// plays the player's song again (More Blood's gunship song so).
 #[test]
 fn the_player_gets_the_music_back() {
-    let dir = std::env::temp_dir().join(format!("voxcade-lua-music-back-{}", std::process::id()));
+    let dir = crate::scratch::Scratch::new("lua-music-back");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("music")).unwrap();
     std::fs::write(dir.join("music/mine.mml"), "#tempo 120\nA: c1\n").unwrap();
@@ -680,9 +674,7 @@ fn the_player_gets_the_music_back() {
 /// decibels; outside that it is a mistake that names it.
 #[test]
 fn the_drive_is_from_0_to_12() {
-    let dir = std::env::temp_dir().join(format!("voxcade-lua-drive-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::scratch::Scratch::new("lua-drive");
     std::fs::write(dir.join("main.lua"), "function on_tick() end\n").unwrap();
     for bad in ["13", "-1", "0/0"] {
         std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.world.size = {{ 16, 16, 8 }}\n  c.audio.drive = {bad}\nend\n")).unwrap();
@@ -757,7 +749,8 @@ fn a_sound_file_comes_in_while_playing() {
     assert_eq!(g.reload(&dir.join("gone.vvx")).unwrap(), crate::session::Reloaded::Nothing);
 
     // Sealed: the sounds are its files', whatever the folder holds since.
-    let store = crate::files::Store::at(&std::env::temp_dir().join(format!("voxcade-sound-store-{}", std::process::id())));
+    let store_dir = crate::scratch::Scratch::new("sound-store");
+    let store = crate::files::Store::at(&store_dir);
     let (_, files) = crate::files::Files::seal(&dir, &store).unwrap();
     let mut sealed = Session::<LuaGame>::load_from(files, crate::saves::Slots::default()).unwrap();
     assert!(sealed.sounds.get("boom").is_some() && sealed.sounds.get("zap").is_some(), "its files' sounds");
@@ -1179,10 +1172,8 @@ fn check_draws_every_tick() {
 
 /// A game folder with a world made in code (`c.world.size`), this
 /// `main.lua` and these files beside it.
-fn code_world(name: &str, main: &str, files: &[(&str, &str)]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("voxcade-code-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn code_world(name: &str, main: &str, files: &[(&str, &str)]) -> crate::scratch::Scratch {
+    let dir = crate::scratch::Scratch::new(&format!("code-{name}"));
     std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 32, 32, 8 }\n  c.things.box = {}\nend\n").unwrap();
     std::fs::write(dir.join("main.lua"), main).unwrap();
     for (file, text) in files {
@@ -1560,9 +1551,7 @@ fn a_kit_stands_on_a_world_the_script_built() {
     let g = game_in(&shooter);
     assert_eq!(g.game.focus().map(|b| b.pos.z), Some(4.0), "on the sand, not in it");
 
-    let dir = std::env::temp_dir().join(format!("voxcade-lua-built-platformer-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::scratch::Scratch::new("lua-built-platformer");
     std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3, lives = 3, taken = 0 }\n  c.world.size = { 96, 16, 48 }\n  c.things.hero = { behaviour = \"hero\", height = 14 }\nend\n").unwrap();
     std::fs::write(dir.join("main.lua"), "function on_level_start(how)\n  level:fill(0, 0, 0, 95, 15, 3, \"#776655\")\n  level.state.hero = level:spawn(\"hero\", 40, 8)\nend\nfunction on_tick()\n  world.state.alive = level:thing(level.state.hero) ~= nil\nend\n").unwrap();
     let mut g = game_in(&dir);
@@ -1578,9 +1567,7 @@ fn a_kit_stands_on_a_world_the_script_built() {
 /// it back; switched on, it follows the keys again; a walker off stands.
 #[test]
 fn the_code_switches_rules_off_and_launches() {
-    let dir = std::env::temp_dir().join(format!("voxcade-lua-enable-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::scratch::Scratch::new("lua-enable");
     std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3 }\n  c.world.size = { 128, 16, 64 }\n  c.things.hero = { behaviour = \"hero\", height = 14 }\n  c.things.slug = { behaviour = \"walker\", height = 6 }\nend\n").unwrap();
     let main = r##"
 function on_level_start(how)
@@ -1896,11 +1883,11 @@ type LevelPlaces<'a> = (&'a str, &'a [(&'a str, [i32; 3])]);
 
 /// A game folder of levels of blocks in `levels/`, each a floor of rock
 /// four cells long with these places, and this `main.lua`.
-fn levels_folder(name: &str, main: &str, levels: &[LevelPlaces]) -> PathBuf {
+fn levels_folder(name: &str, main: &str, levels: &[LevelPlaces]) -> crate::scratch::Scratch {
     use crate::blocks::{self, Block};
     use crate::grid::{BlockEntry, Cell, GridLevel, Kind, Place};
     use glam::IVec3;
-    let dir = std::env::temp_dir().join(format!("voxcade-levels-{name}-{}", std::process::id()));
+    let dir = crate::scratch::Scratch::new(&format!("levels-{name}"));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("levels")).unwrap();
     std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.toml\" }\n  c.player.spawn = { 2, 2 }\n  c.things.box = {}\nend\n").unwrap();
@@ -2150,7 +2137,7 @@ fn a_restart_stands_the_player_on_what_was_built() {
 /// A platformer level of blocks in `levels/a.toml`: a floor of rock, the
 /// hero's marker at x 3 and these things more; `conf.lua` with these lines
 /// more.
-fn platformer_levels(name: &str, main: &str, conf: &str, more: &[(&str, [i32; 3])]) -> PathBuf {
+fn platformer_levels(name: &str, main: &str, conf: &str, more: &[(&str, [i32; 3])]) -> crate::scratch::Scratch {
     let dir = levels_folder(name, main, &[("a", &[])]);
     std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = {{ hp = 3, lives = 3, taken = 0 }}\n  c.world.blocks = {{ file = \"level.toml\" }}\n  c.things.hero = {{ behaviour = \"hero\", height = 6 }}\n  c.things.door = {{ behaviour = \"prop\", stands = true }}\n{conf}end\n")).unwrap();
     let path = dir.join("levels/a.toml");
@@ -2432,7 +2419,7 @@ fn the_player_outlasts_reloads_and_config_changes() {
 }
 
 /// A game of two levels with a player's figure and two save slots.
-fn saves_folder(name: &str, main: &str) -> PathBuf {
+fn saves_folder(name: &str, main: &str) -> crate::scratch::Scratch {
     let dir = levels_folder(name, main, &[("a", &[]), ("b", &[])]);
     std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.toml\" }\n  c.player.spawn = { 2, 2 }\n  c.player.kind = \"hero\"\n  c.things.hero = {}\n  c.things.box = {}\n  c.saves = { slots = 2 }\nend\n").unwrap();
     dir
@@ -2620,7 +2607,7 @@ end
 
 /// A game of one level of blocks (16 voxels long) with the player's figure
 /// at x 2, a door at x 12 and these lines more in `conf.lua`.
-fn events_folder(name: &str, main: &str, conf: &str) -> PathBuf {
+fn events_folder(name: &str, main: &str, conf: &str) -> crate::scratch::Scratch {
     let dir = levels_folder(name, main, &[("a", &[])]);
     std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.world.blocks = {{ file = \"level.toml\" }}\n  c.player.spawn = {{ 2, 2 }}\n  c.player.kind = \"hero\"\n  c.things.hero = {{ hp = 3 }}\n  c.things.door = {{}}\n  c.things.box = {{ hp = 2 }}\n{conf}end\n")).unwrap();
     let path = dir.join("levels/a.toml");
@@ -3537,7 +3524,7 @@ fn cubes_glide_when_the_camera_does() {
 
 /// A game for two (`docs/game-model.md`, "Several players"): a hero each,
 /// walked by its own keys; joins and leaves noted in `world.state`.
-fn two_players(name: &str, main: &str) -> Session<LuaGame> {
+fn two_players(name: &str, main: &str) -> (Session<LuaGame>, crate::scratch::Scratch) {
     let dir = folder(name, main);
     std::fs::write(
         dir.join("conf.lua"),
@@ -3545,7 +3532,7 @@ fn two_players(name: &str, main: &str) -> Session<LuaGame> {
     )
     .unwrap();
     std::fs::write(dir.join("main.lua"), main).unwrap();
-    game_in(&dir)
+    (game_in(&dir), dir)
 }
 
 const TWO_PLAYERS: &str = r#"
@@ -3575,7 +3562,7 @@ end
 /// and comes back with its state.
 #[test]
 fn a_second_player_takes_a_seat_and_leaves() {
-    let mut g = two_players("seats", TWO_PLAYERS);
+    let (mut g, _dir) = two_players("seats", TWO_PLAYERS);
     let said = |g: &mut Session<LuaGame>, code: &str| g.game.eval(code).unwrap();
     assert_eq!(said(&mut g, "return #world.players, world.players[1] == player, world.players[2]"), "2\ttrue\tfalse");
     steps(&mut g, 2);
@@ -3607,7 +3594,7 @@ fn a_second_player_takes_a_seat_and_leaves() {
 #[test]
 fn a_run_of_two_replays_the_same() {
     use crate::replay::{Recorder, check, check_going_back};
-    let mut g = two_players("seats-replay", TWO_PLAYERS);
+    let (mut g, _dir) = two_players("seats-replay", TWO_PLAYERS);
     let dir = g.dir.clone();
     let mut recorder = Recorder::default();
     let right = Input { right: true, ..Input::default() };
@@ -3640,7 +3627,7 @@ fn a_run_of_two_replays_the_same() {
 /// the middle of them, each in whole voxels against it.
 #[test]
 fn the_hold_keeps_two_players_together() {
-    let mut g = two_players("hold", TWO_PLAYERS);
+    let (mut g, _dir) = two_players("hold", TWO_PLAYERS);
     let conf = std::fs::read_to_string(g.dir.join("conf.lua")).unwrap().replace("c.players = 2", "c.players = 2\n  c.camera.hold = { 20 }");
     std::fs::write(g.dir.join("conf.lua"), conf).unwrap();
     g = game_in(&g.dir.clone());
@@ -3688,7 +3675,7 @@ function on_draw(frame)
   frame:text(#frame.players .. " at this screen", 1, 1)
 end
 "#;
-    let mut g = two_players("seats-interact", main);
+    let (mut g, _dir) = two_players("seats-interact", main);
     let conf = std::fs::read_to_string(g.dir.join("conf.lua")).unwrap().replace("c.actions = { \"jump\", \"fire\" }", "c.actions = { \"jump\", \"interact\" }\n  c.things.miner = {}");
     std::fs::write(g.dir.join("conf.lua"), conf).unwrap();
     g = game_in(&g.dir.clone());
@@ -3711,7 +3698,7 @@ end
 /// second seat away, its state waits and comes back with whoever takes it.
 #[test]
 fn a_save_keeps_every_seat() {
-    let mut g = two_players("seats-save", TWO_PLAYERS);
+    let (mut g, _dir) = two_players("seats-save", TWO_PLAYERS);
     let said = |g: &mut Session<LuaGame>, code: &str| g.game.eval(code).unwrap();
     g.set_seat(2, Some(Input::default()));
     steps(&mut g, 2);
@@ -3719,7 +3706,7 @@ fn a_save_keeps_every_seat() {
     steps(&mut g, 2);
     let text = g.game.save().unwrap();
     assert!(text.contains("world.players[2]"), "{text}");
-    let mut from = two_players("seats-save-into", TWO_PLAYERS);
+    let (mut from, _dir) = two_players("seats-save-into", TWO_PLAYERS);
     from.start_from(&text).unwrap();
     assert_eq!(halted(&from), "");
     assert_eq!(said(&mut from, "return world.players[2], world.state.best.seat, world.state.best.state.score"), "false\t2\t70", "away, its state kept");
@@ -3753,7 +3740,7 @@ end
 }
 
 /// A copy of one of the templates in a temporary folder.
-fn template_copy(template: &str, name: &str) -> PathBuf {
+fn template_copy(template: &str, name: &str) -> crate::scratch::Scratch {
     fn copy(from: &Path, to: &Path) {
         std::fs::create_dir_all(to).unwrap();
         for entry in std::fs::read_dir(from).unwrap().flatten() {
@@ -3765,7 +3752,7 @@ fn template_copy(template: &str, name: &str) -> PathBuf {
             }
         }
     }
-    let dir = std::env::temp_dir().join(format!("voxcade-lua-{name}-{}", std::process::id()));
+    let dir = crate::scratch::Scratch::new(&format!("lua-{name}"));
     let _ = std::fs::remove_dir_all(&dir);
     copy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("templates").join(template), &dir);
     dir
@@ -3994,12 +3981,12 @@ fn the_hash_in_parts_names_where_two_games_differ() {
 fn ticks_played_again_whole_give_the_same_run() {
     use crate::replay::Recorder;
     let saving = |name: &str| {
-        let g = two_players(name, TWO_PLAYERS);
+        let (g, dir) = two_players(name, TWO_PLAYERS);
         let conf = std::fs::read_to_string(g.dir.join("conf.lua")).unwrap().replace("c.players = 2", "c.players = 2\n  c.saves = { slots = 2 }");
         std::fs::write(g.dir.join("conf.lua"), conf).unwrap();
-        game_in(&g.dir)
+        (game_in(&g.dir), dir)
     };
-    let mut a = saving("feed-a");
+    let (mut a, _a_dir) = saving("feed-a");
     let (mut ticks, mut hashes, mut recorder) = (Vec::new(), Vec::new(), Recorder::default());
     a.set_clock(1_761_000_000);
     for n in 0..240u64 {
@@ -4023,7 +4010,7 @@ fn ticks_played_again_whole_give_the_same_run() {
         recorder.record(&a);
     }
     assert_eq!(halted(&a), "");
-    let mut b = saving("feed-b");
+    let (mut b, _b_dir) = saving("feed-b");
     b.set_clock(5);
     let mut again = Recorder::default();
     for (n, tick) in ticks.iter().enumerate() {
@@ -4058,7 +4045,7 @@ function on_draw(frame)
   frame:text(#frame.players .. " " .. (first and first.seat or 0) .. " {fire} " .. controls:key("fire") .. " " .. world.language, 1, 1)
 end
 "#;
-    let mut g = two_players("local", main);
+    let (mut g, _dir) = two_players("local", main);
     let conf = std::fs::read_to_string(g.dir.join("conf.lua")).unwrap().replace("c.players = 2", "c.players = 2\n  c.languages = { \"en\", \"de\" }");
     std::fs::write(g.dir.join("conf.lua"), conf).unwrap();
     g = game_in(&g.dir.clone());
@@ -4221,8 +4208,8 @@ size = [16, 16, 20]
 
 /// A game whose one level is `level` (a level of pieces: no `c.world`),
 /// its player a thing of a kind without a model, `conf` added.
-fn pieces_folder(name: &str, conf: &str, level: &str, main: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("voxcade-pieces-{name}-{}", std::process::id()));
+fn pieces_folder(name: &str, conf: &str, level: &str, main: &str) -> crate::scratch::Scratch {
+    let dir = crate::scratch::Scratch::new(&format!("pieces-{name}"));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("levels")).unwrap();
     std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.things.hero = {{}}\n  c.player.kind = \"hero\"\n  c.saves = {{ slots = 2 }}\n{conf}end\n")).unwrap();
@@ -4484,7 +4471,7 @@ fn a_solid_piece_keeps_to_the_quarter_turns() {
 /// its side.
 #[test]
 fn the_hero_stands_on_a_solid_piece() {
-    let dir = std::env::temp_dir().join(format!("voxcade-pieces-solid-hero-{}", std::process::id()));
+    let dir = crate::scratch::Scratch::new("pieces-solid-hero");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("levels")).unwrap();
     std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3 }\n  c.things.hero = { behaviour = \"hero\", height = 6 }\nend\n").unwrap();

@@ -873,7 +873,7 @@ mod tests {
     /// one touching none on the nearest. Without names, models are frames.
     #[test]
     fn a_figure_hangs_each_part_on_what_it_touches() {
-        let dir = std::env::temp_dir().join(format!("voxcade-figure-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("figure");
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("figure.vox");
         write_figure(&file, &[("head", IVec3::new(4, 4, 4), IVec3::new(0, 0, 8)), ("body", IVec3::new(4, 4, 8), IVec3::ZERO), ("arm", IVec3::new(1, 2, 6), IVec3::new(4, 1, 2)), ("hat", IVec3::new(2, 2, 1), IVec3::new(1, 1, 14))]);
@@ -897,7 +897,7 @@ mod tests {
     /// second; voxels of two parts in one place are counted.
     #[test]
     fn a_figure_tells_how_its_parts_hang() {
-        let dir = std::env::temp_dir().join(format!("voxcade-hung-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("hung");
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("figure.vox");
         // A scarf as much on the body as on the head, a hand off by two,
@@ -1003,7 +1003,7 @@ mod tests {
     /// hang as the rules find; the root is the biggest naming no parent.
     #[test]
     fn a_rig_set_in_the_file_wins() {
-        let dir = std::env::temp_dir().join(format!("voxcade-rig-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("rig");
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("figure.vox");
         // A body, a head on it, an arm held apart from the body and a hand
@@ -1039,7 +1039,7 @@ mod tests {
     /// in a ring, a joint that is not three numbers.
     #[test]
     fn a_rig_that_cannot_be_is_said_plainly() {
-        let dir = std::env::temp_dir().join(format!("voxcade-rig-wrong-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("rig-wrong");
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("figure.vox");
         let parts = [("body", IVec3::new(4, 4, 8), IVec3::ZERO), ("head", IVec3::new(4, 4, 4), IVec3::new(0, 0, 8)), ("arm", IVec3::new(1, 2, 5), IVec3::new(4, 1, 2))];

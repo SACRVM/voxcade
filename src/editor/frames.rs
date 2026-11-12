@@ -502,13 +502,11 @@ mod tests {
         format!("format = \"{}\"\nsize = [3, 1, 2]\n\n[palette]\nq = \"#ff0000\"\nb = \"#0000ff\"\ng = {{ color = \"#ff0000\", glow = 1.0 }}\n\n[[frame]]\nlayers = \"\"\"\nqbg\n\"\"\"\n\n[[frame]]\nat = [0, 0, 1]\nlayers = \"\"\"\nb\n\"\"\"\n", vvx::FORMAT)
     }
 
-    fn write(name: &str, text: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("voxcade-frames-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+    fn write(name: &str, text: &str) -> (PathBuf, crate::scratch::Scratch) {
+        let dir = crate::scratch::Scratch::new(&format!("frames-{name}"));
         let file = dir.join("thing.vvx");
         std::fs::write(&file, text).unwrap();
-        file
+        (file, dir)
     }
 
     /// An edit changes only the lines it must: the signs stay, a new
@@ -517,7 +515,7 @@ mod tests {
     /// keeps its own sign and material.
     #[test]
     fn an_edit_changes_only_what_it_must() {
-        let file = write("signs", &frames_text());
+        let (file, _dir) = write("signs", &frames_text());
         let mut m = ModelFile::load(&file).unwrap();
         let glow = m.palette.iter().find(|c| c.mat.glow != 0).unwrap().key;
         assert_ne!(glow, [255, 0, 0], "the glowing red has a key of its own");
@@ -545,7 +543,7 @@ mod tests {
     /// A material is set on a colour: written as the palette's words.
     #[test]
     fn a_colour_takes_a_material() {
-        let file = write("material", &frames_text());
+        let (file, _dir) = write("material", &frames_text());
         let mut m = ModelFile::load(&file).unwrap();
         m.set_material([0, 0, 255], Mat { rgba: [0, 0, 255, 128], metal: crate::vox::metal::pack(0.0, 0.9), glow: 0 });
         m.save().unwrap();
@@ -558,7 +556,7 @@ mod tests {
     /// to look at, it is shown.
     #[test]
     fn a_vox_model_is_brought_in_first() {
-        let dir = std::env::temp_dir().join(format!("voxcade-frames-vox-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("frames-vox");
         std::fs::create_dir_all(&dir).unwrap();
         crate::vox::write_figure(&dir.join("robot.vox"), &[("body", IVec3::new(4, 4, 8), IVec3::ZERO), ("arm", IVec3::new(1, 2, 5), IVec3::new(6, 1, 3))]);
         let e = ModelFile::load(&dir.join("robot.vox")).err().unwrap().to_string();

@@ -1226,7 +1226,7 @@ mod tests {
     /// and apart, their rig by hand too, frames of glass and metal.
     #[test]
     fn models_from_magicavoxel_come_in_the_same() {
-        let dir = std::env::temp_dir().join(format!("voxcade-vvx-convert-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("vvx-convert");
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("figure.vox");
         let parts = [("body", IVec3::new(4, 4, 8), IVec3::ZERO), ("head", IVec3::new(4, 4, 4), IVec3::new(0, 0, 8)), ("arm", IVec3::new(1, 2, 5), IVec3::new(6, 1, 2)), ("hand", IVec3::new(1, 2, 1), IVec3::new(9, 1, 1)), ("hat", IVec3::new(3, 3, 1), IVec3::new(0, 0, 14))];

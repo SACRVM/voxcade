@@ -50,6 +50,9 @@ pub struct Piece {
     pub model: Option<String>,
     pub cell: IVec3,
     pub facing: crate::grid::Facing,
+    /// Tipped further in its own directions, degrees (`grid::Thing`).
+    pub pitch: f32,
+    pub roll: f32,
     pub lights: Vec<PieceLight>,
     pub solid: bool,
     pub index: usize,

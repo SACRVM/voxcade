@@ -2041,8 +2041,9 @@ impl Drawing<'_> {
 
     /// `model`, turned freely besides (the game's choice: a ship banking, a
     /// figure facing a diagonal): `turn` in the model's own directions
-    /// (`turning`, `facing`), about the middle of the pivot cell at half
-    /// the model's height. Its voxels leave the grid then.
+    /// (`turning`, `facing`), about `render::turn_centre` (the middle of
+    /// the pivot cell, the voxel at half the model's height). Its voxels
+    /// leave the grid then, but for quarter turns.
     pub fn model_turned(&mut self, name: &str, frame: usize, origin: Vec3, look: IVec2, turn: Quat, tint: Option<[u8; 4]>) {
         let models = self.models;
         if let Some(m) = models.get(name) {
@@ -2194,7 +2195,10 @@ fn look_turn(look: IVec2) -> Quat {
 /// A free turn in a model's own directions (forward +y, right +x, up +z),
 /// in degrees: `turn` round clockwise seen from above (90 faces +x the way
 /// a quarter turn does), `pitch` the nose up, `roll` the right side down (banking right:
-/// its top leans right).
+/// its top leans right). They are taken roll first, then pitch, then the
+/// turn round: the rotation `Rz(-turn) · Rx(pitch) · Ry(roll)`, so the turn
+/// round stays the bearing seen from above whatever the other two (a
+/// level's piece writes the same three words, `grid::Thing`).
 /// All 0 is no turn at all.
 pub fn turning(turn: f32, pitch: f32, roll: f32) -> Quat {
     if turn == 0.0 && pitch == 0.0 && roll == 0.0 {
@@ -2253,8 +2257,9 @@ type Piece<'a> = (Option<std::ops::Range<u32>>, &'a [u32], &'a [u32], Quat, Vec3
 
 /// Draws one frame of a model with its feet at `origin`, turned in quarter
 /// turns (model forward is +y) around a whole-voxel pivot, and freely by
-/// `free_turn` in its own directions (identity: on the grid) about that pivot's
-/// middle at half its height; a figure of parts each part posed by `pose`
+/// `free_turn` in its own directions (identity: on the grid) about
+/// `render::turn_centre` (that pivot's middle, the voxel at half its
+/// height); a figure of parts each part posed by `pose`
 /// about its joint (in its own directions, carrying what hangs on it;
 /// empty: as it stands). Its opaque voxels come from the model bank on the
 /// GPU, one entry (a part) in `on_gpu`; the see-through ones are cubes
@@ -2287,7 +2292,7 @@ fn draw(
         (0, -1) => 2,
         _ => 3,
     };
-    let about = Vec3::new(0.5, 0.5, model.size.z as f32 * 0.5);
+    let about = crate::render::turn_centre(model.size);
     // What is drawn: the frame whole, or each part with its own turn and
     // shift (its chain of turns about the joints, in the model's own
     // directions, seen after the quarter turns and the free turn).
@@ -2367,25 +2372,61 @@ fn draw(
 /// pivot's cell: exactly where `draw` puts its voxels on the grid. What a
 /// solid piece holds up (`world::Solids`).
 pub fn quarter_cells(model: &VoxModel, look: IVec2) -> Vec<IVec3> {
-    let pivot = IVec3::new(model.size.x / 2, model.size.y / 2, 0);
-    let turn = match (look.x, look.y) {
+    let bearing = match (look.x, look.y) {
         (0, 1) => 0,
-        (1, 0) => 1,
-        (0, -1) => 2,
-        _ => 3,
+        (1, 0) => 90,
+        (0, -1) => 180,
+        _ => 270,
     };
+    piece_cells(model, [bearing, 0, 0]).expect("quarter turns")
+}
+
+/// A turn of whole quarter turns as a matrix of whole numbers: `turning`'s
+/// `Rz(-turn) · Rx(pitch) · Ry(roll)` for `[turn, pitch, roll]` in degrees,
+/// each a multiple of 90 (None if one is not).
+pub fn quarter_matrix([turn, pitch, roll]: [i32; 3]) -> Option<[[i32; 3]; 3]> {
+    if [turn, pitch, roll].iter().any(|d| d.rem_euclid(90) != 0) {
+        return None;
+    }
+    // The cosine and sine of a quarter turn by its count.
+    let cs = |d: i32| [(1, 0), (0, 1), (-1, 0), (0, -1)][(d.rem_euclid(360) / 90) as usize];
+    let mul = |a: [[i32; 3]; 3], b: [[i32; 3]; 3]| std::array::from_fn(|i| std::array::from_fn(|j| (0..3).map(|k| a[i][k] * b[k][j]).sum()));
+    let (zc, zs) = cs(-turn);
+    let (xc, xs) = cs(pitch);
+    let (yc, ys) = cs(roll);
+    let z = [[zc, -zs, 0], [zs, zc, 0], [0, 0, 1]];
+    let x = [[1, 0, 0], [0, xc, -xs], [0, xs, xc]];
+    let y = [[yc, 0, ys], [0, 1, 0], [-ys, 0, yc]];
+    Some(mul(mul(z, x), y))
+}
+
+/// The cells a model's first frame fills (every voxel, glass too: a
+/// figure's parts as they stand), turned by `[turn, pitch, roll]` in
+/// whole quarter turns (`turning`'s words and order; turn a bearing,
+/// clockwise seen from above, 0 the model's own forward), from its pivot's
+/// cell: exactly where `draw` puts its voxels, which lie on the grid as
+/// they turn about a voxel's middle (`render::turn_centre`). What a solid
+/// piece holds up (`world::Solids`). None if a turn is off the quarters.
+pub fn piece_cells(model: &VoxModel, turns: [i32; 3]) -> Option<Vec<IVec3>> {
+    let m = quarter_matrix(turns)?;
+    let pivot = IVec3::new(model.size.x / 2, model.size.y / 2, 0);
+    let h = model.size.z / 2;
     let mut cells: Vec<IVec3> = model.frames.first().map_or(Vec::new(), |f| {
         f.iter()
             .map(|(v, _)| {
+                // The voxel's middle from the turn's centre is whole: x and
+                // y from the pivot cell's middle, z from the voxel at half
+                // the height.
                 let l = *v - pivot;
-                let (x, y) = crate::render::quarter(l.x, l.y, turn);
-                IVec3::new(x, y, l.z)
+                let d = [l.x, l.y, l.z - h];
+                let r: [i32; 3] = std::array::from_fn(|i| (0..3).map(|k| m[i][k] * d[k]).sum());
+                IVec3::new(r[0], r[1], r[2] + h)
             })
             .collect()
     });
     cells.sort_unstable_by_key(|c| (c.z, c.y, c.x));
     cells.dedup();
-    cells
+    Some(cells)
 }
 
 /// A model's frame as cubes, every voxel that shows, as a game draws it
@@ -2900,7 +2941,7 @@ mod tests {
     /// the cubes do.
     #[test]
     fn a_figures_parts_turn_about_their_joints() {
-        let dir = std::env::temp_dir().join(format!("voxcade-parts-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("parts");
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("figure.vox");
         // A body, a head on it, an arm held out to its side, a hand at its end.
@@ -2956,7 +2997,7 @@ mod tests {
     /// without one carries no glow at all, as before.
     #[test]
     fn an_emissive_colour_makes_a_models_voxels_glow() {
-        let dir = std::env::temp_dir().join(format!("voxcade-emit-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("emit");
         std::fs::create_dir_all(&dir).unwrap();
         let model = |emit: bool| {
             let voxels = (0..3).map(|x| dot_vox::Voxel { x, y: 0, z: 0, i: x }).collect();
@@ -3029,7 +3070,7 @@ mod tests {
     /// body) it stays about where it hung.
     #[test]
     fn a_part_turns_about_the_joint_set_in_its_file() {
-        let dir = std::env::temp_dir().join(format!("voxcade-rigged-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("rigged");
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("figure.vox");
         let parts = [("body", IVec3::new(4, 4, 8), IVec3::ZERO), ("arm", IVec3::new(1, 1, 6), IVec3::new(4, 1, 1))];
@@ -3075,10 +3116,14 @@ mod tests {
             }
         }
         // Rolled right by a quarter it lies on its right side, its top
-        // to the right (+x) by half its height from the middle.
+        // to the right (+x) by half its height from the middle: about the
+        // voxel at half its height (22 tall: the 12th, 11.5 up), so its
+        // top voxel's middle lies 10 to the right, on the grid.
         let rolled = cubes(IVec2::Y, turning(0.0, 0.0, 90.0));
         let right = rolled.iter().map(|(c, _)| c.x).fold(f32::MIN, f32::max);
-        assert!((right - (origin.x + 0.5 + m.size.z as f32 * 0.5)).abs() < 1.0, "rolled right, its top went to x {right}");
+        let centre = crate::render::turn_centre(m.size).z;
+        assert!((right - (origin.x + 0.5 + (m.size.z as f32 - 0.5 - centre))).abs() < 1e-3, "rolled right, its top went to x {right}");
+        assert!(rolled.iter().all(|(c, _)| (c - c.floor() - Vec3::splat(0.5)).abs().max_element() < 1e-3), "a quarter roll keeps the voxels on the grid");
         // The turn is in the model's own directions: facing +x, its right
         // is -y, and rolled right its top goes there.
         let rolled_east = cubes(IVec2::X, turning(0.0, 0.0, 90.0));
@@ -3099,7 +3144,7 @@ mod tests {
     /// quarter turns.
     #[test]
     fn an_even_sized_model_shifts_a_voxel_when_it_turns() {
-        let dir = std::env::temp_dir().join(format!("voxcade-pivot-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("pivot");
         std::fs::create_dir_all(&dir).unwrap();
         // The cells a model fills from the pivot's cell, per look: the
         // lowest and highest of x and y.
@@ -3153,7 +3198,7 @@ mod tests {
     /// the hidden ones inside count as well.
     #[test]
     fn a_solid_pieces_cells_are_where_it_is_drawn() {
-        let dir = std::env::temp_dir().join(format!("voxcade-cells-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("cells");
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("box.vox");
         crate::vox::write_figure(&file, &[("box", IVec3::new(4, 5, 3), IVec3::ZERO)]);
@@ -3167,6 +3212,51 @@ mod tests {
             assert!(!drawn.is_empty() && drawn.iter().all(|c| cells.contains(c)), "drawn where it is solid, {look}");
         }
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A piece turned by quarter turns about any axis (`turn`, `pitch`,
+    /// `roll`: all 64 of them, the 24 ways a box can lie) fills exactly the
+    /// cells its model is drawn in, as `frame:model` draws it with the same
+    /// three numbers (the quarter way it faces, then the rest freely): an
+    /// even height, an odd one, an even width.
+    #[test]
+    fn a_solid_piece_turned_any_way_is_where_it_is_drawn() {
+        let dir = crate::scratch::Scratch::new("cells-24");
+        for size in [IVec3::new(4, 5, 6), IVec3::new(3, 2, 7), IVec3::new(6, 4, 9)] {
+            let file = dir.join(format!("box{}.vox", size.z));
+            crate::vox::write_figure(&file, &[("box", size, IVec3::ZERO)]);
+            let m = crate::vox::load_model(&file).unwrap();
+            for k in 0..64 {
+                let turns = [k % 4 * 90, k / 4 % 4 * 90, k / 16 * 90];
+                let cells = piece_cells(&m, turns).unwrap();
+                assert_eq!(cells.len(), (size.x * size.y * size.z) as usize, "every voxel, {turns:?}");
+                let look = IVec2::from(crate::grid::Way::nearest(turns[0] as f64).pair());
+                let free = turning(0.0, turns[1] as f32, turns[2] as f32);
+                let origin = Vec3::new(100.0, 200.0, 7.0);
+                let mut drawn = Vec::new();
+                draw(
+                    &mut |corner: Vec3, _, _, _, _, _| {
+                        let off = (corner - corner.round()).abs().max_element();
+                        assert!(off < 1e-3, "a voxel off the grid by {off}, {turns:?}");
+                        drawn.push((corner - origin).round().as_ivec3());
+                    },
+                    None,
+                    &m,
+                    0,
+                    origin,
+                    look,
+                    free,
+                    &[],
+                    None,
+                );
+                assert!(drawn.iter().all(|c| cells.contains(c)), "drawn where it is solid, {turns:?}");
+                let bounds = |cs: &[IVec3]| (cs.iter().fold(IVec3::MAX, |a, c| a.min(*c)), cs.iter().fold(IVec3::MIN, |a, c| a.max(*c)));
+                assert_eq!(bounds(&drawn), bounds(&cells), "the same box, {turns:?}");
+            }
+        }
+        let ways: std::collections::BTreeSet<_> = (0..64).map(|k| quarter_matrix([k % 4 * 90, k / 4 % 4 * 90, k / 16 * 90]).unwrap()).collect();
+        assert_eq!(ways.len(), 24, "the 24 ways a box lies");
+        assert_eq!(piece_cells(&crate::vox::load_model(&dir.join("box6.vox")).unwrap(), [0, 30, 0]), None, "off the quarters: none");
     }
 
     /// A kind's spin turns its model round its upright axis with the

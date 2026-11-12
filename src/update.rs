@@ -282,11 +282,8 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    fn temp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("voxcade-update-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    fn temp(name: &str) -> crate::scratch::Scratch {
+        crate::scratch::Scratch::new(&format!("update-{name}"))
     }
 
     fn put(dir: &Path, file: &str, text: &str) {
@@ -324,7 +321,7 @@ mod tests {
 
     const NEW: [(&str, &str); 4] = [("voxcade", "program 2"), ("voxcade.exe", "program 2"), ("README.txt", "readme 2"), ("games/pulsar/conf.lua", "pulsar 2")];
 
-    fn installed(name: &str) -> PathBuf {
+    fn installed(name: &str) -> crate::scratch::Scratch {
         let dir = temp(name);
         put(&dir, "voxcade", "program 1");
         put(&dir, "voxcade.exe", "program 1");

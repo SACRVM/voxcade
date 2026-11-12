@@ -600,8 +600,8 @@ impl Shell {
 mod tests {
     use super::*;
 
-    fn folder(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("voxcade-manage-{name}-{}", std::process::id()));
+    fn folder(name: &str) -> crate::scratch::Scratch {
+        let dir = crate::scratch::Scratch::new(&format!("manage-{name}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sounds")).unwrap();
         dir

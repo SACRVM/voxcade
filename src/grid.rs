@@ -290,6 +290,15 @@ pub struct Thing {
     pub model: Option<String>,
     #[serde(skip)]
     pub facing: Option<Facing>,
+    /// A piece tipped further in its own directions, degrees (0 unless the
+    /// file says): `pitch` its nose up, `roll` its right side down, taken
+    /// as `frame:model` takes them (`session::turning`: roll, then pitch,
+    /// then the turn round of `facing`), about the voxel at half its height
+    /// over its pivot cell (`render::turn_centre`).
+    #[serde(skip)]
+    pub pitch: f64,
+    #[serde(skip)]
+    pub roll: f64,
     #[serde(skip)]
     pub lights: Vec<ThingLight>,
     #[serde(skip)]
@@ -301,7 +310,7 @@ pub struct Thing {
 impl PartialEq for Thing {
     /// The same thing wherever its file says it.
     fn eq(&self, o: &Self) -> bool {
-        (&self.kind, self.at, &self.name, &self.model, self.facing, &self.lights, self.solid) == (&o.kind, o.at, &o.name, &o.model, o.facing, &o.lights, o.solid)
+        (&self.kind, self.at, &self.name, &self.model, self.facing, self.pitch, self.roll, &self.lights, self.solid) == (&o.kind, o.at, &o.name, &o.model, o.facing, o.pitch, o.roll, &o.lights, o.solid)
     }
 }
 
@@ -314,6 +323,22 @@ impl Thing {
     /// Whether it is a piece: a model set down, or a light.
     pub fn is_piece(&self) -> bool {
         self.kind == PIECE
+    }
+
+    /// Whether it is turned off the quarter turns, round (`turn = 30`) or
+    /// tipped (`pitch`, `roll`): what a game on the grid cannot show so.
+    pub fn off_grid(&self) -> bool {
+        self.facing.is_some_and(Facing::off_grid) || self.pitch.rem_euclid(90.0) != 0.0 || self.roll.rem_euclid(90.0) != 0.0
+    }
+
+    /// Its turn as whole quarter turns, `[turn, pitch, roll]` in degrees
+    /// (`session::piece_cells`): None off the quarter turns.
+    pub fn quarters(&self) -> Option<[i32; 3]> {
+        if self.off_grid() {
+            return None;
+        }
+        let whole = |d: f64| (d.rem_euclid(360.0).round() as i32) % 360;
+        Some([whole(self.facing.map_or(180.0, Facing::bearing)), whole(self.pitch), whole(self.roll)])
     }
 
     /// How a mistake names it: its name, else its model or kind, and its
@@ -403,7 +428,7 @@ impl GridLevel {
     /// The things turned off the quarter turns (`turn = 30`): what a game
     /// on the grid cannot show so, each as a mistake names it.
     pub fn off_grid(&self) -> Vec<&Thing> {
-        self.things.iter().filter(|t| t.facing.is_some_and(Facing::off_grid)).collect()
+        self.things.iter().filter(|t| t.off_grid()).collect()
     }
 
     /// Cell `c`'s place in `cells` (None outside the grid).
@@ -821,6 +846,12 @@ pub mod text {
             let (key, value) = facing_text(f);
             out += &format!("{key} = {value}\n");
         }
+        if t.pitch != 0.0 {
+            out += &format!("pitch = {}\n", number(t.pitch));
+        }
+        if t.roll != 0.0 {
+            out += &format!("roll = {}\n", number(t.roll));
+        }
         if t.solid {
             out += "solid = true\n";
         }
@@ -1144,8 +1175,18 @@ pub mod text {
                 (None, None) => {}
             }
         }
-        if was.solid != now.solid {
+        // Tipped further: its line after the way it faces, removed at 0.
+        if was.pitch != now.pitch {
             let after = ["turn", "facing", "at"].into_iter().find(|k| s.table.contains_key(k));
+            field(src, s, "pitch", (now.pitch != 0.0).then(|| number(now.pitch)), after, &mut mine)?;
+        }
+        if was.roll != now.roll {
+            // (A pitch line new too goes in at the same place, before it.)
+            let after = ["pitch", "turn", "facing", "at"].into_iter().find(|k| s.table.contains_key(k));
+            field(src, s, "roll", (now.roll != 0.0).then(|| number(now.roll)), after, &mut mine)?;
+        }
+        if was.solid != now.solid {
+            let after = ["roll", "pitch", "turn", "facing", "at"].into_iter().find(|k| s.table.contains_key(k));
             field(src, s, "solid", now.solid.then(|| "true".to_string()), after, &mut mine)?;
         }
         if was.lights != now.lights {
@@ -1215,15 +1256,32 @@ pub mod text {
         if let Some(item) = doc.as_table().get("thing")
             && let Some(tables) = vvx::tables(item)
         {
+            let degrees = |value: &Item| value.as_float().or_else(|| value.as_integer().map(|i| i as f64));
             for t in tables {
-                let Some((key, value)) = t.get_key_value("turn") else { continue };
-                let Some(turn) = value.as_float().or_else(|| value.as_integer().map(|i| i as f64)) else { continue };
-                if !Facing::Turn(turn).off_grid() {
-                    continue;
+                if let Some((key, value)) = t.get_key_value("turn")
+                    && let Some(turn) = degrees(value)
+                    && Facing::Turn(turn).off_grid()
+                    && let (Some(k), Some(v)) = (key.span(), value.span())
+                {
+                    edits.push((k.start..v.end, format!("facing = \"{}\"", Way::nearest(turn).name())));
                 }
-                let (Some(k), Some(v)) = (key.span(), value.span()) else { continue };
-                edits.push((k.start..v.end, format!("facing = \"{}\"", Way::nearest(turn).name())));
+                // Tipped off the quarter turns: the nearest quarter (a tie
+                // goes up, as a turn's goes clockwise); none, its line goes.
+                for word in ["pitch", "roll"] {
+                    let Some((key, value)) = t.get_key_value(word) else { continue };
+                    let Some(d) = degrees(value).filter(|d| d.rem_euclid(90.0) != 0.0) else { continue };
+                    let (Some(k), Some(v)) = (key.span(), value.span()) else { continue };
+                    let quarter = Way::nearest(d).bearing();
+                    if quarter == 0.0 {
+                        let begin = src[..k.start].rfind('\n').map_or(0, |i| i + 1);
+                        let end = src[v.end..].find('\n').map_or(src.len(), |i| v.end + i + 1);
+                        edits.push((begin..end, String::new()));
+                    } else {
+                        edits.push((k.start..v.end, format!("{word} = {quarter}")));
+                    }
+                }
             }
+            edits.sort_by_key(|(r, _)| r.start);
         }
         let mut out = src.to_string();
         for (range, with) in edits.into_iter().rev() {
@@ -1492,7 +1550,7 @@ pub mod text {
         };
         if let Some(item) = top.get("thing") {
             for t in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "things must be tables: [[thing]] with kind (or model) and at"))? {
-                r.only(t, &["name", "kind", "model", "at", "facing", "turn", "solid", "light", "lights"], "a thing")?;
+                r.only(t, &["name", "kind", "model", "at", "facing", "turn", "pitch", "roll", "solid", "light", "lights"], "a thing")?;
                 let line = line_of_table(r, t);
                 let here = |why: &str| if line > 0 { anyhow!("line {line}: {why}") } else { anyhow!("{why}") };
                 let name = text(t, "name", "a thing")?;
@@ -1534,6 +1592,19 @@ pub mod text {
                     },
                     (None, None) => None,
                 };
+                // Tipped: degrees, a piece's with a model only.
+                let mut tips = [0.0; 2];
+                for (k, key) in ["pitch", "roll"].into_iter().enumerate() {
+                    let Some(item) = t.get(key) else { continue };
+                    tips[k] = match item.as_float().or_else(|| item.as_integer().map(|i| i as f64)).filter(|v| v.is_finite() && v.abs() <= 1e6) {
+                        Some(v) => v,
+                        None => return Err(r.fail(item.span(), format!("{key} must be degrees ({})", if k == 0 { "its nose up: 90 lays it on its back" } else { "its right side down: 90 lays it on its right side" }))),
+                    };
+                    if model.is_none() {
+                        return Err(r.fail(item.span(), format!("{key} tips a model: a piece with model = \"...\" (a thing of a kind or a light alone has none to tip)")));
+                    }
+                }
+                let [pitch, roll] = tips;
                 let light = lights.first();
                 let kind = match (kind, &model, &light) {
                     (Some(k), None, _) if k == PIECE && light.is_none() => return Err(here("a piece is a model set down (model = \"room/stove.vvx\") or a light (light = { radius = 60 })")),
@@ -1555,7 +1626,7 @@ pub mod text {
                 if let Some(other) = name.as_ref().and_then(|n| level.things.iter().find(|o| o.name.as_ref() == Some(n))) {
                     return Err(here(&format!("a second thing called '{}' (the first is on line {}): a name is one thing's", name.as_deref().unwrap_or_default(), other.line)));
                 }
-                level.things.push(Thing { kind, at: triple(t, "at", "a thing")?, name, model, facing, lights, solid, line });
+                level.things.push(Thing { kind, at: triple(t, "at", "a thing")?, name, model, facing, pitch, roll, lights, solid, line });
             }
         }
         if let Some(item) = top.get("place") {
@@ -1629,10 +1700,15 @@ pub fn off_grid_mistake(off: &[&Thing]) -> String {
 /// The mistake for a solid piece turned off the quarter turns: a model
 /// turned freely cannot lie on the grid, so its voxels cannot block.
 pub fn off_grid_solid(t: &Thing) -> String {
+    let mut how = format!("turned {} degrees", t.facing.map_or(180.0, Facing::bearing));
+    for (word, d) in [("pitch", t.pitch), ("roll", t.roll)] {
+        if d != 0.0 {
+            how += &format!(", {word} {d}");
+        }
+    }
     format!(
-        "the piece {} is solid but turned {} degrees: a solid piece's voxels hold bodies up on the grid, so it turns only in quarter turns (facing = \"north\", \"east\", \"south\" or \"west\"), or it is not solid",
+        "the piece {} is solid but {how}: a solid piece's voxels hold bodies up on the grid, so it turns only in quarter turns (facing = \"north\", \"east\", \"south\" or \"west\"; pitch and roll 0, 90, 180 or 270), or it is not solid",
         t.called(),
-        t.facing.map_or(180.0, Facing::bearing)
     )
 }
 
@@ -1681,14 +1757,10 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], fr
     let mut solids = Vec::new();
     for (i, t) in level.things.iter().filter(|t| t.is_piece()).enumerate() {
         let (true, Some(model)) = (t.solid, &t.model) else { continue };
-        let facing = t.facing.unwrap_or(Facing::Way(Way::South));
-        if facing.off_grid() {
-            bail!("{}: {}", path.display(), off_grid_solid(t));
-        }
+        let Some(turns) = t.quarters() else { bail!("{}: {}", path.display(), off_grid_solid(t)) };
         let m = crate::vox::load_model_in(game, &dir.join(model))?;
-        let look = glam::IVec2::from(Way::nearest(facing.bearing()).pair());
         let cell = origin + IVec3::from(t.at);
-        let cells: Vec<IVec3> = crate::session::quarter_cells(&m, look).into_iter().map(|c| cell + c).collect();
+        let cells: Vec<IVec3> = crate::session::piece_cells(&m, turns).expect("quarter turns").into_iter().map(|c| cell + c).collect();
         solids.push((i, std::sync::Arc::new(cells)));
     }
     if !solids.is_empty() {
@@ -1707,6 +1779,8 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], fr
             model: t.model.clone(),
             cell: origin + IVec3::from(t.at),
             facing: t.facing.unwrap_or(Facing::Way(Way::South)),
+            pitch: t.pitch as f32,
+            roll: t.roll as f32,
             lights: t.lights.iter().map(|l| crate::levels::PieceLight { at: IVec3::from(l.at.unwrap_or_default()), radius: l.radius as f32, color: l.rgb() }).collect(),
             solid: t.solid && t.model.is_some(),
             index,
@@ -2097,6 +2171,48 @@ size = [40, 30, 40]
         assert_eq!(text::rewrite(&src, &was, &now, &legend), now.to_text());
     }
 
+    /// A piece tipped (`pitch`, `roll`): read, written after the way it
+    /// faces only when not 0, touching only those lines (a solid line
+    /// after them); off the quarter turns a game on the grid names it,
+    /// and ALIGN ALL takes the nearest quarter (0: the line goes); a light
+    /// alone or a thing of a kind has nothing to tip.
+    #[test]
+    fn a_piece_is_tipped_by_pitch_and_roll() {
+        let src = commented();
+        let was = GridLevel::from_text(&src).unwrap();
+        let legend = Legend::default();
+        let mut now = was.clone();
+        (now.things[0].pitch, now.things[0].roll) = (90.0, 270.0);
+        let out = text::rewrite(&src, &was, &now, &legend);
+        assert_eq!(GridLevel::from_text(&out).unwrap(), now, "{out}");
+        assert_eq!(changed_lines(&src, &out), ["pitch = 90", "roll = 270"], "{out}");
+        assert!(out.contains("facing = \"south\"\npitch = 90\nroll = 270\n"), "{out}");
+        assert!(!now.things[0].off_grid() && now.things[0].quarters() == Some([180, 90, 270]));
+        // Solid after them; back to flat: the file as it was.
+        let mut solid = now.clone();
+        solid.things[0].solid = true;
+        let out2 = text::rewrite(&out, &now, &solid, &legend);
+        assert!(out2.contains("roll = 270\nsolid = true\n"), "{out2}");
+        assert_eq!(text::rewrite(&out, &now, &was, &legend), src);
+        // Written whole too.
+        assert!(now.to_text().contains("facing = \"south\"\npitch = 90\nroll = 270\n"));
+        // Off the quarters: named; aligned to the nearest, a 0 taken out.
+        let mut tilted = was.clone();
+        (tilted.things[0].pitch, tilted.things[0].roll) = (30.0, 100.0);
+        let text = text::rewrite(&src, &was, &tilted, &legend);
+        let back = GridLevel::from_text(&text).unwrap();
+        assert_eq!(back.off_grid().iter().map(|t| t.called()).collect::<Vec<_>>(), ["'stove' (line 6)", "'chair' (line 26)"]);
+        let aligned = text::align(&text).unwrap();
+        let lv = GridLevel::from_text(&aligned).unwrap();
+        assert!(lv.off_grid().is_empty(), "{aligned}");
+        assert_eq!((lv.things[0].pitch, lv.things[0].roll), (0.0, 90.0));
+        assert!(!aligned.contains("pitch") && aligned.contains("roll = 90\n"), "{aligned}");
+        let wrong = |from: &str, to: &str| format!("{:#}", GridLevel::from_text(&PIECES.replacen(from, to, 1)).unwrap_err());
+        assert!(wrong("name = \"moon\"", "name = \"moon\"\npitch = 90").contains("pitch tips a model"));
+        assert!(wrong("kind = \"walker\"", "kind = \"walker\"\nroll = 90").contains("roll tips a model"));
+        assert!(wrong("facing = \"south\"", "facing = \"south\"\npitch = \"up\"").contains("pitch must be degrees"));
+    }
+
     /// A piece brings one light (`light = {...}`) or several (`lights =
     /// [...]`, a flame and its glow), and may be solid; the writer keeps
     /// `light =` for one and writes `lights = [` for more, touching only
@@ -2328,7 +2444,7 @@ size = [40, 30, 40]
 
     #[test]
     fn a_level_loads_its_blocks_and_things_from_files() {
-        let dir = std::env::temp_dir().join(format!("voxcade-grid-files-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("grid-files");
         let _ = std::fs::remove_dir_all(&dir);
         let mut lv = level(4, IVec3::new(1, 1, 1), &[("rock", Kind::Solid)]);
         put(&mut lv, IVec3::ZERO, 1, Turn::NONE);

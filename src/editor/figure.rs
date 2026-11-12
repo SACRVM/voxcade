@@ -179,8 +179,8 @@ mod tests {
     /// A figure in a folder of its own: a body, a head on it, an arm
     /// apart from it with a hand on the arm, a scarf on body and head
     /// alike.
-    fn figure(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("voxcade-figure-{name}-{}", std::process::id()));
+    fn figure(name: &str) -> crate::scratch::Scratch {
+        let dir = crate::scratch::Scratch::new(&format!("figure-{name}"));
         std::fs::create_dir_all(&dir).unwrap();
         crate::vox::write_figure(
             &dir.join("figure.vvx"),

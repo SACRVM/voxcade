@@ -1718,7 +1718,9 @@ impl<K: Kit> LuaGame<K> {
         for id in stage.host.ids() {
             let Some(t) = stage.host.get(id) else { continue };
             let raw = stage.figure_handle(id).unwrap_or(id.raw());
-            let scripted = stage.kinds.get(t.kind).is_some_and(|k| k.scripted);
+            // (A piece stays where its level put it, under the floor too: a
+            // piece laid on its side has its pivot there.)
+            let scripted = stage.kinds.get(t.kind).is_some_and(|k| k.scripted) && !stage.pieces.contains_key(&id.raw());
             if scripted && !stage.fallen.contains(&raw) && crate::sim::fell_out(&stage.host.sim().world, t.body, stage.host.sim().cfg.physics.lost_below) {
                 fell.push(raw);
             }
@@ -2785,19 +2787,31 @@ impl<K: Kit> Game for LuaGame<K> {
         // (off at 0). The script draws nothing for them.
         for (&id, p) in &self.stage.pieces {
             let Some(t) = self.stage.seen(id).filter(|_| !self.stage.dead.contains(&id)) else { continue };
+            // Tipped too (`pitch`, `roll`): as `frame:model` would turn it
+            // with the same three numbers.
+            let tipped = p.pitch != 0.0 || p.roll != 0.0;
             if let Some(model) = &p.model {
-                out.model_turned(model, 0, out.body_origin(t.body), t.body.look, crate::session::facing(true, t.body), None);
+                let facing = crate::session::facing(true, t.body);
+                let turn = if tipped { facing * crate::session::turning(0.0, p.pitch, p.roll) } else { facing };
+                out.model_turned(model, 0, out.body_origin(t.body), t.body.look, turn, None);
             }
             // Its lights, all as bright as its state says (one brightness for
             // them all; a light of its own each would be a list of them).
             let brightness = self.stage.lights.get(&id).copied().unwrap_or(0.0);
             if brightness > 0.0 {
                 let (sin, cos) = crate::sim::math::sin_cos((p.facing.bearing() as f32).to_radians());
+                // A tipped piece's lights turn with it about its turn's
+                // centre (the voxel at half its height).
+                let size = p.model.as_ref().and_then(|m| out.model_of(m)).map(|m| m.size);
+                let tip = size.filter(|_| tipped).map(|size| (crate::session::turning(p.facing.bearing() as f32, p.pitch, p.roll), crate::render::turn_centre(size)));
                 for l in &p.lights {
                     // Its offset in the model's own voxels, turned with it (a
                     // bearing clockwise seen from above, the model's forward +y).
                     let o = l.at.as_vec3();
-                    let turned = Vec3::new(o.x * cos + o.y * sin, -o.x * sin + o.y * cos, o.z);
+                    let turned = match tip {
+                        Some((rot, about)) => rot * (o + Vec3::splat(0.5) - about) + about - Vec3::splat(0.5),
+                        None => Vec3::new(o.x * cos + o.y * sin, -o.x * sin + o.y * cos, o.z),
+                    };
                     let at = t.body.pos + Vec3::Z * 0.5 + turned;
                     out.light(Light { pos: at, radius: l.radius, color: l.color.map(|c| c * brightness) });
                 }

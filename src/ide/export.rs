@@ -186,7 +186,7 @@ mod tests {
     /// the builds before it.
     #[test]
     fn a_build_lands_in_the_games_folder_and_is_not_packed_again() {
-        let dir = std::env::temp_dir().join(format!("voxcade-export-where-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("export-where");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("builds")).unwrap();
         std::fs::write(dir.join("main.lua"), "x").unwrap();
@@ -203,7 +203,7 @@ mod tests {
     /// ignored files the game names in quotes.
     #[test]
     fn a_build_leaves_out_what_is_ignored_and_says_what_the_game_needs() {
-        let dir = std::env::temp_dir().join(format!("voxcade-export-ignored-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("export-ignored");
         let _ = std::fs::remove_dir_all(&dir);
         for (path, text) in [
             ("main.lua", "local m = \"models/hero.vvx\"\nsound(\"coin\")"),
@@ -236,7 +236,7 @@ mod tests {
     /// by that name deeper down is the game's).
     #[test]
     fn a_build_leaves_the_agents_notes_out() {
-        let dir = std::env::temp_dir().join(format!("voxcade-export-notes-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("export-notes");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("levels")).unwrap();
         for file in ["main.lua", "CLAUDE.md", "levels/CLAUDE.md", ".gitignore"] {
@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn an_export_holds_the_game_and_runs() {
         let dir = Path::new("games/voxkeep");
-        let tmp = std::env::temp_dir().join(format!("voxcade-export-{}", std::process::id()));
+        let tmp = crate::scratch::Scratch::new("export");
         let _ = std::fs::remove_dir_all(&tmp);
         // A stand-in for the program: the test's own.
         let program = std::env::current_exe().unwrap();

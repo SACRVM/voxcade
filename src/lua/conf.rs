@@ -112,13 +112,10 @@ mod tests {
     use super::*;
 
     fn conf(src: &str) -> Result<GameConfig> {
-        let dir = std::env::temp_dir().join(format!("voxcade-conf-{}-{}", std::process::id(), src.len()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::scratch::Scratch::new("conf");
         std::fs::write(dir.join("conf.lua"), src).unwrap();
         let mut cfg = GameConfig::default();
-        let r = run(&crate::files::Files::folder(&dir), &mut cfg).map(|_| cfg);
-        std::fs::remove_dir_all(&dir).ok();
-        r
+        run(&crate::files::Files::folder(&dir), &mut cfg).map(|_| cfg)
     }
 
     /// `conf(c)` changes the engine's settings; what it leaves keeps its

@@ -10,6 +10,7 @@
 use glam::{IVec2, IVec3, Quat, Vec3};
 
 use super::{Editor, Layer, Scope, Step};
+use crate::editor::handles::{self, Drag, Grip, Handles};
 use crate::grid::{Area, Facing, GridLevel, PIECE, Place, Thing, ThingLight, Way};
 
 /// Something set down in the level, by its place in its list.
@@ -50,7 +51,13 @@ pub enum Field {
     Ambient,
     Shadow,
     DayColour,
+    /// A piece's turn round (its bearing), its pitch and its roll.
     Turn,
+    Pitch,
+    Roll,
+    /// How high the chosen one's lowest voxel stands (its `at`'s z, but
+    /// for a piece laid down, whose `at` lies under it).
+    Base,
     Size(usize),
     LevelSize(usize),
     Nudge,
@@ -67,8 +74,14 @@ const LIGHT_RADIUS: f64 = 80.0;
 const NEW_COLOUR: &str = "#ffd9a0";
 const NEW_AREA: [i32; 3] = [40, 30, 40];
 
-/// How close to a quarter turn an angle is taken as it (degrees).
+/// How close to a quarter turn an angle is taken as it (degrees): typed,
+/// and dragged on a ring.
 pub const SNAP: f64 = 3.0;
+pub const RING_SNAP: f64 = 5.0;
+
+/// How big the handles look on the chosen one: a share of the view's
+/// height, whatever its size.
+pub const HANDLE_SHARE: f32 = 0.14;
 
 /// The bearing a thing faces (degrees clockwise seen from above, north 0;
 /// south when the file says none).
@@ -76,11 +89,12 @@ pub fn bearing_of(t: &Thing) -> f64 {
     t.facing.map_or(180.0, Facing::bearing)
 }
 
-/// How a game draws a thing facing `facing`: the quarter way it looks
-/// and the free turn after it (none on the four ways), as a level's piece
-/// is drawn (`LuaGame::draw`, `session::facing`).
-pub fn turn_of(facing: Option<Facing>) -> (IVec2, Quat) {
-    match facing.unwrap_or(Facing::Way(Way::South)) {
+/// How a game draws a thing: the quarter way it looks and the free turn
+/// after it (none on the four ways, untipped), as a level's piece is drawn
+/// (`LuaGame::draw`, `session::facing`, then its pitch and roll).
+pub fn turn_of(t: &Thing) -> (IVec2, Quat) {
+    let tip = crate::session::turning(0.0, t.pitch as f32, t.roll as f32);
+    let (look, round) = match t.facing.unwrap_or(Facing::Way(Way::South)) {
         Facing::Way(w) => (IVec2::from(w.pair()), Quat::IDENTITY),
         Facing::Turn(b) => {
             let look = Way::nearest(b);
@@ -88,25 +102,84 @@ pub fn turn_of(facing: Option<Facing>) -> (IVec2, Quat) {
             let way = (way + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
             (IVec2::from(look.pair()), if way.abs() < 1e-4 { Quat::IDENTITY } else { Quat::from_rotation_z(-way) })
         }
-    }
+    };
+    (look, if tip == Quat::IDENTITY { round } else { round * tip })
 }
 
-/// A thing's turn as a whole: clockwise seen from above by its bearing.
+/// A thing's turn as a whole: clockwise seen from above by its bearing,
+/// tipped by its pitch and roll (`session::turning`).
 pub fn rotation_of(t: &Thing) -> Quat {
-    Quat::from_rotation_z(-(bearing_of(t) as f32).to_radians())
+    turning(bearing_of(t), t.pitch, t.roll)
 }
 
-/// Where a thing's light `l` shines from in the level's voxels: its offset
-/// in the model's own voxels turned with it, from the middle of the pivot's
-/// cell half a voxel up, as the game puts it.
-pub fn light_spot(t: &Thing, l: &ThingLight) -> Vec3 {
+/// `session::turning` of degrees as the file has them.
+pub fn turning(bearing: f64, pitch: f64, roll: f64) -> Quat {
+    let b = Quat::from_rotation_z(-(bearing as f32).to_radians());
+    if pitch == 0.0 && roll == 0.0 { b } else { b * crate::session::turning(0.0, pitch as f32, roll as f32) }
+}
+
+/// Where a thing turns (`render::turn_centre`), from its pivot cell's low
+/// corner: the middle of the voxel at half its model's height (`size`;
+/// unknown or none, its feet).
+pub fn centre_in(size: Option<IVec3>) -> Vec3 {
+    size.map_or(Vec3::new(0.5, 0.5, 0.0), crate::render::turn_centre)
+}
+
+/// Where a point of a thing's model (from its pivot cell's low corner, in
+/// the model's own voxels) lies in the level, the thing turned and tipped.
+pub fn model_point(t: &Thing, size: Option<IVec3>, p: Vec3) -> Vec3 {
+    let about = centre_in(size);
+    IVec3::from(t.at).as_vec3() + about + rotation_of(t) * (p - about)
+}
+
+/// Where a thing's light `l` shines from in the level's voxels: the middle
+/// of its voxel in the model (its offset from the pivot's cell), turned
+/// and tipped with the piece (its model `size`), as the game puts it.
+pub fn light_spot(t: &Thing, size: Option<IVec3>, l: &ThingLight) -> Vec3 {
     let offset = IVec3::from(l.at.unwrap_or_default()).as_vec3();
-    IVec3::from(t.at).as_vec3() + Vec3::splat(0.5) + rotation_of(t) * offset
+    if t.pitch == 0.0 && t.roll == 0.0 {
+        return IVec3::from(t.at).as_vec3() + Vec3::splat(0.5) + rotation_of(t) * offset;
+    }
+    model_point(t, size, offset + Vec3::splat(0.5))
 }
 
 /// Where each of a thing's lights shines from, with the light.
-pub fn light_spots(t: &Thing) -> impl Iterator<Item = (Vec3, &ThingLight)> {
-    t.lights.iter().map(move |l| (light_spot(t, l), l))
+pub fn light_spots(t: &Thing, size: Option<IVec3>) -> impl Iterator<Item = (Vec3, &ThingLight)> {
+    t.lights.iter().map(move |l| (light_spot(t, size, l), l))
+}
+
+/// How far over its `at` a model of `size` turned by `rot` reaches down
+/// (its box's lowest corner; 0 standing): what keeps a piece laid down on
+/// the floor it stood on.
+pub fn low_of(size: IVec3, rot: Quat) -> f32 {
+    let about = crate::render::turn_centre(size);
+    let lo = -IVec3::new(size.x / 2, size.y / 2, 0).as_vec3();
+    let hi = lo + size.as_vec3();
+    (0..8)
+        .map(|k| {
+            let c = Vec3::new(if k & 1 == 0 { lo.x } else { hi.x }, if k & 2 == 0 { lo.y } else { hi.y }, if k & 4 == 0 { lo.z } else { hi.z });
+            about.z + (rot * (c - about)).z
+        })
+        .fold(f32::MAX, f32::min)
+}
+
+/// A handle being dragged on the chosen one (or its light): the handles as
+/// they were at the press, what the drag measured, and the item as it was.
+#[derive(Clone, Debug)]
+pub struct Gripped {
+    pub item: Item,
+    pub light: Option<usize>,
+    pub handles: Handles,
+    pub drag: Drag,
+    was: Was,
+}
+
+/// An item as it was when a handle was pressed.
+#[derive(Clone, Debug)]
+enum Was {
+    Thing(Thing),
+    Place(Place),
+    Area(Area),
 }
 
 /// The way the sunlight travels for a sun standing `from` degrees round
@@ -218,7 +291,44 @@ impl Editor {
     pub fn choose_item(&mut self, item: Option<Item>) {
         self.release();
         self.chosen = item.filter(|&i| self.exists(i));
+        self.chosen_light = None;
         self.tuned = None;
+    }
+
+    /// Chooses a light of the chosen piece (by its place among its
+    /// lights; None: the piece again): its handles then move it in the
+    /// model.
+    pub fn choose_light(&mut self, k: Option<usize>) {
+        self.chosen_light = k.filter(|&k| self.chosen_thing().is_some_and(|t| t.model.is_some() && k < t.lights.len()));
+    }
+
+    /// The size of a thing's model, if it is known (`sizes`).
+    pub fn size_of(&self, t: &Thing) -> Option<IVec3> {
+        t.model.as_ref().and_then(|m| self.sizes.get(m)).copied()
+    }
+
+    /// The lowest `at` an item may have in z: its lowest voxel on the
+    /// level's floor (a piece laid down has its pivot under it).
+    fn lowest(&self, item: Item) -> i32 {
+        let Item::Thing(i) = item else { return 0 };
+        let t = &self.level.things[i];
+        match self.size_of(t) {
+            Some(size) if t.pitch != 0.0 || t.roll != 0.0 => -(low_of(size, rotation_of(t)).round() as i32),
+            _ => 0,
+        }
+    }
+
+    /// How high an item's lowest voxel stands: its `at`'s z, less what a
+    /// piece laid down reaches under it (`lowest`).
+    pub fn base_of(&self, item: Item) -> Option<i32> {
+        Some(self.at_of(item)?[2] - self.lowest(item))
+    }
+
+    /// A spot for an item kept inside the level's voxels.
+    fn inside_for(&self, item: Item, at: IVec3) -> IVec3 {
+        let hi = (self.level.voxels() - 1).max(IVec3::ZERO);
+        let lo = IVec3::new(0, 0, self.lowest(item).min(hi.z));
+        at.clamp(lo, hi)
     }
 
     /// What is chosen dropped if a step took it away.
@@ -400,6 +510,9 @@ impl Editor {
     /// REMOVE: the chosen one taken out of the level; a step.
     pub fn remove_item(&mut self) {
         let Some(item) = self.chosen else { return };
+        // (Lights put away are kept by the places in the list.)
+        self.put_away.clear();
+        self.chosen_light = None;
         self.change(None, |l| match item {
             Item::Thing(i) => drop(l.things.remove(i)),
             Item::Place(i) => drop(l.places.remove(i)),
@@ -417,6 +530,13 @@ impl Editor {
         }
         if name.contains(['"', '\\']) || name.chars().any(char::is_control) {
             return Err("A name takes no quotes or backslashes.".into());
+        }
+        // An area is asked for by its name in the code, level.areas.NAME:
+        // a word of letters, digits and _ (not a digit first). A thing or
+        // a place is asked for by a string, any name.
+        let word = name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !name.starts_with(|c: char| c.is_ascii_digit());
+        if matches!(item, Item::Area(_)) && !word {
+            return Err("An area's name: letters, digits and _ only (level.areas.NAME).".into());
         }
         let (i, what) = match item {
             Item::Thing(i) => (i, "thing"),
@@ -471,7 +591,7 @@ impl Editor {
             return;
         }
         let Some(item) = self.chosen else { return };
-        let to = self.inside(IVec3::from(self.at_of(item).expect("chosen")) + by);
+        let to = self.inside_for(item, IVec3::from(self.at_of(item).expect("chosen")) + by);
         self.change(Some(Field::Nudge), |l| match item {
             Item::Thing(i) => l.things[i].at = to.to_array(),
             Item::Place(i) => l.places[i].at = to.to_array(),
@@ -495,11 +615,29 @@ impl Editor {
             return self.change(Some(field), |l| l.daylight = Some(day));
         }
         let Some(item) = self.chosen else { return };
-        let free = self.free_turns;
+        // A piece turned round, tipped: as its ring would, kept on its floor.
+        if let (Field::Turn | Field::Pitch | Field::Roll, Item::Thing(i)) = (field, item) {
+            let t = &self.level.things[i];
+            if t.model.is_none() {
+                return;
+            }
+            let (mut b, mut p, mut r) = (bearing_of(t), t.pitch, t.roll);
+            match field {
+                Field::Turn => b = v,
+                Field::Pitch => p = v,
+                _ => r = v,
+            }
+            let now = self.turned(t, b, p, r, SNAP);
+            return self.change(Some(field), |l| l.things[i] = now);
+        }
+        let low = self.lowest(item);
+        if field == Field::Base {
+            return self.set_field(Field::At(2), v + low as f64);
+        }
         self.change(Some(field), |l| match (field, item) {
             (Field::At(a), _) => {
                 let a = a.min(2);
-                let v = whole.clamp(0, (voxels[a] - 1).max(0));
+                let v = whole.clamp(if a == 2 { low.min(voxels[2] - 1) } else { 0 }, (voxels[a] - 1).max(0));
                 match item {
                     Item::Thing(i) => l.things[i].at[a] = v,
                     Item::Place(i) => l.places[i].at[a] = v,
@@ -518,8 +656,6 @@ impl Editor {
                     light.radius = v.round().clamp(1.0, 2000.0);
                 }
             }
-            // A solid piece keeps to the quarter turns.
-            (Field::Turn, Item::Thing(i)) if l.things[i].is_piece() => l.things[i].facing = Some(facing_at(v, free && !l.things[i].solid)),
             (Field::Size(a), Item::Area(i)) => l.areas[i].size[a.min(2)] = whole.clamp(1, 4096),
             _ => {}
         });
@@ -554,6 +690,287 @@ impl Editor {
         }
     }
 
+    /// A place facing one of the four ways (FACING), named so in the file.
+    pub fn face_place(&mut self, way: Way) {
+        let Some(Item::Place(i)) = self.chosen else { return };
+        self.change(None, |l| {
+            l.places[i].facing = Some(way.pair());
+            l.places[i].named = true;
+        });
+    }
+
+    /// The thing `was` turned round to `bearing` and tipped to `pitch` and
+    /// `roll` (degrees): on the grid (or solid) each the nearest quarter
+    /// turn, else to a tenth, a quarter within `snap` taken; its lowest
+    /// voxel kept at the height it had (laid down, a piece stays on its
+    /// floor; its `at` goes under it).
+    fn turned(&self, was: &Thing, bearing: f64, pitch: f64, roll: f64, snap: f64) -> Thing {
+        let free = self.free_turns && !was.solid;
+        let angle = |d: f64| {
+            let d = d.rem_euclid(360.0);
+            let quarter = (d / 90.0).round() * 90.0;
+            let out = if !free || (d - quarter).abs() <= snap { quarter } else { (d * 10.0).round() / 10.0 };
+            out.rem_euclid(360.0)
+        };
+        let mut t = was.clone();
+        let b = angle(bearing);
+        if (b - bearing_of(was)).rem_euclid(360.0) != 0.0 {
+            t.facing = Some(facing_at(b, true));
+        }
+        (t.pitch, t.roll) = (angle(pitch), angle(roll));
+        if let Some(size) = self.size_of(was) {
+            let (before, after) = (low_of(size, rotation_of(was)), low_of(size, rotation_of(&t)));
+            t.at[2] = was.at[2] + (before - after).round() as i32;
+        }
+        t
+    }
+
+    /// The chosen piece turned on by `degrees` about one of its axes as its
+    /// rings are (0 pitch, its nose up; 1 roll, its right side down; 2
+    /// round, clockwise seen from above): one step, kept on its floor.
+    /// False (nothing done) for a turn off the quarters where the game
+    /// turns on the grid, or what is chosen is no piece of a model.
+    pub fn tip(&mut self, axis: usize, degrees: f64) -> bool {
+        let Some(Item::Thing(i)) = self.chosen else { return false };
+        let t = &self.level.things[i];
+        if t.model.is_none() || ((!self.free_turns || t.solid) && degrees.rem_euclid(90.0) != 0.0) {
+            return false;
+        }
+        let (mut b, mut p, mut r) = (bearing_of(t), t.pitch, t.roll);
+        match axis {
+            0 => p += degrees,
+            1 => r += degrees,
+            _ => b += degrees,
+        }
+        let now = self.turned(t, b, p, r, 0.0);
+        self.change(None, |l| l.things[i] = now);
+        true
+    }
+
+    /// The handles on the chosen one, sized for the view `view_proj`: on a
+    /// piece arrows along the world's axes and rings about its own (pitch
+    /// about its right side, roll about its forward, round about the
+    /// upright: each ring changes one of its three numbers), from where it
+    /// turns; on its chosen light arrows along the model's axes; a light
+    /// alone and a thing of a kind arrows; a place arrows and the ring
+    /// round; an area arrows and its faces. None while something hangs on
+    /// the mouse.
+    pub fn handles(&self, view_proj: glam::Mat4, turn: bool) -> Option<Handles> {
+        let mut h = self.all_handles(view_proj)?;
+        // MOVE: the arrows (and an area's faces); TURN: the rings. Never
+        // both: the piece stays in view.
+        if turn && self.can_turn() {
+            (h.arrows, h.faces) = ([None; 3], None);
+        } else {
+            h.rings = [None; 3];
+        }
+        Some(h)
+    }
+
+    /// Whether the chosen one turns by its rings (TURN): a piece of a model
+    /// (not while its light is chosen), a place.
+    pub fn can_turn(&self) -> bool {
+        match self.chosen {
+            Some(Item::Thing(i)) => self.level.things[i].model.is_some() && self.chosen_light.is_none(),
+            Some(Item::Place(_)) => true,
+            _ => false,
+        }
+    }
+
+    /// Every handle the chosen one has, arrows and rings alike.
+    fn all_handles(&self, view_proj: glam::Mat4) -> Option<Handles> {
+        let item = self.chosen.filter(|_| self.hanging.is_none())?;
+        let at = IVec3::from(self.at_of(item)?).as_vec3();
+        let make = |c: Vec3| Handles::at(c, handles::world_size(view_proj, c, HANDLE_SHARE));
+        let world = [Some(Vec3::X), Some(Vec3::Y), Some(Vec3::Z)];
+        let mut h;
+        match item {
+            Item::Thing(i) => {
+                let t = &self.level.things[i];
+                let size = self.size_of(t);
+                match (self.chosen_light.and_then(|k| t.lights.get(k)), &t.model) {
+                    (Some(l), Some(_)) => {
+                        h = make(light_spot(t, size, l));
+                        let r = rotation_of(t);
+                        h.arrows = [Some(r * Vec3::X), Some(r * Vec3::Y), Some(r * Vec3::Z)];
+                    }
+                    (_, Some(_)) => {
+                        h = make(model_point(t, size, centre_in(size)));
+                        h.arrows = world;
+                        // Its box as it lies: the arrows' heads beyond it,
+                        // the rings round it (as far as the view allows).
+                        if let Some(size) = size {
+                            let lo = -IVec3::new(size.x / 2, size.y / 2, 0).as_vec3();
+                            let hi = lo + size.as_vec3();
+                            h.body = (0..8).map(|k| model_point(t, Some(size), Vec3::new(if k & 1 == 0 { lo.x } else { hi.x }, if k & 2 == 0 { lo.y } else { hi.y }, if k & 4 == 0 { lo.z } else { hi.z }))).collect();
+                            let round = (size.as_vec3() * 0.5).length() + 1.0;
+                            h.ring = h.ring.max(round.min(handles::world_size(view_proj, h.centre, 0.42)));
+                        }
+                        let round = Quat::from_rotation_z(-(bearing_of(t) as f32).to_radians());
+                        let pitch = Quat::from_rotation_x((t.pitch as f32).to_radians());
+                        h.rings = [Some(round * Vec3::X), Some(round * pitch * Vec3::Y), Some(Vec3::Z)];
+                    }
+                    (_, None) if t.is_piece() => {
+                        h = make(light_spots(t, None).next().map_or(at + 0.5, |(spot, _)| spot));
+                        h.arrows = world;
+                    }
+                    _ => {
+                        h = make(at + Vec3::new(0.5, 0.5, 0.0));
+                        h.arrows = world;
+                    }
+                }
+            }
+            Item::Place(_) => {
+                h = make(at + Vec3::new(0.5, 0.5, 0.0));
+                h.arrows = world;
+                h.rings[2] = Some(Vec3::Z);
+            }
+            Item::Area(i) => {
+                let size = IVec3::from(self.level.areas[i].size).as_vec3();
+                h = make(at + size * 0.5);
+                h.arrows = world;
+                h.faces = Some((at, at + size));
+            }
+        }
+        Some(h)
+    }
+
+    /// The press on a handle `grip` of the chosen one (`h` as `handles`
+    /// gave them), the mouse at `mouse` (pixels of a `screen` big) with its
+    /// ray: dragged from there until let go (one step, `release`) or
+    /// Escape (`cancel_drag`). Whether it took.
+    #[allow(clippy::too_many_arguments)]
+    pub fn grab(&mut self, grip: Grip, h: Handles, view_proj: glam::Mat4, screen: glam::Vec2, mouse: glam::Vec2, ray: (Vec3, Vec3)) -> bool {
+        let Some(item) = self.chosen else { return false };
+        let Some(drag) = Drag::begin(&h, grip, view_proj, screen, mouse, ray) else { return false };
+        self.release();
+        let was = match item {
+            Item::Thing(i) => Was::Thing(self.level.things[i].clone()),
+            Item::Place(i) => Was::Place(self.level.places[i].clone()),
+            Item::Area(i) => Was::Area(self.level.areas[i].clone()),
+        };
+        let light = self.chosen_light.filter(|_| matches!(&was, Was::Thing(t) if t.model.is_some()));
+        self.stroke = Some(Step::Level(self.level_state(), self.level_state()));
+        self.gripped = Some(Gripped { item, light, handles: h, drag, was });
+        true
+    }
+
+    /// The handle being dragged, if one is.
+    pub fn gripped(&self) -> Option<&Gripped> {
+        self.gripped.as_ref()
+    }
+
+    /// The mouse dragged on with a handle: the chosen one moved along its
+    /// axis by whole voxels, turned (in quarters on the grid or for a
+    /// solid piece, else freely, the quarters near taken), an area sized.
+    pub fn drag_grip(&mut self, view_proj: glam::Mat4, screen: glam::Vec2, mouse: glam::Vec2, ray: (Vec3, Vec3)) {
+        let Some(mut g) = self.gripped.take() else { return };
+        let amount = g.drag.amount(&g.handles, view_proj, screen, mouse, ray) as f64;
+        self.follow_grip(&g, amount);
+        self.gripped = Some(g);
+    }
+
+    /// The item as the grip has it `amount` on (voxels or degrees) from
+    /// where it was pressed.
+    fn follow_grip(&mut self, g: &Gripped, amount: f64) {
+        let whole = amount.round() as i32;
+        let along = |a: usize| IVec3::from_array(std::array::from_fn(|k| if k == a { whole } else { 0 }));
+        match (&g.was, g.drag.grip, g.item) {
+            (Was::Thing(t), Grip::Arrow(a), Item::Thing(i)) => match g.light {
+                Some(k) => {
+                    let Some(l) = t.lights.get(k) else { return };
+                    let to = IVec3::from(l.at.unwrap_or_default()) + along(a);
+                    self.level.things[i].lights[k].at = Some(to.to_array());
+                }
+                None => {
+                    let to = self.inside_for(g.item, IVec3::from(t.at) + along(a));
+                    self.level.things[i].at = to.to_array();
+                }
+            },
+            (Was::Thing(t), Grip::Ring(a), Item::Thing(i)) if t.model.is_some() => {
+                let quarters = !self.free_turns || t.solid;
+                let (mut b, mut p, mut r) = (bearing_of(t), t.pitch, t.roll);
+                // The right hand's way about the upright is anticlockwise
+                // seen from above: the bearing goes back.
+                match a {
+                    0 => p = handles::step(p, amount, quarters, RING_SNAP),
+                    1 => r = handles::step(r, amount, quarters, RING_SNAP),
+                    _ => b = handles::step(b, -amount, quarters, RING_SNAP),
+                }
+                let now = self.turned(t, b, p, r, RING_SNAP);
+                self.level.things[i] = now;
+            }
+            (Was::Place(p), Grip::Arrow(a), Item::Place(i)) => self.level.places[i].at = self.inside_for(g.item, IVec3::from(p.at) + along(a)).to_array(),
+            (Was::Place(p), Grip::Ring(_), Item::Place(i)) => {
+                // Quarter turns clockwise seen from above.
+                let quarters = (-amount / 90.0).round() as i32;
+                let mut now = p.clone();
+                for _ in 0..quarters.rem_euclid(4) {
+                    let [x, y] = now.facing.unwrap_or(Way::South.pair());
+                    now.facing = Some([y, -x]);
+                    now.named = now.named || p.facing.is_none();
+                }
+                self.level.places[i] = now;
+            }
+            (Was::Area(ar), Grip::Arrow(a), Item::Area(i)) => self.level.areas[i].at = self.inside_for(g.item, IVec3::from(ar.at) + along(a)).to_array(),
+            (Was::Area(ar), Grip::Face(a, high), Item::Area(i)) => {
+                let now = &mut self.level.areas[i];
+                if high {
+                    now.size[a] = (ar.size[a] + whole).clamp(1, 4096);
+                } else {
+                    let by = whole.min(ar.size[a] - 1);
+                    (now.at[a], now.size[a]) = (ar.at[a] + by, ar.size[a] - by);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Escape while dragging (a handle, or the chosen one over the floor):
+    /// all as it was before the press, no step. Whether a drag was going on.
+    pub fn cancel_drag(&mut self) -> bool {
+        if self.gripped.is_none() && self.dragging.is_none() {
+            return false;
+        }
+        (self.gripped, self.dragging) = (None, None);
+        if let Some(Step::Level(before, _)) = self.stroke.take() {
+            self.set_level(&before);
+        }
+        true
+    }
+
+    /// LIGHT: the chosen piece's lights switched off (taken out, kept to
+    /// switch on again while the editor is open) or on (as they were, else
+    /// a new one at its model's top); one step each.
+    pub fn switch_light(&mut self) {
+        let Some(Item::Thing(i)) = self.chosen else { return };
+        let t = &self.level.things[i];
+        if t.model.is_none() {
+            return;
+        }
+        if !t.lights.is_empty() {
+            let lights = t.lights.clone();
+            self.put_away.retain(|(j, _)| *j != i);
+            self.put_away.push((i, lights));
+            self.chosen_light = None;
+            self.change(None, |l| l.things[i].lights.clear());
+        } else if let Some(k) = self.put_away.iter().position(|(j, _)| *j == i) {
+            let (_, lights) = self.put_away.remove(k);
+            self.change(None, |l| l.things[i].lights = lights);
+        } else {
+            let top = self.size_of(t).map_or(10, |s| s.z);
+            self.add_piece_light(top);
+        }
+    }
+
+    /// The right-click menu's ADD on empty floor: a light, a place or an
+    /// area set down at `spot` at once (a light some way up), chosen.
+    pub fn add_at(&mut self, what: Hanging, spot: IVec3) {
+        self.hang(what);
+        self.hang_at(Some(spot));
+        self.set_down();
+    }
+
     /// ADD LIGHT on the chosen piece: one more light (the first at `top`,
     /// its model's top, from its pivot; another beside the last, wider),
     /// warm. A light alone stays one light.
@@ -577,6 +994,7 @@ impl Editor {
             return;
         }
         self.change(None, |l| drop(l.things[i].lights.remove(k)));
+        self.chosen_light = None;
     }
 
     /// The colour (`#rrggbb`) of the chosen one's light `k`.
@@ -599,8 +1017,8 @@ impl Editor {
         if t.model.is_none() {
             return;
         }
-        if on && t.facing.is_some_and(Facing::off_grid) {
-            self.message = Some(format!("{} is turned {}°: only a piece in quarter turns can be solid (its voxels must lie on the grid). TURN it to a way first.", self.label_of(Item::Thing(i)).0, bearing_of(t)));
+        if on && t.off_grid() {
+            self.message = Some(format!("{} is turned off the quarter turns: only a piece in quarter turns can be solid (its voxels must lie on the grid). Turn it to a quarter first.", self.label_of(Item::Thing(i)).0));
             return;
         }
         self.message = None;
@@ -715,10 +1133,8 @@ mod tests {
 
     /// The sketch's room (`grid::tests::PIECES`) open in the editor, the
     /// game turning things freely or not; the folder and the room's path.
-    fn room(name: &str, free: bool) -> (Editor, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join(format!("voxcade-room-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+    fn room(name: &str, free: bool) -> (Editor, crate::scratch::Scratch) {
+        let dir = crate::scratch::Scratch::new(&format!("room-{name}"));
         std::fs::write(dir.join("room.toml"), PIECES).unwrap();
         let mut ed = Editor::open(&dir, "room.toml").unwrap();
         ed.free_turns = free;
@@ -890,7 +1306,7 @@ mod tests {
         assert_eq!((l.at, l.radius, l.color.as_deref()), (Some([0, 3, 24]), 90.0, Some("#a0b8ff")));
         // Facing south, a light 3 voxels to the model's front is 3 towards
         // the camera.
-        assert_eq!(light_spot(&ed.level.things[0], &l), Vec3::new(40.5, 147.5, 24.5));
+        assert_eq!(light_spot(&ed.level.things[0], None, &l), Vec3::new(40.5, 147.5, 24.5));
         // A second: beside the first, twice as far; tuned on its own; the
         // file says them as a list.
         ed.add_piece_light(24);
@@ -984,6 +1400,257 @@ mod tests {
         }
         assert_eq!(saved(&dir), PIECES);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A view of the room for the handles, its matrix and the screen.
+    fn seen(target: Vec3, yaw: f32, pitch: f32) -> (glam::Mat4, glam::Vec2) {
+        let orbit = crate::editor::view::Orbit { yaw, pitch, zoom: 300.0, target, fov: crate::editor::view::FOV };
+        (orbit.view_proj(16.0 / 9.0), glam::Vec2::new(1600.0, 900.0))
+    }
+
+    /// A point of the room on the screen, and the mouse's ray through it.
+    fn at_screen(vp: glam::Mat4, screen: glam::Vec2, p: Vec3) -> (glam::Vec2, (Vec3, Vec3)) {
+        let (px, _) = handles::project(vp, screen, p).unwrap();
+        (px, crate::editor::view::mouse_ray(vp, px.x / screen.x, px.y / screen.y))
+    }
+
+    /// The stove's model is 20 across, 14 deep and 30 tall.
+    fn with_sizes(ed: &mut Editor) {
+        ed.sizes.insert("room/stove.vvx".into(), IVec3::new(20, 14, 30));
+        ed.sizes.insert("room/chair.vvx".into(), IVec3::new(8, 8, 12));
+    }
+
+    /// An arrow dragged moves the chosen one along its axis only, by whole
+    /// voxels, the numbers following, one step back; Escape while dragging
+    /// puts it back, no step.
+    #[test]
+    fn an_arrow_moves_along_its_axis_by_whole_voxels() {
+        let (mut ed, dir) = room("arrow", false);
+        with_sizes(&mut ed);
+        ed.choose_item(Some(Item::Thing(0)));
+        for (yaw, pitch) in [(0.0, 30.0), (40.0, 50.0)] {
+            let (vp, screen) = seen(Vec3::new(40.0, 150.0, 10.0), yaw, pitch);
+            let h = ed.handles(vp, false).unwrap();
+            let from = ed.level.things[0].at;
+            assert_eq!(h.centre, IVec3::from(from).as_vec3() + Vec3::new(0.5, 0.5, 15.5), "where it turns: the voxel at half its height");
+            let (press, ray) = at_screen(vp, screen, h.centre + Vec3::X * h.length * 0.9);
+            assert!(ed.grab(Grip::Arrow(0), h.clone(), vp, screen, press, ray));
+            let (to, ray) = at_screen(vp, screen, h.centre + Vec3::X * (h.length * 0.9 + 7.4));
+            ed.drag_grip(vp, screen, to, ray);
+            assert_eq!(ed.level.things[0].at, [from[0] + 7, from[1], from[2]], "{yaw}: along x only, whole voxels");
+            ed.release();
+        }
+        assert_eq!(ed.steps(), 2, "a drag a step");
+        assert_eq!(saved(&dir), PIECES.replace("at = [40, 150, 0]", "at = [54, 150, 0]"), "only its at");
+        ed.undo();
+        ed.undo();
+        assert_eq!(saved(&dir), PIECES);
+        // Escape while dragging: as it was, no step.
+        let (vp, screen) = seen(Vec3::new(40.0, 150.0, 10.0), 0.0, 30.0);
+        let h = ed.handles(vp, false).unwrap();
+        let (press, ray) = at_screen(vp, screen, h.centre + Vec3::Z * h.length * 0.9);
+        ed.grab(Grip::Arrow(2), h.clone(), vp, screen, press, ray);
+        let (to, ray) = at_screen(vp, screen, h.centre + Vec3::Z * (h.length * 0.9 + 5.0));
+        ed.drag_grip(vp, screen, to, ray);
+        assert_eq!(ed.level.things[0].at[2], 5);
+        assert!(ed.cancel_drag() && ed.level.things[0].at[2] == 0 && ed.gripped().is_none());
+        ed.release();
+        assert_eq!((ed.steps(), saved(&dir)), (0, PIECES.to_string()));
+        assert!(!ed.cancel_drag(), "nothing dragged: Escape goes on to what it did before");
+    }
+
+    /// A ring turns the piece about its axis the way it is dragged: on the
+    /// grid in quarter turns, freely otherwise (a quarter within a few
+    /// degrees taken); a solid piece in quarters always; one step.
+    #[test]
+    fn a_ring_turns_in_quarters_on_the_grid_and_freely_otherwise() {
+        for (free, solid, swept, want) in [(false, false, 50.0, 90.0), (false, false, 40.0, 180.0), (true, false, 50.0, 130.0), (true, false, 87.0, 90.0), (true, true, 50.0, 90.0)] {
+            let (mut ed, dir) = room("ring", free);
+            with_sizes(&mut ed);
+            ed.choose_item(Some(Item::Thing(0)));
+            ed.level.things[0].solid = solid;
+            // From above: the upright ring round the middle, swept
+            // anticlockwise as seen (the right hand's way about +z).
+            let (vp, screen) = seen(Vec3::new(40.0, 150.0, 10.0), 0.0, 85.0);
+            let h = ed.handles(vp, true).unwrap();
+            let middle = handles::project(vp, screen, h.centre).unwrap().0;
+            let point = |deg: f32| {
+                let p = middle + glam::Vec2::new(deg.to_radians().cos(), -deg.to_radians().sin()) * 100.0;
+                (p, crate::editor::view::mouse_ray(vp, p.x / screen.x, p.y / screen.y))
+            };
+            let (press, ray) = point(0.0);
+            assert!(ed.grab(Grip::Ring(2), h.clone(), vp, screen, press, ray));
+            for k in 1..=10 {
+                let (p, ray) = point(swept * k as f32 / 10.0);
+                ed.drag_grip(vp, screen, p, ray);
+            }
+            ed.release();
+            let b = bearing_of(&ed.level.things[0]);
+            assert_eq!(b, want, "free {free}, solid {solid}, swept {swept}: south turned anticlockwise");
+            assert_eq!(ed.steps(), (want != 180.0) as usize);
+            let _ = dir;
+        }
+    }
+
+    /// Tipped about its side (pitch) a piece lies down and stays on the
+    /// floor it stood on: its `at` goes under it by what it now reaches
+    /// down; laid back up it stands where it stood. On the grid only
+    /// quarters; freely any angle; the file says pitch and roll.
+    #[test]
+    fn a_piece_laid_down_stays_on_its_floor() {
+        let (mut ed, dir) = room("lay", false);
+        with_sizes(&mut ed);
+        ed.choose_item(Some(Item::Thing(0)));
+        assert!(ed.tip(0, 90.0));
+        let t = ed.level.things[0].clone();
+        assert_eq!((t.pitch, t.at), (90.0, [40, 150, -8]), "20 by 14 by 30, on its back: its 14 deep now up, about the voxel 15.5 up");
+        assert!((low_of(IVec3::new(20, 14, 30), rotation_of(&t)) + t.at[2] as f32).abs() < 1e-3, "its lowest voxel on the floor");
+        assert!(saved(&dir).contains("at = [40, 150, -8]\nfacing = \"south\"\npitch = 90\n"), "{}", saved(&dir));
+        // Its handles turn with it: the roll ring about its forward, now up.
+        let h = ed.handles(seen(Vec3::ZERO, 0.0, 30.0).0, true).unwrap();
+        assert!((h.rings[1].unwrap() - Vec3::Z).length() < 1e-5, "{:?}", h.rings[1]);
+        assert!(ed.tip(1, 90.0));
+        assert!(!ed.tip(0, 30.0), "on the grid only quarters");
+        ed.tip(1, -90.0);
+        ed.tip(0, -90.0);
+        assert_eq!(saved(&dir), PIECES, "laid down and stood up again: as it was");
+        ed.free_turns = true;
+        assert!(ed.tip(0, 30.0));
+        assert_eq!(ed.level.things[0].pitch, 30.0);
+        // A number typed keeps it on its floor the same way.
+        ed.set_field(Field::Pitch, 0.0);
+        assert_eq!(ed.level.things[0].at, [40, 150, 0]);
+        // Solid: quarters only, and solid refused while tipped off them.
+        ed.set_field(Field::Roll, 20.0);
+        ed.set_solid(true);
+        assert!(!ed.level.things[0].solid && ed.message.is_some());
+    }
+
+    /// An area is sized by the squares on its faces: the high side grows
+    /// it, the low side moves its corner and keeps the high side where it
+    /// was.
+    #[test]
+    fn an_area_is_sized_by_its_faces() {
+        let (mut ed, _dir) = room("faces", false);
+        ed.choose_item(Some(Item::Area(0)));
+        let (vp, screen) = seen(Vec3::new(50.0, 135.0, 20.0), 20.0, 30.0);
+        let h = ed.handles(vp, false).unwrap();
+        assert_eq!(h.faces, Some((Vec3::new(30.0, 120.0, 0.0), Vec3::new(70.0, 150.0, 40.0))));
+        let (press, ray) = at_screen(vp, screen, Vec3::new(70.0, 135.0, 20.0));
+        ed.grab(Grip::Face(0, true), h.clone(), vp, screen, press, ray);
+        let (to, ray) = at_screen(vp, screen, Vec3::new(76.0, 135.0, 20.0));
+        ed.drag_grip(vp, screen, to, ray);
+        ed.release();
+        assert_eq!((ed.level.areas[0].at, ed.level.areas[0].size), ([30, 120, 0], [46, 30, 40]));
+        let h = ed.handles(vp, false).unwrap();
+        let (press, ray) = at_screen(vp, screen, Vec3::new(30.0, 135.0, 20.0));
+        ed.grab(Grip::Face(0, false), h.clone(), vp, screen, press, ray);
+        let (to, ray) = at_screen(vp, screen, Vec3::new(35.0, 135.0, 20.0));
+        ed.drag_grip(vp, screen, to, ray);
+        ed.release();
+        assert_eq!((ed.level.areas[0].at, ed.level.areas[0].size), ([35, 120, 0], [41, 30, 40]));
+    }
+
+    /// MOVE shows the arrows only, TURN the rings only (a light alone, a
+    /// thing of a kind, an area do not turn); a press on the piece's body
+    /// grabs no handle (the piece is dragged), its arrows' heads lie clear
+    /// of it and grab; an arrow seen end on is dimmed and grabs nothing.
+    #[test]
+    fn move_and_turn_and_the_body_is_the_pieces() {
+        let (mut ed, _dir) = room("modes", false);
+        with_sizes(&mut ed);
+        ed.choose_item(Some(Item::Thing(0)));
+        let (vp, screen) = seen(Vec3::new(40.0, 150.0, 10.0), 0.0, 30.0);
+        let moving = ed.handles(vp, false).unwrap();
+        assert!(moving.arrows.iter().all(Option::is_some) && moving.rings.iter().all(Option::is_none));
+        let turning = ed.handles(vp, true).unwrap();
+        assert!(turning.arrows.iter().all(Option::is_none) && turning.rings.iter().all(Option::is_some));
+        assert!(turning.ring >= (Vec3::new(20.0, 14.0, 30.0) * 0.5).length(), "the rings round its box");
+        // The body: no handle there in either; the X arrow's head beyond it.
+        let body = moving.body_on_screen(vp, screen).unwrap();
+        let middle = handles::project(vp, screen, moving.centre).unwrap().0;
+        assert_eq!((moving.grip_at(vp, screen, middle), turning.grip_at(vp, screen, middle)), (None, None));
+        let shapes = moving.shapes(vp, screen);
+        let head = shapes.iter().find(|s| s.grip == Grip::Arrow(0) && s.what == handles::What::Head).unwrap();
+        assert!(head.points[0].x > body.1.x + 10.0, "the head clear of the stove: {:?} past {:?}", head.points[0], body.1);
+        assert_eq!(moving.grip_at(vp, screen, head.points[0] - glam::Vec2::new(4.0, 0.0)), Some(Grip::Arrow(0)));
+        // Seen from straight in front, Y points at the eye: dimmed, no grip.
+        let (front, _) = seen(Vec3::new(40.0, 150.0, 10.0), 0.0, 0.0);
+        let y = ed.handles(front, false).unwrap().shapes(front, screen).into_iter().find(|s| s.grip == Grip::Arrow(1)).unwrap();
+        assert!(y.dim);
+        // What does not turn has no TURN: a light alone, a thing of a kind.
+        for (item, turns) in [(Item::Thing(0), true), (Item::Thing(2), false), (Item::Thing(4), false), (Item::Place(0), true), (Item::Area(0), false)] {
+            ed.choose_item(Some(item));
+            assert_eq!(ed.can_turn(), turns, "{item:?}");
+        }
+    }
+
+    /// Z in the inspector is how high a piece's lowest voxel stands: 0 for
+    /// one laid on the floor, though its `at` lies under it; set, it lifts
+    /// the piece. An area's name is a word (the code says
+    /// level.areas.NAME); a thing's may have spaces.
+    #[test]
+    fn z_is_the_lowest_voxel_and_an_areas_name_is_a_word() {
+        let (mut ed, dir) = room("base", false);
+        with_sizes(&mut ed);
+        ed.choose_item(Some(Item::Thing(0)));
+        ed.tip(0, 90.0);
+        assert_eq!((ed.level.things[0].at[2], ed.base_of(Item::Thing(0))), (-8, Some(0)));
+        ed.set_field(Field::Base, 5.0);
+        assert_eq!((ed.level.things[0].at[2], ed.base_of(Item::Thing(0))), (-3, Some(5)));
+        assert!(ed.rename(Item::Area(0), "by the stove").unwrap_err().contains("letters, digits and _"));
+        assert!(ed.rename(Item::Area(0), "2nd").is_err());
+        assert_eq!(ed.rename(Item::Thing(0), "floor lamp"), Ok(()));
+        assert!(saved(&dir).contains("name = \"floor lamp\""));
+    }
+
+    /// ALIGN ALL takes every turn to the quarters: round, pitch and roll.
+    #[test]
+    fn align_all_takes_all_three_turns_to_the_quarters() {
+        let dir = crate::scratch::Scratch::new("room-align3");
+        std::fs::write(dir.join("room.toml"), PIECES.replace("facing = \"south\"\n", "facing = \"south\"\npitch = 30\nroll = 140\n")).unwrap();
+        let mut ed = Editor::open(&dir, "room.toml").unwrap();
+        assert_eq!(ed.level.off_grid().len(), 2);
+        ed.align_all();
+        assert!(ed.level.off_grid().is_empty());
+        let t = &ed.level.things[0];
+        assert_eq!((t.pitch, t.roll), (0.0, 180.0));
+        assert!(saved(&dir).contains("facing = \"south\"\nroll = 180\n") && !saved(&dir).contains("pitch"), "{}", saved(&dir));
+        assert_eq!(ed.steps(), 1);
+    }
+
+    /// The right-click menus: a piece of a model has the most (its model,
+    /// its light, turning, laying down, solid), a light alone, a thing of a
+    /// kind and an area what every item has, a place its turn too; the
+    /// floor what can be added there; ADD the four.
+    #[test]
+    fn the_menu_offers_what_each_thing_can_do() {
+        use crate::editor::view::{Action, MenuOn};
+        let (mut ed, _dir) = room("menu", false);
+        let words = |ed: &Editor, on| crate::editor::stage::menu_entries(ed, on).into_iter().map(|(w, ..)| w).collect::<Vec<_>>();
+        assert_eq!(words(&ed, MenuOn::Item(Item::Thing(0))), ["COPY", "REMOVE", "RENAME", "EDIT MODEL", "LIGHT ON", "TURN A QUARTER", "LAY DOWN", "SOLID"]);
+        assert_eq!(words(&ed, MenuOn::Item(Item::Thing(1)))[4], "LIGHT OFF", "the lamp has its light");
+        assert!(!words(&ed, MenuOn::Item(Item::Thing(3))).contains(&"SOLID".to_string()), "the chair at 45 degrees cannot be solid");
+        for item in [Item::Thing(2), Item::Thing(4), Item::Area(0)] {
+            assert_eq!(words(&ed, MenuOn::Item(item)), ["COPY", "REMOVE", "RENAME"], "{item:?}");
+        }
+        assert_eq!(words(&ed, MenuOn::Item(Item::Place(0))), ["COPY", "REMOVE", "RENAME", "TURN A QUARTER"]);
+        assert_eq!(words(&ed, MenuOn::Floor(IVec3::new(5, 5, 0))), ["ADD MODEL…", "ADD LIGHT", "ADD PLACE", "ADD AREA"]);
+        assert_eq!(words(&ed, MenuOn::Add), ["MODEL…", "LIGHT", "PLACE", "AREA"]);
+        // Its entries do what they say: a light set down where the floor
+        // was clicked, chosen; the stove's light switched on and off again.
+        let mut view = crate::editor::view::View::new(&ed, &crate::config::GameConfig::default());
+        crate::editor::view::act(&mut ed, &mut view, Action::AddAt(0, IVec3::new(70, 30, 0)));
+        assert_eq!((ed.chosen, ed.level.things[5].at), (Some(Item::Thing(5)), [70, 30, 40]));
+        crate::editor::view::act(&mut ed, &mut view, Action::OpenMenu(Item::Thing(0), [10.0, 10.0]));
+        assert_eq!((ed.chosen, view.menu.map(|m| m.on)), (Some(Item::Thing(0)), Some(MenuOn::Item(Item::Thing(0)))));
+        crate::editor::view::act(&mut ed, &mut view, Action::SwitchLight);
+        assert!(view.menu.is_none() && ed.level.things[0].lights.len() == 1, "a light on, the menu closed");
+        ed.set_colour(0, "#a0b8ff");
+        ed.switch_light();
+        assert!(ed.level.things[0].lights.is_empty());
+        ed.switch_light();
+        assert_eq!(ed.level.things[0].lights[0].color.as_deref(), Some("#a0b8ff"), "on again as it was");
     }
 
     /// The game's models to set down: folders after the game's own, the

@@ -356,10 +356,8 @@ mod tests {
     /// A folder with a tileset of three 2x2 tiles (1 red with a green top
     /// row, solid; 2 blue, no class; 3 red with a hole at its top right,
     /// one-way) and a 3 by 2 map with these tile layers.
-    fn folder(name: &str, layers: &[&[u32]], objects: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("voxcade-tiled-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+    fn folder(name: &str, layers: &[&[u32]], objects: &str) -> crate::scratch::Scratch {
+        let dir = crate::scratch::Scratch::new(&format!("tiled-{name}"));
         // Tiles side by side: 6 by 2 pixels.
         let sheet = [GREEN, GREEN, BLUE, BLUE, RED, NONE, RED, RED, BLUE, BLUE, RED, RED];
         write_png(&dir.join("tiles.png"), 6, 2, &sheet);

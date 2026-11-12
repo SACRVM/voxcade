@@ -309,11 +309,8 @@ impl Store {
 mod tests {
     use super::*;
 
-    fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("voxcade-files-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    fn scratch(name: &str) -> crate::scratch::Scratch {
+        crate::scratch::Scratch::new(&format!("files-{name}"))
     }
 
     /// A sealed game reads its files as they were sealed, whatever the

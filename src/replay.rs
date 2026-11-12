@@ -1199,7 +1199,7 @@ mod tests {
     /// counts as helped.
     #[test]
     fn a_run_on_sealed_files_replays_with_its_applies() {
-        let tmp = std::env::temp_dir().join(format!("voxcade-sealed-run-{}", std::process::id()));
+        let tmp = crate::scratch::Scratch::new("sealed-run");
         let _ = std::fs::remove_dir_all(&tmp);
         let dir = tmp.join("game");
         copy(Path::new("templates/empty"), &dir);
@@ -1268,7 +1268,7 @@ mod tests {
     /// kept.
     #[test]
     fn runs_are_kept_and_the_oldest_go() {
-        let tmp = std::env::temp_dir().join(format!("voxcade-runs-{}", std::process::id()));
+        let tmp = crate::scratch::Scratch::new("runs");
         let kept = tmp.join("kept");
         std::fs::create_dir_all(&kept).unwrap();
         for n in 0..21 {
@@ -1316,7 +1316,7 @@ mod tests {
     /// too; a key starts the wait over.
     #[test]
     fn the_title_plays_the_games_own_replays_in_turn() {
-        let tmp = std::env::temp_dir().join(format!("voxcade-attract-{}", std::process::id()));
+        let tmp = crate::scratch::Scratch::new("attract");
         let replays = tmp.join("replays");
         std::fs::create_dir_all(replays.join("tests")).unwrap();
         let replay = |fingerprint: u64, score: u32| Replay {
@@ -1421,7 +1421,7 @@ mod tests {
     /// change that alters the game nothing is written.
     #[test]
     fn refit_takes_a_new_layout_and_refuses_a_new_game() {
-        let tmp = std::env::temp_dir().join(format!("voxcade-refit-{}", std::process::id()));
+        let tmp = crate::scratch::Scratch::new("refit");
         let _ = std::fs::remove_dir_all(&tmp);
         let copy = |from: &Path, to: &Path| {
             std::fs::create_dir_all(to.parent().unwrap()).unwrap();

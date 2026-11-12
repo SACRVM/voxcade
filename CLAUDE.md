@@ -231,7 +231,15 @@ nearest; its replay `tests/two_ships`);
   <tiled-map.json>` brings a Tiled map in once (Tiled draws in 2D: it is
   only a way in); `voxcade edit <game>` opens the editor in a window (the
   user's), `--shot FILE [--block NAME | --things] [--view YAW,PITCH]`
-  draws it without one, to look at.
+  draws it without one, to look at. Among a level's pieces it has three
+  zones (`src/editor/stage.rs`, the owner, 2026-11-12: no stacked column,
+  no sentences, never a scroll inside a scroll): a top bar, the outliner
+  left, the inspector right (a grid of short rows); in the view handles
+  on the chosen one (`src/editor/handles.rs`, knowing nothing of levels:
+  arrows X red, Y green, Z blue, rings, an area's faces), buttons beside
+  it, a right-click menu whose entries are each also a visible control
+  (`stage::menu_entries`). A piece turns by `turn`, `pitch` and `roll`
+  (`docs/game-model.md`).
 - The IDE (`src/ide/`, `docs/ide.md`; phase 2, built in stages):
   `voxcade ide <game>` opens it in a window (the user's), `--shot FILE
   [--open PATH] [--console CMD] [--size WxH]` draws it without one
@@ -521,6 +529,13 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
 
 ## Rules
 
+- Tests take their folders from `scratch::Scratch` (`src/scratch.rs`,
+  `voxcade-NAME-PID-N`, removed when dropped, a panic included), never from
+  `std::env::temp_dir()` by hand: the temp folder here is a tmpfs in RAM and
+  leftovers once filled it (25,800 of them, 14 GB) and stopped the machine.
+  Keep the guard in a binding that lives as long as the test; code outside
+  tests that writes to the temp folder removes what it made, on error too;
+  `tools/check_tmp.sh` runs the tests and fails if `voxcade-*` entries grew.
 - Everything in a game is code or text (the owner, 2026-11-12): models,
   figures and blocks are `.vvx` (`src/vvx.rs`; the models skill has the
   format: the format line first, signs a colour with its material,

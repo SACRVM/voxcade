@@ -44,6 +44,11 @@ had warnings before your change too: only a warning in a line you touched
 is yours; leave the others alone. Never run `cargo fmt` (the code is
 formatted by hand; it would rewrite dozens of files).
 
+After a change that adds tests or touches the temp folder, run
+`tools/check_tmp.sh`: it counts `voxcade-*` entries in the temp folder
+(RAM here) before and after `cargo test --release` and fails if they grew.
+Tests take their folders from `scratch::Scratch`, never `temp_dir()`.
+
 ## 3. When a replay no longer runs as recorded
 
 A replay carries a fingerprint of the game's data and its state every

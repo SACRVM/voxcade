@@ -310,8 +310,8 @@ mod tests {
 
     /// A game of an older Voxcade: a MagicaVoxel figure named in its conf,
     /// a recording among its sounds.
-    fn older_game(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("voxcade-wizard-{name}-{}", std::process::id()));
+    fn older_game(name: &str) -> crate::scratch::Scratch {
+        let dir = crate::scratch::Scratch::new(&format!("wizard-{name}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sounds")).unwrap();
         crate::vox::write_figure(&dir.join("robot.vox"), &[("body", glam::IVec3::new(4, 4, 8), glam::IVec3::ZERO), ("arm", glam::IVec3::new(1, 2, 5), glam::IVec3::new(6, 1, 3))]);

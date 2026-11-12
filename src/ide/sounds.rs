@@ -111,7 +111,7 @@ mod tests {
     /// A synth and a silent sound each say what they are.
     #[test]
     fn a_sound_is_described_in_words() {
-        let dir = std::env::temp_dir().join(format!("voxcade-ide-sounds-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("ide-sounds");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sounds")).unwrap();
         let ping = def("wave = \"square\"\nhold = 0.1\ndecay = 0.1\nsweep = -18\n");
@@ -129,9 +129,7 @@ mod tests {
     /// `'coin'`, not `"coins"`.
     #[test]
     fn a_sound_is_found_where_the_scripts_name_it() {
-        let dir = std::env::temp_dir().join(format!("voxcade-ide-uses-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::scratch::Scratch::new("ide-uses");
         std::fs::write(dir.join("main.lua"), "function on_tick()\n  level:sound(\"coin\", player)\n  x = \"coins\"\nend\n").unwrap();
         std::fs::write(dir.join("conf.lua"), "function conf(c)\n\n  c.things.gem = { sound = 'coin' }\nend\n").unwrap();
         let found = used(&dir, &["conf.lua".into(), "main.lua".into()], "coin");

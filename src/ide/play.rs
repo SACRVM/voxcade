@@ -484,9 +484,7 @@ mod tests {
     fn a_held_game_takes_in_the_mended_script() {
         let canvas = crate::headless::Canvas::new(64, 64, false).unwrap();
         let (device, queue, _) = canvas.gpu();
-        let dir = std::env::temp_dir().join(format!("voxcade-play-mend-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::scratch::Scratch::new("play-mend");
         std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 32, 32, 8 }\nend\n").unwrap();
         std::fs::write(dir.join("main.lua"), "function on_tick()\n  local t = nil\n  local x = t.x\nend\n").unwrap();
         let mut play = Play::<crate::Voxcade>::start(&dir, device, queue, None, None).unwrap();
@@ -508,10 +506,8 @@ mod tests {
 
     /// A game in a folder of its own with `main` as its `main.lua`: played
     /// a few ticks.
-    fn played(name: &str, conf: &str, main: &str, device: &wgpu::Device, queue: &wgpu::Queue) -> (PathBuf, Play<crate::Voxcade>) {
-        let dir = std::env::temp_dir().join(format!("voxcade-play-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+    fn played(name: &str, conf: &str, main: &str, device: &wgpu::Device, queue: &wgpu::Queue) -> (crate::scratch::Scratch, Play<crate::Voxcade>) {
+        let dir = crate::scratch::Scratch::new(&format!("play-{name}"));
         std::fs::write(dir.join("conf.lua"), conf).unwrap();
         std::fs::write(dir.join("main.lua"), main).unwrap();
         let mut play = Play::<crate::Voxcade>::start(&dir, device, queue, None, None).unwrap();
@@ -594,9 +590,7 @@ mod tests {
     fn a_run_played_is_kept_with_f9() {
         let canvas = crate::headless::Canvas::new(64, 64, false).unwrap();
         let (device, queue, _) = canvas.gpu();
-        let dir = std::env::temp_dir().join(format!("voxcade-play-keep-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::scratch::Scratch::new("play-keep");
         std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 32, 32, 8 }\nend\n").unwrap();
         std::fs::write(dir.join("main.lua"), "function on_tick()\n  if input.right then player.state.score = player.state.score + 1 end\nend\n").unwrap();
         let mut play = Play::<crate::Voxcade>::start(&dir, device, queue, None, None).unwrap();
@@ -645,7 +639,7 @@ mod tests {
     fn again_begins_from_the_scenario_again() {
         let canvas = crate::headless::Canvas::new(64, 64, false).unwrap();
         let (device, queue, _) = canvas.gpu();
-        let dir = std::env::temp_dir().join(format!("voxcade-play-again-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("play-again");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("scenarios")).unwrap();
         std::fs::write(dir.join("conf.lua"), CONF).unwrap();

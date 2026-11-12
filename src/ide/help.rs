@@ -1041,9 +1041,7 @@ mod tests {
         let base = include_str!("../../templates/empty/conf.lua");
         let at = base.rfind("end").expect("conf ends");
         for (i, topic) in TOPICS.iter().enumerate() {
-            let dir = std::env::temp_dir().join(format!("voxcade-help-{i}-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).unwrap();
+            let dir = crate::scratch::Scratch::new(&format!("help-{i}"));
             let conf = format!("{}  {}\n{}", &base[..at], topic.conf.replace('\n', "\n  "), &base[at..]);
             std::fs::write(dir.join("conf.lua"), conf).unwrap();
             // The template's figures, as a game begun from it has them.

@@ -290,7 +290,7 @@ mod tests {
     /// a game that lies in no repository none do; a deeper `!` wins.
     #[test]
     fn gitignore_files_count_where_git_would_read_them() {
-        let top = std::env::temp_dir().join(format!("voxcade-ignore-{}", std::process::id()));
+        let top = crate::scratch::Scratch::new("ignore");
         let _ = std::fs::remove_dir_all(&top);
         let game = top.join("repo/games/g");
         std::fs::create_dir_all(game.join("sub")).unwrap();

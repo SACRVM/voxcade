@@ -468,7 +468,7 @@ mod tests {
 
     #[test]
     fn settings_survive_a_save() {
-        let dir = std::env::temp_dir().join(format!("voxcade-settings-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("settings");
         let path = dir.join("settings.toml");
         let mut s = Settings { music: 3, song: 2, blur: false, ..Settings::default() };
         s.adopt_scores(&[]);

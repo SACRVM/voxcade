@@ -732,7 +732,7 @@ mod tests {
     /// marker placed by name.
     #[test]
     fn a_map_builds_ground_prefabs_and_markers() {
-        let dir = std::env::temp_dir().join(format!("voxcade-map-test-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("map-test");
         std::fs::create_dir_all(&dir).unwrap();
         // 8 x 8, 3 high; the top four image rows (the north) 5 high.
         let mut grey = vec![3u8; 64];
@@ -788,7 +788,7 @@ mod tests {
         use crate::shooter::{Controls as Input, Shooter as Sim};
         use glam::Vec3;
 
-        let dir = std::env::temp_dir().join(format!("voxcade-tower-test-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("tower-test");
         std::fs::create_dir_all(&dir).unwrap();
         write_grey_png(&dir.join("height.png"), 64, 64, &[1; 64 * 64]);
         let tower = Path::new("games/moreblood/prefabs/tower.vvx").canonicalize().unwrap();

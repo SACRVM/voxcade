@@ -2608,7 +2608,8 @@ mod tests {
     #[test]
     fn choosing_a_file_shows_it() {
         let dir = Path::new("games/voxkeep");
-        let memory = std::env::temp_dir().join(format!("voxcade-shell-choose-{}.toml", std::process::id()));
+        let scratch = crate::scratch::Scratch::new("shell-choose");
+        let memory = scratch.join("memory.toml");
         let _ = std::fs::remove_file(&memory);
         let console = Console::new(dir.to_path_buf(), Start::Nothing, std::sync::Arc::new(|| {}));
         let mut shell = Shell::new(dir, crate::session::config::<crate::Voxcade>(dir).unwrap(), memory.clone(), console);
@@ -2642,13 +2643,14 @@ mod tests {
     #[test]
     fn a_clicked_path_opens_in_the_main_area() {
         let dir = Path::new("games/voxkeep");
-        let memory = std::env::temp_dir().join(format!("voxcade-shell-clicked-{}.toml", std::process::id()));
+        let scratch = crate::scratch::Scratch::new("shell-clicked");
+        let memory = scratch.join("memory.toml");
         let _ = std::fs::remove_file(&memory);
         let console = Console::new(dir.to_path_buf(), Start::Nothing, std::sync::Arc::new(|| {}));
         let mut shell = Shell::new(dir, crate::session::config::<crate::Voxcade>(dir).unwrap(), memory.clone(), console);
         let ctx = egui::Context::default();
         frame(&ctx, &mut shell);
-        let elsewhere = std::env::temp_dir().join(format!("voxcade-shell-clicked-{}", std::process::id()));
+        let elsewhere = crate::scratch::Scratch::new("shell-clicked");
         std::fs::create_dir_all(&elsewhere).unwrap();
         let png = elsewhere.join("gras.png");
         std::fs::copy("games/pulsar/ground/height.png", &png).unwrap();
@@ -2679,7 +2681,8 @@ mod tests {
     #[test]
     fn the_cursor_comes_back_and_the_agent_takes_no_keys() {
         let dir = Path::new("games/voxkeep");
-        let memory = std::env::temp_dir().join(format!("voxcade-shell-cursor-{}.toml", std::process::id()));
+        let scratch = crate::scratch::Scratch::new("shell-cursor");
+        let memory = scratch.join("memory.toml");
         let mut remembered = Memory { open: Some("main.lua".into()), ..Memory::default() };
         remembered.cursor.insert("main.lua".into(), 42);
         remembered.save(&memory).unwrap();
@@ -2716,7 +2719,8 @@ mod tests {
     #[test]
     fn another_game_opens_at_once_when_nothing_runs() {
         let dir = Path::new("games/voxkeep");
-        let memory = std::env::temp_dir().join(format!("voxcade-shell-leave-{}.toml", std::process::id()));
+        let scratch = crate::scratch::Scratch::new("shell-leave");
+        let memory = scratch.join("memory.toml");
         let console = Console::new(dir.to_path_buf(), Start::Nothing, std::sync::Arc::new(|| {}));
         let mut shell = Shell::new(dir, crate::session::config::<crate::Voxcade>(dir).unwrap(), memory.clone(), console);
         shell.leave_for(PathBuf::from("games/sokovox"));
@@ -2730,7 +2734,8 @@ mod tests {
     #[test]
     fn the_game_reports_into_the_output() {
         let dir = Path::new("games/voxkeep");
-        let memory = std::env::temp_dir().join(format!("voxcade-shell-output-{}.toml", std::process::id()));
+        let scratch = crate::scratch::Scratch::new("shell-output");
+        let memory = scratch.join("memory.toml");
         let console = Console::new(dir.to_path_buf(), Start::Nothing, std::sync::Arc::new(|| {}));
         let mut shell = Shell::new(dir, crate::session::config::<crate::Voxcade>(dir).unwrap(), memory.clone(), console);
         let trouble = Some("main.lua:3: attempt to index a nil value\nstack traceback:".to_string());
@@ -2748,7 +2753,8 @@ mod tests {
     #[test]
     fn the_console_can_be_left_out() {
         let dir = Path::new("games/voxkeep");
-        let memory = std::env::temp_dir().join(format!("voxcade-shell-console-{}.toml", std::process::id()));
+        let scratch = crate::scratch::Scratch::new("shell-console");
+        let memory = scratch.join("memory.toml");
         let _ = std::fs::remove_file(&memory);
         let console = Console::new(dir.to_path_buf(), Start::Nothing, std::sync::Arc::new(|| {}));
         let mut shell = Shell::new(dir, crate::session::config::<crate::Voxcade>(dir).unwrap(), memory.clone(), console);
@@ -2774,7 +2780,8 @@ mod tests {
     #[test]
     fn the_line_the_game_stopped_at_is_marked() {
         let dir = Path::new("games/voxkeep");
-        let memory = std::env::temp_dir().join(format!("voxcade-shell-stopped-{}.toml", std::process::id()));
+        let scratch = crate::scratch::Scratch::new("shell-stopped");
+        let memory = scratch.join("memory.toml");
         let _ = std::fs::remove_file(&memory);
         let console = Console::new(dir.to_path_buf(), Start::Nothing, std::sync::Arc::new(|| {}));
         let mut shell = Shell::new(dir, crate::session::config::<crate::Voxcade>(dir).unwrap(), memory.clone(), console);
@@ -2804,7 +2811,8 @@ mod tests {
     #[test]
     fn a_song_plays_until_something_else_is_open() {
         let dir = Path::new("games/voxkeep");
-        let memory = std::env::temp_dir().join(format!("voxcade-shell-song-{}.toml", std::process::id()));
+        let scratch = crate::scratch::Scratch::new("shell-song");
+        let memory = scratch.join("memory.toml");
         let _ = std::fs::remove_file(&memory);
         let console = Console::new(dir.to_path_buf(), Start::Nothing, std::sync::Arc::new(|| {}));
         let mut shell = Shell::new(dir, crate::session::config::<crate::Voxcade>(dir).unwrap(), memory.clone(), console);
@@ -2830,13 +2838,12 @@ mod tests {
 
     /// A bare game folder to try the plus signs on: no model, no song, no
     /// scenario.
-    fn bare_game(name: &str) -> (PathBuf, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("voxcade-shell-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+    fn bare_game(name: &str) -> (crate::scratch::Scratch, PathBuf) {
+        let dir = crate::scratch::Scratch::new(&format!("shell-{name}"));
         std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 64, 64, 16 }\n  c.player.spawn = { 32, 32 }\n  c.actions = { \"jump\" }\nend\n").unwrap();
         std::fs::write(dir.join("main.lua"), "function on_tick() end\n").unwrap();
-        (dir.clone(), std::env::temp_dir().join(format!("voxcade-shell-{name}-{}.toml", std::process::id())))
+        let memory = dir.join("memory.toml");
+        (dir, memory)
     }
 
     fn shell_on(dir: &Path, memory: &Path) -> Shell {
@@ -3023,7 +3030,7 @@ mod tests {
 
     /// A game with sounds of its own: `conf.lua` names "coin" in a kind,
     /// `main.lua` plays it, `bell` is never played.
-    fn sound_game(name: &str) -> (PathBuf, PathBuf) {
+    fn sound_game(name: &str) -> (crate::scratch::Scratch, PathBuf) {
         let (dir, memory) = bare_game(name);
         std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 64, 64, 16 }\n  c.player.spawn = { 32, 32 }\n  c.actions = { \"jump\" }\n  c.things.gem = { sound = \"coin\" }\nend\n").unwrap();
         std::fs::write(dir.join("main.lua"), "function on_tick()\n  if world.tick == 5 then\n    level:sound(\"coin\", player)\n  end\nend\n").unwrap();
@@ -3287,7 +3294,7 @@ mod tests {
     /// scenario, a model, a song, an image and a text, and sounds as
     /// `sound_game` has them. The folder a deleted file goes to is in the
     /// temp dir too.
-    fn managed_game(name: &str) -> (PathBuf, PathBuf, Shell) {
+    fn managed_game(name: &str) -> (crate::scratch::Scratch, PathBuf, Shell) {
         let (dir, memory) = sound_game(name);
         std::fs::write(dir.join("tools.lua"), "return {}\n").unwrap();
         std::fs::create_dir_all(dir.join("scenarios")).unwrap();
@@ -3762,12 +3769,13 @@ mod tests {
     fn an_agent_that_starts_with_the_ide_has_the_console_open() {
         let (dir, memory) = bare_game("console-agent");
         let _ = std::fs::remove_file(&memory);
-        let prefs = dir.with_extension("ide.toml");
+        let prefs = dir.join("ide.toml");
         let mut settings = Prefs::default();
         settings.claude.with_ide = true;
         settings.save(&prefs).unwrap();
         let mut shell = shell_on(&dir, &memory);
-        shell.finder = super::super::claude::Finder::in_dirs(vec![fake_agent("console-agent")]);
+        let agent = fake_agent("console-agent");
+        shell.finder = super::super::claude::Finder::in_dirs(vec![agent.to_path_buf()]);
         let shell = shell.with_prefs(prefs.clone());
         assert!(!shell.memory.console_folded);
         assert!(shell.console.typed().starts_with("claude "), "typed: {}", shell.console.typed());
@@ -3778,10 +3786,8 @@ mod tests {
     }
 
     /// A folder with a program called `claude` that runs (nothing starts it).
-    fn fake_agent(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("voxcade-agent-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+    fn fake_agent(name: &str) -> crate::scratch::Scratch {
+        let dir = crate::scratch::Scratch::new(&format!("agent-{name}"));
         let program = dir.join("claude");
         std::fs::write(&program, "#!/bin/sh\n").unwrap();
         #[cfg(unix)]
@@ -3820,7 +3826,7 @@ mod tests {
         assert!(shell.no_agent && shell.console.typed().is_empty());
         // Installed: LOOK AGAIN finds it and types its command.
         let bin = fake_agent("no-agent");
-        shell.finder = super::super::claude::Finder::in_dirs(vec![bin.clone()]);
+        shell.finder = super::super::claude::Finder::in_dirs(vec![bin.to_path_buf()]);
         let at = at_word(&drawn_text(&ctx, &mut shell, vec![]), "LOOK AGAIN");
         click(&ctx, &mut shell, at);
         assert!(!shell.no_agent, "found");
@@ -3837,7 +3843,7 @@ mod tests {
     fn a_missing_agent_does_not_open_the_console_by_itself() {
         let (dir, memory) = bare_game("no-agent-start");
         let _ = std::fs::remove_file(&memory);
-        let prefs = dir.with_extension("ide.toml");
+        let prefs = dir.join("ide.toml");
         let mut settings = Prefs::default();
         settings.claude.with_ide = true;
         settings.save(&prefs).unwrap();
@@ -3906,7 +3912,7 @@ mod tests {
     fn a_folded_console_shows_that_something_was_written() {
         let (dir, memory) = bare_game("console-news");
         let _ = std::fs::remove_file(&memory);
-        let console = Console::new(dir.clone(), Start::Command("echo one; sleep 1; echo two".into()), std::sync::Arc::new(|| {}));
+        let console = Console::new(dir.to_path_buf(), Start::Command("echo one; sleep 1; echo two".into()), std::sync::Arc::new(|| {}));
         let mut shell = Shell::new(&dir, crate::session::config::<crate::Voxcade>(&dir).unwrap(), memory.clone(), console);
         let ctx = egui::Context::default();
         shell.unfold_console();

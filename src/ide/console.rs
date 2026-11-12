@@ -705,9 +705,9 @@ mod tests {
     /// click's own frame, egui took them back: the click was elsewhere).
     #[test]
     fn claude_gives_the_console_the_keys() {
-        let dir = std::env::temp_dir().join(format!("voxcade-console-keys-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("console-keys");
         std::fs::create_dir_all(&dir).unwrap();
-        let mut console = Console::new(dir.clone(), Start::Nothing, Arc::new(|| {}));
+        let mut console = Console::new(dir.to_path_buf(), Start::Nothing, Arc::new(|| {}));
         let ctx = egui::Context::default();
         let mut folded = false;
         let mut frame = |events: Vec<egui::Event>, console: &mut Console| {
@@ -741,9 +741,9 @@ mod tests {
     /// as it is.
     #[test]
     fn only_the_arrow_folds() {
-        let dir = std::env::temp_dir().join(format!("voxcade-console-fold-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("console-fold");
         std::fs::create_dir_all(&dir).unwrap();
-        let mut console = Console::new(dir.clone(), Start::Nothing, Arc::new(|| {}));
+        let mut console = Console::new(dir.to_path_buf(), Start::Nothing, Arc::new(|| {}));
         let ctx = egui::Context::default();
         let mut folded = false;
         let mut click = |at: Pos2, folded: &mut bool| {
@@ -765,9 +765,9 @@ mod tests {
     /// and to the clipboard with Ctrl+C or Ctrl+Shift+C.
     #[test]
     fn what_is_selected_is_copied() {
-        let dir = std::env::temp_dir().join(format!("voxcade-console-copy-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("console-copy");
         std::fs::create_dir_all(&dir).unwrap();
-        let mut console = Console::new(dir.clone(), Start::Command("printf 'hello world'; sleep 3".into()), Arc::new(|| {}));
+        let mut console = Console::new(dir.to_path_buf(), Start::Command("printf 'hello world'; sleep 3".into()), Arc::new(|| {}));
         let ctx = egui::Context::default();
         let frame = |events: Vec<egui::Event>, console: &mut Console| {
             let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 400.0))), events, ..Default::default() };
@@ -802,11 +802,11 @@ mod tests {
     /// does) hears the wheel and the buttons, not arrow keys.
     #[test]
     fn a_program_that_asks_for_the_mouse_hears_it() {
-        let dir = std::env::temp_dir().join(format!("voxcade-console-mouse-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("console-mouse");
         std::fs::create_dir_all(&dir).unwrap();
         let heard = dir.join("heard");
         let command = format!("printf '\\033[?1049h\\033[?1002h\\033[?1006h'; stty raw -echo; cat > '{}'", heard.display());
-        let mut console = Console::new(dir.clone(), Start::Command(command), Arc::new(|| {}));
+        let mut console = Console::new(dir.to_path_buf(), Start::Command(command), Arc::new(|| {}));
         let ctx = egui::Context::default();
         let mut time = 0.0;
         let mut frame = |events: Vec<egui::Event>, console: &mut Console| {
@@ -914,7 +914,7 @@ mod tests {
     /// if it exists, and inside the game folder or a picture.
     #[test]
     fn a_path_names_an_existing_file() {
-        let root = std::env::temp_dir().join(format!("voxcade-console-links-{}", std::process::id()));
+        let root = crate::scratch::Scratch::new("console-links");
         let (game, other) = (root.join("game"), root.join("other"));
         std::fs::create_dir_all(&game).unwrap();
         std::fs::create_dir_all(&other).unwrap();
@@ -936,9 +936,7 @@ mod tests {
     /// keeping the servers it named already.
     #[test]
     fn the_mcp_button_names_voxcade_in_the_game_folder() {
-        let dir = std::env::temp_dir().join(format!("voxcade-mcp-json-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::scratch::Scratch::new("mcp-json");
         assert!(!has_mcp(&dir));
         std::fs::write(dir.join(".mcp.json"), r#"{"mcpServers":{"other":{"command":"x"}}}"#).unwrap();
         write_mcp(&dir).unwrap();

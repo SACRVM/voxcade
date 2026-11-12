@@ -197,7 +197,7 @@ mod tests {
         for folder in std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("templates")).unwrap().flatten() {
             assert!(matches!(crate::upgrade::standing(&folder.path()).unwrap(), crate::upgrade::Standing::Current), "{}", folder.path().display());
         }
-        let projects = std::env::temp_dir().join(format!("voxcade-templates-{}", std::process::id()));
+        let projects = crate::scratch::Scratch::new("templates");
         let _ = std::fs::remove_dir_all(&projects);
         for (i, template) in TEMPLATES.iter().enumerate() {
             let name = format!("Test Game {i}");
@@ -224,7 +224,7 @@ mod tests {
     /// fingerprint stays and a change to them reloads nothing.
     #[test]
     fn the_notes_come_with_the_tick_and_are_no_part_of_the_game() {
-        let projects = std::env::temp_dir().join(format!("voxcade-notes-{}", std::process::id()));
+        let projects = crate::scratch::Scratch::new("notes");
         let _ = std::fs::remove_dir_all(&projects);
         let with = create(&TEMPLATES[1], &projects, "Lava Run", Some(Agent::Claude)).unwrap().dir;
         let without = create(&TEMPLATES[1], &projects, "Dry Run", None).unwrap().dir;
@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn a_new_game_is_a_git_repository() {
         let git = |dir: &Path, args: &[&str]| std::process::Command::new("git").arg("-C").arg(dir).args(args).output();
-        let projects = std::env::temp_dir().join(format!("voxcade-git-{}", std::process::id()));
+        let projects = crate::scratch::Scratch::new("git");
         let _ = std::fs::remove_dir_all(&projects);
         let begun = create(&TEMPLATES[0], &projects, "Git Game", Some(Agent::Claude)).unwrap();
         if git(&begun.dir, &["--version"]).is_err() {

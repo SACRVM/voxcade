@@ -290,6 +290,31 @@ A piece's `at` is its pivot cell (the model's cell `size / 2` across and
 deep, on its floor; "A model's pivot" below), and `thing.x`, `thing.y`
 read `at + 0.5`, the middle of that cell (the grid's low corner added):
 a cube put relative to a piece goes at `math.floor(thing.x) + dx`.
+A piece may be tipped besides (2026-11-12): `pitch` (its nose up, about
+its own right side) and `roll` (its right side down, about its own
+forward), degrees, the words and the order `frame:model`'s turn has
+(`session::turning`): the rotation is `Rz(-turn) · Rx(pitch) ·
+Ry(roll)`, roll taken first, then pitch, then the turn round, so `turn`
+(or `facing`) stays the bearing seen from above whatever the other two,
+and a piece is drawn exactly as `frame:model` draws a thing facing north
+with `{ turn = turn, pitch = pitch, roll = roll }`. All three turn about
+the same point, the middle of the voxel at half the model's height over
+the pivot cell (`render::turn_centre`: a model 30 tall turns about 15.5
+up, one 21 tall about 10.5): a voxel's middle, so a quarter turn about
+any axis puts every voxel on the grid again. Written only when not 0, on
+the grid only 0, 90, 180 or 270 each (the level names a piece off them,
+as it does a `turn`; ALIGN ALL takes the nearest quarter, a 0 taking its
+line out). A solid piece may lie any of the 24 ways a box can; its cells
+are exactly where it is drawn (`session::piece_cells`, test
+`a_solid_piece_turned_any_way_is_where_it_is_drawn`). Laid down, a piece
+lies round its middle, so its `at` (where the standing model's pivot
+was) goes under it: a stove 20 across, 14 deep and 30 tall, `at = [40,
+150, 0]`, `facing = "north"`, `pitch = 90` lies on its back in x 30 to
+49, y 136 to 165 and z 8 to 21; the editor keeps a piece on the floor
+it stood on as it tips it (its lowest voxel stays where it was), so it
+writes `at = [40, 150, -8]` and the stove lies in z 0 to 13 (`at`'s z
+below the floor is in order for a piece; it does not fall out). Its Z
+arrow (or the number) moves it up from there.
 A piece may bring a light (`light = { at, radius, color }`, `at` from the
 pivot in the model's voxels, turning with it) or several (`lights = [ {
 ... }, { ... } ]`: a lamp's flame and its wider glow; `light =` is a list
@@ -520,7 +545,13 @@ settings. Several players: `player` is seat 1, the others are in
   | south | x 9 to 12, y 10 |
   | west | x 10, y 8 to 11 |
 
-  (pinned by `an_even_sized_model_shifts_a_voxel_when_it_turns`). A
+  (pinned by `an_even_sized_model_shifts_a_voxel_when_it_turns`). Turned
+  freely (`frame:model`'s turn, a piece's `turn`, `pitch`, `roll`) a
+  model turns about the middle of the voxel at half its height over the
+  pivot cell (`render::turn_centre`, z `size.z / 2 + 0.5`, halves
+  rounded down; until 2026-11-12 half its height exactly, which put an
+  even-tall model half a voxel off the grid when tipped a quarter): turns
+  round the upright are the same either way. A
   model's file (`.vvx`, `src/vvx.rs`) measures its frames' and parts'
   `at` and the joints from this cell, so growing a part moves nothing
   else and the model keeps standing where it stood.

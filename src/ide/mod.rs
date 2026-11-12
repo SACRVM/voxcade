@@ -184,7 +184,9 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
     let console = Console::new(dir.to_path_buf(), start, Arc::new(|| {}));
     let cfg = crate::session::config::<G>(dir)?;
     let brought = G::sounds(&cfg);
-    let mut shell = Shell::new(dir, cfg, std::env::temp_dir().join(format!("voxcade-ide-shot-{}.toml", std::process::id())), console).with_sounds(brought);
+    // What the shell remembers goes in a folder that is gone with the shot.
+    let scratch = crate::scratch::Scratch::new("ide-shot");
+    let mut shell = Shell::new(dir, cfg, scratch.join("memory.toml"), console).with_sounds(brought);
     shell.animate = false;
     // A command run in the console is meant to be seen: unfolded (else a
     // shot shows a game's console as a game opens, folded).

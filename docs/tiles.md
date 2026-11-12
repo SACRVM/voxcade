@@ -135,15 +135,28 @@ facing = [0, -1]
   `size`). A level without `block` has no grid: `size` is its voxels and
   it holds only what is set down (a stage of models). The editor opens
   such a level among its pieces (`src/editor/room.rs`; a level of blocks
-  has PIECES beside BLOCKS and THINGS): a list of what
-  is set down, places and areas; one chosen in the list or the view,
-  dragged over the floor at its height, nudged by the arrows, raised by
-  Page Up and Down, turned (T; any angle where the game turns freely),
-  copied, removed, renamed, its lights added (ADD LIGHT), tuned and
-  removed one by one, made SOLID, its model opened in the model editor;
-  with nothing chosen, DAYLIGHT (the level's own, or as the game); ADD MODEL, LIGHT, PLACE and AREA hang a new
-  one on the mouse until a click sets it down; GAME VIEW looks as the
-  game's camera. Every step is saved at once over the file's own text
+  has PIECES beside BLOCKS and THINGS) in three zones (`stage.rs`): a
+  bar along the top (the level, + ADD with MODEL…, LIGHT, PLACE and AREA,
+  UNDO, REDO; GAME VIEW, LIGHTS and LEVEL on the right), the outliner on
+  the left (what is set down in three groups that fold, a field to find
+  by name when there are many, one scroll), the inspector on the right
+  (the chosen one as short rows: its name to type over, its model with
+  EDIT, POSITION and TURN as three fields each, their letters in the
+  handles' colours, SOLID, LIGHTS with a row each; LEVEL: size and
+  daylight). In the view the chosen one has handles (`handles.rs`):
+  arrows along X, Y and Z (red, green, blue) move it by whole voxels,
+  rings turn it (about its own right side, its forward and the upright:
+  each ring one of pitch, roll and turn; quarters on the grid, freely
+  otherwise, a quarter within 5 degrees taken), an area's faces size it,
+  a light of a piece chosen has arrows along the model's own axes; the
+  thing itself is dragged over the floor at its height. Beside it COPY,
+  REMOVE, EDIT (its model) and LIGHT (on and off); a right click on it,
+  or on its row, offers those and more (RENAME, TURN A QUARTER, LAY
+  DOWN, SOLID), on the floor what can be added there; a double click
+  opens a piece's model. Keys as before (arrows nudge, Page Up and Down
+  raise, T turns, Delete removes, F2 names, Escape lets go and puts a
+  drag back); the view's own buttons in its corner turn it and bring it
+  nearer, for whoever does not know the mouse's ways yet. Every step is saved at once over the file's own text
   (`grid::text::rewrite`): what did not change stays to the character,
   comments too. A level turned off the grid in a game on the grid asks
   first: ALIGN ALL or DON'T OPEN. `grid::text` has the whole format.

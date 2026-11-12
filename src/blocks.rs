@@ -389,8 +389,8 @@ mod tests {
         assert_eq!(four, Turn::NONE);
     }
 
-    fn folder(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("voxcade-blocks-{name}-{}", std::process::id()));
+    fn folder(name: &str) -> crate::scratch::Scratch {
+        let dir = crate::scratch::Scratch::new(&format!("blocks-{name}"));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }

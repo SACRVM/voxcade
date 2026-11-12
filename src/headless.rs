@@ -851,7 +851,10 @@ pub fn film<G: Game>(dir: &Path, opts: &FilmOptions) -> Result<()> {
     let seconds = (last - first) as f32 / 60.0;
 
     let started = Instant::now();
-    let sound = if gif { None } else { Some(film_sound::<G>(dir, &replay, first, last)?) };
+    // The sound's WAV lives in a folder of its own that goes with the film,
+    // however it ends (the temp folder may be in RAM).
+    let scratch = crate::scratch::Scratch::new("film");
+    let sound = if gif { None } else { Some(film_sound::<G>(dir, &replay, first, last, &scratch.join("sound.wav"))?) };
 
     let mut game = crate::replay::replay_session::<G>(dir, &replay)?;
     let mut playback = Playback::new(&replay, &mut game)?;
@@ -886,9 +889,6 @@ pub fn film<G: Game>(dir: &Path, opts: &FilmOptions) -> Result<()> {
         }
     }
     sink.finish()?;
-    if let Some(wav) = sound {
-        let _ = std::fs::remove_file(wav);
-    }
     let size = std::fs::metadata(&opts.out).map(|m| m.len() as f64 / 1e6).unwrap_or(0.0);
     println!("wrote {} ({seconds:.1} s, {width}x{height}, {fps} fps, {size:.1} MB) in {:.0} s", opts.out.display(), started.elapsed().as_secs_f32());
     Ok(())
@@ -896,8 +896,8 @@ pub fn film<G: Game>(dir: &Path, opts: &FilmOptions) -> Result<()> {
 
 /// The film's sound: the replay played without drawing, its music and
 /// sounds mixed as the game mixes them (the default volumes), from tick
-/// `first` to `last`, as a WAV file beside the film.
-fn film_sound<G: Game>(dir: &Path, replay: &Replay, first: u64, last: u64) -> Result<PathBuf> {
+/// `first` to `last`, as the WAV file `wav`.
+fn film_sound<G: Game>(dir: &Path, replay: &Replay, first: u64, last: u64, wav: &Path) -> Result<PathBuf> {
     use crate::audio::{Mixer, SAMPLE_RATE};
     let mut game = crate::replay::replay_session::<G>(dir, replay)?;
     let mut playback = Playback::new(replay, &mut game)?;
@@ -928,9 +928,8 @@ fn film_sound<G: Game>(dir: &Path, replay: &Replay, first: u64, last: u64) -> Re
     mixer.mix(&mut tail);
     samples.extend_from_slice(&tail);
     samples.drain(..tail.len());
-    let wav = std::env::temp_dir().join(format!("voxcade-film-{}.wav", std::process::id()));
-    write_wav(&wav, &samples, 2)?;
-    Ok(wav)
+    write_wav(wav, &samples, 2)?;
+    Ok(wav.to_path_buf())
 }
 
 /// How long a GIF shows frame `n`, in the hundredths of a second GIFs

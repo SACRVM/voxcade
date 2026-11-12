@@ -1247,7 +1247,7 @@ mod tests {
     /// version does not open either; the same version opens.
     #[test]
     fn a_game_opens_only_for_its_version() {
-        let dir = std::env::temp_dir().join(format!("voxcade-upgrade-open-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("upgrade-open");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.title = \"X\"\nend\n").unwrap();
         let e = opens(&dir).unwrap_err().to_string();
@@ -1275,7 +1275,7 @@ mod tests {
     /// is written; a dry run changes nothing; its world becomes text too.
     #[test]
     fn an_older_game_is_brought_up_to_date() {
-        let dir = std::env::temp_dir().join(format!("voxcade-upgrade-run-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("upgrade-run");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("blocks")).unwrap();
         crate::vox::write_figure(&dir.join("robot.vox"), &[("body", glam::IVec3::new(4, 4, 8), glam::IVec3::ZERO), ("arm", glam::IVec3::new(1, 2, 5), glam::IVec3::new(6, 1, 3))]);
@@ -1334,7 +1334,7 @@ mod tests {
     #[test]
     fn levels_maps_and_worlds_become_text() {
         use glam::IVec3;
-        let dir = std::env::temp_dir().join(format!("voxcade-upgrade-maps-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("upgrade-maps");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("ground")).unwrap();
         crate::headless::write_png(&dir.join("ground/height.png"), 8, 8, &[3, 3, 3, 255].repeat(64)).unwrap();

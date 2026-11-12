@@ -354,7 +354,7 @@ mod tests {
     /// nothing is left out.
     #[test]
     fn claude_is_told_its_part() {
-        let tmp = std::env::temp_dir().join(format!("voxcade-brief-{}", std::process::id()));
+        let tmp = crate::scratch::Scratch::new("brief");
         let engine = tmp.join("engine");
         let game = engine.join("games/keep");
         std::fs::create_dir_all(&game).unwrap();
@@ -391,8 +391,8 @@ mod tests {
     /// remembered, the newest in the game folder (begun by hand).
     #[test]
     fn a_kept_conversation_is_gone_on_with() {
-        let root = std::env::temp_dir().join(format!("voxcade-claude-{}", std::process::id()));
-        let mut claude = Claude { root: Some(root.clone()), ..Claude::default() };
+        let root = crate::scratch::Scratch::new("claude");
+        let mut claude = Claude { root: Some(root.to_path_buf()), ..Claude::default() };
         let dir = Path::new("games/voxkeep");
         let _ = claude.command(dir, "Voxkeep", false, None, &Briefing::default());
         let id = claude.sessions[&key(dir)].clone();
@@ -403,7 +403,7 @@ mod tests {
         claude.resume = false;
         assert!(claude.command(dir, "Voxkeep", false, None, &Briefing::default()).contains("--session-id"), "a new one each time");
         // Begun by hand in the game folder: found by its path.
-        let mut fresh = Claude { root: Some(root.clone()), ..Claude::default() };
+        let mut fresh = Claude { root: Some(root.to_path_buf()), ..Claude::default() };
         let path = dir.canonicalize().unwrap().to_string_lossy().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect::<String>();
         std::fs::create_dir_all(root.join("projects").join(&path)).unwrap();
         std::fs::write(root.join("projects").join(&path).join("0be1-a2.jsonl"), "{}\n").unwrap();
@@ -422,10 +422,8 @@ mod tests {
     #[test]
     fn a_program_is_looked_for_in_the_folders() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("voxcade-finder-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let finder = Finder::in_dirs(vec![dir.clone()]);
+        let dir = crate::scratch::Scratch::new("finder");
+        let finder = Finder::in_dirs(vec![dir.to_path_buf()]);
         assert!(!finder.finds("voxcade-no-such-agent"), "nothing there");
         std::fs::write(dir.join("voxcade-no-such-agent"), "#!/bin/sh\n").unwrap();
         assert!(!finder.finds("voxcade-no-such-agent"), "a file that cannot run is no program");

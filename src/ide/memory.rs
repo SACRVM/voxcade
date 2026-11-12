@@ -55,7 +55,8 @@ mod tests {
     /// come back as they were.
     #[test]
     fn the_ide_remembers_what_was_open() {
-        let path = std::env::temp_dir().join(format!("voxcade-ide-memory-{}", std::process::id())).join("game.toml");
+        let scratch = crate::scratch::Scratch::new("ide-memory");
+        let path = scratch.join("game.toml");
         assert_eq!(Memory::load(&path), Memory::default(), "nothing yet");
         let mut memory = Memory { open: Some("main.lua".into()), ..Memory::default() };
         memory.scroll.insert("main.lua".into(), 120.0);

@@ -165,7 +165,8 @@ mod tests {
     /// `KEEP` stay.
     #[test]
     fn the_output_is_kept_for_the_next_time() {
-        let path = std::env::temp_dir().join(format!("voxcade-output-{}", std::process::id())).join("game.toml");
+        let scratch = crate::scratch::Scratch::new("output");
+        let path = scratch.join("game.toml");
         let mut out = Output::open(Some(path.clone()));
         out.add(Kind::Note, "BUILT x.zip", None, false);
         out.add(Kind::Error, "main.lua:3: boom", Some(("main.lua".into(), 3)), false);

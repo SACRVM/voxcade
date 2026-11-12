@@ -183,10 +183,11 @@ pub(crate) mod tests {
 
     /// A bridge answering its calls in the background, as the IDE's loop
     /// does: `view_state` with a line of text.
-    pub(crate) fn running(name: &str) -> (Bridge, PathBuf) {
-        let lock = std::env::temp_dir().join(format!("voxcade-bridge-{name}-{}.lock", std::process::id()));
+    pub(crate) fn running(name: &str) -> (Bridge, PathBuf, crate::scratch::Scratch) {
+        let scratch = crate::scratch::Scratch::new(&format!("bridge-{name}"));
+        let lock = scratch.join("ide.lock");
         let bridge = Bridge::open(&lock, Path::new("games/voxkeep"), Arc::new(|| {})).unwrap();
-        (bridge, lock)
+        (bridge, lock, scratch)
     }
 
     pub(crate) fn answer_calls(bridge: &Bridge) {
@@ -204,7 +205,7 @@ pub(crate) mod tests {
     /// without it, or with another, is refused before the IDE hears of it.
     #[test]
     fn the_bridge_needs_the_token() {
-        let (bridge, lock) = running("token");
+        let (bridge, lock, _scratch) = running("token");
         let port = serde_json::from_str::<Value>(&std::fs::read_to_string(&lock).unwrap()).unwrap()["port"].as_u64().unwrap();
         #[cfg(unix)]
         assert_eq!(std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&lock).unwrap().permissions()) & 0o777, 0o600, "the user's alone");

@@ -368,7 +368,7 @@ mod tests {
     /// silences one, a new name is one more; a recording is none.
     #[test]
     fn a_games_file_replaces_the_kits_sound() {
-        let dir = std::env::temp_dir().join(format!("voxcade-bank-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("bank");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sounds")).unwrap();
         std::fs::write(dir.join("sounds/shot.toml"), "wave = \"sine\"\nfreq = 300\nhold = 0\ndecay = 0.05\n").unwrap();

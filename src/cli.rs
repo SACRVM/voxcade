@@ -43,8 +43,9 @@ USAGE:
   voxcade upgrade <game-dir> [--dry]
   voxcade edit   <game-dir> [--level FILE] [--block NAME | --things | --model FILE [--part NAME [--parent NAME] [--joint X,Y,Z]]] [--stamp] [--shot FILE [--align]] [--view YAW,PITCH] [--size WxH]
                  [--choose NAME] [--game-view] [--picker] [--lights-off] [--add|--hang MODEL|light|place|area --at X,Y,Z]
-                 [--move NAME --at X,Y,Z] [--turn NAME --by DEG] [--copy NAME --at X,Y,Z] [--remove NAME]
+                 [--move NAME --at X,Y,Z] [--turn NAME --by DEG [--about x|y|z]] [--lay NAME] [--copy NAME --at X,Y,Z] [--remove NAME]
                  [--rename NAME --to NEW] [--light NAME [--radius N] [--colour #rrggbb] [--at X,Y,Z]] [--room-size X,Y,Z]
+                 [--choose-light K] [--menu NAME|floor] [--add-menu] [--level-settings] [--handles move|turn] [--hover arrow-x|ring-z|face-y|...]
   voxcade ide    [<game-dir>] [--shot FILE] [--open PATH] [--console CMD] [--play TICKS] [--size WxH] [--remote]
   voxcade mcp    [--remote]
   voxcade film   <game-dir> <replay-file> [--from S] [--to S] [--fps N] [--size WxH]
@@ -175,13 +176,19 @@ edit  opens the editor on a game's level: of voxel blocks, the level (its
       models and lights set down, places, areas) opens among its pieces,
       as a level of blocks with PIECES; --shot tries changes there in
       turn, writing nothing: --add a model (its path) or a light, place
-      or area --at a spot (--hang: left on the mouse there), --move, --turn (--by degrees), --copy,
+      or area --at a spot (--hang: left on the mouse there), --move, --turn (--by degrees round;
+      --about x tips it nose up, --about y rolls it, kept on its floor), --lay (a quarter about x), --copy,
       --remove, --rename, --light (a piece's first: --radius, --colour,
       --at where it shines from), --add-light (one more on the piece, the
       same words after it), --solid (a piece's voxels hold bodies up),
       --room-size; then --choose one by its name,
       --game-view looks as the game's camera, --picker shows ADD MODEL's
-      list, --lights-off the view without the lights.
+      pictures, --lights-off the view without the lights; the chosen one
+      shows its handles, --choose-light K chooses its light K (0 the
+      first), --hover lights a handle as under the mouse (arrow-x, ring-z,
+      face-y, face-y-low ...), --handles turn shows its rings instead of its arrows, --menu opens the right-click menu of a
+      thing (or of the floor under the middle: floor), --add-menu ADD's,
+      --level-settings shows LEVEL in the inspector.
 ide   opens the IDE on a game (docs/ide.md): its logic and assets on the
       left, the one thing open in the main area, the console with your
       shell below; without one, its start page (games opened last, OPEN,
@@ -651,7 +658,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
         }
         Some("edit") => {
             let dir = opened(&args)?;
-            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new(), ops: Vec::new(), choose: None, game_view: false, picker: false, lights_off: false };
+            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new(), ops: Vec::new(), choose: None, game_view: false, picker: false, lights_off: false, choose_light: None, menu: None, add_menu: false, level_settings: false, hover: None, turn_handles: false };
             let mut shot = false;
             let three = |flag: &str, value: &str| -> Result<glam::IVec3> {
                 let n: Vec<i32> = value.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>().with_context(|| format!("{flag} X,Y,Z"))?;
@@ -672,9 +679,11 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                     "--game-view" => opts.game_view = true,
                     "--picker" => opts.picker = true,
                     "--lights-off" => opts.lights_off = true,
+                    "--add-menu" => opts.add_menu = true,
+                    "--level-settings" => opts.level_settings = true,
                     _ => {}
                 }
-                if matches!(flag.as_str(), "--game-view" | "--picker" | "--lights-off") {
+                if matches!(flag.as_str(), "--game-view" | "--picker" | "--lights-off" | "--add-menu" | "--level-settings") {
                     continue;
                 }
                 let value = it.next().with_context(|| format!("{flag} needs a value"))?;
@@ -704,8 +713,23 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                     }
                     "--turn" => {
                         let by = it.next().filter(|b| *b == "--by").and(it.next()).context("--turn NAME --by DEGREES")?;
-                        opts.ops.push(crate::editor::ShotOp::Turn(value.clone(), by.parse().context("--by DEGREES")?));
+                        opts.ops.push(crate::editor::ShotOp::Turn(value.clone(), by.parse().context("--by DEGREES")?, 2));
                     }
+                    "--about" => match opts.ops.last_mut() {
+                        Some(crate::editor::ShotOp::Turn(_, _, axis)) => *axis = ["x", "y", "z"].iter().position(|a| a == value).context("--about x, y or z")?,
+                        _ => bail!("--about follows --turn NAME --by DEGREES"),
+                    },
+                    "--lay" => opts.ops.push(crate::editor::ShotOp::Turn(value.clone(), 90.0, 0)),
+                    "--menu" => opts.menu = Some(value.clone()),
+                    "--hover" => opts.hover = Some(value.clone()),
+                    "--handles" => {
+                        opts.turn_handles = match value.as_str() {
+                            "move" => false,
+                            "turn" => true,
+                            _ => bail!("--handles move or turn"),
+                        }
+                    }
+                    "--choose-light" => opts.choose_light = Some(value.parse().context("--choose-light K (0 the first)")?),
                     "--rename" => {
                         let to = it.next().filter(|b| *b == "--to").and(it.next()).context("--rename NAME --to NEW")?;
                         opts.ops.push(crate::editor::ShotOp::Rename(value.clone(), to.clone()));
@@ -1030,7 +1054,7 @@ mod tests {
     /// A program rebuilt while it runs is found in its place.
     #[test]
     fn a_rebuilt_program_is_found_in_its_place() {
-        let dir = std::env::temp_dir().join(format!("voxcade-rebuilt-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("rebuilt");
         std::fs::create_dir_all(&dir).unwrap();
         let new = dir.join("voxcade");
         let gone = dir.join("voxcade (deleted)");
