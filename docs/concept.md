@@ -83,8 +83,11 @@ sharp at any resolution. They behave like the game: a lost heart bursts
 into voxels, changed digits hop, messages drop in letter by letter.
 
 **Editors that feel like a game** (changed 2026-10-15, see `engine.md`; it
-was "no editor inside the game"). Until they come, models are `.vox` files
-made in MagicaVoxel, vengi or Goxel; the running game reloads them on save. A level
+was "no editor inside the game"). Models are Voxcade's own `.vvx`, text
+(layers of letters, a palette; 0.6.0, the owner: everything in a game is
+code or text), shaped in the voxel editor or by hand; MagicaVoxel, vengi or
+Goxel files (`.vox`) are only brought in (`voxcade import`). The running
+game reloads a model on save. A level
 is one `.vox` scene or, for anything big, a map the engine puts together at
 start: a height map and a material map (PNG, any paint program) for the
 ground, `.vox` prefabs placed on it, and markers, all listed in
@@ -98,8 +101,8 @@ tick, low-latency presentation, instant startup and reload. Juice is built in:
 screen shake, hit stop, debris, flashes.
 
 **Sound like the old machines, made from text.** Effects are synthesized
-from a few numbers each (sfxr-style), or recordings that can be crushed to
-early-90s quality for speech. Music is MML, played by SID-like voices. All
+from a few numbers each (sfxr-style); recordings are not taken (the owner,
+2026-11-12: everything in a game is code or text). Music is MML, played by SID-like voices. All
 of it is text in the game folder, so an agent can write and change it, and
 the game plays the change on save.
 

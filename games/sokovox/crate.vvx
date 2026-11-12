@@ -1,0 +1,122 @@
+format = "voxcade voxel 1"
+size = [7, 7, 7]
+
+[palette]
+a = "#5c3c22"
+b = "#76502c"
+c = "#a87642"
+d = "#966638"
+e = "#96701e"
+f = "#d2a032"
+g = "#f6cc5c"
+h = "#e8ba46"
+
+[[frame]]
+layers = """
+aaaaaaa
+abcccba
+adbdbda
+accbcca
+adbdbda
+abcccba
+aaaaaaa
+
+abcccba
+b.....b
+c.....c *3
+b.....b
+abcccba
+
+adbdbda
+d.....d
+b.....b
+d.....d
+b.....b
+d.....d
+adbdbda
+
+accbcca
+c.....c
+c.....c
+b.....b
+c.....c
+c.....c
+accbcca
+
+adbdbda
+d.....d
+b.....b
+d.....d
+b.....b
+d.....d
+adbdbda
+
+abcccba
+b.....b
+c.....c *3
+b.....b
+abcccba
+
+aaaaaaa
+abcccba
+adbdbda
+accbcca
+adbdbda
+abcccba
+aaaaaaa
+"""
+
+[[frame]]
+layers = """
+eeeeeee
+efgggfe
+ehfhfhe
+eggfgge
+ehfhfhe
+efgggfe
+eeeeeee
+
+efgggfe
+f.....f
+g.....g *3
+f.....f
+efgggfe
+
+ehfhfhe
+h.....h
+f.....f
+h.....h
+f.....f
+h.....h
+ehfhfhe
+
+eggfgge
+g.....g
+g.....g
+f.....f
+g.....g
+g.....g
+eggfgge
+
+ehfhfhe
+h.....h
+f.....f
+h.....h
+f.....f
+h.....h
+ehfhfhe
+
+efgggfe
+f.....f
+g.....g *3
+f.....f
+efgggfe
+
+eeeeeee
+efgggfe
+ehfhfhe
+eggfgge
+ehfhfhe
+efgggfe
+eeeeeee
+"""

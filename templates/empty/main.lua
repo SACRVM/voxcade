@@ -28,13 +28,13 @@ function on_tick()
   end
 end
 
--- Each player's figure, a model (hero.vox, hero2.vox: reshape them in
+-- Each player's figure, a model (hero.vvx, hero2.vvx: reshape them in
 -- the voxel editor): frame:model draws it where the player is on its way
 -- from tick to tick, so it glides. PLAYER 2: PRESS START at the top right while a
 -- seat is free.
 function on_draw(frame)
   for _, p in ipairs(level:players()) do
-    frame:model(p.seat == 2 and "hero2.vox" or "hero.vox", p)
+    frame:model(p.seat == 2 and "hero2.vvx" or "hero.vvx", p)
   end
   for seat, p in ipairs(world.players) do
     if not p then

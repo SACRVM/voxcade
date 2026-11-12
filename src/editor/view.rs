@@ -556,6 +556,10 @@ pub enum Action {
     ParentWorkedOut,
     Joint(u8, i8),
     JointWorkedOut,
+    /// The held colour's material: one of its words (`frames::WORDS`) set.
+    Material(u8, f32),
+    /// A colour no voxel has taken out of the model's palette.
+    Forget([u8; 3]),
 }
 
 /// The key an action answers to (the panels show it beside its word): a
@@ -666,6 +670,12 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
             ed.move_joint(by);
         }
         Action::JointWorkedOut => ed.set_joint(None),
+        Action::Material(which, v) => {
+            if let Some(m) = ed.material() {
+                ed.set_material(super::frames::with_word(m, which as usize, v));
+            }
+        }
+        Action::Forget(c) => ed.forget_colour(c),
     }
     // The figure made again at once (a part chosen, its rig set), and the
     // view kept on it.

@@ -356,7 +356,7 @@ code: the engine offers the parts, the script decides.
 | `level.arrived` | where the player came into this level (a place, with its name): a game without the engine's figure for the player stands its hero there |
 | `level:voxel(x, y, z)`, `level:solid(x, y, z)`, `level:set_voxel(…)`, `level:fill(…)`, `level:ground(x, y)` | its voxels (`solid`: whether bodies stand on it; soft voxels are not) |
 | `level:spawn(kind, x, y, options?)`, `level:thing(name or id)`, `level:things(kind or family?)`, `level:count(kind or family?)` | its things; `options`: `{ z =, name =, facing =, props =, state = }`; a thing that died is no longer listed or counted (only its picture lingers until its rules take it away) |
-| `level:explode(at, radius)`, `level:sound(name, at, volume?)` | what happens in it (a sound by its file's name: `sounds/NAME.toml` or `.wav`, or one the engine or a kit brings) |
+| `level:explode(at, radius)`, `level:sound(name, at, volume?)` | what happens in it (a sound by its file's name: `sounds/NAME.toml`, or one the engine or a kit brings) |
 | `level.camera:follow(thing)`, `level.camera:look_at(x, y)` | where the camera looks |
 
 ### `player`: the one who plays
@@ -450,7 +450,18 @@ settings. Several players: `player` is seat 1, the others are in
   (-1 to 2): facing -y a 4 by 4 model lies one voxel up and to the right
   of facing +y. Free turns (`turns = "free"`, `turn`) land on the same
   cells. To keep an even model in one place whichever way it faces, give
-  it an odd size, or place it by its middle and allow the voxel.
+  it an odd size, or place it by its middle and allow the voxel. A
+  model's file (`.vvx`, `src/vvx.rs`) measures its frames' and parts'
+  `at` and the joints from this cell, so growing a part moves nothing
+  else and the model keeps standing where it stood.
+- **A game's version**: `conf.lua` says which Voxcade its files are for,
+  `c.voxcade = "0.6.0"` (read as that line; in neither the fingerprint
+  nor the hash). A game for an older Voxcade, or without the line, does
+  not open (`run`, `shot`, `check`, the IDE, the launcher) until `voxcade
+  upgrade` has brought its files up to date (`src/upgrade.rs`: a step
+  for each change of a format, 0.6.0's the models as `.vvx`); one for a
+  newer Voxcade does not open either. Games given to the engine in tests
+  as text are not asked.
 
 ## States
 
@@ -861,7 +872,7 @@ touches there touches without `on_touch`.
 
 ## Items and the inventory
 
-- Items are data: `c.items.key = { model = "key.vox", stack = 1, order =
+- Items are data: `c.items.key = { model = "key.vvx", stack = 1, order =
   1 }` (`stack`: how many one inventory holds, 1 unless said; `order`:
   where it comes in `world.items`, then by name). `world.items` lists
   them in that order, each `{ name, model, stack }`, for drawing an

@@ -17,7 +17,8 @@ description: >
 # Games in Lua for Voxcade
 
 A game is a folder under `games/`, after LÖVE: `conf.lua` sets it up,
-`main.lua` is its own rules, `.vox` models beside them. The `voxcade`
+`main.lua` is its own rules, `.vvx` models beside them (Voxcade's own,
+text: the voxcade-models skill). The `voxcade`
 program runs every folder as a Lua game. More Blood, the Arena and the
 Bench play with the shooter kit, Voxkeep with the platformer kit, Sokovox
 is all Lua (about 350 lines). Look at those for working examples.
@@ -47,7 +48,13 @@ asks, like Sokovox's levels).
 
 `function conf(c) ... end` sets values over the engine's defaults; a
 misspelt key or a wrong type is an error that names the table
-(`c.things.gem.hit`). Where to find every setting:
+(`c.things.gem.hit`). Its first line says which Voxcade the game's files
+are for: `c.voxcade = "0.6.0"` (the engine reads that line as written).
+A game for an older Voxcade (or without the line) does not open: `voxcade
+upgrade <game>` brings its files up to date and writes the line (`--dry`
+says what it would do; `src/upgrade.rs`); one for a newer Voxcade does not
+open either. A new game from a template has it. Where to find every
+setting:
 
 - `src/config.rs`: every section and field with its doc comment (the
   source of truth). `lua/voxcade.lua` (class `Conf`) lists the common ones.
@@ -94,16 +101,16 @@ When you make a model (in a script or by hand in the voxel editor):
 |---|---|---|
 | made in code | `c.world.size = { x, y, z }`, then `level:fill` in `on_level_start` | small or rule-built worlds (Sokovox) |
 | one scene | `c.world.file = "world.vox"`, things placed by marker colours (`c.markers.rifleman = 240`) | a small hand-made level (the Arena) |
-| a map | `c.world.file = "map.json"`: ground from height and material PNGs, `.vox` prefabs | big levels (More Blood, written by `tools/gen_moreblood.py`) |
+| a map | `c.world.file = "map.json"`: ground from height and material PNGs, `.vox` prefabs (MagicaVoxel scenes still, as the world above) | big levels (More Blood, written by `tools/gen_moreblood.py`) |
 | voxel blocks | `c.world.blocks = { file = "level.json", margin, below, backdrops }` | tile-built levels (Voxkeep's `levels/`; `voxcade import`, `voxcade edit`) |
 
 ### Kinds of things (`c.things.NAME`)
 
 ```lua
-c.things.opossum = { behaviour = "walker", model = "opossum.vox", width = 14, height = 16,
-                     frames = { walk = { 0, 5 } }, effect = "poof.vox" }
+c.things.opossum = { behaviour = "walker", model = "opossum.vvx", width = 14, height = 16,
+                     frames = { walk = { 0, 5 } }, effect = "poof.vvx" }
 c.things.guard = { like = "rifleman", hp = 4 }     -- a kind built on another
-c.things.crate = { model = "crate.vox" }           -- no behaviour: main.lua moves it
+c.things.crate = { model = "crate.vvx" }           -- no behaviour: main.lua moves it
 ```
 
 - Turning: models stand in quarter turns on the grid unless the game
@@ -134,14 +141,14 @@ c.things.crate = { model = "crate.vox" }           -- no behaviour: main.lua mov
   and `fly`; `frame:model(file, thing)` without a frame plays the kind's
   `idle`, `walk`, `jump` the same way. Sets left out are the model's own
   layout (0 standing, 1 in the air, the rest walking). A kind's `effect =
-  { model = "poof.vox", fps = 20 }` says its speed too; a shooter pickup
+  { model = "poof.vvx", fps = 20 }` says its speed too; a shooter pickup
   bobs `bob` voxels, `bob_ticks` each way; a soldier's steps raise dust
   (`stride`, `step_dust`, `landing`, `landing_dust`; the player's in
   `c.player`), and the shooter's player and the jump & run's hero blink
   while nothing hurts them (`blink`: ticks shown, as many not; 0 steady).
-- Figures of parts: a `.vox` whose objects have names (head, body,
-  arm_left ...; MagicaVoxel's object names, `tools/figures.py`'s
-  `save_parts`) is drawn part by part, each turning about where it meets
+- Figures of parts: a `.vvx` of `[[part]]`s with names (head, body,
+  arm_left ...; `tools/figures.py`'s `save_parts`; a MagicaVoxel file's
+  named objects come in so) is drawn part by part, each turning about where it meets
   the part it hangs on (found by the engine: the biggest part is the
   root). A kind's `swing = { leg_left = 30, leg_right = -30, arm_left =
   -25, arm_right = 25 }` swings them as it walks (degrees forward first;
@@ -155,7 +162,7 @@ c.things.crate = { model = "crate.vox" }           -- no behaviour: main.lua mov
   level to level (`player:walk(input.dir, 40)`, `player.x`). It is never
   in `level:things()` and has no id; without `c.player.kind` it stands
   nowhere (Sokovox moves its own hero thing).
-- Items: `c.items.key = { model = "key.vox", stack = 3 }`;
+- Items: `c.items.key = { model = "key.vvx", stack = 3 }`;
   `player.state.inventory.key` counts them (an empty inventory from the
   start), `world.items` lists them in order to draw. The code takes them:
   `player:take(b.props.item)` in `on_touch`.
@@ -238,7 +245,8 @@ c.things.crate = { model = "crate.vox" }           -- no behaviour: main.lua mov
 - Scores: the code counts in `player.state.score`; `c.scored = true`
   gives the game a high score table (with a kit or without). `c.high_scores` is the table to beat:
   ten lines `{ "ABC", 1000 }`.
-- Sounds are files, `sounds/NAME.toml` (or `sounds/NAME.wav` as it is),
+- Sounds are files, `sounds/NAME.toml` (no recordings: a `.wav` there is
+  a mistake),
   played by the file's name with `level:sound(NAME, at)` or a kind's
   `sound = "NAME"`; a file of a kit's sound's name replaces it, `silent =
   true` silences it. A line a number, only what differs from the

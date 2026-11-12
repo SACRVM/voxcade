@@ -3,6 +3,8 @@
 
 The level is written as a MagicaVoxel scene of 256x256 models, so it opens in
 MagicaVoxel, vengi or Goxel for hand-editing. Re-running overwrites both files.
+The world stays a .vox; the player is written as player.vox, which the game
+does not read: bring it in with `voxcade import games/arena games/arena/player.vox`.
 
 usage: python3 tools/gen_arena.py [output-dir]
 """

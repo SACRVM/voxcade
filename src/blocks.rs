@@ -1,5 +1,5 @@
 //! Voxel blocks (`docs/tiles.md`): the pieces a level's grid is built from,
-//! N by N by N voxels each, one file a block (`blocks/NAME.vox`). A block
+//! N by N by N voxels each, one file a block (`blocks/NAME.vvx`, `crate::vvx`). A block
 //! starts as a 2D tile drawn out through its depth and is then shaped by
 //! hand; a level's cell holds one in any of 48 turns.
 
@@ -13,7 +13,7 @@ pub const FOLDER: &str = "blocks";
 
 /// The file of the block `name` in the game folder `dir`.
 pub fn path(dir: &Path, name: &str) -> PathBuf {
-    dir.join(FOLDER).join(format!("{name}.vox"))
+    dir.join(FOLDER).join(format!("{name}.{}", crate::vvx::EXTENSION))
 }
 
 /// A block: N voxels each way, x across, y in depth (0 the front), z up.
@@ -89,6 +89,12 @@ impl Block {
         Ok(self.palette.len() as u8)
     }
 
+    /// Every voxel's colour, in the block's order (`index`): two blocks
+    /// alike have the same, however their colours are numbered.
+    pub fn cells(&self) -> Vec<Option<[u8; 3]>> {
+        (0..self.voxels.len()).map(|i| self.colour_at(self.at(i))).collect()
+    }
+
     /// The colours its voxels use, each once, in palette order.
     pub fn colours(&self) -> Vec<[u8; 3]> {
         let mut block = self.clone();
@@ -154,52 +160,45 @@ impl Block {
         Self::load_in(&crate::files::Files::disk(), path, n)
     }
 
-    /// A block of the game's files (`crate::files`).
+    /// A block of the game's files (`crate::files`): its one frame, the
+    /// colours alone (a material counts for models, not for blocks).
     pub fn load_in(files: &crate::files::Files, path: &Path, n: i32) -> Result<Self> {
-        let scene = crate::vox::load_scene_in(files, path)?;
-        if scene.size != IVec3::splat(n) {
-            let s = scene.size;
+        let model = crate::vox::load_model_in(files, path)?;
+        if model.size != IVec3::splat(n) {
+            let s = model.size;
             bail!("{} is {} by {} by {} voxels; this level's blocks are {n} each way", path.display(), s.x, s.y, s.z);
         }
-        let mut block = Self::empty(n);
-        block.palette = scene.palette[1..].iter().map(|&[r, g, b, _]| [r, g, b]).collect();
-        for (p, i) in scene.voxels {
-            if let Some(k) = block.index(p) {
-                block.voxels[k] = i;
+        // The colours numbered in the block's own order of voxels, as a
+        // block made in the editor numbers them.
+        let mut cells = vec![None; (n * n * n) as usize];
+        let empty = Self::empty(n);
+        for &(p, [r, g, b, _]) in model.frames.first().into_iter().flatten() {
+            if let Some(i) = empty.index(p) {
+                cells[i].get_or_insert([r, g, b]);
             }
         }
-        block.compact();
+        let mut block = empty;
+        for (i, c) in cells.into_iter().enumerate() {
+            if c.is_some() {
+                block.set(block.at(i), c)?;
+            }
+        }
         Ok(block)
     }
 
-    /// Writes the block as a `.vox` file, at once (`save_at_once`), so a
-    /// game watching the folder never reads half a block.
+    /// The block as a model of one frame, for `crate::vvx`.
+    pub fn model(&self) -> crate::vox::VoxModel {
+        let frame: Vec<_> = (0..self.voxels.len()).filter_map(|i| self.colour_at(self.at(i)).map(|[r, g, b]| (self.at(i), [r, g, b, 255]))).collect();
+        let metal = vec![0; frame.len()];
+        crate::vox::VoxModel::new(self.size, vec![frame], vec![metal])
+    }
+
+    /// Writes the block as a `.vvx` file (keeping the signs the file had),
+    /// at once (`save_at_once`), so a game watching the folder never reads
+    /// half a block.
     pub fn save(&self, path: &Path) -> Result<()> {
-        let mut block = self.clone();
-        block.compact();
-        let mut voxels = Vec::new();
-        for (i, &v) in block.voxels.iter().enumerate() {
-            if v != 0 {
-                let p = block.at(i);
-                voxels.push(dot_vox::Voxel { x: p.x as u8, y: p.y as u8, z: p.z as u8, i: v - 1 });
-            }
-        }
-        let mut palette = vec![dot_vox::Color { r: 0, g: 0, b: 0, a: 0 }; 256];
-        for (entry, &[r, g, b]) in palette.iter_mut().zip(&block.palette) {
-            *entry = dot_vox::Color { r, g, b, a: 255 };
-        }
-        let data = dot_vox::DotVoxData {
-            version: 150,
-            index_map: Vec::new(),
-            models: vec![dot_vox::Model { size: dot_vox::Size { x: block.size.x as u32, y: block.size.y as u32, z: block.size.z as u32 }, voxels }],
-            palette,
-            materials: Vec::new(),
-            scenes: Vec::new(),
-            layers: Vec::new(),
-        };
-        let mut bytes = Vec::new();
-        data.write_vox(&mut bytes)?;
-        save_at_once(path, &bytes)
+        let text = crate::vvx::write(&self.model(), &crate::vvx::Palette::of_file(path));
+        save_at_once(path, text.as_bytes())
     }
 }
 
@@ -406,11 +405,12 @@ mod tests {
         let file = path(&dir, "79");
         block.save(&file).unwrap();
         let back = Block::load(&file, 16).unwrap();
-        block.compact();
-        assert_eq!(back, block);
+        // The same colour in every voxel (the colours' numbering is the
+        // file's reading order now, not a palette's).
+        assert_eq!(back.cells(), block.cells());
+        assert_eq!(back.colours().len(), block.colours().len());
         let names: Vec<_> = std::fs::read_dir(dir.join(FOLDER)).unwrap().map(|e| e.unwrap().file_name()).collect();
-        assert_eq!(names, ["79.vox"], "no file but the block is left");
-        assert_eq!(crate::vox::load_scene(&file).unwrap().size, IVec3::splat(16));
+        assert_eq!(names, ["79.vvx"], "no file but the block is left");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -420,7 +420,7 @@ mod tests {
         let file = path(&dir, "big");
         Block::drawn_out(&picture(8), 8).unwrap().save(&file).unwrap();
         let e = Block::load(&file, 16).unwrap_err().to_string();
-        assert!(e.contains("big.vox") && e.contains("8 by 8 by 8") && e.contains("16 each way"), "{e}");
+        assert!(e.contains("big.vvx") && e.contains("8 by 8 by 8") && e.contains("16 each way"), "{e}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

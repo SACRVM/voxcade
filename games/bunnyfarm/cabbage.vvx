@@ -1,0 +1,218 @@
+format = "voxcade voxel 1"
+size = [14, 14, 12]
+
+[palette]
+a = "#58a446"
+b = "#3e8046"
+c = "#a0d274"
+d = "#4a3020"
+
+[[frame]]
+at = [-4, -4, 0]
+layers = """
+a......a.
+......... *6
+a......a.
+
+aa.....aa
+......... *6
+aa.....aa
+"""
+
+[[frame]]
+at = [-4, -4, 0]
+layers = """
+a......a
+........ *6
+a......a
+
+a......a
+........ *6
+a......a
+"""
+
+[[frame]]
+at = [-5, -5, 0]
+layers = """
+bbb....bbb *3
+.......... *4
+bbb....bbb *3
+
+bbb....bbb
+bcb....bcb
+bbb....bbb
+.......... *4
+bbb....bbb
+bcb....bcb
+bbb....bbb
+
+..........
+.c......c.
+.......... *6
+.c......c.
+..........
+"""
+
+[[frame]]
+at = [-6, -6, 0]
+layers = """
+............
+.bbb....bbb. *3
+............ *4
+.bbb....bbb. *3
+............
+
+............
+.ccc....ccc. *3
+............ *4
+.ccc....ccc. *3
+............
+
+.ccc....ccc.
+ccccc..ccccc *3
+.ccc....ccc.
+............
+............
+.ccc....ccc.
+ccccc..ccccc *3
+.ccc....ccc.
+
+.ccc....ccc.
+ccccc..ccccc *3
+.ccc....ccc.
+............
+............
+.ccc....ccc.
+ccccc..ccccc *3
+.ccc....ccc.
+
+............
+.ccc....ccc. *3
+............ *4
+.ccc....ccc. *3
+............
+"""
+
+[[frame]]
+at = [-7, -6, 0]
+layers = """
+dddddddddddddd
+dddddddddddddd
+dddaddddddaddd
+dddddddddddddd
+dddddddddddddd
+..............
+..............
+dddddddddddddd
+dddddddddddddd
+dddaddddddaddd
+dddddddddddddd
+dddddddddddddd
+
+..............
+..............
+...aa.....aa..
+.............. *6
+...aa.....aa..
+..............
+..............
+"""
+
+[[frame]]
+at = [-7, -6, 0]
+layers = """
+dddddddddddddd
+dddddddddddddd
+dddaddddddaddd
+dddddddddddddd
+dddddddddddddd
+..............
+..............
+dddddddddddddd
+dddddddddddddd
+dddaddddddaddd
+dddddddddddddd
+dddddddddddddd
+
+..............
+..............
+...a......a...
+.............. *6
+...a......a...
+..............
+..............
+"""
+
+[[frame]]
+at = [-7, -6, 0]
+layers = """
+dddddddddddddd
+ddbbbddddbbbdd *3
+dddddddddddddd
+..............
+..............
+dddddddddddddd
+ddbbbddddbbbdd *3
+dddddddddddddd
+
+..............
+..bbb....bbb..
+..bcb....bcb..
+..bbb....bbb..
+.............. *4
+..bbb....bbb..
+..bcb....bcb..
+..bbb....bbb..
+..............
+
+..............
+..............
+...c......c...
+.............. *6
+...c......c...
+..............
+..............
+"""
+
+[[frame]]
+at = [-7, -6, 0]
+layers = """
+dddddddddddddd
+ddbbbddddbbbdd *3
+dddddddddddddd
+..............
+..............
+dddddddddddddd
+ddbbbddddbbbdd *3
+dddddddddddddd
+
+..............
+..ccc....ccc.. *3
+.............. *4
+..ccc....ccc.. *3
+..............
+
+..ccc....ccc..
+.ccccc..ccccc. *3
+..ccc....ccc..
+..............
+..............
+..ccc....ccc..
+.ccccc..ccccc. *3
+..ccc....ccc..
+
+..ccc....ccc..
+.ccccc..ccccc. *3
+..ccc....ccc..
+..............
+..............
+..ccc....ccc..
+.ccccc..ccccc. *3
+..ccc....ccc..
+
+..............
+..ccc....ccc.. *3
+.............. *4
+..ccc....ccc.. *3
+..............
+"""

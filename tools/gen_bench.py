@@ -23,11 +23,14 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import vvx  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "games" / "moreblood"
 OUT = ROOT / "games" / "bench"
 SCALE = int(sys.argv[1]) if len(sys.argv) > 1 else 2
-FIGURES = ["player.vox", "enemy.vox", "grenadier.vox", "hostage.vox"]
+FIGURES = ["player.vvx", "enemy.vvx", "grenadier.vvx", "hostage.vvx"]
 
 
 def chunks(data, at, end):
@@ -75,10 +78,14 @@ def blow_up(frames, k):
 
 
 OUT.mkdir(exist_ok=True)
-for name in FIGURES + ["huey.vox"]:
-    frames, palette = read_vox(SOURCE / name)
-    write_vox(OUT / name, blow_up(frames, SCALE), palette)
-    print(f"wrote {OUT / name} ({len(frames[0][1]) * SCALE ** 3} voxels a frame)")
+# The figures are Voxcade's models (.vvx, tools/vvx.py): each voxel a cube
+# of SCALE each way, the signs kept.
+k = SCALE
+for name in FIGURES + ["huey.vvx"]:
+    m = vvx.read(SOURCE / name)
+    frames = [{(x * k + a, y * k + b, z * k + c): s for (x, y, z), s in cells.items() for a in range(k) for b in range(k) for c in range(k)} for cells in m["frames"]]
+    vvx.write_model(OUT / name, {**m, "size": [n * k for n in m["size"]], "frames": frames}, kept=m["palette"])
+    print(f"wrote {OUT / name} ({len(frames[0])} voxels a frame)")
 
 # Prefabs to blow up, without their markers (palette slots 240 and up).
 (OUT / "prefabs").mkdir(exist_ok=True)
@@ -108,8 +115,10 @@ for row in range(4):
         x = (40 + col * 18) * SCALE
         y = (60 + row * 16) * SCALE
         props.append(f'    {{ model = "{FIGURES[(row + col) % 4]}", at = {{ {x}, {y} }}, turn = 2 }},')
-props.append(f'    {{ model = "huey.vox", at = {{ {130 * SCALE}, {150 * SCALE} }}, turn = 1 }},')
+props.append(f'    {{ model = "huey.vvx", at = {{ {130 * SCALE}, {150 * SCALE} }}, turn = 1 }},')
 S = SCALE
+# The Voxcade these files are for: the engine's own version.
+VERSION = next(line.split('"')[1] for line in (ROOT / "Cargo.toml").read_text().splitlines() if line.startswith("version"))
 (OUT / "conf.lua").write_text(f"""-- Load test at 16-bit sprite scale (tools/gen_bench.py): More Blood's
 -- figures at {SCALE}x the resolution, 40 of them and the Huey. Run
 --   voxcade shot games/bench --screen title
@@ -119,6 +128,7 @@ S = SCALE
 -- and read the "ticks:" line. Lengths and speeds are More Blood's, doubled.
 
 function conf(c)
+  c.voxcade = "{VERSION}"   -- the Voxcade its files are for (voxcade upgrade brings an older game up to date)
   c.title = "Bench"
   c.kit = "shooter"
 
@@ -129,7 +139,7 @@ function conf(c)
   c.physics.step = {4 * S}
   c.physics.body_width = {6 * S}
 
-  c.player.model = "player.vox"
+  c.player.model = "player.vvx"
   c.player.spawn = {{ {130 * S}, {20 * S} }}
   c.player.speed = {92 * S}
   c.player.accel = {1800 * S}
@@ -191,7 +201,7 @@ function conf(c)
   c.light.sky = {{ 0.09, 0.07, 0.06 }}
   c.light.shadow_style = "voxel"
   c.light.model_shading = "edges"
-  c.light.model_shading_for = {{ ["huey.vox"] = "faces" }}
+  c.light.model_shading_for = {{ ["huey.vvx"] = "faces" }}
 
   c.title_screen.at = {{ {130 * SCALE}, {80 * SCALE} }}
   c.title_screen.view_width = {240 * SCALE}

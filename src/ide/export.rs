@@ -168,7 +168,7 @@ mod tests {
         assert!(size > 1000 && !zip.with_extension("zip.part").exists());
         let mut archive = zip::ZipArchive::new(std::fs::File::open(&zip).unwrap()).unwrap();
         let names: Vec<String> = archive.file_names().map(|n| n.unwrap().into_owned()).collect();
-        for want in ["Voxkeep/README.txt", "Voxkeep/games/voxkeep/main.lua", "Voxkeep/games/voxkeep/blocks/stone.vox"] {
+        for want in ["Voxkeep/README.txt", "Voxkeep/games/voxkeep/main.lua", "Voxkeep/games/voxkeep/blocks/stone.vvx"] {
             assert!(names.iter().any(|n| n == want), "{want} in {names:?}");
         }
         assert!(names.iter().any(|n| n.starts_with("Voxkeep/play-voxkeep.")), "a launcher");

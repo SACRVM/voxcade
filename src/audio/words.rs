@@ -16,13 +16,10 @@ pub enum Unit {
     Semitones,
     /// A part of a whole, 0 to 1 (a level, a depth, a volume).
     Share,
-    Bits,
     /// One of a few words (`wave = "square"`).
     Choice,
     /// true or false.
     YesNo,
-    /// A file of the game, its path from the game folder.
-    File,
     /// Semitone steps as a list, `0,4,7`.
     SemitoneList,
 }
@@ -34,19 +31,16 @@ impl Unit {
             Unit::Seconds => " seconds",
             Unit::Hz => " Hz",
             Unit::Semitones => " semitones",
-            Unit::Bits => " bits",
             _ => "",
         }
     }
 }
 
-/// Which form of sound a word belongs to: synthesized from numbers, a
-/// recording (`file`), both, or a file that says only this.
+/// Which form of sound a word belongs to: synthesized from numbers, or a
+/// file that says only this (`silent`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Form {
     Synth,
-    Recording,
-    Both,
     Alone,
 }
 
@@ -162,23 +156,8 @@ pub const WORDS: &[Word] = &[
     },
     Word {
         name: "volume",
-        sound: sound(Share, Some((0.0, 1.0)), "0.5 (a recording: 1)", Both, "how loud, 1 full scale"),
+        sound: sound(Share, Some((0.0, 1.0)), "0.5", Synth, "how loud, 1 full scale"),
         mml: mml(Share, None, "0.5", "how loud the instrument plays"),
-    },
-    Word {
-        name: "file",
-        sound: sound(File, None, "none", Recording, "a .wav recording, its path from the game folder: recordings/scream.wav"),
-        mml: None,
-    },
-    Word {
-        name: "rate",
-        sound: sound(Hz, Some((1000.0, 44_100.0)), "as recorded", Recording, "the recording played as if sampled this often, each sample held; 7000 for early-90s speech"),
-        mml: None,
-    },
-    Word {
-        name: "bits",
-        sound: sound(Bits, Some((1.0, 16.0)), "16", Recording, "how fine each sample of the recording stays; 8 for early-90s grit"),
-        mml: None,
     },
     Word {
         name: "silent",

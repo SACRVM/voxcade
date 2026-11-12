@@ -5,7 +5,11 @@ A square of the game is 9 voxels; both sit in the middle of one. Plain Python, n
 The levels are built in Lua from levels/microban.txt (main.lua)."""
 
 import struct
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import vvx  # noqa: E402
 
 GAME = Path(__file__).resolve().parent.parent / "games" / "sokovox"
 
@@ -26,7 +30,11 @@ def vdict(d):
 def write_vox(path, size, frames, colours, materials=None):
     """frames: lists of (x, y, z, colour index); colours: index -> (r, g, b);
     materials: index -> MagicaVoxel's material keys ({"_type": "_metal",
-    "_metal": "0.8", "_rough": "0.3"}), the rest plain."""
+    "_metal": "0.8", "_rough": "0.3"}), the rest plain. A path ending .vvx
+    gets Voxcade's own model (tools/vvx.py), what a game holds; .vox is
+    MagicaVoxel's, for a world or a map's prefab."""
+    if str(path).endswith(".vvx"):
+        return vvx.write_frames(path, size, frames, colours, materials)
     body = b""
     for voxels in frames:
         data = b"".join(struct.pack("<BBBB", x, y, z, i) for x, y, z, i in voxels)
@@ -57,7 +65,10 @@ def write_parts(path, parts, colours, materials=None):
     """A figure of parts: each part (name, size, its voxels as (x, y, z,
     colour index) in its own box, where its box's low corner stands in the
     figure) an object of that name in MagicaVoxel's scene, placed (its
-    middle at its translation, as MagicaVoxel places a model)."""
+    middle at its translation, as MagicaVoxel places a model); a path
+    ending .vvx gets Voxcade's own model."""
+    if str(path).endswith(".vvx"):
+        return vvx.write_parts(path, parts, colours, materials)
     body = b""
     for _, size, voxels, _ in parts:
         data = b"".join(struct.pack("<BBBB", x, y, z, i) for x, y, z, i in voxels)
@@ -117,7 +128,7 @@ def keeper():
     for left, right in ((0, 0), (1, -1), (-1, 1)):
         voxels = list(dict.fromkeys(body + legs(left, right)))
         frames.append([v for v in voxels if 0 <= v[1] < 5])
-    write_vox(GAME / "keeper.vox", (5, 5, 11), frames, KEEPER_COLOURS)
+    write_vox(GAME / "keeper.vvx", (5, 5, 11), frames, KEEPER_COLOURS)
 
 
 # The crate, 7 by 7 by 7: a dark frame along its edges, planks between,
@@ -161,5 +172,5 @@ def crate(home):
 if __name__ == "__main__":
     GAME.mkdir(parents=True, exist_ok=True)
     keeper()
-    write_vox(GAME / "crate.vox", (7, 7, 7), [crate(False), crate(True)], CRATE_COLOURS)
-    print(f"wrote {GAME}/keeper.vox, crate.vox")
+    write_vox(GAME / "crate.vvx", (7, 7, 7), [crate(False), crate(True)], CRATE_COLOURS)
+    print(f"wrote {GAME}/keeper.vvx, crate.vvx")

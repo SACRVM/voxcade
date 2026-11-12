@@ -332,10 +332,10 @@ end
 function on_draw(frame)
   local s = level.state
   local L = LEVELS[world.state.puzzle]
-  frame:model("keeper.vox", s.keeper)
+  frame:model("keeper.vvx", s.keeper)
   for i, crate in pairs(s.crates) do
     local moving = s.step and s.step.crate == crate
-    frame:model("crate.vox", crate, (L.goals[i] and not moving) and 1 or 0)
+    frame:model("crate.vvx", crate, (L.goals[i] and not moving) and 1 or 0)
   end
   local title = L.title ~= "" and "  " .. L.title or ""
   frame:text(("LEVEL %d/%d%s"):format(L.number, #LEVELS, title), 4, 4)

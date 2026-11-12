@@ -881,9 +881,15 @@ pub fn check_going_back<G: Game>(dir: &Path, every: u64) -> Result<bool> {
 /// (a new layout of `conf.lua`). If any runs apart or has no checks to
 /// tell, nothing is written. Whether all were refitted.
 pub fn refit<G: Game>(dir: &Path) -> Result<bool> {
+    refit_saying::<G>(dir, &mut |line| println!("{line}"))
+}
+
+/// `refit`, each line of what it does said to `say` (the IDE's upgrade
+/// page shows them).
+pub fn refit_saying<G: Game>(dir: &Path, say: &mut dyn FnMut(String)) -> Result<bool> {
     let replays = game_replays(dir);
     if replays.is_empty() {
-        println!("{}: no replays", dir.display());
+        say(format!("{}: no replays", dir.display()));
         return Ok(true);
     }
     let mut fitted = Vec::new();
@@ -895,24 +901,24 @@ pub fn refit<G: Game>(dir: &Path) -> Result<bool> {
         let playback = Playback::new(&replay, &mut game)?;
         let fingerprint = hex(game.fingerprint()?);
         if replay.checks.is_empty() {
-            println!("{name}: no checks, nothing to tell it by");
+            say(format!("{name}: no checks, nothing to tell it by"));
             all = false;
             continue;
         }
         match play::<G>(&mut game, playback, None, &mut Costs::default())? {
             Verdict::RunsApart(Apart { second }) => {
-                println!("{name}: runs apart after {second} s");
+                say(format!("{name}: runs apart after {second} s"));
                 all = false;
             }
-            _ if replay.fingerprint == fingerprint => println!("{name}: same ({} s), fits already", replay.ticks / CHECK_EVERY),
+            _ if replay.fingerprint == fingerprint => say(format!("{name}: same ({} s), fits already", replay.ticks / CHECK_EVERY)),
             _ => {
-                println!("{name}: same ({} s), fingerprint {} -> {fingerprint}", replay.ticks / CHECK_EVERY, replay.fingerprint);
+                say(format!("{name}: same ({} s), fingerprint {} -> {fingerprint}", replay.ticks / CHECK_EVERY, replay.fingerprint));
                 fitted.push((path, replay.fingerprint, fingerprint));
             }
         }
     }
     if !all {
-        println!("nothing written: a replay that does not run the same keeps its fingerprint");
+        say("nothing written: a replay that does not run the same keeps its fingerprint".into());
         return Ok(false);
     }
     for (path, old, new) in fitted {
@@ -1422,7 +1428,7 @@ mod tests {
             std::fs::copy(from, to).unwrap();
         };
         let arena = Path::new("games/arena");
-        for file in ["conf.lua", "main.lua", "world.vox", "player.vox", "replays/tests/walkabout.toml"] {
+        for file in ["conf.lua", "main.lua", "world.vox", "player.vvx", "replays/tests/walkabout.toml"] {
             copy(&arena.join(file), &tmp.join(file));
         }
         let conf = std::fs::read_to_string(arena.join("conf.lua")).unwrap();

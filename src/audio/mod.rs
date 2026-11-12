@@ -1,7 +1,7 @@
 //! Sound: what the simulation's events sound like, and the mixer that plays
 //! them. A sound is a file of the game (`sound`: `sounds/NAME.toml`, a few
-//! numbers for the synthesizer, or a `.wav` recording, which can be
-//! crushed to early-90s quality), its words in one register with MML's
+//! numbers for the synthesizer; Voxcade plays no recordings, everything in
+//! a game is code or text), its words in one register with MML's
 //! (`words`). The engine and the kits bring sounds of their own, files of
 //! the same kind built in; a game's file of the same name replaces one.
 //! Sounds are placed in stereo by where they happen on screen.
@@ -11,18 +11,16 @@ pub mod loudness;
 pub mod music;
 pub mod sound;
 pub mod synth;
-pub mod wav;
 pub mod words;
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use anyhow::{Context, Result};
 use glam::Vec3;
 
-pub use sound::{GameSound, Recording, SoundDef};
+pub use sound::{GameSound, SoundDef};
 pub use synth::{SAMPLE_RATE, Synth, Wave};
 
 /// The engine's own sounds' files, built in (`sounds/`).
@@ -38,23 +36,16 @@ pub fn core_sounds() -> Vec<(&'static str, SoundDef)> {
     sound::builtin(CORE_FILES)
 }
 
-/// The fade at both ends of a recording, in seconds: it may start or stop
-/// anywhere in its wave, a click.
-const RECORDING_FADE: f32 = 0.003;
-
 /// The sound of every event, ready to play.
 #[derive(Default)]
 pub struct SoundBank {
     sounds: HashMap<&'static str, Arc<[f32]>>,
-    /// The recordings each sound was read from (for hot reload).
-    read: Vec<(PathBuf, &'static str)>,
 }
 
 impl SoundBank {
     /// The game's sounds: those it brings (`brought`, a kit's or the
     /// engine's, `Game::sounds`), each replaced by the game's own file of
-    /// that name (`own`, `sound::read_folder`), and the game's others. A
-    /// recording that will not play is a mistake naming its file.
+    /// that name (`own`, `sound::read_folder`), and the game's others.
     pub fn load(files: &crate::files::Files, own: &BTreeMap<String, GameSound>, brought: &[(&'static str, SoundDef)]) -> Result<Self> {
         let mut bank = SoundBank::default();
         for (name, def, file) in sound::all(brought, own) {
@@ -64,16 +55,10 @@ impl SoundBank {
     }
 
     /// Renders one sound anew (its file changed) and keeps it by `name`.
-    pub fn put(&mut self, files: &crate::files::Files, name: &'static str, def: &SoundDef) -> Result<()> {
-        self.read.retain(|(_, n)| *n != name);
+    pub fn put(&mut self, _files: &crate::files::Files, name: &'static str, def: &SoundDef) -> Result<()> {
         self.sounds.remove(name);
         let samples = match def {
             SoundDef::Silent => Vec::new(),
-            SoundDef::Recording(r) => {
-                let path = files.path(&r.file);
-                self.read.push((path.clone(), name));
-                recording(&wav::load(files, &path)?, r)?
-            }
             SoundDef::Synth(synth) => synth.render(),
         };
         if !samples.is_empty() {
@@ -82,30 +67,9 @@ impl SoundBank {
         Ok(())
     }
 
-    /// The sounds read from a recording at `path`.
-    pub fn reading(&self, path: &Path) -> Vec<&'static str> {
-        self.read.iter().filter(|(p, _)| p == path).map(|(_, n)| *n).collect()
-    }
-
     pub fn get(&self, name: &str) -> Option<&Arc<[f32]>> {
         self.sounds.get(name)
     }
-}
-
-/// A recording as it plays: crushed if asked, at its volume, faded in and
-/// out over a few milliseconds, and no longer than a sound may last.
-fn recording(samples: &[f32], r: &Recording) -> Result<Vec<f32>> {
-    let length = samples.len() as f32 / SAMPLE_RATE as f32;
-    anyhow::ensure!(length <= synth::LONGEST, "{length:.1} seconds long; a sound lasts {} seconds at most (longer is music: c.audio.music)", synth::LONGEST);
-    let mut out: Vec<f32> = wav::crush(samples, r.rate, r.bits).into_iter().map(|x| x * r.volume).collect();
-    let fade = ((RECORDING_FADE * SAMPLE_RATE as f32) as usize).min(out.len() / 2);
-    let count = out.len();
-    for i in 0..fade {
-        let g = i as f32 / fade as f32;
-        out[i] *= g;
-        out[count - 1 - i] *= g;
-    }
-    Ok(out)
 }
 
 /// Gain and stereo pan (-1 left .. 1 right) of a sound at `at` heard from
@@ -360,6 +324,7 @@ pub fn speaker(sdl: &sdl3::Sdl) -> Option<Speaker> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     /// Every event has a sound of its own, and none is silent or too loud.
     #[test]
@@ -400,8 +365,7 @@ mod tests {
     }
 
     /// A game's file replaces the kit's sound of its name, `silent`
-    /// silences one, a new name is one more; a recording plays faded in and
-    /// out and no longer than a sound may last.
+    /// silences one, a new name is one more; a recording is none.
     #[test]
     fn a_games_file_replaces_the_kits_sound() {
         let dir = std::env::temp_dir().join(format!("voxcade-bank-{}", std::process::id()));
@@ -410,45 +374,15 @@ mod tests {
         std::fs::write(dir.join("sounds/shot.toml"), "wave = \"sine\"\nfreq = 300\nhold = 0\ndecay = 0.05\n").unwrap();
         std::fs::write(dir.join("sounds/rotor.toml"), "silent = true\n").unwrap();
         std::fs::write(dir.join("sounds/beep.toml"), "freq = 880\n").unwrap();
-        // A recording of a second's full-scale square at 22050 Hz.
-        let samples: Vec<i16> = (0..22050).map(|i| if i % 100 < 50 { 30000 } else { -30000 }).collect();
-        std::fs::write(dir.join("sounds/scream.wav"), wav_file(&samples, 22050)).unwrap();
         let files = crate::files::Files::folder(&dir);
         let own = sound::read_folder(&files).unwrap();
         let bank = SoundBank::load(&files, &own, &crate::shooter::sounds()).unwrap();
         assert_eq!(bank.get("shot").unwrap().len(), (0.05 * SAMPLE_RATE as f32).ceil() as usize, "the game's shot");
         assert!(bank.get("rotor").is_none(), "silent");
         assert!(bank.get("beep").is_some() && bank.get("splat").is_some(), "the game's own and the kit's");
-        let scream = bank.get("scream").unwrap();
-        assert_eq!(scream.len(), SAMPLE_RATE as usize, "a second");
-        assert!(scream[0].abs() < 1e-6 && scream[scream.len() - 1].abs() < 0.01, "faded in and out");
-        assert!(scream[SAMPLE_RATE as usize / 2].abs() > 0.9, "and full between");
-        // Eleven seconds is no sound.
-        let long: Vec<i16> = vec![1000; 11 * 22050];
-        std::fs::write(dir.join("sounds/scream.wav"), wav_file(&long, 22050)).unwrap();
-        let own = sound::read_folder(&files).unwrap();
-        let e = SoundBank::load(&files, &own, &[]).err().expect("too long");
-        assert_eq!(format!("{e:#}"), "sounds/scream.wav: 11.0 seconds long; a sound lasts 10 seconds at most (longer is music: c.audio.music)");
+        std::fs::write(dir.join("sounds/scream.wav"), b"RIFF").unwrap();
+        assert!(format!("{:#}", sound::read_folder(&files).unwrap_err()).contains("Voxcade plays none"));
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// A mono 16-bit WAV file of `samples` at `rate`.
-    fn wav_file(samples: &[i16], rate: u32) -> Vec<u8> {
-        let data: Vec<u8> = samples.iter().flat_map(|s| s.to_le_bytes()).collect();
-        let mut wav = b"RIFF".to_vec();
-        wav.extend((36 + data.len() as u32).to_le_bytes());
-        wav.extend(b"WAVEfmt ");
-        wav.extend(16u32.to_le_bytes());
-        wav.extend(1u16.to_le_bytes());
-        wav.extend(1u16.to_le_bytes());
-        wav.extend(rate.to_le_bytes());
-        wav.extend((rate * 2).to_le_bytes());
-        wav.extend(2u16.to_le_bytes());
-        wav.extend(16u16.to_le_bytes());
-        wav.extend(b"data");
-        wav.extend((data.len() as u32).to_le_bytes());
-        wav.extend(&data);
-        wav
     }
 
     /// Everything at once, loud, stays under the limiter's ceiling (by

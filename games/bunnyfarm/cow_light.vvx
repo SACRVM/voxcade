@@ -1,0 +1,1146 @@
+format = "voxcade voxel 1"
+size = [11, 23, 16]
+
+[palette]
+a = "#524642"
+b = "#eee6d4"
+c = "#484242"
+d = "#eebdcd"
+e = "#785d53"
+f = "#ffe6d4"
+g = "#1e1822"
+h = "#f2a2b2"
+i = "#000000"
+
+[[frame]]
+at = [-4, -10, 0]
+layers = """
+......... *7
+.aa...aa.
+.aa...aa.
+......... *7
+.aa...aa.
+.aa...aa.
+......... *4
+
+......... *7
+.bb...bb.
+.bb...bb.
+......... *7
+.bb...bb.
+.bb...bb.
+......... *4
+*4
+
+......... *7
+.bb...bb.
+.ccbbbbb.
+...bbb... *7
+.bbbbccc.
+.bbbbccc.
+......... *3
+....c....
+
+......... *7
+..cbbbb..
+..ccbbb..
+.cccbbbb.
+.ccbbbbb.
+.bbbbbbb. *4
+.bbbbccc.
+.bbbcccc.
+..cbccc..
+...bbc...
+.........
+....b....
+....c....
+
+......... *6
+...bbb...
+..cbbbb..
+.cccbbbb.
+.cccbbbb.
+.ccbbbbb.
+.bbbbbbb. *4
+.bbbbccc.
+.ccbcccc.
+.ccccccc.
+..ccbcc..
+...bbb...
+....b....
+.........
+
+......... *5
+...bbb...
+...bbb...
+..cbbbb..
+.cccbbbb.
+.cccbbbb.
+.ccbbbbb.
+.bbbbccc.
+.bbbbccc.
+.bbbbbbb.
+.bbbbbbb.
+.bbbbccc.
+.ccbcccc.
+.ccccccc.
+..ccbcc..
+...bbb...
+....b....
+.........
+
+..ddddd..
+...bbb... *4
+..bbbbb..
+..bbbbb..
+..cbbbb..
+.cccbbbb.
+.cccbbbb.
+.ccbbccc.
+.bbbcccc.
+.bbbcccc.
+.bbbbccc.
+.bbbbbbb.
+.bbbbbbb.
+.ccbbccc.
+.cccbccc.
+..ccbbb..
+...bbb...
+....b....
+.........
+
+..deded..
+...bbb...
+..fbbbf..
+..fbbbf..
+..bbbbb.. *4
+..cbbbb..
+..cbbbb..
+..bbbcc..
+..bbccc..
+..bbccc..
+..bbbcc..
+..bbbbb.. *3
+..cbbbb..
+...bbb...
+......... *3
+
+..ddddd..
+..bbbcc..
+..fbbcf..
+..fbbcf..
+..bbbbc..
+..bbbbb..
+...bbb... *4
+...bbc...
+...bcc...
+...bcc...
+...bbc...
+...bbb... *4
+......... *4
+
+.........
+..gbbcg..
+..bbbcc..
+..bbbcc..
+..bbbbc..
+...bbb...
+...bbb...
+......... *15
+
+.........
+...bbc...
+..bbbcc..
+..bbbcc..
+bbbbbbccb
+...bbb...
+......... *16
+
+.........
+.........
+...bbc...
+...bbc...
+...bbb...
+......... *17
+"""
+
+[[frame]]
+at = [-4, -10, 0]
+layers = """
+......... *6
+......aa.
+......aa.
+.aa......
+.aa......
+......... *5
+.aa......
+.aa......
+......aa.
+......aa.
+......... *3
+
+......... *6
+......bb.
+......bb.
+.bb......
+.bb......
+......... *5
+.bb......
+.bb......
+......bb.
+......bb.
+......... *3
+*4
+
+......... *6
+......bb.
+......bb.
+.ccbbb...
+.ccbbb...
+...bbb... *5
+.bbbbb...
+.bbbbc...
+...bbccc.
+......bb.
+.........
+.........
+....c....
+
+......... *7
+..cbbbbb.
+..ccbbbb.
+.cccbbbb.
+.ccbbbbb.
+.bbbbbbb. *4
+.bbbbccc.
+.bbbcccc.
+..cbcccc.
+...bbc...
+.........
+....b....
+....c....
+
+......... *6
+...bbb...
+..cbbbb..
+.cccbbbb.
+.cccbbbb.
+.ccbbbbb.
+.bbbbbbb. *4
+.bbbbccc.
+.ccbcccc.
+.ccccccc.
+..ccbcc..
+...bbb...
+....b....
+.........
+
+......... *5
+...bbb...
+...bbb...
+..cbbbb..
+.cccbbbb.
+.cccbbbb.
+.ccbbbbb.
+.bbbbccc.
+.bbbbccc.
+.bbbbbbb.
+.bbbbbbb.
+.bbbbccc.
+.ccbcccc.
+.ccccccc.
+..ccbcc..
+...bbb...
+....b....
+.........
+
+..ddddd..
+...bbb... *4
+..bbbbb..
+..bbbbb..
+..cbbbb..
+.cccbbbb.
+.cccbbbb.
+.ccbbccc.
+.bbbcccc.
+.bbbcccc.
+.bbbbccc.
+.bbbbbbb.
+.bbbbbbb.
+.ccbbccc.
+.cccbccc.
+..ccbbb..
+...bbb...
+....b....
+.........
+
+..deded..
+...bbb...
+..fbbbf..
+..fbbbf..
+..bbbbb.. *4
+..cbbbb..
+..cbbbb..
+..bbbcc..
+..bbccc..
+..bbccc..
+..bbbcc..
+..bbbbb.. *3
+..cbbbb..
+...bbb...
+......... *3
+
+..ddddd..
+..bbbcc..
+..fbbcf..
+..fbbcf..
+..bbbbc..
+..bbbbb..
+...bbb... *4
+...bbc...
+...bcc...
+...bcc...
+...bbc...
+...bbb... *4
+......... *4
+
+.........
+..gbbcg..
+..bbbcc..
+..bbbcc..
+..bbbbc..
+...bbb...
+...bbb...
+......... *15
+
+.........
+...bbc...
+..bbbcc..
+..bbbcc..
+bbbbbbccb
+...bbb...
+......... *16
+
+.........
+.........
+...bbc...
+...bbc...
+...bbb...
+......... *17
+"""
+
+[[frame]]
+at = [-4, -10, 0]
+layers = """
+......... *6
+.aa......
+.aa......
+......aa.
+......aa.
+......... *5
+......aa.
+......aa.
+.aa......
+.aa......
+......... *3
+
+......... *6
+.bb......
+.bb......
+......bb.
+......bb.
+......... *5
+......bb.
+......bb.
+.bb......
+.bb......
+......... *3
+*4
+
+......... *6
+.bb......
+.bb......
+...bbbbb.
+...bbbbb.
+...bbb... *5
+...bbbbb.
+...bbccc.
+.bbbbc...
+.bb......
+.........
+.........
+....c....
+
+......... *7
+.ccbbbb..
+.cccbbb..
+.cccbbbb.
+.ccbbbbb.
+.bbbbbbb. *4
+.bbbbccc.
+.bbbcccc.
+.ccbccc..
+...bbc...
+.........
+....b....
+....c....
+
+......... *6
+...bbb...
+..cbbbb..
+.cccbbbb.
+.cccbbbb.
+.ccbbbbb.
+.bbbbbbb. *4
+.bbbbccc.
+.ccbcccc.
+.ccccccc.
+..ccbcc..
+...bbb...
+....b....
+.........
+
+......... *5
+...bbb...
+...bbb...
+..cbbbb..
+.cccbbbb.
+.cccbbbb.
+.ccbbbbb.
+.bbbbccc.
+.bbbbccc.
+.bbbbbbb.
+.bbbbbbb.
+.bbbbccc.
+.ccbcccc.
+.ccccccc.
+..ccbcc..
+...bbb...
+....b....
+.........
+
+..ddddd..
+...bbb... *4
+..bbbbb..
+..bbbbb..
+..cbbbb..
+.cccbbbb.
+.cccbbbb.
+.ccbbccc.
+.bbbcccc.
+.bbbcccc.
+.bbbbccc.
+.bbbbbbb.
+.bbbbbbb.
+.ccbbccc.
+.cccbccc.
+..ccbbb..
+...bbb...
+....b....
+.........
+
+..deded..
+...bbb...
+..fbbbf..
+..fbbbf..
+..bbbbb.. *4
+..cbbbb..
+..cbbbb..
+..bbbcc..
+..bbccc..
+..bbccc..
+..bbbcc..
+..bbbbb.. *3
+..cbbbb..
+...bbb...
+......... *3
+
+..ddddd..
+..bbbcc..
+..fbbcf..
+..fbbcf..
+..bbbbc..
+..bbbbb..
+...bbb... *4
+...bbc...
+...bcc...
+...bcc...
+...bbc...
+...bbb... *4
+......... *4
+
+.........
+..gbbcg..
+..bbbcc..
+..bbbcc..
+..bbbbc..
+...bbb...
+...bbb...
+......... *15
+
+.........
+...bbc...
+..bbbcc..
+..bbbcc..
+bbbbbbccb
+...bbb...
+......... *16
+
+.........
+.........
+...bbc...
+...bbc...
+...bbb...
+......... *17
+"""
+
+[[frame]]
+at = [-4, -10, 0]
+layers = """
+......... *6
+.aa...aa.
+.aa...aa.
+......... *7
+.aa...aa.
+.aa...aa.
+......... *4
+
+......... *6
+.bb...bb.
+.bb...bb.
+......... *7
+.bb...bb.
+.bb...bb.
+......... *4
+
+......... *5
+...bbb...
+.bb...bb.
+.bb...bb.
+......... *7
+.bb...bb.
+.bb...bb.
+......... *4
+
+..ddddd..
+...bbb... *4
+..bbbbb..
+.bb...bb.
+.bb...bb.
+......... *7
+.bb...bb.
+.bb...bb.
+......... *4
+
+..deded..
+...bbb...
+..fbbbf..
+..fbbbf..
+..bbbbb..
+..bbbbb..
+.bbbbbbb.
+.bb...bb.
+......... *7
+.bb...bb.
+.bb...bb.
+......... *4
+
+..ddddd..
+..bbbcc..
+..fbbcf..
+..fbbcf..
+..bbbbc..
+..bbbbb..
+.bbbbbbb.
+.ccbbbbb.
+...bbb... *7
+.bbbbccc.
+.bbbbccc.
+......... *3
+....c....
+
+.........
+..gbbcg..
+..bbbcc..
+..bbbcc..
+..bbbbc..
+..bbbbb..
+..cbbbb..
+..ccbbb..
+.cccbbbb.
+.ccbbbbb.
+.bbbbbbb. *4
+.bbbbccc.
+.bbbcccc.
+..cbccc..
+...bbc...
+.........
+....b....
+....c....
+
+.........
+...bbc...
+..bbbcc..
+..bbbcc..
+bbbbbbccb
+..bbbbb..
+..cbbbb..
+.cccbbbb.
+.cccbbbb.
+.ccbbbbb.
+.bbbbbbb. *4
+.bbbbccc.
+.ccbcccc.
+.ccccccc.
+..ccbcc..
+...bbb...
+....b....
+.........
+
+.........
+.........
+...bbc...
+...bbc...
+...bbb...
+..bbbbb..
+..cbbbb..
+.cccbbbb.
+.cccbbbb.
+.ccbbbbb.
+.bbbbccc.
+.bbbbccc.
+.bbbbbbb.
+.bbbbbbb.
+.bbbbccc.
+.ccbcccc.
+.ccccccc.
+..ccbcc..
+...bbb...
+....b....
+.........
+
+......... *5
+..bbbbb..
+..cbbbb..
+.cccbbbb.
+.cccbbbb.
+.ccbbccc.
+.bbbcccc.
+.bbbcccc.
+.bbbbccc.
+.bbbbbbb.
+.bbbbbbb.
+.ccbbccc.
+.cccbccc.
+..ccbbb..
+...bbb...
+....b....
+.........
+
+......... *6
+...bbb...
+..cbbbb..
+..cbbbb..
+..bbbcc..
+..bbccc..
+..bbccc..
+..bbbcc..
+..bbbbb.. *3
+..cbbbb..
+...bbb...
+......... *3
+
+......... *7
+...bbb...
+...bbb...
+...bbc...
+...bcc...
+...bcc...
+...bbc...
+...bbb... *4
+......... *4
+"""
+
+[[frame]]
+at = [-4, -10, 0]
+layers = """
+......... *7
+.aa...aa.
+.aa...aa.
+......... *7
+.aa...aa.
+.aa...aa.
+......... *4
+
+......... *7
+.bb...bb.
+.bb...bb.
+......... *7
+.bb...bb.
+.bb...bb.
+......... *4
+
+......... *7
+.bb...bb.
+.bb...bb.
+......... *7
+.bb...bb.
+.bb...bb.
+......... *4
+
+......... *7
+.bb...bb.
+.bb...bb.
+......... *5
+....h....
+....h....
+.bb...bb.
+.bb...bb.
+......... *4
+
+......... *7
+.bb...bb.
+.bb...bb.
+......... *5
+....h....
+....h....
+.bb...bb.
+.bb...bb.
+......... *4
+
+......... *7
+.bb...bb.
+.ccbbbbb.
+...bbb... *7
+.bbbbccc.
+.bbbbccc.
+......... *3
+....c....
+
+......... *7
+..cbbbb..
+..ccbbb..
+.cccbbbb.
+.ccbbbbb.
+.bbbbbbb. *4
+.bbbbccc.
+.bbbcccc.
+..cbccc..
+...bbc...
+.........
+....b....
+....c....
+
+......... *6
+...bbb...
+..cbbbb..
+.cccbbbb.
+.cccbbbb.
+.ccbbbbb.
+.bbbbbbb. *4
+.bbbbccc.
+.ccbcccc.
+.ccccccc.
+..ccbcc..
+...bbb...
+....b....
+.........
+
+......... *5
+...bbb...
+...bbb...
+..cbbbb..
+.cccbbbb.
+.cccbbbb.
+.ccbbbbb.
+.bbbbccc.
+.bbbbccc.
+.bbbbbbb.
+.bbbbbbb.
+.bbbbccc.
+.ccbcccc.
+.ccccccc.
+..ccbcc..
+...bbb...
+....b....
+.........
+
+..ddddd..
+...bbb... *4
+..bbbbb..
+..bbbbb..
+..cbbbb..
+.cccbbbb.
+.cccbbbb.
+.ccbbccc.
+.bbbcccc.
+.bbbcccc.
+.bbbbccc.
+.bbbbbbb.
+.bbbbbbb.
+.ccbbccc.
+.cccbccc.
+..ccbbb..
+...bbb...
+....b....
+.........
+
+..deded..
+...bbb...
+..fbbbf..
+..fbbbf..
+..bbbbb.. *4
+..cbbbb..
+..cbbbb..
+..bbbcc..
+..bbccc..
+..bbccc..
+..bbbcc..
+..bbbbb.. *3
+..cbbbb..
+...bbb...
+......... *3
+
+..ddddd..
+..bbbcc..
+..fbbcf..
+..fbbcf..
+..bbbbc..
+..bbbbb..
+...bbb... *4
+...bbc...
+...bcc...
+...bcc...
+...bbc...
+...bbb... *4
+......... *4
+
+.........
+..gbbcg..
+..bbbcc..
+..bbbcc..
+..bbbbc..
+...bbb...
+...bbb...
+......... *15
+
+.........
+...bbc...
+..bbbcc..
+..bbbcc..
+bbbbbbccb
+...bbb...
+......... *16
+
+.........
+.........
+...bbc...
+...bbc...
+...bbb...
+......... *17
+"""
+
+[[frame]]
+at = [-3, -6, 0]
+layers = """
+....... *5
+.aa.aa.
+....... *4
+.aa.aa.
+.......
+.......
+
+....... *5
+.bb.bb.
+....... *4
+.bb.bb.
+.......
+.......
+*3
+
+....... *5
+.bbbbb.
+.bbbbb.
+..cbb..
+..cbb..
+.bbbbb.
+.bbbbb.
+.......
+.......
+
+....... *4
+..bbb..
+.bbbbb.
+.ccbbb.
+.cccbb.
+.cccbb.
+.ccbbb.
+.bbbbb.
+..bbb..
+...i...
+
+....... *4
+..bbb..
+.bbbbb.
+.ccbbb.
+.cccbb.
+.cccbb.
+.ccbbb.
+.bbbbb.
+..bbb..
+...b...
+
+..ddd..
+..bbb.. *4
+.bbbbb.
+.ccbbb.
+.cccbb.
+.cccbb.
+.ccbbb.
+.bbbbb.
+..bbb..
+...b...
+
+..ede..
+..bbc..
+.bbbcc.
+.bbbcc.
+..bbb..
+..bbb..
+..cbb..
+..ccb..
+..ccb..
+..cbb..
+..bbb..
+.......
+.......
+
+.......
+..bcc..
+.ibcci.
+.bbccc.
+..bbc..
+....... *8
+
+.......
+..bcc..
+.bbccc.
+bbbcccc
+..bbc..
+....... *8
+
+.......
+.......
+..bcc..
+..bcc..
+....... *9
+"""
+
+[[frame]]
+at = [-3, -6, 0]
+layers = """
+....... *4
+....aa.
+.......
+.aa....
+.......
+.......
+.aa....
+.......
+....aa.
+.......
+
+....... *4
+....bb.
+.......
+.bb....
+.......
+.......
+.bb....
+.......
+....bb.
+.......
+*3
+
+....... *4
+.....b.
+.bbbbb.
+.bbbbb.
+..cbb..
+..cbb..
+.bbbbb.
+.bbbbb.
+.....b.
+.......
+
+....... *4
+..bbb..
+.bbbbb.
+.ccbbb.
+.cccbb.
+.cccbb.
+.ccbbb.
+.bbbbb.
+..bbb..
+...i...
+
+....... *4
+..bbb..
+.bbbbb.
+.ccbbb.
+.cccbb.
+.cccbb.
+.ccbbb.
+.bbbbb.
+..bbb..
+...b...
+
+..ddd..
+..bbb.. *4
+.bbbbb.
+.ccbbb.
+.cccbb.
+.cccbb.
+.ccbbb.
+.bbbbb.
+..bbb..
+...b...
+
+..ede..
+..bbc..
+.bbbcc.
+.bbbcc.
+..bbb..
+..bbb..
+..cbb..
+..ccb..
+..ccb..
+..cbb..
+..bbb..
+.......
+.......
+
+.......
+..bcc..
+.ibcci.
+.bbccc.
+..bbc..
+....... *8
+
+.......
+..bcc..
+.bbccc.
+bbbcccc
+..bbc..
+....... *8
+
+.......
+.......
+..bcc..
+..bcc..
+....... *9
+"""
+
+[[frame]]
+at = [-3, -6, 0]
+layers = """
+....... *4
+.aa....
+.......
+....aa.
+.......
+.......
+....aa.
+.......
+.aa....
+.......
+
+....... *4
+.bb....
+.......
+....bb.
+.......
+.......
+....bb.
+.......
+.bb....
+.......
+*3
+
+....... *5
+.bbbbb.
+.bbbbb.
+..cbb..
+..cbb..
+.bbbbb.
+.bbbbb.
+.......
+.......
+
+....... *4
+..bbb..
+.bbbbb.
+.ccbbb.
+.cccbb.
+.cccbb.
+.ccbbb.
+.bbbbb.
+..bbb..
+...i...
+
+....... *4
+..bbb..
+.bbbbb.
+.ccbbb.
+.cccbb.
+.cccbb.
+.ccbbb.
+.bbbbb.
+..bbb..
+...b...
+
+..ddd..
+..bbb.. *4
+.bbbbb.
+.ccbbb.
+.cccbb.
+.cccbb.
+.ccbbb.
+.bbbbb.
+..bbb..
+...b...
+
+..ede..
+..bbc..
+.bbbcc.
+.bbbcc.
+..bbb..
+..bbb..
+..cbb..
+..ccb..
+..ccb..
+..cbb..
+..bbb..
+.......
+.......
+
+.......
+..bcc..
+.ibcci.
+.bbccc.
+..bbc..
+....... *8
+
+.......
+..bcc..
+.bbccc.
+bbbcccc
+..bbc..
+....... *8
+
+.......
+.......
+..bcc..
+..bcc..
+....... *9
+"""

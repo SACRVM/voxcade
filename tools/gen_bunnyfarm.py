@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Makes BunnyFarm (games/bunnyfarm), a farming game with a tamagotchi at
 its heart (docs/bunnyfarm.md), as voxels from the start: the blocks of
-the farm (blocks/*.vox, 16 voxels each way), the farm itself
+the farm (blocks/*.vvx, 16 voxels each way), the farm itself
 (levels/01_farm.json: a fenced farm of 24 by 16 cells in a meadow, seen
 from above at a slant), the figures and the props.
 
@@ -47,7 +47,7 @@ def noise(x, y, k=0):
 
 
 def save(name, size, figs):
-    figures.save(GAME / f"{name}.vox", size, figs)
+    figures.save(GAME / f"{name}.vvx", size, figs)
 
 
 # ---------------------------------------------------------------- colours
@@ -87,7 +87,7 @@ def block(fill):
 
 
 def save_block(name, fill):
-    path = GAME / "blocks" / f"{name}.vox"
+    path = GAME / "blocks" / f"{name}.vvx"
     if kept(path):
         return
     voxels, colours = block(fill)
@@ -1656,7 +1656,7 @@ def carrot_y(w, h, r):
 
 
 def logo():
-    path = GAME / "logo.vox"
+    path = GAME / "logo.vvx"
     if kept(path):
         return
     # At most 70 high: under the top of the screen it ends above the

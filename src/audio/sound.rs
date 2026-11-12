@@ -1,6 +1,8 @@
 //! A sound is a file of the game: `sounds/NAME.toml`, a few numbers a line
-//! (the words of `audio::words`), or `sounds/NAME.wav`, a recording as it
-//! is. The file's name without its ending is the sound's name, the one
+//! (the words of `audio::words`). Voxcade plays no recordings (the owner:
+//! everything in a game is code or text): a `.wav` in `sounds/`, or a sound
+//! naming one, is a plain mistake saying so (`voxcade upgrade` lists an
+//! older game's). The file's name without its ending is the sound's name, the one
 //! `level:sound("coin", at)` and a kind's `sound = "coin"` call it by. A
 //! file names only what differs from the defaults:
 //!
@@ -15,9 +17,8 @@
 //! volume = 0.25
 //! ```
 //!
-//! A recording made lo-fi names it: `file = "recordings/scream.wav"`, `rate
-//! = 7000`, `bits = 8`; `silent = true` silences a sound the engine or the
-//! ready-made rules bring. The kits' own sounds are files of the same kind,
+//! `silent = true` silences a sound the engine or the ready-made rules
+//! bring. The kits' own sounds are files of the same kind,
 //! built into the program (`builtin`); a game's file of the same name
 //! replaces one.
 
@@ -27,7 +28,7 @@ use std::path::Path;
 use anyhow::{Result, anyhow, bail};
 
 use super::synth::{self, Synth, Wave};
-use super::words::{self, Form, Unit};
+use super::words::{self, Form};
 
 /// The folder of a game's sounds.
 pub const FOLDER: &str = "sounds";
@@ -36,21 +37,12 @@ pub const FOLDER: &str = "sounds";
 #[derive(Clone, Debug, PartialEq)]
 pub enum SoundDef {
     Synth(Synth),
-    Recording(Recording),
     /// No sound at all (`silent = true`).
     Silent,
 }
 
-/// A `.wav` file, made lo-fi if asked: down to `rate` Hz and `bits` bits
-/// (7000 and 8 sound like the speech in Wolfenstein 3D).
-#[derive(Clone, Debug, PartialEq)]
-pub struct Recording {
-    /// Its name in the game's files (`recordings/scream.wav`).
-    pub file: String,
-    pub rate: Option<u32>,
-    pub bits: Option<u32>,
-    pub volume: f32,
-}
+/// Why a recording is no sound of a game, after its name.
+pub const NO_RECORDINGS: &str = "a recording: Voxcade plays none (everything in a game is code or text). A sound is a few numbers in sounds/NAME.toml (the IDE's sound maker rolls one to start from); this file can go";
 
 /// One of the game's own sounds: the file it is read from (its name in
 /// the game, `sounds/coin.toml`) and what it says.
@@ -60,9 +52,9 @@ pub struct GameSound {
     pub def: SoundDef,
 }
 
-/// Endings of recordings the engine does not read, to say so instead of
-/// passing them over.
-const OTHER_AUDIO: [&str; 7] = ["ogg", "mp3", "flac", "aif", "aiff", "m4a", "opus"];
+/// Endings of recordings, to say they are none of a game's sounds instead
+/// of passing them over.
+pub const RECORDINGS: [&str; 8] = ["wav", "ogg", "mp3", "flac", "aif", "aiff", "m4a", "opus"];
 
 /// A sound file's text as the engine's sound. `file` names it in messages
 /// (`sounds/coin.toml`); a mistake says the file, the line and the word.
@@ -73,20 +65,17 @@ pub fn read(file: &str, text: &str) -> Result<SoundDef> {
     })?;
     let at = |name: &str| table.get(name).map_or(0, |v| line_of(text, v.span().start));
     let said = |name: &str, what: String| anyhow!("{file} line {}: {name}{what}", at(name));
-    // The form: a recording if it names a file, nothing if silent, else
-    // numbers for the synth.
+    // A recording named (a sound of an older Voxcade): none any more.
+    if let Some(f) = table.get("file") {
+        return Err(said("file", format!(" = {}: {NO_RECORDINGS}", f.get_ref())));
+    }
+    // The form: nothing if silent, else numbers for the synth.
     let silent = match table.get("silent").map(|v| v.get_ref()) {
         None => false,
         Some(toml::Value::Boolean(b)) => *b,
         Some(_) => return Err(said("silent", ": true or false".into())),
     };
-    let form = if silent {
-        Form::Alone
-    } else if table.contains_key("file") {
-        Form::Recording
-    } else {
-        Form::Synth
-    };
+    let form = if silent { Form::Alone } else { Form::Synth };
     for (name, value) in &table {
         let Some((_, u)) = words::sound_words().find(|(n, _)| n == name) else {
             let line = line_of(text, value.span().start);
@@ -104,27 +93,18 @@ pub fn read(file: &str, text: &str) -> Result<SoundDef> {
             };
             bail!("{file} line {line}: {name}: no such field{near}");
         };
-        let fits = match (form, u.form) {
-            (Form::Alone, _) => *name == "silent",
-            (_, Form::Both) => true,
-            (form, own) => form == own || own == Form::Alone,
+        let fits = match form {
+            Form::Alone => *name == "silent",
+            _ => true,
         };
         if !fits {
-            let why = match form {
-                Form::Alone => "a silent sound says nothing else".to_string(),
-                Form::Recording => "a recording (file = ...) takes only file, rate, bits and volume".to_string(),
-                _ => format!("{name} belongs to a recording, with file = \"...\""),
-            };
-            return Err(said(name, format!(": {why}")));
+            return Err(said(name, ": a silent sound says nothing else".into()));
         }
         // Numbers in their range.
         if let Some((lo, hi)) = u.range {
             let n = number(value.get_ref()).ok_or_else(|| said(name, ": not a number".into()))?;
             if !(lo..=hi).contains(&n) {
                 return Err(said(name, format!(" = {}: {} ({})", value.get_ref(), words::range_words(u), u.meaning)));
-            }
-            if (matches!(u.unit, Unit::Bits) || *name == "rate") && n.fract() != 0.0 {
-                return Err(said(name, format!(" = {n}: a whole number {}", words::range_words(u))));
             }
         }
     }
@@ -138,13 +118,6 @@ pub fn read(file: &str, text: &str) -> Result<SoundDef> {
     };
     match form {
         Form::Alone => Ok(SoundDef::Silent),
-        Form::Recording => {
-            let path = text_of("file")?.unwrap_or_default();
-            if !path.to_ascii_lowercase().ends_with(".wav") {
-                return Err(said("file", format!(" = \"{path}\": a .wav file, its path from the game folder")));
-            }
-            Ok(SoundDef::Recording(Recording { file: path, rate: num("rate").map(|n| n as u32), bits: num("bits").map(|n| n as u32), volume: num("volume").map_or(1.0, |n| n as f32) }))
-        }
         _ => {
             let d = Synth::default();
             let wave = match text_of("wave").map_err(|_| said("wave", format!(": a word in quotes, one of {}", waves())))? {
@@ -221,18 +194,6 @@ pub fn write(def: &SoundDef, comments: &[String]) -> String {
     let mut line = |name: &str, value: String| out.push_str(&format!("{name} = {value}\n"));
     match def {
         SoundDef::Silent => line("silent", "true".into()),
-        SoundDef::Recording(r) => {
-            line("file", format!("{:?}", r.file));
-            if let Some(rate) = r.rate {
-                line("rate", rate.to_string());
-            }
-            if let Some(bits) = r.bits {
-                line("bits", bits.to_string());
-            }
-            if r.volume != 1.0 {
-                line("volume", r.volume.to_string());
-            }
-        }
         SoundDef::Synth(s) => {
             let d = Synth::default();
             let differs = |v: f32, d: f32| (v != d).then(|| v.to_string());
@@ -272,9 +233,8 @@ pub fn builtin(list: &[(&'static str, &'static str)]) -> Vec<(&'static str, Soun
 }
 
 /// The sound files of a game, by name (the file's name without its
-/// ending): `sounds/NAME.toml` or `sounds/NAME.wav`. Two files of one name
-/// are a mistake, as is a recording the engine cannot read or a sound
-/// naming a recording that is not there.
+/// ending): `sounds/NAME.toml`. Two files of one name are a mistake, as is
+/// a recording there (`NO_RECORDINGS`).
 pub fn read_folder(files: &crate::files::Files) -> Result<BTreeMap<String, GameSound>> {
     let mut sounds: BTreeMap<String, GameSound> = BTreeMap::new();
     for path in files.list(FOLDER) {
@@ -288,17 +248,9 @@ pub fn read_folder(files: &crate::files::Files) -> Result<BTreeMap<String, GameS
         let def = match ending.as_str() {
             "toml" => {
                 let text = files.read_to_string(&path).map_err(|e| anyhow!("{file}: {e}"))?;
-                let def = read(&file, &text)?;
-                if let SoundDef::Recording(r) = &def
-                    && !files.is_file(&r.file)
-                {
-                    let line = text.lines().position(|l| l.trim_start().starts_with("file")).map_or(1, |i| i + 1);
-                    bail!("{file} line {line}: file = \"{}\": no such file in the game", r.file);
-                }
-                def
+                read(&file, &text)?
             }
-            "wav" => SoundDef::Recording(Recording { file: file.clone(), rate: None, bits: None, volume: 1.0 }),
-            e if OTHER_AUDIO.contains(&e) => bail!("{file}: the engine plays .wav recordings (and sounds made of numbers, .toml); make it a .wav"),
+            e if RECORDINGS.contains(&e) => bail!("{file}: {NO_RECORDINGS}"),
             _ => continue,
         };
         if let Some(other) = sounds.get(stem) {
@@ -335,17 +287,17 @@ pub fn all(brought: &[(&'static str, SoundDef)], own: &BTreeMap<String, GameSoun
     list
 }
 
-/// A sound as `c.sounds` wrote it in `conf.lua` (a `.wav` file, "none", a
-/// recording table, or synth numbers with the old words), in the file's
-/// words: end frequencies and jump factors in semitones, as exact as the
-/// numbers it had, written as short as they stay exact.
+/// A sound as `c.sounds` wrote it in `conf.lua` ("none", or synth numbers
+/// with the old words), in the file's words: end frequencies and jump
+/// factors in semitones, as exact as the numbers it had, written as short
+/// as they stay exact. A recording it named is no sound any more: said.
 pub fn from_conf(name: &str, value: &toml::Value) -> Result<(SoundDef, Vec<String>)> {
     let mut notes = Vec::new();
     let table = match value {
         toml::Value::String(s) if s == "none" => return Ok((SoundDef::Silent, notes)),
-        toml::Value::String(s) => return Ok((SoundDef::Recording(Recording { file: s.clone(), rate: None, bits: None, volume: 1.0 }), notes)),
+        toml::Value::String(s) => bail!("c.sounds.{name} = \"{s}\": {NO_RECORDINGS}"),
         toml::Value::Table(t) => t,
-        other => bail!("c.sounds.{name} = {other}: a .wav file, \"none\" or a table"),
+        other => bail!("c.sounds.{name} = {other}: \"none\" or a table of numbers"),
     };
     let n = |key: &str| -> Result<Option<f32>> {
         match table.get(key) {
@@ -354,14 +306,7 @@ pub fn from_conf(name: &str, value: &toml::Value) -> Result<(SoundDef, Vec<Strin
         }
     };
     if let Some(file) = table.get("file") {
-        if let Some(key) = table.keys().find(|k| !["file", "rate", "bits", "volume"].contains(&k.as_str())) {
-            bail!("c.sounds.{name}.{key}: a recording (file = ...) takes only file, rate, bits and volume");
-        }
-        let file = file.as_str().ok_or_else(|| anyhow!("c.sounds.{name}.file: a file's name in quotes"))?.to_string();
-        // As the engine read them: a rate above 0 and under 44100, bits 1 to 15.
-        let rate = n("rate")?.map(|r| r as u32).filter(|r| *r > 0 && *r < synth::SAMPLE_RATE);
-        let bits = n("bits")?.map(|b| b as u32).filter(|b| (1..16).contains(b));
-        return Ok((SoundDef::Recording(Recording { file, rate, bits, volume: n("volume")?.unwrap_or(1.0) }), notes));
+        bail!("c.sounds.{name}.file = {file}: {NO_RECORDINGS}");
     }
     const OLD: [&str; 15] = ["wave", "freq", "freq_end", "duty", "attack", "sustain", "decay", "punch", "vibrato", "vibrato_speed", "arp", "arp_at", "lowpass", "lowpass_end", "volume"];
     if let Some(key) = table.keys().find(|k| !OLD.contains(&k.as_str())) {
@@ -464,23 +409,21 @@ mod tests {
         assert_eq!(err("lowpass_end = 300\n"), "sounds/coin.toml line 1: lowpass_end: needs lowpass, where the filter starts");
         assert_eq!(err("freq = 440\nfreq = 220\n").lines().next().unwrap(), "sounds/coin.toml line 2: duplicate key");
         assert!(err("wave = square\n").starts_with("sounds/coin.toml line 1: "), "{}", err("wave = square\n"));
-        assert_eq!(err("file = \"a.wav\"\nwave = \"saw\"\n"), "sounds/coin.toml line 2: wave: a recording (file = ...) takes only file, rate, bits and volume");
         assert_eq!(err("silent = true\nvolume = 0.5\n"), "sounds/coin.toml line 2: volume: a silent sound says nothing else");
-        assert_eq!(err("bits = 8\n"), "sounds/coin.toml line 1: bits: bits belongs to a recording, with file = \"...\"");
-        assert_eq!(err("file = \"a.wav\"\nbits = 7.5\n"), "sounds/coin.toml line 2: bits = 7.5: a whole number from 1 to 16 bits");
-        assert_eq!(err("file = \"a.mp3\"\n"), "sounds/coin.toml line 1: file = \"a.mp3\": a .wav file, its path from the game folder");
+        assert!(err("bits = 8\n").starts_with("sounds/coin.toml line 1: bits: no such field"), "{}", err("bits = 8\n"));
+        assert!(err("wave = \"saw\"\nfile = \"a.wav\"\n").starts_with("sounds/coin.toml line 2: file = \"a.wav\": a recording: Voxcade plays none"));
     }
 
-    /// A recording names its file and how lo-fi; silent is nothing at all.
+    /// Silent is nothing at all; a recording is no sound.
     #[test]
-    fn a_recording_and_silence() {
-        let def = read("sounds/scream.toml", "file = \"recordings/scream.wav\"\nrate = 7000\nbits = 8\n").unwrap();
-        assert_eq!(def, SoundDef::Recording(Recording { file: "recordings/scream.wav".into(), rate: Some(7000), bits: Some(8), volume: 1.0 }));
+    fn silence_and_no_recordings() {
         assert_eq!(read("sounds/rotor.toml", "silent = true\n").unwrap(), SoundDef::Silent);
         assert_eq!(read("sounds/rotor.toml", "silent = false\nfreq = 300\n").unwrap(), SoundDef::Synth(Synth { freq: 300.0, ..Synth::default() }));
-        for def in [def, SoundDef::Silent] {
-            assert_eq!(read("x.toml", &write(&def, &[])).unwrap(), def, "written as read");
-        }
+        assert_eq!(read("x.toml", &write(&SoundDef::Silent, &[])).unwrap(), SoundDef::Silent, "written as read");
+        let e = format!("{:#}", read("sounds/scream.toml", "file = \"recordings/scream.wav\"\nrate = 7000\n").unwrap_err());
+        assert!(e.starts_with("sounds/scream.toml line 1: file = \"recordings/scream.wav\": a recording: Voxcade plays none") && e.contains("sounds/NAME.toml"), "{e}");
+        let table: toml::Value = toml::from_str("x = \"boom.wav\"").unwrap();
+        assert!(from_conf("boom", &table["x"]).unwrap_err().to_string().contains("Voxcade plays none"));
     }
 
     /// Semitones and the synth's Hz and ratios: an end frequency and a
@@ -518,14 +461,16 @@ mod tests {
         let sounds = read_folder(&crate::files::Files::folder(&dir)).unwrap();
         assert_eq!(sounds.keys().collect::<Vec<_>>(), ["coin"]);
         assert_eq!(sounds["coin"].file, "sounds/coin.toml");
-        std::fs::write(dir.join("sounds/coin.wav"), b"RIFF").unwrap();
-        assert_eq!(format!("{:#}", read_folder(&crate::files::Files::folder(&dir)).unwrap_err()), "sounds/coin.toml and sounds/coin.wav: two sounds called \"coin\"; keep one");
-        std::fs::remove_file(dir.join("sounds/coin.wav")).unwrap();
-        std::fs::write(dir.join("sounds/scream.toml"), "file = \"recordings/scream.wav\"\n").unwrap();
-        assert_eq!(format!("{:#}", read_folder(&crate::files::Files::folder(&dir)).unwrap_err()), "sounds/scream.toml line 1: file = \"recordings/scream.wav\": no such file in the game");
-        std::fs::remove_file(dir.join("sounds/scream.toml")).unwrap();
+        std::fs::write(dir.join("sounds/boom.wav"), b"RIFF").unwrap();
+        let e = format!("{:#}", read_folder(&crate::files::Files::folder(&dir)).unwrap_err());
+        assert!(e.starts_with("sounds/boom.wav: a recording: Voxcade plays none") && e.contains("sounds/NAME.toml"), "{e}");
+        std::fs::remove_file(dir.join("sounds/boom.wav")).unwrap();
         std::fs::write(dir.join("sounds/boom.mp3"), b"ID3").unwrap();
-        assert!(format!("{:#}", read_folder(&crate::files::Files::folder(&dir)).unwrap_err()).starts_with("sounds/boom.mp3: the engine plays .wav recordings"));
+        assert!(format!("{:#}", read_folder(&crate::files::Files::folder(&dir)).unwrap_err()).starts_with("sounds/boom.mp3: a recording"));
+        std::fs::remove_file(dir.join("sounds/boom.mp3")).unwrap();
+        std::fs::write(dir.join("sounds/coin.mml"), "").unwrap();
+        std::fs::write(dir.join("sounds/coin.lua"), "").unwrap();
+        assert_eq!(read_folder(&crate::files::Files::folder(&dir)).unwrap().len(), 1, "other files are none of its sounds");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

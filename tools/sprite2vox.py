@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Pixel art to voxels: sprite frames become a .vox model, a frame each,
+"""Pixel art to voxels: sprite frames become a model, a frame each (OUT.vvx,
+Voxcade's own, tools/vvx.py; OUT.vox writes MagicaVoxel's, to bring in),
 for a game seen from the side. Every pixel becomes `scale` by `scale`
 voxels, and a column of them through the figure's thickness: thick in its
 middle, thin at its edges ("pillow"), as far from the camera as towards
@@ -15,7 +16,7 @@ thickness along x. A figure's frames share one box: as wide on both sides
 of the frames' middle, its feet on the bottom row, its sizes across odd so
 it turns about a voxel's middle without shifting.
 
-usage: python3 tools/sprite2vox.py OUT.vox SHEET.png:FRAMES [SHEET.png:FRAMES ...]
+usage: python3 tools/sprite2vox.py OUT.vvx SHEET.png:FRAMES [SHEET.png:FRAMES ...]
            [--scale 2] [--depth 7] [--flat N] [--outline] [--across]
 A sheet holds its frames side by side, all as wide; the frames of all
 sheets follow one another in the model. Uses Pillow.
@@ -173,8 +174,12 @@ def vdict(d):
 
 
 def write_vox(path, size, frames, colours):
-    """A .vox with one model a frame; frames: lists of (x, y, z, colour
-    index); colours: index -> (r, g, b)."""
+    """A model with one frame a model; frames: lists of (x, y, z, colour
+    index); colours: index -> (r, g, b). A .vvx path gets Voxcade's own."""
+    if str(path).endswith(".vvx"):
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import vvx
+        return vvx.write_frames(path, size, frames, colours)
     body = b""
     for vs in frames:
         body += chunk(b"SIZE", struct.pack("<iii", *size))

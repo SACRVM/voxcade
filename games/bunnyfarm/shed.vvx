@@ -1,0 +1,146 @@
+format = "voxcade voxel 1"
+size = [30, 20, 24]
+
+[palette]
+a = "#ac7a4c"
+b = "#765234"
+c = "#464240"
+d = "#e8c66e"
+e = "#c49662"
+f = "#785c46"
+
+[[frame]]
+at = [-15, -9, 0]
+layers = """
+..............................
+..aaab..................baaa..
+..aaaa..................aaaa..
+..aaaaccccccccccccccccccaaaa..
+..aaaaaaddddddaaaaddddaaaaaa.. *3
+..aaaaaaddddddaaaaaaaaaaaaaa..
+..aaaaaaaaaaaaaaaaaaaaaaaaaa.. *8
+..............................
+
+..............................
+..aaab..................baaa..
+..aaaa..................aaaa..
+..aaaaccddddddccccddddccaaaa..
+..aaaaaddddddddaaddddddaaaaa.. *3
+..aaaaaddddddddaaaddddaaaaaa..
+..aaaaaaddddddaaaaaaaaaaaaaa..
+..aaaaaaaaaaaaaaaaaaaaaaaaaa.. *7
+..............................
+*3
+
+..............................
+..eeeb..................beee..
+..aaaa..................aaaa..
+..aaaaccddddddccccccccccaaaa..
+..aaaaaddddddddaaaddddaaaaaa.. *3
+..aaaaaddddddddaaaaaaaaaaaaa..
+..aaaaaaddddddaaaaaaaaaaaaaa..
+..aaaaaaaaaaaaaaaaaaaaaaaaaa.. *7
+..............................
+
+..............................
+..aaab..................baaa..
+..aaaa..................aaaa..
+..aaaaccccccccccccccccccaaaa..
+..aaaaaaddddddaaaaaaaaaaaaaa.. *4
+..aaaaaaaaaaaaaaaaaaaaaaaaaa.. *8
+..............................
+
+..............................
+..aaab..................baaa..
+..aaaa..................aaaa..
+..aaaaccccccccccccccccccaaaa..
+..aaaaaaaddddaaaaaaaaaaaaaaa.. *3
+..aaaaaaaaaaaaaaaaaaaaaaaaaa.. *9
+..............................
+
+..............................
+..aaab..................baaa..
+..aaaa..................aaaa..
+..aaaacccddddcccccccccccaaaa..
+..aaaaaaddddddaaaaaaaaaaaaaa.. *3
+..aaaaaaaddddaaaaaaaaaaaaaaa..
+..aaaaaaaaaaaaaaaaaaaaaaaaaa.. *8
+..............................
+
+..............................
+..eeeb..................beee..
+..aaaa..................aaaa..
+..aaaacccddddcccccccccccaaaa..
+..aaaaaaddddddaaaaaaaaaaaaaa.. *3
+..aaaaaaaddddaaaaaaaaaaaaaaa..
+..aaaaaaaaaaaaaaaaaaaaaaaaaa.. *8
+..............................
+
+..............................
+..aaab..................baaa..
+..aaaa..................aaaa..
+..aaaaccccccccccccccccccaaaa..
+..aaaaaaaddddaaaaaaaaaaaaaaa.. *3
+..aaaaaaaaaaaaaaaaaaaaaaaaaa.. *9
+..............................
+
+..............................
+..aaab..................baaa..
+..aaaa..................aaaa..
+..aaaaccccccccccccccccccaaaa..
+..aaaaaaaaaaaaaaaaaaaaaaaaaa.. *12
+..............................
+
+..............................
+..aaabbbbbbbbbbbbbbbbbbbbaaa..
+..aaaaaaaaaaaaaaaaaaaaaaaaaa.. *14
+..............................
+
+e............................e
+f.aaaaaaaaaaaaaaaaaaaaaaaaaa.f *15
+e............................e
+
+.e..........................e.
+.faaaaaaaaaaaaaaaaaaaaaaaaaaf. *15
+.e..........................e.
+
+..e........................e..
+..faaaaaaaaaaaaaaaaaaaaaaaaf.. *15
+..e........................e..
+
+...e......................e...
+...faaaaaaaaaaaaaaaaaaaaaaf... *15
+...e......................e...
+
+....e....................e....
+....faaaaaaaaaaaaaaaaaaaaf.... *15
+....e....................e....
+
+.....e..................e.....
+.....faaaaaaaaaaaaaaaaaaf..... *15
+.....e..................e.....
+
+......e................e......
+......faaaaaaaaaaaaaaaaf...... *15
+......e................e......
+
+.......e..............e.......
+.......faaaaaaaaaaaaaaf....... *15
+.......e..............e.......
+
+........e............e........
+........faaaaaaaaaaaaf........ *15
+........e............e........
+
+.........e..........e.........
+.........faaaaaaaaaaf......... *15
+.........e..........e.........
+
+..........e........e..........
+..........faaaaaaaaf.......... *15
+..........e........e..........
+
+...........e......e...........
+...........faaaaaaf........... *15
+...........e......e...........
+"""

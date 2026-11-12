@@ -99,16 +99,19 @@ IDE's settings leave the whole console out.
 ## Write a game in Lua
 
 A game is a folder: `conf.lua` sets it up, `main.lua` is its rules,
-`.vox` models beside them.
+`.vvx` models beside them (Voxcade's own, text). `conf.lua` says which
+Voxcade the game is for (`c.voxcade = "0.6.0"`); a game made for an older
+one is brought up to date with `voxcade upgrade <game>`.
 
 ```lua
 -- conf.lua
 function conf(c)
+  c.voxcade = "0.6.0"                    -- the Voxcade it is for
   c.title = "Walk"
   c.world.size = { 128, 128, 16 }        -- a world made in code
   c.actions = { "jump" }
   c.keys = { jump = { "Space" } }
-  c.things.keeper = { model = "keeper.vox" }
+  c.things.keeper = { model = "keeper.vvx" }
 end
 
 -- main.lua
@@ -125,7 +128,7 @@ function on_tick()                        -- 60 times a second
 end
 
 function on_draw(frame)                   -- every picture, only looking
-  frame:model("keeper.vox", level.state.keeper)
+  frame:model("keeper.vvx", level.state.keeper)
   frame:text("WALK ABOUT  {jump} JUMPS", 4, 4)   -- {jump}: the player's key for it
 end
 ```
@@ -202,7 +205,7 @@ voxcade shot games/voxkeep --frames 120 --input "right:60;right+jump:20" --out s
 voxcade inspect games/sokovox --frames 300 --input "up:20;left:40"     # the states as JSON
 voxcade check games/bunnyfarm                                          # every replay as recorded?
 voxcade film games/moreblood games/moreblood/replays/demo.toml --out shots/demo.mp4
-voxcade sheet games/bunnyfarm bunny.vox                                # a model as the game shows it
+voxcade sheet games/bunnyfarm bunny.vvx                                # a model as the game shows it
 ```
 
 - `shot` writes one frame and says what it cost (CPU and GPU per pass,
@@ -234,20 +237,24 @@ claude mcp add voxcade -- /path/to/voxcade mcp
 
 ## Making what a game is made of
 
-- **Models:** MagicaVoxel `.vox` (from MagicaVoxel, vengi, Goxel, or the
-  IDE's voxel editor): frames for animation, or named parts the engine
-  turns (a kind's `swing`, `frame:model`'s pose); glass and metal
-  materials. Python generators in `tools/` (`figures.py`,
+- **Models:** Voxcade's own `.vvx`, text (layers of letters, a palette
+  of colours and materials), shaped in the IDE's voxel editor or written
+  by hand: frames for animation, or named parts the engine turns (a
+  kind's `swing`, `frame:model`'s pose); glass, metal and glow
+  materials. A MagicaVoxel `.vox` (from MagicaVoxel, vengi, Goxel) is
+  brought in with `voxcade import <game> FILE.vox`. Python generators in `tools/` (`figures.py`,
   `gen_*.py`) make the games' first figures; after that they are the
   user's, shaped by hand.
 - **Levels:** a map (`map.json`: ground from height and material images,
   `.vox` prefabs placed on it; More Blood, Pulsar's space), levels of
   voxel blocks (`levels/*.json`, shaped in the level editor; a Tiled map
   brought in once with `voxcade import`; [docs/tiles.md](docs/tiles.md)),
-  one `.vox` scene (the Arena), or a world made in code (Sokovox).
+  one `.vox` scene (the Arena; worlds and prefabs are still MagicaVoxel
+  scenes), or a world made in code (Sokovox).
 - **Sound:** every sound a file of the game, `sounds/NAME.toml`, a few
-  numbers for the synthesizer (like sfxr), or a `.wav` recording;
-  `voxcade sounds <game>` writes them to a WAV.
+  numbers for the synthesizer (like sfxr; no recordings: everything in a
+  game is code or text); `voxcade sounds <game>` writes them to a WAV to
+  listen to.
 - **Music:** MML text on SID-like voices (pulse, saw, triangle, noise,
   the SID's filter, arpeggios, ducking), played anew on every save. Songs
   from chord progressions with `tools/compose.py` (the library in

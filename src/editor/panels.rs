@@ -217,6 +217,7 @@ fn column(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
             }
             ui.label(RichText::new(format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2])).color(QUIET));
         });
+        material(ui, ed, shown);
     }
     ui.add_space(10.0);
     buttons(ui, shown, &[("UNDO", Action::Undo), ("REDO", Action::Redo)]);
@@ -332,6 +333,34 @@ fn figure_bar(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
     if egui::color_picker::color_edit_button_srgb(ui, &mut c).on_hover_text("Every colour.").changed() {
         shown.clicked.push(Action::Colour(c));
     }
+    ui.add_space(8.0);
+    material(ui, ed, shown);
+}
+
+/// The held colour's material in a model, quiet: a word of what it is
+/// (PLAIN, or its words), opening on a click to the four sliders.
+fn material(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+    let Some(m) = ed.material() else { return };
+    let now = super::frames::words(m);
+    let set: Vec<String> = super::frames::WORDS.iter().zip(now).enumerate().filter(|&(i, (_, v))| v > 0.0 && (i != 2 || m.metal != 0)).map(|(_, (w, v))| format!("{w} {}", (v * 100.0).round() / 100.0)).collect();
+    let label = if set.is_empty() { "PLAIN".to_string() } else { set.join(" ") };
+    ui.menu_button(RichText::new(label).color(QUIET), |ui| {
+        ui.label(RichText::new("What this colour is made of, every voxel of it.").small().color(QUIET));
+        for (i, word) in super::frames::WORDS.iter().enumerate() {
+            let mut v = now[i];
+            // ROUGH says how dull a mirror is: of metal or glass only.
+            let mirrors = m.metal != 0 || m.rgba[3] < 255;
+            ui.horizontal(|ui| {
+                ui.add_sized(egui::vec2(56.0, 0.0), egui::Label::new(*word));
+                let slider = ui.add_enabled(i != 2 || mirrors, egui::Slider::new(&mut v, 0.0..=1.0).step_by(0.05).fixed_decimals(2));
+                if slider.changed() {
+                    shown.clicked.push(Action::Material(i as u8, v));
+                }
+            });
+        }
+    })
+    .response
+    .on_hover_text("What the held colour is made of: glass, metal, how rough, how much it glows.");
 }
 
 /// The chosen part's parent and joint: what they are, whether set by hand,
@@ -450,7 +479,7 @@ fn thumb(ui: &mut egui::Ui, pic: (egui::TextureId, egui::Vec2), chosen: bool, ti
 }
 
 /// A colour on the bar, its digit on it (a key) if it has one.
-fn swatch(ui: &mut egui::Ui, c: [u8; 3], size: f32, chosen: bool, digit: Option<char>) -> bool {
+fn swatch(ui: &mut egui::Ui, c: [u8; 3], size: f32, chosen: bool, digit: Option<char>) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click());
     ui.painter().rect_filled(rect, 3.0, Color32::from_rgb(c[0], c[1], c[2]));
     if chosen || response.hovered() {
@@ -460,7 +489,7 @@ fn swatch(ui: &mut egui::Ui, c: [u8; 3], size: f32, chosen: bool, digit: Option<
         let light = c[0] as u32 * 3 + c[1] as u32 * 6 + c[2] as u32 > 1300;
         ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, d, TextStyle::Small.resolve(ui.style()), if light { Color32::from_rgb(30, 28, 36) } else { TEXT });
     }
-    response.on_hover_text(format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2])).clicked()
+    response
 }
 
 /// The bar along the bottom: the level's blocks (NEW to draw one out of the
@@ -517,13 +546,22 @@ fn colours(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
         if let Some(d) = digit {
             shown.keys.push((d, Action::Colour(c)));
         }
-        if swatch(ui, c, 40.0, c == ed.colour, digit) {
+        let hex = format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
+        if swatch(ui, c, 40.0, c == ed.colour, digit).on_hover_text(hex).clicked() {
             shown.clicked.push(Action::Colour(c));
         }
     }
     ui.add_space(12.0);
     for &c in all.iter().filter(|c| !own.contains(c)) {
-        if swatch(ui, c, 24.0, c == ed.colour, None) {
+        let hex = format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
+        // A model's colour no voxel has any more: it keeps its place (and
+        // its sign in the file) until taken out.
+        let unused = ed.model.as_ref().is_some_and(|m| !m.uses(c));
+        let response = swatch(ui, c, 24.0, c == ed.colour, None);
+        let response = if unused { response.on_hover_text(format!("{hex}: no voxel has it. A right click takes it out of the model.")) } else { response.on_hover_text(hex) };
+        if response.secondary_clicked() && unused {
+            shown.clicked.push(Action::Forget(c));
+        } else if response.clicked() {
             shown.clicked.push(Action::Colour(c));
         }
     }

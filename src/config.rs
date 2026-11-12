@@ -16,6 +16,12 @@ use crate::audio::GameSound;
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default)]
 pub struct GameConfig {
+    /// The Voxcade the game's files are for (`c.voxcade = "0.6.0"`): a game
+    /// for an older one is brought up to date by `voxcade upgrade`, one for
+    /// a newer one does not open (`crate::upgrade`, which reads the line
+    /// from `conf.lua` itself). In neither the fingerprint nor the hash.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voxcade: Option<String>,
     pub title: String,
     pub world: WorldConfig,
     pub physics: PhysicsConfig,
@@ -28,8 +34,8 @@ pub struct GameConfig {
     pub transition: TransitionConfig,
     pub audio: AudioConfig,
     pub ui: UiConfig,
-    /// The game's own sounds by name: its files in `sounds/` (`NAME.toml`,
-    /// `NAME.wav`; `audio::sound`), read with the config, never written in
+    /// The game's own sounds by name: its files in `sounds/` (`NAME.toml`;
+    /// `audio::sound`), read with the config, never written in
     /// it (`c.sounds` is refused). One of a kit's names replaces the kit's.
     #[serde(skip)]
     pub sounds: BTreeMap<String, GameSound>,
@@ -52,7 +58,7 @@ pub struct GameConfig {
     /// or without: the title shows the best, and runs go into the high
     /// score table.
     pub scored: bool,
-    /// What can be carried (`c.items.key = { model = "key.vox", stack = 1 }`):
+    /// What can be carried (`c.items.key = { model = "key.vvx", stack = 1 }`):
     /// an inventory (`player.state.inventory`) counts these by name.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub items: BTreeMap<String, ItemConfig>,
@@ -96,6 +102,7 @@ pub struct GameConfig {
 impl Default for GameConfig {
     fn default() -> Self {
         Self {
+            voxcade: None,
             title: "Untitled".into(),
             world: WorldConfig::default(),
             physics: PhysicsConfig::default(),
@@ -264,7 +271,7 @@ impl IconConfig {
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct ItemConfig {
-    /// Its model (.vox), for the script to draw (`frame:model`).
+    /// Its model (.vvx), for the script to draw (`frame:model`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     /// How many one inventory holds at most.
@@ -388,7 +395,7 @@ impl Default for PhysicsConfig {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default)]
 pub struct PlayerConfig {
-    /// Player model (.vox), relative to the game folder. Forward is +y.
+    /// Player model (.vvx), relative to the game folder. Forward is +y.
     pub model: String,
     /// Start position on the ground (x, y). Negative means world centre.
     pub spawn: [f32; 2],
@@ -415,7 +422,7 @@ pub struct PlayerConfig {
 impl Default for PlayerConfig {
     fn default() -> Self {
         Self {
-            model: "player.vox".into(),
+            model: "player.vvx".into(),
             spawn: [-1.0, -1.0],
             speed: 46.0,
             accel: 900.0,
@@ -448,7 +455,7 @@ pub struct TitleScreenConfig {
     pub drip: Option<usize>,
     /// Cracks per letter in each logo line, on average.
     pub logo_cracks: Vec<f32>,
-    /// A model of the game's (`.vox`) as the logo, in place of its lines
+    /// A model of the game's (`.vvx`) as the logo, in place of its lines
     /// of letters: a UI voxel each of its voxels, its front (+y) to the
     /// player and its z up, centred under the top of the screen. A figure
     /// of parts (its objects named, a letter each) drops in part by part
@@ -648,7 +655,7 @@ pub struct LightConfig {
     /// their own light, so hard edges stay hard).
     pub model_shading: ModelShading,
     /// Models shaded otherwise, by file (relative to the game folder), e.g.
-    /// `{ "huey.vox" = "faces" }` for a machine among smooth figures.
+    /// `{ ["huey.vvx"] = "faces" }` for a machine among smooth figures.
     pub model_shading_for: BTreeMap<String, ModelShading>,
     /// With "edges": how far, in voxels, a voxel's surroundings may stray
     /// from one smooth surface before it counts as an edge.

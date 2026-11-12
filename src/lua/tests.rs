@@ -430,7 +430,7 @@ fn saving_a_block_rebuilds_the_level() {
     assert!(matches!(g.reload(&blocks::path(&dir, "new")).unwrap(), Reloaded::World), "a new block");
     std::fs::write(dir.join("blocks/notes.txt"), "notes").unwrap();
     assert!(matches!(g.reload(&dir.join("blocks/notes.txt")).unwrap(), Reloaded::Nothing));
-    assert!(matches!(g.reload(&dir.join("blocks/.rock.vox.tmp")).unwrap(), Reloaded::Nothing));
+    assert!(matches!(g.reload(&dir.join("blocks/.rock.vvx.tmp")).unwrap(), Reloaded::Nothing));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -483,7 +483,7 @@ fn kit_folder(name: &str, conf: &str, main: &str) -> PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let arena = Path::new(env!("CARGO_MANIFEST_DIR")).join("games/arena");
-    for file in ["world.vox", "player.vox"] {
+    for file in ["world.vox", "player.vvx"] {
         std::fs::copy(arena.join(file), dir.join(file)).unwrap();
     }
     // The arena's, with the kit's weapons it has not (kit.toml), and the test's.
@@ -508,7 +508,7 @@ fn kit_folder(name: &str, conf: &str, main: &str) -> PathBuf {
 /// (those without a behaviour) after its `on_tick`.
 #[test]
 fn a_lua_game_plays_with_the_shooter_kit() {
-    let conf = "  c.things.crate = { model = \"player.vox\", hp = 3 }\n  c.things.medkit = { behaviour = \"pickup\", reach = 5 }";
+    let conf = "  c.things.crate = { model = \"player.vvx\", hp = 3 }\n  c.things.medkit = { behaviour = \"pickup\", reach = 5 }";
     let main = r#"
 function on_level_start(how)
   level.state.crate = level:spawn("crate", 230, 150)
@@ -754,7 +754,7 @@ fn a_sound_file_comes_in_while_playing() {
     assert_ne!(g.sounds.get("shot").unwrap().len(), games_shot, "the kit's shot");
     assert_eq!(g.trouble(), None);
     // A file gone elsewhere changes nothing.
-    assert_eq!(g.reload(&dir.join("gone.vox")).unwrap(), crate::session::Reloaded::Nothing);
+    assert_eq!(g.reload(&dir.join("gone.vvx")).unwrap(), crate::session::Reloaded::Nothing);
 
     // Sealed: the sounds are its files', whatever the folder holds since.
     let store = crate::files::Store::at(&std::env::temp_dir().join(format!("voxcade-sound-store-{}", std::process::id())));
@@ -819,7 +819,7 @@ function on_tick()
   end
 end
 "#;
-    let mut g = game_in(&kit_folder("off", "  c.things.rifleman = { behaviour = \"soldier\", model = \"player.vox\", weapon = \"enemy_rifle\" }", main));
+    let mut g = game_in(&kit_folder("off", "  c.things.rifleman = { behaviour = \"soldier\", model = \"player.vvx\", weapon = \"enemy_rifle\" }", main));
     steps(&mut g, 65);
     assert_eq!(halted(&g), "");
     let yes = format!("{:?}", super::Value::Bool(true));
@@ -885,7 +885,7 @@ fn the_kits_keep_no_game_in_them() {
 /// has one so called.
 #[test]
 fn a_hostage_runs_to_a_place_some_level_has() {
-    let conf = "  c.things.hostage = { behaviour = \"captive\", model = \"player.vox\", flee = \"exit\" }";
+    let conf = "  c.things.hostage = { behaviour = \"captive\", model = \"player.vvx\", flee = \"exit\" }";
     let e = Session::<LuaGame>::load(&kit_folder("flee", conf, "")).map(|_| ()).unwrap_err();
     assert!(format!("{e:#}").contains("c.things.hostage.flee = \"exit\": no level has a place called exit"), "{e:#}");
 }
@@ -895,7 +895,7 @@ fn a_hostage_runs_to_a_place_some_level_has() {
 /// player (its kind's `flee`, "away" unless it says otherwise).
 #[test]
 fn the_code_frees_a_hostage() {
-    let conf = "  c.things.hostage = { behaviour = \"captive\", model = \"player.vox\", reach = 8 }";
+    let conf = "  c.things.hostage = { behaviour = \"captive\", model = \"player.vvx\", reach = 8 }";
     let main = r#"
 function on_level_start(how)
   level.state.h = level:spawn("hostage", player.x, player.y + 5)
@@ -958,7 +958,7 @@ function on_tick()
   end
 end
 "#;
-    let conf = "  c.things.crate = { model = \"player.vox\" }";
+    let conf = "  c.things.crate = { model = \"player.vvx\" }";
     let mut g = game_in(&kit_folder("camera", conf, main));
     steps(&mut g, 3);
     assert_eq!(halted(&g), "");
@@ -1045,7 +1045,7 @@ end
 /// game has not is a mistake with the names it has.
 #[test]
 fn the_code_attacks() {
-    let conf = "  c.things.turret = { model = \"player.vox\" }\n  c.things.man = { behaviour = \"soldier\", model = \"player.vox\", weapon = \"enemy_rifle\", hp = 3, sight = 0, hearing = 0 }";
+    let conf = "  c.things.turret = { model = \"player.vvx\" }\n  c.things.man = { behaviour = \"soldier\", model = \"player.vvx\", weapon = \"enemy_rifle\", hp = 3, sight = 0, hearing = 0 }";
     let main = r#"
 function on_level_start(how)
   level.state.turret = level:spawn("turret", player.x, player.y + 40)
@@ -1315,7 +1315,7 @@ fn a_logo_model_drops_in_part_by_part() {
         }
         g.menu_frame(&menu, &settings, 0.0, 16.0 / 9.0, Scene::Title { time: 1.0 }).ui_models.len()
     };
-    let model = crate::vox::load_model(&dir.join("logo.vox")).unwrap();
+    let model = crate::vox::load_model(&dir.join("logo.vvx")).unwrap();
     assert_eq!(model.parts.len(), 9, "BUNNY FARM, a part a letter");
     assert_eq!(drawn(600), 9, "every letter drawn from the bank");
     let early = drawn(4);
@@ -3220,15 +3220,15 @@ function on_tick()
   if world.tick == 2 then level.state.b.state.hp = 0 end
 end
 "#;
-    let conf = "  c.things.box.effect = \"poof.vox\"\n  c.things.box.sound = \"poof\"\n";
+    let conf = "  c.things.box.effect = \"poof.vvx\"\n  c.things.box.sound = \"poof\"\n";
     let dir = events_folder("goes", main, conf);
     std::fs::create_dir_all(dir.join("sounds")).unwrap();
     std::fs::write(dir.join("sounds/poof.toml"), "wave = \"noise\"\nfreq = 700\ndecay = 0.1\n").unwrap();
-    std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("games/arena/player.vox"), dir.join("poof.vox")).unwrap();
+    std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("games/arena/player.vvx"), dir.join("poof.vvx")).unwrap();
     let mut g = game_in(&dir);
     steps(&mut g, 3);
     assert_eq!(halted(&g), "");
-    assert_eq!(g.game.stage.effects.iter().map(|e| e.model.as_str()).collect::<Vec<_>>(), ["poof.vox"], "its effect shows");
+    assert_eq!(g.game.stage.effects.iter().map(|e| e.model.as_str()).collect::<Vec<_>>(), ["poof.vvx"], "its effect shows");
     assert!(g.game.stage.host.sim().sounds.iter().any(|s| s.name == "poof"), "its sound plays");
 }
 
@@ -3247,10 +3247,10 @@ function on_tick()
   if world.tick == 2 then level.state.b.state.hp = 0 end
 end
 "#;
-    let conf = "  c.things.box.model = \"box.vox\"\n  c.things.box.effect = \"burst\"\n";
+    let conf = "  c.things.box.model = \"box.vvx\"\n  c.things.box.effect = \"burst\"\n";
     let dir = events_folder("bursts", main, conf);
-    let model = Path::new(env!("CARGO_MANIFEST_DIR")).join("games/arena/player.vox");
-    std::fs::copy(&model, dir.join("box.vox")).unwrap();
+    let model = Path::new(env!("CARGO_MANIFEST_DIR")).join("games/arena/player.vvx");
+    std::fs::copy(&model, dir.join("box.vvx")).unwrap();
     let mut g = game_in(&dir);
     let pieces = |g: &Session<LuaGame>| g.game.stage.host.sim().particles.clone();
     steps(&mut g, 3);
@@ -3347,7 +3347,7 @@ fn a_figure_of_parts_is_posed_by_its_parts_names() {
     let conf = |swing: &str| format!("
 function conf(c)
   c.world.size = {{ 64, 64, 16 }}
-  c.things.robot = {{ model = \"robot.vox\"{swing} }}
+  c.things.robot = {{ model = \"robot.vvx\"{swing} }}
 end
 ");
     let main = r##"
@@ -3357,11 +3357,11 @@ function on_level_start()
 end
 
 function on_draw(frame)
-  frame:model("robot.vox", level.state.r, nil, nil, { arm = { pitch = 90 } })
+  frame:model("robot.vvx", level.state.r, nil, nil, { arm = { pitch = 90 } })
 end
 "##;
     let dir = folder("parts", main);
-    crate::vox::write_figure(&dir.join("robot.vox"), &[("body", glam::IVec3::new(4, 4, 8), glam::IVec3::ZERO), ("arm", glam::IVec3::new(1, 2, 5), glam::IVec3::new(4, 1, 3))]);
+    crate::vox::write_figure(&dir.join("robot.vvx"), &[("body", glam::IVec3::new(4, 4, 8), glam::IVec3::ZERO), ("arm", glam::IVec3::new(1, 2, 5), glam::IVec3::new(4, 1, 3))]);
     std::fs::write(dir.join("conf.lua"), conf(", swing = { arm = 30 }")).unwrap();
     let mut g = game_in(&dir);
     steps(&mut g, 10);
@@ -3372,7 +3372,7 @@ end
     std::fs::write(dir.join("main.lua"), main.replace("{ arm =", "{ leg =")).unwrap();
     let g = game_in(&dir);
     let _ = g.frame(1.0, 16.0 / 9.0);
-    assert!(halted(&g).contains("robot.vox has no part 'leg' (its parts: body, arm)"), "{}", halted(&g));
+    assert!(halted(&g).contains("robot.vvx has no part 'leg' (its parts: body, arm)"), "{}", halted(&g));
     std::fs::write(dir.join("conf.lua"), conf(", swing = { leg = 30 }")).unwrap();
     let err = Session::<LuaGame>::load(&dir).err().map(|e| format!("{e:#}")).unwrap_or_default();
     assert!(err.contains("c.things.robot.swing.leg: no such part (its parts: body, arm)"), "{err}");
@@ -3385,8 +3385,8 @@ fn a_model_without_a_frame_plays_its_kinds_frames() {
     let conf = r#"
 function conf(c)
   c.world.size = { 64, 64, 16 }
-  c.things.miner = { model = "player.vox", frames = { idle = { 2, 2 }, walk = { 2, 2 }, jump = { 2, 2 } } }
-  c.things.digger = { model = "player.vox" }
+  c.things.miner = { model = "player.vvx", frames = { idle = { 2, 2 }, walk = { 2, 2 }, jump = { 2, 2 } } }
+  c.things.digger = { model = "player.vvx" }
 end
 "#;
     let main = r##"
@@ -3398,15 +3398,15 @@ function on_level_start()
 end
 
 function on_draw(frame)
-  frame:model("player.vox", level.state.a)
-  frame:model("player.vox", level.state.b, 2)
-  frame:model("player.vox", level.state.c)
-  frame:model("player.vox", level.state.c, 0)
+  frame:model("player.vvx", level.state.a)
+  frame:model("player.vvx", level.state.b, 2)
+  frame:model("player.vvx", level.state.c)
+  frame:model("player.vvx", level.state.c, 0)
 end
 "##;
     let dir = folder("kind_frames", main);
     std::fs::write(dir.join("conf.lua"), conf).unwrap();
-    std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("games/arena/player.vox"), dir.join("player.vox")).unwrap();
+    std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("games/arena/player.vvx"), dir.join("player.vvx")).unwrap();
     let mut g = game_in(&dir);
     steps(&mut g, 30);
     assert_eq!(halted(&g), "");
@@ -3426,8 +3426,8 @@ fn a_game_turns_its_models_freely() {
     let conf = r#"
 function conf(c)
   c.world.size = { 64, 64, 16 }
-  c.things.miner = { model = "player.vox" }
-  c.things.rover = { model = "player.vox", turns = "free" }
+  c.things.miner = { model = "player.vvx" }
+  c.things.rover = { model = "player.vvx", turns = "free" }
 end
 "#;
     let main = r#"
@@ -3439,15 +3439,15 @@ function on_level_start()
 end
 
 function on_draw(frame)
-  frame:model("player.vox", level.state.a, 0)
-  frame:model("player.vox", level.state.b, 0, { roll = 30, pitch = 5 })
-  frame:model("player.vox", level.state.c, 0)
-  frame:model("player.vox", level.state.d, 0)
+  frame:model("player.vvx", level.state.a, 0)
+  frame:model("player.vvx", level.state.b, 0, { roll = 30, pitch = 5 })
+  frame:model("player.vvx", level.state.c, 0)
+  frame:model("player.vvx", level.state.d, 0)
 end
 "#;
     let dir = folder("turning", main);
     std::fs::write(dir.join("conf.lua"), conf).unwrap();
-    std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("games/arena/player.vox"), dir.join("player.vox")).unwrap();
+    std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("games/arena/player.vvx"), dir.join("player.vvx")).unwrap();
     let g = game_in(&dir);
     assert_eq!(halted(&g), "");
     let frame = g.frame(1.0, 16.0 / 9.0);
@@ -4120,7 +4120,7 @@ fn an_unknown_model_halts_the_game() {
     let conf = |models: &str| format!("
 function conf(c)
   c.world.size = {{ 64, 64, 16 }}
-  c.things.robot = {{ model = \"robot.vox\" }}
+  c.things.robot = {{ model = \"robot.vvx\" }}
   {models}
 end
 ");
@@ -4131,20 +4131,20 @@ function on_level_start()
 end
 
 function on_draw(frame)
-  frame:model("ghost.vox", level.state.r)
+  frame:model("ghost.vvx", level.state.r)
 end
 "##;
     let dir = folder("unknown-model", main);
-    crate::vox::write_figure(&dir.join("robot.vox"), &[("body", glam::IVec3::new(4, 4, 8), glam::IVec3::ZERO)]);
-    crate::vox::write_figure(&dir.join("ghost.vox"), &[("body", glam::IVec3::new(4, 4, 8), glam::IVec3::ZERO)]);
+    crate::vox::write_figure(&dir.join("robot.vvx"), &[("body", glam::IVec3::new(4, 4, 8), glam::IVec3::ZERO)]);
+    crate::vox::write_figure(&dir.join("ghost.vvx"), &[("body", glam::IVec3::new(4, 4, 8), glam::IVec3::ZERO)]);
     std::fs::write(dir.join("conf.lua"), conf("")).unwrap();
     let mut g = game_in(&dir);
     steps(&mut g, 2);
     let _ = g.frame(1.0, 16.0 / 9.0);
     let why = halted(&g);
-    assert!(why.contains("no model called 'ghost.vox'") && why.contains("c.models"), "{why}");
+    assert!(why.contains("no model called 'ghost.vvx'") && why.contains("c.models"), "{why}");
     // Listed in `c.models` it is the game's, and draws.
-    std::fs::write(dir.join("conf.lua"), conf("c.models = { \"ghost.vox\" }")).unwrap();
+    std::fs::write(dir.join("conf.lua"), conf("c.models = { \"ghost.vvx\" }")).unwrap();
     let mut g = game_in(&dir);
     steps(&mut g, 2);
     let frame = g.frame(1.0, 16.0 / 9.0);

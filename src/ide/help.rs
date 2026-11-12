@@ -526,7 +526,7 @@ end
     },
     Topic {
         title: "PLAY A SOUND",
-        text: "A sound is a file of your game in the folder sounds (the plus beside SOUNDS makes one, PLAY SOUND plays it; over its text COIN, JUMP and the other sorts roll a fresh one each time they are pressed, UNDO goes back, and the faders change it), a few numbers a line: a wave (square, saw, triangle, sine or noise), a pitch in Hz, how long it holds and fades in seconds, how loud from 0 to 1. Only what differs from the defaults is written; sweep slides the pitch and jump lifts it once, both in semitones (12 an octave). The file's name is the sound's: play it by that name at a place, a thing or a point. A .wav file in sounds plays as it is.",
+        text: "A sound is a file of your game in the folder sounds (the plus beside SOUNDS makes one, PLAY SOUND plays it; over its text COIN, JUMP and the other sorts roll a fresh one each time they are pressed, UNDO goes back, and the faders change it), a few numbers a line: a wave (square, saw, triangle, sine or noise), a pitch in Hz, how long it holds and fades in seconds, how loud from 0 to 1. Only what differs from the defaults is written; sweep slides the pitch and jump lifts it once, both in semitones (12 an octave). The file's name is the sound's: play it by that name at a place, a thing or a point. Recordings (.wav) are not played: everything in a game is code or text.",
         conf: "",
         files: &[("sounds/beep.toml", "# a short high beep\nwave = \"square\"\nfreq = 880\nhold = 0.05\ndecay = 0.2\nvolume = 0.3\n")],
         code: r##"function on_tick()
@@ -826,9 +826,9 @@ end
     },
     Topic {
         title: "TURN A MODEL",
-        text: "Models stand on the grid in quarter turns unless your game turns them. A kind with turns = \"free\" faces exactly the way it goes, a diagonal too. frame:model turns a model further, in degrees about its middle: turn (round, clockwise seen from above), pitch (its nose up) and roll (its right side down, as a ship banks to the right). ship.vox stands for a model of yours.",
+        text: "Models stand on the grid in quarter turns unless your game turns them. A kind with turns = \"free\" faces exactly the way it goes, a diagonal too. frame:model turns a model further, in degrees about its middle: turn (round, clockwise seen from above), pitch (its nose up) and roll (its right side down, as a ship banks to the right). ship.vvx stands for a model of yours.",
         conf: r##"c.player.kind = "ship"
-c.things.ship = { model = "ship.vox", turns = "free" }"##,
+c.things.ship = { model = "ship.vvx", turns = "free" }"##,
         files: &[],
         code: r##"function on_level_start(how)
   level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 0, "#2a3040")
@@ -844,7 +844,7 @@ function on_draw(frame)
   -- banked by its lean; every 3 seconds a roll right round
   local t = world.tick % 180
   local roll = (player.state.lean or 0) + (t < 30 and t * 12 or 0)
-  frame:model("ship.vox", player, 0, { roll = roll })
+  frame:model("ship.vvx", player, 0, { roll = roll })
 end
 "##,
     },
@@ -975,7 +975,7 @@ mod tests {
             let conf = format!("{}  {}\n{}", &base[..at], topic.conf.replace('\n', "\n  "), &base[at..]);
             std::fs::write(dir.join("conf.lua"), conf).unwrap();
             // The template's figures, as a game begun from it has them.
-            for model in ["hero.vox", "hero2.vox"] {
+            for model in ["hero.vvx", "hero2.vvx"] {
                 std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("templates/empty").join(model), dir.join(model)).unwrap();
             }
             std::fs::write(dir.join("main.lua"), topic.code).unwrap();
@@ -984,8 +984,8 @@ mod tests {
                 std::fs::write(dir.join(name), text).unwrap();
             }
             // A model the example names stands for one of the reader's.
-            for model in topic.conf.split('"').filter(|w| w.ends_with(".vox")) {
-                std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("games/arena/player.vox"), dir.join(model)).unwrap();
+            for model in topic.conf.split('"').filter(|w| w.ends_with(".vvx")) {
+                std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("games/arena/player.vvx"), dir.join(model)).unwrap();
             }
             let mut game = crate::session::Session::<crate::Voxcade>::load(&dir).unwrap_or_else(|e| panic!("{}: {e:#}", topic.title));
             for tick in 0..240 {

@@ -4,6 +4,7 @@
 -- (main.lua); the models come from tools/gen_sokovox.py.
 
 function conf(c)
+  c.voxcade = "0.6.0"   -- the Voxcade its files are for (voxcade upgrade brings an older game up to date)
   c.title = "Sokovox"
   c.languages = { "en", "de", "fr" }   -- the menus speak them
   c.world.size = { 288, 180, 24 }   -- a world made in code: 32 by 20 squares of 9 voxels
@@ -50,8 +51,8 @@ function conf(c)
     { "SOK", 5000 }, { "VOX", 4000 }, { "UND", 3000 }, { "KEP", 2000 }, { "TRY", 1000 },
   }
 
-  c.things.keeper = { model = "keeper.vox" }
-  c.things.crate = { model = "crate.vox" }
+  c.things.keeper = { model = "keeper.vvx" }
+  c.things.crate = { model = "crate.vvx" }
 
   -- Calm songs from the library (music/, made by tools/compose.py); keys
   -- 1 and 2 switch, the title plays the first.

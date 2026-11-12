@@ -8,7 +8,7 @@ description: >
   animation frames or figures of
   parts that the engine turns (swing, pose), the outline round models,
   and how to judge a model (voxcade sheet, shots in the game). Use this
-  whenever a .vox model, a figure, a sprite, a character, an enemy, an
+  whenever a .vvx or .vox model, a figure, a sprite, a character, an enemy, an
   animation, a walk cycle, voxel art or tools/gen_*.py figures come up,
   when the user says a model looks blocky, klotzig, coarse, ugly, flat or
   unreadable, ragged, or not cleanly voxelled, or asks for more detail, a
@@ -36,6 +36,61 @@ The templates are the measure: `templates/platformer` (the hero 16
 voxels tall in blocks of 10, the same figures as Voxkeep's, built from
 boxes by `tools/gen_voxkeep.py`) and `templates/shooter`. Look at them
 before making anything.
+
+## The file: `.vvx`
+
+A model is text, Voxcade's own (`src/vvx.rs`, its rules at the top):
+
+```toml
+format = "voxcade voxel 1"     # the first line, always
+size = [7, 5, 12]              # the box: x across, y deep, z up
+
+[palette]                      # a sign (a-z, A-Z, 0-9) a colour with its material
+a = "#3a2a20"
+g = { color = "#88ccff", glass = 0.25, rough = 0.3 }
+m = { color = "#b0b4b8", metal = 1.0, rough = 0.3 }
+e = { color = "#ffd040", glow = 1.0 }
+
+[[frame]]                      # frames in order (or [[part]]s, below)
+at = [-2, -1, 0]               # its box's low corner from the pivot (else the model's corner)
+layers = """
+.aaa.
+aaaaa *3
+.aaa.
+
+..e..
+*4
+"""
+```
+
+- **Layers**: the bottom layer first, an empty line between; in a layer
+  the far row (highest y) first, so it reads as the model seen from
+  above; x left to right; `.` empty. A row ending ` *3` stands three
+  times, a line `*4` after a layer's rows makes that layer four (counts
+  in all; the writer folds from three alike up).
+- **From the pivot**: `at` and a part's `joint` are measured from the
+  pivot, the cell the game stands the model on (`size / 2` across and
+  deep, on the floor, `docs/game-model.md`), its low corner. So the box
+  runs from `-(size / 2)` across and deep, from 0 up; a voxel outside
+  `size` is a mistake (make `size` bigger). A part that grows changes
+  `size` and its own `at`, never another part's `at` or joint, and the
+  model keeps standing where it stood.
+- **Parts**: `[[part]]` with `name`, `at`, `layers`, and only where set
+  by hand `parent = "body"` and `joint = [x, y, z]` (halves: a voxel's
+  middle, `2.5` the middle of the voxel from 2 to 3).
+- **Signs stay**: written again (the editor, a tool), a model keeps the
+  signs its file had and adds new ones; with more than 62 entries every
+  sign is two characters. One cell, one voxel per frame or part.
+- **Bringing one in**: `voxcade import <game> FILE.vox [--as NAME.vvx]`
+  writes a MagicaVoxel model as `.vvx` beside the game's (parts hanging
+  as they did: a joint the text's voxel order would move is written by
+  hand), leaving the source alone. A whole game made for an older
+  Voxcade: `voxcade upgrade <game>` (`--dry` first). Worlds and map
+  prefabs are still `.vox` scenes.
+- **Tools**: `tools/vvx.py` writes and reads it from Python
+  (`write_frames`, `write_parts`, `read`, `write_model`); the generators
+  write `.vvx` for a path ending so (`gen_sokovox.write_vox`,
+  `figures.save`).
 
 ## Size and proportions
 
@@ -68,20 +123,23 @@ leaves unset), so a bigger figure is no extra work there.
   The engine's light then draws the line.
 - **Contrast between materials**: a red tunic, a teal hood, brown boots,
   dark trousers read apart at game size.
-- **Metal**: `metal(colour)` (MagicaVoxel's metal material; the sky's
+- **Metal**: `metal = 1.0, rough = 0.3` on a palette entry (`metal(colour)`
+  in `tools/figures.py`; MagicaVoxel's metal material comes in so; the sky's
   reflection and a highlight move over it: a buckle, a blade, a polished
-  gem). **Glass**: MagicaVoxel's glass material (`_trans` how see-through,
-  `_rough` how rough), a cockpit, Voxkeep's gem. Glass with a roughness
+  gem). **Glass**: `glass = 0.25, rough = 0.3` on an entry (how see-through, how
+  rough; MagicaVoxel's glass, `_trans` and `_rough`, comes in so), a cockpit, Voxkeep's gem. Glass with a roughness
   mirrors the sky a little (much at a glancing look) and the sun and the
   lights glint off it, by the slant of the surface where a voxel lies,
   not its faces: a stone cut in voxel steps sparkles facet by facet as it
-  turns (the gem: `_trans` 0.25, `_rough` 0.3, `spin = 120`; 0.7 see-through
-  turned it to mist). Glass without `_rough` mirrors nothing.
-- **Glow**: MagicaVoxel's emission material (`_type` `_emit`, `_emit`
-  0 to 1 its strength, 1 without one) on a colour makes every voxel of it
+  turns (the gem: `glass = 0.25, rough = 0.3`, `spin = 120`; 0.7 see-through
+  turned it to mist). Glass without `rough` mirrors nothing.
+- **Glow**: `glow = 1.0` on an entry (0 to 1 its strength; MagicaVoxel's
+  emission material, `_emit`, comes in so) makes every voxel of it
   glow in its own colour whatever the light, as `frame:cube`'s glow does
   (a lamp, eyes, a magic gem). The material belongs to the colour, so only
-  voxels of that colour glow; the voxel editor keeps it when it saves.
+  voxels of that colour glow; the voxel editor keeps it when it saves,
+  and sets it on the held colour (the quiet word beside the colour:
+  GLASS, METAL, ROUGH, GLOW).
   `_flux` and `_ldr` are not read. No model of ours glows yet.
 - The game's light decides how a colour looks (front faces are often
   darker than tops): judge colours in it (`voxcade sheet`), not in the
@@ -179,17 +237,18 @@ Two ways, chosen per figure:
   11, loop = false } }`: each set its own speed, by the way walked, or
   once. An idle that bobs every tenth of a second annoys (the user):
   keep idle frames still, or slow.
-- **Parts** the engine turns: a `.vox` whose objects have names (head,
-  body, arm_left ...) is a figure of parts. The biggest part is the root;
+- **Parts** the engine turns: a `.vvx` of `[[part]]`s (head, body,
+  arm_left ...; a MagicaVoxel file's named objects come in so) is a
+  figure of parts. The biggest part is the root;
   each other hangs on the part it touches most and turns about the
   middle of where they meet, so build the parts touching at their
   joints (a shoulder against the body's side, a head on the neck). Where
   that is not what you want (a jaw hinged at its back, an arm apart from
-  the body), set it by hand: the editor's FIGURE (`voxcade edit <game>
-  --model FILE`, a part chosen: PARENT, JOINT) writes `_parent` (a part's
-  name) and `_joint` ("x y z", halves allowed, in the scene's voxels as
-  the parts' `_t` are: a voxel's middle is its corner + 0.5) on the
-  part's node; `vox::Part` has the rule. Parts may overlap on purpose
+  the body), set it by hand: `parent` (a part's name) and `joint`
+  (`[x, y, z]` from the pivot, halves allowed: a voxel's middle is its
+  corner + 0.5) in the part's table; `vox::Part` has the rule. (The
+  editor's FIGURE, `voxcade edit <game> --model FILE`, sets them there
+  too, PARENT and JOINT by hand.) Parts may overlap on purpose
   (legs inside the body that come out in a walk): each keeps its voxels. A
   kind's `swing = { leg_left = 30, leg_right = -30, arm_left = -25,
   arm_right = 25 }` makes a walk without a single walk frame;
@@ -209,7 +268,7 @@ want it (2026-10-23): the figures stand without a line there.
 
 ## Judging a model
 
-1. `./target/release/voxcade sheet <game> <model.vox>` writes one picture
+1. `./target/release/voxcade sheet <game> <model.vvx>` writes one picture
    in the game's light, camera angle and shading: five sides close up,
    every frame from the side (a figure of parts its walk in eight steps),
    and the five sides at the size the game shows them. Read it every

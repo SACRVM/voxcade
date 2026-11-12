@@ -2,7 +2,7 @@
 name: voxcade-blocks
 description: >
   Work with Voxcade's levels of voxel blocks (docs/tiles.md): block files
-  (blocks/NAME.vox, N by N by N), level.json (the grid of cells, the
+  (blocks/NAME.vvx, N by N by N), level.json (the grid of cells, the
   blocks' kinds, the things), bringing a Tiled map in once (voxcade
   import), the editor (voxcade edit: blocks and things, tools, keys, what
   it cannot do yet),
@@ -42,8 +42,11 @@ were tried and rejected as fake 3D. So:
 
 ## Files
 
-- `blocks/NAME.vox`: one plain MagicaVoxel file, exactly N voxels each
-  way (another size is an error naming the file). Imported blocks are
+- `blocks/NAME.vvx`: one model of Voxcade's own (text, `src/vvx.rs`; the
+  models skill has the format), one frame exactly N voxels each way
+  (another size is an error naming the file); colours only, a material
+  counts for models, not blocks. A MagicaVoxel block is brought in with
+  `voxcade import GAME FILE.vox --as blocks/NAME.vvx`. Imported blocks are
   named by the tile's id as the Tiled map stores it (Tiled's own window
   shows that id less one); new ones are numbered on after the tileset.
   `blocks/tiles.png` is the tileset as whole tiles, for new blocks.
@@ -147,12 +150,14 @@ bottom; a thing stands on the top the mouse points at, or before the
 wall, in the middle of the row's depth.
 
 The same editor shapes a game's models (`voxcade edit GAME --model
-hero.vox`, or EDIT in the IDE): any size, frame by frame (PREV, NEXT or
-the arrow keys, COPY, DELETE), the block's tools and colours; ADD beyond
-the box grows it, every frame's (on any side but down, where the floor
-is; left or in front the voxels move over by one), TRIM cuts it to the
-voxels, TURN turns all frames. A box grown or trimmed moves the model's
-middle, and so where the game draws it on its body. Glass and metal stay on their colours;
+hero.vvx`, or EDIT in the IDE; a MagicaVoxel `.vox` it does not shape:
+bring it in first): any size, frame by frame (PREV, NEXT or the arrow
+keys, COPY, DELETE), the block's tools and colours; ADD beyond the box
+grows it, every frame's, and TRIM cuts it to the voxels, both about the
+model's pivot, so it stands where it stood (growing to one side may add
+an empty column on the other; under the floor it raises the model); TURN
+turns all frames. A colour's material (GLASS, METAL, ROUGH, GLOW) sits
+under a quiet word beside the colour; the signs of the file stay;
 saved at once, each change a step. Figures face +y in their files; the
 editor (and the IDE's picture) shows a model as the game does as a run
 starts (`view::face_of`, checked against a game shot): the hero looking

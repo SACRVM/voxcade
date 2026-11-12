@@ -7,6 +7,7 @@
 -- and read the "ticks:" line. Lengths and speeds are More Blood's, doubled.
 
 function conf(c)
+  c.voxcade = "0.6.0"   -- the Voxcade its files are for (voxcade upgrade brings an older game up to date)
   c.title = "Bench"
   c.kit = "shooter"
 
@@ -17,7 +18,7 @@ function conf(c)
   c.physics.step = 8
   c.physics.body_width = 12
 
-  c.player.model = "player.vox"
+  c.player.model = "player.vvx"
   c.player.spawn = { 260, 40 }
   c.player.speed = 184
   c.player.accel = 3600
@@ -79,52 +80,52 @@ function conf(c)
   c.light.sky = { 0.09, 0.07, 0.06 }
   c.light.shadow_style = "voxel"
   c.light.model_shading = "edges"
-  c.light.model_shading_for = { ["huey.vox"] = "faces" }
+  c.light.model_shading_for = { ["huey.vvx"] = "faces" }
 
   c.title_screen.at = { 260, 160 }
   c.title_screen.view_width = 480
   c.title_screen.logo = { " " }
   c.title_screen.props = {
-    { model = "player.vox", at = { 80, 120 }, turn = 2 },
-    { model = "enemy.vox", at = { 116, 120 }, turn = 2 },
-    { model = "grenadier.vox", at = { 152, 120 }, turn = 2 },
-    { model = "hostage.vox", at = { 188, 120 }, turn = 2 },
-    { model = "player.vox", at = { 224, 120 }, turn = 2 },
-    { model = "enemy.vox", at = { 260, 120 }, turn = 2 },
-    { model = "grenadier.vox", at = { 296, 120 }, turn = 2 },
-    { model = "hostage.vox", at = { 332, 120 }, turn = 2 },
-    { model = "player.vox", at = { 368, 120 }, turn = 2 },
-    { model = "enemy.vox", at = { 404, 120 }, turn = 2 },
-    { model = "enemy.vox", at = { 80, 152 }, turn = 2 },
-    { model = "grenadier.vox", at = { 116, 152 }, turn = 2 },
-    { model = "hostage.vox", at = { 152, 152 }, turn = 2 },
-    { model = "player.vox", at = { 188, 152 }, turn = 2 },
-    { model = "enemy.vox", at = { 224, 152 }, turn = 2 },
-    { model = "grenadier.vox", at = { 260, 152 }, turn = 2 },
-    { model = "hostage.vox", at = { 296, 152 }, turn = 2 },
-    { model = "player.vox", at = { 332, 152 }, turn = 2 },
-    { model = "enemy.vox", at = { 368, 152 }, turn = 2 },
-    { model = "grenadier.vox", at = { 404, 152 }, turn = 2 },
-    { model = "grenadier.vox", at = { 80, 184 }, turn = 2 },
-    { model = "hostage.vox", at = { 116, 184 }, turn = 2 },
-    { model = "player.vox", at = { 152, 184 }, turn = 2 },
-    { model = "enemy.vox", at = { 188, 184 }, turn = 2 },
-    { model = "grenadier.vox", at = { 224, 184 }, turn = 2 },
-    { model = "hostage.vox", at = { 260, 184 }, turn = 2 },
-    { model = "player.vox", at = { 296, 184 }, turn = 2 },
-    { model = "enemy.vox", at = { 332, 184 }, turn = 2 },
-    { model = "grenadier.vox", at = { 368, 184 }, turn = 2 },
-    { model = "hostage.vox", at = { 404, 184 }, turn = 2 },
-    { model = "hostage.vox", at = { 80, 216 }, turn = 2 },
-    { model = "player.vox", at = { 116, 216 }, turn = 2 },
-    { model = "enemy.vox", at = { 152, 216 }, turn = 2 },
-    { model = "grenadier.vox", at = { 188, 216 }, turn = 2 },
-    { model = "hostage.vox", at = { 224, 216 }, turn = 2 },
-    { model = "player.vox", at = { 260, 216 }, turn = 2 },
-    { model = "enemy.vox", at = { 296, 216 }, turn = 2 },
-    { model = "grenadier.vox", at = { 332, 216 }, turn = 2 },
-    { model = "hostage.vox", at = { 368, 216 }, turn = 2 },
-    { model = "player.vox", at = { 404, 216 }, turn = 2 },
-    { model = "huey.vox", at = { 260, 300 }, turn = 1 },
+    { model = "player.vvx", at = { 80, 120 }, turn = 2 },
+    { model = "enemy.vvx", at = { 116, 120 }, turn = 2 },
+    { model = "grenadier.vvx", at = { 152, 120 }, turn = 2 },
+    { model = "hostage.vvx", at = { 188, 120 }, turn = 2 },
+    { model = "player.vvx", at = { 224, 120 }, turn = 2 },
+    { model = "enemy.vvx", at = { 260, 120 }, turn = 2 },
+    { model = "grenadier.vvx", at = { 296, 120 }, turn = 2 },
+    { model = "hostage.vvx", at = { 332, 120 }, turn = 2 },
+    { model = "player.vvx", at = { 368, 120 }, turn = 2 },
+    { model = "enemy.vvx", at = { 404, 120 }, turn = 2 },
+    { model = "enemy.vvx", at = { 80, 152 }, turn = 2 },
+    { model = "grenadier.vvx", at = { 116, 152 }, turn = 2 },
+    { model = "hostage.vvx", at = { 152, 152 }, turn = 2 },
+    { model = "player.vvx", at = { 188, 152 }, turn = 2 },
+    { model = "enemy.vvx", at = { 224, 152 }, turn = 2 },
+    { model = "grenadier.vvx", at = { 260, 152 }, turn = 2 },
+    { model = "hostage.vvx", at = { 296, 152 }, turn = 2 },
+    { model = "player.vvx", at = { 332, 152 }, turn = 2 },
+    { model = "enemy.vvx", at = { 368, 152 }, turn = 2 },
+    { model = "grenadier.vvx", at = { 404, 152 }, turn = 2 },
+    { model = "grenadier.vvx", at = { 80, 184 }, turn = 2 },
+    { model = "hostage.vvx", at = { 116, 184 }, turn = 2 },
+    { model = "player.vvx", at = { 152, 184 }, turn = 2 },
+    { model = "enemy.vvx", at = { 188, 184 }, turn = 2 },
+    { model = "grenadier.vvx", at = { 224, 184 }, turn = 2 },
+    { model = "hostage.vvx", at = { 260, 184 }, turn = 2 },
+    { model = "player.vvx", at = { 296, 184 }, turn = 2 },
+    { model = "enemy.vvx", at = { 332, 184 }, turn = 2 },
+    { model = "grenadier.vvx", at = { 368, 184 }, turn = 2 },
+    { model = "hostage.vvx", at = { 404, 184 }, turn = 2 },
+    { model = "hostage.vvx", at = { 80, 216 }, turn = 2 },
+    { model = "player.vvx", at = { 116, 216 }, turn = 2 },
+    { model = "enemy.vvx", at = { 152, 216 }, turn = 2 },
+    { model = "grenadier.vvx", at = { 188, 216 }, turn = 2 },
+    { model = "hostage.vvx", at = { 224, 216 }, turn = 2 },
+    { model = "player.vvx", at = { 260, 216 }, turn = 2 },
+    { model = "enemy.vvx", at = { 296, 216 }, turn = 2 },
+    { model = "grenadier.vvx", at = { 332, 216 }, turn = 2 },
+    { model = "hostage.vvx", at = { 368, 216 }, turn = 2 },
+    { model = "player.vvx", at = { 404, 216 }, turn = 2 },
+    { model = "huey.vvx", at = { 260, 300 }, turn = 1 },
   }
 end

@@ -1,5 +1,7 @@
 //! A picture of what an editor opens, in the main area: a model (its
-//! frames playing; PAUSE, PREV and NEXT above it), a block or the level, in the game's own light, turned
+//! frames playing; PAUSE, PREV and NEXT above it; a figure of parts
+//! whole, as the editor's FIGURE shows it), a block or the level, in the
+//! game's own light, turned
 //! with the mouse. It is the editor's own view of it, without the panels
 //! and the floor, drawn into a texture of its own on the IDE's GPU, and
 //! only when it changed (turned, resized, the next frame).
@@ -47,9 +49,10 @@ pub struct Preview {
 }
 
 impl Preview {
-    /// The model (or block) `file` of the game in `dir`.
+    /// The model (or block) `file` of the game in `dir`: a `.vvx`, or a
+    /// MagicaVoxel `.vox` to look at (a world, a prefab).
     pub fn model(dir: &Path, file: &str, cfg: &GameConfig) -> Result<Self> {
-        Self::of(Editor::open_model(dir, file)?, dir, cfg)
+        Self::of(Editor::look_at_model(dir, file)?, dir, cfg)
     }
 
     /// The level of blocks of the game in `dir`, as the game's camera sees
@@ -58,11 +61,7 @@ impl Preview {
         Self::of(Editor::open(dir, file)?, dir, cfg)
     }
 
-    fn of(mut ed: Editor, dir: &Path, cfg: &GameConfig) -> Result<Self> {
-        // A figure of parts as before the editor's FIGURE: its frames.
-        if ed.scope == Scope::Figure {
-            (ed.scope, ed.figure) = (Scope::Frame(0), None);
-        }
+    fn of(ed: Editor, dir: &Path, cfg: &GameConfig) -> Result<Self> {
         let mut view = View::new(&ed, cfg);
         view.floor = false;
         let shown = Shown::new(&ed)?;
@@ -74,7 +73,8 @@ impl Preview {
     /// model's frames play when `animate` (not in a shot), held with
     /// PAUSE, stepped with PREV and NEXT.
     pub fn ui(&mut self, ui: &mut egui::Ui, animate: bool) {
-        let count = self.ed.frames().len();
+        // (A figure's frames are its parts, shown together.)
+        let count = if self.ed.figure.is_some() { 1 } else { self.ed.frames().len() };
         if count > 1 {
             let playing = animate && !self.paused;
             let mut at = match self.ed.scope {
@@ -216,7 +216,7 @@ mod tests {
     fn a_models_frames_are_held_and_stepped() {
         let dir = Path::new("games/voxkeep");
         let cfg = crate::session::config::<crate::Voxcade>(dir).unwrap();
-        let mut preview = Preview::model(dir, "bat.vox", &cfg).unwrap();
+        let mut preview = Preview::model(dir, "bat.vvx", &cfg).unwrap();
         let ctx = egui::Context::default();
         let mut time = 0.0;
         fn frame(ctx: &egui::Context, time: &mut f64, events: Vec<egui::Event>, preview: &mut Preview) {

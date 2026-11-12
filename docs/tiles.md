@@ -58,7 +58,7 @@ hard on the eyes); calm, few tools in view, large and readable.
   deep: Sunny Land's 16 by 16 tiles make 16 by 16 by 16 blocks, a pixel
   a voxel. A level brought in from a map is at the pictures' scale
   (Voxfox's was, a game since removed).
-- One file a block, in a folder (`blocks/NAME.vox`): the editor saves the
+- One file a block, in a folder (`blocks/NAME.vvx`): the editor saves the
   block being worked on, the game reloads that block.
 - A cell may hold its block turned in quarter turns and mirrored (a
   corner used left and right, an edge at the top and the bottom); the
@@ -66,8 +66,9 @@ hard on the eyes); calm, few tools in view, large and readable.
 
 ## Built (2026-10-16)
 
-- **Blocks** (`src/blocks.rs`): `blocks/NAME.vox`, a plain `.vox` file of
-  exactly N by N by N voxels (MagicaVoxel opens it), written at once
+- **Blocks** (`src/blocks.rs`): `blocks/NAME.vvx`, a model of Voxcade's
+  own (text, `src/vvx.rs`; a `.vox` until 0.6.0, `voxcade upgrade` brings
+  them over) of exactly N by N by N voxels, written at once
   through a hidden file beside it so a running game never reads half a
   block. A cell lies its block in any of 48 turns: quarter turns about
   the three axes, mirrored or not (`Turn`); Tiled's flips are among them.

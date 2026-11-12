@@ -50,7 +50,7 @@ actions, always short.
 | glow | bright colours glow (`c.effects.glow`) | `frame:cube(x, y, z, color, glow)` | picture | — |
 | particles | `sim.dust`, `sparks`, `fireball`, `blood_spray`, `flash` (muzzle) | `level:explode` (debris, fire) | **simulation** (random from `Sim::rng`) | — |
 | white flash on a thing | `thing.flash = ticks` (the shooter tints it) | — | picture | — |
-| effect model | a kind's `effect = "poof.vox"` (played once where a thing went; `{ model = "poof.vox", fps = 20 }` its speed) | `frame:model(file, thing, index)` with an index from `world.tick` | picture | — |
+| effect model | a kind's `effect = "poof.vvx"` (played once where a thing went; `{ model = "poof.vvx", fps = 20 }` its speed) | `frame:model(file, thing, index)` with an index from `world.tick` | picture | — |
 | poses | a kind's `frames = { jump = {..}, crouch = {..} }`, drawn by hand, each set at its own `fps` (or `stride`, by the way walked) and once (`loop = false`) if it says | `frame:model(..., index)` | picture | — |
 
 Effect speeds scale with `c.physics.body_width` (`Sim::effect_scale`), so
@@ -162,9 +162,9 @@ The words (`src/audio/words.rs`, one register with MML's instruments):
 `sweep` semitones over the sound; `attack`, `hold`, `decay` (seconds, 10
 at most together); `punch` (a loud start); `jump` and `jump_at` (one jump
 in pitch, semitones: coins, jingles); `vibrato`, `vibrato_speed`;
-`lowpass` to `lowpass_end` (rumble, muffling); `volume` (0 to 1). A
-recording: `file = "recordings/x.wav"` with `rate` and `bits` for lo-fi,
-or `sounds/NAME.wav` as it is; `silent = true` for none. A pulse off
+`lowpass` to `lowpass_end` (rumble, muffling); `volume` (0 to 1);
+`silent = true` for none. No recordings: everything in a game is code or
+text (a `.wav` in `sounds/` is a mistake at load). A pulse off
 `duty` 0.5 sounds thinner; the engine plays it round zero (no DC offset).
 `voxcade sounds games/NAME --only NAME` writes one to `shots/sounds.wav`;
 you cannot hear it, so look at it (length, peak, a spectrogram) and let

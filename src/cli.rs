@@ -39,6 +39,8 @@ USAGE:
   voxcade nettest join TICKET [internet | relayed | direct] [--seconds N] [--size BYTES]
   voxcade sheet  <game-dir> <model> [--out FILE]
   voxcade import <game-dir> <tiled-map.json> [--file NAME] [--over]
+  voxcade import <game-dir> <model.vox>... [--as PATH.vvx]
+  voxcade upgrade <game-dir> [--dry]
   voxcade edit   <game-dir> [--block NAME | --things | --model FILE [--part NAME [--parent NAME] [--joint X,Y,Z]]] [--stamp] [--shot FILE] [--view YAW,PITCH] [--size WxH]
   voxcade ide    [<game-dir>] [--shot FILE] [--open PATH] [--console CMD] [--play TICKS] [--size WxH] [--remote]
   voxcade mcp    [--remote]
@@ -130,11 +132,22 @@ sheet draws one of the game's models (a kind's, or one in c.models: its
 import brings a Tiled map into a game once, as a level of voxel blocks
       (c.world.blocks): every tile it uses a block, its picture drawn out
       through the depth, unless the game has made that block already
-      (blocks/ID.vox); each tile layer a row of cells, the top layer in
+      (blocks/ID.vvx); each tile layer a row of cells, the top layer in
       front (a map of one layer: what holds in front, decoration behind);
       what a block is from its tile's class in the tileset (solid, oneway,
       ladder, hazard; none: decoration); the objects as things. Writes
       level.json (--file NAME), over one there only with --over.
+      Given MagicaVoxel models (.vox), it brings each into the game as a
+      model of Voxcade's own (.vvx, text), beside the others in the game
+      folder (--as: another path there, one model), its parts hanging as
+      they did; the .vox is left alone. Name the .vvx in the game's Lua.
+upgrade brings a game made for an older Voxcade up to date: every step
+      it needs (0.6.0: its models, figures and blocks become .vvx, the Lua
+      naming them follows; worlds and map prefabs stay .vox), then
+      c.voxcade in conf.lua says this version. It says what each step
+      did; --dry only says what it would do. It commits nothing, and says
+      first when the folder has changes git has not committed. A game for
+      an older Voxcade does not open until then; one for a newer neither.
 edit  opens the editor on a game's level of voxel blocks: the level (its
       things with --things; another than the config's with --level FILE,
       levels/02_crypt.json), or a block of it (--block); or on a model of
@@ -237,7 +250,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
     }
     match args.first().map(String::as_str) {
         Some("run") => {
-            let dir = game_dir(&args)?;
+            let dir = opened(&args)?;
             let (mut begin, mut net, mut keys) = (crate::session::Begin::default(), None, None);
             let mut it = args[2..].iter().peekable();
             while let Some(flag) = it.next() {
@@ -263,7 +276,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
             app::run::<G>(&dir, None, begin, net, keys.as_deref())
         }
         Some("scenarios") => {
-            let mut session = crate::session::Session::<G>::load(&game_dir(&args)?)?;
+            let mut session = crate::session::Session::<G>::load(&opened(&args)?)?;
             let scenarios = session.scenarios()?;
             if scenarios.is_empty() {
                 println!("no scenarios yet: scenarios/NAME.lua in the game folder (docs/game-model.md, \"Scenarios and the console\")");
@@ -274,7 +287,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
             Ok(())
         }
         Some("rooms") => {
-            let session = crate::session::Session::<G>::load(&game_dir(&args)?)?;
+            let session = crate::session::Session::<G>::load(&opened(&args)?)?;
             let (app, version) = crate::network::app_of(&session)?;
             anyhow::ensure!(crate::net::quic::matchmaker_known(), "no matchmaker known (VOXCADE_MATCHMAKER and VOXCADE_RELAY, or ours in src/net/quic.rs)");
             let quic = crate::net::quic::Quic::start(crate::net::quic::reach())?;
@@ -300,14 +313,14 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
             }
         }
         Some("replay") => {
-            let dir = game_dir(&args)?;
+            let dir = opened(&args)?;
             let file = args.get(2).context("missing the replay file")?;
             app::run::<G>(&dir, Some(replay::Replay::load(std::path::Path::new(file))?), Default::default(), None, None)
         }
-        Some("replays") => replay::list::<G>(&game_dir(&args)?),
-        Some("shot") => headless::shot::<G>(&game_dir(&args)?, &shot_options(&args[2..])?),
+        Some("replays") => replay::list::<G>(&opened(&args)?),
+        Some("shot") => headless::shot::<G>(&opened(&args)?, &shot_options(&args[2..])?),
         Some("film") => {
-            let dir = game_dir(&args)?;
+            let dir = opened(&args)?;
             let replay = PathBuf::from(args.get(2).context("missing the replay file")?);
             let mut opts = headless::FilmOptions { replay, from: 0.0, to: None, fps: None, size: None, max_mb: None, out: PathBuf::from("shots/film.mp4") };
             let mut it = args[3..].iter();
@@ -329,7 +342,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
             headless::film::<G>(&dir, &opts)
         }
         Some("check") => {
-            let dir = game_dir(&args)?;
+            let dir = opened(&args)?;
             let fine = match args.get(2).map(String::as_str) {
                 None => replay::check::<G>(&dir, false)?,
                 Some("--update") => replay::check::<G>(&dir, true)?,
@@ -346,7 +359,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
             Ok(())
         }
         Some("sheet") => {
-            let dir = game_dir(&args)?;
+            let dir = opened(&args)?;
             let model = args.get(2).filter(|a| !a.starts_with("--")).context("voxcade sheet <game-dir> <model>")?.clone();
             let stem = Path::new(&model).file_stem().map_or("model".into(), |s| s.to_string_lossy().to_string());
             let mut out = PathBuf::from(format!("shots/{stem}_sheet.png"));
@@ -361,7 +374,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
             headless::sheet::<G>(&dir, &headless::SheetOptions { model, out })
         }
         Some("inspect") => {
-            let dir = game_dir(&args)?;
+            let dir = opened(&args)?;
             let (mut frames, mut input, mut at, mut begin) = (60, String::new(), None, crate::session::Begin::default());
             let (mut seats, mut net, mut record) = (Vec::new(), None, None);
             let mut it = args[2..].iter();
@@ -444,10 +457,8 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
             }
             Ok(())
         }
-        // A trial of the model format as text (`voxtext`), not listed.
-        Some("model-trial") => crate::voxtext::trial(&args[1..]),
         Some("kinds") => {
-            let session = crate::session::Session::<G>::load(&game_dir(&args)?)?;
+            let session = crate::session::Session::<G>::load(&opened(&args)?)?;
             for line in session.game.numbers() {
                 println!("{line}");
             }
@@ -475,7 +486,31 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
         }
         Some("import") => {
             let dir = game_dir(&args)?;
-            let map = PathBuf::from(args.get(2).context("import needs a Tiled map (.json)")?);
+            let source = PathBuf::from(args.get(2).context("import needs a Tiled map (.json) or MagicaVoxel models (.vox)")?);
+            if source.extension().is_some_and(|e| e.eq_ignore_ascii_case("vox")) {
+                // Models from MagicaVoxel: each a .vvx in the game, the
+                // source left alone.
+                let mut into = None;
+                let mut sources = Vec::new();
+                let mut it = args[2..].iter();
+                while let Some(arg) = it.next() {
+                    match arg.as_str() {
+                        "--as" => into = Some(it.next().context("--as needs the model's path in the game (hero.vvx)")?.clone()),
+                        other if other.starts_with("--") => bail!("unknown option {other}"),
+                        file => sources.push(PathBuf::from(file)),
+                    }
+                }
+                anyhow::ensure!(into.is_none() || sources.len() == 1, "--as names the .vvx of one model");
+                for vox in &sources {
+                    let name = match &into {
+                        Some(name) => PathBuf::from(name),
+                        None => PathBuf::from(vox.file_name().context("a model's file")?).with_extension(crate::vvx::EXTENSION),
+                    };
+                    anyhow::ensure!(crate::vvx::is_model(&name), "{}: a model of the game is a .vvx", name.display());
+                    println!("{}", crate::upgrade::bring_in(vox, &dir.join(name), false)?);
+                }
+                return Ok(());
+            }
             let (mut file, mut over) = ("level.json".to_string(), false);
             let mut it = args[3..].iter();
             while let Some(flag) = it.next() {
@@ -485,11 +520,23 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                     other => bail!("unknown option {other}"),
                 }
             }
-            println!("{}", crate::tiled::import_into(&dir, &map, &file, over)?);
+            println!("{}", crate::tiled::import_into(&dir, &source, &file, over)?);
+            Ok(())
+        }
+        Some("upgrade") => {
+            let dir = game_dir(&args)?;
+            let dry = match args.get(2).map(String::as_str) {
+                None => false,
+                Some("--dry") => true,
+                Some(other) => bail!("unknown option {other} (upgrade GAME [--dry])"),
+            };
+            for line in crate::upgrade::upgrade(&dir, dry)? {
+                println!("{line}");
+            }
             Ok(())
         }
         Some("edit") => {
-            let dir = game_dir(&args)?;
+            let dir = opened(&args)?;
             let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new() };
             let mut shot = false;
             let mut it = args[2..].iter();
@@ -535,17 +582,22 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
         }
         Some("ide") => {
             // Without a game: the start page.
+            // (A game made for another Voxcade opens on its upgrade's page.)
             let dir = match args.get(1).filter(|a| !a.starts_with("--")) {
                 Some(_) => Some(game_dir(&args)?),
                 None => None,
             };
-            let mut opts = crate::ide::ShotOptions { open: None, console: None, play: None, width: 1920, height: 1080, out: PathBuf::new() };
+            let mut opts = crate::ide::ShotOptions { open: None, console: None, play: None, upgraded: false, width: 1920, height: 1080, out: PathBuf::new() };
             let mut shot = false;
             let mut remote = false;
             let mut it = args[if dir.is_some() { 2 } else { 1 }..].iter();
             while let Some(flag) = it.next() {
                 if flag == "--remote" {
                     remote = true;
+                    continue;
+                }
+                if flag == "--upgraded" {
+                    opts.upgraded = true;
                     continue;
                 }
                 let value = it.next().with_context(|| format!("{flag} needs a value"))?;
@@ -690,6 +742,14 @@ pub fn tell_in_a_window(error: &anyhow::Error) {
         let message = plainly(error, &crate::settings::system_languages());
         let _ = sdl3::messagebox::show_simple_message_box(sdl3::messagebox::MessageBoxFlag::ERROR, "Voxcade", &message, None);
     }
+}
+
+/// The game folder the command names, checked to be for this Voxcade
+/// (`upgrade::opens`): one made for another is a plain mistake.
+fn opened(args: &[String]) -> Result<PathBuf> {
+    let dir = game_dir(args)?;
+    crate::upgrade::opens(&dir)?;
+    Ok(dir)
 }
 
 fn game_dir(args: &[String]) -> Result<PathBuf> {

@@ -88,6 +88,8 @@ pub struct Shell {
     /// The picture of the model, block or level open, and the one before
     /// (the new one takes over its renderer).
     preview: Option<Preview>,
+    /// A model shown as its text (TEXT), not as its picture.
+    model_text: bool,
     spare: Option<Preview>,
     /// Pictures gone, their textures to free.
     retired: Vec<egui::TextureId>,
@@ -333,7 +335,7 @@ fn new_file(dir: &Path, sort: &str, typed: &str) -> Result<String, String> {
     let (folder, ext) = match sort {
         "Logic" => ("", "lua"),
         "Scenarios" => ("scenarios/", "lua"),
-        "Models" => ("", "vox"),
+        "Models" => ("", "vvx"),
         "Sounds" => ("sounds/", "toml"),
         "Music" => ("music/", "mml"),
         _ => return Err("Nothing is made here.".into()),
@@ -371,7 +373,7 @@ impl Shell {
             memory.open = files.logic.iter().find(|f| *f == "main.lua").or(files.logic.first()).cloned();
         }
         let restore = memory.open.as_ref().and_then(|f| memory.scroll.get(f).copied());
-        Self { title, dir: dir.to_path_buf(), files, listing, list_at: std::time::Instant::now() + LIST_EVERY, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, renaming: None, asking: None, gone: None, previous: None, #[cfg(test)] undo_button: None, deleted_dir: crate::settings::config_dir().join("ide").join("deleted").join(crate::settings::game_name(dir)), #[cfg(test)] headings: Vec::new(), cfg, preview: None, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, building: None, start_failed: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, console_seen: None, console_dragged: false, reported: None, output_saved: std::time::Instant::now(), brought: Vec::new(), builtin: None, sound_line: None, used: None, heard: None, rolls: 0, looping: false, again_at: None, fading: None, #[cfg(test)] finder: super::claude::Finder::in_dirs(Vec::new()), #[cfg(not(test))] finder: super::claude::Finder::system(), no_agent: false, #[cfg(test)] used_rows: Vec::new() }
+        Self { title, dir: dir.to_path_buf(), files, listing, list_at: std::time::Instant::now() + LIST_EVERY, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, renaming: None, asking: None, gone: None, previous: None, #[cfg(test)] undo_button: None, deleted_dir: crate::settings::config_dir().join("ide").join("deleted").join(crate::settings::game_name(dir)), #[cfg(test)] headings: Vec::new(), cfg, preview: None, model_text: false, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, building: None, start_failed: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, console_seen: None, console_dragged: false, reported: None, output_saved: std::time::Instant::now(), brought: Vec::new(), builtin: None, sound_line: None, used: None, heard: None, rolls: 0, looping: false, again_at: None, fading: None, #[cfg(test)] finder: super::claude::Finder::in_dirs(Vec::new()), #[cfg(not(test))] finder: super::claude::Finder::system(), no_agent: false, #[cfg(test)] used_rows: Vec::new() }
     }
 
     /// The sounds the game's code brings (`Game::sounds`), listed under
@@ -563,6 +565,7 @@ impl Shell {
         self.hush();
         self.previous = self.memory.open.clone();
         self.memory.open = Some(path.to_string());
+        self.model_text = false;
         self.unload();
         self.restore = Some(self.memory.scroll.get(path).copied().unwrap_or(0.0));
         let _ = self.save();
@@ -861,7 +864,6 @@ impl Shell {
         let def = match (&self.shown, &self.memory.open, self.builtin) {
             _ if self.builtin.is_some() => self.brought.iter().find(|(n, _)| Some(*n) == self.builtin).map(|(_, d)| d.clone()),
             (Some(Shown::Code(b)), ..) => b.code.sound.clone(),
-            (_, Some(path), _) if path.ends_with(".wav") => Some(sounds::recording_of(path)),
             _ => None,
         };
         // (A sound that cannot be read, or is silent, plays nothing: the line
@@ -1089,10 +1091,17 @@ impl Shell {
         }
     }
 
+    /// The model open shown as its text (TEXT).
+    pub fn model_as_text(&mut self) {
+        self.model_text = true;
+        self.unload();
+    }
+
     /// Whether an editor opens `path` (in the game folder): the levels of
-    /// blocks, their blocks, the models.
+    /// blocks, their blocks, the models (Voxcade's own: a MagicaVoxel file
+    /// is brought in first).
     pub fn editable(&self, path: &str) -> bool {
-        self.is_level(path) || path.ends_with(".vox")
+        self.is_level(path) || path.ends_with(".vvx")
     }
 
     /// Whether `path` is a level of blocks the level editor opens: the one
@@ -1695,7 +1704,7 @@ impl Shell {
             self.builtin = None;
             return;
         };
-        let line = format!("{} Built in: the game has no file of its own for it.", sounds::describe(&def, &self.dir));
+        let line = format!("{} Built in: the game has no file of its own for it.", sounds::describe(&def));
         let (mut play, mut yours) = (false, false);
         ui.horizontal(|ui| {
             ui.label(RichText::new(line).color(QUIET));
@@ -1849,7 +1858,7 @@ impl Shell {
         if self.shown.is_none() {
             // Scripts and the texts they read, sounds and songs are to
             // change, the rest to look at.
-            let to_change = self.files.logic.contains(&path) || self.files.scenarios.contains(&path) || path.ends_with(".mml") || (path.ends_with(".toml") && sounds::name_of(&path).is_some());
+            let to_change = self.files.logic.contains(&path) || self.files.scenarios.contains(&path) || path.ends_with(".mml") || (path.ends_with(".toml") && sounds::name_of(&path).is_some()) || (self.model_text && path.ends_with(".vvx"));
             self.shown = Some(if to_change {
                 match Buffer::open(&self.dir, &path, &self.memory_path.with_extension("journal")) {
                     Ok(buffer) => Shown::Code(Box::new(buffer)),
@@ -1860,14 +1869,14 @@ impl Shell {
             });
             let level = self.is_level(&path);
             self.facts = match () {
-                _ if self.editable(&path) => Some(facts(&self.dir.join(&path), &path, level)),
+                _ if self.editable(&path) || is_model_file(&path) => Some(facts(&self.dir.join(&path), &path, level)),
                 _ if path.ends_with(".mml") => Some(song_facts(&self.dir.join(&path))),
                 _ => None,
             };
             // What an editor opens shows as a picture.
             let preview = match () {
                 _ if level => Some(Preview::level(&self.dir, &path, &self.cfg)),
-                _ if path.ends_with(".vox") => Some(Preview::model(&self.dir, &path, &self.cfg)),
+                _ if is_model_file(&path) && !self.model_text => Some(Preview::model(&self.dir, &path, &self.cfg)),
                 _ => None,
             };
             self.preview = preview.and_then(|p| p.map_err(|e| self.message = Some(format!("{e:#}"))).ok());
@@ -1891,8 +1900,9 @@ impl Shell {
         // What an editor opens: a line of what it is, and EDIT; a song:
         // what it is, and PLAY.
         let facts = match &self.shown {
-            // A song's line follows its text.
+            // A song's line follows its text, a model's too.
             Some(Shown::Code(b)) if path.ends_with(".mml") => Some(b.code.song.clone().unwrap_or_else(|| "The song cannot be read.".into())),
+            Some(Shown::Code(b)) if path.ends_with(".vvx") => Some(b.code.model.clone().unwrap_or_else(|| "The model cannot be read.".into())),
             _ => self.facts.clone(),
         };
         let had_facts = facts.is_some();
@@ -1903,8 +1913,20 @@ impl Shell {
                     ui.add_space(16.0);
                     if self.editable(&path) {
                         if ui.button("EDIT").on_hover_text("Opens it in its editor, a window of its own (so does a double click in the list).").clicked() {
+                            self.flush();
                             self.edits.push(path.clone());
                         }
+                        // A model is text too: shown as its text to change,
+                        // or as its picture.
+                        if path.ends_with(".vvx") {
+                            let (word, tip) = if self.model_text { ("PICTURE", "Shows the model as the game draws it.") } else { ("TEXT", "Shows the model's text, to read and change (its palette, its frames or parts, layer by layer).") };
+                            if ui.button(word).on_hover_text(tip).clicked() {
+                                self.flush();
+                                self.model_text = !self.model_text;
+                                self.unload();
+                            }
+                        }
+                    } else if !path.ends_with(".mml") {
                     } else if self.listening.is_some() {
                         if ui.button("STOP SONG").on_hover_text("Ends the song.").clicked() {
                             self.listen();
@@ -1960,8 +1982,8 @@ impl Shell {
             };
             if self.sound_line.as_ref().is_none_or(|(k, _)| *k != key) {
                 let line = match &self.shown {
-                    Some(Shown::Code(b)) => b.code.sound.as_ref().map_or_else(|| "The sound cannot be read.".to_string(), |def| sounds::describe(def, &self.dir)),
-                    _ => sounds::describe(&sounds::recording_of(&path), &self.dir),
+                    Some(Shown::Code(b)) => b.code.sound.as_ref().map_or_else(|| "The sound cannot be read.".to_string(), sounds::describe),
+                    _ => "The sound cannot be read.".to_string(),
                 };
                 self.sound_line = Some((key, line));
             }
@@ -2402,6 +2424,13 @@ fn picture(ui: &mut egui::Ui, texture: &egui::TextureHandle) {
 
 /// A line of what a file an editor opens is (`level`: the game's level of
 /// blocks).
+/// Whether a file of the game is a model or a block: Voxcade's `.vvx`, or a
+/// MagicaVoxel `.vox` (a world, a map's prefab, or a model not brought in
+/// yet), shown as a picture.
+pub fn is_model_file(path: &str) -> bool {
+    path.ends_with(".vvx") || path.ends_with(".vox")
+}
+
 fn facts(file: &Path, path: &str, level: bool) -> String {
     let plural = |n: usize, one: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") };
     if level {
@@ -2410,10 +2439,24 @@ fn facts(file: &Path, path: &str, level: bool) -> String {
             Err(e) => format!("{e:#}"),
         };
     }
+    if !path.ends_with(".vvx") {
+        return "A MagicaVoxel file, shown only (a model to shape here: voxcade import).".into();
+    }
     match crate::vox::load_model(file) {
-        Ok(m) if path.starts_with("blocks/") => format!("A block of the level, {} by {} by {} voxels.", m.size.x, m.size.y, m.size.z),
-        Ok(m) => format!("A model, {} by {} by {} voxels, {}.", m.size.x, m.size.y, m.size.z, plural(m.frames.len(), "frame")),
+        Ok(m) => model_line(&m, path),
         Err(e) => format!("{e:#}"),
+    }
+}
+
+/// A line of what a model (`path` in the game folder) is: a block, a
+/// figure of parts or frames, and how big.
+pub(super) fn model_line(m: &crate::vox::VoxModel, path: &str) -> String {
+    let plural = |n: usize, one: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") };
+    let s = m.size;
+    match () {
+        _ if path.starts_with("blocks/") => format!("A block of the level, {} by {} by {} voxels.", s.x, s.y, s.z),
+        _ if !m.parts.is_empty() => format!("A figure, {} by {} by {} voxels, {}.", s.x, s.y, s.z, plural(m.parts.len(), "part")),
+        _ => format!("A model, {} by {} by {} voxels, {}.", s.x, s.y, s.z, plural(m.frames.len(), "frame")),
     }
 }
 
@@ -2445,8 +2488,7 @@ fn load(file: &Path, path: &str, ctx: &egui::Context) -> Shown {
             Err(e) => Shown::Note(format!("{e:#}")),
         },
         // What a model is stands above it (`facts`), and what a sound is.
-        "vox" => Shown::Note(String::new()),
-        "wav" if sounds::name_of(path).is_some() => Shown::Note(String::new()),
+        "vox" | "vvx" => Shown::Note(String::new()),
         _ => match std::fs::read(file) {
             Ok(bytes) => match String::from_utf8(bytes) {
                 Ok(text) => Shown::Text(text),
@@ -2495,7 +2537,7 @@ mod tests {
         assert!(text(&shell).is_some_and(|t| t.ends_with("-- not saved yet\n")), "kept when focus comes back");
         // (Not saved: the change goes with the buffer.)
         shell.shown = None;
-        shell.open("hero.vox");
+        shell.open("hero.vvx");
         frame(&ctx, &mut shell);
         assert!(matches!(shell.shown, Some(Shown::Note(_))) && shell.preview.is_some(), "a model: its picture");
         let _ = std::fs::remove_file(&memory);
@@ -2559,7 +2601,7 @@ mod tests {
         assert_eq!(ctx.memory(|m| m.focused()), None, "the keys nowhere yet");
         // A model chosen in the list (no text to take the keys), then the
         // agent's open: the wish for the keys did not wait for it.
-        shell.open("hero.vox");
+        shell.open("hero.vvx");
         shell.back_to_file();
         frame(&ctx, &mut shell);
         shell.go_to("conf.lua", Some(2));
@@ -2808,7 +2850,7 @@ mod tests {
         let ctx = egui::Context::default();
         frame(&ctx, &mut shell);
         frame(&ctx, &mut shell);
-        for (sort, typed, path) in [("Logic", "Market Stall", "market_stall.lua"), ("Scenarios", "late", "scenarios/late.lua"), ("Models", "Hero", "hero.vox"), ("Sounds", "Coin Pick", "sounds/coin_pick.toml"), ("Music", "theme.mml", "music/theme.mml")] {
+        for (sort, typed, path) in [("Logic", "Market Stall", "market_stall.lua"), ("Scenarios", "late", "scenarios/late.lua"), ("Models", "Hero", "hero.vvx"), ("Sounds", "Coin Pick", "sounds/coin_pick.toml"), ("Music", "theme.mml", "music/theme.mml")] {
             type_a_name(&ctx, &mut shell, sort, typed);
             assert!(dir.join(path).is_file(), "{path} made");
             assert!(shell.naming.is_none(), "{path}: the field is gone");
@@ -2824,10 +2866,10 @@ mod tests {
         let lua = std::fs::read_to_string(dir.join("market_stall.lua")).unwrap();
         assert!(lua.contains("local market_stall = require(\"market_stall\")") && lua.contains("return market_stall"), "{lua}");
         // A name taken is refused, the file stays.
-        std::fs::write(dir.join("hero.vox"), "mine").unwrap();
+        std::fs::write(dir.join("hero.vvx"), "mine").unwrap();
         type_a_name(&ctx, &mut shell, "Models", "HERO");
-        assert_eq!(std::fs::read(dir.join("hero.vox")).unwrap(), b"mine");
-        assert_eq!(shell.naming.as_ref().and_then(|n| n.problem.as_deref()), Some("hero.vox is already there."));
+        assert_eq!(std::fs::read(dir.join("hero.vvx")).unwrap(), b"mine");
+        assert_eq!(shell.naming.as_ref().and_then(|n| n.problem.as_deref()), Some("hero.vvx is already there."));
         frame(&ctx, &mut shell);
         key(&ctx, &mut shell, egui::Key::Escape);
         assert!(shell.naming.is_none(), "Escape cancels");
@@ -2865,9 +2907,9 @@ mod tests {
         for (sort, name) in [("Logic", "tools"), ("Models", "blob"), ("Music", "tune")] {
             shell.make_file(sort, name).unwrap();
         }
-        let model = crate::vox::load_model(&dir.join("blob.vox")).unwrap();
+        let model = crate::vox::load_model(&dir.join("blob.vvx")).unwrap();
         assert!(model.frames.len() == 1 && model.frames[0].len() == 64 && model.size == glam::IVec3::splat(8), "{:?} {}", model.size, model.frames[0].len());
-        shell.open("blob.vox");
+        shell.open("blob.vvx");
         frame(&ctx, &mut shell);
         assert!(shell.preview.is_some(), "it shows as a picture: {:?}", shell.message);
         let song = crate::audio::music::parse(&std::fs::read_to_string(dir.join("music/tune.mml")).unwrap()).unwrap();
@@ -2915,12 +2957,11 @@ mod tests {
     #[test]
     fn sounds_have_a_group_of_their_own() {
         let (dir, memory) = sound_game("group");
-        std::fs::write(dir.join("sounds/boom.wav"), "RIFF").unwrap();
         let mut shell = shell_on(&dir, &memory).with_sounds(crate::audio::core_sounds());
         let ctx = egui::Context::default();
         frame(&ctx, &mut shell);
         let groups: Vec<(&str, Vec<&str>)> = shell.files.assets.iter().map(|g| (g.name, g.files.iter().map(String::as_str).collect())).collect();
-        assert!(groups.contains(&("Sounds", vec!["sounds/bell.toml", "sounds/boom.wav", "sounds/coin.toml"])), "{groups:?}");
+        assert!(groups.contains(&("Sounds", vec!["sounds/bell.toml", "sounds/coin.toml"])), "{groups:?}");
         assert!(groups.iter().all(|(n, f)| *n == "Sounds" || !f.iter().any(|f| f.starts_with("sounds/"))), "none under OTHER: {groups:?}");
         // The built-in ones: those of the core, none of them replaced by a file.
         std::fs::write(dir.join("sounds/impact.toml"), "wave = \"noise\"\n").unwrap();
@@ -3153,7 +3194,7 @@ mod tests {
         std::fs::write(dir.join("tools.lua"), "return {}\n").unwrap();
         std::fs::create_dir_all(dir.join("scenarios")).unwrap();
         std::fs::write(dir.join("scenarios/late.lua"), NEW_SCENARIO).unwrap();
-        crate::editor::frames::ModelFile::begun(&dir.join("hero.vox")).save().unwrap();
+        crate::editor::frames::ModelFile::begun(&dir.join("hero.vvx")).save().unwrap();
         std::fs::create_dir_all(dir.join("music")).unwrap();
         std::fs::write(dir.join("music/tune.mml"), NEW_SONG.replace("NAME", "tune")).unwrap();
         std::fs::write(dir.join("back.png"), "not a picture").unwrap();
@@ -3180,7 +3221,7 @@ mod tests {
         for (from, typed, to) in [
             ("tools.lua", "Kit", "kit.lua"),
             ("scenarios/late.lua", "soon", "scenarios/soon.lua"),
-            ("hero.vox", "knight.vox", "knight.vox"),
+            ("hero.vvx", "knight.vvx", "knight.vvx"),
             ("sounds/bell.toml", "chime", "sounds/chime.toml"),
             ("music/tune.mml", "song", "music/song.mml"),
             ("back.png", "sky", "sky.png"),
@@ -3296,10 +3337,10 @@ mod tests {
         assert_eq!(buffer(&shell).code.text, main_now, "the open text took it in");
         assert!(matches!(&shell.notice, Some(Notice::Said(n)) if n.starts_with("RENAMED coin.toml TO ring.toml")));
         // A module, a model and a song are asked about by their own lines.
-        std::fs::write(dir.join("main.lua"), "local tools = require \"tools\"\nm = \"hero.vox\"\nplay(\"music/tune.mml\")\n").unwrap();
+        std::fs::write(dir.join("main.lua"), "local tools = require \"tools\"\nm = \"hero.vvx\"\nplay(\"music/tune.mml\")\n").unwrap();
         shell.files = Files::scan(&dir);
         shell.unload();
-        for (from, typed, line) in [("tools.lua", "kit", "require \"kit\""), ("hero.vox", "knight", "m = \"knight.vox\""), ("music/tune.mml", "song", "play(\"music/song.mml\")")] {
+        for (from, typed, line) in [("tools.lua", "kit", "require \"kit\""), ("hero.vvx", "knight", "m = \"knight.vvx\""), ("music/tune.mml", "song", "play(\"music/song.mml\")")] {
             assert_eq!(shell.rename(from, typed), Ok(()));
             assert_eq!(shell.asking.as_ref().map(|q| q.rows.len()), Some(1), "{from}");
             shell.answer(Answer::Change);
@@ -3496,19 +3537,19 @@ mod tests {
         let (changed, next) = look(&mut shell);
         assert!(!changed && next <= LIST_EVERY, "nothing new: no frame due, a look within a second");
         std::fs::write(dir.join("scenarios/boss.lua"), NEW_SCENARIO).unwrap();
-        crate::editor::frames::ModelFile::begun(&dir.join("enemy.vox")).save().unwrap();
+        crate::editor::frames::ModelFile::begun(&dir.join("enemy.vvx")).save().unwrap();
         assert!(!shell.has("scenarios/boss.lua"), "not before the look");
         let (changed, _) = look(&mut shell);
         assert!(changed, "a frame is due");
-        assert!(shell.has("scenarios/boss.lua") && shell.has("enemy.vox"));
+        assert!(shell.has("scenarios/boss.lua") && shell.has("enemy.vvx"));
         assert!(shell.take_asks().is_empty());
         assert_eq!(shell.opened(), Some("main.lua"), "the open file stays");
         assert_eq!(shell.naming.as_ref().map(|n| n.text.as_str()), Some("half a na"), "a name being typed is left alone");
         assert!(says(&drawn_text(&ctx, &mut shell, vec![]), "boss"), "and it is in the list");
         std::fs::rename(dir.join("scenarios/boss.lua"), dir.join("scenarios/last.lua")).unwrap();
-        std::fs::remove_file(dir.join("enemy.vox")).unwrap();
+        std::fs::remove_file(dir.join("enemy.vvx")).unwrap();
         assert!(look(&mut shell).0);
-        assert!(shell.has("scenarios/last.lua") && !shell.has("scenarios/boss.lua") && !shell.has("enemy.vox"));
+        assert!(shell.has("scenarios/last.lua") && !shell.has("scenarios/boss.lua") && !shell.has("enemy.vvx"));
         let texts = drawn_text(&ctx, &mut shell, vec![]);
         assert!(says(&texts, "last") && !says(&texts, "boss"));
         // A file being renamed in the list whose file goes: the field goes.

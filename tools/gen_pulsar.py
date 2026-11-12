@@ -110,7 +110,7 @@ def ship():
         body = plan(SHIP, {**under, "G": (WHITE, (1, 2)), "g": (WHITE, (1, 2))}, tilt)
         body += plan(SHIP, {"G": SHIP_KINDS["G"], "g": SHIP_KINDS["g"]}, tilt)
         frames.append(body)
-    model(GAME / "ship.vox", size_of(SHIP, 6), frames)
+    model(GAME / "ship.vvx", size_of(SHIP, 6), frames)
 
 
 # ---------------------------------------------------------------- enemies
@@ -165,9 +165,9 @@ HEAVY_KINDS = {
 
 
 def enemies():
-    model(GAME / "fighter.vox", size_of(FIGHTER, 5), [plan(FIGHTER, FIGHTER_KINDS)])
-    model(GAME / "swooper.vox", size_of(SWOOPER, 5), [plan(SWOOPER, SWOOPER_KINDS)])
-    model(GAME / "heavy.vox", size_of(HEAVY, 6), [plan(HEAVY, HEAVY_KINDS)])
+    model(GAME / "fighter.vvx", size_of(FIGHTER, 5), [plan(FIGHTER, FIGHTER_KINDS)])
+    model(GAME / "swooper.vvx", size_of(SWOOPER, 5), [plan(SWOOPER, SWOOPER_KINDS)])
+    model(GAME / "heavy.vvx", size_of(HEAVY, 6), [plan(HEAVY, HEAVY_KINDS)])
 
 
 # The boss: a carrier 48 across and 30 long, its nose to the south when
@@ -209,7 +209,7 @@ def boss():
         for z in range(6, 8):
             out.append((tx + 1, ty + 3, z, STEEL))
             out.append((tx + 1, ty + 4, z, STEEL))
-    model(GAME / "boss.vox", (w, d, 10), [out])
+    model(GAME / "boss.vvx", (w, d, 10), [out])
 
 
 # ---------------------------------------------------------------- effects
@@ -238,7 +238,7 @@ def boom():
                     if r <= radius and r >= radius - 2.2 and rnd.random() < fill:
                         f.append((x, y, z, rnd.choice(colours)))
         frames.append(f)
-    model(GAME / "boom.vox", (n, n, n), frames)
+    model(GAME / "boom.vvx", (n, n, n), frames)
 
 
 def powerup():
@@ -251,7 +251,7 @@ def powerup():
                 d = abs(x - c) + abs(y - c) + abs(z - c)
                 if d <= 4:
                     out.append((x, y, z, (120, 230, 255) if d <= 2 else (40, 120, 230)))
-    model(GAME / "power.vox", (9, 9, 9), [out])
+    model(GAME / "power.vvx", (9, 9, 9), [out])
 
 
 # ---------------------------------------------------------------- the level

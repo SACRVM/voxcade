@@ -24,8 +24,8 @@
 #                           # idle = { first = 0, last = 1, fps = 2 },
 #                           # pull = { first = 9, last = 11, loop = false }
 #   fps    = 10             # how fast its frames go where a set does not say
-#   effect = "poof.vox"     # shown once where one of its things goes
-#                           # ({ model = "poof.vox", fps = 20 }: its speed, 12
+#   effect = "poof.vvx"     # shown once where one of its things goes
+#                           # ({ model = "poof.vvx", fps = 20 }: its speed, 12
 #                           # without); "burst": it bursts into its voxels,
 #                           # which fall and are gone
 #   spin   = 120            # its model turns round, degrees a second (a gem)

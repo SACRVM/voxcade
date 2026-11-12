@@ -558,7 +558,7 @@ end
 -- that cook, the oven glowing while one does.
 local function kitchen_look(frame, t)
   local k = world.state.kitchen
-  frame:model("kitchen.vox", t, k.pots - 1)
+  frame:model("kitchen.vvx", t, k.pots - 1)
   local cooking = false
   for i = 1, k.pots do
     local job = k.jobs[i]
@@ -615,7 +615,7 @@ local function animal_look(frame, t)
       index = walking and 1 + step or (idle and 3 or 0)
     end
   end
-  frame:model(a.sp .. "_" .. a.colour .. ".vox", t, index)
+  frame:model(a.sp .. "_" .. a.colour .. ".vvx", t, index)
 end
 
 -- Rain over what the camera sees: drops, each a short streak of
@@ -708,7 +708,7 @@ function on_draw(frame)
     rain(frame)
   end
 
-  frame:model("bunny.vox", player, bunny_frame())
+  frame:model("bunny.vvx", player, bunny_frame())
   -- What stands about, each by its kind's model (trees with apples or
   -- without, by their number); the burrow's lantern and windows light up
   -- by dusk.
@@ -718,17 +718,17 @@ function on_draw(frame)
     if kind == "kitchen" then
       kitchen_look(frame, t)
     elseif kind == "mailbox" then
-      frame:model("mailbox.vox", t, mail.waiting() and 1 or 0)
+      frame:model("mailbox.vvx", t, mail.waiting() and 1 or 0)
     elseif kind == "cat" or kind == "dog" or kind == "fox" then
-      frame:model(kind .. ".vox", t, (world.tick // 90 + t.id) % 3 == 0 and 1 or 0)
+      frame:model(kind .. ".vvx", t, (world.tick // 90 + t.id) % 3 == 0 and 1 or 0)
     elseif D.BARN.animals[kind] then
       animal_look(frame, t)
     elseif kind == "egg" then
-      frame:model("egg.vox", t, t.state.rainbow and 1 or 0)
+      frame:model("egg.vvx", t, t.state.rainbow and 1 or 0)
     elseif t.props.picture then
-      frame:model(kind:match("^sign_") and "pen_sign.vox" or "trough.vox", t, t.props.picture)
+      frame:model(kind:match("^sign_") and "pen_sign.vvx" or "trough.vvx", t, t.props.picture)
     elseif kind ~= "crop" then
-      frame:model(kind .. ".vox", t, kind == "tree" and t.id % 2 or 0)
+      frame:model(kind .. ".vvx", t, kind == "tree" and t.id % 2 or 0)
     end
     if kind == "burrow" and (hour >= 19 or hour < 7) then
       frame:light({ x = t.x + 18, y = t.y - 15, z = t.z + 12 }, 56, { 255, 190, 110 })
@@ -739,7 +739,7 @@ function on_draw(frame)
     local bed = s.beds[i]
     if t and bed.crop then
       local _, stage = farm.growth(bed)
-      frame:model(bed.crop .. ".vox", t, stage)
+      frame:model(bed.crop .. ".vvx", t, stage)
       if bed.left <= 0 and calendar.special(bed.crop) then
         shimmer(frame, t, i)
       end

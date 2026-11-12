@@ -1,0 +1,235 @@
+format = "voxcade voxel 1"
+size = [5, 4, 10]
+
+[palette]
+a = "#23324a"
+b = "#5a6070"
+c = "#f0f0f0"
+d = "#3fb6e8"
+e = "#7df9ff"
+f = "#ff5a5a"
+
+[[frame]]
+layers = """
+.....
+.a.a.
+.a.a.
+.....
+
+.....
+.b.b.
+.b.b.
+.....
+
+.....
+.b.b.
+.b.b.
+.....
+
+.ccc.
+dcccd
+dcccd
+.bbb.
+
+.ddd.
+dcccd
+dcccd
+.bbb.
+
+.ccc.
+dcccd
+dcccd
+.bbb.
+
+.ccc. *4
+
+.eae.
+.ccc. *3
+
+.ccc. *4
+
+.....
+.....
+..f..
+.....
+"""
+
+[[frame]]
+layers = """
+.a...
+.a...
+...a.
+...a.
+
+.b...
+.b...
+...b.
+...b.
+
+.b...
+.b...
+...b.
+...b.
+
+.cccd
+.cccd
+dccc.
+dbbb.
+
+.dddd
+.cccd
+dccc.
+dbbb.
+
+.cccd
+.cccd
+dccc.
+dbbb.
+
+.ccc. *4
+
+.eae.
+.ccc. *3
+
+.ccc. *4
+
+.....
+.....
+..f..
+.....
+"""
+
+[[frame]]
+layers = """
+.....
+.a...
+.a...
+.....
+
+.....
+.b.a.
+.b.a.
+.....
+
+.....
+.b.b.
+.b.b.
+.....
+
+.ccc.
+dcccd
+dcccd
+.bbb.
+
+.ddd.
+dcccd
+dcccd
+.bbb.
+
+.ccc.
+dcccd
+dcccd
+.bbb.
+
+.ccc. *4
+
+.eae.
+.ccc. *3
+
+.ccc. *4
+
+.....
+.....
+..f..
+.....
+"""
+
+[[frame]]
+layers = """
+...a.
+...a.
+.a...
+.a...
+
+...b.
+...b.
+.b...
+.b...
+
+...b.
+...b.
+.b...
+.b...
+
+dccc.
+dccc.
+.cccd
+.bbbd
+
+dddd.
+dccc.
+.cccd
+.bbbd
+
+dccc.
+dccc.
+.cccd
+.bbbd
+
+.ccc. *4
+
+.eae.
+.ccc. *3
+
+.ccc. *4
+
+.....
+.....
+..f..
+.....
+"""
+
+[[frame]]
+layers = """
+.....
+...a.
+...a.
+.....
+
+.....
+.a.b.
+.a.b.
+.....
+
+.....
+.b.b.
+.b.b.
+.....
+
+.ccc.
+dcccd
+dcccd
+.bbb.
+
+.ddd.
+dcccd
+dcccd
+.bbb.
+
+.ccc.
+dcccd
+dcccd
+.bbb.
+
+.ccc. *4
+
+.eae.
+.ccc. *3
+
+.ccc. *4
+
+.....
+.....
+..f..
+.....
+"""

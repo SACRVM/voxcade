@@ -1,5 +1,5 @@
 //! Levels built of voxel blocks in a 3D grid (`docs/tiles.md`). A level
-//! file (`level.json`) names its blocks (`blocks/NAME.vox`) and what each is
+//! file (`level.json`) names its blocks (`blocks/NAME.vvx`) and what each is
 //! to the game, holds a block and its turn for every cell, and the things
 //! placed freely, in voxels. Loading stamps the blocks into the world's
 //! voxels, so destruction, physics and meshing go on as ever; the cells'
@@ -118,7 +118,7 @@ impl CellKinds {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlockEntry {
-    /// Its file: `blocks/NAME.vox`.
+    /// Its file: `blocks/NAME.vvx`.
     pub name: String,
     pub kind: Kind,
 }
@@ -615,7 +615,7 @@ mod tests {
         lv.save(&dir.join("level.json")).unwrap();
         let cfg = BlocksConfig { margin: 10, below: 5, ..BlocksConfig::default() };
         let e = format!("{:#}", load(&dir, &cfg, &["gem"]).err().unwrap());
-        assert!(e.contains("rock.vox"), "a missing block names its file: {e}");
+        assert!(e.contains("rock.vvx"), "a missing block names its file: {e}");
         block(4, [5, 5, 5], |_| true).save(&blocks::path(&dir, "rock")).unwrap();
         let (world, markers, files) = load(&dir, &cfg, &["miner", "gem"]).unwrap();
         assert_eq!(world.get(IVec3::new(10, 0, 5)), world.get(IVec3::new(13, 3, 8)));

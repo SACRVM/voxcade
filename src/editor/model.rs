@@ -332,6 +332,9 @@ pub struct Editor {
     /// Every tool's voxel mirrored left to right about the box's middle
     /// too (SYMMETRY): a figure's two sides alike.
     pub symmetry: bool,
+    /// The colour whose material the last step set: the next setting of it
+    /// joins that step (a slider dragged is one step back).
+    tuning: Option<[u8; 3]>,
     /// The model is a figure of parts: it shown whole (FIGURE).
     pub figure: Option<Figure>,
     /// FIGURE: the next part clicked in the list becomes the chosen part's
@@ -380,6 +383,7 @@ impl Editor {
             depth: 1,
             bevel: false,
             symmetry: false,
+            tuning: None,
             figure: None,
             picking_parent: false,
             hint: None,
@@ -390,7 +394,18 @@ impl Editor {
     /// Opens the model `file` of the game in `dir`, at its first frame; a
     /// figure of parts whole (FIGURE).
     pub fn open_model(dir: &Path, file: &str) -> Result<Self> {
-        let model = ModelFile::load(&dir.join(file))?;
+        Self::with_model(dir, file, ModelFile::load(&dir.join(file))?)
+    }
+
+    /// The model `file` of the game in `dir` to look at, a MagicaVoxel
+    /// `.vox` too (the IDE's picture of it): nothing written.
+    pub fn look_at_model(dir: &Path, file: &str) -> Result<Self> {
+        let mut ed = Self::with_model(dir, file, ModelFile::look(&dir.join(file))?)?;
+        ed.dry = true;
+        Ok(ed)
+    }
+
+    fn with_model(dir: &Path, file: &str, model: ModelFile) -> Result<Self> {
         let level = GridLevel::new(1, IVec3::ZERO);
         let colour = model.colours().first().copied().unwrap_or([200, 200, 200]);
         let (figure, message) = Figure::follow(None, &model);
@@ -421,6 +436,7 @@ impl Editor {
             depth: 1,
             bevel: false,
             symmetry: false,
+            tuning: None,
             figure,
             picking_parent: false,
             hint: None,
@@ -690,9 +706,13 @@ impl Editor {
         self.grow_model_to(c, c)
     }
 
-    /// Makes the model's box hold `lo` to `hi`, every frame's: how far its
-    /// voxels moved (on the low sides), None if it cannot (256 voxels each
-    /// way at most).
+    /// Makes the model's box hold `lo` to `hi`: how far its voxels moved
+    /// in the grid shown, None if it cannot (256 voxels each way at most).
+    /// A figure's part alone grows on the side reached, staying where it
+    /// stands (its place goes down as its voxels go up in its box). A
+    /// model's frames all alike, about the model's pivot, which stays
+    /// under the model: across and deep the box grows on both sides as the
+    /// pivot needs, the model raised by what is added under its floor.
     fn grow_model_to(&mut self, low: IVec3, high: IVec3) -> Option<IVec3> {
         let old = self.grid();
         let (lo, hi) = (low.min(IVec3::ZERO), (high + 1).max(old));
@@ -702,12 +722,20 @@ impl Editor {
         if lo == IVec3::ZERO && hi == old {
             return Some(IVec3::ZERO);
         }
-        let shift = -lo;
         let part = self.part_mode();
+        let (shift, size) = match part {
+            Some(_) => (-lo, None),
+            None => {
+                let p = crate::vvx::pivot(old);
+                let raise = IVec3::Z * (-lo.z).max(0);
+                let size = super::frames::fit(old + raise, lo - p + raise, hi - 1 - p + raise);
+                if size.cmpgt(IVec3::splat(256)).any() {
+                    return None;
+                }
+                (crate::vvx::pivot(size) - p + raise, Some(size))
+            }
+        };
         let model = self.model.as_mut()?;
-        // A figure's part alone, staying where it stands in the figure (its
-        // place goes down as its voxels go up in its box); a model's
-        // frames all alike.
         if let Some(f) = part {
             model.parts.iter_mut().filter(|p| p.frame == f).for_each(|p| p.low -= shift);
         }
@@ -715,7 +743,7 @@ impl Editor {
             if part.is_some_and(|f| f != k) {
                 continue;
             }
-            let mut grown = Block::boxed((frame.size + shift).max(hi - lo));
+            let mut grown = Block::boxed(size.unwrap_or((frame.size + shift).max(hi - lo)));
             grown.palette = frame.palette.clone();
             for k in 0..frame.voxels.len() {
                 let at = grown.index(frame.at(k) + shift).expect("inside the bigger box");
@@ -754,6 +782,9 @@ impl Editor {
                 Step::Block(i, before, self.blocks[i].clone())
             }
             Step::Model(before, _) => {
+                if let Some(m) = &mut self.model {
+                    m.list_new_colours();
+                }
                 if self.model.as_ref().is_none_or(|m| m.is(&before)) {
                     return;
                 }
@@ -763,6 +794,7 @@ impl Editor {
         self.save(&step);
         self.past.push(step);
         self.future.clear();
+        self.tuning = None;
     }
 
     /// Whether the tool is BOX or SPHERE (in a block or a model).
@@ -942,6 +974,7 @@ impl Editor {
     /// Takes the last step back.
     pub fn undo(&mut self) {
         self.release();
+        self.tuning = None;
         if let Some(step) = self.past.pop() {
             self.go(&step, false);
             self.future.push(step);
@@ -951,6 +984,7 @@ impl Editor {
     /// Takes the last step taken back again.
     pub fn redo(&mut self) {
         self.release();
+        self.tuning = None;
         if let Some(step) = self.future.pop() {
             self.go(&step, true);
             self.past.push(step);
@@ -1351,7 +1385,9 @@ impl Editor {
     }
 
     /// The model's box cut down to its voxels, every frame's alike (the
-    /// frames keep their places to each other); a step.
+    /// frames keep their places to each other, the model its pivot: it
+    /// stands on its lowest voxel); a figure's part's box alone, the part
+    /// staying where it stands. A step.
     pub fn trim(&mut self) {
         let part = self.part_mode();
         let mut bounds: Option<(IVec3, IVec3)> = None;
@@ -1362,17 +1398,26 @@ impl Editor {
             }
         }
         let Some((lo, hi)) = bounds else { return };
+        // Where the box shown moves to: the part's low corner, or the
+        // smallest box about the pivot.
+        let (shift, size) = match part {
+            Some(_) => (-lo, hi - lo + 1),
+            None => {
+                let p = crate::vvx::pivot(self.grid());
+                let size = super::frames::least(lo - p, hi - p);
+                (crate::vvx::pivot(size) - p - IVec3::Z * lo.z, size)
+            }
+        };
         if part.is_none() {
-            self.moved -= lo;
+            self.moved += shift;
         }
-        // A figure's part alone, staying where it stands.
         self.change_model_file(|m| {
-            m.parts.iter_mut().filter(|p| part == Some(p.frame)).for_each(|p| p.low += lo);
+            m.parts.iter_mut().filter(|p| part == Some(p.frame)).for_each(|p| p.low -= shift);
             for (_, frame) in m.frames.iter_mut().enumerate().filter(|&(k, _)| part.is_none_or(|f| f == k)) {
-                let mut cut = Block::boxed(hi - lo + 1);
+                let mut cut = Block::boxed(size);
                 cut.palette = frame.palette.clone();
                 for k in 0..cut.voxels.len() {
-                    cut.voxels[k] = frame.get(cut.at(k) + lo);
+                    cut.voxels[k] = frame.get(cut.at(k) - shift);
                 }
                 *frame = cut;
             }
@@ -1421,7 +1466,7 @@ impl Editor {
         }
     }
 
-    /// Where voxel 0, 0, 0 of what is shown stands in the figure's scene:
+    /// Where voxel 0, 0, 0 of what is shown stands from the model's pivot:
     /// the figure's low corner, or the chosen part's frame's.
     pub fn origin(&self) -> Option<IVec3> {
         match self.scope {
@@ -1523,7 +1568,7 @@ impl Editor {
         self.set_joint(Some(at));
     }
 
-    /// The chosen part's joint set by hand at `at` (in the scene), or
+    /// The chosen part's joint set by hand at `at` (from the pivot), or
     /// (None) where the rules find it; a step.
     pub fn set_joint(&mut self, at: Option<Vec3>) {
         let (Some(p), Some(figure)) = (self.chosen(), &self.figure) else { return };
@@ -1550,6 +1595,7 @@ impl Editor {
         let Some(model) = &mut self.model else { return };
         let before = model.shaped();
         change(model);
+        model.list_new_colours();
         if model.is(&before) {
             return;
         }
@@ -1557,6 +1603,46 @@ impl Editor {
         self.save(&step);
         self.past.push(step);
         self.future.clear();
+        self.tuning = None;
+    }
+
+    /// What the colour held is made of in the model (None without one).
+    pub fn material(&self) -> Option<crate::vvx::Mat> {
+        Some(self.model.as_ref()?.material(self.colour))
+    }
+
+    /// The colour held made of `mat` in the model; a step, joined to the
+    /// last if that set the same colour's material.
+    pub fn set_material(&mut self, mat: crate::vvx::Mat) {
+        let key = self.colour;
+        if self.material().is_none_or(|m| m == mat) {
+            return;
+        }
+        self.release();
+        let Some(model) = &mut self.model else { return };
+        let before = model.shaped();
+        model.set_material(key, mat);
+        let after = model.shaped();
+        let first = match self.past.last() {
+            Some(Step::Model(first, _)) if self.tuning == Some(key) => Some(first.clone()),
+            _ => None,
+        };
+        if first.is_some() {
+            self.past.pop();
+        }
+        let step = Step::Model(first.unwrap_or(before), after);
+        self.save(&step);
+        self.past.push(step);
+        self.future.clear();
+        self.tuning = Some(key);
+    }
+
+    /// A colour no voxel has any more taken out of the model's palette
+    /// (its sign goes with it); a step.
+    pub fn forget_colour(&mut self, key: [u8; 3]) {
+        self.change_model_file(|m| {
+            m.forget(key);
+        });
     }
 
     /// Saves what a step changed: the level, the block, or the model.
@@ -1567,7 +1653,7 @@ impl Editor {
         let done = match step {
             Step::Level(..) | Step::Delete(..) => self.level.save(&self.dir.join(&self.file)),
             Step::Block(i, ..) => self.blocks[*i].save(&blocks::path(&self.dir, &self.level.blocks[*i].name)),
-            Step::Model(..) => self.model.as_ref().map_or(Ok(()), ModelFile::save),
+            Step::Model(..) => self.model.as_mut().map_or(Ok(()), ModelFile::save),
         };
         self.message = done.err().map(|e| format!("{e:#}"));
     }
@@ -1988,23 +2074,14 @@ pub(crate) mod tests {
     }
 
     /// A model of two frames 3 by 2 by 5, a glass colour among its
-    /// colours.
+    /// colours: a column in the near row, its top glass in the first frame.
     fn model_folder(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("voxcade-editor-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let frame = |top: u8| dot_vox::Model {
-            size: dot_vox::Size { x: 3, y: 2, z: 5 },
-            voxels: (0..5).map(|z| dot_vox::Voxel { x: 1, y: 0, z, i: if z == 4 { top } else { 0 } }).collect(),
-        };
-        let mut palette = vec![dot_vox::Color { r: 0, g: 0, b: 0, a: 255 }; 256];
-        palette[0] = dot_vox::Color { r: 200, g: 40, b: 40, a: 255 };
-        palette[1] = dot_vox::Color { r: 120, g: 200, b: 255, a: 255 };
-        let glass = dot_vox::Material { id: 2, properties: [("_type".to_string(), "_glass".to_string()), ("_trans".to_string(), "0.5".to_string())].into() };
-        let data = dot_vox::DotVoxData { version: 150, index_map: Vec::new(), models: vec![frame(1), frame(0)], palette, materials: vec![glass], scenes: Vec::new(), layers: Vec::new() };
-        let mut bytes = Vec::new();
-        data.write_vox(&mut bytes).unwrap();
-        std::fs::write(dir.join("thing.vox"), bytes).unwrap();
+        let frame = |top: char| format!("[[frame]]\nlayers = \"\"\"\n{}...\n.{top}.\n\"\"\"\n", "...\n.a.\n\n".repeat(4));
+        let text = format!("format = \"{}\"\nsize = [3, 2, 5]\n\n[palette]\na = \"#c82828\"\nb = {{ color = \"#78c8ff\", glass = 0.5 }}\n\n{}\n{}", crate::vvx::FORMAT, frame('b'), frame('a'));
+        std::fs::write(dir.join("thing.vvx"), text).unwrap();
         dir
     }
 
@@ -2028,7 +2105,7 @@ pub(crate) mod tests {
     #[test]
     fn a_box_is_drawn_held_and_set() {
         let dir = model_folder("box");
-        let mut ed = Editor::open_model(&dir, "thing.vox").unwrap();
+        let mut ed = Editor::open_model(&dir, "thing.vvx").unwrap();
         ed.choose(Tool::Box);
         ed.colour = [10, 200, 10];
         // On top of the voxel at (1, 0, 4), dragged to x 3, two deep.
@@ -2039,23 +2116,25 @@ pub(crate) mod tests {
         ed.hold_drawn();
         assert_eq!(ed.held_form.map(|h| h.size), Some(IVec3::new(3, 1, 2)));
         ed.place_form(None, false, false);
-        assert_eq!(ed.grid(), IVec3::new(4, 2, 7), "grown right and up to hold it");
+        // Up, and across on both sides of the pivot (the model stands where
+        // it stood): its voxels a column to the right.
+        assert_eq!((ed.grid(), ed.moved), (IVec3::new(5, 2, 7), IVec3::X), "grown right and up to hold it");
         let frame = ed.shape().unwrap();
-        assert!((1..=3).all(|x| (5..=6).all(|z| frame.colour_at(IVec3::new(x, 0, z)) == Some([10, 200, 10]))));
+        assert!((2..=4).all(|x| (5..=6).all(|z| frame.colour_at(IVec3::new(x, 0, z)) == Some([10, 200, 10]))));
         assert_eq!(ed.steps(), 1);
         // Following the mouse: a 3 by 1 by 2 box centred on the face pointed
         // at, cut away with Ctrl (into the voxels).
         ed.let_form_follow();
-        let hit = Hit { cell: IVec3::new(2, 0, 6), normal: IVec3::Z };
-        assert_eq!(ed.form_box(Some(hit), true), Some((IVec3::new(1, 0, 5), IVec3::new(3, 0, 6))));
+        let hit = Hit { cell: IVec3::new(3, 0, 6), normal: IVec3::Z };
+        assert_eq!(ed.form_box(Some(hit), true), Some((IVec3::new(2, 0, 5), IVec3::new(4, 0, 6))));
         ed.place_form(Some(hit), true, false);
-        assert!((1..=3).all(|x| ed.shape().unwrap().get(IVec3::new(x, 0, 6)) == 0), "cut away");
+        assert!((2..=4).all(|x| ed.shape().unwrap().get(IVec3::new(x, 0, 6)) == 0), "cut away");
         ed.undo();
-        assert_eq!(ed.shape().unwrap().colour_at(IVec3::new(2, 0, 6)), Some([10, 200, 10]), "the cut taken back");
+        assert_eq!(ed.shape().unwrap().colour_at(IVec3::new(3, 0, 6)), Some([10, 200, 10]), "the cut taken back");
         // Shift: only where empty; the box's own voxels keep their colour.
         ed.colour = [255, 255, 0];
-        ed.place_form(Some(Hit { cell: IVec3::new(2, 0, 4), normal: IVec3::Z }), false, true);
-        assert_eq!(ed.shape().unwrap().colour_at(IVec3::new(2, 0, 5)), Some([10, 200, 10]));
+        ed.place_form(Some(Hit { cell: IVec3::new(3, 0, 4), normal: IVec3::Z }), false, true);
+        assert_eq!(ed.shape().unwrap().colour_at(IVec3::new(3, 0, 5)), Some([10, 200, 10]));
         // SYMMETRY: a voxel added at the left, its mirror at the right.
         ed.symmetry = true;
         ed.choose(Tool::Add);
@@ -2067,13 +2146,42 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A colour's material set by its words, a slider dragged one step
+    /// back; a colour no voxel has stays in the palette until taken out.
+    #[test]
+    fn a_colours_material_is_set_and_a_colour_taken_out() {
+        let dir = model_folder("material");
+        let mut ed = Editor::open_model(&dir, "thing.vvx").unwrap();
+        ed.colour = [200, 40, 40];
+        let m = ed.material().unwrap();
+        ed.set_material(super::super::frames::with_word(m, 1, 0.5));
+        ed.set_material(super::super::frames::with_word(ed.material().unwrap(), 1, 0.8));
+        assert_eq!(ed.steps(), 1, "one step for the slider");
+        let text = std::fs::read_to_string(dir.join("thing.vvx")).unwrap();
+        assert!(text.contains("a = { color = \"#c82828\", metal = 0.8, rough = 0.3 }"), "{text}");
+        ed.undo();
+        assert_eq!(ed.material(), Some(m));
+        assert!(std::fs::read_to_string(dir.join("thing.vvx")).unwrap().contains("a = \"#c82828\""));
+        // A new colour painted, then erased: it keeps its place, then goes.
+        ed.colour = [1, 2, 3];
+        ed.press(Hit { cell: IVec3::new(1, 0, 4), normal: IVec3::Z });
+        ed.release();
+        ed.choose(Tool::Remove);
+        ed.press(Hit { cell: IVec3::new(1, 0, 5), normal: IVec3::Z });
+        ed.release();
+        assert!(ed.colours().1.contains(&[1, 2, 3]) && std::fs::read_to_string(dir.join("thing.vvx")).unwrap().contains("#010203"));
+        ed.forget_colour([1, 2, 3]);
+        assert!(!ed.colours().1.contains(&[1, 2, 3]) && !std::fs::read_to_string(dir.join("thing.vvx")).unwrap().contains("#010203"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A model opens at its first frame, any size; ADD on its top grows
     /// its box (every frame's), frames are copied, taken out and turned,
     /// each a step saved at once; the file keeps its glass.
     #[test]
     fn a_model_of_any_size_is_edited_and_saved() {
         let dir = model_folder("model");
-        let mut ed = Editor::open_model(&dir, "thing.vox").unwrap();
+        let mut ed = Editor::open_model(&dir, "thing.vvx").unwrap();
         assert_eq!((ed.scope, ed.grid(), ed.frames().len()), (Scope::Frame(0), IVec3::new(3, 2, 5), 2));
         ed.colour = [200, 40, 40];
         ed.press(Hit { cell: IVec3::new(1, 0, 4), normal: IVec3::Z });
@@ -2092,10 +2200,10 @@ pub(crate) mod tests {
         ed.undo();
         assert_eq!(ed.grid(), IVec3::new(3, 2, 6));
         ed.trim();
-        assert_eq!(ed.grid(), IVec3::new(1, 1, 6), "cut to the voxels of both frames");
+        assert_eq!(ed.grid(), IVec3::new(1, 2, 6), "cut to the voxels of both frames, about the pivot (the near row of two)");
         // Saved: the model as the game reads it.
-        let back = crate::vox::load_model(&dir.join("thing.vox")).unwrap();
-        assert_eq!((back.frames.len(), back.size), (2, IVec3::new(1, 1, 6)));
+        let back = crate::vox::load_model(&dir.join("thing.vvx")).unwrap();
+        assert_eq!((back.frames.len(), back.size), (2, IVec3::new(1, 2, 6)));
         let top = back.frames[0].iter().find(|(p, _)| *p == IVec3::new(0, 0, 4)).unwrap().1;
         assert_eq!(top, [120, 200, 255, 128], "glass stays glass");
         assert!(back.frames[0].iter().any(|(p, c)| *p == IVec3::new(0, 0, 5) && c[3] == 255));
@@ -2104,7 +2212,7 @@ pub(crate) mod tests {
         ed.moved = IVec3::ZERO;
         ed.press(Hit { cell: IVec3::new(0, 0, 2), normal: IVec3::NEG_X });
         ed.release();
-        assert_eq!((ed.grid(), ed.moved), (IVec3::new(2, 1, 6), IVec3::X), "grown to the left");
+        assert_eq!((ed.grid(), ed.moved), (IVec3::new(2, 2, 6), IVec3::X), "grown to the left");
         let frame = ed.shape().unwrap();
         assert_eq!((frame.colour_at(IVec3::new(0, 0, 2)), frame.get(IVec3::new(1, 0, 2)) != 0), (Some([200, 40, 40]), true));
         let _ = std::fs::remove_dir_all(&dir);

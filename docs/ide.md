@@ -55,7 +55,7 @@ the earlier idea of separate editors that feel like a game (`engine.md`,
 | Memory | Per file: cursor, scroll, selection, undo. Per asset: camera, selection, tool. Unsaved buffers go crash-safe into a journal every 1 to 2 s. All of it in the user's config folder, never the game folder, like the settings. | `src/settings.rs` |
 | One save | A buffer goes to the journal at once, into the game's files after a short pause, always on play and build. The engine must take half-written Lua: the last good version keeps running, the error shows. | hot reload; errors halt (step 4) |
 | Lua editor | Highlighting, diagnostics, completion, hover docs, signature help, go to definition, references, rename, search in the project, formatting: all through LSP from LuaLS. | `lua/voxcade.lua`, `.luarc.json` (step 4) |
-| Voxel editor | Set, delete, paint, box, fill, mirror, the palette (glass `_trans` included), frames with onion skin, a preview in the engine's light. | dot_vox 5.2 writes (`write_vox`) |
+| Voxel editor | Set, delete, paint, box, fill, mirror, the palette (glass, metal, rough, glow on a colour), frames with onion skin, a preview in the engine's light. | `.vvx`, text (`src/vvx.rs`) |
 | Image editor (maps) | Raise, lower, smooth, flatten the height; paint material. Best right in the 3D level, the 2D image as a second view. | 8-bit grey = height in voxels (`src/map.rs`) |
 | Level editor | Ground, prefabs (quarter turns), things and markers by kind; writes `map.json`. | mouse and picking missing (phase 3 so far) |
 | Play | The engine's view in the main area, starting at the spot being edited. | offscreen rendering (`headless.rs`), `place_player` |
@@ -64,8 +64,8 @@ the earlier idea of separate editors that feel like a game (`engine.md`,
 | The IDE's MCP | The agent sees what the user sees and can show things. | `voxcade mcp` (step 4) |
 
 A sound is a file of the game, `sounds/NAME.toml` (a few numbers a line,
-in words shared with MML's instruments: `src/audio/words.rs`) or
-`sounds/NAME.wav`; over its text the sound maker (`src/ide/maker.rs`):
+in words shared with MML's instruments: `src/audio/words.rs`; no
+recordings, everything in a game is code or text); over its text the sound maker (`src/ide/maker.rs`):
 a kind of sound to pick, a dice that only gives good ones, a few named
 faders, all writing the text. Songs open as text (MML) with a play key. A library of background songs ships with
 the editor for games that need only something simple (`music/`, made by
@@ -250,7 +250,7 @@ What the research asked of step 4, and what came of it (2026-10-16):
 4. **`conf.lua` instead of `game.toml`**, run sandboxed and
    deterministically; the replays' fingerprint takes the effective
    settings and `main.lua` as tokens (comments and layout do not count).
-   Editors write data files (`map.json`, PNGs, `.vox`), not `conf.lua`;
+   Editors write data files (`map.json`, PNGs, `.vvx`), not `conf.lua`;
    should one ever need to, `full_moon` keeps comments and layout. Kinds of
    things are read through the engine (`level:things`, `Game::inspect`),
    never by parsing the file.
@@ -409,15 +409,28 @@ Stage by stage (the plan of 2026-10-18):
    windows of their own, on the IDE's GPU (`window::Gpu`), one a file,
    brought to the front when asked again; the editor's loop is a window
    type (`editor::EditorWindow`), `voxcade edit` runs one. The voxel
-   editor is the block editor on a model (`editor::frames::ModelFile`):
-   frames of any size (`blocks::Block` is a box now), PREV, NEXT, COPY,
-   DELETE, TURN for all frames, ADD beyond the box grows it, TRIM cuts it
-   to the voxels; glass and metal stay on their colours, MagicaVoxel's
-   layout stays while the frames keep their number and sizes. Every
-   game's models survive a save unchanged (a test). In the main area a
+   editor is the block editor on a model (`editor::frames::ModelFile`, a
+   `.vvx` as text: `vvx::read_shape`, `vvx::write_shape`): frames as big
+   as the model (`blocks::Block` is a box now), PREV, NEXT, COPY,
+   DELETE, TURN for all frames, ADD beyond the box grows it and TRIM cuts
+   it to the voxels, both about the model's pivot (it stands where it
+   stood); a figure's parts each in its own box, placed from the pivot,
+   shaped whole (FIGURE, `editor/figure.rs`). The palette keeps its signs:
+   a new colour takes the next free one, a colour no voxel has any more
+   stays (and keeps its sign) until a right click on it takes it out; the
+   held colour's material (GLASS, METAL, ROUGH, GLOW, 0 to 1) is a quiet
+   word beside the colour that opens to four sliders, a slider dragged
+   one step back. Every model, figure and block of the games and
+   templates written anew without a change is its text byte for byte (a
+   test); saved unchanged, a file is the bytes it was. A MagicaVoxel
+   `.vox` is not shaped: the editor says how to bring it in (`voxcade
+   import`, the upgrade page); nothing writes `.vox`. In the main area a
    picture of what an editor opens (`ide/preview.rs`): a model or block
-   round about, the level whole from the front, in the game's light,
-   turned by dragging; the editor's own view without its panels, drawn
+   round about (a figure of parts whole, a `.vox` world or prefab to look
+   at), the level whole from the front, in the game's light, turned by
+   dragging; a `.vvx` is text as well: TEXT beside EDIT shows it to read
+   and change as a sound's text, read after every change (`vvx::read`,
+   "LINE n: why"), PICTURE back; the editor's own view without its panels, drawn
    into a texture on the IDE's GPU only when it changed, fitted to the
    room. Back in the IDE (its window focused) the open file is read
    afresh. A model is seen as the game shows it as a run starts (the hero
@@ -431,8 +444,8 @@ Stage by stage (the plan of 2026-10-18):
    marks the line; inside a channel, its first line) and plays as it
    stands, at the game's music volume and the player's, through a speaker
    of its own; opening another file or playing the game ends it (test
-   `a_song_plays_until_something_else_is_open`). A sound (`sounds/NAME.toml`,
-   or a `.wav`) has its group SOUNDS, always there, with a plus; the
+   `a_song_plays_until_something_else_is_open`). A sound (`sounds/NAME.toml`)
+   has its group SOUNDS, always there, with a plus; the
    sounds the game brings from the engine and its rules are listed under
    them as "built in" and open read-only with MAKE IT YOURS. In the main
    area a sound is text to change under a line in words of what it is and
@@ -578,6 +591,23 @@ Stage by stage (the plan of 2026-10-18):
    the console unfolded) and COPY, gone once mended (tests
    `the_console_is_folded_until_wanted_and_remembered`,
    `the_games_error_shows_over_whatever_is_open`).
+12. **The upgrade page** (2026-11-12, the owner: a game of an older
+   Voxcade does not open until it is brought up to date, by a wizard):
+   opening such a game (OPEN, a folder, the launcher's EDIT and PLAY,
+   `voxcade ide GAME`) shows a calm page instead (`ide/wizard.rs`): the
+   Voxcade it was made for and this one, each step of `upgrade::standing`
+   with what it would do in its own words (the dry run), the version line
+   last; above UPGRADE and BACK a word when git has changes not committed
+   (save a step first; the upgrade commits nothing). UPGRADE runs on a
+   thread as BUILD does, then says what was done (COPY) or what went
+   wrong in red (COPY); then REFIT THE REPLAYS (`replay::refit_saying`,
+   as `voxcade check --refit`: written only if every replay plays as
+   recorded, each one's line shown) and OPEN THE GAME (or PLAY, from the
+   launcher's PLAY). A game made with a newer Voxcade gets a page saying
+   so and pointing to the update. `voxcade ide GAME --shot FILE` draws
+   the page, `--upgraded` as after UPGRADE run dry (nothing changed);
+   tests `the_wizard_brings_an_older_game_up_to_date`,
+   `a_dry_run_changes_nothing_and_replays_are_refitted`.
 
 ## Sources
 

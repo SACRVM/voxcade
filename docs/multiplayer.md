@@ -40,7 +40,7 @@ game whose runs travel as inputs, and a session one machine hosts.
   file at once, each one's cursor in their colour with their name. The
   host orders the edits (as Etherpad's server does); no CRDT library.
 - **Assets one at a time:** whoever edits a model, a level or a song has
-  it for the while ("Anna edits hero.vox"); saved, it reaches everyone.
+  it for the while ("Anna edits hero.vvx"); saved, it reaches everyone.
 - **The agent is the host's:** only the host drives it, in the host's
   Claude Code, and only the host answers its questions for permission.
   Everyone sees what it does.
@@ -1173,7 +1173,7 @@ simpler than a ticket):
   built), writes it through the one function and sends it to everyone;
   the saver's folder too is written from that answer. A save refused
   (the lock gone meanwhile) is kept beside the folder as
-  `hero.vox (Anna's)` and offered again once the lock is hers.
+  `hero.vvx (Anna's)` and offered again once the lock is hers.
 - **New, deleted and renamed files** are asks the host confirms; a JAM
   never creates a hidden name, `CLAUDE.md`, `CLAUDE.local.md`, `.claude/`
   or `.mcp.json` in the game folder (below).

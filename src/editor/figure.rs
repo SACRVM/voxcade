@@ -30,8 +30,8 @@ pub struct Figure {
     pub selected: Option<usize>,
     /// Parts left out of the picture (nothing saved).
     pub hidden: Vec<bool>,
-    /// Where its low corner (voxel 0, 0, 0 of `model`) stands in the
-    /// file's scene: what joints set by hand are written in.
+    /// Where its low corner (voxel 0, 0, 0 of `model`) stands from the
+    /// model's pivot, as the file places every part and joint.
     pub low: IVec3,
     /// The frames and parts it was made of, to know when to make it again.
     of: Shaped,
@@ -183,7 +183,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("voxcade-figure-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         crate::vox::write_figure(
-            &dir.join("figure.vox"),
+            &dir.join("figure.vvx"),
             &[
                 ("hand", IVec3::new(1, 2, 2), IVec3::new(7, 1, 0)),
                 ("body", IVec3::new(4, 4, 8), IVec3::ZERO),
@@ -192,6 +192,11 @@ mod tests {
                 ("scarf", IVec3::new(1, 4, 2), IVec3::new(4, 0, 7)),
             ],
         );
+        // Its rig left to the rules, as a figure made in Voxcade has it (the
+        // way in from MagicaVoxel writes some by hand).
+        let file = dir.join("figure.vvx");
+        let text = std::fs::read_to_string(&file).unwrap();
+        std::fs::write(&file, text.lines().filter(|l| !l.starts_with("parent =") && !l.starts_with("joint =")).map(|l| format!("{l}\n")).collect::<String>()).unwrap();
         dir
     }
 
@@ -200,7 +205,7 @@ mod tests {
     #[test]
     fn the_parts_are_listed_by_what_they_hang_on() {
         let dir = figure("list");
-        let f = Figure::of(&ModelFile::load(&dir.join("figure.vox")).unwrap()).unwrap().unwrap();
+        let f = Figure::of(&ModelFile::load(&dir.join("figure.vvx")).unwrap()).unwrap().unwrap();
         let _ = std::fs::remove_dir_all(&dir);
         let names: Vec<(&str, usize)> = f.tree.iter().map(|&(p, depth)| (f.parts()[p].name.as_str(), depth)).collect();
         assert_eq!(names, [("body", 0), ("arm", 1), ("hand", 2), ("head", 1), ("scarf", 1)]);
@@ -219,7 +224,7 @@ mod tests {
     #[test]
     fn a_figure_opens_whole_and_a_part_is_shaped_from_it() {
         let dir = figure("open");
-        let mut ed = Editor::open_model(&dir, "figure.vox").unwrap();
+        let mut ed = Editor::open_model(&dir, "figure.vvx").unwrap();
         let mut view = View::new(&ed, &crate::config::GameConfig::default());
         assert_eq!(ed.scope, Scope::Figure);
         assert_eq!(ed.grid(), ed.figure.as_ref().unwrap().model.size);
@@ -242,8 +247,12 @@ mod tests {
         assert_eq!((ed.scope, ed.figure.as_ref().unwrap().selected), (Scope::Figure, None));
         let _ = std::fs::remove_dir_all(&dir);
 
-        let frames = Editor::open_model(std::path::Path::new("games/voxkeep"), "bat.vox").unwrap();
+        // A model of frames: frames, no figure. A MagicaVoxel file is not
+        // shaped: it is said how to bring it in.
+        let frames = Editor::open_model(std::path::Path::new("games/voxkeep"), "bat.vvx").unwrap();
         assert!(frames.figure.is_none() && frames.scope == Scope::Frame(0));
+        let e = Editor::open_model(std::path::Path::new("games/moreblood"), "prefabs/palm_0.vox").err().unwrap().to_string();
+        assert!(e.contains("MagicaVoxel") && e.contains("voxcade import"), "{e}");
     }
 
     /// A part shaped changes the figure: it is made again from the frames
@@ -251,7 +260,7 @@ mod tests {
     #[test]
     fn the_figure_follows_its_frames() {
         let dir = figure("follow");
-        let mut ed = Editor::open_model(&dir, "figure.vox").unwrap();
+        let mut ed = Editor::open_model(&dir, "figure.vvx").unwrap();
         let mut view = View::new(&ed, &crate::config::GameConfig::default());
         act(&mut ed, &mut view, Action::Part(0));
         let before = ed.figure.as_ref().unwrap().model.frames[0].len();
@@ -291,9 +300,9 @@ mod tests {
     #[test]
     fn a_part_is_shaped_in_the_figure_and_stays_in_place() {
         let dir = figure("shape");
-        let file = dir.join("figure.vox");
+        let file = dir.join("figure.vvx");
         let before = on_disk(&file);
-        let mut ed = Editor::open_model(&dir, "figure.vox").unwrap();
+        let mut ed = Editor::open_model(&dir, "figure.vvx").unwrap();
         let mut view = View::new(&ed, &crate::config::GameConfig::default());
         let head = part(&ed, "head");
         act(&mut ed, &mut view, Action::Part(head));
@@ -313,8 +322,10 @@ mod tests {
             let now = &after[name];
             assert_eq!((&now.1, now.2, now.3), (parent, *joint, *set), "{name}'s rig");
             if name == "head" {
+                // Left of the head's low corner.
+                let low = voxels.iter().fold([i32::MAX; 3], |l, v| [l[0].min(v[0]), l[1].min(v[1]), l[2].min(v[2])]);
                 let mut grown = voxels.clone();
-                grown.push([-1, 0, 8]);
+                grown.push([low[0] - 1, low[1], low[2]]);
                 grown.sort();
                 assert_eq!(now.0, grown, "the head and its new voxel where they stand");
             } else {
@@ -336,20 +347,23 @@ mod tests {
     #[test]
     fn a_part_takes_room_another_part_holds_and_both_keep_theirs() {
         let dir = figure("overlap");
-        let file = dir.join("figure.vox");
+        let file = dir.join("figure.vvx");
         let before = on_disk(&file);
-        let mut ed = Editor::open_model(&dir, "figure.vox").unwrap();
+        let mut ed = Editor::open_model(&dir, "figure.vvx").unwrap();
         let mut view = View::new(&ed, &crate::config::GameConfig::default());
         let head = part(&ed, "head");
         act(&mut ed, &mut view, Action::Part(head));
-        // Down from the head's underside: the body's top voxel at 0, 0, 7.
+        // Down from the head's underside: the body's top voxel under the
+        // head's low corner.
         ed.press(Hit { cell: IVec3::ZERO, normal: IVec3::NEG_Z });
         ed.release();
         assert!(ed.hint.is_none(), "{:?}", ed.hint);
         let after = on_disk(&file);
         assert_eq!(after["body"].0, before["body"].0, "the body is unchanged");
-        assert!(after["head"].0.contains(&[0, 0, 7]) && after["body"].0.contains(&[0, 0, 7]), "both have a voxel there");
-        let again = Editor::open_model(&dir, "figure.vox").unwrap();
+        let low = before["head"].0.iter().fold([i32::MAX; 3], |l, v| [l[0].min(v[0]), l[1].min(v[1]), l[2].min(v[2])]);
+        let under = [low[0], low[1], low[2] - 1];
+        assert!(after["head"].0.contains(&under) && after["body"].0.contains(&under), "both have a voxel there");
+        let again = Editor::open_model(&dir, "figure.vvx").unwrap();
         let f = again.figure.as_ref().unwrap();
         let (head, body) = (part(&again, "head"), part(&again, "body"));
         assert_eq!(f.parts()[head].overlaps, vec![(body, 1)]);
@@ -364,8 +378,8 @@ mod tests {
     #[test]
     fn a_parent_and_a_joint_are_set_by_hand_and_kept() {
         let dir = figure("rig");
-        let file = dir.join("figure.vox");
-        let mut ed = Editor::open_model(&dir, "figure.vox").unwrap();
+        let file = dir.join("figure.vvx");
+        let mut ed = Editor::open_model(&dir, "figure.vvx").unwrap();
         let mut view = View::new(&ed, &crate::config::GameConfig::default());
         let (arm, head) = (part(&ed, "arm"), part(&ed, "head"));
         let was = on_disk(&file)["arm"].clone();
@@ -383,7 +397,7 @@ mod tests {
         assert_eq!((set.1.as_deref(), set.3), (Some("head"), true));
         let on_head = {
             // Where the rules join the arm to the head, then moved.
-            let mut back = Editor::open_model(&dir, "figure.vox").unwrap();
+            let mut back = Editor::open_model(&dir, "figure.vvx").unwrap();
             let mut v = View::new(&back, &crate::config::GameConfig::default());
             let arm = part(&back, "arm");
             act(&mut back, &mut v, Action::Part(arm));
@@ -394,7 +408,7 @@ mod tests {
         // Read again: the same figure (the file as the steps left it).
         act(&mut ed, &mut view, Action::Joint(2, -1));
         act(&mut ed, &mut view, Action::Joint(2, 1));
-        let again = Editor::open_model(&dir, "figure.vox").unwrap();
+        let again = Editor::open_model(&dir, "figure.vvx").unwrap();
         assert_eq!(on_disk(&file)["arm"], set);
         assert_eq!(again.figure.as_ref().unwrap().parts()[arm].joint, ed.figure.as_ref().unwrap().parts()[arm].joint);
         // Every step back: the arm on the body again by the rules.

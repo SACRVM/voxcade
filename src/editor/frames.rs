@@ -1,60 +1,67 @@
-//! A model's file as the editor shapes it: its frames, each a box of
-//! voxels (`Block`, of any size), and what the file holds besides. Glass
-//! and metal (MagicaVoxel's materials) stay on the colours they were on;
-//! MagicaVoxel's layout of the frames stays while they are as many and as
-//! big as it was made for, else they are laid out anew side by side, as
-//! the generators do. Voxels a file holds outside its frame's box (a
-//! generator's slip; the game draws them) widen the box rather than being
-//! lost; of a voxel there twice the first stays, as the game shows it.
+//! A model's file as the editor shapes it: Voxcade's own text, `.vvx`
+//! (`crate::vvx`), read and written through `vvx::read_shape` and
+//! `vvx::write_shape`. What it holds: the palette (each colour with the
+//! sign the file gives it and its material: glass, metal, rough, glow),
+//! and the frames, each a box of voxels (`Block`) as big as the model, or
+//! a figure's parts, each a box of its own placed from the model's pivot
+//! (`Placed`), with the parent and joint set by hand.
 //!
-//! A figure of parts (its objects named, `vox::Part`) keeps its scene
-//! whatever happens to its parts' boxes: each part stays where it stands
-//! (`Placed::low`; its translation written anew to match its box), so the
-//! file stays a figure with every part in its place, and the parent and
-//! joint set by hand are written onto the part's node (`_parent`,
-//! `_joint`).
+//! Saved, a file changes only where it must: the signs it had stay (a new
+//! colour takes the next free one; a colour no voxel has any more keeps
+//! its sign until it is taken out of the palette), every place is from
+//! the pivot (a part that grows changes the model's size and its own
+//! `at`, never another part's), and a file saved as it was read is the
+//! text it was, byte for byte. MagicaVoxel's `.vox` is never written: a
+//! `.vox` model is brought in first (`voxcade import`, `voxcade upgrade`).
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, anyhow, bail};
-use dot_vox::{DotVoxData, SceneNode};
+use anyhow::{Result, anyhow};
 use glam::{IVec3, Vec3};
 
 use crate::blocks::Block;
+use crate::vvx::{self, Mat, Palette, Piece, Shape};
 
 /// A model file being shaped.
 #[derive(Clone)]
 pub struct ModelFile {
     /// Where it lies.
     pub path: PathBuf,
+    /// The palette: every colour the frames may hold, in the file's order.
+    pub palette: Vec<Colour>,
+    /// A figure's box (the frames' boxes are the model's for frames): what
+    /// the file says, grown when a part reaches out of it.
+    pub size: IVec3,
     pub frames: Vec<Block>,
-    /// The materials that are not plain (glass, metal, ...), by the colour
-    /// they were on.
-    materials: Vec<([u8; 3], dot_vox::Dict)>,
-    /// MagicaVoxel's scene and layers, and the frames' sizes they were
-    /// made for.
-    scenes: Vec<SceneNode>,
-    layers: Vec<dot_vox::Layer>,
-    laid_out: Vec<IVec3>,
-    /// The file as it was read and its frames as they came of it: saved
-    /// unchanged it is those bytes again (a figure's joints may hang on
-    /// the order of its voxels, `vox::Hung::Nearest`).
-    bytes: Vec<u8>,
-    loaded: Vec<Block>,
-    /// Each frame's voxels in the order the file had them: changed, a
-    /// frame keeps that order for the voxels it still has.
-    order: Vec<Vec<IVec3>>,
-    /// A figure's parts as the scene places them and as their rig is set
-    /// by hand (none for a model of frames), and as they were read.
+    /// A figure's parts, each made of the frame of its place (none for a
+    /// model of frames).
     pub parts: Vec<Placed>,
-    loaded_parts: Vec<Placed>,
+    /// A MagicaVoxel file, shown only (the IDE's picture): never saved.
+    pub foreign: bool,
+    /// The text as it was read, and the model as it came of it: saved as
+    /// it came, the text it was.
+    text: String,
+    loaded: Shaped,
+    /// The signs of the text last read or written: a colour keeps its sign
+    /// from one save to the next.
+    signs: Palette,
 }
 
-/// A part of a figure as its file places it: its name, the frame (model)
-/// it is made of, where that frame's voxel 0, 0, 0 stands in the scene
-/// (`vox::Part`'s space, the translations above added in), the parent
-/// and joint set by hand (the joint in the scene too), and the nodes it
-/// is written to.
+/// A colour of the model: its colour in the frames (`key`, the colour as
+/// it is but for a second entry of the same colour in another material,
+/// which is a step off so that each has its own), the sign the file gave
+/// it (none for a new one: the next free when written) and what the file
+/// makes of it (its true colour and material).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Colour {
+    pub key: [u8; 3],
+    pub sign: Option<String>,
+    pub mat: Mat,
+}
+
+/// A part of a figure: its name, the frame it is made of, where that
+/// frame's voxel 0, 0, 0 stands from the model's pivot (the file's `at`),
+/// and the parent and joint (from the pivot) set by hand.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Placed {
     pub name: String,
@@ -62,73 +69,125 @@ pub struct Placed {
     pub low: IVec3,
     pub parent: Option<String>,
     pub joint: Option<Vec3>,
-    /// The node carrying its name (and its rig), the one whose `_t` places
-    /// it, and the translations above that one.
-    named: usize,
-    placed: usize,
-    above: IVec3,
 }
 
-/// What of a model file an editor's step takes and gives back: its frames
-/// and a figure's parts as placed and rigged.
+/// What of a model file an editor's step takes and gives back: its
+/// frames, a figure's parts as placed and rigged, its box and palette.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Shaped {
     pub frames: Vec<Block>,
     pub parts: Vec<Placed>,
+    pub size: IVec3,
+    pub palette: Vec<Colour>,
+}
+
+/// A material plain: the colour alone.
+pub fn plain(c: [u8; 3]) -> Mat {
+    Mat { rgba: [c[0], c[1], c[2], 255], metal: 0, glow: 0 }
+}
+
+/// A material's words as the palette writes them (`crate::vvx`): GLASS
+/// (how much it lets through), METAL, ROUGH (how dull its mirror is: of
+/// metal or glass) and GLOW, each 0 to 1. ROUGH of a colour that mirrors
+/// nothing yet is the reader's 0.3.
+pub const WORDS: [&str; 4] = ["GLASS", "METAL", "ROUGH", "GLOW"];
+
+pub fn words(m: Mat) -> [f32; 4] {
+    let glass = if m.rgba[3] == 255 { 0.0 } else { 1.0 - m.rgba[3] as f32 / 255.0 };
+    let rough = if m.metal == 0 { 0.3 } else { 1.0 - (m.metal & 15) as f32 / 15.0 };
+    [glass, (m.metal >> 4) as f32 / 15.0, rough, m.glow as f32 / 255.0]
+}
+
+/// `m` with its word `which` (of `WORDS`) set to `v`: a colour that is
+/// neither metal nor glass mirrors nothing, whatever ROUGH says.
+pub fn with_word(m: Mat, which: usize, v: f32) -> Mat {
+    let [glass, metal, rough, _] = words(m);
+    let mut out = m;
+    match which {
+        0 => out.rgba[3] = if v <= 0.0 { 255 } else { vvx::alpha_of(v) },
+        3 => out.glow = vvx::glow_of(v),
+        _ => {
+            let (metal, rough) = if which == 1 { (v, rough) } else { (metal, v) };
+            let mirrors = metal > 0.0 || (glass > 0.0 && (which == 2 || m.metal != 0));
+            out.metal = if mirrors { crate::vox::metal::pack(metal, 1.0 - rough) } else { 0 };
+        }
+    }
+    out
+}
+
+/// The plain words for opening a MagicaVoxel model in the editor.
+fn bring_it_in(path: &Path) -> anyhow::Error {
+    let name = path.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
+    anyhow!(
+        "{name} is a MagicaVoxel file. The editor shapes Voxcade's own models (.vvx, text): `voxcade import <game> {name}` brings it in as {} (the IDE's upgrade does a whole game). A world or a map's prefab stays .vox: shape that in MagicaVoxel.",
+        path.with_extension(vvx::EXTENSION).file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned())
+    )
 }
 
 impl ModelFile {
+    /// The `.vvx` at `path`, to shape; a `.vox` is refused in plain words.
     pub fn load(path: &Path) -> Result<Self> {
-        let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
-        let data = dot_vox::load_bytes(&bytes).map_err(|e| anyhow!("{}: {e}", path.display()))?;
-        if data.models.is_empty() {
-            bail!("{}: contains no model", path.display());
+        if !vvx::is_model(path) {
+            return Err(bring_it_in(path));
         }
-        let rgb = |i: usize| data.palette.get(i).map_or([0; 3], |c| [c.r, c.g, c.b]);
-        let frames: Vec<Block> = data
-            .models
-            .iter()
-            .map(|m| {
-                let at = |v: &dot_vox::Voxel| IVec3::new(v.x as i32, v.y as i32, v.z as i32);
-                let size = m.voxels.iter().fold(IVec3::new(m.size.x as i32, m.size.y as i32, m.size.z as i32), |s, v| s.max(at(v) + 1));
-                let mut block = Block::boxed(size);
-                block.palette = (0..255).map(rgb).collect();
-                for v in &m.voxels {
-                    // A voxel twice in one place: the first, which the
-                    // game shows (drawn first, it keeps its place).
-                    if let Some(k) = block.index(at(v))
-                        && block.voxels[k] == 0
-                    {
-                        block.voxels[k] = v.i.saturating_add(1);
-                    }
+        let text = std::fs::read_to_string(path).map_err(|e| anyhow!("reading {}: {e}", path.display()))?;
+        let (shape, palette) = vvx::read_shape(&text).map_err(|e| anyhow!("{}: {e}", path.display()))?;
+        Ok(Self::of(path, &shape, &palette, text, false))
+    }
+
+    /// The model at `path` to look at, a `.vox` too (a world, a prefab or a
+    /// model not brought in yet): never saved.
+    pub fn look(path: &Path) -> Result<Self> {
+        if vvx::is_model(path) {
+            return Self::load(path);
+        }
+        let model = crate::vox::import_model(path)?;
+        let text = vvx::convert(&model, &Palette::default()).map_err(|e| anyhow!("{}: {e}", path.display()))?.text;
+        let (shape, palette) = vvx::read_shape(&text)?;
+        Ok(Self::of(path, &shape, &palette, String::new(), true))
+    }
+
+    /// The model a text's shape holds, each colour its own key.
+    fn of(path: &Path, shape: &Shape, palette: &Palette, text: String, foreign: bool) -> Self {
+        let mut colours: Vec<Colour> = Vec::new();
+        fn key_of(mat: Mat, sign: Option<&String>, colours: &mut Vec<Colour>) -> [u8; 3] {
+            if let Some(c) = colours.iter().find(|c| c.mat == mat) {
+                return c.key;
+            }
+            let key = free_key(colours, [mat.rgba[0], mat.rgba[1], mat.rgba[2]]);
+            colours.push(Colour { key, sign: sign.cloned(), mat });
+            key
+        }
+        for (sign, mat) in palette.entries() {
+            key_of(*mat, Some(sign), &mut colours);
+        }
+        let pivot = vvx::pivot(shape.size);
+        let (mut frames, mut parts) = (Vec::new(), Vec::new());
+        for (i, piece) in shape.pieces.iter().enumerate() {
+            let (low, size) = if shape.parted {
+                let lo = piece.voxels.iter().map(|v| v.0).reduce(IVec3::min);
+                let hi = piece.voxels.iter().map(|v| v.0).reduce(IVec3::max);
+                match (lo, hi) {
+                    (Some(lo), Some(hi)) => (lo, hi - lo + 1),
+                    _ => (-pivot, IVec3::ONE),
                 }
-                block.compact();
-                block
-            })
-            .collect();
-        // A material's number is its colour's in the palette, from 1.
-        let materials = data
-            .materials
-            .iter()
-            .filter(|m| m.material_type().is_some_and(|t| t != "_diffuse") && m.id >= 1)
-            .map(|m| (rgb(m.id as usize - 1), m.properties.clone()))
-            .collect();
-        let laid_out = frames.iter().map(|f| f.size).collect();
-        let order = data.models.iter().map(|m| m.voxels.iter().map(|v| IVec3::new(v.x as i32, v.y as i32, v.z as i32)).collect()).collect();
-        // A figure's parts where the game puts them (`vox::figure_of`); a
-        // joint the file cannot read is left for the figure to say.
-        let parts: Vec<Placed> = crate::vox::named_objects(&data)
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|o| o.model < data.models.len())
-            .map(|o| {
-                let s = data.models[o.model].size;
-                let half = IVec3::new(s.x as i32 / 2, s.y as i32 / 2, s.z as i32 / 2);
-                let joint = o.joint.as_deref().and_then(crate::vox::read_joint).map(|j| j + o.above.as_vec3());
-                Placed { name: o.name, frame: o.model, low: o.at - half, parent: o.parent, joint, named: o.named, placed: o.placed, above: o.above }
-            })
-            .collect();
-        Ok(Self { path: path.to_path_buf(), loaded: frames.clone(), frames, materials, scenes: data.scenes, layers: data.layers, laid_out, bytes, order, loaded_parts: parts.clone(), parts })
+            } else {
+                (-pivot, shape.size)
+            };
+            let mut block = Block::boxed(size);
+            for &(v, mat) in &piece.voxels {
+                let key = key_of(mat, None, &mut colours);
+                // (A block holds 255 colours; a frame of more is shown
+                // without the rest.)
+                let _ = block.set(v - low, Some(key));
+            }
+            frames.push(block);
+            if shape.parted {
+                parts.push(Placed { name: piece.name.clone(), frame: i, low, parent: piece.parent.clone(), joint: piece.joint });
+            }
+        }
+        let loaded = Shaped { frames: frames.clone(), parts: parts.clone(), size: shape.size, palette: colours.clone() };
+        Self { path: path.to_path_buf(), palette: colours, size: shape.size, frames, parts, foreign, signs: Palette::of_text(&text), text, loaded }
     }
 
     /// A new model to begin with (the IDE's NEW MODEL): one frame, 8 voxels
@@ -143,40 +202,45 @@ impl ModelFile {
                 }
             }
         }
-        Self { path: path.to_path_buf(), laid_out: vec![frame.size], frames: vec![frame], materials: Vec::new(), scenes: Vec::new(), layers: Vec::new(), bytes: Vec::new(), loaded: Vec::new(), order: Vec::new(), parts: Vec::new(), loaded_parts: Vec::new() }
+        let palette = vec![Colour { key: [204, 112, 72], sign: None, mat: plain([204, 112, 72]) }];
+        let loaded = Shaped::default();
+        Self { path: path.to_path_buf(), palette, size: frame.size, frames: vec![frame], parts: Vec::new(), foreign: false, text: String::new(), loaded, signs: Palette::default() }
     }
 
-    /// Its frames and parts as a step keeps them.
+    /// Its frames, parts, box and palette as a step keeps them.
     pub fn shaped(&self) -> Shaped {
-        Shaped { frames: self.frames.clone(), parts: self.parts.clone() }
+        Shaped { frames: self.frames.clone(), parts: self.parts.clone(), size: self.size, palette: self.palette.clone() }
     }
 
-    /// Its frames and parts as a step gives them back.
+    /// Its frames, parts, box and palette as a step gives them back.
     pub fn reshape(&mut self, to: &Shaped) {
         self.frames = to.frames.clone();
         self.parts = to.parts.clone();
+        self.size = to.size;
+        self.palette = to.palette.clone();
     }
 
     /// Whether it is as `shaped` holds it.
     pub fn is(&self, shaped: &Shaped) -> bool {
-        self.frames == shaped.frames && self.parts == shaped.parts
+        self.frames == shaped.frames && self.parts == shaped.parts && self.size == shaped.size && self.palette == shaped.palette
     }
 
-    /// It is a figure of parts (its objects named): its frames are its
-    /// parts, not frames of a walk.
+    /// It is a figure of parts: its frames are its parts, not frames of a
+    /// walk.
     pub fn parted(&self) -> bool {
         !self.parts.is_empty()
     }
 
-    /// Where voxel 0, 0, 0 of frame `f` stands in the scene (a figure's
-    /// part; the first part made of it).
+    /// Where voxel 0, 0, 0 of frame `f` stands from the pivot (a figure's
+    /// part).
     pub fn origin(&self, f: usize) -> Option<IVec3> {
         self.parts.iter().find(|p| p.frame == f).map(|p| p.low)
     }
 
-    /// Every colour of its frames, each once, in the order they come.
+    /// Every colour: the palette's (used or not), then any a frame holds
+    /// that the palette lacks.
     pub fn colours(&self) -> Vec<[u8; 3]> {
-        let mut all = Vec::new();
+        let mut all: Vec<[u8; 3]> = self.palette.iter().map(|c| c.key).collect();
         for c in self.frames.iter().flat_map(Block::colours) {
             if !all.contains(&c) {
                 all.push(c);
@@ -185,263 +249,316 @@ impl ModelFile {
         all
     }
 
-    /// Writes it at once (`save_at_once`), its colours in one palette; as
-    /// it was read if its frames are as they came.
-    pub fn save(&self) -> Result<()> {
-        if self.unchanged() {
-            return crate::blocks::save_at_once(&self.path, &self.bytes);
-        }
-        let mut bytes = Vec::new();
-        self.data()?.write_vox(&mut bytes)?;
-        crate::blocks::save_at_once(&self.path, &bytes)
+    /// Whether a voxel of some frame has the colour `key`.
+    pub fn uses(&self, key: [u8; 3]) -> bool {
+        self.frames.iter().any(|f| f.colours().contains(&key))
     }
 
-    /// Its frames are as they came of the file.
-    fn unchanged(&self) -> bool {
-        !self.bytes.is_empty() && self.frames == self.loaded && self.parts == self.loaded_parts
+    /// What the colour `key` is in the file: its entry's, else plain.
+    pub fn material(&self, key: [u8; 3]) -> Mat {
+        self.palette.iter().find(|c| c.key == key).map_or_else(|| plain(key), |c| c.mat)
+    }
+
+    /// The colour `key` made of `mat` (its true colour stays the key's own
+    /// when the entry had none); an entry of the palette from now on.
+    pub fn set_material(&mut self, key: [u8; 3], mat: Mat) {
+        match self.palette.iter_mut().find(|c| c.key == key) {
+            Some(c) => c.mat = mat,
+            None => self.palette.push(Colour { key, sign: None, mat }),
+        }
+    }
+
+    /// The colour `key` taken out of the palette, if no voxel has it.
+    pub fn forget(&mut self, key: [u8; 3]) -> bool {
+        if self.uses(key) {
+            return false;
+        }
+        let before = self.palette.len();
+        self.palette.retain(|c| c.key != key);
+        self.palette.len() != before
+    }
+
+    /// The colours the frames hold that the palette lacks, put in it
+    /// (plain), so that they keep their place when no voxel has them any
+    /// more (the editor, after every step).
+    pub fn list_new_colours(&mut self) {
+        for c in self.colours() {
+            if !self.palette.iter().any(|p| p.key == c) {
+                self.palette.push(Colour { key: c, sign: None, mat: plain(c) });
+            }
+        }
+    }
+
+    /// What the file says now (`Shape`): a figure's box grown to hold
+    /// every part about the same pivot (raised, every part alike, when one
+    /// reaches under the floor), the voxels in the text's reading order.
+    pub fn shape(&self) -> Shape {
+        if !self.parted() {
+            let size = self.frames.iter().map(|f| f.size).fold(IVec3::ONE, IVec3::max);
+            let pivot = vvx::pivot(size);
+            let pieces = self.frames.iter().map(|f| Piece { voxels: self.reading(f, -pivot), ..Piece::default() }).collect();
+            return Shape { size, parted: false, pieces };
+        }
+        let (raise, size) = self.fitted();
+        let pieces = self
+            .parts
+            .iter()
+            .map(|p| {
+                let frame = self.frames.get(p.frame);
+                let voxels = frame.map_or_else(Vec::new, |f| self.reading(f, p.low + raise));
+                Piece { name: p.name.clone(), voxels, parent: p.parent.clone(), joint: p.joint.map(|j| j + raise.as_vec3()) }
+            })
+            .collect();
+        Shape { size, parted: true, pieces }
+    }
+
+    /// A figure's raise (when a part reaches under the floor) and its box:
+    /// the file's, grown to hold every part's voxels about its pivot.
+    fn fitted(&self) -> (IVec3, IVec3) {
+        let mut bounds: Option<(IVec3, IVec3)> = None;
+        for p in &self.parts {
+            if let Some(f) = self.frames.get(p.frame) {
+                for k in (0..f.voxels.len()).filter(|&k| f.voxels[k] != 0) {
+                    let v = f.at(k) + p.low;
+                    bounds = Some(bounds.map_or((v, v), |(lo, hi)| (lo.min(v), hi.max(v))));
+                }
+            }
+        }
+        let Some((lo, hi)) = bounds else { return (IVec3::ZERO, self.size) };
+        let raise = IVec3::Z * (-lo.z).max(0);
+        (raise, fit(self.size, lo + raise, hi + raise))
+    }
+
+    /// A box's voxels from its `low` corner (from the pivot), in the
+    /// text's reading order: layer by layer from the bottom, rows far to
+    /// near, left to right; each with its material.
+    fn reading(&self, f: &Block, low: IVec3) -> Vec<(IVec3, Mat)> {
+        let s = f.size;
+        let mut out = Vec::new();
+        for z in 0..s.z {
+            for y in (0..s.y).rev() {
+                for x in 0..s.x {
+                    let p = IVec3::new(x, y, z);
+                    if let Some(c) = f.colour_at(p) {
+                        out.push((p + low, self.material(c)));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// The palette to write with: each colour with its sign (a new one's
+    /// the sign the text last written gave it, if any), in the palette's
+    /// order.
+    fn kept(&self) -> Palette {
+        let mut entries: Vec<(String, Mat)> = Vec::new();
+        for c in &self.palette {
+            let sign = c.sign.clone().or_else(|| self.signs.entries().iter().find(|(s, m)| *m == c.mat && !self.palette.iter().any(|o| o.sign.as_ref() == Some(s))).map(|(s, _)| s.clone()));
+            if let Some(sign) = sign.filter(|s| !entries.iter().any(|(k, _)| k == s)) {
+                entries.push((sign, c.mat));
+            }
+        }
+        Palette::new(entries)
+    }
+
+    /// The text it would be saved as: the text it was read from while it
+    /// is as it came, else written anew.
+    pub fn text(&self) -> String {
+        if !self.text.is_empty() && self.is(&self.loaded) {
+            return self.text.clone();
+        }
+        self.write_text()
+    }
+
+    /// The text written anew from what it holds (`text` without the
+    /// shortcut).
+    pub fn write_text(&self) -> String {
+        vvx::write_shape(&self.shape(), &self.kept(), true)
+    }
+
+    /// Writes it at once (`blocks::save_at_once`).
+    pub fn save(&mut self) -> Result<()> {
+        if self.foreign {
+            return Err(bring_it_in(&self.path));
+        }
+        let text = self.text();
+        crate::blocks::save_at_once(&self.path, text.as_bytes())?;
+        self.signs = Palette::of_text(&text);
+        Ok(())
     }
 
     /// A figure of parts as the game would make it of the file saved now
-    /// (`vox::figure_of`): the model, each part's frame and where the
-    /// figure's low corner stands in the scene; None for a model of frames.
+    /// (`vvx::model_of`): the model, each part's frame and where the
+    /// figure's low corner (voxel 0, 0, 0 of the model) stands from the
+    /// pivot; None for a model of frames.
     pub fn figure(&self) -> Option<Result<(crate::vox::VoxModel, Vec<usize>, IVec3)>> {
-        let data = match self.data() {
-            Ok(data) => data,
-            Err(e) => return Some(Err(e)),
-        };
-        crate::vox::figure_of(&data, &self.path)
-    }
-
-    /// What the file holds as it would be saved now.
-    fn data(&self) -> Result<DotVoxData> {
-        if self.unchanged() {
-            return dot_vox::load_bytes(&self.bytes).map_err(|e| anyhow!("{}: {e}", self.path.display()));
+        if !self.parted() {
+            return None;
         }
-        let colours = self.colours();
-        if colours.len() > 255 {
-            bail!("a model holds at most 255 colours, this one {}", colours.len());
+        let shape = self.shape();
+        let names: Vec<&str> = shape.pieces.iter().map(|p| p.name.as_str()).collect();
+        if let Some((p, q)) = shape.pieces.iter().find_map(|p| p.parent.as_deref().filter(|q| !names.contains(q)).map(|q| (&p.name, q))) {
+            return Some(Err(anyhow!("part '{p}' hangs on '{q}', but no part is called so")));
         }
-        // The voxels in the order the file had them, then the new ones (the
-        // frames as many as they were).
-        let kept = |k: usize| if self.order.len() == self.frames.len() { self.order[k].as_slice() } else { &[] };
-        let models = self
-            .frames
-            .iter()
-            .enumerate()
-            .map(|(k, f)| {
-                let mut written = crate::world::CellSet::default();
-                let voxels = kept(k)
-                    .iter()
-                    .copied()
-                    .chain((0..f.voxels.len()).map(|k| f.at(k)))
-                    .filter_map(|p| {
-                        let c = f.colour_at(p)?;
-                        if !written.insert(p) {
-                            return None;
-                        }
-                        let i = colours.iter().position(|&o| o == c).expect("every colour listed") as u8;
-                        Some(dot_vox::Voxel { x: p.x as u8, y: p.y as u8, z: p.z as u8, i })
-                    })
-                    .collect();
-                dot_vox::Model { size: dot_vox::Size { x: f.size.x as u32, y: f.size.y as u32, z: f.size.z as u32 }, voxels }
-            })
-            .collect();
-        let mut palette = vec![dot_vox::Color { r: 0, g: 0, b: 0, a: 255 }; 256];
-        for (entry, &[r, g, b]) in palette.iter_mut().zip(&colours) {
-            *entry = dot_vox::Color { r, g, b, a: 255 };
-        }
-        let materials = colours
-            .iter()
-            .enumerate()
-            .filter_map(|(i, c)| self.materials.iter().find(|(m, _)| m == c).map(|(_, p)| dot_vox::Material { id: i as u32 + 1, properties: p.clone() }))
-            .collect();
-        let sizes: Vec<IVec3> = self.frames.iter().map(|f| f.size).collect();
-        let (scenes, layers) = if self.parted() {
-            (self.placed_scenes(), self.layers.clone())
-        } else if sizes == self.laid_out {
-            (self.scenes.clone(), self.layers.clone())
-        } else {
-            layout(&sizes)
-        };
-        Ok(DotVoxData { version: 150, index_map: Vec::new(), models, palette, materials, scenes, layers })
-    }
-
-    /// A figure's scene as it stands now: each part's translation such
-    /// that its voxels stand where they stood (`Placed::low`, whatever its
-    /// box became), its parent and joint set by hand written on it, or
-    /// taken off.
-    fn placed_scenes(&self) -> Vec<SceneNode> {
-        let mut scenes = self.scenes.clone();
-        for part in &self.parts {
-            let s = self.frames.get(part.frame).map_or(IVec3::ZERO, |f| f.size);
-            let t = part.low + s / 2 - part.above;
-            if let Some(SceneNode::Transform { frames, .. }) = scenes.get_mut(part.placed) {
-                if frames.is_empty() {
-                    frames.push(dot_vox::Frame::new(Default::default()));
-                }
-                let was = frames[0].position().map(|p| IVec3::new(p.x, p.y, p.z));
-                if was != Some(t) {
-                    frames[0].attributes.insert("_t".into(), format!("{} {} {}", t.x, t.y, t.z));
-                }
-            }
-            if let Some(SceneNode::Transform { attributes, .. }) = scenes.get_mut(part.named) {
-                match &part.parent {
-                    Some(name) => attributes.insert("_parent".into(), name.clone()),
-                    None => attributes.remove("_parent"),
-                };
-                match part.joint {
-                    Some(j) => attributes.insert("_joint".into(), crate::vox::write_joint(j - part.above.as_vec3())),
-                    None => attributes.remove("_joint"),
-                };
-            }
-        }
-        scenes
+        let (raise, _) = self.fitted();
+        let model = vvx::model_of(&shape);
+        let frames = self.parts.iter().map(|p| p.frame).collect();
+        Some(Ok((model, frames, -vvx::pivot(shape.size) - raise)))
     }
 }
 
-/// MagicaVoxel's scene for frames `sizes` big: side by side along x, two
-/// voxels apart, standing on the ground (none for a single frame).
-fn layout(sizes: &[IVec3]) -> (Vec<SceneNode>, Vec<dot_vox::Layer>) {
-    if sizes.len() < 2 {
-        return (Vec::new(), Vec::new());
+/// The box `size` grown (never shrunk) to hold `lo` to `hi` (from its
+/// pivot, z from the floor up) about the same pivot: across and deep
+/// on both sides of it as needed.
+pub fn fit(size: IVec3, lo: IVec3, hi: IVec3) -> IVec3 {
+    let mut size = size.max(IVec3::ONE);
+    for a in 0..2 {
+        while -(size[a] / 2) > lo[a] || size[a] - size[a] / 2 - 1 < hi[a] {
+            size[a] += 1;
+        }
     }
-    let dict = |pairs: &[(&str, String)]| pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect::<dot_vox::Dict>();
-    let ids: Vec<u32> = (0..sizes.len() as u32).map(|k| 2 + 2 * k).collect();
-    let mut scenes = vec![
-        SceneNode::Transform { attributes: dict(&[]), frames: vec![dot_vox::Frame::new(dict(&[]))], child: 1, layer_id: u32::MAX },
-        SceneNode::Group { attributes: dict(&[]), children: ids.clone() },
-    ];
-    let mut x = 0;
-    for (k, size) in sizes.iter().enumerate() {
-        let at = format!("{} 0 {}", x + size.x / 2, size.z / 2);
-        x += size.x + 2;
-        scenes.push(SceneNode::Transform { attributes: dict(&[]), frames: vec![dot_vox::Frame::new(dict(&[("_t", at)]))], child: ids[k] + 1, layer_id: 0 });
-        scenes.push(SceneNode::Shape { attributes: dict(&[]), models: vec![dot_vox::ShapeModel { model_id: k as u32, attributes: dict(&[]) }] });
+    size.z = size.z.max(hi.z + 1);
+    size
+}
+
+/// The smallest box holding `lo` to `hi` (from its pivot) about that
+/// pivot, standing on `lo`'s layer.
+pub fn least(lo: IVec3, hi: IVec3) -> IVec3 {
+    fit(IVec3::new(1, 1, hi.z - lo.z + 1), IVec3::new(lo.x, lo.y, 0), IVec3::new(hi.x, hi.y, 0))
+}
+
+/// A colour for a palette entry that no other entry has: `want` itself,
+/// else a step off it (a second entry of a colour in another material).
+fn free_key(colours: &[Colour], want: [u8; 3]) -> [u8; 3] {
+    let taken = |k: [u8; 3]| colours.iter().any(|c| c.key == k);
+    if !taken(want) {
+        return want;
     }
-    (scenes, vec![dot_vox::Layer { attributes: dict(&[]) }])
+    for step in 1..=255i32 {
+        for i in [2, 1, 0] {
+            for sign in [1, -1] {
+                let mut k = want;
+                let v = want[i] as i32 + sign * step;
+                if (0..=255).contains(&v) {
+                    k[i] = v as u8;
+                    if !taken(k) {
+                        return k;
+                    }
+                }
+            }
+        }
+    }
+    want
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A figure of parts saved unchanged is the file it was, byte for byte;
-    /// changed, every frame keeps the order of the voxels it still has (a
-    /// part apart from the rest is joined by that order) and the figure
-    /// keeps its parts and joints.
+    /// Every model and block of every game and template, opened in the
+    /// editor and written anew without a change, is the text it was, byte
+    /// for byte (not the text kept: written from what the editor holds).
     #[test]
-    fn a_figure_saved_keeps_its_bytes_and_its_order() {
-        let dir = std::env::temp_dir().join(format!("voxcade-figure-save-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("figure.vox");
-        crate::vox::write_figure(&file, &[("body", IVec3::new(4, 4, 8), IVec3::ZERO), ("head", IVec3::new(4, 4, 4), IVec3::new(0, 0, 8)), ("arm", IVec3::new(1, 2, 5), IVec3::new(6, 1, 2))]);
-        // The voxels in an order of their own, as a hand-made file has.
-        let mut data = dot_vox::load(file.to_str().unwrap()).unwrap();
-        data.models.iter_mut().for_each(|m| m.voxels.reverse());
-        data.write_vox(&mut std::fs::File::create(&file).unwrap()).unwrap();
-        let bytes = std::fs::read(&file).unwrap();
-        let order = |f: &Path| dot_vox::load(f.to_str().unwrap()).unwrap().models.iter().map(|m| m.voxels.iter().map(|v| (v.x, v.y, v.z)).collect::<Vec<_>>()).collect::<Vec<_>>();
-        let rig = |f: &Path| crate::vox::load_model(f).unwrap().parts.iter().map(|p| (p.name.clone(), p.parent, p.joint, p.hung.clone())).collect::<Vec<_>>();
-        let (was, hung) = (order(&file), rig(&file));
-
-        let mut model = ModelFile::load(&file).unwrap();
-        model.path = dir.join("copy.vox");
-        model.save().unwrap();
-        assert_eq!(std::fs::read(&model.path).unwrap(), bytes, "saved unchanged, other bytes");
-        // A voxel of the head recoloured: every voxel where it was.
-        let c = model.frames[1].colour_at(IVec3::ZERO).unwrap();
-        model.frames[1].set(IVec3::ZERO, Some([c[0] ^ 1, c[1], c[2]])).unwrap();
-        model.save().unwrap();
-        assert_eq!(order(&model.path), was, "the voxels' order");
-        assert_eq!(rig(&model.path), hung, "the parts and joints");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// A colour's emission material (it makes a model's voxels glow) stays
-    /// on the colour when the editor saves: after changing the model, and
-    /// on a colour added beside it.
-    #[test]
-    fn emission_survives_the_editor() {
-        let dir = std::env::temp_dir().join(format!("voxcade-emit-save-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("lamp.vox");
-        let mut palette = vec![dot_vox::Color { r: 0, g: 0, b: 0, a: 255 }; 256];
-        palette[0] = dot_vox::Color { r: 200, g: 40, b: 40, a: 255 };
-        palette[1] = dot_vox::Color { r: 255, g: 220, b: 80, a: 255 };
-        let lamp = dot_vox::Material { id: 2, properties: [("_type".to_string(), "_emit".to_string()), ("_emit".to_string(), "0.6".to_string())].into() };
-        let voxels = (0..2).map(|x| dot_vox::Voxel { x, y: 0, z: 0, i: x }).collect();
-        let data = dot_vox::DotVoxData { version: 150, index_map: Vec::new(), models: vec![dot_vox::Model { size: dot_vox::Size { x: 3, y: 1, z: 1 }, voxels }], palette, materials: vec![lamp], scenes: Vec::new(), layers: Vec::new() };
-        let mut bytes = Vec::new();
-        data.write_vox(&mut bytes).unwrap();
-        std::fs::write(&file, bytes).unwrap();
-        let glow = |f: &Path| {
-            let m = crate::vox::load_model(f).unwrap();
-            let mut seen: Vec<([u8; 3], u8)> = m.frames[0].iter().zip(&m.glow[0]).map(|(&(_, c), &g)| ([c[0], c[1], c[2]], g)).collect();
-            seen.sort();
-            seen
-        };
-        let was = glow(&file);
-        assert!(was.contains(&([255, 220, 80], 153)), "{was:?}");
-        let mut model = ModelFile::load(&file).unwrap();
-        model.path = dir.join("copy.vox");
-        model.save().unwrap();
-        assert_eq!(glow(&model.path), was, "saved unchanged");
-        // A voxel of the lamp's colour and one of another added, saved
-        // again: the lamp's colour still glows, the other does not.
-        model.frames[0].set(IVec3::new(2, 0, 0), Some([255, 220, 80])).unwrap();
-        model.frames[0].set(IVec3::new(0, 0, 0), Some([10, 20, 30])).unwrap();
-        model.save().unwrap();
-        let after = glow(&model.path);
-        assert_eq!(after.iter().filter(|(c, g)| *c == [255, 220, 80] && *g == 153).count(), 2, "{after:?}");
-        assert!(after.iter().all(|(c, g)| *g == 0 || *c == [255, 220, 80]), "{after:?}");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// Every model and block of every game and template, saved by the editor unchanged,
-    /// is the same to the game: its frames, colours, glass and metal, its
-    /// size (wider only where the file had voxels outside its box), and
-    /// MagicaVoxel's layout of them.
-    #[test]
-    fn every_model_saved_unchanged_is_the_same_to_the_game() {
+    fn every_model_written_unchanged_is_the_same_text() {
         fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
             for entry in std::fs::read_dir(dir).unwrap().flatten() {
                 let p = entry.path();
                 if p.is_dir() {
                     walk(&p, out);
-                } else if p.extension().is_some_and(|e| e == "vox") {
+                } else if vvx::is_model(&p) {
                     out.push(p);
                 }
             }
         }
         let mut files = Vec::new();
-        walk(Path::new("games"), &mut files);
-        walk(Path::new("templates"), &mut files);
-        assert!(files.len() > 100, "the games' and templates' models: {}", files.len());
-        let copy = std::env::temp_dir().join(format!("voxcade-frames-{}.vox", std::process::id()));
-        let sorted = |m: &crate::vox::VoxModel| -> Vec<Vec<(IVec3, [u8; 4], u8)>> {
-            m.frames
-                .iter()
-                .zip(&m.metal)
-                .map(|(f, metal)| {
-                    // What the game shows: of a voxel there twice the
-                    // first.
-                    let mut seen = std::collections::BTreeSet::new();
-                    let mut v: Vec<(IVec3, [u8; 4], u8)> = f.iter().zip(metal).filter(|((p, _), _)| seen.insert(p.to_array())).map(|(&(p, c), &m)| (p, c, m)).collect();
-                    v.sort_by_key(|(p, ..)| (p.z, p.y, p.x));
-                    v
-                })
-                .collect()
-        };
-        for file in files {
-            let mut model = ModelFile::load(&file).unwrap();
-            model.path = copy.clone();
-            model.save().unwrap();
-            let (a, b) = (crate::vox::load_model(&file).unwrap(), crate::vox::load_model(&copy).unwrap());
-            let stray = b.size != a.size;
-            assert!(!stray || a.frames.iter().flatten().any(|(p, _)| !p.cmplt(a.size).all()), "{}: its size", file.display());
-            assert!(sorted(&a) == sorted(&b), "{}: its voxels", file.display());
-            assert_eq!(ModelFile::load(&copy).unwrap().scenes.len(), model.scenes.len(), "{}: its layout", file.display());
+        for folder in ["games", "templates", "examples"] {
+            walk(&Path::new(env!("CARGO_MANIFEST_DIR")).join(folder), &mut files);
         }
-        let _ = std::fs::remove_file(&copy);
+        assert!(files.len() > 100, "the models: {}", files.len());
+        for file in files {
+            let model = ModelFile::load(&file).unwrap();
+            assert!(model.write_text() == std::fs::read_to_string(&file).unwrap(), "{}: written anew, another text", file.display());
+            assert_eq!(model.text(), std::fs::read_to_string(&file).unwrap());
+        }
+    }
+
+    /// A text of two frames in two materials of one colour, and a figure.
+    fn frames_text() -> String {
+        format!("format = \"{}\"\nsize = [3, 1, 2]\n\n[palette]\nq = \"#ff0000\"\nb = \"#0000ff\"\ng = {{ color = \"#ff0000\", glow = 1.0 }}\n\n[[frame]]\nlayers = \"\"\"\nqbg\n\"\"\"\n\n[[frame]]\nat = [0, 0, 1]\nlayers = \"\"\"\nb\n\"\"\"\n", vvx::FORMAT)
+    }
+
+    fn write(name: &str, text: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("voxcade-frames-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("thing.vvx");
+        std::fs::write(&file, text).unwrap();
+        file
+    }
+
+    /// An edit changes only the lines it must: the signs stay, a new
+    /// colour takes the next free one, a colour no voxel has keeps its
+    /// sign until it is taken out; the same colour in another material
+    /// keeps its own sign and material.
+    #[test]
+    fn an_edit_changes_only_what_it_must() {
+        let file = write("signs", &frames_text());
+        let mut m = ModelFile::load(&file).unwrap();
+        let glow = m.palette.iter().find(|c| c.mat.glow != 0).unwrap().key;
+        assert_ne!(glow, [255, 0, 0], "the glowing red has a key of its own");
+        // A voxel of the second frame painted green.
+        m.frames[1].set(IVec3::new(1, 0, 1), Some([0, 255, 0])).unwrap();
+        m.list_new_colours();
+        m.save().unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains("q = \"#ff0000\"\nb = \"#0000ff\"\ng = { color = \"#ff0000\", glow = 1.0 }\na = \"#00ff00\"\n"), "{text}");
+        assert!(text.contains("qbg\n") && text.ends_with("at = [0, 0, 1]\nlayers = \"\"\"\na\n\"\"\"\n"), "{text}");
+        // Blue no longer used anywhere: it keeps its sign in the palette.
+        m.frames[0].set(IVec3::new(1, 0, 0), None).unwrap();
+        m.save().unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains("b = \"#0000ff\"") && text.contains("q.g\n"), "{text}");
+        assert!(m.forget([0, 0, 255]));
+        m.save().unwrap();
+        assert!(!std::fs::read_to_string(&file).unwrap().contains("#0000ff"));
+        // Read again: the glow is where it was.
+        let back = crate::vvx::load_in(&crate::files::Files::disk(), &file).unwrap();
+        assert_eq!(back.glow[0], vec![0, 255]);
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    /// A material is set on a colour: written as the palette's words.
+    #[test]
+    fn a_colour_takes_a_material() {
+        let file = write("material", &frames_text());
+        let mut m = ModelFile::load(&file).unwrap();
+        m.set_material([0, 0, 255], Mat { rgba: [0, 0, 255, 128], metal: crate::vox::metal::pack(0.0, 0.9), glow: 0 });
+        m.save().unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains("b = { color = \"#0000ff\", glass = 0.5, rough = 0.1 }"), "{text}");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    /// A MagicaVoxel model is not shaped: it is said how to bring it in;
+    /// to look at, it is shown.
+    #[test]
+    fn a_vox_model_is_brought_in_first() {
+        let dir = std::env::temp_dir().join(format!("voxcade-frames-vox-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        crate::vox::write_figure(&dir.join("robot.vox"), &[("body", IVec3::new(4, 4, 8), IVec3::ZERO), ("arm", IVec3::new(1, 2, 5), IVec3::new(6, 1, 3))]);
+        let e = ModelFile::load(&dir.join("robot.vox")).err().unwrap().to_string();
+        assert!(e.contains("MagicaVoxel") && e.contains("voxcade import") && e.contains("robot.vvx"), "{e}");
+        let mut seen = ModelFile::look(&dir.join("robot.vox")).unwrap();
+        assert!(seen.parted() && seen.foreign);
+        assert!(seen.save().is_err(), "a .vox is never written");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_box_grows_about_its_pivot() {
+        assert_eq!(fit(IVec3::new(5, 3, 2), IVec3::new(-3, -1, 0), IVec3::new(2, 1, 1)), IVec3::new(6, 3, 2), "one more on the left");
+        assert_eq!(fit(IVec3::new(5, 3, 2), IVec3::new(-2, -1, 0), IVec3::new(3, 1, 1)), IVec3::new(7, 3, 2), "on the right: one each side");
+        assert_eq!(least(IVec3::new(0, 0, 2), IVec3::new(1, 0, 4)), IVec3::new(3, 1, 3));
     }
 }

@@ -26,7 +26,7 @@ Doom homage (the user loved Doom).
 ## What stays
 
 - **Text and plain files.** A game is a folder: `conf.lua`, `main.lua`,
-  `.vox` models, maps, MML music, sounds as numbers or recordings. People,
+  `.vvx` models (text; MagicaVoxel's `.vox` only brought in), maps, MML music, sounds as numbers (no recordings). People,
   agents and editors all work on the same files.
 - **Deterministic simulation.** Fixed ticks, randomness only from the
   simulation's generator. That is what makes `shot`, replays and regression
@@ -101,9 +101,9 @@ end
 
 function on_draw(frame)
   local s = level.state
-  frame:model("keeper.vox", s.keeper)
+  frame:model("keeper.vvx", s.keeper)
   for i, crate in pairs(s.crates) do
-    frame:model("crate.vox", crate, LEVELS[world.state.puzzle].goals[i] and 1 or 0)
+    frame:model("crate.vvx", crate, LEVELS[world.state.puzzle].goals[i] and 1 or 0)
   end
   frame:text(("MOVES %d  PUSHES %d"):format(s.moves, s.pushes), 4, 13)
   frame:text("{undo} UNDO", 4, 160)   -- the key the player presses for undo
@@ -162,7 +162,7 @@ behaviours, title, menus, effects) that LÖVE leaves to libraries.
 ### The game model
 
 - **Things with parts.** Everything that acts is a thing made of parts:
-  body (movement, collision), model (`.vox` frames), health, weapon,
+  body (movement, collision), model (`.vvx` frames or parts), health, weapon,
   behaviour, trigger, pickup, inventory, and whatever a genre needs. Kinds
   of things are defined in data (`c.things.rifleman` in `conf.lua`: model, hit
   points, speed, weapon, behaviour) and spawned by markers, scripts or
@@ -379,8 +379,8 @@ game's settings are code (the user's choice: "nur im Code, fertig").
 - **Sounds** (`src/audio/sound.rs`): a sound is a file of the game,
   `sounds/NAME.toml` (a few numbers a line: `wave`, `freq`, `sweep` and
   `jump` in semitones, `attack`, `hold`, `decay` in seconds, `volume`;
-  only what differs from the defaults) or `sounds/NAME.wav` as it is,
-  called by its file's name (`level:sound("coin", at)`, a kind's `sound =
+  only what differs from the defaults; no recordings: a `.wav` in
+  `sounds/` is a plain mistake), called by its file's name (`level:sound("coin", at)`, a kind's `sound =
   "coin"`). Its words are one register with MML's instruments
   (`src/audio/words.rs`), a word both know meaning the same in both. A
   mistake names the file, the line and the word. The engine's and the
@@ -842,7 +842,7 @@ egui; a Lua editor talking to LuaLS; a terminal from `alacritty_terminal`
 and `portable-pty`), beginning with a skeleton (code, terminal, MCP, play,
 build) of about 3 to 4 person-months, then the level editor and the voxel
 editor. The editors write the same files as everything else (`map.json`,
-PNGs, `.vox`), never `conf.lua`.
+PNGs, `.vvx`), never `conf.lua`.
 
 ## Plan
 

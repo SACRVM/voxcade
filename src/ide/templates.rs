@@ -34,8 +34,8 @@ pub const TEMPLATES: [Template; 3] = [
         about: "A floor and a figure the arrows walk; every rule is yours to write.",
         files: &[
             file!("empty", "conf.lua"),
-            file!("empty", "hero.vox"),
-            file!("empty", "hero2.vox"),
+            file!("empty", "hero.vvx"),
+            file!("empty", "hero2.vvx"),
             file!("empty", "main.lua"),
             file!("empty", "scenarios/far_corner.lua"),
         ],
@@ -44,23 +44,23 @@ pub const TEMPLATES: [Template; 3] = [
         name: "JUMP & RUN",
         about: "A castle room of voxel blocks, a hero who runs, jumps and climbs, gems and a door.",
         files: &[
-            file!("platformer", "bat.vox"),
-            file!("platformer", "blocks/ladder.vox"),
-            file!("platformer", "blocks/plank.vox"),
-            file!("platformer", "blocks/spikes.vox"),
-            file!("platformer", "blocks/stone.vox"),
-            file!("platformer", "blocks/wall.vox"),
+            file!("platformer", "bat.vvx"),
+            file!("platformer", "blocks/ladder.vvx"),
+            file!("platformer", "blocks/plank.vvx"),
+            file!("platformer", "blocks/spikes.vvx"),
+            file!("platformer", "blocks/stone.vvx"),
+            file!("platformer", "blocks/wall.vvx"),
             file!("platformer", "conf.lua"),
-            file!("platformer", "door.vox"),
-            file!("platformer", "gem.vox"),
-            file!("platformer", "hero.vox"),
-            file!("platformer", "hero2.vox"),
+            file!("platformer", "door.vvx"),
+            file!("platformer", "gem.vvx"),
+            file!("platformer", "hero.vvx"),
+            file!("platformer", "hero2.vvx"),
             file!("platformer", "level.json"),
             file!("platformer", "main.lua"),
             file!("platformer", "music/under_the_dunes.mml"),
             file!("platformer", "scenarios/door_open.lua"),
-            file!("platformer", "slime.vox"),
-            file!("platformer", "torch.vox"),
+            file!("platformer", "slime.vvx"),
+            file!("platformer", "torch.vvx"),
         ],
     },
     Template {
@@ -68,11 +68,11 @@ pub const TEMPLATES: [Template; 3] = [
         about: "A yard to run and fire through, walls to hide behind, riflemen up ahead.",
         files: &[
             file!("shooter", "conf.lua"),
-            file!("shooter", "enemy.vox"),
+            file!("shooter", "enemy.vvx"),
             file!("shooter", "main.lua"),
             file!("shooter", "music/hot_pursuit.mml"),
-            file!("shooter", "player.vox"),
-            file!("shooter", "player2.vox"),
+            file!("shooter", "player.vvx"),
+            file!("shooter", "player2.vvx"),
             file!("shooter", "scenarios/last_life.lua"),
         ],
     },
@@ -165,10 +165,11 @@ pub fn create(template: &Template, projects: &Path, name: &str, notes: Option<Ag
     for (file, bytes) in template.files {
         let path = dir.join(file);
         std::fs::create_dir_all(path.parent().expect("in the folder")).with_context(|| format!("making {}", dir.display()))?;
-        // The title the template has, the game's name in its place.
+        // The title the template has, the game's name in its place; the
+        // Voxcade it is for this one (`upgrade::VERSION_LINE`).
         let bytes = if *file == "conf.lua" {
             let text = String::from_utf8_lossy(bytes).replace("\"My Game\"", &format!("{name:?}")).replace("\"MY GAME\"", &format!("{:?}", name.to_uppercase()));
-            text.into_bytes()
+            crate::upgrade::with_version(&text, crate::upgrade::engine()).unwrap_or(text).into_bytes()
         } else {
             bytes.to_vec()
         };
@@ -191,12 +192,20 @@ mod tests {
     /// without trouble; a name taken, or none, is refused.
     #[test]
     fn every_template_begins_a_game_that_plays() {
+        // The templates as they lie here need no upgrade (a step newer than
+        // their line: `voxcade upgrade templates/NAME`).
+        for folder in std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("templates")).unwrap().flatten() {
+            assert!(matches!(crate::upgrade::standing(&folder.path()).unwrap(), crate::upgrade::Standing::Current), "{}", folder.path().display());
+        }
         let projects = std::env::temp_dir().join(format!("voxcade-templates-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&projects);
         for (i, template) in TEMPLATES.iter().enumerate() {
             let name = format!("Test Game {i}");
             let dir = create(template, &projects, &name, Some(Agent::Claude)).unwrap().dir;
             assert_eq!(dir, projects.join(format!("test-game-{i}")));
+            // It is for this Voxcade, and opens.
+            assert_eq!(crate::upgrade::stated(&dir).unwrap().as_deref(), Some(crate::upgrade::engine()));
+            crate::upgrade::opens(&dir).unwrap();
             let mut game = crate::session::Session::<crate::Voxcade>::load(&dir).unwrap();
             assert_eq!(game.cfg.title, name, "{}", template.name);
             for _ in 0..120 {

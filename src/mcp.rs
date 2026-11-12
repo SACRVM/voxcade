@@ -155,7 +155,7 @@ fn tools(remote: bool) -> Value {
             "name": "open",
             "description": "Shows the user a file of the game in the IDE's main area, at a line if given (a script's error, a place to look at).",
             "inputSchema": { "type": "object", "properties": {
-                "path": prop("string", "The file, its path in the game folder (main.lua, hero.vox)"),
+                "path": prop("string", "The file, its path in the game folder (main.lua, hero.vvx)"),
                 "line": prop("integer", "The line to go to"),
                 "game": game,
             }, "required": ["path"] },

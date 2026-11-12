@@ -1247,7 +1247,7 @@ impl Game for Shooter {
         }
         // Several players: each a figure of a kind of the game's.
         if setup.cfg.players > 1 && setup.cfg.player.kind.is_none() {
-            anyhow::bail!("c.players = {}: each player's figure is a kind of thing without behaviour (c.things.hero = {{ model = \"player.vox\" }}), named by c.player.kind = {{ \"hero\", \"hero2\" }} (or one for all)", setup.cfg.players);
+            anyhow::bail!("c.players = {}: each player's figure is a kind of thing without behaviour (c.things.hero = {{ model = \"player.vvx\" }}), named by c.player.kind = {{ \"hero\", \"hero2\" }} (or one for all)", setup.cfg.players);
         }
         let shapes = shapes_of(setup.models, &rules)?;
         let places = setup.levels.list.first().map(|l| l.places.clone()).unwrap_or_default();

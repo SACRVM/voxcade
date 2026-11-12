@@ -1,6 +1,10 @@
-//! Loading MagicaVoxel `.vox` files: levels and prefabs (every model of the
-//! scene, placed by its transform) and actors (every model is one animation
-//! frame; or, when the scene's objects have names, the figure's parts).
+//! Models as the engine holds them (`VoxModel`: frames, or a figure's
+//! parts with their joints), read from Voxcade's own text format (`.vvx`,
+//! `crate::vvx`); and MagicaVoxel's `.vox`, which a game only brings in
+//! (`import_model`, `voxcade import`, `voxcade upgrade`) but for worlds
+//! and map prefabs, which are still `.vox` scenes (`load_scene`,
+//! `load_world`: every model of the scene, placed by its transform, its
+//! colours by their palette index).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -68,26 +72,23 @@ pub struct VoxModel {
 /// about the middle between their nearest voxels.
 ///
 /// The file may say otherwise, part by part (the editor's FIGURE writes
-/// it): `_parent` (a part's name) and `_joint` (three numbers) on the
-/// transform node that carries the object's `_name`. A parent so named
-/// wins, and the joint is then worked out against it (the middle of where
-/// they meet, else between their nearest voxels); a joint so placed wins
-/// over the one worked out. The root is the biggest part that names no
-/// parent. `_joint` is in the space of the part's own translation (`_t`),
-/// what MagicaVoxel shows as the scene: a voxel (x, y, z) of a model `s`
-/// big placed at `t` fills t + (x, y, z) - s / 2 (halves rounded down) to
-/// one more each way, so a voxel's middle is that + 0.5, a corner
-/// between voxels a whole number. Halves are its steps (a corner, an
-/// edge's or a face's middle, a voxel's). The editor keeps every voxel
-/// where it stands in that space when a part's box grows or is trimmed,
-/// so the joint stays where it was without being written again.
+/// it): a part's `parent` (a part's name) and `joint` (from the pivot,
+/// `crate::vvx`). A parent so named wins, and the joint is then worked out
+/// against it (the middle of where they meet, else between their nearest
+/// voxels); a joint so placed wins over the one worked out. The root is
+/// the biggest part that names no parent. Halves are a joint's steps (a
+/// corner, an edge's or a face's middle, a voxel's). A MagicaVoxel figure
+/// brought in may say the same as `_parent` and `_joint` on the transform
+/// node that carries the object's `_name` (a joint in the space of the
+/// part's own translation `_t`), which the editor wrote for a few days
+/// before models were text; they are read, never written.
 #[derive(Clone, Debug)]
 pub struct Part {
     pub name: String,
     pub voxels: Vec<u32>,
     pub parent: Option<usize>,
     pub joint: Vec3,
-    /// The joint is the file's (`_joint`), not worked out.
+    /// The joint is the file's (`joint`), not worked out.
     pub joint_by_hand: bool,
     /// Its voxels that can be seen once it moves apart from the rest (its
     /// own surface, the joint's faces too), and of those the see-through.
@@ -109,7 +110,7 @@ pub struct Part {
 pub enum Hung {
     /// The biggest part naming no parent, turning about its own middle.
     Root,
-    /// On the part the file names (`_parent`), set by hand.
+    /// On the part the file names (`parent`), set by hand.
     ByHand,
     /// On the part it shares the most faces with among those hung before
     /// it (`faces`), and the next most among them, if another touches it
@@ -201,24 +202,40 @@ fn model_size(data: &DotVoxData, id: usize) -> IVec3 {
     IVec3::new(s.x as i32, s.y as i32, s.z as i32)
 }
 
+/// A model on disk, whichever format: a `.vvx`, or a MagicaVoxel `.vox`
+/// (what the editors and the import read; a game reads `load_model_in`).
 pub fn load_model(path: &Path) -> Result<VoxModel> {
-    load_model_in(&Files::disk(), path)
+    if crate::vvx::is_model(path) { crate::vvx::load_in(&Files::disk(), path) } else { import_model(path) }
 }
 
-/// A model of the game's files (`crate::files`).
+/// A model of the game's files (`crate::files`): a `.vvx`. A game holding
+/// a MagicaVoxel `.vox` in its place is told how to bring it in.
 pub fn load_model_in(files: &Files, path: &Path) -> Result<VoxModel> {
-    model_of(&read(files, path)?, path)
+    if !crate::vvx::is_model(path) {
+        return Err(not_a_model(path));
+    }
+    crate::vvx::load_in(files, path)
 }
 
-/// A figure of parts as the game makes it of a file's `data` (read from
-/// `path`, for its mistakes), for each part the model in the file it is
-/// made of, and where the figure's low corner (voxel 0, 0, 0 of its
-/// frame) stands in the scene; None when the file's objects have no names
-/// (frames).
-pub fn figure_of(data: &DotVoxData, path: &Path) -> Option<Result<(VoxModel, Vec<usize>, IVec3)>> {
-    let objects = named_objects(data)?;
-    let models = objects.iter().map(|o| o.model).collect();
-    Some(figure_of_parts(path, data, &objects, &see_through(data), &metals(data), &glows(data)).map(|(m, low)| (m, models, low)))
+/// The mistake for a model file that is no `.vvx`.
+pub fn not_a_model(path: &Path) -> anyhow::Error {
+    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("vox")) {
+        let vvx = path.with_extension(crate::vvx::EXTENSION);
+        anyhow!(
+            "{}: a MagicaVoxel file; Voxcade's models are .vvx: `voxcade import <game> {}` brings it in as {} (and `voxcade upgrade <game>` a whole game made for an older Voxcade), then name the .vvx",
+            path.display(),
+            path.display(),
+            vvx.file_name().unwrap_or_default().to_string_lossy()
+        )
+    } else {
+        anyhow!("{}: a model is a .vvx file (Voxcade's own, text)", path.display())
+    }
+}
+
+/// A MagicaVoxel `.vox` model on disk, as the engine made it of one before
+/// it read its own format: what `import` and `upgrade` bring in.
+pub fn import_model(path: &Path) -> Result<VoxModel> {
+    model_of(&read(&Files::disk(), path)?, path)
 }
 
 /// The model a file's `data` makes (read from `path`).
@@ -256,18 +273,15 @@ fn model_of(data: &DotVoxData, path: &Path) -> Result<VoxModel> {
 }
 
 /// An object of a figure's scene: its name, its model, where its model's
-/// middle stands (the translations down to it added up), the transform
-/// node that carries its name and the one that places it (the nearest
-/// above its shape, whose `_t` it is), the translations above that one,
-/// and what the file says of its rig (`Part`: `_parent`, `_joint`, as
-/// written).
+/// middle stands (the translations down to it added up), the translations
+/// above the transform that places it (the nearest above its shape, whose
+/// `_t` it is), and what the file says of its rig (`Part`: `_parent`,
+/// `_joint`, as written).
 #[derive(Clone, Debug)]
 pub(crate) struct Object {
     pub name: String,
     pub model: usize,
     pub at: IVec3,
-    pub named: usize,
-    pub placed: usize,
     pub above: IVec3,
     pub parent: Option<String>,
     pub joint: Option<String>,
@@ -322,7 +336,7 @@ pub(crate) fn named_objects(data: &DotVoxData) -> Option<Vec<Object>> {
             .map(|(named, model, down)| {
                 let n = named.unwrap_or_default();
                 let parent = attribute(n, "_parent").filter(|p| !p.trim().is_empty());
-                Object { name: name(named).unwrap_or_default(), model, at: down.at, named: n, placed: down.placed.0, above: down.placed.1, parent, joint: attribute(n, "_joint") }
+                Object { name: name(named).unwrap_or_default(), model, at: down.at, above: down.placed.1, parent, joint: attribute(n, "_joint") }
             })
             .collect(),
     )
@@ -335,11 +349,6 @@ pub(crate) fn read_joint(text: &str) -> Option<Vec3> {
         [x, y, z] if n.iter().all(|v| v.is_finite()) => Some(Vec3::new(x, y, z)),
         _ => None,
     }
-}
-
-/// A joint as the file writes it: whole numbers without a point.
-pub(crate) fn write_joint(at: Vec3) -> String {
-    format!("{} {} {}", at.x, at.y, at.z)
 }
 
 /// The parts hanging on each other in a ring by the parents the file names
@@ -810,7 +819,8 @@ fn walk(
 }
 
 /// Writes a figure of parts for tests: each part a solid box of its own
-/// colour (name, size, where its low corner stands), a named object.
+/// colour (name, size, where its low corner stands), a named object; a
+/// MagicaVoxel file, or brought in as a `.vvx` when the path says so.
 #[cfg(test)]
 pub(crate) fn write_figure(path: &Path, parts: &[(&str, IVec3, IVec3)]) {
     write_figure_with(path, parts, &[]);
@@ -851,8 +861,13 @@ pub(crate) fn write_figure_with(path: &Path, parts: &[(&str, IVec3, IVec3)], rig
         scenes.push(SceneNode::Shape { attributes: dict(&[]), models: vec![ShapeModel { model_id: k as u32, attributes: dict(&[]) }] });
     }
     let data = DotVoxData { version: 150, index_map: Vec::new(), models, palette, materials: Vec::new(), scenes, layers: vec![Layer { attributes: dict(&[]) }] };
-    let mut file = std::fs::File::create(path).unwrap();
+    // A `.vvx` path gets the figure brought in as text, as a game holds it.
+    let vox = if crate::vvx::is_model(path) { path.with_extension("vvx.vox") } else { path.to_path_buf() };
+    let mut file = std::fs::File::create(&vox).unwrap();
     data.write_vox(&mut file).unwrap();
+    if vox != path {
+        crate::upgrade::bring_in(&vox, path, true).unwrap();
+    }
 }
 
 #[cfg(test)]
@@ -1141,7 +1156,7 @@ mod tests {
 
     #[test]
     fn glass_in_a_model_is_see_through() {
-        let model = load_model(Path::new("games/moreblood/huey.vox")).unwrap();
+        let model = load_model(Path::new("games/moreblood/huey.vvx")).unwrap();
         let alphas: Vec<u8> = model.frames[0].iter().map(|(_, c)| c[3]).collect();
         let glass = alphas.iter().filter(|&&a| a < 255).count();
         assert!(glass > 20, "only {glass} glass voxels");
@@ -1154,10 +1169,10 @@ mod tests {
     /// facets' slant: its table faces up, its girdle out, its point down.
     #[test]
     fn smooth_glass_mirrors_by_its_facets() {
-        let huey = load_model(Path::new("games/moreblood/huey.vox")).unwrap();
+        let huey = load_model(Path::new("games/moreblood/huey.vvx")).unwrap();
         assert!(huey.frames.iter().zip(&huey.metal).all(|(f, m)| f.iter().zip(m).all(|((_, c), m)| c[3] == 255 || *m == 0)), "the cockpit mirrors");
         assert!(huey.facets.is_empty());
-        let gem = load_model(Path::new("games/voxkeep/gem.vox")).unwrap();
+        let gem = load_model(Path::new("games/voxkeep/gem.vvx")).unwrap();
         assert!(gem.metal[0].iter().all(|&m| m >> 4 == 0 && m & 15 > 6), "the gem is not smooth glass");
         let facet = |v: IVec3| {
             let k = gem.frames[0].iter().position(|(p, _)| *p == v).unwrap();
@@ -1175,7 +1190,7 @@ mod tests {
     /// metalness and roughness; the blood on More Blood's dog tags does not.
     #[test]
     fn metal_in_a_model_shines() {
-        let model = load_model(Path::new("games/moreblood/dogtags.vox")).unwrap();
+        let model = load_model(Path::new("games/moreblood/dogtags.vvx")).unwrap();
         let steel = model.frames[0].iter().zip(&model.metal[0]).filter(|((_, c), _)| c[..3] == [168, 172, 176]);
         assert!(steel.clone().count() > 100);
         assert!(steel.clone().all(|(_, &m)| m >> 4 == 15 && m & 15 > 6), "steel is not shiny metal");

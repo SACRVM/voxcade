@@ -1,0 +1,32 @@
+format = "voxcade voxel 1"
+size = [10, 10, 10]
+
+[palette]
+a = "#704a2a"
+b = "#96683c"
+
+[[frame]]
+at = [-4, 3, 0]
+layers = """
+a......a
+a......a
+
+a......a
+a......a
+
+abbbbbba
+abbbbbba
+
+a......a
+a......a
+*4
+
+abbbbbba
+abbbbbba
+
+a......a
+a......a
+
+a......a
+a......a
+"""

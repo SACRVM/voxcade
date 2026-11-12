@@ -6,6 +6,7 @@
 -- voxels a second; the figures are 22 voxels tall.
 
 function conf(c)
+  c.voxcade = "0.6.0"   -- the Voxcade its files are for (voxcade upgrade brings an older game up to date)
   c.title = "My Game"
   c.kit = "shooter"
   c.players = 2                     -- seats: a second player may join
@@ -74,19 +75,19 @@ function conf(c)
   c.physics.step = 4                -- ledges this high are walked up without jumping
   c.physics.body_width = 6
 
-  c.player.model = "player.vox"     -- the player's figure in a game of one (c.players = 1)
+  c.player.model = "player.vvx"     -- the player's figure in a game of one (c.players = 1)
   c.player.spawn = { 128, 40 }      -- x, y on the ground
   c.player.speed = 92
   c.player.jump = 17
   c.player.muzzle = { 7.5, 12.5 }   -- where shots leave the gun: ahead of the feet, above them
 
   -- The players' figures: no behaviour, their keys move them.
-  c.things.hero = { model = "player.vox" }
-  c.things.hero2 = { like = "hero", model = "player2.vox" }   -- the second, in blue
+  c.things.hero = { model = "player.vvx" }
+  c.things.hero2 = { like = "hero", model = "player2.vvx" }   -- the second, in blue
 
   c.things.rifleman = {
     behaviour = "soldier",          -- walks about, wakes on sight or noise, fires along the 8 ways
-    model = "enemy.vox",
+    model = "enemy.vvx",
     hp = 2,
     team = "enemies",               -- their rounds hurt other teams, not their own
     weapon = "enemy_rifle",

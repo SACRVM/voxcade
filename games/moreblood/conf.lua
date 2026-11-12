@@ -7,6 +7,7 @@
 -- in voxels and every speed in voxels per second.
 
 function conf(c)
+  c.voxcade = "0.6.0"   -- the Voxcade its files are for (voxcade upgrade brings an older game up to date)
   c.title = "More Blood"
   c.languages = { "en", "de", "fr" }   -- the menus speak them; the keys shown at the start too
   c.kit = "shooter"               -- soldiers, huts, hostages, pickups, the gunship (src/shooter)
@@ -31,7 +32,7 @@ function conf(c)
   c.physics.step = 4                -- ledges this high are walked up without jumping
   c.physics.body_width = 6          -- collision box of everyone who walks
 
-  c.player.model = "player.vox"
+  c.player.model = "player.vvx"
   c.player.spawn = { 320, 180 }
   c.player.speed = 92
   c.player.accel = 1800            -- on the ground
@@ -142,7 +143,7 @@ function conf(c)
 
   c.things.rifleman = {
     behaviour = "soldier",  -- walks about, wakes on sight or noise, keeps his distance, fires along the 8 ways
-    model = "enemy.vox",
+    model = "enemy.vvx",
     hp = 2,                 -- rifle hits he takes (the player's shots find him in a narrow cone)
     team = "enemies",       -- their rounds and blows hurt other teams, not their own
     weapon = "enemy_rifle",
@@ -167,7 +168,7 @@ function conf(c)
 
   c.things.grenadier = {
     like = "rifleman",
-    model = "grenadier.vox",
+    model = "grenadier.vvx",
     hp = 3,
     weapon = "enemy_grenade",
     distance = 88,
@@ -185,7 +186,7 @@ function conf(c)
 
   c.things.hostage = {
     behaviour = "captive",
-    model = "hostage.vox",
+    model = "hostage.vvx",
     speed = 60,             -- running off, a little faster than the enemies chase
     accel = 798,
     reach = 14,             -- this close (through the bars) touches it: main.lua frees it
@@ -197,7 +198,7 @@ function conf(c)
 
   c.things.gunship = {  -- the gunship parked on the helipad: the goal opens once it is down
     behaviour = "gunship",
-    model = "huey.vox",     -- frames turn the rotor (hind.vox: the attack helicopter)
+    model = "huey.vvx",     -- frames turn the rotor (hind.vvx: the attack helicopter)
     hp = 60,                -- rifle rounds (a rocket or a blast counts 6)
     team = "enemies",
     immune = { "melee" },   -- no knife reaches the machine
@@ -215,14 +216,14 @@ function conf(c)
     crash_blast = 24,
     crash_damage = 2,       -- to those near where it crashes
     props = { worth = 5000 },
-    -- The Hind instead: model = "hind.vox", size = { 36, 76, 28 }, gun = { 0, 38, 5 }
+    -- The Hind instead: model = "hind.vvx", size = { 36, 76, 28 }, gun = { 0, 38, 5 }
     -- (its chin gun), pods = { 14, 7, 7 }, side_on = false.
   }
 
   -- Pickups lie there; what each gives is main.lua's (props).
   c.things.machine_gun = {
     behaviour = "pickup",
-    model = "pickups.vox",  -- models: machine gun, rockets, grenades, health
+    model = "pickups.vvx",  -- models: machine gun, rockets, grenades, health
     frame = 0,
     reach = 9,              -- this close it is touched
     family = "pickups",
@@ -237,7 +238,7 @@ function conf(c)
 
   c.things.grenades = {
     behaviour = "pickup",
-    model = "pickups.vox",
+    model = "pickups.vvx",
     frame = 2,
     reach = 9,
     family = "pickups",
@@ -246,7 +247,7 @@ function conf(c)
 
   c.things.health = {
     behaviour = "pickup",
-    model = "pickups.vox",
+    model = "pickups.vvx",
     frame = 3,
     reach = 9,
     family = "pickups",
@@ -291,8 +292,8 @@ function conf(c)
   c.title_screen.logo_heights = { 24, 46 } -- capitals, in UI voxels
   c.title_screen.drip = 1                -- BLOOD bleeds
   c.title_screen.logo_cracks = { 0.6, 2.2 } -- cracks per letter: a few in MORE, BLOOD split up
-  c.title_screen.props = { { model = "dogtags.vox", at = { 312, 140 } } }
-  c.title_screen.flyby = "huey.vox"      -- passes over now and then
+  c.title_screen.props = { { model = "dogtags.vvx", at = { 312, 140 } } }
+  c.title_screen.flyby = "huey.vvx"      -- passes over now and then
   c.title_screen.flyby_every = 26
   c.title_screen.flyby_altitude = 46     -- the gunship's height over its pad (c.things.gunship.altitude)
 
@@ -324,7 +325,7 @@ function conf(c)
   c.light.shadow_style = "voxel"  -- "smooth": soft edges; "voxel": every voxel lit or shaded; "voxel_soft": with a half step
   c.light.metal_sweep = 0.45      -- a streak of light running over metal (the title's dog tags) now and then
   c.light.model_shading = "edges" -- figures shade softly like pixel art, their hard edges stay hard
-  c.light.model_shading_for = { ["dogtags.vox"] = "faces", ["huey.vox"] = "faces" } -- stamped letters and machinery stay crisp
+  c.light.model_shading_for = { ["dogtags.vvx"] = "faces", ["huey.vvx"] = "faces" } -- stamped letters and machinery stay crisp
 
   c.effects.glow = 1.0              -- how strongly flashes, fire and tracers glow
   c.effects.lights = 1.0            -- how strongly flashes and explosions light up their surroundings
@@ -342,10 +343,8 @@ function conf(c)
   c.audio.music_volume = 0.45
 
   -- A file in sounds/ replaces the engine's sound of its name (list them:
-  -- voxcade sounds games/moreblood --list): sounds/explosion.wav as it is;
-  -- sounds/down.toml with file = "sfx/scream.wav", rate = 7000, bits = 8 for
-  -- lo-fi speech, early-90s style; sounds/shot.toml with wave = "noise",
-  -- freq = 9000, sweep = -31, hold = 0.015, decay = 0.14.
+  -- voxcade sounds games/moreblood --list): sounds/shot.toml with
+  -- wave = "noise", freq = 9000, sweep = -31, hold = 0.015, decay = 0.14.
 
   c.debris.settle = 0.7
   c.debris.max_particles = 30000

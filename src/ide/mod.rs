@@ -25,6 +25,7 @@ mod shell;
 mod sounds;
 mod templates;
 mod terminal;
+pub mod wizard;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
@@ -48,6 +49,9 @@ pub struct ShotOptions {
     pub console: Option<String>,
     /// The game played in the main area, this many ticks in.
     pub play: Option<u32>,
+    /// A game made for another Voxcade: its upgrade's page as after
+    /// UPGRADE, the upgrade run dry (nothing changed).
+    pub upgraded: bool,
     pub width: u32,
     pub height: u32,
     pub out: PathBuf,
@@ -171,6 +175,11 @@ fn route(event: &sdl3::event::Event, ide: u32) -> Route {
 /// with the games opened last as the settings have them).
 pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
     let Some(dir) = dir else { return shot_start(opts) };
+    // A game made for another Voxcade: the upgrade's page, as it opens or
+    // (`--upgraded`) as after UPGRADE run dry.
+    if wizard::needed(dir) {
+        return shot_upgrade::<G>(dir, opts);
+    }
     let start = opts.console.clone().map_or(Start::Nothing, Start::Command);
     let console = Console::new(dir.to_path_buf(), start, Arc::new(|| {}));
     let cfg = crate::session::config::<G>(dir)?;
@@ -190,8 +199,15 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
             shell.help_topic = topic.strip_prefix(':').and_then(|n| n.parse::<usize>().ok()).map_or(0, |n| n.min(help::TOPICS.len()));
         }
         None => {
+            // `--open text:hero.vvx`: a model shown as its text.
             if let Some(path) = &opts.open {
-                shell.open(path);
+                match path.strip_prefix("text:") {
+                    Some(model) => {
+                        shell.open(model);
+                        shell.model_as_text();
+                    }
+                    None => shell.open(path),
+                }
             }
         }
     }
@@ -278,6 +294,11 @@ fn window_infos(screen: &crate::window::Screen, editors: &[(Editing, crate::edit
 enum Next {
     Game(PathBuf),
     Start(Option<String>),
+    /// A game made for another Voxcade: the upgrade's page (`play`: from
+    /// the launcher's PLAY).
+    Upgrade(PathBuf, bool),
+    /// The launcher, playing this game at once (the upgrade's PLAY).
+    Play(PathBuf),
     Quit,
 }
 
@@ -336,6 +357,38 @@ impl Window {
     }
 }
 
+/// Draws the upgrade's page of the game in `dir` into a PNG; nothing is
+/// changed.
+fn shot_upgrade<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
+    let mut page = wizard::Wizard::new(dir, false);
+    if opts.upgraded {
+        page.upgraded_dry();
+    }
+    let mut canvas = crate::headless::Canvas::new(opts.width, opts.height, false)?;
+    let ctx = egui::Context::default();
+    crate::gui::style(&ctx);
+    let mut painter = Painter::new(canvas.gpu().0, wgpu::TextureFormat::Rgba8Unorm, false);
+    let mut input = sdl_egui::Input::default();
+    for frame in 0..120 {
+        let mut raw = input.take([opts.width, opts.height], 1.0, 1.0);
+        raw.time = Some(frame as f64 / 60.0);
+        let out = ctx.run_ui(raw, |ui| {
+            page.ui(ui, crate::replay::refit_saying::<G>);
+        });
+        let settled = frame >= 2 && out.viewport_output.get(&egui::ViewportId::ROOT).is_none_or(|v| v.repaint_delay == Duration::MAX);
+        let (device, queue, view) = canvas.gpu();
+        painter.paint(device, queue, view, &ctx, out, [opts.width, opts.height]);
+        if settled {
+            break;
+        }
+    }
+    let encoder = canvas.gpu().0.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let pixels = canvas.read(encoder)?;
+    crate::headless::write_png(&opts.out, opts.width, opts.height, &pixels)?;
+    println!("{}: the upgrade's page of {}", opts.out.display(), dir.display());
+    Ok(())
+}
+
 /// Draws the start page into a PNG.
 fn shot_start(opts: &ShotOptions) -> Result<()> {
     // A picture looks for a new version only at a feed named for it.
@@ -383,12 +436,16 @@ pub fn run<G: Game>(first: Option<&Path>, remote: bool) -> Result<()> {
     };
     loop {
         next = match next {
+            // A game made for another Voxcade: the upgrade's page first.
+            Next::Game(dir) if wizard::needed(&dir) => Next::Upgrade(dir, false),
             Next::Game(dir) => match project::<G>(&mut window, &dir, remote) {
                 Ok(next) => next,
                 // A game that would not open: the start page says why.
                 Err(e) => Next::Start(Some(format!("{}: {e:#}", dir.display()))),
             },
-            Next::Start(message) => start_page(&mut window, message)?,
+            Next::Upgrade(dir, play) => upgrade_page(&mut window, wizard::Wizard::new(&dir, play), crate::replay::refit_saying::<G>)?,
+            Next::Start(message) => start_page(&mut window, message, None)?,
+            Next::Play(dir) => start_page(&mut window, None, Some(dir))?,
             Next::Quit => {
                 // SDL not quit: its audio may hang in a sound server gone
                 // away, and the window's end must not wait for it (the
@@ -400,9 +457,50 @@ pub fn run<G: Game>(first: Option<&Path>, remote: bool) -> Result<()> {
     }
 }
 
+/// The upgrade's page (`wizard`) in the IDE's window until the game opens,
+/// the start page is wanted again or the window is closed.
+fn upgrade_page(window: &mut Window, mut page: wizard::Wizard, refit: wizard::Refitter) -> Result<Next> {
+    use sdl3::event::{Event, WindowEvent};
+    let Window { video, screen, ctx, painter, input, woken, events, cursor, .. } = window;
+    let _ = screen.window.set_title("Voxcade: bringing a game up to date");
+    fresh(ctx);
+    let mut repaint_at = Some(Instant::now());
+    loop {
+        let timeout = repaint_at.map_or(Duration::from_secs(3600), |r| r.saturating_duration_since(Instant::now()));
+        let first = if timeout.is_zero() { events.poll_event() } else { events.wait_event_timeout(timeout.max(Duration::from_millis(1))) };
+        woken.store(false, Ordering::Release);
+        let clipboard = video.clipboard();
+        for event in first.into_iter().chain(events.poll_iter().collect::<Vec<_>>()) {
+            match &event {
+                // (Closed while it works: the thread ends with the program.)
+                Event::Quit { .. } | Event::Window { win_event: WindowEvent::CloseRequested, .. } => return Ok(Next::Quit),
+                Event::Window { win_event: WindowEvent::PixelSizeChanged(w, h), .. } => screen.resize_surface(*w, *h),
+                _ => {}
+            }
+            input.handle(&event, || clipboard.clipboard_text().ok().filter(|t| !t.is_empty()));
+        }
+        let size = [screen.config.width, screen.config.height];
+        let pixels_per_point = screen.window.display_scale();
+        let mut wish = None;
+        let out = ctx.run_ui(input.take(size, pixels_per_point, screen.window.pixel_density()), |ui| wish = page.ui(ui, refit));
+        match wish {
+            Some(wizard::Wish::Back) => return Ok(Next::Start(None)),
+            Some(wizard::Wish::Open) => return Ok(Next::Game(page.dir.clone())),
+            Some(wizard::Wish::Play) => return Ok(Next::Play(page.dir.clone())),
+            None => {}
+        }
+        let _ = platform(&out.platform_output, cursor, video, screen, pixels_per_point);
+        let delay = out.viewport_output.get(&egui::ViewportId::ROOT).map_or(Duration::MAX, |v| v.repaint_delay);
+        repaint_at = Instant::now().checked_add(delay);
+        if !present(screen, painter, ctx, out, size, false).0 {
+            repaint_at = Some(Instant::now());
+        }
+    }
+}
+
 /// The start page in the IDE's window until a game is chosen or the window
-/// closed.
-fn start_page(window: &mut Window, message: Option<String>) -> Result<Next> {
+/// closed; with `play`, that game played at once.
+fn start_page(window: &mut Window, message: Option<String>, play: Option<PathBuf>) -> Result<Next> {
     use sdl3::event::{Event, WindowEvent};
     let Window { video, screen, ctx, painter, input, woken, wake, events, cursor, picked, .. } = window;
     let _ = screen.window.set_title("Voxcade");
@@ -412,6 +510,9 @@ fn start_page(window: &mut Window, message: Option<String>) -> Result<Next> {
         Err(e) => (prefs::Prefs::default(), Some(format!("The settings: {e:#}"))),
     };
     let mut page = projects::StartPage::new(prefs, message.or(trouble), true);
+    if let Some(dir) = play {
+        page.play(&dir, &projects::title_of(&dir));
+    }
     let mut repaint_at = Some(Instant::now());
     loop {
         let timeout = repaint_at.map_or(Duration::from_secs(3600), |r| r.saturating_duration_since(Instant::now()));
@@ -441,6 +542,7 @@ fn start_page(window: &mut Window, message: Option<String>) -> Result<Next> {
             Some(projects::Wish::Open(dir)) => return Ok(Next::Game(dir)),
             Some(projects::Wish::Browse) => browse(&picked.0, wake, &screen.window, page.prefs.projects_dir(), Picked::Game),
             Some(projects::Wish::BrowseProjects) => browse(&picked.0, wake, &screen.window, page.prefs.projects_dir(), Picked::Projects),
+            Some(projects::Wish::Upgrade(dir, play)) => return Ok(Next::Upgrade(dir, play)),
             None => {}
         }
         if let Some(trouble) = platform(&out.platform_output, cursor, video, screen, pixels_per_point) {
@@ -864,6 +966,7 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
                 // Another game (from the menu on the name), the dialog to
                 // pick one, or where NEW puts games.
                 Ask::Project(projects::Wish::Open(to)) => break 'project Next::Game(to),
+                Ask::Project(projects::Wish::Upgrade(to, play)) => break 'project Next::Upgrade(to, play),
                 Ask::Project(projects::Wish::Browse) => browse(&picked.0, wake, &screen.window, shell.projects_dir(), Picked::Game),
                 Ask::Project(projects::Wish::BrowseProjects) => browse(&picked.0, wake, &screen.window, shell.projects_dir(), Picked::Projects),
             }
@@ -921,14 +1024,14 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
         for path in shell.take_edits() {
             // A block opens in a level's editor, at the block: one open
             // already, else the level the config names.
-            let block = path.strip_prefix("blocks/").and_then(|p| p.strip_suffix(".vox"));
+            let block = path.strip_prefix("blocks/").and_then(|p| p.strip_suffix(".vvx").or_else(|| p.strip_suffix(".vox")));
             let open_level = editors.iter().find_map(|(w, _)| if let Editing::Level(file) = w { Some(file.clone()) } else { None });
             let what = match () {
                 _ if block.is_some() => match open_level.or_else(|| shell.first_level().map(str::to_string)) {
                     Some(file) => Editing::Level(file),
                     None => continue,
                 },
-                _ if !path.ends_with(".vox") => Editing::Level(path.clone()),
+                _ if !shell::is_model_file(&path) => Editing::Level(path.clone()),
                 _ => Editing::Model(path.clone()),
             };
             let found = editors.iter_mut().find(|(w, _)| *w == what);

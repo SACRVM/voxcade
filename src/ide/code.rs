@@ -47,6 +47,8 @@ pub(super) enum Syntax {
     Sound,
     /// A song, `.mml`.
     Song,
+    /// A model, `.vvx` (TOML, as a sound).
+    Model,
 }
 
 /// A text being edited.
@@ -61,6 +63,8 @@ pub struct Code {
     pub sound: Option<SoundDef>,
     /// A line of what the song is, when it is a song that reads.
     pub song: Option<String>,
+    /// A line of what the model is, when it is a model that reads.
+    pub model: Option<String>,
     /// The line the game played stopped at (a script's error while it
     /// ran), marked as the one Lua cannot read.
     pub stopped: Option<usize>,
@@ -80,9 +84,10 @@ impl Code {
             "lua" => Syntax::Lua,
             "toml" => Syntax::Sound,
             "mml" => Syntax::Song,
+            "vvx" => Syntax::Model,
             _ => Syntax::Plain,
         };
-        let mut code = Self { text, syntax, file: file.to_string(), error: None, sound: None, song: None, stopped: None, checked: None, offer: None, declined: None, reader: mlua::Lua::new() };
+        let mut code = Self { text, syntax, file: file.to_string(), error: None, sound: None, song: None, model: None, stopped: None, checked: None, offer: None, declined: None, reader: mlua::Lua::new() };
         code.check();
         code
     }
@@ -98,6 +103,10 @@ impl Code {
             Syntax::Sound => match sound::read(&self.file, &self.text) {
                 Ok(def) => (self.error, self.sound) = (None, Some(def)),
                 Err(e) => (self.error, self.sound) = (Some(sound_trouble(&self.file, &format!("{e:#}"))), None),
+            },
+            Syntax::Model => match crate::vvx::read(&self.text) {
+                Ok(m) => (self.error, self.model) = (None, Some(super::shell::model_line(&m, &self.file))),
+                Err(e) => (self.error, self.model) = (Some(song_trouble(&format!("{e:#}"))), None),
             },
             _ => match music::parse(&self.text) {
                 Ok(song) => (self.error, self.song) = (None, Some(song_line(&song))),
@@ -286,7 +295,7 @@ pub(super) fn highlight(text: &str, font: &FontId, syntax: Syntax) -> LayoutJob 
             job.append(text, 0.0, format(NAME));
             return job;
         }
-        Syntax::Sound | Syntax::Song => {
+        Syntax::Sound | Syntax::Song | Syntax::Model => {
             for (piece, colour) in plain_pieces(text, syntax) {
                 job.append(piece, 0.0, format(colour));
             }
@@ -317,7 +326,7 @@ pub(super) fn highlight(text: &str, font: &FontId, syntax: Syntax) -> LayoutJob 
 /// sound, `;` in a song), strings, numbers and, in a song, the words that
 /// begin a line (`#tempo`, `@lead`, `$riff`).
 fn plain_pieces(text: &str, syntax: Syntax) -> Vec<(&str, Color32)> {
-    let comment = if syntax == Syntax::Sound { '#' } else { ';' };
+    let comment = if syntax == Syntax::Song { ';' } else { '#' };
     let mut out = Vec::new();
     for line in text.split_inclusive('\n') {
         let mut at = 0;
@@ -341,7 +350,7 @@ fn plain_pieces(text: &str, syntax: Syntax) -> Vec<(&str, Color32)> {
                 push(line.len(), COMMENT, &mut at);
                 break;
             }
-            if c == '"' && syntax == Syntax::Sound {
+            if c == '"' && syntax != Syntax::Song {
                 push(i, NAME, &mut at);
                 let end = line[i + 1..].find('"').map_or(line.len(), |e| i + 2 + e);
                 push(end, STRING, &mut at);

@@ -2,6 +2,7 @@
 -- save the file and the game picks it up.
 
 function conf(c)
+  c.voxcade = "0.6.0"   -- the Voxcade its files are for (voxcade upgrade brings an older game up to date)
   c.title = "Arena"
   c.languages = { "en", "de", "fr" }   -- the menus speak them; the keys shown at the start too
   c.kit = "shooter"
@@ -47,7 +48,7 @@ function conf(c)
   c.world.file = "world.vox"
   c.world.bedrock = true          -- the lowest layer cannot be blown away
 
-  c.player.model = "player.vox"    -- forward is +y
+  c.player.model = "player.vvx"    -- forward is +y
   c.player.spawn = { 256, 150 }    -- x, y on the ground
 
   c.camera.pitch = 35              -- degrees below the horizon, 90 = straight down

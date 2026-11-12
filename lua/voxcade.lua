@@ -221,7 +221,7 @@ function Level:explode(at, radius) end
 ---@param team? string
 function Level:clear_rounds(team) end
 
----Plays a sound at a place, by its name: a file of the game, sounds/NAME.toml (or NAME.wav), or one the engine or the ready-made rules bring.
+---Plays a sound at a place, by its name: a file of the game, sounds/NAME.toml, or one the engine or the ready-made rules bring.
 ---@param name string
 ---@param at Thing|Point
 ---@param volume? number
@@ -628,6 +628,7 @@ function on_pickup(thing, item) end
 ---@field world Conf.world
 ---@field items table<string, { model?: string, stack?: integer, order?: integer }> What can be carried, by name: an inventory counts these.
 ---@field saves { slots?: integer, version?: integer } Save games: how many slots, and the version of what a save holds.
+---@field voxcade string The Voxcade the game's files are for ("0.6.0"): a game for an older one is brought up to date by voxcade upgrade, one for a newer one does not open.
 ---@field languages string[] The languages the game speaks, two small letters each ({ "de", "en", "fr" }): SETTINGS offers them, world.language says which the player chose.
 
 ---@class Conf.audio

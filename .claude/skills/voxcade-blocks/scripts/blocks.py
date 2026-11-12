@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Looks at and tidies a Voxcade game's voxel blocks (blocks/NAME.vox) from
+"""Looks at and tidies a Voxcade game's voxel blocks (blocks/NAME.vvx) from
 the command line; Python and Pillow only.
 
 usage:
@@ -8,7 +8,7 @@ usage:
   blocks.py colours GAME [--near N]      every colour of every block, and pairs closer than N
                                          (the sum of the channels' differences, default 6)
   blocks.py merge GAME R,G,B R,G,B       the first colour becomes the second in every block
-                                         (their palette slots folded into one) and in the
+                                         (their palette signs folded into one) and in the
                                          tileset pictures (blocks/tiles.png, tiled/*.png)
 
 GAME is a game folder (games/voxkeep). The relief map shows, for each
@@ -18,40 +18,23 @@ column of the block's front, how many voxels back the first voxel is
 import glob
 import json
 import os
-import struct
 import sys
 
 
-def chunks(b, i, end, out):
-    while i < end:
-        cid = bytes(b[i:i + 4])
-        n, m = struct.unpack('<II', b[i + 4:i + 12])
-        out.append((cid, i + 12, n))
-        if m:
-            chunks(b, i + 12 + n, i + 12 + n + m, out)
-        i += 12 + n + m
-    return out
+# Voxcade's model files, read and written by the repository's tools/vvx.py.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '..', 'tools'))
+import vvx  # noqa: E402
 
 
 def load(path):
     """(size, {(x, y, z): (r, g, b)}) of a block file."""
-    b = open(path, 'rb').read()
-    size, vox, pal, idx = None, {}, None, []
-    for cid, at, n in chunks(b, 8, len(b), []):
-        if cid == b'SIZE':
-            size = struct.unpack('<III', b[at:at + 12])
-        elif cid == b'XYZI':
-            c = struct.unpack('<I', b[at:at + 4])[0]
-            idx += [tuple(b[at + 4 + 4 * k:at + 8 + 4 * k]) for k in range(c)]
-        elif cid == b'RGBA':
-            pal = [tuple(b[at + 4 * k:at + 4 * k + 3]) for k in range(256)]
-    for x, y, z, ci in idx:
-        vox[(x, y, z)] = pal[ci - 1]
-    return size, vox
+    m = vvx.read(path)
+    cells = m['frames'][0] if m['frames'] else {}
+    return tuple(m['size']), {p: m['colours'][s] for p, s in cells.items()}
 
 
 def block_files(game):
-    return sorted(glob.glob(os.path.join(game, 'blocks', '*.vox')))
+    return sorted(glob.glob(os.path.join(game, 'blocks', '*.vvx')))
 
 
 def name_of(path):
@@ -73,14 +56,14 @@ def used(game):
     print(f"{level['size'][0]} by {level['size'][1]} by {level['size'][2]} cells of {level['block']} voxels; "
           f"{len(level['blocks'])} blocks, {len(level.get('things', []))} things")
     for i, b in enumerate(level['blocks']):
-        path = os.path.join(game, 'blocks', b['name'] + '.vox')
+        path = os.path.join(game, 'blocks', b['name'] + '.vvx')
         state = '' if os.path.exists(path) else '  (no file!)'
         print(f"  {b['name']:>6}  {b['kind']:<7} {count[i + 1]:>5} cells{state}")
 
 
 def info(game, names):
     for name in names:
-        size, vox = load(os.path.join(game, 'blocks', name + '.vox'))
+        size, vox = load(os.path.join(game, 'blocks', name + '.vvx'))
         n = size[0]
         cols = sorted(set(vox.values()), key=lambda c: -sum(1 for v in vox.values() if v == c))
         letter = {c: chr(ord('a') + i) for i, c in enumerate(cols)}
@@ -117,26 +100,24 @@ def merge(game, old, new):
     from PIL import Image
     changed = []
     for path in block_files(game):
-        b = bytearray(open(path, 'rb').read())
-        found = chunks(b, 8, len(b), [])
-        rgba = next(at for cid, at, n in found if cid == b'RGBA')
-        slots = [k for k in range(256) if b[rgba + 4 * k + 3] and tuple(b[rgba + 4 * k:rgba + 4 * k + 3]) in (old, new)]
-        if not any(tuple(b[rgba + 4 * k:rgba + 4 * k + 3]) == old for k in slots):
+        m = vvx.read(path)
+        olds = [k for k, c in m['colours'].items() if c == old]
+        if not olds:
             continue
-        keep = slots[0]
-        b[rgba + 4 * keep:rgba + 4 * keep + 3] = bytes(new)
+        # The sign the new colour has (plain), else the old sign takes it.
+        keep = next((k for k, c in m['colours'].items() if c == new and m['palette'][k].startswith('"')), None)
         moved = 0
-        for cid, at, n in found:
-            if cid != b'XYZI':
+        for k in olds:
+            if keep is None:
+                keep = k
+                m['palette'][k] = '"#%02x%02x%02x"' % new
                 continue
-            for k in range(struct.unpack('<I', b[at:at + 4])[0]):
-                o = at + 4 + 4 * k + 3
-                if b[o] - 1 in slots and b[o] - 1 != keep:
-                    b[o] = keep + 1
-                    moved += 1
-        for k in slots[1:]:
-            b[rgba + 4 * k:rgba + 4 * k + 4] = bytes(4)
-        open(path, 'wb').write(b)
+            for cells in m['frames']:
+                for p, sign in cells.items():
+                    if sign == k:
+                        cells[p] = keep
+                        moved += 1
+        vvx.write_model(path, m, kept=m['palette'])
         changed.append(f"{name_of(path)} ({moved} voxels moved)" if moved else name_of(path))
     print("blocks: " + (', '.join(changed) if changed else 'none had it'))
     for img in [os.path.join(game, 'blocks', 'tiles.png')] + sorted(glob.glob(os.path.join(game, 'tiled', '*.png'))):

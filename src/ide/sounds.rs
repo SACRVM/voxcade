@@ -5,42 +5,23 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::audio::sound::{Recording, SoundDef};
-use crate::audio::synth::{SAMPLE_RATE, Synth, Wave};
-use crate::audio::{SoundBank, wav};
+use crate::audio::SoundBank;
+use crate::audio::sound::SoundDef;
+use crate::audio::synth::{Synth, Wave};
 
 /// The name of the sound a file of `sounds/` is (`sounds/coin.toml`:
 /// `coin`), if it is one.
 pub fn name_of(path: &str) -> Option<&str> {
     let name = path.strip_prefix("sounds/")?;
     let (stem, ending) = name.rsplit_once('.')?;
-    (!stem.contains('/') && matches!(ending, "toml" | "wav")).then_some(stem)
+    (!stem.contains('/') && ending == "toml").then_some(stem)
 }
 
-/// The definition a `.wav` file in the game's sounds is: itself, as it is.
-pub fn recording_of(path: &str) -> SoundDef {
-    SoundDef::Recording(Recording { file: path.to_string(), rate: None, bits: None, volume: 1.0 })
-}
-
-/// A sound in a line of words: how long, and what kind. `dir` is the game
-/// folder (a recording's length is read from its file).
-pub fn describe(def: &SoundDef, dir: &Path) -> String {
+/// A sound in a line of words: how long, and what kind.
+pub fn describe(def: &SoundDef) -> String {
     match def {
         SoundDef::Silent => "A sound that is silent.".into(),
         SoundDef::Synth(s) => format!("A sound: {:.2} s, {}.", s.length(), synth_words(s)),
-        SoundDef::Recording(r) => {
-            let length = wav::load(&crate::files::Files::folder(dir), &dir.join(&r.file)).map(|s| s.len() as f32 / SAMPLE_RATE as f32);
-            let crushed = match (r.rate, r.bits) {
-                (Some(rate), Some(bits)) => format!(", crushed to {rate} Hz and {bits} bits"),
-                (Some(rate), None) => format!(", crushed to {rate} Hz"),
-                (None, Some(bits)) => format!(", crushed to {bits} bits"),
-                (None, None) => String::new(),
-            };
-            match length {
-                Ok(seconds) => format!("A sound: a recording, {seconds:.1} s{crushed}."),
-                Err(_) => format!("A sound: a recording ({} cannot be read).", r.file),
-            }
-        }
     }
 }
 
@@ -111,8 +92,7 @@ fn lua_uses(dir: &Path, scripts: &[String], name: &str) -> Vec<Use> {
 }
 
 /// The sound as the game's mixer gets it (mono, at the engine's rate), for
-/// PLAY SOUND; empty for a silent one. A recording that will not play is
-/// the error.
+/// PLAY SOUND; empty for a silent one.
 pub fn render(def: &SoundDef, dir: &Path) -> anyhow::Result<Arc<[f32]>> {
     let mut bank = SoundBank::default();
     bank.put(&crate::files::Files::folder(dir), "heard", def)?;
@@ -128,39 +108,20 @@ mod tests {
         sound::read("x.toml", text).unwrap()
     }
 
-    /// A synth, a recording and a silent sound each say what they are.
+    /// A synth and a silent sound each say what they are.
     #[test]
     fn a_sound_is_described_in_words() {
         let dir = std::env::temp_dir().join(format!("voxcade-ide-sounds-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sounds")).unwrap();
         let ping = def("wave = \"square\"\nhold = 0.1\ndecay = 0.1\nsweep = -18\n");
-        assert_eq!(describe(&ping, &dir), "A sound: 0.20 s, a square wave falling an octave and a half.");
-        assert_eq!(describe(&def("wave = \"noise\"\nhold = 0\ndecay = 0.3\n"), &dir), "A sound: 0.30 s, a burst of noise.");
-        assert_eq!(describe(&def("wave = \"triangle\"\njump = 5\njump_at = 0.05\n"), &dir), "A sound: 0.30 s, a triangle wave, jumping up 5 semitones.");
-        assert_eq!(describe(&def("silent = true\n"), &dir), "A sound that is silent.");
-        // One second of silence as a 8-bit mono recording at 8000 Hz.
-        let mut wav = b"RIFF".to_vec();
-        wav.extend((36u32 + 8000).to_le_bytes());
-        wav.extend(b"WAVEfmt ");
-        wav.extend(16u32.to_le_bytes());
-        for v in [1u16, 1] {
-            wav.extend(v.to_le_bytes());
-        }
-        wav.extend(8000u32.to_le_bytes());
-        wav.extend(8000u32.to_le_bytes());
-        wav.extend(1u16.to_le_bytes());
-        wav.extend(8u16.to_le_bytes());
-        wav.extend(b"data");
-        wav.extend(8000u32.to_le_bytes());
-        wav.extend(vec![128u8; 8000]);
-        std::fs::write(dir.join("sounds/boom.wav"), &wav).unwrap();
-        assert_eq!(describe(&recording_of("sounds/boom.wav"), &dir), "A sound: a recording, 1.0 s.");
-        assert!(describe(&recording_of("sounds/none.wav"), &dir).contains("cannot be read"));
+        assert_eq!(describe(&ping), "A sound: 0.20 s, a square wave falling an octave and a half.");
+        assert_eq!(describe(&def("wave = \"noise\"\nhold = 0\ndecay = 0.3\n")), "A sound: 0.30 s, a burst of noise.");
+        assert_eq!(describe(&def("wave = \"triangle\"\njump = 5\njump_at = 0.05\n")), "A sound: 0.30 s, a triangle wave, jumping up 5 semitones.");
+        assert_eq!(describe(&def("silent = true\n")), "A sound that is silent.");
         // PLAY SOUND's buffer: the synth as the mixer has it, a silent one empty.
-        assert_eq!(render(&ping, &dir).unwrap().len(), (0.2 * SAMPLE_RATE as f32).ceil() as usize);
+        assert_eq!(render(&ping, &dir).unwrap().len(), (0.2 * crate::audio::SAMPLE_RATE as f32).ceil() as usize);
         assert!(render(&def("silent = true\n"), &dir).unwrap().is_empty());
-        assert!(!render(&recording_of("sounds/boom.wav"), &dir).unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

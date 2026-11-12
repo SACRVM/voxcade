@@ -55,6 +55,11 @@ second. Read what `check` says:
   draw call, colours merged), run `voxcade check games/NAME --refit`: it
   plays every replay on the new data and writes the new fingerprint only
   if all of them run the same. If refit refuses, the game did change.
+- **"made for an older Voxcade"** (any command): the game's `c.voxcade`
+  is older than a format step (`src/upgrade.rs`). `voxcade upgrade
+  games/NAME --dry` says what it would do, without `--dry` it does it;
+  then `--refit` its replays. A change of a format brings its own step
+  and runs it over every game and template here.
 - **"differs" at a tick**: the simulation plays differently. If that was
   the point (tougher enemies, a new rule, a new level), record anew with
   `voxcade check games/NAME --update` and tell the user in your reply:

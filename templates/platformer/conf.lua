@@ -5,6 +5,7 @@
 -- level and where the hero starts after a restart (F5). Lengths are in
 -- voxels, speeds in voxels a second.
 function conf(c)
+  c.voxcade = "0.6.0"   -- the Voxcade its files are for (voxcade upgrade brings an older game up to date)
   c.title = "My Game"
   c.kit = "platformer"
   c.players = 2                   -- two can play: a second joins with START on a pad (or Return)
@@ -25,7 +26,7 @@ function conf(c)
   -- pulls him up (grab: how far above his head his hands reach; grab_ahead:
   -- how far ahead of him he finds the edge; hang_below: his head under it).
   c.things.hero = {
-    behaviour = "hero", model = "hero.vox", height = 14,
+    behaviour = "hero", model = "hero.vvx", height = 14,
     speed = 60, accel = 900, air_accel = 700, jump = 22, look_ahead = 0, grab = 6, grab_ahead = 3, hang_below = 2, pull = 24,
     climb = 40, corner = 8,
     knockback = { 100, 100 }, hang_speed = 30, look_ahead_speed = 90,   -- as on the fox (unset: scaled to 14 high)
@@ -33,24 +34,24 @@ function conf(c)
                hang = { 8, 8 }, pull = { first = 9, last = 11, loop = false }, climb = { 12, 13 } },
   }
   -- The second player's hero: the same, in other colours.
-  c.things.hero2 = { like = "hero", model = "hero2.vox" }
+  c.things.hero2 = { like = "hero", model = "hero2.vvx" }
   c.player.kind = { "hero", "hero2" }
   -- What a touch means is main.lua's: the families and props say what a
   -- thing is to it, sound and effect what a thing does as it goes (the
   -- enemies burst into their voxels, which fall and are gone).
-  c.things.slime = { behaviour = "walker", model = "slime.vox", width = 8, height = 7, speed = 25,
+  c.things.slime = { behaviour = "walker", model = "slime.vvx", width = 8, height = 7, speed = 25,
                      family = "enemies", props = { worth = 100 }, sound = "stomp", effect = "burst",
                      frames = { walk = { 0, 1 } }, fps = 4 }
-  c.things.bat = { behaviour = "flyer", model = "bat.vox", width = 8, height = 10, range = 12, period = 90,
+  c.things.bat = { behaviour = "flyer", model = "bat.vvx", width = 8, height = 10, range = 12, period = 90,
                    family = "enemies", props = { worth = 100 }, sound = "stomp", effect = "burst",
                    face_hero = false, facing = { 0, -1 },   -- it looks to the front, always, wings spread
                    frames = { fly = { 0, 1 } }, fps = 8 }
-  c.things.gem = { behaviour = "pickup", model = "gem.vox", width = 6, height = 7,
+  c.things.gem = { behaviour = "pickup", model = "gem.vvx", width = 6, height = 7,
                    spin = 120,   -- it turns round, a third of a turn a second
                    family = "pickups", props = { worth = 100 }, sound = "pickup" }
-  c.things.door = { behaviour = "prop", stands = true, model = "door.vox", width = 8, height = 20,
+  c.things.door = { behaviour = "prop", stands = true, model = "door.vvx", width = 8, height = 20,
                     frames = { shut = { 0, 0 }, open = { 1, 1 } }, props = { worth = 1000 } }
-  c.things.torch = { behaviour = "prop", model = "torch.vox", width = 2, height = 13,
+  c.things.torch = { behaviour = "prop", model = "torch.vvx", width = 2, height = 13,
                      frames = { idle = { 0, 1 } }, fps = 6 }
 
   c.title_screen.at = { 120, 5 }

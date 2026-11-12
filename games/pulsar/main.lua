@@ -204,7 +204,7 @@ local function lose_ship(p)
   local s = ship(p)
   if s.down or s.safe > 0 or world.state.over then return end
   s.down = world.tick
-  level:effect("boom.vox", p, 14)
+  level:effect("boom.vvx", p, 14)
   level:explode({ x = p.x, y = p.y, z = FLY + 3 }, 13)
   world:hitstop(6)
   level:sound("die", p)
@@ -537,7 +537,7 @@ function on_tick()
     local x, y = wreck.x + math.random(-45, 45), wreck.y + math.random(-30, 30) + SCROLL * (world.tick - wreck.at) / 60
     level:explode({ x = x, y = y, z = FLY + 3 }, math.random(6, 11))
     table.insert(level.state.flashes, { x = x, y = y, at = world.tick, size = 70 })
-    level:effect("boom.vox", { x = x, y = y, z = FLY - 6 }, 14)
+    level:effect("boom.vvx", { x = x, y = y, z = FLY - 6 }, 14)
   end
   if world.state.over then
     for _, p in ipairs(level:players()) do
@@ -653,7 +653,7 @@ end
 local function draw_ship(frame, p, s)
   if not s.down and (s.safe == 0 or world.tick // 4 % 2 == 0) then
     local bank = s.vx < -40 and 1 or (s.vx > 40 and 2 or 0)
-    frame:model(p.seat == 1 and "ship.vox" or "ship2.vox", p, bank)
+    frame:model(p.seat == 1 and "ship.vvx" or "ship2.vvx", p, bank)
     -- The model is drawn between the last tick and this one, frame:cube
     -- where it is told: so what goes with the ship goes back by what is
     -- left of this tick's move.
@@ -744,7 +744,7 @@ function on_draw(frame)
   -- hit lights them white a moment.
   local beat = level.state.pulse and world.tick - level.state.pulse or 99
   for _, e in ipairs(level:things("enemies")) do
-    frame:model(e.kind .. ".vox", e)
+    frame:model(e.kind .. ".vvx", e)
     if e.kind == "mine" then
       -- Its lens blinks slowly; set off, fast, and a ring shows how far
       -- its blast reaches.
@@ -768,7 +768,7 @@ function on_draw(frame)
     end
   end
   for _, p in ipairs(level:things("power")) do
-    frame:model("power.vox", p)
+    frame:model("power.vvx", p)
     frame:light(p, 16, { 90, 180, 255 })
   end
   -- The ship's shots: beams of light, white at the head, blue behind;

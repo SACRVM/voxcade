@@ -167,7 +167,7 @@ pub fn figure_frame(sets: &BTreeMap<String, Frames>, body: &Body, count: usize, 
 }
 
 /// A model played once where one of a kind's things goes, its frames
-/// `fps` a second (`effect = "poof.vox"`, or `{ model = "poof.vox", fps =
+/// `fps` a second (`effect = "poof.vvx"`, or `{ model = "poof.vvx", fps =
 /// 20 }`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Effect {
@@ -245,7 +245,7 @@ pub fn defs(cfg: &GameConfig, behaviours: &[&str]) -> Result<Vec<Def>> {
                 Some(_) => bail!("{}: a family's name or a list of them (family = {{ \"enemies\" }})", what("family")),
             };
             let text = |key: &str, params: &mut toml::Table| params.remove(key).map(|v| v.as_str().map(str::to_string).with_context(|| what(key))).transpose();
-            let effect_is = || format!("{}: a model, {{ model = \"poof.vox\", fps = 20 }} (its frames a second, {EFFECT_FPS} without), or \"{BURST}\" (it bursts into its voxels)", what("effect"));
+            let effect_is = || format!("{}: a model, {{ model = \"poof.vvx\", fps = 20 }} (its frames a second, {EFFECT_FPS} without), or \"{BURST}\" (it bursts into its voxels)", what("effect"));
             let effect = match params.remove("effect") {
                 None => None,
                 Some(toml::Value::String(model)) => Some(Effect { model, fps: EFFECT_FPS }),

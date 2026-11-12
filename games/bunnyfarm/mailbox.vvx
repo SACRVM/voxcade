@@ -1,0 +1,118 @@
+format = "voxcade voxel 1"
+size = [10, 10, 18]
+
+[palette]
+a = "#765234"
+b = "#cc4638"
+c = "#464240"
+d = "#fad246"
+
+[[frame]]
+at = [-4, -3, 0]
+layers = """
+......... *3
+...aa....
+...aa....
+.........
+.........
+*10
+
+.........
+.bbbbbb.. *5
+.........
+
+.bbbbbb..
+bbbbbbbb.
+bbbbbbbb.
+bbbbbbbba
+bbbbbbbb.
+bbbbbbbb.
+.bbbbbb..
+
+.bccccb..
+bbbbbbbb.
+bbbbbbbb.
+bbbbbbbba
+bbbbbbbbd
+bbbbbbbbd
+.bbbbbb.d
+
+.bbbbbb..
+bbbbbbbb. *5
+.bbbbbb..
+
+.bbbbbb..
+bbbbbbbb. *5
+.bbbbbb..
+
+.........
+.bbbbbb.. *5
+.........
+"""
+
+[[frame]]
+at = [-4, -3, 0]
+layers = """
+......... *3
+...aa....
+...aa....
+.........
+.........
+*10
+
+.........
+.bbbbbb.. *5
+.........
+
+.bbbbbb..
+bbbbbbbb.
+bbbbbbbb.
+bbbbbbbba
+bbbbbbbb.
+bbbbbbbb.
+.bbbbbb..
+
+.bccccb..
+bbbbbbbb.
+bbbbbbbb.
+bbbbbbbba
+bbbbbbbb.
+bbbbbbbb.
+.bbbbbb..
+
+.bbbbbb..
+bbbbbbbb.
+bbbbbbbb.
+bbbbbbbba
+bbbbbbbb.
+bbbbbbbb.
+.bbbbbb..
+
+.bbbbbb..
+bbbbbbbb.
+bbbbbbbb.
+bbbbbbbba
+bbbbbbbb.
+bbbbbbbb.
+.bbbbbb..
+
+.........
+.bbbbbb..
+.bbbbbb..
+.bbbbbb.a
+.bbbbbb.d
+.bbbbbb.d
+.........
+
+......... *3
+........a
+........d
+........d
+.........
+
+......... *3
+........a
+........d
+........d
+.........
+"""

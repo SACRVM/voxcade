@@ -2,7 +2,9 @@
 """Pulsar's models at the detail of a 16-bit sprite, in voxels: shapes (a
 hull, a canopy, wings, engines) cut out of the grid, every voxel coloured
 by the part it belongs to, so the ship is some 31 voxels across where
-tools/gen_pulsar.py drew 13. The same run makes the same files:
+tools/gen_pulsar.py drew 13. It writes MagicaVoxel .vox files, which the
+game does not read: bring them in with `voxcade import games/pulsar
+games/pulsar/FILE.vox` (the game's .vvx replaced). The same run makes the same files:
 
     python3 make_models.py
 """

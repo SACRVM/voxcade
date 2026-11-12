@@ -27,6 +27,9 @@ pub enum Wish {
     Browse,
     /// The system's folder dialog, to pick where NEW puts games.
     BrowseProjects,
+    /// A game made for another Voxcade, to bring up to date (`wizard`),
+    /// then to play (PLAY) or to open.
+    Upgrade(PathBuf, bool),
 }
 
 /// Whether `dir` holds a game (its `conf.lua`).
@@ -184,7 +187,7 @@ const GAP: f32 = 16.0;
 
 /// A game's title as its `conf.lua` sets it (`c.title = "..."`), read
 /// without running it; else its folder's name.
-fn title_of(dir: &Path) -> String {
+pub(crate) fn title_of(dir: &Path) -> String {
     let named = std::fs::read_to_string(dir.join("conf.lua")).ok().and_then(|conf| {
         let line = conf.lines().find(|l| l.trim_start().starts_with("c.title"))?;
         let rest = line.split_once('=')?.1.trim_start();
@@ -315,7 +318,13 @@ impl StartPage {
 
     /// Plays the game in `dir` in a window of its own (this program
     /// started once more), the launcher waiting behind it.
-    fn play(&mut self, dir: &Path, title: &str) {
+    pub fn play(&mut self, dir: &Path, title: &str) {
+        // A game made for another Voxcade does not open: said here, not
+        // in a window that would close at once.
+        if let Err(e) = crate::upgrade::opens(dir) {
+            self.message = Some(format!("{e:#}"));
+            return;
+        }
         let started = std::env::current_exe().and_then(|exe| std::process::Command::new(exe).arg("run").arg(dir).spawn());
         match started {
             Ok(child) => {
@@ -563,6 +572,9 @@ impl StartPage {
                             asked = Some((self.own[i].dir.clone(), self.own[i].title.clone(), what));
                         }
                         match asked {
+                            // A game made for another Voxcade: the upgrade's
+                            // page first.
+                            Some((dir, _, Asked::Play)) if super::wizard::needed(&dir) => wish = Some(Wish::Upgrade(dir, true)),
                             Some((dir, title, Asked::Play)) => self.play(&dir, &title),
                             Some((dir, _, Asked::Edit)) => wish = Some(Wish::Open(dir)),
                             None => {}

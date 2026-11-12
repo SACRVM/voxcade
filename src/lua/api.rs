@@ -177,7 +177,7 @@ pub const API: &[Item] = &[
     Item { of: "level", name: "effect", what: Method { params: &[("model", "string"), ("at", "Thing|Point"), ("fps?", "number")], returns: "" }, doc: "Plays a model's frames once (a puff, a sparkle), its feet where a thing stands or at a point, fps frames a second (12). Only shown: not part of the game." },
     Item { of: "level", name: "explode", what: Method { params: &[("at", "Thing|Point"), ("radius", "number")], returns: "" }, doc: "Blows a hole: voxels fly as debris, pieces cut off fall." },
     Item { of: "level", name: "clear_rounds", what: Method { params: &[("team?", "string")], returns: "" }, doc: "Takes every round in flight away, grenades and rockets too before they go off; only those fired by a team if you name one (\"enemies\", \"player\"). A bomb that clears the screen, or mercy for a player coming back." },
-    Item { of: "level", name: "sound", what: Method { params: &[("name", "string"), ("at", "Thing|Point"), ("volume?", "number")], returns: "" }, doc: "Plays a sound at a place, by its name: a file of the game, sounds/NAME.toml (or NAME.wav), or one the engine or the ready-made rules bring." },
+    Item { of: "level", name: "sound", what: Method { params: &[("name", "string"), ("at", "Thing|Point"), ("volume?", "number")], returns: "" }, doc: "Plays a sound at a place, by its name: a file of the game, sounds/NAME.toml, or one the engine or the ready-made rules bring." },
     // level.camera
     Item { of: "level.camera", name: "follow", what: Method { params: &[("thing", "Thing")], returns: "" }, doc: "The camera follows this thing from now on; following the player, ready-made rules lead the view as theirs do (the jump & run's look ahead). Every level starts following the player." },
     Item { of: "level.camera", name: "look_at", what: Method { params: &[("x", "number"), ("y", "number")], returns: "" }, doc: "The camera rests over this point from now on, following nothing, whatever spawns (follow follows a thing again): a room, a boss arena, a scene, a field that scrolls by itself." },
@@ -414,6 +414,7 @@ fn conf_classes() -> String {
     // What is left out while unset.
     out += "---@field items table<string, { model?: string, stack?: integer, order?: integer }> What can be carried, by name: an inventory counts these.\n";
     out += "---@field saves { slots?: integer, version?: integer } Save games: how many slots, and the version of what a save holds.\n";
+    out += "---@field voxcade string The Voxcade the game's files are for (\"0.6.0\"): a game for an older one is brought up to date by voxcade upgrade, one for a newer one does not open.\n";
     out += "---@field languages string[] The languages the game speaks, two small letters each ({ \"de\", \"en\", \"fr\" }): SETTINGS offers them, world.language says which the player chose.\n";
     sections += "\n---@class Conf.player\n---@field kind string The kind of thing (c.things) the player's figure is, without ready-made rules.\n";
     out + &sections

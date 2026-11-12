@@ -73,12 +73,12 @@ impl Files {
                 // The levels the game loads lie at the top (a Tiled map
                 // beside one is only where it came from).
                 _ if f == "level.json" || f == "map.json" || (f.starts_with("levels/") && ext == "json") => 0,
-                "vox" if f.starts_with("blocks/") => 2,
-                "vox" => 1,
+                "vvx" | "vox" if f.starts_with("blocks/") => 2,
+                "vvx" | "vox" => 1,
                 "png" => 3,
                 // The sounds the game plays by name: the files of `sounds/`
-                // itself (a recording beside them is not one).
-                "toml" | "wav" if f.starts_with("sounds/") && !f["sounds/".len()..].contains('/') => 4,
+                // itself (a recording there is none, an older game's).
+                "toml" if f.starts_with("sounds/") && !f["sounds/".len()..].contains('/') => 4,
                 "mml" => 5,
                 _ => 6,
             };
@@ -150,8 +150,8 @@ mod tests {
             ("levels/one.txt", "#"),
             ("levels/README.txt", "credits"),
             ("tiled/level.json", "{}"),
-            ("hero.vox", ""),
-            ("blocks/stone.vox", ""),
+            ("hero.vvx", ""),
+            ("blocks/stone.vvx", ""),
             ("level.json", "{}"),
             ("back.png", ""),
             ("sounds/coin.toml", "wave = \"sine\""),
@@ -160,7 +160,7 @@ mod tests {
             ("music/song.mml", ""),
             ("replays/tests/run.toml", ""),
             (".luarc.json", "{}"),
-            ("blocks/.stone.vox.tmp", ""),
+            ("blocks/.stone.vvx.tmp", ""),
         ] {
             let p = dir.join(path);
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
@@ -174,15 +174,15 @@ mod tests {
             groups,
             [
                 ("Levels", vec!["level.json"]),
-                ("Models", vec!["hero.vox"]),
-                ("Blocks", vec!["blocks/stone.vox"]),
+                ("Models", vec!["hero.vvx"]),
+                ("Blocks", vec!["blocks/stone.vvx"]),
                 ("Images", vec!["back.png"]),
-                ("Sounds", vec!["sounds/boom.wav", "sounds/coin.toml"]),
+                ("Sounds", vec!["sounds/coin.toml"]),
                 ("Music", vec!["music/song.mml"]),
-                ("Other", vec!["levels/README.txt", "sounds/raw/deep.wav", "tiled/level.json"]),
+                ("Other", vec!["levels/README.txt", "sounds/boom.wav", "sounds/raw/deep.wav", "tiled/level.json"]),
             ]
         );
-        assert!(files.has("blocks/stone.vox") && !files.has("replays/tests/run.toml"));
+        assert!(files.has("blocks/stone.vvx") && !files.has("replays/tests/run.toml"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -8,6 +8,7 @@
 -- the keyboard), its ship in gold and green.
 
 function conf(c)
+  c.voxcade = "0.6.0"   -- the Voxcade its files are for (voxcade upgrade brings an older game up to date)
   c.title = "Pulsar"
   c.languages = { "en", "de", "fr" }   -- the menus speak them; the keys shown at the start too
   c.scored = true
@@ -36,24 +37,24 @@ function conf(c)
 
   -- The ship (drawn by main.lua: it banks), shots, enemies. reach: the
   -- radius things are hit within (the ship's small, as in the arcades).
-  c.models = { "ship.vox", "ship2.vox" }
+  c.models = { "ship.vvx", "ship2.vvx" }
   c.things.ship = { reach = 5 }
   c.things.ship2 = { like = "ship" }
   c.things.shot = {}
   c.things.bolt = {}
-  c.things.fighter = { model = "fighter.vox", hp = 1, reach = 11, effect = "boom_small.vox",
+  c.things.fighter = { model = "fighter.vvx", hp = 1, reach = 11, effect = "boom_small.vvx",
                        family = "enemies", props = { worth = 100, fires = 4 } }
-  c.things.swooper = { model = "swooper.vox", hp = 2, reach = 14, effect = "boom_small.vox",
+  c.things.swooper = { model = "swooper.vvx", hp = 2, reach = 14, effect = "boom_small.vvx",
                        family = "enemies", props = { worth = 150, fires = 0 } }
-  c.things.heavy = { model = "heavy.vox", hp = 8, reach = 17, effect = "boom.vox",
+  c.things.heavy = { model = "heavy.vvx", hp = 8, reach = 17, effect = "boom.vvx",
                      family = "enemies", props = { worth = 500, fires = 2 } }
-  c.things.boss = { model = "boss.vox", hp = 120, reach = 40, effect = "boom_boss.vox",
+  c.things.boss = { model = "boss.vvx", hp = 120, reach = 40, effect = "boom_boss.vvx",
                     family = "enemies", props = { worth = 10000, fires = 1 } }
   -- A mine stands where it was laid; it goes off when the ship comes near
   -- (main.lua: ARM), or shot down.
-  c.things.mine = { model = "mine.vox", hp = 3, reach = 9, effect = "boom_small.vox",
+  c.things.mine = { model = "mine.vvx", hp = 3, reach = 9, effect = "boom_small.vvx",
                     family = "enemies", props = { worth = 50, fires = 0 } }
-  c.things.power = { model = "power.vox", reach = 14 }
+  c.things.power = { model = "power.vvx", reach = 14 }
   -- The fighters and mantas face the way they fly, a diagonal too.
   c.things.fighter.turns = "free"
   c.things.swooper.turns = "free"

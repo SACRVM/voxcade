@@ -37,6 +37,13 @@ ids, kinds from `c.things.NAME` with `like`, parts), `src/cli.rs` the
 command line any game gets. `src/lua/` is the Lua door (`LuaGame<K>`: the
 sandbox, the world API over `lua::host::Host`, `conf.lua`, errors that
 halt; `api.rs` the API's register), `src/mcp.rs` the MCP server.
+`src/vvx.rs` is the model format, `.vvx` (text: the format line, `size`,
+a `[palette]` of signs, `[[frame]]`s or `[[part]]`s with `layers`);
+`src/vox.rs` the models as the engine holds them (`VoxModel`, `Part`) and
+MagicaVoxel's `.vox`, only read (`import_model`, never written) but for
+worlds and map prefabs; `src/upgrade.rs` brings a game made for an older
+Voxcade up to date (its steps, `c.voxcade`, `opens`, `standing` for the
+IDE's upgrade page, `src/ide/wizard.rs`).
 `src/files.rs` is a game's files as the engine reads them (`Files`: the
 folder, or bytes laid over it; `Store` by BLAKE3; `docs/multiplayer.md`
 stage 6): every loader reads through the session's `files`, never the
@@ -110,7 +117,7 @@ shooter's things stay in `src/shooter/`.
   stations from `python3 tools/gen_pulsar.py`; its song from
   `music/pulsar_drive.compose.toml`; keys the arrows, fire, bomb; two
 can fly, `c.players = 2`: a second player joins with START on a pad or
-Return at the keyboard, its ship `ship2.vox` in gold and green, each
+Return at the keyboard, its ship `ship2.vvx` in gold and green, each
 ship its shield, lives, bombs and score, the enemies aiming at the
 nearest; its replay `tests/two_ships`);
   BunnyFarm (a farming game, `docs/bunnyfarm.md`, built in stages; the
@@ -206,6 +213,18 @@ nearest; its replay `tests/two_ships`);
   (mouse id `SYNTHETIC`, so a real mouse takes the arrow marking the
   synthetic pointer away); x and y are pixels in that window's picture.
   Click the game once for it to have the keys, as a person would.
+- Models from MagicaVoxel: `voxcade import <game> FILE.vox [--as
+  NAME.vvx]` writes each as a `.vvx` in the game, leaving the source; a
+  game made for an older Voxcade: `voxcade upgrade <game> [--dry]` (every
+  step it needs, then `c.voxcade`; it commits nothing). The IDE (and the
+  launcher's EDIT and PLAY) opens such a game on its upgrade page
+  (`ide/wizard.rs`, the user's: a wizard, not a command): the version it
+  was made for and this one, the steps' dry run in their words, a word
+  on changes git has not committed, UPGRADE on a thread, what was done
+  (COPY), REFIT THE REPLAYS (`replay::refit_saying`), then the game; a
+  game of a newer Voxcade is told to get the update. `voxcade ide <game>
+  --shot FILE [--upgraded]` draws the page, as it opens or as after an
+  UPGRADE run dry (nothing changed).
 - Levels of voxel blocks (`docs/tiles.md`): `voxcade import <game>
   <tiled-map.json>` brings a Tiled map in once (Tiled draws in 2D: it is
   only a way in); `voxcade edit <game>` opens the editor in a window (the
@@ -248,9 +267,20 @@ nearest; its replay `tests/two_ships`);
   main area, on the IDE's GPU (`window::Gpu`): a level and its blocks
   the level editor (at the block; every level in `levels/` listed under
   LEVELS, each in a window of its own; `voxcade edit --level FILE`),
-  other `.vox` the voxel editor
-  (`editor::frames::ModelFile`: a model's frames as boxes of voxels,
-  `blocks::Block` of any size; `voxcade edit <game> --model FILE`; in a
+  other models (`.vvx`) the voxel editor (`editor::frames::ModelFile`:
+  what a `.vvx` holds, read and written through `vvx::read_shape` and
+  `vvx::write_shape`: the palette, each colour with its sign and
+  material, the frames as boxes of voxels as big as the model,
+  `blocks::Block` of any size, or a figure's parts each in its own box
+  placed from the pivot, parents and joints by hand; saved unchanged the
+  same bytes, an edit changes only the lines it must: the signs stay, a
+  new colour takes the next free one, a colour no voxel has keeps its
+  sign until a right click on it takes it out; the box grows and trims
+  about the pivot, so the model stands where it stood; the held colour's
+  material, GLASS, METAL, ROUGH, GLOW, under a quiet word beside the
+  colour, `frames::with_word`; a MagicaVoxel `.vox` is not shaped: the
+  editor says to bring it in, nothing writes `.vox`; `voxcade edit <game>
+  --model FILE`; in a
   block or a model BOX and SPHERE besides the voxel tools, the user's
   idea so people build as the agents' scripts do: a footprint dragged on
   a face's plane, + and - its depth, a click sets it (Shift: only where
@@ -260,8 +290,12 @@ nearest; its replay `tests/two_ships`);
   `editor::EditorWindow` takes its window's events (`ide::route`). A
   double click in the list or EDIT above the file opens one; the main
   area shows it as a picture (`ide/preview.rs`, the editor's view
-  without panels, turned by dragging), read afresh when the IDE's window
-  is focused again. The logic's files are changed in the main area
+  without panels, turned by dragging; a figure of parts whole; a `.vox`
+  world or prefab too, to look at), read afresh when the IDE's window
+  is focused again. A `.vvx` is text too: TEXT beside EDIT shows it to
+  read and change in the main area as a sound's (`ide/code.rs`
+  `Syntax::Model`, read by `vvx::read` after every change, its mistake
+  "LINE n: why"), PICTURE back (`--open text:FILE` in a shot). The logic's files are changed in the main area
   (`ide/code.rs`: coloured by `lua::lex::spans`, of which `tokens`, the
   fingerprint, is made, the same byte for byte, test
   `highlighting_keeps_the_fingerprint`; Lua reads the text after every
@@ -288,7 +322,7 @@ nearest; its replay `tests/two_ships`);
   there (a plus in the heading names a new one), PLAY SCENARIO over one plays
   the game from it (F5 begins it again); while the game plays, a line
   under OUTPUT runs Lua in it (the console), its answer in OUTPUT.
-  SOUNDS (`sounds/NAME.toml` and `.wav`, always there, a plus makes a
+  SOUNDS (`sounds/NAME.toml`, always there, a plus makes a
   blip to change) lists the game's sounds, and below them in the quiet
   colour, "built in", the ones the engine and the ready-made rules bring
   that it has no file for (`Game::sounds`, passed to `Shell::with_sounds`);
@@ -467,6 +501,22 @@ by looking at the PNG. The stats line it prints (chunks, vertices, particles,
 player position, gunship state) is the quick numeric check. `shots/` is git-ignored.
 
 ## Rules
+
+- Everything in a game is code or text (the owner, 2026-11-12): models,
+  figures and blocks are `.vvx` (`src/vvx.rs`; the models skill has the
+  format: the format line first, signs a colour with its material,
+  layers bottom first and the far row first, repeats `*N`, `at` and
+  joints from the pivot). MagicaVoxel's `.vox` is only brought in
+  (`voxcade import`, `voxcade upgrade`), but for worlds and map prefabs,
+  which are still `.vox` scenes (their colours are numbered by the file's
+  palette and markers are colours, which the text does not carry yet). A
+  model's voxels come out in the text's reading order: More Blood's men
+  burst into theirs in that order. Every game states its version
+  (`c.voxcade`); a format that changes brings a step in `src/upgrade.rs`
+  and the version, and the repo's games and templates are brought over
+  with `voxcade upgrade` itself. `tools/vvx.py` writes and reads `.vvx`
+  from Python; the generators write `.vvx` for models (gen_moreblood,
+  gen_arena and pulsar's `make_models.py` still write `.vox`, to import).
 
 - The simulation (`src/sim/` and a game's rules, `src/shooter/`) is deterministic: fixed tick (`DT`), randomness
   only from `Sim::rng`, no clock, no iteration over `HashMap` in game logic.
@@ -681,15 +731,21 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   engine turns them into audio (`Session::play_sounds`) so the simulation
   stays deterministic. A sound is a file of the game (the owner,
   2026-11-11; `src/audio/sound.rs`): `sounds/NAME.toml`, a few numbers a
-  line, only what differs, or `sounds/NAME.wav`; its name is the file's
-  (two files of one name are a mistake). Its words are one register with
+  line, only what differs; its name is the file's (two files of one name
+  are a mistake). No recordings (the owner, 2026-11-12: "nein zu wav",
+  everything is code or text): a `.wav` (or `.ogg`, `.mp3` ...) in
+  `sounds/`, or a sound's `file = ...`, is a plain mistake at load
+  saying so (`sound::NO_RECORDINGS`), and the upgrade step "no recorded
+  sounds" lists an older game's without touching them; WAV files written
+  for listening (`voxcade sounds`, `music`, films) are output, not a
+  game's. Its words are one register with
   MML's instruments (`src/audio/words.rs`, test
   `a_word_means_the_same_in_a_sound_and_an_instrument`): `hold` (not
   `sustain`, MML's level), `sweep` and `jump`/`jump_at` in semitones
   (the synth goes on in Hz and ratios inside, exactly). A mistake names
   the file, the line and the word; ranges are checked; a sound lasts 10
-  s at most, fades over 5 ms at least, a recording 3 ms in and out, a
-  pulse off duty 0.5 plays round zero. The engine's and the kits' own
+  s at most, fades over 5 ms at least, a pulse off duty 0.5 plays round
+  zero. The engine's and the kits' own
   sounds are such files, built in (`src/audio/sounds/`,
   `src/shooter/sounds/`, `src/platformer/sounds/`; test
   `the_kits_sound_files_are_their_names`); a game's file of the same
@@ -1005,8 +1061,9 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   exactly as before (tests `a_free_quarter_turn_is_the_quarter_turn`,
   `models_from_the_bank_match_their_cubes`,
   `a_game_turns_its_models_freely`). Figures of parts (the user's wish:
-  animation by turning parts): a `.vox` whose objects have names is one
-  (`vox::Part`; without names its models are frames); the biggest part
+  animation by turning parts): a `.vvx` of `[[part]]`s is one
+  (`vox::Part`; a MagicaVoxel file's named objects come in so; else its
+  models are frames); the biggest part
   is the root, each other hangs on the part it touches most and turns
   about the middle of where they meet (`parts_of`); a kind's `swing`
   swings parts with its steps (`session::swinging`), `frame:model`'s pose
@@ -1084,13 +1141,15 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   models of their own that overlap (legs inside a body, a neck in a
   chest): a tool never takes or refuses a cell another part holds, and
   what flickers when built so is its maker's to mend by a slight turn in
-  the pose. PARENT and JOINT set by hand are kept in the file on the
-  part's node (`_parent`, `_joint` in the scene's coordinates, halves
-  allowed; `vox::parts_of`: stated wins, unset as worked out before, test
-  `a_figure_without_a_rig_hangs_as_before`); MagicaVoxel's keeping them
-  is no aim. A figure saved stays a figure, each part where it stood
-  (`ModelFile::parts`). `voxcade edit GAME --model FILE --shot OUT
-  [--part NAME --parent NAME --joint X,Y,Z --stamp]` to look. To come:
+  the pose. PARENT and JOINT set by hand are kept in the `.vvx`, the
+  part's `parent` and `joint` (from the pivot, halves allowed;
+  `vox::parts_of`: stated wins, unset as worked out before, test
+  `a_figure_without_a_rig_hangs_as_before`). A figure saved stays a
+  figure, each part where it stood (`ModelFile::parts`, its `at` from the
+  pivot; a part grown past the box grows `size` about the pivot, a part
+  under the floor raises every part). `voxcade edit GAME --model FILE
+  --shot OUT [--part NAME --parent NAME --joint X,Y,Z --tool box --held
+  X,Y,Z --stamp --view YAW,PITCH]` to look. To come:
   posing with the numbers for Lua, mirrored pairs, the game's view.
 
 ## Firepit inbox

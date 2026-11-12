@@ -524,11 +524,11 @@ fn fingerprint_parts(cfg: &GameConfig, sections: &[&str], actions: &[&str], file
     Ok(parts)
 }
 
-/// Whether `path` is one of the game's voxel blocks (`blocks/NAME.vox`, a
+/// Whether `path` is one of the game's voxel blocks (`blocks/NAME.vvx`, a
 /// new one too; not the hidden file a block is saved through).
 fn is_block_file(dir: &Path, path: &Path) -> bool {
     let shown = path.file_name().is_some_and(|n| !n.to_string_lossy().starts_with('.'));
-    shown && path.extension().is_some_and(|e| e == "vox") && path.parent().is_some_and(|p| same_file(p, &dir.join(crate::blocks::FOLDER)))
+    shown && crate::vvx::is_model(path) && path.parent().is_some_and(|p| same_file(p, &dir.join(crate::blocks::FOLDER)))
 }
 
 /// Whether two paths name the same file, however they are spelled.
@@ -725,7 +725,7 @@ impl<G: Game> Session<G> {
             0
         } else if name.starts_with("levels/") || self.level_files.contains(&path) || is_block_file(&self.dir, &path) {
             1
-        } else if name.ends_with(".vox") {
+        } else if name.ends_with(".vvx") {
             2
         } else if name.ends_with(".lua") {
             3
@@ -1004,14 +1004,6 @@ impl<G: Game> Session<G> {
         }
         if audio::sound::in_folder(&self.dir, changed) {
             return self.reload_sounds();
-        }
-        let reading = self.sounds.reading(changed);
-        if !reading.is_empty() {
-            let all = audio::sound::all(&G::sounds(&self.cfg), &self.cfg.sounds);
-            for (name, def, file) in all.into_iter().filter(|(n, ..)| reading.contains(n)) {
-                self.sounds.put(&self.files, name, &def).with_context(|| file.unwrap_or_default())?;
-            }
-            return Ok(Reloaded::Sounds);
         }
         let block = self.cfg.world.blocks.is_some() && is_block_file(&self.dir, changed);
         // A level file new in `levels/` (not for a world the script builds).
@@ -2780,7 +2772,7 @@ mod tests {
         assert!(game.game.enemies().any(|(e, _)| e.body.pos.y > far + 200.0), "More Blood should have enemies far ahead");
         let cubes = frame.cubes();
         assert!(cubes.iter().all(|i| i.pos_size[1] < far), "a cube far up the level was built");
-        let all = game.game.enemies().count() * game.models.get("enemy.vox").unwrap().visible[0].len();
+        let all = game.game.enemies().count() * game.models.get("enemy.vvx").unwrap().visible[0].len();
         assert!(cubes.len() < all / 2, "{} cubes built, the enemies alone have {all}", cubes.len());
     }
 
@@ -2793,7 +2785,7 @@ mod tests {
         let game = Session::<Shooter>::load(Path::new("games/moreblood")).unwrap();
         type Cube = ([u32; 3], [u8; 4], u8, [i8; 4], [i8; 4]);
         let key = |centre: Vec3, color, metal, shade, turn| -> Cube { (centre.to_array().map(f32::to_bits), color, metal, shade, turn) };
-        let huey = game.models.get("huey.vox").unwrap();
+        let huey = game.models.get("huey.vvx").unwrap();
         assert!(huey.glass.iter().any(|g| !g.is_empty()), "the Huey has no glass to test with");
         for m in [game.models.get("player").unwrap(), huey] {
             for look in [IVec2::Y, IVec2::X, IVec2::NEG_Y, IVec2::NEG_X] {
@@ -3223,9 +3215,9 @@ mod tests {
         let game = Session::<Shooter>::load(Path::new("games/moreblood")).unwrap();
         let smooth = |m: &VoxModel| m.shade.iter().flatten().filter(|s| s[3] != 0).count();
         assert!(smooth(game.models.get("player").unwrap()) > 100, "Nick is not shaded smooth");
-        assert!(smooth(game.models.get("enemy.vox").unwrap()) > 100);
-        assert!(game.models.props["dogtags.vox"].shade.is_empty(), "the dog tags lost their crisp letters");
-        assert!(game.models.get("huey.vox").unwrap().shade.is_empty(), "the Huey is shaded smooth");
+        assert!(smooth(game.models.get("enemy.vvx").unwrap()) > 100);
+        assert!(game.models.props["dogtags.vvx"].shade.is_empty(), "the dog tags lost their crisp letters");
+        assert!(game.models.get("huey.vvx").unwrap().shade.is_empty(), "the Huey is shaded smooth");
     }
 
     /// The title shows its props (More Blood's dog tags) and no player; the

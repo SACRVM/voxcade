@@ -26,6 +26,11 @@ Everything that is built stands on the ground through its faces, edges or
 corners (the engine holds diagonal neighbours together), so shooting a palm
 trunk or a tower's legs brings the rest down.
 
+The figures, the pickups, the dog tags and the helicopters are written as
+MagicaVoxel .vox files beside the game's own models (.vvx), which the game
+reads: bring one in with `voxcade import games/moreblood games/moreblood/FILE.vox` (its .vvx
+replaced). The prefabs stay .vox: the map reads them so.
+
 usage: python3 tools/gen_moreblood.py [output-dir]
 """
 

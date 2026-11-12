@@ -4,7 +4,7 @@
 //!
 //! Every tile the map uses becomes a block, its picture drawn out through
 //! the block's depth (`Block::drawn_out`), unless the game has made that
-//! block already (`blocks/ID.vox`, by the id the map stores). Each tile
+//! block already (`blocks/ID.vvx`, by the id the map stores). Each tile
 //! layer becomes a row of cells, the top layer at the front; a map of one
 //! layer splits by kind: what holds and hurts in the front row, the
 //! decoration a row behind. What a block is comes from its tile's class in
@@ -460,7 +460,7 @@ mod tests {
         mine.save(&blocks::path(&dir, "2")).unwrap();
         let said = import_into(&dir, &dir.join("map.json"), "level.json", false).unwrap();
         assert!(said.contains("2 drawn out, 1 kept"), "{said}");
-        assert_eq!(Block::load(&blocks::path(&dir, "2"), 2).unwrap(), mine);
+        assert_eq!(Block::load(&blocks::path(&dir, "2"), 2).unwrap().cells(), mine.cells());
         assert!(dir.join("blocks").join(SHEET).exists());
         let e = import_into(&dir, &dir.join("map.json"), "level.json", false).unwrap_err().to_string();
         assert!(e.contains("--over"), "{e}");

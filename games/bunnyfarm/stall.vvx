@@ -1,0 +1,143 @@
+format = "voxcade voxel 1"
+size = [36, 22, 32]
+
+[palette]
+a = "#765234"
+b = "#ac7a4c"
+c = "#c49662"
+d = "#68462c"
+e = "#58a446"
+f = "#ee802c"
+g = "#e6c462"
+h = "#cc9c40"
+i = "#dc3e32"
+j = "#485cbe"
+k = "#d6463c"
+l = "#f6eee0"
+
+[[frame]]
+at = [-18, -9, 0]
+layers = """
+.................................... *5
+..aab.bbbb.bbbb.bbbb.bbbb.bbbb.baa..
+..aabbbbbbbbbbbbbbbbbbbbbbbbbbbbaa..
+..bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.. *4
+..aabbbbbbbbbbbbbbbbbbbbbbbbbbbbaa..
+..aabbbbbbbbbbbbbbbbbbbbbbbbbbbbaa..
+.................................... *4
+*9
+
+.................................... *5
+..aabbbbbbbbbbbbbbbbbbbbbbbbbbbbaa..
+..aabbbbbbbbbbbbbbbbbbbbbbbbbbbbaa..
+..bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.. *4
+..aabbbbbbbbbbbbbbbbbbbbbbbbbbbbaa..
+..aabbbbbbbbbbbbbbbbbbbbbbbbbbbbaa..
+.................................... *4
+
+.................................... *4
+.cccccccccccccccccccccccccccccccccc.
+.caaccccccccccccccccccccccccccccaac.
+.caaccccccccccccccccccccccccccccaac.
+.cccccccccccccccccccccccccccccccccc. *4
+.caaccccccccccccccccccccccccccccaac.
+.caaccccccccccccccccccccccccccccaac.
+.cccccccccccccccccccccccccccccccccc.
+.................................... *3
+
+.................................... *5
+..aa............................aa..
+..aadddddd.ddddddd.ddddddd.dddddaa..
+...ddddddd.ddddddd.ddddddd.ddddddd.. *4
+..aadddddd.ddddddd.ddddddd.dddddaa..
+..aa............................aa..
+.................................... *4
+
+.................................... *5
+..aa............................aa..
+..aadddddd.ddddddd.ddddddd.dddddaa..
+...deffefd.dghghgd.diiieid.djjjjjd..
+...dfeffed.dhghghd.diieiid.djjjjjd..
+...dffeffd.dghghgd.dieiiid.djjjjjd..
+...deffefd.dhghghd.deiiied.djjjjjd..
+..aadddddd.ddddddd.ddddddd.dddddaa..
+..aa............................aa..
+.................................... *4
+
+.................................... *5
+..aa............................aa..
+..aa............................aa..
+.....f.e.....h.h.....i.e.....j.j....
+....ffffe...hhhhh...iieii...jjjjj...
+.....fff.....hhh.....eii.....jjj....
+....e.f.f...h.h.h...e.i.e...j.j.j...
+..aa............................aa..
+..aa............................aa..
+.................................... *4
+
+.................................... *5
+..aa............................aa..
+..aa............................aa..
+.................................... *4
+..aa............................aa..
+..aa............................aa..
+.................................... *4
+*9
+
+kkkk....kkkk....kkkk....kkkk....kkkk
+.................................... *4
+..aa............................aa..
+..aa............................aa..
+.................................... *4
+..aa............................aa..
+..aa............................aa..
+.................................... *4
+
+....................................
+kkkkllllkkkkllllkkkkllllkkkkllllkkkk *4
+..aa............................aa..
+..aa............................aa..
+.................................... *4
+..aa............................aa..
+..aa............................aa..
+.................................... *4
+
+.................................... *5
+kkkkllllkkkkllllkkkkllllkkkkllllkkkk *4
+....................................
+....................................
+..aa............................aa..
+..aa............................aa..
+.................................... *4
+
+.................................... *9
+kkkkllllkkkkllllkkkkllllkkkkllllkkkk *4
+.................................... *4
+
+.................................... *10
+..............a......a..............
+....................................
+....................................
+kkkkllllkkkkllllkkkkllllkkkkllllkkkk *4
+
+.................................... *10
+..............a......a..............
+.................................... *6
+
+.................................... *9
+............cccccccccccc............
+............cccccccccccc............
+.................................... *6
+
+.................................... *8
+...............ffff.e...............
+............cccccccccccc............
+............cccccccccccc............
+.................................... *6
+
+.................................... *8
+...................e................
+............cccccccccccc............
+............cccccccccccc............
+.................................... *6
+"""

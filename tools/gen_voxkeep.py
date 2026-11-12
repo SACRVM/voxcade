@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Makes Voxkeep (games/voxkeep), a jump & run in a castle at night, as
 voxels from the start: no picture drawn out. A cell of the level is 10
-voxels each way; the blocks (blocks/*.vox) and the figures are built here
+voxels each way; the blocks (blocks/*.vvx) and the figures are built here
 voxel by voxel, the rooms from the texts below (levels/*.json: three, a
 demo of going from level to level).
 
@@ -183,10 +183,10 @@ def block(fill):
 
 
 def save_block(name, fill):
-    if kept(GAME / "blocks" / f"{name}.vox"):
+    if kept(GAME / "blocks" / f"{name}.vvx"):
         return
     voxels, colours = block(fill)
-    write_vox(GAME / "blocks" / f"{name}.vox", (N, N, N), [voxels], colours)
+    write_vox(GAME / "blocks" / f"{name}.vvx", (N, N, N), [voxels], colours)
 
 
 # The wall behind: bricks 5 high and 10 long, every course shifted by half,
@@ -303,7 +303,7 @@ GLASS = {}
 def model(name, size, frames):
     """frames: lists of (x, y, z, colour); colours given by value, those in
     GLASS see-through."""
-    if kept(GAME / f"{name}.vox"):
+    if kept(GAME / f"{name}.vvx"):
         return
     index, palette = {}, {}
     out = []
@@ -319,7 +319,7 @@ def model(name, size, frames):
             frame.append((x, y, z, i))
         out.append(frame)
     glass = {i: {"_type": "_glass", "_trans": str(GLASS[c][0]), "_rough": str(GLASS[c][1])} for c, i in index.items() if c in GLASS}
-    write_vox(GAME / f"{name}.vox", size, out, palette, glass)
+    write_vox(GAME / f"{name}.vvx", size, out, palette, glass)
 
 
 def box(x0, x1, y0, y1, z0, z1, c):

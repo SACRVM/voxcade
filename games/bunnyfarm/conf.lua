@@ -6,6 +6,7 @@
 -- (tools/gen_bunnyfarm.py first built the blocks, the farm and the
 -- figures; they are yours to shape in the editors now).
 function conf(c)
+  c.voxcade = "0.6.0"   -- the Voxcade its files are for (voxcade upgrade brings an older game up to date)
   c.title = "BunnyFarm"
   c.languages = { "de", "en", "fr" }
   -- Saved as the bunny goes to sleep; CONTINUE on the title goes on.
@@ -25,7 +26,7 @@ function conf(c)
   -- The bunny: steered by main.lua, hopping as it walks.
   c.player.kind = "bunny"
   c.things.bunny = {
-    model = "bunny.vox", height = 20, width = 8,
+    model = "bunny.vvx", height = 20, width = 8,
     frames = { idle = { 0, 0 }, walk = { first = 1, last = 4, stride = 3 } },
   }
   -- A bed's crop (main.lua draws it in its stage), the burrow, the stall
@@ -33,38 +34,38 @@ function conf(c)
   -- level editor). props.solid: half its footprint each way, which the
   -- bunny walks round.
   c.things.crop = { width = 14, height = 12 }
-  c.things.burrow = { model = "burrow.vox", width = 40, height = 20, props = { solid = { 23, 15 } } }
-  c.things.stall = { model = "stall.vox", width = 34, height = 28, props = { solid = { 18, 6 } } }
-  c.things.tree = { model = "tree.vox", width = 8, height = 36, props = { solid = { 4, 4 } } }
-  c.things.pine = { model = "pine.vox", width = 8, height = 34, props = { solid = { 4, 4 } } }
-  c.things.bush = { model = "bush.vox", width = 12, height = 9, props = { solid = { 7, 5 } } }
-  c.things.rock = { model = "rock.vox", width = 12, height = 6, props = { solid = { 6, 4 } } }
-  c.things.hay = { model = "hay.vox", width = 12, height = 9, props = { solid = { 6, 4 } } }
-  c.things.barrel = { model = "barrel.vox", width = 10, height = 12, props = { solid = { 5, 5 } } }
-  c.things.crate = { model = "crate.vox", width = 10, height = 9, props = { solid = { 5, 5 } } }
-  c.things.scarecrow = { model = "scarecrow.vox", width = 4, height = 26, props = { solid = { 2, 2 } } }
+  c.things.burrow = { model = "burrow.vvx", width = 40, height = 20, props = { solid = { 23, 15 } } }
+  c.things.stall = { model = "stall.vvx", width = 34, height = 28, props = { solid = { 18, 6 } } }
+  c.things.tree = { model = "tree.vvx", width = 8, height = 36, props = { solid = { 4, 4 } } }
+  c.things.pine = { model = "pine.vvx", width = 8, height = 34, props = { solid = { 4, 4 } } }
+  c.things.bush = { model = "bush.vvx", width = 12, height = 9, props = { solid = { 7, 5 } } }
+  c.things.rock = { model = "rock.vvx", width = 12, height = 6, props = { solid = { 6, 4 } } }
+  c.things.hay = { model = "hay.vvx", width = 12, height = 9, props = { solid = { 6, 4 } } }
+  c.things.barrel = { model = "barrel.vvx", width = 10, height = 12, props = { solid = { 5, 5 } } }
+  c.things.crate = { model = "crate.vvx", width = 10, height = 9, props = { solid = { 5, 5 } } }
+  c.things.scarecrow = { model = "scarecrow.vvx", width = 4, height = 26, props = { solid = { 2, 2 } } }
   -- the farm's gate (open: the bunny goes through) and the barrier at the
   -- road's end (nobody goes on past it)
-  c.things.farm_gate = { model = "farm_gate.vox", width = 30, height = 26 }
-  c.things.barrier = { model = "barrier.vox", width = 30, height = 14, props = { solid = { 36, 6 } } }
-  c.things.kitchen = { model = "kitchen.vox", width = 30, height = 24, props = { solid = { 16, 6 } } }
-  c.things.mailbox = { model = "mailbox.vox", width = 8, height = 16, props = { solid = { 3, 3 } } }
-  c.things.cat = { model = "cat.vox", width = 8, height = 20, props = { solid = { 4, 4 } } }
+  c.things.farm_gate = { model = "farm_gate.vvx", width = 30, height = 26 }
+  c.things.barrier = { model = "barrier.vvx", width = 30, height = 14, props = { solid = { 36, 6 } } }
+  c.things.kitchen = { model = "kitchen.vvx", width = 30, height = 24, props = { solid = { 16, 6 } } }
+  c.things.mailbox = { model = "mailbox.vvx", width = 8, height = 16, props = { solid = { 3, 3 } } }
+  c.things.cat = { model = "cat.vvx", width = 8, height = 20, props = { solid = { 4, 4 } } }
   -- The barn (stage 5): the dog who sells animals and the fox who buys
   -- them, each pen's sign (props.pen: which) and the stables built there,
   -- the animals themselves (main.lua draws each by its colour and state;
   -- they walk about their pen, through the stable's footprint never).
-  c.things.dog = { model = "dog.vox", width = 8, height = 20, props = { solid = { 4, 4 } } }
-  c.things.fox = { model = "fox.vox", width = 8, height = 20, props = { solid = { 4, 4 } } }
+  c.things.dog = { model = "dog.vvx", width = 8, height = 20, props = { solid = { 4, 4 } } }
+  c.things.fox = { model = "fox.vvx", width = 8, height = 20, props = { solid = { 4, 4 } } }
   for i, sp in ipairs({ "chicken", "sheep", "cow" }) do
-    c.things["sign_" .. sp] = { model = "pen_sign.vox", width = 10, height = 16, props = { solid = { 6, 2 }, picture = i - 1 } }
+    c.things["sign_" .. sp] = { model = "pen_sign.vvx", width = 10, height = 16, props = { solid = { 6, 2 }, picture = i - 1 } }
   end
-  c.things.trough_water = { model = "trough.vox", width = 12, height = 5, props = { solid = { 7, 3 }, picture = 0 } }
-  c.things.trough_grain = { model = "trough.vox", width = 12, height = 5, props = { solid = { 7, 3 }, picture = 1 } }
-  c.things.coop = { model = "coop.vox", width = 20, height = 22, props = { solid = { 11, 9 } } }
-  c.things.shed = { model = "shed.vox", width = 28, height = 22, props = { solid = { 15, 9 } } }
-  c.things.barn = { model = "barn.vox", width = 32, height = 32, props = { solid = { 17, 11 } } }
-  c.things.egg = { model = "egg.vox", width = 4, height = 5 }
+  c.things.trough_water = { model = "trough.vvx", width = 12, height = 5, props = { solid = { 7, 3 }, picture = 0 } }
+  c.things.trough_grain = { model = "trough.vvx", width = 12, height = 5, props = { solid = { 7, 3 }, picture = 1 } }
+  c.things.coop = { model = "coop.vvx", width = 20, height = 22, props = { solid = { 11, 9 } } }
+  c.things.shed = { model = "shed.vvx", width = 28, height = 22, props = { solid = { 15, 9 } } }
+  c.things.barn = { model = "barn.vvx", width = 32, height = 32, props = { solid = { 17, 11 } } }
+  c.things.egg = { model = "egg.vvx", width = 4, height = 5 }
   c.things.chicken = { width = 6, height = 10 }
   c.things.sheep = { width = 9, height = 12 }
   c.things.cow = { width = 10, height = 15 }
@@ -72,7 +73,7 @@ function conf(c)
   local CROPS = { "carrot", "wheat", "blueberry", "tomato", "radish", "cauliflower", "turnip", "cabbage", "eggplant", "cucumber", "pumpkin" }
   c.models = {}
   for _, crop in ipairs(CROPS) do
-    c.models[#c.models + 1] = crop .. ".vox"
+    c.models[#c.models + 1] = crop .. ".vvx"
   end
   -- The barn's animals, a model a colour (main.lua draws each as it is:
   -- young or grown, walking, at work, its product showing).
@@ -80,7 +81,7 @@ function conf(c)
                     cow = { "light", "brown", "pink", "purple", "green" } }
   for _, sp in ipairs({ "chicken", "sheep", "cow" }) do
     for _, colour in ipairs(COLOURS[sp]) do
-      c.models[#c.models + 1] = sp .. "_" .. colour .. ".vox"
+      c.models[#c.models + 1] = sp .. "_" .. colour .. ".vvx"
     end
   end
 
@@ -131,7 +132,7 @@ function conf(c)
   c.title_screen.view_width = 360
   -- The logo is a model of its own: thick round letters, the Y a carrot,
   -- ears on the B (tools/gen_bunnyfarm.py; shaped in the voxel editor).
-  c.title_screen.logo_model = "logo.vox"
+  c.title_screen.logo_model = "logo.vvx"
   c.title_screen.logo_bob = 2   -- the letters bob gently, a wave through them
   c.title_screen.light_menu = true
 

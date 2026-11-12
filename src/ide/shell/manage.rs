@@ -109,9 +109,7 @@ pub fn renamed(dir: &Path, path: &str, typed: &str, sort: Sort) -> Result<String
     if new == path || new.eq_ignore_ascii_case(path) {
         return Ok(new);
     }
-    // A sound's name is its file's, so a recording of the same name is a
-    // name taken too.
-    let taken = dir.join(&new).exists() || (sort == Sort::Sound && ["toml", "wav"].iter().any(|e| dir.join(format!("{folder}{name}.{e}")).exists()));
+    let taken = dir.join(&new).exists();
     if taken { Err(format!("{new} is already there.")) } else { Ok(new) }
 }
 
@@ -615,14 +613,12 @@ mod tests {
     fn a_name_typed_for_a_rename_is_checked() {
         let dir = folder("names");
         std::fs::write(dir.join("sounds/bell.toml"), "").unwrap();
-        std::fs::write(dir.join("sounds/boom.wav"), "").unwrap();
         std::fs::write(dir.join("sounds/coin.toml"), "").unwrap();
         std::fs::write(dir.join("Back.png"), "").unwrap();
         assert_eq!(renamed(&dir, "sounds/coin.toml", "Coin Two", Sort::Sound), Ok("sounds/coin_two.toml".into()));
         assert_eq!(renamed(&dir, "sounds/coin.toml", "pick.toml", Sort::Sound), Ok("sounds/pick.toml".into()));
         assert_eq!(renamed(&dir, "sounds/coin.toml", "coin", Sort::Sound), Ok("sounds/coin.toml".into()), "the same name: nothing to do");
         assert_eq!(renamed(&dir, "sounds/coin.toml", "bell", Sort::Sound), Err("sounds/bell.toml is already there.".into()));
-        assert_eq!(renamed(&dir, "sounds/coin.toml", "boom", Sort::Sound), Err("sounds/boom.toml is already there.".into()), "a recording of that name is a name taken");
         assert_eq!(renamed(&dir, "sounds/coin.toml", "  ", Sort::Sound), Err("Type a name first.".into()));
         assert_eq!(renamed(&dir, "sounds/coin.toml", "a/b", Sort::Sound), Err("A name cannot hold a folder: no / in it.".into()));
         assert_eq!(renamed(&dir, "sounds/coin.toml", "a.b", Sort::Sound), Err("A name takes letters, digits, _ and - only.".into()));
@@ -637,7 +633,7 @@ mod tests {
     #[test]
     fn the_lines_naming_a_file_are_found_and_changed() {
         let dir = folder("refs");
-        std::fs::write(dir.join("main.lua"), "local t = require(\"tools\")\nlocal u = require 'tools'\nx = \"toolset\"\nlevel:sound(\"coin\", p) -- \"coin\"\nm = \"hero.vox\"\n").unwrap();
+        std::fs::write(dir.join("main.lua"), "local t = require(\"tools\")\nlocal u = require 'tools'\nx = \"toolset\"\nlevel:sound(\"coin\", p) -- \"coin\"\nm = \"hero.vvx\"\n").unwrap();
         std::fs::write(dir.join("conf.lua"), "c.a = { sound = 'coin' }\nlocal l = require(\"lang.de\")\n").unwrap();
         let scripts = ["conf.lua".to_string(), "main.lua".to_string()];
         let p = pairs("sounds/coin.toml", "sounds/ring.toml", Sort::Sound);
@@ -652,7 +648,7 @@ mod tests {
         rewrite(&dir, &scripts, &p).unwrap();
         assert!(std::fs::read_to_string(dir.join("main.lua")).unwrap().starts_with("local t = require(\"kit\")\nlocal u = require 'kit'\nx = \"toolset\"\n"));
         assert_eq!(pairs("lang/de.lua", "lang/en.lua", Sort::Lua)[0], ("require(\"lang.de\")".into(), "require(\"lang.en\")".into()));
-        assert_eq!(find(&dir, &scripts, &pairs("hero.vox", "knight.vox", Sort::Model)).len(), 1);
+        assert_eq!(find(&dir, &scripts, &pairs("hero.vvx", "knight.vvx", Sort::Model)).len(), 1);
         assert!(pairs("scenarios/late.lua", "scenarios/soon.lua", Sort::Scenario).is_empty());
         assert_eq!(still_used(&find(&dir, &scripts, &pairs("sounds/ring.toml", "sounds/ring.toml", Sort::Sound)), Sort::Sound).as_deref(), Some("conf.lua and main.lua still play it in 2 lines"));
         assert_eq!(still_used(&[], Sort::Sound), None);
