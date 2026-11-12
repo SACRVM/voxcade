@@ -48,6 +48,7 @@ pub mod update;
 pub mod tiled;
 pub mod ui;
 pub mod vox;
+pub mod voxtext;
 pub mod watch;
 pub mod window;
 pub mod world;

@@ -444,6 +444,8 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
             }
             Ok(())
         }
+        // A trial of the model format as text (`voxtext`), not listed.
+        Some("model-trial") => crate::voxtext::trial(&args[1..]),
         Some("kinds") => {
             let session = crate::session::Session::<G>::load(&game_dir(&args)?)?;
             for line in session.game.numbers() {

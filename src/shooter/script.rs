@@ -593,11 +593,11 @@ impl Kit for Shooter {
         s.weapon = run.get("weapon").and_then(toml::Value::as_str).and_then(|gun| self.rules.weapon_names.iter().position(|w| w == gun));
     }
 
-    fn move_scripted(&mut self) {
+    fn move_scripted(&mut self, fixed: &dyn Fn(usize) -> bool) {
         for t in self.things.iter_mut().filter(|t| matches!(t.brain, Brain::Script(_)) || t.off.is_some()) {
             t.body.prev = t.body.pos;
         }
-        move_things(&mut self.things, &self.sim, |b| match b {
+        move_things(&mut self.things, &self.sim, fixed, |b| match b {
             Brain::Script(walk) => Some(walk),
             _ => None,
         });

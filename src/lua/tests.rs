@@ -4112,3 +4112,74 @@ fn every_games_keys_are_keys() {
     }
     assert!(seen > 20, "{seen} keys looked at");
 }
+
+/// `frame:model` of a file the game does not know is a mistake that halts
+/// the game and says where models come from; it used to draw nothing.
+#[test]
+fn an_unknown_model_halts_the_game() {
+    let conf = |models: &str| format!("
+function conf(c)
+  c.world.size = {{ 64, 64, 16 }}
+  c.things.robot = {{ model = \"robot.vox\" }}
+  {models}
+end
+");
+    let main = r##"
+function on_level_start()
+  level:fill(0, 0, 0, 63, 63, 0, "#808080")
+  level.state.r = level:spawn("robot", 32, 32)
+end
+
+function on_draw(frame)
+  frame:model("ghost.vox", level.state.r)
+end
+"##;
+    let dir = folder("unknown-model", main);
+    crate::vox::write_figure(&dir.join("robot.vox"), &[("body", glam::IVec3::new(4, 4, 8), glam::IVec3::ZERO)]);
+    crate::vox::write_figure(&dir.join("ghost.vox"), &[("body", glam::IVec3::new(4, 4, 8), glam::IVec3::ZERO)]);
+    std::fs::write(dir.join("conf.lua"), conf("")).unwrap();
+    let mut g = game_in(&dir);
+    steps(&mut g, 2);
+    let _ = g.frame(1.0, 16.0 / 9.0);
+    let why = halted(&g);
+    assert!(why.contains("no model called 'ghost.vox'") && why.contains("c.models"), "{why}");
+    // Listed in `c.models` it is the game's, and draws.
+    std::fs::write(dir.join("conf.lua"), conf("c.models = { \"ghost.vox\" }")).unwrap();
+    let mut g = game_in(&dir);
+    steps(&mut g, 2);
+    let frame = g.frame(1.0, 16.0 / 9.0);
+    assert_eq!(halted(&g), "");
+    assert_eq!(frame.models.len(), 1, "the ghost is drawn");
+}
+
+/// A kind with `fixed = true` has no gravity and does not land: it stays
+/// where it is spawned or placed. One without falls to the ground.
+#[test]
+fn a_fixed_thing_stays_where_it_is_put() {
+    let main = r##"
+function on_level_start()
+  level:fill(0, 0, 0, 63, 63, 0, "#808080")
+  level.state.sign = level:spawn("sign", 20, 20, { z = 10 })
+  level.state.rock = level:spawn("rock", 30, 30, { z = 10 })
+end
+
+function on_tick()
+  world.state.sign = math.floor(level.state.sign.z)
+  world.state.rock = math.floor(level.state.rock.z)
+  if world.tick == 5 then level.state.sign:place(40, 40, 7) end
+end
+"##;
+    let dir = folder("fixed", main);
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 64, 64, 16 }\n  c.things.sign = { fixed = true }\n  c.things.rock = {}\nend\n").unwrap();
+    let mut g = game_in(&dir);
+    steps(&mut g, 4);
+    assert_eq!(state(&mut g, "sign"), "Int(10)", "the sign hangs in the air");
+    assert_ne!(state(&mut g, "rock"), "Int(10)", "the rock falls");
+    steps(&mut g, 40);
+    assert_eq!(state(&mut g, "sign"), "Int(7)", "placed, it stays there");
+    assert_eq!(state(&mut g, "rock"), "Int(1)", "on the floor");
+    // With a behaviour it is the ready-made rules' to move: a mistake.
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"shooter\"\n  c.things.sign = { behaviour = \"soldier\", fixed = true }\nend\n").unwrap();
+    let err = start_error(&dir);
+    assert!(err.contains("c.things.sign.fixed"), "{err}");
+}

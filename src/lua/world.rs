@@ -2038,6 +2038,9 @@ pub struct Frame {
     pub alpha: f32,
     /// The parts of the game's figures of parts, by model (a pose's names).
     pub parts: std::sync::Arc<std::collections::BTreeMap<String, Vec<String>>>,
+    /// The game's models by name, with their frame counts: what
+    /// `frame:model` may name (an unknown file would draw nothing).
+    pub known: std::sync::Arc<std::collections::BTreeMap<String, usize>>,
     /// The camera's projection this picture, and whether moving things are
     /// drawn on the grid (`to_screen`).
     pub view_proj: glam::Mat4,
@@ -2248,6 +2251,9 @@ impl UserData for Frame {
         m.add_meta_method(MetaMethod::ToString, |_, _, ()| Ok("frame"));
         m.add_method_mut("model", |_, o, (file, thing, frame, turn, pose): (String, Value, Option<usize>, Option<Table>, Option<Table>)| {
             let thing = thing_id(&thing, "frame:model")?;
+            if !o.known.contains_key(&file) {
+                return Err(mlua::Error::runtime(format!("frame:model: no model called '{file}' (the game knows a kind's model in c.things, and the files listed in c.models: list it there)")));
+            }
             let turn = match turn {
                 Some(t) => turning(&t)?,
                 None => [0.0; 3],

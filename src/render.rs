@@ -146,8 +146,9 @@ impl ModelBank {
                     }
                     let l = (v - pivot).as_vec3();
                     let metal = model.metal.get(f).and_then(|m| m.get(k)).copied().unwrap_or(0);
+                    let glow = model.glow.get(f).and_then(|g| g.get(k)).copied().unwrap_or(0);
                     let shade = model.shade.get(f).and_then(|s| s.get(k)).copied().unwrap_or([0; 4]);
-                    self.voxels.push(Instance { pos_size: [l.x, l.y, l.z, 1.0], color, fx: [0, 255, covered(&opaque, v), metal], shade, turn: [0; 4] });
+                    self.voxels.push(Instance { pos_size: [l.x, l.y, l.z, 1.0], color, fx: [glow, 255, covered(&opaque, v), metal], shade, turn: [0; 4] });
                 }
                 start..self.voxels.len() as u32
             })
@@ -164,8 +165,9 @@ impl ModelBank {
                 }
                 let l = (v - pivot).as_vec3();
                 let metal = model.metal.first().and_then(|m| m.get(k)).copied().unwrap_or(0);
+                let glow = model.glow.first().and_then(|g| g.get(k)).copied().unwrap_or(0);
                 let shade = model.shade.first().and_then(|s| s.get(k)).copied().unwrap_or([0; 4]);
-                self.voxels.push(Instance { pos_size: [l.x, l.y, l.z, 1.0], color, fx: [0, 255, covered(&opaque, v), metal], shade, turn: [0; 4] });
+                self.voxels.push(Instance { pos_size: [l.x, l.y, l.z, 1.0], color, fx: [glow, 255, covered(&opaque, v), metal], shade, turn: [0; 4] });
             }
             part.bank = start..self.voxels.len() as u32;
         }

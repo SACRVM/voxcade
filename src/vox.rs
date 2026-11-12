@@ -24,6 +24,10 @@ pub struct VoxModel {
     /// Per frame and voxel (as in `frames`): how metal it is, packed as
     /// `metal::pack` (0: not metal).
     pub metal: Vec<Vec<u8>>,
+    /// Per frame and voxel (as in `frames`): how much it glows, 0 to 255
+    /// (MagicaVoxel's emission material, `glows`); empty for a model
+    /// without a glowing colour, which is nearly all of them.
+    pub glow: Vec<Vec<u8>>,
     /// Per frame and voxel: a direction it is lit by (xyz, snorm) and in w
     /// the faces that use it (bits in `mesh::DIRS` order, `ALL_FACES`: the
     /// whole voxel); the rest, and all when empty, by their own direction.
@@ -175,6 +179,23 @@ fn metals(data: &DotVoxData) -> [u8; 256] {
     shine
 }
 
+/// How much each file colour index glows: MagicaVoxel's emission material
+/// (`_type` `_emit`) by its emission (`_emit`, 0 to 1; 1 when the file
+/// gives none), as `frame:cube`'s glow, 0 to 255. The other materials do
+/// not glow.
+fn glows(data: &DotVoxData) -> [u8; 256] {
+    let mut glow = [0u8; 256];
+    for m in &data.materials {
+        if m.material_type() != Some("_emit") {
+            continue;
+        }
+        if let Some(g) = glow.get_mut(m.id as usize) {
+            *g = (m.emission().unwrap_or(1.0).clamp(0.0, 1.0) * 255.0).round() as u8;
+        }
+    }
+    glow
+}
+
 fn model_size(data: &DotVoxData, id: usize) -> IVec3 {
     let s = data.models[id].size;
     IVec3::new(s.x as i32, s.y as i32, s.z as i32)
@@ -197,7 +218,7 @@ pub fn load_model_in(files: &Files, path: &Path) -> Result<VoxModel> {
 pub fn figure_of(data: &DotVoxData, path: &Path) -> Option<Result<(VoxModel, Vec<usize>, IVec3)>> {
     let objects = named_objects(data)?;
     let models = objects.iter().map(|o| o.model).collect();
-    Some(figure_of_parts(path, data, &objects, &see_through(data), &metals(data)).map(|(m, low)| (m, models, low)))
+    Some(figure_of_parts(path, data, &objects, &see_through(data), &metals(data), &glows(data)).map(|(m, low)| (m, models, low)))
 }
 
 /// The model a file's `data` makes (read from `path`).
@@ -207,8 +228,9 @@ fn model_of(data: &DotVoxData, path: &Path) -> Result<VoxModel> {
     }
     let alpha = see_through(data);
     let shine = metals(data);
+    let glow = glows(data);
     if let Some(objects) = named_objects(data) {
-        return figure_of_parts(path, data, &objects, &alpha, &shine).map(|(m, _)| m);
+        return figure_of_parts(path, data, &objects, &alpha, &shine, &glow).map(|(m, _)| m);
     }
     let metal = data.models.iter().map(|model| model.voxels.iter().map(|v| shine[v.i as usize + 1]).collect()).collect();
     let frames = data
@@ -226,7 +248,11 @@ fn model_of(data: &DotVoxData, path: &Path) -> Result<VoxModel> {
         })
         .collect();
     let size = (0..data.models.len()).map(|id| model_size(data, id)).reduce(IVec3::max).unwrap();
-    Ok(VoxModel::new(size, frames, metal))
+    let mut model = VoxModel::new(size, frames, metal);
+    if glow.iter().any(|&g| g != 0) {
+        model.glow = data.models.iter().map(|m| m.voxels.iter().map(|v| glow[v.i as usize + 1]).collect()).collect();
+    }
+    Ok(model)
 }
 
 /// An object of a figure's scene: its name, its model, where its model's
@@ -339,7 +365,7 @@ pub fn ring(parents: &[Option<usize>], p: usize) -> Option<Vec<usize>> {
 /// A figure of parts from the scene's named objects: one frame of all of
 /// them as they stand, and the parts with their joints (`Part`); and
 /// where the frame's low corner stands in the scene.
-fn figure_of_parts(path: &Path, data: &DotVoxData, objects: &[Object], alpha: &[u8; 256], shine: &[u8; 256]) -> Result<(VoxModel, IVec3)> {
+fn figure_of_parts(path: &Path, data: &DotVoxData, objects: &[Object], alpha: &[u8; 256], shine: &[u8; 256], glow: &[u8; 256]) -> Result<(VoxModel, IVec3)> {
     for (k, o) in objects.iter().enumerate() {
         if objects[..k].iter().any(|other| other.name == o.name) {
             return Err(anyhow!("{}: two parts called '{}' (the objects' names must differ)", path.display(), o.name));
@@ -353,7 +379,7 @@ fn figure_of_parts(path: &Path, data: &DotVoxData, objects: &[Object], alpha: &[
         let half = IVec3::new(m.size.x as i32 / 2, m.size.y as i32 / 2, m.size.z as i32 / 2);
         for v in &m.voxels {
             let c = data.palette[v.i as usize];
-            placed.push((o.at + IVec3::new(v.x as i32, v.y as i32, v.z as i32) - half, [c.r, c.g, c.b, alpha[v.i as usize + 1]], shine[v.i as usize + 1], part));
+            placed.push((o.at + IVec3::new(v.x as i32, v.y as i32, v.z as i32) - half, [c.r, c.g, c.b, alpha[v.i as usize + 1]], shine[v.i as usize + 1], part, glow[v.i as usize + 1]));
         }
     }
     let low = placed.iter().fold(IVec3::MAX, |l, p| l.min(p.0));
@@ -383,6 +409,9 @@ fn figure_of_parts(path: &Path, data: &DotVoxData, objects: &[Object], alpha: &[
     let metal = placed.iter().map(|p| p.2).collect();
     let owner: Vec<usize> = placed.iter().map(|p| p.3).collect();
     let mut model = VoxModel::new(high - low + IVec3::ONE, vec![frame], vec![metal]);
+    if placed.iter().any(|p| p.4 != 0) {
+        model.glow = vec![placed.iter().map(|p| p.4).collect()];
+    }
     model.parts = parts_of(&model.frames[0], &owner, objects.iter().map(|o| o.name.clone()).collect(), model.size, &stated);
     Ok((model, low))
 }
@@ -391,7 +420,7 @@ fn figure_of_parts(path: &Path, data: &DotVoxData, objects: &[Object], alpha: &[
 /// is, `names` the parts in order, `stated` what the file says of each
 /// (its parent, its joint from the frame's low corner; no ring among the
 /// parents, `ring`).
-fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<String>, size: IVec3, stated: &[(Option<usize>, Option<Vec3>)]) -> Vec<Part> {
+pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<String>, size: IVec3, stated: &[(Option<usize>, Option<Vec3>)]) -> Vec<Part> {
     let count = names.len();
     let cells: crate::world::CellMap<usize> = frame.iter().zip(owner).map(|((v, _), &o)| (*v, o)).collect();
     let pivot = IVec3::new(size.x / 2, size.y / 2, 0).as_vec3();
@@ -541,7 +570,7 @@ impl VoxModel {
         let glass = visible.iter().zip(&frames).map(|(seen, frame)| seen.iter().copied().filter(|&k| frame[k as usize].1[3] < 255).collect()).collect();
         let smooth_glass = |m: &u8| *m != 0 && *m >> 4 == 0;
         let facets = if metal.iter().flatten().any(smooth_glass) { frames.iter().zip(&metal).map(|(frame, m)| facets(frame, m)).collect() } else { Vec::new() };
-        Self { size, frames, metal, shade: Vec::new(), facets, visible, glass, bank: Vec::new(), parts: Vec::new() }
+        Self { size, frames, metal, glow: Vec::new(), shade: Vec::new(), facets, visible, glass, bank: Vec::new(), parts: Vec::new() }
     }
 
     /// Works out how each voxel is lit (`shade`). With `Smooth` a whole

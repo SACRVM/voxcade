@@ -56,6 +56,10 @@ pub struct Def {
     /// degrees a second (`spin`; 0: not at all): a gem, a coin. Only the
     /// picture turns.
     pub spin: f32,
+    /// Stays where it is put (`fixed = true`): no gravity, no landing on
+    /// voxels, whatever the script asks of it (a sign, a switch, a thing
+    /// hung in the air). Only for kinds the script moves.
+    pub fixed: bool,
     /// Its model's frames for what it does and its poses, by name
     /// (`frames`), and how many a second where a set does not say (`fps`).
     pub frames: BTreeMap<String, Frames>,
@@ -276,6 +280,14 @@ pub fn defs(cfg: &GameConfig, behaviours: &[&str]) -> Result<Vec<Def>> {
                 None => 0.0,
                 Some(v) => v.as_float().or_else(|| v.as_integer().map(|i| i as f64)).with_context(|| format!("{}: how fast it turns round, degrees a second", what("spin")))? as f32,
             };
+            let fixed = match params.remove("fixed") {
+                None => false,
+                Some(toml::Value::Boolean(b)) => b,
+                Some(_) => bail!("{}: true or false (a thing that stays where it is put)", what("fixed")),
+            };
+            if fixed && behaviour.is_some() {
+                bail!("{}: a kind with a behaviour is moved by its ready-made rules; fixed is for kinds the script moves (no behaviour)", what("fixed"));
+            }
             let fps = match params.remove("fps") {
                 None => FPS,
                 Some(f) => f.as_float().or_else(|| f.as_integer().map(|i| i as f64)).with_context(|| what("fps"))?.max(0.1) as f32,
@@ -296,7 +308,7 @@ pub fn defs(cfg: &GameConfig, behaviours: &[&str]) -> Result<Vec<Def>> {
                     .collect::<Result<_>>()?,
                 Some(_) => bail!("{}: parts by name and how far they swing (swing = {{ leg_left = 30, leg_right = -30 }})", what("swing")),
             };
-            Ok(Def { name, behaviour, model, hp, props, families, effect, sound, reach, team, immune, free_turn, spin, frames, fps, swing, params })
+            Ok(Def { name, behaviour, model, hp, props, families, effect, sound, reach, team, immune, free_turn, spin, fixed, frames, fps, swing, params })
         })
         .collect()
 }

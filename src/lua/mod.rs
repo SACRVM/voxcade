@@ -919,7 +919,7 @@ impl<K: Kit> LuaGame<K> {
                 let height = height(&d.name, d.model.as_deref());
                 let sound = d.sound.map(|s| crate::names::intern(&s));
                 let figure = figures.contains(&d.name);
-                Kind { name: d.name, model: d.model, height, hp: d.hp.unwrap_or(0), has_hp: d.hp.is_some() || d.behaviour.is_some() || figure, scripted: d.behaviour.is_none() && !figure, props: d.props, families: d.families, effect: d.effect, sound, reach: d.reach, team: d.team, free_turn: d.free_turn, spin: d.spin, frames: d.frames, swing: d.swing }
+                Kind { name: d.name, model: d.model, height, hp: d.hp.unwrap_or(0), has_hp: d.hp.is_some() || d.behaviour.is_some() || figure, scripted: d.behaviour.is_none() && !figure, props: d.props, families: d.families, effect: d.effect, sound, reach: d.reach, team: d.team, free_turn: d.free_turn, spin: d.spin, fixed: d.fixed, frames: d.frames, swing: d.swing }
             })
             .collect())
     }
@@ -1687,8 +1687,10 @@ impl<K: Kit> LuaGame<K> {
     /// The things the script moves go the way they were told; without
     /// ready-made rules, the debris and the camera too.
     fn move_scripted(&mut self) {
+        let kinds = self.stage.kinds.clone();
+        let fixed = move |kind: usize| kinds.get(kind).is_some_and(|k| k.fixed);
         if let Some(kit) = self.kit_mut() {
-            kit.move_scripted();
+            kit.move_scripted(&fixed);
             self.fell_out();
             if let Err(e) = self.prune() {
                 self.halt(e);
@@ -1696,7 +1698,7 @@ impl<K: Kit> LuaGame<K> {
             return;
         }
         let h = self.plain_mut().expect("a plain host without a kit");
-        host::move_things(&mut h.things, &h.sim, |w| Some(w));
+        host::move_things(&mut h.things, &h.sim, &fixed, |w| Some(w));
         self.hold_players();
         self.fell_out();
         if let Err(e) = self.prune() {
@@ -2702,6 +2704,7 @@ impl<K: Kit> Game for LuaGame<K> {
                 view_proj: out.view_proj(),
                 snap: out.snaps(),
                 parts: self.stage.parts.clone(),
+                known: self.stage.frames.clone(),
                 ..Frame::default()
             };
             let lua = &self.sandbox.lua;

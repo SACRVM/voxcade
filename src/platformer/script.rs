@@ -480,8 +480,8 @@ impl Kit for Platformer {
         ticked
     }
 
-    fn move_scripted(&mut self) {
-        move_things(&mut self.things, &self.sim, |b| match b {
+    fn move_scripted(&mut self, fixed: &dyn Fn(usize) -> bool) {
+        move_things(&mut self.things, &self.sim, fixed, |b| match b {
             Brain::Script(walk) => Some(walk),
             _ => None,
         });

@@ -2069,8 +2069,11 @@ impl Drawing<'_> {
         // what is drawn see-through on top. Fading, a model is all cubes.
         let fade = self.fade;
         let voxels = &mut self.voxels;
-        let mut put = |corner: Vec3, color: [u8; 4], metal: u8, shade: [i8; 4], turn: [i8; 4]| {
-            voxels.add(corner, color, 0.0, color[3] as f32 / 255.0 * fade, metal, shade, turn)
+        // A model's glow is a byte (0 to 255); half a step over it keeps
+        // the cube's rounding down from losing one.
+        let mut put = |corner: Vec3, color: [u8; 4], metal: u8, glow: u8, shade: [i8; 4], turn: [i8; 4]| {
+            let glow = if glow == 0 { 0.0 } else { (glow as f32 + 0.5) / 255.0 };
+            voxels.add(corner, color, glow, color[3] as f32 / 255.0 * fade, metal, shade, turn)
         };
         draw(&mut put, (fade >= 1.0).then_some(&mut self.draws), m, frame, origin, look, turn, pose, tint);
     }
@@ -2204,6 +2207,10 @@ pub fn posing<'a>(pose: &'a [(String, [f32; 3])], under: impl Fn(&str) -> Quat +
     }
 }
 
+/// What `draw` hands over for each voxel it draws as a cube: its corner,
+/// colour, metal, glow, the way it is lit and its free turn.
+type Put<'a> = dyn FnMut(Vec3, [u8; 4], u8, u8, [i8; 4], [i8; 4]) + 'a;
+
 /// What `draw` puts down at once: its voxels in the bank (if there), the
 /// see-through ones and all the visible ones (indices into the frame), its
 /// turn and its shift (`render::turned_centre`).
@@ -2220,7 +2227,7 @@ type Piece<'a> = (Option<std::ops::Range<u32>>, &'a [u32], &'a [u32], Quat, Vec3
 /// without `on_gpu` or a bank (a model fading out).
 #[allow(clippy::too_many_arguments)]
 fn draw(
-    put: &mut dyn FnMut(Vec3, [u8; 4], u8, [i8; 4], [i8; 4]),
+    put: &mut Put,
     mut on_gpu: Option<&mut Vec<ModelDraw>>,
     model: &VoxModel,
     frame: usize,
@@ -2238,6 +2245,7 @@ fn draw(
     let metal = model.metal.get(frame);
     let shade = model.shade.get(frame);
     let facets = model.facets.get(frame);
+    let glow = model.glow.get(frame);
     let turn = match (look.x, look.y) {
         (0, 1) => 0,
         (1, 0) => 1,
@@ -2314,7 +2322,7 @@ fn draw(
             } else {
                 origin + IVec3::new(x, y, l.z).as_vec3()
             };
-            put(corner, [r, g, b, color[3]], metal.and_then(|m| m.get(k)).copied().unwrap_or(0), lit, snorm);
+            put(corner, [r, g, b, color[3]], metal.and_then(|m| m.get(k)).copied().unwrap_or(0), glow.and_then(|g| g.get(k)).copied().unwrap_or(0), lit, snorm);
         }
     }
 }
@@ -2793,10 +2801,10 @@ mod tests {
                     for tint in [None, Some([255, 255, 255, 255])] {
                         let origin = Vec3::new(100.0, 200.0, 7.0);
                         let mut old: Vec<Cube> = Vec::new();
-                        draw(&mut |corner: Vec3, color, metal, shade, turn| old.push(key(corner + 0.5, color, metal, shade, turn)), None, m, 1, origin, look, rot, &[], tint);
+                        draw(&mut |corner: Vec3, color, metal, _, shade, turn| old.push(key(corner + 0.5, color, metal, shade, turn)), None, m, 1, origin, look, rot, &[], tint);
                         let mut new: Vec<Cube> = Vec::new();
                         let mut on_gpu = Vec::new();
-                        draw(&mut |corner: Vec3, color, metal, shade, turn| new.push(key(corner + 0.5, color, metal, shade, turn)), Some(&mut on_gpu), m, 1, origin, look, rot, &[], tint);
+                        draw(&mut |corner: Vec3, color, metal, _, shade, turn| new.push(key(corner + 0.5, color, metal, shade, turn)), Some(&mut on_gpu), m, 1, origin, look, rot, &[], tint);
                         assert_eq!(on_gpu.len(), 1);
                         let glass = new.len();
                         let bank = &game.bank;
@@ -2833,10 +2841,10 @@ mod tests {
         let key = |centre: Vec3, color, metal, shade, turn| -> Cube { (centre.to_array().map(f32::to_bits), color, metal, shade, turn) };
         let cubes = |look: IVec2, rot: Quat, pose: &[Quat]| {
             let mut all: Vec<Cube> = Vec::new();
-            draw(&mut |corner: Vec3, color, metal, shade, turn| all.push(key(corner + 0.5, color, metal, shade, turn)), None, &m, 0, origin, look, rot, pose, None);
+            draw(&mut |corner: Vec3, color, metal, _, shade, turn| all.push(key(corner + 0.5, color, metal, shade, turn)), None, &m, 0, origin, look, rot, pose, None);
             let mut gpu: Vec<Cube> = Vec::new();
             let mut on_gpu = Vec::new();
-            draw(&mut |corner: Vec3, color, metal, shade, turn| gpu.push(key(corner + 0.5, color, metal, shade, turn)), Some(&mut on_gpu), &m, 0, origin, look, rot, pose, None);
+            draw(&mut |corner: Vec3, color, metal, _, shade, turn| gpu.push(key(corner + 0.5, color, metal, shade, turn)), Some(&mut on_gpu), &m, 0, origin, look, rot, pose, None);
             assert_eq!(on_gpu.len(), 4, "a draw a part");
             gpu.extend(on_gpu.iter().flat_map(|d| bank.cubes(d)).map(|i| key(Vec3::from_slice(&i.pos_size[..3]), i.color, i.fx[3], i.shade, i.turn)));
             all.sort_unstable();
@@ -2861,11 +2869,84 @@ mod tests {
         // rest every part lies as it is.
         let nearer = |pose: &[Quat]| {
             let mut on_gpu = Vec::new();
-            draw(&mut |_, _, _, _, _| {}, Some(&mut on_gpu), &m, 0, origin, IVec2::Y, Quat::IDENTITY, pose, None);
+            draw(&mut |_, _, _, _, _, _| {}, Some(&mut on_gpu), &m, 0, origin, IVec2::Y, Quat::IDENTITY, pose, None);
             on_gpu.iter().map(|d| d.nearer).collect::<Vec<f32>>()
         };
         assert_eq!(nearer(&[]), [0.0; 4], "at rest");
         assert_eq!(nearer(&[Quat::IDENTITY, Quat::IDENTITY, turning(-90.0, 0.0, 0.0), Quat::IDENTITY]), [0.0, 1.0, 1.0, 2.0], "body, head, arm, hand");
+    }
+
+    /// MagicaVoxel's emission material on a colour makes a model's voxels
+    /// of it glow, as `frame:cube`'s glow does: from the bank (`fx[0]`
+    /// of its cubes) and as cubes (what a fading model draws); a model
+    /// without one carries no glow at all, as before.
+    #[test]
+    fn an_emissive_colour_makes_a_models_voxels_glow() {
+        let dir = std::env::temp_dir().join(format!("voxcade-emit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let model = |emit: bool| {
+            let voxels = (0..3).map(|x| dot_vox::Voxel { x, y: 0, z: 0, i: x }).collect();
+            let mut palette = vec![dot_vox::Color { r: 0, g: 0, b: 0, a: 255 }; 256];
+            palette[0] = dot_vox::Color { r: 200, g: 40, b: 40, a: 255 };
+            palette[1] = dot_vox::Color { r: 255, g: 220, b: 80, a: 255 };
+            palette[2] = dot_vox::Color { r: 40, g: 40, b: 200, a: 255 };
+            let lamp = dot_vox::Material { id: 2, properties: [("_type".to_string(), "_emit".to_string()), ("_emit".to_string(), "0.6".to_string())].into() };
+            let data = dot_vox::DotVoxData {
+                version: 150,
+                index_map: Vec::new(),
+                models: vec![dot_vox::Model { size: dot_vox::Size { x: 3, y: 1, z: 1 }, voxels }],
+                palette,
+                materials: if emit { vec![lamp] } else { Vec::new() },
+                scenes: Vec::new(),
+                layers: Vec::new(),
+            };
+            let file = dir.join(if emit { "lamp.vox" } else { "plain.vox" });
+            let mut bytes = Vec::new();
+            data.write_vox(&mut bytes).unwrap();
+            std::fs::write(&file, bytes).unwrap();
+            crate::vox::load_model(&file).unwrap()
+        };
+        let want = (0.6f32 * 255.0).round() as u8;
+        // The glow by voxel and the colours' own.
+        let mut lamp = model(true);
+        assert_eq!(lamp.glow, vec![vec![0, want, 0]]);
+        let mut plain = model(false);
+        assert!(plain.glow.is_empty(), "no glow where no colour has one");
+        let origin = Vec3::new(10.0, 10.0, 0.0);
+        for m in [&mut lamp, &mut plain] {
+            let mut bank = crate::render::ModelBank::default();
+            bank.add(m);
+            let glowing = |m: &VoxModel| m.glow.first().map_or(0, |g| g.iter().filter(|&&g| g != 0).count());
+            // From the bank.
+            let mut on_gpu = Vec::new();
+            draw(&mut |_, _, _, _, _, _| {}, Some(&mut on_gpu), m, 0, origin, IVec2::Y, Quat::IDENTITY, &[], None);
+            let from_bank: Vec<u8> = on_gpu.iter().flat_map(|d| bank.cubes(d)).map(|i| i.fx[0]).collect();
+            assert_eq!(from_bank.len(), 3);
+            assert_eq!(from_bank.iter().filter(|&&g| g == want).count(), glowing(m), "the bank's cubes");
+            assert!(from_bank.iter().all(|&g| g == 0 || g == want));
+            // As cubes, through a Voxels as the game's frame does: no byte lost.
+            let world = crate::world::World::new(IVec3::new(32, 32, 8), [[0; 4]; 256]);
+            let mut voxels = Voxels { world: &world, eye: Vec3::new(0.0, 0.0, 100.0), taken: Default::default(), opaque: Vec::new(), see_through: Vec::new() };
+            draw(
+                &mut |corner: Vec3, color: [u8; 4], metal: u8, glow: u8, shade: [i8; 4], turn: [i8; 4]| {
+                    let glow = if glow == 0 { 0.0 } else { (glow as f32 + 0.5) / 255.0 };
+                    voxels.add(corner, color, glow, 1.0, metal, shade, turn)
+                },
+                None,
+                m,
+                0,
+                origin,
+                IVec2::Y,
+                Quat::IDENTITY,
+                &[],
+                None,
+            );
+            let cubes = voxels.finish();
+            assert_eq!(cubes.len(), 3);
+            assert_eq!(cubes.iter().filter(|i| i.fx[0] == want).count(), glowing(m), "as cubes");
+            assert!(cubes.iter().all(|i| i.fx[0] == 0 || i.fx[0] == want));
+        }
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// A part's joint set by hand in the file is where it turns: an arm
@@ -2883,7 +2964,7 @@ mod tests {
             let m = crate::vox::load_model(&file).unwrap();
             let mut zs = Vec::new();
             let colour = m.frames[0][m.parts[1].voxels[0] as usize].1;
-            draw(&mut |corner: Vec3, c, _, _, _| if c == colour { zs.push(corner.z + 0.5) }, None, &m, 0, Vec3::ZERO, IVec2::Y, Quat::IDENTITY, &[Quat::IDENTITY, turning(0.0, 180.0, 0.0)], None);
+            draw(&mut |corner: Vec3, c, _, _, _, _| if c == colour { zs.push(corner.z + 0.5) }, None, &m, 0, Vec3::ZERO, IVec2::Y, Quat::IDENTITY, &[Quat::IDENTITY, turning(0.0, 180.0, 0.0)], None);
             (m.parts[1].joint.z, zs.iter().copied().fold(f32::MAX, f32::min), zs.iter().copied().fold(f32::MIN, f32::max))
         };
         // Its top: the arm's voxels end at z 7 (from 1 to 7).
@@ -2906,7 +2987,7 @@ mod tests {
         let origin = Vec3::new(100.0, 200.0, 7.0);
         let cubes = |look: IVec2, rot: Quat| {
             let mut all: Vec<(Vec3, [i8; 4])> = Vec::new();
-            draw(&mut |corner: Vec3, _, _, _, turn| all.push((corner + 0.5, turn)), None, m, 1, origin, look, rot, &[], None);
+            draw(&mut |corner: Vec3, _, _, _, _, turn| all.push((corner + 0.5, turn)), None, m, 1, origin, look, rot, &[], None);
             all
         };
         assert_eq!(turning(0.0, 0.0, 0.0), Quat::IDENTITY);
@@ -2929,6 +3010,68 @@ mod tests {
         let rolled_east = cubes(IVec2::X, turning(0.0, 0.0, 90.0));
         let top = rolled_east.iter().map(|(c, _)| c.y).fold(f32::MAX, f32::min);
         assert!(top < origin.y - m.size.z as f32 * 0.25, "facing +x and rolled right, its top should lie towards -y ({top})");
+    }
+
+    /// Where a model's pivot lies and what a turn does to a model of even
+    /// size (pinned as it is, so nobody changes how games draw by
+    /// accident): the pivot is the cell `size / 2` (whole voxels, rounded
+    /// down) of each side, and a quarter turn turns the cells about the
+    /// middle of that cell. An odd size has the pivot in its middle and
+    /// fills the same cells at every turn. An even size has one more cell
+    /// on the low side of the pivot than on the high side; an axis that
+    /// a turn flips (a half turn flips both, a quarter turn one) then
+    /// fills the cells one voxel higher than unturned. Free turns (`turns
+    /// = "free"`, `frame:model`'s turn) land on the same cells as the
+    /// quarter turns.
+    #[test]
+    fn an_even_sized_model_shifts_a_voxel_when_it_turns() {
+        let dir = std::env::temp_dir().join(format!("voxcade-pivot-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // The cells a model fills from the pivot's cell, per look: the
+        // lowest and highest of x and y.
+        let cells = |size: IVec3, look: IVec2, free: Quat| {
+            let file = dir.join("box.vox");
+            crate::vox::write_figure(&file, &[("box", size, IVec3::ZERO)]);
+            let m = crate::vox::load_model(&file).unwrap();
+            assert_eq!(m.size, size);
+            let origin = Vec3::new(100.0, 200.0, 0.0);
+            let (mut lo, mut hi) = (IVec2::MAX, IVec2::MIN);
+            draw(
+                &mut |corner: Vec3, _, _, _, _, _| {
+                    let c = IVec2::new(corner.x.round() as i32 - 100, corner.y.round() as i32 - 200);
+                    (lo, hi) = (lo.min(c), hi.max(c));
+                },
+                None,
+                &m,
+                0,
+                origin,
+                look,
+                free,
+                &[],
+                None,
+            );
+            (lo.to_array(), hi.to_array())
+        };
+        // Looking +y, +x, -y, -x: the quarter turns.
+        let looks = [IVec2::Y, IVec2::X, IVec2::NEG_Y, IVec2::NEG_X];
+        // Odd across both ways: always -2 to 2.
+        for look in looks {
+            assert_eq!(cells(IVec3::new(5, 5, 2), look, Quat::IDENTITY), ([-2, -2], [2, 2]), "odd, {look}");
+        }
+        // Even across both ways (4 by 4): -2 to 1 as it stands; the flipped
+        // axis -1 to 2: +x flips y, -y flips both, -x flips x.
+        let want = [([-2, -2], [1, 1]), ([-2, -1], [1, 2]), ([-1, -1], [2, 2]), ([-1, -2], [2, 1])];
+        for (look, want) in looks.iter().zip(want) {
+            assert_eq!(cells(IVec3::new(4, 4, 2), *look, Quat::IDENTITY), want, "even, {look}");
+        }
+        // Four by five: the five never moves, the four does when flipped.
+        let want = [([-2, -2], [1, 2]), ([-2, -1], [2, 2]), ([-1, -2], [2, 2]), ([-2, -2], [2, 1])];
+        for (look, want) in looks.iter().zip(want) {
+            assert_eq!(cells(IVec3::new(4, 5, 2), *look, Quat::IDENTITY), want, "four by five, {look}");
+        }
+        // A free half turn fills the cells of the quarter turns' second.
+        assert_eq!(cells(IVec3::new(4, 4, 2), IVec2::Y, turning(180.0, 0.0, 0.0)), ([-1, -1], [2, 2]), "a free half turn");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// A kind's spin turns its model round its upright axis with the

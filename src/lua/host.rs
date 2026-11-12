@@ -47,6 +47,8 @@ pub struct Kind {
     pub free_turn: bool,
     /// How fast its model turns round as it is drawn, degrees a second.
     pub spin: f32,
+    /// Stays where it is put: no gravity (`fixed`).
+    pub fixed: bool,
     /// Its model's frames for what it does (idle, walk, jump: `frame:model`
     /// without a frame).
     pub frames: std::collections::BTreeMap<String, crate::sim::things::Frames>,
@@ -432,8 +434,9 @@ pub trait Kit: Game + Host + Clone {
     /// nothing of its rules moves; whether a tick ran (not a hit stop).
     fn held(&mut self) -> bool;
 
-    /// Moves the things the script moves, after its `on_tick`.
-    fn move_scripted(&mut self);
+    /// Moves the things the script moves, after its `on_tick`; those of a
+    /// kind `fixed` says stay where they are.
+    fn move_scripted(&mut self, fixed: &dyn Fn(usize) -> bool);
 
     /// The script built the world (`c.world.size`, in `on_level_start`) after the
     /// kit placed its own: they are put on what was built (the shooter's
@@ -1045,12 +1048,19 @@ pub fn touch(a: &Touching, b: &Touching) -> bool {
 }
 
 /// Steers and moves the script's things the way they were told to walk
-/// this tick (`thing:walk`), then forgets the walk.
-pub fn move_things<B>(things: &mut Things<B>, sim: &Sim, walk: impl Fn(&mut B) -> Option<&mut Walk>) {
+/// this tick (`thing:walk`), then forgets the walk. A thing of a kind
+/// that is `fixed` has no gravity and does not land: it stays where it was
+/// put.
+pub fn move_things<B>(things: &mut Things<B>, sim: &Sim, fixed: &dyn Fn(usize) -> bool, walk: impl Fn(&mut B) -> Option<&mut Walk>) {
     let cfg = &sim.cfg;
     for t in things.iter_mut() {
         // Its own, or one whose ready-made rules are off (`thing:enable`).
         let Some(w) = t.off.as_mut().or_else(|| walk(&mut t.brain)) else { continue };
+        if fixed(t.kind) {
+            *w = Walk::default();
+            t.flash = t.flash.saturating_sub(1);
+            continue;
+        }
         let accel = if t.body.on_ground { cfg.player.accel } else { cfg.player.air_accel };
         t.body.steer(w.wish, w.speed, accel);
         *w = Walk::default();
@@ -1583,8 +1593,8 @@ impl<A: Kit, B: Kit> Kit for Either<A, B> {
         each!(self, k => k.held())
     }
 
-    fn move_scripted(&mut self) {
-        each!(self, k => k.move_scripted())
+    fn move_scripted(&mut self, fixed: &dyn Fn(usize) -> bool) {
+        each!(self, k => k.move_scripted(fixed))
     }
 
     fn built(&mut self) {

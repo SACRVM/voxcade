@@ -171,7 +171,9 @@ c.things.crate = { model = "crate.vox" }           -- no behaviour: main.lua mov
   rules written out: copy and change them. `effect = "burst"` bursts a
   thing into its own voxels as it goes (they fall, lie a moment and are
   gone; Voxkeep's enemies); `spin = 120` turns a kind's model round,
-  degrees a second (Voxkeep's gem), only the picture.
+  degrees a second (Voxkeep's gem), only the picture; `fixed = true` keeps
+  a kind's things where they are spawned or placed (no gravity; a sign
+  hung in the air), for kinds without a behaviour.
 - The shooter kit (`c.kit = "shooter"`): soldier, spawner, captive
   (caged until the code sets `thing.state.freed = true`, then runs off),
   gunship, pickup (lies there, touched within `reach`); weapons in

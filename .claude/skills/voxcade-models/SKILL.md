@@ -77,6 +77,12 @@ leaves unset), so a bigger figure is no extra work there.
   not its faces: a stone cut in voxel steps sparkles facet by facet as it
   turns (the gem: `_trans` 0.25, `_rough` 0.3, `spin = 120`; 0.7 see-through
   turned it to mist). Glass without `_rough` mirrors nothing.
+- **Glow**: MagicaVoxel's emission material (`_type` `_emit`, `_emit`
+  0 to 1 its strength, 1 without one) on a colour makes every voxel of it
+  glow in its own colour whatever the light, as `frame:cube`'s glow does
+  (a lamp, eyes, a magic gem). The material belongs to the colour, so only
+  voxels of that colour glow; the voxel editor keeps it when it saves.
+  `_flux` and `_ldr` are not read. No model of ours glows yet.
 - The game's light decides how a colour looks (front faces are often
   darker than tops): judge colours in it (`voxcade sheet`), not in the
   editor's.

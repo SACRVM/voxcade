@@ -357,6 +357,46 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A colour's emission material (it makes a model's voxels glow) stays
+    /// on the colour when the editor saves: after changing the model, and
+    /// on a colour added beside it.
+    #[test]
+    fn emission_survives_the_editor() {
+        let dir = std::env::temp_dir().join(format!("voxcade-emit-save-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("lamp.vox");
+        let mut palette = vec![dot_vox::Color { r: 0, g: 0, b: 0, a: 255 }; 256];
+        palette[0] = dot_vox::Color { r: 200, g: 40, b: 40, a: 255 };
+        palette[1] = dot_vox::Color { r: 255, g: 220, b: 80, a: 255 };
+        let lamp = dot_vox::Material { id: 2, properties: [("_type".to_string(), "_emit".to_string()), ("_emit".to_string(), "0.6".to_string())].into() };
+        let voxels = (0..2).map(|x| dot_vox::Voxel { x, y: 0, z: 0, i: x }).collect();
+        let data = dot_vox::DotVoxData { version: 150, index_map: Vec::new(), models: vec![dot_vox::Model { size: dot_vox::Size { x: 3, y: 1, z: 1 }, voxels }], palette, materials: vec![lamp], scenes: Vec::new(), layers: Vec::new() };
+        let mut bytes = Vec::new();
+        data.write_vox(&mut bytes).unwrap();
+        std::fs::write(&file, bytes).unwrap();
+        let glow = |f: &Path| {
+            let m = crate::vox::load_model(f).unwrap();
+            let mut seen: Vec<([u8; 3], u8)> = m.frames[0].iter().zip(&m.glow[0]).map(|(&(_, c), &g)| ([c[0], c[1], c[2]], g)).collect();
+            seen.sort();
+            seen
+        };
+        let was = glow(&file);
+        assert!(was.contains(&([255, 220, 80], 153)), "{was:?}");
+        let mut model = ModelFile::load(&file).unwrap();
+        model.path = dir.join("copy.vox");
+        model.save().unwrap();
+        assert_eq!(glow(&model.path), was, "saved unchanged");
+        // A voxel of the lamp's colour and one of another added, saved
+        // again: the lamp's colour still glows, the other does not.
+        model.frames[0].set(IVec3::new(2, 0, 0), Some([255, 220, 80])).unwrap();
+        model.frames[0].set(IVec3::new(0, 0, 0), Some([10, 20, 30])).unwrap();
+        model.save().unwrap();
+        let after = glow(&model.path);
+        assert_eq!(after.iter().filter(|(c, g)| *c == [255, 220, 80] && *g == 153).count(), 2, "{after:?}");
+        assert!(after.iter().all(|(c, g)| *g == 0 || *c == [255, 220, 80]), "{after:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Every model and block of every game and template, saved by the editor unchanged,
     /// is the same to the game: its frames, colours, glass and metal, its
     /// size (wider only where the file had voxels outside its box), and

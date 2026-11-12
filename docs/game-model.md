@@ -438,6 +438,19 @@ settings. Several players: `player` is seat 1, the others are in
   parts (`pose`: each part by its name, a turn about its joint): only the
   picture, decided anew each frame from the states, as a kind's `swing`
   (parts swinging with its steps) is decided from its body.
+  `frame:model` of a file the game does not know (no kind's `model`, no
+  `c.models`, item or effect names it) stops the game with a mistake.
+- **A model's pivot** is the cell `size / 2` (whole voxels, rounded
+  down) across and deep, on the floor: a thing's position is that cell,
+  and a model turns about its middle. For an odd size that is the middle
+  cell and the model fills the same cells at every turn. For an even size
+  (4 across: cells -2, -1, 0, 1 from the pivot) the pivot lies one cell
+  off the middle, so a turn that flips an axis (facing -y flips both
+  ways, facing +x or -x one) fills the cells one voxel higher on it
+  (-1 to 2): facing -y a 4 by 4 model lies one voxel up and to the right
+  of facing +y. Free turns (`turns = "free"`, `turn`) land on the same
+  cells. To keep an even model in one place whichever way it faces, give
+  it an odd size, or place it by its middle and allow the voxel.
 
 ## States
 
@@ -878,6 +891,12 @@ touches there touches without `on_touch`.
   `level:things("enemies")` and `level:count("enemies")` take a family;
   later a family has handlers and state defaults its kinds share and may
   override.
+- **`fixed = true`** (`c.things.NAME.fixed`): a thing of the kind stays
+  exactly where it is spawned or placed (`level:spawn(..., { z = 12 })`,
+  `thing:place`): no gravity, no landing on voxels, `thing:walk`, `push`
+  and `jump` move nothing. For kinds the script moves, so the ones
+  without a behaviour (and the same in a game with a kit); on a kind with
+  a behaviour it is a mistake, for its ready-made rules move it.
 - **`like = "other"`** builds a kind on another, as today.
 - **Props are declared** with their type and default:
   `c.things.door = { props = { to = "level", at = "place", locked = false } }`.
