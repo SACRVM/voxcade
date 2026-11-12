@@ -2,7 +2,7 @@
 name: voxcade-blocks
 description: >
   Work with Voxcade's levels of voxel blocks (docs/tiles.md): block files
-  (blocks/NAME.vvx, N by N by N), level.json (the grid of cells, the
+  (blocks/NAME.vvx, N by N by N), levels/NAME.toml (the grid of cells, the
   blocks' kinds, the things), bringing a Tiled map in once (voxcade
   import), the editor (voxcade edit: blocks and things, tools, keys, what
   it cannot do yet),
@@ -10,7 +10,7 @@ description: >
   limit, how relief reads in the game and touches collisions, and a
   helper to inspect blocks, list colours and merge them everywhere. Use
   this whenever blocks, tiles, Kacheln, a level of blocks, its colours,
-  the block editor, level.json or a game's level of blocks come up, before changing
+  the block editor, a level's .toml or a game's level of blocks come up, before changing
   any block file, and when the user asks how a block looks or what to do
   about one.
 ---
@@ -50,15 +50,22 @@ were tried and rejected as fake 3D. So:
   named by the tile's id as the Tiled map stores it (Tiled's own window
   shows that id less one); new ones are numbered on after the tileset.
   `blocks/tiles.png` is the tileset as whole tiles, for new blocks.
-- `level.json`: `block` (N), `size` (cells across, deep, up), `blocks`
-  (each `{"name", "kind"}`), `cells` (runs `[count, block, turn]`, x
-  fastest, then y, then z; block 0 is empty, else its place in `blocks`
-  plus one; turn 0..47), `things` (`{"kind", "at": [x, y, z]}` in voxels
-  from the grid's low corner, y = N/2 is the middle of the front row),
-  `places` if any (`{"name", "at": [x, y, z], "facing": [x, y]}`, where a
-  player arrives: `world:go_to(level, place)`). A game of several levels
-  keeps them as `levels/NAME.json`, each such a file, in name order.
-- `conf.lua`: `c.world.blocks = { file = "level.json", margin, below,
+- `levels/NAME.toml` (one level: `level.toml`), text ("voxcade level 1",
+  `docs/tiles.md` has an example): `block` (N), `size` (cells across,
+  deep, up), `view` (`"front"`: each layer the grid seen from the front,
+  the front layer first, its top row first, a side view's room as its
+  picture; `"above"`: the bottom layer first, its far row first, a farm
+  as its map), `[blocks]` (name = kind, in the editor's order),
+  `[legend]` (a sign a block as it lies: `s = "stone"`, turned `S = {
+  block = "stone", turn = 17 }`, turn 0..47), `[cells]` with `layers`
+  (rows of signs, `.` empty, ` *N` and `*N` repeats as in a `.vvx`),
+  `[[thing]]` (`kind`, `at = [x, y, z]` in voxels from the grid's low
+  corner, y = N/2 the middle of the front row), `[[place]]` (`name`,
+  `at`, `facing`: where a player arrives, `world:go_to(level, place)`).
+  A game of several levels keeps them in `levels/`, in name order. A
+  changed cell is a changed character: change one by hand by its sign,
+  and keep the signs (the editor does).
+- `conf.lua`: `c.world.blocks = { file = "levels/01_hall.toml", margin, below,
   backdrops = { ... } }` (room left and right, open space under the grid
   to fall out of, pictures far behind).
 - In Rust: `src/blocks.rs` (`Block`: load, save at once, drawn out of a
@@ -117,7 +124,7 @@ the game (`shot`), not only in the editor's close orbit.
 ## Tools
 
 ```bash
-voxcade import games/NAME games/NAME/tiled/map.json   # once: a Tiled map as blocks and level.json
+voxcade import games/NAME games/NAME/tiled/map.json   # once: a Tiled map as blocks and level.toml
 voxcade edit games/NAME                               # the editor, in a window (the user's)
 voxcade edit games/NAME --block 27 --view -35,12 --size 900x700 --shot shots/b27.png   # to look
 voxcade edit games/NAME --things --size 1600x900 --shot shots/things.png             # the things
@@ -167,13 +174,13 @@ level's things stand so too. Its frames play on the panel (PLAY,
 PAUSE).
 
 Not yet: growing the grid left, forwards or down, naming blocks. A thing
-stands exactly where `level.json` places it; the engine moves none of them
+stands exactly where the level's `.toml` places it; the engine moves none of them
 back or forth (a prop behind the lane stands there because it is placed
 there).
 
 ## After changing blocks
 
-Block files and `level.json` count for the replays' fingerprint: run
+Block files and the level's `.toml` count for the replays' fingerprint: run
 `voxcade check games/NAME`. If the change only alters looks, `--refit`
 confirms the game plays the same and takes the new fingerprint; if a
 replay now plays differently (a block changed where bodies walk), the

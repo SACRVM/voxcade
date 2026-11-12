@@ -24,7 +24,7 @@ function conf(c)
     { "DOG", 10000 }, { "TAG", 7500 }, { "SAR", 5000 }, { "POW", 2500 }, { "MIA", 1000 },
   }
 
-  c.world.file = "map.json"       -- ground images and prefabs, put together at start (tools/gen_moreblood.py)
+  c.world.file = "map.toml"       -- ground images and prefabs, put together at start (tools/gen_moreblood.py)
   c.world.bedrock = true
 
   c.physics.gravity = 520
@@ -296,20 +296,6 @@ function conf(c)
   c.title_screen.flyby = "huey.vvx"      -- passes over now and then
   c.title_screen.flyby_every = 26
   c.title_screen.flyby_altitude = 46     -- the gunship's height over its pad (c.things.gunship.altitude)
-
-  -- palette slots in the prefabs that place things, by the things' names
-  c.markers.rifleman = 240
-  c.markers.grenadier = 241
-  c.markers.guard = 251             -- on the watchtowers
-  c.markers.hut = 242
-  c.markers.hostage = 243
-  c.markers.machine_gun = 244
-  c.markers.rockets = 245
-  c.markers.grenades = 246
-  c.markers.health = 247
-  c.markers.checkpoint = 248
-  c.markers.goal = 249
-  c.markers.gunship = 250
 
   c.camera.pitch = 35
   c.camera.yaw = 0

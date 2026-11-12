@@ -55,7 +55,7 @@ pub const TEMPLATES: [Template; 3] = [
             file!("platformer", "gem.vvx"),
             file!("platformer", "hero.vvx"),
             file!("platformer", "hero2.vvx"),
-            file!("platformer", "level.json"),
+            file!("platformer", "level.toml"),
             file!("platformer", "main.lua"),
             file!("platformer", "music/under_the_dunes.mml"),
             file!("platformer", "scenarios/door_open.lua"),

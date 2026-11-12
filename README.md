@@ -245,12 +245,14 @@ claude mcp add voxcade -- /path/to/voxcade mcp
   brought in with `voxcade import <game> FILE.vox`. Python generators in `tools/` (`figures.py`,
   `gen_*.py`) make the games' first figures; after that they are the
   user's, shaped by hand.
-- **Levels:** a map (`map.json`: ground from height and material images,
-  `.vox` prefabs placed on it; More Blood, Pulsar's space), levels of
-  voxel blocks (`levels/*.json`, shaped in the level editor; a Tiled map
-  brought in once with `voxcade import`; [docs/tiles.md](docs/tiles.md)),
-  one `.vox` scene (the Arena; worlds and prefabs are still MagicaVoxel
-  scenes), or a world made in code (Sokovox).
+- **Levels:** text too. A map (`map.toml`: ground from height and
+  material images, `.vvx` prefabs placed on it; More Blood, Pulsar's
+  space), levels of voxel blocks (`levels/*.toml`, layers of signs a
+  person reads and git diffs cell by cell, shaped in the level editor; a
+  Tiled map brought in once with `voxcade import`;
+  [docs/tiles.md](docs/tiles.md)), one world (`world.vvx`, the Arena: its
+  palette numbers its colours, markers named in it), or a world made in
+  code (Sokovox).
 - **Sound:** every sound a file of the game, `sounds/NAME.toml`, a few
   numbers for the synthesizer (like sfxr; no recordings: everything in a
   game is code or text); `voxcade sounds <game>` writes them to a WAV to

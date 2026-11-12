@@ -7,16 +7,18 @@ guarded by a gunship parked on it.
 
 The level is a map the engine puts together when the game starts:
 
-    map.json             materials, prefabs, and where everything stands
+    map.toml             materials, prefabs, and where everything stands
     ground/height.png    grey: the height of every column in voxels, north up
-    ground/material.png  which material every column is (colours in map.json)
-    prefabs/*.vox        palms, cacti, rocks, buildings, several looks each
+    ground/material.png  which material every column is (colours in map.toml)
+    prefabs/*.vvx        palms, cacti, rocks, buildings, several looks each
 
-Paint the ground in any image editor, edit prefabs in MagicaVoxel, vengi or
-Goxel, move things in map.json. Enemies, hostages, pickups, checkpoints and
-the goal are markers: placed by name in map.json, or as marker voxels in
-reserved palette slots inside prefabs (see MARKERS and conf.lua), like the
-rifleman on the watchtower.
+Paint the ground in any image editor, change prefabs as text (tools/vvx.py
+writes them as `voxcade upgrade` does: their colours in the order the map
+numbers them), move things in map.toml. Enemies, hostages, pickups,
+checkpoints and the goal are markers: placed by name in map.toml, or as
+marker entries in a prefab's palette ({ marker = "guard" }; MARKERS below
+are the slots the drawing uses for them), like the guard on the
+watchtower.
 
 Drawn at 8-bit sprite scale: the figures are 22 voxels tall, like a C64 or
 NES sprite, so everything here has twice the voxels of the arena's scale.
@@ -29,12 +31,14 @@ trunk or a tower's legs brings the rest down.
 The figures, the pickups, the dog tags and the helicopters are written as
 MagicaVoxel .vox files beside the game's own models (.vvx), which the game
 reads: bring one in with `voxcade import games/moreblood games/moreblood/FILE.vox` (its .vvx
-replaced). The prefabs stay .vox: the map reads them so.
+replaced).
+
+The game's files are the user's, shaped by hand since: run this into
+another folder (the output-dir), never over the game.
 
 usage: python3 tools/gen_moreblood.py [output-dir]
 """
 
-import json
 import math
 import random
 import struct
@@ -43,6 +47,9 @@ import zlib
 from pathlib import Path
 
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from vvx import write_map, write_scene  # noqa: E402
 
 # A calm stretch at the south end, where the player starts out of every
 # enemy's sight (More Blood's enemies see 240 voxels far).
@@ -296,12 +303,9 @@ def save(name, p, soft=False):
     hx, hy = max(-min(xs), max(xs)), max(-min(ys), max(ys))
     low = min(zs)
     size = (2 * hx + 1, 2 * hy + 1, max(zs) - low + 1)
-    assert max(size) <= 256, f"{name} is {size}, MagicaVoxel models end at 256"
-    data = bytearray()
-    for (x, y, z), i in p.cells.items():
-        data += bytes((x + hx, y + hy, z - low, i))
-    write_vox(PREFAB_DIR / f"{name}.vox", [(size, data, (0, 0, 0))], WORLD_COLOURS)
-    PREFABS[name] = (f"prefabs/{name}.vox", low, soft)
+    voxels = [(x + hx, y + hy, z - low, i) for (x, y, z), i in p.cells.items()]
+    write_scene(PREFAB_DIR / f"{name}.vvx", size, voxels, WORLD_COLOURS, {index: kind for index, (kind, _) in MARKERS.items()})
+    PREFABS[name] = (f"prefabs/{name}.vvx", low, soft)
 
 
 def place(name, x, y, turn=0):
@@ -314,7 +318,7 @@ def place(name, x, y, turn=0):
 
 
 def marker(name, x, y):
-    PLACE.append({"marker": name, "at": [x, y]})
+    PLACE.append({"thing": name, "at": [x, y]})
 
 
 # --- ground: sand floor with low dunes, canyon walls on both sides ---------
@@ -747,7 +751,7 @@ def make(name, draw, *args, soft=False):
 
 PREFAB_DIR.mkdir(parents=True, exist_ok=True)
 GROUND_DIR.mkdir(parents=True, exist_ok=True)
-for old in PREFAB_DIR.glob("*.vox"):
+for old in PREFAB_DIR.glob("*.vvx"):
     old.unlink()
 
 for kind, draw in (("palm", palm), ("cactus", cactus), ("boulder", boulder)):
@@ -846,20 +850,9 @@ write_png(GROUND_DIR / "height.png", heights[::-1])
 write_png(GROUND_DIR / "material.png", KEYS[kinds][::-1])
 ground = {"height": "ground/height.png", "material": "ground/material.png",
           "bedrock": hex_colour("bedrock"), "materials": MATERIALS}
-lines = ["{", f'  "size": [{W}, {D}, {H}],', '  "ground": ' + json.dumps(ground, indent=2).replace("\n", "\n  ") + ",",
-         '  "prefabs": {']
-names = sorted(PREFABS)
-def prefab_entry(n):
-    file, _, soft = PREFABS[n]
-    return json.dumps({"file": file, "soft": True} if soft else file)
-
-
-lines += [f"    {json.dumps(n)}: {prefab_entry(n)}" + ("," if i < len(names) - 1 else "") for i, n in enumerate(names)]
-lines += ["  },", '  "place": [']
-lines += ["    " + json.dumps(e) + ("," if i < len(PLACE) - 1 else "") for i, e in enumerate(PLACE)]
-lines += ["  ]", "}", ""]
-(OUT / "map.json").write_text("\n".join(lines))
-print(f"wrote {OUT / 'map.json'}: {W}x{D}x{H}, {len(PREFABS)} prefabs, {len(PLACE)} placements")
+prefab_entries = {n: {"file": file, "soft": soft} for n, (file, _, soft) in PREFABS.items()}
+write_map(OUT / "map.toml", (W, D, H), ground, prefab_entries, PLACE)
+print(f"wrote {OUT / 'map.toml'}: {W}x{D}x{H}, {len(PREFABS)} prefabs, {len(PLACE)} placements")
 
 # --- models --------------------------------------------------------------------
 #

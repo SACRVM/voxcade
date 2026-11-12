@@ -83,8 +83,8 @@ use crate::vox::{Hung, VoxModel, metal};
 pub const EXTENSION: &str = "vvx";
 /// The format and the version this engine reads and writes.
 pub const FORMAT: &str = "voxcade voxel 1";
-const FORMAT_NAME: &str = "voxcade voxel";
-const VERSION: u32 = 1;
+pub(crate) const FORMAT_NAME: &str = "voxcade voxel";
+pub(crate) const VERSION: u32 = 1;
 
 /// What a voxel is made of besides its place: its colour (alpha under 255
 /// is glass), how it mirrors (`metal::pack`) and how much it glows. Two
@@ -96,9 +96,11 @@ pub struct Mat {
     pub glow: u8,
 }
 
-const SIGNS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+/// The signs of a palette (and of a level's legend), in the order they are
+/// given out.
+pub(crate) const SIGNS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 /// How many entries a palette may have for one sign a cell.
-const ONE_SIGN: usize = SIGNS.len();
+pub(crate) const ONE_SIGN: usize = SIGNS.len();
 /// The writer repeats a row or a layer only this many times in a row and
 /// more: fewer stay written out, a picture.
 const REPEAT_FROM: usize = 3;
@@ -273,7 +275,7 @@ fn runs<T: PartialEq>(items: &[T]) -> Vec<(&T, usize)> {
 }
 
 /// The `layers = """ ... """` of a box's layers, repeats folded.
-fn layers_text(layers: &[Vec<String>]) -> String {
+pub(crate) fn layers_text(layers: &[Vec<String>]) -> String {
     let mut s = String::from("layers = \"\"\"\n");
     for (k, (layer, times)) in layers_runs(layers).into_iter().enumerate() {
         if k > 0 {
@@ -305,7 +307,7 @@ fn rows_runs(rows: &[String]) -> Vec<(&String, usize)> {
 }
 
 /// A key's text as TOML writes a string.
-fn quoted(text: &str) -> String {
+pub(crate) fn quoted(text: &str) -> String {
     format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
@@ -441,37 +443,88 @@ pub fn write_shape(shape: &Shape, kept: &Palette, all: bool) -> String {
 // ---------------------------------------------------------------- reading
 
 /// The line of a byte of the source (1 on).
-fn line_of(src: &str, at: usize) -> usize {
+pub(crate) fn line_of(src: &str, at: usize) -> usize {
     src[..at.min(src.len())].matches('\n').count() + 1
 }
 
-struct Reader<'a> {
-    src: &'a str,
+/// Reads the parts of a text file of TOML, every mistake said with the
+/// line it is on (models, and levels and maps, `grid` and `map`).
+pub(crate) struct Reader<'a> {
+    pub src: &'a str,
 }
 
 type Span = Option<std::ops::Range<usize>>;
 
 /// One layer of a `layers` text as read: its rows (the line each is on
 /// within the text), how many times it stands.
-struct Layer<'a> {
-    rows: Vec<(usize, &'a str)>,
-    times: usize,
+pub(crate) struct Layer<'a> {
+    pub rows: Vec<(usize, &'a str)>,
+    pub times: usize,
+}
+
+/// The layers of a `layers` text: an empty line between layers, a row
+/// followed by ` *N` that row N times in all, a line `*N` after a layer's
+/// rows that layer N times in all. `line(i)` says where the text's line `i`
+/// is in the file (`"line 12: "`).
+pub(crate) fn layer_list<'a>(text: &'a str, line: &dyn Fn(usize) -> String) -> Result<Vec<Layer<'a>>> {
+    let count = |word: &str, i: usize| -> Result<usize> {
+        let n = word.strip_prefix('*').and_then(|n| n.parse::<usize>().ok()).filter(|&n| n >= 2);
+        n.ok_or_else(|| anyhow!("{}'{word}' is no repeat: a star and how many times in all, 2 or more (*3)", line(i)))
+    };
+    let mut layers: Vec<Layer> = Vec::new();
+    let mut open = false;
+    for (i, raw) in text.lines().enumerate() {
+        let words: Vec<&str> = raw.split_whitespace().collect();
+        match words[..] {
+            [] => open = false,
+            [word] if word.starts_with('*') => {
+                let layer = layers.last_mut().filter(|l| open && l.times == 1).ok_or_else(|| anyhow!("{}a layer's repeat ({word}) comes on the line after its rows", line(i)))?;
+                layer.times = count(word, i)?;
+                open = false;
+            }
+            [row, ref rest @ ..] => {
+                let times = match rest {
+                    [] => 1,
+                    [word] => count(word, i)?,
+                    _ => bail!("{}a row is its signs, then perhaps a repeat (*3); this line has more", line(i)),
+                };
+                if !open {
+                    layers.push(Layer { rows: Vec::new(), times: 1 });
+                    open = true;
+                }
+                let layer = layers.last_mut().unwrap();
+                layer.rows.extend(std::iter::repeat_n((i, row), times));
+            }
+        }
+    }
+    Ok(layers)
 }
 
 impl Reader<'_> {
+    /// The line in the file of the first line of a multi-line text (a
+    /// newline straight after its opening marks is not part of it); 0
+    /// without a place in the file.
+    pub fn first_line(&self, item: &Item) -> usize {
+        item.span().map_or(0, |s| {
+            let raw = &self.src[s.clone()];
+            let after = raw.strip_prefix("\"\"\"").or_else(|| raw.strip_prefix("'''"));
+            line_of(self.src, s.start) + usize::from(after.is_some_and(|a| a.starts_with('\n') || a.starts_with("\r\n")))
+        })
+    }
+
     /// A mistake on the line where `span` begins.
-    fn fail(&self, span: Span, why: impl std::fmt::Display) -> anyhow::Error {
+    pub fn fail(&self, span: Span, why: impl std::fmt::Display) -> anyhow::Error {
         match span {
             Some(s) => anyhow!("line {}: {why}", line_of(self.src, s.start)),
             None => anyhow!("{why}"),
         }
     }
 
-    fn number(&self, item: &Item, what: &str) -> Result<f32> {
+    pub fn number(&self, item: &Item, what: &str) -> Result<f32> {
         item.as_float().or_else(|| item.as_integer().map(|i| i as f64)).filter(|v| v.is_finite()).map(|v| v as f32).ok_or_else(|| self.fail(item.span(), format!("{what} must be a number")))
     }
 
-    fn fraction(&self, item: &Item, what: &str) -> Result<f32> {
+    pub fn fraction(&self, item: &Item, what: &str) -> Result<f32> {
         let v = self.number(item, what)?;
         if !(0.0..=1.0).contains(&v) {
             return Err(self.fail(item.span(), format!("{what} must be between 0 and 1, not {v}")));
@@ -479,7 +532,7 @@ impl Reader<'_> {
         Ok(v)
     }
 
-    fn triple(&self, item: &Item, what: &str) -> Result<[f32; 3]> {
+    pub fn triple(&self, item: &Item, what: &str) -> Result<[f32; 3]> {
         let wrong = || self.fail(item.span(), format!("{what} must be three numbers, like [1, 2, 3]"));
         let a = item.as_array().filter(|a| a.len() == 3).ok_or_else(wrong)?;
         let mut out = [0.0; 3];
@@ -489,7 +542,7 @@ impl Reader<'_> {
         Ok(out)
     }
 
-    fn ints(&self, item: &Item, what: &str) -> Result<IVec3> {
+    pub fn ints(&self, item: &Item, what: &str) -> Result<IVec3> {
         let t = self.triple(item, what)?;
         if t.iter().any(|v| v.fract() != 0.0 || v.abs() > 1e6) {
             return Err(self.fail(item.span(), format!("{what} must be three whole numbers, like [1, 2, 3]")));
@@ -499,7 +552,7 @@ impl Reader<'_> {
 
     /// Only the fields `allowed` may be in `table`, `what` named in the
     /// mistake.
-    fn only(&self, table: &dyn TableLike, allowed: &[&str], what: &str) -> Result<()> {
+    pub fn only(&self, table: &dyn TableLike, allowed: &[&str], what: &str) -> Result<()> {
         for (k, v) in table.iter() {
             if !allowed.contains(&k) {
                 return Err(self.fail(v.span(), format!("'{k}' is no field of {what} (it has {})", allowed.join(", "))));
@@ -508,7 +561,7 @@ impl Reader<'_> {
         Ok(())
     }
 
-    fn material(&self, sign: &str, item: &Item) -> Result<Mat> {
+    pub fn material(&self, sign: &str, item: &Item) -> Result<Mat> {
         let hex = |text: &str, at: &Item| -> Result<[u8; 3]> {
             let h = text.strip_prefix('#').filter(|h| h.len() == 6 && h.bytes().all(|b| b.is_ascii_hexdigit()));
             let h = h.ok_or_else(|| self.fail(at.span(), format!("'{text}' is no colour: write it as #rrggbb")))?;
@@ -545,46 +598,10 @@ impl Reader<'_> {
     /// one another, layers as deep; every voxel inside the box.
     fn layers(&self, item: &Item, palette: &HashMap<String, Mat>, width: usize, at: IVec3, pivot: IVec3, size: IVec3) -> Result<Vec<(IVec3, Mat)>> {
         let text = item.as_str().ok_or_else(|| self.fail(item.span(), "layers must be a text between \"\"\" marks"))?;
-        let span = item.span();
-        // The first line of the text in the file: a newline straight after
-        // the opening marks is not part of it.
-        let first = span.as_ref().map_or(0, |s| {
-            let raw = &self.src[s.clone()];
-            let after = raw.strip_prefix("\"\"\"").or_else(|| raw.strip_prefix("'''"));
-            line_of(self.src, s.start) + usize::from(after.is_some_and(|a| a.starts_with('\n') || a.starts_with("\r\n")))
-        });
+        let first = self.first_line(item);
         let line = |i: usize| if first > 0 { format!("line {}: ", first + i) } else { String::new() };
-        let count = |word: &str, i: usize| -> Result<usize> {
-            let n = word.strip_prefix('*').and_then(|n| n.parse::<usize>().ok()).filter(|&n| n >= 2);
-            n.ok_or_else(|| anyhow!("{}'{word}' is no repeat: a star and how many times in all, 2 or more (*3)", line(i)))
-        };
         // The layers with their rows (a row repeated stands that often).
-        let mut layers: Vec<Layer> = Vec::new();
-        let mut open = false;
-        for (i, raw) in text.lines().enumerate() {
-            let words: Vec<&str> = raw.split_whitespace().collect();
-            match words[..] {
-                [] => open = false,
-                [word] if word.starts_with('*') => {
-                    let layer = layers.last_mut().filter(|l| open && l.times == 1).ok_or_else(|| anyhow!("{}a layer's repeat ({word}) comes on the line after its rows", line(i)))?;
-                    layer.times = count(word, i)?;
-                    open = false;
-                }
-                [row, ref rest @ ..] => {
-                    let times = match rest {
-                        [] => 1,
-                        [word] => count(word, i)?,
-                        _ => bail!("{}a row is its signs, then perhaps a repeat (*3); this line has more", line(i)),
-                    };
-                    if !open {
-                        layers.push(Layer { rows: Vec::new(), times: 1 });
-                        open = true;
-                    }
-                    let layer = layers.last_mut().unwrap();
-                    layer.rows.extend(std::iter::repeat_n((i, row), times));
-                }
-            }
-        }
+        let layers = layer_list(text, &line)?;
         let mut out = Vec::new();
         let (mut cols, mut rows) = (None, None);
         let known = || {
@@ -647,7 +664,7 @@ impl Reader<'_> {
 }
 
 /// The tables of an array of tables (`[[x]]`, or `[{...}, {...}]`).
-fn tables(item: &Item) -> Option<Vec<&dyn TableLike>> {
+pub(crate) fn tables(item: &Item) -> Option<Vec<&dyn TableLike>> {
     if let Some(a) = item.as_array_of_tables() {
         return Some(a.iter().map(|t| t as &dyn TableLike).collect());
     }
@@ -665,14 +682,21 @@ pub fn load_in(files: &Files, path: &Path) -> Result<VoxModel> {
 /// Checks the format line: the first key of the file, this format, a
 /// version this engine knows.
 fn check_format(r: &Reader, top: &toml_edit::Table) -> Result<()> {
+    check_format_of(r, top, FORMAT_NAME, VERSION, "model")
+}
+
+/// Checks that a file of Voxcade's own (`what`: "model", "level", "map")
+/// begins with its format line, `format = "NAME VERSION"`, a version this
+/// engine reads.
+pub(crate) fn check_format_of(r: &Reader, top: &toml_edit::Table, name: &str, version: u32, what: &str) -> Result<()> {
     let first = top.iter().next();
-    let wanted = format!("its first line must be format = \"{FORMAT}\"");
-    let Some(("format", item)) = first else { bail!("not a Voxcade model: {wanted}") };
+    let wanted = format!("its first line must be format = \"{name} {version}\"");
+    let Some(("format", item)) = first else { bail!("not a Voxcade {what}: {wanted}") };
     let text = item.as_str().ok_or_else(|| r.fail(item.span(), format!("format must be text: {wanted}")))?;
-    let version = text.strip_prefix(FORMAT_NAME).map(str::trim).and_then(|v| v.parse::<u32>().ok());
-    match version {
-        Some(VERSION) => Ok(()),
-        Some(v) if v > VERSION => Err(r.fail(item.span(), format!("a model of version {v} of the format, from a newer Voxcade; this one reads version {VERSION}: get the new version"))),
+    let found = text.strip_prefix(name).map(str::trim).and_then(|v| v.parse::<u32>().ok());
+    match found {
+        Some(v) if v == version => Ok(()),
+        Some(v) if v > version => Err(r.fail(item.span(), format!("a {what} of version {v} of the format, from a newer Voxcade; this one reads version {version}: get the new version"))),
         _ => Err(r.fail(item.span(), format!("'{text}' is no format this Voxcade reads: {wanted}"))),
     }
 }
@@ -751,6 +775,9 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
             return Err(r.fail(item.span(), format!("'{sign}' has {n} characters, the signs before have {width}: all signs of a file are as long as one another")));
         }
         width = n;
+        if item.as_table_like().is_some_and(|t| t.contains_key("marker")) {
+            return Err(r.fail(item.span(), format!("the palette's '{sign}' is a marker: markers place things in a world or a map's prefab, a model has none")));
+        }
         let mat = r.material(sign, item)?;
         palette.insert(sign.to_string(), mat);
         entries.push((sign.to_string(), mat));

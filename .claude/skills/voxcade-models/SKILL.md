@@ -86,9 +86,13 @@ aaaaa *3
   as they did: a joint the text's voxel order would move is written by
   hand), leaving the source alone. A whole game made for an older
   Voxcade: `voxcade upgrade <game>` (`--dry` first). Worlds and map
-  prefabs are still `.vox` scenes.
+  prefabs are `.vvx` too, of one frame (`src/scene.rs`): their palette's
+  order numbers the world's colours and a `{ marker = "kind" }` entry
+  places a thing; no glass, metal or glow. They are no models: the
+  voxel editor does not shape them (the IDE shows them).
 - **Tools**: `tools/vvx.py` writes and reads it from Python
-  (`write_frames`, `write_parts`, `read`, `write_model`); the generators
+  (`write_frames`, `write_parts`, `read`, `write_model`; worlds and
+  prefabs `write_scene`, levels `write_level`, maps `write_map`); the generators
   write `.vvx` for a path ending so (`gen_sokovox.write_vox`,
   `figures.save`).
 
@@ -214,7 +218,7 @@ placeholder: say so, and go round again.
 
 The user builds the same way in the voxel editor: BOX (Q) and SPHERE
 (S) drag a footprint on a face, + and - give it depth, a click sets it
-(Shift only fills empty voxels, Ctrl cuts), BEVEL (F) cuts a box's
+(Alt only fills empty voxels, Ctrl cuts; Shift held is PICK in every tool), BEVEL (F) cuts a box's
 edges as `rbox` does, SYMMETRY (Y) mirrors every tool left to right.
 Suggest them when the user shapes a figure by hand.
 

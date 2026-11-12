@@ -200,12 +200,13 @@ fn column(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
         row(ui, shown, tool.label(ed.scope), Action::Tool(tool), ed.tool == tool);
     }
     if ed.shape().is_some() {
-        if ed.tool == Tool::Box {
+        if ed.resting_tool() == Tool::Box {
             row(ui, shown, "BEVEL", Action::Bevel, ed.bevel);
         }
         row(ui, shown, "SYMMETRY", Action::Symmetry, ed.symmetry);
-        if ed.forms() {
-            ui.label(RichText::new("Drag on a face, + and - its depth, click sets it. Shift: only where empty. Ctrl: cuts. Escape lets go.").small().color(QUIET));
+        // (Kept while Shift makes the tool PICK, so the column does not jump.)
+        if matches!(ed.resting_tool(), Tool::Box | Tool::Sphere) && ed.scope != Scope::Level {
+            ui.label(RichText::new("Drag on a face, + and - its depth, click sets it. Alt: only where empty. Ctrl: cuts. Escape lets go.").small().color(QUIET));
         }
     }
     if ed.shape().is_some() {
@@ -323,7 +324,7 @@ fn figure_bar(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
         pick(ui, shown, tool.label(ed.scope), Action::Tool(tool), ed.tool == tool);
     }
     ui.add_space(10.0);
-    if ed.tool == Tool::Box {
+    if ed.resting_tool() == Tool::Box {
         pick(ui, shown, "BEVEL", Action::Bevel, ed.bevel);
     }
     pick(ui, shown, "SYMMETRY", Action::Symmetry, ed.symmetry);
@@ -423,7 +424,7 @@ pub fn joints(ui: &egui::Ui, ed: &Editor, view: &View, rects: &[egui::Rect]) {
     // The editor's quiet word, at the foot of the view.
     // (BOX and SPHERE in a figure say how they go there: the column has
     // no room for it.)
-    let forms = (ed.part_mode().is_some() && ed.forms()).then_some("Drag on a face, + and - its depth, click sets it. Shift: only where empty. Ctrl: cuts. Escape lets go.");
+    let forms = (ed.part_mode().is_some() && ed.forms()).then_some("Drag on a face, + and - its depth, click sets it. Alt: only where empty. Ctrl: cuts. Escape lets go.");
     if let Some(hint) = ed.hint.as_deref().or(forms) {
         painter.text(free.left_bottom() + egui::vec2(16.0, -14.0), egui::Align2::LEFT_BOTTOM, hint, TextStyle::Body.resolve(ui.style()), QUIET);
     }
@@ -606,7 +607,7 @@ mod tests {
     #[test]
     fn keys_do_what_their_words_do() {
         let dir = folder("keys");
-        let mut ed = Editor::open(&dir, "level.json").unwrap();
+        let mut ed = Editor::open(&dir, "level.toml").unwrap();
         let mut view = View::new(&ed, &GameConfig::default());
         press(&mut ed, &mut view, 'e');
         assert_eq!((ed.scope, ed.tool), (Scope::Level, Tool::Remove), "E: REMOVE in the level");
@@ -651,7 +652,7 @@ mod tests {
     #[test]
     fn the_things_have_their_own_tools_and_keys() {
         let dir = folder("layers");
-        let mut ed = Editor::open(&dir, "level.json").unwrap();
+        let mut ed = Editor::open(&dir, "level.toml").unwrap();
         ed.kinds = vec!["fox".into(), "gem".into()];
         let mut view = View::new(&ed, &GameConfig::default());
         press(&mut ed, &mut view, 'h');

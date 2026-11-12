@@ -1428,7 +1428,7 @@ mod tests {
             std::fs::copy(from, to).unwrap();
         };
         let arena = Path::new("games/arena");
-        for file in ["conf.lua", "main.lua", "world.vox", "player.vvx", "replays/tests/walkabout.toml"] {
+        for file in ["conf.lua", "main.lua", "world.vvx", "player.vvx", "replays/tests/walkabout.toml"] {
             copy(&arena.join(file), &tmp.join(file));
         }
         let conf = std::fs::read_to_string(arena.join("conf.lua")).unwrap();

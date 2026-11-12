@@ -1,0 +1,204 @@
+format = "voxcade voxel 1"
+size = [5, 13, 23]
+
+# The colours are the world's numbers in this order (the first is 1);
+# a marker places a thing of that kind instead of a voxel.
+[palette]
+a = "#588c52"
+b = "#467644"
+c = "#dcd6aa"
+d = "#689c5e"
+
+[[frame]]
+layers = """
+.... *4
+.ba.
+baba
+abab
+.ab.
+.... *4
+
+.... *4
+.ba.
+baba
+abab
+.ab.
+.... *4
+
+.... *4
+.ba.
+baba
+abab
+.cc.
+.... *4
+
+.... *4
+.ba.
+baba
+abab
+.ab.
+.... *4
+*3
+
+.... *4
+.ca.
+baba
+abab
+.ab.
+.... *4
+
+.... *4
+.ba.
+baba
+abab
+.ab.
+.... *4
+
+.... *4
+.ba.
+baba
+cbac
+.ab.
+.bb.
+.bb.
+.ab.
+.ba.
+
+.... *4
+.ba.
+baba
+abab
+.ab.
+.bb.
+.bb.
+.ab.
+.ba.
+
+.... *4
+.ba.
+baba
+abab
+.ab.
+....
+....
+.ab.
+.ba.
+
+.... *4
+.ba.
+baba
+abab
+.ab.
+....
+....
+.ab.
+.ba.
+
+.... *4
+.ba.
+caba
+abab
+.ab.
+....
+....
+.ab.
+.ba.
+
+.... *4
+.ba.
+baba
+abab
+.ab.
+....
+....
+.ab.
+.ba.
+
+.... *4
+.ba.
+baba
+abab
+.ab.
+....
+....
+.ac.
+.ba.
+
+.... *4
+.ba.
+baba
+abab
+.ab.
+....
+....
+.ab.
+.ba.
+
+.ab.
+.ba.
+.bb.
+.bb.
+.ba.
+baba
+abab
+.ab.
+....
+....
+.dd.
+.dd.
+
+.ab.
+.ba.
+.bb.
+.bb.
+.ba.
+baba
+abab
+.ab.
+.... *4
+
+.ab.
+.ba.
+....
+....
+.ba.
+baba
+abab
+.ac.
+.... *4
+
+.ab.
+.ba.
+....
+....
+.ba.
+baba
+abab
+.ab.
+.... *4
+
+.ab.
+.ba.
+....
+....
+.ba.
+baba
+abab
+.ab.
+.... *4
+
+.dd.
+.dd.
+....
+....
+.ba.
+baba
+abab
+.cc.
+.... *4
+
+.... *5
+.dd.
+.dd.
+.... *5
+"""

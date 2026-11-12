@@ -15,8 +15,6 @@ there (`shot --at` in front of them) shows what blasts cost at this scale
 
     python3 tools/gen_bench.py [scale]      # scale 2 by default
 """
-import json
-import struct
 import sys
 from pathlib import Path
 
@@ -33,50 +31,6 @@ SCALE = int(sys.argv[1]) if len(sys.argv) > 1 else 2
 FIGURES = ["player.vvx", "enemy.vvx", "grenadier.vvx", "hostage.vvx"]
 
 
-def chunks(data, at, end):
-    while at < end:
-        cid, content, children = struct.unpack_from("<4sii", data, at)
-        yield cid, data[at + 12:at + 12 + content], at + 12 + content, at + 12 + content + children
-        at += 12 + content + children
-
-
-def read_vox(path):
-    """Frames as (size, [(x, y, z, index)]) and the 256-colour palette."""
-    data = path.read_bytes()
-    assert data[:4] == b"VOX ", path
-    _, main, start, end = next(chunks(data, 8, len(data)))
-    frames, palette, size = [], None, None
-    for cid, content, _, _ in chunks(data, start, end):
-        if cid == b"SIZE":
-            size = struct.unpack("<3i", content)
-        elif cid == b"XYZI":
-            n = struct.unpack_from("<i", content)[0]
-            frames.append((size, [struct.unpack_from("<4B", content, 4 + 4 * k) for k in range(n)]))
-        elif cid == b"RGBA":
-            palette = content
-    return frames, palette
-
-
-def write_vox(path, frames, palette):
-    def chunk(cid, content, children=b""):
-        return cid + struct.pack("<ii", len(content), len(children)) + content + children
-    body = b""
-    for size, voxels in frames:
-        body += chunk(b"SIZE", struct.pack("<3i", *size))
-        body += chunk(b"XYZI", struct.pack("<i", len(voxels)) + b"".join(struct.pack("<4B", *v) for v in voxels))
-    body += chunk(b"RGBA", palette)
-    path.write_bytes(b"VOX " + struct.pack("<i", 150) + chunk(b"MAIN", b"", body))
-
-
-def blow_up(frames, k):
-    out = []
-    for (sx, sy, sz), voxels in frames:
-        assert max(sx, sy, sz) * k <= 256, "too big for a .vox model"
-        out.append(((sx * k, sy * k, sz * k), [(x * k + a, y * k + b, z * k + c, i)
-                                              for x, y, z, i in voxels for a in range(k) for b in range(k) for c in range(k)]))
-    return out
-
-
 OUT.mkdir(exist_ok=True)
 # The figures are Voxcade's models (.vvx, tools/vvx.py): each voxel a cube
 # of SCALE each way, the signs kept.
@@ -87,26 +41,25 @@ for name in FIGURES + ["huey.vvx"]:
     vvx.write_model(OUT / name, {**m, "size": [n * k for n in m["size"]], "frames": frames}, kept=m["palette"])
     print(f"wrote {OUT / name} ({len(frames[0])} voxels a frame)")
 
-# Prefabs to blow up, without their markers (palette slots 240 and up).
+# Prefabs to blow up, without their markers.
 (OUT / "prefabs").mkdir(exist_ok=True)
-for name in ["tower.vox", "hut.vox"]:
-    frames, palette = read_vox(SOURCE / "prefabs" / name)
-    frames = [(size, [v for v in voxels if v[3] < 240]) for size, voxels in frames]
-    write_vox(OUT / "prefabs" / name, blow_up(frames, SCALE), palette)
+for name in ["tower.vvx", "hut.vvx"]:
+    m = vvx.read(SOURCE / "prefabs" / name)
+    number = {sign: n + 1 for n, sign in enumerate(m["colours"])}
+    voxels = [(x * k + a, y * k + b, z * k + c, number[s]) for (x, y, z), s in m["frames"][0].items() if s in number for a in range(k) for b in range(k) for c in range(k)]
+    vvx.write_scene(OUT / "prefabs" / name, [n * k for n in m["size"]], voxels, {number[s]: rgb for s, rgb in m["colours"].items()})
     print(f"wrote {OUT / 'prefabs' / name}")
 
 # Flat sand, wide enough for the view and the field east of it.
 w, d = 560 * SCALE, 200 * SCALE
 (OUT / "ground").mkdir(exist_ok=True)
 Image.fromarray(np.full((d, w), 2, np.uint8), "L").save(OUT / "ground" / "height.png")
-json.dump({"size": [w, d, 48 * SCALE],
-           "ground": {"height": "ground/height.png",
-                      "materials": [{"surface": ["#d6b880", "#dec189", "#cdaf78"], "pattern": 14, "grain": 0.45}]},
-           "prefabs": {"tower": "prefabs/tower.vox", "hut": "prefabs/hut.vox"},
-           "place": [{"prefab": "tower", "at": [440 * SCALE, 110 * SCALE]},
-                     {"prefab": "hut", "at": [500 * SCALE, 110 * SCALE]},
-                     {"prefab": "tower", "at": [470 * SCALE, 160 * SCALE]}]},
-          open(OUT / "map.json", "w"))
+vvx.write_map(OUT / "map.toml", (w, d, 48 * SCALE),
+              {"height": "ground/height.png", "materials": [{"surface": ["#d6b880", "#dec189", "#cdaf78"], "pattern": 14, "grain": 0.45}]},
+              {"tower": "prefabs/tower.vvx", "hut": "prefabs/hut.vvx"},
+              [{"prefab": "tower", "at": [440 * SCALE, 110 * SCALE]},
+               {"prefab": "hut", "at": [500 * SCALE, 110 * SCALE]},
+               {"prefab": "tower", "at": [470 * SCALE, 160 * SCALE]}])
 
 # 40 figures in rows across the view, the Huey behind them.
 props = []
@@ -132,7 +85,7 @@ function conf(c)
   c.title = "Bench"
   c.kit = "shooter"
 
-  c.world.file = "map.json"
+  c.world.file = "map.toml"
 
   c.physics.gravity = {520 * S}
   c.physics.max_fall = {320 * S}

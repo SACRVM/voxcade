@@ -1,7 +1,7 @@
 # Voxcade replay: Digger, 420 ticks, quit, score 0
 version = 1
 game = "Digger"
-fingerprint = "dfc45d31006eb9c5"
+fingerprint = "5e2aed5ad4682032"
 ticks = 420
 outcome = "quit"
 score = 0

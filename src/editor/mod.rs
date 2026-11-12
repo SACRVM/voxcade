@@ -24,7 +24,7 @@ use view::{Figures, Shown, View};
 
 /// How `voxcade edit --shot` draws the editor without a window.
 pub struct ShotOptions {
-    /// The level to open (its file in the game folder: `levels/02_crypt.json`),
+    /// The level to open (its file in the game folder: `levels/02_crypt.toml`),
     /// else the one `c.world.blocks.file` names.
     pub level: Option<String>,
     /// The block to open (its name), else the level.
@@ -42,6 +42,8 @@ pub struct ShotOptions {
     pub stamp: bool,
     /// The level's things, not its blocks.
     pub things: bool,
+    /// Shift held: the tool is PICK, the one chosen put aside.
+    pub shift: bool,
     /// The tool chosen (its word: box, sphere, add ...), and for BOX and
     /// SPHERE the size of the shape held at the mouse.
     pub tool: Option<String>,
@@ -120,6 +122,9 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         if ed.forms() {
             ed.held_form = Some(model::Held { size: opts.held.unwrap_or(glam::IVec3::new(5, 5, 3)).max(glam::IVec3::ONE), at: None });
         }
+    }
+    if opts.shift {
+        ed.shift_pick(true);
     }
     let aspect = opts.width as f32 / opts.height as f32;
     if let Some((yaw, pitch)) = opts.view {
@@ -444,7 +449,19 @@ impl EditorWindow {
             // Ctrl down or up: BOX and SPHERE cut away while it is held.
             Event::KeyDown { keycode: Some(Keycode::LCtrl | Keycode::RCtrl), .. } => view.cut = true,
             Event::KeyUp { keycode: Some(Keycode::LCtrl | Keycode::RCtrl), .. } => view.cut = false,
-            Event::Window { win_event: WindowEvent::FocusLost, .. } => view.cut = false,
+            // Alt: they fill only where it is empty.
+            Event::KeyDown { keycode: Some(Keycode::LAlt | Keycode::RAlt), .. } => view.only_empty = true,
+            Event::KeyUp { keycode: Some(Keycode::LAlt | Keycode::RAlt), .. } => view.only_empty = false,
+            // Shift down: the tool is PICK until it is up (`shift` still
+            // says so when the other shift key is down). Losing the focus
+            // with it held would never see it let go.
+            Event::KeyDown { keycode: Some(Keycode::LShift | Keycode::RShift), .. } => ed.shift_pick(true),
+            Event::KeyUp { keycode: Some(Keycode::LShift | Keycode::RShift), .. } => ed.shift_pick(shift),
+            Event::Window { win_event: WindowEvent::FocusLost, .. } => {
+                view.cut = false;
+                view.only_empty = false;
+                ed.shift_pick(false);
+            }
             Event::KeyDown { keycode: Some(key), keymod, .. } if !gui.egui_wants_keyboard_input() => {
                 let ctrl = keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD | Mod::LGUIMOD | Mod::RGUIMOD);
                 let shift = keymod.intersects(Mod::LSHIFTMOD | Mod::RSHIFTMOD);
@@ -544,13 +561,13 @@ impl EditorWindow {
                 }
             }
             // BOX and SPHERE: a click without a drag sets the shape held
-            // (Shift: only where empty; Ctrl: cut away), a drag holds the
+            // (Alt: only where empty; Ctrl: cut away), a drag holds the
             // footprint as the shape, where it was drawn.
             Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } if ed.forms() => {
                 if let Some(d) = ed.drawing {
                     if d.end == d.start && ed.held_form.is_some() {
                         ed.drawing = None;
-                        ed.place_form(view.hover, view.cut, shift);
+                        ed.place_form(view.hover, view.cut, view.only_empty);
                     } else {
                         ed.hold_drawn();
                         *drawn_at = view.hover;

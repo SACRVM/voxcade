@@ -88,12 +88,14 @@ was "no editor inside the game"). Models are Voxcade's own `.vvx`, text
 code or text), shaped in the voxel editor or by hand; MagicaVoxel, vengi or
 Goxel files (`.vox`) are only brought in (`voxcade import`). The running
 game reloads a model on save. A level
-is one `.vox` scene or, for anything big, a map the engine puts together at
-start: a height map and a material map (PNG, any paint program) for the
-ground, `.vox` prefabs placed on it, and markers, all listed in
-`map.json`. That keeps a 640x2048x80 level at about 300 KB instead of 90 MB
-of `.vox`. LDtk or Tiled (both JSON) can later write the same map, and so
-will Voxcade's own editors.
+is one world (a `.vvx` of one frame, its palette numbering the world's
+colours, markers named in it) or, for anything big, a map the engine puts
+together at start: a height map and a material map (PNG, any paint
+program) for the ground, `.vvx` prefabs placed on it, and markers, all
+listed in `map.toml`; or a level of voxel blocks (`levels/NAME.toml`,
+layers of signs). That keeps a 640x2368x80 level at about 300 KB instead
+of 90 MB. A Tiled map comes in once (`voxcade import`); Voxcade's own
+editors write the same text.
 
 **Arcade feel is a hard requirement.** Fixed 60 Hz deterministic simulation,
 interpolated rendering at the display rate, input read right before each

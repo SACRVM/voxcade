@@ -385,7 +385,7 @@ fn what_waits_for_a_restart_is_kept_until_then() {
     new.actions = vec!["jump".into()];
     new.keys = Bindings::new(&[("jump", &["Space"])]);
     new.pad = Bindings::new(&[("jump", &["south"])]);
-    new.world.file = "other.vox".into();
+    new.world.file = "other.vvx".into();
     new.world.size = Some([8, 8, 8]);
     new.world.blocks = Some(BlocksConfig::default());
     new.markers = toml::from_str("rifleman = 240").unwrap();
@@ -407,12 +407,12 @@ fn saving_a_block_rebuilds_the_level() {
     let dir = std::env::temp_dir().join(format!("voxcade-lua-blocks-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.json\" }\n  c.player.spawn = { 2, 2 }\nend\n").unwrap();
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.toml\" }\n  c.player.spawn = { 2, 2 }\nend\n").unwrap();
     std::fs::write(dir.join("main.lua"), "function on_world_start() end\n").unwrap();
     let mut level = GridLevel::new(4, IVec3::new(2, 1, 1));
     level.blocks.push(BlockEntry { name: "rock".into(), kind: Kind::Solid });
     level.cells[0] = Cell { block: 1, turn: Default::default() };
-    level.save(&dir.join("level.json")).unwrap();
+    level.save(&dir.join("level.toml")).unwrap();
     let rock = |c: [u8; 3]| {
         let mut b = Block::empty(4);
         b.set(IVec3::ZERO, Some(c)).unwrap();
@@ -483,7 +483,7 @@ fn kit_folder(name: &str, conf: &str, main: &str) -> PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let arena = Path::new(env!("CARGO_MANIFEST_DIR")).join("games/arena");
-    for file in ["world.vox", "player.vvx"] {
+    for file in ["world.vvx", "player.vvx"] {
         std::fs::copy(arena.join(file), dir.join(file)).unwrap();
     }
     // The arena's, with the kit's weapons it has not (kit.toml), and the test's.
@@ -1555,7 +1555,7 @@ fn what_a_script_prints_is_kept_for_the_ide() {
 #[test]
 fn a_kit_stands_on_a_world_the_script_built() {
     let shooter = kit_folder("built", "", "function on_level_start(how)\n  level:fill(0, 0, 0, 511, 511, 3, \"#c2a878\")\nend\n");
-    let conf = std::fs::read_to_string(shooter.join("conf.lua")).unwrap().replace("c.world.file = \"world.vox\"", "c.world.size = { 512, 512, 48 }");
+    let conf = std::fs::read_to_string(shooter.join("conf.lua")).unwrap().replace("c.world.file = \"world.vvx\"", "c.world.size = { 512, 512, 48 }");
     std::fs::write(shooter.join("conf.lua"), conf).unwrap();
     let g = game_in(&shooter);
     assert_eq!(g.game.focus().map(|b| b.pos.z), Some(4.0), "on the sand, not in it");
@@ -1903,14 +1903,14 @@ fn levels_folder(name: &str, main: &str, levels: &[LevelPlaces]) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("voxcade-levels-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("levels")).unwrap();
-    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.json\" }\n  c.player.spawn = { 2, 2 }\n  c.things.box = {}\nend\n").unwrap();
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.toml\" }\n  c.player.spawn = { 2, 2 }\n  c.things.box = {}\nend\n").unwrap();
     std::fs::write(dir.join("main.lua"), main).unwrap();
     for (level_name, places) in levels {
         let mut level = GridLevel::new(4, IVec3::new(4, 1, 1));
         level.blocks.push(BlockEntry { name: "rock".into(), kind: Kind::Solid });
         level.cells.fill(Cell { block: 1, turn: Default::default() });
         level.places = places.iter().map(|(n, at)| Place { name: n.to_string(), at: *at, facing: Some([1, 0]) }).collect();
-        level.save(&dir.join("levels").join(format!("{level_name}.json"))).unwrap();
+        level.save(&dir.join("levels").join(format!("{level_name}.toml"))).unwrap();
     }
     let mut rock = Block::empty(4);
     rock.set(IVec3::ZERO, Some([90, 80, 70])).unwrap();
@@ -2078,7 +2078,7 @@ fn the_ready_made_rules_keep_their_run_across_levels() {
     let dir = kit_folder("kit-levels", "", main);
     std::fs::create_dir_all(dir.join("levels")).unwrap();
     for name in ["a", "b"] {
-        std::fs::copy(dir.join("world.vox"), dir.join("levels").join(format!("{name}.vox"))).unwrap();
+        std::fs::copy(dir.join("world.vvx"), dir.join("levels").join(format!("{name}.vvx"))).unwrap();
     }
     let mut g = game_in(&dir);
     let lives = g.game.inspect()["player"]["state"]["lives"].clone();
@@ -2102,9 +2102,9 @@ fn a_reload_and_a_quit_are_told() {
     let dir = levels_folder("reload-quit", main, &[("a", &[])]);
     let mut g = game_in(&dir);
     steps(&mut g, 2);
-    let level = crate::grid::GridLevel::read(&dir.join("levels/a.json")).unwrap();
-    level.save(&dir.join("levels/a.json")).unwrap();
-    assert!(matches!(g.reload(&dir.join("levels/a.json")).unwrap(), crate::session::Reloaded::World));
+    let level = crate::grid::GridLevel::read(&dir.join("levels/a.toml")).unwrap();
+    level.save(&dir.join("levels/a.toml")).unwrap();
+    assert!(matches!(g.reload(&dir.join("levels/a.toml")).unwrap(), crate::session::Reloaded::World));
     g.game.quit();
     assert_eq!(state(&mut g, "log"), format!("{:?}", super::Value::Str(b"start:start;end:reload;start:reload;end:quit;world:quit".to_vec())));
 }
@@ -2122,7 +2122,7 @@ fn a_level_change_shows_the_next_level_where_it_starts() {
     taller.blocks.push(BlockEntry { name: "rock".into(), kind: Kind::Solid });
     taller.cells.fill(Cell { block: 1, turn: Default::default() });
     taller.places = vec![crate::grid::Place { name: "east".into(), at: [12, 2, 8], facing: None }];
-    taller.save(&dir.join("levels/b.json")).unwrap();
+    taller.save(&dir.join("levels/b.toml")).unwrap();
     let mut g = game_in(&dir);
     steps(&mut g, 1);
     let _ = g.world_mut().take_dirty();
@@ -2139,7 +2139,7 @@ fn a_level_change_shows_the_next_level_where_it_starts() {
 fn a_restart_stands_the_player_on_what_was_built() {
     let main = "function on_level_start(how)\n  level:fill(0, 0, 0, 511, 511, 3, \"#c2a878\")\nend\nfunction on_tick() if world.tick == 2 then world:restart() end end\n";
     let shooter = kit_folder("built-restart", "", main);
-    let conf = std::fs::read_to_string(shooter.join("conf.lua")).unwrap().replace("c.world.file = \"world.vox\"", "c.world.size = { 512, 512, 48 }");
+    let conf = std::fs::read_to_string(shooter.join("conf.lua")).unwrap().replace("c.world.file = \"world.vvx\"", "c.world.size = { 512, 512, 48 }");
     std::fs::write(shooter.join("conf.lua"), conf).unwrap();
     let mut g = game_in(&shooter);
     steps(&mut g, 10);
@@ -2147,13 +2147,13 @@ fn a_restart_stands_the_player_on_what_was_built() {
     assert_eq!(g.game.focus().map(|b| b.pos.z), Some(4.0), "on the sand after the restart");
 }
 
-/// A platformer level of blocks in `levels/a.json`: a floor of rock, the
+/// A platformer level of blocks in `levels/a.toml`: a floor of rock, the
 /// hero's marker at x 3 and these things more; `conf.lua` with these lines
 /// more.
 fn platformer_levels(name: &str, main: &str, conf: &str, more: &[(&str, [i32; 3])]) -> PathBuf {
     let dir = levels_folder(name, main, &[("a", &[])]);
-    std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = {{ hp = 3, lives = 3, taken = 0 }}\n  c.world.blocks = {{ file = \"level.json\" }}\n  c.things.hero = {{ behaviour = \"hero\", height = 6 }}\n  c.things.door = {{ behaviour = \"prop\", stands = true }}\n{conf}end\n")).unwrap();
-    let path = dir.join("levels/a.json");
+    std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = {{ hp = 3, lives = 3, taken = 0 }}\n  c.world.blocks = {{ file = \"level.toml\" }}\n  c.things.hero = {{ behaviour = \"hero\", height = 6 }}\n  c.things.door = {{ behaviour = \"prop\", stands = true }}\n{conf}end\n")).unwrap();
+    let path = dir.join("levels/a.toml");
     let mut level = crate::grid::GridLevel::read(&path).unwrap();
     for (kind, at) in std::iter::once(&("hero", [3, 2, 4])).chain(more) {
         level.things.push(crate::grid::Thing { kind: kind.to_string(), at: *at });
@@ -2268,8 +2268,8 @@ end
 "#;
     let east: &[(&str, [i32; 3])] = &[("east", [12, 2, 4])];
     let dir = levels_folder("player-thing", main, &[("a", &[]), ("b", east)]);
-    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.json\" }\n  c.player.spawn = { 2, 2 }\n  c.player.kind = \"hero\"\n  c.things.hero = {}\n  c.things.box = {}\nend\n").unwrap();
-    let path = dir.join("levels/a.json");
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.toml\" }\n  c.player.spawn = { 2, 2 }\n  c.player.kind = \"hero\"\n  c.things.hero = {}\n  c.things.box = {}\nend\n").unwrap();
+    let path = dir.join("levels/a.toml");
     let mut level = crate::grid::GridLevel::read(&path).unwrap();
     level.things.push(crate::grid::Thing { kind: "box".into(), at: [10, 2, 4] });
     level.save(&path).unwrap();
@@ -2404,14 +2404,14 @@ fn the_players_kind_and_the_items_are_checked_at_load() {
 fn the_player_outlasts_reloads_and_config_changes() {
     let main = "function on_level_start(how)\n  level.state.box = level:spawn('box', 12, 2)\n  level.camera:follow(level.state.box)\nend\nfunction on_tick() player:walk({ x = 1, y = 0 }, 20) end\n";
     let dir = levels_folder("player-reload", main, &[("a", &[])]);
-    let conf = "function conf(c)\n  c.world.blocks = { file = \"level.json\" }\n  c.player.spawn = { 2, 2 }\n  c.player.kind = \"hero\"\n  c.things.hero = {}\n  c.things.box = {}\n  c.items.key = {}\nend\n";
+    let conf = "function conf(c)\n  c.world.blocks = { file = \"level.toml\" }\n  c.player.spawn = { 2, 2 }\n  c.player.kind = \"hero\"\n  c.things.hero = {}\n  c.things.box = {}\n  c.items.key = {}\nend\n";
     std::fs::write(dir.join("conf.lua"), conf).unwrap();
     let mut g = game_in(&dir);
     steps(&mut g, 10);
     let x = g.game.inspect()["player"]["x"].as_f64().unwrap();
-    let level = crate::grid::GridLevel::read(&dir.join("levels/a.json")).unwrap();
-    level.save(&dir.join("levels/a.json")).unwrap();
-    g.reload(&dir.join("levels/a.json")).unwrap();
+    let level = crate::grid::GridLevel::read(&dir.join("levels/a.toml")).unwrap();
+    level.save(&dir.join("levels/a.toml")).unwrap();
+    g.reload(&dir.join("levels/a.toml")).unwrap();
     assert_eq!(g.game.inspect()["player"]["x"].as_f64(), Some(x), "where the player stood, not at the box");
 
     std::fs::write(dir.join("conf.lua"), conf.replace("  c.things.hero = {}\n", "")).unwrap();
@@ -2434,7 +2434,7 @@ fn the_player_outlasts_reloads_and_config_changes() {
 /// A game of two levels with a player's figure and two save slots.
 fn saves_folder(name: &str, main: &str) -> PathBuf {
     let dir = levels_folder(name, main, &[("a", &[]), ("b", &[])]);
-    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.json\" }\n  c.player.spawn = { 2, 2 }\n  c.player.kind = \"hero\"\n  c.things.hero = {}\n  c.things.box = {}\n  c.saves = { slots = 2 }\nend\n").unwrap();
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.toml\" }\n  c.player.spawn = { 2, 2 }\n  c.player.kind = \"hero\"\n  c.things.hero = {}\n  c.things.box = {}\n  c.saves = { slots = 2 }\nend\n").unwrap();
     dir
 }
 
@@ -2622,8 +2622,8 @@ end
 /// at x 2, a door at x 12 and these lines more in `conf.lua`.
 fn events_folder(name: &str, main: &str, conf: &str) -> PathBuf {
     let dir = levels_folder(name, main, &[("a", &[])]);
-    std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.world.blocks = {{ file = \"level.json\" }}\n  c.player.spawn = {{ 2, 2 }}\n  c.player.kind = \"hero\"\n  c.things.hero = {{ hp = 3 }}\n  c.things.door = {{}}\n  c.things.box = {{ hp = 2 }}\n{conf}end\n")).unwrap();
-    let path = dir.join("levels/a.json");
+    std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.world.blocks = {{ file = \"level.toml\" }}\n  c.player.spawn = {{ 2, 2 }}\n  c.player.kind = \"hero\"\n  c.things.hero = {{ hp = 3 }}\n  c.things.door = {{}}\n  c.things.box = {{ hp = 2 }}\n{conf}end\n")).unwrap();
+    let path = dir.join("levels/a.toml");
     let mut level = crate::grid::GridLevel::read(&path).unwrap();
     level.things.push(crate::grid::Thing { kind: "door".into(), at: [12, 2, 4] });
     level.save(&path).unwrap();
@@ -3272,12 +3272,12 @@ fn a_fall_is_told_once_while_the_code_waits() {
     use crate::grid::{BlockEntry, GridLevel, Kind};
     let main = "function on_fall_out(t) world.state.fell = (world.state.fell or 0) + 1 end\n";
     let dir = levels_folder("fall-once", main, &[("a", &[])]);
-    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3, lives = 3, taken = 0 }\n  c.world.blocks = { file = \"level.json\", below = 16 }\n  c.things.hero = { behaviour = \"hero\", height = 6 }\nend\n").unwrap();
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3, lives = 3, taken = 0 }\n  c.world.blocks = { file = \"level.toml\", below = 16 }\n  c.things.hero = { behaviour = \"hero\", height = 6 }\nend\n").unwrap();
     // Nothing to stand on.
     let mut level = GridLevel::new(4, glam::IVec3::new(4, 1, 2));
     level.blocks.push(BlockEntry { name: "rock".into(), kind: Kind::Solid });
     level.things.push(crate::grid::Thing { kind: "hero".into(), at: [6, 2, 4] });
-    level.save(&dir.join("levels/a.json")).unwrap();
+    level.save(&dir.join("levels/a.toml")).unwrap();
     let mut g = game_in(&dir);
     steps(&mut g, 240);
     assert_eq!(halted(&g), "");
@@ -3297,7 +3297,7 @@ fn the_jump_and_run_rules_as_code() {
     let dir = levels_folder("jump-and-run-rules", &main, &[("a", &[])]);
     std::fs::write(
         dir.join("conf.lua"),
-        "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3, lives = 3, taken = 0 }\n  c.world.blocks = { file = \"level.json\", below = 16 }\n  c.physics.gravity = 400\n  c.things.hero = { behaviour = \"hero\", height = 6, speed = 60 }\n  c.things.gem = { behaviour = \"pickup\", height = 4, family = \"pickups\", props = { worth = 100 }, sound = \"pickup\" }\n  c.things.checkpoint = { behaviour = \"prop\", stands = true, height = 8 }\n  c.things.door = { behaviour = \"prop\", stands = true, height = 8 }\nend\n",
+        "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3, lives = 3, taken = 0 }\n  c.world.blocks = { file = \"level.toml\", below = 16 }\n  c.physics.gravity = 400\n  c.things.hero = { behaviour = \"hero\", height = 6, speed = 60 }\n  c.things.gem = { behaviour = \"pickup\", height = 4, family = \"pickups\", props = { worth = 100 }, sound = \"pickup\" }\n  c.things.checkpoint = { behaviour = \"prop\", stands = true, height = 8 }\n  c.things.door = { behaviour = \"prop\", stands = true, height = 8 }\nend\n",
     )
     .unwrap();
     // A floor of 12 cells, a pit two cells wide in it.
@@ -3310,7 +3310,7 @@ fn the_jump_and_run_rules_as_code() {
     for (kind, x) in [("hero", 2), ("gem", 10), ("checkpoint", 18)] {
         level.things.push(crate::grid::Thing { kind: kind.into(), at: [x, 2, 4] });
     }
-    level.save(&dir.join("levels/a.json")).unwrap();
+    level.save(&dir.join("levels/a.toml")).unwrap();
     // Solid rock blocks.
     let mut rock = crate::blocks::Block::empty(4);
     for z in 0..4 {

@@ -1,5 +1,5 @@
 -- A jump & run with the platformer kit: one room of voxel blocks
--- (level.json and blocks/, the level editor's: EDIT on level.json), a
+-- (level.toml and blocks/, the level editor's: EDIT on level.toml), a
 -- hero who runs, jumps and climbs, a bat, a slime, gems and the door out.
 -- Saved while the game runs, a setting takes effect at once; the kit, the
 -- level and where the hero starts after a restart (F5). Lengths are in
@@ -12,9 +12,9 @@ function conf(c)
   c.scored = true                 -- it keeps a score: the high score table
   c.state.player = { hp = 3, lives = 3, taken = 0 }  -- what a run starts with: hit points (the kit's), lives and pickups taken (main.lua's)
 
-  -- The room: a level of voxel blocks 10 each way (level.json, blocks/),
+  -- The room: a level of voxel blocks 10 each way (level.toml, blocks/),
   -- the lane in front, the wall behind; the camera rests on all of it.
-  c.world.blocks = { file = "level.json" }
+  c.world.blocks = { file = "level.toml" }
   c.player.spawn = { 15, 5 }
 
   c.physics.gravity = 400

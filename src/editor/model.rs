@@ -301,6 +301,10 @@ pub struct Editor {
     pub tool: Tool,
     /// The tool to go back to after PICK.
     before_pick: Tool,
+    /// Shift is held and has made the tool PICK for as long as it is
+    /// (`shift_pick`): a pick then does not give the tool back, letting go
+    /// does.
+    shifted: bool,
     /// The block the level's tools place (its number, 1 on), as it lies.
     pub held: Cell,
     /// The colour a block's tools lay.
@@ -366,6 +370,7 @@ impl Editor {
             layer: Layer::Blocks,
             tool: Tool::Add,
             before_pick: Tool::Add,
+            shifted: false,
             held,
             colour,
             kinds: Vec::new(),
@@ -405,6 +410,14 @@ impl Editor {
         Ok(ed)
     }
 
+    /// The world or map's prefab `file` of the game in `dir` to look at (the
+    /// IDE's picture of it): nothing written.
+    pub fn look_at_scene(dir: &Path, file: &str) -> Result<Self> {
+        let mut ed = Self::with_model(dir, file, ModelFile::look_at_scene(&dir.join(file))?)?;
+        ed.dry = true;
+        Ok(ed)
+    }
+
     fn with_model(dir: &Path, file: &str, model: ModelFile) -> Result<Self> {
         let level = GridLevel::new(1, IVec3::ZERO);
         let colour = model.colours().first().copied().unwrap_or([200, 200, 200]);
@@ -419,6 +432,7 @@ impl Editor {
             layer: Layer::Blocks,
             tool: Tool::Add,
             before_pick: Tool::Add,
+            shifted: false,
             held: Cell::default(),
             colour,
             kinds: Vec::new(),
@@ -480,7 +494,46 @@ impl Editor {
         if tool == Tool::Pick && self.tool != Tool::Pick {
             self.before_pick = self.tool;
         }
+        // Another tool chosen by hand while Shift is held is the one that
+        // stays when it is let go.
+        if tool != Tool::Pick {
+            self.shifted = false;
+        }
         self.tool = tool;
+    }
+
+    /// Shift down (`down`) or up: while it is held the tool is PICK, and
+    /// the tool before comes back when it is let go (a form held for BOX
+    /// or SPHERE stays held meanwhile). Not begun in the middle of a
+    /// stroke or of a footprint being dragged out, whose tool must not
+    /// change under the mouse, nor where there is no PICK.
+    pub fn shift_pick(&mut self, down: bool) {
+        if down {
+            let free = self.stroke.is_none() && self.drawing.is_none() && Tool::of(self.scope, self.layer).contains(&Tool::Pick);
+            if !self.shifted && self.tool != Tool::Pick && free {
+                self.choose(Tool::Pick);
+                self.shifted = true;
+            }
+        } else if self.shifted {
+            self.shifted = false;
+            if self.tool == Tool::Pick {
+                self.tool = self.before_pick;
+            }
+        }
+    }
+
+    /// The tool the panels show the options of: the one Shift put aside
+    /// while it is PICK, so they do not jump.
+    pub fn resting_tool(&self) -> Tool {
+        if self.shifted { self.before_pick } else { self.tool }
+    }
+
+    /// A pick made: the tool goes back to the one before PICK, unless Shift
+    /// is still holding PICK.
+    fn picked(&mut self) {
+        if !self.shifted {
+            self.tool = self.before_pick;
+        }
     }
 
     /// The block shown (in a block), or the one held (in the level).
@@ -583,7 +636,7 @@ impl Editor {
                     }
                     _ => return,
                 }
-                self.tool = self.before_pick;
+                self.picked();
             }
             return;
         }
@@ -1170,7 +1223,7 @@ impl Editor {
             Tool::Pick => {
                 if let Some(t) = under.and_then(|i| self.level.things.get(i)) {
                     self.held_kind = Some(t.kind.clone());
-                    self.tool = self.before_pick;
+                    self.picked();
                 }
                 return;
             }
@@ -1224,6 +1277,7 @@ impl Editor {
             self.release();
             self.scope = Scope::Block(i);
             self.layer = Layer::Blocks;
+            self.shifted = false;
             if self.tool == Tool::Pick {
                 self.tool = self.before_pick;
             }
@@ -1682,7 +1736,7 @@ pub(crate) mod tests {
         let mut level = GridLevel::new(N, IVec3::new(3, 2, 2));
         level.blocks.push(BlockEntry { name: "1".into(), kind: Kind::Solid });
         level.cells[0] = Cell { block: 1, turn: Turn::NONE };
-        level.save(&dir.join("level.json")).unwrap();
+        level.save(&dir.join("level.toml")).unwrap();
         let mut cube = Block::empty(N);
         for i in 0..N * N * N {
             cube.set(IVec3::new(i % N, i / N % N, i / (N * N)), Some([128, 128, 128])).unwrap();
@@ -1731,7 +1785,7 @@ pub(crate) mod tests {
     #[test]
     fn placing_turning_and_removing_blocks() {
         let dir = folder("place");
-        let mut ed = Editor::open(&dir, "level.json").unwrap();
+        let mut ed = Editor::open(&dir, "level.toml").unwrap();
         // Onto the block's top: a block in the cell above.
         let (o, d) = down(0, 0);
         let hit = ed.aim(o, d).unwrap();
@@ -1759,14 +1813,14 @@ pub(crate) mod tests {
         ed.press(ed.aim(o, d).unwrap());
         ed.release();
         assert_eq!(ed.level.cell(IVec3::new(0, 0, 1)).block, 0);
-        assert_eq!(GridLevel::read(&dir.join("level.json")).unwrap(), ed.level);
+        assert_eq!(GridLevel::read(&dir.join("level.toml")).unwrap(), ed.level);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn painting_recolours_and_adding_grows_from_the_face() {
         let dir = folder("paint");
-        let mut ed = Editor::open(&dir, "level.json").unwrap();
+        let mut ed = Editor::open(&dir, "level.toml").unwrap();
         ed.open_block(0);
         assert_eq!(ed.colour, [128, 128, 128]);
         ed.colour = [10, 200, 10];
@@ -1795,7 +1849,7 @@ pub(crate) mod tests {
     #[test]
     fn deep_paint_colours_every_voxel_behind() {
         let dir = folder("deep");
-        let mut ed = Editor::open(&dir, "level.json").unwrap();
+        let mut ed = Editor::open(&dir, "level.toml").unwrap();
         ed.open_block(0);
         // A hole in the column, which stays a hole.
         ed.blocks[0].set(IVec3::new(1, 2, 2), None).unwrap();
@@ -1823,7 +1877,7 @@ pub(crate) mod tests {
     #[test]
     fn turning_a_block_turns_its_voxels() {
         let dir = folder("turn-block");
-        let mut ed = Editor::open(&dir, "level.json").unwrap();
+        let mut ed = Editor::open(&dir, "level.toml").unwrap();
         ed.open_block(0);
         ed.blocks[0].set(IVec3::new(0, N - 1, 0), Some([1, 2, 3])).unwrap();
         let made = ed.blocks[0].clone();
@@ -1840,7 +1894,7 @@ pub(crate) mod tests {
     #[test]
     fn cloning_a_block_makes_a_copy_to_shape() {
         let dir = folder("clone");
-        let mut ed = Editor::open(&dir, "level.json").unwrap();
+        let mut ed = Editor::open(&dir, "level.toml").unwrap();
         ed.set_kind(Kind::Oneway);
         ed.clone_block().unwrap();
         assert_eq!(ed.level.blocks[1], BlockEntry { name: "3".into(), kind: Kind::Oneway });
@@ -1851,14 +1905,14 @@ pub(crate) mod tests {
         ed.clone_block().unwrap();
         assert_eq!(ed.scope, Scope::Block(2));
         assert_eq!(ed.level.blocks[2].name, "4");
-        assert_eq!(GridLevel::read(&dir.join("level.json")).unwrap().blocks.len(), 3);
+        assert_eq!(GridLevel::read(&dir.join("level.toml")).unwrap().blocks.len(), 3);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn deleting_a_block_empties_its_cells_and_undo_brings_it_back() {
         let dir = folder("delete");
-        let mut ed = Editor::open(&dir, "level.json").unwrap();
+        let mut ed = Editor::open(&dir, "level.toml").unwrap();
         ed.clone_block().unwrap();
         // The copy (block 2) in a cell beside the first.
         let (o, d) = down(1, 0);
@@ -1872,7 +1926,7 @@ pub(crate) mod tests {
         assert_eq!(ed.level.cell(IVec3::ZERO).block, 0, "its cell is empty");
         assert_eq!(ed.level.cell(IVec3::new(1, 0, 0)).block, 1, "the copy is block 1 now");
         assert!(!blocks::path(&dir, "1").exists(), "its file is gone");
-        assert_eq!(GridLevel::read(&dir.join("level.json")).unwrap(), ed.level);
+        assert_eq!(GridLevel::read(&dir.join("level.toml")).unwrap(), ed.level);
         ed.undo();
         assert_eq!(ed.level, start);
         assert_eq!(Block::load(&blocks::path(&dir, "1"), N).unwrap(), ed.blocks[0], "its file is back");
@@ -1888,7 +1942,7 @@ pub(crate) mod tests {
     #[test]
     fn a_stroke_works_on_the_surface_it_began_on() {
         let dir = folder("stroke");
-        let mut ed = Editor::open(&dir, "level.json").unwrap();
+        let mut ed = Editor::open(&dir, "level.toml").unwrap();
         ed.open_block(0);
         ed.choose(Tool::Remove);
         // Dragged twice over the same voxel from above: one layer off.
@@ -1915,7 +1969,7 @@ pub(crate) mod tests {
     #[test]
     fn undo_and_redo_step_through_both_levels() {
         let dir = folder("undo");
-        let mut ed = Editor::open(&dir, "level.json").unwrap();
+        let mut ed = Editor::open(&dir, "level.toml").unwrap();
         let start = (ed.level.clone(), ed.blocks[0].clone());
         let (o, d) = down(1, 0);
         ed.press(ed.aim(o, d).unwrap());
@@ -1942,7 +1996,7 @@ pub(crate) mod tests {
     #[test]
     fn every_change_is_saved_at_once() {
         let dir = folder("saved");
-        let mut ed = Editor::open(&dir, "level.json").unwrap();
+        let mut ed = Editor::open(&dir, "level.toml").unwrap();
         ed.open_block(0);
         ed.choose(Tool::Remove);
         let (o, d) = down(3, 3);
@@ -1961,7 +2015,7 @@ pub(crate) mod tests {
     #[test]
     fn a_new_block_is_drawn_out_from_its_tile() {
         let dir = folder("new");
-        let mut ed = Editor::open(&dir, "level.json").unwrap();
+        let mut ed = Editor::open(&dir, "level.toml").unwrap();
         assert!(ed.sheet.as_ref().unwrap().tile(2).is_none(), "an empty tile");
         ed.new_block(Some(1)).unwrap();
         assert_eq!(ed.held.block, 1, "the level has tile 1's block: it is held");
@@ -1972,7 +2026,7 @@ pub(crate) mod tests {
         assert_eq!(ed.level.blocks[1].name, "3", "numbered on after the tiles");
         assert_eq!(ed.held.block, 2);
         assert!(blocks::path(&dir, "3").exists());
-        assert_eq!(GridLevel::read(&dir.join("level.json")).unwrap().blocks.len(), 2);
+        assert_eq!(GridLevel::read(&dir.join("level.toml")).unwrap().blocks.len(), 2);
         // Without its own block, a tile's is drawn out of the tileset.
         std::fs::remove_file(blocks::path(&dir, "1")).unwrap();
         ed.level.blocks[0].name = "old".into();
@@ -1986,19 +2040,19 @@ pub(crate) mod tests {
     #[test]
     fn changing_a_kind_is_saved_with_the_level() {
         let dir = folder("kind");
-        let mut ed = Editor::open(&dir, "level.json").unwrap();
+        let mut ed = Editor::open(&dir, "level.toml").unwrap();
         assert_eq!(ed.kind(), Some(Kind::Solid));
         ed.set_kind(Kind::Oneway);
-        assert_eq!(GridLevel::read(&dir.join("level.json")).unwrap().blocks[0].kind, Kind::Oneway);
+        assert_eq!(GridLevel::read(&dir.join("level.toml")).unwrap().blocks[0].kind, Kind::Oneway);
         ed.undo();
-        assert_eq!(GridLevel::read(&dir.join("level.json")).unwrap().blocks[0].kind, Kind::Solid);
+        assert_eq!(GridLevel::read(&dir.join("level.toml")).unwrap().blocks[0].kind, Kind::Solid);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn picking_takes_up_and_goes_back_to_the_tool() {
         let dir = folder("pick");
-        let mut ed = Editor::open(&dir, "level.json").unwrap();
+        let mut ed = Editor::open(&dir, "level.toml").unwrap();
         ed.held = Cell::default();
         ed.choose(Tool::Remove);
         ed.choose(Tool::Pick);
@@ -2013,11 +2067,11 @@ pub(crate) mod tests {
     #[test]
     fn placing_moving_and_removing_things() {
         let dir = folder("things");
-        let mut ed = Editor::open(&dir, "level.json").unwrap();
+        let mut ed = Editor::open(&dir, "level.toml").unwrap();
         ed.kinds = vec!["fox".into(), "gem".into()];
         ed.hold_kind(1);
         ed.switch(Layer::Things);
-        let saved = || GridLevel::read(&dir.join("level.json")).unwrap().things;
+        let saved = || GridLevel::read(&dir.join("level.toml")).unwrap().things;
         let gem = |at: [i32; 3]| vec![Thing { kind: "gem".into(), at }];
         ed.press_thing(Some(IVec3::new(2, 2, 8)), None);
         ed.release();
@@ -2062,7 +2116,7 @@ pub(crate) mod tests {
     #[test]
     fn a_thing_stands_before_the_face_it_is_put_on() {
         let dir = folder("spot");
-        let ed = Editor::open(&dir, "level.json").unwrap();
+        let ed = Editor::open(&dir, "level.toml").unwrap();
         let spot = |voxel: [i32; 3], normal: [i32; 3]| ed.thing_spot(IVec3::from(voxel), IVec3::from(normal)).map(|s| s.to_array());
         assert_eq!(spot([1, 1, 3], [0, 0, 1]), Some([1, 2, 4]), "on a top, in the front row's middle");
         assert_eq!(spot([5, 4, 2], [0, -1, 0]), Some([5, 2, 2]), "before a wall of the back row: in the front row");
@@ -2100,7 +2154,7 @@ pub(crate) mod tests {
 
     /// BOX on a model: a footprint dragged out on the top face, a voxel
     /// deeper, held and set with a click; the box grows to hold it; with
-    /// SYMMETRY the other side too; Shift fills only where empty, Ctrl
+    /// SYMMETRY the other side too; Alt fills only where empty, Ctrl
     /// cuts; each a step.
     #[test]
     fn a_box_is_drawn_held_and_set() {
@@ -2131,7 +2185,7 @@ pub(crate) mod tests {
         assert!((2..=4).all(|x| ed.shape().unwrap().get(IVec3::new(x, 0, 6)) == 0), "cut away");
         ed.undo();
         assert_eq!(ed.shape().unwrap().colour_at(IVec3::new(3, 0, 6)), Some([10, 200, 10]), "the cut taken back");
-        // Shift: only where empty; the box's own voxels keep their colour.
+        // Alt: only where empty; the box's own voxels keep their colour.
         ed.colour = [255, 255, 0];
         ed.place_form(Some(Hit { cell: IVec3::new(3, 0, 4), normal: IVec3::Z }), false, true);
         assert_eq!(ed.shape().unwrap().colour_at(IVec3::new(3, 0, 5)), Some([10, 200, 10]));
@@ -2143,6 +2197,63 @@ pub(crate) mod tests {
         ed.release();
         let frame = ed.shape().unwrap();
         assert!(frame.get(IVec3::new(0, 1, 1)) != 0 && frame.get(IVec3::new(w - 1, 1, 1)) != 0, "both sides");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Shift held makes the tool PICK, a click picks the colour under the
+    /// mouse and the tool stays PICK; letting go brings the tool before
+    /// back, for BOX with its shape still held; a stroke in the middle is
+    /// not interrupted; a tool chosen meanwhile stays.
+    #[test]
+    fn shift_held_picks_and_letting_go_gives_the_tool_back() {
+        let dir = model_folder("shift_pick");
+        let mut ed = Editor::open_model(&dir, "thing.vvx").unwrap();
+        let top = Hit { cell: IVec3::new(1, 0, 4), normal: IVec3::Z };
+        ed.choose(Tool::Paint);
+        ed.colour = [10, 200, 10];
+        ed.press(top);
+        ed.release();
+        ed.choose(Tool::Remove);
+        ed.colour = [0, 0, 0];
+        ed.shift_pick(true);
+        assert_eq!(ed.tool, Tool::Pick, "Shift held: PICK");
+        ed.press(top);
+        assert_eq!((ed.colour, ed.tool), ([10, 200, 10], Tool::Pick), "picked, still PICK while Shift is held");
+        ed.press(top);
+        assert_eq!(ed.tool, Tool::Pick, "another pick, the same");
+        ed.shift_pick(false);
+        assert_eq!((ed.tool, ed.colour), (Tool::Remove, [10, 200, 10]), "let go: the tool before, the colour picked");
+        // Shift again and again changes nothing in between; PICK chosen by
+        // hand is not given back by it.
+        ed.shift_pick(false);
+        assert_eq!(ed.tool, Tool::Remove);
+        ed.choose(Tool::Pick);
+        ed.shift_pick(true);
+        ed.shift_pick(false);
+        assert_eq!(ed.tool, Tool::Pick, "PICK chosen is PICK until a pick");
+        ed.choose(Tool::Paint);
+        // A stroke under way keeps its tool.
+        ed.press(top);
+        ed.shift_pick(true);
+        assert_eq!(ed.tool, Tool::Paint, "not in the middle of a stroke");
+        ed.release();
+        ed.shift_pick(false);
+        // A tool chosen with Shift held stays when it is let go.
+        ed.shift_pick(true);
+        ed.choose(Tool::Add);
+        ed.shift_pick(false);
+        assert_eq!(ed.tool, Tool::Add);
+        // BOX with a shape held: it stays held through the pick.
+        ed.choose(Tool::Box);
+        ed.held_form = Some(Held { size: IVec3::new(3, 1, 2), at: None });
+        ed.colour = [0, 0, 0];
+        ed.shift_pick(true);
+        assert!(!ed.forms(), "no shape drawn while PICK");
+        ed.press(top);
+        ed.shift_pick(false);
+        assert_eq!((ed.tool, ed.colour), (Tool::Box, [10, 200, 10]));
+        assert_eq!(ed.held_form.map(|h| h.size), Some(IVec3::new(3, 1, 2)), "the shape stays on the mouse");
+        assert!(ed.forms());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

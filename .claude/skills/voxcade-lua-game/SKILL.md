@@ -100,9 +100,9 @@ When you make a model (in a script or by hand in the voxel editor):
 | How | Setting | For |
 |---|---|---|
 | made in code | `c.world.size = { x, y, z }`, then `level:fill` in `on_level_start` | small or rule-built worlds (Sokovox) |
-| one scene | `c.world.file = "world.vox"`, things placed by marker colours (`c.markers.rifleman = 240`) | a small hand-made level (the Arena) |
-| a map | `c.world.file = "map.json"`: ground from height and material PNGs, `.vox` prefabs (MagicaVoxel scenes still, as the world above) | big levels (More Blood, written by `tools/gen_moreblood.py`) |
-| voxel blocks | `c.world.blocks = { file = "level.json", margin, below, backdrops }` | tile-built levels (Voxkeep's `levels/`; `voxcade import`, `voxcade edit`) |
+| one world | `c.world.file = "world.vvx"`: a `.vvx` of one frame, its palette's colours the world's numbers in order, things placed by marker entries (`r = { marker = "rifleman" }`) | a small hand-made level (the Arena) |
+| a map | `c.world.file = "map.toml"`: ground from height and material PNGs, `.vvx` prefabs placed (`[[put]]`, a thing by `thing = "kind"`) | big levels (More Blood, written by `tools/gen_moreblood.py`) |
+| voxel blocks | `c.world.blocks = { file = "levels/01_hall.toml", margin, below, backdrops }` | tile-built levels (Voxkeep's `levels/`; `voxcade import`, `voxcade edit`) |
 
 ### Kinds of things (`c.things.NAME`)
 
@@ -336,8 +336,8 @@ settings' CONTROLS (in a game of several) set who plays with what.
 `--input2 "away:60;right:40"` plays seat 2 in `shot` and `inspect`.
 
 Levels: the files in `levels/` (named by their file, in name order:
-`01_meadow.json`, `02_cave.json`; without any, one level as `c.world`
-says), each with named places (`places` in the file).
+`01_meadow.toml`, `02_cave.toml`; worlds `.vvx`; without any, one level
+as `c.world` says), each with named places (`[[place]]` in the file).
 `world:go_to(level.next)` or `world:go_to("cave", "west")`,
 `world:restart()` (to `player.state.checkpoint` if set),
 `world:win()`, `world:lose()` ask for the end of the tick; one ask counts

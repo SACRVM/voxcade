@@ -136,21 +136,23 @@ import brings a Tiled map into a game once, as a level of voxel blocks
       front (a map of one layer: what holds in front, decoration behind);
       what a block is from its tile's class in the tileset (solid, oneway,
       ladder, hazard; none: decoration); the objects as things. Writes
-      level.json (--file NAME), over one there only with --over.
+      level.toml (--file NAME), over one there only with --over.
       Given MagicaVoxel models (.vox), it brings each into the game as a
       model of Voxcade's own (.vvx, text), beside the others in the game
       folder (--as: another path there, one model), its parts hanging as
       they did; the .vox is left alone. Name the .vvx in the game's Lua.
 upgrade brings a game made for an older Voxcade up to date: every step
-      it needs (0.6.0: its models, figures and blocks become .vvx, the Lua
-      naming them follows; worlds and map prefabs stay .vox), then
+      it needs (0.6.0: its models, figures and blocks become .vvx; its
+      levels of blocks and maps .toml; its worlds and map prefabs .vvx too,
+      their markers named in them instead of c.markers; the Lua naming the
+      files follows), then
       c.voxcade in conf.lua says this version. It says what each step
       did; --dry only says what it would do. It commits nothing, and says
       first when the folder has changes git has not committed. A game for
       an older Voxcade does not open until then; one for a newer neither.
 edit  opens the editor on a game's level of voxel blocks: the level (its
       things with --things; another than the config's with --level FILE,
-      levels/02_crypt.json), or a block of it (--block); or on a model of
+      levels/02_crypt.toml), or a block of it (--block); or on a model of
       the game, any size, its frames (--model FILE, its path in the game
       folder; a figure of parts, its objects named, opens whole: FIGURE,
       its parts by what they hang on, where each turns, what is wrong
@@ -160,7 +162,8 @@ edit  opens the editor on a game's level of voxel blocks: the level (its
       figure's part, --parent NAME and --joint X,Y,Z set its rig, the
       joint as the printed tree has it; the mouse in the middle of the
       view; --view turns the camera; --tool WORD chooses a tool, BOX and
-      SPHERE holding a shape --held X,Y,Z big, --stamp setting it there;
+      SPHERE holding a shape --held X,Y,Z big, --stamp setting it there,
+      --shift as with Shift held (the tool is PICK);
       default 1920x1080).
 ide   opens the IDE on a game (docs/ide.md): its logic and assets on the
       left, the one thing open in the main area, the console with your
@@ -511,7 +514,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                 }
                 return Ok(());
             }
-            let (mut file, mut over) = ("level.json".to_string(), false);
+            let (mut file, mut over) = ("level.toml".to_string(), false);
             let mut it = args[3..].iter();
             while let Some(flag) = it.next() {
                 match flag.as_str() {
@@ -520,6 +523,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                     other => bail!("unknown option {other}"),
                 }
             }
+            anyhow::ensure!(file.ends_with(".toml"), "--file {file}: a level of the game is a .toml (levels/02_crypt.toml)");
             println!("{}", crate::tiled::import_into(&dir, &source, &file, over)?);
             Ok(())
         }
@@ -537,12 +541,16 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
         }
         Some("edit") => {
             let dir = opened(&args)?;
-            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new() };
+            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new() };
             let mut shot = false;
             let mut it = args[2..].iter();
             while let Some(flag) = it.next() {
                 if flag == "--things" || flag == "--stamp" {
                     (opts.things, opts.stamp) = (opts.things || flag == "--things", opts.stamp || flag == "--stamp");
+                    continue;
+                }
+                if flag == "--shift" {
+                    opts.shift = true;
                     continue;
                 }
                 let value = it.next().with_context(|| format!("{flag} needs a value"))?;

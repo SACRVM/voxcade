@@ -25,8 +25,9 @@ the same (`--refit`), but for Sokovox, whose state moved into
 
 Stage 3 (2026-10-21), levels: the files in `levels/` (`src/levels.rs`, all
 read when the game loads, in natural order; a level of blocks, a map or a
-`.vox` world as `c.world` says), named places in level files (`places`:
-`{ "name", "at": [x, y, z], "facing": [x, y] }`), `world.levels`,
+world as `c.world` says, text since 0.6.0: `.toml` and `.vvx`), named
+places in level files (`[[place]]` with `name`, `at = [x, y, z]`,
+`facing = [x, y]`), `world.levels`,
 `world.leaving`, `world:go_to`, `world:restart`, `world:win` and
 `world:lose` as asks (one counts, at the tick's end; asks in the first
 `on_level_start` at once; a hundred changes without a tick a mistake),
@@ -841,7 +842,8 @@ touches there touches without `on_touch`.
 ## Levels and places
 
 - **Where levels lie.** A game's levels are the files in its `levels/`
-  folder ending `.json` or `.vox` (`levels/hall.json`), named by the
+  folder ending `.toml` (levels of blocks, maps) or `.vvx` (worlds)
+  (`levels/hall.toml`), named by the
   file's stem and ordered by name, numbers counted as numbers (`2` before
   `10`; `01_hall`, `02_tower`). That order is `world.levels`, the first
   starts, `level.number` and `level.next` follow it. No list in
@@ -853,7 +855,7 @@ touches there touches without `on_touch`.
   builds the next puzzle.
 - **What a level file is.** As the game's `c.world` says: a level of
   voxel blocks (`c.world.blocks`: margin, backdrops for every level), a
-  map, or a `.vox` world.
+  map, or a world (`.vvx`, `crate::scene`).
 - **Settings per level** (its title, its music, the player's behaviour
   in it: a top-down overworld with jump & run dungeons, GB Studio's proven
   cross) live in the level file, set in the level editor.
@@ -866,7 +868,7 @@ touches there touches without `on_touch`.
   level starts: its place called `start`, else where its ready-made rules
   stand the player (the hero's marker), else `c.player.spawn`; the first
   level of a run starts there too. Levels of blocks and maps hold places;
-  a `.vox` world has no room for names, so it has only its start.
+  a world (`.vvx`) has no room for names, so it has only its start.
 - **Replays** start at the first level (or at the save or `--level` they
   began from); every level's files count for their fingerprint.
 

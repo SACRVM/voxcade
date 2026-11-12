@@ -11,7 +11,7 @@ function conf(c)
   c.title = "Bench"
   c.kit = "shooter"
 
-  c.world.file = "map.json"
+  c.world.file = "map.toml"
 
   c.physics.gravity = 1040
   c.physics.max_fall = 640

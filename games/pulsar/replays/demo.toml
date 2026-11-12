@@ -1,7 +1,7 @@
 # Voxcade replay: Pulsar, 2700 ticks, quit, score 6250
 version = 1
 game = "Pulsar"
-fingerprint = "ed38e8166962a150"
+fingerprint = "85b101c9d16211e4"
 ticks = 2700
 outcome = "quit"
 score = 6250

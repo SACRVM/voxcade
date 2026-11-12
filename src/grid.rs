@@ -1,7 +1,7 @@
 //! Levels built of voxel blocks in a 3D grid (`docs/tiles.md`). A level
-//! file (`level.json`) names its blocks (`blocks/NAME.vvx`) and what each is
-//! to the game, holds a block and its turn for every cell, and the things
-//! placed freely, in voxels. Loading stamps the blocks into the world's
+//! file (`levels/NAME.toml`, text: `text`) names its blocks
+//! (`blocks/NAME.vvx`) and what each is to the game, holds a block and its
+//! turn for every cell, and the things placed freely, in voxels. Loading stamps the blocks into the world's
 //! voxels, so destruction, physics and meshing go on as ever; the cells'
 //! kinds stay for the game's rules (`CellKinds`: ladders, hazards).
 //!
@@ -166,21 +166,6 @@ pub struct GridLevel {
     pub places: Vec<Place>,
 }
 
-/// The level file: the cells as runs (how many in a row, block, turn), x
-/// fastest, then y, then z.
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LevelFile {
-    block: i32,
-    size: [i32; 3],
-    blocks: Vec<BlockEntry>,
-    cells: Vec<[u32; 3]>,
-    #[serde(default)]
-    things: Vec<Thing>,
-    #[serde(default)]
-    places: Vec<Place>,
-}
-
 impl GridLevel {
     pub fn new(n: i32, size: IVec3) -> Self {
         Self { n, size, blocks: Vec::new(), cells: vec![Cell::default(); (size.x * size.y * size.z).max(0) as usize], things: Vec::new(), places: Vec::new() }
@@ -206,72 +191,25 @@ impl GridLevel {
         Self::from_text(&text).with_context(|| path.display().to_string())
     }
 
-    pub fn from_text(text: &str) -> Result<Self> {
-        let file: LevelFile = serde_json::from_str(text).context("not a level of blocks")?;
-        let [x, y, z] = file.size;
-        if file.block < 1 || x < 1 || y < 1 || z < 1 {
-            bail!("a block and the grid are at least 1 each way (block {}, size {x} by {y} by {z})", file.block);
-        }
-        let mut level = Self::new(file.block, IVec3::new(x, y, z));
-        level.blocks = file.blocks;
-        level.things = file.things;
-        level.places = file.places;
-        let mut i = 0usize;
-        for [count, block, turn] in file.cells {
-            if block as usize > level.blocks.len() {
-                bail!("cells: block {block}, but the level names {} blocks", level.blocks.len());
-            }
-            let turn = Turn::from_number(turn.min(255) as u8).ok_or_else(|| anyhow!("cells: turn {turn}, there are {} (0 to {})", Turn::COUNT, Turn::COUNT - 1))?;
-            let end = i + count as usize;
-            if end > level.cells.len() {
-                bail!("cells: more than the {} the grid holds", level.cells.len());
-            }
-            level.cells[i..end].fill(Cell { block: block as u16, turn });
-            i = end;
-        }
-        if i != level.cells.len() {
-            bail!("cells: {i} given, the grid holds {}", level.cells.len());
-        }
-        Ok(level)
+    /// The level a text says (`text::read`).
+    pub fn from_text(src: &str) -> Result<Self> {
+        Ok(text::read(src)?.0)
     }
 
-    /// The level as its file holds it: the blocks and things a line each,
-    /// the cells' runs ten to a line.
+    /// The level as its file holds it, with new signs (`text::write`).
     pub fn to_text(&self) -> String {
-        let mut runs: Vec<[u32; 3]> = Vec::new();
-        for c in &self.cells {
-            let (b, t) = (c.block as u32, c.turn.number() as u32);
-            match runs.last_mut() {
-                Some(r) if r[1] == b && r[2] == t => r[0] += 1,
-                _ => runs.push([1, b, t]),
-            }
-        }
-        let json = |v: &dyn erased::Json| v.json();
-        let list = |items: Vec<String>, per_line: usize| -> String {
-            if items.is_empty() {
-                return "[]".into();
-            }
-            let lines: Vec<String> = items.chunks(per_line).map(|c| format!("    {}", c.join(", "))).collect();
-            format!("[\n{}\n  ]", lines.join(",\n"))
-        };
-        let s = self.size;
-        // Places only where there are some: a file without stays as it was.
-        let places = if self.places.is_empty() { String::new() } else { format!(",\n  \"places\": {}", list(self.places.iter().map(|p| json(p)).collect(), 1)) };
-        format!(
-            "{{\n  \"block\": {},\n  \"size\": [{}, {}, {}],\n  \"blocks\": {},\n  \"cells\": {},\n  \"things\": {}{places}\n}}\n",
-            self.n,
-            s.x,
-            s.y,
-            s.z,
-            list(self.blocks.iter().map(|b| json(b)).collect(), 1),
-            list(runs.iter().map(|r| json(r)).collect(), 10),
-            list(self.things.iter().map(|t| json(t)).collect(), 1),
-        )
+        text::write(self, &Legend::default())
     }
 
-    /// Writes the level at once (`blocks::save_at_once`).
+    /// Writes the level at once (`blocks::save_at_once`), keeping the signs
+    /// and the view of the file there (`Legend`).
     pub fn save(&self, path: &Path) -> Result<()> {
-        blocks::save_at_once(path, self.to_text().as_bytes())
+        let mut names: Vec<&str> = self.blocks.iter().map(|b| b.name.as_str()).collect();
+        names.sort_unstable();
+        if let Some(w) = names.windows(2).find(|w| w[0] == w[1]) {
+            bail!("the level names block '{}' twice", w[0]);
+        }
+        blocks::save_at_once(path, text::write(self, &Legend::of_file(path)).as_bytes())
     }
 
     /// Its blocks as made, read from the game folder `dir`.
@@ -285,16 +223,388 @@ impl GridLevel {
     }
 }
 
-/// Serialising one item to compact JSON, whatever its type.
-mod erased {
-    pub trait Json {
-        fn json(&self) -> String;
+/// The ending of a level's file (`levels/NAME.toml`).
+pub const EXTENSION: &str = "toml";
+/// The format and the version this engine reads and writes.
+pub const FORMAT: &str = "voxcade level 1";
+const FORMAT_NAME: &str = "voxcade level";
+const VERSION: u32 = 1;
+
+/// Which way a level file's layers read.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum View {
+    /// Each layer the grid seen from above, the bottom layer first; in a
+    /// layer the far row first (as a model's `.vvx`).
+    #[default]
+    Above,
+    /// Each layer the grid seen from the front, the front layer first; in
+    /// a layer the top row first: a side view's room as a picture.
+    Front,
+}
+
+impl View {
+    fn name(self) -> &'static str {
+        match self {
+            View::Above => "above",
+            View::Front => "front",
+        }
     }
 
-    impl<T: serde::Serialize> Json for T {
-        fn json(&self) -> String {
-            serde_json::to_string(self).expect("plain data")
+    /// The way a level without a file reads best: from the front when it
+    /// stands taller than it is deep (a side view's room), else from above.
+    pub fn for_size(size: IVec3) -> Self {
+        if size.z > size.y { View::Front } else { View::Above }
+    }
+}
+
+/// What a level's file says besides the level: which way its layers read
+/// and its signs, each a block's name and turn. Kept when the editor
+/// writes the level again, so a changed cell is a changed character.
+#[derive(Clone, Debug, Default)]
+pub struct Legend {
+    pub view: Option<View>,
+    pub signs: Vec<(String, String, u8)>,
+}
+
+impl Legend {
+    /// The legend of a level's text; none when it does not read.
+    pub fn of_text(src: &str) -> Self {
+        text::read(src).map(|(_, legend)| legend).unwrap_or_default()
+    }
+
+    /// The legend of the level file at `path`, if there is one.
+    pub fn of_file(path: &Path) -> Self {
+        std::fs::read_to_string(path).map(|s| Self::of_text(&s)).unwrap_or_default()
+    }
+}
+
+/// A level of blocks as text (`levels/NAME.toml`, "voxcade level 1"):
+///
+/// ```toml
+/// format = "voxcade level 1"
+/// block = 10            # a block is 10 voxels each way
+/// size = [24, 2, 13]    # cells: across (x), deep (y, 0 in front), up (z)
+/// view = "front"        # each layer the grid seen from the front, front layer first
+///
+/// [blocks]              # blocks/NAME.vvx, each what it is to the game
+/// wall = "decor"
+/// stone = "solid"
+///
+/// [legend]              # a sign is a block as it lies: its name, or with a turn (0 to 47)
+/// w = "wall"
+/// s = "stone"
+/// S = { block = "stone", turn = 17 }
+///
+/// [cells]
+/// layers = """
+/// ssssssssssssssssssssssss
+/// s.....................ws
+/// ...
+/// """
+///
+/// [[thing]]
+/// kind = "gem"
+/// at = [45, 5, 12]      # where its feet stand, in voxels from the grid's low corner
+///
+/// [[place]]
+/// name = "door"
+/// at = [25, 8, 70]
+/// facing = [0, -1]
+/// ```
+///
+/// The cells are layers of rows of signs, `.` empty, an empty line between
+/// layers; a row followed by ` *N` stands N times in all, a line `*N`
+/// after a layer's rows the layer N times (as in a `.vvx`). `view` says
+/// which way the layers read, the same for every level of whatever
+/// camera: `"above"` (the bottom layer first, each seen from above with
+/// the far row first) or `"front"` (the front layer first, each seen from
+/// the front with the top row first); x runs left to right in both. One
+/// letter or digit a sign (62), two each when a level needs more (`..`
+/// empty). Things and places come in their order.
+pub mod text {
+    use super::*;
+    use crate::vvx::{self, ONE_SIGN, Reader, SIGNS};
+    use toml_edit::{Document, Item};
+
+    /// The level's text, keeping the view and the signs of `kept` (the
+    /// legend the file had; `Legend::default()` for a new one).
+    pub fn write(level: &GridLevel, kept: &Legend) -> String {
+        let view = kept.view.unwrap_or_else(|| View::for_size(level.size));
+        // The pairs of block and turn the cells hold, by first use in
+        // reading order.
+        let order = reading_order(level.size, view);
+        let mut pairs: Vec<Cell> = Vec::new();
+        for c in order.iter().flatten().flatten() {
+            let cell = level.cells[*c];
+            if cell.block != 0 && !pairs.contains(&cell) {
+                pairs.push(cell);
+            }
         }
+        let name = |c: &Cell| level.blocks[c.block as usize - 1].name.clone();
+        let width = if pairs.len() <= ONE_SIGN { 1 } else { 2 };
+        let kept: Vec<&(String, String, u8)> = kept.signs.iter().filter(|(s, ..)| s.len() == width).collect();
+        let mut taken: Vec<String> = kept.iter().map(|(s, ..)| s.clone()).collect();
+        let mut sign_of: Vec<(Cell, String)> = Vec::new();
+        // Kept signs first, in the file's order.
+        for (s, block, turn) in &kept {
+            if let Some(c) = pairs.iter().find(|c| name(c) == *block && c.turn.number() == *turn)
+                && !sign_of.iter().any(|(d, _)| d == c)
+            {
+                sign_of.push((*c, s.clone()));
+            }
+        }
+        let kept_count = sign_of.len();
+        for c in &pairs {
+            if sign_of.iter().any(|(d, _)| d == c) {
+                continue;
+            }
+            let s = new_sign(&name(c), width, &taken);
+            taken.push(s.clone());
+            sign_of.push((*c, s));
+        }
+        // The legend's order: the kept ones as the file had them, then the
+        // new ones as they came.
+        let mut legend = sign_of[..kept_count].to_vec();
+        legend.extend(sign_of[kept_count..].iter().cloned());
+        let s = level.size;
+        let mut out = format!("format = \"{FORMAT}\"\nblock = {}            # a block is this many voxels each way\nsize = [{}, {}, {}]    # cells: across (x), deep (y, 0 in front), up (z)\n", level.n, s.x, s.y, s.z);
+        out += &match view {
+            View::Front => "view = \"front\"        # each layer the grid seen from the front, the front layer first, its top row first\n".to_string(),
+            View::Above => "view = \"above\"        # each layer the grid seen from above, the bottom layer first, its far row first\n".to_string(),
+        };
+        out += "\n[blocks]              # blocks/NAME.vvx, each what it is to the game\n";
+        for b in &level.blocks {
+            out += &format!("{} = \"{}\"\n", key(&b.name), b.kind.name());
+        }
+        out += "\n[legend]              # a sign is a block as it lies: its name, or the name and a turn (0 to 47)\n";
+        for (c, sign) in &legend {
+            match c.turn.number() {
+                0 => out += &format!("{sign} = {}\n", vvx::quoted(&name(c))),
+                t => out += &format!("{sign} = {{ block = {}, turn = {t} }}\n", vvx::quoted(&name(c))),
+            }
+        }
+        let dots = ".".repeat(width);
+        let layers: Vec<Vec<String>> = order
+            .iter()
+            .map(|layer| {
+                layer
+                    .iter()
+                    .map(|row| {
+                        row.iter()
+                            .map(|&i| {
+                                let cell = level.cells[i];
+                                if cell.block == 0 { dots.as_str() } else { sign_of.iter().find(|(d, _)| *d == cell).map_or("?", |(_, s)| s.as_str()) }
+                            })
+                            .collect()
+                    })
+                    .collect()
+            })
+            .collect();
+        out += "\n[cells]\n";
+        out += &vvx::layers_text(&layers);
+        for t in &level.things {
+            out += &format!("\n[[thing]]\nkind = {}\nat = [{}, {}, {}]\n", vvx::quoted(&t.kind), t.at[0], t.at[1], t.at[2]);
+        }
+        for p in &level.places {
+            out += &format!("\n[[place]]\nname = {}\nat = [{}, {}, {}]\n", vvx::quoted(&p.name), p.at[0], p.at[1], p.at[2]);
+            if let Some([x, y]) = p.facing {
+                out += &format!("facing = [{x}, {y}]\n");
+            }
+        }
+        out
+    }
+
+    /// A block's name as a key of TOML: bare when it can be.
+    fn key(name: &str) -> String {
+        if !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') { name.to_string() } else { vvx::quoted(name) }
+    }
+
+    /// A sign for a block not taken yet: the letters of its name first
+    /// (`s` for stone, `S` turned), then any.
+    fn new_sign(name: &str, width: usize, taken: &[String]) -> String {
+        let free = |s: &String| !taken.contains(s);
+        if width == 1 {
+            let letters = name.chars().filter(|c| c.is_ascii_alphanumeric());
+            let mut wished: Vec<String> = Vec::new();
+            for c in letters {
+                wished.push(c.to_ascii_lowercase().to_string());
+                wished.push(c.to_ascii_uppercase().to_string());
+            }
+            if let Some(s) = wished.into_iter().find(free) {
+                return s;
+            }
+            return SIGNS.iter().map(|&b| (b as char).to_string()).find(free).expect("62 signs for 62 pairs");
+        }
+        (0..ONE_SIGN * ONE_SIGN).map(|i| format!("{}{}", SIGNS[i / ONE_SIGN] as char, SIGNS[i % ONE_SIGN] as char)).find(free).expect("signs enough")
+    }
+
+    /// The cells' places in `cells` as the layers read: layers of rows of
+    /// cells.
+    fn reading_order(size: IVec3, view: View) -> Vec<Vec<Vec<usize>>> {
+        let i = |x: i32, y: i32, z: i32| (x + y * size.x + z * size.x * size.y) as usize;
+        match view {
+            View::Above => (0..size.z).map(|z| (0..size.y).rev().map(|y| (0..size.x).map(|x| i(x, y, z)).collect()).collect()).collect(),
+            View::Front => (0..size.y).map(|y| (0..size.z).rev().map(|z| (0..size.x).map(|x| i(x, y, z)).collect()).collect()).collect(),
+        }
+    }
+
+    /// The level a text says and its legend, every mistake said with its
+    /// line.
+    pub fn read(src: &str) -> Result<(GridLevel, Legend)> {
+        let doc = Document::parse(src).map_err(|e| match e.span() {
+            Some(s) => anyhow!("line {}: {}", vvx::line_of(src, s.start), e.message()),
+            None => anyhow!("{}", e.message()),
+        })?;
+        let r = Reader { src };
+        let top = doc.as_table();
+        vvx::check_format_of(&r, top, FORMAT_NAME, VERSION, "level")?;
+        r.only(top, &["format", "block", "size", "view", "blocks", "legend", "cells", "thing", "place"], "a level")?;
+        let whole = |item: &Item, what: &str| -> Result<i32> {
+            let v = r.number(item, what)?;
+            if v.fract() != 0.0 || v < 1.0 || v > 100_000.0 {
+                return Err(r.fail(item.span(), format!("{what} must be a whole number, 1 or more")));
+            }
+            Ok(v as i32)
+        };
+        let n = whole(top.get("block").ok_or_else(|| anyhow!("no block = N (a block's voxels each way)"))?, "block")?;
+        let size_item = top.get("size").ok_or_else(|| anyhow!("no size = [x, y, z] (the grid's cells)"))?;
+        let size = r.ints(size_item, "size")?;
+        if size.cmplt(IVec3::ONE).any() {
+            return Err(r.fail(size_item.span(), "size must be at least one cell each way"));
+        }
+        if (size.x as i64) * (size.y as i64) * (size.z as i64) > 1 << 26 {
+            return Err(r.fail(size_item.span(), "the grid is too big"));
+        }
+        let view = match top.get("view") {
+            None => None,
+            Some(item) => Some(match item.as_str() {
+                Some("above") => View::Above,
+                Some("front") => View::Front,
+                _ => return Err(r.fail(item.span(), "view must be \"above\" or \"front\" (which way the layers read)")),
+            }),
+        };
+        let mut level = GridLevel::new(n, size);
+        if let Some(item) = top.get("blocks") {
+            let table = item.as_table_like().ok_or_else(|| r.fail(item.span(), "blocks must be a table: name = \"solid\" and the like"))?;
+            for (name, kind) in table.iter() {
+                let word = kind.as_str().unwrap_or_default();
+                let kind = Kind::ALL.into_iter().find(|k| k.name() == word);
+                let names: Vec<&str> = Kind::ALL.iter().map(|k| k.name()).collect();
+                let kind = kind.ok_or_else(|| r.fail(table.get(name).and_then(Item::span), format!("block '{name}': '{word}' is no kind of block ({})", names.join(", "))))?;
+                level.blocks.push(BlockEntry { name: name.to_string(), kind });
+            }
+        }
+        // The legend: sign -> (block's number, turn).
+        let mut legend = Legend { view, signs: Vec::new() };
+        let mut cells_of: Vec<(String, Cell)> = Vec::new();
+        let mut width = 0;
+        if let Some(item) = top.get("legend") {
+            let table = item.as_table_like().ok_or_else(|| r.fail(item.span(), "legend must be a table of signs"))?;
+            for (sign, entry) in table.iter() {
+                let len = sign.chars().count();
+                if !(1..=2).contains(&len) || sign.chars().any(|c| !c.is_ascii_alphanumeric()) {
+                    return Err(r.fail(entry.span(), format!("'{sign}' cannot be a sign: one or two letters or digits")));
+                }
+                if width != 0 && width != len {
+                    return Err(r.fail(entry.span(), format!("'{sign}' has {len} characters, the signs before have {width}: all signs of a file are as long as one another")));
+                }
+                width = len;
+                let (block, turn) = match (entry.as_str(), entry.as_table_like()) {
+                    (Some(name), _) => (name.to_string(), 0),
+                    (None, Some(t)) => {
+                        r.only(t, &["block", "turn"], &format!("the legend's '{sign}'"))?;
+                        let name = t.get("block").and_then(Item::as_str).ok_or_else(|| r.fail(entry.span(), format!("the legend's '{sign}' needs block = \"name\"")))?;
+                        let turn = match t.get("turn") {
+                            None => 0,
+                            Some(i) => {
+                                let v = r.number(i, "turn")?;
+                                if v.fract() != 0.0 || !(0.0..Turn::COUNT as f32).contains(&v) {
+                                    return Err(r.fail(i.span(), format!("turn must be a whole number from 0 to {}", Turn::COUNT - 1)));
+                                }
+                                v as u8
+                            }
+                        };
+                        (name.to_string(), turn)
+                    }
+                    _ => return Err(r.fail(entry.span(), format!("the legend's '{sign}' must be a block's name, or {{ block = \"name\", turn = 1 }}"))),
+                };
+                let number = level.blocks.iter().position(|b| b.name == block).ok_or_else(|| r.fail(entry.span(), format!("the legend's '{sign}': no block '{block}' in [blocks]")))?;
+                cells_of.push((sign.to_string(), Cell { block: number as u16 + 1, turn: Turn::from_number(turn).expect("checked") }));
+                legend.signs.push((sign.to_string(), block, turn));
+            }
+        }
+        let width = width.max(1);
+        let cells = top.get("cells").ok_or_else(|| anyhow!("no [cells] with the layers of signs"))?;
+        let cells = cells.as_table_like().ok_or_else(|| r.fail(cells.span(), "cells must be a table with its layers: [cells]"))?;
+        r.only(cells, &["layers"], "[cells]")?;
+        let item = cells.get("layers").ok_or_else(|| anyhow!("[cells] has no layers = \"\"\" ... \"\"\""))?;
+        let text = item.as_str().ok_or_else(|| r.fail(item.span(), "layers must be a text between \"\"\" marks"))?;
+        let first = r.first_line(item);
+        let line = |i: usize| if first > 0 { format!("line {}: ", first + i) } else { String::new() };
+        let layers = vvx::layer_list(text, &line)?;
+        let order = reading_order(size, view.unwrap_or_default());
+        let (want_layers, want_rows) = (order.len(), order.first().map_or(0, Vec::len));
+        let read_layers: usize = layers.iter().map(|l| l.times).sum();
+        let what = match view.unwrap_or_default() {
+            View::Above => ("layers up", "rows deep"),
+            View::Front => ("layers deep", "rows up"),
+        };
+        if read_layers != want_layers {
+            return Err(r.fail(item.span(), format!("the cells have {read_layers} layers, but a grid {} by {} by {} seen {} has {want_layers} ({})", size.x, size.y, size.z, view.unwrap_or_default().name(), what.0)));
+        }
+        let known = || cells_of.iter().map(|(s, _)| s.as_str()).collect::<Vec<_>>().join(", ");
+        let mut k = 0;
+        for layer in &layers {
+            if layer.rows.len() != want_rows {
+                bail!("{}this layer has {} rows, a layer here has {want_rows} ({})", line(layer.rows[0].0), layer.rows.len(), what.1);
+            }
+            for _ in 0..layer.times {
+                for (r_, &(i, row)) in layer.rows.iter().enumerate() {
+                    let bytes = row.as_bytes();
+                    if bytes.len() != size.x as usize * width {
+                        bail!("{}this row has {} characters, a row here is {} cells of {width}", line(i), bytes.len(), size.x);
+                    }
+                    for (x, sign) in bytes.chunks(width).enumerate() {
+                        if sign.iter().all(|&b| b == b'.') {
+                            continue;
+                        }
+                        let cell = cells_of.iter().find(|(s, _)| s.as_bytes() == sign).map(|(_, c)| *c);
+                        let cell = cell.ok_or_else(|| anyhow!("{}'{}' is no sign of the legend (it has {})", line(i), String::from_utf8_lossy(sign), known()))?;
+                        level.cells[order[k][r_][x]] = cell;
+                    }
+                }
+                k += 1;
+            }
+        }
+        let triple = |t: &dyn toml_edit::TableLike, what: &str| -> Result<[i32; 3]> {
+            let item = t.get("at").ok_or_else(|| anyhow!("{what} has no at = [x, y, z]"))?;
+            let v = r.ints(item, "at")?;
+            Ok(v.to_array())
+        };
+        if let Some(item) = top.get("thing") {
+            for t in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "things must be tables: [[thing]] with kind and at"))? {
+                r.only(t, &["kind", "at"], "a thing")?;
+                let kind = t.get("kind").and_then(Item::as_str).ok_or_else(|| anyhow!("a thing has no kind = \"name\" (at {:?})", t.get("at").and_then(Item::span).map(|s| vvx::line_of(src, s.start))))?;
+                level.things.push(Thing { kind: kind.to_string(), at: triple(t, "a thing")? });
+            }
+        }
+        if let Some(item) = top.get("place") {
+            for t in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "places must be tables: [[place]] with name and at"))? {
+                r.only(t, &["name", "at", "facing"], "a place")?;
+                let name = t.get("name").and_then(Item::as_str).ok_or_else(|| anyhow!("a place has no name = \"name\""))?;
+                let facing = match t.get("facing") {
+                    None => None,
+                    Some(f) => {
+                        let wrong = || r.fail(f.span(), "facing must be two whole numbers, like [0, -1]");
+                        let a = f.as_array().filter(|a| a.len() == 2).ok_or_else(wrong)?;
+                        let v: Vec<i64> = a.iter().map(|v| v.as_integer().ok_or_else(wrong)).collect::<Result<_>>()?;
+                        Some([v[0] as i32, v[1] as i32])
+                    }
+                };
+                level.places.push(Place { name: name.to_string(), at: triple(t, "a place")?, facing });
+            }
+        }
+        Ok((level, legend))
     }
 }
 
@@ -522,11 +832,39 @@ mod tests {
         put(&mut lv, IVec3::new(1, 0, 0), 1, Turn::NONE);
         put(&mut lv, IVec3::new(4, 1, 2), 2, Turn::from_tiled(true, false, true));
         lv.things.push(Thing { kind: "fox".into(), at: [6, 2, 4] });
+        lv.places.push(Place { name: "door".into(), at: [1, 2, 3], facing: Some([0, -1]) });
         let text = lv.to_text();
-        assert_eq!(GridLevel::from_text(&text).unwrap(), lv);
-        assert!(text.contains("{\"name\":\"plank\",\"kind\":\"oneway\"}") && text.contains("[2,1,0], [27,0,0]"), "{text}");
-        let e = format!("{:#}", GridLevel::from_text(&text.replace("[2,1,0]", "[2,3,0]")).unwrap_err());
-        assert!(e.contains("block 3, but the level names 2 blocks"), "{e}");
+        assert_eq!(GridLevel::from_text(&text).unwrap(), lv, "{text}");
+        // Taller than deep: seen from the front, the top row first; the
+        // block's name gives its sign, a turned one the capital.
+        assert!(text.contains("view = \"front\"") && text.contains("\n79 = \"solid\"") && text.contains("plank = \"oneway\""), "{text}");
+        assert!(text.contains("p = { block = \"plank\", turn = ") && text.contains("7 = \"79\""), "{text}");
+        assert!(text.contains("layers = \"\"\"\n.....\n.....\n77...\n\n....p\n.....\n.....\n\"\"\""), "{text}");
+        assert!(text.contains("[[thing]]\nkind = \"fox\"\nat = [6, 2, 4]") && text.contains("facing = [0, -1]"), "{text}");
+        // Mistakes say the line.
+        let e = format!("{:#}", GridLevel::from_text(&text.replace("77...", "7x...")).unwrap_err());
+        assert!(e.starts_with("line ") && e.contains("'x' is no sign of the legend"), "{e}");
+        let e = format!("{:#}", GridLevel::from_text(&text.replace("77...", "77..")).unwrap_err());
+        assert!(e.contains("a row here is 5 cells"), "{e}");
+        assert!(format!("{:#}", GridLevel::from_text(&text.replace("voxcade level 1", "voxcade level 2")).unwrap_err()).contains("newer Voxcade"));
+    }
+
+    /// Written again, a level keeps its view and its signs, a changed cell
+    /// a changed character.
+    #[test]
+    fn a_level_keeps_its_signs_and_view() {
+        let mut lv = level(4, IVec3::new(3, 3, 1), &[("stone", Kind::Solid), ("sand", Kind::Solid)]);
+        put(&mut lv, IVec3::new(0, 0, 0), 1, Turn::NONE);
+        put(&mut lv, IVec3::new(1, 0, 0), 2, Turn::NONE);
+        let text = lv.to_text();
+        assert!(text.contains("view = \"above\"") && text.contains("s = \"stone\"\nS = \"sand\""), "{text}");
+        let kept = Legend::of_text(&text.replace("s = \"stone\"", "q = \"stone\"").replace("sS.", "qS."));
+        put(&mut lv, IVec3::new(2, 2, 0), 1, Turn::NONE);
+        let again = text::write(&lv, &kept);
+        assert!(again.contains("q = \"stone\"\nS = \"sand\"") && again.contains("..q\n...\nqS."), "{again}");
+        let front = Legend { view: Some(View::Front), signs: Vec::new() };
+        assert!(text::write(&lv, &front).contains("view = \"front\""));
+        assert_eq!(GridLevel::from_text(&text::write(&lv, &front)).unwrap(), lv);
     }
 
     #[test]
@@ -612,7 +950,7 @@ mod tests {
         let mut lv = level(4, IVec3::new(1, 1, 1), &[("rock", Kind::Solid)]);
         put(&mut lv, IVec3::ZERO, 1, Turn::NONE);
         lv.things.push(Thing { kind: "gem".into(), at: [2, 2, 4] });
-        lv.save(&dir.join("level.json")).unwrap();
+        lv.save(&dir.join("level.toml")).unwrap();
         let cfg = BlocksConfig { margin: 10, below: 5, ..BlocksConfig::default() };
         let e = format!("{:#}", load(&dir, &cfg, &["gem"]).err().unwrap());
         assert!(e.contains("rock.vvx"), "a missing block names its file: {e}");
@@ -621,7 +959,7 @@ mod tests {
         assert_eq!(world.get(IVec3::new(10, 0, 5)), world.get(IVec3::new(13, 3, 8)));
         assert_ne!(world.get(IVec3::new(10, 0, 5)), 0);
         assert_eq!(markers, [Marker { kind: 1, cell: IVec3::new(12, 2, 9) }]);
-        assert_eq!(files, [dir.join("level.json"), blocks::path(&dir, "rock")]);
+        assert_eq!(files, [dir.join("level.toml"), blocks::path(&dir, "rock")]);
         let e = format!("{:#}", load(&dir, &cfg, &["miner"]).err().unwrap());
         assert!(e.contains("'gem' is no kind of thing"), "{e}");
         let _ = std::fs::remove_dir_all(&dir);

@@ -1,0 +1,86 @@
+format = "voxcade voxel 1"
+size = [13, 5, 23]
+
+# The colours are the world's numbers in this order (the first is 1);
+# a marker places a thing of that kind instead of a voxel.
+[palette]
+a = "#588c52"
+b = "#467644"
+c = "#dcd6aa"
+d = "#689c5e"
+e = "#ec7896"
+
+[[frame]]
+layers = """
+.....ba.
+....baba
+....accb
+.....ac.
+
+.....ba.
+....baba
+....abab
+.....ab.
+
+.....ba.
+....baba
+....cbab
+.....ab.
+
+.....ba.
+....baba
+....abab
+.....ac.
+
+.....ba.
+....baba
+....abab
+.....ab.
+*8
+
+.....ba.
+abbbbaba
+babbabab
+.....ab.
+
+.....ba.
+abbbbaba
+babbacab
+.....ab.
+
+.....ba.
+ab..baba
+ba..abab
+.....ac.
+
+.....ba.
+ab..baba
+ba..abab
+.....ab.
+
+.....ba.
+ab..baba
+ba..abab
+.....ab.
+
+.....ba.
+dd..baba
+dd..abab
+.....ab.
+
+.....ba.
+....baba
+....abab
+.....ab.
+*3
+
+........
+.....dd.
+.....dd.
+........
+
+........
+......e.
+........
+........
+"""

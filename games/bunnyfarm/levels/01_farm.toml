@@ -1,0 +1,2797 @@
+format = "voxcade level 1"
+block = 16            # a block is this many voxels each way
+size = [68, 42, 2]    # cells: across (x), deep (y, 0 in front), up (z)
+view = "above"        # each layer the grid seen from above, the bottom layer first, its far row first
+
+[blocks]              # blocks/NAME.vvx, each what it is to the game
+grass_a = "solid"
+grass_b = "solid"
+soil = "solid"
+fallow = "solid"
+path_end = "solid"
+path_straight = "solid"
+path_bend = "solid"
+path_join = "solid"
+path_cross = "solid"
+pond_corner = "hazard"
+pond_side = "hazard"
+pond_middle = "hazard"
+fence_straight = "solid"
+fence_corner = "solid"
+fence_join = "solid"
+fence_end = "solid"
+yard = "solid"
+flowers_a = "decor"
+flowers_b = "decor"
+tufts = "decor"
+
+[legend]              # a sign is a block as it lies: its name, or the name and a turn (0 to 47)
+g = { block = "grass_b", turn = 3 }
+G = { block = "grass_a", turn = 1 }
+r = "grass_b"
+R = { block = "grass_a", turn = 3 }
+a = { block = "grass_b", turn = 1 }
+A = "grass_a"
+s = { block = "grass_b", turn = 2 }
+S = { block = "grass_a", turn = 2 }
+y = "yard"
+p = { block = "path_end", turn = 18 }
+P = { block = "path_straight", turn = 17 }
+t = "path_bend"
+T = "path_straight"
+h = "path_join"
+H = { block = "path_join", turn = 3 }
+b = { block = "path_bend", turn = 17 }
+f = { block = "fallow", turn = 1 }
+F = "fallow"
+l = { block = "fallow", turn = 3 }
+L = { block = "fallow", turn = 2 }
+o = "soil"
+e = { block = "path_end", turn = 3 }
+O = { block = "pond_corner", turn = 18 }
+n = { block = "pond_side", turn = 3 }
+N = { block = "pond_corner", turn = 3 }
+d = "pond_corner"
+D = "pond_side"
+c = { block = "pond_corner", turn = 17 }
+u = { block = "tufts", turn = 3 }
+w = { block = "flowers_a", turn = 1 }
+W = { block = "flowers_b", turn = 3 }
+E = { block = "flowers_a", turn = 2 }
+i = { block = "flowers_a", turn = 3 }
+U = "tufts"
+j = { block = "tufts", turn = 1 }
+B = "flowers_b"
+k = "flowers_a"
+m = { block = "tufts", turn = 2 }
+q = { block = "flowers_b", turn = 2 }
+v = { block = "flowers_b", turn = 1 }
+C = { block = "fence_corner", turn = 18 }
+I = "fence_straight"
+J = { block = "fence_join", turn = 3 }
+x = { block = "fence_corner", turn = 3 }
+z = { block = "fence_straight", turn = 17 }
+K = { block = "fence_join", turn = 18 }
+M = { block = "fence_end", turn = 3 }
+Q = "fence_end"
+V = "fence_join"
+X = { block = "fence_join", turn = 17 }
+Y = "fence_corner"
+Z = { block = "fence_corner", turn = 17 }
+
+[cells]
+layers = """
+gGrRrRrRaRrGrAsSsRgArAsGrGgRgRsGrGrGaRgRrSrAsRsGgArAsGaRgSrRrArGrRrR
+RgGaArGrAsSaAgSaRsGaSsSrAgRrAaSrGrGsRgSrRaAaGsSrAgArSsRsAsSaAaAaGrSa
+rGgAgGgGgSgRgGsSaGrGaGrGaSsSsGgGgGgGgArGrSgSaGgAsAgGgAsRgGsAgGaGgGgR
+RsRgRaRaAsAsSrRsRgGgGgSsSsArSsGsAgGrGrGrGgGaRgGsGgGsRrRrArGrSrRaSgAa
+aGaGsSgRsRgRsAgGsGrSsSaRaRaAgGrSsSsRsRgRsAaGgAgRgAaAsRaGrSrRgArArGgS
+GsGaSgGgSsRrSrSaGaAgAgSaSrSsGsAaSaGaAgSrAsSgRaAsGgSsAsGrSrGsGsAgGrSg
+sAaGrSrRgRsArRaRrAsAaRrRsGgAaSrGaGgGsAsRgSsRaSgGsGgAsRsGaAgRgRsRrGsR
+RsSsSsAaGaSaArAsRsRsRrSaAgSrSgAgAgSrArGrGsAgAaGaAaSaSaArSsSsRgRrSgAg
+sSrRsSrGsRaGsAgGaGsRaRsRrAsSgRrGgSaGsSrSsRgAgRaSgGgRrGrSsRgGgGsRrRgR
+RgGaSrSsRgSgGgSsGrRsAaAaGrRsGrGaSaGgRrGsRaAaSgArGsGrRaSsAgGrRrGaSgRa
+sArAaGsGaGrAgAgAgAsRsGgRgSgSaAgGgSaAgRsArGgGrGaRgSrSrAaSaRaAgGaGgAaA
+GaRrAaSrRsSgSrGaRgSrRsRrAgGgRgGgGrGaRaAsRgArAsRrAaSrRrGgSrArSgSrRsRs
+gRgSsSgRrAaRaGrAsRgSgAsAaArAaGsRgGgRgRgAsSaGgGgSsSrArArRaGaAsSrAgRaR
+AgSsSsAaSaAaSaSgSaGgGsGrGaAsRsRsSsSgRgGsRgRaSaArGaRgAaSsAaAsArRgAsRa
+rSgSgSsRrGsGsSgSgArAaRryyyyyyArGrRaSgSrSgArAaGgRrRsGsSgSgSgAgSgAgRrG
+RaGrAaRrSrGgSsGrAsSsGsGyyyyyysSsAaRrSaSrAgAaRgSgSsAaGaSaRaSaAaAgAaSr
+aRgRsRaGrAsSrArSsArRrGsyyyyyyRrAaGgArRgGgGaGaArAgRgSaGaAaGaGgSaArGrG
+ArSsAaSaGsGrGaSgGgGgRsSyyyyyyaRrRpSsGgGsGpRrAaSsRsSrRrGrGsGrRgAgGrSs
+aSgArGsSsGrAaSgAgSaRrGgSsPaRrRsRsPsRaSrRaPaAgSrAgRsGsArArSgRsSgRgAgA
+ArSaRaRaSsArRgAaRaRaSrGrRtTTTTTTThTTTTHTTbRsSrRaSrArArSgSrArRsSsSaAr
+gSrRsGrGaRrSgGrGsGgSrGaGrRsSgAaRsSsSrGPAsAsRaAgRgAsGgSsAaSaRrAsGgSgA
+SrSgRsRgArGsRsRrGaSsSgGrSaSaSgRsRrSgRrPsGrRrRgRgAgSrRaAgAgRaGrRsGaSr
+rAgGsGrArRaRaSsGgRaAgAsRaPsRgSaSgAsRsGPSsSrGsAsGsArGaSrRaRaArRrRrSsA
+RrRsGgGaGsGgSaGgSsAaSaSrGPGaRaGsRgAsAaPsGsAsSrArRsSrGgSaAgSsGgRsSrAg
+rRaRgRaAgAaAgRgGgSgRgGrAsPsRsGrRgGrSsGPRsSaGaGgSaRrSsAaRsSaGsAsGrRsG
+GaRrRrArRgRrRrSaAaArArRgRPRsAsGrArArAsPgAgRrRaRgRrAgSrRrSgSaGaRaRaRs
+gRgRaSrGaSgRaRaRaGrRgGaRaPgRsGfFlLfFaRPGsGaRgRgRaRrGgAaSrRaRrSrAsRrA
+GgRrSrGrRaRaAaGgGrSsAsAsAPAgSgLlFfLlRgPgGpAsRsSsSsGrRrGrRgAaGrGgGgRs
+sRgGgGsGrGaRsSrSaGaArSgSrPgGrAooooooaRPAsPrAsSaRrAgGsAsGgRsGsRsGaSaS
+RsGrGaGsSsRgRgGrRsRsAaRsRPRgRsooooooGaPsSPRsGaAaAsGaGaGgSgGsRaAsAaRs
+gGsRrRaRsRaRgSaRrSaRaRsSrtTTTTTTTTHTTThTTheGrAsAaRgAgGgGaSsRrAsGrRrR
+RgAaSaRaAaAsSrRaArRsGsAgSgSgAaSgArPgGsRrSrAsSsGrAgGrRaGrGsGsSgArSaRs
+aRsGsSgSrGgGsGrRaAsGrRsSgAOnNGsSgAPAaAsRaAaGrGrRaGaGaRsRrRsGgGaRsArA
+GaSrSgAaGsSrSgSrRsGaAaSgSsdDcgGsSaPsGrArGrArAaSrGgGrRsSgSrGrAgGsAaSa
+sSgRsSrSsGaAsGgSrSaGrRgGaSsAsAaGrAPRaRsArSaRrGrGsAaGsSaRsAgRgSrSaGgR
+RgRaGsAsAsSsAgRaGaAsRgAsSsSgRsRaSrPaRaRaAaGrSgAaGgRgRgSsArRaSrSaRrAg
+aAgRgRaSrRrSrArGgArGgAgSsSaArGaAgGPRsRsRaRsGsRgAsArRaRsGgGgSgArAgGgG
+GgGrAgSrSsArAgGrSgRsGgAaGgGaGsRrAsPsSgAaRaGaSaRaGgRgAaAsSrSrGsRgGaGa
+aArRgGsGrRsGrAsSaRsSgRaArGsGsGaArRPAgSaRrAgGgAaArSsAaAaGrAgAaRsSaGaG
+SsGaAaRgGrAaGrRrAsSaSaRgSsGaArArSrPgRaGgRsSsRgGrArRsGaRaAgArAsSsGrAg
+sRrGaSgAgSsRsGrSrGsGrGrGsRsAaSgGrGPRsSaRaAsGsGsRsRsSaRaGrRsGrAaGsAsG
+GrSaSgAsGaGaRrArRgRaSrGrSsAsAsGgRrPsSaSrGgGrGgGgSrGsAgSrRgAaGgSaRrAr
+
+.........u.w.W..E........i................U......i......E......j..U.
+.....B..........w........k................u.........w.......j.......
+...u...........W..E...........EW.......i..m............i....U.......
+.........m..i.......W............q..Wmj...........j.......w...j.....
+.......v......k.....m.........B......u..........m....u..........q...
+...q......i.....v..........E...............E.............B....u.....
+..........q.......q.....U............j....q..wq.................k...
+........W...u....E........w............................B............
+....E.....U.E...m....i...u...i.j..k.q....W.......WB...B........w....
+.........U.qv..m..i..k..v........................U.....qw...........
+..m.Bw................m..........w.........................i...i...i
+............iEw.W...W.....v............k......j.iq..........u..k.m..
+...........v............................E.................B........j
+..u.w.....uEv.......v.CIIIIIIJIIIIIIIJIIIIIIIx.....E................
+...W......q....uk.....z......zq......z.......zmu...i...............u
+.......kW.wk..v..q....z......z.......z.......z.......q......i.......
+.....W.......i.w....q.z......z.......zU......z........U.......U.....
+..u.........j.........z......z..w....z.....m.z..w.......v......m....
+k....j.......v...j....KIM.QIIVIIM.QIIVIIM.QIIX...............j.W.j..
+.................q....z....................B.z......W...............
+..............B.m...m.z......................z......................
+..............i.......z...................i..z......j.W..k.........m
+........U...k....j....z.......qi.j...j.......z.......v.......v......
+......j.....Wm........z.W..kW....m...........z...............q..W...
+...........v..........z....v.................z..............m.......
+.ku...................zE....v....ku..........z.............q........
+........B...........U.z.............k........zq.k...................
+.....q.......q.......qz......m...............z...E....jkW...u.......
+......U....vE......j..zj.....................z......E........WB..u..
+...m.....k............z...................W..z.......Bu.............
+..E.U.........E.......z......................z....q.............k...
+............i.........zB..jku................z.B....u.....v......E..
+E...........E...E....Wz.E.......m............z.j.............u.v....
+.......m..............zm.................k...z.....E.U........u.v.i.
+Bw..B...k.............YIIIIIIIIIIM.QIIIIIIIIIZ....................q.
+.............m..u.w......E...m.....BW.vUu...........................
+....qi......m..........vE............W.........w...jE...............
+.......E...q............j.................uEj............k..........
+...i...W...i.......u.......u....U..u.w.........u...............W....
+.q..........i......B...................k.m..........iE.........k.q..
+EW.............j...j....q.....U.E...........E...m....Wk..i......q...
+..i........q......i..k....u.....v...................v.....u.........
+"""
+
+[[thing]]
+kind = "burrow"
+at = [408, 328, 16]
+
+[[thing]]
+kind = "stall"
+at = [664, 252, 16]
+
+[[thing]]
+kind = "tree"
+at = [378, 232, 16]
+
+[[thing]]
+kind = "tree"
+at = [704, 332, 16]
+
+[[thing]]
+kind = "pine"
+at = [584, 334, 16]
+
+[[thing]]
+kind = "tree"
+at = [376, 282, 16]
+
+[[thing]]
+kind = "pine"
+at = [706, 152, 16]
+
+[[thing]]
+kind = "bush"
+at = [512, 340, 16]
+
+[[thing]]
+kind = "bush"
+at = [642, 340, 16]
+
+[[thing]]
+kind = "bush"
+at = [378, 152, 16]
+
+[[thing]]
+kind = "bush"
+at = [708, 216, 16]
+
+[[thing]]
+kind = "rock"
+at = [608, 142, 16]
+
+[[thing]]
+kind = "rock"
+at = [502, 288, 16]
+
+[[thing]]
+kind = "trough_grain"
+at = [392, 412, 16]
+
+[[thing]]
+kind = "hay"
+at = [498, 412, 16]
+
+[[thing]]
+kind = "hay"
+at = [506, 400, 16]
+
+[[thing]]
+kind = "trough_water"
+at = [632, 430, 16]
+
+[[thing]]
+kind = "hay"
+at = [696, 280, 16]
+
+[[thing]]
+kind = "hay"
+at = [710, 266, 16]
+
+[[thing]]
+kind = "barrel"
+at = [630, 262, 16]
+
+[[thing]]
+kind = "crate"
+at = [634, 244, 16]
+
+[[thing]]
+kind = "scarecrow"
+at = [588, 234, 16]
+
+[[thing]]
+kind = "rock"
+at = [484, 140, 16]
+
+[[thing]]
+kind = "kitchen"
+at = [464, 322, 16]
+
+[[thing]]
+kind = "mailbox"
+at = [436, 206, 16]
+
+[[thing]]
+kind = "sign_chicken"
+at = [390, 370, 16]
+
+[[thing]]
+kind = "sign_sheep"
+at = [518, 370, 16]
+
+[[thing]]
+kind = "sign_cow"
+at = [646, 370, 16]
+
+[[thing]]
+kind = "pine"
+at = [6, 197, 16]
+
+[[thing]]
+kind = "tree"
+at = [5, 470, 16]
+
+[[thing]]
+kind = "tree"
+at = [8, 555, 16]
+
+[[thing]]
+kind = "rock"
+at = [24, 136, 16]
+
+[[thing]]
+kind = "rock"
+at = [24, 360, 16]
+
+[[thing]]
+kind = "tree"
+at = [21, 550, 16]
+
+[[thing]]
+kind = "tree"
+at = [22, 565, 16]
+
+[[thing]]
+kind = "tree"
+at = [27, 584, 16]
+
+[[thing]]
+kind = "tree"
+at = [36, 71, 16]
+
+[[thing]]
+kind = "pine"
+at = [43, 148, 16]
+
+[[thing]]
+kind = "pine"
+at = [42, 169, 16]
+
+[[thing]]
+kind = "pine"
+at = [38, 361, 16]
+
+[[thing]]
+kind = "bush"
+at = [40, 392, 16]
+
+[[thing]]
+kind = "pine"
+at = [41, 502, 16]
+
+[[thing]]
+kind = "rock"
+at = [40, 600, 16]
+
+[[thing]]
+kind = "tree"
+at = [59, 168, 16]
+
+[[thing]]
+kind = "bush"
+at = [56, 280, 16]
+
+[[thing]]
+kind = "tree"
+at = [54, 533, 16]
+
+[[thing]]
+kind = "tree"
+at = [52, 635, 16]
+
+[[thing]]
+kind = "tree"
+at = [70, 9, 16]
+
+[[thing]]
+kind = "pine"
+at = [72, 107, 16]
+
+[[thing]]
+kind = "tree"
+at = [71, 116, 16]
+
+[[thing]]
+kind = "pine"
+at = [68, 491, 16]
+
+[[thing]]
+kind = "pine"
+at = [68, 555, 16]
+
+[[thing]]
+kind = "rock"
+at = [72, 600, 16]
+
+[[thing]]
+kind = "tree"
+at = [90, 117, 16]
+
+[[thing]]
+kind = "tree"
+at = [88, 155, 16]
+
+[[thing]]
+kind = "rock"
+at = [88, 232, 16]
+
+[[thing]]
+kind = "tree"
+at = [91, 520, 16]
+
+[[thing]]
+kind = "bush"
+at = [88, 664, 16]
+
+[[thing]]
+kind = "pine"
+at = [100, 75, 16]
+
+[[thing]]
+kind = "pine"
+at = [105, 122, 16]
+
+[[thing]]
+kind = "pine"
+at = [104, 139, 16]
+
+[[thing]]
+kind = "tree"
+at = [107, 280, 16]
+
+[[thing]]
+kind = "rock"
+at = [104, 344, 16]
+
+[[thing]]
+kind = "pine"
+at = [102, 489, 16]
+
+[[thing]]
+kind = "tree"
+at = [101, 506, 16]
+
+[[thing]]
+kind = "tree"
+at = [107, 660, 16]
+
+[[thing]]
+kind = "bush"
+at = [120, 24, 16]
+
+[[thing]]
+kind = "tree"
+at = [117, 70, 16]
+
+[[thing]]
+kind = "bush"
+at = [120, 88, 16]
+
+[[thing]]
+kind = "tree"
+at = [116, 123, 16]
+
+[[thing]]
+kind = "pine"
+at = [119, 228, 16]
+
+[[thing]]
+kind = "rock"
+at = [120, 360, 16]
+
+[[thing]]
+kind = "tree"
+at = [117, 582, 16]
+
+[[thing]]
+kind = "pine"
+at = [122, 597, 16]
+
+[[thing]]
+kind = "tree"
+at = [117, 650, 16]
+
+[[thing]]
+kind = "bush"
+at = [136, 40, 16]
+
+[[thing]]
+kind = "tree"
+at = [136, 103, 16]
+
+[[thing]]
+kind = "pine"
+at = [137, 282, 16]
+
+[[thing]]
+kind = "pine"
+at = [135, 312, 16]
+
+[[thing]]
+kind = "tree"
+at = [133, 346, 16]
+
+[[thing]]
+kind = "bush"
+at = [136, 392, 16]
+
+[[thing]]
+kind = "tree"
+at = [135, 500, 16]
+
+[[thing]]
+kind = "pine"
+at = [133, 534, 16]
+
+[[thing]]
+kind = "tree"
+at = [135, 568, 16]
+
+[[thing]]
+kind = "rock"
+at = [136, 600, 16]
+
+[[thing]]
+kind = "bush"
+at = [136, 616, 16]
+
+[[thing]]
+kind = "rock"
+at = [152, 8, 16]
+
+[[thing]]
+kind = "rock"
+at = [152, 136, 16]
+
+[[thing]]
+kind = "pine"
+at = [154, 437, 16]
+
+[[thing]]
+kind = "tree"
+at = [151, 452, 16]
+
+[[thing]]
+kind = "pine"
+at = [148, 599, 16]
+
+[[thing]]
+kind = "tree"
+at = [165, 58, 16]
+
+[[thing]]
+kind = "pine"
+at = [167, 216, 16]
+
+[[thing]]
+kind = "bush"
+at = [168, 232, 16]
+
+[[thing]]
+kind = "tree"
+at = [171, 468, 16]
+
+[[thing]]
+kind = "tree"
+at = [164, 587, 16]
+
+[[thing]]
+kind = "tree"
+at = [167, 596, 16]
+
+[[thing]]
+kind = "tree"
+at = [181, 6, 16]
+
+[[thing]]
+kind = "tree"
+at = [183, 36, 16]
+
+[[thing]]
+kind = "tree"
+at = [181, 70, 16]
+
+[[thing]]
+kind = "tree"
+at = [182, 89, 16]
+
+[[thing]]
+kind = "tree"
+at = [180, 123, 16]
+
+[[thing]]
+kind = "pine"
+at = [182, 217, 16]
+
+[[thing]]
+kind = "tree"
+at = [187, 228, 16]
+
+[[thing]]
+kind = "pine"
+at = [186, 345, 16]
+
+[[thing]]
+kind = "bush"
+at = [184, 440, 16]
+
+[[thing]]
+kind = "bush"
+at = [184, 664, 16]
+
+[[thing]]
+kind = "pine"
+at = [200, 295, 16]
+
+[[thing]]
+kind = "pine"
+at = [197, 342, 16]
+
+[[thing]]
+kind = "tree"
+at = [201, 534, 16]
+
+[[thing]]
+kind = "pine"
+at = [199, 568, 16]
+
+[[thing]]
+kind = "pine"
+at = [198, 585, 16]
+
+[[thing]]
+kind = "bush"
+at = [216, 184, 16]
+
+[[thing]]
+kind = "pine"
+at = [215, 200, 16]
+
+[[thing]]
+kind = "rock"
+at = [216, 264, 16]
+
+[[thing]]
+kind = "rock"
+at = [216, 328, 16]
+
+[[thing]]
+kind = "pine"
+at = [217, 490, 16]
+
+[[thing]]
+kind = "pine"
+at = [219, 520, 16]
+
+[[thing]]
+kind = "pine"
+at = [212, 599, 16]
+
+[[thing]]
+kind = "bush"
+at = [216, 632, 16]
+
+[[thing]]
+kind = "tree"
+at = [235, 24, 16]
+
+[[thing]]
+kind = "tree"
+at = [233, 438, 16]
+
+[[thing]]
+kind = "bush"
+at = [232, 488, 16]
+
+[[thing]]
+kind = "bush"
+at = [232, 584, 16]
+
+[[thing]]
+kind = "tree"
+at = [231, 664, 16]
+
+[[thing]]
+kind = "tree"
+at = [244, 119, 16]
+
+[[thing]]
+kind = "bush"
+at = [248, 152, 16]
+
+[[thing]]
+kind = "bush"
+at = [248, 216, 16]
+
+[[thing]]
+kind = "bush"
+at = [248, 408, 16]
+
+[[thing]]
+kind = "pine"
+at = [262, 5, 16]
+
+[[thing]]
+kind = "bush"
+at = [264, 40, 16]
+
+[[thing]]
+kind = "tree"
+at = [260, 103, 16]
+
+[[thing]]
+kind = "pine"
+at = [264, 167, 16]
+
+[[thing]]
+kind = "pine"
+at = [262, 265, 16]
+
+[[thing]]
+kind = "pine"
+at = [266, 325, 16]
+
+[[thing]]
+kind = "pine"
+at = [264, 359, 16]
+
+[[thing]]
+kind = "tree"
+at = [267, 376, 16]
+
+[[thing]]
+kind = "tree"
+at = [266, 393, 16]
+
+[[thing]]
+kind = "rock"
+at = [264, 408, 16]
+
+[[thing]]
+kind = "pine"
+at = [267, 500, 16]
+
+[[thing]]
+kind = "tree"
+at = [262, 649, 16]
+
+[[thing]]
+kind = "rock"
+at = [280, 72, 16]
+
+[[thing]]
+kind = "tree"
+at = [280, 87, 16]
+
+[[thing]]
+kind = "pine"
+at = [279, 260, 16]
+
+[[thing]]
+kind = "tree"
+at = [283, 516, 16]
+
+[[thing]]
+kind = "bush"
+at = [280, 632, 16]
+
+[[thing]]
+kind = "tree"
+at = [299, 20, 16]
+
+[[thing]]
+kind = "bush"
+at = [296, 104, 16]
+
+[[thing]]
+kind = "tree"
+at = [296, 327, 16]
+
+[[thing]]
+kind = "rock"
+at = [296, 376, 16]
+
+[[thing]]
+kind = "pine"
+at = [293, 502, 16]
+
+[[thing]]
+kind = "tree"
+at = [299, 532, 16]
+
+[[thing]]
+kind = "pine"
+at = [310, 281, 16]
+
+[[thing]]
+kind = "bush"
+at = [312, 312, 16]
+
+[[thing]]
+kind = "tree"
+at = [315, 356, 16]
+
+[[thing]]
+kind = "tree"
+at = [315, 552, 16]
+
+[[thing]]
+kind = "tree"
+at = [311, 612, 16]
+
+[[thing]]
+kind = "tree"
+at = [325, 22, 16]
+
+[[thing]]
+kind = "rock"
+at = [328, 504, 16]
+
+[[thing]]
+kind = "pine"
+at = [346, 501, 16]
+
+[[thing]]
+kind = "tree"
+at = [341, 554, 16]
+
+[[thing]]
+kind = "pine"
+at = [347, 644, 16]
+
+[[thing]]
+kind = "tree"
+at = [344, 663, 16]
+
+[[thing]]
+kind = "pine"
+at = [356, 75, 16]
+
+[[thing]]
+kind = "pine"
+at = [361, 506, 16]
+
+[[thing]]
+kind = "pine"
+at = [358, 549, 16]
+
+[[thing]]
+kind = "rock"
+at = [360, 568, 16]
+
+[[thing]]
+kind = "tree"
+at = [374, 537, 16]
+
+[[thing]]
+kind = "pine"
+at = [393, 538, 16]
+
+[[thing]]
+kind = "tree"
+at = [405, 554, 16]
+
+[[thing]]
+kind = "rock"
+at = [408, 584, 16]
+
+[[thing]]
+kind = "tree"
+at = [408, 599, 16]
+
+[[thing]]
+kind = "tree"
+at = [421, 58, 16]
+
+[[thing]]
+kind = "pine"
+at = [424, 71, 16]
+
+[[thing]]
+kind = "bush"
+at = [424, 616, 16]
+
+[[thing]]
+kind = "tree"
+at = [421, 634, 16]
+
+[[thing]]
+kind = "pine"
+at = [441, 10, 16]
+
+[[thing]]
+kind = "bush"
+at = [456, 552, 16]
+
+[[thing]]
+kind = "bush"
+at = [456, 584, 16]
+
+[[thing]]
+kind = "rock"
+at = [456, 600, 16]
+
+[[thing]]
+kind = "tree"
+at = [485, 566, 16]
+
+[[thing]]
+kind = "tree"
+at = [488, 583, 16]
+
+[[thing]]
+kind = "rock"
+at = [488, 664, 16]
+
+[[thing]]
+kind = "tree"
+at = [503, 612, 16]
+
+[[thing]]
+kind = "pine"
+at = [505, 650, 16]
+
+[[thing]]
+kind = "rock"
+at = [520, 504, 16]
+
+[[thing]]
+kind = "tree"
+at = [518, 517, 16]
+
+[[thing]]
+kind = "pine"
+at = [520, 619, 16]
+
+[[thing]]
+kind = "tree"
+at = [518, 645, 16]
+
+[[thing]]
+kind = "tree"
+at = [535, 516, 16]
+
+[[thing]]
+kind = "pine"
+at = [532, 535, 16]
+
+[[thing]]
+kind = "tree"
+at = [534, 569, 16]
+
+[[thing]]
+kind = "tree"
+at = [532, 599, 16]
+
+[[thing]]
+kind = "tree"
+at = [534, 629, 16]
+
+[[thing]]
+kind = "pine"
+at = [549, 630, 16]
+
+[[thing]]
+kind = "pine"
+at = [555, 664, 16]
+
+[[thing]]
+kind = "rock"
+at = [568, 616, 16]
+
+[[thing]]
+kind = "tree"
+at = [565, 646, 16]
+
+[[thing]]
+kind = "pine"
+at = [582, 585, 16]
+
+[[thing]]
+kind = "pine"
+at = [584, 615, 16]
+
+[[thing]]
+kind = "tree"
+at = [603, 516, 16]
+
+[[thing]]
+kind = "tree"
+at = [601, 618, 16]
+
+[[thing]]
+kind = "pine"
+at = [599, 644, 16]
+
+[[thing]]
+kind = "rock"
+at = [616, 56, 16]
+
+[[thing]]
+kind = "rock"
+at = [616, 632, 16]
+
+[[thing]]
+kind = "pine"
+at = [619, 664, 16]
+
+[[thing]]
+kind = "rock"
+at = [632, 40, 16]
+
+[[thing]]
+kind = "tree"
+at = [630, 537, 16]
+
+[[thing]]
+kind = "pine"
+at = [650, 9, 16]
+
+[[thing]]
+kind = "tree"
+at = [667, 8, 16]
+
+[[thing]]
+kind = "tree"
+at = [661, 38, 16]
+
+[[thing]]
+kind = "rock"
+at = [664, 648, 16]
+
+[[thing]]
+kind = "pine"
+at = [679, 24, 16]
+
+[[thing]]
+kind = "rock"
+at = [680, 536, 16]
+
+[[thing]]
+kind = "bush"
+at = [696, 24, 16]
+
+[[thing]]
+kind = "tree"
+at = [697, 74, 16]
+
+[[thing]]
+kind = "bush"
+at = [696, 536, 16]
+
+[[thing]]
+kind = "bush"
+at = [696, 664, 16]
+
+[[thing]]
+kind = "tree"
+at = [709, 26, 16]
+
+[[thing]]
+kind = "bush"
+at = [712, 616, 16]
+
+[[thing]]
+kind = "tree"
+at = [731, 4, 16]
+
+[[thing]]
+kind = "bush"
+at = [728, 56, 16]
+
+[[thing]]
+kind = "rock"
+at = [728, 72, 16]
+
+[[thing]]
+kind = "bush"
+at = [728, 504, 16]
+
+[[thing]]
+kind = "pine"
+at = [726, 565, 16]
+
+[[thing]]
+kind = "tree"
+at = [744, 7, 16]
+
+[[thing]]
+kind = "pine"
+at = [744, 71, 16]
+
+[[thing]]
+kind = "bush"
+at = [744, 520, 16]
+
+[[thing]]
+kind = "tree"
+at = [745, 570, 16]
+
+[[thing]]
+kind = "bush"
+at = [744, 616, 16]
+
+[[thing]]
+kind = "tree"
+at = [758, 25, 16]
+
+[[thing]]
+kind = "tree"
+at = [761, 74, 16]
+
+[[thing]]
+kind = "tree"
+at = [757, 518, 16]
+
+[[thing]]
+kind = "tree"
+at = [759, 548, 16]
+
+[[thing]]
+kind = "rock"
+at = [760, 616, 16]
+
+[[thing]]
+kind = "tree"
+at = [777, 26, 16]
+
+[[thing]]
+kind = "tree"
+at = [772, 551, 16]
+
+[[thing]]
+kind = "bush"
+at = [776, 616, 16]
+
+[[thing]]
+kind = "bush"
+at = [776, 648, 16]
+
+[[thing]]
+kind = "rock"
+at = [776, 664, 16]
+
+[[thing]]
+kind = "rock"
+at = [792, 72, 16]
+
+[[thing]]
+kind = "tree"
+at = [793, 170, 16]
+
+[[thing]]
+kind = "pine"
+at = [791, 264, 16]
+
+[[thing]]
+kind = "tree"
+at = [792, 283, 16]
+
+[[thing]]
+kind = "tree"
+at = [793, 298, 16]
+
+[[thing]]
+kind = "pine"
+at = [794, 309, 16]
+
+[[thing]]
+kind = "pine"
+at = [792, 347, 16]
+
+[[thing]]
+kind = "bush"
+at = [792, 472, 16]
+
+[[thing]]
+kind = "tree"
+at = [792, 535, 16]
+
+[[thing]]
+kind = "bush"
+at = [792, 600, 16]
+
+[[thing]]
+kind = "tree"
+at = [789, 614, 16]
+
+[[thing]]
+kind = "tree"
+at = [788, 667, 16]
+
+[[thing]]
+kind = "pine"
+at = [807, 88, 16]
+
+[[thing]]
+kind = "tree"
+at = [811, 280, 16]
+
+[[thing]]
+kind = "tree"
+at = [807, 344, 16]
+
+[[thing]]
+kind = "pine"
+at = [806, 361, 16]
+
+[[thing]]
+kind = "tree"
+at = [825, 70, 16]
+
+[[thing]]
+kind = "bush"
+at = [824, 88, 16]
+
+[[thing]]
+kind = "tree"
+at = [823, 104, 16]
+
+[[thing]]
+kind = "bush"
+at = [824, 216, 16]
+
+[[thing]]
+kind = "pine"
+at = [824, 315, 16]
+
+[[thing]]
+kind = "bush"
+at = [824, 472, 16]
+
+[[thing]]
+kind = "tree"
+at = [827, 484, 16]
+
+[[thing]]
+kind = "rock"
+at = [824, 616, 16]
+
+[[thing]]
+kind = "rock"
+at = [840, 120, 16]
+
+[[thing]]
+kind = "pine"
+at = [842, 137, 16]
+
+[[thing]]
+kind = "tree"
+at = [838, 393, 16]
+
+[[thing]]
+kind = "tree"
+at = [839, 440, 16]
+
+[[thing]]
+kind = "pine"
+at = [838, 645, 16]
+
+[[thing]]
+kind = "rock"
+at = [856, 8, 16]
+
+[[thing]]
+kind = "tree"
+at = [859, 196, 16]
+
+[[thing]]
+kind = "bush"
+at = [856, 216, 16]
+
+[[thing]]
+kind = "pine"
+at = [857, 234, 16]
+
+[[thing]]
+kind = "tree"
+at = [852, 347, 16]
+
+[[thing]]
+kind = "rock"
+at = [856, 520, 16]
+
+[[thing]]
+kind = "bush"
+at = [856, 632, 16]
+
+[[thing]]
+kind = "bush"
+at = [872, 72, 16]
+
+[[thing]]
+kind = "pine"
+at = [873, 122, 16]
+
+[[thing]]
+kind = "bush"
+at = [872, 136, 16]
+
+[[thing]]
+kind = "rock"
+at = [872, 152, 16]
+
+[[thing]]
+kind = "tree"
+at = [870, 421, 16]
+
+[[thing]]
+kind = "tree"
+at = [870, 489, 16]
+
+[[thing]]
+kind = "pine"
+at = [887, 104, 16]
+
+[[thing]]
+kind = "rock"
+at = [888, 200, 16]
+
+[[thing]]
+kind = "tree"
+at = [890, 213, 16]
+
+[[thing]]
+kind = "rock"
+at = [888, 232, 16]
+
+[[thing]]
+kind = "tree"
+at = [884, 247, 16]
+
+[[thing]]
+kind = "tree"
+at = [891, 292, 16]
+
+[[thing]]
+kind = "tree"
+at = [890, 345, 16]
+
+[[thing]]
+kind = "tree"
+at = [884, 439, 16]
+
+[[thing]]
+kind = "tree"
+at = [886, 469, 16]
+
+[[thing]]
+kind = "pine"
+at = [884, 567, 16]
+
+[[thing]]
+kind = "rock"
+at = [888, 584, 16]
+
+[[thing]]
+kind = "pine"
+at = [902, 9, 16]
+
+[[thing]]
+kind = "tree"
+at = [905, 26, 16]
+
+[[thing]]
+kind = "pine"
+at = [903, 116, 16]
+
+[[thing]]
+kind = "tree"
+at = [902, 197, 16]
+
+[[thing]]
+kind = "tree"
+at = [904, 299, 16]
+
+[[thing]]
+kind = "pine"
+at = [906, 329, 16]
+
+[[thing]]
+kind = "tree"
+at = [907, 436, 16]
+
+[[thing]]
+kind = "tree"
+at = [902, 521, 16]
+
+[[thing]]
+kind = "pine"
+at = [904, 619, 16]
+
+[[thing]]
+kind = "rock"
+at = [920, 72, 16]
+
+[[thing]]
+kind = "tree"
+at = [922, 181, 16]
+
+[[thing]]
+kind = "rock"
+at = [920, 264, 16]
+
+[[thing]]
+kind = "tree"
+at = [918, 373, 16]
+
+[[thing]]
+kind = "tree"
+at = [918, 441, 16]
+
+[[thing]]
+kind = "rock"
+at = [920, 520, 16]
+
+[[thing]]
+kind = "tree"
+at = [919, 584, 16]
+
+[[thing]]
+kind = "bush"
+at = [936, 40, 16]
+
+[[thing]]
+kind = "pine"
+at = [936, 71, 16]
+
+[[thing]]
+kind = "pine"
+at = [934, 101, 16]
+
+[[thing]]
+kind = "bush"
+at = [936, 360, 16]
+
+[[thing]]
+kind = "tree"
+at = [933, 374, 16]
+
+[[thing]]
+kind = "pine"
+at = [935, 472, 16]
+
+[[thing]]
+kind = "bush"
+at = [936, 488, 16]
+
+[[thing]]
+kind = "rock"
+at = [936, 536, 16]
+
+[[thing]]
+kind = "tree"
+at = [951, 100, 16]
+
+[[thing]]
+kind = "bush"
+at = [952, 216, 16]
+
+[[thing]]
+kind = "tree"
+at = [954, 345, 16]
+
+[[thing]]
+kind = "pine"
+at = [951, 420, 16]
+
+[[thing]]
+kind = "tree"
+at = [953, 582, 16]
+
+[[thing]]
+kind = "bush"
+at = [952, 600, 16]
+
+[[thing]]
+kind = "pine"
+at = [953, 650, 16]
+
+[[thing]]
+kind = "bush"
+at = [968, 8, 16]
+
+[[thing]]
+kind = "pine"
+at = [965, 26, 16]
+
+[[thing]]
+kind = "rock"
+at = [968, 56, 16]
+
+[[thing]]
+kind = "pine"
+at = [964, 167, 16]
+
+[[thing]]
+kind = "tree"
+at = [971, 180, 16]
+
+[[thing]]
+kind = "bush"
+at = [968, 296, 16]
+
+[[thing]]
+kind = "tree"
+at = [971, 308, 16]
+
+[[thing]]
+kind = "tree"
+at = [967, 372, 16]
+
+[[thing]]
+kind = "pine"
+at = [967, 504, 16]
+
+[[thing]]
+kind = "tree"
+at = [970, 521, 16]
+
+[[thing]]
+kind = "tree"
+at = [964, 551, 16]
+
+[[thing]]
+kind = "pine"
+at = [966, 585, 16]
+
+[[thing]]
+kind = "pine"
+at = [967, 628, 16]
+
+[[thing]]
+kind = "bush"
+at = [984, 24, 16]
+
+[[thing]]
+kind = "pine"
+at = [987, 132, 16]
+
+[[thing]]
+kind = "pine"
+at = [985, 358, 16]
+
+[[thing]]
+kind = "tree"
+at = [987, 392, 16]
+
+[[thing]]
+kind = "rock"
+at = [984, 456, 16]
+
+[[thing]]
+kind = "bush"
+at = [984, 504, 16]
+
+[[thing]]
+kind = "bush"
+at = [984, 632, 16]
+
+[[thing]]
+kind = "tree"
+at = [998, 613, 16]
+
+[[thing]]
+kind = "bush"
+at = [1016, 24, 16]
+
+[[thing]]
+kind = "tree"
+at = [1019, 100, 16]
+
+[[thing]]
+kind = "pine"
+at = [1018, 277, 16]
+
+[[thing]]
+kind = "pine"
+at = [1019, 424, 16]
+
+[[thing]]
+kind = "tree"
+at = [1013, 518, 16]
+
+[[thing]]
+kind = "pine"
+at = [1019, 612, 16]
+
+[[thing]]
+kind = "pine"
+at = [1028, 107, 16]
+
+[[thing]]
+kind = "tree"
+at = [1031, 120, 16]
+
+[[thing]]
+kind = "bush"
+at = [1032, 200, 16]
+
+[[thing]]
+kind = "tree"
+at = [1033, 214, 16]
+
+[[thing]]
+kind = "tree"
+at = [1029, 278, 16]
+
+[[thing]]
+kind = "rock"
+at = [1032, 440, 16]
+
+[[thing]]
+kind = "tree"
+at = [1033, 534, 16]
+
+[[thing]]
+kind = "rock"
+at = [1048, 8, 16]
+
+[[thing]]
+kind = "tree"
+at = [1045, 422, 16]
+
+[[thing]]
+kind = "tree"
+at = [1048, 471, 16]
+
+[[thing]]
+kind = "tree"
+at = [1044, 539, 16]
+
+[[thing]]
+kind = "tree"
+at = [1046, 565, 16]
+
+[[thing]]
+kind = "rock"
+at = [1048, 584, 16]
+
+[[thing]]
+kind = "tree"
+at = [1046, 633, 16]
+
+[[thing]]
+kind = "tree"
+at = [1063, 24, 16]
+
+[[thing]]
+kind = "tree"
+at = [1063, 84, 16]
+
+[[thing]]
+kind = "bush"
+at = [1064, 136, 16]
+
+[[thing]]
+kind = "pine"
+at = [1061, 182, 16]
+
+[[thing]]
+kind = "tree"
+at = [1067, 212, 16]
+
+[[thing]]
+kind = "tree"
+at = [1062, 229, 16]
+
+[[thing]]
+kind = "rock"
+at = [1064, 344, 16]
+
+[[thing]]
+kind = "tree"
+at = [1063, 660, 16]
+
+[[thing]]
+kind = "pine"
+at = [1083, 40, 16]
+
+[[thing]]
+kind = "tree"
+at = [1081, 134, 16]
+
+[[thing]]
+kind = "pine"
+at = [1076, 251, 16]
+
+[[thing]]
+kind = "bush"
+at = [1080, 280, 16]
+
+[[thing]]
+kind = "pine"
+at = [1081, 458, 16]
+
+[[thing]]
+kind = "bush"
+at = [1080, 472, 16]
+
+[[thing]]
+kind = "tree"
+at = [1076, 503, 16]
+
+[[thing]]
+kind = "pine"
+at = [1082, 533, 16]
+
+[[thing]]
+kind = "rock"
+at = [1080, 584, 16]
+
+[[thing]]
+kind = "farm_gate"
+at = [552, 120, 16]
+
+[[thing]]
+kind = "barrier"
+at = [552, 40, 16]
+
+[[thing]]
+kind = "pine"
+at = [8, 10, 16]
+
+[[thing]]
+kind = "pine"
+at = [7, 664, 16]
+
+[[thing]]
+kind = "pine"
+at = [33, 11, 16]
+
+[[thing]]
+kind = "tree"
+at = [33, 661, 16]
+
+[[thing]]
+kind = "pine"
+at = [57, 8, 16]
+
+[[thing]]
+kind = "tree"
+at = [57, 663, 16]
+
+[[thing]]
+kind = "pine"
+at = [85, 8, 16]
+
+[[thing]]
+kind = "tree"
+at = [82, 663, 16]
+
+[[thing]]
+kind = "pine"
+at = [110, 10, 16]
+
+[[thing]]
+kind = "tree"
+at = [112, 660, 16]
+
+[[thing]]
+kind = "pine"
+at = [137, 11, 16]
+
+[[thing]]
+kind = "pine"
+at = [136, 661, 16]
+
+[[thing]]
+kind = "tree"
+at = [162, 11, 16]
+
+[[thing]]
+kind = "pine"
+at = [160, 660, 16]
+
+[[thing]]
+kind = "tree"
+at = [186, 12, 16]
+
+[[thing]]
+kind = "pine"
+at = [186, 660, 16]
+
+[[thing]]
+kind = "pine"
+at = [212, 12, 16]
+
+[[thing]]
+kind = "tree"
+at = [213, 661, 16]
+
+[[thing]]
+kind = "tree"
+at = [240, 10, 16]
+
+[[thing]]
+kind = "tree"
+at = [241, 660, 16]
+
+[[thing]]
+kind = "tree"
+at = [265, 10, 16]
+
+[[thing]]
+kind = "pine"
+at = [266, 662, 16]
+
+[[thing]]
+kind = "tree"
+at = [293, 9, 16]
+
+[[thing]]
+kind = "pine"
+at = [291, 662, 16]
+
+[[thing]]
+kind = "tree"
+at = [318, 11, 16]
+
+[[thing]]
+kind = "pine"
+at = [318, 664, 16]
+
+[[thing]]
+kind = "tree"
+at = [342, 8, 16]
+
+[[thing]]
+kind = "pine"
+at = [343, 663, 16]
+
+[[thing]]
+kind = "tree"
+at = [368, 8, 16]
+
+[[thing]]
+kind = "tree"
+at = [368, 664, 16]
+
+[[thing]]
+kind = "tree"
+at = [395, 8, 16]
+
+[[thing]]
+kind = "pine"
+at = [394, 662, 16]
+
+[[thing]]
+kind = "tree"
+at = [424, 10, 16]
+
+[[thing]]
+kind = "tree"
+at = [422, 662, 16]
+
+[[thing]]
+kind = "tree"
+at = [448, 8, 16]
+
+[[thing]]
+kind = "tree"
+at = [447, 661, 16]
+
+[[thing]]
+kind = "pine"
+at = [473, 11, 16]
+
+[[thing]]
+kind = "tree"
+at = [474, 661, 16]
+
+[[thing]]
+kind = "tree"
+at = [498, 12, 16]
+
+[[thing]]
+kind = "tree"
+at = [500, 664, 16]
+
+[[thing]]
+kind = "pine"
+at = [528, 11, 16]
+
+[[thing]]
+kind = "pine"
+at = [528, 661, 16]
+
+[[thing]]
+kind = "tree"
+at = [551, 663, 16]
+
+[[thing]]
+kind = "tree"
+at = [576, 8, 16]
+
+[[thing]]
+kind = "tree"
+at = [577, 664, 16]
+
+[[thing]]
+kind = "tree"
+at = [605, 8, 16]
+
+[[thing]]
+kind = "tree"
+at = [605, 660, 16]
+
+[[thing]]
+kind = "pine"
+at = [629, 12, 16]
+
+[[thing]]
+kind = "pine"
+at = [632, 661, 16]
+
+[[thing]]
+kind = "tree"
+at = [655, 10, 16]
+
+[[thing]]
+kind = "pine"
+at = [655, 661, 16]
+
+[[thing]]
+kind = "pine"
+at = [681, 9, 16]
+
+[[thing]]
+kind = "pine"
+at = [680, 662, 16]
+
+[[thing]]
+kind = "pine"
+at = [706, 11, 16]
+
+[[thing]]
+kind = "pine"
+at = [706, 664, 16]
+
+[[thing]]
+kind = "tree"
+at = [732, 9, 16]
+
+[[thing]]
+kind = "pine"
+at = [736, 663, 16]
+
+[[thing]]
+kind = "pine"
+at = [762, 10, 16]
+
+[[thing]]
+kind = "tree"
+at = [760, 660, 16]
+
+[[thing]]
+kind = "tree"
+at = [786, 11, 16]
+
+[[thing]]
+kind = "tree"
+at = [784, 664, 16]
+
+[[thing]]
+kind = "tree"
+at = [811, 12, 16]
+
+[[thing]]
+kind = "pine"
+at = [810, 660, 16]
+
+[[thing]]
+kind = "pine"
+at = [839, 12, 16]
+
+[[thing]]
+kind = "tree"
+at = [839, 664, 16]
+
+[[thing]]
+kind = "tree"
+at = [862, 10, 16]
+
+[[thing]]
+kind = "tree"
+at = [864, 663, 16]
+
+[[thing]]
+kind = "tree"
+at = [888, 10, 16]
+
+[[thing]]
+kind = "tree"
+at = [889, 662, 16]
+
+[[thing]]
+kind = "tree"
+at = [918, 10, 16]
+
+[[thing]]
+kind = "tree"
+at = [917, 663, 16]
+
+[[thing]]
+kind = "pine"
+at = [941, 8, 16]
+
+[[thing]]
+kind = "tree"
+at = [941, 662, 16]
+
+[[thing]]
+kind = "pine"
+at = [967, 11, 16]
+
+[[thing]]
+kind = "pine"
+at = [968, 660, 16]
+
+[[thing]]
+kind = "pine"
+at = [994, 10, 16]
+
+[[thing]]
+kind = "tree"
+at = [995, 663, 16]
+
+[[thing]]
+kind = "tree"
+at = [1020, 9, 16]
+
+[[thing]]
+kind = "tree"
+at = [1018, 661, 16]
+
+[[thing]]
+kind = "pine"
+at = [1047, 8, 16]
+
+[[thing]]
+kind = "tree"
+at = [1045, 660, 16]
+
+[[thing]]
+kind = "tree"
+at = [1071, 9, 16]
+
+[[thing]]
+kind = "pine"
+at = [1072, 664, 16]
+
+[[thing]]
+kind = "pine"
+at = [10, 44, 16]
+
+[[thing]]
+kind = "tree"
+at = [1080, 48, 16]
+
+[[thing]]
+kind = "tree"
+at = [11, 70, 16]
+
+[[thing]]
+kind = "pine"
+at = [1077, 70, 16]
+
+[[thing]]
+kind = "pine"
+at = [11, 96, 16]
+
+[[thing]]
+kind = "tree"
+at = [1080, 100, 16]
+
+[[thing]]
+kind = "pine"
+at = [8, 124, 16]
+
+[[thing]]
+kind = "tree"
+at = [1077, 126, 16]
+
+[[thing]]
+kind = "tree"
+at = [10, 150, 16]
+
+[[thing]]
+kind = "tree"
+at = [1078, 150, 16]
+
+[[thing]]
+kind = "pine"
+at = [11, 174, 16]
+
+[[thing]]
+kind = "tree"
+at = [1080, 174, 16]
+
+[[thing]]
+kind = "pine"
+at = [8, 202, 16]
+
+[[thing]]
+kind = "tree"
+at = [1079, 204, 16]
+
+[[thing]]
+kind = "pine"
+at = [9, 229, 16]
+
+[[thing]]
+kind = "tree"
+at = [1080, 227, 16]
+
+[[thing]]
+kind = "pine"
+at = [9, 254, 16]
+
+[[thing]]
+kind = "tree"
+at = [1077, 255, 16]
+
+[[thing]]
+kind = "tree"
+at = [10, 280, 16]
+
+[[thing]]
+kind = "pine"
+at = [1077, 282, 16]
+
+[[thing]]
+kind = "pine"
+at = [12, 308, 16]
+
+[[thing]]
+kind = "pine"
+at = [1077, 307, 16]
+
+[[thing]]
+kind = "tree"
+at = [12, 331, 16]
+
+[[thing]]
+kind = "tree"
+at = [1077, 333, 16]
+
+[[thing]]
+kind = "tree"
+at = [12, 359, 16]
+
+[[thing]]
+kind = "pine"
+at = [1079, 357, 16]
+
+[[thing]]
+kind = "pine"
+at = [12, 386, 16]
+
+[[thing]]
+kind = "tree"
+at = [1079, 386, 16]
+
+[[thing]]
+kind = "tree"
+at = [8, 409, 16]
+
+[[thing]]
+kind = "tree"
+at = [1077, 409, 16]
+
+[[thing]]
+kind = "pine"
+at = [9, 435, 16]
+
+[[thing]]
+kind = "tree"
+at = [1078, 438, 16]
+
+[[thing]]
+kind = "tree"
+at = [11, 463, 16]
+
+[[thing]]
+kind = "tree"
+at = [1077, 463, 16]
+
+[[thing]]
+kind = "tree"
+at = [9, 490, 16]
+
+[[thing]]
+kind = "pine"
+at = [1078, 486, 16]
+
+[[thing]]
+kind = "pine"
+at = [10, 513, 16]
+
+[[thing]]
+kind = "tree"
+at = [1078, 516, 16]
+
+[[thing]]
+kind = "tree"
+at = [10, 541, 16]
+
+[[thing]]
+kind = "tree"
+at = [1076, 540, 16]
+
+[[thing]]
+kind = "pine"
+at = [12, 567, 16]
+
+[[thing]]
+kind = "tree"
+at = [1076, 567, 16]
+
+[[thing]]
+kind = "tree"
+at = [10, 591, 16]
+
+[[thing]]
+kind = "tree"
+at = [1077, 594, 16]
+
+[[thing]]
+kind = "tree"
+at = [12, 617, 16]
+
+[[thing]]
+kind = "pine"
+at = [1076, 617, 16]
+
+[[thing]]
+kind = "tree"
+at = [17, 27, 16]
+
+[[thing]]
+kind = "tree"
+at = [20, 642, 16]
+
+[[thing]]
+kind = "pine"
+at = [47, 27, 16]
+
+[[thing]]
+kind = "pine"
+at = [44, 646, 16]
+
+[[thing]]
+kind = "tree"
+at = [72, 30, 16]
+
+[[thing]]
+kind = "pine"
+at = [72, 645, 16]
+
+[[thing]]
+kind = "pine"
+at = [96, 29, 16]
+
+[[thing]]
+kind = "pine"
+at = [95, 645, 16]
+
+[[thing]]
+kind = "tree"
+at = [124, 26, 16]
+
+[[thing]]
+kind = "pine"
+at = [123, 645, 16]
+
+[[thing]]
+kind = "pine"
+at = [150, 28, 16]
+
+[[thing]]
+kind = "tree"
+at = [150, 645, 16]
+
+[[thing]]
+kind = "pine"
+at = [175, 29, 16]
+
+[[thing]]
+kind = "tree"
+at = [173, 644, 16]
+
+[[thing]]
+kind = "pine"
+at = [203, 30, 16]
+
+[[thing]]
+kind = "pine"
+at = [201, 643, 16]
+
+[[thing]]
+kind = "pine"
+at = [229, 29, 16]
+
+[[thing]]
+kind = "tree"
+at = [229, 646, 16]
+
+[[thing]]
+kind = "pine"
+at = [254, 29, 16]
+
+[[thing]]
+kind = "tree"
+at = [252, 642, 16]
+
+[[thing]]
+kind = "pine"
+at = [280, 27, 16]
+
+[[thing]]
+kind = "tree"
+at = [281, 642, 16]
+
+[[thing]]
+kind = "pine"
+at = [303, 30, 16]
+
+[[thing]]
+kind = "pine"
+at = [306, 646, 16]
+
+[[thing]]
+kind = "tree"
+at = [329, 28, 16]
+
+[[thing]]
+kind = "pine"
+at = [333, 646, 16]
+
+[[thing]]
+kind = "tree"
+at = [359, 28, 16]
+
+[[thing]]
+kind = "tree"
+at = [359, 645, 16]
+
+[[thing]]
+kind = "pine"
+at = [382, 27, 16]
+
+[[thing]]
+kind = "pine"
+at = [384, 646, 16]
+
+[[thing]]
+kind = "tree"
+at = [410, 27, 16]
+
+[[thing]]
+kind = "tree"
+at = [407, 643, 16]
+
+[[thing]]
+kind = "pine"
+at = [437, 28, 16]
+
+[[thing]]
+kind = "pine"
+at = [437, 646, 16]
+
+[[thing]]
+kind = "pine"
+at = [460, 27, 16]
+
+[[thing]]
+kind = "tree"
+at = [463, 644, 16]
+
+[[thing]]
+kind = "tree"
+at = [486, 29, 16]
+
+[[thing]]
+kind = "tree"
+at = [486, 642, 16]
+
+[[thing]]
+kind = "pine"
+at = [512, 28, 16]
+
+[[thing]]
+kind = "pine"
+at = [513, 645, 16]
+
+[[thing]]
+kind = "pine"
+at = [540, 646, 16]
+
+[[thing]]
+kind = "pine"
+at = [567, 645, 16]
+
+[[thing]]
+kind = "pine"
+at = [589, 30, 16]
+
+[[thing]]
+kind = "pine"
+at = [590, 645, 16]
+
+[[thing]]
+kind = "tree"
+at = [616, 28, 16]
+
+[[thing]]
+kind = "pine"
+at = [618, 646, 16]
+
+[[thing]]
+kind = "pine"
+at = [644, 28, 16]
+
+[[thing]]
+kind = "pine"
+at = [643, 643, 16]
+
+[[thing]]
+kind = "tree"
+at = [668, 30, 16]
+
+[[thing]]
+kind = "pine"
+at = [669, 646, 16]
+
+[[thing]]
+kind = "tree"
+at = [693, 28, 16]
+
+[[thing]]
+kind = "pine"
+at = [695, 642, 16]
+
+[[thing]]
+kind = "tree"
+at = [721, 27, 16]
+
+[[thing]]
+kind = "pine"
+at = [720, 646, 16]
+
+[[thing]]
+kind = "pine"
+at = [746, 28, 16]
+
+[[thing]]
+kind = "pine"
+at = [745, 642, 16]
+
+[[thing]]
+kind = "pine"
+at = [774, 26, 16]
+
+[[thing]]
+kind = "tree"
+at = [771, 644, 16]
+
+[[thing]]
+kind = "pine"
+at = [801, 28, 16]
+
+[[thing]]
+kind = "tree"
+at = [801, 643, 16]
+
+[[thing]]
+kind = "pine"
+at = [826, 30, 16]
+
+[[thing]]
+kind = "tree"
+at = [823, 644, 16]
+
+[[thing]]
+kind = "pine"
+at = [851, 28, 16]
+
+[[thing]]
+kind = "pine"
+at = [850, 644, 16]
+
+[[thing]]
+kind = "pine"
+at = [876, 26, 16]
+
+[[thing]]
+kind = "pine"
+at = [876, 646, 16]
+
+[[thing]]
+kind = "tree"
+at = [902, 26, 16]
+
+[[thing]]
+kind = "pine"
+at = [903, 644, 16]
+
+[[thing]]
+kind = "tree"
+at = [927, 30, 16]
+
+[[thing]]
+kind = "pine"
+at = [927, 644, 16]
+
+[[thing]]
+kind = "pine"
+at = [956, 29, 16]
+
+[[thing]]
+kind = "tree"
+at = [953, 642, 16]
+
+[[thing]]
+kind = "pine"
+at = [981, 30, 16]
+
+[[thing]]
+kind = "tree"
+at = [983, 644, 16]
+
+[[thing]]
+kind = "pine"
+at = [1008, 26, 16]
+
+[[thing]]
+kind = "tree"
+at = [1008, 646, 16]
+
+[[thing]]
+kind = "tree"
+at = [1035, 29, 16]
+
+[[thing]]
+kind = "tree"
+at = [1035, 642, 16]
+
+[[thing]]
+kind = "pine"
+at = [1057, 28, 16]
+
+[[thing]]
+kind = "pine"
+at = [1061, 646, 16]
+
+[[thing]]
+kind = "tree"
+at = [27, 57, 16]
+
+[[thing]]
+kind = "tree"
+at = [1059, 57, 16]
+
+[[thing]]
+kind = "pine"
+at = [30, 85, 16]
+
+[[thing]]
+kind = "tree"
+at = [1060, 85, 16]
+
+[[thing]]
+kind = "tree"
+at = [29, 111, 16]
+
+[[thing]]
+kind = "pine"
+at = [1061, 110, 16]
+
+[[thing]]
+kind = "tree"
+at = [28, 136, 16]
+
+[[thing]]
+kind = "pine"
+at = [1062, 139, 16]
+
+[[thing]]
+kind = "tree"
+at = [28, 163, 16]
+
+[[thing]]
+kind = "tree"
+at = [1062, 163, 16]
+
+[[thing]]
+kind = "tree"
+at = [26, 187, 16]
+
+[[thing]]
+kind = "tree"
+at = [1059, 187, 16]
+
+[[thing]]
+kind = "tree"
+at = [26, 217, 16]
+
+[[thing]]
+kind = "pine"
+at = [1062, 217, 16]
+
+[[thing]]
+kind = "tree"
+at = [27, 241, 16]
+
+[[thing]]
+kind = "tree"
+at = [1061, 242, 16]
+
+[[thing]]
+kind = "tree"
+at = [29, 267, 16]
+
+[[thing]]
+kind = "pine"
+at = [1058, 269, 16]
+
+[[thing]]
+kind = "pine"
+at = [28, 294, 16]
+
+[[thing]]
+kind = "pine"
+at = [1058, 295, 16]
+
+[[thing]]
+kind = "pine"
+at = [28, 321, 16]
+
+[[thing]]
+kind = "pine"
+at = [1060, 320, 16]
+
+[[thing]]
+kind = "tree"
+at = [26, 345, 16]
+
+[[thing]]
+kind = "pine"
+at = [1061, 344, 16]
+
+[[thing]]
+kind = "tree"
+at = [30, 372, 16]
+
+[[thing]]
+kind = "pine"
+at = [1058, 372, 16]
+
+[[thing]]
+kind = "tree"
+at = [26, 399, 16]
+
+[[thing]]
+kind = "tree"
+at = [1061, 397, 16]
+
+[[thing]]
+kind = "tree"
+at = [26, 423, 16]
+
+[[thing]]
+kind = "pine"
+at = [1060, 423, 16]
+
+[[thing]]
+kind = "tree"
+at = [28, 451, 16]
+
+[[thing]]
+kind = "tree"
+at = [1062, 448, 16]
+
+[[thing]]
+kind = "pine"
+at = [28, 473, 16]
+
+[[thing]]
+kind = "pine"
+at = [1061, 475, 16]
+
+[[thing]]
+kind = "tree"
+at = [30, 502, 16]
+
+[[thing]]
+kind = "pine"
+at = [1060, 499, 16]
+
+[[thing]]
+kind = "tree"
+at = [26, 525, 16]
+
+[[thing]]
+kind = "tree"
+at = [1062, 529, 16]
+
+[[thing]]
+kind = "tree"
+at = [30, 555, 16]
+
+[[thing]]
+kind = "pine"
+at = [1062, 553, 16]
+
+[[thing]]
+kind = "pine"
+at = [29, 580, 16]
+
+[[thing]]
+kind = "pine"
+at = [1060, 579, 16]
+
+[[thing]]
+kind = "tree"
+at = [27, 607, 16]
+
+[[thing]]
+kind = "tree"
+at = [1059, 603, 16]
+
+[[place]]
+name = "start"
+at = [408, 298, 16]
+facing = [0, -1]
+
+[[place]]
+name = "burrow"
+at = [408, 302, 16]
+facing = [0, 1]
+
+[[place]]
+name = "stall"
+at = [664, 238, 16]
+facing = [0, 1]
+
+[[place]]
+name = "kitchen"
+at = [464, 306, 16]
+facing = [0, 1]
+
+[[place]]
+name = "mailbox"
+at = [436, 194, 16]
+facing = [0, 1]
+
+[[place]]
+name = "cat"
+at = [616, 216, 16]
+facing = [0, -1]
+
+[[place]]
+name = "chicken_gate"
+at = [408, 358, 16]
+facing = [0, 1]
+
+[[place]]
+name = "sheep_gate"
+at = [536, 358, 16]
+facing = [0, 1]
+
+[[place]]
+name = "cow_gate"
+at = [664, 358, 16]
+facing = [0, 1]
+
+[[place]]
+name = "chicken_stable"
+at = [440, 440, 16]
+facing = [0, -1]
+
+[[place]]
+name = "sheep_stable"
+at = [536, 436, 16]
+facing = [0, -1]
+
+[[place]]
+name = "cow_stable"
+at = [690, 432, 16]
+facing = [0, -1]
+
+[[place]]
+name = "dog"
+at = [472, 346, 16]
+facing = [0, -1]
+
+[[place]]
+name = "fox"
+at = [688, 346, 16]
+facing = [0, -1]
+
+[[place]]
+name = "farm_gate"
+at = [552, 136, 16]
+facing = [0, -1]
+
+[[place]]
+name = "road_end"
+at = [552, 56, 16]
+facing = [0, -1]

@@ -858,7 +858,7 @@ impl<G: Game> Session<G> {
     }
 
     /// The fingerprint's parts by name, each as one number: two machines
-    /// whose games differ learn which file does ("levels/3.json").
+    /// whose games differ learn which file does ("levels/3.toml").
     pub fn fingerprint_files(&self) -> Result<Vec<(String, u64)>> {
         let files = self.fingerprinted()?;
         let parts = fingerprint_parts(&self.cfg, &G::sections(&self.cfg), &self.actions, &files)?;
@@ -1007,7 +1007,7 @@ impl<G: Game> Session<G> {
         }
         let block = self.cfg.world.blocks.is_some() && is_block_file(&self.dir, changed);
         // A level file new in `levels/` (not for a world the script builds).
-        let ending = if self.cfg.world.blocks.is_some() || self.cfg.world.file.ends_with(".json") { "json" } else { "vox" };
+        let ending = crate::levels::ending(&self.cfg);
         let new_level = self.cfg.world.size.is_none() && changed.parent().is_some_and(|d| same_file(d, &self.dir.join("levels"))) && changed.extension().is_some_and(|e| e == ending);
         if block || new_level || self.level_files.iter().any(|f| same_file(f, changed)) {
             let levels = std::sync::Arc::new(crate::levels::load::<G>(&self.files, &self.cfg)?);
@@ -2728,7 +2728,7 @@ mod tests {
     #[test]
     fn saving_a_prefab_rebuilds_the_level() {
         let mut game = Session::<Shooter>::load(Path::new("games/moreblood")).unwrap();
-        let prefab = game.reload(Path::new("games/moreblood/prefabs/palm_0.vox")).unwrap();
+        let prefab = game.reload(Path::new("games/moreblood/prefabs/palm_0.vvx")).unwrap();
         assert!(matches!(prefab, Reloaded::World), "a changed prefab must rebuild the level");
         let other = game.reload(Path::new("games/moreblood/notes.txt")).unwrap();
         assert!(matches!(other, Reloaded::Nothing));

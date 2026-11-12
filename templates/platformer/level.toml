@@ -1,0 +1,89 @@
+format = "voxcade level 1"
+block = 10            # a block is this many voxels each way
+size = [24, 2, 13]    # cells: across (x), deep (y, 0 in front), up (z)
+view = "front"        # each layer the grid seen from the front, the front layer first, its top row first
+
+[blocks]              # blocks/NAME.vvx, each what it is to the game
+wall = "decor"
+stone = "solid"
+plank = "solid"
+ladder = "ladder"
+spikes = "hazard"
+
+[legend]              # a sign is a block as it lies: its name, or the name and a turn (0 to 47)
+s = "stone"
+l = "ladder"
+p = "plank"
+S = "spikes"
+w = "wall"
+
+[cells]
+layers = """
+ssssssssssssssssssssssss
+s......................s
+s......................s
+ssssssssssl.......ssssss
+s.........l............s
+s.........l............s
+s.......ssssssssss.....s
+s......................s
+ssssss.................s
+s............pppppppppps
+s......................s
+s.......SS.............s
+ssssssssssssssssssssssss
+
+wwwwwwwwwwwwwwwwwwwwwwww *13
+"""
+
+[[thing]]
+kind = "hero"
+at = [15, 5, 10]
+
+[[thing]]
+kind = "slime"
+at = [155, 5, 10]
+
+[[thing]]
+kind = "torch"
+at = [85, 7, 21]
+
+[[thing]]
+kind = "gem"
+at = [205, 5, 22]
+
+[[thing]]
+kind = "gem"
+at = [25, 5, 52]
+
+[[thing]]
+kind = "torch"
+at = [25, 7, 71]
+
+[[thing]]
+kind = "gem"
+at = [85, 5, 72]
+
+[[thing]]
+kind = "torch"
+at = [175, 7, 71]
+
+[[thing]]
+kind = "bat"
+at = [135, 5, 82]
+
+[[thing]]
+kind = "gem"
+at = [35, 5, 102]
+
+[[thing]]
+kind = "torch"
+at = [95, 7, 101]
+
+[[thing]]
+kind = "torch"
+at = [205, 7, 101]
+
+[[thing]]
+kind = "door"
+at = [215, 8, 100]

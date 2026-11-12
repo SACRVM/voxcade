@@ -1,6 +1,6 @@
 //! A game's levels (`docs/game-model.md`, "Levels and places"): the files in
 //! its `levels/` folder that `c.world` says are levels (levels of blocks and
-//! maps are `.json`, voxel worlds `.vox`), all read when the game loads, in
+//! maps are `.toml`, voxel worlds `.vvx`), all read when the game loads, in
 //! the order of their names, numbers counted as numbers (`2` before `10`).
 //! Without such files the game has one level, made as `c.world` says. A
 //! level holds its world as built, the markers that place its things and
@@ -44,7 +44,7 @@ pub type Made = (World, Vec<Marker>, Vec<PathBuf>, Vec<Place>);
 
 /// One level as it was read.
 pub struct Level {
-    /// Its name: the file's stem (`hall` for `levels/hall.json`); `main`
+    /// Its name: the file's stem (`hall` for `levels/hall.toml`); `main`
     /// for a game's one level made in code.
     pub name: String,
     pub world: World,
@@ -115,7 +115,72 @@ fn trim_zeros(digits: &[u8]) -> &[u8] {
 enum Kind {
     Blocks,
     Map,
-    Vox,
+    World,
+}
+
+impl Kind {
+    /// The kind `c.world` says: blocks, a map (`.toml`) or a world (`.vvx`).
+    fn of(cfg: &GameConfig) -> Self {
+        if cfg.world.blocks.is_some() {
+            Kind::Blocks
+        } else if cfg.world.file.ends_with(".toml") {
+            Kind::Map
+        } else {
+            Kind::World
+        }
+    }
+
+    /// The ending of its files in `levels/`.
+    fn ending(self) -> &'static str {
+        if self == Kind::World { crate::vvx::EXTENSION } else { "toml" }
+    }
+}
+
+/// The ending of the level files in `levels/` of a game of this config:
+/// `toml` for levels of blocks and maps, `vvx` for worlds.
+pub fn ending(cfg: &GameConfig) -> &'static str {
+    Kind::of(cfg).ending()
+}
+
+/// The game's worlds and map prefabs (`crate::scene`), as paths from the
+/// game folder `dir` (`/` between): the world file or the worlds in
+/// `levels/`, or the prefabs its maps name. What the IDE shows but does not
+/// shape as a model.
+pub fn scene_files(dir: &Path, cfg: &GameConfig) -> Vec<String> {
+    let kind = Kind::of(cfg);
+    if cfg.world.size.is_some() || kind == Kind::Blocks {
+        return Vec::new();
+    }
+    let in_levels: Vec<String> = std::fs::read_dir(dir.join("levels"))
+        .map(|d| d.flatten().filter_map(|e| e.file_name().to_str().map(str::to_string)).filter(|n| n.ends_with(&format!(".{}", kind.ending()))).map(|n| format!("levels/{n}")).collect())
+        .unwrap_or_default();
+    let files = if in_levels.is_empty() { vec![cfg.world.file.clone()] } else { in_levels };
+    if kind == Kind::World {
+        return files;
+    }
+    let mut out = Vec::new();
+    for map in files {
+        let folder = Path::new(&map).parent().unwrap_or(Path::new("")).to_path_buf();
+        let Ok(data) = std::fs::read_to_string(dir.join(&map)).map_err(anyhow::Error::from).and_then(|t| crate::map::MapData::read(&t)) else { continue };
+        for p in data.prefabs.values() {
+            let path = folder.join(&p.file);
+            out.push(path.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/"));
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// A level file the config names in a format before Voxcade 0.6.0: a plain
+/// mistake with the command that brings it over.
+fn older_format(file: &str) -> Result<()> {
+    let new = match Path::new(file).extension().and_then(|e| e.to_str()) {
+        Some("json") => "a level or a map is a .toml",
+        Some("vox") => "a world is a .vvx",
+        _ => return Ok(()),
+    };
+    anyhow::bail!("c.world names {file}: since Voxcade 0.6.0 {new} (`voxcade upgrade` brings the game's files over)")
 }
 
 /// The game's levels: the files in `levels/` of the kind `c.world` says, or
@@ -132,14 +197,12 @@ pub fn load<G: Game>(game: &Files, cfg: &GameConfig) -> Result<Levels> {
         }
         return Ok(Levels::one("main", World::new(IVec3::new(x, y, z), [[0; 4]; 256]), Vec::new(), Vec::new(), Vec::new()));
     }
-    let kind = if cfg.world.blocks.is_some() {
-        Kind::Blocks
-    } else if cfg.world.file.ends_with(".json") {
-        Kind::Map
-    } else {
-        Kind::Vox
-    };
-    let extension = if kind == Kind::Vox { "vox" } else { "json" };
+    let kind = Kind::of(cfg);
+    older_format(cfg.world.blocks.as_ref().map_or(&cfg.world.file, |b| &b.file))?;
+    if !cfg.markers.is_empty() {
+        anyhow::bail!("c.markers: since Voxcade 0.6.0 a marker is a palette entry of the world or the prefab it lies in ({{ marker = \"rifleman\" }}); `voxcade upgrade` moves them there");
+    }
+    let extension = kind.ending();
     let mut files: Vec<PathBuf> = game.list(dir.join("levels")).into_iter().filter(|p| p.extension().is_some_and(|e| e == extension)).collect();
     files.sort_by(|a, b| natural(&stem(a), &stem(b)));
     if files.is_empty() {
@@ -167,13 +230,9 @@ fn one(game: &Files, cfg: &GameConfig, kind: Kind, path: &Path) -> Result<Made> 
     let names = crate::sim::things::names(cfg);
     match (kind, &cfg.world.blocks) {
         (Kind::Blocks, Some(blocks)) => crate::grid::load_at(game, blocks, path, &names),
-        (Kind::Map, _) => {
-            let markers = cfg.markers.table(&names)?;
-            crate::map::load_map_at(game, path, &markers, &names)
-        }
+        (Kind::Map, _) => crate::map::load_map_at(game, path, &names),
         _ => {
-            let markers = cfg.markers.table(&names)?;
-            let (world, found) = crate::vox::load_world(game, path, &markers)?;
+            let (world, found) = crate::scene::load_in(game, path)?.world(&names).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
             Ok((world, found, vec![path.to_path_buf()], Vec::new()))
         }
     }

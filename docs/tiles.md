@@ -64,6 +64,66 @@ hard on the eyes); calm, few tools in view, large and readable.
   corner used left and right, an edge at the top and the bottom); the
   Sunny Land map already flips and turns 120 of its tiles.
 
+## A level as text (2026-11-12)
+
+A level is text a person reads and git diffs cell by cell (the owner:
+everything in a game is code or text):
+
+```toml
+format = "voxcade level 1"
+block = 10            # a block is this many voxels each way
+size = [24, 2, 13]    # cells: across (x), deep (y, 0 in front), up (z)
+view = "front"        # each layer the grid seen from the front, the front layer first, its top row first
+
+[blocks]              # blocks/NAME.vvx, each what it is to the game
+wall = "decor"
+stone = "solid"
+spikes = "hazard"
+
+[legend]              # a sign is a block as it lies: its name, or the name and a turn (0 to 47)
+s = "stone"
+S = "spikes"
+w = "wall"
+t = { block = "stone", turn = 17 }
+
+[cells]
+layers = """
+ssssssssssssssssssssssss
+s......................s *4
+s..........SS..........s
+ssssssssssssssssssssssss
+
+wwwwwwwwwwwwwwwwwwwwwwww *13
+"""
+
+[[thing]]
+kind = "gem"
+at = [45, 5, 12]      # where its feet stand, in voxels from the grid's low corner
+
+[[place]]
+name = "door"
+at = [25, 8, 70]
+facing = [0, -1]
+```
+
+- **Which way the layers read** is said in the file, the same for every
+  game whatever its camera: `view = "front"` (each layer the grid seen
+  from the front, the front layer first, in a layer the top row first:
+  Voxkeep's room reads as the picture on the screen) or `view = "above"`
+  (each layer seen from above, the bottom layer first, the far row first,
+  as a model's `.vvx`: BunnyFarm's farm reads as its map). x runs left to
+  right in both. A new level reads from the front when it is taller than
+  deep, else from above; the editor keeps the file's view.
+- **Signs**: one letter or digit a pair of block and turn (62), two each
+  when a level needs more (`..` empty); a new sign takes a letter of its
+  block's name where it can (`s` for stone, `S` the next stone or the
+  next block with an s). The editor keeps every sign the file had, so a
+  changed cell is a changed character in git.
+- **Repeats** as in a `.vvx`: a row followed by ` *N` stands N times in
+  all, a line `*N` after a layer's rows the layer N times.
+- `[blocks]` keeps its order (the editor's list of blocks); things and
+  places come in their order (things are made in it).
+
 ## Built (2026-10-16)
 
 - **Blocks** (`src/blocks.rs`): `blocks/NAME.vvx`, a model of Voxcade's
@@ -73,15 +133,16 @@ hard on the eyes); calm, few tools in view, large and readable.
   block. A cell lies its block in any of 48 turns: quarter turns about
   the three axes, mirrored or not (`Turn`); Tiled's flips are among them.
 - **Levels** (`src/grid.rs`, `c.world.blocks = { file, margin, below,
-  backdrops }`): `level.json` holds the block size, the grid's size in
-  cells, the blocks by name with what each is to the game (`solid`,
-  `oneway`, `ladder`, `hazard`, `decor`), the cells as runs (block, turn)
-  and the things placed freely, in voxels. Loading stamps the blocks into
+  backdrops }`): `levels/NAME.toml` (or `level.toml`; JSON until 0.6.0,
+  `voxcade upgrade` brings it over) holds the block size, the grid's size
+  in cells, the blocks by name with what each is to the game (`solid`,
+  `oneway`, `ladder`, `hazard`, `decor`), the cells as layers of rows of
+  signs and the things placed freely, in voxels. Loading stamps the blocks into
   the world's voxels; of a `oneway` block the top voxel of each column
   holds, as it lies. The kit climbs ladders by cell (`World::cells`);
   what a hazard does is the game's code (`thing:in_block("hazard")`). A block saved, a new one too, rebuilds the running
   game's level.
-- **Tiled is only a way in** (`voxcade import <game> <map.json>`, once):
+- **Tiled is only a way in** (`voxcade import <game> <tiled-map.json>`, once; it writes `level.toml`, `--file levels/NAME.toml`):
   Tiled draws in 2D, the level lives on in 3D. Every tile the map uses
   becomes a block drawn out of its picture (unless the game has made it
   already), named by the id the map stores (Tiled's own window shows that
@@ -116,7 +177,8 @@ hard on the eyes); calm, few tools in view, large and readable.
   - The mouse: left works the tool (a stroke works on the surface it began
     on: one layer added or taken off), right drag turns, middle or shift
     and right drag moves, the wheel zooms (over the bar: scrolls).
-    Ctrl+Z, Ctrl+Y. Every word has a key, shown at its end (the panels
+    Shift held is PICK, whatever the tool (the tool before comes back
+    when it is let go). Ctrl+Z, Ctrl+Y. Every word has a key, shown at its end (the panels
     are the IDE's look, egui) (a tool the same on both levels: A, E, P, I, and N for DEEP PAINT;
     U and R undo and redo, T, O, M turn, C clones, D deletes, N new, B
     back; among the things M moves); the block's own colours (the big fields) are on 1 to 9 and 0,

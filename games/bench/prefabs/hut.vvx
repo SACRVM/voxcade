@@ -1,0 +1,329 @@
+format = "voxcade voxel 1"
+size = [74, 58, 52]
+
+# The colours are the world's numbers in this order (the first is 1);
+# a marker places a thing of that kind instead of a voxel.
+[palette]
+a = "#543a24"
+b = "#7e5834"
+c = "#704e2e"
+d = "#8a623a"
+e = "#6e6a62"
+f = "#8c5434"
+g = "#807c74"
+
+[[frame]]
+layers = """
+........................................................................ *4
+....aaaabbbbbbbbbbbbbbbbbbccccccccccccccccccccccddddddddddddddddaaaa.... *4
+....cccc........................................................cccc.... *22
+....bbbb........................................................bbbb.... *18
+....aaaabbbbbbbbbbbbbbbbbbcc..................ccddddddddddddddddaaaa.... *4
+........................................................................ *4
+*6
+
+........................................................................ *4
+....aaaaccccccccccccccccccddddddddddddddddddddddbbbbbbbbbbbbbbbbaaaa.... *4
+....dddd........................................................dddd.... *22
+....cccc........................................................cccc.... *18
+....aaaaccccccccccccccccccdd..................ddbbbbbbbbbbbbbbbbaaaa.... *4
+........................................................................ *4
+*6
+
+........................................................................ *4
+....aaaaddddddddddddddddddbbbbbbbbbbbbbbbbbbbbbbccccccccccccccccaaaa.... *4
+....bbbb........................................................bbbb.... *22
+....dddd........................................................dddd.... *18
+....aaaaddddddddddddddddddbb..................bbccccccccccccccccaaaa.... *4
+........................................................................ *4
+*6
+
+........................................................................ *4
+....aaaabbbbbbbbbbbbbbbbbbccccccccccccccccccccccddddddddddddddddaaaa.... *4
+....cccc........................................................cccc.... *22
+....bbbb........................................................bbbb.... *18
+....aaaabbbbbbbbbbbbbbbbbbcc..................ccddddddddddddddddaaaa.... *4
+........................................................................ *4
+*4
+
+........................................................................ *4
+....aaaabb........bbbbbbbb........cccccccc........dddddddd......aaaa.... *4
+........................................................................ *6
+....cccc........................................................cccc.... *8
+........................................................................ *8
+....bbbb........................................................bbbb.... *8
+........................................................................ *8
+....bbbb........................................................bbbb....
+....bbbb........................................................bbbb....
+....aaaabbbbbbbbbbbbbbbbbbcc..................ccddddddddddddddddaaaa.... *4
+........................................................................ *4
+
+........................................................................ *4
+....aaaabb........bbbbbbbb........cccccccc........dddddddd......aaaa.... *4
+........................................................................ *6
+....cccc........................................................cccc.... *8
+........................................................................ *8
+....bbbb........................................................bbbb.... *8
+........................................................................ *8
+....bbbb........................................................bbbb....
+....bbbb........................................................bbbb....
+....aaaabbbbbbbbbbbbbbbbbbcc..................ccddddddddddddddddaaaa.... *4
+........................................................................ *4
+
+........................................................................ *4
+....aaaacc........cccccccc........dddddddd........bbbbbbbb......aaaa.... *4
+........................................................................ *6
+....dddd........................................................dddd.... *8
+........................................................................ *8
+....cccc........................................................cccc.... *8
+........................................................................ *8
+....cccc........................................................cccc....
+....cccc........................................................cccc....
+....aaaaccccccccccccccccccdd..................ddbbbbbbbbbbbbbbbbaaaa.... *4
+........................................................................ *4
+*6
+
+........................................................................ *4
+....aaaaddddddddddddddddddbbbbbbbbbbbbbbbbbbbbbbccccccccccccccccaaaa.... *4
+....bbbb........................................................bbbb.... *22
+....dddd........................................................dddd.... *18
+....aaaaddddddddddddddddddbb..................bbccccccccccccccccaaaa.... *4
+........................................................................ *4
+*6
+
+........................................................................ *4
+....aaaabbbbbbbbbbbbbbbbbbccccccccccccccccccccccddddddddddddddddaaaa.... *4
+....cccc........................................................cccc.... *22
+....bbbb........................................................bbbb.... *18
+....aaaabbbbbbbbbbbbbbbbbbccaaaaaaaaaaaaaaaaaaccddddddddddddddddaaaa.... *4
+........................................................................ *4
+
+........................................................................ *4
+....aaaabbbbbbbbbbbbbbbbbbccccccccccccccccccccccddddddddddddddddaaaa.... *4
+....cccc........................................................cccc.... *22
+....bbbb........................................................bbbb.... *18
+....aaaabbbbbbbbbbbbbbbbbbccaaaaaaaaaaaaaaaaaaccddddddddddddddddaaaa.... *4
+........................................................................ *4
+
+........................................................................ *4
+....aaaabbbbbbbbbbbbbbbbbbccccccccccccccccccccccddddddddddddddddaaaa.... *4
+....cccc........................................................cccc.... *22
+....bbbb........................................................bbbb.... *18
+....aaaabbbbbbbbbbbbbbbbbbccccccccccccccccccccccddddddddddddddddaaaa.... *4
+........................................................................ *4
+*4
+
+........................................................................ *4
+....aaaaccccccccccccccccccddddddddddddddddddddddbbbbbbbbbbbbbbbbaaaa.... *4
+....dddd........................................................dddd.... *22
+....cccc........................................................cccc.... *18
+....aaaaccccccccccccccccccddddddddddddddddddddddbbbbbbbbbbbbbbbbaaaa.... *4
+........................................................................ *4
+*6
+
+eeeeggffeeeeggggeeeeggggeeeeggggeeeeggggeeeeffggeeeeggggeeeeggggeeeegggg
+eeeeggffeeeeggggeeeeggggeeeeggggeeeeggggeeeeffggeeeeggggeeeeggggeeeegggg
+eeeeggffeeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeffggggeeeeggggeeeegggg
+eeeeggffeeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeffggggeeeeggggeeeegggg
+eeeeggggeeffggggeeeeggggeeeeggffeeeeggggeeeeffggeeeeggggeeeeggggeeeegggg
+eeeeggggeeffggggeeeeggggeeeeggffeeeeggggeeeeffggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeffggeeeeggggeeeeggggffeeggggeeeeggggeeeeffggeeeeggggeeeegggg
+eeeeggggeeeeffggeeeeggggeeeeggggffeeggggeeeeggggeeeeffggeeeeggggeeeegggg
+eeffggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeffgggg
+eeffggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeffgggg
+ffeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggffeeggggeeeeggggeeeegggg
+ffeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggffeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeffggggffeeggggeeeeffggeeeeggggeeeeggggeeeeggggeeeeffggeeeegggg
+eeeeggggeeffggggffeeggggeeeeffggeeeeggggeeeeggggeeeeggggeeeeffggeeeegggg
+eeeeggggeeeeffggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeffggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeffggeeeeffggeeeeggffeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeffggeeeeffggeeeeggffeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+ffeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggffeeeegggg
+ffeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggffeeeegggg
+eeeeggggeeeeggggeeeeffggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeffggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggffeeeeggggeeeeffggeeeeggggeeeeggggeeeeggggeeeeggggeeffggff
+eeeeggggeeeeggffeeeeggggeeeeffggeeeeggggeeeeggggeeeeggggeeeeggggeeffggff
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggffeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggffeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggffeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeeegggg
+eeeeggggeeeeggggffeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeeegggg
+eeeeggggeeeeggffeeeeggggffeeggggeeeeggggffeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggffeeeeggggffeeggggeeeeggggffeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeeeggffeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeeeggffeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeffggffeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeffggffeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeffggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeffggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggffeeeeggggeeffggggeeeeggggeeeeggggeeeeggff
+eeeeggggeeeeggggeeeeggggeeeeggffeeeeggggeeffggggeeeeggggeeeeggggeeeeggff
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeffggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeffggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggffffggggeeeeggffeeeeggggeeeeggggeeeeggggeeeeggggffeeffggeeeeggff
+eeeeggggffffggggeeeeggffeeeeggggeeeeggggeeeeggggeeeeggggffeeffggeeeeggff
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+ffeeffggeeeeffggeeeeggggeeffggggffeeggggeeeeggffeeffggggeeeeggggeeffgggg
+ffeeffggeeeeffggeeeeggggeeffggggffeeggggeeeeggffeeffggggeeeeggggeeffgggg
+eeeeffffeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeffffeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+
+eeeeggffeeeeggggeeeeggggeeeeggggeeeeggggeeeeffggeeeeggggeeeeggggeeeegggg
+eeeeggffeeeeggggeeeeggggeeeeggggeeeeggggeeeeffggeeeeggggeeeeggggeeeegggg
+eeeeggffeeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeffggggeeeeggggeeeegggg
+eeeeggffeeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeffggggeeeeggggeeeegggg
+eeeeggggeeffggggeeeeggggeeeeggffeeeeggggeeeeffggeeeeggggeeeeggggeeeegggg
+eeeeggggeeffggggeeeeggggeeeeggffeeeeggggeeeeffggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeffggeeeeggggeeeeggggffeeggggeeeeggggeeeeffggeeeeggggeeeegggg
+eeeeggggeeeeffggeeeeggggeeeeggggffeeggggeeeeggggeeeeffggeeeeggggeeeegggg
+eeffggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeffgggg
+eeffggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeffgggg
+ffeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggffeeggggeeeeggggeeeegggg
+ffeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggffeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeffggggffeeggggeeeeffggeeeeggggeeeeggggeeeeggggeeeeffggeeeegggg
+eeeeggggeeffggggffeeggggeeeeffggeeeeggggeeeeggggeeeeggggeeeeffggeeeegggg
+eeeeggggeeeeffggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeffggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeffggeeeeffggeeeeggffeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeffggeeeeffggeeeeggffeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+ffeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggffeeeegggg
+ffeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggffeeeegggg
+eeeeggggeeeeggggeeeeffggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeffggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggffeeeeggggeeeeffggeeeeggggeeeeggggeeeeggggeeeeggggeeffggff
+eeeeggggeeeeggffeeeeggggeeeeffggeeeeggggeeeeggggeeeeggggeeeeggggeeffggff
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggffeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggffeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggffeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeeegggg
+eeeeggggeeeeggggffeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeeegggg
+eeeeggggeeeeggffeeeeggggffeeggggeeeeggggffeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggffeeeeggggffeeggggeeeeggggffeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeeeggffeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeeeggffeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeffggffeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeffggffeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeffggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeffggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggffeeeeggggeeffggggeeeeggggeeeeggggeeeeggff
+eeeeggggeeeeggggeeeeggggeeeeggffeeeeggggeeffggggeeeeggggeeeeggggeeeeggff
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeffggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeffggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeffggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggffffggggeeeeggffeeeeggggeeeeggggeeeeggggeeeeggggffeeffggeeeeggff
+eeeeggggffffggggeeeeggffeeeeggggeeeeggggeeeeggggeeeeggggffeeffggeeeeggff
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+ffeeffggeeeeffggeeeeggggeeffggggffeeggggeeeeggffeeffggggeeeeggggeeffgggg
+ffeeffggeeeeffggeeeeggggeeffggggffeeggggeeeeggffeeffggggeeeeggggeeffgggg
+eeeeffffeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+eeeeffffeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeeggggeeeegggg
+
+....ggff....gggg....gggg....gggg....gggg....ffgg....gggg....gggg....gggg
+....ggff....gggg....gggg....gggg....gggg....ffgg....gggg....gggg....gggg
+....ggff....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....ggff....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....ggff....gggg....ffgg....gggg....gggg....gggg
+....gggg....gggg....gggg....ggff....gggg....ffgg....gggg....gggg....gggg
+....gggg....ffgg....gggg....gggg....gggg....gggg....ffgg....gggg....gggg
+....gggg....ffgg....gggg....gggg....gggg....gggg....ffgg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg *6
+....gggg....gggg....gggg....ffgg....gggg....gggg....gggg....ffgg....gggg
+....gggg....gggg....gggg....ffgg....gggg....gggg....gggg....ffgg....gggg
+....gggg....ffgg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....ffgg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....ffgg....ffgg....ggff....gggg....gggg....gggg....gggg....gggg
+....gggg....ffgg....ffgg....ggff....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....ggff....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....ggff....gggg
+....gggg....gggg....ffgg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....ffgg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....ggff....gggg....ffgg....gggg....gggg....gggg....gggg....ggff
+....gggg....ggff....gggg....ffgg....gggg....gggg....gggg....gggg....ggff
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg *4
+....gggg....ggff....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....ggff....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....ggff....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....ggff....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....ggff....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....ggff....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....ggff....gggg....gggg....gggg....gggg....ggff
+....gggg....gggg....gggg....ggff....gggg....gggg....gggg....gggg....ggff
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg *4
+....gggg....gggg....ggff....gggg....gggg....gggg....gggg....ffgg....ggff
+....gggg....gggg....ggff....gggg....gggg....gggg....gggg....ffgg....ggff
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....ffgg....ffgg....gggg....gggg....gggg....ggff....gggg....gggg....gggg
+....ffgg....ffgg....gggg....gggg....gggg....ggff....gggg....gggg....gggg
+....ffff....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....ffff....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+
+....ggff....gggg....gggg....gggg....gggg....ffgg....gggg....gggg....gggg
+....ggff....gggg....gggg....gggg....gggg....ffgg....gggg....gggg....gggg
+....ggff....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....ggff....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....ggff....gggg....ffgg....gggg....gggg....gggg
+....gggg....gggg....gggg....ggff....gggg....ffgg....gggg....gggg....gggg
+....gggg....ffgg....gggg....gggg....gggg....gggg....ffgg....gggg....gggg
+....gggg....ffgg....gggg....gggg....gggg....gggg....ffgg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg *6
+....gggg....gggg....gggg....ffgg....gggg....gggg....gggg....ffgg....gggg
+....gggg....gggg....gggg....ffgg....gggg....gggg....gggg....ffgg....gggg
+....gggg....ffgg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....ffgg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....ffgg....ffgg....ggff....gggg....gggg....gggg....gggg....gggg
+....gggg....ffgg....ffgg....ggff....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....ggff....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....ggff....gggg
+....gggg....gggg....ffgg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....ffgg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....ggff....gggg....ffgg....gggg....gggg....gggg....gggg....ggff
+....gggg....ggff....gggg....ffgg....gggg....gggg....gggg....gggg....ggff
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg *4
+....gggg....ggff....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....ggff....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....ggff....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....ggff....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....ggff....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....ggff....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....ggff....gggg....gggg....gggg....gggg....ggff
+....gggg....gggg....gggg....ggff....gggg....gggg....gggg....gggg....ggff
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg *4
+....gggg....gggg....ggff....gggg....gggg....gggg....gggg....ffgg....ggff
+....gggg....gggg....ggff....gggg....gggg....gggg....gggg....ffgg....ggff
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....ffgg....ffgg....gggg....gggg....gggg....ggff....gggg....gggg....gggg
+....ffgg....ffgg....gggg....gggg....gggg....ggff....gggg....gggg....gggg
+....ffff....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+....ffff....gggg....gggg....gggg....gggg....gggg....gggg....gggg....gggg
+"""

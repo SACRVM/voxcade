@@ -9,9 +9,10 @@ at the top: models face +y), each letter a colour and the layers it fills,
 so a hull stands thicker than its wings and a cockpit rises over both.
 
 Plain Python with PIL for the ground's pictures; the same run makes the
-same files."""
+same files. The level (map.toml, prefabs/*.vvx) is the game's since,
+games/pulsar/make_level.py made its prefabs anew: never run this over
+them unasked."""
 
-import json
 import math
 import random
 import sys
@@ -21,6 +22,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gen_sokovox import write_vox  # noqa: E402
+from vvx import write_map, write_scene  # noqa: E402
 
 GAME = Path(__file__).resolve().parent.parent / "games" / "pulsar"
 
@@ -49,6 +51,16 @@ def model(path, size, frames):
         out.append(frame)
     path.parent.mkdir(parents=True, exist_ok=True)
     write_vox(path, size, out, palette)
+
+
+def prefab(path, size, voxels):
+    """A prefab of the map: (x, y, z, (r, g, b)) in its box, its colours
+    numbered by their first use (the order the map takes them)."""
+    index, body = {}, []
+    for x, y, z, c in sorted({(x, y, z): c for x, y, z, c in voxels if 0 <= x < size[0] and 0 <= y < size[1] and 0 <= z < size[2]}.items()):
+        body.append((x, y, z, index.setdefault(c, len(index) + 1)))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_scene(path, size, body, {i: c for c, i in index.items()})
 
 
 def plan(rows, kinds, tilt=0.0, lift=0):
@@ -335,16 +347,16 @@ def level():
     (GAME / "prefabs").mkdir(parents=True, exist_ok=True)
 
     size, voxels = launch_pad()
-    model(GAME / "prefabs" / "launch_pad.vox", size, [voxels])
-    prefabs["launch_pad"] = "prefabs/launch_pad.vox"
+    prefab(GAME / "prefabs" / "launch_pad.vvx", size, voxels)
+    prefabs["launch_pad"] = "prefabs/launch_pad.vvx"
     place.append({"prefab": "launch_pad", "at": [START[0], START[1], 0]})
 
     rock = [[(96, 88, 82), (120, 110, 100), (80, 74, 70)], [(110, 96, 80), (140, 120, 96), (90, 78, 66)], [(84, 90, 100), (110, 116, 126), (70, 74, 84)]]
     for k in range(8):
         radius = (4, 6, 8, 10, 13, 5, 7, 16)[k]
         size, voxels = blob(radius, k + 1, rock[k % 3])
-        model(GAME / "prefabs" / f"rock_{k}.vox", size, [voxels])
-        prefabs[f"rock_{k}"] = f"prefabs/rock_{k}.vox"
+        prefab(GAME / "prefabs" / f"rock_{k}.vvx", size, voxels)
+        prefabs[f"rock_{k}"] = f"prefabs/rock_{k}.vvx"
     y = 160
     while y < SIZE[1] - 120:
         k = rnd.randrange(8)
@@ -354,8 +366,8 @@ def level():
         y += rnd.randrange(30, 90)
 
     size, voxels = station(240)
-    model(GAME / "prefabs" / "station.vox", size, [voxels])
-    prefabs["station"] = "prefabs/station.vox"
+    prefab(GAME / "prefabs" / "station.vvx", size, voxels)
+    prefabs["station"] = "prefabs/station.vvx"
     place.append({"prefab": "station", "at": [SIZE[0] // 2 - 30, 3400, 6]})
 
     # The floor: stars, a voxel each, far below.
@@ -368,13 +380,7 @@ def level():
     (GAME / "ground").mkdir(parents=True, exist_ok=True)
     height.save(GAME / "ground" / "height.png", optimize=True)
     stars = {"surface": ["#f4f6ff", "#c6d8ff", "#fff0c8", "#9cb8ff", "#ffffff"], "depth": 1, "grain": 1.0}
-    data = {
-        "size": list(SIZE),
-        "ground": {"height": "ground/height.png", "materials": [stars]},
-        "prefabs": prefabs,
-        "place": place,
-    }
-    (GAME / "map.json").write_text(json.dumps(data, indent=1) + "\n")
+    write_map(GAME / "map.toml", SIZE, {"height": "ground/height.png", "materials": [stars]}, prefabs, place)
 
 
 def main():

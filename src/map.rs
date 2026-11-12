@@ -1,150 +1,350 @@
-//! Levels built from a map file instead of one big `.vox`: a height map and
-//! a material map (PNG) for the ground, and `.vox` prefabs placed on it. The
-//! world is put together when the game starts, so a level is a few hundred
-//! kilobytes; the ground is edited in any paint program, objects in any
-//! voxel editor, placements by hand or by a script.
+//! Levels built from a map (`map.toml`, "voxcade map 1") instead of one
+//! big world: a height map and a material map (PNG) for the ground, and
+//! prefabs (`.vvx`, `crate::scene`) placed on it. The world is put together
+//! when the game starts, so a level is a few hundred kilobytes; the ground
+//! is edited in any paint program, placements by hand or by a script.
 //!
-//! ```json
-//! {
-//!   "size": [640, 2048, 80],
-//!   "ground": {
-//!     "height": "ground/height.png",
-//!     "material": "ground/material.png",
-//!     "bedrock": "#28201c",
-//!     "materials": [{ "key": "#e0c080", "surface": ["#d6b880", "#dec189"], "depth": 3,
-//!                     "pattern": 14, "grain": 0.45, "strata": ["#78583a", "#967048"], "band": 2 }]
-//!   },
-//!   "prefabs": { "palm_0": "prefabs/palm_0.vox",
-//!                "grass_0": { "file": "prefabs/grass_0.vox", "soft": true } },
-//!   "place": [
-//!     { "prefab": "palm_0", "at": [120, 300], "turn": 1 },
-//!     { "marker": "enemy", "at": [200, 410] }
-//!   ]
-//! }
+//! ```toml
+//! format = "voxcade map 1"
+//! size = [640, 2048, 80]
+//!
+//! [ground]
+//! height = "ground/height.png"
+//! material = "ground/material.png"
+//! bedrock = "#28201c"
+//!
+//! [[ground.materials]]
+//! key = "#e0c080"
+//! surface = ["#d6b880", "#dec189"]
+//! depth = 3
+//! pattern = 14
+//! grain = 0.45
+//! strata = ["#78583a", "#967048"]
+//! band = 2
+//!
+//! [prefabs]
+//! palm_0 = "prefabs/palm_0.vvx"
+//! grass_0 = { file = "prefabs/grass_0.vvx", soft = true }
+//!
+//! [[put]]
+//! prefab = "palm_0"
+//! at = [120, 300]
+//! turn = 1
+//!
+//! [[put]]
+//! thing = "rifleman"
+//! at = [200, 410]
+//!
+//! [[place]]
+//! name = "gate"
+//! at = [320, 40, 6]
+//! facing = [0, 1]
 //! ```
 //!
 //! The height map's grey value is the height of each column in voxels; its
 //! top row is the north edge of the world. The material map's colours name
-//! the material of each column by its `key`. A prefab is placed with the
-//! cell in the middle of its bottom layer (size / 2) on `at`; `at` with two
-//! numbers stands on the ground there, with three it is exact. `turn` is the
-//! number of quarter turns, anticlockwise seen from above. Marker voxels
-//! inside prefabs place things just like in a `.vox` level. A soft prefab
-//! (grass, shrubs) is seen and can be blown away, but bodies, bullets,
-//! grenades and debris pass through it.
+//! the material of each column by its `key`. A material colours a column's
+//! top `depth` voxels from `surface` (patches `pattern` voxels across,
+//! `grain` of speckle), the rest in bands `band` high from `strata`
+//! (rising and falling by up to `wobble`). A prefab stands with its pivot
+//! (the cell in the middle of its bottom layer, size / 2) on `at`; `at`
+//! with two numbers stands on the ground there, with three it is exact.
+//! `turn` is the number of quarter turns, anticlockwise seen from above.
+//! The `put`s come in order: a later one covers an earlier one, and the
+//! things come in that order (a prefab's markers, `crate::scene`, where
+//! it stands). A soft prefab (grass, shrubs) is seen and can be blown
+//! away, but bodies, bullets, grenades and debris pass through it. The
+//! world's colours are numbered as they come: the bedrock, the materials'
+//! colours, then the prefabs in the order of their names, each one's
+//! palette in order. `[[place]]`s are named places a player arrives at
+//! (`world:go_to(level, place)`), in the world's voxels.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use glam::{IVec2, IVec3};
-use serde::Deserialize;
+use toml_edit::{Document, Item, TableLike};
 
 use crate::files::Files;
+use crate::vvx::{self, Reader};
 use crate::world::Marker;
-use crate::vox;
 use crate::world::{CHUNK, World};
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct MapFile {
-    size: [i32; 3],
-    ground: Ground,
-    #[serde(default)]
-    prefabs: BTreeMap<String, PrefabEntry>,
-    #[serde(default)]
-    place: Vec<Place>,
-    /// Named places a player arrives at (`world:go_to(level, place)`), in
-    /// the world's voxels (not the prefabs' `place`).
-    #[serde(default)]
-    places: Vec<crate::grid::Place>,
+/// The ending of a map's file.
+pub const EXTENSION: &str = "toml";
+/// The format and the version this engine reads and writes.
+pub const FORMAT: &str = "voxcade map 1";
+const FORMAT_NAME: &str = "voxcade map";
+const VERSION: u32 = 1;
+
+/// A map as its file holds it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MapData {
+    pub size: [i32; 3],
+    pub ground: Ground,
+    /// The prefabs by name (the world takes their colours in this order).
+    pub prefabs: BTreeMap<String, PrefabEntry>,
+    pub put: Vec<Put>,
+    pub places: Vec<crate::grid::Place>,
 }
 
-/// A prefab file, or a file with options.
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum PrefabEntry {
-    File(String),
-    With {
-        file: String,
-        #[serde(default)]
-        soft: bool,
-    },
+/// A prefab's file, and whether it is soft.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PrefabEntry {
+    pub file: String,
+    pub soft: bool,
 }
 
-impl PrefabEntry {
-    fn file(&self) -> &str {
-        match self {
-            PrefabEntry::File(file) | PrefabEntry::With { file, .. } => file,
-        }
-    }
-
-    fn soft(&self) -> bool {
-        matches!(self, PrefabEntry::With { soft: true, .. })
-    }
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Ground {
+#[derive(Clone, Debug, PartialEq)]
+pub struct Ground {
     /// Grey PNG: height of every column in voxels.
-    height: String,
+    pub height: String,
     /// Colour PNG: which material every column is made of. Without it every
     /// column is the first material.
-    #[serde(default)]
-    material: Option<String>,
+    pub material: Option<String>,
     /// Colour of the bottom layer, under every column.
-    #[serde(default)]
-    bedrock: Option<String>,
-    materials: Vec<Material>,
+    pub bedrock: Option<String>,
+    pub materials: Vec<Material>,
 }
 
 /// How a column is coloured: the top `depth` layers from `surface`, the
 /// rest in horizontal bands from `strata`.
-#[derive(Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct Material {
+#[derive(Clone, Debug, PartialEq)]
+pub struct Material {
     /// Its colour in the material map.
-    key: Option<String>,
-    surface: Vec<String>,
-    depth: i32,
+    pub key: Option<String>,
+    pub surface: Vec<String>,
+    pub depth: i32,
     /// Size of the smooth patches the surface colours form (0: no patches).
-    pattern: f32,
+    pub pattern: f32,
     /// Share of voxel-by-voxel speckle in the surface colours, 0..1.
-    grain: f32,
-    strata: Vec<String>,
+    pub grain: f32,
+    pub strata: Vec<String>,
     /// Height of each band of strata.
-    band: i32,
+    pub band: i32,
     /// Bands rise and fall across the map by up to this many voxels.
-    wobble: f32,
+    pub wobble: f32,
 }
 
 impl Default for Material {
     fn default() -> Self {
-        Self {
-            key: None,
-            surface: Vec::new(),
-            depth: 1,
-            pattern: 0.0,
-            grain: 1.0,
-            strata: Vec::new(),
-            band: 4,
-            wobble: 0.0,
-        }
+        Self { key: None, surface: Vec::new(), depth: 1, pattern: 0.0, grain: 1.0, strata: Vec::new(), band: 4, wobble: 0.0 }
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Place {
-    #[serde(default)]
-    prefab: Option<String>,
-    #[serde(default)]
-    marker: Option<String>,
-    /// x, y (standing on the ground) or x, y, z.
-    at: Vec<i32>,
-    #[serde(default)]
-    turn: i32,
+/// What stands on the map: a prefab, or a thing of a kind; `at` x, y (on
+/// the ground) or x, y, z.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Put {
+    pub prefab: Option<String>,
+    pub thing: Option<String>,
+    pub at: Vec<i32>,
+    pub turn: i32,
+}
+
+/// A number as TOML writes it: whole numbers without a point.
+fn number(v: f32) -> String {
+    format!("{v}")
+}
+
+fn strings(list: &[String]) -> String {
+    format!("[{}]", list.iter().map(|s| vvx::quoted(s)).collect::<Vec<_>>().join(", "))
+}
+
+impl MapData {
+    /// The map's text.
+    pub fn write(&self) -> String {
+        let [x, y, z] = self.size;
+        let g = &self.ground;
+        let mut out = format!("format = \"{FORMAT}\"\nsize = [{x}, {y}, {z}]    # voxels: across (x), north (y), up (z)\n\n");
+        out += "# The ground: each column as high as the height map's grey (its top row\n# the north edge), of the material whose key the material map's colour is.\n[ground]\n";
+        out += &format!("height = {}\n", vvx::quoted(&g.height));
+        if let Some(m) = &g.material {
+            out += &format!("material = {}\n", vvx::quoted(m));
+        }
+        if let Some(b) = &g.bedrock {
+            out += &format!("bedrock = {}\n", vvx::quoted(b));
+        }
+        let d = Material::default();
+        for m in &g.materials {
+            out += "\n[[ground.materials]]\n";
+            if let Some(k) = &m.key {
+                out += &format!("key = {}\n", vvx::quoted(k));
+            }
+            if !m.surface.is_empty() {
+                out += &format!("surface = {}\n", strings(&m.surface));
+            }
+            if m.depth != d.depth {
+                out += &format!("depth = {}\n", m.depth);
+            }
+            if m.pattern != d.pattern {
+                out += &format!("pattern = {}\n", number(m.pattern));
+            }
+            if m.grain != d.grain {
+                out += &format!("grain = {}\n", number(m.grain));
+            }
+            if !m.strata.is_empty() {
+                out += &format!("strata = {}\n", strings(&m.strata));
+            }
+            if m.band != d.band {
+                out += &format!("band = {}\n", m.band);
+            }
+            if m.wobble != d.wobble {
+                out += &format!("wobble = {}\n", number(m.wobble));
+            }
+        }
+        out += "\n# The prefabs by name: each its file; a soft one (grass) is passed through.\n[prefabs]\n";
+        for (name, p) in &self.prefabs {
+            let key = if name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') && !name.is_empty() { name.clone() } else { vvx::quoted(name) };
+            if p.soft {
+                out += &format!("{key} = {{ file = {}, soft = true }}\n", vvx::quoted(&p.file));
+            } else {
+                out += &format!("{key} = {}\n", vvx::quoted(&p.file));
+            }
+        }
+        out += "\n# What stands on the map, in order: a prefab (turn: quarter turns\n# anticlockwise) or a thing of a kind; at x, y on the ground, or x, y, z.\n";
+        for p in &self.put {
+            out += "[[put]]\n";
+            if let Some(name) = &p.prefab {
+                out += &format!("prefab = {}\n", vvx::quoted(name));
+            }
+            if let Some(kind) = &p.thing {
+                out += &format!("thing = {}\n", vvx::quoted(kind));
+            }
+            out += &format!("at = [{}]\n", p.at.iter().map(i32::to_string).collect::<Vec<_>>().join(", "));
+            if p.turn != 0 {
+                out += &format!("turn = {}\n", p.turn);
+            }
+            out += "\n";
+        }
+        for p in &self.places {
+            out += &format!("[[place]]\nname = {}\nat = [{}, {}, {}]\n", vvx::quoted(&p.name), p.at[0], p.at[1], p.at[2]);
+            if let Some([x, y]) = p.facing {
+                out += &format!("facing = [{x}, {y}]\n");
+            }
+            out += "\n";
+        }
+        out.trim_end().to_string() + "\n"
+    }
+
+    /// The map a text says, every mistake with its line.
+    pub fn read(src: &str) -> Result<Self> {
+        let doc = Document::parse(src).map_err(|e| match e.span() {
+            Some(s) => anyhow!("line {}: {}", vvx::line_of(src, s.start), e.message()),
+            None => anyhow!("{}", e.message()),
+        })?;
+        let r = Reader { src };
+        let top = doc.as_table();
+        vvx::check_format_of(&r, top, FORMAT_NAME, VERSION, "map")?;
+        r.only(top, &["format", "size", "ground", "prefabs", "put", "place"], "a map")?;
+        let size_item = top.get("size").ok_or_else(|| anyhow!("no size = [x, y, z] (the world, in voxels)"))?;
+        let size = r.ints(size_item, "size")?;
+        if size.cmplt(IVec3::ONE).any() {
+            return Err(r.fail(size_item.span(), "size must be positive"));
+        }
+        let text = |t: &dyn TableLike, key: &str, what: &str| -> Result<Option<String>> {
+            match t.get(key) {
+                None => Ok(None),
+                Some(i) => Ok(Some(i.as_str().ok_or_else(|| r.fail(i.span(), format!("{what} must be text")))?.to_string())),
+            }
+        };
+        let list = |t: &dyn TableLike, key: &str| -> Result<Vec<String>> {
+            match t.get(key) {
+                None => Ok(Vec::new()),
+                Some(i) => {
+                    let wrong = || r.fail(i.span(), format!("{key} must be a list of colours, like [\"#d6b880\", \"#dec189\"]"));
+                    i.as_array().ok_or_else(wrong)?.iter().map(|v| v.as_str().map(str::to_string).ok_or_else(wrong)).collect()
+                }
+            }
+        };
+        let whole = |t: &dyn TableLike, key: &str, default: i32| -> Result<i32> {
+            match t.get(key) {
+                None => Ok(default),
+                Some(i) => i.as_integer().map(|v| v as i32).ok_or_else(|| r.fail(i.span(), format!("{key} must be a whole number"))),
+            }
+        };
+        let float = |t: &dyn TableLike, key: &str, default: f32| -> Result<f32> { t.get(key).map_or(Ok(default), |i| r.number(i, key)) };
+        let ground_item = top.get("ground").ok_or_else(|| anyhow!("no [ground]: its height map and materials"))?;
+        let gt = ground_item.as_table_like().ok_or_else(|| r.fail(ground_item.span(), "ground must be a table: [ground]"))?;
+        r.only(gt, &["height", "material", "bedrock", "materials"], "[ground]")?;
+        let mut materials = Vec::new();
+        if let Some(item) = gt.get("materials") {
+            for t in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "materials must be tables: [[ground.materials]]"))? {
+                r.only(t, &["key", "surface", "depth", "pattern", "grain", "strata", "band", "wobble"], "a material")?;
+                let d = Material::default();
+                materials.push(Material {
+                    key: text(t, "key", "key")?,
+                    surface: list(t, "surface")?,
+                    depth: whole(t, "depth", d.depth)?,
+                    pattern: float(t, "pattern", d.pattern)?,
+                    grain: float(t, "grain", d.grain)?,
+                    strata: list(t, "strata")?,
+                    band: whole(t, "band", d.band)?,
+                    wobble: float(t, "wobble", d.wobble)?,
+                });
+            }
+        }
+        let ground = Ground {
+            height: text(gt, "height", "height")?.ok_or_else(|| r.fail(ground_item.span(), "[ground] has no height = \"a grey picture\""))?,
+            material: text(gt, "material", "material")?,
+            bedrock: text(gt, "bedrock", "bedrock")?,
+            materials,
+        };
+        let mut prefabs = BTreeMap::new();
+        if let Some(item) = top.get("prefabs") {
+            let t = item.as_table_like().ok_or_else(|| r.fail(item.span(), "prefabs must be a table: name = \"prefabs/name.vvx\""))?;
+            for (name, entry) in t.iter() {
+                let p = match (entry.as_str(), entry.as_table_like()) {
+                    (Some(file), _) => PrefabEntry { file: file.to_string(), soft: false },
+                    (None, Some(e)) => {
+                        r.only(e, &["file", "soft"], &format!("prefab '{name}'"))?;
+                        let file = text(e, "file", "file")?.ok_or_else(|| r.fail(entry.span(), format!("prefab '{name}' has no file")))?;
+                        let soft = match e.get("soft") {
+                            None => false,
+                            Some(s) => s.as_bool().ok_or_else(|| r.fail(s.span(), "soft must be true or false"))?,
+                        };
+                        PrefabEntry { file, soft }
+                    }
+                    _ => return Err(r.fail(entry.span(), format!("prefab '{name}' must be its file, or {{ file = \"...\", soft = true }}"))),
+                };
+                prefabs.insert(name.to_string(), p);
+            }
+        }
+        let mut put = Vec::new();
+        if let Some(item) = top.get("put") {
+            for t in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "what stands on the map must be tables: [[put]]"))? {
+                r.only(t, &["prefab", "thing", "at", "turn"], "a [[put]]")?;
+                let at_item = t.get("at").ok_or_else(|| anyhow!("a [[put]] has no at (line {})", t.get("prefab").or(t.get("thing")).and_then(Item::span).map_or(0, |s| vvx::line_of(src, s.start))))?;
+                let wrong = || r.fail(at_item.span(), "at must be x, y (on the ground) or x, y, z, whole numbers");
+                let at: Vec<i32> = at_item.as_array().filter(|a| (2..=3).contains(&a.len())).ok_or_else(wrong)?.iter().map(|v| v.as_integer().map(|v| v as i32).ok_or_else(wrong)).collect::<Result<_>>()?;
+                let (prefab, thing) = (text(t, "prefab", "prefab")?, text(t, "thing", "thing")?);
+                if prefab.is_some() == thing.is_some() {
+                    return Err(r.fail(at_item.span(), "a [[put]] is a prefab = \"name\" or a thing = \"kind\", one of them"));
+                }
+                put.push(Put { prefab, thing, at, turn: whole(t, "turn", 0)? });
+            }
+        }
+        let mut places = Vec::new();
+        if let Some(item) = top.get("place") {
+            for t in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "places must be tables: [[place]] with name and at"))? {
+                r.only(t, &["name", "at", "facing"], "a place")?;
+                let name = text(t, "name", "name")?.ok_or_else(|| anyhow!("a place has no name"))?;
+                let at_item = t.get("at").ok_or_else(|| anyhow!("place '{name}' has no at = [x, y, z]"))?;
+                let at = r.ints(at_item, "at")?.to_array();
+                let facing = match t.get("facing") {
+                    None => None,
+                    Some(f) => {
+                        let wrong = || r.fail(f.span(), "facing must be two whole numbers, like [0, -1]");
+                        let v: Vec<i32> = f.as_array().filter(|a| a.len() == 2).ok_or_else(wrong)?.iter().map(|v| v.as_integer().map(|v| v as i32).ok_or_else(wrong)).collect::<Result<_>>()?;
+                        Some([v[0], v[1]])
+                    }
+                };
+                places.push(crate::grid::Place { name, at, facing });
+            }
+        }
+        Ok(Self { size: size.to_array(), ground, prefabs, put, places })
+    }
 }
 
 /// A material with its colours turned into world palette indices.
@@ -262,23 +462,33 @@ fn turn(l: IVec3, quarters: i32) -> IVec3 {
     }
 }
 
-/// Builds the world a map describes. Returns it, the markers to place
-/// things, and every file it was made from (for hot reload).
-pub fn load_map(path: &Path, markers: &HashMap<u8, usize>, names: &[&str]) -> Result<(World, Vec<Marker>, Vec<PathBuf>)> {
-    let (world, found, sources, _) = load_map_at(&Files::disk(), path, markers, names)?;
+/// Builds the world a map describes (`names`: the kinds of things).
+/// Returns it, the markers to place things, and every file it was made from
+/// (for hot reload).
+pub fn load_map(path: &Path, names: &[&str]) -> Result<(World, Vec<Marker>, Vec<PathBuf>)> {
+    let (world, found, sources, _) = load_map_at(&Files::disk(), path, names)?;
     Ok((world, found, sources))
 }
 
 /// The map at `path` of the game's files with its named places.
-pub fn load_map_at(files: &Files, path: &Path, markers: &HashMap<u8, usize>, names: &[&str]) -> Result<crate::levels::Made> {
+pub fn load_map_at(files: &Files, path: &Path, names: &[&str]) -> Result<crate::levels::Made> {
     let text = files.read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    let map: MapFile = serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+    let map = MapData::read(&text).map_err(|e| anyhow!("{}: {e}", path.display()))?;
+    let dir = path.parent().unwrap_or(Path::new("."));
+    let mut prefabs = Vec::new();
+    for (name, entry) in &map.prefabs {
+        let file = dir.join(&entry.file);
+        prefabs.push((name.clone(), crate::scene::load_in(files, &file)?, file));
+    }
+    build(&map, path, files, prefabs, names)
+}
+
+/// The world of a map with its prefabs read (name, scene, file; in the
+/// order of their names).
+pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Vec<(String, crate::scene::Scene, PathBuf)>, names: &[&str]) -> Result<crate::levels::Made> {
     let dir = path.parent().unwrap_or(Path::new("."));
     let mut sources = vec![path.to_path_buf()];
     let size = IVec3::from(map.size);
-    if size.cmple(IVec3::ZERO).any() {
-        bail!("{}: size must be positive", path.display());
-    }
     let mut palette = Palette::new();
 
     // --- ground ---
@@ -405,31 +615,26 @@ pub fn load_map_at(files: &Files, path: &Path, markers: &HashMap<u8, usize>, nam
     }
 
     // --- prefabs ---
+    // Their colours take the world's numbers in the order of their names,
+    // each one's in its palette's order.
     let mut prefabs = HashMap::new();
-    for (name, entry) in &map.prefabs {
-        let prefab_path = dir.join(entry.file());
-        let scene = vox::load_scene_in(files, &prefab_path)?;
-        let anchor = IVec3::new(scene.size.x / 2, scene.size.y / 2, 0);
-        let mut table = [None; 256];
+    for (name, scene, file) in prefab_scenes {
+        let soft = map.prefabs.get(&name).is_some_and(|p| p.soft);
+        let numbers: Vec<u8> = scene.colours.iter().map(|&[r, g, b]| palette.get([r, g, b, 255], soft)).collect::<Result<_>>()?;
+        let anchor = vvx::pivot(scene.size);
         let mut prefab = Prefab { voxels: Vec::new(), markers: Vec::new() };
-        for (p, index) in scene.voxels {
-            let l = p - anchor;
-            if let Some(&kind) = markers.get(&index) {
-                prefab.markers.push((l, kind));
-                continue;
+        for (i, &v) in scene.cells.iter().enumerate() {
+            if v != 0 && (v as usize) <= numbers.len() {
+                prefab.voxels.push((scene.position(i) - anchor, numbers[v as usize - 1]));
             }
-            let i = match table[index as usize] {
-                Some(i) => i,
-                None => {
-                    let i = palette.get(scene.palette[index as usize], entry.soft())?;
-                    table[index as usize] = Some(i);
-                    i
-                }
-            };
-            prefab.voxels.push((l, i));
         }
-        prefabs.insert(name.as_str(), prefab);
-        sources.push(prefab_path);
+        for (cell, k) in scene.found() {
+            let kind = &scene.markers[k];
+            let kind = names.iter().position(|n| n == kind).ok_or_else(|| anyhow!("{}: marker '{kind}' is no kind of thing (c.things: {})", file.display(), names.join(", ")))?;
+            prefab.markers.push((cell - anchor, kind));
+        }
+        prefabs.insert(name, prefab);
+        sources.push(file);
     }
 
     // --- placements ---
@@ -439,17 +644,18 @@ pub fn load_map_at(files: &Files, path: &Path, markers: &HashMap<u8, usize>, nam
         let y = at.y.clamp(0, size.y - 1);
         heights[(x + y * size.x) as usize]
     };
-    for (n, place) in map.place.iter().enumerate() {
+    for (n, place) in map.put.iter().enumerate() {
+        let n = n + 1;
         let at = match place.at[..] {
             [x, y] => IVec3::new(x, y, ground_at(IVec2::new(x, y))),
             [x, y, z] => IVec3::new(x, y, z),
-            _ => bail!("{}: place {n}: 'at' needs x, y or x, y, z", path.display()),
+            _ => bail!("{}: put {n}: 'at' needs x, y or x, y, z", path.display()),
         };
-        match (&place.prefab, &place.marker) {
+        match (&place.prefab, &place.thing) {
             (Some(name), None) => {
                 let prefab = prefabs
                     .get(name.as_str())
-                    .ok_or_else(|| anyhow!("{}: place {n}: no prefab named '{name}'", path.display()))?;
+                    .ok_or_else(|| anyhow!("{}: put {n}: no prefab named '{name}'", path.display()))?;
                 for &(l, i) in &prefab.voxels {
                     world.set_raw(at + turn(l, place.turn), i);
                 }
@@ -461,10 +667,10 @@ pub fn load_map_at(files: &Files, path: &Path, markers: &HashMap<u8, usize>, nam
                 let kind = names
                     .iter()
                     .position(|m| m == name)
-                    .ok_or_else(|| anyhow!("{}: place {n}: no marker named '{name}' (markers: {})", path.display(), names.join(", ")))?;
+                    .ok_or_else(|| anyhow!("{}: put {n}: '{name}' is no kind of thing (c.things: {})", path.display(), names.join(", ")))?;
                 found.push(Marker { kind, cell: at });
             }
-            _ => bail!("{}: place {n}: give either 'prefab' or 'marker'", path.display()),
+            _ => bail!("{}: put {n}: give either 'prefab' or 'thing'", path.display()),
         }
     }
 
@@ -521,28 +727,6 @@ mod tests {
         encoder.write_header().unwrap().write_image_data(data).unwrap();
     }
 
-    /// A one-model `.vox`: voxels as x, y, z, colour index; colours for
-    /// indices 1, 2, ...
-    fn vox_bytes(size: [u32; 3], voxels: &[[u8; 4]], colours: &[[u8; 3]]) -> Vec<u8> {
-        fn chunk(tag: &[u8], content: &[u8], children: &[u8]) -> Vec<u8> {
-            let mut out = tag.to_vec();
-            out.extend((content.len() as u32).to_le_bytes());
-            out.extend((children.len() as u32).to_le_bytes());
-            out.extend(content);
-            out.extend(children);
-            out
-        }
-        let size: Vec<u8> = size.iter().flat_map(|s| s.to_le_bytes()).collect();
-        let mut xyzi = (voxels.len() as u32).to_le_bytes().to_vec();
-        xyzi.extend(voxels.iter().flatten());
-        let mut rgba = vec![0u8; 1024];
-        for (i, c) in colours.iter().enumerate() {
-            rgba[i * 4..i * 4 + 4].copy_from_slice(&[c[0], c[1], c[2], 255]);
-        }
-        let children = [chunk(b"SIZE", &size, &[]), chunk(b"XYZI", &xyzi, &[]), chunk(b"RGBA", &rgba, &[])].concat();
-        [b"VOX ".to_vec(), 150u32.to_le_bytes().to_vec(), chunk(b"MAIN", &[], &children)].concat()
-    }
-
     /// Ground from the height map (north at the top of the image), a prefab
     /// standing on it turned a quarter with its marker turned along, and a
     /// marker placed by name.
@@ -554,30 +738,30 @@ mod tests {
         let mut grey = vec![3u8; 64];
         grey[..32].fill(5);
         write_grey_png(&dir.join("height.png"), 8, 8, &grey);
-        // A post three voxels long along x, with an enemy marker on its end.
-        let post = vox_bytes([3, 1, 2], &[[0, 0, 0, 1], [1, 0, 0, 1], [2, 0, 0, 1], [2, 0, 1, 240]], &[[200, 10, 10]]);
-        std::fs::write(dir.join("post.vox"), post).unwrap();
-        std::fs::write(
-            dir.join("map.json"),
-            r##"{
-                "size": [8, 8, 16],
-                "ground": {
-                    "height": "height.png",
-                    "bedrock": "#000001",
-                    "materials": [{ "surface": ["#00ff00"], "strata": ["#0000ff"] }]
-                },
-                "prefabs": { "post": "post.vox" },
-                "place": [
-                    { "prefab": "post", "at": [2, 1], "turn": 1 },
-                    { "marker": "goal", "at": [6, 6] }
-                ]
-            }"##,
-        )
-        .unwrap();
+        // A post three voxels long along x, with an enemy marker on its end
+        // (its pivot, the middle of its bottom layer, is its middle voxel).
+        let mut post = crate::scene::Scene::new(IVec3::new(3, 1, 2));
+        post.colours = vec![[200, 10, 10]];
+        post.markers = vec!["rifleman".into()];
+        for x in 0..3 {
+            post.cells[x] = 1;
+        }
+        let top = post.index(IVec3::new(2, 0, 1));
+        post.cells[top] = 2;
+        std::fs::write(dir.join("post.vvx"), post.write()).unwrap();
+        let map = MapData {
+            size: [8, 8, 16],
+            ground: Ground { height: "height.png".into(), material: None, bedrock: Some("#000001".into()), materials: vec![Material { surface: vec!["#00ff00".into()], strata: vec!["#0000ff".into()], ..Material::default() }] },
+            prefabs: BTreeMap::from([("post".to_string(), PrefabEntry { file: "post.vvx".into(), soft: false })]),
+            put: vec![Put { prefab: Some("post".into()), thing: None, at: vec![2, 1], turn: 1 }, Put { prefab: None, thing: Some("goal".into()), at: vec![6, 6], turn: 0 }],
+            places: Vec::new(),
+        };
+        let text = map.write();
+        assert_eq!(MapData::read(&text).unwrap(), map, "{text}");
+        std::fs::write(dir.join("map.toml"), text).unwrap();
 
         let (goal, enemy) = (0, 1);
-        let markers = HashMap::from([(240u8, enemy)]);
-        let (world, found, sources) = load_map(&dir.join("map.json"), &markers, &["goal", "rifleman"]).unwrap();
+        let (world, found, sources) = load_map(&dir.join("map.toml"), &["goal", "rifleman"]).unwrap();
         std::fs::remove_dir_all(&dir).ok();
         let rgb = |p: IVec3| world.palette[world.get(p) as usize];
 
@@ -607,20 +791,15 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("voxcade-tower-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         write_grey_png(&dir.join("height.png"), 64, 64, &[1; 64 * 64]);
-        let tower = Path::new("games/moreblood/prefabs/tower.vox").canonicalize().unwrap();
+        let tower = Path::new("games/moreblood/prefabs/tower.vvx").canonicalize().unwrap();
         let map = format!(
-            r##"{{ "size": [64, 64, 48],
-                 "ground": {{ "height": "height.png", "materials": [{{ "surface": ["#808080"] }}] }},
-                 "prefabs": {{ "tower": {:?} }},
-                 "place": [{{ "prefab": "tower", "at": [32, 32] }}] }}"##,
+            "format = \"{FORMAT}\"\nsize = [64, 64, 48]\n[ground]\nheight = \"height.png\"\n[[ground.materials]]\nsurface = [\"#808080\"]\n[prefabs]\ntower = {:?}\n[[put]]\nprefab = \"tower\"\nat = [32, 32]\n",
             tower.to_string_lossy()
         );
-        std::fs::write(dir.join("map.json"), map).unwrap();
+        std::fs::write(dir.join("map.toml"), map).unwrap();
         let mut cfg = crate::shooter::tests::kit();
         let names = crate::sim::things::names(&cfg);
-        let kind = |name: &str| names.iter().position(|n| *n == name).unwrap();
-        let table = HashMap::from([(240u8, kind("rifleman")), (251u8, kind("guard"))]);
-        let (world, markers, _) = load_map(&dir.join("map.json"), &table, &names).unwrap();
+        let (world, markers, _) = load_map(&dir.join("map.toml"), &names).unwrap();
         std::fs::remove_dir_all(&dir).ok();
 
         cfg.player.spawn = [4.0, 4.0];

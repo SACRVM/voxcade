@@ -1,38 +1,34 @@
 #!/usr/bin/env python3
-"""Pulsar's asteroids, launch pad and station (prefabs/*.vox), made anew
+"""Pulsar's asteroids, launch pad and station (prefabs/*.vvx), made anew
 over what tools/gen_pulsar.py made: rocks of broken, uneven shapes instead
 of balls, the deck and the station's hull without a checker pattern.
-map.json places them as before. The same run makes the same files:
+map.toml places them as before. The same run makes the same files (the
+game's are the user's since: never run it over them unasked):
 
     python3 make_level.py
 """
 
-import json
 import math
 import random
-import struct
+import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent.parent / "tools"))
+from vvx import read_map, write_map, write_scene  # noqa: E402
+
 FLY = 40
 
 
-def write_vox(path, size, voxels):
-    """voxels: (x, y, z, (r, g, b)); one frame, a palette of its colours."""
+def write_prefab(path, size, voxels):
+    """voxels: (x, y, z, (r, g, b)); a prefab of one frame, its colours
+    numbered by their first use (the order the map takes them)."""
     index, body = {}, []
     for x, y, z, c in voxels:
         if 0 <= x < size[0] and 0 <= y < size[1] and 0 <= z < size[2]:
             body.append((x, y, z, index.setdefault(c, len(index) + 1)))
     assert len(index) <= 255, f"{path}: {len(index)} colours"
-
-    def chunk(cid, data, kids=b""):
-        return cid + struct.pack("<ii", len(data), len(kids)) + data + kids
-
-    pal = b"".join(struct.pack("BBBB", *c, 255) for c in index) + b"\0\0\0\xff" * (256 - len(index))
-    kids = chunk(b"SIZE", struct.pack("<iii", *size))
-    kids += chunk(b"XYZI", struct.pack("<i", len(body)) + b"".join(struct.pack("BBBB", *v) for v in body))
-    kids += chunk(b"RGBA", pal)
-    path.write_bytes(b"VOX " + struct.pack("<i", 150) + chunk(b"MAIN", b"", kids))
+    write_scene(path, size, body, {i: c for c, i in index.items()})
 
 
 # ---------------------------------------------------------------- noise
@@ -183,17 +179,17 @@ CLEAR = FLY - 8   # the asteroids' tops stay under this: what flies passes over 
 
 
 def lower_rocks(tops):
-    """Every asteroid in map.json at a height under the ships, some deeper
+    """Every asteroid in map.toml at a height under the ships, some deeper
     than others: they drift by below, nothing runs into them."""
-    path = HERE / "map.json"
-    level = json.loads(path.read_text())
+    path = HERE / "map.toml"
+    level = read_map(path)
     rnd = random.Random(31)
-    for p in level["place"]:
-        if p["prefab"] in tops:
+    for p in level["put"]:
+        if p.get("prefab") in tops:
             room = CLEAR - tops[p["prefab"]]
             assert room >= 0, f"{p['prefab']} is too tall to fly over"
             p["at"][2] = rnd.randint(max(0, room - 14), room)
-    path.write_text(json.dumps(level, indent=1) + "\n")
+    write_map(path, level["size"], level["ground"], level["prefabs"], level["put"], level["place"])
 
 
 def main():
@@ -201,11 +197,11 @@ def main():
     tops = {}
     for k, radius in enumerate(RADII):
         size, voxels = rock(radius, k + 1, ROCKS[k % 3])
-        write_vox(prefabs / f"rock_{k}.vox", size, voxels)
+        write_prefab(prefabs / f"rock_{k}.vvx", size, voxels)
         tops[f"rock_{k}"] = max(v[2] for v in voxels) + 1
     lower_rocks(tops)
-    write_vox(prefabs / "launch_pad.vox", *launch_pad())
-    write_vox(prefabs / "station.vox", *station(240))
+    write_prefab(prefabs / "launch_pad.vvx", *launch_pad())
+    write_prefab(prefabs / "station.vvx", *station(240))
     print(f"wrote {prefabs}")
 
 

@@ -1,7 +1,7 @@
 # Voxcade replay: Voxkeep, 473 ticks, quit, score 100
 version = 1
 game = "Voxkeep"
-fingerprint = "8d758e73e97df6aa"
+fingerprint = "459374a5cb3b9e44"
 ticks = 473
 outcome = "quit"
 score = 100

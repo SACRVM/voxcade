@@ -457,7 +457,7 @@ and docs; each a commit of its own:
      the levels rise. The trip is made on Sunday (cake Sunday: the
      family's day), from 7:00 to 18:00; a letter not answered is simply
      replaced next Saturday.
-   - **The road, a level of its own** (`levels/02_road.json`, first
+   - **The road, a level of its own** (`levels/02_road.toml`, first
      made by the generator, then the user's in the level editor): the
      farm's gate at the edge where the merchants come is a place
      (`world:go_to("road", "farm")`), the road winds north through

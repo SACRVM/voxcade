@@ -1,0 +1,108 @@
+format = "voxcade voxel 1"
+size = [81, 81, 6]
+
+# The colours are the world's numbers in this order (the first is 1);
+# a marker places a thing of that kind instead of a voxel.
+[palette]
+a = "#9c9a94"
+b = "#807e78"
+c = "#acaaa4"
+d = "#e6be28"
+e = "#dc3c28"
+f = { marker = "goal" }
+g = { marker = "gunship" }
+
+[[frame]]
+layers = """
+ccccccccbaaaaaaaaaaaaaaabcccccccccccccccbaaaaaaaaaaaaaaabcccccccccccccccbaaaaaaa *7
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+aaaaaaaabcccccccccccccccbaaaaaaaaaaaaaaabcccccccccccccccbaaaaaaaaaaaaaaabccccccc *15
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+ccccccccbaaaaaaaaaaaaaaabcccccccccccccccbaaaaaaaaaaaaaaabcccccccccccccccbaaaaaaa *15
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+aaaaaaaabcccccccccccccccbaaaaaaaaaaaaaaabcccccccccccccccbaaaaaaaaaaaaaaabccccccc *15
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+ccccccccbaaaaaaaaaaaaaaabcccccccccccccccbaaaaaaaaaaaaaaabcccccccccccccccbaaaaaaa *15
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+aaaaaaaabcccccccccccccccbaaaaaaaaaaaaaaabcccccccccccccccbaaaaaaaaaaaaaaabccccccc *8
+
+ccccccccbaaaaaaaaaaaaaaabcccccccccccccccbaaaaaaaaaaaaaaabcccccccccccccccbaaaaaaa *7
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+aaaaaaaabcccccccccccccccbaaaaaaaaaddddddddddddccccccccccbaaaaaaaaaaaaaaabccccccc
+aaaaaaaabcccccccccccccccbaaaaaddddddddddddddddddddccccccbaaaaaaaaaaaaaaabccccccc
+aaaaaaaabcccccccccccccccbaaaddddddddddddddddddddddddccccbaaaaaaaaaaaaaaabccccccc
+aaaaaaaabcccccccccccccccbddddddddddaaaaabccccddddddddddcbaaaaaaaaaaaaaaabccccccc
+aaaaaaaabcccccccccccccccdddddddaaaaaaaaabccccccccdddddddbaaaaaaaaaaaaaaabccccccc
+aaaaaaaabcccccccccccccddddddaaaaaaaaaaaabcccccccccccddddddaaaaaaaaaaaaaabccccccc
+aaaaaaaabccccccccccccdddddaaaaaaaaaaaaaabcccccccccccccdddddaaaaaaaaaaaaabccccccc
+aaaaaaaabccccccccccdddddbaaaaaaaaaaaaaaabcccccccccccccccdddddaaaaaaaaaaabccccccc
+aaaaaaaabcccccccccdddddcbaaaaaaaaaaaaaaabcccccccccccccccbdddddaaaaaaaaaabccccccc
+aaaaaaaabccccccccdddddccbaaaaaaaaaaaaaaabcccccccccccccccbadddddaaaaaaaaabccccccc
+aaaaaaaabcccccccdddddcccbaaaaaaaaaaaaaaabcccccccccccccccbaadddddaaaaaaaabccccccc
+aaaaaaaabccccccddddcccccbaaaaaaaaaaaaaaabcccccccccccccccbaaaaddddaaaaaaabccccccc
+aaaaaaaabccccccddddcccccbaaaaaaaaaaaaaaabcccccccccccccccbaaaaddddaaaaaaabccccccc
+aaaaaaaabcccccddddccccccbaaaaaaaaaaaaaaabcccccccccccccccbaaaaaddddaaaaaabccccccc
+aaaaaaaabccccddddcccccccbadddddaaaaaaaaabccccccccdddddccbaaaaaaddddaaaaabccccccc
+bbbbbbbbbbbbbdddbbbbbbbbbbdddddbbbbbbbbbbbbbbbbbbdddddbbbbbbbbbbdddbbbbbbbbbbbbb
+ccccccccbaaadddaaaaaaaaabcdddddcccccccccbaaaaaaaadddddaabccccccccdddccccbaaaaaaa
+ccccccccbaaddddaaaaaaaaabcdddddcccccccccbaaaaaaaadddddaabccccccccddddcccbaaaaaaa
+ccccccccbaadddaaaaaaaaaabcdddddcccccccccbaaaaaaaadddddaabcccccccccdddcccbaaaaaaa
+ccccccccbaadddaaaaaaaaaabcdddddcccccccccbaaaaaaaadddddaabcccccccccdddcccbaaaaaaa
+ccccccccbadddaaaaaaaaaaabcdddddcccccccccbaaaaaaaadddddaabccccccccccdddccbaaaaaaa
+ccccccccbadddaaaaaaaaaaabcdddddcccccccccbaaaaaaaadddddaabccccccccccdddccbaaaaaaa
+ccccccccbddddaaaaaaaaaaabcdddddcccccccccbaaaaaaaadddddaabccccccccccddddcbaaaaaaa
+ccccccccbdddaaaaaaaaaaaabcdddddcccccccccbaaaaaaaadddddaabcccccccccccdddcbaaaaaaa *3
+ccccccccddddaaaaaaaaaaaabcdddddcccccccccbaaaaaaaadddddaabcccccccccccddddbaaaaaaa
+ccccccccdddaaaaaaaaaaaaabcdddddcccccccccbaaaaaaaadddddaabccccccccccccdddbaaaaaaa *3
+ccccccccdddaaaaaaaaaaaaabcddddddddddddddddddddddddddddaabccccccccccccdddbaaaaaaa
+bbbbbbbbdddbbbbbbbbbbbbbbbddddddddddddddddddddddddddddbbbbbbbbbbbbbbbdddbbbbbbbb
+aaaaaaaadddcccccccccccccbaddddddddddddddddddddddddddddccbaaaaaaaaaaaadddbccccccc
+aaaaaaaadddcccccccccccccbaddddddddddddddddddddddddddddccbaaaaaaaaaaaadddbccccccc
+aaaaaaaadddcccccccccccccbadddddaaaaaaaaabccccccccdddddccbaaaaaaaaaaaadddbccccccc *3
+aaaaaaaaddddccccccccccccbadddddaaaaaaaaabccccccccdddddccbaaaaaaaaaaaddddbccccccc
+aaaaaaaabdddccccccccccccbadddddaaaaaaaaabccccccccdddddccbaaaaaaaaaaadddabccccccc *3
+aaaaaaaabddddcccccccccccbadddddaaaaaaaaabccccccccdddddccbaaaaaaaaaaddddabccccccc
+aaaaaaaabcdddcccccccccccbadddddaaaaaaaaabccccccccdddddccbaaaaaaaaaadddaabccccccc
+aaaaaaaabcdddcccccccccccbadddddaaaaaaaaabccccccccdddddccbaaaaaaaaaadddaabccccccc
+aaaaaaaabccdddccccccccccbadddddaaaaaaaaabccccccccdddddccbaaaaaaaaadddaaabccccccc
+aaaaaaaabccdddccccccccccbadddddaaaaaaaaabccccccccdddddccbaaaaaaaaadddaaabccccccc
+aaaaaaaabccddddcccccccccbadddddaaaaaaaaabccccccccdddddccbaaaaaaaaddddaaabccccccc
+bbbbbbbbbbbbdddbbbbbbbbbbbdddddbbbbbbbbbbbbbbbbbbdddddbbbbbbbbbbbdddbbbbbbbbbbbb
+ccccccccbaaaadddaaaaaaaabcdddddcccccccccbaaaaaaaadddddaabcccccccdddcccccbaaaaaaa
+ccccccccbaaaaddddaaaaaaabcdddddcccccccccbaaaaaaaadddddaabccccccddddcccccbaaaaaaa
+ccccccccbaaaaaddddaaaaaabcccccccccccccccbaaaaaaaaaaaaaaabcccccddddccccccbaaaaaaa
+ccccccccbaaaaaaddddaaaaabcccccccccccccccbaaaaaaaaaaaaaaabccccddddcccccccbaaaaaaa
+ccccccccbaaaaaaddddaaaaabcccccccccccccccbaaaaaaaaaaaaaaabccccddddcccccccbaaaaaaa
+ccccccccbaaaaaaadddddaaabcccccccccccccccbaaaaaaaaaaaaaaabccdddddccccccccbaaaaaaa
+ccccccccbaaaaaaaadddddaabcccccccccccccccbaaaaaaaaaaaaaaabcdddddcccccccccbaaaaaaa
+ccccccccbaaaaaaaaadddddabcccccccccccccccbaaaaaaaaaaaaaaabdddddccccccccccbaaaaaaa
+ccccccccbaaaaaaaaaadddddbcccccccccccccccbaaaaaaaaaaaaaaadddddcccccccccccbaaaaaaa
+ccccccccbaaaaaaaaaaaadddddccccccccccccccbaaaaaaaaaaaaadddddcccccccccccccbaaaaaaa
+ccccccccbaaaaaaaaaaaaaddddddccccccccccccbaaaaaaaaaaaddddddccccccccccccccbaaaaaaa
+ccccccccbaaaaaaaaaaaaaaadddddddcccccccccbaaaaaaaadddddddbcccccccccccccccbaaaaaaa
+ccccccccbaaaaaaaaaaaaaaabddddddddddcccccbaaaaddddddddddabcccccccccccccccbaaaaaaa
+ccccccccbaaaaaaaaaaaaaaabcccddddddddddddddddddddddddaaaabcccccccccccccccbaaaaaaa
+ccccccccbaaaaaaaaaaaaaaabcccccddddddddddddddddddddaaaaaabcccccccccccccccbaaaaaaa
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbddddddddddddbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+aaaaaaaabcccccccccccccccbaaaaaaaaaaaaaaabcccccccccccccccbaaaaaaaaaaaaaaabccccccc *8
+
+a..............................................................................a
+................................................................................ *38
+........................................f.......................................
+................................................................................ *39
+a..............................................................................a
+
+a..............................................................................a
+................................................................................ *38
+........................................g.......................................
+................................................................................ *39
+a..............................................................................a
+
+a..............................................................................a
+................................................................................ *78
+a..............................................................................a
+
+e..............................................................................e
+................................................................................ *78
+e..............................................................................e
+"""

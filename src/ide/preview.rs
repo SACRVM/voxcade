@@ -50,9 +50,15 @@ pub struct Preview {
 
 impl Preview {
     /// The model (or block) `file` of the game in `dir`: a `.vvx`, or a
-    /// MagicaVoxel `.vox` to look at (a world, a prefab).
+    /// MagicaVoxel `.vox` to look at.
     pub fn model(dir: &Path, file: &str, cfg: &GameConfig) -> Result<Self> {
         Self::of(Editor::look_at_model(dir, file)?, dir, cfg)
+    }
+
+    /// A world or a map's prefab of the game in `dir` (`crate::scene`):
+    /// its colours, shown only.
+    pub fn scene(dir: &Path, file: &str, cfg: &GameConfig) -> Result<Self> {
+        Self::of(Editor::look_at_scene(dir, file)?, dir, cfg)
     }
 
     /// The level of blocks of the game in `dir`, as the game's camera sees

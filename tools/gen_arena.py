@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Generates the demo arena: games/arena/world.vox and games/arena/player.vox.
+"""Generates the demo arena: games/arena/world.vvx and games/arena/player.vox.
 
-The level is written as a MagicaVoxel scene of 256x256 models, so it opens in
-MagicaVoxel, vengi or Goxel for hand-editing. Re-running overwrites both files.
-The world stays a .vox; the player is written as player.vox, which the game
+The level is written as Voxcade's own text (a world's .vvx, src/scene.rs,
+through tools/vvx.py): its colours numbered in the palette's order. Re-running
+overwrites both files: the game's are the user's, so run it into another
+folder (the output-dir). The player is written as player.vox, which the game
 does not read: bring it in with `voxcade import games/arena games/arena/player.vox`.
 
 usage: python3 tools/gen_arena.py [output-dir]
@@ -11,10 +12,12 @@ usage: python3 tools/gen_arena.py [output-dir]
 
 import math
 import random
-import re
 import struct
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from vvx import write_scene  # noqa: E402
 
 W, D, H = 512, 512, 48
 TILE = 256
@@ -317,25 +320,6 @@ def write_vox(path, models, colors):
     return len(data)
 
 
-NONZERO = re.compile(rb"[^\x00]")
-
-
-def world_models():
-    models = []
-    for ty in range(0, D, TILE):
-        for tx in range(0, W, TILE):
-            data = bytearray()
-            for z in range(H):
-                for y in range(ty, ty + TILE):
-                    start = tx + y * W + z * W * D
-                    row = bytes(vox[start:start + TILE])
-                    for m in NONZERO.finditer(row):
-                        data += bytes((m.start(), y - ty, z, row[m.start()]))
-            if data:
-                models.append(((TILE, TILE, H), data, (tx + TILE // 2, ty + TILE // 2, H // 2)))
-    return models
-
-
 PLAYER_COLORS = [(240, 240, 240), (63, 182, 232), (35, 50, 74), (255, 90, 90), (125, 249, 255), (90, 96, 112)]
 WHITE, CYAN, DARK, RED, EYE, GRAY = range(1, 7)
 
@@ -391,8 +375,9 @@ def player_model():
 
 out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parent.parent / "games" / "arena"
 out.mkdir(parents=True, exist_ok=True)
-size = write_vox(out / "world.vox", world_models(), list(PALETTE.values()))
-print(f"wrote {out / 'world.vox'} ({size // 1024} KiB, {W}x{D}x{H})")
+voxels = [(i % W, i // W % D, i // (W * D), v) for i, v in enumerate(vox) if v]
+write_scene(out / "world.vvx", (W, D, H), voxels, {i + 1: rgb for i, rgb in enumerate(PALETTE.values())}, world=True)
+print(f"wrote {out / 'world.vvx'} ({(out / 'world.vvx').stat().st_size // 1024} KiB, {W}x{D}x{H})")
 models, colors = player_model()
 write_vox(out / "player.vox", models, colors)
 print(f"wrote {out / 'player.vox'}")

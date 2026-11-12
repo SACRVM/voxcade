@@ -57,7 +57,7 @@ the earlier idea of separate editors that feel like a game (`engine.md`,
 | Lua editor | Highlighting, diagnostics, completion, hover docs, signature help, go to definition, references, rename, search in the project, formatting: all through LSP from LuaLS. | `lua/voxcade.lua`, `.luarc.json` (step 4) |
 | Voxel editor | Set, delete, paint, box, fill, mirror, the palette (glass, metal, rough, glow on a colour), frames with onion skin, a preview in the engine's light. | `.vvx`, text (`src/vvx.rs`) |
 | Image editor (maps) | Raise, lower, smooth, flatten the height; paint material. Best right in the 3D level, the 2D image as a second view. | 8-bit grey = height in voxels (`src/map.rs`) |
-| Level editor | Ground, prefabs (quarter turns), things and markers by kind; writes `map.json`. | mouse and picking missing (phase 3 so far) |
+| Level editor | Ground, prefabs (quarter turns), things and markers by kind; writes `map.toml`. | mouse and picking missing (phase 3 so far) |
 | Play | The engine's view in the main area, starting at the spot being edited. | offscreen rendering (`headless.rs`), `place_player` |
 | Build | One file per system, LÖVE's way: the ready runtime and the zipped game. Lua only, so no compiler for the user, and every system builds for all. | CI builds the runtimes |
 | Terminal and agent | A PTY and a terminal emulator running Claude Code (or Codex, Gemini CLI). | – |
@@ -250,7 +250,7 @@ What the research asked of step 4, and what came of it (2026-10-16):
 4. **`conf.lua` instead of `game.toml`**, run sandboxed and
    deterministically; the replays' fingerprint takes the effective
    settings and `main.lua` as tokens (comments and layout do not count).
-   Editors write data files (`map.json`, PNGs, `.vvx`), not `conf.lua`;
+   Editors write data files (`map.toml`, `levels/*.toml`, PNGs, `.vvx`), not `conf.lua`;
    should one ever need to, `full_moon` keeps comments and layout. Kinds of
    things are read through the engine (`level:things`, `Game::inspect`),
    never by parsing the file.
@@ -262,8 +262,8 @@ What the research asked of step 4, and what came of it (2026-10-16):
 Still open, for phase 2: a control API of the session without `app::run`
 (run, pause, step, seek over a ring of snapshots, the frame as a picture;
 `voxcade inspect` is its first piece); writing files safely (atomically
-through a temporary file and a rename, `map.json` with sorted keys and one
-entry a line, the watcher telling its own writes apart) and changing levels
+through a temporary file and a rename, `map.toml` with sorted prefabs and
+one table a placement, the watcher telling its own writes apart) and changing levels
 in place (set a column, a material or a prefab and remesh only the chunks
 touched); checking that dot_vox keeps the `_trans` material when writing
 (the Huey's cockpit needs it).
@@ -426,8 +426,8 @@ Stage by stage (the plan of 2026-10-18):
    `.vox` is not shaped: the editor says how to bring it in (`voxcade
    import`, the upgrade page); nothing writes `.vox`. In the main area a
    picture of what an editor opens (`ide/preview.rs`): a model or block
-   round about (a figure of parts whole, a `.vox` world or prefab to look
-   at), the level whole from the front, in the game's light, turned by
+   round about (a figure of parts whole; a world or a map's prefab, a
+   `.vvx` the voxel editor does not shape, to look at), the level whole from the front, in the game's light, turned by
    dragging; a `.vvx` is text as well: TEXT beside EDIT shows it to read
    and change as a sound's text, read after every change (`vvx::read`,
    "LINE n: why"), PICTURE back; the editor's own view without its panels, drawn
@@ -512,8 +512,11 @@ Stage by stage (the plan of 2026-10-18):
 7. **Build** (done): BUILD saves the text being changed and packs this
    program and the game into `builds/<game>-<system>.zip`
    (`src/ide/export.rs`): a folder named for the game with the program,
-   `games/<game>/` (no hidden files, no `replays/tests/`; the title's
-   replays stay), a launcher to double-click (`play-<game>.sh`,
+   `games/<game>/` (no hidden files, no `replays/tests/`, no `shots/`,
+   nothing the game's `.gitignore` files ignore (`src/gitignore.rs`; the
+   list and the USED and rename searches leave the same out); the build
+   names ignored files the game still names in quotes, which it will not
+   find; the title's replays stay), a launcher to double-click (`play-<game>.sh`,
    `.command` or `.bat`, as `dist/`) and a short README; unsigned, for
    this system. The bar says where it went. Test
    `an_export_holds_the_game_and_runs` (unpacked, the game has the same

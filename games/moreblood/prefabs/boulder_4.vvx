@@ -1,0 +1,113 @@
+format = "voxcade voxel 1"
+size = [27, 19, 7]
+
+# The colours are the world's numbers in this order (the first is 1);
+# a marker places a thing of that kind instead of a voxel.
+[palette]
+a = "#706050"
+b = "#8e7e6a"
+c = "#9e8e78"
+d = "#aa9a84"
+e = "#b8a892"
+
+[[frame]]
+layers = """
+.......................
+.......................
+.....................aa
+.....a..........aaaaaaa
+..aaaaa.....aaaaaaaaaaa
+..aaaaaa..aaaaaaaaaaaaa
+aaaaaaaa.aaaaaaaaaaaaaa
+aaaaaaaaaaaaaaaaaaaaaaa
+.aaaaaaaaaaaaaaaaaaaaaa
+..aaaaaaaaaaaaaaaaaaaaa
+...aaaaaaaaaaaaaaaaaaaa
+.....aaaaaaaaaaaaaaaaaa
+.....aaaaaaaaaaaaaaaaa.
+.......aaaaaaaaaaaa....
+..........aaaaaaa......
+.............a.........
+....................... *3
+
+.......................
+.......................
+....................aaa
+................aaaaaaa
+....aaa......aaaaaaaaaa
+...aaaaa...aaaaaaaaaaaa
+..aaaaaa.aaaaaaaaaaaaaa
+.aaaaaaaaaaaaaaaaaaaaaa
+..aaaaaaaaaaaaaaaaaaaaa
+....aaaaaaaaaaaaaaaaaaa
+.....aaaaaaaaaaaaaaaaaa
+......aaaaaaaaaaaaaaaaa
+......aaaaaaaaaaaaaaa..
+.......aaaaaaaaaaaa....
+..........aaaaaaa......
+....................... *4
+
+...................a...
+.......................
+......................c
+..................bcccc
+...............ccbbbccc
+....bba....cdddccbbbccc
+...bbccc..bcdddccbbcccc
+...ccccc.abcccccccccccb
+....cccccabcccccccccbcc
+.....dddccabcccccbbbbcc
+.......dccabbbbbbbbbccc
+........dccbbbbbbbbbcc.
+.......bbccbccccbbbb...
+.......bbbbbccccba.....
+..........bbcccc.......
+.......................
+.......................
+...................b...
+............ab.........
+
+....................... *3
+......................c
+..................ccccc
+...............ccbbcccc
+......c.....dddccbbbccc
+......cc...ddddccbbbccc
+.........bacdddccbbcbbb
+.........bbbccccccbbbbb
+..........bbbbbbbbbbbcc
+.........cabbbbbbbbbbc.
+..........cbbbbbabb....
+.........abbbbbb.......
+....................... *5
+
+....................... *5
+...................dddd
+...............dddddddd
+............eedddccdddd
+...........aeeeddcccdcc
+..........d.eeeddcbbccc
+...........cdedccbbcccc
+..........ccccccccccc..
+..........ccccccac.....
+...........ccc.........
+....................... *5
+
+....................... *6
+...................dddd
+................ddddddd
+............ddddddddddc
+...........aa.dddcdeccc
+...........ddeeeedbbcc.
+...........ddddccbbb...
+...........cdddca......
+....................... *6
+
+....................... *7
+...................ddd.
+................dd.de.e
+.............ddddeeeecc
+................eee.c..
+.............d.a.......
+....................... *7
+"""

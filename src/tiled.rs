@@ -458,14 +458,14 @@ mod tests {
         let dir = folder("into", &[&[0, 0, 0, 1, 2, 3]], "");
         let mine = Block::empty(2);
         mine.save(&blocks::path(&dir, "2")).unwrap();
-        let said = import_into(&dir, &dir.join("map.json"), "level.json", false).unwrap();
+        let said = import_into(&dir, &dir.join("map.json"), "level.toml", false).unwrap();
         assert!(said.contains("2 drawn out, 1 kept"), "{said}");
         assert_eq!(Block::load(&blocks::path(&dir, "2"), 2).unwrap().cells(), mine.cells());
         assert!(dir.join("blocks").join(SHEET).exists());
-        let e = import_into(&dir, &dir.join("map.json"), "level.json", false).unwrap_err().to_string();
+        let e = import_into(&dir, &dir.join("map.json"), "level.toml", false).unwrap_err().to_string();
         assert!(e.contains("--over"), "{e}");
-        assert!(import_into(&dir, &dir.join("map.json"), "level.json", true).is_ok());
-        let level = GridLevel::read(&dir.join("level.json")).unwrap();
+        assert!(import_into(&dir, &dir.join("map.json"), "level.toml", true).is_ok());
+        let level = GridLevel::read(&dir.join("level.toml")).unwrap();
         assert_eq!(level.blocks.len(), 3);
         std::fs::remove_dir_all(&dir).ok();
     }

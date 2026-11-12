@@ -3,9 +3,14 @@
 //! begun late, to try things) and its assets in a few groups (the level,
 //! models, blocks, images, sounds, music, the rest; the models, sounds and
 //! music listed even when empty). Hidden files, the recorded runs
-//! (`replays/`) and what BUILD made (`builds/`) are left out.
+//! (`replays/`), what BUILD made (`builds/`), the test renders `shots/` and
+//! whatever the game's `.gitignore` files ignore (`crate::gitignore`) are
+//! left out: the list shows what belongs to the game. (The engine still
+//! reads an ignored file the game names; only the lists leave it out.)
 
 use std::path::Path;
+
+use crate::gitignore::Ignore;
 
 /// The folder's files, by their paths in it (with `/` between folders).
 #[derive(Debug, Default, PartialEq)]
@@ -43,7 +48,7 @@ impl Files {
     /// see whether `scan` has anything new to say.
     pub fn names(dir: &Path) -> Vec<String> {
         let mut all = Vec::new();
-        walk(dir, "", 0, &mut all);
+        walk(dir, "", 0, &Ignore::for_game(dir), &mut all);
         all.sort();
         all
     }
@@ -72,7 +77,10 @@ impl Files {
                 }
                 // The levels the game loads lie at the top (a Tiled map
                 // beside one is only where it came from).
-                _ if f == "level.json" || f == "map.json" || (f.starts_with("levels/") && ext == "json") => 0,
+                // The worlds and a map's prefabs with them, by where games
+                // keep them (shown, not shaped as models).
+                _ if f == "level.toml" || f == "map.toml" || (f.starts_with("levels/") && (ext == "toml" || ext == "vvx")) => 0,
+                "vvx" if f == "world.vvx" || f.starts_with("prefabs/") => 0,
                 "vvx" | "vox" if f.starts_with("blocks/") => 2,
                 "vvx" | "vox" => 1,
                 "png" => 3,
@@ -110,8 +118,13 @@ impl Files {
     }
 }
 
-/// Every file under `dir/prefix`, its path from `dir`.
-fn walk(dir: &Path, prefix: &str, depth: usize, out: &mut Vec<String>) {
+/// The folders at the top of a game folder that are never listed, however
+/// the `.gitignore` reads: the recorded runs, what BUILD made, test renders.
+pub const NEVER_LISTED: [&str; 3] = ["replays", "builds", "shots"];
+
+/// Every file under `dir/prefix` that belongs to the game (`ignore`: what
+/// the `.gitignore` files say), its path from `dir`.
+fn walk(dir: &Path, prefix: &str, depth: usize, ignore: &Ignore, out: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir.join(prefix)) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -121,12 +134,12 @@ fn walk(dir: &Path, prefix: &str, depth: usize, out: &mut Vec<String>) {
         let path = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
         match entry.file_type() {
             Ok(t) if t.is_dir() => {
-                if depth + 1 < DEPTH && !(prefix.is_empty() && (name == "replays" || name == "builds")) {
-                    walk(dir, &path, depth + 1, out);
+                if depth + 1 < DEPTH && !(prefix.is_empty() && NEVER_LISTED.contains(&name.as_str())) && !ignore.ignores(&path, true) {
+                    walk(dir, &path, depth + 1, &ignore.entered(&path), out);
                 }
             }
-            Ok(_) => out.push(path),
-            Err(_) => {}
+            Ok(_) if !ignore.ignores(&path, false) => out.push(path),
+            _ => {}
         }
     }
 }
@@ -152,7 +165,8 @@ mod tests {
             ("tiled/level.json", "{}"),
             ("hero.vvx", ""),
             ("blocks/stone.vvx", ""),
-            ("level.json", "{}"),
+            ("level.toml", "format = \"voxcade level 1\""),
+            ("prefabs/hut.vvx", ""),
             ("back.png", ""),
             ("sounds/coin.toml", "wave = \"sine\""),
             ("sounds/boom.wav", ""),
@@ -173,7 +187,7 @@ mod tests {
         assert_eq!(
             groups,
             [
-                ("Levels", vec!["level.json"]),
+                ("Levels", vec!["level.toml", "prefabs/hut.vvx"]),
                 ("Models", vec!["hero.vvx"]),
                 ("Blocks", vec!["blocks/stone.vvx"]),
                 ("Images", vec!["back.png"]),
@@ -183,6 +197,41 @@ mod tests {
             ]
         );
         assert!(files.has("blocks/stone.vvx") && !files.has("replays/tests/run.toml"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Test renders in `shots/` are never listed, with a `.gitignore` or
+    /// without one; what a `.gitignore` of the game (or of a subfolder)
+    /// ignores is not listed either, and a `!` brings a file back.
+    #[test]
+    fn the_list_leaves_out_what_is_ignored() {
+        let dir = std::env::temp_dir().join(format!("voxcade-ide-ignored-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for (path, text) in [
+            ("main.lua", ""),
+            ("shots/a.png", ""),
+            ("shots/film.mp4", ""),
+            ("hero.vvx", ""),
+            ("notes/ideas.txt", ""),
+            ("scratch.vvx", ""),
+            ("kept.vvx", ""),
+            ("sounds/old.toml", ""),
+            ("sounds/new.toml", ""),
+            ("sounds/.gitignore", "old.toml\n"),
+        ] {
+            let p = dir.join(path);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        }
+        // No `.gitignore`: only `shots/` is out.
+        let names = Files::names(&dir);
+        assert!(names.iter().all(|n| !n.starts_with("shots/")), "{names:?}");
+        assert!(names.contains(&"notes/ideas.txt".to_string()) && names.contains(&"scratch.vvx".to_string()));
+        std::fs::write(dir.join(".gitignore"), "notes/\n*.vvx\n!hero.vvx\n!kept.vvx\nscratch.vvx\n").unwrap();
+        let names = Files::names(&dir);
+        assert_eq!(names, ["hero.vvx", "kept.vvx", "main.lua", "sounds/new.toml"].map(String::from), "ignored files, folders and the subfolder's own file are out");
+        // A file ignored but open stays open: the list only does not name it.
+        assert!(!Files::scan(&dir).has("notes/ideas.txt"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

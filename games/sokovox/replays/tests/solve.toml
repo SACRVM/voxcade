@@ -1,7 +1,7 @@
 # Voxcade replay: Sokovox, 1192 ticks, quit, score 2910
 version = 1
 game = "Sokovox"
-fingerprint = "4be322720e4ee4c6"
+fingerprint = "dda0a722858bb88e"
 ticks = 1192
 outcome = "quit"
 score = 2910

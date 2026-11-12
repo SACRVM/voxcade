@@ -1,0 +1,242 @@
+format = "voxcade voxel 1"
+size = [37, 29, 26]
+
+# The colours are the world's numbers in this order (the first is 1);
+# a marker places a thing of that kind instead of a voxel.
+[palette]
+a = "#543a24"
+b = "#7e5834"
+c = "#704e2e"
+d = "#8a623a"
+e = "#6e6a62"
+f = "#8c5434"
+g = "#807c74"
+h = { marker = "hut" }
+
+[[frame]]
+layers = """
+....................................
+....................................
+..aabbbbbbbbbcccccccccccddddddddaa..
+..aabbbbbbbbbcccccccccccddddddddaa..
+..cc............................cc.. *11
+..bb............................bb.. *4
+..bb..............h.............bb..
+..bb............................bb.. *4
+..aabbbbbbbbbc.........cddddddddaa..
+..aabbbbbbbbbc.........cddddddddaa..
+....................................
+....................................
+
+....................................
+....................................
+..aabbbbbbbbbcccccccccccddddddddaa..
+..aabbbbbbbbbcccccccccccddddddddaa..
+..cc............................cc.. *11
+..bb............................bb.. *9
+..aabbbbbbbbbc.........cddddddddaa..
+..aabbbbbbbbbc.........cddddddddaa..
+....................................
+....................................
+
+....................................
+....................................
+..aabbbbbbbbbcccccccccccddddddddaa..
+..aabbbbbbbbbcccccccccccddddddddaa..
+..cc............................cc.. *11
+..bb............................bb.. *9
+..aabbbbbbbbbc.........cddddddddaa..
+..aabbbbbbbbbc.........cddddddddaa..
+....................................
+....................................
+
+....................................
+....................................
+..aacccccccccdddddddddddbbbbbbbbaa..
+..aacccccccccdddddddddddbbbbbbbbaa..
+..dd............................dd.. *11
+..cc............................cc.. *9
+..aacccccccccd.........dbbbbbbbbaa..
+..aacccccccccd.........dbbbbbbbbaa..
+....................................
+....................................
+*3
+
+....................................
+....................................
+..aadddddddddbbbbbbbbbbbccccccccaa..
+..aadddddddddbbbbbbbbbbbccccccccaa..
+..bb............................bb.. *11
+..dd............................dd.. *9
+..aadddddddddb.........bccccccccaa..
+..aadddddddddb.........bccccccccaa..
+....................................
+....................................
+*3
+
+....................................
+....................................
+..aabbbbbbbbbcccccccccccddddddddaa..
+..aabbbbbbbbbcccccccccccddddddddaa..
+..cc............................cc.. *11
+..bb............................bb.. *9
+..aabbbbbbbbbc.........cddddddddaa..
+..aabbbbbbbbbc.........cddddddddaa..
+....................................
+....................................
+
+....................................
+....................................
+..aabbbbbbbbbcccccccccccddddddddaa..
+..aabbbbbbbbbcccccccccccddddddddaa..
+..cc............................cc.. *11
+..bb............................bb.. *9
+..aabbbbbbbbbc.........cddddddddaa..
+..aabbbbbbbbbc.........cddddddddaa..
+....................................
+....................................
+
+....................................
+....................................
+..aab....bbbb....cccc....dddd...aa..
+..aab....bbbb....cccc....dddd...aa..
+.................................... *3
+..cc............................cc.. *4
+.................................... *4
+..bb............................bb.. *4
+.................................... *4
+..bb............................bb..
+..aabbbbbbbbbc.........cddddddddaa..
+..aabbbbbbbbbc.........cddddddddaa..
+....................................
+....................................
+
+....................................
+....................................
+..aac....cccc....dddd....bbbb...aa..
+..aac....cccc....dddd....bbbb...aa..
+.................................... *3
+..dd............................dd.. *4
+.................................... *4
+..cc............................cc.. *4
+.................................... *4
+..cc............................cc..
+..aacccccccccd.........dbbbbbbbbaa..
+..aacccccccccd.........dbbbbbbbbaa..
+....................................
+....................................
+*3
+
+....................................
+....................................
+..aadddddddddbbbbbbbbbbbccccccccaa..
+..aadddddddddbbbbbbbbbbbccccccccaa..
+..bb............................bb.. *11
+..dd............................dd.. *9
+..aadddddddddb.........bccccccccaa..
+..aadddddddddb.........bccccccccaa..
+....................................
+....................................
+*3
+
+....................................
+....................................
+..aabbbbbbbbbcccccccccccddddddddaa..
+..aabbbbbbbbbcccccccccccddddddddaa..
+..cc............................cc.. *11
+..bb............................bb.. *9
+..aabbbbbbbbbcaaaaaaaaacddddddddaa..
+..aabbbbbbbbbcaaaaaaaaacddddddddaa..
+....................................
+....................................
+
+....................................
+....................................
+..aabbbbbbbbbcccccccccccddddddddaa..
+..aabbbbbbbbbcccccccccccddddddddaa..
+..cc............................cc.. *11
+..bb............................bb.. *9
+..aabbbbbbbbbcccccccccccddddddddaa..
+..aabbbbbbbbbcccccccccccddddddddaa..
+....................................
+....................................
+
+....................................
+....................................
+..aabbbbbbbbbcccccccccccddddddddaa..
+..aabbbbbbbbbcccccccccccddddddddaa..
+..cc............................cc.. *11
+..bb............................bb.. *9
+..aabbbbbbbbbcccccccccccddddddddaa..
+..aabbbbbbbbbcccccccccccddddddddaa..
+....................................
+....................................
+
+....................................
+....................................
+..aacccccccccdddddddddddbbbbbbbbaa..
+..aacccccccccdddddddddddbbbbbbbbaa..
+..dd............................dd.. *11
+..cc............................cc.. *9
+..aacccccccccdddddddddddbbbbbbbbaa..
+..aacccccccccdddddddddddbbbbbbbbaa..
+....................................
+....................................
+*3
+
+eegfeeggeeggeeggeeggeefgeeggeeggeegg
+eegfeeggeeggeeggeeggefggefggeeggeegg
+eeggefggeeggeegfeeggeefgeeggeeggeegg
+eeggeefgeeggeeggfeggeeggeefgeeggeegg
+efggeeggeeggeeggeeggeeggeeggeeggefgg
+feggeeggeeggeeggeeggeeggfeggeeggeegg
+eeggeeggeeggeeggeeggeeggeeggeeggeegg
+eeggefggfeggeefgeeggeeggeeggeefgeegg
+eeggeefgeeggeeggeeggeeggeeggeeggeegg
+eeggeefgeefgeegfeeggeeggeeggeeggeegg
+feggeeggeeggeeggeeggeeggeeggeegfeegg
+eeggeeggeefgeeggeeggeeggeeggeeggeegg
+eeggeegfeeggeefgeeggeeggeeggeeggefgf
+eeggeeggeeggeeggeeggeeggfeggeeggeegg
+eeggeeggfeggeeggeeggeeggeeggefggeegg
+eeggeegfeeggfeggeeggfeggeeggeeggeegg
+eeggeeggeeggeeggeeggeeggefggeeggeegg
+eeggeeggeeggeeggefggeegfeeggeeggeegg
+eeggeeggeeggeeggeeggeeggeeggeeggeegg
+eeggeeggefgfeeggeeggeeggeeggeeggeegg
+eeggeeggeeggefggeeggeeggeeggeeggeegg
+eeggeeggeeggeegfeeggefggeeggeeggeegf
+eeggeeggeeggeeggeeggeeggefggeeggeegg
+eeggeeggeeggefggeeggeeggeeggeeggeegg
+eeggffggeegfeeggeeggeeggeeggfefgeegf
+eeggeeggeeggeeggeeggeeggeeggeeggeegg
+fefgeefgeeggefggfeggeegfefggeeggefgg
+eeffeeggeeggeeggeeggeeggeeggeeggeegg
+
+..gf..gg..gg..gg..gg..fg..gg..gg..gg
+..gf..gg..gg..gg..gg..gg..gg..gg..gg
+..gg..gg..gg..gf..gg..fg..gg..gg..gg
+..gg..fg..gg..gg..gg..gg..fg..gg..gg
+..gg..gg..gg..gg..gg..gg..gg..gg..gg *3
+..gg..gg..gg..fg..gg..gg..gg..fg..gg
+..gg..fg..gg..gg..gg..gg..gg..gg..gg
+..gg..fg..fg..gf..gg..gg..gg..gg..gg
+..gg..gg..gg..gg..gg..gg..gg..gf..gg
+..gg..gg..fg..gg..gg..gg..gg..gg..gg
+..gg..gf..gg..fg..gg..gg..gg..gg..gf
+..gg..gg..gg..gg..gg..gg..gg..gg..gg
+..gg..gg..gg..gg..gg..gg..gg..gg..gg
+..gg..gf..gg..gg..gg..gg..gg..gg..gg
+..gg..gg..gg..gg..gg..gg..gg..gg..gg
+..gg..gg..gg..gg..gg..gf..gg..gg..gg
+..gg..gg..gg..gg..gg..gg..gg..gg..gg
+..gg..gg..gf..gg..gg..gg..gg..gg..gg
+..gg..gg..gg..gg..gg..gg..gg..gg..gg
+..gg..gg..gg..gf..gg..gg..gg..gg..gf
+..gg..gg..gg..gg..gg..gg..gg..gg..gg
+..gg..gg..gg..gg..gg..gg..gg..gg..gg
+..gg..gg..gf..gg..gg..gg..gg..fg..gf
+..gg..gg..gg..gg..gg..gg..gg..gg..gg
+..fg..fg..gg..gg..gg..gf..gg..gg..gg
+..ff..gg..gg..gg..gg..gg..gg..gg..gg
+"""

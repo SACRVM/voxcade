@@ -417,7 +417,7 @@ end
     },
     Topic {
         title: "LEVEL AFTER LEVEL",
-        text: "A game's levels are the files in its levels/ folder, in the order of their names (01_meadow.json, 02_cave.json); without any it has one, made in code like this one. world:go_to(level.next) goes on to the next at the end of the tick, world:win() wins after the last, world:restart() starts this one over. on_level_start(how) says how a level was entered; level.state is fresh each time, world.state and player.state go along, and so does the player.",
+        text: "A game's levels are the files in its levels/ folder, in the order of their names (01_meadow.toml, 02_cave.toml); without any it has one, made in code like this one. world:go_to(level.next) goes on to the next at the end of the tick, world:win() wins after the last, world:restart() starts this one over. on_level_start(how) says how a level was entered; level.state is fresh each time, world.state and player.state go along, and so does the player.",
         conf: r##"c.player.kind = "hero"
 c.things.hero = {}"##,
         files: &[],

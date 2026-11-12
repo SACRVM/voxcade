@@ -45,7 +45,7 @@ function conf(c)
     auto = false,                    -- one a press
   }
 
-  c.world.file = "world.vox"
+  c.world.file = "world.vvx"
   c.world.bedrock = true          -- the lowest layer cannot be blown away
 
   c.player.model = "player.vvx"    -- forward is +y

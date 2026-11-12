@@ -135,8 +135,20 @@ impl ModelFile {
         Ok(Self::of(path, &shape, &palette, text, false))
     }
 
-    /// The model at `path` to look at, a `.vox` too (a world, a prefab or a
-    /// model not brought in yet): never saved.
+    /// A world or a map's prefab (`crate::scene`) to look at, its colours
+    /// as a model's (its markers not shown): never saved, never shaped
+    /// here, for its palette's order is its colours' numbers.
+    pub fn look_at_scene(path: &Path) -> Result<Self> {
+        let scene = crate::scene::load(path)?;
+        let pivot = vvx::pivot(scene.size);
+        let mat = |[r, g, b]: [u8; 3]| Mat { rgba: [r, g, b, 255], metal: 0, glow: 0 };
+        let voxels = scene.cells.iter().enumerate().filter(|(_, v)| **v != 0 && (**v as usize) <= scene.colours.len()).map(|(i, v)| (scene.position(i) - pivot, mat(scene.colours[*v as usize - 1]))).collect();
+        let shape = Shape { size: scene.size, parted: false, pieces: vec![Piece { voxels, ..Piece::default() }] };
+        Ok(Self::of(path, &shape, &Palette::default(), String::new(), true))
+    }
+
+    /// The model at `path` to look at, a `.vox` too (a model not brought in
+    /// yet): never saved.
     pub fn look(path: &Path) -> Result<Self> {
         if vvx::is_model(path) {
             return Self::load(path);
@@ -464,9 +476,11 @@ mod tests {
         fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
             for entry in std::fs::read_dir(dir).unwrap().flatten() {
                 let p = entry.path();
+                // A world's and the prefabs' are no models (`crate::scene`).
+                let scene = p.ends_with("world.vvx") || p.parent().is_some_and(|f| f.ends_with("prefabs") || f.ends_with("levels"));
                 if p.is_dir() {
                     walk(&p, out);
-                } else if vvx::is_model(&p) {
+                } else if vvx::is_model(&p) && !scene {
                     out.push(p);
                 }
             }

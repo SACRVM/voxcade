@@ -113,7 +113,7 @@ pub struct Shell {
     notice_until: Option<std::time::Instant>,
     /// BUILD at work on a thread of its own: its answer, and where the zip
     /// goes.
-    building: Option<(std::sync::mpsc::Receiver<anyhow::Result<u64>>, PathBuf)>,
+    building: Option<(std::sync::mpsc::Receiver<anyhow::Result<super::export::Packed>>, PathBuf)>,
     /// Why the game would not start (PLAY found no game to begin), until it
     /// starts or the files are mended (`start_mended`).
     start_failed: Option<String>,
@@ -929,16 +929,25 @@ impl Shell {
     }
 
     /// BUILD's answer: where the zip is and how big, or why it was not made.
-    fn built(&mut self, made: anyhow::Result<u64>, out: PathBuf) {
+    fn built(&mut self, made: anyhow::Result<super::export::Packed>, out: PathBuf) {
         self.notice_until = None;
         match made {
-            Ok(bytes) => {
+            Ok(packed) => {
+                let bytes = packed.bytes;
                 let zip = out.canonicalize().unwrap_or(out);
                 // (From the game's folder: the whole path would not fit the
                 // bar, and its end is what tells.)
                 let dir = self.dir.canonicalize().unwrap_or_else(|_| self.dir.clone());
-                let said = format!("BUILT {} ({:.1} MB)", zip.strip_prefix(&dir).unwrap_or(&zip).display(), bytes as f64 / 1e6);
+                let mut said = format!("BUILT {} ({:.1} MB)", zip.strip_prefix(&dir).unwrap_or(&zip).display(), bytes as f64 / 1e6);
                 self.report(Kind::Note, said.clone(), None);
+                // Ignored by a `.gitignore` and so not packed, yet named by
+                // the game: the build would not find them.
+                if !packed.missing.is_empty() {
+                    let list = packed.missing.join(", ");
+                    let warning = format!("NOT PACKED, IGNORED BY .gitignore, BUT NAMED BY THE GAME: {list}. The build will not find them: take them out of .gitignore.");
+                    self.report(Kind::Error, warning, None);
+                    said = format!("{said}; {} IGNORED FILES THE GAME NAMES NOT PACKED (OUTPUT)", packed.missing.len());
+                }
                 self.notice = Some(Notice::Built(zip, said));
             }
             Err(e) => {
@@ -1101,13 +1110,20 @@ impl Shell {
     /// blocks, their blocks, the models (Voxcade's own: a MagicaVoxel file
     /// is brought in first).
     pub fn editable(&self, path: &str) -> bool {
-        self.is_level(path) || path.ends_with(".vvx")
+        self.is_level(path) || (path.ends_with(".vvx") && !self.is_scene(path))
     }
 
     /// Whether `path` is a level of blocks the level editor opens: the one
     /// the config names, and in a game of blocks each in `levels/`.
     pub fn is_level(&self, path: &str) -> bool {
-        self.level.as_deref() == Some(path) || (self.level.is_some() && path.starts_with("levels/") && path.ends_with(".json"))
+        self.level.as_deref() == Some(path) || (self.level.is_some() && path.starts_with("levels/") && path.ends_with(".toml"))
+    }
+
+    /// Whether `path` is a world or a map's prefab (`crate::scene`): shown,
+    /// never shaped as a model, for its palette's order is its colours'
+    /// numbers.
+    pub fn is_scene(&self, path: &str) -> bool {
+        path.ends_with(".vvx") && crate::levels::scene_files(&self.dir, &self.cfg).iter().any(|f| f == path)
     }
 
     /// The level the config names, where a block opens when no level's
@@ -1869,6 +1885,7 @@ impl Shell {
             });
             let level = self.is_level(&path);
             self.facts = match () {
+                _ if self.is_scene(&path) => Some(scene_facts(&self.dir.join(&path), &path)),
                 _ if self.editable(&path) || is_model_file(&path) => Some(facts(&self.dir.join(&path), &path, level)),
                 _ if path.ends_with(".mml") => Some(song_facts(&self.dir.join(&path))),
                 _ => None,
@@ -1876,6 +1893,7 @@ impl Shell {
             // What an editor opens shows as a picture.
             let preview = match () {
                 _ if level => Some(Preview::level(&self.dir, &path, &self.cfg)),
+                _ if self.is_scene(&path) && !self.model_text => Some(Preview::scene(&self.dir, &path, &self.cfg)),
                 _ if is_model_file(&path) && !self.model_text => Some(Preview::model(&self.dir, &path, &self.cfg)),
                 _ => None,
             };
@@ -2444,6 +2462,22 @@ fn facts(file: &Path, path: &str, level: bool) -> String {
     }
     match crate::vox::load_model(file) {
         Ok(m) => model_line(&m, path),
+        Err(e) => format!("{e:#}"),
+    }
+}
+
+/// A line of what a world or a map's prefab is: how big, its colours and
+/// markers, and that it is shown only.
+fn scene_facts(file: &Path, path: &str) -> String {
+    match crate::scene::load(file) {
+        Ok(s) => {
+            let what = if path.starts_with("prefabs/") { "A prefab of the map" } else { "A world" };
+            let markers = match s.markers.len() {
+                0 => String::new(),
+                n => format!(", {n} marker{} ({})", if n == 1 { "" } else { "s" }, s.markers.join(", ")),
+            };
+            format!("{what}, {} by {} by {} voxels, {} colours{markers}; shown only.", s.size.x, s.size.y, s.size.z, s.colours.len())
+        }
         Err(e) => format!("{e:#}"),
     }
 }
@@ -3274,7 +3308,7 @@ mod tests {
     #[test]
     fn what_the_game_needs_is_not_renamed_or_deleted() {
         let (dir, _, mut shell) = managed_game("rename-refused");
-        std::fs::write(dir.join("level.json"), "{}").unwrap();
+        std::fs::write(dir.join("level.toml"), "{}").unwrap();
         shell.files = Files::scan(&dir);
         let ctx = egui::Context::default();
         frame(&ctx, &mut shell);
@@ -3286,9 +3320,9 @@ mod tests {
             shell.begin_rename(file);
             assert!(shell.renaming.is_none());
         }
-        assert!(shell.rename("level.json", "other").unwrap_err().starts_with("Not yet"));
-        shell.delete("level.json");
-        assert!(dir.join("level.json").is_file() && shell.gone.is_none());
+        assert!(shell.rename("level.toml", "other").unwrap_err().starts_with("Not yet"));
+        shell.delete("level.toml");
+        assert!(dir.join("level.toml").is_file() && shell.gone.is_none());
         assert_eq!(shell.rename("sounds/coin.toml", "bell"), Err("sounds/bell.toml is already there.".into()));
         assert_eq!(shell.rename("tools.lua", "a/b"), Err("A name cannot hold a folder: no / in it.".into()));
         assert_eq!(shell.rename("tools.lua", " "), Err("Type a name first.".into()));

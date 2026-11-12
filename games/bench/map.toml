@@ -1,0 +1,31 @@
+format = "voxcade map 1"
+size = [1120, 400, 96]    # voxels: across (x), north (y), up (z)
+
+# The ground: each column as high as the height map's grey (its top row
+# the north edge), of the material whose key the material map's colour is.
+[ground]
+height = "ground/height.png"
+
+[[ground.materials]]
+surface = ["#d6b880", "#dec189", "#cdaf78"]
+pattern = 14
+grain = 0.45
+
+# The prefabs by name: each its file; a soft one (grass) is passed through.
+[prefabs]
+hut = "prefabs/hut.vvx"
+tower = "prefabs/tower.vvx"
+
+# What stands on the map, in order: a prefab (turn: quarter turns
+# anticlockwise) or a thing of a kind; at x, y on the ground, or x, y, z.
+[[put]]
+prefab = "tower"
+at = [880, 220]
+
+[[put]]
+prefab = "hut"
+at = [1000, 220]
+
+[[put]]
+prefab = "tower"
+at = [940, 320]

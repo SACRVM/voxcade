@@ -2,7 +2,7 @@
 """Makes Voxkeep (games/voxkeep), a jump & run in a castle at night, as
 voxels from the start: no picture drawn out. A cell of the level is 10
 voxels each way; the blocks (blocks/*.vvx) and the figures are built here
-voxel by voxel, the rooms from the texts below (levels/*.json: three, a
+voxel by voxel, the rooms from the texts below (levels/*.toml: three, a
 demo of going from level to level).
 
 It makes what is missing and keeps every file there: once made, the
@@ -12,13 +12,13 @@ purpose, built from boxes: the user found them more charming than a try
 at 16-bit size, and they are easy to make. A probe for now: one room,
 to judge the look. Plain Python, no numpy."""
 
-import json
 import random
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gen_sokovox import write_vox  # noqa: E402
+from vvx import write_level  # noqa: E402
 
 GAME = Path(__file__).resolve().parent.parent / "games" / "voxkeep"
 N = 10
@@ -666,7 +666,7 @@ def level(name, room):
     h, w = len(room), len(room[0])
     assert all(len(r) == w for r in room), f"{name}: every row of the room as long as the first"
     names = [b[0] for b in BLOCKS]
-    cells = []  # x fastest, then y (0 the lane, 1 the wall), then z up
+    cells = {}  # (x, y, z): (block, turn); y 0 the lane, 1 the wall
     things = []
     for z in range(h):
         row = room[h - 1 - z]
@@ -674,9 +674,9 @@ def level(name, room):
             for x in range(w):
                 ch = row[x]
                 if y == 1:
-                    cells.append(names.index("wall") + 1)
-                else:
-                    cells.append(names.index(CELL[ch]) + 1 if ch in CELL else 0)
+                    cells[(x, y, z)] = (names.index("wall") + 1, 0)
+                elif ch in CELL:
+                    cells[(x, y, z)] = (names.index(CELL[ch]) + 1, 0)
         for x, ch in enumerate(row):
             mid = x * N + N // 2
             if ch == "@":
@@ -696,28 +696,10 @@ def level(name, room):
                 things.append({"kind": kind, "at": [mid, N // 2, z * N]})
     for kind, x, z in PLATFORMS.get(name, []):
         things.append({"kind": kind, "at": [x, N // 2, z]})
-    runs = []
-    for c in cells:
-        if runs and runs[-1][1] == c:
-            runs[-1][0] += 1
-        else:
-            runs.append([1, c, 0])
-    lines = ",\n    ".join(json.dumps(r, separators=(",", ":")) for r in runs)
-    blocks = ",\n    ".join(json.dumps({"name": n, "kind": k}, separators=(",", ":")) for n, k, _ in BLOCKS)
-    thing_lines = ",\n    ".join(json.dumps(t, separators=(",", ":")) for t in things)
-    text = (
-        "{\n"
-        f'  "block": {N},\n'
-        f'  "size": [{w}, 2, {h}],\n'
-        f'  "blocks": [\n    {blocks}\n  ],\n'
-        f'  "cells": [\n    {lines}\n  ],\n'
-        f'  "things": [\n    {thing_lines}\n  ]\n'
-        "}\n"
-    )
-    path = GAME / "levels" / f"{name}.json"
+    path = GAME / "levels" / f"{name}.toml"
     if not kept(path):
         path.parent.mkdir(exist_ok=True)
-        path.write_text(text)
+        write_level(path, N, (w, 2, h), [(n, k) for n, k, _ in BLOCKS], cells, things)
 
 
 if __name__ == "__main__":

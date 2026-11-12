@@ -6,7 +6,7 @@
 //! (a jump of 8 voxels with 10-voxel figures is a jump of 16 with
 //! 20-voxel figures). The defaults fit figures about 10 voxels tall.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -298,7 +298,8 @@ impl GameConfig {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default, deny_unknown_fields)]
 pub struct WorldConfig {
-    /// Level geometry (.vox), relative to the game folder.
+    /// The level's file, relative to the game folder: a world (`.vvx`,
+    /// `crate::scene`) or a map (`.toml`, `crate::map`).
     pub file: String,
     /// The lowest voxel layer cannot be destroyed.
     pub bedrock: bool,
@@ -313,7 +314,7 @@ pub struct WorldConfig {
 
 impl Default for WorldConfig {
     fn default() -> Self {
-        Self { file: "world.vox".into(), bedrock: true, size: None, blocks: None }
+        Self { file: "world.vvx".into(), bedrock: true, size: None, blocks: None }
     }
 }
 
@@ -335,7 +336,7 @@ pub struct BlocksConfig {
 
 impl Default for BlocksConfig {
     fn default() -> Self {
-        Self { file: "level.json".into(), margin: 0, below: 0, backdrops: Vec::new() }
+        Self { file: "level.toml".into(), margin: 0, below: 0, backdrops: Vec::new() }
     }
 }
 
@@ -519,23 +520,25 @@ pub struct PropConfig {
     pub turn: i32,
 }
 
-/// Palette indices in the level that place things instead of voxels. Paint
-/// a single voxel in that colour where the thing should stand.
+/// Palette indices that placed things instead of voxels in a world or a
+/// prefab of a game before Voxcade 0.6.0 (`c.markers.rifleman = 240`): read
+/// only for `voxcade upgrade`, which names each marker in the files
+/// (`crate::scene`); a game that still sets one does not load.
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(transparent)]
 pub struct MarkersConfig(BTreeMap<String, u8>);
 
 impl MarkersConfig {
-    /// Palette index to the marker's place in the game's `names`; a name
-    /// the game does not know is a mistake in `conf.lua`.
-    pub fn table(&self, names: &[&str]) -> anyhow::Result<HashMap<u8, usize>> {
-        self.0
-            .iter()
-            .map(|(name, &index)| match names.iter().position(|n| n == name) {
-                Some(kind) => Ok((index, kind)),
-                None => anyhow::bail!("c.markers.{name}: no such kind of thing (c.things: {})", names.join(", ")),
-            })
-            .collect()
+    /// Whether it names no marker (since Voxcade 0.6.0 every game's: markers
+    /// are palette entries of the worlds and prefabs, `crate::scene`).
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The markers by their palette index: the kind's name each places
+    /// (what `voxcade upgrade` moves into the files).
+    pub fn by_index(&self) -> std::collections::BTreeMap<u8, String> {
+        self.0.iter().map(|(name, &i)| (i, name.clone())).collect()
     }
 }
 

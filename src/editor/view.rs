@@ -95,6 +95,8 @@ pub struct View {
     /// Ctrl is down: BOX and SPHERE cut away (their shape shown red, in
     /// the voxels).
     pub cut: bool,
+    /// Alt is down: BOX and SPHERE fill only where it is empty.
+    pub only_empty: bool,
     /// Where voxel 0, 0, 0 of the grid shown stood in a figure's scene
     /// when last drawn (`Editor::origin`): the view goes with the figure
     /// when another part is chosen or a part's box grows on its low side.
@@ -189,7 +191,7 @@ impl View {
             }
             _ => Orbit { yaw: -30.0, pitch: 25.0, zoom: n * 4.5, target: Vec3::splat(n / 2.0) },
         };
-        Self { level, block, hover: None, spot: None, under: None, choosing: false, inset: glam::Vec2::ZERO, face, playing: true, floor: true, cut: false, origin: ed.origin() }
+        Self { level, block, hover: None, spot: None, under: None, choosing: false, inset: glam::Vec2::ZERO, face, playing: true, floor: true, cut: false, only_empty: false, origin: ed.origin() }
     }
 
     pub fn orbit(&mut self, scope: Scope) -> &mut Orbit {
@@ -903,7 +905,7 @@ mod tests {
     #[test]
     fn the_mouse_finds_things_and_spots() {
         let dir = folder("along");
-        let mut ed = Editor::open(&dir, "level.json").unwrap();
+        let mut ed = Editor::open(&dir, "level.toml").unwrap();
         ed.level.things.push(crate::grid::Thing { kind: "gem".into(), at: [8, 2, 0] });
         let mut cfg = GameConfig::default();
         cfg.things.insert("gem".into(), toml::toml! { width = 2

@@ -3,7 +3,7 @@
 the command line; Python and Pillow only.
 
 usage:
-  blocks.py used GAME                    the blocks the level lists: kind, cells using them, file
+  blocks.py used GAME                    the blocks each level lists: kind, cells using them, file
   blocks.py info GAME NAME [NAME ...]    a block: voxels, colours, its relief seen from the front
   blocks.py colours GAME [--near N]      every colour of every block, and pairs closer than N
                                          (the sum of the channels' differences, default 6)
@@ -16,7 +16,6 @@ column of the block's front, how many voxels back the first voxel is
 (0 on the front edge, . empty through) and a letter for its colour.
 """
 import glob
-import json
 import os
 import sys
 
@@ -49,16 +48,19 @@ def rgb(text):
 
 
 def used(game):
-    level = json.load(open(os.path.join(game, 'level.json')))
-    count = [0] * (len(level['blocks']) + 1)
-    for run, block, _turn in level['cells']:
-        count[block] += run
-    print(f"{level['size'][0]} by {level['size'][1]} by {level['size'][2]} cells of {level['block']} voxels; "
-          f"{len(level['blocks'])} blocks, {len(level.get('things', []))} things")
-    for i, b in enumerate(level['blocks']):
-        path = os.path.join(game, 'blocks', b['name'] + '.vvx')
-        state = '' if os.path.exists(path) else '  (no file!)'
-        print(f"  {b['name']:>6}  {b['kind']:<7} {count[i + 1]:>5} cells{state}")
+    files = sorted(glob.glob(os.path.join(game, 'levels', '*.toml'))) or [os.path.join(game, 'level.toml')]
+    for file in files:
+        level = vvx.read_level(file)
+        count = [0] * (len(level['blocks']) + 1)
+        for block, _turn in level['cells'].values():
+            count[block] += 1
+        size = level['size']
+        print(f"{os.path.relpath(file, game)}: {size[0]} by {size[1]} by {size[2]} cells of {level['block']} voxels; "
+              f"{len(level['blocks'])} blocks, {len(level['things'])} things")
+        for i, (name, kind) in enumerate(level['blocks']):
+            path = os.path.join(game, 'blocks', name + '.vvx')
+            state = '' if os.path.exists(path) else '  (no file!)'
+            print(f"  {name:>6}  {kind:<7} {count[i + 1]:>5} cells{state}")
 
 
 def info(game, names):

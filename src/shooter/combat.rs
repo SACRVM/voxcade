@@ -1475,8 +1475,8 @@ mod tests {
         assert_eq!((sim.rules.kinds[guard.kind].name.as_str(), guard.hp), ("guard", 4));
 
         let game = crate::session::Session::<crate::shooter::Shooter>::load(std::path::Path::new("games/moreblood")).unwrap();
-        let map: serde_json::Value = serde_json::from_str(&std::fs::read_to_string("games/moreblood/map.json").unwrap()).unwrap();
-        let towers = map["place"].as_array().unwrap().iter().filter(|p| p["prefab"] == "tower").count();
+        let map = crate::map::MapData::read(&std::fs::read_to_string("games/moreblood/map.toml").unwrap()).unwrap();
+        let towers = map.put.iter().filter(|p| p.prefab.as_deref() == Some("tower")).count();
         let guards = game.game.enemies().filter(|(e, _)| e.hp == 4).count();
         assert!(towers > 0);
         assert_eq!(guards, towers, "{towers} watchtowers but {guards} guards taking four hits");

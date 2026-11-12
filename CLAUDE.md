@@ -40,8 +40,10 @@ halt; `api.rs` the API's register), `src/mcp.rs` the MCP server.
 `src/vvx.rs` is the model format, `.vvx` (text: the format line, `size`,
 a `[palette]` of signs, `[[frame]]`s or `[[part]]`s with `layers`);
 `src/vox.rs` the models as the engine holds them (`VoxModel`, `Part`) and
-MagicaVoxel's `.vox`, only read (`import_model`, never written) but for
-worlds and map prefabs; `src/upgrade.rs` brings a game made for an older
+MagicaVoxel's `.vox`, only read (`import_model`, an older game's worlds
+for the upgrade; never written); `src/scene.rs` a world or a map's prefab
+as a `.vvx` (`Scene`: its colours the world's numbers in the palette's
+order, markers as palette entries naming a kind); `src/upgrade.rs` brings a game made for an older
 Voxcade up to date (its steps, `c.voxcade`, `opens`, `standing` for the
 IDE's upgrade page, `src/ide/wizard.rs`).
 `src/files.rs` is a game's files as the engine reads them (`Files`: the
@@ -98,8 +100,8 @@ shooter's things stay in `src/shooter/`.
   then Read the PNG. Keys: the directions `left right up down`, the game's actions
   (More Blood: `jump fire grenade strafe`) and `none`, joined with `+`.
 - Regenerate a game's level and models: `python3 tools/gen_arena.py`,
-  `python3 tools/gen_moreblood.py` (numpy; writes More Blood's map.json,
-  ground PNGs, prefabs and actors)
+  `python3 tools/gen_moreblood.py OUT` (numpy; writes More Blood's map.toml,
+  ground PNGs, prefabs and actors into OUT: the game's are the user's)
 - Play More Blood: `cargo run --release -- run games/moreblood`; Sokovox:
   `-- run games/sokovox` (its models: `python3 tools/gen_sokovox.py`; a
   `shot --input "next:1;none:1;..."` reaches any level); Voxkeep (a
@@ -283,8 +285,11 @@ nearest; its replay `tests/two_ships`);
   --model FILE`; in a
   block or a model BOX and SPHERE besides the voxel tools, the user's
   idea so people build as the agents' scripts do: a footprint dragged on
-  a face's plane, + and - its depth, a click sets it (Shift: only where
+  a face's plane, + and - its depth, a click sets it (Alt: only where
   empty, Ctrl: cut), then it stays on the mouse to stamp, Escape lets go;
+  Shift held is PICK in every tool (the owner: PICK while Shift is held, the
+  tool before back when it is let go; `Editor::shift_pick`, a shape held
+  stays on the mouse, the window losing focus lets go; `--shot --shift`);
   BEVEL cuts a box's edges, SYMMETRY mirrors every tool left to right;
   `editor::model::form_cells`, `--shot --tool box --held X,Y,Z`);
   `editor::EditorWindow` takes its window's events (`ide::route`). A
@@ -369,7 +374,16 @@ nearest; its replay `tests/two_ships`);
   would not start) is a red line over the main area whatever it shows
   (`Shell::game_error`: TO THE LINE, SHOW, COPY). The list follows the
   folder (names polled once a second, `Shell::look_at_folder`: what the
-  agent makes appears; an open file that goes is said, its text kept). The
+  agent makes appears; an open file that goes is said, its text kept).
+  The list, the USED and rename searches and BUILD leave out what belongs
+  to no game (the owner's idea: test renders filled the lists): `shots/`,
+  `builds/` and hidden files always, and whatever the game's `.gitignore`
+  files ignore (its own, its subfolders', and those above it up to its
+  git repository's root; `gitignore::Ignore`, our own small matcher, no
+  `git` program), BUILD saying which ignored files the game still names
+  in quotes; the engine itself (`Files`, the sealed files) never
+  filters, a file the game names loads ignored or not, and an ignored
+  file open in the main area stays open. The
   console is folded to its bar for a game opened the first time, the
   shell started only on the first unfolding; folded and height are kept in
   `ide/<game>.toml`, `CONSOLE •` says news while folded; an agent that
@@ -507,16 +521,42 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   format: the format line first, signs a colour with its material,
   layers bottom first and the far row first, repeats `*N`, `at` and
   joints from the pivot). MagicaVoxel's `.vox` is only brought in
-  (`voxcade import`, `voxcade upgrade`), but for worlds and map prefabs,
-  which are still `.vox` scenes (their colours are numbered by the file's
-  palette and markers are colours, which the text does not carry yet). A
-  model's voxels come out in the text's reading order: More Blood's men
-  burst into theirs in that order. Every game states its version
-  (`c.voxcade`); a format that changes brings a step in `src/upgrade.rs`
-  and the version, and the repo's games and templates are brought over
-  with `voxcade upgrade` itself. `tools/vvx.py` writes and reads `.vvx`
-  from Python; the generators write `.vvx` for models (gen_moreblood,
-  gen_arena and pulsar's `make_models.py` still write `.vox`, to import).
+  (`voxcade import`, `voxcade upgrade`); JSON is gone from a game (the
+  owner: it only gets in the way of git's diffs), but for `.mcp.json`
+  and LuaLS's `.luarc.json` (other programs' files) and a Tiled map read
+  once by `voxcade import`. A model's voxels come out in the text's
+  reading order: More Blood's men burst into theirs in that order. Every
+  file of Voxcade's own states its format and version on its first line;
+  every game states its Voxcade (`c.voxcade`); a format that changes
+  brings a step in `src/upgrade.rs` (a step that comes while a version is
+  being made also comes to the games already stating it, by `left`: their
+  files still have what it changes), and the repo's games and templates
+  are brought over with `voxcade upgrade` itself. `tools/vvx.py` writes
+  and reads `.vvx`, levels and maps from Python, as the engine writes
+  them; the generators write those (byte for byte what the upgrade made
+  of the games' files; gen_moreblood, gen_arena's player and pulsar's
+  `make_models.py` still write `.vox` figures, to import).
+- Levels and worlds are text (`docs/tiles.md`, 2026-11-12). A level of
+  blocks is `levels/NAME.toml` ("voxcade level 1", `grid::text`): `block`,
+  `size`, `view`, `[blocks]` (name = kind), `[legend]` (a sign a block
+  and its turn: `s = "stone"`, `S = { block = "stone", turn = 17 }`),
+  `[cells]` with `layers` as a `.vvx`'s, `[[thing]]` and `[[place]]`.
+  `view = "front"`: each layer the grid seen from the front, the front
+  layer first, its top row first (a side view's room reads as the
+  picture); `"above"`: the bottom layer first, its far row first (a farm
+  from above); the editor keeps a file's view and signs (`Legend`), a new
+  one is seen from the front when taller than deep. A map is `map.toml`
+  ("voxcade map 1", `map::MapData`): `size`, `[ground]` (the height and
+  material PNGs, `[[ground.materials]]`), `[prefabs]` (name = file, or
+  `{ file, soft = true }`), `[[put]]` in order (`prefab` with `at` and
+  `turn`, or `thing` by kind), `[[place]]`. A world or a prefab is a
+  `.vvx` of one frame (`src/scene.rs`): its n-th palette colour is the
+  world's number n (state hash, replays and saves keep numbers, so the
+  palette's order is the meaning, never the voxels' order), `r = { marker
+  = "rifleman" }` an entry that places a thing of that kind (the things in
+  the order of the marker entries, each one's cells in reading order);
+  `c.markers` is no more (the upgrade moves it into the files). The height
+  and material maps stay PNG pictures.
 
 - The simulation (`src/sim/` and a game's rules, `src/shooter/`) is deterministic: fixed tick (`DT`), randomness
   only from `Sim::rng`, no clock, no iteration over `HashMap` in game logic.
@@ -721,7 +761,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (`c.weapons.NAME`, the game's alone: `src/shooter/kit.toml` has the
   kit's to copy; `c.player.attacks` binds them to actions, `c.state.player`
   says what a run starts with). Markers place things by their kind's
-  name (`c.markers.rifleman = 240`, map.json likewise). A new number a
+  name (`{ marker = "rifleman" }` in a world's or prefab's palette, a
+  map's `[[put]]` with `thing = "rifleman"`). A new number a
   behaviour reads goes into its kind's rules (`shooter::kinds`, a default
   in the spec and in `kit.toml`, test
   `the_kits_kinds_are_the_behaviours_defaults`), not into a section of
@@ -1126,8 +1167,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   a level made in code (`Game::level`) when `conf.lua` changes, which
   also reloads the models (kinds may have come, gone or changed theirs).
 - Big levels are maps (`src/map.rs`, the user's choice): ground from a
-  height map and a material map, `.vox` prefabs placed in `map.json`. Never
-  go back to one huge `world.vox` for them (More Blood's was 90 MB, over
+  height map and a material map, `.vvx` prefabs placed in `map.toml`. Never
+  go back to one huge world for them (More Blood's was 90 MB, over
   GitHub's file limit). A prefab's anchor is the middle cell of its bottom
   layer (size / 2); `turn` is anticlockwise quarter turns. Test:
   `a_map_builds_ground_prefabs_and_markers`.

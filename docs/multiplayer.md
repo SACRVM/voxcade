@@ -471,7 +471,7 @@ it says so. What remains is the evening on the home network.
   as the recording says (a scenario's file only counts for the
   fingerprint once a run has begun from it), then compares the
   fingerprint file by file (a hash for each, so a refusal names the
-  file: "levels/3.json differs"), then takes its seats.
+  file: "levels/3.toml differs"), then takes its seats.
 - **The build is not refused on:** each system has its own program, and
   hashing the sources would differ by Windows' line ends, refusing every
   Windows guest of a Linux host; the user's own machine builds from

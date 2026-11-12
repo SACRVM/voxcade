@@ -20,7 +20,7 @@ function conf(c)
 
   -- The level: a map of stars far below, asteroids, a station to fly over
   -- (tools/gen_pulsar.py); the ship takes off from the launch pad's deck.
-  c.world.file = "map.json"
+  c.world.file = "map.toml"
   c.physics.gravity = 0             -- space: what flies keeps its height
   c.physics.body_width = 6
   c.player.kind = { "ship", "ship2" }

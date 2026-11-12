@@ -26,7 +26,9 @@ Doom homage (the user loved Doom).
 ## What stays
 
 - **Text and plain files.** A game is a folder: `conf.lua`, `main.lua`,
-  `.vvx` models (text; MagicaVoxel's `.vox` only brought in), maps, MML music, sounds as numbers (no recordings). People,
+  `.vvx` models, worlds and prefabs (text; MagicaVoxel's `.vox` only
+  brought in), levels and maps as TOML (`levels/NAME.toml`, `map.toml`;
+  JSON is gone from a game), MML music, sounds as numbers (no recordings). People,
   agents and editors all work on the same files.
 - **Deterministic simulation.** Fixed ticks, randomness only from the
   simulation's generator. That is what makes `shot`, replays and regression
@@ -278,7 +280,7 @@ examples/rust_digger/  a second game in ~270 lines, the engine alone
 ```
 
 **What the engine carries** (`Session<G>`, the hosts): the game folder
-(`conf.lua`, the level from a map or a `.vox` scene, models and their bank
+(`conf.lua`, the level from a map or a world, models and their bank
 on the GPU, the display font, sounds, music kept in time with a game
 that picks its own songs), the title
 with its logo, props and flyby, the menus and settings, hot reload, the
@@ -392,7 +394,7 @@ game's settings are code (the user's choice: "nur im Code, fertig").
   replay: they are in neither the fingerprint nor the state hash.
 - **Levels** (`src/levels.rs`): the files in a game's `levels/` folder,
   all read when it loads, in the order of their names (numbers as
-  numbers); a level of blocks, a map or a `.vox` world as `c.world` says,
+  numbers); a level of blocks, a map or a world (`.toml`, `.toml`, `.vvx`) as `c.world` says,
   with named places. `world:go_to(level, place)`, `world:restart(place)`,
   `world:win()`, `world:lose()` ask, and at the tick's end one ask counts
   (going on before starting over): `on_level_end(why)`, the next level
@@ -841,7 +843,7 @@ Recommended by the research: a native app on the engine (SDL3, wgpu,
 egui; a Lua editor talking to LuaLS; a terminal from `alacritty_terminal`
 and `portable-pty`), beginning with a skeleton (code, terminal, MCP, play,
 build) of about 3 to 4 person-months, then the level editor and the voxel
-editor. The editors write the same files as everything else (`map.json`,
+editor. The editors write the same files as everything else (`map.toml`,
 PNGs, `.vvx`), never `conf.lua`.
 
 ## Plan

@@ -1,0 +1,139 @@
+format = "voxcade voxel 1"
+size = [44, 52, 40]
+
+# The colours are the world's numbers in this order (the first is 1);
+# a marker places a thing of that kind instead of a voxel.
+[palette]
+a = "#ffdc78"
+b = "#464a54"
+c = "#707682"
+d = "#525864"
+e = "#e6be28"
+f = "#505662"
+
+[[frame]]
+layers = """
+............................................ *21
+.................ffffffffff................. *10
+............................................ *21
+
+............................................ *21
+.................ffffffffff.................
+.................f........f................. *8
+.................ffffffffff.................
+............................................ *21
+*5
+
+............................................ *21
+.................ffffffffff................. *10
+............................................ *21
+
+............................................ *21
+.................ffffffffff.................
+.................f........f................. *8
+.................ffffffffff.................
+............................................ *21
+*5
+
+............................................ *21
+.................ffffffffff................. *10
+............................................ *21
+
+............................................ *21
+.................ffffffffff.................
+.................f........f................. *8
+.................ffffffffff.................
+............................................ *21
+*5
+
+............................................ *21
+.................ffffffffff................. *10
+............................................ *21
+
+............................................ *21
+.................ffffffffff.................
+.................f........f................. *8
+.................ffffffffff.................
+............................................ *21
+*5
+
+............................................ *21
+.................ffffffffff................. *10
+............................................ *21
+
+............................................ *21
+.................ffffffffff.................
+.................f........f................. *8
+.................ffffffffff.................
+............................................ *21
+*5
+
+............................................ *21
+.................ffffffffff................. *10
+............................................ *21
+
+............................................ *21
+.................ffffffffff.................
+.................f........f................. *8
+.................ffffffffff.................
+............................................ *21
+*5
+
+............................................ *21
+.................ffffffffff................. *10
+............................................ *21
+
+babbbabbbabbbabbbabbbabbbabbbabbbabbbabbbabb
+bccccccccccdccccccccccdccccccccccdcccccccccb
+bccccccccccdccccccccccdccccccccccdccccccccca
+accccccccccdccccccccccdccccccccccdcccccccccb
+bccccccccccdccccccccccdccccccccccdcccccccccb
+bccccccccccdccccccccccdccccccccccdcccccccccb
+bccccccccccdccccccccccdccccccccccdccccccccca
+accccccccccdccccccccccdccccccccccdcccccccccb
+bccccccccccdccccccccccdccccccccccdcccccccccb
+bccccccccccdccccccccccdccccccccccdcccccccccb
+bccccccccccdccccccccccdccccccccccdccccccccca
+accccccccccdccccccccccdccccccccccdcccccccccb
+bddddddddddddddddddddddddddddddddddddddddddb
+bccccccccccdccccccccccdccccccccccdcccccccccb
+bccccccccccdccccccccccdccccccccccdccccccccca
+accccccccccdcccccccccceccccccccccdcccccccccb
+bccccccccccdccccccccceeecccccccccdcccccccccb
+bccccccccccdcccccccceedeeccccccccdcccccccccb
+bccccccccccdccccccceecdceecccccccdccccccccca
+accccccccccdcccccceeccdcceeccccccdcccccccccb
+bccccccccccdccccceecccdccceecccccdcccccccccb
+bccccccccccdcccceeccccdcccceeccccdcccccccccb
+bccccccccccdccceecccccdccccceecccdccccccccca
+accccccccccdcceeccccccdcccccceeccdcccccccccb
+bccccccccccdceecccccccdccccccceecdcccccccccb
+bdddddddddddeedddddddddddddddddeeddddddddddb
+bccccccccccdceecccccccdccccccceecdccccccccca
+accccccccccdcceeccccccdcccccceeccdcccccccccb
+bccccccccccdccceecccccdccccceecccdcccccccccb
+bccccccccccdcccceeccccdcccceeccccdcccccccccb
+bccccccccccdccccceecccdccceecccccdccccccccca
+accccccccccdcccccceeccdcceeccccccdcccccccccb
+bccccccccccdccccccceecdceecccccccdcccccccccb
+bccccccccccdcccccccceedeeccccccccdcccccccccb
+bccccccccccdccccccccceeecccccccccdccccccccca
+accccccccccdcccccccccceccccccccccdcccccccccb
+bccccccccccdccccccccccdccccccccccdcccccccccb
+bccccccccccdccccccccccdccccccccccdcccccccccb
+bdddddddddddddddddddddddddddddddddddddddddda
+accccccccccdccccccccccdccccccccccdcccccccccb
+bccccccccccdccccccccccdccccccccccdcccccccccb
+bccccccccccdccccccccccdccccccccccdcccccccccb
+bccccccccccdccccccccccdccccccccccdccccccccca
+accccccccccdccccccccccdccccccccccdcccccccccb
+bccccccccccdccccccccccdccccccccccdcccccccccb
+bccccccccccdccccccccccdccccccccccdcccccccccb
+bccccccccccdccccccccccdccccccccccdccccccccca
+accccccccccdccccccccccdccccccccccdcccccccccb
+bccccccccccdccccccccccdccccccccccdcccccccccb
+bccccccccccdccccccccccdccccccccccdcccccccccb
+bccccccccccdccccccccccdccccccccccdccccccccca
+abbbabbbabbbabbbabbbabbbabbbabbbabbbabbbabbb
+*3
+"""

@@ -23,18 +23,36 @@ use anyhow::{Context, Result, bail};
 
 /// One step: the version it arrives with, what it is, what it would do to
 /// a game (nothing: the game needs no change from it) and the doing.
+/// `left` says whether a game already stating the step's version still has
+/// files it changes: a step that came while that version was being made
+/// (0.6.0 is not out yet) also comes to the games made with it before.
 struct Step {
     since: &'static str,
     name: &'static str,
     plan: fn(&Path) -> Result<Vec<String>>,
     apply: fn(&Path) -> Result<Vec<String>>,
+    left: Option<fn(&Path) -> bool>,
 }
 
-/// Every step, oldest first. Next to come: level files from JSON to TOML.
+/// Every step, oldest first.
 const STEPS: &[Step] = &[
-    Step { since: "0.6.0", name: "models as text", plan: models::plan, apply: models::apply },
-    Step { since: "0.6.0", name: "no recorded sounds", plan: recordings::plan, apply: recordings::plan },
+    Step { since: "0.6.0", name: "models as text", plan: models::plan, apply: models::apply, left: None },
+    Step { since: "0.6.0", name: "no recorded sounds", plan: recordings::plan, apply: recordings::plan, left: None },
+    Step { since: "0.6.0", name: "levels as text", plan: levels::plan, apply: levels::apply, left: Some(levels::left) },
+    Step { since: "0.6.0", name: "maps as text", plan: maps::plan, apply: maps::apply, left: Some(maps::left) },
+    Step { since: "0.6.0", name: "worlds and prefabs as text", plan: worlds::plan, apply: worlds::apply, left: Some(worlds::left) },
 ];
+
+impl Step {
+    /// Whether a game stating version `made` (None: none) needs the step.
+    fn due(&self, made: Option<&str>, dir: &Path) -> bool {
+        match made {
+            None => true,
+            Some(v) if older(v, self.since) => true,
+            Some(v) => numbers(v) == numbers(self.since) && self.left.is_some_and(|left| left(dir)),
+        }
+    }
+}
 
 /// The setting naming the Voxcade a game's files are for, as `conf.lua`
 /// writes it (`c.voxcade = "0.6.0"`).
@@ -123,7 +141,7 @@ pub fn standing(dir: &Path) -> Result<Standing> {
     {
         return Ok(Standing::Newer { made: v.clone() });
     }
-    let due: Vec<&Step> = STEPS.iter().filter(|s| made.as_deref().is_none_or(|v| older(v, s.since))).collect();
+    let due: Vec<&Step> = STEPS.iter().filter(|s| s.due(made.as_deref(), dir)).collect();
     if due.is_empty() {
         return Ok(Standing::Current);
     }
@@ -136,8 +154,12 @@ pub fn standing(dir: &Path) -> Result<Standing> {
 pub fn opens(dir: &Path) -> Result<()> {
     match standing(dir)? {
         Standing::Current => Ok(()),
-        Standing::Older { made, .. } => {
-            let made = made.map_or("an older Voxcade".to_string(), |v| format!("Voxcade {v}"));
+        Standing::Older { made, steps } => {
+            let made = match made {
+                Some(v) if v == engine() => format!("an earlier Voxcade {v} (before: {})", steps.iter().map(|s| s.name).collect::<Vec<_>>().join(", ")),
+                Some(v) => format!("Voxcade {v}"),
+                None => "an older Voxcade".to_string(),
+            };
             bail!("{}: made for {made}; this is {}: `voxcade upgrade {}` brings it up to date", dir.display(), engine(), dir.display())
         }
         Standing::Newer { made } => bail!("{}: made with Voxcade {made}, this is {}: get the new version (voxca.de)", dir.display(), engine()),
@@ -274,8 +296,8 @@ fn named(path: &Path) -> String {
 /// Step 0.6.0: every model, figure and block of a game a `.vvx`
 /// (`crate::vvx`), the `.vox` gone once the text reads back the same, the
 /// Lua that names one in quotes naming the `.vvx`. Worlds and map prefabs
-/// stay `.vox` scenes: their colours are numbered by the file's palette
-/// and markers are colours, which the text does not carry (yet).
+/// are left to the step "worlds and prefabs as text" (`worlds`): their
+/// colours are numbered and their markers named there.
 mod models {
     use super::*;
 
@@ -287,42 +309,11 @@ mod models {
         Ok(all.into_iter().partition(|p| !scenes.contains(p)))
     }
 
-    /// The `.vox` files that are scenes: a world (`world.vox`, `levels/`,
-    /// the file `c.world.file` names) or a prefab a map names.
+    /// The `.vox` files that are scenes: a world or a prefab a map names
+    /// (`scenes::of`).
     fn scenes(dir: &Path, all: &[PathBuf]) -> Result<Vec<PathBuf>> {
-        let mut named_by = Vec::new();
-        for json in files_ending(dir, "json") {
-            let text = std::fs::read_to_string(dir.join(&json)).unwrap_or_default();
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text)
-                && let Some(prefabs) = v.get("prefabs").and_then(|p| p.as_object())
-            {
-                let folder = json.parent().unwrap_or(Path::new(""));
-                for entry in prefabs.values() {
-                    if let Some(file) = entry.as_str().or_else(|| entry.get("file").and_then(|f| f.as_str())) {
-                        named_by.push(folder.join(file));
-                    }
-                }
-            }
-        }
-        let conf = std::fs::read_to_string(dir.join("conf.lua")).unwrap_or_default();
-        for line in conf.lines().filter(|l| l.contains("world")) {
-            named_by.extend(quoted(line).into_iter().filter(|q| q.ends_with(".vox")).map(PathBuf::from));
-        }
-        Ok(all.iter().filter(|p| p.starts_with("levels") || named(p) == "world.vox" || named_by.iter().any(|n| named(n) == named(p))).cloned().collect())
-    }
-
-    /// The texts between quotes on a line of Lua.
-    fn quoted(line: &str) -> Vec<String> {
-        let mut out = Vec::new();
-        let mut rest = line;
-        while let Some(start) = rest.find(['"', '\'']) {
-            let q = rest[start..].chars().next().unwrap_or('"');
-            let after = &rest[start + 1..];
-            let Some(end) = after.find(q) else { break };
-            out.push(after[..end].to_string());
-            rest = &after[end + 1..];
-        }
-        out
+        let (worlds, prefabs) = super::scenes::of(dir);
+        Ok(all.iter().filter(|p| worlds.contains(p) || prefabs.contains(p)).cloned().collect())
     }
 
     /// Each Lua line naming a model brought over: the file, its number, the
@@ -371,7 +362,7 @@ mod models {
             out.push(format!("{}:{n} becomes: {}", named(&file), new.trim()));
         }
         for p in &scenes {
-            out.push(format!("{} stays a .vox (a world or a map's prefab)", named(p)));
+            out.push(format!("{} is a world or a map's prefab: \"worlds and prefabs as text\" brings it over", named(p)));
         }
         Ok(out)
     }
@@ -402,7 +393,7 @@ mod models {
             std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
         }
         for p in &scenes {
-            out.push(format!("{} stays a .vox (a world or a map's prefab)", named(p)));
+            out.push(format!("{} is a world or a map's prefab: \"worlds and prefabs as text\" brings it over", named(p)));
         }
         Ok(out)
     }
@@ -429,6 +420,763 @@ mod recordings {
             if let Some(n) = text.lines().position(|l| l.trim_start().starts_with("file")) {
                 out.push(format!("sounds/{}:{} names a recording (file = ...), which Voxcade no longer plays: write the sound in numbers instead (wave, freq, decay and the rest), and take the recording out; it is left as it is", named(&p), n + 1));
             }
+        }
+        Ok(out)
+    }
+}
+
+/// The texts between quotes on a line of Lua.
+fn quoted_texts(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = line;
+    while let Some(start) = rest.find(['"', '\'']) {
+        let q = rest[start..].chars().next().unwrap_or('"');
+        let after = &rest[start + 1..];
+        let Some(end) = after.find(q) else { break };
+        out.push(after[..end].to_string());
+        rest = &after[end + 1..];
+    }
+    out
+}
+
+/// The files of a game's levels and maps as they were before 0.6.0
+/// (JSON), and what a step finds of them.
+mod legacy {
+    use std::collections::BTreeMap;
+
+    use anyhow::{Result, anyhow, bail};
+    use glam::IVec3;
+    use serde::Deserialize;
+
+    use crate::blocks::Turn;
+    use crate::grid::{BlockEntry, Cell, GridLevel, Place, Thing};
+    use crate::map::{Ground, MapData, Material, PrefabEntry, Put};
+
+    /// A level of blocks as JSON: the cells as runs (how many in a row,
+    /// block, turn), x fastest, then y, then z.
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct LevelFile {
+        block: i32,
+        size: [i32; 3],
+        blocks: Vec<BlockEntry>,
+        cells: Vec<[u32; 3]>,
+        #[serde(default)]
+        things: Vec<Thing>,
+        #[serde(default)]
+        places: Vec<Place>,
+    }
+
+    /// A level of blocks from its JSON, as the engine read it before.
+    pub fn level(text: &str) -> Result<GridLevel> {
+        let file: LevelFile = serde_json::from_str(text).map_err(|e| anyhow!("not a level of blocks: {e}"))?;
+        let [x, y, z] = file.size;
+        if file.block < 1 || x < 1 || y < 1 || z < 1 {
+            bail!("a block and the grid are at least 1 each way (block {}, size {x} by {y} by {z})", file.block);
+        }
+        let mut level = GridLevel::new(file.block, IVec3::new(x, y, z));
+        level.blocks = file.blocks;
+        level.things = file.things;
+        level.places = file.places;
+        let mut i = 0usize;
+        for [count, block, turn] in file.cells {
+            if block as usize > level.blocks.len() {
+                bail!("cells: block {block}, but the level names {} blocks", level.blocks.len());
+            }
+            let turn = Turn::from_number(turn.min(255) as u8).ok_or_else(|| anyhow!("cells: turn {turn}, there are {} (0 to {})", Turn::COUNT, Turn::COUNT - 1))?;
+            let end = i + count as usize;
+            if end > level.cells.len() {
+                bail!("cells: more than the {} the grid holds", level.cells.len());
+            }
+            level.cells[i..end].fill(Cell { block: block as u16, turn });
+            i = end;
+        }
+        if i != level.cells.len() {
+            bail!("cells: {i} given, the grid holds {}", level.cells.len());
+        }
+        Ok(level)
+    }
+
+    /// A map as JSON.
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct MapFile {
+        size: [i32; 3],
+        ground: GroundFile,
+        #[serde(default)]
+        prefabs: BTreeMap<String, PrefabFile>,
+        #[serde(default)]
+        place: Vec<PlaceFile>,
+        #[serde(default)]
+        places: Vec<Place>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum PrefabFile {
+        File(String),
+        With {
+            file: String,
+            #[serde(default)]
+            soft: bool,
+        },
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct GroundFile {
+        height: String,
+        #[serde(default)]
+        material: Option<String>,
+        #[serde(default)]
+        bedrock: Option<String>,
+        materials: Vec<MaterialFile>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(default, deny_unknown_fields)]
+    struct MaterialFile {
+        key: Option<String>,
+        surface: Vec<String>,
+        depth: i32,
+        pattern: f32,
+        grain: f32,
+        strata: Vec<String>,
+        band: i32,
+        wobble: f32,
+    }
+
+    impl Default for MaterialFile {
+        fn default() -> Self {
+            let d = Material::default();
+            Self { key: d.key, surface: d.surface, depth: d.depth, pattern: d.pattern, grain: d.grain, strata: d.strata, band: d.band, wobble: d.wobble }
+        }
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct PlaceFile {
+        #[serde(default)]
+        prefab: Option<String>,
+        #[serde(default)]
+        marker: Option<String>,
+        at: Vec<i32>,
+        #[serde(default)]
+        turn: i32,
+    }
+
+    /// A map from its JSON, as the engine read it before.
+    pub fn map(text: &str) -> Result<MapData> {
+        let m: MapFile = serde_json::from_str(text).map_err(|e| anyhow!("not a map: {e}"))?;
+        let g = m.ground;
+        let materials = g.materials.into_iter().map(|m| Material { key: m.key, surface: m.surface, depth: m.depth, pattern: m.pattern, grain: m.grain, strata: m.strata, band: m.band, wobble: m.wobble }).collect();
+        let prefabs = m
+            .prefabs
+            .into_iter()
+            .map(|(name, p)| {
+                let entry = match p {
+                    PrefabFile::File(file) => PrefabEntry { file, soft: false },
+                    PrefabFile::With { file, soft } => PrefabEntry { file, soft },
+                };
+                (name, entry)
+            })
+            .collect();
+        let put = m.place.into_iter().map(|p| Put { prefab: p.prefab, thing: p.marker, at: p.at, turn: p.turn }).collect();
+        Ok(MapData { size: m.size, ground: Ground { height: g.height, material: g.material, bedrock: g.bedrock, materials }, prefabs, put, places: m.places })
+    }
+
+    /// What a JSON file of a game is.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub enum Sort {
+        Level,
+        Map,
+    }
+
+    /// Whether the JSON text is a level of blocks or a map (by what it
+    /// holds), or neither.
+    pub fn sort(text: &str) -> Option<Sort> {
+        let v: serde_json::Value = serde_json::from_str(text).ok()?;
+        let o = v.as_object()?;
+        if o.contains_key("cells") && o.contains_key("block") {
+            Some(Sort::Level)
+        } else if o.contains_key("ground") {
+            Some(Sort::Map)
+        } else {
+            None
+        }
+    }
+}
+
+/// The game's level and map files of a sort as JSON: in `levels/`, the
+/// defaults `level.json` and `map.json`, and those `conf.lua` names on a
+/// line about the world; each as a path from the game folder.
+fn json_files(dir: &Path, sort: legacy::Sort) -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = files_ending(&dir.join("levels"), "json").into_iter().filter(|p| p.parent().is_none_or(|f| f.as_os_str().is_empty())).map(|p| Path::new("levels").join(p)).collect();
+    found.extend([PathBuf::from("level.json"), PathBuf::from("map.json")]);
+    found.extend(world_lines(dir).into_iter().filter(|q| q.ends_with(".json")).map(PathBuf::from));
+    found.sort();
+    found.dedup();
+    found.into_iter().filter(|p| std::fs::read_to_string(dir.join(p)).ok().and_then(|t| legacy::sort(&t)) == Some(sort)).collect()
+}
+
+/// The texts in quotes on `conf.lua`'s lines about the world (`c.world.file`,
+/// `c.world.blocks`).
+fn world_lines(dir: &Path) -> Vec<String> {
+    let conf = std::fs::read_to_string(dir.join("conf.lua")).unwrap_or_default();
+    conf.lines().filter(|l| l.contains("world") && !l.trim_start().starts_with("--")).flat_map(quoted_texts).collect()
+}
+
+/// The game's maps as text (`.toml` files the world lines or `levels/`
+/// name that read as maps).
+fn toml_maps(dir: &Path) -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = files_ending(&dir.join("levels"), "toml").into_iter().filter(|p| p.parent().is_none_or(|f| f.as_os_str().is_empty())).map(|p| Path::new("levels").join(p)).collect();
+    found.push(PathBuf::from("map.toml"));
+    found.extend(world_lines(dir).into_iter().filter(|q| q.ends_with(".toml")).map(PathBuf::from));
+    found.sort();
+    found.dedup();
+    found.into_iter().filter(|p| std::fs::read_to_string(dir.join(p)).is_ok_and(|t| t.trim_start().starts_with(&format!("format = \"{}\"", crate::map::FORMAT)))).collect()
+}
+
+/// Where the game's worlds and prefabs are.
+mod scenes {
+    use super::*;
+
+    /// The game's worlds and the prefabs its maps name (as JSON or as
+    /// text), as paths from the game folder, whatever their ending.
+    pub fn of(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
+        let mut prefabs = Vec::new();
+        for json in json_files(dir, legacy::Sort::Map) {
+            let folder = json.parent().unwrap_or(Path::new("")).to_path_buf();
+            if let Ok(m) = std::fs::read_to_string(dir.join(&json)).map_err(anyhow::Error::from).and_then(|t| legacy::map(&t)) {
+                prefabs.extend(m.prefabs.values().map(|p| clean(&folder.join(&p.file))));
+            }
+        }
+        for toml in toml_maps(dir) {
+            let folder = toml.parent().unwrap_or(Path::new("")).to_path_buf();
+            if let Ok(m) = std::fs::read_to_string(dir.join(&toml)).map_err(anyhow::Error::from).and_then(|t| crate::map::MapData::read(&t)) {
+                prefabs.extend(m.prefabs.values().map(|p| clean(&folder.join(&p.file))));
+            }
+        }
+        prefabs.sort();
+        prefabs.dedup();
+        let mut worlds: Vec<PathBuf> = ["vox", "vvx"].iter().flat_map(|e| files_ending(&dir.join("levels"), e)).filter(|p| p.parent().is_none_or(|f| f.as_os_str().is_empty())).map(|p| Path::new("levels").join(p)).collect();
+        worlds.extend(world_lines(dir).into_iter().filter(|q| q.ends_with(".vox") || q.ends_with(".vvx")).map(PathBuf::from));
+        // The default world, when conf.lua names none.
+        if !world_lines(dir).iter().any(|q| q.contains('.')) {
+            worlds.extend(["world.vox", "world.vvx"].map(PathBuf::from).into_iter().filter(|p| dir.join(p).is_file()));
+        }
+        worlds.sort();
+        worlds.dedup();
+        worlds.retain(|w| !prefabs.contains(w));
+        (worlds, prefabs)
+    }
+
+    /// A path from the game folder without `.` and `x/..` in it.
+    fn clean(path: &Path) -> PathBuf {
+        let mut out = PathBuf::new();
+        for c in path.components() {
+            match c {
+                std::path::Component::CurDir => {}
+                std::path::Component::ParentDir => {
+                    out.pop();
+                }
+                c => out.push(c),
+            }
+        }
+        out
+    }
+}
+
+/// Each Lua line of the game naming one of the files `renamed` (from, to:
+/// paths as the Lua names them) in quotes: the file, the line's number, the
+/// line as it is and as it becomes.
+fn lua_renames(dir: &Path, renamed: &[(String, String)]) -> Vec<(PathBuf, usize, String, String)> {
+    let mut out = Vec::new();
+    for lua in files_ending(dir, "lua") {
+        let text = std::fs::read_to_string(dir.join(&lua)).unwrap_or_default();
+        for (i, line) in text.lines().enumerate() {
+            let mut new = line.to_string();
+            for q in ['"', '\''] {
+                for (from, to) in renamed {
+                    new = new.replace(&format!("{q}{from}{q}"), &format!("{q}{to}{q}"));
+                }
+            }
+            if new != line {
+                out.push((lua.clone(), i + 1, line.to_string(), new));
+            }
+        }
+    }
+    out
+}
+
+/// Writes the lines `edits` (as `lua_renames` gives them; None: the line
+/// goes) into the game's Lua; says each.
+fn write_lua(dir: &Path, edits: &[(PathBuf, usize, String, Option<String>)]) -> Result<Vec<String>> {
+    let mut out = Vec::new();
+    let mut files: Vec<&PathBuf> = edits.iter().map(|e| &e.0).collect();
+    files.dedup();
+    for file in files {
+        let path = dir.join(file);
+        let text = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        let mut lines: Vec<Option<String>> = text.lines().map(|l| Some(l.to_string())).collect();
+        for (_, n, old, new) in edits.iter().filter(|e| e.0 == *file) {
+            if lines.get(n - 1).and_then(|l| l.as_deref()) != Some(old.as_str()) {
+                bail!("{}:{n} is no longer what it was; nothing written to it", named(file));
+            }
+            lines[n - 1] = new.clone();
+            match new {
+                Some(new) => out.push(format!("{}:{n} now: {}", named(file), new.trim())),
+                None if old.trim().is_empty() => out.push(format!("{}:{n} taken out: a blank line left double", named(file))),
+                None => out.push(format!("{}:{n} taken out: {}", named(file), old.trim())),
+            }
+        }
+        let mut joined = lines.into_iter().flatten().collect::<Vec<_>>().join("\n");
+        if text.ends_with('\n') {
+            joined.push('\n');
+        }
+        crate::blocks::save_at_once(&path, joined.as_bytes())?;
+    }
+    Ok(out)
+}
+
+/// The path with another ending, as the Lua names it.
+fn with_ending(path: &Path, ending: &str) -> PathBuf {
+    path.with_extension(ending)
+}
+
+/// Step 0.6.0: a level of blocks is text (`levels/NAME.toml`, "voxcade
+/// level 1", `grid::text`), no longer JSON: each read as the engine read it
+/// before, written, read back and found the same before the JSON goes.
+mod levels {
+    use super::*;
+    use crate::grid::{GridLevel, Legend, View};
+
+    pub fn left(dir: &Path) -> bool {
+        !json_files(dir, legacy::Sort::Level).is_empty()
+    }
+
+    fn renames(files: &[PathBuf]) -> Vec<(String, String)> {
+        files.iter().map(|p| (named(p), named(&with_ending(p, "toml")))).collect()
+    }
+
+    fn read(dir: &Path, p: &Path) -> Result<GridLevel> {
+        let text = std::fs::read_to_string(dir.join(p)).with_context(|| format!("reading {}", dir.join(p).display()))?;
+        legacy::level(&text).with_context(|| named(p))
+    }
+
+    fn what(level: &GridLevel) -> String {
+        let s = level.size;
+        let view = match View::for_size(s) {
+            View::Front => "its layers seen from the front",
+            View::Above => "its layers seen from above",
+        };
+        format!("{} by {} by {} cells, {} thing{}, {view}", s.x, s.y, s.z, level.things.len(), if level.things.len() == 1 { "" } else { "s" })
+    }
+
+    pub fn plan(dir: &Path) -> Result<Vec<String>> {
+        let files = json_files(dir, legacy::Sort::Level);
+        let mut out = Vec::new();
+        for p in &files {
+            let level = read(dir, p)?;
+            out.push(format!("{} becomes {} ({})", named(p), named(&with_ending(p, "toml")), what(&level)));
+        }
+        for (file, n, _, new) in lua_renames(dir, &renames(&files)) {
+            out.push(format!("{}:{n} becomes: {}", named(&file), new.trim()));
+        }
+        Ok(out)
+    }
+
+    pub fn apply(dir: &Path) -> Result<Vec<String>> {
+        let files = json_files(dir, legacy::Sort::Level);
+        let mut out = Vec::new();
+        for p in &files {
+            let level = read(dir, p)?;
+            let to = dir.join(with_ending(p, "toml"));
+            if to.exists() {
+                bail!("{} is there already: the level is {} too; take one of them away first", to.display(), named(p));
+            }
+            crate::blocks::save_at_once(&to, crate::grid::text::write(&level, &Legend::default()).as_bytes())?;
+            let back = GridLevel::read(&to)?;
+            if back != level {
+                std::fs::remove_file(&to).ok();
+                bail!("{} did not read back as {} was; the JSON is kept", to.display(), named(p));
+            }
+            std::fs::remove_file(dir.join(p)).with_context(|| format!("removing {}", dir.join(p).display()))?;
+            out.push(format!("{} became {} ({}), read back the same", named(p), named(&with_ending(p, "toml")), what(&level)));
+        }
+        let edits: Vec<_> = lua_renames(dir, &renames(&files)).into_iter().map(|(f, n, old, new)| (f, n, old, Some(new))).collect();
+        out.extend(write_lua(dir, &edits)?);
+        Ok(out)
+    }
+}
+
+/// Step 0.6.0: a map is text (`map.toml`, "voxcade map 1", `map::MapData`),
+/// no longer JSON: read as the engine read it before, written, read back
+/// and found the same before the JSON goes. Its prefabs keep their names
+/// here (`worlds` brings them over).
+mod maps {
+    use super::*;
+    use crate::map::MapData;
+
+    pub fn left(dir: &Path) -> bool {
+        !json_files(dir, legacy::Sort::Map).is_empty()
+    }
+
+    fn read(dir: &Path, p: &Path) -> Result<MapData> {
+        let text = std::fs::read_to_string(dir.join(p)).with_context(|| format!("reading {}", dir.join(p).display()))?;
+        legacy::map(&text).with_context(|| named(p))
+    }
+
+    fn renames(files: &[PathBuf]) -> Vec<(String, String)> {
+        files.iter().map(|p| (named(p), named(&with_ending(p, "toml")))).collect()
+    }
+
+    fn what(m: &MapData) -> String {
+        let [x, y, z] = m.size;
+        format!("{x} by {y} by {z} voxels, {} prefabs, {} put on it", m.prefabs.len(), m.put.len())
+    }
+
+    pub fn plan(dir: &Path) -> Result<Vec<String>> {
+        let files = json_files(dir, legacy::Sort::Map);
+        let mut out = Vec::new();
+        for p in &files {
+            let m = read(dir, p)?;
+            out.push(format!("{} becomes {} ({}; its height and material pictures stay PNG)", named(p), named(&with_ending(p, "toml")), what(&m)));
+        }
+        for (file, n, _, new) in lua_renames(dir, &renames(&files)) {
+            out.push(format!("{}:{n} becomes: {}", named(&file), new.trim()));
+        }
+        Ok(out)
+    }
+
+    pub fn apply(dir: &Path) -> Result<Vec<String>> {
+        let files = json_files(dir, legacy::Sort::Map);
+        let mut out = Vec::new();
+        for p in &files {
+            let m = read(dir, p)?;
+            let to = dir.join(with_ending(p, "toml"));
+            if to.exists() {
+                bail!("{} is there already: the map is {} too; take one of them away first", to.display(), named(p));
+            }
+            crate::blocks::save_at_once(&to, m.write().as_bytes())?;
+            let back = MapData::read(&std::fs::read_to_string(&to)?).with_context(|| to.display().to_string())?;
+            if back != m {
+                std::fs::remove_file(&to).ok();
+                bail!("{} did not read back as {} was; the JSON is kept", to.display(), named(p));
+            }
+            std::fs::remove_file(dir.join(p)).with_context(|| format!("removing {}", dir.join(p).display()))?;
+            out.push(format!("{} became {} ({}), read back the same", named(p), named(&with_ending(p, "toml")), what(&m)));
+        }
+        let edits: Vec<_> = lua_renames(dir, &renames(&files)).into_iter().map(|(f, n, old, new)| (f, n, old, Some(new))).collect();
+        out.extend(write_lua(dir, &edits)?);
+        Ok(out)
+    }
+}
+
+/// Step 0.6.0: worlds and map prefabs are `.vvx` too (`crate::scene`). A
+/// world's voxels are numbers into its palette and markers were numbers
+/// (`c.markers`): the text numbers the colours by the palette's order and
+/// names each marker's kind in its entry, so the conversion writes the
+/// palette so that every voxel keeps the number it had (a world: its file's
+/// numbers in order; a prefab: its colours in the order the map took
+/// them, their first use) and the markers so that the things come in the
+/// order they came. Each is checked to read back the same before the `.vox`
+/// goes; then the maps name the `.vvx`, and `c.markers` leaves `conf.lua`.
+pub(crate) mod worlds {
+    use std::collections::BTreeMap;
+
+    use glam::IVec3;
+
+    use super::*;
+    use crate::scene::Scene;
+
+    /// The `.vox` worlds and prefabs of the game.
+    fn files(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
+        let (worlds, prefabs) = scenes::of(dir);
+        let vox = |p: &PathBuf| p.extension().is_some_and(|e| e == "vox") && dir.join(p).is_file();
+        (worlds.into_iter().filter(vox).collect(), prefabs.into_iter().filter(vox).collect())
+    }
+
+    /// The `c.markers` lines of `conf.lua`: its number and text.
+    fn marker_lines(dir: &Path) -> Vec<(usize, String)> {
+        let conf = std::fs::read_to_string(dir.join("conf.lua")).unwrap_or_default();
+        conf.lines().enumerate().filter(|(_, l)| l.trim_start().starts_with("c.markers")).map(|(i, l)| (i + 1, l.to_string())).collect()
+    }
+
+    /// The lines of `conf.lua` that go with `c.markers`: its own, the
+    /// comment that heads a block of them, and a blank line left double.
+    fn marker_removals(dir: &Path) -> Vec<(usize, String)> {
+        let conf = std::fs::read_to_string(dir.join("conf.lua")).unwrap_or_default();
+        let lines: Vec<&str> = conf.lines().collect();
+        let marked: Vec<usize> = marker_lines(dir).into_iter().map(|(n, _)| n - 1).collect();
+        let mut gone = vec![false; lines.len()];
+        for &i in &marked {
+            gone[i] = true;
+        }
+        let blank = |i: usize| lines.get(i).is_some_and(|l| l.trim().is_empty());
+        let mut i = 0;
+        while i < lines.len() {
+            if !marked.contains(&i) || (i > 0 && marked.contains(&(i - 1))) {
+                i += 1;
+                continue;
+            }
+            // A run of them: the comment lines straight above it head it.
+            let mut top = i;
+            while top > 0 && lines[top - 1].trim_start().starts_with("--") {
+                top -= 1;
+                gone[top] = true;
+            }
+            let mut end = i;
+            while marked.contains(&(end + 1)) {
+                end += 1;
+            }
+            if top > 0 && blank(top - 1) && blank(end + 1) {
+                gone[end + 1] = true;
+            }
+            i = end + 1;
+        }
+        lines.iter().enumerate().filter(|(i, _)| gone[*i]).map(|(i, l)| (i + 1, l.to_string())).collect()
+    }
+
+    pub fn left(dir: &Path) -> bool {
+        let (w, p) = files(dir);
+        !w.is_empty() || !p.is_empty() || !marker_lines(dir).is_empty()
+    }
+
+    /// The markers `conf.lua` sets: each palette index's kind. From the
+    /// settings as the game reads them; where `conf.lua` does not run,
+    /// from its `c.markers.NAME = N` lines.
+    fn markers(dir: &Path) -> BTreeMap<u8, String> {
+        let mut cfg = crate::config::GameConfig::default();
+        if crate::lua::conf::run(&crate::files::Files::folder(dir), &mut cfg).is_ok() {
+            return cfg.markers.by_index();
+        }
+        let mut out = BTreeMap::new();
+        for (_, line) in marker_lines(dir) {
+            let code = line.split("--").next().unwrap_or_default();
+            if let Some((name, number)) = code.trim().strip_prefix("c.markers.").and_then(|r| r.split_once('='))
+                && let Ok(n) = number.trim().parse::<u8>()
+            {
+                out.insert(n, name.trim().to_string());
+            }
+        }
+        out
+    }
+
+    /// The voxels of a `.vox` scene as the engine read them: the cells'
+    /// last word (a later voxel covers an earlier one), the markers in the
+    /// order of the file's voxels, the colour indices in the order of their
+    /// first use.
+    struct Read {
+        cells: Vec<u8>,
+        markers: Vec<(IVec3, String)>,
+        first_use: Vec<u8>,
+    }
+
+    fn read_vox(old: &crate::vox::Scene, markers: &BTreeMap<u8, String>) -> Result<Read> {
+        let s = old.size;
+        let index = |p: IVec3| (p.x + s.x * (p.y + s.y * p.z)) as usize;
+        let mut cells = vec![0u8; (s.x * s.y * s.z) as usize];
+        let mut marked = vec![false; cells.len()];
+        let (mut found, mut first_use) = (Vec::new(), Vec::new());
+        for &(p, i) in &old.voxels {
+            let at = index(p);
+            match markers.get(&i) {
+                Some(kind) => {
+                    if marked[at] || cells[at] != 0 {
+                        bail!("a marker ({kind}) shares cell {} {} {} with another voxel: a text holds one a cell", p.x, p.y, p.z);
+                    }
+                    marked[at] = true;
+                    found.push((p, kind.clone()));
+                }
+                None => {
+                    if marked[at] {
+                        bail!("a voxel shares cell {} {} {} with a marker: a text holds one a cell", p.x, p.y, p.z);
+                    }
+                    cells[at] = i;
+                    if !first_use.contains(&i) {
+                        first_use.push(i);
+                    }
+                }
+            }
+        }
+        Ok(Read { cells, markers: found, first_use })
+    }
+
+    /// The markers as palette entries: the kinds in the order the things
+    /// came, a new entry where the reading order of one entry's cells would
+    /// put them otherwise; each marker's entry.
+    fn marker_entries(read: &Read) -> (Vec<String>, Vec<usize>) {
+        let key = |p: IVec3| (p.z, -p.y, p.x);
+        let (mut kinds, mut of) = (Vec::new(), Vec::new());
+        let mut last: Option<IVec3> = None;
+        for (p, kind) in &read.markers {
+            let same = kinds.last() == Some(kind) && last.is_some_and(|l| key(*p) > key(l));
+            if !same {
+                kinds.push(kind.clone());
+            }
+            of.push(kinds.len() - 1);
+            last = Some(*p);
+        }
+        (kinds, of)
+    }
+
+    /// The scene a `.vox` is as text: a world with its file's colours in
+    /// their order (every voxel keeps its number), a prefab with its
+    /// colours in the order of their first use (the map numbers them so).
+    /// What it says of the palette, too.
+    pub fn convert(old: &crate::vox::Scene, markers: &BTreeMap<u8, String>, world: bool) -> Result<(Scene, String)> {
+        let read = read_vox(old, markers)?;
+        let mut scene = Scene::new(old.size);
+        let numbers: Vec<u8> = if world {
+            let highest = read.cells.iter().copied().max().unwrap_or(0);
+            (1..=highest).collect()
+        } else {
+            read.first_use.clone()
+        };
+        scene.colours = numbers.iter().map(|&i| [old.palette[i as usize][0], old.palette[i as usize][1], old.palette[i as usize][2]]).collect();
+        let mut number_of = [0u16; 256];
+        for (n, &i) in numbers.iter().enumerate() {
+            number_of[i as usize] = n as u16 + 1;
+        }
+        for (k, &i) in read.cells.iter().enumerate() {
+            scene.cells[k] = number_of[i as usize];
+        }
+        let (kinds, of) = marker_entries(&read);
+        let first_marker = scene.colours.len() as u16 + 1;
+        for ((p, _), k) in read.markers.iter().zip(&of) {
+            let at = scene.index(*p);
+            scene.cells[at] = first_marker + *k as u16;
+        }
+        scene.markers = kinds;
+        // As the engine reads the text: the same voxels, the same numbers,
+        // the markers in the same order.
+        let found: Vec<(IVec3, String)> = scene.found().into_iter().map(|(p, k)| (p, scene.markers[k].clone())).collect();
+        if found != read.markers {
+            bail!("the markers would not come in their order");
+        }
+        let used = numbers.len();
+        let said = if world {
+            let rest = (used + 1..256).filter(|&i| old.palette[i] != [0, 0, 0, 0]).count();
+            if rest > 0 { format!("colours 1 to {used} kept in their order, the {rest} after them no voxel has left out") } else { format!("colours 1 to {used} kept in their order") }
+        } else {
+            format!("{used} colours in the order the map takes them")
+        };
+        Ok((scene, said))
+    }
+
+    fn kind_of(dir: &Path, p: &Path) -> &'static str {
+        let (worlds, _) = files(dir);
+        if worlds.iter().any(|w| w == p) { "world" } else { "prefab" }
+    }
+
+    pub fn plan(dir: &Path) -> Result<Vec<String>> {
+        let (worlds, prefabs) = files(dir);
+        let markers = markers(dir);
+        let mut out = Vec::new();
+        for p in worlds.iter().chain(&prefabs) {
+            let world = kind_of(dir, p) == "world";
+            let old = crate::vox::load_scene(&dir.join(p))?;
+            match convert(&old, &markers, world) {
+                Ok((scene, said)) => out.push(format!("{} becomes {} (a {}, {} by {} by {} voxels; {said}{})", named(p), named(&with_ending(p, "vvx")), kind_of(dir, p), old.size.x, old.size.y, old.size.z, marker_words(&scene))),
+                Err(e) => out.push(format!("{} stays a .vox: {e:#}", named(p))),
+            }
+        }
+        out.extend(map_names(dir, &prefabs)?.into_iter().map(|(m, from, to)| format!("{} names {to} for {from}", named(&m))));
+        for m in json_files(dir, legacy::Sort::Map) {
+            out.push(format!("{} (as text by then) names the prefabs' .vvx", named(&with_ending(&m, "toml"))));
+        }
+        let renamed: Vec<(String, String)> = worlds.iter().map(|p| (named(p), named(&with_ending(p, "vvx")))).collect();
+        for (file, n, _, new) in lua_renames(dir, &renamed) {
+            out.push(format!("{}:{n} becomes: {}", named(&file), new.trim()));
+        }
+        for (n, line) in marker_removals(dir) {
+            let line = if line.trim().is_empty() { "a blank line left double" } else { line.trim() };
+            out.push(format!("conf.lua:{n} goes (the markers are in the files now): {line}"));
+        }
+        Ok(out)
+    }
+
+    fn marker_words(scene: &Scene) -> String {
+        match scene.markers.len() {
+            0 => String::new(),
+            n => format!("; {n} marker{}: {}", if n == 1 { "" } else { "s" }, scene.markers.join(", ")),
+        }
+    }
+
+    /// The map files' prefab entries that name a `.vox` of `prefabs`: the
+    /// map, the name as it is and as it becomes.
+    fn map_names(dir: &Path, prefabs: &[PathBuf]) -> Result<Vec<(PathBuf, String, String)>> {
+        let mut out = Vec::new();
+        for m in toml_maps(dir) {
+            let data = crate::map::MapData::read(&std::fs::read_to_string(dir.join(&m))?).with_context(|| named(&m))?;
+            let folder = m.parent().unwrap_or(Path::new(""));
+            for p in data.prefabs.values() {
+                let file = folder.join(&p.file);
+                if prefabs.iter().any(|q| named(q) == named(&file)) {
+                    out.push((m.clone(), p.file.clone(), named(&with_ending(Path::new(&p.file), "vvx"))));
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn apply(dir: &Path) -> Result<Vec<String>> {
+        let (worlds, prefabs) = files(dir);
+        let markers = markers(dir);
+        let mut out = Vec::new();
+        let mut kept = Vec::new();
+        for p in worlds.iter().chain(&prefabs) {
+            let world = worlds.contains(p);
+            let old = crate::vox::load_scene(&dir.join(p))?;
+            let (scene, said) = match convert(&old, &markers, world) {
+                Ok(c) => c,
+                Err(e) => {
+                    out.push(format!("{} stays a .vox: {e:#}", named(p)));
+                    kept.push(p.clone());
+                    continue;
+                }
+            };
+            let to = dir.join(with_ending(p, "vvx"));
+            if to.exists() {
+                bail!("{} is there already: the {} is {} too; take one of them away first", to.display(), if world { "world" } else { "prefab" }, named(p));
+            }
+            crate::blocks::save_at_once(&to, scene.write().as_bytes())?;
+            let back = crate::scene::load(&to)?;
+            if back != scene {
+                std::fs::remove_file(&to).ok();
+                bail!("{} did not read back as {} was; the .vox is kept", to.display(), named(p));
+            }
+            std::fs::remove_file(dir.join(p)).with_context(|| format!("removing {}", dir.join(p).display()))?;
+            out.push(format!("{} became {} ({said}{}), read back the same", named(p), named(&with_ending(p, "vvx")), marker_words(&scene)));
+        }
+        // The maps name the prefabs brought over.
+        let done: Vec<PathBuf> = prefabs.iter().filter(|p| !kept.contains(p)).cloned().collect();
+        let names = map_names(dir, &done)?;
+        let mut maps: Vec<&PathBuf> = names.iter().map(|n| &n.0).collect();
+        maps.dedup();
+        for m in maps {
+            let path = dir.join(m);
+            let mut data = crate::map::MapData::read(&std::fs::read_to_string(&path)?).with_context(|| named(m))?;
+            for p in data.prefabs.values_mut() {
+                if let Some((_, _, to)) = names.iter().find(|(n, from, _)| n == m && *from == p.file) {
+                    p.file = to.clone();
+                }
+            }
+            crate::blocks::save_at_once(&path, data.write().as_bytes())?;
+            out.push(format!("{} names the prefabs' .vvx", named(m)));
+        }
+        let renamed: Vec<(String, String)> = worlds.iter().filter(|p| !kept.contains(p)).map(|p| (named(p), named(&with_ending(p, "vvx")))).collect();
+        let mut edits: Vec<_> = lua_renames(dir, &renamed).into_iter().map(|(f, n, old, new)| (f, n, old, Some(new))).collect();
+        if kept.is_empty() {
+            edits.extend(marker_removals(dir).into_iter().map(|(n, line)| (PathBuf::from("conf.lua"), n, line, None)));
+        }
+        edits.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
+        out.extend(write_lua(dir, &edits)?);
+        if !kept.is_empty() {
+            out.push("c.markers stays in conf.lua while a world or prefab is still a .vox".into());
+        } else if !self::markers(dir).is_empty() {
+            out.push("conf.lua still sets c.markers in a way this step cannot take out: take those lines out by hand (the markers are in the files now)".into());
         }
         Ok(out)
     }
@@ -524,7 +1272,7 @@ mod tests {
     }
 
     /// An older game's models become text, its Lua names them, the line
-    /// is written; a dry run changes nothing; a world stays.
+    /// is written; a dry run changes nothing; its world becomes text too.
     #[test]
     fn an_older_game_is_brought_up_to_date() {
         let dir = std::env::temp_dir().join(format!("voxcade-upgrade-run-{}", std::process::id()));
@@ -539,20 +1287,104 @@ mod tests {
         std::fs::create_dir_all(dir.join("sounds")).unwrap();
         std::fs::write(dir.join("sounds/scream.wav"), b"RIFF").unwrap();
         let Standing::Older { made: None, steps } = standing(&dir).unwrap() else { panic!("not older") };
-        assert_eq!(steps.len(), 2);
+        assert_eq!(steps.len(), STEPS.len());
         assert!(steps[1].would.iter().any(|l| l.starts_with("sounds/scream.wav is a recording") && l.contains("sounds/scream.toml")), "{:?}", steps[1].would);
         let dry = upgrade(&dir, true).unwrap().join("\n");
-        assert!(dry.contains("robot.vox becomes robot.vvx (a figure of 2 parts)") && dry.contains("world.vox stays a .vox") && dry.contains("would say c.voxcade"), "{dry}");
+        assert!(dry.contains("robot.vox becomes robot.vvx (a figure of 2 parts)") && dry.contains("world.vox is a world or a map's prefab") && dry.contains("world.vox becomes world.vvx (a world, 8 by 8 by 4 voxels") && dry.contains("would say c.voxcade"), "{dry}");
         assert!(dir.join("robot.vox").is_file() && std::fs::read_to_string(dir.join("conf.lua")).unwrap() == conf, "a dry run changes nothing");
         let done = upgrade(&dir, false).unwrap().join("\n");
         assert!(done.contains("robot.vvx") && done.contains("conf.lua:2 now"), "{done}");
-        assert!(!dir.join("robot.vox").exists() && dir.join("robot.vvx").is_file() && dir.join("blocks/stone.vvx").is_file() && dir.join("world.vox").is_file());
+        assert!(!dir.join("robot.vox").exists() && dir.join("robot.vvx").is_file() && dir.join("blocks/stone.vvx").is_file() && !dir.join("world.vox").exists() && dir.join("world.vvx").is_file());
         assert!(done.contains("sounds/scream.wav is a recording") && dir.join("sounds/scream.wav").is_file(), "the recording is named, not deleted");
         let conf = std::fs::read_to_string(dir.join("conf.lua")).unwrap();
-        assert!(conf.contains("model = \"robot.vvx\"") && conf.contains("c.world.file = \"world.vox\"") && conf.contains(&format!("c.voxcade = \"{}\"", engine())), "{conf}");
+        assert!(conf.contains("model = \"robot.vvx\"") && conf.contains("c.world.file = \"world.vvx\"") && conf.contains(&format!("c.voxcade = \"{}\"", engine())), "{conf}");
         assert!(std::fs::read_to_string(dir.join("main.lua")).unwrap().contains("'robot' .. \".vvx\""), "a model's name made in code");
         opens(&dir).unwrap();
         assert!(upgrade(&dir, false).unwrap().join("\n").contains("nothing to do"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A one-model `.vox`: voxels as x, y, z, colour index; colours for
+    /// indices 1, 2, ...
+    fn vox_bytes(size: [u32; 3], voxels: &[[u8; 4]], colours: &[[u8; 3]]) -> Vec<u8> {
+        fn chunk(tag: &[u8], content: &[u8], children: &[u8]) -> Vec<u8> {
+            let mut out = tag.to_vec();
+            out.extend((content.len() as u32).to_le_bytes());
+            out.extend((children.len() as u32).to_le_bytes());
+            out.extend(content);
+            out.extend(children);
+            out
+        }
+        let size: Vec<u8> = size.iter().flat_map(|s| s.to_le_bytes()).collect();
+        let mut xyzi = (voxels.len() as u32).to_le_bytes().to_vec();
+        xyzi.extend(voxels.iter().flatten());
+        let mut rgba = vec![0u8; 1024];
+        for (i, c) in colours.iter().enumerate() {
+            rgba[i * 4..i * 4 + 4].copy_from_slice(&[c[0], c[1], c[2], 255]);
+        }
+        let children = [chunk(b"SIZE", &size, &[]), chunk(b"XYZI", &xyzi, &[]), chunk(b"RGBA", &rgba, &[])].concat();
+        [b"VOX ".to_vec(), 150u32.to_le_bytes().to_vec(), chunk(b"MAIN", &[], &children)].concat()
+    }
+
+    /// An older game's map and its prefabs become text: the prefab's
+    /// colours in the order the map took them (a later colour first used
+    /// before an earlier one), its markers named in it, `c.markers` out of
+    /// `conf.lua`; the world built from the text is the one the old files
+    /// made. A level of blocks as JSON becomes text and reads the same.
+    #[test]
+    fn levels_maps_and_worlds_become_text() {
+        use glam::IVec3;
+        let dir = std::env::temp_dir().join(format!("voxcade-upgrade-maps-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("ground")).unwrap();
+        crate::headless::write_png(&dir.join("ground/height.png"), 8, 8, &[3, 3, 3, 255].repeat(64)).unwrap();
+        // A post along x of colours 5 then 2 (5 first used), two markers of
+        // one kind the reading order would swap, one of another.
+        let post = vox_bytes([3, 1, 3], &[[0, 0, 0, 5], [1, 0, 0, 2], [2, 0, 0, 2], [2, 0, 2, 240], [0, 0, 1, 240], [1, 0, 1, 241]], &[[1, 1, 1], [9, 9, 9], [0, 0, 0], [0, 0, 0], [200, 10, 10]]);
+        std::fs::write(dir.join("post.vox"), post).unwrap();
+        std::fs::write(dir.join("map.json"), r##"{ "size": [8, 8, 16], "ground": { "height": "ground/height.png", "materials": [{ "surface": ["#00ff00"] }] }, "prefabs": { "post": "post.vox" }, "place": [{ "prefab": "post", "at": [2, 1], "turn": 1 }, { "marker": "goal", "at": [6, 6] }] }"##).unwrap();
+        let conf = "function conf(c)\n  c.voxcade = \"0.6.0\"\n  c.world.file = \"map.json\"\n  c.things.goal = {}\n  c.things.rifleman = {}\n  c.things.guard = {}\n\n  -- palette slots that place things\n  c.markers.rifleman = 240\n  c.markers.guard = 241\n\n  c.player.spawn = { 1, 1 }\nend\n";
+        std::fs::write(dir.join("conf.lua"), conf).unwrap();
+        std::fs::write(dir.join("main.lua"), "function on_world_start() end\n").unwrap();
+        let Standing::Older { made: Some(_), steps } = standing(&dir).unwrap() else { panic!("not older") };
+        assert_eq!(steps.iter().map(|s| s.name).collect::<Vec<_>>(), ["maps as text", "worlds and prefabs as text"]);
+        assert!(opens(&dir).unwrap_err().to_string().contains("before: maps as text"));
+        let done = upgrade(&dir, false).unwrap().join("\n");
+        assert!(done.contains("map.json became map.toml") && done.contains("post.vox became post.vvx") && done.contains("conf.lua:9 taken out: c.markers.rifleman = 240"), "{done}");
+        let conf = std::fs::read_to_string(dir.join("conf.lua")).unwrap();
+        assert!(conf.contains("c.world.file = \"map.toml\"") && !conf.contains("markers") && !conf.contains("\n\n\n"), "{conf}");
+        let text = std::fs::read_to_string(dir.join("post.vvx")).unwrap();
+        assert!(text.contains("a = \"#c80a0a\"\nb = \"#090909\"\nc = { marker = \"rifleman\" }\nd = { marker = \"rifleman\" }\ne = { marker = \"guard\" }"), "{text}");
+        assert!(std::fs::read_to_string(dir.join("map.toml")).unwrap().contains("post = \"post.vvx\""));
+        opens(&dir).unwrap();
+        let mut cfg = crate::config::GameConfig::default();
+        crate::lua::conf::run(&crate::files::Files::folder(&dir), &mut cfg).unwrap();
+        let levels = crate::levels::load::<crate::Voxcade>(&crate::files::Files::folder(&dir), &cfg).unwrap();
+        let level = &levels.list[0];
+        let names = crate::sim::things::names(&cfg);
+        let kinds: Vec<(&str, IVec3)> = level.markers.iter().map(|m| (names[m.kind], m.cell)).collect();
+        // Turned a quarter about its pivot (1, 0, 0) standing on (2, 1, 3):
+        // x runs along y.
+        assert_eq!(kinds, [("rifleman", IVec3::new(2, 2, 5)), ("rifleman", IVec3::new(2, 0, 4)), ("guard", IVec3::new(2, 1, 4)), ("goal", IVec3::new(6, 6, 3))]);
+        let w = &level.world;
+        assert_eq!((w.palette[w.get(IVec3::new(2, 0, 3)) as usize], w.get(IVec3::new(2, 0, 3))), ([200, 10, 10, 255], 2), "the map's colours: the ground's first, then the post's in the order of first use");
+        assert_eq!(w.palette[w.get(IVec3::new(2, 2, 3)) as usize], [9, 9, 9, 255]);
+
+        // A level of blocks.
+        let blocks = dir.join("blocks_game");
+        std::fs::create_dir_all(blocks.join("levels")).unwrap();
+        let mut lv = crate::grid::GridLevel::new(2, IVec3::new(3, 1, 2));
+        lv.blocks.push(crate::grid::BlockEntry { name: "rock".into(), kind: crate::grid::Kind::Solid });
+        lv.cells[1] = crate::grid::Cell { block: 1, turn: crate::blocks::Turn::MIRROR };
+        lv.things.push(crate::grid::Thing { kind: "gem".into(), at: [1, 1, 2] });
+        let json = format!("{{ \"block\": 2, \"size\": [3, 1, 2], \"blocks\": [{{ \"name\": \"rock\", \"kind\": \"solid\" }}], \"cells\": [[1, 0, 0], [1, 1, {}], [4, 0, 0]], \"things\": [{{ \"kind\": \"gem\", \"at\": [1, 1, 2] }}] }}", crate::blocks::Turn::MIRROR.number());
+        std::fs::write(blocks.join("levels/01_cave.json"), json).unwrap();
+        std::fs::write(blocks.join("conf.lua"), "function conf(c)\n  c.voxcade = \"0.6.0\"\n  c.world.blocks = { file = \"levels/01_cave.json\" }\nend\n").unwrap();
+        let done = upgrade(&blocks, false).unwrap().join("\n");
+        assert!(done.contains("levels/01_cave.json became levels/01_cave.toml") && done.contains("conf.lua:3 now"), "{done}");
+        assert_eq!(crate::grid::GridLevel::read(&blocks.join("levels/01_cave.toml")).unwrap(), lv);
+        assert!(!blocks.join("levels/01_cave.json").exists());
+        opens(&blocks).unwrap();
         std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -1,7 +1,7 @@
 # Voxcade replay: BunnyFarm, 347 ticks, quit, score 0
 version = 1
 game = "BunnyFarm"
-fingerprint = "101b8b6a4a1dd5ed"
+fingerprint = "a377370e3941da40"
 ticks = 347
 outcome = "quit"
 score = 0

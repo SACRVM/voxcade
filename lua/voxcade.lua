@@ -124,7 +124,7 @@ function World:lose() end
 
 ---@class Level The level being played: its voxels, its things, what happens in it, its camera.
 ---@field state table This visit's state: what the level knows while it is played (the things in it too, moves, time). Fresh each time the level is entered, a restart too; after world:load as it was saved (its things nil). The engine reads one key: level.state.held = true holds the level (the ready-made rules, the physics and touches wait; on_tick, on_draw and the time go on): for a message, a shop, a tally.
----@field name string Its name: its file's name without the ending (hall for levels/hall.json); main for a game's one level made in code.
+---@field name string Its name: its file's name without the ending (hall for levels/hall.toml); main for a game's one level made in code.
 ---@field number integer Its place among world.levels, from 1.
 ---@field next string|nil The next level's name, nil after the last one.
 ---@field visits integer How often it was entered in this run, restarts too: 1 the first time.

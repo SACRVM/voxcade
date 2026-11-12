@@ -1,7 +1,7 @@
 # Voxcade replay: Arena, 600 ticks, quit, score 0
 version = 1
 game = "Arena"
-fingerprint = "0ee4cb76503f4dfb"
+fingerprint = "16a986357fbe698c"
 ticks = 600
 outcome = "quit"
 score = 0

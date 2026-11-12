@@ -1,0 +1,329 @@
+format = "voxcade voxel 1"
+size = [34, 34, 66]
+
+# The colours are the world's numbers in this order (the first is 1);
+# a marker places a thing of that kind instead of a voxel.
+[palette]
+a = "#543a24"
+b = "#704e2e"
+c = "#7e5834"
+d = "#8a623a"
+
+[[frame]]
+layers = """
+................................
+................................
+..aaaa....................aaaa.. *4
+................................ *20
+..aaaa....................aaaa.. *4
+................................
+................................
+*32
+
+................................
+................................
+..aabb....................bbaa..
+..aabb....................bbaa..
+..bbaa....................aabb..
+..bbaa....................aabb..
+................................ *20
+..bbaa....................aabb..
+..bbaa....................aabb..
+..aabb....................bbaa..
+..aabb....................bbaa..
+................................
+................................
+
+................................
+................................
+..aabb....................bbaa..
+..aabb....................bbaa..
+..bbaa....................aabb..
+..bbaa....................aabb..
+................................ *20
+..bbaa....................aabb..
+..bbaa....................aabb..
+..aabb....................bbaa..
+..aabb....................bbaa..
+................................
+................................
+
+................................
+................................
+..aaaabbbb............bbbbaaaa..
+..aaaabbbb............bbbbaaaa..
+..aaaa....................aaaa..
+..aaaa....................aaaa..
+..bb........................bb.. *4
+................................ *12
+..bb........................bb.. *4
+..aaaa....................aaaa..
+..aaaa....................aaaa..
+..aaaabbbb............bbbbaaaa..
+..aaaabbbb............bbbbaaaa..
+................................
+................................
+
+................................
+................................
+..aaaabbbb............bbbbaaaa..
+..aaaabbbb............bbbbaaaa..
+..aaaa....................aaaa..
+..aaaa....................aaaa..
+..bb........................bb.. *4
+................................ *12
+..bb........................bb.. *4
+..aaaa....................aaaa..
+..aaaa....................aaaa..
+..aaaabbbb............bbbbaaaa..
+..aaaabbbb............bbbbaaaa..
+................................
+................................
+
+................................
+................................
+..aaaa....bb........bb....aaaa..
+..aaaa....bb........bb....aaaa..
+..aaaa....................aaaa..
+..aaaa....................aaaa..
+................................ *4
+..bb........................bb..
+..bb........................bb..
+................................ *8
+..bb........................bb..
+..bb........................bb..
+................................ *4
+..aaaa....................aaaa..
+..aaaa....................aaaa..
+..aaaa....bb........bb....aaaa..
+..aaaa....bb........bb....aaaa..
+................................
+................................
+
+................................
+................................
+..aaaa....bb........bb....aaaa..
+..aaaa....bb........bb....aaaa..
+..aaaa....................aaaa..
+..aaaa....................aaaa..
+................................ *4
+..bb........................bb..
+..bb........................bb..
+................................ *8
+..bb........................bb..
+..bb........................bb..
+................................ *4
+..aaaa....................aaaa..
+..aaaa....................aaaa..
+..aaaa....bb........bb....aaaa..
+..aaaa....bb........bb....aaaa..
+................................
+................................
+
+................................
+................................
+..aaaa......bbbbbbbb......aaaa..
+..aaaa......bbbbbbbb......aaaa..
+..aaaa....................aaaa..
+..aaaa....................aaaa..
+................................ *6
+..bb........................bb.. *8
+................................ *6
+..aaaa....................aaaa..
+..aaaa....................aaaa..
+..aaaa......bbbbbbbb......aaaa..
+..aaaa......bbbbbbbb......aaaa..
+................................
+................................
+*4
+
+................................
+................................
+..aaaa....bb........bb....aaaa..
+..aaaa....bb........bb....aaaa..
+..aaaa....................aaaa..
+..aaaa....................aaaa..
+................................ *4
+..bb........................bb..
+..bb........................bb..
+................................ *8
+..bb........................bb..
+..bb........................bb..
+................................ *4
+..aaaa....................aaaa..
+..aaaa....................aaaa..
+..aaaa....bb........bb....aaaa..
+..aaaa....bb........bb....aaaa..
+................................
+................................
+
+................................
+................................
+..aaaa....bb........bb....aaaa..
+..aaaa....bb........bb....aaaa..
+..aaaa....................aaaa..
+..aaaa....................aaaa..
+................................ *4
+..bb........................bb..
+..bb........................bb..
+................................ *8
+..bb........................bb..
+..bb........................bb..
+................................ *4
+..aaaa....................aaaa..
+..aaaa....................aaaa..
+..aaaa....bb........bb....aaaa..
+..aaaa....bb........bb....aaaa..
+................................
+................................
+
+................................
+................................
+..aaaabbbb............bbbbaaaa..
+..aaaabbbb............bbbbaaaa..
+..aaaa....................aaaa..
+..aaaa....................aaaa..
+..bb........................bb.. *4
+................................ *12
+..bb........................bb.. *4
+..aaaa....................aaaa..
+..aaaa....................aaaa..
+..aaaabbbb............bbbbaaaa..
+..aaaabbbb............bbbbaaaa..
+................................
+................................
+
+................................
+................................
+..aaaabbbb............bbbbaaaa..
+..aaaabbbb............bbbbaaaa..
+..aaaa....................aaaa..
+..aaaa....................aaaa..
+..bb........................bb.. *4
+................................ *12
+..bb........................bb.. *4
+..aaaa....................aaaa..
+..aaaa....................aaaa..
+..aaaabbbb............bbbbaaaa..
+..aaaabbbb............bbbbaaaa..
+................................
+................................
+
+................................
+................................
+..aabb....................bbaa..
+..aabb....................bbaa..
+..bbaa....................aabb..
+..bbaa....................aabb..
+................................ *20
+..bbaa....................aabb..
+..bbaa....................aabb..
+..aabb....................bbaa..
+..aabb....................bbaa..
+................................
+................................
+
+................................
+................................
+..aabb....................bbaa..
+..aabb....................bbaa..
+..bbaa....................aabb..
+..bbaa....................aabb..
+................................ *20
+..bbaa....................aabb..
+..bbaa....................aabb..
+..aabb....................bbaa..
+..aabb....................bbaa..
+................................
+................................
+
+ccccddddccccddddccccddddccccdddd
+ccccddddccccddddccccddddccccdddd
+ddddccccddddccccddddccccddddcccc
+ddddccccddddccccddddccccddddcccc
+ccccddddccccddddccccddddccccdddd
+ccccddddccccddddccccddddccccdddd
+ddddccccddddccccddddccccddddcccc
+ddddccccddddccccddddccccddddcccc
+ccccddddccccddddccccddddccccdddd
+ccccddddccccddddccccddddccccdddd
+ddddccccddddccccddddccccddddcccc
+ddddccccddddccccddddccccddddcccc
+ccccddddccccddddccccddddccccdddd
+ccccddddccccddddccccddddccccdddd
+ddddccccddddccccddddccccddddcccc
+ddddccccddddccccddddccccddddcccc
+ccccddddccccddddccccddddccccdddd
+ccccddddccccddddccccddddccccdddd
+ddddccccddddccccddddccccddddcccc
+ddddccccddddccccddddccccddddcccc
+ccccddddccccddddccccddddccccdddd
+ccccddddccccddddccccddddccccdddd
+ddddccccddddccccddddccccddddcccc
+ddddccccddddccccddddccccddddcccc
+ccccddddccccddddccccddddccccdddd
+ccccddddccccddddccccddddccccdddd
+ddddccccddddccccddddccccddddcccc
+ddddccccddddccccddddccccddddcccc
+ccccddddccccddddccccddddccccdddd
+ccccddddccccddddccccddddccccdddd
+ddddccccddddccccddddccccddddcccc
+ddddccccddddccccddddccccddddcccc
+*4
+
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbaaaa....................aaaabb *4
+bb............................bb *20
+bbaaaa....................aaaabb *4
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbaaaa....................aaaabb *4
+bb............................bb *20
+bbaaaa....................aaaabb *4
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+
+cccccccccccccccccccccccccccccccc
+cccccccccccccccccccccccccccccccc
+ccaaaa....................aaaacc *4
+cc............................cc *20
+ccaaaa....................aaaacc *4
+cccccccccccccccccccccccccccccccc
+cccccccccccccccccccccccccccccccc
+
+cccccccccccccccccccccccccccccccc
+cccccccccccccccccccccccccccccccc
+ccaaaa....................aaaacc *4
+cc............................cc *20
+ccaaaa....................aaaacc *4
+cccccccccccccccccccccccccccccccc
+cccccccccccccccccccccccccccccccc
+
+aa..............aa............aa
+aa..............aa............aa
+..aaaa....................aaaa.. *4
+................................ *8
+aa............................aa
+aa............................aa
+................................ *10
+..aaaa....................aaaa.. *4
+aa..............aa............aa
+aa..............aa............aa
+*8
+
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bb............................bb *28
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bb............................bb *28
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+"""

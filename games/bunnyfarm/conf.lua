@@ -19,7 +19,7 @@ function conf(c)
                     { "EWE", 8000 }, { "HEN", 5000 }, { "COW", 3000 }, { "OWL", 1500 }, { "MOO", 500 } }
 
   -- The farm: a level of voxel blocks, 16 voxels a cell, seen from above.
-  c.world.blocks = { file = "levels/01_farm.json" }
+  c.world.blocks = { file = "levels/01_farm.toml" }
   c.physics.gravity = 400
   c.physics.body_width = 6
 

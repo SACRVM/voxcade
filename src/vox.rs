@@ -1,12 +1,10 @@
 //! Models as the engine holds them (`VoxModel`: frames, or a figure's
 //! parts with their joints), read from Voxcade's own text format (`.vvx`,
 //! `crate::vvx`); and MagicaVoxel's `.vox`, which a game only brings in
-//! (`import_model`, `voxcade import`, `voxcade upgrade`) but for worlds
-//! and map prefabs, which are still `.vox` scenes (`load_scene`,
-//! `load_world`: every model of the scene, placed by its transform, its
-//! colours by their palette index).
+//! (`import_model`, `voxcade import`, `voxcade upgrade`; a world or a
+//! map's prefab of an older game as a scene, `load_scene`: every model of
+//! the scene, placed by its transform, its colours by their palette index).
 
-use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
@@ -14,8 +12,6 @@ use dot_vox::{DotVoxData, SceneNode};
 use glam::{IVec3, Vec3};
 
 use crate::files::Files;
-use crate::world::Marker;
-use crate::world::World;
 
 /// An actor model with its own colours. Each model in the file is one frame:
 /// frame 0 stands still, frames 1.. are the walk cycle.
@@ -456,11 +452,21 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
     // How each came to hang, for the editor to tell (read after the
     // choice, never part of it).
     let mut how = vec![Hung::Root; count];
+    // Each part's box, and how near squared a point or another part's box
+    // comes to it at the most: the searches below skip what cannot come
+    // nearer than the nearest found (a figure of letters apart, a logo,
+    // took most of a second to hang without).
+    let boxes: Vec<(Vec3, Vec3)> = members.iter().map(|m| m.iter().fold((Vec3::MAX, Vec3::MIN), |(l, h), &k| (l.min(frame[k as usize].0.as_vec3()), h.max(frame[k as usize].0.as_vec3())))).collect();
+    let point_gap = |v: Vec3, q: usize| (boxes[q].0 - v).max(v - boxes[q].1).max(Vec3::ZERO).length_squared();
+    let box_gap = |p: usize, q: usize| (boxes[q].0 - boxes[p].1).max(boxes[p].0 - boxes[q].1).max(Vec3::ZERO).length_squared();
     // Between the nearest voxels of `p` and `q` (the first pair found of
     // the nearest), and how near squared.
     let nearest_pair = |p: usize, q: usize| {
         let mut best = (f32::MAX, Vec3::ZERO);
         for &a in &members[p] {
+            if point_gap(frame[a as usize].0.as_vec3(), q) >= best.0 {
+                continue;
+            }
             for &b in &members[q] {
                 let (va, vb) = (frame[a as usize].0.as_vec3(), frame[b as usize].0.as_vec3());
                 let d = va.distance_squared(vb);
@@ -495,7 +501,13 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
             let mut best = (f32::MAX, p, q, Vec3::ZERO);
             for p in (0..count).filter(|&p| free(p)) {
                 for q in (0..count).filter(|&q| hung[q]) {
+                    if box_gap(p, q) >= best.0 {
+                        continue;
+                    }
                     for &a in &members[p] {
+                        if point_gap(frame[a as usize].0.as_vec3(), q) >= best.0 {
+                            continue;
+                        }
                         for &b in &members[q] {
                             let (va, vb) = (frame[a as usize].0.as_vec3(), frame[b as usize].0.as_vec3());
                             let d = va.distance_squared(vb);
@@ -507,7 +519,7 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
                 }
             }
             let (p, q) = (best.1, best.2);
-            let as_near = (0..count).filter(|&r| hung[r] && r != q).find(|&r| best.0 < f32::MAX && nearest_pair(p, r).0 <= best.0);
+            let as_near = (0..count).filter(|&r| hung[r] && r != q).find(|&r| best.0 < f32::MAX && box_gap(p, r) <= best.0 && nearest_pair(p, r).0 <= best.0);
             how[p] = Hung::Nearest { touches: (0..count).filter(|&r| touch[p][r].0 > 0).collect(), as_near };
             (p, q, best.3)
         };
@@ -761,25 +773,6 @@ pub fn load_scene_in(files: &Files, path: &Path) -> Result<Scene> {
         }
     }
     Ok(Scene { size: max - min, palette, voxels })
-}
-
-/// Loads a level made as one `.vox` scene. Voxels whose palette index is in
-/// `markers` are not placed; they come back as markers for the simulation
-/// to place things.
-pub fn load_world(files: &Files, path: &Path, markers: &HashMap<u8, usize>) -> Result<(World, Vec<Marker>)> {
-    let scene = load_scene_in(files, path)?;
-    let mut world = World::new(scene.size, scene.palette);
-    let mut found = Vec::new();
-    for (p, index) in scene.voxels {
-        match markers.get(&index) {
-            Some(&kind) => found.push(Marker { kind, cell: p }),
-            None => {
-                world.set_raw(p, index);
-            }
-        }
-    }
-    world.mark_all_dirty();
-    Ok((world, found))
 }
 
 fn walk(

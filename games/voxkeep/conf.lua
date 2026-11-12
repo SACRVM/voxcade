@@ -15,10 +15,10 @@ function conf(c)
   }
   c.state.player = { hp = 3, lives = 3, taken = 0 }  -- what a run starts with: hit points (the kit's), lives and pickups taken (main.lua's)
 
-  -- The rooms: levels of voxel blocks 10 each way (levels/*.json, played
+  -- The rooms: levels of voxel blocks 10 each way (levels/*.toml, played
   -- in the order of their names; blocks/), the lane in front, the wall
   -- behind; the camera rests on all of one. The editor opens the first.
-  c.world.blocks = { file = "levels/01_hall.json" }
+  c.world.blocks = { file = "levels/01_hall.toml" }
   c.player.spawn = { 15, 5 }
 
   -- A room started over (a crate pushed where it helps no more): R, or

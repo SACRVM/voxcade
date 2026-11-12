@@ -2,7 +2,7 @@
 """Makes BunnyFarm (games/bunnyfarm), a farming game with a tamagotchi at
 its heart (docs/bunnyfarm.md), as voxels from the start: the blocks of
 the farm (blocks/*.vvx, 16 voxels each way), the farm itself
-(levels/01_farm.json: a fenced farm of 24 by 16 cells in a meadow, seen
+(levels/01_farm.toml: a fenced farm of 24 by 16 cells in a meadow, seen
 from above at a slant), the figures and the props.
 
 The second pass (2026-10-24, the user: the first looked careless): every
@@ -19,7 +19,6 @@ It makes what is missing and keeps every file there: once made, the
 blocks, the farm and the figures are the user's, shaped in the editors (a
 file deleted is made again). Plain Python, no numpy."""
 
-import json
 import sys
 from pathlib import Path
 
@@ -27,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import figures  # noqa: E402
 from figures import Fig  # noqa: E402
 from gen_sokovox import write_vox  # noqa: E402
+from vvx import read_level, write_level  # noqa: E402
 
 GAME = Path(__file__).resolve().parent.parent / "games" / "bunnyfarm"
 N = 16
@@ -1836,57 +1836,33 @@ def outside(cells, things, places):
     places.append({"name": "road_end", "at": [gx * N + 8, 56, N], "facing": [0, -1]})
 
 
-def level_text(cells, things, places):
-    """A level file as the editor writes it."""
+def write_farm(path, cells, things, places, kept=None):
+    """The level file as the editor writes it (tools/vvx.py), the signs of
+    `kept` (a level read) kept."""
     blocks = [b[0] for b in BLOCKS]
-    runs = []
-    for z in range(H):
-        for y in range(D):
-            for x in range(W):
-                name, turn = cells.get((x, y, z), (None, 0))
-                b = blocks.index(name) + 1 if name else 0
-                c = [b, turn if b else 0]
-                if runs and runs[-1][1:] == c:
-                    runs[-1][0] += 1
-                else:
-                    runs.append([1, *c])
-    j = lambda o: json.dumps(o, separators=(",", ":"))  # noqa: E731
-    return (
-        "{\n"
-        f'  "block": {N},\n'
-        f'  "size": [{W}, {D}, {H}],\n'
-        '  "blocks": [\n    ' + ",\n    ".join(j({"name": n, "kind": k}) for n, k, _ in BLOCKS) + "\n  ],\n"
-        '  "cells": [\n    ' + ",\n    ".join(", ".join(j(r) for r in runs[k:k + 10]) for k in range(0, len(runs), 10)) + "\n  ],\n"
-        '  "things": [\n    ' + ",\n    ".join(j(t) for t in things) + "\n  ],\n"
-        '  "places": [\n    ' + ",\n    ".join(j(p) for p in places) + "\n  ]\n"
-        "}\n"
-    )
+    numbered = {p: (blocks.index(name) + 1, turn) for p, (name, turn) in cells.items() if name}
+    write_level(path, N, (W, D, H), [(n, k) for n, k, _ in BLOCKS], numbered, things, places, kept=kept and kept["legend"], view=kept and kept["view"])
 
 
 def gate_on_level():
     """--gate: the gate, the road and the wood put on the level there (the
     user's: only those cells, things and places change)."""
-    path = GAME / "levels" / "01_farm.json"
-    d = json.loads(path.read_text())
-    assert d["size"] == [W, D, H] and [b["name"] for b in d["blocks"]] == [b[0] for b in BLOCKS], "a level of another make"
+    path = GAME / "levels" / "01_farm.toml"
+    d = read_level(path)
+    assert d["size"] == [W, D, H] and [n for n, _ in d["blocks"]] == [b[0] for b in BLOCKS], "a level of another make"
     if any(t["kind"] == "farm_gate" for t in d["things"]):
         print(f"{path}: has its gate already")
         return
-    names = [None] + [b["name"] for b in d["blocks"]]
-    cells, i = {}, 0
-    for count, b, turn in d["cells"]:
-        for _ in range(count):
-            if b:
-                cells[(i % W, (i // W) % D, i // (W * D))] = (names[b], turn)
-            i += 1
+    names = [None] + [n for n, _ in d["blocks"]]
+    cells = {p: (names[b], turn) for p, (b, turn) in d["cells"].items()}
     things, places = d["things"], d["places"]
     outside(cells, things, places)
-    path.write_text(level_text(cells, things, places))
+    write_farm(path, cells, things, places, kept=d)
     print(f"{path}: the gate, the road and the wood, {len(things)} things")
 
 
 def farm():
-    path = GAME / "levels" / "01_farm.json"
+    path = GAME / "levels" / "01_farm.toml"
     if kept(path):
         return
     cells = {}
@@ -1988,7 +1964,7 @@ def farm():
     places.append({"name": "fox", "at": [ox + 336, oy + 234, N], "facing": [0, -1]})
     outside(cells, things, places)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(level_text(cells, things, places))
+    write_farm(path, cells, things, places)
     print(f"{path}: {W} by {D} cells, {len(things)} things")
 
 
