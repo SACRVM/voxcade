@@ -1163,7 +1163,7 @@ pub fn sheet<G: Game>(dir: &Path, opts: &SheetOptions) -> Result<()> {
     }
     write_png(&opts.out, width, height, &sheet)?;
     println!(
-        "{}: {} by {} by {} voxels, {count} frames, {} colours | rows: front, front 3/4, side, back 3/4, back close up; {}; the five sides at the game's size ({per_voxel:.1} pixels a voxel)",
+        "{}: {} by {} by {} voxels, {count} frames, {} colors | rows: front, front 3/4, side, back 3/4, back close up; {}; the five sides at the game's size ({per_voxel:.1} pixels a voxel)",
         opts.out.display(),
         m.size.x,
         m.size.y,

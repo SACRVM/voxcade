@@ -375,12 +375,18 @@ impl ModelFile {
     }
 
     /// The text it would be saved as: the text it was read from while it
-    /// is as it came, else written anew.
+    /// is as it came, else written anew, but what would come out as it
+    /// did keeps the text it had (`keep_text`): a part moved changes its
+    /// `at`, never another part's lines.
     pub fn text(&self) -> String {
         if !self.text.is_empty() && self.is(&self.loaded) {
             return self.text.clone();
         }
-        self.write_text()
+        let new = self.write_text();
+        if self.text.is_empty() {
+            return new;
+        }
+        keep_text(&self.text, &new).unwrap_or(new)
     }
 
     /// The text written anew from what it holds (`text` without the
@@ -389,15 +395,15 @@ impl ModelFile {
         vvx::write_shape(&self.shape(), &self.kept(), true)
     }
 
-    /// Writes it at once (`blocks::save_at_once`).
-    pub fn save(&mut self) -> Result<()> {
+    /// Writes it at once (`blocks::save_at_once`): the text written.
+    pub fn save(&mut self) -> Result<String> {
         if self.foreign {
             return Err(bring_it_in(&self.path));
         }
         let text = self.text();
         crate::blocks::save_at_once(&self.path, text.as_bytes())?;
         self.signs = Palette::of_text(&text);
-        Ok(())
+        Ok(text)
     }
 
     /// A figure of parts as the game would make it of the file saved now
@@ -440,9 +446,149 @@ pub fn least(lo: IVec3, hi: IVec3) -> IVec3 {
     fit(IVec3::new(1, 1, hi.z - lo.z + 1), IVec3::new(lo.x, lo.y, 0), IVec3::new(hi.x, hi.y, 0))
 }
 
+/// One `[[part]]` or `[[frame]]` of a model's text: the comments right
+/// above its header, the header through its last line, and the blank
+/// lines after it.
+struct Unit<'a> {
+    body: &'a str,
+    gap: &'a str,
+}
+
+/// A model's text cut into its head (the format, size and palette, its
+/// blank lines after it apart) and its frames' or parts' units; None where
+/// a line past the head opens a table of another kind.
+fn units(src: &str) -> Option<(&str, &str, Vec<Unit<'_>>)> {
+    let mut starts: Vec<usize> = Vec::new();
+    let mut at = 0;
+    for line in src.split_inclusive('\n') {
+        let t = line.trim_start();
+        if t.starts_with("[[part]]") || t.starts_with("[[frame]]") {
+            starts.push(at);
+        } else if t.starts_with('[') && !starts.is_empty() {
+            return None;
+        }
+        at += line.len();
+    }
+    // Each header with the comments right above it.
+    let begin = |h: usize| {
+        let mut s = h;
+        while s > 0 {
+            let above = src[..s - 1].rfind('\n').map_or(0, |i| i + 1);
+            if !src[above..s].trim_start().starts_with('#') {
+                break;
+            }
+            s = above;
+        }
+        s
+    };
+    let begins: Vec<usize> = starts.iter().map(|&h| begin(h)).collect();
+    // A stretch's text and the blank lines that end it, apart.
+    let split = |s: &'_ str| -> (usize, usize) {
+        let mut end = s.len();
+        while end > 0 {
+            let above = s[..end - 1].rfind('\n').map_or(0, |i| i + 1);
+            if !s[above..end].trim().is_empty() {
+                break;
+            }
+            end = above;
+        }
+        (end, s.len())
+    };
+    let head_all = &src[..begins.first().copied().unwrap_or(src.len())];
+    let (h, _) = split(head_all);
+    let mut out = Vec::new();
+    for (k, &b) in begins.iter().enumerate() {
+        let e = begins.get(k + 1).copied().unwrap_or(src.len());
+        let (body_end, _) = split(&src[b..e]);
+        out.push(Unit { body: &src[b..b + body_end], gap: &src[b + body_end..e] });
+    }
+    Some((&head_all[..h], &head_all[h..], out))
+}
+
+/// The `layers` of a unit's text: where its line begins and its value
+/// ends (the line's end).
+fn layers_span(body: &str) -> Option<std::ops::Range<usize>> {
+    let doc = toml_edit::Document::parse(body).ok()?;
+    let table = doc.as_table().iter().next()?.1.as_array_of_tables()?.get(0)?;
+    let (key, value) = table.get_key_value("layers")?;
+    let (k, v) = (key.span()?, value.span()?);
+    let begin = body[..k.start].rfind('\n').map_or(0, |i| i + 1);
+    let end = body[v.end..].find('\n').map_or(body.len(), |i| v.end + i + 1);
+    Some(begin..end)
+}
+
+/// The text `new` (the model written anew) with what it says as `old`
+/// said it in `old`'s own words: the head, if the writer gives it as it
+/// would give the old's; each part (by name) or frame (by its place)
+/// whose unit comes out the same, whole, its comments and repeats as
+/// written; one whose voxels did not change (it moved, its rig changed)
+/// with its old `layers` lines. None where either text cannot be cut so.
+fn keep_text(old: &str, new: &str) -> Option<String> {
+    let (shape, palette) = vvx::read_shape(old).ok()?;
+    let norm = vvx::write_shape(&shape, &palette, true);
+    let (old_head, old_gap, old_units) = units(old)?;
+    let (norm_head, _, norm_units) = units(&norm)?;
+    let (new_head, new_gap, new_units) = units(new)?;
+    if old_units.len() != norm_units.len() || old_units.len() != shape.pieces.len() {
+        return None;
+    }
+    let new_shape = vvx::read_shape(new).ok()?.0;
+    if new_shape.pieces.len() != new_units.len() {
+        return None;
+    }
+    // Each new unit's old one: a part by its name, a frame by its place.
+    let old_of = |i: usize| -> Option<usize> {
+        if new_shape.parted != shape.parted {
+            return None;
+        }
+        if shape.parted { shape.pieces.iter().position(|p| p.name == new_shape.pieces[i].name) } else { (i < shape.pieces.len()).then_some(i) }
+    };
+    let head_kept = new_head == norm_head;
+    let mut out = String::from(if head_kept { old_head } else { new_head });
+    let mut last_old: Option<usize> = None;
+    for (i, unit) in new_units.iter().enumerate() {
+        let j = old_of(i);
+        let kept = j.filter(|&j| norm_units[j].body == unit.body);
+        // The blank lines before it: the old's between two old neighbours.
+        let gap = match (i, kept) {
+            (0, Some(0)) if head_kept => old_gap,
+            (0, _) => new_gap,
+            (_, Some(j)) if last_old.is_some_and(|l| l + 1 == j) => old_units[j - 1].gap,
+            _ => new_units[i - 1].gap,
+        };
+        out += gap;
+        match (kept, j) {
+            (Some(j), _) => out += old_units[j].body,
+            (None, Some(j)) => {
+                // Its voxels as they were: the old `layers` lines in the new unit.
+                let (n, o, m) = (layers_span(unit.body), layers_span(old_units[j].body), layers_span(norm_units[j].body));
+                match (n, o, m) {
+                    (Some(n), Some(o), Some(m)) if unit.body[n.clone()] == norm_units[j].body[m.clone()] => {
+                        out += &unit.body[..n.start];
+                        out += &old_units[j].body[o];
+                        out += &unit.body[n.end..];
+                    }
+                    _ => out += unit.body,
+                }
+            }
+            _ => out += unit.body,
+        }
+        last_old = kept;
+    }
+    // The end: the old's last blank lines if it ends as the old did.
+    let tail = match (last_old, new_units.last()) {
+        (Some(j), _) if j + 1 == old_units.len() => old_units[j].gap,
+        (_, Some(u)) => u.gap,
+        (_, None) => new_gap,
+    };
+    out += tail;
+    // Never a text that says something else.
+    (vvx::read_shape(&out).ok()?.0 == new_shape).then_some(out)
+}
+
 /// A colour for a palette entry that no other entry has: `want` itself,
 /// else a step off it (a second entry of a colour in another material).
-fn free_key(colours: &[Colour], want: [u8; 3]) -> [u8; 3] {
+pub(crate) fn free_key(colours: &[Colour], want: [u8; 3]) -> [u8; 3] {
     let taken = |k: [u8; 3]| colours.iter().any(|c| c.key == k);
     if !taken(want) {
         return want;

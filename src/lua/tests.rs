@@ -995,7 +995,7 @@ end
     assert!(halted(&bad).contains("no icon called 'heart' (c.icons: dot)"), "{}", halted(&bad));
     let dir = kit_folder("hud-colour", "  c.icons.dot = { rows = { \"RX\" }, colors = { R = { 1, 2, 3 } } }", "");
     let e = Session::<LuaGame>::load(&dir).map(|_| ()).unwrap_err();
-    assert!(format!("{e:#}").contains("c.icons.dot.rows[1]: the letter 'X' has no colour"), "{e:#}");
+    assert!(format!("{e:#}").contains("c.icons.dot.rows[1]: the letter 'X' has no color"), "{e:#}");
 }
 
 /// `frame:to_screen` says where a point of the level shows, in the HUD's
@@ -4514,4 +4514,46 @@ fn a_scenario_may_only_name_a_level() {
     assert_eq!(said(&mut g, "level.arrived.name"), "\"door\"");
     steps(&mut g, 5);
     assert_eq!(halted(&g), "");
+}
+
+/// A thing of a kind its level's file turns (`facing`, `turn`) starts
+/// facing so, as `level:spawn`'s facing turns it: the nearest of the four
+/// ways for a kind on the grid, the bearing exactly for one that turns
+/// freely; a kind with a behaviour turned in a file does not load.
+#[test]
+fn a_thing_of_a_kind_faces_as_its_file_turns_it() {
+    let main = r#"
+function on_level_start(how)
+  local door, wisp, plain = level:thing("door"), level:thing("wisp"), level:thing("plain")
+  world.state.door = door.facing.x * 10 + door.facing.y
+  world.state.slant = door.facing.x
+  world.state.wisp_x = math.floor(wisp.facing.x * 1000 + 0.5)
+  world.state.wisp_y = math.floor(wisp.facing.y * 1000 + 0.5)
+  world.state.plain = plain.facing.x * 10 + plain.facing.y
+end
+"#;
+    let dir = levels_folder("kind-facing", main, &[("a", &[])]);
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.toml\" }\n  c.player.spawn = { 2, 2 }\n  c.things.box = {}\n  c.things.wisp = { turns = \"free\" }\nend\n").unwrap();
+    let path = dir.join("levels/a.toml");
+    let things = "\n[[thing]]\nname = \"door\"\nkind = \"box\"\nat = [8, 2, 4]\nturn = 100\n\n[[thing]]\nname = \"plain\"\nkind = \"box\"\nat = [4, 2, 4]\n\n[[thing]]\nname = \"wisp\"\nkind = \"wisp\"\nat = [12, 2, 4]\nturn = 30\n";
+    std::fs::write(&path, std::fs::read_to_string(&path).unwrap() + things).unwrap();
+    // The file reads and writes it as it says.
+    let level = crate::grid::GridLevel::read(&path).unwrap();
+    assert_eq!(level.things.iter().map(|t| t.facing.map(crate::grid::Facing::bearing)).collect::<Vec<_>>(), [Some(100.0), None, Some(30.0)]);
+    assert_eq!(crate::grid::GridLevel::from_text(&level.to_text()).unwrap(), level, "round trip");
+    let mut g = game_in(&dir);
+    steps(&mut g, 1);
+    assert_eq!(halted(&g), "");
+    let state = &g.game.inspect()["state"];
+    assert_eq!(state["door"], 10, "turn 100 on the grid: east, {state}");
+    assert_eq!(state["plain"], -1, "unturned: as a script's thing stands, {state}");
+    assert_eq!((state["wisp_x"].as_i64(), state["wisp_y"].as_i64()), (Some(0), Some(1000)), "its way among the four: north, {state}");
+    // Drawn facing exactly 30 degrees (`turns = "free"` draws by it).
+    let wisp = g.game.stage.named("wisp").unwrap();
+    let facing = g.game.stage.host.get(crate::sim::things::Id::from_raw(wisp)).unwrap().body.facing;
+    assert!((facing.x - 0.5).abs() < 1e-4 && (facing.y - 0.866).abs() < 1e-3, "turned freely: {facing}");
+    // A kind with a behaviour turns by its rules: refused as the game loads.
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"platformer\"\n  c.world.blocks = { file = \"level.toml\" }\n  c.player.spawn = { 2, 2 }\n  c.things.box = { behaviour = \"pickup\" }\n  c.things.wisp = { turns = \"free\" }\nend\n").unwrap();
+    let e = start_error(&dir);
+    assert!(e.contains("ready-made rules"), "{e}");
 }

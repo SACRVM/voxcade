@@ -12,6 +12,7 @@ pub mod frames;
 pub mod handles;
 pub mod model;
 pub mod panels;
+pub mod pick;
 pub mod shaping;
 pub mod stage;
 pub mod zones;
@@ -83,6 +84,10 @@ pub struct ShotOptions {
     /// A figure's parts moved by whole voxels (`--move-part`), joints by
     /// halves (`--move-joint`, true), in turn: by the part's name.
     pub part_moves: Vec<(String, glam::Vec3, bool)>,
+    /// Among the pieces: things hidden in the editor (by name); a click
+    /// at a pixel of the shot, what it chooses printed and chosen.
+    pub hide: Vec<String>,
+    pub click: Option<(f32, f32)>,
 }
 
 /// A change `--shot` tries among the pieces, to see what it does: a model
@@ -251,6 +256,17 @@ fn open<G: Game>(dir: &Path, level: Option<&str>, block: Option<&str>, things: b
     }
     ed.kinds = cfg.things.keys().cloned().collect();
     ed.held_kind = ed.kinds.first().cloned();
+    for (kind, table) in &cfg.things {
+        if let Some(m) = table.get("model").and_then(|m| m.as_str()) {
+            ed.kind_models.insert(kind.clone(), m.to_string());
+        }
+        if table.get("behaviour").is_none() {
+            ed.still_kinds.insert(kind.clone());
+        }
+        if table.get("turns").and_then(|t| t.as_str()) == Some("free") {
+            ed.free_kinds.insert(kind.clone());
+        }
+    }
     ed.free_turns = cfg.camera.turns == crate::config::Turns::Free;
     ed.game_light = cfg.light.clone();
     ed.scenes = crate::levels::scene_files(dir, &cfg);
@@ -324,7 +340,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         view.follow_origin(&ed);
     }
     if let Some(word) = &opts.tool {
-        let tool = model::Tool::of(ed.scope, ed.layer).iter().copied().find(|t| t.label(ed.scope).eq_ignore_ascii_case(word));
+        let tool = model::Tool::of(ed.scope, ed.layer).iter().copied().find(|t| t.label(ed.scope, ed.layer).eq_ignore_ascii_case(word));
         ed.choose(tool.with_context(|| format!("--tool {word}: no such tool here"))?);
 
     }
@@ -349,6 +365,10 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     if let Some(name) = &opts.choose {
         let item = ed.find(name).with_context(|| format!("--choose {name}: the level has nothing called so"))?;
         ed.choose_item(Some(item));
+    }
+    for name in &opts.hide {
+        let item = ed.find(name).with_context(|| format!("--hide {name}: the level has nothing called so"))?;
+        ed.set_hidden(item, true);
     }
     view.aspect = aspect;
     // (Where the panels will lie, for the view's middle: as in a window.)
@@ -391,7 +411,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     let (mut input, mut thumbs, mut drawn) = (crate::gui::input::Input::default(), panels::Thumbs::default(), panels::Shown::default());
     let mut last = None;
     // With --held or --stamp twice: the shape set, then all drawn again.
-    let again = opts.stamp || opts.held.is_some() || opts.menu.is_some() || opts.hover.is_some();
+    let again = opts.stamp || opts.held.is_some() || opts.menu.is_some() || opts.hover.is_some() || opts.click.is_some();
     for pass in 0..=again as usize {
         for step in 0..120 {
             let mut raw = input.take([opts.width, opts.height], 1.0, 1.0);
@@ -447,7 +467,20 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
                     _ => bail!("--hover {word}: arrow-x, ring-z, face-y, face-y-low and the like"),
                 });
             }
-            if (opts.menu.is_some() || opts.hover.is_some())
+            if let Some((x, y)) = opts.click {
+                // As a click in the window there: the chosen one's handles
+                // first, else what the ray meets.
+                let (origin, dir) = view.voxel_ray(aspect, x / w, y / h);
+                let at = egui::pos2(x, y);
+                let picked = view::pick_along(&ed, &figures, origin, dir);
+                if stage::grip_under(&ed, &view, screen, at).is_some() {
+                    println!("click {x},{y}: a handle of the chosen one");
+                } else {
+                    ed.choose_item(picked.map(|(item, _)| item));
+                    println!("click {x},{y}: {}", picked.map_or("nothing".to_string(), |(item, _)| ed.label_of(item).0));
+                }
+            }
+            if (opts.menu.is_some() || opts.hover.is_some() || opts.click.is_some())
                 && let Some(out) = last.take()
             {
                 let (device, queue, _) = canvas.gpu();
@@ -741,6 +774,10 @@ pub fn shift_held(events: &sdl3::EventPump) -> bool {
     keys.is_scancode_pressed(Scancode::LShift) || keys.is_scancode_pressed(Scancode::RShift)
 }
 
+/// How often an open editor looks whether another program changed its
+/// files.
+const LOOK_EVERY: Duration = Duration::from_secs(1);
+
 /// The editor in a window of its own: `voxcade edit`'s, or one of those the
 /// IDE opens (several, on the IDE's GPU). It takes the events of its
 /// window and draws when something happened.
@@ -776,6 +813,9 @@ pub struct EditorWindow {
     picture: Option<Result<Vec<u8>, String>>,
     /// DON'T OPEN was answered: the window closes at its next event.
     closing: bool,
+    /// When it last looked whether another program changed its files
+    /// (`Editor::look_at_disk`: once a second, as the IDE's list).
+    looked: Instant,
 }
 
 impl EditorWindow {
@@ -828,6 +868,7 @@ impl EditorWindow {
             capture: None,
             picture: None,
             closing: false,
+            looked: Instant::now(),
         })
     }
 
@@ -838,7 +879,8 @@ impl EditorWindow {
 
     /// When it wants to draw next (None: only after an event of its own).
     pub fn wakes_at(&self) -> Option<Instant> {
-        if self.dirty { Some(Instant::now()) } else { self.repaint_at }
+        let look = self.looked + LOOK_EVERY;
+        if self.dirty { Some(Instant::now()) } else { Some(self.repaint_at.map_or(look, |r| r.min(look))) }
     }
 
     /// Its window's SDL id: the events that are its.
@@ -964,10 +1006,14 @@ impl EditorWindow {
                 view.only_empty = false;
                 ed.shift_pick(false);
             }
-            // Back to the level: the pieces' models as their files are now
-            // (one changed in the model editor shows).
-            Event::Window { win_event: WindowEvent::FocusGained, .. } if ed.scope == Scope::Level => {
-                *figures = Figures::load(&ed.dir, cfg).with_pieces(&ed.dir, &ed.level);
+            // Back to the window: its files as they are now (another
+            // program's change comes in); at the level, the pieces' models
+            // too (one changed in the model editor shows).
+            Event::Window { win_event: WindowEvent::FocusGained, .. } => {
+                ed.look_at_disk();
+                if ed.scope == Scope::Level {
+                    *figures = Figures::load(&ed.dir, cfg).with_pieces(&ed.dir, &ed.level);
+                }
             }
             Event::KeyDown { keycode: Some(key), keymod, .. } if ed.among_pieces() && !gui.egui_wants_keyboard_input() && pieces_key(ed, view, key, keymod) => {}
             Event::KeyDown { keycode: Some(key), keymod, .. } if !gui.egui_wants_keyboard_input() => {
@@ -1041,7 +1087,7 @@ impl EditorWindow {
                     } else if mousestate.left() && ed.dragging().is_some() {
                         ed.drag_item(origin, dir);
                     } else if ed.hanging.is_some() {
-                        ed.hang_at(if over { None } else { view::floor_spot(&shown.world, origin, dir) });
+                        ed.hang_at(if over { None } else { view::set_down_spot(ed, figures, &shown.world, origin, dir) });
                     }
                     let busy = over || ed.hanging.is_some() || mousestate.left();
                     view.grip_hover = if busy { None } else { stage::grip_under(ed, view, room, mouse) };
@@ -1114,7 +1160,7 @@ impl EditorWindow {
                     view.menu = None;
                     let picked = view::pick_along(ed, figures, origin, dir);
                     if ed.hanging.is_some() {
-                        ed.hang_at(view::floor_spot(&shown.world, origin, dir));
+                        ed.hang_at(view::set_down_spot(ed, figures, &shown.world, origin, dir));
                         ed.set_down();
                     } else if clicks >= 2 {
                         if let Some((item @ Item::Thing(i), _)) = picked
@@ -1224,6 +1270,12 @@ impl EditorWindow {
     /// Draws a frame if something happened since the last, or the panels
     /// asked for one: the 3D view, the panels over it.
     pub fn draw(&mut self) -> Result<()> {
+        if self.looked.elapsed() >= LOOK_EVERY {
+            self.looked = Instant::now();
+            if self.ed.look_at_disk() {
+                self.dirty = true;
+            }
+        }
         if !self.dirty && self.repaint_at.is_none_or(|r| Instant::now() < r) {
             return Ok(());
         }

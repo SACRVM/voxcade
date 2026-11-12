@@ -1284,7 +1284,7 @@ mod tests {
         let mut paste = m.clone();
         paste.stack.last_mut().unwrap().1 = 3;
         assert_eq!(paste.nav(Nav::Confirm, &mut s, 0), Some(Command::PasteTicket), "joining by the ticket or code on the clipboard");
-        assert_eq!(m.nav(Nav::Confirm, &mut s, 0), None, "another game's is greyed");
+        assert_eq!(m.nav(Nav::Confirm, &mut s, 0), None, "another game's is grayed");
         m.nav(Nav::Down, &mut s, 0);
         let mut found = m.clone();
         assert_eq!((found.nav(Nav::Confirm, &mut s, 0), found.address.as_str(), found.page()), (Some(Command::Join), "10.0.0.8:26500", Some(Page::Joining)));

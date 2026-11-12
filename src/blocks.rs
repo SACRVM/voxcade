@@ -83,7 +83,7 @@ impl Block {
             self.compact();
         }
         if self.palette.len() >= 255 {
-            bail!("a block holds at most 255 colours");
+            bail!("a block holds at most 255 colors");
         }
         self.palette.push(colour);
         Ok(self.palette.len() as u8)
@@ -197,8 +197,15 @@ impl Block {
     /// at once (`save_at_once`), so a game watching the folder never reads
     /// half a block.
     pub fn save(&self, path: &Path) -> Result<()> {
+        self.save_saying(path).map(drop)
+    }
+
+    /// `save`, saying the text written (the editor remembers what it
+    /// wrote, to see when another program writes the file).
+    pub fn save_saying(&self, path: &Path) -> Result<String> {
         let text = crate::vvx::write(&self.model(), &crate::vvx::Palette::of_file(path));
-        save_at_once(path, text.as_bytes())
+        save_at_once(path, text.as_bytes())?;
+        Ok(text)
     }
 }
 
@@ -431,7 +438,7 @@ mod tests {
             block.set(IVec3::new(i % 16, i / 16, 0), Some([i as u8, 0, 0])).unwrap();
         }
         let e = block.set(IVec3::new(15, 15, 0), Some([0, 1, 0])).unwrap_err().to_string();
-        assert!(e.contains("255 colours"), "{e}");
+        assert!(e.contains("255 colors"), "{e}");
         // A colour no voxel uses any more makes room.
         block.set(IVec3::new(0, 0, 0), Some([1, 0, 0])).unwrap();
         block.set(IVec3::new(15, 15, 0), Some([0, 1, 0])).unwrap();

@@ -420,7 +420,11 @@ mod tests {
             let arm = part(&back, "arm");
             act(&mut back, &mut v, Action::Part(arm));
             act(&mut back, &mut v, Action::JointWorkedOut);
-            on_disk(&file)["arm"].2
+            let at = on_disk(&file)["arm"].2;
+            // Taken back: the file as `ed` wrote it, byte for byte (else
+            // `ed` reads it anew, its steps gone).
+            act(&mut back, &mut v, Action::Undo);
+            at
         };
         assert_eq!(set.2, [on_head[0] - 0.5, on_head[1], on_head[2] + 1.0], "moved from where the rules put it");
         // Read again: the same figure (the file as the steps left it).
@@ -587,7 +591,7 @@ mod tests {
         let _ = size;
         act(&mut ed, &mut view, Action::Part(body));
         let cell = (0..ed.grid().x).flat_map(|x| (0..ed.grid().z).map(move |z| IVec3::new(x, 1, z))).find(|&c| ed.shape().is_some_and(|b| b.get(c) != 0)).unwrap();
-        assert_eq!(words(&ed, MenuOn::Voxel(cell, Some(head as u16))), ["PICK COLOUR", "ERASE", "SHAPE HEAD"]);
+        assert_eq!(words(&ed, MenuOn::Voxel(cell, Some(head as u16))), ["PICK COLOR", "ERASE", "SHAPE HEAD"]);
         let held = ed.colour;
         ed.colour = [1, 2, 3];
         act(&mut ed, &mut view, Action::PickAt(cell));
@@ -596,7 +600,7 @@ mod tests {
         let steps = ed.steps();
         act(&mut ed, &mut view, Action::EraseAt(cell));
         assert_eq!((ed.shape().unwrap().get(cell), ed.steps()), (0, steps + 1));
-        assert_eq!(words(&ed, MenuOn::Voxel(cell, None)), ["PICK COLOUR"], "nothing there to erase");
+        assert_eq!(words(&ed, MenuOn::Voxel(cell, None)), ["PICK COLOR"], "nothing there to erase");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

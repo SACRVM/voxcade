@@ -286,6 +286,14 @@ north) needs `c.camera.turns = "free"`, the game's choice for every
 level and the editor's, else the level does not load and the mistake
 names each thing turned off the grid and both ways out (allow free turns,
 or align them in the editor: `grid::text::align`, a tie going clockwise).
+A thing of a kind takes `facing` or `turn` too (2026-11-12): it starts
+facing that way, as `level:spawn`'s `facing` turns it (`thing:face`;
+`lua::host::Stage::name_things` turns each thing the file turns, its
+kind's markers in order). Only a kind without a behaviour, which the
+script moves: one with a behaviour turns by its ready-made rules, and
+its level does not load (`check_facings`). A kind with `turns = "free"`
+faces the bearing exactly, any other the nearest of the four ways;
+`pitch` and `roll` stay the pieces'.
 A piece's `at` is its pivot cell (the model's cell `size / 2` across and
 deep, on its floor; "A model's pivot" below), and `thing.x`, `thing.y`
 read `at + 0.5`, the middle of that cell (the grid's low corner added):

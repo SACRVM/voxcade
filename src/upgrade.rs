@@ -1058,9 +1058,9 @@ pub(crate) mod worlds {
         let used = numbers.len();
         let said = if world {
             let rest = (used + 1..256).filter(|&i| old.palette[i] != [0, 0, 0, 0]).count();
-            if rest > 0 { format!("colours 1 to {used} kept in their order, the {rest} after them no voxel has left out") } else { format!("colours 1 to {used} kept in their order") }
+            if rest > 0 { format!("colors 1 to {used} kept in their order, the {rest} after them no voxel has left out") } else { format!("colors 1 to {used} kept in their order") }
         } else {
-            format!("{used} colours in the order the map takes them")
+            format!("{used} colors in the order the map takes them")
         };
         Ok((scene, said))
     }
@@ -1367,7 +1367,7 @@ mod tests {
         // x runs along y.
         assert_eq!(kinds, [("rifleman", IVec3::new(2, 2, 5)), ("rifleman", IVec3::new(2, 0, 4)), ("guard", IVec3::new(2, 1, 4)), ("goal", IVec3::new(6, 6, 3))]);
         let w = &level.world;
-        assert_eq!((w.palette[w.get(IVec3::new(2, 0, 3)) as usize], w.get(IVec3::new(2, 0, 3))), ([200, 10, 10, 255], 2), "the map's colours: the ground's first, then the post's in the order of first use");
+        assert_eq!((w.palette[w.get(IVec3::new(2, 0, 3)) as usize], w.get(IVec3::new(2, 0, 3))), ([200, 10, 10, 255], 2), "the map's colors: the ground's first, then the post's in the order of first use");
         assert_eq!(w.palette[w.get(IVec3::new(2, 2, 3)) as usize], [9, 9, 9, 255]);
 
         // A level of blocks.

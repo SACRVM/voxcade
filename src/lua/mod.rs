@@ -128,6 +128,22 @@ static NO_FRAMES: std::collections::BTreeMap<String, crate::sim::things::Frames>
 /// A kind's swing where there is no kind: none.
 static NO_SWING: std::collections::BTreeMap<String, f32> = std::collections::BTreeMap::new();
 
+/// A thing of a kind that its level's file turns (`facing`, `turn`)
+/// must be one the script moves: a kind with a behaviour turns by its
+/// ready-made rules, as `level:spawn`'s facing says.
+fn check_facings(levels: &crate::levels::Levels, kinds: &[Kind]) -> Result<()> {
+    for level in &levels.list {
+        for (m, f) in level.markers.iter().zip(&level.marker_facings) {
+            if let (Some(_), Some(k)) = (f, kinds.get(m.kind))
+                && !k.scripted
+            {
+                anyhow::bail!("level {}: a {} faces as its ready-made rules turn it (its behaviour): facing and turn in a level's file are for kinds without one, as level:spawn's facing", level.name, k.name);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// A Lua game, with the kit `K` when its `conf.lua` asks for it.
 pub struct LuaGame<K: Kit> {
     stage: Stage,
@@ -2092,6 +2108,7 @@ impl<K: Kit> Game for LuaGame<K> {
         Self::check_players(cfg)?;
         Self::check_items(cfg)?;
         Self::check_kinds_sounds(cfg, &kinds)?;
+        check_facings(&levels, &kinds)?;
         let host: Box<dyn Host> = if with::<K>(cfg) {
             Box::new(K::load(setup)?)
         } else {

@@ -96,6 +96,9 @@ pub struct Made {
     pub files: Vec<PathBuf>,
     pub places: Vec<Place>,
     pub marker_names: Vec<Option<String>>,
+    /// The ways the file turns its markers' things (degrees clockwise
+    /// seen from above, north 0), in the markers' order.
+    pub marker_facings: Vec<Option<f64>>,
     pub pieces: Vec<Piece>,
     pub areas: Vec<Area>,
     pub daylight: crate::session::Daylight,
@@ -112,6 +115,8 @@ pub struct Level {
     /// The names the file gives its markers' things (`marker_names`), its
     /// pieces and its areas.
     pub marker_names: Vec<Option<String>>,
+    /// The ways the file turns its markers' things (`marker_facings`).
+    pub marker_facings: Vec<Option<f64>>,
     pub pieces: Vec<Piece>,
     pub areas: Vec<Area>,
     /// Its own daylight (`[light]` in its file): what it sets of the
@@ -122,11 +127,11 @@ pub struct Level {
 impl Level {
     /// A level of a world, markers and places, nothing set down.
     pub fn plain(name: &str, world: World, markers: Vec<Marker>, places: Vec<Place>) -> Self {
-        Self { name: name.to_string(), world, markers, places, marker_names: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight: Default::default() }
+        Self { name: name.to_string(), world, markers, places, marker_names: Vec::new(), marker_facings: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight: Default::default() }
     }
 
     fn of(name: String, made: Made) -> Self {
-        Self { name, world: made.world, markers: made.markers, places: made.places, marker_names: made.marker_names, pieces: made.pieces, areas: made.areas, daylight: made.daylight }
+        Self { name, world: made.world, markers: made.markers, places: made.places, marker_names: made.marker_names, marker_facings: made.marker_facings, pieces: made.pieces, areas: made.areas, daylight: made.daylight }
     }
 }
 
@@ -349,7 +354,7 @@ fn one(game: &Files, cfg: &GameConfig, kind: Kind, path: &Path) -> Result<Made> 
         (Kind::Map, _) => crate::map::load_map_at(game, path, &names),
         _ => {
             let (world, found) = crate::scene::load_in(game, path)?.world(&names).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
-            Ok(Made { world, markers: found, files: vec![path.to_path_buf()], places: Vec::new(), marker_names: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight: Default::default() })
+            Ok(Made { world, markers: found, files: vec![path.to_path_buf()], places: Vec::new(), marker_names: Vec::new(), marker_facings: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight: Default::default() })
         }
     }
 }

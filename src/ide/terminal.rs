@@ -633,7 +633,7 @@ mod tests {
         assert_eq!(cell(0, 0).fg, palette(1), "red by name");
         assert_eq!(cell(0, 4).fg, palette(10), "bold green is bright green");
         assert_eq!(cell(0, 3).fg, FOREGROUND);
-        assert_eq!((cell(1, 0).fg, cell(1, 0).bg), (Color32::from_rgb(1, 2, 3), palette(196)), "RGB letters on colour 196");
+        assert_eq!((cell(1, 0).fg, cell(1, 0).bg), (Color32::from_rgb(1, 2, 3), palette(196)), "RGB letters on color 196");
         assert_eq!((cell(1, 1).fg, cell(1, 1).bg), (BACKGROUND, FOREGROUND), "inverse");
         assert!(cell(2, 0).wide && cell(2, 1).spacer && cell(2, 2).wide && cell(2, 4).c == '!', "two cells a letter");
         assert_eq!(p.cursor.map(|c| (c.0, c.1)), Some((2, 5)));

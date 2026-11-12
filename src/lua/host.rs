@@ -975,7 +975,13 @@ impl Stage {
         for (i, m) in level.markers.iter().enumerate() {
             given.entry(m.kind).or_default().push_back(level.marker_names.get(i).cloned().flatten());
         }
+        // And the ways it turns them (`levels::Level::marker_facings`).
+        let mut ways: std::collections::BTreeMap<usize, std::collections::VecDeque<Option<f64>>> = Default::default();
+        for (i, m) in level.markers.iter().enumerate() {
+            ways.entry(m.kind).or_default().push_back(level.marker_facings.get(i).copied().flatten());
+        }
         let mut counts: std::collections::BTreeMap<usize, u32> = Default::default();
+        let mut turned = Vec::new();
         for id in self.host.ids() {
             if figures.contains(&id) {
                 continue;
@@ -986,9 +992,19 @@ impl Stage {
             *n += 1;
             let own = match self.pieces.get(&id.raw()) {
                 Some(p) => p.name.clone(),
-                None => given.get_mut(&kind).and_then(|q| q.pop_front()).flatten(),
+                None => {
+                    if let Some(bearing) = ways.get_mut(&kind).and_then(|q| q.pop_front()).flatten() {
+                        turned.push((id, way_of(bearing, k.free_turn)));
+                    }
+                    given.get_mut(&kind).and_then(|q| q.pop_front()).flatten()
+                }
             };
             self.names.insert(id.raw(), own.unwrap_or_else(|| format!("{}_{n}", k.name)));
+        }
+        // (Only kinds without a behaviour have a way in a file: `LuaGame`
+        // refuses the rest as it loads.)
+        for (id, way) in turned {
+            let _ = self.host.face(id, way);
         }
     }
 
@@ -1038,6 +1054,22 @@ impl Stage {
         let (host, player) = (&self.host, self.host.player_seen().is_some());
         self.dead.retain(|&id| if id == PLAYER { player } else { host.get(Id::from_raw(id)).is_some() });
     }
+}
+
+/// The way on the ground a bearing faces (degrees clockwise seen from
+/// above, north 0: +y): exactly for a kind that turns freely, else the
+/// nearest of the four ways.
+pub fn way_of(bearing: f64, free: bool) -> Vec3 {
+    if !free {
+        return match ((bearing / 90.0).round() as i64).rem_euclid(4) {
+            0 => Vec3::Y,
+            1 => Vec3::X,
+            2 => Vec3::NEG_Y,
+            _ => Vec3::NEG_X,
+        };
+    }
+    let (sin, cos) = crate::sim::math::sin_cos((bearing as f32).to_radians());
+    Vec3::new(sin, cos, 0.0)
 }
 
 /// A thing bursting into its voxels where it stood, its model turned to

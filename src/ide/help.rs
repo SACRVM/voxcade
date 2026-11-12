@@ -263,8 +263,8 @@ end
 
 function on_draw(frame)
   for _, t in ipairs(level:things()) do
-    local colour = ({ slime = { 90, 200, 90 }, water = { 60, 120, 220 }, door = { 120, 80, 50 } })[t.kind]
-    frame:cube(t.x, t.y, t.z, colour)
+    local color = ({ slime = { 90, 200, 90 }, water = { 60, 120, 220 }, door = { 120, 80, 50 } })[t.kind]
+    frame:cube(t.x, t.y, t.z, color)
   end
 end
 "##,
@@ -577,7 +577,7 @@ end
     },
     Topic {
         title: "BUILD THE LEVEL",
-        text: "A level made in code (c.world.size in conf.lua) starts empty. Fill boxes of voxels when it begins, from one corner to the other: a colour as \"#rrggbb\", or nil to empty them again.",
+        text: "A level made in code (c.world.size in conf.lua) starts empty. Fill boxes of voxels when it begins, from one corner to the other: a color as \"#rrggbb\", or nil to empty them again.",
         conf: r##"c.world.size = { 96, 64, 24 }"##,
         files: &[],
         code: r##"function on_level_start(how)
@@ -607,7 +607,7 @@ end
     },
     Topic {
         title: "DRAW A HUD",
-        text: "The HUD is your game's: on_draw draws it on the frame, counted from the top left in UI voxels; frame.width and frame.height say how big it is (the width follows the screen's shape). Small pictures are c.icons, a letter a colour; frame:icon draws one, screen:burst makes one fly apart. frame:text takes a size (2 and up: big letters), frame:text_width measures for centring, frame:bar shows a share (a boss's health), frame:drop_in lets letters drop in, frame:to_screen says where a thing of the level shows (a name over its head). What changes over time (a heart lost, when a message began) goes into a state in on_tick.",
+        text: "The HUD is your game's: on_draw draws it on the frame, counted from the top left in UI voxels; frame.width and frame.height say how big it is (the width follows the screen's shape). Small pictures are c.icons, a letter a color; frame:icon draws one, screen:burst makes one fly apart. frame:text takes a size (2 and up: big letters), frame:text_width measures for centering, frame:bar shows a share (a boss's health), frame:drop_in lets letters drop in, frame:to_screen says where a thing of the level shows (a name over its head). What changes over time (a heart lost, when a message began) goes into a state in on_tick.",
         conf: r##"c.player.kind = "hero"
 c.things.hero = { hp = 3 }
 c.icons.heart = {
@@ -681,7 +681,7 @@ end
     },
     Topic {
         title: "DAY AND NIGHT",
-        text: "frame:daylight sets this picture's daylight: where the sun's light comes from (sun, travelling down), its colour and strength (sun_color), the light every face gets (ambient), how dark shadows are (shadow) and the sky. Work it out in on_draw from your game's clock, every picture: here a day of 40 seconds, the sun rising in the east, white at noon, warm low down, and a blue night with a lamp (frame:light). What you leave out is c.light's. It is only the picture: the game's rules do not see it, so the clock that drives it is the game's own (world.tick here, or a state).",
+        text: "frame:daylight sets this picture's daylight: where the sun's light comes from (sun, traveling down), its color and strength (sun_color), the light every face gets (ambient), how dark shadows are (shadow) and the sky. Work it out in on_draw from your game's clock, every picture: here a day of 40 seconds, the sun rising in the east, white at noon, warm low down, and a blue night with a lamp (frame:light). What you leave out is c.light's. It is only the picture: the game's rules do not see it, so the clock that drives it is the game's own (world.tick here, or a state).",
         conf: r##"c.player.kind = "hero"
 c.things.hero = {}"##,
         files: &[],
@@ -825,7 +825,7 @@ end
 "##,
     },
     Topic {
-        title: "TURN A MODEL",
+        title: "ROTATE A MODEL",
         text: "Models stand on the grid in quarter turns unless your game turns them. A kind with turns = \"free\" faces exactly the way it goes, a diagonal too. frame:model turns a model further, in degrees about its middle: turn (round, clockwise seen from above), pitch (its nose up) and roll (its right side down, as a ship banks to the right). ship.vvx stands for a model of yours.",
         conf: r##"c.player.kind = "ship"
 c.things.ship = { model = "ship.vvx", turns = "free" }"##,

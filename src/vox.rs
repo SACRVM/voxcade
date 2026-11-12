@@ -47,6 +47,9 @@ pub struct VoxModel {
     /// as cubes every frame, sorted with the other see-through ones; the
     /// opaque ones lie on the GPU (`bank`).
     pub glass: Vec<Vec<u32>>,
+    /// Per frame and visible voxel (as in `visible`): the faces another
+    /// opaque voxel of the frame lies against (`covered`), never drawn.
+    pub covered: Vec<Vec<u8>>,
     /// Per frame: where its opaque visible voxels lie in the game's model
     /// bank (`render::ModelBank::add`); empty until it is put there, and
     /// then the model is drawn as cubes.
@@ -90,6 +93,9 @@ pub struct Part {
     /// own surface, the joint's faces too), and of those the see-through.
     pub visible: Vec<u32>,
     pub glass: Vec<u32>,
+    /// Per visible voxel: the faces another opaque voxel of the part lies
+    /// against (`covered`).
+    pub covered: Vec<u8>,
     /// Its opaque visible voxels in the model bank.
     pub bank: std::ops::Range<u32>,
     /// How it came to hang on its parent (what the editor's FIGURE tells),
@@ -539,9 +545,10 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
         .map(|p| {
             let overlaps = (0..count).filter(|&q| overlap[p][q] > 0).map(|q| (q, overlap[p][q])).collect();
             let own: Vec<(IVec3, [u8; 4])> = members[p].iter().map(|&k| frame[k as usize]).collect();
-            let visible: Vec<u32> = visible_voxels(&own).into_iter().map(|i| members[p][i as usize]).collect();
+            let (seen, covered) = visible_voxels(&own);
+            let visible: Vec<u32> = seen.into_iter().map(|i| members[p][i as usize]).collect();
             let glass = visible.iter().copied().filter(|&k| frame[k as usize].1[3] < 255).collect();
-            Part { name: names[p].clone(), voxels: members[p].clone(), parent: parent[p], joint: joint[p] - pivot, joint_by_hand: stated[p].1.is_some(), visible, glass, bank: 0..0, hung: how[p].clone(), overlaps }
+            Part { name: names[p].clone(), voxels: members[p].clone(), parent: parent[p], joint: joint[p] - pivot, joint_by_hand: stated[p].1.is_some(), visible, glass, covered, bank: 0..0, hung: how[p].clone(), overlaps }
         })
         .collect()
 }
@@ -587,11 +594,11 @@ pub const ALL_FACES: i8 = 63;
 
 impl VoxModel {
     pub fn new(size: IVec3, frames: Vec<Vec<(IVec3, [u8; 4])>>, metal: Vec<Vec<u8>>) -> Self {
-        let visible: Vec<Vec<u32>> = frames.iter().map(|frame| visible_voxels(frame)).collect();
+        let (visible, covered): (Vec<Vec<u32>>, Vec<Vec<u8>>) = frames.iter().map(|frame| visible_voxels(frame)).unzip();
         let glass = visible.iter().zip(&frames).map(|(seen, frame)| seen.iter().copied().filter(|&k| frame[k as usize].1[3] < 255).collect()).collect();
         let smooth_glass = |m: &u8| *m != 0 && *m >> 4 == 0;
         let facets = if metal.iter().flatten().any(smooth_glass) { frames.iter().zip(&metal).map(|(frame, m)| facets(frame, m)).collect() } else { Vec::new() };
-        Self { size, frames, metal, glow: Vec::new(), shade: Vec::new(), facets, visible, glass, bank: Vec::new(), parts: Vec::new() }
+        Self { size, frames, metal, glow: Vec::new(), shade: Vec::new(), facets, visible, glass, covered, bank: Vec::new(), parts: Vec::new() }
     }
 
     /// Works out how each voxel is lit (`shade`). With `Smooth` a whole
@@ -614,14 +621,25 @@ impl VoxModel {
 
 /// The voxels of a frame that can be seen: glass, and those with open
 /// space or glass on a side.
-fn visible_voxels(frame: &[(IVec3, [u8; 4])]) -> Vec<u32> {
+fn visible_voxels(frame: &[(IVec3, [u8; 4])]) -> (Vec<u32>, Vec<u8>) {
     let opaque: crate::world::CellSet = frame.iter().filter(|(_, c)| c[3] == 255).map(|(v, _)| *v).collect();
     frame
         .iter()
         .enumerate()
         .filter(|(_, (v, c))| c[3] < 255 || crate::mesh::DIRS.iter().any(|d| !opaque.contains(&(*v + *d))))
-        .map(|(k, _)| k as u32)
-        .collect()
+        .map(|(k, (v, c))| (k as u32, if c[3] == 255 { covered(&opaque, *v) } else { 0 }))
+        .unzip()
+}
+
+/// The faces of the opaque voxel at `v` that another opaque voxel (of
+/// `opaque`, its model's frame or its part) lies against, as bits in
+/// `mesh::DIRS` order, in the model's own directions. They are never drawn,
+/// from the bank or as cubes: seen nearly edge on, such a face between two
+/// voxels of a surface lies at the surface's own depth along the edge and
+/// won single pixels there (dots in the neighbouring face's shade, all over
+/// a turned figure, and over the level editor's pieces in shade).
+pub fn covered(opaque: &crate::world::CellSet, v: IVec3) -> u8 {
+    crate::mesh::DIRS.iter().enumerate().filter(|(_, d)| opaque.contains(&(v + **d))).fold(0, |bits, (bit, _)| bits | 1 << bit)
 }
 
 /// Per voxel: the direction it is lit by (snorm xyz) and in w the faces

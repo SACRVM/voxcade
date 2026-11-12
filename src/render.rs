@@ -148,8 +148,7 @@ impl ModelBank {
         model.bank = (0..model.frames.len())
             .map(|f| {
                 let start = self.voxels.len() as u32;
-                let opaque: crate::world::CellSet = model.frames[f].iter().filter(|(_, c)| c[3] == 255).map(|(v, _)| *v).collect();
-                for &k in &model.visible[f] {
+                for (i, &k) in model.visible[f].iter().enumerate() {
                     let k = k as usize;
                     let (v, color) = model.frames[f][k];
                     if color[3] < 255 {
@@ -159,7 +158,8 @@ impl ModelBank {
                     let metal = model.metal.get(f).and_then(|m| m.get(k)).copied().unwrap_or(0);
                     let glow = model.glow.get(f).and_then(|g| g.get(k)).copied().unwrap_or(0);
                     let shade = model.shade.get(f).and_then(|s| s.get(k)).copied().unwrap_or([0; 4]);
-                    self.voxels.push(Instance { pos_size: [l.x, l.y, l.z, 1.0], color, fx: [glow, 255, covered(&opaque, v), metal], shade, turn: [0; 4] });
+                    let covered = model.covered.get(f).and_then(|c| c.get(i)).copied().unwrap_or(0);
+                    self.voxels.push(Instance { pos_size: [l.x, l.y, l.z, 1.0], color, fx: [glow, 255, covered, metal], shade, turn: [0; 4] });
                 }
                 start..self.voxels.len() as u32
             })
@@ -167,8 +167,7 @@ impl ModelBank {
         // A figure's parts: each its own run, its joints' faces too.
         for part in &mut model.parts {
             let start = self.voxels.len() as u32;
-            let opaque: crate::world::CellSet = part.voxels.iter().map(|&k| model.frames[0][k as usize]).filter(|(_, c)| c[3] == 255).map(|(v, _)| v).collect();
-            for &k in &part.visible {
+            for (i, &k) in part.visible.iter().enumerate() {
                 let k = k as usize;
                 let (v, color) = model.frames[0][k];
                 if color[3] < 255 {
@@ -178,7 +177,8 @@ impl ModelBank {
                 let metal = model.metal.first().and_then(|m| m.get(k)).copied().unwrap_or(0);
                 let glow = model.glow.first().and_then(|g| g.get(k)).copied().unwrap_or(0);
                 let shade = model.shade.first().and_then(|s| s.get(k)).copied().unwrap_or([0; 4]);
-                self.voxels.push(Instance { pos_size: [l.x, l.y, l.z, 1.0], color, fx: [glow, 255, covered(&opaque, v), metal], shade, turn: [0; 4] });
+                let covered = part.covered.get(i).copied().unwrap_or(0);
+                self.voxels.push(Instance { pos_size: [l.x, l.y, l.z, 1.0], color, fx: [glow, 255, covered, metal], shade, turn: [0; 4] });
             }
             part.bank = start..self.voxels.len() as u32;
         }
@@ -207,7 +207,10 @@ impl ModelBank {
             let lit = (0..6).filter(|f| faces >> f & 1 == 1).fold(0i8, |bits, f| bits | 1 << to[f]);
             let color = draw.tint.map_or(v.color, |[r, g, b]| [r, g, b, v.color[3]]);
             let shade = [nx as i8, ny as i8, nz, lit];
-            Instance { pos_size: centre.extend(size).to_array(), color, fx: v.fx, shade, turn: snorm_turn(draw.rot) }
+            // The covered faces too, as a cube carries them (`vs_inst`).
+            let [glow, opacity, covered, metal] = v.fx;
+            let covered = (0..6).filter(|f| covered >> f & 1 == 1).fold(0u8, |bits, f| bits | 1 << to[f]);
+            Instance { pos_size: centre.extend(size).to_array(), color, fx: [glow, opacity, covered, metal], shade, turn: snorm_turn(draw.rot) }
         })
     }
 }
@@ -226,16 +229,6 @@ struct ActorData {
     /// w 1 when it is off the grid at all).
     rot: [f32; 4],
     pivot: [f32; 4],
-}
-
-/// The faces of the voxel at `v` that another opaque voxel of its model (or
-/// of its part) lies against, as bits in `mesh::DIRS` order, in the model's
-/// own directions. They are not drawn: seen nearly edge on, such a face
-/// between two voxels of a surface lies at the surface's own depth along
-/// the edge, and won single pixels there (dots in the neighbouring face's
-/// shade all over a turned figure).
-fn covered(opaque: &crate::world::CellSet, v: IVec3) -> u8 {
-    mesh::DIRS.iter().enumerate().filter(|(_, d)| opaque.contains(&(v + **d))).fold(0, |bits, (bit, _)| bits | 1 << bit)
 }
 
 /// Model draws' uniforms lie this far apart (the most any GPU asks).
@@ -1690,7 +1683,7 @@ mod tests {
         // Bits in mesh::DIRS order: +x, -x, +y, -y, +z, -z.
         let mut v = vec![cube(0.0, 0.0, 0.0), Instance { color: [255, 255, 255, 140], ..cube(1.0, 0.0, 0.0) }];
         join_see_through(&mut v, glam::Vec3::Z);
-        assert_eq!((v[0].fx[2], v[1].fx[2]), (0b01, 0b10), "the shared faces, different colours");
+        assert_eq!((v[0].fx[2], v[1].fx[2]), (0b01, 0b10), "the shared faces, different colors");
         let mut v = vec![cube(0.0, 0.0, 0.0), Instance { fx: [0, 255, 0, 0], ..cube(1.0, 0.0, 0.0) }];
         join_see_through(&mut v, glam::Vec3::Z);
         assert_eq!((v[0].fx[2], v[1].fx[2]), (0, 0), "beside an opaque cube");

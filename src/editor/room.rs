@@ -352,18 +352,15 @@ impl Editor {
         let key = tune.map(|t| (self.chosen, t));
         if key.is_some()
             && key == self.tuned
-            && let Some(Step::Level(_, last)) = self.past.last_mut()
+            && let Some(Step::Level(..)) = self.past.last()
+            && let Some(Step::Level(first, _)) = self.past.pop()
         {
-            *last = after;
-            if !self.dry {
-                self.message = self.save_level().err().map(|e| format!("{e:#}"));
-            }
+            // The step that set it last, now ending here.
+            self.commit(Step::Level(first, after));
             return;
         }
         let step = Step::Level(before, after);
-        self.save(&step);
-        self.past.push(step);
-        self.future.clear();
+        self.commit(step);
         self.tuned = key;
     }
 
@@ -618,6 +615,11 @@ impl Editor {
         // A piece turned round, tipped: as its ring would, kept on its floor.
         if let (Field::Turn | Field::Pitch | Field::Roll, Item::Thing(i)) = (field, item) {
             let t = &self.level.things[i];
+            if field == Field::Turn && self.kind_turns(t) {
+                let free = self.free_kinds.contains(&t.kind);
+                let now = Some(facing_at(if free { v } else { (v / 90.0).round() * 90.0 }, free));
+                return self.change(Some(field), |l| l.things[i].facing = now);
+            }
             if t.model.is_none() {
                 return;
             }
@@ -667,8 +669,9 @@ impl Editor {
     /// or an area has no way to face.
     pub fn turn_item(&mut self, by: i32) {
         let free = self.free_turns;
+        let still = self.still_kinds.clone();
         let quarter = |t: &mut Thing| {
-            if t.is_piece() {
+            if t.is_piece() || still.contains(&t.kind) {
                 t.facing = Some(facing_at(bearing_of(t) + 90.0 * by as f64, free));
             }
         };
@@ -771,7 +774,7 @@ impl Editor {
     /// (not while its light is chosen), a place.
     pub fn can_turn(&self) -> bool {
         match self.chosen {
-            Some(Item::Thing(i)) => self.level.things[i].model.is_some() && self.chosen_light.is_none(),
+            Some(Item::Thing(i)) => (self.level.things[i].model.is_some() && self.chosen_light.is_none()) || self.kind_turns(&self.level.things[i]),
             Some(Item::Place(_)) => true,
             _ => false,
         }
@@ -817,6 +820,10 @@ impl Editor {
                     _ => {
                         h = make(at + Vec3::new(0.5, 0.5, 0.0));
                         h.arrows = world;
+                        // A thing of a kind without a behaviour turns round.
+                        if self.kind_turns(t) {
+                            h.rings[2] = Some(Vec3::Z);
+                        }
                     }
                 }
             }
@@ -901,6 +908,13 @@ impl Editor {
                 self.level.things[i] = now;
             }
             (Was::Place(p), Grip::Arrow(a), Item::Place(i)) => self.level.places[i].at = self.inside_for(g.item, IVec3::from(p.at) + along(a)).to_array(),
+            (Was::Thing(t), Grip::Ring(_), Item::Thing(i)) if !t.is_piece() => {
+                // A thing of a kind: round only, in quarters unless its
+                // kind turns freely.
+                let free = self.free_kinds.contains(&t.kind);
+                let b = handles::step(bearing_of(t), -amount, !free, RING_SNAP);
+                self.level.things[i].facing = Some(facing_at(b, free));
+            }
             (Was::Place(p), Grip::Ring(_), Item::Place(i)) => {
                 // Quarter turns clockwise seen from above.
                 let quarters = (-amount / 90.0).round() as i32;
@@ -1018,7 +1032,7 @@ impl Editor {
             return;
         }
         if on && t.off_grid() {
-            self.message = Some(format!("{} is turned off the quarter turns: only a piece in quarter turns can be solid (its voxels must lie on the grid). Turn it to a quarter first.", self.label_of(Item::Thing(i)).0));
+            self.message = Some(format!("{} is turned off the quarter turns: only a piece in quarter turns can be solid (its voxels must lie on the grid). Rotate it to a quarter first.", self.label_of(Item::Thing(i)).0));
             return;
         }
         self.message = None;
@@ -1077,7 +1091,13 @@ impl Editor {
     /// EDIT MODEL: the chosen piece's model asked to open in the model
     /// editor.
     pub fn edit_model(&mut self) {
-        self.wants_model = self.chosen_thing().and_then(|t| t.model.clone());
+        self.wants_model = self.chosen_thing().and_then(|t| t.model.clone().or_else(|| self.kind_models.get(&t.kind).cloned()));
+    }
+
+    /// Whether a thing of a kind faces as the level's file turns it: a
+    /// kind without a behaviour (one with turns by its ready-made rules).
+    pub fn kind_turns(&self, t: &Thing) -> bool {
+        !t.is_piece() && self.still_kinds.contains(&t.kind)
     }
 
     /// The game's models a piece can be made of, by their paths in the
@@ -1123,6 +1143,84 @@ pub fn facing_at(degrees: f64, free: bool) -> Facing {
         Facing::Way(Way::nearest(quarter))
     } else {
         Facing::Turn((d * 10.0).round() / 10.0)
+    }
+}
+
+/// What is hidden in the editor alone (its eye in the outliner, HIDE in
+/// a menu): not drawn, not met by a click, nothing of it written to the
+/// level's file; kept while the window is open. By name; an unnamed thing
+/// as it is.
+#[derive(Clone, Debug, Default)]
+pub struct Hidden {
+    names: std::collections::BTreeSet<(u8, String)>,
+    things: Vec<Thing>,
+}
+
+impl Editor {
+    /// How `item` is known to `Hidden`: its sort and name, else the thing.
+    fn hidden_key(&self, item: Item) -> Option<Result<(u8, String), Thing>> {
+        let sort = match item {
+            Item::Thing(_) => 0,
+            Item::Place(_) => 1,
+            Item::Area(_) => 2,
+        };
+        match (self.name_of(item), item) {
+            (Some(n), _) => Some(Ok((sort, n.to_string()))),
+            (None, Item::Thing(i)) => self.level.things.get(i).cloned().map(Err),
+            _ => None,
+        }
+    }
+
+    /// Whether `item` is hidden in the editor.
+    pub fn is_hidden(&self, item: Item) -> bool {
+        match self.hidden_key(item) {
+            Some(Ok(k)) => self.hidden.names.contains(&k),
+            Some(Err(t)) => self.hidden.things.contains(&t),
+            None => false,
+        }
+    }
+
+    /// Whether anything is hidden.
+    pub fn any_hidden(&self) -> bool {
+        (0..self.level.things.len()).map(Item::Thing).chain((0..self.level.places.len()).map(Item::Place)).chain((0..self.level.areas.len()).map(Item::Area)).any(|i| self.is_hidden(i))
+    }
+
+    /// `item` hidden or shown again (no step: the file is not touched); a
+    /// hidden one chosen is chosen no more.
+    pub fn set_hidden(&mut self, item: Item, hide: bool) {
+        let Some(key) = self.hidden_key(item) else { return };
+        match (key, hide) {
+            (Ok(k), true) => {
+                self.hidden.names.insert(k);
+            }
+            (Ok(k), false) => {
+                self.hidden.names.remove(&k);
+            }
+            (Err(t), true) => self.hidden.things.push(t),
+            (Err(t), false) => self.hidden.things.retain(|o| *o != t),
+        }
+        if hide && self.chosen == Some(item) {
+            self.choose_item(None);
+        }
+    }
+
+    /// HIDE / SHOW (the eye).
+    pub fn toggle_hidden(&mut self, item: Item) {
+        let hidden = self.is_hidden(item);
+        self.set_hidden(item, !hidden);
+    }
+
+    /// ONLY THIS: everything else hidden, it shown.
+    pub fn only(&mut self, item: Item) {
+        let all: Vec<Item> = (0..self.level.things.len()).map(Item::Thing).chain((0..self.level.places.len()).map(Item::Place)).chain((0..self.level.areas.len()).map(Item::Area)).collect();
+        for other in all {
+            self.set_hidden(other, other != item);
+        }
+    }
+
+    /// SHOW ALL.
+    pub fn show_all(&mut self) {
+        self.hidden = Hidden::default();
     }
 }
 
@@ -1628,13 +1726,13 @@ mod tests {
         use crate::editor::view::{Action, MenuOn};
         let (mut ed, _dir) = room("menu", false);
         let words = |ed: &Editor, on| crate::editor::stage::menu_entries(ed, on).into_iter().map(|(w, ..)| w).collect::<Vec<_>>();
-        assert_eq!(words(&ed, MenuOn::Item(Item::Thing(0))), ["COPY", "REMOVE", "RENAME", "EDIT MODEL", "LIGHT ON", "TURN A QUARTER", "LAY DOWN", "SOLID"]);
-        assert_eq!(words(&ed, MenuOn::Item(Item::Thing(1)))[4], "LIGHT OFF", "the lamp has its light");
+        assert_eq!(words(&ed, MenuOn::Item(Item::Thing(0))), ["COPY", "REMOVE", "RENAME", "HIDE", "ONLY THIS", "EDIT MODEL", "LIGHT ON", "ROTATE 90°", "LAY DOWN", "SOLID"]);
+        assert_eq!(words(&ed, MenuOn::Item(Item::Thing(1)))[6], "LIGHT OFF", "the lamp has its light");
         assert!(!words(&ed, MenuOn::Item(Item::Thing(3))).contains(&"SOLID".to_string()), "the chair at 45 degrees cannot be solid");
         for item in [Item::Thing(2), Item::Thing(4), Item::Area(0)] {
-            assert_eq!(words(&ed, MenuOn::Item(item)), ["COPY", "REMOVE", "RENAME"], "{item:?}");
+            assert_eq!(words(&ed, MenuOn::Item(item)), ["COPY", "REMOVE", "RENAME", "HIDE", "ONLY THIS"], "{item:?}");
         }
-        assert_eq!(words(&ed, MenuOn::Item(Item::Place(0))), ["COPY", "REMOVE", "RENAME", "TURN A QUARTER"]);
+        assert_eq!(words(&ed, MenuOn::Item(Item::Place(0))), ["COPY", "REMOVE", "RENAME", "HIDE", "ONLY THIS", "ROTATE 90°"]);
         assert_eq!(words(&ed, MenuOn::Floor(IVec3::new(5, 5, 0))), ["ADD MODEL…", "ADD LIGHT", "ADD PLACE", "ADD AREA"]);
         assert_eq!(words(&ed, MenuOn::Add), ["MODEL…", "LIGHT", "PLACE", "AREA"]);
         // Its entries do what they say: a light set down where the floor

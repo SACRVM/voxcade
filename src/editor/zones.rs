@@ -27,9 +27,24 @@ use crate::gui::{ACCENT, ERROR, QUIET, TEXT, WARNING};
 pub const TOP: f32 = 46.0;
 pub const OUTLINER: f32 = 220.0;
 pub const INSPECTOR: f32 = 300.0;
-/// The inspector's words before a row's controls; a number field's width.
+/// The inspector's words before a row's controls.
 pub const LABEL: f32 = 64.0;
-pub const FIELD: f32 = 64.0;
+/// A number field one of a row's three equal columns wide (`col`).
+pub const FIELD: f32 = -1.0;
+/// A field as wide as two columns and the gap between (RADIUS).
+pub const FIELD2: f32 = -2.0;
+/// The room between a row's controls.
+const GAP: f32 = 4.0;
+
+/// The width of `n` of a row's three equal columns (and the gaps between
+/// them): from the left edge every row's controls begin at (after its
+/// label) to the panel's right edge, so that every row's X, Y and Z, and
+/// whatever else sits on the columns, line up down the inspector. Called
+/// inside a `row`.
+pub fn col(ui: &egui::Ui, n: usize) -> f32 {
+    let one = ((ui.max_rect().width() - LABEL - 3.0 * GAP) / 3.0).floor();
+    one * n as f32 + GAP * (n as f32 - 1.0)
+}
 
 /// The axes' colours, as the handles and the fields' letters have them: X
 /// red, Y green, Z blue; and the same lit (under the mouse, dragged).
@@ -105,6 +120,47 @@ pub fn say(ui: &egui::Ui, free: Rect, text: &str, colour: Color32, shown: &mut S
     shown.rects.push(area.response.rect);
 }
 
+/// Over the view's top left: what came from the disk (`disk.rs`), unless
+/// a mistake is said there; where a file changed while a change of the
+/// editor's could not be written (a mistake said why), whose to keep,
+/// under it.
+pub fn from_disk(ui: &egui::Ui, free: Rect, ed: &super::model::Editor, shown: &mut Shown) {
+    if let Some(path) = &ed.disk.clash {
+        let name = path.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
+        let area = egui::Area::new(egui::Id::unique("zones clash")).order(egui::Order::Foreground).fixed_pos(free.min + Vec2::new(12.0, 44.0)).show(ui.ctx(), |ui| {
+            egui::Frame::new().fill(Color32::from_rgba_unmultiplied(24, 23, 30, 230)).corner_radius(4.0).inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("CHANGED ON DISK").color(WARNING)).on_hover_text(format!("Another program changed {name} while a change made here could not be written."));
+                    small(ui, shown, "KEEP MINE", Action::KeepMine, None, &format!("Write what the editor holds over {name}"));
+                    small(ui, shown, "TAKE THE FILE'S", Action::TakeFile, None, &format!("Read {name} anew; what the editor held of it goes"));
+                });
+            });
+        });
+        shown.rects.push(area.response.rect);
+    } else if ed.message.is_none()
+        && let Some(n) = &ed.disk.notice
+    {
+        say(ui, free, n, WARNING, shown);
+    }
+}
+
+/// The mark at a row's left that hides it from the picture (in the
+/// editor only): a filled square while shown, an empty one while hidden;
+/// the figure's parts and the level's things alike.
+pub fn hide_mark(ui: &mut egui::Ui, hidden: bool, action: Action, shown: &mut Shown) {
+    let (rect, mark) = ui.allocate_exact_size(egui::vec2(18.0, ui.text_style_height(&TextStyle::Body) + 8.0), egui::Sense::click());
+    let square = Rect::from_center_size(rect.center(), egui::vec2(9.0, 9.0));
+    let colour = if mark.hovered() { TEXT } else { QUIET };
+    if hidden {
+        ui.painter().rect_stroke(square, 1.0, egui::Stroke::new(1.5, colour), egui::StrokeKind::Inside);
+    } else {
+        ui.painter().rect_filled(square, 1.0, colour);
+    }
+    if mark.on_hover_text(if hidden { "Show it" } else { "Hide it (from the picture only)" }).clicked() {
+        shown.clicked.push(action);
+    }
+}
+
 /// A button whose key follows its word, quiet; `on`: a toggle, lit while
 /// on (it still looks as a button does: what is clicked has a frame). Its
 /// key works while the panels show it.
@@ -146,7 +202,7 @@ pub fn small(ui: &mut egui::Ui, shown: &mut Shown, word: &str, action: Action, o
 /// laid in it.
 pub fn row(ui: &mut egui::Ui, word: &str, tip: &str, add: impl FnOnce(&mut egui::Ui)) {
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.spacing_mut().item_spacing.x = GAP;
         ui.spacing_mut().button_padding = egui::vec2(6.0, 3.0);
         let (rect, response) = ui.allocate_exact_size(Vec2::new(LABEL, ui.text_style_height(&TextStyle::Body) + 6.0), egui::Sense::hover());
         ui.painter().text(rect.left_center(), egui::Align2::LEFT_CENTER, word, TextStyle::Small.resolve(ui.style()), QUIET);
@@ -157,6 +213,16 @@ pub fn row(ui: &mut egui::Ui, word: &str, tip: &str, add: impl FnOnce(&mut egui:
     });
 }
 
+/// A row's word standing on one of its columns (quiet, as the rows'
+/// labels), to name the field after it.
+pub fn cell_word(ui: &mut egui::Ui, word: &str, tip: &str) {
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(col(ui, 1), ui.text_style_height(&TextStyle::Body) + 6.0), egui::Sense::hover());
+    ui.painter().text(rect.left_center() + Vec2::new(2.0, 0.0), egui::Align2::LEFT_CENTER, word, TextStyle::Small.resolve(ui.style()), QUIET);
+    if !tip.is_empty() {
+        response.on_hover_text(tip);
+    }
+}
+
 /// A number field: its letter before the number, in its axis's colour
 /// (`axis` 0..2; else quiet), dragged sideways or typed, to `decimals`
 /// places at most; a change gives the action `set` makes of the new value.
@@ -164,9 +230,26 @@ pub fn row(ui: &mut egui::Ui, word: &str, tip: &str, add: impl FnOnce(&mut egui:
 pub fn number(ui: &mut egui::Ui, shown: &mut Shown, letter: &str, axis: Option<usize>, value: f64, decimals: usize, speed: f64, range: std::ops::RangeInclusive<f64>, tip: &str, width: f32, set: impl FnOnce(f64) -> Action) {
     let colour = axis.map_or(QUIET, |a| AXIS[a]);
     let mut v = value;
+    // On the columns (`FIELD`: one, `FIELD2`: two), else as wide as asked.
+    let width = if width < 0.0 { col(ui, (-width) as usize) } else { width };
+    // The number right-aligned: padded to as many signs as the field
+    // holds (one typeface, every sign as wide), so that the letters stand
+    // at the same place in every field and 0, 120 and -18 end together.
+    let font = ui.style().drag_value_text_style.resolve(ui.style());
+    let small = TextStyle::Small.resolve(ui.style());
+    let (sign, letters) = ui.ctx().fonts_mut(|f| (f.glyph_width(&font, '0'), f.glyph_width(&small, '0') * (letter.chars().count() + 1) as f32));
+    let room = width - 2.0 * ui.spacing().button_padding.x - letters - 2.0;
+    let signs = (room / sign.max(1.0)).floor().max(1.0) as usize;
     // Typed, it takes effect on Enter or a click elsewhere (one step),
     // Escape leaving it as it was.
-    let drag = egui::DragValue::new(&mut v).speed(speed).range(range).min_decimals(0).max_decimals(decimals).update_while_editing(false).prefix(RichText::new(format!("{letter} ")).color(colour).small());
+    let drag = egui::DragValue::new(&mut v)
+        .speed(speed)
+        .range(range)
+        .min_decimals(0)
+        .max_decimals(decimals)
+        .update_while_editing(false)
+        .custom_formatter(move |v, r| format!("{:>signs$}", egui::emath::format_with_decimals_in_range(v, r)))
+        .prefix(RichText::new(format!("{letter} ")).color(colour).small());
     // Escape while typing: the number as it was. (egui keeps the text
     // and sets it the frame after, when Escape is no longer pressed: the
     // field remembers it was left so and drops that.)

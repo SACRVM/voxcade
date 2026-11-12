@@ -433,7 +433,7 @@ pub fn things_along(ed: &Editor, world: &World, figures: &Figures, origin: Vec3,
         .enumerate()
         .filter(|&(i, _)| Some(i) != ed.moving())
         .filter_map(|(i, t)| {
-            let (lo, hi) = figures.bounds(&Figures::key(t));
+            let (lo, hi) = figures.bounds(&figures.key_in(t));
             let at = IVec3::from(t.at);
             ray_box(origin, dir, (at + lo).as_vec3(), (at + hi).as_vec3()).map(|d| (i, d))
         })
@@ -539,7 +539,7 @@ impl Shown {
                                 if let std::collections::btree_map::Entry::Vacant(e) = stamped.entry(now) {
                                     let block = ed.blocks[b as usize - 1].turned(now.turn);
                                     let Some(v) = crate::grid::stamp(&mut self.world, &block, ed.level.blocks[b as usize - 1].kind) else {
-                                        anyhow::bail!("the level has more than 255 colours");
+                                        anyhow::bail!("the level has more than 255 colors");
                                     };
                                     e.insert(v);
                                 }
@@ -570,7 +570,9 @@ impl Shown {
 /// camera; a kind without a model a pale column as wide and tall as its
 /// body. And the models the level's pieces are made of (by their files),
 /// drawn as the game draws them (`session::model_cubes`).
-pub struct Figures(BTreeMap<String, Figure>, BTreeMap<String, crate::vox::VoxModel>);
+/// Each figure and model keeps its filled cells too, for a click to find
+/// the voxel it meets (`super::pick`).
+pub struct Figures(BTreeMap<String, Figure>, BTreeMap<String, crate::vox::VoxModel>, BTreeMap<String, super::pick::Cells>);
 
 struct Figure {
     /// Voxels and colours, from the spot it stands on.
@@ -578,6 +580,34 @@ struct Figure {
     /// The box around them, from that spot.
     lo: IVec3,
     hi: IVec3,
+    /// Its filled cells, from `lo`.
+    cells: super::pick::Cells,
+}
+
+impl Figure {
+    fn new(voxels: Vec<(IVec3, [u8; 3])>) -> Self {
+        let lo = voxels.iter().fold(IVec3::MAX, |a, v| a.min(v.0));
+        let hi = voxels.iter().fold(IVec3::MIN, |a, v| a.max(v.0 + 1));
+        let (lo, hi) = if voxels.is_empty() { (IVec3::ZERO, IVec3::ONE) } else { (lo, hi) };
+        let cells = super::pick::Cells::of(hi - lo, voxels.iter().map(|v| v.0 - lo));
+        Self { voxels, lo, hi, cells }
+    }
+}
+
+/// The cells a model's seen voxels fill (in its own box).
+fn model_cells(m: &crate::vox::VoxModel) -> super::pick::Cells {
+    super::pick::Cells::of(m.size, m.visible.first().into_iter().flatten().map(|&k| m.frames[0][k as usize].0))
+}
+
+/// A model's voxel from its pivot turned clockwise, as seen from above,
+/// from facing north (its forward) to facing `way`.
+fn turned_to(way: crate::grid::Way, l: IVec3) -> IVec3 {
+    match way {
+        crate::grid::Way::North => l,
+        crate::grid::Way::East => IVec3::new(l.y, -l.x, l.z),
+        crate::grid::Way::South => IVec3::new(-l.x, -l.y, l.z),
+        crate::grid::Way::West => IVec3::new(-l.y, l.x, l.z),
+    }
 }
 
 /// Behaviours whose things go about seen from the side.
@@ -593,6 +623,20 @@ impl Figures {
             let sideways = behaviour.is_some_and(|b| SIDEWAYS.contains(&b));
             let number = |key: &str| table.get(key).and_then(|v| v.as_float().or(v.as_integer().map(|i| i as f64)));
             let model = table.get("model").and_then(|m| m.as_str()).and_then(|file| crate::vox::load_model(&dir.join(file)).ok());
+            // Facing each way as a level's file may turn it (its forward
+            // north), by `key`.
+            for way in crate::grid::Way::ALL {
+                let voxels: Vec<(IVec3, [u8; 3])> = match &model {
+                    Some(m) => {
+                        let pivot = IVec3::new(m.size.x / 2, m.size.y / 2, 0);
+                        m.visible[0].iter().map(|&k| m.frames[0][k as usize]).map(|(p, c)| (turned_to(way, p - pivot), [c[0], c[1], c[2]])).collect()
+                    }
+                    None => Vec::new(),
+                };
+                if !voxels.is_empty() {
+                    figures.insert(format!("{kind}@{}", way.name()), Figure::new(voxels));
+                }
+            }
             let voxels: Vec<(IVec3, [u8; 3])> = match model {
                 Some(m) => {
                     let pivot = IVec3::new(m.size.x / 2, m.size.y / 2, 0);
@@ -628,12 +672,9 @@ impl Figures {
                     column
                 }
             };
-            let lo = voxels.iter().fold(IVec3::MAX, |a, v| a.min(v.0));
-            let hi = voxels.iter().fold(IVec3::MIN, |a, v| a.max(v.0 + 1));
-            let (lo, hi) = if voxels.is_empty() { (IVec3::ZERO, IVec3::ONE) } else { (lo, hi) };
-            figures.insert(kind.clone(), Figure { voxels, lo, hi });
+            figures.insert(kind.clone(), Figure::new(voxels));
         }
-        Self(figures, BTreeMap::new())
+        Self(figures, BTreeMap::new(), BTreeMap::new())
     }
 
     /// The sizes of the models loaded, by their files (`Editor::sizes`).
@@ -654,6 +695,7 @@ impl Figures {
             if !self.1.contains_key(file)
                 && let Ok(m) = crate::vox::load_model(&dir.join(file))
             {
+                self.2.insert(file.to_string(), model_cells(&m));
                 self.1.insert(file.to_string(), m);
             }
         }
@@ -698,12 +740,7 @@ impl Figures {
             for way in crate::grid::Way::ALL {
                 // A model's forward is north; turned clockwise as seen
                 // from above to face its way.
-                let turn = |l: IVec3| match way {
-                    crate::grid::Way::North => l,
-                    crate::grid::Way::East => IVec3::new(l.y, -l.x, l.z),
-                    crate::grid::Way::South => IVec3::new(-l.x, -l.y, l.z),
-                    crate::grid::Way::West => IVec3::new(-l.y, l.x, l.z),
-                };
+                let turn = |l: IVec3| turned_to(way, l);
                 let voxels: Vec<(IVec3, [u8; 3])> = m.visible[0]
                     .iter()
                     .map(|&k| {
@@ -711,23 +748,42 @@ impl Figures {
                         (turn(p - pivot), [color[0], color[1], color[2]])
                     })
                     .collect();
-                let lo = voxels.iter().fold(IVec3::MAX, |a, v| a.min(v.0));
-                let hi = voxels.iter().fold(IVec3::MIN, |a, v| a.max(v.0 + 1));
-                let (lo, hi) = if voxels.is_empty() { (IVec3::ZERO, IVec3::ONE) } else { (lo, hi) };
-                self.0.insert(format!("{model}@{}", way.name()), Figure { voxels, lo, hi });
+                self.0.insert(format!("{model}@{}", way.name()), Figure::new(voxels));
             }
+            self.2.insert(model.clone(), model_cells(&m));
             self.1.insert(model.clone(), m);
         }
         self
     }
 
-    /// What a thing of the level shows as: its kind, or a piece's model
+    /// What a thing of the level shows as: its kind (facing its way where
+    /// the file turns it and its kind has a model), or a piece's model
     /// facing its way (`with_pieces`).
     pub fn key(t: &crate::grid::Thing) -> String {
-        match &t.model {
-            Some(model) => format!("{model}@{}", crate::grid::Way::nearest(t.facing.map_or(180.0, |f| f.bearing())).name()),
-            None => t.kind.clone(),
+        let way = |f: Option<crate::grid::Facing>| crate::grid::Way::nearest(f.map_or(180.0, |f| f.bearing())).name();
+        match (&t.model, t.facing) {
+            (Some(model), f) => format!("{model}@{}", way(f)),
+            (None, Some(f)) => format!("{}@{}", t.kind, way(Some(f))),
+            (None, None) => t.kind.clone(),
         }
+    }
+
+    /// `key`, where the figures have it, else the kind's own (a kind
+    /// without a model looks the same every way).
+    pub fn key_in(&self, t: &crate::grid::Thing) -> String {
+        let key = Self::key(t);
+        if self.0.contains_key(&key) { key } else { t.kind.clone() }
+    }
+
+    /// A figure's filled cells and where its box begins, from the spot
+    /// it stands on (`key`).
+    pub fn figure_cells(&self, key: &str) -> Option<(&super::pick::Cells, IVec3)> {
+        self.0.get(key).map(|f| (&f.cells, f.lo))
+    }
+
+    /// A model's filled cells, from its box's low corner.
+    pub fn model_cells(&self, model: &str) -> Option<&super::pick::Cells> {
+        self.2.get(model)
     }
 
     /// The box around a kind's voxels, from the spot it stands on.
@@ -767,7 +823,7 @@ pub fn front_picture(voxels: &[(IVec3, [u8; 3])], fit: i32) -> (i32, i32, Vec<Op
 
 fn picture_of(voxels: &[(IVec3, [u8; 3])], lo: IVec3, hi: IVec3, fit: i32) -> (i32, i32, Vec<Option<[u8; 3]>>) {
     {
-        let f = Figure { voxels: voxels.to_vec(), lo, hi };
+        let f = Figure { voxels: voxels.to_vec(), lo, hi, cells: Default::default() };
         let size = f.hi - f.lo;
         let mut front: Vec<Option<(i32, [u8; 3])>> = vec![None; (size.x * size.z) as usize];
         for &(l, c) in &f.voxels {
@@ -795,6 +851,15 @@ fn picture_of(voxels: &[(IVec3, [u8; 3])], lo: IVec3, hi: IVec3, fit: i32) -> (i
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Action {
     Tool(Tool),
+    /// A file changed on disk while a change of the editor's could not be
+    /// written: the editor's written over it, or the file read anew.
+    KeepMine,
+    TakeFile,
+    /// An item hidden in the editor or shown again (its eye); everything
+    /// else hidden; everything shown.
+    HideItem(Item),
+    OnlyItem(Item),
+    ShowAllItems,
     Undo,
     Redo,
     /// From a block back to the level.
@@ -1043,6 +1108,11 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::Symmetry => ed.symmetry = !ed.symmetry,
         Action::Part(p) => ed.choose_part(p),
         Action::Hide(p) => ed.hide_part(p),
+        Action::KeepMine => ed.keep_mine(),
+        Action::HideItem(item) => ed.toggle_hidden(item),
+        Action::OnlyItem(item) => ed.only(item),
+        Action::ShowAllItems => ed.show_all(),
+        Action::TakeFile => ed.take_file(),
         Action::ShowAll => ed.show_all_parts(),
         Action::PickParent => ed.picking_parent = !ed.picking_parent,
         Action::ParentWorkedOut => ed.set_parent(None),
@@ -1289,6 +1359,10 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
             _ => [255, 255, 255],
         };
         for (i, t) in ed.level.things.iter().enumerate() {
+            // Hidden in the editor (its eye in the outliner).
+            if ed.is_hidden(Item::Thing(i)) {
+                continue;
+            }
             let tint = (Some(i) == marked && ed.tool != Tool::Add).then_some(tint);
             // A piece as the game draws it, at its very turn.
             if let Some(m) = t.model.as_deref().and_then(|m| figures.model(m)) {
@@ -1303,7 +1377,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
                 }
                 continue;
             }
-            figures.cubes(&Figures::key(t), IVec3::from(t.at), tint, 255, &mut instances);
+            figures.cubes(&figures.key_in(t), IVec3::from(t.at), tint, 255, &mut instances);
         }
         // A piece hanging on the mouse, see-through where it would stand.
         if let (Some(Hanging::Thing(t)), Some(_)) = (&ed.hanging, ed.hang_spot)
@@ -1325,7 +1399,12 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     // opaque ones.
     let mut through = Vec::new();
     if let (Some(figure), Some((lo, _))) = (&ed.figure, ed.figure_box()) {
+        let start = instances.len();
         through = figure.cubes(lo, &mut instances);
+        // The faces between its own voxels left out, as the game's bank
+        // leaves them (`vox::covered`): seen nearly edge on they won
+        // single pixels along the edges.
+        crate::render::hide_inner_faces(&mut instances[start..]);
     }
     // The pieces' glass joined too, as the game joins it: one body, not a
     // grid of every cube's faces blended over each other.
@@ -1463,58 +1542,135 @@ pub fn lights(ed: &Editor, middle: Vec3) -> Vec<crate::render::Light> {
     lights
 }
 
-/// The item a ray (in voxels) meets first: a piece by its turned box, a
-/// thing of a kind by its body, a light alone or a place by a small box
-/// round it; an area only where nothing else is met.
+/// The item a ray (in voxels) meets first: a piece or a thing of a kind
+/// by the first of its voxels met (`pick_along`), a light alone or a place
+/// by a small box round it; an area only where nothing else is met. What
+/// is hidden is not met.
 pub fn item_along(ed: &Editor, figures: &Figures, origin: Vec3, dir: Vec3) -> Option<Item> {
     pick_along(ed, figures, origin, dir).map(|(item, _)| item)
 }
 
-/// `item_along`, and a piece's own light when the ray meets that first (a
-/// small box round where it shines from): its place among the lights.
+/// What a ray (in voxels) meets first among the pieces and things, as
+/// `hit_along` finds it: the item, a piece's own light when the ray meets
+/// that first (a small box round where it shines from: its place among the
+/// lights).
 pub fn pick_along(ed: &Editor, figures: &Figures, origin: Vec3, dir: Vec3) -> Option<(Item, Option<usize>)> {
-    let mut best: Option<(f32, (Item, Option<usize>))> = None;
-    fn take(best: &mut Option<(f32, (Item, Option<usize>))>, d: Option<f32>, item: Item, light: Option<usize>) {
-        if let Some(d) = d
-            && best.is_none_or(|(b, _)| d < b)
+    hit_along(ed, figures, origin, dir, true).map(|h| (h.item, h.light))
+}
+
+/// What a ray meets: the item, its light, how far along the ray, and the
+/// way out of the face it met (in the level; zero for a box).
+#[derive(Clone, Copy, Debug)]
+pub struct Met {
+    pub item: Item,
+    pub light: Option<usize>,
+    pub at: f32,
+    pub normal: Vec3,
+}
+
+/// The first item a ray meets: a piece by the first of its model's
+/// voxels the ray meets, walked in the piece's own turned frame (glass
+/// counts), never by its box (a small piece in the hollow of a big one is
+/// chosen where the picture shows it); a thing of a kind by its figure's
+/// voxels; a light alone, a piece's light and a place by a small box; an
+/// area only where nothing else is met (with `marks`: lights, places and
+/// areas count). Hidden ones are left out.
+pub fn hit_along(ed: &Editor, figures: &Figures, origin: Vec3, dir: Vec3, marks: bool) -> Option<Met> {
+    let mut best: Option<Met> = None;
+    fn take(best: &mut Option<Met>, d: Option<(f32, Vec3)>, item: Item, light: Option<usize>) {
+        if let Some((d, normal)) = d
+            && best.is_none_or(|b| d < b.at)
         {
-            *best = Some((d, (item, light)));
+            *best = Some(Met { item, light, at: d, normal });
         }
     }
+    let boxed = |lo: Vec3, hi: Vec3| ray_box(origin, dir, lo, hi).map(|d| (d, Vec3::ZERO));
     for (i, t) in ed.level.things.iter().enumerate() {
+        if ed.is_hidden(Item::Thing(i)) {
+            continue;
+        }
         let at = IVec3::from(t.at).as_vec3();
         if !t.is_piece() {
-            let (lo, hi) = figures.bounds(&t.kind);
-            take(&mut best, ray_box(origin, dir, at + lo.as_vec3(), at + hi.as_vec3()), Item::Thing(i), None);
+            // Its figure as it is drawn (`Figures::key_in`), unturned there.
+            let key = figures.key_in(t);
+            let met = match figures.figure_cells(&key) {
+                Some((cells, lo)) => cells.hit(origin - at - lo.as_vec3(), dir).map(|(d, n)| (d, n.as_vec3())),
+                None => {
+                    let (lo, hi) = figures.bounds(&key);
+                    boxed(at + lo.as_vec3(), at + hi.as_vec3())
+                }
+            };
+            take(&mut best, met, Item::Thing(i), None);
             continue;
         }
         let size = ed.size_of(t);
         if t.model.is_none() {
-            let spot = room::light_spots(t, size).next().map_or(at, |(spot, _)| spot);
-            take(&mut best, ray_box(origin, dir, spot - 3.0, spot + 3.0), Item::Thing(i), None);
+            if marks {
+                let spot = room::light_spots(t, size).next().map_or(at, |(spot, _)| spot);
+                take(&mut best, boxed(spot - 3.0, spot + 3.0), Item::Thing(i), None);
+            }
             continue;
         }
-        // Into the piece's own unturned room: about where it turns.
-        let (lo, hi) = figures.piece_box(t);
+        // Into the piece's own unturned room (from its pivot cell's low
+        // corner): about where it turns; then its model's box from its
+        // low corner (the pivot `size / 2` across and deep, 0 up).
         let about = room::centre_in(size);
-        let back = room::rotation_of(t).inverse();
-        take(&mut best, ray_box(about + back * (origin - at - about), back * dir, lo, hi), Item::Thing(i), None);
+        let turn = room::rotation_of(t);
+        let back = turn.inverse();
+        let local = about + back * (origin - at - about);
+        let met = match (t.model.as_deref().and_then(|m| figures.model_cells(m)), size) {
+            (Some(cells), Some(s)) => {
+                let pivot = IVec3::new(s.x / 2, s.y / 2, 0).as_vec3();
+                cells.hit(local + pivot, back * dir).map(|(d, n)| (d, turn * n.as_vec3()))
+            }
+            _ => {
+                let (lo, hi) = figures.piece_box(t);
+                ray_box(local, back * dir, lo, hi).map(|d| (d, Vec3::ZERO))
+            }
+        };
+        take(&mut best, met, Item::Thing(i), None);
         // Its lights before it, a little nearer (they sit on or in it).
-        for (k, (spot, _)) in room::light_spots(t, size).enumerate() {
-            take(&mut best, ray_box(origin, dir, spot - 1.5, spot + 1.5).map(|d| d - 2.0), Item::Thing(i), Some(k));
+        if marks {
+            for (k, (spot, _)) in room::light_spots(t, size).enumerate() {
+                take(&mut best, ray_box(origin, dir, spot - 1.5, spot + 1.5).map(|d| (d - 2.0, Vec3::ZERO)), Item::Thing(i), Some(k));
+            }
         }
     }
+    if !marks {
+        return best;
+    }
     for (i, p) in ed.level.places.iter().enumerate() {
+        if ed.is_hidden(Item::Place(i)) {
+            continue;
+        }
         let at = IVec3::from(p.at).as_vec3() + Vec3::new(0.5, 0.5, 0.0);
-        take(&mut best, ray_box(origin, dir, at - Vec3::new(4.0, 4.0, 0.0), at + Vec3::new(4.0, 4.0, 10.0)), Item::Place(i), None);
+        take(&mut best, boxed(at - Vec3::new(4.0, 4.0, 0.0), at + Vec3::new(4.0, 4.0, 10.0)), Item::Place(i), None);
     }
     if best.is_none() {
         for (i, a) in ed.level.areas.iter().enumerate() {
+            if ed.is_hidden(Item::Area(i)) {
+                continue;
+            }
             let at = IVec3::from(a.at).as_vec3();
-            take(&mut best, ray_box(origin, dir, at, at + IVec3::from(a.size).as_vec3()), Item::Area(i), None);
+            take(&mut best, boxed(at, at + IVec3::from(a.size).as_vec3()), Item::Area(i), None);
         }
     }
-    best.map(|(_, i)| i)
+    best
+}
+
+/// The spot a ray points at to set something down (ADD): before the face
+/// of the first voxel it meets, the level's or a piece's or a thing's
+/// (`hit_along`), else on the floor.
+pub fn set_down_spot(ed: &Editor, figures: &Figures, world: &World, origin: Vec3, dir: Vec3) -> Option<IVec3> {
+    let floor = super::model::pick(origin, dir, world.size, |c| c.cmpge(IVec3::ZERO).all() && world.get(c) != 0);
+    let floor_at = floor.and_then(|h| ray_box(origin, dir, h.cell.as_vec3(), h.cell.as_vec3() + 1.0)).unwrap_or(f32::INFINITY);
+    match hit_along(ed, figures, origin, dir, false) {
+        Some(m) if m.at < floor_at && m.normal != Vec3::ZERO => {
+            let p = origin + dir * m.at + m.normal * 0.5;
+            Some(p.floor().as_ivec3().max(IVec3::ZERO))
+        }
+        _ => floor_spot(world, origin, dir),
+    }
 }
 
 /// The spot a ray (in voxels) points at to set something down: before the
@@ -1576,7 +1732,7 @@ pub fn marks(ed: &Editor, view: &View, figures: &Figures, aspect: f32, inset: gl
         }
     };
     let tone_of = |item: Item| if ed.chosen == Some(item) { Tone::Chosen } else { Tone::Plain };
-    let things: Vec<(Option<Item>, &crate::grid::Thing)> = ed.level.things.iter().enumerate().map(|(i, t)| (Some(Item::Thing(i)), t)).chain(match &ed.hanging {
+    let things: Vec<(Option<Item>, &crate::grid::Thing)> = ed.level.things.iter().enumerate().filter(|&(i, _)| !ed.is_hidden(Item::Thing(i))).map(|(i, t)| (Some(Item::Thing(i)), t)).chain(match &ed.hanging {
         Some(Hanging::Thing(t)) if ed.hang_spot.is_some() => Some((None, t)),
         _ => None,
     }).collect();
@@ -1590,7 +1746,7 @@ pub fn marks(ed: &Editor, view: &View, figures: &Figures, aspect: f32, inset: gl
                 let (lo, hi) = figures.piece_box(t);
                 (lo, hi, room::rotation_of(t), room::centre_in(size))
             } else {
-                let (lo, hi) = figures.bounds(&t.kind);
+                let (lo, hi) = figures.bounds(&figures.key_in(t));
                 (lo.as_vec3(), hi.as_vec3(), Quat::IDENTITY, Vec3::ZERO)
             };
             let hovered = item == view.over && tone != Tone::Chosen && item.is_some();
@@ -1625,7 +1781,7 @@ pub fn marks(ed: &Editor, view: &View, figures: &Figures, aspect: f32, inset: gl
             }
         }
     }
-    let places: Vec<(Option<Item>, &crate::grid::Place)> = ed.level.places.iter().enumerate().map(|(i, p)| (Some(Item::Place(i)), p)).chain(match &ed.hanging {
+    let places: Vec<(Option<Item>, &crate::grid::Place)> = ed.level.places.iter().enumerate().filter(|&(i, _)| !ed.is_hidden(Item::Place(i))).map(|(i, p)| (Some(Item::Place(i)), p)).chain(match &ed.hanging {
         Some(Hanging::Place(p)) if ed.hang_spot.is_some() => Some((None, p)),
         _ => None,
     }).collect();
@@ -1648,7 +1804,7 @@ pub fn marks(ed: &Editor, view: &View, figures: &Figures, aspect: f32, inset: gl
             out.names.push((at + glam::Vec2::new(0.0, 0.02), ed.label_of(item).0, tone));
         }
     }
-    let areas: Vec<(Option<Item>, &crate::grid::Area)> = ed.level.areas.iter().enumerate().map(|(i, a)| (Some(Item::Area(i)), a)).chain(match &ed.hanging {
+    let areas: Vec<(Option<Item>, &crate::grid::Area)> = ed.level.areas.iter().enumerate().filter(|&(i, _)| !ed.is_hidden(Item::Area(i))).map(|(i, a)| (Some(Item::Area(i)), a)).chain(match &ed.hanging {
         Some(Hanging::Area(a)) if ed.hang_spot.is_some() => Some((None, a)),
         _ => None,
     }).collect();

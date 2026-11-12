@@ -1243,11 +1243,41 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   names such things, and the editor asks before opening their level
   (ALIGN ALL, DON'T OPEN: the user's wording). The level editor shapes
   it without code: the list on the right, ADD MODEL from the game's
-  models, drag over the floor, X/Y/Z rows, TURN, COPY, REMOVE, RENAME,
+  models, drag over the floor, X/Y/Z rows, ROTATE, COPY, REMOVE, RENAME,
   EDIT MODEL, a light tuned by looking, ADD PLACE, ADD AREA, GAME VIEW;
   every step saved, a change touching only its lines of the file
-  (`grid::text::rewrite`, comments kept). `voxcade edit GAME --level
-  FILE --shot OUT [--choose NAME --add MODEL --at X,Y,Z ...]` to look.
+  (`grid::text::rewrite`, comments kept). A click chooses what the ray
+  meets first voxel by voxel (`editor/pick.rs`: a small piece in a big
+  one's hollow before the big one; boxes only for lights, places,
+  areas), ADD sets down on the face met; the mark at a row's left hides
+  a thing in the editor only (HIDE, ONLY THIS, SHOW ALL; nothing
+  written). A thing of a kind without a behaviour takes `facing`/`turn`
+  in the file as a piece does (it starts so in the game:
+  `Stage::name_things`; a kind with a behaviour is refused,
+  `check_facings`; `turns = "free"` kinds exactly, others the nearest
+  way), ROTATE and EDIT (its kind's model) in the editor. The words a
+  person reads: the terms of LÖVE, Blender, Godot, Unity, MagicaVoxel
+  (ROTATE, RADIUS, COLOR, POSITION; one set of tools in both editors,
+  ADD, ERASE, PAINT, PICK), American English; the inspector's X/Y/Z
+  fields on three equal columns, numbers right-aligned (`zones::col`).
+  `voxcade edit GAME --level FILE --shot OUT [--choose NAME --add MODEL
+  --at X,Y,Z --hide NAME --click X,Y ...]` to look.
+- An editor never writes an older state over a newer file (the level
+  editor once wrote its level as it had opened it over an agent's
+  changes, the owner's lost work, 2026-11-12; `editor/disk.rs`): it
+  remembers each file it holds (the level, its blocks, the model) by a
+  BLAKE3 of what it last read or wrote, and looks once a second, when
+  its window gets the focus, and right before every write. A file
+  changed outside is read anew (what was chosen kept by name, a drag let
+  go of, the steps before dropped, a line over the view says so); a step
+  about to be written over a changed file is laid on the file as it is
+  now (things, places, areas and parts by name, cells and voxels one by
+  one, the file's other text kept), or, where it no longer fits, not
+  written. A file gone is written anew by the next step. The editors
+  save every step, so nothing is held unsaved but a drag (let go of);
+  only a write that failed leaves something, and then a change on disk
+  asks KEEP MINE or TAKE THE FILE'S. A model saved keeps each unchanged
+  part's or frame's text byte for byte (`frames::keep_text`).
 
 ## Firepit inbox
 

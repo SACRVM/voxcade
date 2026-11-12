@@ -55,8 +55,8 @@ the earlier idea of separate editors that feel like a game (`engine.md`,
 | Memory | Per file: cursor, scroll, selection, undo. Per asset: camera, selection, tool. Unsaved buffers go crash-safe into a journal every 1 to 2 s. All of it in the user's config folder, never the game folder, like the settings. | `src/settings.rs` |
 | One save | A buffer goes to the journal at once, into the game's files after a short pause, always on play and build. The engine must take half-written Lua: the last good version keeps running, the error shows. | hot reload; errors halt (step 4) |
 | Lua editor | Highlighting, diagnostics, completion, hover docs, signature help, go to definition, references, rename, search in the project, formatting: all through LSP from LuaLS. | `lua/voxcade.lua`, `.luarc.json` (step 4) |
-| Voxel editor | Set, delete, paint, box, fill, mirror, the palette (glass, metal, rough, glow on a colour), frames with onion skin, a preview in the engine's light. | `.vvx`, text (`src/vvx.rs`) |
-| Image editor (maps) | Raise, lower, smooth, flatten the height; paint material. Best right in the 3D level, the 2D image as a second view. | 8-bit grey = height in voxels (`src/map.rs`) |
+| Voxel editor | Set, delete, paint, box, fill, mirror, the palette (glass, metal, rough, glow on a color), frames with onion skin, a preview in the engine's light. | `.vvx`, text (`src/vvx.rs`) |
+| Image editor (maps) | Raise, lower, smooth, flatten the height; paint material. Best right in the 3D level, the 2D image as a second view. | 8-bit gray = height in voxels (`src/map.rs`) |
 | Level editor | Ground, prefabs (quarter turns), things and markers by kind; writes `map.toml`. | mouse and picking missing (phase 3 so far) |
 | Play | The engine's view in the main area, starting at the spot being edited. | offscreen rendering (`headless.rs`), `place_player` |
 | Build | One file per system, LÖVE's way: the ready runtime and the zipped game. Lua only, so no compiler for the user, and every system builds for all. | CI builds the runtimes |
@@ -119,7 +119,7 @@ Code's terminal). Natively: `portable-pty` (from WezTerm: ConPTY on
 Windows, openpty on Unix), `alacritty_terminal` and a renderer of our own.
 `egui_term` shows it works, but it is 0.1.0 from April 2025, tied to egui
 0.31 and untested on Windows: a template to maintain ourselves. Claude Code
-needs true colour, correct Unicode widths, bracketed paste, Shift+Enter,
+needs true color, correct Unicode widths, bracketed paste, Shift+Enter,
 copy and paste, scrollback and resizing.
 
 **MCP** is the same on every way: it belongs to the engine.
@@ -286,7 +286,7 @@ Stage by stage (the plan of 2026-10-18):
    second apart until egui's animations have ended.
 2. **The console with Claude** (done): `src/ide/terminal.rs` runs the
    user's shell in a pseudo terminal through `alacritty_terminal` (its
-   emulator and its PTY, ConPTY on Windows; no `portable-pty`): colours by
+   emulator and its PTY, ConPTY on Windows; no `portable-pty`): colors by
    name, number and RGB, wide letters, scrollback, lines rewrapped on
    resizing, answers to the program's questions, OSC 52 copies. Keys
    become a terminal's bytes (`key_bytes`: the cursor keys by the
@@ -348,7 +348,7 @@ Stage by stage (the plan of 2026-10-18):
    screen (choosing a theme) garbles in its redraw: it does the same in
    xterm.js, byte for byte, so it is Claude's, not the console's.
 3. **The Lua editor** (done): the logic's files are changed in the main area
-   (`src/ide/code.rs`, egui's text edit), coloured by the lexer's pieces
+   (`src/ide/code.rs`, egui's text edit), colored by the lexer's pieces
    (`lua::lex::spans`; `tokens`, the replays' fingerprint, is made from
    them and stays the same byte for byte, a test against the lexer as it
    was), the line numbers beside them. After every change Lua reads the
@@ -416,10 +416,10 @@ Stage by stage (the plan of 2026-10-18):
    it to the voxels, both about the model's pivot (it stands where it
    stood); a figure's parts each in its own box, placed from the pivot,
    shaped whole (FIGURE, `editor/figure.rs`). The palette keeps its signs:
-   a new colour takes the next free one, a colour no voxel has any more
+   a new color takes the next free one, a color no voxel has any more
    stays (and keeps its sign) until a right click on it takes it out; the
-   held colour's material (GLASS, METAL, ROUGH, GLOW, 0 to 1) is a quiet
-   word beside the colour that opens to four sliders, a slider dragged
+   held color's material (GLASS, METAL, ROUGH, GLOW, 0 to 1) is a quiet
+   word beside the color that opens to four sliders, a slider dragged
    one step back. Every model, figure and block of the games and
    templates written anew without a change is its text byte for byte (a
    test); saved unchanged, a file is the bytes it was. A MagicaVoxel
@@ -586,7 +586,7 @@ Stage by stage (the plan of 2026-10-18):
    folded to its bar for a game opened the first time, the shell started
    only when it is first unfolded; folded or not and the height dragged to
    are kept in `ide/<game>.toml` (an agent that starts with the IDE has it
-   open); while it is folded, `CONSOLE •` in the accent colour says the
+   open); while it is folded, `CONSOLE •` in the accent color says the
    shell wrote something (`Terminal::arrivals`), OUTPUT's red count the
    errors. What is wrong with the game (a script's error that halted it,
    a file that would not load, a game that would not start) is one red

@@ -3,7 +3,7 @@
 The user's concept (2026-10-16), written down before anything is built.
 Levels are made of voxel blocks laid in a 3D grid, like Minecraft's, but a
 block is not a cube with six pictures on it: it is a small voxel model,
-shaped and coloured by hand, voxel by voxel.
+shaped and colored by hand, voxel by voxel.
 
 ## A block
 
@@ -12,14 +12,14 @@ shaped and coloured by hand, voxel by voxel.
 - It starts from a 2D tile. Brought into the block editor, every layer of
   the block, front to back, is the tile's picture: each pixel becomes N
   voxels deep. That is only the start.
-- Then it is worked on by hand in the block editor: voxels recoloured,
+- Then it is worked on by hand in the block editor: voxels recolored,
   deleted, added. Stones that stand out, joints cut in, a round post, a
   grass edge hanging over: all made by hand. Nothing is shaped by the
   engine or a tool on its own (an automatic relief was tried and
   rejected).
-- Colours: a world has at most 255 (the palette). That is enough because
+- Colors: a world has at most 255 (the palette). That is enough because
   the engine does light and shadow: a block needs no painted shading,
-  only its materials' colours.
+  only its materials' colors.
 - What a block is to the game is set once for the block: solid, held from
   above only (a plank), climbed (a ladder), hurting (spikes), or nothing
   (decoration a body passes through).
@@ -47,8 +47,8 @@ Pulled forward from phase 2 (`ide.md`): the sooner it exists, the sooner
 hard on the eyes); calm, few tools in view, large and readable.
 
 - One block in the middle, turned and looked at from any side.
-- Import a 2D tile (drawn out N deep), paint, erase, add, pick a colour,
-  undo; the block's colours as its palette.
+- Import a 2D tile (drawn out N deep), paint, erase, add, pick a color,
+  undo; the block's colors as its palette.
 - It saves by itself, like the rest of the IDE; the running game shows
   the change at once.
 
@@ -100,6 +100,11 @@ wwwwwwwwwwwwwwwwwwwwwwww *13
 kind = "gem"
 at = [45, 5, 12]      # where its feet stand, in voxels from the grid's low corner
 
+[[thing]]
+kind = "tuer"         # a kind without a behaviour may face a way (or turn = degrees)
+at = [80, 5, 0]
+facing = "east"
+
 [[place]]
 name = "door"
 at = [25, 8, 70]
@@ -141,20 +146,30 @@ facing = [0, -1]
   the left (what is set down in three groups that fold, a field to find
   by name when there are many, one scroll), the inspector on the right
   (the chosen one as short rows: its name to type over, its model with
-  EDIT, POSITION and TURN as three fields each, their letters in the
-  handles' colours, SOLID, LIGHTS with a row each; LEVEL: size and
+  EDIT, POSITION and ROTATE as three fields each on three equal columns,
+  their letters in the handles' colors and the numbers right-aligned,
+  SOLID, LIGHTS with a row each; LEVEL: size and
   daylight). In the view the chosen one has handles (`handles.rs`):
   arrows along X, Y and Z (red, green, blue) move it by whole voxels,
-  rings turn it (about its own right side, its forward and the upright:
+  rings rotate it (about its own right side, its forward and the upright:
   each ring one of pitch, roll and turn; quarters on the grid, freely
   otherwise, a quarter within 5 degrees taken), an area's faces size it,
   a light of a piece chosen has arrows along the model's own axes; the
   thing itself is dragged over the floor at its height. Beside it COPY,
   REMOVE, EDIT (its model) and LIGHT (on and off); a right click on it,
-  or on its row, offers those and more (RENAME, TURN A QUARTER, LAY
-  DOWN, SOLID), on the floor what can be added there; a double click
-  opens a piece's model. Keys as before (arrows nudge, Page Up and Down
-  raise, T turns, Delete removes, F2 names, Escape lets go and puts a
+  or on its row, offers those and more (RENAME, HIDE or SHOW, ONLY THIS,
+  SHOW ALL, ROTATE 90°, LAY DOWN, SOLID), on the floor what can be added
+  there; a double click opens a piece's model. A click chooses what the
+  picture shows under the mouse: the first voxel the ray meets, a small
+  piece in the hollow of a big one before the big one (`editor/pick.rs`;
+  a box only for a light alone, a place or an area); ADD sets down on
+  the face of the voxel met. The mark at a row's left (as the figure
+  editor's parts have it) hides a thing in the editor only: not drawn,
+  not clicked, nothing written. A thing of a kind without a behaviour
+  rotates as a piece does (`facing` or `turn` in the file; a quarter
+  unless its kind turns freely), shows its kind under its name, and EDIT
+  opens its kind's model. Keys as before (arrows nudge, Page Up and Down
+  raise, T rotates, Delete removes, F2 names, Escape lets go and puts a
   drag back); the view's own buttons in its corner turn it and bring it
   nearer, for whoever does not know the mouse's ways yet. Every step is saved at once over the file's own text
   (`grid::text::rewrite`): what did not change stays to the character,
@@ -197,10 +212,10 @@ facing = [0, -1]
   blocks or kinds, a model's frames, a figure's parts as their tree, each
   a row with its small picture or sign; a right click its menu), the
   inspector on the right (short rows of a word and its controls: the
-  tools in a row, BEVEL, SYMMETRY, a fresh box's DEPTH, the colours as
+  tools in a row, BEVEL, SYMMETRY, a fresh box's DEPTH, the colors as
   swatches and the held one's GLASS, METAL, ROUGH, GLOW; a block's kind
   and turns; a part's PARENT, a menu, and JOINT, three fields); in the
-  view a right click's menu (on a voxel PICK COLOUR, ERASE, SHAPE the
+  view a right click's menu (on a voxel PICK COLOR, ERASE, SHAPE the
   part there; on a level's block OPEN, COPY, REMOVE), the chosen part's
   joint as arrows (their heads grab, a drag moves it by halves of a
   voxel, one step; Escape back), a click in the figure whole shapes the
@@ -208,15 +223,16 @@ facing = [0, -1]
   what a control does is its tooltip, with its key; what the editor did
   or would not is a short line over the view, its whole words on hover.
   (`shaping.rs` for these, `stage.rs` for the pieces.)
-  - Level: PLACE, REMOVE, REPLACE, PICK blocks in the cells; the held
-    block shown with its kind (click: the next kind), TURN (about the
+  - Level: ADD, ERASE, PAINT, PICK blocks in the cells (the voxel
+    editor's words); the held
+    block shown with its kind (click: the next kind), ROTATE (about the
     upright), ROLL (about the line of sight), MIRROR; NEW draws a block out
     of a tile of the tileset, or starts an empty one; CLONE copies the
     held block under a new number, DELETE takes it out of the level (its
     cells empty, its file gone; UNDO brings both back). Placing past the
     grid's right, back or top grows it.
   - The level's things (BLOCKS and THINGS at the top switch, K and H):
-    PLACE puts the held kind down where the mouse points, standing on a
+    ADD puts the held kind down where the mouse points, standing on a
     top or floating before a wall, in the middle of the row's depth (the
     lane); REMOVE takes one away, MOVE drags one elsewhere, PICK takes up
     its kind (A, E, M, I). The kinds of `c.things` lie along the bottom
@@ -227,8 +243,8 @@ facing = [0, -1]
     again): ADD, ERASE, PAINT, PICK voxels, DEEP PAINT (the voxel and
     every one behind it, through the block); TURN turns the block itself
     a quarter about the upright (a side shaped as the front brought
-    round); COPY (the copy opens), REMOVE; the block's colours big in
-    the inspector, the level's other colours small, any colour from the
+    round); COPY (the copy opens), REMOVE; the block's colors big in
+    the inspector, the level's other colors small, any color from the
     picker beside HELD; BACK (or Escape) returns.
   - The mouse: left works the tool (a stroke works on the surface it began
     on: one layer added or taken off), right drag turns, middle or shift
@@ -237,7 +253,7 @@ facing = [0, -1]
     when it is let go). Ctrl+Z, Ctrl+Y. Every word has a key, shown at its end (the panels
     are the IDE's look, egui) (a tool the same on both levels: A, E, P, I, and N for DEEP PAINT;
     U and R undo and redo, T, O, M turn, C clones, D deletes, N new, B
-    back; among the things M moves); the block's own colours (the big fields) are on 1 to 9 and 0,
+    back; among the things M moves); the block's own colors (the big fields) are on 1 to 9 and 0,
     their numbers on them. Every change
     is saved at once.
   - `voxcade edit <game> [--block NAME | --things] --shot FILE [--view

@@ -253,7 +253,7 @@ impl MapData {
             match t.get(key) {
                 None => Ok(Vec::new()),
                 Some(i) => {
-                    let wrong = || r.fail(i.span(), format!("{key} must be a list of colours, like [\"#d6b880\", \"#dec189\"]"));
+                    let wrong = || r.fail(i.span(), format!("{key} must be a list of colors, like [\"#d6b880\", \"#dec189\"]"));
                     i.as_array().ok_or_else(wrong)?.iter().map(|v| v.as_str().map(str::to_string).ok_or_else(wrong)).collect()
                 }
             }
@@ -286,7 +286,7 @@ impl MapData {
             }
         }
         let ground = Ground {
-            height: text(gt, "height", "height")?.ok_or_else(|| r.fail(ground_item.span(), "[ground] has no height = \"a grey picture\""))?,
+            height: text(gt, "height", "height")?.ok_or_else(|| r.fail(ground_item.span(), "[ground] has no height = \"a gray picture\""))?,
             material: text(gt, "material", "material")?,
             bedrock: text(gt, "bedrock", "bedrock")?,
             materials,
@@ -384,7 +384,7 @@ impl Palette {
         }
         let i = self.index.len() + 1;
         if i > 255 {
-            bail!("the map uses more than 255 colours");
+            bail!("the map uses more than 255 colors");
         }
         self.colours[i] = colour;
         self.soft[i] = soft;
@@ -401,7 +401,7 @@ impl Palette {
 fn parse_hex(text: &str) -> Result<[u8; 4]> {
     let digits = text.strip_prefix('#').unwrap_or(text);
     let value = u32::from_str_radix(digits, 16).ok().filter(|_| digits.len() == 6);
-    let v = value.with_context(|| format!("'{text}' is not a colour like #d6b880"))?;
+    let v = value.with_context(|| format!("'{text}' is not a color like #d6b880"))?;
     Ok([(v >> 16) as u8, (v >> 8) as u8, v as u8, 255])
 }
 
@@ -501,7 +501,7 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
     let mut keys = HashMap::new();
     for (i, m) in ground.materials.iter().enumerate() {
         if m.surface.is_empty() && m.strata.is_empty() {
-            bail!("{}: material {i} has neither surface nor strata colours", path.display());
+            bail!("{}: material {i} has neither surface nor strata colors", path.display());
         }
         if let Some(key) = &m.key {
             keys.insert(parse_hex(key)?, i as u8);
@@ -551,7 +551,7 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
         }
         if let Some((r, g, b)) = unknown {
             eprintln!(
-                "warning: {}: colour #{r:02x}{g:02x}{b:02x} names no material; using the first",
+                "warning: {}: color #{r:02x}{g:02x}{b:02x} names no material; using the first",
                 material_path.display()
             );
         }
@@ -678,7 +678,7 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
     world.soft = palette.soft;
     world.mark_all_dirty();
     let places = map.places.iter().map(|p| crate::levels::Place::new(&p.name, IVec3::from(p.at).as_vec3() + glam::Vec3::new(0.5, 0.5, 0.0), p.facing)).collect();
-    Ok(crate::levels::Made { world, markers: found, files: sources, places, marker_names: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight: Default::default() })
+    Ok(crate::levels::Made { world, markers: found, files: sources, places, marker_names: Vec::new(), marker_facings: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight: Default::default() })
 }
 
 const SEED: i64 = 0x5EED;

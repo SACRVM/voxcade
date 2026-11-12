@@ -252,7 +252,7 @@ impl IconConfig {
         }
         for (letter, rgb) in &self.colors {
             if letter.chars().count() != 1 || letter == "." {
-                return Err(format!("{what}.colors.{letter}: one letter names a colour (\".\" is empty)"));
+                return Err(format!("{what}.colors.{letter}: one letter names a color (\".\" is empty)"));
             }
             if !(3..=4).contains(&rgb.len()) {
                 return Err(format!("{what}.colors.{letter}: red, green, blue (and alpha), 0 to 255"));
@@ -260,7 +260,7 @@ impl IconConfig {
         }
         for (r, row) in self.rows.iter().enumerate() {
             if let Some(ch) = row.chars().find(|&ch| ch != '.' && !self.colors.contains_key(ch.to_string().as_str())) {
-                return Err(format!("{what}.rows[{}]: the letter '{ch}' has no colour in {what}.colors", r + 1));
+                return Err(format!("{what}.rows[{}]: the letter '{ch}' has no color in {what}.colors", r + 1));
             }
         }
         Ok(())

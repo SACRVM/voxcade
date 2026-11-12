@@ -40,6 +40,9 @@ pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
         // What the editor just did or would not: short, its words on hover.
         zones::say(ui, free, h, crate::gui::WARNING, shown);
     }
+    if ed.hint.is_none() || ed.disk.clash.is_some() {
+        zones::from_disk(ui, free, ed, shown);
+    }
     zones::view_buttons(ui, free, shown);
     part_bar(ui, ed, free, view, shown);
     if let Some(m) = view.menu {
@@ -252,18 +255,7 @@ fn parts(ui: &mut egui::Ui, figure: &Figure, shown: &mut Shown) {
             .horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 ui.add_space(depth as f32 * 12.0);
-                // Shown: a filled square; hidden: an empty one.
-                let (rect, mark) = ui.allocate_exact_size(egui::vec2(18.0, ui.text_style_height(&TextStyle::Body) + 8.0), egui::Sense::click());
-                let square = Rect::from_center_size(rect.center(), egui::vec2(9.0, 9.0));
-                let colour = if mark.hovered() { TEXT } else { QUIET };
-                if hidden {
-                    ui.painter().rect_stroke(square, 1.0, egui::Stroke::new(1.5, colour), egui::StrokeKind::Inside);
-                } else {
-                    ui.painter().rect_filled(square, 1.0, colour);
-                }
-                if mark.on_hover_text(if hidden { "Show it" } else { "Hide it (from the picture only)" }).clicked() {
-                    shown.clicked.push(Action::Hide(p));
-                }
+                zones::hide_mark(ui, hidden, Action::Hide(p), shown);
                 list_row(ui, Sort::Part, None, &part.name, 0.0, chosen, hidden, None, zones::warning_word(&warnings), &tip)
             })
             .inner;
@@ -284,7 +276,7 @@ fn inspector(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thu
             ui.label(RichText::new(format!("BLOCK {}", ed.level.blocks[i].name.to_uppercase())).color(TEXT));
             row(ui, "KIND", "What it is to the game", |ui| kind(ui, ed, shown));
             row(ui, "BLOCK", "", |ui| {
-                small(ui, shown, "TURN", Action::Turn(Turn::TURN), None, "Turn it a quarter, round the upright  T");
+                small(ui, shown, "ROTATE", Action::Turn(Turn::TURN), None, "Rotate it 90°, round the upright  T");
                 small(ui, shown, "COPY", Action::Clone, None, "A copy of it in the level's list  C");
                 small(ui, shown, "REMOVE", Action::Delete, None, "Take it out of the level (UNDO brings it back)  D");
             });
@@ -316,7 +308,7 @@ fn inspector(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thu
                         ui.label(format!("{} × {} × {}", s.x, s.y, s.z));
                     });
                     row(ui, "MODEL", "", |ui| {
-                        small(ui, shown, "TURN", Action::Turn(Turn::TURN), None, "Turn the model a quarter, round the upright  T");
+                        small(ui, shown, "ROTATE", Action::Turn(Turn::TURN), None, "Rotate the model 90°, round the upright  T");
                         small(ui, shown, "TRIM", Action::Trim, None, "Its box cut down to its voxels  M");
                         if !parted {
                             small(ui, shown, "COPY", Action::CopyFrame, None, "One more frame: a copy of this one, after it  C");
@@ -359,7 +351,9 @@ fn tools(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
     if list.is_empty() {
         return;
     }
-    ui.horizontal_wrapped(|ui| {
+    // On the grid: from the fields' left edge, as every row.
+    row(ui, "TOOL", "What the mouse does in the view", |ui| {
+        ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
         ui.spacing_mut().button_padding = egui::vec2(7.0, 3.0);
         for &tool in list {
@@ -367,16 +361,17 @@ fn tools(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
             let tip = match tool {
                 Tool::Add => "Set voxels (a block in the level)",
                 Tool::Remove => "Take them away",
-                Tool::Paint => "Recolour (in the level: replace the block)",
-                Tool::Deep => "Recolour through, every voxel behind",
+                Tool::Paint => "Recolor (in the level: replace the block)",
+                Tool::Deep => "Recolor through, every voxel behind",
                 Tool::Box => "Drag a footprint on a face: set where it was drawn. Alt: only where empty, Ctrl: cut",
                 Tool::Sphere => "The same, round",
-                Tool::Pick => "Take up a colour (a block) from what is clicked; Shift held does the same",
+                Tool::Pick => "Take up a color (a block) from what is clicked; Shift held does the same",
                 Tool::Move => "Drag a thing to another place",
             };
             let tip = key.map_or(tip.to_string(), |k| format!("{tip}  {k}"));
-            small(ui, shown, tool.label(ed.scope), Action::Tool(tool), Some(ed.tool == tool), &tip);
+            small(ui, shown, tool.label(ed.scope, ed.layer), Action::Tool(tool), Some(ed.tool == tool), &tip);
         }
+        });
     });
 }
 
@@ -386,7 +381,8 @@ fn tools(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
 /// its material as one row.
 fn colours(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
     let (own, all) = ed.colours();
-    ui.label(RichText::new("COLOUR").small().color(QUIET));
+    row(ui, "COLOR", "The colors: a click holds one", |ui| {
+    ui.vertical(|ui| {
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
         for (i, &c) in own.iter().enumerate() {
@@ -418,9 +414,13 @@ fn colours(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
             }
         });
     }
-    row(ui, "HELD", "The colour held: a click for every colour", |ui| {
+    });
+    });
+    row(ui, "HELD", "The color held: a click for every color", |ui| {
         let mut c = ed.colour;
-        if egui::color_picker::color_edit_button_srgb(ui, &mut c).on_hover_text("Every colour").changed() {
+        // On the first column, its code on the next.
+        ui.spacing_mut().interact_size.x = zones::col(ui, 1);
+        if egui::color_picker::color_edit_button_srgb(ui, &mut c).on_hover_text("Every color").changed() {
             shown.clicked.push(Action::Colour(c));
         }
         ui.label(RichText::new(format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2])).color(QUIET));
@@ -435,16 +435,22 @@ fn material(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
     let now = super::frames::words(m);
     let mirrors = m.metal != 0 || m.rgba[3] < 255;
     let tips = ["See-through", "A mirror of the sky", "How dull a mirror is (of metal or glass)", "How much it glows"];
-    for pair in [[0, 1], [2, 3]] {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
-            ui.spacing_mut().button_padding = egui::vec2(4.0, 3.0);
-            for i in pair {
-                let word = super::frames::WORDS[i];
-                ui.add_enabled_ui(i != 2 || mirrors, |ui| {
-                    zones::number(ui, shown, word, None, (now[i] as f64 * 100.0).round() / 100.0, 2, 0.01, 0.0..=1.0, &format!("{}: {} (of the colour held, every voxel of it)", word, tips[i]), 134.0, |v| Action::Material(i as u8, v as f32));
-                });
-            }
+    // On the grid: GLASS's number on the first column, METAL's word on
+    // the second and its number on the third; ROUGH and GLOW so below.
+    for [a, b] in [[0, 1], [2, 3]] {
+        let words = super::frames::WORDS;
+        // (The width taken in the row: inside `add_enabled_ui` the room
+        // left is the child's.)
+        let field = |ui: &mut egui::Ui, shown: &mut Shown, i: usize, width: f32| {
+            ui.add_enabled_ui(i != 2 || mirrors, |ui| {
+                zones::number(ui, shown, "", None, (now[i] as f64 * 100.0).round() / 100.0, 2, 0.01, 0.0..=1.0, &format!("{}: {} (of the color held, every voxel of it)", words[i], tips[i]), width, |v| Action::Material(i as u8, v as f32));
+            });
+        };
+        row(ui, words[a], tips[a], |ui| {
+            let width = zones::col(ui, 1);
+            field(ui, shown, a, width);
+            zones::cell_word(ui, words[b], tips[b]);
+            field(ui, shown, b, width);
         });
     }
 }
@@ -558,8 +564,8 @@ fn level(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thumbs,
                 });
             });
         });
-        row(ui, "TURN", "How it lies when placed", |ui| {
-            small(ui, shown, "TURN", Action::Turn(Turn::TURN), None, "A quarter round the upright  T");
+        row(ui, "ROTATE", "How it lies when placed", |ui| {
+            small(ui, shown, "ROTATE", Action::Turn(Turn::TURN), None, "90° round the upright  T");
             small(ui, shown, "ROLL", Action::Turn(Turn::ROLL), None, "A quarter over its side  O");
             small(ui, shown, "MIRROR", Action::Turn(Turn::MIRROR), None, "Mirrored left to right  M");
         });
@@ -577,7 +583,7 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<(String, Action, Option<&'st
     let mut out: Vec<(String, Action, Option<&'static str>)> = Vec::new();
     match on {
         MenuOn::Voxel(cell, part) => {
-            out.push(("PICK COLOUR".into(), Action::PickAt(cell), Some("Shift")));
+            out.push(("PICK COLOR".into(), Action::PickAt(cell), Some("Shift")));
             if matches!(ed.scope, Scope::Block(_) | Scope::Frame(_)) && ed.shape().is_some_and(|b| b.get(cell) != 0) {
                 out.push(("ERASE".into(), Action::EraseAt(cell), None));
             }

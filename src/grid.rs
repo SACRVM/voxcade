@@ -428,7 +428,9 @@ impl GridLevel {
     /// The things turned off the quarter turns (`turn = 30`): what a game
     /// on the grid cannot show so, each as a mistake names it.
     pub fn off_grid(&self) -> Vec<&Thing> {
-        self.things.iter().filter(|t| t.off_grid()).collect()
+        // (A thing of a kind turns as its kind does: freely with `turns =
+        // "free"`, else to the nearest of the four ways.)
+        self.things.iter().filter(|t| t.is_piece() && t.off_grid()).collect()
     }
 
     /// Cell `c`'s place in `cells` (None outside the grid).
@@ -1512,7 +1514,7 @@ pub mod text {
                 None => Ok(None),
                 Some(c) => match c.as_str().filter(|s| hex(s).is_some()) {
                     Some(s) => Ok(Some(s.to_string())),
-                    None => Err(r.fail(c.span(), format!("{key} must be a colour \"#rrggbb\", like \"#ffd9a0\""))),
+                    None => Err(r.fail(c.span(), format!("{key} must be a color \"#rrggbb\", like \"#ffd9a0\""))),
                 },
             }
         };
@@ -1611,12 +1613,7 @@ pub mod text {
                     (Some(k), _, _) if k == PIECE => k,
                     (Some(k), Some(_), _) => return Err(here(&format!("kind = \"{k}\" and a model: a thing of a kind has its kind's model (c.things.{k}.model); a model alone is a piece, set down as it is"))),
                     (Some(k), None, Some(_)) => return Err(here(&format!("kind = \"{k}\" with a light: lights are pieces' so far (a light alone, or a model with its light)"))),
-                    (Some(k), None, None) => {
-                        if facing.is_some() {
-                            return Err(here(&format!("kind = \"{k}\" with facing or turn: those are pieces' so far (a thing of a kind faces as its rules or your code turn it)")));
-                        }
-                        k
-                    }
+                    (Some(k), None, None) => k,
                     (None, Some(_), _) | (None, None, Some(_)) => PIECE.to_string(),
                     (None, None, None) => return Err(here("a thing needs kind = \"name\" (a kind of c.things), model = \"file.vvx\" (a piece) or a light")),
                 };
@@ -1769,6 +1766,7 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], fr
     let markers = markers(&level, names, origin).with_context(|| path.display().to_string())?;
     let places = level.places.iter().map(|p| crate::levels::Place::new(&p.name, (origin + IVec3::from(p.at)).as_vec3() + glam::Vec3::new(0.5, 0.5, 0.0), p.facing)).collect();
     let marker_names = level.things.iter().filter(|t| !t.is_piece()).map(|t| t.name.clone()).collect();
+    let marker_facings = level.things.iter().filter(|t| !t.is_piece()).map(|t| t.facing.map(Facing::bearing)).collect();
     let pieces = level
         .things
         .iter()
@@ -1788,7 +1786,7 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], fr
         .collect();
     let areas = level.areas.iter().map(|a| crate::levels::Area { name: a.name.clone(), at: origin + IVec3::from(a.at), size: IVec3::from(a.size) }).collect();
     let daylight = level.daylight.as_ref().map(Daylight::picture).unwrap_or_default();
-    Ok(crate::levels::Made { world, markers, files, places, marker_names, pieces, areas, daylight })
+    Ok(crate::levels::Made { world, markers, files, places, marker_names, marker_facings, pieces, areas, daylight })
 }
 
 /// The things of kinds as markers (not the pieces), the grid's low corner
@@ -1834,7 +1832,7 @@ pub fn build(level: &GridLevel, made: &[Block], margin: i32, below: i32, backdro
                 let entry = &level.blocks[cell.block as usize - 1];
                 let block = made.get(cell.block as usize - 1).context("a block of the level is missing")?.turned(cell.turn);
                 let voxels = stamp(&mut world, &block, entry.kind).ok_or_else(|| {
-                    anyhow!("the level has more than 255 colours with block '{}' (a colour counts once for each way it holds: solid, held from above, passed through)", entry.name)
+                    anyhow!("the level has more than 255 colors with block '{}' (a color counts once for each way it holds: solid, held from above, passed through)", entry.name)
                 })?;
                 slots.push((cell, voxels));
                 slots.len() - 1
@@ -1854,7 +1852,7 @@ pub fn build(level: &GridLevel, made: &[Block], margin: i32, below: i32, backdro
                 let (u, v) = ((x / s).rem_euclid(b.width), b.height - 1 - z / s);
                 let [r, g, bl, a] = b.pixels[(u + v * b.width) as usize];
                 if a >= 128 {
-                    wall[(x + z * size.x) as usize] = world.colour_as([r, g, bl], true, false).ok_or_else(|| anyhow!("the level has more than 255 colours with backdrop '{}'", b.how.image))?;
+                    wall[(x + z * size.x) as usize] = world.colour_as([r, g, bl], true, false).ok_or_else(|| anyhow!("the level has more than 255 colors with backdrop '{}'", b.how.image))?;
                 }
             }
         }
@@ -2300,7 +2298,7 @@ size = [40, 30, 40]
         assert!(with("sun = [0, 0, 1]").contains("line 5: sun is the way its light travels"), "{}", with("sun = [0, 0, 1]"));
         assert!(with("ambient = 2").contains("ambient must be between 0 and 1"));
         assert!(with("moon = 1").contains("'moon' is no field of the level's [light]"));
-        assert!(with("sky = \"blue\"").contains("sky must be a colour"));
+        assert!(with("sky = \"blue\"").contains("sky must be a color"));
     }
 
     /// A level of blocks whose grid changed is written anew above its
@@ -2332,7 +2330,6 @@ size = [40, 30, 40]
             ("facing = \"south\"", "facing = \"south\"\nturn = 10", "line 9: a thing faces a way (facing = \"south\") or turns (turn = 30), not both"),
             ("radius = 60, ", "", "line 14: a light needs radius = N"),
             ("color = \"#ffd9a0\"", "color = \"orange\"", "line 14: a light's color must be \"#rrggbb\""),
-            ("kind = \"walker\"", "kind = \"walker\"\nfacing = \"east\"", "kind = \"walker\" with facing or turn"),
             ("kind = \"walker\"\n", "", "a thing needs kind = \"name\""),
             ("room/stove.vvx", "room/stove.vox", "a model is a .vvx file"),
             ("size = [40, 30, 40]", "size = [40, 30, 40]\n[[area]]\nname = \"by_the_stove\"\nat = [0, 0, 0]\nsize = [1, 1, 1]", "a second area called 'by_the_stove' (the first is on line 42)"),
@@ -2439,7 +2436,7 @@ size = [40, 30, 40]
         put(&mut lv, IVec3::new(0, 0, 0), 1, Turn::NONE);
         put(&mut lv, IVec3::new(1, 0, 0), 2, Turn::NONE);
         let e = build(&lv, &[many(1), many(2)], 0, 0, &[]).err().unwrap().to_string();
-        assert!(e.contains("more than 255 colours with block 'second'"), "{e}");
+        assert!(e.contains("more than 255 colors with block 'second'"), "{e}");
     }
 
     #[test]

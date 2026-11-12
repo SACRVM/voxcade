@@ -29,6 +29,9 @@ use super::zones::{self, AXIS, AXIS_LIT, FIELD, LABEL, Sort, keyed, list_row, rg
 use crate::grid::Way;
 use crate::gui::{ACCENT, ERROR, QUIET, TEXT, WARNING};
 
+/// The width of a light's × at the end of its row.
+const REMOVE_WIDTH: f32 = 24.0;
+
 /// More rows than this in the outliner: a field to find one by its name.
 const FILTER_FROM: usize = 15;
 
@@ -40,6 +43,7 @@ pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
     if let Some(m) = &ed.message {
         zones::mistake(ui, free, m, shown);
     }
+    zones::from_disk(ui, free, ed, shown);
     beside(ui, ed, view, free, shown);
     zones::view_buttons(ui, free, shown);
     menu(ui, ed, view, free, shown);
@@ -136,13 +140,20 @@ fn what_of(ed: &Editor, item: Item) -> String {
 
 /// One row of the outliner: the item's sign, its name, its light's colour
 /// at the end; chosen, marked.
-fn outline_row(ui: &mut egui::Ui, ed: &Editor, item: Item, chosen: bool) -> egui::Response {
+fn outline_row(ui: &mut egui::Ui, ed: &Editor, item: Item, chosen: bool, shown: &mut Shown) -> egui::Response {
     let (label, named) = ed.label_of(item);
     let light = match item {
         Item::Thing(i) => ed.level.things[i].lights.first().map(|l| rgb(bytes_of(l.color.as_deref()))),
         _ => None,
     };
-    list_row(ui, sort_of(ed, item), None, &label, 0.0, chosen, !named, light, None, &what_of(ed, item))
+    let hidden = ed.is_hidden(item);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        // The hide mark, as the figure's parts have it.
+        zones::hide_mark(ui, hidden, Action::HideItem(item), shown);
+        list_row(ui, sort_of(ed, item), None, &label, 0.0, chosen, !named || hidden, light, None, &what_of(ed, item))
+    })
+    .inner
 }
 
 /// The outliner: the three groups with their counts, each folding at its
@@ -183,7 +194,7 @@ fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
                     continue;
                 }
                 let chosen = ed.chosen == Some(item);
-                let response = outline_row(ui, ed, item, chosen);
+                let response = outline_row(ui, ed, item, chosen, shown);
                 if response.secondary_clicked() {
                     let at = response.interact_pointer_pos().unwrap_or(response.rect.right_top());
                     shown.clicked.push(Action::OpenMenu(item, [at.x, at.y]));
@@ -261,14 +272,21 @@ fn head(ui: &mut egui::Ui, ed: &Editor, view: &View, item: Item, shown: &mut Sho
         Item::Thing(i) => Some(&ed.level.things[i]),
         _ => None,
     };
-    match thing.and_then(|t| t.model.as_ref()) {
-        Some(model) => {
+    // A piece's model file; a thing of a kind its kind (EDIT: its kind's
+    // model, if it has one).
+    let shown_as = thing.and_then(|t| match &t.model {
+        Some(m) => Some((m.clone(), m.clone())),
+        None if !t.is_piece() => ed.kind_models.get(&t.kind).map(|m| (t.kind.clone(), format!("{} (c.things.{}): its model {m}", t.kind, t.kind))),
+        None => None,
+    });
+    match shown_as {
+        Some((word, tip)) => {
             ui.horizontal(|ui| {
                 ui.spacing_mut().button_padding = egui::vec2(6.0, 2.0);
                 let room = ui.available_width() - 60.0;
-                let mut job = egui::text::LayoutJob::simple_singleline(model.clone(), TextStyle::Small.resolve(ui.style()), QUIET);
+                let mut job = egui::text::LayoutJob::simple_singleline(word, TextStyle::Small.resolve(ui.style()), QUIET);
                 job.wrap = egui::text::TextWrapping::truncate_at_width(room);
-                ui.label(job).on_hover_text(model);
+                ui.label(job).on_hover_text(tip);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     keyed(ui, shown, "EDIT", Action::EditModel, None, "Open its model in the voxel editor (or double click it)");
                 });
@@ -311,10 +329,17 @@ fn chosen(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, item: 
             let t = &ed.level.things[i];
             if t.model.is_some() {
                 piece_rows(ui, ed, figures, t, shown);
+            } else if ed.kind_turns(t) {
+                // A thing of a kind without a behaviour: round only.
+                let free = ed.free_kinds.contains(&t.kind);
+                let tip = if free { "Round, clockwise seen from above: 0 away from the camera, 180 towards it" } else { "Round, clockwise seen from above, in quarter turns (its kind turns on the grid)" };
+                row(ui, "ROTATE", "Degrees. Or drag its ring.", |ui| {
+                    field(ui, shown, "Z", Some(2), room::bearing_of(t).rem_euclid(360.0), Field::Turn, if free { 0.5 } else { 2.0 }, -360.0..=720.0, tip, FIELD);
+                });
             } else if t.is_piece() {
                 // A light alone: its colour and radius.
                 if let Some(l) = t.lights.first() {
-                    row(ui, "LIGHT", "Its colour and how far it shines (its radius)", |ui| light_controls(ui, l, 0, shown));
+                    row(ui, "LIGHT", "Its color and how far it shines (its radius)", |ui| light_controls(ui, l, 0, zones::FIELD2, shown));
                 }
             }
         }
@@ -342,12 +367,14 @@ fn chosen(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, item: 
 }
 
 /// A light's colour (the picker on a click), its radius.
-fn light_controls(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, shown: &mut Shown) {
+fn light_controls(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, radius: f32, shown: &mut Shown) {
     let mut c = bytes_of(l.color.as_deref());
-    if egui::color_picker::color_edit_button_srgb(ui, &mut c).on_hover_text("Its colour").changed() {
+    // The colour on the first column, RADIUS on the other two.
+    ui.spacing_mut().interact_size.x = zones::col(ui, 1);
+    if egui::color_picker::color_edit_button_srgb(ui, &mut c).on_hover_text("Its color").changed() {
         shown.clicked.push(Action::LightColour(k as u8, c));
     }
-    field(ui, shown, "RADIUS", None, l.radius, Field::Radius(k), 1.0, 1.0..=2000.0, "How far it shines, in voxels (radius in the level's file)", 104.0);
+    field(ui, shown, "RADIUS", None, l.radius, Field::Radius(k), 1.0, 1.0..=2000.0, "How far it shines, in voxels (radius in the level's file)", radius);
 }
 
 /// A piece's rows: TURN, SOLID (and LIGHT + without one), its lights.
@@ -356,7 +383,7 @@ fn piece_rows(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, t: &crate::grid
     let quarters = !ed.free_turns || t.solid;
     let speed = if quarters { 2.0 } else { 0.5 };
     let tip = |what: &str| if quarters { format!("{what}, in quarter turns (this game sets things on the grid{})", if t.solid && ed.free_turns { "; a solid piece too" } else { "" }) } else { what.to_string() };
-    row(ui, "TURN", "Degrees. Or drag its rings.", |ui| {
+    row(ui, "ROTATE", "Degrees. Or drag its rings.", |ui| {
         field(ui, shown, "Z", Some(2), room::bearing_of(t).rem_euclid(360.0), Field::Turn, speed, -360.0..=720.0, &tip("Round, clockwise seen from above: 0 away from the camera, 180 towards it"), FIELD);
         field(ui, shown, "X", Some(0), t.pitch, Field::Pitch, speed, -360.0..=720.0, &tip("Tipped: its front up (90 lays it on its back)"), FIELD);
         field(ui, shown, "Y", Some(1), t.roll, Field::Roll, speed, -360.0..=720.0, &tip("Rolled: its right side down (90 lays it on its right side)"), FIELD);
@@ -366,7 +393,7 @@ fn piece_rows(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, t: &crate::grid
         let off = t.off_grid() && !t.solid;
         let mut job = egui::text::LayoutJob::default();
         job.append("SOLID", 0.0, egui::TextFormat { font_id: TextStyle::Button.resolve(ui.style()), color: if t.solid { ACCENT } else { TEXT }, ..Default::default() });
-        let tip = if off { "Only a piece in quarter turns can be solid: turn it to 0, 90, 180 or 270 first" } else if t.solid { "Bodies stand on it and are stopped by it, exactly where it is drawn. Click: they pass through" } else { "Click: bodies stand on it and are stopped by it (a floor, a wall, a table)" };
+        let tip = if off { "Only a piece in quarter turns can be solid: rotate it to 0, 90, 180 or 270 first" } else if t.solid { "Bodies stand on it and are stopped by it, exactly where it is drawn. Click: they pass through" } else { "Click: bodies stand on it and are stopped by it (a floor, a wall, a table)" };
         let response = ui.add_enabled(!off, egui::Button::new(job).selected(t.solid)).on_hover_text(tip).on_disabled_hover_text(tip);
         if response.clicked() {
             shown.clicked.push(Action::Solid(!t.solid));
@@ -402,8 +429,10 @@ fn piece_rows(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, t: &crate::grid
             if response.on_hover_text("Choose it: its handles move it in the model").clicked() {
                 shown.clicked.push(Action::ChooseLight(if chosen { None } else { Some(k as u8) }));
             }
-            light_controls(ui, l, k, shown);
-            if ui.small_button("×").on_hover_text("Remove this light (UNDO brings it back)").clicked() {
+            // RADIUS and × on the last two columns.
+            let radius = zones::col(ui, 2) - REMOVE_WIDTH - 4.0;
+            light_controls(ui, l, k, radius, shown);
+            if ui.add_sized([REMOVE_WIDTH, ui.text_style_height(&TextStyle::Body) + 8.0], egui::Button::new("×")).on_hover_text("Remove this light (UNDO brings it back)").clicked() {
                 shown.clicked.push(Action::RemoveLight(k as u8));
             }
         });
@@ -453,11 +482,11 @@ fn level(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
     let hex = |c: [f32; 3]| c.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8);
     let sun_now = day.sun_color.as_deref().map_or(hex(g.sun_color), |c| bytes_of(Some(c)));
     let sky_now = day.sky.as_deref().map_or(hex(g.sky), |c| bytes_of(Some(c)));
-    row(ui, "COLOURS", "The sunlight's colour and the sky's", |ui| {
+    row(ui, "COLORS", "The sunlight's color and the sky's", |ui| {
         for (word, sun, now) in [("SUN", true, sun_now), ("SKY", false, sky_now)] {
             ui.label(RichText::new(word).small().color(QUIET));
             let mut c = now;
-            if egui::color_picker::color_edit_button_srgb(ui, &mut c).on_hover_text(if sun { "The sunlight's colour" } else { "The sky's colour" }).changed() {
+            if egui::color_picker::color_edit_button_srgb(ui, &mut c).on_hover_text(if sun { "The sunlight's color" } else { "The sky's color" }).changed() {
                 shown.clicked.push(Action::DayColour(sun, c));
             }
             ui.add_space(8.0);
@@ -539,6 +568,8 @@ fn beside(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut S
         _ => false,
     };
     let turns = ed.can_turn();
+    // A thing of a kind with a model: EDIT opens that.
+    let kind_model = matches!(item, Item::Thing(i) if !ed.level.things[i].is_piece() && ed.kind_models.contains_key(&ed.level.things[i].kind));
     let middle = handles::project(vp, glam::Vec2::new(screen.width(), screen.height()), h.centre).map_or(bounds.center().x, |(p, _)| screen.left() + p.x);
     let turning = view.turn_mode(ed);
     let guess = if piece { 345.0 } else if turns { 234.0 } else { 122.0 };
@@ -546,11 +577,14 @@ fn beside(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut S
         // MOVE (its arrows) or TURN (its rings), one lit.
         if turns {
             zones::small(ui, shown, "MOVE", Action::HandleMode(false), Some(!turning), "Arrows: move it along X, Y, Z (or drag it over the floor)");
-            zones::small(ui, shown, "TURN", Action::HandleMode(true), Some(turning), "Rings: turn it about its sides and the upright");
+            zones::small(ui, shown, "ROTATE", Action::HandleMode(true), Some(turning), "Rings: rotate it about its sides and the upright");
             ui.add_space(6.0);
         }
         small(ui, shown, "COPY", Action::CopyItem, None, "Copy it: the copy hangs on the mouse, a click sets it down  C");
         small(ui, shown, "REMOVE", Action::RemoveItem, None, "Remove it (UNDO brings it back)  Del");
+        if kind_model {
+            small(ui, shown, "EDIT", Action::EditModel, None, "Open its kind's model in the voxel editor  E");
+        }
         if piece {
             small(ui, shown, "EDIT", Action::EditModel, None, "Open its model in the voxel editor  E (or double click it)");
             let tip = if lights { "Its light: on. Click: off (again: on as it was)" } else { "Its light: off. Click: on" };
@@ -579,18 +613,32 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<(String, Action, Option<&'st
                 return entries;
             }
             entries.extend([("COPY".into(), Action::CopyItem, Some("C")), ("REMOVE".into(), Action::RemoveItem, Some("Del")), ("RENAME".into(), Action::Rename(Some(item)), Some("F2"))]);
+            entries.push((if ed.is_hidden(item) { "SHOW".into() } else { "HIDE".into() }, Action::HideItem(item), None));
+            entries.push(("ONLY THIS".into(), Action::OnlyItem(item), None));
+            if ed.any_hidden() {
+                entries.push(("SHOW ALL".into(), Action::ShowAllItems, None));
+            }
             match item {
                 Item::Thing(i) if ed.level.things[i].model.is_some() => {
                     let t = &ed.level.things[i];
                     entries.push(("EDIT MODEL".into(), Action::EditModel, Some("E")));
                     entries.push((if t.lights.is_empty() { "LIGHT ON" } else { "LIGHT OFF" }.into(), Action::SwitchLight, None));
-                    entries.push(("TURN A QUARTER".into(), Action::TurnItem(1), Some("T")));
+                    entries.push(("ROTATE 90°".into(), Action::TurnItem(1), Some("T")));
                     entries.push(("LAY DOWN".into(), Action::Tip(0, 1), None));
                     if !t.off_grid() || t.solid {
                         entries.push((if t.solid { "NOT SOLID" } else { "SOLID" }.into(), Action::Solid(!t.solid), None));
                     }
                 }
-                Item::Place(_) => entries.push(("TURN A QUARTER".into(), Action::TurnItem(1), Some("T"))),
+                Item::Place(_) => entries.push(("ROTATE 90°".into(), Action::TurnItem(1), Some("T"))),
+                Item::Thing(i) if !ed.level.things[i].is_piece() => {
+                    let t = &ed.level.things[i];
+                    if ed.kind_models.contains_key(&t.kind) {
+                        entries.push(("EDIT MODEL".into(), Action::EditModel, Some("E")));
+                    }
+                    if ed.kind_turns(t) {
+                        entries.push(("ROTATE 90°".into(), Action::TurnItem(1), Some("T")));
+                    }
+                }
                 _ => {}
             }
         }

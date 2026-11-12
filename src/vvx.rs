@@ -564,7 +564,7 @@ impl Reader<'_> {
     pub fn material(&self, sign: &str, item: &Item) -> Result<Mat> {
         let hex = |text: &str, at: &Item| -> Result<[u8; 3]> {
             let h = text.strip_prefix('#').filter(|h| h.len() == 6 && h.bytes().all(|b| b.is_ascii_hexdigit()));
-            let h = h.ok_or_else(|| self.fail(at.span(), format!("'{text}' is no colour: write it as #rrggbb")))?;
+            let h = h.ok_or_else(|| self.fail(at.span(), format!("'{text}' is no color: write it as #rrggbb")))?;
             let v = u32::from_str_radix(h, 16).unwrap_or(0);
             Ok([(v >> 16) as u8, (v >> 8) as u8, v as u8])
         };
@@ -572,7 +572,7 @@ impl Reader<'_> {
             let [r, g, b] = hex(text, item)?;
             return Ok(Mat { rgba: [r, g, b, 255], metal: 0, glow: 0 });
         }
-        let table = item.as_table_like().ok_or_else(|| self.fail(item.span(), format!("the palette's '{sign}' must be a colour like \"#7a4a2a\" or a table like {{ color = \"#7a4a2a\", glow = 1.0 }}")))?;
+        let table = item.as_table_like().ok_or_else(|| self.fail(item.span(), format!("the palette's '{sign}' must be a color like \"#7a4a2a\" or a table like {{ color = \"#7a4a2a\", glow = 1.0 }}")))?;
         self.only(table, &["color", "glass", "metal", "rough", "glow"], &format!("the palette's '{sign}'"))?;
         let colour = table.get("color").ok_or_else(|| self.fail(item.span(), format!("the palette's '{sign}' has no color")))?;
         let [r, g, b] = hex(colour.as_str().ok_or_else(|| self.fail(colour.span(), "color must be text like \"#7a4a2a\""))?, colour)?;
@@ -762,7 +762,7 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
         return Err(r.fail(size_item.span(), "size must be at least one voxel each way"));
     }
     let pivot = pivot(size);
-    let palette_item = top.get("palette").ok_or_else(|| anyhow!("no [palette]: the signs and their colours"))?;
+    let palette_item = top.get("palette").ok_or_else(|| anyhow!("no [palette]: the signs and their colors"))?;
     let table = palette_item.as_table_like().ok_or_else(|| r.fail(palette_item.span(), "palette must be a table of signs"))?;
     let (mut palette, mut entries) = (HashMap::new(), Vec::new());
     let mut width = 0;
@@ -1153,7 +1153,7 @@ mod tests {
         assert_eq!(m.glow[0], vec![0, 0, 0, 255]);
         let (written, _) = round_trip(&m);
         assert!(written.contains("glass = 0.5") && written.contains("metal = 1.0") && written.contains("glow = 1.0"), "{written}");
-        assert_eq!(written.lines().filter(|l| l.contains("#102030")).count(), 2, "the same colour as another material is another sign");
+        assert_eq!(written.lines().filter(|l| l.contains("#102030")).count(), 2, "the same color as another material is another sign");
     }
 
     /// Written again, a model keeps the signs its file had, even for a

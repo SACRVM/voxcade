@@ -791,7 +791,7 @@ impl Shell {
             "Scenarios" => Ok(std::fs::write(&full, NEW_SCENARIO)?),
             "Music" => Ok(std::fs::write(&full, NEW_SONG.replace("NAME", name))?),
             "Sounds" => Ok(std::fs::write(&full, new_sound(name))?),
-            _ => crate::editor::frames::ModelFile::begun(&full).save(),
+            _ => crate::editor::frames::ModelFile::begun(&full).save().map(drop),
         });
         made.map_err(|e| format!("{path}: {e:#}"))?;
         self.rescan();
@@ -2534,7 +2534,7 @@ fn scene_facts(file: &Path, path: &str) -> String {
                 0 => String::new(),
                 n => format!(", {n} marker{} ({})", if n == 1 { "" } else { "s" }, s.markers.join(", ")),
             };
-            format!("{what}, {} by {} by {} voxels, {} colours{markers}; shown only.", s.size.x, s.size.y, s.size.z, s.colours.len())
+            format!("{what}, {} by {} by {} voxels, {} colors{markers}; shown only.", s.size.x, s.size.y, s.size.z, s.colours.len())
         }
         Err(e) => format!("{e:#}"),
     }

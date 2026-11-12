@@ -3,7 +3,7 @@
 //! history, saving every change at once.
 //!
 //! Both levels of the editor are a grid with the same four tools: in the
-//! level the cells hold blocks (PLACE, REMOVE, REPLACE, PICK, and the held
+//! level the cells hold blocks (ADD, ERASE, PAINT, PICK, and the held
 //! block turned, rolled, mirrored), in a block the voxels hold colours
 //! (ADD, ERASE, PAINT, PICK). A ray from the view finds the cell it meets
 //! first and the face it enters through; a floor under the grid makes room
@@ -13,7 +13,7 @@
 //! step back (UNDO) and is saved at once: the level file or the block's.
 //!
 //! The level has a second layer, its things (figures, enemies, pickups,
-//! props): PLACE puts one of the held kind where the mouse points (on a
+//! props): ADD puts one of the held kind where the mouse points (on a
 //! surface, or before a wall, in the middle of the row's depth), REMOVE
 //! takes one away, MOVE drags one to another place, PICK takes up its kind.
 //! And a third, its pieces (`room.rs`): models and lights set down freely
@@ -31,6 +31,8 @@ use crate::grid::{Area, BlockEntry, Cell, GridLevel, Kind, Place, Thing};
 
 #[path = "room.rs"]
 pub mod room;
+#[path = "disk.rs"]
+pub mod disk;
 pub use room::{Field, Hanging, Item};
 
 /// A joint's arrow being dragged: the drag, the handles as they were at
@@ -120,19 +122,20 @@ impl Tool {
         }
     }
 
-    pub fn label(self, scope: Scope) -> &'static str {
-        match (scope, self) {
-            (Scope::Level, Tool::Add) => "PLACE",
-            (Scope::Level, Tool::Remove) => "REMOVE",
-            (Scope::Level, Tool::Paint) => "REPLACE",
-            (Scope::Block(_) | Scope::Frame(_) | Scope::Figure, Tool::Add) => "ADD",
-            (Scope::Block(_) | Scope::Frame(_) | Scope::Figure, Tool::Remove) => "ERASE",
-            (Scope::Block(_) | Scope::Frame(_) | Scope::Figure, Tool::Paint) => "PAINT",
-            (_, Tool::Deep) => "DEEP PAINT",
-            (_, Tool::Move) => "MOVE",
-            (_, Tool::Pick) => "PICK",
-            (_, Tool::Box) => "BOX",
-            (_, Tool::Sphere) => "SPHERE",
+    /// Its word: one set in both editors (ADD, ERASE, PAINT: cells of
+    /// blocks or voxels alike), but among a level's things, which are
+    /// objects set down and taken away: ADD and REMOVE.
+    pub fn label(self, scope: Scope, layer: Layer) -> &'static str {
+        match (scope, layer, self) {
+            (Scope::Level, Layer::Things, Tool::Remove) => "REMOVE",
+            (_, _, Tool::Add) => "ADD",
+            (_, _, Tool::Remove) => "ERASE",
+            (_, _, Tool::Paint) => "PAINT",
+            (_, _, Tool::Deep) => "DEEP PAINT",
+            (_, _, Tool::Move) => "MOVE",
+            (_, _, Tool::Pick) => "PICK",
+            (_, _, Tool::Box) => "BOX",
+            (_, _, Tool::Sphere) => "SPHERE",
         }
     }
 }
@@ -326,6 +329,18 @@ enum Step {
     Model(Shaped, Shaped),
 }
 
+impl Step {
+    /// The step the other way (taking it back).
+    fn reversed(&self) -> Step {
+        match self {
+            Step::Level(b, a) => Step::Level(a.clone(), b.clone()),
+            Step::Block(i, b, a) => Step::Block(*i, a.clone(), b.clone()),
+            Step::Model(b, a) => Step::Model(a.clone(), b.clone()),
+            Step::Delete(d) => Step::Delete(Box::new(Deletion { index: d.index, entry: d.entry.clone(), block: d.block.clone(), before: d.after.clone(), after: d.before.clone() })),
+        }
+    }
+}
+
 /// A block taken out of the level: its place in the list, what it was,
 /// and the level before and after (its cells empty, the later blocks'
 /// numbers one less).
@@ -441,6 +456,17 @@ pub struct Editor {
     joint_drag: Option<JointDrag>,
     join_next: bool,
     put_away: Vec<(usize, Vec<crate::grid::ThingLight>)>,
+    /// Its files as last read or written, to see another program's
+    /// changes (`disk.rs`).
+    pub disk: disk::Disk,
+    /// What is hidden in the editor alone (`room::Hidden`).
+    hidden: room::Hidden,
+    /// The game's kinds (`c.things`) as a level's things of them turn:
+    /// their models' files; those without a behaviour (only they face as
+    /// the file turns them); those that turn freely (`turns = "free"`).
+    pub kind_models: std::collections::BTreeMap<String, String>,
+    pub still_kinds: std::collections::BTreeSet<String>,
+    pub free_kinds: std::collections::BTreeSet<String>,
 }
 
 impl Editor {
@@ -508,6 +534,15 @@ impl Editor {
             joint_drag: None,
             join_next: false,
             put_away: Vec::new(),
+            disk: Default::default(),
+            hidden: Default::default(),
+            kind_models: Default::default(),
+            still_kinds: Default::default(),
+            free_kinds: Default::default(),
+        })
+        .map(|mut ed: Self| {
+            ed.remember_held();
+            ed
         })
     }
 
@@ -588,6 +623,15 @@ impl Editor {
             joint_drag: None,
             join_next: false,
             put_away: Vec::new(),
+            disk: Default::default(),
+            hidden: Default::default(),
+            kind_models: Default::default(),
+            still_kinds: Default::default(),
+            free_kinds: Default::default(),
+        })
+        .map(|mut ed: Self| {
+            ed.remember_held();
+            ed
         })
     }
 
@@ -1004,9 +1048,7 @@ impl Editor {
                 Step::Model(before, self.shaped())
             }
         };
-        self.save(&step);
-        self.past.push(step);
-        self.future.clear();
+        self.commit(step);
         self.tuning = None;
         self.tuned = None;
     }
@@ -1223,8 +1265,12 @@ impl Editor {
         self.fresh = None;
         self.tuning = None;
         self.tuned = None;
-        if let Some(step) = self.past.pop() {
-            self.go(&step, false);
+        // Another program's change first: then there is nothing to take
+        // back (`look_at_disk`).
+        self.look_at_disk();
+        if let Some(step) = self.past.pop()
+            && self.go(&step, false)
+        {
             self.future.push(step);
         }
     }
@@ -1235,13 +1281,17 @@ impl Editor {
         self.fresh = None;
         self.tuning = None;
         self.tuned = None;
-        if let Some(step) = self.future.pop() {
-            self.go(&step, true);
+        self.look_at_disk();
+        if let Some(step) = self.future.pop()
+            && self.go(&step, true)
+        {
             self.past.push(step);
         }
     }
 
-    fn go(&mut self, step: &Step, forward: bool) {
+    /// A step taken back or again, written; whether it still stands (the
+    /// file changed meanwhile and it was laid on it or dropped: no).
+    fn go(&mut self, step: &Step, forward: bool) -> bool {
         let mut problem = None;
         match step {
             Step::Level(before, after) => self.set_level(if forward { after } else { before }),
@@ -1266,6 +1316,7 @@ impl Editor {
                     {
                         problem = Some(format!("removing {}: {e}", file.display()));
                     }
+                    self.remember_path(&file);
                     if self.held.block == number {
                         self.held = Cell { block: (!self.level.blocks.is_empty()) as u16, turn: Turn::NONE };
                     } else if self.held.block > number {
@@ -1279,6 +1330,7 @@ impl Editor {
                     if let Err(e) = d.block.save(&file) {
                         problem = Some(format!("{e:#}"));
                     }
+                    self.remember_path(&file);
                     self.held = Cell { block: number, turn: self.held.turn };
                 }
             }
@@ -1292,10 +1344,18 @@ impl Editor {
             self.scope = Scope::Level;
         }
         self.keep_choice();
-        self.save(step);
+        // Taken back, the step goes the other way.
+        let back;
+        let saved = self.save(if forward {
+            step
+        } else {
+            back = step.reversed();
+            &back
+        });
         if problem.is_some() {
             self.message = problem;
         }
+        matches!(saved, disk::Saved::Kept)
     }
 
     fn set_level(&mut self, s: &LevelState) {
@@ -1375,9 +1435,7 @@ impl Editor {
         let before = self.blocks[i].clone();
         self.blocks[i] = before.turned(turn);
         let step = Step::Block(i, before, self.blocks[i].clone());
-        self.save(&step);
-        self.past.push(step);
-        self.future.clear();
+        self.commit(step);
     }
 
     /// The level's tools to its blocks or its things; a tool the other
@@ -1546,9 +1604,7 @@ impl Editor {
         let before = self.level_state();
         self.level.blocks[i].kind = kind;
         let step = Step::Level(before, self.level_state());
-        self.save(&step);
-        self.past.push(step);
-        self.future.clear();
+        self.commit(step);
     }
 
     /// A new block, held: drawn out of the tileset's tile `tile`, or empty;
@@ -1591,14 +1647,13 @@ impl Editor {
     /// A block saved and added to the level's list, held; a step.
     fn add_block(&mut self, name: String, block: Block, kind: Kind) -> Result<()> {
         block.save(&blocks::path(&self.dir, &name))?;
+        self.remember_path(&blocks::path(&self.dir, &name));
         let before = self.level_state();
         self.blocks.truncate(self.level.blocks.len());
         self.blocks.push(block);
         self.level.blocks.push(BlockEntry { name, kind });
         let step = Step::Level(before, self.level_state());
-        self.save(&step);
-        self.past.push(step);
-        self.future.clear();
+        self.commit(step);
         self.hold(self.level.blocks.len() - 1);
         Ok(())
     }
@@ -2047,9 +2102,7 @@ impl Editor {
         }
         let before = joined.unwrap_or(before);
         let step = Step::Model(before, model.shaped());
-        self.save(&step);
-        self.past.push(step);
-        self.future.clear();
+        self.commit(step);
         self.tuning = None;
     }
 
@@ -2078,9 +2131,7 @@ impl Editor {
             self.past.pop();
         }
         let step = Step::Model(first.unwrap_or(before), after);
-        self.save(&step);
-        self.past.push(step);
-        self.future.clear();
+        self.commit(step);
         self.tuning = Some(key);
     }
 
@@ -2092,22 +2143,23 @@ impl Editor {
         });
     }
 
-    /// Saves what a step changed: the level, the block, or the model.
-    fn save(&mut self, step: &Step) {
-        if self.dry {
-            return;
+    /// A step taken: written (`save`, which looks at the disk first) and
+    /// kept to take back; as laid on the file, or dropped, where another
+    /// program changed the file meanwhile.
+    fn commit(&mut self, step: Step) {
+        match self.save(&step) {
+            disk::Saved::Kept => {
+                self.past.push(step);
+                self.future.clear();
+            }
+            disk::Saved::Rebased(kept) => self.past.extend(kept.map(|s| *s)),
+            disk::Saved::Dropped => {}
         }
-        let done = match step {
-            Step::Level(..) | Step::Delete(..) => self.save_level(),
-            Step::Block(i, ..) => self.blocks[*i].save(&blocks::path(&self.dir, &self.level.blocks[*i].name)),
-            Step::Model(..) => self.model.as_mut().map_or(Ok(()), ModelFile::save),
-        };
-        self.message = done.err().map(|e| format!("{e:#}"));
     }
 
     /// Writes the level over the text it was opened from
     /// (`grid::text::rewrite`): what did not change stays as it was.
-    fn save_level(&self) -> Result<()> {
+    fn save_level(&self) -> Result<String> {
         let mut names: Vec<&str> = self.level.blocks.iter().map(|b| b.name.as_str()).collect();
         names.sort_unstable();
         if let Some(w) = names.windows(2).find(|w| w[0] == w[1]) {
@@ -2115,7 +2167,8 @@ impl Editor {
         }
         let path = self.dir.join(&self.file);
         let text = crate::grid::text::rewrite(&self.source, &self.source_level, &self.level, &crate::grid::Legend::of_file(&path));
-        blocks::save_at_once(&path, text.as_bytes())
+        blocks::save_at_once(&path, text.as_bytes())?;
+        Ok(text)
     }
 }
 
@@ -2681,7 +2734,7 @@ pub(crate) mod tests {
         ed.press(top);
         assert_eq!(ed.tool, Tool::Pick, "another pick, the same");
         ed.shift_pick(false);
-        assert_eq!((ed.tool, ed.colour), (Tool::Remove, [10, 200, 10]), "let go: the tool before, the colour picked");
+        assert_eq!((ed.tool, ed.colour), (Tool::Remove, [10, 200, 10]), "let go: the tool before, the color picked");
         // Shift again and again changes nothing in between; PICK chosen by
         // hand is not given back by it.
         ed.shift_pick(false);

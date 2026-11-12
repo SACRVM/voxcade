@@ -47,6 +47,7 @@ USAGE:
                  [--move NAME --at X,Y,Z] [--turn NAME --by DEG [--about x|y|z]] [--lay NAME] [--copy NAME --at X,Y,Z] [--remove NAME]
                  [--rename NAME --to NEW] [--light NAME [--radius N] [--colour #rrggbb] [--at X,Y,Z]] [--room-size X,Y,Z]
                  [--choose-light K] [--menu NAME|floor|voxel] [--add-menu] [--level-settings] [--handles move|turn] [--hover arrow-x|ring-z|face-y|...]
+                 [--hide NAME] [--click X,Y]
   voxcade ide    [<game-dir>] [--shot FILE] [--open PATH] [--console CMD] [--play TICKS] [--size WxH] [--remote]
   voxcade mcp    [--remote]
   voxcade film   <game-dir> <replay-file> [--from S] [--to S] [--fps N] [--size WxH]
@@ -662,7 +663,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
         }
         Some("edit") => {
             let dir = opened(&args)?;
-            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new(), ops: Vec::new(), choose: None, game_view: false, picker: false, lights_off: false, choose_light: None, menu: None, add_menu: false, level_settings: false, hover: None, turn_handles: false, part_moves: Vec::new() };
+            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new(), ops: Vec::new(), choose: None, game_view: false, picker: false, lights_off: false, choose_light: None, menu: None, add_menu: false, level_settings: false, hover: None, turn_handles: false, part_moves: Vec::new(), hide: Vec::new(), click: None };
             let mut shot = false;
             let three = |flag: &str, value: &str| -> Result<glam::IVec3> {
                 let n: Vec<i32> = value.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>().with_context(|| format!("{flag} X,Y,Z"))?;
@@ -732,6 +733,12 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                         opts.part_moves.push((value.clone(), glam::Vec3::new(x, y, z), flag == "--move-joint"));
                     }
                     "--hover" => opts.hover = Some(value.clone()),
+                    "--hide" => opts.hide.push(value.clone()),
+                    "--click" => {
+                        let n: Vec<f32> = value.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>().context("--click X,Y: a pixel of the shot")?;
+                        let [x, y] = n[..] else { bail!("--click X,Y: two numbers") };
+                        opts.click = Some((x, y));
+                    }
                     "--handles" => {
                         opts.turn_handles = match value.as_str() {
                             "move" => false,

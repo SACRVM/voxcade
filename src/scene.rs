@@ -109,7 +109,7 @@ impl Scene {
     /// to place (`names`: the kinds of things).
     pub fn world(&self, names: &[&str]) -> Result<(World, Vec<Marker>)> {
         if self.colours.len() > 255 {
-            bail!("the palette has {} colours; a world holds 255 at most", self.colours.len());
+            bail!("the palette has {} colors; a world holds 255 at most", self.colours.len());
         }
         let mut palette = [[0u8; 4]; 256];
         for (i, [r, g, b]) in self.colours.iter().enumerate() {
@@ -257,7 +257,7 @@ fn read_parts(src: &str, layers: Option<(&str, usize)>) -> Result<Scene> {
     if (size.x as i64) * (size.y as i64) * (size.z as i64) > 1 << 31 {
         return Err(r.fail(size_item.span(), "the box is too big: two billion voxels at most"));
     }
-    let palette_item = top.get("palette").ok_or_else(|| anyhow!("no [palette]: the signs and their colours"))?;
+    let palette_item = top.get("palette").ok_or_else(|| anyhow!("no [palette]: the signs and their colors"))?;
     let table = palette_item.as_table_like().ok_or_else(|| r.fail(palette_item.span(), "palette must be a table of signs"))?;
     let mut scene = Scene::new(size);
     // The signs: (sign, colour or marker), in the file's order.
@@ -281,7 +281,7 @@ fn read_parts(src: &str, layers: Option<(&str, usize)>) -> Result<Scene> {
         }
         let mat = r.material(sign, item)?;
         if mat.rgba[3] != 255 || mat.metal != 0 || mat.glow != 0 {
-            return Err(r.fail(item.span(), format!("the palette's '{sign}': a world's colours are plain, its voxels have no glass, metal or glow")));
+            return Err(r.fail(item.span(), format!("the palette's '{sign}': a world's colors are plain, its voxels have no glass, metal or glow")));
         }
         entries.push((sign.to_string(), Ok([mat.rgba[0], mat.rgba[1], mat.rgba[2]])));
     }
@@ -294,7 +294,7 @@ fn read_parts(src: &str, layers: Option<(&str, usize)>) -> Result<Scene> {
         }
     }
     if scene.colours.len() > 255 {
-        bail!("the palette has {} colours; a world or a prefab holds 255 at most", scene.colours.len());
+        bail!("the palette has {} colors; a world or a prefab holds 255 at most", scene.colours.len());
     }
     for (sign, e) in &entries {
         if let Err(kind) = e {
@@ -426,7 +426,7 @@ mod tests {
         let (world, markers) = s.world(&["guard", "rifleman"]).unwrap();
         assert_eq!(world.get(IVec3::new(2, 2, 0)), 2);
         assert_eq!(world.palette[3], [0, 0, 0, 255]);
-        assert_eq!(world.palette[4], [0; 4], "no colour beyond the palette's");
+        assert_eq!(world.palette[4], [0; 4], "no color beyond the palette's");
         assert_eq!(world.get(IVec3::new(3, 2, 1)), 0, "a marker is no voxel");
         assert_eq!(markers.iter().map(|m| m.kind).collect::<Vec<_>>(), [1, 1, 0, 1]);
         let e = s.world(&["guard"]).err().unwrap().to_string();
