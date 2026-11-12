@@ -240,7 +240,7 @@ pub fn import(path: &Path) -> Result<Imported> {
                     } else {
                         (o.x + o.width * 0.5, o.y + o.height)
                     };
-                    things.push(Thing { kind, at: [x.round() as i32, n / 2, ((rows * n) as f32 - y).round() as i32] });
+                    things.push(Thing::new(kind, [x.round() as i32, n / 2, ((rows * n) as f32 - y).round() as i32]));
                 }
             }
             _ => {}
@@ -432,7 +432,7 @@ mod tests {
                          {"type":"miner","x":0,"y":0,"width":2,"height":2}"#;
         let dir = folder("objects", &[&[0, 0, 0, 1, 0, 0]], objects);
         let lv = import(&dir.join("map.json")).unwrap().level;
-        assert_eq!(lv.things, [Thing { kind: "gem".into(), at: [3, 1, 3] }, Thing { kind: "miner".into(), at: [1, 1, 2] }]);
+        assert_eq!(lv.things, [Thing::new("gem", [3, 1, 3]), Thing::new("miner", [1, 1, 2])]);
         std::fs::remove_dir_all(&dir).ok();
     }
 

@@ -131,18 +131,183 @@ pub struct Cell {
     pub turn: Turn,
 }
 
+/// The kind every piece is (`thing.kind`): a model set down, or a light,
+/// that stays where the level puts it. The engine's own, so no game names
+/// a kind of its own so; `level:things("piece")` lists them all.
+pub const PIECE: &str = "piece";
+
+/// One of the four ways on the ground, by its name in a level's file: north
+/// away from the camera (+y, a model's own forward), east to the right.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Way {
+    North,
+    East,
+    South,
+    West,
+}
+
+impl Way {
+    /// In the order of their bearings, a quarter turn clockwise apart.
+    pub const ALL: [Way; 4] = [Way::North, Way::East, Way::South, Way::West];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Way::North => "north",
+            Way::East => "east",
+            Way::South => "south",
+            Way::West => "west",
+        }
+    }
+
+    pub fn of_name(name: &str) -> Option<Way> {
+        Self::ALL.into_iter().find(|w| w.name() == name)
+    }
+
+    /// As a step on the ground: x across, y in depth.
+    pub fn pair(self) -> [i32; 2] {
+        match self {
+            Way::North => [0, 1],
+            Way::East => [1, 0],
+            Way::South => [0, -1],
+            Way::West => [-1, 0],
+        }
+    }
+
+    pub fn of_pair(pair: [i32; 2]) -> Option<Way> {
+        Self::ALL.into_iter().find(|w| w.pair() == pair)
+    }
+
+    /// Its bearing: degrees clockwise seen from above, north 0.
+    pub fn bearing(self) -> f64 {
+        Self::ALL.iter().position(|w| *w == self).expect("one of the four") as f64 * 90.0
+    }
+
+    /// The way nearest a bearing; a bearing right between two (45, 135 ...)
+    /// goes to the one clockwise of it (45 is east), so aligning gives the
+    /// same every time.
+    pub fn nearest(bearing: f64) -> Way {
+        let quarters = (bearing.rem_euclid(360.0) / 90.0 + 0.5).floor() as usize;
+        Self::ALL[quarters % 4]
+    }
+}
+
+/// Which way a piece faces: one of the four ways, or a bearing in degrees
+/// (`turn`, clockwise seen from above, north 0) where the game turns things
+/// freely (`c.camera.turns = "free"`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Facing {
+    Way(Way),
+    Turn(f64),
+}
+
+impl Facing {
+    pub fn bearing(self) -> f64 {
+        match self {
+            Facing::Way(w) => w.bearing(),
+            Facing::Turn(t) => t,
+        }
+    }
+
+    /// Whether it lies off the quarter turns (a game on the grid cannot
+    /// show it so).
+    pub fn off_grid(self) -> bool {
+        matches!(self, Facing::Turn(t) if t.rem_euclid(90.0) != 0.0)
+    }
+}
+
+/// The light a piece brings: where it shines from, in the model's own
+/// voxels from its pivot (turning with the piece; the pivot without), how
+/// far it reaches and its colour (`#rrggbb`; white without), each as the
+/// file wrote it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ThingLight {
+    pub at: Option<[i32; 3]>,
+    pub radius: f64,
+    pub color: Option<String>,
+}
+
+impl ThingLight {
+    /// Its colour, 0 to 1 each.
+    pub fn rgb(&self) -> [f32; 3] {
+        self.color.as_deref().and_then(hex).map_or([1.0; 3], |c| c.map(|v| v as f32 / 255.0))
+    }
+}
+
+/// `#rrggbb` as three bytes.
+fn hex(text: &str) -> Option<[u8; 3]> {
+    let h = text.strip_prefix('#').filter(|h| h.len() == 6 && h.chars().all(|c| c.is_ascii_hexdigit()))?;
+    Some([0, 2, 4].map(|i| u8::from_str_radix(&h[i..i + 2], 16).expect("hex digits")))
+}
+
 /// A thing placed freely: its kind's name and where it stands (the middle
-/// of its feet), in voxels from the grid's low corner.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// of its feet), in voxels from the grid's low corner. A piece (`PIECE`) is
+/// a model set down there by its pivot, facing a way, perhaps with a
+/// light, or a light alone. `name` is its name in the level (else its
+/// kind's and a number, `walker_1`); `line` where the file says it, for
+/// mistakes (0: from no file).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Thing {
     pub kind: String,
     pub at: [i32; 3],
+    #[serde(skip)]
+    pub name: Option<String>,
+    #[serde(skip)]
+    pub model: Option<String>,
+    #[serde(skip)]
+    pub facing: Option<Facing>,
+    #[serde(skip)]
+    pub light: Option<ThingLight>,
+    #[serde(skip)]
+    pub line: usize,
+}
+
+impl PartialEq for Thing {
+    /// The same thing wherever its file says it.
+    fn eq(&self, o: &Self) -> bool {
+        (&self.kind, self.at, &self.name, &self.model, self.facing, &self.light) == (&o.kind, o.at, &o.name, &o.model, o.facing, &o.light)
+    }
+}
+
+impl Thing {
+    /// A thing of a kind at `at`, nothing more.
+    pub fn new(kind: impl Into<String>, at: [i32; 3]) -> Self {
+        Self { kind: kind.into(), at, ..Default::default() }
+    }
+
+    /// Whether it is a piece: a model set down, or a light.
+    pub fn is_piece(&self) -> bool {
+        self.kind == PIECE
+    }
+
+    /// How a mistake names it: its name, else its model or kind, and its
+    /// line.
+    pub fn called(&self) -> String {
+        let what = self.name.clone().or_else(|| self.model.clone()).unwrap_or_else(|| self.kind.clone());
+        if self.line > 0 { format!("'{what}' (line {})", self.line) } else { format!("'{what}'") }
+    }
+}
+
+/// A named box in a level (`level.areas.NAME`): its low corner, in voxels
+/// from the grid's low corner, and its size.
+#[derive(Clone, Debug, Default)]
+pub struct Area {
+    pub name: String,
+    pub at: [i32; 3],
+    pub size: [i32; 3],
+    pub line: usize,
+}
+
+impl PartialEq for Area {
+    fn eq(&self, o: &Self) -> bool {
+        (&self.name, self.at, self.size) == (&o.name, o.at, o.size)
+    }
 }
 
 /// A named place a player arrives at (`world:go_to(level, place)`): where
 /// its feet stand, in voxels from the grid's low corner, and the way it
-/// faces (south when not given).
+/// faces (south when not given); `named`: the file says the way by its
+/// name (`"east"`), else as a step (`[1, 0]`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Place {
@@ -150,31 +315,53 @@ pub struct Place {
     pub at: [i32; 3],
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub facing: Option<[i32; 2]>,
+    #[serde(skip)]
+    pub named: bool,
 }
 
-/// A level of blocks in a grid, as its file holds it.
+/// A level as its file holds it: blocks in a grid, things and pieces set
+/// down, places and areas. A level without a grid (`n` 0) is only its
+/// pieces, things, places and areas in a space `size` voxels big.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GridLevel {
-    /// A block's size: voxels each way.
+    /// A block's size: voxels each way; 0 for a level without a grid.
     pub n: i32,
-    /// Cells across, in depth and up.
+    /// Cells across, in depth and up (voxels without a grid).
     pub size: IVec3,
     pub blocks: Vec<BlockEntry>,
-    /// Per cell, x + y w + z w d.
+    /// Per cell, x + y w + z w d (none without a grid).
     pub cells: Vec<Cell>,
     pub things: Vec<Thing>,
     pub places: Vec<Place>,
+    pub areas: Vec<Area>,
 }
 
 impl GridLevel {
     pub fn new(n: i32, size: IVec3) -> Self {
-        Self { n, size, blocks: Vec::new(), cells: vec![Cell::default(); (size.x * size.y * size.z).max(0) as usize], things: Vec::new(), places: Vec::new() }
+        let cells = if n > 0 { (size.x * size.y * size.z).max(0) as usize } else { 0 };
+        Self { n, size, blocks: Vec::new(), cells: vec![Cell::default(); cells], things: Vec::new(), places: Vec::new(), areas: Vec::new() }
+    }
+
+    /// Whether it has a grid of blocks (else only what is set down).
+    pub fn has_grid(&self) -> bool {
+        self.n > 0
+    }
+
+    /// Its size in voxels.
+    pub fn voxels(&self) -> IVec3 {
+        if self.has_grid() { self.size * self.n } else { self.size }
+    }
+
+    /// The things turned off the quarter turns (`turn = 30`): what a game
+    /// on the grid cannot show so, each as a mistake names it.
+    pub fn off_grid(&self) -> Vec<&Thing> {
+        self.things.iter().filter(|t| t.facing.is_some_and(Facing::off_grid)).collect()
     }
 
     /// Cell `c`'s place in `cells` (None outside the grid).
     pub fn index(&self, c: IVec3) -> Option<usize> {
         let s = self.size;
-        (c.cmpge(IVec3::ZERO).all() && c.cmplt(s).all()).then(|| (c.x + c.y * s.x + c.z * s.x * s.y) as usize)
+        (self.has_grid() && c.cmpge(IVec3::ZERO).all() && c.cmplt(s).all()).then(|| (c.x + c.y * s.x + c.z * s.x * s.y) as usize)
     }
 
     pub fn cell(&self, c: IVec3) -> Cell {
@@ -306,10 +493,27 @@ impl Legend {
 /// kind = "gem"
 /// at = [45, 5, 12]      # where its feet stand, in voxels from the grid's low corner
 ///
+/// [[thing]]             # a piece: a model set down by its pivot, fixed
+/// name = "lamp"         # its name in the level (level:thing("lamp")); else its kind's and a number
+/// model = "room/lamp.vvx"
+/// at = [212, 40, 0]
+/// facing = "west"       # north, east, south (the default) or west; or turn = 30 where c.camera.turns = "free"
+/// light = { at = [3, 3, 41], radius = 60, color = "#ffd9a0" }   # at: from the pivot in the model's voxels
+///
+/// [[thing]]             # a light alone
+/// name = "moon"
+/// at = [300, 190, 90]
+/// light = { radius = 120, color = "#a0b8ff" }
+///
 /// [[place]]
 /// name = "door"
 /// at = [25, 8, 70]
-/// facing = [0, -1]
+/// facing = [0, -1]      # or a way's name: "south"
+///
+/// [[area]]              # a named box (level.areas.by_the_stove): its low corner and size
+/// name = "by_the_stove"
+/// at = [30, 120, 0]
+/// size = [40, 30, 40]
 /// ```
 ///
 /// The cells are layers of rows of signs, `.` empty, an empty line between
@@ -320,7 +524,19 @@ impl Legend {
 /// the far row first) or `"front"` (the front layer first, each seen from
 /// the front with the top row first); x runs left to right in both. One
 /// letter or digit a sign (62), two each when a level needs more (`..`
-/// empty). Things and places come in their order.
+/// empty). Things, places and areas come in their order.
+///
+/// A level without `block` has no grid (a room of models, a stage):
+/// `size` is then its voxels, and it holds no `[blocks]`, `[legend]` or
+/// `[cells]`, only what is set down in it. A piece (a `[[thing]]` with a
+/// `model` or a `light` and no kind: its kind is `PIECE`) stays where it
+/// is put, anywhere, on a wall or in the air; its `at` is where the
+/// model's pivot stands (the cell `size / 2` across and deep on its floor,
+/// `vvx::pivot`), as every thing's, so `thing.x` is `at`'s x and a half
+/// (the middle of that cell) with the grid's low corner added. `turn` is a
+/// bearing, degrees clockwise seen from above: 0 faces north (a model's
+/// own forward, away from the camera), 90 east, 180 south, 270 west. Names
+/// are one thing's and one area's; every mistake says its line.
 pub mod text {
     use super::*;
     use crate::vvx::{self, ONE_SIGN, Reader, SIGNS};
@@ -329,6 +545,12 @@ pub mod text {
     /// The level's text, keeping the view and the signs of `kept` (the
     /// legend the file had; `Legend::default()` for a new one).
     pub fn write(level: &GridLevel, kept: &Legend) -> String {
+        if !level.has_grid() {
+            let s = level.size;
+            let mut out = format!("format = \"{FORMAT}\"\nsize = [{}, {}, {}]    # voxels: across (x), deep (y, 0 in front), up (z); no grid of blocks\n", s.x, s.y, s.z);
+            write_set_down(level, &mut out);
+            return out;
+        }
         let view = kept.view.unwrap_or_else(|| View::for_size(level.size));
         // The pairs of block and turn the cells hold, by first use in
         // reading order.
@@ -402,16 +624,83 @@ pub mod text {
             .collect();
         out += "\n[cells]\n";
         out += &vvx::layers_text(&layers);
+        write_set_down(level, &mut out);
+        out
+    }
+
+    /// The things, places and areas, in their order: each field as the
+    /// sketch in `docs/tiles.md` writes it, a field left out when the file
+    /// left it out.
+    fn write_set_down(level: &GridLevel, out: &mut String) {
+        let triple = |[x, y, z]: [i32; 3]| format!("[{x}, {y}, {z}]");
         for t in &level.things {
-            out += &format!("\n[[thing]]\nkind = {}\nat = [{}, {}, {}]\n", vvx::quoted(&t.kind), t.at[0], t.at[1], t.at[2]);
-        }
-        for p in &level.places {
-            out += &format!("\n[[place]]\nname = {}\nat = [{}, {}, {}]\n", vvx::quoted(&p.name), p.at[0], p.at[1], p.at[2]);
-            if let Some([x, y]) = p.facing {
-                out += &format!("facing = [{x}, {y}]\n");
+            *out += "\n[[thing]]\n";
+            if let Some(name) = &t.name {
+                *out += &format!("name = {}\n", vvx::quoted(name));
+            }
+            // A piece says what it is by its model or its light.
+            if !t.is_piece() {
+                *out += &format!("kind = {}\n", vvx::quoted(&t.kind));
+            }
+            if let Some(model) = &t.model {
+                *out += &format!("model = {}\n", vvx::quoted(model));
+            }
+            *out += &format!("at = {}\n", triple(t.at));
+            match t.facing {
+                Some(Facing::Way(w)) => *out += &format!("facing = \"{}\"\n", w.name()),
+                Some(Facing::Turn(turn)) => *out += &format!("turn = {turn}\n"),
+                None => {}
+            }
+            if let Some(l) = &t.light {
+                let mut parts = Vec::new();
+                if let Some(at) = l.at {
+                    parts.push(format!("at = {}", triple(at)));
+                }
+                parts.push(format!("radius = {}", l.radius));
+                if let Some(c) = &l.color {
+                    parts.push(format!("color = {}", vvx::quoted(c)));
+                }
+                *out += &format!("light = {{ {} }}\n", parts.join(", "));
             }
         }
-        out
+        for p in &level.places {
+            *out += &format!("\n[[place]]\nname = {}\nat = {}\n", vvx::quoted(&p.name), triple(p.at));
+            match p.facing {
+                Some(pair) if p.named && Way::of_pair(pair).is_some() => *out += &format!("facing = \"{}\"\n", Way::of_pair(pair).expect("one of the four").name()),
+                Some([x, y]) => *out += &format!("facing = [{x}, {y}]\n"),
+                None => {}
+            }
+        }
+        for a in &level.areas {
+            *out += &format!("\n[[area]]\nname = {}\nat = {}\nsize = {}\n", vvx::quoted(&a.name), triple(a.at), triple(a.size));
+        }
+    }
+
+    /// The level's text with every thing turned off the quarter turns
+    /// (`turn = 30`) facing its nearest way instead (`facing = "north"`; a
+    /// turn right between two goes clockwise: `Way::nearest`), the rest of
+    /// the file as it was, to the character: what a game on the grid shows.
+    pub fn align(src: &str) -> Result<String> {
+        let doc = Document::parse(src).map_err(|e| anyhow!("{}", e.message()))?;
+        let mut edits: Vec<(std::ops::Range<usize>, String)> = Vec::new();
+        if let Some(item) = doc.as_table().get("thing")
+            && let Some(tables) = vvx::tables(item)
+        {
+            for t in tables {
+                let Some((key, value)) = t.get_key_value("turn") else { continue };
+                let Some(turn) = value.as_float().or_else(|| value.as_integer().map(|i| i as f64)) else { continue };
+                if !Facing::Turn(turn).off_grid() {
+                    continue;
+                }
+                let (Some(k), Some(v)) = (key.span(), value.span()) else { continue };
+                edits.push((k.start..v.end, format!("facing = \"{}\"", Way::nearest(turn).name())));
+            }
+        }
+        let mut out = src.to_string();
+        for (range, with) in edits.into_iter().rev() {
+            out.replace_range(range, &with);
+        }
+        Ok(out)
     }
 
     /// A block's name as a key of TOML: bare when it can be.
@@ -458,7 +747,7 @@ pub mod text {
         let r = Reader { src };
         let top = doc.as_table();
         vvx::check_format_of(&r, top, FORMAT_NAME, VERSION, "level")?;
-        r.only(top, &["format", "block", "size", "view", "blocks", "legend", "cells", "thing", "place"], "a level")?;
+        r.only(top, &["format", "block", "size", "view", "blocks", "legend", "cells", "thing", "place", "area"], "a level")?;
         let whole = |item: &Item, what: &str| -> Result<i32> {
             let v = r.number(item, what)?;
             if v.fract() != 0.0 || v < 1.0 || v > 100_000.0 {
@@ -466,7 +755,27 @@ pub mod text {
             }
             Ok(v as i32)
         };
-        let n = whole(top.get("block").ok_or_else(|| anyhow!("no block = N (a block's voxels each way)"))?, "block")?;
+        // Without a block's size the level has no grid: its size is in
+        // voxels, and it is what is set down in it.
+        let Some(block) = top.get("block") else {
+            for key in ["view", "blocks", "legend", "cells"] {
+                if let Some(item) = top.get(key) {
+                    return Err(r.fail(item.span(), format!("{key} is for a level of blocks: block = N first (a block's voxels each way)")));
+                }
+            }
+            let size_item = top.get("size").ok_or_else(|| anyhow!("no size = [x, y, z] (the level's voxels; or block = N and the grid's cells)"))?;
+            let size = r.ints(size_item, "size")?;
+            if size.cmplt(IVec3::ONE).any() {
+                return Err(r.fail(size_item.span(), "size must be at least one voxel each way"));
+            }
+            if (size.x as i64) * (size.y as i64) * (size.z as i64) > 1 << 31 {
+                return Err(r.fail(size_item.span(), "the level is too big"));
+            }
+            let mut level = GridLevel::new(0, size);
+            read_set_down(&r, top, &mut level)?;
+            return Ok((level, Legend::default()));
+        };
+        let n = whole(block, "block")?;
         let size_item = top.get("size").ok_or_else(|| anyhow!("no size = [x, y, z] (the grid's cells)"))?;
         let size = r.ints(size_item, "size")?;
         if size.cmplt(IVec3::ONE).any() {
@@ -576,35 +885,133 @@ pub mod text {
                 k += 1;
             }
         }
-        let triple = |t: &dyn toml_edit::TableLike, what: &str| -> Result<[i32; 3]> {
-            let item = t.get("at").ok_or_else(|| anyhow!("{what} has no at = [x, y, z]"))?;
-            let v = r.ints(item, "at")?;
-            Ok(v.to_array())
+        read_set_down(&r, top, &mut level)?;
+        Ok((level, legend))
+    }
+
+    /// The line a table of the file begins on (its first field's), 0
+    /// without a place in the file.
+    fn line_of_table(r: &Reader, t: &dyn toml_edit::TableLike) -> usize {
+        t.iter().filter_map(|(k, v)| t.key(k).and_then(|k| k.span()).or_else(|| v.span())).map(|s| s.start).min().map_or(0, |at| vvx::line_of(r.src, at))
+    }
+
+    /// The things, places and areas of a level's text.
+    fn read_set_down(r: &Reader, top: &toml_edit::Table, level: &mut GridLevel) -> Result<()> {
+        let triple = |t: &dyn toml_edit::TableLike, key: &str, what: &str| -> Result<[i32; 3]> {
+            let line = line_of_table(r, t);
+            let item = t.get(key).ok_or_else(|| if line > 0 { anyhow!("line {line}: {what} has no {key} = [x, y, z]") } else { anyhow!("{what} has no {key} = [x, y, z]") })?;
+            Ok(r.ints(item, key)?.to_array())
+        };
+        let text = |t: &dyn toml_edit::TableLike, key: &str, what: &str| -> Result<Option<String>> {
+            match t.get(key) {
+                None => Ok(None),
+                Some(item) => match item.as_str() {
+                    Some(s) if !s.is_empty() => Ok(Some(s.to_string())),
+                    _ => Err(r.fail(item.span(), format!("{what}'s {key} must be a name in quotes"))),
+                },
+            }
         };
         if let Some(item) = top.get("thing") {
-            for t in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "things must be tables: [[thing]] with kind and at"))? {
-                r.only(t, &["kind", "at"], "a thing")?;
-                let kind = t.get("kind").and_then(Item::as_str).ok_or_else(|| anyhow!("a thing has no kind = \"name\" (at {:?})", t.get("at").and_then(Item::span).map(|s| vvx::line_of(src, s.start))))?;
-                level.things.push(Thing { kind: kind.to_string(), at: triple(t, "a thing")? });
+            for t in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "things must be tables: [[thing]] with kind (or model) and at"))? {
+                r.only(t, &["name", "kind", "model", "at", "facing", "turn", "light"], "a thing")?;
+                let line = line_of_table(r, t);
+                let here = |why: &str| if line > 0 { anyhow!("line {line}: {why}") } else { anyhow!("{why}") };
+                let name = text(t, "name", "a thing")?;
+                let kind = text(t, "kind", "a thing")?;
+                let model = text(t, "model", "a thing")?;
+                if let Some(m) = &model
+                    && !m.ends_with(&format!(".{}", crate::vvx::EXTENSION))
+                {
+                    return Err(r.fail(t.get("model").and_then(Item::span), format!("model = \"{m}\": a model is a .vvx file of the game")));
+                }
+                let light = match t.get("light") {
+                    None => None,
+                    Some(item) => {
+                        let l = item.as_table_like().ok_or_else(|| r.fail(item.span(), "light must be a table: light = { at = [0, 0, 10], radius = 60, color = \"#ffd9a0\" }"))?;
+                        r.only(l, &["at", "radius", "color"], "a light")?;
+                        let at = l.get("at").map(|a| r.ints(a, "a light's at").map(|v| v.to_array())).transpose()?;
+                        let radius_item = l.get("radius").ok_or_else(|| r.fail(item.span(), "a light needs radius = N (how far it reaches, voxels)"))?;
+                        let radius = radius_item.as_float().or_else(|| radius_item.as_integer().map(|i| i as f64)).filter(|v| v.is_finite() && *v > 0.0);
+                        let radius = radius.ok_or_else(|| r.fail(radius_item.span(), "a light's radius must be a number above 0 (voxels)"))?;
+                        let color = match l.get("color") {
+                            None => None,
+                            Some(c) => match c.as_str().filter(|s| hex(s).is_some()) {
+                                Some(s) => Some(s.to_string()),
+                                None => return Err(r.fail(c.span(), "a light's color must be \"#rrggbb\", like \"#ffd9a0\"")),
+                            },
+                        };
+                        Some(ThingLight { at, radius, color })
+                    }
+                };
+                let facing = match (t.get("facing"), t.get("turn")) {
+                    (Some(_), Some(turn)) => return Err(r.fail(turn.span(), "a thing faces a way (facing = \"south\") or turns (turn = 30), not both")),
+                    (Some(f), None) => match f.as_str().and_then(Way::of_name) {
+                        Some(w) => Some(Facing::Way(w)),
+                        None => return Err(r.fail(f.span(), "facing must be \"north\", \"east\", \"south\" or \"west\" (or turn = degrees, where the game turns things freely)")),
+                    },
+                    (None, Some(turn)) => match turn.as_float().or_else(|| turn.as_integer().map(|i| i as f64)).filter(|v| v.is_finite() && v.abs() <= 1e6) {
+                        Some(v) => Some(Facing::Turn(v)),
+                        None => return Err(r.fail(turn.span(), "turn must be degrees clockwise seen from above (north 0, east 90, south 180, west 270)")),
+                    },
+                    (None, None) => None,
+                };
+                let kind = match (kind, &model, &light) {
+                    (Some(k), None, _) if k == PIECE && light.is_none() => return Err(here("a piece is a model set down (model = \"room/stove.vvx\") or a light (light = { radius = 60 })")),
+                    (Some(k), _, _) if k == PIECE => k,
+                    (Some(k), Some(_), _) => return Err(here(&format!("kind = \"{k}\" and a model: a thing of a kind has its kind's model (c.things.{k}.model); a model alone is a piece, set down as it is"))),
+                    (Some(k), None, Some(_)) => return Err(here(&format!("kind = \"{k}\" with a light: lights are pieces' so far (a light alone, or a model with its light)"))),
+                    (Some(k), None, None) => {
+                        if facing.is_some() {
+                            return Err(here(&format!("kind = \"{k}\" with facing or turn: those are pieces' so far (a thing of a kind faces as its rules or your code turn it)")));
+                        }
+                        k
+                    }
+                    (None, Some(_), _) | (None, None, Some(_)) => PIECE.to_string(),
+                    (None, None, None) => return Err(here("a thing needs kind = \"name\" (a kind of c.things), model = \"file.vvx\" (a piece) or a light")),
+                };
+                if let Some(other) = name.as_ref().and_then(|n| level.things.iter().find(|o| o.name.as_ref() == Some(n))) {
+                    return Err(here(&format!("a second thing called '{}' (the first is on line {}): a name is one thing's", name.as_deref().unwrap_or_default(), other.line)));
+                }
+                level.things.push(Thing { kind, at: triple(t, "at", "a thing")?, name, model, facing, light, line });
             }
         }
         if let Some(item) = top.get("place") {
             for t in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "places must be tables: [[place]] with name and at"))? {
                 r.only(t, &["name", "at", "facing"], "a place")?;
                 let name = t.get("name").and_then(Item::as_str).ok_or_else(|| anyhow!("a place has no name = \"name\""))?;
-                let facing = match t.get("facing") {
-                    None => None,
+                let (facing, named) = match t.get("facing") {
+                    None => (None, false),
+                    Some(f) if f.as_str().is_some() => match f.as_str().and_then(Way::of_name) {
+                        Some(w) => (Some(w.pair()), true),
+                        None => return Err(r.fail(f.span(), "facing must be \"north\", \"east\", \"south\" or \"west\", or two whole numbers, like [0, -1]")),
+                    },
                     Some(f) => {
-                        let wrong = || r.fail(f.span(), "facing must be two whole numbers, like [0, -1]");
+                        let wrong = || r.fail(f.span(), "facing must be two whole numbers, like [0, -1], or a way's name (\"south\")");
                         let a = f.as_array().filter(|a| a.len() == 2).ok_or_else(wrong)?;
                         let v: Vec<i64> = a.iter().map(|v| v.as_integer().ok_or_else(wrong)).collect::<Result<_>>()?;
-                        Some([v[0] as i32, v[1] as i32])
+                        (Some([v[0] as i32, v[1] as i32]), false)
                     }
                 };
-                level.places.push(Place { name: name.to_string(), at: triple(t, "a place")?, facing });
+                level.places.push(Place { name: name.to_string(), at: triple(t, "at", "a place")?, facing, named });
             }
         }
-        Ok((level, legend))
+        if let Some(item) = top.get("area") {
+            for t in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "areas must be tables: [[area]] with name, at and size"))? {
+                r.only(t, &["name", "at", "size"], "an area")?;
+                let line = line_of_table(r, t);
+                let here = |why: &str| if line > 0 { anyhow!("line {line}: {why}") } else { anyhow!("{why}") };
+                let name = text(t, "name", "an area")?.ok_or_else(|| here("an area has no name = \"name\""))?;
+                let size = triple(t, "size", "an area")?;
+                if size.iter().any(|s| *s < 1) {
+                    return Err(r.fail(t.get("size").and_then(Item::span), "an area's size must be at least one voxel each way"));
+                }
+                if let Some(other) = level.areas.iter().find(|a| a.name == name) {
+                    return Err(here(&format!("a second area called '{name}' (the first is on line {}): a name is one area's", other.line)));
+                }
+                level.areas.push(Area { name, at: triple(t, "at", "an area")?, size, line });
+            }
+        }
+        Ok(())
     }
 }
 
@@ -619,21 +1026,53 @@ pub struct Picture {
 /// Builds the level `cfg` names: the world, its markers (`names`: the kinds
 /// of things) and the files it was made from.
 pub fn load(dir: &Path, cfg: &BlocksConfig, names: &[&str]) -> Result<(World, Vec<Marker>, Vec<PathBuf>)> {
-    let (world, markers, files, _) = load_at(&Files::folder(dir), cfg, &dir.join(&cfg.file), names)?;
-    Ok((world, markers, files))
+    let made = load_at(&Files::folder(dir), cfg, &dir.join(&cfg.file), names, false)?;
+    Ok((made.world, made.markers, made.files))
 }
 
-/// The level of blocks in the file at `path` (one of a game's `levels/`),
-/// with its named places in the world's voxels.
-pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str]) -> Result<crate::levels::Made> {
+/// The mistake for a level whose things are turned off the quarter turns in
+/// a game that sets things on the grid: which, and the two ways out.
+pub fn off_grid_mistake(off: &[&Thing]) -> String {
+    let shown: Vec<String> = off.iter().take(5).map(|t| t.called()).collect();
+    let more = if off.len() > 5 { format!(" and {} more", off.len() - 5) } else { String::new() };
+    let (which, are) = if off.len() == 1 { ("thing", "is") } else { ("things", "are") };
+    format!(
+        "this game sets things on the grid, in quarter turns, but {} {which} of this level {are} turned off them: {}{more}. Allow free turns in conf.lua (c.camera.turns = \"free\"), or open the level in the editor to align them (each to its nearest way)",
+        off.len(),
+        shown.join(", ")
+    )
+}
+
+/// The level in the file at `path` (one of a game's `levels/`): its blocks
+/// in the world's voxels, its things as markers, its pieces, places and
+/// areas in the world's voxels. `free`: the game turns things freely
+/// (`c.camera.turns`); else a piece turned off the quarter turns is a
+/// mistake. A piece's model missing is a mistake naming its line.
+pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], free: bool) -> Result<crate::levels::Made> {
     let dir = game.dir();
     if cfg.margin < 0 || cfg.below < 0 {
         bail!("c.world.blocks: margin and below are voxels, 0 or more");
     }
     let path = path.to_path_buf();
     let level = GridLevel::read_in(game, &path)?;
+    let off = level.off_grid();
+    if !free && !off.is_empty() {
+        bail!("{}: {}", path.display(), off_grid_mistake(&off));
+    }
     let mut files = vec![path.clone()];
     files.extend(level.blocks.iter().map(|b| blocks::path(dir, &b.name)));
+    // The pieces' models, which the level makes part of the game.
+    for t in &level.things {
+        if let Some(model) = &t.model {
+            let file = dir.join(model);
+            if !game.is_file(&file) {
+                bail!("{}: line {}: model = \"{model}\": there is no such file in the game folder", path.display(), t.line);
+            }
+            if !files.contains(&file) {
+                files.push(file);
+            }
+        }
+    }
     let made = level.load_blocks_in(game)?;
     let mut pictures = Vec::new();
     for b in &cfg.backdrops {
@@ -646,14 +1085,30 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str]) ->
     let origin = IVec3::new(cfg.margin, 0, cfg.below);
     let markers = markers(&level, names, origin).with_context(|| path.display().to_string())?;
     let places = level.places.iter().map(|p| crate::levels::Place::new(&p.name, (origin + IVec3::from(p.at)).as_vec3() + glam::Vec3::new(0.5, 0.5, 0.0), p.facing)).collect();
-    Ok((world, markers, files, places))
+    let marker_names = level.things.iter().filter(|t| !t.is_piece()).map(|t| t.name.clone()).collect();
+    let pieces = level
+        .things
+        .iter()
+        .filter(|t| t.is_piece())
+        .map(|t| crate::levels::Piece {
+            name: t.name.clone(),
+            model: t.model.clone(),
+            cell: origin + IVec3::from(t.at),
+            facing: t.facing.unwrap_or(Facing::Way(Way::South)),
+            light: t.light.as_ref().map(|l| crate::levels::PieceLight { at: IVec3::from(l.at.unwrap_or_default()), radius: l.radius as f32, color: l.rgb() }),
+        })
+        .collect();
+    let areas = level.areas.iter().map(|a| crate::levels::Area { name: a.name.clone(), at: origin + IVec3::from(a.at), size: IVec3::from(a.size) }).collect();
+    Ok(crate::levels::Made { world, markers, files, places, marker_names, pieces, areas })
 }
 
-/// The things as markers, the grid's low corner at `origin`.
+/// The things of kinds as markers (not the pieces), the grid's low corner
+/// at `origin`.
 pub fn markers(level: &GridLevel, names: &[&str], origin: IVec3) -> Result<Vec<Marker>> {
     level
         .things
         .iter()
+        .filter(|t| !t.is_piece())
         .map(|t| {
             let kind = names.iter().position(|n| *n == t.kind).ok_or_else(|| anyhow!("things: '{}' is no kind of thing (c.things: {})", t.kind, names.join(", ")))?;
             Ok(Marker { kind, cell: origin + IVec3::from(t.at) })
@@ -666,7 +1121,7 @@ pub fn markers(level: &GridLevel, names: &[&str], origin: IVec3) -> Result<Vec<M
 /// `below` under the grid, the backdrops behind it.
 pub fn build(level: &GridLevel, made: &[Block], margin: i32, below: i32, backdrops: &[Picture]) -> Result<World> {
     let n = level.n;
-    let grid = level.size * n;
+    let grid = level.voxels();
     let size = IVec3::new(
         grid.x + 2 * margin,
         backdrops.iter().map(|b| grid.y + b.how.behind.max(0) + 1).max().unwrap_or(0).max(grid.y),
@@ -720,6 +1175,9 @@ pub fn build(level: &GridLevel, made: &[Block], margin: i32, below: i32, backdro
     // Into the world chunk by chunk: the grid's rows and the walls' rows.
     let voxel = |p: IVec3| -> u8 {
         if p.y < grid.y {
+            if !level.has_grid() {
+                return 0;
+            }
             let q = p - origin;
             let Some(i) = level.index(q.div_euclid(IVec3::splat(n))) else { return 0 };
             return match cell_slot[i] {
@@ -737,7 +1195,8 @@ pub fn build(level: &GridLevel, made: &[Block], margin: i32, below: i32, backdro
         }
         0
     };
-    let mut rows_y: Vec<i32> = (0..(grid.y + CHUNK - 1) / CHUNK).collect();
+    // (A level without a grid has nothing to fill but its backdrops.)
+    let mut rows_y: Vec<i32> = if level.has_grid() { (0..(grid.y + CHUNK - 1) / CHUNK).collect() } else { Vec::new() };
     rows_y.extend(walls.iter().map(|(y, ..)| y / CHUNK));
     rows_y.sort_unstable();
     rows_y.dedup();
@@ -751,6 +1210,10 @@ pub fn build(level: &GridLevel, made: &[Block], margin: i32, below: i32, backdro
     }
 
     world.stage = Some((origin, origin + grid));
+    if !level.has_grid() {
+        world.mark_all_dirty();
+        return Ok(world);
+    }
     let mut kinds = CellKinds::new(origin, IVec3::splat(n), level.size);
     for z in 0..level.size.z {
         for y in 0..level.size.y {
@@ -795,7 +1258,7 @@ pub(crate) fn stamp(world: &mut World, block: &Block, kind: Kind) -> Option<Vec<
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// A block of size `n` with one colour in the cells `filled` names.
@@ -831,8 +1294,8 @@ mod tests {
         put(&mut lv, IVec3::new(0, 0, 0), 1, Turn::NONE);
         put(&mut lv, IVec3::new(1, 0, 0), 1, Turn::NONE);
         put(&mut lv, IVec3::new(4, 1, 2), 2, Turn::from_tiled(true, false, true));
-        lv.things.push(Thing { kind: "fox".into(), at: [6, 2, 4] });
-        lv.places.push(Place { name: "door".into(), at: [1, 2, 3], facing: Some([0, -1]) });
+        lv.things.push(Thing::new("fox", [6, 2, 4]));
+        lv.places.push(Place { name: "door".into(), at: [1, 2, 3], facing: Some([0, -1]), named: false });
         let text = lv.to_text();
         assert_eq!(GridLevel::from_text(&text).unwrap(), lv, "{text}");
         // Taller than deep: seen from the front, the top row first; the
@@ -865,6 +1328,124 @@ mod tests {
         let front = Legend { view: Some(View::Front), signs: Vec::new() };
         assert!(text::write(&lv, &front).contains("view = \"front\""));
         assert_eq!(GridLevel::from_text(&text::write(&lv, &front)).unwrap(), lv);
+    }
+
+    /// The sketch of a level of pieces, as written.
+    pub(crate) const PIECES: &str = r##"format = "voxcade level 1"
+size = [360, 200, 120]    # voxels: across (x), deep (y, 0 in front), up (z); no grid of blocks
+
+[[thing]]
+name = "stove"
+model = "room/stove.vvx"
+at = [40, 150, 0]
+facing = "south"
+
+[[thing]]
+name = "lamp"
+model = "room/lamp.vvx"
+at = [212, 40, 0]
+light = { at = [3, 3, 41], radius = 60, color = "#ffd9a0" }
+
+[[thing]]
+name = "moon"
+at = [300, 190, 90]
+light = { radius = 120.5, color = "#a0b8ff" }
+
+[[thing]]
+name = "chair"
+model = "room/chair.vvx"
+at = [60, 150, 0]
+turn = 45
+
+[[thing]]
+kind = "walker"
+at = [100, 20, 0]
+
+[[place]]
+name = "door"
+at = [30, 12, 0]
+facing = "east"
+
+[[place]]
+name = "window"
+at = [30, 12, 0]
+facing = [1, 1]
+
+[[area]]
+name = "by_the_stove"
+at = [30, 120, 0]
+size = [40, 30, 40]
+"##;
+
+    /// A level of pieces reads as its file says and is written back the
+    /// same, to the character: what the editor keeps of it.
+    #[test]
+    fn a_level_of_pieces_reads_back_as_written() {
+        let lv = GridLevel::from_text(PIECES).unwrap();
+        assert!(!lv.has_grid() && lv.voxels() == IVec3::new(360, 200, 120) && lv.cells.is_empty());
+        assert_eq!(lv.to_text(), PIECES);
+        let lamp = &lv.things[1];
+        assert_eq!((lamp.kind.as_str(), lamp.name.as_deref(), lamp.line), (PIECE, Some("lamp"), 11));
+        assert_eq!(lamp.light.as_ref().map(|l| (l.at, l.radius, l.rgb())), Some((Some([3, 3, 41]), 60.0, [1.0, 217.0 / 255.0, 160.0 / 255.0])));
+        assert_eq!((lv.things[2].model.as_ref(), lv.things[2].is_piece()), (None, true), "a light alone is a piece");
+        assert_eq!(lv.things[3].facing, Some(Facing::Turn(45.0)));
+        assert_eq!(lv.things[4], Thing::new("walker", [100, 20, 0]));
+        assert_eq!((lv.places[0].facing, lv.places[0].named), (Some([1, 0]), true));
+        assert_eq!(lv.areas[0], Area { name: "by_the_stove".into(), at: [30, 120, 0], size: [40, 30, 40], line: 0 });
+        // A level of blocks keeps them too, after its cells.
+        let mut blocks = GridLevel::new(4, IVec3::new(2, 1, 1));
+        blocks.blocks.push(BlockEntry { name: "rock".into(), kind: Kind::Solid });
+        (blocks.things, blocks.places, blocks.areas) = (lv.things.clone(), lv.places.clone(), lv.areas.clone());
+        let text = blocks.to_text();
+        assert_eq!(GridLevel::from_text(&text).unwrap(), blocks);
+        assert!(text.ends_with(PIECES.split_once("\n\n").unwrap().1), "{text}");
+    }
+
+    /// Every mistake of a level's set-down part says its line and what is
+    /// wrong.
+    #[test]
+    fn a_levels_mistakes_say_their_line() {
+        let wrong = |from: &str, to: &str| format!("{:#}", GridLevel::from_text(&PIECES.replacen(from, to, 1)).unwrap_err());
+        for (from, to, says) in [
+            ("name = \"moon\"", "name = \"lamp\"", "line 17: a second thing called 'lamp' (the first is on line 11)"),
+            ("name = \"stove\"\nmodel", "kind = \"stove\"\nmodel", "kind = \"stove\" and a model"),
+            ("name = \"moon\"", "kind = \"piece\"\nname = \"moon\"\n[[thing]]\nkind = \"piece\"", "a piece is a model set down"),
+            ("facing = \"south\"", "facing = \"down\"", "line 8: facing must be \"north\", \"east\", \"south\" or \"west\""),
+            ("facing = \"south\"", "facing = \"south\"\nturn = 10", "line 9: a thing faces a way (facing = \"south\") or turns (turn = 30), not both"),
+            ("radius = 60, ", "", "line 14: a light needs radius = N"),
+            ("color = \"#ffd9a0\"", "color = \"orange\"", "line 14: a light's color must be \"#rrggbb\""),
+            ("kind = \"walker\"", "kind = \"walker\"\nfacing = \"east\"", "kind = \"walker\" with facing or turn"),
+            ("kind = \"walker\"\n", "", "a thing needs kind = \"name\""),
+            ("room/stove.vvx", "room/stove.vox", "a model is a .vvx file"),
+            ("size = [40, 30, 40]", "size = [40, 30, 40]\n[[area]]\nname = \"by_the_stove\"\nat = [0, 0, 0]\nsize = [1, 1, 1]", "a second area called 'by_the_stove' (the first is on line 42)"),
+            ("size = [40, 30, 40]", "size = [40, 0, 40]", "an area's size must be at least one voxel"),
+            ("size = [360, 200, 120]", "size = [360, 200, 120]\n[cells]", "cells is for a level of blocks: block = N first"),
+            ("[1, 1]", "\"up\"", "facing must be \"north\""),
+        ] {
+            let e = wrong(from, to);
+            assert!(e.contains(says), "{from} -> {to}: {e}");
+        }
+    }
+
+    /// The things a game on the grid cannot show (turned off the quarter
+    /// turns) are listed; aligning faces each its nearest way (a turn
+    /// right between two goes clockwise) and changes nothing else of the
+    /// file, to the character.
+    #[test]
+    fn aligning_faces_each_its_nearest_way() {
+        let lv = GridLevel::from_text(PIECES).unwrap();
+        let off: Vec<String> = lv.off_grid().iter().map(|t| t.called()).collect();
+        assert_eq!(off, ["'chair' (line 22)"]);
+        assert!(off_grid_mistake(&lv.off_grid()).contains("1 thing of this level is turned off them: 'chair' (line 22)"));
+        for (turn, way) in [(45.0, Way::East), (44.9, Way::North), (135.0, Way::South), (225.0, Way::West), (315.0, Way::North), (-45.0, Way::North), (-46.0, Way::West), (400.0, Way::North), (420.0, Way::East), (180.0, Way::South)] {
+            assert_eq!(Way::nearest(turn), way, "{turn}");
+        }
+        assert!(!Facing::Turn(270.0).off_grid() && Facing::Turn(-90.0).bearing() == -90.0, "quarter turns are on the grid");
+        let src = format!("# a room\n{}", PIECES.replace("turn = 45", "turn = 45    # a chair askew"));
+        let aligned = text::align(&src).unwrap();
+        assert_eq!(aligned, src.replace("turn = 45", "facing = \"east\""));
+        assert!(GridLevel::from_text(&aligned).unwrap().off_grid().is_empty());
+        assert_eq!(text::align(&aligned).unwrap(), aligned, "nothing left to align");
     }
 
     #[test]
@@ -949,7 +1530,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let mut lv = level(4, IVec3::new(1, 1, 1), &[("rock", Kind::Solid)]);
         put(&mut lv, IVec3::ZERO, 1, Turn::NONE);
-        lv.things.push(Thing { kind: "gem".into(), at: [2, 2, 4] });
+        lv.things.push(Thing::new("gem", [2, 2, 4]));
         lv.save(&dir.join("level.toml")).unwrap();
         let cfg = BlocksConfig { margin: 10, below: 5, ..BlocksConfig::default() };
         let e = format!("{:#}", load(&dir, &cfg, &["gem"]).err().unwrap());

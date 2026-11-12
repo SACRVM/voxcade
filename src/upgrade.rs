@@ -1376,7 +1376,7 @@ mod tests {
         let mut lv = crate::grid::GridLevel::new(2, IVec3::new(3, 1, 2));
         lv.blocks.push(crate::grid::BlockEntry { name: "rock".into(), kind: crate::grid::Kind::Solid });
         lv.cells[1] = crate::grid::Cell { block: 1, turn: crate::blocks::Turn::MIRROR };
-        lv.things.push(crate::grid::Thing { kind: "gem".into(), at: [1, 1, 2] });
+        lv.things.push(crate::grid::Thing::new("gem", [1, 1, 2]));
         let json = format!("{{ \"block\": 2, \"size\": [3, 1, 2], \"blocks\": [{{ \"name\": \"rock\", \"kind\": \"solid\" }}], \"cells\": [[1, 0, 0], [1, 1, {}], [4, 0, 0]], \"things\": [{{ \"kind\": \"gem\", \"at\": [1, 1, 2] }}] }}", crate::blocks::Turn::MIRROR.number());
         std::fs::write(blocks.join("levels/01_cave.json"), json).unwrap();
         std::fs::write(blocks.join("conf.lua"), "function conf(c)\n  c.voxcade = \"0.6.0\"\n  c.world.blocks = { file = \"levels/01_cave.json\" }\nend\n").unwrap();

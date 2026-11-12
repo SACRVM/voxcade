@@ -103,6 +103,21 @@ When you make a model (in a script or by hand in the voxel editor):
 | one world | `c.world.file = "world.vvx"`: a `.vvx` of one frame, its palette's colours the world's numbers in order, things placed by marker entries (`r = { marker = "rifleman" }`) | a small hand-made level (the Arena) |
 | a map | `c.world.file = "map.toml"`: ground from height and material PNGs, `.vvx` prefabs placed (`[[put]]`, a thing by `thing = "kind"`) | big levels (More Blood, written by `tools/gen_moreblood.py`) |
 | voxel blocks | `c.world.blocks = { file = "levels/01_hall.toml", margin, below, backdrops }` | tile-built levels (Voxkeep's `levels/`; `voxcade import`, `voxcade edit`) |
+| a room of pieces | a file in `levels/` saying `format = "voxcade level 1"` without `block`: `size` in voxels, `[[thing]]`s with a `model` (a piece, set down where it stands, facing a way) or a `light` alone, `[[place]]`, `[[area]]`; read whatever `c.world` says (a game made in code sets `c.world.size = nil`) | stages: a room of 20 to 30 models with lamps, named spots (HELP's A ROOM OF PIECES) |
+
+A level of blocks holds pieces too. A piece (`thing.kind` is `"piece"`)
+stays exactly where the file puts its pivot (on a wall, in the air), is
+drawn by the engine (no `frame:model` for it), holds nobody up (the floor
+is voxels) and is touched like any thing; its model is any `.vvx` of the
+game, named in the file only. `facing = "south"` (north, east, south, the
+default, west); `turn = 30` (a bearing, clockwise from north) only with
+`c.camera.turns = "free"`, else the level does not load and the mistake
+names the things (the editor offers ALIGN ALL). `light = { at = [0, 0,
+12], radius = 40, color = "#ffd9a0" }`: `at` from the pivot in the
+model's voxels, turning with it; `thing.state.light` is its brightness,
+0 off to 1 (1 at first), kept by saves; more than 16 lights in view: the
+16 nearest the middle of the view shine. `level.areas.NAME:holds(thing
+or { x, y, z })`. Names in the file are `thing.name` (`level:thing("lamp")`).
 
 ### Kinds of things (`c.things.NAME`)
 
@@ -337,7 +352,9 @@ settings' CONTROLS (in a game of several) set who plays with what.
 
 Levels: the files in `levels/` (named by their file, in name order:
 `01_meadow.toml`, `02_cave.toml`; worlds `.vvx`; without any, one level
-as `c.world` says), each with named places (`[[place]]` in the file).
+as `c.world` says), each with named places (`[[place]]` in the file),
+named areas (`[[area]]`, `level.areas.NAME:holds(player)`) and pieces
+(`level:things("piece")`, `level:thing("lamp").state.light = 0`).
 `world:go_to(level.next)` or `world:go_to("cave", "west")`,
 `world:restart()` (to `player.state.checkpoint` if set),
 `world:win()`, `world:lose()` ask for the end of the tick; one ask counts

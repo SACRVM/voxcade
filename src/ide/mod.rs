@@ -795,6 +795,8 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
                 shell.tell(format!("{e:#}"));
             }
         }
+        // An editor answered DON'T OPEN goes.
+        editors.retain(|(_, e)| !e.closing());
         // A folder the system's dialog picked: a game to open, or where NEW
         // puts games.
         while let Ok(folder) = picked.1.try_recv() {
@@ -1065,6 +1067,7 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
                 hands.captured(editor.id(), picture);
             }
         }
+        editors.retain(|(_, e)| !e.closing());
 
         // A picture of this window asked for: taken once the frame is
         // settled (egui wants no frame at once), or as it is when it has

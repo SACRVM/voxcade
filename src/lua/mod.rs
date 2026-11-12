@@ -109,6 +109,8 @@ struct Loaded {
     level_state: Value,
     voxels: Vec<(glam::IVec3, u8)>,
     palette: Vec<(usize, [u8; 4])>,
+    /// How bright the pieces' lights were, by the pieces' names.
+    lights: Vec<(String, f32)>,
 }
 
 /// The most save slots a game may have (a menu shows them all).
@@ -762,7 +764,16 @@ impl<K: Kit> LuaGame<K> {
         self.stage.gone.clear();
         // The level's things are new: nothing touches, nothing died yet.
         (self.stage.touching, self.stage.dead, self.stage.graveyard, self.stage.placed, self.stage.later, self.stage.killers) = Default::default();
+        self.spawn_pieces();
         self.stage.name_things();
+        // A save's lights as they were, by the pieces' names.
+        if let Some(l) = &loaded {
+            for (name, brightness) in &l.lights {
+                if let Some(id) = self.stage.named(name).filter(|id| self.stage.lights.contains_key(id)) {
+                    self.stage.lights.insert(id, brightness.clamp(0.0, 1.0));
+                }
+            }
+        }
         // Arriving at a thing (a checkpoint by its name): stood where it is.
         if let Some(name) = self.arrive_at.take()
             && let Some(at) = self.stage.named(&name).and_then(|id| self.stage.seen(id)).map(|t| t.body.pos)
@@ -944,6 +955,42 @@ impl<K: Kit> LuaGame<K> {
         }
     }
 
+    /// Sets down the pieces of the level being played (`grid::PIECE`):
+    /// each a thing of the piece kind standing exactly where the file puts
+    /// its pivot, as tall as its model, facing its way, its light on. The
+    /// camera keeps to what it followed.
+    fn spawn_pieces(&mut self) {
+        let level = self.stage.levels.list[self.stage.level].clone();
+        (self.stage.pieces, self.stage.lights) = Default::default();
+        let Some(kind) = self.stage.kinds.iter().position(|k| k.name == crate::grid::PIECE) else { return };
+        let focus = self.plain().map(|h| h.focus);
+        for p in &level.pieces {
+            let at = p.cell.as_vec3() + Vec3::new(0.5, 0.5, 0.0);
+            let Ok(id) = self.stage.host.spawn(kind, at.x, at.y, Some(at.z)) else { continue };
+            let height = p.model.as_ref().and_then(|m| self.stage.heights.get(m)).copied().unwrap_or(1.0);
+            let bearing = p.facing.bearing() as f32;
+            let (sin, cos) = crate::sim::math::sin_cos(bearing.to_radians());
+            if let Some((body, _)) = self.stage.host.get_mut(id).and_then(|t| t.moved) {
+                body.height = height;
+                // Its way exactly where it is one of the four (no rounding
+                // off the grid), else its bearing.
+                let way = match p.facing {
+                    crate::grid::Facing::Way(w) => glam::IVec2::from(w.pair()).as_vec2().extend(0.0),
+                    crate::grid::Facing::Turn(_) => Vec3::new(sin, cos, 0.0),
+                };
+                body.face(way);
+                body.prev = body.pos;
+            }
+            if p.light.is_some() {
+                self.stage.lights.insert(id.raw(), 1.0);
+            }
+            self.stage.pieces.insert(id.raw(), p.clone());
+        }
+        if let (Some(h), Some(focus)) = (self.plain_mut(), focus) {
+            h.focus = focus;
+        }
+    }
+
     /// The kind of the player's figure (`c.player.kind`), for a game
     /// without ready-made rules (theirs have their own player).
     fn player_kind(cfg: &GameConfig, kinds: &[Kind]) -> Result<Option<usize>> {
@@ -955,8 +1002,8 @@ impl<K: Kit> LuaGame<K> {
             anyhow::bail!("c.player.kind = \"{}\": the ready-made rules (c.kit) bring their own player", seats.of(1));
         }
         for name in seats.names() {
-            if !kinds.iter().any(|k| k.name == name) {
-                let names: Vec<&str> = kinds.iter().map(|k| k.name.as_str()).collect();
+            if name == crate::grid::PIECE || !kinds.iter().any(|k| k.name == name) {
+                let names: Vec<&str> = kinds.iter().map(|k| k.name.as_str()).filter(|n| *n != crate::grid::PIECE).collect();
                 anyhow::bail!("c.player.kind = \"{name}\": no kind of thing called that (c.things: {})", names.join(", "));
             }
         }
@@ -1113,6 +1160,7 @@ impl<K: Kit> LuaGame<K> {
             voxels: save::write_voxels(&changed, sim.world.size),
             size: sim.world.size.to_array(),
             palette,
+            lights: stage.lights.iter().filter(|(id, _)| host.get(Id::from_raw(**id)).is_some()).filter_map(|(id, b)| Some((stage.names.get(id)?.clone(), *b))).collect(),
         })
     }
 
@@ -1238,7 +1286,8 @@ impl<K: Kit> LuaGame<K> {
             called?;
         }
         let place = save.figure.as_ref().filter(|_| found.is_some()).map(|f| crate::levels::Place { name: "saved".into(), at: Vec3::from(f.at), facing: Some(glam::IVec2::from(f.facing)) });
-        self.enter(index, place, "load", Some(Loaded { level_state, voxels, palette }))
+        let lights = if found.is_some() { save.lights.iter().map(|(n, b)| (n.clone(), *b)).collect() } else { Vec::new() };
+        self.enter(index, place, "load", Some(Loaded { level_state, voxels, palette, lights }))
     }
 
     /// The handle id an event names: the player's for its figure.
@@ -1819,7 +1868,7 @@ impl<K: Kit> LuaGame<K> {
         match (self.kit(), self.plain()) {
             (Some(kit), _) => {
                 let moved_on = self.stage.level != 0 || self.stage.visits.iter().enumerate().any(|(i, &v)| v != (i == 0) as u32);
-                if script.state.is_none() && script.player.is_none() && script.level.is_none() && script.kept.is_empty() && script.data.is_empty() && !moved_on && !self.uses_music {
+                if script.state.is_none() && script.player.is_none() && script.level.is_none() && script.kept.is_empty() && script.data.is_empty() && !moved_on && !self.uses_music && self.stage.lights.is_empty() {
                     let only = kit.state_hash();
                     for name in PARTS {
                         mark(name, only);
@@ -1864,6 +1913,11 @@ impl<K: Kit> LuaGame<K> {
         for (id, v) in &script.data {
             s.u64(*id as u64);
             value::hash(&mut s, v);
+        }
+        // The pieces' lights, in a level that has some (others hash as
+        // before).
+        for (id, b) in &stage.lights {
+            s.u64(0x6c69_6768).u64(*id as u64).f32(*b);
         }
         mark(PARTS[6], s.finish());
         // The seats: once a second was taken, or a player's own keys set
@@ -2100,11 +2154,14 @@ impl<K: Kit> Game for LuaGame<K> {
                 props: Default::default(),
                 fallen: Default::default(),
                 frames: Arc::new(models.frame_counts()),
+                heights: Arc::new(models.heights()),
                 bursts: kinds_bursting,
                 parts: Arc::new(models.part_names()),
                 hud: host::HudState::new(cfg),
                 songs: Arc::new(songs),
                 music: Default::default(),
+                pieces: Default::default(),
+                lights: Default::default(),
             },
             sandbox,
             tick: None,
@@ -2154,6 +2211,7 @@ impl<K: Kit> Game for LuaGame<K> {
                 (h.sim.cam_target, h.sim.cam_prev) = (start.at, start.at);
             }
         }
+        game.spawn_pieces();
         game.stage.name_things();
         // The run's start (`c.state`), a game without code too; the start
         // handlers begin from it again.
@@ -2469,7 +2527,17 @@ impl<K: Kit> Game for LuaGame<K> {
                 if self.stage.kinds[t.kind].has_hp {
                     own["hp"] = t.hp.into();
                 }
-                Some(serde_json::json!({ "id": id.raw(), "kind": self.stage.kinds[t.kind].name, "x": p.x, "y": p.y, "z": p.z, "state": own }))
+                if let Some(b) = self.stage.lights.get(&id.raw()) {
+                    own["light"] = (*b).into();
+                }
+                let mut thing = serde_json::json!({ "id": id.raw(), "kind": self.stage.kinds[t.kind].name, "x": p.x, "y": p.y, "z": p.z, "state": own });
+                if let Some(name) = self.stage.names.get(&id.raw()) {
+                    thing["name"] = name.clone().into();
+                }
+                if let Some(model) = self.stage.pieces.get(&id.raw()).and_then(|p| p.model.clone()) {
+                    thing["model"] = model.into();
+                }
+                Some(thing)
             })
             .collect();
         let mut player = player.as_ref().map(value::to_json).filter(|j| j.is_object()).unwrap_or_else(|| serde_json::json!({}));
@@ -2686,6 +2754,25 @@ impl<K: Kit> Game for LuaGame<K> {
     fn draw(&self, out: &mut Drawing) {
         if let Some(kit) = self.kit() {
             kit.draw(out);
+        }
+        // The pieces the level set down, each its model where its pivot
+        // stands, facing its way, and its light as bright as its state says
+        // (off at 0). The script draws nothing for them.
+        for (&id, p) in &self.stage.pieces {
+            let Some(t) = self.stage.seen(id).filter(|_| !self.stage.dead.contains(&id)) else { continue };
+            if let Some(model) = &p.model {
+                out.model_turned(model, 0, out.body_origin(t.body), t.body.look, crate::session::facing(true, t.body), None);
+            }
+            let brightness = self.stage.lights.get(&id).copied().unwrap_or(0.0);
+            if let Some(l) = p.light.filter(|_| brightness > 0.0) {
+                // Its offset in the model's own voxels, turned with it (a
+                // bearing clockwise seen from above, the model's forward +y).
+                let (sin, cos) = crate::sim::math::sin_cos((p.facing.bearing() as f32).to_radians());
+                let o = l.at.as_vec3();
+                let turned = Vec3::new(o.x * cos + o.y * sin, -o.x * sin + o.y * cos, o.z);
+                let at = t.body.pos + Vec3::Z * 0.5 + turned;
+                out.light(Light { pos: at, radius: l.radius, color: l.color.map(|c| c * brightness) });
+            }
         }
         for e in &self.stage.effects {
             out.model(&e.model, (e.age as f32 * e.fps / 60.0) as usize, e.at.floor(), glam::IVec2::NEG_Y, None);
@@ -2982,6 +3069,7 @@ impl<K: Kit> Game for LuaGame<K> {
         let kinds = Arc::new(kinds);
         self.stage.kinds = kinds.clone();
         self.stage.frames = Arc::new(models.frame_counts());
+        self.stage.heights = Arc::new(models.heights());
         self.stage.bursts = Arc::new(bursts(&kinds, models));
         self.stage.parts = Arc::new(models.part_names());
         match self.kit_mut() {

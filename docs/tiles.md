@@ -121,8 +121,21 @@ facing = [0, -1]
   changed cell is a changed character in git.
 - **Repeats** as in a `.vvx`: a row followed by ` *N` stands N times in
   all, a line `*N` after a layer's rows the layer N times.
-- `[blocks]` keeps its order (the editor's list of blocks); things and
-  places come in their order (things are made in it).
+- `[blocks]` keeps its order (the editor's list of blocks); things,
+  places and areas come in their order (things are made in it).
+- **Pieces, lights and areas** (2026-11-12): a `[[thing]]` with a
+  `model` instead of a kind is a piece, a model set down by its pivot
+  (`at`, anywhere: on a wall, in the air), `facing = "east"` (or `turn =
+  30` where the game turns things freely, `c.camera.turns = "free"`),
+  perhaps with a `light = { at, radius, color }`; one with only a light
+  is a light alone. A `[[thing]]` may have a `name` (one thing's in the
+  level). `[[area]]` is a named box (`name`, `at` its low corner,
+  `size`). A level without `block` has no grid: `size` is its voxels and
+  it holds only what is set down (a stage of models); the editor does not
+  open such a level yet, and keeps every piece, light, place and area of
+  a level of blocks as the file has them (a level turned off the grid in
+  a game on the grid asks first: ALIGN ALL or DON'T OPEN). `grid::text`
+  has the whole format.
 
 ## Built (2026-10-16)
 

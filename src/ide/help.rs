@@ -872,6 +872,70 @@ end
 "##,
     },
     Topic {
+        title: "A ROOM OF PIECES",
+        text: "A level can be a file of pieces: models set down where they stand (on the floor, on a wall or in the air), facing a way, and lights. levels/room.toml says them, each a [[thing]] with its name, its model (or only a light), where it stands and the way it faces; [[place]] is where the player arrives, [[area]] a named box. The pieces stay where they are; level:thing(name) finds one, and thing.state.light is how bright its light shines (0 off, 1 on). level.areas.NAME:holds(player) says whether the player stands in the area. Pieces hold nobody up: the floor is the level's voxels, filled here in code.",
+        conf: r##"c.world.size = nil             -- no world made in code: the level is levels/room.toml
+c.actions = { "interact" }
+c.keys = { interact = { "E" } }
+c.pad = { interact = { "west" } }"##,
+        files: &[
+            ("levels/room.toml", r##"format = "voxcade level 1"
+size = [96, 64, 32]
+
+[[thing]]
+name = "stove"
+model = "room/stove.vvx"
+at = [20, 48, 0]
+facing = "south"
+
+[[thing]]
+name = "lamp"
+model = "room/lamp.vvx"
+at = [70, 46, 0]
+light = { at = [0, 0, 12], radius = 40, color = "#ffd9a0" }
+
+[[place]]
+name = "start"
+at = [48, 20, 0]
+facing = "north"
+
+[[area]]
+name = "by_the_stove"
+at = [8, 30, 0]
+size = [28, 26, 20]
+"##),
+            ("room/stove.vvx", "format = \"voxcade voxel 1\"\nsize = [7, 5, 9]\n\n[palette]\ni = { color = \"#3a3d44\" }\nf = { color = \"#e8742c\" }\n\n[[frame]]\nlayers = \"\"\"\niiiiiii *5\n*2\n\niifffii\niiiiiii *4\n*3\n\niiiiiii *5\n*2\n\n.......\n.......\n...i...\n.......\n.......\n*2\n\"\"\"\n"),
+            ("room/lamp.vvx", "format = \"voxcade voxel 1\"\nsize = [3, 3, 14]\n\n[palette]\nb = { color = \"#2b2b2f\" }\ns = { color = \"#e9d8a6\" }\n\n[[frame]]\nlayers = \"\"\"\n.b.\nbbb\n.b.\n\n...\n.b.\n...\n*10\n\nsss *3\n*3\n\"\"\"\n"),
+        ],
+        code: r##"-- The room is levels/room.toml: a stove, a lamp with its light, where
+-- the player starts, and an area by the stove.
+function on_level_start(how)
+  -- a floor: the pieces stand on it, but hold nobody up
+  level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 0, "#5b4a3a")
+end
+
+function on_tick()
+  for _, p in ipairs(level:players()) do
+    p:walk(p.input.dir, 40)
+  end
+  -- E by the lamp switches it: how bright its light is, 0 off, 1 on
+  local lamp = level:thing("lamp")
+  if input:pressed("interact") and player:near(lamp, 16) then
+    lamp.state.light = lamp.state.light > 0 and 0 or 1
+  end
+end
+
+function on_draw(frame)
+  for _, p in ipairs(level:players()) do
+    frame:model(p.seat == 2 and "hero2.vvx" or "hero.vvx", p)
+  end
+  if level.areas.by_the_stove:holds(player) then
+    frame:text("WARM BY THE STOVE", 4, 4)
+  end
+end
+"##,
+    },
+    Topic {
         title: "CLAUDE IN THE CONSOLE",
         text: "CLAUDE in the console below starts Claude Code, an AI agent that helps you make your game: it reads and changes the game's files and sees the IDE. It is Anthropic's program, not a part of Voxcade: install it yourself (claude.com/claude-code). It needs a Claude subscription or an API key; you sign in the first time it starts in the console, and /login there changes the account later. The gear at the top right says whether it starts with the IDE.",
         conf: "",

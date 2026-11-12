@@ -272,6 +272,32 @@ pads take seats with START and the keyboard's right half with Return
 (`src/seating.rs`); replays carry each seat's input (`away` while free),
 `shot` and `inspect` take `--input2` and on, MCP's tools `players`.
 
+Pieces (2026-11-12), for scenes built as stages (a room of models,
+lamps, named spots; a jump & run's room and an adventure's alike): a
+level is one format (`grid::text`, "voxcade level 1"), with blocks or
+without (`size` in voxels then), and what is set down in it. A
+`[[thing]]` with a `model` and no kind is a piece: a thing of the
+engine's own kind `"piece"` (last among the kinds, so the game's keep
+their places; a game's own kind may not take the name), fixed where the
+file puts its pivot, drawn by the engine, its model any `.vvx` of the
+game the level names (part of the fingerprint as a level file is).
+`facing` names one of the four ways; `turn` (a bearing, clockwise from
+north) needs `c.camera.turns = "free"`, the game's choice for every
+level and the editor's, else the level does not load and the mistake
+names each thing turned off the grid and both ways out (allow free turns,
+or align them in the editor: `grid::text::align`, a tie going clockwise).
+A piece may bring a light (`light = { at, radius, color }`, `at` from the
+pivot in the model's voxels, turning with it), or be a light alone; its
+brightness is `thing.state.light` (0 to 1, 1 at first; an engine key
+kept in `Stage::lights`: snapshots, saves by the piece's name, and the
+state hash only where a level has lights, so earlier replays stay as
+they were). A picture shows the 16 lights nearest the middle of the view
+(`render::MAX_LIGHTS`). `[[area]]` is a named box: `level.areas.NAME`,
+`area:holds(thing or point)`. Names given in the file are the things'
+names (`level:thing(name)`); unnamed ones keep their kind and number. Not
+yet: a piece that holds bodies up (its voxels solid), areas' events,
+setting a light's colour or reach in code, the editor shaping pieces.
+
 ## Why
 
 The Lua API grew with the first games and thinks too short:
@@ -354,6 +380,7 @@ code: the engine offers the parts, the script decides.
 | `level.visits` | how often it has been entered in this run, restarts included (1 on the first) |
 | `level.size` | its size in voxels |
 | `level.places` | its named places: `level.places.west` is `{ x, y, z, facing }`; `level.places.start` is always there, where the level starts |
+| `level.areas` | its named areas, boxes set in its file: `level.areas.by_the_stove:holds(player)` (a thing where its feet stand, or a point `{ x, y, z }`, z left out: any height); only to read |
 | `level.arrived` | where the player came into this level (a place, with its name): a game without the engine's figure for the player stands its hero there |
 | `level:voxel(x, y, z)`, `level:solid(x, y, z)`, `level:set_voxel(…)`, `level:fill(…)`, `level:ground(x, y)` | its voxels (`solid`: whether bodies stand on it; soft voxels are not) |
 | `level:spawn(kind, x, y, options?)`, `level:thing(name or id)`, `level:things(kind or family?)`, `level:count(kind or family?)` | its things; `options`: `{ z =, name =, facing =, props =, state = }`; a thing that died is no longer listed or counted (only its picture lingers until its rules take it away) |
@@ -383,7 +410,7 @@ settings. Several players: `player` is seat 1, the others are in
 |---|---|
 | `thing.id` | which one, for this run (read-only; never given to another) |
 | `thing.name` | its name in its level, set in the level editor (`"door_west"`, or made up: `"door_3"`), unique in the level (checked at load); spawned things have none unless given |
-| `thing.kind`, `thing.families` | of what kind, in which families (read-only) |
+| `thing.kind`, `thing.families` | of what kind, in which families (read-only); `"piece"` for a model or light a level's file sets down |
 | `thing.state` | its state, as long as it lives |
 | `thing.props` | what the level editor set on this one thing (a door's `to` and `at`), typed and defaulted by its kind; read-only |
 | `thing.x`, `.y`, `.z`, `.on_ground`, `.facing`, `.wall` | its body, read-only: the physics' (`wall`: the way to a wall right beside it, or nil) |
@@ -472,7 +499,7 @@ settings. Several players: `player` is seat 1, the others are in
 | `level.state` | one visit of one level; fresh each time it is entered, a restart too | crates moved, enemies left, time in the level, a sequence's steps |
 | `level.kept` | the whole run, one per level | what this level keeps across visits that the game tracks itself |
 | `player.state` | the whole run, from level to level | `lives`, `score`, `hp`, `inventory`, `checkpoint`, abilities |
-| `thing.state` | as long as the thing lives | `hp`, a chest's or a trader's `inventory` |
+| `thing.state` | as long as the thing lives | `hp`, a chest's or a trader's `inventory`, a piece's `light` (0 off to 1) |
 
 - **Engine keys.** The engine reads and writes fixed keys, and the script
   uses the same: a hit lowers `thing.state.hp`; a pickup raises
@@ -869,8 +896,14 @@ touches there touches without `on_touch`.
   stand the player (the hero's marker), else `c.player.spawn`; the first
   level of a run starts there too. Levels of blocks and maps hold places;
   a world (`.vvx`) has no room for names, so it has only its start.
+- **Pieces and areas.** A level's file sets down pieces (models fixed
+  where it puts them, lights), each a thing of the kind `"piece"`, and
+  names areas (`level.areas`). Its things may have names of the file's;
+  a name is one thing's in the level, checked as the game loads, as a
+  piece's model is (a missing file names the level and the line).
 - **Replays** start at the first level (or at the save or `--level` they
-  began from); every level's files count for their fingerprint.
+  began from); every level's files count for their fingerprint, the
+  pieces' models among them.
 
 ## Items and the inventory
 

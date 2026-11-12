@@ -340,7 +340,7 @@ impl MapData {
                         Some([v[0], v[1]])
                     }
                 };
-                places.push(crate::grid::Place { name, at, facing });
+                places.push(crate::grid::Place { name, at, facing, named: false });
             }
         }
         Ok(Self { size: size.to_array(), ground, prefabs, put, places })
@@ -466,8 +466,8 @@ fn turn(l: IVec3, quarters: i32) -> IVec3 {
 /// Returns it, the markers to place things, and every file it was made from
 /// (for hot reload).
 pub fn load_map(path: &Path, names: &[&str]) -> Result<(World, Vec<Marker>, Vec<PathBuf>)> {
-    let (world, found, sources, _) = load_map_at(&Files::disk(), path, names)?;
-    Ok((world, found, sources))
+    let made = load_map_at(&Files::disk(), path, names)?;
+    Ok((made.world, made.markers, made.files))
 }
 
 /// The map at `path` of the game's files with its named places.
@@ -678,7 +678,7 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
     world.soft = palette.soft;
     world.mark_all_dirty();
     let places = map.places.iter().map(|p| crate::levels::Place::new(&p.name, IVec3::from(p.at).as_vec3() + glam::Vec3::new(0.5, 0.5, 0.0), p.facing)).collect();
-    Ok((world, found, sources, places))
+    Ok(crate::levels::Made { world, markers: found, files: sources, places, marker_names: Vec::new(), pieces: Vec::new(), areas: Vec::new() })
 }
 
 const SEED: i64 = 0x5EED;

@@ -348,6 +348,10 @@ pub struct Editor {
     pub hint: Option<String>,
     /// Changes are kept in memory only, nothing written (`--shot`).
     pub dry: bool,
+    /// Asked before the level opens: its things turned off the quarter
+    /// turns in a game that sets things on the grid (as mistakes name
+    /// them). ALIGN ALL or DON'T OPEN answers it (`align_all`).
+    pub question: Option<Vec<String>>,
 }
 
 impl Editor {
@@ -355,6 +359,11 @@ impl Editor {
     /// tileset.
     pub fn open(dir: &Path, file: &str) -> Result<Self> {
         let level = GridLevel::read(&dir.join(file))?;
+        // A level of pieces alone is the next stage's to shape: refused,
+        // so nothing of it is written over.
+        if !level.has_grid() {
+            bail!("{file} is a level without blocks, of pieces set down: the level editor does not shape those yet (the next stage). The file is left as it is.");
+        }
         let blocks = level.load_blocks(dir)?;
         let sheet_path = dir.join(blocks::FOLDER).join(crate::tiled::SHEET);
         let sheet = if sheet_path.exists() { Some(Sheet::load(&sheet_path, level.n)?) } else { None };
@@ -393,6 +402,7 @@ impl Editor {
             picking_parent: false,
             hint: None,
             dry: false,
+            question: None,
         })
     }
 
@@ -455,6 +465,7 @@ impl Editor {
             picking_parent: false,
             hint: None,
             dry: false,
+            question: None,
         })
     }
 
@@ -1221,7 +1232,9 @@ impl Editor {
         self.release();
         match self.tool {
             Tool::Pick => {
-                if let Some(t) = under.and_then(|i| self.level.things.get(i)) {
+                // (A piece is no kind to put down: placing pieces is the
+                // next stage's.)
+                if let Some(t) = under.and_then(|i| self.level.things.get(i)).filter(|t| !t.is_piece()) {
                     self.held_kind = Some(t.kind.clone());
                     self.picked();
                 }
@@ -1235,7 +1248,7 @@ impl Editor {
         match self.tool {
             Tool::Add => {
                 let (kind, at) = (self.held_kind.clone().unwrap(), spot.unwrap());
-                self.level.things.push(Thing { kind, at: at.to_array() });
+                self.level.things.push(Thing::new(kind, at.to_array()));
             }
             Tool::Remove => {
                 self.level.things.remove(under.unwrap());
@@ -1243,6 +1256,21 @@ impl Editor {
             Tool::Move => self.moving = under,
             _ => {}
         }
+    }
+
+    /// ALIGN ALL: every thing turned off the quarter turns faces its
+    /// nearest way (`grid::Way::nearest`), one step back, written as every
+    /// step is; the question is answered and the level opens.
+    pub fn align_all(&mut self) {
+        self.release();
+        self.stroke = Some(Step::Level(self.level_state(), self.level_state()));
+        for t in &mut self.level.things {
+            if let Some(f) = t.facing.filter(|f| f.off_grid()) {
+                t.facing = Some(crate::grid::Facing::Way(crate::grid::Way::nearest(f.bearing())));
+            }
+        }
+        self.release();
+        self.question = None;
     }
 
     /// The mouse dragged on among the things: MOVE takes its thing along.
@@ -2072,7 +2100,7 @@ pub(crate) mod tests {
         ed.hold_kind(1);
         ed.switch(Layer::Things);
         let saved = || GridLevel::read(&dir.join("level.toml")).unwrap().things;
-        let gem = |at: [i32; 3]| vec![Thing { kind: "gem".into(), at }];
+        let gem = |at: [i32; 3]| vec![Thing::new("gem", at)];
         ed.press_thing(Some(IVec3::new(2, 2, 8)), None);
         ed.release();
         assert_eq!((&ed.level.things, saved()), (&gem([2, 2, 8]), gem([2, 2, 8])));

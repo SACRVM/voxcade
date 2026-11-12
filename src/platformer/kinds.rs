@@ -407,6 +407,7 @@ impl Rules {
         let text = |s: &str| format!("{s:?}");
         self.kinds
             .iter()
+            .filter(|k| k.name != crate::grid::PIECE)
             .map(|k| {
                 let behaviour = behaviour_name(&k.rules);
                 let mut keys = vec![("behaviour", if behaviour.is_empty() { "nil".into() } else { text(behaviour) })];

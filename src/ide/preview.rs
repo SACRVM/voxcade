@@ -71,7 +71,7 @@ impl Preview {
         let mut view = View::new(&ed, cfg);
         view.floor = false;
         let shown = Shown::new(&ed)?;
-        let figures = if ed.model.is_some() { Figures::load(dir, &GameConfig::default()) } else { Figures::load(dir, cfg) };
+        let figures = if ed.model.is_some() { Figures::load(dir, &GameConfig::default()) } else { Figures::load(dir, cfg).with_pieces(dir, &ed.level) };
         Ok(Self { ed, view, shown, figures, cfg: cfg.clone(), renderer: None, target: None, wanted: None, dirty: true, meshed: false, fitted: false, paused: false })
     }
 

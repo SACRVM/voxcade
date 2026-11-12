@@ -131,6 +131,7 @@ function World:lose() end
 ---@field kept table What this level keeps across visits for the whole run (a lever pulled, a puzzle solved): read it in on_level_start. Plain data, no things.
 ---@field arrived Place Where the player arrived in this level, with its name (a place's, or start): a game without a figure of the engine's stands its hero there in on_level_start.
 ---@field places table<string, Place> Its named places, set in its file (level.places.west): where a player arrives; start is always there (the place called start, else where the ready-made rules stand the player, else c.player.spawn).
+---@field areas table<string, Area> Its named areas, boxes set in its file ([[area]] with name, at and size): level.areas.by_the_stove:holds(player) says whether the player stands in it. Only to read; a level without areas has an empty table.
 ---@field size Point The level's size in voxels.
 ---@field camera Camera Where the camera looks: level.camera:follow(thing), level.camera:look_at(x, y).
 local Level = {}
@@ -172,7 +173,7 @@ function Level:solid(x, y, z) end
 ---@return integer
 function Level:ground(x, y) end
 
----Places a thing of a kind (c.things) at x, y, on the ground there unless options.z is given; options.facing turns it, options.state is its first state, options.name its name (one thing's in the level), options.props what your code reads of it over its kind's props. A kind without a behaviour falls to the ground; with fixed = true (c.things.NAME.fixed) it stays exactly where it is put. With ready-made rules (c.kit) their kinds stand where a marker there would place them. The camera follows the player; in a game without a figure for it (no c.player.kind), the first thing placed.
+---Places a thing of a kind (c.things) at x, y, on the ground there unless options.z is given; options.facing turns it, options.state is its first state, options.name its name (one thing's in the level), options.props what your code reads of it over its kind's props. A kind without a behaviour falls to the ground; with fixed = true (c.things.NAME.fixed) it stays exactly where it is put. With ready-made rules (c.kit) their kinds stand where a marker there would place them. The camera follows the player; in a game without a figure for it (no c.player.kind), the first thing placed. Pieces ("piece") come only from a level's file.
 ---@param kind string
 ---@param x number
 ---@param y number
@@ -180,12 +181,12 @@ function Level:ground(x, y) end
 ---@return Thing
 function Level:spawn(kind, x, y, options) end
 
----The thing called name (thing.name: door_1), or with this id, if it is still there.
+---The thing called name (thing.name: the name its level's file gives it, "lamp", else door_1), or with this id, if it is still there.
 ---@param name string|integer|Thing
 ---@return Thing|nil
 function Level:thing(name) end
 
----Every thing (of a kind, or of a family: c.things.NAME.family), in the order they came: not the player (it belongs to no level), not the dead, not what was taken away this tick.
+---Every thing (of a kind, or of a family: c.things.NAME.family), in the order they came: not the player (it belongs to no level), not the dead, not what was taken away this tick. level:things("piece") is every model and light the level's file set down.
 ---@param kind? string
 ---@return Thing[]
 function Level:things(kind) end
@@ -245,8 +246,8 @@ local Player = {}
 
 ---@class Thing A thing in the level, by its id.
 ---@field id integer|nil Its number, never given to another thing in the same run; nil for the player, who belongs to no level.
----@field kind string|nil The name of its kind (c.things); nil for a player of no kind (the one the ready-made shooter rules make from c.player).
----@field state table Its state while it lives: thing.state.hp, the hits it still takes, where its kind has hp (c.things.NAME.hp at the start; the engine keeps it, a script reads and sets it: at 0 on_death runs), inventory (a chest's, a trader's: items by name and how many), pose for a figure of the jump & run's ready-made rules (which set of its frames it shows, c.things.NAME.frames: a prop's, a door's or a sign's always, "open", "idle" the first; another's while you set one, over its rules' own animation, from the tick it was set: "attack", then nil for its own again; the hero's is player.state.pose), goal for a platform of the jump & run's ready-made rules ("end" or "start": it goes to that end of its travel and stays there, a platform out of a wall, a trapdoor, a lift; nil: to and fro again), freed for a hostage of the ready-made shooter rules (set true: the cage bursts, it runs off), flying for its gunship (up in the air fighting; only to read), and anything of the game's own. It goes when the thing goes.
+---@field kind string|nil The name of its kind (c.things); "piece" for a model or a light the level's file set down (it stays exactly where it is put, as a kind with fixed = true); nil for a player of no kind (the one the ready-made shooter rules make from c.player).
+---@field state table Its state while it lives: thing.state.hp, the hits it still takes, where its kind has hp (c.things.NAME.hp at the start; the engine keeps it, a script reads and sets it: at 0 on_death runs), inventory (a chest's, a trader's: items by name and how many), pose for a figure of the jump & run's ready-made rules (which set of its frames it shows, c.things.NAME.frames: a prop's, a door's or a sign's always, "open", "idle" the first; another's while you set one, over its rules' own animation, from the tick it was set: "attack", then nil for its own again; the hero's is player.state.pose), goal for a platform of the jump & run's ready-made rules ("end" or "start": it goes to that end of its travel and stays there, a platform out of a wall, a trapdoor, a lift; nil: to and fro again), freed for a hostage of the ready-made shooter rules (set true: the cage bursts, it runs off), flying for its gunship (up in the air fighting; only to read), light for a piece that brings a light (a lamp the level's file set down: how bright it shines, 0 off to 1, 1 at first; its colour and reach are the file's), and anything of the game's own. It goes when the thing goes.
 ---@field x number Where it stands: the middle of its feet.
 ---@field y number Where it stands: the middle of its feet.
 ---@field z number The height of its feet.
@@ -256,7 +257,7 @@ local Player = {}
 ---@field seat integer|nil A player's seat (1 for player, 2 and on for the others); nil for a level's thing, so if thing.seat then asks whether a thing is a player, in any handler (a ~= player leaves out seats 2 and on).
 ---@field input Input A player's keys this tick, as input is seat 1's: p.input.dir, p.input:pressed("fire"). Only in on_tick, as input.
 ---@field controls Controls What a player plays with, as controls is seat 1's: p.controls.device, p.controls:key("fire") (a key in braces in a text is the first of frame.players's).
----@field name string|nil Its name in this level: a thing placed by the level file is called its kind and its number among them (door_1, door_2 in the file's order), a spawned one what level:spawn named it. nil for the player and for things the ready-made rules bring later. player.state.checkpoint and level:thing take it.
+---@field name string|nil Its name in this level: the name the level's file gives it (name = "lamp"), else a thing placed by the level file is called its kind and its number among them (door_1, door_2 in the file's order), a spawned one what level:spawn named it. nil for the player and for things the ready-made rules bring later. player.state.checkpoint and level:thing take it.
 ---@field families table<string, boolean> The families of its kind (c.things.NAME.family = { "enemies" }), as a set: if b.families.enemies then ... end. Only to read.
 ---@field props table What your code reads of it, fixed while it lives: its kind's props (c.things.NAME.props = { worth = 100 }) and what level:spawn gave it. Only to read; what changes goes in thing.state.
 local Thing = {}
@@ -336,6 +337,19 @@ function Thing:take(item, count) end
 ---Takes it out of the level at the end of this tick: it can still be read until then, but it is out of the level's lists, counts and touches at once. Whether it was there to remove. Not the player: it goes from level to level.
 ---@return boolean
 function Thing:remove() end
+
+---@class Area A named box of the level, set in its file (level.areas.NAME): only to read.
+---@field name string Its name in the level's file (level.areas.NAME).
+---@field x integer Its low corner in voxels: x, y and z where it begins.
+---@field y integer Its low corner's y.
+---@field z integer Its low corner's z.
+---@field size Point How big it is in voxels, across, deep and up.
+local Area = {}
+
+---Whether a thing stands inside it (where its feet are, the middle of the cell it stands on) or a point lies inside it ({ x, y, z }; without z at any height). Ask it in on_tick: if level.areas.by_the_stove:holds(player) then ... end.
+---@param at Thing|Point
+---@return boolean
+function Area:holds(at) end
 
 ---@class Input The keys held this tick, by the game's action names: only in on_tick.
 ---@field left boolean Held this tick (input:pressed("left") whether it went down this tick).

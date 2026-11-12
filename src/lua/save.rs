@@ -64,6 +64,10 @@ pub struct SaveData {
     /// "#rrggbbaa".
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub palette: BTreeMap<String, String>,
+    /// How bright the level's pieces' lights are (`thing.state.light`), by
+    /// the pieces' names.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub lights: BTreeMap<String, f32>,
 }
 
 /// The states, each a Lua table (`data::write`).

@@ -44,6 +44,9 @@ pub struct ShotOptions {
     pub things: bool,
     /// Shift held: the tool is PICK, the one chosen put aside.
     pub shift: bool,
+    /// The question a level turned off the grid asks answered ALIGN ALL
+    /// before the shot (without: the question is what is drawn).
+    pub align: bool,
     /// The tool chosen (its word: box, sphere, add ...), and for BOX and
     /// SPHERE the size of the shape held at the mouse.
     pub tool: Option<String>,
@@ -65,6 +68,12 @@ fn open<G: Game>(dir: &Path, level: Option<&str>, block: Option<&str>, things: b
         None => model::level_file(&cfg)?,
     };
     let mut ed = Editor::open(dir, &file)?;
+    // Things turned off the quarter turns in a game on the grid: asked
+    // before the level opens, nothing changed until answered.
+    let off = ed.level.off_grid();
+    if cfg.camera.turns == crate::config::Turns::Quarter && !off.is_empty() {
+        ed.question = Some(off.iter().map(|t| t.called()).collect());
+    }
     ed.kinds = cfg.things.keys().cloned().collect();
     ed.held_kind = ed.kinds.first().cloned();
     if things {
@@ -96,6 +105,10 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     };
     // Nothing a shot does is written.
     ed.dry = true;
+    if opts.align {
+        anyhow::ensure!(ed.question.is_some(), "--align answers the question a level turned off the grid asks: this one asks none");
+        ed.align_all();
+    }
     let part_of = |ed: &model::Editor, name: &str| -> Result<usize> {
         ed.figure.as_ref().context("--part: the model is no figure of parts (its objects have no names)")?.parts().iter().position(|p| p.name == name).with_context(|| format!("the figure has no part '{name}'"))
     };
@@ -133,7 +146,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         orbit.pitch = pitch.clamp(-85.0, 85.0);
     }
     let mut shown = Shown::new(&ed)?;
-    let figures = Figures::load(dir, &cfg);
+    let figures = Figures::load(dir, &cfg).with_pieces(dir, &ed.level);
     // A shot holds a model's frames still (the one shaped shows).
     view.playing = false;
     let mut canvas = crate::headless::Canvas::new(opts.width, opts.height, false)?;
@@ -263,6 +276,10 @@ pub fn run<G: Game>(dir: &Path, level: Option<&str>, block: Option<&str>, things
     let mut events = sdl.event_pump().context("SDL events")?;
     loop {
         window.draw()?;
+        // DON'T OPEN: nothing was touched.
+        if window.closing() {
+            return Ok(());
+        }
         // Drawn only after something happened (or when its panels ask):
         // the editor sits still otherwise.
         let first = match window.wakes_at() {
@@ -321,6 +338,8 @@ pub struct EditorWindow {
     marker: Option<(f32, f32)>,
     capture: Option<bool>,
     picture: Option<Result<Vec<u8>, String>>,
+    /// DON'T OPEN was answered: the window closes at its next event.
+    closing: bool,
 }
 
 impl EditorWindow {
@@ -348,7 +367,7 @@ impl EditorWindow {
         let mut renderer = crate::render::Renderer::new(&screen.device, screen.config.format, screen.config.width, screen.config.height);
         let mut shown = Shown::new(&ed)?;
         renderer.rebuild_all(&screen.device, &screen.queue, &mut shown.world, &ALL_FACES);
-        let figures = Figures::load(dir, &cfg);
+        let figures = Figures::load(dir, &cfg).with_pieces(dir, &ed.level);
         let gui = egui::Context::default();
         crate::gui::style(&gui);
         let painter = crate::gui::Painter::new(&screen.device, screen.config.format, true);
@@ -373,7 +392,13 @@ impl EditorWindow {
             marker: None,
             capture: None,
             picture: None,
+            closing: false,
         })
+    }
+
+    /// Whether it is to close (DON'T OPEN was answered).
+    pub fn closing(&self) -> bool {
+        self.closing
     }
 
     /// When it wants to draw next (None: only after an event of its own).
@@ -436,7 +461,22 @@ impl EditorWindow {
         use sdl3::keyboard::{Keycode, Mod};
         use sdl3::mouse::MouseButton;
 
+        if self.closing {
+            return false;
+        }
         self.input.handle(event, || None);
+        // While the question is asked only its buttons answer (the panels
+        // take the clicks); the level behind is not touched.
+        if self.ed.question.is_some() {
+            use sdl3::event::{Event, WindowEvent};
+            self.dirty = true;
+            match *event {
+                Event::Quit { .. } | Event::Window { win_event: WindowEvent::CloseRequested, .. } => return false,
+                Event::Window { win_event: WindowEvent::PixelSizeChanged(w, h), .. } => self.screen.resize(&mut self.renderer, w, h),
+                _ => {}
+            }
+            return true;
+        }
         let Self { screen, renderer, ed, view, shown, figures, keys, rects, gui, input, steps_at_click, drawn_at, .. } = self;
         self.dirty = true;
         let aspect = screen.aspect();
@@ -613,6 +653,11 @@ impl EditorWindow {
         });
         let acted = !drawn.clicked.is_empty();
         for action in drawn.clicked {
+            // DON'T OPEN: the window goes, the file untouched.
+            if action == view::Action::DontOpen {
+                self.closing = true;
+                continue;
+            }
             view::act(ed, view, action);
         }
         view.inset = inset(&drawn.rects, gui.content_rect());
@@ -658,3 +703,68 @@ impl EditorWindow {
 
 /// Every face of the world's voxels: the editor's camera goes all round.
 pub(crate) const ALL_FACES: crate::mesh::FaceMask = [true; 6];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The editor's test level with the sketch's things, places and areas
+    /// after its cells (`grid::tests::PIECES`), in a game folder whose
+    /// `conf.lua` adds `conf`.
+    fn game_with_pieces(name: &str, conf: &str, pieces: &str) -> std::path::PathBuf {
+        let dir = model::tests::folder(name);
+        let level = std::fs::read_to_string(dir.join("level.toml")).unwrap();
+        let set_down = pieces.split_once("\n\n").unwrap().1;
+        std::fs::write(dir.join("level.toml"), format!("{level}\n{set_down}")).unwrap();
+        std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.world.blocks = {{ file = \"level.toml\" }}\n  c.things.walker = {{}}\n{conf}end\n")).unwrap();
+        dir
+    }
+
+    /// A level with pieces, lights, places and areas the editor does not
+    /// shape yet keeps every one of them, to the character, through a
+    /// step and its step back (each written as it is taken).
+    #[test]
+    fn the_editor_keeps_what_it_does_not_shape() {
+        let dir = game_with_pieces("pieces-kept", "  c.camera.turns = \"free\"\n", crate::grid::tests::PIECES);
+        let text = std::fs::read_to_string(dir.join("level.toml")).unwrap();
+        let (mut ed, ..) = open::<crate::Voxcade>(&dir, Some("level.toml"), None, false).unwrap();
+        assert!(ed.question.is_none(), "a game that turns things freely asks nothing");
+        ed.kinds = vec!["walker".into()];
+        ed.hold_kind(0);
+        ed.switch(Layer::Things);
+        ed.press_thing(Some(glam::IVec3::new(2, 2, 8)), None);
+        ed.release();
+        assert_ne!(std::fs::read_to_string(dir.join("level.toml")).unwrap(), text);
+        ed.undo();
+        assert_eq!(std::fs::read_to_string(dir.join("level.toml")).unwrap(), text);
+        // PICK on a piece holds no kind (there is none to put down).
+        let at = ed.level.things.iter().position(|t| t.is_piece()).unwrap();
+        ed.choose(model::Tool::Pick);
+        ed.press_thing(None, Some(at));
+        assert_eq!(ed.held_kind.as_deref(), Some("walker"));
+        // A level without blocks is not opened (nothing of it written).
+        std::fs::write(dir.join("room.toml"), crate::grid::tests::PIECES).unwrap();
+        let e = format!("{:#}", open::<crate::Voxcade>(&dir, Some("room.toml"), None, false).err().unwrap());
+        assert!(e.contains("without blocks") && e.contains("left as it is"), "{e}");
+    }
+
+    /// A level turned off the grid in a game on the grid asks before it
+    /// opens: DON'T OPEN leaves the file as it is; ALIGN ALL faces each
+    /// thing its nearest way, one step back, written as every step is.
+    #[test]
+    fn a_level_off_the_grid_asks_before_it_opens() {
+        let dir = game_with_pieces("pieces-asked", "", crate::grid::tests::PIECES);
+        let text = std::fs::read_to_string(dir.join("level.toml")).unwrap();
+        let (mut ed, mut view, _) = open::<crate::Voxcade>(&dir, Some("level.toml"), None, false).unwrap();
+        assert_eq!(ed.question.as_deref(), Some(&["'chair' (line 39)".to_string()][..]));
+        view::act(&mut ed, &mut view, view::Action::DontOpen);
+        assert_eq!(std::fs::read_to_string(dir.join("level.toml")).unwrap(), text, "DON'T OPEN touches nothing");
+        view::act(&mut ed, &mut view, view::Action::AlignAll);
+        assert!(ed.question.is_none() && ed.level.off_grid().is_empty());
+        let aligned = std::fs::read_to_string(dir.join("level.toml")).unwrap();
+        assert_eq!(aligned, text.replace("turn = 45", "facing = \"east\""), "written at once, nothing else changed");
+        assert_eq!(ed.steps(), 1);
+        ed.undo();
+        assert_eq!(std::fs::read_to_string(dir.join("level.toml")).unwrap(), text, "a step back");
+    }
+}

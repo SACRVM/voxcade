@@ -261,7 +261,7 @@ pub fn things_along(ed: &Editor, world: &World, figures: &Figures, origin: Vec3,
         .enumerate()
         .filter(|&(i, _)| Some(i) != ed.moving())
         .filter_map(|(i, t)| {
-            let (lo, hi) = figures.bounds(&t.kind);
+            let (lo, hi) = figures.bounds(&Figures::key(t));
             let at = IVec3::from(t.at);
             ray_box(origin, dir, (at + lo).as_vec3(), (at + hi).as_vec3()).map(|d| (i, d))
         })
@@ -463,6 +463,51 @@ impl Figures {
         Self(figures)
     }
 
+    /// The level's pieces too (`grid::PIECE`): each model it sets down,
+    /// turned each of the four ways, by `key` (a piece turned freely shows
+    /// at its nearest way: the editor stays on the grid). A model that does
+    /// not read is left out (the game says why).
+    pub fn with_pieces(mut self, dir: &Path, level: &crate::grid::GridLevel) -> Self {
+        for model in level.things.iter().filter_map(|t| t.model.as_ref()) {
+            if self.0.contains_key(&format!("{model}@north")) {
+                continue;
+            }
+            let Ok(m) = crate::vox::load_model(&dir.join(model)) else { continue };
+            let pivot = IVec3::new(m.size.x / 2, m.size.y / 2, 0);
+            for way in crate::grid::Way::ALL {
+                // A model's forward is north; turned clockwise as seen
+                // from above to face its way.
+                let turn = |l: IVec3| match way {
+                    crate::grid::Way::North => l,
+                    crate::grid::Way::East => IVec3::new(l.y, -l.x, l.z),
+                    crate::grid::Way::South => IVec3::new(-l.x, -l.y, l.z),
+                    crate::grid::Way::West => IVec3::new(-l.y, l.x, l.z),
+                };
+                let voxels: Vec<(IVec3, [u8; 3])> = m.visible[0]
+                    .iter()
+                    .map(|&k| {
+                        let (p, color) = m.frames[0][k as usize];
+                        (turn(p - pivot), [color[0], color[1], color[2]])
+                    })
+                    .collect();
+                let lo = voxels.iter().fold(IVec3::MAX, |a, v| a.min(v.0));
+                let hi = voxels.iter().fold(IVec3::MIN, |a, v| a.max(v.0 + 1));
+                let (lo, hi) = if voxels.is_empty() { (IVec3::ZERO, IVec3::ONE) } else { (lo, hi) };
+                self.0.insert(format!("{model}@{}", way.name()), Figure { voxels, lo, hi });
+            }
+        }
+        self
+    }
+
+    /// What a thing of the level shows as: its kind, or a piece's model
+    /// facing its way (`with_pieces`).
+    pub fn key(t: &crate::grid::Thing) -> String {
+        match &t.model {
+            Some(model) => format!("{model}@{}", crate::grid::Way::nearest(t.facing.map_or(180.0, |f| f.bearing())).name()),
+            None => t.kind.clone(),
+        }
+    }
+
     /// The box around a kind's voxels, from the spot it stands on.
     pub fn bounds(&self, kind: &str) -> (IVec3, IVec3) {
         self.0.get(kind).map_or((IVec3::new(-2, -2, 0), IVec3::new(2, 2, 8)), |f| (f.lo, f.hi))
@@ -562,6 +607,11 @@ pub enum Action {
     Material(u8, f32),
     /// A colour no voxel has taken out of the model's palette.
     Forget([u8; 3]),
+    /// The question a level turned off the grid asks: ALIGN ALL (each
+    /// thing to its nearest way, the level opens) or DON'T OPEN (the
+    /// window closes, the file untouched).
+    AlignAll,
+    DontOpen,
 }
 
 /// The key an action answers to (the panels show it beside its word): a
@@ -615,6 +665,9 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::Undo => ed.undo(),
         Action::Redo => ed.redo(),
         Action::Back => ed.back_to_level(),
+        Action::AlignAll => ed.align_all(),
+        // (The window closes: `EditorWindow::draw`.)
+        Action::DontOpen => {}
         Action::KindTo(kind) => ed.set_kind(kind),
         Action::Turn(turn) => match ed.scope {
             Scope::Level => ed.turn(turn),
@@ -732,7 +785,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         };
         for (i, t) in ed.level.things.iter().enumerate() {
             let tint = (Some(i) == marked && ed.tool != Tool::Add).then_some(tint);
-            figures.cubes(&t.kind, IVec3::from(t.at), tint, 255, &mut instances);
+            figures.cubes(&Figures::key(t), IVec3::from(t.at), tint, 255, &mut instances);
         }
     }
     // Where the tool would work: a see-through cube there, or the held kind
@@ -906,7 +959,7 @@ mod tests {
     fn the_mouse_finds_things_and_spots() {
         let dir = folder("along");
         let mut ed = Editor::open(&dir, "level.toml").unwrap();
-        ed.level.things.push(crate::grid::Thing { kind: "gem".into(), at: [8, 2, 0] });
+        ed.level.things.push(crate::grid::Thing::new("gem", [8, 2, 0]));
         let mut cfg = GameConfig::default();
         cfg.things.insert("gem".into(), toml::toml! { width = 2
         height = 4 });

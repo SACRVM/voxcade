@@ -592,11 +592,35 @@ pub struct CameraConfig {
     /// "Several players"). The simulation's, never the window's.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hold: Option<Vec<f32>>,
+    /// How the game sets things down: on the grid in quarter turns (the
+    /// default), or turned freely (`turns = "free"`: a level's pieces at
+    /// any bearing, `turn = 30`). The game's choice for every level, and
+    /// what the level editor offers; a level turned off the quarter turns
+    /// in a game on the grid does not load.
+    #[serde(skip_serializing_if = "Turns::is_quarter")]
+    pub turns: Turns,
+}
+
+/// How a game sets things down (`c.camera.turns`).
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Turns {
+    /// On the grid: the four ways, in quarter turns.
+    #[default]
+    Quarter,
+    /// Any bearing.
+    Free,
+}
+
+impl Turns {
+    fn is_quarter(&self) -> bool {
+        *self == Turns::Quarter
+    }
 }
 
 impl Default for CameraConfig {
     fn default() -> Self {
-        Self { pitch: 35.0, yaw: 0.0, fov: 40.0, view_width: 200.0, view_height: None, view_at_least: None, follow: 0.2, snap: true, follow_height: None, stop_at_edges: false, hold: None }
+        Self { pitch: 35.0, yaw: 0.0, fov: 40.0, view_width: 200.0, view_height: None, view_at_least: None, follow: 0.2, snap: true, follow_height: None, stop_at_edges: false, hold: None, turns: Turns::Quarter }
     }
 }
 
@@ -952,6 +976,7 @@ impl GameConfig {
             ("player.spawn", self.player.spawn != new.player.spawn),
             ("player.kind", self.player.kind != new.player.kind),
             ("players", self.players != new.players),
+            ("camera.turns", self.camera.turns != new.camera.turns),
         ] {
             if differs {
                 changed.push(name);
@@ -974,6 +999,7 @@ impl GameConfig {
         new.player.spawn = self.player.spawn;
         new.player.kind = self.player.kind.clone();
         new.players = self.players;
+        new.camera.turns = self.camera.turns;
     }
 }
 

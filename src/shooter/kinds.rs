@@ -440,7 +440,7 @@ impl Rules {
             keys.extend([("friendly_fire", w.friendly_fire.to_string()), ("falloff", w.falloff.to_string()), ("sound", text(w.sound.0))]);
             lines.push(conf_line("weapons", name, &keys));
         }
-        for k in &self.kinds {
+        for k in self.kinds.iter().filter(|k| k.name != crate::grid::PIECE) {
             let mut keys = vec![("behaviour", text(behaviour_name(&k.rules)))];
             if let Some(m) = &k.model {
                 keys.push(("model", text(m)));
@@ -588,7 +588,9 @@ impl Rules {
             .map(|def| -> Result<Kind> {
                 let name = &def.name;
                 let read = || -> Result<toml::Value> { Ok(toml::Value::Table(def.params.clone())) };
-                let own = &cfg.things[name];
+                // (The engine's own kind of pieces has no table of the game's.)
+                let none = toml::Table::new();
+                let own = cfg.things.get(name).unwrap_or(&none);
                 let here_written = format!("c.things.{name}");
                 let parts = |hp: bool, model: bool| -> Result<()> {
                     if !hp && def.hp.is_some() {

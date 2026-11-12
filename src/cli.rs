@@ -41,7 +41,7 @@ USAGE:
   voxcade import <game-dir> <tiled-map.json> [--file NAME] [--over]
   voxcade import <game-dir> <model.vox>... [--as PATH.vvx]
   voxcade upgrade <game-dir> [--dry]
-  voxcade edit   <game-dir> [--block NAME | --things | --model FILE [--part NAME [--parent NAME] [--joint X,Y,Z]]] [--stamp] [--shot FILE] [--view YAW,PITCH] [--size WxH]
+  voxcade edit   <game-dir> [--level FILE] [--block NAME | --things | --model FILE [--part NAME [--parent NAME] [--joint X,Y,Z]]] [--stamp] [--shot FILE [--align]] [--view YAW,PITCH] [--size WxH]
   voxcade ide    [<game-dir>] [--shot FILE] [--open PATH] [--console CMD] [--play TICKS] [--size WxH] [--remote]
   voxcade mcp    [--remote]
   voxcade film   <game-dir> <replay-file> [--from S] [--to S] [--fps N] [--size WxH]
@@ -164,7 +164,11 @@ edit  opens the editor on a game's level of voxel blocks: the level (its
       view; --view turns the camera; --tool WORD chooses a tool, BOX and
       SPHERE holding a shape --held X,Y,Z big, --stamp setting it there,
       --shift as with Shift held (the tool is PICK);
-      default 1920x1080).
+      default 1920x1080). A level whose pieces are turned off the quarter
+      turns, in a game that sets things on the grid, asks before it
+      opens: ALIGN ALL or DON'T OPEN; --align answers ALIGN ALL for the
+      shot (nothing written). A level without blocks, only pieces, does
+      not open yet.
 ide   opens the IDE on a game (docs/ide.md): its logic and assets on the
       left, the one thing open in the main area, the console with your
       shell below; without one, its start page (games opened last, OPEN,
@@ -213,6 +217,92 @@ joined by '+' from: left right up down jump fire grenade strafe none.
   example: --input \"right+fire:40;none:20;up+jump:15\"
 ";
 
+/// Every command, with a line on what it does (`voxcade --help`); the
+/// usage of each is in `USAGE` (`voxcade COMMAND --help`).
+const COMMANDS: &[(&str, &str)] = &[
+    ("run", "play a game in a window"),
+    ("replay", "show a replay in a window"),
+    ("replays", "list the runs kept for a game"),
+    ("shot", "play a game without a window and write a picture of it (PNG)"),
+    ("check", "play every replay of a game and say whether each runs as recorded"),
+    ("inspect", "play a game without a window and print how it stands (JSON)"),
+    ("scenarios", "list a game's scenarios (a run begun late)"),
+    ("rooms", "list a game's open rooms across the internet"),
+    ("api", "list the Lua API; --lua writes the definitions for editors"),
+    ("kinds", "print a game's kinds of things and weapons with every number in effect"),
+    ("sheet", "draw one of a game's models alone, as the game draws it"),
+    ("import", "bring a Tiled map or MagicaVoxel models into a game"),
+    ("upgrade", "bring a game made for an older Voxcade up to date"),
+    ("edit", "open the level or model editor (a window)"),
+    ("ide", "open the IDE (a window)"),
+    ("mcp", "serve the engine's tools to an agent over MCP"),
+    ("film", "render a replay as a video or a GIF"),
+    ("sounds", "write a game's sounds as a WAV file"),
+    ("music", "write a game's music as a WAV file"),
+    ("pads", "list the controllers and show what they send"),
+    ("soak", "play network games on simulated networks"),
+    ("nettest", "try network play across the internet"),
+    ("update", "look for a newer version; --install puts it in place"),
+    ("version", "say which version this is (also --version)"),
+    ("help", "this list (also --help); help all: everything at once"),
+];
+
+/// The short help: what `voxcade` alone does, and every command in a line.
+fn short_help() -> String {
+    let mut out = String::from(
+        "voxcade - a voxel arcade engine\n\nWithout anything after it, voxcade opens the launcher (a window): play a game or make one.\nvoxcade COMMAND --help says how to use a command; voxcade help all says everything.\n\nCOMMANDS:\n",
+    );
+    let width = COMMANDS.iter().map(|(c, _)| c.len()).max().unwrap_or(0);
+    for (command, what) in COMMANDS {
+        out += &format!("  {command:<width$}  {what}\n");
+    }
+    out
+}
+
+/// A command's usage, as `USAGE` has it: its lines in the list, what it
+/// does, and how an input script is written where it takes one. None for
+/// a word that is no command.
+fn usage_of(command: &str) -> Option<String> {
+    COMMANDS.iter().find(|(c, _)| *c == command)?;
+    let word = if command == "version" { "--version" } else { command };
+    let lines: Vec<&str> = USAGE.lines().collect();
+    let mut out = String::new();
+    // Its lines among USAGE's, each with the lines that go on under it.
+    let mut taking = false;
+    for line in &lines {
+        if let Some(rest) = line.strip_prefix("  voxcade ") {
+            taking = rest.split_whitespace().next() == Some(word);
+        } else if !line.starts_with("    ") {
+            taking = false;
+        }
+        if taking {
+            out += &format!("{line}\n");
+        }
+    }
+    // What it does: its paragraph, the word first.
+    let mut taking = false;
+    let mut said = String::new();
+    for line in &lines {
+        if line.starts_with(' ') {
+            if taking {
+                said += &format!("{line}\n");
+            }
+            continue;
+        }
+        taking = line.split_whitespace().next() == Some(command);
+        if taking {
+            said += &format!("{line}\n");
+        }
+    }
+    if !said.is_empty() {
+        out += &format!("\n{said}");
+    }
+    if out.contains("--input SCRIPT") && let Some(at) = USAGE.find("INPUT SCRIPT") {
+        out += &format!("\n{}", &USAGE[at..]);
+    }
+    (!out.is_empty()).then_some(out)
+}
+
 /// Reads the command line and does what it says, with game folders of
 /// kind `G`; without arguments it runs `default` (a game's own folder) in
 /// a window, or shows how to use it.
@@ -250,6 +340,13 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
         && let Some(dir) = default
     {
         return app::run::<G>(dir, None, Default::default(), None, None);
+    }
+    // `voxcade COMMAND --help`: that command's usage.
+    if let (Some(command), Some("--help" | "-h")) = (args.first(), args.get(1).map(String::as_str))
+        && let Some(usage) = usage_of(command)
+    {
+        print!("{usage}");
+        return Ok(());
     }
     match args.first().map(String::as_str) {
         Some("run") => {
@@ -541,7 +638,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
         }
         Some("edit") => {
             let dir = opened(&args)?;
-            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new() };
+            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new() };
             let mut shot = false;
             let mut it = args[2..].iter();
             while let Some(flag) = it.next() {
@@ -549,8 +646,8 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                     (opts.things, opts.stamp) = (opts.things || flag == "--things", opts.stamp || flag == "--stamp");
                     continue;
                 }
-                if flag == "--shift" {
-                    opts.shift = true;
+                if flag == "--shift" || flag == "--align" {
+                    (opts.shift, opts.align) = (opts.shift || flag == "--shift", opts.align || flag == "--align");
                     continue;
                 }
                 let value = it.next().with_context(|| format!("{flag} needs a value"))?;
@@ -687,7 +784,14 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
             Ok(())
         }
         Some("--help" | "-h" | "help") => {
-            print!("{USAGE}");
+            match args.get(1).map(String::as_str) {
+                None => print!("{}", short_help()),
+                Some("all") => print!("{USAGE}"),
+                Some(command) => match usage_of(command) {
+                    Some(usage) => print!("{usage}"),
+                    None => bail!("{command} is no command of voxcade's (voxcade --help lists them)"),
+                },
+            }
             Ok(())
         }
         Some("update") => {
@@ -708,7 +812,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
             Ok(())
         }
         _ => {
-            eprint!("{USAGE}");
+            eprint!("{}", short_help());
             std::process::exit(2);
         }
     }
@@ -823,6 +927,34 @@ fn shot_options(args: &[String]) -> Result<headless::ShotOptions> {
 
 #[cfg(test)]
 mod tests {
+    /// The short help lists every command the program answers to, each
+    /// with a line, and each has its usage (`voxcade COMMAND --help`).
+    #[test]
+    fn the_help_lists_every_command() {
+        let src = include_str!("cli.rs");
+        let main = &src[src.find("pub fn main<G: Game>").unwrap()..src.find("pub fn plainly").unwrap()];
+        let mut matched = Vec::new();
+        for line in main.lines().filter(|l| l.starts_with("        Some(\"")) {
+            let words = line.trim_start().strip_prefix("Some(").unwrap().split(')').next().unwrap();
+            matched.extend(words.split('|').map(|w| w.trim().trim_matches('"').to_string()));
+        }
+        assert!(matched.len() > 20, "{matched:?}");
+        let help = super::short_help();
+        assert!(help.contains("Without anything after it, voxcade opens the launcher (a window)"), "{help}");
+        for word in matched.iter().filter(|w| !w.starts_with('-')) {
+            assert!(super::COMMANDS.iter().any(|(c, _)| c == word), "{word} is missing from voxcade --help");
+            assert!(help.contains(&format!("\n  {word} ")), "{word}");
+        }
+        for (command, _) in super::COMMANDS.iter().filter(|(c, _)| *c != "help") {
+            let usage = super::usage_of(command).unwrap_or_else(|| panic!("{command} has no usage"));
+            assert!(usage.contains(&format!("voxcade {}", if *command == "version" { "--version" } else { command })), "{command}: {usage}");
+        }
+        let shot = super::usage_of("shot").unwrap();
+        assert!(shot.contains("simulates N ticks") && shot.contains("INPUT SCRIPT") && !shot.contains("voxcade check"), "{shot}");
+        assert!(super::usage_of("replay").unwrap().lines().all(|l| !l.contains("voxcade replays")));
+        assert!(super::usage_of("nothing").is_none());
+    }
+
     #[test]
     fn a_mistake_is_said_plainly_in_the_systems_language() {
         let none = anyhow::anyhow!("no suitable GPU");

@@ -56,6 +56,10 @@ impl Thumbs {
 /// The panels of a frame.
 pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs: &mut Thumbs) -> Shown {
     let mut shown = Shown::default();
+    if let Some(names) = &ed.question {
+        question(ui, &ed.file, names, &mut shown);
+        return shown;
+    }
     let frame = egui::Frame::new().fill(crate::gui::PANEL).inner_margin(egui::Margin::symmetric(14, 12));
     let right = egui::Panel::right("tools").exact_size(COLUMN).resizable(false).frame(frame).show(ui, |ui| {
         egui::ScrollArea::vertical().content_margin(egui::Margin { right: 6, ..egui::Margin::ZERO }).show(ui, |ui| column(ui, ed, view, figures, thumbs, &mut shown));
@@ -68,6 +72,37 @@ pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
     });
     shown.rects.push(bottom.response.rect);
     shown
+}
+
+/// The question before a level turned off the grid opens, over the whole
+/// window in the panels' look: what is wrong in a sentence, which things
+/// (the first few), ALIGN ALL and DON'T OPEN.
+fn question(ui: &mut egui::Ui, file: &str, names: &[String], shown: &mut Shown) {
+    let frame = egui::Frame::new().fill(crate::gui::PANEL).inner_margin(egui::Margin::same(40));
+    egui::CentralPanel::default().frame(frame).show(ui, |ui| {
+        ui.vertical_centered(|ui| {
+            ui.add_space((ui.available_height() * 0.25).max(0.0));
+            ui.label(RichText::new(file).color(QUIET));
+            ui.add_space(12.0);
+            let (count, are) = if names.len() == 1 { ("One thing".to_string(), "is") } else { (format!("{} things", names.len()), "are") };
+            ui.label(RichText::new(format!("{count} of this level {are} turned freely, and this game sets things on the grid in quarter turns.")).color(TEXT).heading());
+            ui.add_space(12.0);
+            let more = if names.len() > 4 { format!(" and {} more", names.len() - 4) } else { String::new() };
+            ui.label(RichText::new(format!("{}{more}", names.iter().take(4).cloned().collect::<Vec<_>>().join(", "))).color(WARNING));
+            ui.add_space(8.0);
+            ui.label(RichText::new("ALIGN ALL turns each to its nearest way (a step back undoes it). Or allow free turns in conf.lua: c.camera.turns = \"free\".").color(QUIET));
+            ui.add_space(24.0);
+            ui.horizontal(|ui| {
+                let width = 2.0 * 180.0 + ui.spacing().item_spacing.x;
+                ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
+                for (label, action) in [("ALIGN ALL", Action::AlignAll), ("DON'T OPEN", Action::DontOpen)] {
+                    if ui.add_sized([180.0, 36.0], egui::Button::new(RichText::new(label).color(if action == Action::AlignAll { ACCENT } else { TEXT }))).clicked() {
+                        shown.clicked.push(action);
+                    }
+                }
+            });
+        });
+    });
 }
 
 /// A small quiet heading, as the IDE's list has.

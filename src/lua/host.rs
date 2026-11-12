@@ -542,6 +542,8 @@ pub struct Stage {
     pub fallen: std::collections::BTreeSet<u32>,
     /// How many frames each of the game's models has (`level:effect`).
     pub frames: Arc<std::collections::BTreeMap<String, usize>>,
+    /// How tall each of the game's models is (a piece's body).
+    pub heights: Arc<std::collections::BTreeMap<String, f32>>,
     /// The voxels each kind that bursts as it goes bursts into (`effect =
     /// "burst"`), by its place among the kinds.
     pub bursts: Arc<std::collections::BTreeMap<usize, crate::sim::Shape>>,
@@ -554,6 +556,12 @@ pub struct Stage {
     /// the game plays of its own choice with its clock (`music`).
     pub songs: Arc<Vec<crate::audio::music::Timing>>,
     pub music: Music,
+    /// The pieces the level set down (`grid::PIECE`), by their things'
+    /// ids: the model each shows, the way it faces, the light it brings.
+    pub pieces: std::collections::BTreeMap<u32, crate::levels::Piece>,
+    /// How bright each piece's light is, 0 (off) to 1 (`thing.state.light`):
+    /// the game's to change, so in the snapshot, the hash and a save.
+    pub lights: std::collections::BTreeMap<u32, f32>,
 }
 
 /// When a song the game asks for begins (`music:play`).
@@ -776,10 +784,13 @@ impl Clone for Stage {
             props: self.props.clone(),
             fallen: self.fallen.clone(),
             frames: self.frames.clone(),
+            heights: self.heights.clone(),
             bursts: self.bursts.clone(),
             parts: self.parts.clone(),
             songs: self.songs.clone(),
             music: self.music.clone(),
+            pieces: self.pieces.clone(),
+            lights: self.lights.clone(),
         }
     }
 }
@@ -950,12 +961,20 @@ impl Stage {
         }
     }
 
-    /// Names the level's things as they stand when it is entered: each its
-    /// kind's name and its number among its kind (`door_1`), in the order
-    /// they came; what the script gave or the level kept goes with them.
+    /// Names the level's things as they stand when it is entered: the name
+    /// the level's file gives one (a piece's, a thing's of a kind in the
+    /// order its kind's markers come), else its kind's name and its number
+    /// among its kind (`door_1`), in the order they came; what the script
+    /// gave or the level kept goes with them.
     pub fn name_things(&mut self) {
         (self.names, self.props, self.fallen, self.seen_at) = Default::default();
         let figures: Vec<Id> = (1..=self.seats.len()).filter_map(|n| self.figure(n)).collect();
+        let level = self.levels.list[self.level].clone();
+        // The names the file gives its things of kinds, by kind, in order.
+        let mut given: std::collections::BTreeMap<usize, std::collections::VecDeque<Option<String>>> = Default::default();
+        for (i, m) in level.markers.iter().enumerate() {
+            given.entry(m.kind).or_default().push_back(level.marker_names.get(i).cloned().flatten());
+        }
         let mut counts: std::collections::BTreeMap<usize, u32> = Default::default();
         for id in self.host.ids() {
             if figures.contains(&id) {
@@ -965,7 +984,11 @@ impl Stage {
             let Some(k) = self.kinds.get(kind) else { continue };
             let n = counts.entry(kind).or_insert(0);
             *n += 1;
-            self.names.insert(id.raw(), format!("{}_{n}", k.name));
+            let own = match self.pieces.get(&id.raw()) {
+                Some(p) => p.name.clone(),
+                None => given.get_mut(&kind).and_then(|q| q.pop_front()).flatten(),
+            };
+            self.names.insert(id.raw(), own.unwrap_or_else(|| format!("{}_{n}", k.name)));
         }
     }
 

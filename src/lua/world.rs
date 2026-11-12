@@ -31,7 +31,7 @@ use crate::controls::Controls;
 impl Stage {
     fn kind(&self, name: &str) -> mlua::Result<usize> {
         self.kinds.iter().position(|k| k.name == name).ok_or_else(|| {
-            let names: Vec<&str> = self.kinds.iter().map(|k| k.name.as_str()).collect();
+            let names: Vec<&str> = self.kinds.iter().map(|k| k.name.as_str()).filter(|n| *n != crate::grid::PIECE).collect();
             mlua::Error::runtime(format!("no kind of thing called '{name}' (c.things: {})", names.join(", ")))
         })
     }
@@ -163,7 +163,7 @@ impl Stage {
         if self.kinds.iter().any(|k| k.families.iter().any(|f| f == name)) {
             return Ok(Pick::Family(name.to_string()));
         }
-        let kinds: Vec<&str> = self.kinds.iter().map(|k| k.name.as_str()).collect();
+        let kinds: Vec<&str> = self.kinds.iter().map(|k| k.name.as_str()).filter(|n| *n != crate::grid::PIECE).collect();
         let mut families: Vec<&str> = self.kinds.iter().flat_map(|k| k.families.iter().map(String::as_str)).collect();
         families.sort_unstable();
         families.dedup();
@@ -744,6 +744,9 @@ fn seat_state(lua: &Lua, seat: usize) -> mlua::Result<Value> {
     engine_state(lua, Value::String(lua.create_string(&key)?), backing, &keys, get, set)
 }
 
+/// The key of a piece's light in its state (`thing.state.light`).
+const LIGHT: &str = "light";
+
 /// `thing.state`: a thing's state while it lives; its hit points (`hp`)
 /// are the engine's where its kind has them. The player's is
 /// `player.state`.
@@ -753,7 +756,7 @@ fn thing_state(lua: &Lua, id: u32) -> mlua::Result<Value> {
         Some(seat) => return seat_state(lua, seat),
         None => {}
     }
-    let (has_hp, own) = look(lua, |h| Ok((h.kinds[h.thing(id)?.kind].has_hp, h.host.thing_keys(Id::from_raw(id)))))?;
+    let (has_hp, own, lit) = look(lua, |h| Ok((h.kinds[h.thing(id)?.kind].has_hp, h.host.thing_keys(Id::from_raw(id)), h.lights.contains_key(&id))))?;
     if let Some(v) = view(lua, id)? {
         return Ok(Value::Table(v));
     }
@@ -769,6 +772,9 @@ fn thing_state(lua: &Lua, id: u32) -> mlua::Result<Value> {
     let get = lua.create_function(move |lua, key: String| {
         if key == "hp" {
             return look(lua, |h| Ok(Value::Integer(h.thing(id)?.hp as i64)));
+        }
+        if key == LIGHT {
+            return look(lua, |h| Ok(h.lights.get(&id).map_or(Value::Nil, |b| Value::Number(*b as f64))));
         }
         let kept = look(lua, |h| Ok(h.host.thing_value(Id::from_raw(id), &key)))?;
         Ok(match kept {
@@ -786,6 +792,20 @@ fn thing_state(lua: &Lua, id: u32) -> mlua::Result<Value> {
                 Ok(())
             });
         }
+        if key == LIGHT {
+            let b = match v {
+                Value::Integer(n) => n as f64,
+                Value::Number(n) => n,
+                other => return Err(mlua::Error::runtime(format!("{what}: how bright its light is, 0 (off) to 1, not a {}", other.type_name()))),
+            };
+            if !(0.0..=1.0).contains(&b) {
+                return Err(mlua::Error::runtime(format!("{what}: how bright its light is, 0 (off) to 1, not {b}")));
+            }
+            return change(lua, &what, |h| {
+                h.lights.insert(id, b as f32);
+                Ok(())
+            });
+        }
         let value = match v {
             Value::Boolean(b) => super::host::Kept::Bool(b),
             Value::Nil => super::host::Kept::Bool(false),
@@ -794,7 +814,11 @@ fn thing_state(lua: &Lua, id: u32) -> mlua::Result<Value> {
         };
         change(lua, &what, |h| h.host.set_thing_value(Id::from_raw(id), &key, value).map_err(|e| mlua::Error::runtime(format!("{what}: {e}"))))
     })?;
-    let keys: Vec<&str> = if has_hp { std::iter::once("hp").chain(own.iter().copied()).collect() } else { own.to_vec() };
+    let mut keys: Vec<&str> = if has_hp { std::iter::once("hp").chain(own.iter().copied()).collect() } else { own.to_vec() };
+    // A piece that brings a light: how bright it is.
+    if lit {
+        keys.push(LIGHT);
+    }
     engine_state(lua, Value::Integer(id as i64), backing, &keys, get, set)
 }
 
@@ -1058,6 +1082,15 @@ impl UserData for LevelView {
             }
             Ok(t)
         });
+        f.add_field_function_get("areas", |lua, _| {
+            level_here(lua, "level.areas")?;
+            let areas = look(lua, |h| Ok(h.levels.list[h.level].areas.clone()))?;
+            let t = lua.create_table()?;
+            for (i, a) in areas.iter().enumerate() {
+                t.raw_set(a.name.as_str(), AreaView(i))?;
+            }
+            readonly(lua, t, "level.areas")
+        });
         f.add_field_function_get("size", |lua, _| {
             level_here(lua, "level.size")?;
             let size = look(lua, |h| Ok(h.host.sim().world.size.as_vec3()))?;
@@ -1096,6 +1129,9 @@ impl UserData for LevelView {
                 && look(lua, |h| Ok(h.named(name).is_some()))?
             {
                 return Err(mlua::Error::runtime(format!("level:spawn: a thing called '{name}' is in the level already (a name is one thing's)")));
+            }
+            if kind == crate::grid::PIECE {
+                return Err(mlua::Error::runtime("level:spawn: \"piece\" is the kind of the models and lights a level's file sets down; spawn a kind of c.things"));
             }
             let id = change(lua, "level:spawn", |h| {
                 let k = h.kind(&kind)?;
@@ -1266,6 +1302,52 @@ impl UserData for LevelView {
         m.add_function("ground", |lua, (_, x, y): (AnyUserData, i32, i32)| {
             level_here(lua, "level:ground")?;
             look(lua, |h| Ok(h.host.sim().world.column_top(x, y)))
+        });
+    }
+}
+
+/// One of the level's areas (`level.areas.NAME`), by its place in the
+/// level's list: a named box, only to read.
+#[derive(Clone, Copy)]
+pub struct AreaView(pub usize);
+
+impl AreaView {
+    fn area(lua: &Lua, i: usize) -> mlua::Result<crate::levels::Area> {
+        look(lua, |h| h.levels.list[h.level].areas.get(i).cloned().ok_or_else(|| mlua::Error::runtime("the area is gone: its level was left")))
+    }
+}
+
+impl UserData for AreaView {
+    fn add_fields<F: UserDataFields<Self>>(f: &mut F) {
+        f.add_field_method_get("name", |lua, a| Ok(Self::area(lua, a.0)?.name));
+        f.add_field_method_get("x", |lua, a| Ok(Self::area(lua, a.0)?.at.x));
+        f.add_field_method_get("y", |lua, a| Ok(Self::area(lua, a.0)?.at.y));
+        f.add_field_method_get("z", |lua, a| Ok(Self::area(lua, a.0)?.at.z));
+        f.add_field_method_get("size", |lua, a| point(lua, Self::area(lua, a.0)?.size.as_vec3()));
+    }
+
+    fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
+        m.add_meta_method(MetaMethod::ToString, |lua, a, ()| Ok(format!("area {}", Self::area(lua, a.0)?.name)));
+        // A thing's place (where its feet stand, its pivot), or a point:
+        // inside the box or not; a point without z, at any height.
+        m.add_method("holds", |lua, a, v: Value| {
+            let area = Self::area(lua, a.0)?;
+            let (x, y, z) = match &v {
+                Value::UserData(ud) if ud.is::<ThingRef>() => {
+                    let id = ud.borrow::<ThingRef>()?.0;
+                    let at = look(lua, |h| Ok(h.thing(id)?.body.pos))?;
+                    (at.x, at.y, Some(at.z))
+                }
+                Value::Table(t) => {
+                    let n = |k: &str| -> mlua::Result<Option<f32>> { t.get::<Option<f32>>(k) };
+                    match (n("x")?, n("y")?) {
+                        (Some(x), Some(y)) => (x, y, n("z")?),
+                        _ => return Err(mlua::Error::runtime("area:holds: a thing, or a point { x =, y =, z = } (z left out: any height)")),
+                    }
+                }
+                other => return Err(mlua::Error::runtime(format!("area:holds: a thing, or a point {{ x =, y =, z = }}, not a {}", other.type_name()))),
+            };
+            Ok(area.holds(x, y, z))
         });
     }
 }

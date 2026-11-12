@@ -38,9 +38,59 @@ impl Place {
     }
 }
 
+/// A piece as a level sets it down (`grid::PIECE`): its name in the file,
+/// its model (none: a light alone), the cell its pivot stands on in the
+/// world's voxels, the way it faces and the light it brings.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Piece {
+    pub name: Option<String>,
+    pub model: Option<String>,
+    pub cell: IVec3,
+    pub facing: crate::grid::Facing,
+    pub light: Option<PieceLight>,
+}
+
+/// A piece's light: where it shines from in the model's own voxels from
+/// its pivot (turning with the piece), how far it reaches, its colour (0
+/// to 1 each).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PieceLight {
+    pub at: IVec3,
+    pub radius: f32,
+    pub color: [f32; 3],
+}
+
+/// A named box of a level (`level.areas.NAME`): its low corner in the
+/// world's voxels, and its size.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Area {
+    pub name: String,
+    pub at: IVec3,
+    pub size: IVec3,
+}
+
+impl Area {
+    /// Whether a point lies inside it (a thing's feet at its pivot);
+    /// `z` none: at any height.
+    pub fn holds(&self, x: f32, y: f32, z: Option<f32>) -> bool {
+        let (lo, hi) = (self.at.as_vec3(), (self.at + self.size).as_vec3());
+        let inside = |v: f32, a: f32, b: f32| v >= a && v < b;
+        inside(x, lo.x, hi.x) && inside(y, lo.y, hi.y) && z.is_none_or(|z| inside(z, lo.z, hi.z))
+    }
+}
+
 /// A level as made from its file: its world, the markers that place its
-/// things, the files it came from, its places.
-pub type Made = (World, Vec<Marker>, Vec<PathBuf>, Vec<Place>);
+/// things (and the name the file gives each, if it does), the files it
+/// came from, its places, its pieces and areas.
+pub struct Made {
+    pub world: World,
+    pub markers: Vec<Marker>,
+    pub files: Vec<PathBuf>,
+    pub places: Vec<Place>,
+    pub marker_names: Vec<Option<String>>,
+    pub pieces: Vec<Piece>,
+    pub areas: Vec<Area>,
+}
 
 /// One level as it was read.
 pub struct Level {
@@ -50,6 +100,22 @@ pub struct Level {
     pub world: World,
     pub markers: Vec<Marker>,
     pub places: Vec<Place>,
+    /// The names the file gives its markers' things (`marker_names`), its
+    /// pieces and its areas.
+    pub marker_names: Vec<Option<String>>,
+    pub pieces: Vec<Piece>,
+    pub areas: Vec<Area>,
+}
+
+impl Level {
+    /// A level of a world, markers and places, nothing set down.
+    pub fn plain(name: &str, world: World, markers: Vec<Marker>, places: Vec<Place>) -> Self {
+        Self { name: name.to_string(), world, markers, places, marker_names: Vec::new(), pieces: Vec::new(), areas: Vec::new() }
+    }
+
+    fn of(name: String, made: Made) -> Self {
+        Self { name, world: made.world, markers: made.markers, places: made.places, marker_names: made.marker_names, pieces: made.pieces, areas: made.areas }
+    }
 }
 
 /// Every level of a game, in order.
@@ -63,7 +129,19 @@ pub struct Levels {
 impl Levels {
     /// A game of one level.
     pub fn one(name: &str, world: World, markers: Vec<Marker>, places: Vec<Place>, files: Vec<PathBuf>) -> Self {
-        Self { list: vec![Arc::new(Level { name: name.to_string(), world, markers, places })], files }
+        Self { list: vec![Arc::new(Level::plain(name, world, markers, places))], files }
+    }
+
+    /// The models the levels' pieces show, each once, in order: the game
+    /// draws them though `conf.lua` names none of them.
+    pub fn piece_models(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for m in self.list.iter().flat_map(|l| l.pieces.iter().filter_map(|p| p.model.clone())) {
+            if !out.contains(&m) {
+                out.push(m);
+            }
+        }
+        out
     }
 
     /// The level called `name`, by its place in the order.
@@ -203,7 +281,10 @@ pub fn load<G: Game>(game: &Files, cfg: &GameConfig) -> Result<Levels> {
         anyhow::bail!("c.markers: since Voxcade 0.6.0 a marker is a palette entry of the world or the prefab it lies in ({{ marker = \"rifleman\" }}); `voxcade upgrade` moves them there");
     }
     let extension = kind.ending();
-    let mut files: Vec<PathBuf> = game.list(dir.join("levels")).into_iter().filter(|p| p.extension().is_some_and(|e| e == extension)).collect();
+    // The files of the kind c.world says, and levels of pieces whatever
+    // it says (their first line tells: format = "voxcade level 1").
+    let mut files: Vec<PathBuf> =
+        game.list(dir.join("levels")).into_iter().filter(|p| p.extension().is_some_and(|e| e == extension) || (kind == Kind::World && says_level(game, p))).collect();
     files.sort_by(|a, b| natural(&stem(a), &stem(b)));
     if files.is_empty() {
         let file = match &cfg.world.blocks {
@@ -211,29 +292,40 @@ pub fn load<G: Game>(game: &Files, cfg: &GameConfig) -> Result<Levels> {
             None => &cfg.world.file,
         };
         let path = dir.join(file);
-        let (world, markers, sources, places) = one(game, cfg, kind, &path)?;
-        return Ok(Levels::one(&stem(&path), world, markers, places, sources));
+        let made = one(game, cfg, kind, &path)?;
+        let sources = made.files.clone();
+        return Ok(Levels { list: vec![Arc::new(Level::of(stem(&path), made))], files: sources });
     }
     let mut levels = Levels { list: Vec::new(), files: Vec::new() };
     for path in files {
-        let (world, markers, sources, places) = one(game, cfg, kind, &path).with_context(|| format!("levels/{}", path.file_name().unwrap_or_default().to_string_lossy()))?;
-        levels.files.extend(sources);
-        levels.list.push(Arc::new(Level { name: stem(&path), world, markers, places }));
+        let made = one(game, cfg, kind, &path).with_context(|| format!("levels/{}", path.file_name().unwrap_or_default().to_string_lossy()))?;
+        levels.files.extend(made.files.iter().cloned());
+        levels.list.push(Arc::new(Level::of(stem(&path), made)));
     }
     levels.files.sort();
     levels.files.dedup();
     Ok(levels)
 }
 
-/// One level from the file at `path`, of the kind `c.world` says.
+/// Whether the file at `path` is a level of blocks or pieces by its first
+/// line (`format = "voxcade level 1"`).
+pub(crate) fn says_level(game: &Files, path: &Path) -> bool {
+    path.extension().is_some_and(|e| e == crate::grid::EXTENSION)
+        && game.read_to_string(path).is_ok_and(|t| t.lines().map(str::trim).find(|l| !l.is_empty() && !l.starts_with('#')).is_some_and(|l| l.replace(' ', "").starts_with("format=\"voxcadelevel")))
+}
+
+/// One level from the file at `path`, of the kind `c.world` says (a level
+/// of pieces whatever it says).
 fn one(game: &Files, cfg: &GameConfig, kind: Kind, path: &Path) -> Result<Made> {
     let names = crate::sim::things::names(cfg);
+    let free = cfg.camera.turns == crate::config::Turns::Free;
     match (kind, &cfg.world.blocks) {
-        (Kind::Blocks, Some(blocks)) => crate::grid::load_at(game, blocks, path, &names),
+        (Kind::Blocks, Some(blocks)) => crate::grid::load_at(game, blocks, path, &names, free),
+        (Kind::World, _) if says_level(game, path) => crate::grid::load_at(game, &crate::config::BlocksConfig::default(), path, &names, free),
         (Kind::Map, _) => crate::map::load_map_at(game, path, &names),
         _ => {
             let (world, found) = crate::scene::load_in(game, path)?.world(&names).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
-            Ok((world, found, vec![path.to_path_buf()], Vec::new()))
+            Ok(Made { world, markers: found, files: vec![path.to_path_buf()], places: Vec::new(), marker_names: Vec::new(), pieces: Vec::new(), areas: Vec::new() })
         }
     }
 }

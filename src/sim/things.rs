@@ -212,6 +212,41 @@ const RETIRED: [(&str, &str); 3] = [
 /// thing's and a marker's `kind` is the place here. `behaviours` are the
 /// game's; any other is a mistake in `conf.lua`.
 pub fn defs(cfg: &GameConfig, behaviours: &[&str]) -> Result<Vec<Def>> {
+    if cfg.things.contains_key(crate::grid::PIECE) {
+        bail!("c.things.{0}: '{0}' is the engine's own kind, of the models and lights a level sets down; call yours otherwise", crate::grid::PIECE);
+    }
+    let mut defs = own_defs(cfg, behaviours)?;
+    defs.push(piece());
+    Ok(defs)
+}
+
+/// The kind of the pieces a level sets down (`grid::PIECE`), last among
+/// the kinds so the game's keep their places: no behaviour, no model of
+/// its own (each piece has its own), fixed where it is put.
+fn piece() -> Def {
+    Def {
+        name: crate::grid::PIECE.to_string(),
+        behaviour: None,
+        model: None,
+        hp: None,
+        props: toml::Table::new(),
+        families: Vec::new(),
+        effect: None,
+        sound: None,
+        reach: None,
+        team: None,
+        immune: Vec::new(),
+        free_turn: false,
+        spin: 0.0,
+        fixed: true,
+        frames: BTreeMap::new(),
+        fps: FPS,
+        swing: BTreeMap::new(),
+        params: toml::Table::new(),
+    }
+}
+
+fn own_defs(cfg: &GameConfig, behaviours: &[&str]) -> Result<Vec<Def>> {
     resolve_like("things", &cfg.things)?
         .into_iter()
         .map(|(name, mut params)| {
@@ -459,7 +494,7 @@ mod tests {
     /// circle, an unknown one and a missing behaviour are mistakes.
     #[test]
     fn kinds_build_on_one_another() {
-        let defs_of = |text: &str| defs(&toml::from_str(text).unwrap(), &["walker", "door"]);
+        let defs_of = |text: &str| own_defs(&toml::from_str(text).unwrap(), &["walker", "door"]);
         let found = defs_of("[things.b]\nlike = \"a\"\nhp = 4\n[things.a]\nbehaviour = \"walker\"\nmodel = \"a.vox\"\nhp = 2\nspeed = 3\n").unwrap();
         assert_eq!(found.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["a", "b"], "kinds go by name");
         assert_eq!((found[1].behaviour.as_deref(), found[1].model.as_deref(), found[1].hp), (Some("walker"), Some("a.vox"), Some(4)));
@@ -469,6 +504,17 @@ mod tests {
         assert!(defs_of("[things.a]\nlike = \"c\"\n").unwrap_err().to_string().contains("no c.things.c"));
         assert_eq!(defs_of("[things.a]\nhp = 2\n").unwrap()[0].behaviour, None, "without one the game's script moves it");
         assert!(defs_of("[things.a]\nbehaviour = \"flyer\"\n").unwrap_err().to_string().contains("no such behaviour"));
+    }
+
+    /// Every game has the kind of the pieces a level sets down, last
+    /// (the game's kinds keep their places), fixed where it is put; a
+    /// game's own may not take its name.
+    #[test]
+    fn the_pieces_kind_comes_last() {
+        let found = defs(&toml::from_str("[things.zebra]\n[things.apple]\n").unwrap(), &[]).unwrap();
+        assert_eq!(found.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["apple", "zebra", crate::grid::PIECE]);
+        assert!(found[2].fixed && found[2].behaviour.is_none() && found[2].model.is_none());
+        assert!(defs(&toml::from_str("[things.piece]\n").unwrap(), &[]).unwrap_err().to_string().contains("the engine's own kind"));
     }
 
     /// Things stay in the order they came; taking one out keeps the

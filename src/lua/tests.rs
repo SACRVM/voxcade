@@ -1909,7 +1909,7 @@ fn levels_folder(name: &str, main: &str, levels: &[LevelPlaces]) -> PathBuf {
         let mut level = GridLevel::new(4, IVec3::new(4, 1, 1));
         level.blocks.push(BlockEntry { name: "rock".into(), kind: Kind::Solid });
         level.cells.fill(Cell { block: 1, turn: Default::default() });
-        level.places = places.iter().map(|(n, at)| Place { name: n.to_string(), at: *at, facing: Some([1, 0]) }).collect();
+        level.places = places.iter().map(|(n, at)| Place { name: n.to_string(), at: *at, facing: Some([1, 0]), named: false }).collect();
         level.save(&dir.join("levels").join(format!("{level_name}.toml"))).unwrap();
     }
     let mut rock = Block::empty(4);
@@ -2121,7 +2121,7 @@ fn a_level_change_shows_the_next_level_where_it_starts() {
     let mut taller = GridLevel::new(4, glam::IVec3::new(4, 1, 2));
     taller.blocks.push(BlockEntry { name: "rock".into(), kind: Kind::Solid });
     taller.cells.fill(Cell { block: 1, turn: Default::default() });
-    taller.places = vec![crate::grid::Place { name: "east".into(), at: [12, 2, 8], facing: None }];
+    taller.places = vec![crate::grid::Place { name: "east".into(), at: [12, 2, 8], facing: None, named: false }];
     taller.save(&dir.join("levels/b.toml")).unwrap();
     let mut g = game_in(&dir);
     steps(&mut g, 1);
@@ -2156,7 +2156,7 @@ fn platformer_levels(name: &str, main: &str, conf: &str, more: &[(&str, [i32; 3]
     let path = dir.join("levels/a.toml");
     let mut level = crate::grid::GridLevel::read(&path).unwrap();
     for (kind, at) in std::iter::once(&("hero", [3, 2, 4])).chain(more) {
-        level.things.push(crate::grid::Thing { kind: kind.to_string(), at: *at });
+        level.things.push(crate::grid::Thing::new(kind.to_string(), *at));
     }
     level.save(&path).unwrap();
     dir
@@ -2271,7 +2271,7 @@ end
     std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.toml\" }\n  c.player.spawn = { 2, 2 }\n  c.player.kind = \"hero\"\n  c.things.hero = {}\n  c.things.box = {}\nend\n").unwrap();
     let path = dir.join("levels/a.toml");
     let mut level = crate::grid::GridLevel::read(&path).unwrap();
-    level.things.push(crate::grid::Thing { kind: "box".into(), at: [10, 2, 4] });
+    level.things.push(crate::grid::Thing::new("box", [10, 2, 4]));
     level.save(&path).unwrap();
     let mut g = game_in(&dir);
     steps(&mut g, 10);
@@ -2625,7 +2625,7 @@ fn events_folder(name: &str, main: &str, conf: &str) -> PathBuf {
     std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.world.blocks = {{ file = \"level.toml\" }}\n  c.player.spawn = {{ 2, 2 }}\n  c.player.kind = \"hero\"\n  c.things.hero = {{ hp = 3 }}\n  c.things.door = {{}}\n  c.things.box = {{ hp = 2 }}\n{conf}end\n")).unwrap();
     let path = dir.join("levels/a.toml");
     let mut level = crate::grid::GridLevel::read(&path).unwrap();
-    level.things.push(crate::grid::Thing { kind: "door".into(), at: [12, 2, 4] });
+    level.things.push(crate::grid::Thing::new("door", [12, 2, 4]));
     level.save(&path).unwrap();
     // A solid floor four voxels deep.
     let mut rock = crate::blocks::Block::empty(4);
@@ -3276,7 +3276,7 @@ fn a_fall_is_told_once_while_the_code_waits() {
     // Nothing to stand on.
     let mut level = GridLevel::new(4, glam::IVec3::new(4, 1, 2));
     level.blocks.push(BlockEntry { name: "rock".into(), kind: Kind::Solid });
-    level.things.push(crate::grid::Thing { kind: "hero".into(), at: [6, 2, 4] });
+    level.things.push(crate::grid::Thing::new("hero", [6, 2, 4]));
     level.save(&dir.join("levels/a.toml")).unwrap();
     let mut g = game_in(&dir);
     steps(&mut g, 240);
@@ -3308,7 +3308,7 @@ fn the_jump_and_run_rules_as_code() {
         level.cells[i] = Cell { block: 1, turn: Default::default() };
     }
     for (kind, x) in [("hero", 2), ("gem", 10), ("checkpoint", 18)] {
-        level.things.push(crate::grid::Thing { kind: kind.into(), at: [x, 2, 4] });
+        level.things.push(crate::grid::Thing::new(kind, [x, 2, 4]));
     }
     level.save(&dir.join("levels/a.toml")).unwrap();
     // Solid rock blocks.
@@ -4182,4 +4182,229 @@ end
     std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"shooter\"\n  c.things.sign = { behaviour = \"soldier\", fixed = true }\nend\n").unwrap();
     let err = start_error(&dir);
     assert!(err.contains("c.things.sign.fixed"), "{err}");
+}
+
+/// A model 3 by 3 by 4 of one colour, as text.
+const BOX: &str = "format = \"voxcade voxel 1\"\nsize = [3, 3, 4]\n\n[palette]\na = { color = \"#808080\" }\n\n[[frame]]\nlayers = \"\"\"\naaa *3\n*4\n\"\"\"\n";
+
+/// A room of pieces (`grid::PIECE`): a stove facing east, a lamp hung in
+/// the air with its light, the moon (a light alone), a place, an area.
+const ROOM: &str = r##"format = "voxcade level 1"
+size = [64, 48, 40]
+
+[[thing]]
+name = "stove"
+model = "box.vvx"
+at = [10, 20, 0]
+facing = "east"
+
+[[thing]]
+name = "lamp"
+model = "box.vvx"
+at = [40, 30, 12]
+light = { at = [0, 0, 3], radius = 30, color = "#ff8000" }
+
+[[thing]]
+name = "moon"
+at = [5, 5, 30]
+light = { radius = 40 }
+
+[[place]]
+name = "start"
+at = [32, 10, 0]
+
+[[area]]
+name = "corner"
+at = [0, 0, 0]
+size = [16, 16, 20]
+"##;
+
+/// A game whose one level is `level` (a level of pieces: no `c.world`),
+/// its player a thing of a kind without a model, `conf` added.
+fn pieces_folder(name: &str, conf: &str, level: &str, main: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("voxcade-pieces-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("levels")).unwrap();
+    std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.things.hero = {{}}\n  c.player.kind = \"hero\"\n  c.saves = {{ slots = 2 }}\n{conf}end\n")).unwrap();
+    std::fs::write(dir.join("main.lua"), main).unwrap();
+    std::fs::write(dir.join("box.vvx"), BOX).unwrap();
+    std::fs::write(dir.join("levels/room.toml"), level).unwrap();
+    dir
+}
+
+/// What a line of the console says.
+fn said(g: &mut Session<LuaGame>, line: &str) -> String {
+    g.eval(line).unwrap_or_else(|e| format!("{e:#}"))
+}
+
+/// A piece is a thing of the kind "piece" that stays exactly where the
+/// level's file puts it (in the air too), found by its name, facing its
+/// way, as tall as its model; a level file saved while playing sets them
+/// down again where it says.
+#[test]
+fn pieces_stay_put_and_are_found_by_name() {
+    let dir = pieces_folder("put", "", ROOM, "function on_tick() player:walk(input.dir, 40) end\n");
+    let mut g = game_in(&dir);
+    steps(&mut g, 60);
+    assert_eq!(halted(&g), "");
+    assert_eq!(said(&mut g, "level:thing('lamp').z == 12 and level:thing('lamp').x == 40.5 and level:thing('lamp').y == 30.5"), "true", "where its pivot stands, in the air");
+    assert_eq!(said(&mut g, "level:thing('stove').kind"), "\"piece\"");
+    assert_eq!(said(&mut g, "level:thing('stove').facing.x"), "1", "facing east");
+    assert_eq!(said(&mut g, "level:thing('moon').name"), "\"moon\"");
+    assert_eq!(said(&mut g, "#level:things('piece')"), "3", "every piece, the light alone too");
+    assert!(said(&mut g, "level:spawn('piece', 4, 4)").contains("spawn a kind of c.things"));
+    let inspect = g.game.inspect();
+    let lamp = inspect["things"].as_array().unwrap().iter().find(|t| t["name"] == "lamp").unwrap().clone();
+    assert_eq!((lamp["kind"].as_str(), lamp["model"].as_str(), lamp["state"]["light"].as_f64()), (Some("piece"), Some("box.vvx"), Some(1.0)), "{lamp}");
+    // Saved anew while playing: the lamp hangs higher.
+    std::fs::write(dir.join("levels/room.toml"), ROOM.replace("at = [40, 30, 12]", "at = [40, 30, 20]")).unwrap();
+    g.reload(&dir.join("levels/room.toml")).unwrap();
+    steps(&mut g, 2);
+    assert_eq!(said(&mut g, "level:thing('lamp').z"), "20.0");
+}
+
+/// The lights the picture has near a point (within half a voxel).
+fn lights_at(frame: &crate::render::FrameData, at: glam::Vec3) -> Vec<[f32; 3]> {
+    frame.lights.iter().filter(|l| l.pos.distance(at) < 0.6).map(|l| l.color).collect()
+}
+
+/// `thing.state.light` is how bright a piece's light shines (1 at first,
+/// 0 off): the picture's light follows it, a number out of 0 to 1 is a
+/// mistake, and it is kept by a snapshot and by a save.
+#[test]
+fn a_pieces_light_follows_its_state() {
+    let mut g = game_in(&pieces_folder("light", "", ROOM, ""));
+    let frame = |g: &Session<LuaGame>| g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+    // The lamp's light 3 voxels over its pivot, the middle of the voxel.
+    let at = glam::Vec3::new(40.5, 30.5, 15.5);
+    assert_eq!(lights_at(&frame(&g), at), [[1.0, 128.0 / 255.0, 0.0]]);
+    assert_eq!(said(&mut g, "level:thing('lamp').state.light"), "1.0");
+    let hash = g.game.state_hash();
+    said(&mut g, "level:thing('lamp').state.light = 0.5");
+    assert_ne!(g.game.state_hash(), hash, "the light is part of the game");
+    assert_eq!(lights_at(&frame(&g), at), [[0.5, 64.0 / 255.0, 0.0]]);
+    let kept = g.snapshot().unwrap();
+    said(&mut g, "level:thing('lamp').state.light = 0");
+    assert!(lights_at(&frame(&g), at).is_empty(), "off");
+    assert!(said(&mut g, "level:thing('lamp').state.light = 2").contains("0 (off) to 1, not 2"));
+    assert!(said(&mut g, "level:thing('lamp').state.light = 'on'").contains("not a string"));
+    g.restore(&kept);
+    assert_eq!(said(&mut g, "level:thing('lamp').state.light"), "0.5", "a snapshot keeps it");
+    said(&mut g, "world:save(1)");
+    said(&mut g, "level:thing('lamp').state.light = 1");
+    said(&mut g, "world:load(1)");
+    assert_eq!(halted(&g), "");
+    assert_eq!(said(&mut g, "level:thing('lamp').state.light"), "0.5", "a save keeps it");
+    assert_eq!(said(&mut g, "level:thing('stove').state.light"), "nil", "a piece without a light has none");
+}
+
+/// An area holds a thing standing in it (where its feet are) or a point,
+/// a point without z at any height; it is only to read.
+#[test]
+fn an_area_holds_a_thing_or_a_point() {
+    let mut g = game_in(&pieces_folder("area", "", ROOM, ""));
+    for (line, says) in [
+        ("level.areas.corner:holds(player)", "false"),
+        ("level.areas.corner:holds({ x = 15.9, y = 0, z = 19 })", "true"),
+        ("level.areas.corner:holds({ x = 16, y = 0, z = 0 })", "false"),
+        ("level.areas.corner:holds({ x = 5, y = 5 })", "true"),
+        ("level.areas.corner:holds({ x = 5, y = 5, z = 20 })", "false"),
+        ("level.areas.corner:holds(level:thing('moon'))", "false"),
+        ("level.areas.corner.size.x + level.areas.corner.x", "16.0"),
+        ("level.areas.nowhere", "nil"),
+    ] {
+        assert_eq!(said(&mut g, line), says, "{line}");
+    }
+    said(&mut g, "player:place(8, 8)");
+    assert_eq!(said(&mut g, "level.areas.corner:holds(player)"), "true");
+    assert!(said(&mut g, "level.areas.corner = 1").contains("only to read"), "{}", said(&mut g, "level.areas.corner = 1"));
+}
+
+/// A level of blocks holds pieces as well, set down from the grid's low
+/// corner like its things; the ready-made rules' games have them too.
+#[test]
+fn a_level_of_blocks_holds_pieces_too() {
+    let dir = platformer_levels("blocks-pieces", "", "", &[]);
+    std::fs::write(dir.join("box.vvx"), BOX).unwrap();
+    let path = dir.join("levels/a.toml");
+    let text = std::fs::read_to_string(&path).unwrap() + "\n[[thing]]\nname = \"sign\"\nmodel = \"box.vvx\"\nat = [9, 2, 10]\nlight = { radius = 20 }\n";
+    std::fs::write(&path, text).unwrap();
+    let mut g = game_in(&dir);
+    steps(&mut g, 30);
+    assert_eq!(halted(&g), "");
+    assert_eq!(said(&mut g, "level:thing('sign').z == 10 and level:thing('sign').kind == 'piece'"), "true", "it stays in the air");
+    assert_eq!(said(&mut g, "level:thing('sign').state.light"), "1.0");
+    assert_eq!(said(&mut g, "#level:things('hero')"), "0", "the hero's marker is the player still");
+}
+
+/// Lights past the picture's 16 (`render::MAX_LIGHTS`) give way: each
+/// picture shows the 16 nearest the middle of the view.
+#[test]
+fn too_many_lights_keep_the_nearest() {
+    let mut level = ROOM.to_string();
+    for i in 0..20 {
+        level += &format!("\n[[thing]]\nat = [{}, 10, 2]\nlight = {{ radius = 10 }}\n", 2 + i * 3);
+    }
+    let g = game_in(&pieces_folder("many-lights", "", &level, ""));
+    let frame = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+    assert_eq!(frame.lights.len(), crate::render::MAX_LIGHTS);
+    let target = glam::Vec3::new(32.5, 10.5, 0.0);
+    let far = |x: f32| frame.lights.iter().any(|l| (l.pos.x - x).abs() < 0.6 && l.pos.y == 10.5);
+    assert!(far(32.5) && !far(2.5) && !far(59.5), "the nearest kept: {:?}", frame.lights.iter().map(|l| l.pos).collect::<Vec<_>>());
+    let _ = target;
+}
+
+/// A piece turned off the quarter turns (`turn = 30`) is the game's
+/// choice: in a game on the grid the level does not load, and the mistake
+/// names the things and both ways out; with `c.camera.turns = "free"` it
+/// faces its bearing. A quarter turn written as degrees is on the grid.
+#[test]
+fn free_turns_are_the_games_choice() {
+    let turned = ROOM.replace("facing = \"east\"", "turn = 30");
+    let e = start_error(&pieces_folder("turned", "", &turned, ""));
+    assert!(e.contains("'stove' (line 5)") && e.contains("sets things on the grid") && e.contains("c.camera.turns = \"free\"") && e.contains("editor"), "{e}");
+    let mut g = game_in(&pieces_folder("turned-free", "  c.camera.turns = \"free\"\n", &turned, ""));
+    assert_eq!(halted(&g), "");
+    assert_eq!(said(&mut g, "level:thing('stove').facing.y"), "1", "its nearest way, north");
+    let quarter = ROOM.replace("facing = \"east\"", "turn = 90");
+    let mut g = game_in(&pieces_folder("turned-quarter", "", &quarter, ""));
+    assert_eq!(said(&mut g, "level:thing('stove').facing.x"), "1", "90 is east, on the grid");
+}
+
+/// A piece's model is the game's file: one missing stops the game as it
+/// loads, naming the level's file and the line; a game's own kind may not
+/// be called piece.
+#[test]
+fn a_pieces_model_is_checked_at_load() {
+    let e = start_error(&pieces_folder("no-model", "", &ROOM.replace("model = \"box.vvx\"\nat = [40", "model = \"lamp.vvx\"\nat = [40"), ""));
+    assert!(e.contains("room.toml") && e.contains("line 11") && e.contains("lamp.vvx"), "{e}");
+    let e = start_error(&pieces_folder("own-piece", "  c.things.piece = {}\n", ROOM, ""));
+    assert!(e.contains("c.things.piece") && e.contains("engine's own kind"), "{e}");
+}
+
+/// A game that begins in a room of pieces has a scenario there (the lamp
+/// off, the player by the corner), and a run begun from it, the lamp
+/// switched on and off with a key, plays back the same.
+#[test]
+fn a_run_in_a_room_of_pieces_plays_back_the_same() {
+    let main = "function on_tick()\n  player:walk(input.dir, 40)\n  local lamp = level:thing('lamp')\n  if input:pressed('jump') then lamp.state.light = lamp.state.light > 0 and 0 or 0.75 end\n  if level.areas.corner:holds(player) then world.state.cornered = true end\nend\n";
+    let dir = pieces_folder("replay", "  c.actions = { \"jump\" }\n", ROOM, main);
+    std::fs::create_dir_all(dir.join("scenarios")).unwrap();
+    std::fs::write(dir.join("scenarios/lamp_off.lua"), "return {\n  about = \"the lamp off, the player by the corner\",\n  setup = function()\n    level:thing('lamp').state.light = 0\n    player:place(20, 20)\n  end,\n}\n").unwrap();
+    let mut g = game_in(&dir);
+    g.start_scenario("lamp_off").unwrap();
+    let mut recorder = crate::replay::Recorder::default();
+    for tick in 0..240 {
+        let mut input = Input { left: (20..60).contains(&tick), down: (20..50).contains(&tick), ..Input::default() };
+        input.hold(0, tick == 100 || tick == 160 || tick == 200);
+        g.step(&input);
+        g.look();
+        recorder.record(&g);
+    }
+    assert_eq!(halted(&g), "");
+    assert_eq!(state(&mut g, "cornered"), format!("{:?}", super::Value::Bool(true)), "the player walked into the area");
+    assert_eq!(said(&mut g, "level:thing('lamp').state.light"), "0.75");
+    let replay = recorder.replay(&g).unwrap();
+    assert!(replay.scenario.as_deref() == Some("lamp_off"));
+    assert!(matches!(crate::replay::play_through::<LuaGame>(&dir, &replay).unwrap(), crate::replay::Verdict::Same));
 }

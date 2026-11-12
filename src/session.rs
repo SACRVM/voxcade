@@ -93,8 +93,16 @@ fn title_models(cfg: &GameConfig) -> impl Iterator<Item = &str> {
 impl Models {
     /// The game's models, and the parts its kinds swing checked against
     /// them (`c.things.NAME.swing`: a figure of parts, each part there).
-    fn load_for<G: Game>(files: &Files, cfg: &GameConfig) -> Result<Self> {
-        let models = Self::load(files, cfg, G::models(cfg)?)?;
+    /// The game's models, `pieces` too (the models its levels set down,
+    /// which `conf.lua` need not name).
+    fn load_for<G: Game>(files: &Files, cfg: &GameConfig, pieces: &[String]) -> Result<Self> {
+        let mut specs = G::models(cfg)?;
+        for file in pieces {
+            if !specs.iter().any(|s| &s.file == file) {
+                specs.push(ModelSpec { name: file.clone(), file: file.clone(), shaped: false });
+            }
+        }
+        let models = Self::load(files, cfg, specs)?;
         for d in crate::sim::things::defs(cfg, &G::behaviours(cfg))? {
             if d.swing.is_empty() {
                 continue;
@@ -135,6 +143,11 @@ impl Models {
     /// How many frames each of the game's models has, by name.
     pub fn frame_counts(&self) -> std::collections::BTreeMap<String, usize> {
         self.actors.iter().map(|(spec, m)| (spec.name.clone(), m.frames.len())).collect()
+    }
+
+    /// How tall each of the game's models is, by name (a piece's body).
+    pub fn heights(&self) -> std::collections::BTreeMap<String, f32> {
+        self.actors.iter().map(|(spec, m)| (spec.name.clone(), m.size.z as f32)).collect()
     }
 
     /// The parts of the game's figures of parts, by the model's name and
@@ -315,6 +328,8 @@ pub struct Session<G: Game> {
     pub models: Models,
     /// Every file the levels are built from; changing one rebuilds them.
     level_files: Vec<PathBuf>,
+    /// The models the levels' pieces show (`Levels::piece_models`).
+    piece_models: Vec<String>,
     /// Whether a level change fades (a window where someone plays; tools
     /// without one, replays and attract mode cut), and the fade being
     /// shown: no ticks run meanwhile.
@@ -762,7 +777,8 @@ impl<G: Game> Session<G> {
         slots.set_count(cfg.saves.slots);
         let levels = std::sync::Arc::new(crate::levels::load::<G>(&files, &cfg)?);
         let level_files = levels.files.clone();
-        let models = Models::load_for::<G>(&files, &cfg)?;
+        let piece_models = levels.piece_models();
+        let models = Models::load_for::<G>(&files, &cfg, &piece_models)?;
         let first = &levels.list[0];
         let songs = song_timings(&files, &cfg);
         let game = G::load(Setup { files: &files, cfg: &cfg, world: first.world.clone(), markers: first.markers.clone(), models: &models, levels: levels.clone(), slots: slots.listing(), slot_texts: slots.texts(), replayed: slots.replayed().to_vec(), songs: songs.clone() })?;
@@ -778,6 +794,7 @@ impl<G: Game> Session<G> {
             game,
             models,
             level_files,
+            piece_models,
             sounds,
             song_titles,
             songs,
@@ -967,7 +984,7 @@ impl<G: Game> Session<G> {
                 self.game.replace_world(world, &[]);
             }
             // Kinds of things may have come, gone or changed their models.
-            self.models = Models::load_for::<G>(&self.files, &self.cfg)?;
+            self.models = Models::load_for::<G>(&self.files, &self.cfg, &self.piece_models)?;
             self.game.reshape(&self.models);
             self.touched = true;
             self.sounds = SoundBank::load(&self.files, &self.cfg.sounds, &G::sounds(&self.cfg))?;
@@ -1008,17 +1025,22 @@ impl<G: Game> Session<G> {
         let block = self.cfg.world.blocks.is_some() && is_block_file(&self.dir, changed);
         // A level file new in `levels/` (not for a world the script builds).
         let ending = crate::levels::ending(&self.cfg);
-        let new_level = self.cfg.world.size.is_none() && changed.parent().is_some_and(|d| same_file(d, &self.dir.join("levels"))) && changed.extension().is_some_and(|e| e == ending);
+        let new_level = self.cfg.world.size.is_none() && changed.parent().is_some_and(|d| same_file(d, &self.dir.join("levels"))) && (changed.extension().is_some_and(|e| e == ending) || crate::levels::says_level(&self.files, changed));
         if block || new_level || self.level_files.iter().any(|f| same_file(f, changed)) {
             let levels = std::sync::Arc::new(crate::levels::load::<G>(&self.files, &self.cfg)?);
             self.level_files = levels.files.clone();
+            // The pieces' models may have come, gone or changed.
+            self.piece_models = levels.piece_models();
+            self.models = Models::load_for::<G>(&self.files, &self.cfg, &self.piece_models)?;
+            self.game.reshape(&self.models);
+            self.rebuild_bank();
             self.game.replace_levels(levels);
             self.touched = true;
             self.place_props();
             return Ok(Reloaded::World);
         }
         if self.models.files(false).any(is) || title_models(&self.cfg).any(is) {
-            self.models = Models::load_for::<G>(&self.files, &self.cfg)?;
+            self.models = Models::load_for::<G>(&self.files, &self.cfg, &self.piece_models)?;
             self.game.reshape(&self.models);
             self.touched = true;
             self.rebuild_bank();
@@ -2366,6 +2388,7 @@ mod tests {
             game,
             models,
             level_files: Vec::new(),
+            piece_models: Vec::new(),
             fades: false,
             fade: None,
             flyby_from: 0.0,
