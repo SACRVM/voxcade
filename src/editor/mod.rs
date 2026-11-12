@@ -7,6 +7,7 @@
 //! calm on purpose: few tools in view, large and readable. Its panels are
 //! the IDE's look (`panels.rs`, egui), the 3D view the game's own light.
 
+pub mod figure;
 pub mod frames;
 pub mod model;
 pub mod panels;
@@ -15,7 +16,7 @@ pub mod view;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 
 use crate::game::Game;
 use model::{Editor, Layer, Scope};
@@ -28,8 +29,17 @@ pub struct ShotOptions {
     pub level: Option<String>,
     /// The block to open (its name), else the level.
     pub block: Option<String>,
-    /// A model to open instead (its path in the game folder).
+    /// A model to open instead (its path in the game folder); of a figure
+    /// of parts the part chosen, shaped in the figure, and its parent and
+    /// joint set by hand (the joint as the printed tree has it, from the
+    /// figure's low corner); nothing written.
     pub model: Option<String>,
+    pub part: Option<String>,
+    pub parent: Option<String>,
+    pub joint: Option<glam::Vec3>,
+    /// BOX or SPHERE set where the mouse is (the middle of the view), then
+    /// drawn again.
+    pub stamp: bool,
     /// The level's things, not its blocks.
     pub things: bool,
     /// The tool chosen (its word: box, sphere, add ...), and for BOX and
@@ -82,6 +92,28 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         Some(file) => open_model::<G>(dir, file)?,
         None => open::<G>(dir, opts.level.as_deref(), opts.block.as_deref(), opts.things)?,
     };
+    // Nothing a shot does is written.
+    ed.dry = true;
+    let part_of = |ed: &model::Editor, name: &str| -> Result<usize> {
+        ed.figure.as_ref().context("--part: the model is no figure of parts (its objects have no names)")?.parts().iter().position(|p| p.name == name).with_context(|| format!("the figure has no part '{name}'"))
+    };
+    if let Some(name) = &opts.part {
+        let p = part_of(&ed, name)?;
+        view::act(&mut ed, &mut view, view::Action::Part(p));
+        if let Some(parent) = &opts.parent {
+            let q = part_of(&ed, parent)?;
+            ed.set_parent(Some(q));
+        }
+        if let Some(at) = opts.joint {
+            // As the tree prints it: from the figure's low corner.
+            let low = ed.figure.as_ref().map_or(glam::Vec3::ZERO, |f| f.low.as_vec3());
+            ed.set_joint(Some(at + low));
+        }
+        ed.follow_figure();
+        view.follow_origin(&ed);
+    } else if opts.parent.is_some() || opts.joint.is_some() {
+        bail!("--parent and --joint set the rig of the part --part names");
+    }
     if let Some(word) = &opts.tool {
         let tool = model::Tool::of(ed.scope, ed.layer).iter().copied().find(|t| t.label(ed.scope).eq_ignore_ascii_case(word));
         ed.choose(tool.with_context(|| format!("--tool {word}: no such tool here"))?);
@@ -108,25 +140,45 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     let mut painter = crate::gui::Painter::new(canvas.gpu().0, wgpu::TextureFormat::Rgba8Unorm, true);
     let (mut input, mut thumbs, mut drawn) = (crate::gui::input::Input::default(), panels::Thumbs::default(), panels::Shown::default());
     let mut last = None;
-    for step in 0..120 {
-        let mut raw = input.take([opts.width, opts.height], 1.0, 1.0);
-        raw.time = Some(step as f64 / 60.0);
-        let out = ctx.run_ui(raw, |ui| drawn = panels::ui(ui, &ed, &view, &figures, &mut thumbs));
-        let settled = step >= 2 && out.viewport_output.get(&egui::ViewportId::ROOT).is_none_or(|v| v.repaint_delay == Duration::MAX);
-        if settled {
-            last = Some(out);
-            break;
+    // With --stamp twice: the shape set, then all drawn again.
+    for pass in 0..=opts.stamp as usize {
+        for step in 0..120 {
+            let mut raw = input.take([opts.width, opts.height], 1.0, 1.0);
+            raw.time = Some((pass * 120 + step) as f64 / 60.0);
+            let out = ctx.run_ui(raw, |ui| {
+                drawn = panels::ui(ui, &ed, &view, &figures, &mut thumbs);
+                panels::joints(ui, &ed, &view, &drawn.rects);
+            });
+            let settled = step >= 2 && out.viewport_output.get(&egui::ViewportId::ROOT).is_none_or(|v| v.repaint_delay == Duration::MAX);
+            if settled {
+                last = Some(out);
+                break;
+            }
+            let (device, queue, _) = canvas.gpu();
+            painter.skip(device, queue, out);
         }
-        let (device, queue, _) = canvas.gpu();
-        painter.skip(device, queue, out);
-    }
-    view.inset = inset(&drawn.rects, ctx.content_rect());
-    // The mouse in the middle of the view.
-    let (mx, my) = (0.5 - view.inset.x / 2.0, 0.5 - view.inset.y / 2.0);
-    if among_things(&ed) {
-        (view.spot, view.under) = view.aim_things(&ed, &shown, &figures, aspect, mx, my);
-    } else {
-        view.hover = view.aim(&ed, aspect, mx, my);
+        view.inset = inset(&drawn.rects, ctx.content_rect());
+        // The mouse in the middle of the view.
+        let (mx, my) = (0.5 - view.inset.x / 2.0, 0.5 - view.inset.y / 2.0);
+        if among_things(&ed) {
+            (view.spot, view.under) = view.aim_things(&ed, &shown, &figures, aspect, mx, my);
+        } else {
+            view.hover = view.aim(&ed, aspect, mx, my);
+        }
+        if opts.stamp && pass == 0 {
+            if !ed.forms() {
+                bail!("--stamp sets BOX or SPHERE: --tool box or --tool sphere");
+            }
+            ed.place_form(view.hover, false, false);
+            ed.drop_form();
+            ed.follow_figure();
+            view.follow_origin(&ed);
+            shown.update(&ed)?;
+            if let Some(out) = last.take() {
+                let (device, queue, _) = canvas.gpu();
+                painter.skip(device, queue, out);
+            }
+        }
     }
     canvas.mesh_world(&mut shown.world, &ALL_FACES);
     let frame = view::frame(&ed, &view, &shown, &figures, &cfg.light, aspect);
@@ -153,12 +205,35 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         keys,
         aim
     );
+    // A figure's parts as the list has them, how each hangs and what is
+    // wrong with it.
+    if let Some(figure) = &ed.figure {
+        for &(p, depth) in &figure.tree {
+            let part = &figure.parts()[p];
+            let on = part.parent.map_or("(the root)".to_string(), |q| format!("on {}", figure.parts()[q].name));
+            let j = figure.joint(p);
+            let by_hand = match (part.hung == crate::vox::Hung::ByHand, part.joint_by_hand) {
+                (true, true) => " (parent and joint set by hand)",
+                (true, false) => " (parent set by hand)",
+                (false, true) => " (joint set by hand)",
+                (false, false) => "",
+            };
+            let chosen = if figure.selected == Some(p) { " (chosen)" } else { "" };
+            println!("{}{} {on}, turning at {}, {}, {}{by_hand}{chosen}{}", "  ".repeat(depth + 1), part.name, j.x, j.y, j.z, if figure.hidden[p] { " (hidden)" } else { "" });
+            for w in figure.warnings(p) {
+                println!("{}  ! {w}", "  ".repeat(depth + 1));
+            }
+            for &(q, n) in &part.overlaps {
+                println!("{}  ({n} in the same place as {}'s)", "  ".repeat(depth + 1), figure.parts()[q].name);
+            }
+        }
+    }
     Ok(())
 }
 
 /// How much of the window (`screen`, egui's points) the panels at `rects`
 /// take: the right one across, the bottom one up.
-fn inset(rects: &[egui::Rect], screen: egui::Rect) -> glam::Vec2 {
+pub(crate) fn inset(rects: &[egui::Rect], screen: egui::Rect) -> glam::Vec2 {
     match rects {
         [right, bottom, ..] => glam::Vec2::new(right.width() / screen.width().max(1.0), bottom.height() / screen.height().max(1.0)),
         _ => glam::Vec2::ZERO,
@@ -388,7 +463,7 @@ impl EditorWindow {
                         if view.choosing {
                             view.choosing = false;
                         } else {
-                            ed.back_to_level();
+                            view::act(ed, view, view::Action::Back);
                         }
                     }
                     // A key the panels name (a word's, a colour's digit;
@@ -508,8 +583,13 @@ impl EditorWindow {
         let raw = input.take(size, screen.window.display_scale(), screen.window.pixel_density());
         let mut drawn = panels::Shown::default();
         let marker = self.marker.map(|(x, y)| input.point(x, y));
+        // A figure's parts as its frames stand now (a stroke, a step back),
+        // the view kept on it.
+        ed.follow_figure();
+        view.follow_origin(ed);
         let out = gui.run_ui(raw, |ui| {
             drawn = panels::ui(ui, ed, view, figures, thumbs);
+            panels::joints(ui, ed, view, &drawn.rects);
             if let Some(tip) = marker {
                 crate::gui::marker::paint(ui.ctx(), tip);
             }

@@ -10,11 +10,12 @@ use std::hash::{Hash, Hasher};
 
 use egui::{Color32, RichText, TextStyle};
 
+use super::figure::Figure;
 use super::model::{Editor, Layer, Scope, Tool};
 use super::view::{Action, FRAMES_PER_SECOND, Figures, View, front, key_of, seen};
 use crate::blocks::Turn;
 use crate::grid::Kind;
-use crate::gui::{ACCENT, ERROR, QUIET, TEXT};
+use crate::gui::{ACCENT, ERROR, QUIET, TEXT, WARNING};
 
 /// How wide the panel on the right is, how high the bar along the bottom.
 pub const COLUMN: f32 = 250.0;
@@ -121,6 +122,11 @@ fn column(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
         ui.label(RichText::new(message).color(ERROR));
         ui.add_space(6.0);
     }
+    // A figure of parts: its tree, and the part chosen shaped and rigged
+    // under it.
+    if let (Some(figure), Scope::Figure | Scope::Frame(_)) = (&ed.figure, ed.scope) {
+        return figure_column(ui, ed, figure, shown);
+    }
     let things = ed.scope == Scope::Level && ed.layer == Layer::Things;
     match ed.scope {
         Scope::Level => {
@@ -153,6 +159,7 @@ fn column(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
             kind(ui, ed, shown);
             buttons(ui, shown, &[("TURN", Action::Turn(Turn::TURN)), ("CLONE", Action::Clone), ("DELETE", Action::Delete)]);
         }
+        Scope::Figure => {}
         Scope::Frame(f) => {
             let name = std::path::Path::new(&ed.file).file_stem().map_or(String::new(), |s| s.to_string_lossy().into_owned());
             let s = ed.grid();
@@ -171,17 +178,24 @@ fn column(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
             let pic = thumbs.get(ui.ctx(), format!("frame {at}"), (&frame.voxels, &frame.palette, frame.size.to_array(), view.face as u8), || seen(frame, view.face));
             ui.add_space(4.0);
             picture(ui, pic, 160.0);
-            if frames.len() > 1 {
+            // (A figure whose rig cannot be made, shaped part by part: its
+            // frames are its parts, not to play, copy or take out.)
+            let parted = ed.parted();
+            if frames.len() > 1 && !parted {
                 buttons(ui, shown, &[(if view.playing { "PAUSE" } else { "PLAY" }, Action::Play)]);
             }
             ui.add_space(4.0);
-            ui.label(format!("FRAME {} OF {}", f + 1, frames.len()));
+            ui.label(format!("{} {} OF {}", if parted { "PART" } else { "FRAME" }, f + 1, frames.len()));
             buttons(ui, shown, &[("PREV", Action::Frame(-1)), ("NEXT", Action::Frame(1))]);
-            buttons(ui, shown, &[("COPY", Action::CopyFrame), ("DELETE", Action::DeleteFrame)]);
+            if !parted {
+                buttons(ui, shown, &[("COPY", Action::CopyFrame), ("DELETE", Action::DeleteFrame)]);
+            }
             buttons(ui, shown, &[("TURN", Action::Turn(Turn::TURN)), ("TRIM", Action::Trim)]);
         }
     }
-    heading(ui, "Tools");
+    if !Tool::of(ed.scope, ed.layer).is_empty() {
+        heading(ui, "Tools");
+    }
     for &tool in Tool::of(ed.scope, ed.layer) {
         row(ui, shown, tool.label(ed.scope), Action::Tool(tool), ed.tool == tool);
     }
@@ -208,6 +222,198 @@ fn column(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
     buttons(ui, shown, &[("UNDO", Action::Undo), ("REDO", Action::Redo)]);
     if let Scope::Block(_) = ed.scope {
         buttons(ui, shown, &[("BACK", Action::Back)]);
+    }
+}
+
+/// FIGURE's panel: the figure's parts by what they hang on, the root
+/// first, each with a mark that hides it (the picture only) and, quiet
+/// under it, what is plainly wrong with how it hangs; the part chosen to
+/// shape.
+fn parts(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, shown: &mut Shown) {
+    let name = std::path::Path::new(&ed.file).file_stem().map_or(String::new(), |s| s.to_string_lossy().into_owned());
+    let s = figure.model.size;
+    heading(ui, &format!("Figure {name}"));
+    ui.label(RichText::new(format!("{} × {} × {} voxels, {} parts", s.x, s.y, s.z, figure.parts().len())).color(QUIET));
+    heading(ui, "Parts");
+    for &(p, depth) in &figure.tree {
+        let (hidden, chosen) = (figure.hidden[p], figure.selected == Some(p));
+        let indent = depth as f32 * 14.0;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            ui.add_space(indent);
+            // Shown: a filled square; hidden: an empty one.
+            let (rect, mark) = ui.allocate_exact_size(egui::vec2(20.0, ui.text_style_height(&TextStyle::Body) + 10.0), egui::Sense::click());
+            let square = egui::Rect::from_center_size(rect.center(), egui::vec2(9.0, 9.0));
+            let colour = if mark.hovered() { TEXT } else { QUIET };
+            if hidden {
+                ui.painter().rect_stroke(square, 1.0, egui::Stroke::new(1.5, colour), egui::StrokeKind::Inside);
+            } else {
+                ui.painter().rect_filled(square, 1.0, colour);
+            }
+            if mark.on_hover_text(if hidden { "Show it" } else { "Hide it (the picture only)" }).clicked() {
+                shown.clicked.push(Action::Hide(p));
+            }
+            // While a parent is being chosen: the parts that would make a
+            // ring quiet, saying why.
+            let ring = if ed.picking_parent { figure.selected.and_then(|s| ed.ring_with(s, p)) } else { None };
+            let colour = if ring.is_some() { QUIET } else if chosen { ACCENT } else if hidden { QUIET } else { TEXT };
+            let row = crate::gui::row(ui, &figure.parts()[p].name, TextStyle::Body, colour, chosen, None);
+            let row = match ring {
+                Some(why) => row.on_hover_text(why),
+                None => row,
+            };
+            if row.clicked() {
+                shown.clicked.push(Action::Part(p));
+            }
+        });
+        // Under it, quiet: what is set by hand; what is plainly wrong.
+        let part = &figure.parts()[p];
+        let by_hand = match (part.hung == crate::vox::Hung::ByHand, part.joint_by_hand) {
+            (true, true) => Some("parent and joint set by hand"),
+            (true, false) => Some("parent set by hand"),
+            (false, true) => Some("joint set by hand"),
+            (false, false) => None,
+        };
+        let left = (indent + 30.0).min(120.0) as i8;
+        let said = by_hand.map(|w| (w.to_string(), QUIET)).into_iter().chain(figure.warnings(p).into_iter().map(|w| (w, WARNING)));
+        for (words, colour) in said {
+            egui::Frame::new().inner_margin(egui::Margin { left, bottom: 4, ..egui::Margin::ZERO }).show(ui, |ui| ui.label(RichText::new(words).small().color(colour)));
+        }
+    }
+    ui.add_space(6.0);
+    if figure.hidden.iter().any(|&h| h) {
+        buttons(ui, shown, &[("SHOW ALL", Action::ShowAll)]);
+    }
+    if figure.selected.is_none() {
+        ui.label(RichText::new("Choose a part to shape it and set what it hangs on. The rings in the view: where each part turns.").small().color(QUIET));
+    }
+}
+
+/// A figure's column: its parts, and the chosen part's parent and joint;
+/// UNDO and REDO. Its tools and colours are on the bar (`figure_bar`), so
+/// that the parts stay in view.
+fn figure_column(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, shown: &mut Shown) {
+    parts(ui, ed, figure, shown);
+    if let Some(p) = figure.selected {
+        rig(ui, ed, figure, p, shown);
+    }
+    ui.add_space(10.0);
+    buttons(ui, shown, &[("UNDO", Action::Undo), ("REDO", Action::Redo)]);
+}
+
+/// The bar while a figure's part is shaped: the tools side by side, BEVEL
+/// and SYMMETRY, then the colours.
+fn figure_bar(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+    let pick = |ui: &mut egui::Ui, shown: &mut Shown, label: &str, action: Action, on: bool| {
+        let key = key_of(action);
+        if let Some(k) = key {
+            shown.keys.push((k, action));
+        }
+        let mut job = egui::text::LayoutJob::default();
+        job.append(label, 0.0, egui::TextFormat { font_id: TextStyle::Button.resolve(ui.style()), color: if on { ACCENT } else { TEXT }, ..Default::default() });
+        if let Some(k) = key {
+            job.append(&format!(" {k}"), 0.0, egui::TextFormat { font_id: TextStyle::Small.resolve(ui.style()), color: QUIET, valign: egui::Align::Center, ..Default::default() });
+        }
+        if ui.selectable_label(on, job).clicked() {
+            shown.clicked.push(action);
+        }
+    };
+    for &tool in Tool::of(ed.scope, ed.layer) {
+        pick(ui, shown, tool.label(ed.scope), Action::Tool(tool), ed.tool == tool);
+    }
+    ui.add_space(10.0);
+    if ed.tool == Tool::Box {
+        pick(ui, shown, "BEVEL", Action::Bevel, ed.bevel);
+    }
+    pick(ui, shown, "SYMMETRY", Action::Symmetry, ed.symmetry);
+    ui.add_space(14.0);
+    colours(ui, ed, shown);
+    let mut c = ed.colour;
+    if egui::color_picker::color_edit_button_srgb(ui, &mut c).on_hover_text("Every colour.").changed() {
+        shown.clicked.push(Action::Colour(c));
+    }
+}
+
+/// The chosen part's parent and joint: what they are, whether set by hand,
+/// and the buttons that set them or give them back to the rules.
+fn rig(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, p: usize, shown: &mut Shown) {
+    let part = &figure.parts()[p];
+    let quiet = |ui: &mut egui::Ui, text: &str| ui.label(RichText::new(text).small().color(QUIET));
+    heading(ui, &format!("Part {}", part.name));
+    let by_hand = part.hung == crate::vox::Hung::ByHand;
+    ui.label(format!("PARENT {}", part.parent.map_or("none: the root", |q| figure.parts()[q].name.as_str())));
+    quiet(ui, if by_hand { "set by hand" } else { "found by the rules" });
+    if ed.picking_parent {
+        ui.label(RichText::new("Click the part it hangs on in the list.").small().color(ACCENT));
+        buttons(ui, shown, &[("CANCEL", Action::PickParent)]);
+    } else if by_hand {
+        buttons(ui, shown, &[("CHOOSE", Action::PickParent), ("BY THE RULES", Action::ParentWorkedOut)]);
+    } else {
+        buttons(ui, shown, &[("CHOOSE", Action::PickParent)]);
+    }
+    // Each way its own line: where it is, half a voxel less or more.
+    let j = figure.joint(p);
+    ui.add_space(4.0);
+    ui.label("JOINT");
+    quiet(ui, if part.joint_by_hand { "set by hand" } else { "found by the rules" });
+    for (axis, name) in [(0u8, "X"), (1, "Y"), (2, "Z")] {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(name).color(QUIET));
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(52.0, ui.text_style_height(&TextStyle::Body)), egui::Sense::hover());
+            ui.painter().text(rect.right_center(), egui::Align2::RIGHT_CENTER, {
+                // Halves as they are, a joint the rules found between them short.
+                let v = j[axis as usize];
+                if (v * 2.0).fract() == 0.0 { v.to_string() } else { format!("{v:.2}") }
+            }, TextStyle::Body.resolve(ui.style()), TEXT);
+            ui.add_space(8.0);
+            for (way, sign) in [(-1i8, "-"), (1, "+")] {
+                if ui.add(egui::Button::new(sign).min_size(egui::vec2(26.0, 0.0))).on_hover_text(format!("{name} half a voxel {}", if way < 0 { "less" } else { "more" })).clicked() {
+                    shown.clicked.push(Action::Joint(axis, way));
+                }
+            }
+        });
+    }
+    if part.joint_by_hand {
+        buttons(ui, shown, &[("BY THE RULES", Action::JointWorkedOut)]);
+    }
+}
+
+/// FIGURE's joints over the 3D view (in the room the panels at `rects`
+/// leave): a ring where each part shown turns, the chosen part's bigger
+/// with a line to where its parent turns, a part with a warning in the
+/// warning's colour. Drawn over the voxels, so a joint inside the figure
+/// shows.
+pub fn joints(ui: &egui::Ui, ed: &Editor, view: &View, rects: &[egui::Rect]) {
+    let screen = ui.ctx().content_rect();
+    let marks = super::view::joint_marks(ed, view, screen.width() / screen.height().max(1.0), super::inset(rects, screen));
+    let free = match rects {
+        [right, bottom, ..] => egui::Rect::from_min_max(screen.min, egui::pos2(right.left(), bottom.top())),
+        _ => screen,
+    };
+    let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::unique("joints"))).with_clip_rect(free);
+    // The editor's quiet word, at the foot of the view.
+    // (BOX and SPHERE in a figure say how they go there: the column has
+    // no room for it.)
+    let forms = (ed.part_mode().is_some() && ed.forms()).then_some("Drag on a face, + and - its depth, click sets it. Shift: only where empty. Ctrl: cuts. Escape lets go.");
+    if let Some(hint) = ed.hint.as_deref().or(forms) {
+        painter.text(free.left_bottom() + egui::vec2(16.0, -14.0), egui::Align2::LEFT_BOTTOM, hint, TextStyle::Body.resolve(ui.style()), QUIET);
+    }
+    let at = |share: glam::Vec2| egui::pos2(screen.left() + share.x * screen.width(), screen.top() + share.y * screen.height());
+    let chosen = marks.iter().any(|m| m.chosen);
+    for m in marks.iter().filter(|m| m.chosen) {
+        if let Some(parent) = m.parent {
+            painter.line_segment([at(m.at), at(parent)], egui::Stroke::new(2.0, ACCENT));
+        }
+    }
+    // The chosen one last, over the rest.
+    for m in marks.iter().filter(|m| !m.chosen).chain(marks.iter().filter(|m| m.chosen)) {
+        let (radius, colour) = match (m.chosen, m.warned) {
+            (true, _) => (6.0, ACCENT),
+            (false, true) => (4.0, WARNING),
+            (false, false) if chosen => (3.0, QUIET),
+            (false, false) => (4.0, TEXT),
+        };
+        painter.circle(at(m.at), radius, crate::gui::GROUND, egui::Stroke::new(if m.chosen { 2.5 } else { 1.5 }, colour));
     }
 }
 
@@ -293,24 +499,32 @@ fn bar(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs: &
                 }
             }
         }
-        Scope::Block(_) | Scope::Frame(_) => {
-            let (own, all) = ed.colours();
-            // The block's own colours, big: the first ten on 1 to 9 and 0.
-            for (i, &c) in own.iter().enumerate() {
-                let digit = (i < 10).then(|| char::from_digit((i as u32 + 1) % 10, 10).expect("a digit"));
-                if let Some(d) = digit {
-                    shown.keys.push((d, Action::Colour(c)));
-                }
-                if swatch(ui, c, 40.0, c == ed.colour, digit) {
-                    shown.clicked.push(Action::Colour(c));
-                }
-            }
-            ui.add_space(12.0);
-            for &c in all.iter().filter(|c| !own.contains(c)) {
-                if swatch(ui, c, 24.0, c == ed.colour, None) {
-                    shown.clicked.push(Action::Colour(c));
-                }
-            }
+        Scope::Figure => {
+            ui.label(RichText::new("Choose a part on the right to shape it. Drag with the right button to turn the figure, with the middle one to move it; the wheel brings it nearer.").color(QUIET));
+        }
+        Scope::Frame(_) if ed.figure.is_some() => figure_bar(ui, ed, shown),
+        Scope::Block(_) | Scope::Frame(_) => colours(ui, ed, shown),
+    }
+}
+
+/// The colours of the block or model on the bar: its own first, big and
+/// numbered, then the others'.
+fn colours(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+    let (own, all) = ed.colours();
+    // The block's own colours, big: the first ten on 1 to 9 and 0.
+    for (i, &c) in own.iter().enumerate() {
+        let digit = (i < 10).then(|| char::from_digit((i as u32 + 1) % 10, 10).expect("a digit"));
+        if let Some(d) = digit {
+            shown.keys.push((d, Action::Colour(c)));
+        }
+        if swatch(ui, c, 40.0, c == ed.colour, digit) {
+            shown.clicked.push(Action::Colour(c));
+        }
+    }
+    ui.add_space(12.0);
+    for &c in all.iter().filter(|c| !own.contains(c)) {
+        if swatch(ui, c, 24.0, c == ed.colour, None) {
+            shown.clicked.push(Action::Colour(c));
         }
     }
 }

@@ -95,6 +95,10 @@ pub struct View {
     /// Ctrl is down: BOX and SPHERE cut away (their shape shown red, in
     /// the voxels).
     pub cut: bool,
+    /// Where voxel 0, 0, 0 of the grid shown stood in a figure's scene
+    /// when last drawn (`Editor::origin`): the view goes with the figure
+    /// when another part is chosen or a part's box grows on its low side.
+    pub origin: Option<IVec3>,
 }
 
 /// How fast a model's frames play (on the editor's panel, in the IDE's
@@ -173,7 +177,7 @@ impl View {
             // A model as the game shows it as a run starts (`face`), a
             // little turned so that some of its front shows, all of it in
             // view.
-            Scope::Frame(_) => {
+            Scope::Frame(_) | Scope::Figure => {
                 let size = ed.grid().as_vec3();
                 let yaw = match face {
                     Face::Right => 250.0,
@@ -185,14 +189,28 @@ impl View {
             }
             _ => Orbit { yaw: -30.0, pitch: 25.0, zoom: n * 4.5, target: Vec3::splat(n / 2.0) },
         };
-        Self { level, block, hover: None, spot: None, under: None, choosing: false, inset: glam::Vec2::ZERO, face, playing: true, floor: true, cut: false }
+        Self { level, block, hover: None, spot: None, under: None, choosing: false, inset: glam::Vec2::ZERO, face, playing: true, floor: true, cut: false, origin: ed.origin() }
     }
 
     pub fn orbit(&mut self, scope: Scope) -> &mut Orbit {
         match scope {
             Scope::Level => &mut self.level,
-            Scope::Block(_) | Scope::Frame(_) => &mut self.block,
+            Scope::Block(_) | Scope::Frame(_) | Scope::Figure => &mut self.block,
         }
+    }
+
+    /// The view kept on the figure as the grid under it moves (another
+    /// part chosen, the figure whole again, a part's box grown or trimmed
+    /// on its low side, a step back): the figure stays still on the screen.
+    pub fn follow_origin(&mut self, ed: &Editor) {
+        let now = ed.origin();
+        if let (Some(was), Some(now)) = (self.origin, now)
+            && was != now
+        {
+            self.block.target += (was - now).as_vec3();
+            self.hover = None;
+        }
+        self.origin = now;
     }
 
     /// The camera's matrix for `orbit`, its middle moved into the room the
@@ -212,7 +230,7 @@ impl View {
     pub fn ray(&self, ed: &Editor, aspect: f32, x: f32, y: f32) -> (Vec3, Vec3) {
         let (orbit, unit) = match ed.scope {
             Scope::Level => (&self.level, ed.level.n as f32),
-            Scope::Block(_) | Scope::Frame(_) => (&self.block, 1.0),
+            Scope::Block(_) | Scope::Frame(_) | Scope::Figure => (&self.block, 1.0),
         };
         let (origin, dir) = mouse_ray(self.view_proj(orbit, aspect), x, y);
         (origin / unit, dir)
@@ -304,6 +322,9 @@ impl Shown {
                 world.mark_all_dirty();
                 world
             }
+            // The figure whole is drawn as cubes (`figure.rs`): its parts
+            // dimmed or left out without building anything again.
+            Scope::Figure => World::new(ed.grid(), [[0; 4]; 256]),
         };
         self.scope = ed.scope;
         self.shape = ed.shape().cloned();
@@ -319,8 +340,8 @@ impl Shown {
         let listed = ed.level.blocks.len();
         let same_blocks = |shown: &Self| shown.blocks.len() == listed && shown.blocks.iter().zip(ed.level.blocks.iter().zip(&ed.blocks)).all(|((b, k), (e, m))| *k == e.kind && b == m);
         match ed.scope {
-            Scope::Block(_) | Scope::Frame(_) => {
-                if self.scope == ed.scope && self.shape.as_ref() == ed.shape() {
+            Scope::Block(_) | Scope::Frame(_) | Scope::Figure => {
+                if self.scope == ed.scope && self.shape.as_ref() == ed.shape() && (ed.scope != Scope::Figure || self.world.size == ed.grid()) {
                     return Ok(false);
                 }
             }
@@ -522,6 +543,19 @@ pub enum Action {
     /// not.
     Bevel,
     Symmetry,
+    /// FIGURE: a part chosen in the list to shape and rig (its place among
+    /// the parts; chosen again, none: `Back` too), left out of the picture
+    /// or shown again, every part shown again. The chosen part's parent:
+    /// the next part clicked (CHOOSE), or as the rules find it; its joint
+    /// moved half a voxel along an axis (0 x, 1 y, 2 z; the sign the way),
+    /// or where the rules find it.
+    Part(usize),
+    Hide(usize),
+    ShowAll,
+    PickParent,
+    ParentWorkedOut,
+    Joint(u8, i8),
+    JointWorkedOut,
 }
 
 /// The key an action answers to (the panels show it beside its word): a
@@ -569,6 +603,7 @@ pub fn front(block: &Block) -> Vec<Option<[u8; 3]>> {
 
 /// Does what a click on the panels or a key says.
 pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
+    let scope = ed.scope;
     match action {
         Action::Tool(tool) => ed.choose(tool),
         Action::Undo => ed.undo(),
@@ -578,6 +613,7 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::Turn(turn) => match ed.scope {
             Scope::Level => ed.turn(turn),
             Scope::Block(_) | Scope::Frame(_) => ed.turn_block(turn),
+            Scope::Figure => {}
         },
         Action::Clone => {
             if let Err(e) = ed.clone_block() {
@@ -619,7 +655,25 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::Play => view.playing = !view.playing,
         Action::Bevel => ed.bevel = !ed.bevel,
         Action::Symmetry => ed.symmetry = !ed.symmetry,
+        Action::Part(p) => ed.choose_part(p),
+        Action::Hide(p) => ed.hide_part(p),
+        Action::ShowAll => ed.show_all_parts(),
+        Action::PickParent => ed.picking_parent = !ed.picking_parent,
+        Action::ParentWorkedOut => ed.set_parent(None),
+        Action::Joint(axis, way) => {
+            let mut by = Vec3::ZERO;
+            by[axis.min(2) as usize] = 0.5 * way.signum() as f32;
+            ed.move_joint(by);
+        }
+        Action::JointWorkedOut => ed.set_joint(None),
     }
+    // The figure made again at once (a part chosen, its rig set), and the
+    // view kept on it.
+    ed.follow_figure();
+    if scope != ed.scope {
+        view.hover = None;
+    }
+    view.follow_origin(ed);
 }
 
 /// A frame of the editor: what is shown in the game's light, the floor
@@ -630,23 +684,29 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     let n = ed.level.n;
     let (orbit, unit) = match ed.scope {
         Scope::Level => (&view.level, n),
-        Scope::Block(_) | Scope::Frame(_) => (&view.block, 1),
+        Scope::Block(_) | Scope::Frame(_) | Scope::Figure => (&view.block, 1),
     };
     let grid = ed.grid();
     let view_proj = view.view_proj(orbit, aspect);
     let eye = crate::camera::eye(&orbit.camera(), orbit.target, aspect);
     let sun = Vec3::from(light.sun).normalize_or(Vec3::NEG_Z);
-    let world = shown.world.size.as_vec3();
-    let (light_vp, depth_range) = crate::camera::light_around(sun, Vec3::new(0.0, 0.0, -(unit as f32)), world.max(Vec3::ONE));
+    // A figure's part is shaped in the figure: the room is the figure's
+    // (with the part's box), the floor under it all.
+    let (room_lo, room_hi) = match ed.figure_box() {
+        Some((lo, size)) => (lo.min(IVec3::ZERO), (lo + size).max(shown.world.size)),
+        None => (IVec3::ZERO, shown.world.size),
+    };
+    let (light_vp, depth_range) = crate::camera::light_around(sun, room_lo.as_vec3() * unit as f32 - Vec3::new(0.0, 0.0, unit as f32), room_hi.as_vec3().max(Vec3::ONE) * unit as f32);
 
     // The floor: a cell deep under the grid, in two shades (the editor's;
     // not in the IDE's pictures).
     let mut instances = Vec::new();
     let u = unit as f32;
-    for y in 0..grid.y * view.floor as i32 {
-        for x in 0..grid.x {
-            let shade = if (x + y) % 2 == 0 { [58, 56, 66, 255] } else { [66, 64, 74, 255] };
-            instances.push(Instance { pos_size: [(x as f32 + 0.5) * u, (y as f32 + 0.5) * u, -0.5 * u, u], color: shade, fx: [0, 255, 0, 0], shade: [0; 4], turn: [0; 4] });
+    let (floor_lo, floor_size) = if ed.figure_box().is_some() { (room_lo, room_hi - room_lo) } else { (IVec3::ZERO, grid) };
+    for y in floor_lo.y..floor_lo.y + floor_size.y * view.floor as i32 {
+        for x in floor_lo.x..floor_lo.x + floor_size.x {
+            let shade = if (x + y).rem_euclid(2) == 0 { [58, 56, 66, 255] } else { [66, 64, 74, 255] };
+            instances.push(Instance { pos_size: [(x as f32 + 0.5) * u, (y as f32 + 0.5) * u, (floor_lo.z as f32 - 0.5) * u, u], color: shade, fx: [0, 255, 0, 0], shade: [0; 4], turn: [0; 4] });
         }
     }
     let things = ed.scope == Scope::Level && ed.layer == Layer::Things;
@@ -666,11 +726,20 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     // Where the tool would work: a see-through cube there, or the held kind
     // of thing see-through where it would stand.
     let mut see_through = 0;
+    let far = |i: &Instance| -(Vec3::from_slice(&i.pos_size[..3]) - eye).length_squared();
+    // A figure: its parts as cubes round the one chosen (that one is the
+    // world shown, being shaped), see-through while one is chosen, flush
+    // ones one body; drawn far to near with the tool's marks after the
+    // opaque ones.
+    let mut through = Vec::new();
+    if let (Some(figure), Some((lo, _))) = (&ed.figure, ed.figure_box()) {
+        through = figure.cubes(lo, &mut instances);
+        crate::render::join_see_through(&mut through, eye - grid.as_vec3() / 2.0);
+    }
     if things {
         if let (Tool::Add, Some(at), Some(kind)) = (ed.tool, view.spot, &ed.held_kind) {
             let start = instances.len();
             figures.cubes(kind, at, None, 120, &mut instances);
-            let far = |i: &Instance| -(Vec3::from_slice(&i.pos_size[..3]) - eye).length_squared();
             instances[start..].sort_by(|a, b| far(a).total_cmp(&far(b)));
             see_through = instances.len() - start;
         }
@@ -685,7 +754,6 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
             let p = (c.as_vec3() + 0.5) * u;
             instances.push(Instance { pos_size: [p.x, p.y, p.z, u * 1.02], color, fx: [0, 110, 0, 0], shade: [0; 4], turn: [0; 4] });
         }
-        let far = |i: &Instance| -(Vec3::from_slice(&i.pos_size[..3]) - eye).length_squared();
         instances[start..].sort_by(|a, b| far(a).total_cmp(&far(b)));
         see_through = instances.len() - start;
     } else if let Some(c) = view.hover.and_then(|hit| ed.target(hit)) {
@@ -694,17 +762,23 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
             Tool::Pick => [255, 255, 255, 255],
             _ => match ed.scope {
                 Scope::Level => [255, 214, 90, 255],
-                Scope::Block(_) | Scope::Frame(_) => [ed.colour[0], ed.colour[1], ed.colour[2], 255],
+                Scope::Block(_) | Scope::Frame(_) | Scope::Figure => [ed.colour[0], ed.colour[1], ed.colour[2], 255],
             },
         };
         let filled = match ed.scope {
             Scope::Level => ed.level.cell(c).block != 0,
-            Scope::Block(_) | Scope::Frame(_) => ed.shape().is_some_and(|b| b.get(c) != 0),
+            Scope::Block(_) | Scope::Frame(_) | Scope::Figure => ed.shape().is_some_and(|b| b.get(c) != 0),
         };
         let size = if filled { u * 1.04 } else { u };
         let p = (c.as_vec3() + 0.5) * u;
         instances.push(Instance { pos_size: [p.x, p.y, p.z, size], color, fx: [0, 110, 0, 0], shade: [0; 4], turn: [0; 4] });
         see_through = 1;
+    }
+    if !through.is_empty() {
+        through.extend(instances.drain(instances.len() - see_through..));
+        through.sort_by(|a, b| far(a).total_cmp(&far(b)));
+        see_through = through.len();
+        instances.extend(through);
     }
 
     FrameData {
@@ -746,6 +820,40 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         ui: Vec::new(),
         ui_view_proj: Mat4::IDENTITY,
     }
+}
+
+/// A joint of a figure as FIGURE marks it over the 3D view: where (shares
+/// of the screen, from the top left), where its parent's joint is (the
+/// chosen part's only), and whether it is the chosen part's or has a
+/// warning.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct JointMark {
+    pub part: usize,
+    pub at: glam::Vec2,
+    pub parent: Option<glam::Vec2>,
+    pub chosen: bool,
+    pub warned: bool,
+}
+
+/// FIGURE's joints on the screen (`aspect`, the panels taking `inset`):
+/// one for each part shown that lies before the eye.
+pub fn joint_marks(ed: &Editor, view: &View, aspect: f32, inset: glam::Vec2) -> Vec<JointMark> {
+    let (Some(figure), Some((lo, _))) = (&ed.figure, ed.figure_box()) else { return Vec::new() };
+    let shift = lo.as_vec3();
+    let view_proj = Mat4::from_translation(Vec3::new(-inset.x, inset.y, 0.0)) * view.block.view_proj(aspect);
+    let on_screen = |p: Vec3| {
+        let c = view_proj * (p + shift).extend(1.0);
+        (c.w > 1e-4).then(|| glam::Vec2::new((c.x / c.w + 1.0) / 2.0, (1.0 - c.y / c.w) / 2.0))
+    };
+    let parts = figure.parts();
+    (0..parts.len())
+        .filter(|&p| !figure.hidden[p])
+        .filter_map(|p| {
+            let chosen = figure.selected == Some(p);
+            let parent = parts[p].parent.filter(|_| chosen).and_then(|q| on_screen(figure.joint(q)));
+            Some(JointMark { part: p, at: on_screen(figure.joint(p))?, parent, chosen, warned: !figure.warnings(p).is_empty() })
+        })
+        .collect()
 }
 
 /// The editor's shadow map: the size the game's "high" setting has.

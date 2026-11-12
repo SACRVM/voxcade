@@ -39,7 +39,7 @@ USAGE:
   voxcade nettest join TICKET [internet | relayed | direct] [--seconds N] [--size BYTES]
   voxcade sheet  <game-dir> <model> [--out FILE]
   voxcade import <game-dir> <tiled-map.json> [--file NAME] [--over]
-  voxcade edit   <game-dir> [--block NAME | --things | --model FILE] [--shot FILE] [--view YAW,PITCH] [--size WxH]
+  voxcade edit   <game-dir> [--block NAME | --things | --model FILE [--part NAME [--parent NAME] [--joint X,Y,Z]]] [--stamp] [--shot FILE] [--view YAW,PITCH] [--size WxH]
   voxcade ide    [<game-dir>] [--shot FILE] [--open PATH] [--console CMD] [--play TICKS] [--size WxH] [--remote]
   voxcade mcp    [--remote]
   voxcade film   <game-dir> <replay-file> [--from S] [--to S] [--fps N] [--size WxH]
@@ -139,10 +139,16 @@ edit  opens the editor on a game's level of voxel blocks: the level (its
       things with --things; another than the config's with --level FILE,
       levels/02_crypt.json), or a block of it (--block); or on a model of
       the game, any size, its frames (--model FILE, its path in the game
-      folder). --shot draws it as it opens into a PNG instead of a window
-      (the mouse in the middle of the view; --view turns the camera;
-      --tool WORD chooses a tool, BOX and SPHERE holding a shape --held
-      X,Y,Z big; default 1920x1080).
+      folder; a figure of parts, its objects named, opens whole: FIGURE,
+      its parts by what they hang on, where each turns, what is wrong
+      with the rig; a part chosen is shaped in the figure, its parent
+      and joint set by hand). --shot draws it as it opens into a PNG
+      instead of a window, writing nothing (--part NAME chooses a
+      figure's part, --parent NAME and --joint X,Y,Z set its rig, the
+      joint as the printed tree has it; the mouse in the middle of the
+      view; --view turns the camera; --tool WORD chooses a tool, BOX and
+      SPHERE holding a shape --held X,Y,Z big, --stamp setting it there;
+      default 1920x1080).
 ide   opens the IDE on a game (docs/ide.md): its logic and assets on the
       left, the one thing open in the main area, the console with your
       shell below; without one, its start page (games opened last, OPEN,
@@ -482,12 +488,12 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
         }
         Some("edit") => {
             let dir = game_dir(&args)?;
-            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, things: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new() };
+            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new() };
             let mut shot = false;
             let mut it = args[2..].iter();
             while let Some(flag) = it.next() {
-                if flag == "--things" {
-                    opts.things = true;
+                if flag == "--things" || flag == "--stamp" {
+                    (opts.things, opts.stamp) = (opts.things || flag == "--things", opts.stamp || flag == "--stamp");
                     continue;
                 }
                 let value = it.next().with_context(|| format!("{flag} needs a value"))?;
@@ -501,6 +507,13 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                     }
                     "--block" => opts.block = Some(value.clone()),
                     "--model" => opts.model = Some(value.clone()),
+                    "--part" => opts.part = Some(value.clone()),
+                    "--parent" => opts.parent = Some(value.clone()),
+                    "--joint" => {
+                        let n: Vec<f32> = value.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>().context("--joint X,Y,Z")?;
+                        let [x, y, z] = n[..] else { bail!("--joint X,Y,Z: three numbers") };
+                        opts.joint = Some(glam::Vec3::new(x, y, z));
+                    }
                     "--shot" => {
                         opts.out = PathBuf::from(value);
                         shot = true;

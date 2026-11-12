@@ -1074,6 +1074,24 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   GitHub's file limit). A prefab's anchor is the middle cell of its bottom
   layer (size / 2); `turn` is anticlockwise quarter turns. Test:
   `a_map_builds_ground_prefabs_and_markers`.
+- A figure of parts in the voxel editor (`editor/figure.rs`; asked by
+  MAUERFALL, the user's plan 2026-11-12) is shaped whole, never part by
+  part in a view of its own (the user: "kein fan von parts separat
+  bearbeiten"): the tree of parts on the right (indented by parent,
+  warnings in words: touches nothing, could as well hang on another), the
+  chosen part drawn as it is and the rest see-through, the joints as
+  rings, the tools working on the chosen part where it stands. Parts are
+  models of their own that overlap (legs inside a body, a neck in a
+  chest): a tool never takes or refuses a cell another part holds, and
+  what flickers when built so is its maker's to mend by a slight turn in
+  the pose. PARENT and JOINT set by hand are kept in the file on the
+  part's node (`_parent`, `_joint` in the scene's coordinates, halves
+  allowed; `vox::parts_of`: stated wins, unset as worked out before, test
+  `a_figure_without_a_rig_hangs_as_before`); MagicaVoxel's keeping them
+  is no aim. A figure saved stays a figure, each part where it stood
+  (`ModelFile::parts`). `voxcade edit GAME --model FILE --shot OUT
+  [--part NAME --parent NAME --joint X,Y,Z --stamp]` to look. To come:
+  posing with the numbers for Lua, mirrored pairs, the game's view.
 
 ## Firepit inbox
 

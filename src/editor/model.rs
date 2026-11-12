@@ -22,18 +22,22 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use glam::{IVec3, Vec3};
 
-use super::frames::ModelFile;
+use super::figure::Figure;
+use super::frames::{ModelFile, Shaped};
 use crate::blocks::{self, Block, Turn};
 use crate::grid::{BlockEntry, Cell, GridLevel, Kind, Thing};
 
 /// What the editor shows: the level, one block of it (its place in the
 /// level's blocks), or a frame of a model (an editor opened on a model has
-/// only those).
+/// only those), or a figure of parts whole (FIGURE, `figure.rs`) with no
+/// part chosen. A figure's part chosen is the frame it is made of, shaped
+/// in the figure as it stands (`Editor::part_mode`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope {
     Level,
     Block(usize),
     Frame(usize),
+    Figure,
 }
 
 /// What the level's tools work on: its blocks, or its things.
@@ -73,6 +77,7 @@ impl Tool {
             (Scope::Level, Layer::Blocks) => &[Tool::Add, Tool::Remove, Tool::Paint, Tool::Pick],
             (Scope::Level, Layer::Things) => &[Tool::Add, Tool::Remove, Tool::Move, Tool::Pick],
             (Scope::Block(_) | Scope::Frame(_), _) => &[Tool::Add, Tool::Remove, Tool::Paint, Tool::Deep, Tool::Box, Tool::Sphere, Tool::Pick],
+            (Scope::Figure, _) => &[],
         }
     }
 
@@ -81,9 +86,9 @@ impl Tool {
             (Scope::Level, Tool::Add) => "PLACE",
             (Scope::Level, Tool::Remove) => "REMOVE",
             (Scope::Level, Tool::Paint) => "REPLACE",
-            (Scope::Block(_) | Scope::Frame(_), Tool::Add) => "ADD",
-            (Scope::Block(_) | Scope::Frame(_), Tool::Remove) => "ERASE",
-            (Scope::Block(_) | Scope::Frame(_), Tool::Paint) => "PAINT",
+            (Scope::Block(_) | Scope::Frame(_) | Scope::Figure, Tool::Add) => "ADD",
+            (Scope::Block(_) | Scope::Frame(_) | Scope::Figure, Tool::Remove) => "ERASE",
+            (Scope::Block(_) | Scope::Frame(_) | Scope::Figure, Tool::Paint) => "PAINT",
             (_, Tool::Deep) => "DEEP PAINT",
             (_, Tool::Move) => "MOVE",
             (_, Tool::Pick) => "PICK",
@@ -263,9 +268,10 @@ enum Step {
     Level(LevelState, LevelState),
     Block(usize, Block, Block),
     Delete(Box<Deletion>),
-    /// A model's frames, all of them (a stroke on one, or frames copied,
-    /// taken out, turned, the box grown or trimmed).
-    Model(Vec<Block>, Vec<Block>),
+    /// A model's frames, all of them, and a figure's parts as placed and
+    /// rigged (a stroke on one, or frames copied, taken out, turned, the
+    /// box grown or trimmed, a part's parent or joint set).
+    Model(Shaped, Shaped),
 }
 
 /// A block taken out of the level: its place in the list, what it was,
@@ -326,6 +332,15 @@ pub struct Editor {
     /// Every tool's voxel mirrored left to right about the box's middle
     /// too (SYMMETRY): a figure's two sides alike.
     pub symmetry: bool,
+    /// The model is a figure of parts: it shown whole (FIGURE).
+    pub figure: Option<Figure>,
+    /// FIGURE: the next part clicked in the list becomes the chosen part's
+    /// parent (PARENT ... CHOOSE).
+    pub picking_parent: bool,
+    /// A quiet word on what the editor did or will not do (over the view).
+    pub hint: Option<String>,
+    /// Changes are kept in memory only, nothing written (`--shot`).
+    pub dry: bool,
 }
 
 impl Editor {
@@ -365,21 +380,27 @@ impl Editor {
             depth: 1,
             bevel: false,
             symmetry: false,
+            figure: None,
+            picking_parent: false,
+            hint: None,
+            dry: false,
         })
     }
 
-    /// Opens the model `file` of the game in `dir`, at its first frame.
+    /// Opens the model `file` of the game in `dir`, at its first frame; a
+    /// figure of parts whole (FIGURE).
     pub fn open_model(dir: &Path, file: &str) -> Result<Self> {
         let model = ModelFile::load(&dir.join(file))?;
         let level = GridLevel::new(1, IVec3::ZERO);
         let colour = model.colours().first().copied().unwrap_or([200, 200, 200]);
+        let (figure, message) = Figure::follow(None, &model);
         Ok(Self {
             dir: dir.to_path_buf(),
             file: file.to_string(),
             level,
             blocks: Vec::new(),
             sheet: None,
-            scope: Scope::Frame(0),
+            scope: if figure.is_some() { Scope::Figure } else { Scope::Frame(0) },
             layer: Layer::Blocks,
             tool: Tool::Add,
             before_pick: Tool::Add,
@@ -391,7 +412,7 @@ impl Editor {
             past: Vec::new(),
             future: Vec::new(),
             stroke: None,
-            message: None,
+            message,
             model: Some(model),
             grown: IVec3::ZERO,
             moved: IVec3::ZERO,
@@ -400,13 +421,17 @@ impl Editor {
             depth: 1,
             bevel: false,
             symmetry: false,
+            figure,
+            picking_parent: false,
+            hint: None,
+            dry: false,
         })
     }
 
     /// The box of voxels shaped: the open block, or the model's frame.
     pub fn shape(&self) -> Option<&Block> {
         match self.scope {
-            Scope::Level => None,
+            Scope::Level | Scope::Figure => None,
             Scope::Block(i) => self.blocks.get(i),
             Scope::Frame(f) => self.model.as_ref().and_then(|m| m.frames.get(f)),
         }
@@ -414,7 +439,7 @@ impl Editor {
 
     fn shape_mut(&mut self) -> Option<&mut Block> {
         match self.scope {
-            Scope::Level => None,
+            Scope::Level | Scope::Figure => None,
             Scope::Block(i) => self.blocks.get_mut(i),
             Scope::Frame(f) => self.model.as_mut().and_then(|m| m.frames.get_mut(f)),
         }
@@ -431,6 +456,7 @@ impl Editor {
             Scope::Level => self.level.size,
             Scope::Block(_) => IVec3::splat(self.level.n),
             Scope::Frame(_) => self.shape().map_or(IVec3::ONE, |f| f.size),
+            Scope::Figure => self.figure.as_ref().map_or(IVec3::ONE, |f| f.model.size),
         }
     }
 
@@ -445,7 +471,7 @@ impl Editor {
     pub fn block_index(&self) -> Option<usize> {
         match self.scope {
             Scope::Block(i) => Some(i),
-            Scope::Frame(_) => None,
+            Scope::Frame(_) | Scope::Figure => None,
             Scope::Level => (self.held.block as usize).checked_sub(1),
         }
     }
@@ -484,8 +510,9 @@ impl Editor {
             (Scope::Level, _) => self.level.cell(c).block != 0,
             (Scope::Block(_), Some(Step::Block(_, before, _))) => before.get(c) != 0,
             // (The model as the stroke found it, moved as its box grew.)
-            (Scope::Frame(f), Some(Step::Model(before, _))) => before.get(f).is_some_and(|b| b.get(c - self.grown) != 0),
+            (Scope::Frame(f), Some(Step::Model(before, _))) => before.frames.get(f).is_some_and(|b| b.get(c - self.grown) != 0),
             (Scope::Block(_) | Scope::Frame(_), _) => self.shape().is_some_and(|b| b.get(c) != 0),
+            (Scope::Figure, _) => false,
         }
     }
 
@@ -496,7 +523,17 @@ impl Editor {
             // The level grows right, back and up: room for one more cell.
             Scope::Level => self.level.size + 1,
             Scope::Block(_) | Scope::Frame(_) => self.grid(),
+            // The figure whole with no part chosen: nothing to work on.
+            Scope::Figure => return None,
         };
+        // A figure's part is aimed at in the figure's room, its floor under
+        // the figure: the other parts are not hit, the tools go through.
+        if let Some((lo, figure)) = self.part_mode().and_then(|_| self.figure_box()) {
+            let lo = lo.min(IVec3::ZERO);
+            let hi = (lo + figure).max(size);
+            let hit = pick(origin - lo.as_vec3(), dir, hi - lo, |c| self.filled(c + lo, true))?;
+            return Some(Hit { cell: hit.cell + lo, normal: hit.normal });
+        }
         pick(origin, dir, size, |c| c.cmpge(IVec3::ZERO).all() && self.filled(c, true))
     }
 
@@ -512,6 +549,7 @@ impl Editor {
             // A model's box grows too, by ADD, a voxel on every side.
             Scope::Frame(_) if self.tool == Tool::Add => (IVec3::NEG_ONE, self.grid() + 1),
             Scope::Block(_) | Scope::Frame(_) => (IVec3::ZERO, self.grid()),
+            Scope::Figure => return None,
         };
         (c.cmpge(low).all() && c.cmplt(limit).all()).then_some(c)
     }
@@ -536,7 +574,8 @@ impl Editor {
         self.stroke = Some(match self.scope {
             Scope::Level => Step::Level(self.level_state(), self.level_state()),
             Scope::Block(i) => Step::Block(i, self.blocks[i].clone(), self.blocks[i].clone()),
-            Scope::Frame(_) => Step::Model(self.frames().to_vec(), Vec::new()),
+            Scope::Frame(_) => Step::Model(self.shaped(), Shaped::default()),
+            Scope::Figure => return,
         });
         self.grown = IVec3::ZERO;
         self.drag(hit);
@@ -585,6 +624,7 @@ impl Editor {
                 let i = self.level.index(c).unwrap();
                 self.level.cells[i] = cell;
             }
+            Scope::Figure => {}
             Scope::Block(_) | Scope::Frame(_) => {
                 let flip = IVec3::new(-hit.normal.x, hit.normal.y, hit.normal.z);
                 for (p, normal) in std::iter::once((c, hit.normal)).chain(mirrored.map(|m| (m, flip))) {
@@ -634,7 +674,9 @@ impl Editor {
         if !self.symmetry || self.scope == Scope::Level {
             return None;
         }
-        let m = IVec3::new(self.grid().x - 1 - c.x, c.y, c.z);
+        // A figure's part about the figure's middle: its two sides alike.
+        let (lo, size) = self.part_mode().and_then(|_| self.figure_box()).unwrap_or((IVec3::ZERO, self.grid()));
+        let m = IVec3::new(2 * lo.x + size.x - 1 - c.x, c.y, c.z);
         (m != c).then_some(m)
     }
 
@@ -661,8 +703,18 @@ impl Editor {
             return Some(IVec3::ZERO);
         }
         let shift = -lo;
+        let part = self.part_mode();
         let model = self.model.as_mut()?;
-        for frame in &mut model.frames {
+        // A figure's part alone, staying where it stands in the figure (its
+        // place goes down as its voxels go up in its box); a model's
+        // frames all alike.
+        if let Some(f) = part {
+            model.parts.iter_mut().filter(|p| p.frame == f).for_each(|p| p.low -= shift);
+        }
+        for (k, frame) in model.frames.iter_mut().enumerate() {
+            if part.is_some_and(|f| f != k) {
+                continue;
+            }
             let mut grown = Block::boxed((frame.size + shift).max(hi - lo));
             grown.palette = frame.palette.clone();
             for k in 0..frame.voxels.len() {
@@ -672,7 +724,11 @@ impl Editor {
             *frame = grown;
         }
         self.grown += shift;
-        self.moved += shift;
+        // (A figure's part: the view follows the part's place instead,
+        // `View::follow_origin`.)
+        if part.is_none() {
+            self.moved += shift;
+        }
         Some(shift)
     }
 
@@ -698,10 +754,10 @@ impl Editor {
                 Step::Block(i, before, self.blocks[i].clone())
             }
             Step::Model(before, _) => {
-                if self.frames() == before.as_slice() {
+                if self.model.as_ref().is_none_or(|m| m.is(&before)) {
                     return;
                 }
-                Step::Model(before, self.frames().to_vec())
+                Step::Model(before, self.shaped())
             }
         };
         self.save(&step);
@@ -841,9 +897,9 @@ impl Editor {
             return;
         }
         self.stroke = Some(match self.scope {
-            Scope::Level => return,
+            Scope::Level | Scope::Figure => return,
             Scope::Block(i) => Step::Block(i, self.blocks[i].clone(), self.blocks[i].clone()),
-            Scope::Frame(_) => Step::Model(self.frames().to_vec(), Vec::new()),
+            Scope::Frame(_) => Step::Model(self.shaped(), Shaped::default()),
         });
         self.grown = IVec3::ZERO;
         if matches!(self.scope, Scope::Frame(_)) && !cut {
@@ -908,7 +964,7 @@ impl Editor {
             Step::Block(i, before, after) => self.blocks[*i] = if forward { after } else { before }.clone(),
             Step::Model(before, after) => {
                 if let Some(model) = &mut self.model {
-                    model.frames = if forward { after } else { before }.clone();
+                    model.reshape(if forward { after } else { before });
                     if let Scope::Frame(f) = self.scope {
                         self.scope = Scope::Frame(f.min(model.frames.len() - 1));
                     }
@@ -1014,6 +1070,15 @@ impl Editor {
     /// The open block itself turned, its voxels with it (a side shaped as
     /// the front brought round); a step, saved.
     pub fn turn_block(&mut self, turn: Turn) {
+        if let Some(f) = self.part_mode() {
+            // A figure's part alone, about its box's middle.
+            return self.change_model_file(|m| {
+                let (was, now) = (m.frames[f].size, m.frames[f].turned(turn));
+                let shift = (was - now.size) / 2;
+                m.frames[f] = now;
+                m.parts.iter_mut().filter(|p| p.frame == f).for_each(|p| p.low += shift);
+            });
+        }
         if let Scope::Frame(_) = self.scope {
             return self.change_model(|frames| frames.iter_mut().for_each(|f| *f = f.turned(turn)));
         }
@@ -1136,9 +1201,19 @@ impl Editor {
         }
     }
 
+    /// Back to the level from a block, from a part to its figure whole.
     pub fn back_to_level(&mut self) {
         self.release();
-        if let Scope::Frame(_) = self.scope {
+        if let Scope::Frame(_) | Scope::Figure = self.scope {
+            // Choosing a parent: no more; from a figure's part: the figure
+            // with none chosen.
+            if self.picking_parent {
+                self.picking_parent = false;
+            } else if self.figure.is_some() {
+                self.scope = Scope::Figure;
+                self.picking_parent = false;
+                self.sync_choice();
+            }
             return;
         }
         if self.tool == Tool::Deep {
@@ -1245,6 +1320,9 @@ impl Editor {
     /// round at the ends).
     pub fn step_frame(&mut self, by: i32) {
         let (Scope::Frame(f), count) = (self.scope, self.frames().len()) else { return };
+        if self.part_mode().is_some() {
+            return;
+        }
         self.release();
         self.scope = Scope::Frame((f as i32 + by).rem_euclid(count.max(1) as i32) as usize);
     }
@@ -1252,6 +1330,10 @@ impl Editor {
     /// A copy of the frame shown after it, shown; a step.
     pub fn copy_frame(&mut self) {
         let Scope::Frame(f) = self.scope else { return };
+        // A figure's frames are its parts.
+        if self.parted() {
+            return;
+        }
         self.change_model(|frames| frames.insert(f + 1, frames[f].clone()));
         self.scope = Scope::Frame(f + 1);
     }
@@ -1259,7 +1341,7 @@ impl Editor {
     /// The frame shown taken out (not the last one); a step.
     pub fn delete_frame(&mut self) {
         let Scope::Frame(f) = self.scope else { return };
-        if self.frames().len() < 2 {
+        if self.frames().len() < 2 || self.parted() {
             return;
         }
         self.change_model(|frames| {
@@ -1271,17 +1353,22 @@ impl Editor {
     /// The model's box cut down to its voxels, every frame's alike (the
     /// frames keep their places to each other); a step.
     pub fn trim(&mut self) {
+        let part = self.part_mode();
         let mut bounds: Option<(IVec3, IVec3)> = None;
-        for frame in self.frames() {
+        for (_, frame) in self.frames().iter().enumerate().filter(|&(k, _)| part.is_none_or(|f| f == k)) {
             for k in (0..frame.voxels.len()).filter(|&k| frame.voxels[k] != 0) {
                 let p = frame.at(k);
                 bounds = Some(bounds.map_or((p, p), |(lo, hi)| (lo.min(p), hi.max(p))));
             }
         }
         let Some((lo, hi)) = bounds else { return };
-        self.moved -= lo;
-        self.change_model(|frames| {
-            for frame in frames.iter_mut() {
+        if part.is_none() {
+            self.moved -= lo;
+        }
+        // A figure's part alone, staying where it stands.
+        self.change_model_file(|m| {
+            m.parts.iter_mut().filter(|p| part == Some(p.frame)).for_each(|p| p.low += lo);
+            for (_, frame) in m.frames.iter_mut().enumerate().filter(|&(k, _)| part.is_none_or(|f| f == k)) {
                 let mut cut = Block::boxed(hi - lo + 1);
                 cut.palette = frame.palette.clone();
                 for k in 0..cut.voxels.len() {
@@ -1292,17 +1379,181 @@ impl Editor {
         });
     }
 
+    /// The figure whole made again if its frames or parts changed (a
+    /// stroke, a step back, a parent or a joint set); its trouble said.
+    pub fn follow_figure(&mut self) {
+        let Some(model) = &self.model else { return };
+        let (figure, trouble) = Figure::follow(self.figure.take(), model);
+        self.figure = figure;
+        if trouble.is_some() {
+            self.message = trouble;
+        }
+        if self.scope == Scope::Figure && self.figure.is_none() {
+            self.scope = Scope::Frame(0);
+        }
+        self.sync_choice();
+    }
+
+    /// The part chosen in the figure's list as the scope says: the frame
+    /// shaped is that part's.
+    fn sync_choice(&mut self) {
+        let scope = self.scope;
+        if let Some(f) = &mut self.figure {
+            f.selected = match scope {
+                Scope::Frame(k) => f.frames.iter().position(|&m| m == k),
+                _ => None,
+            };
+        }
+    }
+
+    /// The model is a figure of parts (by its file, even while its rig
+    /// cannot be made).
+    pub fn parted(&self) -> bool {
+        self.model.as_ref().is_some_and(ModelFile::parted)
+    }
+
+    /// The frame of the figure's part chosen, shaped in the figure as it
+    /// stands (None: no figure, or no part chosen).
+    pub fn part_mode(&self) -> Option<usize> {
+        match (self.scope, &self.figure) {
+            (Scope::Frame(f), Some(_)) if self.parted() => Some(f),
+            _ => None,
+        }
+    }
+
+    /// Where voxel 0, 0, 0 of what is shown stands in the figure's scene:
+    /// the figure's low corner, or the chosen part's frame's.
+    pub fn origin(&self) -> Option<IVec3> {
+        match self.scope {
+            Scope::Figure => self.figure.as_ref().map(|f| f.low),
+            Scope::Frame(f) if self.figure.is_some() => self.model.as_ref().and_then(|m| m.origin(f)),
+            _ => None,
+        }
+    }
+
+    /// The whole figure's box in the grid shown (its low corner and size):
+    /// the room the parts take round the one chosen.
+    pub fn figure_box(&self) -> Option<(IVec3, IVec3)> {
+        let figure = self.figure.as_ref()?;
+        Some((figure.low - self.origin()?, figure.model.size))
+    }
+
+    /// A part chosen in the figure's list, to shape in the figure and to
+    /// rig; chosen again, none. While PARENT is being chosen, the part
+    /// clicked becomes the parent instead.
+    pub fn choose_part(&mut self, p: usize) {
+        if self.picking_parent {
+            self.picking_parent = false;
+            return self.set_parent(Some(p));
+        }
+        let Some((frame, again)) = self.figure.as_ref().and_then(|f| Some((*f.frames.get(p)?, f.selected == Some(p)))) else { return };
+        self.release();
+        self.drop_form();
+        self.scope = if again || frame >= self.frames().len() { Scope::Figure } else { Scope::Frame(frame) };
+        self.hint = None;
+        self.sync_choice();
+    }
+
+    /// A part left out of FIGURE's picture, or shown again.
+    pub fn hide_part(&mut self, p: usize) {
+        if let Some(f) = &mut self.figure
+            && let Some(h) = f.hidden.get_mut(p)
+        {
+            *h = !*h;
+        }
+    }
+
+    /// Every part shown again.
+    pub fn show_all_parts(&mut self) {
+        if let Some(f) = &mut self.figure {
+            f.hidden.iter_mut().for_each(|h| *h = false);
+        }
+    }
+
+    /// The chosen part's place among the figure's parts.
+    fn chosen(&self) -> Option<usize> {
+        self.figure.as_ref()?.selected
+    }
+
+    /// The chosen part hung on part `parent` by hand, or (None) on what
+    /// the rules find; a step. A parent that hangs on the chosen part by
+    /// hand, by way of others or not, would make a ring: refused, said.
+    pub fn set_parent(&mut self, parent: Option<usize>) {
+        self.follow_figure();
+        let (Some(p), Some(figure)) = (self.chosen(), &self.figure) else { return };
+        let names: Vec<String> = figure.parts().iter().map(|q| q.name.clone()).collect();
+        if let Some(q) = parent {
+            if let Some(why) = self.ring_with(p, q) {
+                self.hint = Some(why);
+                return;
+            }
+            self.hint = Some(format!("{} hangs on {} now (set by hand)", names[p], names[q]));
+        } else {
+            self.hint = Some(format!("{} hangs where the rules find again", names[p]));
+        }
+        let name = names[p].clone();
+        let to = parent.map(|q| names[q].clone());
+        self.change_model_file(|m| m.parts.iter_mut().filter(|o| o.name == name).for_each(|o| o.parent = to.clone()));
+    }
+
+    /// Why part `p` cannot hang on `q` (a ring through the parents set by
+    /// hand), if it cannot.
+    pub fn ring_with(&self, p: usize, q: usize) -> Option<String> {
+        let model = self.model.as_ref()?;
+        let figure = self.figure.as_ref()?;
+        let name = |k: usize| figure.parts()[k].name.as_str();
+        if p == q {
+            return Some(format!("{} cannot hang on itself", name(p)));
+        }
+        let index = |n: &str| figure.parts().iter().position(|o| o.name == n);
+        let mut parents: Vec<Option<usize>> = figure.parts().iter().map(|o| model.parts.iter().find(|m| m.name == o.name).and_then(|m| m.parent.as_deref()).and_then(index)).collect();
+        parents[p] = Some(q);
+        let chain = crate::vox::ring(&parents, p)?;
+        let names: Vec<&str> = chain.iter().map(|&k| name(k)).collect();
+        Some(format!("{} hangs on {} by hand: that would make a ring ({})", name(q), name(p), names.join(" on ")))
+    }
+
+    /// The chosen part's joint where the figure has it now (to the nearest
+    /// half voxel), moved by `by` (halves of a voxel), set by hand; a step.
+    pub fn move_joint(&mut self, by: Vec3) {
+        self.follow_figure();
+        let (Some(p), Some(figure)) = (self.chosen(), &self.figure) else { return };
+        // On halves of a voxel (a joint the rules found may lie between).
+        let at = ((figure.joint(p) + figure.low.as_vec3()) * 2.0).round() / 2.0 + by;
+        self.set_joint(Some(at));
+    }
+
+    /// The chosen part's joint set by hand at `at` (in the scene), or
+    /// (None) where the rules find it; a step.
+    pub fn set_joint(&mut self, at: Option<Vec3>) {
+        let (Some(p), Some(figure)) = (self.chosen(), &self.figure) else { return };
+        let name = figure.parts()[p].name.clone();
+        self.hint = None;
+        self.change_model_file(|m| m.parts.iter_mut().filter(|o| o.name == name).for_each(|o| o.joint = at));
+    }
+
+    /// The model's frames and a figure's parts as they stand.
+    fn shaped(&self) -> Shaped {
+        self.model.as_ref().map_or_else(Shaped::default, ModelFile::shaped)
+    }
+
     /// A change to the model's frames as a step, saved (nothing if it
     /// changes nothing).
     fn change_model(&mut self, change: impl FnOnce(&mut Vec<Block>)) {
+        self.change_model_file(|m| change(&mut m.frames));
+    }
+
+    /// A change to the model's frames or a figure's parts as a step, saved
+    /// (nothing if it changes nothing).
+    fn change_model_file(&mut self, change: impl FnOnce(&mut ModelFile)) {
         self.release();
         let Some(model) = &mut self.model else { return };
-        let before = model.frames.clone();
-        change(&mut model.frames);
-        if model.frames == before {
+        let before = model.shaped();
+        change(model);
+        if model.is(&before) {
             return;
         }
-        let step = Step::Model(before, model.frames.clone());
+        let step = Step::Model(before, model.shaped());
         self.save(&step);
         self.past.push(step);
         self.future.clear();
@@ -1310,6 +1561,9 @@ impl Editor {
 
     /// Saves what a step changed: the level, the block, or the model.
     fn save(&mut self, step: &Step) {
+        if self.dry {
+            return;
+        }
         let done = match step {
             Step::Level(..) | Step::Delete(..) => self.level.save(&self.dir.join(&self.file)),
             Step::Block(i, ..) => self.blocks[*i].save(&blocks::path(&self.dir, &self.level.blocks[*i].name)),

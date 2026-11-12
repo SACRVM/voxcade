@@ -19,6 +19,8 @@ pub const QUIET: Color32 = Color32::from_rgb(132, 126, 118);
 pub const ACCENT: Color32 = Color32::from_rgb(255, 214, 90);
 /// Something gone wrong.
 pub const ERROR: Color32 = Color32::from_rgb(214, 104, 92);
+/// Something that may well be a mistake, said quietly (a figure's rig).
+pub const WARNING: Color32 = Color32::from_rgb(206, 158, 96);
 /// A row under the mouse, and the one open or chosen.
 pub const ROW_HOVERED: Color32 = Color32::from_rgb(40, 38, 49);
 pub const ROW_OPEN: Color32 = Color32::from_rgb(52, 48, 64);

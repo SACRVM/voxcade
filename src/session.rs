@@ -2868,6 +2868,34 @@ mod tests {
         assert_eq!(nearer(&[Quat::IDENTITY, Quat::IDENTITY, turning(-90.0, 0.0, 0.0), Quat::IDENTITY]), [0.0, 1.0, 1.0, 2.0], "body, head, arm, hand");
     }
 
+    /// A part's joint set by hand in the file is where it turns: an arm
+    /// hanging beside the body, its joint put at its top, swung half round
+    /// rises above it; by the rules (the middle of where it meets the
+    /// body) it stays about where it hung.
+    #[test]
+    fn a_part_turns_about_the_joint_set_in_its_file() {
+        let dir = std::env::temp_dir().join(format!("voxcade-rigged-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("figure.vox");
+        let parts = [("body", IVec3::new(4, 4, 8), IVec3::ZERO), ("arm", IVec3::new(1, 1, 6), IVec3::new(4, 1, 1))];
+        let arm_z = |rig: &[(&str, &str, &str)]| {
+            crate::vox::write_figure_with(&file, &parts, rig);
+            let m = crate::vox::load_model(&file).unwrap();
+            let mut zs = Vec::new();
+            let colour = m.frames[0][m.parts[1].voxels[0] as usize].1;
+            draw(&mut |corner: Vec3, c, _, _, _| if c == colour { zs.push(corner.z + 0.5) }, None, &m, 0, Vec3::ZERO, IVec2::Y, Quat::IDENTITY, &[Quat::IDENTITY, turning(0.0, 180.0, 0.0)], None);
+            (m.parts[1].joint.z, zs.iter().copied().fold(f32::MAX, f32::min), zs.iter().copied().fold(f32::MIN, f32::max))
+        };
+        // Its top: the arm's voxels end at z 7 (from 1 to 7).
+        let (joint, low, high) = arm_z(&[("arm", "_joint", "4.5 1.5 7")]);
+        assert_eq!(joint, 7.0);
+        assert!(low > 7.0 && high < 13.5, "swung up about its top: {low}..{high}");
+        let (joint, low, high) = arm_z(&[]);
+        assert_eq!(joint, 4.0, "by the rules: the middle of where it meets the body");
+        assert!(low < 2.0 && high > 6.0, "swung about its middle: {low}..{high}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     /// A free turn of a quarter puts every voxel where the quarter turn
     /// does (it turns about the same pivot), and none turns nothing:
     /// models stay exactly as they were unless a game turns them.

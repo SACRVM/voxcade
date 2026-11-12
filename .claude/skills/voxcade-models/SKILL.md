@@ -177,7 +177,14 @@ Two ways, chosen per figure:
   body, arm_left ...) is a figure of parts. The biggest part is the root;
   each other hangs on the part it touches most and turns about the
   middle of where they meet, so build the parts touching at their
-  joints (a shoulder against the body's side, a head on the neck). A
+  joints (a shoulder against the body's side, a head on the neck). Where
+  that is not what you want (a jaw hinged at its back, an arm apart from
+  the body), set it by hand: the editor's FIGURE (`voxcade edit <game>
+  --model FILE`, a part chosen: PARENT, JOINT) writes `_parent` (a part's
+  name) and `_joint` ("x y z", halves allowed, in the scene's voxels as
+  the parts' `_t` are: a voxel's middle is its corner + 0.5) on the
+  part's node; `vox::Part` has the rule. Parts may overlap on purpose
+  (legs inside the body that come out in a walk): each keeps its voxels. A
   kind's `swing = { leg_left = 30, leg_right = -30, arm_left = -25,
   arm_right = 25 }` makes a walk without a single walk frame;
   `frame:model(file, thing, nil, nil, { arm_right = { pitch = 90 } })`

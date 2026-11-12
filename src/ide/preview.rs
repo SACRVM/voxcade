@@ -58,7 +58,11 @@ impl Preview {
         Self::of(Editor::open(dir, file)?, dir, cfg)
     }
 
-    fn of(ed: Editor, dir: &Path, cfg: &GameConfig) -> Result<Self> {
+    fn of(mut ed: Editor, dir: &Path, cfg: &GameConfig) -> Result<Self> {
+        // A figure of parts as before the editor's FIGURE: its frames.
+        if ed.scope == Scope::Figure {
+            (ed.scope, ed.figure) = (Scope::Frame(0), None);
+        }
         let mut view = View::new(&ed, cfg);
         view.floor = false;
         let shown = Shown::new(&ed)?;
