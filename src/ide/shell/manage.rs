@@ -470,6 +470,11 @@ impl Shell {
         }
         let sort = Sort::of(group);
         self.flush();
+        // A text of the user's not in the file (kept while it changed
+        // outside too) would go with it, unasked: the question first.
+        if super::super::buffer::holds_unsaved(&self.dir, path, &self.journals()) {
+            return self.tell(format!("{path} changed outside while your text was not saved yet: open it and choose KEEP MINE or TAKE THE NEW before deleting it."));
+        }
         if self.listening.as_deref() == Some(path) {
             self.hush();
         }

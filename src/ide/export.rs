@@ -57,9 +57,24 @@ pub fn export(dir: &Path, title: &str, program: &Path, out: &Path) -> Result<Pac
     if let Some(folder) = out.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(folder).with_context(|| format!("making {}", folder.display()))?;
     }
-    // Written beside the zip first and renamed over it: no half a zip.
+    // Written beside the zip first and renamed over it: no half a zip; and
+    // removed if the packing fails, so no half a zip is left behind either.
     let temp = out.with_extension("zip.part");
-    let mut zip = zip::ZipWriter::new(std::fs::File::create(&temp).with_context(|| format!("writing {}", temp.display()))?);
+    let packed = pack(dir, title, program, &temp, &name, &top);
+    let packed = packed.and_then(|missing| std::fs::rename(&temp, out).with_context(|| format!("writing {}", out.display())).map(|()| missing));
+    match packed {
+        Ok(missing) => Ok(Packed { bytes: std::fs::metadata(out)?.len(), missing }),
+        Err(e) => {
+            let _ = std::fs::remove_file(&temp);
+            Err(e)
+        }
+    }
+}
+
+/// Packs the zip at `temp` (see `export`): the ignored files the game
+/// needs.
+fn pack(dir: &Path, title: &str, program: &Path, temp: &Path, name: &str, top: &str) -> Result<Vec<String>> {
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(temp).with_context(|| format!("writing {}", temp.display()))?);
     let plain = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated).unix_permissions(0o644);
     let runs = plain.unix_permissions(0o755);
     let mut add = |path: String, bytes: &[u8], options| -> Result<()> {
@@ -87,7 +102,7 @@ pub fn export(dir: &Path, title: &str, program: &Path, out: &Path) -> Result<Pac
         (format!("play-{name}.{ending}"), format!("#!/bin/sh\ncd \"$(dirname \"$0\")\" || exit 1\n./voxcade run games/{name}\n"), runs)
     };
     add(launcher.clone(), script.as_bytes(), options)?;
-    add("README.txt".into(), readme(title, &name, &launcher).as_bytes(), plain)?;
+    add("README.txt".into(), readme(title, name, &launcher).as_bytes(), plain)?;
     // The licences of what is built into the program travel with it (a
     // package has them beside the program; a build from source has not).
     // Voxcade's own licence too, under a name that leaves LICENSE to the game.
@@ -97,8 +112,7 @@ pub fn export(dir: &Path, title: &str, program: &Path, out: &Path) -> Result<Pac
         }
     }
     zip.finish()?;
-    std::fs::rename(&temp, out).with_context(|| format!("writing {}", out.display()))?;
-    Ok(Packed { bytes: std::fs::metadata(out)?.len(), missing })
+    Ok(missing)
 }
 
 /// Which of the `ignored` files the game's text names (in quotes): its
@@ -230,6 +244,21 @@ mod tests {
         ignored.sort();
         assert_eq!(needed(&dir, &files, &ignored), ["models/hero.vvx", "sounds/coin.toml"], "named by the game; the spare model and the notes are not");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A build that fails partway leaves no half a zip behind (`.zip.part`),
+    /// and an earlier build stays as it was.
+    #[test]
+    fn a_failed_build_leaves_nothing_behind() {
+        let dir = crate::scratch::Scratch::new("export-failed");
+        std::fs::write(dir.join("main.lua"), "x").unwrap();
+        let out = out_path(&dir);
+        std::fs::create_dir_all(out.parent().unwrap()).unwrap();
+        std::fs::write(&out, "the build before").unwrap();
+        // No program where it is said to be: the packing fails once begun.
+        assert!(export(&dir, "Failed", &dir.join("no-such-program"), &out).is_err());
+        assert!(!out.with_extension("zip.part").exists(), "no .zip.part left");
+        assert_eq!(std::fs::read_to_string(&out).unwrap(), "the build before");
     }
 
     /// The agent's notes at the top of a game folder are not packed (a file

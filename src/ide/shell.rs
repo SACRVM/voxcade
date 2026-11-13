@@ -282,11 +282,13 @@ return IDENT
 
 /// A new song (the plus at MUSIC): four bars over and over, a tune and a bass.
 const NEW_SONG: &str = "\
-; NAME: a short song to change. The format is described at the top of
-; src/audio/music.rs: notes c d e f g a b (+ sharp, - flat), a length
-; (4 quarter, 8 eighth), o4 the octave, l8 the default length, v12 the
-; volume, | only marks a bar. A game plays it with c.audio.music or
-; music:play(\"music/NAME.mml\"); saving it plays it anew.
+; NAME: a short song to change. Each line after a letter and : is a voice:
+; notes c d e f g a b (+ sharp, - flat), a length (4 quarter, 8 eighth),
+; r a rest, o4 the octave, l8 the default length, v12 the volume (0 to 15),
+; @lead the instrument (an @ line above), | only marks a bar. PLAY SONG
+; above plays it; HELP has songs in games. A game names it in conf.lua,
+;   c.audio.music = { \"music/NAME.mml\" }
+; and its code plays it by its name: music:play(\"NAME\").
 
 #title NAME
 #tempo 110
@@ -600,12 +602,19 @@ impl Shell {
     }
 
     /// Saves the text being changed now, if it has changes (on leaving it,
-    /// before Play, when the IDE closes).
+    /// before Play, when the IDE closes). A text whose file changed outside
+    /// too is not saved while the question waits: it is kept in its
+    /// journal and asked about again when it opens, and the bar says so.
     pub fn flush(&mut self) {
-        if let Some(Shown::Code(buffer)) = &mut self.shown
-            && let Err(e) = buffer.save()
-        {
-            self.message = Some(format!("{e:#}"));
+        let Some(Shown::Code(buffer)) = &mut self.shown else { return };
+        match buffer.save() {
+            Err(e) => self.message = Some(format!("{e:#}")),
+            Ok(()) if buffer.theirs.is_some() => {
+                let path = self.memory.open.clone().unwrap_or_default();
+                let name = path.rsplit('/').next().unwrap_or(&path).to_string();
+                self.note(format!("{name} NOT SAVED: CHANGED OUTSIDE TOO · YOUR TEXT IS KEPT, ASKED AGAIN WHEN IT OPENS"));
+            }
+            Ok(()) => {}
         }
     }
 
@@ -1079,7 +1088,7 @@ impl Shell {
                 file["kind"] = json!("a song (MML), to read; PLAY SONG over it plays it");
                 file["playing"] = json!(self.listening.is_some());
             }
-            (Some(Shown::Note(_)), Some(path)) if sounds::name_of(path).is_some() => file["kind"] = json!("a sound recording; PLAY SOUND over it plays it"),
+            (Some(Shown::Note(note)), Some(path)) if sounds::name_of(path).is_some() => file["kind"] = json!(format!("a sound file that would not open as text: {note}")),
             (Some(Shown::Text(_)), _) => file["kind"] = json!("text, to read"),
             (Some(Shown::Image(_)), _) => file["kind"] = json!("picture"),
             _ if self.preview.is_some() => file["kind"] = json!("a model, block or level, shown as a picture; its editor opens with EDIT"),
@@ -3996,5 +4005,131 @@ mod tests {
         assert!(shell.output.errors(2).iter().any(|l| l.text.starts_with("BUILD FAILED")));
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_file(&memory);
+    }
+
+    /// `text` written into `file` from outside (the agent), its time set
+    /// ahead so that the next look sees it.
+    fn write_outside(file: &Path, text: &str) {
+        std::fs::write(file, text).unwrap();
+        std::fs::File::options().write(true).open(file).unwrap().set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(2)).unwrap();
+    }
+
+    /// `tools.lua` open with the user's typing in it, then changed outside
+    /// too: CHANGED OUTSIDE TOO shows. The user's text, and theirs.
+    fn asked(ctx: &egui::Context, shell: &mut Shell, dir: &Path) -> (String, &'static str) {
+        shell.open("tools.lua");
+        frame(ctx, shell);
+        type_into_text(ctx, shell, "-- mine\n");
+        let mine = buffer(shell).code.text.clone();
+        assert!(mine.contains("-- mine") && buffer(shell).unsaved());
+        let theirs = "return { theirs = true }\n";
+        write_outside(&dir.join("tools.lua"), theirs);
+        shell.tick(later());
+        assert_eq!(buffer(shell).theirs.as_deref(), Some(theirs));
+        assert!(says(&drawn_text(ctx, shell, vec![]), "CHANGED OUTSIDE TOO"));
+        (mine, theirs)
+    }
+
+    /// While CHANGED OUTSIDE TOO waits for an answer, another file chosen
+    /// (as OPEN, PLAY, BUILD and the rest: they save the text first) writes
+    /// nothing over the file and loses nothing: the bar says the text was
+    /// kept, DELETE waits for the answer, and the file opened again shows
+    /// both and asks again; KEEP MINE then saves the user's text.
+    #[test]
+    fn a_question_left_open_keeps_the_text_when_another_file_is_chosen() {
+        let (dir, _memory, mut shell) = managed_game("asked-then-switched");
+        let ctx = egui::Context::default();
+        let (mine, theirs) = asked(&ctx, &mut shell, &dir);
+        shell.open("main.lua");
+        frame(&ctx, &mut shell);
+        assert_eq!(std::fs::read_to_string(dir.join("tools.lua")).unwrap(), theirs, "nothing written over theirs");
+        assert!(matches!(&shell.notice, Some(Notice::Said(n)) if n.starts_with("tools.lua NOT SAVED")), "said");
+        assert!(shell.journals().join("tools.lua").is_file(), "the text kept in its journal");
+        // DELETE would take the user's text with the file: not before the answer.
+        shell.delete("tools.lua");
+        assert!(dir.join("tools.lua").is_file() && shell.message.as_deref().is_some_and(|m| m.contains("KEEP MINE")), "{:?}", shell.message);
+        shell.open("tools.lua");
+        let texts = drawn_text(&ctx, &mut shell, vec![]);
+        assert_eq!(buffer(&shell).code.text, mine, "the user's text back");
+        assert_eq!(buffer(&shell).theirs.as_deref(), Some(theirs), "asked again");
+        assert!(says(&texts, "CHANGED OUTSIDE TOO"), "{texts:?}");
+        let at = texts.iter().find(|(t, _)| t == "KEEP MINE").expect("the button").1;
+        click(&ctx, &mut shell, at);
+        shell.tick(later() + super::super::buffer::SAVE_AFTER * 2);
+        assert_eq!(std::fs::read_to_string(dir.join("tools.lua")).unwrap(), mine, "kept and saved");
+        assert!(!shell.journals().join("tools.lua").exists());
+        clean_up(&dir, &shell);
+    }
+
+    /// The IDE closed (or another game opened) while CHANGED OUTSIDE TOO
+    /// waits: opened again, the text is there with the question.
+    #[test]
+    fn a_question_left_open_keeps_the_text_when_the_ide_closes() {
+        let (dir, memory, mut shell) = managed_game("asked-then-closed");
+        let ctx = egui::Context::default();
+        let (mine, theirs) = asked(&ctx, &mut shell, &dir);
+        // What the window does as it closes.
+        shell.flush();
+        shell.save().unwrap();
+        drop(shell);
+        assert_eq!(std::fs::read_to_string(dir.join("tools.lua")).unwrap(), theirs, "nothing written over theirs");
+        let mut shell = shell_on(&dir, &memory);
+        shell.deleted_dir = dir.with_extension("deleted");
+        let ctx = egui::Context::default();
+        let texts = drawn_text(&ctx, &mut shell, vec![]);
+        assert_eq!(shell.opened(), Some("tools.lua"));
+        assert_eq!((buffer(&shell).code.text.as_str(), buffer(&shell).theirs.as_deref()), (mine.as_str(), Some(theirs)));
+        assert!(says(&texts, "CHANGED OUTSIDE TOO"), "{texts:?}");
+        // TAKE THE NEW: the user's text let go of, by the user.
+        let at = texts.iter().find(|(t, _)| t == "TAKE THE NEW").expect("the button").1;
+        click(&ctx, &mut shell, at);
+        assert_eq!(buffer(&shell).code.text, theirs);
+        assert!(!shell.journals().join("tools.lua").exists());
+        clean_up(&dir, &shell);
+    }
+
+    /// A sound's file that is no text says so to the agent (not "a sound
+    /// recording": recordings are refused).
+    #[test]
+    fn a_sound_file_that_is_no_text_is_said_so() {
+        let (dir, _memory, mut shell) = managed_game("sound-not-text");
+        std::fs::write(dir.join("sounds/broken.toml"), [0xff, 0xfe, 0x00]).unwrap();
+        shell.rescan();
+        let ctx = egui::Context::default();
+        shell.open("sounds/broken.toml");
+        frame(&ctx, &mut shell);
+        let kind = shell.state(&ctx)["file"]["kind"].as_str().unwrap_or_default().to_string();
+        assert!(kind.starts_with("a sound file that would not open as text") && !kind.contains("recording"), "{kind}");
+        clean_up(&dir, &shell);
+    }
+
+    /// A new song's own words say how a game plays it, and they work: the
+    /// line for conf.lua and the call for the code, in a game.
+    #[test]
+    fn a_new_song_says_how_a_game_plays_it() {
+        let song = NEW_SONG.replace("NAME", "tune");
+        crate::audio::music::parse(&song).expect("the new song parses");
+        let comments: Vec<&str> = song.lines().filter_map(|l| l.strip_prefix(';')).map(str::trim).collect();
+        let conf_line = comments.iter().find(|l| l.starts_with("c.audio.music =")).expect("the line for conf.lua");
+        let call = comments.iter().find_map(|l| l.find("music:play(").map(|at| &l[at..])).expect("the call");
+        let call = &call[..=call.find(')').expect("the call closed")];
+        let dir = crate::scratch::Scratch::new("shell-new-song");
+        let base = include_str!("../../templates/empty/conf.lua");
+        let at = base.rfind("end").expect("conf ends");
+        std::fs::write(dir.join("conf.lua"), format!("{}  {conf_line}\n{}", &base[..at], &base[at..])).unwrap();
+        for model in ["hero.vvx", "hero2.vvx"] {
+            std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("templates/empty").join(model), dir.join(model)).unwrap();
+        }
+        std::fs::write(dir.join("main.lua"), format!("function on_level_start(how)\n  {call}\nend\nfunction on_tick()\n  world.state.song = music.song\nend\n")).unwrap();
+        std::fs::create_dir_all(dir.join("music")).unwrap();
+        std::fs::write(dir.join("music/tune.mml"), &song).unwrap();
+        let mut game = crate::session::Session::<crate::Voxcade>::load(&dir).unwrap();
+        for _ in 0..30 {
+            game.step(&crate::input::Input::default());
+        }
+        assert!(game.trouble().is_none(), "{call}: {:?}", game.trouble());
+        use crate::game::Game;
+        let state = game.game.inspect().to_string();
+        assert!(state.contains("\"song\":\"tune\""), "{state}");
     }
 }
