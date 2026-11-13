@@ -2279,7 +2279,21 @@ type Piece<'a> = (Option<std::ops::Range<u32>>, &'a [u32], &'a [u32], &'a [u8], 
 /// (sorted with the frame's other see-through ones), and all of them
 /// without `on_gpu` or a bank (a model fading out).
 #[allow(clippy::too_many_arguments)]
-fn draw(
+fn draw(put: &mut Put, on_gpu: Option<&mut Vec<ModelDraw>>, model: &VoxModel, frame: usize, origin: Vec3, look: IVec2, free_turn: Quat, pose: &[Quat], tint: Option<[u8; 4]>) {
+    draw_placed(put, on_gpu, model, frame, origin, look, free_turn, pose, tint, false);
+}
+
+/// `draw`; `as_drawn` places the cubes of what is turned freely by the
+/// turn the shader turns them by (`render::turn_as_drawn`), from the
+/// voxel it turns about, so that neighbours meet corner to corner: a model
+/// drawn all as cubes (the editors' pieces). Placed by the exact turn, as
+/// the bank's voxels are, each cube was turned by the packed turn about a
+/// middle the exact one put it at, and neighbours were apart or overlapped
+/// by a hundredth of a voxel: single pixels of what lies behind showed on
+/// its faces. Without it the cubes lie where the bank's voxels lie (the
+/// glass beside them).
+#[allow(clippy::too_many_arguments)]
+fn draw_placed(
     put: &mut Put,
     mut on_gpu: Option<&mut Vec<ModelDraw>>,
     model: &VoxModel,
@@ -2289,6 +2303,7 @@ fn draw(
     free_turn: Quat,
     pose: &[Quat],
     tint: Option<[u8; 4]>,
+    as_drawn: bool,
 ) {
     // The free turn as the world sees it, after the quarter turns.
     let quarter_turn = look_turn(look);
@@ -2356,6 +2371,10 @@ fn draw(
         };
         let free = crate::render::off_grid(rot, shift);
         let snorm = crate::render::snorm_turn(rot);
+        // As drawn: from the voxel it turns about, at its exact place, by the
+        // packed turn (`draw_placed`).
+        let middle = about - 0.5;
+        let placed = (as_drawn && snorm != [0; 4]).then(|| (crate::render::turned_centre(origin, middle, shift, rot), crate::render::turn_as_drawn(rot)));
         for (i, &k) in as_cubes.iter().enumerate() {
             // in the world's directions after the quarter turns, as a cube's faces are counted
             let hidden = covered.get(i).map_or(0, |&c| turned_faces[(c & 63) as usize] as u8);
@@ -2375,8 +2394,11 @@ fn draw(
             }
             // A flash whitens, glass stays glass.
             let [r, g, b, _] = tint.unwrap_or(*color);
-            let corner = if free {
-                crate::render::turned_centre(origin, IVec3::new(x, y, l.z).as_vec3(), shift, rot) - 0.5
+            let local = IVec3::new(x, y, l.z).as_vec3();
+            let corner = if let Some((at, drawn)) = placed {
+                at + drawn * (local - middle) - 0.5
+            } else if free {
+                crate::render::turned_centre(origin, local, shift, rot) - 0.5
             } else {
                 origin + IVec3::new(x, y, l.z).as_vec3()
             };
@@ -2450,14 +2472,15 @@ pub fn piece_cells(model: &VoxModel, turns: [i32; 3]) -> Option<Vec<IVec3>> {
 /// A model's frame as cubes, every voxel that shows, as a game draws it
 /// with its feet at `origin` facing `look` and turned `turn` freely after
 /// (`Drawing::model_turned`): the opaque ones into `opaque`, the glass into
-/// `glass`. The level editor's pieces, so they look as in the game.
+/// `glass`. The level editor's pieces, so they look as in the game; what
+/// is turned freely placed as drawn (`draw_placed`), neighbours meeting.
 pub fn model_cubes(model: &VoxModel, frame: usize, origin: Vec3, look: IVec2, turn: Quat, opaque: &mut Vec<Instance>, glass: &mut Vec<Instance>) {
     let mut put = |corner: Vec3, color: [u8; 4], metal: u8, glow: u8, shade: [i8; 4], turn: [i8; 4], covered: u8| {
         let covered = if color[3] < 255 { 0 } else { covered };
         let instance = Instance { pos_size: (corner + 0.5).extend(1.0).to_array(), color, fx: [glow, color[3], covered, metal], shade, turn };
         if color[3] < 255 { glass.push(instance) } else { opaque.push(instance) }
     };
-    draw(&mut put, None, model, frame, origin, look, turn, &[], None);
+    draw_placed(&mut put, None, model, frame, origin, look, turn, &[], None, true);
 }
 
 /// A model as a game draws it alone (the editors' GAME VIEW): with its
@@ -2965,6 +2988,54 @@ mod tests {
         assert!(cubes.iter().all(|i| i.pos_size[1] < far), "a cube far up the level was built");
         let all = game.game.enemies().count() * game.models.get("enemy.vvx").unwrap().visible[0].len();
         assert!(cubes.len() < all / 2, "{} cubes built, the enemies alone have {all}", cubes.len());
+    }
+
+    /// A model turned freely and drawn all as cubes (the level editor's
+    /// pieces, `model_cubes`) has its neighbours meet corner to corner as
+    /// the shader turns them (by the packed turn, `render::turn_as_drawn`),
+    /// and stands where the exact turn puts it. Placed by the exact turn,
+    /// neighbours were a hundredth of a voxel apart or over each other,
+    /// and single pixels of what lay behind showed on its faces.
+    #[test]
+    fn a_model_turned_freely_as_cubes_meets_corner_to_corner() {
+        let mut frame: Vec<(IVec3, [u8; 4])> = Vec::new();
+        for z in 0..4 {
+            for y in 0..8 {
+                for x in 0..24 {
+                    frame.push((IVec3::new(x, y, z), [110, 75, 50, 255]));
+                }
+            }
+        }
+        let metal = vec![0; frame.len()];
+        let m = VoxModel::new(IVec3::new(24, 8, 4), vec![frame], vec![metal]);
+        let origin = Vec3::new(100.0, 80.0, 3.0);
+        for (look, rot) in [(IVec2::Y, turning(30.0, 0.0, 0.0)), (IVec2::X, turning(30.0, 20.0, 0.0)), (IVec2::NEG_Y, turning(-75.0, 12.0, 15.0))] {
+            let (mut cubes, mut glass) = (Vec::new(), Vec::new());
+            model_cubes(&m, 0, origin, look, rot, &mut cubes, &mut glass);
+            let mut exact = Vec::new();
+            draw(&mut |corner: Vec3, _, _, _, _, _, _| exact.push(corner + 0.5), None, &m, 0, origin, look, rot, &[], None);
+            assert_eq!(cubes.len(), exact.len());
+            let centre = |i: &Instance| Vec3::from_slice(&i.pos_size[..3]);
+            let off = cubes.iter().zip(&exact).map(|(i, e)| centre(i).distance(*e)).fold(0.0, f32::max);
+            assert!(off < 0.25, "{rot}: a cube {off} voxels from where the exact turn puts it");
+            // As the shader turns each cube (`instance_turn`: the packed turn, normalized).
+            let drawn = Quat::from_array(cubes[0].turn.map(|c| c as f32 / 127.0)).normalize();
+            assert!(cubes.iter().all(|i| i.turn == cubes[0].turn));
+            let (mut pairs, mut worst) = (0, 0.0f32);
+            for a in &cubes {
+                for b in &cubes {
+                    // Neighbours in the model's grid: one step along an axis, seen turned.
+                    let d = drawn.inverse() * (centre(b) - centre(a));
+                    let step = d.round();
+                    if step.abs().element_sum() == 1.0 {
+                        pairs += 1;
+                        worst = worst.max((d - step).abs().max_element());
+                    }
+                }
+            }
+            assert!(pairs > 1000, "{rot}: {pairs} pairs of neighbours");
+            assert!(worst < 1e-4, "{rot}: neighbours' shared corners {worst} voxels apart as drawn");
+        }
     }
 
     /// A model drawn as cubes (the level editor's pieces, `model_cubes`)
