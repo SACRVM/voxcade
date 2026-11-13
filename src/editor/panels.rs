@@ -530,8 +530,8 @@ mod tests {
         assert_eq!(ed.kind(), Some(Kind::Ladder), "the kind chosen");
         act(&mut ed, &mut view, Action::Hold(0));
         act(&mut ed, &mut view, Action::Hold(0));
-        press(&mut ed, &mut view, 'd');
-        assert_eq!((ed.scope, ed.level.blocks.len()), (Scope::Level, 0), "D: DELETE");
+        act(&mut ed, &mut view, Action::Delete);
+        assert_eq!((ed.scope, ed.level.blocks.len()), (Scope::Level, 0), "REMOVE (Delete in the window: delete_removes_a_frame_or_a_block_and_undo_brings_it_back)");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

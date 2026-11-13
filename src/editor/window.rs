@@ -802,6 +802,11 @@ fn key_down(ed: &mut Editor, view: &mut View, keys: &[(char, view::Action)], key
                 view::act(ed, view, view::Action::RemovePart(p));
             }
         }
+        // A model's frame, a level's block (the one held or open, its file
+        // too): taken out by Delete, never by a letter beside the typing
+        // keys; one step UNDO brings back whole.
+        Keycode::Delete if matches!(ed.scope, Scope::Frame(_)) && ed.figure.is_none() => view::act(ed, view, view::Action::DeleteFrame),
+        Keycode::Delete if matches!(ed.scope, Scope::Block(_)) || (ed.scope == Scope::Level && ed.layer == Layer::Blocks) => view::act(ed, view, view::Action::Delete),
         Keycode::Z if ctrl => ed.undo(),
         Keycode::Y if ctrl => ed.redo(),
         // A model's frames, one by one.

@@ -280,7 +280,6 @@ pub fn key_of(action: Action) -> Option<char> {
         Action::Turn(t) if t == Turn::ROLL => 'O',
         Action::Turn(t) if t == Turn::MIRROR => 'M',
         Action::Clone => 'C',
-        Action::Delete => 'D',
         Action::Choose => 'N',
         Action::Frame(-1) => 'V',
         Action::Frame(_) => 'X',
@@ -291,7 +290,6 @@ pub fn key_of(action: Action) -> Option<char> {
         Action::EditModel => 'E',
         Action::CopyItem | Action::CopyFrame => 'C',
         Action::GameView => 'G',
-        Action::DeleteFrame => 'D',
         Action::Trim => 'M',
         _ => return None,
     })

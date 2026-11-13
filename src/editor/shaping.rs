@@ -409,7 +409,7 @@ fn inspector(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thu
             row(ui, "BLOCK", "", |ui| {
                 small(ui, shown, "ROTATE", Action::Turn(Turn::TURN), None, "Rotate it 90°, round the upright  T");
                 small(ui, shown, "COPY", Action::Clone, None, "A copy of it in the level's list  C");
-                small(ui, shown, "REMOVE", Action::Delete, None, "Take it out of the level (UNDO brings it back)  D");
+                small(ui, shown, "REMOVE", Action::Delete, None, "Take it out of the level, its file too (UNDO brings both back)  Del");
             });
             shaping(ui, ed, shown);
         }
@@ -448,7 +448,7 @@ fn inspector(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thu
                         trim_button(ui, ed, shown);
                         if !parted {
                             small(ui, shown, "COPY", Action::CopyFrame, None, "One more frame: a copy of this one, after it  C");
-                            small(ui, shown, "REMOVE", Action::DeleteFrame, Some(false), "This frame taken out (UNDO brings it back)  D");
+                            small(ui, shown, "REMOVE", Action::DeleteFrame, Some(false), "This frame taken out (UNDO brings it back)  Del");
                         }
                     });
                 }
@@ -948,7 +948,7 @@ fn level(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thumbs,
         });
         row(ui, "BLOCK", "", |ui| {
             small(ui, shown, "COPY", Action::Clone, None, "A copy of it in the level's list  C");
-            small(ui, shown, "REMOVE", Action::Delete, None, "Take it out of the level (UNDO brings it back)  D");
+            small(ui, shown, "REMOVE", Action::Delete, None, "Take it out of the level, its file too (UNDO brings both back)  Del");
         });
     }
     tools(ui, ed, shown);
@@ -973,7 +973,7 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<zones::Entry> {
             out.push(("SHAPE".into(), Action::GoFrame(f), None, None));
             out.push(("COPY".into(), Action::CopyFrameOf(f), Some("C"), None));
             if ed.frames().len() > 1 {
-                out.push(("REMOVE".into(), Action::DeleteFrameOf(f), Some("D"), None));
+                out.push(("REMOVE".into(), Action::DeleteFrameOf(f), Some("Del"), None));
             }
         }
         MenuOn::Part(p) => {
@@ -1030,7 +1030,7 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<zones::Entry> {
         MenuOn::Block(i) => {
             out.push(("OPEN".into(), Action::OpenBlock(i), None, None));
             out.push(("COPY".into(), Action::CloneOf(i), Some("C"), None));
-            out.push(("REMOVE".into(), Action::DeleteOf(i), Some("D"), None));
+            out.push(("REMOVE".into(), Action::DeleteOf(i), Some("Del"), None));
         }
         MenuOn::Item(_) | MenuOn::Floor(_) | MenuOn::Add => {}
     }
