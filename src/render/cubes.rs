@@ -3,7 +3,7 @@
 
 use glam::Vec3;
 
-use super::Instance;
+use super::{FX_COVERED, FX_OPACITY, Instance};
 
 /// Up to this many cells around the cubes `hide_inner_faces` keeps a bit per
 /// cell (2 MB); more, and it looks them up in a hash set.
@@ -14,11 +14,11 @@ const DENSE_CELLS: i64 = 1 << 24;
 /// part being shaped, which is the world: one covered face otherwise won
 /// single pixels at the seam).
 pub fn hide_faces_against(instances: &mut [Instance], taken: impl Fn(glam::IVec3) -> bool) {
-    for i in instances.iter_mut().filter(|i| i.pos_size[3] == 1.0 && i.fx[1] == 255 && i.turn == [0; 4]) {
+    for i in instances.iter_mut().filter(|i| i.pos_size[3] == 1.0 && i.fx[FX_OPACITY] == 255 && i.turn == [0; 4]) {
         let c = glam::Vec3::from_slice(&i.pos_size[..3]).floor().as_ivec3();
         for (bit, d) in crate::mesh::DIRS.iter().enumerate() {
             if taken(c + *d) {
-                i.fx[2] |= 1 << bit;
+                i.fx[FX_COVERED] |= 1 << bit;
             }
         }
     }
@@ -31,7 +31,7 @@ pub fn hide_faces_against(instances: &mut [Instance], taken: impl Fn(glam::IVec3
 /// cells are taken is a bit per cell of the box around them.
 pub fn hide_inner_faces(instances: &mut [Instance]) {
     // (A cube turned freely lies on no cell: its own model marks its faces.)
-    let solid = |i: &Instance| i.pos_size[3] == 1.0 && i.fx[1] == 255 && i.turn == [0; 4];
+    let solid = |i: &Instance| i.pos_size[3] == 1.0 && i.fx[FX_OPACITY] == 255 && i.turn == [0; 4];
     let cell = |i: &Instance| glam::Vec3::from_slice(&i.pos_size[..3]).floor().as_ivec3();
     let (mut lo, mut hi) = (glam::IVec3::MAX, glam::IVec3::MIN);
     for i in instances.iter().filter(|i| solid(i)) {
@@ -52,7 +52,7 @@ pub fn hide_inner_faces(instances: &mut [Instance]) {
                     hidden |= 1 << bit;
                 }
             }
-            i.fx[2] = hidden;
+            i.fx[FX_COVERED] = hidden;
         }
     }
     if volume > DENSE_CELLS {
@@ -85,7 +85,7 @@ pub fn hide_inner_faces(instances: &mut [Instance]) {
 /// same: what is left out made no fragment, and the rest keeps its order.
 pub fn leave_out_unseen(instances: &mut Vec<Instance>, eye: Vec3) {
     instances.retain(|i| {
-        let solid = i.pos_size[3] == 1.0 && i.fx[1] == 255 && i.turn == [0; 4];
+        let solid = i.pos_size[3] == 1.0 && i.fx[FX_OPACITY] == 255 && i.turn == [0; 4];
         if !solid {
             return true;
         }
@@ -93,7 +93,7 @@ pub fn leave_out_unseen(instances: &mut Vec<Instance>, eye: Vec3) {
         crate::mesh::DIRS.iter().enumerate().any(|(bit, d)| {
             let n = d.as_vec3();
             // (Half a voxel of room: a face edge-on, or nearly, is kept.)
-            i.fx[2] >> bit & 1 == 0 && n.dot(eye - (centre + n * 0.5)) > -0.5
+            i.fx[FX_COVERED] >> bit & 1 == 0 && n.dot(eye - (centre + n * 0.5)) > -0.5
         })
     });
 }
@@ -146,7 +146,7 @@ pub struct SeeThroughBody(Vec<(u32, [u8; 3], u8)>);
 
 /// The body the see-through cubes of `instances` make (`SeeThroughBody`).
 pub fn see_through_body(instances: &[Instance]) -> SeeThroughBody {
-    let joins = |i: &Instance| i.pos_size[3] == 1.0 && i.fx[1] < 255 && i.turn == [0; 4];
+    let joins = |i: &Instance| i.pos_size[3] == 1.0 && i.fx[FX_OPACITY] < 255 && i.turn == [0; 4];
     let cell = |i: &Instance| glam::Vec3::from_slice(&i.pos_size[..3]).floor().as_ivec3();
     let mut at: crate::world::CellMap<glam::Vec3> = crate::world::CellMap::default();
     for i in instances.iter().filter(|i| joins(i)) {
@@ -193,7 +193,7 @@ pub fn join_by_body(instances: &mut [Instance], body: &SeeThroughBody, toward: V
         let i = &mut instances[k as usize];
         for bit in 0..6 {
             if bit != kept && near >> bit & 1 == 1 {
-                i.fx[2] |= 1 << bit;
+                i.fx[FX_COVERED] |= 1 << bit;
             }
         }
     }

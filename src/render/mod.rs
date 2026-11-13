@@ -25,6 +25,7 @@ use pipelines::{Memory, ScenePipelines, Targets};
 pub use bank::{ModelBank, ModelDraw, off_grid, quarter, turn_about, turn_centre, turned_centre};
 pub use cubes::{SeeThroughBody, hide_faces_against, hide_inner_faces, join_by_body, join_see_through, leave_out_unseen, see_through_body, see_through_side};
 pub use frame::{FrameData, Stats};
+pub use shader::{METAL_SHIFT, METAL_STEPS};
 
 /// Flashes and explosions lit at once (the shader's MAX_LIGHTS).
 pub const MAX_LIGHTS: usize = 16;
@@ -34,6 +35,13 @@ const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// The blurred copies are this many times smaller on each side.
 const SHRINK: u32 = 4;
 
+/// The lanes of `Instance::fx`; the shader has them by these names too
+/// (`shader::prelude` writes them ahead of its text).
+pub const FX_GLOW: usize = 0;
+pub const FX_OPACITY: usize = 1;
+pub const FX_COVERED: usize = 2;
+pub const FX_METAL: usize = 3;
+
 /// One moving voxel: player parts, bullets, debris, sparks, fire, smoke.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -41,9 +49,10 @@ pub struct Instance {
     /// Centre in xyz, edge length in w.
     pub pos_size: [f32; 4],
     pub color: [u8; 4],
-    /// How much it glows and how opaque it is (0..255 each), and the faces a
+    /// Four lanes, by `FX_GLOW`, `FX_OPACITY`, `FX_COVERED`, `FX_METAL`:
+    /// how much it glows and how opaque it is (0..255 each), the faces a
     /// neighbouring cube covers (bits in `mesh::DIRS` order; see
-    /// `hide_inner_faces`).
+    /// `hide_inner_faces`), and its metal (`vox::metal::pack`).
     pub fx: [u8; 4],
     /// A direction (snorm xyz) the faces in w (bits in `mesh::DIRS` order)
     /// are lit by instead of their own (`vox::VoxModel::shade`).

@@ -84,12 +84,12 @@ fn main_layout(device: &wgpu::Device, memory: bool) -> wgpu::BindGroupLayout {
 }
 
 /// The vertex buffers of a chunk mesh.
-fn chunk_buffers() -> [Option<wgpu::VertexBufferLayout<'static>>; 1] {
+pub(super) fn chunk_buffers() -> [Option<wgpu::VertexBufferLayout<'static>>; 1] {
     [Some(wgpu::VertexBufferLayout { array_stride: size_of::<Vertex>() as u64, step_mode: wgpu::VertexStepMode::Vertex, attributes: &CHUNK_ATTRS })]
 }
 
 /// The vertex buffers of instanced cubes: the unit cube, the instances.
-fn instance_buffers() -> [Option<wgpu::VertexBufferLayout<'static>>; 2] {
+pub(super) fn instance_buffers() -> [Option<wgpu::VertexBufferLayout<'static>>; 2] {
     [
         Some(wgpu::VertexBufferLayout { array_stride: size_of::<Vertex>() as u64, step_mode: wgpu::VertexStepMode::Vertex, attributes: &CUBE_ATTRS }),
         Some(wgpu::VertexBufferLayout { array_stride: size_of::<Instance>() as u64, step_mode: wgpu::VertexStepMode::Instance, attributes: &INSTANCE_ATTRS }),
@@ -211,7 +211,7 @@ impl Renderer {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, width: u32, height: u32) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("voxcade shader"),
-            source: wgpu::ShaderSource::Wgsl(plain_shader(SHADER).into()),
+            source: wgpu::ShaderSource::Wgsl(plain_shader(&SHADER).into()),
         });
         let post_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("voxcade post"),
@@ -589,7 +589,7 @@ impl Renderer {
         }
         let internal = device.push_error_scope(wgpu::ErrorFilter::Internal);
         let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("voxcade shader, remembering"), source: wgpu::ShaderSource::Wgsl(SHADER.into()) });
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("voxcade shader, remembering"), source: wgpu::ShaderSource::Wgsl(SHADER.as_str().into()) });
         let layout = main_layout(device, true);
         let scene = scene_pipelines(device, &module, &layout, &self.actor_layout);
         let faces = device.create_buffer(&wgpu::BufferDescriptor { label: Some("faces' shadows"), size: SHADOW_FACES * 3 * 4, usage: wgpu::BufferUsages::STORAGE, mapped_at_creation: false });
