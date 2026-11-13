@@ -27,7 +27,17 @@ long, read the part about what you change.
   its state hash. Replays and network play depend on it.
 - **Every game's replays still play out as recorded** (`voxcade check`).
 - **No `cargo fmt`.** The code is formatted by hand; a run of it rewrites
-  some forty files.
+  some forty files. The hand style, in five lines:
+  1. Indent 4 spaces, braces as rustfmt puts them; match the file you are in.
+  2. One thought, one line: a call, a struct literal or a closure stays on
+     its line however long; break only where the code itself has parts
+     (match arms, a builder's steps, a list read item by item).
+  3. `use` in three groups: `std`, other crates, `crate`; one blank line
+     between items, none inside a short function.
+  4. Every item has a `///` comment saying what it is or does, in plain
+     words; a comment in a body says why, not what.
+  5. Before you send it, `cargo clippy --release --all-targets -- -D
+     warnings` passes; nothing else checks the layout.
 - **Tests take their folders from `scratch::Scratch`**, never from
   `std::env::temp_dir()` by hand: the guard removes them, a panic
   included. `tools/check_tmp.sh` runs the tests and fails if anything

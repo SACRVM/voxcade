@@ -3,6 +3,11 @@ name = "voxcade"
 version = "0.6.0"
 license = "Zlib"
 edition = "2024"
+# The oldest Rust it builds with: the dependencies ask 1.95 (egui 0.37),
+# the code's own newest needs are older (let chains, `if let` guards,
+# `with_added_extension`). The Tests workflow checks it (job `msrv`) and
+# runs everything else on 1.99, the development machine's.
+rust-version = "1.95"
 description = "A voxel arcade engine: fixed camera, full-screen destructible worlds, built for agent-assisted game making."
 publish = false
 

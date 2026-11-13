@@ -1,0 +1,25 @@
+# The dependencies against RustSec's advisories (cargo audit): once a
+# week and when started by hand, never on a push, and blocking nothing
+# (a red run here is a note to look at, not a broken build).
+name: Audit
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+jobs:
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: Advisories
+        run: cargo audit
