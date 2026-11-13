@@ -14,6 +14,46 @@ use crate::blocks::Block;
 use crate::editor::frames::{ModelFile, Placed, Shaped};
 use crate::editor::handles::{self, Handles};
 
+/// Each owner's selected cells with their outline in its own grid
+/// (`Editor::selection_edges_kept`).
+pub type Outlines = BTreeMap<Owner, (BTreeSet<[i32; 3]>, Vec<(Vec3, Vec3)>)>;
+
+/// The outline of a set of cells in their own grid: the edges of their
+/// outer faces where the surface turns (not across a flat side).
+fn outline_of(cells: &BTreeSet<[i32; 3]>) -> Vec<(Vec3, Vec3)> {
+    let mut out = Vec::new();
+    let has = |c: IVec3| cells.contains(&c.to_array());
+    for &c in cells {
+        let c = IVec3::from(c);
+        for n in crate::mesh::DIRS {
+            if has(c + n) {
+                continue;
+            }
+            // The face's four edges, each where the side does not go on
+            // flat past it.
+            let a = (0..3).find(|&a| n[a] != 0).unwrap_or(2);
+            let (u, w) = ((a + 1) % 3, (a + 2) % 3);
+            let mut face = c.as_vec3();
+            if n[a] > 0 {
+                face[a] += 1.0;
+            }
+            for (axis, along, side) in [(u, w, 0), (u, w, 1), (w, u, 0), (w, u, 1)] {
+                let mut t = IVec3::ZERO;
+                t[axis] = if side == 0 { -1 } else { 1 };
+                if has(c + t) && !has(c + t + n) {
+                    continue;
+                }
+                let mut from = face;
+                from[axis] += side as f32;
+                let mut to = from;
+                to[along] += 1.0;
+                out.push((from, to));
+            }
+        }
+    }
+    out
+}
+
 /// What selected voxels lie in: a level's block, or a model's frame (a
 /// figure's part has one of its own).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -295,7 +335,16 @@ impl Editor {
     /// faces where its surface turns (not across a flat side), as
     /// segments.
     pub fn selection_edges(&self) -> Vec<(Vec3, Vec3)> {
+        self.selection_edges_kept(&mut BTreeMap::new())
+    }
+
+    /// `selection_edges`, each owner's edges (in its own grid) kept in
+    /// `kept` with its cells and found again while they stay the same: a
+    /// big selection's outline worked out on every frame took a frame's
+    /// time.
+    pub fn selection_edges_kept(&self, kept: &mut Outlines) -> Vec<(Vec3, Vec3)> {
         let Some(s) = self.selection() else { return Vec::new() };
+        kept.retain(|o, _| s.cells.contains_key(o));
         let mut out = Vec::new();
         for (&o, cells) in &s.cells {
             // From the owner's own grid to the grid shown.
@@ -309,35 +358,10 @@ impl Editor {
                 }
                 _ => Box::new(|v| v),
             };
-            let has = |c: IVec3| cells.contains(&c.to_array());
-            for &c in cells {
-                let c = IVec3::from(c);
-                for n in crate::mesh::DIRS {
-                    if has(c + n) {
-                        continue;
-                    }
-                    // The face's four edges, each where the side does not go
-                    // on flat past it.
-                    let a = (0..3).find(|&a| n[a] != 0).unwrap_or(2);
-                    let (u, w) = ((a + 1) % 3, (a + 2) % 3);
-                    let mut face = c.as_vec3();
-                    if n[a] > 0 {
-                        face[a] += 1.0;
-                    }
-                    for (axis, along, side) in [(u, w, 0), (u, w, 1), (w, u, 0), (w, u, 1)] {
-                        let mut t = IVec3::ZERO;
-                        t[axis] = if side == 0 { -1 } else { 1 };
-                        if has(c + t) && !has(c + t + n) {
-                            continue;
-                        }
-                        let mut from = face;
-                        from[axis] += side as f32;
-                        let mut to = from;
-                        to[along] += 1.0;
-                        out.push((map(from), map(to)));
-                    }
-                }
+            if kept.get(&o).is_none_or(|(k, _)| k != cells) {
+                kept.insert(o, (cells.clone(), outline_of(cells)));
             }
+            out.extend(kept[&o].1.iter().map(|&(from, to)| (map(from), map(to))));
         }
         out
     }

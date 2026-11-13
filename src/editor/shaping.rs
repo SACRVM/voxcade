@@ -265,9 +265,9 @@ fn frames(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, show
     if !zones::group(ui, title, Some(frames.len()), "Its frames: a click shapes one (V and X: the one before, the next)") {
         return;
     }
-    for a in [Action::Frame(-1), Action::Frame(1)] {
+    for (a, word) in [(Action::Frame(-1), "PREVIOUS FRAME"), (Action::Frame(1), "NEXT FRAME")] {
         if let Some(k) = key_of(a) {
-            shown.keys.push((k, a));
+            zones::key_named(shown, k, a, word);
         }
     }
     for (f, frame) in frames.iter().enumerate() {
@@ -607,6 +607,24 @@ fn slice_rows(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
     }
 }
 
+/// A tool's tooltip: what it does, its key at the end (POINTER's Esc).
+fn tool_tip(tool: Tool, key: Option<char>) -> String {
+    let tip = match tool {
+        Tool::Pointer => "Changes nothing: a click chooses a part (in a level, holds the block), the handles work  Esc",
+        Tool::Add => "Set voxels (a block in the level)",
+        Tool::Remove => "Take them away",
+        Tool::Paint => "Recolor (in the level: replace the block)",
+        Tool::Deep => "Recolor through, every voxel behind",
+        Tool::Box => "Drag a footprint on a face: set where it was drawn. Alt: only where empty, Ctrl: cut",
+        Tool::Sphere => "The same, round",
+        Tool::Pick => "Take up a color (a block) from what is clicked; Shift held does the same",
+        Tool::Move => "Drag a thing to another place",
+        Tool::Select => "Drag a rectangle on the screen: the voxels of the active parts in it. Double click: the color connected",
+        Tool::Fill => "The connected voxels of the color clicked take the held one. Ctrl: every voxel of that color",
+    };
+    zones::tip_with_key(tip, key)
+}
+
 /// The tools in a row: their words, lit the one in hand, each its key.
 fn tools(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
     let list = Tool::of(ed.scope, ed.layer);
@@ -619,21 +637,7 @@ fn tools(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
         ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
         ui.spacing_mut().button_padding = egui::vec2(7.0, 3.0);
         for &tool in list {
-            let key = key_of(Action::Tool(tool));
-            let tip = match tool {
-                Tool::Pointer => "Changes nothing: a click chooses a part (in a level, holds the block), the handles work  Esc",
-                Tool::Add => "Set voxels (a block in the level)",
-                Tool::Remove => "Take them away",
-                Tool::Paint => "Recolor (in the level: replace the block)",
-                Tool::Deep => "Recolor through, every voxel behind",
-                Tool::Box => "Drag a footprint on a face: set where it was drawn. Alt: only where empty, Ctrl: cut",
-                Tool::Sphere => "The same, round",
-                Tool::Pick => "Take up a color (a block) from what is clicked; Shift held does the same",
-                Tool::Move => "Drag a thing to another place",
-                Tool::Select => "Drag a rectangle on the screen: the voxels of the active parts in it. Double click: the color connected",
-                Tool::Fill => "The connected voxels of the color clicked take the held one. Ctrl: every voxel of that color",
-            };
-            let tip = key.map_or(tip.to_string(), |k| format!("{tip}  {k}"));
+            let tip = tool_tip(tool, key_of(Action::Tool(tool)));
             small(ui, shown, tool.label(ed.scope, ed.layer), Action::Tool(tool), Some(ed.tool == tool), &tip);
         }
         });
@@ -654,6 +658,9 @@ fn colours(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
             let digit = (i < 10).then(|| char::from_digit((i as u32 + 1) % 10, 10).expect("a digit"));
             if let Some(d) = digit {
                 shown.keys.push((d, Action::Colour(c)));
+                if i == 0 {
+                    shown.named.push(("1 … 0".into(), "COLOR".into()));
+                }
             }
             let hex = format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
             let tip = digit.map_or(hex.clone(), |d| format!("{hex}  {d}"));
@@ -1045,4 +1052,84 @@ fn tiles(ui: &mut egui::Ui, ed: &Editor, free: Rect, thumbs: &mut Thumbs, shown:
     });
     shown.rects.push(area.response.rect);
     let _ = IVec3::ZERO;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::editor::keys;
+    use crate::editor::panels::{key_action, laid_out_at};
+    use std::path::Path;
+
+    /// Every key a menu of the voxel editor names (a frame's, a voxel's,
+    /// the selection's, a part's, a block's in the level) is on F1's page,
+    /// and a letter the panels take does what the entry does.
+    #[test]
+    fn the_menus_keys_are_on_the_page() {
+        let bunny = Editor::open_model(Path::new("games/bunnyfarm"), "bunny.vvx").unwrap();
+        let mut selected = Editor::open_model(Path::new("games/bunnyfarm"), "bunny.vvx").unwrap();
+        selected.select_box_cells(IVec3::new(2, 2, 2), IVec3::new(8, 8, 8), false);
+        let logo = Editor::open_model(Path::new("games/bunnyfarm"), "logo.vvx").unwrap();
+        let level = crate::editor::model::tests::folder("shaping-menus");
+        let blocks = Editor::open(&level, "level.toml").unwrap();
+        let cases: [(&Editor, Vec<MenuOn>); 4] = [
+            (&bunny, vec![MenuOn::Frame(0), MenuOn::Voxel(IVec3::new(6, 6, 6), None)]),
+            (&selected, vec![MenuOn::Selection]),
+            (&logo, vec![MenuOn::Part(1)]),
+            (&blocks, vec![MenuOn::Block(0)]),
+        ];
+        let mut named = 0;
+        for (ed, menus) in cases {
+            let view = View::new(ed, &Default::default());
+            let (shown, _) = laid_out_at(ed, &view);
+            let page = keys::overview(ed, &shown.named);
+            for on in menus {
+                let entries = menu_entries(ed, on);
+                assert!(!entries.is_empty(), "{on:?} offers something");
+                for (word, action, key, _) in entries {
+                    let Some(k) = key else { continue };
+                    named += 1;
+                    assert!(keys::lists(&page, k), "{word} {k} on the page of {:?}", ed.scope);
+                    if let Some(c) = k.chars().next().filter(|_| k.len() == 1)
+                        && let Some(a) = key_action(&shown.keys, c)
+                    {
+                        // (The menu's entry for a frame or a block of the
+                        // list, the key for the one open: the same deed.)
+                        let alike = |a: Action| match a {
+                            Action::CopyFrameOf(_) => Action::CopyFrame,
+                            Action::DeleteFrameOf(_) => Action::DeleteFrame,
+                            Action::CloneOf(_) => Action::Clone,
+                            Action::DeleteOf(_) => Action::Delete,
+                            a => a,
+                        };
+                        assert_eq!(alike(a), alike(action), "{word} {k}");
+                    }
+                }
+            }
+        }
+        assert!(named >= 10, "the menus name keys: {named}");
+    }
+
+    /// The voxel editor lays out the same three zones as the level of
+    /// pieces: the view's room the same in both (one way of working in
+    /// both editors), and each tool's key is named in its tooltip and on
+    /// F1's page.
+    #[test]
+    fn both_editors_leave_the_view_the_same_room() {
+        let bunny = Editor::open_model(Path::new("games/bunnyfarm"), "bunny.vvx").unwrap();
+        let view = View::new(&bunny, &Default::default());
+        let (shown, _) = laid_out_at(&bunny, &view);
+        let dir = crate::editor::big::room_game("shaping-zones", 3);
+        let room = Editor::open(&dir, "levels/room.toml").unwrap();
+        let (pieces, _) = laid_out_at(&room, &View::new(&room, &Default::default()));
+        let (a, b) = (shown.free.unwrap(), pieces.free.unwrap());
+        assert!((a.min - b.min).length() < 1.0 && (a.max - b.max).length() < 1.0, "{a:?} and {b:?}");
+        for &tool in Tool::of(bunny.scope, bunny.layer) {
+            if let Some(k) = key_of(Action::Tool(tool)) {
+                assert!(tool_tip(tool, Some(k)).ends_with(&format!("  {k}")), "{tool:?}");
+                assert!(shown.named.contains(&(k.to_string(), tool.label(bunny.scope, bunny.layer).to_string())), "{tool:?} on the page");
+            }
+        }
+        assert!(tool_tip(Tool::Pointer, None).ends_with("  Esc"));
+    }
 }

@@ -132,6 +132,11 @@ impl Figure {
         match &part.hung {
             // Set by hand: the maker's word, nothing to say.
             Hung::Root | Hung::ByHand => {}
+            // Its joint set by hand: where it turns is the maker's word, so
+            // touching nothing is meant (a logo's letters, an upper arm in
+            // a sleeve); flagged LOOSE on every row, the warnings were
+            // learnt to be ignored.
+            Hung::Nearest { .. } if part.joint_by_hand => {}
             Hung::Nearest { touches, as_near } => {
                 let also = as_near.map_or(String::new(), |r| format!(" ({} comes as near)", name(r)));
                 if touches.is_empty() {
@@ -301,6 +306,37 @@ mod tests {
         assert!(said("body").is_empty() && said("head").is_empty() && said("hand").is_empty());
         // Each part's frame is the model it is made of.
         assert_eq!(f.frames, [0, 1, 2, 3, 4]);
+    }
+
+    /// A part whose joint the file sets by hand says nothing of touching
+    /// nothing (LOOSE): where it turns is the maker's word. BunnyFarm's
+    /// logo, letters apart each with its joint by hand, warns of nothing,
+    /// and opens from the side that reads the right way round (from +y
+    /// the game's logo read "YNNUB MRAF").
+    #[test]
+    fn a_joint_set_by_hand_is_not_loose() {
+        let dir = figure("by-hand");
+        let file = dir.join("figure.vvx");
+        let text = std::fs::read_to_string(&file).unwrap().replace("name = \"arm\"\n", "name = \"arm\"\njoint = [2.5, 0.5, 4]\n");
+        std::fs::write(&file, text).unwrap();
+        let f = Figure::of(&ModelFile::load(&file).unwrap()).unwrap().unwrap();
+        let arm = f.parts().iter().position(|p| p.name == "arm").unwrap();
+        assert!(f.parts()[arm].joint_by_hand && matches!(f.parts()[arm].hung, crate::vox::Hung::Nearest { .. }), "its parent by the rules, its joint by hand");
+        assert!(f.warnings(arm).is_empty(), "{:?}", f.warnings(arm));
+        let logo = std::path::Path::new("games/bunnyfarm");
+        let f = Figure::of(&ModelFile::load(&logo.join("logo.vvx")).unwrap()).unwrap().unwrap();
+        assert!(f.parts().len() > 5);
+        for p in 0..f.parts().len() {
+            assert!(f.warnings(p).is_empty(), "{}: {:?}", f.parts()[p].name, f.warnings(p));
+        }
+        let cfg = crate::session::config::<crate::Voxcade>(logo).unwrap();
+        assert_eq!(crate::editor::view::face_of("logo.vvx", &cfg), crate::editor::view::Face::Logo);
+        let ed = Editor::open_model(logo, "logo.vvx").unwrap();
+        let view = View::new(&ed, &cfg);
+        // Looking from y 0 (the eye on the low side of y), x across left
+        // to right.
+        let eye = crate::camera::eye(&view.block.camera(), view.block.target, 16.0 / 9.0);
+        assert!(eye.y < view.block.target.y, "from the y 0 side: {eye} for {}", view.block.target);
     }
 
     /// A figure opens whole (FIGURE); a part chosen is shaped in it (its

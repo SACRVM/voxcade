@@ -194,6 +194,8 @@ pub struct View {
     /// SELECT's rectangle being dragged on the screen (shares of the
     /// window, from the press to the pointer) and what it will do.
     pub marquee: Option<Marquee>,
+    /// F1's page of the keys shown over the view (`keys.rs`).
+    pub keys_shown: bool,
     /// How much of the window the panels leave the view: shares of it on
     /// the left, at the top, on the right and at the bottom.
     pub room: [f32; 4],
@@ -267,21 +269,54 @@ pub enum Face {
     Front,
     /// A block as it lies in the level: its y 0 side, the level's front.
     Block,
+    /// The title's logo (`c.title_screen.logo_model`): the game lays its
+    /// x across and its y towards the player (`ui::logo_model_parts`),
+    /// which a view of the world shows the right way round, to read it,
+    /// only from its y 0 side (from +y its letters read mirrored).
+    Logo,
 }
 
 /// The side the game shows of the model `file` (its path in the game
 /// folder) as a run starts: of a block its front as it lies; of a figure
-/// (a kind with it whose behavior walks or flies) the side it looks to,
-/// the hero right, the others left; else its front.
+/// (a kind with it) the side it looks to (`start_way`); of the title's
+/// logo the side that reads the right way round; else its front.
 pub fn face_of(file: &str, cfg: &GameConfig) -> Face {
     if file.starts_with(&format!("{}/", crate::blocks::FOLDER)) {
         return Face::Block;
     }
-    let behavior = cfg.things.values().filter(|t| t.get("model").and_then(|m| m.as_str()) == Some(file)).find_map(|t| t.get("behavior").and_then(|b| b.as_str()));
-    match behavior {
-        Some("hero") => Face::Right,
-        Some(b) if SIDEWAYS.contains(&b) => Face::Left,
+    if cfg.title_screen.logo_model.as_deref() == Some(file) {
+        return Face::Logo;
+    }
+    let kind = cfg.things.values().find(|t| t.get("model").and_then(|m| m.as_str()) == Some(file));
+    match kind.map(start_way) {
+        Some(crate::grid::Way::East) => Face::Right,
+        Some(crate::grid::Way::West) => Face::Left,
+        // (Facing away there is no side for: its front.)
         _ => Face::Front,
+    }
+}
+
+/// The way a kind of thing (`c.things.NAME`) faces as a run starts, as
+/// the game turns it: the way its `facing` says where it sets one (a bat
+/// to the front, wings spread, whether or not it turns to the hero later),
+/// else as its behavior goes: a figure (it walks or flies) seen from the
+/// side, the hero right, the others left; anything else to the camera.
+fn start_way(kind: &toml::Table) -> crate::grid::Way {
+    use crate::grid::Way;
+    let number = |v: &toml::Value| v.as_float().or(v.as_integer().map(|i| i as f64));
+    let facing = kind.get("facing").and_then(|f| f.as_array()).and_then(|f| Some((number(f.first()?)?, number(f.get(1)?)?)));
+    if let Some((x, y)) = facing
+        && (x, y) != (0.0, 0.0)
+    {
+        // As the game turns a body to it (`sim::quarter_turn`, from facing
+        // the camera).
+        let look = crate::sim::quarter_turn(Vec3::new(x as f32, y as f32, 0.0), glam::IVec2::NEG_Y);
+        return Way::of_pair(look.to_array()).unwrap_or(Way::South);
+    }
+    match kind.get("behavior").and_then(|b| b.as_str()) {
+        Some("hero") => Way::East,
+        Some(b) if SIDEWAYS.contains(&b) => Way::West,
+        _ => Way::South,
     }
 }
 
@@ -292,7 +327,7 @@ pub fn seen(frame: &Block, face: Face) -> (i32, i32, Vec<Option<[u8; 3]>>) {
     let s = frame.size;
     let w = match face {
         Face::Right | Face::Left => s.y,
-        Face::Front | Face::Block => s.x,
+        Face::Front | Face::Block | Face::Logo => s.x,
     };
     let pixels = (0..w * s.z)
         .map(|i| {
@@ -302,7 +337,7 @@ pub fn seen(frame: &Block, face: Face) -> (i32, i32, Vec<Option<[u8; 3]>>) {
                 Face::Right => (0..s.x).rev().find_map(|x| frame.colour_at(IVec3::new(x, c, z))),
                 Face::Left => (0..s.x).find_map(|x| frame.colour_at(IVec3::new(x, s.y - 1 - c, z))),
                 Face::Front => (0..s.y).rev().find_map(|y| frame.colour_at(IVec3::new(s.x - 1 - c, y, z))),
-                Face::Block => (0..s.y).find_map(|y| frame.colour_at(IVec3::new(c, y, z))),
+                Face::Block | Face::Logo => (0..s.y).find_map(|y| frame.colour_at(IVec3::new(c, y, z))),
             }
         })
         .collect();
@@ -342,6 +377,7 @@ impl View {
                     Face::Left => 110.0,
                     Face::Front => 160.0,
                     Face::Block => -30.0,
+                    Face::Logo => -20.0,
                 };
                 Orbit { yaw, pitch: 20.0, zoom: (size.max_element() * 2.8).max(16.0), target: lo + size / 2.0, fov: FOV }
             }
@@ -392,6 +428,7 @@ impl View {
             held: 0,
             up_since: None,
             marquee: None,
+            keys_shown: false,
             room: [0.0; 4],
         };
         // A level without blocks: the whole room as the game looks.
@@ -618,6 +655,86 @@ pub struct Shown {
     /// The level's terrain as built, and its columns' heights.
     terrain: Option<crate::terrain::Terrain>,
     surface: Option<crate::terrain::Surface>,
+    /// The level round a model shaped in place, and the selection's
+    /// outline, kept from frame to frame (`frame`): made again only when
+    /// what they are made of changes. A room of big pieces joined on every
+    /// frame took a fifth of a second (the owner's back wall: "ruckelig
+    /// wie sau").
+    room: std::cell::RefCell<RoomCache>,
+    outline: std::cell::RefCell<super::model::selection::Outlines>,
+}
+
+/// The room round a model shaped in place as `frame` draws it: what it was
+/// made of, its cubes and the body they make, joined as the game joins
+/// glass (`render::join_see_through`) for the side the eye was last on,
+/// and sorted far to near for the eye it was last drawn for.
+#[derive(Default)]
+struct RoomCache {
+    made_of: Option<RoomOf>,
+    cubes: Vec<Instance>,
+    body: crate::render::SeeThroughBody,
+    joined_for: Option<([usize; 3], [bool; 3])>,
+    joined: Vec<Instance>,
+    sorted_for: Option<Vec3>,
+    sorted: Vec<Instance>,
+    /// How often it was made, and joined (for tests).
+    made: usize,
+    joins: usize,
+}
+
+/// What the room's cubes depend on: the level round the model (when
+/// shown), the models loaded (they only ever come, never change), the
+/// figure's box and the grid they are drawn in.
+#[derive(Clone, PartialEq)]
+struct RoomOf {
+    context: Option<super::context::Context>,
+    models: usize,
+    figure_box: Option<(IVec3, IVec3)>,
+    seen: [f32; 16],
+}
+
+/// Sorts cubes far from `eye` to near, as a stable `sort_by` on their
+/// distance would (`f32::total_cmp`'s order, equal ones in the order
+/// given), each distance worked out once and the cubes sorted by it in
+/// three passes of a radix sort: a big room sorted by comparing its cubes
+/// took more than a frame while the view turned.
+pub(crate) fn far_to_near(cubes: &mut [Instance], eye: Vec3) {
+    let order = far_to_near_order(cubes, eye);
+    let sorted: Vec<Instance> = order.iter().map(|&k| cubes[k as usize]).collect();
+    cubes.copy_from_slice(&sorted);
+}
+
+/// The order `far_to_near` puts `cubes` in (their places).
+fn far_to_near_order(cubes: &[Instance], eye: Vec3) -> Vec<u32> {
+    let keys: Vec<u32> = cubes
+        .iter()
+        .map(|i| {
+            // `f32::total_cmp`'s order as a signed number, then unsigned.
+            let bits = (-(Vec3::from_slice(&i.pos_size[..3]) - eye).length_squared()).to_bits() as i32;
+            ((bits ^ (((bits >> 31) as u32) >> 1) as i32) as u32) ^ 0x8000_0000
+        })
+        .collect();
+    let mut order: Vec<u32> = (0..cubes.len() as u32).collect();
+    let mut next = vec![0; cubes.len()];
+    // Least significant digits first, each pass stable: 11, 11, 10 bits.
+    for shift in [0, 11, 22] {
+        let digit = |k: u32| ((keys[k as usize] >> shift) & 0x7ff) as usize;
+        let mut at = [0usize; 2048];
+        for &k in &order {
+            at[digit(k)] += 1;
+        }
+        let mut sum = 0;
+        for slot in &mut at {
+            (*slot, sum) = (sum, sum + *slot);
+        }
+        for &k in &order {
+            let d = digit(k);
+            next[at[d]] = k;
+            at[d] += 1;
+        }
+        std::mem::swap(&mut order, &mut next);
+    }
+    order
 }
 
 /// What of the slice the world shown depends on.
@@ -627,7 +744,7 @@ fn slice_key(ed: &Editor) -> Option<(usize, i32, i32)> {
 
 impl Shown {
     pub fn new(ed: &Editor) -> Result<Self> {
-        let mut shown = Self { world: World::new(IVec3::ONE, [[0; 4]; 256]), scope: ed.scope, size: IVec3::ZERO, cells: Vec::new(), blocks: Vec::new(), shape: None, slice: None, turned: false, terrain: None, surface: None };
+        let mut shown = Self { world: World::new(IVec3::ONE, [[0; 4]; 256]), scope: ed.scope, size: IVec3::ZERO, cells: Vec::new(), blocks: Vec::new(), shape: None, slice: None, turned: false, terrain: None, surface: None, room: Default::default(), outline: Default::default() };
         shown.build(ed)?;
         Ok(shown)
     }
@@ -713,6 +830,84 @@ impl Shown {
         true
     }
 
+    /// The level round a model shaped in place (`Editor::context_cubes`),
+    /// joined and sorted far to near from `eye` as `frame` draws it: made
+    /// again only when what it is made of changes, sorted again only when
+    /// the eye moves.
+    fn room(&self, ed: &Editor, figures: &Figures, seen: Mat4, eye: Vec3, grid: IVec3) -> Vec<Instance> {
+        let toward = eye - grid.as_vec3() / 2.0;
+        let context = ed.context.as_ref().filter(|c| c.shown);
+        let (models, figure_box, seen_at, side) = (figures.1.len(), ed.figure_box(), seen.to_cols_array(), crate::render::see_through_side(toward));
+        let mut cache = self.room.borrow_mut();
+        let same = cache.made_of.as_ref().is_some_and(|m| m.context.as_ref() == context && m.models == models && m.figure_box == figure_box && m.seen == seen_at);
+        if !same {
+            let mut cubes = Vec::new();
+            ed.context_cubes(figures, seen, &mut cubes);
+            let body = crate::render::see_through_body(&cubes);
+            let (made, joins) = (cache.made + 1, cache.joins);
+            *cache = RoomCache { made_of: Some(RoomOf { context: context.cloned(), models, figure_box, seen: seen_at }), cubes, body, made, joins, ..RoomCache::default() };
+        }
+        if cache.joined_for != Some(side) {
+            let mut joined = cache.cubes.clone();
+            crate::render::join_by_body(&mut joined, &cache.body, toward);
+            (cache.joined, cache.joined_for, cache.sorted_for) = (joined, Some(side), None);
+            cache.joins += 1;
+        }
+        if cache.sorted_for != Some(eye) {
+            let sorted = far_to_near_order(&cache.joined, eye).into_iter().map(|k| cache.joined[k as usize]).collect();
+            (cache.sorted, cache.sorted_for) = (sorted, Some(eye));
+        }
+        cache.sorted.clone()
+    }
+
+    /// How often the room round a model was made, and joined (for tests).
+    #[cfg(test)]
+    pub(crate) fn rooms_made(&self) -> usize {
+        self.room.borrow().made
+    }
+
+    #[cfg(test)]
+    pub(crate) fn room_joins(&self) -> usize {
+        self.room.borrow().joins
+    }
+
+    /// The block or frame shown changed but kept its size: the voxels whose
+    /// colour changed set in the world as `build` would set them (what the
+    /// slice cuts away left out), the rest untouched. False where it cannot
+    /// be so (another size, a palette full of colours no longer used): the
+    /// world is then built anew.
+    fn retouch(&mut self, ed: &Editor) -> bool {
+        let (Some(was), Some(now)) = (&self.shape, ed.shape()) else { return false };
+        if !matches!(ed.scope, Scope::Block(_) | Scope::Frame(_)) || was.size != now.size || self.world.size != now.size || was.voxels.len() != now.voxels.len() {
+            return false;
+        }
+        let colour = |b: &Block, v: u8| (v != 0).then(|| b.palette[v as usize - 1]);
+        let same_palette = was.palette == now.palette;
+        for (k, (&a, &b)) in was.voxels.iter().zip(&now.voxels).enumerate() {
+            if a == b && same_palette {
+                continue;
+            }
+            let c = colour(now, b);
+            if colour(was, a) == c {
+                continue;
+            }
+            let at = now.at(k);
+            if ed.cut(at) {
+                continue;
+            }
+            let v = match c {
+                Some(rgb) => match self.world.colour(rgb) {
+                    Some(v) => v,
+                    None => return false,
+                },
+                None => 0,
+            };
+            self.world.set(at, v);
+        }
+        self.shape = Some(now.clone());
+        true
+    }
+
     /// Brings the world up to the editor. True: it was built anew (every
     /// chunk to mesh again); else the changed chunks are marked dirty.
     pub fn update(&mut self, ed: &Editor) -> Result<bool> {
@@ -720,7 +915,15 @@ impl Shown {
         let same_blocks = |shown: &Self| shown.blocks.len() == listed && shown.blocks.iter().zip(ed.level.blocks.iter().zip(&ed.blocks)).all(|((b, k), (e, m))| *k == e.kind && b == m);
         match ed.scope {
             Scope::Block(_) | Scope::Frame(_) | Scope::Figure => {
-                if self.scope == ed.scope && self.shape.as_ref() == ed.shape() && self.slice == slice_key(ed) && self.turned == (ed.rest_view() != Mat4::IDENTITY) && (ed.scope != Scope::Figure || self.world.size == ed.grid()) {
+                let same = self.scope == ed.scope && self.slice == slice_key(ed) && self.turned == (ed.rest_view() != Mat4::IDENTITY);
+                if same && self.shape.as_ref() == ed.shape() && (ed.scope != Scope::Figure || self.world.size == ed.grid()) {
+                    return Ok(false);
+                }
+                // A stroke (an undo, a step) on a block or a frame as big
+                // as before: only the voxels it changed set again, their
+                // chunks to mesh anew (a big model rebuilt whole on every
+                // voxel of a stroke stuttered: the owner's back wall).
+                if same && !self.turned && self.retouch(ed) {
                     return Ok(false);
                 }
             }
@@ -833,8 +1036,7 @@ impl Figures {
     pub fn load(dir: &Path, cfg: &GameConfig) -> Self {
         let mut figures = BTreeMap::new();
         for (kind, table) in &cfg.things {
-            let behavior = table.get("behavior").and_then(|b| b.as_str());
-            let sideways = behavior.is_some_and(|b| SIDEWAYS.contains(&b));
+            let start = start_way(table);
             let number = |key: &str| table.get(key).and_then(|v| v.as_float().or(v.as_integer().map(|i| i as f64)));
             let model = table.get("model").and_then(|m| m.as_str()).and_then(|file| crate::vox::load_model(&dir.join(file)).ok());
             // Facing each way as a level's file may turn it (its forward
@@ -859,16 +1061,11 @@ impl Figures {
                         .map(|&k| {
                             let (p, color) = m.frames[0][k as usize];
                             // Turned as the game turns it as a run starts
-                            // (`face_of`), about the model's pivot: the hero
-                            // to the right, the other figures to the left,
-                            // anything else to the camera.
-                            let l = p - pivot;
-                            let l = match (sideways, behavior) {
-                                (true, Some("hero")) => IVec3::new(l.y, -l.x, l.z),
-                                (true, _) => IVec3::new(-l.y, l.x, l.z),
-                                _ => IVec3::new(-l.x, -l.y, l.z),
-                            };
-                            (l, [color[0], color[1], color[2]])
+                            // (`start_way`), about the model's pivot: the
+                            // way its kind faces (Voxkeep's bat to the
+                            // front, its wings spread), else a figure to
+                            // the side, anything else to the camera.
+                            (turned_to(start, p - pivot), [color[0], color[1], color[2]])
                         })
                         .collect()
                 }
@@ -1215,6 +1412,8 @@ pub enum Action {
     DayColour(bool, [u8; 3]),
     DayAsGame,
     GameView,
+    /// F1: the page of the keys shown, or hidden again.
+    Keys,
     Lights,
     /// Among the pieces: a thing's menu opened (on the one in the list
     /// right-clicked, at egui's point), closed; ADD's menu on the top bar
@@ -1718,6 +1917,7 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
             }
             None => {}
         },
+        Action::Keys => view.keys_shown = !view.keys_shown,
         Action::GameView => match view.before_game.take() {
             Some(orbit) => view.level = orbit,
             None => {
@@ -1856,7 +2056,11 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     let mut through = Vec::new();
     let mut drawn = (Vec::new(), Arc::<crate::render::ModelBank>::default(), [0.0; 4]);
     let game_view = view.before_game.is_some() && ed.scope != Scope::Level;
-    if let (true, Some(figure), Some((lo, _)), Some(Ok((mut model, ..)))) = (game_view, &ed.figure, ed.figure_box(), ed.model.as_ref().and_then(|m| m.figure())) {
+    // (The figure as the game holds it is made only in GAME VIEW: made on
+    // every frame it cost a big figure a frame's time and more.)
+    if let (true, Some(figure), Some((lo, _))) = (game_view, &ed.figure, ed.figure_box())
+        && let Some(Ok((mut model, ..))) = ed.model.as_ref().and_then(|m| m.figure())
+    {
         // GAME VIEW: the figure as the game draws it: shaded as the game
         // shades it, from a model bank (outlined), posed while POSE is lit,
         // facing the way the game shows it.
@@ -1868,7 +2072,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         let look = match view.face {
             Face::Right => glam::IVec2::X,
             Face::Left => glam::IVec2::NEG_X,
-            Face::Front | Face::Block => glam::IVec2::NEG_Y,
+            Face::Front | Face::Block | Face::Logo => glam::IVec2::NEG_Y,
         };
         let mut draws = Vec::new();
         crate::session::model_drawn(&model, origin, look, &figure.pose, &mut draws, &mut through);
@@ -1903,9 +2107,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     // after it, always lies over it in its own colors.
     let mut room = Vec::new();
     if matches!(ed.scope, Scope::Frame(_) | Scope::Figure) && !game_view {
-        ed.context_cubes(figures, seen, &mut room);
-        crate::render::join_see_through(&mut room, eye - grid.as_vec3() / 2.0);
-        room.sort_by(|a, b| far(a).total_cmp(&far(b)));
+        room = shown.room(ed, figures, seen, eye, grid);
     }
     // The pieces' glass joined too, as the game joins it: one body, not a
     // grid of every cube's faces blended over each other.
@@ -1916,7 +2118,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     // The selection (SELECT): its outline, thin and light, over all.
     if !game_view {
         let thin = 0.1;
-        for (from, to) in ed.selection_edges() {
+        for (from, to) in ed.selection_edges_kept(&mut shown.outline.borrow_mut()) {
             let n = (from.distance(to) / (thin * 0.8)).ceil().max(1.0) as i32;
             for k in 0..=n {
                 let p = from.lerp(to, k as f32 / n as f32);
@@ -2003,7 +2205,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     }
     if !through.is_empty() {
         through.extend(instances.drain(instances.len() - see_through..));
-        through.sort_by(|a, b| far(a).total_cmp(&far(b)));
+        far_to_near(&mut through, eye);
         see_through = through.len();
         instances.extend(through);
     }
@@ -2414,6 +2616,38 @@ pub const SHADOW_MAP: u32 = 4096;
 mod tests {
     use super::*;
     use crate::editor::model::tests::folder;
+
+    /// A kind of thing is drawn facing as the game faces it as a run
+    /// starts: Voxkeep's bat (a flyer whose kind says `facing = { 0, -1 }`)
+    /// to the front, its wings spread across, not edge on as the other
+    /// figures go; its model opens from the front too. A kind facing
+    /// right shows its right; the hero and a walker without `facing` from
+    /// the side as before, a prop to the camera.
+    #[test]
+    fn a_kind_faces_as_its_facing_says() {
+        let dir = Path::new("games/voxkeep");
+        let cfg = crate::session::config::<crate::Voxcade>(dir).unwrap();
+        let figures = Figures::load(dir, &cfg);
+        let bat = crate::vox::load_model(&dir.join("bat.vvx")).unwrap();
+        assert!(bat.size.x > 3 * bat.size.y, "the bat is wide across, thin deep: {}", bat.size);
+        let across = |kind: &str| {
+            let (lo, hi) = figures.bounds(kind);
+            (hi - lo).truncate()
+        };
+        assert_eq!(across("bat"), glam::IVec2::new(bat.size.x, bat.size.y), "the bat to the front, its wings across");
+        assert_eq!(face_of("bat.vvx", &cfg), Face::Front);
+        // The others as before: the hero right, a walker left, a prop to
+        // the camera.
+        assert_eq!(face_of("hero.vvx", &cfg), Face::Right);
+        assert_eq!(face_of("slime.vvx", &cfg), Face::Left);
+        assert_eq!(face_of("torch.vvx", &cfg), Face::Front);
+        let way = |table: &str| start_way(&toml::from_str::<toml::Table>(table).unwrap());
+        assert_eq!(way("behavior = \"walker\"\nfacing = [1, 0]"), crate::grid::Way::East);
+        assert_eq!(way("behavior = \"flyer\"\nfacing = [0.2, -1.0]"), crate::grid::Way::South);
+        assert_eq!(way("behavior = \"hero\""), crate::grid::Way::East);
+        assert_eq!(way("behavior = \"hopper\""), crate::grid::Way::West);
+        assert_eq!(way("behavior = \"prop\""), crate::grid::Way::South);
+    }
 
     /// The ray through the middle of the screen passes through the point
     /// the camera looks at, from any side.

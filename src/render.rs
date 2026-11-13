@@ -319,6 +319,20 @@ pub fn hide_inner_faces(instances: &mut [Instance]) {
     });
 }
 
+/// All of the eye's way (`toward`) that `join_see_through` goes by: the
+/// three ways by how much they face it, the most first, and on which side
+/// of each it is (true: the low one). Two eyes alike in this join the same
+/// cubes the same (the editor keeps a joined room until it changes).
+pub fn see_through_side(toward: Vec3) -> ([usize; 3], [bool; 3]) {
+    let a = toward.abs();
+    let first = if a.z >= 0.8 * a.max_element() { 2 } else if a.y >= a.x { 1 } else { 0 };
+    let mut ways = [first, (first + 1) % 3, (first + 2) % 3];
+    if a[ways[2]] > a[ways[1]] {
+        ways.swap(1, 2);
+    }
+    (ways, [toward.x < 0.0, toward.y < 0.0, toward.z < 0.0])
+}
+
 /// Marks the faces two see-through unit cubes share, so water, glass and
 /// the like are one joined body and not a grid of darker stripes where the
 /// faces between cubes blend on top of each other. Only cubes in
@@ -339,6 +353,20 @@ pub fn hide_inner_faces(instances: &mut [Instance]) {
 /// degrees is). Of the two faces shared along that
 /// way the one facing the eye stays.
 pub fn join_see_through(instances: &mut [Instance], toward: Vec3) {
+    let body = see_through_body(instances);
+    join_by_body(instances, &body, toward);
+}
+
+/// What `join_see_through` finds of the cubes before it looks at the eye:
+/// for each see-through cube that joins (its place among them), how many
+/// cubes the body is through there along x, y and z, and which of its six
+/// neighbours (`mesh::DIRS`) it joins. The editor keeps it for a big room
+/// and joins it again only when the eye goes round to another side.
+#[derive(Default)]
+pub struct SeeThroughBody(Vec<(u32, [u8; 3], u8)>);
+
+/// The body the see-through cubes of `instances` make (`SeeThroughBody`).
+pub fn see_through_body(instances: &[Instance]) -> SeeThroughBody {
     let joins = |i: &Instance| i.pos_size[3] == 1.0 && i.fx[1] < 255 && i.turn == [0; 4];
     let cell = |i: &Instance| glam::Vec3::from_slice(&i.pos_size[..3]).floor().as_ivec3();
     let mut at: crate::world::CellMap<glam::Vec3> = crate::world::CellMap::default();
@@ -346,28 +374,35 @@ pub fn join_see_through(instances: &mut [Instance], toward: Vec3) {
         at.insert(cell(i), glam::Vec3::from_slice(&i.pos_size[..3]) - cell(i).as_vec3());
     }
     if at.len() < 2 {
-        return;
-    }
-    // The ways by how much they face the eye, the most first.
-    let a = toward.abs();
-    let first = if a.z >= 0.8 * a.max_element() { 2 } else if a.y >= a.x { 1 } else { 0 };
-    let mut ways = [first, (first + 1) % 3, (first + 2) % 3];
-    if a[ways[2]] > a[ways[1]] {
-        ways.swap(1, 2);
+        return SeeThroughBody(Vec::new());
     }
     // No run is counted further than this each way: thick is thick.
     const FAR: i32 = 16;
-    for i in instances.iter_mut().filter(|i| joins(i)) {
+    let mut body = Vec::new();
+    for (k, i) in instances.iter().enumerate().filter(|(_, i)| joins(i)) {
         let c = cell(i);
         let within = glam::Vec3::from_slice(&i.pos_size[..3]) - c.as_vec3();
         let joined = |to: glam::IVec3| at.get(&to).is_some_and(|w| (*w - within).abs().max_element() <= 0.01);
-        // How many cubes the body is through here, along each way.
+        // How many cubes the body is through here, along each way (at
+        // most 1 + 2 FAR: a byte holds it).
         let run = |axis: usize| {
             let step = crate::mesh::DIRS[axis * 2];
             let count = |d: glam::IVec3| (1..=FAR).take_while(|n| joined(c + d * *n)).count();
-            1 + count(step) + count(-step)
+            (1 + count(step) + count(-step)) as u8
         };
-        let runs = [run(0), run(1), run(2)];
+        let near = crate::mesh::DIRS.iter().enumerate().filter(|(_, d)| joined(c + **d)).fold(0u8, |bits, (bit, _)| bits | 1 << bit);
+        body.push((k as u32, [run(0), run(1), run(2)], near));
+    }
+    SeeThroughBody(body)
+}
+
+/// Marks the shared faces of `body`'s cubes in `instances` (the cubes it
+/// was found in, as they were) for the eye's way `toward`: what
+/// `join_see_through` does after finding the body.
+pub fn join_by_body(instances: &mut [Instance], body: &SeeThroughBody, toward: Vec3) {
+    let (ways, _) = see_through_side(toward);
+    for &(k, runs, near) in &body.0 {
+        let runs = runs.map(usize::from);
         // Thin here: half as far through as any other way, or less. A
         // body about as thick every way (a gem's middle) goes by the view,
         // or its cubes would each choose their own and the skins lie in
@@ -376,8 +411,9 @@ pub fn join_see_through(instances: &mut [Instance], toward: Vec3) {
         sorted.sort_unstable();
         let across = if sorted[0] * 2 <= sorted[1] { *ways.iter().find(|w| runs[**w] == sorted[0]).expect("one is the shortest") } else { ways[0] };
         let kept = across * 2 + (toward[across] < 0.0) as usize;
-        for (bit, d) in crate::mesh::DIRS.iter().enumerate() {
-            if bit != kept && joined(c + *d) {
+        let i = &mut instances[k as usize];
+        for bit in 0..6 {
+            if bit != kept && near >> bit & 1 == 1 {
                 i.fx[2] |= 1 << bit;
             }
         }

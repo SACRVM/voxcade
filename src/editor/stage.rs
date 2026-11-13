@@ -79,9 +79,9 @@ fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
         // The menu hangs under it (`menu`).
         ui.data_mut(|d| d.insert_temp(egui::Id::unique("stage add at"), add.rect.left_bottom()));
         // Its entries' keys work without it open.
-        for a in [Action::AddModel, Action::AddLight, Action::AddPlace] {
+        for (a, word) in [(Action::AddModel, "ADD MODEL"), (Action::AddLight, "ADD LIGHT"), (Action::AddPlace, "ADD PLACE")] {
             if let Some(k) = key_of(a) {
-                shown.keys.push((k, a));
+                zones::key_named(shown, k, a, word);
             }
         }
         ui.add_space(8.0);
@@ -1149,4 +1149,65 @@ fn picker(ui: &mut egui::Ui, ed: &Editor, free: Rect, thumbs: &mut Thumbs, shown
 pub fn grip_under(ed: &Editor, view: &View, screen: Rect, mouse: Pos2) -> Option<Grip> {
     let (h, vp, _) = handles_on_screen(ed, view, screen)?;
     h.grip_at(vp, glam::Vec2::new(screen.width(), screen.height()), glam::Vec2::new(mouse.x - screen.left(), mouse.y - screen.top()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::editor::keys;
+    use crate::editor::panels::laid_out_at;
+
+    /// A level of pieces with one chosen, laid out as a window lays it.
+    fn room(name: &str) -> (Editor, View, crate::scratch::Scratch) {
+        let dir = crate::editor::big::room_game(name, 3);
+        let mut ed = Editor::open(&dir, "levels/room.toml").unwrap();
+        assert!(ed.among_pieces(), "a level without blocks opens among its pieces");
+        ed.choose_item(Some(Item::Thing(6)));
+        let cfg = crate::session::config::<crate::Voxcade>(&dir).unwrap();
+        let view = View::new(&ed, &cfg);
+        (ed, view, dir)
+    }
+
+    /// The three zones leave the view the room between them: right of the
+    /// outliner, under the top bar, left of the inspector, down to the
+    /// window's foot.
+    #[test]
+    fn the_zones_leave_the_view_its_room() {
+        let (ed, view, _dir) = room("stage-zones");
+        let (shown, _) = laid_out_at(&ed, &view);
+        let free = shown.free.expect("the view's room");
+        let want = Rect::from_min_max(Pos2::new(zones::OUTLINER, zones::TOP), Pos2::new(1600.0 - zones::INSPECTOR, 900.0));
+        for (a, b) in [(free.left(), want.left()), (free.top(), want.top()), (free.right(), want.right()), (free.bottom(), want.bottom())] {
+            assert!((a - b).abs() <= 5.0, "{free:?} for {want:?}");
+        }
+    }
+
+    /// Every key a menu names among the pieces (on a piece, on the floor,
+    /// ADD's) is on F1's page and works there: the menus only save a way.
+    /// The bar at the chosen piece offers what its menu offers most, its
+    /// keys among the panels'.
+    #[test]
+    fn the_menus_keys_are_on_the_page() {
+        let (ed, view, _dir) = room("stage-menus");
+        let (shown, _) = laid_out_at(&ed, &view);
+        let page = keys::overview(&ed, &shown.named);
+        let mut named = 0;
+        for on in [MenuOn::Item(Item::Thing(6)), MenuOn::Floor(IVec3::new(50, 50, 2)), MenuOn::Add] {
+            let entries = menu_entries(&ed, on);
+            assert!(!entries.is_empty(), "{on:?} offers something");
+            for (word, action, key) in entries {
+                if let Some(k) = key {
+                    named += 1;
+                    assert!(keys::lists(&page, k), "{word} {k} on the page");
+                    // (T among the pieces is the window's own, `pieces_key`.)
+                    if let Some(c) = k.chars().next().filter(|_| k.len() == 1)
+                        && let Some(a) = crate::editor::panels::key_action(&shown.keys, c)
+                    {
+                        assert_eq!(a, action, "{word} {k} does what the entry does");
+                    }
+                }
+            }
+        }
+        assert!(named >= 7, "the menus name keys: {named}");
+    }
 }

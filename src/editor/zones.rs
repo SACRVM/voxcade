@@ -119,15 +119,20 @@ pub fn mistake(ui: &egui::Ui, free: Rect, text: &str, shown: &mut Shown) {
 /// What the editor did or would not, over the view's top left: short, in
 /// `colour`, the whole words its tooltip.
 pub fn say(ui: &egui::Ui, free: Rect, text: &str, colour: Color32, shown: &mut Shown) {
-    // The words up to the first stop, cut.
-    let short: String = text.split([':', '.', '(']).next().unwrap_or(text).trim().chars().take(40).collect();
-    let short = if short.len() < text.trim().len() { format!("{short}…") } else { short };
+    let short = short(text);
     let area = egui::Area::new(egui::Id::unique("zones mistake")).order(egui::Order::Foreground).fixed_pos(free.min + Vec2::new(12.0, 10.0)).show(ui.ctx(), |ui| {
         egui::Frame::new().fill(Color32::from_rgba_unmultiplied(24, 23, 30, 230)).corner_radius(4.0).inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
             ui.label(RichText::new(short).color(colour)).on_hover_text(text);
         });
     });
     shown.rects.push(area.response.rect);
+}
+
+/// What `say` shows of `text`: its words up to the first stop, 40 signs
+/// at most, "…" where anything was left out (the whole is the tooltip).
+pub fn short(text: &str) -> String {
+    let short: String = text.split([':', '.', '(']).next().unwrap_or(text).trim().chars().take(40).collect();
+    if short.len() < text.trim().len() { format!("{short}…") } else { short }
 }
 
 /// Over the view's top left: what came from the disk (`disk.rs`), unless
@@ -177,7 +182,7 @@ pub fn hide_mark(ui: &mut egui::Ui, hidden: bool, action: Action, shown: &mut Sh
 pub fn keyed(ui: &mut egui::Ui, shown: &mut Shown, label: &str, action: Action, on: Option<bool>, tip: &str) -> egui::Response {
     let key = key_of(action);
     if let Some(k) = key {
-        shown.keys.push((k, action));
+        key_named(shown, k, action, label);
     }
     let mut job = egui::text::LayoutJob::default();
     let colour = if on == Some(true) { ACCENT } else { TEXT };
@@ -193,15 +198,37 @@ pub fn keyed(ui: &mut egui::Ui, shown: &mut Shown, label: &str, action: Action, 
     response
 }
 
+/// A key the panels show working while they show it (`action`), named in
+/// F1's overview by the word of its button.
+pub fn key_named(shown: &mut Shown, key: char, action: Action, word: &str) {
+    // (Two buttons doing the same, + FRAME and COPY: named once, by the
+    // first.)
+    if shown.keys.contains(&(key, action)) {
+        return;
+    }
+    shown.keys.push((key, action));
+    shown.named.push((key.to_string(), word.to_string()));
+}
+
+/// A tooltip that names the key of its button at its end, where it does
+/// not already (two spaces before it, as every tooltip has it).
+pub fn tip_with_key(tip: &str, key: Option<char>) -> String {
+    match key {
+        Some(k) if !tip.contains(&format!("  {k}")) => if tip.is_empty() { k.to_string() } else { format!("{tip}  {k}") },
+        _ => tip.to_string(),
+    }
+}
+
 /// A small button of a word (`on`: lit, a toggle), its tooltip naming
 /// what it does and its key; the key works while it is shown.
 pub fn small(ui: &mut egui::Ui, shown: &mut Shown, word: &str, action: Action, on: Option<bool>, tip: &str) -> egui::Response {
-    if let Some(k) = key_of(action) {
-        shown.keys.push((k, action));
+    let key = key_of(action);
+    if let Some(k) = key {
+        key_named(shown, k, action, word);
     }
     let mut job = egui::text::LayoutJob::default();
     job.append(word, 0.0, egui::TextFormat { font_id: TextStyle::Small.resolve(ui.style()), color: if on == Some(true) { ACCENT } else { TEXT }, ..Default::default() });
-    let response = ui.add(egui::Button::new(job).selected(on == Some(true))).on_hover_text(tip);
+    let response = ui.add(egui::Button::new(job).selected(on == Some(true))).on_hover_text(tip_with_key(tip, key));
     if response.clicked() {
         shown.clicked.push(action);
     }
@@ -660,4 +687,97 @@ pub fn warning_word(warnings: &[String]) -> Option<&'static str> {
     } else {
         "UNSURE"
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What is said over the view is short: its words up to the first
+    /// stop, 40 signs at most, "…" where anything was left out (the whole
+    /// is its tooltip); a short line as it is.
+    #[test]
+    fn a_said_line_is_cut_at_its_first_stop() {
+        assert_eq!(short("the level has more than 255 colors"), "the level has more than 255 colors");
+        assert_eq!(short("no piece to shape in place: it is gone"), "no piece to shape in place…");
+        assert_eq!(short("a part (its name) hangs on nothing"), "a part…");
+        let long = "x".repeat(60);
+        assert_eq!(short(&long), format!("{}…", "x".repeat(40)));
+    }
+
+    /// The inspector's three columns end where its rows end, two of them as
+    /// wide as two and the gap between: every row's X, Y and Z line up.
+    #[test]
+    fn the_three_columns_end_at_the_rows_edge() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            assert!((LABEL + GAP + col(ui, 3) - (INSPECTOR - SIDE_LEFT - RIGHT_ROOM as f32)).abs() < 0.01);
+            assert!((col(ui, 2) - (2.0 * col(ui, 1) + GAP)).abs() < 0.01);
+        });
+    }
+
+    /// A small button's tooltip names its key at its end, once.
+    #[test]
+    fn a_buttons_tooltip_names_its_key_once() {
+        assert_eq!(tip_with_key("Copy it", Some('C')), "Copy it  C");
+        assert_eq!(tip_with_key("Open its model  E (or double click it)", Some('E')), "Open its model  E (or double click it)");
+        assert_eq!(tip_with_key("Copy it  C", Some('C')), "Copy it  C");
+        assert_eq!(tip_with_key("Its light", None), "Its light");
+    }
+
+    /// A part's warnings have a short word on its row, the first's.
+    #[test]
+    fn a_parts_warning_has_a_short_word() {
+        let w = |s: &[&str]| warning_word(&s.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        assert_eq!(w(&[]), None);
+        assert_eq!(w(&["has no voxels"]), Some("EMPTY"));
+        assert_eq!(w(&["touches nothing: joined to body where it comes nearest", "has no voxels"]), Some("LOOSE"));
+        assert_eq!(w(&["could as well hang on head (4 faces each)"]), Some("UNSURE"));
+    }
+
+    /// The texts egui painted, with where they lie and whether cut.
+    fn texts(shapes: &[egui::epaint::ClippedShape]) -> Vec<(String, Rect, bool)> {
+        fn walk(s: &egui::Shape, out: &mut Vec<(String, Rect, bool)>) {
+            match s {
+                egui::Shape::Text(t) => out.push((t.galley.text().to_string(), t.galley.rect.translate(t.pos.to_vec2()), t.galley.elided)),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for c in shapes {
+            walk(&c.shape, &mut out);
+        }
+        out
+    }
+
+    /// A row's name too long for the outliner is cut at the row's edge
+    /// with "…" (its dot and warning kept clear), never past it; a short
+    /// one whole.
+    #[test]
+    fn a_long_name_is_cut_at_the_rows_edge() {
+        let ctx = egui::Context::default();
+        crate::gui::style(&ctx);
+        let long = "forearm_left_with_a_name_far_too_long_for_any_row";
+        let mut row = Rect::NOTHING;
+        let mut shapes = Vec::new();
+        for _ in 0..2 {
+            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1600.0, 900.0))), ..Default::default() };
+            shapes = ctx
+                .run_ui(raw, |ui| {
+                    egui::Panel::left("test outliner").exact_size(OUTLINER).resizable(false).show(ui, |ui| {
+                        row = list_row(ui, Sort::Part, None, long, 12.0, false, false, Some(Color32::RED), Some("LOOSE"), "").rect;
+                        list_row(ui, Sort::Part, None, "head", 12.0, false, false, None, None, "");
+                    });
+                })
+                .shapes;
+        }
+        let texts = texts(&shapes);
+        let (_, at, cut) = texts.iter().find(|(t, ..)| t.starts_with("forearm")).expect("the long name drawn");
+        assert!(*cut && at.width() < 150.0, "cut: {at:?}");
+        let (_, word, _) = texts.iter().find(|(t, ..)| t == "LOOSE").expect("its warning drawn");
+        assert!(at.right() <= word.left(), "clear of its warning: {at:?} {word:?}");
+        assert!(at.right() <= row.right(), "inside the row");
+        assert!(texts.iter().any(|(t, _, cut)| t == "head" && !cut), "a short name whole");
+    }
 }
