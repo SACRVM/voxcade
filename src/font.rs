@@ -168,12 +168,14 @@ impl DisplayFont {
         g
     }
 
-    /// The capital `base` with `accent` over it: rows put on top, the
-    /// baseline where it was.
+    /// The capital `base` with `accent` over it, inside the capital's own
+    /// height as pixel fonts do it: the letter's body is squeezed from the
+    /// top (rows dropped evenly, its width kept) to make room, so the
+    /// baseline, the ascent and the line height stay.
     fn accented(&self, base: char, accent: Accent, height: u32) -> Glyph {
         let g = self.sample(base as u8, height);
-        let (w, thick) = (g.width as usize, ((height as f32 / 7.0).round() as usize).max(2));
-        let room = (height as f32 * 0.07).round().max(1.0) as usize;
+        let (w, thick) = (g.width as usize, ((height as f32 / 10.0).round() as usize).max(2));
+        let room = (height as f32 * 0.05).round().max(1.0) as usize;
         let mut rows = vec![vec![false; w]; thick + room];
         let mid = w as f32 / 2.0;
         let stroke = (thick as f32 / 2.0).ceil().max(1.0);
@@ -193,9 +195,13 @@ impl DisplayFont {
                 };
             }
         }
-        let extra = rows.len() as i32;
-        rows.extend(g.rows.iter().cloned());
-        Glyph::new(g.width, g.ascent + extra, rows)
+        let (cap, k) = (g.ascent as usize, rows.len());
+        let body = cap - k;
+        for r in 0..body {
+            rows.push(g.rows[r * cap / body].clone());
+        }
+        rows.extend(g.rows[cap.min(g.rows.len())..].iter().cloned());
+        Glyph::new(g.width, g.ascent, rows)
     }
 
     /// How wide `s` is at `height`, gaps included.
@@ -270,10 +276,17 @@ mod tests {
             let (g, p) = (font.glyph(accented, 40), font.glyph(plain, 40));
             assert_ne!((g.width, &g.rows), (q.width, &q.rows), "{accented} is a question mark");
             assert_eq!(g.width, p.width);
-            assert!(g.ascent > p.ascent, "{accented} has no accent over it");
-            let lift = (g.ascent - p.ascent) as usize;
-            assert_eq!(&g.rows[lift..], &p.rows[..], "{accented}'s letter is not {plain}");
-            assert!(g.rows[..lift].iter().any(|r| r.iter().any(|&v| v)), "{accented}'s accent is empty");
+            assert_eq!(g.ascent, p.ascent, "{accented} rises above the capital");
+            assert_eq!(g.rows.len(), p.rows.len(), "{accented} changes the line's height");
+            let ink = |r: &Vec<bool>| r.iter().any(|&v| v);
+            let top = g.rows.iter().position(ink).unwrap();
+            assert_eq!(top, p.rows.iter().position(ink).unwrap(), "{accented}'s accent is not at the capital's top");
+            // The accent, a gap with no ink, then the letter's body.
+            let gap = g.rows.iter().skip(top).position(|r| !ink(r)).expect("the accent touches the letter");
+            assert!(gap >= 2 && top + gap < g.rows.len() / 3, "{accented}'s accent is {gap} rows");
+            assert!(g.rows.iter().skip(top + gap).any(ink), "{accented} lost its letter");
+            let last = |g: &Glyph| g.rows.iter().rposition(ink).unwrap();
+            assert_eq!(last(&g), last(&p), "{accented}'s baseline moved");
         }
         assert_eq!(font.glyph('ß', 40).rows, q.rows);
     }

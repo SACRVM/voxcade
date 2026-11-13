@@ -195,8 +195,8 @@ pub fn camera(layout: &Layout, slant: f32, front: f32) -> Mat4 {
     perspective(2.0 * slant.atan(), w / h, 1.0, distance + 400.0) * view
 }
 
-/// An accented capital: its letter, at its full height, and the accent's
-/// two rows above the capitals' top.
+/// An accented capital: its letter and its accent (`shown_row`: inside the
+/// capitals' height).
 fn accented(ch: char) -> Option<(char, [&'static str; 2])> {
     const DIAERESIS: [&str; 2] = [".#.#.", "....."];
     const ACUTE: [&str; 2] = ["...#.", "..#.."];
@@ -420,19 +420,27 @@ pub fn written(out: &mut Vec<Instance>, s: &str, x: f32, y: f32, scale: i32, col
     }
 }
 
+/// Row `r` (0 the top of the capitals, 7 and 8 below the line) of a glyph
+/// as drawn: an accented capital keeps its height, as pixel fonts do it:
+/// the accent on top (dots in one row with a row of air under them, a
+/// stroke in two rows), the letter's body squeezed to five rows under it
+/// (its rows 0, 1, 3, 5 and 6, so bars and stems stay).
+fn shown_row<'a>(g: &'a [&'a str; 9], accent: Option<[&'a str; 2]>, r: i32) -> &'a str {
+    match (accent, r) {
+        (Some(a), 0 | 1) => a[r as usize],
+        (Some(_), 2..=6) => g[[0, 1, 3, 5, 6][(r - 2) as usize]],
+        _ => g[r as usize],
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn letter(out: &mut Vec<Instance>, g: &[&str; 9], accent: Option<[&str; 2]>, x: f32, y: f32, scale: i32, color: [u8; 4], depth: i32) {
-    // Rows -2 and -1: an accent over a capital.
     let on = |c: i32, r: i32| {
-        let row = match r {
-            -2 | -1 => accent.map(|a| a[(r + 2) as usize]),
-            0..9 => Some(g[r as usize]),
-            _ => None,
-        };
+        let row = (0..9).contains(&r).then(|| shown_row(g, accent, r));
         (0..5).contains(&c) && row.is_some_and(|row| row.as_bytes()[c as usize] == b'#')
     };
     let d = depth * scale.min(2);
-    for r in -2..9 {
+    for r in 0..9 {
         for c in 0..5 {
             if !on(c, r) {
                 continue;
@@ -1427,17 +1435,11 @@ fn pixel_glyph(ch: char, scale: i32) -> Glyph {
     let Some(g) = glyph(ch) else {
         return Glyph::new(5 * scale, 7 * scale, Vec::new());
     };
-    // An accented capital's accent in two rows above it.
     let accent = accented(ch).map(|(_, a)| a);
-    let above = if accent.is_some() { 2 } else { 0 };
-    let row = |r: i32| match r {
-        r if r < 0 => accent.map_or(".....", |a| a[(r + 2) as usize]),
-        r => g[r as usize],
-    };
-    let rows = (-above * scale..9 * scale)
-        .map(|r| (0..5 * scale).map(|c| row(r.div_euclid(scale)).as_bytes()[(c / scale) as usize] == b'#').collect())
+    let rows = (0..9 * scale)
+        .map(|r| (0..5 * scale).map(|c| shown_row(g, accent, r / scale).as_bytes()[(c / scale) as usize] == b'#').collect())
         .collect();
-    Glyph::new(5 * scale, (7 + above) * scale, rows)
+    Glyph::new(5 * scale, 7 * scale, rows)
 }
 
 /// How far a letter dropping in is still up, `t` ticks after it was let
@@ -1752,7 +1754,8 @@ mod tests {
         written(&mut tall, "Ü", 0.0, 10.0, 1, TEXT, 1);
         let mut plain = Vec::new();
         written(&mut plain, "U", 0.0, 10.0, 1, TEXT, 1);
-        assert!(tall.len() > plain.len() && tall.iter().any(|i| i.pos_size[1] > 17.0), "an Ü is a U at its full height, the dots above");
+        let top = |v: &Vec<Instance>| v.iter().map(|i| i.pos_size[1]).fold(f32::MIN, f32::max);
+        assert!(top(&tall) == top(&plain) && tall.len() != plain.len(), "an Ü is a U's height, the dots inside it");
         assert_eq!(engine_case("Pulsar Drive x3 groß"), "PULSAR DRIVE x3 GROSS");
         assert_eq!(below("AB", text), below("AB", written), "capitals as they were");
         assert_ne!(below("ab", text).1, below("ab", written).1, "the engine's text in capitals, a game's as written");
@@ -1847,5 +1850,32 @@ mod tests {
         }
         assert!(broke > 0, "no hint needed breaking");
         assert_eq!(wrap_hint("ENTER: SELECT   ESC: BACK", 53), vec!["ENTER: SELECT   ESC: BACK"]);
+    }
+
+    /// An accented capital stays within the capitals' height (a menu row has
+    /// no room above it): its ink spans the plain letter's rows, accent and
+    /// body apart by a row of air, in both the pixel font and `letter`.
+    #[test]
+    fn an_accented_capital_keeps_the_height_of_the_plain_one() {
+        for scale in [1, 2, 3] {
+            for (acc, plain) in [('Ü', 'U'), ('Ä', 'A'), ('Ö', 'O'), ('É', 'E'), ('È', 'E'), ('À', 'A'), ('Ê', 'E')] {
+                let (a, p) = (pixel_glyph(acc, scale), pixel_glyph(plain, scale));
+                assert_eq!((a.ascent, a.rows.len()), (p.ascent, p.rows.len()), "{acc} at {scale}");
+                let ink: Vec<bool> = a.rows.iter().map(|r| r.iter().any(|&v| v)).collect();
+                let pink: Vec<bool> = p.rows.iter().map(|r| r.iter().any(|&v| v)).collect();
+                assert_eq!(ink.iter().position(|&v| v), pink.iter().position(|&v| v), "{acc} rises above {plain}");
+                assert_eq!(ink.iter().rposition(|&v| v), pink.iter().rposition(|&v| v));
+                // Dots stand clear of the body by a row of air; a stroke sits on it.
+                let first_gap = ink.iter().position(|&v| !v);
+                if matches!(acc, 'Ü' | 'Ä' | 'Ö') {
+                    let gap = first_gap.unwrap();
+                    assert_eq!(gap, scale as usize, "{acc}'s dots are not one row");
+                    assert!(ink[gap..].iter().any(|&v| v), "{acc} has no body under its dots");
+                } else {
+                    assert!(first_gap.is_none_or(|g| g > 2 * scale as usize - 1), "{acc}'s stroke is not two rows");
+                }
+                assert_ne!(a.rows, p.rows, "{acc} is its plain letter");
+            }
+        }
     }
 }
