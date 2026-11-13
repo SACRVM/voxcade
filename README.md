@@ -296,7 +296,7 @@ opens the launcher, which also fetches new versions (`src/update.rs`).
 | `src/sim/` | The simulation's core every game shares: fixed 60 Hz, deterministic, things with ids and kinds |
 | `src/lua/` | Lua games: the sandbox, the API (`api.rs` its register), `conf.lua`, saves |
 | `src/shooter/`, `src/platformer/` | The two kits, ready-made rules for whole genres |
-| `src/render.rs`, `src/*.wgsl`, `src/mesh.rs` | The renderer: chunk meshes, models on the GPU, shadows, post passes |
+| `src/render/`, `src/*.wgsl`, `src/mesh.rs` | The renderer: chunk meshes, models on the GPU, shadows, post passes |
 | `src/ui/`, `src/menu.rs`, `src/prompt.rs` | The voxel UI, the menus, the console |
 | `src/app/`, `src/headless.rs`, `src/cli/` | The window, everything without one (`shot`, `film`, `sounds`, `music`), the command line |
 | `src/replay.rs` | Recording, replays, `check`, attract mode |
