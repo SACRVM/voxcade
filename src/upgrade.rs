@@ -1124,6 +1124,9 @@ pub(crate) mod worlds {
     /// colours in the order of their first use (the map numbers them so).
     /// What it says of the palette, too.
     pub fn convert(old: &crate::vox::Scene, markers: &BTreeMap<u8, String>, world: bool) -> Result<(Scene, String)> {
+        if let Some(why) = crate::scene::too_big(old.size) {
+            bail!("{why}");
+        }
         let read = read_vox(old, markers)?;
         let mut scene = Scene::new(old.size);
         let numbers: Vec<u8> = if world {

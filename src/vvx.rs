@@ -96,6 +96,12 @@ pub(crate) const VERSION: u32 = 1;
 /// and the editors work over the whole box. A world or a map's prefab is
 /// read as a world (`crate::scene`), up to two billion.
 pub const MOST_VOXELS: i64 = 1 << 25;
+/// The most voxels a model may hold in all its frames or parts together:
+/// each lies in the box, but a short text can fill it again and again.
+pub const MOST_IN_ALL: usize = 1 << 26;
+/// The most parts a figure may have: the rules weigh every part against
+/// every other (`vox::parts_of`).
+pub const MOST_PARTS: usize = 1024;
 
 /// What a voxel is made of besides its place: its colour (alpha under 255
 /// is glass), how it mirrors (`metal::pack`) and how much it glows. Two
@@ -493,16 +499,37 @@ pub(crate) struct Layer<'a> {
     pub times: usize,
 }
 
+/// How many rows a layer and how many layers in all a `layers` text may
+/// have: the box's depth and height (a grid's, a level's). A repeat is
+/// counted before it is made, so no count in a file makes more than this.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Room {
+    pub rows: usize,
+    pub layers: usize,
+}
+
+impl Room {
+    /// The room of a box `size` voxels big: as deep as its y, as high as
+    /// its z.
+    pub fn of(size: IVec3) -> Self {
+        Self { rows: size.y.max(0) as usize, layers: size.z.max(0) as usize }
+    }
+}
+
 /// The layers of a `layers` text: an empty line between layers, a row
 /// followed by ` *N` that row N times in all, a line `*N` after a layer's
 /// rows that layer N times in all. `line(i)` says where the text's line `i`
-/// is in the file (`"line 12: "`).
-pub(crate) fn layer_list<'a>(text: &'a str, line: &dyn Fn(usize) -> String) -> Result<Vec<Layer<'a>>> {
+/// is in the file (`"line 12: "`). More rows in a layer, or more layers,
+/// than `room` holds is a mistake, said before they are made.
+pub(crate) fn layer_list<'a>(text: &'a str, line: &dyn Fn(usize) -> String, room: Room) -> Result<Vec<Layer<'a>>> {
     let count = |word: &str, i: usize| -> Result<usize> {
         let n = word.strip_prefix('*').and_then(|n| n.parse::<usize>().ok()).filter(|&n| n >= 2);
         n.ok_or_else(|| anyhow!("{}'{word}' is no repeat: a star and how many times in all, 2 or more (*3)", line(i)))
     };
+    let too_many_layers = |i: usize, n: usize| anyhow!("{}that makes {n} layers, more than there is room for: {} at most", line(i), room.layers);
     let mut layers: Vec<Layer> = Vec::new();
+    // The layers so far, each as often as it stands.
+    let mut total = 0usize;
     let mut open = false;
     for (i, raw) in text.lines().enumerate() {
         let words: Vec<&str> = raw.split_whitespace().collect();
@@ -510,7 +537,12 @@ pub(crate) fn layer_list<'a>(text: &'a str, line: &dyn Fn(usize) -> String) -> R
             [] => open = false,
             [word] if word.starts_with('*') => {
                 let layer = layers.last_mut().filter(|l| open && l.times == 1).ok_or_else(|| anyhow!("{}a layer's repeat ({word}) comes on the line after its rows", line(i)))?;
-                layer.times = count(word, i)?;
+                let times = count(word, i)?;
+                total = (total - 1).saturating_add(times);
+                if total > room.layers {
+                    return Err(too_many_layers(i, total));
+                }
+                layer.times = times;
                 open = false;
             }
             [row, ref rest @ ..] => {
@@ -520,15 +552,87 @@ pub(crate) fn layer_list<'a>(text: &'a str, line: &dyn Fn(usize) -> String) -> R
                     _ => bail!("{}a row is its signs, then perhaps a repeat (*3); this line has more", line(i)),
                 };
                 if !open {
+                    total += 1;
+                    if total > room.layers {
+                        return Err(too_many_layers(i, total));
+                    }
                     layers.push(Layer { rows: Vec::new(), times: 1 });
                     open = true;
                 }
-                let layer = layers.last_mut().unwrap();
+                let layer = layers.last_mut().expect("a layer is open");
+                let rows = layer.rows.len().saturating_add(times);
+                if rows > room.rows {
+                    bail!("{}that makes {rows} rows in this layer, more than there is room for: {} at most", line(i), room.rows);
+                }
                 layer.rows.extend(std::iter::repeat_n((i, row), times));
             }
         }
     }
     Ok(layers)
+}
+
+/// Where a `layers` text lies and how its cells read: the signs `width`
+/// characters a cell, the frame's low corner at `low` in a box `size` big
+/// whose pivot is `pivot` (for the mistakes, which say places from it),
+/// `what` the box in a mistake ("the model's size").
+pub(crate) struct Lay<'a> {
+    pub width: usize,
+    pub low: IVec3,
+    pub size: IVec3,
+    pub pivot: IVec3,
+    pub what: &'a str,
+}
+
+/// The one reading of a `layers` text into a box, a model's frame or
+/// part's and a world's or a prefab's alike (`crate::scene`): every cell
+/// that is not empty (`.`, or `..` with two signs a cell) in reading order
+/// (layer by layer from the bottom, each layer's rows far to near, x left to
+/// right), its value by `sign` (None: no sign of the palette, `known` the
+/// signs there are), handed to `put` with its place in the box. Rows as long
+/// as one another, layers as deep, every voxel inside the box; nothing past
+/// the box's room is made (`layer_list`).
+pub(crate) fn read_cells<T>(text: &str, line: &dyn Fn(usize) -> String, lay: &Lay, sign: impl Fn(&[u8]) -> Option<T>, known: impl Fn() -> String, mut put: impl FnMut(IVec3, T)) -> Result<()> {
+    let (width, size) = (lay.width, lay.size);
+    let layers = layer_list(text, line, Room::of(size))?;
+    let (mut cols, mut depth) = (None, None);
+    let mut z = lay.low.z;
+    for layer in &layers {
+        let rows = layer.rows.len();
+        if *depth.get_or_insert(rows) != rows {
+            bail!("{}this layer has {rows} rows, the first has {}: every layer must be as deep as the first", line(layer.rows[0].0), depth.unwrap_or_default());
+        }
+        for _ in 0..layer.times {
+            for (r, &(i, row)) in layer.rows.iter().enumerate() {
+                let bytes = row.as_bytes();
+                if !row.is_ascii() {
+                    let odd = row.chars().find(|c| !c.is_ascii()).unwrap_or('?');
+                    bail!("{}'{odd}' is no sign of the palette (it has {})", line(i), known());
+                }
+                if !bytes.len().is_multiple_of(width) {
+                    bail!("{}a row is {} characters, but every cell is {width} (the palette's signs are that long)", line(i), bytes.len());
+                }
+                let n = bytes.len() / width;
+                if *cols.get_or_insert(n) != n {
+                    bail!("{}this row has {n} cells, the first has {}: every row must be as long as the first", line(i), cols.unwrap_or_default());
+                }
+                let y = lay.low.y + (rows - 1 - r) as i32;
+                for (x, cell) in bytes.chunks(width).enumerate() {
+                    if cell.iter().all(|&b| b == b'.') {
+                        continue;
+                    }
+                    let v = sign(cell).ok_or_else(|| anyhow!("{}'{}' is no sign of the palette (it has {})", line(i), String::from_utf8_lossy(cell), known()))?;
+                    let p = IVec3::new(lay.low.x + x as i32, y, z);
+                    if p.cmplt(IVec3::ZERO).any() || p.cmpge(size).any() {
+                        let f = p - lay.pivot;
+                        bail!("{}a voxel at [{}, {}, {}] (from the pivot) lies outside {} [{}, {}, {}]: make size bigger or move it in", line(i), f.x, f.y, f.z, lay.what, size.x, size.y, size.z);
+                    }
+                    put(p, v);
+                }
+            }
+            z += 1;
+        }
+    }
+    Ok(())
 }
 
 impl Reader<'_> {
@@ -643,10 +747,6 @@ impl Reader<'_> {
         let text = item.as_str().ok_or_else(|| self.fail(item.span(), "layers must be a text between \"\"\" marks"))?;
         let first = self.first_line(item);
         let line = |i: usize| if first > 0 { format!("line {}: ", first + i) } else { String::new() };
-        // The layers with their rows (a row repeated stands that often).
-        let layers = layer_list(text, &line)?;
-        let mut out = Vec::new();
-        let (mut cols, mut rows) = (None, None);
         let known = || {
             let mut signs: Vec<&String> = palette.keys().collect();
             signs.sort();
@@ -661,47 +761,10 @@ impl Reader<'_> {
                 bytes => _ = two.insert(bytes, *mat),
             }
         }
-        let mut z = 0;
-        for layer in &layers {
-            let depth = layer.rows.len();
-            if *rows.get_or_insert(depth) != depth {
-                bail!("{}this layer has {depth} rows, the first has {}: every layer must be as deep as the first", line(layer.rows[0].0), rows.unwrap());
-            }
-            let mut cells = Vec::new();
-            for (r, &(i, row)) in layer.rows.iter().enumerate() {
-                let bytes = row.as_bytes();
-                if !row.is_ascii() {
-                    let odd = row.chars().find(|c| !c.is_ascii()).unwrap_or('?');
-                    bail!("{}'{odd}' is no sign of the palette (it has {})", line(i), known());
-                }
-                if !bytes.len().is_multiple_of(width) {
-                    bail!("{}a row is {} characters, but every cell is {width} (the palette's signs are that long)", line(i), bytes.len());
-                }
-                let n = bytes.len() / width;
-                if *cols.get_or_insert(n) != n {
-                    bail!("{}this row has {n} cells, the first has {}: every row must be as long as the first", line(i), cols.unwrap());
-                }
-                for (x, sign) in bytes.chunks(width).enumerate() {
-                    if sign.iter().all(|&b| b == b'.') {
-                        continue;
-                    }
-                    let found = if width == 1 { one[sign[0] as usize] } else { two.get(sign).copied() };
-                    let mat = found.ok_or_else(|| anyhow!("{}'{}' is no sign of the palette (it has {})", line(i), String::from_utf8_lossy(sign), known()))?;
-                    cells.push((i, IVec3::new(x as i32, (depth - 1 - r) as i32, 0), mat));
-                }
-            }
-            for _ in 0..layer.times {
-                for &(i, c, mat) in &cells {
-                    let p = at + pivot + c + IVec3::Z * z;
-                    if p.cmplt(IVec3::ZERO).any() || p.cmpge(size).any() {
-                        let f = p - pivot;
-                        bail!("{}a voxel at [{}, {}, {}] (from the pivot) lies outside the model's size [{}, {}, {}]: make size bigger or move it in", line(i), f.x, f.y, f.z, size.x, size.y, size.z);
-                    }
-                    out.push((p, mat));
-                }
-                z += 1;
-            }
-        }
+        let sign = |s: &[u8]| if width == 1 { one[s[0] as usize] } else { two.get(s).copied() };
+        let lay = Lay { width, low: at + pivot, size, pivot, what: "the model's size" };
+        let mut out = Vec::new();
+        read_cells(text, &line, &lay, sign, known, |p, mat| out.push((p, mat)))?;
         Ok(out)
     }
 }
@@ -836,6 +899,15 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
     let width = width.max(1);
     let box_low = -pivot;
     let from_pivot = |voxels: Vec<(IVec3, Mat)>| voxels.into_iter().map(|(v, m)| (v - pivot, m)).collect::<Vec<_>>();
+    // The voxels of the frames or parts so far, within `MOST_IN_ALL`.
+    let mut held = 0usize;
+    let in_all = |held: &mut usize, more: usize, span: Span| -> Result<()> {
+        *held += more;
+        if *held > MOST_IN_ALL {
+            return Err(r.fail(span, format!("the model holds more than {MOST_IN_ALL} voxels in all its frames or parts")));
+        }
+        Ok(())
+    };
     let shape = match (top.get("frame"), top.get("part")) {
         (Some(f), None) => {
             let list = tables(f).ok_or_else(|| r.fail(f.span(), "frames must be tables: [[frame]]"))?;
@@ -853,6 +925,7 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
                     Some(l) => r.layers(l, &palette, width, at, pivot, size)?,
                     None => Vec::new(),
                 };
+                in_all(&mut held, voxels.len(), t.get("layers").and_then(Item::span))?;
                 pieces.push(Piece { voxels: from_pivot(voxels), ..Piece::default() });
             }
             if pieces.is_empty() {
@@ -864,6 +937,9 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
             let list = tables(p).ok_or_else(|| r.fail(p.span(), "parts must be tables: [[part]] with a name"))?;
             let mut pieces: Vec<Piece> = Vec::new();
             let mut spans = Vec::new();
+            if list.len() > MOST_PARTS {
+                return Err(r.fail(p.span(), format!("the figure has {} parts, {MOST_PARTS} at most", list.len())));
+            }
             for t in list {
                 if let Some(v) = t.get("turn") {
                     return Err(r.fail(v.span(), "a part's 'turn' is called 'rotation' now (degrees round, clockwise seen from above)"));
@@ -879,6 +955,7 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
                     Some(l) => r.layers(l, &palette, width, at, pivot, size)?,
                     None => Vec::new(),
                 };
+                in_all(&mut held, voxels.len(), t.get("layers").and_then(Item::span))?;
                 let parent = match t.get("parent") {
                     None => None,
                     Some(i) => {
@@ -1199,7 +1276,7 @@ mod tests {
         assert!(bad("aa *1\n").contains("line 7:"));
         assert!(bad("aa *x\n").contains("no repeat"));
         assert!(bad("*2\n").contains("comes on the line after its rows"));
-        assert!(bad("aa *2\n*3\n").contains("outside the model's size"), "three layers in a box two high");
+        assert!(bad("aa *2\n*3\n").contains("line 8: that makes 3 layers, more than there is room for: 2 at most"), "three layers in a box two high");
         assert!(read(&(head("[2, 2, 2]") + "[palette]\na = \"#ff0000\"\n[[frame]]\nlayers = \"\"\"\naa *2\n*2\n\"\"\"\n")).is_ok_and(|m| m.frames[0].len() == 8));
     }
 
@@ -1343,7 +1420,7 @@ mod tests {
         assert!(why("size = [1, 1, 1]\nformat = \"voxcade voxel 1\"\n".into()).contains("first line must be"));
         let e = why("format = \"voxcade voxel 2\"\n".into());
         assert!(e.starts_with("line 1:") && e.contains("newer Voxcade"), "{e}");
-        let body = |layers: &str| head("[2, 1, 1]") + "[palette]\na = \"#ff0000\"\n[[frame]]\nlayers = \"\"\"\n" + layers + "\"\"\"\n";
+        let body = |layers: &str| head("[2, 2, 1]") + "[palette]\na = \"#ff0000\"\n[[frame]]\nlayers = \"\"\"\n" + layers + "\"\"\"\n";
         // The layers begin on line 7.
         let e = why(body("a.\nax\n"));
         assert!(e.starts_with("line 8:") && e.contains("'x' is no sign of the palette"), "{e}");
@@ -1360,6 +1437,63 @@ mod tests {
         let e = why(head("[100000, 100000, 100000]") + "[palette]\na = \"#ff0000\"\n[[frame]]\nlayers = \"\"\"\na\n\"\"\"\n");
         assert!(e.starts_with("line 2:") && e.contains("too big") && e.contains(&MOST_VOXELS.to_string()), "{e}");
         assert!(read(&(head("[512, 512, 128]") + "[palette]\na = \"#ff0000\"\n[[frame]]\nlayers = \"\"\"\na\n\"\"\"\n")).is_ok(), "the most a box holds reads");
+    }
+
+    /// Hostile texts, fed to every reader of the text formats whose sizes
+    /// drive what is made (models, worlds and prefabs, levels with their
+    /// cells and terrain, maps): each is a plain mistake, never a panic, an
+    /// endless loop or an allocation that aborts the process. A row repeat
+    /// of `*99999999999` once asked for 2.4 TB and dumped core.
+    #[test]
+    fn hostile_texts_are_mistakes_never_a_crash() {
+        let model = |size: &str, layers: &str| format!("{}[palette]\na = \"#ff0000\"\n[[frame]]\nlayers = \"\"\"\n{layers}\"\"\"\n", head(size));
+        let world = |size: &str, layers: &str| format!("format = \"voxcade voxel 1\"\nsize = {size}\n\n[palette]\na = \"#ff0000\"\nm = {{ marker = \"guard\" }}\n\n[[frame]]\nlayers = \"\"\"\n{layers}\"\"\"\n");
+        let level = |head: &str, layers: &str| format!("format = \"voxcade level 1\"\n{head}\n[blocks]\nstone = \"solid\"\n[legend]\ns = \"stone\"\n[cells]\nlayers = \"\"\"\n{layers}\"\"\"\n");
+        let land = |heights: &str| format!("format = \"voxcade level 1\"\nsize = [64, 64, 32]\n[terrain]\nspacing = 1024\nheights = \"\"\"\n{heights}\n\"\"\"\n");
+        let map = |size: &str| format!("format = \"voxcade map 1\"\nsize = {size}\n[ground]\nheight = \"h.png\"\n[[ground.materials]]\nsurface = [\"#ffffff\"]\n");
+        let deep = format!("{}x = {}1{}\n", head("[1, 1, 1]"), "[".repeat(20_000), "]".repeat(20_000));
+        let long_row = model("[2, 1, 1]", &format!("{}\n", "a".repeat(10_000_000)));
+        let many_parts = format!("{}[palette]\na = \"#ff0000\"\n{}", head("[1, 1, 1]"), (0..2000).map(|i| format!("[[part]]\nname = \"p{i}\"\n")).collect::<String>());
+        let wide_land = land(&"0 ".repeat(2_100_000));
+        type Reading = fn(&str) -> Result<()>;
+        let as_model: Reading = |t| read(t).map(drop);
+        let as_world: Reading = |t| crate::scene::read(t).map(drop);
+        let as_level: Reading = |t| crate::grid::text::read(t).map(drop);
+        let as_map: Reading = |t| crate::map::MapData::read(t).map(drop);
+        let cases: Vec<(&str, Reading, String, &str)> = vec![
+            ("a row repeated past the box", as_model, model("[4, 4, 4]", "aaaa *99999999999\n"), "line 7:"),
+            ("a layer repeated past the box", as_model, model("[4, 4, 4]", "....\n*99999999999\n"), "line 8:"),
+            ("a repeat past every number", as_model, model("[4, 4, 4]", "a *999999999999999999999999\n"), "line 7:"),
+            ("rows past the box's depth", as_model, model("[1, 2, 1]", "a\na\na\n"), "line 9:"),
+            ("layers past the box's height", as_model, model("[1, 1, 2]", "a\n\na\n\na\n"), "line 11:"),
+            ("a negative size", as_model, model("[-1, 2, 3]", "a\n"), "line 2:"),
+            ("a size past the numbers", as_model, model("[2147483647, 2147483647, 2147483647]", "a\n"), "line 2:"),
+            ("a product past i32", as_model, model("[1000000, 1000000, 1000000]", "a\n"), "line 2:"),
+            ("a very long row", as_model, long_row, "line 7:"),
+            ("deep nesting", as_model, deep, ""),
+            ("a figure of too many parts", as_model, many_parts, "line 5:"),
+            ("a world's row repeated", as_world, world("[4, 4, 4]", "aaaa *99999999999\n"), "line 10:"),
+            ("a world's layer repeated", as_world, world("[4, 4, 4]", "....\n*99999999999\n"), "line 11:"),
+            ("a world too big", as_world, world("[1000000, 1000000, 1]", "a\n"), "line 2:"),
+            ("a world past i32", as_world, world("[1000000, 1000000, 1000000]", "a\n"), "line 2:"),
+            ("a level's row repeated", as_level, level("block = 2\nsize = [2, 1, 2]", "ss *99999999999\n"), "line 10:"),
+            ("a level's layer repeated", as_level, level("block = 2\nsize = [2, 1, 2]", "ss\n*99999999999\n"), "line 11:"),
+            ("a level of huge blocks", as_level, level("block = 100000\nsize = [1000, 1000, 64]", "s\n"), "line 3:"),
+            ("a level without blocks too big", as_level, "format = \"voxcade level 1\"\nsize = [100000, 100000, 100000]\n".into(), "line 2:"),
+            ("a terrain wider than any level", as_level, wide_land, ""),
+            ("a map too big", as_map, map("[100000, 100000, 10]"), "line 2:"),
+            ("a map past i32", as_map, map("[1000000, 1000000, 1000000]"), "line 2:"),
+        ];
+        for (what, reading, text, line) in cases {
+            let got = std::panic::catch_unwind(|| reading(&text));
+            let e = match got {
+                Ok(Err(e)) => e.to_string(),
+                Ok(Ok(())) => panic!("{what}: read without a mistake"),
+                Err(_) => panic!("{what}: a panic"),
+            };
+            assert!(e.starts_with(line), "{what}: {e}");
+            assert!(e.len() < 2000, "{what}: a mistake short enough to read: {e}");
+        }
     }
 
     /// The repo's `.vvx` files (models, worlds, prefabs) as they stand are

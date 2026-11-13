@@ -263,7 +263,10 @@ impl MapData {
         if size.cmplt(IVec3::ONE).any() {
             return Err(r.fail(size_item.span(), "size must be positive"));
         }
-        let text = |t: &dyn TableLike, key: &str, what: &str| -> Result<Option<String>> {
+        if let Some(why) = crate::world::too_big(size.as_i64vec3()) {
+            return Err(r.fail(size_item.span(), format!("the map of {why}")));
+        }
+        let text =|t: &dyn TableLike, key: &str, what: &str| -> Result<Option<String>> {
             match t.get(key) {
                 None => Ok(None),
                 Some(i) => Ok(Some(i.as_str().ok_or_else(|| r.fail(i.span(), format!("{what} must be text")))?.to_string())),
@@ -526,6 +529,12 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
     let dir = path.parent().unwrap_or(Path::new("."));
     let mut sources = vec![path.to_path_buf()];
     let size = IVec3::from(map.size);
+    if size.cmplt(IVec3::ONE).any() {
+        bail!("{}: size must be positive", path.display());
+    }
+    if let Some(why) = crate::world::too_big(size.as_i64vec3()) {
+        bail!("{}: the map of {why}", path.display());
+    }
     let mut palette = Palette::new();
 
     // --- ground ---

@@ -48,6 +48,33 @@ pub type CellSet = HashSet<IVec3, BuildHasherDefault<CellHasher>>;
 pub const CHUNK: i32 = 32;
 pub const CHUNK_VOLUME: usize = (CHUNK * CHUNK * CHUNK) as usize;
 
+/// The most voxels a world made from a file may be each way (65536).
+pub const MOST_SIDE: i64 = 1 << 16;
+/// The most columns (across times deep) a world made from a file may
+/// have: 4096 by 4096. More Blood's map is 640 by 2368, 1.5 million.
+pub const MOST_COLUMNS: i64 = 1 << 24;
+/// The most voxels a world made from a file may hold, empty ones counted:
+/// about a billion. More Blood's map is 121 million.
+pub const MOST_WORLD_VOXELS: i64 = 1 << 30;
+
+/// The mistake for a world `size` voxels big that a file asks for (a map,
+/// a level, a world or a prefab), told before anything that big is made:
+/// None when it is within `MOST_SIDE`, `MOST_COLUMNS` and
+/// `MOST_WORLD_VOXELS`. In whole numbers that cannot overflow.
+pub fn too_big(size: glam::I64Vec3) -> Option<String> {
+    let (columns, voxels) = (size.x.saturating_mul(size.y), size.x.saturating_mul(size.y).saturating_mul(size.z));
+    let said = format!("{} by {} by {} voxels", size.x, size.y, size.z);
+    if size.max_element() > MOST_SIDE {
+        Some(format!("{said} is too big: {MOST_SIDE} voxels each way at most"))
+    } else if columns > MOST_COLUMNS {
+        Some(format!("{said} is too big: {columns} columns, {MOST_COLUMNS} at most (4096 by 4096)"))
+    } else if voxels > MOST_WORLD_VOXELS {
+        Some(format!("{said} is too big: {voxels} voxels, {MOST_WORLD_VOXELS} at most"))
+    } else {
+        None
+    }
+}
+
 #[derive(Clone)]
 pub struct Chunk {
     pub voxels: [u8; CHUNK_VOLUME],

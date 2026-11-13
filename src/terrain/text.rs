@@ -447,10 +447,12 @@ pub fn text(t: &Terrain) -> String {
 /// A terrain's mistakes against its level: it lies inside the level's
 /// voxels `room`.
 pub fn check_room(t: &Terrain, room: IVec3) -> Result<()> {
-    let size = t.size();
-    let high = t.heights.iter().copied().max().unwrap_or(0);
-    let far = IVec3::new(t.at[0] + size.x, t.at[1] + size.y, t.at[2] + high);
-    if far.cmpgt(room).any() {
+    // In whole numbers that cannot overflow: a row of a million points
+    // times the spacing is past any level, not a wrapped number inside it.
+    let size = glam::I64Vec2::new(t.cols as i64, t.rows as i64) * t.spacing as i64;
+    let high = t.heights.iter().copied().max().unwrap_or(0) as i64;
+    let far = glam::I64Vec3::new(t.at[0] as i64 + size.x, t.at[1] as i64 + size.y, t.at[2] as i64 + high);
+    if far.cmpgt(room.as_i64vec3()).any() {
         bail!(
             "line {}: the terrain reaches to {} by {} by {} voxels (at, the points times spacing, the highest point), past the level's size {} by {} by {}",
             t.line,
