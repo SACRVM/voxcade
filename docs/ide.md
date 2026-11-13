@@ -636,9 +636,15 @@ Stage by stage (the plan of 2026-10-18):
    opening such a game (OPEN, a folder, the launcher's EDIT and PLAY,
    `voxcade ide GAME`) shows a calm page instead (`ide/wizard.rs`): the
    Voxcade it was made for and this one, each step of `upgrade::standing`
-   with what it would do in its own words (the dry run), the version line
-   last; above UPGRADE and BACK a word when git has changes not committed
-   (save a step first; the upgrade commits nothing). UPGRADE runs on a
+   that changes something with what it would do in its own words (the dry
+   run; the steps with nothing to change counted in one quiet line), the
+   version line last; above UPGRADE and BACK a word when git has changes
+   not committed (save a step first; the upgrade commits nothing) and
+   what keeps the old files: A COPY IS KEPT FIRST (into
+   `before-upgrade/`, the folder not all committed in git) or GIT KEEPS
+   THE OLD FILES (test `the_page_shows_only_the_steps_that_change_something`).
+   After UPGRADE the replays are counted on a quiet line beside REFIT THE
+   REPLAYS, no empty heading. UPGRADE runs on a
    thread as BUILD does, then says what was done (COPY) or what went
    wrong in red (COPY); then REFIT THE REPLAYS (`replay::refit_saying`,
    as `voxcade check --refit`: written only if every replay plays as

@@ -247,14 +247,19 @@ nearest; its replay `tests/two_ships`);
   game made for an older Voxcade: `voxcade upgrade <game> [--dry]` (every
   step it needs, then `c.voxcade`; it commits nothing; a game not in git
   with everything committed has its files kept first in
-  `config_dir()/before-upgrade/<game>-for-<version>/`, `upgrade::committed`,
-  `upgrade_keeping`). The IDE (and the
+  `config_dir()/before-upgrade/<game>-for-<version>/`, `upgrade::committed`:
+  a folder git ignores is not committed, test
+  `a_game_git_ignores_is_kept_before_the_upgrade`; `upgrade_keeping`). The IDE (and the
   launcher's EDIT and PLAY) opens such a game on its upgrade page
   (`ide/wizard.rs`, the user's: a wizard, not a command): the version it
-  was made for and this one, the steps' dry run in their words, a word
-  on changes git has not committed, UPGRADE on a thread, what was done
-  (COPY; not the line naming `voxcade check --refit`, which REFIT THE
-  REPLAYS below does), REFIT THE REPLAYS (`replay::refit_saying`), then the game; a
+  was made for and this one, the steps' dry run in their words (only the
+  steps that change something, the rest one quiet line "N steps have
+  nothing to change", `wizard::shown_lines`), a word on changes git has
+  not committed and A COPY IS KEPT FIRST or GIT KEEPS THE OLD FILES by
+  UPGRADE (`wizard::keeping`, as `upgrade::committed`), UPGRADE on a
+  thread, what was done (COPY; not the line naming `voxcade check
+  --refit`, which REFIT THE REPLAYS below does), "N replays recorded on
+  the old files" and REFIT THE REPLAYS (`replay::refit_saying`), then the game; a
   game of a newer Voxcade is told to get the update. A `conf.lua` stating
   no `c.voxcade` is taken as made before 0.6.0, but where no step finds
   anything to change it opens (`Standing::Current`), the missing line said
