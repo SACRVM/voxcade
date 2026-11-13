@@ -154,14 +154,14 @@ local Level = {}
 ---@return integer
 function Level:voxel(x, y, z) end
 
----Sets the voxel at a cell: a colour "#rrggbb" (taken into the level's palette), a palette index, or nil or 0 for empty.
+---Sets the voxel at a cell: a colour "#rrggbb" (taken into the level's palette), a palette index, or nil or 0 for empty. A cell outside the level (level.size) is a mistake.
 ---@param x integer
 ---@param y integer
 ---@param z integer
 ---@param voxel integer|string|nil
 function Level:set_voxel(x, y, z, voxel) end
 
----Fills the box from one corner cell to the other, both included, like set_voxel; nil or 0 empties it. A level made in code (c.world.size) is built this way.
+---Fills the box from one corner cell to the other, both included, like set_voxel (only what of it lies inside the level); nil or 0 empties it. A level made in code (c.world.size) is built this way.
 ---@param x0 integer
 ---@param y0 integer
 ---@param z0 integer
@@ -647,126 +647,169 @@ function on_pickup(thing, item) end
 
 ---@class Conf The game's settings (conf.lua); ready-made rules (c.kit) add their own (c.weapons).
 ---@field [string] table
----@field actions any[]
----@field audio Conf.audio
----@field camera Conf.camera
----@field debris Conf.debris
----@field effects Conf.effects
----@field high_scores any[]
----@field keys table<string, any>
----@field light Conf.light
----@field markers table<string, any>
----@field models any[]
----@field pad table<string, any>
+---@field voxcade string The Voxcade the game's files are for (c.voxcade = "0.6.0"): a game for an older one is brought up to date by voxcade upgrade, one for a newer one does not open. In neither the fingerprint nor the hash.
+---@field title string
+---@field world Conf.world
 ---@field physics Conf.physics
 ---@field player Conf.player
----@field scored boolean
----@field things table<string, any>
----@field title string
 ---@field title_screen Conf.title_screen
+---@field camera Conf.camera
+---@field light Conf.light
+---@field debris Conf.debris
+---@field effects Conf.effects
 ---@field transition Conf.transition
+---@field audio Conf.audio
 ---@field ui Conf.ui
----@field world Conf.world
----@field items table<string, { model?: string, stack?: integer, order?: integer }> What can be carried, by name: an inventory counts these.
----@field saves { slots?: integer, version?: integer } Save games: how many slots, and the version of what a save holds.
----@field voxcade string The Voxcade the game's files are for ("0.6.0"): a game for an older one is brought up to date by voxcade upgrade, one for a newer one does not open.
----@field languages string[] The languages the game speaks, two small letters each ({ "de", "en", "fr" }): SETTINGS offers them, world.language says which the player chose.
+---@field things table<string, table> The kinds of things the game has ([things.NAME]): each names its behavior (the game's), may build on another (like = "other") and says what differs; markers place them by name.
+---@field kit string The building kit a Lua game plays with ("shooter"), if any.
+---@field actions string[] A Lua game's actions besides the four directions (a kit brings its own), and the keys and gamepad buttons bound to them at first.
+---@field keys table
+---@field pad table
+---@field models string[] Model files a Lua game draws besides its kinds' (frame:model).
+---@field scored boolean The game keeps a score (player.state.score), with ready-made rules or without: the title shows the best, and runs go into the high score table.
+---@field items table<string, table> What can be carried (c.items.key = { model = "key.vvx", stack = 1 }): an inventory (player.state.inventory) counts these by name.
+---@field state Conf.state What a run starts with (c.state.world, c.state.player): the states' first keys, the engine's own among them (hp, weapon, inventory) and the game's (lives).
+---@field icons table<string, table> Small pictures for the HUD (frame:icon, screen:burst): c.icons.heart = { rows = { ".RR.RR.",... }, colors = { R = { 214, 36, 44 } } }.
+---@field saves Conf.saves Save games (c.saves = { slots = 3, version = 1 }): none without slots.
+---@field high_scores any[][] The high score table to beat before anyone played: up to ten lines of initials and points ({ { "VOX", 50000 },... }); without them the engine's.
+---@field languages string[] The languages the game speaks ({ "de", "en", "fr" }, two letters each): SETTINGS offers them, world.language says which the player chose, the engine's menus speak it. None: English.
+---@field players integer The seats the game has, how many play at once (c.players = 4; docs/game-model.md, "Several players"): 1, a game of one, unless set.
+---@field team_score boolean The high score table takes the run as one line, every seat's score added, instead of a line for each player.
 
----@class Conf.audio
----@field [string] any
----@field crossfade number
----@field drive number How hard the game's sound is pushed into the limiter, in decibels (0 to 12): 0 as it is, more makes it denser and louder; music you listen to for long tires sooner when dense.
----@field music_volume number
----@field volume number
+---@class Conf.world.blocks.backdrops
+---@field image string The picture, relative to the game folder.
+---@field behind integer How far behind the level's last row, in voxels.
+---@field scale integer Voxels a pixel.
+---@field z integer The height of its bottom edge, in voxels.
 
----@class Conf.camera
----@field [string] any
----@field follow number
----@field fov number
----@field pitch number
----@field snap boolean
----@field view_width number
----@field yaw number
-
----@class Conf.debris
----@field [string] any
----@field gore number
----@field max_particles integer
----@field settle number
-
----@class Conf.effects
----@field [string] any
----@field glow number
----@field haze number
----@field haze_color number[]
----@field hitstop integer
----@field lights number
----@field outline number
----@field outline_color number[]
----@field screen_flash number
----@field tilt_shift number
-
----@class Conf.light
----@field [string] any
----@field ambient number
----@field edge_tolerance number
----@field metal_sweep number
----@field model_shading string
----@field model_shading_for table<string, any>
----@field reflection number[]
----@field reflection_horizon number[]
----@field shadow number
----@field shadow_style string
----@field sky number[]
----@field sun number[]
----@field sun_color number[]
-
----@class Conf.physics
----@field [string] any
----@field body_width number
----@field gravity number
----@field max_fall number
----@field step integer
-
----@class Conf.player
----@field [string] any
----@field accel number
----@field air_accel number
----@field jump number
----@field model string
----@field spawn number[]
----@field speed number
-
----@class Conf.title_screen
----@field [string] any
----@field attract_after number
----@field flyby_altitude number
----@field flyby_every number
----@field light_menu boolean
----@field logo any[]
----@field logo_bob number
----@field logo_colors any[]
----@field logo_cracks any[]
----@field logo_heights any[]
----@field props any[]
-
----@class Conf.transition
----@field [string] any
----@field color string
----@field fade number
-
----@class Conf.ui
----@field [string] any
----@field depth integer
----@field grain number
----@field height number
----@field round number
----@field slant number
+---@class Conf.world.blocks
+---@field file string The level, relative to the game folder; its blocks in blocks/.
+---@field margin integer Space left and right of the grid, in voxels, for the backdrops.
+---@field below integer Open space under the grid, in voxels: pits deep enough to fall out of.
+---@field backdrops Conf.world.blocks.backdrops[] Pictures far behind the grid (sky, hills): parallax through the perspective.
 
 ---@class Conf.world
----@field [string] any
----@field bedrock boolean
----@field file string
+---@field file string The level's file, relative to the game folder: a world or a map.
+---@field bedrock boolean The lowest voxel layer cannot be destroyed.
+---@field size integer[] A world made in code: empty, this big (x, y, z); the game's script builds it (level:fill), file is not read.
+---@field blocks Conf.world.blocks A level of voxel blocks in a grid (grid): file is not read.
+
+---@class Conf.physics
+---@field gravity number Downward acceleration, voxels per second².
+---@field max_fall number Fastest fall, voxels per second.
+---@field step integer Ledges up to this many voxels are walked up without jumping.
+---@field body_width number Width of the collision box of everything that walks. Effects (sparks, debris, gibs, screen shake) are sized relative to it.
+---@field lost_below number How far under the level a falling body is lost (on_fall_out), in voxels. (At its default it is left out of replays' fingerprint: those from before it play on.)
 
 ---@class Conf.player
----@field kind string The kind of thing (c.things) the player's figure is, without ready-made rules.
+---@field [string] any
+---@field model string Player model (.vvx), relative to the game folder. Forward is +y.
+---@field spawn number[] Start position on the ground (x, y). Negative means world centre.
+---@field speed number Running speed.
+---@field accel number How quickly it gets to running speed on the ground, and in the air.
+---@field air_accel number
+---@field jump number Height of a full jump (holding the button); letting go early cuts it.
+---@field kind string|string[] A game without ready-made rules: the kind of thing (c.things) the player's figure is (player), placed where each level starts and going along from level to level; with several seats one for every seat or a list by seat ({ "hero", "hero_blue" }). Without it the player has none.
+
+---@class Conf.title_screen.props
+---@field model string
+---@field at number[]
+---@field rotation integer
+
+---@class Conf.title_screen
+---@field music string What plays on the title (like [audio] music; none: the first song).
+---@field at number[] The ground point the camera looks at (default: where the player starts).
+---@field view_width number Voxels across the screen there (default: [camera] view_width).
+---@field logo string[] The logo, a line each (default: the game's title), and their colours as "#rrggbb".
+---@field logo_colors string[]
+---@field logo_heights integer[] How high each logo line's capitals are, in UI voxels.
+---@field drip integer Which logo line drips (blood).
+---@field logo_cracks number[] Cracks per letter in each logo line, on average.
+---@field logo_model string A model of the game's (.vvx) as the logo, in place of its lines of letters: a UI voxel each of its voxels, its front (+y) to the player and its z up, centred under the top of the screen. A figure of parts (its objects named, a letter each) drops in part by part in the file's order, else whole. Lit as the big letters are (the sides a little darker, what lies further back too): its colours are its materials'.
+---@field logo_bob number How far the logo's letters (or its model's parts) bob up and down once they have landed, in UI voxels: a slow, smooth wave running through them, coming in over a second; 0 (unless set) they stand still.
+---@field props Conf.title_screen.props[] Models lying in the scene.
+---@field flyby string A model that flies over the scene now and then (a helicopter), every flyby_every seconds.
+---@field flyby_every number
+---@field flyby_altitude number How high the flyby crosses over the ground.
+---@field attract_after number Seconds on the title without a key pressed before it plays the game's replays (replays/), as the arcade machines did; 0: never.
+---@field light_menu boolean The scene behind the menu is dark: its rows and hint in light letters (default: dark ones, over bright ground like More Blood's sand).
+
+---@class Conf.camera.follow_height
+---@field below number
+---@field above number
+
+---@class Conf.camera
+---@field pitch number Degrees below the horizon. 90 is straight top-down.
+---@field yaw number Degrees around the vertical axis. 0 looks north (+y).
+---@field fov number Vertical field of view in degrees. Higher means stronger perspective.
+---@field view_width number Voxels visible across the screen at the player's distance, independent of resolution.
+---@field view_height number Voxels visible from the bottom of the screen to the top there instead: the width then follows the window's shape and view_width counts no more (a vertical shooter whose field must show its whole height in any window). Unset, the width is fixed.
+---@field view_at_least number[] At least this many voxels across and high there, { 320, 200 } as a screen of old had pixels: the window's shape decides which way it shows more (a wide window more across, a narrow one more high). Takes the place of view_width and view_height for the picture (the shooter's reach, part of its rules, keeps view_width).
+---@field follow number Fraction of the distance to the player the camera closes per tick (only without snap; snapping keeps the camera on the player).
+---@field snap boolean Everything moving travels in whole voxels and the camera scrolls with the player in whole voxels (the 3D-pixel look). Off: moving things and the camera glide between voxels.
+---@field follow_height Conf.camera.follow_height A side view's camera follows the player up and down too, in whole voxels: its height moves only when the feet leave the band from below voxels under it to above over it, so jumps keep the view still. Unset, the height never changes (a view from above).
+---@field stop_at_edges boolean The view stops at the edges of the stage instead of showing the dark beyond: a side view's level, or the ground a view from above shows (BunnyFarm's meadow).
+---@field hold number[] How far apart the players in play may be, across and deep, in voxels ({ 240, 150 }; { 240 } across only, a side view): a move that would take the two furthest apart further is cut short, as the edge of an arcade machine's screen held them (docs/game-model.md, "Several players"). The simulation's, never the window's.
+---@field rotates string How the game sets things down: on the grid in quarter turns (the default), or rotated freely (rotates = "free": a level's pieces at any bearing, rotation = 30). The game's choice for every level, and what the level editor offers; a level turned off the quarter turns in a game on the grid does not load.
+---@field aspect number The picture's shape, its width over its height (2.39 a film's): the scene is drawn into the largest rectangle of that shape the window holds, in its middle, black bars on the other two sides; the HUD and the menus lie inside it too. Unset: the window's shape.
+
+---@class Conf.light
+---@field sun number[] Direction the sunlight travels (towards the ground).
+---@field sun_color number[] The sunlight's colour and strength, 0..1 per channel: white unless set (warm at dusk, a pale blue for the moon). A game's frame:daylight sets it for one picture.
+---@field ambient number Light that reaches every face, 0..1.
+---@field shadow number How much a shadow darkens sunlit faces, 0..1.
+---@field sky number[] Background colour, 0..1 per channel.
+---@field reflection_horizon number[] The sky metal mirrors: its colour at the horizon and overhead, 0..1 per channel (below the horizon it mirrors the ground, in the haze's colour).
+---@field reflection number[]
+---@field metal_sweep number A streak of light sweeping over metal now and then, this bright (0: none): metal reads as metal even where the sun cannot glint in it.
+---@field shadow_style string How shadow edges look: "smooth" (soft edges across the voxels), "voxel" (every voxel face is either lit or in shadow, edges step along the grid) or "voxel_soft" (as voxel, with half-shadowed faces in between).
+---@field model_shading string How models (actors, props) are lit: "faces" (every face of a voxel by its own direction), "smooth" (a whole voxel by the direction of the surface around it, so round shapes shade softly like pixel art) or "edges" (smooth, but where two flat surfaces meet the faces keep their own light, so hard edges stay hard).
+---@field model_shading_for table<string, string> Models shaded otherwise, by file (relative to the game folder), e.g. { ["huey.vvx"] = "faces" } for a machine among smooth figures.
+---@field edge_tolerance number With "edges": how far, in voxels, a voxel's surroundings may stray from one smooth surface before it counts as an edge.
+
+---@class Conf.debris
+---@field settle number Chance that a landed debris voxel becomes part of the world again.
+---@field max_particles integer Upper bound for flying debris and sparks.
+---@field gore number Share of a body's voxels that burst blood-red when it dies, 0..1 (0 keeps their own colours, say for robots).
+
+---@class Conf.effects
+---@field glow number How strongly bright things (muzzle flashes, fire, tracers, sparks) glow into their surroundings; 0 turns it off.
+---@field lights number How strongly flashes and explosions light up what is around them.
+---@field haze number Haze towards the far edge of the view, 0..1, and its colour (0..1).
+---@field haze_color number[]
+---@field tilt_shift number Blur at the top and bottom of the screen, a miniature look, 0..1.
+---@field screen_flash number How bright the white flash over the screen on big explosions gets, 0..1.
+---@field hitstop integer Ticks the game holds still when an enemy dies.
+---@field outline number A dark line round the models (figures, props), as round a sprite: how many voxels thick (0: none; 1 a voxel, as a sprite's pixel), and its colour (0..1). Hidden behind what stands in front, drawn where one part of a model stands before another too.
+---@field outline_color number[]
+
+---@class Conf.transition
+---@field fade number Seconds out and seconds in; 0: a cut.
+---@field color string The colour faded through, "#rrggbb".
+---@field go_to number A length of its own for a reason the level is left (a puzzle game's quick restart: restart = 0).
+---@field restart number
+---@field won number
+---@field lost number
+
+---@class Conf.audio
+---@field volume number Loudness of all sounds, 0..1.
+---@field music string|string[] Music as MML text, relative to the game folder: one file, or a list the keys 1..9 switch between while playing.
+---@field music_volume number
+---@field drive number How hard the game's sound is pushed into the limiter, in decibels: 0 as it is, more makes it denser and louder; music you listen to for long tires sooner when dense. 0 to 12. The limiter's drive (the JUST mastering stage's own input gain), on sounds and music together, after the player's volumes; the game's choice, not the player's.
+---@field crossfade number Seconds one song crossfades into the next when the game's code changes the song (music:play; one call may say otherwise): the old fading out as the new fades in, equal in power. 0: the old ends and the new begins, a level's fade between them silent.
+
+---@class Conf.ui
+---@field height number UI voxels from the bottom of the screen to the top, whatever the resolution (180: a 5x7 letter is a 25th of the screen).
+---@field depth integer How many voxels deep letters and icons are.
+---@field slant number How far the voxels' sides show at the top and bottom edges of the screen, in voxels per voxel of depth (the UI is seen in perspective from in front of the middle, so the sides facing the middle show).
+---@field display_font string A glyph atlas (PNG) for big letters: the logo, headings, messages.
+---@field round number Big letters' front edges are rounded off with this radius, a share of their capital height (0: square).
+---@field grain number How much the colour of big letters varies voxel to voxel, 0..1.
+
+---@class Conf.state
+---@field world table world.state at the start.
+---@field player table player.state at the start.
+
+---@class Conf.saves
+---@field slots integer
+---@field version integer

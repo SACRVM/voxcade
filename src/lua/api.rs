@@ -7,8 +7,6 @@
 //! the text `voxcade api` and the MCP tool `api` show, and a test keeps it
 //! in step with what `world.rs` really offers.
 
-use crate::config::GameConfig;
-
 /// One name of the API.
 pub struct Item {
     /// Whose it is: one of `OWNERS`, or "" for a function the game defines
@@ -176,8 +174,8 @@ pub const API: &[Item] = &[
     Item { of: "level", name: "size", what: Field { ty: "Point", set: false }, doc: "The level's size in voxels." },
     Item { of: "level", name: "camera", what: Field { ty: "Camera", set: false }, doc: "Where the camera looks: level.camera:follow(thing), level.camera:look_at(x, y)." },
     Item { of: "level", name: "voxel", what: Method { params: &[("x", "integer"), ("y", "integer"), ("z", "integer")], returns: "integer" }, doc: "The voxel at a cell: its palette index, 0 empty (a solid piece's cells too: its model draws them, level:solid says they block)." },
-    Item { of: "level", name: "set_voxel", what: Method { params: &[("x", "integer"), ("y", "integer"), ("z", "integer"), ("voxel", "integer|string|nil")], returns: "" }, doc: "Sets the voxel at a cell: a colour \"#rrggbb\" (taken into the level's palette), a palette index, or nil or 0 for empty." },
-    Item { of: "level", name: "fill", what: Method { params: &[("x0", "integer"), ("y0", "integer"), ("z0", "integer"), ("x1", "integer"), ("y1", "integer"), ("z1", "integer"), ("voxel", "integer|string|nil")], returns: "" }, doc: "Fills the box from one corner cell to the other, both included, like set_voxel; nil or 0 empties it. A level made in code (c.world.size) is built this way." },
+    Item { of: "level", name: "set_voxel", what: Method { params: &[("x", "integer"), ("y", "integer"), ("z", "integer"), ("voxel", "integer|string|nil")], returns: "" }, doc: "Sets the voxel at a cell: a colour \"#rrggbb\" (taken into the level's palette), a palette index, or nil or 0 for empty. A cell outside the level (level.size) is a mistake." },
+    Item { of: "level", name: "fill", what: Method { params: &[("x0", "integer"), ("y0", "integer"), ("z0", "integer"), ("x1", "integer"), ("y1", "integer"), ("z1", "integer"), ("voxel", "integer|string|nil")], returns: "" }, doc: "Fills the box from one corner cell to the other, both included, like set_voxel (only what of it lies inside the level); nil or 0 empties it. A level made in code (c.world.size) is built this way." },
     Item { of: "level", name: "solid", what: Method { params: &[("x", "integer"), ("y", "integer"), ("z", "integer")], returns: "boolean" }, doc: "Whether the cell stops bodies: a voxel there (soft voxels, grass and shrubs, do not), or a solid piece's (solid = true in the level's file)." },
     Item { of: "level", name: "ground", what: Method { params: &[("x", "integer"), ("y", "integer")], returns: "integer" }, doc: "The height of the ground at x, y: the cell above the column's top voxel." },
     Item { of: "level", name: "spawn", what: Method { params: &[("kind", "string"), ("x", "number"), ("y", "number"), ("options?", "SpawnOptions")], returns: "Thing" }, doc: "Places a thing of a kind (c.things) at x, y, on the ground there unless options.z is given; options.facing turns it, options.state is its first state, options.name its name (one thing's in the level), options.props what your code reads of it over its kind's props. A kind without a behavior falls to the ground; with fixed = true (c.things.NAME.fixed) it stays exactly where it is put. With ready-made rules (c.kit) their kinds stand where a marker there would place them. The camera follows the player; in a game without a figure for it (no c.player.kind), the first thing placed. Pieces (\"piece\") come only from a level's file." },
@@ -236,7 +234,7 @@ pub const API: &[Item] = &[
     Item { of: "input", name: "pressed", what: Method { params: &[("action", "string")], returns: "boolean" }, doc: "Whether an action or a direction went down this tick: one step a press on a grid, one line in a menu. A press of interact that on_interact took is used up." },
     Item { of: "input", name: "released", what: Method { params: &[("action", "string")], returns: "boolean" }, doc: "Whether an action or a direction went up this tick." },
     Item { of: "input", name: "repeated", what: Method { params: &[("action", "string")], returns: "boolean" }, doc: "True as the key goes down, and again and again while it is held (after a third of a second, ten times a second), as a menu's cursor moves on a held key: for menus, lists and stepping on a grid. Directions too: input:repeated(\"down\")." },
-    // screen
+    // music
     Item { of: "music", name: "play", what: Method { params: &[("song?", "string"), ("from?", "string|MusicPlay")], returns: "" }, doc: "Plays a song of c.audio.music by its file's name (\"storm\" for music/storm.mml) as your game's own, from the next bar of the one playing (from: \"bar\", \"beat\" or \"now\"; at once when none of yours plays): it starts at its beat 0 and keeps time with the game (music.beat, on_beat count the new song's beats from then), held while the game pauses. Asked for while it plays, it goes on, through a level change and its fade too. Without a song: the player's own again (as the settings chose), from the next bar. The old song ends as the new begins (a level's fade silent between them), unless it crossfades: { from = \"now\", crossfade = 3 } fades the old out as the new comes in over 3 seconds, as loud together as either alone; c.audio.crossfade sets it for every change. Your game's song wins over the player's choice." },
     Item { of: "music", name: "volume", what: Method { params: &[("level?", "number"), ("seconds?", "number")], returns: "number|nil" }, doc: "How loud your game's music sounds, as a part of the song's own loudness: from 0 (silent) to 1 (as loud as the song is, the start), reached smoothly over seconds (0.3 unless you say; 0 at once, still without a click). The player's music volume stays on top. It holds until you change it, from level to level too, whichever song plays: music:volume(0.25, 2) fades it to a quarter in two seconds. Without a level it gives the level you asked for last. Only heard: replays and the game itself do not change with it." },
     Item { of: "music", name: "muffle", what: Method { params: &[("amount?", "number"), ("seconds?", "number")], returns: "number|nil" }, doc: "How dull your game's music sounds, as heard through a wall or a door: from 0 (clear, the start) to 1 (very dull, only the low notes), reached smoothly over seconds (0.3 unless you say; 0 at once, still without a click). Your game's sounds stay clear. It holds until you change it, from level to level too, whichever song plays: music:muffle(0.6, 1) outside a house, music:muffle(0, 1) inside. Without an amount it gives the amount you asked for last. Only heard: replays and the game itself do not change with it." },
@@ -244,6 +242,7 @@ pub const API: &[Item] = &[
     Item { of: "music", name: "beat", what: Field { ty: "integer|nil", set: false }, doc: "Beats since your game's song began, from 0 (its #tempo); nil while the player's own song plays." },
     Item { of: "music", name: "intensity", what: Field { ty: "number", set: true }, doc: "How tense the game is, from 0 (calm) to 1 (all of the song; 1 unless you set it): the layers of your game's song (#layer in the song: drums from 0.35, the melody from 0.8) come in above their tension and go below it, each over a bar. Set it in on_tick from your states: enemies on the screen, a boss, a hit." },
     Item { of: "music", name: "bar", what: Field { ty: "integer|nil", set: false }, doc: "Bars since your game's song began, from 0 (its #meter beats to a bar, 4 unless the song says); nil while the player's own song plays." },
+    // screen
     Item { of: "screen", name: "shake", what: Method { params: &[("amount", "number")], returns: "" }, doc: "Shakes the screen: 0..1 more (a small hit 0.1, a blast 0.35, 1 at most); it dies down by itself. Only the camera moves, and players can turn shaking off." },
     Item { of: "screen", name: "burst", what: Method { params: &[("icon", "string"), ("x", "number"), ("y", "number")], returns: "" }, doc: "An icon of c.icons bursts on the HUD at x, y (its top left): its voxels fly off and fall, a heart lost, a grenade thrown. Only shown, not part of the game." },
     Item { of: "screen", name: "height", what: Field { ty: "number", set: false }, doc: "How many UI voxels the HUD is from top to bottom (c.ui.height), for a burst near its bottom; on_draw's frame has its width too." },
@@ -407,60 +406,132 @@ fn function(name: &str, doc: &str, params: &[(&str, &str)], returns: &str) -> St
     out + &format!("function {name}({}) end\n", names.join(", "))
 }
 
-/// What a key of `conf.lua` means, where its name alone does not say
-/// enough: section, key, its line in the definitions.
-const CONF_DOCS: &[(&str, &str, &str)] = &[(
-    "audio",
-    "drive",
-    "How hard the game's sound is pushed into the limiter, in decibels (0 to 12): 0 as it is, more makes it denser and louder; music you listen to for long tires sooner when dense.",
-)];
+/// The settings' source: `conf.lua`'s keys are its structs' fields, each
+/// with the words written over it, so the register of settings is the
+/// settings themselves (a test holds the reading to what serde reads).
+const CONFIG_RS: &str = include_str!("../config.rs");
 
-/// `Conf` and its sections from the engine's defaults: completion for
-/// `c.` in `conf.lua` (the ready-made rules' sections and keys are left open).
-fn conf_classes() -> String {
-    let toml::Value::Table(all) = toml::Value::try_from(GameConfig::default()).expect("the defaults are a table") else { unreachable!() };
-    let mut out = String::from("\n---@class Conf The game's settings (conf.lua); ready-made rules (c.kit) add their own (c.weapons).\n---@field [string] table\n");
-    let mut sections = String::new();
-    for (key, value) in &all {
-        match value {
-            toml::Value::Table(t) if !t.is_empty() => {
-                out += &format!("---@field {key} Conf.{key}\n");
-                sections += &format!("\n---@class Conf.{key}\n---@field [string] any\n");
-                for (k, v) in t {
-                    let doc = CONF_DOCS.iter().find(|(s, n, _)| s == key && n == k).map_or(String::new(), |(_, _, d)| format!(" {d}"));
-                    sections += &format!("---@field {k} {}{doc}\n", lua_type(v));
-                }
-            }
-            other => out += &format!("---@field {key} {}\n", lua_type(other)),
-        }
-    }
-    // What is left out while unset.
-    out += "---@field items table<string, { model?: string, stack?: integer, order?: integer }> What can be carried, by name: an inventory counts these.\n";
-    out += "---@field saves { slots?: integer, version?: integer } Save games: how many slots, and the version of what a save holds.\n";
-    out += "---@field voxcade string The Voxcade the game's files are for (\"0.6.0\"): a game for an older one is brought up to date by voxcade upgrade, one for a newer one does not open.\n";
-    out += "---@field languages string[] The languages the game speaks, two small letters each ({ \"de\", \"en\", \"fr\" }): SETTINGS offers them, world.language says which the player chose.\n";
-    sections += "\n---@class Conf.player\n---@field kind string The kind of thing (c.things) the player's figure is, without ready-made rules.\n";
-    out + &sections
+/// Settings `conf.lua` may no longer set (the upgrade takes them out, a
+/// game that sets one is told), left out of the definitions.
+const RETIRED: [&str; 1] = ["markers"];
+
+/// A setting as `config.rs` declares it: its key, its Rust type and the
+/// words over it.
+pub struct ConfKey {
+    pub key: String,
+    pub rust: String,
+    pub doc: String,
 }
 
-fn lua_type(v: &toml::Value) -> String {
-    match v {
-        toml::Value::String(_) => "string".into(),
-        toml::Value::Integer(_) => "integer".into(),
-        toml::Value::Float(_) => "number".into(),
-        toml::Value::Boolean(_) => "boolean".into(),
-        toml::Value::Datetime(_) => "string".into(),
-        toml::Value::Array(a) => match a.first() {
-            Some(first) => format!("{}[]", lua_type(first)),
-            None => "any[]".into(),
-        },
-        toml::Value::Table(_) => "table<string, any>".into(),
+/// The fields of `pub struct NAME` in `config.rs` that `conf.lua` sets
+/// (not `#[serde(skip)]`, `flatten` or retired ones), in their order.
+pub fn conf_keys(name: &str) -> Vec<ConfKey> {
+    let Some(start) = CONFIG_RS.find(&format!("\npub struct {name} {{")) else { return Vec::new() };
+    let body = &CONFIG_RS[start..];
+    let body = &body[..body.find("\n}").unwrap_or(body.len())];
+    let (mut out, mut doc, mut left_out) = (Vec::new(), Vec::<&str>::new(), false);
+    for line in body.lines().skip(1).map(str::trim) {
+        if let Some(words) = line.strip_prefix("///") {
+            doc.push(words.trim());
+        } else if line.starts_with("#[serde(") {
+            left_out |= line.contains("skip)") || line.contains("skip_serializing)") || line.contains("flatten");
+        } else if let Some((key, rust)) = line.strip_prefix("pub ").and_then(|l| l.split_once(": ")) {
+            if !left_out && !RETIRED.contains(&key) {
+                out.push(ConfKey { key: key.to_string(), rust: rust.trim_end_matches(',').to_string(), doc: plain_doc(&doc.join(" ")) });
+            }
+            (doc, left_out) = (Vec::new(), false);
+        }
     }
+    out
+}
+
+/// A field's words as a game author reads them: no backticks, no aside
+/// naming the engine's Rust (`(audio::limiter)`).
+fn plain_doc(doc: &str) -> String {
+    let mut out = String::new();
+    let mut rest = doc;
+    while let Some(open) = rest.find('(') {
+        let Some(close) = rest[open..].find(')').map(|c| open + c) else { break };
+        out += &rest[..open];
+        if !rest[open..close].contains("::") {
+            out += &rest[open..=close];
+        }
+        rest = &rest[close + 1..];
+    }
+    out += rest;
+    out.replace('`', "").replace("  ", " ").replace(" ,", ",").replace(" .", ".").trim().to_string()
+}
+
+/// The struct a Rust type of `config.rs` names, if it is one there with
+/// fields of its own (`CameraConfig`, `Option<FollowHeight>`, `Vec<PropConfig>`).
+fn inner_struct(rust: &str) -> Option<(&str, bool)> {
+    let (name, list) = match rust.strip_prefix("Vec<").and_then(|r| r.strip_suffix('>')) {
+        Some(inner) => (inner, true),
+        None => (rust.strip_prefix("Option<").and_then(|r| r.strip_suffix('>')).unwrap_or(rust), false),
+    };
+    (!conf_keys(name).is_empty()).then_some((name, list))
+}
+
+/// A Rust type of a setting as LuaLS writes it.
+fn lua_of(rust: &str) -> String {
+    let rust = rust.trim();
+    if let Some(inner) = rust.strip_prefix("Option<").and_then(|r| r.strip_suffix('>')) {
+        return lua_of(inner);
+    }
+    if let Some(inner) = rust.strip_prefix("Vec<").and_then(|r| r.strip_suffix('>')) {
+        return format!("{}[]", lua_of(inner));
+    }
+    if let Some(inner) = rust.strip_prefix('[').and_then(|r| r.strip_suffix(']')) {
+        return format!("{}[]", lua_of(inner.split(';').next().unwrap_or("any")));
+    }
+    if let Some(inner) = rust.strip_prefix("BTreeMap<String, ").and_then(|r| r.strip_suffix('>')) {
+        return format!("table<string, {}>", lua_of(inner));
+    }
+    match rust {
+        "f32" | "f64" => "number".into(),
+        "u8" | "u16" | "u32" | "u64" | "usize" | "i8" | "i16" | "i32" | "i64" => "integer".into(),
+        "bool" => "boolean".into(),
+        "String" => "string".into(),
+        "SeatKinds" | "Songs" => "string|string[]".into(),
+        r if r.starts_with('(') => "any[]".into(),
+        r if r.contains("Table") || r.contains("Bindings") => "table".into(),
+        r if !conf_keys(r).is_empty() => "table".into(),
+        // The settings' words (`Rotates`, `ShadowStyle`): written as text.
+        _ => "string".into(),
+    }
+}
+
+/// `Conf` and its sections from `config.rs` (every key `conf.lua` sets,
+/// set by default or not): completion for `c.` in `conf.lua`; the ready-
+/// made rules' own sections and keys (c.weapons, c.player.knife) left open.
+fn conf_classes() -> String {
+    let mut out = String::from("\n---@class Conf The game's settings (conf.lua); ready-made rules (c.kit) add their own (c.weapons).\n---@field [string] table\n");
+    let mut classes = String::new();
+    for k in conf_keys("GameConfig") {
+        out += &conf_field(&k, &format!("Conf.{}", k.key), &mut classes);
+    }
+    out + &classes
+}
+
+/// A key's line in its class; a key whose type is a struct of its own
+/// gets a class (`Conf.camera`, `Conf.world.backdrops`), written into `classes`.
+fn conf_field(k: &ConfKey, class: &str, classes: &mut String) -> String {
+    let doc = if k.doc.is_empty() { String::new() } else { format!(" {}", k.doc) };
+    let Some((name, list)) = inner_struct(&k.rust) else { return format!("---@field {} {}{doc}\n", k.key, lua_of(&k.rust)) };
+    // A section the ready-made rules add to (c.player.knife) stays open.
+    let open = if name == "PlayerConfig" { "---@field [string] any\n" } else { "" };
+    let mut body = format!("\n---@class {class}\n{open}");
+    for inner in conf_keys(name) {
+        body += &conf_field(&inner, &format!("{class}.{}", inner.key), classes);
+    }
+    *classes += &body;
+    format!("---@field {} {class}{}{doc}\n", k.key, if list { "[]" } else { "" })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::GameConfig;
 
     /// The register names exactly what `world.rs` gives the scripts, field
     /// by field and method by method.
@@ -505,6 +576,64 @@ mod tests {
         for item in API.iter().filter(|i| matches!(i.what, Field { set: true, .. })) {
             assert!(src.contains(&format!("_set(\"{}\"", item.name)), "{}.{} is settable in the register only", item.of, item.name);
         }
+    }
+
+    /// The settings in the definitions are what `conf.lua` really sets:
+    /// for every section (and the tables in it) the keys serde takes, as it
+    /// lists them when given one it does not know, are those read from
+    /// `config.rs` (but for a retired one it only takes to refuse), and
+    /// every setting the engine writes out is one of `Conf`'s.
+    #[test]
+    fn the_settings_are_what_conf_lua_sets() {
+        let defaults = toml::Value::try_from(GameConfig::default()).unwrap();
+        // What serde says it takes at `path` (a list of tables: in one).
+        let taken = |path: &[&str], list: bool| -> Option<Vec<String>> {
+            let mut root = defaults.clone();
+            let mut at = &mut root;
+            for key in &path[..path.len() - 1] {
+                if at.get(*key).is_none_or(|v| !v.is_table()) {
+                    at.as_table_mut().unwrap().insert(key.to_string(), toml::Value::Table(Default::default()));
+                }
+                at = at.get_mut(*key).unwrap();
+            }
+            let probe: toml::Table = [("not_a_setting".to_string(), toml::Value::Integer(0))].into_iter().collect();
+            let probe = if list { toml::Value::Array(vec![toml::Value::Table(probe)]) } else { toml::Value::Table(probe) };
+            at.as_table_mut().unwrap().insert(path.last().unwrap().to_string(), probe);
+            let e = root.try_into::<GameConfig>().err()?.message().to_string();
+            let list = e.split_once("expected ").map(|(_, l)| l.trim_start_matches("one of "))?;
+            Some(list.replace("` or `", "`, `").split(", ").map(|n| n.trim_matches('`').to_string()).collect())
+        };
+        type Taken<'a> = &'a dyn Fn(&[&str], bool) -> Option<Vec<String>>;
+        fn walk(name: &str, path: Vec<String>, list: bool, taken: Taken, checked: &mut usize) {
+            let ours: Vec<String> = conf_keys(name).iter().map(|k| k.key.clone()).collect();
+            if !path.is_empty()
+                && let Some(mut theirs) = taken(&path.iter().map(String::as_str).collect::<Vec<_>>(), list)
+            {
+                theirs.retain(|k| k != "boss_music");
+                assert_eq!(ours, theirs, "c.{}: the keys read from config.rs are not those serde takes", path.join("."));
+                *checked += 1;
+            }
+            for k in conf_keys(name) {
+                if let Some((inner, list)) = inner_struct(&k.rust) {
+                    walk(inner, [path.clone(), vec![k.key]].concat(), list, taken, checked);
+                }
+            }
+        }
+        let mut checked = 0;
+        walk("GameConfig", Vec::new(), false, &taken, &mut checked);
+        assert!(checked >= 12, "only {checked} sections checked");
+        let ours: Vec<String> = conf_keys("GameConfig").into_iter().map(|k| k.key).collect();
+        for key in defaults.as_table().unwrap().keys().filter(|k| !RETIRED.contains(&k.as_str())) {
+            assert!(ours.contains(key), "c.{key} is a setting the register lacks");
+        }
+        let defs = definitions();
+        for (class, key) in [("Conf.camera", "view_at_least"), ("Conf.camera", "view_height"), ("Conf.camera", "stop_at_edges"), ("Conf.camera", "hold"), ("Conf.camera", "rotates"), ("Conf.camera", "aspect"), ("Conf", "players"), ("Conf", "state")] {
+            let at = defs.find(&format!("---@class {class}\n")).or_else(|| defs.find(&format!("---@class {class} "))).unwrap_or_else(|| panic!("no {class}"));
+            let body = &defs[at..];
+            let body = &body[..body[1..].find("\n---@class").map_or(body.len(), |e| e + 1)];
+            assert!(body.contains(&format!("---@field {key} ")), "{class} lacks {key}");
+        }
+        assert!(!defs.contains("---@field markers"), "the retired c.markers is offered");
     }
 
     /// `lua/voxcade.lua` is the register as it stands (`voxcade api --lua

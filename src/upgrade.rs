@@ -158,6 +158,14 @@ pub fn opens(dir: &Path) -> Result<()> {
     match standing(dir)? {
         Standing::Current => Ok(()),
         Standing::Older { made, steps } => {
+            // A game of this very version holding something it reads no
+            // more (`c.markers` typed anew): what, not "made for an earlier".
+            if made.as_deref() == Some(engine())
+                && let Some(first) = steps.iter().find_map(|s| s.would.first())
+            {
+                let names = steps.iter().map(|s| s.name).collect::<Vec<_>>().join(", ");
+                bail!("{}: Voxcade {} reads this no more ({names}): {first}; `voxcade upgrade {}` brings it over", dir.display(), engine(), dir.display());
+            }
             let made = match made {
                 Some(v) if v == engine() => format!("an earlier Voxcade {v} (before: {})", steps.iter().map(|s| s.name).collect::<Vec<_>>().join(", ")),
                 Some(v) => format!("Voxcade {v}"),
@@ -1879,7 +1887,8 @@ mod tests {
         std::fs::write(dir.join("main.lua"), "function on_world_start() end\n").unwrap();
         let Standing::Older { made: Some(_), steps } = standing(&dir).unwrap() else { panic!("not older") };
         assert_eq!(steps.iter().map(|s| s.name).collect::<Vec<_>>(), ["maps as text", "worlds and prefabs as text"]);
-        assert!(opens(&dir).unwrap_err().to_string().contains("before: maps as text"));
+        let e = opens(&dir).unwrap_err().to_string();
+        assert!(e.contains("Voxcade 0.6.0 reads this no more (maps as text, worlds and prefabs as text): ") && !e.contains("earlier"), "{e}");
         let done = upgrade(&dir, false).unwrap().join("\n");
         assert!(done.contains("map.json became map.toml") && done.contains("post.vox became post.vvx") && done.contains("conf.lua:9 taken out: c.markers.rifleman = 240"), "{done}");
         let conf = std::fs::read_to_string(dir.join("conf.lua")).unwrap();

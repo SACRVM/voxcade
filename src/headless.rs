@@ -335,6 +335,10 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     let mut recorder = opts.record.as_ref().map(|_| Recorder::default());
     let mut apart = None;
     let frames = opts.frames.or(replay.as_ref().map(|r| r.ticks as u32)).unwrap_or(90);
+    // The hidden-state guard as the IDE's PLAY has it (`inspect` too).
+    let mut watch = crate::lua::hidden::Watch::default();
+    watch.begin(game.game.hidden());
+    let mut warnings = Vec::new();
     for tick in 0..frames {
         if title {
             menu.update();
@@ -365,10 +369,14 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
                 None => heard.push((event.name, 1)),
             }
         }
+        warnings.extend(watch.tick(|| game.game.hidden()));
         // A script's error: the frame shows it, then the shot ends with it.
         if game.game.halted().is_some() {
             break;
         }
+    }
+    for line in &warnings {
+        println!("warning: {line}");
     }
     let _ = started;
     let sim_ms = ticks.iter().fold(0.0, |sum, t| sum + t.1);
@@ -571,6 +579,15 @@ const GIF_SECONDS: f32 = 10.0;
 /// the sounds it made, the error that stopped it, and the game's things and
 /// state (`Game::inspect`). For tools: an agent, `voxcade mcp`.
 pub fn inspect<G: Game>(dir: &Path, frames: u32, input: &str, seats: &[(usize, String)], at: Option<[f32; 2]>, begin: &crate::session::Begin) -> Result<()> {
+    let standing = inspected::<G>(dir, frames, input, seats, at, begin)?;
+    println!("{}", serde_json::to_string_pretty(&standing)?);
+    Ok(())
+}
+
+/// What `inspect` prints: the game played `frames` ticks and drawn after
+/// each as a window draws it, how it stands then, and what the hidden-
+/// state guard said (`warnings`).
+fn inspected<G: Game>(dir: &Path, frames: u32, input: &str, seats: &[(usize, String)], at: Option<[f32; 2]>, begin: &crate::session::Begin) -> Result<serde_json::Value> {
     let mut game = Session::<G>::load(dir)?;
     // What the lines answer goes beside the JSON, not into it.
     begin.apply(&mut game, |line, said| eprintln!("> {line}\n{said}"))?;
@@ -586,18 +603,28 @@ pub fn inspect<G: Game>(dir: &Path, frames: u32, input: &str, seats: &[(usize, S
     }
     game.set_controls(controls);
     let mut heard: std::collections::BTreeMap<&str, u32> = Default::default();
+    // The hidden-state guard as the IDE's PLAY has it: a local of the
+    // game's files its functions change is said, the run goes on.
+    let mut watch = crate::lua::hidden::Watch::default();
+    watch.begin(game.game.hidden());
+    let mut warnings = Vec::new();
     for _ in 0..frames {
         seat_scripts.next(&mut game);
         game.step(&script.next_input());
+        // Drawn as a window draws it (without the picture), as `check`
+        // does: a mistake in on_draw halts the game here too.
+        game.look();
         for event in &game.game.sim().sounds {
             *heard.entry(event.name).or_default() += 1;
         }
+        warnings.extend(watch.tick(|| game.game.hidden()));
         if game.game.halted().is_some() {
             break;
         }
     }
-    println!("{}", serde_json::to_string_pretty(&standing(&game, &heard))?);
-    Ok(())
+    let mut standing = standing(&game, &heard);
+    standing["warnings"] = serde_json::json!(warnings);
+    Ok(standing)
 }
 
 /// How `inspect` plays over the network: hosting on a port, or joining a
@@ -1441,6 +1468,31 @@ fn write_wav(out: &Path, samples: &[f32], channels: u16) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `inspect` draws after every tick as a window and `check` do, so a
+    /// mistake in `on_draw` halts the game there too (it said "halted":
+    /// null of a game `shot` stopped); and it says, as a warning, a local
+    /// of the game's files its functions change, the run going on.
+    #[test]
+    fn inspect_draws_and_names_a_hidden_local() {
+        let game = |name: &str, main: &str| {
+            let dir = crate::scratch::Scratch::new(name);
+            std::fs::write(dir.join("conf.lua"), "function conf(c) c.world.size = { 16, 16, 8 } end\n").unwrap();
+            std::fs::write(dir.join("main.lua"), main).unwrap();
+            dir
+        };
+        let begin = crate::session::Begin::default();
+        let dir = game("inspect-draws", "function on_draw(frame)\n  world.state.x = 1\nend\n");
+        let standing = inspected::<crate::Voxcade>(&dir, 5, "", &[], None, &begin).unwrap();
+        assert!(standing["halted"].as_str().is_some_and(|h| h.starts_with("main.lua:2: only to look at here")), "{standing}");
+        let dir = game("inspect-hidden", "local n = 0\nfunction on_tick() n = n + 1 end\n");
+        let standing = inspected::<crate::Voxcade>(&dir, 130, "", &[], None, &begin).unwrap();
+        assert!(standing["halted"].is_null(), "{standing}");
+        assert_eq!(standing["warnings"], serde_json::json!([crate::lua::hidden::said("n")]));
+        let dir = game("inspect-quiet", "function on_tick() world.state.n = (world.state.n or 0) + 1 end\n");
+        let standing = inspected::<crate::Voxcade>(&dir, 130, "", &[], None, &begin).unwrap();
+        assert_eq!(standing["warnings"], serde_json::json!([]));
+    }
 
     /// A GIF's frame times add up to the frame rate: a second of frames
     /// lasts a second.

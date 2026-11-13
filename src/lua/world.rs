@@ -1315,6 +1315,10 @@ impl UserData for LevelView {
         m.add_function("set_voxel", |lua, (_, x, y, z, v): (AnyUserData, i32, i32, i32, Value)| {
             level_here(lua, "level:set_voxel")?;
             change(lua, "level:set_voxel", |h| {
+                let size = h.host.sim().world.size;
+                if !h.host.sim().world.in_bounds(IVec3::new(x, y, z)) {
+                    return Err(mlua::Error::runtime(format!("level:set_voxel: {x}, {y}, {z} is outside the level (x 0 to {}, y 0 to {}, z 0 to {}: level.size)", size.x - 1, size.y - 1, size.z - 1)));
+                }
                 let v = palette_index(&mut h.host.sim_mut().world, &v, "level:set_voxel")?;
                 h.host.sim_mut().world.set(IVec3::new(x, y, z), v);
                 Ok(())
@@ -1829,6 +1833,7 @@ impl InputView {
         }
         match self.actions.iter().position(|a| *a == name) {
             Some(a) => Ok(4 + a),
+            None if self.actions.is_empty() => Err(mlua::Error::runtime(format!("no action called '{name}': the game names no actions (c.actions = {{ \"{name}\" }} in conf.lua); the directions are left, right, up, down"))),
             None => Err(mlua::Error::runtime(format!("no action called '{name}' (c.actions: {}; or a direction: left, right, up, down)", self.actions.join(", ")))),
         }
     }

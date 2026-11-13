@@ -35,8 +35,106 @@ pub fn run(files: &Files, cfg: &mut GameConfig) -> Result<()> {
     renamed(&value)?;
     colors(&value)?;
     actions(&value)?;
-    *cfg = value.try_into().map_err(|e: toml::de::Error| anyhow::anyhow!("conf.lua: {}", e.message()))?;
+    *cfg = settings(value, &defaults)?;
     Ok(())
+}
+
+/// The settings `conf(c)` gave back, read; a mistake names the setting it
+/// is in (`c.camera.pitch`) and says what it wants there.
+fn settings(value: toml::Value, defaults: &toml::Value) -> Result<GameConfig> {
+    let whole = match value.clone().try_into::<GameConfig>() {
+        Ok(cfg) => return Ok(cfg),
+        Err(e) => e,
+    };
+    let Some((path, e)) = culprit(&value, defaults) else { bail!("conf.lua: {}", whole.message()) };
+    let shown = std::iter::once("c").chain(path.iter().map(String::as_str)).collect::<Vec<_>>().join(".");
+    let parent = shown.rsplit_once('.').map_or("c", |(p, _)| p).to_string();
+    bail!("conf.lua: {shown}: {}", plainly(e.message(), &parent, path.last().map_or("", String::as_str)))
+}
+
+/// The setting a mistake is in: the deepest one that, set alone over the
+/// engine's defaults, is still refused (a mistake only two settings make
+/// together is found at the section).
+fn culprit(value: &toml::Value, defaults: &toml::Value) -> Option<(Vec<String>, toml::de::Error)> {
+    let refused = |path: &[String], v: &toml::Value| -> Option<toml::de::Error> {
+        let mut root = defaults.clone();
+        let mut at = &mut root;
+        for key in &path[..path.len() - 1] {
+            if !at.get(key).is_some_and(toml::Value::is_table) {
+                at.as_table_mut()?.insert(key.clone(), toml::Value::Table(toml::Table::new()));
+            }
+            at = at.get_mut(key)?;
+        }
+        at.as_table_mut()?.insert(path.last()?.clone(), v.clone());
+        root.try_into::<GameConfig>().err()
+    };
+    let (mut path, mut here, mut found) = (Vec::new(), value, None);
+    while let toml::Value::Table(t) = here {
+        let Some((k, v, e)) = t.iter().find_map(|(k, v)| {
+            let mut p = path.clone();
+            p.push(k.clone());
+            refused(&p, v).map(|e| (k, v, e))
+        }) else {
+            break;
+        };
+        path.push(k.clone());
+        (here, found) = (v, Some(e));
+    }
+    found.map(|e| (path, e))
+}
+
+/// serde's words for a setting's mistake in a game author's: what is
+/// wanted and what was given; an unknown name with the one meant and
+/// those there are.
+fn plainly(message: &str, parent: &str, name: &str) -> String {
+    let names = |list: &str| -> Vec<String> { list.trim_start_matches("one of ").replace("` or `", "`, `").split(", ").map(|n| n.trim_matches('`').to_string()).collect() };
+    let near = |all: &[String]| crate::audio::words::near(name, all.iter().map(String::as_str)).map_or(String::new(), |n| format!(" (did you mean `{n}`?)"));
+    if let Some((given, wanted)) = message.strip_prefix("invalid type: ").and_then(|m| m.split_once(", expected ")) {
+        return format!("{} wanted, not {}", wanted_words(wanted), given_words(given));
+    }
+    if let Some((_, list)) = message.strip_prefix("unknown field `").and_then(|m| m.split_once("`, expected ")) {
+        let all = names(list);
+        return format!("not a setting of {parent}{}; it has {}", near(&all), all.join(", "));
+    }
+    if let Some((given, list)) = message.strip_prefix("unknown variant `").and_then(|m| m.split_once("`, expected ")) {
+        let all = names(list);
+        let near = crate::audio::words::near(given, all.iter().map(String::as_str)).map_or(String::new(), |n| format!(" (did you mean \"{n}\"?)"));
+        return format!("\"{given}\" is none of {}{near}", all.iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(", "));
+    }
+    message.to_string()
+}
+
+/// What serde says a setting expects, in a game author's words.
+fn wanted_words(wanted: &str) -> String {
+    match wanted {
+        "f32" | "f64" | "a float" => "a number".into(),
+        "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "usize" | "an integer" => "a whole number".into(),
+        "a boolean" => "true or false".into(),
+        "a string" | "a borrowed string" => "text in quotes".into(),
+        "a sequence" => "a list { ... }".into(),
+        "a map" => "a table { ... }".into(),
+        w if w.starts_with("struct ") => "a table { ... }".into(),
+        w if w.starts_with("a tuple of size ") || w.starts_with("an array of length ") => format!("a list of {}", w.rsplit(' ').next().unwrap_or("")),
+        other => other.to_string(),
+    }
+}
+
+/// What serde says was given, as it reads in `conf.lua`.
+fn given_words(given: &str) -> String {
+    let quoted = |s: &str| s.trim_matches('`').to_string();
+    if let Some(s) = given.strip_prefix("string ") {
+        return s.to_string();
+    }
+    for prefix in ["integer ", "floating point ", "boolean "] {
+        if let Some(v) = given.strip_prefix(prefix) {
+            return quoted(v);
+        }
+    }
+    match given {
+        "sequence" => "a list".into(),
+        "map" => "a table".into(),
+        other => other.to_string(),
+    }
 }
 
 /// The most actions a game names (`c.actions`); the input holds one bit
@@ -196,7 +294,17 @@ mod tests {
     fn a_misspelt_setting_is_named() {
         let e = conf("function conf(c) c.physics.gravty = 3 end").unwrap_err().to_string();
         assert!(e.contains("gravty"), "{e}");
-        assert!(conf("function conf(c) c.camera.pitch = 'steep' end").is_err());
+        for (line, says) in [
+            ("c.camera.pitch = 'steep'", "conf.lua: c.camera.pitch: a number wanted, not \"steep\""),
+            ("c.camera.pitchh = 3", "conf.lua: c.camera.pitchh: not a setting of c.camera (did you mean `pitch`?); it has pitch, yaw"),
+            ("c.physics.gravity = true", "conf.lua: c.physics.gravity: a number wanted, not true"),
+            ("c.players = 1.5", "conf.lua: c.players: a whole number wanted, not 1.5"),
+            ("c.camera.rotates = 'fre'", "conf.lua: c.camera.rotates: \"fre\" is none of"),
+            ("c.title = { 1 }", "conf.lua: c.title: text in quotes wanted, not a list"),
+        ] {
+            let e = conf(&format!("function conf(c) {line} end")).unwrap_err().to_string();
+            assert!(e.contains(says), "{line}: {e}");
+        }
         let e = conf("function conf(c) c.things.gem = { hit = function() end } end").unwrap_err().to_string();
         assert!(e.contains("c.things.gem.hit"), "{e}");
         assert!(conf("function conf(c) c.title = os.time() end").is_err(), "the sandbox let os in");

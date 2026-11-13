@@ -9,6 +9,7 @@
 local raw_next, raw_type, raw_getmetatable, raw_setmetatable = next, type, getmetatable, setmetatable
 local raw_rawset, raw_rawget, raw_tostring, raw_error, raw_format = rawset, rawget, tostring, error, string.format
 local sort, move, find, sub, pack, unpack = table.sort, table.move, string.find, string.sub, table.pack, table.unpack
+local raw_pcall, match, number_type = pcall, string.match, math.type
 
 -- Read-only views and the tables they show; tables raw writes may not
 -- reach. Weak keys only let unused views go, nothing a game can see.
@@ -234,6 +235,36 @@ local function safe_rawset(t, k, v)
   return raw_rawset(t, k, v)
 end
 
+-- A key as a path shows it: `.name`, or `[1]`.
+local function key_text(k)
+  if raw_type(k) == "string" and match(k, "^[%a_][%w_]*$") then return "." .. k end
+  return "[" .. raw_tostring(k) .. "]"
+end
+
+-- A global table after the start, read-only wherever it is read: writing
+-- into it is the mistake of changing a global (`path`: SPEEDS, CFG.a).
+local global_views = raw_setmetatable({}, { __mode = "k" })
+local function frozen(t, path, name)
+  if raw_type(t) ~= "table" or shows[t] then return t end
+  local view = global_views[t]
+  if view then return view end
+  view = raw_setmetatable({}, {
+    __index = function(_, k)
+      local v = t[k]
+      if raw_type(v) == "table" then return frozen(v, path .. key_text(k), name) end
+      return v
+    end,
+    __newindex = function(_, k)
+      raw_error(path .. key_text(k) .. ": '" .. name .. "' is a global variable, kept as it was at the start: what changes belongs in a state (world.state, player.state, thing.state)", 2)
+    end,
+    __len = function() return #t end,
+    __metatable = false,
+  })
+  shows[view] = t
+  global_views[t] = view
+  return view
+end
+
 -- After the start (`on_world_start`, the first `on_level_start`): the globals stay as they are. Reading them works as
 -- before (tables as read-only views); writing one is a mistake.
 local function freeze(env, base)
@@ -244,8 +275,12 @@ local function freeze(env, base)
   raw_setmetatable(env, {
     __index = function(_, k)
       local v = kept[k]
-      if v == nil then v = base[k] end
-      if raw_type(v) == "table" then return readonly(v) end
+      if v == nil then
+        v = base[k]
+        if raw_type(v) == "table" then return readonly(v) end
+        return v
+      end
+      if raw_type(v) == "table" then return frozen(v, raw_tostring(k), raw_tostring(k)) end
       return v
     end,
     __newindex = function(_, k)
@@ -301,6 +336,119 @@ local function set_global(env, k, v)
   raw_rawset(env, k, v)
 end
 
+-- `table.sort` as Lua 5.4's own (ltablib.c's quicksort, step for step: the
+-- same order of a list, ties and an inconsistent order function too, the
+-- same "invalid order function for sorting"), but for one thing: when a
+-- big list partitions badly, Lua's draws its next pivots from the clock
+-- and the time of day, and ties came out in another order from run to run
+-- (Lua 5.4.9's ltablib.c, `l_randomizePivot`); this moves them by a
+-- number of its own (`OFF_MIDDLE`). A list C's sort cannot order two ways (numbers
+-- that are all whole, all fractions or all strings, no order function, a
+-- plain table) is sorted in C, as quick as ever.
+local function less(a, b) return a < b end
+
+-- Lua's `l_randomizePivot` as its comment offers it, "~0": the pivot of
+-- a badly partitioned big list moved off the middle the same way every
+-- run (a list partitioned well keeps its middle pivot, as Lua's).
+local OFF_MIDDLE = 0xFFFFFFFF
+
+local function auxsort(t, lo, up, lt, rnd)
+  while lo < up do
+    local a, b = t[lo], t[up]
+    if lt(b, a) then t[lo], t[up] = b, a end
+    if up - lo == 1 then return end
+    local p
+    if up - lo < 100 or rnd == 0 then
+      p = (lo + up) // 2
+    else
+      local r4 = (up - lo) // 4
+      p = rnd % (r4 * 2) + (lo + r4)
+    end
+    local ap, alo = t[p], t[lo]
+    if lt(ap, alo) then
+      t[p], t[lo] = alo, ap
+    else
+      local aup = t[up]
+      if lt(aup, ap) then t[p], t[up] = aup, ap end
+    end
+    if up - lo == 2 then return end
+    local pivot = t[p]
+    t[p], t[up - 1] = t[up - 1], pivot
+    -- The partition: a[lo .. i - 1] <= P == a[i] <= a[i + 1 .. up].
+    local i, j = lo, up - 1
+    while true do
+      i = i + 1
+      local ai = t[i]
+      while lt(ai, pivot) do
+        if i == up - 1 then raw_error("invalid order function for sorting") end
+        i = i + 1
+        ai = t[i]
+      end
+      j = j - 1
+      local aj = t[j]
+      while lt(pivot, aj) do
+        if j < i then raw_error("invalid order function for sorting") end
+        j = j - 1
+        aj = t[j]
+      end
+      if j < i then
+        t[up - 1], t[i] = ai, pivot
+        break
+      end
+      t[i], t[j] = aj, ai
+    end
+    p = i
+    local n
+    if p - lo < up - p then
+      auxsort(t, lo, p - 1, lt, rnd)
+      n = p - lo
+      lo = p + 1
+    else
+      auxsort(t, p + 1, up, lt, rnd)
+      n = up - p
+      up = p - 1
+    end
+    if (up - lo) // 128 > n then rnd = OFF_MIDDLE end
+  end
+end
+
+-- Whether C's sort orders the list `t` (1 to n) one way only: no two
+-- elements alike for `<` that a game could tell apart (1 and 1.0, 0.0
+-- and -0.0), no NaN, no metamethods.
+local function one_way(t, n)
+  if raw_getmetatable(t) ~= nil then return false end
+  local first = number_type(t[1]) or raw_type(t[1])
+  if first ~= "integer" and first ~= "float" and first ~= "string" then return false end
+  for i = 1, n do
+    local v = t[i]
+    local kind = number_type(v) or raw_type(v)
+    if kind ~= first then return false end
+    if kind == "float" and (v ~= v or v == 0) then return false end
+  end
+  return true
+end
+
+local function safe_sort(t, lt)
+  if raw_type(t) ~= "table" then
+    raw_error("bad argument #1 to 'sort' (table expected, got " .. raw_type(t) .. ")", 2)
+  end
+  if lt ~= nil and raw_type(lt) ~= "function" then
+    raw_error("bad argument #2 to 'sort' (function expected, got " .. raw_type(lt) .. ")", 2)
+  end
+  local n = #t
+  if n < 2 then return end
+  if lt == nil and not shows[t] and one_way(t, n) then return sort(t) end
+  local ok, e = raw_pcall(auxsort, t, 1, n, lt or less, 0)
+  if not ok then
+    -- The sort's own mistakes (a comparison of a number and a string, an
+    -- invalid order function) said where the game sorted.
+    local said = raw_type(e) == "string" and match(e, "^prelude:%d+: (.*)$")
+    if said then raw_error(said, 2) end
+    raw_error(e, 0)
+  end
+end
+
+table.sort = safe_sort
 string.format = safe_format
 local string_meta = raw_getmetatable("")
 string_meta.__metatable = false
