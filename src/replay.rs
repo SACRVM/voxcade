@@ -5,6 +5,11 @@
 //! simulation's state every second (`Game::state_hash`): one recorded for
 //! other data is not played, and one that plays out differently (the
 //! engine or game changed since) is caught at the second it runs apart.
+//! The state at its end is written down too (`final_state`), so the last
+//! fraction of a second is checked as well, and the fingerprint's parts by
+//! name (`fingerprint_parts`), so a replay recorded on other data says
+//! which files differ. A replay from before either was kept still plays:
+//! `check` says how many of its last ticks went unchecked.
 //!
 //! The input is written in `shot`'s script format, `keys:ticks;...`, so a
 //! script is a replay without checks and every replay can go to `shot`.
@@ -54,6 +59,18 @@ pub struct Replay {
     pub input: String,
     /// `Game::state_hash` after every `CHECK_EVERY` steps (hex).
     pub checks: Vec<String>,
+    /// `Game::state_hash` at the run's end (hex), after its last step and
+    /// the console lines run after it: the ticks after the last second's
+    /// check are checked too. None: a replay from before it was kept, or a
+    /// run kept while a level change was being shown (`Session::fading`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub final_state: Option<String>,
+    /// The fingerprint's parts (`Session::fingerprint_files`: "conf.lua",
+    /// each level, model and Lua file) by name, each as a hash (hex): a
+    /// replay recorded on other data names the files that differ. Empty: a
+    /// replay from before they were kept.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub fingerprint_parts: BTreeMap<String, String>,
     /// The save the run began from (LOAD in the pause menu).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from: Option<String>,
@@ -211,6 +228,35 @@ impl Replay {
     /// Whether it was recorded on this data.
     pub fn fits(&self, fingerprint: u64) -> bool {
         self.fingerprint == hex(fingerprint)
+    }
+
+    /// The parts of the fingerprint that differ from `now`'s
+    /// (`Session::fingerprint_files`), by name: "main.lua", "levels/2.toml
+    /// (new)", "a.vvx (gone)". Empty: it does not know its parts (a replay
+    /// from before they were kept), or none differs.
+    pub fn differing(&self, now: &[(String, u64)]) -> Vec<String> {
+        if self.fingerprint_parts.is_empty() {
+            return Vec::new();
+        }
+        let mut out: Vec<String> = now
+            .iter()
+            .filter_map(|(name, hash)| match self.fingerprint_parts.get(name) {
+                None => Some(format!("{name} (new)")),
+                Some(was) if *was != hex(*hash) => Some(name.clone()),
+                Some(_) => None,
+            })
+            .collect();
+        out.extend(self.fingerprint_parts.keys().filter(|name| !now.iter().any(|(n, _)| n == *name)).map(|name| format!("{name} (gone)")));
+        out
+    }
+
+    /// How many of its last ticks no check covers: those after the last
+    /// second's check of a replay without `final_state`; none with it.
+    pub fn unchecked_tail(&self) -> u64 {
+        match self.final_state {
+            Some(_) => 0,
+            None => self.ticks.saturating_sub(self.checks.len() as u64 * CHECK_EVERY),
+        }
     }
 
     /// The save slots as the run began, and the saves it loaded, for this
@@ -386,9 +432,13 @@ impl Script {
     }
 }
 
+/// The fingerprint's parts by name (`Session::fingerprint_files`).
+type Parts = Vec<(String, u64)>;
+
 /// Writes down a run while it is played: every tick as it was played
 /// (`Session::played`: its saves and console lines, the keys every seat
-/// held, the controls), and the simulation's state every second.
+/// held, the controls), the simulation's state every second and at the
+/// end.
 #[derive(Default)]
 pub struct Recorder {
     script: Vec<(Input, u32)>,
@@ -404,9 +454,9 @@ pub struct Recorder {
     controls: Vec<ControlsAt>,
     scenario: Option<String>,
     evals: Vec<EvalAt>,
-    /// The sealed files it began on and their fingerprint (None: the
-    /// folder), and the files applied since.
-    files: Option<(Set, u64)>,
+    /// The sealed files it began on, their fingerprint and its parts
+    /// (None: the folder), and the files applied since.
+    files: Option<(Set, u64, Parts)>,
     applies: Vec<ApplyAt>,
     /// A check due at a tick whose level change waited for its fade out:
     /// taken once the change is done, as a replay (which cuts) sees it.
@@ -424,7 +474,7 @@ impl Recorder {
             self.from = game.started_from.clone();
             self.scenario = game.scenario.clone();
             self.slots = game.slots_at_start.iter().map(|(n, t)| (n.to_string(), t.clone())).collect();
-            self.files = game.files.set().map(|set| (set, game.fingerprint().unwrap_or_default()));
+            self.files = game.files.set().map(|set| (set, game.fingerprint().unwrap_or_default(), game.fingerprint_files().unwrap_or_default()));
         }
         if let Some(new) = game.game.loaded().get(self.loads.len()..) {
             self.loads.extend(new.iter().map(|t| t.to_string()));
@@ -493,19 +543,30 @@ impl Recorder {
             None => "quit",
         };
         // A run on sealed files began on them, whatever was applied since.
-        let (version, fingerprint, files) = match &self.files {
-            Some((set, fingerprint)) => (2, *fingerprint, set.clone()),
-            None => (1, game.fingerprint()?, Set::new()),
+        let (version, fingerprint, parts, files) = match &self.files {
+            Some((set, fingerprint, parts)) => (2, *fingerprint, parts.clone(), set.clone()),
+            None => (1, game.fingerprint()?, game.fingerprint_files()?, Set::new()),
         };
+        // The state as the run ends: a check due while a level change was
+        // shown is taken once it is done, as `record` would; while one is
+        // shown the game stands between two levels, where a replay (which
+        // cuts) never stands: no final state then.
+        let mut checks = self.checks.clone();
+        if self.check_due && !game.changing() {
+            checks.push(hex(game.game.state_hash()));
+        }
+        let final_state = (!game.fading()).then(|| hex(game.game.state_hash()));
         Ok(Replay {
             version,
             game: game.cfg.title.clone(),
             fingerprint: hex(fingerprint),
+            fingerprint_parts: parts.into_iter().map(|(name, hash)| (name, hex(hash))).collect(),
             ticks: self.steps,
             outcome: outcome.to_string(),
             score: game.game.score(),
             input: write_script(&self.script, game.actions()),
-            checks: self.checks.clone(),
+            checks,
+            final_state,
             from: self.from.clone(),
             slots: self.slots.clone(),
             loads: self.loads.clone(),
@@ -534,6 +595,8 @@ impl Recorder {
 pub struct Playback {
     script: Script,
     checks: Vec<String>,
+    /// The state at the run's end, if the replay knows it.
+    final_state: Option<String>,
     ticks: u64,
     steps: u64,
     /// The saves made from the pause menu, by the step after which.
@@ -556,8 +619,12 @@ pub struct Playback {
 /// Where a replay stopped matching its run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Apart {
-    /// Seconds into the run (checks are a second apart).
+    /// Seconds into the run (checks are a second apart; at its end, the
+    /// second the end falls in).
     pub second: u64,
+    /// Only its state at the end differed (`Replay::final_state`): it ran
+    /// apart after the last second's check.
+    pub at_end: bool,
 }
 
 impl Playback {
@@ -595,7 +662,7 @@ impl Playback {
         let seats = SeatScripts::parse(&scripts, game.actions(), game.cfg.players)?;
         let seat_controls = replay.seats.iter().map(|s| (s.seat, fit(&s.controls))).collect();
         let applies = replay.applies_in(store)?;
-        Ok(Self { script, checks: replay.checks.clone(), ticks: replay.ticks, steps: 0, menu_saves: replay.menu_saves.clone(), controls, evals: replay.evals.clone(), evaluated: 0, applies, applied: 0, seats, seat_controls, apart: None })
+        Ok(Self { script, checks: replay.checks.clone(), final_state: replay.final_state.clone(), ticks: replay.ticks, steps: 0, menu_saves: replay.menu_saves.clone(), controls, evals: replay.evals.clone(), evaluated: 0, applies, applied: 0, seats, seat_controls, apart: None })
     }
 
     pub fn done(&self) -> bool {
@@ -623,9 +690,14 @@ impl Playback {
             }
         }
         self.seats.next(game);
-        // The console lines run after these steps, run again (a mistake
-        // made in one then is made again), and the files applied among
-        // them, in the order they came.
+        self.lines(game);
+        self.script.next_input()
+    }
+
+    /// The console lines run after these steps, run again (a mistake made
+    /// in one then is made again), and the files applied among them, in
+    /// the order they came.
+    fn lines<G: Game>(&mut self, game: &mut Session<G>) {
         loop {
             if let Some((_, _, changes)) = self.applies.get(self.applied).filter(|(at, after, _)| *at <= self.steps && *after <= self.evaluated) {
                 let changes = changes.clone();
@@ -639,7 +711,12 @@ impl Playback {
                 break;
             }
         }
-        self.script.next_input()
+    }
+
+    /// Whether the replay has anything to check its run by: a second's
+    /// check or the state at its end.
+    pub fn checks_anything(&self) -> bool {
+        !self.checks.is_empty() || self.final_state.is_some()
     }
 
     /// The controls that came at `step`, if they changed there.
@@ -648,7 +725,9 @@ impl Playback {
     }
 
     /// After each `Game::step`: whether the run still matches the replay
-    /// (it says so once, where it ran apart).
+    /// (it says so once, where it ran apart). After the last step the
+    /// console lines run after it run too, and the state is checked
+    /// against the one the run ended in (`Replay::final_state`).
     pub fn check<G: Game>(&mut self, game: &mut Session<G>) -> Result<(), Apart> {
         self.steps += 1;
         // A save from the pause menu after this step, as the run made it.
@@ -659,17 +738,29 @@ impl Playback {
                 eprintln!("the replay's save into slot {slot}: {e:#}");
             }
         }
-        if self.apart.is_some() || !self.steps.is_multiple_of(CHECK_EVERY) {
+        let end = self.steps == self.ticks;
+        if end {
+            self.lines(game);
+        }
+        if self.apart.is_some() {
             return Ok(());
         }
-        let n = (self.steps / CHECK_EVERY) as usize;
-        match self.checks.get(n - 1) {
-            Some(expected) if *expected != hex(game.game.state_hash()) => {
-                let apart = Apart { second: n as u64 };
+        let mut apart = None;
+        if self.steps.is_multiple_of(CHECK_EVERY) {
+            let n = (self.steps / CHECK_EVERY) as usize;
+            if self.checks.get(n - 1).is_some_and(|expected| *expected != hex(game.game.state_hash())) {
+                apart = Some(Apart { second: n as u64, at_end: false });
+            }
+        }
+        if end && apart.is_none() && self.final_state.as_ref().is_some_and(|expected| *expected != hex(game.game.state_hash())) {
+            apart = Some(Apart { second: self.steps.div_ceil(CHECK_EVERY), at_end: true });
+        }
+        match apart {
+            Some(apart) => {
                 self.apart = Some(apart);
                 Err(apart)
             }
-            _ => Ok(()),
+            None => Ok(()),
         }
     }
 
@@ -685,9 +776,31 @@ impl Playback {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Verdict {
     Same,
-    /// Recorded on other game data.
-    OtherData,
+    /// Recorded on other game data: the parts of its fingerprint that
+    /// differ, by name (none known for a replay from before they were kept).
+    OtherData(Vec<String>),
     RunsApart(Apart),
+    /// Played through with nothing to check it by: no second's check and no
+    /// final state (shorter than a second and from before final states
+    /// were kept, or its checks taken out).
+    Unchecked,
+}
+
+impl Verdict {
+    /// What `check` says of the replay `name` with this verdict.
+    fn said(&self, name: &str, replay: &Replay) -> String {
+        match self {
+            Verdict::Same => match replay.unchecked_tail() {
+                0 => format!("{name}: same ({} s)", replay.ticks / CHECK_EVERY),
+                tail => format!("{name}: same ({} s), its last {tail} ticks unchecked (recorded before replays kept their final state: `voxcade check --update` checks them)", replay.ticks / CHECK_EVERY),
+            },
+            Verdict::OtherData(parts) if parts.is_empty() => format!("{name}: recorded on other game data (`voxcade check --update` records it anew)"),
+            Verdict::OtherData(parts) => format!("{name}: recorded on other game data, changed since: {} (`voxcade check --update` records it anew)", parts.join(", ")),
+            Verdict::RunsApart(Apart { at_end: true, .. }) => format!("{name}: runs apart at its end, in the {} ticks after its last second's check", replay.ticks.saturating_sub(replay.checks.len() as u64 * CHECK_EVERY)),
+            Verdict::RunsApart(Apart { second, .. }) => format!("{name}: runs apart after {second} s"),
+            Verdict::Unchecked => format!("{name}: nothing to check it by, no checks and no final state (`voxcade check --update` records them)"),
+        }
+    }
 }
 
 /// The game's replays (`replays/` and the folders in it, by name): the
@@ -724,7 +837,7 @@ fn play_going_back<G: Game>(dir: &Path, replay: &Replay, every: Option<u64>, cos
     // then the data it was recorded on can be told.
     let playback = Playback::new(replay, &mut game)?;
     if !replay.fits(game.fingerprint()?) {
-        return Ok(Verdict::OtherData);
+        return Ok(Verdict::OtherData(replay.differing(&game.fingerprint_files()?)));
     }
     play::<G>(&mut game, playback, every, costs)
 }
@@ -770,7 +883,7 @@ fn play<G: Game>(game: &mut Session<G>, mut playback: Playback, every: Option<u6
             return Ok(Verdict::RunsApart(apart));
         }
     }
-    Ok(Verdict::Same)
+    Ok(if playback.checks_anything() { Verdict::Same } else { Verdict::Unchecked })
 }
 
 /// The hidden-state guard: from a snapshot, the next `span` steps of the
@@ -826,33 +939,21 @@ fn guard<G: Game>(game: &mut Session<G>, playback: &Playback, span: u64, costs: 
 
 /// Plays every replay of a game and says how each went; with `update`,
 /// records their checks and fingerprint anew from their input (after a
-/// change to the game or engine that was meant). Whether all played the
-/// same.
+/// change to the game or engine that was meant), never a run the
+/// hidden-state guard refuses. Whether all played the same; a replay that
+/// cannot be read or played (a script's mistake, the guard) is said, the
+/// next one played, and the mistakes are the error at the end.
 pub fn check<G: Game>(dir: &Path, update: bool) -> Result<bool> {
-    let replays = game_replays(dir);
-    if replays.is_empty() {
-        println!("{}: no replays", dir.display());
-        return Ok(true);
-    }
-    let mut all = true;
-    for path in &replays {
+    each_replay(dir, |path, name| {
         let replay = Replay::load(path)?;
-        let name = path.strip_prefix(dir).unwrap_or(path).display().to_string();
         if update {
-            let fresh = rerecord::<G>(dir, &replay)?;
+            let fresh = rerecord::<G>(dir, &replay).context("not recorded anew")?;
             fresh.save(path)?;
-            println!("{name}: recorded anew ({} ticks, {}, score {})", fresh.ticks, fresh.outcome, fresh.score);
-            continue;
+            return Ok((true, format!("{name}: recorded anew ({} ticks, {}, score {})", fresh.ticks, fresh.outcome, fresh.score)));
         }
         let verdict = play_through::<G>(dir, &replay)?;
-        match verdict {
-            Verdict::Same => println!("{name}: same ({} s)", replay.ticks / CHECK_EVERY),
-            Verdict::OtherData => println!("{name}: recorded on other game data (`voxcade check --update` records it anew)"),
-            Verdict::RunsApart(Apart { second }) => println!("{name}: runs apart after {second} s"),
-        }
-        all &= verdict == Verdict::Same;
-    }
-    Ok(all)
+        Ok((verdict == Verdict::Same, verdict.said(name, &replay)))
+    })
 }
 
 /// Plays every replay of a game as `check` does, going back every `every`
@@ -860,33 +961,56 @@ pub fn check<G: Game>(dir: &Path, update: bool) -> Result<bool> {
 /// come out as recorded. Says what keeping and bringing back the game cost.
 pub fn check_going_back<G: Game>(dir: &Path, every: u64) -> Result<bool> {
     anyhow::ensure!(every > 0, "--rollback: going back a number of ticks, 1 or more");
+    each_replay(dir, |path, name| {
+        let replay = Replay::load(path)?;
+        let mut costs = Costs::default();
+        let verdict = play_going_back::<G>(dir, &replay, Some(every), &mut costs)?;
+        let said = verdict.said(name, &replay);
+        Ok(match verdict {
+            Verdict::Same => (true, format!("{said}, going back every {every} ticks; {}", costs.said())),
+            _ => (false, said),
+        })
+    })
+}
+
+/// `one` for every replay of the game in `dir` (its path and its name in
+/// the game), each line it says printed: whether every one was fine. One
+/// that fails is said and the next one played; their mistakes, each with
+/// its replay's name, are the error at the end.
+fn each_replay(dir: &Path, mut one: impl FnMut(&Path, &str) -> Result<(bool, String)>) -> Result<bool> {
     let replays = game_replays(dir);
     if replays.is_empty() {
         println!("{}: no replays", dir.display());
         return Ok(true);
     }
     let mut all = true;
+    let mut failed = Vec::new();
     for path in &replays {
-        let replay = Replay::load(path)?;
         let name = path.strip_prefix(dir).unwrap_or(path).display().to_string();
-        let mut costs = Costs::default();
-        let verdict = play_going_back::<G>(dir, &replay, Some(every), &mut costs)?;
-        match verdict {
-            Verdict::Same => println!("{name}: same ({} s), going back every {every} ticks; {}", replay.ticks / CHECK_EVERY, costs.said()),
-            Verdict::OtherData => println!("{name}: recorded on other game data (`voxcade check --update` records it anew)"),
-            Verdict::RunsApart(Apart { second }) => println!("{name}: runs apart after {second} s"),
+        match one(path, &name) {
+            Ok((fine, line)) => {
+                println!("{line}");
+                all &= fine;
+            }
+            Err(e) => {
+                println!("{name}: failed (below)");
+                failed.push(format!("{name}: {e:#}"));
+            }
         }
-        all &= verdict == Verdict::Same;
     }
-    Ok(all)
+    match failed.len() {
+        0 => Ok(all),
+        n => bail!("{n} of {} replays failed:\n{}", replays.len(), failed.join("\n")),
+    }
 }
 
 /// Plays every replay of a game whatever data it was recorded on and, only
-/// if every one runs exactly as recorded (every second's check), writes the
-/// data's fingerprint into them, changing nothing else in the files: after
-/// a change to the game's files that was meant to leave the game as it was
-/// (a new layout of `conf.lua`). If any runs apart or has no checks to
-/// tell, nothing is written. Whether all were refitted.
+/// if every one runs exactly as recorded (every second's check, and the
+/// state at its end where it has one), writes the data's fingerprint into
+/// them (and its parts, where it has them), changing nothing else in the
+/// files: after a change to the game's files that was meant to leave the
+/// game as it was (a new layout of `conf.lua`). If any runs apart or has
+/// nothing to tell it by, nothing is written. Whether all were refitted.
 pub fn refit<G: Game>(dir: &Path) -> Result<bool> {
     refit_saying::<G>(dir, &mut |line| println!("{line}"))
 }
@@ -902,25 +1026,37 @@ pub fn refit_saying<G: Game>(dir: &Path, say: &mut dyn FnMut(String)) -> Result<
     let mut fitted = Vec::new();
     let mut all = true;
     for path in &replays {
-        let replay = Replay::load(path)?;
         let name = path.strip_prefix(dir).unwrap_or(path).display().to_string();
-        let mut game = replay_session::<G>(dir, &replay)?;
-        let playback = Playback::new(&replay, &mut game)?;
-        let fingerprint = hex(game.fingerprint()?);
-        if replay.checks.is_empty() {
-            say(format!("{name}: no checks, nothing to tell it by"));
-            all = false;
-            continue;
-        }
-        match play::<G>(&mut game, playback, None, &mut Costs::default())? {
-            Verdict::RunsApart(Apart { second }) => {
-                say(format!("{name}: runs apart after {second} s"));
+        let played = Replay::load(path).and_then(|replay| {
+            let mut game = replay_session::<G>(dir, &replay)?;
+            let playback = Playback::new(&replay, &mut game)?;
+            let fingerprint = hex(game.fingerprint()?);
+            let parts: BTreeMap<String, String> = game.fingerprint_files()?.into_iter().map(|(name, hash)| (name, hex(hash))).collect();
+            let verdict = play::<G>(&mut game, playback, None, &mut Costs::default())?;
+            Ok((replay, verdict, fingerprint, parts))
+        });
+        match played {
+            Err(e) => {
+                say(format!("{name}: {e:#}"));
                 all = false;
             }
-            _ if replay.fingerprint == fingerprint => say(format!("{name}: same ({} s), fits already", replay.ticks / CHECK_EVERY)),
-            _ => {
-                say(format!("{name}: same ({} s), fingerprint {} -> {fingerprint}", replay.ticks / CHECK_EVERY, replay.fingerprint));
-                fitted.push((path, replay.fingerprint, fingerprint));
+            Ok((replay, Verdict::Same, fingerprint, parts)) => {
+                let stale = !replay.fingerprint_parts.is_empty() && replay.fingerprint_parts != parts;
+                if replay.fingerprint == fingerprint && !stale {
+                    say(format!("{name}: same ({} s), fits already", replay.ticks / CHECK_EVERY));
+                } else {
+                    say(format!("{name}: same ({} s), fingerprint {} -> {fingerprint}", replay.ticks / CHECK_EVERY, replay.fingerprint));
+                    let parts = if replay.fingerprint_parts.is_empty() { None } else { Some(parts) };
+                    fitted.push((path, fingerprint, parts));
+                }
+            }
+            Ok((_, Verdict::Unchecked, ..)) => {
+                say(format!("{name}: no checks, nothing to tell it by"));
+                all = false;
+            }
+            Ok((replay, verdict, ..)) => {
+                say(verdict.said(&name, &replay));
+                all = false;
             }
         }
     }
@@ -928,31 +1064,45 @@ pub fn refit_saying<G: Game>(dir: &Path, say: &mut dyn FnMut(String)) -> Result<
         say("nothing written: a replay that does not run the same keeps its fingerprint".into());
         return Ok(false);
     }
-    for (path, old, new) in fitted {
+    for (path, fingerprint, parts) in fitted {
         let text = std::fs::read_to_string(path)?;
-        let line = format!("fingerprint = \"{old}\"");
-        if text.matches(&line).count() != 1 {
-            bail!("{}: no single line {line}", path.display());
+        let mut doc: toml_edit::DocumentMut = text.parse().with_context(|| format!("{} is no replay", path.display()))?;
+        anyhow::ensure!(doc.contains_key("fingerprint"), "{}: no fingerprint", path.display());
+        doc["fingerprint"] = toml_edit::value(fingerprint);
+        if let Some(parts) = parts {
+            let table = doc["fingerprint_parts"].as_table_mut().with_context(|| format!("{}: fingerprint_parts is no table", path.display()))?;
+            table.clear();
+            for (name, hash) in parts {
+                table.insert(&name, toml_edit::value(hash));
+            }
         }
-        std::fs::write(path, text.replace(&line, &format!("fingerprint = \"{new}\""))).with_context(|| format!("writing {}", path.display()))?;
+        std::fs::write(path, doc.to_string()).with_context(|| format!("writing {}", path.display()))?;
     }
     Ok(true)
 }
 
-/// The replay's input played into a fresh game and recorded again.
+/// The replay's input played into a fresh game and recorded again, a
+/// second played twice from a snapshot every 5 s as `check` does
+/// (`guard`): a run the guard refuses is not recorded.
 fn rerecord<G: Game>(dir: &Path, replay: &Replay) -> Result<Replay> {
     let mut game = replay_session::<G>(dir, replay)?;
     let mut playback = Playback::new(replay, &mut game)?;
     let mut recorder = Recorder::default();
+    let often = GUARD_EVERY * CHECK_EVERY;
     while !playback.done() {
+        if playback.steps.is_multiple_of(often) && playback.steps + CHECK_EVERY <= playback.ticks {
+            guard(&mut game, &playback, CHECK_EVERY, &mut Costs::default())?;
+        }
         let input = playback.next_input(&mut game);
         game.step(&input);
         game.look();
         game.stopped()?;
         recorder.record(&game);
-        // Only for the menu's saves: the old checks are what is renewed.
+        // For the menu's saves and, after the last step, the console lines
+        // run after it: the old checks are what is renewed.
         let _ = playback.check(&mut game);
     }
+    game.stopped()?;
     recorder.replay(&game)
 }
 
@@ -1330,11 +1480,13 @@ mod tests {
             version: 1,
             game: "Test".into(),
             fingerprint: hex(fingerprint),
+            fingerprint_parts: BTreeMap::new(),
             ticks: 60,
             outcome: "quit".into(),
             score,
             input: "up:60".into(),
             checks: Vec::new(),
+            final_state: None,
             from: None,
             slots: BTreeMap::new(),
             loads: Vec::new(),
@@ -1418,10 +1570,10 @@ mod tests {
             input.hold(0, true);
         }
         let changed = Replay { input: write_script(&ticks.iter().map(|&i| (i, 1)).collect::<Vec<_>>(), &ACTIONS), ..replay.clone() };
-        assert!(matches!(play_through::<Shooter>(dir, &changed).unwrap(), Verdict::RunsApart(Apart { second: 5 | 6 })));
+        assert!(matches!(play_through::<Shooter>(dir, &changed).unwrap(), Verdict::RunsApart(Apart { second: 5 | 6, at_end: false })));
 
         let other = Replay { fingerprint: hex(1), ..replay };
-        assert_eq!(play_through::<Shooter>(dir, &other).unwrap(), Verdict::OtherData);
+        assert!(matches!(play_through::<Shooter>(dir, &other).unwrap(), Verdict::OtherData(_)));
     }
 
     /// A replay recorded before `conf.lua` changed in a way that leaves the
@@ -1470,5 +1622,147 @@ mod tests {
         for game in ["games/moreblood", "games/arena", "games/sokovox"] {
             assert!(check::<crate::Voxcade>(Path::new(game), false).unwrap(), "a replay of {game} plays out differently");
         }
+    }
+
+    /// More Blood played `ticks` steps, fire held from `fire_from` on,
+    /// recorded.
+    fn more_blood_run(ticks: u32, fire_from: u32) -> Replay {
+        let mut game = Session::<Shooter>::load(Path::new("games/moreblood")).unwrap();
+        let mut recorder = Recorder::default();
+        for t in 0..ticks {
+            let input: Input = Keys { up: true, fire: t >= fire_from, ..Keys::default() }.into();
+            game.step(&input);
+            recorder.record(&game);
+        }
+        recorder.replay(&game).unwrap()
+    }
+
+    /// The arena's files in a folder of their own, for a test to change.
+    fn arena_in(name: &str) -> crate::scratch::Scratch {
+        let tmp = crate::scratch::Scratch::new(name);
+        for file in ["conf.lua", "main.lua", "world.vvx", "player.vvx"] {
+            std::fs::copy(Path::new("games/arena").join(file), tmp.join(file)).unwrap();
+        }
+        std::fs::create_dir_all(tmp.join("replays")).unwrap();
+        tmp
+    }
+
+    /// The arena in `dir` walked `ticks` steps to the right, recorded.
+    fn arena_run(dir: &Path, ticks: u32) -> Replay {
+        let mut game = Session::<crate::Voxcade>::load(dir).unwrap();
+        let mut recorder = Recorder::default();
+        walk(&mut game, &mut recorder, ticks);
+        recorder.replay(&game).unwrap()
+    }
+
+    /// The ticks after the last second's check are checked by the state the
+    /// run ended in: a run changed in its last fraction of a second runs
+    /// apart at its end. A replay from before final states were kept still
+    /// plays the same, its unchecked ticks counted.
+    #[test]
+    fn the_end_of_a_run_is_checked_too() {
+        let dir = Path::new("games/moreblood");
+        let replay = more_blood_run(100, 1000);
+        assert_eq!(replay.checks.len(), 1);
+        assert!(replay.final_state.is_some());
+        let back: Replay = toml::from_str(&toml::to_string(&replay).unwrap()).unwrap();
+        assert_eq!(back, replay, "the file does not read back");
+        assert_eq!(play_through::<Shooter>(dir, &replay).unwrap(), Verdict::Same);
+        assert_eq!(replay.unchecked_tail(), 0);
+
+        // Fire from tick 80 on: after the only second's check.
+        let changed = Replay { input: more_blood_run(100, 80).input, ..replay.clone() };
+        assert_eq!(play_through::<Shooter>(dir, &changed).unwrap(), Verdict::RunsApart(Apart { second: 2, at_end: true }));
+
+        let old = Replay { final_state: None, ..changed };
+        assert_eq!(play_through::<Shooter>(dir, &old).unwrap(), Verdict::Same, "an older replay still plays");
+        assert_eq!(old.unchecked_tail(), 40);
+    }
+
+    /// A replay with nothing to check its run by (no second's check, no
+    /// final state) is no proof of anything: it fails.
+    #[test]
+    fn a_replay_with_nothing_to_check_it_by_fails() {
+        let dir = Path::new("games/moreblood");
+        let replay = more_blood_run(30, 10);
+        assert!(replay.checks.is_empty());
+        assert_eq!(play_through::<Shooter>(dir, &replay).unwrap(), Verdict::Same, "its final state checks it");
+        let bare = Replay { final_state: None, ..replay };
+        assert_eq!(play_through::<Shooter>(dir, &bare).unwrap(), Verdict::Unchecked);
+    }
+
+    /// A console line run after the run's last step is part of the state it
+    /// ended in: played back, it runs there too.
+    #[test]
+    fn a_console_line_after_the_last_step_is_played_back() {
+        let tmp = arena_in("late-line");
+        let mut game = Session::<crate::Voxcade>::load(&tmp).unwrap();
+        let mut recorder = Recorder::default();
+        walk(&mut game, &mut recorder, 70);
+        game.eval("world.state.late = 1").unwrap();
+        let replay = recorder.replay(&game).unwrap();
+        assert_eq!(replay.evals, vec![EvalAt { at: 70, code: "world.state.late = 1".into() }]);
+        assert_eq!(play_through::<crate::Voxcade>(&tmp, &replay).unwrap(), Verdict::Same);
+    }
+
+    /// A replay recorded on other data names the files that changed since
+    /// (`fingerprint_parts`); `--refit` writes the parts anew with the
+    /// fingerprint, nothing else.
+    #[test]
+    fn other_data_is_named_and_refit_renews_the_parts() {
+        let tmp = arena_in("parts");
+        arena_run(&tmp, 90).save(&tmp.join("replays/run.toml")).unwrap();
+        let replay = Replay::load(&tmp.join("replays/run.toml")).unwrap();
+        assert!(replay.fingerprint_parts.contains_key("main.lua") && replay.fingerprint_parts.contains_key("conf.lua"), "{:?}", replay.fingerprint_parts);
+
+        let main = std::fs::read_to_string(tmp.join("main.lua")).unwrap();
+        std::fs::write(tmp.join("main.lua"), format!("{main}\nfunction unused() end\n")).unwrap();
+        assert_eq!(play_through::<crate::Voxcade>(&tmp, &replay).unwrap(), Verdict::OtherData(vec!["main.lua".into()]));
+        std::fs::write(tmp.join("main.lua"), main).unwrap();
+
+        // Room for more debris than the run throws: the same game, new data.
+        let conf = std::fs::read_to_string(tmp.join("conf.lua")).unwrap();
+        std::fs::write(tmp.join("conf.lua"), conf.replace("max_particles = 30000", "max_particles = 40000")).unwrap();
+        assert_eq!(play_through::<crate::Voxcade>(&tmp, &replay).unwrap(), Verdict::OtherData(vec!["conf.lua".into()]));
+        let before = std::fs::read_to_string(tmp.join("replays/run.toml")).unwrap();
+        assert!(refit::<crate::Voxcade>(&tmp).unwrap());
+        let after = std::fs::read_to_string(tmp.join("replays/run.toml")).unwrap();
+        let changed: Vec<_> = before.lines().zip(after.lines()).filter(|(a, b)| a != b).map(|(a, _)| a.split(" = ").next().unwrap()).collect();
+        assert_eq!(changed, ["fingerprint", "\"conf.lua\""], "only the fingerprint and its changed part");
+        assert_eq!(before.lines().count(), after.lines().count());
+        let game = Session::<crate::Voxcade>::load(&tmp).unwrap();
+        let refitted = Replay::load(&tmp.join("replays/run.toml")).unwrap();
+        assert!(refitted.fits(game.fingerprint().unwrap()));
+        assert_eq!(refitted.differing(&game.fingerprint_files().unwrap()), Vec::<String>::new());
+        assert!(check::<crate::Voxcade>(&tmp, false).unwrap());
+    }
+
+    /// `check` goes on after a replay it cannot read or play: the next one
+    /// is played (here recorded anew), and the mistakes are the error at
+    /// the end, each with its replay's name.
+    #[test]
+    fn check_goes_on_after_a_replay_that_fails() {
+        let tmp = arena_in("goes-on");
+        std::fs::write(tmp.join("replays/a.toml"), "no replay at all").unwrap();
+        let old = Replay { final_state: None, ..arena_run(&tmp, 90) };
+        old.save(&tmp.join("replays/b.toml")).unwrap();
+        let e = check::<crate::Voxcade>(&tmp, false).unwrap_err().to_string();
+        assert!(e.contains("1 of 2") && e.contains("a.toml"), "{e}");
+        let e = check::<crate::Voxcade>(&tmp, true).unwrap_err().to_string();
+        assert!(e.contains("a.toml") && !e.contains("b.toml"), "{e}");
+        assert!(Replay::load(&tmp.join("replays/b.toml")).unwrap().final_state.is_some(), "the replay after the broken one was recorded anew");
+    }
+
+    /// `check --update` records no run the hidden-state guard refuses (a
+    /// local of `main.lua` that keeps state): the replay stays as it was.
+    #[test]
+    fn update_records_no_run_the_guard_refuses() {
+        let tmp = arena_in("update-guard");
+        std::fs::write(tmp.join("main.lua"), "local count = 0\nfunction on_tick()\n  count = count + 1\n  if count % 45 == 0 then world.state.n = (world.state.n or 0) + 1 end\nend\n").unwrap();
+        arena_run(&tmp, 120).save(&tmp.join("replays/run.toml")).unwrap();
+        let before = std::fs::read_to_string(tmp.join("replays/run.toml")).unwrap();
+        let e = check::<crate::Voxcade>(&tmp, true).unwrap_err().to_string();
+        assert!(e.contains("'count' (main.lua) changed"), "{e}");
+        assert_eq!(std::fs::read_to_string(tmp.join("replays/run.toml")).unwrap(), before);
     }
 }

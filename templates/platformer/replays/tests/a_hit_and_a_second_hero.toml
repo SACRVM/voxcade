@@ -7,6 +7,24 @@ outcome = "quit"
 score = 0
 input = "right:100;none:100"
 checks = ["4f708b8c309c309e", "7ce85385028eaffd", "b2c4337833fbd116"]
+final_state = "a1237db9761789fc"
+
+[fingerprint_parts]
+"bat.vvx" = "eb3073cff74e10e8"
+"blocks/ladder.vvx" = "12dd67094d445915"
+"blocks/plank.vvx" = "03fec5df6f2b5c34"
+"blocks/spikes.vvx" = "b77199ad72ff1ac2"
+"blocks/stone.vvx" = "4e465210edc307f9"
+"blocks/wall.vvx" = "645571179210a331"
+"conf.lua" = "c326eb8284985e80"
+"door.vvx" = "c4ca12b2f4b116a8"
+"gem.vvx" = "22c4adc438781293"
+"hero.vvx" = "52a75006cb7d7fa0"
+"hero2.vvx" = "529da5c19cd0cdf2"
+"level.toml" = "25d57e8f4dbde70d"
+"main.lua" = "cce3277fe39ab141"
+"slime.vvx" = "eff00b2ad48f51c6"
+"torch.vvx" = "ac647ff772ba7abe"
 
 [[controls]]
 at = 0

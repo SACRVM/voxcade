@@ -7,6 +7,13 @@ outcome = "quit"
 score = 0
 input = "right:60;up:40;left:30;none:70"
 checks = ["e5e41310ebe7413e", "e98f944280ef53e2", "572297075b03eb70"]
+final_state = "e453cc88ec6d8b84"
+
+[fingerprint_parts]
+"conf.lua" = "5aeeef7d5295b865"
+"hero.vvx" = "b1b05c6dbc5b77c6"
+"hero2.vvx" = "144b0e839e544780"
+"main.lua" = "90fb2cfd5a09b0db"
 
 [[controls]]
 at = 0

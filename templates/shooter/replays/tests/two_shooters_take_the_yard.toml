@@ -7,6 +7,14 @@ outcome = "quit"
 score = 300
 input = "up+fire:200;right+grenade:20;none:180"
 checks = ["5b96749e54eb6541", "32fef0bd9449d511", "916bed577f10d605", "8b11368e553a99d9", "b130da12f9787b08", "c9bc1891223b28d1"]
+final_state = "c34d6a1f8130d5e7"
+
+[fingerprint_parts]
+"conf.lua" = "633c47078efbaaca"
+"enemy.vvx" = "6d44cfbf00f46a12"
+"main.lua" = "cf322ad9d92ed698"
+"player.vvx" = "560fe3e5a4f71cad"
+"player2.vvx" = "945d3a1ed1af1220"
 
 [[controls]]
 at = 0
