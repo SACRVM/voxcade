@@ -886,6 +886,23 @@ impl PassTimes {
         })
     }
 }
+
+/// The format to draw a window's pictures in, of those its surface offers:
+/// one that stores what it is given (the lighting happens in palette
+/// space, like the old machines), else the first, which is sRGB, and the
+/// composite decodes once for it (`composite_entry`). None when it offers
+/// none.
+pub fn surface_format(formats: &[wgpu::TextureFormat]) -> Option<wgpu::TextureFormat> {
+    formats.iter().copied().find(|f| !f.is_srgb()).or_else(|| formats.first().copied())
+}
+
+/// The composite's entry point for a target of `format`: an sRGB target
+/// encodes what it is given, so its picture is decoded first; else the
+/// picture as it is.
+pub fn composite_entry(format: wgpu::TextureFormat) -> &'static str {
+    if format.is_srgb() { "fs_composite_srgb" } else { "fs_composite" }
+}
+
 const CHUNK_ATTRS: [wgpu::VertexAttribute; 3] =
     wgpu::vertex_attr_array![0 => Float32x3, 1 => Snorm8x4, 2 => Unorm8x4];
 const CUBE_ATTRS: [wgpu::VertexAttribute; 2] =
@@ -1085,7 +1102,7 @@ impl Renderer {
         };
         let post_down = post_pipeline("shrink", &post_pipeline_layout, "fs_down", HDR_FORMAT);
         let post_blur = post_pipeline("blur", &post_pipeline_layout, "fs_blur", HDR_FORMAT);
-        let post_composite = post_pipeline("composite", &composite_pipeline_layout, "fs_composite", format);
+        let post_composite = post_pipeline("composite", &composite_pipeline_layout, composite_entry(format), format);
 
         let (cube_v, cube_i) = mesh::unit_cube();
         let cube_vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -1931,7 +1948,7 @@ pub(crate) fn on_screen(view_proj: &Mat4, min: Vec3, max: Vec3) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{SHADER, plain_shader};
+    use super::{SHADER, composite_entry, plain_shader, surface_format};
 
     /// Touching opaque unit cubes hide the faces between them, whether they
     /// sit close together (a bit per cell) or far apart (a hash set); a
@@ -2058,6 +2075,27 @@ mod tests {
         assert!(SHADER.contains("atomicCompareExchangeWeak") && SHADER.contains("var<storage, read_write>"));
         assert!(!plain.contains("atomic") && !plain.contains("var<storage") && !plain.contains("remembered("), "{plain}");
         assert_eq!(SHADER.matches("// MEMORY {").count(), SHADER.matches("// } MEMORY").count());
+        // Both composites are there by the names the renderer asks for.
+        for entry in [composite_entry(wgpu::TextureFormat::Bgra8Unorm), composite_entry(wgpu::TextureFormat::Bgra8UnormSrgb)] {
+            assert!(include_str!("post.wgsl").contains(&format!("fn {entry}(")), "{entry}");
+        }
+    }
+
+    /// A window draws in a format that stores what it is given where its
+    /// surface offers one, whatever comes first; a surface of sRGB only is
+    /// drawn in sRGB with the composite that decodes once, never the
+    /// palette space's colours encoded a second time (too bright).
+    #[test]
+    fn the_surface_format_keeps_the_palettes_colours() {
+        use wgpu::TextureFormat::*;
+        assert_eq!(surface_format(&[Bgra8UnormSrgb, Bgra8Unorm, Rgba16Float]), Some(Bgra8Unorm));
+        assert_eq!(surface_format(&[Rgba8Unorm]), Some(Rgba8Unorm));
+        assert_eq!(surface_format(&[Bgra8UnormSrgb, Rgba8UnormSrgb]), Some(Bgra8UnormSrgb));
+        assert_eq!(surface_format(&[]), None);
+        assert_eq!(composite_entry(Bgra8Unorm), "fs_composite");
+        assert_eq!(composite_entry(Rgba8Unorm), "fs_composite");
+        assert_eq!(composite_entry(Bgra8UnormSrgb), "fs_composite_srgb");
+        assert_eq!(composite_entry(Rgba8UnormSrgb), "fs_composite_srgb");
     }
 
     /// A cube lying against a filled cell (a figure's part against the
