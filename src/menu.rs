@@ -217,6 +217,10 @@ impl Item {
         match self {
             // A half's directions are the engine's words.
             Item::Bind(way) if crate::seating::DIRECTIONS.contains(&way) => crate::lang::say(lang, direction_word(way)).to_string(),
+            // The game's own name for it, as written: a game cannot yet
+            // name its actions in each language (planned for 0.7, the
+            // game giving the words; BunnyFarm's German CONTROLS still
+            // reads ACT, BACK, PREV, NEXT, BAG).
             Item::Bind(action) => action.to_uppercase(),
             other => crate::lang::say(lang, other.fixed_label()).to_string(),
         }

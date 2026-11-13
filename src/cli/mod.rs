@@ -9,6 +9,7 @@
 //! `the_help_says_every_option_the_parsers_take`,
 //! `the_parsers_take_every_option_the_help_says`).
 
+pub mod crash;
 mod parse;
 mod table;
 
@@ -57,9 +58,16 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
     if args.is_empty()
         && let Some(dir) = default
     {
+        crash::install(true);
         return app::run::<G>(dir, None, Default::default(), None, None, false);
     }
-    match parse(&args)? {
+    let call = parse(&args)?;
+    // A crash in a window is reported, not silent (`crash`); the commands
+    // without one say it on the terminal as ever.
+    if call.opens_a_window() {
+        crash::install(true);
+    }
+    match call {
         // Started by a double click: the launcher (the IDE's start page).
         Call::Launcher => {
             crate::desktop::keep_entry();
@@ -243,7 +251,9 @@ fn update(install: bool) -> Result<()> {
         Some(release) => {
             let dir = crate::update::install_dir().context("this program does not lie in a Voxcade folder (its games beside it): fetch the new version from voxca.de")?;
             crate::update::install(&release, &dir, &|_| {})?;
-            println!("voxcade {} is in place in {}; what was there before lies in before-update", release.version, dir.display());
+            let (generations, bytes) = crate::update::kept(&dir);
+            println!("voxcade {} is in place in {}; what was there before lies in before-update/{}", release.version, dir.display(), crate::update::VERSION);
+            println!("before-update keeps {generations} generation{} of what updates replaced, {:.1} MB: delete the ones you no longer need", if generations == 1 { "" } else { "s" }, bytes as f64 / 1e6);
         }
     }
     Ok(())
@@ -296,6 +306,19 @@ pub fn plainly(error: &anyhow::Error, languages: &[String]) -> String {
     let said = format!("{error:#}");
     let lang = languages.iter().map(String::as_str).find(|l| matches!(*l, "en" | "de" | "fr")).unwrap_or("en");
     let graphics = ["no suitable GPU", "creating surface", "creating window", "request_device"].iter().any(|s| said.contains(s));
+    if said.contains(crate::window::DEVICE_LOST) {
+        let plain = match lang {
+            "de" => "Die Grafikkarte hat aufgehört zu zeichnen (ihr Treiber wurde wohl neu gestartet), und Voxcade muss aufhören. Starte es einfach neu; geschieht es öfter, hilft oft ein neuer Grafiktreiber.",
+            "fr" => "La carte graphique a cessé de dessiner (son pilote a sans doute redémarré) et Voxcade doit s'arrêter. Relancez-le ; si cela revient souvent, un pilote graphique plus récent aide souvent.",
+            _ => "The graphics card stopped drawing (its driver was likely restarted), and Voxcade has to stop. Just start it again; if it happens often, a newer graphics driver often helps.",
+        };
+        let it_said = match lang {
+            "de" => "Das Programm meldet",
+            "fr" => "Le programme dit",
+            _ => "The program says",
+        };
+        return format!("{plain}\n\n{it_said}: {said}");
+    }
     let plain = match (graphics, lang) {
         (true, "de") => "Voxcade findet keine Grafik, mit der es zeichnen kann.\n\nEs braucht eine Grafikkarte mit Vulkan oder, unter Windows, DirectX 12. Oft hilft ein neuer Grafiktreiber. Mehr dazu: voxca.de/de/install.html",
         (true, "fr") => "Voxcade ne trouve pas de carte graphique avec laquelle dessiner.\n\nIl lui faut une carte graphique avec Vulkan ou, sous Windows, DirectX 12. Un pilote graphique plus récent aide souvent. Plus d'aide : voxca.de/install.html",
@@ -468,6 +491,23 @@ mod tests {
         assert_eq!(said, "--turn is called --rotate now");
     }
 
+    /// An option with one value given twice is refused, naming it; those
+    /// the table lets come again are taken each time; a switch twice is
+    /// the switch. Every repeatable option is one some command takes.
+    #[test]
+    fn an_option_given_twice_is_refused_unless_it_may_come_again() {
+        for line in [&["shot", "g", "--size", "1x1", "--size", "2x2"][..], &["run", "g", "--host", "--host", "1"], &["inspect", "g", "--input2", "a", "--input2", "b"], &["film", "g", "r.toml", "--out", "a.mp4", "--out", "b.mp4"]] {
+            let said = parse(&words(line)).err().map(|e| format!("{e:#}")).unwrap_or_default();
+            assert!(said.contains("is given twice"), "{line:?}: {said}");
+        }
+        assert!(parse(&words(&["shot", "g", "--do", "a = 1", "--do", "b = 2", "--input2", "a", "--input3", "b"])).is_ok());
+        assert!(parse(&words(&["edit", "g", "--level", "l.toml", "--add", "a", "--at", "1,2,3", "--add", "b", "--at", "4,5,6", "--shot", "x.png"])).is_ok());
+        assert!(parse(&words(&["run", "g", "--maker", "--maker"])).is_ok());
+        for name in REPEATABLE {
+            assert!(COMMANDS.iter().any(|c| c.opts.iter().any(|o| o.name == *name && !o.value.is_empty())), "{name}: no command takes it with a value");
+        }
+    }
+
     /// A mistake is said in a window only where the command opens one: a
     /// command that writes or draws without a window says it on the
     /// terminal (a modal box would hang a script or an agent), and so does
@@ -501,6 +541,9 @@ mod tests {
         let none = anyhow::anyhow!("no suitable GPU");
         assert!(plainly(&none, &["de".into()]).starts_with("Voxcade findet keine Grafik"));
         assert!(plainly(&none, &["ja".into(), "fr".into()]).contains("carte graphique"));
+        let lost = anyhow::anyhow!("{} (DeviceLost: reset)", crate::window::DEVICE_LOST);
+        assert!(plainly(&lost, &["fr".into()]).starts_with("La carte graphique a cessé"));
+        assert!(plainly(&lost, &[]).starts_with("The graphics card stopped drawing"));
         let other = anyhow::anyhow!("games/x is no game folder");
         let said = plainly(&other, &[]);
         assert!(said.starts_with("Voxcade ran into a mistake") && said.ends_with("The program says: games/x is no game folder"), "{said}");

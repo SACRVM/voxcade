@@ -17,6 +17,9 @@ pub struct Gpu {
     adapter: wgpu::Adapter,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
+    /// Why the device was lost, once it was (a driver reset, the card
+    /// gone): wgpu's callback sets it, the window loop ends on it.
+    lost: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl Gpu {
@@ -24,7 +27,16 @@ impl Gpu {
     pub fn adapter(&self) -> &wgpu::Adapter {
         &self.adapter
     }
+
+    /// Why the device was lost, if it was.
+    pub fn lost(&self) -> Option<String> {
+        self.lost.lock().map_or_else(|e| e.into_inner().clone(), |l| l.clone())
+    }
 }
+
+/// The mistake a lost device ends a window with (`cli::plainly` says it
+/// in plain words).
+pub const DEVICE_LOST: &str = "the GPU device was lost";
 
 /// A window and what draws into it. The surface comes first: fields drop
 /// in the order they are declared, and the surface must go before the
@@ -73,7 +85,14 @@ impl Screen {
                     ..Default::default()
                 }))
                 .context("creating GPU device")?;
-                Gpu { instance, adapter, device, queue }
+                let lost = std::sync::Arc::new(std::sync::Mutex::new(None));
+                let said = lost.clone();
+                device.set_device_lost_callback(move |reason, message| {
+                    if let Ok(mut said) = said.lock() {
+                        *said = Some(format!("{reason:?}: {message}"));
+                    }
+                });
+                Gpu { instance, adapter, device, queue, lost }
             }
         };
         let (adapter, device, queue) = (&gpu.adapter, gpu.device.clone(), gpu.queue.clone());
@@ -154,19 +173,84 @@ impl Screen {
 
     /// Draws a frame and shows it.
     pub fn show(&mut self, renderer: &mut Renderer, frame: &FrameData) -> Result<()> {
-        match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(texture) | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
-                let view = texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-                let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-                renderer.render(&self.device, &self.queue, &mut encoder, &view, frame);
-                self.queue.submit([encoder.finish()]);
-                self.queue.present(texture);
-            }
-            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => self.surface.configure(&self.device, &self.config),
-            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {}
-            wgpu::CurrentSurfaceTexture::Validation => bail!("surface validation error"),
+        if let Got::Picture(texture) = self.texture()? {
+            let view = texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            renderer.render(&self.device, &self.queue, &mut encoder, &view, frame);
+            self.queue.submit([encoder.finish()]);
+            self.queue.present(texture);
         }
         Ok(())
+    }
+
+    /// The surface's next picture to draw into, or none this time: an
+    /// outdated surface is configured again, a lost one made anew from
+    /// the window (wgpu's way back; both `Got::Again`), and a lost device,
+    /// which would need everything made anew, ends the window with
+    /// `DEVICE_LOST`.
+    pub fn texture(&mut self) -> Result<Got> {
+        if let Some(why) = self.gpu.lost() {
+            bail!("{DEVICE_LOST} ({why})");
+        }
+        let got = self.surface.get_current_texture();
+        match recovery(&got) {
+            Recovery::Draw => Ok(match got {
+                wgpu::CurrentSurfaceTexture::Success(texture) | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => Got::Picture(texture),
+                _ => Got::Wait,
+            }),
+            Recovery::Skip => Ok(Got::Wait),
+            Recovery::Configure => {
+                self.surface.configure(&self.device, &self.config);
+                Ok(Got::Again)
+            }
+            Recovery::Recreate => {
+                // SAFETY: as in `open_on`: the surface goes before the
+                // window (field order).
+                let surface = unsafe {
+                    let target = wgpu::SurfaceTargetUnsafe::from_display_and_window(&self.window, &self.window).context("window handle")?;
+                    self.gpu.instance.create_surface_unsafe(target).context("creating surface")?
+                };
+                self.surface = surface;
+                self.surface.configure(&self.device, &self.config);
+                Ok(Got::Again)
+            }
+            Recovery::End => bail!("surface validation error"),
+        }
+    }
+}
+
+/// What `Screen::texture` gave.
+pub enum Got {
+    /// A picture to draw into and present.
+    Picture(wgpu::SurfaceTexture),
+    /// Nothing to draw this time (the window hidden, the screen slow).
+    Wait,
+    /// The surface was set up anew: draw again soon.
+    Again,
+}
+
+/// What the window does with what the surface gave (`Screen::texture`).
+#[derive(Debug, PartialEq, Eq)]
+enum Recovery {
+    /// A picture to draw into.
+    Draw,
+    /// Nothing this time (the window hidden, the screen slow).
+    Skip,
+    /// The surface's settings anew.
+    Configure,
+    /// The surface itself anew.
+    Recreate,
+    /// The end, with a mistake.
+    End,
+}
+
+fn recovery(got: &wgpu::CurrentSurfaceTexture) -> Recovery {
+    match got {
+        wgpu::CurrentSurfaceTexture::Success(_) | wgpu::CurrentSurfaceTexture::Suboptimal(_) => Recovery::Draw,
+        wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => Recovery::Skip,
+        wgpu::CurrentSurfaceTexture::Outdated => Recovery::Configure,
+        wgpu::CurrentSurfaceTexture::Lost => Recovery::Recreate,
+        wgpu::CurrentSurfaceTexture::Validation => Recovery::End,
     }
 }
 
@@ -230,6 +314,18 @@ impl Pacer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An outdated surface is configured again, a lost one made anew, a
+    /// validation error ends the window; a slow or hidden one waits.
+    #[test]
+    fn a_lost_surface_is_made_anew() {
+        use wgpu::CurrentSurfaceTexture as C;
+        assert_eq!(recovery(&C::Outdated), Recovery::Configure);
+        assert_eq!(recovery(&C::Lost), Recovery::Recreate);
+        assert_eq!(recovery(&C::Timeout), Recovery::Skip);
+        assert_eq!(recovery(&C::Occluded), Recovery::Skip);
+        assert_eq!(recovery(&C::Validation), Recovery::End);
+    }
 
     /// Only UNLIMITED shows pictures as they are ready; the rest wait for
     /// the screen; without Mailbox it waits too.

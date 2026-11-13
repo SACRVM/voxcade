@@ -75,6 +75,16 @@ pub(super) struct Command {
     pub(super) opts: &'static [Opt],
 }
 
+/// The options with a value that may come more than once, each time
+/// one more (`--do` a line more; the editor's steps tried in turn and
+/// what follows one: `--add a --at 1,2,3 --add b --at 4,5,6`). Any other
+/// option with a value given twice is refused (`Flags::next`), never the
+/// last one silently taken; a switch twice is the switch.
+pub(super) const REPEATABLE: &[&str] = &[
+    "--do", "--add", "--hang", "--move", "--copy", "--remove", "--light", "--add-light", "--solid", "--room-size", "--at", "--rotate", "--about", "--lay", "--move-part",
+    "--move-joint", "--scatter", "--raise", "--shape", "--selection", "--rotate-part", "--pose-part", "--hide", "--clear", "--fill", "--rename", "--radius", "--color",
+];
+
 /// Old names of options, refused with the new one.
 pub(super) const RENAMED: &[(&str, &str)] = &[("--turn", "--rotate"), ("--colour", "--color")];
 
@@ -240,7 +250,7 @@ pub(super) const COMMANDS: &[Command] = &[
         line: "look for a newer version; --install puts it in place",
         making: true,
         text: "looks whether a newer version is there (the feed at voxca.de; the launcher does it too, unless switched off there). VOXCADE_UPDATE_FEED names another feed (a file's path too).",
-        opts: &[opt("--install", "", "fetch it, check it and put it in place in the folder the program lies in; what was there before goes to before-update")],
+        opts: &[opt("--install", "", "fetch it, check it and put it in place in the folder the program lies in; what was there before goes to before-update/VERSION, every generation kept")],
     },
     Command {
         name: "version",

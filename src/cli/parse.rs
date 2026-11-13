@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
-use super::table::{Command, Opt, command, known};
+use super::table::{Command, Opt, REPEATABLE, command, known};
 use crate::controls::PadStyle;
 use crate::headless::{self, Networked};
 
@@ -14,17 +14,27 @@ use crate::headless::{self, Networked};
 pub(super) struct Flags<'a> {
     pub(super) command: &'static Command,
     pub(super) it: std::iter::Peekable<std::slice::Iter<'a, String>>,
+    /// The options with a value given so far.
+    given: Vec<&'a str>,
 }
 
 impl<'a> Flags<'a> {
     pub(super) fn new(name: &str, args: &'a [String]) -> Self {
-        Flags { command: command(name).expect("a command of the table"), it: args.iter().peekable() }
+        Flags { command: command(name).expect("a command of the table"), it: args.iter().peekable(), given: Vec::new() }
     }
 
-    /// The next flag and its option.
+    /// The next flag and its option; an option with one value given a
+    /// second time is refused (`REPEATABLE` says the others).
     pub(super) fn next(&mut self) -> Result<Option<(&'a str, &'static Opt)>> {
         let Some(flag) = self.it.next() else { return Ok(None) };
-        Ok(Some((flag.as_str(), known(self.command, flag)?)))
+        let opt = known(self.command, flag)?;
+        if !opt.value.is_empty() && !REPEATABLE.contains(&opt.name) {
+            if self.given.contains(&flag.as_str()) {
+                bail!("{flag} is given twice: it takes one value (voxcade {} --help)", self.command.name);
+            }
+            self.given.push(flag);
+        }
+        Ok(Some((flag.as_str(), opt)))
     }
 
     /// The value after `flag`.

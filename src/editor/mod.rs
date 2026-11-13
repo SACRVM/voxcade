@@ -2074,26 +2074,25 @@ impl EditorWindow {
             }
             Err(e) => ed.message = Some(format!("{e:#}")),
         }
-        match screen.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(texture) | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
-                let target = texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-                let mut encoder = screen.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-                renderer.render(&screen.device, &screen.queue, &mut encoder, &target, &frame);
-                screen.queue.submit([encoder.finish()]);
-                painter.paint(&screen.device, &screen.queue, &target, gui, out, size);
-                if capture {
-                    self.capture = None;
-                    self.picture = Some(screen.picture(&texture.texture).map_err(|e| format!("{e:#}")));
-                }
-                screen.queue.present(texture);
-            }
-            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-                screen.surface.configure(&screen.device, &screen.config);
+        // A surface set up anew draws next time (`Screen::texture`).
+        let texture = match screen.texture()? {
+            crate::window::Got::Picture(texture) => texture,
+            crate::window::Got::Wait => return Ok(()),
+            crate::window::Got::Again => {
                 self.dirty = true;
+                return Ok(());
             }
-            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {}
-            wgpu::CurrentSurfaceTexture::Validation => anyhow::bail!("surface validation error"),
+        };
+        let target = texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = screen.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        renderer.render(&screen.device, &screen.queue, &mut encoder, &target, &frame);
+        screen.queue.submit([encoder.finish()]);
+        painter.paint(&screen.device, &screen.queue, &target, gui, out, size);
+        if capture {
+            self.capture = None;
+            self.picture = Some(screen.picture(&texture.texture).map_err(|e| format!("{e:#}")));
         }
+        screen.queue.present(texture);
         Ok(())
     }
 }

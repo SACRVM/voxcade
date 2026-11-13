@@ -44,6 +44,7 @@ const WORDS: &[(&str, &str, &str)] = &[
     ("PAUSED", "PAUSE", "PAUSE"),
     ("NEW HIGH SCORE!", "NEUER REKORD!", "NOUVEAU RECORD!"),
     ("HIGH SCORES", "BESTENLISTE", "MEILLEURS SCORES"),
+    ("HI-SCORE {}", "REKORD {}", "RECORD {}"),
     ("ON", "AN", "OUI"),
     ("OFF", "AUS", "NON"),
     ("HIGH", "HOCH", "HAUTE"),
@@ -92,6 +93,11 @@ const WORDS: &[(&str, &str, &str)] = &[
     ("{}: CANCEL", "{}: ABBRECHEN", "{}: ANNULER"),
     ("ESC: CANCEL", "ESC: ABBRECHEN", "ESC: ANNULER"),
     ("ASKING {}", "FRAGE BEI {} AN", "DEMANDE À {}"),
+    ("THE TICKET'S HOST", "DEN HOST DES TICKETS", "L'HÔTE DU TICKET"),
+    ("THE HOST LEFT", "DER HOST IST GEGANGEN", "L'HÔTE EST PARTI"),
+    ("NO ANSWER FROM THE HOST", "KEINE ANTWORT VOM HOST", "PAS DE RÉPONSE DE L'HÔTE"),
+    ("THIS MACHINE CANNOT KEEP UP", "DIESER RECHNER KOMMT NICHT MIT", "CETTE MACHINE NE SUIT PAS"),
+    ("YOU LEFT", "DU BIST GEGANGEN", "TU ES PARTI"),
     ("RECEIVING THE GAME {}%", "EMPFANGE DAS SPIEL {}%", "RÉCEPTION DU JEU {}%"),
     ("CATCHING UP {}%", "HOLE AUF {}%", "RATTRAPAGE {}%"),
     ("HOSTED AT {}", "OFFEN UNTER {}", "OUVERT SUR {}"),
@@ -153,6 +159,17 @@ pub fn say(lang: &str, en: &'static str) -> &'static str {
     WORDS.iter().find(|w| w.0 == en).map_or(en, |w| if column == 1 { w.1 } else { w.2 })
 }
 
+/// A line made at run time (a network game's end, kept as English
+/// until shown) in `lang`: the table's if it has it, else as it is.
+pub fn say_line(lang: &str, en: &str) -> String {
+    let column = match lang {
+        "de" => 1,
+        "fr" => 2,
+        _ => return en.to_string(),
+    };
+    WORDS.iter().find(|w| w.0 == en).map_or(en, |w| if column == 1 { w.1 } else { w.2 }).to_string()
+}
+
 /// `say` with each `{}` filled, in order, by `parts`.
 pub fn say_with(lang: &str, en: &'static str, parts: &[&str]) -> String {
     let mut out = String::new();
@@ -211,6 +228,8 @@ mod tests {
         assert_eq!(say("fr", "SETTINGS"), "OPTIONS");
         assert_eq!(say("es", "SETTINGS"), "SETTINGS");
         assert_eq!(say_with("de", "{} MIN AGO", &["5"]), "VOR 5 MIN");
+        assert_eq!(say_line("de", "THE HOST LEFT"), "DER HOST IST GEGANGEN");
+        assert_eq!(say_line("fr", "SOMETHING THE TABLE LACKS"), "SOMETHING THE TABLE LACKS");
         assert_eq!(say_with("fr", "{}: SELECT   {}: BACK", &["A", "B"]), "A: CHOISIR   B: RETOUR");
         assert_eq!((ordinal("en", 2), ordinal("en", 12), ordinal("de", 3), ordinal("fr", 1), ordinal("fr", 4)), ("2ND".into(), "12TH".into(), "3.".into(), "1ER".into(), "4E".into()));
         let longest = WORDS.iter().map(|w| w.0.chars().count()).max().unwrap();
@@ -223,5 +242,127 @@ mod tests {
                 assert!(word.chars().all(|c| !c.is_lowercase()), "{word}: in capitals");
             }
         }
+    }
+
+    /// The files whose words the menus, the HUD's engine lines and the
+    /// network's lines draw: every word in capitals written in them is in
+    /// the table (so German and French have it) or named in `NOT_WORDS`
+    /// with why. A word added to a menu without its German and French
+    /// fails here, not silently in English on a player's screen.
+    const MENU_FILES: &[(&str, &str)] = &[
+        ("menu.rs", include_str!("menu.rs")),
+        ("ui.rs", include_str!("ui.rs")),
+        ("network.rs", include_str!("network.rs")),
+        ("seating.rs", include_str!("seating.rs")),
+        ("settings.rs", include_str!("settings.rs")),
+        ("app/mod.rs", include_str!("app/mod.rs")),
+        ("app/network.rs", include_str!("app/network.rs")),
+        ("app/commands.rs", include_str!("app/commands.rs")),
+        ("app/draw.rs", include_str!("app/draw.rs")),
+        ("app/events.rs", include_str!("app/events.rs")),
+        ("app/front.rs", include_str!("app/front.rs")),
+        ("app/keys.rs", include_str!("app/keys.rs")),
+        ("net/host.rs", include_str!("net/host.rs")),
+        ("net/play.rs", include_str!("net/play.rs")),
+    ];
+
+    /// Words in capitals in those files that are no words to translate.
+    const NOT_WORDS: &[(&str, &str)] = &[
+        ("ABCDEFGHIJKLMNOPQRSTUVWXYZ.", "the letters of initials"),
+        ("{} {} MS{}", "a machine's name and its round trip"),
+        ("{} {} MS", "a machine's name and its round trip"),
+        ("VOX", "the high score table's first lines' initials"),
+        ("CAD", "initials"),
+        ("ACE", "initials"),
+        ("SKY", "initials"),
+        ("ZAP", "initials"),
+        ("MAX", "initials"),
+        ("JOY", "initials"),
+        ("KIM", "initials"),
+        ("ROY", "initials"),
+        ("EVA", "initials"),
+        ("XDG_CONFIG_HOME", "a variable of the system"),
+        ("HOME", "a variable of the system"),
+        ("APPDATA", "a variable of the system"),
+    ];
+
+    /// The string literals of Rust source `code` (comments, char literals
+    /// and lifetimes stepped over; the tests at its end left out).
+    fn literals(code: &str) -> Vec<String> {
+        let code = code.find("\n#[cfg(test)]\nmod tests").map_or(code, |at| &code[..at]);
+        let b = code.as_bytes();
+        let (mut out, mut i) = (Vec::new(), 0);
+        while i < b.len() {
+            match b[i] {
+                b'/' if b.get(i + 1) == Some(&b'/') => i = code[i..].find('\n').map_or(b.len(), |n| i + n),
+                b'/' if b.get(i + 1) == Some(&b'*') => i = code[i + 2..].find("*/").map_or(b.len(), |n| i + n + 4),
+                b'\'' if b.get(i + 1) == Some(&b'\\') => i = code[i + 2..].find('\'').map_or(b.len(), |n| i + n + 3),
+                b'\'' if b.get(i + 2) == Some(&b'\'') => i += 3,
+                b'\'' => i += code[i + 1..].chars().next().map_or(1, |c| 1 + c.len_utf8()),
+                b'r' if b.get(i + 1) == Some(&b'#') || (b.get(i + 1) == Some(&b'"') && !b[i.saturating_sub(1)].is_ascii_alphanumeric()) => {
+                    let hashes = b[i + 1..].iter().take_while(|&&c| c == b'#').count();
+                    let start = i + 1 + hashes + 1;
+                    let end = "\"".to_string() + &"#".repeat(hashes);
+                    let close = code[start..].find(&end).map_or(b.len(), |n| start + n);
+                    out.push(code[start..close].to_string());
+                    i = close + end.len();
+                }
+                b'"' => {
+                    let mut j = i + 1;
+                    let mut s = String::new();
+                    while j < b.len() && b[j] != b'"' {
+                        if b[j] == b'\\' {
+                            j += 1;
+                            match b.get(j) {
+                                Some(b'n') => s.push('\n'),
+                                Some(b'\n') => {
+                                    while j + 1 < b.len() && b[j + 1].is_ascii_whitespace() {
+                                        j += 1;
+                                    }
+                                }
+                                Some(&c) => s.push(c as char),
+                                None => {}
+                            }
+                            j += 1;
+                            continue;
+                        }
+                        let c = code[j..].chars().next().unwrap();
+                        s.push(c);
+                        j += c.len_utf8();
+                    }
+                    out.push(s);
+                    i = j + 1;
+                }
+                _ => i += 1,
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn every_menu_word_has_its_german_and_french() {
+        // The scanner itself, on a sample.
+        let sample = "let a = 'x'; fn f<'a>() {} // \"NOT ME\"\n/* \"NOR ME\" */ let s = \"SAY ME\"; let r = r#\"AND \"ME\"\"#; let q = '\\'';";
+        assert_eq!(literals(sample), ["SAY ME", "AND \"ME\""]);
+        let mut missing = Vec::new();
+        let mut seen = 0;
+        for (file, code) in MENU_FILES {
+            for word in literals(code) {
+                let capitals = word.as_bytes().windows(2).any(|w| w[0].is_ascii_uppercase() && w[1].is_ascii_uppercase());
+                if !capitals || word.chars().any(char::is_lowercase) {
+                    continue;
+                }
+                seen += 1;
+                if !WORDS.iter().any(|w| w.0 == word) && !NOT_WORDS.iter().any(|(w, _)| *w == word) {
+                    missing.push(format!("{file}: {word:?}"));
+                }
+            }
+        }
+        assert!(missing.is_empty(), "words the menus draw with no German and French in WORDS (or name them in NOT_WORDS):\n{}", missing.join("\n"));
+        assert!(seen > 150, "the scan found {seen} words: it reads the files wrongly");
+        // Every word of the table is still drawn somewhere.
+        let all: Vec<String> = MENU_FILES.iter().flat_map(|(_, code)| literals(code)).collect();
+        let unused: Vec<&str> = WORDS.iter().map(|w| w.0).filter(|en| !all.iter().any(|l| l == en)).collect();
+        assert!(unused.is_empty(), "words in the table no file names: {unused:?}");
     }
 }

@@ -37,7 +37,9 @@ New versions
   The launcher looks for one when it starts (a small file from voxca.de;
   you can switch that off there). UPDATE NOW fetches it, checks it and
   puts it in place. What was here before goes to the folder
-  before-update; your own games, settings, high scores and saves stay.
+  before-update, a folder for each version replaced (a game that came
+  with Voxcade and that you changed is kept there too; delete old ones
+  when you like); your own games, settings, high scores and saves stay.
 
 If it will not start
   Update your graphics driver: Voxcade needs graphics with Vulkan or, on

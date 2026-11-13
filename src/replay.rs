@@ -1269,7 +1269,7 @@ impl Attract {
 }
 
 /// The time now (UTC) as a file name that sorts by time: `20261015-140312`.
-fn stamp() -> String {
+pub(crate) fn stamp() -> String {
     stamp_of(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64)
 }
 
