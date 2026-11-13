@@ -682,6 +682,13 @@ pub fn bar_at(ui: &egui::Ui, id: &str, middle: f32, bounds: Rect, free: Rect, gu
     rect
 }
 
+/// The top bar's THINGS and PIECES, told apart: THINGS sets the game's
+/// kinds (`c.things`) on the blocks with the
+/// tools, a click each; PIECES holds everything set down, those things
+/// too, chosen and moved by their handles.
+pub const THINGS_TIP: &str = "The game's kinds of things (c.things: enemies, pickups, doors) set on the blocks with the tools, a click each";
+pub const PIECES_TIP: &str = "Everything set down, chosen and moved by its handles: models, the things of THINGS too, lights, places and areas";
+
 /// The view's own buttons in its lower right corner: turn it, further and
 /// nearer; the mouse's ways to do the same on hover; GRID before them
 /// where `grid` says it is there (lit or not), and FRONT, SIDE, TOP where

@@ -64,10 +64,10 @@ fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
         ui.add_space(14.0);
         if ed.level.has_grid() {
             keyed(ui, shown, "BLOCKS", Action::Layer(Layer::Blocks), Some(false), "The level's blocks");
-            keyed(ui, shown, "THINGS", Action::Layer(Layer::Things), Some(false), "Things of the game's kinds, on the blocks");
+            keyed(ui, shown, "THINGS", Action::Layer(Layer::Things), Some(false), zones::THINGS_TIP);
         }
         if ed.level.has_grid() || ed.level.terrain.is_some() {
-            keyed(ui, shown, "PIECES", Action::Layer(Layer::Pieces), Some(ed.layer == Layer::Pieces), "Models, lights, places and areas set down freely");
+            keyed(ui, shown, "PIECES", Action::Layer(Layer::Pieces), Some(ed.layer == Layer::Pieces), zones::PIECES_TIP);
         }
         if ed.level.terrain.is_some() {
             keyed(ui, shown, "TERRAIN", Action::Layer(Layer::Terrain), Some(ed.layer == Layer::Terrain), "The land: its points, their heights and shapes, its materials");

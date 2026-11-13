@@ -72,8 +72,8 @@ fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
             ui.add_space(14.0);
             let things = ed.layer == Layer::Things;
             keyed(ui, shown, "BLOCKS", Action::Layer(Layer::Blocks), Some(!things), "The level's blocks");
-            keyed(ui, shown, "THINGS", Action::Layer(Layer::Things), Some(things), "Things of the game's kinds, on the blocks");
-            keyed(ui, shown, "PIECES", Action::Layer(Layer::Pieces), Some(false), "Models, lights, places and areas set down freely");
+            keyed(ui, shown, "THINGS", Action::Layer(Layer::Things), Some(things), zones::THINGS_TIP);
+            keyed(ui, shown, "PIECES", Action::Layer(Layer::Pieces), Some(false), zones::PIECES_TIP);
             ui.add_space(14.0);
             if !things {
                 keyed(ui, shown, "+ BLOCK", Action::Choose, Some(view.choosing), "A new block: from a tile of the tileset, or empty");
