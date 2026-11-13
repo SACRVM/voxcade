@@ -270,11 +270,17 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
         // The game played, its ticks stepped at once, drawn every frame
         // (a file opened shows instead, the game held behind it).
         if let Some(ticks) = opts.play {
-            if play.is_none() {
-                let mut p = Play::<G>::start(dir, device, queue, None, None)?;
-                p.step(ticks, &crate::input::Input::default());
-                shell.stage = Some(Stage { shown: opts.open.is_none(), trouble: p.trouble(), unloaded: p.unloaded(), ..Stage::default() });
-                play = Some(p);
+            // A game that would not start (a script's syntax error) is said
+            // in the red line, as PLAY in the window says it.
+            if frame == 0 {
+                match Play::<G>::start(dir, device, queue, None, None) {
+                    Ok(mut p) => {
+                        p.step(ticks, &crate::input::Input::default());
+                        shell.stage = Some(Stage { shown: opts.open.is_none(), trouble: p.trouble(), unloaded: p.unloaded(), ..Stage::default() });
+                        play = Some(p);
+                    }
+                    Err(e) => shell.wont_start(format!("{e:#}")),
+                }
             }
             if let (Some(p), Some(stage)) = (&mut play, &mut shell.stage)
                 && let Some(size) = stage.wanted
@@ -1240,6 +1246,26 @@ mod tests {
         assert!(note.as_deref().is_some_and(|n| n.contains("the only game in")), "{note:?}");
         assert!(matches!(choose(&mut note, &root.join("many")), Next::Found(_, games) if games.len() == 2));
         assert!(matches!(choose(&mut note, &root.join("none")), Next::Start(Some(m)) if m.starts_with("NO GAME HERE")));
+    }
+
+    /// `--play` on a game whose script Lua cannot read draws the IDE with
+    /// the red line the window shows (THE GAME WOULD NOT START), not a
+    /// mistake of the shot.
+    #[test]
+    fn a_shot_of_a_game_that_would_not_start_shows_the_red_line() {
+        let dir = crate::scratch::Scratch::new("ide-shot-broken");
+        std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 64, 64, 16 }\n  c.player.spawn = { 32, 32 }\nend\n").unwrap();
+        // The mistake in a module, so the open main.lua marks no line of its own.
+        std::fs::write(dir.join("main.lua"), "local tools = require(\"tools\")\nfunction on_tick()\nend\n").unwrap();
+        std::fs::write(dir.join("tools.lua"), "local x = = 1\nreturn {}\n").unwrap();
+        let out = dir.join("shots/ide.png");
+        std::fs::create_dir_all(out.parent().unwrap()).unwrap();
+        let opts = ShotOptions { open: None, console: None, play: Some(10), upgraded: false, journal: None, find: None, replace: None, search: None, hit: None, width: 960, height: 540, out: out.clone() };
+        shot::<crate::Voxcade>(Some(&dir), &opts).expect("drawn, not stopped");
+        let (_, _, pixels) = crate::map::read_png_rgba(&out).unwrap();
+        let red = crate::gui::ERROR;
+        let near = |p: &[u8; 4]| (p[0] as i32 - red.r() as i32).abs() + (p[1] as i32 - red.g() as i32).abs() + (p[2] as i32 - red.b() as i32).abs() < 40;
+        assert!(pixels.iter().filter(|p| near(p)).count() > 100, "the red line is drawn");
     }
 
     /// The console's tools are answered only by an IDE started with

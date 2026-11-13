@@ -391,7 +391,9 @@ nearest; its replay `tests/two_ships`);
   error panel over the game, `Session::problem_shown`, one plain line
   under the script's mistake, `play::plain_words`, and OUTPUT gets the
   whole traceback); `--shot
-  --play TICKS` draws it (with `--open` the file over the game held).
+  --play TICKS` draws it (with `--open` the file over the game held; a game
+  that would not start with its red line, test
+  `a_shot_of_a_game_that_would_not_start_shows_the_red_line`).
   The headings LOGIC, SCENARIOS, MODELS and MUSIC are always there, each with a plus
   left of the arrow: a name typed in place makes a small Lua file, scenario,
   model or song to change (`Shell::make_file`; no leaving the IDE for a first

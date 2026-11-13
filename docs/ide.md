@@ -416,7 +416,8 @@ Stage by stage (the plan of 2026-10-18):
    once the file is mended; tests `a_held_game_takes_in_the_mended_script`,
    `the_line_the_game_stopped_at_is_marked`). It
    steps as `voxcade shot` does (test `play_steps_and_draws_into_its_panel`);
-   `voxcade ide --shot --play TICKS` draws it. Gamepads drive it too, any
+   `voxcade ide --shot --play TICKS` draws it (a game that would not
+   start: its red line). Gamepads drive it too, any
    plugged in, at the start or later (the keyboard only while the game
    has the keys). A run won or lost (PRESS START) starts over with Enter,
    or Start or A on a pad: the IDE has no title to go back to. Its runs
