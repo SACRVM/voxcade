@@ -118,6 +118,9 @@ pub struct Host<A> {
     /// still to send.
     refusals: BTreeMap<(A, String), (u64, u32)>,
     refused: Vec<(A, Vec<u8>)>,
+    /// Addresses refused or gone, for the transport to close a moment
+    /// later (since when, once asked).
+    closing: Vec<(A, Option<u64>)>,
     /// Ticks a guest's seat held nothing for want of its keys.
     stopped: u64,
     /// The guests' state hashes by parts as they reported them (machine,
@@ -146,9 +149,22 @@ const PIECE_BUDGET: usize = 16;
 /// How often a HELLO is answered again, and a refusal at most a minute.
 const WELCOME_AGAIN: u64 = 200_000;
 const REFUSALS: u32 = 5;
-/// A bundle with the session's bytes may be this big at most, so it fits a
-/// datagram with DOWN's head.
-const MAX_BUNDLE: usize = 1000;
+/// The most addresses refused this minute it keeps count of (more are not
+/// answered), and the most addresses waiting to be closed.
+const REFUSED_KEPT: usize = 1024;
+const CLOSING_KEPT: usize = 256;
+/// An address refused or gone is closed this long after (its last words
+/// on the way first).
+const CLOSE_AFTER: u64 = 1_000_000;
+/// The most a DOWN's head takes beside its bundles: the datagram's head,
+/// the stamp and the asks taken, the newest reading of every seat, who
+/// paused, where the guest's game ran apart and a line for every screen
+/// (who plays goes in a datagram of its own). A bundle may take the rest
+/// of a datagram (`Host::max_bundle`): it always fits, whatever the head.
+const MAX_HEAD: usize = wire::HEADER + 5 + 5 + (1 + wire::MAX_SEATS * 6) + 1 + 1 + (1 + 10 + 1 + 32 + 1) + (1 + 2 + wire::MAX_TEXT) + 1;
+
+/// An input as wide as one is on the wire: every direction, every action.
+const WIDEST: Input = Input { left: true, right: true, up: true, down: true, actions: u32::MAX };
 
 /// A bundle too big for a datagram (the session's bytes were too many).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -180,6 +196,7 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
             last_roster: None,
             refusals: BTreeMap::new(),
             refused: Vec::new(),
+            closing: Vec::new(),
             stopped: 0,
             checks: Vec::new(),
             said: None,
@@ -266,7 +283,44 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
     pub fn refuse(&mut self, index: Machine, reason: &str) -> Option<(A, Vec<u8>)> {
         let r = self.remotes.iter_mut().find(|r| r.index == index && r.stage == Stage::Waiting)?;
         r.stage = Stage::Gone;
-        Some((r.addr, wire::refused(reason)))
+        let addr = r.addr;
+        self.close_later(addr);
+        Some((addr, wire::refused(reason)))
+    }
+
+    /// The transport closes an address a moment after now (its last words
+    /// on the way first).
+    fn close_later(&mut self, addr: A) {
+        if self.closing.iter().all(|(a, _)| *a != addr) {
+            if self.closing.len() >= CLOSING_KEPT {
+                self.closing.remove(0);
+            }
+            self.closing.push((addr, None));
+        }
+    }
+
+    /// How many refusals it keeps count of (a test's).
+    #[cfg(test)]
+    pub(crate) fn refusals_kept(&self) -> usize {
+        self.refusals.len()
+    }
+
+    /// The addresses to close now, refused or gone a moment ago (iroh's
+    /// connections: a machine not let in, dropped or left; on a LAN there
+    /// is nothing to close). Not one a machine plays from again.
+    pub fn to_close(&mut self, now: u64) -> Vec<A> {
+        let mut out = Vec::new();
+        let remotes = &self.remotes;
+        self.closing.retain_mut(|(addr, since)| {
+            if now.saturating_sub(*since.get_or_insert(now)) < CLOSE_AFTER {
+                return true;
+            }
+            if !remotes.iter().any(|r| r.addr == *addr && r.stage != Stage::Gone) {
+                out.push(*addr);
+            }
+            false
+        });
+        out
     }
 
     /// Sends a guest something too big for a bundle (a save's text for
@@ -318,6 +372,8 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
         let was = r.stage;
         r.stage = Stage::Gone;
         r.sending.clear();
+        let addr = r.addr;
+        self.close_later(addr);
         if was == Stage::Waiting {
             return;
         }
@@ -370,41 +426,79 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
         std::mem::take(&mut self.notices)
     }
 
+    /// The most bytes a bundle has: with the biggest head a DOWN has, it
+    /// still fits a datagram of the transport.
+    fn max_bundle(&self) -> usize {
+        self.limit.saturating_sub(MAX_HEAD)
+    }
+
+    /// The most bytes of the session's own (`extra`) a bundle carries: with
+    /// every seat's keys it still fits a datagram (seats taken and controls
+    /// changed wait for the next bundle where they do not fit).
+    pub fn extra_room(&self) -> usize {
+        // The extra's length takes two bytes.
+        let fixed = Bundle { tick: u64::MAX, inputs: vec![Some(WIDEST); self.seats.len()], ..Bundle::default() }.size() + 2;
+        self.max_bundle().saturating_sub(fixed).min(wire::MAX_EXTRA)
+    }
+
     /// Builds the next tick's bundle with the session's bytes `extra`: the
-    /// asks first (seats taken and left, controls), then what every seat
-    /// holds. The host plays it, and every guest gets it.
+    /// asks first (seats taken and left, controls), as many as fit a
+    /// datagram (the rest, in order, go into the next), then what every
+    /// seat holds. The host plays it, and every guest gets it. Too big:
+    /// `extra` is longer than `extra_room`.
     pub fn tick(&mut self, extra: Vec<u8>) -> Result<Bundle, TooBig> {
+        if extra.len() > self.extra_room() {
+            return Err(TooBig);
+        }
         let tick = self.next_tick();
-        let mut events = Vec::new();
-        let mut controls: Vec<(u8, Vec<u8>)> = Vec::new();
+        let most = self.max_bundle();
+        // The bundle as it grows, every seat's keys as wide as they come.
+        let mut probe = Bundle { tick, inputs: vec![Some(WIDEST); self.seats.len()], seats: Vec::new(), controls: Vec::new(), extra };
         while let Some((owner, ask_no, ask)) = self.asks.pop_front() {
-            match ask {
-                Ask::Take => match self.seats.iter().position(|s| s.owner.is_none()) {
-                    Some(n) => {
-                        let generation = self.seats[n].generation + 1;
-                        self.seats[n] = Slot { owner: Some(owner), generation, ..Slot::default() };
-                        self.own_last[n] = Input::default();
-                        events.push(SeatEvent::Taken { seat: n as u8 + 1, owner, generation, ask: ask_no });
-                    }
-                    None => events.push(SeatEvent::Refused { owner, ask: ask_no }),
-                },
+            let (mut events, mut controls) = (probe.seats.clone(), probe.controls.clone());
+            match &ask {
+                Ask::Take => events.push(match self.seats.iter().position(|s| s.owner.is_none()) {
+                    Some(n) => SeatEvent::Taken { seat: n as u8 + 1, owner, generation: self.seats[n].generation + 1, ask: ask_no },
+                    None => SeatEvent::Refused { owner, ask: ask_no },
+                }),
                 Ask::Leave(seat) => {
-                    if let Some(s) = self.seats.get_mut((seat as usize).wrapping_sub(1))
-                        && s.owner == Some(owner)
-                    {
-                        s.owner = None;
-                        events.push(SeatEvent::Left { seat });
-                        controls.retain(|(c, _)| *c != seat);
+                    if self.seats.get((*seat as usize).wrapping_sub(1)).is_some_and(|s| s.owner == Some(owner)) {
+                        events.push(SeatEvent::Left { seat: *seat });
+                        controls.retain(|(c, _)| c != seat);
                     }
                 }
                 Ask::Controls(seat, bytes) => {
-                    if self.owner(seat.max(1)) == Some(owner) && seat >= 1 {
-                        controls.retain(|(c, _)| *c != seat);
-                        controls.push((seat, bytes));
+                    // More than a guest reads is never sent: the seat keeps
+                    // the controls it had, on every machine alike.
+                    if bytes.len() > wire::MAX_CONTROLS {
+                        eprintln!("seat {seat}'s controls take {} bytes, more than the network carries ({}): kept as they were", bytes.len(), wire::MAX_CONTROLS);
+                        continue;
+                    }
+                    if self.owner((*seat).max(1)) == Some(owner) && *seat >= 1 {
+                        controls.retain(|(c, _)| c != seat);
+                        controls.push((*seat, bytes.clone()));
                     }
                 }
             }
+            let grown = Bundle { seats: events, controls, ..probe.clone() };
+            if grown.seats.len() > wire::MAX_SEAT_EVENTS || grown.size() > most {
+                // It waits for the next bundle, and every ask after it.
+                self.asks.push_front((owner, ask_no, ask));
+                break;
+            }
+            // Taken in: the seats as it leaves them.
+            match grown.seats.last() {
+                Some(&SeatEvent::Taken { seat, generation, .. }) if grown.seats.len() > probe.seats.len() => {
+                    let n = seat as usize - 1;
+                    self.seats[n] = Slot { owner: Some(owner), generation, ..Slot::default() };
+                    self.own_last[n] = Input::default();
+                }
+                Some(&SeatEvent::Left { seat }) if grown.seats.len() > probe.seats.len() => self.seats[seat as usize - 1].owner = None,
+                _ => {}
+            }
+            probe = grown;
         }
+        let Bundle { seats: events, mut controls, extra, .. } = probe;
         controls.sort_by_key(|(seat, _)| *seat);
         let own = self.own_inputs(tick);
         let mut stopped = 0;
@@ -425,9 +519,7 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
         self.stopped += stopped;
         let bundle = Bundle { tick, inputs, seats: events, controls, extra };
         let bytes = wire::bundle_bytes(&bundle);
-        if bytes.len() > MAX_BUNDLE {
-            return Err(TooBig);
-        }
+        debug_assert!(bytes.len() <= most, "a bundle of {} bytes", bytes.len());
         self.history.push(bytes);
         self.measure_delay();
         Ok(bundle)
@@ -588,16 +680,21 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
         self.notices.push(Notice::Joining { index, name: hello.name, commit: hello.commit });
     }
 
-    /// A refusal to an address, five a minute for one reason at most.
+    /// A refusal to an address, five a minute for one reason at most; the
+    /// address is closed a moment later. The counts of minutes gone are
+    /// forgotten, and at most `REFUSED_KEPT` addresses are answered in one.
     fn refuse_to(&mut self, now: u64, to: A, why: &str) {
         let minute = now / 60_000_000;
-        let count = self.refusals.entry((to, why.to_string())).or_insert((minute, 0));
-        if count.0 != minute {
-            *count = (minute, 0);
+        self.refusals.retain(|_, (m, _)| *m == minute);
+        let key = (to, why.to_string());
+        if self.refusals.len() >= REFUSED_KEPT && !self.refusals.contains_key(&key) {
+            return;
         }
+        let count = self.refusals.entry(key).or_insert((minute, 0));
         count.1 += 1;
         if count.1 <= REFUSALS {
             self.refused.push((to, wire::refused(why)));
+            self.close_later(to);
         }
     }
 

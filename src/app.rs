@@ -243,7 +243,7 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
                             }
                             Scancode::Return | Scancode::KpEnter if !repeat => {
                                 if let Some(line) = prompt.take() {
-                                    prompt.answer(game.eval(&line));
+                                    prompt.answer(net.as_ref().map_or(Ok(()), |n| n.takes_line(&game, &line)).and_then(|()| game.eval(&line)));
                                 }
                             }
                             Scancode::Backspace => prompt.backspace(),
@@ -462,6 +462,12 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
         prompt.settle();
         pads.settle();
 
+        // The host's link across the internet would not start: its network
+        // game is over, the game plays on alone.
+        if let Some(why) = net.as_mut().and_then(|n| n.broken()) {
+            parting = Some((why.to_uppercase(), Instant::now()));
+            net = None;
+        }
         // The network: what came; a guest plays the run so far through,
         // then its game is the one shown; a guest's game ended says why.
         if let Some(n) = &mut net {
@@ -563,14 +569,10 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
                     game.set_clock(crate::saves::now());
                     let hosted = if command == Command::HostNet { crate::network::Network::host_net(&game) } else { crate::network::Network::host(&game, host_port) };
                     match hosted {
-                        Ok(mut n) => {
+                        Ok(n) => {
+                            // Across the internet the ticket goes to the
+                            // clipboard once the link is there (below).
                             println!("hosting {} at {}", game.cfg.title, n.found().join(", "));
-                            if let Some(ticket) = n.ticket() {
-                                let copied = video.clipboard().set_clipboard_text(ticket).is_ok();
-                                if copied {
-                                    n.say(crate::lang::say(&settings.language(), "TICKET COPIED: SEND IT").to_string());
-                                }
-                            }
                             net = Some(n);
                         }
                         Err(e) => parting = Some((format!("{e:#}").to_uppercase(), Instant::now())),
@@ -1233,6 +1235,13 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
         }
         if let Some(n) = &mut net {
             n.send();
+            // The ticket, once the link across the internet is there, on
+            // the clipboard.
+            if let Some(ticket) = n.new_ticket()
+                && video.clipboard().set_clipboard_text(&ticket).is_ok()
+            {
+                n.say(crate::lang::say(&settings.language(), "TICKET COPIED: SEND IT").to_string());
+            }
             // The game's code, once our server gave it, on the clipboard
             // in place of the ticket: the shorter to send.
             if let Some(code) = n.game_code().map(str::to_string)

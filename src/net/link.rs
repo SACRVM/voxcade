@@ -213,6 +213,16 @@ impl Link {
         }
     }
 
+    /// Ends the connection with a machine refused or gone (across the
+    /// internet; a LAN has nothing to close).
+    pub fn close(&mut self, at: Where) {
+        if let (How::Net(n), Where::Net(peer)) = (&mut self.how, at) {
+            n.quic.close(peer);
+            n.knocking.remove(&peer);
+            n.let_in.remove(&peer);
+        }
+    }
+
     /// Lets every machine asking in into the game (a host without a
     /// window: `inspect`).
     pub fn let_all_in(&mut self) -> Vec<Knock> {

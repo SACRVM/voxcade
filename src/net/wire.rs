@@ -21,21 +21,27 @@ pub const MAX_SEATS: usize = 8;
 pub const MAX_MACHINES: usize = 16;
 /// A bundle's events (seats taken and left) and the session's bytes, at
 /// most: one bundle always fits a datagram.
-const MAX_SEAT_EVENTS: usize = 24;
+pub const MAX_SEAT_EVENTS: usize = 24;
 pub const MAX_EXTRA: usize = 900;
-const MAX_CONTROLS: usize = 256;
+pub const MAX_CONTROLS: usize = 256;
 /// The most readings of one seat a guest sends at once (the newest).
 pub const MAX_READINGS: usize = 32;
-const MAX_ASKS: usize = 16;
+pub const MAX_ASKS: usize = 16;
 /// Hash checks a guest reports at once, and the parts of each.
 pub const MAX_CHECKS: usize = 4;
 const MAX_PARTS: usize = 16;
 const MAX_NAME: usize = 32;
-const MAX_TEXT: usize = 200;
+pub const MAX_TEXT: usize = 200;
 /// A piece's bytes, and the most pieces a thing sent in pieces has (the
 /// run so far for a guest coming late: 1100 × 60,000, 66 MB).
 pub const PIECE: usize = 1100;
 pub const MAX_PIECES: u32 = 60_000;
+
+/// At most `max` bytes of `text`, never cut inside a character (a name
+/// with an umlaut would have stopped the program).
+pub fn cut(text: &str, max: usize) -> &str {
+    &text[..text.floor_char_boundary(max)]
+}
 
 /// A datagram that does not read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -249,7 +255,7 @@ impl Hello {
     pub fn write(&self) -> Vec<u8> {
         let mut w = Writer::new(Kind::Hello, 0);
         w.buf.extend_from_slice(&self.id);
-        w.u64(self.nonce).str(&self.name).str(&self.commit);
+        w.u64(self.nonce).str(cut(&self.name, MAX_NAME)).str(cut(&self.commit, MAX_NAME));
         w.buf
     }
 
@@ -319,7 +325,7 @@ pub struct Here {
 impl Here {
     pub fn write(&self) -> Vec<u8> {
         let mut w = Writer::new(Kind::Here, 0);
-        w.str(&self.game).str(&self.title).u64(self.fingerprint).str(&self.commit).str(&self.name).u8(self.seats).u8(self.taken).varint(self.port as u64);
+        w.str(cut(&self.game, MAX_NAME * 2)).str(cut(&self.title, MAX_NAME * 2)).u64(self.fingerprint).str(cut(&self.commit, MAX_NAME)).str(cut(&self.name, MAX_NAME)).u8(self.seats).u8(self.taken).varint(self.port as u64);
         w.buf
     }
 
@@ -333,7 +339,7 @@ impl Here {
 /// Why a HELLO was not taken, for people.
 pub fn refused(reason: &str) -> Vec<u8> {
     let mut w = Writer::new(Kind::Refused, 0);
-    w.str(&reason[..reason.len().min(MAX_TEXT)]);
+    w.str(cut(reason, MAX_TEXT));
     w.buf
 }
 
@@ -596,7 +602,7 @@ impl Down {
             Some(list) => {
                 w.u8(1).varint(list.len() as u64);
                 for m in list {
-                    w.u8(m.index).str(&m.name).varint(m.rtt_ms as u64).u8(m.quiet as u8);
+                    w.u8(m.index).str(cut(&m.name, MAX_NAME)).varint(m.rtt_ms as u64).u8(m.quiet as u8);
                 }
             }
         }
@@ -606,7 +612,7 @@ impl Down {
         };
         match &self.said {
             None => w.u8(0),
-            Some(line) => w.u8(1).str(&line[..line.len().min(MAX_TEXT)]),
+            Some(line) => w.u8(1).str(cut(line, MAX_TEXT)),
         };
         w
     }

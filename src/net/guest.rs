@@ -88,6 +88,8 @@ pub struct Guest<A> {
     checks: VecDeque<(u64, Vec<u64>, u8)>,
     said: Vec<String>,
     last_said: Option<String>,
+    /// The biggest datagram it sends: the transport's.
+    limit: usize,
 }
 
 /// A check is sent this many times.
@@ -109,6 +111,8 @@ const TOO_LONG: u64 = 2_000_000;
 const AHEAD: u64 = 100_000;
 /// Things in pieces at once, at most.
 const ASSEMBLING: usize = 4;
+/// Datagrams its asks fill at most in one go.
+const ASK_DATAGRAMS: usize = 4;
 
 impl<A: Copy + PartialEq + std::fmt::Debug> Guest<A> {
     /// Joins the game at `host` as the machine `id`, `nonce` a random
@@ -149,6 +153,7 @@ impl<A: Copy + PartialEq + std::fmt::Debug> Guest<A> {
             checks: VecDeque::new(),
             said: Vec::new(),
             last_said: None,
+            limit: wire::MAX_DATAGRAM,
         }
     }
 
@@ -230,9 +235,21 @@ impl<A: Copy + PartialEq + std::fmt::Debug> Guest<A> {
         self.push_ask(Ask::Leave(seat));
     }
 
-    /// What the player on a seat plays with now (the session's bytes).
+    /// What the player on a seat plays with now (the session's bytes); more
+    /// than the host reads is never sent (the seat keeps the controls it
+    /// had, on every machine alike).
     pub fn controls(&mut self, seat: u8, bytes: Vec<u8>) {
+        if bytes.len() > wire::MAX_CONTROLS {
+            eprintln!("seat {seat}'s controls take {} bytes, more than the network carries ({}): kept as they were", bytes.len(), wire::MAX_CONTROLS);
+            return;
+        }
         self.push_ask(Ask::Controls(seat, bytes));
+    }
+
+    /// The biggest datagram its transport carries (iroh's QUIC carries
+    /// less than a LAN's UDP): what it sends fits.
+    pub fn set_limit(&mut self, limit: usize) {
+        self.limit = limit.min(wire::MAX_DATAGRAM);
     }
 
     fn push_ask(&mut self, ask: Ask) -> u32 {
@@ -500,14 +517,50 @@ impl<A: Copy + PartialEq + std::fmt::Debug> Guest<A> {
                 })
                 .collect();
             let asks_from = self.asks.front().map_or(self.next_ask, |(n, _)| *n);
-            let asks = self.asks.iter().take(16).map(|(_, a)| a.clone()).collect();
-            let checks = self.checks.iter().map(|(t, p, _)| (*t, p.clone())).collect();
+            let mut up = Up { echo, held, got: self.seen, mask, hand: self.target as u8, readings, asks_from, asks: Vec::new(), checks: Vec::new() };
+            // Every datagram fits the transport's (`limit`): the readings
+            // with room left for the checks, the oldest of the longest left
+            // out while they do not (they went before; the newest of every
+            // seat always goes); then the checks, and the asks that fit, the
+            // asks after them in more datagrams.
+            let limit = self.limit;
+            let fits = |up: &Up| up.write(0).len() <= limit;
+            let checks: usize = 1 + self.checks.iter().map(|(_, parts, _)| 10 + 1 + 8 * parts.len()).sum::<usize>();
+            while up.write(0).len() + checks > limit {
+                let Some(longest) = up.readings.iter_mut().filter(|r| r.inputs.len() > 1).max_by_key(|r| r.inputs.len()) else { break };
+                longest.inputs.remove(0);
+                longest.first = longest.first.wrapping_add(1);
+            }
             for c in &mut self.checks {
+                up.checks.push((c.0, c.1.clone()));
+                if !fits(&up) {
+                    up.checks.pop();
+                    break;
+                }
                 c.2 += 1;
             }
             self.checks.retain(|c| c.2 < CHECK_TIMES);
-            let up = Up { echo, held, got: self.seen, mask, hand: self.target as u8, readings, asks_from, asks, checks };
-            out.push((self.host, up.write(self.key)));
+            let mut asks = self.asks.iter().map(|(_, a)| a.clone()).peekable();
+            for _ in 0..ASK_DATAGRAMS {
+                while up.asks.len() < wire::MAX_ASKS
+                    && let Some(ask) = asks.peek()
+                {
+                    up.asks.push(ask.clone());
+                    if !fits(&up) {
+                        up.asks.pop();
+                        break;
+                    }
+                    asks.next();
+                }
+                let sent = up.asks.len() as u32;
+                out.push((self.host, up.write(self.key)));
+                let alone = up.readings.is_empty() && up.checks.is_empty();
+                if asks.peek().is_none() || (sent == 0 && alone) {
+                    break;
+                }
+                // The asks after them, alone.
+                up = Up { asks_from: up.asks_from.wrapping_add(sent), asks: Vec::new(), readings: Vec::new(), checks: Vec::new(), ..up };
+            }
             self.last_up = Some(now);
             self.told = (self.seen, mask);
         }

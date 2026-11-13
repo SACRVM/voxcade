@@ -265,6 +265,153 @@ fn the_hosts_pause_pauses_everyone() {
     assert!(played.iter().all(|&p| p + 30 >= run.host().next_tick()), "on again: {played:?} of {}", run.host().next_tick());
 }
 
+/// A guest welcomed onto all eight seats of a host's game (machine 1).
+fn guest_on_eight_seats(limit: usize) -> Guest<usize> {
+    let mut guest: Guest<usize> = Guest::new(0, [3; 16], 1, "g", "x", 0);
+    guest.set_limit(limit);
+    let welcome = wire::Welcome { index: 1, first: 0, seats: 8, blob: 0, us_per_tick: 0, info: Vec::new() };
+    guest.receive(0, 0, &welcome.write(5));
+    let taken = Bundle { tick: 0, inputs: vec![None; 8], seats: (1..=8).map(|seat| SeatEvent::Taken { seat, owner: 1, generation: 1, ask: seat as u32 }).collect(), ..Bundle::default() };
+    let (down, n) = wire::down(&Down::default(), 5, &[&wire::bundle_bytes(&taken)], wire::MAX_DATAGRAM);
+    assert_eq!(n, 1);
+    guest.receive(1, 0, &down);
+    assert_eq!(guest.mine().len(), 8, "every seat its own");
+    guest
+}
+
+/// An input as wide as one is on the wire.
+const WIDE: Input = Input { left: true, right: true, up: true, down: true, actions: u32::MAX };
+
+/// A guest's every datagram fits its transport's, however much it has to
+/// say (eight seats of readings not yet acknowledged, as wide as they
+/// come; forty controls asked; four checks of sixteen parts): the host
+/// reads each, the newest reading of every seat and every check go in
+/// the first, the asks in order over the next.
+#[test]
+fn a_guests_datagrams_always_fit() {
+    for limit in [MAX_DATAGRAM, super::link::NET_LIMIT] {
+        let mut guest = guest_on_eight_seats(limit);
+        for _ in 0..40 {
+            for seat in 1..=8 {
+                guest.read(seat, WIDE);
+            }
+        }
+        for n in 0..40u8 {
+            guest.controls(1 + n % 8, vec![n; 250]);
+        }
+        for t in 0..4u64 {
+            guest.check(t * 10, vec![t; 16]);
+        }
+        let ups: Vec<Up> = guest
+            .outgoing(2)
+            .iter()
+            .map(|(_, d)| {
+                assert!(d.len() <= limit, "a datagram of {} bytes, {limit} at most", d.len());
+                let (kind, _, mut r) = wire::open(d).expect("ours");
+                assert_eq!(kind, Kind::Up);
+                Up::read(&mut r).expect("the host reads it")
+            })
+            .collect();
+        let first = &ups[0];
+        assert_eq!(first.readings.len(), 8, "every seat's readings");
+        assert!(first.readings.iter().all(|r| r.first as usize + r.inputs.len() == 32 + 8 && !r.inputs.is_empty()), "up to the newest");
+        assert_eq!(first.checks.len(), 4, "every check");
+        let mut asks = Vec::new();
+        for up in &ups {
+            assert_eq!(up.asks_from as usize, asks.len(), "the asks in order");
+            asks.extend(up.asks.iter().cloned());
+        }
+        assert!(ups.len() > 2 && asks.len() > 4, "more asks than one datagram holds went: {} in {}", asks.len(), ups.len());
+        assert!(asks.iter().enumerate().all(|(n, a)| *a == wire::Ask::Controls(1 + n as u8 % 8, vec![n as u8; 250])), "as asked");
+    }
+}
+
+/// Asks that do not fit a tick's bundle wait for the next, in order: every
+/// bundle fits a DOWN with the biggest head, on a LAN and over iroh, and
+/// every seat is taken and its controls told in the end.
+#[test]
+fn asks_that_do_not_fit_wait_for_the_next_bundle() {
+    for limit in [MAX_DATAGRAM, super::link::NET_LIMIT] {
+        let mut host: Host<usize> = Host::new(7, "host", 8);
+        host.set_limit(limit);
+        for _ in 0..7 {
+            host.ask(wire::Ask::Take);
+        }
+        for seat in 1..=8u8 {
+            host.ask(wire::Ask::Controls(seat, vec![seat; 250]));
+        }
+        let head = Down { stamp: u32::MAX, asks_done: u32::MAX, acked: (1..=8).map(|s| (s, u32::MAX)).collect(), paused: Some(3), roster: None, apart: Some(wire::Apart { tick: u64::MAX, part: "x".repeat(32), inputs: true }), said: Some("D".repeat(300)), bundles: Vec::new() };
+        let (mut controls, mut taken, mut ticks) = (Vec::new(), 0, 0);
+        while controls.len() < 8 {
+            let b = host.tick(vec![9; host.extra_room() / 2]).expect("a bundle");
+            let (_, n) = wire::down(&head, 7, &[&wire::bundle_bytes(&b)], limit);
+            assert_eq!(n, 1, "a bundle of {} bytes fits a DOWN of {limit}", b.size());
+            taken += b.seats.iter().filter(|e| matches!(e, SeatEvent::Taken { .. })).count();
+            controls.extend(b.controls.iter().map(|(seat, _)| *seat));
+            ticks += 1;
+            assert!(ticks < 20, "every ask in the end");
+        }
+        assert!(ticks > 1, "they did not all fit one");
+        assert_eq!((taken, controls), (7, (1..=8).collect::<Vec<u8>>()));
+        let full = host.tick(vec![0; host.extra_room() + 1]);
+        assert_eq!(full, Err(super::host::TooBig), "more of the session's own than a bundle carries");
+    }
+}
+
+/// Names and lines are cut for the wire at a character, never inside one
+/// (a name in Chinese, a line with an umlaut at its end): every datagram
+/// is written and read, nothing stops the program.
+#[test]
+fn texts_are_cut_between_characters() {
+    let name = "名前のながい機械の名前ですよね";
+    assert!(name.len() > 32);
+    let mut host: Host<usize> = Host::new(7, name, 2);
+    let hello = Hello { id: [9; 16], nonce: 1, name: name.into(), commit: "x".into() };
+    host.receive(0, 1, &hello.write());
+    assert!(matches!(host.notices().pop(), Some(Notice::Joining { .. })), "a long name in another script joins");
+    let line = format!("{}ü", "a".repeat(199));
+    let down = Down { said: Some(line.clone()), roster: Some(host.roster()), ..Down::default() };
+    let (bytes, _) = wire::down(&down, 7, &[], MAX_DATAGRAM);
+    let (_, _, mut r) = wire::open(&bytes).unwrap();
+    let read = Down::read(&mut r).expect("it reads");
+    assert_eq!(read.said.as_deref(), Some(&line[..199]));
+    assert!(read.roster.unwrap()[0].name.len() <= 32);
+    let refused = wire::refused(&line);
+    let (_, _, mut r) = wire::open(&refused).unwrap();
+    assert_eq!(wire::read_refused(&mut r).unwrap(), "a".repeat(199));
+}
+
+/// A host keeps count of refusals for this minute only, of so many
+/// addresses at most, and hands every address refused or gone to the
+/// transport to close a moment later, but one a machine plays from.
+#[test]
+fn refusals_are_forgotten_and_closed() {
+    let mut host: Host<usize> = Host::new(7, "host", 2);
+    let mut other = Hello { id: [1; 16], nonce: 1, name: "old".into(), commit: "x".into() }.write();
+    other[3] = wire::VERSION + 1;
+    for addr in 10..3010 {
+        host.receive(1_000, addr, &other);
+    }
+    assert!(host.refusals_kept() <= 1024, "{} kept", host.refusals_kept());
+    host.receive(61_000_000, 10, &other);
+    assert_eq!(host.refusals_kept(), 1, "last minute's forgotten");
+    // A guest that plays, and one that left.
+    for (addr, id) in [(1usize, 1u8), (2, 2)] {
+        host.receive(61_000_000, addr, &Hello { id: [id; 16], nonce: 1, name: "g".into(), commit: "x".into() }.write());
+    }
+    for notice in host.notices() {
+        if let Notice::Joining { index, .. } = notice {
+            host.admit(index, Vec::new(), Vec::new());
+        }
+    }
+    host.receive(61_000_000, 2, &wire::bye(7));
+    assert!(host.to_close(61_000_000).is_empty(), "not at once");
+    let closed = host.to_close(62_100_000);
+    assert!(closed.contains(&2) && closed.contains(&10), "{closed:?}");
+    assert!(!closed.contains(&1), "nobody it plays with");
+    assert!(host.to_close(70_000_000).is_empty(), "each once");
+}
+
 /// The soak, two seeds (the Builds workflow runs `voxcade soak 1000` on
 /// every system and compares the digests).
 #[test]
