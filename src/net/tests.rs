@@ -412,6 +412,28 @@ fn refusals_are_forgotten_and_closed() {
     assert!(host.to_close(70_000_000).is_empty(), "each once");
 }
 
+/// A HELLO with a playing machine's id and a new nonce (its id read off
+/// the LAN, sent from elsewhere) kicks nobody while the machine is heard;
+/// once it has been silent a moment (it started again), the new one takes
+/// its place.
+#[test]
+fn a_hello_with_a_known_id_kicks_no_one_who_plays() {
+    let mut host: Host<usize> = Host::new(7, "host", 2);
+    host.receive(0, 1, &Hello { id: [3; 16], nonce: 1, name: "anna".into(), commit: "x".into() }.write());
+    let Some(Notice::Joining { index, .. }) = host.notices().pop() else { panic!("asks to join") };
+    host.admit(index, Vec::new(), Vec::new());
+    host.receive(100_000, 1, &Up::default().write(7));
+    let forged = Hello { id: [3; 16], nonce: 99, name: "mallory".into(), commit: "x".into() }.write();
+    host.receive(150_000, 2, &forged);
+    host.receive(400_000, 2, &forged);
+    assert!(host.notices().iter().all(|n| !matches!(n, Notice::Joining { .. } | Notice::Left { .. })), "nobody kicked, nobody let in");
+    assert_eq!(host.roster().iter().filter(|m| m.name == "anna").count(), 1, "anna plays on");
+    // Anna's machine starts again: silent, then its new HELLO.
+    host.receive(100_000 + QUIET, 3, &Hello { id: [3; 16], nonce: 2, name: "anna".into(), commit: "x".into() }.write());
+    let notices = host.notices();
+    assert!(notices.iter().any(|n| matches!(n, Notice::Joining { .. })), "the machine started again joins: {notices:?}");
+}
+
 /// The soak, two seeds (the Builds workflow runs `voxcade soak 1000` on
 /// every system and compares the digests).
 #[test]

@@ -178,12 +178,18 @@ impl<'a> Reader<'a> {
         Ok(u64::from_le_bytes(b.try_into().map_err(|_| Broken)?))
     }
 
+    /// A number in as few bytes as it takes (`Writer::varint`): an
+    /// overlong one (a last byte of 0 after others) or one past 64 bits is
+    /// broken, so one number has one encoding.
     pub fn varint(&mut self) -> Read<u64> {
         let mut v = 0u64;
         for shift in (0..64).step_by(7) {
             let byte = self.u8()?;
             v |= ((byte & 0x7f) as u64) << shift;
             if byte & 0x80 == 0 {
+                if (byte == 0 && shift > 0) || (shift == 63 && byte > 1) {
+                    return Err(Broken);
+                }
                 return Ok(v);
             }
         }
@@ -729,4 +735,32 @@ pub fn bundle_bytes(b: &Bundle) -> Vec<u8> {
     let mut w = Writer { buf: Vec::new() };
     b.write(&mut w);
     w.buf
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every number reads back from what the writer writes, in the fewest
+    /// bytes; an overlong encoding, one past 64 bits and one cut short
+    /// are broken.
+    #[test]
+    fn a_varint_has_one_encoding() {
+        for v in [0, 1, 127, 128, 300, 16_383, 16_384, u32::MAX as u64, 1 << 62, u64::MAX - 1, u64::MAX] {
+            let mut w = Writer { buf: Vec::new() };
+            w.varint(v);
+            let mut r = Reader::bare(&w.buf);
+            assert_eq!(r.varint(), Ok(v), "{v}");
+            assert!(r.done().is_ok(), "{v}: every byte read");
+            assert_eq!(w.buf.len(), (64 - v.leading_zeros() as usize).div_ceil(7).max(1), "{v}: as few bytes as it takes");
+        }
+        let broken = |bytes: &[u8]| Reader::bare(bytes).varint().is_err();
+        assert!(broken(&[0x80, 0x00]), "0 in two bytes");
+        assert!(broken(&[0x81, 0x80, 0x00]), "1 in three bytes");
+        assert!(broken(&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02]), "past 64 bits");
+        assert!(broken(&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f]), "past 64 bits");
+        assert!(broken(&[0x80; 11]), "never ending");
+        assert!(broken(&[0x80]), "cut short");
+        assert!(!broken(&[0x00]) && !broken(&[0x7f]) && !broken(&[0x80, 0x01]));
+    }
 }
