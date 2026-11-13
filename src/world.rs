@@ -66,9 +66,9 @@ pub fn local_index(l: IVec3) -> usize {
     (l.x + l.y * CHUNK + l.z * CHUNK * CHUNK) as usize
 }
 
-/// A marker in a level: a voxel in one of the marker colours (`[markers]`
-/// in `conf.lua`), which the game reads as something to place there.
-/// `kind` is the marker's place in the game's list of marker names.
+/// A marker in a level: a thing of a kind (`c.things`) at a cell, which
+/// the game places there. `kind` is the kind's place in the game's list of
+/// kind names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Marker {
     pub kind: usize,
@@ -191,16 +191,12 @@ impl World {
         Self { size, palette, soft: [false; 256], oneway: [false; 256], stage: None, cells: None, pieces: None, chunks: CellMap::default(), dirty: CellSet::default(), changes: 0 }
     }
 
-    /// The palette index of a colour (opaque), added to the palette if it
-    /// is not there yet; None when the palette is full.
+    /// The palette index of a colour (opaque) that is solid, neither soft
+    /// nor one-way (a wall set by colour must hold), added to the palette
+    /// if no such entry is there yet; None when the palette is full. The
+    /// numbers already in the palette stay as they are.
     pub fn colour(&mut self, rgb: [u8; 3]) -> Option<u8> {
-        let want = [rgb[0], rgb[1], rgb[2], 255];
-        if let Some(i) = (1..256).find(|&i| self.palette[i] == want) {
-            return Some(i as u8);
-        }
-        let free = (1..256).find(|&i| self.palette[i] == [0; 4])?;
-        self.palette[free] = want;
-        Some(free as u8)
+        self.colour_as(rgb, false, false)
     }
 
     /// The palette index of a colour that is also soft or one-way as asked
@@ -535,6 +531,31 @@ impl Reader<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A colour set from a script is solid even where the palette holds the
+    /// same colour soft or one-way: a wall set by colour must hold.
+    #[test]
+    fn a_colour_set_from_lua_is_solid() {
+        let mut palette = [[0; 4]; 256];
+        palette[1] = [10, 20, 30, 255];
+        palette[2] = [10, 20, 30, 255];
+        palette[3] = [10, 20, 30, 255];
+        let mut world = World::new(IVec3::new(8, 8, 8), palette);
+        world.soft[1] = true;
+        world.oneway[2] = true;
+        let i = world.colour([10, 20, 30]).unwrap();
+        assert_eq!(i, 3, "the solid entry, not the soft or the one-way one");
+        world.set(IVec3::new(1, 1, 1), i);
+        assert!(world.solid(IVec3::new(1, 1, 1)));
+        // With only soft ones there, a new solid entry is made.
+        let mut only_soft = [[0; 4]; 256];
+        only_soft[1] = [1, 2, 3, 255];
+        let mut world = World::new(IVec3::new(8, 8, 8), only_soft);
+        world.soft[1] = true;
+        let i = world.colour([1, 2, 3]).unwrap();
+        assert_eq!(i, 2);
+        assert!(!world.soft[i as usize]);
+    }
 
     /// A copy shares every chunk until one side writes; brought back in
     /// place of the other, exactly the written chunk and its neighbours are

@@ -1648,7 +1648,8 @@ pub mod text {
                 for (r_, &(i, row)) in layer.rows.iter().enumerate() {
                     let bytes = row.as_bytes();
                     if bytes.len() != size.x as usize * width {
-                        bail!("{}this row has {} characters, a row here is {} cells of {width}", line(i), bytes.len(), size.x);
+                        let want = if width == 1 { format!("{} cells, a sign each", size.x) } else { format!("{} cells of {width} characters", size.x) };
+                        bail!("{}this row has {} characters, a row here is {want}", line(i), bytes.len());
                     }
                     for (x, sign) in bytes.chunks(width).enumerate() {
                         if sign.iter().all(|&b| b == b'.') {
@@ -1970,7 +1971,7 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], fr
         }
     }
     let models = |name: &str| crate::vox::load_model_in(game, &dir.join(name));
-    let mut world = build(&level, &made, cfg.margin, cfg.below, &pictures, &models).with_context(|| path.display().to_string())?;
+    let mut world = build(&level, &made, cfg.margin, cfg.below, &pictures, &models)?;
     let origin = IVec3::new(cfg.margin, 0, cfg.below);
     // The solid pieces' cells, exactly where their models are drawn: on
     // the grid, so in quarter turns only.
@@ -1986,7 +1987,7 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], fr
     if !solids.is_empty() {
         world.pieces = Some(std::sync::Arc::new(crate::world::Solids::new(solids)));
     }
-    let markers = markers(&level, names, origin).with_context(|| path.display().to_string())?;
+    let markers = markers(&level, names, origin)?;
     let places = level.places.iter().map(|p| crate::levels::Place::new(&p.name, (origin + IVec3::from(p.at)).as_vec3() + glam::Vec3::new(0.5, 0.5, 0.0), p.facing)).collect();
     let marker_names = level.things.iter().filter(|t| !t.is_piece()).map(|t| t.name.clone()).collect();
     let marker_facings = level.things.iter().filter(|t| !t.is_piece()).map(|t| t.facing.map(Facing::bearing)).collect();
@@ -2020,7 +2021,10 @@ pub fn markers(level: &GridLevel, names: &[&str], origin: IVec3) -> Result<Vec<M
         .iter()
         .filter(|t| !t.is_piece())
         .map(|t| {
-            let kind = names.iter().position(|n| *n == t.kind).ok_or_else(|| anyhow!("things: '{}' is no kind of thing (c.things: {})", t.kind, names.join(", ")))?;
+            let kind = names.iter().position(|n| *n == t.kind).ok_or_else(|| {
+                let at = if t.line > 0 { format!("line {}: ", t.line) } else { String::new() };
+                anyhow!("{at}thing at {:?}: '{}' is no kind of thing (c.things: {})", t.at, t.kind, names.join(", "))
+            })?;
             Ok(Marker { kind, cell: origin + IVec3::from(t.at) })
         })
         .collect()
@@ -2938,7 +2942,8 @@ size = [40, 30, 40]
         assert_eq!(markers, [Marker { kind: 1, cell: IVec3::new(12, 2, 9) }]);
         assert_eq!(files, [dir.join("level.toml"), blocks::path(&dir, "rock")]);
         let e = format!("{:#}", load(&dir, &cfg, &["miner"]).err().unwrap());
-        assert!(e.contains("'gem' is no kind of thing"), "{e}");
+        assert!(e.contains("'gem' is no kind of thing") && e.contains("thing at [2, 2, 4]"), "{e}");
+        assert!(e.matches("level.toml").count() <= 1, "the caller names the file, not this: {e}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
