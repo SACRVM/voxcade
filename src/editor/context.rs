@@ -231,4 +231,20 @@ mod tests {
         assert_eq!(frame.behind, cubes(&ed, &figures).len(), "the whole room, first");
         assert!(frame.instances[..frame.behind].iter().all(|c| c.fx[1] < 255), "see-through");
     }
+
+    /// The room round the model is see-through, its glass too, and casts
+    /// no shadow, as no see-through cube does: the sun's map takes only the
+    /// opaque cubes after it (it took the faint room, a window's panes
+    /// shutting the sun out as a wall does).
+    #[test]
+    fn the_room_casts_no_shadow() {
+        let (ed, figures, _dir) = in_place("shadow", "north");
+        let view = crate::editor::view::View::new(&ed, &Default::default());
+        let shown = crate::editor::view::Shown::new(&ed).unwrap();
+        let frame = crate::editor::view::frame(&ed, &view, &shown, &figures, &Default::default(), 1.6);
+        assert!(frame.behind > 0, "a room to cast with");
+        let casting = frame.shadow_cubes();
+        assert!(casting.start as usize >= frame.behind, "the room casts: {casting:?} of {} behind", frame.behind);
+        assert!(frame.instances[casting.start as usize..casting.end as usize].iter().all(|c| c.fx[1] == 255), "only opaque cubes cast");
+    }
 }

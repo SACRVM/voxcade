@@ -494,6 +494,26 @@ pub struct FrameData {
 }
 
 impl FrameData {
+    /// The cubes in their runs (`instances`): those drawn faint behind
+    /// everything end at the first number, the opaque ones at the second,
+    /// the see-through ones after.
+    pub fn cube_runs(&self) -> (u32, u32) {
+        let count = self.instances.len();
+        let behind = self.behind.min(count);
+        (behind as u32, (count - self.see_through.min(count)).max(behind) as u32)
+    }
+
+    /// The cubes the sun's shadow map takes: the opaque ones. Those behind
+    /// everything are see-through (the room round a model shaped in place,
+    /// faint, its glass too) and cast no shadow, as no see-through cube
+    /// does.
+    pub fn shadow_cubes(&self) -> Range<u32> {
+        let (behind, opaque) = self.cube_runs();
+        behind..opaque
+    }
+}
+
+impl FrameData {
     /// Every cube of the world's moving things, the models' worked out as
     /// the GPU does: what tests look at.
     #[cfg(test)]
@@ -1397,8 +1417,7 @@ impl Renderer {
 
         // The world's cubes, then the UI's, in one buffer.
         let instance_count = frame.instances.len();
-        let behind = frame.behind.min(instance_count) as u32;
-        let opaque = (instance_count - frame.see_through.min(instance_count)).max(behind as usize) as u32;
+        let (behind, opaque) = frame.cube_runs();
         let total = instance_count + frame.ui.len();
         if total > self.instance_capacity {
             self.instance_capacity = total.next_power_of_two();
@@ -1492,13 +1511,15 @@ impl Renderer {
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }
             draw_models(&mut pass, &self.model_shadow, &frame.models, 0);
-            // Fire, smoke and dust cast no shadow.
-            if opaque > 0 {
+            // Only the opaque cubes: fire, smoke, dust, glass and what lies
+            // faint behind everything cast no shadow.
+            let casting = frame.shadow_cubes();
+            if !casting.is_empty() {
                 pass.set_pipeline(&self.inst_shadow);
                 pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
                 pass.set_vertex_buffer(1, self.instances.slice(..));
                 pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..self.cube_index_count, 0, 0..opaque);
+                pass.draw_indexed(0..self.cube_index_count, 0, casting);
             }
         }
 
