@@ -1252,6 +1252,24 @@ A file changed by another program is read anew; the editor never writes an older
         files: &[],
         code: "",
     },
+    Topic {
+        title: "FIND AND SEARCH",
+        text: "The open text (a Lua file, a sound, a song, a model's TEXT) is changed in the main area.
+# FIND
+Ctrl+F (or FIND above the text) shows the find row over the text, with the selected word in it. Every match is marked, the current one brighter; the row says which of how many.
+Enter or F3: the next match. Shift+Enter or Shift+F3: the one before. Both go round at the ends.
+MATCH CASE: upper and lower case count as different letters (off at first).
+Escape or CLOSE puts the row away; the text has the keys again.
+# REPLACE
+Ctrl+H (or the arrow left of FIND) shows REPLACE WITH under it. REPLACE (or Enter there) replaces the current match and goes on to the next; REPLACE ALL replaces every one. Ctrl+Z takes either back in one step.
+# SEARCH THE GAME
+Ctrl+Shift+F (or SEARCH at the top) finds the word in every text of the game: its Lua files, scenarios, sounds, songs and models; not what its .gitignore leaves out. The lines found stand in the list's place under their files; a click opens the file at that line with the word marked. Enter searches again, Escape or CLOSE shows the list again.
+# OTHER KEYS
+Ctrl+S saves at once (a text saves itself a second after the last change). Ctrl+Z goes back a step.",
+        conf: "",
+        files: &[],
+        code: "",
+    },
 ];
 
 /// The first topic's title: every name of the API with what it does.

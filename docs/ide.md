@@ -611,6 +611,36 @@ Stage by stage (the plan of 2026-10-18):
    the page, `--upgraded` as after UPGRADE run dry (nothing changed);
    tests `the_wizard_brings_an_older_game_up_to_date`,
    `a_dry_run_changes_nothing_and_replays_are_refitted`.
+13. **Find and search** (2026-11-13, the owner's D9, the one new thing in
+   0.6; `ide/find.rs`): over the open text (Lua, a sound, a song, a
+   model's TEXT) Ctrl+F, or FIND beside SAVED, shows the find row directly
+   above the text (where the eye is when reading it, never over its lines,
+   and it stays while the text scrolls): FIND with the selected word, MATCH
+   CASE (off at first), "3 OF 12" or NO MATCHES, PREVIOUS and NEXT (Enter
+   and Shift+Enter in the field, F3 and Shift+F3), CLOSE; every match marked
+   in the text (`find::mark` on the layout job, the current one dark on
+   gold), the current one scrolled to the middle (sideways only when out of
+   sight) and the cursor after it. Ctrl+H, or the arrow left of FIND,
+   shows REPLACE WITH, REPLACE (Enter there; the current match, on to the
+   next after what it put in) and REPLACE ALL, each one step of the text's
+   undo (`Code::mark` before and after, as the sound maker does). Escape
+   (in the row, or in the text while the row is open and no names are
+   offered) puts it away and gives the text the keys. Ctrl+Shift+F, or
+   SEARCH in the bar, shows the search across the game in the list's
+   place: a field, MATCH CASE, "12 IN 4 FILES", the lines found under
+   their files (line number, the line with the word marked; the whole on
+   hover), searched on a thread (`find::Search::poll`, at most 1000 lines,
+   files up to 4 MB) over the files the list shows (`Files::names`: the
+   `.gitignore`s, no `shots/`, `builds/` or hidden files) that open as
+   text: the logic, scenarios, sounds, songs and models (a level opens as
+   its picture and is left out). A line clicked opens its file at it (a
+   model as TEXT), the word current in the find row; the search stays
+   beside it until CLOSE or Escape in its field; Enter searches again.
+   HELP's FIND AND SEARCH lists the keys. `voxcade ide GAME --shot FILE
+   --open main.lua --find WORD [--replace TEXT]` draws the row, `--search
+   WORD [--hit N]` the search and its n-th line opened; tests
+   `ctrl_f_finds_in_the_open_text`, `replacing_is_one_step_back`,
+   `the_project_search_opens_the_line_found`, and `find`'s own.
 
 ## Sources
 

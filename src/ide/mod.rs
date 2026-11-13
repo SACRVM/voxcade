@@ -11,6 +11,7 @@ mod code;
 mod console;
 mod export;
 mod files;
+mod find;
 mod help;
 mod maker;
 mod memory;
@@ -56,6 +57,14 @@ pub struct ShotOptions {
     /// an older IDE leaves one (saying nothing of the file it was changed
     /// from): unlike the file, it is asked about (CHANGED OUTSIDE TOO).
     pub journal: Option<PathBuf>,
+    /// The find row over the open text for this word, and its replace
+    /// field with that text (`--find`, `--replace`).
+    pub find: Option<String>,
+    pub replace: Option<String>,
+    /// The search across the game for this word, and its n-th line opened
+    /// as a click does (`--search`, `--hit`).
+    pub search: Option<String>,
+    pub hit: Option<usize>,
     pub width: u32,
     pub height: u32,
     pub out: PathBuf,
@@ -238,6 +247,12 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
     let mut canvas = crate::headless::Canvas::new(opts.width, opts.height, false)?;
     let ctx = egui::Context::default();
     crate::gui::style(&ctx);
+    if let Some(word) = &opts.search {
+        shell.show_search(word, &ctx, opts.hit);
+    }
+    if let Some(word) = &opts.find {
+        shell.show_find(word, opts.replace.as_deref());
+    }
     let mut painter = Painter::new(canvas.gpu().0, wgpu::TextureFormat::Rgba8Unorm, false);
     let mut input = sdl_egui::Input::default();
     // Frames a sixtieth of a second apart until egui has laid out its first

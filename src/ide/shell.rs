@@ -171,6 +171,10 @@ pub struct Shell {
     /// Where the rows of USED were drawn (for the tests' mouse).
     #[cfg(test)]
     used_rows: Vec<egui::Rect>,
+    /// The find row over the open text (Ctrl+F, Ctrl+H), and the search
+    /// across the game in the list's place (Ctrl+Shift+F, SEARCH).
+    pub find: super::find::Find,
+    pub search: super::find::Search,
 }
 
 /// Where the game's code names the sound open.
@@ -379,7 +383,7 @@ impl Shell {
             memory.open = files.logic.iter().find(|f| *f == "main.lua").or(files.logic.first()).cloned();
         }
         let restore = memory.open.as_ref().and_then(|f| memory.scroll.get(f).copied());
-        Self { title, dir: dir.to_path_buf(), files, listing, list_at: std::time::Instant::now() + LIST_EVERY, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, renaming: None, asking: None, gone: None, previous: None, #[cfg(test)] undo_button: None, deleted_dir: crate::settings::config_dir().join("ide").join("deleted").join(crate::settings::game_name(dir)), #[cfg(test)] headings: Vec::new(), cfg, preview: None, model_text: false, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, building: None, start_failed: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, console_seen: None, console_dragged: false, reported: None, output_saved: std::time::Instant::now(), brought: Vec::new(), builtin: None, sound_line: None, used: None, heard: None, rolls: 0, looping: false, again_at: None, fading: None, #[cfg(test)] finder: super::claude::Finder::in_dirs(Vec::new()), #[cfg(not(test))] finder: super::claude::Finder::system(), no_agent: false, #[cfg(test)] used_rows: Vec::new() }
+        Self { title, dir: dir.to_path_buf(), files, listing, list_at: std::time::Instant::now() + LIST_EVERY, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, renaming: None, asking: None, gone: None, previous: None, #[cfg(test)] undo_button: None, deleted_dir: crate::settings::config_dir().join("ide").join("deleted").join(crate::settings::game_name(dir)), #[cfg(test)] headings: Vec::new(), cfg, preview: None, model_text: false, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, building: None, start_failed: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, console_seen: None, console_dragged: false, reported: None, output_saved: std::time::Instant::now(), brought: Vec::new(), builtin: None, sound_line: None, used: None, heard: None, rolls: 0, looping: false, again_at: None, fading: None, #[cfg(test)] finder: super::claude::Finder::in_dirs(Vec::new()), #[cfg(not(test))] finder: super::claude::Finder::system(), no_agent: false, #[cfg(test)] used_rows: Vec::new(), find: Default::default(), search: Default::default() }
     }
 
     /// The sounds the game's code brings (`Game::sounds`), listed under
@@ -1237,6 +1241,7 @@ impl Shell {
         if !self.stage.as_ref().is_some_and(|s| s.shown) && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S)) {
             self.flush();
         }
+        self.find_keys(ui);
         let (mut undo, mut forget_gone) = (false, false);
         let mut show_zip: Option<PathBuf> = None;
         egui::Panel::top("bar").frame(egui::Frame::new().fill(GROUND).inner_margin(egui::Margin::symmetric(16, 10))).show(ui, |ui| {
@@ -1288,6 +1293,14 @@ impl Shell {
                     if ui.add(egui::Button::new("HELP").selected(self.help)).on_hover_text("The Lua API by example, to copy into your game.").clicked() {
                         self.help = !self.help;
                         self.hide_game();
+                    }
+                    if ui.add(egui::Button::new("SEARCH").selected(self.search.shown)).on_hover_text("Finds a word in every text file of the game · Ctrl+Shift+F").clicked() {
+                        if self.search.shown {
+                            self.search.shown = false;
+                        } else {
+                            let selected = self.selection(ui.ctx()).0;
+                            self.search.open(selected.as_deref());
+                        }
                     }
                     ui.add_space(16.0);
                     if ui.button("BUILD").on_hover_text("Packs the game and the program into one zip for this system, to pass on (saved first).").clicked() {
@@ -1376,7 +1389,13 @@ impl Shell {
         let mut stop_renaming = false;
         // The margins on the right lie inside the scroll areas, so that their
         // bars sit at the edge.
+        let (mut hit, mut search_closed) = (None, false);
         egui::Panel::left("files").default_size(250.0).frame(egui::Frame::new().fill(PANEL).inner_margin(egui::Margin { left: 14, right: 0, top: 12, bottom: 12 })).show(ui, |ui| {
+            // The search across the game in the list's place while shown.
+            if self.search.shown {
+                (hit, search_closed) = self.search.ui(ui, &self.dir);
+                return;
+            }
             egui::ScrollArea::vertical().content_margin(egui::Margin { right: 6, ..egui::Margin::ZERO }).show(ui, |ui| {
                 let open = if self.outside.is_some() || self.builtin.is_some() { None } else { self.memory.open.clone() };
                 #[cfg(test)]
@@ -1552,6 +1571,12 @@ impl Shell {
             self.open(&path);
             self.back_to_file();
             self.help = false;
+        }
+        if search_closed {
+            self.search.shown = false;
+        }
+        if let Some((file, line)) = hit {
+            self.go_to_hit(&file, line);
         }
         if let Some(name) = builtin {
             // Shown like a file, which is let go of (saved) first.
@@ -1968,6 +1993,7 @@ impl Shell {
         // and RENAME and DELETE beside it (off with the reason for a file the
         // game needs).
         let saved = self.saved_word();
+        let mut want_find = false;
         let why_not = self.files.sort_of(&path).map_or(Some("This is not a file of the game."), |group| manage::why_not(&path, group));
         let mut act = None;
         // What an editor opens: a line of what it is, and EDIT; a song:
@@ -2008,7 +2034,7 @@ impl Shell {
                         self.listen();
                     }
                     act = act.or(manage::buttons(ui, why_not));
-                    saved_label(ui, saved);
+                    want_find |= saved_label(ui, saved);
                 });
             });
             // (A text to change shows it with its own messages.)
@@ -2026,7 +2052,7 @@ impl Shell {
                     ui.add_space(16.0);
                     play = ui.button("PLAY SCENARIO").on_hover_text("Plays the game from it (saved first); F5 begins it again.").clicked();
                     act = act.or(manage::buttons(ui, why_not));
-                    saved_label(ui, saved);
+                    want_find |= saved_label(ui, saved);
                 });
             });
             ui.add_space(6.0);
@@ -2039,7 +2065,7 @@ impl Shell {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(16.0);
                     act = act.or(manage::buttons(ui, why_not));
-                    saved_label(ui, saved);
+                    want_find |= saved_label(ui, saved);
                 });
             });
             ui.add_space(6.0);
@@ -2067,7 +2093,7 @@ impl Shell {
                     ui.add_space(16.0);
                     play_sound = ui.button("PLAY SOUND").on_hover_text("Plays the sound as it stands, at the game's sound volume.").clicked();
                     act = act.or(manage::buttons(ui, why_not));
-                    saved_label(ui, saved);
+                    want_find |= saved_label(ui, saved);
                 });
             });
             if !matches!(self.shown, Some(Shown::Code(_))) && let Some(message) = &self.message {
@@ -2174,6 +2200,10 @@ impl Shell {
         if put_back {
             self.rescan();
         }
+        if want_find {
+            self.open_find(ui.ctx(), false);
+        }
+        self.find_row(ui, id);
         let (mut used_rows, mut says) = (Vec::new(), Vec::new());
         if let Some(name) = &sound_name {
             self.refresh_used(name);
@@ -2191,6 +2221,7 @@ impl Shell {
                 if buffer.code.ui(ui, id) {
                     buffer.edited(std::time::Instant::now());
                 }
+                self.find.had_keys |= ui.memory(|m| m.has_focus(id));
                 if let Some(range) = egui::TextEdit::load_state(ui.ctx(), id).and_then(|s| s.cursor.char_range()) {
                     self.memory.cursor.insert(path.clone(), range.primary.index.0);
                 }
@@ -2225,6 +2256,176 @@ impl Shell {
 }
 
 impl Shell {
+    /// The keys of finding: Ctrl+F and Ctrl+H the find row over the open
+    /// text, Ctrl+Shift+F the search across the game, F3 and Shift+F3 the
+    /// next match and the one before, Escape the row or the search put
+    /// away while it (or the text under the row) had the keys. Never while
+    /// the game or the console has the keys.
+    fn find_keys(&mut self, ui: &mut egui::Ui) {
+        if self.stage.as_ref().is_some_and(|s| s.shown) || ui.memory(|m| m.focused()) == Some(egui::Id::unique("terminal")) {
+            return;
+        }
+        let ctx = ui.ctx().clone();
+        let pressed = |modifiers, key| ui.input_mut(|i| i.consume_key(modifiers, key));
+        let text = self.text_open();
+        // (The more particular first: Ctrl+F is also in Ctrl+Shift+F.)
+        if pressed(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::F) {
+            let selected = self.selection(&ctx).0;
+            self.search.open(selected.as_deref());
+        } else if pressed(egui::Modifiers::COMMAND, egui::Key::F) && text {
+            self.open_find(&ctx, false);
+        } else if pressed(egui::Modifiers::COMMAND, egui::Key::H) && text {
+            self.open_find(&ctx, true);
+        }
+        if self.find.shown && text {
+            if pressed(egui::Modifiers::SHIFT, egui::Key::F3) {
+                self.find.step(false);
+            } else if pressed(egui::Modifiers::NONE, egui::Key::F3) {
+                self.find.step(true);
+            }
+        }
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            let offering = matches!(&self.shown, Some(Shown::Code(b)) if b.code.offering());
+            if self.search.shown && self.search.had_keys {
+                ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+                self.search.shown = false;
+                self.focus_code = text;
+            } else if self.find.shown && self.find.had_keys && !offering && text {
+                ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+                self.find.close();
+                self.focus_code = true;
+            }
+        }
+    }
+
+    /// Whether the main area shows a text to change (not HELP, the game,
+    /// a built-in sound or a picture from outside).
+    fn text_open(&self) -> bool {
+        matches!(self.shown, Some(Shown::Code(_))) && !self.help && self.outside.is_none() && self.builtin.is_none() && !self.stage.as_ref().is_some_and(|s| s.shown)
+    }
+
+    /// What the open text has selected, and where the selection (or the
+    /// cursor) begins, as a byte of the text.
+    fn selection(&self, ctx: &egui::Context) -> (Option<String>, usize) {
+        let (Some((_, id)), Some(Shown::Code(buffer))) = (self.code_id(), &self.shown) else { return (None, 0) };
+        let Some(range) = egui::TextEdit::load_state(ctx, id).and_then(|s| s.cursor.char_range()) else { return (None, 0) };
+        let [from, to] = [range.primary.index.0.min(range.secondary.index.0), range.primary.index.0.max(range.secondary.index.0)];
+        let text = &buffer.code.text;
+        let byte = |c: usize| text.char_indices().nth(c).map_or(text.len(), |(i, _)| i);
+        let (from, to) = (byte(from), byte(to));
+        ((to > from).then(|| text[from..to].to_string()), from)
+    }
+
+    /// The find row shown with the keys (`replacing`: its replace field
+    /// too), the selection its word.
+    pub fn open_find(&mut self, ctx: &egui::Context, replacing: bool) {
+        let (selected, anchor) = self.selection(ctx);
+        self.find.open(replacing, selected.as_deref(), anchor);
+    }
+
+    /// The find row over the text open (its text edit `id`), what it asks
+    /// done: the next match or the one before, REPLACE and REPLACE ALL
+    /// (each one step of the text's undo), CLOSE; then the matches marked
+    /// in the text, the current one selected and in view when asked.
+    fn find_row(&mut self, ui: &mut egui::Ui, id: egui::Id) {
+        let Some(Shown::Code(buffer)) = &mut self.shown else { return };
+        if !self.find.shown {
+            buffer.code.marking = None;
+            return;
+        }
+        let ctx = ui.ctx().clone();
+        self.find.update(&buffer.code.text);
+        let act = self.find.row(ui);
+        ui.add_space(8.0);
+        // A replacement: the text before it a step of the undo, the text
+        // after it (with its cursor, below) another.
+        let mut changed = false;
+        let mut change = |buffer: &mut Buffer, text: String| {
+            buffer.code.mark(&ctx, id);
+            buffer.code.text = text;
+            buffer.code.check();
+            changed = true;
+        };
+        match act {
+            Some(super::find::Act::Next) => self.find.step(true),
+            Some(super::find::Act::Previous) => self.find.step(false),
+            Some(super::find::Act::Replace) => {
+                if let Some(text) = self.find.replace(&buffer.code.text) {
+                    change(buffer, text);
+                }
+            }
+            Some(super::find::Act::ReplaceAll) => {
+                if let Some((text, _)) = self.find.replace_all(&buffer.code.text) {
+                    change(buffer, text);
+                }
+            }
+            Some(super::find::Act::Close) => {
+                self.find.close();
+                buffer.code.marking = None;
+                ui.memory_mut(|m| m.request_focus(id));
+                return;
+            }
+            None => {}
+        }
+        self.find.update(&buffer.code.text);
+        buffer.code.marking = (!self.find.word.is_empty()).then(|| (self.find.word.clone(), self.find.match_case, Some(self.find.current)));
+        if std::mem::take(&mut self.find.reveal)
+            && let Some(range) = self.find.current_range()
+        {
+            // The cursor after it, so the keys in the text go on from there
+            // (selected while the text has the keys: egui keeps no
+            // selection in a text without them).
+            let text = &buffer.code.text;
+            let (from, to) = (text[..range.start].chars().count(), text[..range.end].chars().count());
+            let (from, to) = (egui::text::CCursor::new(from), egui::text::CCursor::new(to));
+            let mut state = egui::TextEdit::load_state(&ctx, id).unwrap_or_default();
+            let keys = ctx.memory(|m| m.has_focus(id));
+            state.cursor.set_char_range(Some(if keys { egui::text::CCursorRange::two(from, to) } else { egui::text::CCursorRange::one(to) }));
+            state.store(&ctx, id);
+            buffer.code.reveal = Some(range);
+        }
+        if changed {
+            buffer.code.mark(&ctx, id);
+            buffer.edited(std::time::Instant::now());
+        }
+    }
+
+    /// The search across the game shown for `word`, its answer waited for
+    /// and, if asked, its `hit`-th line (from 1) opened as a click does (a
+    /// shot's `--search`, `--hit`).
+    pub fn show_search(&mut self, word: &str, ctx: &egui::Context, hit: Option<usize>) {
+        self.search.open(Some(word));
+        self.search.wait(&self.dir, ctx);
+        if let Some(found) = hit.and_then(|n| self.search.hits.get(n.saturating_sub(1))).cloned() {
+            self.go_to_hit(&found.file, found.line);
+        }
+    }
+
+    /// The find row shown over the open text for `word` (a shot's
+    /// `--find`), with its replace field holding `with` (`--replace`).
+    pub fn show_find(&mut self, word: &str, with: Option<&str>) {
+        self.find.open(with.is_some(), Some(word), 0);
+        self.find.with = with.unwrap_or("").to_string();
+    }
+
+    /// A line the project search found: its file open at it, the keys in
+    /// the text, the word found there current in the find row.
+    fn go_to_hit(&mut self, file: &str, line: usize) {
+        self.hide_game();
+        self.help = false;
+        self.open(file);
+        // A model's line shows in its text.
+        if file.ends_with(".vvx") && !self.model_text {
+            self.flush();
+            self.model_as_text();
+        }
+        self.goto = Some((line, true));
+        self.find.word = self.search.word.clone();
+        self.find.match_case = self.search.match_case;
+        self.find.shown = true;
+        self.find.line = Some(line);
+    }
+
     /// The sound maker over the sound open (`maker`; its text in the text
     /// edit `id`): a dice and a row of sorts, then UNDO, a row of faders.
     /// Every change is the text rewritten in the buffer, as typing is, and
@@ -2437,10 +2638,13 @@ fn agent_missing(ui: &mut egui::Ui, agent: Agent) -> bool {
 }
 
 /// The word saying whether the text shown is saved, small and quiet.
-fn saved_label(ui: &mut egui::Ui, saved: Option<&str>) {
-    if let Some(word) = saved {
-        ui.label(RichText::new(word).small().color(QUIET)).on_hover_text("The text is saved by itself a second after the last change; Ctrl+S saves it at once.");
-    }
+/// Whether FIND beside it was pressed (the find row over the text).
+fn saved_label(ui: &mut egui::Ui, saved: Option<&str>) -> bool {
+    let Some(word) = saved else { return false };
+    // (Right to left: FIND shows right of the word, before RENAME.)
+    let find = ui.add(egui::Button::new(RichText::new("FIND").small().color(QUIET)).frame(false)).on_hover_text("Find and replace in this text · Ctrl+F, Ctrl+H").clicked();
+    ui.label(RichText::new(word).small().color(QUIET)).on_hover_text("The text is saved by itself a second after the last change; Ctrl+S saves it at once.");
+    find
 }
 
 /// Where a sound is used, under its text: USED, then what the game's code
@@ -4131,5 +4335,136 @@ mod tests {
         use crate::game::Game;
         let state = game.game.inspect().to_string();
         assert!(state.contains("\"song\":\"tune\""), "{state}");
+    }
+
+    /// A key with modifiers, down and up.
+    fn chord(ctx: &egui::Context, shell: &mut Shell, key: egui::Key, modifiers: egui::Modifiers) {
+        let event = |pressed| egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers };
+        frame_with(ctx, shell, vec![event(true)]);
+        frame_with(ctx, shell, vec![event(false)]);
+    }
+
+    /// A text with a few gems, open in the main area.
+    fn gems(name: &str) -> (crate::scratch::Scratch, Shell, egui::Context) {
+        let (dir, memory) = bare_game(name);
+        std::fs::write(dir.join("main.lua"), "-- a gem\nfunction on_tick()\n  local Gem = gem\nend\n").unwrap();
+        let mut shell = shell_on(&dir, &memory);
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        shell.open("main.lua");
+        shell.back_to_file();
+        for _ in 0..3 {
+            frame_with(&ctx, &mut shell, vec![]);
+        }
+        (dir, shell, ctx)
+    }
+
+    /// Ctrl+F shows the find row with the keys in its field: the word typed
+    /// there (not into the text) is counted and marked, Enter and F3 go on
+    /// round the end, Shift+Enter back, MATCH CASE counts exactly; Escape
+    /// puts the row away and gives the text the keys again.
+    #[test]
+    fn ctrl_f_finds_in_the_open_text() {
+        let (_dir, mut shell, ctx) = gems("find");
+        let before = buffer(&shell).code.text.clone();
+        chord(&ctx, &mut shell, egui::Key::F, egui::Modifiers::COMMAND);
+        assert!(shell.find.shown, "Ctrl+F shows the row");
+        frame_with(&ctx, &mut shell, vec![]);
+        assert!(ctx.memory(|m| m.has_focus(super::super::find::word_id())), "with the keys in its field");
+        frame_with(&ctx, &mut shell, vec![egui::Event::Text("gem".into())]);
+        frame_with(&ctx, &mut shell, vec![]);
+        assert_eq!(buffer(&shell).code.text, before, "typed into the field, not the text");
+        assert_eq!(shell.find.count(), "1 OF 3");
+        assert!(buffer(&shell).code.marking.as_ref().is_some_and(|(w, case, _)| w == "gem" && !case), "marked in the text");
+        key(&ctx, &mut shell, egui::Key::Enter);
+        assert_eq!(shell.find.count(), "2 OF 3", "Enter: the next");
+        assert!(ctx.memory(|m| m.has_focus(super::super::find::word_id())), "the field keeps the keys");
+        key(&ctx, &mut shell, egui::Key::F3);
+        key(&ctx, &mut shell, egui::Key::F3);
+        assert_eq!(shell.find.count(), "1 OF 3", "F3 round the end");
+        chord(&ctx, &mut shell, egui::Key::Enter, egui::Modifiers::SHIFT);
+        assert_eq!(shell.find.count(), "3 OF 3", "Shift+Enter back round the start");
+        // The text's cursor after the current one.
+        let cursor = egui::TextEdit::load_state(&ctx, shell.code_id().unwrap().1).and_then(|s| s.cursor.char_range()).unwrap();
+        assert_eq!(cursor.primary.index.0, 45);
+        shell.find.match_case = true;
+        frame_with(&ctx, &mut shell, vec![]);
+        assert_eq!(shell.find.count(), "2 OF 2", "MATCH CASE: the Gem not counted, the current one kept");
+        key(&ctx, &mut shell, egui::Key::Escape);
+        frame_with(&ctx, &mut shell, vec![]);
+        assert!(!shell.find.shown, "Escape puts it away");
+        assert!(buffer(&shell).code.marking.is_none(), "no marks left");
+        assert!(ctx.memory(|m| m.has_focus(shell.code_id().unwrap().1)), "the text has the keys again");
+        assert_eq!(buffer(&shell).code.text, before);
+    }
+
+    /// REPLACE is one step of the text's undo, REPLACE ALL one step whole;
+    /// Ctrl+H shows the replace field.
+    #[test]
+    fn replacing_is_one_step_back() {
+        let (_dir, mut shell, ctx) = gems("replace");
+        let first = buffer(&shell).code.text.clone();
+        let id = shell.code_id().unwrap().1;
+        chord(&ctx, &mut shell, egui::Key::H, egui::Modifiers::COMMAND);
+        assert!(shell.find.shown && shell.find.replacing, "Ctrl+H: the replace field too");
+        shell.find.word = "gem".into();
+        shell.find.with = "jewel".into();
+        frame_with(&ctx, &mut shell, vec![]);
+        shell.find.press = Some(super::super::find::Act::Replace);
+        frame_with(&ctx, &mut shell, vec![]);
+        frame_with(&ctx, &mut shell, vec![]);
+        assert_eq!(buffer(&shell).code.text, first.replacen("gem", "jewel", 1));
+        assert_eq!(shell.find.count(), "1 OF 2", "on to the next");
+        let back = |shell: &mut Shell| {
+            let Some(Shown::Code(b)) = &mut shell.shown else { panic!("no text open") };
+            assert!(b.code.go_back(&ctx, id), "a step to go back");
+            b.code.text.clone()
+        };
+        assert_eq!(back(&mut shell), first, "one step back");
+        shell.find.press = Some(super::super::find::Act::ReplaceAll);
+        frame_with(&ctx, &mut shell, vec![]);
+        frame_with(&ctx, &mut shell, vec![]);
+        assert_eq!(buffer(&shell).code.text, "-- a jewel\nfunction on_tick()\n  local jewel = jewel\nend\n");
+        assert!(buffer(&shell).unsaved(), "saved as typing is");
+        assert_eq!(shell.find.count(), "NO MATCHES");
+        assert_eq!(back(&mut shell), first, "REPLACE ALL: one step back whole");
+    }
+
+    /// Ctrl+Shift+F (or SEARCH) shows the search across the game in the
+    /// list's place: the word typed there finds the lines of the game's
+    /// texts (not what its .gitignore ignores); a line clicked opens its
+    /// file there, the word found current in the find row; Escape in the
+    /// field shows the list again.
+    #[test]
+    fn the_project_search_opens_the_line_found() {
+        let (dir, mut shell, ctx) = gems("search");
+        std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 64, 64, 16 }\n  c.player.spawn = { 32, 32 }\n  c.actions = { \"jump\" }\n  -- no gem here\nend\n").unwrap();
+        std::fs::create_dir_all(dir.join("notes")).unwrap();
+        std::fs::write(dir.join("notes/gem.lua"), "gem\n").unwrap();
+        std::fs::write(dir.join(".gitignore"), "notes/\n").unwrap();
+        chord(&ctx, &mut shell, egui::Key::F, egui::Modifiers::COMMAND | egui::Modifiers::SHIFT);
+        assert!(shell.search.shown && !shell.find.shown, "Ctrl+Shift+F: the search, not the row");
+        frame_with(&ctx, &mut shell, vec![]);
+        assert!(ctx.memory(|m| m.has_focus(super::super::find::search_id())), "with the keys");
+        frame_with(&ctx, &mut shell, vec![egui::Event::Text("GEM".into())]);
+        shell.search.wait(&dir, &ctx);
+        frame_with(&ctx, &mut shell, vec![]);
+        let places: Vec<(&str, usize)> = shell.search.hits.iter().map(|h| (h.file.as_str(), h.line)).collect();
+        assert_eq!(places, [("conf.lua", 5), ("main.lua", 1), ("main.lua", 3)]);
+        let row = shell.search.rows[2];
+        click(&ctx, &mut shell, row.center());
+        assert_eq!(shell.opened(), Some("main.lua"));
+        assert!(shell.find.shown && shell.find.word == "GEM");
+        assert_eq!(shell.find.count(), "2 OF 3", "the first on the line clicked current");
+        assert!(shell.search.shown, "the search stays beside the file");
+        let row = shell.search.rows[0];
+        click(&ctx, &mut shell, row.center());
+        assert_eq!(shell.opened(), Some("conf.lua"));
+        assert_eq!(shell.find.count(), "1 OF 1");
+        // Escape in its field: the list again.
+        shell.search.open(None);
+        frame_with(&ctx, &mut shell, vec![]);
+        key(&ctx, &mut shell, egui::Key::Escape);
+        assert!(!shell.search.shown, "Escape shows the list again");
     }
 }
