@@ -771,9 +771,7 @@ mod tests {
         let mut post = crate::scene::Scene::new(IVec3::new(3, 1, 2));
         post.colours = vec![[200, 10, 10]];
         post.markers = vec!["rifleman".into()];
-        for x in 0..3 {
-            post.cells[x] = 1;
-        }
+        post.cells[..3].fill(1);
         let top = post.index(IVec3::new(2, 0, 1));
         post.cells[top] = 2;
         std::fs::write(dir.join("post.vvx"), post.write()).unwrap();

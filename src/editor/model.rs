@@ -2547,8 +2547,8 @@ impl Editor {
         }
         // A pose dragged: as it was.
         if self.posing && d.part && d.drag.as_ref().is_some_and(|(g, _)| matches!(g.grip, super::handles::Grip::Ring(_))) {
-            for axis in 0..3 {
-                self.set_pose(axis, d.rest[axis]);
+            for (axis, rest) in d.rest.into_iter().enumerate() {
+                self.set_pose(axis, rest);
             }
             return true;
         }
