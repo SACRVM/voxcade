@@ -12,6 +12,8 @@
 use std::ops::Range;
 use std::path::Path;
 
+use toml_edit::Item;
+
 use crate::lua::lex::{self, Kind};
 
 /// The sorts of file the game's Lua may name.
@@ -37,6 +39,12 @@ impl Sort {
             "Music" => Sort::Song,
             _ => Sort::Other,
         }
+    }
+
+    /// The sort of the file `path` listed under `group`: a map's prefab,
+    /// listed with the levels, is a model.
+    pub fn of_file(group: &str, path: &str) -> Self {
+        if group == "Levels" && path.ends_with(".vvx") { Sort::Model } else { Sort::of(group) }
     }
 }
 
@@ -248,21 +256,117 @@ fn place_before(spans: &[lex::Span], src: &str, i: usize, stack: &[Open]) -> Pla
     }
 }
 
-/// Every place in `scripts` (paths in `dir`) that names `from`, of `sort`,
-/// and what it becomes once the file is `to`: the certain ones first in
-/// each file's order, then the maybes.
-pub fn find(dir: &Path, scripts: &[String], from: &str, to: &str, sort: Sort) -> Vec<Ref> {
+/// Every place in `files` (paths in `dir`: the game's Lua, and its levels
+/// and maps, which name models and pictures by their paths) that names
+/// `from`, of `sort`, and what it becomes once the file is `to`: the
+/// certain ones first in each file's order, then the maybes.
+pub fn find(dir: &Path, files: &[String], from: &str, to: &str, sort: Sort) -> Vec<Ref> {
     let wanted = wanted(from, to, sort);
     if wanted.is_empty() {
         return Vec::new();
     }
     let mut out = Vec::new();
-    for file in scripts.iter().filter(|f| f.ends_with(".lua")) {
+    for file in files {
+        let lua = file.ends_with(".lua");
+        if !lua && !file.ends_with(".toml") {
+            continue;
+        }
         let Ok(src) = std::fs::read_to_string(dir.join(file)) else { continue };
-        out.extend(scan(file, &src, &wanted));
+        if lua {
+            out.extend(scan(file, &src, &wanted));
+        } else {
+            out.extend(scan_data(file, &src, from, to, sort));
+        }
     }
     out.sort_by_key(|r| !r.sure);
     out
+}
+
+/// The places in a level (`grid::text`, "voxcade level") or a map
+/// (`map`, "voxcade map") that name `from`: a level's pieces
+/// (`[[thing]]` `model`) and its land's scatter (`model`, `models`), from
+/// the game folder; a map's `[prefabs]` (a file, or `{ file = ... }`) and
+/// its `[ground]` pictures (`height`, `material`), from the map's folder.
+/// Levels and maps name no sound or song. Each one certain; once renamed
+/// only the quoted name changes (its folder as written, its last part the
+/// new name: a rename keeps the folder), the rest of the text as it is.
+fn scan_data(file: &str, src: &str, from: &str, to: &str, sort: Sort) -> Vec<Ref> {
+    let Ok(doc) = toml_edit::Document::parse(src) else { return Vec::new() };
+    let top = doc.as_table();
+    let format = top.get("format").and_then(Item::as_str).unwrap_or("");
+    // Each quoted name as its text and where its token lies.
+    let mut names: Vec<(Option<&str>, Option<Range<usize>>)> = Vec::new();
+    fn pair(i: &Item) -> (Option<&str>, Option<Range<usize>>) {
+        (i.as_str(), i.span())
+    }
+    // A level's paths are the game folder's, a map's its own folder's.
+    let base = if format.starts_with("voxcade level") {
+        if sort == Sort::Model {
+            for t in top.get("thing").and_then(crate::vvx::tables).unwrap_or_default() {
+                names.extend(t.get("model").map(pair));
+            }
+            let scatter = top.get("terrain").and_then(Item::as_table_like).and_then(|t| t.get("scatter")).and_then(crate::vvx::tables);
+            for s in scatter.unwrap_or_default() {
+                names.extend(s.get("model").map(pair));
+                if let Some(list) = s.get("models").and_then(Item::as_array) {
+                    names.extend(list.iter().map(|v| (v.as_str(), v.span())));
+                }
+            }
+        }
+        ""
+    } else if format.starts_with("voxcade map") {
+        if let Some(prefabs) = top.get("prefabs").and_then(Item::as_table_like).filter(|_| sort == Sort::Model) {
+            for (_, entry) in prefabs.iter() {
+                match entry.as_table_like() {
+                    Some(t) => names.extend(t.get("file").map(pair)),
+                    None => names.push(pair(entry)),
+                }
+            }
+        }
+        if let Some(ground) = top.get("ground").and_then(Item::as_table_like).filter(|_| sort == Sort::Other) {
+            names.extend(ground.get("height").map(pair));
+            names.extend(ground.get("material").map(pair));
+        }
+        file.rfind('/').map_or("", |i| &file[..=i])
+    } else {
+        return Vec::new();
+    };
+    let new_name = to.rsplit('/').next().unwrap_or(to);
+    let mut out = Vec::new();
+    for (value, span) in names {
+        let (Some(value), Some(span)) = (value, span) else { continue };
+        if resolved(base, value).as_deref() != Some(from) {
+            continue;
+        }
+        let Some(token) = src.get(span.clone()).filter(|t| t.len() >= 2) else { continue };
+        let renamed = match value.rfind('/') {
+            Some(i) => format!("{}{new_name}", &value[..=i]),
+            None => new_name.to_string(),
+        };
+        let new = if token.starts_with('\'') && !renamed.contains('\'') { format!("'{renamed}'") } else { crate::vvx::quoted(&renamed) };
+        let line = crate::vvx::line_of(src, span.start);
+        let text = src.lines().nth(line - 1).unwrap_or("").trim().to_string();
+        out.push(Ref { file: file.to_string(), line, text, sure: true, range: span, old: token.to_string(), new });
+    }
+    out.sort_by_key(|r| r.range.start);
+    out
+}
+
+/// The path `value`, written in a file whose paths start at `base` (a
+/// folder of the game with its `/`, or nothing), from the game folder:
+/// `.` and `..` taken away (None: it leaves the game folder).
+fn resolved(base: &str, value: &str) -> Option<String> {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in base.split('/').chain(value.split('/')) {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            p => parts.push(p),
+        }
+    }
+    Some(parts.join("/"))
 }
 
 /// The places `refs` changed in their files (each saved whole at once),
@@ -330,6 +434,35 @@ mod tests {
         assert_eq!(found(src, "hero.vvx", Sort::Model), [(6, true), (7, true)]);
         assert_eq!(found(src, "music/storm.mml", Sort::Song), [(8, true), (9, true), (10, false)]);
         assert!(found(src, "scenarios/late.lua", Sort::Scenario).is_empty());
+    }
+
+    /// A level names a model by its pieces and its land's scatter, from the
+    /// game folder; a map by its prefabs and its ground's pictures, from its
+    /// own folder. Renamed, only the quoted name changes, its folder and
+    /// quotes as written.
+    #[test]
+    fn levels_and_maps_name_models_and_pictures() {
+        let dir = crate::scratch::Scratch::new("refs-data");
+        std::fs::create_dir_all(dir.join("levels")).unwrap();
+        std::fs::create_dir_all(dir.join("maps")).unwrap();
+        let level = "format = \"voxcade level 1\"\nblock = 10\n\n[[thing]]\nname = \"stove\"\nmodel = \"room/stove.vvx\"   # by the wall\nat = [1, 2, 3]\n\n[[thing]]\nkind = \"stove\"\nat = [4, 5, 6]\n\n[[terrain.scatter]]\nmodel = 'room/stove.vvx'\ndensity = 2\n\n[[terrain.scatter]]\nmodels = [\"fir.vvx\", \"room/stove.vvx\"]\ndensity = 1\n";
+        std::fs::write(dir.join("levels/one.toml"), level).unwrap();
+        let map = "format = \"voxcade map 1\"\n\n[ground]\nheight = \"../ground/height.png\"\n\n[prefabs]\nhut = \"../room/stove.vvx\"\ntuft = { file = \"../room/stove.vvx\", soft = true }\nrock = \"rock.vvx\"\n";
+        std::fs::write(dir.join("maps/map.toml"), map).unwrap();
+        // A sound's file, a script naming nothing.
+        std::fs::write(dir.join("sounds.toml"), "model = \"room/stove.vvx\"\n").unwrap();
+        let files = ["levels/one.toml".to_string(), "maps/map.toml".to_string(), "sounds.toml".to_string()];
+        let refs = find(&dir, &files, "room/stove.vvx", "room/oven.vvx", Sort::Model);
+        let seen: Vec<(&str, usize, &str)> = refs.iter().map(|r| (r.file.as_str(), r.line, r.new.as_str())).collect();
+        assert_eq!(seen, [("levels/one.toml", 6, "\"room/oven.vvx\""), ("levels/one.toml", 14, "'room/oven.vvx'"), ("levels/one.toml", 18, "\"room/oven.vvx\""), ("maps/map.toml", 7, "\"../room/oven.vvx\""), ("maps/map.toml", 8, "\"../room/oven.vvx\"")]);
+        assert!(refs.iter().all(|r| r.sure));
+        assert_eq!(find(&dir, &files, "maps/rock.vvx", "maps/stone.vvx", Sort::Model).len(), 1, "a prefab beside its map");
+        assert_eq!(find(&dir, &files, "ground/height.png", "ground/land.png", Sort::Other).len(), 1, "the ground's picture");
+        assert!(find(&dir, &files, "room/stove.vvx", "room/oven.vvx", Sort::Sound).is_empty(), "levels and maps name no sound");
+        let chosen: Vec<&Ref> = refs.iter().collect();
+        assert_eq!(rewrite(&dir, &chosen).unwrap(), ["levels/one.toml", "maps/map.toml"]);
+        assert_eq!(std::fs::read_to_string(dir.join("levels/one.toml")).unwrap(), level.replace("room/stove.vvx", "room/oven.vvx"));
+        assert_eq!(std::fs::read_to_string(dir.join("maps/map.toml")).unwrap(), map.replace("room/stove.vvx", "room/oven.vvx"));
     }
 
     /// Only the places chosen change, and only where the file still holds

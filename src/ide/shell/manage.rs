@@ -3,7 +3,9 @@
 //! list as the plus's is (`new_file`'s checks: no folders, no empty name,
 //! no name taken); the places in the game's Lua that name the file
 //! (`refs`: a sound where a sound is taken, a module by `require`, a model
-//! or a song by its path) are listed with a tick each, the certain ones
+//! or a song by its path), and in its levels and maps (a piece's, a
+//! scatter's or a prefab's model, a map's ground pictures), are listed with
+//! a tick each, the certain ones
 //! ticked, the maybes apart and not, and the ticked ones changed too. DELETE asks nothing: the
 //! file goes to the system's trash and an UNDO shows for a few seconds
 //! (the bytes are kept in memory for it).
@@ -36,7 +38,10 @@ pub fn why_not(path: &str, group: &str) -> Option<&'static str> {
     if matches!(path, "main.lua" | "conf.lua") {
         return Some("The game needs main.lua and conf.lua: they keep their names and stay.");
     }
-    if matches!(group, "Levels" | "Blocks") {
+    // A map's prefab is named by its file in the map (found and changed
+    // as the Lua's places are); levels and blocks by their names.
+    let prefab = path.starts_with("prefabs/") && path.ends_with(".vvx");
+    if group == "Blocks" || (group == "Levels" && !prefab) {
         return Some("Not yet: the level files link to levels and blocks by their names, so these stay as they are for now.");
     }
     None
@@ -250,10 +255,13 @@ pub fn buttons(ui: &mut egui::Ui, why: Option<&str>) -> Option<Act> {
 }
 
 impl Shell {
-    /// The Lua files of the game (logic and scenarios) that may name another
-    /// file.
-    fn scripts(&self) -> Vec<String> {
-        self.files.logic.iter().chain(&self.files.scenarios).filter(|f| f.ends_with(".lua")).cloned().collect()
+    /// The files of the game that may name another file: its Lua (logic
+    /// and scenarios), its levels and maps (`refs` reads each by its
+    /// format line).
+    fn naming(&self) -> Vec<String> {
+        let lua = self.files.logic.iter().chain(&self.files.scenarios).filter(|f| f.ends_with(".lua"));
+        let data = self.files.assets.iter().filter(|g| g.name != "Sounds").flat_map(|g| &g.files).filter(|f| f.ends_with(".toml"));
+        lua.chain(data).cloned().collect()
     }
 
     /// What `act` asks of `path` (from the menu or the buttons).
@@ -285,13 +293,13 @@ impl Shell {
         if let Some(why) = why_not(from, group) {
             return Err(why.into());
         }
-        let sort = Sort::of(group);
+        let sort = Sort::of_file(group, from);
         let to = renamed(&self.dir, from, typed, sort)?;
         if to == from {
             return Ok(());
         }
         self.flush();
-        let rows = refs::find(&self.dir, &self.scripts(), from, &to, sort);
+        let rows = refs::find(&self.dir, &self.naming(), from, &to, sort);
         if rows.is_empty() {
             self.do_rename(from, &to, &[]);
         } else {
@@ -375,7 +383,7 @@ impl Shell {
         if let Some(why) = why_not(path, group) {
             return self.tell(why.into());
         }
-        let sort = Sort::of(group);
+        let sort = Sort::of_file(group, path);
         self.flush();
         // A text of the user's not in the file (kept while it changed
         // outside too) would go with it, unasked: the question first.
@@ -388,7 +396,7 @@ impl Shell {
         let file = self.dir.join(path);
         let size = std::fs::metadata(&file).map_or(0, |m| m.len());
         let bytes = if size <= MAX_UNDO { std::fs::read(&file).ok() } else { None };
-        let still = still_used(&refs::find(&self.dir, &self.scripts(), path, path, sort), sort);
+        let still = still_used(&refs::find(&self.dir, &self.naming(), path, path, sort), sort);
         let (place, why) = match discard(&self.dir, path, &self.deleted_dir) {
             Ok(went) => went,
             Err(e) => return self.tell(e),

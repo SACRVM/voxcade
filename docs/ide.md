@@ -507,7 +507,11 @@ Stage by stage (the plan of 2026-10-18):
    asked about ("3 lines of your game play this sound by its name. Change
    them too?": CHANGE THEM, ONLY THE FILE, CANCEL): a sound by its quoted
    name, a Lua file by `require`, a model, a song and any other file by its
-   quoted path; a scenario is named by nothing. DELETE asks nothing: the file
+   quoted path; a scenario is named by nothing. The levels and maps are
+   asked about too, certain each: a model by a level's pieces and its
+   land's scatter, and by a map's prefabs (a prefab in `prefabs/` is
+   renamed so too), a picture by a map's ground; they name no sound or
+   song. DELETE asks nothing: the file
    goes to the system's trash (`trash` crate; if it will not, into
    `config_dir()/ide/deleted/<game>/`, said in OUTPUT) and the bar shows
    DELETED, what in the game still names it, and UNDO for 20 seconds (the

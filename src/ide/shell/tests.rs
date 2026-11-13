@@ -890,6 +890,65 @@ fn the_lines_naming_a_sound_are_asked_about() {
     clean_up(&dir, &shell);
 }
 
+/// The game folder `from` copied into `to`, but its recorded runs.
+fn copy_game(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap().flatten() {
+        let (path, name) = (entry.path(), entry.file_name());
+        if path.is_dir() {
+            if name != "replays" {
+                copy_game(&path, &to.join(name));
+            }
+        } else {
+            std::fs::copy(&path, to.join(name)).unwrap();
+        }
+    }
+}
+
+/// RENAME of a model asks about the levels and maps that name it beside
+/// the Lua, ticked: a map's prefab (Pulsar's rocks, listed with the
+/// levels) and a level's piece and a kind's model (Voxkeep's torch).
+/// Changed, only the names change, and the game loads with the new file.
+#[test]
+fn a_model_is_renamed_in_the_levels_and_maps_too() {
+    use manage::Answer;
+    let root = crate::scratch::Scratch::new("rename-data");
+    let games = Path::new(env!("CARGO_MANIFEST_DIR")).join("games");
+    // Pulsar: map.toml's prefab.
+    let dir = root.join("pulsar");
+    copy_game(&games.join("pulsar"), &dir);
+    let map = std::fs::read_to_string(dir.join("map.toml")).unwrap();
+    let mut shell = shell_on(&dir, &root.join("pulsar.toml"));
+    assert_eq!(shell.rename("prefabs/rock_1.vvx", "boulder"), Ok(()));
+    let q = shell.asking.as_ref().expect("asked");
+    assert_eq!(q.rows.iter().map(|r| (r.file.as_str(), r.text.as_str())).collect::<Vec<_>>(), [("map.toml", "rock_1 = \"prefabs/rock_1.vvx\"")]);
+    assert_eq!(q.ticked, [true]);
+    shell.answer(Answer::Change);
+    assert_eq!(std::fs::read_to_string(dir.join("map.toml")).unwrap(), map.replace("\"prefabs/rock_1.vvx\"", "\"prefabs/boulder.vvx\""));
+    let data = crate::map::MapData::read(&std::fs::read_to_string(dir.join("map.toml")).unwrap()).unwrap();
+    assert_eq!(data.prefabs["rock_1"].file, "prefabs/boulder.vvx");
+    crate::session::Session::<crate::Voxcade>::load(&dir).expect("Pulsar loads with the prefab renamed");
+    // Voxkeep: a piece set down in a level, and the kind's model.
+    let dir = root.join("voxkeep");
+    copy_game(&games.join("voxkeep"), &dir);
+    let hall = std::fs::read_to_string(dir.join("levels/01_hall.toml")).unwrap() + "\n[[thing]]\nname = \"lamp\"\nmodel = \"torch.vvx\"\nat = [95, 7, 21]\n";
+    std::fs::write(dir.join("levels/01_hall.toml"), &hall).unwrap();
+    let conf = std::fs::read_to_string(dir.join("conf.lua")).unwrap();
+    let mut shell = shell_on(&dir, &root.join("voxkeep.toml"));
+    assert_eq!(shell.rename("torch.vvx", "lamp"), Ok(()));
+    let q = shell.asking.as_ref().expect("asked");
+    let files: Vec<&str> = q.rows.iter().map(|r| r.file.as_str()).collect();
+    assert_eq!(files, ["conf.lua", "levels/01_hall.toml"], "the kind's model and the piece");
+    assert!(q.ticked.iter().all(|t| *t));
+    shell.answer(Answer::Change);
+    assert_eq!(std::fs::read_to_string(dir.join("levels/01_hall.toml")).unwrap(), hall.replace("\"torch.vvx\"", "\"lamp.vvx\""));
+    assert_eq!(std::fs::read_to_string(dir.join("conf.lua")).unwrap(), conf.replace("\"torch.vvx\"", "\"lamp.vvx\""));
+    let level = crate::grid::GridLevel::read(&dir.join("levels/01_hall.toml")).unwrap();
+    assert!(level.things.iter().any(|t| t.model.as_deref() == Some("lamp.vvx")));
+    crate::session::Session::<crate::Voxcade>::load(&dir).expect("Voxkeep loads with the model renamed");
+    clean_up(&dir, &shell);
+}
+
 /// A file asked for that never was in the game is said so, not as gone;
 /// a shot says what the main area shows (HELP, not the file behind it).
 #[test]

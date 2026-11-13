@@ -429,10 +429,15 @@ nearest; its replay `tests/two_ships`);
   and Ctrl+S saves at once. RENAME and DELETE
   (`ide/shell/manage.rs`; a right click on a row, and small beside SAVED
   over the open file) for the logic, scenarios, models, sounds, songs,
-  images and the rest, not `main.lua`/`conf.lua`, levels or blocks (off
-  with the reason on hover): the name typed in place as the plus's, the
-  lines of the game's Lua naming the file (found by `ide/refs.rs`: Lua
-  tokens, by where a quoted name stands) ticked one by one in a modal
+  images and the rest, a map's prefabs too (`prefabs/*.vvx`), not
+  `main.lua`/`conf.lua`, levels or blocks (off with the reason on hover):
+  the name typed in place as the plus's, the lines of the game's Lua
+  naming the file (found by `ide/refs.rs`: Lua tokens, by where a quoted
+  name stands) and of its levels and maps (`refs::scan_data`, by the
+  format line: a piece's and a scatter's `model`/`models` from the game
+  folder, a map's `[prefabs]` and `[ground]` pictures from the map's;
+  levels and maps name no sound or song; only the quoted name rewritten,
+  test `a_model_is_renamed_in_the_levels_and_maps_too`) ticked one by one in a modal
   (certain ones ticked, MAYBE ones unticked; RENAME, ONLY THE FILE,
   CANCEL) and changed only for the ticked; USED lists MAYBE apart; DELETE asks nothing, the system's trash (`trash`
   crate, else `config_dir()/ide/deleted/<game>/`) and UNDO in the bar for 20
