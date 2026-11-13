@@ -237,7 +237,7 @@ pub struct View {
     /// from ADD MODEL goes to (a right click's on the floor), where the
     /// right button went down (a click without dragging opens the menu).
     pub grip_hover: Option<super::handles::Grip>,
-    /// TURN was pressed for this item (its rings shown, not its arrows);
+    /// ROTATE was pressed for this item (its rings shown, not its arrows);
     /// any other choice is in MOVE.
     pub turning: Option<Item>,
     /// In a figure, the chosen part's joint's ring under the mouse (lit).
@@ -549,7 +549,7 @@ impl View {
         view
     }
 
-    /// Whether the chosen one shows its rings (TURN), else its arrows.
+    /// Whether the chosen one shows its rings (ROTATE), else its arrows.
     pub fn turn_mode(&self, ed: &Editor) -> bool {
         self.turning.is_some() && self.turning == ed.pieces.chosen && ed.can_turn()
     }

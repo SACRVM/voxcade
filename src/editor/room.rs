@@ -721,7 +721,7 @@ impl Editor {
         });
     }
 
-    /// TURN: the chosen one (or what hangs on the mouse) a quarter turn
+    /// ROTATE: the chosen one (or what hangs on the mouse) a quarter turn
     /// clockwise seen from above (`by` -1: the other way); a piece turned
     /// off the quarter turns keeps its angle off them. A thing of a kind
     /// or an area has no way to face.
@@ -818,7 +818,7 @@ impl Editor {
     /// the mouse.
     pub fn handles(&self, view_proj: glam::Mat4, turn: bool) -> Option<Handles> {
         let mut h = self.all_handles(view_proj)?;
-        // MOVE: the arrows (and an area's faces); TURN: the rings. Never
+        // MOVE: the arrows (and an area's faces); ROTATE: the rings. Never
         // both: the piece stays in view.
         if turn && self.can_turn() {
             (h.arrows, h.faces) = ([None; 3], None);
@@ -836,7 +836,7 @@ impl Editor {
         t.model.is_some() && off_axes(t)
     }
 
-    /// Whether the chosen one turns by its rings (TURN): a piece of a model
+    /// Whether the chosen one turns by its rings (ROTATE): a piece of a model
     /// (not while its light is chosen), a place.
     pub fn can_turn(&self) -> bool {
         match self.pieces.chosen {
@@ -1417,7 +1417,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// TURN turns a quarter clockwise seen from above (back with -1); on
+    /// ROTATE turns a quarter clockwise seen from above (back with -1); on
     /// the grid only the four ways; turning freely any angle, a few degrees
     /// from a quarter snapping to it; a place turns its arrow, a thing of a
     /// kind and an area do not turn.
@@ -1824,7 +1824,7 @@ mod tests {
         assert_eq!((ed.level.areas[0].at, ed.level.areas[0].size), ([35, 120, 0], [41, 30, 40]));
     }
 
-    /// MOVE shows the arrows only, TURN the rings only (a light alone, a
+    /// MOVE shows the arrows only, ROTATE the rings only (a light alone, a
     /// thing of a kind, an area do not turn); a press on the piece's body
     /// grabs no handle (the piece is dragged), its arrows' heads lie clear
     /// of it and grab; an arrow seen end on is dimmed and grabs nothing.
@@ -1851,7 +1851,7 @@ mod tests {
         let (front, _) = seen(Vec3::new(40.0, 150.0, 10.0), 0.0, 0.0);
         let y = ed.handles(front, false).unwrap().shapes(front, screen).into_iter().find(|s| s.grip == Grip::Arrow(1)).unwrap();
         assert!(y.dim);
-        // What does not turn has no TURN: a light alone, a thing of a kind.
+        // What does not turn has no ROTATE: a light alone, a thing of a kind.
         for (item, turns) in [(Item::Thing(0), true), (Item::Thing(2), false), (Item::Thing(4), false), (Item::Place(0), true), (Item::Area(0), false)] {
             ed.choose_item(Some(item));
             assert_eq!(ed.can_turn(), turns, "{item:?}");

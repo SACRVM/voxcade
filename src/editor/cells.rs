@@ -64,7 +64,7 @@ impl Editor {
     }
 
     /// The level's tools to its blocks or its things; a tool the other
-    /// layer lacks becomes PLACE.
+    /// layer lacks becomes ADD.
     pub fn switch(&mut self, layer: Layer) {
         self.release();
         self.layer = layer;
@@ -73,7 +73,7 @@ impl Editor {
         }
     }
 
-    /// Holds the game's kind `i` (its place in `kinds`) for PLACE.
+    /// Holds the game's kind `i` (its place in `kinds`) for ADD.
     pub fn hold_kind(&mut self, i: usize) {
         if let Some(k) = self.kinds.get(i) {
             self.held_kind = Some(k.clone());
@@ -107,8 +107,8 @@ impl Editor {
             // POINTER changes nothing.
             Tool::Pointer => return,
             Tool::Pick => {
-                // (A piece is no kind to put down: placing pieces is the
-                // next stage's.)
+                // (A piece is no kind: pieces are set down among the
+                // PIECES.)
                 if let Some(t) = under.and_then(|i| self.level.things.get(i)).filter(|t| !t.is_piece()) {
                     self.held_kind = Some(t.kind.clone());
                     self.picked();
@@ -168,7 +168,7 @@ impl Editor {
         self.moving
     }
 
-    /// The held block turned (TURN, ROLL, MIRROR).
+    /// The held block turned (ROTATE, ROLL, MIRROR).
     pub fn turn(&mut self, turn: Turn) {
         self.held.turn = self.held.turn.then(turn);
     }

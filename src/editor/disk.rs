@@ -942,7 +942,7 @@ mod tests {
     }
 
     /// The owner's case: things added outside, one taken out, three moved;
-    /// then TURN on a piece in the editor, which had not looked yet: both
+    /// then ROTATE on a piece in the editor, which had not looked yet: both
     /// in the file, the outside text kept as it was written.
     #[test]
     fn a_step_after_an_outside_change_keeps_the_outside_change() {

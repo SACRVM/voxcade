@@ -619,7 +619,7 @@ pub struct Editor {
     pub held: Cell,
     /// The colour a block's tools lay.
     pub colour: [u8; 3],
-    /// The kinds of things the game has (`c.things`), and the one PLACE
+    /// The kinds of things the game has (`c.things`), and the one ADD
     /// puts down.
     pub kinds: Vec<String>,
     pub held_kind: Option<String>,

@@ -402,7 +402,7 @@ fn light_controls(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, radi
     field(ui, shown, "RADIUS", None, l.radius, Field::Radius(k), 1.0, 1.0..=2000.0, "How far it shines, in voxels (radius in the level's file)", radius);
 }
 
-/// A piece's rows: TURN, SOLID (and LIGHT + without one), its lights.
+/// A piece's rows: ROTATE, SOLID (and LIGHT + without one), its lights.
 fn piece_rows(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, t: &crate::grid::Thing, shown: &mut Shown) {
     // On the grid (or solid) the turns step by quarters.
     let quarters = !ed.pieces.free_turns || t.solid;
@@ -945,7 +945,7 @@ pub fn paint(painter: &egui::Painter, h: &handles::Handles, vp: glam::Mat4, scre
 }
 
 /// The buttons at the chosen one, over its handles (`zones::bar_at`):
-/// MOVE or TURN, and what is done to it most, a word each.
+/// MOVE or ROTATE, and what is done to it most, a word each.
 fn beside(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut Shown) {
     let Some(item) = ed.pieces.chosen.filter(|_| ed.pieces.hanging.is_none() && ed.gripped().is_none() && ed.dragging().is_none() && !view.picker) else { return };
     let screen = ui.ctx().content_rect();
@@ -976,7 +976,7 @@ fn beside(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut S
     let turning = view.turn_mode(ed);
     let guess = if piece { 345.0 } else if turns { 234.0 } else { 122.0 };
     let rect = zones::bar_at(ui, &format!("stage beside {item:?} {turns}"), middle, bounds, free, guess, shown, |ui, shown| {
-        // MOVE (its arrows) or TURN (its rings), one lit.
+        // MOVE (its arrows) or ROTATE (its rings), one lit.
         if turns {
             zones::small(ui, shown, "MOVE", Action::HandleMode(false), Some(!turning), "Arrows: move it along X, Y, Z (or drag it over the floor)");
             zones::small(ui, shown, "ROTATE", Action::HandleMode(true), Some(turning), "Rings: rotate it about its sides and the upright");

@@ -184,7 +184,7 @@ pub enum Action {
     /// GRID in the voxel editor: the voxels' edges drawn on the faces, or
     /// not.
     Grid,
-    /// The chosen one's handles: MOVE (false, its arrows) or TURN (true,
+    /// The chosen one's handles: MOVE (false, its arrows) or ROTATE (true,
     /// its rings).
     HandleMode(bool),
     /// The voxel editor's and the level of blocks': a menu opened on a

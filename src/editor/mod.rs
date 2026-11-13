@@ -1,11 +1,14 @@
-//! Voxcade's editor for levels of voxel blocks (`docs/tiles.md`): one
-//! window, two levels. In the level the cells hold blocks, placed,
-//! removed, replaced, turned and mirrored, and its things stand on them,
-//! placed, moved and removed; a block opened (a second click on it, or a
-//! double click on a cell) is shaped voxel by voxel. Every change is saved
-//! at once, and a game running beside it shows it straight away. It is
-//! calm on purpose: few tools in view, large and readable. Its panels are
-//! the IDE's look (`panels.rs`, egui), the 3D view the game's own light.
+//! Voxcade's two editors on one `Editor` (`model.rs`; `docs/tiles.md`):
+//! the level editor (a level's blocks in their cells, its things, its
+//! pieces, lights, places and areas, its terrain) and the voxel editor (a
+//! block opened from the level, a model of frames, a figure of parts),
+//! each in a window of its own (`window.rs`) or drawn into a PNG without
+//! one (`shot.rs`). Every step is saved at once, never over a newer file
+//! (`disk.rs`), and a game running beside it shows it straight away. The
+//! panels are the IDE's look in three zones (`zones.rs`, `panels.rs`:
+//! top bar, outliner, inspector; egui), the 3D view between them in the
+//! game's own light (`view.rs`, `picture.rs`). Calm on purpose: few tools
+//! in view, large and readable.
 
 pub mod background;
 pub mod cell_lines;
@@ -175,7 +178,6 @@ fn voxel_menu(ed: &Editor, view: &View, aspect: f32, sx: f32, sy: f32) -> Option
     }
 }
 
-/// Whether the tools work on the level's things.
 /// The terrain's points on the screen: the level's camera for the room
 /// `room` (egui's points), its size, the mouse `at` within it.
 fn land_screen(view: &View, room: egui::Rect, at: egui::Pos2) -> (glam::Mat4, glam::Vec2, glam::Vec2) {
@@ -183,6 +185,7 @@ fn land_screen(view: &View, room: egui::Rect, at: egui::Pos2) -> (glam::Mat4, gl
     (vp, glam::Vec2::new(room.width(), room.height()), glam::Vec2::new(at.x - room.left(), at.y - room.top()))
 }
 
+/// Whether the tools work on the level's things.
 fn among_things(ed: &Editor) -> bool {
     ed.scope == Scope::Level && ed.layer == Layer::Things
 }

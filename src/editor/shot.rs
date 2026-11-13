@@ -57,7 +57,7 @@ pub struct ShotOptions {
     pub add_menu: bool,
     pub level_settings: bool,
     pub hover: Option<String>,
-    /// The chosen one's handles in TURN (its rings), else MOVE.
+    /// The chosen one's handles in ROTATE (its rings), else MOVE.
     pub turn_handles: bool,
     /// A figure's parts moved by whole voxels (`--move-part`), joints by
     /// halves (`--move-joint`, true), in turn: by the part's name.

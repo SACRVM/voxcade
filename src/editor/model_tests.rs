@@ -389,7 +389,7 @@ fn placing_moving_and_removing_things() {
     assert_eq!(saved(), gem([2, 2, 8]));
     ed.redo();
     assert_eq!(ed.level.things, gem([7, 6, 4]));
-    // Back to the blocks, a tool they lack becomes PLACE.
+    // Back to the blocks, a tool they lack becomes ADD.
     ed.choose(Tool::Move);
     ed.switch(Layer::Blocks);
     assert_eq!(ed.tool, Tool::Add);
