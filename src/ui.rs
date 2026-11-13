@@ -1024,11 +1024,30 @@ pub fn menu(view: &MenuView, cfg: &UiConfig, alpha: f32, aspect: f32) -> (Vec<In
         }
     }
 
-    // How to steer, for the device in hand.
+    // How to steer, for the device in hand; a line too long for the screen
+    // goes on over two or more.
+    let hint = hint_text(menu, page, lang);
+    let room = layout.width - if page == Page::Title { 16.0 } else { 8.0 };
+    let lines = wrap_hint(&hint, (room / 6.0).floor() as usize);
+    for (i, line) in lines.iter().rev().enumerate() {
+        let (x, color) = if page == Page::Title {
+            (8.0, if view.light_menu { MUTED_LIGHT } else { MUTED_DARK })
+        } else {
+            (((layout.width - text_width(line, 1)) / 2.0).round(), MUTED_LIGHT)
+        };
+        text(&mut out, line, x, 4.0 + i as f32 * 11.0, 1, color, depth);
+    }
+    crate::render::hide_inner_faces(&mut out);
+    (out, letters, camera)
+}
+
+/// The hint line of a page: how to steer, for the device in hand.
+fn hint_text(menu: &Menu, page: Page, lang: &str) -> String {
+    let say = |en: &'static str| crate::lang::say(lang, en);
     let style = menu.pad_style;
     let with = |en: &'static str, parts: &[&str]| crate::lang::say_with(lang, en, parts);
     let (south, east) = (pad_label("south", style), pad_label("east", style));
-    let hint = match (menu.device, menu.rebinding.is_some(), page) {
+    match (menu.device, menu.rebinding.is_some(), page) {
         (_, true, _) => with("ESC OR {}: CANCEL", &[&pad_label("back", style)]),
         (Device::Gamepad, _, Page::Initials) => with("UP/DOWN: LETTER   {}: NEXT   {}: BACK", &[&south, &east]),
         (Device::Keyboard, _, Page::Initials) => say("TYPE OR UP/DOWN   ENTER: NEXT   ESC: BACK").to_string(),
@@ -1042,16 +1061,44 @@ pub fn menu(view: &MenuView, cfg: &UiConfig, alpha: f32, aspect: f32) -> (Vec<In
         (Device::Keyboard, _, Page::Joining) => say("ESC: CANCEL").to_string(),
         (Device::Gamepad, _, _) => with("{}: SELECT   {}: BACK", &[&south, &east]),
         (Device::Keyboard, _, _) => say("ENTER: SELECT   ESC: BACK").to_string(),
-    };
-    let hint = hint.as_str();
-    let (x, color) = if page == Page::Title {
-        (8.0, if view.light_menu { MUTED_LIGHT } else { MUTED_DARK })
-    } else {
-        (((layout.width - text_width(hint, 1)) / 2.0).round(), MUTED_LIGHT)
-    };
-    text(&mut out, hint, x, 4.0, 1, color, depth);
-    crate::render::hide_inner_faces(&mut out);
-    (out, letters, camera)
+    }
+}
+
+/// A hint broken into lines of at most `cols` letters: at the gaps of two
+/// spaces or more between its parts first, else at a single space; a word
+/// longer than a line stays whole.
+fn wrap_hint(hint: &str, cols: usize) -> Vec<String> {
+    let len = |s: &str| s.chars().count();
+    if len(hint) <= cols {
+        return vec![hint.to_string()];
+    }
+    let mut pieces: Vec<String> = Vec::new();
+    for part in hint.split("  ").map(str::trim).filter(|p| !p.is_empty()) {
+        if len(part) <= cols {
+            pieces.push(part.to_string());
+        } else {
+            let mut words: Vec<String> = Vec::new();
+            for word in part.split(' ') {
+                match words.last_mut() {
+                    Some(l) if len(l) + 1 + len(word) <= cols => {
+                        l.push(' ');
+                        l.push_str(word);
+                    }
+                    _ => words.push(word.to_string()),
+                }
+            }
+            pieces.extend(words);
+        }
+    }
+    let mut lines: Vec<String> = Vec::new();
+    for piece in pieces {
+        let joined = lines.last().map(|l| format!("{l}   {piece}"));
+        match joined {
+            Some(j) if len(&j) <= cols => *lines.last_mut().unwrap() = j,
+            _ => lines.push(piece),
+        }
+    }
+    lines
 }
 
 /// One big letter in the middle of a cell `cell` wide from `x`: the
@@ -1776,5 +1823,29 @@ mod tests {
         assert_eq!(key(&cracked), key(&again), "the finish changes from frame to frame");
     }
 
-}
 
+    /// A hint wider than the screen goes on over more lines, each within
+    /// the room, whatever the page, device and language.
+    #[test]
+    fn hints_stay_within_the_screen() {
+        let cols = (Layout::of(&UiConfig::default(), 16.0 / 9.0).width / 6.0) as usize - 2;
+        let mut broke = 0;
+        for lang in ["en", "de", "fr"] {
+            for device in [Device::Keyboard, Device::Gamepad] {
+                for page in [Page::Title, Page::Initials, Page::HighScores, Page::Join, Page::Code, Page::Joining, Page::Settings] {
+                    let mut menu = Menu::title();
+                    menu.device = device;
+                    let hint = hint_text(&menu, page, lang);
+                    let lines = wrap_hint(&hint, cols);
+                    broke += (lines.len() > 1) as usize;
+                    for l in &lines {
+                        assert!(l.chars().count() <= cols, "{lang} {page:?} {device:?}: '{l}' is too wide");
+                    }
+                    assert_eq!(lines.join(" ").split_whitespace().collect::<Vec<_>>(), hint.split_whitespace().collect::<Vec<_>>());
+                }
+            }
+        }
+        assert!(broke > 0, "no hint needed breaking");
+        assert_eq!(wrap_hint("ENTER: SELECT   ESC: BACK", 53), vec!["ENTER: SELECT   ESC: BACK"]);
+    }
+}

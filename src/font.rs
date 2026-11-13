@@ -76,6 +76,36 @@ impl Glyph {
     }
 }
 
+#[derive(Clone, Copy)]
+enum Accent {
+    Diaeresis,
+    Acute,
+    Grave,
+    Circumflex,
+}
+
+/// The capital an accented capital is made of, and its accent.
+fn accent_of(ch: char) -> Option<(char, Accent)> {
+    use Accent::*;
+    Some(match ch {
+        'Ä' => ('A', Diaeresis),
+        'À' => ('A', Grave),
+        'Â' => ('A', Circumflex),
+        'É' => ('E', Acute),
+        'È' => ('E', Grave),
+        'Ê' => ('E', Circumflex),
+        'Ë' => ('E', Diaeresis),
+        'Î' => ('I', Circumflex),
+        'Ï' => ('I', Diaeresis),
+        'Ö' => ('O', Diaeresis),
+        'Ô' => ('O', Circumflex),
+        'Ü' => ('U', Diaeresis),
+        'Û' => ('U', Circumflex),
+        'Ù' => ('U', Grave),
+        _ => return None,
+    })
+}
+
 pub struct DisplayFont {
     width: usize,
     height: usize,
@@ -83,7 +113,7 @@ pub struct DisplayFont {
     cell: usize,
     /// The capital height in the atlas, in pixels.
     cap: f32,
-    cache: RefCell<HashMap<(u8, u32), Rc<Glyph>>>,
+    cache: RefCell<HashMap<(char, u32), Rc<Glyph>>>,
 }
 
 impl DisplayFont {
@@ -114,16 +144,58 @@ impl DisplayFont {
     }
 
     /// `ch` with a capital height of `height` voxels (lower case drawn as
-    /// capitals, characters it lacks as '?').
+    /// capitals, an accented letter as its capital with the accent over it,
+    /// characters it lacks as '?').
     pub fn glyph(&self, ch: char, height: u32) -> Rc<Glyph> {
-        let up = ch.to_ascii_uppercase();
-        let code = if up.is_ascii() && (FIRST..=LAST).contains(&(up as u8)) { up as u8 } else { b'?' };
-        if let Some(g) = self.cache.borrow().get(&(code, height)) {
+        let mut upper = ch.to_uppercase();
+        let up = match (upper.next(), upper.next()) {
+            (Some(u), None) => u,
+            _ => ch,
+        };
+        let key = match accent_of(up) {
+            Some(_) => up,
+            None if up.is_ascii() && (FIRST..=LAST).contains(&(up as u8)) => up,
+            None => '?',
+        };
+        if let Some(g) = self.cache.borrow().get(&(key, height)) {
             return g.clone();
         }
-        let g = Rc::new(self.sample(code, height));
-        self.cache.borrow_mut().insert((code, height), g.clone());
+        let g = Rc::new(match accent_of(key) {
+            Some((base, accent)) => self.accented(base, accent, height),
+            None => self.sample(key as u8, height),
+        });
+        self.cache.borrow_mut().insert((key, height), g.clone());
         g
+    }
+
+    /// The capital `base` with `accent` over it: rows put on top, the
+    /// baseline where it was.
+    fn accented(&self, base: char, accent: Accent, height: u32) -> Glyph {
+        let g = self.sample(base as u8, height);
+        let (w, thick) = (g.width as usize, ((height as f32 / 7.0).round() as usize).max(2));
+        let room = (height as f32 * 0.07).round().max(1.0) as usize;
+        let mut rows = vec![vec![false; w]; thick + room];
+        let mid = w as f32 / 2.0;
+        let stroke = (thick as f32 / 2.0).ceil().max(1.0);
+        for (i, row) in rows.iter_mut().take(thick).enumerate() {
+            for (c, cell) in row.iter_mut().enumerate() {
+                let x = c as f32 + 0.5;
+                *cell = match accent {
+                    Accent::Diaeresis => {
+                        let d = (thick as f32).min(w as f32 / 4.0).max(1.0);
+                        [0.25, 0.75].iter().any(|&f| (x - w as f32 * f).abs() <= d / 2.0)
+                    }
+                    // Slanting up to the right / left, the stroke `stroke` wide.
+                    Accent::Acute => (x - (mid + (thick as f32 / 2.0 - i as f32 - 0.5))).abs() <= stroke / 2.0,
+                    Accent::Grave => (x - (mid - (thick as f32 / 2.0 - i as f32 - 0.5))).abs() <= stroke / 2.0,
+                    // A roof: wide at the foot.
+                    Accent::Circumflex => (x - (mid - (i as f32 + 0.5))).abs() <= stroke / 2.0 || (x - (mid + (i as f32 + 0.5))).abs() <= stroke / 2.0,
+                };
+            }
+        }
+        let extra = rows.len() as i32;
+        rows.extend(g.rows.iter().cloned());
+        Glyph::new(g.width, g.ascent + extra, rows)
     }
 
     /// How wide `s` is at `height`, gaps included.
@@ -186,5 +258,23 @@ mod tests {
         assert!(o.width > font.glyph('I', 40).width);
         assert!(font.glyph(' ', 40).rows.is_empty());
         assert_eq!(font.glyph('o', 40).width, o.width, "lower case is drawn as capitals");
+    }
+
+    /// An accented capital is its letter with the accent over it, never the
+    /// '?' of a character the atlas lacks; the baseline stays.
+    #[test]
+    fn accented_capitals_are_their_letters_with_the_accent_over_them() {
+        let font = DisplayFont::load(Path::new("games/moreblood/ui/display_font.png")).unwrap();
+        let q = font.glyph('?', 40);
+        for (accented, plain) in [('É', 'E'), ('è', 'E'), ('Ö', 'O'), ('Ü', 'U'), ('Â', 'A'), ('Ï', 'I'), ('Ù', 'U')] {
+            let (g, p) = (font.glyph(accented, 40), font.glyph(plain, 40));
+            assert_ne!((g.width, &g.rows), (q.width, &q.rows), "{accented} is a question mark");
+            assert_eq!(g.width, p.width);
+            assert!(g.ascent > p.ascent, "{accented} has no accent over it");
+            let lift = (g.ascent - p.ascent) as usize;
+            assert_eq!(&g.rows[lift..], &p.rows[..], "{accented}'s letter is not {plain}");
+            assert!(g.rows[..lift].iter().any(|r| r.iter().any(|&v| v)), "{accented}'s accent is empty");
+        }
+        assert_eq!(font.glyph('ß', 40).rows, q.rows);
     }
 }
