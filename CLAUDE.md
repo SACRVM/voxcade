@@ -1025,7 +1025,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   wish for it: landed letters bob gently, a smooth wave through them
   (whole voxels looked like stuttering, the user), `ui::bob`, test
   `the_logo_bobs_once_landed`, 0 unless set); the menus (`src/menu.rs`,
-  drawn in `src/ui.rs`) work with keyboard and gamepad alike, Escape pauses
+  drawn in `src/ui/menus.rs`) work with keyboard and gamepad alike, Escape pauses
   instead of quitting. Key bindings are places on the keyboard by their US
   names (More Blood's Z and X side by side on any layout); the menus label
   them as the keyboard in use does (`Settings::key_names`: a German
@@ -1111,7 +1111,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   sees English).
   Shaders are WGSL compiled at run time:
   `the_shaders_are_valid` parses them in `cargo test`.
-- The UI is voxels too (`src/ui.rs`, the user's choice): a second scene
+- The UI is voxels too (`src/ui/`, the user's choice; `menus.rs` the
+  engine's menus, `hud.rs` a game's `frame:menu` and `frame:grid`,
+  `logo.rs` big letters and the logo, `panels.rs` the error and the
+  console's prompt, `pixel.rs` the pixel font): a second scene
   drawn into its own layer after the world and laid over it after the
   blur, so the tilt-shift never softens it. Its camera is a one-point
   perspective with the vanishing point in the middle of the screen (the
