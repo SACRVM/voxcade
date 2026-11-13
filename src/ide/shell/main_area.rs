@@ -76,7 +76,7 @@ impl Shell {
             // change, the rest to look at.
             let to_change = self.files.logic.contains(&path) || self.files.scenarios.contains(&path) || path.ends_with(".mml") || (path.ends_with(".toml") && sounds::name_of(&path).is_some()) || (self.model_text && path.ends_with(".vvx"));
             self.shown = Some(if to_change {
-                match Buffer::open(&self.dir, &path, &self.memory_path.with_extension("journal")) {
+                match Buffer::open(&self.dir, &path, &self.journals()) {
                     Ok(buffer) => Shown::Code(Box::new(buffer)),
                     Err(e) => Shown::Note(format!("{e:#}")),
                 }

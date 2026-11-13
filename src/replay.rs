@@ -1369,6 +1369,7 @@ fn stamp_of(secs: i64) -> String {
 
 /// Lists the runs kept for a game in the config folder.
 pub fn list<G: Game>(game_dir: &Path) -> Result<()> {
+    crate::settings::settle(game_dir);
     let kept = crate::settings::replays_for(game_dir);
     let fingerprint = Session::<G>::load(game_dir)?.fingerprint()?;
     let mut paths: Vec<PathBuf> = std::fs::read_dir(&kept)

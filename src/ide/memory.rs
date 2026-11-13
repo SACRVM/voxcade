@@ -1,6 +1,7 @@
 //! What the IDE remembers of a game between two sessions: what was open,
 //! where each file was scrolled to and where its cursor stood. It lives
-//! in the user's config folder (`ide/<game>.toml`), never in the game
+//! in the user's config folder (`ide/<key>.toml`, `settings::Identity`),
+//! never in the game
 //! folder, like the settings.
 
 use std::collections::BTreeMap;
@@ -29,7 +30,13 @@ pub struct Memory {
 impl Memory {
     /// Where the IDE keeps what it remembers of the game in `game_dir`.
     pub fn path_for(game_dir: &Path) -> PathBuf {
-        crate::settings::config_dir().join("ide").join(format!("{}.toml", crate::settings::game_name(game_dir)))
+        crate::settings::kept_for(game_dir, crate::settings::Kept::IdeMemory)
+    }
+
+    /// Where the journals of the game folder `game_dir`'s open texts are
+    /// kept (`buffer`): its own folder's alone, by its path.
+    pub fn journals_for(game_dir: &Path) -> PathBuf {
+        crate::settings::kept_for(game_dir, crate::settings::Kept::Journals)
     }
 
     /// What was remembered at `path`; nothing if there is nothing there

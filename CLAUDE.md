@@ -212,7 +212,7 @@ nearest; its replay `tests/two_ships`);
   game_frame, errors, play, stop, eval: a line of Lua in the game played
   there) passed on to the IDE running on the game
   (`ide/bridge.rs`: 127.0.0.1, a port and a token in
-  `config_dir()/ide/<game>.lock`, the user's alone). The IDE's MCP button
+  `config_dir()/ide/<folder>.lock`, the user's alone). The IDE's MCP button
   writes the game folder's `.mcp.json` when the user presses it; else the
   user adds it to Claude Code themselves (`claude mcp add voxcade --
   /path/to/voxcade mcp`), never edit their config.
@@ -293,7 +293,7 @@ nearest; its replay `tests/two_ships`);
   heading that folds (arrow on the right, one level only), the whole row
   clicked; in the main area the one file open (no tabs). What was open
   and how far scrolled, the cursor in each text, live in the config
-  folder (`ide/<game>.toml`).
+  folder (`ide/<key>.toml`, `settings::Identity`).
   Below the main area the console: the user's shell in the game folder
   (`ide/terminal.rs` over `alacritty_terminal`, `ide/console.rs` the
   panel), CLAUDE looks for Claude Code's program first (`claude::Finder`; missing:
@@ -370,7 +370,8 @@ nearest; its replay `tests/two_ships`);
   sideways; the text's and the numbers' layouts kept while they show the
   same, `code::Laid`: a still frame of 3,000 lines 0.6 ms, was 3.1),
   saved a second after the last
-  change (`ide/buffer.rs`, a journal in the config folder against
+  change (`ide/buffer.rs`, a journal in the config folder, `ide/<folder>.journal/`,
+  naming the file's whole path and offered on no other, against
   crashes; a change on disk comes in, or the IDE asks whose to keep).
   PLAY plays the game in the main area (`ide/play.rs`, no title or
   menus; its keys on a line under it, `play::keys_of`, the keyboard's
@@ -435,7 +436,7 @@ nearest; its replay `tests/two_ships`);
   tokens, by where a quoted name stands) ticked one by one in a modal
   (certain ones ticked, MAYBE ones unticked; RENAME, ONLY THE FILE,
   CANCEL) and changed only for the ticked; USED lists MAYBE apart; DELETE asks nothing, the system's trash (`trash`
-  crate, else `config_dir()/ide/deleted/<game>/`) and UNDO in the bar for 20
+  crate, else `config_dir()/ide/deleted/<key>/`) and UNDO in the bar for 20
   s (`manage::UNDO_FOR`) from the bytes kept in memory (up to 8 MB). Ctrl+F
   (or FIND beside SAVED) shows the find row above the open text
   (`ide/find.rs`; the owner's D9): FIND, MATCH CASE, "3 OF 12",
@@ -471,7 +472,7 @@ nearest; its replay `tests/two_ships`);
   file open in the main area stays open. The
   console is folded to its bar for a game opened the first time, the
   shell started only on the first unfolding; folded and height are kept in
-  `ide/<game>.toml`, `CONSOLE •` says news while folded; an agent that
+  `ide/<key>.toml`, `CONSOLE •` says news while folded; an agent that
   starts with the IDE has it open.
   OPEN beside the game's name (games opened last, another folder) and
   NEW (from a template into the projects folder, `~/Voxcade` or the
@@ -1121,9 +1122,27 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   pad's. Pausing (Escape, P, Start) gives way to a game's actions: a key
   one of them has, by default or saved before, pauses no more
   (`Bindings::pause_gives_way`, test `pausing_gives_way_to_the_game`). Player settings, the high score table and save games
-  (`src/saves.rs`, `saves/<game>/N.toml`; `shot`, `check`, `inspect` and
+  (`src/saves.rs`, `saves/<key>/N.toml`; `shot`, `check`, `inspect` and
   replays keep theirs for the run only) live in the user's config folder
-  (`src/settings.rs`), never in the game folder.
+  (`src/settings.rs`; `$XDG_CONFIG_HOME` or `~/.config`, macOS too for
+  now; on Windows `%APPDATA%`, an older Voxcade's folder under `HOME`
+  kept in use while `%APPDATA%` has none), never in the game folder.
+  Everything kept of a game there goes by its key (`settings::Identity`,
+  `Kept`; review round 4: a copy of Voxkeep shared Voxkeep's saves and the
+  IDE's journals): a game that comes with Voxcade (its folder in the
+  `games` of a package or of Voxcade's source, `GAMES_OF_VOXCADE`) keeps
+  its bare folder name, so its scores survive an update and a package
+  unpacked elsewhere; any other game is its folder's name and 8 signs of
+  the BLAKE3 of its canonical path (`test-1a2b3c4d`). The journals and
+  the MCP lock are always the folder's own. Adoption (`settings::settle`,
+  before the window plays a game, the IDE opens one, `voxcade replays`):
+  a game not yet in `folders/index.toml` takes what an older Voxcade kept
+  under its bare name (settings, saves, kept runs, the IDE's memory,
+  OUTPUT, deleted files), moved, unless a game that comes with Voxcade
+  has that name; then it is in the index and adopts nothing again. A
+  folder moved or renamed starts clean, its old things stay under the
+  old key. Network play still names a game by its folder
+  (`network::app_of`). Test `a_game_adopts_what_its_bare_name_kept_once`.
   The table is the arcade machines' (the user's wish): the ten best runs
   with three letters, lines to beat before anyone played
   (`c.high_scores`); a run that beats one after its end or QUIT TO TITLE

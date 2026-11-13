@@ -1,7 +1,7 @@
 //! The MCP bridge: the running IDE within reach of `voxcade mcp`, and so of
 //! the agent in its console, on this machine only. The IDE listens on
 //! 127.0.0.1 at a free port and writes the port and a random token into
-//! `config_dir()/ide/<game>.lock` (readable by the user alone, gone when the
+//! `config_dir()/ide/<folder>.lock` (`settings::Identity::folder`, readable by the user alone, gone when the
 //! IDE closes); `voxcade mcp` started in the game folder finds it there and
 //! passes the IDE's tools on (`mcp.rs`). A call is one JSON line,
 //! `{"token", "tool", "args"}`, answered by one, `{"content", "isError"}`;
@@ -25,7 +25,7 @@ const PATIENCE: Duration = Duration::from_secs(30);
 
 /// Where the IDE on the game in `game_dir` leaves its lock.
 pub fn lock_path(game_dir: &Path) -> PathBuf {
-    crate::settings::config_dir().join("ide").join(format!("{}.lock", crate::settings::game_name(game_dir)))
+    crate::settings::kept_for(game_dir, crate::settings::Kept::Lock)
 }
 
 /// A call to the IDE: the tool and its arguments, and where its answer
