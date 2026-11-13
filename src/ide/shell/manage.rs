@@ -3,7 +3,9 @@
 //! list as the plus's is (`new_file`'s checks: no folders, no empty name,
 //! no name taken); the places in the game's Lua that name the file
 //! (`refs`: a sound where a sound is taken, a module by `require`, a model
-//! or a song by its path) are listed with a tick each, the certain ones
+//! or a song by its path), and in its levels and maps (a piece's, a
+//! scatter's or a prefab's model, a map's ground pictures), are listed with
+//! a tick each, the certain ones
 //! ticked, the maybes apart and not, and the ticked ones changed too. DELETE asks nothing: the
 //! file goes to the system's trash and an UNDO shows for a few seconds
 //! (the bytes are kept in memory for it).
@@ -36,7 +38,10 @@ pub fn why_not(path: &str, group: &str) -> Option<&'static str> {
     if matches!(path, "main.lua" | "conf.lua") {
         return Some("The game needs main.lua and conf.lua: they keep their names and stay.");
     }
-    if matches!(group, "Levels" | "Blocks") {
+    // A map's prefab is named by its file in the map (found and changed
+    // as the Lua's places are); levels and blocks by their names.
+    let prefab = path.starts_with("prefabs/") && path.ends_with(".vvx");
+    if group == "Blocks" || (group == "Levels" && !prefab) {
         return Some("Not yet: the level files link to levels and blocks by their names, so these stay as they are for now.");
     }
     None
@@ -250,10 +255,13 @@ pub fn buttons(ui: &mut egui::Ui, why: Option<&str>) -> Option<Act> {
 }
 
 impl Shell {
-    /// The Lua files of the game (logic and scenarios) that may name another
-    /// file.
-    fn scripts(&self) -> Vec<String> {
-        self.files.logic.iter().chain(&self.files.scenarios).filter(|f| f.ends_with(".lua")).cloned().collect()
+    /// The files of the game that may name another file: its Lua (logic
+    /// and scenarios), its levels and maps (`refs` reads each by its
+    /// format line).
+    fn naming(&self) -> Vec<String> {
+        let lua = self.files.logic.iter().chain(&self.files.scenarios).filter(|f| f.ends_with(".lua"));
+        let data = self.files.assets.iter().filter(|g| g.name != "Sounds").flat_map(|g| &g.files).filter(|f| f.ends_with(".toml"));
+        lua.chain(data).cloned().collect()
     }
 
     /// What `act` asks of `path` (from the menu or the buttons).
@@ -272,9 +280,9 @@ impl Shell {
             return self.tell(why.into());
         }
         self.flush();
-        self.naming = None;
+        self.managing.naming = None;
         self.message = None;
-        self.renaming = Some(Renaming { path: path.to_string(), text: split_name(path).1.to_string(), problem: None, fresh: true });
+        self.managing.renaming = Some(Renaming { path: path.to_string(), text: split_name(path).1.to_string(), problem: None, fresh: true });
     }
 
     /// The name `typed` for the file `from`: it is renamed, or the question
@@ -285,18 +293,18 @@ impl Shell {
         if let Some(why) = why_not(from, group) {
             return Err(why.into());
         }
-        let sort = Sort::of(group);
+        let sort = Sort::of_file(group, from);
         let to = renamed(&self.dir, from, typed, sort)?;
         if to == from {
             return Ok(());
         }
         self.flush();
-        let rows = refs::find(&self.dir, &self.scripts(), from, &to, sort);
+        let rows = refs::find(&self.dir, &self.naming(), from, &to, sort);
         if rows.is_empty() {
             self.do_rename(from, &to, &[]);
         } else {
             let ticked = rows.iter().map(|r| r.sure).collect();
-            self.asking = Some(Question { from: from.to_string(), to, rows, ticked, fresh: true });
+            self.managing.asking = Some(Question { from: from.to_string(), to, rows, ticked, fresh: true });
         }
         Ok(())
     }
@@ -304,7 +312,7 @@ impl Shell {
     /// The answer to the question: the file renamed (and the lines changed),
     /// or nothing.
     pub fn answer(&mut self, answer: Answer) {
-        let Some(q) = self.asking.take() else { return };
+        let Some(q) = self.managing.asking.take() else { return };
         match answer {
             Answer::Change => self.do_rename(&q.from, &q.to, &q.chosen()),
             Answer::OnlyTheFile => self.do_rename(&q.from, &q.to, &[]),
@@ -318,7 +326,7 @@ impl Shell {
     /// under the old name.
     fn do_rename(&mut self, from: &str, to: &str, chosen: &[&Ref]) {
         self.flush();
-        if self.listening.as_deref() == Some(from) {
+        if self.sound.listening.as_deref() == Some(from) {
             self.hush();
         }
         if let Err(e) = std::fs::rename(self.dir.join(from), self.dir.join(to)) {
@@ -333,7 +341,7 @@ impl Shell {
         if let Some(v) = self.memory.cursor.remove(from) {
             self.memory.cursor.insert(to.to_string(), v);
         }
-        for path in [&mut self.memory.open, &mut self.previous] {
+        for path in [&mut self.memory.open, &mut self.opening.previous] {
             if path.as_deref() == Some(from) {
                 *path = Some(to.to_string());
             }
@@ -349,9 +357,9 @@ impl Shell {
         // just changed would otherwise save its old text over the new).
         if self.memory.open.as_deref().is_some_and(|open| open == to || changed.iter().any(|c| c == open)) {
             self.unload();
-            self.restore = self.memory.open.as_ref().and_then(|p| self.memory.scroll.get(p).copied());
+            self.opening.restore = self.memory.open.as_ref().and_then(|p| self.memory.scroll.get(p).copied());
         }
-        self.used = None;
+        self.sound.used = None;
         let name = |p: &str| p.rsplit('/').next().unwrap_or(p).to_string();
         let more = if changed.is_empty() { String::new() } else { format!(" · {} changed too", if changed.len() == 1 { changed[0].clone() } else { format!("{} files", changed.len()) }) };
         self.note(format!("RENAMED {} TO {}{more}", name(from), name(to)));
@@ -371,20 +379,20 @@ impl Shell {
         if let Some(why) = why_not(path, group) {
             return self.tell(why.into());
         }
-        let sort = Sort::of(group);
+        let sort = Sort::of_file(group, path);
         self.flush();
         // A text of the user's not in the file (kept while it changed
         // outside too) would go with it, unasked: the question first.
         if super::super::buffer::holds_unsaved(&self.dir, path, &self.journals()) {
             return self.tell(format!("{path} changed outside while your text was not saved yet: open it and choose KEEP MINE or TAKE THE FILE'S before deleting it."));
         }
-        if self.listening.as_deref() == Some(path) {
+        if self.sound.listening.as_deref() == Some(path) {
             self.hush();
         }
         let file = self.dir.join(path);
         let size = std::fs::metadata(&file).map_or(0, |m| m.len());
         let bytes = if size <= MAX_UNDO { std::fs::read(&file).ok() } else { None };
-        let still = still_used(&refs::find(&self.dir, &self.scripts(), path, path, sort), sort);
+        let still = still_used(&refs::find(&self.dir, &self.naming(), path, path, sort), sort);
         let (place, why) = match discard(&self.dir, path, &self.deleted_dir) {
             Ok(went) => went,
             Err(e) => return self.tell(e),
@@ -402,23 +410,23 @@ impl Shell {
         }
         let gone = Gone { path: path.to_string(), said, bytes, place, was_open, scroll, cursor, until: Instant::now() + UNDO_FOR };
         if !gone.can_undo() {
-            self.gone = Some(Gone { said: format!("{} · it is in the trash", gone.said), ..gone });
+            self.managing.gone = Some(Gone { said: format!("{} · it is in the trash", gone.said), ..gone });
         } else {
-            self.gone = Some(gone);
+            self.managing.gone = Some(gone);
         }
-        let said = self.gone.as_ref().map(|g| g.said.clone()).unwrap_or_default();
+        let said = self.managing.gone.as_ref().map(|g| g.said.clone()).unwrap_or_default();
         self.report(Kind::Note, said, None);
-        self.notice = None;
+        self.bar.notice = None;
         self.rescan();
-        self.used = None;
-        if self.previous.as_deref() == Some(path) {
-            self.previous = None;
+        self.sound.used = None;
+        if self.opening.previous.as_deref() == Some(path) {
+            self.opening.previous = None;
         }
         if was_open {
             // The file open before it, or nothing.
-            self.memory.open = self.previous.take().filter(|p| self.files.has(p));
+            self.memory.open = self.opening.previous.take().filter(|p| self.files.has(p));
             self.unload();
-            self.restore = self.memory.open.as_ref().map(|p| self.memory.scroll.get(p).copied().unwrap_or(0.0));
+            self.opening.restore = self.memory.open.as_ref().map(|p| self.memory.scroll.get(p).copied().unwrap_or(0.0));
         }
         let _ = self.save();
     }
@@ -426,7 +434,7 @@ impl Shell {
     /// UNDO: the file back exactly (its bytes, kept in memory, or moved
     /// back from our folder), and open again if it was open.
     pub fn undo(&mut self) {
-        let Some(g) = self.gone.take() else { return };
+        let Some(g) = self.managing.gone.take() else { return };
         let target = self.dir.join(&g.path);
         if target.exists() {
             return self.tell(format!("{} is there again, so UNDO leaves it as it is.", g.path));
@@ -444,7 +452,7 @@ impl Shell {
             let _ = std::fs::remove_file(copy);
         }
         self.rescan();
-        self.used = None;
+        self.sound.used = None;
         if let Some(v) = g.scroll {
             self.memory.scroll.insert(g.path.clone(), v);
         }
@@ -462,7 +470,7 @@ impl Shell {
     /// The question over the window: the places of the game that name the
     /// file being renamed, each with its tick, and what to do.
     pub(super) fn question_ui(&mut self, ui: &mut egui::Ui) {
-        let Some(q) = &mut self.asking else { return };
+        let Some(q) = &mut self.managing.asking else { return };
         let mut answer = None;
         let fresh = std::mem::take(&mut q.fresh);
         let name = |p: &str| p.rsplit('/').next().unwrap_or(p).to_string();

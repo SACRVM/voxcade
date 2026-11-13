@@ -56,6 +56,6 @@ mod tests {
                 }
             }
         }
-        assert!(found.is_empty(), "the system's maths in the simulation (use sim::math):\n{}", found.join("\n"));
+        assert!(found.is_empty(), "the system's math in the simulation (use sim::math):\n{}", found.join("\n"));
     }
 }

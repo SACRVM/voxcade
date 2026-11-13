@@ -279,10 +279,15 @@ pub fn upgrade_keeping(dir: &Path, dry: bool, keep: &Path) -> Result<Vec<String>
 
 /// Whether the folder lies in a git repository and git has every one of
 /// its files committed (nothing changed, nothing new): git can give back
-/// what an upgrade changes.
+/// what an upgrade changes. A folder git ignores is not (its status says
+/// nothing of it, and git holds none of it): its game's own files must be
+/// tracked.
 pub fn committed(dir: &Path) -> bool {
-    let out = std::process::Command::new("git").arg("-C").arg(dir).args(["status", "--porcelain", "--", "."]).stderr(std::process::Stdio::null()).output();
-    out.is_ok_and(|o| o.status.success() && o.stdout.is_empty())
+    let git = |args: &[&str]| std::process::Command::new("git").arg("-C").arg(dir).args(args).stderr(std::process::Stdio::null()).output();
+    let clean = git(&["status", "--porcelain", "--", "."]).is_ok_and(|o| o.status.success() && o.stdout.is_empty());
+    let own: Vec<&str> = ["conf.lua", "main.lua"].into_iter().filter(|f| dir.join(f).is_file()).collect();
+    let tracked = || !own.is_empty() && git(&[&["ls-files", "--error-unmatch", "--"][..], &own].concat()).is_ok_and(|o| o.status.success());
+    clean && tracked()
 }
 
 /// Copies the game's files (not hidden ones, not BUILD's `builds/` nor
@@ -2054,6 +2059,29 @@ mod tests {
         let done = upgrade_keeping(&dir, false, &keep).unwrap().join("\n");
         assert!(!done.contains("kept in") && std::fs::read_dir(&keep).unwrap().count() == 0, "{done}");
         assert!(!committed(&dir), "the upgrade changed what git holds");
+    }
+
+    /// A game in a folder the repository ignores (a copy under `target/`)
+    /// is not held by git: git's status says nothing of it, yet the upgrade
+    /// keeps its files first.
+    #[test]
+    fn a_game_git_ignores_is_kept_before_the_upgrade() {
+        let repo = crate::scratch::Scratch::new("upgrade-ignored");
+        let keep = crate::scratch::Scratch::new("upgrade-ignored-to");
+        let git = |args: &[&str]| std::process::Command::new("git").arg("-C").arg(repo.path()).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(args).output();
+        if git(&["init", "-q"]).is_err() {
+            eprintln!("SKIPPED a_game_git_ignores_is_kept_before_the_upgrade: no git here");
+            return;
+        }
+        std::fs::write(repo.join(".gitignore"), "target/\n").unwrap();
+        git(&["add", "-A"]).unwrap();
+        assert!(git(&["commit", "-q", "-m", "ignore"]).unwrap().status.success());
+        let dir = repo.join("target/game");
+        std::fs::create_dir_all(&dir).unwrap();
+        game_of_old_words(&dir, "");
+        assert!(!committed(&dir), "git holds nothing of an ignored folder");
+        let done = upgrade_keeping(&dir, false, &keep).unwrap().join("\n");
+        assert!(done.contains("kept in") && std::fs::read_dir(&keep).unwrap().count() == 1, "{done}");
     }
 
     /// A one-model `.vox`: voxels as x, y, z, colour index; colours for

@@ -581,8 +581,8 @@ fn a_model_turned_freely_as_cubes_meets_corner_to_corner() {
                 }
             }
         }
-        assert!(pairs > 1000, "{rot}: {pairs} pairs of neighbours");
-        assert!(worst < 1e-4, "{rot}: neighbours' shared corners {worst} voxels apart as drawn");
+        assert!(pairs > 1000, "{rot}: {pairs} pairs of neighbors");
+        assert!(worst < 1e-4, "{rot}: neighbors' shared corners {worst} voxels apart as drawn");
     }
 }
 
@@ -613,7 +613,7 @@ fn a_model_as_cubes_leaves_out_the_faces_between_its_voxels() {
         let taken: crate::world::CellSet = opaque.iter().map(cell).collect();
         for i in &opaque {
             let against = crate::mesh::DIRS.iter().enumerate().filter(|(_, d)| taken.contains(&(cell(i) + **d))).fold(0u8, |b, (k, _)| b | 1 << k);
-            assert_eq!(i.fx[2], against, "{look}: the cube at {} leaves out exactly the faces its neighbours cover", cell(i));
+            assert_eq!(i.fx[2], against, "{look}: the cube at {} leaves out exactly the faces its neighbors cover", cell(i));
         }
         assert!(glass.iter().all(|i| i.fx[2] == 0), "{look}: glass keeps its faces");
     }

@@ -23,7 +23,7 @@ impl Shell {
                 self.help = false;
                 self.outside = None;
                 self.open(&file);
-                self.goto = Some((line, true));
+                self.opening.goto = Some((line, true));
             }
         }
         self.main_area(ui);
@@ -33,7 +33,7 @@ impl Shell {
     pub(super) fn main_area(&mut self, ui: &mut egui::Ui) {
         // Asked for the text open, once: the line to go to, the keys to it
         // (gone if what shows is no text).
-        let (goto, focus) = (self.goto.take(), std::mem::take(&mut self.focus_code));
+        let (goto, focus) = (self.opening.goto.take(), std::mem::take(&mut self.opening.focus_code));
         if self.stage.as_ref().is_some_and(|s| s.shown) {
             return self.game(ui);
         }
@@ -56,7 +56,7 @@ impl Shell {
             });
             return;
         }
-        if let Some(name) = self.builtin {
+        if let Some(name) = self.sound.builtin {
             return self.builtin_ui(ui, name);
         }
         let Some(path) = self.memory.open.clone() else {
@@ -67,14 +67,14 @@ impl Shell {
         // by itself. A text keeps its text (SAVE AGAIN, below); anything else
         // has nothing to show.
         if !self.files.has(&path) && !matches!(self.shown, Some(Shown::Code(_))) {
-            let said = if self.opened_there { format!("{path} IS GONE FROM THE FOLDER") } else { format!("NO FILE {path} IN THE GAME") };
+            let said = if self.opening.opened_there { format!("{path} IS GONE FROM THE FOLDER") } else { format!("NO FILE {path} IN THE GAME") };
             ui.label(RichText::new(said).color(ACCENT));
             return;
         }
         if self.shown.is_none() {
             // Scripts and the texts they read, sounds and songs are to
             // change, the rest to look at.
-            let to_change = self.files.logic.contains(&path) || self.files.scenarios.contains(&path) || path.ends_with(".mml") || (path.ends_with(".toml") && sounds::name_of(&path).is_some()) || (self.model_text && path.ends_with(".vvx"));
+            let to_change = self.files.logic.contains(&path) || self.files.scenarios.contains(&path) || path.ends_with(".mml") || (path.ends_with(".toml") && sounds::name_of(&path).is_some()) || (self.pictures.model_text && (path.ends_with(".vvx") || self.is_level(&path))) || self.is_map(&path);
             self.shown = Some(if to_change {
                 match Buffer::open(&self.dir, &path, &self.journals()) {
                     Ok(buffer) => Shown::Code(Box::new(buffer)),
@@ -92,15 +92,15 @@ impl Shell {
             };
             // What an editor opens shows as a picture.
             let preview = match () {
-                _ if level => Some(Preview::level(&self.dir, &path, &self.cfg)),
-                _ if self.is_scene(&path) && !self.model_text => Some(Preview::scene(&self.dir, &path, &self.cfg)),
-                _ if is_model_file(&path) && !self.model_text => Some(Preview::model(&self.dir, &path, &self.cfg).map(|p| p.on(self.model_background()))),
+                _ if level && !self.pictures.model_text => Some(Preview::level(&self.dir, &path, &self.cfg)),
+                _ if self.is_scene(&path) && !self.pictures.model_text => Some(Preview::scene(&self.dir, &path, &self.cfg)),
+                _ if is_model_file(&path) && !self.pictures.model_text => Some(Preview::model(&self.dir, &path, &self.cfg).map(|p| p.on(self.model_background()))),
                 _ => None,
             };
-            self.preview = preview.and_then(|p| p.map_err(|e| self.message = Some(format!("{e:#}"))).ok());
-            match (&mut self.preview, self.spare.take()) {
+            self.pictures.preview = preview.and_then(|p| p.map_err(|e| self.message = Some(format!("{e:#}"))).ok());
+            match (&mut self.pictures.preview, self.pictures.spare.take()) {
                 (Some(new), Some(old)) => new.adopt(old),
-                (None, Some(old)) => self.retired.extend(old.texture()),
+                (None, Some(old)) => self.pictures.retired.extend(old.texture()),
                 _ => {}
             }
         }
@@ -122,6 +122,7 @@ impl Shell {
             // A song's line follows its text, a model's too.
             Some(Shown::Code(b)) if path.ends_with(".mml") => Some(b.code.song.clone().unwrap_or_else(|| "The song cannot be read.".into())),
             Some(Shown::Code(b)) if path.ends_with(".vvx") => Some(b.code.model.clone().unwrap_or_else(|| "The model cannot be read.".into())),
+            Some(Shown::Code(b)) if self.is_level(&path) => Some(b.code.model.clone().unwrap_or_else(|| "The level cannot be read.".into())),
             _ => self.facts.clone(),
         };
         let had_facts = facts.is_some();
@@ -135,16 +136,22 @@ impl Shell {
                         }
                         // A model is text too: shown as its text to change,
                         // or as its picture.
-                        if path.ends_with(".vvx") {
-                            let (word, tip) = if self.model_text { ("PICTURE", "Shows the model as the game draws it.") } else { ("TEXT", "Shows the model's text, to read and change (its palette, its frames or parts, layer by layer).") };
+                        let level = self.is_level(&path);
+                        if path.ends_with(".vvx") || level {
+                            let (word, tip) = match (self.pictures.model_text, level) {
+                                (true, false) => ("PICTURE", "Shows the model as the game draws it."),
+                                (false, false) => ("TEXT", "Shows the model's text, to read and change (its palette, its frames or parts, layer by layer)."),
+                                (true, true) => ("PICTURE", "Shows the level as its editor draws it."),
+                                (false, true) => ("TEXT", "Shows the level's text, to read and change (its blocks, its cells layer by layer, its things)."),
+                            };
                             if ui.button(word).on_hover_text(tip).clicked() {
                                 self.flush();
-                                self.model_text = !self.model_text;
+                                self.pictures.model_text = !self.pictures.model_text;
                                 self.unload();
                             }
                         }
                     } else if !path.ends_with(".mml") {
-                    } else if self.listening.is_some() {
+                    } else if self.sound.listening.is_some() {
                         if ui.button("STOP SONG").on_hover_text("Ends the song.").clicked() {
                             self.listen();
                         }
@@ -193,14 +200,14 @@ impl Shell {
                 Some(Shown::Code(b)) => format!("{path}\0{}", b.code.text),
                 _ => path.clone(),
             };
-            if self.sound_line.as_ref().is_none_or(|(k, _)| *k != key) {
+            if self.sound.sound_line.as_ref().is_none_or(|(k, _)| *k != key) {
                 let line = match &self.shown {
                     Some(Shown::Code(b)) => b.code.sound.as_ref().map_or_else(|| "The sound cannot be read.".to_string(), sounds::describe),
                     _ => "The sound cannot be read.".to_string(),
                 };
-                self.sound_line = Some((key, line));
+                self.sound.sound_line = Some((key, line));
             }
-            let line = self.sound_line.as_ref().map(|(_, l)| l.clone()).unwrap_or_default();
+            let line = self.sound.sound_line.as_ref().map(|(_, l)| l.clone()).unwrap_or_default();
             header_row(ui, &path, Some((&line, "")), |ui| {
                 if !maker {
                     play_sound = ui.button("PLAY SOUND").on_hover_text("Plays the sound as it stands, at the game's sound volume.").clicked();
@@ -226,9 +233,9 @@ impl Shell {
             self.manage(act, &path);
             return;
         }
-        if let Some(preview) = &mut self.preview {
+        if let Some(preview) = &mut self.pictures.preview {
             // Down to the console, the scroll bar's room kept at the right.
-            let animate = self.animate;
+            let animate = self.pictures.animate;
             ui.allocate_ui(egui::vec2(ui.available_width() - 12.0, ui.available_height() - 14.0), |ui| preview.ui(ui, animate));
             return;
         }
@@ -247,7 +254,7 @@ impl Shell {
             state.store(ui.ctx(), id);
             focus |= keys;
             let row = ui.text_style_height(&TextStyle::Monospace);
-            self.restore = Some(line.saturating_sub(6) as f32 * row);
+            self.opening.restore = Some(line.saturating_sub(6) as f32 * row);
         }
         // The cursor where it stood when the text was last open (another
         // session: in this one egui keeps it), the keys to the text if
@@ -325,12 +332,12 @@ impl Shell {
         let (mut used_rows, mut says) = (Vec::new(), Vec::new());
         if let Some(name) = &sound_name {
             self.refresh_used(name);
-            used_rows = self.used.as_ref().map(|u| u.rows.clone()).unwrap_or_default();
+            used_rows = self.sound.used.as_ref().map(|u| u.rows.clone()).unwrap_or_default();
             says = self.rules_say(name);
         }
         let (mut rects, mut go_used) = (Vec::new(), None);
         let mut scroll = egui::ScrollArea::both().id_salt(&path).auto_shrink([false, false]).content_margin(egui::Margin { right: 12, bottom: 14, ..egui::Margin::ZERO });
-        if let Some(offset) = self.restore.take() {
+        if let Some(offset) = self.opening.restore.take() {
             scroll = scroll.vertical_scroll_offset(offset);
         }
         let out = scroll.show(ui, |ui| {
@@ -362,13 +369,13 @@ impl Shell {
         self.memory.scroll.insert(path, out.state.clamped_offset().y);
         #[cfg(test)]
         {
-            self.used_rows = rects;
+            self.sound.used_rows = rects;
         }
         if let Some((file, line)) = go_used {
             self.hide_game();
             self.help = false;
             self.open(&file);
-            self.goto = Some((line, true));
+            self.opening.goto = Some((line, true));
         }
     }
 
@@ -433,12 +440,20 @@ pub fn is_model_file(path: &str) -> bool {
     path.ends_with(".vvx") || path.ends_with(".vox")
 }
 
-pub(super) fn facts(file: &Path, path: &str, level: bool) -> String {
+/// A line of what a level is: its size, its blocks and things (a level
+/// of pieces: its things, places, areas).
+pub(in crate::ide) fn level_line(l: &crate::grid::GridLevel) -> String {
     let plural = |n: usize, one: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") };
+    if !l.has_grid() {
+        return format!("{} × {} × {} · {} · {} · {}", l.size.x, l.size.y, l.size.z, plural(l.things.len(), "thing"), plural(l.places.len(), "place"), plural(l.areas.len(), "area"));
+    }
+    format!("{} × {} × {} cells of {} · {} · {}", l.size.x, l.size.y, l.size.z, l.n, plural(l.blocks.len(), "block"), plural(l.things.len(), "thing"))
+}
+
+pub(super) fn facts(file: &Path, path: &str, level: bool) -> String {
     if level {
         return match crate::grid::GridLevel::read(file) {
-            Ok(l) if !l.has_grid() => format!("{} × {} × {} · {} · {} · {}", l.size.x, l.size.y, l.size.z, plural(l.things.len(), "thing"), plural(l.places.len(), "place"), plural(l.areas.len(), "area")),
-            Ok(l) => format!("{} × {} × {} cells of {} · {} · {}", l.size.x, l.size.y, l.size.z, l.n, plural(l.blocks.len(), "block"), plural(l.things.len(), "thing")),
+            Ok(l) => level_line(&l),
             Err(e) => format!("{e:#}"),
         };
     }

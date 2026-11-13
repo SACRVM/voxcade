@@ -389,7 +389,7 @@ fn placing_moving_and_removing_things() {
     assert_eq!(saved(), gem([2, 2, 8]));
     ed.redo();
     assert_eq!(ed.level.things, gem([7, 6, 4]));
-    // Back to the blocks, a tool they lack becomes PLACE.
+    // Back to the blocks, a tool they lack becomes ADD.
     ed.choose(Tool::Move);
     ed.switch(Layer::Blocks);
     assert_eq!(ed.tool, Tool::Add);
@@ -701,4 +701,106 @@ fn undo_keeps_a_bounded_number_of_steps_and_bytes() {
     ed.history.keep = (KEPT_STEPS, 1);
     paint(&mut ed, 7);
     assert_eq!(ed.history.past.len(), 1, "the newest stays");
+}
+
+/// BOX among a level's blocks, as in a block: a footprint dragged on a
+/// face's plane set where it was drawn, of the block held, the level
+/// grown on its right to hold it; one step UNDO takes back whole (the
+/// size too); Alt only where empty, Ctrl cuts.
+#[test]
+fn a_box_of_blocks_is_set_where_it_was_drawn() {
+    let dir = folder("level-box");
+    let mut ed = Editor::open(&dir, "level.toml").unwrap();
+    let start = ed.level.clone();
+    ed.hold(0);
+    ed.choose(Tool::Box);
+    assert!(ed.forms(), "BOX among the blocks");
+    // On the top of the block in cell 0, dragged to x 4, y 1.
+    ed.begin_form(Hit { cell: IVec3::ZERO, normal: IVec3::Z }, false);
+    ed.draw_form(Vec3::new(4.5, 1.5, 50.0), Vec3::NEG_Z);
+    ed.set_drawn(false);
+    assert_eq!((ed.level.size, ed.steps()), (IVec3::new(5, 2, 2), 1), "grown to hold it, one step");
+    for x in 0..5 {
+        for y in 0..2 {
+            assert_eq!(ed.level.cell(IVec3::new(x, y, 1)).block, 1, "({x}, {y}, 1)");
+        }
+    }
+    assert_eq!(GridLevel::read(&dir.join("level.toml")).unwrap(), ed.level, "saved");
+    // + : a cell deeper, still the one step.
+    ed.deepen(1);
+    assert_eq!((ed.level.size.z, ed.steps()), (3, 1));
+    ed.undo();
+    assert_eq!(ed.level, start, "UNDO: all of it");
+    // Ctrl: cut, from the block's top into it.
+    ed.begin_form(Hit { cell: IVec3::ZERO, normal: IVec3::Z }, true);
+    ed.set_drawn(false);
+    assert_eq!(ed.level.cell(IVec3::ZERO).block, 0, "cut");
+    ed.undo();
+    // Alt: only where empty (the block's cell kept as it lies).
+    ed.held.turn = Turn::TURN;
+    ed.begin_form(Hit { cell: IVec3::new(0, 0, -1), normal: IVec3::Z }, false);
+    ed.draw_form(Vec3::new(1.5, 0.5, 50.0), Vec3::NEG_Z);
+    ed.set_drawn(true);
+    assert_eq!((ed.level.cell(IVec3::ZERO).turn, ed.level.cell(IVec3::X).turn), (Turn::NONE, Turn::TURN));
+    // Nothing on the low sides: left of the grid it sets nothing.
+    let steps = ed.steps();
+    ed.begin_form(Hit { cell: IVec3::ZERO, normal: IVec3::NEG_X }, false);
+    ed.set_drawn(false);
+    assert_eq!(ed.steps(), steps, "no step for nothing set");
+}
+
+/// FILL among a level's blocks: the cells of the block clicked joined
+/// face to face take the block held, Ctrl every cell of it; one step.
+#[test]
+fn fill_takes_the_blocks_joined_to_the_one_clicked() {
+    let dir = folder("level-fill");
+    let mut ed = Editor::open(&dir, "level.toml").unwrap();
+    ed.change_level(|l| {
+        for c in [IVec3::X, IVec3::new(2, 1, 1)] {
+            let i = l.index(c).unwrap();
+            l.cells[i] = l.cells[0];
+        }
+    });
+    ed.clone_block().unwrap();
+    let steps = ed.steps();
+    ed.choose(Tool::Fill);
+    ed.fill_at(Hit { cell: IVec3::ZERO, normal: IVec3::Z }, false);
+    let blocks = |ed: &Editor| [IVec3::ZERO, IVec3::X, IVec3::new(2, 1, 1)].map(|c| ed.level.cell(c).block);
+    assert_eq!((blocks(&ed), ed.steps()), ([2, 2, 1], steps + 1), "the two joined, not the one apart; one step");
+    ed.undo();
+    ed.fill_at(Hit { cell: IVec3::ZERO, normal: IVec3::Z }, true);
+    assert_eq!(blocks(&ed), [2, 2, 2], "Ctrl: all of it");
+    ed.fill_at(Hit { cell: IVec3::new(1, 1, 0), normal: IVec3::Z }, false);
+    assert_eq!(ed.steps(), steps + 1, "on an empty cell: nothing");
+}
+
+/// LEVEL's SIZE for a level of blocks: grown or cut on the side ANCHOR
+/// leaves free, by any number at once, the cells kept where they stay
+/// and what is set down moved with them; a cut losing blocks is one step
+/// UNDO brings back.
+#[test]
+fn the_size_of_a_level_of_blocks_grows_and_is_cut_on_any_side() {
+    let dir = folder("level-size");
+    let mut ed = Editor::open(&dir, "level.toml").unwrap();
+    ed.change_level(|l| l.things.push(Thing::new("gem", [2 * N + 1, 1, 1])));
+    let start = ed.level.clone();
+    ed.set_field(Field::LevelSize(0), 7.0);
+    assert_eq!((ed.level.size, ed.level.cell(IVec3::ZERO).block), (IVec3::new(7, 2, 2), 1), "grown at the right by four");
+    ed.anchor[0] = false;
+    ed.set_field(Field::LevelSize(0), 9.0);
+    assert_eq!((ed.level.size.x, ed.level.cell(IVec3::new(2, 0, 0)).block), (9, 1), "grown at the left: the block two cells on");
+    assert_eq!(ed.level.things[0].at[0], 4 * N + 1, "the gem with it");
+    ed.set_field(Field::LevelSize(0), 6.0);
+    assert_eq!((ed.level.size.x, ed.level.cells.iter().filter(|c| c.block != 0).count()), (6, 0), "cut at the left: the block gone");
+    assert_eq!(GridLevel::read(&dir.join("level.toml")).unwrap(), ed.level, "saved");
+    // (The field set again and again: one step, as a drag on it; the
+    // gem's the one before.)
+    assert_eq!(ed.steps(), 2);
+    ed.undo();
+    assert_eq!(ed.level, start, "UNDO: the block again, the gem where it stood");
+    // A cut alone: one step.
+    ed.resize_level(IVec3::new(2, 2, 2), [false, true, true]);
+    assert_eq!((ed.level.size.x, ed.level.cell(IVec3::ZERO).block, ed.steps()), (2, 0, 2));
+    ed.undo();
+    assert_eq!(ed.level, start);
 }

@@ -132,8 +132,8 @@ mod tests {
         assert_eq!((own.player.invulnerable, own.weapons.get("aim_assist").and_then(|v| v.as_bool())), (9, Some(false)));
         let cfg: GameConfig = toml::from_str("[player]\nspeed = 50\ninvulnerable = 9\n").unwrap();
         assert_eq!(cfg.player.speed, 50.0, "the engine lost its own key");
-        assert!(read("[weapon]\naim_assist = false\n").is_err(), "a misspelt section passed");
-        assert!(read("[player]\nknif = 9\n").is_err(), "a misspelt key passed");
+        assert!(read("[weapon]\naim_assist = false\n").is_err(), "a misspelled section passed");
+        assert!(read("[player]\nknif = 9\n").is_err(), "a misspelled key passed");
         assert!(read("[player]\nknife = 9\n").unwrap_err().to_string().contains("c.weapons.knife"), "an old key without its new place");
         assert!(read("[enemies]\nhp = 2\n").is_err(), "an old section passed");
     }

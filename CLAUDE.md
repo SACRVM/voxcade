@@ -254,14 +254,19 @@ nearest; its replay `tests/two_ships`);
   game made for an older Voxcade: `voxcade upgrade <game> [--dry]` (every
   step it needs, then `c.voxcade`; it commits nothing; a game not in git
   with everything committed has its files kept first in
-  `config_dir()/before-upgrade/<game>-for-<version>/`, `upgrade::committed`,
-  `upgrade_keeping`). The IDE (and the
+  `config_dir()/before-upgrade/<game>-for-<version>/`, `upgrade::committed`:
+  a folder git ignores is not committed, test
+  `a_game_git_ignores_is_kept_before_the_upgrade`; `upgrade_keeping`). The IDE (and the
   launcher's EDIT and PLAY) opens such a game on its upgrade page
   (`ide/wizard.rs`, the user's: a wizard, not a command): the version it
-  was made for and this one, the steps' dry run in their words, a word
-  on changes git has not committed, UPGRADE on a thread, what was done
-  (COPY; not the line naming `voxcade check --refit`, which REFIT THE
-  REPLAYS below does), REFIT THE REPLAYS (`replay::refit_saying`), then the game; a
+  was made for and this one, the steps' dry run in their words (only the
+  steps that change something, the rest one quiet line "N steps have
+  nothing to change", `wizard::shown_lines`), a word on changes git has
+  not committed and A COPY IS KEPT FIRST or GIT KEEPS THE OLD FILES by
+  UPGRADE (`wizard::keeping`, as `upgrade::committed`), UPGRADE on a
+  thread, what was done (COPY; not the line naming `voxcade check
+  --refit`, which REFIT THE REPLAYS below does), "N replays recorded on
+  the old files" and REFIT THE REPLAYS (`replay::refit_saying`), then the game; a
   game of a newer Voxcade is told to get the update. A `conf.lua` stating
   no `c.voxcade` is taken as made before 0.6.0, but where no step finds
   anything to change it opens (`Standing::Current`), the missing line said
@@ -353,7 +358,30 @@ nearest; its replay `tests/two_ships`);
   losing focus lets go; `--shot --shift`);
   BEVEL cuts a box's edges, SYMMETRY mirrors every tool left to right;
   `editor::model::form_cells`, `--shot --tool box --held X,Y,Z` sets one
-  that big under the mouse, fresh, `--stamp` no more fresh);
+  that big under the mouse, fresh, `--stamp` no more fresh); among a
+  level's blocks BOX (of the block held, as it is turned; the level grows
+  on its right, back and top to hold it, `Editor::place_level_cells`) and
+  FILL (the cells of the block clicked joined face to face take the held
+  one, Ctrl all of it, `fill_cells`) mean the same, same keys and words
+  (the owner: one set of tools in both editors); LEVEL's SIZE of a level
+  of blocks grows or cuts by any number on the side ANCHOR leaves free
+  (LEFT/RIGHT, FRONT/BACK, BOTTOM/TOP; `cells::reframe`: cells kept where
+  they stay, what is set down moved with them; one step, a cut that loses
+  blocks too); a model's colors keep their number keys in the palette's
+  order (a new one the next number, only REMOVE renumbers); Delete, never
+  a plain letter, takes a frame or a level's block out (its file too; one
+  UNDO brings both back, test
+  `delete_removes_a_frame_or_a_block_and_undo_brings_it_back`); FRONT,
+  SIDE, TOP in the voxel editor's view corner look straight at a model's
+  front (+y), its right side and from above (a level's block: its y 0
+  side), the one lit pressed again the free view as it was
+  (`view::STRAIGHT`, `View::straight_view`; no keys: the number keys are
+  the colors); `--choose`, `--hide`, `--menu`, `--context` take an unnamed
+  thing by what the list shows (`torch`, `torch#3` the third;
+  `room::listed`); `--scatter N` without such a rule names the rules there
+  are; a shot draws the panels as they are after two seconds where egui
+  never settles (ADD MODEL's find in focus; `shot::settle`), and
+  `--picker` opens among the pieces;
   `editor::EditorWindow` takes its window's events (`ide::route`). A
   double click in the list or EDIT above the file opens one; the main
   area shows it as a picture (`ide/preview.rs`, the editor's view
@@ -363,7 +391,11 @@ nearest; its replay `tests/two_ships`);
   is focused again. A `.vvx` is text too: TEXT beside EDIT shows it to
   read and change in the main area as a sound's (`ide/code.rs`
   `Syntax::Model`, read by `vvx::read` after every change, its mistake
-  "LINE n: why"), PICTURE back (`--open text:FILE` in a shot). The logic's files are changed in the main area
+  "LINE n: why"), PICTURE back (`--open text:FILE` in a shot); a level
+  too (TEXT beside EDIT, `Syntax::Level` told by its format line, read
+  by `GridLevel::from_text`, its line of what it is above), and a map
+  (`map.toml`, no editor) is always text to change (`Syntax::Map`,
+  `MapData::read`; `Shell::is_map`, `Files::level_text`). The logic's files are changed in the main area
   (`ide/code.rs`: coloured by `lua::lex::spans`, of which `tokens`, the
   fingerprint, is made, the same byte for byte, test
   `highlighting_keeps_the_fingerprint`; Lua reads the text after every
@@ -394,7 +426,9 @@ nearest; its replay `tests/two_ships`);
   error panel over the game, `Session::problem_shown`, one plain line
   under the script's mistake, `play::plain_words`, and OUTPUT gets the
   whole traceback); `--shot
-  --play TICKS` draws it (with `--open` the file over the game held).
+  --play TICKS` draws it (with `--open` the file over the game held; a game
+  that would not start with its red line, test
+  `a_shot_of_a_game_that_would_not_start_shows_the_red_line`).
   The headings LOGIC, SCENARIOS, MODELS and MUSIC are always there, each with a plus
   left of the arrow: a name typed in place makes a small Lua file, scenario,
   model or song to change (`Shell::make_file`; no leaving the IDE for a first
@@ -437,10 +471,15 @@ nearest; its replay `tests/two_ships`);
   and Ctrl+S saves at once. RENAME and DELETE
   (`ide/shell/manage.rs`; a right click on a row, and small beside SAVED
   over the open file) for the logic, scenarios, models, sounds, songs,
-  images and the rest, not `main.lua`/`conf.lua`, levels or blocks (off
-  with the reason on hover): the name typed in place as the plus's, the
-  lines of the game's Lua naming the file (found by `ide/refs.rs`: Lua
-  tokens, by where a quoted name stands) ticked one by one in a modal
+  images and the rest, a map's prefabs too (`prefabs/*.vvx`), not
+  `main.lua`/`conf.lua`, levels or blocks (off with the reason on hover):
+  the name typed in place as the plus's, the lines of the game's Lua
+  naming the file (found by `ide/refs.rs`: Lua tokens, by where a quoted
+  name stands) and of its levels and maps (`refs::scan_data`, by the
+  format line: a piece's and a scatter's `model`/`models` from the game
+  folder, a map's `[prefabs]` and `[ground]` pictures from the map's;
+  levels and maps name no sound or song; only the quoted name rewritten,
+  test `a_model_is_renamed_in_the_levels_and_maps_too`) ticked one by one in a modal
   (certain ones ticked, MAYBE ones unticked; RENAME, ONLY THE FILE,
   CANCEL) and changed only for the ticked; USED lists MAYBE apart; DELETE asks nothing, the system's trash (`trash`
   crate, else `config_dir()/ide/deleted/<key>/`) and UNDO in the bar for 20
@@ -452,8 +491,9 @@ nearest; its replay `tests/two_ships`);
   REPLACE WITH, REPLACE and REPLACE ALL, each one step of the text's undo.
   Ctrl+Shift+F or SEARCH in the bar searches the game in the list's place
   (the panel a third of the window wide meanwhile, up to 560 points; on a thread, the files the list shows that open as text: logic,
-  scenarios, sounds, songs, models, no levels), a line clicked opens its
-  file there with the word current; `--shot --find WORD [--replace TEXT]`,
+  scenarios, sounds, songs, models, levels and maps, not a world or a
+  prefab), a line clicked opens its file there with the word current (a
+  model's or a level's in its TEXT); `--shot --find WORD [--replace TEXT]`,
   `--search WORD [--hit N]`. (Go to definition, references and rename are
   not built: no LSP.) Songs play from the main area (PLAY SONG). Reading the keys
   (`controls::read_input`), the speaker (`audio::speaker`) and the

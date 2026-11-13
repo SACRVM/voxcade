@@ -241,6 +241,8 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         let all: crate::world::CellSet = cells.iter().copied().collect();
         let color = if view.cut || ed.forms.drawing.is_some_and(|d| d.cut) {
             [230, 70, 60, 255]
+        } else if ed.scope == Scope::Level {
+            [255, 214, 90, 255]
         } else {
             [ed.colour[0], ed.colour[1], ed.colour[2], 255]
         };

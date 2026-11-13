@@ -525,8 +525,8 @@ grain = 0.3
     Shift held is PICK, whatever the tool (the tool before comes back
     when it is let go). Ctrl+Z, Ctrl+Y. Every word has a key, shown at its end (the panels
     are the IDE's look, egui) (a tool the same on both levels: A, E, P, I, and N for DEEP PAINT;
-    U and R undo and redo, T, O, M turn, C clones, D deletes, N new, B
-    back; among the things M moves); the block's own colors (the big fields) are on 1 to 9 and 0,
+    U and R undo and redo, T, O, M turn, C clones, Delete removes a block or a frame (UNDO brings it back, a block's file too), N new, B
+    back; among the things M moves); the block's own colors (the big fields) are on 1 to 9 and 0 (a model's by its palette's order: a new color the next number),
     their numbers on them. Every change
     is saved at once.
   - `voxcade edit <game> [--block NAME | --things] --shot FILE [--view

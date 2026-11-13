@@ -416,7 +416,8 @@ Stage by stage (the plan of 2026-10-18):
    once the file is mended; tests `a_held_game_takes_in_the_mended_script`,
    `the_line_the_game_stopped_at_is_marked`). It
    steps as `voxcade shot` does (test `play_steps_and_draws_into_its_panel`);
-   `voxcade ide --shot --play TICKS` draws it. Gamepads drive it too, any
+   `voxcade ide --shot --play TICKS` draws it (a game that would not
+   start: its red line). Gamepads drive it too, any
    plugged in, at the start or later (the keyboard only while the game
    has the keys). A run won or lost (PRESS START) starts over with Enter,
    or Start or A on a pad: the IDE has no title to go back to. Its runs
@@ -507,7 +508,11 @@ Stage by stage (the plan of 2026-10-18):
    asked about ("3 lines of your game play this sound by its name. Change
    them too?": CHANGE THEM, ONLY THE FILE, CANCEL): a sound by its quoted
    name, a Lua file by `require`, a model, a song and any other file by its
-   quoted path; a scenario is named by nothing. DELETE asks nothing: the file
+   quoted path; a scenario is named by nothing. The levels and maps are
+   asked about too, certain each: a model by a level's pieces and its
+   land's scatter, and by a map's prefabs (a prefab in `prefabs/` is
+   renamed so too), a picture by a map's ground; they name no sound or
+   song. DELETE asks nothing: the file
    goes to the system's trash (`trash` crate; if it will not, into
    `config_dir()/ide/deleted/<game>/`, said in OUTPUT) and the bar shows
    DELETED, what in the game still names it, and UNDO for 20 seconds (the
@@ -632,9 +637,15 @@ Stage by stage (the plan of 2026-10-18):
    opening such a game (OPEN, a folder, the launcher's EDIT and PLAY,
    `voxcade ide GAME`) shows a calm page instead (`ide/wizard.rs`): the
    Voxcade it was made for and this one, each step of `upgrade::standing`
-   with what it would do in its own words (the dry run), the version line
-   last; above UPGRADE and BACK a word when git has changes not committed
-   (save a step first; the upgrade commits nothing). UPGRADE runs on a
+   that changes something with what it would do in its own words (the dry
+   run; the steps with nothing to change counted in one quiet line), the
+   version line last; above UPGRADE and BACK a word when git has changes
+   not committed (save a step first; the upgrade commits nothing) and
+   what keeps the old files: A COPY IS KEPT FIRST (into
+   `before-upgrade/`, the folder not all committed in git) or GIT KEEPS
+   THE OLD FILES (test `the_page_shows_only_the_steps_that_change_something`).
+   After UPGRADE the replays are counted on a quiet line beside REFIT THE
+   REPLAYS, no empty heading. UPGRADE runs on a
    thread as BUILD does, then says what was done (COPY) or what went
    wrong in red (COPY); then REFIT THE REPLAYS (`replay::refit_saying`,
    as `voxcade check --refit`: written only if every replay plays as

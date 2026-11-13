@@ -481,13 +481,13 @@ pub fn plain_words(trouble: &str) -> Option<String> {
     // The type Lua names in "attempt to ... a number value".
     let what = |after: &str| first.split(after).nth(1).and_then(|r| r.split_whitespace().next()).map(str::to_string);
     let said = if first.contains("attempt to index a nil value") {
-        "Something here is nil: a name misspelt, or not set yet.".to_string()
+        "Something here is nil: a name misspelled, or not set yet.".to_string()
     } else if first.contains("attempt to call a nil value") {
-        "A function here does not exist: its name misspelt, or not defined yet.".to_string()
+        "A function here does not exist: its name misspelled, or not defined yet.".to_string()
     } else if first.contains("attempt to perform arithmetic on a nil value") {
-        "A number here is nil: a name misspelt, or not set yet.".to_string()
+        "A number here is nil: a name misspelled, or not set yet.".to_string()
     } else if first.contains("attempt to concatenate a nil value") {
-        "Text joined with .. here is nil: a name misspelt, or not set yet.".to_string()
+        "Text joined with .. here is nil: a name misspelled, or not set yet.".to_string()
     } else if first.contains("attempt to compare") {
         "Two values here cannot be compared with < or >: one is nil, or a number meets a text.".to_string()
     } else if let Some(t) = what("attempt to index a ") {

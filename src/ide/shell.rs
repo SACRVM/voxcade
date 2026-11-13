@@ -45,7 +45,7 @@ use errors::*;
 use new_files::*;
 use sound_ui::*;
 pub use main_area::is_model_file;
-pub(super) use main_area::model_line;
+pub(super) use main_area::{level_line, model_line};
 use crate::audio::sound::{self, SoundDef};
 
 /// What the main area shows of the open file.
@@ -59,16 +59,14 @@ enum Shown {
     Note(String),
 }
 
-/// The window's state between frames.
+/// The window's state between frames: the game and its open file at the
+/// top, what each part of the window keeps in a group of its own.
 pub struct Shell {
     title: String,
     dir: PathBuf,
     files: Files,
-    /// The folder's file names as last looked at, and when to look next
-    /// (once a second: a file the agent makes comes into the list by
-    /// itself).
-    listing: Vec<String>,
-    list_at: std::time::Instant,
+    /// What is looked at again now and then.
+    polling: Polling,
     memory: Memory,
     memory_path: PathBuf,
     /// The open file as shown (loaded on the first frame it is open), and
@@ -79,8 +77,8 @@ pub struct Shell {
     /// remembered as open.
     outside: Option<PathBuf>,
     facts: Option<String>,
-    /// How far down to scroll the file just opened, once.
-    restore: Option<f32>,
+    /// How the file just opened is shown at first.
+    opening: Opening,
     console: Console,
     /// The game's level of blocks (its file, `c.world.blocks.file`), which
     /// the level editor opens; with levels in `levels/`, each of those too.
@@ -89,55 +87,109 @@ pub struct Shell {
     edits: Vec<String>,
     /// What went wrong opening one, to show.
     message: Option<String>,
-    /// A name being typed for a new file (a plus at a heading).
-    naming: Option<Naming>,
-    /// A name being typed for a file of the list (RENAME), the question
-    /// about the lines that name it, the file just deleted (UNDO), the file
-    /// open before this one, and the folder a file goes to when the system's
-    /// trash will not take it.
-    renaming: Option<Renaming>,
-    asking: Option<Question>,
-    gone: Option<Gone>,
-    previous: Option<String>,
-    /// The open file was in the folder when it was opened (else it never
-    /// was: not said to be gone).
-    opened_there: bool,
+    /// A new file named, a file renamed, deleted, asked about.
+    managing: Managing,
+    /// The folder a file goes to when the system's trash will not take it.
     deleted_dir: PathBuf,
     /// Where the open texts' journals are kept (`Memory::journals_for`).
     journals: PathBuf,
-    /// Where UNDO was drawn (for the tests' mouse).
-    #[cfg(test)]
-    undo_button: Option<egui::Rect>,
-    /// Where the pluses and their headings were drawn (for the tests' mouse).
-    #[cfg(test)]
-    headings: Vec<(String, egui::Rect, egui::Rect)>,
     /// The game's settings (the light and camera previews use).
     cfg: crate::config::GameConfig,
-    /// A model's picture lies on the voxel editor's BACKGROUND as the
-    /// person chose it (else, and in a shot or a test, on a mid gray).
-    pub own_background: bool,
-    /// The picture of the model, block or level open, and the one before
-    /// (the new one takes over its renderer).
-    preview: Option<Preview>,
-    /// A model shown as its text (TEXT), not as its picture.
-    model_text: bool,
-    spare: Option<Preview>,
-    /// Pictures gone, their textures to free.
-    retired: Vec<egui::TextureId>,
-    /// When to look next whether the open file changed on disk.
-    look_at: std::time::Instant,
-    /// Pictures play (a model's frames); a shot holds them still.
-    pub animate: bool,
+    /// The picture of a model, block or level open.
+    pub pictures: Pictures,
     /// The game being played (the IDE runs it, `play.rs`), and what the
     /// window asks of it.
     pub stage: Option<Stage>,
     asks: Vec<Ask>,
+    /// What the bar along the top says, BUILD at work.
+    bar: BarState,
+    /// Why the game would not start (PLAY found no game to begin), until it
+    /// starts or the files are mended (`start_mended`).
+    start_failed: Option<String>,
+    /// The IDE's settings and NEW's form.
+    forms: Forms,
+    /// HELP shown in the main area, and its topic (kept while it is away;
+    /// 0 the reference, as HELP opens).
+    pub help: bool,
+    pub help_topic: usize,
+    /// What lies below the main area: OUTPUT and the console's room.
+    below: Below,
+    /// A sound or a song open, heard, made.
+    pub sound: SoundPage,
+    /// The agent's program.
+    agent: AgentState,
+    /// The find row over the open text (Ctrl+F, Ctrl+H), and the search
+    /// across the game in the list's place (Ctrl+Shift+F, SEARCH).
+    pub find: super::find::Find,
+    pub search: super::find::Search,
+}
+
+/// What `Shell` looks at again now and then.
+struct Polling {
+    /// The folder's file names as last looked at, and when to look next
+    /// (once a second: a file the agent makes comes into the list by
+    /// itself).
+    listing: Vec<String>,
+    list_at: std::time::Instant,
+    /// When to look next whether the open file changed on disk.
+    look_at: std::time::Instant,
+}
+
+/// How the file just opened is shown at first.
+struct Opening {
+    /// How far down to scroll the file just opened, once.
+    restore: Option<f32>,
     /// The line of the open file to go to, once, and whether the text
     /// takes the keys there (the user asked, not the agent).
     goto: Option<(usize, bool)>,
     /// The text open takes the keys on its next frame (a file chosen in
     /// the list, back from the game).
     focus_code: bool,
+    /// The open file was in the folder when it was opened (else it never
+    /// was: not said to be gone).
+    opened_there: bool,
+    /// The file open before this one.
+    previous: Option<String>,
+}
+
+/// A new file named, a file renamed, deleted, asked about.
+#[derive(Default)]
+struct Managing {
+    /// A name being typed for a new file (a plus at a heading).
+    naming: Option<Naming>,
+    /// A name being typed for a file of the list (RENAME), the question
+    /// about the lines that name it, the file just deleted (UNDO).
+    renaming: Option<Renaming>,
+    asking: Option<Question>,
+    gone: Option<Gone>,
+    /// Where UNDO was drawn (for the tests' mouse).
+    #[cfg(test)]
+    undo_button: Option<egui::Rect>,
+    /// Where the pluses and their headings were drawn (for the tests' mouse).
+    #[cfg(test)]
+    headings: Vec<(String, egui::Rect, egui::Rect)>,
+}
+
+/// The picture of a model, block or level open.
+pub struct Pictures {
+    /// A model's picture lies on the voxel editor's BACKGROUND as the
+    /// person chose it (else, and in a shot or a test, on a mid gray).
+    pub own_background: bool,
+    /// The picture of the model, block or level open, and the one before
+    /// (the new one takes over its renderer).
+    preview: Option<Preview>,
+    /// A model or a level shown as its text (TEXT), not as its picture.
+    model_text: bool,
+    spare: Option<Preview>,
+    /// Pictures gone, their textures to free.
+    retired: Vec<egui::TextureId>,
+    /// Pictures play (a model's frames); a shot holds them still.
+    pub animate: bool,
+}
+
+/// What the bar along the top says beside the buttons, BUILD at work.
+#[derive(Default)]
+struct BarState {
     /// What the last BUILD made (or why not), what F9 did; until when
     /// (None: until the next).
     notice: Option<Notice>,
@@ -145,11 +197,11 @@ pub struct Shell {
     /// BUILD at work on a thread of its own: its answer, and where the zip
     /// goes.
     building: Option<(std::sync::mpsc::Receiver<anyhow::Result<super::export::Packed>>, PathBuf)>,
-    /// Why the game would not start (PLAY found no game to begin), until it
-    /// starts or the files are mended (`start_mended`).
-    start_failed: Option<String>,
-    /// The song playing (its file), started with PLAY SONG over it.
-    pub listening: Option<String>,
+}
+
+/// The IDE's settings and NEW's form.
+#[derive(Default)]
+struct Forms {
     /// The IDE's settings (the gear at the top right) and where they are
     /// kept (None: nowhere, a test's or a shot's).
     prefs: Prefs,
@@ -159,10 +211,10 @@ pub struct Shell {
     /// The game to open once the user agrees to end what runs in the
     /// console.
     leaving: Option<PathBuf>,
-    /// HELP shown in the main area, and its topic (kept while it is away;
-    /// 0 the reference, as HELP opens).
-    pub help: bool,
-    pub help_topic: usize,
+}
+
+/// What lies below the main area: OUTPUT and the console's room.
+struct Below {
     /// OUTPUT, and whether it is shown below instead of the console; the
     /// game's trouble already in it, and when it was last written down.
     output: Output,
@@ -175,6 +227,11 @@ pub struct Shell {
     console_dragged: bool,
     reported: Option<String>,
     output_saved: std::time::Instant,
+}
+
+/// A sound or a song open, heard, made.
+#[derive(Default)]
+pub struct SoundPage {
     /// The sounds the game's code brings (a kit's, the engine's), which it
     /// has no file for until MAKE IT YOURS; the one of them shown in the
     /// main area, by name.
@@ -195,17 +252,18 @@ pub struct Shell {
     looping: bool,
     again_at: Option<std::time::Instant>,
     fading: Option<maker::Fader>,
-    /// Where the agent's program is looked for, and whether it was not
-    /// found when last looked (the console says so, instead of the shell).
-    finder: super::claude::Finder,
-    no_agent: bool,
+    /// The song playing (its file), started with PLAY SONG over it.
+    pub listening: Option<String>,
     /// Where the rows of USED were drawn (for the tests' mouse).
     #[cfg(test)]
     used_rows: Vec<egui::Rect>,
-    /// The find row over the open text (Ctrl+F, Ctrl+H), and the search
-    /// across the game in the list's place (Ctrl+Shift+F, SEARCH).
-    pub find: super::find::Find,
-    pub search: super::find::Search,
+}
+
+/// Where the agent's program is looked for, and whether it was not found
+/// when last looked (the console says so, instead of the shell).
+struct AgentState {
+    finder: super::claude::Finder,
+    no_agent: bool,
 }
 
 /// Where the game's code names the sound open.
@@ -262,7 +320,7 @@ pub enum Ask {
     /// A song (its file) to play, and silence again.
     Listen(String),
     Hush,
-    /// The sound PLAY SOUND made ready (`Shell::heard`) to play once.
+    /// The sound PLAY SOUND made ready (`SoundPage::heard`) to play once.
     Sound,
     /// Another game, or the system's dialog to pick a folder (the menu on
     /// the game's name, the settings).
@@ -303,13 +361,48 @@ impl Shell {
         let restore = memory.open.as_ref().and_then(|f| memory.scroll.get(f).copied());
         // Beside the memory unless told (`with_journals`): a shot's and a test's own.
         let journals = memory_path.with_extension("journal");
-        Self { title, dir: dir.to_path_buf(), files, listing, list_at: std::time::Instant::now() + LIST_EVERY, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, renaming: None, asking: None, gone: None, previous: None, opened_there: true, #[cfg(test)] undo_button: None, deleted_dir: crate::settings::kept_for(dir, crate::settings::Kept::IdeDeleted), journals, #[cfg(test)] headings: Vec::new(), cfg, own_background: cfg!(not(test)), preview: None, model_text: false, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, building: None, start_failed: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, console_seen: None, console_dragged: false, reported: None, output_saved: std::time::Instant::now(), brought: Vec::new(), builtin: None, sound_line: None, used: None, heard: None, rolls: 0, looping: false, again_at: None, fading: None, #[cfg(test)] finder: super::claude::Finder::in_dirs(Vec::new()), #[cfg(not(test))] finder: super::claude::Finder::system(), no_agent: false, #[cfg(test)] used_rows: Vec::new(), find: Default::default(), search: Default::default() }
+        Self {
+            title,
+            dir: dir.to_path_buf(),
+            files,
+            polling: Polling { listing, list_at: std::time::Instant::now() + LIST_EVERY, look_at: std::time::Instant::now() },
+            memory,
+            memory_path,
+            shown: None,
+            outside: None,
+            facts: None,
+            opening: Opening { restore, goto: None, focus_code: false, opened_there: true, previous: None },
+            console,
+            level,
+            edits: Vec::new(),
+            message: None,
+            managing: Managing::default(),
+            deleted_dir: crate::settings::kept_for(dir, crate::settings::Kept::IdeDeleted),
+            journals,
+            cfg,
+            pictures: Pictures { own_background: cfg!(not(test)), preview: None, model_text: false, spare: None, retired: Vec::new(), animate: true },
+            stage: None,
+            asks: Vec::new(),
+            bar: BarState::default(),
+            start_failed: None,
+            forms: Forms::default(),
+            help: false,
+            help_topic: 0,
+            below: Below { output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, console_seen: None, console_dragged: false, reported: None, output_saved: std::time::Instant::now() },
+            sound: SoundPage::default(),
+            #[cfg(test)]
+            agent: AgentState { finder: super::claude::Finder::in_dirs(Vec::new()), no_agent: false },
+            #[cfg(not(test))]
+            agent: AgentState { finder: super::claude::Finder::system(), no_agent: false },
+            find: Default::default(),
+            search: Default::default(),
+        }
     }
 
     /// The sounds the game's code brings (`Game::sounds`), listed under
     /// SOUNDS for the ones the game has no file for.
     pub fn with_sounds(mut self, brought: Vec<(&'static str, SoundDef)>) -> Self {
-        self.brought = brought;
+        self.sound.brought = brought;
         self
     }
 
@@ -323,19 +416,19 @@ impl Shell {
 
     /// OUTPUT's lines kept at `path` (`Output::path_for`).
     pub fn with_output(mut self, path: PathBuf) -> Self {
-        self.output = Output::open(Some(path));
+        self.below.output = Output::open(Some(path));
         self
     }
 
     /// Adds a line to OUTPUT.
     fn report(&mut self, kind: Kind, text: impl Into<String>, at: Option<(String, usize)>) {
-        let shown = self.output_shown && self.prefs.console && !self.memory.console_folded;
-        self.output.add(kind, text, at, shown);
+        let shown = self.below.output_shown && self.forms.prefs.console && !self.memory.console_folded;
+        self.below.output.add(kind, text, at, shown);
     }
 
     /// Shows `path` (in the game folder) in the main area.
     pub fn open(&mut self, path: &str) {
-        if self.outside.take().is_some() || self.builtin.take().is_some() {
+        if self.outside.take().is_some() || self.sound.builtin.take().is_some() {
             self.unload();
         }
         if self.memory.open.as_deref() == Some(path) {
@@ -343,12 +436,12 @@ impl Shell {
         }
         self.flush();
         self.hush();
-        self.previous = self.memory.open.clone();
+        self.opening.previous = self.memory.open.clone();
         self.memory.open = Some(path.to_string());
-        self.opened_there = self.files.has(path);
-        self.model_text = false;
+        self.opening.opened_there = self.files.has(path);
+        self.pictures.model_text = false;
         self.unload();
-        self.restore = Some(self.memory.scroll.get(path).copied().unwrap_or(0.0));
+        self.opening.restore = Some(self.memory.scroll.get(path).copied().unwrap_or(0.0));
         let _ = self.save();
     }
 
@@ -369,10 +462,10 @@ impl Shell {
     fn unload(&mut self) {
         self.shown = None;
         self.message = None;
-        self.sound_line = None;
-        self.used = None;
-        if let Some(p) = self.preview.take() {
-            self.spare = Some(p);
+        self.sound.sound_line = None;
+        self.sound.used = None;
+        if let Some(p) = self.pictures.preview.take() {
+            self.pictures.spare = Some(p);
         }
     }
 
@@ -398,21 +491,21 @@ impl Shell {
     /// how long until the next look.
     pub fn tick(&mut self, now: std::time::Instant) -> (bool, std::time::Duration) {
         // OUTPUT written down now and then (a script may print every tick).
-        if now.duration_since(self.output_saved) >= std::time::Duration::from_secs(3) {
-            let _ = self.output.save();
-            self.output_saved = now;
+        if now.duration_since(self.below.output_saved) >= std::time::Duration::from_secs(3) {
+            let _ = self.below.output.save();
+            self.below.output_saved = now;
         }
         // BUILD's answer, looked for while it works (a tenth of a second).
         let mut built = false;
         let mut wait = None;
-        if let Some((receive, out)) = self.building.take() {
+        if let Some((receive, out)) = self.bar.building.take() {
             match receive.try_recv() {
                 Ok(made) => {
                     self.built(made, out);
                     built = true;
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {
-                    self.building = Some((receive, out));
+                    self.bar.building = Some((receive, out));
                     wait = Some(std::time::Duration::from_millis(100));
                 }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -422,25 +515,25 @@ impl Shell {
             }
         }
         // LOOP: the sound again once it has sounded and the pause is over.
-        if self.looping && self.again_at.is_none_or(|at| now >= at) {
-            self.again_at = None;
+        if self.sound.looping && self.sound.again_at.is_none_or(|at| now >= at) {
+            self.sound.again_at = None;
             self.play_sound();
             // (A sound that would not play ends the loop: nothing to wait for.)
-            self.looping = self.again_at.is_some();
+            self.sound.looping = self.sound.again_at.is_some();
         }
-        let again = self.again_at.filter(|_| self.looping).map(|at| at.saturating_duration_since(now));
+        let again = self.sound.again_at.filter(|_| self.sound.looping).map(|at| at.saturating_duration_since(now));
         // The folder's file names: a file made, removed or renamed from
         // outside comes into the list (or goes from it).
         let mut changed = built;
-        if now >= self.list_at {
+        if now >= self.polling.list_at {
             changed |= self.look_at_folder();
-            self.list_at = now + LIST_EVERY;
+            self.polling.list_at = now + LIST_EVERY;
         }
-        let to_list = self.list_at.saturating_duration_since(now).min(wait.unwrap_or(LIST_EVERY));
+        let to_list = self.polling.list_at.saturating_duration_since(now).min(wait.unwrap_or(LIST_EVERY));
         let Some(Shown::Code(buffer)) = &mut self.shown else { return (changed, again.unwrap_or(std::time::Duration::from_secs(3600)).min(to_list)) };
-        if now >= self.look_at {
+        if now >= self.polling.look_at {
             changed |= buffer.look();
-            self.look_at = now + LOOK_EVERY;
+            self.polling.look_at = now + LOOK_EVERY;
         }
         match buffer.tick(now) {
             Ok(saved) => changed |= saved,
@@ -449,14 +542,14 @@ impl Shell {
                 changed = true;
             }
         }
-        let next = buffer.due(now).unwrap_or(LOOK_EVERY).min(self.look_at.saturating_duration_since(now)).min(again.unwrap_or(LOOK_EVERY)).min(to_list);
+        let next = buffer.due(now).unwrap_or(LOOK_EVERY).min(self.polling.look_at.saturating_duration_since(now)).min(again.unwrap_or(LOOK_EVERY)).min(to_list);
         (changed, next)
     }
 
     /// Reads the list anew (the IDE itself made, renamed or deleted a file).
     fn rescan(&mut self) {
-        self.listing = Files::names(&self.dir);
-        self.files = Files::from_names(&self.dir, self.listing.clone());
+        self.polling.listing = Files::names(&self.dir);
+        self.files = Files::from_names(&self.dir, self.polling.listing.clone());
     }
 
     /// Compares the folder's file names with the list, and reads the list
@@ -466,14 +559,14 @@ impl Shell {
     /// area (`main`), its text kept.
     fn look_at_folder(&mut self) -> bool {
         let names = Files::names(&self.dir);
-        if names == self.listing {
+        if names == self.polling.listing {
             return false;
         }
         self.files = Files::from_names(&self.dir, names.clone());
-        self.listing = names;
+        self.polling.listing = names;
         // A name being typed for a file that is gone has no row to stand in.
-        if self.renaming.as_ref().is_some_and(|r| !self.files.has(&r.path)) {
-            self.renaming = None;
+        if self.managing.renaming.as_ref().is_some_and(|r| !self.files.has(&r.path)) {
+            self.managing.renaming = None;
         }
         // The text open learns at once that its file is gone (or back), so
         // that its autosave does not make the file again.
@@ -486,18 +579,18 @@ impl Shell {
     /// Lets go of the pictures it drew (the game is left).
     pub fn release(&mut self, egui: &mut egui_wgpu::Renderer) {
         self.unload();
-        let gone = self.spare.take().into_iter().chain(self.preview.take()).filter_map(|p| p.texture());
-        for id in self.retired.drain(..).chain(gone) {
+        let gone = self.pictures.spare.take().into_iter().chain(self.pictures.preview.take()).filter_map(|p| p.texture());
+        for id in self.pictures.retired.drain(..).chain(gone) {
             egui.free_texture(&id);
         }
     }
 
     /// Draws the open file's picture if it changed: true if it did.
     pub fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, egui: &mut egui_wgpu::Renderer) -> bool {
-        for id in self.retired.drain(..) {
+        for id in self.pictures.retired.drain(..) {
             egui.free_texture(&id);
         }
-        self.preview.as_mut().is_some_and(|p| p.render(device, queue, egui))
+        self.pictures.preview.as_mut().is_some_and(|p| p.render(device, queue, egui))
     }
 
     /// Whether the game folder has the file `path`.
@@ -511,7 +604,7 @@ impl Shell {
     pub fn go_to(&mut self, path: &str, line: Option<usize>) {
         self.hide_game();
         self.open(path);
-        self.goto = line.map(|l| (l, false));
+        self.opening.goto = line.map(|l| (l, false));
     }
 
     /// A path clicked in the console (resolved by it: an existing file,
@@ -530,7 +623,7 @@ impl Shell {
                 self.hide_game();
                 self.outside = Some(file.to_path_buf());
                 self.unload();
-                self.restore = None;
+                self.opening.restore = None;
             }
             _ => {}
         }
@@ -543,7 +636,7 @@ impl Shell {
 
     /// The model open shown as its text (TEXT).
     pub fn model_as_text(&mut self) {
-        self.model_text = true;
+        self.pictures.model_text = true;
         self.unload();
     }
 
@@ -560,6 +653,11 @@ impl Shell {
         let in_levels = path.starts_with("levels/") && path.ends_with(".toml");
         // (In a game of worlds a level of pieces says what it is.)
         self.level.as_deref() == Some(path) || (in_levels && (self.level.is_some() || crate::levels::says_level(&crate::files::Files::disk(), &self.dir.join(path))))
+    }
+
+    /// Whether `path` is a map (`map.toml`): no editor, its text to change.
+    pub fn is_map(&self, path: &str) -> bool {
+        self.files.level_text(path) && !self.is_level(path)
     }
 
     /// Whether `path` is a world or a map's prefab (`crate::scene`): shown,
@@ -592,8 +690,8 @@ impl Shell {
     /// did).
     pub fn note(&mut self, text: String) {
         self.report(Kind::Note, text.clone(), None);
-        self.notice = Some(Notice::Said(text));
-        self.notice_until = Some(std::time::Instant::now() + std::time::Duration::from_secs(5));
+        self.bar.notice = Some(Notice::Said(text));
+        self.bar.notice_until = Some(std::time::Instant::now() + std::time::Duration::from_secs(5));
     }
 
     /// Shows what went wrong opening an editor.
@@ -606,7 +704,7 @@ impl Shell {
     /// the console and not OUTPUT.
     pub fn unfold_console(&mut self) {
         self.memory.console_folded = false;
-        self.output_shown = false;
+        self.below.output_shown = false;
     }
 
     /// The console.
@@ -622,7 +720,7 @@ impl Shell {
     /// a mid gray (the game's night sky hid dark figures).
     fn model_background(&self) -> [u8; 3] {
         use crate::editor::background::{Backgrounds, PRESETS};
-        let chosen = if self.own_background { Backgrounds::load(&Backgrounds::path()).colours()[1] } else { None };
+        let chosen = if self.pictures.own_background { Backgrounds::load(&Backgrounds::path()).colours()[1] } else { None };
         chosen.unwrap_or(PRESETS[1])
     }
 
@@ -649,7 +747,7 @@ impl Shell {
 
     /// Writes down what the IDE remembers.
     pub fn save(&mut self) -> anyhow::Result<()> {
-        self.output.save()?;
+        self.below.output.save()?;
         self.memory.save(&self.memory_path)
     }
 
@@ -667,12 +765,12 @@ impl Shell {
         egui::CentralPanel::default().frame(egui::Frame::new().fill(GROUND).inner_margin(egui::Margin { left: 20, right: 0, top: 14, bottom: 0 })).show(ui, |ui| self.main(ui));
         self.question_ui(ui);
         // NEW's form over everything; the game begun opens.
-        if let Some(new) = &mut self.new_game {
-            match new.ui(ui.ctx(), &self.prefs.projects_dir(), &self.prefs) {
+        if let Some(new) = &mut self.forms.new_game {
+            match new.ui(ui.ctx(), &self.forms.prefs.projects_dir(), &self.forms.prefs) {
                 Form::Open => {}
-                Form::Cancelled => self.new_game = None,
+                Form::Cancelled => self.forms.new_game = None,
                 Form::Created(dir) => {
-                    self.new_game = None;
+                    self.forms.new_game = None;
                     self.leave_for(dir);
                 }
             }

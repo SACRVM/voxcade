@@ -50,6 +50,19 @@ pub struct Orbit {
     pub fov: f32,
 }
 
+/// FRONT, SIDE and TOP in the voxel editor's corner: the yaw and pitch
+/// each looks from, as Blender's front, right and top views: at a model's
+/// front (its +y, `Face`) from the north, at its right side (+x) from the
+/// east, straight down (+y up the screen). A level's block's front is its
+/// y 0 side, the level's (`Face::Block`; the logo's alike): from the south.
+pub const STRAIGHT: [(&str, f32, f32); 3] = [("FRONT", 180.0, 0.0), ("SIDE", 270.0, 0.0), ("TOP", 0.0, 90.0)];
+
+/// `STRAIGHT`'s yaw and pitch for a model shown as `face` says.
+pub fn straight_of(face: Face, k: usize) -> Option<(f32, f32)> {
+    let &(_, yaw, pitch) = STRAIGHT.get(k)?;
+    Some(if k == 0 && matches!(face, Face::Block | Face::Logo) { (0.0, pitch) } else { (yaw, pitch) })
+}
+
 /// The editors' field of view.
 pub const FOV: f32 = 40.0;
 
@@ -241,7 +254,7 @@ pub struct View {
     /// from ADD MODEL goes to (a right click's on the floor), where the
     /// right button went down (a click without dragging opens the menu).
     pub grip_hover: Option<super::handles::Grip>,
-    /// TURN was pressed for this item (its rings shown, not its arrows);
+    /// ROTATE was pressed for this item (its rings shown, not its arrows);
     /// any other choice is in MOVE.
     pub turning: Option<Item>,
     /// In a figure, the chosen part's joint's ring under the mouse (lit).
@@ -291,6 +304,9 @@ pub struct View {
     /// voxel editor (`cell_lines.rs`); the lines worked out last, kept
     /// while neither the view nor the voxels change.
     pub grid: bool,
+    /// FRONT, SIDE or TOP pressed in the voxel editor: the free view's yaw
+    /// and pitch before it, to go back to (`View::straight_view`).
+    pub free: Option<(f32, f32)>,
     pub grid_lines: std::cell::RefCell<super::cell_lines::Kept>,
 }
 
@@ -541,6 +557,7 @@ impl View {
             keys_shown: false,
             room: [0.0; 4],
             grid: true,
+            free: None,
             grid_lines: Default::default(),
         };
         // A level without blocks: the whole room as the game looks.
@@ -554,7 +571,7 @@ impl View {
         view
     }
 
-    /// Whether the chosen one shows its rings (TURN), else its arrows.
+    /// Whether the chosen one shows its rings (ROTATE), else its arrows.
     pub fn turn_mode(&self, ed: &Editor) -> bool {
         self.turning.is_some() && self.turning == ed.pieces.chosen && ed.can_turn()
     }
@@ -640,6 +657,39 @@ impl View {
         }
     }
 
+    /// Which of FRONT, SIDE and TOP the view looks from now, if any.
+    pub fn straight(&self, scope: Scope) -> Option<usize> {
+        let face = self.face_in(scope);
+        (0..STRAIGHT.len()).find(|&k| straight_of(face, k) == Some((self.block.yaw, self.block.pitch)))
+    }
+
+    /// The side a model shows the game: a level's block opened its
+    /// front as it lies.
+    fn face_in(&self, scope: Scope) -> Face {
+        if matches!(scope, Scope::Block(_)) { Face::Block } else { self.face }
+    }
+
+    /// FRONT, SIDE or TOP (`k`): the view looks from there, at what it
+    /// looked at, as near; pressed while it does, the free view's yaw and
+    /// pitch as they were before the first of them.
+    pub fn straight_view(&mut self, scope: Scope, k: usize) {
+        let Some((yaw, pitch)) = straight_of(self.face_in(scope), k) else { return };
+        let now = self.straight(scope);
+        let orbit = self.orbit(scope);
+        if now == Some(k) {
+            if let Some((yaw, pitch)) = self.free.take() {
+                let orbit = self.orbit(scope);
+                (orbit.yaw, orbit.pitch) = (yaw, pitch);
+            }
+            return;
+        }
+        let was = (orbit.yaw, orbit.pitch);
+        (orbit.yaw, orbit.pitch) = (yaw, pitch);
+        if now.is_none() {
+            self.free = Some(was);
+        }
+    }
+
     pub fn orbit(&mut self, scope: Scope) -> &mut Orbit {
         match scope {
             Scope::Level => &mut self.level,
@@ -722,6 +772,37 @@ mod tests {
     /// figures go; its model opens from the front too. A kind facing
     /// right shows its right; the hero and a walker without `facing` from
     /// the side as before, a prop to the camera.
+    /// FRONT, SIDE and TOP look straight at a model (its front +y, its
+    /// right side +x, from above), at what was looked at; the one lit
+    /// pressed again brings the free view back as it was.
+    #[test]
+    fn front_side_and_top_and_the_free_view_back() {
+        let mut ed = Editor::open_model(Path::new("games/voxkeep"), "hero.vvx").unwrap();
+        ed.dry = true;
+        let mut view = View::new(&ed, &GameConfig::default());
+        let (free, target) = ((view.block.yaw, view.block.pitch), view.block.target);
+        assert_eq!(view.straight(ed.scope), None);
+        for k in [0, 1, 2] {
+            act(&mut ed, &mut view, Action::StraightView(k));
+            assert_eq!(view.straight(ed.scope), Some(k as usize));
+            assert_eq!(view.block.target, target, "what it looks at stays");
+        }
+        let dir = |v: &View| crate::camera::view_dir(&v.block.camera());
+        assert!(dir(&view).z < -0.999, "TOP: straight down");
+        view.straight_view(ed.scope, 0);
+        assert!((dir(&view) - Vec3::NEG_Y).length() < 1e-4, "FRONT: at the +y side, from the north");
+        view.straight_view(ed.scope, 1);
+        assert!((dir(&view) - Vec3::NEG_X).length() < 1e-4, "SIDE: at the +x side, from the east");
+        view.straight_view(ed.scope, 1);
+        assert_eq!(((view.block.yaw, view.block.pitch), view.straight(ed.scope)), (free, None), "again: the free view as it was");
+        // A level's block: its front the level's, y 0.
+        let dir_of = |face| {
+            let (yaw, pitch) = straight_of(face, 0).unwrap();
+            crate::camera::view_dir(&Orbit { yaw, pitch, zoom: 10.0, target: Vec3::ZERO, fov: FOV }.camera())
+        };
+        assert!((dir_of(Face::Block) - Vec3::Y).length() < 1e-4, "FRONT of a block: its y 0 side, from the south");
+    }
+
     #[test]
     fn a_kind_faces_as_its_facing_says() {
         let dir = Path::new("games/voxkeep");

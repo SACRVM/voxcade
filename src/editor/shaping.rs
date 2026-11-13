@@ -45,7 +45,8 @@ pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
     }
     // GRID in the voxel editor, not in GAME VIEW (the game's look).
     let grid = (ed.scope != Scope::Level && view.before_game.is_none()).then_some(view.grid);
-    zones::view_buttons(ui, free, grid, shown);
+    let straight = (ed.scope != Scope::Level && view.before_game.is_none()).then(|| view.straight(ed.scope));
+    zones::view_buttons(ui, free, grid, straight, shown);
     part_bar(ui, ed, free, view, shown);
     if let Some(m) = view.menu {
         let entries = menu_entries(ed, m.on);
@@ -71,8 +72,8 @@ fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
             ui.add_space(14.0);
             let things = ed.layer == Layer::Things;
             keyed(ui, shown, "BLOCKS", Action::Layer(Layer::Blocks), Some(!things), "The level's blocks");
-            keyed(ui, shown, "THINGS", Action::Layer(Layer::Things), Some(things), "Things of the game's kinds, on the blocks");
-            keyed(ui, shown, "PIECES", Action::Layer(Layer::Pieces), Some(false), "Models, lights, places and areas set down freely");
+            keyed(ui, shown, "THINGS", Action::Layer(Layer::Things), Some(things), zones::THINGS_TIP);
+            keyed(ui, shown, "PIECES", Action::Layer(Layer::Pieces), Some(false), zones::PIECES_TIP);
             ui.add_space(14.0);
             if !things {
                 keyed(ui, shown, "+ BLOCK", Action::Choose, Some(view.choosing), "A new block: from a tile of the tileset, or empty");
@@ -409,7 +410,7 @@ fn inspector(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thu
             row(ui, "BLOCK", "", |ui| {
                 small(ui, shown, "ROTATE", Action::Turn(Turn::TURN), None, "Rotate it 90°, round the upright  T");
                 small(ui, shown, "COPY", Action::Clone, None, "A copy of it in the level's list  C");
-                small(ui, shown, "REMOVE", Action::Delete, None, "Take it out of the level (UNDO brings it back)  D");
+                small(ui, shown, "REMOVE", Action::Delete, None, "Take it out of the level, its file too (UNDO brings both back)  Del");
             });
             shaping(ui, ed, shown);
         }
@@ -448,7 +449,7 @@ fn inspector(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thu
                         trim_button(ui, ed, shown);
                         if !parted {
                             small(ui, shown, "COPY", Action::CopyFrame, None, "One more frame: a copy of this one, after it  C");
-                            small(ui, shown, "REMOVE", Action::DeleteFrame, Some(false), "This frame taken out (UNDO brings it back)  D");
+                            small(ui, shown, "REMOVE", Action::DeleteFrame, Some(false), "This frame taken out (UNDO brings it back)  Del");
                         }
                     });
                 }
@@ -575,16 +576,23 @@ fn shaping(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
         }
         small(ui, shown, "SYMMETRY", Action::Symmetry, Some(ed.symmetry), "Every tool mirrored left to right  Y");
     });
-    if ed.forms() {
-        let depth = fresh.map_or(ed.forms.depth, |f| {
-            let a = (0..3).max_by_key(|&a| f.way[a].abs()).unwrap_or(2);
-            f.size[a]
-        });
-        row(ui, "DEPTH", "How deep a box or sphere goes into its face (the fresh one, outlined, at once): + and -", |ui| {
-            zones::number(ui, shown, "D", None, depth as f64, 0, 0.1, 1.0..=256.0, "", FIELD, |v| Action::Depth(v.round() as i32));
-        });
-    }
+    depth_row(ui, ed, shown);
     colours(ui, ed, shown);
+}
+
+/// BOX or SPHERE: DEPTH, the fresh one's or the next one's.
+fn depth_row(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+    if !ed.forms() {
+        return;
+    }
+    let fresh = ed.forms.fresh.filter(|_| ed.forms.drawing.is_none());
+    let depth = fresh.map_or(ed.forms.depth, |f| {
+        let a = (0..3).max_by_key(|&a| f.way[a].abs()).unwrap_or(2);
+        f.size[a]
+    });
+    row(ui, "DEPTH", "How deep a box or sphere goes into its face (the fresh one, outlined, at once): + and -", |ui| {
+        zones::number(ui, shown, "D", None, depth as f64, 0, 0.1, 1.0..=256.0, "", FIELD, |v| Action::Depth(v.round() as i32));
+    });
 }
 
 /// SLICE: X, Y, Z on the columns (lit the one cutting; again: off), and
@@ -624,12 +632,12 @@ fn tool_tip(tool: Tool, key: Option<char>) -> String {
         Tool::Remove => "Take them away",
         Tool::Paint => "Recolor (in the level: replace the block)",
         Tool::Deep => "Recolor through, every voxel behind",
-        Tool::Box => "Drag a footprint on a face: set where it was drawn. Alt: only where empty, Ctrl: cut",
+        Tool::Box => "Drag a footprint on a face: set where it was drawn (in the level: of the held block). Alt: only where empty, Ctrl: cut",
         Tool::Sphere => "The same, round",
         Tool::Pick => "Take up a color (a block) from what is clicked; Shift held does the same",
         Tool::Move => "Drag a thing to another place",
         Tool::Select => "Drag a rectangle on the screen: the voxels of the active parts in it. Double click: the color connected",
-        Tool::Fill => "The connected voxels of the color clicked take the held one. Ctrl: every voxel of that color",
+        Tool::Fill => "The connected voxels of the color clicked take the held one (in the level: the cells of the block clicked take the held block). Ctrl: all of it",
     };
     zones::tip_with_key(tip, key)
 }
@@ -658,19 +666,29 @@ fn tools(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
 /// more: a right click takes it out); every colour, the held one's code;
 /// its material as one row.
 fn colours(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
-    let (own, all) = ed.colours();
+    let (mut own, all) = ed.colours();
+    // A model's colors keep their numbers: the file's palette order (a new
+    // color the next number; only taking one out renumbers), the frame's
+    // own in that order.
+    let numbered = if ed.model.is_some() {
+        own.sort_by_key(|c| all.iter().position(|a| a == c));
+        &all
+    } else {
+        &own
+    };
+    let digit_of = |c: [u8; 3]| numbered.iter().position(|&n| n == c).filter(|&i| i < 10).map(|i| char::from_digit((i as u32 + 1) % 10, 10).expect("a digit"));
+    for (i, &c) in numbered.iter().take(10).enumerate() {
+        shown.keys.push((char::from_digit((i as u32 + 1) % 10, 10).expect("a digit"), Action::Colour(c)));
+        if i == 0 {
+            shown.named.push(("1 … 0".into(), "COLOR".into()));
+        }
+    }
     row(ui, "COLOR", "The colors: a click holds one", |ui| {
     ui.vertical(|ui| {
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
-        for (i, &c) in own.iter().enumerate() {
-            let digit = (i < 10).then(|| char::from_digit((i as u32 + 1) % 10, 10).expect("a digit"));
-            if let Some(d) = digit {
-                shown.keys.push((d, Action::Colour(c)));
-                if i == 0 {
-                    shown.named.push(("1 … 0".into(), "COLOR".into()));
-                }
-            }
+        for &c in &own {
+            let digit = digit_of(c);
             let hex = format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
             let tip = digit.map_or(hex.clone(), |d| format!("{hex}  {d}"));
             let r = swatch(ui, c, 26.0, c == ed.colour, digit).on_hover_text(tip);
@@ -687,7 +705,7 @@ fn colours(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
             for c in others {
                 let hex = format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
                 let response = swatch(ui, c, 16.0, c == ed.colour, None);
-                let response = response.on_hover_text(hex);
+                let response = response.on_hover_text(digit_of(c).map_or(hex.clone(), |d| format!("{hex}  {d}")));
                 swatch_menu(&response, ed, c, shown);
                 if response.clicked() {
                     shown.clicked.push(Action::Colour(c));
@@ -938,10 +956,17 @@ fn level(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thumbs,
         });
         row(ui, "BLOCK", "", |ui| {
             small(ui, shown, "COPY", Action::Clone, None, "A copy of it in the level's list  C");
-            small(ui, shown, "REMOVE", Action::Delete, None, "Take it out of the level (UNDO brings it back)  D");
+            small(ui, shown, "REMOVE", Action::Delete, None, "Take it out of the level, its file too (UNDO brings both back)  Del");
         });
     }
     tools(ui, ed, shown);
+    // BOX: as in the voxel editor, BEVEL and DEPTH.
+    if ed.forms() || ed.forms.fresh.is_some() {
+        row(ui, "", "", |ui| {
+            small(ui, shown, "BEVEL", Action::Bevel, Some(ed.forms.bevel), "Its edges cut back  F");
+        });
+    }
+    depth_row(ui, ed, shown);
 }
 
 /// What a menu of the voxel editor offers (each also a control somewhere:
@@ -963,7 +988,7 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<zones::Entry> {
             out.push(("SHAPE".into(), Action::GoFrame(f), None, None));
             out.push(("COPY".into(), Action::CopyFrameOf(f), Some("C"), None));
             if ed.frames().len() > 1 {
-                out.push(("REMOVE".into(), Action::DeleteFrameOf(f), Some("D"), None));
+                out.push(("REMOVE".into(), Action::DeleteFrameOf(f), Some("Del"), None));
             }
         }
         MenuOn::Part(p) => {
@@ -1020,7 +1045,7 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<zones::Entry> {
         MenuOn::Block(i) => {
             out.push(("OPEN".into(), Action::OpenBlock(i), None, None));
             out.push(("COPY".into(), Action::CloneOf(i), Some("C"), None));
-            out.push(("REMOVE".into(), Action::DeleteOf(i), Some("D"), None));
+            out.push(("REMOVE".into(), Action::DeleteOf(i), Some("Del"), None));
         }
         MenuOn::Item(_) | MenuOn::Floor(_) | MenuOn::Add => {}
     }

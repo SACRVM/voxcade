@@ -48,13 +48,20 @@ pub fn overview(ed: &Editor, named: &[(String, String)]) -> Vec<Group> {
         ];
         if ed.figure.is_some() {
             keys.extend([("F2", "RENAME PART"), ("Del", "REMOVE PART")]);
+        } else if ed.model.is_some() {
+            keys.extend([("← →", "PREVIOUS, NEXT FRAME"), ("Del", "REMOVE FRAME")]);
         } else {
-            keys.push(("← →", "PREVIOUS, NEXT FRAME"));
+            keys.push(("Del", "REMOVE BLOCK"));
         }
         keys.push(("Esc", "POINTER, BACK"));
         keys
     } else {
-        vec![("Shift (held)", "PICK"), ("Esc", "POINTER")]
+        let mut keys = vec![("Shift (held)", "PICK")];
+        if ed.layer == super::model::Layer::Blocks {
+            keys.push(("Del", "REMOVE BLOCK"));
+        }
+        keys.push(("Esc", "POINTER"));
+        keys
     };
     groups.push((scope_name(ed), pairs(&scope)));
     // Ctrl+Z and Ctrl+Y first, as every program has them; the letters
@@ -197,6 +204,44 @@ mod tests {
         assert_eq!(win.ed.steps(), steps - 1, "U: a step back");
         key(&mut win, sdl3::keyboard::Keycode::R);
         assert_eq!(win.ed.steps(), steps, "R: again");
+    }
+
+    /// A frame and a level's block are taken out by Delete, not by a plain
+    /// letter beside the typing keys (D did it), and one step of UNDO
+    /// brings each back, the block's file too.
+    #[test]
+    fn delete_removes_a_frame_or_a_block_and_undo_brings_it_back() {
+        use sdl3::keyboard::Keycode;
+        let undo = |win: &mut crate::editor::EditorWindow| {
+            let e = sdl3::event::Event::KeyDown { timestamp: 0, window_id: 0, keycode: Some(Keycode::Z), scancode: None, keymod: sdl3::keyboard::Mod::LCTRLMOD, repeat: false, which: 0, raw: 0 };
+            assert!(win.handle(&e, false));
+            win.draw().unwrap();
+        };
+        let (mut win, dir) = crate::editor::big::wall_window("keys-delete", [6, 3, 5]);
+        crate::editor::view::act(&mut win.ed, &mut win.view, Action::CopyFrame);
+        let two = std::fs::read_to_string(dir.join("wall.vvx")).unwrap();
+        assert_eq!(two.matches("[[frame]]").count(), 2);
+        key(&mut win, Keycode::D);
+        assert_eq!(std::fs::read_to_string(dir.join("wall.vvx")).unwrap(), two, "D takes nothing out");
+        key(&mut win, Keycode::Delete);
+        assert_eq!(std::fs::read_to_string(dir.join("wall.vvx")).unwrap().matches("[[frame]]").count(), 1, "Delete: the frame out");
+        undo(&mut win);
+        assert_eq!(std::fs::read_to_string(dir.join("wall.vvx")).unwrap(), two, "UNDO: back as it was");
+        // A level's block, held among the blocks.
+        let level = crate::editor::model::tests::folder("keys-delete-level");
+        std::fs::write(level.join("conf.lua"), "function conf(c)\n  c.voxcade = \"0.6.0\"\nend\n").unwrap();
+        std::fs::write(level.join("main.lua"), "").unwrap();
+        let (ed, view, cfg) = crate::editor::open::<crate::Voxcade>(&level, Some("level.toml"), None, false).unwrap();
+        let mut win = crate::editor::EditorWindow::headless(ed, view, cfg, &level).unwrap();
+        win.draw().unwrap();
+        let (file, text) = (crate::blocks::path(&level, "1"), std::fs::read_to_string(level.join("level.toml")).unwrap());
+        let block = std::fs::read(&file).unwrap();
+        key(&mut win, Keycode::D);
+        assert_eq!(win.ed.level.blocks.len(), 1, "D takes nothing out");
+        key(&mut win, Keycode::Delete);
+        assert!(win.ed.level.blocks.is_empty() && !file.exists(), "Delete: the block and its file out");
+        undo(&mut win);
+        assert_eq!((std::fs::read(&file).unwrap(), std::fs::read_to_string(level.join("level.toml")).unwrap()), (block, text), "UNDO: both back");
     }
 
     /// The page names every tool's key with the tool's word, in a model and

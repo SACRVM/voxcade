@@ -26,13 +26,13 @@
 
 ---@class Daylight A picture's daylight (frame:daylight); what it leaves out is c.light's.
 ---@field sun? number[] The way the sunlight travels, { x, y, z } with z below 0 (towards the ground).
----@field sun_color? Color The sunlight's colour and strength: white at noon, warm at dusk, a pale blue moon.
+---@field sun_color? Color The sunlight's color and strength: white at noon, warm at dusk, a pale blue moon.
 ---@field ambient? number Light every face gets, 0 to 1.
 ---@field shadow? number How much a shadow darkens, 0 to 1.
----@field sky? Color The background's colour.
+---@field sky? Color The background's color.
 
 ---@class PictureCamera What a picture's camera sets (frame:camera); what it leaves out is c.camera's.
----@field look_at? Point|Thing|number[] The point the view centres on, { x, y, z } in voxels (z left out: the camera's height), or a thing; left out, the view follows what the camera follows.
+---@field look_at? Point|Thing|number[] The point the view centers on, { x, y, z } in voxels (z left out: the camera's height), or a thing; left out, the view follows what the camera follows.
 ---@field width? number How many voxels the picture shows across where it looks.
 ---@field height? number Or how many it shows from bottom to top there (not both).
 ---@field pitch? number Degrees below the horizon, -89 (looking up) to 90 (straight down).
@@ -156,7 +156,7 @@ local Level = {}
 ---@return integer
 function Level:voxel(x, y, z) end
 
----Sets the voxel at a cell: a colour "#rrggbb" (taken into the level's palette), a palette index, or nil or 0 for empty. A cell outside the level (level.size) is a mistake.
+---Sets the voxel at a cell: a color "#rrggbb" (taken into the level's palette), a palette index, or nil or 0 for empty. A cell outside the level (level.size) is a mistake.
 ---@param x integer
 ---@param y integer
 ---@param z integer
@@ -287,7 +287,7 @@ local Player = {}
 ---- freed: for a hostage. Set true: the cage bursts, it runs off.
 ---- flying: for a gunship, up in the air fighting. Only to read.
 ---For a piece of a level's file:
----- light: a lamp's brightness, all its lights together, 0 (off) to 1 (the start). Their colours, places and reach are the file's.
+---- light: a lamp's brightness, all its lights together, 0 (off) to 1 (the start). Their colors, places and reach are the file's.
 ---- parts: a figure of parts posed, as frame:model's pose: { leaf = { rotation = 90 } } swings a door's leaf open; nil at rest. Drawn so every picture, for this visit of the level: keep what must stay open in world.state and set it again in on_level_start. A solid piece still blocks where its model stands at rest.
 ---@field state table
 ---@field x number Where it stands: the middle of its feet. A piece's is the middle of the cell its file's at names (at + 0.5): a cube for it goes at math.floor(thing.x) + dx.
@@ -485,15 +485,15 @@ function Frame:light(at, radius, color) end
 
 ---Sets the sun and the sky for this picture: a day and a night. What you leave out is c.light's.
 ---- sun: the way its light travels, { x, y, z } with z below 0.
----- sun_color: its colour and strength, white unless set.
+---- sun_color: its color and strength, white unless set.
 ---- ambient: the light every face gets, 0 to 1. shadow: how dark shadows are, 0 to 1.
----- sky: the sky's colour.
+---- sky: the sky's color.
 ---Work it out from your game's clock every picture: the sun low and warm at dawn, white at noon, orange at dusk, a dim blue at night with frame:light lamps. Only the picture: the game's rules do not see it. A game whose code names daylight has every face a sun above the horizon can light in its level.
 ---@param light Daylight
 function Frame:daylight(light) end
 
 ---Moves the camera for this picture, for a scene: a zoom, a cut, a slow pan. What you leave out is the game's camera's (c.camera): { width = 80 } zooms in on what the camera follows and keeps following it.
----- look_at: the point the view centres on, { x, y, z } in voxels (z left out: the camera's height), or a thing.
+---- look_at: the point the view centers on, { x, y, z } in voxels (z left out: the camera's height), or a thing.
 ---- width: how many voxels the picture shows across there; or height, from bottom to top.
 ---- pitch: degrees below the horizon. fov: the field of view.
 ---Only this picture: nothing is kept and nothing smoothed. Call it in every picture the scene lasts and work a pan out from your clock (world.tick + frame.alpha, music.beat). The game's rules, the sounds and level.camera do not see it; frame:to_screen after it goes by it. The camera does not turn round yet. Another pitch or fov than c.camera's needs faces the game's own view never shows: the level is built anew with them once, a moment's hitch the first time.

@@ -409,8 +409,8 @@ const BIGGEST: u64 = 4 << 20;
 /// file in the order of their paths; and whether there were more than
 /// `MOST`. The texts are those the list shows (`Files::names`) and the main
 /// area opens as text, where the word can be marked: the logic, the
-/// scenarios, the sounds, the songs and the models (`.vvx`, as TEXT); not
-/// a level, which opens as its picture.
+/// scenarios, the sounds, the songs, the models (`.vvx`, as TEXT), the
+/// levels (as TEXT) and the maps; not a world or a prefab.
 pub fn search(dir: &Path, word: &str, case: bool) -> (Vec<Hit>, bool) {
     let mut out = Vec::new();
     if word.is_empty() {
@@ -418,7 +418,7 @@ pub fn search(dir: &Path, word: &str, case: bool) -> (Vec<Hit>, bool) {
     }
     let names = super::files::Files::names(dir);
     let files = super::files::Files::from_names(dir, names.clone());
-    let text = |f: &String| files.logic.contains(f) || files.scenarios.contains(f) || super::sounds::name_of(f).is_some() || f.ends_with(".mml") || (f.ends_with(".vvx") && files.sort_of(f) != Some("Levels"));
+    let text = |f: &String| files.logic.contains(f) || files.scenarios.contains(f) || super::sounds::name_of(f).is_some() || f.ends_with(".mml") || (f.ends_with(".vvx") && files.sort_of(f) != Some("Levels")) || files.level_text(f);
     for file in names.iter().filter(|f| text(f)) {
         let path = dir.join(file);
         if !std::fs::metadata(&path).is_ok_and(|m| m.len() <= BIGGEST) {
@@ -771,7 +771,8 @@ mod tests {
             ("sounds/gem.toml", "wave = \"sine\" # gem\n"),
             ("music/gem.mml", "; gem\n"),
             ("gem.vvx", "# gem\n"),
-            ("levels/01.toml", "kind = \"gem\"\n"),
+            ("levels/01.toml", "format = \"voxcade level 1\"\nkind = \"gem\"\n"),
+            ("map.toml", "format = \"voxcade map 1\"\n# gem\n"),
             ("notes.md", "gem\n"),
             ("notes/gem.txt", "gem\n"),
             ("shots/gem.lua", "gem\n"),
@@ -787,9 +788,9 @@ mod tests {
         std::fs::write(dir.join("cover.png"), [0x89, b'P', b'N', b'G', 0, 0xff, b'g', b'e', b'm']).unwrap();
         let (hits, more) = search(&dir, "gem", false);
         let places: Vec<(&str, usize)> = hits.iter().map(|h| (h.file.as_str(), h.line)).collect();
-        assert_eq!(places, [("conf.lua", 2), ("gem.vvx", 1), ("main.lua", 1), ("main.lua", 3), ("music/gem.mml", 1), ("sounds/gem.toml", 1)], "no level, no other file, nothing ignored or hidden");
+        assert_eq!(places, [("conf.lua", 2), ("gem.vvx", 1), ("levels/01.toml", 2), ("main.lua", 1), ("main.lua", 3), ("map.toml", 2), ("music/gem.mml", 1), ("sounds/gem.toml", 1)], "the levels and the map too, no other file, nothing ignored or hidden");
         assert!(!more);
-        assert_eq!(hits[3].text, "-- a Gem", "the line trimmed");
+        assert_eq!(hits[4].text, "-- a Gem", "the line trimmed");
         assert_eq!(search(&dir, "Gem", true).0.len(), 1, "MATCH CASE");
         assert!(search(&dir, "", false).0.is_empty());
     }

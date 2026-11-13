@@ -87,6 +87,29 @@ pub const HANDLE_SHARE: f32 = 0.14;
 
 /// The bearing a thing faces (degrees clockwise seen from above, north 0;
 /// south when the file says none).
+/// What the list shows for an unnamed thing: its model's file (its stem),
+/// a light, or its kind.
+pub fn what_it_is(t: &Thing) -> String {
+    match (&t.model, t.is_piece()) {
+        (Some(model), _) => std::path::Path::new(model).file_stem().map_or(model.clone(), |s| s.to_string_lossy().into_owned()),
+        (None, true) => "a light".into(),
+        (None, false) => t.kind.clone(),
+    }
+}
+
+/// The thing called `name`, or the unnamed one the list shows so (the
+/// first; `NAME#K` the K-th, from 1).
+pub fn listed(things: &[Thing], name: &str) -> Option<usize> {
+    if let Some(i) = things.iter().position(|t| t.name.as_deref() == Some(name)) {
+        return Some(i);
+    }
+    let (what, k) = match name.rsplit_once('#') {
+        Some((what, k)) => (what, k.parse::<usize>().ok()?.checked_sub(1)?),
+        None => (name, 0),
+    };
+    things.iter().enumerate().filter(|(_, t)| t.name.is_none() && what_it_is(t) == what).nth(k).map(|(i, _)| i)
+}
+
 pub fn bearing_of(t: &Thing) -> f64 {
     t.facing.map_or(180.0, Facing::bearing)
 }
@@ -263,13 +286,14 @@ impl Editor {
             return (name.to_string(), true);
         }
         let Item::Thing(i) = item else { return (String::new(), false) };
-        let t = &self.level.things[i];
-        let what = match (&t.model, t.is_piece()) {
-            (Some(model), _) => std::path::Path::new(model).file_stem().map_or(model.clone(), |s| s.to_string_lossy().into_owned()),
-            (None, true) => "a light".into(),
-            (None, false) => t.kind.clone(),
-        };
-        (what, false)
+        (what_it_is(&self.level.things[i]), false)
+    }
+
+    /// The item the list calls `name` (`find`'s, or an unnamed thing by
+    /// what the list shows for it: the first so, `NAME#K` the K-th), for
+    /// the command line's `--choose` and the like.
+    pub fn find_listed(&self, name: &str) -> Option<Item> {
+        self.find(name).or_else(|| listed(&self.level.things, name).map(Item::Thing))
     }
 
     /// Where an item stands (an area: its low corner), in voxels from the
@@ -282,7 +306,8 @@ impl Editor {
         }
     }
 
-    /// The item called `name`: a thing, else a place, else an area.
+    /// The item called `name` (its own name): a thing, else a place, else
+    /// an area.
     pub fn find(&self, name: &str) -> Option<Item> {
         let thing = self.level.things.iter().position(|t| t.name.as_deref() == Some(name)).map(Item::Thing);
         thing.or_else(|| self.level.places.iter().position(|p| p.name == name).map(Item::Place)).or_else(|| self.level.areas.iter().position(|a| a.name == name).map(Item::Area))
@@ -639,7 +664,13 @@ impl Editor {
             if !self.level.has_grid() {
                 return self.change(Some(field), |l| l.size[axis.min(2)] = whole.clamp(1, 4096));
             }
-            return;
+            let (mut size, axis) = (self.level.size, axis.min(2));
+            size[axis] = whole.clamp(1, super::cells::MOST_CELLS);
+            let mut lo = IVec3::ZERO;
+            if !self.anchor[axis] {
+                lo[axis] = self.level.size[axis] - size[axis];
+            }
+            return self.change(Some(field), |l| super::cells::reframe(l, lo, size));
         }
         if let Some(day) = self.day_field(field, v) {
             return self.change(Some(field), |l| l.daylight = Some(day));
@@ -696,7 +727,7 @@ impl Editor {
         });
     }
 
-    /// TURN: the chosen one (or what hangs on the mouse) a quarter turn
+    /// ROTATE: the chosen one (or what hangs on the mouse) a quarter turn
     /// clockwise seen from above (`by` -1: the other way); a piece turned
     /// off the quarter turns keeps its angle off them. A thing of a kind
     /// or an area has no way to face.
@@ -793,7 +824,7 @@ impl Editor {
     /// the mouse.
     pub fn handles(&self, view_proj: glam::Mat4, turn: bool) -> Option<Handles> {
         let mut h = self.all_handles(view_proj)?;
-        // MOVE: the arrows (and an area's faces); TURN: the rings. Never
+        // MOVE: the arrows (and an area's faces); ROTATE: the rings. Never
         // both: the piece stays in view.
         if turn && self.can_turn() {
             (h.arrows, h.faces) = ([None; 3], None);
@@ -811,7 +842,7 @@ impl Editor {
         t.model.is_some() && off_axes(t)
     }
 
-    /// Whether the chosen one turns by its rings (TURN): a piece of a model
+    /// Whether the chosen one turns by its rings (ROTATE): a piece of a model
     /// (not while its light is chosen), a place.
     pub fn can_turn(&self) -> bool {
         match self.pieces.chosen {
@@ -1410,7 +1441,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// TURN turns a quarter clockwise seen from above (back with -1); on
+    /// ROTATE turns a quarter clockwise seen from above (back with -1); on
     /// the grid only the four ways; turning freely any angle, a few degrees
     /// from a quarter snapping to it; a place turns its arrow, a thing of a
     /// kind and an area do not turn.
@@ -1864,7 +1895,7 @@ mod tests {
         assert_eq!((ed.level.areas[0].at, ed.level.areas[0].size), ([35, 120, 0], [41, 30, 40]));
     }
 
-    /// MOVE shows the arrows only, TURN the rings only (a light alone, a
+    /// MOVE shows the arrows only, ROTATE the rings only (a light alone, a
     /// thing of a kind, an area do not turn); a press on the piece's body
     /// grabs no handle (the piece is dragged), its arrows' heads lie clear
     /// of it and grab; an arrow seen end on is dimmed and grabs nothing.
@@ -1891,7 +1922,7 @@ mod tests {
         let (front, _) = seen(Vec3::new(40.0, 150.0, 10.0), 0.0, 0.0);
         let y = ed.handles(front, false).unwrap().shapes(front, screen).into_iter().find(|s| s.grip == Grip::Arrow(1)).unwrap();
         assert!(y.dim);
-        // What does not turn has no TURN: a light alone, a thing of a kind.
+        // What does not turn has no ROTATE: a light alone, a thing of a kind.
         for (item, turns) in [(Item::Thing(0), true), (Item::Thing(2), false), (Item::Thing(4), false), (Item::Place(0), true), (Item::Area(0), false)] {
             ed.choose_item(Some(item));
             assert_eq!(ed.can_turn(), turns, "{item:?}");

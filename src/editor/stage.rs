@@ -48,7 +48,7 @@ pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
     if ed.among_pieces() {
         beside(ui, ed, view, free, shown);
     }
-    zones::view_buttons(ui, free, None, shown);
+    zones::view_buttons(ui, free, None, None, shown);
     menu(ui, ed, view, free, shown);
     if view.picker {
         picker(ui, ed, free, thumbs, shown);
@@ -64,10 +64,10 @@ fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
         ui.add_space(14.0);
         if ed.level.has_grid() {
             keyed(ui, shown, "BLOCKS", Action::Layer(Layer::Blocks), Some(false), "The level's blocks");
-            keyed(ui, shown, "THINGS", Action::Layer(Layer::Things), Some(false), "Things of the game's kinds, on the blocks");
+            keyed(ui, shown, "THINGS", Action::Layer(Layer::Things), Some(false), zones::THINGS_TIP);
         }
         if ed.level.has_grid() || ed.level.terrain.is_some() {
-            keyed(ui, shown, "PIECES", Action::Layer(Layer::Pieces), Some(ed.layer == Layer::Pieces), "Models, lights, places and areas set down freely");
+            keyed(ui, shown, "PIECES", Action::Layer(Layer::Pieces), Some(ed.layer == Layer::Pieces), zones::PIECES_TIP);
         }
         if ed.level.terrain.is_some() {
             keyed(ui, shown, "TERRAIN", Action::Layer(Layer::Terrain), Some(ed.layer == Layer::Terrain), "The land: its points, their heights and shapes, its materials");
@@ -402,7 +402,7 @@ fn light_controls(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, radi
     field(ui, shown, "RADIUS", None, l.radius, Field::Radius(k), 1.0, 1.0..=2000.0, "How far it shines, in voxels (radius in the level's file)", radius);
 }
 
-/// A piece's rows: TURN, SOLID, SHADOW ONLY (and LIGHT + without one
+/// A piece's rows: ROTATE, SOLID, SHADOW ONLY (and LIGHT + without one
 /// or it), its lights.
 fn piece_rows(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, t: &crate::grid::Thing, shown: &mut Shown) {
     // On the grid (or solid) the turns step by quarters.
@@ -492,8 +492,19 @@ fn level(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
     ui.label(RichText::new("LEVEL").color(TEXT)).on_hover_text(&ed.file);
     let s = ed.level.size;
     if ed.level.has_grid() {
-        row(ui, "SIZE", "Its size in blocks (BLOCKS changes it)", |ui| {
-            ui.label(format!("{} × {} × {}", s.x, s.y, s.z));
+        row(ui, "SIZE", "How big the grid is, in blocks: across, in depth, up (it grows or is cut on the side ANCHOR leaves free)", |ui| {
+            for a in 0..3 {
+                field(ui, shown, ["X", "Y", "Z"][a], Some(a), s[a] as f64, Field::LevelSize(a), 0.1, 1.0..=crate::editor::model::MOST_CELLS as f64, "", FIELD);
+            }
+        });
+        row(ui, "ANCHOR", "The side that stays when SIZE changes", |ui| {
+            for (a, sides) in [["LEFT", "RIGHT"], ["FRONT", "BACK"], ["BOTTOM", "TOP"]].into_iter().enumerate() {
+                let width = zones::col(ui, 1);
+                let word = sides[!ed.anchor[a] as usize];
+                if ui.add_sized([width, ui.text_style_height(&TextStyle::Body) + 8.0], egui::Button::new(RichText::new(word).small())).on_hover_text(format!("{word} stays; a click: {}", sides[ed.anchor[a] as usize])).clicked() {
+                    shown.clicked.push(Action::Anchor(a as u8));
+                }
+            }
         });
     } else {
         row(ui, "SIZE", "How big the room is, in voxels: across, in depth, up", |ui| {
@@ -957,7 +968,7 @@ pub fn paint(painter: &egui::Painter, h: &handles::Handles, vp: glam::Mat4, scre
 }
 
 /// The buttons at the chosen one, over its handles (`zones::bar_at`):
-/// MOVE or TURN, and what is done to it most, a word each.
+/// MOVE or ROTATE, and what is done to it most, a word each.
 fn beside(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut Shown) {
     let Some(item) = ed.pieces.chosen.filter(|_| ed.pieces.hanging.is_none() && ed.gripped().is_none() && ed.dragging().is_none() && !view.picker) else { return };
     let screen = ui.ctx().content_rect();
@@ -988,7 +999,7 @@ fn beside(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut S
     let turning = view.turn_mode(ed);
     let guess = if piece { 345.0 } else if turns { 234.0 } else { 122.0 };
     let rect = zones::bar_at(ui, &format!("stage beside {item:?} {turns}"), middle, bounds, free, guess, shown, |ui, shown| {
-        // MOVE (its arrows) or TURN (its rings), one lit.
+        // MOVE (its arrows) or ROTATE (its rings), one lit.
         if turns {
             zones::small(ui, shown, "MOVE", Action::HandleMode(false), Some(!turning), "Arrows: move it along X, Y, Z (or drag it over the floor)");
             zones::small(ui, shown, "ROTATE", Action::HandleMode(true), Some(turning), "Rings: rotate it about its sides and the upright");

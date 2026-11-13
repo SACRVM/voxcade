@@ -1577,7 +1577,7 @@ fn a_game_sets_its_daylight() {
         ("frame:daylight{ sun = { 1, 0, 1 } }", "z below 0"),
         ("frame:daylight{ ambient = 2 }", "ambient is a number from 0 to 1"),
         ("frame:daylight{ moon = 1 }", "no 'moon'"),
-        ("frame:daylight{ sky = \"blue\" }", "sky is a colour"),
+        ("frame:daylight{ sky = \"blue\" }", "sky is a color"),
     ] {
         let mut g = game_in(&code_world("daylight-bad", &format!("function on_draw(frame) {bad} end\n"), &[]));
         steps(&mut g, 1);
@@ -1743,7 +1743,7 @@ fn a_logo_model_drops_in_part_by_part() {
     assert_eq!((size.x, size.y, size.z), (model.size.x as f32, model.size.z as f32, model.size.y as f32), "across, up, deep");
     let colours: std::collections::HashSet<[u8; 4]> = model.frames[0].iter().map(|(_, c)| *c).collect();
     let shown: Vec<[u8; 4]> = parts.iter().flat_map(|(cubes, _)| cubes.iter().map(|c| c.color)).collect();
-    assert!(shown.iter().any(|c| colours.contains(c)), "fronts in the model's colours");
+    assert!(shown.iter().any(|c| colours.contains(c)), "fronts in the model's colors");
     assert!(shown.iter().any(|c| !colours.contains(c)), "sides darker");
 }
 
@@ -1898,7 +1898,7 @@ end
     let (floor, red) = (w.get(glam::IVec3::new(5, 5, 0)), w.get(glam::IVec3::new(2, 2, 1)));
     assert_eq!(w.palette[floor as usize], [0x40, 0x60, 0x80, 255]);
     assert_eq!(w.palette[red as usize], [255, 0, 0, 255]);
-    assert_eq!(state(&mut g, "same"), state(&mut g, "floor"), "one colour, one palette entry");
+    assert_eq!(state(&mut g, "same"), state(&mut g, "floor"), "one color, one palette entry");
     assert_eq!(state(&mut g, "hole"), format!("{:?}", super::Value::Int(0)));
     let conf = std::fs::read_to_string(dir.join("conf.lua")).unwrap();
     std::fs::write(dir.join("conf.lua"), conf.replace("{ 32, 32, 8 }", "{ 64, 64, 8 }").replace("\nend", "\n  c.camera.pitch = 60\nend")).unwrap();
@@ -3674,7 +3674,7 @@ end
     let colours: std::collections::BTreeSet<[u8; 4]> = shape.frames[0].iter().map(|(_, c)| *c).collect();
     let burst = pieces(&g);
     assert_eq!(burst.len(), shape.frames[0].len(), "a piece for each of its voxels");
-    assert!(burst.iter().all(|p| colours.contains(&p.color)), "only its own colours");
+    assert!(burst.iter().all(|p| colours.contains(&p.color)), "only its own colors");
     steps(&mut g, 4 * 60);
     assert!(pieces(&g).is_empty(), "the pieces are gone after a few seconds");
 }

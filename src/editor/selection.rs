@@ -872,8 +872,12 @@ impl Editor {
 
     /// FILL at a hit: the voxels connected to the one hit of its color (in
     /// its block, frame or part) take the held color; `all`: every voxel
-    /// of that color there. One step.
+    /// of that color there. One step. Among a level's blocks the cells'
+    /// (`fill_cells`).
     pub fn fill_at(&mut self, hit: Hit, all: bool) {
+        if self.scope == Scope::Level {
+            return self.fill_cells(hit, all);
+        }
         let colour = self.colour;
         let Some(b) = self.shape() else { return };
         let Some(was) = b.colour_at(hit.cell) else { return };
@@ -1143,7 +1147,7 @@ mod tests {
         ed.move_selection_to(IVec3::new(-1, 0, 0), true, false);
         ed.let_go_of_selection();
         let b = &ed.model.as_ref().unwrap().frames[0];
-        assert_eq!(block_cells(b, IVec3::ZERO).values().copied().collect::<Vec<_>>(), [[0x80, 0x80, 0x80]], "the grey one kept");
+        assert_eq!(block_cells(b, IVec3::ZERO).values().copied().collect::<Vec<_>>(), [[0x80, 0x80, 0x80]], "the gray one kept");
     }
 
     /// MOVE TO PART: selected voxels of the arm go into the head where they

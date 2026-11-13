@@ -822,7 +822,7 @@ end
     },
     Topic {
         title: "A SCENE WITH BARS",
-        text: "c.camera.aspect = 2.39 gives every picture a film's shape: the widest rectangle of it the window holds, black bars on the rest, the HUD and the menus inside it. frame:camera in on_draw sets this picture's camera: look_at the point the view centres on, width how many voxels it shows across there, pitch how steep it looks down; what you leave out is c.camera's, so { width = 60 } alone zooms in on the player and keeps following. Each picture is its own: call it in every picture the scene lasts and work a pan out from your clock; a picture without it is the game's camera again. Here a slow pan along the meadow, a cut to the house's door, then the game's camera on the player, and round again. Only the picture: the game's rules do not see it.",
+        text: "c.camera.aspect = 2.39 gives every picture a film's shape: the widest rectangle of it the window holds, black bars on the rest, the HUD and the menus inside it. frame:camera in on_draw sets this picture's camera: look_at the point the view centers on, width how many voxels it shows across there, pitch how steep it looks down; what you leave out is c.camera's, so { width = 60 } alone zooms in on the player and keeps following. Each picture is its own: call it in every picture the scene lasts and work a pan out from your clock; a picture without it is the game's camera again. Here a slow pan along the meadow, a cut to the house's door, then the game's camera on the player, and round again. Only the picture: the game's rules do not see it.",
         conf: r##"c.player.kind = "hero"
 c.things.hero = { model = "hero.vvx" }
 c.camera.aspect = 2.39"##,

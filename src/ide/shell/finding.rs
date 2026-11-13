@@ -37,11 +37,11 @@ impl Shell {
             if self.search.shown && self.search.had_keys {
                 ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
                 self.search.shown = false;
-                self.focus_code = text;
+                self.opening.focus_code = text;
             } else if self.find.shown && self.find.had_keys && !offering && text {
                 ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
                 self.find.close();
-                self.focus_code = true;
+                self.opening.focus_code = true;
             }
         }
     }
@@ -49,7 +49,7 @@ impl Shell {
     /// Whether the main area shows a text to change (not HELP, the game,
     /// a built-in sound or a picture from outside).
     pub(super) fn text_open(&self) -> bool {
-        matches!(self.shown, Some(Shown::Code(_))) && !self.help && self.outside.is_none() && self.builtin.is_none() && !self.stage.as_ref().is_some_and(|s| s.shown)
+        matches!(self.shown, Some(Shown::Code(_))) && !self.help && self.outside.is_none() && self.sound.builtin.is_none() && !self.stage.as_ref().is_some_and(|s| s.shown)
     }
 
     /// What the open text has selected, and where the selection (or the
@@ -162,12 +162,12 @@ impl Shell {
         self.hide_game();
         self.help = false;
         self.open(file);
-        // A model's line shows in its text.
-        if file.ends_with(".vvx") && !self.model_text {
+        // A model's or a level's line shows in its text.
+        if (file.ends_with(".vvx") || self.is_level(file)) && !self.pictures.model_text {
             self.flush();
             self.model_as_text();
         }
-        self.goto = Some((line, true));
+        self.opening.goto = Some((line, true));
         self.find.word = self.search.word.clone();
         self.find.match_case = self.search.match_case;
         self.find.shown = true;

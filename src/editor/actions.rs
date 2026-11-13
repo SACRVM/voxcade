@@ -181,11 +181,16 @@ pub enum Action {
     /// The view's own buttons: turned an eighth round (1 clockwise seen
     /// from above, -1 back), nearer (1) or further (-1).
     TurnView(i8),
+    /// FRONT, SIDE or TOP (its place in `view::STRAIGHT`); pressed again,
+    /// the free view as it was.
+    StraightView(u8),
+    /// LEVEL's ANCHOR on an axis of a level of blocks: the other side stays.
+    Anchor(u8),
     ZoomView(i8),
     /// GRID in the voxel editor: the voxels' edges drawn on the faces, or
     /// not.
     Grid,
-    /// The chosen one's handles: MOVE (false, its arrows) or TURN (true,
+    /// The chosen one's handles: MOVE (false, its arrows) or ROTATE (true,
     /// its rings).
     HandleMode(bool),
     /// The voxel editor's and the level of blocks': a menu opened on a
@@ -281,7 +286,6 @@ pub fn key_of(action: Action) -> Option<char> {
         Action::Turn(t) if t == Turn::ROLL => 'O',
         Action::Turn(t) if t == Turn::MIRROR => 'M',
         Action::Clone => 'C',
-        Action::Delete => 'D',
         Action::Choose => 'N',
         Action::Frame(-1) => 'V',
         Action::Frame(_) => 'X',
@@ -292,7 +296,6 @@ pub fn key_of(action: Action) -> Option<char> {
         Action::EditModel => 'E',
         Action::CopyItem | Action::CopyFrame => 'C',
         Action::GameView => 'G',
-        Action::DeleteFrame => 'D',
         Action::Trim => 'M',
         _ => return None,
     })
@@ -495,6 +498,15 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::TurnView(by) => {
             let orbit = view.orbit(ed.scope);
             orbit.yaw = (orbit.yaw + 45.0 * by as f32).rem_euclid(360.0);
+            view.leave_game_view(ed.scope);
+        }
+        Action::Anchor(a) => {
+            if let Some(side) = ed.anchor.get_mut(a as usize) {
+                *side = !*side;
+            }
+        }
+        Action::StraightView(k) => {
+            view.straight_view(ed.scope, k as usize);
             view.leave_game_view(ed.scope);
         }
         Action::ZoomView(by) => {

@@ -8,14 +8,14 @@ impl Shell {
     /// Leaving would end what runs in the console: asked first.
     pub(super) fn leaving_ui(&mut self, ui: &mut egui::Ui) {
         // Leaving would end what runs in the console: asked first.
-        if let Some(dir) = self.leaving.clone() {
+        if let Some(dir) = self.forms.leaving.clone() {
             let name = dir.file_name().map_or_else(|| dir.display().to_string(), |n| n.to_string_lossy().into_owned());
             let mut answer = None;
             let modal = egui::Modal::new(egui::Id::unique("leaving")).frame(egui::Frame::popup(ui.style()).fill(PANEL).inner_margin(egui::Margin::same(20))).show(ui.ctx(), |ui| {
                 ui.set_width(460.0);
                 ui.label(RichText::new("STILL RUNNING").color(ACCENT));
                 ui.add_space(8.0);
-                ui.label(format!("Something still runs in the console ({} at work?). Opening {name} ends it.", self.prefs.agent.called()));
+                ui.label(format!("Something still runs in the console ({} at work?). Opening {name} ends it.", self.forms.prefs.agent.called()));
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
                     if ui.button(format!("OPEN {}", name.to_uppercase())).clicked() {
@@ -30,7 +30,7 @@ impl Shell {
                 answer = Some(false);
             }
             if let Some(go) = answer {
-                self.leaving = None;
+                self.forms.leaving = None;
                 if go {
                     self.flush();
                     self.asks.push(Ask::Project(Wish::Open(dir)));
@@ -43,16 +43,16 @@ impl Shell {
     /// started at once if it starts with the IDE (and there is a console).
     pub fn with_prefs(mut self, path: PathBuf) -> Self {
         match Prefs::load(&path) {
-            Ok(prefs) => (self.prefs, self.prefs_path) = (prefs, Some(path)),
+            Ok(prefs) => (self.forms.prefs, self.forms.prefs_path) = (prefs, Some(path)),
             // Not written over: the defaults for now, kept nowhere.
             Err(e) => self.console.tell(Some(format!("the settings: {e:#}"))),
         }
         // Opened now: first among the games opened last.
-        self.prefs.opened(&self.dir, &self.title);
+        self.forms.prefs.opened(&self.dir, &self.title);
         if let Err(e) = self.keep_prefs() {
             self.console.tell(Some(format!("the settings: {e:#}")));
         }
-        if self.prefs.console && self.prefs.claude.with_ide {
+        if self.forms.prefs.console && self.forms.prefs.claude.with_ide {
             self.start_agent(false, false);
         }
         self
@@ -66,24 +66,24 @@ impl Shell {
     /// only if it was asked for (started with the IDE, a first-time
     /// maker's game is not covered by it; the bar says NO AGENT FOUND).
     pub(super) fn start_agent(&mut self, fresh: bool, asked: bool) {
-        self.no_agent = !self.finder.finds(self.prefs.agent.program());
-        if self.no_agent {
+        self.agent.no_agent = !self.agent.finder.finds(self.forms.prefs.agent.program());
+        if self.agent.no_agent {
             self.console.tell(Some("NO AGENT FOUND".into()));
             if asked {
                 self.memory.console_folded = false;
-                self.output_shown = false;
+                self.below.output_shown = false;
             }
             return;
         }
-        let mcp = self.prefs_path.as_ref().map(|p| p.with_file_name("mcp.json"));
+        let mcp = self.forms.prefs_path.as_ref().map(|p| p.with_file_name("mcp.json"));
         let mut trouble = None;
-        if let Some(file) = mcp.as_ref().filter(|_| self.prefs.claude.connect)
+        if let Some(file) = mcp.as_ref().filter(|_| self.forms.prefs.claude.connect)
             && let Err(e) = crate::ide::claude::write_mcp(file)
         {
             trouble = Some(format!("the IDE's tools: {e:#}"));
         }
         // Its part: the game in its folder (`claude::brief`).
-        let briefing = match self.prefs_path.as_ref().map(|p| crate::ide::claude::brief(&p.with_file_name("agents"), &self.dir, &self.title)) {
+        let briefing = match self.forms.prefs_path.as_ref().map(|p| crate::ide::claude::brief(&p.with_file_name("agents"), &self.dir, &self.title)) {
             Some(Ok(b)) => b,
             Some(Err(e)) => {
                 trouble = trouble.or(Some(format!("what Claude is told: {e:#}")));
@@ -91,8 +91,8 @@ impl Shell {
             }
             None => Default::default(),
         };
-        let command = match self.prefs.agent {
-            Agent::Claude => self.prefs.claude.command(&self.dir, &self.title, fresh, mcp.as_deref(), &briefing),
+        let command = match self.forms.prefs.agent {
+            Agent::Claude => self.forms.prefs.claude.command(&self.dir, &self.title, fresh, mcp.as_deref(), &briefing),
         };
         trouble = trouble.or_else(|| self.keep_prefs().err().map(|e| format!("the settings: {e:#}")));
         self.console.tell(trouble);
@@ -103,8 +103,8 @@ impl Shell {
     /// Opens the game in `dir` instead of this one; while something runs
     /// in the console (Claude at work), which leaving ends, after asking.
     pub fn leave_for(&mut self, dir: PathBuf) {
-        if self.prefs.console && self.console.busy() {
-            self.leaving = Some(dir);
+        if self.forms.prefs.console && self.console.busy() {
+            self.forms.leaving = Some(dir);
         } else {
             self.flush();
             self.asks.push(Ask::Project(Wish::Open(dir)));
@@ -113,12 +113,12 @@ impl Shell {
 
     /// Where NEW puts games.
     pub fn projects_dir(&self) -> PathBuf {
-        self.prefs.projects_dir()
+        self.forms.prefs.projects_dir()
     }
 
     /// NEW puts games in `dir` from now on (the settings' CHANGE…).
     pub fn set_projects(&mut self, dir: PathBuf) {
-        self.prefs.projects = Some(dir);
+        self.forms.prefs.projects = Some(dir);
         if let Err(e) = self.keep_prefs() {
             self.console.tell(Some(format!("the settings: {e:#}")));
         }
@@ -126,8 +126,8 @@ impl Shell {
 
     /// Writes down the IDE's settings.
     pub(super) fn keep_prefs(&self) -> anyhow::Result<()> {
-        match &self.prefs_path {
-            Some(path) => self.prefs.save(path),
+        match &self.forms.prefs_path {
+            Some(path) => self.forms.prefs.save(path),
             None => Ok(()),
         }
     }
@@ -142,7 +142,7 @@ impl Shell {
         let mut changed = false;
         heading(ui, "PROJECTS");
         ui.horizontal(|ui| {
-            ui.label(RichText::new(self.prefs.projects_dir().display().to_string()).small().color(TEXT));
+            ui.label(RichText::new(self.forms.prefs.projects_dir().display().to_string()).small().color(TEXT));
             if ui.button("CHANGE…").on_hover_text("Where NEW puts games.").clicked() {
                 self.asks.push(Ask::Project(Wish::BrowseProjects));
                 ui.close();
@@ -150,16 +150,16 @@ impl Shell {
         });
         ui.add_space(8.0);
         heading(ui, "CONSOLE");
-        changed |= ui.checkbox(&mut self.prefs.console, "SHOW THE CONSOLE").on_hover_text("The console below the main area; off, none at all (it is for the agents).").changed();
+        changed |= ui.checkbox(&mut self.forms.prefs.console, "SHOW THE CONSOLE").on_hover_text("The console below the main area; off, none at all (it is for the agents).").changed();
         ui.add_space(8.0);
         heading(ui, "AGENT");
         for a in Agent::ALL {
-            changed |= ui.radio_value(&mut self.prefs.agent, a, a.name()).changed();
+            changed |= ui.radio_value(&mut self.forms.prefs.agent, a, a.name()).changed();
         }
-        let agent = self.prefs.agent;
+        let agent = self.forms.prefs.agent;
         ui.add_space(8.0);
         heading(ui, agent.name());
-        let claude = &mut self.prefs.claude;
+        let claude = &mut self.forms.prefs.claude;
         changed |= ui.checkbox(&mut claude.with_ide, "START WITH THE IDE").on_hover_text("Claude starts in the console when the IDE opens.").changed();
         changed |= ui.checkbox(&mut claude.resume, "GO ON WITH THE LAST CONVERSATION").on_hover_text("Claude goes on with this game's conversation; off, it begins a new one each time.").changed();
         changed |= ui
@@ -171,7 +171,7 @@ impl Shell {
             None => "NO CONVERSATION FOR THIS GAME YET".into(),
         };
         ui.add_space(6.0);
-        if ui.add_enabled(self.prefs.console, egui::Button::new("NEW CONVERSATION")).on_hover_text("Starts the console anew, Claude in a new conversation (the last one stays with Claude Code: claude --resume finds it).").clicked() {
+        if ui.add_enabled(self.forms.prefs.console, egui::Button::new("NEW CONVERSATION")).on_hover_text("Starts the console anew, Claude in a new conversation (the last one stays with Claude Code: claude --resume finds it).").clicked() {
             self.start_agent(true, true);
             ui.close();
         }

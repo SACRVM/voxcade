@@ -43,7 +43,8 @@ enum Stage {
 enum Refit {
     /// The game has none.
     Nothing,
-    Offered,
+    /// How many it has.
+    Offered(usize),
     Running(Receiver<Result<(bool, Vec<String>), String>>),
     Done(bool, Vec<String>),
     Failed(String),
@@ -55,6 +56,9 @@ pub struct Wizard {
     standing: Result<Standing, String>,
     /// Changes git has not committed in the folder, if it is a repository.
     changes: Option<usize>,
+    /// Git holds every file of the game (`upgrade::committed`): the upgrade
+    /// keeps no copy, else it keeps one first.
+    committed: bool,
     stage: Stage,
     /// It came from PLAY: the game is played once it is up to date.
     pub play: bool,
@@ -69,7 +73,8 @@ impl Wizard {
     /// The page for the game in `dir` (`play`: it came from PLAY).
     pub fn new(dir: &Path, play: bool) -> Self {
         let standing = crate::upgrade::standing(dir).map_err(|e| format!("{e:#}"));
-        Self { dir: dir.to_path_buf(), title: super::projects::title_of(dir), standing, changes: crate::upgrade::uncommitted(dir), stage: Stage::Asking, play }
+        let (changes, committed) = (crate::upgrade::uncommitted(dir), crate::upgrade::committed(dir));
+        Self { dir: dir.to_path_buf(), title: super::projects::title_of(dir), standing, changes, committed, stage: Stage::Asking, play }
     }
 
     /// UPGRADE: the upgrade on a thread of its own.
@@ -92,7 +97,10 @@ impl Wizard {
     }
 
     fn refit_offer(&self) -> Refit {
-        if crate::upgrade::files_ending(&self.dir.join("replays"), "toml").is_empty() { Refit::Nothing } else { Refit::Offered }
+        match crate::upgrade::files_ending(&self.dir.join("replays"), "toml").len() {
+            0 => Refit::Nothing,
+            n => Refit::Offered(n),
+        }
     }
 
     /// REFIT THE REPLAYS: `refit` (the game's `replay::refit_saying`) on a
@@ -194,15 +202,16 @@ impl Wizard {
                 ui.label(RichText::new("STEPS").color(QUIET)).on_hover_text("The files are brought up to date before the game opens here. This is what the upgrade would do.");
                 ui.add_space(12.0);
                 if let Standing::Older { steps, .. } = &standing {
-                    for step in steps {
+                    // Only the steps that change something; the rest counted.
+                    for step in steps.iter().filter(|s| !s.would.is_empty()) {
                         ui.label(RichText::new(format!("{} (Voxcade {})", step.name.to_uppercase(), step.since)).color(TEXT));
-                        if step.would.is_empty() {
-                            said(ui, "nothing to change");
-                        }
                         for line in &step.would {
                             said(ui, line);
                         }
                         ui.add_space(8.0);
+                    }
+                    if let Some(idle) = idle_steps(steps.iter().filter(|s| s.would.is_empty()).count()) {
+                        said(ui, &idle);
                     }
                     said(ui, &format!("then conf.lua says c.voxcade = \"{}\"", engine()));
                 }
@@ -227,8 +236,9 @@ impl Wizard {
                 ui.add_space(14.0);
                 match refit {
                     Refit::Nothing => {}
-                    Refit::Offered => {
-                        ui.label("REPLAYS RECORDED ON THE OLD FILES").on_hover_text("Refitted, they take the new files if every one still plays exactly as recorded (nothing else in them changes).");
+                    Refit::Offered(n) => {
+                        let line = format!("{n} replay{} recorded on the old files", if *n == 1 { "" } else { "s" });
+                        egui::Frame::new().inner_margin(egui::Margin { left: 16, ..egui::Margin::ZERO }).show(ui, |ui| ui.label(RichText::new(line).color(QUIET)).on_hover_text("REFIT THE REPLAYS plays each on the new files; if every one still plays exactly as recorded, they take the new files (nothing else in them changes)."));
                     }
                     Refit::Running(_) => {
                         ui.label(RichText::new("PLAYING THE REPLAYS…").color(ACCENT));
@@ -251,8 +261,14 @@ impl Wizard {
         let mut wish = None;
         let open = if self.play { ("PLAY", Wish::Play) } else { ("OPEN THE GAME", Wish::Open) };
         let asking = matches!(self.stage, Stage::Asking) && matches!(self.standing, Ok(Standing::Older { .. }));
-        if asking && let Some(n) = self.changes {
-            ui.label(RichText::new(format!("{n} UNCOMMITTED CHANGE{}", if n == 1 { "" } else { "S" })).color(ACCENT)).on_hover_text("Save a step first (commit them), so that the upgrade's changes stand apart from yours: the upgrade commits nothing.");
+        if asking {
+            ui.horizontal(|ui| {
+                if let Some(n) = self.changes {
+                    ui.label(RichText::new(format!("{n} UNCOMMITTED CHANGE{} ·", if n == 1 { "" } else { "S" })).color(ACCENT)).on_hover_text("Save a step first (commit them), so that the upgrade's changes stand apart from yours: the upgrade commits nothing.");
+                }
+                let (word, tip) = keeping(self.committed);
+                ui.label(RichText::new(word).color(QUIET)).on_hover_text(tip);
+            });
             ui.add_space(8.0);
         }
         ui.horizontal(|ui| {
@@ -268,7 +284,7 @@ impl Wizard {
                     }
                 }
                 (_, Stage::Upgraded { refit: state, dry, .. }) => {
-                    if matches!(state, Refit::Offered) && ui.button("REFIT THE REPLAYS").on_hover_text("Plays every replay on the new files (as voxcade check --refit).").clicked() && !*dry {
+                    if matches!(state, Refit::Offered(_)) && ui.button("REFIT THE REPLAYS").on_hover_text("Plays every replay on the new files (as voxcade check --refit).").clicked() && !*dry {
                         self.refit(refit);
                     } else if !matches!(state, Refit::Running(_)) && ui.button(open.0).clicked() {
                         wish = Some(open.1);
@@ -286,9 +302,47 @@ impl Wizard {
 
 /// What the upgrade said, as the page shows it: without the line telling
 /// the command that refits the replays (REFIT THE REPLAYS below does it;
-/// the command stays in the docs and in `voxcade upgrade`'s words).
-fn shown_lines(lines: &[String]) -> Vec<&str> {
-    lines.iter().map(String::as_str).filter(|l| !(l.contains("voxcade check") && l.contains("--refit"))).collect()
+/// the command stays in the docs and in `voxcade upgrade`'s words), and
+/// the steps with nothing to change counted in one line where the first
+/// of them stood.
+fn shown_lines(lines: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    let (mut idle, mut at) = (0, None);
+    let mut lines = lines.iter().filter(|l| !(l.contains("voxcade check") && l.contains("--refit"))).peekable();
+    while let Some(line) = lines.next() {
+        if line.ends_with("):") && lines.peek().is_some_and(|next| next.trim() == "nothing to change") {
+            lines.next();
+            idle += 1;
+            at.get_or_insert(out.len());
+            continue;
+        }
+        out.push(line.clone());
+    }
+    if let (Some(at), Some(line)) = (at, idle_steps(idle)) {
+        out.insert(at, line);
+    }
+    out
+}
+
+/// The quiet line for `n` steps that find nothing to change (None: none).
+fn idle_steps(n: usize) -> Option<String> {
+    match n {
+        0 => None,
+        1 => Some("1 step has nothing to change".into()),
+        n => Some(format!("{n} steps have nothing to change")),
+    }
+}
+
+/// What keeps the game's files as they are before UPGRADE, as
+/// `upgrade::upgrade` does: git where it holds every file, else a copy
+/// made first. The label and its hover.
+fn keeping(committed: bool) -> (&'static str, String) {
+    if committed {
+        ("GIT KEEPS THE OLD FILES", "Every file of the game is committed in git, so git can give back what the upgrade changes. No copy is made.".into())
+    } else {
+        let to = crate::settings::config_dir().join(crate::upgrade::KEPT);
+        ("A COPY IS KEPT FIRST", format!("The game is not committed in git, so before anything changes its files are copied to {}.", to.display()))
+    }
 }
 
 /// A line of what a step does, quiet, indented.
@@ -364,7 +418,7 @@ mod tests {
         crate::upgrade::upgrade(&dir, false).unwrap();
         std::fs::create_dir_all(dir.join("replays")).unwrap();
         let mut w = Wizard::new(&dir, false);
-        w.stage = Stage::Upgraded { lines: Vec::new(), dry: false, refit: Refit::Offered };
+        w.stage = Stage::Upgraded { lines: Vec::new(), dry: false, refit: Refit::Offered(1) };
         w.refit(|_, say| {
             say("demo.toml: same".into());
             Ok(true)
@@ -386,7 +440,75 @@ mod tests {
         let lines = crate::upgrade::upgrade(&dir, true).unwrap();
         assert!(lines.iter().any(|l| l.contains("voxcade check")), "{lines:?}");
         let shown = shown_lines(&lines);
-        assert!(!shown.iter().any(|l| l.contains("voxcade check")) && shown.len() + 1 == lines.len(), "{shown:?}");
+        assert!(!shown.iter().any(|l| l.contains("voxcade check")), "{shown:?}");
+        assert!(shown.iter().any(|l| l.contains("robot.vvx")), "{shown:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The texts a frame of the page draws, at 1600 by 900.
+    fn drawn(ctx: &egui::Context, w: &mut Wizard) -> Vec<String> {
+        let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 900.0))), ..Default::default() };
+        let out = ctx.run_ui(raw, |ui| {
+            let _ = w.ui(ui, crate::replay::refit_saying::<crate::Voxcade>);
+        });
+        out.shapes.iter().filter_map(|s| if let egui::Shape::Text(t) = &s.shape { Some(t.galley.text().to_string()) } else { None }).collect()
+    }
+
+    fn copy(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                copy(&path, &to.join(entry.file_name()));
+            } else {
+                std::fs::copy(&path, to.join(entry.file_name())).unwrap();
+            }
+        }
+    }
+
+    /// Sokovox said to be made for 0.3: every step finds nothing, so the
+    /// page names no step but counts them in one line, says that a copy is
+    /// kept first (the folder is in no git repository), and after a dry
+    /// UPGRADE counts the replays on a line of their own, no empty heading.
+    #[test]
+    fn the_page_shows_only_the_steps_that_change_something() {
+        let root = crate::scratch::Scratch::new("wizard-page");
+        let dir = root.join("sokovox");
+        copy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("games/sokovox"), &dir);
+        let conf = std::fs::read_to_string(dir.join("conf.lua")).unwrap().replace("c.voxcade = \"0.6.0\"", "c.voxcade = \"0.3\"");
+        std::fs::write(dir.join("conf.lua"), conf).unwrap();
+        let mut w = Wizard::new(&dir, false);
+        let Ok(Standing::Older { steps, .. }) = &w.standing else { panic!("older") };
+        assert!(steps.len() > 1 && steps.iter().all(|s| s.would.is_empty()), "every step idle: {steps:?}");
+        let n = steps.len();
+        let ctx = egui::Context::default();
+        let texts = (0..2).map(|_| drawn(&ctx, &mut w)).last().unwrap();
+        let says = |word: &str| texts.iter().any(|t| t.contains(word));
+        assert!(!says("nothing to change\n") && texts.iter().all(|t| t != "nothing to change"), "{texts:?}");
+        assert!(says(&format!("{n} steps have nothing to change")), "{texts:?}");
+        assert!(!says("ROTATION AND BEHAVIOR"), "an idle step is not named: {texts:?}");
+        assert!(says("A COPY IS KEPT FIRST") && !says("GIT KEEPS"), "{texts:?}");
+        assert!(says("UPGRADE"));
+        // As after a dry UPGRADE.
+        w.upgraded_dry();
+        let texts = (0..2).map(|_| drawn(&ctx, &mut w)).last().unwrap();
+        let says = |word: &str| texts.iter().any(|t| t.contains(word));
+        assert!(!texts.iter().any(|t| t.trim() == "nothing to change"), "{texts:?}");
+        assert!(says(&format!("{n} steps have nothing to change")), "{texts:?}");
+        assert!(says("2 replays recorded on the old files") && !says("REPLAYS RECORDED ON THE OLD FILES"), "{texts:?}");
+        assert!(says("REFIT THE REPLAYS"));
+        // In a git repository with every file committed, git keeps them.
+        assert_eq!(keeping(true).0, "GIT KEEPS THE OLD FILES");
+    }
+
+    /// The steps with nothing to change are counted where the first stood;
+    /// a step that changes something keeps its lines.
+    #[test]
+    fn idle_steps_are_counted_in_one_line() {
+        let lines: Vec<String> = ["note: x", "a (Voxcade 0.6.0):", "  nothing to change", "b (Voxcade 0.6.0):", "  robot.vox becomes robot.vvx", "c (Voxcade 0.6.0):", "  nothing to change", "conf.lua would say c.voxcade = \"0.6.0\""].map(String::from).to_vec();
+        assert_eq!(shown_lines(&lines), ["note: x", "2 steps have nothing to change", "b (Voxcade 0.6.0):", "  robot.vox becomes robot.vvx", "conf.lua would say c.voxcade = \"0.6.0\""]);
+        assert_eq!(idle_steps(1).as_deref(), Some("1 step has nothing to change"));
+        assert_eq!(idle_steps(0), None);
     }
 
     /// A game made with a newer Voxcade is said to be so.

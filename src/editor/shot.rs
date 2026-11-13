@@ -57,7 +57,7 @@ pub struct ShotOptions {
     pub add_menu: bool,
     pub level_settings: bool,
     pub hover: Option<String>,
-    /// The chosen one's handles in TURN (its rings), else MOVE.
+    /// The chosen one's handles in ROTATE (its rings), else MOVE.
     pub turn_handles: bool,
     /// A figure's parts moved by whole voxels (`--move-part`), joints by
     /// halves (`--move-joint`, true), in turn: by the part's name.
@@ -122,6 +122,13 @@ pub fn scatter_level<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     let (mut ed, _view, _cfg) = open::<G>(dir, opts.level.as_deref(), None, false)?;
     ed.dry = opts.dry;
     for &k in &opts.scatter {
+        // Only a rule that sets pieces: else a mistake naming the rules.
+        let rules: Vec<String> = ed.terrain().map(|t| t.scatter.iter().enumerate().map(|(i, r)| format!("{} ({}: {})", i + 1, r.makes().word(), r.models.join(", "))).collect()).unwrap_or_default();
+        let fits = ed.terrain().and_then(|t| t.scatter.get(k.wrapping_sub(1))).is_some_and(|r| r.makes() == crate::terrain::ScatterAs::Pieces);
+        if !fits {
+            let there = if rules.is_empty() { "the level has no scatter rules".to_string() } else { format!("its scatter rules are {}", rules.join("; ")) };
+            bail!("--scatter {k}: no scatter rule {k} that sets pieces: {there}");
+        }
         let before = ed.level.things.len();
         ed.scatter_pieces(k.saturating_sub(1));
         if let Some(h) = ed.hint.take() {
@@ -203,7 +210,7 @@ impl ShotOp {
 /// Tries a change among the pieces (`--shot`), as the panels would make it.
 fn try_op(ed: &mut Editor, figures: &Figures, op: &ShotOp) -> Result<()> {
     use model::{Field, Hanging, Item};
-    let find = |ed: &Editor, name: &str| ed.find(name).with_context(|| format!("the level has nothing called '{name}'"));
+    let find = |ed: &Editor, name: &str| ed.find_listed(name).with_context(|| format!("the level has nothing called '{name}'"));
     // What hangs on the mouse set down exactly at a spot.
     let set_at = |ed: &mut Editor, at: glam::IVec3| {
         match &mut ed.pieces.hanging {
@@ -380,24 +387,17 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     // With --held or --stamp twice: the shape set, then all drawn again.
     let again = opts.stamp || opts.held.is_some() || opts.menu.is_some() || opts.hover.is_some() || opts.click.is_some() || opts.marquee.is_some();
     for pass in 0..=again as usize {
-        for step in 0..120 {
-            let mut raw = input.take([opts.width, opts.height], 1.0, 1.0);
-            raw.time = Some((pass * 120 + step) as f64 / 60.0);
-            ed.pieces.sizes = figures.sizes();
-            let out = ctx.run_ui(raw, |ui| {
-                drawn = panels::ui(ui, &ed, &view, &figures, &mut thumbs);
-                let free = room_of(&drawn, ui.ctx().content_rect()).0;
-                panels::joints(ui, &ed, &view, free);
-                panels::marks(ui, &ed, &view, &figures, free);
-            });
-            let settled = step >= 2 && out.viewport_output.get(&egui::ViewportId::ROOT).is_none_or(|v| v.repaint_delay == Duration::MAX);
-            if settled {
-                last = Some(out);
-                break;
-            }
+        ed.pieces.sizes = figures.sizes();
+        let out = settle(&ctx, &mut input, [opts.width, opts.height], pass, |ui| {
+            drawn = panels::ui(ui, &ed, &view, &figures, &mut thumbs);
+            let free = room_of(&drawn, ui.ctx().content_rect()).0;
+            panels::joints(ui, &ed, &view, free);
+            panels::marks(ui, &ed, &view, &figures, free);
+        }, |out| {
             let (device, queue, _) = canvas.gpu();
             painter.skip(device, queue, out);
-        }
+        });
+        last = Some(out);
         view.set_room(room_of(&drawn, ctx.content_rect()).1);
         // The mouse in the middle of the view.
         let (mx, my) = (0.5 - view.inset.x / 2.0, 0.5 - view.inset.y / 2.0);
@@ -450,6 +450,27 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     crate::headless::write_png(&opts.out, opts.width, opts.height, &pixels)?;
     print_facts(&ed, &view, &ctx, opts, frame.instances.len(), keys);
     Ok(())
+}
+
+/// The panels laid out over frames a sixtieth of a second apart (pass
+/// `pass` of the shot) until egui is settled, the frames before handed to
+/// `skip`: the last one's output. Two seconds at most: what never settles
+/// (a text field in focus, its cursor blinking: ADD MODEL's find) is drawn
+/// as it is then, never left out.
+fn settle(ctx: &egui::Context, input: &mut crate::gui::input::Input, size: [u32; 2], pass: usize, mut ui: impl FnMut(&mut egui::Ui), mut skip: impl FnMut(egui::FullOutput)) -> egui::FullOutput {
+    const FRAMES: usize = 120;
+    let mut step = 0;
+    loop {
+        let mut raw = input.take(size, 1.0, 1.0);
+        raw.time = Some((pass * FRAMES + step) as f64 / 60.0);
+        let out = ctx.run_ui(raw, &mut ui);
+        let settled = step >= 2 && out.viewport_output.get(&egui::ViewportId::ROOT).is_none_or(|v| v.repaint_delay == Duration::MAX);
+        if settled || step + 1 == FRAMES {
+            return out;
+        }
+        skip(out);
+        step += 1;
+    }
 }
 
 /// `--add-part`, `--mirror`, `--merge-into`, `--rotate-part`, `--pose-part`,
@@ -581,7 +602,7 @@ fn in_context(dir: &Path, ed: &mut Editor, opts: &ShotOptions) -> Result<()> {
     if let Some((level, name)) = &opts.context {
         anyhow::ensure!(ed.model.is_some(), "--context shapes a model in place: --model FILE");
         let lv = crate::grid::GridLevel::read(&dir.join(level))?;
-        let piece = lv.things.iter().position(|t| t.name.as_deref() == Some(name)).with_context(|| format!("--context {level}:{name}: the level has no piece called so"))?;
+        let piece = model::room::listed(&lv.things, name).with_context(|| format!("--context {level}:{name}: the level has no piece called so"))?;
         ed.set_context(context::Seed { level: level.clone(), piece, hidden: Default::default() })?;
         if opts.context_off {
             ed.toggle_context();
@@ -593,7 +614,8 @@ fn in_context(dir: &Path, ed: &mut Editor, opts: &ShotOptions) -> Result<()> {
 /// Among the pieces: the changes tried, the one chosen, those hidden.
 fn try_pieces(dir: &Path, ed: &mut Editor, figures: &mut Figures, opts: &ShotOptions) -> Result<()> {
     // The changes tried among the pieces, then the one chosen, the view.
-    if !opts.ops.is_empty() || opts.choose.is_some() {
+    // (ADD MODEL's pictures are the pieces' too.)
+    if !opts.ops.is_empty() || opts.choose.is_some() || opts.picker {
         if ed.level.has_grid() {
             ed.switch(Layer::Pieces);
         }
@@ -606,11 +628,11 @@ fn try_pieces(dir: &Path, ed: &mut Editor, figures: &mut Figures, opts: &ShotOpt
         figures.follow(dir, ed);
     }
     if let Some(name) = &opts.choose {
-        let item = ed.find(name).with_context(|| format!("--choose {name}: the level has nothing called so"))?;
+        let item = ed.find_listed(name).with_context(|| format!("--choose {name}: the level has nothing called so"))?;
         ed.choose_item(Some(item));
     }
     for name in &opts.hide {
-        let item = ed.find(name).with_context(|| format!("--hide {name}: the level has nothing called so"))?;
+        let item = ed.find_listed(name).with_context(|| format!("--hide {name}: the level has nothing called so"))?;
         ed.set_hidden(item, true);
     }
     Ok(())
@@ -691,7 +713,7 @@ fn set_view(ed: &mut Editor, view: &mut View, opts: &ShotOptions, aspect: f32) -
     if let Some((yaw, pitch)) = opts.view {
         let orbit = view.orbit(ed.scope);
         orbit.yaw = yaw;
-        orbit.pitch = pitch.clamp(-85.0, 85.0);
+        orbit.pitch = pitch.clamp(-90.0, 90.0);
     }
     (view.picker, view.lights) = (opts.picker, !opts.lights_off);
     Ok(())
@@ -744,7 +766,7 @@ fn pointer_flags(ed: &mut Editor, view: &mut View, figures: &Figures, shown: &Sh
             let spot = view::floor_spot(&shown.world, origin, dir).context("--menu floor: no floor under the middle of the view")?;
             view.menu = Some(view::Menu { on: view::MenuOn::Floor(spot), at: [at.x, at.y] });
         } else {
-            let item = ed.find(name).with_context(|| format!("--menu {name}: the level has nothing called so"))?;
+            let item = ed.find_listed(name).with_context(|| format!("--menu {name}: the level has nothing called so"))?;
             // At the thing as it stands on the screen.
             let at = stage::handles_on_screen(ed, view, screen).map_or(at, |(_, _, b)| b.center());
             view::act(ed, view, view::Action::OpenMenu(item, [at.x, at.y]));
@@ -838,5 +860,48 @@ fn print_facts(ed: &Editor, view: &View, ctx: &egui::Context, opts: &ShotOptions
         for line in figure.tree_lines() {
             println!("{line}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A field in focus never lets egui settle (its cursor blinks): the
+    /// shot draws the panels as they are after two seconds, not nothing
+    /// (ADD MODEL's find over a game of many models drew no panel at all).
+    #[test]
+    fn panels_that_never_settle_are_drawn_all_the_same() {
+        let ctx = egui::Context::default();
+        let mut input = crate::gui::input::Input::default();
+        let mut text = String::new();
+        let mut skipped = 0;
+        let out = settle(&ctx, &mut input, [640, 360], 0, |ui| {
+            ui.label("ADD MODEL");
+            ui.add(egui::TextEdit::singleline(&mut text)).request_focus();
+        }, |_| skipped += 1);
+        assert_eq!(skipped, 119, "it never settled");
+        assert!(!out.shapes.is_empty(), "the last frame is drawn");
+    }
+
+    /// An unnamed thing is found by what the list shows for it (`--choose
+    /// torch`, `torch#3` the third), a name before that.
+    #[test]
+    fn things_are_found_by_the_name_the_list_shows() {
+        let ed = Editor::open(Path::new("games/voxkeep"), "levels/01_hall.toml").unwrap();
+        let torches: Vec<usize> = ed.level.things.iter().enumerate().filter(|(_, t)| t.name.is_none() && t.kind == "torch").map(|(i, _)| i).collect();
+        assert!(torches.len() >= 3);
+        assert_eq!(ed.find_listed("torch"), Some(Item::Thing(torches[0])));
+        assert_eq!(ed.find_listed("torch#3"), Some(Item::Thing(torches[2])));
+        assert_eq!((ed.find("torch"), ed.find_listed("torch#99"), ed.find_listed("torch#0")), (None, None, None), "its own name only, no such one");
+    }
+
+    /// `--scatter N` without such a rule is a mistake naming the rules
+    /// there are (it said "0 pieces set down").
+    #[test]
+    fn scatter_without_such_a_rule_names_the_rules() {
+        let opts = ShotOptions { level: Some("levels/01_hall.toml".into()), scatter: vec![1], dry: true, ..Default::default() };
+        let e = scatter_level::<crate::Voxcade>(Path::new("games/voxkeep"), &opts).unwrap_err();
+        assert!(format!("{e:#}").contains("--scatter 1: no scatter rule 1 that sets pieces: the level has no scatter rules"), "{e:#}");
     }
 }
