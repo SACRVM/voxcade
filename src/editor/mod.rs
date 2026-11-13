@@ -8,6 +8,8 @@
 //! the IDE's look (`panels.rs`, egui), the 3D view the game's own light.
 
 pub mod background;
+#[cfg(test)]
+mod big;
 pub mod figure;
 pub mod context;
 pub mod frames;
@@ -1136,6 +1138,14 @@ pub struct EditorWindow {
     /// Where the parts' rows lay, last frame (for tests that click them).
     #[cfg(test)]
     rows: Vec<(String, egui::Rect)>,
+    /// What a window without a window would have drawn: how often the
+    /// world shown was built anew whole (every chunk meshed again), the
+    /// last frame and whether it built the world anew (for tests that
+    /// count and time what a window does).
+    #[cfg(test)]
+    rebuilds: usize,
+    #[cfg(test)]
+    last: Option<(crate::render::FrameData, bool)>,
     /// Steps there were when the last left click came: a double click
     /// takes back what its first click did.
     steps_at_click: usize,
@@ -1231,6 +1241,10 @@ impl EditorWindow {
             rects: Vec::new(),
             #[cfg(test)]
             rows: Vec::new(),
+            #[cfg(test)]
+            rebuilds: 0,
+            #[cfg(test)]
+            last: None,
             steps_at_click: 0,
             dirty: true,
             repaint_at: None,
@@ -2051,6 +2065,12 @@ impl EditorWindow {
         let frame = view::frame(ed, view, shown, figures, &cfg.light, aspect);
         // (A window without a window draws nothing.)
         let Some(Win { screen, renderer, painter }) = win else {
+            #[cfg(test)]
+            {
+                let whole = matches!(rebuilt, Ok(true));
+                self.rebuilds += whole as usize;
+                self.last = Some((frame, whole));
+            }
             if let Err(e) = rebuilt {
                 ed.message = Some(format!("{e:#}"));
             }

@@ -618,6 +618,86 @@ pub struct Shown {
     /// The level's terrain as built, and its columns' heights.
     terrain: Option<crate::terrain::Terrain>,
     surface: Option<crate::terrain::Surface>,
+    /// The level round a model shaped in place, and the selection's
+    /// outline, kept from frame to frame (`frame`): made again only when
+    /// what they are made of changes. A room of big pieces joined on every
+    /// frame took a fifth of a second (the owner's back wall: "ruckelig
+    /// wie sau").
+    room: std::cell::RefCell<RoomCache>,
+    outline: std::cell::RefCell<super::model::selection::Outlines>,
+}
+
+/// The room round a model shaped in place as `frame` draws it: what it was
+/// made of, its cubes and the body they make, joined as the game joins
+/// glass (`render::join_see_through`) for the side the eye was last on,
+/// and sorted far to near for the eye it was last drawn for.
+#[derive(Default)]
+struct RoomCache {
+    made_of: Option<RoomOf>,
+    cubes: Vec<Instance>,
+    body: crate::render::SeeThroughBody,
+    joined_for: Option<([usize; 3], [bool; 3])>,
+    joined: Vec<Instance>,
+    sorted_for: Option<Vec3>,
+    sorted: Vec<Instance>,
+    /// How often it was made, and joined (for tests).
+    made: usize,
+    joins: usize,
+}
+
+/// What the room's cubes depend on: the level round the model (when
+/// shown), the models loaded (they only ever come, never change), the
+/// figure's box and the grid they are drawn in.
+#[derive(Clone, PartialEq)]
+struct RoomOf {
+    context: Option<super::context::Context>,
+    models: usize,
+    figure_box: Option<(IVec3, IVec3)>,
+    seen: [f32; 16],
+}
+
+/// Sorts cubes far from `eye` to near, as a stable `sort_by` on their
+/// distance would (`f32::total_cmp`'s order, equal ones in the order
+/// given), each distance worked out once and the cubes sorted by it in
+/// three passes of a radix sort: a big room sorted by comparing its cubes
+/// took more than a frame while the view turned.
+pub(crate) fn far_to_near(cubes: &mut [Instance], eye: Vec3) {
+    let order = far_to_near_order(cubes, eye);
+    let sorted: Vec<Instance> = order.iter().map(|&k| cubes[k as usize]).collect();
+    cubes.copy_from_slice(&sorted);
+}
+
+/// The order `far_to_near` puts `cubes` in (their places).
+fn far_to_near_order(cubes: &[Instance], eye: Vec3) -> Vec<u32> {
+    let keys: Vec<u32> = cubes
+        .iter()
+        .map(|i| {
+            // `f32::total_cmp`'s order as a signed number, then unsigned.
+            let bits = (-(Vec3::from_slice(&i.pos_size[..3]) - eye).length_squared()).to_bits() as i32;
+            ((bits ^ (((bits >> 31) as u32) >> 1) as i32) as u32) ^ 0x8000_0000
+        })
+        .collect();
+    let mut order: Vec<u32> = (0..cubes.len() as u32).collect();
+    let mut next = vec![0; cubes.len()];
+    // Least significant digits first, each pass stable: 11, 11, 10 bits.
+    for shift in [0, 11, 22] {
+        let digit = |k: u32| ((keys[k as usize] >> shift) & 0x7ff) as usize;
+        let mut at = [0usize; 2048];
+        for &k in &order {
+            at[digit(k)] += 1;
+        }
+        let mut sum = 0;
+        for slot in &mut at {
+            (*slot, sum) = (sum, sum + *slot);
+        }
+        for &k in &order {
+            let d = digit(k);
+            next[at[d]] = k;
+            at[d] += 1;
+        }
+        std::mem::swap(&mut order, &mut next);
+    }
+    order
 }
 
 /// What of the slice the world shown depends on.
@@ -627,7 +707,7 @@ fn slice_key(ed: &Editor) -> Option<(usize, i32, i32)> {
 
 impl Shown {
     pub fn new(ed: &Editor) -> Result<Self> {
-        let mut shown = Self { world: World::new(IVec3::ONE, [[0; 4]; 256]), scope: ed.scope, size: IVec3::ZERO, cells: Vec::new(), blocks: Vec::new(), shape: None, slice: None, turned: false, terrain: None, surface: None };
+        let mut shown = Self { world: World::new(IVec3::ONE, [[0; 4]; 256]), scope: ed.scope, size: IVec3::ZERO, cells: Vec::new(), blocks: Vec::new(), shape: None, slice: None, turned: false, terrain: None, surface: None, room: Default::default(), outline: Default::default() };
         shown.build(ed)?;
         Ok(shown)
     }
@@ -713,6 +793,84 @@ impl Shown {
         true
     }
 
+    /// The level round a model shaped in place (`Editor::context_cubes`),
+    /// joined and sorted far to near from `eye` as `frame` draws it: made
+    /// again only when what it is made of changes, sorted again only when
+    /// the eye moves.
+    fn room(&self, ed: &Editor, figures: &Figures, seen: Mat4, eye: Vec3, grid: IVec3) -> Vec<Instance> {
+        let toward = eye - grid.as_vec3() / 2.0;
+        let context = ed.context.as_ref().filter(|c| c.shown);
+        let (models, figure_box, seen_at, side) = (figures.1.len(), ed.figure_box(), seen.to_cols_array(), crate::render::see_through_side(toward));
+        let mut cache = self.room.borrow_mut();
+        let same = cache.made_of.as_ref().is_some_and(|m| m.context.as_ref() == context && m.models == models && m.figure_box == figure_box && m.seen == seen_at);
+        if !same {
+            let mut cubes = Vec::new();
+            ed.context_cubes(figures, seen, &mut cubes);
+            let body = crate::render::see_through_body(&cubes);
+            let (made, joins) = (cache.made + 1, cache.joins);
+            *cache = RoomCache { made_of: Some(RoomOf { context: context.cloned(), models, figure_box, seen: seen_at }), cubes, body, made, joins, ..RoomCache::default() };
+        }
+        if cache.joined_for != Some(side) {
+            let mut joined = cache.cubes.clone();
+            crate::render::join_by_body(&mut joined, &cache.body, toward);
+            (cache.joined, cache.joined_for, cache.sorted_for) = (joined, Some(side), None);
+            cache.joins += 1;
+        }
+        if cache.sorted_for != Some(eye) {
+            let sorted = far_to_near_order(&cache.joined, eye).into_iter().map(|k| cache.joined[k as usize]).collect();
+            (cache.sorted, cache.sorted_for) = (sorted, Some(eye));
+        }
+        cache.sorted.clone()
+    }
+
+    /// How often the room round a model was made, and joined (for tests).
+    #[cfg(test)]
+    pub(crate) fn rooms_made(&self) -> usize {
+        self.room.borrow().made
+    }
+
+    #[cfg(test)]
+    pub(crate) fn room_joins(&self) -> usize {
+        self.room.borrow().joins
+    }
+
+    /// The block or frame shown changed but kept its size: the voxels whose
+    /// colour changed set in the world as `build` would set them (what the
+    /// slice cuts away left out), the rest untouched. False where it cannot
+    /// be so (another size, a palette full of colours no longer used): the
+    /// world is then built anew.
+    fn retouch(&mut self, ed: &Editor) -> bool {
+        let (Some(was), Some(now)) = (&self.shape, ed.shape()) else { return false };
+        if !matches!(ed.scope, Scope::Block(_) | Scope::Frame(_)) || was.size != now.size || self.world.size != now.size || was.voxels.len() != now.voxels.len() {
+            return false;
+        }
+        let colour = |b: &Block, v: u8| (v != 0).then(|| b.palette[v as usize - 1]);
+        let same_palette = was.palette == now.palette;
+        for (k, (&a, &b)) in was.voxels.iter().zip(&now.voxels).enumerate() {
+            if a == b && same_palette {
+                continue;
+            }
+            let c = colour(now, b);
+            if colour(was, a) == c {
+                continue;
+            }
+            let at = now.at(k);
+            if ed.cut(at) {
+                continue;
+            }
+            let v = match c {
+                Some(rgb) => match self.world.colour(rgb) {
+                    Some(v) => v,
+                    None => return false,
+                },
+                None => 0,
+            };
+            self.world.set(at, v);
+        }
+        self.shape = Some(now.clone());
+        true
+    }
+
     /// Brings the world up to the editor. True: it was built anew (every
     /// chunk to mesh again); else the changed chunks are marked dirty.
     pub fn update(&mut self, ed: &Editor) -> Result<bool> {
@@ -720,7 +878,15 @@ impl Shown {
         let same_blocks = |shown: &Self| shown.blocks.len() == listed && shown.blocks.iter().zip(ed.level.blocks.iter().zip(&ed.blocks)).all(|((b, k), (e, m))| *k == e.kind && b == m);
         match ed.scope {
             Scope::Block(_) | Scope::Frame(_) | Scope::Figure => {
-                if self.scope == ed.scope && self.shape.as_ref() == ed.shape() && self.slice == slice_key(ed) && self.turned == (ed.rest_view() != Mat4::IDENTITY) && (ed.scope != Scope::Figure || self.world.size == ed.grid()) {
+                let same = self.scope == ed.scope && self.slice == slice_key(ed) && self.turned == (ed.rest_view() != Mat4::IDENTITY);
+                if same && self.shape.as_ref() == ed.shape() && (ed.scope != Scope::Figure || self.world.size == ed.grid()) {
+                    return Ok(false);
+                }
+                // A stroke (an undo, a step) on a block or a frame as big
+                // as before: only the voxels it changed set again, their
+                // chunks to mesh anew (a big model rebuilt whole on every
+                // voxel of a stroke stuttered: the owner's back wall).
+                if same && !self.turned && self.retouch(ed) {
                     return Ok(false);
                 }
             }
@@ -1856,7 +2022,11 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     let mut through = Vec::new();
     let mut drawn = (Vec::new(), Arc::<crate::render::ModelBank>::default(), [0.0; 4]);
     let game_view = view.before_game.is_some() && ed.scope != Scope::Level;
-    if let (true, Some(figure), Some((lo, _)), Some(Ok((mut model, ..)))) = (game_view, &ed.figure, ed.figure_box(), ed.model.as_ref().and_then(|m| m.figure())) {
+    // (The figure as the game holds it is made only in GAME VIEW: made on
+    // every frame it cost a big figure a frame's time and more.)
+    if let (true, Some(figure), Some((lo, _))) = (game_view, &ed.figure, ed.figure_box())
+        && let Some(Ok((mut model, ..))) = ed.model.as_ref().and_then(|m| m.figure())
+    {
         // GAME VIEW: the figure as the game draws it: shaded as the game
         // shades it, from a model bank (outlined), posed while POSE is lit,
         // facing the way the game shows it.
@@ -1903,9 +2073,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     // after it, always lies over it in its own colors.
     let mut room = Vec::new();
     if matches!(ed.scope, Scope::Frame(_) | Scope::Figure) && !game_view {
-        ed.context_cubes(figures, seen, &mut room);
-        crate::render::join_see_through(&mut room, eye - grid.as_vec3() / 2.0);
-        room.sort_by(|a, b| far(a).total_cmp(&far(b)));
+        room = shown.room(ed, figures, seen, eye, grid);
     }
     // The pieces' glass joined too, as the game joins it: one body, not a
     // grid of every cube's faces blended over each other.
@@ -1916,7 +2084,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     // The selection (SELECT): its outline, thin and light, over all.
     if !game_view {
         let thin = 0.1;
-        for (from, to) in ed.selection_edges() {
+        for (from, to) in ed.selection_edges_kept(&mut shown.outline.borrow_mut()) {
             let n = (from.distance(to) / (thin * 0.8)).ceil().max(1.0) as i32;
             for k in 0..=n {
                 let p = from.lerp(to, k as f32 / n as f32);
@@ -2003,7 +2171,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     }
     if !through.is_empty() {
         through.extend(instances.drain(instances.len() - see_through..));
-        through.sort_by(|a, b| far(a).total_cmp(&far(b)));
+        far_to_near(&mut through, eye);
         see_through = through.len();
         instances.extend(through);
     }

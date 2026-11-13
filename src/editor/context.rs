@@ -33,7 +33,7 @@ pub struct Seed {
 
 /// The level round the model: its file, as read, the piece shaped (its
 /// place, its name to find it again), what is hidden, and CONTEXT.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Context {
     pub file: String,
     pub level: GridLevel,

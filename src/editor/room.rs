@@ -1208,7 +1208,7 @@ pub fn facing_at(degrees: f64, free: bool) -> Facing {
 /// a menu): not drawn, not met by a click, nothing of it written to the
 /// level's file; kept while the window is open. By name; an unnamed thing
 /// as it is.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Hidden {
     names: std::collections::BTreeSet<(u8, String)>,
     things: Vec<Thing>,
