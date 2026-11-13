@@ -1143,7 +1143,7 @@ mod tests {
         ed.move_selection_to(IVec3::new(-1, 0, 0), true, false);
         ed.let_go_of_selection();
         let b = &ed.model.as_ref().unwrap().frames[0];
-        assert_eq!(block_cells(b, IVec3::ZERO).values().copied().collect::<Vec<_>>(), [[0x80, 0x80, 0x80]], "the grey one kept");
+        assert_eq!(block_cells(b, IVec3::ZERO).values().copied().collect::<Vec<_>>(), [[0x80, 0x80, 0x80]], "the gray one kept");
     }
 
     /// MOVE TO PART: selected voxels of the arm go into the head where they

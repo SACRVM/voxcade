@@ -111,7 +111,7 @@ impl Pads {
 pub fn pads(seconds: f32) -> Result<()> {
     // No window here, so let controller input through anyway.
     sdl3::hint::set("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
-    let sdl = sdl3::init().context("initialising SDL")?;
+    let sdl = sdl3::init().context("initializing SDL")?;
     let joysticks = sdl.joystick().context("SDL joysticks")?;
     let gamepads = sdl.gamepad().context("SDL gamepads")?;
     let mut events = sdl.event_pump().context("SDL event pump")?;

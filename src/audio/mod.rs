@@ -400,7 +400,7 @@ pub fn speaker(sdl: &sdl3::Sdl) -> Option<Speaker> {
         eprintln!("no sound: the speaker opened before is still closing");
         return None;
     };
-    let audio = sdl.audio().map_err(|e| anyhow::anyhow!("initialising SDL audio: {e}"));
+    let audio = sdl.audio().map_err(|e| anyhow::anyhow!("initializing SDL audio: {e}"));
     match audio.and_then(|a| a.open_playback_stream(&spec, feed).map_err(|e| anyhow::anyhow!("opening audio: {e}"))) {
         Ok(stream) => match stream.resume() {
             Ok(()) => Some(Speaker { mixer, held, stream: Some(Detached(stream)) }),

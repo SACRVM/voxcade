@@ -145,8 +145,8 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
         None => Session::<G>::load_with(dir, Slots::on_disk(dir))?,
     };
 
-    let sdl = sdl3::init().context("initialising SDL")?;
-    let video = sdl.video().context("initialising SDL video")?;
+    let sdl = sdl3::init().context("initializing SDL")?;
+    let video = sdl.video().context("initializing SDL video")?;
     let mut screen = crate::window::Screen::open(&video, &format!("voxcade - {}", game.cfg.title), 1600, 900, true)?;
     // Shadows start coarser on the processor's own graphics (`Settings::load_for`).
     let adapter = screen.gpu().adapter().clone();

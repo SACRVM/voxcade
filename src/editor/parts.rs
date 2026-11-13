@@ -1300,7 +1300,7 @@ pub(crate) mod tests {
         grab(&mut ed, 5.0);
         assert_ne!(at(&ed), was, "moved while dragged");
         ed.end_drag(true);
-        assert_eq!((text(&dir), ed.steps(), at(&ed)), (start.clone(), 0, was), "cancelled: as at the start");
+        assert_eq!((text(&dir), ed.steps(), at(&ed)), (start.clone(), 0, was), "canceled: as at the start");
         // The button found up: one step; a motion after moves nothing.
         grab(&mut ed, 5.0);
         ed.end_drag(false);

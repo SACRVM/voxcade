@@ -384,8 +384,8 @@ struct Window {
 impl Window {
     fn open() -> Result<Self> {
         use sdl3::event::Event;
-        let sdl = sdl3::init().context("initialising SDL")?;
-        let video = sdl.video().context("initialising SDL video")?;
+        let sdl = sdl3::init().context("initializing SDL")?;
+        let video = sdl.video().context("initializing SDL video")?;
         let screen = crate::window::Screen::open(&video, "Voxcade", 1600, 1000, false)?;
         video.text_input().start(&screen.window);
         let ctx = egui::Context::default();

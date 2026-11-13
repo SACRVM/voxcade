@@ -2008,10 +2008,10 @@ mod tests {
         assert_eq!((v[0].fx[2], v[1].fx[2]), (0, 0), "beside an opaque cube");
         let mut v = vec![cube(0.0, 0.0, 0.0), cube(1.0, 0.0, 0.3)];
         join_see_through(&mut v, glam::Vec3::Z);
-        assert_eq!((v[0].fx[2], v[1].fx[2]), (0, 0), "a neighbour raised by 0.3");
+        assert_eq!((v[0].fx[2], v[1].fx[2]), (0, 0), "a neighbor raised by 0.3");
         let mut v = vec![cube(0.0, 0.0, 0.0), Instance { turn: [10, 0, 0, 100], ..cube(1.0, 0.0, 0.0) }];
         join_see_through(&mut v, glam::Vec3::Z);
-        assert_eq!((v[0].fx[2], v[1].fx[2]), (0, 0), "a freely turned neighbour");
+        assert_eq!((v[0].fx[2], v[1].fx[2]), (0, 0), "a freely turned neighbor");
         let mut v = vec![cube(0.0, 0.0, 0.0), cube(1.0, 0.0, 0.0)];
         v[0].fx[2] = 0b10_0000;
         join_see_through(&mut v, glam::Vec3::Z);

@@ -196,7 +196,7 @@ pub(super) fn daylight(t: &Table) -> mlua::Result<crate::session::Daylight> {
     let fail = |what: String| mlua::Error::runtime(format!("frame:daylight: {what}"));
     let mut day = crate::session::Daylight::default();
     let rgb = |v: Value, key: &str| -> mlua::Result<[f32; 3]> {
-        let Value::Table(c) = v else { return Err(fail(format!("{key} is a colour, {{ r, g, b }} from 0 to 255"))) };
+        let Value::Table(c) = v else { return Err(fail(format!("{key} is a color, {{ r, g, b }} from 0 to 255"))) };
         let [r, g, b, _] = color(Some(c), [255; 4])?;
         Ok([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0])
     };

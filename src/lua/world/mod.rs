@@ -470,11 +470,11 @@ fn palette_index(world: &mut crate::world::World, v: &Value, what: &str) -> mlua
         Value::String(s) => {
             let text = s.to_string_lossy();
             let hex = text.strip_prefix('#').filter(|h| h.len() == 6 && h.chars().all(|c| c.is_ascii_hexdigit()));
-            let Some(hex) = hex else { return Err(mlua::Error::runtime(format!("{what}: a colour is \"#rrggbb\", not \"{text}\""))) };
+            let Some(hex) = hex else { return Err(mlua::Error::runtime(format!("{what}: a color is \"#rrggbb\", not \"{text}\""))) };
             let rgb = [0, 2, 4].map(|i| u8::from_str_radix(&hex[i..i + 2], 16).expect("hex digits"));
-            world.colour(rgb).ok_or_else(|| mlua::Error::runtime(format!("{what}: the world's palette is full (255 colours)")))
+            world.colour(rgb).ok_or_else(|| mlua::Error::runtime(format!("{what}: the world's palette is full (255 colors)")))
         }
-        _ => Err(mlua::Error::runtime(format!("{what}: a palette index (0 to 255), nil or a colour \"#rrggbb\""))),
+        _ => Err(mlua::Error::runtime(format!("{what}: a palette index (0 to 255), nil or a color \"#rrggbb\""))),
     }
 }
 
