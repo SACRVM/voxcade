@@ -6,7 +6,9 @@
 //! The atlas is one row of equal cells, one per character from ' ' to 'Z';
 //! each glyph stands on the cell's baseline, a capital reaching from the top
 //! of the cell down to it (the capital is four fifths of the cell's height,
-//! the rest is room below the baseline).
+//! the rest is room below the baseline). What the atlas lacks is made from
+//! it or from the pixel font (`DisplayFont::glyph`): every letter and sign
+//! the pixel font writes, the display font writes too.
 
 use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
@@ -143,29 +145,111 @@ impl DisplayFont {
         (height as f32 * 0.07).round().max(1.0) as i32
     }
 
-    /// `ch` with a capital height of `height` voxels (lower case drawn as
+    /// `ch` with a capital height of `height` voxels: lower case drawn as
     /// capitals, an accented letter as its capital with the accent over it,
-    /// characters it lacks as '?').
+    /// ß as SS (as German writes it in capitals), Ç with its cedilla below
+    /// the line, Œ and Æ joined from their two letters; a sign the atlas
+    /// lacks drawn from the pixel font's (`ui::glyph`), blown up to this
+    /// height; a character neither has is left out (a space's width), as
+    /// the pixel font leaves it out.
     pub fn glyph(&self, ch: char, height: u32) -> Rc<Glyph> {
         let mut upper = ch.to_uppercase();
         let up = match (upper.next(), upper.next()) {
             (Some(u), None) => u,
             _ => ch,
         };
-        let key = match accent_of(up) {
-            Some(_) => up,
-            None if up.is_ascii() && (FIRST..=LAST).contains(&(up as u8)) => up,
-            None => '?',
+        let key = match crate::ui::alike(up) {
+            'ẞ' => 'ß',
+            other => other,
         };
         if let Some(g) = self.cache.borrow().get(&(key, height)) {
             return g.clone();
         }
-        let g = Rc::new(match accent_of(key) {
-            Some((base, accent)) => self.accented(base, accent, height),
-            None => self.sample(key as u8, height),
+        let g = Rc::new(match (accent_of(key), key) {
+            (Some((base, accent)), _) => self.accented(base, accent, height),
+            (None, 'ß') => self.joined('S', 'S', height),
+            (None, 'Ç') => self.cedilla('C', height),
+            (None, 'Œ') => self.joined('O', 'E', height),
+            (None, 'Æ') => self.joined('A', 'E', height),
+            (None, k) if k.is_ascii() && (FIRST..=LAST).contains(&(k as u8)) => self.sample(k as u8, height),
+            (None, k) => match crate::ui::glyph(k) {
+                Some(rows) => self.blown_up(rows, height),
+                None => self.sample(b' ', height),
+            },
         });
         self.cache.borrow_mut().insert((key, height), g.clone());
         g
+    }
+
+    /// Two capitals as one glyph: SS with the gap between letters, a
+    /// ligature (Œ, Æ) with the second letter's stem standing over the
+    /// first one's right side (the O's right curve, the A's right leg),
+    /// so the O's bowl and the A's counter stay and the E's bars go on
+    /// from them.
+    fn joined(&self, first: char, second: char, height: u32) -> Glyph {
+        let (a, b) = (self.sample(first as u8, height), self.sample(second as u8, height));
+        // The second letter's stem: the narrowest run of ink from its left
+        // edge over its inked rows above the line.
+        let stem = b.rows.iter().take(b.ascent as usize).map(|r| r.iter().take_while(|&&v| v).count()).filter(|&n| n > 0).min().unwrap_or(1) as i32;
+        let offset = if first == second { a.width + Self::gap(height) } else { (a.width - stem).max(1) };
+        let keep = if first == second { a.width } else { offset + stem };
+        let width = offset + b.width;
+        let rows = a
+            .rows
+            .iter()
+            .zip(&b.rows)
+            .map(|(ra, rb)| {
+                (0..width)
+                    .map(|c| {
+                        let in_a = c < keep && ra.get(c as usize).copied().unwrap_or(false);
+                        let in_b = c >= offset && rb.get((c - offset) as usize).copied().unwrap_or(false);
+                        in_a || in_b
+                    })
+                    .collect()
+            })
+            .collect();
+        Glyph::new(width, a.ascent, rows)
+    }
+
+    /// The capital `base` with a cedilla under it, in the room below the
+    /// line: a short stroke down from its middle, then a foot to the left.
+    fn cedilla(&self, base: char, height: u32) -> Glyph {
+        let mut g = self.sample(base as u8, height);
+        let (cap, below) = (g.ascent as usize, g.rows.len().saturating_sub(g.ascent as usize));
+        let thick = ((height as f32 / 10.0).round() as i32).max(1);
+        let mid = g.width / 2;
+        let stem = (below / 2).max(1);
+        let foot = (thick as usize).min(below.saturating_sub(stem)).max(1);
+        let (s0, s1) = (mid - thick / 2, mid - thick / 2 + thick);
+        for (k, row) in g.rows.iter_mut().skip(cap).take(stem + foot).enumerate() {
+            let from = if k < stem { s0 } else { (s0 - thick).max(0) };
+            for c in from..s1 {
+                if let Some(cell) = row.get_mut(c as usize) {
+                    *cell = true;
+                }
+            }
+        }
+        g
+    }
+
+    /// A sign of the pixel font (rows of `#`, seven above the line and two
+    /// below) blown up to a capital height of `height`: each pixel a square
+    /// of `height / 7` voxels, trimmed to its ink as the atlas's glyphs are.
+    fn blown_up(&self, pixel: &[&str; 9], height: u32) -> Glyph {
+        let space = self.sample(b' ', height);
+        let (ascent, rows) = (space.ascent, ((self.height as f32) * height as f32 / self.cap).ceil() as usize);
+        let p = height as f32 / 7.0;
+        let cols = (5.0 * p).round() as usize;
+        let on = |tx: usize, ty: usize| {
+            let (px, py) = ((tx as f32 / p) as usize, (ty as f32 / p) as usize);
+            pixel.get(py).and_then(|r| r.as_bytes().get(px)).is_some_and(|&b| b == b'#')
+        };
+        let grid: Vec<Vec<bool>> = (0..rows).map(|ty| (0..cols).map(|tx| on(tx, ty)).collect()).collect();
+        let inked: Vec<usize> = (0..cols).filter(|&c| grid.iter().any(|r| r[c])).collect();
+        match (inked.first(), inked.last()) {
+            (Some(&l), Some(&r)) => Glyph::new((r - l + 1) as i32, ascent, grid.into_iter().map(|row| row[l..=r].to_vec()).collect()),
+            _ => space,
+        }
     }
 
     /// The capital `base` with `accent` over it, inside the capital's own
@@ -288,6 +372,47 @@ mod tests {
             let last = |g: &Glyph| g.rows.iter().rposition(ink).unwrap();
             assert_eq!(last(&g), last(&p), "{accented}'s baseline moved");
         }
-        assert_eq!(font.glyph('ß', 40).rows, q.rows);
+    }
+
+    /// Every letter and sign the pixel font writes, the display font
+    /// writes too (More Blood speaks German and French in big letters):
+    /// ß as SS, Ç with its cedilla below the line, Œ and Æ joined, the
+    /// signs the atlas lacks blown up from the pixel font; none as a '?'
+    /// of a character it lacks, none empty.
+    #[test]
+    fn the_display_font_writes_every_letter_the_pixel_font_writes() {
+        let font = DisplayFont::load(Path::new("games/moreblood/ui/display_font.png")).unwrap();
+        let q = font.glyph('?', 24);
+        let ink = |g: &Glyph| g.rows.iter().flatten().filter(|&&v| v).count();
+        let mut all: Vec<char> = crate::ui::FONT.iter().map(|(c, _)| *c).collect();
+        all.extend("ÄÀÂÉÈÊËÎÏÖÔÜÛÙÆæ–’“×".chars());
+        for ch in all.into_iter().filter(|&c| c != '?') {
+            let g = font.glyph(ch, 24);
+            assert!(ink(&g) > 0, "{ch:?} is drawn");
+            assert_ne!((g.width, &g.rows), (q.width, &q.rows), "{ch:?} is a question mark");
+            assert_eq!(g.ascent, 24, "{ch:?} stands on the line");
+        }
+        // ß: two S with the gap between.
+        let (ss, s) = (font.glyph('ß', 24), font.glyph('S', 24));
+        assert_eq!(ss.width, 2 * s.width + DisplayFont::gap(24));
+        assert_eq!(font.glyph('ẞ', 24).rows, ss.rows);
+        // Ç: the C, and ink below the line under its middle that the C has not.
+        let (cc, c) = (font.glyph('Ç', 24), font.glyph('C', 24));
+        assert_eq!((cc.width, &cc.rows[..24]), (c.width, &c.rows[..24]), "the C above the line as it is");
+        let below = |g: &Glyph| g.rows[24..].iter().flatten().filter(|&&v| v).count();
+        assert!(below(&cc) > 0 && below(&c) == 0, "the cedilla under the line");
+        assert!(cc.rows[24][(cc.width / 2) as usize], "hanging from the C's middle");
+        assert_eq!(font.glyph('ç', 24).rows, cc.rows);
+        // Œ and Æ: one glyph narrower than the two letters side by side.
+        for (lig, a, b) in [('Œ', 'O', 'E'), ('Æ', 'A', 'E')] {
+            let (g, a, b) = (font.glyph(lig, 24), font.glyph(a, 24), font.glyph(b, 24));
+            assert!(g.width > a.width.max(b.width) && g.width < a.width + b.width, "{lig}: {} wide", g.width);
+            assert!(ink(&g) > ink(&b), "{lig} is more than its E");
+        }
+        // A sign the atlas lacks, blown up from the pixel font: as tall.
+        let arrow = font.glyph('→', 24);
+        assert!(arrow.width >= 15 && arrow.rows.len() == q.rows.len(), "{}", arrow.width);
+        // A character neither font has is left out, as the pixel font does.
+        assert!(ink(&font.glyph('☃', 24)) == 0);
     }
 }

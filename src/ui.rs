@@ -22,7 +22,7 @@ use crate::settings::{Settings, VOLUME_STEPS};
 use crate::sim::DT;
 
 /// Glyphs 5 wide and 7 tall, top row first.
-const FONT: &[(char, [&str; 9])] = &[
+pub(crate) const FONT: &[(char, [&str; 9])] = &[
     ('A', [".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#", ".....", "....."]),
     ('B', ["####.", "#...#", "#...#", "####.", "#...#", "#...#", "####.", ".....", "....."]),
     ('C', [".###.", "#...#", "#....", "#....", "#....", "#...#", ".###.", ".....", "....."]),
@@ -224,16 +224,21 @@ fn accented(ch: char) -> Option<(char, [&'static str; 2])> {
 /// A character's glyph: rows from the top, the bottom two below the line
 /// (a g's tail); signs that look alike share one; an accented capital its
 /// letter's (the accent: `accented`).
-fn glyph(ch: char) -> Option<&'static [&'static str; 9]> {
-    let ch = accented(ch).map_or(ch, |(letter, _)| letter);
-    let ch = match ch {
+pub(crate) fn glyph(ch: char) -> Option<&'static [&'static str; 9]> {
+    let ch = alike(accented(ch).map_or(ch, |(letter, _)| letter));
+    FONT.iter().find(|(c, _)| *c == ch).map(|(_, g)| g)
+}
+
+/// The sign a sign that looks alike is drawn as (dashes, quotes, the
+/// times sign), in both fonts.
+pub(crate) fn alike(ch: char) -> char {
+    match ch {
         '–' | '—' | '−' => '-',
         '’' | '‘' | '´' | '`' => '\'',
         '“' | '”' => '"',
         '×' => 'x',
         other => other,
-    };
-    FONT.iter().find(|(c, _)| *c == ch).map(|(_, g)| g)
+    }
 }
 
 /// A text as the engine writes its own (menus, the logo): in capitals as
