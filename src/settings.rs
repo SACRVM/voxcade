@@ -54,6 +54,57 @@ impl Shadows {
     }
 }
 
+/// How often the picture is drawn: what the window presents with
+/// (`Screen::set_present`). The simulation ticks on its own clock, so none
+/// of these changes how the game plays.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum FrameRate {
+    /// As fast as the machine draws (the window's first way).
+    #[default]
+    Unlimited,
+    /// Once for each refresh of the screen.
+    Vsync,
+    /// At most 60 and 30 a second (the machine rests in between).
+    Fps60,
+    Fps30,
+}
+
+impl FrameRate {
+    pub const ALL: [FrameRate; 4] = [FrameRate::Unlimited, FrameRate::Vsync, FrameRate::Fps60, FrameRate::Fps30];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FrameRate::Unlimited => "UNLIMITED",
+            FrameRate::Vsync => "VSYNC",
+            FrameRate::Fps60 => "60",
+            FrameRate::Fps30 => "30",
+        }
+    }
+
+    /// The most pictures a second the window draws; none for no limit
+    /// (VSYNC waits for the screen, not for the clock).
+    pub fn limit(self) -> Option<u32> {
+        match self {
+            FrameRate::Fps60 => Some(60),
+            FrameRate::Fps30 => Some(30),
+            _ => None,
+        }
+    }
+
+    /// Whether the picture waits for the screen's refresh (a capped rate
+    /// shows whole pictures too).
+    pub fn waits_for_the_screen(self) -> bool {
+        self != FrameRate::Unlimited
+    }
+
+    /// `step` places on, round the list.
+    pub fn step(self, step: i32) -> Self {
+        let at = Self::ALL.iter().position(|&s| s == self).unwrap_or(0) as i32;
+        Self::ALL[(at + step).rem_euclid(Self::ALL.len() as i32) as usize]
+    }
+}
+
 /// Lines in the high score table.
 pub const HIGH_SCORES: usize = 10;
 
@@ -85,6 +136,8 @@ pub struct Settings {
     /// The tilt-shift blur at the top and bottom of the screen.
     pub blur: bool,
     pub shadows: Shadows,
+    /// How often the picture is drawn (FRAME RATE).
+    pub frame_rate: FrameRate,
     /// Gamepads rumble on hits and explosions.
     pub rumble: bool,
     /// The frames a second, small in a corner over the game.
@@ -156,6 +209,7 @@ impl Default for Settings {
             flashes: true,
             blur: true,
             shadows: Shadows::High,
+            frame_rate: FrameRate::Unlimited,
             rumble: true,
             show_fps: false,
             keys: Bindings::default(),
@@ -355,28 +409,60 @@ impl Settings {
     }
 
     /// The settings at `path`; the defaults when there are none yet or they
-    /// cannot be read (said why).
+    /// cannot be read (`load_for` says why).
     pub fn load(path: &Path) -> Self {
-        match std::fs::read_to_string(path) {
-            Ok(text) => toml::from_str(&text).unwrap_or_else(|e| {
-                eprintln!("settings: {}: {e}", path.display());
-                Settings::default()
-            }),
-            Err(_) => Settings::default(),
-        }
+        Self::load_for(path, false).0
     }
 
-    pub fn save(&self, path: &Path) -> Result<()> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    /// The settings at `path` and, if the file was there but would not
+    /// read, what happened: the file is copied to `NAME.toml.broken` first,
+    /// so the defaults saved after it never wipe what the player had.
+    /// `integrated`: the picture is drawn by the processor's own graphics,
+    /// where the shadows start at MEDIUM; a file that names the shadows
+    /// (the player chose) wins.
+    pub fn load_for(path: &Path, integrated: bool) -> (Self, Option<String>) {
+        let mut problem = None;
+        let mut named_shadows = false;
+        let mut settings = match std::fs::read_to_string(path) {
+            Ok(text) => match toml::from_str::<Settings>(&text) {
+                Ok(settings) => {
+                    named_shadows = toml::from_str::<toml::Table>(&text).is_ok_and(|t| t.contains_key("shadows"));
+                    settings
+                }
+                Err(e) => {
+                    eprintln!("settings: {}: {e}", path.display());
+                    let mut kept = path.as_os_str().to_os_string();
+                    kept.push(".broken");
+                    let kept = PathBuf::from(kept);
+                    problem = Some(match std::fs::copy(path, &kept) {
+                        Ok(_) => format!("{}; a copy is kept as {}", e.message(), kept.display()),
+                        Err(c) => format!("{} ({c})", e.message()),
+                    });
+                    Settings::default()
+                }
+            },
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    eprintln!("settings: {}: {e}", path.display());
+                    problem = Some(e.to_string());
+                }
+                Settings::default()
+            }
+        };
+        if integrated && !named_shadows {
+            settings.shadows = Shadows::Medium;
         }
+        (settings, problem)
+    }
+
+    /// Written beside and moved over (`blocks::save_at_once`): a crash or a
+    /// full disk leaves the old file, never half of one.
+    pub fn save(&self, path: &Path) -> Result<()> {
         let text = toml::to_string_pretty(self).context("writing settings")?;
-        std::fs::write(path, text).with_context(|| format!("writing {}", path.display()))
+        crate::blocks::save_at_once(path, text.as_bytes())
     }
 }
 
-/// Where a game's settings live: `$XDG_CONFIG_HOME/voxcade/<game>.toml`
-/// (`~/.config` without it, `%APPDATA%` on Windows).
 /// The languages the player's system prefers, best first, two small
 /// letters each (`de`), as SDL tells them.
 pub fn system_languages() -> Vec<String> {
@@ -402,6 +488,8 @@ pub fn system_languages() -> Vec<String> {
     out
 }
 
+/// Where a game's settings live: `$XDG_CONFIG_HOME/voxcade/<game>.toml`
+/// (`~/.config` without it, `%APPDATA%` on Windows).
 pub fn path_for(game_dir: &Path) -> PathBuf {
     config_dir().join(format!("{}.toml", game_name(game_dir)))
 }
@@ -441,8 +529,6 @@ impl Settings {
 mod tests {
     use super::*;
 
-    /// Saved settings come back as they were; a file from an older version
-    /// with fewer fields fills in the defaults.
     /// The game speaks to the player in the language they chose, else in
     /// the first of the system's it speaks, else in its first; English for
     /// a game that names none; LANGUAGE steps round the game's.
@@ -466,6 +552,8 @@ mod tests {
         assert_eq!(s.language(), "en", "a choice the game does not speak gives way");
     }
 
+    /// Saved settings come back as they were; a file from an older version
+    /// with fewer fields fills in the defaults.
     #[test]
     fn settings_survive_a_save() {
         let dir = crate::scratch::Scratch::new("settings");
@@ -487,6 +575,61 @@ mod tests {
         assert_eq!(old.keys.get("jump"), ["Space", "Z"], "the game's keys did not come in");
         assert_eq!(old.keys.get(crate::controls::PAUSE), ["Escape", "P"]);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A settings file that does not read is never silently written over:
+    /// it is copied to `NAME.toml.broken`, the reason comes back to be said,
+    /// the defaults play; a missing file is no trouble.
+    #[test]
+    fn an_unreadable_settings_file_is_kept_aside() {
+        let dir = crate::scratch::Scratch::new("settings-broken");
+        let path = dir.join("game.toml");
+        let (fresh, problem) = Settings::load_for(&path, false);
+        assert_eq!((fresh, problem), (Settings::default(), None), "no file, no trouble");
+        std::fs::write(&path, "music = \"loud\"\nhigh_scores = [").unwrap();
+        let (s, problem) = Settings::load_for(&path, false);
+        assert_eq!(s, Settings::default());
+        let why = problem.expect("the trouble is not reported");
+        assert!(why.contains("game.toml.broken"), "{why}");
+        assert_eq!(std::fs::read_to_string(dir.join("game.toml.broken")).unwrap(), "music = \"loud\"\nhigh_scores = [");
+        // The defaults saved after it do not wipe the player's file.
+        s.save(&path).unwrap();
+        assert!(std::fs::read_to_string(dir.join("game.toml.broken")).unwrap().contains("loud"));
+        assert_eq!(Settings::load_for(&path, false).1, None);
+    }
+
+    /// A save goes beside and is moved over: no half-written or leftover
+    /// file, the folder made if need be.
+    #[test]
+    fn settings_are_written_whole_or_not_at_all() {
+        let dir = crate::scratch::Scratch::new("settings-atomic");
+        let path = dir.join("deeper").join("game.toml");
+        Settings::default().save(&path).unwrap();
+        Settings { music: 2, ..Settings::default() }.save(&path).unwrap();
+        assert_eq!(Settings::load(&path).music, 2);
+        let names: Vec<String> = std::fs::read_dir(path.parent().unwrap()).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, ["game.toml"], "a temporary file is left");
+        // A folder in the file's place cannot be written over: said, and nothing half-written.
+        let blocked = dir.join("blocked.toml");
+        std::fs::create_dir(&blocked).unwrap();
+        assert!(Settings::default().save(&blocked).is_err());
+    }
+
+    /// On the processor's own graphics the shadows start at MEDIUM, a
+    /// choice the player saved wins, other graphics start at HIGH.
+    #[test]
+    fn integrated_graphics_start_with_medium_shadows() {
+        let dir = crate::scratch::Scratch::new("settings-shadows");
+        let path = dir.join("game.toml");
+        assert_eq!(Settings::load_for(&path, true).0.shadows, Shadows::Medium, "no file yet");
+        assert_eq!(Settings::load_for(&path, false).0.shadows, Shadows::High);
+        std::fs::write(&path, "music = 3\n").unwrap();
+        assert_eq!(Settings::load_for(&path, true).0.shadows, Shadows::Medium, "a file that never chose");
+        std::fs::write(&path, "shadows = \"high\"\n").unwrap();
+        assert_eq!(Settings::load_for(&path, true).0.shadows, Shadows::High, "the player's choice");
+        std::fs::write(&path, "shadows = \"low\"\n").unwrap();
+        assert_eq!(Settings::load_for(&path, true).0.shadows, Shadows::Low);
+        assert_eq!(Settings::default().shadows, Shadows::High, "shot's pictures stay as they were");
     }
 
     /// A run gets into the table by beating a line; as good as another, it

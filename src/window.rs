@@ -1,7 +1,11 @@
 //! A window to draw into: SDL3's window, its wgpu surface and the GPU
 //! behind it, set up the same for the game (`app`) and the editor.
 
+use std::time::{Duration, Instant};
+
 use anyhow::{Context, Result, bail};
+
+use crate::settings::FrameRate;
 
 use crate::render::{FrameData, Renderer};
 
@@ -13,6 +17,13 @@ pub struct Gpu {
     adapter: wgpu::Adapter,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
+}
+
+impl Gpu {
+    /// The adapter (its kind says whether the graphics are the processor's own).
+    pub fn adapter(&self) -> &wgpu::Adapter {
+        &self.adapter
+    }
 }
 
 /// A window and what draws into it. The surface comes first: fields drop
@@ -70,11 +81,7 @@ impl Screen {
         let caps = surface.get_capabilities(adapter);
         // Non-sRGB target: lighting happens in palette space, like the old machines.
         let format = caps.formats.iter().copied().find(|f| !f.is_srgb()).unwrap_or(caps.formats[0]);
-        let present_mode = if quick && caps.present_modes.contains(&wgpu::PresentMode::Mailbox) {
-            wgpu::PresentMode::Mailbox
-        } else {
-            wgpu::PresentMode::Fifo
-        };
+        let present_mode = present_mode(&caps.present_modes, if quick { FrameRate::Unlimited } else { FrameRate::Vsync });
         let (w, h) = window.size_in_pixels();
         let mut config = surface.get_default_config(adapter, w, h).context("surface unsupported")?;
         config.format = format;
@@ -160,5 +167,96 @@ impl Screen {
             wgpu::CurrentSurfaceTexture::Validation => bail!("surface validation error"),
         }
         Ok(())
+    }
+}
+
+/// How the surface presents for a frame rate: UNLIMITED shows a picture
+/// as soon as it is ready (Mailbox, where the system has it), every other
+/// choice waits for the screen's refresh (Fifo, which every system has);
+/// the capped ones then rest between pictures (`Pacer`).
+pub fn present_mode(available: &[wgpu::PresentMode], rate: FrameRate) -> wgpu::PresentMode {
+    if !rate.waits_for_the_screen() && available.contains(&wgpu::PresentMode::Mailbox) {
+        wgpu::PresentMode::Mailbox
+    } else {
+        wgpu::PresentMode::Fifo
+    }
+}
+
+/// Presents the surface the way `rate` asks, configured again only when
+/// that changes the mode.
+pub fn set_frame_rate(surface: &wgpu::Surface<'static>, device: &wgpu::Device, config: &mut wgpu::SurfaceConfiguration, adapter: &wgpu::Adapter, rate: FrameRate) {
+    let mode = present_mode(&surface.get_capabilities(adapter).present_modes, rate);
+    if config.present_mode != mode {
+        config.present_mode = mode;
+        surface.configure(device, config);
+    }
+}
+
+/// Rests between pictures so the game is drawn at most `limit` times a
+/// second (`FrameRate::limit`): it sleeps till the next picture is due,
+/// and starts the count anew when the machine fell behind.
+#[derive(Default)]
+pub struct Pacer {
+    due: Option<Instant>,
+}
+
+impl Pacer {
+    /// How long to rest at `now` for `limit` pictures a second, and when
+    /// the next one is due; none: no limit, the count starts anew.
+    pub fn rest(&mut self, now: Instant, limit: Option<u32>) -> Duration {
+        let Some(limit) = limit.filter(|&l| l > 0) else {
+            self.due = None;
+            return Duration::ZERO;
+        };
+        let next = self.due.unwrap_or(now) + Duration::from_secs_f64(1.0 / limit as f64);
+        if next <= now {
+            self.due = Some(now);
+            Duration::ZERO
+        } else {
+            self.due = Some(next);
+            next - now
+        }
+    }
+
+    /// Rests as `rest` says.
+    pub fn wait(&mut self, limit: Option<u32>) {
+        let rest = self.rest(Instant::now(), limit);
+        if !rest.is_zero() {
+            std::thread::sleep(rest);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Only UNLIMITED shows pictures as they are ready; the rest wait for
+    /// the screen; without Mailbox it waits too.
+    #[test]
+    fn the_frame_rate_picks_the_present_mode() {
+        use wgpu::PresentMode::{Fifo, Mailbox};
+        assert_eq!(present_mode(&[Fifo, Mailbox], FrameRate::Unlimited), Mailbox);
+        assert_eq!(present_mode(&[Fifo, Mailbox], FrameRate::Vsync), Fifo);
+        assert_eq!(present_mode(&[Fifo, Mailbox], FrameRate::Fps60), Fifo);
+        assert_eq!(present_mode(&[Fifo], FrameRate::Unlimited), Fifo);
+    }
+
+    /// 60 a second is a rest of a 60th of a second at first, then what is
+    /// left of each period; a late frame does not rest, nor pile up debt;
+    /// no limit never rests.
+    #[test]
+    fn the_pacer_keeps_to_the_limit() {
+        let mut pacer = Pacer::default();
+        let t0 = Instant::now();
+        let period = Duration::from_secs_f64(1.0 / 60.0);
+        assert_eq!(pacer.rest(t0, Some(60)), period);
+        let half = pacer.rest(t0 + period / 2, Some(60));
+        assert!(half > period && half < period * 2, "the second period, less the half spent: {half:?}");
+        let late = t0 + Duration::from_secs(5);
+        assert_eq!(pacer.rest(late, Some(60)), Duration::ZERO, "behind: no rest");
+        assert_eq!(pacer.rest(late, Some(60)), period, "and the count starts at once");
+        assert_eq!(pacer.rest(late, None), Duration::ZERO);
+        assert_eq!(pacer.rest(late, Some(30)).as_millis(), 33, "a new limit starts afresh");
     }
 }

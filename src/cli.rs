@@ -19,7 +19,7 @@ Without anything after it: the launcher, to play a game or make one.
 USAGE:
   voxcade --version
   voxcade update [--install]
-  voxcade run  <game-dir> [--scenario NAME] [--do LINE] [--host [PORT | internet] | --join ADDRESS[:PORT] | --join TICKET] [--input SCRIPT]
+  voxcade run  <game-dir> [--maker] [--scenario NAME] [--do LINE] [--host [PORT | internet] | --join ADDRESS[:PORT] | --join TICKET] [--input SCRIPT]
   voxcade replay <game-dir> <replay-file>
   voxcade replays <game-dir>
   voxcade shot <game-dir> [--frames N] [--input SCRIPT | --replay FILE] [--record FILE]
@@ -62,8 +62,10 @@ USAGE:
 run   opens the game in a window. Saving any file in the game folder
       reloads it while the game keeps running. Every run is recorded:
       runs of 10 s or more are kept in the config folder (the newest 20,
-      see replays), F9 puts the run being played or the last one in the
-      game's replays/ folder.
+      see replays). --maker brings the maker's keys, which a player of
+      the game does not have: F5 plays it again on the files as they are,
+      F9 puts the run being played or the last one in the game's replays/
+      folder, 1 to 9 pick the song (the IDE's PLAY has them always).
       --scenario begins every run there (scenarios/NAME.lua: a late
       situation set up in code), past the title; --do runs a line of Lua
       in the game before its first tick (again and again for more); the
@@ -367,7 +369,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
     if args.is_empty()
         && let Some(dir) = default
     {
-        return app::run::<G>(dir, None, Default::default(), None, None);
+        return app::run::<G>(dir, None, Default::default(), None, None, false);
     }
     // `voxcade COMMAND --help`: that command's usage.
     if let (Some(command), Some("--help" | "-h")) = (args.first(), args.get(1).map(String::as_str))
@@ -379,7 +381,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
     match args.first().map(String::as_str) {
         Some("run") => {
             let dir = opened(&args)?;
-            let (mut begin, mut net, mut keys) = (crate::session::Begin::default(), None, None);
+            let (mut begin, mut net, mut keys, mut maker) = (crate::session::Begin::default(), None, None, false);
             let mut it = args[2..].iter().peekable();
             while let Some(flag) = it.next() {
                 // --host with a port or without (26500 or the next free), or
@@ -393,6 +395,11 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                     net = Some(headless::Networked::Host(port.unwrap_or(0)));
                     continue;
                 }
+                // The maker's keys (F5, F9, 1 to 9): off for players.
+                if flag == "--maker" {
+                    maker = true;
+                    continue;
+                }
                 let value = it.next().with_context(|| format!("{flag} needs a value"))?;
                 match flag.as_str() {
                     "--join" => net = Some(headless::Networked::Join(value.clone())),
@@ -401,7 +408,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                     _ => bail!("unknown option {flag}"),
                 }
             }
-            app::run::<G>(&dir, None, begin, net, keys.as_deref())
+            app::run::<G>(&dir, None, begin, net, keys.as_deref(), maker)
         }
         Some("scenarios") => {
             let mut session = crate::session::Session::<G>::load(&opened(&args)?)?;
@@ -443,7 +450,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
         Some("replay") => {
             let dir = opened(&args)?;
             let file = args.get(2).context("missing the replay file")?;
-            app::run::<G>(&dir, Some(replay::Replay::load(std::path::Path::new(file))?), Default::default(), None, None)
+            app::run::<G>(&dir, Some(replay::Replay::load(std::path::Path::new(file))?), Default::default(), None, None, false)
         }
         Some("replays") => replay::list::<G>(&opened(&args)?),
         Some("shot") => headless::shot::<G>(&opened(&args)?, &shot_options(&args[2..])?),
