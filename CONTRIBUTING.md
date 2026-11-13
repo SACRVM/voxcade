@@ -20,9 +20,15 @@ translations of the menus, docs.
 ```bash
 cargo build --release
 cargo test --release
-cargo clippy --release
-for game in games/*/; do ./target/release/voxcade check "${game%/}"; done
+cargo clippy --release --all-targets
+for game in games/*/ templates/*/; do ./target/release/voxcade check "${game%/}"; done
 ```
+
+The Tests workflow (`.github/workflows/tests.yml`) runs the same on Linux
+for every push to `main` and every pull request: build, `cargo test`,
+clippy with warnings as errors, and the replays of every game and
+template. Some tests draw a frame and need a GPU or a software Vulkan
+(mesa's lavapipe); one without fails, it does not skip.
 
 - Every game's replays must play out as recorded (`voxcade check`). If
   your change only alters a game's files and not how it plays, `voxcade
@@ -33,7 +39,12 @@ for game in games/*/; do ./target/release/voxcade check "${game%/}"; done
   only from `Sim::rng`, sines and the like through `sim::math`.
 - The code is formatted by hand; please do not run `cargo fmt` over
   files you do not otherwise change.
-- A change to how something looks: add a picture (`voxcade shot`).
+- A change to how something looks: add a picture (`voxcade shot`). The
+  picture tests (`tests/pictures.rs`) keep the mean colour of an 8 by 8
+  grid of a few pictures as text in `tests/pictures.txt`; when a change is
+  meant to alter them, `VOXCADE_PICTURES=renew cargo test --release --test
+  pictures` writes the numbers anew: look at the diff and say so in the
+  pull request.
 
 ## Licence
 
