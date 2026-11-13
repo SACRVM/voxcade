@@ -92,6 +92,10 @@ pub const EXTENSION: &str = "vvx";
 pub const FORMAT: &str = "voxcade voxel 1";
 pub(crate) const FORMAT_NAME: &str = "voxcade voxel";
 pub(crate) const VERSION: u32 = 1;
+/// The most voxels a model's box may hold (512 by 512 by 128): the tools
+/// and the editors work over the whole box. A world or a map's prefab is
+/// read as a world (`crate::scene`), up to two billion.
+pub const MOST_VOXELS: i64 = 1 << 25;
 
 /// What a voxel is made of besides its place: its colour (alpha under 255
 /// is glass), how it mirrors (`metal::pack`) and how much it glows. Two
@@ -804,6 +808,10 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
     if size.cmplt(IVec3::ONE).any() {
         return Err(r.fail(size_item.span(), "size must be at least one voxel each way"));
     }
+    let volume = size.as_i64vec3().element_product();
+    if volume > MOST_VOXELS {
+        return Err(r.fail(size_item.span(), format!("the model's box is too big: {} by {} by {} is {volume} voxels, a model holds {MOST_VOXELS} at most (512 by 512 by 128)", size.x, size.y, size.z)));
+    }
     let pivot = pivot(size);
     let palette_item = top.get("palette").ok_or_else(|| anyhow!("no [palette]: the signs and their colors"))?;
     let table = palette_item.as_table_like().ok_or_else(|| r.fail(palette_item.span(), "palette must be a table of signs"))?;
@@ -1347,6 +1355,76 @@ mod tests {
         let e = why(head("[1, 1, 1]") + "[palette]\na = \"#ff0000\"\n[[part]]\nname = \"x\"\nparent = \"y\"\nlayers = \"\"\"\na\n\"\"\"\n");
         assert!(e.starts_with("line 7:") && e.contains("no part is called 'y'"), "{e}");
         assert!(why(head("[1, 1, 1]") + "[palette]\na = { color = \"#ff0000\", shiny = 1 }\n").contains("'shiny' is no field"));
+        // A box capped by its volume, not only each way: a hundred
+        // thousand voxels each way once made `sheet` ask for 3.5 GB.
+        let e = why(head("[100000, 100000, 100000]") + "[palette]\na = \"#ff0000\"\n[[frame]]\nlayers = \"\"\"\na\n\"\"\"\n");
+        assert!(e.starts_with("line 2:") && e.contains("too big") && e.contains(&MOST_VOXELS.to_string()), "{e}");
+        assert!(read(&(head("[512, 512, 128]") + "[palette]\na = \"#ff0000\"\n[[frame]]\nlayers = \"\"\"\na\n\"\"\"\n")).is_ok(), "the most a box holds reads");
+    }
+
+    /// The repo's `.vvx` files (models, worlds, prefabs) as they stand are
+    /// what both writers write: the engine's (`write_shape`, a world's
+    /// `scene::Scene::write`) and `tools/vvx.py`'s (`write_model`,
+    /// `write_world`), which the generators use. A world is told by the
+    /// comment both writers put over its palette.
+    #[test]
+    fn the_python_writer_writes_what_the_engine_writes() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut files = Vec::new();
+        fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+            let Ok(entries) = std::fs::read_dir(dir) else { return };
+            let mut entries: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+            entries.sort();
+            for p in entries {
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if is_model(&p) {
+                    out.push(p);
+                }
+            }
+        }
+        for folder in ["games", "templates", "examples", "music"] {
+            walk(&root.join(folder), &mut files);
+        }
+        assert!(files.len() > 100, "the repo's models: {}", files.len());
+        let world = |src: &str| src.contains("# The colours are the world's numbers");
+        // The engine's writers.
+        for f in &files {
+            let src = std::fs::read_to_string(f).unwrap();
+            let again = if world(&src) {
+                crate::scene::read(&src).unwrap_or_else(|e| panic!("{}: {e}", f.display())).write()
+            } else {
+                let (shape, palette) = read_shape(&src).unwrap_or_else(|e| panic!("{}: {e}", f.display()));
+                write_shape(&shape, &palette, false)
+            };
+            assert!(again == src, "{}: the engine writes it otherwise", f.display());
+        }
+        // Python's, all files in one run. CI has python3; a machine without
+        // it says so (not silently passing).
+        if std::process::Command::new("python3").arg("--version").output().is_err() {
+            eprintln!("SKIPPED the_python_writer_writes_what_the_engine_writes' Python half: no python3 on this machine");
+            return;
+        }
+        let out = crate::scratch::Scratch::new("vvx-python");
+        let script = r##"
+import sys
+sys.path.insert(0, sys.argv[1])
+import vvx
+out = sys.argv[2]
+for n, f in enumerate(sys.argv[3:]):
+    m = vvx.read(f)
+    dest = f"{out}/{n}.vvx"
+    if "# The colours are the world's numbers" in open(f).read():
+        vvx.write_world(dest, m, vvx.palette_signs(f))
+    else:
+        vvx.write_model(dest, m)
+"##;
+        let run = std::process::Command::new("python3").arg("-B").arg("-c").arg(script).arg(root.join("tools")).arg(out.path()).args(&files).output().unwrap();
+        assert!(run.status.success(), "tools/vvx.py: {}", String::from_utf8_lossy(&run.stderr));
+        for (n, f) in files.iter().enumerate() {
+            let wrote = std::fs::read_to_string(out.join(format!("{n}.vvx"))).unwrap();
+            assert!(wrote == std::fs::read_to_string(f).unwrap(), "{}: tools/vvx.py writes it otherwise", f.display());
+        }
     }
 
     /// Models from MagicaVoxel come in the same: figures of parts touching

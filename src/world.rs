@@ -449,11 +449,6 @@ impl World {
         self.dirty.drain().collect()
     }
 
-    /// After this world was brought back in place of `shown` (the one whose
-    /// chunks the renderer has meshed): marks dirty what `shown` still had
-    /// to mesh and every chunk that differs between the two, with its
-    /// neighbours (faces and shading reach one voxel into them). Chunks the
-    /// two still share are the same and stay as they are.
     /// The voxels that differ from `base` (the world as its level's file
     /// made it), each cell with what it holds now, in the order z, y, x:
     /// what a save keeps of a level beside its file. Only chunks no longer
@@ -481,6 +476,11 @@ impl World {
         changed
     }
 
+    /// After this world was brought back in place of `shown` (the one whose
+    /// chunks the renderer has meshed): marks dirty what `shown` still had
+    /// to mesh and every chunk that differs between the two, with its
+    /// neighbours (faces and shading reach one voxel into them). Chunks the
+    /// two still share are the same and stay as they are.
     pub fn mark_changed_since(&mut self, shown: &World) {
         // What waited to be drawn anew still waits (its neighbours were
         // marked with it); only the chunks changed since take theirs.
@@ -589,5 +589,62 @@ mod tests {
             }
         }
         assert_eq!(dirty, around);
+    }
+
+    /// What replays, saves and the network rely on: the world's number and
+    /// its count of changes do not depend on the order the voxels were set
+    /// in; a voxel set back is no change; what differs from the level's
+    /// world is listed in the order z, y, x.
+    #[test]
+    fn the_worlds_number_and_changes_ignore_the_order() {
+        let cells: Vec<(IVec3, u8)> = (0..200).map(|i| (IVec3::new(i * 7 % 70, i * 13 % 50, i % 40), (i % 5 + 1) as u8)).collect();
+        let fresh = || World::new(IVec3::new(70, 50, 40), [[9; 4]; 256]);
+        let (mut a, mut b) = (fresh(), fresh());
+        let mut seen = crate::world::CellSet::default();
+        let cells: Vec<_> = cells.into_iter().filter(|(p, _)| seen.insert(*p)).collect();
+        for &(p, v) in &cells {
+            a.set(p, v);
+        }
+        for &(p, v) in cells.iter().rev() {
+            b.set_raw(p, v);
+        }
+        assert_eq!(a.content_hash(), b.content_hash());
+        assert_eq!(a.changes(), b.changes());
+        let base = a.clone();
+        let (p, v) = cells[3];
+        a.set(p, 0);
+        assert_ne!(a.changes(), base.changes());
+        assert_eq!(a.changed_from(&base), [(p, 0)]);
+        a.set(p, v);
+        assert_eq!(a.changes(), base.changes(), "set back, no change");
+        assert_eq!(a.content_hash(), base.content_hash());
+        assert!(a.changed_from(&base).is_empty());
+        // Outside the world nothing is written, and nothing counts.
+        assert!(!a.set_raw(IVec3::new(-1, 0, 0), 3) && !a.set_raw(IVec3::new(0, 0, 40), 3));
+        assert_eq!(a.changes(), base.changes());
+    }
+
+    /// A voxel on a chunk's border marks the neighbours its faces and
+    /// shading reach; the ground below and the sides block, the sky is
+    /// open; soft voxels let through, one-way ones hold from above.
+    #[test]
+    fn borders_mark_their_neighbours_and_the_edges_hold() {
+        let mut world = World::new(IVec3::new(64, 64, 64), [[0; 4]; 256]);
+        world.set(IVec3::new(CHUNK - 1, 5, 0), 1);
+        let mut dirty = world.take_dirty();
+        dirty.sort_unstable_by_key(|c| (c.z, c.y, c.x));
+        assert_eq!(dirty, [IVec3::new(0, 0, -1), IVec3::new(1, 0, -1), IVec3::new(0, 0, 0), IVec3::new(1, 0, 0)]);
+        world.set(IVec3::new(10, 10, 10), 0);
+        assert!(world.take_dirty().is_empty(), "nothing changed, nothing to mesh");
+        assert!(world.blocks(IVec3::new(5, 5, -1)) && world.blocks(IVec3::new(-1, 5, 5)) && world.blocks(IVec3::new(5, 64, 5)));
+        assert!(!world.blocks(IVec3::new(5, 5, 64)), "the sky is open");
+        let soft = world.colour_as([1, 2, 3], true, false).unwrap();
+        let oneway = world.colour_as([1, 2, 3], false, true).unwrap();
+        world.set(IVec3::new(3, 3, 3), soft);
+        world.set(IVec3::new(4, 4, 4), oneway);
+        assert!(!world.blocks(IVec3::new(3, 3, 3)) && world.get(IVec3::new(3, 3, 3)) == soft);
+        assert_eq!((world.hold(IVec3::new(3, 3, 3)), world.hold(IVec3::new(4, 4, 4)), world.hold(IVec3::new(5, 5, 5))), (Hold::Free, Hold::Above, Hold::Free));
+        assert_eq!(world.column_top(3, 3), 0, "one stands in the grass");
+        assert_eq!(world.column_top(4, 4), 5);
     }
 }

@@ -168,6 +168,28 @@ impl Block {
             let s = model.size;
             bail!("{} is {} by {} by {} voxels; this level's blocks are {n} each way", path.display(), s.x, s.y, s.z);
         }
+        // A level of blocks takes plain colors (its voxels are the world's):
+        // glass, metal or glow would be lost without a word.
+        let frame = model.frames.first().map_or(&[][..], |f| &f[..]);
+        let metal = model.metal.first().map_or(&[][..], |m| &m[..]);
+        let glow = model.glow.first().map_or(&[][..], |g| &g[..]);
+        let odd = (0..frame.len()).find(|&i| frame[i].1[3] != 255 || metal.get(i).is_some_and(|&m| m != 0) || glow.get(i).is_some_and(|&g| g != 0));
+        if let Some(i) = odd {
+            let rgba = frame[i].1;
+            let mat = crate::vvx::Mat { rgba, metal: metal.get(i).copied().unwrap_or(0), glow: glow.get(i).copied().unwrap_or(0) };
+            let what = if rgba[3] != 255 { "glass" } else if mat.metal != 0 { "metal" } else { "glow" };
+            let src = files.read_to_string(path).unwrap_or_default();
+            let sign = crate::vvx::Palette::of_text(&src).entries().iter().find(|(_, m)| *m == mat).map(|(s, _)| s.clone());
+            let line = sign.as_ref().and_then(|s| src.lines().position(|l| l.trim_start().strip_prefix(s.as_str()).is_some_and(|r| r.trim_start().starts_with('=')))).map_or(String::new(), |n| format!("line {}: ", n + 1));
+            let sign = sign.map_or(String::new(), |s| format!("the palette's '{s}', "));
+            bail!(
+                "{}: {line}{sign}#{:02x}{:02x}{:02x}, is {what}: a block's colors are plain (a level's voxels have no glass, metal or glow; a piece, a model set down, may have them)",
+                path.display(),
+                rgba[0],
+                rgba[1],
+                rgba[2]
+            );
+        }
         // The colours numbered in the block's own order of voxels, as a
         // block made in the editor numbers them.
         let mut cells = vec![None; (n * n * n) as usize];
@@ -428,6 +450,25 @@ mod tests {
         Block::drawn_out(&picture(8), 8).unwrap().save(&file).unwrap();
         let e = Block::load(&file, 16).unwrap_err().to_string();
         assert!(e.contains("big.vvx") && e.contains("8 by 8 by 8") && e.contains("16 each way"), "{e}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A block's colors are plain: glass, metal or glow in its file is a
+    /// mistake naming the file, the line and the sign (they were dropped
+    /// without a word); a palette entry no voxel uses is no matter.
+    #[test]
+    fn a_block_of_glass_metal_or_glow_is_named() {
+        let dir = folder("materials");
+        let file = path(&dir, "odd");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        let block = |entry: &str, used: &str| format!("format = \"voxcade voxel 1\"\nsize = [2, 2, 2]\n\n[palette]\na = \"#808080\"\nb = {entry}\n\n[[frame]]\nlayers = \"\"\"\naa\na{used}\n\naa\naa\n\"\"\"\n");
+        for (entry, what) in [("{ color = \"#80c0ff\", glass = 0.5 }", "glass"), ("{ color = \"#c0c0c0\", metal = 0.8 }", "metal"), ("{ color = \"#ffd060\", glow = 1.0 }", "glow")] {
+            std::fs::write(&file, block(entry, "b")).unwrap();
+            let e = Block::load(&file, 2).unwrap_err().to_string();
+            assert!(e.contains("odd.vvx: line 6: the palette's 'b'") && e.contains(&format!("is {what}: a block's colors are plain")), "{e}");
+            std::fs::write(&file, block(entry, "a")).unwrap();
+            assert!(Block::load(&file, 2).is_ok(), "{what} no voxel uses");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

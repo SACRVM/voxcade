@@ -1973,6 +1973,7 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], fr
     let models = |name: &str| crate::vox::load_model_in(game, &dir.join(name));
     let mut world = build(&level, &made, cfg.margin, cfg.below, &pictures, &models)?;
     let origin = IVec3::new(cfg.margin, 0, cfg.below);
+    outside_mistake(&level, origin, world.size).map_or(Ok(()), |why| Err(anyhow!("{}: {why}", path.display())))?;
     // The solid pieces' cells, exactly where their models are drawn: on
     // the grid, so in quarter turns only.
     let mut solids = Vec::new();
@@ -2011,6 +2012,35 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], fr
     let areas = level.areas.iter().map(|a| crate::levels::Area { name: a.name.clone(), at: origin + IVec3::from(a.at), size: IVec3::from(a.size) }).collect();
     let daylight = level.daylight.as_ref().map(Daylight::picture).unwrap_or_default();
     Ok(crate::levels::Made { world, markers, files, places, marker_names, marker_facings, pieces, areas, daylight })
+}
+
+/// The mistake for the first thing, place or area of a level that lies
+/// outside its world (`size` voxels, the grid's low corner at `origin`):
+/// a thing or a place by where it stands, an area whole. None when all lie
+/// within. The editor reads such a level all the same, to drag it back.
+pub fn outside_mistake(level: &GridLevel, origin: IVec3, size: IVec3) -> Option<String> {
+    let (low, high) = (-origin, size - origin);
+    let inside = |at: IVec3, extent: IVec3| at.cmpge(low).all() && (at + extent).cmple(high).all();
+    let line = |n: usize| if n > 0 { format!("line {n}: ") } else { String::new() };
+    let room = || {
+        let v = level.voxels();
+        let span = |a: usize| if low[a] == 0 && high[a] == v[a] { format!("0 to {}", high[a] - 1) } else { format!("{} to {}", low[a], high[a] - 1) };
+        format!("the level is {} by {} by {} voxels: x {}, y {}, z {}", v.x, v.y, v.z, span(0), span(1), span(2))
+    };
+    if let Some(t) = level.things.iter().find(|t| !inside(IVec3::from(t.at), IVec3::ONE)) {
+        let [x, y, z] = t.at;
+        let what = t.name.clone().or_else(|| t.model.clone()).unwrap_or_else(|| t.kind.clone());
+        return Some(format!("{}the thing '{what}' at [{x}, {y}, {z}] stands outside the level ({})", line(t.line), room()));
+    }
+    if let Some(p) = level.places.iter().find(|p| !inside(IVec3::from(p.at), IVec3::ONE)) {
+        let [x, y, z] = p.at;
+        return Some(format!("{}the place '{}' at [{x}, {y}, {z}] lies outside the level ({})", line(p.line), p.name, room()));
+    }
+    if let Some(a) = level.areas.iter().find(|a| !inside(IVec3::from(a.at), IVec3::from(a.size))) {
+        let ([x, y, z], [w, d, h]) = (a.at, a.size);
+        return Some(format!("{}the area '{}' at [{x}, {y}, {z}], {w} by {d} by {h}, reaches outside the level ({})", line(a.line), a.name, room()));
+    }
+    None
 }
 
 /// The things of kinds as markers (not the pieces), the grid's low corner
