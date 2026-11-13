@@ -1047,6 +1047,10 @@ impl EditorWindow {
 
     fn with(video: &sdl3::VideoSubsystem, title: &str, ed: Editor, view: View, cfg: crate::config::GameConfig, dir: &Path, gpu: Option<&crate::window::Gpu>) -> Result<Self> {
         let screen = crate::window::Screen::open_on(video, title, 1600, 900, false, gpu)?;
+        // SDL sends typed text only to a window that asked for it: without
+        // this no field of the editor (a name, a number) takes a key from a
+        // real keyboard (the owner: "alle textfelder erlauben keinen input").
+        video.text_input().start(&screen.window);
         let mut renderer = crate::render::Renderer::new(&screen.device, screen.config.format, screen.config.width, screen.config.height);
         let mut shown = Shown::new(&ed)?;
         renderer.rebuild_all(&screen.device, &screen.queue, &mut shown.world, &ALL_FACES);

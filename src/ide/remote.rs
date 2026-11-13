@@ -381,6 +381,17 @@ pub fn real_mouse(event: &Event) -> Option<u32> {
 fn push_text(keep: &mut VecDeque<std::ffi::CString>, window: u32, text: &str) -> Result<(), String> {
     use sdl3::sys::events::{SDL_EVENT_TEXT_INPUT, SDL_Event, SDL_PushEvent, SDL_TextInputEvent};
     use sdl3::sys::video::SDL_WindowID;
+    // A real keyboard's text reaches only a window that asked SDL for it. The
+    // synthetic text must not get further than a person's keys would (it
+    // once did: an editor's fields seemed to take typing and took none).
+    // Safety: plain calls with the window's id.
+    let asked = unsafe {
+        let w = sdl3::sys::video::SDL_GetWindowFromID(SDL_WindowID(window));
+        !w.is_null() && sdl3::sys::keyboard::SDL_TextInputActive(w)
+    };
+    if !asked {
+        return Err(format!("window {window} takes no typed text: SDL's text input was never started for it, so a real keyboard types nothing there either"));
+    }
     keep.push_back(std::ffi::CString::new(text).map_err(|_| "the text has a NUL in it".to_string())?);
     while keep.len() > 64 {
         keep.pop_front();
