@@ -48,6 +48,20 @@ fn the_recipes_make_the_songs_the_repository_holds() {
     assert!(!said.contains("differs") && !said.contains("missing"), "{said}");
 }
 
+/// A recipe that is not there, or not TOML, is a line saying so, not
+/// Python's traceback.
+#[test]
+fn a_missing_recipe_is_said_plainly() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let dir = crate::scratch::Scratch::new("compose-bad");
+    std::fs::write(dir.join("bad.compose.toml"), "style = \n").unwrap();
+    let bad = dir.join("bad.compose.toml");
+    for (args, says) in [(vec!["tools/compose.py", "music/no_such.compose.toml"], "music/no_such.compose.toml: no such file"), (vec!["tools/compose.py", "--check", "music/no_such.compose.toml"], "no such file"), (vec!["tools/compose.py", bad.to_str().unwrap()], "bad.compose.toml:")] {
+        let Some((fine, _, err)) = python(root, &args, None) else { return };
+        assert!(!fine && err.contains(says) && !err.contains("Traceback"), "{args:?}: {err}");
+    }
+}
+
 /// A variable-length number as MIDI writes it.
 fn varlen(mut n: u32, out: &mut Vec<u8>) {
     let mut bytes = vec![(n & 0x7f) as u8];

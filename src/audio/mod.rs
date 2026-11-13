@@ -124,9 +124,25 @@ pub struct Mixer {
     limiter: limiter::Limiter,
 }
 
+/// The most samples (both sides, interleaved) the mixer makes in one step:
+/// a longer buffer is mixed block by block, the same samples as at once
+/// (every stage goes sample by sample), so the buffers it works in are
+/// made once, this big, and never grow on the audio thread.
+pub const MIX_BLOCK: usize = 4096;
+
 impl Default for Mixer {
     fn default() -> Self {
-        Self { voices: Vec::new(), music: None, music_age: 0, leaving: None, apart: Default::default(), music_held: false, limiter: limiter::Limiter::new(SAMPLE_RATE) }
+        Self {
+            // Room for every voice and as many fading out: a sound played
+            // under the lock takes no new memory either.
+            voices: Vec::with_capacity(2 * MAX_VOICES),
+            music: None,
+            music_age: 0,
+            leaving: None,
+            apart: (vec![0.0; MIX_BLOCK], vec![0.0; MIX_BLOCK]),
+            music_held: false,
+            limiter: limiter::Limiter::new(SAMPLE_RATE),
+        }
     }
 }
 
@@ -223,9 +239,9 @@ impl Mixer {
         // Replace the oldest of the same sound, or of any once full.
         // (Fading ones, already given up, do not count.)
         let live = |v: &Voice| v.fade.is_none();
-        let same: Vec<usize> = (0..self.voices.len()).filter(|&i| self.voices[i].name == name && live(&self.voices[i])).collect();
-        let steal = if same.len() >= MAX_SAME {
-            same.into_iter().max_by_key(|&i| self.voices[i].at)
+        let same = |v: &Voice| v.name == name && live(v);
+        let steal = if self.voices.iter().filter(|v| same(v)).count() >= MAX_SAME {
+            (0..self.voices.len()).filter(|&i| same(&self.voices[i])).max_by_key(|&i| self.voices[i].at)
         } else if self.voices.iter().filter(|v| live(v)).count() >= MAX_VOICES {
             (0..self.voices.len()).filter(|&i| live(&self.voices[i])).max_by_key(|&i| self.voices[i].at)
         } else {
@@ -249,11 +265,12 @@ impl Mixer {
             self.music_age += frames;
             return;
         };
+        // `out` is a block at most (`mix`): the buffers made for it hold it.
+        debug_assert!(out.len() <= MIX_BLOCK && self.apart.0.len() == MIX_BLOCK && self.apart.1.len() == MIX_BLOCK, "a crossfade's buffers grow on the audio thread");
         let (a, b) = &mut self.apart;
-        for buf in [&mut *a, &mut *b] {
-            buf.clear();
-            buf.resize(out.len(), 0.0);
-        }
+        let (a, b) = (&mut a[..out.len()], &mut b[..out.len()]);
+        a.fill(0.0);
+        b.fill(0.0);
         if let Some(m) = old {
             m.mix(a);
         }
@@ -273,8 +290,14 @@ impl Mixer {
         }
     }
 
-    /// Fills interleaved stereo samples.
+    /// Fills interleaved stereo samples, `MIX_BLOCK` at a time.
     pub fn mix(&mut self, out: &mut [f32]) {
+        for block in out.chunks_mut(MIX_BLOCK) {
+            self.mix_block(block);
+        }
+    }
+
+    fn mix_block(&mut self, out: &mut [f32]) {
         out.fill(0.0);
         if !self.music_held {
             self.mix_music(out);
@@ -371,14 +394,33 @@ struct Feed {
     buf: Vec<f32>,
 }
 
+impl Feed {
+    /// The `requested` samples (both sides) handed to `put` a block at a
+    /// time, mixed in `buf`, made `MIX_BLOCK` big once: the audio thread
+    /// takes no memory, however much the device asks for (it resized the
+    /// buffer to every request).
+    fn feed(&mut self, requested: i32, mut put: impl FnMut(&[f32])) {
+        let mut left = requested.max(0) as usize & !1;
+        let held = self.held.load(Ordering::Relaxed);
+        let mut mixer = self.mixer.lock();
+        while left > 0 {
+            let block = &mut self.buf[..left.min(MIX_BLOCK)];
+            match &mut mixer {
+                Ok(mixer) if !held => mixer.mix(block),
+                _ => block.fill(0.0),
+            }
+            put(block);
+            left -= block.len();
+        }
+        debug_assert_eq!(self.buf.len(), MIX_BLOCK, "the feed's buffer grew on the audio thread");
+    }
+}
+
 impl sdl3::audio::AudioCallback<f32> for Feed {
     fn callback(&mut self, stream: &mut sdl3::audio::AudioStream, requested: i32) {
-        self.buf.resize(requested.max(0) as usize & !1, 0.0);
-        match self.mixer.lock() {
-            Ok(mut mixer) if !self.held.load(Ordering::Relaxed) => mixer.mix(&mut self.buf),
-            _ => self.buf.fill(0.0),
-        }
-        let _ = stream.put_data_f32(&self.buf);
+        self.feed(requested, |block| {
+            let _ = stream.put_data_f32(block);
+        });
     }
 }
 
@@ -395,7 +437,7 @@ unsafe impl Send for Detached {}
 pub fn speaker(sdl: &sdl3::Sdl) -> Option<Speaker> {
     let spec = sdl3::audio::AudioSpec { freq: Some(SAMPLE_RATE as i32), channels: Some(2), format: Some(sdl3::audio::AudioFormat::f32_sys()) };
     let (mixer, held) = (Arc::new(Mutex::new(Mixer::default())), Arc::new(AtomicBool::new(false)));
-    let feed = Feed { mixer: mixer.clone(), held: held.clone(), buf: Vec::new() };
+    let feed = Feed { mixer: mixer.clone(), held: held.clone(), buf: vec![0.0; MIX_BLOCK] };
     let Some(_one) = may_open() else {
         eprintln!("no sound: the speaker opened before is still closing");
         return None;
@@ -512,5 +554,51 @@ mod tests {
         assert!(out[at] > out[at + 1] * 1.5, "left {} right {}", out[at], out[at + 1]);
         let (far, _) = place(Vec3::new(400.0, 0.0, 0.0), Vec3::ZERO, 200.0);
         assert!(far < gain * 0.3, "far away is not much quieter ({far} vs {gain})");
+    }
+
+    /// The audio thread takes no memory: the mixer's crossfade buffers
+    /// and the device's feed are made once, `MIX_BLOCK` big, and a request
+    /// longer than that is mixed block by block into the same samples as
+    /// in one piece (they were resized to every request, on the thread
+    /// that must never wait).
+    #[test]
+    fn the_audio_thread_takes_no_memory() {
+        let song = |text: &str| Some(music::Player::new(music::parse(text).unwrap(), 1.0));
+        let crossfading = || {
+            let mut mixer = Mixer::default();
+            mixer.set_music(song("#tempo 120\nA: c d e f g a b > c"));
+            let mut warm = vec![0.0f32; SAMPLE_RATE as usize];
+            mixer.mix(&mut warm);
+            mixer.crossfade_music(song("#tempo 90\n@n noise\nA: o2 c4 e g\nB: @n c8 c8 c8"), 2.0);
+            mixer.play("blip", &Arc::from(vec![0.5f32; 30_000]), 1.0, 0.3);
+            mixer
+        };
+        let (mut whole, mut parts) = (crossfading(), crossfading());
+        let buffers = (whole.apart.0.as_ptr(), whole.apart.1.as_ptr(), whole.voices.capacity());
+        let mut once = vec![0.0f32; 3 * MIX_BLOCK + 10];
+        whole.mix(&mut once);
+        assert!(whole.leaving.is_some(), "still crossfading");
+        assert_eq!((whole.apart.0.as_ptr(), whole.apart.1.as_ptr(), whole.voices.capacity()), buffers, "the buffers stayed");
+        assert_eq!((whole.apart.0.len(), whole.apart.1.len()), (MIX_BLOCK, MIX_BLOCK));
+        let mut pieces = Vec::new();
+        for size in [6, 1000, MIX_BLOCK, 1, 2 * MIX_BLOCK].into_iter().cycle() {
+            let mut block = vec![0.0f32; (size & !1).max(2).min(once.len() - pieces.len())];
+            parts.mix(&mut block);
+            pieces.extend_from_slice(&block);
+            if pieces.len() == once.len() {
+                break;
+            }
+        }
+        assert!(once == pieces, "mixed in blocks, the same samples");
+        // The feed hands a long request on block by block from its own buffer.
+        let mut feed = Feed { mixer: Arc::new(Mutex::new(crossfading())), held: Arc::new(AtomicBool::new(false)), buf: vec![0.0; MIX_BLOCK] };
+        let at = feed.buf.as_ptr();
+        let (mut handed, mut blocks) = (0, 0);
+        feed.feed(5 * MIX_BLOCK as i32 + 7, |b| {
+            handed += b.len();
+            blocks += 1;
+            assert!(b.len() <= MIX_BLOCK);
+        });
+        assert_eq!((handed, blocks, feed.buf.as_ptr(), feed.buf.len()), (5 * MIX_BLOCK + 6, 6, at, MIX_BLOCK));
     }
 }

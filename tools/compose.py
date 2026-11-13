@@ -849,13 +849,26 @@ def write(recipe, source, check=False):
     return same
 
 
+def recipe(source):
+    """A recipe's settings, or a plain mistake (no traceback) when the file
+    is not there or not TOML."""
+    try:
+        return tomllib.loads(Path(source).read_text())
+    except FileNotFoundError:
+        raise SystemExit(f"compose.py: {source}: no such file (a recipe is music/NAME.compose.toml)")
+    except IsADirectoryError:
+        raise SystemExit(f"compose.py: {source}: a folder, not a recipe")
+    except tomllib.TOMLDecodeError as e:
+        raise SystemExit(f"compose.py: {source}: {e}")
+
+
 def main(args):
     if not args or args[0] in ("-h", "--help"):
         print(__doc__)
         print("usage: compose.py RECIPE.compose.toml [RECIPE ...]\n       compose.py --check RECIPE ...   (writes nothing: are the songs there what the recipes make?)\n       compose.py --find [MOOD ...]\n       compose.py --help")
         return
     if args[0] == "--check":
-        same = all([write(tomllib.loads(Path(source).read_text()), source, check=True) for source in args[1:]])
+        same = all([write(recipe(source), source, check=True) for source in args[1:]])
         raise SystemExit(0 if same else 1)
     if args[0].startswith("-") and args[0] != "--find":
         raise SystemExit(f"compose.py: unknown option {args[0]} (see --help)")
@@ -866,7 +879,7 @@ def main(args):
                 print(f"{scale:6} {' '.join(chords):40} {' '.join(tags)}")
         return
     for source in args:
-        write(tomllib.loads(Path(source).read_text()), source)
+        write(recipe(source), source)
 
 
 if __name__ == "__main__":

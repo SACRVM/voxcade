@@ -81,6 +81,26 @@ fn repeats_ties_and_macros() {
     assert_eq!(notes[7].start, (8.0 * SR) as u64);
 }
 
+/// Notes in capitals are the notes in small letters; two sharps or flats
+/// make a double sharp or flat (`c++` is d, `e--` is d); a tie joins a
+/// note to one of the same pitch or a length, and refuses another pitch
+/// (`c4&d4` dropped the d and played a long c, without a word).
+#[test]
+fn capitals_double_signs_and_ties_to_another_pitch() {
+    let pitches = |text: &str| -> Vec<u32> { parse(text).unwrap().channels[0].iter().filter_map(|n| n.freq).map(|f| f.round() as u32).collect() };
+    assert_eq!(pitches("A: C D E F+ B- c"), pitches("A: c d e f+ b- c"));
+    assert_eq!(pitches("A: c++ e-- d b+ > c"), pitches("A: d d d > c c"));
+    assert!(format!("{:#}", parse("A: c+++").unwrap_err()).contains("two sharps or two flats at most"));
+    let song = parse("#tempo 60\nA: c4&C8 e").unwrap();
+    assert_eq!(song.channels[0][1].start, (1.5 * SR) as u64, "a tie in capitals holds the same note");
+    for text in ["A: c4&d4", "A: c4&c+4", "A: c4& >c4"] {
+        let e = format!("{:#}", parse(text).unwrap_err());
+        assert!(e.contains("& ties a note to one of the same pitch"), "{text}: {e}");
+    }
+    let e = format!("{:#}", parse("A: c d X").unwrap_err());
+    assert!(e.contains("unknown command 'X'"), "{e}");
+}
+
 /// A song that plays once is over at its end; one that loops never.
 #[test]
 fn a_song_that_plays_once_ends() {

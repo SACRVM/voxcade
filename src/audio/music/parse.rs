@@ -250,6 +250,31 @@ impl Parser<'_> {
         Ok(v)
     }
 
+    /// The semitone of the note letter `c` (just read) with the sharps
+    /// (`+`, `#`) and flats (`-`) after it: `c++` a double sharp, `b--` a
+    /// double flat, two at most.
+    fn pitch(&mut self, c: char) -> Result<i32> {
+        let mut semitone = match c.to_ascii_lowercase() {
+            'c' => 0,
+            'd' => 2,
+            'e' => 4,
+            'f' => 5,
+            'g' => 7,
+            'a' => 9,
+            _ => 11,
+        };
+        let mut signs = 0;
+        while let Some(sign @ ('+' | '#' | '-')) = self.peek() {
+            signs += 1;
+            if signs > 2 {
+                bail!("a note takes two sharps or two flats at most (c++, b--)");
+            }
+            semitone += if sign == '-' { -1 } else { 1 };
+            self.at += 1;
+        }
+        Ok(semitone)
+    }
+
     fn octave(&self, octave: i32) -> Result<i32> {
         if octave < OCTAVES.0 || octave > OCTAVES.1 {
             bail!("octave {octave} is out of range, {} to {}", OCTAVES.0, OCTAVES.1);
@@ -270,44 +295,31 @@ impl Parser<'_> {
             }
             match c.to_ascii_lowercase() {
                 ' ' | '\t' | '\n' | '\r' | '|' => {}
-                'a'..='g' if c.is_ascii_lowercase() => {
+                // A note, in small letters or capitals (`C D E` as `c d e`).
+                'a'..='g' => {
                     if notes.len() >= MOST_NOTES {
                         bail!("more than {MOST_NOTES} notes in one channel");
                     }
                     let note_octave = self.octave(state.octave)?;
-                    let mut semitone = match c {
-                        'c' => 0,
-                        'd' => 2,
-                        'e' => 4,
-                        'f' => 5,
-                        'g' => 7,
-                        'a' => 9,
-                        _ => 11,
-                    };
-                    match self.peek() {
-                        Some('+' | '#') => {
-                            semitone += 1;
-                            self.at += 1;
-                        }
-                        Some('-') => {
-                            semitone -= 1;
-                            self.at += 1;
-                        }
-                        _ => {}
-                    }
+                    let semitone = self.pitch(c)?;
                     let mut beats = self.duration(state)?;
-                    // `&` ties the following note's length on.
+                    // `&` ties the following note's length on: the same
+                    // pitch held, or a length alone (`c4&8`).
                     while self.peek() == Some('&') {
                         self.at += 1;
                         // A tie may run over a bar line.
                         while self.peek().is_some_and(|c| c.is_whitespace() || c == '|') {
                             self.at += 1;
                         }
-                        if self.peek().is_some_and(|c| "abcdefg".contains(c)) {
-                            self.at += 1;
-                            if matches!(self.peek(), Some('+' | '#' | '-')) {
+                        match self.peek() {
+                            Some(n) if ('a'..='g').contains(&n.to_ascii_lowercase()) => {
                                 self.at += 1;
+                                if self.pitch(n)? != semitone {
+                                    bail!("& ties a note to one of the same pitch (c4&c8, or c4&8); to go on to another pitch, write it without & (c4 d4)");
+                                }
                             }
+                            Some(n) if n.is_ascii_digit() || n == '.' => {}
+                            _ => bail!("& ties a note to one of the same pitch (c4&c8) or to a length (c4&8); nothing else may stand between"),
                         }
                         beats += self.duration(state)?;
                     }
@@ -374,7 +386,7 @@ impl Parser<'_> {
                     self.number();
                 }
                 ']' => bail!("] without ["),
-                other => bail!("unknown command '{other}'"),
+                _ => bail!("unknown command '{c}'"),
             }
         }
         if until.is_some() {

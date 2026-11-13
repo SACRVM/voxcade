@@ -511,4 +511,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # A file that is not there, or an import file that is no TOML, is a
+    # line saying so, not a traceback.
+    try:
+        main()
+    except FileNotFoundError as e:
+        raise SystemExit(f"midi2mml.py: {e.filename}: no such file")
+    except tomllib.TOMLDecodeError as e:
+        raise SystemExit(f"midi2mml.py: {sys.argv[1]}: {e}")
