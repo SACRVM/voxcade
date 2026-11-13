@@ -351,7 +351,30 @@ nearest; its replay `tests/two_ships`);
   losing focus lets go; `--shot --shift`);
   BEVEL cuts a box's edges, SYMMETRY mirrors every tool left to right;
   `editor::model::form_cells`, `--shot --tool box --held X,Y,Z` sets one
-  that big under the mouse, fresh, `--stamp` no more fresh);
+  that big under the mouse, fresh, `--stamp` no more fresh); among a
+  level's blocks BOX (of the block held, as it is turned; the level grows
+  on its right, back and top to hold it, `Editor::place_level_cells`) and
+  FILL (the cells of the block clicked joined face to face take the held
+  one, Ctrl all of it, `fill_cells`) mean the same, same keys and words
+  (the owner: one set of tools in both editors); LEVEL's SIZE of a level
+  of blocks grows or cuts by any number on the side ANCHOR leaves free
+  (LEFT/RIGHT, FRONT/BACK, BOTTOM/TOP; `cells::reframe`: cells kept where
+  they stay, what is set down moved with them; one step, a cut that loses
+  blocks too); a model's colors keep their number keys in the palette's
+  order (a new one the next number, only REMOVE renumbers); Delete, never
+  a plain letter, takes a frame or a level's block out (its file too; one
+  UNDO brings both back, test
+  `delete_removes_a_frame_or_a_block_and_undo_brings_it_back`); FRONT,
+  SIDE, TOP in the voxel editor's view corner look straight at a model's
+  front (+y), its right side and from above (a level's block: its y 0
+  side), the one lit pressed again the free view as it was
+  (`view::STRAIGHT`, `View::straight_view`; no keys: the number keys are
+  the colors); `--choose`, `--hide`, `--menu`, `--context` take an unnamed
+  thing by what the list shows (`torch`, `torch#3` the third;
+  `room::listed`); `--scatter N` without such a rule names the rules there
+  are; a shot draws the panels as they are after two seconds where egui
+  never settles (ADD MODEL's find in focus; `shot::settle`), and
+  `--picker` opens among the pieces;
   `editor::EditorWindow` takes its window's events (`ide::route`). A
   double click in the list or EDIT above the file opens one; the main
   area shows it as a picture (`ide/preview.rs`, the editor's view
@@ -361,7 +384,11 @@ nearest; its replay `tests/two_ships`);
   is focused again. A `.vvx` is text too: TEXT beside EDIT shows it to
   read and change in the main area as a sound's (`ide/code.rs`
   `Syntax::Model`, read by `vvx::read` after every change, its mistake
-  "LINE n: why"), PICTURE back (`--open text:FILE` in a shot). The logic's files are changed in the main area
+  "LINE n: why"), PICTURE back (`--open text:FILE` in a shot); a level
+  too (TEXT beside EDIT, `Syntax::Level` told by its format line, read
+  by `GridLevel::from_text`, its line of what it is above), and a map
+  (`map.toml`, no editor) is always text to change (`Syntax::Map`,
+  `MapData::read`; `Shell::is_map`, `Files::level_text`). The logic's files are changed in the main area
   (`ide/code.rs`: coloured by `lua::lex::spans`, of which `tokens`, the
   fingerprint, is made, the same byte for byte, test
   `highlighting_keeps_the_fingerprint`; Lua reads the text after every
@@ -456,8 +483,9 @@ nearest; its replay `tests/two_ships`);
   REPLACE WITH, REPLACE and REPLACE ALL, each one step of the text's undo.
   Ctrl+Shift+F or SEARCH in the bar searches the game in the list's place
   (the panel a third of the window wide meanwhile, up to 560 points; on a thread, the files the list shows that open as text: logic,
-  scenarios, sounds, songs, models, no levels), a line clicked opens its
-  file there with the word current; `--shot --find WORD [--replace TEXT]`,
+  scenarios, sounds, songs, models, levels and maps, not a world or a
+  prefab), a line clicked opens its file there with the word current (a
+  model's or a level's in its TEXT); `--shot --find WORD [--replace TEXT]`,
   `--search WORD [--hit N]`. (Go to definition, references and rename are
   not built: no LSP.) Songs play from the main area (PLAY SONG). Reading the keys
   (`controls::read_input`), the speaker (`audio::speaker`) and the
