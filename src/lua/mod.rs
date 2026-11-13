@@ -22,7 +22,7 @@
 pub mod api;
 pub mod conf;
 pub mod data;
-mod hidden;
+pub mod hidden;
 pub mod host;
 pub mod lex;
 mod sandbox;
