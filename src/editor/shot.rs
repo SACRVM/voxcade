@@ -380,24 +380,17 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     // With --held or --stamp twice: the shape set, then all drawn again.
     let again = opts.stamp || opts.held.is_some() || opts.menu.is_some() || opts.hover.is_some() || opts.click.is_some() || opts.marquee.is_some();
     for pass in 0..=again as usize {
-        for step in 0..120 {
-            let mut raw = input.take([opts.width, opts.height], 1.0, 1.0);
-            raw.time = Some((pass * 120 + step) as f64 / 60.0);
-            ed.pieces.sizes = figures.sizes();
-            let out = ctx.run_ui(raw, |ui| {
-                drawn = panels::ui(ui, &ed, &view, &figures, &mut thumbs);
-                let free = room_of(&drawn, ui.ctx().content_rect()).0;
-                panels::joints(ui, &ed, &view, free);
-                panels::marks(ui, &ed, &view, &figures, free);
-            });
-            let settled = step >= 2 && out.viewport_output.get(&egui::ViewportId::ROOT).is_none_or(|v| v.repaint_delay == Duration::MAX);
-            if settled {
-                last = Some(out);
-                break;
-            }
+        ed.pieces.sizes = figures.sizes();
+        let out = settle(&ctx, &mut input, [opts.width, opts.height], pass, |ui| {
+            drawn = panels::ui(ui, &ed, &view, &figures, &mut thumbs);
+            let free = room_of(&drawn, ui.ctx().content_rect()).0;
+            panels::joints(ui, &ed, &view, free);
+            panels::marks(ui, &ed, &view, &figures, free);
+        }, |out| {
             let (device, queue, _) = canvas.gpu();
             painter.skip(device, queue, out);
-        }
+        });
+        last = Some(out);
         view.set_room(room_of(&drawn, ctx.content_rect()).1);
         // The mouse in the middle of the view.
         let (mx, my) = (0.5 - view.inset.x / 2.0, 0.5 - view.inset.y / 2.0);
@@ -450,6 +443,27 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     crate::headless::write_png(&opts.out, opts.width, opts.height, &pixels)?;
     print_facts(&ed, &view, &ctx, opts, frame.instances.len(), keys);
     Ok(())
+}
+
+/// The panels laid out over frames a sixtieth of a second apart (pass
+/// `pass` of the shot) until egui is settled, the frames before handed to
+/// `skip`: the last one's output. Two seconds at most: what never settles
+/// (a text field in focus, its cursor blinking: ADD MODEL's find) is drawn
+/// as it is then, never left out.
+fn settle(ctx: &egui::Context, input: &mut crate::gui::input::Input, size: [u32; 2], pass: usize, mut ui: impl FnMut(&mut egui::Ui), mut skip: impl FnMut(egui::FullOutput)) -> egui::FullOutput {
+    const FRAMES: usize = 120;
+    let mut step = 0;
+    loop {
+        let mut raw = input.take(size, 1.0, 1.0);
+        raw.time = Some((pass * FRAMES + step) as f64 / 60.0);
+        let out = ctx.run_ui(raw, &mut ui);
+        let settled = step >= 2 && out.viewport_output.get(&egui::ViewportId::ROOT).is_none_or(|v| v.repaint_delay == Duration::MAX);
+        if settled || step + 1 == FRAMES {
+            return out;
+        }
+        skip(out);
+        step += 1;
+    }
 }
 
 /// `--add-part`, `--mirror`, `--merge-into`, `--rotate-part`, `--pose-part`,
@@ -593,7 +607,8 @@ fn in_context(dir: &Path, ed: &mut Editor, opts: &ShotOptions) -> Result<()> {
 /// Among the pieces: the changes tried, the one chosen, those hidden.
 fn try_pieces(dir: &Path, ed: &mut Editor, figures: &mut Figures, opts: &ShotOptions) -> Result<()> {
     // The changes tried among the pieces, then the one chosen, the view.
-    if !opts.ops.is_empty() || opts.choose.is_some() {
+    // (ADD MODEL's pictures are the pieces' too.)
+    if !opts.ops.is_empty() || opts.choose.is_some() || opts.picker {
         if ed.level.has_grid() {
             ed.switch(Layer::Pieces);
         }
@@ -837,5 +852,27 @@ fn print_facts(ed: &Editor, view: &View, ctx: &egui::Context, opts: &ShotOptions
         for line in figure.tree_lines() {
             println!("{line}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A field in focus never lets egui settle (its cursor blinks): the
+    /// shot draws the panels as they are after two seconds, not nothing
+    /// (ADD MODEL's find over a game of many models drew no panel at all).
+    #[test]
+    fn panels_that_never_settle_are_drawn_all_the_same() {
+        let ctx = egui::Context::default();
+        let mut input = crate::gui::input::Input::default();
+        let mut text = String::new();
+        let mut skipped = 0;
+        let out = settle(&ctx, &mut input, [640, 360], 0, |ui| {
+            ui.label("ADD MODEL");
+            ui.add(egui::TextEdit::singleline(&mut text)).request_focus();
+        }, |_| skipped += 1);
+        assert_eq!(skipped, 119, "it never settled");
+        assert!(!out.shapes.is_empty(), "the last frame is drawn");
     }
 }
