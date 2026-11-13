@@ -8,7 +8,7 @@
 
 local raw_next, raw_type, raw_getmetatable, raw_setmetatable = next, type, getmetatable, setmetatable
 local raw_rawset, raw_rawget, raw_tostring, raw_error, raw_format = rawset, rawget, tostring, error, string.format
-local sort, find, sub, pack, unpack = table.sort, string.find, string.sub, table.pack, table.unpack
+local sort, move, find, sub, pack, unpack = table.sort, table.move, string.find, string.sub, table.pack, table.unpack
 
 -- Read-only views and the tables they show; tables raw writes may not
 -- reach. Weak keys only let unused views go, nothing a game can see.
@@ -18,35 +18,82 @@ local guarded = raw_setmetatable({}, { __mode = "k" })
 -- A state's keys the engine keeps (`player.state.score`), by the state.
 local engine_keys = raw_setmetatable({}, { __mode = "k" })
 
-local function rank(k)
-  local t = raw_type(k)
-  if t == "number" then return 1 elseif t == "string" then return 2 elseif t == "boolean" then return 3 end
-  raw_error("keys walked in order are numbers, strings or booleans, not a " .. t, 4)
-end
-
-local function before(a, b)
-  local ra, rb = rank(a), rank(b)
-  if ra ~= rb then return ra < rb end
-  if ra == 3 then return (not a) and b end
-  return a < b
-end
-
-local function keys_of(t, also)
-  local keys, n = {}, 0
+-- The keys of `t` (and those of `also` that `t` lacks) in order: numbers,
+-- then strings, then false and true; numbers and strings each as Lua's own
+-- `<` orders them (table.sort without a function compares as `<` does,
+-- inside C, which is what makes it quick). The order is the keys' alone,
+-- however and whenever they were put in. Any other key is a mistake of
+-- the caller of `pairs` or `next` (level 4: this, `keys_of`, `pairs`).
+-- `also`: the engine's keys of a state, names.
+local function sorted_keys(t, also)
+  local keys, strings, n, m, no, yes = {}, {}, 0, 0, false, false
   for k in raw_next, t do
-    rank(k)
-    n = n + 1
-    keys[n] = k
+    local kt = raw_type(k)
+    if kt == "string" then
+      m = m + 1
+      strings[m] = k
+    elseif kt == "number" then
+      n = n + 1
+      keys[n] = k
+    elseif kt == "boolean" then
+      if k then yes = true else no = true end
+    else
+      raw_error("keys walked in order are numbers, strings or booleans, not a " .. kt, 4)
+    end
   end
   if also then
     for k in raw_next, also do
       if raw_rawget(t, k) == nil then
-        n = n + 1
-        keys[n] = k
+        m = m + 1
+        strings[m] = k
       end
     end
   end
-  sort(keys, before)
+  sort(keys)
+  sort(strings)
+  move(strings, 1, m, n + 1, keys)
+  n = n + m
+  if no then
+    n = n + 1
+    keys[n] = false
+  end
+  if yes then
+    n = n + 1
+    keys[n] = true
+  end
+  return keys, n
+end
+
+-- The keys of big tables walked, in order, by the table, with each key's
+-- place (`at`): kept while the table's keys stay the same, which every
+-- walk checks (far quicker than sorting them again). What is kept is only
+-- ever the order `sorted_keys` gives, so it changes no walk; tables the
+-- game lets go are let go here too. Small tables are sorted afresh.
+local walked = raw_setmetatable({}, { __mode = "k" })
+local KEPT_FROM = 64
+
+local function keys_of(t, also)
+  local kept = also == nil and walked[t]
+  if kept then
+    local at, count = kept.at, 0
+    for k in raw_next, t do
+      if at[k] == nil then
+        count = -1
+        break
+      end
+      count = count + 1
+    end
+    -- Every key is one kept, and as many: the same keys.
+    if count == kept.n then return kept.keys, kept.n, at end
+  end
+  local keys, n = sorted_keys(t, also)
+  if also == nil and n >= KEPT_FROM then
+    local at = {}
+    for i = 1, n do at[keys[i]] = i end
+    walked[t] = { keys = keys, n = n, at = at }
+    return keys, n, at
+  end
+  if kept then walked[t] = nil end
   return keys, n
 end
 
@@ -121,11 +168,15 @@ end
 
 local function ordered_next(t, key)
   local source = shows[t] or t
-  local keys, n = keys_of(source, engine_keys[t])
+  local keys, n, at = keys_of(source, engine_keys[t])
   local i = 0
   if key ~= nil then
-    for j = 1, n do
-      if keys[j] == key then i = j break end
+    if at then
+      i = at[key] or 0
+    else
+      for j = 1, n do
+        if keys[j] == key then i = j break end
+      end
     end
     if i == 0 then raw_error("next: the key is not in the table", 2) end
   end

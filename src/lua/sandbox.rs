@@ -426,3 +426,263 @@ impl Sandbox {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `pairs` and `next` as they were before big tables kept their order
+    /// (a sort with a Lua function on every call, `next` sorting on every
+    /// step), word for word but for taking the table walked and the
+    /// engine's keys as arguments: the order the new ones must give.
+    const BEFORE: &str = r#"
+local raw_next, raw_type, raw_rawget, raw_error, sort = next, type, rawget, error, table.sort
+local function rank(k)
+  local t = raw_type(k)
+  if t == "number" then return 1 elseif t == "string" then return 2 elseif t == "boolean" then return 3 end
+  raw_error("keys walked in order are numbers, strings or booleans, not a " .. t, 4)
+end
+local function before(a, b)
+  local ra, rb = rank(a), rank(b)
+  if ra ~= rb then return ra < rb end
+  if ra == 3 then return (not a) and b end
+  return a < b
+end
+local function keys_of(t, also)
+  local keys, n = {}, 0
+  for k in raw_next, t do
+    rank(k)
+    n = n + 1
+    keys[n] = k
+  end
+  if also then
+    for k in raw_next, also do
+      if raw_rawget(t, k) == nil then
+        n = n + 1
+        keys[n] = k
+      end
+    end
+  end
+  sort(keys, before)
+  return keys, n
+end
+local function ordered_pairs(t, source, also)
+  local keys, n = keys_of(source, also)
+  local i = 0
+  return function()
+    while i < n do
+      i = i + 1
+      local k = keys[i]
+      local v = t[k]
+      if v ~= nil then return k, v end
+    end
+    return nil
+  end, t, nil
+end
+local function ordered_next(t, key, source, also)
+  local keys, n = keys_of(source, also)
+  local i = 0
+  if key ~= nil then
+    for j = 1, n do
+      if keys[j] == key then i = j break end
+    end
+    if i == 0 then raw_error("next: the key is not in the table", 2) end
+  end
+  for j = i + 1, n do
+    local v = t[keys[j]]
+    if v ~= nil then return keys[j], v end
+  end
+  return nil
+end
+return ordered_pairs, ordered_next
+"#;
+
+    /// One round of the comparison, drawn from its seed: two tables alike
+    /// (`a` walked as before, `b` as now) of keys of every sort the
+    /// sandbox walks, changed alike between walks and while walking, and
+    /// walked by `pairs` and `next` plain, through a read-only view and as
+    /// an engine's state; an error saying what differs, else the size.
+    /// The new functions take the old ones' extra arguments and leave them.
+    const ROUND: &str = r#"
+local seed, new_pairs, new_next, readonly, engine_state, old_pairs, old_next = ...
+local state = seed
+local function draw(n)
+  state = state * 6364136223846793005 + 1442695040888963407
+  return ((state >> 33) % n) + 1
+end
+local pieces = { "", "a", "A", "b", "_", "1", " ", "\0", "\255", "\195\169", "\195\164", "z", "aa", "Z0", "key" }
+local specials = {
+  0, -1, 1, 2, 3, 10, 100, -100, math.maxinteger, math.mininteger, math.maxinteger - 1, math.mininteger + 1,
+  9007199254740992, 9007199254740993, -9007199254740993,
+  0.5, -0.5, 1.5, 1e-300, -1e-300, -1e300, 1e300, math.huge, -math.huge, 2.0 ^ 63, -(2.0 ^ 63), 2.0 ^ 64,
+  2.0 ^ 53, 2.0 ^ 53 + 2, 0.1, 3.0, -0.0, 9007199254740993.0,
+  true, false,
+}
+local function key()
+  local sort = draw(5)
+  if sort == 1 then return draw(400) - 200
+  elseif sort == 2 then return specials[draw(#specials)]
+  elseif sort == 3 then return (draw(2000) - 1000) / 8
+  end
+  local s = ""
+  for _ = 1, draw(5) - 1 do s = s .. pieces[draw(#pieces)] end
+  return s
+end
+local function show(x)
+  if type(x) == "table" then return "table" end
+  return string.format("%q", x) .. ":" .. (math.type(x) or type(x))
+end
+-- The keys of `t` in order, as before: whom to take out while walking.
+local function order_of(t)
+  local out = {}
+  for k in old_pairs(t, t) do out[#out + 1] = k end
+  return out
+end
+local function walk_pairs(p, t, source, also, drop)
+  local out = {}
+  for k, v in p(t, source, also) do
+    out[#out + 1] = show(k) .. "=" .. show(v)
+    if drop and draw(5) == 1 then source[drop[draw(#drop)]] = nil end
+  end
+  return table.concat(out, " ")
+end
+local function next_of(nx, t, k, source, also)
+  local key, v = nx(t, k, source, also)
+  return key, v
+end
+local function walk_next(nx, t, source, also)
+  local out, k = {}, nil
+  repeat
+    local v
+    k, v = next_of(nx, t, k, source, also)
+    if k ~= nil then out[#out + 1] = show(k) .. "=" .. show(v) end
+  until k == nil
+  return table.concat(out, " ")
+end
+-- The same walk before and now, from the same draws: what each gave or
+-- said must be the same.
+local function both(what, walk_old, walk_new)
+  local at = state
+  local ok_old, old = pcall(walk_old)
+  state = at
+  local ok_new, new = pcall(walk_new)
+  if ok_old ~= ok_new or old ~= new then
+    old, new = tostring(old), tostring(new)
+    local i = 1
+    while i <= #old and old:sub(i, i) == new:sub(i, i) do i = i + 1 end
+    local from = math.max(1, i - 80)
+    error(what .. " (seed " .. seed .. "), from byte " .. from .. ":\nbefore " .. old:sub(from, i + 120) .. "\nnow    " .. new:sub(from, i + 120), 0)
+  end
+end
+local sizes = { 0, 1, 2, 5, 30, 63, 64, 65, 100, 300 }
+local size = sizes[draw(#sizes)]
+local a, b = {}, {}
+local function put(k, v) a[k], b[k] = v, v end
+for _ = 1, size do put(key(), draw(9)) end
+local engine = { score = true, hp = true }
+local function seven() return 7 end
+local function never() return false end
+local view_a, view_b = readonly(a), readonly(b)
+local state_a = engine_state(a, engine, seven, put, never)
+local state_b = engine_state(b, engine, seven, put, never)
+for _ = 1, 8 do
+  both("pairs", function() return walk_pairs(old_pairs, a, a) end, function() return walk_pairs(new_pairs, b) end)
+  both("pairs of a view", function() return walk_pairs(old_pairs, view_a, a) end, function() return walk_pairs(new_pairs, view_b) end)
+  both("pairs of a state", function() return walk_pairs(old_pairs, state_a, a, engine) end, function() return walk_pairs(new_pairs, state_b) end)
+  if size <= 100 then
+    both("next", function() return walk_next(old_next, a, a) end, function() return walk_next(new_next, b) end)
+    both("next of a view", function() return walk_next(old_next, view_a, a) end, function() return walk_next(new_next, view_b) end)
+    both("next of a state", function() return walk_next(old_next, state_a, a, engine) end, function() return walk_next(new_next, state_b) end)
+  end
+  -- `next` from a key the table lacks, and from each it has.
+  local missing = key()
+  if a[missing] == nil then
+    both("next from a missing key", function() return next_of(old_next, a, missing, a) end, function() return next_of(new_next, b, missing) end)
+  end
+  for _, k in ipairs(order_of(a)) do
+    both("next from a key", function() return show(next_of(old_next, a, k, a)) end, function() return show(next_of(new_next, b, k)) end)
+    if draw(8) == 1 then break end
+  end
+  -- Changed alike between walks: keys out, keys in, as many out as in
+  -- (the same count, other keys), values only, nothing; or keys taken out
+  -- while walking.
+  local change, order = draw(6), order_of(a)
+  if change == 1 then
+    for _ = 1, draw(5) do if #order > 0 then put(order[draw(#order)], nil) end end
+  elseif change == 2 then
+    for _ = 1, draw(5) do put(key(), draw(9)) end
+  elseif change == 3 and #order > 0 then
+    local gone = order[draw(#order)]
+    put(gone, nil)
+    local fresh = key()
+    while a[fresh] ~= nil or fresh == gone do fresh = key() end
+    put(fresh, 1)
+  elseif change == 4 then
+    for _, k in ipairs(order) do put(k, draw(9)) end
+  elseif change == 5 and #order > 0 then
+    both("pairs, keys taken out meanwhile", function() return walk_pairs(old_pairs, a, a, nil, order) end, function() return walk_pairs(new_pairs, b, b, nil, order) end)
+  end
+end
+-- A key of no order among the others: the same mistake, at the same line.
+local odd = ({ {}, function() end })[draw(2)]
+put(odd, 1)
+both("a key of no order", function() return walk_pairs(old_pairs, a, a) end, function() return walk_pairs(new_pairs, b) end)
+both("a key of no order to next", function() return walk_next(old_next, a, a) end, function() return walk_next(new_next, b) end)
+return size
+"#;
+
+    /// `pairs` and `next` keep a big table's order between walks and sort
+    /// in C: over tables of every sort of key the sandbox walks (whole
+    /// numbers to the ends of their range, fractions, infinities, strings
+    /// with zeros and bytes over 127, booleans), changed between walks and
+    /// while walking, plain, through a view and as an engine's state, they
+    /// walk exactly as before, and say the same of keys they cannot order.
+    #[test]
+    fn pairs_walks_as_it_always_did() {
+        let sandbox = Sandbox::new().unwrap();
+        let lua = &sandbox.lua;
+        let (old_pairs, old_next): (Function, Function) = lua.load(BEFORE).set_name("=before").eval().unwrap();
+        let round = lua.load(ROUND).set_name("@round").into_function().unwrap();
+        let tool = |name: &str| sandbox.tool(name).unwrap();
+        let mut sizes = std::collections::BTreeSet::new();
+        for seed in 1..=300i64 {
+            let args = (seed, tool("pairs"), tool("next"), tool("readonly"), tool("engine_state"), old_pairs.clone(), old_next.clone());
+            match sandbox.call_start::<i64>(&round, args) {
+                Ok(size) => _ = sizes.insert(size),
+                Err(e) => panic!("{e:#}"),
+            }
+        }
+        assert_eq!(sizes.len(), 10, "every size drawn: {sizes:?}");
+    }
+
+    /// Walking a state of 5,000 keys with `pairs` every tick fits a tick's
+    /// budget many times over: the keys are not sorted by a Lua function
+    /// on every walk (that took about 80,000 instructions per walk, and
+    /// 9 ms a tick in BunnyFarm's measure), only checked against the order
+    /// kept.
+    #[test]
+    fn walking_a_big_table_is_cheap() {
+        let sandbox = Sandbox::new().unwrap();
+        let chunk = sandbox
+            .lua
+            .load(
+                r#"
+local pairs = ...
+local big = {}
+for i = 1, 5000 do big["key" .. (i * 7919 % 100003)] = i end
+return function()
+  local sum = 0
+  for _ = 1, 50 do
+    for _, v in pairs(big) do sum = sum + v end
+  end
+  return sum
+end
+"#,
+            )
+            .into_function()
+            .unwrap();
+        let walk: Function = sandbox.call_start(&chunk, sandbox.tool("pairs").unwrap()).unwrap();
+        let sum: i64 = sandbox.call(&walk, (), "on_tick").unwrap();
+        assert_eq!(sum, 50 * 5000 * 5001 / 2);
+    }
+}

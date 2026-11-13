@@ -5,7 +5,9 @@
 //! are bound as the player set them (`controls::read_input`, as `voxcade
 //! run` reads them). It holds still while the main area shows a file or
 //! the window is elsewhere; a file saved comes in at once (hot reload),
-//! and a script's error halts it until mended (`trouble`). Its runs are
+//! and a script's error halts it until mended (`trouble`). A local of the
+//! game's that changes while it plays, state no snapshot keeps, is named
+//! in OUTPUT within a second (`lua::hidden::Watch`). Its runs are
 //! recorded as `voxcade run` records them (`replay::Runs`: kept in the
 //! config folder from 10 s on, F9 puts one in the game's `replays/`; a
 //! run with a file saved during it is not kept).
@@ -69,6 +71,11 @@ pub struct Play<G: Game> {
     mark: u64,
     /// What the play says of itself, for OUTPUT (`said`).
     notes: Vec<String>,
+    /// The hidden-state guard: the locals the game's functions keep,
+    /// looked at every second (`lua::hidden::Watch`), and what it said of
+    /// those that changed, for OUTPUT.
+    guard: crate::lua::hidden::Watch,
+    hidden: Vec<String>,
 }
 
 impl<G: Game> Play<G> {
@@ -90,7 +97,8 @@ impl<G: Game> Play<G> {
         runs.start(&game);
         let seating = crate::seating::Seating::new(game.cfg.players);
         let mark = game.start_mark();
-        let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), unloaded: Default::default(), accumulator: 0.0, last: None, scenario: scenario.map(str::to_string), seating, mark, notes: Vec::new() };
+        let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), unloaded: Default::default(), accumulator: 0.0, last: None, scenario: scenario.map(str::to_string), seating, mark, notes: Vec::new(), guard: Default::default(), hidden: Vec::new() };
+        play.guard.begin(play.game.game.hidden());
         play.music();
         Ok(play)
     }
@@ -108,6 +116,7 @@ impl<G: Game> Play<G> {
         self.runs.end(&self.game);
         self.game = fresh;
         self.mark = self.game.start_mark();
+        self.guard.begin(self.game.game.hidden());
         self.runs.start(&self.game);
         self.game.options = self.settings.options();
         self.mask = self.game.face_mask();
@@ -225,6 +234,10 @@ impl<G: Game> Play<G> {
         if took && !failed && self.begins_otherwise(device, queue) {
             return true;
         }
+        // Code taken in: its functions keep locals of their own.
+        if took {
+            self.guard.reloaded(self.game.game.hidden());
+        }
         if rebuild {
             self.game.options = self.settings.options();
             self.mask = self.game.face_mask();
@@ -255,9 +268,16 @@ impl<G: Game> Play<G> {
     /// itself, files that would not load, and what its script printed.
     pub fn said(&mut self) -> Vec<(super::output::Kind, String)> {
         let notes = self.notes.drain(..).map(|n| (super::output::Kind::Note, n));
-        let failed = self.failed.drain(..).map(|f| (super::output::Kind::Error, f));
+        let failed = self.failed.drain(..).chain(self.hidden.drain(..)).map(|f| (super::output::Kind::Error, f));
         let printed = self.game.printed().into_iter().map(|p| (super::output::Kind::Print, p));
         notes.chain(failed).chain(printed).collect()
+    }
+
+    /// A tick played: once a second the hidden-state guard looks at the
+    /// locals the game's functions keep and says which changed.
+    fn guard_tick(&mut self) {
+        let game = &self.game.game;
+        self.hidden.extend(self.guard.tick(|| game.hidden()));
     }
 
     /// A file of the game that would not load when it last changed (the
@@ -291,6 +311,7 @@ impl<G: Game> Play<G> {
         self.controls();
         for _ in 0..ticks {
             self.game.step(input);
+            self.guard_tick();
         }
     }
 
@@ -324,6 +345,7 @@ impl<G: Game> Play<G> {
         while self.accumulator >= DT && ticks < MAX_CATCH_UP {
             self.game.fades = true;
             self.game.step(input);
+            self.guard_tick();
             self.runs.step(&self.game);
             if !self.game.game.sim().sounds.is_empty()
                 && let Some(mut mixer) = self.speaker.as_mut().and_then(|s| s.lock())
@@ -616,6 +638,39 @@ mod tests {
         assert!(replay.ticks > 0 && replay.score as u64 == replay.ticks, "{} ticks, {} points", replay.ticks, replay.score);
         assert!(matches!(crate::replay::play_through::<crate::Voxcade>(&dir, &replay).unwrap(), crate::replay::Verdict::Same));
         play.end(&mut egui);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What OUTPUT shows as a mistake.
+    fn errors(play: &mut Play<crate::Voxcade>) -> Vec<String> {
+        play.said().into_iter().filter(|(k, _)| matches!(k, super::super::output::Kind::Error)).map(|(_, t)| t).collect()
+    }
+
+    /// A local of the game's that its `on_tick` changes is named in OUTPUT
+    /// within a second of play, once (`voxcade check` alone found it, and
+    /// only in a game with replays); a game that keeps its state in states
+    /// hears nothing, nor does one whose code is taken in while it plays.
+    #[test]
+    fn a_local_that_changes_while_playing_is_named() {
+        let canvas = crate::headless::Canvas::new(64, 64, false).unwrap();
+        let (device, queue, _) = canvas.gpu();
+        let hidden = "local count = 0\nlocal function more(n) return n + 1 end\nfunction on_tick()\n  count = more(count)\nend\n";
+        let (dir, mut play) = played("hidden", CONF, hidden, device, queue);
+        play.step(55, &crate::input::Input::default());
+        let said = errors(&mut play);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].starts_with("'count' changed while the game ran") && said[0].contains("world.state"), "{}", said[0]);
+        play.step(240, &crate::input::Input::default());
+        assert!(errors(&mut play).is_empty(), "said once");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let clean = "local function more(n) return n + 1 end\nfunction on_tick()\n  world.state.count = more(world.state.count or 0)\nend\n";
+        let (dir, mut play) = played("clean", CONF, clean, device, queue);
+        play.step(55, &crate::input::Input::default());
+        saved(&dir, "main.lua", &clean.replace("n + 1", "n + 2"), &mut play, device, queue);
+        play.step(180, &crate::input::Input::default());
+        assert!(errors(&mut play).is_empty(), "{:?}", errors(&mut play));
+        assert!(play.game.game.sim().tick > 200, "played on");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
