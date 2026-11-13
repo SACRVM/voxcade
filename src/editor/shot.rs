@@ -122,6 +122,13 @@ pub fn scatter_level<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     let (mut ed, _view, _cfg) = open::<G>(dir, opts.level.as_deref(), None, false)?;
     ed.dry = opts.dry;
     for &k in &opts.scatter {
+        // Only a rule that sets pieces: else a mistake naming the rules.
+        let rules: Vec<String> = ed.terrain().map(|t| t.scatter.iter().enumerate().map(|(i, r)| format!("{} ({}: {})", i + 1, r.makes().word(), r.models.join(", "))).collect()).unwrap_or_default();
+        let fits = ed.terrain().and_then(|t| t.scatter.get(k.wrapping_sub(1))).is_some_and(|r| r.makes() == crate::terrain::ScatterAs::Pieces);
+        if !fits {
+            let there = if rules.is_empty() { "the level has no scatter rules".to_string() } else { format!("its scatter rules are {}", rules.join("; ")) };
+            bail!("--scatter {k}: no scatter rule {k} that sets pieces: {there}");
+        }
         let before = ed.level.things.len();
         ed.scatter_pieces(k.saturating_sub(1));
         if let Some(h) = ed.hint.take() {
@@ -203,7 +210,7 @@ impl ShotOp {
 /// Tries a change among the pieces (`--shot`), as the panels would make it.
 fn try_op(ed: &mut Editor, figures: &Figures, op: &ShotOp) -> Result<()> {
     use model::{Field, Hanging, Item};
-    let find = |ed: &Editor, name: &str| ed.find(name).with_context(|| format!("the level has nothing called '{name}'"));
+    let find = |ed: &Editor, name: &str| ed.find_listed(name).with_context(|| format!("the level has nothing called '{name}'"));
     // What hangs on the mouse set down exactly at a spot.
     let set_at = |ed: &mut Editor, at: glam::IVec3| {
         match &mut ed.pieces.hanging {
@@ -595,7 +602,7 @@ fn in_context(dir: &Path, ed: &mut Editor, opts: &ShotOptions) -> Result<()> {
     if let Some((level, name)) = &opts.context {
         anyhow::ensure!(ed.model.is_some(), "--context shapes a model in place: --model FILE");
         let lv = crate::grid::GridLevel::read(&dir.join(level))?;
-        let piece = lv.things.iter().position(|t| t.name.as_deref() == Some(name)).with_context(|| format!("--context {level}:{name}: the level has no piece called so"))?;
+        let piece = model::room::listed(&lv.things, name).with_context(|| format!("--context {level}:{name}: the level has no piece called so"))?;
         ed.set_context(context::Seed { level: level.clone(), piece, hidden: Default::default() })?;
         if opts.context_off {
             ed.toggle_context();
@@ -621,11 +628,11 @@ fn try_pieces(dir: &Path, ed: &mut Editor, figures: &mut Figures, opts: &ShotOpt
         figures.follow(dir, ed);
     }
     if let Some(name) = &opts.choose {
-        let item = ed.find(name).with_context(|| format!("--choose {name}: the level has nothing called so"))?;
+        let item = ed.find_listed(name).with_context(|| format!("--choose {name}: the level has nothing called so"))?;
         ed.choose_item(Some(item));
     }
     for name in &opts.hide {
-        let item = ed.find(name).with_context(|| format!("--hide {name}: the level has nothing called so"))?;
+        let item = ed.find_listed(name).with_context(|| format!("--hide {name}: the level has nothing called so"))?;
         ed.set_hidden(item, true);
     }
     Ok(())
@@ -759,7 +766,7 @@ fn pointer_flags(ed: &mut Editor, view: &mut View, figures: &Figures, shown: &Sh
             let spot = view::floor_spot(&shown.world, origin, dir).context("--menu floor: no floor under the middle of the view")?;
             view.menu = Some(view::Menu { on: view::MenuOn::Floor(spot), at: [at.x, at.y] });
         } else {
-            let item = ed.find(name).with_context(|| format!("--menu {name}: the level has nothing called so"))?;
+            let item = ed.find_listed(name).with_context(|| format!("--menu {name}: the level has nothing called so"))?;
             // At the thing as it stands on the screen.
             let at = stage::handles_on_screen(ed, view, screen).map_or(at, |(_, _, b)| b.center());
             view::act(ed, view, view::Action::OpenMenu(item, [at.x, at.y]));
@@ -874,5 +881,26 @@ mod tests {
         }, |_| skipped += 1);
         assert_eq!(skipped, 119, "it never settled");
         assert!(!out.shapes.is_empty(), "the last frame is drawn");
+    }
+
+    /// An unnamed thing is found by what the list shows for it (`--choose
+    /// torch`, `torch#3` the third), a name before that.
+    #[test]
+    fn things_are_found_by_the_name_the_list_shows() {
+        let ed = Editor::open(Path::new("games/voxkeep"), "levels/01_hall.toml").unwrap();
+        let torches: Vec<usize> = ed.level.things.iter().enumerate().filter(|(_, t)| t.name.is_none() && t.kind == "torch").map(|(i, _)| i).collect();
+        assert!(torches.len() >= 3);
+        assert_eq!(ed.find_listed("torch"), Some(Item::Thing(torches[0])));
+        assert_eq!(ed.find_listed("torch#3"), Some(Item::Thing(torches[2])));
+        assert_eq!((ed.find("torch"), ed.find_listed("torch#99"), ed.find_listed("torch#0")), (None, None, None), "its own name only, no such one");
+    }
+
+    /// `--scatter N` without such a rule is a mistake naming the rules
+    /// there are (it said "0 pieces set down").
+    #[test]
+    fn scatter_without_such_a_rule_names_the_rules() {
+        let opts = ShotOptions { level: Some("levels/01_hall.toml".into()), scatter: vec![1], dry: true, ..Default::default() };
+        let e = scatter_level::<crate::Voxcade>(Path::new("games/voxkeep"), &opts).unwrap_err();
+        assert!(format!("{e:#}").contains("--scatter 1: no scatter rule 1 that sets pieces: the level has no scatter rules"), "{e:#}");
     }
 }

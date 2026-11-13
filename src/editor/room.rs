@@ -87,6 +87,29 @@ pub const HANDLE_SHARE: f32 = 0.14;
 
 /// The bearing a thing faces (degrees clockwise seen from above, north 0;
 /// south when the file says none).
+/// What the list shows for an unnamed thing: its model's file (its stem),
+/// a light, or its kind.
+pub fn what_it_is(t: &Thing) -> String {
+    match (&t.model, t.is_piece()) {
+        (Some(model), _) => std::path::Path::new(model).file_stem().map_or(model.clone(), |s| s.to_string_lossy().into_owned()),
+        (None, true) => "a light".into(),
+        (None, false) => t.kind.clone(),
+    }
+}
+
+/// The thing called `name`, or the unnamed one the list shows so (the
+/// first; `NAME#K` the K-th, from 1).
+pub fn listed(things: &[Thing], name: &str) -> Option<usize> {
+    if let Some(i) = things.iter().position(|t| t.name.as_deref() == Some(name)) {
+        return Some(i);
+    }
+    let (what, k) = match name.rsplit_once('#') {
+        Some((what, k)) => (what, k.parse::<usize>().ok()?.checked_sub(1)?),
+        None => (name, 0),
+    };
+    things.iter().enumerate().filter(|(_, t)| t.name.is_none() && what_it_is(t) == what).nth(k).map(|(i, _)| i)
+}
+
 pub fn bearing_of(t: &Thing) -> f64 {
     t.facing.map_or(180.0, Facing::bearing)
 }
@@ -263,13 +286,14 @@ impl Editor {
             return (name.to_string(), true);
         }
         let Item::Thing(i) = item else { return (String::new(), false) };
-        let t = &self.level.things[i];
-        let what = match (&t.model, t.is_piece()) {
-            (Some(model), _) => std::path::Path::new(model).file_stem().map_or(model.clone(), |s| s.to_string_lossy().into_owned()),
-            (None, true) => "a light".into(),
-            (None, false) => t.kind.clone(),
-        };
-        (what, false)
+        (what_it_is(&self.level.things[i]), false)
+    }
+
+    /// The item the list calls `name` (`find`'s, or an unnamed thing by
+    /// what the list shows for it: the first so, `NAME#K` the K-th), for
+    /// the command line's `--choose` and the like.
+    pub fn find_listed(&self, name: &str) -> Option<Item> {
+        self.find(name).or_else(|| listed(&self.level.things, name).map(Item::Thing))
     }
 
     /// Where an item stands (an area: its low corner), in voxels from the
@@ -282,7 +306,8 @@ impl Editor {
         }
     }
 
-    /// The item called `name`: a thing, else a place, else an area.
+    /// The item called `name` (its own name): a thing, else a place, else
+    /// an area.
     pub fn find(&self, name: &str) -> Option<Item> {
         let thing = self.level.things.iter().position(|t| t.name.as_deref() == Some(name)).map(Item::Thing);
         thing.or_else(|| self.level.places.iter().position(|p| p.name == name).map(Item::Place)).or_else(|| self.level.areas.iter().position(|a| a.name == name).map(Item::Area))

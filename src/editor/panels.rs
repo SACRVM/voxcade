@@ -444,6 +444,28 @@ mod tests {
         }
     }
 
+    /// A model's number keys keep their colors: a new color takes the next
+    /// number (the reviewer saw a new magenta become 2, the rest moved on).
+    #[test]
+    fn a_new_color_takes_the_next_number() {
+        let dir = crate::scratch::Scratch::new("color-numbers");
+        // (Its voxels in another order than its palette.)
+        let text = "format = \"voxcade voxel 1\"\nsize = [3, 1, 1]\n\n[palette]\na = \"#ff0000\"\nb = \"#00ff00\"\nc = \"#0000ff\"\n\n[[frame]]\nlayers = \"\"\"\nbac\n\"\"\"\n";
+        std::fs::write(dir.join("m.vvx"), text).unwrap();
+        let mut ed = Editor::open_model(&dir, "m.vvx").unwrap();
+        let mut view = View::new(&ed, &GameConfig::default());
+        let key = |ed: &Editor, view: &View, k: char| key_action(&shown(ed, view).keys, k);
+        let before: Vec<_> = ['1', '2', '3'].iter().map(|&k| key(&ed, &view, k)).collect();
+        assert_eq!(before, [Some(Action::Colour([255, 0, 0])), Some(Action::Colour([0, 255, 0])), Some(Action::Colour([0, 0, 255]))], "the file's order");
+        ed.colour = [255, 0, 255];
+        act(&mut ed, &mut view, Action::Tool(Tool::Paint));
+        ed.press(crate::editor::model::Hit { cell: IVec3::ZERO, normal: IVec3::Z });
+        ed.release();
+        let after: Vec<_> = ['1', '2', '3', '4'].iter().map(|&k| key(&ed, &view, k)).collect();
+        assert_eq!(&after[..3], &before[..], "the numbers stay");
+        assert_eq!(after[3], Some(Action::Colour([255, 0, 255])), "the new one the next");
+    }
+
     /// A model that does not read shows in ADD MODEL marked, with why on
     /// hover (`Thumbs::model`), not as an empty tile; one that reads has
     /// nothing to say, and a file mended says nothing more.

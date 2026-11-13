@@ -658,19 +658,29 @@ fn tools(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
 /// more: a right click takes it out); every colour, the held one's code;
 /// its material as one row.
 fn colours(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
-    let (own, all) = ed.colours();
+    let (mut own, all) = ed.colours();
+    // A model's colors keep their numbers: the file's palette order (a new
+    // color the next number; only taking one out renumbers), the frame's
+    // own in that order.
+    let numbered = if ed.model.is_some() {
+        own.sort_by_key(|c| all.iter().position(|a| a == c));
+        &all
+    } else {
+        &own
+    };
+    let digit_of = |c: [u8; 3]| numbered.iter().position(|&n| n == c).filter(|&i| i < 10).map(|i| char::from_digit((i as u32 + 1) % 10, 10).expect("a digit"));
+    for (i, &c) in numbered.iter().take(10).enumerate() {
+        shown.keys.push((char::from_digit((i as u32 + 1) % 10, 10).expect("a digit"), Action::Colour(c)));
+        if i == 0 {
+            shown.named.push(("1 … 0".into(), "COLOR".into()));
+        }
+    }
     row(ui, "COLOR", "The colors: a click holds one", |ui| {
     ui.vertical(|ui| {
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
-        for (i, &c) in own.iter().enumerate() {
-            let digit = (i < 10).then(|| char::from_digit((i as u32 + 1) % 10, 10).expect("a digit"));
-            if let Some(d) = digit {
-                shown.keys.push((d, Action::Colour(c)));
-                if i == 0 {
-                    shown.named.push(("1 … 0".into(), "COLOR".into()));
-                }
-            }
+        for &c in &own {
+            let digit = digit_of(c);
             let hex = format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
             let tip = digit.map_or(hex.clone(), |d| format!("{hex}  {d}"));
             let r = swatch(ui, c, 26.0, c == ed.colour, digit).on_hover_text(tip);
@@ -687,7 +697,7 @@ fn colours(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
             for c in others {
                 let hex = format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
                 let response = swatch(ui, c, 16.0, c == ed.colour, None);
-                let response = response.on_hover_text(hex);
+                let response = response.on_hover_text(digit_of(c).map_or(hex.clone(), |d| format!("{hex}  {d}")));
                 swatch_menu(&response, ed, c, shown);
                 if response.clicked() {
                     shown.clicked.push(Action::Colour(c));
