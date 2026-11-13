@@ -206,7 +206,7 @@ run can be made from the command line:
 voxcade shot games/voxkeep --frames 120 --input "right:60;right+jump:20" --out shots/x.png
 voxcade inspect games/sokovox --frames 300 --input "up:20;left:40"     # the states as JSON
 voxcade check games/bunnyfarm                                          # every replay as recorded?
-voxcade film games/moreblood games/moreblood/replays/demo.toml --out shots/demo.mp4
+voxcade film games/voxkeep games/voxkeep/replays/demo.toml --out shots/demo.mp4
 voxcade sheet games/bunnyfarm bunny.vvx                                # a model as the game shows it
 ```
 

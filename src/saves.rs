@@ -1,5 +1,5 @@
 //! Save games' slots (`docs/game-model.md`, "Save games"): in the player's
-//! config folder (`saves/<game>/N.toml`, never in the game folder, like the
+//! config folder (`saves/<key>/N.toml`, never in the game folder, like the
 //! settings and the high scores), or kept for one run only (`shot`, `check`,
 //! `inspect`, a replay played back), so tools never write the player's
 //! slots. A save is the game's own text (`Game::save`); the engine reads
@@ -37,9 +37,10 @@ pub struct Slots {
     broken: Vec<u32>,
 }
 
-/// Where a game's saves lie: `voxcade/saves/<game>/` beside its settings.
+/// Where a game's saves lie: `voxcade/saves/<key>/` beside its settings
+/// (`settings::Identity`).
 pub fn dir_for(game_dir: &Path) -> PathBuf {
-    crate::settings::config_dir().join("saves").join(crate::settings::game_name(game_dir))
+    crate::settings::kept_for(game_dir, crate::settings::Kept::Saves)
 }
 
 impl Slots {

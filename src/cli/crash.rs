@@ -1,10 +1,12 @@
-//! A crash said, not silent: the panic hook of every command. What went
+//! A crash said, not silent: the panic hook of every command that opens a
+//! window (`Call::opens_a_window`: a double click, the launcher, the IDE,
+//! an editor, a game; `cli::main` installs it for those alone). What went
 //! wrong (the message, where, a backtrace) is written to a report in the
-//! config folder (`crashes/`, the newest `KEPT`), and on the terminal as
-//! before; a program that opened a window (`Call::opens_a_window`: a
-//! double click, the launcher, the IDE, an editor, a game) also says in a
-//! window where the report lies, in plain words. A command without a
-//! window never shows one (a script or an agent would hang on it).
+//! config folder (`crashes/`, the newest `KEPT`), on the terminal as
+//! before, and said in a window with where the report lies, in plain
+//! words. A command without a window (`shot`, `check`, `inspect` …) has
+//! Rust's own hook: the panic and its backtrace on the terminal, no
+//! report, never a window (a script or an agent would hang on it).
 
 use std::path::{Path, PathBuf};
 

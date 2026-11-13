@@ -212,7 +212,7 @@ nearest; its replay `tests/two_ships`);
   game_frame, errors, play, stop, eval: a line of Lua in the game played
   there) passed on to the IDE running on the game
   (`ide/bridge.rs`: 127.0.0.1, a port and a token in
-  `config_dir()/ide/<game>.lock`, the user's alone). The IDE's MCP button
+  `config_dir()/ide/<folder>.lock`, the user's alone). The IDE's MCP button
   writes the game folder's `.mcp.json` when the user presses it; else the
   user adds it to Claude Code themselves (`claude mcp add voxcade --
   /path/to/voxcade mcp`), never edit their config.
@@ -293,7 +293,7 @@ nearest; its replay `tests/two_ships`);
   heading that folds (arrow on the right, one level only), the whole row
   clicked; in the main area the one file open (no tabs). What was open
   and how far scrolled, the cursor in each text, live in the config
-  folder (`ide/<game>.toml`).
+  folder (`ide/<key>.toml`, `settings::Identity`).
   Below the main area the console: the user's shell in the game folder
   (`ide/terminal.rs` over `alacritty_terminal`, `ide/console.rs` the
   panel), CLAUDE looks for Claude Code's program first (`claude::Finder`; missing:
@@ -370,7 +370,8 @@ nearest; its replay `tests/two_ships`);
   sideways; the text's and the numbers' layouts kept while they show the
   same, `code::Laid`: a still frame of 3,000 lines 0.6 ms, was 3.1),
   saved a second after the last
-  change (`ide/buffer.rs`, a journal in the config folder against
+  change (`ide/buffer.rs`, a journal in the config folder, `ide/<folder>.journal/`,
+  naming the file's whole path and offered on no other, against
   crashes; a change on disk comes in, or the IDE asks whose to keep).
   PLAY plays the game in the main area (`ide/play.rs`, no title or
   menus; its keys on a line under it, `play::keys_of`, the keyboard's
@@ -435,7 +436,7 @@ nearest; its replay `tests/two_ships`);
   tokens, by where a quoted name stands) ticked one by one in a modal
   (certain ones ticked, MAYBE ones unticked; RENAME, ONLY THE FILE,
   CANCEL) and changed only for the ticked; USED lists MAYBE apart; DELETE asks nothing, the system's trash (`trash`
-  crate, else `config_dir()/ide/deleted/<game>/`) and UNDO in the bar for 20
+  crate, else `config_dir()/ide/deleted/<key>/`) and UNDO in the bar for 20
   s (`manage::UNDO_FOR`) from the bytes kept in memory (up to 8 MB). Ctrl+F
   (or FIND beside SAVED) shows the find row above the open text
   (`ide/find.rs`; the owner's D9): FIND, MATCH CASE, "3 OF 12",
@@ -471,7 +472,7 @@ nearest; its replay `tests/two_ships`);
   file open in the main area stays open. The
   console is folded to its bar for a game opened the first time, the
   shell started only on the first unfolding; folded and height are kept in
-  `ide/<game>.toml`, `CONSOLE •` says news while folded; an agent that
+  `ide/<key>.toml`, `CONSOLE •` says news while folded; an agent that
   starts with the IDE has it open.
   OPEN beside the game's name (games opened last, another folder) and
   NEW (from a template into the projects folder, `~/Voxcade` or the
@@ -536,10 +537,16 @@ nearest; its replay `tests/two_ships`);
   the level, map and model examples of `docs/tiles.md` with the engine's
   own readers; `a_picture_drawn_twice_is_the_same_to_the_byte` (in
   `tests/pictures.rs`) draws each picture twice. `tests/docs_names.rs`
-  checks that the `src/` paths and test names the docs cite exist.
+  checks that the `src/` paths and test names the docs cite exist, and
+  that every `voxcade …` example in README.md, CONTRIBUTING.md and
+  `dist/*.txt` parses with the real parser (`cli::takes`) and names
+  files and scenarios of the repo that are there
+  (`the_command_examples_in_the_docs_run`).
 - Builds for other machines: GitHub
   Actions `Builds` (`.github/workflows/builds.yml`), started by hand
-  (`gh workflow run builds.yml`) or by a `v*` tag, never on every push
+  (`gh workflow run builds.yml`) or by a `v*` tag, never on every push,
+  on the Rust `.github/rust-toolchain` names, as Tests and Audit (one
+  line to raise; `the_workflows_build_with_one_rust`)
   (macOS minutes count ten times on the private repo; the internet step
   is `continue-on-error`, a warning in the run's summary, and no longer
   holds the packages back): Linux and Windows
@@ -581,7 +588,10 @@ nearest; its replay `tests/two_ships`);
   `--shot` print to stderr, `edit --dry` alone is refused, and a command
   refuses trailing words it ignored before; an option with one value
   given twice is refused (`table::REPEATABLE` names those that may come
-  again: `--do`, the editor's steps). A crash of a command that opened a
+  again: `--do`, the editor's steps); a number option given a word says
+  which option wants what and what it got (`parse::number`, test
+  `every_number_option_says_what_it_wants`); `inspect --record` without
+  `--host`/`--join` is refused (`shot --record` records). A crash of a command that opened a
   window is no silent close (`cli/crash.rs`, its panic hook): the
   message, where and a backtrace go to `config_dir()/crashes/` (the newest
   10), and the main thread's crash says in a message window where the
@@ -1121,9 +1131,27 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   pad's. Pausing (Escape, P, Start) gives way to a game's actions: a key
   one of them has, by default or saved before, pauses no more
   (`Bindings::pause_gives_way`, test `pausing_gives_way_to_the_game`). Player settings, the high score table and save games
-  (`src/saves.rs`, `saves/<game>/N.toml`; `shot`, `check`, `inspect` and
+  (`src/saves.rs`, `saves/<key>/N.toml`; `shot`, `check`, `inspect` and
   replays keep theirs for the run only) live in the user's config folder
-  (`src/settings.rs`), never in the game folder.
+  (`src/settings.rs`; `$XDG_CONFIG_HOME` or `~/.config`, macOS too for
+  now; on Windows `%APPDATA%`, an older Voxcade's folder under `HOME`
+  kept in use while `%APPDATA%` has none), never in the game folder.
+  Everything kept of a game there goes by its key (`settings::Identity`,
+  `Kept`; review round 4: a copy of Voxkeep shared Voxkeep's saves and the
+  IDE's journals): a game that comes with Voxcade (its folder in the
+  `games` of a package or of Voxcade's source, `GAMES_OF_VOXCADE`) keeps
+  its bare folder name, so its scores survive an update and a package
+  unpacked elsewhere; any other game is its folder's name and 8 signs of
+  the BLAKE3 of its canonical path (`test-1a2b3c4d`). The journals and
+  the MCP lock are always the folder's own. Adoption (`settings::settle`,
+  before the window plays a game, the IDE opens one, `voxcade replays`):
+  a game not yet in `folders/index.toml` takes what an older Voxcade kept
+  under its bare name (settings, saves, kept runs, the IDE's memory,
+  OUTPUT, deleted files), moved, unless a game that comes with Voxcade
+  has that name; then it is in the index and adopts nothing again. A
+  folder moved or renamed starts clean, its old things stay under the
+  old key. Network play still names a game by its folder
+  (`network::app_of`). Test `a_game_adopts_what_its_bare_name_kept_once`.
   The table is the arcade machines' (the user's wish): the ten best runs
   with three letters, lines to beat before anyone played
   (`c.high_scores`); a run that beats one after its end or QUIT TO TITLE
@@ -1161,7 +1189,9 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   --help` lists them). Check menus with
   `shot --screen title|continue|settings|audio|video|controls|players|player-controls|network|find|join|joining|intro|pause|host-pause|guest-pause|save|load|attract`
   (a game with a save offers CONTINUE first on the title: the newest
-  save, `Slots::newest`). More Blood's title:
+  save, `Slots::newest`; `continue`, `save` and `load` are refused for
+  a game without slots, which has none of them,
+  `a_game_without_slots_has_no_save_screen`). More Blood's title:
   giant dog tags lying in a clearing at the start (generated, the user's
   wish), stamped with the hero's name: Nick Pain (the user's choice), metal (MagicaVoxel metal material: sky reflection, highlight,
   `metal_sweep`). Big letters use `c.ui.display_font`, a glyph atlas from a

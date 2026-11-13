@@ -213,9 +213,8 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
     // What the shell remembers goes in a folder that is gone with the shot.
     let scratch = crate::scratch::Scratch::new("ide-shot");
     if let (Some(text), Some(path)) = (&opts.journal, &opts.open) {
-        let journals = scratch.join("memory.journal");
-        std::fs::create_dir_all(&journals)?;
-        std::fs::copy(text, journals.join(path.replace(['/', '\\'], "%"))).with_context(|| format!("--journal {}", text.display()))?;
+        let left = std::fs::read_to_string(text).with_context(|| format!("--journal {}", text.display()))?;
+        buffer::leave(dir, path, &scratch.join("memory.journal"), &left)?;
     }
     let mut shell = Shell::new(dir, cfg, scratch.join("memory.toml"), console).with_sounds(brought);
     shell.animate = false;
@@ -715,6 +714,9 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
     use sdl3::event::{Event, WindowEvent};
 
     let cfg = crate::session::config::<G>(dir)?;
+    // Who the game is in the config folder, before its memory, journals
+    // and lock are read or made there (`settings::settle`).
+    crate::settings::settle(dir);
     let title = cfg.title.clone();
     let Window { sdl, video, screen, ctx, painter, input, woken, wake, pads, events, cursor, picked, note } = window;
     let _ = screen.window.set_title(&format!("{title} - Voxcade"));
@@ -725,7 +727,7 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
     let bridge = bridge::Bridge::open(&bridge::lock_path(dir), dir, wake.clone()).map_err(|e| eprintln!("no MCP bridge: {e:#}")).ok();
     let console = Console::new(dir.to_path_buf(), Start::Shell, wake.clone());
     let brought = G::sounds(&cfg);
-    let mut shell = Shell::new(dir, cfg, memory::Memory::path_for(dir), console).with_sounds(brought).with_prefs(prefs::Prefs::path()).with_output(output::Output::path_for(dir));
+    let mut shell = Shell::new(dir, cfg, memory::Memory::path_for(dir), console).with_journals(memory::Memory::journals_for(dir)).with_sounds(brought).with_prefs(prefs::Prefs::path()).with_output(output::Output::path_for(dir));
     if let Some(said) = note.take() {
         shell.note(said);
     }

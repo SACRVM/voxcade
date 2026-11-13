@@ -103,6 +103,8 @@ pub struct Shell {
     /// was: not said to be gone).
     opened_there: bool,
     deleted_dir: PathBuf,
+    /// Where the open texts' journals are kept (`Memory::journals_for`).
+    journals: PathBuf,
     /// Where UNDO was drawn (for the tests' mouse).
     #[cfg(test)]
     undo_button: Option<egui::Rect>,
@@ -299,13 +301,23 @@ impl Shell {
             memory.open = files.logic.iter().find(|f| *f == "main.lua").or(files.logic.first()).cloned();
         }
         let restore = memory.open.as_ref().and_then(|f| memory.scroll.get(f).copied());
-        Self { title, dir: dir.to_path_buf(), files, listing, list_at: std::time::Instant::now() + LIST_EVERY, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, renaming: None, asking: None, gone: None, previous: None, opened_there: true, #[cfg(test)] undo_button: None, deleted_dir: crate::settings::config_dir().join("ide").join("deleted").join(crate::settings::game_name(dir)), #[cfg(test)] headings: Vec::new(), cfg, own_background: cfg!(not(test)), preview: None, model_text: false, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, building: None, start_failed: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, console_seen: None, console_dragged: false, reported: None, output_saved: std::time::Instant::now(), brought: Vec::new(), builtin: None, sound_line: None, used: None, heard: None, rolls: 0, looping: false, again_at: None, fading: None, #[cfg(test)] finder: super::claude::Finder::in_dirs(Vec::new()), #[cfg(not(test))] finder: super::claude::Finder::system(), no_agent: false, #[cfg(test)] used_rows: Vec::new(), find: Default::default(), search: Default::default() }
+        // Beside the memory unless told (`with_journals`): a shot's and a test's own.
+        let journals = memory_path.with_extension("journal");
+        Self { title, dir: dir.to_path_buf(), files, listing, list_at: std::time::Instant::now() + LIST_EVERY, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, renaming: None, asking: None, gone: None, previous: None, opened_there: true, #[cfg(test)] undo_button: None, deleted_dir: crate::settings::kept_for(dir, crate::settings::Kept::IdeDeleted), journals, #[cfg(test)] headings: Vec::new(), cfg, own_background: cfg!(not(test)), preview: None, model_text: false, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, building: None, start_failed: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, console_seen: None, console_dragged: false, reported: None, output_saved: std::time::Instant::now(), brought: Vec::new(), builtin: None, sound_line: None, used: None, heard: None, rolls: 0, looping: false, again_at: None, fading: None, #[cfg(test)] finder: super::claude::Finder::in_dirs(Vec::new()), #[cfg(not(test))] finder: super::claude::Finder::system(), no_agent: false, #[cfg(test)] used_rows: Vec::new(), find: Default::default(), search: Default::default() }
     }
 
     /// The sounds the game's code brings (`Game::sounds`), listed under
     /// SOUNDS for the ones the game has no file for.
     pub fn with_sounds(mut self, brought: Vec<(&'static str, SoundDef)>) -> Self {
         self.brought = brought;
+        self
+    }
+
+    /// The open texts' journals kept in `dir` (`Memory::journals_for`: this
+    /// folder's alone, where the memory may be shared by a game of the same
+    /// name that comes with Voxcade).
+    pub fn with_journals(mut self, dir: PathBuf) -> Self {
+        self.journals = dir;
         self
     }
 

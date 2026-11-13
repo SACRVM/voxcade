@@ -326,11 +326,7 @@ impl Shell {
         }
         self.rescan();
         // The journal of a text not saved when the IDE last stopped.
-        let journals = self.journals();
-        let (old_journal, new_journal) = (journals.join(from.replace(['/', '\\'], "%")), journals.join(to.replace(['/', '\\'], "%")));
-        if old_journal.exists() && std::fs::rename(&old_journal, &new_journal).is_err() {
-            let _ = std::fs::remove_file(&old_journal);
-        }
+        super::super::buffer::rename_journal(&self.dir, from, to, &self.journals());
         if let Some(v) = self.memory.scroll.remove(from) {
             self.memory.scroll.insert(to.to_string(), v);
         }
@@ -364,7 +360,7 @@ impl Shell {
 
     /// Where the journals of the texts being changed are kept.
     pub(super) fn journals(&self) -> PathBuf {
-        self.memory_path.with_extension("journal")
+        self.journals.clone()
     }
 
     /// DELETE: the file goes to the system's trash (else into the IDE's own

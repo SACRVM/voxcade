@@ -56,7 +56,7 @@ pub struct Output {
 impl Output {
     /// Where the game in `game_dir` keeps its lines.
     pub fn path_for(game_dir: &Path) -> PathBuf {
-        crate::settings::config_dir().join("ide").join("output").join(format!("{}.toml", crate::settings::game_name(game_dir)))
+        crate::settings::kept_for(game_dir, crate::settings::Kept::IdeOutput)
     }
 
     /// The lines kept at `path`, the game opened again under them (None:

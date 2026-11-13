@@ -13,7 +13,10 @@
 //! asked about again when it opens. The journal names the file's text it
 //! was changed from (`JOURNAL`, a BLAKE3): its text comes back by itself
 //! only onto that same text; onto a file changed since, whose to keep is
-//! asked.
+//! asked. It names the file's whole path too, and is never offered on
+//! another (two games of one name once shared their journals, and KEEP
+//! MINE would have written one's text over the other's); a journal of an
+//! older IDE, which names no file, is never offered.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
@@ -26,35 +29,72 @@ use super::code::Code;
 pub const SAVE_AFTER: Duration = Duration::from_secs(1);
 
 /// A journal's first line: its format, then `base` and the BLAKE3 of the
-/// file's text the journal's text was changed from. The text follows on
-/// the next line. (A journal without it, from an older IDE, has no base:
-/// whose to keep is asked.)
-const JOURNAL: &str = "voxcade journal 1 base ";
+/// file's text the journal's text was changed from, then `file` and the
+/// file's whole path (to the line's end). The text follows on the next
+/// line.
+const JOURNAL: &str = "voxcade journal 2 base ";
+const FILE: &str = " file ";
 
-/// The journal of `text`, changed from the file's text of the hash `base`.
-fn journal(base: &str, text: &str) -> String {
-    format!("{JOURNAL}{base}\n{text}")
+/// The journal of `text`, changed from the file's text of the hash `base`,
+/// for the file at `file` (its whole path).
+fn journal(base: &str, file: &Path, text: &str) -> String {
+    format!("{JOURNAL}{base}{FILE}{}\n{text}", file.to_string_lossy())
 }
 
 /// A journal's base when the text it was changed from is not known (it
 /// matches no file).
 const UNKNOWN: &str = "unknown";
 
-/// A journal read: the hash of the text it was changed from (none said),
-/// and its text.
-fn read_journal(written: String) -> (Option<String>, String) {
-    match written.strip_prefix(JOURNAL).and_then(|rest| rest.split_once('\n')) {
-        Some((base, text)) => (Some(base.to_string()), text.to_string()),
-        None => (None, written),
-    }
+/// A journal read, if it is one of this IDE's for the file at `file` (its
+/// whole path): the hash of the text it was changed from, and its text.
+fn read_journal(written: &str, file: &Path) -> Option<(String, String)> {
+    let (head, text) = written.strip_prefix(JOURNAL)?.split_once('\n')?;
+    let (base, named) = head.split_once(FILE)?;
+    (named == file.to_string_lossy()).then(|| (base.to_string(), text.to_string()))
+}
+
+/// The file `path` of the game folder `dir` by its whole path, as a
+/// journal names it.
+fn whole(dir: &Path, path: &str) -> PathBuf {
+    let file = dir.join(path);
+    file.canonicalize().or_else(|_| std::path::absolute(&file)).unwrap_or(file)
+}
+
+/// Where the journal of the file `path` lies in `journals`.
+fn journal_path(journals: &Path, path: &str) -> PathBuf {
+    journals.join(path.replace(['/', '\\'], "%"))
 }
 
 /// Whether the journal in `journals` of the file `path` of the game folder
 /// `dir` holds a text the file does not (one not saved yet, or kept while
 /// its file changed outside too).
 pub fn holds_unsaved(dir: &Path, path: &str, journals: &Path) -> bool {
-    let Ok(written) = std::fs::read_to_string(journals.join(path.replace(['/', '\\'], "%"))) else { return false };
-    std::fs::read_to_string(dir.join(path)).ok() != Some(read_journal(written).1)
+    let Ok(written) = std::fs::read_to_string(journal_path(journals, path)) else { return false };
+    let Some((_, text)) = read_journal(&written, &whole(dir, path)) else { return false };
+    std::fs::read_to_string(dir.join(path)).ok() != Some(text)
+}
+
+/// Leaves `text` in the journal of the file `path` of the game folder
+/// `dir`, changed from a text not known (`ide --shot --journal`): opened,
+/// whose to keep is asked.
+pub fn leave(dir: &Path, path: &str, journals: &Path, text: &str) -> Result<()> {
+    std::fs::create_dir_all(journals).with_context(|| format!("making {}", journals.display()))?;
+    crate::blocks::save_at_once(&journal_path(journals, path), journal(UNKNOWN, &whole(dir, path), text).as_bytes())
+}
+
+/// The journal of the file `from`, renamed `to` in the game folder `dir`
+/// (the file already moved), goes with it, naming the new path; one that
+/// was not the file's stays where it is.
+pub fn rename_journal(dir: &Path, from: &str, to: &str, journals: &Path) {
+    let old = journal_path(journals, from);
+    let Ok(written) = std::fs::read_to_string(&old) else { return };
+    let mut was = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    was.push(from);
+    if let Some((base, text)) = read_journal(&written, &was)
+        && crate::blocks::save_at_once(&journal_path(journals, to), journal(&base, &whole(dir, to), &text).as_bytes()).is_ok()
+    {
+        let _ = std::fs::remove_file(&old);
+    }
 }
 
 fn hash(text: &str) -> String {
@@ -63,6 +103,8 @@ fn hash(text: &str) -> String {
 
 pub struct Buffer {
     file: PathBuf,
+    /// The file's whole path, as its journal names it.
+    whole: PathBuf,
     journal: PathBuf,
     pub code: Code,
     /// What the file on disk holds, as last read or written.
@@ -95,12 +137,12 @@ impl Buffer {
     pub fn open(dir: &Path, path: &str, journals: &Path) -> Result<Self> {
         let file = dir.join(path);
         let on_disk = std::fs::read_to_string(&file).with_context(|| format!("reading {}", file.display()))?;
-        let journal = journals.join(path.replace(['/', '\\'], "%"));
-        let kept = std::fs::read_to_string(&journal).ok().map(read_journal).filter(|(_, text)| *text != on_disk);
+        let whole = whole(dir, path);
+        let journal = journal_path(journals, path);
+        let kept = std::fs::read_to_string(&journal).ok().and_then(|written| read_journal(&written, &whole)).filter(|(_, text)| *text != on_disk);
         let restored = kept.is_some();
         let (text, theirs, asked_from) = match kept {
             Some((base, text)) => {
-                let base = base.unwrap_or_else(|| UNKNOWN.into());
                 let same = base == hash(&on_disk);
                 (text, (!same).then(|| on_disk.clone()), base)
             }
@@ -108,7 +150,7 @@ impl Buffer {
         };
         let stamp = modified(&file);
         let changed = restored.then(Instant::now);
-        Ok(Self { file, journal, code: Code::new(path, text), on_disk, stamp, changed, theirs, asked_from, restored, gone: false })
+        Ok(Self { file, whole, journal, code: Code::new(path, text), on_disk, stamp, changed, theirs, asked_from, restored, gone: false })
     }
 
     /// Whether the text has changes not yet saved.
@@ -130,7 +172,7 @@ impl Buffer {
             let _ = std::fs::create_dir_all(folder);
         }
         let base = if self.theirs.is_some() { self.asked_from.clone() } else { hash(&self.on_disk) };
-        let _ = crate::blocks::save_at_once(&self.journal, journal(&base, &self.code.text).as_bytes());
+        let _ = crate::blocks::save_at_once(&self.journal, journal(&base, &self.whole, &self.code.text).as_bytes());
     }
 
     /// The file changed outside to `text` while this one has changes of its
@@ -431,10 +473,51 @@ mod tests {
         assert!(b.tick(Instant::now() + SAVE_AFTER).unwrap());
         assert_eq!(read(&file), "-- mine, more\n");
         drop(b);
-        // An older IDE's journal: only the text.
-        std::fs::write(journals.join("main.lua"), "-- from an older IDE\n").unwrap();
+        // A journal left unasked (`ide --shot --journal`): asked about.
+        leave(&game, "main.lua", &journals, "-- left\n").unwrap();
         let b = Buffer::open(&game, "main.lua", &journals).unwrap();
-        assert_eq!((b.code.text.as_str(), b.theirs.as_deref()), ("-- from an older IDE\n", Some("-- mine, more\n")));
+        assert_eq!((b.code.text.as_str(), b.theirs.as_deref()), ("-- left\n", Some("-- mine, more\n")));
+    }
+
+    /// A journal names its file's whole path and is offered on that file
+    /// alone: two games of one folder name that shared their journals (an
+    /// older IDE's, by the name) never get each other's text, and KEEP
+    /// MINE can never write one's over the other's. An older IDE's
+    /// journal names no file: never offered. RENAME takes the journal
+    /// along, naming the new path.
+    #[test]
+    fn a_journal_is_never_offered_on_another_path() {
+        let (game, journals, dir) = folder("two-paths");
+        let other = dir.join("elsewhere").join("game");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("main.lua"), "function on_tick() end\n").unwrap();
+        let mut b = Buffer::open(&game, "main.lua", &journals).unwrap();
+        b.code.text = "-- this game's\n".into();
+        b.edited(Instant::now());
+        drop(b);
+        assert!(read(&journals.join("main.lua")).starts_with(&format!("voxcade journal 2 base {} file {}\n", hash("function on_tick() end\n"), game.canonicalize().unwrap().join("main.lua").display())));
+        // The other folder's main.lua, its journals in the same place.
+        let theirs = Buffer::open(&other, "main.lua", &journals).unwrap();
+        assert!(!theirs.restored && theirs.theirs.is_none() && theirs.code.text == "function on_tick() end\n", "another path's journal offered");
+        assert!(!holds_unsaved(&other, "main.lua", &journals) && holds_unsaved(&game, "main.lua", &journals));
+        drop(theirs);
+        let mine = Buffer::open(&game, "main.lua", &journals).unwrap();
+        assert!(mine.restored && mine.code.text == "-- this game's\n", "its own path's journal");
+        drop(mine);
+        // Renamed: the journal goes along and names the new path.
+        std::fs::rename(game.join("main.lua"), game.join("start.lua")).unwrap();
+        rename_journal(&game, "main.lua", "start.lua", &journals);
+        assert!(!journals.join("main.lua").exists());
+        let moved = Buffer::open(&game, "start.lua", &journals).unwrap();
+        assert!(moved.restored && moved.code.text == "-- this game's\n" && moved.theirs.is_none());
+        drop(moved);
+        // Older IDEs' journals: by the name only, never offered.
+        for old in ["-- from an older IDE\n".to_string(), format!("voxcade journal 1 base {}\n-- version 1\n", hash("function on_tick() end\n"))] {
+            std::fs::write(journals.join("main.lua"), &old).unwrap();
+            let b = Buffer::open(&other, "main.lua", &journals).unwrap();
+            assert!(!b.restored && b.theirs.is_none() && b.code.text == "function on_tick() end\n", "{old}");
+            assert!(!holds_unsaved(&other, "main.lua", &journals));
+        }
     }
 
     /// A save looks at the disk first: a change there that the last look
