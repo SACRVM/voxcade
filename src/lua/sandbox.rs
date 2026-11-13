@@ -344,23 +344,189 @@ fn require(lua: &Lua, files: &Rc<RefCell<Reading>>, name: &str) -> mlua::Result<
     Ok(given)
 }
 
-/// A script's error as one readable message: where (file:line) and what,
-/// without mlua's wrapping.
+/// A script's error as one readable message: where (file:line) first, as
+/// Lua's own errors have it, then what, in the script's words (`level:spawn:
+/// x should be a number, not nil`), without mlua's wrapping or the engine's
+/// Rust names; the traceback after it.
 pub fn script_error(e: mlua::Error) -> anyhow::Error {
-    let text = match &e {
-        mlua::Error::CallbackError { cause, traceback } => format!("{}\n{traceback}", cause_text(cause)),
-        other => cause_text(other),
+    anyhow::anyhow!(error_text(&e))
+}
+
+/// `script_error`'s text.
+pub fn error_text(e: &mlua::Error) -> String {
+    // The innermost call into the engine that failed: its cause, and the
+    // script's stack when it did.
+    let (mut cause, mut traceback) = (e, None);
+    while let mlua::Error::CallbackError { cause: inner, traceback: t } = cause {
+        (cause, traceback) = (&**inner, Some(t.as_str()));
+    }
+    let what = cause_text(cause);
+    let text = match traceback {
+        Some(t) => {
+            let at = if has_position(&what) { String::new() } else { position_in(t).unwrap_or_default() };
+            format!("{at}{what}\n{t}")
+        }
+        None => what,
     };
-    anyhow::anyhow!(text.trim_end().to_string())
+    text.trim_end().to_string()
 }
 
 fn cause_text(e: &mlua::Error) -> String {
     match e {
-        mlua::Error::CallbackError { cause, .. } => cause_text(cause),
+        mlua::Error::CallbackError { cause, .. } | mlua::Error::WithContext { cause, .. } => cause_text(cause),
         mlua::Error::RuntimeError(text) | mlua::Error::MemoryError(text) => text.clone(),
         mlua::Error::SyntaxError { message, .. } => message.clone(),
+        mlua::Error::BadArgument { to, pos, name, cause } => argument_text(to.as_deref(), *pos, name.as_deref(), cause),
+        mlua::Error::FromLuaConversionError { from, to, .. } => format!("{} wanted, not {}", rust_wants(to), lua_kind(from)),
         other => other.to_string(),
     }
+}
+
+/// Whether a message begins with where it happened (`main.lua:12: ...`,
+/// `console:1: ...`).
+fn has_position(text: &str) -> bool {
+    let Some((file, rest)) = text.split_once(':') else { return false };
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    !file.is_empty() && !file.contains(char::is_whitespace) && digits > 0 && rest[digits..].starts_with(':')
+}
+
+/// The script's place a traceback names first (`main.lua:12: `): not the
+/// engine's own frames (`[C]`, the prelude).
+fn position_in(traceback: &str) -> Option<String> {
+    traceback.lines().filter_map(|l| l.strip_prefix('\t')).filter(|l| !l.starts_with('[') && !l.starts_with("prelude:") && !l.starts_with('(')).find(|l| has_position(l)).map(|l| {
+        let (file, rest) = l.split_once(':').expect("has a position");
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        format!("{file}:{digits}: ")
+    })
+}
+
+/// The script's name of an engine's object (mlua names the Rust type).
+fn script_owner(rust: &str) -> Option<&'static str> {
+    Some(match rust {
+        "WorldView" => "world",
+        "LevelView" => "level",
+        "CameraView" => "level.camera",
+        "ThingRef" => "thing",
+        "AreaView" => "area",
+        "InputView" => "input",
+        "ScreenView" => "screen",
+        "Frame" => "frame",
+        "ControlsView" => "controls",
+        "MusicView" => "music",
+        _ => return None,
+    })
+}
+
+/// A Lua value's kind as a message says it was given.
+fn lua_kind(from: &str) -> String {
+    match from {
+        "nil" => "nil".into(),
+        "boolean" => "true or false".into(),
+        "userdata" => "an object of the engine's (a thing, level ...)".into(),
+        "integer" | "number" => "a number".into(),
+        "table" => "a table".into(),
+        "string" => "a string".into(),
+        other => format!("a {other}"),
+    }
+}
+
+/// What a Rust type mlua converts into wants, in a script's words.
+fn rust_wants(to: &str) -> &'static str {
+    match to {
+        "f32" | "f64" => "a number",
+        "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "usize" | "isize" => "a whole number",
+        "String" | "BString" | "LuaString" | "string" => "a string",
+        "bool" => "true or false",
+        "table" | "Table" => "a table",
+        "function" | "Function" => "a function",
+        _ => "something else",
+    }
+}
+
+/// What a type of the register wants, in a script's words.
+fn register_wants(ty: &str) -> String {
+    let one = |t: &str| -> String {
+        match t.trim() {
+            "number" => "a number".into(),
+            "integer" => "a whole number".into(),
+            "string" => "a string".into(),
+            "boolean" => "true or false".into(),
+            "table" => "a table".into(),
+            "nil" => "nil".into(),
+            "Way" => "a way { x =, y = }".into(),
+            "Point" => "a point { x =, y =, z = }".into(),
+            "Color" => "a color { r, g, b }".into(),
+            "Thing" | "Player" => "a thing".into(),
+            other if other.ends_with("[]") => "a list".into(),
+            other => format!("a {}", other.to_lowercase()),
+        }
+    };
+    let all: Vec<String> = ty.split('|').map(one).collect();
+    all.join(" or ")
+}
+
+/// A bad argument to one of the engine's functions, said as the script
+/// calls it: a method called with a dot, or which parameter wanted what.
+fn argument_text(to: Option<&str>, pos: usize, name: Option<&str>, cause: &mlua::Error) -> String {
+    let given = match cause {
+        mlua::Error::FromLuaConversionError { from, to, .. } => Some((*from, to.as_str())),
+        _ => None,
+    };
+    let method = to.and_then(|to| to.split_once('.')).and_then(|(owner, m)| Some((script_owner(owner)?, m)));
+    let Some((of, m)) = method else {
+        // A function of the libraries (math.random) or one the register
+        // does not name.
+        let call = to.map_or(String::new(), |to| format!("{to}: "));
+        return match given {
+            Some((from, rust)) => format!("{call}argument {pos} should be {}, not {}", rust_wants(rust), lua_kind(from)),
+            None => format!("{call}argument {pos}: {}", cause_text(cause)),
+        };
+    };
+    let call = format!("{of}:{m}");
+    // The object itself, where a dot left it out: level.spawn(...).
+    if pos == 1 || name == Some("self") {
+        return format!("{call} is a method: call it with a colon, {call}(...), not {of}.{m}(...) (the colon passes {} itself)", of.rsplit('.').next().unwrap_or(of));
+    }
+    let item = super::api::items_of(of).find(|i| i.name == m);
+    let params: &[(&str, &str)] = match item.map(|i| &i.what) {
+        Some(super::api::What::Method { params, .. }) => params,
+        _ => &[],
+    };
+    let shown: Vec<&str> = params.iter().map(|(n, _)| *n).collect();
+    let call = if item.is_some() { format!("{call}({})", shown.join(", ")) } else { call };
+    let (what, wants) = match params.get(pos - 2) {
+        Some((n, ty)) => (n.trim_end_matches('?').to_string(), Some(register_wants(ty))),
+        None => (format!("argument {}", pos - 1), None),
+    };
+    match given {
+        Some((from, rust)) => {
+            let wants = wants.unwrap_or_else(|| rust_wants(rust).to_string());
+            // A number where a whole one was wanted: a fraction, or too big.
+            let not = if matches!(from, "number" | "integer") && wants.contains("whole") { "a fraction or one that big".to_string() } else { lua_kind(from) };
+            format!("{call}: {what} should be {wants}, not {not}")
+        }
+        None => format!("{call}: {what}: {}", cause_text(cause)),
+    }
+}
+
+/// A whole number `math.random` takes: an integer, a float without a
+/// fraction, or a string of one (as Lua's own takes them).
+fn whole(v: &Value) -> mlua::Result<i64> {
+    // 2^63 exactly, the first float past i64's range.
+    let float = |f: f64| (f.fract() == 0.0 && f >= i64::MIN as f64 && f < -(i64::MIN as f64)).then_some(f as i64);
+    let n = match v {
+        Value::Integer(i) => Some(*i),
+        Value::Number(f) => float(*f),
+        Value::String(s) => s.to_str().ok().and_then(|s| s.trim().parse::<i64>().ok().or_else(|| s.trim().parse::<f64>().ok().and_then(float))),
+        _ => None,
+    };
+    n.ok_or_else(|| {
+        let shown = match v {
+            Value::Number(f) => format!("{f}"),
+            other => lua_kind(other.type_name()),
+        };
+        mlua::Error::runtime(format!("math.random: whole numbers, (), (n) or (m, n); not {shown}"))
+    })
 }
 
 /// The math library with `sim::math`'s functions (the same bits on every
@@ -394,11 +560,11 @@ fn maths(lua: &Lua, native: &Table) -> Result<Table> {
     m.raw_set("pow", lua.create_function(|_, (x, y): (f64, f64)| Ok(libm::pow(x, y)))?)?;
     m.raw_set(
         "random",
-        lua.create_function(|lua, args: mlua::Variadic<i64>| {
+        lua.create_function(|lua, args: mlua::Variadic<Value>| {
             let range = match args.as_slice() {
                 [] => None,
-                &[n] => Some((1, n)),
-                &[m, n] => Some((m, n)),
+                [n] => Some((1, whole(n)?)),
+                [m, n] => Some((whole(m)?, whole(n)?)),
                 _ => return Err(mlua::Error::runtime("math.random: (), (n) or (m, n)")),
             };
             if let Some((m, n)) = range
@@ -653,6 +819,103 @@ return size
             }
         }
         assert_eq!(sizes.len(), 10, "every size drawn: {sizes:?}");
+    }
+
+    /// Lists of every sort a game sorts, made the same in any Lua state
+    /// from a seed: records with ties under the order function, numbers
+    /// whole and fractions mixed, a few distinct values many times over,
+    /// lists sorted already and backwards; each sorted and written out.
+    const SORTS: &str = r#"
+local seed, size, sort = ...
+local state = seed
+local function draw(n)
+  state = state * 6364136223846793005 + 1442695040888963407
+  return ((state >> 33) % n) + 1
+end
+local out = {}
+local function show(t)
+  for i = 1, #t do
+    local v = t[i]
+    if type(v) == "table" then v = v.k .. "/" .. v.id end
+    out[#out + 1] = tostring(v) .. ":" .. (math.type(v) or type(v))
+  end
+  out[#out + 1] = "|"
+end
+local records, mixed, few, up, down = {}, {}, {}, {}, {}
+for i = 1, size do
+  records[i] = { k = draw(5), id = i }
+  mixed[i] = draw(2) == 1 and draw(9) or draw(9) + 0.0
+  few[i] = draw(3)
+  up[i], down[i] = i, size - i
+end
+sort(records, function(a, b) return a.k < b.k end)
+sort(mixed)
+sort(few, function(a, b) return a > b end)
+sort(up)
+sort(down)
+show(records) show(mixed) show(few) show(up) show(down)
+return table.concat(out, " ")
+"#;
+
+    /// `table.sort` sorts as Lua's own whenever Lua's keeps its middle
+    /// pivot (records with ties in the same order, whole numbers and
+    /// fractions alike), so no game sorts otherwise than before; and the
+    /// same every run, where Lua's would draw a pivot from the clock.
+    #[test]
+    fn table_sort_is_luas_without_the_clock() {
+        let sandbox = Sandbox::new().unwrap();
+        let ours: Function = sandbox.base.raw_get::<Table>("table").unwrap().get("sort").unwrap();
+        let plain = Lua::new();
+        let theirs: Function = plain.globals().raw_get::<Table>("table").unwrap().raw_get("sort").unwrap();
+        for seed in 1..=40i64 {
+            for size in [0, 1, 2, 3, 5, 50, 99, 100, 101, 257, 1000] {
+                let a: String = sandbox.call_start(&sandbox.lua.load(SORTS).into_function().unwrap(), (seed, size, ours.clone())).unwrap();
+                let b: String = plain.load(SORTS).call((seed, size, theirs.clone())).unwrap();
+                assert!(a == b, "seed {seed}, {size} elements: sorted otherwise than Lua's own");
+            }
+        }
+        // Lua's own reads the clock once a big list partitions badly: an
+        // organ pipe of ties came out in 200 orders in 200 sorts with Lua
+        // 5.4.9's (the same build mlua's vendored Lua is); ours in one, and
+        // quickly (a middle pivot alone takes it quadratic, past a tick).
+        let call = |src: &str| -> String {
+            let f = sandbox.lua.load(src).set_name("@main.lua").set_environment(game_env(&sandbox)).into_function().unwrap();
+            match sandbox.call::<String>(&f, (), "on_tick") {
+                Ok(s) => s,
+                Err(e) => format!("{e:#}"),
+            }
+        };
+        let skewed = "local t, m = {}, 20000 for i = 1, m do t[i] = { k = (i <= m / 2 and i or m - i) // 3, id = i } end\ntable.sort(t, function(a, b) return a.k < b.k end)\nlocal out = {} for i = 1, #t do out[i] = t[i].id end return table.concat(out, ',')";
+        let first = call(skewed);
+        assert!(first.starts_with(|c: char| c.is_ascii_digit()), "{first}");
+        for _ in 0..3 {
+            assert!(call(skewed) == first, "a list of ties sorted otherwise from run to run");
+        }
+        // Its mistakes say where the game sorted.
+        assert!(call("local t = {} for i = 1, 300 do t[i] = i % 7 end\ntable.sort(t, function(a, b) return a <= b end)").starts_with("main.lua:2: invalid order function for sorting"), "{}", call("local t = {} for i = 1, 300 do t[i] = i % 7 end\ntable.sort(t, function(a, b) return a <= b end)"));
+        assert!(call("table.sort({ 1, 'a', 2 })").starts_with("main.lua:1: attempt to compare"), "{}", call("table.sort({ 1, 'a', 2 })"));
+        assert!(call("table.sort({ 3, 1 }, 5)").contains("bad argument #2 to 'sort' (function expected, got number)"));
+        assert!(call("local t = { 3, 1, 2 } table.sort(t, function(a, b) error('mine') end)").starts_with("main.lua:1: mine"));
+    }
+
+    /// Sorting 10,000 records by a key with an order function, and 10,000
+    /// numbers whole and fractions mixed (sorted in Lua, not in C), fits a
+    /// tick's budget.
+    #[test]
+    fn sorting_ten_thousand_fits_a_tick() {
+        let sandbox = Sandbox::new().unwrap();
+        let src = "local t, u = {}, {} for i = 1, 10000 do t[i] = { k = (i * 7919) % 10007 } u[i] = i % 2 == 0 and (i * 31) % 10007 or ((i * 17) % 10007) + 0.5 end\ntable.sort(t, function(a, b) return a.k < b.k end)\ntable.sort(u)\nreturn t[1].k + u[1]";
+        let f = sandbox.lua.load(src).set_environment(game_env(&sandbox)).into_function().unwrap();
+        sandbox.call::<f64>(&f, (), "on_tick").unwrap();
+    }
+
+    /// An environment as a game's: the safe functions only.
+    fn game_env(sandbox: &Sandbox) -> Table {
+        let env = sandbox.lua.create_table().unwrap();
+        let meta = sandbox.lua.create_table().unwrap();
+        meta.raw_set("__index", sandbox.base.clone()).unwrap();
+        env.set_metatable(Some(meta)).unwrap();
+        env
     }
 
     /// Walking a state of 5,000 keys with `pairs` every tick fits a tick's

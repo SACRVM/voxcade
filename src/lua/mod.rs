@@ -4,7 +4,7 @@
 //! `on_tick()` 60 times a second, `on_draw(frame)` every picture),
 //! after LÖVE but deterministic: replays, `shot` and snapshots work as for
 //! every game. The scripts see the game model's objects as globals
-//! (`world`, `level`, `player`, `input`, `screen`; `world.rs`,
+//! (`world`, `level`, `player`, `input`, `screen`; `world/`,
 //! `docs/game-model.md`). A game's state lives in the engine's things and
 //! in Lua's states, `world.state`, `level.state`, `player.state` and
 //! `thing.state`, plain data the engine copies, hashes, checks every tick
@@ -255,6 +255,65 @@ const RENAMED: [(&str, &str); 1] = [("on_leave", "on_touch_end")];
 /// takes one, how the level was entered.
 const WITHOUT_PARAMETERS: [&str; 2] = ["on_world_start", "on_tick"];
 
+/// The handler a global function `on_...` nearly is, if it is none
+/// itself: a letter or two off (one for the short ones, `on_tik`), case
+/// aside. Other names starting with `on_` are the game's own.
+fn near_handler(name: &str) -> Option<&'static str> {
+    let rest = name.strip_prefix("on_")?.to_lowercase();
+    let handlers = api::API.iter().filter(|i| matches!(i.what, api::What::Callback { .. }) && i.name.starts_with("on_")).map(|i| i.name);
+    if handlers.clone().any(|h| h == name) || RENAMED.iter().any(|(old, _)| *old == name) {
+        return None;
+    }
+    handlers
+        .map(|h| (h, edits(&rest, &h["on_".len()..])))
+        .filter(|(h, d)| *d <= if h.len() - "on_".len() <= 4 { 1 } else { 2 })
+        .min_by_key(|(_, d)| *d)
+        .map(|(h, _)| h)
+}
+
+/// How many letters to put in, take out, change or swap with the next to
+/// make `a` into `b` (Damerau-Levenshtein, the optimal string alignment).
+fn edits(a: &str, b: &str) -> usize {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let mut d = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+    for (i, row) in d.iter_mut().enumerate() {
+        row[0] = i;
+    }
+    for (j, cell) in d[0].iter_mut().enumerate() {
+        *cell = j;
+    }
+    for i in 1..=a.len() {
+        for j in 1..=b.len() {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            d[i][j] = (d[i - 1][j] + 1).min(d[i][j - 1] + 1).min(d[i - 1][j - 1] + cost);
+            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
+                d[i][j] = d[i][j].min(d[i - 2][j - 2] + 1);
+            }
+        }
+    }
+    d[a.len()][b.len()]
+}
+
+/// A global function nearly a handler's name (`function on_tik()`) is
+/// a mistake at load: nothing would ever call it.
+fn misspelt_handler(env: &Table) -> Result<()> {
+    let mut found: Vec<(String, Function)> = Vec::new();
+    for pair in env.pairs::<mlua::Value, mlua::Value>() {
+        if let (mlua::Value::String(k), mlua::Value::Function(f)) = pair? {
+            found.push((k.to_string_lossy(), f));
+        }
+    }
+    found.sort_by(|a, b| a.0.cmp(&b.0));
+    for (name, f) in found {
+        if let Some(near) = near_handler(&name) {
+            let info = f.info();
+            let at = format!("{}:{}", info.short_src.unwrap_or_else(|| "main.lua".into()), info.line_defined.unwrap_or(0));
+            anyhow::bail!("{at}: function {name} is no handler the engine calls: did you mean {near}? (a function of your own wants a name further from the handlers')");
+        }
+    }
+    Ok(())
+}
+
 /// Where `input` may be used.
 const NO_INPUT: &str = "input: the keys held are only there in on_tick";
 
@@ -444,6 +503,7 @@ impl<K: Kit> LuaGame<K> {
                 anyhow::bail!("main.lua{}: {name}() takes no parameters: world, level, player, input and screen are there everywhere", line(&f));
             }
         }
+        misspelt_handler(&env)?;
         if first {
             // The handlers called from here on (`on_level_end` of an ask in
             // the first `on_level_start`) are found in what main.lua made.

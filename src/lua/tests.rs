@@ -73,9 +73,12 @@ fn globals_are_frozen_after_load() {
     let mut g = game("frozen", "n = 1\nfunction on_world_start() m = 2 end\nfunction on_tick() n = n + 1 end\n");
     steps(&mut g, 1);
     assert!(halted(&g).contains("'n' is a global variable: what changes belongs in a state (world.state, player.state, thing.state)"), "{}", halted(&g));
-    let mut g = game("frozen-table", "T = { n = 0 }\nfunction on_tick() T.n = 1 end\n");
+    // A global table read in on_tick and changed there: named as the
+    // global it is, down to the key (it once said "only to look at here:
+    // change the game in on_tick", in on_tick).
+    let mut g = game("frozen-table", "T = { n = 0, inner = { 1 } }\nfunction on_tick() T.inner[1] = 2 end\n");
     steps(&mut g, 1);
-    assert!(halted(&g).contains("only to look at"), "{}", halted(&g));
+    assert!(halted(&g).starts_with("main.lua:2: T.inner[1]: 'T' is a global variable, kept as it was at the start: what changes belongs in a state"), "{}", halted(&g));
     let mut g = game("rawset", "function on_tick() rawset(_ENV, 'x', 1) end\n");
     steps(&mut g, 1);
     assert!(halted(&g).contains("rawset"), "{}", halted(&g));
@@ -5242,4 +5245,74 @@ fn assigning_a_thing_field_says_what_to_do() {
     steps(&mut g, 2);
     let e = halted(&g);
     assert!(e.contains("thing.x cannot be assigned") && e.contains("thing.state"), "{e}");
+}
+
+/// A mistake in a call to the engine is said as the script calls it, the
+/// file and line first: a method called with a dot, an argument of the
+/// wrong type named by the register's parameter, a fraction to
+/// `math.random`, and the engine's own mistakes (no kind of that name) at
+/// the line that made them; never mlua's or Rust's names.
+#[test]
+fn a_call_to_the_engine_says_what_it_wanted_where() {
+    for (main, says) in [
+        ("function on_tick()\n  level.spawn('miner', 10, 10)\nend\n", "main.lua:2: level:spawn is a method: call it with a colon, level:spawn(...), not level.spawn(...)"),
+        ("function on_tick()\n  screen:shake('big')\nend\n", "main.lua:2: screen:shake(amount): amount should be a number, not a string"),
+        ("function on_tick()\n  level:spawn('miner', nil, 3)\nend\n", "main.lua:2: level:spawn(kind, x, y, options?): x should be a number, not nil"),
+        ("function on_tick()\n  level:voxel(1.5, 2, 3)\nend\n", "main.lua:2: level:voxel(x, y, z): x should be a whole number, not a fraction"),
+        ("function on_tick()\n  local n = math.random(1.5)\nend\n", "main.lua:2: math.random: whole numbers, (), (n) or (m, n); not 1.5"),
+        ("function on_tick()\n  level:spawn('heroo', 1, 1)\nend\n", "main.lua:2: no kind of thing called 'heroo'"),
+        ("function on_draw(frame)\n  frame:text(nil, 1, 1)\nend\n", "main.lua:2: frame:text(text, x, y, color?, size?): text should be a string, not nil"),
+    ] {
+        let mut g = game("calls", main);
+        steps(&mut g, 2);
+        g.look();
+        let e = halted(&g);
+        assert!(e.starts_with(says), "{main}: {e}");
+        for internal in ["LevelView", "ScreenView", "Frame.", "userdata", "f32", "i64", "error converting"] {
+            assert!(!e.lines().next().unwrap_or("").contains(internal), "{main}: {e}");
+        }
+    }
+    // math.random takes whole numbers however written, as Lua's own.
+    let mut g = game("random", "function on_tick() world.state.n = math.random(3.0) + math.random(2, '4') end\n");
+    steps(&mut g, 1);
+    assert_eq!(halted(&g), "");
+}
+
+/// A global function nearly a handler's name (`on_tik`) is a mistake as
+/// the game loads, naming the handler; a function of the game's own that
+/// begins with on_ but is no near name is its own.
+#[test]
+fn a_misspelt_handler_is_named() {
+    for (main, says) in [
+        ("function on_tik() end\n", "main.lua:1: function on_tik is no handler the engine calls: did you mean on_tick?"),
+        ("\nfunction on_level_strat(how) end\n", "main.lua:2: function on_level_strat is no handler the engine calls: did you mean on_level_start?"),
+        ("function on_Draw(frame) end\n", "did you mean on_draw?"),
+        ("function on_touched(a, b) end\n", "did you mean on_touch?"),
+    ] {
+        let e = start_error(&folder("near-handler", main));
+        assert!(e.contains(says), "{main}: {e}");
+    }
+    for own in ["function on_coin_taken() end\n", "function on_kill() end\n", "on_tic = 3\n", "local function on_tik() end\n"] {
+        assert_eq!(start_error(&folder("own-on", own)), "", "{own}");
+    }
+}
+
+/// A voxel set outside the level is a mistake naming the level's size
+/// (it did nothing, silently); a box filled across the edge fills what
+/// lies inside. An action asked of a game that names none says so.
+#[test]
+fn a_voxel_outside_the_level_is_a_mistake() {
+    let mut g = game("outside", "function on_tick()\n  level:set_voxel(1000, 1, 1, 3)\nend\n");
+    steps(&mut g, 1);
+    assert!(halted(&g).starts_with("main.lua:2: level:set_voxel: 1000, 1, 1 is outside the level (x 0 to 63, y 0 to 63, z 0 to 15"), "{}", halted(&g));
+    let mut g = game("fill-edge", "function on_tick() level:fill(60, 60, 0, 70, 70, 0, 3) end\n");
+    steps(&mut g, 1);
+    assert_eq!(halted(&g), "");
+    assert_eq!(g.game.sim().world.get(glam::IVec3::new(63, 63, 0)), 3);
+    let dir = crate::scratch::Scratch::new("lua-no-actions");
+    std::fs::write(dir.join("conf.lua"), "function conf(c) c.world.size = { 16, 16, 8 } end\n").unwrap();
+    std::fs::write(dir.join("main.lua"), "function on_tick() input:pressed('jump') end\n").unwrap();
+    let mut g = game_in(&dir);
+    steps(&mut g, 1);
+    assert!(halted(&g).contains("no action called 'jump': the game names no actions (c.actions = { \"jump\" } in conf.lua)"), "{}", halted(&g));
 }

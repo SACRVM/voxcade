@@ -1,439 +1,15 @@
 # The game model and the Lua API, version 2
 
-Status: a design, approved in outline on 2026-10-20 and revised the same
-day twice: after a study of six engines' data models, and after a study
-of how eleven engines and the classic games run a game from start to end
-(below, "What other engines taught"; the reports are kept in
-`shots/research/`, outside the repository). "The flow of a run" was
-approved on 2026-10-21. Built in stages (the plan's
-stages 2 to 8). Until a stage is built, `docs/engine.md` ("The Lua door")
-and `voxcade api` describe what runs.
-
-Built so far: stage 2 (2026-10-20/21), the core: the globals `world`,
-`level`, `level.camera`, `player`, `input`, `screen`; the handlers
-`on_world_start` (no level yet), `on_level_start("start")`, `on_tick`,
-`on_draw`; `world.state`, `level.state`, `player.state`, `thing.state`,
-with the engine's keys `score` (and with ready-made rules `lives`, `hp`)
-and `thing.state.hp` where the kind declares it; one handle per thing
-and one view per state; things refused in `world.state` and
-`player.state`, views refused in any state, checked every tick;
-`thing:remove()` at the tick's end; `level:spawn(kind, x, y, options)`;
-`level:solid`; `thing.facing`. The engine keeps its numbers where they
-were and reads and writes them through, so the replays' checks stayed
-the same (`--refit`), but for Sokovox, whose state moved into
-`level.state` (`--update`, the same play).
-
-Stage 3 (2026-10-21), levels: the files in `levels/` (`src/levels.rs`, all
-read when the game loads, in natural order; a level of blocks, a map or a
-world as `c.world` says, text since 0.6.0: `.toml` and `.vvx`), named
-places in level files (`[[place]]` with `name`, `at = [x, y, z]`,
-`facing = [x, y]`), `world.levels`,
-`world.leaving`, `world:go_to`, `world:restart`, `world:win` and
-`world:lose` as asks (one counts, at the tick's end; asks in the first
-`on_level_start` at once; a hundred changes without a tick a mistake),
-`on_level_end(why)`, `on_level_start(how)`, `on_world_end(result)` (the
-ready-made rules' own ends and QUIT TO TITLE too), `level.name`,
-`.number`, `.next`, `.visits`, `.kept`, `.places`, `.arrived` (where the
-player came in: a game without the engine's figure stands its hero there),
-`thing:place(place)`,
-`player.state.checkpoint` (forgotten on `go_to`, where `restart` goes),
-the ready-made rules' `enter_level` (their run kept, a dead player back on
-its feet), fades in a window (`c.transition`; no ticks, replays cut them),
-a level file saved while playing re-entered (`"reload"`). Not yet: holds
-and arrival touches (with the events, stage 6), named things as places and
-`--level` (with the editor, stage 7), `"load"` (save games, stage 5).
-
-Stage 4 (2026-10-21), the player and items: `player` is a thing handle
-(everything a thing has, `player.id` nil, `player.kind` nil for the
-shooter's own figure), its figure the ready-made rules' player or, without
-them, a thing of `c.player.kind` that the engine places where each level
-starts and keeps from level to level; `level:things()` and `level:count()`
-leave it out, `player:remove()` is a mistake, and without a figure
-`player.x` says so. `world.players`; `c.items` (`model`, `stack`,
-`order`), `world.items`; `player.state.inventory` (there from the start
-when the game has items) and `thing.state.inventory`, checked at every
-tick's end; the ready-made `pickup` with `item = "NAME"` counts into the
-player's inventory (a full stack takes no more). `inspect` shows the
-player apart from the level's things.
-
-Stage 5 (2026-10-21), save games: `c.saves = { slots, version }`,
-`world:save(slot)` (at the tick's end, before an ask, or at the end of
-the `on_level_start` that asked), `world:load(slot)` (in `on_level_start`
-too: going on from a save as the game starts)
-(an ask like `restart`: `"load"` for `on_level_end` and `on_level_start`),
-`world.saves` (`{ level, seconds }` or nil per slot), `on_save_loaded(version)`;
-slots in the player's config folder (`saves/<game>/N.toml`: TOML with
-the states as Lua tables, `src/lua/save.rs`, `src/lua/data.rs`), for one
-run only in `shot`, `check`, `inspect` and replays; SAVE and LOAD in the
-pause menu (each slot: its level, the play time, how long ago); replays
-carry the save they began from, the slots as they began, every save they
-loaded and the menu's saves (`shot --screen save|load` shows the pages).
-Not yet: the touching set in saves (with the events, stage
-6), things in `level.state` found again by name (stage 7), `c.state`
-defaults filling in what an old save lacks.
-
-Stage 6 (2026-10-21), events: `on_touch(a, b)` and `on_touch_end(a, b)` (once
-per pair as it begins and ends, the player first, else the thing that
-came first; boxes, or a kind's reach, the larger of two (2026-10-22: the
-player's own no longer hides a power-up's); arriving in
-a level and `thing:place` touch silently; not for the dead), `on_hit`,
-`on_death` and `on_pickup` from the ready-made rules (`Sim::events`; a
-thing they took away as it died is read as it was until the tick's end),
-`on_death` too when the script takes a kind's `hp` to 0, once until it
-lives again (no longer listed or counted meanwhile), `on_interact` (the
-action called `interact` on the nearest thing the player touches; the
-press used up), holds (`level.state.held`: the ready-made rules, physics
-and touches wait, `on_tick` and the time go on, from the tick it is set),
-`player.state.invulnerable` with ready-made rules (ticks, or `true`), the
-ready-made goals' `wins = false` (gone in stage 7, goals are the code's); `goal_open` and the kits' questions are
-gone, More Blood wins in its `main.lua` (its replays recorded anew with
-`--update`: the same play, the kit's state the same at every second, the
-script's counter now in the hash). After the run's end the script hears
-nothing more. Not yet: the lists of behaviors (stage 8: `thing:enable`
-switches the one behavior a kind has since stage D), a death show
-playing on under a hold, `thing.state.invulnerable` for things other
-than the player.
-
-After the review of the API's list by Fable and Grok (2026-10-21,
-`shots/reviews/fable-api.md`, `grok-api.md`): the list (REFERENCE in
-HELP, `voxcade api`, `lua/voxcade.lua`) names the engine's keys
-(`level.state.held`, `player.state.checkpoint`, `invulnerable`,
-`inventory`), the asks' order in one place (`world.leaving`), what a save
-keeps, that `math.random` is the game's own, and where `screen` draws;
-renamed: `on_leave` is `on_touch_end` (it read like leaving the level),
-`level:hitstop` is `world:hitstop` (it holds the run's time), `read` is
-`world:read` (no free function besides the handlers); the old handler and
-`read` are refused with the new names. `screen` is there everywhere for
-the picture's effects (`screen:shake`, `screen:flash`, from `level:`);
-drawing is on `on_draw(frame)`'s frame, only there: what is not there
-cannot be called in the wrong place. What the player plays with is
-`controls`, there everywhere (`controls.device`, `controls:key`): it
-comes from their machine, so replays carry it like the keys held; a
-text names a key by the action in braces (`frame:text("PRESS {jump}")`). New: `thing:hurt(damage, by?)` and
-`thing:take(item, count?)`, so the
-script hurts and gives as the ready-made rules do (their events told in
-the next tick), and the directions in `input:held`, `pressed` and
-`released`.
-
-Stage 7 (2026-10-21/22), the game's code decides what a touch does (the
-user: "otherwise it is too much magic and limits what you can do with the
-engine"; the draft and Fable's review in `shots/reviews/touch-draft.md`,
-`fable-touch.md`). The ready-made rules move things; what a touch, a hit
-or a fall means is the game's code. The engine gives the facts:
-`on_touch(a, b, where)` (`"top"`, `"bottom"`, `"side"`: the face of `b`
-that `a` met, judged from where both stood when touches were last looked
-for, `Stage::seen_at`, part of the snapshot: a fast fall onto a slime is
-`"top"`), `thing:touching(kind or family)` for what lasts while touched,
-`level:block(x, y, z)` and `thing:in_block(kind)` for the level's
-blocks, `on_fall_out(thing)` (once; other things taken away after it),
-the weapon in `on_hit(thing, by, damage, weapon)` and
-`on_death(thing, by, weapon)` (`knife`, a `c.weapons` name, what
-`thing:hurt(damage, by, weapon)` named). And the means: `thing:bounce(height)`,
-`level:effect(model, at, fps)`, `player:place(x | place | thing)` for the
-ready-made rules' player too (`Host::put_player`), names (a placed
-thing is its kind and number, `door_1`; `level:spawn{ name = }`;
-`level:thing(name)`; `player.state.checkpoint` names a place or a thing,
-`world:restart` stands the player there), families
-(`c.things.NAME.family`, `thing.families` as a set,
-`level:things(family)`), props (`c.things.NAME.props`, read-only
-`thing.props`, `level:spawn{ props = }`), keys the ready-made rules
-keep in a thing's state (`Host::thing_keys`). A thing taken away
-(`thing:remove`, a death) is out of the level's lists, counts and
-touches at once; its handle reads on until the tick's end. The shooter
-since then: a kill is worth what the code adds (More Blood's soldiers
-carry `props.worth` and `knife_worth`), a pickup is a thing touched
-(its props say what it gives; the code sets `player.state.weapon` by
-its name in `c.player.weapons`, `ammo`, `grenades`, `hp`: keys the
-ready-made rules keep, so the HUD and the gun follow), checkpoints and
-the helipad are things without rules, the player down lies there until
-the code brings `player.state.hp` above 0 (`player:place` at the
-checkpoint first) or ends the run. Its replays and pins played on the
-same, move for move (only the game's code now counts, `--update`).
-Hostages too: touched within their reach, freed by the code
-(`thing.state.freed = true`: the cage bursts, the HUD counts them, they
-run off). The cage now bursts at the tick's end instead of amid the
-ready-made rules, so More Blood plays differently from its first hostage
-on (its own recorded run no longer wins; the user agreed, 2026-10-22,
-and added a rule of More Blood's own: a hostage killed loses the run at
-once, `on_death`).
-
-Stage D (2026-10-22), the kits are building blocks for many games, not
-one game's rules (the user: "we are writing an engine, not a moddable
-game"; More Blood was a prototype). What a run starts with is the
-game's (`c.state`: hit points, the gun in hand, the inventory, its own
-lives), and one inventory holds rounds and grenades. Attacks are bound
-by the game (`c.player.attacks`: an action's weapons in order, the first
-that can; `thing:attack` for the code's own), a blow is a weapon (`reach`,
-`cone`: More Blood's knife written out in its `conf.lua`). The HUD is the
-game's `on_draw`, the engine helping with where and how (`frame.width`,
-text sizes, `frame:box`, `frame:bar`, `frame:icon` from `c.icons`,
-`frame:drop_in`, `screen:burst`; `frame:to_screen` where a point or a
-thing of the level shows, for labels and numbers over it). Who hurts whom is data (`team`,
-`immune`) and a blast does its weapon's damage (`friendly_fire`,
-`falloff`). Ways are data (a hut's `ahead`, a hostage's `flee`, a
-gunship's `offset`, `c.player.facing`; `level:clear_rounds` for a
-mercy or a bomb). Figures have the means stage 8 builds on
-(`thing.state.pose` on any, `thing:launch`, `thing:enable`,
-`thing.wall`). `kit.toml` is a library to copy, merged into no game; a
-kind's unset lengths and speeds follow its height from the figure they
-were tuned on, and `voxcade kinds` prints every number in effect.
-More Blood, Voxfox and Voxkeep play as before, move for move (traces and
-pins compared at every step); where a check was recorded anew only what
-its hash holds had changed. Test `the_kits_keep_no_game_in_them` keeps
-a game's rules out of the kits.
-
-Stage E (2026-10-23, built), for a world that goes on: what BunnyFarm
-(`docs/bunnyfarm.md`, a farming game with game days, menus and three
-languages) needs, built for every game. No new idea of the model: a menu
-is a sequence in `level.state` with the level held, as dialogue and shops
-always were; light is the picture's, so `on_draw` sets it.
-
-- **The game's own Lua files** (built). `require("market")` runs `market.lua` from
-  the game folder once and gives back what it returns (`require("lang.de")`
-  is `lang/de.lua`; a second `require` of the same gives the same value).
-  Lua's own name, as LÖVE has it, rather than an engine's (the one free
-  function besides the handlers: it is the language's, like `pairs`).
-  Only while the game starts (the top of `main.lua` and of the files it
-  requires), as `world:read`; the files are the game's code for the
-  fingerprint (as tokens) and for hot reload (saving any of them swaps the
-  functions, the states stay), and `check`'s guard names a local of any
-  of them that keeps state.
-- **More letters** (built). The pixel font gets lower case (descenders a row or
-  two below the line), the letters of German and French with their
-  accents (ä ö ü ß à â ç è é ê ë î ï ô û ù œ and the capitals), and a few
-  signs (· × → ← ▲ ▼ ✓ … „ “ ’ « » • &). Capitals and digits stay as they
-  are, and the engine's own text (menus, the logo, a key's name in a
-  game's text) is still drawn in capitals (`ui::engine_case`): every
-  picture so far is the same, pixel for pixel. A game's text is drawn as
-  written. Accented capitals keep their full height, the accent in two
-  rows above (ZURÜCK reads as capitals in a German menu); lower case with
-  an acute, grave or circumflex gets a row of air under it.
-- **Light the game sets** (built). `frame:daylight{ sun =, sun_color =, ambient =,
-  shadow =, sky = }` in `on_draw`: this picture's daylight, each key as
-  `c.light` names it (`sun_color` new there too, white unless set), the
-  ones left out as `c.light` says. A day and night is the game's code: it
-  works the light out from its clock every picture. Only the picture: the
-  simulation does not see it, replays need nothing. A game whose code
-  names `daylight` has every face a sun above the horizon can light in its
-  meshes (others keep only what their one sun and the camera can hit).
-  Colours as the other frame calls take them (`{ r, g, b }`, 0 to 255);
-  HELP's DAY AND NIGHT shows a day of 40 seconds.
-- **A picture's camera** (built). `frame:camera{ look_at =, width =,
-  height =, pitch =, fov = }` in `on_draw`: this picture's camera, for a
-  scene the engine films (the point-and-click games' way: zoom in on
-  something and out again, a cut, a slow pan; otherwise the camera stays
-  put or follows, `level.camera`). What it leaves out is `c.camera`'s:
-  without `look_at` the view keeps on what the game's camera follows
-  (`{ width = 80 }` zooms in on the player and follows on), with it the
-  view centres on that point (`{ x, y, z }`, z left out the camera's
-  height; or a thing, where it is drawn) as given, the screen's shake on
-  top, never rounded or eased. Nothing is kept: the next picture without
-  it is the game's camera's, so a scene calls it in every picture and
-  works a pan out from its clock (`world.tick + frame.alpha`,
-  `music.beat`). Only the picture, as `frame:daylight`: the simulation,
-  the state hash, replays, the sounds' places and `level.camera` do not
-  see it (a replay draws every tick and comes out the same);
-  `frame:to_screen` after it goes by it; on the title the title's camera
-  stays. The camera does not turn round yet (`yaw` is refused: the
-  owner, 2026-11-13, a turned view is not what scenes need now). Faces: a
-  picture moved or zoomed looks along the very rays of the game's camera
-  (perspective at its pitch and field of view: moving and zooming change
-  only where the eye is), so the meshes stay as they are and cost
-  nothing; a picture at another `pitch` or `fov` adds the faces its rays
-  can hit (a low angle, the undersides), from then on, the level built
-  anew with them once (a hitch of a mesh build, More Blood's 44 ms, the
-  first time). Models out of view are left out once the picture's camera
-  is known (a game whose code calls `frame:camera`). Mistakes name the
-  field (an unknown key, a number missing, width or height 0 or less,
-  both, pitch outside -89 to 90, fov outside 10 to 100). HELP's A SCENE
-  WITH BARS shows a pan and a cut.
-- **The picture's shape** (built). `c.camera.aspect = 2.39` in
-  `conf.lua`: every picture is drawn into the largest rectangle of that
-  width over height the window holds, in its middle, black bars on the
-  other two sides (letterbox or pillarbox; a film's bars carry nothing).
-  The camera's `view_width` (and `frame:camera`'s `width`) is across that
-  rectangle; the HUD (`frame.width`, `frame.height`), the menus and the
-  console lie inside it; `shot`, `film` and the IDE's play area alike.
-  Unset, the window's shape, as always. Not per picture (the HUD is laid
-  out before `on_draw` runs).
-- **Menus are the game's, drawn in the engine's look** (built). The game keeps
-  what is open and where the cursor stands in `level.state` (held while
-  it is open) and moves it with the keys; the engine draws:
-  `frame:menu{ x, y, width, title, tabs, tab, rows, at, hint }` (rows of
-  a text, a value at the right, an icon of `c.icons`, dimmed when
-  `dim = true`; the row `at` marked as the engine's menus mark theirs,
-  scrolled into view) and `frame:grid{ x, y, columns, cells, at }` (an
-  inventory's slots: an icon and a count each). `input:repeated(action)`
-  is true when the key is pressed and again and again while it is held
-  (as the engine's menus move), for cursors and walking on a grid: after
-  20 ticks held, every 6, counted per key in the game and kept in its
-  snapshots so a restored second repeats the same. `shown` caps the rows
-  a menu shows (a longer list scrolls, centred on `at`, with a bar at its
-  edge); a slot is `false` when empty. HELP's A MENU AND A BAG is a
-  market stall and a bag.
-- **CONTINUE on the title** (built). A game with `c.saves` offers CONTINUE first
-  when a slot holds a save: the newest is loaded, as LOAD in the pause
-  menu does (the run begins from that save; replays carry it). START
-  begins a new run as always; which slot it saves into is the game's
-  (`world.saves` says which are free). The title's list grows upwards, its
-  last item where it always was; `shot --screen continue` shows it.
-- **The player's language** (built). `c.languages = { "de", "en", "fr" }`: the
-  game speaks these. SETTINGS gets LANGUAGE (only with more than one);
-  the first time it is the system's language if the game speaks it, else
-  the first listed. `world.language` says which (`"de"`), everywhere, and
-  changes when the player changes it; it comes from the player's machine,
-  so replays write it down as they do `controls`. The engine's own menus
-  speak it too (German, English, French). The game's texts are its own
-  tables (`require("lang." .. world.language)` is not it: the language
-  can change during a run; keep all and pick by `world.language`).
-  Built as: the player's choice in their settings (`Settings::language`,
-  the system's from SDL in a window only, so `shot`, `check` and
-  `inspect` speak the game's first on every machine), sent with the
-  controls (`Controls::language`) every picture; the engine's words in
-  `src/lang.rs`; HELP's SPEAK THE PLAYER'S LANGUAGE.
-
-Several players (2026-10-30, `docs/multiplayer.md` stages 2 and 3),
-built for games without ready-made rules and with both kits' (a hero
-for each seat; a soldier for each, its gun and rounds its own, the
-enemies after the nearest player, its rounds and grenades naming it):
-seats (`c.players`, `world.players[n]` or `false`, `p.seat`), each
-player's `p.state` (score and hit points the engine's; `out`, `team`,
-`kind` the engine's keys, nil until set), `p.input`, `p.controls`,
-`level:players()`, `on_player_join(p, how)` and `on_player_leave(p)`,
-figures per seat (`c.player.kind` a list by seat) coming in at the
-tick's end, places `NAME_n`, each player's checkpoint, `on_interact` per
-seat, players as plain data in every state (a save writes
-`world.players[2]`), saves with every seat, `c.camera.hold` and the
-camera on the players' middle, `frame.players`, high score lines per
-player (entered in turn) or the team's (`c.team_score`). At one machine
-pads take seats with START and the keyboard's right half with Return
-(`src/seating.rs`); replays carry each seat's input (`away` while free),
-`shot` and `inspect` take `--input2` and on, MCP's tools `players`.
-
-Pieces (2026-11-12), for scenes built as stages (a room of models,
-lamps, named spots; a jump & run's room and an adventure's alike): a
-level is one format (`grid::text`, "voxcade level 1"), with blocks or
-without (`size` in voxels then), and what is set down in it. A
-`[[thing]]` with a `model` and no kind is a piece: a thing of the
-engine's own kind `"piece"` (last among the kinds, so the game's keep
-their places; a game's own kind may not take the name), fixed where the
-file puts its pivot, drawn by the engine, its model any `.vvx` of the
-game the level names (part of the fingerprint as a level file is).
-`facing` names one of the four ways; `rotation` (a bearing, clockwise
-from north) needs `c.camera.rotates = "free"`, the game's choice for every
-level and the editor's, else the level does not load and the mistake
-names each thing turned off the grid and both ways out (allow free turns,
-or align them in the editor: `grid::text::align`, a tie going clockwise).
-A thing of a kind takes `facing` or `rotation` too (2026-11-12): it starts
-facing that way, as `level:spawn`'s `facing` turns it (`thing:face`;
-`lua::host::Stage::name_things` turns each thing the file turns, its
-kind's markers in order). Only a kind without a behavior, which the
-script moves: one with a behavior turns by its ready-made rules, and
-its level does not load (`check_facings`). A kind with `rotates = "free"`
-faces the bearing exactly, any other the nearest of the four ways;
-`pitch` and `roll` stay the pieces'.
-A piece's `at` is its pivot cell (the model's cell `size / 2` across and
-deep, on its floor; "A model's pivot" below), and `thing.x`, `thing.y`
-read `at + 0.5`, the middle of that cell (the grid's low corner added):
-a cube put relative to a piece goes at `math.floor(thing.x) + dx`.
-A piece may be tipped besides (2026-11-12): `pitch` (its nose up, about
-its own right side) and `roll` (its right side down, about its own
-forward), degrees, the words and the order `frame:model`'s rotation has
-(`session::turning`): the rotation is `Rz(-rotation) · Rx(pitch) ·
-Ry(roll)`, roll taken first, then pitch, then the rotation round, so
-`rotation` (or `facing`) stays the bearing seen from above whatever the other two,
-and a piece is drawn exactly as `frame:model` draws a thing facing north
-with `{ rotation = rotation, pitch = pitch, roll = roll }`. All three turn about
-the same point, the middle of the voxel at half the model's height over
-the pivot cell (`render::turn_centre`: a model 30 tall turns about 15.5
-up, one 21 tall about 10.5): a voxel's middle, so a quarter turn about
-any axis puts every voxel on the grid again. Written only when not 0, on
-the grid only 0, 90, 180 or 270 each (the level names a piece off them,
-as it does a `rotation`; ALIGN ALL takes the nearest quarter, a 0 taking its
-line out). A solid piece may lie any of the 24 ways a box can; its cells
-are exactly where it is drawn (`session::piece_cells`, test
-`a_solid_piece_turned_any_way_is_where_it_is_drawn`). Laid down, a piece
-lies round its middle, so its `at` (where the standing model's pivot
-was) goes under it: a stove 20 across, 14 deep and 30 tall, `at = [40,
-150, 0]`, `facing = "north"`, `pitch = 90` lies on its back in x 30 to
-49, y 136 to 165 and z 8 to 21; the editor keeps a piece on the floor
-it stood on as it tips it (its lowest voxel stays where it was), so it
-writes `at = [40, 150, -8]` and the stove lies in z 0 to 13 (`at`'s z
-below the floor is in order for a piece; it does not fall out). Its Z
-arrow (or the number) moves it up from there.
-A piece may bring a light (`light = { at, radius, color }`, `at` from the
-pivot in the model's voxels, turning with it) or several (`lights = [ {
-... }, { ... } ]`: a lamp's flame and its wider glow; `light =` is a list
-of one, both on one thing a mistake), or be a light alone; all its
-lights move and turn with it, and `thing.state.light` (0 to 1, 1 at
-first) dims them together (an engine key kept in `Stage::lights`:
-snapshots, saves by the piece's name, and the state hash only where a
-level has lights, so earlier replays stay as they were). A light of its
-own each would come later as a list, `thing.state.lights[k]` (1 at
-first, multiplied with `light`), so `light` keeps its meaning. A piece
-whose model is a figure of parts (`[[part]]`s: a door's frame and its
-leaf hung on the hinge by `parent` and `joint`) is posed through its
-state (2026-11-12): `thing.state.parts = { leaf = { rotation = 100 },
-handle = { roll = 20 } }`, exactly the pose `frame:model` takes (each
-part by its name, `rotation`, `pitch`, `roll` in degrees about its
-joint, `offset = { x, y, z }` in voxels (moved after the rotation, its
-joint along: a part's `offset` in the file and the pose's add up), what
-hangs on it moving along; `turn` refused with its new name), and the engine draws the piece so every picture, its own
-rotation, pitch, roll and lights as before (its lights do not follow a
-part). nil or an empty table: at rest, drawn exactly as an unposed
-piece. It is the script's data in the thing's state, an engine key only
-in that a mistake is said: as it is set (the line that set it: a part
-the figure lacks, a model that is no figure, a light alone, a rotation
-that is no number, a pose that is no table), and at every tick's end (a
-part changed inside the table), naming the piece and the part; a
-mistake halts the game, the piece standing at rest meanwhile. As every
-`thing.state`, it is in the state hash (only where something is set, so
-earlier replays stay), snapshots and `inspect`, and lasts as long as the
-thing lives in this visit of the level: saves do not keep it, nor does
-entering the level again. What must outlast the visit (a door left open)
-the game keeps in `world.state` and sets again in `on_level_start` (the
-owner: "ein wenig programmieren muss man ja schon noch"). A solid piece
-blocks in the cells of its model at rest: a pose moves no cell that
-blocks (later work). Only pieces: a thing of a kind without a behavior
-is drawn by the script (`frame:model`, which takes a pose), and the
-kits' own figures by their rules (the jump & run's `thing.state.pose`
-is a set of frames). A picture
-shows the 16 lights nearest the middle of the view
-(`render::MAX_LIGHTS`), each light of a piece counting. A piece with
-`solid = true` holds bodies up and stops them, rounds and debris too,
-exactly in the cells its model is drawn in (`session::quarter_cells`, its
-first frame, glass blocking as the rest): the level's world keeps them
-beside its voxels (`world::Solids`, consulted by `World::solid`,
-`blocks` and `hold`), so its voxels stay empty (`level:voxel` says 0,
-`level:solid` true), the model draws them once, and the world's palette
-is not touched. Only in quarter turns: a solid piece turned off them
-does not load, in a game that turns freely too. It does not move; taken
-away (`thing:remove`) its cells are free at the tick's end with it; a
-blast does not blow it away, and it holds no voxels of the world up
-(they fall as before). Which were taken away is in the state hash only
-where a level has solid pieces. A level's file may have its own
-daylight, `[light]` with `c.light`'s words (`sun`, `sun_color`,
-`ambient`, `shadow`, `sky`; colours `"#rrggbb"` or three numbers from 0
-to 1, as in `c.light`, which takes both too): over the game's for
-that level, under `frame:daylight` in `on_draw`, the picture only (no
-hash); the meshes keep the faces every level's sun lights (`Game::suns`).
-`[[area]]` is a named box: `level.areas.NAME`,
-`area:holds(thing or point)`. Names given in the file are the things'
-names (`level:thing(name)`); unnamed ones keep their kind and number. Not
-yet: areas' events, setting a light's colour or radius in code, a light's
-own brightness.
+The model the Lua API is built on: what a game's scripts see, when the
+engine calls them, and why. `voxcade api` (from the register,
+`src/lua/api.rs`) lists every name with its words, `lua/voxcade.lua`
+gives them and every `conf.lua` setting to editors (LuaLS), and HELP in
+the IDE shows each by a whole game; this file is the model behind those
+names. What is not built yet is said where it would go ("not yet").
 
 ## Why
 
-The Lua API grew with the first games and thinks too short:
-
-- `world` is both the whole game and the voxels of its one level.
-- There are no levels; Sokovox builds its own from text.
-- The player is no object with a state; there is no inventory.
-- Game-shaped hooks crept in (`goal_open`, the shooter's alone).
-- A game picks one set of ready-made rules (`c.kit`), so they cannot mix.
-
-The aim, in the user's words: the best and most logical, yet still most
+The aim, in the owner's words: the best and most logical, yet still most
 flexible game API there is. A simple, generic model that carries every
 kind of game and every cross between them (a jump & run RPG, Zak McKracken
 meets Double Dragon, an RPG's zones, doors to a given level), so that the
@@ -648,9 +224,8 @@ settings. Several players: `player` is seat 1, the others are in
   freely (`frame:model`'s rotation, a piece's `rotation`, `pitch`, `roll`) a
   model turns about the middle of the voxel at half its height over the
   pivot cell (`render::turn_centre`, z `size.z / 2 + 0.5`, halves
-  rounded down; until 2026-11-12 half its height exactly, which put an
-  even-tall model half a voxel off the grid when tipped a quarter): turns
-  round the upright are the same either way. A
+  rounded down: a voxel's middle, so a quarter turn about any axis puts
+  every voxel on the grid again). A
   model's file (`.vvx`, `src/vvx.rs`) measures its frames' and parts'
   `at` and the joints from this cell, so growing a part moves nothing
   else and the model keeps standing where it stood. A part may rest
@@ -670,6 +245,116 @@ settings. Several players: `player` is seat 1, the others are in
   for each change of a format, 0.6.0's the models as `.vvx`); one for a
   newer Voxcade does not open either. Games given to the engine in tests
   as text are not asked.
+
+## The game's files, pictures, menus and languages
+
+What a world that goes on needs (a farming game with game days, menus
+and three languages, BunnyFarm, was the first), for every game. No new
+idea of the model: a menu is a sequence in `level.state` with the level
+held, as dialogue and shops always were; light is the picture's, so
+`on_draw` sets it.
+
+- **The game's own Lua files.** `require("market")` runs `market.lua` from
+  the game folder once and gives back what it returns (`require("lang.de")`
+  is `lang/de.lua`; a second `require` of the same gives the same value).
+  Lua's own name, as LÖVE has it, rather than an engine's (the one free
+  function besides the handlers: it is the language's, like `pairs`).
+  Only while the game starts (the top of `main.lua` and of the files it
+  requires), as `world:read`; the files are the game's code for the
+  fingerprint (as tokens) and for hot reload (saving any of them swaps the
+  functions, the states stay), and `check`'s guard names a local of any
+  of them that keeps state.
+- **Letters.** The pixel font has lower case (descenders a row or
+  two below the line), the letters of German and French with their
+  accents (ä ö ü ß à â ç è é ê ë î ï ô û ù œ and the capitals), and a few
+  signs (· × → ← ▲ ▼ ✓ … „ “ ’ « » • &). The engine's own text (menus,
+  the logo, a key's name in a game's text) is drawn in capitals
+  (`ui::engine_case`); a game's text is drawn as written. Accented capitals keep their full height, the accent in two
+  rows above (ZURÜCK reads as capitals in a German menu); lower case with
+  an acute, grave or circumflex gets a row of air under it.
+- **Light the game sets.** `frame:daylight{ sun =, sun_color =, ambient =,
+  shadow =, sky = }` in `on_draw`: this picture's daylight, each key as
+  `c.light` names it (`sun_color` white unless set), the
+  ones left out as `c.light` says. A day and night is the game's code: it
+  works the light out from its clock every picture. Only the picture: the
+  simulation does not see it, replays need nothing. A game whose code
+  names `daylight` has every face a sun above the horizon can light in its
+  meshes (others keep only what their one sun and the camera can hit).
+  Colours as the other frame calls take them (`{ r, g, b }`, 0 to 255);
+  HELP's DAY AND NIGHT shows a day of 40 seconds.
+- **A picture's camera.** `frame:camera{ look_at =, width =,
+  height =, pitch =, fov = }` in `on_draw`: this picture's camera, for a
+  scene the engine films (the point-and-click games' way: zoom in on
+  something and out again, a cut, a slow pan; otherwise the camera stays
+  put or follows, `level.camera`). What it leaves out is `c.camera`'s:
+  without `look_at` the view keeps on what the game's camera follows
+  (`{ width = 80 }` zooms in on the player and follows on), with it the
+  view centres on that point (`{ x, y, z }`, z left out the camera's
+  height; or a thing, where it is drawn) as given, the screen's shake on
+  top, never rounded or eased. Nothing is kept: the next picture without
+  it is the game's camera's, so a scene calls it in every picture and
+  works a pan out from its clock (`world.tick + frame.alpha`,
+  `music.beat`). Only the picture, as `frame:daylight`: the simulation,
+  the state hash, replays, the sounds' places and `level.camera` do not
+  see it (a replay draws every tick and comes out the same);
+  `frame:to_screen` after it goes by it; on the title the title's camera
+  stays. The camera does not turn round yet (`yaw` is refused: a turned view
+  is not what scenes need now). Faces: a
+  picture moved or zoomed looks along the very rays of the game's camera
+  (perspective at its pitch and field of view: moving and zooming change
+  only where the eye is), so the meshes stay as they are and cost
+  nothing; a picture at another `pitch` or `fov` adds the faces its rays
+  can hit (a low angle, the undersides), from then on, the level built
+  anew with them once (a hitch of a mesh build, More Blood's 44 ms, the
+  first time). Models out of view are left out once the picture's camera
+  is known (a game whose code calls `frame:camera`). Mistakes name the
+  field (an unknown key, a number missing, width or height 0 or less,
+  both, pitch outside -89 to 90, fov outside 10 to 100). HELP's A SCENE
+  WITH BARS shows a pan and a cut.
+- **The picture's shape.** `c.camera.aspect = 2.39` in
+  `conf.lua`: every picture is drawn into the largest rectangle of that
+  width over height the window holds, in its middle, black bars on the
+  other two sides (letterbox or pillarbox; a film's bars carry nothing).
+  The camera's `view_width` (and `frame:camera`'s `width`) is across that
+  rectangle; the HUD (`frame.width`, `frame.height`), the menus and the
+  console lie inside it; `shot`, `film` and the IDE's play area alike.
+  Unset, the window's shape. Not per picture (the HUD is laid
+  out before `on_draw` runs).
+- **Menus are the game's, drawn in the engine's look.** The game keeps
+  what is open and where the cursor stands in `level.state` (held while
+  it is open) and moves it with the keys; the engine draws:
+  `frame:menu{ x, y, width, title, tabs, tab, rows, at, hint }` (rows of
+  a text, a value at the right, an icon of `c.icons`, dimmed when
+  `dim = true`; the row `at` marked as the engine's menus mark theirs,
+  scrolled into view) and `frame:grid{ x, y, columns, cells, at }` (an
+  inventory's slots: an icon and a count each). `input:repeated(action)`
+  is true when the key is pressed and again and again while it is held
+  (as the engine's menus move), for cursors and walking on a grid: after
+  20 ticks held, every 6, counted per key in the game and kept in its
+  snapshots so a restored second repeats the same. `shown` caps the rows
+  a menu shows (a longer list scrolls, centred on `at`, with a bar at its
+  edge); a slot is `false` when empty. HELP's A MENU AND A BAG is a
+  market stall and a bag.
+- **CONTINUE on the title.** A game with `c.saves` offers CONTINUE first
+  when a slot holds a save: the newest is loaded, as LOAD in the pause
+  menu does (the run begins from that save; replays carry it). START
+  begins a new run as always; which slot it saves into is the game's
+  (`world.saves` says which are free). The title's list grows upwards, its
+  last item where it always was; `shot --screen continue` shows it.
+- **The player's language.** `c.languages = { "de", "en", "fr" }`: the
+  game speaks these. SETTINGS gets LANGUAGE (only with more than one);
+  the first time it is the system's language if the game speaks it, else
+  the first listed. `world.language` says which (`"de"`), everywhere, and
+  changes when the player changes it; it comes from the player's machine,
+  so replays write it down as they do `controls`. The engine's own menus
+  speak it too (German, English, French). The game's texts are its own
+  tables (`require("lang." .. world.language)` is not it: the language
+  can change during a run; keep all and pick by `world.language`).
+  The player's choice is kept in their settings (`Settings::language`,
+  the system's from SDL in a window only, so `shot`, `check` and
+  `inspect` speak the game's first on every machine), sent with the
+  controls (`Controls::language`) every picture; the engine's words in
+  `src/lang.rs`; HELP's SPEAK THE PLAYER'S LANGUAGE.
 
 ## States
 
@@ -1084,6 +769,119 @@ touches there touches without `on_touch`.
   began from); every level's files count for their fingerprint, the
   pieces' models among them.
 
+### Pieces, lights and areas
+
+Pieces are for scenes built as stages (a room of models,
+lamps, named spots; a jump & run's room and an adventure's alike): a
+level is one format (`grid::text`, "voxcade level 1"), with blocks or
+without (`size` in voxels then), and what is set down in it. A
+`[[thing]]` with a `model` and no kind is a piece: a thing of the
+engine's own kind `"piece"` (last among the kinds, so the game's keep
+their places; a game's own kind may not take the name), fixed where the
+file puts its pivot, drawn by the engine, its model any `.vvx` of the
+game the level names (part of the fingerprint as a level file is).
+`facing` names one of the four ways; `rotation` (a bearing, clockwise
+from north) needs `c.camera.rotates = "free"`, the game's choice for every
+level and the editor's, else the level does not load and the mistake
+names each thing turned off the grid and both ways out (allow free turns,
+or align them in the editor: `grid::text::align`, a tie going clockwise).
+A thing of a kind takes `facing` or `rotation` too: it starts
+facing that way, as `level:spawn`'s `facing` turns it (`thing:face`;
+`lua::host::Stage::name_things` turns each thing the file turns, its
+kind's markers in order). Only a kind without a behavior, which the
+script moves: one with a behavior turns by its ready-made rules, and
+its level does not load (`check_facings`). A kind with `rotates = "free"`
+faces the bearing exactly, any other the nearest of the four ways;
+`pitch` and `roll` stay the pieces'.
+A piece's `at` is its pivot cell (the model's cell `size / 2` across and
+deep, on its floor; "A model's pivot" below), and `thing.x`, `thing.y`
+read `at + 0.5`, the middle of that cell (the grid's low corner added):
+a cube put relative to a piece goes at `math.floor(thing.x) + dx`.
+A piece may be tipped besides: `pitch` (its nose up, about
+its own right side) and `roll` (its right side down, about its own
+forward), degrees, the words and the order `frame:model`'s rotation has
+(`session::turning`): the rotation is `Rz(-rotation) · Rx(pitch) ·
+Ry(roll)`, roll taken first, then pitch, then the rotation round, so
+`rotation` (or `facing`) stays the bearing seen from above whatever the other two,
+and a piece is drawn exactly as `frame:model` draws a thing facing north
+with `{ rotation = rotation, pitch = pitch, roll = roll }`. All three turn about
+the same point, the middle of the voxel at half the model's height over
+the pivot cell (`render::turn_centre`: a model 30 tall turns about 15.5
+up, one 21 tall about 10.5): a voxel's middle, so a quarter turn about
+any axis puts every voxel on the grid again. Written only when not 0, on
+the grid only 0, 90, 180 or 270 each (the level names a piece off them,
+as it does a `rotation`; ALIGN ALL takes the nearest quarter, a 0 taking its
+line out). A solid piece may lie any of the 24 ways a box can; its cells
+are exactly where it is drawn (`session::piece_cells`, test
+`a_solid_piece_turned_any_way_is_where_it_is_drawn`). Laid down, a piece
+lies round its middle, so its `at` (where the standing model's pivot
+was) goes under it: a stove 20 across, 14 deep and 30 tall, `at = [40,
+150, 0]`, `facing = "north"`, `pitch = 90` lies on its back in x 30 to
+49, y 136 to 165 and z 8 to 21; the editor keeps a piece on the floor
+it stood on as it tips it (its lowest voxel stays where it was), so it
+writes `at = [40, 150, -8]` and the stove lies in z 0 to 13 (`at`'s z
+below the floor is in order for a piece; it does not fall out). Its Z
+arrow (or the number) moves it up from there.
+A piece may bring a light (`light = { at, radius, color }`, `at` from the
+pivot in the model's voxels, turning with it) or several (`lights = [ {
+... }, { ... } ]`: a lamp's flame and its wider glow; `light =` is a list
+of one, both on one thing a mistake), or be a light alone; all its
+lights move and turn with it, and `thing.state.light` (0 to 1, 1 at
+first) dims them together (an engine key kept in `Stage::lights`:
+snapshots, saves by the piece's name, and the state hash only where a
+level has lights, so earlier replays stay as they were). Not yet: a light of
+its own each, as a list, `thing.state.lights[k]` (1 at first, multiplied
+with `light`), so `light` keeps its meaning. A piece
+whose model is a figure of parts (`[[part]]`s: a door's frame and its
+leaf hung on the hinge by `parent` and `joint`) is posed through its
+state: `thing.state.parts = { leaf = { rotation = 100 },
+handle = { roll = 20 } }`, exactly the pose `frame:model` takes (each
+part by its name, `rotation`, `pitch`, `roll` in degrees about its
+joint, `offset = { x, y, z }` in voxels (moved after the rotation, its
+joint along: a part's `offset` in the file and the pose's add up), what
+hangs on it moving along; `turn` refused with its new name), and the engine draws the piece so every picture, its own
+rotation, pitch, roll and lights as before (its lights do not follow a
+part). nil or an empty table: at rest, drawn exactly as an unposed
+piece. It is the script's data in the thing's state, an engine key only
+in that a mistake is said: as it is set (the line that set it: a part
+the figure lacks, a model that is no figure, a light alone, a rotation
+that is no number, a pose that is no table), and at every tick's end (a
+part changed inside the table), naming the piece and the part; a
+mistake halts the game, the piece standing at rest meanwhile. As every
+`thing.state`, it is in the state hash (only where something is set, so
+earlier replays stay), snapshots and `inspect`, and lasts as long as the
+thing lives in this visit of the level: saves do not keep it, nor does
+entering the level again. What must outlast the visit (a door left open)
+the game keeps in `world.state` and sets again in `on_level_start`. A solid piece
+blocks in the cells of its model at rest: a pose moves no cell that
+blocks (later work). Only pieces: a thing of a kind without a behavior
+is drawn by the script (`frame:model`, which takes a pose), and the
+kits' own figures by their rules (the jump & run's `thing.state.pose`
+is a set of frames). A picture
+shows the 16 lights nearest the middle of the view
+(`render::MAX_LIGHTS`), each light of a piece counting. A piece with
+`solid = true` holds bodies up and stops them, rounds and debris too,
+exactly in the cells its model is drawn in (`session::quarter_cells`, its
+first frame, glass blocking as the rest): the level's world keeps them
+beside its voxels (`world::Solids`, consulted by `World::solid`,
+`blocks` and `hold`), so its voxels stay empty (`level:voxel` says 0,
+`level:solid` true), the model draws them once, and the world's palette
+is not touched. Only in quarter turns: a solid piece turned off them
+does not load, in a game that turns freely too. It does not move; taken
+away (`thing:remove`) its cells are free at the tick's end with it; a
+blast does not blow it away, and it holds no voxels of the world up
+(they fall as before). Which were taken away is in the state hash only
+where a level has solid pieces. A level's file may have its own
+daylight, `[light]` with `c.light`'s words (`sun`, `sun_color`,
+`ambient`, `shadow`, `sky`; colours `"#rrggbb"` or three numbers from 0
+to 1, as in `c.light`, which takes both too): over the game's for
+that level, under `frame:daylight` in `on_draw`, the picture only (no
+hash); the meshes keep the faces every level's sun lights (`Game::suns`).
+`[[area]]` is a named box: `level.areas.NAME`,
+`area:holds(thing or point)`. Names given in the file are the things'
+names (`level:thing(name)`); unnamed ones keep their kind and number. Not
+yet: areas' events, setting a light's colour or radius in code.
+
 ## Items and the inventory
 
 - Items are data: `c.items.key = { model = "key.vvx", stack = 1, order =
@@ -1258,11 +1056,8 @@ says so).
 
 ## Several players
 
-Status: designed 2026-10-29 (stage 1 of `docs/multiplayer.md`; written
-against five games below, attacked by Fable and Grok,
-`shots/reviews/fable-players.md`, `grok-players.md`, and revised), built
-2026-10-30 for games without ready-made rules (stage 2; the kits in
-stage 3, the network in stage 4). Two to four players at one screen as at an arcade machine (no split
+For games without ready-made rules and with both kits', at one screen
+and over the network (`docs/multiplayer.md`). Two to four players at one screen as at an arcade machine (no split
 screen), eight and more over the network; co-op, versus or teams as the
 game decides. A game of one changes nothing: `c.players` unset is 1,
 `player` is the one who plays, and its replays and hashes stay as they are
@@ -1613,35 +1408,3 @@ scene_tree.cpp and demo projects, Unity's open project Chop Chop and the
 RPG Maker MZ's core scripts, the HaxeFlixel demos, EXOK's Celeste
 Classic 2), the open games Mari0 and Hawkthorne, and Yacht Club's and
 Team Meat's design writing.
-
-## From version 1
-
-| Version 1 | Version 2 |
-|---|---|
-| `function load(world)` | `function on_world_start()`; a level built in code in `on_level_start(how)` |
-| `function tick(world, input)` | `function on_tick()` |
-| `function draw(world, out)` | `function on_draw(frame)` |
-| `function goal_open(world)` | `on_touch` and the game's own state; no goal event |
-| `world.state` | `world.state` |
-| `world:fill`, `world:voxel`, `world:set_voxel`, `world:ground`, `world.size` | `level:…` |
-| `world:spawn(kind, x, y, z)`, `world:thing`, `world:things`, `world:count` | `level:spawn(kind, x, y, { z = … })`, `level:…` |
-| `world:remove(thing)` | `thing:remove()`, at the tick's end |
-| `world:explode`, `world:sound` | `level:…` |
-| `world:shake`, `world:flash` | `screen:shake`, `screen:flash` |
-| `world:hitstop` | unchanged |
-| `world:focus`, `world:look_at` | `level.camera:follow`, `level.camera:look_at` |
-| `world.score` | `player.state.score` |
-| `world:win`, `world:lose`, `world.tick` | unchanged (they wait for the tick's end) |
-| `thing.data` | `thing.state` |
-| `thing.hp` | `thing.state.hp` |
-| `thing.look` | `thing.facing` |
-| `out:…` | `frame:…`; `out:key`, `out.device`: `controls:key`, `controls.device` (everywhere), or the action in braces in `frame:text` |
-| `c.kit = "platformer"`, `behavior = "walker"` | `behaviors = { "walker" }` (the kit implied by the behaviors) |
-
-The ready-made rules' score, lives and hit points (the platformer's
-hearts) came into `player.state` and `thing.state` in stage 2 without
-changing what the replays' checks hash: the engine keeps them where it
-did and reads and writes them through. What moves for real later (the
-weapons, the inventory, the ready-made rules' own deaths and respawns
-handed to `on_death`) changes the hash: that stage records the checks
-anew (`voxcade check --update`, the same input), and says so.

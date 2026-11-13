@@ -40,7 +40,7 @@ mod tests {
             "from_angle(", "angle_between(", "Quat::",
         ];
         let mut found = Vec::new();
-        let files = ["src/sim", "src/shooter", "src/platformer", "src/lua"].into_iter().flat_map(|dir| std::fs::read_dir(dir).expect("reading the simulation").map(|e| e.unwrap().path()))
+        let files = ["src/sim", "src/shooter", "src/platformer", "src/lua", "src/lua/world"].into_iter().flat_map(|dir| std::fs::read_dir(dir).expect("reading the simulation").map(|e| e.unwrap().path()))
             // (A level's terrain is built the same on every system too.)
             .chain([std::path::PathBuf::from("src/terrain.rs")]);
         for path in files {
