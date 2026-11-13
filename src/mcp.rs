@@ -115,7 +115,7 @@ fn tools(remote: bool) -> Value {
             "description": "Plays the game for some ticks without a window and returns the last frame as a PNG, with what the engine reports (the player, things, sounds, timings). See what the player sees.",
             "inputSchema": { "type": "object", "properties": {
                 "game": game, "frames": frames(90), "input": input, "players": others, "scenario": scenario, "do": lines,
-                "screen": prop("string", "A menu instead of the game: title, settings, controls, intro, pause, or console (the console open, the do lines in it)"),
+                "screen": prop("string", &format!("A menu or screen instead of the game: {}", crate::headless::SCREENS.iter().map(|(name, what)| format!("{name} ({what})")).collect::<Vec<_>>().join(", "))),
                 "at": prop("string", "Where the player starts: 'x,y' in voxels"),
                 "pad": prop("string", "Hints for a gamepad instead of the keyboard: xbox, nintendo or playstation"),
                 "size": prop("string", "The picture's size, 'WxH' (default 960x540)"),

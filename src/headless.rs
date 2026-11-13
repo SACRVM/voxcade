@@ -22,7 +22,7 @@ pub struct ShotOptions {
     /// A replay to play instead of `input`, and a file to record the run to.
     pub replay: Option<PathBuf>,
     pub record: Option<PathBuf>,
-    /// A menu screen to show: title, settings, controls or pause.
+    /// A menu or screen to show instead of the game (`SCREENS`).
     pub screen: Option<String>,
     pub input: String,
     /// The seats' after the first (`--input2` and on): seat and script.
@@ -191,6 +191,90 @@ impl Canvas {
     }
 }
 
+/// Every screen `shot --screen` shows, with what it is: the command line
+/// takes these names and its help lists them (`cli`); `screen_menu`
+/// begins each.
+pub const SCREENS: &[(&str, &str)] = &[
+    ("title", "the title, N ticks into its animations"),
+    ("continue", "the title of a game with a save to go on from"),
+    ("settings", "SETTINGS"),
+    ("audio", "SETTINGS' AUDIO page"),
+    ("video", "SETTINGS' VIDEO page"),
+    ("controls", "SETTINGS' CONTROLS page"),
+    ("players", "a game of several's CONTROLS: who plays with what"),
+    ("player-controls", "the second player's own keys"),
+    ("network", "a game of several's NETWORK: host or join"),
+    ("find", "JOIN's list of the games found (samples)"),
+    ("join", "the host's address typed"),
+    ("code", "a game's code typed (across the internet)"),
+    ("joining", "joining, catching up"),
+    ("joining-net", "joining across the internet: the code to say"),
+    ("intro", "the glide from the title into the game, N ticks in"),
+    ("pause", "the pause page over the game after N ticks"),
+    ("save", "the pause's SAVE page, the run's saves in it"),
+    ("load", "the pause's LOAD page"),
+    ("host-pause", "a network host's pause page: who plays, one to drop"),
+    ("host-alone", "a host's pause page before anyone came: how to let them in"),
+    ("host-net-pause", "a host's pause page across the internet: its code, one asking in"),
+    ("guest-pause", "a guest's own pause page"),
+    ("attract", "a --replay as the title plays it, PRESS START over it"),
+    ("highscores", "the high score table, a sample run's line in it"),
+    ("initials", "a sample run's initials being entered"),
+    ("console", "the console open over the game, the --do lines in it"),
+];
+
+/// The menu a `--screen` begins with, and whether the title's scene is
+/// behind it: `title` and `players` the game's (`c.title`, `c.players`),
+/// `replay` whether a replay plays.
+pub(crate) fn screen_menu(screen: Option<&str>, title: &str, players: u32, replay: bool) -> Result<(Menu, bool)> {
+    Ok(match screen {
+        None => (Menu::default(), false),
+        Some("title") => (Menu::title(), true),
+        // The title of a game with a save to go on from.
+        Some("continue") => (Menu::title().continuing(Some(1)), true),
+        Some("settings") => (Menu { stack: vec![(Page::Title, 1), (Page::Settings, 0)], ..Menu::title() }, true),
+        Some("audio") => (Menu { stack: vec![(Page::Title, 1), (Page::Settings, 0), (Page::Audio, 0)], ..Menu::title() }, true),
+        Some("video") => (Menu { stack: vec![(Page::Title, 1), (Page::Settings, 1), (Page::Video, 0)], ..Menu::title() }, true),
+        Some("controls") => (Menu { stack: vec![(Page::Title, 1), (Page::Settings, 2), (Page::Controls, 0)], ..Menu::title() }, true),
+        // A game of several's CONTROLS: who plays with what, and the
+        // second player's keys at the keyboard's right half.
+        Some("players") => (Menu { stack: vec![(Page::Title, 1), (Page::Settings, 2), (Page::Players, 0)], ..Menu::title() }, true),
+        Some("player-controls") => (Menu { stack: vec![(Page::Title, 1), (Page::Settings, 2), (Page::Players, 5), (Page::PlayerControls(2), 0)], ..Menu::title() }, true),
+        // A network game (a game of several): HOST or JOIN, the host's
+        // address typed, joining (how far).
+        Some("network") => (Menu { stack: vec![(Page::Title, 2), (Page::Network, 0)], ..Menu::title() }, true),
+        Some("find") => {
+            let found = vec![
+                crate::menu::FoundLine { line: format!("{}  ANNA  1/{}  192.168.1.5:26500", title.to_uppercase(), players), address: "192.168.1.5:26500".into(), same: true },
+                crate::menu::FoundLine { line: "MORE BLOOD  BEN  1/1  192.168.1.7:26500".into(), address: "192.168.1.7:26500".into(), same: false },
+            ];
+            let found = found.into_iter().chain([crate::menu::FoundLine { line: format!("{}  BEN  1/2  DX67A3", title.to_uppercase()), address: "DX67A3".into(), same: true }]).collect();
+            (Menu { stack: vec![(Page::Title, 2), (Page::Network, 1), (Page::Find, 0)], found, internet: true, ..Menu::title() }, true)
+        }
+        Some("join") => (Menu { stack: vec![(Page::Title, 2), (Page::Network, 1), (Page::Find, 3), (Page::Join, 0)], address: "192.168.1.5".into(), ..Menu::title() }, true),
+        // A game's code being typed (across the internet).
+        Some("code") => (Menu { stack: vec![(Page::Title, 2), (Page::Network, 1), (Page::Find, 2), (Page::Code, 0)], code: "DX67".into(), ..Menu::title() }, true),
+        Some("joining") => {
+            let net = crate::menu::NetView { lines: vec!["CATCHING UP 40%".into()], ..Default::default() };
+            (Menu { stack: vec![(Page::Title, 2), (Page::Joining, 0)], net: Some(net), ..Menu::title() }, true)
+        }
+        // Joining across the internet: connected, the code to say.
+        Some("joining-net") => {
+            let net = crate::menu::NetView { lines: vec![crate::lang::say_with("en", "THE HOST LETS YOU IN: SAY {}", &["KQ7P"])], ..Default::default() };
+            (Menu { stack: vec![(Page::Title, 2), (Page::Joining, 0)], net: Some(net), ..Menu::title() }, true)
+        }
+        Some("pause" | "save" | "load" | "console" | "host-pause" | "host-alone" | "host-net-pause" | "guest-pause") => (Menu::default(), false),
+        Some("intro") => (Menu::default(), true),
+        // The high score table, a new line blinking, and the initials of
+        // one being entered (`--frames` ticks into their animations).
+        Some("highscores" | "initials") => (Menu::default(), true),
+        // A replay as the title plays it, PRESS START over it.
+        Some("attract") if replay => (Menu::default(), false),
+        Some("attract") => bail!("--screen attract shows a replay: give one with --replay"),
+        Some(other) => bail!("no screen '{other}' ({})", SCREENS.iter().map(|(s, _)| *s).collect::<Vec<_>>().join(", ")),
+    })
+}
+
 pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     let started = Instant::now();
     let replay = opts.replay.as_deref().map(Replay::load).transpose()?;
@@ -235,52 +319,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     let mut heard: Vec<(&'static str, u32)> = Vec::new();
     // A menu screen: the title's run their animations for the frames
     // instead of the game; pause first plays them.
-    let (mut menu, title) = match opts.screen.as_deref() {
-        None => (Menu::default(), false),
-        Some("title") => (Menu::title(), true),
-        // The title of a game with a save to go on from.
-        Some("continue") => (Menu::title().continuing(Some(1)), true),
-        Some("settings") => (Menu { stack: vec![(Page::Title, 1), (Page::Settings, 0)], ..Menu::title() }, true),
-        Some("audio") => (Menu { stack: vec![(Page::Title, 1), (Page::Settings, 0), (Page::Audio, 0)], ..Menu::title() }, true),
-        Some("video") => (Menu { stack: vec![(Page::Title, 1), (Page::Settings, 1), (Page::Video, 0)], ..Menu::title() }, true),
-        Some("controls") => (Menu { stack: vec![(Page::Title, 1), (Page::Settings, 2), (Page::Controls, 0)], ..Menu::title() }, true),
-        // A game of several's CONTROLS: who plays with what, and the
-        // second player's keys at the keyboard's right half.
-        Some("players") => (Menu { stack: vec![(Page::Title, 1), (Page::Settings, 2), (Page::Players, 0)], ..Menu::title() }, true),
-        Some("player-controls") => (Menu { stack: vec![(Page::Title, 1), (Page::Settings, 2), (Page::Players, 5), (Page::PlayerControls(2), 0)], ..Menu::title() }, true),
-        // A network game (a game of several): HOST or JOIN, the host's
-        // address typed, joining (how far).
-        Some("network") => (Menu { stack: vec![(Page::Title, 2), (Page::Network, 0)], ..Menu::title() }, true),
-        Some("find") => {
-            let found = vec![
-                crate::menu::FoundLine { line: format!("{}  ANNA  1/{}  192.168.1.5:26500", game.cfg.title.to_uppercase(), game.cfg.players), address: "192.168.1.5:26500".into(), same: true },
-                crate::menu::FoundLine { line: "MORE BLOOD  BEN  1/1  192.168.1.7:26500".into(), address: "192.168.1.7:26500".into(), same: false },
-            ];
-            let found = found.into_iter().chain([crate::menu::FoundLine { line: format!("{}  BEN  1/2  DX67A3", game.cfg.title.to_uppercase()), address: "DX67A3".into(), same: true }]).collect();
-            (Menu { stack: vec![(Page::Title, 2), (Page::Network, 1), (Page::Find, 0)], found, internet: true, ..Menu::title() }, true)
-        }
-        Some("join") => (Menu { stack: vec![(Page::Title, 2), (Page::Network, 1), (Page::Find, 3), (Page::Join, 0)], address: "192.168.1.5".into(), ..Menu::title() }, true),
-        // A game's code being typed (across the internet).
-        Some("code") => (Menu { stack: vec![(Page::Title, 2), (Page::Network, 1), (Page::Find, 2), (Page::Code, 0)], code: "DX67".into(), ..Menu::title() }, true),
-        Some("joining") => {
-            let net = crate::menu::NetView { lines: vec!["CATCHING UP 40%".into()], ..Default::default() };
-            (Menu { stack: vec![(Page::Title, 2), (Page::Joining, 0)], net: Some(net), ..Menu::title() }, true)
-        }
-        // Joining across the internet: connected, the code to say.
-        Some("joining-net") => {
-            let net = crate::menu::NetView { lines: vec![crate::lang::say_with("en", "THE HOST LETS YOU IN: SAY {}", &["KQ7P"])], ..Default::default() };
-            (Menu { stack: vec![(Page::Title, 2), (Page::Joining, 0)], net: Some(net), ..Menu::title() }, true)
-        }
-        Some("pause" | "save" | "load" | "console" | "host-pause" | "host-alone" | "host-net-pause" | "guest-pause") => (Menu::default(), false),
-        Some("intro") => (Menu::default(), true),
-        // The high score table, a new line blinking, and the initials of
-        // one being entered (`--frames` ticks into their animations).
-        Some("highscores" | "initials") => (Menu::default(), true),
-        // A replay as the title plays it, PRESS START over it.
-        Some("attract") if opts.replay.is_some() => (Menu::default(), false),
-        Some("attract") => bail!("--screen attract shows a replay: give one with --replay"),
-        Some(other) => bail!("no screen '{other}' (title, settings, audio, video, controls, players, player-controls, network, find, join, code, joining, joining-net, intro, pause, host-pause, host-alone, host-net-pause, guest-pause, save, load, attract, highscores, initials, console)"),
-    };
+    let (mut menu, title) = screen_menu(opts.screen.as_deref(), &game.cfg.title, game.cfg.players, opts.replay.is_some())?;
     // A game of several offers NETWORK on its title.
     menu.network = game.cfg.players > 1;
     if matches!(opts.screen.as_deref(), Some("network" | "find" | "join" | "code" | "joining" | "joining-net")) && game.cfg.players < 2 {

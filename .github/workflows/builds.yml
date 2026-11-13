@@ -107,7 +107,14 @@ jobs:
       # through our relay, coming late: the same run byte for byte. The
       # relay's latency under load is not Voxcade's to measure (it is the
       # relay's and the route's).
+      #
+      # It needs our matchmaker and relay to be up: a server down must not
+      # hold back the packages and the release, so a failure here is marked
+      # (a warning on the run and a line in its summary, the next step) and
+      # the build goes on. The LAN step above is the one that must pass.
       - name: The network across the internet
+        id: internet
+        continue-on-error: true
         shell: bash
         run: |
           bin="target/${{ matrix.target }}/release/voxcade"
@@ -121,6 +128,16 @@ jobs:
           grep -q "through the relay" guest.log
           cmp host.toml guest.toml
           rm host.toml guest.toml host.json guest.json host.log guest.log
+
+      - name: Say if the network across the internet failed
+        if: steps.internet.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "::warning title=Network across the internet (${{ matrix.name }})::failed: our matchmaker or relay may be down, or the network play broke. The packages were built anyway; look at the step's log before a release."
+          echo "### ${{ matrix.name }}: the network across the internet FAILED (not blocking: matchmaker or relay down?)" >> "$GITHUB_STEP_SUMMARY"
+          # A host left waiting for its guest stops here.
+          pkill -f "inspect games/pulsar" 2>/dev/null || true
+          rm -f host.toml guest.toml host.json guest.json host.log guest.log
 
       # The program, the games, a start script for every game and the IDE,
       # and the licences of what is built into the program

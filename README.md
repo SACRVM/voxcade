@@ -212,7 +212,11 @@ voxcade sheet games/bunnyfarm bunny.vvx                                # a model
 
 - `shot` writes one frame and says what it cost (CPU and GPU per pass,
   the slowest ticks); `--screen` shows a menu (title, settings, pause,
-  console ...), `--record` keeps the run as a replay.
+  console ...; `voxcade shot --help` lists them all), `--record` keeps
+  the run as a replay.
+- `voxcade COMMAND --help` says every option a command takes, a
+  person's first, the ones for pictures and tests under their own
+  heading; `voxcade help all` says everything.
 - `check` plays every replay in a game's `replays/` and says whether each
   runs as recorded (a hash of the states every second and the state its
   run ended in), drawing after every tick as a window does; `--refit` takes new game files that play
