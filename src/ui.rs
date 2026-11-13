@@ -1133,6 +1133,11 @@ fn setting(out: &mut Vec<Instance>, view: &MenuView, item: Item, x: f32, y: f32,
             let shown = if selected { format!("< {label} >") } else { label.to_string() };
             text(out, &shown, x, y, 1, color, depth);
         }
+        Item::FrameRate => {
+            let label = crate::lang::say(&lang, s.frame_rate.label());
+            let shown = if selected { format!("< {label} >") } else { label.to_string() };
+            text(out, &shown, x, y, 1, color, depth);
+        }
         Item::Language => {
             let name = crate::lang::name(&lang);
             let shown = if selected { format!("< {name} >") } else { name };

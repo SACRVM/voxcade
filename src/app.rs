@@ -40,7 +40,11 @@ const HIGH_SCORES_TICKS: u64 = 8 * 60;
 /// Runs the game folder `dir`, a game of kind `G`, in a window; with
 /// `watching`, shows that replay instead; with `network`, hosts a network
 /// game at once or joins one (`--host`, `--join`).
-pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session::Begin, network: Option<crate::headless::Networked>, keys: Option<&str>) -> Result<()> {
+///
+/// `maker`: the maker's keys work (`voxcade run --maker`: F5 restarts the
+/// run on the files as they are, F9 keeps it, 1 to 9 pick the song); a
+/// player of a packaged game, or of the launcher's PLAY, has none of them.
+pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session::Begin, network: Option<crate::headless::Networked>, keys: Option<&str>, maker: bool) -> Result<()> {
     // A replay watched plays on slots of its own, never the player's.
     let mut game = match &watching {
         Some(replay) => replay_session::<G>(dir, replay)?,
@@ -50,6 +54,9 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
     let sdl = sdl3::init().context("initialising SDL")?;
     let video = sdl.video().context("initialising SDL video")?;
     let mut screen = crate::window::Screen::open(&video, &format!("voxcade - {}", game.cfg.title), 1600, 900, true)?;
+    // Shadows start coarser on the processor's own graphics (`Settings::load_for`).
+    let adapter = screen.gpu().adapter().clone();
+    let integrated = adapter.get_info().device_type == wgpu::DeviceType::IntegratedGpu;
     let crate::window::Screen { surface, device, queue, config, window, .. } = &mut screen;
     let (format, width, height) = (config.format, config.width, config.height);
 
@@ -61,7 +68,7 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
     let mut speaker = crate::audio::speaker(&sdl);
 
     let settings_path = settings::path_for(dir);
-    let mut settings = Settings::load(&settings_path);
+    let (mut settings, settings_trouble) = Settings::load_for(&settings_path, integrated);
     settings.adopt(game.actions(), &game.default_keys(), &game.default_pad());
     // The window's player speaks the system's language where the game does.
     settings.system_languages = settings::system_languages();
@@ -75,6 +82,7 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
         }
     }
     apply_settings(&mut game, &mut settings);
+    crate::window::set_frame_rate(surface, device, config, &adapter, settings.frame_rate);
     if settings.fullscreen {
         window.set_fullscreen(true).context("fullscreen")?;
     }
@@ -168,7 +176,23 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
         }
         None => {}
     }
+    // What went wrong before the first picture (settings or saves that would
+    // not read) is said on the screen too, as a network's trouble is.
     let mut parting: Option<(String, Instant)> = None;
+    {
+        let lang = settings.language();
+        let mut said = Vec::new();
+        if settings_trouble.is_some() {
+            said.push(crate::lang::say(&lang, "SETTINGS UNREADABLE, THE OLD FILE IS KEPT AS .BROKEN").to_string());
+        }
+        for slot in game.slots.unreadable() {
+            said.push(crate::lang::say_with(&lang, "SAVE {} CANNOT BE READ", &[&slot.to_string()]));
+        }
+        if !said.is_empty() {
+            parting = Some((said.join("  "), Instant::now()));
+        }
+    }
+    let mut pacer = crate::window::Pacer::default();
     let mut typing_address = false;
     // The hosted game's code last put on the clipboard.
     let mut copied_code: Option<String> = None;
@@ -295,12 +319,13 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
                         }
                         continue;
                     }
+                    let maker_code = maker_key(code, maker, watching.is_some());
                     if code == Scancode::F11 && !repeat {
                         settings.fullscreen = !settings.fullscreen;
                         commands.push(Command::Fullscreen);
-                    } else if code == Scancode::F5 && !repeat {
+                    } else if maker_code == Some(Scancode::F5) && !repeat {
                         commands.push(Command::Restart);
-                    } else if code == Scancode::F9 && !repeat && watching.is_none() && net.as_ref().is_some_and(|n| !n.hosting()) {
+                    } else if maker_code == Some(Scancode::F9) && !repeat && watching.is_none() && net.as_ref().is_some_and(|n| !n.hosting()) {
                         // A guest keeps the network game's recording.
                         if let Some(crate::network::Side::Guest(j)) = net.as_ref().map(|n| &n.side) {
                             let path = dir.join("replays").join(format!("network-{}.toml", crate::saves::now()));
@@ -309,12 +334,12 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
                                 Err(e) => println!("F9: {e:#}"),
                             }
                         }
-                    } else if code == Scancode::F9 && !repeat && watching.is_none() {
+                    } else if maker_code == Some(Scancode::F9) && !repeat && watching.is_none() {
                         match runs.keep(&game) {
                             Ok(path) => println!("kept the run as {}", path.display()),
                             Err(e) => println!("F9: {e:#}"),
                         }
-                    } else if let Some(index) = song_key(code).filter(|_| !repeat && menu.page() != Some(Page::Initials)) {
+                    } else if let Some(index) = maker_code.and_then(song_key).filter(|_| !repeat && menu.page() != Some(Page::Initials)) {
                         if index < game.cfg.audio.music.files().len() {
                             settings.song = index;
                             commands.push(Command::Song);
@@ -594,6 +619,7 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
                         settings.address = address.clone();
                         if let Err(e) = settings.save(&settings_path) {
                             eprintln!("settings: {e:#}");
+                            parting = Some(trouble(&settings.language(), "SETTINGS NOT SAVED: {}", &e));
                         }
                     }
                     match crate::network::Network::join(dir, &address, game.cfg.players, crate::network::app_of(&game).ok()) {
@@ -691,6 +717,7 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
                     settings.players = crate::seating::plan_of(&seats, &named, &settings.players, chosen);
                     if let Err(e) = settings.save(&settings_path) {
                         eprintln!("settings: {e:#}");
+                        parting = Some(trouble(&settings.language(), "SETTINGS NOT SAVED: {}", &e));
                     }
                     if playing {
                         seating = seats;
@@ -709,6 +736,7 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
                     game.set_clock(crate::saves::now());
                     if let Err(e) = game.save_to(slot) {
                         eprintln!("saving into slot {slot}: {e:#}");
+                        parting = Some(trouble(&settings.language(), "COULD NOT SAVE: {}", &e));
                     }
                     // Back on the pause page, the slot's new line in it.
                     menu.slots = pause_menu(&game, true).slots;
@@ -721,6 +749,7 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
                         && let Err(e) = h.load(&game, slot)
                     {
                         eprintln!("loading slot {slot}: {e:#}");
+                        parting = Some(trouble(&settings.language(), "COULD NOT LOAD: {}", &e));
                     }
                     menu = Menu::default();
                 }
@@ -749,6 +778,7 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
                         }
                         Some(Err(e)) => {
                             eprintln!("loading slot {slot}: {e:#}");
+                            parting = Some(trouble(&settings.language(), "COULD NOT LOAD: {}", &e));
                             menu = if playing { pause_menu(&game, true) } else { title_menu(&game) };
                         }
                         None => menu = if playing { pause_menu(&game, watching.is_none()) } else { title_menu(&game) },
@@ -758,6 +788,7 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
                     let rank = settings.enter(&menu.entry.initials(), menu.entry.score);
                     if let Err(e) = settings.save(&settings_path) {
                         eprintln!("settings: {e:#}");
+                        parting = Some(trouble(&settings.language(), "SETTINGS NOT SAVED: {}", &e));
                     }
                     // The next player's initials, if another got in.
                     menu = next_initials(&mut entering, &settings).unwrap_or_else(|| Menu::high_scores(rank));
@@ -833,6 +864,7 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
                                 }
                                 if let Err(e) = settings.save(&settings_path) {
                                     eprintln!("settings: {e:#}");
+                                    parting = Some(trouble(&settings.language(), "SETTINGS NOT SAVED: {}", &e));
                                 }
                                 Menu::high_scores(rank)
                             }
@@ -863,8 +895,10 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
                         game.select_song(settings.song);
                     }
                     apply_settings(&mut game, &mut settings);
+                    crate::window::set_frame_rate(surface, device, config, &adapter, settings.frame_rate);
                     if let Err(e) = settings.save(&settings_path) {
                         eprintln!("settings: {e:#}");
+                        parting = Some(trouble(&settings.language(), "SETTINGS NOT SAVED: {}", &e));
                     }
                 }
             }
@@ -1351,6 +1385,7 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
             wgpu::CurrentSurfaceTexture::Validation => bail!("surface validation error"),
         }
 
+        pacer.wait(settings.frame_rate.limit());
         fps_frames += 1;
         if fps_since.elapsed() >= Duration::from_millis(500) {
             fps = fps_frames as f32 / fps_since.elapsed().as_secs_f32();
@@ -1504,6 +1539,35 @@ fn pad_nav(button: Button) -> Option<Nav> {
     })
 }
 
+/// The maker's keys: F5, F9 and the number keys that pick a song.
+const MAKER_KEYS: [Scancode; 11] = [
+    Scancode::F5,
+    Scancode::F9,
+    Scancode::_1,
+    Scancode::_2,
+    Scancode::_3,
+    Scancode::_4,
+    Scancode::_5,
+    Scancode::_6,
+    Scancode::_7,
+    Scancode::_8,
+    Scancode::_9,
+];
+
+/// `code` if it is a maker's key the window answers: only behind the maker
+/// switch (`voxcade run --maker`), F5 also in a replay being watched (it
+/// plays it again). Without it nothing here is taken, so a player's keys
+/// are the game's alone.
+fn maker_key(code: Scancode, maker: bool, watching: bool) -> Option<Scancode> {
+    MAKER_KEYS.contains(&code).then_some(code).filter(|&c| maker || (watching && c == Scancode::F5))
+}
+
+/// A failure said on the screen for a few seconds: `what` with the cause's
+/// own words (the whole chain went to stderr already).
+fn trouble(lang: &str, what: &'static str, e: &anyhow::Error) -> (String, Instant) {
+    (crate::lang::say_with(lang, what, &[&e.root_cause().to_string()]).to_uppercase(), Instant::now())
+}
+
 /// The song a number key picks: 1 the first.
 fn song_key(code: Scancode) -> Option<usize> {
     const KEYS: [Scancode; 9] = [
@@ -1526,5 +1590,35 @@ fn song_key(code: Scancode) -> Option<usize> {
 fn begun<G: Game>(begin: &crate::session::Begin, game: &mut Session<G>) {
     if let Err(e) = begin.apply(game, |line, said| println!("> {line}\n{said}")) {
         eprintln!("{e:#}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A player of a packaged game has no maker's keys: F5 (restart on the
+    /// files), F9 (keep the run) and the number keys (the song) are the
+    /// game's; `--maker` brings them, and a replay watched may be played
+    /// again with F5.
+    #[test]
+    fn the_makers_keys_need_the_maker_switch() {
+        for key in MAKER_KEYS {
+            assert_eq!(maker_key(key, false, false), None, "{key:?} works for a player");
+            assert_eq!(maker_key(key, true, false), Some(key));
+        }
+        assert_eq!(maker_key(Scancode::F5, false, true), Some(Scancode::F5), "F5 plays a replay again");
+        assert_eq!(maker_key(Scancode::F9, false, true), None);
+        assert_eq!(maker_key(Scancode::F11, true, false), None, "fullscreen is everyone's, not a maker key");
+        assert_eq!(maker_key(Scancode::_3, true, false).and_then(song_key), Some(2));
+    }
+
+    /// A failure to save says why on the screen, in the player's language,
+    /// in the cause's own words.
+    #[test]
+    fn a_failure_is_said_on_the_screen() {
+        let e = anyhow::anyhow!("No space left on device (os error 28)").context("writing /x/1.toml");
+        assert_eq!(trouble("en", "COULD NOT SAVE: {}", &e).0, "COULD NOT SAVE: NO SPACE LEFT ON DEVICE (OS ERROR 28)");
+        assert!(trouble("de", "COULD NOT SAVE: {}", &e).0.starts_with("SPEICHERN FEHLGESCHLAGEN"));
     }
 }

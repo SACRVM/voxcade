@@ -97,6 +97,8 @@ pub enum Item {
     Flashes,
     Blur,
     Shadows,
+    /// How often the picture is drawn (`FrameRate`).
+    FrameRate,
     ShowFps,
     Rumble,
     /// The game's language (a game that speaks more than one).
@@ -176,7 +178,7 @@ impl Page {
             Page::Pause => vec![Item::Resume, Item::Settings, Item::Restart, Item::ToTitle],
             Page::Settings => vec![Item::Audio, Item::Video, Item::Controls, Item::Back],
             Page::Audio => vec![Item::Music, Item::Sound, Item::Song, Item::Back],
-            Page::Video => vec![Item::Fullscreen, Item::Shadows, Item::Blur, Item::Shake, Item::Flashes, Item::ShowFps, Item::Back],
+            Page::Video => vec![Item::Fullscreen, Item::Shadows, Item::FrameRate, Item::Blur, Item::Shake, Item::Flashes, Item::ShowFps, Item::Back],
             Page::Controls => actions.iter().map(|&a| Item::Bind(a)).chain([Item::Rumble, Item::Reset, Item::Back]).collect(),
             Page::Network => vec![Item::Host, Item::HostNet, Item::Join, Item::Back],
             Page::Initials | Page::HighScores | Page::Save | Page::Load | Page::Players | Page::PlayerControls(_) | Page::Find | Page::Join | Page::Code | Page::Joining => Vec::new(),
@@ -240,6 +242,7 @@ impl Item {
             Item::Flashes => "FLASHES",
             Item::Blur => "BLUR",
             Item::Shadows => "SHADOWS",
+            Item::FrameRate => "FRAME RATE",
             Item::ShowFps => "SHOW FPS",
             Item::Rumble => "RUMBLE",
             Item::Language => "LANGUAGE",
@@ -591,6 +594,10 @@ impl Menu {
                         settings.shadows = settings.shadows.step(-step);
                         Some(Command::Changed)
                     }
+                    Item::FrameRate => {
+                        settings.frame_rate = settings.frame_rate.step(step);
+                        Some(Command::Changed)
+                    }
                     Item::SeatKeys(seat) => Some(Command::SeatKeys(seat, step)),
                     Item::SeatPad(seat) => Some(Command::SeatPad(seat, step)),
                     _ => toggle(item, settings),
@@ -712,6 +719,10 @@ impl Menu {
                 }
                 Item::Shadows => {
                     settings.shadows = settings.shadows.step(1);
+                    Some(Command::Changed)
+                }
+                Item::FrameRate => {
+                    settings.frame_rate = settings.frame_rate.step(1);
                     Some(Command::Changed)
                 }
                 Item::Language => {
@@ -1114,6 +1125,30 @@ mod tests {
         assert!(!s.show_fps);
     }
 
+    /// FRAME RATE steps through its choices (right on, left back, round the
+    /// list; confirm steps on); it starts unlimited, as the window always drew.
+    #[test]
+    fn the_frame_rate_is_a_setting() {
+        use crate::settings::FrameRate;
+        let mut s = Settings::default();
+        assert_eq!(s.frame_rate, FrameRate::Unlimited);
+        let mut m = Menu::title();
+        let at = Page::Video.items(&[]).iter().position(|&i| i == Item::FrameRate).expect("no FRAME RATE in the settings");
+        m.stack.push((Page::Video, at));
+        assert_eq!(m.nav(Nav::Right, &mut s, 0), Some(Command::Changed));
+        assert_eq!(s.frame_rate, FrameRate::Vsync);
+        m.nav(Nav::Confirm, &mut s, 0);
+        assert_eq!(s.frame_rate, FrameRate::Fps60);
+        m.nav(Nav::Left, &mut s, 0);
+        m.nav(Nav::Left, &mut s, 0);
+        assert_eq!(s.frame_rate, FrameRate::Unlimited);
+        m.nav(Nav::Left, &mut s, 0);
+        assert_eq!(s.frame_rate, FrameRate::Fps30, "round the list");
+        assert_eq!(FrameRate::Fps60.limit(), Some(60));
+        assert_eq!(FrameRate::Vsync.limit(), None);
+        assert!(!FrameRate::Unlimited.waits_for_the_screen() && FrameRate::Fps30.waits_for_the_screen());
+    }
+
     /// SHADOWS steps through the qualities, right finer, left coarser, round
     /// the list; confirm steps coarser. It starts at the finest.
     #[test]
@@ -1211,12 +1246,6 @@ mod tests {
         assert_eq!(m.nav(Nav::Confirm, &mut s, 0), Some(Command::Title));
     }
 
-    /// A game of several offers NETWORK on its title: HOST hosts at once,
-    /// JOIN takes the address typed (on a pad sign by sign, as initials;
-    /// the last one typed to start with) and waits on JOINING, where back
-    /// gives up. A guest's own pause page lets the game go on (LEAVE, and
-    /// no SAVE, LOAD or RESTART); the host's offers to drop a machine gone
-    /// quiet.
     /// Where our matchmaker is known, JOIN offers any game on the
     /// internet and typing a game's code, on a page of its own: on a pad
     /// sign by sign through a code's signs (no 0 or O, no 1 or I), at the
@@ -1263,6 +1292,12 @@ mod tests {
         assert!(items.contains(&Item::CopyCode) && !items.contains(&Item::CopyTicket));
     }
 
+    /// A game of several offers NETWORK on its title: HOST hosts at once,
+    /// JOIN takes the address typed (on a pad sign by sign, as initials;
+    /// the last one typed to start with) and waits on JOINING, where back
+    /// gives up. A guest's own pause page lets the game go on (LEAVE, and
+    /// no SAVE, LOAD or RESTART); the host's offers to drop a machine gone
+    /// quiet.
     #[test]
     fn a_network_game_is_hosted_and_joined() {
         let mut s = Settings::default();

@@ -33,6 +33,8 @@ pub struct Slots {
     /// A replay's loads: what its game read, load after load, whatever the
     /// slots hold (`replaying`).
     replayed: Vec<Arc<str>>,
+    /// The slots whose files lie on disk but do not read (`unreadable`).
+    broken: Vec<u32>,
 }
 
 /// Where a game's saves lie: `voxcade/saves/<game>/` beside its settings.
@@ -63,10 +65,15 @@ impl Slots {
     }
 
     /// The player's slots of the game in `game_dir`, as they lie on disk;
-    /// one that does not read is empty (and said so).
+    /// one that does not read is empty (`unreadable` lists them).
     pub fn on_disk(game_dir: &Path) -> Self {
-        let dir = dir_for(game_dir);
+        Self::on_disk_in(dir_for(game_dir))
+    }
+
+    /// The slots lying in `dir`.
+    fn on_disk_in(dir: PathBuf) -> Self {
         let mut texts = BTreeMap::new();
+        let mut broken = Vec::new();
         for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
             let path = entry.path();
             let Some(slot) = path.file_stem().and_then(|s| s.to_str()).and_then(|s| s.parse::<u32>().ok()) else { continue };
@@ -77,10 +84,20 @@ impl Slots {
                 Ok(text) if info_of(&text).is_some() => {
                     texts.insert(slot, Arc::from(text));
                 }
-                _ => eprintln!("saves: {} is no save", path.display()),
+                _ => {
+                    eprintln!("saves: {} is no save", path.display());
+                    broken.push(slot);
+                }
             }
         }
-        Self { dir: Some(dir), texts, ..Self::default() }
+        broken.sort_unstable();
+        Self { dir: Some(dir), texts, broken, ..Self::default() }
+    }
+
+    /// The slots (of the game's, 1 to `count`) whose files lie on disk but
+    /// do not read: shown as empty, and the window says so.
+    pub fn unreadable(&self) -> Vec<u32> {
+        self.broken.iter().copied().filter(|n| (1..=self.count).contains(n)).collect()
     }
 
     pub fn count(&self) -> u32 {
@@ -176,5 +193,20 @@ mod tests {
         slots.write(2, "level = \"tower\"\nticks = 60\n[states]\nworld = '{}'\n", 1_761_000_100).unwrap();
         assert_eq!(slots.newest(), Some(2), "the newest save, whatever its slot");
         assert_eq!(Slots::for_run(2).newest(), None);
+    }
+
+    /// A save file that does not read is an empty slot, but never a silent
+    /// one: the slots name it (the window says so on its screen).
+    #[test]
+    fn an_unreadable_save_is_named() {
+        let dir = crate::scratch::Scratch::new("saves");
+        std::fs::write(dir.join("1.toml"), "level = \"hall\"\nticks = 6\n").unwrap();
+        std::fs::write(dir.join("2.toml"), "this is { not a save").unwrap();
+        std::fs::write(dir.join("9.toml"), "nor this").unwrap();
+        let mut slots = Slots::on_disk_in(dir.to_path_buf());
+        slots.set_count(3);
+        assert_eq!(slots.info(1).map(|i| i.ticks), Some(6));
+        assert_eq!(slots.info(2), None);
+        assert_eq!(slots.unreadable(), [2], "slot 9 is beyond the game's slots");
     }
 }
