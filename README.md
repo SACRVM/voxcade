@@ -298,7 +298,7 @@ opens the launcher, which also fetches new versions (`src/update.rs`).
 | `src/shooter/`, `src/platformer/` | The two kits, ready-made rules for whole genres |
 | `src/render.rs`, `src/*.wgsl`, `src/mesh.rs` | The renderer: chunk meshes, models on the GPU, shadows, post passes |
 | `src/ui.rs`, `src/menu.rs`, `src/prompt.rs` | The voxel UI, the menus, the console |
-| `src/app.rs`, `src/headless.rs`, `src/cli.rs` | The window, everything without one (`shot`, `film`, `sounds`, `music`), the command line |
+| `src/app/`, `src/headless.rs`, `src/cli/` | The window, everything without one (`shot`, `film`, `sounds`, `music`), the command line |
 | `src/replay.rs` | Recording, replays, `check`, attract mode |
 | `src/ide/`, `src/gui/`, `src/editor/` | The IDE, its egui glue, the level and voxel editors |
 | `src/audio/` | The synthesizer, MML music, the mixer |

@@ -48,7 +48,7 @@ long, read the part about what you change.
 - **The Lua API has one source**, `src/lua/api.rs`; a new name in it
   needs its reason in `docs/game-model.md`, then `voxcade api --lua
   lua/voxcade.lua`.
-- **A command-line option goes into the table in `src/cli.rs`**; its
+- **A command-line option goes into the table in `src/cli/table.rs`**; its
   parser takes nothing else, and its help is written from it.
 
 ## Before you send it
