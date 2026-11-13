@@ -1012,7 +1012,7 @@ impl Editor {
     pub fn switch_light(&mut self) {
         let Some(Item::Thing(i)) = self.pieces.chosen else { return };
         let t = &self.level.things[i];
-        if t.model.is_none() {
+        if t.model.is_none() || t.shadow_only {
             return;
         }
         if !t.lights.is_empty() {
@@ -1043,7 +1043,8 @@ impl Editor {
     /// warm. A light alone stays one light.
     pub fn add_piece_light(&mut self, top: i32) {
         let Some(Item::Thing(i)) = self.pieces.chosen else { return };
-        if self.level.things[i].model.is_none() {
+        // (A piece only casting a shadow is not drawn: no light from it.)
+        if self.level.things[i].model.is_none() || self.level.things[i].shadow_only {
             return;
         }
         let light = match self.level.things[i].lights.last() {
@@ -1090,6 +1091,23 @@ impl Editor {
         }
         self.message = None;
         self.change(None, |l| l.things[i].solid = on);
+    }
+
+    /// SHADOW ONLY on the chosen piece: on, it casts its shadow and is not
+    /// drawn in the game (a ceiling the camera looks through); refused
+    /// while it has a light (a piece not drawn would shine from nowhere).
+    pub fn set_shadow_only(&mut self, on: bool) {
+        let Some(Item::Thing(i)) = self.pieces.chosen else { return };
+        let t = &self.level.things[i];
+        if t.model.is_none() {
+            return;
+        }
+        if on && !t.lights.is_empty() {
+            self.message = Some(format!("{} has a light: a piece only casting a shadow is not drawn and would shine from nowhere. Remove its light first.", self.label_of(Item::Thing(i)).0));
+            return;
+        }
+        self.message = None;
+        self.change(None, |l| l.things[i].shadow_only = on);
     }
 
     /// The level's daylight with a number of DAYLIGHT set (None: not one of
@@ -1523,6 +1541,53 @@ mod tests {
         assert!(ed.message.as_deref().is_some_and(|m| m.contains("only a piece in quarter turns can be solid")), "{:?}", ed.message);
         assert_eq!(saved(&dir), before, "nothing written");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// SHADOW ONLY on a piece writes its one line, UNDO takes it back in
+    /// one step; refused on a piece with a light (nothing written), whose
+    /// LIGHT then stays off. Shown as a ghost (see-through, choosable) and
+    /// cast as the game casts it; in GAME VIEW and the IDE's picture not
+    /// drawn at all, cast still.
+    #[test]
+    fn a_piece_only_casting_a_shadow_is_a_ghost() {
+        let (mut ed, dir) = room("shadow-only", false);
+        std::fs::create_dir_all(dir.join("room")).unwrap();
+        let stove = "format = \"voxcade voxel 1\"\nsize = [4, 4, 4]\n\n[palette]\na = { color = \"#806040\" }\n\n[[frame]]\nlayers = \"\"\"\naaaa *4\n*4\n\"\"\"\n";
+        std::fs::write(dir.join("room/stove.vvx"), stove).unwrap();
+        ed.choose_item(Some(Item::Thing(0)));
+        ed.set_shadow_only(true);
+        assert!(read(&dir).things[0].shadow_only);
+        let lines: Vec<String> = saved(&dir).lines().filter(|l| !PIECES.lines().any(|p| p == *l)).map(String::from).collect();
+        assert_eq!(lines, ["shadow_only = true"], "only its line");
+        assert!(saved(&dir).contains("facing = \"south\"\nshadow_only = true\n"));
+        ed.switch_light();
+        assert!(read(&dir).things[0].lights.is_empty(), "no light on a piece not drawn");
+        // Drawn: a ghost, its cubes cast; in GAME VIEW only cast.
+        let figures = crate::editor::view::Figures::load(&dir, &crate::config::GameConfig::default()).with_pieces(&dir, &ed.level);
+        let mut view = crate::editor::view::View::new(&ed, &Default::default());
+        let shown = crate::editor::view::Shown::new(&ed).unwrap();
+        let frame = |view: &crate::editor::view::View| crate::editor::view::frame(&ed, view, &shown, &figures, &Default::default(), 1.6);
+        let ghost = frame(&view);
+        assert_eq!(ghost.cast_only, 4 * 4 * 4 - 2 * 2 * 2, "the stove's visible cubes cast");
+        let (behind, opaque) = ghost.cube_runs();
+        let cast = &ghost.instances[opaque as usize - ghost.cast_only..opaque as usize];
+        assert!(cast.iter().all(|c| c.fx[1] == 255), "opaque, for the shadow map");
+        assert_eq!(ghost.shadow_cubes(), behind..opaque, "in the shadow map");
+        let see_through = &ghost.instances[opaque as usize..];
+        assert_eq!(see_through.iter().filter(|c| c.fx[1] == crate::editor::view::GHOST).count(), ghost.cast_only, "a ghost of each");
+        view.ghosts = false;
+        let game = frame(&view);
+        assert_eq!(game.cast_only, ghost.cast_only, "the game's look casts");
+        assert!(game.instances.iter().all(|c| c.fx[1] != crate::editor::view::GHOST), "and shows nothing of it");
+        // Back: one step.
+        ed.undo();
+        assert!(!read(&dir).things[0].shadow_only);
+        assert_eq!(saved(&dir), PIECES, "as it was");
+        // The lamp has a light: refused, nothing written.
+        ed.choose_item(Some(Item::Thing(1)));
+        ed.set_shadow_only(true);
+        assert!(ed.message.as_deref().is_some_and(|m| m.contains("has a light")), "{:?}", ed.message);
+        assert_eq!(saved(&dir), PIECES, "nothing written");
     }
 
     /// DAYLIGHT: the level's own (from the game's), the sun moved round

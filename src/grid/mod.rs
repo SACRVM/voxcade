@@ -276,7 +276,9 @@ pub(crate) fn hex(text: &str) -> Option<[u8; 3]> {
 /// a model set down there by its pivot, facing a way, perhaps with lights
 /// (a lamp's flame and its wider glow: `light = {...}` for one, `lights =
 /// [...]` for more) and perhaps solid (`solid = true`: its voxels hold
-/// bodies up and stop them), or a light alone. `name` is its name in the
+/// bodies up and stop them) or only casting a shadow (`shadow_only =
+/// true`: in the sun's shadow map, never drawn; a ceiling the camera looks
+/// through), or a light alone. `name` is its name in the
 /// level (else its kind's and a number, `walker_1`); `line` where the file
 /// says it, for mistakes (0: from no file).
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -303,6 +305,8 @@ pub struct Thing {
     pub lights: Vec<ThingLight>,
     #[serde(skip)]
     pub solid: bool,
+    #[serde(skip)]
+    pub shadow_only: bool,
     /// Set down by the terrain's scatter rule of this number (from 1;
     /// `scatter = 2` in the file): the editor's CLEAR of that rule takes it
     /// away again, wherever it stands now. Nothing to the game.
@@ -315,7 +319,8 @@ pub struct Thing {
 impl PartialEq for Thing {
     /// The same thing wherever its file says it.
     fn eq(&self, o: &Self) -> bool {
-        (&self.kind, self.at, &self.name, &self.model, self.facing, self.pitch, self.roll, &self.lights, self.solid, self.scatter) == (&o.kind, o.at, &o.name, &o.model, o.facing, o.pitch, o.roll, &o.lights, o.solid, o.scatter)
+        (&self.kind, self.at, &self.name, &self.model, self.facing, self.pitch, self.roll, &self.lights, self.solid, self.shadow_only, self.scatter)
+            == (&o.kind, o.at, &o.name, &o.model, o.facing, o.pitch, o.roll, &o.lights, o.solid, o.shadow_only, o.scatter)
     }
 }
 
@@ -774,6 +779,7 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], fr
             roll: t.roll as f32,
             lights: t.lights.iter().map(|l| crate::levels::PieceLight { at: IVec3::from(l.at.unwrap_or_default()), radius: l.radius as f32, color: l.rgb() }).collect(),
             solid: t.solid && t.model.is_some(),
+            shadow_only: t.shadow_only && t.model.is_some(),
             index,
         })
         .collect();
@@ -1586,6 +1592,44 @@ size = [40, 30, 40]
             ("name = \"moon\"", "name = \"moon\"\nsolid = true", "line 17: solid = true needs a model"),
             ("kind = \"walker\"", "kind = \"walker\"\nsolid = true", "solid = true is a piece's"),
             ("facing = \"south\"", "facing = \"south\"\nsolid = 1", "line 9: solid must be true or false"),
+        ] {
+            let e = wrong(from, to);
+            assert!(e.contains(says), "{from} -> {to}: {e}");
+        }
+    }
+
+    /// A piece only casting a shadow (`shadow_only = true`): read, written
+    /// after `solid` only when on, touching only its line, and gone again;
+    /// a level that leaves it out reads as before; a light alone, a thing
+    /// of a kind and a piece with a light are refused with their line.
+    #[test]
+    fn a_piece_may_only_cast_a_shadow() {
+        let src = commented();
+        let was = GridLevel::from_text(&src).unwrap();
+        assert!(was.things.iter().all(|t| !t.shadow_only));
+        let legend = Legend::default();
+        let mut now = was.clone();
+        now.things[0].shadow_only = true;
+        let out = text::rewrite(&src, &was, &now, &legend);
+        assert_eq!(GridLevel::from_text(&out).unwrap(), now, "{out}");
+        assert_eq!(changed_lines(&src, &out), ["shadow_only = true"], "{out}");
+        assert!(out.contains("facing = \"south\"\nshadow_only = true\n"), "{out}");
+        assert_eq!(text::rewrite(&out, &now, &was, &legend), src, "off again: the file as it was");
+        // Solid too: its line before.
+        let mut both = now.clone();
+        both.things[0].solid = true;
+        let out2 = text::rewrite(&out, &now, &both, &legend);
+        assert!(out2.contains("solid = true\nshadow_only = true\n"), "{out2}");
+        assert_eq!(GridLevel::from_text(&out2).unwrap(), both);
+        // Written whole: the same.
+        assert!(both.to_text().contains("solid = true\nshadow_only = true\n"));
+        assert_eq!(GridLevel::from_text(&both.to_text()).unwrap(), both);
+        let wrong = |from: &str, to: &str| format!("{:#}", GridLevel::from_text(&PIECES.replacen(from, to, 1)).unwrap_err());
+        for (from, to, says) in [
+            ("name = \"moon\"", "name = \"moon\"\nshadow_only = true", "line 17: shadow_only = true needs a model"),
+            ("kind = \"walker\"", "kind = \"walker\"\nshadow_only = true", "shadow_only = true is a piece's"),
+            ("name = \"lamp\"", "name = \"lamp\"\nshadow_only = true", "line 11: shadow_only = true and a light"),
+            ("facing = \"south\"", "facing = \"south\"\nshadow_only = \"yes\"", "line 9: shadow_only must be true or false"),
         ] {
             let e = wrong(from, to);
             assert!(e.contains(says), "{from} -> {to}: {e}");

@@ -380,3 +380,76 @@ fn a_moved_region_is_named() {
     assert_eq!(cells[0], [250, 10, 10]);
     assert_eq!(cells[1], [10, 10, 10]);
 }
+
+/// A model `size` voxels of one colour, filled where `solid` says.
+fn model_text(size: [usize; 3], color: &str, solid: impl Fn(usize, usize, usize) -> bool) -> String {
+    let mut layers = Vec::new();
+    for z in 0..size[2] {
+        let rows: Vec<String> = (0..size[1]).rev().map(|y| (0..size[0]).map(|x| if solid(x, y, z) { 'a' } else { '.' }).collect()).collect();
+        layers.push(rows.join("\n"));
+    }
+    format!("format = \"voxcade voxel 1\"\nsize = [{}, {}, {}]\n\n[palette]\na = {{ color = \"{color}\" }}\n\n[[frame]]\nlayers = \"\"\"\n{}\n\"\"\"\n", size[0], size[1], size[2], layers.join("\n\n"))
+}
+
+/// The mean brightness (of 255, the three channels) of the picture's
+/// part from `x0, y0` to `x1, y1` (fractions of its width and height).
+fn brightness(width: usize, height: usize, rgb: &[u8], (x0, y0, x1, y1): (f32, f32, f32, f32)) -> f32 {
+    let (mut sum, mut n) = (0.0, 0.0);
+    for y in (y0 * height as f32) as usize..(y1 * height as f32) as usize {
+        for x in (x0 * width as f32) as usize..(x1 * width as f32) as usize {
+            let p = &rgb[(y * width + x) * 3..][..3];
+            sum += (p[0] as f32 + p[1] as f32 + p[2] as f32) / 3.0;
+            n += 1.0;
+        }
+    }
+    sum / n
+}
+
+/// A room of pieces (a floor, four walls, a window in the west wall)
+/// under a low sun from the west (`[light] sun = [1.0, 0.18, -0.62]`), the
+/// camera looking in from above: without a ceiling the floor far from the
+/// window is sunlit over the walls; with a red ceiling of `shadow_only =
+/// true` laid on them it is in shadow, while the patch the window lets in
+/// stays lit, and nothing red of the ceiling shows.
+#[test]
+fn a_shadow_only_ceiling_shades_the_room_and_is_not_drawn() {
+    let dir = Scratch::new_named("ceiling");
+    let game = dir.path().join("room");
+    std::fs::create_dir_all(game.join("levels")).unwrap();
+    std::fs::create_dir_all(game.join("scenarios")).unwrap();
+    std::fs::write(game.join("conf.lua"), "function conf(c)\n  c.voxcade = \"0.6.0\"\n  c.things.hero = {}\n  c.player.kind = \"hero\"\n  c.camera.pitch = 60\n  c.camera.view_width = 90\nend\n").unwrap();
+    std::fs::write(game.join("main.lua"), "").unwrap();
+    std::fs::write(game.join("scenarios/room.lua"), "return {\n  about = \"the room\",\n}\n").unwrap();
+    std::fs::write(game.join("floor.vvx"), model_text([48, 48, 1], "#c8b490", |_, _, _| true)).unwrap();
+    std::fs::write(game.join("wall_ns.vvx"), model_text([48, 2, 14], "#8a7d6e", |_, _, _| true)).unwrap();
+    std::fs::write(game.join("wall_ew.vvx"), model_text([2, 44, 14], "#8a7d6e", |_, _, _| true)).unwrap();
+    std::fs::write(game.join("wall_window.vvx"), model_text([2, 44, 14], "#8a7d6e", |_, y, z| !((16..28).contains(&y) && (4..10).contains(&z)))).unwrap();
+    std::fs::write(game.join("ceiling.vvx"), model_text([48, 48, 2], "#d04040", |_, _, _| true)).unwrap();
+    let thing = |name: &str, model: &str, at: [i32; 3]| format!("\n[[thing]]\nname = \"{name}\"\nmodel = \"{model}\"\nat = [{}, {}, {}]\nfacing = \"north\"\n", at[0], at[1], at[2]);
+    let mut room = "format = \"voxcade level 1\"\nsize = [64, 64, 40]\n\n[light]\nsun = [1.0, 0.18, -0.62]\n".to_string();
+    room += &thing("floor", "floor.vvx", [32, 32, 0]);
+    room += &thing("north", "wall_ns.vvx", [32, 55, 1]);
+    room += &thing("south", "wall_ns.vvx", [32, 9, 1]);
+    room += &thing("east", "wall_ew.vvx", [55, 32, 1]);
+    room += &thing("west", "wall_window.vvx", [9, 32, 1]);
+    let start = "\n[[place]]\nname = \"start\"\nat = [32, 32, 1]\n";
+    let level = game.join("levels/room.toml");
+    let args = |out: &str| ["shot", &game.to_string_lossy(), "--frames", "2", "--size", "640x360", "--out", out].map(String::from).to_vec();
+    std::fs::write(&level, format!("{room}{start}")).unwrap();
+    let (w, h, open) = draw_with("room_open", &args("{out}"), dir.path());
+    std::fs::write(&level, format!("{room}{}shadow_only = true\n{start}", thing("ceiling", "ceiling.vvx", [32, 32, 15]))).unwrap();
+    let (w2, h2, closed) = draw_with("room_closed", &args("{out}"), dir.path());
+    assert_eq!((w, h), (w2, h2));
+    // The floor's right half, far from the window; the patch the window
+    // lets in (where its light falls at this sun).
+    let (far, patch) = ((0.56, 0.3, 0.74, 0.75), (0.33, 0.41, 0.39, 0.53));
+    let (far_open, far_closed) = (brightness(w, h, &open, far), brightness(w, h, &closed, far));
+    let (patch_open, patch_closed) = (brightness(w, h, &open, patch), brightness(w, h, &closed, patch));
+    assert!(far_closed < far_open * 0.85, "the ceiling shades the floor: {far_closed} against {far_open} open");
+    assert!(patch_closed > far_closed * 1.15, "the window's light stays: {patch_closed} against {far_closed} in shadow");
+    assert!((patch_closed - patch_open).abs() < 3.0, "the window's patch as without the ceiling: {patch_closed} against {patch_open}");
+    // Nothing of the red ceiling: no reddish pixel (the room is brown and
+    // grey, red no more than a little over green).
+    let red = closed.chunks(3).filter(|p| p[0] as i32 > p[1] as i32 + 40).count();
+    assert_eq!(red, 0, "the ceiling is not drawn");
+}

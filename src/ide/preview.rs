@@ -71,6 +71,8 @@ impl Preview {
         let mut view = View::new(&ed, cfg);
         // (A room of pieces stands on the editor's floor, else it floats.)
         view.floor = ed.model.is_none() && !ed.level.has_grid();
+        // (The game's look: a piece only casting a shadow is not drawn.)
+        view.ghosts = false;
         let shown = Shown::new(&ed)?;
         let figures = if ed.model.is_some() { Figures::load(dir, &GameConfig::default()) } else { Figures::load(dir, cfg).with_pieces(dir, &ed.level) };
         Ok(Self { ed, view, shown, figures, cfg: cfg.clone(), renderer: None, target: None, wanted: None, dirty: true, meshed: false, fitted: false, paused: false })

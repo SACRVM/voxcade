@@ -625,7 +625,7 @@ def terrain_text(t):
 def write_terrain_level(path, size, terrain, things=()):
     """A level without blocks, `size` voxels, its land `terrain` (as
     `read_terrain` gives it) and `things` [{"name"?, "kind"? or "model",
-    "at", "rotation"?, "solid"?}], as the engine writes it."""
+    "at", "rotation"?, "solid"?, "shadow_only"?}], as the engine writes it."""
     text = f'format = "{LEVEL_FORMAT}"\nsize = [%d, %d, %d]    # voxels: across (x), deep (y, 0 in front), up (z); no grid of blocks\n' % tuple(size)
     text += "\n" + terrain_text(terrain)
     for t in things:
@@ -641,6 +641,8 @@ def write_terrain_level(path, size, terrain, things=()):
             text += f"rotation = {_rust_num(t['rotation'])}\n"
         if t.get("solid"):
             text += "solid = true\n"
+        if t.get("shadow_only"):
+            text += "shadow_only = true\n"
         if t.get("scatter"):
             text += f"scatter = {int(t['scatter'])}\n"
     with open(path, "w") as f:

@@ -828,6 +828,7 @@ fn print_facts(ed: &Editor, view: &View, ctx: &egui::Context, opts: &ShotOptions
             };
             let light = t.map_or(String::new(), |t| t.lights.iter().map(|l| format!(", light {l:?}")).collect());
             let light = if t.is_some_and(|t| t.solid) { format!("{light}, solid") } else { light };
+            let light = if t.is_some_and(|t| t.shadow_only) { format!("{light}, shadow only") } else { light };
             println!("chosen: {} at {:?}{facing}{light}", ed.label_of(item).0, ed.at_of(item).unwrap_or_default());
         }
     }

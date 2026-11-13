@@ -402,7 +402,8 @@ fn light_controls(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, radi
     field(ui, shown, "RADIUS", None, l.radius, Field::Radius(k), 1.0, 1.0..=2000.0, "How far it shines, in voxels (radius in the level's file)", radius);
 }
 
-/// A piece's rows: TURN, SOLID (and LIGHT + without one), its lights.
+/// A piece's rows: TURN, SOLID, SHADOW ONLY (and LIGHT + without one
+/// or it), its lights.
 fn piece_rows(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, t: &crate::grid::Thing, shown: &mut Shown) {
     // On the grid (or solid) the turns step by quarters.
     let quarters = !ed.pieces.free_turns || t.solid;
@@ -425,8 +426,19 @@ fn piece_rows(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, t: &crate::grid
         if response.clicked() {
             shown.clicked.push(Action::Solid(!t.solid));
         }
-        if t.lights.is_empty() && ui.button("+ LIGHT").on_hover_text("It gives light, from its top at first").clicked() {
+        if t.lights.is_empty() && !t.shadow_only && ui.button("+ LIGHT").on_hover_text("It gives light, from its top at first").clicked() {
             shown.clicked.push(Action::AddPieceLight(top));
+        }
+    });
+    // SHADOW ONLY (`shadow_only`): casts, not drawn; not with a light.
+    row(ui, "", "", |ui| {
+        let lit = !t.lights.is_empty();
+        let mut job = egui::text::LayoutJob::default();
+        job.append("SHADOW ONLY", 0.0, egui::TextFormat { font_id: TextStyle::Button.resolve(ui.style()), color: if t.shadow_only { ACCENT } else { TEXT }, ..Default::default() });
+        let tip = if lit { "A piece with a light is drawn: remove its light first" } else { "Casts a shadow and is not drawn: a ceiling the camera looks through." };
+        let response = ui.add_enabled(!lit, egui::Button::new(job).selected(t.shadow_only)).on_hover_text(tip).on_disabled_hover_text(tip);
+        if response.clicked() {
+            shown.clicked.push(Action::ShadowOnly(!t.shadow_only));
         }
     });
     if t.lights.is_empty() {
@@ -996,8 +1008,12 @@ fn beside(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut S
         }
         if piece {
             small(ui, shown, "EDIT", Action::EditModel, None, "Open its model in the voxel editor  E (or double click it)");
-            let tip = if lights { "Its light: on. Click: off (again: on as it was)" } else { "Its light: off. Click: on" };
-            small(ui, shown, "LIGHT", Action::SwitchLight, Some(lights), tip);
+            // (A piece only casting a shadow is not drawn: no light.)
+            let casting = matches!(item, Item::Thing(i) if ed.level.things[i].shadow_only);
+            if !casting {
+                let tip = if lights { "Its light: on. Click: off (again: on as it was)" } else { "Its light: off. Click: on" };
+                small(ui, shown, "LIGHT", Action::SwitchLight, Some(lights), tip);
+            }
         }
     });
     ui.data_mut(|d| d.insert_temp(egui::Id::unique("stage beside rect"), rect));
@@ -1034,7 +1050,9 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<(String, Action, Option<&'st
                 Item::Thing(i) if ed.level.things[i].model.is_some() => {
                     let t = &ed.level.things[i];
                     entries.push(("EDIT MODEL".into(), Action::EditModel, Some("E")));
-                    entries.push((if t.lights.is_empty() { "LIGHT ON" } else { "LIGHT OFF" }.into(), Action::SwitchLight, None));
+                    if !t.shadow_only {
+                        entries.push((if t.lights.is_empty() { "LIGHT ON" } else { "LIGHT OFF" }.into(), Action::SwitchLight, None));
+                    }
                     entries.push(("ROTATE 90°".into(), Action::TurnItem(1), Some("T")));
                     entries.push(("LAY DOWN".into(), Action::Tip(0, 1), None));
                     if !t.off_grid() || t.solid {

@@ -889,7 +889,17 @@ does not load, in a game that turns freely too. It does not move; taken
 away (`thing:remove`) its cells are free at the tick's end with it; a
 blast does not blow it away, and it holds no voxels of the world up
 (they fall as before). Which were taken away is in the state hash only
-where a level has solid pieces. A level's file may have its own
+where a level has solid pieces. A piece with `shadow_only = true`
+casts its shadow and is not drawn (a ceiling over a room the camera
+looks into from above, closing it against a low sun): its opaque voxels
+go into the sun's shadow map exactly as the same piece's would, posed
+by its state too (`ModelDraw::shadow_only`, `Drawing::shadow_only`),
+never into the scene, the outline or the glow; its glass casts nothing,
+as always; one above the world raises the shadows' box to it. It is a
+thing by its name as any piece; `thing:remove` takes its shadow away.
+It brings no light (refused, plainly: a light alone does that), and
+blocks only with `solid = true` as well. Only the picture: nothing of
+it is in the hash. A level's file may have its own
 daylight, `[light]` with `c.light`'s words (`sun`, `sun_color`,
 `ambient`, `shadow`, `sky`; colours `"#rrggbb"` or three numbers from 0
 to 1, as in `c.light`, which takes both too): over the game's for

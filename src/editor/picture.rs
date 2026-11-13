@@ -63,8 +63,11 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         }
     }
     let u = unit as f32;
-    // The pieces' glass, and what hangs on the mouse, see-through.
+    // The pieces' glass, and what hangs on the mouse, see-through; the
+    // pieces only casting a shadow (`cast`), and whether they show.
     let mut glass = Vec::new();
+    let mut cast = Vec::new();
+    let ghosts = view.ghosts && view.before_game.is_none();
     let things = ed.scope == Scope::Level && ed.layer == Layer::Things;
     if ed.scope == Scope::Level {
         // The thing the tool would work on tinted by what it would do.
@@ -80,6 +83,22 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
                 continue;
             }
             let tint = (Some(i) == marked && ed.tool != Tool::Add).then_some(tint);
+            // A piece only casting a shadow: its opaque cubes into the
+            // sun's map alone, and shown as a ghost (not in GAME VIEW nor
+            // the IDE's picture: the game's look); its glass casts nothing.
+            if let Some(m) = t.model.as_deref().and_then(|m| figures.model(m)).filter(|_| t.shadow_only) {
+                let start = cast.len();
+                let (look, rot) = room::turn_of(t);
+                crate::session::model_cubes(m, 0, IVec3::from(t.at).as_vec3(), look, rot, &mut cast, &mut Vec::new());
+                if ghosts {
+                    let tint = tint.unwrap_or([255, 255, 255]);
+                    glass.extend(cast[start..].iter().map(|c| {
+                        let [r, g, b] = [0, 1, 2].map(|k| ((c.color[k] as u16 + tint[k] as u16) / 2) as u8);
+                        Instance { color: [r, g, b, 255], fx: [c.fx[0], GHOST, 0, c.fx[3]], ..*c }
+                    }));
+                }
+                continue;
+            }
             // A piece as the game draws it, at its very turn.
             if let Some(m) = t.model.as_deref().and_then(|m| figures.model(m)) {
                 let start = instances.len();
@@ -270,6 +289,10 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         room.extend(instances);
         instances = room;
     }
+    // The cubes only casting, after the opaque ones (`FrameData::cast_only`).
+    let cast_only = cast.len();
+    let at = instances.len() - see_through;
+    instances.splice(at..at, cast);
 
     FrameData {
         view_proj,
@@ -308,10 +331,15 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         instances,
         see_through,
         behind,
+        cast_only,
         ui: Vec::new(),
         ui_view_proj: Mat4::IDENTITY,
     }
 }
+
+/// How opaque a piece only casting a shadow shows in the editor (of 255):
+/// a ghost.
+pub const GHOST: u8 = 70;
 
 /// The size of the floor's tiles in a level without blocks (voxels).
 pub const ROOM_TILE: i32 = 10;

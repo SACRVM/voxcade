@@ -199,15 +199,16 @@ impl Renderer {
     }
 
     /// Each model draw: its place (the `first` of all `all_models`
-    /// places), and its voxels in the bank.
-    fn draw_models(&self, pass: &mut wgpu::RenderPass, pipeline: &wgpu::RenderPipeline, models: &[ModelDraw], first: usize, all_models: usize) {
+    /// places), and its voxels in the bank; into the sun's map (`cast`)
+    /// those only casting too (`ModelDraw::shadow_only`), else not.
+    fn draw_models(&self, pass: &mut wgpu::RenderPass, pipeline: &wgpu::RenderPipeline, models: &[ModelDraw], first: usize, all_models: usize, cast: bool) {
         let Some((_, bank)) = self.bank.as_ref().filter(|_| all_models > 0 && !models.is_empty()) else { return };
         pass.set_pipeline(pipeline);
         pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
         pass.set_vertex_buffer(1, bank.slice(..));
         pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
         for (i, m) in models.iter().enumerate() {
-            if m.voxels.is_empty() {
+            if !m.in_pass(cast) {
                 continue;
             }
             pass.set_bind_group(1, &self.actor_bind, &[((first + i) * ACTOR_STRIDE) as u32]);
@@ -241,7 +242,7 @@ impl Renderer {
             pass.set_index_buffer(mesh.indices.slice(..mesh.index_bytes()), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..mesh.index_count, 0, 0..1);
         }
-        self.draw_models(&mut pass, &self.model_shadow, &frame.models, 0, all_models);
+        self.draw_models(&mut pass, &self.model_shadow, &frame.models, 0, all_models, true);
         // Only the opaque cubes: fire, smoke, dust, glass and what lies
         // faint behind everything cast no shadow.
         let casting = frame.shadow_cubes();
@@ -313,17 +314,19 @@ impl Renderer {
         // The models before the cubes: where a cube shares a cell with a
         // model's voxel (or a model with the world), the one drawn first
         // keeps it, at the same depth.
-        self.draw_models(&mut pass, &scene.model, &frame.models, 0, all_models);
+        self.draw_models(&mut pass, &scene.model, &frame.models, 0, all_models, false);
         if frame.outline[3] > 0.0 {
-            self.draw_models(&mut pass, &self.model_outline, &frame.models, 0, all_models);
+            self.draw_models(&mut pass, &self.model_outline, &frame.models, 0, all_models, false);
         }
         if instance_count > 0 {
             pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
             pass.set_vertex_buffer(1, self.instances.slice(..));
             pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
-            if opaque > behind {
+            // (The last `cast_only` opaque cubes are the sun's map's alone.)
+            let drawn = opaque - (frame.cast_only as u32).min(opaque - behind);
+            if drawn > behind {
                 pass.set_pipeline(&scene.inst);
-                pass.draw_indexed(0..self.cube_index_count, 0, behind..opaque);
+                pass.draw_indexed(0..self.cube_index_count, 0, behind..drawn);
             }
             if (opaque as usize) < instance_count {
                 pass.set_pipeline(&scene.see_through);
@@ -365,7 +368,7 @@ impl Renderer {
             multiview_mask: None,
         });
         pass.set_bind_group(0, &self.ui_bind, &[]);
-        self.draw_models(&mut pass, &self.plain.model, &frame.ui_models, frame.models.len(), all_models);
+        self.draw_models(&mut pass, &self.plain.model, &frame.ui_models, frame.models.len(), all_models, false);
         if !frame.ui.is_empty() {
             pass.set_pipeline(&self.plain.inst);
             pass.set_vertex_buffer(0, self.cube_vertices.slice(..));

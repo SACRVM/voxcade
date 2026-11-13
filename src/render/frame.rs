@@ -62,6 +62,10 @@ pub struct FrameData {
     /// everything else, so that whatever is drawn after them lies over them
     /// (the room round a model shaped in place never tints the model).
     pub behind: usize,
+    /// The last `cast_only` of the opaque cubes are drawn into the sun's
+    /// shadow map only, never into the scene (the level editor's
+    /// `shadow_only` pieces: casting while shown as ghosts or not at all).
+    pub cast_only: usize,
     /// The UI's voxels, in their own scene over the world, and its camera.
     pub ui: Vec<Instance>,
     pub ui_view_proj: Mat4,
@@ -77,7 +81,8 @@ impl FrameData {
         (behind as u32, (count - self.see_through.min(count)).max(behind) as u32)
     }
 
-    /// The cubes the sun's shadow map takes: the opaque ones. Those behind
+    /// The cubes the sun's shadow map takes: the opaque ones (the
+    /// `cast_only` ones among them). Those behind
     /// everything are see-through (the room round a model shaped in place,
     /// faint, its glass too) and cast no shadow, as no see-through cube
     /// does.

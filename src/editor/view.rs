@@ -203,6 +203,10 @@ pub struct View {
     pub playing: bool,
     /// The floor under the grid shows (the editor's, to build on).
     pub floor: bool,
+    /// The pieces only casting a shadow (`shadow_only`) show as ghosts,
+    /// to choose and move; off (GAME VIEW, the IDE's picture) they only
+    /// cast, as in the game.
+    pub ghosts: bool,
     /// Ctrl is down: BOX and SPHERE cut away (their shape shown red, in
     /// the voxels).
     pub cut: bool,
@@ -498,6 +502,7 @@ impl View {
             face,
             playing: true,
             floor: true,
+            ghosts: true,
             cut: false,
             only_empty: false,
             origin: ed.origin(),

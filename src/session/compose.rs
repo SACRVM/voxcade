@@ -67,6 +67,8 @@ impl<G: Game> Session<G> {
             camera: None,
             cull: true,
             bounds: Vec::new(),
+            shadow_only: false,
+            cast_top: 0.0,
         }
     }
 
@@ -258,7 +260,11 @@ impl<G: Game> Session<G> {
                 out.cube(out.corner(at), color, glow, opacity);
             }
         }
-        let Drawing { mut voxels, draws: models, lights: game_lights, daylight, camera: picture, cull, bounds, .. } = out;
+        let Drawing { mut voxels, draws: models, lights: game_lights, daylight, camera: picture, cull, bounds, cast_top, .. } = out;
+        // Models only casting a shadow above the world (a ceiling over a
+        // room standing higher): the shadows' box reaches up to them.
+        let high = cast_top > world_size.z;
+        let world_size = if high { world_size.with_z(cast_top) } else { world_size };
         // The camera the game set for this picture: seen from there, the
         // faces its rays can hit kept in the meshes from now on.
         let picture = picture.filter(|_| viewing.is_some());
@@ -295,7 +301,7 @@ impl<G: Game> Session<G> {
         let drawn = day.sun.map(|s| s.normalize_or(Vec3::NEG_Z));
         self.drawn_sun.set(drawn);
         let sun_now = drawn.unwrap_or_else(|| self.sun());
-        let (light_vp, depth_range) = if sun_now == sun && picture.is_none() {
+        let (light_vp, depth_range) = if sun_now == sun && picture.is_none() && !high {
             (light_vp, depth_range)
         } else {
             camera::light_view_proj(&cam, target, aspect, sun_now, world_size, sim.world.stage_box(), self.options.shadow_map)
@@ -384,6 +390,7 @@ impl<G: Game> Session<G> {
             instances,
             see_through,
             behind: 0,
+            cast_only: 0,
             ui,
             ui_view_proj,
         }

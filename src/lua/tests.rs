@@ -5186,6 +5186,46 @@ fn a_pieces_parts_are_posed_by_its_state() {
     assert!(halted(&g).contains("only to look at here (parts)"), "{}", halted(&g));
 }
 
+/// A piece only casting a shadow (`shadow_only = true`): its draws are the
+/// same as without the key, marked to go into the sun's shadow map alone
+/// (the renderer leaves them out of the scene and the outline); it is a
+/// thing by its name as any piece, its parts posed by its state still move
+/// what casts, `thing:remove` takes its shadow away, and nothing of it is
+/// in the game's state; solid too, it blocks as a solid piece does.
+#[test]
+fn a_piece_only_casting_a_shadow_is_not_drawn() {
+    let casting = DOORWAY.replace("at = [32, 32, 0]\n", "at = [32, 32, 0]\nshadow_only = true\n");
+    let dir = pieces_folder("shadow-only", "", &casting, "");
+    std::fs::write(dir.join("door.vvx"), DOOR).unwrap();
+    let mut g = game_in(&dir);
+    assert_eq!(halted(&g), "");
+    let plain = doorway("shadow-only-plain", "");
+    let (drawn, as_drawn) = (door_draws(&g), door_draws(&plain));
+    assert_eq!(drawn.len(), 4, "the door's three parts and the box");
+    assert!(drawn[..3].iter().all(|m| m.shadow_only) && !drawn[3].shadow_only, "only the door's draws cast alone");
+    let unmarked: Vec<_> = drawn.iter().cloned().map(|m| crate::render::ModelDraw { shadow_only: false, ..m }).collect();
+    assert_eq!(unmarked, as_drawn, "in the shadow map as the same piece without the key");
+    assert_eq!(g.game.state_hash(), plain.game.state_hash(), "nothing of it in the game's state");
+    assert_eq!(said(&mut g, "level:thing('door').kind"), "\"piece\"");
+    // Posed: what casts moves.
+    said(&mut g, "level:thing('door').state.parts = { leaf = { rotation = -90 } }");
+    let posed = door_draws(&g);
+    assert!(posed[1].shadow_only && posed[1].rot != glam::Quat::IDENTITY, "the leaf turned in the shadow map");
+    // Taken away: no shadow.
+    said(&mut g, "level:thing('door'):remove()");
+    steps(&mut g, 1);
+    let left = door_draws(&g);
+    assert!(left.len() == 1 && !left[0].shadow_only, "only the box: {left:?}");
+    // Solid as well: it blocks where it would be drawn.
+    let solid = DOORWAY.replace("name = \"box\"\nmodel = \"box.vvx\"\nat = [10, 50, 0]\n", "name = \"box\"\nmodel = \"box.vvx\"\nat = [10, 50, 0]\nsolid = true\nshadow_only = true\n");
+    let dir = pieces_folder("shadow-only-solid", "", &solid, "");
+    std::fs::write(dir.join("door.vvx"), DOOR).unwrap();
+    let mut g = game_in(&dir);
+    assert_eq!(halted(&g), "");
+    assert_eq!(said(&mut g, "level:solid(10, 50, 1)"), "true");
+    assert!(door_draws(&g).last().is_some_and(|m| m.shadow_only));
+}
+
 /// A pose a piece cannot take is a mistake that names the piece and the
 /// part: set in a handler, with the line that set it; changed inside it, at
 /// the tick's end. A part the figure lacks, a model that is no figure, a

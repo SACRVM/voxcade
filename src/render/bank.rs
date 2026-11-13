@@ -45,6 +45,19 @@ pub struct ModelDraw {
     /// lie in one plane with its parent's the part further out wins,
     /// instead of both flickering through each other. 0: as it lies.
     pub nearer: f32,
+    /// Only in the sun's shadow map: casting, never drawn in the scene,
+    /// outlined or glowing (a level's `shadow_only` piece: a ceiling the
+    /// camera looks through).
+    pub shadow_only: bool,
+}
+
+impl ModelDraw {
+    /// Whether it is drawn in a pass: into the sun's shadow map
+    /// (`shadows`) every one with voxels, into the scene, its outline and
+    /// the UI's those not only casting.
+    pub fn in_pass(&self, shadows: bool) -> bool {
+        !self.voxels.is_empty() && (shadows || !self.shadow_only)
+    }
 }
 
 /// Where a voxel of a freely turned model has its centre: `local` its

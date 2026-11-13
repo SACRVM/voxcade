@@ -36,6 +36,10 @@ pub struct Drawing<'a> {
     /// kept in `bounds` and they are left out once the camera is known.
     pub(super) cull: bool,
     pub(super) bounds: Vec<(Vec3, Vec3)>,
+    /// What is drawn now only casts a shadow (`shadow_only`), and the top
+    /// of the highest such model's box (the shadows' box reaches up to it).
+    pub(super) shadow_only: bool,
+    pub(super) cast_top: f32,
 }
 
 impl Drawing<'_> {
@@ -191,7 +195,26 @@ impl Drawing<'_> {
             let (middle, reach) = (origin + Vec3::new(0.5, 0.5, m.size.z as f32 * 0.5), m.size.as_vec3().length() * 0.5 + 1.0);
             (middle - reach, middle + reach)
         };
-        if self.cull && !crate::render::on_screen(&self.view_proj, lo, hi) && !crate::render::on_screen(&self.light_vp, lo, hi) {
+        if !self.shadow_only && self.cull && !crate::render::on_screen(&self.view_proj, lo, hi) && !crate::render::on_screen(&self.light_vp, lo, hi) {
+            return;
+        }
+        // Only casting: its draws from the bank marked so, no cube at all
+        // (glass casts nothing; a model fading or without a bank, nothing).
+        // Kept whatever the shadows' box is so far: one above the world (a
+        // ceiling over a room standing higher) raises it (`cast_top`).
+        if self.shadow_only {
+            if self.fade < 1.0 {
+                return;
+            }
+            self.cast_top = self.cast_top.max(hi.z);
+            let from = self.draws.len();
+            draw(&mut |_, _, _, _, _, _, _| {}, Some(&mut self.draws), m, frame, origin, look, turn, pose, tint);
+            for d in &mut self.draws[from..] {
+                d.shadow_only = true;
+            }
+            if !self.cull {
+                self.bounds.resize(self.draws.len(), (lo, hi));
+            }
             return;
         }
         // A model colour's alpha is how opaque it is (glass); `fade` makes
@@ -235,6 +258,15 @@ impl Drawing<'_> {
     /// A light lighting what is around it this frame.
     pub fn light(&mut self, light: Light) {
         self.lights.push(light);
+    }
+
+    /// The models drawn while `on` only cast a shadow: their opaque voxels
+    /// go into the sun's shadow map as they would drawn, and nothing of
+    /// them into the picture (no outline, no glow; their glass, which casts
+    /// nothing, not at all). A level's `shadow_only` piece: a ceiling the
+    /// camera looks through.
+    pub fn shadow_only(&mut self, on: bool) {
+        self.shadow_only = on;
     }
 }
 
