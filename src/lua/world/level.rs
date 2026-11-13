@@ -88,6 +88,7 @@ fn declared_props(kind: &str, declared: &toml::Table, given: &Table) -> mlua::Re
 
 impl UserData for LevelView {
     fn add_fields<F: UserDataFields<Self>>(f: &mut F) {
+        f.add_meta_field(MetaMethod::Type, "level");
         f.add_field_function_get("state", |lua, _| {
             level_here(lua, "level.state")?;
             plain_state(lua, "voxcade.level")
@@ -165,6 +166,8 @@ impl UserData for LevelView {
 
     fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
         m.add_meta_method(MetaMethod::ToString, |_, _, ()| Ok("level"));
+        m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, Value)| -> mlua::Result<Value> { Err(no_such("level", &key, Some("level.state"))) });
+        m.add_meta_function(MetaMethod::NewIndex, |_, (_, key, _): (AnyUserData, Value, Value)| -> mlua::Result<()> { Err(not_settable("level", &key, Some("level.state"))) });
         m.add_function("spawn", |lua, (_, kind, x, y, options): (AnyUserData, String, f32, f32, Value)| {
             level_here(lua, "level:spawn")?;
             let o = spawn_options(options)?;
@@ -191,6 +194,12 @@ impl UserData for LevelView {
             }
             let id = change(lua, "level:spawn", |h| {
                 let k = h.kind(&kind)?;
+                // Outside the level only a fixed kind may wait (one coming in
+                // from off the screen); another would hang there in the air.
+                let size = h.host.sim().world.size.as_vec3();
+                if !h.kinds[k].fixed && !(x >= 0.0 && y >= 0.0 && x < size.x && y < size.y) {
+                    return Err(mlua::Error::runtime(format!("level:spawn: {x}, {y} lies outside the level (0 to {} across, 0 to {} deep): only a kind with fixed = true may wait outside (c.things.{kind}.fixed)", size.x, size.y)));
+                }
                 if o.facing.is_some() && !h.kinds[k].scripted {
                     return Err(mlua::Error::runtime(format!("level:spawn: facing: a {kind} turns by its ready-made rules (its behavior); facing is for kinds the script moves")));
                 }
@@ -379,6 +388,7 @@ impl AreaView {
 
 impl UserData for AreaView {
     fn add_fields<F: UserDataFields<Self>>(f: &mut F) {
+        f.add_meta_field(MetaMethod::Type, "area");
         f.add_field_method_get("name", |lua, a| Ok(Self::area(lua, a.0)?.name));
         f.add_field_method_get("x", |lua, a| Ok(Self::area(lua, a.0)?.at.x));
         f.add_field_method_get("y", |lua, a| Ok(Self::area(lua, a.0)?.at.y));
@@ -388,6 +398,8 @@ impl UserData for AreaView {
 
     fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
         m.add_meta_method(MetaMethod::ToString, |lua, a, ()| Ok(format!("area {}", Self::area(lua, a.0)?.name)));
+        m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, Value)| -> mlua::Result<Value> { Err(no_such("area", &key, None)) });
+        m.add_meta_function(MetaMethod::NewIndex, |_, (_, key, _): (AnyUserData, Value, Value)| -> mlua::Result<()> { Err(not_settable("area", &key, None)) });
         // A thing's place (where its feet stand, its pivot), or a point:
         // inside the box or not; a point without z, at any height.
         m.add_method("holds", |lua, a, v: Value| {
@@ -416,8 +428,14 @@ impl UserData for AreaView {
 pub struct CameraView;
 
 impl UserData for CameraView {
+    fn add_fields<F: UserDataFields<Self>>(f: &mut F) {
+        f.add_meta_field(MetaMethod::Type, "level.camera");
+    }
+
     fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
         m.add_meta_method(MetaMethod::ToString, |_, _, ()| Ok("camera"));
+        m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, Value)| -> mlua::Result<Value> { Err(no_such("level.camera", &key, None)) });
+        m.add_meta_function(MetaMethod::NewIndex, |_, (_, key, _): (AnyUserData, Value, Value)| -> mlua::Result<()> { Err(not_settable("level.camera", &key, None)) });
         m.add_function("follow", |lua, (_, t): (AnyUserData, Value)| {
             level_here(lua, "level.camera:follow")?;
             // Nothing: the players again (the first playing; several, their middle).

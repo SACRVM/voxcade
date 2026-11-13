@@ -8,6 +8,7 @@ pub struct ScreenView;
 
 impl UserData for ScreenView {
     fn add_fields<F: UserDataFields<Self>>(f: &mut F) {
+        f.add_meta_field(MetaMethod::Type, "screen");
         // The HUD's height in UI voxels (c.ui.height), for icons that burst
         // near its bottom.
         f.add_field_function_get("height", |lua, _| look(lua, |h| Ok(h.hud.height)));
@@ -15,12 +16,14 @@ impl UserData for ScreenView {
 
     fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
         m.add_meta_method(MetaMethod::ToString, |_, _, ()| Ok("screen"));
+        m.add_meta_function(MetaMethod::NewIndex, |_, (_, key, _): (AnyUserData, Value, Value)| -> mlua::Result<()> { Err(not_settable("screen", &key, None)) });
         // What was drawn on `screen` before is drawn on `on_draw`'s frame.
-        m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, String)| -> mlua::Result<Value> {
-            match key.as_str() {
-                "text" | "cube" | "model" | "light" => Err(mlua::Error::runtime(format!("screen.{key} is frame.{key} now: function on_draw(frame) ... frame:{key}(...) ... end"))),
-                "key" | "device" => Err(mlua::Error::runtime(format!("screen.{key} is controls.{key} now (or the action in braces in frame:text: \"PRESS {{jump}}\")"))),
-                other => Err(mlua::Error::runtime(format!("screen has no {other} (screen:shake, screen:flash, screen:burst, screen.height; drawing is on_draw's frame)"))),
+        m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, Value)| -> mlua::Result<Value> {
+            let name = key_shown(&key);
+            match name.as_str() {
+                "text" | "cube" | "model" | "light" => Err(mlua::Error::runtime(format!("screen.{name} is frame.{name} now: function on_draw(frame) ... frame:{name}(...) ... end"))),
+                "key" | "device" => Err(mlua::Error::runtime(format!("screen.{name} is controls.{name} now (or the action in braces in frame:text: \"PRESS {{jump}}\")"))),
+                _ => Err(no_such("screen", &key, None)),
             }
         });
         m.add_function("shake", |lua, (_, amount): (AnyUserData, f32)| {

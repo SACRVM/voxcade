@@ -48,6 +48,7 @@ impl InputView {
 
 impl UserData for InputView {
     fn add_fields<F: UserDataFields<Self>>(f: &mut F) {
+        f.add_meta_field(MetaMethod::Type, "input");
         f.add_field_method_get("left", |_, i| Ok(i.now.left));
         f.add_field_method_get("right", |_, i| Ok(i.now.right));
         f.add_field_method_get("up", |_, i| Ok(i.now.up));
@@ -65,6 +66,22 @@ impl UserData for InputView {
 
     fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
         m.add_meta_method(MetaMethod::ToString, |_, _, ()| Ok("input"));
+        // `input.jump`: an action is asked by its name, never read as a field.
+        m.add_meta_method(MetaMethod::Index, |_, i, key: Value| -> mlua::Result<Value> {
+            let Value::String(s) = &key else { return Err(no_such("input", &key, None)) };
+            let a = s.to_string_lossy();
+            let ask = format!("an action is asked by its name: input:held(\"{a}\"), input:pressed(\"{a}\"), input:released(\"{a}\")");
+            if i.actions.iter().any(|x| *x == a) {
+                return Err(mlua::Error::runtime(format!("input has no `{a}`: {ask}")));
+            }
+            let items: Vec<&crate::lua::api::Item> = crate::lua::api::items_of("input").collect();
+            if near_item(&a, &items).is_some() {
+                return Err(no_such("input", &key, None));
+            }
+            let actions = if i.actions.is_empty() { "the game names none, c.actions = { ... } in conf.lua".to_string() } else { format!("c.actions: {}", i.actions.join(", ")) };
+            Err(mlua::Error::runtime(format!("input has no `{a}`: {ask} ({actions}); the directions are input.left, input.right, input.up, input.down and input.dir")))
+        });
+        m.add_meta_function(MetaMethod::NewIndex, |_, (_, key, _): (AnyUserData, Value, Value)| -> mlua::Result<()> { Err(not_settable("input", &key, None)) });
         m.add_method("held", |_, i, name: String| Ok(i.key(&name)?.0));
         m.add_method("pressed", |_, i, name: String| {
             let (now, before) = i.key(&name)?;

@@ -148,15 +148,36 @@ pub fn standing(dir: &Path) -> Result<Standing> {
     if due.is_empty() {
         return Ok(Standing::Current);
     }
-    let steps = due.iter().map(|s| Ok(Plan { name: s.name, since: s.since, would: (s.plan)(dir)? })).collect::<Result<_>>()?;
+    let steps: Vec<Plan> = due.iter().map(|s| Ok(Plan { name: s.name, since: s.since, would: (s.plan)(dir)? })).collect::<Result<_>>()?;
+    // A game stating no version is taken as made before the line came
+    // (0.6.0); where no step finds anything of it to change, its files are
+    // this Voxcade's already: it opens, only the line missing (`unstated`).
+    if made.is_none() && steps.iter().all(|p| p.would.is_empty()) {
+        return Ok(Standing::Current);
+    }
     Ok(Standing::Older { made, steps })
+}
+
+/// The plain line for a game that opens though its `conf.lua` states no
+/// Voxcade (`standing` found nothing to change): None when it states one,
+/// or is no Lua game.
+pub fn unstated(dir: &Path) -> Option<String> {
+    if !is_lua_game(dir) || !matches!(stated(dir), Ok(None)) {
+        return None;
+    }
+    Some(format!("conf.lua states no Voxcade: {VERSION_LINE} = \"{}\" as the first line of conf(c) says its files are for this one (`voxcade upgrade {}` writes it)", engine(), dir.display()))
 }
 
 /// Whether the game in `dir` may be opened by this engine: a plain mistake
 /// naming what is old and the command, or the newer version, if not.
 pub fn opens(dir: &Path) -> Result<()> {
     match standing(dir)? {
-        Standing::Current => Ok(()),
+        Standing::Current => {
+            if let Some(line) = unstated(dir) {
+                eprintln!("{}: {line}", dir.display());
+            }
+            Ok(())
+        }
         Standing::Older { made, steps } => {
             // A game of this very version holding something it reads no
             // more (`c.markers` typed anew): what, not "made for an earlier".
@@ -169,7 +190,12 @@ pub fn opens(dir: &Path) -> Result<()> {
             let made = match made {
                 Some(v) if v == engine() => format!("an earlier Voxcade {v} (before: {})", steps.iter().map(|s| s.name).collect::<Vec<_>>().join(", ")),
                 Some(v) => format!("Voxcade {v}"),
-                None => "an older Voxcade".to_string(),
+                // No line: made before it came, and a step has something to
+                // change (else it opens): say the first.
+                None => {
+                    let (step, first) = steps.iter().find_map(|s| s.would.first().map(|w| (s.name, w.as_str()))).unwrap_or(("", ""));
+                    format!("an older Voxcade (conf.lua states none, {VERSION_LINE}; {step}: {first})")
+                }
             };
             bail!("{}: made for {made}; this is {}: `voxcade upgrade {}` brings it up to date", dir.display(), engine(), dir.display())
         }
@@ -210,6 +236,12 @@ pub fn upgrade_keeping(dir: &Path, dry: bool, keep: &Path) -> Result<Vec<String>
     }
     let steps = match standing(dir)? {
         Standing::Newer { made } => bail!("{}: made with Voxcade {made}, this is {}: get the new version to open it", dir.display(), engine()),
+        // Only the version line missing: it is written, nothing else.
+        Standing::Current if stated(dir)?.is_none() => {
+            out.push(format!("{}: its files are for Voxcade {} already", dir.display(), engine()));
+            out.push(set_version_in_file(dir, engine(), dry)?);
+            return Ok(out);
+        }
         Standing::Current => {
             out.push(format!("{}: nothing to do, its files are for Voxcade {}", dir.display(), stated(dir)?.unwrap_or_else(|| engine().to_string())));
             return Ok(out);
@@ -1743,8 +1775,20 @@ mod tests {
         let dir = crate::scratch::Scratch::new("upgrade-open");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.title = \"X\"\nend\n").unwrap();
+        // Without the line and nothing any step would change: it opens,
+        // the line missing said plainly; `upgrade` writes only the line.
+        opens(&dir).unwrap();
+        assert!(matches!(standing(&dir).unwrap(), Standing::Current));
+        assert!(unstated(&dir).is_some_and(|l| l.contains("c.voxcade = \"") && l.contains("voxcade upgrade")), "{:?}", unstated(&dir));
+        let said = upgrade(&dir, true).unwrap();
+        assert!(said.iter().any(|l| l.contains("would say c.voxcade")), "{said:?}");
+        // Without the line and something to change: made for an older one,
+        // the first thing to change named.
+        std::fs::create_dir_all(dir.join("sounds")).unwrap();
+        std::fs::write(dir.join("sounds/boom.wav"), b"RIFF").unwrap();
         let e = opens(&dir).unwrap_err().to_string();
-        assert!(e.contains("made for an older Voxcade") && e.contains("voxcade upgrade"), "{e}");
+        assert!(e.contains("made for an older Voxcade (conf.lua states none") && e.contains("sounds/boom.wav") && e.contains("voxcade upgrade"), "{e}");
+        std::fs::remove_dir_all(dir.join("sounds")).unwrap();
         std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.voxcade = \"0.5.0\"\nend\n").unwrap();
         assert!(opens(&dir).unwrap_err().to_string().contains("made for Voxcade 0.5.0; this is"));
         std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.voxcade = \"99.0.0\"\nend\n").unwrap();

@@ -9,6 +9,7 @@ pub struct MusicView;
 
 impl UserData for MusicView {
     fn add_fields<F: UserDataFields<Self>>(f: &mut F) {
+        f.add_meta_field(MetaMethod::Type, "music");
         f.add_field_function_get("song", |lua, _| look(lua, |h| Ok(h.music.song.and_then(|s| h.songs.get(s)).map(|t| t.name.clone()))));
         f.add_field_function_get("beat", |lua, _| look(lua, |h| Ok(h.music.beats(&h.songs).map(|b| b.floor() as i64))));
         f.add_field_function_get("intensity", |lua, _| look(lua, |h| Ok(h.music.intensity)));
@@ -31,9 +32,8 @@ impl UserData for MusicView {
 
     fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
         m.add_meta_method(MetaMethod::ToString, |_, _, ()| Ok("music"));
-        m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, String)| -> mlua::Result<Value> {
-            Err(mlua::Error::runtime(format!("music has no {key} (music:play, music:volume, music:muffle, music.song, music.beat, music.bar, music.intensity)")))
-        });
+        m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, Value)| -> mlua::Result<Value> { Err(no_such("music", &key, None)) });
+        m.add_meta_function(MetaMethod::NewIndex, |_, (_, key, _): (AnyUserData, Value, Value)| -> mlua::Result<()> { Err(not_settable("music", &key, None)) });
         m.add_function("play", |lua, (_, song, how): (AnyUserData, Option<String>, Value)| {
             // From when as a word, or { from = ..., crossfade = seconds }.
             let (when, cross) = match &how {

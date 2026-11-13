@@ -9,7 +9,7 @@
 local raw_next, raw_type, raw_getmetatable, raw_setmetatable = next, type, getmetatable, setmetatable
 local raw_rawset, raw_rawget, raw_tostring, raw_error, raw_format = rawset, rawget, tostring, error, string.format
 local sort, move, find, sub, pack, unpack = table.sort, table.move, string.find, string.sub, table.pack, table.unpack
-local raw_pcall, match, number_type = pcall, string.match, math.type
+local raw_pcall, match, gsub, number_type = pcall, string.match, string.gsub, math.type
 
 -- Read-only views and the tables they show; tables raw writes may not
 -- reach. Weak keys only let unused views go, nothing a game can see.
@@ -153,6 +153,7 @@ end
 
 -- `pairs` and `next` walk the keys in order: numbers, strings, booleans.
 local function ordered_pairs(t)
+  if raw_type(t) ~= "table" then raw_error("bad argument #1 to 'pairs' (table expected, got " .. raw_type(t) .. ")", 2) end
   local source = shows[t] or t
   local keys, n = keys_of(source, engine_keys[t])
   local i = 0
@@ -168,6 +169,7 @@ local function ordered_pairs(t)
 end
 
 local function ordered_next(t, key)
+  if raw_type(t) ~= "table" then raw_error("bad argument #1 to 'next' (table expected, got " .. raw_type(t) .. ")", 2) end
   local source = shows[t] or t
   local keys, n, at = keys_of(source, engine_keys[t])
   local i = 0
@@ -203,6 +205,20 @@ local function safe_tostring(v)
   return raw_tostring(v)
 end
 
+-- What a wrapper's call of Lua's own function gave (`raw_pcall`'s), or its
+-- mistake said at the line that called the wrapper (level 3: this, the
+-- wrapper, its caller), under the name the script called (`format`, not
+-- `raw_format`), never at the prelude's line.
+local function said_by(name, ok, ...)
+  if ok then return ... end
+  local e = ...
+  if raw_type(e) == "string" then
+    e = match(e, "^prelude:%d+: (.*)$") or e
+    e = gsub(e, "^(bad argument #%d+ to )'[^']*'", "%1'" .. name .. "'")
+  end
+  raw_error(e, 3)
+end
+
 local function safe_format(fmt, ...)
   local i = 1
   while true do
@@ -220,19 +236,19 @@ local function safe_format(fmt, ...)
     local t = raw_type(args[k])
     if t == "table" or t == "function" or t == "thread" or t == "userdata" then args[k] = safe_tostring(args[k]) end
   end
-  return raw_format(fmt, unpack(args, 1, args.n))
+  return (said_by("format", raw_pcall(raw_format, fmt, unpack(args, 1, args.n))))
 end
 
 local function safe_setmetatable(t, m)
   if raw_type(m) == "table" and (raw_rawget(m, "__gc") ~= nil or raw_rawget(m, "__mode") ~= nil) then
     raw_error("setmetatable: __gc and __mode depend on the garbage collector, which differs from run to run", 2)
   end
-  return raw_setmetatable(t, m)
+  return (said_by("setmetatable", raw_pcall(raw_setmetatable, t, m)))
 end
 
 local function safe_rawset(t, k, v)
   if guarded[t] or shows[t] then raw_error("rawset: this table is only to look at", 2) end
-  return raw_rawset(t, k, v)
+  return (said_by("rawset", raw_pcall(raw_rawset, t, k, v)))
 end
 
 -- A key as a path shows it: `.name`, or `[1]`.

@@ -74,7 +74,7 @@ pub fn mistake(path: &str, why: &str) -> anyhow::Error {
     match why {
         "view" => anyhow!("{path} is a view or another state (a table with a metatable), not plain data: copy into it what you need"),
         "twice" => anyhow!("{path} is a table met before (the same table twice, or one inside itself): state is a tree of plain data"),
-        "thing" => anyhow!("{path} is a thing: a thing lives in its level and this state outlives it; keep it in level.state (or, later, keep its name)"),
+        "thing" => anyhow!("{path} is a thing: a thing lives in its level and this state outlives it; keep it in level.state, or keep its name (thing.name) and find it again with level:thing(name)"),
         w if w.starts_with("key ") => anyhow!("{path}: a key that is a {}; keys are numbers, strings or booleans", &w[4..]),
         w => anyhow!("{path} is a {}: state is numbers, strings, booleans, things and tables of those", w.trim_start_matches("type ")),
     }

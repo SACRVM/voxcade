@@ -48,7 +48,9 @@ nothing else; `mod.rs` each command's work; tests
 `the_help_says_every_option_the_parsers_take`,
 `the_parsers_take_every_option_the_help_says`). `src/lua/` is the Lua door (`LuaGame<K>`: the
 sandbox, the world API over `lua::host::Host`, `conf.lua`, errors that
-halt; `api.rs` the API's register), `src/mcp.rs` the MCP server.
+halt; `api.rs` the API's register; `mod.rs` the game and `impl Game`, its
+own work by concern in `start.rs`, `calls.rs`, `course.rs`, `events.rs`,
+`seats.rs`, `saving.rs`, `hashing.rs`), `src/mcp.rs` the MCP server.
 `src/vvx.rs` is the model format, `.vvx` (text: the format line, `size`,
 a `[palette]` of signs, `[[frame]]`s or `[[part]]`s with `layers`);
 `src/vox.rs` the models as the engine holds them (`VoxModel`, `Part`) and
@@ -252,7 +254,11 @@ nearest; its replay `tests/two_ships`);
   was made for and this one, the steps' dry run in their words, a word
   on changes git has not committed, UPGRADE on a thread, what was done
   (COPY), REFIT THE REPLAYS (`replay::refit_saying`), then the game; a
-  game of a newer Voxcade is told to get the update. `voxcade ide <game>
+  game of a newer Voxcade is told to get the update. A `conf.lua` stating
+  no `c.voxcade` is taken as made before 0.6.0, but where no step finds
+  anything to change it opens (`Standing::Current`), the missing line said
+  plainly (`upgrade::unstated`; `voxcade upgrade` then writes only the
+  line); else `opens` names the first thing to change. `voxcade ide <game>
   --shot FILE [--upgraded]` draws the page, as it opens or as after an
   UPGRADE run dry (nothing changed).
 - Levels of voxel blocks (`docs/tiles.md`): `voxcade import <game>
@@ -876,7 +882,21 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   while it starts); maths through libm; `^` refused but for
   squares; `pairs`/`next` in key order; `math.random` from `Sim::rng`; no
   addresses in `tostring`/`format`; no `__gc`/`__mode`; an instruction
-  budget and a memory limit. The API is version 2 (`docs/game-model.md`,
+  budget and a memory limit, each stop naming the line last seen running
+  (`sandbox::running_line`); a mistake inside the prelude's wrappers is
+  said at the script's line under the name it called (`said_by`, test
+  `a_mistake_in_a_wrapper_is_said_at_the_scripts_line`), the prelude and
+  mlua's frames left out of tracebacks. The engine's objects have only
+  the register's names: reading or setting another is a mistake naming
+  the object and the one meant (`world::no_such`, `not_settable`; their
+  `__name` the script's, `world`, not `WorldView`; test
+  `a_name_an_object_lacks_is_a_mistake`); the states, `props` and the
+  tables fields give stay plain tables. `level:spawn` outside the level
+  is a mistake but for a kind with `fixed = true` (one coming in from off
+  the screen). A register entry's doc is a short
+  first sentence, then short sentences, a `\n` a part of its own and `- `
+  a list's item (each kit's keys apart); `voxcade api`, HELP and LuaLS
+  show the lines. The API is version 2 (`docs/game-model.md`,
   built in stages): the globals `world`, `level`, `player`, `input` (in
   `on_tick`), `screen` (effects: shake, flash), `controls` (the
   player's device and keys; replays carry it, `Session::set_controls`)
@@ -922,7 +942,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   plays a second twice from a snapshot every 5 s and names a local of
   `main.lua` that keeps state anyway (`replay::guard`, `Game::hidden`). A
   script's error halts the game (file, line, tick) until the file is
-  mended; `shot` and `check` end with it. The kits report what their
+  mended; `shot`, `check` and `inspect` end with it (exit 1, `inspect`
+  printing its JSON first). The kits report what their
   behaviors do to things (`Sim::events`: hits, deaths, pickups) and the
   engine tells the script after their rules, with the touches it finds
   itself (`on_hit`, `on_death`, `on_fall_out`, `on_pickup`, `on_touch`,

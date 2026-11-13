@@ -88,6 +88,7 @@ pub(super) fn fill_keys(controls: &Controls, text: &str) -> mlua::Result<String>
 
 impl UserData for Frame {
     fn add_fields<F: UserDataFields<Self>>(f: &mut F) {
+        f.add_meta_field(MetaMethod::Type, "frame");
         f.add_field_method_get("width", |_, o| Ok(o.width));
         // The players at the machine this picture is for (every taken seat
         // at one machine), in seat order.
@@ -105,7 +106,13 @@ impl UserData for Frame {
 
     fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
         m.add_meta_method(MetaMethod::ToString, |_, _, ()| Ok("frame"));
+        m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, Value)| -> mlua::Result<Value> { Err(no_such("frame", &key, None)) });
+        m.add_meta_function(MetaMethod::NewIndex, |_, (_, key, _): (AnyUserData, Value, Value)| -> mlua::Result<()> { Err(not_settable("frame", &key, None)) });
         m.add_method_mut("model", |_, o, (file, thing, frame, rotation, pose): (String, Value, Option<usize>, Option<Table>, Option<Table>)| {
+            // A model is drawn where a thing stands (at a point: not yet).
+            if let Value::Table(_) = thing {
+                return Err(mlua::Error::runtime("frame:model(file, thing, ...): a model is drawn where a thing stands, so the second is a thing, not a point (for a model at a place: a thing of a kind without a behavior, placed there)"));
+            }
             let thing = thing_id(&thing, "frame:model")?;
             if !o.known.contains_key(&file) {
                 return Err(mlua::Error::runtime(format!("frame:model: no model called '{file}' (the game knows a kind's model in c.things, and the files listed in c.models: list it there)")));

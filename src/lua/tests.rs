@@ -621,7 +621,7 @@ end
     for (line, says) in [
         ("music:play('nope')", "music:play: no song called 'nope' in c.audio.music (its songs: drive, calm)"),
         ("music:play('drive', 'soon')", "music:play: from \"bar\", \"beat\" or \"now\", not \"soon\""),
-        ("local v = music.loudness", "music has no loudness"),
+        ("local v = music.loudness", "music has no `loudness`"),
     ] {
         std::fs::write(dir.join("main.lua"), format!("function on_tick()\n  {line}\nend\n")).unwrap();
         let mut g = game_in(&dir);
@@ -5244,7 +5244,7 @@ fn assigning_a_thing_field_says_what_to_do() {
     let mut g = game_in(&dir);
     steps(&mut g, 2);
     let e = halted(&g);
-    assert!(e.contains("thing.x cannot be assigned") && e.contains("thing.state"), "{e}");
+    assert!(e.contains("thing.x cannot be set") && e.contains("thing.state"), "{e}");
 }
 
 /// A mistake in a call to the engine is said as the script calls it, the
@@ -5315,4 +5315,117 @@ fn a_voxel_outside_the_level_is_a_mistake() {
     let mut g = game_in(&dir);
     steps(&mut g, 1);
     assert!(halted(&g).contains("no action called 'jump': the game names no actions (c.actions = { \"jump\" } in conf.lua)"), "{}", halted(&g));
+}
+
+/// A name an engine's object does not have is a mistake at its line, not a
+/// silent nil: the object, the name, the one meant if near (a method with
+/// `:`, a field with `.`), else what it has; `input.jump` says how an
+/// action is asked; setting one says it is only to read; the objects go by
+/// their scripts' names, never the engine's Rust types. Optional fields
+/// (`thing.name`, `thing.wall`, `level.next`) stay nil where nothing is.
+#[test]
+fn a_name_an_object_lacks_is_a_mistake() {
+    for (line, says) in [
+        ("local a = world.tik", "main.lua:2: world has no `tik`: did you mean `world.tick`?"),
+        ("local a = level.szie", "main.lua:2: level has no `szie`: did you mean `level.size`?"),
+        ("level:spwan('gem', 1, 1)", "main.lua:2: level has no `spwan`: did you mean `level:spawn`?"),
+        ("player:wlak({ x = 1, y = 0 }, 10)", "main.lua:2: player has no `wlak`: did you mean `player:walk`?"),
+        ("local a = player.helth", "main.lua:2: player has no `helth` (it has player.controls,"),
+        ("local a = input.jump", "main.lua:2: input has no `jump`: an action is asked by its name: input:held(\"jump\")"),
+        ("local a = input.shoot", "main.lua:2: input has no `shoot`: an action is asked by its name: input:held(\"shoot\"), input:pressed(\"shoot\"), input:released(\"shoot\") (c.actions: jump, fire)"),
+        ("local a = input.lfet", "main.lua:2: input has no `lfet`: did you mean `input.left`?"),
+        ("level.camera:folow(player)", "main.lua:2: level.camera has no `folow`: did you mean `level.camera:follow`?"),
+        ("local a = controls.devise", "main.lua:2: controls has no `devise`: did you mean `controls.device`?"),
+        ("local a = music.baet", "main.lua:2: music has no `baet`: did you mean `music.beat`?"),
+        ("screen:shak(1)", "main.lua:2: screen has no `shak`: did you mean `screen:shake`?"),
+        ("local a = level:spawn('gem', 1, 1).hp", "main.lua:2: thing has no `hp`"),
+        ("world.foo = 1", "main.lua:2: world has no `foo` to set: the game's own data goes in world.state"),
+        ("world.tick = 1", "main.lua:2: world.tick is only to read: the game's own data goes in world.state"),
+        ("player.x = 1", "main.lua:2: player.x cannot be set"),
+        ("music.tempo = 1", "main.lua:2: music has no `tempo` to set"),
+        ("local s = 'x' .. world", "main.lua:2: attempt to concatenate a world value"),
+    ] {
+        let mut g = game("no-such", &format!("function on_tick()\n  {line}\nend\n"));
+        steps(&mut g, 1);
+        let e = halted(&g);
+        assert!(e.starts_with(says), "{line}: {e}");
+        for internal in ["WorldView", "LevelView", "ThingRef", "InputView", "__mlua", "prelude:"] {
+            assert!(!e.contains(internal), "{line}: {e}");
+        }
+    }
+    let mut g = game("no-such-draw", "function on_draw(frame)\n  local a = frame.widht\nend\n");
+    steps(&mut g, 1);
+    g.look();
+    assert!(halted(&g).starts_with("main.lua:2: frame has no `widht`: did you mean `frame.width`?"), "{}", halted(&g));
+    let mut g = game("optional", "function on_tick()\n  local t = level:spawn('gem', 5, 5)\n  world.state.n = tostring(t.name) .. tostring(t.wall) .. tostring(level.next) .. tostring(music.song)\nend\n");
+    steps(&mut g, 1);
+    assert_eq!(halted(&g), "");
+}
+
+/// A mistake inside one of the sandbox's wrappers (`string.format`,
+/// `pairs`, `setmetatable`, `rawset`, `next`) is said at the script's line
+/// under the name the script called, never at the prelude's; an endless
+/// loop and a script out of memory name the line that ran.
+#[test]
+fn a_mistake_in_a_wrapper_is_said_at_the_scripts_line() {
+    for (line, says) in [
+        ("local s = string.format('%d', 1.5)", "main.lua:2: bad argument #2 to 'format' (number has no integer representation)"),
+        ("local s = ('%d'):format(1.5)", "main.lua:2: bad argument #2 to 'format'"),
+        ("for k in pairs(nil) do end", "main.lua:2: bad argument #1 to 'pairs' (table expected, got nil)"),
+        ("local k = next(3)", "main.lua:2: bad argument #1 to 'next' (table expected, got number)"),
+        ("setmetatable(1, {})", "main.lua:2: bad argument #1 to 'setmetatable' (table expected, got number)"),
+        ("rawset({}, nil, 1)", "main.lua:2: table index is nil"),
+        ("table.sort({ 1, 'a' })", "main.lua:2: attempt to compare"),
+        ("local s = string.format('%p', {})", "main.lua:2: string.format: %p"),
+        ("while true do end", "main.lua:2: on_tick ran over 20 million instructions"),
+        ("local ok = pcall(function() while true do end end)", "main.lua:2: on_tick ran over 20 million instructions"),
+        ("local t = {} for i = 1, 1e9 do t[i] = string.rep('x', 1000) .. i end", "main.lua:2: not enough memory"),
+    ] {
+        let mut g = game("wrapper", &format!("function on_tick()\n  {line}\nend\n"));
+        steps(&mut g, 1);
+        let e = halted(&g);
+        assert!(e.starts_with(says), "{line}: {e}");
+        assert!(!e.contains("prelude:") && !e.contains("raw_"), "{line}: {e}");
+    }
+}
+
+/// `frame:model` given a point says it draws where a thing stands; a spawn
+/// outside the level is a mistake but for a fixed kind, which may wait
+/// there (one coming in from off the screen).
+#[test]
+fn a_model_at_a_point_and_a_spawn_outside_say_so() {
+    let mut g = game("model-point", "function on_draw(frame)\n  frame:model('x.vvx', { x = 1, y = 2, z = 3 })\nend\n");
+    steps(&mut g, 1);
+    g.look();
+    assert!(halted(&g).starts_with("main.lua:2: frame:model(file, thing, ...): a model is drawn where a thing stands, so the second is a thing, not a point"), "{}", halted(&g));
+    let mut g = game("spawn-outside", "function on_tick()\n  level:spawn('gem', -500, 9999)\nend\n");
+    steps(&mut g, 1);
+    assert!(halted(&g).starts_with("main.lua:2: level:spawn: -500, 9999 lies outside the level (0 to 64 across, 0 to 64 deep): only a kind with fixed = true"), "{}", halted(&g));
+    let dir = folder("spawn-outside-fixed", "function on_tick()\n  if world.tick == 1 then level:spawn('post', -20, 10) end\nend\n");
+    std::fs::write(dir.join("conf.lua"), CONF.replace("c.things.miner = {}", "c.things.miner = {}\n  c.things.post = { fixed = true }")).unwrap();
+    let mut g = game_in(&dir);
+    steps(&mut g, 2);
+    assert_eq!(halted(&g), "");
+}
+
+/// A setting's slip at the top of `conf.lua` (`c.titel`) names the one
+/// meant; a kind's missing model names the kind's setting.
+#[test]
+fn a_slip_in_conf_names_the_setting_meant() {
+    let dir = folder("conf-slip", "");
+    std::fs::write(dir.join("conf.lua"), CONF.replace("c.things.miner = {}", "c.titel = 'X'")).unwrap();
+    assert_eq!(start_error(&dir), "conf.lua: c.titel: no such setting (did you mean `c.title`?)");
+    std::fs::write(dir.join("conf.lua"), CONF.replace("c.things.miner = {}", "c.things.miner = { model = 'nope.vvx' }")).unwrap();
+    assert_eq!(start_error(&dir), "c.things.miner.model: no file \"nope.vvx\" in the game folder");
+}
+
+/// Whether a game goes with its music or moves its sun is told by the
+/// names in its code: a word in a comment or a string does not count.
+#[test]
+fn music_and_daylight_in_a_comment_or_a_string_do_not_count() {
+    let main = "-- music:play and on_beat, frame:daylight\nlocal WORDS = \"music daylight on_beat\"\nfunction on_tick() world.state.w = WORDS end\n";
+    let g = game_in(&code_world("words-only", main, &[]));
+    assert!(!g.game.uses_music() && !g.game.moves_sun());
+    let g = game_in(&code_world("names-music", "function on_beat(b) end\n", &[]));
+    assert!(g.game.uses_music() && !g.game.moves_sun());
 }
