@@ -212,7 +212,11 @@ voxcade sheet games/bunnyfarm bunny.vvx                                # a model
 
 - `shot` writes one frame and says what it cost (CPU and GPU per pass,
   the slowest ticks); `--screen` shows a menu (title, settings, pause,
-  console ...), `--record` keeps the run as a replay.
+  console ...; `voxcade shot --help` lists them all), `--record` keeps
+  the run as a replay.
+- `voxcade COMMAND --help` says every option a command takes, a
+  person's first, the ones for pictures and tests under their own
+  heading; `voxcade help all` says everything.
 - `check` plays every replay in a game's `replays/` and says whether each
   runs as recorded (a hash of the states every second and the state its
   run ended in), drawing after every tick as a window does; `--refit` takes new game files that play
@@ -294,7 +298,7 @@ opens the launcher, which also fetches new versions (`src/update.rs`).
 | `src/shooter/`, `src/platformer/` | The two kits, ready-made rules for whole genres |
 | `src/render.rs`, `src/*.wgsl`, `src/mesh.rs` | The renderer: chunk meshes, models on the GPU, shadows, post passes |
 | `src/ui.rs`, `src/menu.rs`, `src/prompt.rs` | The voxel UI, the menus, the console |
-| `src/app.rs`, `src/headless.rs`, `src/cli.rs` | The window, everything without one (`shot`, `film`, `sounds`, `music`), the command line |
+| `src/app/`, `src/headless.rs`, `src/cli/` | The window, everything without one (`shot`, `film`, `sounds`, `music`), the command line |
 | `src/replay.rs` | Recording, replays, `check`, attract mode |
 | `src/ide/`, `src/gui/`, `src/editor/` | The IDE, its egui glue, the level and voxel editors |
 | `src/audio/` | The synthesizer, MML music, the mixer |
