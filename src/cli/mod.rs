@@ -270,7 +270,7 @@ fn api(filter: Option<&str>, lua: Option<&Path>) -> Result<()> {
         println!("wrote {}", file.display());
         return Ok(());
     }
-    print!("{}", crate::lua::api::text(filter));
+    print!("{}", crate::lua::api::lookup(filter).map_err(anyhow::Error::msg)?);
     Ok(())
 }
 

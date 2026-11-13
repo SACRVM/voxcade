@@ -2,10 +2,16 @@
 
 The model the Lua API is built on: what a game's scripts see, when the
 engine calls them, and why. `voxcade api` (from the register,
-`src/lua/api.rs`) lists every name with its words, `lua/voxcade.lua`
-gives them and every `conf.lua` setting to editors (LuaLS), and HELP in
-the IDE shows each by a whole game; this file is the model behind those
-names. What is not built yet is said where it would go ("not yet").
+`src/lua/api.rs`) lists every name with its words, then every `conf.lua`
+setting (its type, default and range, read from `src/config.rs`; the
+ranges are `config::RANGES`, checked as `conf.lua` is read) and every key
+of a kind of thing (the engine's, and each kit's behaviors' from their
+`kit.toml`); `voxcade api NAME` finds a name as it is printed, in part
+and in any case. `lua/voxcade.lua` gives them to editors (LuaLS: a kind
+is a `Kind`, or a behavior's `Kind.platformer.hero` …), and HELP in the
+IDE shows each by a whole game, its REFERENCE all of them; this file is
+the model behind those names. What is not built yet is said where it
+would go ("not yet").
 
 ## Why
 

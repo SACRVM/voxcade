@@ -35,6 +35,7 @@ pub fn run(files: &Files, cfg: &mut GameConfig) -> Result<()> {
     renamed(&value)?;
     colors(&value)?;
     actions(&value)?;
+    crate::config::check_ranges(&value).map_err(|e| anyhow::anyhow!("conf.lua: {e}"))?;
     *cfg = settings(value, &defaults)?;
     Ok(())
 }
@@ -70,11 +71,20 @@ fn culprit(value: &toml::Value, defaults: &toml::Value) -> Option<(Vec<String>, 
     };
     let (mut path, mut here, mut found) = (Vec::new(), value, None);
     while let toml::Value::Table(t) = here {
-        let Some((k, v, e)) = t.iter().find_map(|(k, v)| {
-            let mut p = path.clone();
-            p.push(k.clone());
-            refused(&p, v).map(|e| (k, v, e))
-        }) else {
+        // A setting refused only for a key it lacks when set alone (one of
+        // two that go together) is not the mistake: a table that lacks
+        // one is, and a wrong value before either.
+        let missing = |e: &toml::de::Error| e.message().starts_with("missing field");
+        let rank = |v: &toml::Value, e: &toml::de::Error| if !missing(e) { 0 } else if v.is_table() { 1 } else { 2 };
+        let Some((k, v, e)) = t
+            .iter()
+            .filter_map(|(k, v)| {
+                let mut p = path.clone();
+                p.push(k.clone());
+                refused(&p, v).map(|e| (k, v, e)).filter(|(_, v, e)| rank(v, e) < 2)
+            })
+            .min_by_key(|(_, v, e)| rank(v, e))
+        else {
             break;
         };
         path.push(k.clone());
@@ -95,6 +105,9 @@ fn plainly(message: &str, parent: &str, name: &str) -> String {
     if let Some((_, list)) = message.strip_prefix("unknown field `").and_then(|m| m.split_once("`, expected ")) {
         let all = names(list);
         return format!("not a setting of {parent}{}; it has {}", near(&all), all.join(", "));
+    }
+    if let Some(key) = message.strip_prefix("missing field `").and_then(|m| m.split('`').next()) {
+        return format!("{key} is missing: it goes with the rest of {parent}.{name}");
     }
     if let Some((given, list)) = message.strip_prefix("unknown variant `").and_then(|m| m.split_once("`, expected ")) {
         let all = names(list);
@@ -365,5 +378,161 @@ mod tests {
         assert!(e.contains("33 actions") && e.contains("32 at most"), "{e}");
         let ok: Vec<String> = (1..=32).map(|i| format!("'a{i}'")).collect();
         conf(&format!("function conf(c) c.actions = {{ {} }} end", ok.join(", "))).unwrap();
+    }
+
+    /// The numbers `conf.lua` sets, by their paths as `config::RANGES`
+    /// writes them, read from `config.rs` as the register reads it.
+    fn numbers() -> Vec<String> {
+        fn numeric(rust: &str) -> bool {
+            matches!(rust, "f32" | "f64" | "u8" | "u16" | "u32" | "u64" | "usize" | "i8" | "i16" | "i32" | "i64")
+        }
+        fn walk(rust: &str, path: String, out: &mut Vec<String>) {
+            let rust = rust.trim();
+            if let Some(inner) = rust.strip_prefix("Option<").and_then(|r| r.strip_suffix('>')) {
+                return walk(inner, path, out);
+            }
+            if let Some(inner) = rust.strip_prefix("Vec<").and_then(|r| r.strip_suffix('>')) {
+                return walk(inner, format!("{path}[]"), out);
+            }
+            if let Some(inner) = rust.strip_prefix('[').and_then(|r| r.split_once(';')).map(|(t, _)| t) {
+                return walk(inner, format!("{path}[]"), out);
+            }
+            if let Some(inner) = rust.strip_prefix("BTreeMap<String, ").and_then(|r| r.strip_suffix('>')) {
+                return walk(inner, format!("{path}.*"), out);
+            }
+            if let Some(inner) = rust.strip_prefix('(').and_then(|r| r.strip_suffix(')')) {
+                if inner.split(',').any(|t| numeric(t.trim())) {
+                    out.push(format!("{path}[]"));
+                }
+                return;
+            }
+            if numeric(rust) {
+                return out.push(path);
+            }
+            for k in crate::lua::api::conf_keys(rust) {
+                walk(&k.rust, if path.is_empty() { k.key } else { format!("{path}.{}", k.key) }, out);
+            }
+        }
+        let mut out = Vec::new();
+        walk("GameConfig", String::new(), &mut out);
+        out
+    }
+
+    /// Every number `conf.lua` sets has a range in `config::RANGES`, or is
+    /// one of `config::FREE` that may be any number; and every range names
+    /// a number there is.
+    #[test]
+    fn every_number_of_conf_lua_has_its_range() {
+        let numbers = numbers();
+        assert!(numbers.len() > 60, "{numbers:?}");
+        for n in &numbers {
+            assert!(crate::config::bound(n).is_some() || crate::config::FREE.contains(&n.as_str()), "{n}: a number of conf.lua without a range (config::RANGES) or a place among the free ones (config::FREE)");
+        }
+        for b in crate::config::RANGES {
+            let general = b.key.replace("[3]", "[]");
+            assert!(numbers.contains(&general), "{}: a range for no setting", b.key);
+        }
+        for f in crate::config::FREE {
+            assert!(numbers.iter().any(|n| n == f), "{f}: free, but no setting");
+        }
+    }
+
+    /// The line of `conf.lua` that sets the number at `key` (as `RANGES`
+    /// writes it) to `v`, its siblings as a game would have them.
+    fn setting(key: &str, v: &str) -> String {
+        if let Some((list, field)) = key.strip_prefix("world.blocks.").and_then(|k| k.split_once("[].")) {
+            return format!("c.world.blocks = {{ {list} = {{ {{ {field} = {v} }} }} }}");
+        }
+        if let Some((list, field)) = key.split_once("[].") {
+            return format!("c.{list} = {{ {{ {field} = {v} }} }}");
+        }
+        if let Some(list) = key.strip_suffix("[]") {
+            let n = if list.starts_with("world.size") || list.starts_with("light.") || list.ends_with("color") { 3 } else { 2 };
+            return format!("c.{list} = {{ {} }}", vec![v; n].join(", "));
+        }
+        if let Some(list) = key.strip_suffix("[3]") {
+            return format!("c.{list} = {{ 0.4, 0.6, {v} }}");
+        }
+        if let Some((map, field)) = key.split_once(".*.") {
+            return format!("c.{map}.thing = {{ {field} = {v} }}");
+        }
+        if let Some(side) = key.strip_prefix("camera.follow_height.") {
+            let other = if side == "below" { "above" } else { "below" };
+            return format!("c.camera.follow_height = {{ {side} = {v}, {other} = 4 }}");
+        }
+        if let Some(field) = key.strip_prefix("world.blocks.") {
+            return format!("c.world.blocks = {{ {field} = {v} }}");
+        }
+        format!("c.{key} = {v}")
+    }
+
+    /// A number of `conf.lua` out of its range is a mistake naming the
+    /// setting, its value and the range, never a panic or a hang: each is
+    /// set negative, zero, huge, not a number (0/0, 1/0) and text. At each
+    /// end of its range the game loads, plays and draws (a negative
+    /// `c.camera.view_width` panicked deep in the camera's sums; a world
+    /// of 100000 by 100000 voxels went on for minutes without a word).
+    #[test]
+    fn a_number_out_of_its_range_is_a_plain_mistake() {
+        use crate::config::RANGES;
+        for b in RANGES {
+            let named = format!("c.{}", b.key.split(['[', '*']).next().unwrap().trim_end_matches('.'));
+            for v in ["-5", "0", "1e9", "0/0", "1/0", "'x'"] {
+                let line = setting(b.key, v);
+                match conf(&format!("function conf(c)\n  c.world.size = {{ 32, 32, 8 }}\n  {line}\nend\n")) {
+                    Err(e) => assert!(e.to_string().contains(&named), "{line}: {e}"),
+                    Ok(_) => assert!(v.parse::<f64>().is_ok_and(|n| b.holds(n)), "{line}: taken out of {}", b.words()),
+                }
+            }
+        }
+        let e = conf("function conf(c) c.camera.view_width = -5 end").unwrap_err().to_string();
+        assert_eq!(e, "conf.lua: c.camera.view_width = -5: above 0, up to 65536");
+        let e = conf("function conf(c) c.world.size = { 100000, 100000, 1000 } end").unwrap_err().to_string();
+        assert!(e.starts_with("conf.lua: c.world.size[1] = 100000: from 1 to 65536"), "{e}");
+        let e = conf("function conf(c) c.world.size = { 4096, 4096, 4096 } end").unwrap_err().to_string();
+        assert!(e.starts_with("conf.lua: c.world.size: 4096 by 4096 by 4096 voxels is too big"), "{e}");
+        let e = conf("function conf(c) c.light.sun = { 0.4, 0.6, 1 } end").unwrap_err().to_string();
+        assert_eq!(e, "conf.lua: c.light.sun[3] = 1: from -1000 to below 0");
+        for (line, says) in [("c.camera.fov = 0", "c.camera.fov = 0: from 10 to 100"), ("c.camera.pitch = 200", "c.camera.pitch = 200: from -89 to 90"), ("c.light.sky = { 0.1, 2, 0.1 }", "c.light.sky[2] = 2: from 0 to 1"), ("c.items.key = { stack = 0 }", "c.items.key.stack = 0: from 1 to 1000000")] {
+            let e = conf(&format!("function conf(c) {line} end")).unwrap_err().to_string();
+            assert!(e.contains(says), "{line}: {e}");
+        }
+        // At the ends of each range a game loads, plays and draws.
+        let main = "function on_level_start() level:fill(0, 0, 0, 7, 7, 0, '#5a6e4a') end\nfunction on_draw(frame) frame:text('HI', 2, 2) end\n";
+        let mut edges = Vec::new();
+        for b in RANGES.iter().filter(|b| !b.key.starts_with("world.blocks")) {
+            let low = if b.low_open { b.low + 0.25 } else { b.low };
+            let high = if b.high_open { b.high - 0.25 } else { b.high };
+            edges.extend([(b, low), (b, high)]);
+        }
+        let (done, heard) = std::sync::mpsc::channel();
+        let count = edges.len();
+        std::thread::spawn(move || {
+            for (b, v) in edges {
+                let dir = crate::scratch::Scratch::new("conf-edge");
+                let line = setting(b.key, &v.to_string());
+                let size = if b.key.starts_with("world.size") { "" } else { "c.world.size = { 32, 32, 8 }" };
+                std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  {size}\n  {line}\nend\n")).unwrap();
+                std::fs::write(dir.join("main.lua"), main).unwrap();
+                match crate::session::Session::<crate::Voxcade>::load(&dir) {
+                    // Ends that cannot all hold at once: a world as long
+                    // each way as one may be, a sun level with the ground.
+                    Err(e) => assert!(["c.world.size", "c.light.sun"].iter().any(|k| b.key.starts_with(&k[2..]) && e.to_string().contains(k)), "{line}: {e:#}"),
+                    Ok(mut game) => {
+                        for _ in 0..4 {
+                            game.step(&crate::input::Input::default());
+                            game.look();
+                        }
+                        let _ = game.compose(0.5, 16.0 / 9.0, crate::session::Scene::Play, None);
+                        let _ = game.compose(0.5, 16.0 / 9.0, crate::session::Scene::Title { time: 3.0 }, None);
+                        assert!(game.trouble().is_none(), "{line}: {:?}", game.trouble());
+                    }
+                }
+                done.send(()).unwrap();
+            }
+        });
+        for n in 0..count {
+            heard.recv_timeout(std::time::Duration::from_secs(60)).unwrap_or_else(|_| panic!("edge {n} of {count}: no answer in a minute (a panic above, or a hang)"));
+        }
     }
 }

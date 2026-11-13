@@ -433,7 +433,7 @@ function Input:released(action) end
 function Input:repeated(action) end
 
 ---@class Screen The picture's effects (a shake, a flash, an icon bursting), from anywhere the game changes.
----@field height number How many UI voxels the HUD is from top to bottom (c.ui.height), for a burst near its bottom; on_draw's frame has its width too.
+---@field height number How many UI voxels the HUD is from top to bottom (c.ui.height), for a burst near its bottom. Its width follows the shape of each player's window, so only on_draw's frame.width says it.
 local Screen = {}
 
 ---Shakes the screen: 0..1 more (a small hit 0.1, a blast 0.35, 1 at most); it dies down by itself. Only the camera moves, and players can turn shaking off.
@@ -722,7 +722,7 @@ function on_pickup(thing, item) end
 ---@class Conf The game's settings (conf.lua); ready-made rules (c.kit) add their own (c.weapons).
 ---@field [string] table
 ---@field voxcade string The Voxcade the game's files are for (c.voxcade = "0.6.0"): a game for an older one is brought up to date by voxcade upgrade, one for a newer one does not open. In neither the fingerprint nor the hash.
----@field title string
+---@field title string The game's name: the window's title, the title screen's logo unless title_screen.logo says otherwise.
 ---@field world Conf.world
 ---@field physics Conf.physics
 ---@field player Conf.player
@@ -734,11 +734,11 @@ function on_pickup(thing, item) end
 ---@field transition Conf.transition
 ---@field audio Conf.audio
 ---@field ui Conf.ui
----@field things table<string, table> The kinds of things the game has ([things.NAME]): each names its behavior (the game's), may build on another (like = "other") and says what differs; markers place them by name.
+---@field things table<string, Kind|Kind.platformer.hero|Kind.platformer.walker|Kind.platformer.hopper|Kind.platformer.flyer|Kind.platformer.platform|Kind.platformer.prop|Kind.platformer.crate|Kind.shooter.soldier|Kind.shooter.spawner|Kind.shooter.captive|Kind.shooter.gunship|Kind.shooter.pickup> The kinds of things the game has (c.things.NAME = {... }): each may name a behavior of its ready-made rules, may build on another (like = "other") and says what differs; a level places them by name.
 ---@field kit string The building kit a Lua game plays with ("shooter"), if any.
 ---@field actions string[] A Lua game's actions besides the four directions (a kit brings its own), and the keys and gamepad buttons bound to them at first.
----@field keys table
----@field pad table
+---@field keys table The keys bound to each action at first, by their US names (c.keys.jump = { "Z" }); the player may change them.
+---@field pad table The gamepad's buttons bound to each action at first (c.pad.jump = { "A" }).
 ---@field models string[] Model files a Lua game draws besides its kinds' (frame:model).
 ---@field scored boolean The game keeps a score (player.state.score), with ready-made rules or without: the title shows the best, and runs go into the high score table.
 ---@field items table<string, table> What can be carried (c.items.key = { model = "key.vvx", stack = 1 }): an inventory (player.state.inventory) counts these by name.
@@ -747,143 +747,268 @@ function on_pickup(thing, item) end
 ---@field saves Conf.saves Save games (c.saves = { slots = 3, version = 1 }): none without slots.
 ---@field high_scores any[][] The high score table to beat before anyone played: up to ten lines of initials and points ({ { "VOX", 50000 },... }); without them the engine's.
 ---@field languages string[] The languages the game speaks ({ "de", "en", "fr" }, two letters each): SETTINGS offers them, world.language says which the player chose, the engine's menus speak it. None: English.
----@field players integer The seats the game has, how many play at once (c.players = 4; docs/game-model.md, "Several players"): 1, a game of one, unless set.
+---@field players integer The seats the game has, how many play at once (c.players = 4; docs/game-model.md, "Several players"): 1, a game of one, unless set. (from 1 to 16)
 ---@field team_score boolean The high score table takes the run as one line, every seat's score added, instead of a line for each player.
 
 ---@class Conf.world.blocks.backdrops
 ---@field image string The picture, relative to the game folder.
----@field behind integer How far behind the level's last row, in voxels.
----@field scale integer Voxels a pixel.
----@field z integer The height of its bottom edge, in voxels.
+---@field behind integer How far behind the level's last row, in voxels. (from 0 to 65536)
+---@field scale integer Voxels a pixel. (from 1 to 64)
+---@field z integer The height of its bottom edge, in voxels. (from -4096 to 65536)
 
 ---@class Conf.world.blocks
 ---@field file string The level, relative to the game folder; its blocks in blocks/.
----@field margin integer Space left and right of the grid, in voxels, for the backdrops.
----@field below integer Open space under the grid, in voxels: pits deep enough to fall out of.
+---@field margin integer Space left and right of the grid, in voxels, for the backdrops. (from 0 to 4096)
+---@field below integer Open space under the grid, in voxels: pits deep enough to fall out of. (from 0 to 4096)
 ---@field backdrops Conf.world.blocks.backdrops[] Pictures far behind the grid (sky, hills): parallax through the perspective.
 
 ---@class Conf.world
 ---@field file string The level's file, relative to the game folder: a world or a map.
 ---@field bedrock boolean The lowest voxel layer cannot be destroyed.
----@field size integer[] A world made in code: empty, this big (x, y, z); the game's script builds it (level:fill), file is not read.
+---@field size integer[] A world made in code: empty, this big (x, y, z); the game's script builds it (level:fill), file is not read. (each from 1 to 65536)
 ---@field blocks Conf.world.blocks A level of voxel blocks in a grid (grid): file is not read.
 
 ---@class Conf.physics
----@field gravity number Downward acceleration, voxels per second².
----@field max_fall number Fastest fall, voxels per second.
----@field step integer Ledges up to this many voxels are walked up without jumping.
----@field body_width number Width of the collision box of everything that walks. Effects (sparks, debris, gibs, screen shake) are sized relative to it.
----@field lost_below number How far under the level a falling body is lost (on_fall_out), in voxels. (At its default it is left out of replays' fingerprint: those from before it play on.)
+---@field gravity number Downward acceleration, voxels per second². (from 0 to 100000)
+---@field max_fall number Fastest fall, voxels per second. (from 0 to 100000)
+---@field step integer Ledges up to this many voxels are walked up without jumping. (from 0 to 256)
+---@field body_width number Width of the collision box of everything that walks. Effects (sparks, debris, gibs, screen shake) are sized relative to it. (above 0, up to 256)
+---@field lost_below number How far under the level a falling body is lost (on_fall_out), in voxels. (At its default it is left out of replays' fingerprint: those from before it play on.) (from 0 to 65536)
 
 ---@class Conf.player
 ---@field [string] any
 ---@field model string Player model (.vvx), relative to the game folder. Forward is +y.
 ---@field spawn number[] Start position on the ground (x, y). Negative means world centre.
----@field speed number Running speed.
----@field accel number How quickly it gets to running speed on the ground, and in the air.
----@field air_accel number
----@field jump number Height of a full jump (holding the button); letting go early cuts it.
+---@field speed number Running speed. (from 0 to 100000)
+---@field accel number How quickly it gets to running speed on the ground, and in the air. (from 0 to 1000000)
+---@field air_accel number How quickly it gets to running speed in the air. (from 0 to 1000000)
+---@field jump number Height of a full jump (holding the button); letting go early cuts it. (from 0 to 10000)
 ---@field kind string|string[] A game without ready-made rules: the kind of thing (c.things) the player's figure is (player), placed where each level starts and going along from level to level; with several seats one for every seat or a list by seat ({ "hero", "hero_blue" }). Without it the player has none.
 
 ---@class Conf.title_screen.props
----@field model string
----@field at number[]
----@field rotation integer
+---@field model string Its model (.vvx).
+---@field at number[] Where it lies on the ground, x and y in voxels.
+---@field rotation integer Degrees clockwise seen from above, 0, 90, 180 or 270.
 
 ---@class Conf.title_screen
----@field music string What plays on the title (like [audio] music; none: the first song).
+---@field music string What plays on the title (a song of c.audio.music; none: the first).
 ---@field at number[] The ground point the camera looks at (default: where the player starts).
----@field view_width number Voxels across the screen there (default: [camera] view_width).
+---@field view_width number Voxels across the screen there (default: c.camera.view_width). (above 0, up to 65536)
 ---@field logo string[] The logo, a line each (default: the game's title), and their colours as "#rrggbb".
----@field logo_colors string[]
----@field logo_heights integer[] How high each logo line's capitals are, in UI voxels.
----@field drip integer Which logo line drips (blood).
----@field logo_cracks number[] Cracks per letter in each logo line, on average.
+---@field logo_colors string[] Each logo line's colour, "#rrggbb".
+---@field logo_heights integer[] How high each logo line's capitals are, in UI voxels. (each from 1 to 1000)
+---@field drip integer Which logo line drips (blood). (from 0 to 99)
+---@field logo_cracks number[] Cracks per letter in each logo line, on average. (each from 0 to 100)
 ---@field logo_model string A model of the game's (.vvx) as the logo, in place of its lines of letters: a UI voxel each of its voxels, its front (+y) to the player and its z up, centred under the top of the screen. A figure of parts (its objects named, a letter each) drops in part by part in the file's order, else whole. Lit as the big letters are (the sides a little darker, what lies further back too): its colours are its materials'.
----@field logo_bob number How far the logo's letters (or its model's parts) bob up and down once they have landed, in UI voxels: a slow, smooth wave running through them, coming in over a second; 0 (unless set) they stand still.
+---@field logo_bob number How far the logo's letters (or its model's parts) bob up and down once they have landed, in UI voxels: a slow, smooth wave running through them, coming in over a second; 0 (unless set) they stand still. (from 0 to 100)
 ---@field props Conf.title_screen.props[] Models lying in the scene.
 ---@field flyby string A model that flies over the scene now and then (a helicopter), every flyby_every seconds.
----@field flyby_every number
----@field flyby_altitude number How high the flyby crosses over the ground.
----@field attract_after number Seconds on the title without a key pressed before it plays the game's replays (replays/), as the arcade machines did; 0: never.
+---@field flyby_every number Seconds between two flybys (0: none). (from 0 to 3600)
+---@field flyby_altitude number How high the flyby crosses over the ground. (from 0 to 65536)
+---@field attract_after number Seconds on the title without a key pressed before it plays the game's replays (replays/), as the arcade machines did; 0: never. (from 0 to 3600)
 ---@field light_menu boolean The scene behind the menu is dark: its rows and hint in light letters (default: dark ones, over bright ground like More Blood's sand).
 
 ---@class Conf.camera.follow_height
----@field below number
----@field above number
+---@field below number How far the feet may go under the camera's height, in voxels. (from 0 to 4096)
+---@field above number How far over it. (from 0 to 4096)
 
 ---@class Conf.camera
----@field pitch number Degrees below the horizon. 90 is straight top-down.
----@field yaw number Degrees around the vertical axis. 0 looks north (+y).
----@field fov number Vertical field of view in degrees. Higher means stronger perspective.
----@field view_width number Voxels visible across the screen at the player's distance, independent of resolution.
----@field view_height number Voxels visible from the bottom of the screen to the top there instead: the width then follows the window's shape and view_width counts no more (a vertical shooter whose field must show its whole height in any window). Unset, the width is fixed.
----@field view_at_least number[] At least this many voxels across and high there, { 320, 200 } as a screen of old had pixels: the window's shape decides which way it shows more (a wide window more across, a narrow one more high). Takes the place of view_width and view_height for the picture (the shooter's reach, part of its rules, keeps view_width).
----@field follow number Fraction of the distance to the player the camera closes per tick (only without snap; snapping keeps the camera on the player).
+---@field pitch number Degrees below the horizon. 90 is straight top-down. (from -89 to 90)
+---@field yaw number Degrees around the vertical axis. 0 looks north (+y). (from -360 to 360)
+---@field fov number Vertical field of view in degrees. Higher means stronger perspective. (from 10 to 100)
+---@field view_width number Voxels visible across the screen at the player's distance, independent of resolution. (above 0, up to 65536)
+---@field view_height number Voxels visible from the bottom of the screen to the top there instead: the width then follows the window's shape and view_width counts no more (a vertical shooter whose field must show its whole height in any window). Unset, the width is fixed. (above 0, up to 65536)
+---@field view_at_least number[] At least this many voxels across and high there, { 320, 200 } as a screen of old had pixels: the window's shape decides which way it shows more (a wide window more across, a narrow one more high). Takes the place of view_width and view_height for the picture (the shooter's reach, part of its rules, keeps view_width). (each above 0, up to 65536)
+---@field follow number Fraction of the distance to the player the camera closes per tick (only without snap; snapping keeps the camera on the player). (above 0, up to 1)
 ---@field snap boolean Everything moving travels in whole voxels and the camera scrolls with the player in whole voxels (the 3D-pixel look). Off: moving things and the camera glide between voxels.
 ---@field follow_height Conf.camera.follow_height A side view's camera follows the player up and down too, in whole voxels: its height moves only when the feet leave the band from below voxels under it to above over it, so jumps keep the view still. Unset, the height never changes (a view from above).
 ---@field stop_at_edges boolean The view stops at the edges of the stage instead of showing the dark beyond: a side view's level, or the ground a view from above shows (BunnyFarm's meadow).
----@field hold number[] How far apart the players in play may be, across and deep, in voxels ({ 240, 150 }; { 240 } across only, a side view): a move that would take the two furthest apart further is cut short, as the edge of an arcade machine's screen held them (docs/game-model.md, "Several players"). The simulation's, never the window's.
+---@field hold number[] How far apart the players in play may be, across and deep, in voxels ({ 240, 150 }; { 240 } across only, a side view): a move that would take the two furthest apart further is cut short, as the edge of an arcade machine's screen held them (docs/game-model.md, "Several players"). The simulation's, never the window's. (each above 0, up to 65536)
 ---@field rotates string How the game sets things down: on the grid in quarter turns (the default), or rotated freely (rotates = "free": a level's pieces at any bearing, rotation = 30). The game's choice for every level, and what the level editor offers; a level turned off the quarter turns in a game on the grid does not load.
----@field aspect number The picture's shape, its width over its height (2.39 a film's): the scene is drawn into the largest rectangle of that shape the window holds, in its middle, black bars on the other two sides; the HUD and the menus lie inside it too. Unset: the window's shape.
+---@field aspect number The picture's shape, its width over its height (2.39 a film's): the scene is drawn into the largest rectangle of that shape the window holds, in its middle, black bars on the other two sides; the HUD and the menus lie inside it too. Unset: the window's shape. (from 0.25 to 4)
 
 ---@class Conf.light
----@field sun number[] Direction the sunlight travels (towards the ground).
----@field sun_color number[] The sunlight's colour and strength, 0..1 per channel: white unless set (warm at dusk, a pale blue for the moon). A game's frame:daylight sets it for one picture.
----@field ambient number Light that reaches every face, 0..1.
----@field shadow number How much a shadow darkens sunlit faces, 0..1.
----@field sky number[] Background colour, 0..1 per channel.
----@field reflection_horizon number[] The sky metal mirrors: its colour at the horizon and overhead, 0..1 per channel (below the horizon it mirrors the ground, in the haze's colour).
----@field reflection number[]
----@field metal_sweep number A streak of light sweeping over metal now and then, this bright (0: none): metal reads as metal even where the sun cannot glint in it.
+---@field sun number[] Direction the sunlight travels (towards the ground). (each from -1000 to 1000; [3] from -1000 to below 0)
+---@field sun_color number[] The sunlight's colour and strength, 0..1 per channel: white unless set (warm at dusk, a pale blue for the moon). A game's frame:daylight sets it for one picture. (each from 0 to 1)
+---@field ambient number Light that reaches every face, 0..1. (from 0 to 1)
+---@field shadow number How much a shadow darkens sunlit faces, 0..1. (from 0 to 1)
+---@field sky number[] Background colour, 0..1 per channel. (each from 0 to 1)
+---@field reflection_horizon number[] The sky metal mirrors: its colour at the horizon and overhead, 0..1 per channel (below the horizon it mirrors the ground, in the haze's colour). (each from 0 to 1)
+---@field reflection number[] The sky metal mirrors overhead, 0..1 per channel. (each from 0 to 1)
+---@field metal_sweep number A streak of light sweeping over metal now and then, this bright (0: none): metal reads as metal even where the sun cannot glint in it. (from 0 to 10)
 ---@field shadow_style string How shadow edges look: "smooth" (soft edges across the voxels), "voxel" (every voxel face is either lit or in shadow, edges step along the grid) or "voxel_soft" (as voxel, with half-shadowed faces in between).
 ---@field model_shading string How models (actors, props) are lit: "faces" (every face of a voxel by its own direction), "smooth" (a whole voxel by the direction of the surface around it, so round shapes shade softly like pixel art) or "edges" (smooth, but where two flat surfaces meet the faces keep their own light, so hard edges stay hard).
 ---@field model_shading_for table<string, string> Models shaded otherwise, by file (relative to the game folder), e.g. { ["huey.vvx"] = "faces" } for a machine among smooth figures.
----@field edge_tolerance number With "edges": how far, in voxels, a voxel's surroundings may stray from one smooth surface before it counts as an edge.
+---@field edge_tolerance number With "edges": how far, in voxels, a voxel's surroundings may stray from one smooth surface before it counts as an edge. (from 0 to 16)
 
 ---@class Conf.debris
----@field settle number Chance that a landed debris voxel becomes part of the world again.
----@field max_particles integer Upper bound for flying debris and sparks.
----@field gore number Share of a body's voxels that burst blood-red when it dies, 0..1 (0 keeps their own colours, say for robots).
+---@field settle number Chance that a landed debris voxel becomes part of the world again. (from 0 to 1)
+---@field max_particles integer Upper bound for flying debris and sparks. (from 0 to 1000000)
+---@field gore number Share of a body's voxels that burst blood-red when it dies, 0..1 (0 keeps their own colours, say for robots). (from 0 to 1)
 
 ---@class Conf.effects
----@field glow number How strongly bright things (muzzle flashes, fire, tracers, sparks) glow into their surroundings; 0 turns it off.
----@field lights number How strongly flashes and explosions light up what is around them.
----@field haze number Haze towards the far edge of the view, 0..1, and its colour (0..1).
----@field haze_color number[]
----@field tilt_shift number Blur at the top and bottom of the screen, a miniature look, 0..1.
----@field screen_flash number How bright the white flash over the screen on big explosions gets, 0..1.
----@field hitstop integer Ticks the game holds still when an enemy dies.
----@field outline number A dark line round the models (figures, props), as round a sprite: how many voxels thick (0: none; 1 a voxel, as a sprite's pixel), and its colour (0..1). Hidden behind what stands in front, drawn where one part of a model stands before another too.
----@field outline_color number[]
+---@field glow number How strongly bright things (muzzle flashes, fire, tracers, sparks) glow into their surroundings; 0 turns it off. (from 0 to 10)
+---@field lights number How strongly flashes and explosions light up what is around them. (from 0 to 10)
+---@field haze number Haze towards the far edge of the view, 0..1, and its colour (0..1). (from 0 to 1)
+---@field haze_color number[] The haze's colour, 0..1 per channel. (each from 0 to 1)
+---@field tilt_shift number Blur at the top and bottom of the screen, a miniature look, 0..1. (from 0 to 1)
+---@field screen_flash number How bright the white flash over the screen on big explosions gets, 0..1. (from 0 to 1)
+---@field hitstop integer Ticks the game holds still when an enemy dies. (from 0 to 60)
+---@field outline number A dark line round the models (figures, props), as round a sprite: how many voxels thick (0: none; 1 a voxel, as a sprite's pixel), and its colour (0..1). Hidden behind what stands in front, drawn where one part of a model stands before another too. (from 0 to 8)
+---@field outline_color number[] The outline's colour, 0..1 per channel. (each from 0 to 1)
 
 ---@class Conf.transition
----@field fade number Seconds out and seconds in; 0: a cut.
+---@field fade number Seconds out and seconds in; 0: a cut. (from 0 to 10)
 ---@field color string The colour faded through, "#rrggbb".
----@field go_to number A length of its own for a reason the level is left (a puzzle game's quick restart: restart = 0).
----@field restart number
----@field won number
----@field lost number
+---@field go_to number A length of its own for a reason the level is left (a puzzle game's quick restart: restart = 0). (from 0 to 10)
+---@field restart number Seconds of the fade when the level is entered afresh. (from 0 to 10)
+---@field won number Seconds of the fade when the run is won. (from 0 to 10)
+---@field lost number Seconds of the fade when the run is lost. (from 0 to 10)
 
 ---@class Conf.audio
----@field volume number Loudness of all sounds, 0..1.
+---@field volume number Loudness of all sounds, 0..1. (from 0 to 1)
 ---@field music string|string[] Music as MML text, relative to the game folder: one file, or a list the keys 1..9 switch between while playing.
----@field music_volume number
----@field drive number How hard the game's sound is pushed into the limiter, in decibels: 0 as it is, more makes it denser and louder; music you listen to for long tires sooner when dense. 0 to 12. The limiter's drive (the JUST mastering stage's own input gain), on sounds and music together, after the player's volumes; the game's choice, not the player's.
----@field crossfade number Seconds one song crossfades into the next when the game's code changes the song (music:play; one call may say otherwise): the old fading out as the new fades in, equal in power. 0: the old ends and the new begins, a level's fade between them silent.
+---@field music_volume number Loudness of the music, 0..1, times the player's music volume. (from 0 to 1)
+---@field drive number How hard the game's sound is pushed into the limiter, in decibels: 0 as it is, more makes it denser and louder; music you listen to for long tires sooner when dense. 0 to 12. The limiter's drive (the JUST mastering stage's own input gain), on sounds and music together, after the player's volumes; the game's choice, not the player's. (from 0 to 12)
+---@field crossfade number Seconds one song crossfades into the next when the game's code changes the song (music:play; one call may say otherwise): the old fading out as the new fades in, equal in power. 0: the old ends and the new begins, a level's fade between them silent. (from 0 to 60)
 
 ---@class Conf.ui
----@field height number UI voxels from the bottom of the screen to the top, whatever the resolution (180: a 5x7 letter is a 25th of the screen).
----@field depth integer How many voxels deep letters and icons are.
----@field slant number How far the voxels' sides show at the top and bottom edges of the screen, in voxels per voxel of depth (the UI is seen in perspective from in front of the middle, so the sides facing the middle show).
+---@field height number UI voxels from the bottom of the screen to the top, whatever the resolution (180: a 5x7 letter is a 25th of the screen). (above 0, up to 4096)
+---@field depth integer How many voxels deep letters and icons are. (from 1 to 16)
+---@field slant number How far the voxels' sides show at the top and bottom edges of the screen, in voxels per voxel of depth (the UI is seen in perspective from in front of the middle, so the sides facing the middle show). (from 0 to 4)
 ---@field display_font string A glyph atlas (PNG) for big letters: the logo, headings, messages.
----@field round number Big letters' front edges are rounded off with this radius, a share of their capital height (0: square).
----@field grain number How much the colour of big letters varies voxel to voxel, 0..1.
+---@field round number Big letters' front edges are rounded off with this radius, a share of their capital height (0: square). (from 0 to 1)
+---@field grain number How much the colour of big letters varies voxel to voxel, 0..1. (from 0 to 1)
 
 ---@class Conf.state
 ---@field world table world.state at the start.
 ---@field player table player.state at the start.
 
 ---@class Conf.saves
----@field slots integer
----@field version integer
+---@field slots integer How many save slots the player has (0: no saving). (from 0 to 9)
+---@field version integer The game's own version of what a save holds: count it up when that changes, on_save_loaded(version) brings an older save up to date.
+
+---@class Kind A kind of thing (c.things.NAME = { ... }): what every kind may set; a behavior of a kit (c.kit) reads more.
+---@field like? string Another kind this one builds on: its keys first, then this one's (like = "rifleman").
+---@field behavior? string Its ready-made behavior, with a kit (c.kit): the jump & run's hero, walker, hopper, flyer, pickup, platform, prop, crate; the shooter's soldier, spawner, captive, gunship, pickup. Without one your script moves it.
+---@field model? string Its model, a .vvx of the game.
+---@field hp? integer The hits it takes: thing.state.hp at the start, on_death at 0. Without it, it takes none.
+---@field fixed? boolean It stays exactly where it is put, in the air too (a kind without a behavior).
+---@field width? number Its body across and deep, in voxels (c.physics.body_width unless set).
+---@field height? number Its body's height, in voxels (its model's unless set).
+---@field facing? number[] The way it faces as it comes in, { x, y } (x east, y north).
+---@field props? table What your code reads of it, thing.props: props = { worth = 100 }.
+---@field family? string|string[] A family, or a list of them: level:things("enemies") finds them, thing.families says them.
+---@field effect? string|table Shown once where one of its things goes: a model ("poof.vvx", or { model = "poof.vvx", fps = 20 }), or "burst": it bursts into its voxels.
+---@field sound? string Heard where one of its things goes: a sound's name (sounds/NAME.toml).
+---@field reach? number Touched within this many voxels on the ground, not by its box: a pickup, a helipad.
+---@field team? string Its team: the rounds, blows and blasts of a team hurt the other teams, not its own.
+---@field immune? string[] What does not hurt it: "round", "melee", "blast".
+---@field rotates? string "free": it faces exactly its way, a diagonal too; "quarter" (unless set): the nearest quarter turn.
+---@field spin? number Its model turns round as it is drawn, degrees a second (a gem).
+---@field frames? table Its model's frames for what it does, by name, first to last: frames = { walk = { 1, 4 } }; a set may say { first =, last =, fps =, stride =, loop = false }.
+---@field fps? number How fast its frames go where a set does not say, frames a second (10).
+---@field swing? table<string, number> A figure of parts: the parts that swing as it walks, degrees forward first: swing = { leg_left = 30, leg_right = -30 }.
+
+---@class Kind.platformer.hero : Kind behavior = "hero" of the ready-made rules c.kit = "platformer": its keys besides every kind's, unset its defaults.
+---@field speed? number running, voxels a second (150 unless set)
+---@field accel? number how quickly it gets there on the ground (1200 unless set)
+---@field air_accel? number and in the air (800 unless set)
+---@field jump? number how high a jump goes, voxels (29 unless set)
+---@field jump_cut? number what is left of the rise when the jump is let go (0.5 unless set)
+---@field coyote? number ticks off a ledge a jump still goes (6 unless set)
+---@field buffer? number ticks a jump pressed early waits for the ground (6 unless set)
+---@field climb? number up and down ladders, voxels a second (without left or right it moves to the ladder's middle; a ladder's top it stands on, down climbs down) (60 unless set)
+---@field invulnerable? number ticks after a hit nothing hurts ... (60 unless set)
+---@field blink? number and it blinks, this many ticks shown, as many not (0: steady) (4 unless set)
+---@field knockback? number[] a hit throws it back and up, voxels a second ({ 100, 100 } unless set)
+---@field fall_gravity? number gravity times this on the way down: snappy, not floaty (1: as up) (1.5 unless set)
+---@field hang? number gravity times this at the top of a jump while jump is held ... (0.5 unless set)
+---@field hang_speed? number "the top": rising or falling slower than this, voxels a second (30 unless set)
+---@field corner? number a head clipping a ceiling's edge by up to this many voxels slips past (4 unless set)
+---@field look_ahead? number the view leads this far where it runs, voxels (0: centred) ... (40 unless set)
+---@field look_ahead_speed? number swinging round at this speed, voxels a second (90 unless set)
+---@field grab? number how far above its head its hands catch a ledge's edge, voxels (0: none) ... (0 unless set)
+---@field grab_ahead? number how far ahead of its body it finds it, voxels ... (3 unless set)
+---@field hang_below? number how far under it its head hangs, voxels (an edge lower it pulls itself onto at once) ... (2 unless set)
+---@field pull? number and the ticks pulling itself up (up or jump; down lets go) (24 unless set)
+---@field face_ladder? boolean climbing, it turns to the ladder: its back to the camera (true unless set)
+---@field air_jumps? number jumps it may make again in the air before landing (1: a double jump) ... (0 unless set)
+---@field air_jump? number each this high from where it is then, voxels (20 unless set)
+
+---@class Kind.platformer.walker : Kind behavior = "walker" of the ready-made rules c.kit = "platformer": its keys besides every kind's, unset its defaults.
+---@field speed? number voxels a second (60 unless set)
+---@field ledges? boolean turns at a ledge as at a wall (true unless set)
+
+---@class Kind.platformer.hopper : Kind behavior = "hopper" of the ready-made rules c.kit = "platformer": its keys besides every kind's, unset its defaults.
+---@field every? number ticks between hops, left and right in turn (120 unless set)
+---@field hop? number[] how far and high: voxels a second across and up ({ 100, 200 } unless set)
+
+---@class Kind.platformer.flyer : Kind behavior = "flyer" of the ready-made rules c.kit = "platformer": its keys besides every kind's, unset its defaults.
+---@field range? number up and down from where it is placed, voxels (50 unless set)
+---@field period? number ticks for once up and down (120 unless set)
+---@field face_hero? boolean it turns to the hero; false: it keeps the way it was placed (true unless set)
+
+---@class Kind.platformer.platform : Kind behavior = "platform" of the ready-made rules c.kit = "platformer": its keys besides every kind's, unset its defaults.
+---@field travel? number[] how far it goes from where it is placed, across and up ({ 64, 0 } unless set)
+---@field speed? number voxels a second (30 unless set)
+---@field pause? number ticks it waits at each end (30 unless set)
+---@field crushes? boolean coming down onto the hero: true hurts it (a trap), false waits above it (false unless set)
+
+---@class Kind.platformer.prop : Kind behavior = "prop" of the ready-made rules c.kit = "platformer": its keys besides every kind's, unset its defaults.
+---@field stands? boolean true: it stands on the floor below where it is placed (a door, spikes) (false unless set)
+
+---@class Kind.platformer.crate : Kind behavior = "crate" of the ready-made rules c.kit = "platformer": its keys besides every kind's, unset its defaults.
+---@field push? number pushed this fast at most, voxels a second (30 unless set)
+
+---@class Kind.shooter.soldier : Kind behavior = "soldier" of the ready-made rules c.kit = "shooter": its keys besides every kind's, unset its defaults.
+---@field weapon? string The weapon he fires, a name of c.weapons. ("enemy_rifle" unless set)
+---@field speed? number Running once he knows of the player, voxels a second. (24 unless set)
+---@field idle_speed? number Walking about before that, voxels a second. (10 unless set)
+---@field accel? number How quickly he gets to either, voxels a second per second. (300 unless set)
+---@field sight? number How far he sees the player, voxels; a comrade falling he notices as far. (60 unless set)
+---@field hearing? number gunfire (rounds hitting near him: half that) (70 unless set)
+---@field blast_hearing? number How far he hears an explosion, voxels. (130 unless set)
+---@field active? number further from the player he waits (150 unless set)
+---@field range? number How far he shoots, voxels. (95 unless set)
+---@field distance? number the distance he keeps from the player (32 unless set)
+---@field step_dust? number of this many specks (0: none) (3 unless set)
+---@field landing? number landing from higher than this, voxels, raises a puff ... (2 unless set)
+---@field landing_dust? number of this many specks (10 unless set)
+---@field muzzle? number[] Where his shots leave the gun, { ahead, up } of his feet in voxels (unset: from his height).
+---@field stride? number A puff of dust every this many voxels he walks (unset: half his height) ...
+
+---@class Kind.shooter.spawner : Kind behavior = "spawner" of the ready-made rules c.kit = "shooter": its keys besides every kind's, unset its defaults.
+---@field spawns? string The kind of thing it sends, a name of c.things. ("rifleman" unless set)
+---@field count? number How many it sends in all. (2 unless set)
+---@field first? number Ticks after the player comes within range before the first comes out. (60 unless set)
+---@field every? number Ticks between one and the next. (420 unless set)
+---@field range? number It sends them while the player is this near, voxels. (120 unless set)
+---@field ahead? number[] Only while it lies this way of the player, { x, y } (x east, y north), by more than ahead_by; unset: on any side. ({ 0, 1 } unless set)
+---@field not_near? number nobody comes out while he is nearer than this (0 unless set)
+---@field ahead_by? number How far that way it must lie, voxels (unset: the player's height).
+
+---@class Kind.shooter.captive : Kind behavior = "captive" of the ready-made rules c.kit = "shooter": its keys besides every kind's, unset its defaults.
+---@field speed? number Running off once freed, voxels a second. (30 unless set)
+---@field accel? number How quickly it gets to that speed. (399 unless set)
+---@field flee? string freed, it runs away from the player ([0, -1]: south; or a place's name) ("away" unless set)
+
+---@class Kind.shooter.gunship : Kind behavior = "gunship" of the ready-made rules c.kit = "shooter": its keys besides every kind's, unset its defaults.
+---@field weapon? string Its gun, a name of c.weapons. ("door_gun" unless set)
+---@field rockets? string Its rockets, a name of c.weapons. ("rocket_pods" unless set)
+---@field speed? number Flying, voxels a second. (35 unless set)
+---@field altitude? number over the pad it took off from (17 unless set)
+---@field clearance? number at least this over what stands below (4 unless set)
+---@field offset? number[] where it holds from the player (x east, y north) ({ 0, 65 } unless set)
+---@field wake? number it lifts off when the player comes this close (130 unless set)
+---@field size? number[] hit box: across, along, high ({ 12, 24, 8 } unless set)
+---@field gun? number[] the guns' muzzles (across, mirrored; along; up) ({ 0, 12, 1.5 } unless set)
+---@field pods? number[] the rocket pods' fronts ({ 5, 2.5, 2.5 } unless set)
+---@field side_on? boolean true: it turns its side to the player, the gun on that side fires (false unless set)
+---@field crash_blast? number The crater where it crashes, as a weapon's blast. (9 unless set)
+---@field crash_damage? number to those near where it crashes (6 unless set)
+
+---@class Kind.shooter.pickup : Kind behavior = "pickup" of the ready-made rules c.kit = "shooter": its keys besides every kind's, unset its defaults.
+---@field frame? number its model's frame (0 unless set)
+---@field bob_ticks? number it bobs up and down, this many ticks each way, by bob voxels (20 unless set)
+---@field bob? number It bobs up this many voxels and down again (0: it lies still; unset: a fifth of its model's height).

@@ -289,9 +289,7 @@ impl Sandbox {
                 anyhow::bail!("{}{what} ran over {} million instructions: an endless loop?", at_place(&self.budget), budget / 1_000_000)
             }
             // Lua's memory error tells no line: the one last seen running.
-            Err(e) if e.to_string() == "not enough memory" => {
-                anyhow::bail!("{}not enough memory: a game's Lua holds {} MB at most (the line is the one last seen running)", at_place(&self.budget), MEMORY >> 20)
-            }
+            Err(e) if e.to_string() == "not enough memory" => anyhow::bail!("{}", out_of_memory(&self.budget.place.borrow())),
             r => r,
         }
     }
@@ -301,6 +299,54 @@ impl Sandbox {
         self.budget.left.set(budget as i64);
         self.budget.place.borrow_mut().clear();
     }
+}
+
+/// The mistake of a call that ran out of memory: at the line the budget
+/// last saw running, if it saw one (Lua's memory error tells none: a
+/// string or a table grown too big in one step leaves no line seen).
+fn out_of_memory(place: &str) -> String {
+    let mb = MEMORY >> 20;
+    if place.is_empty() {
+        format!("not enough memory: a game's Lua holds {mb} MB at most (Lua tells no line: something grew past it in one step, a string.rep or a table)")
+    } else {
+        format!("{place}: not enough memory: a game's Lua holds {mb} MB at most (the line last seen running)")
+    }
+}
+
+/// The libraries and functions Lua has that a game's do not (the sandbox,
+/// `Sandbox::new`), and what a game has instead.
+const ABSENT: [(&str, &str); 10] = [
+    ("os", "no clock and no files, so every run plays the same (world.tick counts the time)"),
+    ("io", "no files (world:read reads one of the game's while it starts)"),
+    ("debug", "the engine keeps it to itself"),
+    ("coroutine", "a game's code runs through each call (keep where a long task stands in a state and go on in the next tick)"),
+    ("load", "no code made from text (require(\"name\") runs a Lua file of the game while it starts)"),
+    ("loadstring", "no code made from text (require(\"name\") runs a Lua file of the game while it starts)"),
+    ("loadfile", "require(\"name\") runs a Lua file of the game while it starts"),
+    ("dofile", "require(\"name\") runs a Lua file of the game while it starts"),
+    ("collectgarbage", "the engine sweeps up by itself"),
+    ("package", "require(\"name\") runs a Lua file of the game while it starts"),
+];
+
+/// Lua's words for a global that is not there ("attempt to index a nil
+/// value (global 'os')"), said in a game's: a library the sandbox leaves
+/// out, or `frame`, which only `on_draw` is given.
+fn explained(text: &str) -> String {
+    for verb in ["attempt to index a nil value (global '", "attempt to call a nil value (global '"] {
+        let Some(at) = text.find(verb) else { continue };
+        let rest = &text[at + verb.len()..];
+        let Some(end) = rest.find("')") else { continue };
+        let name = &rest[..end];
+        let said = if name == "frame" {
+            "frame is only there in on_draw: function on_draw(frame) is given it, for that picture alone".to_string()
+        } else if let Some((_, instead)) = ABSENT.iter().find(|(n, _)| *n == name) {
+            format!("{name} is not there in a game (the sandbox): {instead}")
+        } else {
+            continue;
+        };
+        return format!("{}{said}{}", &text[..at], &rest[end + 2..]);
+    }
+    text.to_string()
 }
 
 /// `read(name)`: a file of the game folder as text, while `main.lua`
@@ -387,7 +433,7 @@ pub fn error_text(e: &mlua::Error) -> String {
     while let mlua::Error::CallbackError { cause: inner, traceback: t } = cause {
         (cause, traceback) = (&**inner, Some(t.as_str()));
     }
-    let what = cause_text(cause);
+    let what = explained(&cause_text(cause));
     // mlua's own Lua (`__mlua_index`, the objects' fallbacks) is no place
     // of the script's: the script's line is the traceback's.
     let what = match engine_position(&what) {
