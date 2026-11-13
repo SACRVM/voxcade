@@ -1620,7 +1620,7 @@ pub mod text {
             }
         }
         let width = width.max(1);
-        let cells = top.get("cells").ok_or_else(|| anyhow!("no [cells] with the layers of signs"))?;
+        let cells = top.get("cells").ok_or_else(|| anyhow!("no [cells] with the layers of signs (a level of blocks has them; a level of pieces or a landscape leaves `block` out and gives its `size` in voxels)"))?;
         let cells = cells.as_table_like().ok_or_else(|| r.fail(cells.span(), "cells must be a table with its layers: [cells]"))?;
         r.only(cells, &["layers"], "[cells]")?;
         let item = cells.get("layers").ok_or_else(|| anyhow!("[cells] has no layers = \"\"\" ... \"\"\""))?;

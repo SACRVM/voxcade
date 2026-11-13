@@ -664,9 +664,7 @@ fn land_outliner(ui: &mut egui::Ui, ed: &Editor, thumbs: &mut Thumbs, shown: &mu
                             ui.spacing_mut().item_spacing.x = 3.0;
                             ui.add_space(4.0);
                             let file = r.models.first().cloned().unwrap_or_default();
-                            let path = ed.dir.join(&file);
-                            let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-                            let (tex, px) = thumbs.get(ui.ctx(), format!("model {file}"), (&file, modified), || super::panels::model_picture(&path, 64));
+                            let (tex, px, _) = thumbs.model(ui.ctx(), &ed.dir, &file, 64);
                             let (rect, _) = ui.allocate_exact_size(Vec2::new(20.0, 18.0), egui::Sense::hover());
                             let scale = 18.0 / px.x.max(px.y).max(1.0);
                             ui.painter().image(tex, Rect::from_center_size(rect.left_center() + Vec2::new(9.0, 0.0), px * scale), Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
@@ -1120,19 +1118,31 @@ fn picker(ui: &mut egui::Ui, ed: &Editor, free: Rect, thumbs: &mut Thumbs, shown
                             if response.hovered() {
                                 ui.painter().rect_filled(rect, 4.0, crate::gui::ROW_HOVERED);
                             }
-                            let path = ed.dir.join(file);
-                            let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-                            let (tex, px) = thumbs.get(ui.ctx(), format!("model {file}"), (file, modified), || super::panels::model_picture(&path, 64));
+                            let (tex, px, problem) = thumbs.model(ui.ctx(), &ed.dir, file, 64);
                             let scale = ((tile - 16.0) / px.x.max(px.y).max(1.0)).floor().max(1.0);
                             let pic = Rect::from_center_size(Pos2::new(rect.center().x, rect.top() + tile / 2.0), px * scale);
                             ui.painter().image(tex, pic, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+                            // A model that does not read: a mark where its
+                            // picture would be, why on hover; not to set down.
+                            if problem.is_some() {
+                                let font = egui::FontId::monospace(tile * 0.4);
+                                ui.painter().text(pic.center(), egui::Align2::CENTER_CENTER, "!", font, crate::gui::WARNING);
+                            }
                             let stem = std::path::Path::new(file).file_stem().map_or(file.clone(), |s| s.to_string_lossy().into_owned());
-                            let mut job = egui::text::LayoutJob::simple_singleline(stem, TextStyle::Small.resolve(ui.style()), TEXT);
+                            let color = if problem.is_some() { QUIET } else { TEXT };
+                            let mut job = egui::text::LayoutJob::simple_singleline(stem, TextStyle::Small.resolve(ui.style()), color);
                             job.wrap = egui::text::TextWrapping::truncate_at_width(tile - 4.0);
                             let galley = ui.fonts_mut(|f| f.layout_job(job));
-                            ui.painter().galley(Pos2::new(rect.center().x - galley.size().x / 2.0, rect.bottom() - 18.0), galley, TEXT);
-                            if response.on_hover_text(file).clicked() {
-                                shown.clicked.push(Action::Piece(i));
+                            ui.painter().galley(Pos2::new(rect.center().x - galley.size().x / 2.0, rect.bottom() - 18.0), galley, color);
+                            match problem {
+                                Some(why) => {
+                                    response.on_hover_text(format!("{file}: {why}"));
+                                }
+                                None => {
+                                    if response.on_hover_text(file).clicked() {
+                                        shown.clicked.push(Action::Piece(i));
+                                    }
+                                }
                             }
                         }
                     });

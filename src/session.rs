@@ -1671,7 +1671,7 @@ impl<G: Game> Session<G> {
 /// `target` moved so the view of `cam` shows nothing beyond the stage's
 /// (`lo`, `hi`) sides, top and bottom, if the camera stops at its edges
 /// (`Session::within_stage`).
-fn within((lo, hi): (Vec3, Vec3), target: Vec3, cam: &crate::config::CameraConfig, aspect: f32) -> Vec3 {
+pub(crate) fn within((lo, hi): (Vec3, Vec3), target: Vec3, cam: &crate::config::CameraConfig, aspect: f32) -> Vec3 {
     if !cam.stop_at_edges {
         return target;
     }

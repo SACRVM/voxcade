@@ -305,7 +305,7 @@ impl Editor {
         let v = t - j + own * j;
         let whole = v.round();
         let rest = ((v - whole) * 10000.0).round() / 10000.0;
-        let joint = figure.joint(p) + figure.low.as_vec3() + whole;
+        let joint = figure.file_joint(p) + whole;
         let rotation = euler(own);
         let (from, to) = (name(p), name(q));
         let whole = whole.as_ivec3();
@@ -487,7 +487,7 @@ impl Editor {
         let (Some(a), Some(b), Some(figure)) = (self.placed(src), self.placed(into), &self.figure) else { return };
         let target = figure.parts()[into].name.clone();
         let gone = figure.parts()[src].name.clone();
-        let joint = figure.joint(into) + figure.low.as_vec3();
+        let joint = figure.file_joint(into);
         let rooted = figure.parts()[into].parent.is_none();
         let kids: Vec<_> = self.rehang(src, Some(target.clone())).into_iter().filter(|(n, ..)| *n != target).collect();
         let seen = self.merge_map(src, into);
@@ -951,6 +951,24 @@ pub(crate) mod tests {
         assert_eq!(f.joint(hand) + f.low.as_vec3(), stated, "the field shows the file's numbers");
     }
 
+    /// The parts' tree `edit --shot` prints says where each part turns in
+    /// the numbers the file and the JOINT row use (from the pivot), not
+    /// the view's (from the figure's low corner).
+    #[test]
+    fn the_printed_tree_says_the_files_joints() {
+        let (mut ed, mut view, dir) = figure("tree-joints");
+        assert_ne!(ed.figure.as_ref().unwrap().low, IVec3::ZERO, "a figure whose low corner is not its pivot");
+        // The hand's joint typed in, as the file then states it.
+        let hand = part(&ed, "hand");
+        act(&mut ed, &mut view, Action::Part(hand));
+        act(&mut ed, &mut view, Action::JointTo(0, 3.5));
+        let file = crate::editor::frames::ModelFile::load(&dir.join("fig.vvx")).unwrap();
+        let stated = file.parts.iter().find(|o| o.name == "hand").unwrap().joint.expect("stated");
+        let lines = ed.figure.as_ref().unwrap().tree_lines();
+        let line = lines.iter().find(|l| l.trim_start().starts_with("hand ")).unwrap_or_else(|| panic!("hand in {lines:?}"));
+        assert!(line.contains(&format!("turning at {}, {}, {}", stated.x, stated.y, stated.z)), "{line}: the file's {stated}");
+    }
+
     /// REDO after each of the parts' steps gives the same file again.
     #[test]
     fn every_parts_step_is_done_again_by_redo() {
@@ -1221,6 +1239,32 @@ pub(crate) mod tests {
         view.before_game = Some(view.level);
         act(&mut ed, &mut view, Action::ZoomView(1));
         assert!(view.before_game.is_none(), "a level's ends");
+    }
+
+    /// GAME VIEW draws a figure the way the game has it look: a thing's
+    /// model turned to the camera, as `frame:model` draws it on a thing of
+    /// a kind facing the camera (its +y side seen, its +x on the left); the
+    /// title's logo unturned and straight from the front, as the title
+    /// lays it (BunnyFarm's logo read mirrored before).
+    #[test]
+    fn game_view_faces_a_figure_as_the_game_does() {
+        let (mut ed, mut view, dir) = figure("game-view-face");
+        let figures = crate::editor::view::Figures::load(&dir, &crate::config::GameConfig::default());
+        let light = crate::config::LightConfig::default();
+        let turns = |ed: &Editor, view: &View| {
+            let shown = crate::editor::view::Shown::new(ed).unwrap();
+            let f = crate::editor::view::frame(ed, view, &shown, &figures, &light, 16.0 / 9.0);
+            assert!(!f.models.is_empty());
+            f.models.iter().map(|m| m.turn).collect::<std::collections::BTreeSet<u32>>()
+        };
+        assert_eq!(view.face, crate::editor::view::Face::Front);
+        act(&mut ed, &mut view, Action::GameView);
+        assert_eq!(turns(&ed, &view), [2].into(), "a thing's figure turned to the camera");
+        act(&mut ed, &mut view, Action::GameView);
+        view.face = crate::editor::view::Face::Logo;
+        act(&mut ed, &mut view, Action::GameView);
+        assert_eq!(turns(&ed, &view), [0].into(), "the logo as the title lays it");
+        assert_eq!((view.block.yaw, view.block.pitch), (0.0, 0.0), "from the front, as the title shows it");
     }
 
     /// A part's arrow dragged, its let-go never clean: the focus lost or

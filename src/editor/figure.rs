@@ -59,12 +59,15 @@ impl Figure {
     }
 
     /// Made again if the file's frames changed since (the choice and what
-    /// is hidden kept by the parts' names); a mistake is said.
-    pub fn follow(old: Option<Self>, file: &ModelFile) -> (Option<Self>, Option<String>) {
+    /// is hidden kept by the parts' names); a mistake is said. `made`: the
+    /// figure of the file as it is now, if one was made already (`pin_rig`
+    /// makes it), taken instead of making it again.
+    pub fn follow(old: Option<Self>, file: &ModelFile, made: Option<Self>) -> (Option<Self>, Option<String>) {
         if old.as_ref().is_some_and(|o| file.is(&o.of)) {
             return (old, None);
         }
-        match Self::of(file) {
+        let made = made.filter(|m| file.is(&m.of)).map(Ok).map(Some);
+        match made.unwrap_or_else(|| Self::of(file)) {
             None => (None, None),
             Some(Err(e)) => (old, Some(format!("{e:#}"))),
             Some(Ok(mut new)) => {
@@ -87,11 +90,73 @@ impl Figure {
         &self.model.parts
     }
 
+    /// Whether it was made of the file as `shaped` holds it.
+    pub fn made_of(&self, shaped: &Shaped) -> bool {
+        self.of == *shaped
+    }
+
+    /// Whether `file` differs from what it was made of only in the voxels
+    /// of the part chosen (a stroke going on, drawn from the world shown),
+    /// and nothing it draws hangs on the rig: no part turned at rest, no
+    /// pose. Then the parts it draws are as they would be made again; the
+    /// rig the rules work out (where the chosen part meets the others)
+    /// follows when the stroke is let go (`Editor::follow_figure`).
+    pub fn only_chosen_voxels_changed(&self, file: &ModelFile) -> bool {
+        let Some(k) = self.selected.and_then(|p| self.frames.get(p).copied()) else { return false };
+        let of = &self.of;
+        self.pose.is_empty()
+            && !crate::session::rests_turned(&self.model)
+            && file.parts == of.parts
+            && file.size == of.size
+            && file.palette == of.palette
+            && file.frames.len() == of.frames.len()
+            && file.frames.iter().zip(&of.frames).enumerate().all(|(f, (now, was))| if f == k { now.size == was.size } else { now == was })
+    }
+
+    /// Its rig by part name: what each hangs on (by name) and its joint
+    /// from the pivot (`file_joint`).
+    pub fn rig(&self) -> std::collections::BTreeMap<String, (Option<String>, Vec3)> {
+        self.parts().iter().enumerate().map(|(p, o)| (o.name.clone(), (o.parent.map(|q| self.parts()[q].name.clone()), self.file_joint(p)))).collect()
+    }
+
     /// Where part `p` turns, in the figure's voxels (from the low corner
     /// of them all, as the view draws it).
     pub fn joint(&self, p: usize) -> Vec3 {
         let s = self.model.size;
         self.model.parts[p].joint + glam::IVec3::new(s.x / 2, s.y / 2, 0).as_vec3()
+    }
+
+    /// Where part `p` turns as a person or a tool reads it: from the
+    /// model's pivot, as the file (`joint`) and the JOINT row have it.
+    pub fn file_joint(&self, p: usize) -> Vec3 {
+        self.joint(p) + self.low.as_vec3()
+    }
+
+    /// The parts as `voxcade edit --shot` prints them, the list's order:
+    /// how each hangs, where it turns (from the pivot, as the file and the
+    /// JOINT row say), what is wrong with it.
+    pub fn tree_lines(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        for &(p, depth) in &self.tree {
+            let part = &self.parts()[p];
+            let on = part.parent.map_or("(the root)".to_string(), |q| format!("on {}", self.parts()[q].name));
+            let j = self.file_joint(p);
+            let by_hand = match (part.hung == Hung::ByHand, part.joint_by_hand) {
+                (true, true) => " (parent and joint set by hand)",
+                (true, false) => " (parent set by hand)",
+                (false, true) => " (joint set by hand)",
+                (false, false) => "",
+            };
+            let chosen = if self.selected == Some(p) { " (chosen)" } else { "" };
+            lines.push(format!("{}{} {on}, turning at {}, {}, {}{by_hand}{chosen}{}", "  ".repeat(depth + 1), part.name, j.x, j.y, j.z, if self.hidden[p] { " (hidden)" } else { "" }));
+            for w in self.warnings(p) {
+                lines.push(format!("{}  ! {w}", "  ".repeat(depth + 1)));
+            }
+            for &(q, n) in &part.overlaps {
+                lines.push(format!("{}  ({n} in the same place as {}'s)", "  ".repeat(depth + 1), self.parts()[q].name));
+            }
+        }
+        lines
     }
 
     /// Where part `p` is drawn at rest, as a map of the grid shown (the

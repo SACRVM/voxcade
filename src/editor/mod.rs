@@ -482,7 +482,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         if *joint {
             let figure = ed.figure.as_ref().context("--move-joint: no figure")?;
             anyhow::ensure!(!ed.root_chosen(), "--move-joint {name}: the root turns about nothing, it has no joint");
-            let at = figure.joint(p) + figure.low.as_vec3() + (*by * 10.0).round() / 10.0;
+            let at = figure.file_joint(p) + (*by * 10.0).round() / 10.0;
             ed.set_joint(Some(at));
         } else if *by == by.round() {
             ed.move_part(by.round().as_ivec3());
@@ -711,7 +711,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
                     view.menu = Some(view::Menu { on: view::MenuOn::Selection, at: [at.x, at.y] });
                 } else if !ed.among_pieces() {
                     // The voxel editor's, of what is under the middle.
-                    anyhow::ensure!(name == "voxel", "--menu voxel: the menu of the voxel (the part, the block) under the middle of the view (or part:NAME, a part's)");
+                    anyhow::ensure!(name == "voxel", "--menu {name}: not in a level of blocks or the voxel editor, which have --menu voxel (the voxel, the part or the block under the middle of the view), part:NAME, selection and keys (floor and a thing's name are among the pieces)");
                     let on = voxel_menu(&ed, &view, aspect, mx, my).context("--menu voxel: nothing under the middle of the view")?;
                     view.menu = Some(view::Menu { on, at: [at.x, at.y] });
                 } else if name == "floor" {
@@ -847,24 +847,8 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     // A figure's parts as the list has them, how each hangs and what is
     // wrong with it.
     if let Some(figure) = &ed.figure {
-        for &(p, depth) in &figure.tree {
-            let part = &figure.parts()[p];
-            let on = part.parent.map_or("(the root)".to_string(), |q| format!("on {}", figure.parts()[q].name));
-            let j = figure.joint(p);
-            let by_hand = match (part.hung == crate::vox::Hung::ByHand, part.joint_by_hand) {
-                (true, true) => " (parent and joint set by hand)",
-                (true, false) => " (parent set by hand)",
-                (false, true) => " (joint set by hand)",
-                (false, false) => "",
-            };
-            let chosen = if figure.selected == Some(p) { " (chosen)" } else { "" };
-            println!("{}{} {on}, turning at {}, {}, {}{by_hand}{chosen}{}", "  ".repeat(depth + 1), part.name, j.x, j.y, j.z, if figure.hidden[p] { " (hidden)" } else { "" });
-            for w in figure.warnings(p) {
-                println!("{}  ! {w}", "  ".repeat(depth + 1));
-            }
-            for &(q, n) in &part.overlaps {
-                println!("{}  ({n} in the same place as {}'s)", "  ".repeat(depth + 1), figure.parts()[q].name);
-            }
+        for line in figure.tree_lines() {
+            println!("{line}");
         }
     }
     Ok(())

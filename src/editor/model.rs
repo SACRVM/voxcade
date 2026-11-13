@@ -546,6 +546,9 @@ pub struct Editor {
     /// figure's box until it is let go).
     in_drag: bool,
     pub pose: std::collections::BTreeMap<String, parts::Posed>,
+    /// The figure of the model as it is now, made by `pin_rig` at a step's
+    /// end: `follow_figure` takes it rather than making it again.
+    made_figure: Option<Figure>,
 }
 
 impl Editor {
@@ -634,6 +637,7 @@ impl Editor {
             clipboard: None,
             sel_keep: false,
             in_drag: false,
+            made_figure: None,
             pose: std::collections::BTreeMap::new(),
         })
         .map(|mut ed: Self| {
@@ -667,7 +671,7 @@ impl Editor {
     fn with_model(dir: &Path, file: &str, model: ModelFile) -> Result<Self> {
         let level = GridLevel::new(1, IVec3::ZERO);
         let colour = model.colours().first().copied().unwrap_or([200, 200, 200]);
-        let (figure, message) = Figure::follow(None, &model);
+        let (figure, message) = Figure::follow(None, &model, None);
         Ok(Self {
             dir: dir.to_path_buf(),
             file: file.to_string(),
@@ -740,6 +744,7 @@ impl Editor {
             clipboard: None,
             sel_keep: false,
             in_drag: false,
+            made_figure: None,
             pose: std::collections::BTreeMap::new(),
         })
         .map(|mut ed: Self| {
@@ -1961,10 +1966,17 @@ impl Editor {
     /// stroke, a step back, a parent or a joint set); its trouble said.
     pub fn follow_figure(&mut self) {
         let Some(model) = &self.model else { return };
-        let (figure, trouble) = Figure::follow(self.figure.take(), model);
-        self.figure = figure;
-        if trouble.is_some() {
-            self.message = trouble;
+        // A stroke going on changes the chosen part's voxels alone, which
+        // the world shown draws: the figure (the other parts as they stand,
+        // the rig) is made again once it is let go, not at every voxel (a
+        // big figure took a frame's time and more each).
+        let stroking = self.stroke.is_some() && self.figure.as_ref().is_some_and(|f| f.only_chosen_voxels_changed(model));
+        if !stroking {
+            let (figure, trouble) = Figure::follow(self.figure.take(), model, self.made_figure.take());
+            self.figure = figure;
+            if trouble.is_some() {
+                self.message = trouble;
+            }
         }
         if self.scope == Scope::Figure && self.figure.is_none() {
             self.scope = Scope::Frame(0);
@@ -2106,7 +2118,7 @@ impl Editor {
         self.follow_figure();
         let (Some(p), Some(figure)) = (self.chosen(), &self.figure) else { return };
         // On halves of a voxel (a joint the rules found may lie between).
-        let at = ((figure.joint(p) + figure.low.as_vec3()) * 2.0).round() / 2.0 + by;
+        let at = ((figure.file_joint(p)) * 2.0).round() / 2.0 + by;
         self.set_joint(Some(at));
     }
 
@@ -2136,7 +2148,7 @@ impl Editor {
         let (Some(p), Some(spot)) = (self.chosen(), self.joint_spot()) else { return false };
         let n = (0..3).max_by(|&a, &b| look[a].abs().total_cmp(&look[b].abs())).unwrap_or(1);
         let Some(hit) = plane_hit(origin, dir, n, spot[n]) else { return false };
-        let start = self.figure.as_ref().map_or(Vec3::ZERO, |f| f.joint(p) + f.low.as_vec3());
+        let start = self.figure.as_ref().map_or(Vec3::ZERO, |f| f.file_joint(p));
         self.end_drag(false);
         self.joint_drag = Some(JointDrag { drag: None, start, steps: self.past.len(), moved: false, part: false, applied: IVec3::ZERO, ring: Some((n, hit)), rest: [0.0; 3], fine: false, press: None, applied_f: Vec3::ZERO });
         true
@@ -2344,7 +2356,7 @@ impl Editor {
     fn joint_kept(&self, p: usize, k: usize) -> Option<Vec3> {
         let (m, f) = (self.model.as_ref()?, self.figure.as_ref()?);
         let o = &m.parts[k];
-        (o.joint.is_none() && o.rotation != [0.0; 3] && f.parts()[p].parent.is_some()).then(|| f.joint(p) + f.low.as_vec3())
+        (o.joint.is_none() && o.rotation != [0.0; 3] && f.parts()[p].parent.is_some()).then(|| f.file_joint(p))
     }
 
     /// The chosen part's place among the file's parts.
@@ -2519,7 +2531,7 @@ impl Editor {
             let step = if d.fine { 10.0 } else { 2.0 };
             let at = d.start + (by * step).round() / step;
             if let (Some(p), Some(figure)) = (self.chosen(), &self.figure) {
-                let now = figure.joint(p) + figure.low.as_vec3();
+                let now = figure.file_joint(p);
                 if now != at {
                     // One step for the whole drag: the first change makes
                     // it, the next ones take its place.
@@ -2620,9 +2632,18 @@ impl Editor {
             return;
         }
         let acting = acting.unwrap_or_else(|| self.chosen().and_then(|p| self.figure.as_ref().map(|f| vec![f.parts()[p].name.clone()])).unwrap_or_default());
-        let mut old = model.clone();
-        old.reshape(before);
-        let (Some(was), Some(now)) = (rig_of(&old), rig_of(model)) else { return };
+        // The rig before: the figure shown, where it is still the one made
+        // of `before` (a stroke's), else made again.
+        let was = match self.figure.as_ref().filter(|f| f.made_of(before)) {
+            Some(f) => Some(f.rig()),
+            None => {
+                let mut old = model.clone();
+                old.reshape(before);
+                rig_of(&old)
+            }
+        };
+        let made = Figure::of(model).and_then(|f| f.ok());
+        let (Some(was), Some(now)) = (was, made.as_ref().map(Figure::rig)) else { return };
         let pins: Vec<(String, Option<String>, Vec3)> = now
             .iter()
             .filter(|(name, _)| !acting.contains(name))
@@ -2637,6 +2658,11 @@ impl Editor {
                 (moved && parent_stays).then(|| (name.clone(), old.0.clone(), old.1))
             })
             .collect();
+        // Nothing to pin: the figure just made is the model's as it is.
+        if pins.is_empty() {
+            self.made_figure = made;
+            return;
+        }
         let Some(model) = &mut self.model else { return };
         for (name, parent, joint) in pins {
             if let Some(o) = model.parts.iter_mut().find(|o| o.name == name) {
@@ -2743,9 +2769,7 @@ pub fn level_file(dir: &Path, cfg: &crate::config::GameConfig) -> Result<String>
 /// joint from the pivot, as the rules or the file have them (None: no
 /// figure, or one that cannot be made).
 fn rig_of(m: &ModelFile) -> Option<std::collections::BTreeMap<String, (Option<String>, Vec3)>> {
-    let f = Figure::of(m)?.ok()?;
-    let low = f.low.as_vec3();
-    Some(f.parts().iter().enumerate().map(|(p, o)| (o.name.clone(), (o.parent.map(|q| f.parts()[q].name.clone()), f.joint(p) + low))).collect())
+    Some(Figure::of(m)?.ok()?.rig())
 }
 
 #[cfg(test)]

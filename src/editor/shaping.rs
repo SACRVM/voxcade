@@ -861,7 +861,7 @@ fn rig(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, p: usize, shown: &mut Sh
         });
     });
     // From the pivot, halves of a voxel, as the file says it.
-    let j = figure.joint(p) + figure.low.as_vec3();
+    let j = figure.file_joint(p);
     row(ui, "JOINT", if part.joint_by_hand { "Where it turns: set by hand (or drag its arrows)" } else { "Where it turns: found by the rules (or drag its arrows)" }, |ui| {
         for a in 0..3 {
             // (A joint the rules found may lie at quarters: shown as it is.)

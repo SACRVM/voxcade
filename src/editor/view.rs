@@ -89,6 +89,68 @@ pub fn frame_level(size: Vec3, x: f32, pitch: f32) -> Orbit {
     Orbit { yaw: 0.0, pitch, zoom: zoom.max(16.0), target: Vec3::new(middle_x, size.y / 2.0, size.z / 2.0), fov: FOV }
 }
 
+/// Where a run of the game begins in a level, as far as the editor knows
+/// it without running the game's code: the level's place `start`, else
+/// the platformer's hero where the level sets one, else `c.player.spawn`
+/// on the ground (`lua::world::start`'s order), and how tall the player's
+/// figure is there (the camera looks at its middle as a run starts).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GameStart {
+    /// Where the level's voxel 0, 0, 0 lies in the game's world (a level
+    /// of blocks' `margin` and `below`).
+    pub origin: IVec3,
+    pub spawn: [f32; 2],
+    /// The kinds the ready-made rules stand the player as (behavior
+    /// "hero"), and how tall the player's figure is: a hero as its kind
+    /// says, the player's own kind as tall as its model (a Lua game's
+    /// figures are, `LuaGame::kinds`).
+    pub heroes: Vec<String>,
+    pub heights: BTreeMap<String, f32>,
+    /// The player's own kind, if the game names one (`c.player.kind`).
+    pub player: Option<String>,
+}
+
+impl GameStart {
+    pub fn of(cfg: &GameConfig, dir: &Path) -> Self {
+        let number = |v: &toml::Value| v.as_float().or(v.as_integer().map(|i| i as f64)).map(|f| f as f32);
+        let heroes: Vec<String> = cfg.things.iter().filter(|(_, t)| t.get("behavior").and_then(|b| b.as_str()) == Some("hero")).map(|(k, _)| k.clone()).collect();
+        let player = cfg.player.kind.as_ref().map(|k| k.of(1).to_string()).filter(|k| !k.is_empty());
+        let mut heights: BTreeMap<String, f32> = heroes.iter().filter_map(|k| Some((k.clone(), cfg.things.get(k)?.get("height").and_then(number)?))).collect();
+        if let Some(k) = player.as_ref().filter(|k| !heights.contains_key(*k)) {
+            let model = cfg.things.get(k).and_then(|t| t.get("model")).and_then(|m| m.as_str()).and_then(|m| crate::vox::load_model(&dir.join(m)).ok());
+            heights.insert(k.clone(), model.map_or(1.0, |m| m.size.z.max(1) as f32));
+        }
+        let origin = cfg.world.blocks.as_ref().map_or(IVec3::ZERO, |b| IVec3::new(b.margin, 0, b.below));
+        Self { origin, spawn: cfg.player.spawn, heroes, heights, player }
+    }
+
+    /// The point the game's camera looks at as a run starts in the level
+    /// `ed` holds (its voxels): the player's feet where the run begins,
+    /// lifted by half its height, in whole voxels when the camera `snap`s.
+    pub fn target(&self, ed: &Editor, snap: bool) -> Vec3 {
+        let level = &ed.level;
+        let size = level.voxels();
+        let hero = level.things.iter().find(|t| self.heroes.contains(&t.kind));
+        let (feet, kind) = if let Some(p) = level.places.iter().find(|p| p.name == "start") {
+            (IVec3::from(p.at).as_vec3() + Vec3::new(0.5, 0.5, 0.0), self.player.clone().or(hero.map(|t| t.kind.clone())))
+        } else if let Some(t) = hero {
+            (IVec3::from(t.at).as_vec3() + Vec3::new(0.5, 0.5, 0.0), Some(t.kind.clone()))
+        } else {
+            // `c.player.spawn` (a negative one the middle) on the ground
+            // there: the top of the level's blocks in that column.
+            let at = |v: f32, origin: i32, whole: i32| if v < 0.0 { whole as f32 * 0.5 } else { v - origin as f32 };
+            let (x, y) = (at(self.spawn[0], self.origin.x, size.x), at(self.spawn[1], self.origin.y, size.y));
+            let n = level.n.max(1);
+            let cell = IVec3::new((x as i32).div_euclid(n), (y as i32).div_euclid(n), 0);
+            let top = if level.has_grid() { (0..level.size.z).rev().find(|&z| level.cell(IVec3::new(cell.x, cell.y, z)).block != 0).map_or(0, |z| (z + 1) * n) } else { 0 };
+            (Vec3::new(x, y, top as f32), self.player.clone())
+        };
+        let height = kind.and_then(|k| self.heights.get(&k).copied()).unwrap_or(0.0);
+        // (Drawn feet on whole voxels, as `Session::view_target` snaps them.)
+        if snap { (feet.floor() + Vec3::Z * (height * 0.5)).round() } else { feet + Vec3::Z * (height * 0.5) }
+    }
+}
+
 /// The ray through a point of the screen (shares, from the top left):
 /// where it starts and which way it goes.
 pub fn mouse_ray(view_proj: Mat4, x: f32, y: f32) -> (Vec3, Vec3) {
@@ -136,6 +198,9 @@ pub struct View {
     /// (ADD MODEL), the lights shining in the view or not (the view only),
     /// and the item the mouse is over.
     pub game: CameraConfig,
+    /// Where the game's run begins in a level, as far as the editor can
+    /// know it without the game's code (GAME VIEW looks from there).
+    pub start: GameStart,
     pub aspect: f32,
     pub picker: bool,
     pub lights: bool,
@@ -276,6 +341,21 @@ pub enum Face {
     Logo,
 }
 
+impl Face {
+    /// The way the game has the model look (`session::model_drawn`'s
+    /// `look`; its forward is +y): a figure to its side, anything else
+    /// turned to the camera; a block as it lies and the title's logo as
+    /// the title lays it, unturned.
+    pub fn look(self) -> IVec2 {
+        match self {
+            Face::Right => IVec2::X,
+            Face::Left => IVec2::NEG_X,
+            Face::Front => IVec2::NEG_Y,
+            Face::Block | Face::Logo => IVec2::Y,
+        }
+    }
+}
+
 /// The side the game shows of the model `file` (its path in the game
 /// folder) as a run starts: of a block its front as it lies; of a figure
 /// (a kind with it) the side it looks to (`start_way`); of the title's
@@ -398,6 +478,7 @@ impl View {
             only_empty: false,
             origin: ed.origin(),
             game: cfg.camera.clone(),
+            start: GameStart::of(cfg, &ed.dir),
             aspect: 16.0 / 9.0,
             picker: false,
             lights: true,
@@ -470,19 +551,19 @@ impl View {
         }
     }
 
-    /// GAME VIEW: the level as the game's camera sees it (its turn, tilt,
-    /// field of view and width), its middle on the floor.
+    /// GAME VIEW: the level as the game's camera sees it as a run starts
+    /// (its turn, tilt, field of view and width), on the player where the
+    /// run begins (`GameStart::target`), stopped at the level's edges as
+    /// the game stops it (`c.camera.stop_at_edges`, `session::within`).
     pub fn game_view(&mut self, ed: &Editor) {
         let g = &self.game;
-        let width = match (g.view_at_least, g.view_height) {
-            (Some([w, h]), _) => w.max(h * self.aspect),
-            (None, Some(h)) => h * self.aspect,
-            (None, None) => g.view_width,
-        };
-        let room = ed.level.voxels().as_vec3();
+        let width = crate::camera::shown_width(g, self.aspect);
+        let target = self.start.target(ed, g.snap);
+        let stage = (Vec3::ZERO, ed.level.voxels().as_vec3());
+        let target = crate::session::within(stage, target, g, self.aspect);
         // As wide in the room the panels leave as the game's whole window.
         let width = width / (1.0 - self.room[0] - self.room[2]).max(0.3);
-        self.level = Orbit { yaw: g.yaw, pitch: g.pitch, zoom: width.max(4.0), target: Vec3::new(room.x / 2.0, room.y / 2.0, 0.0), fov: g.fov };
+        self.level = Orbit { yaw: g.yaw, pitch: g.pitch, zoom: width.max(4.0), target, fov: g.fov };
     }
 
     /// The background chosen for the editor `scope` is in (the level's,
@@ -513,7 +594,10 @@ impl View {
         let at = ed.figure_box().map_or(IVec3::ZERO, |(lo, _)| lo);
         let voxels = ed.figure.as_ref().and_then(|f| f.model.frames[0].iter().map(|v| v.0).fold(None, |b: Option<(IVec3, IVec3)>, c| Some(b.map_or((c, c), |(lo, hi)| (lo.min(c), hi.max(c))))));
         let (lo, size) = voxels.map_or((Vec3::ZERO, ed.grid().as_vec3()), |(lo, hi)| ((at + lo).as_vec3(), (hi - lo + 1).as_vec3()));
-        self.block = Orbit { yaw: g.yaw, pitch: g.pitch, zoom: (size.max_element() * 2.8).max(16.0), target: lo + size / 2.0, fov: g.fov };
+        // The title's logo is no thing of the world: the title lays it in
+        // its own scene, seen straight from the front (`ui::logo_model_parts`).
+        let (yaw, pitch) = if self.face == Face::Logo { (0.0, 0.0) } else { (g.yaw, g.pitch) };
+        self.block = Orbit { yaw, pitch, zoom: (size.max_element() * 2.8).max(16.0), target: lo + size / 2.0, fov: g.fov };
     }
 
     /// The view moved by hand: a level's GAME VIEW is the game's camera
@@ -1816,7 +1900,7 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
                 && let Some(p) = figure.selected
             {
                 // (From the pivot, as the file and the field have it.)
-                let mut at = figure.joint(p) + figure.low.as_vec3();
+                let mut at = figure.file_joint(p);
                 at[axis.min(2) as usize] = (v * 10.0).round() / 10.0;
                 ed.set_joint(Some(at));
             }
@@ -1996,7 +2080,9 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     } else {
         (floor_lo, floor_size, u)
     };
-    for y in floor_lo.y..floor_lo.y + floor_size.y * view.floor as i32 {
+    // (A level's GAME VIEW shows what the game shows: no editor's floor.)
+    let floor = view.floor && !(view.before_game.is_some() && ed.scope == Scope::Level);
+    for y in floor_lo.y..floor_lo.y + floor_size.y * floor as i32 {
         for x in floor_lo.x..floor_lo.x + floor_size.x {
             let shade = floor_tones[(x + y).rem_euclid(2) as usize];
             instances.push(Instance { pos_size: [(x as f32 + 0.5) * u, (y as f32 + 0.5) * u, (floor_lo.z as f32 - 0.5) * u, u], color: shade, fx: [0, 255, 0, 0], shade: [0; 4], turn: [0; 4] });
@@ -2069,11 +2155,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         bank.add(&mut model);
         let s = model.size;
         let origin = (lo + IVec3::new(s.x / 2, s.y / 2, 0)).as_vec3();
-        let look = match view.face {
-            Face::Right => glam::IVec2::X,
-            Face::Left => glam::IVec2::NEG_X,
-            Face::Front | Face::Block | Face::Logo => glam::IVec2::NEG_Y,
-        };
+        let look = view.face.look();
         let mut draws = Vec::new();
         crate::session::model_drawn(&model, origin, look, &figure.pose, &mut draws, &mut through);
         drawn = (draws, Arc::new(bank), view.outline);
@@ -2647,6 +2729,26 @@ mod tests {
         assert_eq!(way("behavior = \"hero\""), crate::grid::Way::East);
         assert_eq!(way("behavior = \"hopper\""), crate::grid::Way::West);
         assert_eq!(way("behavior = \"prop\""), crate::grid::Way::South);
+    }
+
+    /// A level's GAME VIEW looks where the game's camera looks as a run
+    /// starts: on the player where it begins, stopped at the level's edges
+    /// (Voxkeep's hall whole, not its middle at the floor; BunnyFarm's
+    /// meadow on the burrow), through the game's own `within`.
+    #[test]
+    fn game_view_looks_where_the_game_looks_as_a_run_starts() {
+        for (game, level) in [("games/voxkeep", "levels/01_hall.toml"), ("games/bunnyfarm", "levels/01_farm.toml")] {
+            let dir = Path::new(game);
+            let cfg = crate::session::config::<crate::Voxcade>(dir).unwrap();
+            let mut ed = Editor::open(dir, level).unwrap();
+            let mut view = View::new(&ed, &cfg);
+            act(&mut ed, &mut view, Action::GameView);
+            let s = crate::session::Session::<crate::Voxcade>::load(dir).unwrap();
+            let origin = GameStart::of(&cfg, dir).origin.as_vec3();
+            let want = crate::session::within(crate::game::Game::sim(&s.game).world.stage_box(), s.view_target(1.0), &cfg.camera, view.aspect) - origin;
+            assert_eq!(view.level.target, want, "{game}");
+            assert_eq!((view.level.yaw, view.level.pitch, view.level.fov), (cfg.camera.yaw, cfg.camera.pitch, cfg.camera.fov), "{game}");
+        }
     }
 
     /// The ray through the middle of the screen passes through the point
