@@ -102,6 +102,9 @@ pub const MOST_IN_ALL: usize = 1 << 26;
 /// The most parts a figure may have: the rules weigh every part against
 /// every other (`vox::parts_of`).
 pub const MOST_PARTS: usize = 1024;
+/// The largest a whole number of three (`Reader::ints`: a size, a place)
+/// may be either way: past any world, far inside an `i32`.
+pub const MOST_WHOLE: i64 = 1_000_000;
 
 /// What a voxel is made of besides its place: its colour (alpha under 255
 /// is glass), how it mirrors (`metal::pack`) and how much it glows. Two
@@ -656,7 +659,22 @@ impl Reader<'_> {
     }
 
     pub fn number(&self, item: &Item, what: &str) -> Result<f32> {
-        item.as_float().or_else(|| item.as_integer().map(|i| i as f64)).filter(|v| v.is_finite()).map(|v| v as f32).ok_or_else(|| self.fail(item.span(), format!("{what} must be a number")))
+        // (Finite as an f32 too: 1e300 is no number a game can hold.)
+        let v = item.as_float().or_else(|| item.as_integer().map(|i| i as f64)).filter(|v| v.is_finite()).ok_or_else(|| self.fail(item.span(), format!("{what} must be a number")))?;
+        if v.abs() > f32::MAX as f64 {
+            return Err(self.fail(item.span(), format!("{what} = {v} is too large a number")));
+        }
+        Ok(v as f32)
+    }
+
+    /// A whole number in `range`, else a mistake saying which: not whole,
+    /// or past the range (named). Read exactly, never through a float.
+    pub fn whole(&self, item: &Item, what: &str, range: std::ops::RangeInclusive<i64>) -> Result<i64> {
+        let v = item.as_integer().ok_or_else(|| self.fail(item.span(), format!("{what} must be a whole number")))?;
+        if !range.contains(&v) {
+            return Err(self.fail(item.span(), format!("{what} = {v}: it must be from {} to {}", range.start(), range.end())));
+        }
+        Ok(v)
     }
 
     pub fn fraction(&self, item: &Item, what: &str) -> Result<f32> {
@@ -677,12 +695,26 @@ impl Reader<'_> {
         Ok(out)
     }
 
+    /// Three whole numbers, each at most `MOST_WHOLE` either way (a size,
+    /// a place): a number past that is told as past the limit, not as no
+    /// whole number. Whole floats (`2.0`) count as whole, as before.
     pub fn ints(&self, item: &Item, what: &str) -> Result<IVec3> {
-        let t = self.triple(item, what)?;
-        if t.iter().any(|v| v.fract() != 0.0 || v.abs() > 1e6) {
-            return Err(self.fail(item.span(), format!("{what} must be three whole numbers, like [1, 2, 3]")));
+        let wrong = || self.fail(item.span(), format!("{what} must be three whole numbers, like [1, 2, 3]"));
+        let a = item.as_array().filter(|a| a.len() == 3).ok_or_else(wrong)?;
+        let mut out = [0i32; 3];
+        for (o, v) in out.iter_mut().zip(a.iter()) {
+            let n = match (v.as_integer(), v.as_float()) {
+                (Some(i), _) => i as f64,
+                (None, Some(f)) if f.is_finite() && f.fract() == 0.0 => f,
+                _ => return Err(wrong()),
+            };
+            if n.abs() > MOST_WHOLE as f64 {
+                let shown = v.as_integer().map_or_else(|| n.to_string(), |i| i.to_string());
+                return Err(self.fail(item.span(), format!("{what}: {shown} is past the limit, {MOST_WHOLE} at most either way")));
+            }
+            *o = n as i32;
         }
-        Ok(IVec3::new(t[0] as i32, t[1] as i32, t[2] as i32))
+        Ok(IVec3::from_array(out))
     }
 
     /// A field of `table` under a name it had before Voxcade took other
@@ -1494,6 +1526,65 @@ mod tests {
             assert!(e.starts_with(line), "{what}: {e}");
             assert!(e.len() < 2000, "{what}: a mistake short enough to read: {e}");
         }
+    }
+
+    /// Every number a reader takes from a file is checked before it is
+    /// cast: 2^31, 2^32 and 2^63 (past TOML's numbers), -1 where it may
+    /// not be, and 1e30 are mistakes, never a wrapped number taken as a
+    /// good one (2^32 as an i32 is 0: a map's place at x 0, a rotation of
+    /// 0, a scatter rule 0 were read so before).
+    #[test]
+    fn numbers_past_their_range_are_mistakes_never_wrapped() {
+        let map = |extra: &str| format!("format = \"voxcade map 1\"\nsize = [64, 48, 20]\n[ground]\nheight = \"h.png\"\n[[ground.materials]]\nsurface = [\"#ffffff\"]\n{extra}");
+        let level = |extra: &str| format!("format = \"voxcade level 1\"\nblock = 2\nsize = [2, 1, 2]\n[blocks]\nstone = \"solid\"\n[legend]\ns = \"stone\"\n[cells]\nlayers = \"\"\"\nss\n\nss\n\"\"\"\n{extra}");
+        let land = |extra: &str| format!("format = \"voxcade level 1\"\nsize = [64, 64, 32]\n[terrain]\nspacing = 8\nheights = \"\"\"\n1 2\n\"\"\"\n{extra}\n[[terrain.material]]\ncolor = \"#5c8a3a\"\n");
+        let as_map = |t: &str| crate::map::MapData::read(t).map(drop);
+        let as_level = |t: &str| crate::grid::text::read(t).map(drop);
+        assert!(as_map(&map("[[put]]\nthing = \"guard\"\nat = [3, 4]\nrotation = 90\n[[place]]\nname = \"s\"\nat = [1, 1, 1]\nfacing = [0, 1]\n")).is_ok());
+        assert!(as_level(&level("[[thing]]\nmodel = \"fir.vvx\"\nat = [0, 0, 0]\nscatter = 1\n[[place]]\nname = \"s\"\nat = [0, 0, 0]\nfacing = [0, 1]\n")).is_ok());
+        assert!(as_level(&land("terrace = 4")).is_ok());
+        for n in ["2147483648", "4294967296", "9223372036854775808", "1e30"] {
+            let cases: Vec<(&str, Result<()>)> = vec![
+                ("a model's size", read(&format!("{}[palette]\na = \"#ff0000\"\n[[frame]]\nlayers = \"\"\"\na\n\"\"\"\n", head(&format!("[{n}, 1, 1]")))).map(drop)),
+                ("a map's size", as_map(&map("").replace("[64, 48, 20]", &format!("[64, 48, {n}]")))),
+                ("a put's at", as_map(&map(&format!("[[put]]\nthing = \"guard\"\nat = [{n}, 4]\n")))),
+                ("a put's rotation", as_map(&map(&format!("[[put]]\nthing = \"guard\"\nat = [3, 4]\nrotation = {n}\n")))),
+                ("a map's place's facing", as_map(&map(&format!("[[place]]\nname = \"s\"\nat = [1, 1, 1]\nfacing = [{n}, 1]\n")))),
+                ("a level's block", as_level(&level("").replace("block = 2", &format!("block = {n}")))),
+                ("a thing's scatter", as_level(&level(&format!("[[thing]]\nmodel = \"fir.vvx\"\nat = [0, 0, 0]\nscatter = {n}\n")))),
+                ("a level's place's facing", as_level(&level(&format!("[[place]]\nname = \"s\"\nat = [0, 0, 0]\nfacing = [{n}, 1]\n")))),
+                ("a thing's at", as_level(&level(&format!("[[thing]]\nmodel = \"fir.vvx\"\nat = [{n}, 0, 0]\n")))),
+                ("a terrain's height", as_level(&land("").replace("1 2\n", &format!("1 {n}\n")))),
+                ("a terrain's terrace", as_level(&land(&format!("terrace = {n}")))),
+                ("a terrain's spacing", as_level(&land("").replace("spacing = 8", &format!("spacing = {n}")))),
+            ];
+            for (what, got) in cases {
+                assert!(got.is_err(), "{what} = {n} read as a good number");
+            }
+        }
+        // -1 where only 0 and more may be.
+        for (what, got) in [
+            ("a model's size", read(&format!("{}[palette]\na = \"#ff0000\"\n[[frame]]\nlayers = \"\"\"\na\n\"\"\"\n", head("[-1, 1, 1]"))).map(drop)),
+            ("a put's at", as_map(&map("[[put]]\nthing = \"guard\"\nat = [-1, 4]\n"))),
+            ("a thing's scatter", as_level(&level("[[thing]]\nmodel = \"fir.vvx\"\nat = [0, 0, 0]\nscatter = -1\n"))),
+            ("a terrain's height", as_level(&land("").replace("1 2\n", "1 -1\n"))),
+            ("a terrain's terrace", as_level(&land("terrace = -1"))),
+        ] {
+            assert!(got.is_err(), "{what} = -1 read as a good number");
+        }
+        // A number too large says its limit, not that it is no whole number.
+        let e = format!("{:#}", as_map(&map("").replace("[64, 48, 20]", "[640, 2368, 99999999]")).unwrap_err());
+        assert!(e.starts_with("line 2:") && e.contains("99999999 is past the limit, 1000000 at most") && !e.contains("must be three whole numbers"), "{e}");
+        let e = format!("{:#}", as_map(&map("[[put]]\nthing = \"guard\"\nat = [3, 4]\nrotation = 4294967296\n")).unwrap_err());
+        assert!(e.contains("rotation = 4294967296: it must be from -1000000 to 1000000"), "{e}");
+        let e = format!("{:#}", as_level(&level("").replace("block = 2", "block = 200000")).unwrap_err());
+        assert!(e.contains("block = 200000: it must be from 1 to 100000"), "{e}");
+        let e = format!("{:#}", as_level(&land("").replace("1 2\n", "1 2147483648\n")).unwrap_err());
+        assert!(e.contains("heights: 2147483648 is out of range (0 to 4096)"), "{e}");
+        let e = format!("{:#}", as_level(&land("terrace = 5000")).unwrap_err());
+        assert!(e.contains("terrace must be a whole number of voxels, 1 to 4096"), "{e}");
+        let e = format!("{:#}", read(&format!("{}[palette]\na = \"#ff0000\"\n[[frame]]\nlayers = \"\"\"\na\n\"\"\"\n", head("[1.5, 1, 1]"))).map(drop).unwrap_err());
+        assert!(e.contains("size must be three whole numbers"), "a fraction is still no whole number: {e}");
     }
 
     /// The repo's `.vvx` files (models, worlds, prefabs) as they stand are
