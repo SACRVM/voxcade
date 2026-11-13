@@ -802,8 +802,10 @@ fn scene_pipeline(
         primitive: wgpu::PrimitiveState {
             front_face: wgpu::FrontFace::Ccw,
             // Meshes only contain camera- and sun-facing faces; the
-            // shadow pass must see all of them.
-            cull_mode: if shadow { None } else { Some(wgpu::Face::Back) },
+            // shadow pass must see all of them. A model from the bank is
+            // a closed surface (its covered faces left out): what of it
+            // faces away from the sun lies behind what faces it.
+            cull_mode: if !shadow { Some(wgpu::Face::Back) } else { None },
             ..Default::default()
         },
         depth_stencil: Some(wgpu::DepthStencilState {
@@ -2079,6 +2081,31 @@ mod tests {
         for entry in [composite_entry(wgpu::TextureFormat::Bgra8Unorm), composite_entry(wgpu::TextureFormat::Bgra8UnormSrgb)] {
             assert!(include_str!("post.wgsl").contains(&format!("fn {entry}(")), "{entry}");
         }
+    }
+
+    /// The shadow pass leaves out a model's covered faces as the main pass
+    /// does (BunnyFarm's shadows took 11.5 ms of 21.9 on the small GPU at
+    /// HIGH with every face of every voxel drawn; 5.5 without them, the
+    /// pictures the same): its vertex stage reads the faces' direction and
+    /// the covered bits (`fx`, location 4) as `vs_model` does.
+    #[test]
+    fn the_shadow_pass_leaves_out_covered_faces() {
+        use wgpu::naga;
+        let module = naga::front::wgsl::parse_str(SHADER).unwrap();
+        let locations = |name: &str| -> Vec<u32> {
+            let entry = module.entry_points.iter().find(|e| e.name == name).unwrap_or_else(|| panic!("{name}"));
+            entry.function.arguments.iter().filter_map(|a| match a.binding {
+                Some(naga::Binding::Location { location, .. }) => Some(location),
+                _ => None,
+            }).collect()
+        };
+        for wanted in [1, 4] {
+            assert!(locations("vs_model").contains(&wanted));
+            assert!(locations("vs_model_shadow").contains(&wanted), "vs_model_shadow reads location {wanted}");
+        }
+        let body = &SHADER[SHADER.find("fn vs_model_shadow(").unwrap()..];
+        let body = &body[..body.find("\n}\n").unwrap()];
+        assert!(body.contains("fx.z") && body.contains("face_index(own)"), "{body}");
     }
 
     /// A window draws in a format that stores what it is given where its
