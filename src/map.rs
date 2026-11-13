@@ -346,6 +346,11 @@ impl MapData {
                 if prefab.is_some() == thing.is_some() {
                     return Err(r.fail(at_item.span(), "a [[put]] is a prefab = \"name\" or a thing = \"kind\", one of them"));
                 }
+                if let Some(axis) = (0..at.len()).find(|&a| at[a] < 0 || (a < 2 && at[a] >= size[a])) {
+                    let shown = at.iter().map(i32::to_string).collect::<Vec<_>>().join(", ");
+                    let axis = ["x", "y", "z"][axis];
+                    return Err(r.fail(at_item.span(), format!("at = [{shown}]: {axis} lies outside the map, which is {} by {} by {} voxels (x 0 to {}, y 0 to {}, z from 0 up: the sky over it is open)", size.x, size.y, size.z, size.x - 1, size.y - 1)));
+                }
                 let rotation = whole(t, "rotation", 0)?;
                 if rotation % 90 != 0 {
                     return Err(r.fail(t.get("rotation").and_then(Item::span), format!("rotation = {rotation}: a prefab stands in quarter turns, 0, 90, 180 or 270 degrees")));
@@ -360,6 +365,10 @@ impl MapData {
                 let name = text(t, "name", "name")?.ok_or_else(|| anyhow!("a place has no name"))?;
                 let at_item = t.get("at").ok_or_else(|| anyhow!("place '{name}' has no at = [x, y, z]"))?;
                 let at = r.ints(at_item, "at")?.to_array();
+                if let Some(axis) = (0..3).find(|&a| at[a] < 0 || (a < 2 && at[a] >= size[a])) {
+                    let axis = ["x", "y", "z"][axis];
+                    return Err(r.fail(at_item.span(), format!("place '{name}' at [{}, {}, {}]: {axis} lies outside the map, which is {} by {} by {} voxels (x 0 to {}, y 0 to {}, z from 0 up: the sky over it is open)", at[0], at[1], at[2], size.x, size.y, size.z, size.x - 1, size.y - 1)));
+                }
                 let facing = match t.get("facing") {
                     None => None,
                     Some(f) => {
@@ -814,6 +823,61 @@ mod tests {
         assert!(found.iter().any(|m| m.kind == enemy && m.cell == IVec3::new(2, 2, 4)));
         assert!(found.iter().any(|m| m.kind == goal && m.cell == IVec3::new(6, 6, 5)));
         assert_eq!(sources.len(), 3, "map, height map and prefab");
+    }
+
+    /// A map of every word the engine writes reads back the same, and what
+    /// a hand-written map does wrong is said with its line: a `[[put]]` or
+    /// a place outside the map (at = [-99999, ...] once loaded without a
+    /// word), a prefab not in quarter turns, a put of neither or both, an
+    /// unknown word, a size below a voxel, a color that is none.
+    #[test]
+    fn a_maps_text_reads_back_and_its_mistakes_say_the_line() {
+        let map = MapData {
+            size: [64, 48, 20],
+            ground: Ground {
+                height: "ground/height.png".into(),
+                material: Some("ground/material.png".into()),
+                bedrock: Some("#101010".into()),
+                materials: vec![
+                    Material { key: Some("#00ff00".into()), surface: vec!["#2f6b2a".into(), "#3a7a32".into()], depth: 2, pattern: 6.5, grain: 0.25, strata: vec!["#6b4a2f".into()], band: 3, wobble: 1.5 },
+                    Material::default(),
+                ],
+            },
+            prefabs: BTreeMap::from([("hut".to_string(), PrefabEntry { file: "prefabs/hut.vvx".into(), soft: false }), ("bush".to_string(), PrefabEntry { file: "prefabs/bush.vvx".into(), soft: true })]),
+            put: vec![
+                Put { prefab: Some("hut".into()), thing: None, at: vec![10, 12], rotation: 90 },
+                Put { prefab: Some("bush".into()), thing: None, at: vec![0, 47, 3], rotation: 0 },
+                Put { prefab: None, thing: Some("rifleman".into()), at: vec![63, 0], rotation: 0 },
+            ],
+            places: vec![crate::grid::Place { name: "start".into(), at: [5, 6, 2], facing: Some([0, 1]), named: false, line: 0 }],
+        };
+        let text = map.write();
+        assert_eq!(MapData::read(&text).unwrap(), map, "{text}");
+        assert_eq!(MapData::read(&text).unwrap().write(), text, "written again, the same text");
+        let line_of = |needle: &str| text.lines().position(|l| l.contains(needle)).unwrap() + 1;
+        let why = |from: &str, to: &str| {
+            assert!(text.contains(from), "{from}");
+            format!("{:#}", MapData::read(&text.replacen(from, to, 1)).expect_err("a mistake"))
+        };
+        let e = why("at = [10, 12]", "at = [-99999, 12]");
+        assert!(e.starts_with(&format!("line {}:", line_of("at = [10, 12]"))) && e.contains("x lies outside the map, which is 64 by 48 by 20 voxels (x 0 to 63, y 0 to 47, z from 0 up: the sky over it is open)"), "{e}");
+        let e = why("at = [0, 47, 3]", "at = [0, 48, 3]");
+        assert!(e.starts_with(&format!("line {}:", line_of("at = [0, 47, 3]"))) && e.contains("y lies outside the map"), "{e}");
+        let e = why("at = [0, 47, 3]", "at = [0, 47, -1]");
+        assert!(e.contains("z lies outside the map"), "{e}");
+        assert!(MapData::read(&text.replacen("at = [0, 47, 3]", "at = [0, 47, 30]", 1)).is_ok(), "the sky over the map is open");
+        let e = why("at = [5, 6, 2]", "at = [5, 6, -1]");
+        assert!(e.starts_with(&format!("line {}:", line_of("at = [5, 6, 2]"))) && e.contains("place 'start' at [5, 6, -1]: z lies outside the map"), "{e}");
+        let e = why("rotation = 90", "rotation = 45");
+        assert!(e.starts_with(&format!("line {}:", line_of("rotation = 90"))) && e.contains("quarter turns"), "{e}");
+        let e = why("thing = \"rifleman\"", "thing = \"rifleman\"\nprefab = \"hut\"");
+        assert!(e.contains("a prefab = \"name\" or a thing = \"kind\", one of them"), "{e}");
+        let e = why("[[put]]\nprefab = \"hut\"", "[[put]]\nheight = 3\nprefab = \"hut\"");
+        assert!(e.starts_with(&format!("line {}:", line_of("prefab = \"hut\""))) && e.contains("height"), "{e}");
+        let e = why("size = [64, 48, 20]", "size = [64, 0, 20]");
+        assert!(e.starts_with("line 2:") && e.contains("size must be positive"), "{e}");
+        let e = why("surface = [\"#2f6b2a\", \"#3a7a32\"]", "surface = \"#2f6b2a\"");
+        assert!(e.contains("surface must be a list of colors"), "{e}");
     }
 
     /// More Blood's watchtower comes down when its four legs are shot

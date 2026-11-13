@@ -15,6 +15,7 @@ write_parts(path, parts, colours, materials)           a figure of parts
 read(path)                                             a model's voxels
 write_model(path, model, kept=None)                    a model read, written
 write_scene(path, size, voxels, colours, markers, world)  a world or a prefab
+write_world(path, model, palette_signs(path))          a world or prefab read, written
 write_level(path, block, size, blocks, cells, things)  a level of blocks
 write_map(path, size, ground, prefabs, put, places)    a map
 read_level(path), read_map(path)                       read back
@@ -283,11 +284,31 @@ def write_model(path, model, kept=None):
     def entries(cells):
         return {p: model["palette"][s] for p, s in cells.items()}
 
+    if model["markers"]:
+        raise ValueError(f"{path}: a world or a prefab (it has markers): write_world writes it back")
     if model["parts"]:
         blocks = [([f'name = "{name}"\n', extra], entries(cells)) for name, cells, extra in model["parts"]]
     else:
         blocks = [(None, entries(cells)) for cells in model["frames"]]
     _write(path, model["size"], blocks, kept)
+
+
+def write_world(path, model, signs):
+    """A world or a map's prefab as `read` gives it written again, its
+    palette in the file's order (`signs`, the palette's signs as the file
+    lists them: a world's n-th colour is its number n, so the order is the
+    meaning; `write_model` would number them by first use)."""
+    number = {s: n + 1 for n, s in enumerate(signs)}
+    colours = {number[s]: c for s, c in model["colours"].items()}
+    markers = {number[s]: k for s, k in model["markers"].items()}
+    cells = sorted(model["frames"][0].items(), key=lambda kv: (kv[0][2], -kv[0][1], kv[0][0]))
+    write_scene(path, model["size"], [(x, y, z, number[s]) for (x, y, z), s in cells], colours, markers, world=True)
+
+
+def palette_signs(path):
+    """The signs of a model's or a world's palette, in the file's order."""
+    with open(path, "rb") as f:
+        return list(tomllib.load(f)["palette"].keys())
 
 
 # --- worlds and prefabs (src/scene.rs) ---------------------------------------
@@ -361,7 +382,7 @@ def write_scene(path, size, voxels, colours, markers=None, world=False):
         f.write(text)
 
 
-# --- levels of blocks (src/grid.rs, `text`) ----------------------------------
+# --- levels of blocks (src/grid/, `text`) -------------------------------------
 
 
 LEVEL_FORMAT = "voxcade level 1"
@@ -502,7 +523,7 @@ def write_level(path, block, size, blocks, cells, things=(), places=(), kept=Non
         f.write(text)
 
 
-# --- terrain (src/terrain.rs): a level's [terrain] ----------------------------
+# --- terrain (src/terrain/): a level's [terrain] -----------------------------
 
 
 TERRAIN_HEAD = "[terrain]             # heights in voxels, the far row first; shapes . SMOOTH ^ LINEAR # STEP\n"

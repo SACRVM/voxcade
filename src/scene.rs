@@ -442,4 +442,34 @@ mod tests {
         assert!(e.contains("plain"), "{e}");
         assert!(crate::vvx::read(&text).err().unwrap().to_string().contains("is a marker"));
     }
+
+    /// A world of more colours than signs takes two signs a cell and reads
+    /// back as written, its numbers in the palette's order; what a
+    /// hand-written world does wrong is said with its line.
+    #[test]
+    fn a_world_of_many_colours_reads_back_and_its_mistakes_say_the_line() {
+        let mut s = Scene::new(IVec3::new(10, 10, 2));
+        s.colours = (0..90).map(|i| [i as u8, 255 - i as u8, 7]).collect();
+        s.markers = vec!["guard".into()];
+        for i in 0..90 {
+            s.cells[i] = (89 - i) as u16 + 1;
+        }
+        s.cells[150] = 91;
+        let text = s.write();
+        assert!(text.contains("\naa = \"#00ff07\"\n") && text.contains("{ marker = \"guard\" }"), "two signs a cell: {text}");
+        let back = read(&text).unwrap();
+        assert_eq!(back, s);
+        assert_eq!(back.write(), text);
+        let (world, markers) = back.world(&["guard"]).unwrap();
+        assert_eq!(world.get(IVec3::ZERO), 90, "the cell's number is its color's place in the palette");
+        assert_eq!(markers.len(), 1);
+        let line_of = |needle: &str| text.lines().position(|l| l.contains(needle)).unwrap() + 1;
+        let why = |from: &str, to: &str| read(&text.replacen(from, to, 1)).err().map(|e| e.to_string()).expect("a mistake");
+        let e = why("size = [10, 10, 2]", "size = [100000, 100000, 1000]");
+        assert!(e.starts_with("line 2:") && e.contains("too big"), "{e}");
+        let e = why("aa = \"#00ff07\"", "aa = \"#00ff0\"");
+        assert!(e.starts_with(&format!("line {}:", line_of("aa = \"#00ff07\""))), "{e}");
+        let e = why("[[frame]]\n", "[[frame]]\nrotation = 90\n");
+        assert!(e.starts_with(&format!("line {}:", line_of("[[frame]]") + 1)), "{e}");
+    }
 }

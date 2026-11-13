@@ -79,6 +79,12 @@ impl Canvas {
             ..Default::default()
         }))
         .context("creating GPU device")?;
+        // A picture larger than the GPU's textures is said, not a panic
+        // deep in wgpu.
+        let most = device.limits().max_texture_dimension_2d;
+        if width == 0 || height == 0 || width > most || height > most {
+            bail!("a picture of {width} by {height} pixels cannot be drawn: this GPU draws pictures from 1 to {most} pixels each way");
+        }
         let format = wgpu::TextureFormat::Rgba8Unorm;
         let mut renderer = Renderer::new(&device, format, width, height);
         let timed = time_passes && renderer.time_passes(&device, &queue);
@@ -106,6 +112,13 @@ impl Canvas {
     /// Builds the meshes of a whole world, with the faces in `mask`.
     pub(crate) fn mesh_world(&mut self, world: &mut crate::world::World, mask: &crate::mesh::FaceMask) {
         self.renderer.rebuild_all(&self.device, &self.queue, world, mask);
+    }
+
+    /// Whether the faces remember their shadow here (made the first time
+    /// a frame asked): the tests'.
+    #[cfg(test)]
+    pub(crate) fn remembers(&self) -> bool {
+        self.renderer.remembers()
     }
 
     /// Builds the meshes of the whole world.
@@ -1197,6 +1210,22 @@ pub fn sheet<G: Game>(dir: &Path, opts: &SheetOptions) -> Result<()> {
     };
     let per_voxel = 1920.0 / crate::camera::shown_width(&game.cfg.camera, 16.0 / 9.0);
     let small = ((size.x.max(size.y) * 1.6).max(size.z * 1.3) * per_voxel).ceil().max(16.0) as u32;
+    // What the GPU cannot hold is said before anything is drawn: the row
+    // at the game's size as one picture, the floor under the model as
+    // cubes (the device asks for wgpu's default limits).
+    let limits = wgpu::Limits::default();
+    let across = m.size.x.max(m.size.y) as u64 + 8;
+    let floor_bytes = across * across * std::mem::size_of::<crate::render::Instance>() as u64;
+    if small > limits.max_texture_dimension_2d || floor_bytes > limits.max_buffer_size {
+        bail!(
+            "model '{}' is {} by {} by {} voxels, too big for a sheet: at the game's size ({per_voxel:.1} pixels a voxel) one side takes {small} pixels, a picture holds {} at most",
+            opts.model,
+            m.size.x,
+            m.size.y,
+            m.size.z,
+            limits.max_texture_dimension_2d
+        );
+    }
     let mut rows: Vec<(u32, u32, Vec<Vec<u8>>)> = Vec::new();
     // A figure of parts a kind swings: its walk, a stride every half its
     // height, in eight steps through two strides.
@@ -1205,7 +1234,7 @@ pub fn sheet<G: Game>(dir: &Path, opts: &SheetOptions) -> Result<()> {
         .and_then(|defs| defs.into_iter().find(|d| d.model.as_deref() == Some(opts.model.as_str()) && !d.swing.is_empty()).map(|d| d.swing))
         .filter(|_| !m.parts.is_empty());
     let mut row = |w: u32, h: u32, width: f32, cells: &[(usize, glam::IVec2, f32, f32)]| -> Result<()> {
-        let mut canvas = Canvas::new(w, h, false)?;
+        let mut canvas = Canvas::new(w, h, false).with_context(|| format!("model '{}' is {} by {} by {} voxels, too big for a sheet", opts.model, m.size.x, m.size.y, m.size.z))?;
         let mut drawn = Vec::new();
         for &(frame, look, turn, walked) in cells {
             let mut body = crate::sim::Body::new(glam::Vec3::ZERO, size.z);

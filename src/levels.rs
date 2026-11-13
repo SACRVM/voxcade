@@ -374,4 +374,70 @@ mod tests {
         names.sort_by(|a, b| natural(a, b));
         assert_eq!(names, ["1_cave", "01_hall", "Tower", "level1", "level02", "level2", "level10", "tower"]);
     }
+
+    type Game = crate::shooter::Shooter;
+
+    /// A level of pieces, `size` voxels, its body after the head.
+    fn pieces(size: [i32; 3], body: &str) -> String {
+        format!("format = \"voxcade level 1\"\nsize = [{}, {}, {}]\n\n{body}", size[0], size[1], size[2])
+    }
+
+    /// The levels in `levels/` load in the order people read their names,
+    /// worlds and levels of pieces alike, each with its places and areas
+    /// in the world's voxels; the files they came from are listed.
+    #[test]
+    fn levels_load_in_order_with_their_places() {
+        let dir = crate::scratch::Scratch::new("levels-order");
+        std::fs::create_dir_all(dir.join("levels")).unwrap();
+        let light = "[[thing]]\nname = \"lamp\"\nat = [2, 2, 3]\nlight = { radius = 20 }\n\n[[place]]\nname = \"door\"\nat = [1, 1, 0]\nfacing = \"north\"\n\n[[area]]\nname = \"pit\"\nat = [0, 0, 0]\nsize = [4, 4, 1]\n";
+        for name in ["10_last", "2_middle", "1_first"] {
+            std::fs::write(dir.join("levels").join(format!("{name}.toml")), pieces([8, 8, 8], light)).unwrap();
+        }
+        let levels = load::<Game>(&Files::folder(&dir), &GameConfig::default()).unwrap();
+        assert_eq!(levels.names(), ["1_first", "2_middle", "10_last"]);
+        assert_eq!(levels.files.len(), 3);
+        let first = &levels.list[0];
+        assert_eq!(first.places, [Place::new("door", Vec3::new(1.5, 1.5, 0.0), Some([0, 1]))]);
+        assert_eq!(first.areas, [Area { name: "pit".into(), at: IVec3::ZERO, size: IVec3::new(4, 4, 1) }]);
+        assert_eq!((first.pieces.len(), first.pieces[0].lights.len()), (1, 1));
+        assert!(first.areas[0].holds(3.5, 0.5, Some(0.5)) && !first.areas[0].holds(4.0, 0.5, None));
+    }
+
+    /// What a hand-written level does wrong is said with the file and the
+    /// line: a thing, a place or an area outside the level (a hero at
+    /// x = 15000 in a level 8 wide once loaded without a word), a file of
+    /// an older Voxcade, `c.markers`.
+    #[test]
+    fn a_levels_mistakes_name_the_file_and_the_line() {
+        let dir = crate::scratch::Scratch::new("levels-mistakes");
+        std::fs::create_dir_all(dir.join("levels")).unwrap();
+        let file = dir.join("levels").join("hall.toml");
+        let why = |body: &str| {
+            std::fs::write(&file, pieces([8, 8, 8], body)).unwrap();
+            format!("{:#}", load::<Game>(&Files::folder(&dir), &GameConfig::default()).err().expect("a mistake"))
+        };
+        // The body begins on line 4.
+        let e = why("[[thing]]\nname = \"lamp\"\nat = [15000, 2, 3]\nlight = { radius = 20 }\n");
+        assert!(e.contains("levels/hall.toml") && e.contains("line 5: the thing 'lamp' at [15000, 2, 3] stands outside the level") && e.contains("8 by 8 by 8 voxels: x 0 to 7"), "{e}");
+        let e = why("[[place]]\nname = \"door\"\nat = [1, -1, 0]\n");
+        assert!(e.contains("line 5: the place 'door' at [1, -1, 0] lies outside the level"), "{e}");
+        let e = why("[[area]]\nname = \"pit\"\nat = [4, 4, 0]\nsize = [5, 1, 1]\n");
+        assert!(e.contains("line 5: the area 'pit' at [4, 4, 0], 5 by 1 by 1, reaches outside the level"), "{e}");
+        // Right at the edge is inside.
+        assert!(std::fs::write(&file, pieces([8, 8, 8], "[[area]]\nname = \"pit\"\nat = [4, 4, 0]\nsize = [4, 4, 8]\n")).is_ok());
+        assert!(load::<Game>(&Files::folder(&dir), &GameConfig::default()).is_ok());
+        // Above the level the sky is open: a thing on its top layer, a
+        // lamp hanging high over it; under its floor is outside.
+        std::fs::write(&file, pieces([8, 8, 8], "[[thing]]\nname = \"lamp\"\nat = [2, 2, 40]\nlight = { radius = 20 }\n")).unwrap();
+        assert!(load::<Game>(&Files::folder(&dir), &GameConfig::default()).is_ok());
+        let e = why("[[thing]]\nname = \"lamp\"\nat = [2, 2, -1]\nlight = { radius = 20 }\n");
+        assert!(e.contains("stands outside the level") && e.contains("y 0 to 7, z from 0 up"), "{e}");
+        let e = why("[[thing]]\nkind = \"slimee\"\nat = [1, 1, 1]\n");
+        assert!(e.contains("line 5: thing at [1, 1, 1]: 'slimee' is no kind of thing"), "{e}");
+        std::fs::remove_file(&file).unwrap();
+        let mut cfg = GameConfig::default();
+        cfg.world.file = "world.vox".into();
+        let e = load::<Game>(&Files::folder(&dir), &cfg).err().unwrap().to_string();
+        assert!(e.contains("world.vox") && e.contains("voxcade upgrade"), "{e}");
+    }
 }

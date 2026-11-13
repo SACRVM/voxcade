@@ -44,8 +44,14 @@ struct Globals {
 @group(0) @binding(1) var shadow_map: texture_depth_2d;
 @group(0) @binding(2) var shadow_sampler: sampler_comparison;
 // The faces' memory of their shadow: FACES entries of three words (a key,
-// a check, the picture it was last seen in and whether it was lit).
+// a check, the picture it was last seen in and whether it was lit). What
+// lies between the MEMORY marks is only in the pipelines of a game that
+// moves its sun (render::plain_shader takes it out of the others: a
+// fragment shader that may write storage loses early depth testing on
+// many GPUs, and some have no such writes).
+// MEMORY {
 @group(0) @binding(3) var<storage, read_write> faces: array<atomic<u32>>;
+// } MEMORY
 
 struct VOut {
     @builtin(position) clip: vec4<f32>,
@@ -356,9 +362,11 @@ fn sun_visibility(world: vec3<f32>, face: vec3<f32>, n: vec3<f32>, centre: vec4<
     if (style > 0.5) {
         // only one the sun lights enough for its shadow to show (`sunlit`,
         // how squarely) needs a memory
+        // MEMORY {
         if (g.memory.y == 1u && sunlit > 0.05) {
             return remembered(at, n, raw);
         }
+        // } MEMORY
         return step(0.5, raw);
     }
     return raw;
@@ -419,6 +427,7 @@ fn face_next(word: u32, raw: f32, now: u32) -> u32 {
     return face_word(lit, sun, now);
 }
 
+// MEMORY {
 fn remembered(at: vec3<f32>, n: vec3<f32>, raw: f32) -> f32 {
     // `at` lies on the half-voxel grid; the way the face looks tells two
     // faces at one point apart.
@@ -475,6 +484,7 @@ fn remembered(at: vec3<f32>, n: vec3<f32>, raw: f32) -> f32 {
     }
     return step(0.5, raw);
 }
+// } MEMORY
 
 fn shadow_lookup(world: vec3<f32>, n: vec3<f32>) -> f32 {
     let p = g.light_vp * vec4<f32>(world + n * 0.4, 1.0);
