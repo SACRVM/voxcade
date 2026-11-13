@@ -504,7 +504,14 @@ machines' attract mode).
   the settings in effect, `main.lua` as tokens, the level's files, the
   figures; a change to the look or the music, a comment or the layout of
   the code leaves it) and the simulation's state every second. The user's
-  first run, won in 148 seconds, takes 22 KB.
+  first run, won in 148 seconds, takes 22 KB. Since 2026-11-13 (the
+  owner's D7) also the state the run ended in (`final_state`, after its
+  last step and the console lines run after it), so the last fraction of
+  a second is checked too, and the fingerprint's parts by name
+  (`fingerprint_parts`: "conf.lua", each level, model and Lua file), so a
+  replay recorded on other data says which files changed. Both are
+  optional: an older replay plays as before, `check` saying how many of
+  its last ticks went unchecked.
 - The same on every machine: the simulation's sines and cosines come from
   the `libm` crate, not the system's maths library, which differs in the
   last bit between Linux, Windows and macOS. The builds on GitHub play
@@ -516,6 +523,11 @@ machines' attract mode).
   drawn after every tick (a mistake in `on_draw` stops it as in a
   window), and says where one runs apart: the regression check for every later step
   (`replays/tests/` holds scripted runs; `cargo test` plays them all).
+  A replay with nothing to check it by (no second's check, no final
+  state) fails; one that cannot be read or played is said, the next one
+  played, and the mistakes are the error at the end. `--update` records
+  no run the hidden-state guard refuses; `--refit` writes the parts anew
+  with the fingerprint where a replay has them.
 - The high score table (2026-10-16): the ten best runs with three
   letters, picked like at an arcade machine after a run that beats a
   line; on the title the round goes title, table, replay.

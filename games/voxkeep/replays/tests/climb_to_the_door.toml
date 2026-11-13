@@ -7,6 +7,34 @@ outcome = "quit"
 score = 100
 input = "right:52;right+jump:40;none:10;right:18;none:6;jump:30;none:10;right:50;none:6;left:1;jump:30;none:10;right+jump:30;none:10;right:50;none:120"
 checks = ["bcbac4f64f038156", "06bcd056e91177d6", "4720093ffd47a19c", "15f4472c3d296d09", "54b65efc9548c1ef", "00cc7a47f82f8f7e", "e87587da06a3b0e1"]
+final_state = "00c82a9e344f90cb"
+
+[fingerprint_parts]
+"bat.vvx" = "eb3073cff74e10e8"
+"blocks/ladder.vvx" = "12dd67094d445915"
+"blocks/plank.vvx" = "03fec5df6f2b5c34"
+"blocks/spikes.vvx" = "b77199ad72ff1ac2"
+"blocks/stone.vvx" = "4e465210edc307f9"
+"blocks/wall.vvx" = "645571179210a331"
+"conf.lua" = "026c02b7fc3ba444"
+"crate.vvx" = "604cd107977c01d4"
+"door.vvx" = "c4ca12b2f4b116a8"
+"gem.vvx" = "22c4adc438781293"
+"hatch.vvx" = "3a85297bf03801ac"
+"hero.vvx" = "52a75006cb7d7fa0"
+"levels/01_hall.toml" = "25d57e8f4dbde70d"
+"levels/02_crypt.toml" = "c8b490a91dbbc432"
+"levels/03_tower.toml" = "695c04f8fb042c9c"
+"levels/04_levers.toml" = "e5a618f8f1059d2d"
+"levels/05_crates.toml" = "3a8c15ccf617f5a7"
+"levels/06_keep.toml" = "a0d31b88bc3c4ed5"
+"lever.vvx" = "761ceb1f366acd3c"
+"main.lua" = "6165da87fe6895aa"
+"plate.vvx" = "1dd27e7de4f20423"
+"skull.vvx" = "3230a7cbd5aef661"
+"slab.vvx" = "6158b3a73eb14598"
+"slime.vvx" = "eff00b2ad48f51c6"
+"torch.vvx" = "ac647ff772ba7abe"
 
 [[controls]]
 at = 0

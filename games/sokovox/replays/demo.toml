@@ -7,6 +7,14 @@ outcome = "quit"
 score = 2910
 input = "down:8;none:1;left:8;none:1;up:8;none:1;right:8;none:1;right:8;none:1;right:8;none:1;down:8;none:1;left:8;none:1;up:8;none:1;left:8;none:1;left:8;none:1;down:8;none:1;down:8;none:1;right:8;none:1;up:8;none:1;left:8;none:1;up:8;none:1;right:8;none:1;up:8;none:1;up:8;none:1;left:8;none:1;down:8;none:1;right:8;none:1;down:8;none:1;down:8;none:1;right:8;none:1;right:8;none:1;up:8;none:1;left:8;none:1;down:8;none:1;left:8;none:1;up:8;none:1;up:8;none:101;right:8;none:1;undo:1;none:1;right:8;none:1;down:8;none:1;down:8;none:1;left:8;none:1;right:8;none:1;up:8;none:1;up:8;none:1;left:8;none:1;down:8;none:1;up:8;none:1;up:8;none:1;left:8;none:1;left:8;none:1;down:8;none:1;down:8;none:1;right:8;none:101;right:8;none:1;up:8;none:1;up:8;none:1;left:8;none:1;undo:1;none:1;left:8;none:1;left:8;none:1;left:8;none:1;up:8;none:1;left:8;none:1;down:8;none:1;right:8;none:1;right:8;none:1;right:8;none:1;right:8;none:1;down:8;none:1;down:8;none:1;left:8;none:1;up:8;none:1;right:8;none:1;up:8;none:1;left:8;none:1;left:8;none:1;left:8;none:1;down:8;none:1;down:8;none:1;left:8;none:1;left:8;none:1;left:8;none:1;up:8;none:1;up:8;none:1;right:8;none:1;right:8;none:1;down:8;none:1;right:8;none:1;down:8;none:1;left:8;none:1;up:8;none:1;up:8;none:1;up:8;none:1;right:8;none:1;down:8;none:1;down:8;none:101;left:40;none:20"
 checks = ["b31da815e2112dd3", "c61fa89937320939", "42907a883ad02cee", "748020c48e5faf74", "52e4fec8c578867b", "41fa91565459beca", "2df5867858168e00", "f8474128de55fc91", "95fff70bbfd05d74", "9a6f537a6abb86c6", "0c7a64dde6e12154", "a23d983a75283443", "a7e8f204f74ed20f", "559daf0b63b51f00", "7f0b8fa687100d5b", "baf2cfb1d4bcd8e5", "bf237b5d49956919", "8ddec497af28365b", "4f4054eb4bf91668"]
+final_state = "6b4d154cfc96f383"
+
+[fingerprint_parts]
+"conf.lua" = "2ff2e6fcb90bb2e7"
+"crate.vvx" = "29592ad25ea84a56"
+"keeper.vvx" = "15f3c49aad86ff39"
+"levels/microban.txt" = "969f0f9f9b92e4dc"
+"main.lua" = "ed6e60272f7d8b91"
 
 [[controls]]
 at = 0
