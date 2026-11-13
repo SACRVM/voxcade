@@ -11,7 +11,7 @@ left off: the world fills the whole screen instead of sitting in a box,
 the GPU does the drawing, and the games are written like
 [LÖVE](https://love2d.org)'s, deterministic.
 
-> **Status: early, and in use.** Version 0.4, for Windows and Linux (macOS
+> **Status: early, and in use.** Version 0.6, for Windows and Linux (macOS
 > builds from source). Five games come with it, three templates to begin
 > new ones from, a launcher, the IDE. The Lua API may still change before
 > 1.0. Where it is going: [docs/concept.md](docs/concept.md) and
@@ -58,11 +58,13 @@ Everywhere:
 | Key | |
 |---|---|
 | Escape, P, Start | pause (settings, save and load where the game has slots, quit) |
-| F5 | start again |
-| F9 | keep the run being played as a replay in the game's `replays/` |
 | F11 | fullscreen |
-| 1 .. 9 | the game's songs |
 | `^` (left of 1; `` ` `` on a US keyboard) | the console (below) |
+
+The maker's keys are not a player's: `voxcade run <game> --maker` (and
+the IDE's PLAY, always) brings F5 (start again on the files as they are),
+F9 (keep the run being played as a replay in the game's `replays/`) and
+1 .. 9 (the game's songs).
 
 `voxcade pads --seconds 15` shows what SDL sees of a controller that does
 nothing. Settings, high scores and save games are the player's, in the
@@ -212,8 +214,8 @@ voxcade sheet games/bunnyfarm bunny.vvx                                # a model
   the slowest ticks); `--screen` shows a menu (title, settings, pause,
   console ...), `--record` keeps the run as a replay.
 - `check` plays every replay in a game's `replays/` and says whether each
-  runs as recorded (a hash of the states every second), drawing after
-  every tick as a window does; `--refit` takes new game files that play
+  runs as recorded (a hash of the states every second and the state its
+  run ended in), drawing after every tick as a window does; `--refit` takes new game files that play
   the same, `--update` records them anew after a change meant to alter
   the game. `replays/tests/` holds the regression runs, `replays/` itself
   the demos the title plays after 30 s.

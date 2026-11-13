@@ -38,7 +38,8 @@ the earlier idea of separate editors that feel like a game (`engine.md`,
   macOS, Windows and Linux/X11, and Wayland has no protocol for it).
 - **Recommended: a native app on the engine itself.** SDL3, wgpu and egui
   for the lean, VS Code-like shell; the voxel UI for the playful tools; a
-  Lua editor of its own speaking LSP with LuaLS; a terminal from
+  Lua editor of its own (speaking LSP with LuaLS was the plan; as built
+  it has no LSP, see step 8.3); a terminal from
   `alacritty_terminal` and `portable-pty`; the MCP server `voxcade mcp`.
   The expensive and risky parts are the text editor and the terminal; both
   stay bounded (Lua scripts are small, there are no tabs, and the agent
@@ -54,7 +55,7 @@ the earlier idea of separate editors that feel like a game (`engine.md`,
 | Navigation | Only Logic (Lua) and Assets on the left. No tabs: the main area shows one thing; a back/forward history instead (go to definition jumps, Alt+Left returns). | – |
 | Memory | Per file: cursor, scroll, selection, undo. Per asset: camera, selection, tool. Unsaved buffers go crash-safe into a journal every 1 to 2 s. All of it in the user's config folder, never the game folder, like the settings. | `src/settings.rs` |
 | One save | A buffer goes to the journal at once, into the game's files after a short pause, always on play and build. The engine must take half-written Lua: the last good version keeps running, the error shows. | hot reload; errors halt (step 4) |
-| Lua editor | Highlighting, diagnostics, completion, hover docs, signature help, go to definition, references, rename, search in the project, formatting: all through LSP from LuaLS. | `lua/voxcade.lua`, `.luarc.json` (step 4) |
+| Lua editor | Wanted: highlighting, diagnostics, completion, hover docs, signature help, go to definition, references, rename, search in the project, formatting, all through LSP from LuaLS. Built without LSP: highlighting, the line Lua cannot read, the API's names offered with what they take, find and replace, search through the game (step 8.3 and 8.13). Not built: go to definition, references, rename, formatting. | `lua/voxcade.lua`, `.luarc.json` (step 4) |
 | Voxel editor | Set, delete, paint, box, fill, mirror, the palette (glass, metal, rough, glow on a color), frames with onion skin, a preview in the engine's light. | `.vvx`, text (`src/vvx.rs`) |
 | Image editor (maps) | Raise, lower, smooth, flatten the height; paint material. Best right in the 3D level, the 2D image as a second view. | 8-bit gray = height in voxels (`src/map.rs`) |
 | Level editor | Ground, prefabs (quarter turns), things and markers by kind; writes `map.toml`. | mouse and picking missing (phase 3 so far) |
@@ -108,7 +109,8 @@ widget: `egui_code_editor` only highlights keywords; the editors of
 Lapce/floem and Zed bring their own UI framework (Zed's editor is GPL, only
 GPUI is Apache). So it is built: ropey as the buffer, tree-sitter-lua, an
 LSP client with `lsp-types` talking to LuaLS (or `emmylua_ls` in Rust,
-only partly LuaLS-compatible). Without tabs only one buffer is ever shown,
+only partly LuaLS-compatible). (As built the editor is egui's text edit
+with our own lexer and no LSP client: step 8.3.) Without tabs only one buffer is ever shown,
 which keeps it simple. Risks: IME (SDL3's text editing events wired to egui
 by hand) and accessibility (AccessKit has only a winit adapter, with SDL3
 it needs `accesskit_xplat` or similar; the voxel UI is invisible to screen
@@ -367,7 +369,7 @@ Stage by stage (the plan of 2026-10-18):
    **Scenarios** (2026-10-29): `scenarios/NAME.lua` listed under a heading
    of their own below the logic, always there (a plus in the heading, as at LOGIC, MODELS and MUSIC:
    a name typed in place makes a small file to change); PLAY SCENARIO over one plays the game from it (F5 begins it
-   again). While the game plays, a line under OUTPUT runs Lua in it
+   again, always in the IDE's PLAY). While the game plays, a line under OUTPUT runs Lua in it
    between two ticks, its answer in OUTPUT (up and down bring earlier
    lines back); the agent's `eval` does the same.
 4. **Play in the main area** (done): PLAY saves the text being changed
@@ -401,7 +403,7 @@ Stage by stage (the plan of 2026-10-18):
    has the keys). A run won or lost (PRESS START) starts over with Enter,
    or Start or A on a pad: the IDE has no title to go back to. Its runs
    are recorded as `voxcade run` records them
-   (`replay::Runs`): kept in the config folder from 10 s on, F9 puts the
+   (`replay::Runs`): kept in the config folder from 10 s on, F9 (the IDE's PLAY always has the maker's keys, `voxcade run` only with `--maker`) puts the
    run being played (or the last) in the game's `replays/`, the bar says
    where; a run with a file saved during it is not kept (test
    `a_run_played_is_kept_with_f9`).

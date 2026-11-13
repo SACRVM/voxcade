@@ -57,8 +57,9 @@ game, `play` a session played by bundles (`Hosting`, `Joining`,
 `Locals`), `udp` the socket, `quic` iroh across the internet (a thread
 of its own, channels; stage 6), `link` either as one transport (`Where`,
 machines asking in let in by a spoken code), `trial` iroh's measures
-(`voxcade nettest`), `codes_wire` the game codes' words (six signs for a
-ticket, a copy of matchmaker's protocol); `src/network.rs` the window's
+(`voxcade nettest`; the four signs both screens show to let a machine in
+are `link::code`; the game codes' words, six signs for a ticket, come
+from the `matchmaker-protocol` crate); `src/network.rs` the window's
 side of it. Our relay and the game codes are `matchmaker`, a project of
 its own beside this one (`../matchmaker`, to be public as
 SACRVM/matchmaker, the user's: "mach ein extra Projekt draus"), run on
@@ -94,8 +95,20 @@ shooter's things stay in `src/shooter/`.
 
 ## Commands
 
-- Build: `cargo build --release`
-- Play: `cargo run --release -- run games/arena` (opens a window; the user plays it, you don't)
+- Build: `cargo build --release`. In the main checkout build with
+  `CARGO_TARGET_DIR=target-work cargo build --release` and run
+  `./target-work/release/voxcade` (the same for `test` and `clippy`):
+  never rebuild `target/release` while the owner's IDE runs from it (it
+  crashed once); the binary is handed over to `target/release` by copy
+  and rename after a commit that is verified. An agent in its own
+  worktree uses that worktree's own `target/`.
+- Play: `cargo run --release -- run games/arena` (opens a window; the user
+  plays it, you don't). F5 (play again on the files as they are), F9
+  (keep the run) and 1 to 9 (the game's songs) are the maker's keys:
+  `run` has them only with `--maker`, a player of a packaged game never
+  (the owner's D4, 2026-11-13), the IDE's PLAY always, `voxcade replay`
+  keeps F5. Nothing of `run`'s own is meant to be tried here by an agent
+  without `--shot`.
 - See a frame: `cargo run --release -- shot games/arena --frames N --input "keys:ticks;..." --out shots/<name>.png`,
   then Read the PNG. Keys: the directions `left right up down`, the game's actions
   (More Blood: `jump fire grenade strafe`) and `none`, joined with `+`.
@@ -332,8 +345,8 @@ nearest; its replay `tests/two_ships`);
   states as a fresh load has them, or a restart-only setting) the fresh
   game takes over with a line in OUTPUT, so what an agent builds in
   `on_level_start` shows without F5; a change to the rules alone keeps
-  the run; Escape back to the file, F5 over, F9 keeps the run, STOP; runs
-  recorded as in `voxcade run`; a script's error with
+  the run; Escape back to the file, F5 over, F9 keeps the run (the maker's
+  keys, always on in PLAY), STOP; runs recorded as in `voxcade run`; a script's error with
   TO THE LINE, the line marked in the file until mended); `--shot
   --play TICKS` draws it (with `--open` the file over the game held).
   The headings LOGIC, SCENARIOS, MODELS and MUSIC are always there, each with a plus
@@ -377,8 +390,19 @@ nearest; its replay `tests/two_ships`);
   lines of the game's Lua naming the file (a sound's quoted name,
   `require`, a model's, song's or other file's quoted path) changed only
   if the user says so; DELETE asks nothing, the system's trash (`trash`
-  crate, else `config_dir()/ide/deleted/<game>/`) and UNDO in the bar for 8
-  s from the bytes kept in memory (up to 8 MB). Songs play from the main area (PLAY SONG). Reading the keys
+  crate, else `config_dir()/ide/deleted/<game>/`) and UNDO in the bar for 20
+  s (`manage::UNDO_FOR`) from the bytes kept in memory (up to 8 MB). Ctrl+F
+  (or FIND beside SAVED) shows the find row above the open text
+  (`ide/find.rs`; the owner's D9): FIND, MATCH CASE, "3 OF 12",
+  PREVIOUS/NEXT (Enter, Shift+Enter, F3, Shift+F3), CLOSE (Escape), every
+  match marked and the current one scrolled to; Ctrl+H or its arrow shows
+  REPLACE WITH, REPLACE and REPLACE ALL, each one step of the text's undo.
+  Ctrl+Shift+F or SEARCH in the bar searches the game in the list's place
+  (on a thread, the files the list shows that open as text: logic,
+  scenarios, sounds, songs, models, no levels), a line clicked opens its
+  file there with the word current; `--shot --find WORD [--replace TEXT]`,
+  `--search WORD [--hit N]`. (Go to definition, references and rename are
+  not built: no LSP.) Songs play from the main area (PLAY SONG). Reading the keys
   (`controls::read_input`), the speaker (`audio::speaker`) and the
   player's options (`Settings::options`) are shared with `voxcade run`.
   BUILD packs the program and the game into the game's own
@@ -443,6 +467,20 @@ nearest; its replay `tests/two_ships`);
   anywhere. Load test at 16-bit sprite scale:
   `python3 tools/gen_bench.py`, then `shot games/bench --screen title`.
   Numbers and the plan for the 16-bit scale: `docs/engine.md`.
+- Tests on every push (the owner's D1, 2026-11-13;
+  `.github/workflows/tests.yml`, push to `main` and pull requests, Linux
+  only, mesa's lavapipe standing in for the GPU): the release build,
+  `cargo test --release`, clippy with `-D warnings`, `voxcade check` of
+  every game but the Bench and of every template, and
+  `tools/check_tmp.sh`. A test that draws needs a GPU or lavapipe and
+  fails without one, it never skips. Picture tests (`tests/pictures.rs`,
+  their references as text in `tests/pictures.txt`, the owner's D12): the
+  mean color of an 8 by 8 grid of five pictures within 6 levels
+  (`VOXCADE_PICTURE_TOLERANCE`; the workflow sets 12 for lavapipe); renew
+  them on purpose with `VOXCADE_PICTURES=renew cargo test --release --test
+  pictures` and say so in the commit. `tests/docs_examples.rs` reads
+  the level, map and model examples of `docs/tiles.md` with the engine's
+  own readers.
 - Builds for other machines: GitHub
   Actions `Builds` (`.github/workflows/builds.yml`), started by hand
   (`gh workflow run builds.yml`) or by a `v*` tag, never on every push
@@ -482,16 +520,23 @@ nearest; its replay `tests/two_ships`);
   every tick as a window does (`Session::look`: the kits' things and
   `on_draw`, no picture; a mistake in `on_draw` stops it as in a window,
   test `check_draws_every_tick`), and says whether each runs as recorded
-  (`replays/tests/` holds scripted regression runs made with
+  (a replay also keeps the state its run ended in, `final_state`, and the
+  fingerprint's parts by name, `fingerprint_parts`: its last fraction of
+  a second is checked, and one recorded on other data names the files
+  that changed; an older replay plays, `check` saying how many of its
+  last ticks went unchecked, and one with nothing to check it by fails;
+  `check` goes on after a replay that cannot be played and ends with the
+  mistakes; `replays/tests/` holds scripted regression runs made with
   `shot --input ... --record FILE`; `shot --replay FILE` shows one). Run it
   after any change to the simulation. When a change was meant to alter
   the game (tougher enemies, a new level), `voxcade check <game> --update`
-  records the checks anew: say so in the reply, the user's own recorded
-  runs may then show something different. When the game's files change
+  records the checks anew (it runs the hidden-state guard and records no
+  run it refuses): say so in the reply, the user's own recorded runs may
+  then show something different. When the game's files change
   but the game should not (a new layout of `conf.lua`, renamed markers),
   `voxcade check <game> --refit` plays the replays on the new data and,
   only if every one runs exactly as recorded, writes the new fingerprint
-  into them (nothing else). `voxcade check <game> --rollback K` goes back K
+  and its parts into them (nothing else). `voxcade check <game> --rollback K` goes back K
   ticks again and again and plays on, as rollback over a network would
   (`docs/multiplayer.md`, stage 0): each replay must still come out as
   recorded, and it says what keeping and bringing back the game cost; the
@@ -499,7 +544,7 @@ nearest; its replay `tests/two_ships`);
   `going_back_and_playing_on_comes_out_the_same`). Every run played in the window
   is recorded (`replay::Runs`): runs of 10 s or more are kept in the
   config folder beside the settings (the newest 20; `voxcade replays
-  <game>` lists them), F9 (a maker key, like F5) puts the run being played
+  <game>` lists them), F9 puts the run being played
   or the last one in the game's `replays/`; `voxcade replay <game> <file>`
   shows one in a window. A run with a hot reload in it is not kept
   (`Session::touched`: it no longer starts from the files). Attract mode
@@ -841,7 +886,9 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `src/lua/tests.rs`.
 - Blocks are shaped by hand only (the user rejected relief, rounding and
   primitive models made by tools as fake 3D): an imported tile is drawn
-  out through its depth, every layer its picture, nothing more. The
+  out through its depth, every layer its picture, nothing more (a block's
+  `.vvx` silently drops glass, metal and glow, `Block::load_in`; scenes
+  refuse them with a message: open, to be decided). The
   editor stays calm (the user on vengi: too much, hard on the eyes): few
   tools in view, big readable words, the game's own light. Its panels are
   the IDE's look, egui through `crate::gui` (`editor/panels.rs`; the
@@ -861,7 +908,14 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   behavior reads goes into its kind's rules (`shooter::kinds`, a default
   in the spec and in `kit.toml`, test
   `the_kits_kinds_are_the_behaviors_defaults`), not into a section of
-  its own. Mistakes name the table that makes them; a reload keeps things
+  its own. A kind without a behavior takes the engine's keys (`model`,
+  `hp`, `fixed`, `width`, `height`, `facing`, `props`, `family`,
+  `effect`, `sound`, `reach`, `team`, `immune`, `rotates`, `spin`,
+  `frames`, `fps`, `swing`) and no others: an unknown key is refused at
+  load, naming the key, the table and a near name (the owner's D2, test
+  `an_unknown_key_of_a_kind_is_refused`). `c.actions` holds 32 at most
+  (`lua::conf::MOST_ACTIONS`). `keep = true` on a kind is planned for
+  0.7, not built (the owner's D3): `level.kept` is the way. Mistakes name the table that makes them; a reload keeps things
   by their kind's name (test `a_reload_keeps_things_by_their_kind`).
 - The simulation only reports sounds (`Sim::sounds`: events by name); the
   engine turns them into audio (`Session::play_sounds`) so the simulation
@@ -881,7 +935,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (the synth goes on in Hz and ratios inside, exactly). A mistake names
   the file, the line and the word; ranges are checked; a sound lasts 10
   s at most, fades over 5 ms at least, a pulse off duty 0.5 plays round
-  zero. The engine's and the kits' own
+  zero (in MML's instruments too). The engine's and the kits' own
   sounds are such files, built in (`src/audio/sounds/`,
   `src/shooter/sounds/`, `src/platformer/sounds/`; test
   `the_kits_sound_files_are_their_names`); a game's file of the same
@@ -951,7 +1005,15 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   wish, off by default) puts the frame rate small in the bottom right
   corner over game and menus (`ui::fps`). SHADOWS sets the shadow map's
   size (`settings::Shadows`: high 4096, medium 2048, low 1024; the user's
-  idea, quality levels for older hardware), `shot --shadows` the same.
+  idea, quality levels for older hardware), `shot --shadows` the same; on
+  an integrated GPU they start at MEDIUM when the settings file has no
+  `shadows` key (`Settings::load_for`, the owner's D5). FRAME RATE
+  (UNLIMITED, VSYNC, 60, 30: `settings::FrameRate`, paced by
+  `window::Pacer`). Settings are written at once and whole
+  (`blocks::save_at_once`, `Settings::save`); an unreadable settings file
+  is kept as `NAME.toml.broken` before defaults are saved, and a failed
+  SAVE or LOAD, a settings error or an unreadable save is said on the
+  screen (`parting` in `app.rs`).
   Check menus with
   `shot --screen title|continue|settings|audio|video|controls|players|player-controls|network|find|join|joining|intro|pause|host-pause|guest-pause|save|load|attract`
   (a game with a save offers CONTINUE first on the title: the newest
@@ -968,8 +1030,15 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   and French and a few signs (BunnyFarm's three languages): a game's text
   is drawn as written, the engine's own in capitals as always
   (`ui::engine_case`, `text` against `written`), so older pictures stay
-  the same pixel for pixel; accented capitals at full height, the accent
-  above (`ui::accented`); test `the_font_writes_german_and_french`. A
+  the same pixel for pixel; an accented capital keeps the plain capital's
+  height, in both fonts: the accent in the top rows, the letter's body
+  squeezed under it (`ui::shown_row`, `font::DisplayFont::accented`; a
+  character the atlas lacks stays "?"); tests `the_font_writes_german_and_french`,
+  `an_accented_capital_keeps_the_height_of_the_plain_one`,
+  `accented_capitals_are_their_letters_with_the_accent_over_them`. A menu
+  hint wider than the screen goes on over several lines (`ui::wrap_hint`,
+  test `hints_stay_within_the_screen`). Still untranslated: the action
+  names on CONTROLS (FIRE, JUMP in French). A
   game speaks the languages it lists (`c.languages`; SETTINGS offers
   LANGUAGE, the system's at first in a window, the game's first in
   `shot`; `world.language`; carried with the controls in replays), and
@@ -1002,9 +1071,15 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   a C64 echo instead (`delay` in the import file), quiet: a third of the
   line's volume (two thirds sounded like the melody doubled, too much for
   the user).
-  Pulse waves off duty 0.5 carry a DC offset (thumps, lost headroom): the
-  three songs from audio stems avoid them, End Boss's riff and lead still
-  use them. Rebuild the release binary
+  The MML pulse wave is centred (no DC offset off duty 0.5, the owner's D6,
+  2026-11-13; it changed the sound of End Boss slightly), so no song has
+  thumps or lost headroom. MML refuses out-of-range values and names its
+  own line (tempo 1 to 999, lengths 1 to 192, octaves 0 to 9, an
+  instrument's options by the ranges of `words.rs`, near words suggested;
+  at most 200,000 notes a channel); `decay` differs from a sound file's:
+  MML's falls to the sustain level, a sound's fades to silence; a voice
+  the mixer steals fades over 5 ms (`STEAL_FADE`). HELP has the topic "A
+  SONG IN MML". Rebuild the release binary
   before checking a parser change with `voxcade music` (`cargo test` alone
   does not). More Blood's mood, the user's words: dark, menacing,
   atmospheric, C64 style; its four songs (Move On, Blood Rush, Storm Is
@@ -1100,7 +1175,9 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `a_hut_sends_a_few_men_and_none_behind_the_player`.
 - Generated structures must stay connected voxel by voxel (a gap in a brace
   leaves pieces hanging in the air after a collapse), and markers need room
-  for a whole body or the engine lifts the actor onto the roof.
+  for a whole body or the engine lifts the actor onto the roof (a spawn off
+  the level's ground is lifted to the level's top + 8 today; a mistake for
+  it is planned for 0.7).
 - The camera is fixed per game and always perspective (`conf.lua`: pitch,
   fov; an orthographic view looked flat and was rejected). How much it
   shows: `view_width` across, or `view_height` high (Pulsar), or
@@ -1130,7 +1207,9 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (`mesh::face_mask_any_sun`, `Game::moves_sun`; a reload that changes it
   rebuilds the meshes), and its shadows are fitted to the last picture's
   sun, then to this one's. The shadow map is fitted to the view (`camera::light_view_proj`)
-  and snapped to whole texels so shadows stay still while scrolling. A
+  and, seen from above, never wider than the world as the sun sees it (test
+  `the_sun_is_fitted_to_the_level_not_to_the_horizon`); the shadow pass takes
+  only the opaque cubes (`FrameData::shadow_cubes`); the map is snapped to whole texels so shadows stay still while scrolling. A
   game that moves its sun turns the map every picture, which lays its
   texels anew: at a shadow's edge a face, decided at its middle, went
   from lit to shaded and back (the user saw it in BunnyFarm). Its faces
@@ -1414,6 +1493,18 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   the person in `config_dir()/ide/settings/editors.toml`, one for each
   editor, never in a game; GAME VIEW and the IDE's pictures keep their
   own; `--shot` the dark one unless `--background #rrggbb`.
+  F1 (and Esc) shows the keys of what is open on one page
+  (`editor/keys.rs`, the owner's D8): the buttons' keys with their words,
+  the scope's own, those everywhere, the mouse's; each small button's
+  tooltip ends with its key; `--shot --menu keys`. A kind's `facing` is
+  how the editor draws it too (`view::start_way`), the title's logo opens
+  from its y-0 side (`Face::Logo`), a joint set by hand is never LOOSE.
+  In the voxel editor the level round a model (CONTEXT) and a selection's
+  outline are kept between frames and made again only when what they
+  are made of changes (`Shown::room`, `selection_edges_kept`); a stroke
+  sets only its voxels (`Shown::retouch`); `editor/big.rs` has the timing
+  tests for a 169x12x116 wall. Still slow: strokes on a very big figure
+  of parts (every voxel rebuilds the figure).
 - A figure's box is never larger than its parts need (the owner's
   `size` stuck at 2001 after a part flew off): every step's end leaves
   `size` the tightest about the pivot (`ModelFile::tight_size`; a drag's

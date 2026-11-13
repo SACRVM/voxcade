@@ -449,7 +449,7 @@ game's settings are code (the user's choice: "nur im Code, fertig").
   the states (`on_world_start` and `on_level_start` do not run again; a
   start that a mistake stopped begins afresh once the file is mended). Saving `conf.lua` applies what can
   change while running; the kit, the actions and keys, the level, the
-  markers and the player's start wait for a restart (F5) and say so.
+  markers and the player's start wait for a restart (F5, a maker's key) and say so.
 - **One source for the API** (`src/lua/api.rs`): `voxcade api` lists it,
   `voxcade api --lua lua/voxcade.lua` writes the definitions for editors
   (LuaLS: completion and checks in VS Code, Zed, Neovim, `Conf` for
@@ -517,7 +517,7 @@ machines' attract mode).
   last bit between Linux, Windows and macOS. The builds on GitHub play
   every game's replays on all three.
 - Every run played in the window is recorded: runs of 10 s or more are
-  kept beside the settings (the newest 20), F9 puts one in the game's
+  kept beside the settings (the newest 20), F9 (`voxcade run --maker`) puts one in the game's
   `replays/`. `voxcade replay` shows one in a window.
 - `voxcade check` plays a game's replays without a window, the game
   drawn after every tick (a mistake in `on_draw` stops it as in a
@@ -718,6 +718,10 @@ Measured (2026-10-15, 1920 x 1080):
   2.3, 1.5 ms: it also draws every face facing the sun, whatever the map's
   size); the shadows' voxel steps soften from medium on. Blur and
   composite cost 1.3 ms there, 15 times as much as here: the next level.
+  On an integrated GPU the shadows start at MEDIUM when the settings
+  file has no `shadows` key (`Settings::load_for`: what the player chose
+  wins). VIDEO also has a FRAME RATE (UNLIMITED, VSYNC, 60, 30:
+  `settings::FrameRate`, paced by `window::Pacer`).
 - A blast's chunk meshes went to the GPU in new buffers every time; now a
   chunk keeps its buffers and the new mesh is written over the old, with
   room to grow when it outgrows them (`Renderer::upload`): a quarter less

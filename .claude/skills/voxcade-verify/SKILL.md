@@ -40,8 +40,11 @@ same replay; a difference always means something changed.
 It builds the release binary (every `voxcade` command below uses it, so a
 stale binary shows old behavior), runs `cargo test --release`, lists
 clippy's warnings as `file:line` and plays every game's replays. Clippy
-had warnings before your change too: only a warning in a line you touched
-is yours; leave the others alone. Never run `cargo fmt` (the code is
+stands at 0 warnings (the Tests workflow runs it with `-D warnings`): a
+warning is yours. In the main checkout build with `CARGO_TARGET_DIR=target-work`
+and use `./target-work/release/voxcade` for every command below, never a
+rebuild of `target/release` while the owner's IDE runs from it; an agent
+in its own worktree uses that worktree's `target/`. Never run `cargo fmt` (the code is
 formatted by hand; it would rewrite dozens of files).
 
 After a change that adds tests or touches the temp folder, run
@@ -51,8 +54,9 @@ Tests take their folders from `scratch::Scratch`, never `temp_dir()`.
 
 ## 3. When a replay no longer runs as recorded
 
-A replay carries a fingerprint of the game's data and its state every
-second. Read what `check` says:
+A replay carries a fingerprint of the game's data (with its parts by
+name, so `check` names the files that changed), its state every second
+and the state its run ended in. Read what `check` says:
 
 - **"recorded on other game data"**: files the game is made of changed
   (code in `main.lua`, `conf.lua`'s simulation settings, level files,

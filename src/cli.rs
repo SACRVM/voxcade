@@ -46,7 +46,7 @@ USAGE:
                  [--choose NAME] [--game-view] [--picker] [--lights-off] [--add|--hang MODEL|light|place|area --at X,Y,Z]
                  [--move NAME --at X,Y,Z] [--rotate NAME --by DEG [--about x|y|z]] [--lay NAME] [--copy NAME --at X,Y,Z] [--remove NAME]
                  [--rename NAME --to NEW] [--light NAME [--radius N] [--color #rrggbb] [--at X,Y,Z]] [--room-size X,Y,Z]
-                 [--choose-light K] [--menu NAME|floor|voxel|selection] [--background #rrggbb] [--tool select --marquee X0,Y0,X1,Y1] [--add-menu] [--level-settings] [--handles move|rotate] [--hover arrow-x|ring-z|face-y|...]
+                 [--choose-light K] [--menu NAME|floor|voxel|selection|keys] [--background #rrggbb] [--tool select --marquee X0,Y0,X1,Y1] [--add-menu] [--level-settings] [--handles move|rotate] [--hover arrow-x|ring-z|face-y|...]
                  [--hide NAME] [--click X,Y] [--slice x|y|z,LAYER] [--rotate-part NAME --by DEG [--about rotation|pitch|roll]] [--pose-part NAME --by DEG [--about ...]]
                  [--part NAME [--add-part] [--merge-into NAME] [--mirror]] [--select X0,Y0,Z0 --to X1,Y1,Z1 (from the pivot, as at) [--selection OP ...]] [--menu part:NAME] [--model FILE --context LEVEL:NAME [--context-off]]
                  [--model FILE [--frame N | --part NAME] --clear X0,Y0,Z0 --to X1,Y1,Z1 | --fill SIGN|#rrggbb --from X0,Y0,Z0 --to X1,Y1,Z1 ... [--dry]]
@@ -100,11 +100,17 @@ shot  simulates N ticks without a window and writes one rendered frame
       runs as recorded; --record writes the run as a replay.
 check plays every replay in the game's replays/ folder without a window
       and says whether each runs as recorded (the regression check after
-      changing the engine). --update records their checks anew from their
-      input, after a change to the game or engine that was meant. --refit
-      plays them whatever data they were recorded on and, only if every
-      one runs exactly as recorded, writes the data's new fingerprint into
-      them: after a change to the files meant to leave the game as it was.
+      changing the engine), the state its run ended in too; a replay
+      recorded on other data names the files that changed, an older one
+      without that state plays and says how many of its last ticks went
+      unchecked, one with nothing to check it by fails. It goes on after
+      a replay that cannot be played and ends with the mistakes. --update
+      records their checks anew from their input, after a change to the
+      game or engine that was meant (it runs the hidden-state guard and
+      records no run it refuses). --refit plays them whatever data they
+      were recorded on and, only if every one runs exactly as recorded,
+      writes the data's new fingerprint and its parts into them: after a
+      change to the files meant to leave the game as it was.
       --rollback TICKS goes back that many ticks again and again (every
       TICKS ticks) and plays on, as rollback over a network would: each
       replay must still come out as recorded; it says what keeping and
@@ -196,7 +202,7 @@ edit  opens the editor on a game's level: of voxel blocks, the level (its
       shows its handles, --choose-light K chooses its light K (0 the
       first), --hover lights a handle as under the mouse (arrow-x, ring-z,
       face-y, face-y-low ...; a part's joint's arrow-x ... too), --handles rotate shows its rings instead of its arrows, --menu voxel the voxel editor's
-      menu of what is under the middle of the view, --menu opens the right-click menu of a
+      menu of what is under the middle of the view, --menu keys F1's page of the keys of what is open, --menu opens the right-click menu of a
       thing (or of the floor under the middle: floor), --add-menu ADD's,
       --level-settings shows LEVEL in the inspector.
 ide   opens the IDE on a game (docs/ide.md): its logic and assets on the
@@ -206,7 +212,10 @@ ide   opens the IDE on a game (docs/ide.md): its logic and assets on the
       window (--open: that file, or help for HELP's list of every name,
       help:N its topic N; --console: CMD run in the console, waited
       for; --play: the game played in the main area, TICKS in, or with
-      --open held behind the file; default 1920x1080). --remote lets
+      --open held behind the file; --find WORD [--replace TEXT]: the find
+      row (and the replace row) open over the text, --search WORD: the
+      search through the game's files, --hit N its line N chosen;
+      default 1920x1080). --remote lets
       another session type into the console and read it, and use the
       IDE's windows as a person does (`voxcade mcp --remote`:
       console_send, console_read, windows, window_shot, pointer,
@@ -243,7 +252,9 @@ music writes the game's music (c.audio.music), or one song file, as a
       WAV file, once through or for N seconds. Default: shots/music.wav.
 
 INPUT SCRIPT (shot): segments separated by ';', each 'keys:ticks', keys
-joined by '+' from: left right up down jump fire grenade strafe none.
+joined by '+' from: left right up down, the game's own actions by name
+(`voxcade api` and its conf.lua list them; More Blood: jump fire grenade
+strafe) and none.
   example: --input \"right+fire:40;none:20;up+jump:15\"
 ";
 
@@ -1025,7 +1036,8 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
             }
             Ok(())
         }
-        _ => {
+        Some(other) => {
+            eprintln!("{other} is no command of voxcade's\n");
             eprint!("{}", short_help());
             std::process::exit(2);
         }

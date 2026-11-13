@@ -65,7 +65,7 @@ setting:
   height; a weapon is all the game's). `voxcade kinds <game>` prints every
   number in effect.
 - The kit, the actions and keys, the level, the markers and the player's
-  start only take effect after a restart (F5); the rest while it runs.
+  start only take effect after a restart (F5 in the IDE's PLAY, in `voxcade run` with `--maker`); the rest while it runs.
 
 Lengths and speeds are in voxels and voxels a second, and each game picks
 its own scale (Arena figures are 10 voxels tall, More Blood's 22,
@@ -479,7 +479,7 @@ itself is the voxcade-api skill's subject.
   as `halted`. Save the mended file and it goes on where it stopped.
 - **Hot reload.** Saving `main.lua` takes the new functions in and keeps
   the states (`on_world_start` and `on_level_start` do not run again); saving `conf.lua` applies what it
-  can and names what waits for F5.
+  can and names what waits for F5 (the maker's key: the IDE's PLAY, `voxcade run --maker`).
 - **Seeing it without a window:** `voxcade shot games/NAME --frames N
   --input "right:40;right+jump:10"` and read the PNG; `voxcade inspect
   games/NAME --frames N --input ...` prints the things with their

@@ -20,6 +20,9 @@ shaped and colored by hand, voxel by voxel.
 - Colors: a world has at most 255 (the palette). That is enough because
   the engine does light and shadow: a block needs no painted shading,
   only its materials' colors.
+  A block's `.vvx` carries colors alone: glass, metal and glow on a
+  color are dropped when it loads (`Block::load_in`), where a scene refuses
+  them with a message; which of the two is right is still to be decided.
 - What a block is to the game is set once for the block: solid, held from
   above only (a plank), climbed (a ladder), hurting (spikes), or nothing
   (decoration a body passes through).
