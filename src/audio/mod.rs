@@ -147,6 +147,14 @@ impl Mixer {
         }
     }
 
+    /// How loud and how muffled the game asks its song to sound
+    /// (`music:volume`, `music:muffle`).
+    pub fn music_mix(&mut self, mix: &music::Mix) {
+        if let Some(m) = &mut self.music {
+            m.follow_mix(mix);
+        }
+    }
+
     /// Holds the music where it is, or lets it go on.
     pub fn hold_music(&mut self, held: bool) {
         self.music_held = held;

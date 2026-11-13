@@ -238,7 +238,7 @@ fn land_marks(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
     let plain = Color32::from_rgb(150, 205, 235);
     for (p, s) in ed.points_on_screen(vp, size) {
         let at = egui::pos2(screen.left() + s.x, screen.top() + s.y);
-        if !free.contains(at) {
+        if !free.contains(at) || !ed.point_shown(p) {
             continue;
         }
         let chosen = ed.land.selected.contains(&p) || (ed.land.selected.is_empty() && ed.land.chosen == Some(p));

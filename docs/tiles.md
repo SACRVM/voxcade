@@ -318,7 +318,17 @@ grain = 0.3
   (`terrace` then no longer counts): a band's riser takes the last
   `0.1 + 0.8 (1 - hard)` of its height, bent up at its foot as hard as it
   is, so a hard band stands as a wall over a ledge and a soft one
-  weathers back into a slope.
+  weathers back into a slope. The bands lie as rock does, never as a
+  cake (the owner: "layers never run quite straight"): the stack is
+  measured from a gently warped surface, `dip` degrees of tilt (3) toward
+  `dip_to` (degrees clockwise from north, else from the seed), broad folds
+  of up to `fold` (0.4) times the thickest layer many points across, a
+  waver of a voxel or two; each layer swells and thins along the land
+  (`0.6 fold`, a quarter at 0.4), the thinner ones pinching out to nothing
+  here and there; `fault` (0 to 1, none at first) lifts the bands on one
+  side of one seeded line by up to the thickest layer. Ledges, walls and
+  their colors follow it. `dip = 0`, `fold = 0`: flat bands, a cake. A
+  terrain without layers has none of it.
 - **Materials**: the first whose conditions all hold paints a voxel:
   `above`, `below` (the voxel's height over the base, the top voxel of a
   column h high being h), `steeper`, `flatter` (its column's slope in
@@ -353,29 +363,64 @@ grain = 0.3
   about 160 ms; 640 by 400 of plain land in about 50. `crate::terrain`;
   `level:ground(x, y)` is its height where things are placed in code;
   `tools/vvx.py` reads and writes the section as the engine does.
+- **Scatter** (`[[terrain.scatter]]`, 2026-11-13; the owner: plants as
+  real pieces, boulders baked in): `model = "fir.vvx"` (or `models = [..]`,
+  taken by chance), `density` (how many on 100 by 100 voxels of ground
+  that fits), the materials' conditions (`above`, `below`, `steeper`,
+  `flatter`, `blend`; the ground's height and slope), `apart` (the least
+  distance between two of the rule, voxels), `rotate` (`"any"`,
+  `"quarters"`, the default, `"none"`), `sink` (voxels into the land),
+  `as` (`"pieces"`, the default, or `"voxels"`). Where: one candidate in
+  each square of a grid 100 / sqrt(density) voxels wide, somewhere in it by
+  chance from `seed` and the rule's place, kept where the ground fits and
+  none of the rule's kept lies nearer than `apart`: even, no clumps, no
+  rows, the same on every system. `as = "voxels"`: baked into the land as
+  the level is built (part of the terrain: solid, blasted, no thing each;
+  quarter turns only; its colors after the land's in the palette, beyond
+  255 a mistake naming the rule). `as = "pieces"`: never made as a level
+  starts; the editor's SCATTER sets them into the level once as its own
+  `[[thing]]` pieces (named after the model, on from the numbers there
+  are, standing on the land, sunk, turned freely only in a game that turns
+  things freely), each marked `scatter = N` (the rule's number); from
+  then on the owner's, moved or removed one by one. SCATTER is quiet while
+  pieces of its rule are there; CLEAR takes them all away, moved ones too
+  (the mark stays on them), and SCATTER can go again (after REROLL, say).
+  A rule taken out leaves its pieces, unmarked; rules moved, the marks
+  follow. `voxcade edit GAME --level FILE --scatter N` sets them without a
+  window (written as the editor writes).
+- **Things follow the land**: a step that changes its surface (a brush let
+  go, a typed height, REROLL ...) moves the things and places standing on
+  it (their feet on the land as it was, within a voxel) with it, in the
+  same step; what is set in the air or sunk deeper stays.
 - **The editor** (`editor/land.rs`): + ADD's TERRAIN makes a flat one over
   the level, TERRAIN beside PIECES (and BLOCKS and THINGS) shows it. The
-  points as small squares on the land, the one under the mouse lit;
-  POINTER chooses one and drags it up or down by whole voxels, the brush
-  (RADIUS, in points; 1 the point alone) carrying the points round it
-  along so a drag raises a hill, the land built again as it goes (only the
-  columns the points reach) and written at the let-go, one step; SELECT
-  (a rectangle on the screen, NEW, ADD, REMOVE) and the selected ones move
-  together or take a typed HEIGHT; FLATTEN (to the first point's height),
-  SMOOTH (toward the neighbours' mean), PAINT (the SHAPE lit), ROUGHEN and
-  CALM (the roughness; on even land the first stroke makes `rough` 0.5,
-  every other point calm) brush over the points; SHAPE: SMOOTH, LINEAR,
-  STEP for the chosen ones. The inspector: SPACING, POINTS (columns and
-  rows added or taken at the right and the far edge, the heights kept),
-  TERRACE (without layers), ROUGH, SEED with REROLL (a dice: the next
-  seed, one step), LAYERS (a row each: the color, THICK, HARD, ×; + and a
-  row dragged onto another), MATERIALS (a row each: its tones, + and −,
-  ×; GRAIN, PATCH; ABOVE, BELOW, STEEPER, FLATTER switched on with their
-  numbers; BLEND), UNDER, REMOVE TERRAIN. Only the terrain's lines of the
-  file change. A model ADDed lands where the ray meets the land and stays
-  on the mouse for the next click (a stamp, until Escape). `voxcade edit
-  GAME --level FILE --terrain --shot OUT [--raise X,Y --by N [--radius
-  R]] [--shape X,Y smooth|linear|step]` to look.
+  outliner holds the terrain's lists instead of the level's things (they
+  stay drawn): MATERIALS (one row each: its tones, its conditions in short,
+  `>82 <40 >42° <10° ~8`, `else` for the last; ×), LAYERS (one row each:
+  the color, THICK, HARD, ×) and SCATTER (one row each: the model's
+  picture, density and conditions, P pieces or V voxels, ×); + at a
+  heading adds, a row dragged onto another moves it, a click on a row
+  shows its fields in the inspector. The points as small squares on the
+  land, the one under the mouse lit; POINTER chooses one and drags it up
+  or down along its vertical, the point staying under the pointer at any
+  zoom (Shift: a third as far), the brush (RADIUS, in points; 1 the point
+  alone) carrying the points round it along so a drag raises a hill, the
+  land built again as it goes (only the columns the points reach) and
+  written at the let-go, one step; SELECT (a rectangle on the screen, NEW,
+  ADD, REMOVE) and the selected ones move together or take a typed HEIGHT;
+  FLATTEN, SMOOTH, PAINT (the SHAPE lit), ROUGHEN and CALM brush over the
+  points. The inspector: TOOL, RADIUS, POINT and HEIGHT, SHAPE, GRID
+  (spacing, points across and deep), ROUGH and TERRACE, SEED with REROLL,
+  UNDER; then the chosen row's fields: a material's COLORS, GRAIN and
+  PATCH, HEIGHT (ABOVE, BELOW) and SLOPE (STEEP, FLAT), each switched by
+  its word, BLEND; a scatter rule's MODEL, DENSITY and APART, SINK,
+  ROTATE, HEIGHT, SLOPE, BLEND, AS, SCATTER and CLEAR. It fits 1600 by 900
+  without a scroll with four materials, five layers and two rules; REMOVE
+  TERRAIN at its foot. Only the terrain's lines of the file change. A
+  model ADDed lands where the ray meets the land and stays on the mouse
+  for the next click (a stamp, until Escape). `voxcade edit GAME --level
+  FILE --terrain --shot OUT [--raise X,Y --by N [--radius R]] [--shape X,Y
+  smooth|linear|step] [--material N] [--scatter N]` to look.
 - **Contour rings** on SMOOTH hills are the land's whole-voxel steps, lit
   face by face. Honest ways round them: `rough` a little (0.2 to 0.4 on
   meadows) breaks the rings into irregular shapes the eye reads as

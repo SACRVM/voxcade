@@ -136,7 +136,8 @@ its pose (HELP's A DOOR THAT OPENS). A piece's
 `at` is its pivot cell and `thing.x` reads `at + 0.5`: a cube beside it
 goes at `math.floor(thing.x) + dx`. A level's own daylight: `[light]`
 in its file with `c.light`'s words (`sun = [x, y, z]`, `sun_color`,
-`ambient`, `shadow`, `sky`), `frame:daylight` still the last word. `level.areas.NAME:holds(thing
+`ambient`, `shadow`, `sky`; a colour `"#rrggbb"` or three numbers from 0
+to 1 there and in `c.light`/`c.effects` alike), `frame:daylight` still the last word. `level.areas.NAME:holds(thing
 or { x, y, z })`. Names in the file are `thing.name` (`level:thing("lamp")`).
 
 A level may hold a landscape, `[terrain]` (`docs/tiles.md`, "A terrain"):
@@ -352,8 +353,13 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   clock is the game's, so replays play it the same. `music.intensity`
   (0..1) is the game's tension: a song's layers (`adaptive = true` in a
   recipe) come and go with it (Pulsar sets it from the enemies on the
-  screen). Music is never a kit's: which song plays when is the game's
-  code.
+  screen). `music:volume(level, seconds)` (0..1 of the song's own
+  loudness) and `music:muffle(amount, seconds)` (0 clear to 1 as through
+  a wall) glide there (0.3 s unless said, 0 at once without a click) and
+  hold from level to level, whichever song plays: the same song quiet
+  and dull outside a house, clear inside (`area:holds(player)` in
+  `on_tick`). Only heard, never in the replays. Music is never a kit's:
+  which song plays when is the game's code.
 
 ## main.lua: the rules
 

@@ -413,7 +413,8 @@ blast does not blow it away, and it holds no voxels of the world up
 (they fall as before). Which were taken away is in the state hash only
 where a level has solid pieces. A level's file may have its own
 daylight, `[light]` with `c.light`'s words (`sun`, `sun_color`,
-`ambient`, `shadow`, `sky`; colours `"#rrggbb"`): over the game's for
+`ambient`, `shadow`, `sky`; colours `"#rrggbb"` or three numbers from 0
+to 1, as in `c.light`, which takes both too): over the game's for
 that level, under `frame:daylight` in `on_draw`, the picture only (no
 hash); the meshes keep the faces every level's sun lights (`Game::suns`).
 `[[area]]` is a named box: `level.areas.NAME`,
@@ -580,7 +581,17 @@ settings. Several players: `player` is seat 1, the others are in
   game's tension: a song's layers (`#layer D C 0.35` in it; `compose.py`
   writes them with `adaptive = true`) come in above their threshold and
   go below it, each over a bar (Pulsar: the drums with a few enemies,
-  the melody with many). Later: a tempo the game sets, stingers, sounds
+  the melody with many). `music:volume(level, seconds)` (0..1, a part
+  of the song's own loudness, under the player's volume) and
+  `music:muffle(amount, seconds)` (0 clear to 1 very dull: a low-pass
+  over the whole song, as through a wall; the game's sounds stay clear)
+  glide there over the seconds (0.3 unless said; 0 at once, still
+  without a click) and hold until changed, from level to level, whichever
+  song plays (the game's own or the player's); without a value each
+  gives the one asked last. Only heard: kept in the snapshot (a game
+  brought back sounds as it did), in neither the hash, the replays nor a
+  save (a game loaded from one sets them in `on_level_start`); the
+  title's and the settings' songs never hear them. Later: a tempo the game sets, stingers, sounds
   that play in the song's chord (`shots/reviews/music-plan.md`).
 - `frame`, `on_draw`'s parameter: this picture alone (`frame:text`,
   `frame:cube`, `frame:model`, `frame:light`). An action in braces in a
@@ -932,7 +943,7 @@ tick.
 | events pending for the next tick | none | dropped | dropped | dropped | dropped |
 | the player | at the level's start | at the place | at the place, the checkpoint or the start | where it stood | where it stood |
 | the camera | follows the player | follows the player | follows the player | follows the player | as it was |
-| the music | the level's | the level's (going on if the same) | going on | the level's | going on |
+| the music | the level's | the level's (going on if the same, its volume and muffle kept) | going on | the level's | going on |
 | keys held | as held | as held (no new press) | as held | as held | as held |
 
 A test keeps this true: a level entered, left and entered again starts

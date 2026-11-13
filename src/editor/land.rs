@@ -78,6 +78,20 @@ pub enum LandField {
     Hard(u8),
     Patch(u8),
     Blend(u8),
+    /// A scatter rule's numbers: how many on 100 by 100 voxels, how far
+    /// apart, how deep sunk; its conditions (as a material's) and blend.
+    Dip,
+    DipTo,
+    Fold,
+    Fault,
+    Density(u8),
+    Apart(u8),
+    Sink(u8),
+    ScAbove(u8),
+    ScBelow(u8),
+    ScSteeper(u8),
+    ScFlatter(u8),
+    ScBlend(u8),
     Above(u8),
     Below(u8),
     Steeper(u8),
@@ -86,9 +100,20 @@ pub enum LandField {
     Grain(u8),
 }
 
+/// A row of TERRAIN's outliner: a material, a layer, a scatter rule (its
+/// place in its list).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LandRow {
+    Material(usize),
+    Layer(usize),
+    Scatter(usize),
+}
+
 /// The editor's state among the points.
 #[derive(Clone, Debug)]
 pub struct Land {
+    /// The row chosen in the outliner (its fields in the inspector).
+    pub row: Option<LandRow>,
     pub tool: LandTool,
     /// The brush's radius, in points (1: the point alone).
     pub radius: i32,
@@ -98,28 +123,40 @@ pub struct Land {
     pub chosen: Option<IVec2>,
     pub selected: Vec<IVec2>,
     pub mode: SelectMode,
-    /// The point under the mouse.
+    /// The point under the mouse, and the nearest to it on the screen
+    /// (however far): the points round it are drawn, not the rest.
     pub hover: Option<IVec2>,
+    pub near: Option<IVec2>,
     drag: Option<Drag>,
 }
 
 impl Default for Land {
     fn default() -> Self {
-        Self { tool: LandTool::Pointer, radius: 3, shape: Shape::Smooth, chosen: None, selected: Vec::new(), mode: SelectMode::New, hover: None, drag: None }
+        Self { row: None, tool: LandTool::Pointer, radius: 3, shape: Shape::Smooth, chosen: None, selected: Vec::new(), mode: SelectMode::New, hover: None, near: None, drag: None }
     }
 }
 
 /// A press among the points held: the point grabbed, the heights as they
-/// were, where on the screen it began and how far a voxel up is there
-/// (pixels), FLATTEN's height, the point brushed last.
+/// were, where on the vertical through the point the pointer was then
+/// (POINTER's), FLATTEN's height, the point brushed last.
 #[derive(Clone, Debug)]
 struct Drag {
     grabbed: IVec2,
     from: Vec<i32>,
-    press: Vec2,
-    up: Vec2,
+    start: Option<f32>,
     target: i32,
     last: Option<IVec2>,
+}
+
+/// How high on the vertical through `at` (its x and y) a ray from the eye
+/// passes nearest: where the pointer is along that line, as a piece's Z
+/// arrow follows it. None looking straight along it.
+pub fn height_along(at: Vec3, origin: Vec3, dir: Vec3) -> Option<f32> {
+    let w = Vec3::new(at.x, at.y, 0.0) - origin;
+    let (b, c) = (dir.z, dir.dot(dir));
+    let (d, e) = (w.z, dir.dot(w));
+    let denom = c - b * b;
+    (denom.abs() > 1e-6 * c.max(1e-6)).then(|| (b * e - c * d) / denom)
 }
 
 /// How much of a brush's change reaches a point `d` points from its middle
@@ -202,6 +239,19 @@ impl Editor {
         self.points_on_screen(view_proj, screen).into_iter().map(|(p, s)| (p, s.distance(mouse))).filter(|&(_, d)| d <= NEAR).min_by(|a, b| a.1.total_cmp(&b.1)).map(|(p, _)| p)
     }
 
+    /// The point nearest the mouse on the screen, however far.
+    pub fn nearest_point(&self, view_proj: Mat4, screen: Vec2, mouse: Vec2) -> Option<IVec2> {
+        self.points_on_screen(view_proj, screen).into_iter().min_by(|a, b| a.1.distance_squared(mouse).total_cmp(&b.1.distance_squared(mouse))).map(|(p, _)| p)
+    }
+
+    /// Whether a point is drawn: the chosen and selected ones, the one
+    /// under the mouse, and those within the brush's radius and two more of
+    /// the point nearest the mouse (a dense grid would cover the land).
+    pub fn point_shown(&self, p: IVec2) -> bool {
+        let l = &self.land;
+        l.chosen == Some(p) || l.hover == Some(p) || l.selected.contains(&p) || l.near.is_some_and(|n| (n - p).abs().max_element() <= l.radius + 2)
+    }
+
     /// The points a change goes to: the selection (with the chosen one in
     /// it), else the chosen one.
     fn targets(&self) -> Vec<IVec2> {
@@ -217,11 +267,10 @@ impl Editor {
         }
     }
 
-    /// A press among the points (`p` under the mouse): POINTER chooses it
-    /// and grabs it (`up`: a voxel up on the screen there, in pixels);
-    /// FLATTEN, SMOOTH and PAINT brush there. Nothing under it: none
-    /// chosen, none selected.
-    pub fn land_press(&mut self, p: Option<IVec2>, mouse: Vec2, up: Vec2) {
+    /// A press among the points (`p` under the mouse, `ray` from the eye
+    /// through it): POINTER chooses it and grabs it; FLATTEN, SMOOTH and
+    /// PAINT brush there. Nothing under it: none chosen, none selected.
+    pub fn land_press(&mut self, p: Option<IVec2>, ray: (Vec3, Vec3)) {
         if self.drag_open() {
             self.end_drag(false);
         }
@@ -242,12 +291,13 @@ impl Editor {
                 self.land.chosen = Some(p);
                 self.land.shape = shape;
                 self.stroke = Some(Step::Level(self.level_state(), self.level_state()));
-                self.land.drag = Some(Drag { grabbed: p, from, press: mouse, up, target: 0, last: None });
+                let start = self.point_spot(p).and_then(|at| height_along(at, ray.0, ray.1));
+                self.land.drag = Some(Drag { grabbed: p, from, start, target: 0, last: None });
             }
             (_, p) => {
                 let target = height;
                 self.stroke = Some(Step::Level(self.level_state(), self.level_state()));
-                self.land.drag = Some(Drag { grabbed: p.unwrap_or_default(), from, press: mouse, up, target, last: None });
+                self.land.drag = Some(Drag { grabbed: p.unwrap_or_default(), from, start: None, target, last: None });
                 if let Some(p) = p {
                     self.brush(p);
                 }
@@ -255,15 +305,18 @@ impl Editor {
         }
     }
 
-    /// The mouse dragged on (`p` under it): POINTER's point up or down by
-    /// how far the mouse went along a voxel up, in whole voxels; a brush
-    /// over the point under it.
-    pub fn land_drag(&mut self, p: Option<IVec2>, mouse: Vec2) {
+    /// The mouse dragged on (`p` under it, `ray` through it): POINTER's
+    /// point up or down as far as the pointer went along the vertical
+    /// through it (the point stays under the pointer; `fine`, Shift: a
+    /// third of that), in whole voxels; a brush over the point under it.
+    pub fn land_drag(&mut self, p: Option<IVec2>, ray: (Vec3, Vec3), fine: bool) {
         let Some(d) = self.land.drag.clone() else { return };
         if self.land.tool == LandTool::Pointer {
-            let len = d.up.length_squared();
-            let by = if len < 1e-6 { 0 } else { ((mouse - d.press).dot(d.up) / len).round() as i32 };
-            self.raise_from(&d.from, d.grabbed, by);
+            let (Some(start), Some(at)) = (d.start, d.from.get(self.terrain().and_then(|t| t.index(d.grabbed)).unwrap_or(usize::MAX)).copied()) else { return };
+            let Some(spot) = self.point_spot(d.grabbed) else { return };
+            let Some(now) = height_along(Vec3::new(spot.x, spot.y, at as f32), ray.0, ray.1) else { return };
+            let by = (now - start) / if fine { 3.0 } else { 1.0 };
+            self.raise_from(&d.from, d.grabbed, by.round() as i32);
             return;
         }
         if let Some(p) = p
@@ -472,7 +525,29 @@ impl Editor {
                         m.blend = (b > 0.0).then_some(b);
                     }
                 }
+                LandField::Density(k) | LandField::Apart(k) | LandField::Sink(k) | LandField::ScAbove(k) | LandField::ScBelow(k) | LandField::ScSteeper(k) | LandField::ScFlatter(k) | LandField::ScBlend(k) => {
+                    if let Some(r) = t.scatter.get_mut(k as usize) {
+                        let deg = ((v * 10.0).round() / 10.0).clamp(0.0, 89.9);
+                        match field {
+                            LandField::Density(_) => r.density = ((v * 100.0).round() / 100.0).clamp(0.0, 10_000.0),
+                            LandField::Apart(_) => r.apart = Some(whole.clamp(0, HIGHEST)),
+                            LandField::Sink(_) => r.sink = Some(whole.clamp(0, HIGHEST)),
+                            LandField::ScAbove(_) => r.above = Some(whole.clamp(-HIGHEST, HIGHEST)),
+                            LandField::ScBelow(_) => r.below = Some(whole.clamp(-HIGHEST, HIGHEST)),
+                            LandField::ScSteeper(_) => r.steeper = Some(deg),
+                            LandField::ScFlatter(_) => r.flatter = Some(deg),
+                            _ => {
+                                let b = ((v * 10.0).round() / 10.0).clamp(0.0, 1000.0);
+                                r.blend = (b > 0.0).then_some(b);
+                            }
+                        }
+                    }
+                }
                 LandField::Terrace => t.terrace = Some(whole.clamp(1, HIGHEST)),
+                LandField::Dip => t.dip = Some(((v * 10.0).round() / 10.0).clamp(0.0, 45.0)),
+                LandField::DipTo => t.dip_to = Some(v.round().rem_euclid(360.0)),
+                LandField::Fold => t.fold = Some(((v * 100.0).round() / 100.0).clamp(0.0, 1.0)),
+                LandField::Fault => t.fault = Some(((v * 100.0).round() / 100.0).clamp(0.0, 1.0)),
                 LandField::Rough => t.rough = Some(((v * 100.0).round() / 100.0).clamp(0.0, 1.0)),
                 LandField::Above(k) | LandField::Below(k) | LandField::Depth(k) => {
                     if let Some(k) = m(k, t) {
@@ -538,6 +613,200 @@ impl Editor {
                 None => t.under = Some(hex),
             }
         });
+    }
+
+    /// The pieces scatter rule `k` set down (marked `scatter = k + 1`),
+    /// wherever they stand now.
+    pub fn scattered(&self, k: usize) -> usize {
+        self.level.things.iter().filter(|t| t.scatter == Some(k as u32 + 1)).count()
+    }
+
+    /// SCATTER: scatter rule `k`'s pieces set into the level as the level's
+    /// own pieces (named after their model, on from the numbers there are,
+    /// standing on the land, sunk as it says, turned as it says: freely
+    /// only where the game turns things freely, else in quarters), marked
+    /// as the rule's; one step. Nothing while pieces of it are there
+    /// (CLEAR first): the reason said.
+    pub fn scatter_pieces(&mut self, k: usize) {
+        let Some(t) = self.terrain() else { return };
+        let Some(rule) = t.scatter.get(k).cloned() else { return };
+        if rule.makes() != crate::terrain::ScatterAs::Pieces {
+            return;
+        }
+        if self.scattered(k) > 0 {
+            self.hint = Some(format!("SCATTER {}: its pieces are there; CLEAR first", k + 1));
+            return;
+        }
+        let placed = t.scatter(k, &t.surface());
+        let (at, sink) = (t.at, rule.sink.unwrap_or(0));
+        let mut names: Vec<String> = self.level.things.iter().filter_map(|t| t.name.clone()).collect();
+        let mut things = Vec::new();
+        for p in placed {
+            let model = rule.models[p.model].clone();
+            let stem = std::path::Path::new(&model).file_stem().map_or("piece".into(), |s| s.to_string_lossy().into_owned());
+            let stem = stem.to_lowercase().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect::<String>();
+            let name = (1..).map(|n| format!("{stem}_{n}")).find(|n| !names.contains(n)).expect("a free name");
+            names.push(name.clone());
+            let facing = match rule.rotate() {
+                crate::terrain::Rotate::None => None,
+                crate::terrain::Rotate::Any if self.free_turns => Some(crate::grid::Facing::Turn(p.rotation)),
+                _ => Some(crate::grid::Facing::Way(crate::grid::Way::nearest(p.rotation))),
+            };
+            let spot = [at[0] + p.column.x, at[1] + p.column.y, at[2] + p.ground - sink];
+            things.push(crate::grid::Thing { model: Some(model), name: Some(name), facing, scatter: Some(k as u32 + 1), ..crate::grid::Thing::new(crate::grid::PIECE, spot) });
+        }
+        if things.is_empty() {
+            self.hint = Some(format!("SCATTER {}: no ground fits it", k + 1));
+            return;
+        }
+        self.change(None, |l| l.things.extend(things));
+    }
+
+    /// CLEAR: the pieces scatter rule `k` set down taken away, moved ones
+    /// too (the mark stays on them); one step.
+    pub fn clear_scatter(&mut self, k: usize) {
+        let mark = Some(k as u32 + 1);
+        self.change(None, |l| l.things.retain(|t| t.scatter != mark));
+        self.keep_choice();
+    }
+
+    /// SCATTER's plus: a rule more, the game's first model, firs' numbers.
+    pub fn add_scatter(&mut self) {
+        let model = self.model_choices().into_iter().next().unwrap_or_else(|| "tree.vvx".into());
+        self.change(None, |l| {
+            if let Some(t) = l.terrain.as_mut() {
+                t.scatter.push(crate::terrain::Scatter { apart: Some(12), flatter: Some(30.0), ..crate::terrain::Scatter::new(&model) });
+            }
+        });
+        if let Some(t) = self.terrain() {
+            self.land.row = Some(LandRow::Scatter(t.scatter.len() - 1));
+        }
+    }
+
+    /// × of a rule: its pieces stay, no longer marked; the others' marks
+    /// follow their rules' new numbers.
+    pub fn remove_scatter(&mut self, k: usize) {
+        self.change(None, |l| {
+            let Some(t) = l.terrain.as_mut() else { return };
+            if k >= t.scatter.len() {
+                return;
+            }
+            t.scatter.remove(k);
+            for th in &mut l.things {
+                th.scatter = match th.scatter {
+                    Some(n) if n as usize == k + 1 => None,
+                    Some(n) if n as usize > k + 1 => Some(n - 1),
+                    other => other,
+                };
+            }
+        });
+        self.land.row = None;
+    }
+
+    /// A rule's row dragged onto another's place; the marks follow.
+    pub fn move_scatter(&mut self, from: usize, to: usize) {
+        self.change(None, |l| {
+            let Some(t) = l.terrain.as_mut() else { return };
+            let n = t.scatter.len();
+            if from >= n || to >= n || from == to {
+                return;
+            }
+            let mut order: Vec<usize> = (0..n).collect();
+            let r = order.remove(from);
+            order.insert(to, r);
+            let rule = t.scatter.remove(from);
+            t.scatter.insert(to, rule);
+            // (Rule old k now stands at place `order.position(k)`.)
+            for th in &mut l.things {
+                if let Some(m) = th.scatter {
+                    let old = m as usize - 1;
+                    if let Some(new) = order.iter().position(|&o| o == old) {
+                        th.scatter = Some(new as u32 + 1);
+                    }
+                }
+            }
+        });
+    }
+
+    /// A rule's model (the game's model file), how it turns, what it makes.
+    pub fn scatter_model(&mut self, k: usize, model: String) {
+        self.change(None, |l| {
+            if let Some(r) = l.terrain.as_mut().and_then(|t| t.scatter.get_mut(k)) {
+                r.models = vec![model];
+            }
+        });
+    }
+
+    pub fn scatter_rotate(&mut self, k: usize, rotate: crate::terrain::Rotate) {
+        self.change(None, |l| {
+            if let Some(r) = l.terrain.as_mut().and_then(|t| t.scatter.get_mut(k)) {
+                r.rotate = Some(rotate);
+            }
+        });
+    }
+
+    pub fn scatter_as(&mut self, k: usize, makes: crate::terrain::ScatterAs) {
+        self.change(None, |l| {
+            if let Some(r) = l.terrain.as_mut().and_then(|t| t.scatter.get_mut(k)) {
+                r.as_ = Some(makes);
+            }
+        });
+    }
+
+    /// A rule's condition (0 ABOVE, 1 BELOW, 2 STEEPER, 3 FLATTER) on or
+    /// off.
+    pub fn scatter_condition(&mut self, k: usize, which: u8, on: bool) {
+        self.change(None, |l| {
+            let Some(r) = l.terrain.as_mut().and_then(|t| t.scatter.get_mut(k)) else { return };
+            match (which, on) {
+                (0, true) => r.above = Some(r.above.unwrap_or(40)),
+                (1, true) => r.below = Some(r.below.unwrap_or(60)),
+                (2, true) => r.steeper = Some(r.steeper.unwrap_or(30.0)),
+                (3, true) => r.flatter = Some(r.flatter.unwrap_or(30.0)),
+                (0, false) => r.above = None,
+                (1, false) => r.below = None,
+                (2, false) => r.steeper = None,
+                _ => r.flatter = None,
+            }
+        });
+    }
+
+    /// A step that changed the land's surface: the things and places that
+    /// stood on it (their feet on the land as it was, within a voxel)
+    /// moved with it, in that step; what is set in the air or sunk on
+    /// purpose stays.
+    pub(super) fn follow_land(&mut self, step: &mut Step) {
+        let Step::Level(before, after) = step else { return };
+        let (Some(b), Some(a)) = (before.terrain.as_deref(), after.terrain.as_deref()) else { return };
+        let same_surface = (&b.heights, &b.shapes, b.spacing, b.at, b.cols, b.rows, b.terrace, b.rough, &b.roughness, &b.layers, b.seed) == (&a.heights, &a.shapes, a.spacing, a.at, a.cols, a.rows, a.terrace, a.rough, &a.roughness, &a.layers, a.seed);
+        if same_surface {
+            return;
+        }
+        let ground = |t: &Terrain, at: [i32; 3]| {
+            let c = IVec2::new(at[0] - t.at[0], at[1] - t.at[1]);
+            let size = t.size();
+            (c.x >= 0 && c.y >= 0 && c.x < size.x && c.y < size.y).then(|| t.at[2] + t.height_at(c))
+        };
+        let mut moved = false;
+        let mut follow = |at: &mut [i32; 3]| {
+            if let (Some(was), Some(now)) = (ground(b, *at), ground(a, *at))
+                && was != now
+                && (at[2] - was).abs() <= 1
+            {
+                at[2] += now - was;
+                moved = true;
+            }
+        };
+        for t in &mut after.things {
+            follow(&mut t.at);
+        }
+        for p in &mut after.places {
+            follow(&mut p.at);
+        }
+        if moved {
+            self.level.things = after.things.clone();
+            self.level.places = after.places.clone();
+        }
     }
 
     /// REROLL: another seed (the next of the old one's), the land's
@@ -645,6 +914,7 @@ impl Editor {
                 t.materials.insert(0, Material { steeper: Some(45.0), ..Material::new("#7d7468") });
             }
         });
+        self.land.row = Some(LandRow::Material(0));
     }
 
     /// × of a material (not the last one left).
@@ -703,21 +973,16 @@ pub fn resize(t: &mut Terrain, cols: i32, rows: i32) {
     }
 }
 
-/// Where a point's arrow up goes on the screen: pixels for a voxel up at
-/// `at`.
-pub fn up_on_screen(view_proj: Mat4, screen: Vec2, at: Vec3) -> Vec2 {
-    let p = super::super::handles::project(view_proj, screen, at);
-    let q = super::super::handles::project(view_proj, screen, at + Vec3::Z);
-    match (p, q) {
-        (Some((p, _)), Some((q, _))) => q - p,
-        _ => Vec2::new(0.0, -1.0),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::editor::model::tests::folder;
+
+    /// A ray from the front, level, at height `z`: the pointer that high
+    /// on any point's vertical.
+    fn eye(z: f32) -> (Vec3, Vec3) {
+        (Vec3::new(0.0, -500.0, z), Vec3::Y)
+    }
 
     /// A level of a flat land opened in the editor.
     fn land(name: &str) -> (Editor, crate::scratch::Scratch) {
@@ -741,9 +1006,9 @@ mod tests {
         let (mut ed, dir) = land("land-raise");
         let before = file(&dir);
         ed.land.radius = 3;
-        ed.land_press(Some(IVec2::new(4, 3)), Vec2::ZERO, Vec2::new(0.0, -2.0));
-        ed.land_drag(Some(IVec2::new(4, 3)), Vec2::new(0.0, -40.0));
-        ed.land_drag(Some(IVec2::new(4, 3)), Vec2::new(0.0, -60.0));
+        ed.land_press(Some(IVec2::new(4, 3)), eye(4.0));
+        ed.land_drag(Some(IVec2::new(4, 3)), eye(24.0), false);
+        ed.land_drag(Some(IVec2::new(4, 3)), eye(34.0), false);
         assert_eq!(file(&dir), before, "nothing written while dragging");
         ed.release();
         let t = ed.terrain().unwrap();
@@ -770,17 +1035,20 @@ mod tests {
         ed.land.chosen = Some(IVec2::new(0, 0));
         ed.land_set(LandField::Height, 20.0);
         assert_eq!(ed.terrain().unwrap().heights[0], 20);
+        // Drawn: the chosen one and those near the pointer, not the rest.
+        (ed.land.near, ed.land.radius) = (Some(IVec2::new(5, 3)), 1);
+        assert!(ed.point_shown(IVec2::new(0, 0)) && ed.point_shown(IVec2::new(7, 5)) && !ed.point_shown(IVec2::new(9, 0)));
         ed.land.tool = LandTool::Flatten;
         ed.land.radius = 2;
-        ed.land_press(Some(IVec2::new(0, 0)), Vec2::ZERO, Vec2::Y);
-        ed.land_drag(Some(IVec2::new(1, 0)), Vec2::ZERO);
+        ed.land_press(Some(IVec2::new(0, 0)), eye(0.0));
+        ed.land_drag(Some(IVec2::new(1, 0)), eye(0.0), false);
         ed.release();
         let t = ed.terrain().unwrap();
         assert!(t.heights[1] > 4 && t.heights[2] > 4, "flattened toward 20: {:?}", &t.heights[..4]);
         ed.land.tool = LandTool::Paint;
         ed.land.shape = Shape::Step;
         ed.land.radius = 1;
-        ed.land_press(Some(IVec2::new(3, 3)), Vec2::ZERO, Vec2::Y);
+        ed.land_press(Some(IVec2::new(3, 3)), eye(0.0));
         ed.release();
         let t = ed.terrain().unwrap();
         assert_eq!(t.shapes[t.index(IVec2::new(3, 3)).unwrap()], Shape::Step);
@@ -788,8 +1056,8 @@ mod tests {
         // A selection raised together, then a HEIGHT typed for it.
         ed.land.tool = LandTool::Pointer;
         ed.land.selected = vec![IVec2::new(7, 1), IVec2::new(8, 1)];
-        ed.land_press(Some(IVec2::new(7, 1)), Vec2::ZERO, Vec2::new(0.0, -1.0));
-        ed.land_drag(Some(IVec2::new(7, 1)), Vec2::new(0.0, -10.0));
+        ed.land_press(Some(IVec2::new(7, 1)), eye(4.0));
+        ed.land_drag(Some(IVec2::new(7, 1)), eye(14.0), false);
         ed.release();
         let t = ed.terrain().unwrap();
         assert_eq!((t.heights[t.index(IVec2::new(7, 1)).unwrap()], t.heights[t.index(IVec2::new(8, 1)).unwrap()], t.heights[t.index(IVec2::new(6, 1)).unwrap()]), (14, 14, 4));
@@ -826,8 +1094,8 @@ mod tests {
         let (mut ed, dir) = land("land-rough");
         ed.land.tool = LandTool::Roughen;
         ed.land.radius = 2;
-        ed.land_press(Some(IVec2::new(5, 3)), Vec2::ZERO, Vec2::Y);
-        ed.land_drag(Some(IVec2::new(6, 3)), Vec2::ZERO);
+        ed.land_press(Some(IVec2::new(5, 3)), eye(0.0));
+        ed.land_drag(Some(IVec2::new(6, 3)), eye(0.0), false);
         ed.release();
         let t = ed.terrain().unwrap();
         let r = t.roughness.as_ref().unwrap();
@@ -835,7 +1103,7 @@ mod tests {
         assert!(r[t.index(IVec2::new(5, 3)).unwrap()] >= 4 && r[0] == 0, "rough where brushed, calm elsewhere");
         ed.land.tool = LandTool::Calm;
         for _ in 0..3 {
-            ed.land_press(Some(IVec2::new(5, 3)), Vec2::ZERO, Vec2::Y);
+            ed.land_press(Some(IVec2::new(5, 3)), eye(0.0));
             ed.release();
         }
         let t = ed.terrain().unwrap();
@@ -865,6 +1133,71 @@ mod tests {
         ed.remove_tone(0);
         ed.remove_layer(0);
         assert!(ed.terrain().unwrap().materials[0].tones.is_empty() && ed.terrain().unwrap().layers.len() == 1);
+    }
+
+    /// SCATTER sets a rule's pieces into the level once, marked as its, one
+    /// step; quiet while they are there; CLEAR takes them away (a moved one
+    /// too) and SCATTER can go again; a rule taken out leaves its pieces,
+    /// unmarked, and the later rules' marks follow their numbers.
+    #[test]
+    fn scatter_sets_pieces_once_and_clear_takes_them() {
+        let (mut ed, dir) = land("land-scatter");
+        std::fs::write(dir.join("fir.vvx"), "format = \"voxcade voxel 1\"\nsize = [3, 3, 5]\n\n[palette]\na = { color = \"#2f5d3a\" }\n\n[[frame]]\nlayers = \"\"\"\naaa *3\n*5\n\"\"\"\n").unwrap();
+        ed.add_scatter();
+        ed.add_scatter();
+        ed.scatter_model(0, "fir.vvx".into());
+        ed.land_set(LandField::Density(0), 6.0);
+        ed.land_set(LandField::Sink(0), 1.0);
+        let steps = ed.steps();
+        ed.scatter_pieces(0);
+        let n = ed.scattered(0);
+        assert!(n > 3 && ed.steps() == steps + 1, "{n} pieces, one step");
+        let t = ed.level.things.iter().find(|t| t.scatter == Some(1)).unwrap().clone();
+        assert_eq!((t.at[2], t.model.as_deref(), t.name.as_deref()), (3, Some("fir.vvx"), Some("fir_1")), "on the land, sunk a voxel, named on");
+        let text = file(&dir);
+        assert!(text.contains("model = \"fir.vvx\"\nat = ") && text.contains("scatter = 1\n") && text.contains("[[terrain.scatter]]"), "{text}");
+        ed.scatter_pieces(0);
+        assert_eq!((ed.scattered(0), ed.steps()), (n, steps + 1), "nothing while its pieces are there");
+        assert!(ed.hint.take().is_some_and(|h| h.contains("CLEAR first")));
+        // A moved one is still the rule's.
+        let i = ed.level.things.iter().position(|t| t.scatter == Some(1)).unwrap();
+        ed.change_level(|l| l.things[i].at[0] += 7);
+        ed.clear_scatter(0);
+        assert_eq!(ed.scattered(0), 0);
+        ed.scatter_pieces(0);
+        assert_eq!(ed.scattered(0), n, "again the same");
+        // Rule 1 out: its pieces stay, plain.
+        ed.move_scatter(0, 1);
+        assert_eq!(ed.scattered(1), n, "the marks follow the rule");
+        ed.remove_scatter(1);
+        assert!(ed.level.things.iter().all(|t| t.scatter.is_none()) && ed.level.things.len() >= n);
+    }
+
+    /// Pieces standing on the land move with it when it is raised, in the
+    /// same step; one set in the air stays; UNDO puts both back.
+    #[test]
+    fn pieces_on_the_land_follow_it() {
+        let (mut ed, _dir) = land("land-follow");
+        let spot = ed.point_spot(IVec2::new(4, 3)).unwrap();
+        let (x, y) = (spot.x as i32, spot.y as i32);
+        ed.change_level(|l| {
+            l.things.push(crate::grid::Thing { model: Some("fir.vvx".into()), name: Some("on".into()), ..crate::grid::Thing::new(crate::grid::PIECE, [x, y, 4]) });
+            l.things.push(crate::grid::Thing { model: Some("fir.vvx".into()), name: Some("air".into()), ..crate::grid::Thing::new(crate::grid::PIECE, [x + 1, y, 30]) });
+        });
+        let steps = ed.steps();
+        ed.land.chosen = Some(IVec2::new(4, 3));
+        ed.land_set(LandField::Height, 20.0);
+        let z = |ed: &Editor, name: &str| ed.level.things.iter().find(|t| t.name.as_deref() == Some(name)).unwrap().at[2];
+        assert_eq!((z(&ed, "on"), z(&ed, "air"), ed.steps()), (20, 30, steps + 1), "on the land up with it, in the air stays, one step");
+        // A brush stroke too.
+        ed.land.radius = 1;
+        ed.land_press(Some(IVec2::new(4, 3)), eye(20.0));
+        ed.land_drag(Some(IVec2::new(4, 3)), eye(25.0), false);
+        ed.release();
+        assert_eq!(z(&ed, "on"), 25);
+        ed.undo();
+        ed.undo();
+        assert_eq!((z(&ed, "on"), z(&ed, "air")), (4, 30));
     }
 
     /// The land shown in the view, built again only where the points

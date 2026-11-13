@@ -133,6 +133,28 @@ pub struct ShotOptions {
     /// a point given a shape (`--shape X,Y smooth|linear|step`), in turn.
     pub terrain: bool,
     pub land_ops: Vec<LandOp>,
+    /// TERRAIN's material chosen (its place, from 1), its fields shown.
+    pub material: Option<usize>,
+    /// The terrain's scatter rules (from 1) whose SCATTER is pressed, in
+    /// turn, the last chosen; without `--shot` written into the level.
+    pub scatter: Vec<usize>,
+}
+
+/// `voxcade edit GAME --level FILE --scatter N` without a window: scatter
+/// rule N's pieces set into the level and written as the editor writes
+/// them (its SCATTER); what it did said.
+pub fn scatter_level<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
+    let (mut ed, _view, _cfg) = open::<G>(dir, opts.level.as_deref(), None, false)?;
+    ed.dry = opts.dry;
+    for &k in &opts.scatter {
+        let before = ed.level.things.len();
+        ed.scatter_pieces(k.saturating_sub(1));
+        if let Some(h) = ed.hint.take() {
+            println!("{h}");
+        }
+        println!("scatter {k}: {} pieces set down{}", ed.level.things.len() - before, if opts.dry { " (dry: nothing written)" } else { "" });
+    }
+    Ok(())
 }
 
 /// A change `--shot` makes to the terrain.
@@ -548,7 +570,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         ed.set_hidden(item, true);
     }
     // The terrain: shown, its points changed as the brush and SHAPE do.
-    if opts.terrain || !opts.land_ops.is_empty() {
+    if opts.terrain || !opts.land_ops.is_empty() || !opts.scatter.is_empty() || opts.material.is_some() {
         anyhow::ensure!(ed.scope == Scope::Level, "--terrain is a level's: --level FILE");
         ed.add_terrain();
         for op in &opts.land_ops {
@@ -574,6 +596,13 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
                     ed.land_shape(shape);
                 }
             }
+        }
+        if let Some(k) = opts.material {
+            ed.land.row = Some(model::land::LandRow::Material(k.saturating_sub(1)));
+        }
+        for &k in &opts.scatter {
+            ed.scatter_pieces(k.saturating_sub(1));
+            ed.land.row = Some(model::land::LandRow::Scatter(k.saturating_sub(1)));
         }
         if let Some(t) = ed.terrain() {
             println!("terrain: {} by {} points {} apart, heights {} to {}, {} materials", t.cols, t.rows, t.spacing, t.heights.iter().min().unwrap_or(&0), t.heights.iter().max().unwrap_or(&0), t.materials.len());
@@ -1579,8 +1608,9 @@ impl EditorWindow {
                     let (vp, size, m) = land_screen(view, gui.content_rect(), input.point(x, y));
                     let p = if over { None } else { ed.point_at(vp, size, m) };
                     ed.land.hover = p;
+                    ed.land.near = if over { None } else { ed.nearest_point(vp, size, m) };
                     if left && ed.land_dragging() && view.press_at.is_none() {
-                        ed.land_drag(p, m);
+                        ed.land_drag(p, view.voxel_ray(aspect, sx, sy), shift);
                     }
                 } else if among_things(ed) {
                     (view.spot, view.under) = if over { (None, None) } else { view.aim_things(ed, shown, figures, aspect, sx, sy) };
@@ -1727,8 +1757,7 @@ impl EditorWindow {
                     } else {
                         let (vp, size, m) = land_screen(view, gui.content_rect(), input.point(x, y));
                         let p = ed.point_at(vp, size, m);
-                        let up = p.and_then(|p| ed.point_spot(p)).map_or(glam::Vec2::new(0.0, -1.0), |at| model::land::up_on_screen(vp, size, at));
-                        ed.land_press(p, m, up);
+                        ed.land_press(p, view.voxel_ray(aspect, sx, sy));
                     }
                 } else if ed.among_pieces() {
                     // What hangs on the mouse set down; a handle of the
@@ -2181,10 +2210,18 @@ mod tests {
         let t = win.ed.terrain().unwrap();
         let raised = t.heights[t.index(p).unwrap()];
         assert!(raised > 10, "up as the mouse goes: {raised}");
+        let now = win.ed.points_on_screen(vp, glam::Vec2::new(1600.0, 900.0)).into_iter().find(|(q, _)| *q == p).unwrap().1;
+        assert!((now.y - (at.y - 60.0)).abs() < 4.0, "the point stays under the pointer: {now} for {}", at.y - 60.0);
+        // Shift held: a third as far.
+        let e = sdl3::event::Event::MouseMotion { timestamp: 0, window_id: 0, which: 0, mousestate: sdl3::mouse::MouseState::from_sdl_state(1), x: at.x, y: at.y - 60.0, xrel: 0.0, yrel: 0.0 };
+        assert!(win.handle(&e, true));
+        let t = win.ed.terrain().unwrap();
+        let fine = t.heights[t.index(p).unwrap()];
+        assert!((fine - 4 - (raised - 4) / 3).abs() <= 1, "fine: {fine} for {raised}");
         assert_eq!(std::fs::read_to_string(dir.join("levels/land.toml")).unwrap(), start, "nothing written while dragging");
         button(&mut win, at.x, at.y - 60.0, sdl3::mouse::MouseButton::Left, false);
         assert_eq!(win.ed.steps(), 1, "one step");
-        assert!(std::fs::read_to_string(dir.join("levels/land.toml")).unwrap().contains(&format!(" {raised} ")));
+        assert!(std::fs::read_to_string(dir.join("levels/land.toml")).unwrap().contains(&format!(" {fine} ")));
         assert_eq!(win.ed.land.chosen, Some(p));
         let esc = sdl3::event::Event::KeyDown { timestamp: 0, window_id: 0, keycode: Some(sdl3::keyboard::Keycode::Escape), scancode: None, keymod: sdl3::keyboard::Mod::NOMOD, repeat: false, which: 0, raw: 0 };
         assert!(win.handle(&esc, false));

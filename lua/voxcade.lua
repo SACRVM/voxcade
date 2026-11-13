@@ -511,7 +511,7 @@ local Controls = {}
 ---@return string
 function Controls:key(action) end
 
----@class Music The song your game plays of its own choice, and its beats and bars: the game can go with the music (waves on the beat), and replays play it the same.
+---@class Music The song your game plays of its own choice, its beats and bars, and how loud and how muffled it sounds: the game can go with the music (waves on the beat), and replays play it the same.
 ---@field song string|nil The song your game plays (music:play), by its file's name; nil while the player's own plays.
 ---@field beat integer|nil Beats since your game's song began, from 0 (its #tempo); nil while the player's own song plays.
 ---@field intensity number How tense the game is, from 0 (calm) to 1 (all of the song; 1 unless you set it): the layers of your game's song (#layer in the song: drums from 0.35, the melody from 0.8) come in above their tension and go below it, each over a bar. Set it in on_tick from your states: enemies on the screen, a boss, a hit.
@@ -522,6 +522,18 @@ local Music = {}
 ---@param song? string
 ---@param from? string
 function Music:play(song, from) end
+
+---How loud your game's music sounds, as a part of the song's own loudness: from 0 (silent) to 1 (as loud as the song is, the start), reached smoothly over seconds (0.3 unless you say; 0 at once, still without a click). The player's music volume stays on top. It holds until you change it, from level to level too, whichever song plays: music:volume(0.25, 2) fades it to a quarter in two seconds. Without a level it gives the level you asked for last. Only heard: replays and the game itself do not change with it.
+---@param level? number
+---@param seconds? number
+---@return number|nil
+function Music:volume(level, seconds) end
+
+---How dull your game's music sounds, as heard through a wall or a door: from 0 (clear, the start) to 1 (very dull, only the low notes), reached smoothly over seconds (0.3 unless you say; 0 at once, still without a click). Your game's sounds stay clear. It holds until you change it, from level to level too, whichever song plays: music:muffle(0.6, 1) outside a house, music:muffle(0, 1) inside. Without an amount it gives the amount you asked for last. Only heard: replays and the game itself do not change with it.
+---@param amount? number
+---@param seconds? number
+---@return number|nil
+function Music:muffle(amount, seconds) end
 
 -- The game model's objects, there in every script.
 ---@type World

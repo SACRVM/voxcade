@@ -618,7 +618,7 @@ end
     for (line, says) in [
         ("music:play('nope')", "music:play: no song called 'nope' in c.audio.music (its songs: drive, calm)"),
         ("music:play('drive', 'soon')", "music:play: from \"bar\", \"beat\" or \"now\", not \"soon\""),
-        ("local v = music.volume", "music has no volume"),
+        ("local v = music.loudness", "music has no loudness"),
     ] {
         std::fs::write(dir.join("main.lua"), format!("function on_tick()\n  {line}\nend\n")).unwrap();
         let mut g = game_in(&dir);
@@ -669,6 +669,192 @@ fn the_player_gets_the_music_back() {
     std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.audio.boss_music = \"music/boss.mml\"\nend\n").unwrap();
     assert!(start_error(&dir).contains("c.audio.boss_music is no more"), "{}", start_error(&dir));
 }
+
+/// A game with two levels, `a` and `b`, and one song: `main.lua` is
+/// `main`.
+fn song_folder(name: &str, main: &str) -> crate::scratch::Scratch {
+    // Saw chords and noise on the eighths: low and high alike.
+    song_folder_with(name, main, "#tempo 120\n@pad saw attack=0.01 decay=0.1 sustain=0.8 release=0.05 volume=0.5\n@hat noise attack=0.001 decay=0.04 sustain=0 volume=0.25\nA: @pad o3 l1 c e g a\nB: @pad o4 l1 e g b >c\nD: @hat l8 [c]32\n")
+}
+
+/// The same with a song of its own.
+fn song_folder_with(name: &str, main: &str, song: &str) -> crate::scratch::Scratch {
+    let dir = levels_folder(name, main, &[("a", &[]), ("b", &[])]);
+    std::fs::create_dir_all(dir.join("music")).unwrap();
+    std::fs::write(dir.join("music/song.mml"), song).unwrap();
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.toml\" }\n  c.player.spawn = { 2, 2 }\n  c.audio.music = { \"music/song.mml\" }\nend\n").unwrap();
+    dir
+}
+
+/// The music of `dir`'s game over `ticks` ticks, as the film's sound pass
+/// mixes it (a window's way with `fades`: the fade holds the game's own
+/// song), interleaved stereo.
+fn music_of(dir: &Path, ticks: usize, fades: bool) -> Vec<f32> {
+    let mut g = game_in(dir);
+    g.fades = fades;
+    let mut mixer = crate::audio::Mixer::default();
+    let mut buf = vec![0.0f32; crate::audio::SAMPLE_RATE as usize / 60 * 2];
+    let mut out = Vec::new();
+    for _ in 0..ticks {
+        g.step(&Input::default());
+        g.feed_music(&mut mixer, g.fading());
+        mixer.set_music_volume(0.5);
+        mixer.mix(&mut buf);
+        out.extend_from_slice(&buf);
+    }
+    assert_eq!(halted(&g), "");
+    out
+}
+
+/// The root mean square of interleaved stereo from tick `from` to `to`.
+fn rms(s: &[f32], from: usize, to: usize) -> f64 {
+    let part = &s[from * 1470..to * 1470];
+    (part.iter().map(|&x| f64::from(x) * f64::from(x)).sum::<f64>() / part.len() as f64).sqrt()
+}
+
+/// The largest step from one sample to the next, either side.
+fn largest_step(s: &[f32]) -> f32 {
+    s.chunks(2).zip(s.chunks(2).skip(1)).map(|(a, b)| (b[0] - a[0]).abs().max((b[1] - a[1]).abs())).fold(0.0, f32::max)
+}
+
+/// The energy above 2 kHz against the energy below, in decibels: the
+/// spectrum of 4096-sample windows (Hann) from tick `from` on, summed.
+fn above_2k_db(s: &[f32], from: usize, windows: usize) -> f64 {
+    const N: usize = 4096;
+    let (cos, sin): (Vec<f64>, Vec<f64>) = (0..N).map(|i| { let a = std::f64::consts::TAU * i as f64 / N as f64; (a.cos(), a.sin()) }).unzip();
+    let (mut high, mut low) = (0.0, 0.0);
+    for w in 0..windows {
+        let at = from * 735 + w * N;
+        let x: Vec<f64> = (0..N).map(|n| f64::from(s[(at + n) * 2] + s[(at + n) * 2 + 1]) * 0.5 * (0.5 - 0.5 * cos[n])).collect();
+        for k in 1..N / 2 {
+            let (mut re, mut im) = (0.0, 0.0);
+            for (n, v) in x.iter().enumerate() {
+                let i = k * n % N;
+                re += v * cos[i];
+                im -= v * sin[i];
+            }
+            let hz = k as f64 * crate::audio::SAMPLE_RATE as f64 / N as f64;
+            if hz >= 2000.0 { high += re * re + im * im } else { low += re * re + im * im }
+        }
+    }
+    10.0 * (high / low).log10()
+}
+
+/// `music:volume` and `music:muffle`: a part of the song's loudness and a
+/// low-pass over it, gliding there; read back as asked; mistakes name the
+/// argument; kept across a level change and in a snapshot, never in the
+/// hash (a game that asks plays exactly as one that does not).
+#[test]
+fn the_game_turns_its_music_down_and_muffles_it() {
+    let main = "function on_level_start(how)\n  music:play('song', 'now')\nend\nfunction on_tick()\n  if world.tick == 1 then world.state.was = music:volume() .. ' ' .. music:muffle() end\n  if world.tick == 2 then music:volume(0.25, 1) music:muffle(0.5) end\n  if world.tick == 3 then world.state.now = music:volume() .. ' ' .. music:muffle() end\n  if world.tick == 10 then world:go_to('b') end\n  world.state.at = level.name\nend\n";
+    let dir = song_folder("music-mix", main);
+    let mut g = game_in(&dir);
+    steps(&mut g, 3);
+    assert_eq!(halted(&g), "");
+    assert_eq!(state(&mut g, "was"), format!("{:?}", super::Value::Str(b"1.0 0.0".to_vec())));
+    assert_eq!(state(&mut g, "now"), format!("{:?}", super::Value::Str(b"0.25 0.5".to_vec())));
+    let mix = g.game.music_mix();
+    assert_eq!((mix.volume.to, mix.volume.ticks, mix.volume.done, mix.muffle.ticks), (0.25, 60, 1, 18), "a second; 0.3 s unless said");
+    let kept = g.snapshot().unwrap();
+    steps(&mut g, 30);
+    assert!((g.game.music_mix().volume.now() - (1.0 - 0.75 * 31.0 / 60.0)).abs() < 1e-6, "{}", g.game.music_mix().volume.now());
+    steps(&mut g, 40);
+    assert_eq!(g.game.music_mix().volume.now(), 0.25);
+    assert_eq!(state(&mut g, "at"), format!("{:?}", super::Value::Str(b"b".to_vec())), "went on to b");
+    assert_eq!((g.game.music_mix().volume.to, g.game.music_mix().muffle.to), (0.25, 0.5), "kept across the level change");
+    g.restore(&kept);
+    assert_eq!(g.game.music_mix(), mix, "brought back as it was");
+
+    // Only heard: the hash is the same as a game's that never asks.
+    let asks = |name: &str, line: &str| song_folder(name, &format!("function on_level_start(how)\n  music:play('song', 'now')\nend\nfunction on_tick()\n  if world.tick == 2 then {line} end\n  if world.tick == 40 then world:go_to('b') end\nend\n"));
+    let (asking, not) = (asks("music-mix-asks", "music:volume(0.25, 1) music:muffle(0.5)"), asks("music-mix-none", "local _ = 1"));
+    let (mut a, mut b) = (game_in(&asking), game_in(&not));
+    for _ in 0..80 {
+        a.step(&Input::default());
+        b.step(&Input::default());
+        assert_eq!(a.game.state_hash(), b.game.state_hash(), "tick {}", a.game.sim().tick);
+    }
+
+    // Mistakes name the argument.
+    for (line, says) in [
+        ("music:volume(2)", "music:volume: level from 0 (silent) to 1 (as loud as the song is), not 2"),
+        ("music:volume('loud')", "music:volume: level is a number from 0 (silent) to 1 (as loud as the song is), not \"loud\""),
+        ("music:volume(0.5, -1)", "music:volume: seconds is 0 (at once) or more, not -1"),
+        ("music:muffle(0.5, 'slowly')", "music:muffle: seconds is a number, 0 (at once) or more, not \"slowly\""),
+        ("music:muffle(-0.1)", "music:muffle: amount from 0 (clear) to 1 (very dull, as through a wall), not -0.1"),
+        ("music:muffle(nil, 1)", "music:muffle: the amount first"),
+    ] {
+        std::fs::write(dir.join("main.lua"), format!("function on_tick()\n  {line}\nend\n")).unwrap();
+        let mut g = game_in(&dir);
+        steps(&mut g, 2);
+        assert!(halted(&g).contains(says), "{line}: {}", halted(&g));
+    }
+}
+
+/// What the ears would hear, measured: a quarter of the loudness is
+/// -12 dB, reached over the time asked; a muffle takes the highs away by
+/// its amount; a change at once does not click; a level change leaves the
+/// song going on, sample for sample, at the volume and muffle asked.
+#[test]
+fn the_music_sounds_as_the_game_asks() {
+    let with = |name: &str, ticks: &str| song_folder(name, &format!("function on_level_start(how)\n  music:play('song')\nend\nfunction on_tick()\n{ticks}\nend\n"));
+    let base = music_of(&with("music-base", ""), 300, false);
+    let peak = base.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+    assert!(peak > 0.1 && peak < 0.85, "the song plays under the limiter: peak {peak}");
+
+    // A quarter, over half a second from tick 60.
+    let quiet = music_of(&with("music-quarter", "  if world.tick == 60 then music:volume(0.25, 0.5) end"), 300, false);
+    let db = 20.0 * (rms(&quiet, 120, 300) / rms(&base, 120, 300)).log10();
+    assert!((db + 12.04).abs() < 0.05, "a quarter is {db:.2} dB");
+    // The fade: from the first millisecond under 99 % to the first at 25.25 %.
+    let ms = crate::audio::SAMPLE_RATE as usize / 1000;
+    let ratio = |i: usize| {
+        let (q, b) = (&quiet[i * ms * 2..(i + 1) * ms * 2], &base[i * ms * 2..(i + 1) * ms * 2]);
+        q.iter().map(|q| q.abs()).sum::<f32>() / b.iter().map(|b| b.abs()).sum::<f32>().max(1e-9)
+    };
+    let begins = (990..5000).find(|&i| ratio(i) < 0.99).unwrap();
+    let ends = (begins..5000).find(|&i| ratio(i) <= 0.2525).unwrap();
+    // Those two cover (0.99 - 0.2525) / 0.75 of the whole way down.
+    let fade = ((ends - begins) * ms) as f32 / crate::audio::SAMPLE_RATE as f32 / ((0.99 - 0.2525) / 0.75);
+    assert!((0.49..0.52).contains(&fade), "the fade took {fade} s");
+    eprintln!("volume 0.25: {db:.2} dB; the fade {fade:.3} s (asked: 0.5 s)");
+
+    // The highs taken away, by the amount.
+    let shares: Vec<f64> = [0.0, 0.5, 1.0].iter().map(|m| above_2k_db(&music_of(&with(&format!("music-muffle-{m}"), &format!("  if world.tick == 1 then music:muffle({m}, 0) end")), 240, false), 60, 8)).collect();
+    eprintln!("energy above 2 kHz against below: muffle 0 {:.1} dB, 0.5 {:.1} dB, 1 {:.1} dB", shares[0], shares[1], shares[2]);
+    assert!(shares[1] < shares[0] - 10.0 && shares[2] < shares[1] - 10.0, "{shares:?}");
+
+    // At once, both ways, in the middle of held notes (sines, which step
+    // little from sample to sample, so a click would show): no click.
+    let smooth = |name: &str, ticks: &str| song_folder_with(name, &format!("function on_level_start(how)\n  music:play('song')\nend\nfunction on_tick()\n{ticks}\nend\n"), "#tempo 120\n@pad sine attack=0.05 sustain=1 release=0.1 volume=0.6\nA: @pad o4 c1&c1&c1&c1\nB: @pad o5 e1&e1&e1&e1\n");
+    let sines = music_of(&smooth("music-sines", ""), 300, false);
+    let jumps = music_of(&smooth("music-jumps", "  if world.tick == 61 then music:volume(0.1, 0) end\n  if world.tick == 101 then music:volume(1, 0) end\n  if world.tick == 141 then music:muffle(1, 0) end\n  if world.tick == 181 then music:muffle(0, 0) end"), 300, false);
+    let (calm, changed) = (largest_step(&sines), largest_step(&jumps));
+    eprintln!("largest step from sample to sample: the song alone {calm:.4}, with the changes at once {changed:.4}");
+    assert!(changed <= calm * 1.05, "a click: {changed} against {calm}");
+    // And where each change lands (its tick and the next two), against the
+    // song alone there.
+    for tick in [61, 101, 141, 181] {
+        let at = |s: &[f32]| largest_step(&s[(tick - 1) * 1470..(tick + 2) * 1470]);
+        eprintln!("  at tick {tick}: {:.4} (the song alone {:.4})", at(&jumps), at(&sines));
+        assert!(at(&jumps) <= at(&sines) * 1.05, "a click at tick {tick}");
+    }
+
+    // A level change mid-song: the song goes on, as loud and as muffled.
+    let stays = "  if world.tick == 50 then music:volume(0.5, 0.2) music:muffle(0.4, 0.2) end";
+    let on = music_of(&with("music-on", stays), 300, false);
+    let gone = music_of(&with("music-go", &format!("{stays}\n  if world.tick == 150 then world:go_to('b') end")), 300, false);
+    let off = on.iter().zip(&gone).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+    assert_eq!(off, 0.0, "the level change changed the music");
+    eprintln!("a level change: the samples after it differ from a run without it by {off}");
+
+    // In a window the fade holds a song of the game's own (its clock
+    // waits), not the player's (c.audio.music without music:play): said.
+    let change = format!("{stays}\n  if world.tick == 150 then world:go_to('b') end");
+    let held = music_of(&with("music-fade", &change), 300, true);
+    let free = music_of(&song_folder("music-fade-free", &format!("function on_tick()\n{change}\nend\n")), 300, true);
+    let silent = |s: &[f32]| s[100 * 1470..220 * 1470].chunks(1470).filter(|t| t.iter().all(|&s| s == 0.0)).count();
+    eprintln!("with the window's fade (0.3 s out, 0.3 s in): the game's own song silent for {} ticks, the player's for {}", silent(&held), silent(&free));}
 
 /// `c.audio.drive` pushes the game's sound into the limiter, 0 to 12
 /// decibels; outside that it is a mistake that names it.

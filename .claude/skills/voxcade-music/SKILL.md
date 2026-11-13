@@ -125,7 +125,21 @@ The game's code picks a song of its own (`music:play("storm", "bar")`:
 from the next bar, `"beat"`, `"now"`) and can go with its beats
 (`on_beat`, `music.beat`, `music.bar`; `#tempo` and `#meter` in the song
 say when they fall, so they count for the game's replays). The song then
-keeps time with the game, held while it pauses or fades.
+keeps time with the game, held while it pauses or fades (a song of the
+player's choice, `c.audio.music` without `music:play`, plays on through
+a level's fade).
+
+How it sounds where the player is: `music:volume(level, seconds)` (0..1
+of the song's own loudness, under the player's volume) and
+`music:muffle(amount, seconds)` (a low-pass of 12 dB an octave over the
+whole song, as through a wall: 0 open, 0.5 about 1.3 kHz, 1 300 Hz; the
+game's sounds stay clear) glide there over the seconds (0.3 unless said;
+0 at once, over 5 and 20 ms, so nothing clicks) and hold until changed,
+from level to level, the song going on. One song through three scenes:
+`music:volume(0.6) music:muffle(0.7)` outside the house, `(1)` and `(0)`
+in the room, the muffle back up in the hall behind the door. Only heard
+(no replay changes with it); a film of a replay carries it. Checked by
+measurement in `lua::tests::the_music_sounds_as_the_game_asks`.
 
 Layers by tension: `#layer D C 0.35` in a song puts channels in a layer
 that sounds while the game's `music.intensity` (0..1, 1 unless set) is at

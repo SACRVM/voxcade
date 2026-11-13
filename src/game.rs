@@ -389,6 +389,13 @@ pub trait Game: Sized + 'static {
         vec![(1, self.score())]
     }
 
+    /// How loud and how muffled the game asks its song to sound while it
+    /// plays (`music:volume`, `music:muffle`), whichever song plays: only
+    /// heard, in no hash.
+    fn music_mix(&self) -> crate::audio::music::Mix {
+        crate::audio::music::Mix::default()
+    }
+
     /// The song it plays of its own choice and how far in (None: the
     /// player's, as the settings chose it).
     fn music(&self) -> Option<MusicCue> {

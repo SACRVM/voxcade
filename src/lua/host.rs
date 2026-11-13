@@ -586,11 +586,16 @@ pub struct Music {
     /// The game's tension, 0..1 (`music.intensity`): the song's layers
     /// follow it.
     pub intensity: f32,
+    /// How loud and how muffled its song sounds, gliding a step a tick
+    /// (`music:volume`, `music:muffle`): kept with the game (a snapshot
+    /// brought back sounds as it did), never in its hash, its replays or a
+    /// save: only heard.
+    pub mix: crate::audio::music::Mix,
 }
 
 impl Default for Music {
     fn default() -> Self {
-        Self { song: None, steps: 0, next: None, told: None, intensity: 1.0 }
+        Self { song: None, steps: 0, next: None, told: None, intensity: 1.0, mix: Default::default() }
     }
 }
 
@@ -604,8 +609,11 @@ impl Music {
 
     /// A step on: the clock goes on, and the song asked for begins when
     /// its moment comes (a beat or a bar of the one playing begins; at
-    /// once when none plays), at its beat 0.
+    /// once when none plays), at its beat 0; the loudness and the muffle
+    /// glide a tick on.
     pub fn step(&mut self, songs: &[crate::audio::music::Timing]) {
+        self.mix.volume.step();
+        self.mix.muffle.step();
         let before = self.beats(songs);
         if self.song.is_some() {
             self.steps += 1;

@@ -508,6 +508,7 @@ def write_level(path, block, size, blocks, cells, things=(), places=(), kept=Non
 TERRAIN_HEAD = "[terrain]             # heights in voxels, the far row first; shapes . SMOOTH ^ LINEAR # STEP\n"
 MATERIAL_HEAD = "[[terrain.material]]  # the first that fits paints\n"
 LAYER_HEAD = "[[terrain.layer]]     # from the bottom up, again and again upward\n"
+SCATTER_HEAD = "[[terrain.scatter]]   # models over the land: as pieces (the editor's SCATTER) or voxels\n"
 
 
 def _rust_num(v):
@@ -541,8 +542,9 @@ def read_terrain(path):
         roughness = [[int(w) for w in line.split()] for line in t["roughness"].split("\n") if line.split()][::-1]
     return {"spacing": t["spacing"], "at": t.get("at", [0, 0, 0]), "heights": heights, "shapes": shapes,
             "terrace": t.get("terrace"), "rough": t.get("rough"), "roughness": roughness,
+            "dip": t.get("dip"), "dip_to": t.get("dip_to"), "fold": t.get("fold"), "fault": t.get("fault"),
             "seed": t.get("seed"), "under": t.get("under"), "layers": [dict(l) for l in t.get("layer", [])],
-            "materials": [dict(m) for m in t.get("material", [])]}
+            "materials": [dict(m) for m in t.get("material", [])], "scatter": [dict(r) for r in t.get("scatter", [])]}
 
 
 def terrain_text(t):
@@ -562,6 +564,9 @@ def terrain_text(t):
         text += f"rough = {_rust_num(t['rough'])}\n"
     if t.get("roughness") is not None:
         text += f"roughness = {_grid(t['roughness'][::-1], width)}\n"
+    for key in ("dip", "dip_to", "fold", "fault"):
+        if t.get(key) is not None:
+            text += f"{key} = {_rust_num(t[key])}\n"
     if t.get("seed") is not None:
         text += f"seed = {t['seed']}\n"
     if t.get("under"):
@@ -577,6 +582,22 @@ def terrain_text(t):
         for key in ("above", "below", "steeper", "flatter", "depth", "grain", "patch", "blend"):
             if m.get(key) is not None:
                 text += f"{key} = {_rust_num(m[key]) if key in ('steeper', 'flatter', 'grain', 'blend') else int(m[key])}\n"
+    for r in t.get("scatter") or []:
+        models = r.get("models")
+        if models and len(models) > 1:
+            text += "\n" + SCATTER_HEAD + "models = [" + ", ".join(f'"{m}"' for m in models) + "]\n"
+        else:
+            text += "\n" + SCATTER_HEAD + f'model = "{(models or [r["model"]])[0]}"\n'
+        text += f"density = {_rust_num(r['density'])}\n"
+        for key in ("above", "below", "steeper", "flatter", "blend", "apart", "rotate", "sink", "as"):
+            if r.get(key) is not None:
+                v = r[key]
+                if key in ("rotate", "as"):
+                    text += f'{key} = "{v}"\n'
+                elif key in ("steeper", "flatter", "blend"):
+                    text += f"{key} = {_rust_num(v)}\n"
+                else:
+                    text += f"{key} = {int(v)}\n"
     return text
 
 
@@ -599,6 +620,8 @@ def write_terrain_level(path, size, terrain, things=()):
             text += f"rotation = {_rust_num(t['rotation'])}\n"
         if t.get("solid"):
             text += "solid = true\n"
+        if t.get("scatter"):
+            text += f"scatter = {int(t['scatter'])}\n"
     with open(path, "w") as f:
         f.write(text)
 

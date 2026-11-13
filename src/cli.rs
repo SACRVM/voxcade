@@ -666,7 +666,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
         }
         Some("edit") => {
             let dir = opened(&args)?;
-            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new(), ops: Vec::new(), choose: None, game_view: false, picker: false, lights_off: false, choose_light: None, menu: None, add_menu: false, level_settings: false, hover: None, turn_handles: false, part_moves: Vec::new(), hide: Vec::new(), click: None, slice: None, cells: Vec::new(), frame: None, dry: false, context: None, context_off: false, part_turns: Vec::new(), part_poses: Vec::new(), last_pose: false, add_part: false, merge_into: None, mirror: false, background: None, marquee: None, select: None, selection_ops: Vec::new(), terrain: false, land_ops: Vec::new() };
+            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new(), ops: Vec::new(), choose: None, game_view: false, picker: false, lights_off: false, choose_light: None, menu: None, add_menu: false, level_settings: false, hover: None, turn_handles: false, part_moves: Vec::new(), hide: Vec::new(), click: None, slice: None, cells: Vec::new(), frame: None, dry: false, context: None, context_off: false, part_turns: Vec::new(), part_poses: Vec::new(), last_pose: false, add_part: false, merge_into: None, mirror: false, background: None, marquee: None, select: None, selection_ops: Vec::new(), terrain: false, land_ops: Vec::new(), material: None, scatter: Vec::new() };
             let mut shot = false;
             let three = |flag: &str, value: &str| -> Result<glam::IVec3> {
                 let n: Vec<i32> = value.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>().with_context(|| format!("{flag} X,Y,Z"))?;
@@ -754,6 +754,8 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                         opts.part_moves.push((value.clone(), glam::Vec3::new(x, y, z), flag == "--move-joint"));
                     }
                     "--merge-into" => opts.merge_into = Some(value.clone()),
+                    "--material" => opts.material = Some(value.parse().context("--material N: a terrain's material, from 1")?),
+                    "--scatter" => opts.scatter.push(value.parse().context("--scatter N: a terrain's scatter rule, from 1")?),
                     "--raise" | "--shape" => {
                         let n: Vec<i32> = value.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>().with_context(|| format!("{flag} X,Y: a point's column and row"))?;
                         let [x, y] = n[..] else { bail!("{flag} X,Y: two numbers") };
@@ -879,6 +881,8 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
             } else if !opts.cells.is_empty() {
                 // Without a window: written as the editor writes.
                 crate::editor::change_cells(&dir, &opts)
+            } else if !opts.scatter.is_empty() {
+                crate::editor::scatter_level::<G>(&dir, &opts)
             } else {
                 crate::editor::run::<G>(&dir, opts.level.as_deref(), opts.block.as_deref(), opts.things, opts.model.as_deref())
             }

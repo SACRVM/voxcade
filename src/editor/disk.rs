@@ -689,9 +689,13 @@ fn rebase_terrain(b: Option<&crate::terrain::Terrain>, a: Option<&crate::terrain
                 (br, ar, _) if br != ar => o.roughness = ar.clone(),
                 _ => {}
             }
-            if (b.spacing, b.at, b.terrace, b.rough, b.seed) != (a.spacing, a.at, a.terrace, a.rough, a.seed) || (&b.under, &b.materials, &b.layers) != (&a.under, &a.materials, &a.layers) {
+            if (b.spacing, b.at, b.terrace, b.rough, b.seed) != (a.spacing, a.at, a.terrace, a.rough, a.seed)
+                || (&b.under, &b.materials, &b.layers, &b.scatter) != (&a.under, &a.materials, &a.layers, &a.scatter)
+                || (b.dip, b.dip_to, b.fold, b.fault) != (a.dip, a.dip_to, a.fold, a.fault)
+            {
                 (o.spacing, o.at, o.terrace, o.rough, o.seed) = (a.spacing, a.at, a.terrace, a.rough, a.seed);
-                (o.under, o.materials, o.layers) = (a.under.clone(), a.materials.clone(), a.layers.clone());
+                (o.under, o.materials, o.layers, o.scatter) = (a.under.clone(), a.materials.clone(), a.layers.clone(), a.scatter.clone());
+                (o.dip, o.dip_to, o.fold, o.fault) = (a.dip, a.dip_to, a.fold, a.fault);
             }
             Ok(Some(o))
         }

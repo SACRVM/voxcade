@@ -303,6 +303,11 @@ pub struct Thing {
     pub lights: Vec<ThingLight>,
     #[serde(skip)]
     pub solid: bool,
+    /// Set down by the terrain's scatter rule of this number (from 1;
+    /// `scatter = 2` in the file): the editor's CLEAR of that rule takes it
+    /// away again, wherever it stands now. Nothing to the game.
+    #[serde(skip)]
+    pub scatter: Option<u32>,
     #[serde(skip)]
     pub line: usize,
 }
@@ -310,7 +315,7 @@ pub struct Thing {
 impl PartialEq for Thing {
     /// The same thing wherever its file says it.
     fn eq(&self, o: &Self) -> bool {
-        (&self.kind, self.at, &self.name, &self.model, self.facing, self.pitch, self.roll, &self.lights, self.solid) == (&o.kind, o.at, &o.name, &o.model, o.facing, o.pitch, o.roll, &o.lights, o.solid)
+        (&self.kind, self.at, &self.name, &self.model, self.facing, self.pitch, self.roll, &self.lights, self.solid, self.scatter) == (&o.kind, o.at, &o.name, &o.model, o.facing, o.pitch, o.roll, &o.lights, o.solid, o.scatter)
     }
 }
 
@@ -868,6 +873,9 @@ pub mod text {
         if t.solid {
             out += "solid = true\n";
         }
+        if let Some(n) = t.scatter {
+            out += &format!("scatter = {n}\n");
+        }
         if let Some((key, value)) = lights_field(&t.lights) {
             out += &format!("{key} = {value}\n");
         }
@@ -1141,7 +1149,7 @@ pub mod text {
                 let mut end = line_end(h);
                 while end < head_end {
                     let line = src[end..line_end(end)].trim_start();
-                    if line.starts_with('[') && !line.starts_with("[[terrain.material]]") && !line.starts_with("[[terrain.layer]]") {
+                    if line.starts_with('[') && !line.starts_with("[[terrain.material]]") && !line.starts_with("[[terrain.layer]]") && !line.starts_with("[[terrain.scatter]]") {
                         break;
                     }
                     end = line_end(end);
@@ -1156,13 +1164,13 @@ pub mod text {
                 let sec = Section { sort: 0, k: 0, start: h, header: h, table };
                 let was_f = terrain::fields(was);
                 let now_f = terrain::fields(now);
-                for key in ["spacing", "at", "heights", "shapes", "terrace", "rough", "roughness", "seed", "under"] {
+                for key in ["spacing", "at", "heights", "shapes", "terrace", "rough", "roughness", "dip", "dip_to", "fold", "fault", "seed", "under"] {
                     let get = |f: &Vec<(&str, String)>| f.iter().find(|(k, _)| *k == key).map(|(_, v)| v.clone());
                     let (a, b) = (get(&was_f), get(&now_f));
                     if a != b {
                         let after = match key {
                             "at" => "spacing",
-                            "terrace" | "rough" | "roughness" if spans(table, "shapes").is_some() => "shapes",
+                            "terrace" | "rough" | "roughness" | "dip" | "dip_to" | "fold" | "fault" if spans(table, "shapes").is_some() => "shapes",
                             _ => "heights",
                         };
                         field(src, &sec, key, b, (spans(table, after).is_some() && key != after).then_some(after), edits)?;
@@ -1180,6 +1188,15 @@ pub mod text {
                 let fields = |l: &[crate::terrain::Layer]| l.iter().map(terrain::layer_fields).collect::<Vec<_>>();
                 let texts: Vec<String> = now.layers.iter().map(terrain::layer_text).collect();
                 list_edits(src, &layers, &layer_headers, &fields(&was.layers), &fields(&now.layers), &texts, *mat_headers.first()?, edits)?;
+                // The scatter rules, after the materials.
+                let rules = table.get("scatter").map_or(Some(Vec::new()), vvx::tables)?;
+                let rule_headers = headers_of(src, &rules, "[[terrain.scatter]]")?;
+                let after_materials = mats.last()?.iter().filter_map(|(_, v)| v.span()).map(|v| src[v.end.min(src.len())..].find('\n').map_or(src.len(), |i| v.end + i + 1)).max()?;
+                let fields = |l: &[crate::terrain::Scatter]| l.iter().map(terrain::scatter_fields).collect::<Vec<_>>();
+                let texts: Vec<String> = now.scatter.iter().map(terrain::scatter_text).collect();
+                let at = after_materials;
+                let texts_at: Vec<String> = if was.scatter.is_empty() { texts.iter().map(|t| format!("\n{t}")).collect() } else { texts.clone() };
+                list_edits(src, &rules, &rule_headers, &fields(&was.scatter), &fields(&now.scatter), if was.scatter.is_empty() { &texts_at } else { &texts }, at, edits)?;
             }
             (Some(h), None) => {
                 let mut start = h;
@@ -1353,6 +1370,10 @@ pub mod text {
         if was.solid != now.solid {
             let after = ["roll", "pitch", "rotation", "facing", "at"].into_iter().find(|k| s.table.contains_key(k));
             field(src, s, "solid", now.solid.then(|| "true".to_string()), after, &mut mine)?;
+        }
+        if was.scatter != now.scatter {
+            let after = ["solid", "roll", "pitch", "rotation", "facing", "at"].into_iter().find(|k| s.table.contains_key(k));
+            field(src, s, "scatter", now.scatter.map(|n| n.to_string()), after, &mut mine)?;
         }
         if was.lights != now.lights {
             // The key the file used, and the one the lights want now: one
@@ -1690,7 +1711,13 @@ pub mod text {
                 None => Ok(None),
                 Some(c) => match c.as_str().filter(|s| hex(s).is_some()) {
                     Some(s) => Ok(Some(s.to_string())),
-                    None => Err(r.fail(c.span(), format!("{key} must be a color \"#rrggbb\", like \"#ffd9a0\""))),
+                    // Three numbers from 0 to 1, as conf.lua's c.light writes them.
+                    None if c.as_array().is_some() => {
+                        let rgb = r.triple(c, key).ok().filter(|v| v.iter().all(|v| (0.0..=1.0).contains(v)));
+                        let rgb = rgb.ok_or_else(|| r.fail(c.span(), format!("{key} must be a color \"#rrggbb\" or three numbers from 0 to 1, like [1, 0.85, 0.63]")))?;
+                        Ok(Some(format!("#{:02x}{:02x}{:02x}", (rgb[0] * 255.0).round() as u8, (rgb[1] * 255.0).round() as u8, (rgb[2] * 255.0).round() as u8)))
+                    }
+                    None => Err(r.fail(c.span(), format!("{key} must be a color \"#rrggbb\", like \"#ffd9a0\", or three numbers from 0 to 1"))),
                 },
             }
         };
@@ -1729,7 +1756,7 @@ pub mod text {
         if let Some(item) = top.get("thing") {
             for t in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "things must be tables: [[thing]] with kind (or model) and at"))? {
                 r.renamed(t, &[("turn", "rotation")], "a thing")?;
-                r.only(t, &["name", "kind", "model", "at", "facing", "rotation", "pitch", "roll", "solid", "light", "lights"], "a thing")?;
+                r.only(t, &["name", "kind", "model", "at", "facing", "rotation", "pitch", "roll", "solid", "light", "lights", "scatter"], "a thing")?;
                 let line = line_of_table(r, t);
                 let here = |why: &str| if line > 0 { anyhow!("line {line}: {why}") } else { anyhow!("{why}") };
                 let name = text(t, "name", "a thing")?;
@@ -1800,7 +1827,14 @@ pub mod text {
                 if let Some(other) = name.as_ref().and_then(|n| level.things.iter().find(|o| o.name.as_ref() == Some(n))) {
                     return Err(here(&format!("a second thing called '{}' (the first is on line {}): a name is one thing's", name.as_deref().unwrap_or_default(), other.line)));
                 }
-                level.things.push(Thing { kind, at: triple(t, "at", "a thing")?, name, model, facing, pitch, roll, lights, solid, line });
+                let scatter = match t.get("scatter") {
+                    None => None,
+                    Some(i) => match i.as_integer() {
+                        Some(v) if v >= 1 => Some(v as u32),
+                        _ => return Err(r.fail(i.span(), "scatter must be the number of the terrain's scatter rule that set it down, from 1")),
+                    },
+                };
+                level.things.push(Thing { kind, at: triple(t, "at", "a thing")?, name, model, facing, pitch, roll, lights, solid, scatter, line });
             }
         }
         if let Some(item) = top.get("place") {
@@ -1924,7 +1958,19 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], fr
         files.push(file);
         pictures.push(Picture { how: b.clone(), width: width as i32, height: height as i32, pixels });
     }
-    let mut world = build(&level, &made, cfg.margin, cfg.below, &pictures).with_context(|| path.display().to_string())?;
+    // The scatter rules' models the land bakes in are the game's files too.
+    if let Some(t) = &level.terrain {
+        for rule in t.scatter.iter().filter(|r| r.makes() == crate::terrain::ScatterAs::Voxels) {
+            for m in &rule.models {
+                let file = dir.join(m);
+                if !files.contains(&file) {
+                    files.push(file);
+                }
+            }
+        }
+    }
+    let models = |name: &str| crate::vox::load_model_in(game, &dir.join(name));
+    let mut world = build(&level, &made, cfg.margin, cfg.below, &pictures, &models).with_context(|| path.display().to_string())?;
     let origin = IVec3::new(cfg.margin, 0, cfg.below);
     // The solid pieces' cells, exactly where their models are drawn: on
     // the grid, so in quarter turns only.
@@ -1983,7 +2029,7 @@ pub fn markers(level: &GridLevel, names: &[&str], origin: IVec3) -> Result<Vec<M
 /// The world of a level: its blocks (`made`, as the level lists them)
 /// stamped into the cells as they lie, `margin` voxels left and right,
 /// `below` under the grid, the backdrops behind it.
-pub fn build(level: &GridLevel, made: &[Block], margin: i32, below: i32, backdrops: &[Picture]) -> Result<World> {
+pub fn build(level: &GridLevel, made: &[Block], margin: i32, below: i32, backdrops: &[Picture], models: ModelsOf) -> Result<World> {
     let n = level.n;
     let grid = level.voxels();
     let size = IVec3::new(
@@ -2036,10 +2082,16 @@ pub fn build(level: &GridLevel, made: &[Block], margin: i32, below: i32, backdro
         walls.push((grid.y + b.how.behind.max(0), b.how.z, b.height * s, wall));
     }
 
-    // The land, its colours after the blocks'.
-    let land = match &level.terrain {
-        Some(t) => Some(t.painter(&mut world, origin, t.surface())?),
-        None => None,
+    // The land, its colours after the blocks'; then its scatter rules'
+    // voxels (boulders, stumps), baked into it.
+    let (land, baked) = match &level.terrain {
+        Some(t) => {
+            let surface = t.surface();
+            let painter = t.painter(&mut world, origin, surface.clone())?;
+            let baked = bake(&mut world, t, origin, &surface, models)?;
+            (Some(painter), baked)
+        }
+        None => (None, crate::world::CellMap::default()),
     };
 
     // Into the world chunk by chunk: the grid's rows, the walls' rows and
@@ -2066,10 +2118,18 @@ pub fn build(level: &GridLevel, made: &[Block], margin: i32, below: i32, backdro
         }
         0
     };
-    // (Where the blocks leave a voxel empty, the land's.)
+    // (Where the blocks leave a voxel empty, what is baked in, else the
+    // land's; the columns with something baked looked up only.)
+    let mut baked_columns = vec![false; (size.x * size.y).max(0) as usize];
+    for p in baked.keys() {
+        baked_columns[(p.x + p.y * size.x) as usize] = true;
+    }
     let voxel = |p: IVec3| -> u8 {
         match block_voxel(p) {
-            0 => land.as_ref().map_or(0, |l| l.voxel(p)),
+            0 => match baked_columns[(p.x + p.y * size.x) as usize].then(|| baked.get(&p)).flatten() {
+                Some(&v) => v,
+                None => land.as_ref().map_or(0, |l| l.voxel(p)),
+            },
             v => v,
         }
     };
@@ -2090,6 +2150,7 @@ pub fn build(level: &GridLevel, made: &[Block], margin: i32, below: i32, backdro
     }
     if let Some(l) = &land {
         keys.extend(l.chunks().into_iter().filter(|c| c.cmplt(chunks).all()));
+        keys.extend(baked.keys().map(|&p| World::chunk_of(p)).filter(|c| c.cmpge(IVec3::ZERO).all() && c.cmplt(chunks).all()));
         keys.sort_unstable_by_key(|c| (c.y, c.z, c.x));
         keys.dedup();
     }
@@ -2117,6 +2178,57 @@ pub fn build(level: &GridLevel, made: &[Block], margin: i32, below: i32, backdro
     world.cells = Some(Arc::new(kinds));
     world.mark_all_dirty();
     Ok(world)
+}
+
+/// Where a level's scatter rules' models come from: a model's file in the
+/// game folder, read (`no_models` for none).
+pub type ModelsOf<'a> = &'a dyn Fn(&str) -> Result<crate::vox::VoxModel>;
+
+/// For a level without models to bake.
+pub fn no_models(name: &str) -> Result<crate::vox::VoxModel> {
+    bail!("{name}: no models here")
+}
+
+/// The voxels the terrain's scatter rules of `as = "voxels"` bake into the
+/// land (boulders, stumps): each model where the rule sets it down, its
+/// pivot on the land (sunk `sink`), turned in quarters (`rotate = "any"`
+/// too: voxels stay on the grid), in the world's palette after the land's
+/// colors. A rule's models beyond 255 colors: a mistake naming the rule.
+fn bake(world: &mut World, t: &crate::terrain::Terrain, origin: IVec3, surface: &crate::terrain::Surface, models: ModelsOf) -> Result<crate::world::CellMap<u8>> {
+    let mut out = crate::world::CellMap::default();
+    let corner = origin + IVec3::from(t.at);
+    for (k, rule) in t.scatter.iter().enumerate() {
+        if rule.makes() != crate::terrain::ScatterAs::Voxels {
+            continue;
+        }
+        let mut shapes = Vec::new();
+        for name in &rule.models {
+            let m = models(name).with_context(|| format!("the terrain's scatter {}: model = \"{name}\"", k + 1))?;
+            let pivot = IVec3::new(m.size.x / 2, m.size.y / 2, 0);
+            let mut cells = Vec::new();
+            for &(p, c) in m.frames.first().map_or(&[][..], |f| &f[..]) {
+                let v = world.colour_as([c[0], c[1], c[2]], false, false).ok_or_else(|| anyhow!("the level has more than 255 colors with the terrain's scatter {} ({name}): fewer colors in its models, or as = \"pieces\"", k + 1))?;
+                cells.push((p - pivot, v));
+            }
+            shapes.push(cells);
+        }
+        let sink = rule.sink.unwrap_or(0);
+        for placed in t.scatter(k, surface) {
+            let base = corner + IVec3::new(placed.column.x, placed.column.y, placed.ground - sink);
+            let quarters = ((placed.rotation / 90.0).round() as i32).rem_euclid(4);
+            for &(rel, v) in &shapes[placed.model] {
+                let mut r = rel;
+                for _ in 0..quarters {
+                    r = IVec3::new(r.y, -r.x, r.z);
+                }
+                let p = base + r;
+                if world.in_bounds(p) {
+                    out.insert(p, v);
+                }
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// A block's voxels (as it lies) in the world's colours, held as its kind
@@ -2352,7 +2464,7 @@ size = [40, 30, 40]
         let mut lv = level(4, IVec3::new(8, 4, 8), &[("rock", Kind::Solid)]);
         put(&mut lv, IVec3::new(0, 0, 4), 1, Turn::NONE);
         lv.terrain = Some(crate::terrain::Terrain::flat(8, 4, 2, 10));
-        let world = build(&lv, &[block(4, [200, 0, 0], |_| true)], 0, 0, &[]).unwrap();
+        let world = build(&lv, &[block(4, [200, 0, 0], |_| true)], 0, 0, &[], &no_models).unwrap();
         assert_eq!(world.palette[1][..3], [200, 0, 0], "the blocks' colors first");
         assert_eq!(world.get(IVec3::new(1, 1, 17)), 1, "a block");
         assert_eq!(world.get(IVec3::new(9, 1, 9)), 2, "the land");
@@ -2388,11 +2500,11 @@ size = [40, 30, 40]
         let mut lv = GridLevel::new(0, IVec3::new(640, 576, 140));
         lv.terrain = Some(t);
         let start = std::time::Instant::now();
-        let world = build(&lv, &[], 0, 0, &[]).unwrap();
+        let world = build(&lv, &[], 0, 0, &[], &no_models).unwrap();
         let ms = start.elapsed().as_secs_f64() * 1000.0;
         println!("640 by 576 voxels of land built in {ms:.0} ms, {} chunks", world.chunk_keys().len());
         assert!(ms < 3000.0, "{ms} ms");
-        assert_eq!(world.content_hash(), build(&lv, &[], 0, 0, &[]).unwrap().content_hash(), "the same every time");
+        assert_eq!(world.content_hash(), build(&lv, &[], 0, 0, &[], &no_models).unwrap().content_hash(), "the same every time");
         // A hole through the cliff's foot: nothing above it is loose.
         let mut grounded = crate::world::CellSet::default();
         let mut w2 = world.clone();
@@ -2408,6 +2520,49 @@ size = [40, 30, 40]
                 assert!(crate::sim::loose_piece(&w2, p, &mut grounded).is_none(), "{p} stands");
             }
         }
+    }
+
+    /// A scatter rule of voxels bakes its model into the land as it is
+    /// built: the model's colors, solid, standing on the land (nothing of
+    /// it loose); more than the palette holds is a mistake naming the rule.
+    #[test]
+    fn scatter_voxels_are_baked_into_the_land() {
+        let mut t = crate::terrain::Terrain::flat(16, 8, 6, 10);
+        t.scatter = vec![crate::terrain::Scatter { as_: Some(crate::terrain::ScatterAs::Voxels), apart: Some(10), ..crate::terrain::Scatter::new("rock.vvx") }];
+        t.scatter[0].density = 8.0;
+        let mut lv = GridLevel::new(0, IVec3::new(128, 96, 40));
+        lv.terrain = Some(t.clone());
+        let rock = |_: &str| ({
+            let mut b = Block::empty(3);
+            for z in 0..2 {
+                for y in 0..3 {
+                    for x in 0..3 {
+                        b.set(IVec3::new(x, y, z), Some([200, 10, 10])).unwrap();
+                    }
+                }
+            }
+            b
+        })
+        .model();
+        let world = build(&lv, &[], 0, 0, &[], &|n| Ok(rock(n))).unwrap();
+        let placed = t.scatter(0, &t.surface());
+        assert!(placed.len() >= 4);
+        let red = (1..256).find(|&i| world.palette[i][..3] == [200, 10, 10]).unwrap() as u8;
+        let mut grounded = crate::world::CellSet::default();
+        for p in &placed {
+            let at = IVec3::new(p.column.x, p.column.y, p.ground);
+            assert_eq!(world.get(at), red, "the rock on the land at {at}");
+            assert!(world.solid(at + IVec3::Z));
+            assert!(crate::sim::loose_piece(&world, at + IVec3::Z, &mut grounded).is_none(), "it stands");
+        }
+        assert_eq!(world.content_hash(), build(&lv, &[], 0, 0, &[], &|n| Ok(rock(n))).unwrap().content_hash());
+        // A model of more colors than the palette has room for.
+        let many = |_: &str| {
+            let frame: Vec<(IVec3, [u8; 4])> = (0..256).map(|k| (IVec3::new(k % 16, k / 16, 0), [k as u8, 7, (k / 3) as u8, 255])).collect();
+            crate::vox::VoxModel::new(IVec3::new(16, 16, 1), vec![frame], vec![vec![0; 256]])
+        };
+        let e = build(&lv, &[], 0, 0, &[], &|n| Ok(many(n))).err().unwrap().to_string();
+        assert!(e.contains("more than 255 colors with the terrain's scatter 1 (rock.vvx)"), "{e}");
     }
 
     fn changed_lines(a: &str, b: &str) -> Vec<String> {
@@ -2619,6 +2774,11 @@ size = [40, 30, 40]
         assert!(with("ambient = 2").contains("ambient must be between 0 and 1"));
         assert!(with("moon = 1").contains("'moon' is no field of the level's [light]"));
         assert!(with("sky = \"blue\"").contains("sky must be a color"));
+        assert!(with("sky = [1, 2, 0]").contains("sky must be a color \"#rrggbb\" or three numbers from 0 to 1"));
+        // A color as conf.lua writes it, three numbers from 0 to 1.
+        let numbers = GridLevel::from_text(&PIECES.replacen("\n\n[[thing]]", "\n\n[light]\nsky = [0.125, 0.1875, 0.29]\nsun_color = [1, 0.85, 0.63]\n\n[[thing]]", 1)).unwrap();
+        let day = numbers.daylight.as_ref().unwrap();
+        assert_eq!((day.sky.as_deref(), day.sun_color.as_deref()), (Some("#20304a"), Some("#ffd9a1")));
     }
 
     /// A level of blocks whose grid changed is written anew above its
@@ -2694,7 +2854,7 @@ size = [40, 30, 40]
         let mut lv = level(n, IVec3::new(2, 1, 1), &[("post", Kind::Solid)]);
         put(&mut lv, IVec3::new(0, 0, 0), 1, Turn::NONE);
         put(&mut lv, IVec3::new(1, 0, 0), 1, Turn::MIRROR);
-        let world = build(&lv, &[post], 3, 2, &[]).unwrap();
+        let world = build(&lv, &[post], 3, 2, &[], &no_models).unwrap();
         let red = |p: IVec3| world.palette[world.get(p) as usize];
         let o = IVec3::new(3, 0, 2);
         assert_ne!(world.get(o), 0);
@@ -2715,7 +2875,7 @@ size = [40, 30, 40]
         let mut lv = level(n, IVec3::new(2, 1, 1), &[("plank", Kind::Oneway)]);
         put(&mut lv, IVec3::new(0, 0, 0), 1, Turn::NONE);
         put(&mut lv, IVec3::new(1, 0, 0), 1, Turn::ROLL.then(Turn::ROLL));
-        let world = build(&lv, &[plank], 0, 0, &[]).unwrap();
+        let world = build(&lv, &[plank], 0, 0, &[], &no_models).unwrap();
         let held = |p: IVec3| world.oneway[world.get(p) as usize] && !world.soft[world.get(p) as usize];
         let passed = |p: IVec3| world.get(p) != 0 && world.soft[world.get(p) as usize];
         assert!(held(IVec3::new(1, 1, 1)) && passed(IVec3::new(1, 1, 0)), "lying as made: holds at its top");
@@ -2731,7 +2891,7 @@ size = [40, 30, 40]
         put(&mut lv, IVec3::new(0, 0, 0), 1, Turn::NONE);
         put(&mut lv, IVec3::new(1, 0, 0), 2, Turn::NONE);
         put(&mut lv, IVec3::new(2, 1, 0), 3, Turn::NONE);
-        let world = build(&lv, &[full.clone(), full.clone(), full], 8, 0, &[]).unwrap();
+        let world = build(&lv, &[full.clone(), full.clone(), full], 8, 0, &[], &no_models).unwrap();
         let cells = world.cells.as_ref().unwrap();
         let at = |x: f32, y: f32, z: f32| cells.at(Vec3::new(x, y, z));
         assert_eq!(at(9.0, 1.0, 1.0), SOLID);
@@ -2756,7 +2916,7 @@ size = [40, 30, 40]
         let mut lv = level(n, IVec3::new(2, 1, 1), &[("first", Kind::Solid), ("second", Kind::Solid)]);
         put(&mut lv, IVec3::new(0, 0, 0), 1, Turn::NONE);
         put(&mut lv, IVec3::new(1, 0, 0), 2, Turn::NONE);
-        let e = build(&lv, &[many(1), many(2)], 0, 0, &[]).err().unwrap().to_string();
+        let e = build(&lv, &[many(1), many(2)], 0, 0, &[], &no_models).err().unwrap().to_string();
         assert!(e.contains("more than 255 colors with block 'second'"), "{e}");
     }
 

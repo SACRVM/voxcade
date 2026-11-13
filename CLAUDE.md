@@ -606,7 +606,9 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `[[terrain.layer]]` (bands of rock from the bottom up, `thick`, `hard`:
   a wall or a slope of scree, their colors on walls only, a voxel open
   over a drop of 3 or more, where only the unconditional material would
-  paint; the owner saw red specks on a plateau before), `seed`, `under`,
+  paint; the owner saw red specks on a plateau before; the bands dip,
+  fold, swell, thin and pinch out, `dip`, `dip_to`, `fold`, `fault`,
+  never a layer cake unless `dip = 0, fold = 0`), `seed`, `under`,
   `[[terrain.material]]` (the first whose `above`, `below`, `steeper`,
   `flatter` all hold paints, the slope over three voxels each way, the
   gentler side, so a contour step is no slope; `blend` lets the borders
@@ -626,9 +628,20 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   LAYERS, MATERIALS, UNDER; the view built again only where points
   changed (`Shown::update_land`); only its lines of the file change.
   `tools/vvx.py` reads and writes it (`read_terrain`,
-  `write_terrain_level`). A model ADDed among the pieces stays on the
-  mouse for the next click until Escape (`Editor::stamp`: firs by the
-  dozen).
+  `write_terrain_level`). `[[terrain.scatter]]` rules (`model`/`models`,
+  `density` per 100 by 100 voxels of fitting ground, the materials'
+  conditions, `apart`, `rotate`, `sink`, `as`): a jittered grid from
+  `seed` (`Terrain::scatter`); `as = "voxels"` baked into the land at
+  build (`grid::build`'s `ModelsOf`), `as = "pieces"` set into the level
+  once by the editor's SCATTER (marked `scatter = N`, the owner's from
+  then on; CLEAR takes them away; `voxcade edit --scatter N` without a
+  window). Things standing on the land follow it when it changes, in the
+  same step (`Editor::follow_land`). In TERRAIN the outliner holds
+  MATERIALS, LAYERS and SCATTER (a row each), the inspector the tool, the
+  numbers and the chosen row's fields; a point drags along its vertical,
+  under the pointer (`land::height_along`), Shift a third. A model ADDed
+  among the pieces stays on the mouse for the next click until Escape
+  (`Editor::stamp`: firs by the dozen).
 
 - The simulation (`src/sim/` and a game's rules, `src/shooter/`) is deterministic: fixed tick (`DT`), randomness
   only from `Sim::rng`, no clock, no iteration over `HashMap` in game logic.
@@ -777,7 +790,12 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   whose code names `music` or `on_beat`, `Game::uses_music`; the audio
   follows it, `Session::feed_music`, `music::Player::follow`;
   `music.intensity` the game's tension, which a song's layers follow,
-  `#layer` in the MML; music is never a kit's),
+  `#layer` in the MML; `music:volume` and `music:muffle`, how the song
+  in play sounds (a part of its loudness; a low-pass as through a wall),
+  gliding a step a tick (`music::Glide`, `Music::mix`, `Game::music_mix`):
+  in the snapshot, never in the hash, a replay or a save, the audio
+  gliding too (`music::Player::follow_mix`; the title's and the
+  settings' songs never hear it); music is never a kit's),
   the handlers `on_world_start`
   (no level yet), `on_level_start(how)` (build and place there),
   `on_tick`, `on_draw(frame)` (drawing on `frame` only there;

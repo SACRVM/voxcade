@@ -2074,7 +2074,7 @@ impl UserData for MusicView {
     fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
         m.add_meta_method(MetaMethod::ToString, |_, _, ()| Ok("music"));
         m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, String)| -> mlua::Result<Value> {
-            Err(mlua::Error::runtime(format!("music has no {key} (music:play, music.song, music.beat, music.bar, music.intensity)")))
+            Err(mlua::Error::runtime(format!("music has no {key} (music:play, music:volume, music:muffle, music.song, music.beat, music.bar, music.intensity)")))
         });
         m.add_function("play", |lua, (_, song, when): (AnyUserData, Option<String>, Option<String>)| {
             change(lua, "music:play", |h| {
@@ -2100,7 +2100,58 @@ impl UserData for MusicView {
                 Ok(())
             })
         });
+        m.add_function("volume", |lua, (_, level, seconds): (AnyUserData, Value, Value)| {
+            mix_ask(lua, "music:volume", "level", "0 (silent) to 1 (as loud as the song is)", level, seconds, |m| &mut m.volume)
+        });
+        m.add_function("muffle", |lua, (_, amount, seconds): (AnyUserData, Value, Value)| {
+            mix_ask(lua, "music:muffle", "amount", "0 (clear) to 1 (very dull, as through a wall)", amount, seconds, |m| &mut m.muffle)
+        });
     }
+}
+
+/// `music:volume` and `music:muffle`: without a value, the one asked for
+/// last; with one (0 to 1), the song glides there over `seconds` (0.3
+/// unless said; 0 at once, still without a click). Only heard: in no hash.
+fn mix_ask(
+    lua: &Lua,
+    what: &str,
+    name: &str,
+    range: &str,
+    value: Value,
+    seconds: Value,
+    glide: fn(&mut crate::audio::music::Mix) -> &mut crate::audio::music::Glide,
+) -> mlua::Result<Option<f64>> {
+    let number = |v: &Value| match v {
+        Value::Integer(i) => Some(*i as f64),
+        Value::Number(n) => Some(*n),
+        _ => None,
+    };
+    let shown = |v: &Value| match v {
+        Value::String(s) => format!("\"{}\"", s.to_string_lossy()),
+        other => other.type_name().to_string(),
+    };
+    if value.is_nil() {
+        if !seconds.is_nil() {
+            return Err(mlua::Error::runtime(format!("{what}: the {name} first, from {range}, then the seconds")));
+        }
+        let mut mix = look(lua, |h| Ok(h.music.mix))?;
+        return Ok(Some(f64::from(glide(&mut mix).to)));
+    }
+    let to = match number(&value) {
+        Some(v) if (0.0..=1.0).contains(&v) => v as f32,
+        Some(v) => return Err(mlua::Error::runtime(format!("{what}: {name} from {range}, not {v}"))),
+        None => return Err(mlua::Error::runtime(format!("{what}: {name} is a number from {range}, not {}", shown(&value)))),
+    };
+    let over = match (&seconds, number(&seconds)) {
+        (Value::Nil, _) => 0.3,
+        (_, Some(s)) if s >= 0.0 && s.is_finite() => s as f32,
+        (_, Some(s)) => return Err(mlua::Error::runtime(format!("{what}: seconds is 0 (at once) or more, not {s}"))),
+        (other, None) => return Err(mlua::Error::runtime(format!("{what}: seconds is a number, 0 (at once) or more, not {}", shown(other)))),
+    };
+    change(lua, what, |h| {
+        glide(&mut h.music.mix).ask(to, over);
+        Ok(None)
+    })
 }
 
 /// `screen`: the picture's effects, from anywhere the game changes (they

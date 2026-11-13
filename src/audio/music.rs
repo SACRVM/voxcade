@@ -47,6 +47,10 @@
 //! by that much whenever one of its notes starts (a kick pumping the bass
 //! and pads), and they come back over `sidechain_release` seconds. `duck`
 //! (0..1, default 1) is how far an instrument follows; 0 leaves it alone.
+//!
+//! A game's own say over its song as heard (`music:volume`,
+//! `music:muffle`): a part of its loudness and a low-pass over the whole
+//! song, as through a wall (`Mix`), each gliding to what the game asked.
 
 use std::collections::HashMap;
 
@@ -639,6 +643,159 @@ const JUMP: i64 = SAMPLE_RATE as i64 / 20;
 /// Samples a jump fades in over (5 ms), so it does not click.
 const FADE_IN: u32 = SAMPLE_RATE / 200;
 
+/// A value of the game's song as heard that the game moves over a time
+/// (`music:volume`, `music:muffle`): from where it was to where it goes,
+/// over so many of the game's ticks, so many of them gone; how many times
+/// it was asked (a new ask starts the audio's own glide). The game keeps
+/// it (in its snapshot, never in its hash: only heard).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Glide {
+    pub from: f32,
+    pub to: f32,
+    pub ticks: u32,
+    pub done: u32,
+    pub asked: u32,
+}
+
+impl Glide {
+    /// Standing at `at`, never asked.
+    pub const fn still(at: f32) -> Self {
+        Self { from: at, to: at, ticks: 0, done: 0, asked: 0 }
+    }
+
+    /// Where it is now.
+    pub fn now(&self) -> f32 {
+        if self.done >= self.ticks { self.to } else { self.from + (self.to - self.from) * self.done as f32 / self.ticks as f32 }
+    }
+
+    /// The seconds of its glide still to go.
+    pub fn left(&self) -> f32 {
+        self.ticks.saturating_sub(self.done) as f32 * crate::sim::DT
+    }
+
+    /// A tick of the game on.
+    pub fn step(&mut self) {
+        self.done = (self.done + 1).min(self.ticks);
+    }
+
+    /// Asked to go to `to` over `seconds`, from where it is now.
+    pub fn ask(&mut self, to: f32, seconds: f32) {
+        let ticks = (seconds / crate::sim::DT).round().min(u32::MAX as f32) as u32;
+        *self = Self { from: self.now(), to, ticks, done: 0, asked: self.asked.wrapping_add(1) };
+    }
+}
+
+/// How the game's song sounds as the game asked (`music:volume`, a part of
+/// its loudness, 1 as written; `music:muffle`, 0 clear to 1 very dull).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Mix {
+    pub volume: Glide,
+    pub muffle: Glide,
+}
+
+impl Default for Mix {
+    fn default() -> Self {
+        Self { volume: Glide::still(1.0), muffle: Glide::still(0.0) }
+    }
+}
+
+/// The shortest glides the audio makes, the loudness's (5 ms) and the
+/// muffle's (20 ms: the filter's sound blends in over its first quarter):
+/// a change asked "at once" does not click.
+const SHORTEST: (f32, f32) = (0.005, 0.02);
+
+/// The low-pass's cutoff for a muffle (0..1), on a musical curve: 300 Hz
+/// times 60 to the power (1 - amount)^1.5: 18 kHz (open) at 0, about
+/// 4.3 kHz at 0.25, 1.3 kHz at 0.5, 500 Hz at 0.75, 300 Hz at 1.
+pub fn muffle_cutoff(amount: f32) -> f32 {
+    300.0 * 60f32.powf((1.0 - amount.clamp(0.0, 1.0)).powf(1.5))
+}
+
+/// A value going straight to where it is asked, a step a sample.
+#[derive(Clone, Copy, Debug)]
+struct Ramp {
+    now: f32,
+    to: f32,
+    step: f32,
+}
+
+impl Ramp {
+    fn at(v: f32) -> Self {
+        Self { now: v, to: v, step: 0.0 }
+    }
+
+    /// Towards `to` over `seconds` (`shortest` at least).
+    fn toward(&mut self, to: f32, seconds: f32, shortest: f32) {
+        let samples = (seconds.max(shortest) * SAMPLE_RATE as f32).max(1.0);
+        (self.to, self.step) = (to, (to - self.now) / samples);
+    }
+
+    /// The value for this sample, and a step on.
+    fn next(&mut self) -> f32 {
+        let now = self.now;
+        if self.now != self.to {
+            let n = self.now + self.step;
+            self.now = if self.step == 0.0 || (self.step > 0.0) == (n >= self.to) { self.to } else { n };
+        }
+        now
+    }
+}
+
+/// The game's say over its song (`Mix`) as the player applies it: the
+/// loudness and the muffle each gliding sample by sample, and a low-pass
+/// of 12 dB an octave (the zero-delay state-variable filter, Butterworth:
+/// stable and without zipper noise however it glides) on each side.
+#[derive(Clone, Debug)]
+struct Bus {
+    level: Ramp,
+    muffle: Ramp,
+    /// The asks last followed (`Glide::asked`), the volume's and the muffle's.
+    asked: (u32, u32),
+    /// Each side's filter state, and its coefficient for the muffle it was
+    /// last worked out for.
+    low: [(f32, f32); 2],
+    g: (f32, f32),
+}
+
+impl Default for Bus {
+    fn default() -> Self {
+        Self { level: Ramp::at(1.0), muffle: Ramp::at(0.0), asked: (0, 0), low: [(0.0, 0.0); 2], g: (-1.0, 0.0) }
+    }
+}
+
+impl Bus {
+    /// One frame of the song through it.
+    fn apply(&mut self, l: f32, r: f32) -> (f32, f32) {
+        let level = self.level.next();
+        let amount = self.muffle.next();
+        let (l, r) = (l * level, r * level);
+        if self.g.0 != amount {
+            let cutoff = muffle_cutoff(amount).min(SAMPLE_RATE as f32 * 0.45);
+            self.g = (amount, (std::f32::consts::PI * cutoff / SAMPLE_RATE as f32).tan());
+        }
+        // Always run, so its state is the song's when a muffle begins.
+        let g = self.g.1;
+        let k = std::f32::consts::SQRT_2;
+        let a1 = 1.0 / (1.0 + g * (g + k));
+        let (a2, a3) = (g * a1, g * g * a1);
+        let low = |x: f32, s: &mut (f32, f32)| {
+            let v3 = x - s.1;
+            let v1 = a1 * s.0 + a2 * v3;
+            let v2 = s.1 + a2 * s.0 + a3 * v3;
+            *s = (2.0 * v1 - s.0, 2.0 * v2 - s.1);
+            v2
+        };
+        let [sl, sr] = &mut self.low;
+        let (wl, wr) = (low(l, sl), low(r, sr));
+        if amount <= 0.0 {
+            return (l, r);
+        }
+        // Blended in over the first quarter, so a muffle begins without a step.
+        let wet = (amount * 4.0).min(1.0);
+        (l + (wl - l) * wet, r + (wr - r) * wet)
+    }
+}
+
 /// Plays a song, sample by sample; runs in the audio thread.
 pub struct Player {
     song: Song,
@@ -657,6 +814,8 @@ pub struct Player {
     /// layer is now (0..1, moving a bar's worth a bar).
     pub intensity: f32,
     loud: Vec<f32>,
+    /// The game's say over how it sounds (`Mix`): neutral unless followed.
+    bus: Bus,
 }
 
 impl Player {
@@ -667,7 +826,29 @@ impl Player {
     pub fn new(song: Song, volume: f32) -> Self {
         let voices = (0..song.channels.len()).map(|i| Voice { seed: 0x1234_5678 ^ (i as u32 * 7919), ..Voice::default() }).collect();
         let loud = song.layers.iter().map(|_| 1.0).collect();
-        Self { song, voices, time: 0, duck: None, volume, rate: 1.0, carry: 0.0, since_jump: FADE_IN, intensity: 1.0, loud }
+        Self { song, voices, time: 0, duck: None, volume, rate: 1.0, carry: 0.0, since_jump: FADE_IN, intensity: 1.0, loud, bus: Bus::default() }
+    }
+
+    /// Sounds as the game's `mix` is now, gliding on where it still glides
+    /// (a song begun, or the game brought back).
+    pub fn start_mix(&mut self, mix: &Mix) {
+        self.bus.level = Ramp::at(mix.volume.now());
+        self.bus.muffle = Ramp::at(mix.muffle.now());
+        self.bus.asked = (mix.volume.asked, mix.muffle.asked);
+        self.bus.level.toward(mix.volume.to, mix.volume.left(), SHORTEST.0);
+        self.bus.muffle.toward(mix.muffle.to, mix.muffle.left(), SHORTEST.1);
+    }
+
+    /// Follows the game's `mix`: a new ask glides from where the song
+    /// sounds now to where it was asked, over what is left of its time.
+    pub fn follow_mix(&mut self, mix: &Mix) {
+        if mix.volume.asked != self.bus.asked.0 {
+            self.bus.level.toward(mix.volume.to, mix.volume.left(), SHORTEST.0);
+        }
+        if mix.muffle.asked != self.bus.asked.1 {
+            self.bus.muffle.toward(mix.muffle.to, mix.muffle.left(), SHORTEST.1);
+        }
+        self.bus.asked = (mix.volume.asked, mix.muffle.asked);
     }
 
     /// Sets how loud each layer is at once, for the tension it starts at
@@ -750,6 +931,7 @@ impl Player {
                 let want = if self.intensity >= from { 1.0 } else { 0.0 };
                 *loud = if *loud < want { (*loud + step).min(want) } else { (*loud - step).max(want) };
             }
+            let mut sum = [0.0f32; 2];
             for (ch, v) in self.voices.iter_mut().enumerate() {
                 let notes = &self.song.channels[ch];
                 while v.next < notes.len() && notes[v.next].start <= self.time {
@@ -841,9 +1023,13 @@ impl Player {
                 let fade = if self.since_jump < FADE_IN { self.since_jump as f32 / FADE_IN as f32 } else { 1.0 };
                 let gain = s * level * ins.volume * n.volume * self.volume * duck * fade * self.loud[ch];
                 let angle = (n.pan + 1.0) * std::f32::consts::FRAC_PI_4;
-                frame[0] += gain * angle.cos() * std::f32::consts::SQRT_2;
-                frame[1] += gain * angle.sin() * std::f32::consts::SQRT_2;
+                sum[0] += gain * angle.cos() * std::f32::consts::SQRT_2;
+                sum[1] += gain * angle.sin() * std::f32::consts::SQRT_2;
             }
+            // As loud and as clear as the game asked (`Mix`).
+            let (l, r) = self.bus.apply(sum[0], sum[1]);
+            frame[0] += l;
+            frame[1] += r;
             self.since_jump = self.since_jump.saturating_add(1);
             // A sample on, or a hair more or less when keeping time.
             self.carry += self.rate;

@@ -137,6 +137,89 @@ impl Layer {
     }
 }
 
+/// How a scatter rule turns what it sets down: any way (a game that turns
+/// things freely), in quarter turns, not at all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rotate {
+    Any,
+    Quarters,
+    None,
+}
+
+impl Rotate {
+    pub const ALL: [Rotate; 3] = [Rotate::Any, Rotate::Quarters, Rotate::None];
+
+    pub fn word(self) -> &'static str {
+        match self {
+            Rotate::Any => "any",
+            Rotate::Quarters => "quarters",
+            Rotate::None => "none",
+        }
+    }
+}
+
+/// What a scatter rule makes: pieces (set into the level by the editor's
+/// SCATTER, the owner's from then on) or voxels (baked into the land as
+/// the level is built).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScatterAs {
+    Pieces,
+    Voxels,
+}
+
+impl ScatterAs {
+    pub fn word(self) -> &'static str {
+        match self {
+            ScatterAs::Pieces => "pieces",
+            ScatterAs::Voxels => "voxels",
+        }
+    }
+}
+
+/// A rule that scatters models over the land (`[[terrain.scatter]]`):
+/// which (one, or several taken in turn by chance), how many on 100 by
+/// 100 voxels of ground that fits its conditions (the materials' words),
+/// how far apart at least, turned how, sunk how deep, as pieces or voxels.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Scatter {
+    pub models: Vec<String>,
+    pub density: f64,
+    pub above: Option<i32>,
+    pub below: Option<i32>,
+    pub steeper: Option<f64>,
+    pub flatter: Option<f64>,
+    pub blend: Option<f64>,
+    pub apart: Option<i32>,
+    pub rotate: Option<Rotate>,
+    pub sink: Option<i32>,
+    pub as_: Option<ScatterAs>,
+}
+
+impl Scatter {
+    pub fn new(model: &str) -> Self {
+        Self { models: vec![model.to_string()], density: 2.0, above: None, below: None, steeper: None, flatter: None, blend: None, apart: None, rotate: None, sink: None, as_: None }
+    }
+
+    pub fn rotate(&self) -> Rotate {
+        self.rotate.unwrap_or(Rotate::Quarters)
+    }
+
+    pub fn makes(&self) -> ScatterAs {
+        self.as_.unwrap_or(ScatterAs::Pieces)
+    }
+}
+
+/// Where a scatter rule sets one down: which of its models, the column
+/// (from the terrain's corner), the land's height there, turned how many
+/// degrees clockwise seen from above (quarters: 0, 90, 180, 270).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Placed {
+    pub model: usize,
+    pub column: IVec2,
+    pub ground: i32,
+    pub rotation: f64,
+}
+
 /// How deep a material goes when it does not say.
 pub const DEPTH: i32 = 3;
 /// A material's patches when it does not say, voxels across.
@@ -155,6 +238,10 @@ const SLOPE_REACH: i32 = 3;
 const WALL: i32 = 3;
 /// How far the bands of rock wander up and down at `rough = 1`, voxels.
 const BANDS: f64 = 2.0;
+/// How the bands lie when the file does not say: tilted 3 degrees,
+/// folded 0.4 (a level cake: `dip = 0`, `fold = 0`), no fault.
+pub const DIP: f64 = 3.0;
+pub const FOLD: f64 = 0.4;
 /// The most materials a terrain has.
 pub const MATERIALS: usize = 32;
 /// The highest point, voxels.
@@ -193,6 +280,16 @@ pub struct Terrain {
     /// The bands of rock STEP's walls are cut in, from the bottom up,
     /// again and again upward; none: terraces `terrace` high.
     pub layers: Vec<Layer>,
+    /// How the bands lie (with layers): tilted `dip` degrees toward
+    /// `dip_to` (degrees clockwise from north, else from the seed), folded
+    /// (`fold`, 0 to 1: broad folds, the layers swelling, thinning and a
+    /// thin one pinching out), broken along one line (`fault`, 0 to 1).
+    pub dip: Option<f64>,
+    pub dip_to: Option<f64>,
+    pub fold: Option<f64>,
+    pub fault: Option<f64>,
+    /// Rules that scatter models over it (`[[terrain.scatter]]`).
+    pub scatter: Vec<Scatter>,
     pub seed: Option<u64>,
     /// What lies under the materials (else the last material's color).
     pub under: Option<String>,
@@ -206,6 +303,8 @@ impl PartialEq for Terrain {
     fn eq(&self, o: &Self) -> bool {
         (self.spacing, self.at, self.cols, self.rows, &self.heights, &self.shapes) == (o.spacing, o.at, o.cols, o.rows, &o.heights, &o.shapes)
             && (self.terrace, self.rough, &self.roughness, &self.layers, self.seed, &self.under, &self.materials) == (o.terrace, o.rough, &o.roughness, &o.layers, o.seed, &o.under, &o.materials)
+            && self.scatter == o.scatter
+            && (self.dip, self.dip_to, self.fold, self.fault) == (o.dip, o.dip_to, o.fold, o.fault)
     }
 }
 
@@ -213,7 +312,7 @@ impl Terrain {
     /// A flat land `cols` by `rows` points, `height` high, grass.
     pub fn flat(spacing: i32, cols: i32, rows: i32, height: i32) -> Self {
         let n = (cols * rows) as usize;
-        Self { spacing, at: [0; 3], cols, rows, heights: vec![height; n], shapes: vec![Shape::Smooth; n], terrace: None, rough: None, roughness: None, layers: Vec::new(), seed: None, under: None, materials: vec![Material::new("#5c8a3a")], line: 0 }
+        Self { spacing, at: [0; 3], cols, rows, heights: vec![height; n], shapes: vec![Shape::Smooth; n], terrace: None, rough: None, roughness: None, layers: Vec::new(), scatter: Vec::new(), dip: None, dip_to: None, fold: None, fault: None, seed: None, under: None, materials: vec![Material::new("#5c8a3a")], line: 0 }
     }
 
     /// Its size in voxels across and deep.
@@ -278,8 +377,8 @@ impl Terrain {
         let amount = self.rough_at(c, fx, fy, i, j);
         let h = if amount > 0.0 { h + amount * self.relief(c) } else { h };
         let h = if step > 0.0 {
-            let shift = amount * self.band_shift(c);
-            h + (self.terraced(h + shift) - shift - h) * step
+            let shift = amount * self.band_shift(c) + self.strata_shift(c);
+            h + (self.terraced_at(h + shift, c) - shift - h) * step
         } else {
             h
         };
@@ -330,32 +429,78 @@ impl Terrain {
         BANDS * value_noise(self.seed.unwrap_or(0) ^ 0xBA4D, c, (2 * self.spacing).max(4))
     }
 
-    /// The band of rock height `h` (over the base) is in: its place among
-    /// the layers, its bottom and its thickness (the layers again and
-    /// again upward). None without layers.
-    pub fn layer_at(&self, h: f64) -> Option<(usize, f64, f64)> {
-        let period: i32 = self.layers.iter().map(|l| l.thick.max(1)).sum();
-        if self.layers.is_empty() || period <= 0 {
-            return None;
+    /// How far the layers' stack lies from level at column `c` (with
+    /// layers, else 0), voxels: the dip (a tilt toward `dip_to`, about the
+    /// land's middle), broad folds (`fold` times the thickest layer, many
+    /// points across), a fine waver (so no band's edge is ruler straight)
+    /// and the fault's step on one side of its line.
+    pub fn strata_shift(&self, c: IVec2) -> f64 {
+        if self.layers.is_empty() {
+            return 0.0;
         }
-        let round = (h / period as f64).floor();
-        let mut bottom = round * period as f64;
-        for (k, l) in self.layers.iter().enumerate() {
-            let thick = l.thick.max(1) as f64;
-            if h < bottom + thick || k + 1 == self.layers.len() {
-                return Some((k, bottom, thick));
+        let seed = self.seed.unwrap_or(0);
+        let mid = self.size().as_dvec2() / 2.0;
+        let at = glam::DVec2::new(c.x as f64 + 0.5, c.y as f64 + 0.5) - mid;
+        let way = |deg: f64| {
+            let r = deg * (std::f64::consts::PI / 180.0);
+            glam::DVec2::new(libm::sin(r), libm::cos(r))
+        };
+        let dip = self.dip.unwrap_or(DIP).clamp(0.0, 45.0);
+        let to = self.dip_to.unwrap_or((grain_hash(seed ^ 0xD1B, IVec3::ZERO) % 360) as f64);
+        let mut shift = libm::tan(dip * (std::f64::consts::PI / 180.0)) * at.dot(way(to));
+        let fold = self.fold.unwrap_or(FOLD).clamp(0.0, 1.0);
+        let thickest = self.layers.iter().map(|l| l.thick).max().unwrap_or(1).max(1) as f64;
+        if fold > 0.0 {
+            shift += fold * thickest * value_noise(seed ^ 0xF01D, c, (10 * self.spacing).max(8));
+            shift += fold * 2.0 * value_noise(seed ^ 0xFA1E, c, 6);
+        }
+        let fault = self.fault.unwrap_or(0.0).clamp(0.0, 1.0);
+        if fault > 0.0 {
+            let across = way((grain_hash(seed ^ 0xFA17, IVec3::ZERO) % 180) as f64 + 90.0);
+            if at.dot(across) > 0.0 {
+                shift += fault * thickest;
             }
-            bottom += thick;
         }
-        None
+        shift
+    }
+
+    /// Each layer's thickness at column `c`: as the file says, swelling and
+    /// thinning along the land with `fold` (up to a quarter either way at
+    /// 0.4), the thinner layers pinching out here and there.
+    pub fn thicknesses(&self, c: IVec2) -> Vec<f64> {
+        let fold = self.fold.unwrap_or(FOLD).clamp(0.0, 1.0);
+        let (thin, thick) = self.layers.iter().fold((i32::MAX, 0), |(lo, hi), l| (lo.min(l.thick), hi.max(l.thick)));
+        let seed = self.seed.unwrap_or(0);
+        self.layers
+            .iter()
+            .enumerate()
+            .map(|(k, l)| {
+                let t = l.thick.max(1) as f64;
+                if fold <= 0.0 {
+                    return t;
+                }
+                let swell = 1.0 + 0.6 * fold * value_noise(seed ^ (0x7C1C_0000 + k as u64), c, (6 * self.spacing).max(8));
+                let thinness = if thick > thin { (thick - l.thick) as f64 / (thick - thin) as f64 } else { 0.0 };
+                let pinch = (1.0 + fold * thinness * 4.0 * value_noise(seed ^ (0x9F1C_0000 + k as u64), c, (4 * self.spacing).max(8))).clamp(0.0, 1.0);
+                t * swell * pinch
+            })
+            .collect()
+    }
+
+    /// The band of rock a height of the layers' stack is in at column `c`
+    /// (`thicknesses`): its place among the layers, its bottom and its
+    /// thickness, the stack again and again upward. None without layers.
+    pub fn layer_at(&self, h: f64, c: IVec2) -> Option<(usize, f64, f64)> {
+        band(&self.thicknesses(c), h)
     }
 
     /// A height cut into terraces: of `terrace` (flat up to the last
     /// quarter of each rise, then a riser to the next, gentle at its foot
-    /// and steep at its top), or of the layers (each band its own riser: a
-    /// hard one a short wall over a little foot, a soft one a long slope).
-    pub fn terraced(&self, h: f64) -> f64 {
-        if let Some((k, bottom, thick)) = self.layer_at(h) {
+    /// and steep at its top), or of the layers at column `c` (each band its
+    /// own riser: a hard one a short wall over a little foot, a soft one a
+    /// long slope).
+    pub fn terraced_at(&self, h: f64, c: IVec2) -> f64 {
+        if let Some((k, bottom, thick)) = self.layer_at(h, c) {
             let hard = self.layers[k].hard.clamp(0.0, 1.0);
             let riser = 0.1 + 0.8 * (1.0 - hard);
             let f = ((h - bottom) / thick - (1.0 - riser)) / riser;
@@ -392,6 +537,62 @@ impl Terrain {
             }
         }
         (lo, hi)
+    }
+
+    /// Where scatter rule `k` sets its models down on the land `surface`:
+    /// one candidate in each square of a grid as fine as its density asks
+    /// (100 / sqrt(density) voxels), somewhere in it by chance from `seed`
+    /// and the rule's place (so no rows, no clumps), kept where the ground
+    /// fits its conditions (the materials' words, `blend` letting the
+    /// borders wander) and none of the rule's already kept lies nearer
+    /// than `apart`; in rows from the near left. The same on every system.
+    pub fn scatter(&self, k: usize, surface: &Surface) -> Vec<Placed> {
+        let Some(rule) = self.scatter.get(k) else { return Vec::new() };
+        if rule.models.is_empty() || rule.density <= 0.0 {
+            return Vec::new();
+        }
+        let seed = self.seed.unwrap_or(0) ^ (0x5CA7_7E40_0000 + k as u64);
+        let cell = 100.0 / rule.density.sqrt();
+        let size = surface.size;
+        let (nx, ny) = ((size.x as f64 / cell).ceil() as i32, (size.y as f64 / cell).ceil() as i32);
+        let blend = rule.blend.unwrap_or(0.0);
+        let apart = rule.apart.unwrap_or(0).max(0);
+        let mut kept: std::collections::BTreeMap<(i32, i32), Vec<IVec2>> = std::collections::BTreeMap::new();
+        let mut out = Vec::new();
+        for gy in 0..ny {
+            for gx in 0..nx {
+                let h = grain_hash(seed, IVec3::new(gx, gy, 0));
+                let fx = (h & 0xFFFF) as f64 / 65536.0;
+                let fy = ((h >> 16) & 0xFFFF) as f64 / 65536.0;
+                let c = IVec2::new(((gx as f64 + fx) * cell).floor() as i32, ((gy as f64 + fy) * cell).floor() as i32);
+                let Some(top) = surface.at(c).filter(|&t| t > 0) else { continue };
+                let j = if blend > 0.0 { blend / 2.0 * value_noise(seed ^ 0xB1E5, c, ((blend * 2.0).round() as i32).max(4)) } else { 0.0 };
+                let g = surface.slope(c);
+                let fits = rule.above.is_none_or(|a| top as f64 > a as f64 + j)
+                    && rule.below.is_none_or(|b| (top as f64) < b as f64 + j)
+                    && rule.steeper.is_none_or(|d| g > tan_degrees(d + j))
+                    && rule.flatter.is_none_or(|d| g < tan_degrees(d + j));
+                if !fits {
+                    continue;
+                }
+                if apart > 0 {
+                    let b = (c.x.div_euclid(apart), c.y.div_euclid(apart));
+                    let near = (-1..=1).any(|dy| (-1..=1).any(|dx| kept.get(&(b.0 + dx, b.1 + dy)).is_some_and(|v| v.iter().any(|o| (*o - c).length_squared() < apart * apart))));
+                    if near {
+                        continue;
+                    }
+                    kept.entry(b).or_default().push(c);
+                }
+                let model = ((h >> 32) % rule.models.len() as u64) as usize;
+                let rotation = match rule.rotate() {
+                    Rotate::Any => ((h >> 40) % 360) as f64,
+                    Rotate::Quarters => (((h >> 40) & 3) * 90) as f64,
+                    Rotate::None => 0.0,
+                };
+                out.push(Placed { model, column: c, ground: top, rotation });
+            }
+        }
+        out
     }
 
     /// Its colours in `world`'s palette, in the order of the materials
@@ -466,11 +667,19 @@ impl Terrain {
             for l in &self.layers {
                 entries.push(world.colour_as(l.rgb(), false, false).ok_or_else(|| anyhow!("the level has more than 255 colors with the terrain's layer {}", l.color))?);
             }
-            let shift = (0..columns).map(|k| {
+            let mut shift = Vec::with_capacity(columns);
+            let mut thick = Vec::with_capacity(columns * self.layers.len());
+            for k in 0..columns {
                 let c = column(k);
-                if self.step_at(c) >= 0.5 { self.roughness_at(c) * self.band_shift(c) } else { f64::NAN }
-            });
-            Some(Strata { entries, shift: shift.collect() })
+                if self.step_at(c) >= 0.5 {
+                    shift.push(self.roughness_at(c) * self.band_shift(c) + self.strata_shift(c));
+                    thick.extend(self.thicknesses(c));
+                } else {
+                    shift.push(f64::NAN);
+                    thick.extend(std::iter::repeat_n(0.0, self.layers.len()));
+                }
+            }
+            Some(Strata { entries, shift, thick })
         };
         // Each column: what can be seen of it from the side (the lowest of
         // it and its four neighbours; the land's outer edge, cut, shows
@@ -482,7 +691,6 @@ impl Terrain {
         // slope), over a peak or a hollow the mean. A wall's face (a voxel
         // under its column's top, open to the side over a drop of `WALL`
         // or more) is as steep as its drop.
-        let slope = |a: f64, b: f64| if a * b > 0.0 { a.abs().min(b.abs()) } else if a == 0.0 || b == 0.0 { 0.0 } else { ((a + b) / 2.0).abs() };
         let mut seen = Vec::with_capacity(columns);
         let mut allows = Vec::with_capacity(columns);
         let mut faces = Vec::with_capacity(columns);
@@ -491,11 +699,7 @@ impl Terrain {
                 let k = (x + y * size.x) as usize;
                 let low = top(x, y).min(top(x - 1, y)).min(top(x + 1, y)).min(top(x, y - 1)).min(top(x, y + 1));
                 seen.push(low);
-                let r = SLOPE_REACH;
-                let h = near(x, y);
-                let gx = slope(near(x + r, y) - h, h - near(x - r, y)) / r as f64;
-                let gy = slope(near(x, y + r) - h, h - near(x, y - r)) / r as f64;
-                let g = (gx * gx + gy * gy).sqrt();
+                let g = surface.slope(IVec2::new(x, y));
                 let bits_at = |g: f64| {
                     let mut bits = 0u32;
                     for (m, mat) in self.materials.iter().enumerate() {
@@ -516,9 +720,27 @@ impl Terrain {
             }
         }
         let corner = origin + IVec3::from(self.at);
-        let layers = self.layers.iter().map(|l| (l.thick.max(1) as f64, l.hard)).collect();
-        Ok(Painter { corner, surface, seen, allows, faces, mats, under, seed, strata, layers })
+        Ok(Painter { corner, surface, seen, allows, faces, mats, under, seed, strata })
     }
+}
+
+/// The band a height is in, the layers `thick` (from the bottom up) again
+/// and again upward: its place, its bottom, its thickness (a layer pinched
+/// out to nothing is no band). None without a band of any thickness.
+fn band(thick: &[f64], h: f64) -> Option<(usize, f64, f64)> {
+    let period: f64 = thick.iter().sum();
+    if thick.is_empty() || period < 0.5 {
+        return None;
+    }
+    let mut bottom = (h / period).floor() * period;
+    let last = thick.iter().rposition(|&t| t > 0.0)?;
+    for (k, &t) in thick.iter().enumerate() {
+        if t > 0.0 && (h < bottom + t || k == last) {
+            return Some((k, bottom, t));
+        }
+        bottom += t;
+    }
+    None
 }
 
 /// Catmull-Rom through `p1` (t 0) and `p2` (t 1), `p0` and `p3` beyond.
@@ -580,6 +802,21 @@ impl Surface {
     pub fn at(&self, c: IVec2) -> Option<i32> {
         (c.x >= 0 && c.y >= 0 && c.x < self.size.x && c.y < self.size.y).then(|| self.top[(c.x + c.y * self.size.x) as usize])
     }
+
+    /// The slope at column `c` (rise over run, a tangent) as materials and
+    /// scatter rules see it: along each axis the height `SLOPE_REACH`
+    /// voxels either way; where the land goes on the same way, the
+    /// gentler side (a tread by a riser is flat, a single contour step no
+    /// slope), over a peak or a hollow the mean.
+    pub fn slope(&self, c: IVec2) -> f64 {
+        let near = |x: i32, y: i32| self.top[(x.clamp(0, self.size.x - 1) + y.clamp(0, self.size.y - 1) * self.size.x) as usize] as f64;
+        let side = |a: f64, b: f64| if a * b > 0.0 { a.abs().min(b.abs()) } else if a == 0.0 || b == 0.0 { 0.0 } else { ((a + b) / 2.0).abs() };
+        let r = SLOPE_REACH;
+        let h = near(c.x, c.y);
+        let gx = side(near(c.x + r, c.y) - h, h - near(c.x - r, c.y)) / r as f64;
+        let gy = side(near(c.x, c.y + r) - h, h - near(c.x, c.y - r)) / r as f64;
+        (gx * gx + gy * gy).sqrt()
+    }
 }
 
 /// A material as its palette entries.
@@ -601,6 +838,9 @@ struct Paint {
 struct Strata {
     entries: Vec<u8>,
     shift: Vec<f64>,
+    /// Each column's layers' thicknesses (`Terrain::thicknesses`), the
+    /// layers' count a column.
+    thick: Vec<f64>,
 }
 
 /// What paints a terrain into a world's voxels (`Terrain::painter`).
@@ -617,7 +857,6 @@ pub struct Painter {
     under: u8,
     seed: u64,
     strata: Option<Strata>,
-    layers: Vec<(f64, f64)>,
 }
 
 impl Painter {
@@ -661,7 +900,8 @@ impl Painter {
                 && self.surface.top[c] - self.seen[c] >= WALL
                 && hz > self.seen[c]
             {
-                return st.entries[self.band_of(hz as f64 - 0.5 + st.shift[c])];
+                let n = st.entries.len();
+                return st.entries[band(&st.thick[c * n..c * n + n], hz as f64 - 0.5 + st.shift[c]).map_or(0, |b| b.0)];
             }
             let e = &paint.entries[paint.tones.as_ref().map_or(0, |t| t[c] as usize)];
             if !paint.grain {
@@ -670,19 +910,6 @@ impl Painter {
             return e[(grain_hash(self.seed, q) % 3) as usize];
         }
         self.under
-    }
-
-    /// The layer a height is in (the layers again and again upward).
-    fn band_of(&self, h: f64) -> usize {
-        let period: f64 = self.layers.iter().map(|l| l.0).sum();
-        let mut rest = h - (h / period).floor() * period;
-        for (k, l) in self.layers.iter().enumerate() {
-            if rest < l.0 {
-                return k;
-            }
-            rest -= l.0;
-        }
-        self.layers.len() - 1
     }
 
     /// The chunks the land lies in: its columns from the world's floor to
@@ -720,7 +947,7 @@ type Grid<'a> = (Vec<Vec<String>>, usize, &'a Item);
 /// The `[terrain]` table of a level's text, every mistake with its line.
 pub(crate) fn read(r: &Reader, item: &Item) -> Result<Terrain> {
     let t = item.as_table_like().ok_or_else(|| r.fail(item.span(), "terrain must be a table: [terrain]"))?;
-    r.only(t, &["spacing", "at", "heights", "shapes", "terrace", "rough", "roughness", "seed", "under", "layer", "material"], "[terrain]")?;
+    r.only(t, &["spacing", "at", "heights", "shapes", "terrace", "rough", "roughness", "dip", "dip_to", "fold", "fault", "seed", "under", "layer", "material", "scatter"], "[terrain]")?;
     // Its line: its header's.
     let first = t.iter().filter_map(|(_, v)| v.span()).map(|s| s.start).min().unwrap_or(0);
     let line = r.src[..first].rfind("[terrain]").map_or(0, |at| vvx::line_of(r.src, at));
@@ -942,7 +1169,78 @@ pub(crate) fn read(r: &Reader, item: &Item) -> Result<Terrain> {
     {
         return Err(r.fail(mitem.span(), format!("the terrain's last material ({}) has conditions: the last one paints whatever no other does, so it has none", last.color)));
     }
-    Ok(Terrain { spacing, at, cols: cols as i32, rows: nrows as i32, heights, shapes, terrace, rough, roughness, layers, seed, under, materials, line })
+    let mut scatter = Vec::new();
+    if let Some(item) = t.get("scatter") {
+        for sc in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "scatter must be tables: [[terrain.scatter]]"))? {
+            r.only(sc, &["model", "models", "density", "above", "below", "steeper", "flatter", "blend", "apart", "rotate", "sink", "as"], "a terrain's scatter")?;
+            let sline = sc.iter().filter_map(|(_, v)| v.span()).map(|s| vvx::line_of(r.src, s.start)).min().unwrap_or(0);
+            let models = match (sc.get("model"), sc.get("models")) {
+                (Some(i), None) => vec![i.as_str().filter(|s| !s.is_empty()).ok_or_else(|| r.fail(i.span(), "model must be a model's file in quotes"))?.to_string()],
+                (None, Some(i)) => {
+                    let wrong = || r.fail(i.span(), "models must be models' files in quotes, [\"fir.vvx\", \"fir2.vvx\"]");
+                    let list = i.as_array().filter(|a| !a.is_empty()).ok_or_else(wrong)?;
+                    list.iter().map(|v| v.as_str().filter(|s| !s.is_empty()).map(str::to_string)).collect::<Option<Vec<_>>>().ok_or_else(wrong)?
+                }
+                (Some(_), Some(i)) => return Err(r.fail(i.span(), "a scatter has model or models, not both")),
+                (None, None) => bail!("line {sline}: a terrain's scatter has no model = \"NAME.vvx\""),
+            };
+            let density = match sc.get("density") {
+                Some(i) => {
+                    let v = exact(i, "density")?;
+                    if !(0.0..=10_000.0).contains(&v) {
+                        return Err(r.fail(i.span(), "density must be how many on 100 by 100 voxels, 0 or more"));
+                    }
+                    v
+                }
+                None => bail!("line {sline}: a terrain's scatter has no density = N (how many on 100 by 100 voxels of ground that fits)"),
+            };
+            let whole = |key: &str, lo: i32| -> Result<Option<i32>> {
+                sc.get(key)
+                    .map(|i| match i.as_integer() {
+                        Some(v) if v >= lo as i64 && v <= HIGHEST as i64 => Ok(v as i32),
+                        _ => Err(r.fail(i.span(), format!("{key} must be a whole number of voxels"))),
+                    })
+                    .transpose()
+            };
+            let degrees = |key: &str| -> Result<Option<f64>> {
+                sc.get(key)
+                    .map(|i| {
+                        let v = exact(i, key)?;
+                        if !(0.0..90.0).contains(&v) {
+                            return Err(r.fail(i.span(), format!("{key} must be degrees of slope, 0 to less than 90")));
+                        }
+                        Ok(v)
+                    })
+                    .transpose()
+            };
+            let rotate = match sc.get("rotate") {
+                None => None,
+                Some(i) => Some(Rotate::ALL.into_iter().find(|w| Some(w.word()) == i.as_str()).ok_or_else(|| r.fail(i.span(), "rotate must be \"any\", \"quarters\" or \"none\""))?),
+            };
+            let as_ = match sc.get("as") {
+                None => None,
+                Some(i) => Some([ScatterAs::Pieces, ScatterAs::Voxels].into_iter().find(|w| Some(w.word()) == i.as_str()).ok_or_else(|| r.fail(i.span(), "as must be \"pieces\" or \"voxels\""))?),
+            };
+            let blend = sc.get("blend").map(|i| exact(i, "blend")).transpose()?;
+            scatter.push(Scatter { models, density, above: whole("above", -HIGHEST)?, below: whole("below", -HIGHEST)?, steeper: degrees("steeper")?, flatter: degrees("flatter")?, blend, apart: whole("apart", 0)?, rotate, sink: whole("sink", 0)?, as_ });
+        }
+    }
+    let ranged = |key: &str, lo: f64, hi: f64, why: &str| -> Result<Option<f64>> {
+        t.get(key)
+            .map(|i| {
+                let v = exact(i, key)?;
+                if !(lo..=hi).contains(&v) {
+                    return Err(r.fail(i.span(), format!("{key} must be {why}")));
+                }
+                Ok(v)
+            })
+            .transpose()
+    };
+    let dip = ranged("dip", 0.0, 45.0, "degrees the bands tilt, 0 (level) to 45")?;
+    let dip_to = ranged("dip_to", -360.0, 720.0, "degrees clockwise from north, the way the bands tilt down")?;
+    let fold = ranged("fold", 0.0, 1.0, "between 0 (flat bands) and 1")?;
+    let fault = ranged("fault", 0.0, 1.0, "between 0 (none) and 1")?;
+    Ok(Terrain { spacing, at, cols: cols as i32, rows: nrows as i32, heights, shapes, terrace, rough, roughness, layers, scatter, dip, dip_to, fold, fault, seed, under, materials, line })
 }
 
 /// A grid of the points as the file writes it: the far row first, each
@@ -1028,12 +1326,44 @@ pub fn fields(t: &Terrain) -> Vec<(&'static str, String)> {
     out.extend(t.terrace.map(|v| ("terrace", v.to_string())));
     out.extend(t.rough.map(|v| ("rough", number(v))));
     out.extend(roughness_text(t).map(|r| ("roughness", r)));
+    out.extend(t.dip.map(|v| ("dip", number(v))));
+    out.extend(t.dip_to.map(|v| ("dip_to", number(v))));
+    out.extend(t.fold.map(|v| ("fold", number(v))));
+    out.extend(t.fault.map(|v| ("fault", number(v))));
     out.extend(t.seed.map(|s| ("seed", s.to_string())));
     out.extend(t.under.as_ref().map(|u| ("under", vvx::quoted(u))));
     out
 }
 
 /// The whole of `[terrain]` and its materials.
+/// The fields of a scatter rule as its table writes them, in order.
+pub fn scatter_fields(s: &Scatter) -> Vec<(&'static str, String)> {
+    let mut out = if s.models.len() == 1 {
+        vec![("model", vvx::quoted(&s.models[0]))]
+    } else {
+        vec![("models", format!("[{}]", s.models.iter().map(|m| vvx::quoted(m)).collect::<Vec<_>>().join(", ")))]
+    };
+    out.push(("density", number(s.density)));
+    out.extend(s.above.map(|v| ("above", v.to_string())));
+    out.extend(s.below.map(|v| ("below", v.to_string())));
+    out.extend(s.steeper.map(|v| ("steeper", number(v))));
+    out.extend(s.flatter.map(|v| ("flatter", number(v))));
+    out.extend(s.blend.map(|v| ("blend", number(v))));
+    out.extend(s.apart.map(|v| ("apart", v.to_string())));
+    out.extend(s.rotate.map(|v| ("rotate", vvx::quoted(v.word()))));
+    out.extend(s.sink.map(|v| ("sink", v.to_string())));
+    out.extend(s.as_.map(|v| ("as", vvx::quoted(v.word()))));
+    out
+}
+
+pub fn scatter_text(s: &Scatter) -> String {
+    let mut out = "[[terrain.scatter]]   # models over the land: as pieces (the editor's SCATTER) or voxels\n".to_string();
+    for (k, v) in scatter_fields(s) {
+        out += &format!("{k} = {v}\n");
+    }
+    out
+}
+
 pub fn text(t: &Terrain) -> String {
     let mut out = "[terrain]             # heights in voxels, the far row first; shapes . SMOOTH ^ LINEAR # STEP\n".to_string();
     for (k, v) in fields(t) {
@@ -1044,6 +1374,9 @@ pub fn text(t: &Terrain) -> String {
     }
     for m in &t.materials {
         out += &format!("\n{}", material_text(m));
+    }
+    for s in &t.scatter {
+        out += &format!("\n{}", scatter_text(s));
     }
     out
 }
@@ -1196,12 +1529,18 @@ mod tests {
         t.materials.insert(1, Material { steeper: Some(45.0), depth: Some(2), tones: vec!["#6d6458".into()], patch: Some(9), ..Material::new("#7d7468") });
         t.roughness = Some((0..t.heights.len()).map(|i| (i % 10) as u8).collect());
         t.layers = vec![Layer { thick: 6, hard: 0.9, color: "#b8603a".into() }, Layer { thick: 10, hard: 0.2, color: "#d98a5a".into() }];
+        t.scatter = vec![
+            Scatter { below: Some(70), flatter: Some(30.0), apart: Some(14), sink: Some(1), ..Scatter::new("fir.vvx") },
+            Scatter { models: vec!["rock.vvx".into(), "rock2.vvx".into()], density: 0.5, steeper: Some(20.5), blend: Some(4.0), rotate: Some(Rotate::Any), as_: Some(ScatterAs::Voxels), ..Scatter::new("rock.vvx") },
+        ];
         let text = text(&t);
         assert!(text.contains("  4   4   6  10  14  12\n  4   5   8  14 120  16\n"), "{text}");
         assert!(text.contains("  .   .   .   ^   ^   .\n  .   .   #   #   ^   .\n"), "{text}");
         assert!(text.contains("roughness = \"\"\"\n  6   7   8   9   0   1\n  0   1   2   3   4   5\n"), "{text}");
         assert!(text.contains("[[terrain.layer]]     # from the bottom up, again and again upward\nthick = 6\nhard = 0.9\ncolor = \"#b8603a\"\n"), "{text}");
         assert!(text.contains("colors = [\"#7d7468\", \"#6d6458\"]\nsteeper = 45\ndepth = 2\npatch = 9\n") && text.contains("blend = 8\n"), "{text}");
+        assert!(text.contains("[[terrain.scatter]]   # models over the land: as pieces (the editor's SCATTER) or voxels\nmodel = \"fir.vvx\"\ndensity = 2\nbelow = 70\nflatter = 30\napart = 14\nsink = 1\n"), "{text}");
+        assert!(text.contains("models = [\"rock.vvx\", \"rock2.vvx\"]\ndensity = 0.5\nsteeper = 20.5\nblend = 4\nrotate = \"any\"\nas = \"voxels\"\n"), "{text}");
         let back = read_text(&text).unwrap();
         assert_eq!(back, t);
     }
@@ -1224,6 +1563,40 @@ mod tests {
         }
         println!("built: {:#x}", world.content_hash());
         assert_eq!(world.content_hash(), BEFORE);
+    }
+
+    /// A scatter rule spreads its models evenly (no clumps, no rows), never
+    /// nearer than `apart`, only where the ground fits; the same every
+    /// time, the seed's own.
+    #[test]
+    fn scatter_spreads_by_its_rules() {
+        let mut t = ramp('.');
+        t.scatter = vec![Scatter { models: vec!["a.vvx".into(), "b.vvx".into()], below: Some(60), flatter: Some(60.0), apart: Some(6), ..Scatter::new("a.vvx") }];
+        t.scatter[0].density = 400.0;
+        t.seed = Some(4);
+        let s = t.surface();
+        let placed = t.scatter(0, &s);
+        assert!(placed.len() > 30, "{}", placed.len());
+        assert_eq!(placed, t.scatter(0, &s), "the same every time");
+        assert_ne!(placed, Terrain { seed: Some(5), ..t.clone() }.scatter(0, &s));
+        for p in &placed {
+            assert!(p.ground < 60 && p.ground == s.at(p.column).unwrap(), "below 60 on the land: {p:?}");
+        }
+        for (i, a) in placed.iter().enumerate() {
+            for b in &placed[i + 1..] {
+                assert!((a.column - b.column).length_squared() >= 36, "apart: {a:?} {b:?}");
+            }
+        }
+        // Even over the ground that fits (x up to about 52 of 80): the
+        // left and right halves of it alike, near and far alike.
+        let (left, right) = (placed.iter().filter(|p| p.column.x < 26).count(), placed.iter().filter(|p| p.column.x >= 26).count());
+        let (near, far) = (placed.iter().filter(|p| p.column.y < 24).count(), placed.iter().filter(|p| p.column.y >= 24).count());
+        assert!(left.abs_diff(right) * 3 < placed.len() && near.abs_diff(far) * 3 < placed.len(), "{left} {right} {near} {far}");
+        // No rows: the columns' x and y take many values.
+        let xs: std::collections::BTreeSet<i32> = placed.iter().map(|p| p.column.x).collect();
+        assert!(xs.len() * 2 > placed.len(), "no rows: {} values of x for {}", xs.len(), placed.len());
+        assert!(placed.iter().any(|p| p.model == 1) && placed.iter().any(|p| p.model == 0), "both models");
+        assert!(placed.iter().all(|p| p.rotation % 90.0 == 0.0), "quarters");
     }
 
     /// A ramp from 0 to 90 along x, everywhere SMOOTH unless `sign` says.
@@ -1267,6 +1640,8 @@ mod tests {
     fn layers_cut_hard_walls_and_soft_slopes() {
         let mut t = ramp('#');
         t.layers = vec![Layer { thick: 10, hard: 1.0, color: "#aa0000".into() }, Layer { thick: 10, hard: 0.0, color: "#00aa00".into() }];
+        // (Level bands, a cake, to measure each band's riser.)
+        (t.dip, t.fold) = (Some(0.0), Some(0.0));
         let s = t.surface();
         let row: Vec<i32> = (0..80).map(|x| s.at(IVec2::new(x, 20)).unwrap()).collect();
         // In a hard band (0 to 10, 20 to 30 ...): the land rises from its
@@ -1284,6 +1659,42 @@ mod tests {
         assert_eq!(rgb(p.voxel(IVec3::new(wall, 20, lower + 1))), [0xaa, 0, 0], "the hard band's wall in its color");
         let ledge = (0..80).find(|&x| row[x] == 20 && row[x + 1] == 20 && row[x + 2] == 20).unwrap() as i32 + 1;
         assert_eq!(rgb(p.voxel(IVec3::new(ledge, 20, 19))), [255; 3], "the ledge: the material its flatness fits");
+    }
+
+    /// The layers lie as rock does: tilted by the dip (the same band
+    /// higher on one side of the land than the other), folded, swelling
+    /// and thinning, a thin one pinched out somewhere; the same every
+    /// time, the seed's own; `dip = 0, fold = 0` flat as a cake; a fault
+    /// steps the bands on one side of its line. A terrain without layers
+    /// has nothing of it.
+    #[test]
+    fn bands_dip_fold_and_pinch_out() {
+        let mut t = Terrain::flat(16, 40, 30, 60);
+        t.layers = vec![Layer { thick: 12, hard: 0.9, color: "#9c4f2e".into() }, Layer { thick: 3, hard: 0.2, color: "#d9a46a".into() }, Layer { thick: 10, hard: 0.8, color: "#b8603a".into() }];
+        (t.seed, t.dip_to, t.fold) = (Some(3), Some(90.0), Some(0.6));
+        let (west, east) = (IVec2::new(20, 240), IVec2::new(620, 240));
+        let tilt = t.strata_shift(east) - t.strata_shift(west);
+        let want = libm::tan(3.0 * std::f64::consts::PI / 180.0) * 600.0;
+        assert!((tilt - want).abs() < 12.0 + 4.0, "the bands tilt {tilt} across, the dip {want}");
+        let along: Vec<f64> = (0..20).map(|k| t.strata_shift(IVec2::new(320, k * 24))).collect();
+        assert!(along.iter().fold(0.0f64, |m, v| m.max((v - along[0]).abs())) > 1.0, "folded along the dip's strike too: {along:?}");
+        let thick: Vec<Vec<f64>> = (0..40 * 30).map(|k| t.thicknesses(IVec2::new(k % 40 * 16, k / 40 * 16))).collect();
+        assert!(thick.iter().any(|t| t[1] == 0.0), "the thin layer pinches out somewhere");
+        assert!(thick.iter().any(|t| t[1] > 2.0), "and is there elsewhere");
+        let (lo, hi) = thick.iter().fold((f64::MAX, 0.0f64), |(lo, hi), t| (lo.min(t[0]), hi.max(t[0])));
+        assert!(lo < 11.0 && hi > 13.0, "the thick one swells and thins: {lo} to {hi}");
+        assert_eq!(t.surface(), t.surface(), "the same every time");
+        let other = Terrain { seed: Some(4), ..t.clone() };
+        assert_ne!(other.strata_shift(IVec2::new(300, 300)), t.strata_shift(IVec2::new(300, 300)));
+        // A cake, a fault.
+        let cake = Terrain { dip: Some(0.0), fold: Some(0.0), ..t.clone() };
+        assert!((0..50).all(|k| cake.strata_shift(IVec2::new(k * 12, k * 9)) == 0.0 && cake.thicknesses(IVec2::new(k * 12, k * 9)) == [12.0, 3.0, 10.0]));
+        let faulted = Terrain { fault: Some(1.0), ..cake.clone() };
+        let steps: std::collections::BTreeSet<i64> = (0..50).map(|k| faulted.strata_shift(IVec2::new(k * 12, k * 9)) as i64).collect();
+        assert_eq!(steps.into_iter().collect::<Vec<_>>(), [0, 12], "the bands one layer up on one side of the fault");
+        // Without layers: nothing.
+        let bare = Terrain { layers: Vec::new(), ..t.clone() };
+        assert_eq!(bare.strata_shift(east), 0.0);
     }
 
     /// A gently sloping terraced plateau (STEP, uneven, layers): its treads

@@ -576,6 +576,68 @@ end
 "##,
     },
     Topic {
+        title: "MUSIC THROUGH A WALL",
+        text: "One song plays all the time; only how it sounds changes. music:volume(level, seconds) makes it quieter, a part of its own loudness from 0 (silent) to 1 (as loud as it is), and music:muffle(amount, seconds) makes it dull, as heard through a wall or a door, from 0 (clear) to 1 (very dull). Each glides there over the seconds (0.3 unless you say; 0 at once) and stays until you change it, from level to level too. Here the song is quiet and dull outside the house and clear inside it (the house is an area of levels/street.toml), changing over a second as you walk in and out. Your game's sounds stay clear.",
+        conf: r##"c.world.size = nil             -- no world made in code: the level is levels/street.toml
+c.audio.music = { "music/street.mml" }"##,
+        files: &[
+            ("levels/street.toml", r##"format = "voxcade level 1"
+size = [64, 48, 16]
+
+[[thing]]
+name = "ground"
+model = "street/ground.vvx"
+at = [32, 24, 0]
+solid = true
+
+[[place]]
+name = "start"
+at = [32, 4, 1]
+facing = "north"
+
+[[area]]
+name = "house"
+at = [20, 12, 0]
+size = [24, 24, 16]
+"##),
+            ("street/ground.vvx", "format = \"voxcade voxel 1\"\nsize = [64, 48, 1]\n\n[palette]\na = { color = \"#4f5a3c\" }\nh = { color = \"#8a6a4a\" }\n\n[[frame]]\nlayers = \"\"\"\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *12\naaaaaaaaaaaaaaaaaaaahhhhhhhhhhhhhhhhhhhhhhhhaaaaaaaaaaaaaaaaaaaa *24\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *12\n\"\"\"\n"),
+            ("music/street.mml", "#tempo 100\n@pad triangle attack=0.05 release=0.3 volume=0.5\n@bass square duty=0.25 volume=0.3\nA: @pad o4 l2 c e g e\nB: @bass o2 l4 c c g g\n"),
+        ],
+        code: r##"-- The song of c.audio.music plays on; where the player stands says how
+-- it sounds: outside, quiet and dull through the house's walls; inside,
+-- loud and clear.
+function on_level_start(how)
+  level.state.inside = false
+  music:volume(0.5, 0)   -- at once: the level begins outside
+  music:muffle(0.7, 0)
+end
+
+function on_tick()
+  for _, p in ipairs(level:players()) do
+    p:walk(p.input.dir, 40)
+  end
+  local inside = level.areas.house:holds(player)
+  if inside ~= level.state.inside then
+    level.state.inside = inside
+    if inside then
+      music:volume(1, 1)   -- over a second
+      music:muffle(0, 1)
+    else
+      music:volume(0.5, 1)
+      music:muffle(0.7, 1)
+    end
+  end
+end
+
+function on_draw(frame)
+  for _, p in ipairs(level:players()) do
+    frame:model(p.seat == 2 and "hero2.vvx" or "hero.vvx", p)
+  end
+  frame:text(level.state.inside and "INSIDE" or "OUTSIDE", 4, 4)
+end
+"##,
+    },
+    Topic {
         title: "BUILD THE LEVEL",
         text: "A level made in code (c.world.size in conf.lua) starts empty. Fill boxes of voxels when it begins, from one corner to the other: a color as \"#rrggbb\", or nil to empty them again.",
         conf: r##"c.world.size = { 96, 64, 24 }"##,

@@ -2697,7 +2697,8 @@ impl Editor {
     /// A step taken: written (`save`, which looks at the disk first) and
     /// kept to take back; as laid on the file, or dropped, where another
     /// program changed the file meanwhile.
-    fn commit(&mut self, step: Step) {
+    fn commit(&mut self, mut step: Step) {
+        self.follow_land(&mut step);
         match self.save(&step) {
             disk::Saved::Kept => {
                 self.past.push(step);

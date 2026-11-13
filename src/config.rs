@@ -528,6 +528,28 @@ impl PropConfig {
     }
 }
 
+/// The settings that are a colour (`color`), section and name.
+pub const COLORS: [(&str, &str); 6] = [("light", "sun_color"), ("light", "sky"), ("light", "reflection_horizon"), ("light", "reflection"), ("effects", "haze_color"), ("effects", "outline_color")];
+
+/// What a colour must be, said when it is not.
+pub const COLOR_IS: &str = "a color is three numbers from 0 to 1, { 0.4, 0.6, 0.8 }, or \"#rrggbb\"";
+
+/// A colour as three numbers from 0 to 1 (`{ 0.4, 0.6, 0.8 }`) or as
+/// text, `"#rrggbb"`, as a level's file writes it (`COLORS`).
+fn color<'de, D: serde::Deserializer<'de>>(d: D) -> Result<[f32; 3], D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Written {
+        Numbers([f32; 3]),
+        Text(String),
+    }
+    let wrong = || serde::de::Error::custom(COLOR_IS);
+    match Written::deserialize(d).map_err(|_: D::Error| wrong())? {
+        Written::Numbers(c) => Ok(c),
+        Written::Text(t) => crate::grid::hex(&t).map(|c| c.map(|v| f32::from(v) / 255.0)).ok_or_else(wrong),
+    }
+}
+
 /// Degrees in quarter turns: 0, 90, 180, 270 (or another multiple of 90).
 fn quarter_degrees<'de, D: serde::Deserializer<'de>>(d: D) -> Result<i32, D::Error> {
     let degrees = i32::deserialize(d)?;
@@ -678,17 +700,21 @@ pub struct LightConfig {
     /// The sunlight's colour and strength, 0..1 per channel: white unless
     /// set (warm at dusk, a pale blue for the moon). A game's
     /// `frame:daylight` sets it for one picture.
+    #[serde(deserialize_with = "color")]
     pub sun_color: [f32; 3],
     /// Light that reaches every face, 0..1.
     pub ambient: f32,
     /// How much a shadow darkens sunlit faces, 0..1.
     pub shadow: f32,
     /// Background colour, 0..1 per channel.
+    #[serde(deserialize_with = "color")]
     pub sky: [f32; 3],
     /// The sky metal mirrors: its colour at the horizon and overhead, 0..1
     /// per channel (below the horizon it mirrors the ground, in the haze's
     /// colour).
+    #[serde(deserialize_with = "color")]
     pub reflection_horizon: [f32; 3],
+    #[serde(deserialize_with = "color")]
     pub reflection: [f32; 3],
     /// A streak of light sweeping over metal now and then, this bright
     /// (0: none): metal reads as metal even where the sun cannot glint in it.
@@ -830,6 +856,7 @@ pub struct EffectsConfig {
     pub lights: f32,
     /// Haze towards the far edge of the view, 0..1, and its colour (0..1).
     pub haze: f32,
+    #[serde(deserialize_with = "color")]
     pub haze_color: [f32; 3],
     /// Blur at the top and bottom of the screen, a miniature look, 0..1.
     pub tilt_shift: f32,
@@ -842,6 +869,7 @@ pub struct EffectsConfig {
     /// and its colour (0..1). Hidden behind what stands in front, drawn
     /// where one part of a model stands before another too.
     pub outline: f32,
+    #[serde(deserialize_with = "color")]
     pub outline_color: [f32; 3],
 }
 

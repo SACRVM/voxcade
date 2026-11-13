@@ -1399,13 +1399,18 @@ impl<G: Game> Session<G> {
     /// else the player's; None without music or when its file has a
     /// mistake (reported).
     pub fn music(&self) -> Option<audio::music::Player> {
-        if let Some(cue) = self.game.music() {
-            let mut player = self.song(self.cfg.audio.music.files().get(cue.song)?)?;
-            player.seek(player.at_beat(cue.beats));
-            player.start_at(cue.intensity);
-            return Some(player);
-        }
-        self.song(self.song_file()?)
+        let mut player = match self.game.music() {
+            Some(cue) => {
+                let mut player = self.song(self.cfg.audio.music.files().get(cue.song)?)?;
+                player.seek(player.at_beat(cue.beats));
+                player.start_at(cue.intensity);
+                player
+            }
+            None => self.song(self.song_file()?)?,
+        };
+        // As loud and as muffled as the game asked, whichever song it is.
+        player.start_mix(&self.game.music_mix());
+        Some(player)
     }
 
     /// Whether the game plays a song of its own choice (`music:play`):
@@ -1416,7 +1421,8 @@ impl<G: Game> Session<G> {
 
     /// Hands the music to the mixer: the song anew when it changed, else
     /// the game's own song kept in time with its clock (held while the
-    /// game is, `held`: a pause, a fade). Whether a song began.
+    /// game is, `held`: a pause, a fade); either as loud and as muffled as
+    /// the game asks (`Game::music_mix`). Whether a song began.
     pub fn feed_music(&mut self, mixer: &mut Mixer, held: bool) -> bool {
         let began = std::mem::take(&mut self.music_changed);
         if began {
@@ -1426,6 +1432,9 @@ impl<G: Game> Session<G> {
         {
             mixer.follow_music((cue.beats * 60.0 / t.tempo as f64 * audio::SAMPLE_RATE as f64) as u64);
             mixer.music_intensity(cue.intensity);
+        }
+        if !began {
+            mixer.music_mix(&self.game.music_mix());
         }
         mixer.hold_music(held && self.steers_music());
         began

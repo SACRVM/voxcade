@@ -33,7 +33,21 @@ pub fn run(files: &Files, cfg: &mut GameConfig) -> Result<()> {
     sandbox.call_start::<()>(&conf, c.clone())?;
     let value = from_lua(&Value::Table(c), Some(&defaults), "c")?;
     renamed(&value)?;
+    colors(&value)?;
     *cfg = value.try_into().map_err(|e: toml::de::Error| anyhow::anyhow!("conf.lua: {}", e.message()))?;
+    Ok(())
+}
+
+/// A colour that is neither three numbers nor "#rrggbb" is a mistake
+/// naming it.
+fn colors(c: &toml::Value) -> Result<()> {
+    for (section, name) in crate::config::COLORS {
+        let Some(v) = c.get(section).and_then(|t| t.get(name)) else { continue };
+        let numbers = v.as_array().is_some_and(|a| a.len() == 3 && a.iter().all(|n| n.is_float() || n.is_integer()));
+        if !numbers && !v.as_str().is_some_and(|t| crate::grid::hex(t).is_some()) {
+            bail!("conf.lua: c.{section}.{name}: {}", crate::config::COLOR_IS);
+        }
+    }
     Ok(())
 }
 
@@ -172,6 +186,17 @@ mod tests {
         assert!(e.contains("c.things.gem.hit"), "{e}");
         assert!(conf("function conf(c) c.title = os.time() end").is_err(), "the sandbox let os in");
         assert!(conf("x = 1").unwrap_err().to_string().contains("conf(c)"));
+        let e = conf("function conf(c) c.light.sky = 'blue' end").unwrap_err().to_string();
+        assert!(e.contains("c.light.sky: a color is three numbers from 0 to 1"), "{e}");
+    }
+
+    /// A color is three numbers from 0 to 1 or "#rrggbb", as a level's
+    /// file writes it.
+    #[test]
+    fn a_color_is_numbers_or_hex() {
+        let cfg = conf("function conf(c)\n  c.light.sky = '#20304a'\n  c.light.sun_color = { 1, 0.9, 0.8 }\n  c.effects.outline_color = '#000000'\nend\n").unwrap();
+        assert_eq!(cfg.light.sky, [32.0 / 255.0, 48.0 / 255.0, 74.0 / 255.0]);
+        assert_eq!((cfg.light.sun_color, cfg.effects.outline_color), ([1.0, 0.9, 0.8], [0.0; 3]));
     }
 
     /// The settings' names from before Voxcade took other tools' words are

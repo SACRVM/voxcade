@@ -3072,6 +3072,10 @@ impl<K: Kit> Game for LuaGame<K> {
         self.kit().and_then(|k| k.summary())
     }
 
+    fn music_mix(&self) -> crate::audio::music::Mix {
+        self.stage.music.mix
+    }
+
     fn music(&self) -> Option<crate::game::MusicCue> {
         let m = &self.stage.music;
         Some(crate::game::MusicCue { song: m.song?, beats: m.beats(&self.stage.songs)?, intensity: m.intensity })
@@ -3082,7 +3086,7 @@ impl<K: Kit> Game for LuaGame<K> {
         self.stage.songs = Arc::new(songs.to_vec());
         let m = &mut self.stage.music;
         if m.song.is_some_and(|s| s >= songs.len()) || m.next.is_some_and(|(s, _)| s.is_some_and(|s| s >= songs.len())) {
-            *m = host::Music { intensity: m.intensity, ..host::Music::default() };
+            *m = host::Music { intensity: m.intensity, mix: m.mix, ..host::Music::default() };
         }
     }
 

@@ -635,7 +635,10 @@ impl Shown {
     fn build(&mut self, ed: &Editor) -> Result<()> {
         let listed = ed.level.blocks.len();
         self.world = match ed.scope {
-            Scope::Level => crate::grid::build(&ed.level, &ed.blocks[..listed], 0, 0, &[])?,
+            Scope::Level => {
+                let models = |name: &str| crate::vox::load_model(&ed.dir.join(name));
+                crate::grid::build(&ed.level, &ed.blocks[..listed], 0, 0, &[], &models)?
+            }
             // A figure's part turned at rest is drawn as cubes where it
             // stands (`frame`), not as the world (which cannot turn).
             Scope::Frame(_) if ed.rest_view() != Mat4::IDENTITY => World::new(IVec3::ONE, [[0; 4]; 256]),
@@ -673,9 +676,13 @@ impl Shown {
     /// again, their chunks to mesh anew. False where it cannot be so.
     fn update_land(&mut self, ed: &Editor) -> bool {
         let (Some(was), Some(now), Some(surface)) = (&self.terrain, &ed.level.terrain, &mut self.surface) else { return false };
+        // (Baked scatter voxels are built whole.)
         if ed.level.has_grid()
+            || now.scatter.iter().any(|r| r.makes() == crate::terrain::ScatterAs::Voxels)
+            || was.scatter != now.scatter
             || (was.spacing, was.at, was.cols, was.rows, was.terrace, was.rough, was.seed) != (now.spacing, now.at, now.cols, now.rows, now.terrace, now.rough, now.seed)
             || (&was.under, &was.materials, &was.layers, was.roughness.is_some()) != (&now.under, &now.materials, &now.layers, now.roughness.is_some())
+            || (was.dip, was.dip_to, was.fold, was.fault) != (now.dip, now.dip_to, now.fold, now.fault)
         {
             return false;
         }
@@ -1278,6 +1285,19 @@ pub enum Action {
     /// moved, a color); a material's tones (one set: material, tone,
     /// color; one more; the last out).
     Reroll,
+    LandRow(super::model::land::LandRow),
+    /// The terrain's scatter rules: one more, one out, a row moved; a
+    /// rule's pieces set down or taken away; its model (its place in the
+    /// game's models), how it turns, what it makes, a condition on or off.
+    AddScatter,
+    RemoveScatter(u8),
+    MoveScatter(u8, u8),
+    Scatter(u8),
+    ClearScatter(u8),
+    ScatterModel(u8, u16),
+    ScatterRotate(u8, crate::terrain::Rotate),
+    ScatterAs(u8, crate::terrain::ScatterAs),
+    ScatterCondition(u8, u8, bool),
     AddLayer,
     RemoveLayer(u8),
     MoveLayer(u8, u8),
@@ -1645,6 +1665,20 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::MoveMaterial(from, to) => ed.move_material(from, to),
         Action::LandMode(m) => ed.land.mode = m,
         Action::Reroll => ed.reroll(),
+        Action::LandRow(r) => ed.land.row = Some(r),
+        Action::AddScatter => ed.add_scatter(),
+        Action::RemoveScatter(k) => ed.remove_scatter(k as usize),
+        Action::MoveScatter(a, b) => ed.move_scatter(a as usize, b as usize),
+        Action::Scatter(k) => ed.scatter_pieces(k as usize),
+        Action::ClearScatter(k) => ed.clear_scatter(k as usize),
+        Action::ScatterModel(k, m) => {
+            if let Some(model) = ed.model_choices().get(m as usize).cloned() {
+                ed.scatter_model(k as usize, model);
+            }
+        }
+        Action::ScatterRotate(k, r) => ed.scatter_rotate(k as usize, r),
+        Action::ScatterAs(k, a) => ed.scatter_as(k as usize, a),
+        Action::ScatterCondition(k, w, on) => ed.scatter_condition(k as usize, w, on),
         Action::AddLayer => ed.add_layer(),
         Action::RemoveLayer(k) => ed.remove_layer(k),
         Action::MoveLayer(a, b) => ed.move_layer(a, b),
