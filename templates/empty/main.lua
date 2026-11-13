@@ -2,6 +2,9 @@
 -- changes while playing goes into a state: world.state for the run,
 -- level.state for the level being played and its things, player.state
 -- (p.state: each player's), thing.state; voxcade api lists what there is.
+-- The IDE's HELP has whole examples to copy. When this walks about to
+-- your liking, the platformer template (NEW GAME) is the next step: it
+-- adds jumping, enemies, pickups and a goal.
 
 -- The ground in layers, from the bottom up: each a colour and how many
 -- voxels thick. Whatever digs or blasts into it lays the next one bare.

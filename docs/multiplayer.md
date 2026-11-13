@@ -373,6 +373,28 @@ it says so. What remains is the evening on the home network.
   can come in later; Photon Quantum runs rollback over a relaying server,
   so the star is no dead end.
 
+#### Who is trusted (the trust model, as built)
+
+- On a LAN the network is trusted. A datagram carries the session's key in
+  clear (8 bytes in every header); any machine that can send UDP to the
+  host's port can say HELLO and take a free seat, and anyone who can see
+  the traffic can read the key. Nothing is signed or encrypted. A guest
+  also runs the whole game, so it can read everything and cheat in its own
+  inputs. That is right for a living room; do not host on a network you do
+  not trust.
+- Across the internet iroh's connection is encrypted and authenticated
+  between the two machines, and the host lets each machine in by the four
+  signs both screens show (or by the game's code at the matchmaker): the
+  code is the gate.
+- Session keys and machine ids come from the operating system's random
+  source (`udp::random`, `getrandom`), the old mix of clock and process
+  only if the system has none.
+- A peer or the network can never make a program panic: every state a
+  datagram can reach ends the session with a message (the fuzz test sends
+  20,000 broken datagrams).
+- For 0.7: a join secret on the LAN too (a short code folded into HELLO and
+  the key, an HMAC on datagrams), resync after a desync, rollback (stage 5).
+
 #### Hosting, joining, finding
 
 - **HOST and JOIN** are on the title of a game of several (`c.players`

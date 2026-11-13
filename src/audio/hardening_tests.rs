@@ -137,3 +137,32 @@ fn a_stolen_voice_fades_out_instead_of_cutting() {
     mixer.play("gun", &long, 1.0, 0.0);
     assert_eq!(mixer.voices.iter().filter(|v| v.fade.is_none()).count(), super::MAX_SAME);
 }
+
+/// `@x square wave=foo` was answered "did you mean 'wave'?", the same word
+/// again; the waves are bare words, and a slip at one finds it.
+#[test]
+fn a_wave_option_says_the_waves() {
+    let message = error("@x square wave=foo\nA: @x c");
+    assert!(message.contains("bare word") && message.contains("sine"), "{message}");
+    assert!(error("@x squar\nA: @x c").contains("did you mean 'square'"));
+    assert!(error("@x filter=lowpas\nA: @x c").contains("lowpass, bandpass or highpass"));
+    for text in ["@x sustian=0.5\nA: c", "@x atack=1\nA: c", "@x wav=1\nA: c"] {
+        let message = error(text);
+        let word = message.split('\'').nth(1).unwrap().to_string();
+        assert!(!message.contains(&format!("did you mean '{word}'")), "{message}");
+    }
+    assert!(error("#inst lead square\nA: c").contains("@name"));
+}
+
+/// An empty song played as 0 seconds of nothing and a channel `Z:` with
+/// no notes the same: a typo that empties a song is a plain mistake.
+#[test]
+fn an_empty_song_and_a_nonsense_channel_are_refused() {
+    for text in ["", "; only a comment\n", "#tempo 120\n@x square\n"] {
+        assert!(error(text).contains("no channel"), "{text:?}");
+    }
+    assert!(error("A: c\nZ:\n").contains("line 2: channel Z has no notes"));
+    assert!(error("A: c\n1: c d\n").contains("a channel is a letter"));
+    assert!(parse("A: c d e\nB: r1\n").is_ok());
+    assert!(super::music::Song::empty().names.is_empty());
+}

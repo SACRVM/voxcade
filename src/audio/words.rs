@@ -263,7 +263,7 @@ mod tests {
         assert_eq!(names.len(), count, "a word twice in the register");
         // The words MML's reader takes: its options' arms, the waves as
         // the word `wave`.
-        let source = include_str!("music.rs");
+        let source = include_str!("music/parse.rs");
         let body = &source[source.find("fn parse_instrument").unwrap()..source.find("fn expand").unwrap()];
         let mut taken: Vec<&str> = Vec::new();
         for line in body.lines().filter(|l| l.starts_with("            \"")) {

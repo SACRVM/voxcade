@@ -278,7 +278,7 @@ impl Host for Platformer {
     /// script's things as theirs.
     fn bounce(&mut self, id: Id, speed: f32) -> Result<(), String> {
         let hero = self.hero == Some(id) || (id.raw() == u32::MAX && self.hero.is_some());
-        let id = if hero { self.hero.expect("a hero") } else { id };
+        let id = if hero { self.hero.unwrap_or(id) } else { id };
         let Some(t) = self.things.get_mut(id) else { return Err("it is gone".into()) };
         match &mut t.brain {
             Brain::Hero(h) => {
@@ -301,7 +301,7 @@ impl Host for Platformer {
     /// and those whose rules are off.
     fn launch(&mut self, id: Id, vel: Vec3) -> Result<(), String> {
         let hero = self.hero == Some(id) || (id.raw() == u32::MAX && self.hero.is_some());
-        let id = if hero { self.hero.expect("a hero") } else { id };
+        let id = if hero { self.hero.unwrap_or(id) } else { id };
         let Some(t) = self.things.get_mut(id) else { return Err("it is gone".into()) };
         match (&t.off, &mut t.brain) {
             (None, Brain::Hero(h)) => {
@@ -322,7 +322,7 @@ impl Host for Platformer {
     /// moves it) or on again; the hero's until the next level.
     fn enable(&mut self, id: Id, behavior: &str, on: bool) -> Result<(), String> {
         let hero = self.hero == Some(id) || (id.raw() == u32::MAX && self.hero.is_some());
-        let id = if hero { self.hero.expect("a hero") } else { id };
+        let id = if hero { self.hero.unwrap_or(id) } else { id };
         let Some(t) = self.things.get_mut(id) else { return Err("it is gone".into()) };
         let k = &self.rules.kinds[t.kind];
         let has = kinds::behavior_name(&k.rules);
@@ -344,7 +344,7 @@ impl Host for Platformer {
     /// script's things any way.
     fn face(&mut self, id: Id, way: Vec3) -> Result<(), String> {
         let hero = self.hero == Some(id) || (id.raw() == u32::MAX && self.hero.is_some());
-        let id = if hero { self.hero.expect("a hero") } else { id };
+        let id = if hero { self.hero.unwrap_or(id) } else { id };
         let Some(t) = self.things.get_mut(id) else { return Err("it is gone".into()) };
         match &t.brain {
             Brain::Hero(_) if way.x != 0.0 => {
