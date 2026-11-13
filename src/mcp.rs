@@ -329,8 +329,10 @@ fn call_with(name: &str, args: &Value, remote: bool, lock_for: impl Fn(&Path) ->
             command.extend(begin());
             let (ok, said) = run(&command)?;
             let start = said.find("\n{").map_or(0, |i| i + 1);
-            let state: Value = match serde_json::from_str(&said[start..]) {
-                Ok(v) if ok => v,
+            let state: Value = match serde_json::from_str::<Value>(&said[start..]) {
+                // (A halted game ends `inspect` with 1 and still prints its
+                // state: shown as the game stopped, not as a failed call.)
+                Ok(v) if ok || !v["halted"].is_null() => v,
                 _ => return Err(said),
             };
             if name == "things" {
