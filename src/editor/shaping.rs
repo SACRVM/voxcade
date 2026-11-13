@@ -306,6 +306,10 @@ fn parts(ui: &mut egui::Ui, ed: &Editor, view: &View, figure: &Figure, name: &st
     if whole.inner.clicked() {
         shown.clicked.push(Action::WholeFigure);
     }
+    // A part's row dropped on the figure whole's: refused, said.
+    if let Some(src) = whole.inner.dnd_release_payload::<PartDrag>() {
+        shown.clicked.push(Action::Reparent(src.0, usize::MAX));
+    }
     for &(p, depth) in &figure.tree {
         let depth = depth + 1;
         let part = &figure.parts()[p];
@@ -353,10 +357,24 @@ fn parts(ui: &mut egui::Ui, ed: &Editor, view: &View, figure: &Figure, name: &st
                 ui.spacing_mut().item_spacing.x = 0.0;
                 ui.add_space(depth as f32 * 12.0);
                 zones::hide_mark(ui, hidden, Action::Hide(p), shown);
-                list_row(ui, Sort::Part, None, &part.name, 0.0, chosen, hidden, None, zones::warning_word(&warnings), &tip)
+                zones::list_row_sensed(ui, Sort::Part, None, &part.name, 0.0, chosen, hidden, None, zones::warning_word(&warnings), &tip, egui::Sense::click_and_drag())
             })
             .inner;
         shown.rows.push((part.name.clone(), r.rect));
+        // Dragged onto another part's row: hung there (the row under the
+        // pointer lit, a line under it); nothing else a drag does.
+        r.dnd_set_drag_payload(PartDrag(p));
+        if let Some(src) = r.dnd_hover_payload::<PartDrag>()
+            && src.0 != p
+        {
+            ui.painter().rect_stroke(r.rect, 3.0, egui::Stroke::new(1.5, crate::gui::ACCENT), egui::StrokeKind::Inside);
+            ui.painter().line_segment([r.rect.left_bottom(), r.rect.right_bottom()], egui::Stroke::new(2.0, crate::gui::ACCENT));
+        }
+        if let Some(src) = r.dnd_release_payload::<PartDrag>()
+            && src.0 != p
+        {
+            shown.clicked.push(Action::Reparent(src.0, p));
+        }
         if r.secondary_clicked() {
             let at = r.interact_pointer_pos().unwrap_or(r.rect.right_top());
             shown.clicked.push(Action::PartMenu(p, [at.x, at.y]));
@@ -435,6 +453,10 @@ fn inspector(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thu
     }
 }
 
+/// A part's row being dragged (to hang it on the row it is dropped on).
+#[derive(Clone, Copy, Debug)]
+struct PartDrag(usize);
+
 /// TRIM: the box cut down to what the voxels need (the figure whole's,
 /// a part's own, a model of frames'); quiet when there is nothing to cut.
 fn trim_button(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
@@ -469,10 +491,17 @@ fn selection_rows(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
             shown.clicked.push(action);
         }
     };
+    // What one does most first (the owner's words): a part of them,
+    // away, another color.
+    let refused = ed.cannot_part();
+    row(ui, "", "", |ui| {
+        cell(ui, shown, "NEW PART", TEXT, 1, Action::SelNewPart, refused, "A part of their own, hanging on the part most came from (named to type)");
+        cell(ui, shown, "REMOVE", TEXT, 1, Action::SelRemove, None, "Take them away  Del");
+        cell(ui, shown, "PAINT", TEXT, 1, Action::SelPaint, None, "The color held onto them");
+    });
     row(ui, "", "", |ui| {
         // (DUPLICATE is wider than a column: two.)
         cell(ui, shown, "DUPLICATE", TEXT, 2, Action::SelDuplicate, None, "A copy in place: the next move leaves these where they are");
-        cell(ui, shown, "REMOVE", TEXT, 1, Action::SelRemove, None, "Take them away  Del");
     });
     for (word, flip) in [("FLIP", true), ("ROTATE", false)] {
         row(ui, word, if flip { "Mirrored across the selection's box" } else { "A quarter turn about its middle" }, |ui| {
@@ -483,9 +512,7 @@ fn selection_rows(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
         });
     }
     if ed.figure.is_some() {
-        let refused = ed.cannot_part();
-        row(ui, "PART", "", |ui| {
-            cell(ui, shown, "NEW PART", TEXT, 1, Action::SelNewPart, refused, "A part of their own, hanging on the part most came from (named to type)");
+        row(ui, "", "", |ui| {
             // MOVE TO PART…: the parts to choose from.
             let parts: Vec<String> = ed.figure.as_ref().map_or_else(Vec::new, |f| f.parts().iter().map(|p| p.name.clone()).collect());
             ui.add_enabled_ui(refused.is_none(), |ui| {
@@ -507,7 +534,6 @@ fn selection_rows(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
         cell(ui, shown, "COPY", TEXT, 1, Action::SelCopy, None, "Ctrl+C");
         let none = ed.clipboard.is_none().then_some("Nothing copied yet");
         cell(ui, shown, "PASTE", TEXT, 1, Action::SelPaste, none, "Where it lay, selected, to move  Ctrl+V");
-        cell(ui, shown, "PAINT", TEXT, 1, Action::SelPaint, None, "The color held onto them");
     });
 }
 
@@ -516,6 +542,23 @@ fn selection_rows(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
 fn shaping(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
     slice_rows(ui, ed, shown);
     tools(ui, ed, shown);
+    // SELECT: what its rectangle does (Ctrl while dragging: ADD; Alt:
+    // REMOVE), whether it reaches through, none selected.
+    if ed.resting_tool() == Tool::Select {
+        use super::model::selection::SelectMode;
+        row(ui, "", "", |ui| {
+            for (word, mode, tip) in [("NEW", SelectMode::New, "The rectangle's voxels instead"), ("ADD", SelectMode::Add, "The rectangle's voxels besides  Ctrl"), ("REMOVE", SelectMode::Remove, "The rectangle's voxels out  Alt")] {
+                small(ui, shown, word, Action::SelectMode(mode), Some(ed.select_mode == mode), tip);
+            }
+        });
+        row(ui, "", "", |ui| {
+            small(ui, shown, "THROUGH", Action::SelectThrough, Some(ed.select_through), "Every voxel behind the rectangle (off: only those seen)");
+            let r = ui.add_enabled(ed.selection().is_some(), egui::Button::new(RichText::new("CLEAR").small()));
+            if r.on_hover_text("None selected  Esc").clicked() {
+                shown.clicked.push(Action::SelClear);
+            }
+        });
+    }
     let fresh = ed.fresh.filter(|_| ed.drawing.is_none());
     row(ui, "", "", |ui| {
         if ed.resting_tool() == Tool::Box || fresh.is_some() {
@@ -587,7 +630,7 @@ fn tools(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
                 Tool::Sphere => "The same, round",
                 Tool::Pick => "Take up a color (a block) from what is clicked; Shift held does the same",
                 Tool::Move => "Drag a thing to another place",
-                Tool::Select => "Drag a box over voxels, or double click: the color connected. Ctrl: add. Its arrows move them, a right click for the rest",
+                Tool::Select => "Drag a rectangle on the screen: the voxels of the active parts in it. Double click: the color connected",
                 Tool::Fill => "The connected voxels of the color clicked take the held one. Ctrl: every voxel of that color",
             };
             let tip = key.map_or(tip.to_string(), |k| format!("{tip}  {k}"));
@@ -919,16 +962,16 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<zones::Entry> {
         }
         MenuOn::Selection => {
             let part = ed.cannot_part().map(str::to_string);
-            out.push(("DUPLICATE".into(), Action::SelDuplicate, None, None));
+            out.push(("NEW PART".into(), Action::SelNewPart, None, part.clone()));
             out.push(("REMOVE".into(), Action::SelRemove, Some("Del"), None));
             out.push(("PAINT".into(), Action::SelPaint, None, None));
+            out.push(("DUPLICATE".into(), Action::SelDuplicate, None, None));
             for (a, w) in ["X", "Y", "Z"].iter().enumerate() {
                 out.push((format!("FLIP {w}"), Action::SelFlip(a as u8), None, None));
             }
             for (a, w) in ["X", "Y", "Z"].iter().enumerate() {
                 out.push((format!("ROTATE {w}"), Action::SelRotate(a as u8), None, None));
             }
-            out.push(("NEW PART".into(), Action::SelNewPart, None, part.clone()));
             out.push(("MOVE TO PART…".into(), Action::SelToPartMenu([0.0, 0.0]), None, part));
             out.push(("COPY".into(), Action::SelCopy, Some("Ctrl+C"), None));
             out.push(("PASTE".into(), Action::SelPaste, Some("Ctrl+V"), ed.clipboard.is_none().then(|| "Nothing copied yet".to_string())));

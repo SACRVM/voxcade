@@ -384,8 +384,15 @@ pub fn sign(painter: &egui::Painter, at: Pos2, sort: Sort, colour: Color32) {
 /// word before it; chosen, marked. Its tooltip is `tip`.
 #[allow(clippy::too_many_arguments)]
 pub fn list_row(ui: &mut egui::Ui, sort: Sort, pic: Option<(egui::TextureId, Vec2)>, label: &str, indent: f32, chosen: bool, quiet: bool, dot: Option<Color32>, warn: Option<&str>, tip: &str) -> egui::Response {
+    list_row_sensed(ui, sort, pic, label, indent, chosen, quiet, dot, warn, tip, egui::Sense::click())
+}
+
+/// `list_row` taking what `sense` says (a row dragged too: a part's onto
+/// another).
+#[allow(clippy::too_many_arguments)]
+pub fn list_row_sensed(ui: &mut egui::Ui, sort: Sort, pic: Option<(egui::TextureId, Vec2)>, label: &str, indent: f32, chosen: bool, quiet: bool, dot: Option<Color32>, warn: Option<&str>, tip: &str, sense: egui::Sense) -> egui::Response {
     let height = if pic.is_some() { 40.0 } else { ui.text_style_height(&TextStyle::Body) + 8.0 };
-    let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), egui::Sense::click());
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), sense);
     let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
     if chosen || response.hovered() {
         painter.rect_filled(rect, 3.0, if chosen { crate::gui::ROW_OPEN } else { crate::gui::ROW_HOVERED });

@@ -41,14 +41,14 @@ impl Selection {
     }
 }
 
-/// The box SELECT drew last, while + and - may still make it deeper (the
-/// selection before it, which Ctrl added to).
-#[derive(Clone, Debug, PartialEq)]
-pub struct SelectBox {
-    pub lo: IVec3,
-    pub size: IVec3,
-    pub way: IVec3,
-    pub base: Option<Selection>,
+/// What SELECT's rectangle does to the selection: NEW (it replaces it),
+/// ADD (adds to it), REMOVE (takes out of it).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SelectMode {
+    #[default]
+    New,
+    Add,
+    Remove,
 }
 
 /// The selection's arrows grabbed: the file (or block) and the selection
@@ -370,7 +370,6 @@ impl Editor {
     /// No selection.
     pub fn clear_selection(&mut self) {
         self.selection = None;
-        self.select_box = None;
     }
 
     /// The filled voxels in `lo..=hi` of the grid shown selected (`add`:
@@ -416,33 +415,98 @@ impl Editor {
         self.selection = Some(sel);
     }
 
-    /// SELECT's footprint let go: what lies in its box selected (`add`:
-    /// besides), the box kept for + and -.
-    pub fn select_drawn(&mut self, add: bool) {
-        let Some((lo, hi)) = self.form_box().filter(|_| self.drawing.is_some()) else { return };
-        let Some(d) = self.drawing.take() else { return };
-        let base = self.selection().filter(|_| add).cloned();
-        let way = super::deep_way(d.normal, d.cut);
-        self.depth = (hi - lo + 1)[super::axis_of(way)];
-        self.select_box_cells(lo, hi, add);
-        self.select_box = Some(SelectBox { lo, size: hi - lo + 1, way, base });
+    /// The voxels a rectangle on the screen can take: of the parts that
+    /// are active (the part chosen alone; with the figure whole, every
+    /// part shown), what the slice leaves; each with its owner, its cell
+    /// and where it is drawn in the grid shown.
+    fn selectable(&self) -> Vec<(Owner, [i32; 3], Vec3)> {
+        let mut out = Vec::new();
+        for (o, off) in self.owners_shown() {
+            if let (Scope::Figure, Owner::Frame(f), Some(fig)) = (self.scope, o, &self.figure)
+                && fig.frames.iter().position(|&k| k == f).is_some_and(|p| fig.hidden[p])
+            {
+                continue;
+            }
+            let Some(b) = self.owner_block(o) else { continue };
+            for k in (0..b.voxels.len()).filter(|&k| b.voxels[k] != 0) {
+                let c = b.at(k);
+                if self.cut(c + off) {
+                    continue;
+                }
+                out.push((o, c.to_array(), self.shown_at(o, c.to_array())));
+            }
+        }
+        out
     }
 
-    /// The + or - key with SELECT: the box drawn last a voxel deeper or
-    /// shallower, its voxels selected again; whether there was one.
-    pub fn deepen_select(&mut self, by: i32) -> bool {
-        let Some(mut b) = self.select_box.take() else { return false };
-        let a = super::axis_of(b.way);
-        let deeper = (b.size[a] + by).clamp(1, 256);
-        if b.way[a] < 0 {
-            b.lo[a] -= deeper - b.size[a];
+    /// SELECT's rectangle let go: from `from` to `to` (points of a screen
+    /// `size` big, as `view_proj` draws the grid shown) the voxels whose
+    /// middles it holds, of the active parts; `through` every one behind
+    /// it, else only those one sees (none nearer of an active part over
+    /// it); by `mode`. A rectangle of no size (a click): the voxel seen
+    /// there, or (NEW) none selected.
+    pub fn select_rect(&mut self, view_proj: glam::Mat4, size: glam::Vec2, from: glam::Vec2, to: glam::Vec2, mode: SelectMode, through: bool) {
+        let all = self.selectable();
+        let place = |p: Vec3| -> Option<(glam::Vec2, f32)> {
+            let c = view_proj * p.extend(1.0);
+            (c.w > 1e-4).then(|| (glam::Vec2::new((c.x / c.w + 1.0) / 2.0 * size.x, (1.0 - c.y / c.w) / 2.0 * size.y), c.w))
+        };
+        let placed: Vec<(Owner, [i32; 3], glam::Vec2, f32)> = all.iter().filter_map(|&(o, c, p)| place(p).map(|(s, w)| (o, c, s, w))).collect();
+        // How big a voxel shows: a voxel's own width on the screen.
+        let voxel = all.first().and_then(|&(_, _, p)| Some(place(p + Vec3::X)?.0.distance(place(p)?.0).max(place(p + Vec3::Z)?.0.distance(place(p)?.0)))).unwrap_or(4.0).max(1.0);
+        let click = from.distance(to) < super::super::handles::TRAVEL;
+        let (lo, hi) = if click { (from - voxel / 2.0, from + voxel / 2.0) } else { (from.min(to), from.max(to)) };
+        let through = through && !click;
+        // Seen: the nearest of the active voxels where it shows (by cells
+        // of the screen a voxel big).
+        let cell = |s: glam::Vec2| (s / voxel).floor().as_ivec2();
+        let mut nearest: std::collections::HashMap<glam::IVec2, f32> = std::collections::HashMap::new();
+        if !through {
+            for &(_, _, s, w) in &placed {
+                let e = nearest.entry(cell(s)).or_insert(f32::MAX);
+                *e = e.min(w);
+            }
         }
-        b.size[a] = deeper;
-        self.depth = deeper;
-        self.selection = b.base.clone();
-        self.select_box_cells(b.lo, b.lo + b.size - 1, b.base.is_some());
-        self.select_box = Some(b);
-        true
+        let mut taken: BTreeMap<Owner, BTreeSet<[i32; 3]>> = BTreeMap::new();
+        let mut best: Option<(Owner, [i32; 3], f32)> = None;
+        for &(o, c, s, w) in &placed {
+            if s.cmplt(lo).any() || s.cmpgt(hi).any() {
+                continue;
+            }
+            if !through && w > nearest.get(&cell(s)).copied().unwrap_or(f32::MAX) + 0.75 {
+                continue;
+            }
+            if click {
+                // A click: the one nearest the eye under it.
+                if best.is_none_or(|(_, _, d)| w < d) {
+                    best = Some((o, c, w));
+                }
+                continue;
+            }
+            taken.entry(o).or_default().insert(c);
+        }
+        if let Some((o, c, _)) = best {
+            taken.entry(o).or_default().insert(c);
+        }
+        let mut sel = self.selection().cloned().unwrap_or(Selection { scope: self.scope, cells: BTreeMap::new(), copy: false });
+        match mode {
+            SelectMode::New => sel.cells = taken,
+            SelectMode::Add => {
+                for (o, cells) in taken {
+                    sel.cells.entry(o).or_default().extend(cells);
+                }
+            }
+            SelectMode::Remove => {
+                for (o, cells) in taken {
+                    if let Some(had) = sel.cells.get_mut(&o) {
+                        had.retain(|c| !cells.contains(c));
+                    }
+                }
+            }
+        }
+        sel.cells.retain(|_, c| !c.is_empty());
+        sel.copy = false;
+        self.selection = (!sel.cells.is_empty()).then_some(sel);
     }
 
     /// The selection's arrows: at its middle, X, Y and Z, the heads only;

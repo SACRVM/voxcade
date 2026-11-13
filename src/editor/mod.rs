@@ -124,6 +124,9 @@ pub struct ShotOptions {
     /// order (remove, paint, duplicate, flip-x|y|z, rotate-x|y|z,
     /// new-part, move-to:PART, copy, paste, move:X,Y,Z).
     pub select: Option<(glam::IVec3, glam::IVec3)>,
+    /// `--marquee X0,Y0,X1,Y1`: SELECT's rectangle dragged there (points
+    /// of the shot), its outline drawn.
+    pub marquee: Option<[f32; 4]>,
     pub selection_ops: Vec<String>,
 }
 
@@ -590,7 +593,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     let (mut input, mut thumbs, mut drawn) = (crate::gui::input::Input::default(), panels::Thumbs::default(), panels::Shown::default());
     let mut last = None;
     // With --held or --stamp twice: the shape set, then all drawn again.
-    let again = opts.stamp || opts.held.is_some() || opts.menu.is_some() || opts.hover.is_some() || opts.click.is_some();
+    let again = opts.stamp || opts.held.is_some() || opts.menu.is_some() || opts.hover.is_some() || opts.click.is_some() || opts.marquee.is_some();
     for pass in 0..=again as usize {
         for step in 0..120 {
             let mut raw = input.take([opts.width, opts.height], 1.0, 1.0);
@@ -667,7 +670,17 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
                     println!("click {x},{y}: {}", picked.map_or("nothing".to_string(), |(item, _)| ed.label_of(item).0));
                 }
             }
-            if (opts.menu.is_some() || opts.hover.is_some() || opts.click.is_some())
+            // SELECT's rectangle dragged there (points of the shot): what
+            // it takes selected, its outline drawn.
+            if let Some([x0, y0, x1, y1]) = opts.marquee
+                && pass == 0
+            {
+                let vp = view.view_proj(&view.block, aspect);
+                ed.select_rect(vp, glam::Vec2::new(w, h), glam::Vec2::new(x0, y0), glam::Vec2::new(x1, y1), ed.select_mode, ed.select_through);
+                view.marquee = Some(view::Marquee { from: [x0 / w, y0 / h], to: [x1 / w, y1 / h], mode: ed.select_mode });
+                println!("marquee: {} voxels selected", ed.selection().map_or(0, |s| s.count()));
+            }
+            if (opts.menu.is_some() || opts.hover.is_some() || opts.click.is_some() || opts.marquee.is_some())
                 && let Some(out) = last.take()
             {
                 let (device, queue, _) = canvas.gpu();
@@ -1172,6 +1185,7 @@ impl EditorWindow {
         self.view.up_since = None;
         self.view.press_at = None;
         self.view.held = 0;
+        self.view.marquee = None;
         // The panels let go too (egui would hold the button down for good).
         self.input.release_buttons();
         if self.ed.drag_open() {
@@ -1353,6 +1367,7 @@ impl EditorWindow {
                 }
                 view.press_at = None;
                 view.held = 0;
+                view.marquee = None;
             }
             // Another button while the left one drags: cancelled.
             Event::MouseButtonDown { mouse_btn: MouseButton::Right | MouseButton::Middle, .. } if ed.drag_open() => {
@@ -1378,6 +1393,8 @@ impl EditorWindow {
                     Keycode::Plus | Keycode::Equals | Keycode::KpPlus if ed.forms() => ed.deepen(1),
                     Keycode::Minus | Keycode::KpMinus if ed.forms() => ed.deepen(-1),
                     Keycode::Escape if ed.forms() && ed.drop_form() => {}
+                    // SELECT's rectangle being dragged: let go of, nothing.
+                    Keycode::Escape if view.marquee.is_some() => view.marquee = None,
                     // A drag going on: cancelled, all as before it.
                     Keycode::Escape if ed.joint_drag().is_some() || ed.gripped().is_some() || ed.dragging().is_some() || ed.stroke_open() => {
                         ed.end_drag(true);
@@ -1465,6 +1482,13 @@ impl EditorWindow {
                     view.right_press = None;
                 }
                 let over = over(x, y) && !left;
+                // SELECT's rectangle follows the pointer.
+                if let Some(m) = &mut view.marquee
+                    && left
+                {
+                    let (sx, sy) = share(x, y);
+                    m.to = [sx, sy];
+                }
                 // Gone a few pixels from the press: a drag now.
                 if let Some((px, py)) = view.press_at
                     && (px - x).hypot(py - y) >= handles::TRAVEL
@@ -1566,20 +1590,37 @@ impl EditorWindow {
                     if let Some(drag) = handles::Drag::begin(&h, grip, vp, glam::Vec2::new(room.width(), room.height()), mouse, view.ray(ed, aspect, sx, sy)) {
                         ed.grab_part(drag, h);
                     }
+                } else if ed.tool == Tool::Select && ed.scope != Scope::Level {
+                    // SELECT: a rectangle on the screen from here (on empty
+                    // space too), its mode the lit one or Ctrl (ADD), Alt
+                    // (REMOVE); a double click the color connected.
+                    if clicks >= 2 {
+                        view.marquee = None;
+                        let (origin, dir) = view.ray(ed, aspect, sx, sy);
+                        let add = ed.select_mode == model::selection::SelectMode::Add || view.cut;
+                        match ed.scope {
+                            Scope::Figure => {
+                                if let Some((hit, p)) = ed.aim_whole(origin, dir) {
+                                    ed.select_connected(hit.cell, Some(p), add);
+                                }
+                            }
+                            _ => {
+                                if let Some(hit) = view.aim(ed, aspect, sx, sy).filter(|h| h.cell.z >= 0) {
+                                    ed.select_connected(hit.cell, None, add);
+                                }
+                            }
+                        }
+                    } else {
+                        let mode = if view.cut { model::selection::SelectMode::Add } else if view.only_empty { model::selection::SelectMode::Remove } else { ed.select_mode };
+                        view.marquee = Some(view::Marquee { from: [sx, sy], to: [sx, sy], mode });
+                    }
                 } else if ed.scope == Scope::Figure {
                     // The figure whole: the tool works on the part it meets
                     // (the figure stays chosen, nothing dimmed); a double
                     // click chooses that part, the first click's work taken
                     // back. A click never both chooses and paints.
                     let (origin, dir) = view.ray(ed, aspect, sx, sy);
-                    if ed.tool == Tool::Select {
-                        // SELECT in the figure whole: across its parts.
-                        match ed.aim_whole(origin, dir) {
-                            Some((hit, p)) if clicks >= 2 => ed.select_connected(hit.cell, Some(p), view.cut),
-                            Some((hit, _)) => ed.begin_form(hit, true),
-                            None => ed.clear_selection(),
-                        }
-                    } else if ed.tool == Tool::Pointer {
+                    if ed.tool == Tool::Pointer {
                         // POINTER: the part clicked chosen, nothing changed.
                         if let (Some(figure), Some((lo, _))) = (&ed.figure, ed.figure_box())
                             && let Some(p) = figure.part_at(lo, origin, dir)
@@ -1670,18 +1711,9 @@ impl EditorWindow {
                             None => view::act(ed, view, view::Action::WholeFigure),
                         }
                     }
-                } else if let Some(hit) = view.aim(ed, aspect, sx, sy).filter(|h| ed.tool != Tool::Select || h.cell.z >= 0) {
+                } else if let Some(hit) = view.aim(ed, aspect, sx, sy) {
                     *steps_at_click = ed.steps();
-                    if ed.tool == Tool::Select {
-                        // SELECT: a box into the voxels (Ctrl: adding), a
-                        // double click the color connected.
-                        if clicks >= 2 {
-                            ed.drawing = None;
-                            ed.select_connected(hit.cell, None, view.cut);
-                        } else {
-                            ed.begin_form(hit, true);
-                        }
-                    } else if ed.tool == Tool::Fill {
+                    if ed.tool == Tool::Fill {
                         ed.fill_at(hit, view.cut);
                     } else if ed.forms() {
                         ed.begin_form(hit, view.cut);
@@ -1704,14 +1736,22 @@ impl EditorWindow {
                 view.held &= !HELD_LEFT;
                 ed.let_go_of_slice();
             }
+            // SELECT's rectangle let go: what it holds selected.
+            Event::MouseButtonUp { mouse_btn: MouseButton::Left, x, y, .. } if view.marquee.is_some() => {
+                view.held &= !HELD_LEFT;
+                if let Some(mut m) = view.marquee.take() {
+                    let (sx, sy) = share(x, y);
+                    m.to = [sx, sy];
+                    let vp = view.view_proj(&view.block, aspect);
+                    let size = glam::Vec2::new(pw, ph);
+                    let at = |s: [f32; 2]| glam::Vec2::new(s[0] * pw, s[1] * ph);
+                    ed.select_rect(vp, size, at(m.from), at(m.to), m.mode, ed.select_through);
+                }
+            }
             Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } if ed.forms() && ed.joint_drag().is_none() => {
                 view.held &= !HELD_LEFT;
                 if ed.drawing.is_some() {
-                    if ed.tool == Tool::Select {
-                        ed.select_drawn(view.cut);
-                    } else {
-                        ed.set_drawn(view.only_empty);
-                    }
+                    ed.set_drawn(view.only_empty);
                 }
                 ed.end_whole_stroke();
             }
@@ -2050,6 +2090,203 @@ mod tests {
         let now = camera(&win);
         assert_eq!((now.0, now.1, now.2), (cam.0, cam.1, cam.2), "the camera turns nowhere");
         assert_eq!((file(&dir), win.ed.steps()), (start, 0), "nothing changed");
+    }
+
+    /// Where a part's voxels show on the window (points), as drawn now.
+    fn part_on_screen(win: &EditorWindow, name: &str) -> Vec<glam::Vec2> {
+        let f = win.ed.figure.as_ref().unwrap();
+        let p = f.parts().iter().position(|o| o.name == name).unwrap();
+        let vp = win.view.view_proj(&win.view.block, 1600.0 / 900.0);
+        let (lo, _) = win.ed.figure_box().unwrap();
+        let map = f.rest_map(p, lo);
+        f.model.parts[p]
+            .voxels
+            .iter()
+            .map(|&k| {
+                let c = vp * map.transform_point3(f.model.frames[0][k as usize].0.as_vec3() + 0.5).extend(1.0);
+                glam::Vec2::new((c.x / c.w + 1.0) / 2.0 * 1600.0, (1.0 - c.y / c.w) / 2.0 * 900.0)
+            })
+            .collect()
+    }
+
+    /// The box about points on the screen, a few points wider.
+    fn about(points: &[glam::Vec2]) -> (glam::Vec2, glam::Vec2) {
+        let (lo, hi) = points.iter().fold((glam::Vec2::MAX, glam::Vec2::MIN), |(lo, hi), p| (lo.min(*p), hi.max(*p)));
+        (lo - 3.0, hi + 3.0)
+    }
+
+    /// SELECT's rectangle dragged from `a` to `b`; `held` the modifiers'
+    /// keys first (Ctrl: ADD, Alt: REMOVE).
+    fn marquee(win: &mut EditorWindow, a: glam::Vec2, b: glam::Vec2) {
+        motion(win, a.x, a.y, 0);
+        button(win, a.x, a.y, sdl3::mouse::MouseButton::Left, true);
+        for k in 1..=4 {
+            let p = a + (b - a) * k as f32 / 4.0;
+            motion(win, p.x, p.y, 1);
+        }
+        button(win, b.x, b.y, sdl3::mouse::MouseButton::Left, false);
+    }
+
+    /// The parts the selection holds voxels of, and how many.
+    fn selected(win: &EditorWindow) -> (Vec<String>, usize) {
+        let Some(s) = win.ed.selection() else { return (Vec::new(), 0) };
+        let m = win.ed.model.as_ref().unwrap();
+        let names = s.cells.keys().filter_map(|o| match o {
+            model::selection::Owner::Frame(f) => m.parts.iter().find(|p| p.frame == *f).map(|p| p.name.clone()),
+            model::selection::Owner::Block(_) => None,
+        });
+        let mut names: Vec<String> = names.collect();
+        names.sort();
+        (names, s.count())
+    }
+
+    /// SELECT is a rectangle on the screen: over the head and the nose
+    /// with the figure whole chosen it takes from both, with the head
+    /// chosen from the head alone, a hidden part never; THROUGH takes the
+    /// voxels behind too; ADD and REMOVE grow and shrink it; NEW PART,
+    /// REMOVE and PAINT from it, each undone byte for byte.
+    #[test]
+    fn select_is_a_rectangle_on_the_screen() {
+        let (mut win, dir) = owners_like("marquee");
+        let start = file(&dir);
+        view::act(&mut win.ed, &mut win.view, view::Action::Tool(model::Tool::Select));
+        win.draw().unwrap();
+        let mut both = part_on_screen(&win, "head");
+        both.extend(part_on_screen(&win, "nose"));
+        let (a, b) = about(&both);
+        marquee(&mut win, a, b);
+        let (names, _) = selected(&win);
+        assert!(names.contains(&"head".to_string()) && names.contains(&"nose".to_string()), "from both: {names:?}");
+        // The nose hidden: never.
+        let nose = win.ed.figure.as_ref().unwrap().parts().iter().position(|o| o.name == "nose").unwrap();
+        view::act(&mut win.ed, &mut win.view, view::Action::Hide(nose));
+        marquee(&mut win, a, b);
+        assert!(!selected(&win).0.contains(&"nose".to_string()), "a hidden part never");
+        view::act(&mut win.ed, &mut win.view, view::Action::Hide(nose));
+        // THROUGH: the head's voxels behind too; off: only those seen.
+        let (h0, h1) = about(&part_on_screen(&win, "head"));
+        marquee(&mut win, h0, h1);
+        let through = selected(&win).1;
+        view::act(&mut win.ed, &mut win.view, view::Action::SelectThrough);
+        marquee(&mut win, h0, h1);
+        let seen = selected(&win).1;
+        assert!(seen < through && seen > 0, "seen {seen} of {through}");
+        view::act(&mut win.ed, &mut win.view, view::Action::SelectThrough);
+        // With the head chosen: the head's alone.
+        let head = win.ed.figure.as_ref().unwrap().parts().iter().position(|o| o.name == "head").unwrap();
+        win.ed.choose_part(head);
+        win.view.follow_origin(&win.ed);
+        win.draw().unwrap();
+        let (a, b) = about(&both);
+        marquee(&mut win, a, b);
+        assert_eq!(selected(&win).0, ["head"], "a part chosen: its own alone");
+        // ADD and REMOVE: a half, the other half added, the first taken out.
+        let mid = (h0 + h1) / 2.0;
+        marquee(&mut win, h0, glam::Vec2::new(mid.x, h1.y));
+        let left = selected(&win).1;
+        view::act(&mut win.ed, &mut win.view, view::Action::SelectMode(model::selection::SelectMode::Add));
+        marquee(&mut win, glam::Vec2::new(mid.x, h0.y), h1);
+        let all = selected(&win).1;
+        assert!(all > left, "ADD: more ({all} after {left})");
+        view::act(&mut win.ed, &mut win.view, view::Action::SelectMode(model::selection::SelectMode::Remove));
+        marquee(&mut win, h0, glam::Vec2::new(mid.x, h1.y));
+        let right = selected(&win).1;
+        assert!(right < all && right > 0, "REMOVE: fewer ({right} of {all})");
+        view::act(&mut win.ed, &mut win.view, view::Action::SelectMode(model::selection::SelectMode::New));
+        assert_eq!((file(&dir), win.ed.steps()), (start.clone(), 0), "selecting changes nothing");
+        // NEW PART, REMOVE, PAINT: each a step, undone byte for byte.
+        for action in [view::Action::SelNewPart, view::Action::SelRemove, view::Action::SelPaint] {
+            marquee(&mut win, h0, h1);
+            assert!(win.ed.selection().is_some(), "{action:?}: selected");
+            view::act(&mut win.ed, &mut win.view, action);
+            assert_ne!(file(&dir), start, "{action:?}: done");
+            win.ed.undo();
+            assert_eq!(file(&dir), start, "{action:?}: undone byte for byte");
+            win.ed.choose_part(win.ed.figure.as_ref().unwrap().parts().iter().position(|o| o.name == "head").unwrap());
+            win.view.follow_origin(&win.ed);
+            win.draw().unwrap();
+        }
+    }
+
+    /// Where every voxel of the figure is drawn (from the pivot, to a
+    /// thousandth), each with its color.
+    fn drawn(win: &EditorWindow) -> std::collections::BTreeSet<([i64; 3], [u8; 4])> {
+        let f = win.ed.figure.as_ref().unwrap();
+        let shift = f.low;
+        let mut out = std::collections::BTreeSet::new();
+        for p in 0..f.parts().len() {
+            let map = f.rest_map(p, glam::IVec3::ZERO);
+            for &k in &f.model.parts[p].voxels {
+                let (at, c) = f.model.frames[0][k as usize];
+                let v = map.transform_point3(at.as_vec3() + 0.5) + shift.as_vec3();
+                out.insert(((v * 1000.0).round().as_i64vec3().to_array(), c));
+            }
+        }
+        out
+    }
+
+    /// A part's row dragged onto another's hangs it there where it stands:
+    /// every voxel drawn where it was, only its own lines in the file
+    /// changed, one step, undone byte for byte; onto its own child or the
+    /// figure whole refused; a click on a row still only chooses.
+    #[test]
+    fn a_row_dragged_onto_another_hangs_the_part_there() {
+        let (mut win, dir) = owners_like("reparent");
+        let start = file(&dir);
+        let before = drawn(&win);
+        let (from, to) = (row(&win, "nose"), row(&win, "hips"));
+        motion(&mut win, from.x, from.y, 0);
+        button(&mut win, from.x, from.y, sdl3::mouse::MouseButton::Left, true);
+        for k in 1..=6 {
+            let p = from + (to - from) * k as f32 / 6.0;
+            motion(&mut win, p.x, p.y, 1);
+        }
+        button(&mut win, to.x, to.y, sdl3::mouse::MouseButton::Left, false);
+        win.draw().unwrap();
+        let now = file(&dir);
+        assert!(now.contains("name = \"nose\"") && now.split("name = \"nose\"").nth(1).unwrap().split("[[part]]").next().unwrap().contains("parent = \"hips\""), "the nose hangs on the hips: {now}");
+        assert_eq!(win.ed.steps(), 1, "one step");
+        // (The head of the file aside: the first step makes `size` tight.)
+        let others = |t: &str| t.split("[[part]]").skip(1).filter(|p| !p.contains("name = \"nose\"")).map(str::to_string).collect::<Vec<_>>();
+        assert_eq!(others(&now), others(&start), "the others' text untouched");
+        let after = drawn(&win);
+        let near = |a: &std::collections::BTreeSet<([i64; 3], [u8; 4])>, b: &std::collections::BTreeSet<([i64; 3], [u8; 4])>| a.len() == b.len() && a.iter().all(|(p, c)| b.iter().any(|(q, d)| c == d && (0..3).all(|i| (p[i] - q[i]).abs() <= 2)));
+        assert!(near(&before, &after), "every voxel drawn where it was");
+        win.ed.undo();
+        assert_eq!(file(&dir), start, "undone byte for byte");
+        // The hair (unturned, on the head turned 45) onto the hips: it
+        // takes the head's turn as its own rest, drawn where it was.
+        let (from, to) = (row(&win, "hair"), row(&win, "hips"));
+        motion(&mut win, from.x, from.y, 0);
+        button(&mut win, from.x, from.y, sdl3::mouse::MouseButton::Left, true);
+        for k in 1..=6 {
+            let p = from + (to - from) * k as f32 / 6.0;
+            motion(&mut win, p.x, p.y, 1);
+        }
+        button(&mut win, to.x, to.y, sdl3::mouse::MouseButton::Left, false);
+        win.draw().unwrap();
+        let hair = file(&dir).split("name = \"hair\"").nth(1).unwrap().split("[[part]]").next().unwrap().to_string();
+        assert!(hair.contains("parent = \"hips\"") && hair.contains("rotation = 45\n"), "{hair}");
+        assert!(near(&before, &drawn(&win)), "the hair drawn where it was");
+        win.ed.undo();
+        assert_eq!(file(&dir), start);
+        // Refused: the head onto the nose (its own child), onto the whole.
+        let (head, nose) = (row(&win, "head"), row(&win, "nose"));
+        for (a, b) in [(head, nose), (nose, row(&win, ""))] {
+            motion(&mut win, a.x, a.y, 0);
+            button(&mut win, a.x, a.y, sdl3::mouse::MouseButton::Left, true);
+            for k in 1..=6 {
+                let p = a + (b - a) * k as f32 / 6.0;
+                motion(&mut win, p.x, p.y, 1);
+            }
+            button(&mut win, b.x, b.y, sdl3::mouse::MouseButton::Left, false);
+            assert_eq!(file(&dir), start, "refused");
+            assert!(win.ed.hint.is_some(), "said why");
+        }
+        // A click on a row still only chooses.
+        let at = row(&win, "nose");
+        click(&mut win, at);
+        assert_eq!((chosen(&win), file(&dir)), ("nose".to_string(), start));
     }
 
     /// POINTER's clicks on parts in the view choose them and change

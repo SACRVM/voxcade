@@ -264,6 +264,66 @@ impl Editor {
         }
     }
 
+    /// Part `p` hung on part `q` (its row dropped on q's), where it stands:
+    /// its rest rotation, place, offset and joint made anew so that it is
+    /// drawn exactly as before, only what it turns with changes; the
+    /// others keep their rig (`pin_rig`); one step. Refused (why, in a few
+    /// words): on the figure whole (`usize::MAX`), on itself, on a part
+    /// that hangs on it, the root.
+    pub fn reparent(&mut self, p: usize, q: usize) -> Result<(), String> {
+        self.follow_figure();
+        let figure = self.figure.as_ref().ok_or("no figure")?;
+        let name = |k: usize| figure.parts().get(k).map_or(String::new(), |o| o.name.clone());
+        if q == usize::MAX {
+            return Err(format!("{} hangs on a part: the figure whole is none", name(p)));
+        }
+        if p == q {
+            return Err(format!("{} cannot hang on itself", name(p)));
+        }
+        if figure.parts().get(p).is_none_or(|o| o.parent.is_none()) {
+            return Err(format!("{} is the root: the others hang on it", name(p)));
+        }
+        // On a part that hangs on it, by hand or by the rules: a ring.
+        let mut up = Some(q);
+        while let Some(k) = up {
+            if k == p {
+                return Err(format!("{} hangs on {}: that would make a ring", name(q), name(p)));
+            }
+            up = figure.parts()[k].parent;
+        }
+        if figure.parts()[p].parent == Some(q) {
+            return Ok(());
+        }
+        // Where it is drawn now (its chain), and the new parent's chain:
+        // its own turn and place under the new parent such that the two
+        // agree (`session::part_chain`'s sum, in the model's own frame).
+        let (a_old, b_old) = crate::session::part_at_rest(&figure.model, p);
+        let (turn_q, shift_q) = crate::session::part_at_rest(&figure.model, q);
+        let own = (turn_q.inverse() * a_old).normalize();
+        let t = turn_q.inverse() * (b_old - shift_q);
+        let j = figure.model.parts[p].joint;
+        let v = t - j + own * j;
+        let whole = v.round();
+        let rest = ((v - whole) * 10000.0).round() / 10000.0;
+        let joint = figure.joint(p) + figure.low.as_vec3() + whole;
+        let rotation = euler(own);
+        let (from, to) = (name(p), name(q));
+        let whole = whole.as_ivec3();
+        let k = self.placed(p).ok_or("no such part")?;
+        self.acting_on(vec![from.clone()]);
+        self.change_model_file(|m| {
+            let o = &mut m.parts[k];
+            o.low += whole;
+            o.offset = rest;
+            o.joint = Some(joint);
+            o.rotation = rotation;
+            o.parent = Some(to.clone());
+        });
+        self.follow_figure();
+        self.hint = Some(format!("{from} hangs on {to} now"));
+        Ok(())
+    }
+
     /// A free name for a part: `base`, else `base_2`, `base_3` ...
     pub(super) fn free_part_name(&self, base: &str) -> String {
         let taken = |n: &str| self.model.as_ref().is_some_and(|m| m.parts.iter().any(|o| o.name == n));
@@ -568,6 +628,26 @@ impl Editor {
             }
         }
     }
+}
+
+/// A turn as a part's rest rotation: `rotation`, `pitch`, `roll` in
+/// degrees as `session::turning` takes them (Rz(-rotation) Rx(pitch)
+/// Ry(roll)), to a thousandth.
+pub fn euler(q: Quat) -> [f32; 3] {
+    let m = glam::Mat3::from_quat(q);
+    let at = |row: usize, col: usize| m.col(col)[row];
+    let pitch = at(2, 1).clamp(-1.0, 1.0).asin();
+    let (roll, round) = if pitch.cos().abs() > 1e-5 {
+        ((-at(2, 0)).atan2(at(2, 2)), (-at(0, 1)).atan2(at(1, 1)))
+    } else {
+        // Straight up or down: the roll folded into the round.
+        (0.0, at(1, 0).atan2(at(0, 0)))
+    };
+    let deg = |r: f32| {
+        let d = (r.to_degrees() * 1000.0).round() / 1000.0;
+        if d == 0.0 { 0.0 } else { d }
+    };
+    [deg(-round), deg(pitch), deg(roll)]
 }
 
 /// The other of a mirrored pair by name: `NAME_left` and `NAME_right`,

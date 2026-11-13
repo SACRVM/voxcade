@@ -1080,12 +1080,13 @@ ADD, ERASE and PAINT work on the voxel clicked; FILL paints the connected voxels
 BOX and SPHERE: drag a footprint on a face; + and - make it deeper while it is fresh. Alt: only where empty, Ctrl: cut.
 PICK (or Shift held) takes up a color. SYMMETRY mirrors every tool left to right.
 # SELECT
-Drag a box over voxels, or double click one for its color connected; Ctrl adds, Escape clears.
-Its arrows move the voxels; SELECTION in the inspector and a right click on them hold the rest: DUPLICATE, REMOVE, PAINT, FLIP, ROTATE, NEW PART, MOVE TO PART, COPY, PASTE.
+Drag a rectangle on the screen: the voxels of the active parts in it (the part chosen, or every part shown). Double click: the color connected.
+NEW, ADD and REMOVE say what the rectangle does (Ctrl: ADD, Alt: REMOVE); THROUGH takes the voxels behind too; CLEAR or Escape: none.
+Its arrows move the voxels; SELECTION in the inspector and a right click on them: NEW PART, REMOVE, PAINT, DUPLICATE, FLIP, ROTATE, MOVE TO PART, COPY, PASTE.
 # PARTS
 A click on a part's row (or a double click in the view) chooses it; the figure whole is the first row.
 MOVE | ROTATE at a part: its arrows move it with what hangs on it, its rings rotate it about its joint.
-PARENT and JOINT in the inspector set what it hangs on and where it turns.
+PARENT and JOINT in the inspector set what it hangs on and where it turns; or drag its row onto another part's row: it hangs there, staying where it stands.
 A right click on a row: ADD PART, DUPLICATE, MIRROR (for NAME_left and NAME_right), RENAME, MERGE, REMOVE.
 # POSE
 The rings turn parts on top of their rest, nothing saved. COPY gives the pose as Lua for frame:model.

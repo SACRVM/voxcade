@@ -46,7 +46,7 @@ USAGE:
                  [--choose NAME] [--game-view] [--picker] [--lights-off] [--add|--hang MODEL|light|place|area --at X,Y,Z]
                  [--move NAME --at X,Y,Z] [--rotate NAME --by DEG [--about x|y|z]] [--lay NAME] [--copy NAME --at X,Y,Z] [--remove NAME]
                  [--rename NAME --to NEW] [--light NAME [--radius N] [--color #rrggbb] [--at X,Y,Z]] [--room-size X,Y,Z]
-                 [--choose-light K] [--menu NAME|floor|voxel|selection] [--background #rrggbb] [--add-menu] [--level-settings] [--handles move|rotate] [--hover arrow-x|ring-z|face-y|...]
+                 [--choose-light K] [--menu NAME|floor|voxel|selection] [--background #rrggbb] [--tool select --marquee X0,Y0,X1,Y1] [--add-menu] [--level-settings] [--handles move|rotate] [--hover arrow-x|ring-z|face-y|...]
                  [--hide NAME] [--click X,Y] [--slice x|y|z,LAYER] [--rotate-part NAME --by DEG [--about rotation|pitch|roll]] [--pose-part NAME --by DEG [--about ...]]
                  [--part NAME [--add-part] [--merge-into NAME] [--mirror]] [--select X0,Y0,Z0 --to X1,Y1,Z1 [--selection OP ...]] [--menu part:NAME] [--model FILE --context LEVEL:NAME [--context-off]]
                  [--model FILE [--frame N | --part NAME] --clear X0,Y0,Z0 --to X1,Y1,Z1 | --fill SIGN|#rrggbb --from X0,Y0,Z0 --to X1,Y1,Z1 ... [--dry]]
@@ -666,7 +666,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
         }
         Some("edit") => {
             let dir = opened(&args)?;
-            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new(), ops: Vec::new(), choose: None, game_view: false, picker: false, lights_off: false, choose_light: None, menu: None, add_menu: false, level_settings: false, hover: None, turn_handles: false, part_moves: Vec::new(), hide: Vec::new(), click: None, slice: None, cells: Vec::new(), frame: None, dry: false, context: None, context_off: false, part_turns: Vec::new(), part_poses: Vec::new(), last_pose: false, add_part: false, merge_into: None, mirror: false, background: None, select: None, selection_ops: Vec::new() };
+            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new(), ops: Vec::new(), choose: None, game_view: false, picker: false, lights_off: false, choose_light: None, menu: None, add_menu: false, level_settings: false, hover: None, turn_handles: false, part_moves: Vec::new(), hide: Vec::new(), click: None, slice: None, cells: Vec::new(), frame: None, dry: false, context: None, context_off: false, part_turns: Vec::new(), part_poses: Vec::new(), last_pose: false, add_part: false, merge_into: None, mirror: false, background: None, marquee: None, select: None, selection_ops: Vec::new() };
             let mut shot = false;
             let three = |flag: &str, value: &str| -> Result<glam::IVec3> {
                 let n: Vec<i32> = value.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>().with_context(|| format!("{flag} X,Y,Z"))?;
@@ -763,6 +763,11 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                         opts.select = Some((corner(value)?, corner(to)?));
                     }
                     "--selection" => opts.selection_ops.push(value.clone()),
+                    "--marquee" => {
+                        let n: Vec<f32> = value.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>().context("--marquee X0,Y0,X1,Y1")?;
+                        let [a, b, c, d] = n[..] else { bail!("--marquee X0,Y0,X1,Y1: four numbers") };
+                        opts.marquee = Some([a, b, c, d]);
+                    }
                     "--background" => opts.background = Some(crate::editor::background::hex(value).context("--background #rrggbb")?),
                     "--rotate-part" => {
                         let by = it.next().filter(|b| *b == "--by").and(it.next()).context("--rotate-part NAME --by DEG [--about rotation|pitch|roll]")?;

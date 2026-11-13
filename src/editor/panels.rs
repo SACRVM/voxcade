@@ -155,6 +155,12 @@ pub fn joints(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
         painter.circle(p, 8.0, crate::gui::GROUND, egui::Stroke::new(3.0, gold));
         painter.text(p + egui::vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, "JOINT", TextStyle::Small.resolve(ui.style()), gold);
     }
+    // SELECT's rectangle: a thin outline from the press to the pointer.
+    if let Some(m) = view.marquee {
+        let at = |s: [f32; 2]| egui::pos2(screen.left() + s[0] * screen.width(), screen.top() + s[1] * screen.height());
+        let gold = super::background::Marks::colour(view.marks(ed.scope).gold());
+        painter.rect_stroke(egui::Rect::from_two_pos(at(m.from), at(m.to)), 0.0, egui::Stroke::new(1.0, gold), egui::StrokeKind::Middle);
+    }
     // (GAME VIEW: the figure alone, as the game draws it.)
     if let Some(h) = ed.part_handles(vp).filter(|_| view.before_game.is_none()) {
         let lit = ed.joint_drag().and_then(|d| d.drag.as_ref().map(|(g, _)| g.grip)).or(view.grip_hover);

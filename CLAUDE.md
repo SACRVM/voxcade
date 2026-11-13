@@ -1299,11 +1299,23 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `--pose-part NAME --by DEG [--about ...]`, `--handles rotate`,
   `--add-part`, `--merge-into NAME`, `--mirror`, `--game-view`,
   `--move-part NAME --by X,Y,Z` (tenths into `offset`), `--menu
-  part:NAME` in a shot. SELECT (L; `editor/selection.rs`) in a block, a
-  frame, a part or across the parts of the figure whole: a box drawn as
-  BOX's, into the voxels, deeper by + and - and DEPTH, or a double click
-  (the color connected), Ctrl adding; Escape or a click on empty space
-  clears it; outlined. At it its arrows (MOVE, whole voxels, from where
+  part:NAME` in a shot. SELECT (L; `editor/selection.rs`; the owner
+  2026-11-13: select 2D on the screen) in a block, a frame, a part or
+  across the parts of the figure whole: a rectangle dragged on the
+  screen (an outline while dragging, from anywhere in the view) takes
+  the voxels whose drawn middles it holds, of the active parts only (the
+  part chosen alone; with the figure whole every part shown; never the
+  context room or what SLICE cuts away), THROUGH (lit, the default)
+  every one behind it, off only those seen (by cells of the screen a
+  voxel big: the nearest there); NEW | ADD | REMOVE beside the tools
+  (Ctrl: ADD, Alt: REMOVE while dragging), CLEAR, Escape; a click: the
+  voxel seen there, on empty space (NEW) none; a double click the color
+  connected; outlined (`Editor::select_rect`, `View::marquee`). A part's
+  row dragged onto another's hangs it there where it stands
+  (`Editor::reparent`: its rest rotation, `at`, `offset` and joint made
+  anew so it draws the same, `parts::euler`; refused on itself, its own
+  descendant, the root and the figure whole's row, said); a drag of a
+  row does nothing else. At it its arrows (MOVE, whole voxels, from where
   the drag began, Alt keeping what they land on; a part's or frame's box
   grows, a block's keeps its size; no bar at it), SELECTION at the
   inspector's foot (nothing above it moves) and its menu: DUPLICATE (the

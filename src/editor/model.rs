@@ -525,7 +525,10 @@ pub struct Editor {
     /// arrows' drag, COPY's voxels, and whether a move keeps what it lands
     /// on (Alt).
     pub selection: Option<selection::Selection>,
-    pub select_box: Option<selection::SelectBox>,
+    /// SELECT's mode (NEW, ADD, REMOVE) and whether it takes every voxel
+    /// behind its rectangle (THROUGH) or only those seen.
+    pub select_mode: selection::SelectMode,
+    pub select_through: bool,
     sel_drag: Option<selection::SelDrag>,
     pub clipboard: Option<selection::Clip>,
     pub sel_keep: bool,
@@ -614,7 +617,8 @@ impl Editor {
             posing: false,
             move_global: false,
             selection: None,
-            select_box: None,
+            select_mode: selection::SelectMode::New,
+            select_through: true,
             sel_drag: None,
             clipboard: None,
             sel_keep: false,
@@ -718,7 +722,8 @@ impl Editor {
             posing: false,
             move_global: false,
             selection: None,
-            select_box: None,
+            select_mode: selection::SelectMode::New,
+            select_through: true,
             sel_drag: None,
             clipboard: None,
             sel_keep: false,
@@ -766,7 +771,6 @@ impl Editor {
     pub fn choose(&mut self, tool: Tool) {
         if tool != self.tool {
             self.fresh = None;
-            self.select_box = None;
         }
         if tool == Tool::Pick && self.tool != Tool::Pick {
             self.before_pick = self.tool;
@@ -1192,7 +1196,7 @@ impl Editor {
 
     /// Whether the tool is BOX or SPHERE (in a block or a model).
     pub fn forms(&self) -> bool {
-        matches!(self.tool, Tool::Box | Tool::Sphere | Tool::Select) && self.scope != Scope::Level
+        matches!(self.tool, Tool::Box | Tool::Sphere) && self.scope != Scope::Level
     }
 
     /// BOX or SPHERE pressed at a hit: a footprint begins on the face's
@@ -1302,10 +1306,6 @@ impl Editor {
     /// it is fresh, in place (its step still one); else the depth the next
     /// footprint gets (the one being dragged out too).
     pub fn deepen(&mut self, by: i32) {
-        // SELECT: the box drawn last, selected again deeper.
-        if self.tool == Tool::Select && self.deepen_select(by) {
-            return;
-        }
         let Some(mut fresh) = self.take_fresh_back() else {
             self.depth = (self.depth + by).clamp(1, 256);
             return;
@@ -1408,7 +1408,6 @@ impl Editor {
         self.release();
         self.fresh = None;
         self.selection = None;
-        self.select_box = None;
         self.tuning = None;
         self.tuned = None;
         // Another program's change first: then there is nothing to take
@@ -1426,7 +1425,6 @@ impl Editor {
         self.release();
         self.fresh = None;
         self.selection = None;
-        self.select_box = None;
         self.tuning = None;
         self.tuned = None;
         self.look_at_disk();

@@ -191,9 +191,21 @@ pub struct View {
     /// Since when the left button is up while a drag is still open (its
     /// let-go never came: `EditorWindow::draw` ends it).
     pub up_since: Option<std::time::Instant>,
+    /// SELECT's rectangle being dragged on the screen (shares of the
+    /// window, from the press to the pointer) and what it will do.
+    pub marquee: Option<Marquee>,
     /// How much of the window the panels leave the view: shares of it on
     /// the left, at the top, on the right and at the bottom.
     pub room: [f32; 4],
+}
+
+/// SELECT's rectangle on the screen: where it began and where the pointer
+/// is (shares of the window), and its mode.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Marquee {
+    pub from: [f32; 2],
+    pub to: [f32; 2],
+    pub mode: super::model::selection::SelectMode,
 }
 
 /// A menu over the view: on what (a thing, empty floor at a spot, or the
@@ -379,6 +391,7 @@ impl View {
             synthetic_press: false,
             held: 0,
             up_since: None,
+            marquee: None,
             room: [0.0; 4],
         };
         // A level without blocks: the whole room as the game looks.
@@ -1031,6 +1044,12 @@ pub enum Action {
     ReplaceColour([u8; 3]),
     /// BACKGROUND: the view's for this editor (None: the game's sky).
     Background(Option<[u8; 3]>),
+    /// SELECT's mode (NEW, ADD, REMOVE); THROUGH on or off.
+    SelectMode(super::model::selection::SelectMode),
+    SelectThrough,
+    /// A part's row dropped on another's: hung there (`usize::MAX`: on the
+    /// figure whole's row, refused).
+    Reparent(usize, usize),
     AddPart(Option<usize>),
     RemovePart(usize),
     MergeInto(usize, usize),
@@ -1318,6 +1337,14 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::SelPaste => ed.paste(),
         Action::SelClear => ed.clear_selection(),
         Action::ReplaceColour(c) => ed.replace_colour(c),
+        Action::SelectMode(m) => ed.select_mode = m,
+        Action::SelectThrough => ed.select_through = !ed.select_through,
+        Action::Reparent(p, q) => {
+            if let Err(why) = ed.reparent(p, q) {
+                ed.hint = Some(why);
+            }
+            view.follow_origin(ed);
+        }
         Action::Background(c) => {
             view.backgrounds[(ed.scope != Scope::Level) as usize] = c;
             view.backgrounds_changed = true;
@@ -1464,11 +1491,10 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
             ed.delete_block();
         }
         Action::Depth(d) => {
-            let boxed = ed.select_box.as_ref().filter(|_| ed.drawing.is_none() && ed.tool == Tool::Select).map(|b| b.size[(0..3).max_by_key(|&a| b.way[a].abs()).unwrap_or(2)]);
-            let now = boxed.unwrap_or_else(|| ed.fresh.filter(|_| ed.drawing.is_none()).map_or(ed.depth, |f| {
+            let now = ed.fresh.filter(|_| ed.drawing.is_none()).map_or(ed.depth, |f| {
                 let a = (0..3).max_by_key(|&a| f.way[a].abs()).unwrap_or(2);
                 f.size[a]
-            }));
+            });
             ed.deepen(d.clamp(1, 256) - now);
         }
         Action::ParentTo(p) => ed.set_parent(p.map(usize::from)),
@@ -1779,13 +1805,10 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         if ed.drawing.is_none()
             && let Some(hit) = view.hover
         {
-            cells.push(if view.cut || ed.tool == Tool::Select { hit.cell } else { hit.cell + if hit.normal == IVec3::ZERO { IVec3::Z } else { hit.normal } });
+            cells.push(if view.cut { hit.cell } else { hit.cell + if hit.normal == IVec3::ZERO { IVec3::Z } else { hit.normal } });
         }
         let all: crate::world::CellSet = cells.iter().copied().collect();
-        let color = if ed.tool == Tool::Select {
-            let [r, g, b] = marks.gold();
-            [r, g, b, 255]
-        } else if view.cut || ed.drawing.is_some_and(|d| d.cut) {
+        let color = if view.cut || ed.drawing.is_some_and(|d| d.cut) {
             [230, 70, 60, 255]
         } else {
             [ed.colour[0], ed.colour[1], ed.colour[2], 255]
