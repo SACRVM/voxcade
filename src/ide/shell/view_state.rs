@@ -12,7 +12,7 @@ impl Shell {
         if self.stage.as_ref().is_some_and(|s| s.shown) {
             return json!({ "area": "game", "game": game, "file": self.memory.open });
         }
-        if let Some(name) = self.builtin {
+        if let Some(name) = self.sound.builtin {
             return json!({ "area": "file", "file": { "kind": format!("the built-in sound {name}, read-only; MAKE IT YOURS copies it into the game") }, "game": game });
         }
         let mut file = json!({ "path": self.outside.as_ref().map(|p| p.display().to_string()).or_else(|| self.memory.open.clone()) });
@@ -41,17 +41,17 @@ impl Shell {
                     file["unreadable"] = json!({ "line": line, "why": why });
                 }
                 if path.ends_with(".mml") {
-                    file["playing"] = json!(self.listening.is_some());
+                    file["playing"] = json!(self.sound.listening.is_some());
                 }
             }
             (Some(Shown::Text(_)), Some(path)) if path.ends_with(".mml") => {
                 file["kind"] = json!("a song (MML), to read; PLAY SONG over it plays it");
-                file["playing"] = json!(self.listening.is_some());
+                file["playing"] = json!(self.sound.listening.is_some());
             }
             (Some(Shown::Note(note)), Some(path)) if sounds::name_of(path).is_some() => file["kind"] = json!(format!("a sound file that would not open as text: {note}")),
             (Some(Shown::Text(_)), _) => file["kind"] = json!("text, to read"),
             (Some(Shown::Image(_)), _) => file["kind"] = json!("picture"),
-            _ if self.preview.is_some() => file["kind"] = json!("a model, block or level, shown as a picture; its editor opens with EDIT"),
+            _ if self.pictures.preview.is_some() => file["kind"] = json!("a model, block or level, shown as a picture; its editor opens with EDIT"),
             _ => {}
         }
         json!({ "area": "file", "file": file, "game": game })

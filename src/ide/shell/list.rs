@@ -34,9 +34,9 @@ impl Shell {
                 return;
             }
             egui::ScrollArea::vertical().content_margin(egui::Margin { right: 6, ..egui::Margin::ZERO }).show(ui, |ui| {
-                let open = if self.outside.is_some() || self.builtin.is_some() { None } else { self.memory.open.clone() };
+                let open = if self.outside.is_some() || self.sound.builtin.is_some() { None } else { self.memory.open.clone() };
                 #[cfg(test)]
-                self.headings.clear();
+                self.managing.headings.clear();
                 // Each sort of file under its name, which opens and closes
                 // it: the logic, then the assets, the big groups closed at
                 // first.
@@ -63,11 +63,11 @@ impl Shell {
                             ui.painter().rect_filled(rect, 3.0, crate::gui::ROW_HOVERED);
                         }
                         #[cfg(test)]
-                        self.headings.push((sort.to_string(), rect, header.rect));
+                        self.managing.headings.push((sort.to_string(), rect, header.rect));
                         let colour = if plus.hovered() { TEXT } else { QUIET };
                         ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, "+", TextStyle::Body.resolve(ui.style()), colour);
                         if plus.clicked() {
-                            self.naming = Some(Naming { sort: sort.to_string(), text: String::new(), blocks: false, problem: None, fresh: true });
+                            self.managing.naming = Some(Naming { sort: sort.to_string(), text: String::new(), blocks: false, problem: None, fresh: true });
                             state.set_open(true);
                         }
                     }
@@ -76,12 +76,12 @@ impl Shell {
                     }
                     arrow(ui, at, state.openness(ui.ctx()));
                     // A file being renamed from the main area: its heading opens.
-                    if self.renaming.as_ref().is_some_and(|r| r.fresh && files.contains(&r.path)) {
+                    if self.managing.renaming.as_ref().is_some_and(|r| r.fresh && files.contains(&r.path)) {
                         state.set_open(true);
                     }
                     state.show_body_unindented(ui, |ui| {
                         // The name being typed for a new file, first.
-                        if let Some(naming) = self.naming.as_mut().filter(|n| n.sort == sort) {
+                        if let Some(naming) = self.managing.naming.as_mut().filter(|n| n.sort == sort) {
                             let (mut enter, mut cancel) = (false, false);
                             ui.horizontal(|ui| {
                                 ui.add_space(INSET);
@@ -116,7 +116,7 @@ impl Shell {
                                 ui.label(RichText::new(problem).small().color(ERROR));
                             }
                             if cancel {
-                                self.naming = None;
+                                self.managing.naming = None;
                             } else if enter {
                                 made = Some((sort.to_string(), naming.text.clone(), naming.blocks));
                             }
@@ -127,7 +127,7 @@ impl Shell {
                         let base = |f: &str| f.rsplit('/').next().unwrap_or(f).to_string();
                         for f in files {
                             // A file being renamed: its name typed in its place.
-                            if let Some(r) = self.renaming.as_mut().filter(|r| r.path == *f) {
+                            if let Some(r) = self.managing.renaming.as_mut().filter(|r| r.path == *f) {
                                 let (ext, mut enter, mut cancel) = (format!(".{}", manage::split_name(f).2), false, false);
                                 ui.horizontal(|ui| {
                                     ui.add_space(INSET);
@@ -190,11 +190,11 @@ impl Shell {
                         // The sounds the game has from the engine and its
                         // ready-made rules, which no file of its own replaces.
                         if sort == "Sounds" {
-                            for (name, _) in &self.brought {
+                            for (name, _) in &self.sound.brought {
                                 if files.iter().any(|f| sounds::name_of(f) == Some(name)) {
                                     continue;
                                 }
-                                let on = self.builtin == Some(*name) && self.outside.is_none();
+                                let on = self.sound.builtin == Some(*name) && self.outside.is_none();
                                 if crate::gui::row(ui, name, TextStyle::Body, if on { ACCENT } else { QUIET }, on, Some("built in")).clicked() {
                                     builtin = Some(*name);
                                 }
@@ -221,7 +221,7 @@ impl Shell {
             self.hush();
             self.outside = None;
             self.unload();
-            self.builtin = Some(name);
+            self.sound.builtin = Some(name);
             self.hide_game();
             self.help = false;
         }
@@ -231,9 +231,9 @@ impl Shell {
         if let Some((sort, typed, blocks)) = made {
             let made = if sort == "Levels" { self.make_level(&typed, blocks) } else { self.make_file(&sort, &typed) };
             match made {
-                Ok(_) => self.naming = None,
+                Ok(_) => self.managing.naming = None,
                 Err(problem) => {
-                    if let Some(n) = &mut self.naming {
+                    if let Some(n) = &mut self.managing.naming {
                         n.problem = Some(problem);
                     }
                 }
@@ -243,13 +243,13 @@ impl Shell {
             self.manage(act, &path);
         }
         if stop_renaming {
-            self.renaming = None;
+            self.managing.renaming = None;
         }
         if let Some((path, typed)) = renamed {
             match self.rename(&path, &typed) {
-                Ok(()) => self.renaming = None,
+                Ok(()) => self.managing.renaming = None,
                 Err(problem) => {
-                    if let Some(r) = &mut self.renaming {
+                    if let Some(r) = &mut self.managing.renaming {
                         r.problem = Some(problem);
                     }
                 }

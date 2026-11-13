@@ -19,7 +19,7 @@ impl Shell {
                 // system's dialog at once while there are none); NEW, one
                 // begun from a template.
                 let open = ui.button("OPEN").on_hover_text("Another game: one opened last, or a folder of your own.");
-                if self.prefs.recent_games(Some(&self.dir)).is_empty() {
+                if self.forms.prefs.recent_games(Some(&self.dir)).is_empty() {
                     if open.clicked() {
                         self.asks.push(Ask::Project(Wish::Browse));
                     }
@@ -31,7 +31,7 @@ impl Shell {
                         .width(380.0)
                         .frame(egui::Frame::popup(ui.style()).fill(PANEL).inner_margin(egui::Margin::same(14)))
                         .show(|ui| {
-                            if let Some(dir) = projects::recent(ui, &self.prefs, Some(&self.dir)) {
+                            if let Some(dir) = projects::recent(ui, &self.forms.prefs, Some(&self.dir)) {
                                 self.leave_for(dir);
                                 ui.close();
                             }
@@ -43,7 +43,7 @@ impl Shell {
                         });
                 }
                 if ui.button("NEW").on_hover_text("Begins a new game from a template, in the projects folder (settings).").clicked() {
-                    self.new_game = Some(NewGame::new(&self.prefs));
+                    self.forms.new_game = Some(NewGame::new(&self.forms.prefs));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // The settings, apart from the game's buttons.
@@ -89,14 +89,14 @@ impl Shell {
                         self.play();
                         ui.memory_mut(|m| m.request_focus(game_id()));
                     }
-                    if let Some(until) = self.notice_until {
+                    if let Some(until) = self.bar.notice_until {
                         match until.checked_duration_since(std::time::Instant::now()) {
                             Some(left) => ui.ctx().request_repaint_after(left),
-                            None => (self.notice, self.notice_until) = (None, None),
+                            None => (self.bar.notice, self.bar.notice_until) = (None, None),
                         }
                     }
                     // A file just deleted: what was done, and UNDO for a few seconds.
-                    if let Some(gone) = &self.gone {
+                    if let Some(gone) = &self.managing.gone {
                         match gone.until.checked_duration_since(std::time::Instant::now()) {
                             Some(left) => {
                                 ui.ctx().request_repaint_after(left);
@@ -104,7 +104,7 @@ impl Shell {
                                     let button = ui.button("UNDO").on_hover_text("Puts the file back as it was.");
                                     #[cfg(test)]
                                     {
-                                        self.undo_button = Some(button.rect);
+                                        self.managing.undo_button = Some(button.rect);
                                     }
                                     undo |= button.clicked();
                                 }
@@ -112,7 +112,7 @@ impl Shell {
                             }
                             None => forget_gone = true,
                         }
-                    } else if let Some(notice) = &self.notice {
+                    } else if let Some(notice) = &self.bar.notice {
                         // (Truncated, with the whole in its hover text: a long
                         // path never pushes the buttons about.)
                         match notice {
@@ -143,7 +143,7 @@ impl Shell {
             crate::ide::export::show_in_folder(&zip);
         }
         if forget_gone {
-            self.gone = None;
+            self.managing.gone = None;
         }
         if undo {
             self.undo();
@@ -155,7 +155,7 @@ impl Shell {
     /// of its own, so the window goes on; the bar says BUILDING… and then
     /// what came of it (`built`).
     pub fn build(&mut self) {
-        if self.building.is_some() {
+        if self.bar.building.is_some() {
             return;
         }
         self.flush();
@@ -166,13 +166,13 @@ impl Shell {
             let made = crate::cli::program().map_err(anyhow::Error::from).and_then(|program| crate::ide::export::export(&dir, &title, &program, &to));
             let _ = send.send(made);
         });
-        self.building = Some((receive, out));
-        (self.notice, self.notice_until) = (Some(Notice::Building), None);
+        self.bar.building = Some((receive, out));
+        (self.bar.notice, self.bar.notice_until) = (Some(Notice::Building), None);
     }
 
     /// BUILD's answer: where the zip is and how big, or why it was not made.
     pub(super) fn built(&mut self, made: anyhow::Result<crate::ide::export::Packed>, out: PathBuf) {
-        self.notice_until = None;
+        self.bar.notice_until = None;
         match made {
             Ok(packed) => {
                 let bytes = packed.bytes;
@@ -190,12 +190,12 @@ impl Shell {
                     self.report(Kind::Error, warning, None);
                     said = format!("{said}; {} IGNORED FILES THE GAME NAMES NOT PACKED (OUTPUT)", packed.missing.len());
                 }
-                self.notice = Some(Notice::Built(zip, said));
+                self.bar.notice = Some(Notice::Built(zip, said));
             }
             Err(e) => {
                 let said = format!("BUILD FAILED: {e:#}");
                 self.report(Kind::Error, said.clone(), None);
-                self.notice = Some(Notice::Failed(said));
+                self.bar.notice = Some(Notice::Failed(said));
             }
         }
     }

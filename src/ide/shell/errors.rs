@@ -9,7 +9,7 @@ impl Shell {
     /// What the game said since last asked: what stops it (once each), a
     /// file that would not load, what the script printed.
     pub fn game_said(&mut self, trouble: Option<String>, said: Vec<(Kind, String)>) {
-        if trouble != self.reported {
+        if trouble != self.below.reported {
             if let Some(t) = &trouble {
                 let at = crate::ide::play::line_of(t);
                 // Whole, its traceback too (Lua's own frames left out): the
@@ -17,7 +17,7 @@ impl Shell {
                 let whole: Vec<&str> = t.lines().filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with("[C]:")).collect();
                 self.report(Kind::Error, format!("THE GAME STOPPED: {}", whole.join("\n")), at);
             }
-            self.reported = trouble;
+            self.below.reported = trouble;
         }
         for (kind, text) in said {
             let at = (kind == Kind::Error).then(|| crate::ide::play::line_of(&text)).flatten();
@@ -28,19 +28,19 @@ impl Shell {
     /// A line run in the game being played, and what it answered, into
     /// OUTPUT (the user's, or the agent's `eval`).
     pub fn evaluated(&mut self, line: &str, said: &anyhow::Result<String>) {
-        let shown = self.output_shown;
-        self.output.add(Kind::Note, format!("> {line}"), None, shown);
+        let shown = self.below.output_shown;
+        self.below.output.add(Kind::Note, format!("> {line}"), None, shown);
         match said {
             Ok(text) => {
                 for answer in text.lines() {
-                    self.output.add(Kind::Print, answer, None, shown);
+                    self.below.output.add(Kind::Print, answer, None, shown);
                 }
             }
             Err(e) => {
                 let text = format!("{e:#}");
                 let at = crate::ide::play::line_of(&text);
                 let first = text.lines().next().unwrap_or("").to_string();
-                self.output.add(Kind::Error, first, at, shown);
+                self.below.output.add(Kind::Error, first, at, shown);
             }
         }
     }
@@ -83,8 +83,8 @@ impl Shell {
     /// SHOW: OUTPUT in the console below, which unfolds (and is there
     /// again if the settings had it off).
     pub(super) fn show_output(&mut self) {
-        self.prefs.console = true;
-        self.output_shown = true;
+        self.forms.prefs.console = true;
+        self.below.output_shown = true;
         self.memory.console_folded = false;
         let _ = self.save();
     }
@@ -101,7 +101,7 @@ impl Shell {
         {
             out.push(if *line > 0 { format!("{path}:{line}: {why}") } else { format!("{path}: {why}") });
         }
-        let recent: Vec<String> = self.output.errors(5).iter().map(|l| l.text.clone()).collect();
+        let recent: Vec<String> = self.below.output.errors(5).iter().map(|l| l.text.clone()).collect();
         if !recent.is_empty() {
             out.push(format!("The last errors in OUTPUT:\n{}", recent.join("\n")));
         }

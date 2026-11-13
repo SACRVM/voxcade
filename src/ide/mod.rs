@@ -218,9 +218,9 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
         std::fs::copy(text, journals.join(path.replace(['/', '\\'], "%"))).with_context(|| format!("--journal {}", text.display()))?;
     }
     let mut shell = Shell::new(dir, cfg, scratch.join("memory.toml"), console).with_sounds(brought);
-    shell.animate = false;
+    shell.pictures.animate = false;
     // (Not the person's editor background: shots look the same anywhere.)
-    shell.own_background = false;
+    shell.pictures.own_background = false;
     // A command run in the console is meant to be seen: unfolded (else a
     // shot shows a game's console as a game opens, folded).
     if opts.console.is_some() {
@@ -950,7 +950,7 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
         if song.is_some() {
             if song.as_mut().and_then(|s| s.lock()).is_none_or(|m| m.music_over()) {
                 drop(song.take());
-                shell.listening = None;
+                shell.sound.listening = None;
                 happened = true;
             } else {
                 tick_at = tick_at.min(Instant::now() + Duration::from_millis(500));
@@ -1051,13 +1051,13 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
                                 mixer.set_music(Some(player));
                             }
                             None => {
-                                shell.listening = None;
+                                shell.sound.listening = None;
                                 shell.tell("No sound: the speaker would not open.".into());
                             }
                         }
                     }
                     Err(e) => {
-                        shell.listening = None;
+                        shell.sound.listening = None;
                         shell.tell(format!("{e:#}"));
                     }
                 },

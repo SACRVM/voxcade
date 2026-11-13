@@ -8,13 +8,13 @@ use super::*;
 impl Shell {
     /// PLAY SONG and STOP SONG over a song: plays the open file, or ends it.
     pub fn listen(&mut self) {
-        if self.listening.is_some() {
+        if self.sound.listening.is_some() {
             return self.hush();
         }
         // (A song with a mistake plays nothing: the mistake stands above it.)
         let mistaken = matches!(&self.shown, Some(Shown::Code(b)) if b.code.error.is_some());
         if let Some(path) = self.memory.open.clone().filter(|p| p.ends_with(".mml") && !mistaken) {
-            self.listening = Some(path.clone());
+            self.sound.listening = Some(path.clone());
             self.asks.push(Ask::Listen(path));
         }
     }
@@ -22,8 +22,8 @@ impl Shell {
     /// Ends the song playing, if one is (another file opened, the game
     /// played).
     pub(super) fn hush(&mut self) {
-        (self.looping, self.again_at) = (false, None);
-        if self.listening.take().is_some() {
+        (self.sound.looping, self.sound.again_at) = (false, None);
+        if self.sound.listening.take().is_some() {
             self.asks.push(Ask::Hush);
         }
     }
@@ -50,8 +50,8 @@ impl Shell {
     /// PLAY SOUND: the sound open (as its text stands now) rendered for the
     /// speaker, which takes it with `heard` after `Ask::Sound`.
     pub fn play_sound(&mut self) {
-        let def = match (&self.shown, &self.memory.open, self.builtin) {
-            _ if self.builtin.is_some() => self.brought.iter().find(|(n, _)| Some(*n) == self.builtin).map(|(_, d)| d.clone()),
+        let def = match (&self.shown, &self.memory.open, self.sound.builtin) {
+            _ if self.sound.builtin.is_some() => self.sound.brought.iter().find(|(n, _)| Some(*n) == self.sound.builtin).map(|(_, d)| d.clone()),
             (Some(Shown::Code(b)), ..) => b.code.sound.clone(),
             _ => None,
         };
@@ -64,8 +64,8 @@ impl Shell {
                 // At the game's volume and the player's, as the game plays a
                 // sound in the middle of the view.
                 let gain = crate::settings::Settings::load(&crate::settings::path_for(&self.dir)).sound_gain();
-                self.again_at = Some(std::time::Instant::now() + std::time::Duration::from_secs_f32(samples.len() as f32 / crate::audio::SAMPLE_RATE as f32) + LOOP_PAUSE);
-                self.heard = Some((samples, self.cfg.audio.volume.max(0.0) * gain));
+                self.sound.again_at = Some(std::time::Instant::now() + std::time::Duration::from_secs_f32(samples.len() as f32 / crate::audio::SAMPLE_RATE as f32) + LOOP_PAUSE);
+                self.sound.heard = Some((samples, self.cfg.audio.volume.max(0.0) * gain));
                 self.message = None;
                 self.asks.push(Ask::Sound);
             }
@@ -75,13 +75,13 @@ impl Shell {
 
     /// The sound PLAY SOUND made ready, with its volume.
     pub fn heard(&mut self) -> Option<(std::sync::Arc<[f32]>, f32)> {
-        self.heard.take()
+        self.sound.heard.take()
     }
 
     /// MAKE IT YOURS: the built-in sound `name` copied into the game as
     /// `sounds/NAME.toml`, and opened.
     pub fn make_it_yours(&mut self, name: &str) {
-        let Some((_, def)) = self.brought.iter().find(|(n, _)| *n == name) else { return };
+        let Some((_, def)) = self.sound.brought.iter().find(|(n, _)| *n == name) else { return };
         let path = format!("sounds/{name}.toml");
         if !self.dir.join(&path).exists() {
             let text = sound::write(def, &[format!("{name}: a sound the game brought, copied here to change; the game now plays this one.")]);
@@ -91,7 +91,7 @@ impl Shell {
             }
         }
         self.rescan();
-        self.builtin = None;
+        self.sound.builtin = None;
         self.unload();
         self.open(&path);
         self.back_to_file();
@@ -100,9 +100,9 @@ impl Shell {
     /// Where the game's code names the sound `name`, looked for afresh when
     /// it is another sound or a second has gone.
     pub(super) fn refresh_used(&mut self, name: &str) {
-        if self.used.as_ref().is_none_or(|u| u.name != name || u.at.elapsed() >= USED_FOR) {
+        if self.sound.used.as_ref().is_none_or(|u| u.name != name || u.at.elapsed() >= USED_FOR) {
             let rows = sounds::used(&self.dir, &self.files.logic, name);
-            self.used = Some(Used { name: name.to_string(), rows, at: std::time::Instant::now() });
+            self.sound.used = Some(Used { name: name.to_string(), rows, at: std::time::Instant::now() });
         }
     }
 
@@ -110,7 +110,7 @@ impl Shell {
     /// name it: that the game's own rules play it, when it is one of the
     /// sounds they bring.
     pub(super) fn rules_say(&self, name: &str) -> Vec<String> {
-        if !self.brought.iter().any(|(n, _)| *n == name) {
+        if !self.sound.brought.iter().any(|(n, _)| *n == name) {
             return Vec::new();
         }
         let core = crate::audio::CORE_FILES.iter().any(|(n, _)| *n == name);
@@ -120,8 +120,8 @@ impl Shell {
     /// A sound the game brings, shown in the main area: what it is, PLAY
     /// SOUND, MAKE IT YOURS, its text to read, and where it is used.
     pub(super) fn builtin_ui(&mut self, ui: &mut egui::Ui, name: &'static str) {
-        let Some(def) = self.brought.iter().find(|(n, _)| *n == name).map(|(_, d)| d.clone()) else {
-            self.builtin = None;
+        let Some(def) = self.sound.brought.iter().find(|(n, _)| *n == name).map(|(_, d)| d.clone()) else {
+            self.sound.builtin = None;
             return;
         };
         let line = format!("{} · built in", sounds::describe(&def));
@@ -139,7 +139,7 @@ impl Shell {
         }
         ui.add_space(10.0);
         self.refresh_used(name);
-        let rows = self.used.as_ref().map(|u| u.rows.clone()).unwrap_or_default();
+        let rows = self.sound.used.as_ref().map(|u| u.rows.clone()).unwrap_or_default();
         let says = self.rules_say(name);
         let (mut rects, mut go) = (Vec::new(), None);
         let text = sound::write(&def, &[]);
@@ -152,7 +152,7 @@ impl Shell {
         });
         #[cfg(test)]
         {
-            self.used_rows = rects;
+            self.sound.used_rows = rects;
         }
         if play {
             self.play_sound();
@@ -161,10 +161,10 @@ impl Shell {
             self.make_it_yours(name);
         }
         if let Some((file, line)) = go {
-            self.builtin = None;
+            self.sound.builtin = None;
             self.hide_game();
             self.open(&file);
-            self.goto = Some((line, true));
+            self.opening.goto = Some((line, true));
         }
     }
 
@@ -189,10 +189,10 @@ impl Shell {
         let one_row = width(ui, &["PLAY", "LOOP", "UNDO"]) + 18.0 + 30.0 + width(ui, &sorts) <= room;
         let mut controls = |ui: &mut egui::Ui| {
             play = ui.button("PLAY").on_hover_text("Plays the sound as it stands, at the game's sound volume.").clicked();
-            if ui.add(egui::Button::new("LOOP").selected(self.looping)).on_hover_text("Plays the sound again and again with a short pause, so you hear what the faders and your typing do. Press again to stop.").clicked() {
-                self.looping = !self.looping;
-                self.again_at = None;
-                play |= self.looping;
+            if ui.add(egui::Button::new("LOOP").selected(self.sound.looping)).on_hover_text("Plays the sound again and again with a short pause, so you hear what the faders and your typing do. Press again to stop.").clicked() {
+                self.sound.looping = !self.sound.looping;
+                self.sound.again_at = None;
+                play |= self.sound.looping;
             }
             back = ui.add_enabled(can_go_back, egui::Button::new("UNDO")).on_hover_text("Back to the sound before the last change (a roll, a fader or typing); again for the one before. Ctrl+Z in the text does the same.").clicked();
         };
@@ -228,7 +228,7 @@ impl Shell {
             Some(SoundDef::Synth(s)) => Some(s.clone()),
             _ => None,
         };
-        let fading = &mut self.fading;
+        let fading = &mut self.sound.fading;
         // As many faders a row as the room takes, the rows as even as can
         // be (five: three and two), never one cut at the edge.
         let gap = 22.0;
@@ -294,9 +294,9 @@ impl Shell {
     pub(super) fn roll(&mut self, ctx: &egui::Context, sort: maker::Sort) {
         let Some((_, id)) = self.code_id() else { return };
         let Some(Shown::Code(buffer)) = &mut self.shown else { return };
-        self.rolls += 1;
+        self.sound.rolls += 1;
         let clock = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64);
-        let fresh = maker::fresh(&buffer.code.text, &maker::roll(sort, clock ^ self.rolls.rotate_left(32)));
+        let fresh = maker::fresh(&buffer.code.text, &maker::roll(sort, clock ^ self.sound.rolls.rotate_left(32)));
         buffer.code.mark(ctx, id);
         buffer.code.text = fresh;
         buffer.code.check();

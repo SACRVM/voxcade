@@ -40,7 +40,7 @@ fn choosing_a_file_shows_it() {
     shell.shown = None;
     shell.open("hero.vvx");
     frame(&ctx, &mut shell);
-    assert!(matches!(shell.shown, Some(Shown::Note(_))) && shell.preview.is_some(), "a model: its picture");
+    assert!(matches!(shell.shown, Some(Shown::Note(_))) && shell.pictures.preview.is_some(), "a model: its picture");
     let _ = std::fs::remove_file(&memory);
     let _ = std::fs::remove_dir_all(memory.with_extension("journal"));
 }
@@ -77,7 +77,7 @@ fn a_clicked_path_opens_in_the_main_area() {
     shell.open_from_console(&main, Some(3));
     frame(&ctx, &mut shell);
     assert!(shell.outside.is_none() && matches!(shell.shown, Some(Shown::Code(_))), "main.lua again");
-    assert_eq!(shell.goto, None, "the line was gone to");
+    assert_eq!(shell.opening.goto, None, "the line was gone to");
     let _ = std::fs::remove_file(&memory);
     let _ = std::fs::remove_dir_all(memory.with_extension("journal"));
     let _ = std::fs::remove_dir_all(&elsewhere);
@@ -132,7 +132,7 @@ fn another_game_opens_at_once_when_nothing_runs() {
     let console = Console::new(dir.to_path_buf(), Start::Nothing, std::sync::Arc::new(|| {}));
     let mut shell = Shell::new(dir, crate::session::config::<crate::Voxcade>(dir).unwrap(), memory.clone(), console);
     shell.leave_for(PathBuf::from("games/sokovox"));
-    assert!(shell.leaving.is_none(), "nothing to ask");
+    assert!(shell.forms.leaving.is_none(), "nothing to ask");
     assert_eq!(shell.take_asks(), [Ask::Project(Wish::Open(PathBuf::from("games/sokovox")))]);
     let _ = std::fs::remove_file(&memory);
 }
@@ -149,10 +149,10 @@ fn the_game_reports_into_the_output() {
     let trouble = Some("main.lua:3: attempt to index a nil value\nstack traceback:".to_string());
     shell.game_said(trouble.clone(), vec![(Kind::Print, "hello".into())]);
     shell.game_said(trouble, Vec::new());
-    let errors = shell.output.errors(5);
+    let errors = shell.below.output.errors(5);
     assert_eq!(errors.len(), 1, "once");
     assert_eq!(errors[0].at, Some(("main.lua".into(), 3)));
-    assert!(shell.output.unseen == 1 && shell.errors().contains("THE GAME STOPPED: main.lua:3"));
+    assert!(shell.below.output.unseen == 1 && shell.errors().contains("THE GAME STOPPED: main.lua:3"));
     let _ = std::fs::remove_file(&memory);
 }
 
@@ -173,10 +173,10 @@ fn the_console_can_be_left_out() {
     shell.unfold_console();
     frame(&ctx, &mut shell);
     assert!(drawn(&ctx), "there once unfolded");
-    shell.prefs.console = false;
+    shell.forms.prefs.console = false;
     frame(&ctx, &mut shell);
     assert!(!drawn(&ctx), "left out");
-    shell.prefs.console = true;
+    shell.forms.prefs.console = true;
     frame(&ctx, &mut shell);
     assert!(drawn(&ctx), "back");
     let _ = std::fs::remove_file(&memory);
@@ -235,7 +235,7 @@ fn a_song_plays_until_something_else_is_open() {
     shell.open("main.lua");
     assert_eq!(shell.take_asks(), [Ask::Hush], "another file ends it");
     shell.listen();
-    assert!(shell.take_asks().is_empty() && shell.listening.is_none(), "a script does not play");
+    assert!(shell.take_asks().is_empty() && shell.sound.listening.is_none(), "a script does not play");
     shell.open(song);
     shell.listen();
     shell.play();
@@ -292,13 +292,13 @@ fn key(ctx: &egui::Context, shell: &mut Shell, key: egui::Key) {
 
 /// The plus at a heading and the heading's row, as drawn last.
 fn heading(shell: &Shell, sort: &str) -> (egui::Rect, egui::Rect) {
-    shell.headings.iter().find(|(s, ..)| s == sort).map(|(_, p, h)| (*p, *h)).unwrap_or_else(|| panic!("no heading {sort}: {:?}", shell.headings.iter().map(|h| &h.0).collect::<Vec<_>>()))
+    shell.managing.headings.iter().find(|(s, ..)| s == sort).map(|(_, p, h)| (*p, *h)).unwrap_or_else(|| panic!("no heading {sort}: {:?}", shell.managing.headings.iter().map(|h| &h.0).collect::<Vec<_>>()))
 }
 
 /// A name typed under a heading, with the plus clicked and Enter hit.
 fn type_a_name(ctx: &egui::Context, shell: &mut Shell, sort: &str, name: &str) {
     click_plus(ctx, shell, sort);
-    assert!(shell.naming.as_ref().is_some_and(|n| n.sort == sort), "the plus asks for a name under {sort}");
+    assert!(shell.managing.naming.as_ref().is_some_and(|n| n.sort == sort), "the plus asks for a name under {sort}");
     frame_with(ctx, shell, vec![egui::Event::Text(name.into())]);
     key(ctx, shell, egui::Key::Enter);
 }
@@ -313,10 +313,10 @@ fn the_headings_with_a_plus_are_always_there() {
     let ctx = egui::Context::default();
     frame(&ctx, &mut shell);
     frame(&ctx, &mut shell);
-    let sorts: Vec<&str> = shell.headings.iter().map(|(s, ..)| s.as_str()).collect();
+    let sorts: Vec<&str> = shell.managing.headings.iter().map(|(s, ..)| s.as_str()).collect();
     assert_eq!(sorts, ["Logic", "Scenarios", "Levels", "Models", "Sounds", "Music"]);
     assert_eq!(shell.files.assets.iter().map(|g| (g.name, g.files.len())).collect::<Vec<_>>(), [("Levels", 0), ("Models", 0), ("Sounds", 0), ("Music", 0)]);
-    for (sort, plus, head) in &shell.headings {
+    for (sort, plus, head) in &shell.managing.headings {
         assert!(head.contains_rect(*plus), "{sort}: the plus lies on its row");
     }
     let _ = std::fs::remove_dir_all(&dir);
@@ -338,7 +338,7 @@ fn the_plus_and_the_fold_are_apart() {
     let folded = below(&shell);
     assert!(folded < open, "the row folds it: {folded} < {open}");
     click_plus(&ctx, &mut shell, "Models");
-    assert!(shell.naming.as_ref().is_some_and(|n| n.sort == "Models"), "the plus asks for a name");
+    assert!(shell.managing.naming.as_ref().is_some_and(|n| n.sort == "Models"), "the plus asks for a name");
     assert!(below(&shell) > folded, "and unfolds the heading to make room for it");
     // On an open heading it folds nothing.
     let before = below(&shell);
@@ -360,7 +360,7 @@ fn a_plus_makes_a_file_of_its_sort() {
     for (sort, typed, path) in [("Logic", "Market Stall", "market_stall.lua"), ("Scenarios", "late", "scenarios/late.lua"), ("Models", "Hero", "hero.vvx"), ("Sounds", "Coin Pick", "sounds/coin_pick.toml"), ("Music", "theme.mml", "music/theme.mml"), ("Levels", "Cellar", "levels/cellar.toml")] {
         type_a_name(&ctx, &mut shell, sort, typed);
         assert!(dir.join(path).is_file(), "{path} made");
-        assert!(shell.naming.is_none(), "{path}: the field is gone");
+        assert!(shell.managing.naming.is_none(), "{path}: the field is gone");
         assert!(shell.files.has(path), "{path} listed at once");
         assert_eq!(shell.memory.open.as_deref(), Some(path), "{path} open");
         frame(&ctx, &mut shell);
@@ -382,10 +382,10 @@ fn a_plus_makes_a_file_of_its_sort() {
     std::fs::write(dir.join("hero.vvx"), "mine").unwrap();
     type_a_name(&ctx, &mut shell, "Models", "HERO");
     assert_eq!(std::fs::read(dir.join("hero.vvx")).unwrap(), b"mine");
-    assert_eq!(shell.naming.as_ref().and_then(|n| n.problem.as_deref()), Some("hero.vvx is already there."));
+    assert_eq!(shell.managing.naming.as_ref().and_then(|n| n.problem.as_deref()), Some("hero.vvx is already there."));
     frame(&ctx, &mut shell);
     key(&ctx, &mut shell, egui::Key::Escape);
-    assert!(shell.naming.is_none(), "Escape cancels");
+    assert!(shell.managing.naming.is_none(), "Escape cancels");
     // Nothing, or a sign a name cannot have.
     assert_eq!(shell.make_file("Logic", "  "), Err("Type a name first.".into()));
     assert_eq!(shell.make_file("Logic", "a/b"), Err("A name takes letters, digits, _ and - only.".into()));
@@ -403,9 +403,9 @@ fn an_empty_name_field_goes_away_when_left() {
     frame(&ctx, &mut shell);
     frame(&ctx, &mut shell);
     click_plus(&ctx, &mut shell, "Music");
-    assert!(shell.naming.is_some());
+    assert!(shell.managing.naming.is_some());
     click(&ctx, &mut shell, egui::pos2(700.0, 400.0));
-    assert!(shell.naming.is_none(), "left empty");
+    assert!(shell.managing.naming.is_none(), "left empty");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -424,7 +424,7 @@ fn what_a_plus_makes_works() {
     assert!(model.frames.len() == 1 && model.frames[0].len() == 64 && model.size == glam::IVec3::splat(8), "{:?} {}", model.size, model.frames[0].len());
     shell.open("blob.vvx");
     frame(&ctx, &mut shell);
-    assert!(shell.preview.is_some(), "it shows as a picture: {:?}", shell.message);
+    assert!(shell.pictures.preview.is_some(), "it shows as a picture: {:?}", shell.message);
     let song = crate::audio::music::parse(&std::fs::read_to_string(dir.join("music/tune.mml")).unwrap()).unwrap();
     assert!(song.names.len() == 2 && song.length > 0 && song.channel_lengths().iter().all(|(_, l)| (*l - song.channel_lengths()[0].1).abs() < 0.01), "{:?}", song.channel_lengths());
     std::fs::write(dir.join("main.lua"), "local tools = require(\"tools\")\nfunction on_world_start() world.state.said = tools.hello() end\n").unwrap();
@@ -479,7 +479,7 @@ fn sounds_have_a_group_of_their_own() {
     // The built-in ones: those of the core, none of them replaced by a file.
     std::fs::write(dir.join("sounds/impact.toml"), "wave = \"noise\"\n").unwrap();
     shell.files = Files::scan(&dir);
-    let listed: Vec<&str> = shell.brought.iter().map(|(n, _)| *n).filter(|n| !shell.files.has(&format!("sounds/{n}.toml"))).collect();
+    let listed: Vec<&str> = shell.sound.brought.iter().map(|(n, _)| *n).filter(|n| !shell.files.has(&format!("sounds/{n}.toml"))).collect();
     assert_eq!(listed, ["explosion", "crumble"]);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -493,16 +493,16 @@ fn a_builtin_sound_is_made_yours() {
     let mut shell = shell_on(&dir, &memory).with_sounds(crate::audio::core_sounds());
     let ctx = egui::Context::default();
     frame(&ctx, &mut shell);
-    shell.builtin = Some("explosion");
+    shell.sound.builtin = Some("explosion");
     frame(&ctx, &mut shell);
     frame(&ctx, &mut shell);
-    assert!(shell.used.as_ref().is_some_and(|u| u.name == "explosion" && u.rows.is_empty()));
+    assert!(shell.sound.used.as_ref().is_some_and(|u| u.name == "explosion" && u.rows.is_empty()));
     assert!(shell.rules_say("explosion")[0].starts_with("THE ENGINE"));
     assert!(!dir.join("sounds/explosion.toml").exists(), "looking writes nothing");
     shell.make_it_yours("explosion");
     let text = std::fs::read_to_string(dir.join("sounds/explosion.toml")).unwrap();
     assert!(text.starts_with("# explosion: ") && sound::read("explosion.toml", &text).is_ok(), "{text}");
-    assert!(shell.builtin.is_none() && shell.files.has("sounds/explosion.toml") && shell.memory.open.as_deref() == Some("sounds/explosion.toml"));
+    assert!(shell.sound.builtin.is_none() && shell.files.has("sounds/explosion.toml") && shell.memory.open.as_deref() == Some("sounds/explosion.toml"));
     frame(&ctx, &mut shell);
     assert!(matches!(shell.shown, Some(Shown::Code(_))), "now it is text to change");
     let _ = std::fs::remove_dir_all(&dir);
@@ -519,12 +519,12 @@ fn a_sound_is_text_with_a_line_of_words_and_its_mistakes() {
     shell.open("sounds/coin.toml");
     frame(&ctx, &mut shell);
     frame(&ctx, &mut shell);
-    assert_eq!(shell.sound_line.as_ref().map(|(_, l)| l.as_str()), Some("0.20 s · triangle wave · falling an octave"));
+    assert_eq!(shell.sound.sound_line.as_ref().map(|(_, l)| l.as_str()), Some("0.20 s · triangle wave · falling an octave"));
     // A mistake on a line of its own, typed at the end.
     type_into_text(&ctx, &mut shell, "frq = 1\n");
     let error = buffer(&shell).code.error.clone();
     assert!(error.as_ref().is_some_and(|(line, why)| *line == 7 && why.starts_with("frq: no such field")), "{error:?}");
-    assert_eq!(shell.sound_line.as_ref().map(|(_, l)| l.as_str()), Some("The sound cannot be read."));
+    assert_eq!(shell.sound.sound_line.as_ref().map(|(_, l)| l.as_str()), Some("The sound cannot be read."));
     assert!(shell.errors().starts_with("sounds/coin.toml:7: frq: no such field"), "{}", shell.errors());
     // Mended: the line gone.
     if let Some(Shown::Code(b)) = &mut shell.shown {
@@ -533,7 +533,7 @@ fn a_sound_is_text_with_a_line_of_words_and_its_mistakes() {
     frame(&ctx, &mut shell);
     frame(&ctx, &mut shell);
     assert!(buffer(&shell).code.error.is_none());
-    assert!(shell.sound_line.as_ref().is_some_and(|(_, l)| l.starts_with("0.20 s")));
+    assert!(shell.sound.sound_line.as_ref().is_some_and(|(_, l)| l.starts_with("0.20 s")));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -549,11 +549,11 @@ fn a_sound_shows_where_it_is_used() {
     shell.open("sounds/coin.toml");
     frame(&ctx, &mut shell);
     frame(&ctx, &mut shell);
-    let rows: Vec<(String, usize, String)> = shell.used.as_ref().unwrap().rows.iter().map(|u| (u.file.clone(), u.line, u.text.clone())).collect();
+    let rows: Vec<(String, usize, String)> = shell.sound.used.as_ref().unwrap().rows.iter().map(|u| (u.file.clone(), u.line, u.text.clone())).collect();
     assert_eq!(rows, [("conf.lua".to_string(), 5, "c.things.gem = { sound = \"coin\" }".to_string()), ("main.lua".to_string(), 3, "level:sound(\"coin\", player)".to_string())]);
-    assert_eq!(shell.used_rows.len(), 2, "two rows drawn");
+    assert_eq!(shell.sound.used_rows.len(), 2, "two rows drawn");
     // A click on the second opens main.lua at its line.
-    let second = shell.used_rows[1].center();
+    let second = shell.sound.used_rows[1].center();
     click(&ctx, &mut shell, second);
     assert_eq!(shell.memory.open.as_deref(), Some("main.lua"));
     frame(&ctx, &mut shell);
@@ -566,7 +566,7 @@ fn a_sound_shows_where_it_is_used() {
     shell.open("sounds/bell.toml");
     frame(&ctx, &mut shell);
     frame(&ctx, &mut shell);
-    assert!(shell.used.as_ref().is_some_and(|u| u.name == "bell" && u.rows.is_empty()) && shell.used_rows.is_empty());
+    assert!(shell.sound.used.as_ref().is_some_and(|u| u.name == "bell" && u.rows.is_empty()) && shell.sound.used_rows.is_empty());
     // PLAY SOUND asks the speaker for the text as it stands.
     type_into_text(&ctx, &mut shell, "# louder\n");
     shell.play_sound();
@@ -639,7 +639,7 @@ fn the_maker_rolls_and_goes_back() {
     assert_eq!(shell.take_asks(), [Ask::Sound, Ask::Sound, Ask::Sound]);
     // LOOP: the sound again once it has sounded and its pause is over,
     // until another file is opened.
-    (shell.looping, shell.again_at) = (true, None);
+    (shell.sound.looping, shell.sound.again_at) = (true, None);
     let now = std::time::Instant::now();
     shell.tick(now);
     assert_eq!(shell.take_asks(), [Ask::Sound], "at once");
@@ -770,7 +770,7 @@ fn each_sort_of_file_is_renamed() {
     ] {
         let bytes = std::fs::read(dir.join(from)).unwrap();
         assert_eq!(shell.rename(from, typed), Ok(()), "{from}");
-        assert!(shell.asking.is_none(), "{from}: nothing names it, nothing is asked");
+        assert!(shell.managing.asking.is_none(), "{from}: nothing names it, nothing is asked");
         assert!(!dir.join(from).exists(), "{from} gone");
         assert_eq!(std::fs::read(dir.join(to)).unwrap(), bytes, "{to} has its bytes");
         assert!(shell.files.has(to) && !shell.files.has(from), "{to} listed anew");
@@ -823,13 +823,13 @@ fn what_the_game_needs_is_not_renamed_or_deleted() {
         let err = shell.rename(file, "other").unwrap_err();
         assert!(err.contains("needs main.lua and conf.lua"), "{err}");
         shell.delete(file);
-        assert!(dir.join(file).is_file() && shell.gone.is_none(), "{file} stays");
+        assert!(dir.join(file).is_file() && shell.managing.gone.is_none(), "{file} stays");
         shell.begin_rename(file);
-        assert!(shell.renaming.is_none());
+        assert!(shell.managing.renaming.is_none());
     }
     assert!(shell.rename("level.toml", "other").unwrap_err().starts_with("Not yet"));
     shell.delete("level.toml");
-    assert!(dir.join("level.toml").is_file() && shell.gone.is_none());
+    assert!(dir.join("level.toml").is_file() && shell.managing.gone.is_none());
     assert_eq!(shell.rename("sounds/coin.toml", "bell"), Err("sounds/bell.toml is already there.".into()));
     assert_eq!(shell.rename("tools.lua", "a/b"), Err("A name cannot hold a folder: no / in it.".into()));
     assert_eq!(shell.rename("tools.lua", " "), Err("Type a name first.".into()));
@@ -850,12 +850,12 @@ fn the_lines_naming_a_sound_are_asked_about() {
     let ctx = egui::Context::default();
     frame(&ctx, &mut shell);
     assert_eq!(shell.rename("sounds/coin.toml", "ring"), Ok(()));
-    let q = shell.asking.as_ref().expect("asked");
+    let q = shell.managing.asking.as_ref().expect("asked");
     assert_eq!((q.rows.len(), q.ticked.as_slice()), (2, [true, true].as_slice()), "both certain, both ticked");
     frame(&ctx, &mut shell);
     assert!(dir.join("sounds/coin.toml").exists(), "nothing done before the answer");
     shell.answer(Answer::Cancel);
-    assert!(shell.asking.is_none() && dir.join("sounds/coin.toml").exists() && !dir.join("sounds/ring.toml").exists());
+    assert!(shell.managing.asking.is_none() && dir.join("sounds/coin.toml").exists() && !dir.join("sounds/ring.toml").exists());
     // ONLY THE FILE.
     assert_eq!(shell.rename("sounds/coin.toml", "ring"), Ok(()));
     shell.answer(Answer::OnlyTheFile);
@@ -876,14 +876,14 @@ fn the_lines_naming_a_sound_are_asked_about() {
     let main_now = std::fs::read_to_string(dir.join("main.lua")).unwrap();
     assert_eq!(main_now, format!("{}-- mine\n", main.replace("\"coin\"", "\"ring\"")), "the change and the new name both, on disk");
     assert_eq!(buffer(&shell).code.text, main_now, "the open text took it in");
-    assert!(matches!(&shell.notice, Some(Notice::Said(n)) if n.starts_with("RENAMED coin.toml TO ring.toml")));
+    assert!(matches!(&shell.bar.notice, Some(Notice::Said(n)) if n.starts_with("RENAMED coin.toml TO ring.toml")));
     // A module, a model and a song are asked about by their own lines.
     std::fs::write(dir.join("main.lua"), "local tools = require \"tools\"\nm = \"hero.vvx\"\nplay(\"music/tune.mml\")\n").unwrap();
     shell.files = Files::scan(&dir);
     shell.unload();
     for (from, typed, line) in [("tools.lua", "kit", "require \"kit\""), ("hero.vvx", "knight", "m = \"knight.vvx\""), ("music/tune.mml", "song", "play(\"music/song.mml\")")] {
         assert_eq!(shell.rename(from, typed), Ok(()));
-        assert_eq!(shell.asking.as_ref().map(|q| q.rows.len()), Some(1), "{from}");
+        assert_eq!(shell.managing.asking.as_ref().map(|q| q.rows.len()), Some(1), "{from}");
         shell.answer(Answer::Change);
         assert!(std::fs::read_to_string(dir.join("main.lua")).unwrap().contains(line), "{line}");
     }
@@ -920,7 +920,7 @@ fn a_model_is_renamed_in_the_levels_and_maps_too() {
     let map = std::fs::read_to_string(dir.join("map.toml")).unwrap();
     let mut shell = shell_on(&dir, &root.join("pulsar.toml"));
     assert_eq!(shell.rename("prefabs/rock_1.vvx", "boulder"), Ok(()));
-    let q = shell.asking.as_ref().expect("asked");
+    let q = shell.managing.asking.as_ref().expect("asked");
     assert_eq!(q.rows.iter().map(|r| (r.file.as_str(), r.text.as_str())).collect::<Vec<_>>(), [("map.toml", "rock_1 = \"prefabs/rock_1.vvx\"")]);
     assert_eq!(q.ticked, [true]);
     shell.answer(Answer::Change);
@@ -936,7 +936,7 @@ fn a_model_is_renamed_in_the_levels_and_maps_too() {
     let conf = std::fs::read_to_string(dir.join("conf.lua")).unwrap();
     let mut shell = shell_on(&dir, &root.join("voxkeep.toml"));
     assert_eq!(shell.rename("torch.vvx", "lamp"), Ok(()));
-    let q = shell.asking.as_ref().expect("asked");
+    let q = shell.managing.asking.as_ref().expect("asked");
     let files: Vec<&str> = q.rows.iter().map(|r| r.file.as_str()).collect();
     assert_eq!(files, ["conf.lua", "levels/01_hall.toml"], "the kind's model and the piece");
     assert!(q.ticked.iter().all(|t| *t));
@@ -983,7 +983,7 @@ fn the_places_to_change_are_ticked_one_by_one() {
     let ctx = egui::Context::default();
     frame(&ctx, &mut shell);
     assert_eq!(shell.rename("sounds/coin.toml", "ring"), Ok(()));
-    let q = shell.asking.as_ref().expect("asked");
+    let q = shell.managing.asking.as_ref().expect("asked");
     let rows: Vec<(&str, usize, bool)> = q.rows.iter().map(|r| (r.file.as_str(), r.line, r.sure)).collect();
     assert_eq!(rows, [("conf.lua", 5, true), ("main.lua", 2, true), ("main.lua", 3, false)], "the icon is no place of the sound");
     assert_eq!(q.ticked, [true, true, false]);
@@ -993,12 +993,12 @@ fn the_places_to_change_are_ticked_one_by_one() {
     // The maybe's tick, by its text.
     let maybe = texts.iter().find(|(t, _)| t.starts_with("main.lua:3 ")).expect("the maybe's row").1;
     click(&ctx, &mut shell, maybe);
-    assert_eq!(shell.asking.as_ref().map(|q| q.ticked.clone()), Some(vec![true, true, true]));
+    assert_eq!(shell.managing.asking.as_ref().map(|q| q.ticked.clone()), Some(vec![true, true, true]));
     let texts = drawn_text(&ctx, &mut shell, Vec::new());
     // The question's RENAME, drawn over the main area's.
     let rename = texts.iter().rev().find(|(t, _)| t == "RENAME").expect("the button").1;
     click(&ctx, &mut shell, rename);
-    assert!(shell.asking.is_none() && dir.join("sounds/ring.toml").is_file());
+    assert!(shell.managing.asking.is_none() && dir.join("sounds/ring.toml").is_file());
     assert_eq!(std::fs::read_to_string(dir.join("main.lua")).unwrap(), "function on_tick()\n  level:sound(\"ring\", player)\n  fly(\"ring\")\nend\nfunction on_draw(frame)\n  frame:icon(\"coin\", 1, 1)\nend\n");
     clean_up(&dir, &shell);
 }
@@ -1017,7 +1017,7 @@ fn a_deleted_file_can_be_put_back() {
     let bytes = std::fs::read(dir.join("sounds/coin.toml")).unwrap();
     shell.delete("sounds/coin.toml");
     assert!(!dir.join("sounds/coin.toml").exists() && !shell.files.has("sounds/coin.toml"));
-    let gone = shell.gone.as_ref().expect("a notice with UNDO");
+    let gone = shell.managing.gone.as_ref().expect("a notice with UNDO");
     assert_eq!(gone.said, "DELETED coin.toml · conf.lua and main.lua still play it in 2 lines");
     assert!(gone.can_undo() && gone.until > std::time::Instant::now() + std::time::Duration::from_secs(6));
     assert_eq!(std::fs::read(shell.deleted_dir.join("sounds/coin.toml")).unwrap(), bytes, "kept where it went");
@@ -1027,19 +1027,19 @@ fn a_deleted_file_can_be_put_back() {
     // UNDO.
     shell.undo();
     assert_eq!(std::fs::read(dir.join("sounds/coin.toml")).unwrap(), bytes);
-    assert!(shell.gone.is_none() && shell.files.has("sounds/coin.toml") && !shell.deleted_dir.join("sounds/coin.toml").exists());
+    assert!(shell.managing.gone.is_none() && shell.files.has("sounds/coin.toml") && !shell.deleted_dir.join("sounds/coin.toml").exists());
     assert_eq!(shell.memory.open.as_deref(), Some("sounds/coin.toml"), "open again");
     frame(&ctx, &mut shell);
     assert!(buffer(&shell).code.sound.is_some());
     // A file nothing names says nothing more; one not open leaves the open one be.
     shell.delete("sounds/bell.toml");
-    assert_eq!(shell.gone.as_ref().map(|g| g.said.as_str()), Some("DELETED bell.toml"));
+    assert_eq!(shell.managing.gone.as_ref().map(|g| g.said.as_str()), Some("DELETED bell.toml"));
     assert_eq!(shell.memory.open.as_deref(), Some("sounds/coin.toml"));
     // The notice goes after its time, with the bytes.
-    shell.gone.as_mut().unwrap().until = std::time::Instant::now();
+    shell.managing.gone.as_mut().unwrap().until = std::time::Instant::now();
     frame(&ctx, &mut shell);
     frame(&ctx, &mut shell);
-    assert!(shell.gone.is_none(), "gone after its time");
+    assert!(shell.managing.gone.is_none(), "gone after its time");
     clean_up(&dir, &shell);
 }
 
@@ -1054,7 +1054,7 @@ fn deleting_the_only_open_file_leaves_the_area_empty() {
     shell.open("tools.lua");
     frame(&ctx, &mut shell);
     type_into_text(&ctx, &mut shell, "-- typed\n");
-    shell.previous = None;
+    shell.opening.previous = None;
     shell.delete("tools.lua");
     assert!(!shell.journals().join("tools.lua").exists(), "no journal left");
     assert_eq!(shell.memory.open, None);
@@ -1068,9 +1068,9 @@ fn deleting_the_only_open_file_leaves_the_area_empty() {
     // The same through the button.
     shell.delete("notes.txt");
     frame(&ctx, &mut shell);
-    let undo = shell.undo_button.expect("UNDO drawn on the bar");
+    let undo = shell.managing.undo_button.expect("UNDO drawn on the bar");
     click(&ctx, &mut shell, undo.center());
-    assert!(dir.join("notes.txt").is_file() && shell.gone.is_none(), "UNDO clicked");
+    assert!(dir.join("notes.txt").is_file() && shell.managing.gone.is_none(), "UNDO clicked");
     clean_up(&dir, &shell);
 }
 
@@ -1086,20 +1086,20 @@ fn a_name_is_typed_in_place_in_the_list() {
     shell.begin_rename("sounds/bell.toml");
     frame(&ctx, &mut shell);
     frame(&ctx, &mut shell);
-    assert!(shell.renaming.as_ref().is_some_and(|r| r.text == "bell" && !r.fresh));
+    assert!(shell.managing.renaming.as_ref().is_some_and(|r| r.text == "bell" && !r.fresh));
     frame_with(&ctx, &mut shell, vec![egui::Event::Text("coin".into())]);
     key(&ctx, &mut shell, egui::Key::Enter);
-    assert_eq!(shell.renaming.as_ref().and_then(|r| r.problem.as_deref()), Some("sounds/coin.toml is already there."));
+    assert_eq!(shell.managing.renaming.as_ref().and_then(|r| r.problem.as_deref()), Some("sounds/coin.toml is already there."));
     frame_with(&ctx, &mut shell, vec![egui::Event::Text("x".into())]);
     key(&ctx, &mut shell, egui::Key::Escape);
-    assert!(shell.renaming.is_none() && dir.join("sounds/bell.toml").is_file(), "Escape leaves it");
+    assert!(shell.managing.renaming.is_none() && dir.join("sounds/bell.toml").is_file(), "Escape leaves it");
     // Enter takes it (the old name is selected: typing replaces it).
     shell.begin_rename("sounds/bell.toml");
     frame(&ctx, &mut shell);
     frame(&ctx, &mut shell);
     frame_with(&ctx, &mut shell, vec![egui::Event::Text("Chime".into())]);
     key(&ctx, &mut shell, egui::Key::Enter);
-    assert!(shell.renaming.is_none() && dir.join("sounds/chime.toml").is_file() && !dir.join("sounds/bell.toml").exists());
+    assert!(shell.managing.renaming.is_none() && dir.join("sounds/chime.toml").is_file() && !dir.join("sounds/bell.toml").exists());
     // A right click on a row opens a menu (RENAME, DELETE).
     let at = egui::pos2(60.0, heading(&shell, "Logic").1.bottom() + 16.0);
     let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed, modifiers: egui::Modifiers::NONE };
@@ -1139,12 +1139,12 @@ fn a_mistake_and_the_output_can_be_copied() {
     let copied = copied_in(&ctx, &mut shell, vec![button(false)]);
     assert_eq!(copied, ["sounds/coin.toml line 7: frq: no such field (did you mean freq?)"]);
     // OUTPUT's COPY ALL: the lines in order.
-    shell.output.add(Kind::Note, "one", None, false);
-    shell.output.add(Kind::Error, "two", None, false);
-    shell.output_shown = true;
+    shell.below.output.add(Kind::Note, "one", None, false);
+    shell.below.output.add(Kind::Error, "two", None, false);
+    shell.below.output_shown = true;
     frame(&ctx, &mut shell);
     frame(&ctx, &mut shell);
-    assert!(shell.output.text().ends_with("one\ntwo"));
+    assert!(shell.below.output.text().ends_with("one\ntwo"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1181,7 +1181,7 @@ fn the_list_sees_what_is_made_outside() {
     let (dir, memory, mut shell) = managed_game("outside-list");
     let ctx = egui::Context::default();
     shell.open("main.lua");
-    shell.naming = Some(Naming { sort: "Scenarios".into(), text: "half a na".into(), blocks: false, problem: None, fresh: false });
+    shell.managing.naming = Some(Naming { sort: "Scenarios".into(), text: "half a na".into(), blocks: false, problem: None, fresh: false });
     frame(&ctx, &mut shell);
     let mut at = later();
     let mut look = |shell: &mut Shell| {
@@ -1198,7 +1198,7 @@ fn the_list_sees_what_is_made_outside() {
     assert!(shell.has("scenarios/boss.lua") && shell.has("enemy.vvx"));
     assert!(shell.take_asks().is_empty());
     assert_eq!(shell.opened(), Some("main.lua"), "the open file stays");
-    assert_eq!(shell.naming.as_ref().map(|n| n.text.as_str()), Some("half a na"), "a name being typed is left alone");
+    assert_eq!(shell.managing.naming.as_ref().map(|n| n.text.as_str()), Some("half a na"), "a name being typed is left alone");
     assert!(says(&drawn_text(&ctx, &mut shell, vec![]), "boss"), "and it is in the list");
     std::fs::rename(dir.join("scenarios/boss.lua"), dir.join("scenarios/last.lua")).unwrap();
     std::fs::remove_file(dir.join("enemy.vvx")).unwrap();
@@ -1207,10 +1207,10 @@ fn the_list_sees_what_is_made_outside() {
     let texts = drawn_text(&ctx, &mut shell, vec![]);
     assert!(says(&texts, "last") && !says(&texts, "boss"));
     // A file being renamed in the list whose file goes: the field goes.
-    shell.renaming = Some(manage::Renaming { path: "scenarios/last.lua".into(), text: "last".into(), problem: None, fresh: false });
+    shell.managing.renaming = Some(manage::Renaming { path: "scenarios/last.lua".into(), text: "last".into(), problem: None, fresh: false });
     std::fs::remove_file(dir.join("scenarios/last.lua")).unwrap();
     look(&mut shell);
-    assert!(shell.renaming.is_none());
+    assert!(shell.managing.renaming.is_none());
     clean_up(&dir, &shell);
     let _ = std::fs::remove_file(&memory);
 }
@@ -1277,7 +1277,7 @@ fn the_console_is_folded_until_wanted_and_remembered() {
     let again = shell_on(&dir, &memory);
     assert!(!again.memory.console_folded, "and unfolded the next time");
     // (Its bar is now at the top of the console.)
-    let top = 720.0 - shell.console_seen.expect("unfolded") + 15.0;
+    let top = 720.0 - shell.below.console_seen.expect("unfolded") + 15.0;
     click(&ctx, &mut shell, egui::pos2(arrow.x, top));
     assert!(shell.memory.console_folded && Memory::load(&memory).console_folded, "folded again by the arrow");
     // A tab unfolds it too (CONSOLE at the left of the bar).
@@ -1295,7 +1295,7 @@ fn the_console_is_folded_until_wanted_and_remembered() {
     for _ in 0..3 {
         frame(&ctx, &mut tall);
     }
-    assert!(tall.console_seen.is_some_and(|h| (h - 200.0).abs() < 3.0), "{:?}", tall.console_seen);
+    assert!(tall.below.console_seen.is_some_and(|h| (h - 200.0).abs() < 3.0), "{:?}", tall.below.console_seen);
     // Dragged by its top edge, let go: kept.
     let (from, to) = (egui::pos2(640.0, 720.0 - 200.0), egui::pos2(640.0, 720.0 - 320.0));
     let button = |at, pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
@@ -1324,7 +1324,7 @@ fn an_agent_that_starts_with_the_ide_has_the_console_open() {
     settings.save(&prefs).unwrap();
     let mut shell = shell_on(&dir, &memory);
     let agent = fake_agent("console-agent");
-    shell.finder = super::super::claude::Finder::in_dirs(vec![agent.to_path_buf()]);
+    shell.agent.finder = super::super::claude::Finder::in_dirs(vec![agent.to_path_buf()]);
     let shell = shell.with_prefs(prefs.clone());
     assert!(!shell.memory.console_folded);
     assert!(shell.console.typed().starts_with("claude "), "typed: {}", shell.console.typed());
@@ -1363,7 +1363,7 @@ fn a_missing_agent_is_explained_and_nothing_is_typed() {
     let mut shell = shell_on(&dir, &memory);
     let ctx = egui::Context::default();
     shell.start_agent(false, true);
-    assert!(shell.no_agent && shell.console.typed().is_empty(), "nothing typed");
+    assert!(shell.agent.no_agent && shell.console.typed().is_empty(), "nothing typed");
     assert!(!shell.memory.console_folded, "asked for: the console opens");
     let texts = drawn_text(&ctx, &mut shell, vec![]);
     for word in ["NO AGENT FOUND", "Claude Code", "https://claude.com/claude-code", "LOOK AGAIN"] {
@@ -1372,13 +1372,13 @@ fn a_missing_agent_is_explained_and_nothing_is_typed() {
     // Looking again with nothing installed changes nothing.
     let at = at_word(&texts, "LOOK AGAIN");
     click(&ctx, &mut shell, at);
-    assert!(shell.no_agent && shell.console.typed().is_empty());
+    assert!(shell.agent.no_agent && shell.console.typed().is_empty());
     // Installed: LOOK AGAIN finds it and types its command.
     let bin = fake_agent("no-agent");
-    shell.finder = super::super::claude::Finder::in_dirs(vec![bin.to_path_buf()]);
+    shell.agent.finder = super::super::claude::Finder::in_dirs(vec![bin.to_path_buf()]);
     let at = at_word(&drawn_text(&ctx, &mut shell, vec![]), "LOOK AGAIN");
     click(&ctx, &mut shell, at);
-    assert!(!shell.no_agent, "found");
+    assert!(!shell.agent.no_agent, "found");
     assert!(shell.console.typed().starts_with("claude "), "typed: {}", shell.console.typed());
     assert!(!says(&drawn_text(&ctx, &mut shell, vec![]), "NO AGENT FOUND"));
     let _ = std::fs::remove_dir_all(&bin);
@@ -1397,7 +1397,7 @@ fn a_missing_agent_does_not_open_the_console_by_itself() {
     settings.claude.with_ide = true;
     settings.save(&prefs).unwrap();
     let mut shell = shell_on(&dir, &memory).with_prefs(prefs.clone());
-    assert!(shell.no_agent && shell.memory.console_folded && shell.console.typed().is_empty());
+    assert!(shell.agent.no_agent && shell.memory.console_folded && shell.console.typed().is_empty());
     let ctx = egui::Context::default();
     assert!(says(&drawn_text(&ctx, &mut shell, vec![]), "NO AGENT FOUND"), "said in the bar");
     let _ = std::fs::remove_dir_all(&dir);
@@ -1504,7 +1504,7 @@ fn the_games_error_shows_over_whatever_is_open() {
     assert!(["TO THE LINE", "SHOW", "COPY"].iter().all(|b| says(&texts, b)));
     // OUTPUT has it whole, the traceback too, Lua's own frames left out.
     shell.game_said(shell.stage.as_ref().unwrap().trouble.clone(), Vec::new());
-    assert!(shell.output.text().contains("THE GAME STOPPED: main.lua:3: attempt to index a nil value\nstack traceback:") && !shell.output.text().contains("[C]"), "{}", shell.output.text());
+    assert!(shell.below.output.text().contains("THE GAME STOPPED: main.lua:3: attempt to index a nil value\nstack traceback:") && !shell.below.output.text().contains("[C]"), "{}", shell.below.output.text());
     // Over HELP, the game and nothing.
     shell.help = true;
     assert!(says(&drawn_text(&ctx, &mut shell, vec![]), "THE GAME STOPPED"), "over HELP");
@@ -1524,12 +1524,12 @@ fn the_games_error_shows_over_whatever_is_open() {
     shell.wont_start("conf.lua:2: unexpected symbol".into());
     let texts = drawn_text(&ctx, &mut shell, vec![]);
     assert!(says(&texts, "THE GAME WOULD NOT START: conf.lua:2: unexpected symbol") && says(&texts, "TO THE LINE"));
-    assert!(shell.output.errors(5).iter().any(|l| l.text.starts_with("THE GAME WOULD NOT START") && l.at == Some(("conf.lua".into(), 2))), "and in OUTPUT");
+    assert!(shell.below.output.errors(5).iter().any(|l| l.text.starts_with("THE GAME WOULD NOT START") && l.at == Some(("conf.lua".into(), 2))), "and in OUTPUT");
     // SHOW: OUTPUT, the console unfolded (and there, though the settings left it out).
-    shell.prefs.console = false;
+    shell.forms.prefs.console = false;
     let at = texts.iter().find(|(t, _)| t == "SHOW").expect("SHOW").1;
     click(&ctx, &mut shell, at);
-    assert!(shell.prefs.console && shell.output_shown && !shell.memory.console_folded);
+    assert!(shell.forms.prefs.console && shell.below.output_shown && !shell.memory.console_folded);
     // TO THE LINE: the file at the line.
     let at = drawn_text(&ctx, &mut shell, vec![]).into_iter().find(|(t, _)| t == "TO THE LINE").expect("the button").1;
     click(&ctx, &mut shell, at);
@@ -1554,11 +1554,11 @@ fn build_works_in_the_background_and_lands_in_the_games_folder() {
     shell.build();
     assert!(says(&drawn_text(&ctx, &mut shell, vec![]), "BUILDING…"));
     let until = std::time::Instant::now() + std::time::Duration::from_secs(120);
-    while shell.building.is_some() && std::time::Instant::now() < until {
+    while shell.bar.building.is_some() && std::time::Instant::now() < until {
         shell.tick(std::time::Instant::now());
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    let Some(Notice::Built(zip, said)) = &shell.notice else { panic!("built") };
+    let Some(Notice::Built(zip, said)) = &shell.bar.notice else { panic!("built") };
     let name = crate::settings::game_name(&dir);
     assert!(zip.starts_with(dir.canonicalize().unwrap().join("builds")) && zip.is_file(), "{zip:?}");
     assert!(said.starts_with("BUILT ") && said.contains(&format!("{name}-")), "{said}");
@@ -1570,14 +1570,14 @@ fn build_works_in_the_background_and_lands_in_the_games_folder() {
     std::fs::remove_dir_all(dir.join("builds")).unwrap();
     std::fs::write(dir.join("builds"), "in the way").unwrap();
     shell.build();
-    while shell.building.is_some() && std::time::Instant::now() < until {
+    while shell.bar.building.is_some() && std::time::Instant::now() < until {
         shell.tick(std::time::Instant::now());
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
-    assert!(matches!(&shell.notice, Some(Notice::Failed(w)) if w.starts_with("BUILD FAILED: ")), "failed");
+    assert!(matches!(&shell.bar.notice, Some(Notice::Failed(w)) if w.starts_with("BUILD FAILED: ")), "failed");
     let texts = drawn_text(&ctx, &mut shell, vec![]);
     assert!(says(&texts, "BUILD FAILED") && says(&texts, "COPY"));
-    assert!(shell.output.errors(2).iter().any(|l| l.text.starts_with("BUILD FAILED")));
+    assert!(shell.below.output.errors(2).iter().any(|l| l.text.starts_with("BUILD FAILED")));
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_file(&memory);
 }
@@ -1618,7 +1618,7 @@ fn a_question_left_open_keeps_the_text_when_another_file_is_chosen() {
     shell.open("main.lua");
     frame(&ctx, &mut shell);
     assert_eq!(std::fs::read_to_string(dir.join("tools.lua")).unwrap(), theirs, "nothing written over theirs");
-    assert!(matches!(&shell.notice, Some(Notice::Said(n)) if n.starts_with("tools.lua NOT SAVED")), "said");
+    assert!(matches!(&shell.bar.notice, Some(Notice::Said(n)) if n.starts_with("tools.lua NOT SAVED")), "said");
     assert!(shell.journals().join("tools.lua").is_file(), "the text kept in its journal");
     // DELETE would take the user's text with the file: not before the answer.
     shell.delete("tools.lua");
@@ -1904,14 +1904,14 @@ fn a_model_goes_to_its_text_and_back() {
     shell.open("hero.vvx");
     frame(&ctx, &mut shell);
     frame(&ctx, &mut shell);
-    assert!(shell.preview.is_some() && !matches!(shell.shown, Some(Shown::Code(_))), "the picture first");
+    assert!(shell.pictures.preview.is_some() && !matches!(shell.shown, Some(Shown::Code(_))), "the picture first");
     let at = button_in_main(&ctx, &mut shell, "TEXT");
     click(&ctx, &mut shell, at);
-    assert!(shell.model_text && matches!(shell.shown, Some(Shown::Code(_))), "the text shows");
-    assert!(shell.preview.is_none());
+    assert!(shell.pictures.model_text && matches!(shell.shown, Some(Shown::Code(_))), "the text shows");
+    assert!(shell.pictures.preview.is_none());
     let at = button_in_main(&ctx, &mut shell, "PICTURE");
     click(&ctx, &mut shell, at);
-    assert!(!shell.model_text && !matches!(shell.shown, Some(Shown::Code(_))) && shell.preview.is_some(), "the picture is back");
+    assert!(!shell.pictures.model_text && !matches!(shell.shown, Some(Shown::Code(_))) && shell.pictures.preview.is_some(), "the picture is back");
     clean_up(&dir, &shell);
 }
 
@@ -1943,7 +1943,7 @@ fn a_level_found_by_search_opens_as_its_text() {
     let at = button_in_main(&ctx, &mut shell, "PICTURE");
     click(&ctx, &mut shell, at);
     frame(&ctx, &mut shell);
-    assert!(!shell.model_text && shell.preview.is_some(), "the picture is back");
+    assert!(!shell.pictures.model_text && shell.pictures.preview.is_some(), "the picture is back");
     shell.open("map.toml");
     frame(&ctx, &mut shell);
     assert!(matches!(&shell.shown, Some(Shown::Code(b)) if b.code.error.as_ref().is_some_and(|(_, why)| why.contains("size"))), "the map's text to change, read by the map's reader");
@@ -1964,7 +1964,7 @@ fn buttons_that_change_what_is_shown_leave_a_whole_frame() {
     let at = button_in_main(&ctx, &mut shell, "PLAY SCENARIO");
     click(&ctx, &mut shell, at);
     assert!(shell.take_asks().iter().any(|a| matches!(a, Ask::Play(Some(n)) if n == "late")));
-    shell.builtin = Some("explosion");
+    shell.sound.builtin = Some("explosion");
     frame(&ctx, &mut shell);
     let at = button_in_main(&ctx, &mut shell, "MAKE IT YOURS");
     click(&ctx, &mut shell, at);

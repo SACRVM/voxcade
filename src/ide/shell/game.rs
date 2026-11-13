@@ -8,7 +8,7 @@ impl Shell {
     /// changed saved first).
     pub fn play(&mut self) {
         self.hush();
-        self.notice = None;
+        self.bar.notice = None;
         self.help = false;
         match &mut self.stage {
             Some(stage) => stage.shown = true,
@@ -22,7 +22,7 @@ impl Shell {
     /// AGAIN: the game shown, begun anew from the start (as F5 does).
     pub fn again(&mut self) {
         self.hush();
-        (self.notice, self.help) = (None, false);
+        (self.bar.notice, self.help) = (None, false);
         if let Some(stage) = &mut self.stage {
             stage.shown = true;
             self.asks.push(Ask::Again);
@@ -33,7 +33,7 @@ impl Shell {
     /// from it (the text being changed saved first).
     pub fn play_scenario(&mut self, name: &str) {
         self.hush();
-        (self.notice, self.help) = (None, false);
+        (self.bar.notice, self.help) = (None, false);
         self.flush();
         if self.stage.is_some() {
             self.asks.push(Ask::Stop);
@@ -95,7 +95,7 @@ impl Shell {
     /// text takes the keys where its cursor stood.
     pub fn back_to_file(&mut self) {
         self.hide_game();
-        self.focus_code = true;
+        self.opening.focus_code = true;
     }
 
     /// The file shown instead of the game, which holds still.
