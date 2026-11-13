@@ -218,7 +218,8 @@ impl Wizard {
             Stage::Upgraded { lines, dry, refit } => {
                 ui.label(if *dry { "DRY RUN · NOTHING CHANGED".to_string() } else { format!("BROUGHT UP TO DATE FOR VOXCADE {}", engine()) });
                 ui.add_space(8.0);
-                for line in lines {
+                let lines = shown_lines(lines);
+                for line in &lines {
                     said(ui, line);
                 }
                 ui.add_space(4.0);
@@ -281,6 +282,13 @@ impl Wizard {
         });
         wish
     }
+}
+
+/// What the upgrade said, as the page shows it: without the line telling
+/// the command that refits the replays (REFIT THE REPLAYS below does it;
+/// the command stays in the docs and in `voxcade upgrade`'s words).
+fn shown_lines(lines: &[String]) -> Vec<&str> {
+    lines.iter().map(String::as_str).filter(|l| !(l.contains("voxcade check") && l.contains("--refit"))).collect()
 }
 
 /// A line of what a step does, quiet, indented.
@@ -364,6 +372,21 @@ mod tests {
         w.wait();
         assert!(matches!(&w.stage, Stage::Upgraded { refit: Refit::Done(true, said), .. } if said == &["demo.toml: same"]));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The upgrade's line naming the command that refits the replays is
+    /// not shown on the page, whose REFIT THE REPLAYS does the same; the
+    /// other lines are.
+    #[test]
+    fn the_page_shows_no_command_beside_its_button() {
+        // As the upgrade says it, of a game with a replay.
+        let dir = older_game("command");
+        std::fs::create_dir_all(dir.join("replays")).unwrap();
+        std::fs::write(dir.join("replays/demo.toml"), "").unwrap();
+        let lines = crate::upgrade::upgrade(&dir, true).unwrap();
+        assert!(lines.iter().any(|l| l.contains("voxcade check")), "{lines:?}");
+        let shown = shown_lines(&lines);
+        assert!(!shown.iter().any(|l| l.contains("voxcade check")) && shown.len() + 1 == lines.len(), "{shown:?}");
     }
 
     /// A game made with a newer Voxcade is said to be so.

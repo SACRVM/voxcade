@@ -1,20 +1,22 @@
--- A jump & run: run, jump, climb, land on enemies, take the gems, out
--- through the door: it opens once every gem is taken. One plays, or two:
--- a second player joins with START on a pad (or Return at the keyboard).
+-- A jump & run: run, jump and climb. Land on enemies to beat them.
+-- Take every gem, and the door opens. Go through it to win.
+-- One or two can play. A second player joins with START on a gamepad
+-- or Return on the keyboard.
 
--- The rules of the jump & run, written out. The ready-made rules
--- (conf.lua: c.kit) move the heroes and the things; what a touch means,
--- what a life is worth and when the level is won is decided here:
--- change what you like. Every rule is each player's: level:players() are
--- those playing, thing.seat tells a player from a thing.
+-- These are the game's rules. Change anything you like.
+-- The kit (c.kit in conf.lua) moves the heroes and the things.
+-- This file decides what a touch does, what a life is worth and when
+-- the level is won.
+-- level:players() lists everyone playing. thing.seat is set only on a
+-- player, so it tells players from other things.
 
-local BOUNCE = 50        -- how high a hero bounces off an enemy, voxels
-local HEARTS = 3         -- hearts a player has, full: the same number as hp in c.state.player (conf.lua)
-local SAFE = 60          -- ticks nothing hurts it after a life is lost (a hit: c.things.hero.invulnerable)
+local BOUNCE = 50        -- how high a hero bounces off an enemy, in voxels
+local HEARTS = 3         -- full hearts; keep it the same as hp in c.state.player (conf.lua)
+local SAFE = 60          -- ticks a hero cannot be hurt after losing a life
 
--- A life lost: back at the checkpoint (or where the level began) with
--- every heart; with the last the player is out, and with every player
--- out the run is over.
+-- Losing a life: back to the last checkpoint (or the start) with full
+-- hearts. With no lives left the player is out. When everyone is out,
+-- the game is over.
 local function lose_life(p)
   p.state.lives = p.state.lives - 1
   level:sound("lose", p)
@@ -29,8 +31,8 @@ local function lose_life(p)
   p.state.invulnerable = SAFE
 end
 
--- What happens once, as a hero touches something: landing on an enemy,
--- a pickup, a checkpoint, the door.
+-- A hero touches something: an enemy (from above), a pickup, a
+-- checkpoint or the door. This runs once, when the touch begins.
 function on_touch(a, b, where)
   if not a.seat then return end
   if b.families.enemies and where == "top" then
@@ -51,8 +53,8 @@ function on_touch(a, b, where)
   end
 end
 
--- An enemy is worth its points to the one who stomped it; a hero without
--- a heart loses a life.
+-- A beaten enemy gives its points to the player who beat it. A hero
+-- with no hearts left loses a life.
 function on_death(thing, by)
   if thing.seat then
     lose_life(thing)
@@ -65,10 +67,9 @@ function on_fall_out(thing)
   if thing.seat then lose_life(thing) end
 end
 
--- Every tick: the door opening once no gem is left, and what hurts as
--- long as a hero touches it (an enemy from the side, spikes, a hazard
--- block under its feet). Hurt, it is safe a moment
--- (p.state.invulnerable), so this hurts again only after.
+-- Every tick (60 a second): open the door when no gem is left, and hurt
+-- a hero who touches an enemy from the side, spikes, or a hazard block.
+-- After a hit the hero is safe for a moment (p.state.invulnerable).
 function on_tick()
   if not level.state.open and level:count("gem") == 0 then
     level.state.open = true
@@ -91,15 +92,15 @@ function on_tick()
   end
 end
 
--- How a run ended, for the HUD's last words.
+-- The run is over: remember how it ended, for the HUD.
 function on_world_end(result)
   world.state.over = { result = result, at = world.tick }
 end
 
--- The HUD: each player's hearts and lives in a corner on top (the first
--- left, the second right), the score and the pickups taken under them;
--- PLAYER 2: PRESS START where a seat is free; at the end STAGE CLEAR or GAME OVER
--- dropping in.
+-- The HUD, drawn over the game: each player's hearts and lives in a top
+-- corner (player 1 left, player 2 right) with the score and the gems
+-- below. A free seat shows PLAYER 2: PRESS START. At the end, STAGE
+-- CLEAR or GAME OVER drops in.
 local TEXT, NUMBERS, RED = { 240, 230, 204 }, { 255, 214, 90 }, { 230, 58, 48 }
 
 local function drop(frame, text, y, ticks, color, size)
@@ -107,7 +108,7 @@ local function drop(frame, text, y, ticks, color, size)
   frame:drop_in(text, x, y, ticks, color, size)
 end
 
--- One player's corner: `right` puts it against the right edge.
+-- One player's corner. With `right` it goes to the right edge.
 local function corner(frame, p, right)
   local function at(width) return right and frame.width - 3 - width or 3 end
   if p.state.out then
@@ -124,8 +125,8 @@ local function corner(frame, p, right)
   frame:text(taken, at(frame:text_width(taken)), 33)
 end
 
--- The keys, shown as a run begins: the keyboard's or the pad's, as the
--- player plays, in the player's language.
+-- The keys, shown for the first ten seconds: the keyboard's or the
+-- gamepad's (whichever the player uses), in the player's language.
 local KEYS = {
   en = { keys = "ARROWS", pad = "STICK", "%s RUN AND CLIMB   {jump} JUMP" },
   de = { keys = "PFEILTASTEN", pad = "STICK", "%s LAUFEN UND KLETTERN   {jump} SPRINGEN" },
@@ -145,7 +146,7 @@ local function hud(frame)
   show_keys(frame)
   local half = frame.height / 2
   if #world.players == 1 then
-    -- One seat: hearts and lives left, the score and pickups right.
+    -- One player: hearts and lives on the left, score and gems right.
     local p = player.state
     for i = 0, HEARTS - 1 do
       frame:icon(i < p.hp and "heart" or "empty_heart", 3 + 9 * i, 4)
@@ -183,7 +184,7 @@ local function hud(frame)
 end
 
 
--- Every torch lights the wall around it, flickering a little.
+-- Every torch lights the wall around it and flickers a little.
 function on_draw(frame)
   hud(frame)
   for _, t in ipairs(level:things("torch")) do

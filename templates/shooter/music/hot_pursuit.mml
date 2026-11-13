@@ -1,7 +1,7 @@
-; Hot Pursuit: made by tools/compose.py from music/hot_pursuit.compose.toml
-; (action, A minor, 144 bpm, seed 5). Run the recipe
-; again after changing it, or edit this file by hand. Chords from
-; free-midi-chords by Ludovic Drolez (MIT, tools/progressions.toml).
+; Hot Pursuit: made by Voxcade's composer (tools/compose.py in Voxcade's source)
+; from its recipe music/hot_pursuit.compose.toml (action, A minor, 144 bpm,
+; seed 5). Neither comes with a game: change the song here, by hand.
+; Chords from free-midi-chords by Ludovic Drolez (MIT).
 ;
 ; A: VI VII v III (minor): F G Em C
 ; B: i VII III VI (minor): Am G C F

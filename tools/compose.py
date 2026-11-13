@@ -765,10 +765,12 @@ def write(recipe, source):
     st = song.style
     title = recipe.get("title", Path(source).stem)
     key_name = CHORD_NAMES[song.key] + (" minor" if song.base == MINOR else " major")
-    out = [f"; {title}: made by tools/compose.py from {source}",
-           f"; ({recipe.get('style', 'calm')}, {key_name}, {song.tempo} bpm, seed {recipe.get('seed', 1)}). Run the recipe",
-           "; again after changing it, or edit this file by hand. Chords from",
-           "; free-midi-chords by Ludovic Drolez (MIT, tools/progressions.toml).",
+    # (True in every copy, a game's too: the composer and the recipe stay
+    # in Voxcade's source.)
+    out = [f"; {title}: made by Voxcade's composer (tools/compose.py in Voxcade's source)",
+           f"; from its recipe {source} ({recipe.get('style', 'calm')}, {key_name}, {song.tempo} bpm,",
+           f"; seed {recipe.get('seed', 1)}). Neither comes with a game: change the song here, by hand.",
+           "; Chords from free-midi-chords by Ludovic Drolez (MIT).",
            ";"]
     for letter, (scale, prog) in zip("AB", song.progs):
         names = " ".join(chord_name(c, song.key) for c in prog)

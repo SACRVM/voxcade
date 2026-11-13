@@ -8,6 +8,7 @@
 //! the IDE's look (`panels.rs`, egui), the 3D view the game's own light.
 
 pub mod background;
+pub mod cell_lines;
 #[cfg(test)]
 pub(crate) mod big;
 pub mod figure;
@@ -34,6 +35,7 @@ use model::{Editor, Item, Layer, Scope, Tool};
 use view::{Figures, Shown, View};
 
 /// How `voxcade edit --shot` draws the editor without a window.
+#[derive(Default)]
 pub struct ShotOptions {
     /// The level to open (its file in the game folder: `levels/02_crypt.toml`),
     /// else the one `c.world.blocks.file` names.
@@ -42,8 +44,8 @@ pub struct ShotOptions {
     pub block: Option<String>,
     /// A model to open instead (its path in the game folder); of a figure
     /// of parts the part chosen, shaped in the figure, and its parent and
-    /// joint set by hand (the joint as the printed tree has it, from the
-    /// figure's low corner); nothing written.
+    /// joint set by hand (the joint as the file, the JOINT row and the
+    /// printed tree have it, from the pivot); nothing written.
     pub model: Option<String>,
     pub part: Option<String>,
     pub parent: Option<String>,
@@ -394,6 +396,33 @@ fn open_model<G: Game>(dir: &Path, file: &str) -> Result<(Editor, View, crate::c
     Ok((ed, view, cfg))
 }
 
+/// The part of a figure `name` names (`--part`, `--parent` ...).
+fn part_of(ed: &model::Editor, name: &str) -> Result<usize> {
+    ed.figure.as_ref().context("--part: the model is no figure of parts (its objects have no names)")?.parts().iter().position(|p| p.name == name).with_context(|| format!("the figure has no part '{name}'"))
+}
+
+/// `--part`, `--parent`, `--joint`: the part chosen, its parent and its
+/// joint set by hand (the joint from the pivot, as `--help`, the file,
+/// the JOINT row and the printed tree have it).
+fn choose_part(ed: &mut Editor, view: &mut View, opts: &ShotOptions) -> Result<()> {
+    if let Some(name) = &opts.part {
+        let p = part_of(ed, name)?;
+        view::act(ed, view, view::Action::Part(p));
+        if let Some(parent) = &opts.parent {
+            let q = part_of(ed, parent)?;
+            ed.set_parent(Some(q));
+        }
+        if let Some(at) = opts.joint {
+            ed.set_joint(Some(at));
+        }
+        ed.follow_figure();
+        view.follow_origin(ed);
+    } else if opts.parent.is_some() || opts.joint.is_some() {
+        bail!("--parent and --joint set the rig of the part --part names");
+    }
+    Ok(())
+}
+
 /// Draws the editor as it opens into a PNG: the mouse in the middle of the
 /// view.
 pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
@@ -407,26 +436,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         anyhow::ensure!(ed.question.is_some(), "--align answers the question a level turned off the grid asks: this one asks none");
         ed.align_all();
     }
-    let part_of = |ed: &model::Editor, name: &str| -> Result<usize> {
-        ed.figure.as_ref().context("--part: the model is no figure of parts (its objects have no names)")?.parts().iter().position(|p| p.name == name).with_context(|| format!("the figure has no part '{name}'"))
-    };
-    if let Some(name) = &opts.part {
-        let p = part_of(&ed, name)?;
-        view::act(&mut ed, &mut view, view::Action::Part(p));
-        if let Some(parent) = &opts.parent {
-            let q = part_of(&ed, parent)?;
-            ed.set_parent(Some(q));
-        }
-        if let Some(at) = opts.joint {
-            // As the tree prints it: from the figure's low corner.
-            let low = ed.figure.as_ref().map_or(glam::Vec3::ZERO, |f| f.low.as_vec3());
-            ed.set_joint(Some(at + low));
-        }
-        ed.follow_figure();
-        view.follow_origin(&ed);
-    } else if opts.parent.is_some() || opts.joint.is_some() {
-        bail!("--parent and --joint set the rig of the part --part names");
-    }
+    choose_part(&mut ed, &mut view, opts)?;
     if opts.add_part {
         ed.add_part();
     }
@@ -2599,6 +2609,20 @@ mod tests {
         assert_eq!(ed.steps(), 1);
         ed.undo();
         assert_eq!(std::fs::read_to_string(dir.join("level.toml")).unwrap(), text, "a step back");
+    }
+
+    /// `--joint X,Y,Z` (with `--part`) sets the joint from the pivot, as
+    /// its help, the file and the printed tree say: the tree then prints
+    /// those numbers (it once added the figure's low corner).
+    #[test]
+    fn the_joint_flag_is_from_the_pivot() {
+        let (mut win, _dir) = owners_like("joint-flag");
+        let opts = ShotOptions { part: Some("nose".into()), joint: Some(glam::Vec3::new(1.0, -3.0, 9.5)), ..Default::default() };
+        choose_part(&mut win.ed, &mut win.view, &opts).unwrap();
+        let figure = win.ed.figure.as_ref().unwrap();
+        let p = figure.parts().iter().position(|p| p.name == "nose").unwrap();
+        assert_eq!(figure.file_joint(p), glam::Vec3::new(1.0, -3.0, 9.5));
+        assert!(figure.tree_lines().iter().any(|l| l.contains("nose on head, turning at 1, -3, 9.5")), "{:?}", figure.tree_lines());
     }
 }
 

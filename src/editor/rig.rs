@@ -193,7 +193,7 @@ impl Editor {
         let Some(hit) = plane_hit(origin, dir, n, spot[n]) else { return false };
         let start = self.figure.as_ref().map_or(Vec3::ZERO, |f| f.file_joint(p));
         self.end_drag(false);
-        self.rigging.joint_drag = Some(JointDrag { drag: None, start, steps: self.history.past.len(), moved: false, part: false, applied: IVec3::ZERO, ring: Some((n, hit)), rest: [0.0; 3], fine: false, press: None, applied_f: Vec3::ZERO });
+        self.rigging.joint_drag = Some(JointDrag { drag: None, start, steps: self.history.count(), moved: false, part: false, applied: IVec3::ZERO, ring: Some((n, hit)), rest: [0.0; 3], fine: false, press: None, applied_f: Vec3::ZERO });
         true
     }
 
@@ -206,7 +206,7 @@ impl Editor {
         if self.selection().is_some() && !self.rigging.posing {
             self.end_drag(false);
             self.grab_selection();
-            self.rigging.joint_drag = Some(JointDrag { drag: Some((drag, h)), start: Vec3::ZERO, steps: self.history.past.len(), moved: false, part: true, applied: IVec3::ZERO, ring: None, rest: [0.0; 3], fine: false, press: None, applied_f: Vec3::ZERO });
+            self.rigging.joint_drag = Some(JointDrag { drag: Some((drag, h)), start: Vec3::ZERO, steps: self.history.count(), moved: false, part: true, applied: IVec3::ZERO, ring: None, rest: [0.0; 3], fine: false, press: None, applied_f: Vec3::ZERO });
             return true;
         }
         // (The figure whole: its arrows move every part.)
@@ -215,7 +215,7 @@ impl Editor {
         }
         self.end_drag(false);
         let rest = self.turn_values().unwrap_or_default();
-        self.rigging.joint_drag = Some(JointDrag { drag: Some((drag, h)), start: Vec3::ZERO, steps: self.history.past.len(), moved: false, part: true, applied: IVec3::ZERO, ring: None, rest, fine: false, press: self.part_mode().map(|_| self.local_to_pivot()), applied_f: Vec3::ZERO });
+        self.rigging.joint_drag = Some(JointDrag { drag: Some((drag, h)), start: Vec3::ZERO, steps: self.history.count(), moved: false, part: true, applied: IVec3::ZERO, ring: None, rest, fine: false, press: self.part_mode().map(|_| self.local_to_pivot()), applied_f: Vec3::ZERO });
         true
     }
 
@@ -458,7 +458,7 @@ impl Editor {
             let way = self.own_rest() * h.direction(drag.grip).unwrap_or(Vec3::ZERO);
             let to = way * along;
             if (to - d.applied_f).abs().max_element() > 1e-4 {
-                self.rigging.join_next = d.moved && self.history.past.len() > d.steps;
+                self.rigging.join_next = d.moved && self.history.count() > d.steps;
                 self.move_part_by(to - d.applied_f);
                 self.rigging.join_next = false;
                 (d.applied_f, d.moved) = (to, true);
@@ -485,7 +485,7 @@ impl Editor {
                     // A pose: nothing written, no step.
                     self.set_pose(axis, to);
                 } else if self.part_rotation().is_some_and(|r| r[axis] != to) {
-                    self.rigging.join_next = d.moved && self.history.past.len() > d.steps;
+                    self.rigging.join_next = d.moved && self.history.count() > d.steps;
                     self.set_part_rotation(axis, to);
                     self.rigging.join_next = false;
                     d.moved = true;
@@ -505,7 +505,7 @@ impl Editor {
             };
             if self.selecting.sel_drag.is_some() {
                 if to != d.applied {
-                    let joined = d.moved && self.history.past.len() > d.steps;
+                    let joined = d.moved && self.history.count() > d.steps;
                     self.move_selection_to(to, self.selecting.sel_keep, joined);
                     (d.applied, d.moved) = (to, true);
                 }
@@ -513,7 +513,7 @@ impl Editor {
                 return;
             }
             if to != d.applied {
-                self.rigging.join_next = d.moved && self.history.past.len() > d.steps;
+                self.rigging.join_next = d.moved && self.history.count() > d.steps;
                 self.move_part(to - d.applied);
                 self.rigging.join_next = false;
                 (d.applied, d.moved) = (to, true);
@@ -531,7 +531,7 @@ impl Editor {
                 if now != at {
                     // One step for the whole drag: the first change makes
                     // it, the next ones take its place.
-                    self.rigging.join_next = d.moved && self.history.past.len() > d.steps;
+                    self.rigging.join_next = d.moved && self.history.count() > d.steps;
                     self.set_joint(Some(at));
                     self.rigging.join_next = false;
                     self.follow_figure();
@@ -547,7 +547,7 @@ impl Editor {
         let Some(d) = self.rigging.joint_drag.take() else { return false };
         // A selection dragged: back where it was, no step.
         if let Some(s) = self.selecting.sel_drag.take() {
-            if d.moved && self.history.past.len() > d.steps {
+            if d.moved && self.history.count() > d.steps {
                 self.undo();
                 self.history.future.pop();
             }
@@ -561,7 +561,7 @@ impl Editor {
             }
             return true;
         }
-        if d.moved && self.history.past.len() > d.steps {
+        if d.moved && self.history.count() > d.steps {
             self.undo();
             self.history.future.pop();
         }

@@ -154,6 +154,10 @@ fn question(ui: &mut egui::Ui, file: &str, names: &[String], shown: &mut Shown) 
 /// warning's colour. Drawn over the voxels, so a joint inside the figure
 /// shows.
 pub fn joints(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
+    // GRID's lines first, under every mark.
+    if ed.question.is_none() {
+        super::cell_lines::paint(ui, ed, view, free);
+    }
     let screen = ui.ctx().content_rect();
     let marks = super::view::joint_marks(ed, view, screen.width() / screen.height().max(1.0), view.inset);
     let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::unique("joints"))).with_clip_rect(free);
@@ -396,6 +400,48 @@ mod tests {
     fn press(ed: &mut Editor, view: &mut View, key: char) {
         let keys = shown(ed, view).keys;
         act(ed, view, key_action(&keys, key).unwrap_or_else(|| panic!("nothing on {key}")));
+    }
+
+    /// Among the pieces each thing's row ends in its place, quiet, so two
+    /// of one model differ; the chosen one's ROTATE fields run X, Y, Z
+    /// as POSITION's do.
+    #[test]
+    fn rows_show_their_place_and_rotate_runs_x_y_z() {
+        let room = crate::editor::big::room_game("rows-place", 3);
+        let mut ed = Editor::open(&room, "levels/room.toml").unwrap();
+        ed.choose_item(Some(Item::Thing(0)));
+        let view = View::new(&ed, &GameConfig::default());
+        let (shown, shapes) = laid_out_at(&ed, &view);
+        let texts: Vec<String> = shapes.iter().filter_map(|s| if let egui::Shape::Text(t) = &s.shape { Some(t.galley.job.text.clone()) } else { None }).collect();
+        // The two floors, p0 and p1, at 29 33 0 and 89 33 0.
+        assert!(texts.iter().any(|t| t == "29 33 0") && texts.iter().any(|t| t == "89 33 0"), "{texts:?}");
+        let letters: Vec<&str> = shown.fields.iter().map(|(l, _)| l.as_str()).filter(|l| ["X", "Y", "Z"].contains(l)).collect();
+        assert_eq!(letters[..6], ["X", "Y", "Z", "X", "Y", "Z"], "POSITION, then ROTATE");
+        let rotate: Vec<f32> = shown.fields.iter().filter(|(l, _)| ["X", "Y", "Z"].contains(&l.as_str())).skip(3).take(3).map(|(_, r)| r.min.x).collect();
+        assert!(rotate[0] < rotate[1] && rotate[1] < rotate[2], "{rotate:?}");
+    }
+
+    /// The blocks' pictures tell apart blocks that differ only on top (a
+    /// grass block, a path, a pond): from above and the front at once,
+    /// where the front alone showed the same earth for each.
+    #[test]
+    fn block_pictures_tell_blocks_apart_by_their_tops() {
+        let block = |top: [u8; 3]| {
+            let mut b = crate::blocks::Block::empty(8);
+            for i in 0..8 * 8 * 8 {
+                let p = glam::IVec3::new(i % 8, i / 8 % 8, i / 64);
+                b.set(p, Some(if p.z == 7 { top } else { [110, 80, 50] })).unwrap();
+            }
+            b
+        };
+        let (grass, pond) = (block([90, 160, 60]), block([70, 130, 220]));
+        assert_eq!(super::super::view::front(&grass)[8..], super::super::view::front(&pond)[8..], "the front's rows below the top alike");
+        for above in [true, false] {
+            let (a, b) = (super::super::view::above_front(&grass, 32, above), super::super::view::above_front(&pond, 32, above));
+            assert_eq!((a.0, a.1), (b.0, b.1));
+            let differ = a.2.iter().zip(&b.2).filter(|(p, q)| p != q).count();
+            assert!(differ * 5 >= a.2.len(), "from {}: {differ} of {} pixels differ", if above { "above" } else { "the front" }, a.2.len());
+        }
     }
 
     /// A model that does not read shows in ADD MODEL marked, with why on

@@ -182,9 +182,11 @@ impl Shell {
             });
             ui.add_space(6.0);
         }
-        // A sound: what it is in words, and PLAY SOUND; where it is used
-        // lies under its text.
+        // A sound: what it is in words, and PLAY SOUND where the maker
+        // (whose PLAY and LOOP play it) is not over its text; where it is
+        // used lies under its text.
         let sound_name = sounds::name_of(&path).map(str::to_string);
+        let maker = sound_name.is_some() && path.ends_with(".toml") && matches!(self.shown, Some(Shown::Code(_)));
         let mut play_sound = false;
         if sound_name.is_some() {
             let key = match &self.shown {
@@ -200,7 +202,9 @@ impl Shell {
             }
             let line = self.sound_line.as_ref().map(|(_, l)| l.clone()).unwrap_or_default();
             header_row(ui, &path, Some((&line, "")), |ui| {
-                play_sound = ui.button("PLAY SOUND").on_hover_text("Plays the sound as it stands, at the game's sound volume.").clicked();
+                if !maker {
+                    play_sound = ui.button("PLAY SOUND").on_hover_text("Plays the sound as it stands, at the game's sound volume.").clicked();
+                }
                 act = act.or(manage::buttons(ui, why_not));
                 want_find |= saved_label(ui, saved);
             });
@@ -211,7 +215,7 @@ impl Shell {
         }
         // A sound of numbers to change: the maker between its line and its text.
         let id = egui::Id::unique(("code", path.as_str()));
-        if sound_name.is_some() && path.ends_with(".toml") && matches!(self.shown, Some(Shown::Code(_))) {
+        if maker {
             play_sound |= self.maker_ui(ui, id);
             ui.add_space(10.0);
         }

@@ -35,7 +35,7 @@ impl Shell {
                 if path.ends_with(".mml") {
                     file["kind"] = json!("a song (MML), to change; PLAY SONG over it plays it");
                 } else if sounds::name_of(path).is_some() {
-                    file["kind"] = json!("a sound, to change; PLAY SOUND over it plays it, a sort's button (COIN, JUMP, ...) rolls a fresh one, the faders move it");
+                    file["kind"] = json!("a sound, to change; PLAY over its text plays it, a sort's button (COIN, JUMP, ...) rolls a fresh one, the faders move it");
                 }
                 if let Some((line, why)) = &buffer.code.error {
                     file["unreadable"] = json!({ "line": line, "why": why });

@@ -181,6 +181,9 @@ pub enum Action {
     /// from above, -1 back), nearer (1) or further (-1).
     TurnView(i8),
     ZoomView(i8),
+    /// GRID in the voxel editor: the voxels' edges drawn on the faces, or
+    /// not.
+    Grid,
     /// The chosen one's handles: MOVE (false, its arrows) or TURN (true,
     /// its rings).
     HandleMode(bool),
@@ -497,6 +500,7 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
             view.orbit(ed.scope).zoom_by(by as f32 * 2.0);
             view.leave_game_view(ed.scope);
         }
+        Action::Grid => view.grid = !view.grid,
         Action::BlockMenu(i, at) => {
             if ed.scope == Scope::Level {
                 ed.hold(i);

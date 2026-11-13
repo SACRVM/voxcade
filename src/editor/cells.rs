@@ -37,6 +37,7 @@ impl Editor {
         self.go(&step, true);
         self.history.past.push(step);
         self.history.future.clear();
+        self.history.bound();
     }
 
     /// The open block itself turned, its voxels with it (a side shaped as

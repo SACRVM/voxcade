@@ -1,15 +1,16 @@
--- The yard: sand, walls to hide behind, and riflemen up north. The
--- ready-made shooter rules run the players and the soldiers; this script
--- builds the level and decides what a kill is worth and what going down
--- costs. Every rule is each player's: level:players() are those playing,
--- thing.seat tells a player from a thing.
+-- The yard: sand, walls to hide behind, and riflemen further up.
+-- The kit (c.kit in conf.lua) moves the players and the soldiers.
+-- This file builds the level and decides what a kill is worth and what
+-- going down costs. Change anything you like.
+-- level:players() lists everyone playing. thing.seat is set only on a
+-- player, so it tells players from other things.
 
-local MAX_HP = 5          -- a player's hit points, full: the same number as hp in c.state.player (conf.lua)
-local DOWN = 149          -- ticks a player lies there before coming back
-local SAFE = 150          -- ticks nothing hurts after coming back
+local MAX_HP = 5          -- full hearts; keep it the same as hp in c.state.player (conf.lua)
+local DOWN = 149          -- ticks a player stays down before coming back
+local SAFE = 150          -- ticks a player cannot be hurt after coming back
 
--- Points for every soldier that falls to whoever felled him, more for the
--- knife; a player down lies there a while.
+-- A soldier falls: points for the player who got him, more with the
+-- knife. A player who falls stays down for a while.
 function on_death(thing, by, weapon)
   if thing.seat then
     thing.state.down_at = world.tick
@@ -19,14 +20,15 @@ function on_death(thing, by, weapon)
   end
 end
 
--- How a run ended, for the HUD's last words.
+-- The run is over: remember how it ended, for the HUD.
 function on_world_end(result)
   world.state.over = { result = result, at = world.tick }
 end
 
--- Back from going down: a life less, beside a player still fighting (else
--- where the level began), every hit point back; with the last life the
--- player is out, and with every player out the run is over.
+-- Coming back after going down costs a life. The player comes back next
+-- to a teammate who is still fighting (or at the start) with full hearts.
+-- With no lives left the player is out. When everyone is out, the game
+-- is over.
 local function come_back(p)
   p.state.down_at = nil
   p.state.lives = p.state.lives - 1
@@ -42,19 +44,18 @@ local function come_back(p)
   p:place(beside or level.arrived)
   p:face({ x = 0, y = 1 })      -- up the level again
   p.state.hp = MAX_HP
-  level:clear_rounds("enemies")  -- a mercy: their rounds in flight gone
+  level:clear_rounds("enemies")  -- to be fair: the enemies' flying bullets vanish
   p.state.invulnerable = SAFE
 end
 
--- Each player's corner of the HUD: the first's on the left, the second's
--- on the right.
+-- Where a player's part of the HUD goes: player 1 left, player 2 right.
 local function left_of(frame, seat, width)
   return seat == 2 and frame.width - 3 - width or 3
 end
 
--- The HUD's moving parts, tick by tick: the first player's heart lost or
--- grenade thrown bursts (on the left: how wide the HUD is depends on the
--- window, which the game's ticks never see).
+-- When player 1 loses a heart or throws a grenade, its picture in the
+-- HUD bursts. (Only on the left: the ticks never see how wide the window
+-- is.)
 local function follow_hud()
   local h, p = level.state.hud, player.state
   if h then
@@ -68,7 +69,7 @@ function on_tick()
   follow_hud()
   for _, p in ipairs(world.players) do
     if p and not p.state.out then
-      -- A gun whose rounds ran out: the rifle in hand again (it needs none).
+      -- Out of ammo: back to the rifle (it needs none).
       if p.state.weapon ~= "rifle" and (p.state.inventory[p.state.weapon] or 0) == 0 then
         p.state.weapon = "rifle"
       end
@@ -77,10 +78,10 @@ function on_tick()
   end
 end
 
--- The HUD: each player's hearts and lives on top, the score under them,
--- the gun and the grenades at the bottom (the first player's on the left,
--- the second's on the right); PLAYER 2: PRESS START where a seat is free; the
--- messages dropping in.
+-- The HUD, drawn over the game: each player's hearts and lives at the
+-- top with the score below, the gun and grenades at the bottom (player 1
+-- left, player 2 right). A free seat shows PLAYER 2: PRESS START.
+-- Messages drop in.
 local TEXT, NUMBERS, RED = { 240, 230, 204 }, { 255, 214, 90 }, { 230, 58, 48 }
 
 local function drop(frame, text, y, ticks, color, size)
@@ -112,8 +113,8 @@ local function corner(frame, seat, p)
   end
 end
 
--- The keys, shown as a run begins: the keyboard's or the pad's, as the
--- player plays, in the player's language.
+-- The keys, shown for the first ten seconds: the keyboard's or the
+-- gamepad's (whichever the player uses), in the player's language.
 local KEYS = {
   en = { keys = "ARROWS", pad = "STICK", "%s MOVE   {jump} JUMP   {strafe} STRAFE", "{fire} FIRE   {grenade} GRENADE" },
   de = { keys = "PFEILTASTEN", pad = "STICK", "%s LAUFEN   {jump} SPRINGEN   {strafe} SEITWÄRTS", "{fire} FEUER   {grenade} GRANATE" },
@@ -128,7 +129,7 @@ local function show_keys(frame)
     local w, y = frame:text_width(line), frame.height - 46 + 11 * i
     local x = math.floor((frame.width - w) / 2 + 0.5)
     frame:text(line, x, y, TEXT)
-    frame:box(x - 3, y - 2, w + 6, 11, { 20, 18, 16 })   -- dark behind it (drawn after: what comes first stays in front)
+    frame:box(x - 3, y - 2, w + 6, 11, { 20, 18, 16 })   -- a dark box behind the text (what is drawn first stays in front)
   end
 end
 

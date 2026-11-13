@@ -385,7 +385,7 @@ impl Editor {
             && d.moved
             && self.model.as_ref().is_some_and(|m| m.parted() && !m.is_tight())
         {
-            self.rigging.join_next = self.history.past.len() > d.steps;
+            self.rigging.join_next = self.history.count() > d.steps;
             self.change_model_file(|m| m.size = m.tight_size());
             self.rigging.join_next = false;
         }

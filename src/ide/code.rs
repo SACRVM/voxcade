@@ -80,7 +80,45 @@ pub struct Code {
     /// A match (bytes of the text) to scroll into view, once.
     pub reveal: Option<std::ops::Range<usize>>,
     reader: mlua::Lua,
+    /// The text laid out last and the line numbers (`Laid`): laid out
+    /// anew only when what they show changed, not every frame.
+    laid: Laid,
 }
+
+/// What `Code::ui` laid out last: the text as coloured and marked, and the
+/// line numbers, each with what it was made from.
+#[derive(Default)]
+struct Laid {
+    text: Option<(TextKey, std::sync::Arc<egui::Galley>)>,
+    numbers: Option<(NumbersKey, std::sync::Arc<egui::Galley>)>,
+}
+
+/// What the text's layout is made from: the text, the find row's word,
+/// the brackets marked, the font and the screen's scale.
+#[derive(Clone, PartialEq)]
+struct TextKey {
+    text: String,
+    marking: Option<(String, bool, Option<usize>)>,
+    brackets: Option<[usize; 2]>,
+    font: FontId,
+    scale: f32,
+}
+
+/// What the line numbers' layout is made from: how many lines, the ones
+/// marked, the font and the scale.
+#[derive(Clone, PartialEq)]
+struct NumbersKey {
+    lines: usize,
+    marked: Vec<usize>,
+    font: FontId,
+    scale: f32,
+}
+
+/// How far a line goes in for each level (spaces), as the templates write.
+pub const INDENT: &str = "  ";
+
+/// The bracket at the cursor marked with its partner, behind them.
+const BRACKET: Color32 = Color32::from_rgb(70, 66, 84);
 
 impl Code {
     /// The text of `file` (its path in the game folder), Lua if it is.
@@ -92,7 +130,7 @@ impl Code {
             "vvx" => Syntax::Model,
             _ => Syntax::Plain,
         };
-        let mut code = Self { text, syntax, file: file.to_string(), error: None, sound: None, song: None, model: None, stopped: None, checked: None, offer: None, declined: None, marking: None, reveal: None, reader: mlua::Lua::new() };
+        let mut code = Self { text, syntax, file: file.to_string(), error: None, sound: None, song: None, model: None, stopped: None, checked: None, offer: None, declined: None, marking: None, reveal: None, reader: mlua::Lua::new(), laid: Laid::default() };
         code.check();
         code
     }
@@ -122,10 +160,16 @@ impl Code {
     }
 
     /// The editor in `ui` (its widget's `id`); whether the text changed.
+    /// Enter keeps the line's indent (one more after a line that opens a
+    /// block: `then`, `do`, `else`, `repeat`, `function …)`, `{`), Tab and
+    /// Shift+Tab indent the lines chosen by two spaces or take two away,
+    /// each one step of the text's undo; the bracket at the cursor is
+    /// marked with its partner; the line numbers stay where they are when
+    /// a long line is scrolled sideways.
     pub fn ui(&mut self, ui: &mut egui::Ui, id: egui::Id) -> bool {
         let font = TextStyle::Monospace.resolve(ui.style());
         let focused = ui.memory(|m| m.has_focus(id));
-        let before = self.text.clone();
+        let mut changed = false;
 
         // The offer's keys, before the text takes them.
         if focused && self.offer.is_some() {
@@ -142,43 +186,91 @@ impl Code {
                 self.declined = cursor(ui.ctx(), id);
                 self.offer = None;
             } else if pressed(ui, Key::Enter) || pressed(ui, Key::Tab) {
+                let before = self.text.len();
                 self.accept(ui.ctx(), id);
+                changed |= self.text.len() != before;
+            }
+        }
+        // Enter, Tab and Shift+Tab: the editor's own, before the text's.
+        if focused && self.offer.is_none() {
+            let key = ui.input_mut(|i| {
+                if i.consume_key(Modifiers::NONE, Key::Enter) {
+                    Some(Typed::Enter)
+                } else if i.consume_key(Modifiers::SHIFT, Key::Tab) {
+                    Some(Typed::Outdent)
+                } else if i.consume_key(Modifiers::NONE, Key::Tab) {
+                    Some(Typed::Indent)
+                } else {
+                    None
+                }
+            });
+            if let Some(key) = key {
+                changed |= self.typed(ui.ctx(), id, key);
             }
         }
 
         let syntax = self.syntax;
         let marking = self.marking.clone();
+        // The bracket at the cursor and its partner (bytes), marked.
+        let at = egui::TextEdit::load_state(ui.ctx(), id).and_then(|s| s.cursor.char_range()).filter(|r| r.is_empty() && focused).map(|r| r.primary.index.0);
+        let brackets = at.and_then(|c| partner(&self.text, byte(&self.text, c), syntax));
+        let scale = ui.ctx().pixels_per_point();
+        let mut kept = std::mem::take(&mut self.laid.text);
         let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap: f32| {
+            let key = TextKey { text: String::new(), marking: marking.clone(), brackets: brackets.filter(|pair| pair.iter().all(|&i| text.as_str().as_bytes().get(i).is_some_and(|c| b"(){}[]".contains(c)))), font: font.clone(), scale };
+            if let Some((k, galley)) = &kept
+                && k.text == text.as_str()
+                && k.marking == key.marking
+                && k.brackets == key.brackets
+                && k.font == key.font
+                && k.scale == key.scale
+            {
+                return galley.clone();
+            }
             let mut job = highlight(text.as_str(), &font, syntax);
             // (Found anew in the text laid out, which typing may have changed.)
             if let Some((word, case, current)) = &marking {
                 super::find::mark(&mut job, text.as_str(), word, *case, *current);
             }
-            ui.fonts_mut(|f| f.layout_job(job))
+            if let Some(pair) = key.brackets {
+                behind(&mut job, &pair, BRACKET);
+            }
+            let galley = ui.fonts_mut(|f| f.layout_job(job));
+            kept = Some((TextKey { text: text.as_str().to_string(), ..key }, galley.clone()));
+            galley
         };
         let lines = self.text.split('\n').count();
         let digits = lines.to_string().len().max(3);
-        let marked = |n: usize| self.error.as_ref().is_some_and(|(l, _)| *l == n) || self.stopped == Some(n);
         let marks: Vec<usize> = self.error.iter().map(|(l, _)| *l).chain(self.stopped).filter(|&l| l >= 1 && l <= lines).collect();
+        // The line numbers, the one Lua cannot read (or the game stopped
+        // at) in red; laid out anew only when they change.
+        let numbers_key = NumbersKey { lines, marked: marks.clone(), font: font.clone(), scale };
+        let numbers = match self.laid.numbers.take() {
+            Some((k, g)) if k == numbers_key => g,
+            _ => {
+                let mut job = LayoutJob::default();
+                for n in 1..=lines {
+                    let colour = if marks.contains(&n) { ERROR } else { LINE_NUMBER };
+                    job.append(&format!("{n:>digits$}\n"), 0.0, TextFormat { font_id: font.clone(), color: colour, ..Default::default() });
+                }
+                ui.fonts_mut(|f| f.layout_job(job))
+            }
+        };
+        // (A row as the numbers' own layout has it: the font's row height
+        // alone drifts from the text's after a hundred lines.)
+        let row = numbers.size().y / (lines + 1) as f32;
+        let gutter = numbers.size().x + 14.0;
+        let top_left = ui.cursor().min;
+        // Its line marked behind the text.
+        for &line in &marks {
+            let top = top_left.y + (line - 1) as f32 * row;
+            let rect = egui::Rect::from_min_size(egui::pos2(top_left.x + gutter - 4.0, top), egui::vec2(ui.available_width() - gutter + 4.0, row));
+            ui.painter().rect_filled(rect, 2.0, ERROR_LINE);
+        }
         let mut out = None;
         ui.horizontal_top(|ui| {
-            ui.spacing_mut().item_spacing.x = 14.0;
-            // The line numbers, the one Lua cannot read (or the game
-            // stopped at) in red.
-            let mut numbers = LayoutJob::default();
-            for n in 1..=lines {
-                let colour = if marked(n) { ERROR } else { LINE_NUMBER };
-                numbers.append(&format!("{n:>digits$}\n"), 0.0, TextFormat { font_id: font.clone(), color: colour, ..Default::default() });
-            }
-            // (A row as the numbers' own layout has it: the font's row height
-            // alone drifts from the text's after a hundred lines.)
-            let row = ui.label(numbers).rect.height() / (lines + 1) as f32;
-            // Its line marked behind the text.
-            for &line in &marks {
-                let top = ui.cursor().min.y + (line - 1) as f32 * row;
-                let rect = egui::Rect::from_min_size(egui::pos2(ui.cursor().min.x - 4.0, top), egui::vec2(ui.available_width() + 4.0, row));
-                ui.painter().rect_filled(rect, 2.0, ERROR_LINE);
-            }
+            ui.spacing_mut().item_spacing.x = 0.0;
+            ui.add_space(gutter);
             out = Some(
                 egui::TextEdit::multiline(&mut self.text)
                     .id(id)
@@ -192,7 +284,16 @@ impl Code {
             );
         });
         let out = out.expect("shown above");
-        let changed = self.text != before;
+        self.laid.text = kept;
+        // The numbers where the view begins, over what scrolled under them
+        // sideways: they stay in place.
+        let seen = ui.clip_rect();
+        let x = top_left.x.max(seen.left());
+        let column = egui::Rect::from_min_max(egui::pos2(x - 1.0, seen.top()), egui::pos2(x + gutter - 6.0, seen.bottom()));
+        ui.painter().rect_filled(column, 0.0, crate::gui::GROUND);
+        ui.painter().galley(egui::pos2(x, top_left.y), numbers.clone(), LINE_NUMBER);
+        self.laid.numbers = Some((numbers_key, numbers));
+        changed |= out.response.changed();
         self.check();
 
         // The find row's current match in view.
@@ -270,6 +371,33 @@ impl Code {
         true
     }
 
+    /// Enter, Tab or Shift+Tab done to the text (the text edit `id`'s
+    /// cursor and selection), as one step of its undo; whether the text
+    /// changed.
+    fn typed(&mut self, ctx: &egui::Context, id: egui::Id, key: Typed) -> bool {
+        let Some(state) = egui::TextEdit::load_state(ctx, id) else { return false };
+        let range = here(&state, &self.text);
+        let (from, to) = {
+            let (a, b) = (range.primary.index.0, range.secondary.index.0);
+            (a.min(b), a.max(b))
+        };
+        let (text, cursor) = match key {
+            Typed::Enter => enter(&self.text, from, to, self.syntax),
+            Typed::Indent | Typed::Outdent => indent(&self.text, from, to, key == Typed::Indent),
+        };
+        if text == self.text {
+            return false;
+        }
+        self.mark(ctx, id);
+        self.text = text;
+        if let Some(mut state) = egui::TextEdit::load_state(ctx, id) {
+            state.cursor.set_char_range(Some(cursor));
+            state.store(ctx, id);
+        }
+        self.mark(ctx, id);
+        true
+    }
+
     /// Takes the name chosen: what is typed of it becomes it (a method's
     /// or function's with its opening bracket, a callback's with its
     /// parameters), the cursor after it.
@@ -290,6 +418,159 @@ impl Code {
             state.store(ctx, id);
         }
     }
+}
+
+/// A key the editor takes before the text does.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Typed {
+    Enter,
+    Indent,
+    Outdent,
+}
+
+/// The chars `from`..`to` of `text` (the selection) replaced by a new
+/// line indented as the line it is on, one level more after a line that
+/// opens a block (Lua: `then`, `do`, `else`, `repeat`, a `function`'s
+/// head, an open `{` or `(`; in any text an open bracket); the text and
+/// the cursor after it.
+fn enter(text: &str, from: usize, to: usize, syntax: Syntax) -> (String, CCursorRange) {
+    let (a, b) = (byte(text, from), byte(text, to));
+    let start = text[..a].rfind('\n').map_or(0, |i| i + 1);
+    let line = &text[start..a];
+    let mut indent: String = line.chars().take_while(|c| *c == ' ' || *c == '\t').collect();
+    if opens(line, syntax) {
+        indent.push_str(INDENT);
+    }
+    let insert = format!("\n{indent}");
+    let mut out = String::with_capacity(text.len() + insert.len());
+    out.push_str(&text[..a]);
+    out.push_str(&insert);
+    out.push_str(&text[b..]);
+    let at = from + insert.chars().count();
+    (out, CCursorRange::one(CCursor::new(at)))
+}
+
+/// Whether a line (up to the cursor) opens a block, so the next goes one
+/// level further in.
+fn opens(line: &str, syntax: Syntax) -> bool {
+    let code = match syntax {
+        // Without its comment.
+        Syntax::Lua => lex::spans(line).into_iter().rfind(|s| s.kind != Kind::Comment).map_or("", |s| &line[..s.range.end]),
+        _ => line,
+    };
+    let code = code.trim_end();
+    if code.ends_with(['{', '(', '[']) {
+        return true;
+    }
+    if syntax != Syntax::Lua {
+        return false;
+    }
+    let last = code.rsplit(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).next().unwrap_or("");
+    if matches!(last, "then" | "do" | "else" | "repeat") {
+        return true;
+    }
+    // `function name(…)` or `= function(…)` whose head ends the line.
+    code.ends_with(')') && code.split_whitespace().any(|w| w == "function" || w.starts_with("function(")) && !code.split_whitespace().any(|w| w == "end")
+}
+
+/// The lines the chars `from`..`to` touch indented by `INDENT` (`more`)
+/// or with up to that much indent taken away; the text and the selection
+/// after it, the same text chosen.
+fn indent(text: &str, from: usize, to: usize, more: bool) -> (String, CCursorRange) {
+    let (a, b) = (byte(text, from), byte(text, to));
+    let first = text[..a].rfind('\n').map_or(0, |i| i + 1);
+    // A selection ending at a line's start leaves that line be.
+    let end = if b > a && text[..b].ends_with('\n') { b - 1 } else { b };
+    let last_end = text[end..].find('\n').map_or(text.len(), |i| end + i);
+    let mut out = String::with_capacity(text.len() + 64);
+    out.push_str(&text[..first]);
+    let (mut moved_from, mut moved_to) = (0i64, 0i64);
+    let mut at = first;
+    for (k, line) in text[first..last_end].split('\n').enumerate() {
+        if k > 0 {
+            out.push('\n');
+        }
+        let shift = if more {
+            out.push_str(INDENT);
+            out.push_str(line);
+            INDENT.len() as i64
+        } else {
+            let gone = line.chars().take(INDENT.len()).take_while(|c| *c == ' ').count();
+            let gone = if gone == 0 && line.starts_with('\t') { 1 } else { gone };
+            out.push_str(&line[gone..]);
+            -(gone as i64)
+        };
+        // How the cursor's ends move: by the lines before them and their
+        // own (never past their line's start).
+        let line_start = at;
+        if line_start <= a {
+            moved_from += if more { shift } else { shift.max(-((a - line_start) as i64)) };
+        }
+        if line_start <= b {
+            moved_to += if more { shift } else { shift.max(-((b - line_start) as i64)) };
+        }
+        at += line.len() + 1;
+    }
+    out.push_str(&text[last_end..]);
+    let chars = |byte_at: i64| out[..(byte_at.max(0) as usize).min(out.len())].chars().count();
+    let (na, nb) = (chars(a as i64 + moved_from), chars(b as i64 + moved_to));
+    let range = if from == to { CCursorRange::one(CCursor::new(na)) } else { CCursorRange::two(CCursor::new(na), CCursor::new(nb)) };
+    (out, range)
+}
+
+/// The bracket at byte `at` of `text` (the one after the cursor, else the
+/// one before it) and its partner, bytes; in Lua only the brackets of the
+/// code, not those in strings and comments.
+fn partner(text: &str, at: usize, syntax: Syntax) -> Option<[usize; 2]> {
+    // The brackets that count, in order (bytes, the sign).
+    let signs: Vec<(usize, u8)> = match syntax {
+        Syntax::Lua => lex::spans(text).into_iter().filter(|s| s.kind == Kind::Symbol).flat_map(|s| s.range.clone().filter(|&i| b"(){}[]".contains(&text.as_bytes()[i])).collect::<Vec<_>>()).map(|i| (i, text.as_bytes()[i])).collect(),
+        _ => text.bytes().enumerate().filter(|(_, c)| b"(){}[]".contains(c)).collect(),
+    };
+    let k = signs.iter().position(|&(i, _)| i == at).or_else(|| signs.iter().position(|&(i, _)| at > 0 && i == at - 1))?;
+    let (open, close) = match signs[k].1 {
+        b'(' | b')' => (b'(', b')'),
+        b'{' | b'}' => (b'{', b'}'),
+        _ => (b'[', b']'),
+    };
+    let mut depth = 0i32;
+    if signs[k].1 == open {
+        for &(i, c) in &signs[k..] {
+            depth += (c == open) as i32 - (c == close) as i32;
+            if depth == 0 {
+                return Some([signs[k].0, i]);
+            }
+        }
+    } else {
+        for &(i, c) in signs[..=k].iter().rev() {
+            depth += (c == close) as i32 - (c == open) as i32;
+            if depth == 0 {
+                return Some([i, signs[k].0]);
+            }
+        }
+    }
+    None
+}
+
+/// The chars at bytes `at` of a laid-out text given a `ground` behind.
+fn behind(job: &mut LayoutJob, at: &[usize], ground: Color32) {
+    let mut sections = Vec::with_capacity(job.sections.len() + 4);
+    for section in job.sections.drain(..) {
+        let (start, end) = (section.byte_range.start.0, section.byte_range.end.0);
+        let mut cuts: Vec<usize> = at.iter().flat_map(|&i| [i, i + 1]).filter(|&c| c > start && c < end).collect();
+        cuts.sort_unstable();
+        cuts.dedup();
+        let mut from = start;
+        for to in cuts.into_iter().chain(std::iter::once(end)) {
+            let mut format = section.format.clone();
+            if at.contains(&from) {
+                format.background = ground;
+            }
+            sections.push(egui::text::LayoutSection { leading_space: if from == start { section.leading_space } else { 0.0 }, byte_range: egui::text::ByteIndex(from)..egui::text::ByteIndex(to), format });
+            from = to;
+        }
+    }
+    job.sections = sections;
 }
 
 /// Where the cursor of the text edit `id` stands (chars).
@@ -599,5 +880,156 @@ mod tests {
         let pieces = plain_pieces(song, Syntax::Song);
         assert_eq!(pieces.iter().map(|(p, _)| *p).collect::<String>(), song);
         assert!(pieces.contains(&("#tempo", KEYWORD)) && pieces.contains(&("; tune\n", COMMENT)));
+    }
+
+    /// Enter keeps the line's indent, one level more after a line that
+    /// opens a block (not after one that closes it on the same line, nor
+    /// for a keyword in a comment); the selection goes.
+    #[test]
+    fn enter_keeps_the_indent_and_goes_in_after_a_block_opens() {
+        let next = |text: &str| {
+            let at = text.chars().count();
+            let (out, cursor) = enter(text, at, at, Syntax::Lua);
+            assert_eq!(cursor.primary.index.0, out.chars().count());
+            out[text.len() + 1..].to_string()
+        };
+        assert_eq!(next("  local x = 1"), "  ");
+        assert_eq!(next("function on_tick()"), "  ");
+        assert_eq!(next("  if p.hp < 1 then"), "    ");
+        assert_eq!(next("    for _, p in ipairs(level:players()) do"), "      ");
+        assert_eq!(next("  else"), "    ");
+        assert_eq!(next("repeat"), "  ");
+        assert_eq!(next("local t = {"), "  ");
+        assert_eq!(next("local f = function(a, b)"), "  ");
+        assert_eq!(next("  if a then b() end"), "  ", "closed on its line");
+        assert_eq!(next("  x = 1 -- and then"), "  ", "a word in a comment");
+        assert_eq!(next("  print(\"then\")"), "  ");
+        // A selection is replaced.
+        let (out, _) = enter("ab  cd", 2, 4, Syntax::Lua);
+        assert_eq!(out, "ab\ncd");
+        // A sound's text: brackets only.
+        let (out, _) = enter("  a = [", 7, 7, Syntax::Sound);
+        assert_eq!(out, "  a = [\n    ");
+    }
+
+    /// Tab indents every line the selection touches by two spaces, Shift
+    /// and Tab take up to two away (a line with less loses what it has),
+    /// and the same text stays chosen; without a selection the cursor's
+    /// line.
+    #[test]
+    fn tab_and_shift_tab_indent_the_lines_chosen() {
+        let text = "a\n  b\n c\nd";
+        // From "a" to "c": three lines.
+        let (out, sel) = indent(text, 0, 7, true);
+        assert_eq!(out, "  a\n    b\n   c\nd");
+        assert_eq!((sel.secondary.index.0, sel.primary.index.0), (2, 13));
+        let (back, _) = indent(&out, 0, 13, false);
+        assert_eq!(back, text);
+        // Less than two: what it has.
+        let (out, cursor) = indent(text, 7, 7, false);
+        assert_eq!(out, "a\n  b\nc\nd");
+        assert_eq!(cursor.primary.index.0, 6);
+        // A selection ending at a line's start leaves that line.
+        let (out, _) = indent("a\nb\nc", 0, 4, true);
+        assert_eq!(out, "  a\n  b\nc");
+    }
+
+    /// The bracket after the cursor (else before it) is marked with its
+    /// partner, over nested ones; in Lua not one in a string or comment.
+    #[test]
+    fn the_bracket_at_the_cursor_finds_its_partner() {
+        let text = "f(a, g(b), \"(\") -- )";
+        assert_eq!(partner(text, 1, Syntax::Lua), Some([1, 14]));
+        assert_eq!(partner(text, 15, Syntax::Lua), Some([1, 14]), "the one left of the cursor");
+        assert_eq!(partner(text, 6, Syntax::Lua), Some([6, 8]));
+        assert_eq!(partner(text, 3, Syntax::Lua), None);
+        assert_eq!(partner("(a + (b)", 0, Syntax::Lua), None, "no partner");
+        assert_eq!(partner("[a]", 0, Syntax::Sound), Some([0, 2]));
+    }
+
+    /// One frame of `code`'s editor in a scroll area scrolled `across`
+    /// points sideways, focused: the shapes it painted.
+    fn frame(ctx: &egui::Context, code: &mut Code, across: f32, events: Vec<egui::Event>) -> Vec<egui::epaint::ClippedShape> {
+        let id = egui::Id::unique("code test");
+        let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0))), events, ..Default::default() };
+        ctx.memory_mut(|m| m.request_focus(id));
+        ctx.run_ui(input, |ui| {
+            egui::ScrollArea::both().horizontal_scroll_offset(across).show(ui, |ui| {
+                code.ui(ui, id);
+            });
+        })
+        .shapes
+    }
+
+    /// The left of the galley whose text begins with `first`, painted.
+    fn left_of(shapes: &[egui::epaint::ClippedShape], first: &str) -> Option<f32> {
+        shapes.iter().find_map(|s| match &s.shape {
+            egui::Shape::Text(t) if t.galley.job.text.starts_with(first) => Some(t.pos.x),
+            _ => None,
+        })
+    }
+
+    /// Scrolled sideways along a long line, the line numbers stay where
+    /// they were; the text moves.
+    #[test]
+    fn the_line_numbers_stay_when_scrolled_sideways() {
+        let ctx = egui::Context::default();
+        let mut code = Code::new("main.lua", format!("local long = \"{}\"\nlocal b = 2\n", "x".repeat(400)));
+        let still = frame(&ctx, &mut code, 0.0, Vec::new());
+        let moved = frame(&ctx, &mut code, 300.0, Vec::new());
+        let (a, b) = (left_of(&still, "  1").unwrap(), left_of(&moved, "  1").unwrap());
+        assert!((a - b).abs() < 0.5, "numbers at {a}, then {b}");
+        let (ta, tb) = (left_of(&still, "local").unwrap(), left_of(&moved, "local").unwrap());
+        assert!(ta - tb > 250.0, "the text moved: {ta} to {tb}");
+    }
+
+    /// A frame with nothing changed lays nothing out anew: the text's and
+    /// the numbers' layouts are the ones kept.
+    #[test]
+    fn a_still_frame_lays_out_nothing_anew() {
+        let ctx = egui::Context::default();
+        let mut code = Code::new("main.lua", "function on_tick()\n  local x = 1\nend\n".repeat(50));
+        frame(&ctx, &mut code, 0.0, Vec::new());
+        let (text, numbers) = (code.laid.text.as_ref().unwrap().1.clone(), code.laid.numbers.as_ref().unwrap().1.clone());
+        frame(&ctx, &mut code, 0.0, Vec::new());
+        assert!(std::sync::Arc::ptr_eq(&text, &code.laid.text.as_ref().unwrap().1) && std::sync::Arc::ptr_eq(&numbers, &code.laid.numbers.as_ref().unwrap().1));
+    }
+
+    /// Enter after `then` in the editor itself: the new line indented, one
+    /// step of the text's undo takes it back whole.
+    #[test]
+    fn enter_in_the_editor_is_one_step_back() {
+        let ctx = egui::Context::default();
+        let id = egui::Id::unique("code test");
+        let text = "function on_tick()\n  if x then";
+        let mut code = Code::new("main.lua", text.to_string());
+        frame(&ctx, &mut code, 0.0, Vec::new());
+        let mut state = egui::TextEdit::load_state(&ctx, id).unwrap_or_default();
+        state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(text.chars().count()))));
+        state.store(&ctx, id);
+        let enter = egui::Event::Key { key: Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE };
+        frame(&ctx, &mut code, 0.0, vec![enter]);
+        assert_eq!(code.text, format!("{text}\n    "));
+        assert!(code.go_back(&ctx, id));
+        assert_eq!(code.text, text, "one step back");
+    }
+
+    /// How long a frame of a 3,000-line file takes, nothing changing (the
+    /// text laid out once, then kept): printed; `cargo test --release
+    /// code_frame_time -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn code_frame_time() {
+        let ctx = egui::Context::default();
+        let line = "  local thing = level:spawn(\"gem\", { x = 10, y = 20 }) -- a gem\n";
+        let mut code = Code::new("main.lua", line.repeat(3000));
+        for _ in 0..3 {
+            frame(&ctx, &mut code, 0.0, Vec::new());
+        }
+        let t = std::time::Instant::now();
+        for _ in 0..30 {
+            frame(&ctx, &mut code, 0.0, Vec::new());
+        }
+        println!("a frame of 3,000 lines: {:.2} ms", t.elapsed().as_secs_f64() * 1000.0 / 30.0);
     }
 }

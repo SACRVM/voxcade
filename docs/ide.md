@@ -359,6 +359,24 @@ Stage by stage (the plan of 2026-10-18):
    `input.`, `out:` and `function` the API's names offer themselves with
    what they take (Up, Down, Enter or Tab, Escape), the mouse over one
    shows what it does, all from the register (`lua::api::signature`).
+   Enter keeps the line's indent, one level (two spaces) more after a
+   line that opens a block (`then`, `do`, `else`, `repeat`, a function's
+   head, an open bracket); Tab and Shift+Tab indent the lines chosen or
+   take two spaces away (egui's own put a tab in place of the
+   selection); each is one step of the text's undo (`Code::mark` before
+   and after). The bracket at the cursor is marked with its partner (in
+   Lua only the code's, not those in strings and comments). The line
+   numbers are painted where the view begins, so a long line scrolled
+   sideways leaves them in place. The text's layout and the numbers' are
+   kept while what they show is the same (`code::Laid`): a still frame
+   of a 3,000-line file took 3.1 ms before and 0.6 ms after (test
+   `code_frame_time`, ignored, prints it); tests
+   `enter_keeps_the_indent_and_goes_in_after_a_block_opens`,
+   `tab_and_shift_tab_indent_the_lines_chosen`,
+   `the_bracket_at_the_cursor_finds_its_partner`,
+   `the_line_numbers_stay_when_scrolled_sideways`,
+   `a_still_frame_lays_out_nothing_anew`,
+   `enter_in_the_editor_is_one_step_back`.
    `src/ide/buffer.rs` saves a second after the last change (at once,
    `save_at_once`), keeps the text meanwhile in a journal
    (`config_dir()/ide/<game>.journal/`) that brings it back after a
@@ -450,16 +468,18 @@ Stage by stage (the plan of 2026-10-18):
    has its group SOUNDS, always there, with a plus; the
    sounds the game brings from the engine and its rules are listed under
    them as "built in" and open read-only with MAKE IT YOURS. In the main
-   area a sound is text to change under a line in words of what it is and
-   PLAY SOUND (the text as it stands), its mistakes shown like Lua's, and
+   area a sound is text to change under a line in words of what it is
+   (PLAY SOUND beside it only where the maker is not over the text: one
+   PLAY for a sound), its mistakes shown like Lua's, and
    under the text USED: the lines of the game's scripts that name it, each
    opening the file there. Between the line and the text the sound maker
    (`ide/maker.rs`): COIN, JUMP, SHOT, BLAST, HIT, POWER UP and BLIP each
    roll a fresh sound of that sort from a small table of ranges in the
    file's words and play it, a dice drawn before them as their sign (the
-   same sort pressed again rolls another), UNDO goes back a step; before
-   them PLAY (the way to PLAY SOUND at the top right is long) and LOOP,
-   which plays the sound again and again, half a second between, until
+   same sort pressed again rolls another); before them PLAY (the text as
+   it stands), LOOP and UNDO (a step back), on one row with the sorts
+   where the room allows, else the sorts on a row of their own; LOOP
+   plays the sound again and again, half a second between, until
    switched off, another file is opened or the game played; every rolled sound
    is rendered and measured first (`maker::good`: loud enough, not longer
    than the sort's, mostly between 80 Hz and 8 kHz, not below 30 Hz for
@@ -467,7 +487,9 @@ Stage by stage (the plan of 2026-10-18):
    `the_dice_gives_back_only_good_sounds`). The faders PITCH, LENGTH,
    SLIDE, BRIGHT and PUNCH each move words of their own (freq; hold and
    decay together; sweep; lowpass, off at the top; punch), read their
-   place from the text and play the sound when let go. Every change is the
+   place from the text and play the sound when let go; as many a row as
+   the room takes, the rows even (three and two at 1024 wide), none cut
+   (test `the_sound_page_has_one_play_and_its_faders_fit`). Every change is the
    text rewritten through `toml_edit`, its comments kept, into the buffer
    as typing is, and a step of the text edit's own undo: UNDO and Ctrl+Z
    go back over the same steps.
@@ -536,7 +558,16 @@ Stage by stage (the plan of 2026-10-18):
    `conf.lua` is refused), and NEW (`projects.rs`: a name and a
    template, the game begun in the projects folder, `~/Voxcade` unless
    the settings' CHANGE… says another, and opened). `voxcade ide` without
-   a game shows the start page with the same. One window shows one game
+   a game shows the start page with the same: the games that come with
+   the program and YOUR GAMES (none yet: a tile + NEW GAME where they
+   will be). EDIT on a game that came with the program asks over its
+   picture, MAKE A COPY (into the projects folder under its title,
+   `projects::copy_game`, begun as a git repository like NEW's, and the
+   copy opened) or EDIT HERE (where it is installed: an update puts a
+   fresh one in its place and moves the changed one to `before-update/`,
+   the tooltip says so); `--shot --open edit:FOLDER` draws it (tests
+   `a_game_that_came_with_the_program_is_copied_to_change`,
+   `edit_on_a_game_that_came_with_the_program_asks_first`). One window shows one game
    after another (`mod.rs`: `Window` what they share, `project` a game
    until another is chosen, `start_page`); leaving one saves the text,
    ends the run, closes its editors, its console and its bridge, and egui
@@ -612,7 +643,10 @@ Stage by stage (the plan of 2026-10-18):
    so and pointing to the update. `voxcade ide GAME --shot FILE` draws
    the page, `--upgraded` as after UPGRADE run dry (nothing changed);
    tests `the_wizard_brings_an_older_game_up_to_date`,
-   `a_dry_run_changes_nothing_and_replays_are_refitted`.
+   `a_dry_run_changes_nothing_and_replays_are_refitted`. The page does
+   not show the upgrade's line naming `voxcade check GAME --refit`: REFIT
+   THE REPLAYS below does it (test
+   `the_page_shows_no_command_beside_its_button`).
 13. **Find and search** (2026-11-13, the owner's D9, the one new thing in
    0.6; `ide/find.rs`): over the open text (Lua, a sound, a song, a
    model's TEXT) Ctrl+F, or FIND beside SAVED, shows the find row directly
@@ -629,10 +663,12 @@ Stage by stage (the plan of 2026-10-18):
    (in the row, or in the text while the row is open and no names are
    offered) puts it away and gives the text the keys. Ctrl+Shift+F, or
    SEARCH in the bar, shows the search across the game in the list's
-   place: a field, MATCH CASE, "12 IN 4 FILES", the lines found under
-   their files (line number, the line with the word marked; the whole on
-   hover), searched on a thread (`find::Search::poll`, at most 1000 lines,
-   files up to 4 MB) over the files the list shows (`Files::names`: the
+   place, the panel a third of the window wide meanwhile (up to 560
+   points, so a line shows more of itself): a field, MATCH CASE, "12 IN 4
+   FILES", the lines found under their files (line number, the line with
+   the word marked; the whole on hover), searched on a thread
+   (`find::Search::poll`, at most 1000 lines, files up to 4 MB) over the
+   files the list shows (`Files::names`: the
    `.gitignore`s, no `shots/`, `builds/` or hidden files) that open as
    text: the logic, scenarios, sounds, songs and models (a level opens as
    its picture and is left out). A line clicked opens its file at it (a

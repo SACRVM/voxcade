@@ -1,6 +1,7 @@
-//! Sounds and songs in the main area: PLAY SONG, PLAY SOUND, a built-in
-//! sound and MAKE IT YOURS, USED (where the game names a sound), and the
-//! sound maker (its sorts, UNDO, the faders, LOOP).
+//! Sounds and songs in the main area: PLAY SONG, PLAY SOUND (where the
+//! maker is not), a built-in sound and MAKE IT YOURS, USED (where the game
+//! names a sound), and the sound maker (PLAY, LOOP, UNDO, its sorts, the
+//! faders in as many rows as the room asks).
 
 use super::*;
 
@@ -176,23 +177,43 @@ impl Shell {
         let ctx = ui.ctx().clone();
         let (mut rolled, mut back, mut play) = (None, false, false);
         let can_go_back = matches!(&self.shown, Some(Shown::Code(b)) if b.code.can_go_back(&ctx, id));
-        ui.horizontal_wrapped(|ui| {
-            play = ui.button("PLAY").on_hover_text("Plays the sound as it stands (as PLAY SOUND at the top right does).").clicked();
+        // PLAY, LOOP and UNDO, then the dice and the sorts: on one row
+        // where the room allows, else the sorts on a row of their own.
+        let room = ui.available_width();
+        let width = |ui: &egui::Ui, words: &[&str]| -> f32 {
+            let font = TextStyle::Button.resolve(ui.style());
+            let pad = 2.0 * ui.spacing().button_padding.x + ui.spacing().item_spacing.x;
+            words.iter().map(|w| ui.fonts_mut(|f| f.layout_no_wrap(w.to_string(), font.clone(), TEXT).size().x) + pad).sum()
+        };
+        let sorts: Vec<&str> = maker::Sort::ALL.iter().map(|s| s.word()).collect();
+        let one_row = width(ui, &["PLAY", "LOOP", "UNDO"]) + 18.0 + 30.0 + width(ui, &sorts) <= room;
+        let mut controls = |ui: &mut egui::Ui| {
+            play = ui.button("PLAY").on_hover_text("Plays the sound as it stands, at the game's sound volume.").clicked();
             if ui.add(egui::Button::new("LOOP").selected(self.looping)).on_hover_text("Plays the sound again and again with a short pause, so you hear what the faders and your typing do. Press again to stop.").clicked() {
                 self.looping = !self.looping;
                 self.again_at = None;
                 play |= self.looping;
             }
-            ui.add_space(18.0);
+            back = ui.add_enabled(can_go_back, egui::Button::new("UNDO")).on_hover_text("Back to the sound before the last change (a roll, a fader or typing); again for the one before. Ctrl+Z in the text does the same.").clicked();
+        };
+        let mut rolls = |ui: &mut egui::Ui| {
             dice(ui).on_hover_text("These roll the dice: each press makes a new sound of that sort, never the same twice. Press one again for another.");
             for sort in maker::Sort::ALL {
                 if ui.button(sort.word()).on_hover_text(sort.hover()).clicked() {
                     rolled = Some(sort);
                 }
             }
-            ui.add_space(18.0);
-            back = ui.add_enabled(can_go_back, egui::Button::new("UNDO")).on_hover_text("Back to the sound before the last change (a roll, a fader or typing); again for the one before. Ctrl+Z in the text does the same.").clicked();
-        });
+        };
+        if one_row {
+            ui.horizontal(|ui| {
+                controls(ui);
+                ui.add_space(18.0);
+                rolls(ui);
+            });
+        } else {
+            ui.horizontal(|ui| controls(ui));
+            ui.horizontal_wrapped(|ui| rolls(ui));
+        }
         if let Some(sort) = rolled {
             self.roll(&ctx, sort);
         }
@@ -208,44 +229,54 @@ impl Shell {
             _ => None,
         };
         let fading = &mut self.fading;
+        // As many faders a row as the room takes, the rows as even as can
+        // be (five: three and two), never one cut at the edge.
+        let gap = 22.0;
+        let fit = (((ui.available_width() + gap) / (FADER_WIDTH + gap)).floor() as usize).max(1);
+        let count = maker::Fader::ALL.len();
+        let rows = count.div_ceil(fit);
+        let per_row = count.div_ceil(rows);
         ui.add_enabled_ui(synth.is_some(), |ui| {
-            ui.horizontal_top(|ui| {
-                ui.spacing_mut().item_spacing.x = 22.0;
-                for fader in maker::Fader::ALL {
-                    let (lo, hi) = fader.range();
-                    let mut value = synth.as_ref().map_or(lo, |s| fader.place(s));
-                    let held = ui
-                        .allocate_ui_with_layout(egui::vec2(FADER_WIDTH, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label(fader.word()).on_hover_text(fader.hover());
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    ui.label(RichText::new(fader.shown(value)).small().color(QUIET));
+            for row in maker::Fader::ALL.chunks(per_row) {
+                ui.horizontal_top(|ui| {
+                    ui.spacing_mut().item_spacing.x = gap;
+                    for &fader in row {
+                        let (lo, hi) = fader.range();
+                        let mut value = synth.as_ref().map_or(lo, |s| fader.place(s));
+                        let held = ui
+                            .allocate_ui_with_layout(egui::vec2(FADER_WIDTH, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(fader.word()).on_hover_text(fader.hover());
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        ui.label(RichText::new(fader.shown(value)).small().color(QUIET));
+                                    });
                                 });
-                            });
-                            ui.spacing_mut().slider_width = FADER_WIDTH;
-                            ui.add(egui::Slider::new(&mut value, lo..=hi).logarithmic(fader.logarithmic()).show_value(false)).on_hover_text(fader.hover()).on_disabled_hover_text("The faders move a sound made of numbers; this text is not one now (a recording, silent, or a mistake in it).")
-                        })
-                        .inner;
-                    let down = held.is_pointer_button_down_on() || held.dragged();
-                    if held.changed()
-                        && let Some(s) = &synth
-                    {
-                        // Marked before the first change of a move, after its last.
-                        if *fading != Some(fader) {
-                            buffer.code.mark(&ctx, id);
-                            *fading = Some(fader);
+                                ui.spacing_mut().slider_width = FADER_WIDTH;
+                                ui.add(egui::Slider::new(&mut value, lo..=hi).logarithmic(fader.logarithmic()).show_value(false)).on_hover_text(fader.hover()).on_disabled_hover_text("The faders move a sound made of numbers; this text is not one now (a recording, silent, or a mistake in it).")
+                            })
+                            .inner;
+                        let down = held.is_pointer_button_down_on() || held.dragged();
+                        if held.changed()
+                            && let Some(s) = &synth
+                        {
+                            // Marked before the first change of a move, after its last.
+                            if *fading != Some(fader) {
+                                buffer.code.mark(&ctx, id);
+                                *fading = Some(fader);
+                            }
+                            buffer.code.text = maker::faded(&buffer.code.text, s, fader, value);
+                            buffer.code.check();
+                            buffer.edited(now);
                         }
-                        buffer.code.text = maker::faded(&buffer.code.text, s, fader, value);
-                        buffer.code.check();
-                        buffer.edited(now);
+                        if *fading == Some(fader) && !down {
+                            buffer.code.mark(&ctx, id);
+                            *fading = None;
+                            play = true;
+                        }
                     }
-                    if *fading == Some(fader) && !down {
-                        buffer.code.mark(&ctx, id);
-                        *fading = None;
-                        play = true;
-                    }
-                }
-            });
+                });
+                ui.add_space(4.0);
+            }
         });
         play
     }

@@ -288,3 +288,63 @@ pub fn front(block: &Block) -> Vec<Option<[u8; 3]>> {
     let s = block.size;
     (0..s.x * s.z).map(|i| (0..s.y).find_map(|y| block.colour_at(IVec3::new(i % s.x, y, s.z - 1 - i / s.x)))).collect()
 }
+
+/// How dark a block's front shows beside its top in `above_front`: the
+/// two faces told apart, as the level's view tells them.
+const FRONT_SHADE: f32 = 0.78;
+
+/// A block seen from above and the front at once, as a level's view sees
+/// it (`above`: a level seen from above, its top whole and its front at
+/// half; else from the front, its front whole and its top at half),
+/// `high` pixels high and as wide as that makes it: blocks that differ
+/// only on top (grass, a path, a pond) differ here. Its width, height and
+/// pixels (rows from the top), each pixel the voxel its ray meets first,
+/// the front's darker.
+pub fn above_front(block: &Block, high: i32, above: bool) -> (i32, i32, Vec<Option<[u8; 3]>>) {
+    let s = block.size.max(IVec3::ONE).as_vec3();
+    // Down the picture a point lies at `a (s.y - y) + b (s.z - z)`: the
+    // top's rows `a` a voxel, the front's `b`.
+    let (a, b) = if above { (1.0, 0.5) } else { (0.5, 1.0) };
+    let tall = a * s.y + b * s.z;
+    let wide = ((high as f32 * s.x / tall).round() as i32).max(1);
+    let mut pixels = Vec::with_capacity((wide * high) as usize);
+    for py in 0..high {
+        for px in 0..wide {
+            let x = (px as f32 + 0.5) / wide as f32 * s.x;
+            let v = (py as f32 + 0.5) / high as f32 * tall;
+            pixels.push(ray_above_front(block, s, (a, b), x, v));
+        }
+    }
+    (wide, high, pixels)
+}
+
+/// The colour a ray of `above_front` meets: down the picture at `v`
+/// (voxels, as `ab` weighs them), across at `x`.
+fn ray_above_front(block: &Block, s: glam::Vec3, (a, b): (f32, f32), x: f32, v: f32) -> Option<[u8; 3]> {
+    let z_at = |y: f32| s.z - (v - a * (s.y - y)) / b;
+    // Into the box: on its front (y 0) where that lies below its top,
+    // else on its top.
+    let (mut y, mut top) = if z_at(0.0) > s.z { (s.y - v / a, true) } else { (0.0, false) };
+    let cx = x.floor() as i32;
+    let mut last: Option<IVec3> = None;
+    // (Small steps along y: z goes down `a / b` a step.)
+    let step = 0.05 * (b / a).min(1.0);
+    while y < s.y {
+        let z = z_at(y);
+        if z < 0.0 {
+            break;
+        }
+        let cell = IVec3::new(cx, y.floor() as i32, (z.floor() as i32).min(s.z as i32 - 1));
+        if last != Some(cell) {
+            if let Some(was) = last {
+                top = cell.z < was.z;
+            }
+            last = Some(cell);
+            if let Some(c) = block.colour_at(cell) {
+                return Some(if top { c } else { c.map(|v| (v as f32 * FRONT_SHADE).round() as u8) });
+            }
+        }
+        y += step;
+    }
+    None
+}

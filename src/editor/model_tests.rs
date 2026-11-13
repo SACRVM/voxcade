@@ -663,3 +663,42 @@ fn a_model_of_any_size_is_edited_and_saved() {
     assert_eq!((frame.colour_at(IVec3::new(0, 0, 2)), frame.get(IVec3::new(1, 0, 2)) != 0), (Some([200, 40, 40]), true));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Undo keeps at most so many steps, and so many bytes of them: past
+/// either the oldest go (the newest stays, even alone over the bytes),
+/// the count of steps taken still counts them, and what is kept is taken
+/// back step by step as before.
+#[test]
+fn undo_keeps_a_bounded_number_of_steps_and_bytes() {
+    let dir = folder("undo-bound");
+    let mut ed = Editor::open(&dir, "level.toml").unwrap();
+    ed.open_block(0);
+    ed.choose(Tool::Paint);
+    let paint = |ed: &mut Editor, k: i32| {
+        ed.colour = [10 + k as u8, 20, 30];
+        let (o, d) = down(k % N, k / N % N);
+        ed.press(ed.aim(o, d).unwrap());
+        ed.release();
+    };
+    ed.history.keep = (5, KEPT_BYTES);
+    for k in 0..8 {
+        paint(&mut ed, k);
+    }
+    assert_eq!((ed.history.past.len(), ed.steps()), (5, 8), "five kept, eight taken");
+    for _ in 0..7 {
+        ed.undo();
+    }
+    // The three oldest went: their colours stay.
+    assert_eq!(ed.blocks[0].colour_at(IVec3::new(2, 0, N - 1)), Some([12, 20, 30]));
+    assert_eq!(ed.blocks[0].colour_at(IVec3::new(3, 0, N - 1)), Some([128, 128, 128]), "the fourth was taken back");
+    // By bytes: a step of this block holds two copies of it.
+    let one = Step::Block(0, ed.blocks[0].clone(), ed.blocks[0].clone()).bytes();
+    ed.history.keep = (KEPT_STEPS, 3 * one + one / 2);
+    for k in 0..6 {
+        paint(&mut ed, k);
+    }
+    assert_eq!(ed.history.past.len(), 3, "three steps' bytes");
+    ed.history.keep = (KEPT_STEPS, 1);
+    paint(&mut ed, 7);
+    assert_eq!(ed.history.past.len(), 1, "the newest stays");
+}
