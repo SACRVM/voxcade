@@ -1247,7 +1247,10 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
         }
         renderer.update_chunks(device, queue, game.world_mut(), &mask);
 
-        let aspect = config.width as f32 / config.height as f32;
+        // The picture's shape: the game's own (bars round it), else the
+        // window's.
+        let aspect = game.picture_aspect(config.width as f32 / config.height as f32);
+        renderer.set_shape(device, game.cfg.camera.aspect);
         let scene = match intro {
             Some(t) => Scene::Intro { time: title_time, t: t / INTRO_TIME },
             None if playing => Scene::Play,
@@ -1313,6 +1316,14 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
             // Over a menu low, above its hint and the host's help.
             let low = menu.is_open().then(|| 14.0 + menu.net.as_ref().filter(|_| menu.page() == Some(Page::Pause)).map_or(0, |n| n.help.len()) as f32 * 9.0);
             crate::ui::notice(&mut frame.ui, &said, &game.cfg.ui, aspect, low);
+        }
+        // A picture the game set at another pitch or field of view
+        // (`frame:camera`) may need faces the meshes left out: built anew
+        // with them, once.
+        let faces = game.face_mask();
+        if faces != mask {
+            mask = faces;
+            renderer.rebuild_all(device, queue, game.world_mut(), &mask);
         }
 
         match surface.get_current_texture() {

@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
-use glam::{IVec3, Mat4, Quat, Vec3, Vec4};
+use glam::{IVec2, IVec3, Mat4, Quat, Vec3, Vec4};
 
 use super::model::room::{self, Hanging, Item};
 use super::model::{Editor, Hit, Layer, Scope, Tool};
@@ -615,6 +615,9 @@ pub struct Shown {
     slice: Option<(usize, i32, i32)>,
     /// The part shown is turned at rest (drawn as cubes, the world empty).
     turned: bool,
+    /// The level's terrain as built, and its columns' heights.
+    terrain: Option<crate::terrain::Terrain>,
+    surface: Option<crate::terrain::Surface>,
 }
 
 /// What of the slice the world shown depends on.
@@ -624,7 +627,7 @@ fn slice_key(ed: &Editor) -> Option<(usize, i32, i32)> {
 
 impl Shown {
     pub fn new(ed: &Editor) -> Result<Self> {
-        let mut shown = Self { world: World::new(IVec3::ONE, [[0; 4]; 256]), scope: ed.scope, size: IVec3::ZERO, cells: Vec::new(), blocks: Vec::new(), shape: None, slice: None, turned: false };
+        let mut shown = Self { world: World::new(IVec3::ONE, [[0; 4]; 256]), scope: ed.scope, size: IVec3::ZERO, cells: Vec::new(), blocks: Vec::new(), shape: None, slice: None, turned: false, terrain: None, surface: None };
         shown.build(ed)?;
         Ok(shown)
     }
@@ -660,7 +663,47 @@ impl Shown {
         self.size = ed.level.size;
         self.cells = ed.level.cells.clone();
         self.blocks = ed.level.blocks.iter().zip(&ed.blocks).map(|(e, b)| (b.clone(), e.kind)).collect();
+        self.terrain = ed.level.terrain.clone().filter(|_| ed.scope == Scope::Level);
+        self.surface = self.terrain.as_ref().map(crate::terrain::Terrain::surface);
         Ok(())
+    }
+
+    /// The terrain's points changed (their heights or shapes, nothing
+    /// else, in a level without blocks): only the columns they reach built
+    /// again, their chunks to mesh anew. False where it cannot be so.
+    fn update_land(&mut self, ed: &Editor) -> bool {
+        let (Some(was), Some(now), Some(surface)) = (&self.terrain, &ed.level.terrain, &mut self.surface) else { return false };
+        if ed.level.has_grid()
+            || (was.spacing, was.at, was.cols, was.rows, was.terrace, was.rough, was.seed) != (now.spacing, now.at, now.cols, now.rows, now.terrace, now.rough, now.seed)
+            || (&was.under, &was.materials, &was.layers, was.roughness.is_some()) != (&now.under, &now.materials, &now.layers, now.roughness.is_some())
+        {
+            return false;
+        }
+        let rough = |t: &crate::terrain::Terrain, i: usize| t.roughness.as_ref().map_or(9, |r| r[i]);
+        let changed: Vec<IVec2> = (0..now.heights.len()).filter(|&i| was.heights[i] != now.heights[i] || was.shapes[i] != now.shapes[i] || rough(was, i) != rough(now, i)).map(|i| IVec2::new(i as i32 % now.cols, i as i32 / now.cols)).collect();
+        let Some(&first) = changed.first() else { return true };
+        let (from, to) = changed.iter().fold((first, first), |(lo, hi), &p| (lo.min(p), hi.max(p)));
+        let old = surface.clone();
+        let (lo, hi) = now.resurface(surface, from, to);
+        // (A column's colours hang on its neighbours': one more round.)
+        let (lo, hi) = ((lo - 1).max(IVec2::ZERO), (hi + 1).min(surface.size));
+        let Ok(painter) = now.painter(&mut self.world, IVec3::ZERO, surface.clone()) else { return false };
+        let corner = IVec3::from(now.at);
+        for y in lo.y..hi.y {
+            for x in lo.x..hi.x {
+                let c = IVec2::new(x, y);
+                let top = old.at(c).unwrap_or(0).max(surface.at(c).unwrap_or(0));
+                for z in 0..corner.z + top + 1 {
+                    let p = corner + IVec3::new(x, y, z - corner.z);
+                    let v = painter.voxel(p);
+                    if self.world.get(p) != v {
+                        self.world.set(p, v);
+                    }
+                }
+            }
+        }
+        self.terrain = Some(now.clone());
+        true
     }
 
     /// Brings the world up to the editor. True: it was built anew (every
@@ -675,8 +718,17 @@ impl Shown {
                 }
             }
             Scope::Level => {
+                let same_land = self.terrain == ed.level.terrain;
                 if self.scope == Scope::Level && self.size == ed.level.size && self.cells == ed.level.cells && same_blocks(self) {
-                    return Ok(false);
+                    if same_land || self.update_land(ed) {
+                        return Ok(false);
+                    }
+                    self.build(ed)?;
+                    return Ok(true);
+                }
+                if !same_land {
+                    self.build(ed)?;
+                    return Ok(true);
                 }
                 if self.scope == Scope::Level && self.size == ed.level.size && self.blocks.len() <= listed {
                     // Only the cells whose block, its kind or its voxels
@@ -1206,6 +1258,33 @@ pub enum Action {
     /// A figure's chosen part moved to a place along an axis (its POSITION
     /// field).
     PartAt(u8, f32),
+    /// The level's terrain (`land.rs`): added (ADD's menu) or taken out; a
+    /// tool among its points; a shape for the chosen points (and PAINT's);
+    /// a number; a material's condition (0 ABOVE, 1 BELOW, 2 STEEPER, 3
+    /// FLATTER) on or off; a material's color (the materials' count:
+    /// UNDER's); a material added, taken out, its row moved; SELECT's mode.
+    AddTerrain,
+    RemoveTerrain,
+    LandTool(super::model::land::LandTool),
+    LandShape(crate::terrain::Shape),
+    LandSet(super::model::land::LandField, f64),
+    LandCondition(u8, u8, bool),
+    LandColour(u8, [u8; 3]),
+    AddMaterial,
+    RemoveMaterial(u8),
+    MoveMaterial(u8, u8),
+    LandMode(super::model::selection::SelectMode),
+    /// The terrain's seed anew; its layers (a band more, one out, a row
+    /// moved, a color); a material's tones (one set: material, tone,
+    /// color; one more; the last out).
+    Reroll,
+    AddLayer,
+    RemoveLayer(u8),
+    MoveLayer(u8, u8),
+    LayerColour(u8, [u8; 3]),
+    Tone(u8, u8, [u8; 3]),
+    AddTone(u8),
+    RemoveTone(u8),
 }
 
 /// The key an action answers to (the panels show it beside its word): a
@@ -1261,6 +1340,10 @@ pub fn front(block: &Block) -> Vec<Option<[u8; 3]>> {
 
 /// Does what a click on the panels or a key says.
 pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
+    // Among the terrain's points, what is done to pieces brings them back.
+    if ed.among_land() && matches!(action, Action::AddModel | Action::AddLight | Action::AddPlace | Action::AddArea | Action::Piece(_) | Action::ChooseItem(Some(_)) | Action::OpenMenu(..)) {
+        ed.switch(Layer::Pieces);
+    }
     let scope = ed.scope;
     match action {
         Action::Tool(tool) => ed.choose(tool),
@@ -1544,6 +1627,31 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::AddLight => ed.add_light(),
         Action::AddPlace => ed.add_place(),
         Action::AddArea => ed.add_area(),
+        Action::AddTerrain => {
+            ed.add_terrain();
+            view.menu = None;
+        }
+        Action::RemoveTerrain => ed.remove_terrain(),
+        Action::LandTool(t) => {
+            ed.release();
+            ed.land.tool = t;
+        }
+        Action::LandShape(s) => ed.land_shape(s),
+        Action::LandSet(f, v) => ed.land_set(f, v),
+        Action::LandCondition(k, which, on) => ed.land_condition(k, which, on),
+        Action::LandColour(k, c) => ed.land_colour(k, c),
+        Action::AddMaterial => ed.add_material(),
+        Action::RemoveMaterial(k) => ed.remove_material(k),
+        Action::MoveMaterial(from, to) => ed.move_material(from, to),
+        Action::LandMode(m) => ed.land.mode = m,
+        Action::Reroll => ed.reroll(),
+        Action::AddLayer => ed.add_layer(),
+        Action::RemoveLayer(k) => ed.remove_layer(k),
+        Action::MoveLayer(a, b) => ed.move_layer(a, b),
+        Action::LayerColour(k, c) => ed.layer_colour(k, c),
+        Action::Tone(k, n, c) => ed.tone(k, n, c),
+        Action::AddTone(k) => ed.add_tone(k),
+        Action::RemoveTone(k) => ed.remove_tone(k),
         Action::TurnItem(by) => ed.turn_item(by as i32),
         Action::CopyItem => ed.copy_item(),
         Action::RemoveItem => ed.remove_item(),

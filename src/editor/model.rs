@@ -37,6 +37,8 @@ pub mod disk;
 pub mod parts;
 #[path = "selection.rs"]
 pub mod selection;
+#[path = "land.rs"]
+pub mod land;
 pub use room::{Field, Hanging, Item};
 
 /// A joint's arrow being dragged: the drag, the handles as they were at
@@ -99,6 +101,8 @@ pub enum Layer {
     Blocks,
     Things,
     Pieces,
+    /// The level's terrain (`land.rs`).
+    Terrain,
 }
 
 /// The tools, the same four on both levels (named by `Tool::label`).
@@ -145,6 +149,8 @@ impl Tool {
             (Scope::Level, Layer::Things) => &[Tool::Pointer, Tool::Add, Tool::Remove, Tool::Move, Tool::Pick],
             // (Pieces are chosen and dragged, their words on the panels.)
             (Scope::Level, Layer::Pieces) => &[],
+            // (The terrain's tools are its own: `land::LandTool`.)
+            (Scope::Level, Layer::Terrain) => &[],
             // (The figure whole: a press on a part chooses it, and the tool
             // works there at once.)
             (Scope::Block(_) | Scope::Frame(_) | Scope::Figure, _) => &[Tool::Pointer, Tool::Add, Tool::Remove, Tool::Paint, Tool::Fill, Tool::Deep, Tool::Box, Tool::Sphere, Tool::Select, Tool::Pick],
@@ -348,6 +354,7 @@ struct LevelState {
     areas: Vec<Area>,
     /// (Boxed: the steps stay small.)
     daylight: Option<Box<crate::grid::Daylight>>,
+    terrain: Option<Box<crate::terrain::Terrain>>,
 }
 
 /// One step of the history, before and after.
@@ -473,6 +480,8 @@ pub struct Editor {
     pub hang_spot: Option<IVec3>,
     dragging: Option<(Item, IVec3)>,
     tuned: Option<(Option<Item>, Field)>,
+    /// Among the terrain's points (`land.rs`).
+    pub land: land::Land,
     pub wants_model: Option<String>,
     pub scenes: Vec<String>,
     /// The pieces' models' sizes by their files (`Figures`: what turning
@@ -595,6 +604,7 @@ impl Editor {
             hang_spot: None,
             dragging: None,
             tuned: None,
+            land: land::Land::default(),
             wants_model: None,
             scenes: Vec::new(),
             sizes: Default::default(),
@@ -700,6 +710,7 @@ impl Editor {
             hang_spot: None,
             dragging: None,
             tuned: None,
+            land: land::Land::default(),
             wants_model: None,
             scenes: Vec::new(),
             sizes: Default::default(),
@@ -1153,6 +1164,7 @@ impl Editor {
             self.join_next = false;
         }
         self.let_go_of_slice();
+        self.let_go_of_land();
         self.moving = None;
         self.dragging = None;
         self.gripped = None;
@@ -1512,6 +1524,12 @@ impl Editor {
         self.level.places = s.places.clone();
         self.level.areas = s.areas.clone();
         self.level.daylight = s.daylight.as_deref().cloned();
+        self.level.terrain = s.terrain.as_deref().cloned();
+        // (Points no longer there are no longer chosen.)
+        let t = self.level.terrain.as_ref();
+        let has = |p: &glam::IVec2| t.is_some_and(|t| t.index(*p).is_some());
+        self.land.selected.retain(has);
+        self.land.chosen = self.land.chosen.filter(has);
     }
 
     /// A copy of the block shown or held, under a new number, held (and
@@ -1829,7 +1847,7 @@ impl Editor {
 
     fn level_state(&self) -> LevelState {
         let l = &self.level;
-        LevelState { size: l.size, cells: l.cells.clone(), table: l.blocks.clone(), things: l.things.clone(), places: l.places.clone(), areas: l.areas.clone(), daylight: l.daylight.clone().map(Box::new) }
+        LevelState { size: l.size, cells: l.cells.clone(), table: l.blocks.clone(), things: l.things.clone(), places: l.places.clone(), areas: l.areas.clone(), daylight: l.daylight.clone().map(Box::new), terrain: l.terrain.clone().map(Box::new) }
     }
 
     /// The next frame of the model shown (`by` on, back when negative,

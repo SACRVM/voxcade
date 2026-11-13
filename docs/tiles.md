@@ -230,6 +230,160 @@ facing = [0, -1]
   comments too. A level turned off the grid in a game on the grid asks
   first: ALIGN ALL or DON'T OPEN. `grid::text` has the whole format.
 
+## A terrain (2026-11-13)
+
+A level may hold a landscape, `[terrain]`: heights at control points, as
+text, no height picture (the owner: "a landscape generator light", round
+hills and steep cliffs alike, from the pre-Alps to the Alps to the Grand
+Canyon; "nothing too uniform either"). It goes beside pieces, places and
+areas, and beside blocks (the blocks' voxels first, the land where they
+leave room); a level with it needs no blocks. Every word but `spacing`,
+`heights` and one material is optional; what is left out changes nothing.
+
+```toml
+[terrain]             # heights in voxels, the far row first; shapes . SMOOTH ^ LINEAR # STEP
+spacing = 16          # voxels between points, x and y alike
+at = [0, 0, 0]        # the first point's square's low corner; its z the base
+heights = """
+ 4  4  6 10 14 12
+ 4  5  8 14 20 16
+"""
+shapes = """          # the same layout: a sign a point
+ .  .  .  ^  ^  .
+ .  .  #  #  ^  .
+"""
+terrace = 8           # STEP's terraces without layers, voxels high
+rough = 0.6           # how uneven the land is, 0 to 1
+roughness = """       # each point's share of it, a digit: 0 calm to 9 (all 9 without)
+ 0  0  1  9  9  2
+ 0  0  1  9  9  2
+"""
+seed = 7              # the unevenness, the patches, the grain and the soft borders
+under = "#6b5138"     # what lies under the materials (else the last one's color)
+
+[[terrain.layer]]     # from the bottom up, again and again upward
+thick = 12
+hard = 0.9            # 1 a wall with a ledge on top, 0 a slope of scree
+color = "#9c4f2e"
+[[terrain.layer]]
+thick = 7
+hard = 0.15
+color = "#d9a46a"
+
+[[terrain.material]]  # the first that fits paints
+color = "#eef2f5"
+above = 60            # the voxel higher than this over the base
+blend = 8             # the border wanders over 8 voxels, lower in hollows
+[[terrain.material]]
+colors = ["#7d7468", "#6e665c"]   # two or three tones, in patches
+patch = 5             # about this many voxels across
+steeper = 45          # its column's slope, degrees
+[[terrain.material]]
+color = "#5c8a3a"     # the last has no conditions: everything else
+grain = 0.3
+```
+
+- **Points** stand in the middle of their own square of `spacing` by
+  `spacing` columns; the land is `spacing` times the points across and
+  deep, inside the level's size (a mistake says by how much it is not).
+  Heights are whole voxels from 0, the far row first as a level seen from
+  above reads; written by the editor as a grid lined up in columns, the
+  shapes and the roughness under them in the same columns.
+- **Shapes** (the interpolation words of glTF and the animation tools):
+  SMOOTH (`.`) a Catmull-Rom curve through the points, bicubic, held
+  within the four points round it so it never overshoots (rolling land);
+  LINEAR (`^`) straight slopes, bilinear (ridges and peaks); STEP (`#`,
+  TERRACED) that land cut into terraces: flat ledges, and where the land
+  crosses the next terrace a riser over a short run (a wall with a little
+  foot), so a cliff follows the land's contour: it curves with a valley,
+  several stack into a banded wall, a single high STEP point is a butte
+  with a round outline. Each shape weighs in by the four points round a
+  column, each by its bilinear weight: SMOOTH and LINEAR meet without a
+  seam, a meadow runs into a cliff. At a point's own column its height
+  exactly where the land is even (and, for STEP, on a terrace's line).
+  The first STEP (a point's height as a plateau over its square) gave
+  right angles along the grid, "more angular than Minecraft" (the owner):
+  gone.
+- **Roughness**: `rough` adds three octaves of value noise from `seed`
+  (swells eight points across, ±4 voxels at 1; bumps a point across, ±4;
+  small unevenness five voxels across, ±3: most of it small, so 0.25 to
+  0.35 breaks a meadow's contour rings into irregular ground without the
+  land looking lumpy from afar), times each point's
+  `roughness` (0 to 9, bilinear between them; ROUGHEN and CALM paint it).
+  Under STEP the noise is added before the cut, so the terraces' lines
+  wander and their ledges vary in width, and their heights shift a little
+  (±2 voxels at 1). `rough` unset or 0: the land exactly as the points say.
+- **Layers** (`[[terrain.layer]]`, from the bottom up, the stack repeated
+  upward): where the land is terraced, the bands are the terraces
+  (`terrace` then no longer counts): a band's riser takes the last
+  `0.1 + 0.8 (1 - hard)` of its height, bent up at its foot as hard as it
+  is, so a hard band stands as a wall over a ledge and a soft one
+  weathers back into a slope.
+- **Materials**: the first whose conditions all hold paints a voxel:
+  `above`, `below` (the voxel's height over the base, the top voxel of a
+  column h high being h), `steeper`, `flatter` (its column's slope in
+  degrees, over three voxels each way: where the land goes on the same
+  way the gentler side counts, so a tread beside a riser is flat and a
+  single contour step no slope; over a peak or a hollow the mean; a
+  wall's face, under its column's top and open over a drop of 3 voxels or
+  more, is as steep as its drop); `depth` voxels down from where
+  it can be seen (3), `under` below; `grain` 0 to 1 a slight shade voxel
+  by voxel; `colors` two or three tones mixed in patches about `patch`
+  voxels across (6; two octaves of value noise over a warped plane, so
+  their borders are organic, never along the grid; tones close to each
+  other read as variation, far apart as camouflage), each with its grain; `blend` lets every condition's
+  border wander (value noise: up to half of it either way, voxels of
+  height or degrees of slope; the height's lower by up to half again in a
+  hollow, so snow reaches down a gully). The last material has no
+  conditions; at most 32. **Who wins:** a material whose conditions fit
+  paints; where only the last (unconditional) one would, on land STEP
+  weighs in on (half or more) in a terrain with layers, the layer's color
+  at that height shows instead, but only on walls: a voxel open to the
+  side over a drop of 3 voxels or more. Ledges, treads, a plateau and its
+  single contour steps show their material (grass by `flatter`), the
+  walls their bands. The land's outer
+  edge, cut, shows what lies under. The palette: the blocks' colors, then
+  each material's tones and their shades in order, `under`, the layers.
+- **Built** with the level, as a map's ground: every column filled from
+  the world's floor to its height (nothing hangs over, nothing falls
+  loose), solid, blasted, meshed in chunks, the heights on several cores
+  (`par::in_order`), in plain sums of whole numbers and value noise of our
+  own (one tangent, `libm`'s): the same voxels on every system. 640 by 576
+  voxels with every word at work (roughness, layers, patches, blend) in
+  about 160 ms; 640 by 400 of plain land in about 50. `crate::terrain`;
+  `level:ground(x, y)` is its height where things are placed in code;
+  `tools/vvx.py` reads and writes the section as the engine does.
+- **The editor** (`editor/land.rs`): + ADD's TERRAIN makes a flat one over
+  the level, TERRAIN beside PIECES (and BLOCKS and THINGS) shows it. The
+  points as small squares on the land, the one under the mouse lit;
+  POINTER chooses one and drags it up or down by whole voxels, the brush
+  (RADIUS, in points; 1 the point alone) carrying the points round it
+  along so a drag raises a hill, the land built again as it goes (only the
+  columns the points reach) and written at the let-go, one step; SELECT
+  (a rectangle on the screen, NEW, ADD, REMOVE) and the selected ones move
+  together or take a typed HEIGHT; FLATTEN (to the first point's height),
+  SMOOTH (toward the neighbours' mean), PAINT (the SHAPE lit), ROUGHEN and
+  CALM (the roughness; on even land the first stroke makes `rough` 0.5,
+  every other point calm) brush over the points; SHAPE: SMOOTH, LINEAR,
+  STEP for the chosen ones. The inspector: SPACING, POINTS (columns and
+  rows added or taken at the right and the far edge, the heights kept),
+  TERRACE (without layers), ROUGH, SEED with REROLL (a dice: the next
+  seed, one step), LAYERS (a row each: the color, THICK, HARD, ×; + and a
+  row dragged onto another), MATERIALS (a row each: its tones, + and −,
+  ×; GRAIN, PATCH; ABOVE, BELOW, STEEPER, FLATTER switched on with their
+  numbers; BLEND), UNDER, REMOVE TERRAIN. Only the terrain's lines of the
+  file change. A model ADDed lands where the ray meets the land and stays
+  on the mouse for the next click (a stamp, until Escape). `voxcade edit
+  GAME --level FILE --terrain --shot OUT [--raise X,Y --by N [--radius
+  R]] [--shape X,Y smooth|linear|step]` to look.
+- **Contour rings** on SMOOTH hills are the land's whole-voxel steps, lit
+  face by face. Honest ways round them: `rough` a little (0.2 to 0.4 on
+  meadows) breaks the rings into irregular shapes the eye reads as
+  ground, and `colors` with `patch` keeps the grass from one tone; a
+  steeper or a flatter land has fewer of them. Smoothing the light or
+  half-voxel heights would fake the grid away, which the engine does
+  not do.
+
 ## Built (2026-10-16)
 
 - **Blocks** (`src/blocks.rs`): `blocks/NAME.vvx`, a model of Voxcade's

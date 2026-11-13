@@ -666,7 +666,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
         }
         Some("edit") => {
             let dir = opened(&args)?;
-            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new(), ops: Vec::new(), choose: None, game_view: false, picker: false, lights_off: false, choose_light: None, menu: None, add_menu: false, level_settings: false, hover: None, turn_handles: false, part_moves: Vec::new(), hide: Vec::new(), click: None, slice: None, cells: Vec::new(), frame: None, dry: false, context: None, context_off: false, part_turns: Vec::new(), part_poses: Vec::new(), last_pose: false, add_part: false, merge_into: None, mirror: false, background: None, marquee: None, select: None, selection_ops: Vec::new() };
+            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new(), ops: Vec::new(), choose: None, game_view: false, picker: false, lights_off: false, choose_light: None, menu: None, add_menu: false, level_settings: false, hover: None, turn_handles: false, part_moves: Vec::new(), hide: Vec::new(), click: None, slice: None, cells: Vec::new(), frame: None, dry: false, context: None, context_off: false, part_turns: Vec::new(), part_poses: Vec::new(), last_pose: false, add_part: false, merge_into: None, mirror: false, background: None, marquee: None, select: None, selection_ops: Vec::new(), terrain: false, land_ops: Vec::new() };
             let mut shot = false;
             let three = |flag: &str, value: &str| -> Result<glam::IVec3> {
                 let n: Vec<i32> = value.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>().with_context(|| format!("{flag} X,Y,Z"))?;
@@ -692,6 +692,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                     continue;
                 }
                 match flag.as_str() {
+                    "--terrain" => opts.terrain = true,
                     "--game-view" => opts.game_view = true,
                     "--picker" => opts.picker = true,
                     "--lights-off" => opts.lights_off = true,
@@ -699,7 +700,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                     "--level-settings" => opts.level_settings = true,
                     _ => {}
                 }
-                if matches!(flag.as_str(), "--game-view" | "--picker" | "--lights-off" | "--add-menu" | "--level-settings") {
+                if matches!(flag.as_str(), "--terrain" | "--game-view" | "--picker" | "--lights-off" | "--add-menu" | "--level-settings") {
                     continue;
                 }
                 let value = it.next().with_context(|| format!("{flag} needs a value"))?;
@@ -753,6 +754,27 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                         opts.part_moves.push((value.clone(), glam::Vec3::new(x, y, z), flag == "--move-joint"));
                     }
                     "--merge-into" => opts.merge_into = Some(value.clone()),
+                    "--raise" | "--shape" => {
+                        let n: Vec<i32> = value.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>().with_context(|| format!("{flag} X,Y: a point's column and row"))?;
+                        let [x, y] = n[..] else { bail!("{flag} X,Y: two numbers") };
+                        let p = glam::IVec2::new(x, y);
+                        if flag == "--shape" {
+                            let word = it.next().context("--shape X,Y smooth|linear|step")?;
+                            let shape = crate::terrain::Shape::ALL.into_iter().find(|s| s.name().eq_ignore_ascii_case(word)).context("--shape X,Y smooth|linear|step")?;
+                            opts.land_ops.push(crate::editor::LandOp::Shape(p, shape));
+                        } else {
+                            let by = it.next().filter(|b| *b == "--by").and(it.next()).context("--raise X,Y --by N [--radius R]")?;
+                            let by: i32 = by.parse().context("--raise X,Y --by N: whole voxels")?;
+                            let radius = match it.clone().next() {
+                                Some(f) if f.as_str() == "--radius" => {
+                                    it.next();
+                                    it.next().context("--radius R")?.parse().context("--radius R: points")?
+                                }
+                                _ => 3,
+                            };
+                            opts.land_ops.push(crate::editor::LandOp::Raise(p, by, radius));
+                        }
+                    }
                     "--select" => {
                         let to = it.next().filter(|b| *b == "--to").and(it.next()).context("--select X0,Y0,Z0 --to X1,Y1,Z1")?;
                         let corner = |v: &str| -> Result<glam::IVec3> {

@@ -40,6 +40,17 @@ pub fn names(src: &str, words: &[&str]) -> bool {
     spans(src).iter().any(|s| s.kind == Kind::Name && words.contains(&&src[s.range.clone()]))
 }
 
+/// Whether the code calls a method `name` (`frame:camera(...)`, or
+/// `frame.camera(frame, ...)`), not in a string or a comment; a field of
+/// that name (`level.camera:follow`) is no call.
+pub fn calls(src: &str, name: &str) -> bool {
+    let spans: Vec<Span> = spans(src).into_iter().filter(|s| s.kind != Kind::Comment).collect();
+    spans.windows(3).any(|w| {
+        let text = |i: usize| &src[w[i].range.clone()];
+        w[1].kind == Kind::Name && text(1) == name && (text(0) == ":" || (text(0) == "." && text(2) == "("))
+    })
+}
+
 pub fn spans(src: &str) -> Vec<Span> {
     let b = src.as_bytes();
     let mut out = Vec::new();

@@ -61,6 +61,8 @@ pub enum Field {
     Size(usize),
     LevelSize(usize),
     Nudge,
+    /// A number of the terrain.
+    Land(super::land::LandField),
 }
 
 /// Colours for a light to choose from at once, warm to cool, each with
@@ -348,7 +350,7 @@ impl Editor {
     /// A change to the level as one step, saved at once; `tune`: a number
     /// set again (dragged, typed, a key held) joins the step that set it
     /// last for the same item.
-    fn change(&mut self, tune: Option<Field>, f: impl FnOnce(&mut GridLevel)) {
+    pub(super) fn change(&mut self, tune: Option<Field>, f: impl FnOnce(&mut GridLevel)) {
         self.release();
         let before = self.level_state();
         f(&mut self.level);
@@ -457,6 +459,25 @@ impl Editor {
             }
         };
         self.chosen = Some(item);
+        true
+    }
+
+    /// A click with something on the mouse: set down; a model's piece
+    /// stays on the mouse, the next of its name, for the next click
+    /// (Escape lets go of it).
+    pub fn stamp(&mut self) -> bool {
+        let again = match &self.hanging {
+            Some(Hanging::Thing(t)) if t.model.is_some() => Some(t.clone()),
+            _ => None,
+        };
+        if !self.set_down() {
+            return false;
+        }
+        if let Some(t) = again {
+            let base = t.name.clone().unwrap_or_else(|| t.model.as_deref().and_then(|m| std::path::Path::new(m).file_stem()).map_or("piece".into(), |s| s.to_string_lossy().into_owned()));
+            let name = self.name_for(Item::Thing(0), &base);
+            self.hanging = Some(Hanging::Thing(Thing { name: Some(name), line: 0, ..t }));
+        }
         true
     }
 
@@ -1863,7 +1884,7 @@ mod tests {
         }
         assert_eq!(words(&ed, MenuOn::Item(Item::Place(0))), ["COPY", "REMOVE", "RENAME", "HIDE", "HIDE OTHERS", "ROTATE 90°"]);
         assert_eq!(words(&ed, MenuOn::Floor(IVec3::new(5, 5, 0))), ["ADD MODEL…", "ADD LIGHT", "ADD PLACE", "ADD AREA"]);
-        assert_eq!(words(&ed, MenuOn::Add), ["MODEL…", "LIGHT", "PLACE", "AREA"]);
+        assert_eq!(words(&ed, MenuOn::Add), ["MODEL…", "LIGHT", "PLACE", "AREA", "TERRAIN"], "TERRAIN while the level has none");
         // Its entries do what they say: a light set down where the floor
         // was clicked, chosen; the stove's light switched on and off again.
         let mut view = crate::editor::view::View::new(&ed, &crate::config::GameConfig::default());

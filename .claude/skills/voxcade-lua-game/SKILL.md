@@ -82,7 +82,9 @@ When you make a model (in a script or by hand in the voxel editor):
 
 - Pick `c.camera.view_width` so it reads; `c.camera.view_height` fixes
   the height shown instead, the width following the window (a vertical
-  shooter's field).
+  shooter's field). `c.camera.aspect = 2.39` gives the picture a shape
+  of its own (a film's): black bars round it in any window, the width,
+  the HUD and the menus inside it; unset, the window's shape.
 - One colour a material: the engine lights the model (sun, shadows, its
   model shading); never paint light and shade into the colours (the
   user). Colours differ for materials and designs (eyes, a stripe, a
@@ -136,6 +138,19 @@ goes at `math.floor(thing.x) + dx`. A level's own daylight: `[light]`
 in its file with `c.light`'s words (`sun = [x, y, z]`, `sun_color`,
 `ambient`, `shadow`, `sky`), `frame:daylight` still the last word. `level.areas.NAME:holds(thing
 or { x, y, z })`. Names in the file are `thing.name` (`level:thing("lamp")`).
+
+A level may hold a landscape, `[terrain]` (`docs/tiles.md`, "A terrain"):
+heights at control points `spacing` voxels apart (whole voxels, the far
+row first), each point's shape (`.` SMOOTH round hills, `^` LINEAR ridges,
+`#` STEP the land cut into terraces, cliffs along its contours), `rough`
+and per point `roughness` (uneven land), `[[terrain.layer]]`s (bands of
+rock, hard walls and soft slopes), `[[terrain.material]]`s by height and
+slope (`above`, `below`, `steeper`, `flatter`, `blend`; the last for the
+rest; `colors` in patches, `grain`, `depth`, `under`, `seed`). It is built into the level's voxels as it
+starts (solid, blasted like any voxel; with blocks or without), shaped in
+the level editor's TERRAIN (points dragged up and down with a brush).
+Pieces stand on it where their `at` puts them: in code,
+`level:ground(x, y)` is its height there.
 
 ### Kinds of things (`c.things.NAME`)
 
@@ -311,6 +326,15 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
 - Day and night: `frame:daylight{ sun =, sun_color =, ambient =, shadow =,
   sky = }` in `on_draw`, worked out from the game's clock every picture
   (HELP's DAY AND NIGHT); lamps with `frame:light`.
+- A scene filmed by the engine (zoom in on something and back, a cut, a
+  pan): `frame:camera{ look_at = { x, y, z }, width = 60 }` in `on_draw`,
+  for that picture only (call it every picture the scene lasts; without
+  it the game's camera again); `{ width = 60 }` alone zooms in on what the
+  camera follows and keeps following; a pan is your maths on
+  `world.tick + frame.alpha` or `music.beat`, the engine eases nothing.
+  `pitch` and `fov` too (another pitch builds the level's meshes anew
+  once, a hitch the first time); no turning round (`yaw` refused). Only
+  the picture: the rules never see it. HELP's A SCENE WITH BARS.
 - Feedback on hits and pickups: `screen:shake(amount)`,
   `world:hitstop(ticks)`, `screen:flash(strength)`, `frame:light`; how much
   and when is the voxcade-game-feel skill's subject.

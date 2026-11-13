@@ -161,6 +161,10 @@ pub struct LuaGame<K: Kit> {
     /// Whether its code names `daylight`: it moves its sun
     /// (`Game::moves_sun`).
     moves_sun: bool,
+    /// Whether its code calls `frame:camera`: the models out of view are
+    /// left out only once the picture's camera is known
+    /// (`Game::moves_camera`).
+    moves_camera: bool,
     /// The files `main.lua` read as it started (`read`): they count for
     /// replays too, and saving one runs `main.lua` anew.
     data: Vec<(String, Vec<u8>)>,
@@ -403,6 +407,7 @@ impl<K: Kit> LuaGame<K> {
         self.modules = std::mem::take(&mut reading.modules);
         let modules_name_music = reading.names_music;
         let modules_name_daylight = reading.names_daylight;
+        let modules_call_camera = reading.calls_camera;
         drop(reading);
         let kept = self.sandbox.freeze(&env)?;
         (self.env, self.required) = (Some(env), given);
@@ -412,6 +417,7 @@ impl<K: Kit> LuaGame<K> {
         self.code = code;
         self.uses_music = modules_name_music || lex::names(&src, &["music", "on_beat"]);
         self.moves_sun = modules_name_daylight || lex::names(&src, &["daylight"]);
+        self.moves_camera = modules_call_camera || lex::calls(&src, "camera");
         Ok(())
     }
 
@@ -1054,7 +1060,8 @@ impl<K: Kit> LuaGame<K> {
     }
 
     /// The seats (`c.players`) and the hold (`c.camera.hold`) are of a size
-    /// the engine plays; the ready-made rules play one player yet.
+    /// the engine plays; the ready-made rules play one player yet. The
+    /// picture's shape (`c.camera.aspect`) is one a window can show.
     fn check_players(cfg: &GameConfig) -> Result<()> {
         if !(1..=crate::config::MOST_PLAYERS).contains(&cfg.players) {
             anyhow::bail!("c.players = {}: 1 to {}", cfg.players, crate::config::MOST_PLAYERS);
@@ -1066,6 +1073,11 @@ impl<K: Kit> LuaGame<K> {
             && (hold.is_empty() || hold.len() > 2 || hold.iter().any(|h| h.is_nan() || *h <= 0.0))
         {
             anyhow::bail!("c.camera.hold: how far apart the players may be, across and deep ({{ 240, 150 }}, or {{ 240 }}), each above 0");
+        }
+        if let Some(aspect) = cfg.camera.aspect
+            && !(0.25..=4.0).contains(&aspect)
+        {
+            anyhow::bail!("c.camera.aspect = {aspect}: the picture's width over its height, from 0.25 to 4 (2.39 a film's, 16 / 9 a television's)");
         }
         Ok(())
     }
@@ -2213,6 +2225,7 @@ impl<K: Kit> Game for LuaGame<K> {
             code: Vec::new(),
             uses_music: false,
             moves_sun: false,
+            moves_camera: false,
             data: Vec::new(),
             files: files.clone(),
             env: None,
@@ -2349,6 +2362,10 @@ impl<K: Kit> Game for LuaGame<K> {
 
     fn moves_sun(&self) -> bool {
         self.moves_sun
+    }
+
+    fn moves_camera(&self) -> bool {
+        self.moves_camera
     }
 
     fn daylight(&self) -> crate::session::Daylight {
@@ -2888,6 +2905,7 @@ impl<K: Kit> Game for LuaGame<K> {
                 alpha: out.alpha(),
                 view_proj: out.view_proj(),
                 snap: out.snaps(),
+                viewing: out.viewing().cloned(),
                 parts: self.stage.parts.clone(),
                 known: self.stage.frames.clone(),
                 ..Frame::default()
@@ -2940,6 +2958,14 @@ impl<K: Kit> Game for LuaGame<K> {
                 Cmd::Cube { at, color, glow } => out.cube(out.snapped(at), color, glow, color[3] as f32 / 255.0),
                 Cmd::Light { at, radius, color } => out.light(Light { pos: at, radius, color }),
                 Cmd::Daylight(day) => out.daylight(day),
+                // (Its code names it as Lua writes a call, or what is out
+                // of the game's own view would be missing.)
+                Cmd::Camera(_) if !self.moves_camera => {
+                    if self.halted.borrow().is_none() {
+                        self.halt(anyhow::anyhow!("frame:camera: call it as frame:camera({{ ... }}) in the game's code, so the engine knows the game sets its camera"));
+                    }
+                }
+                Cmd::Camera(cam) => out.camera(cam),
                 hud => overlay.push(hud),
             }
         }

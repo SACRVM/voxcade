@@ -413,6 +413,10 @@ pub struct Session<G: Game> {
     /// The sun the game set for the last picture (`frame:daylight`), to fit
     /// the next picture's shadows to before it says again.
     drawn_sun: std::cell::Cell<Option<Vec3>>,
+    /// The faces pictures the game set with another pitch or field of view
+    /// than its camera's could see (`frame:camera`): the meshes keep them
+    /// too from then on (`face_mask`).
+    seen_faces: std::cell::Cell<FaceMask>,
 }
 
 /// What the player may turn off: the view shaking, white flashes, the blur;
@@ -823,6 +827,7 @@ impl<G: Game> Session<G> {
             local: Default::default(),
             problem: None,
             drawn_sun: Default::default(),
+            seen_faces: Default::default(),
             slots_at_start: slots.headers(),
             slots,
             started_from: None,
@@ -1474,18 +1479,27 @@ impl<G: Game> Session<G> {
     /// The faces the meshes hold: those a view ray or the sun can hit, the
     /// suns of every level (`[light]`) with `c.light`'s, so a level entered
     /// finds its faces there; for a game that moves its sun
-    /// (`frame:daylight`), every face a sun above the horizon can.
+    /// (`frame:daylight`), every face a sun above the horizon can. A
+    /// picture the game moves or zooms (`frame:camera`'s `look_at` and
+    /// `width`) looks along the same rays and needs no more; one at
+    /// another pitch or field of view adds the faces its rays can hit, from
+    /// that picture on (`seen_faces`; the meshes are built anew once).
     pub fn face_mask(&self) -> FaceMask {
         let rays = camera::corner_rays(&self.cfg.camera);
-        if self.game.moves_sun() {
-            return mesh::face_mask_any_sun(&rays);
-        }
-        let mut mask = mesh::face_mask(&rays, Vec3::from(self.cfg.light.sun).normalize_or(Vec3::NEG_Z));
-        for sun in self.game.suns() {
-            let more = mesh::face_mask(&rays, sun.normalize_or(Vec3::NEG_Z));
-            for (m, o) in mask.iter_mut().zip(more) {
-                *m |= o;
+        let mut mask = if self.game.moves_sun() {
+            mesh::face_mask_any_sun(&rays)
+        } else {
+            let mut mask = mesh::face_mask(&rays, Vec3::from(self.cfg.light.sun).normalize_or(Vec3::NEG_Z));
+            for sun in self.game.suns() {
+                let more = mesh::face_mask(&rays, sun.normalize_or(Vec3::NEG_Z));
+                for (m, o) in mask.iter_mut().zip(more) {
+                    *m |= o;
+                }
             }
+            mask
+        };
+        for (m, o) in mask.iter_mut().zip(self.seen_faces.get()) {
+            *m |= o;
         }
         mask
     }
@@ -1545,13 +1559,22 @@ impl<G: Game> Session<G> {
         // voxels when snapping, as the target is.
         let lead = between(sim.lead_prev, sim.lead, alpha);
         target += if snap { lead.round() } else { lead };
-        if sim.shake > 0.0 && self.options.shake {
-            // At most a body width each way.
-            let t = sim.tick as f32;
-            let amount = sim.shake * sim.shake * self.cfg.physics.body_width;
-            target += Vec3::new((t * 1.7).sin(), (t * 2.3).cos(), 0.0) * amount;
+        if let Some(shake) = self.shaking() {
+            target += shake;
         }
         if snap { target.round() } else { target }
+    }
+
+    /// How far the screen's shake moves the camera this tick (at most a
+    /// body width each way), if it shakes and the player lets it.
+    fn shaking(&self) -> Option<Vec3> {
+        let sim = self.game.sim();
+        if !(sim.shake > 0.0 && self.options.shake) {
+            return None;
+        }
+        let t = sim.tick as f32;
+        let amount = sim.shake * sim.shake * self.cfg.physics.body_width;
+        Some(Vec3::new((t * 1.7).sin(), (t * 2.3).cos(), 0.0) * amount)
     }
 
     /// `target` moved so the view shows nothing beyond the stage's sides,
@@ -1561,21 +1584,13 @@ impl<G: Game> Session<G> {
     /// the screen shows stays on the stage across and in depth (BunnyFarm's
     /// meadow: the bunny goes out through the farm's gate to its edges).
     fn within_stage(&self, target: Vec3, cam: &crate::config::CameraConfig, aspect: f32) -> Vec3 {
-        if !cam.stop_at_edges {
-            return target;
-        }
-        let (lo, hi) = self.game.sim().world.stage_box();
-        let fit = |v: f32, lo: f32, hi: f32| if hi - lo < 0.0 { (lo + hi) * 0.5 } else { v.max(lo).min(hi) };
-        let mut t = target;
-        if let Some((near, far)) = camera::ground_extent(cam, aspect) {
-            t.x = fit(t.x, lo.x - near.x, hi.x - far.x);
-            t.y = fit(t.y, lo.y - near.y, hi.y - far.y);
-        } else {
-            let (half, down, up) = camera::view_extent(cam, aspect);
-            t.x = fit(t.x, lo.x + half, hi.x - half);
-            t.z = fit(t.z, lo.z + down, hi.z - up);
-        }
-        if cam.snap { t.round() } else { t }
+        within(self.game.sim().world.stage_box(), target, cam, aspect)
+    }
+
+    /// The picture's shape (width over height) in a window of the shape
+    /// `window`: the game's own (`c.camera.aspect`), else the window's.
+    pub fn picture_aspect(&self, window: f32) -> f32 {
+        self.cfg.camera.aspect.unwrap_or(window)
     }
 
     /// Builds the frame `alpha` of the way from the previous tick to the current one.
@@ -1583,7 +1598,29 @@ impl<G: Game> Session<G> {
     pub fn frame(&self, alpha: f32, aspect: f32) -> FrameData {
         self.compose(alpha, aspect, Scene::Play, None)
     }
+}
 
+/// `target` moved so the view of `cam` shows nothing beyond the stage's
+/// (`lo`, `hi`) sides, top and bottom, if the camera stops at its edges
+/// (`Session::within_stage`).
+fn within((lo, hi): (Vec3, Vec3), target: Vec3, cam: &crate::config::CameraConfig, aspect: f32) -> Vec3 {
+    if !cam.stop_at_edges {
+        return target;
+    }
+    let fit = |v: f32, lo: f32, hi: f32| if hi - lo < 0.0 { (lo + hi) * 0.5 } else { v.max(lo).min(hi) };
+    let mut t = target;
+    if let Some((near, far)) = camera::ground_extent(cam, aspect) {
+        t.x = fit(t.x, lo.x - near.x, hi.x - far.x);
+        t.y = fit(t.y, lo.y - near.y, hi.y - far.y);
+    } else {
+        let (half, down, up) = camera::view_extent(cam, aspect);
+        t.x = fit(t.x, lo.x + half, hi.x - half);
+        t.z = fit(t.z, lo.z + down, hi.z - up);
+    }
+    if cam.snap { t.round() } else { t }
+}
+
+impl<G: Game> Session<G> {
     /// The title scene's camera: the game's, closer.
     fn title_camera(&self) -> crate::config::CameraConfig {
         let mut cam = self.cfg.camera.clone();
@@ -1635,7 +1672,9 @@ impl<G: Game> Session<G> {
 
     /// A frame of `scene` with `menu` over it when it is open (instead of
     /// the HUD).
+    /// `aspect` is the window's shape (or the picture's already).
     pub fn menu_frame(&self, menu: &Menu, settings: &Settings, alpha: f32, aspect: f32, scene: Scene) -> FrameData {
+        let aspect = self.picture_aspect(aspect);
         let ui = menu.is_open().then(|| {
             let t = &self.cfg.title_screen;
             let logo = self.logo_lines();
@@ -1678,6 +1717,8 @@ impl<G: Game> Session<G> {
             voxels: Voxels {
                 world,
                 eye,
+                moved: false,
+                boxes: Vec::new(),
                 taken: crate::world::CellSet::with_capacity_and_hasher(1 << 16, Default::default()),
                 opaque: Vec::with_capacity(cubes),
                 see_through: Vec::new(),
@@ -1688,6 +1729,10 @@ impl<G: Game> Session<G> {
             daylight: None,
             hud: crate::ui::Layout::of(&self.cfg.ui, aspect),
             font: self.font.clone(),
+            viewing: None,
+            camera: None,
+            cull: true,
+            bounds: Vec::new(),
         }
     }
 
@@ -1744,7 +1789,7 @@ impl<G: Game> Session<G> {
     /// frame's cost (no light, particles or HUD voxels).
     pub fn look(&self) {
         let sim = self.game.sim();
-        let (cam, aspect) = (&self.cfg.camera, 16.0 / 9.0);
+        let (cam, aspect) = (&self.cfg.camera, self.picture_aspect(16.0 / 9.0));
         let target = self.within_stage(self.view_target(1.0), cam, aspect);
         let sun = self.drawn_sun.get().unwrap_or_else(|| self.sun());
         let (light_vp, _) = camera::light_view_proj(cam, target, aspect, sun, sim.world.size.as_vec3(), sim.world.stage_box(), self.options.shadow_map);
@@ -1754,11 +1799,22 @@ impl<G: Game> Session<G> {
     }
 
     /// A frame of `scene`; `ui` (the menus) instead of the HUD when given;
+    /// `aspect` the window's shape (or the picture's already).
     pub fn compose(&self, alpha: f32, aspect: f32, scene: Scene, ui: Option<(Vec<Instance>, Vec<ModelDraw>, Mat4)>) -> FrameData {
+        let aspect = self.picture_aspect(aspect);
         let sim = self.game.sim();
         let world_size = sim.world.size.as_vec3();
-        let (cam, target) = match scene {
-            Scene::Play => (self.cfg.camera.clone(), self.within_stage(self.view_target(alpha), &self.cfg.camera, aspect)),
+        // How the play is seen unless the game sets this picture's camera
+        // (`frame:camera`, in its `on_draw`).
+        let viewing = matches!(scene, Scene::Play).then(|| Viewing {
+            cam: self.cfg.camera.clone(),
+            follows: self.view_target(alpha),
+            shake: self.shaking().unwrap_or(Vec3::ZERO),
+            aspect,
+            stage: sim.world.stage_box(),
+        });
+        let (mut cam, mut target) = match scene {
+            Scene::Play => viewing.as_ref().expect("the play's").seen(None),
             Scene::Title { .. } => (self.title_camera(), self.title_target()),
             Scene::Intro { t, .. } => {
                 // Eased, and not on the grid: a glide, not steps.
@@ -1771,7 +1827,7 @@ impl<G: Game> Session<G> {
                 (cam, between(self.title_target(), end, e))
             }
         };
-        let view_proj = camera::view_proj(&cam, target, aspect);
+        let mut view_proj = camera::view_proj(&cam, target, aspect);
         // The sun the game set last picture, if it sets one: what is drawn
         // is chosen by where its shadows fall.
         let sun = self.drawn_sun.get().unwrap_or_else(|| self.sun());
@@ -1783,9 +1839,13 @@ impl<G: Game> Session<G> {
         // cells the world fills stay the world's: among the cubes built here
         // by a set of taken cells; for the models on the GPU by drawing
         // order (world, models, cubes: at equal depth the first stays).
-        let eye = camera::eye(&cam, target, aspect);
+        let mut eye = camera::eye(&cam, target, aspect);
         let mut out = self.drawing(&sim.world, alpha, (view_proj, light_vp, eye), aspect, 512 + sim.particles.len());
         out.title = matches!(scene, Scene::Title { .. });
+        // A game that sets its camera does so after its things are drawn:
+        // what is out of view is known only then.
+        out.cull = viewing.is_none() || !self.game.moves_camera();
+        out.viewing = viewing.clone();
 
         // The title's models lie on the ground (`place_props`), and its flyby
         // crosses, rotor turning.
@@ -1820,7 +1880,23 @@ impl<G: Game> Session<G> {
                 out.cube(out.corner(at), color, glow, opacity);
             }
         }
-        let Drawing { voxels, draws: models, lights: game_lights, daylight, .. } = out;
+        let Drawing { mut voxels, draws: models, lights: game_lights, daylight, camera: picture, cull, bounds, .. } = out;
+        // The camera the game set for this picture: seen from there, the
+        // faces its rays can hit kept in the meshes from now on.
+        let picture = picture.filter(|_| viewing.is_some());
+        if let (Some(viewing), Some(picture)) = (&viewing, &picture) {
+            (cam, target) = viewing.seen(Some(picture));
+            view_proj = camera::view_proj(&cam, target, aspect);
+            eye = camera::eye(&cam, target, aspect);
+            (voxels.eye, voxels.moved) = (eye, true);
+            if cam.pitch != self.cfg.camera.pitch || cam.fov != self.cfg.camera.fov {
+                let mut seen = self.seen_faces.get();
+                for (s, o) in seen.iter_mut().zip(mesh::face_mask(&camera::corner_rays(&cam), self.sun())) {
+                    *s |= o;
+                }
+                self.seen_faces.set(seen);
+            }
+        }
         // The daylight the game set for this picture, else its level's
         // (`[light]`), else c.light's; the shadows fitted to its sun.
         let level = self.game.daylight();
@@ -1836,10 +1912,19 @@ impl<G: Game> Session<G> {
         let drawn = day.sun.map(|s| s.normalize_or(Vec3::NEG_Z));
         self.drawn_sun.set(drawn);
         let sun_now = drawn.unwrap_or_else(|| self.sun());
-        let (light_vp, depth_range) = if sun_now == sun {
+        let (light_vp, depth_range) = if sun_now == sun && picture.is_none() {
             (light_vp, depth_range)
         } else {
             camera::light_view_proj(&cam, target, aspect, sun_now, world_size, sim.world.stage_box(), self.options.shadow_map)
+        };
+        // The models out of the picture's view and its shadows' box, left
+        // out now that it is known.
+        let shows = |&(lo, hi): &(Vec3, Vec3)| crate::render::on_screen(&view_proj, lo, hi) || crate::render::on_screen(&light_vp, lo, hi);
+        let models = if cull {
+            models
+        } else {
+            voxels.leave_out(shows);
+            models.into_iter().zip(bounds).filter(|(_, b)| shows(b)).map(|(m, _)| m).collect()
         };
         let see_through = voxels.see_through.len();
         let instances = voxels.finish();
@@ -1946,6 +2031,16 @@ pub struct Drawing<'a> {
     /// letters' font.
     hud: crate::ui::Layout,
     font: Option<Arc<DisplayFont>>,
+    /// How the play is seen unless the game says otherwise (None on the
+    /// title: its camera is the title's), and the camera the game set for
+    /// this picture (`frame:camera`).
+    viewing: Option<Viewing>,
+    camera: Option<PictureCamera>,
+    /// Whether models out of view are left out as they come; else (a game
+    /// that sets its camera, which comes after them) each draw's box is
+    /// kept in `bounds` and they are left out once the camera is known.
+    cull: bool,
+    bounds: Vec<(Vec3, Vec3)>,
 }
 
 /// A picture's daylight as the game sets it (`frame:daylight`); what it
@@ -1959,10 +2054,95 @@ pub struct Daylight {
     pub sky: Option<[f32; 3]>,
 }
 
+/// A picture's camera as the game sets it (`frame:camera`): what it
+/// leaves out is the game's camera's. Not kept: the next picture without
+/// it is the game's camera's again.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PictureCamera {
+    /// The point the view centres on, voxels across and deep, and high
+    /// (None: the height of the game's camera).
+    pub look_at: Option<(f32, f32, Option<f32>)>,
+    /// How many voxels the picture shows across where it looks, or high
+    /// (one of them).
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+    /// Degrees below the horizon, and the field of view up and down.
+    pub pitch: Option<f32>,
+    pub fov: Option<f32>,
+}
+
+impl PictureCamera {
+    /// The game's camera `cam` as this picture changes it.
+    pub fn applied(&self, cam: &crate::config::CameraConfig) -> crate::config::CameraConfig {
+        let mut cam = cam.clone();
+        if let Some(width) = self.width {
+            cam.show_width(width);
+        }
+        if let Some(height) = self.height {
+            (cam.view_height, cam.view_at_least) = (Some(height), None);
+        }
+        if let Some(pitch) = self.pitch {
+            cam.pitch = pitch;
+        }
+        if let Some(fov) = self.fov {
+            cam.fov = fov;
+        }
+        cam
+    }
+}
+
+/// How the play is seen before the game says otherwise: the game's camera,
+/// the point it follows (shaken, before it stops at the stage's edges),
+/// the shake alone, the picture's shape and the stage. A picture's camera
+/// (`frame:camera`) is worked out from it.
+#[derive(Clone, Debug)]
+pub struct Viewing {
+    cam: crate::config::CameraConfig,
+    follows: Vec3,
+    shake: Vec3,
+    aspect: f32,
+    stage: (Vec3, Vec3),
+}
+
+impl Viewing {
+    /// The camera of a picture and the point it looks at: the game's own
+    /// without `picture`. Without `look_at` the view keeps following what
+    /// the game's camera follows (stopping at the stage's edges if it
+    /// does), only seen as `picture` says; with it, at that point as given
+    /// (the screen's shake on top), never rounded or eased.
+    pub fn seen(&self, picture: Option<&PictureCamera>) -> (crate::config::CameraConfig, Vec3) {
+        let Some(picture) = picture else { return (self.cam.clone(), within(self.stage, self.follows, &self.cam, self.aspect)) };
+        let cam = picture.applied(&self.cam);
+        let target = match picture.look_at {
+            Some((x, y, z)) => Vec3::new(x, y, z.unwrap_or(self.follows.z)) + self.shake,
+            None => within(self.stage, self.follows, &cam, self.aspect),
+        };
+        (cam, target)
+    }
+
+    /// Where a point shows in that picture.
+    pub fn view_proj(&self, picture: Option<&PictureCamera>) -> Mat4 {
+        let (cam, target) = self.seen(picture);
+        camera::view_proj(&cam, target, self.aspect)
+    }
+}
+
 impl Drawing<'_> {
     /// This picture's daylight, as the game sets it.
     pub fn daylight(&mut self, day: Daylight) {
         self.daylight = Some(day);
+    }
+
+    /// This picture's camera, as the game sets it (the play's only: the
+    /// title keeps its own).
+    pub fn camera(&mut self, camera: PictureCamera) {
+        self.camera = Some(camera);
+    }
+
+    /// How the play is seen unless the game says otherwise (None on the
+    /// title), to work out where a point shows after `camera`.
+    pub fn viewing(&self) -> Option<&Viewing> {
+        self.viewing.as_ref()
     }
 
     /// The HUD's grid this frame: UI voxels across (by the screen's shape)
@@ -2100,13 +2280,14 @@ impl Drawing<'_> {
             let (middle, reach) = (origin + Vec3::new(0.5, 0.5, m.size.z as f32 * 0.5), m.size.as_vec3().length() * 0.5 + 1.0);
             (middle - reach, middle + reach)
         };
-        if !crate::render::on_screen(&self.view_proj, lo, hi) && !crate::render::on_screen(&self.light_vp, lo, hi) {
+        if self.cull && !crate::render::on_screen(&self.view_proj, lo, hi) && !crate::render::on_screen(&self.light_vp, lo, hi) {
             return;
         }
         // A model colour's alpha is how opaque it is (glass); `fade` makes
         // what is drawn see-through on top. Fading, a model is all cubes.
         let fade = self.fade;
         let voxels = &mut self.voxels;
+        let cubes_before = (voxels.opaque.len(), voxels.see_through.len());
         // A model's glow is a byte (0 to 255); half a step over it keeps
         // the cube's rounding down from losing one.
         let mut put = |corner: Vec3, color: [u8; 4], metal: u8, glow: u8, shade: [i8; 4], turn: [i8; 4], covered: u8| {
@@ -2114,6 +2295,11 @@ impl Drawing<'_> {
             voxels.add(corner, color, glow, color[3] as f32 / 255.0 * fade, metal, shade, turn, covered)
         };
         draw(&mut put, (fade >= 1.0).then_some(&mut self.draws), m, frame, origin, look, turn, pose, tint);
+        if !self.cull {
+            self.bounds.resize(self.draws.len(), (lo, hi));
+            let v = &mut self.voxels;
+            v.boxes.push(((lo, hi), cubes_before.0..v.opaque.len(), cubes_before.1..v.see_through.len()));
+        }
     }
 
     /// A cube with its minimum corner at `corner` (see `corner`): `glow`
@@ -2141,11 +2327,21 @@ impl Drawing<'_> {
     }
 }
 
+/// A model's box (low and high corner) and the ranges of its opaque and
+/// see-through cubes among a frame's (`Voxels::leave_out`).
+type ModelCubes = ((Vec3, Vec3), std::ops::Range<usize>, std::ops::Range<usize>);
+
 /// The cubes of one frame: opaque ones, and see-through ones that are drawn
 /// after them, far to near.
 struct Voxels<'a> {
     world: &'a crate::world::World,
+    /// Where the eye is (the see-through cubes far to near from it), and
+    /// whether it moved after they came (a picture's camera).
     eye: Vec3,
+    moved: bool,
+    /// The cubes of each model drawn while what is out of view is not yet
+    /// known (`Drawing::cull`): its box, its opaque and see-through ones.
+    boxes: Vec<ModelCubes>,
     taken: crate::world::CellSet,
     opaque: Vec<Instance>,
     see_through: Vec<(f32, Instance)>,
@@ -2177,7 +2373,27 @@ impl Voxels<'_> {
         }
     }
 
+    /// Leaves out the cubes of the models whose box `shows` does not show.
+    fn leave_out(&mut self, shows: impl Fn(&(Vec3, Vec3)) -> bool) {
+        let (mut opaque, mut see_through) = (vec![true; self.opaque.len()], vec![true; self.see_through.len()]);
+        for (bounds, o, s) in std::mem::take(&mut self.boxes) {
+            if !shows(&bounds) {
+                opaque[o].fill(false);
+                see_through[s].fill(false);
+            }
+        }
+        let mut keep = opaque.into_iter();
+        self.opaque.retain(|_| keep.next().unwrap_or(true));
+        let mut keep = see_through.into_iter();
+        self.see_through.retain(|_| keep.next().unwrap_or(true));
+    }
+
     fn finish(mut self) -> Vec<Instance> {
+        if self.moved {
+            for (far, cube) in &mut self.see_through {
+                *far = Vec3::from_slice(&cube.pos_size[..3]).distance_squared(self.eye);
+            }
+        }
         self.see_through.sort_by(|a, b| b.0.total_cmp(&a.0));
         let from = self.opaque.len();
         self.opaque.extend(self.see_through.into_iter().map(|(_, i)| i));
@@ -2634,6 +2850,7 @@ mod tests {
             local: Default::default(),
             problem: None,
             drawn_sun: Default::default(),
+            seen_faces: Default::default(),
             touched: false,
             applied: false,
             slots: Slots::default(),
@@ -3287,7 +3504,7 @@ mod tests {
             assert!(from_bank.iter().all(|&g| g == 0 || g == want));
             // As cubes, through a Voxels as the game's frame does: no byte lost.
             let world = crate::world::World::new(IVec3::new(32, 32, 8), [[0; 4]; 256]);
-            let mut voxels = Voxels { world: &world, eye: Vec3::new(0.0, 0.0, 100.0), taken: Default::default(), opaque: Vec::new(), see_through: Vec::new() };
+            let mut voxels = Voxels { world: &world, eye: Vec3::new(0.0, 0.0, 100.0), moved: false, boxes: Vec::new(), taken: Default::default(), opaque: Vec::new(), see_through: Vec::new() };
             draw(
                 &mut |corner: Vec3, color: [u8; 4], metal: u8, glow: u8, shade: [i8; 4], turn: [i8; 4], covered: u8| {
                     let glow = if glow == 0 { 0.0 } else { (glow as f32 + 0.5) / 255.0 };

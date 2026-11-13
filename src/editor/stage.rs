@@ -45,7 +45,9 @@ pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
         zones::mistake(ui, free, m, shown);
     }
     zones::from_disk(ui, free, ed, shown);
-    beside(ui, ed, view, free, shown);
+    if ed.among_pieces() {
+        beside(ui, ed, view, free, shown);
+    }
     zones::view_buttons(ui, free, shown);
     menu(ui, ed, view, free, shown);
     if view.picker {
@@ -63,7 +65,14 @@ fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
         if ed.level.has_grid() {
             keyed(ui, shown, "BLOCKS", Action::Layer(Layer::Blocks), Some(false), "The level's blocks");
             keyed(ui, shown, "THINGS", Action::Layer(Layer::Things), Some(false), "Things of the game's kinds, on the blocks");
-            keyed(ui, shown, "PIECES", Action::Layer(Layer::Pieces), Some(true), "Models, lights, places and areas set down freely");
+        }
+        if ed.level.has_grid() || ed.level.terrain.is_some() {
+            keyed(ui, shown, "PIECES", Action::Layer(Layer::Pieces), Some(ed.layer == Layer::Pieces), "Models, lights, places and areas set down freely");
+        }
+        if ed.level.terrain.is_some() {
+            keyed(ui, shown, "TERRAIN", Action::Layer(Layer::Terrain), Some(ed.layer == Layer::Terrain), "The land: its points, their heights and shapes, its materials");
+        }
+        if ed.level.has_grid() || ed.level.terrain.is_some() {
             ui.add_space(14.0);
         }
         let add = keyed(ui, shown, "+ ADD", Action::AddMenu, Some(view.menu.is_some_and(|m| m.on == MenuOn::Add)), "Add a model, a light, a place or an area");
@@ -83,7 +92,7 @@ fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
             if view.before_game.is_none() {
                 zones::background_button(ui, view.background(ed.scope), view.sky, shown);
             }
-            keyed(ui, shown, "LEVEL", Action::LevelSettings, Some(view.level_settings || ed.chosen.is_none()), "The level's size and daylight");
+            keyed(ui, shown, "LEVEL", Action::LevelSettings, Some(view.level_settings || (ed.chosen.is_none() && !ed.among_land())), "The level's size and daylight");
             let lights: usize = ed.level.things.iter().map(|t| t.lights.len()).sum();
             let many = lights > crate::render::MAX_LIGHTS;
             let tip = if many { format!("The pieces' lights in this view. {lights} lights: the game shows the {} nearest the middle of its view", crate::render::MAX_LIGHTS) } else { "The pieces' lights in this view".to_string() };
@@ -232,6 +241,9 @@ fn field(ui: &mut egui::Ui, shown: &mut Shown, letter: &str, axis: Option<usize>
 /// The inspector: the chosen one (or the level, with LEVEL or nothing
 /// chosen).
 fn inspector(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, shown: &mut Shown) {
+    if ed.among_land() && !view.level_settings {
+        return land(ui, ed, shown);
+    }
     match ed.chosen.filter(|_| !view.level_settings) {
         Some(item) => chosen(ui, ed, view, figures, item, shown),
         None => level(ui, ed, shown),
@@ -507,6 +519,205 @@ fn level(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
     });
 }
 
+/// A material's or a layer's row dragged (its place in the list).
+#[derive(Clone, Copy)]
+struct MaterialRow(usize);
+#[derive(Clone, Copy)]
+struct LayerRow(usize);
+
+/// TERRAIN: the tool and its brush, the chosen points' height and shape,
+/// the grid, the materials (first that fits paints; the last for the
+/// rest), UNDER, SEED.
+fn land(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+    use super::model::land::{LandField, LandTool};
+    use super::model::selection::SelectMode;
+    use crate::terrain::Shape;
+    let Some(t) = ed.terrain() else { return };
+    let l = &ed.land;
+    ui.label(RichText::new("TERRAIN").color(TEXT)).on_hover_text(&ed.file);
+    row(ui, "TOOL", "What the mouse does among the points", |ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+            ui.spacing_mut().button_padding = egui::vec2(7.0, 3.0);
+            for tool in LandTool::ALL {
+                small(ui, shown, tool.label(), Action::LandTool(tool), Some(l.tool == tool), tool.tip());
+            }
+        });
+    });
+    if l.tool == LandTool::Select {
+        row(ui, "MODE", "What SELECT's rectangle does", |ui| {
+            for (word, mode, tip) in [("NEW", SelectMode::New, "The rectangle's points instead"), ("ADD", SelectMode::Add, "The rectangle's points besides"), ("REMOVE", SelectMode::Remove, "The rectangle's points out")] {
+                small(ui, shown, word, Action::LandMode(mode), Some(l.mode == mode), tip);
+            }
+        });
+    } else {
+        row(ui, "RADIUS", "How far a drag reaches round the point, in points (1: the point alone)", |ui| {
+            zones::number(ui, shown, "", None, l.radius as f64, 0, 0.1, 1.0..=64.0, "", FIELD, |v| Action::LandSet(LandField::Radius, v));
+        });
+    }
+    // The chosen points: how many, their height, their shape.
+    let chosen: Vec<glam::IVec2> = if l.selected.is_empty() { l.chosen.into_iter().collect() } else { l.selected.clone() };
+    let first = chosen.first().and_then(|p| t.index(*p));
+    row(ui, "POINT", "The point chosen (x, y from the near left), or how many are selected", |ui| {
+        let word = match (chosen.len(), l.chosen) {
+            (0, _) => "NONE".to_string(),
+            (1, Some(p)) => format!("{} {}", p.x, p.y),
+            (n, _) => format!("{n} SELECTED"),
+        };
+        ui.label(RichText::new(word).color(if chosen.is_empty() { QUIET } else { TEXT }));
+    });
+    if let Some(i) = first {
+        row(ui, "HEIGHT", "The chosen points' height over the land's base, voxels", |ui| {
+            zones::number(ui, shown, "", None, t.heights[i] as f64, 0, 0.3, 0.0..=crate::terrain::HIGHEST as f64, "", FIELD, |v| Action::LandSet(LandField::Height, v));
+        });
+    }
+    let shape_now = first.map_or(l.shape, |i| t.shapes[i]);
+    row(ui, "SHAPE", "How the land goes from the chosen points to the next (PAINT lays the one lit)", |ui| {
+        for (shape, tip) in [(Shape::Smooth, "Round hills: a smooth curve through the points"), (Shape::Linear, "Ridges and peaks: straight slopes"), (Shape::Step, "Terraces and cliffs: the point's height over its square, a wall at its edge")] {
+            small(ui, shown, shape.name(), Action::LandShape(shape), Some(shape_now == shape), tip);
+        }
+    });
+    ui.add_space(6.0);
+    row(ui, "SPACING", "Voxels between the points", |ui| {
+        zones::number(ui, shown, "", None, t.spacing as f64, 0, 0.1, 1.0..=1024.0, "", FIELD, |v| Action::LandSet(LandField::Spacing, v));
+    });
+    row(ui, "POINTS", "How many points across and deep (added or taken at the far and the right edge)", |ui| {
+        zones::number(ui, shown, "X", Some(0), t.cols as f64, 0, 0.1, 1.0..=4096.0, "", FIELD, |v| Action::LandSet(LandField::Cols, v));
+        zones::number(ui, shown, "Y", Some(1), t.rows as f64, 0, 0.1, 1.0..=4096.0, "", FIELD, |v| Action::LandSet(LandField::Rows, v));
+    });
+    // (With layers their bands are the terraces.)
+    if t.layers.is_empty() {
+        row(ui, "TERRACE", "STEP's terraces: how high each is, voxels", |ui| {
+            zones::number(ui, shown, "", None, t.terrace.unwrap_or(crate::terrain::TERRACE) as f64, 0, 0.1, 1.0..=4096.0, "", FIELD, |v| Action::LandSet(LandField::Terrace, v));
+        });
+    }
+    row(ui, "ROUGH", "How uneven the land is, 0 to 1: swells, bumps and small unevenness (where ROUGHEN painted it); the terraces' lines wander with it", |ui| {
+        zones::number(ui, shown, "", None, t.rough.unwrap_or(crate::terrain::ROUGH), 2, 0.01, 0.0..=1.0, "", FIELD, |v| Action::LandSet(LandField::Rough, v));
+    });
+    row(ui, "SEED", "The pattern of the grain, the patches and the unevenness", |ui| {
+        zones::number(ui, shown, "", None, t.seed.unwrap_or(0) as f64, 0, 0.2, 0.0..=1e9, "", FIELD, |v| Action::LandSet(LandField::Seed, v));
+        crate::gui::dice(ui);
+        small(ui, shown, "REROLL", Action::Reroll, None, "Another seed: the unevenness, the patches and the grain anew");
+    });
+    ui.add_space(6.0);
+    // The layers: a row each, from the bottom up.
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("LAYERS").small().color(QUIET)).on_hover_text("Bands of rock STEP's walls are cut in, from the bottom up, again and again upward: a hard one a wall with a ledge on top, a soft one a slope of scree. Drag a row to move it");
+        if ui.add(egui::Button::new(RichText::new("+").small())).on_hover_text("A band more on top").clicked() {
+            shown.clicked.push(Action::AddLayer);
+        }
+    });
+    for (k, l) in t.layers.iter().enumerate().rev() {
+        let kk = k as u8;
+        let response = ui
+            .dnd_drag_source(egui::Id::unique(("land layer", k)), LayerRow(k), |ui| {
+                ui.horizontal(|ui| {
+                    let mut c = l.rgb();
+                    if egui::color_picker::color_edit_button_srgb(ui, &mut c).on_hover_text("Its color in the walls").changed() {
+                        shown.clicked.push(Action::LayerColour(kk, c));
+                    }
+                    zones::number(ui, shown, "THICK", None, l.thick as f64, 0, 0.1, 1.0..=4096.0, "How thick, voxels", 84.0, move |v| Action::LandSet(LandField::Thick(kk), v));
+                    zones::number(ui, shown, "HARD", None, l.hard, 2, 0.01, 0.0..=1.0, "0 soft: a slope of scree; 1 hard: a wall with a ledge on top", 84.0, move |v| Action::LandSet(LandField::Hard(kk), v));
+                    if ui.add(egui::Button::new(RichText::new("×").small())).on_hover_text("Take it out").clicked() {
+                        shown.clicked.push(Action::RemoveLayer(kk));
+                    }
+                });
+            })
+            .response;
+        if let Some(from) = response.dnd_release_payload::<LayerRow>()
+            && from.0 != k
+        {
+            shown.clicked.push(Action::MoveLayer(from.0 as u8, kk));
+        }
+    }
+    ui.add_space(6.0);
+    // The materials: a row each, the first that fits paints.
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("MATERIALS").small().color(QUIET)).on_hover_text("The land's colors, top to bottom: the first whose conditions all hold paints a voxel; the last paints the rest (and where the land is terraced and has layers, their bands show instead on what no other paints). Drag a row to move it");
+        if ui.add(egui::Button::new(RichText::new("+").small())).on_hover_text("A material more (rock where steep), first").clicked() {
+            shown.clicked.push(Action::AddMaterial);
+        }
+    });
+    let last = t.materials.len() - 1;
+    for (k, m) in t.materials.iter().enumerate() {
+        let kk = k as u8;
+        let frame = egui::Frame::new().inner_margin(egui::Margin::symmetric(0, 2));
+        let response = ui
+            .dnd_drag_source(egui::Id::unique(("land material", k)), MaterialRow(k), |ui| {
+                frame.show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        // Its tones: its color, then the others mixed in
+                        // patches.
+                        for (n, mut c) in m.all_tones().into_iter().enumerate() {
+                            if egui::color_picker::color_edit_button_srgb(ui, &mut c).on_hover_text(if n == 0 { "Its color" } else { "A tone mixed in, in patches" }).changed() {
+                                shown.clicked.push(Action::Tone(kk, n as u8, c));
+                            }
+                        }
+                        if m.tones.len() < 2 && ui.add(egui::Button::new(RichText::new("+").small())).on_hover_text("A tone more, mixed in in patches").clicked() {
+                            shown.clicked.push(Action::AddTone(kk));
+                        }
+                        if !m.tones.is_empty() && ui.add(egui::Button::new(RichText::new("−").small())).on_hover_text("The last tone out").clicked() {
+                            shown.clicked.push(Action::RemoveTone(kk));
+                        }
+                        if last > 0 && ui.add(egui::Button::new(RichText::new("×").small())).on_hover_text("Take the material out").clicked() {
+                            shown.clicked.push(Action::RemoveMaterial(kk));
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        zones::number(ui, shown, "GRAIN", None, m.grain.unwrap_or(0.0), 2, 0.01, 0.0..=1.0, "A slight shade voxel by voxel, 0 to 1", 100.0, move |v| Action::LandSet(LandField::Grain(kk), v));
+                        if !m.tones.is_empty() {
+                            zones::number(ui, shown, "PATCH", None, m.patch.unwrap_or(crate::terrain::PATCH) as f64, 0, 0.1, 1.0..=1000.0, "How big the patches of its tones are, voxels across", 100.0, move |v| Action::LandSet(LandField::Patch(kk), v));
+                        }
+                    });
+                    if k == last {
+                        return;
+                    }
+                    let conditions = [
+                        ("ABOVE", 0u8, m.above.map(f64::from), LandField::Above(kk), 1.0, "Voxels higher than this over the land's base"),
+                        ("BELOW", 1, m.below.map(f64::from), LandField::Below(kk), 1.0, "Voxels lower than this"),
+                        ("STEEPER", 2, m.steeper, LandField::Steeper(kk), 1.0, "Slopes steeper than this, degrees"),
+                        ("FLATTER", 3, m.flatter, LandField::Flatter(kk), 1.0, "Slopes flatter than this, degrees"),
+                    ];
+                    for pair in conditions.chunks(2) {
+                        ui.horizontal(|ui| {
+                            for &(word, which, value, field, speed, tip) in pair {
+                                let on = value.is_some();
+                                if ui.add(egui::Button::new(RichText::new(word).small().color(if on { ACCENT } else { QUIET })).selected(on)).on_hover_text(tip).clicked() {
+                                    shown.clicked.push(Action::LandCondition(kk, which, !on));
+                                }
+                                if let Some(v) = value {
+                                    let decimals = if which >= 2 { 1 } else { 0 };
+                                    zones::number(ui, shown, "", None, v, decimals, speed, -4096.0..=4096.0, tip, 52.0, move |v| Action::LandSet(field, v));
+                                }
+                            }
+                        });
+                    }
+                    if !m.unconditional() {
+                        ui.horizontal(|ui| {
+                            zones::number(ui, shown, "BLEND", None, m.blend.unwrap_or(0.0), 1, 0.1, 0.0..=1000.0, "How far its borders wander: voxels of height (lower in hollows), degrees of slope", 100.0, move |v| Action::LandSet(LandField::Blend(kk), v));
+                        });
+                    }
+                });
+            })
+            .response;
+        if let Some(from) = response.dnd_release_payload::<MaterialRow>()
+            && from.0 != k
+        {
+            shown.clicked.push(Action::MoveMaterial(from.0 as u8, kk));
+        }
+    }
+    row(ui, "UNDER", "What lies under the materials", |ui| {
+        let mut c = t.under.as_deref().and_then(crate::grid::hex).unwrap_or_else(|| t.materials[last].rgb());
+        if egui::color_picker::color_edit_button_srgb(ui, &mut c).on_hover_text("Its color").changed() {
+            shown.clicked.push(Action::LandColour(t.materials.len() as u8, c));
+        }
+    });
+    ui.add_space(10.0);
+    if ui.add(egui::Button::new(RichText::new("REMOVE TERRAIN").small())).on_hover_text("The land taken out of the level (UNDO brings it back)").clicked() {
+        shown.clicked.push(Action::RemoveTerrain);
+    }
+}
+
 /// Where the handles lie on the screen (egui's points): the box round
 /// them, and the matrix and size they were made for.
 pub fn handles_on_screen(ed: &Editor, view: &View, screen: Rect) -> Option<(handles::Handles, glam::Mat4, Rect)> {
@@ -633,6 +844,9 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<(String, Action, Option<&'st
     match on {
         MenuOn::Add => {
             entries.extend([("MODEL…".into(), Action::AddModel, Some("A")), ("LIGHT".into(), Action::AddLight, Some("L")), ("PLACE".into(), Action::AddPlace, Some("P")), ("AREA".into(), Action::AddArea, None)]);
+            if ed.level.terrain.is_none() {
+                entries.push(("TERRAIN".into(), Action::AddTerrain, None));
+            }
         }
         MenuOn::Floor(spot) => {
             entries.extend([("ADD MODEL…".into(), Action::AddModelAt(spot), None), ("ADD LIGHT".into(), Action::AddAt(0, spot), None), ("ADD PLACE".into(), Action::AddAt(1, spot), None), ("ADD AREA".into(), Action::AddAt(2, spot), None)]);

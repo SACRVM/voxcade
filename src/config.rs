@@ -616,6 +616,12 @@ pub struct CameraConfig {
     /// in a game on the grid does not load.
     #[serde(skip_serializing_if = "Rotates::is_quarter")]
     pub rotates: Rotates,
+    /// The picture's shape, its width over its height (2.39 a film's):
+    /// the scene is drawn into the largest rectangle of that shape the
+    /// window holds, in its middle, black bars on the other two sides; the
+    /// HUD and the menus lie inside it too. Unset: the window's shape.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aspect: Option<f32>,
 }
 
 /// How a game sets things down (`c.camera.rotates`).
@@ -637,7 +643,7 @@ impl Rotates {
 
 impl Default for CameraConfig {
     fn default() -> Self {
-        Self { pitch: 35.0, yaw: 0.0, fov: 40.0, view_width: 200.0, view_height: None, view_at_least: None, follow: 0.2, snap: true, follow_height: None, stop_at_edges: false, hold: None, rotates: Rotates::Quarter }
+        Self { pitch: 35.0, yaw: 0.0, fov: 40.0, view_width: 200.0, view_height: None, view_at_least: None, follow: 0.2, snap: true, follow_height: None, stop_at_edges: false, hold: None, rotates: Rotates::Quarter, aspect: None }
     }
 }
 

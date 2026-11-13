@@ -718,6 +718,42 @@ end
 "##,
     },
     Topic {
+        title: "A SCENE WITH BARS",
+        text: "c.camera.aspect = 2.39 gives every picture a film's shape: the widest rectangle of it the window holds, black bars on the rest, the HUD and the menus inside it. frame:camera in on_draw sets this picture's camera: look_at the point the view centres on, width how many voxels it shows across there, pitch how steep it looks down; what you leave out is c.camera's, so { width = 60 } alone zooms in on the player and keeps following. Each picture is its own: call it in every picture the scene lasts and work a pan out from your clock; a picture without it is the game's camera again. Here a slow pan along the meadow, a cut to the house's door, then the game's camera on the player, and round again. Only the picture: the game's rules do not see it.",
+        conf: r##"c.player.kind = "hero"
+c.things.hero = { model = "hero.vvx" }
+c.camera.aspect = 2.39"##,
+        files: &[],
+        code: r##"local SCENE = 20 * 60   -- the whole scene, in ticks
+
+function on_level_start(how)
+  level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 0, "#5a6e4a")
+  level:fill(30, 40, 1, 40, 48, 8, "#c8b090")    -- a little house
+  level:fill(34, 40, 1, 36, 40, 4, nil)          -- its door
+  level:fill(29, 39, 9, 41, 49, 10, "#a04030")   -- its roof
+  level:fill(66, 30, 1, 67, 31, 9, "#6b5138")    -- a tree
+  level:fill(63, 27, 10, 70, 34, 15, "#3f7a3a")
+end
+
+function on_tick()
+  player:walk(input.dir, 40)
+end
+
+function on_draw(frame)
+  frame:model("hero.vvx", player)
+  local t = (world.tick + frame.alpha) % SCENE / 60   -- seconds into the scene
+  if t < 8 then
+    -- a slow pan along the meadow, wide
+    frame:camera{ look_at = { 16 + t * 8, 40, 0 }, width = 90 }
+  elseif t < 12 then
+    -- a cut: close on the house's door, a little steeper
+    frame:camera{ look_at = { 35, 40, 3 }, width = 30, pitch = 60 }
+  end
+  -- the rest of the scene: the game's own camera, following the player
+end
+"##,
+    },
+    Topic {
         title: "A MENU AND A BAG",
         text: "A menu is your game's: what is open and where its cursor stands live in level.state, the level held while it is open (level.state.held = true: the world waits, on_tick goes on), and on_tick moves the cursor with input:repeated, which repeats while a key is held. frame:menu draws it in the engine's look: a title, tabs, rows with a value at the right and an icon, the chosen one marked, dimmed rows you cannot afford, a hint with the keys. frame:grid draws slots, here the bag. Walk to the stall and press {act}.",
         conf: r##"c.player.kind = "hero"

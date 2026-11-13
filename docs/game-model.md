@@ -218,6 +218,44 @@ always were; light is the picture's, so `on_draw` sets it.
   meshes (others keep only what their one sun and the camera can hit).
   Colours as the other frame calls take them (`{ r, g, b }`, 0 to 255);
   HELP's DAY AND NIGHT shows a day of 40 seconds.
+- **A picture's camera** (built). `frame:camera{ look_at =, width =,
+  height =, pitch =, fov = }` in `on_draw`: this picture's camera, for a
+  scene the engine films (the point-and-click games' way: zoom in on
+  something and out again, a cut, a slow pan; otherwise the camera stays
+  put or follows, `level.camera`). What it leaves out is `c.camera`'s:
+  without `look_at` the view keeps on what the game's camera follows
+  (`{ width = 80 }` zooms in on the player and follows on), with it the
+  view centres on that point (`{ x, y, z }`, z left out the camera's
+  height; or a thing, where it is drawn) as given, the screen's shake on
+  top, never rounded or eased. Nothing is kept: the next picture without
+  it is the game's camera's, so a scene calls it in every picture and
+  works a pan out from its clock (`world.tick + frame.alpha`,
+  `music.beat`). Only the picture, as `frame:daylight`: the simulation,
+  the state hash, replays, the sounds' places and `level.camera` do not
+  see it (a replay draws every tick and comes out the same);
+  `frame:to_screen` after it goes by it; on the title the title's camera
+  stays. The camera does not turn round yet (`yaw` is refused: the
+  owner, 2026-11-13, a turned view is not what scenes need now). Faces: a
+  picture moved or zoomed looks along the very rays of the game's camera
+  (perspective at its pitch and field of view: moving and zooming change
+  only where the eye is), so the meshes stay as they are and cost
+  nothing; a picture at another `pitch` or `fov` adds the faces its rays
+  can hit (a low angle, the undersides), from then on, the level built
+  anew with them once (a hitch of a mesh build, More Blood's 44 ms, the
+  first time). Models out of view are left out once the picture's camera
+  is known (a game whose code calls `frame:camera`). Mistakes name the
+  field (an unknown key, a number missing, width or height 0 or less,
+  both, pitch outside -89 to 90, fov outside 10 to 100). HELP's A SCENE
+  WITH BARS shows a pan and a cut.
+- **The picture's shape** (built). `c.camera.aspect = 2.39` in
+  `conf.lua`: every picture is drawn into the largest rectangle of that
+  width over height the window holds, in its middle, black bars on the
+  other two sides (letterbox or pillarbox; a film's bars carry nothing).
+  The camera's `view_width` (and `frame:camera`'s `width`) is across that
+  rectangle; the HUD (`frame.width`, `frame.height`), the menus and the
+  console lie inside it; `shot`, `film` and the IDE's play area alike.
+  Unset, the window's shape, as always. Not per picture (the HUD is laid
+  out before `on_draw` runs).
 - **Menus are the game's, drawn in the engine's look** (built). The game keeps
   what is open and where the cursor stands in `level.state` (held while
   it is open) and moves it with the keys; the engine draws:
@@ -471,7 +509,7 @@ code: the engine offers the parts, the script decides.
 | `level:voxel(x, y, z)`, `level:solid(x, y, z)`, `level:set_voxel(…)`, `level:fill(…)`, `level:ground(x, y)` | its voxels (`solid`: whether bodies stand on it; soft voxels are not) |
 | `level:spawn(kind, x, y, options?)`, `level:thing(name or id)`, `level:things(kind or family?)`, `level:count(kind or family?)` | its things; `options`: `{ z =, name =, facing =, props =, state = }`; a thing that died is no longer listed or counted (only its picture lingers until its rules take it away) |
 | `level:explode(at, radius)`, `level:sound(name, at, volume?)` | what happens in it (a sound by its file's name: `sounds/NAME.toml`, or one the engine or a kit brings) |
-| `level.camera:follow(thing)`, `level.camera:look_at(x, y)` | where the camera looks |
+| `level.camera:follow(thing)`, `level.camera:look_at(x, y)` | where the camera looks (one picture's camera: `frame:camera` in `on_draw`) |
 
 ### `player`: the one who plays
 

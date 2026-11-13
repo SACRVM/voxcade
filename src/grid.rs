@@ -407,12 +407,14 @@ pub struct GridLevel {
     pub areas: Vec<Area>,
     /// Its own daylight (`[light]`), None where the game's `c.light` is all.
     pub daylight: Option<Daylight>,
+    /// Its landscape (`[terrain]`, `crate::terrain`).
+    pub terrain: Option<crate::terrain::Terrain>,
 }
 
 impl GridLevel {
     pub fn new(n: i32, size: IVec3) -> Self {
         let cells = if n > 0 { (size.x * size.y * size.z).max(0) as usize } else { 0 };
-        Self { n, size, blocks: Vec::new(), cells: vec![Cell::default(); cells], things: Vec::new(), places: Vec::new(), areas: Vec::new(), daylight: None }
+        Self { n, size, blocks: Vec::new(), cells: vec![Cell::default(); cells], things: Vec::new(), places: Vec::new(), areas: Vec::new(), daylight: None, terrain: None }
     }
 
     /// Whether it has a grid of blocks (else only what is set down).
@@ -651,6 +653,9 @@ pub mod text {
             if let Some(d) = &level.daylight {
                 out += &format!("\n{}", daylight_text(d));
             }
+            if let Some(t) = &level.terrain {
+                out += &format!("\n{}", crate::terrain::text(t));
+            }
             write_set_down(level, &mut out);
             return out;
         }
@@ -729,6 +734,9 @@ pub mod text {
         out += &vvx::layers_text(&layers);
         if let Some(d) = &level.daylight {
             out += &format!("\n{}", daylight_text(d));
+        }
+        if let Some(t) = &level.terrain {
+            out += &format!("\n{}", crate::terrain::text(t));
         }
         write_set_down(level, &mut out);
         out
@@ -1017,6 +1025,12 @@ pub mod text {
             }
         }
 
+        // The terrain: its fields and materials changed in place, put in
+        // before what is set down, or taken out.
+        if was.terrain != now.terrain && (same_head || !now.has_grid()) {
+            terrain_edits(src, top, head_end, sections.is_empty(), was.terrain.as_ref(), now.terrain.as_ref(), &mut edits)?;
+        }
+
         // Each sort: what became of the file's own, and the new ones after
         // the last of them.
         let lines: [Vec<usize>; 3] = [was.things.iter().map(|t| t.line).collect(), was.places.iter().map(|p| p.line).collect(), was.areas.iter().map(|a| a.line).collect()];
@@ -1102,6 +1116,152 @@ pub mod text {
             out.replace_range(range, &with);
         }
         Some(out)
+    }
+
+    /// The edits that make the file's `[terrain]` (in the text before
+    /// `head_end`) say `now` instead of `was`. None where the text cannot
+    /// be followed.
+    fn terrain_edits(src: &str, top: &toml_edit::Table, head_end: usize, alone: bool, was: Option<&crate::terrain::Terrain>, now: Option<&crate::terrain::Terrain>, edits: &mut Vec<(std::ops::Range<usize>, String)>) -> Option<()> {
+        use crate::terrain;
+        let line_begin = |at: usize| src[..at].rfind('\n').map_or(0, |i| i + 1);
+        let line_end = |at: usize| src[at.min(src.len())..].find('\n').map_or(src.len(), |i| at + i + 1);
+        let mut header = None;
+        let mut at = 0;
+        while at < head_end {
+            if src[at..line_end(at)].trim_start().starts_with("[terrain]") {
+                header = Some(at);
+                break;
+            }
+            at = line_end(at);
+        }
+        // Its lines: to the next table that is not its.
+        let end = match header {
+            None => 0,
+            Some(h) => {
+                let mut end = line_end(h);
+                while end < head_end {
+                    let line = src[end..line_end(end)].trim_start();
+                    if line.starts_with('[') && !line.starts_with("[[terrain.material]]") && !line.starts_with("[[terrain.layer]]") {
+                        break;
+                    }
+                    end = line_end(end);
+                }
+                end
+            }
+        };
+        match (header, now) {
+            (Some(h), Some(now)) => {
+                let was = was?;
+                let table = top.get("terrain")?.as_table_like()?;
+                let sec = Section { sort: 0, k: 0, start: h, header: h, table };
+                let was_f = terrain::fields(was);
+                let now_f = terrain::fields(now);
+                for key in ["spacing", "at", "heights", "shapes", "terrace", "rough", "roughness", "seed", "under"] {
+                    let get = |f: &Vec<(&str, String)>| f.iter().find(|(k, _)| *k == key).map(|(_, v)| v.clone());
+                    let (a, b) = (get(&was_f), get(&now_f));
+                    if a != b {
+                        let after = match key {
+                            "at" => "spacing",
+                            "terrace" | "rough" | "roughness" if spans(table, "shapes").is_some() => "shapes",
+                            _ => "heights",
+                        };
+                        field(src, &sec, key, b, (spans(table, after).is_some() && key != after).then_some(after), edits)?;
+                    }
+                }
+                // The materials, then the layers before them (where none
+                // were, put in before the first material).
+                let mats = vvx::tables(table.get("material")?)?;
+                let mat_headers = headers_of(src, &mats, "[[terrain.material]]")?;
+                let fields = |l: &[crate::terrain::Material]| l.iter().map(terrain::material_fields).collect::<Vec<_>>();
+                let texts: Vec<String> = now.materials.iter().map(terrain::material_text).collect();
+                list_edits(src, &mats, &mat_headers, &fields(&was.materials), &fields(&now.materials), &texts, 0, edits)?;
+                let layers = table.get("layer").map_or(Some(Vec::new()), vvx::tables)?;
+                let layer_headers = headers_of(src, &layers, "[[terrain.layer]]")?;
+                let fields = |l: &[crate::terrain::Layer]| l.iter().map(terrain::layer_fields).collect::<Vec<_>>();
+                let texts: Vec<String> = now.layers.iter().map(terrain::layer_text).collect();
+                list_edits(src, &layers, &layer_headers, &fields(&was.layers), &fields(&now.layers), &texts, *mat_headers.first()?, edits)?;
+            }
+            (Some(h), None) => {
+                let mut start = h;
+                if end >= src.len() {
+                    while start > 0 && src[line_begin(start - 1)..start].trim().is_empty() {
+                        start = line_begin(start - 1);
+                    }
+                }
+                edits.push((start..end, String::new()));
+            }
+            (None, Some(t)) if alone => edits.push((src.len()..src.len(), format!("\n{}", terrain::text(t)))),
+            (None, Some(t)) => edits.push((head_end..head_end, format!("{}\n", terrain::text(t)))),
+            (None, None) => {}
+        }
+        Some(())
+    }
+
+    /// Each table's header in a list of tables (`tag`, `[[terrain.material]]`):
+    /// the nearest line above its first field that begins with it.
+    fn headers_of(src: &str, tables: &[&dyn toml_edit::TableLike], tag: &str) -> Option<Vec<usize>> {
+        let line_begin = |at: usize| src[..at].rfind('\n').map_or(0, |i| i + 1);
+        let mut out = Vec::new();
+        for t in tables {
+            let first = t.iter().filter_map(|(key, v)| t.key(key).and_then(|k| k.span()).or_else(|| v.span())).map(|s| s.start).min()?;
+            let mut h = line_begin(first);
+            while !src[h..].trim_start().starts_with(tag) {
+                if h == 0 {
+                    return None;
+                }
+                h = line_begin(h - 1);
+            }
+            out.push(h);
+        }
+        Some(out)
+    }
+
+    /// The edits of a list of tables (a terrain's materials or layers): as
+    /// many as before, each one's fields that changed (after its first,
+    /// where new); else written anew from the first one's header to the
+    /// last one's end, or put in at `at` where there were none.
+    #[allow(clippy::too_many_arguments)]
+    fn list_edits(src: &str, tables: &[&dyn toml_edit::TableLike], headers: &[usize], was: &[Vec<(&str, String)>], now: &[Vec<(&str, String)>], texts: &[String], at: usize, edits: &mut Vec<(std::ops::Range<usize>, String)>) -> Option<()> {
+        let line_end = |at: usize| src[at.min(src.len())..].find('\n').map_or(src.len(), |i| at + i + 1);
+        if tables.len() != was.len() {
+            return None;
+        }
+        if was == now {
+            return Some(());
+        }
+        if was.len() == now.len() {
+            for (k, t) in tables.iter().enumerate() {
+                if was[k] == now[k] {
+                    continue;
+                }
+                let sec = Section { sort: 0, k, start: headers[k], header: headers[k], table: *t };
+                let mut keys: Vec<&str> = Vec::new();
+                for (key, _) in was[k].iter().chain(&now[k]) {
+                    if !keys.contains(key) {
+                        keys.push(key);
+                    }
+                }
+                let first = now[k].first().map(|(key, _)| *key);
+                for key in keys {
+                    let get = |f: &Vec<(&str, String)>| f.iter().find(|(k, _)| *k == key).map(|(_, v)| v.clone());
+                    let (a, b) = (get(&was[k]), get(&now[k]));
+                    if a != b {
+                        let anchor = [first, Some("color"), Some("colors"), Some("thick")].into_iter().flatten().find(|c| *c != key && spans(*t, c).is_some());
+                        field(src, &sec, key, b, anchor, edits)?;
+                    }
+                }
+            }
+            return Some(());
+        }
+        let text = texts.join("\n");
+        match (headers.first(), tables.last()) {
+            (Some(&first), Some(last)) => {
+                let end = last.iter().filter_map(|(_, v)| v.span()).map(|v| line_end(v.end)).max()?;
+                edits.push((first..end, text));
+            }
+            _ => edits.push((at..at, format!("{text}\n"))),
+        }
+        Some(())
     }
 
     /// The spans of a key of a table and of its value.
@@ -1339,7 +1499,7 @@ pub mod text {
         let r = Reader { src };
         let top = doc.as_table();
         vvx::check_format_of(&r, top, FORMAT_NAME, VERSION, "level")?;
-        r.only(top, &["format", "block", "size", "view", "blocks", "legend", "cells", "light", "thing", "place", "area"], "a level")?;
+        r.only(top, &["format", "block", "size", "view", "blocks", "legend", "cells", "light", "terrain", "thing", "place", "area"], "a level")?;
         let daylight = top.get("light").map(|item| read_daylight(&r, item)).transpose()?;
         let whole = |item: &Item, what: &str| -> Result<i32> {
             let v = r.number(item, what)?;
@@ -1366,6 +1526,7 @@ pub mod text {
             }
             let mut level = GridLevel::new(0, size);
             level.daylight = daylight;
+            read_terrain(&r, top, &mut level)?;
             read_set_down(&r, top, &mut level)?;
             return Ok((level, Legend::default()));
         };
@@ -1481,8 +1642,19 @@ pub mod text {
             }
         }
         level.daylight = daylight;
+        read_terrain(&r, top, &mut level)?;
         read_set_down(&r, top, &mut level)?;
         Ok((level, legend))
+    }
+
+    /// The level's `[terrain]`, if it has one, within its voxels.
+    fn read_terrain(r: &Reader, top: &toml_edit::Table, level: &mut GridLevel) -> Result<()> {
+        if let Some(item) = top.get("terrain") {
+            let t = crate::terrain::read(r, item)?;
+            crate::terrain::check_room(&t, level.voxels())?;
+            level.terrain = Some(t);
+        }
+        Ok(())
     }
 
     /// The line a table of the file begins on (its first field's), 0
@@ -1864,8 +2036,15 @@ pub fn build(level: &GridLevel, made: &[Block], margin: i32, below: i32, backdro
         walls.push((grid.y + b.how.behind.max(0), b.how.z, b.height * s, wall));
     }
 
-    // Into the world chunk by chunk: the grid's rows and the walls' rows.
-    let voxel = |p: IVec3| -> u8 {
+    // The land, its colours after the blocks'.
+    let land = match &level.terrain {
+        Some(t) => Some(t.painter(&mut world, origin, t.surface())?),
+        None => None,
+    };
+
+    // Into the world chunk by chunk: the grid's rows, the walls' rows and
+    // the land's chunks.
+    let block_voxel = |p: IVec3| -> u8 {
         if p.y < grid.y {
             if !level.has_grid() {
                 return 0;
@@ -1887,18 +2066,35 @@ pub fn build(level: &GridLevel, made: &[Block], margin: i32, below: i32, backdro
         }
         0
     };
-    // (A level without a grid has nothing to fill but its backdrops.)
+    // (Where the blocks leave a voxel empty, the land's.)
+    let voxel = |p: IVec3| -> u8 {
+        match block_voxel(p) {
+            0 => land.as_ref().map_or(0, |l| l.voxel(p)),
+            v => v,
+        }
+    };
+    // (A level without a grid has nothing to fill but its backdrops and
+    // its land.)
     let mut rows_y: Vec<i32> = if level.has_grid() { (0..(grid.y + CHUNK - 1) / CHUNK).collect() } else { Vec::new() };
     rows_y.extend(walls.iter().map(|(y, ..)| y / CHUNK));
     rows_y.sort_unstable();
     rows_y.dedup();
     let chunks = (size + CHUNK - 1) / CHUNK;
+    let mut keys: Vec<IVec3> = Vec::new();
     for &cy in &rows_y {
         for cz in 0..chunks.z {
             for cx in 0..chunks.x {
-                world.fill_chunk(IVec3::new(cx, cy, cz), voxel);
+                keys.push(IVec3::new(cx, cy, cz));
             }
         }
+    }
+    if let Some(l) = &land {
+        keys.extend(l.chunks().into_iter().filter(|c| c.cmplt(chunks).all()));
+        keys.sort_unstable_by_key(|c| (c.y, c.z, c.x));
+        keys.dedup();
+    }
+    for key in keys {
+        world.fill_chunk(key, voxel);
     }
 
     world.stage = Some((origin, origin + grid));
@@ -2095,6 +2291,125 @@ size = [40, 30, 40]
 
     /// The lines of `b` that are not those of `a` at the same place, and
     /// how many lines each has: what a rewrite touched.
+    /// A level of a terrain, commented, with a thing after it.
+    const LAND: &str = "format = \"voxcade level 1\"\nsize = [96, 64, 80]\n\n# the valley\n[terrain]\nspacing = 16   # voxels between points\nheights = \"\"\"\n 4  6 10 20 30 30\n 4  8 14 24 36 40\n 4  6 10 20 30 30\n 2  2  2  2  2  2\n\"\"\"\nseed = 7\n\n# snow\n[[terrain.material]]\ncolor = \"#eef2f5\"\nabove = 35   # the tops\n\n[[terrain.material]]\ncolor = \"#5c8a3a\"\n\n[[thing]]\nname = \"hut\"\nmodel = \"hut.vvx\"\nat = [10, 10, 4]\n";
+
+    /// The terrain written by the editor: only its own lines change, the
+    /// comments kept; materials coming and going written anew from the
+    /// first; a terrain put in before what is set down, or taken out.
+    #[test]
+    fn a_terrain_rewrite_touches_only_its_lines() {
+        use crate::terrain::{Material, Shape};
+        let src = LAND.to_string();
+        let was = GridLevel::from_text(&src).unwrap();
+        let legend = Legend::default();
+        let check = |now: &GridLevel| {
+            let out = text::rewrite(&src, &was, now, &legend);
+            assert_eq!(&GridLevel::from_text(&out).unwrap(), now, "{out}");
+            out
+        };
+        // A point raised: the heights' grid, lined up anew.
+        let mut now = was.clone();
+        let t = now.terrain.as_mut().unwrap();
+        t.heights[(1 + 2 * t.cols) as usize] = 70;
+        let out = check(&now);
+        assert_eq!(changed_lines(&src, &out), [" 4 70 14 24 36 40"], "{out}");
+        assert!(out.contains("spacing = 16   # voxels between points") && out.contains("# snow\n") && out.contains("above = 35   # the tops"));
+        // A shape: its grid put in after the heights.
+        let mut now = was.clone();
+        now.terrain.as_mut().unwrap().shapes[0] = Shape::Step;
+        let out = check(&now);
+        assert!(out.contains("\"\"\"\nshapes = \"\"\"\n .  .  .  .  .  .\n") && out.contains(" #  .  .  .  .  .\n\"\"\"\nseed = 7"), "lined up with the heights: {out}");
+        // A material's field: its line alone.
+        let mut now = was.clone();
+        now.terrain.as_mut().unwrap().materials[0].above = Some(50);
+        let out = check(&now);
+        assert_eq!(changed_lines(&src, &out), ["above = 50   # the tops"]);
+        now.terrain.as_mut().unwrap().materials[1].steeper = None;
+        now.terrain.as_mut().unwrap().materials[0].grain = Some(0.25);
+        let out = check(&now);
+        assert!(out.contains("color = \"#eef2f5\"\ngrain = 0.25\nabove = 50"), "{out}");
+        // A material more: written anew from the first one's header.
+        let mut now = was.clone();
+        now.terrain.as_mut().unwrap().materials.insert(1, Material { steeper: Some(45.0), ..Material::new("#7d7468") });
+        let out = check(&now);
+        assert!(out.contains("# snow\n[[terrain.material]]") && out.contains("steeper = 45\n"), "{out}");
+        // Taken out, and put in again before the thing.
+        let mut now = was.clone();
+        now.terrain = None;
+        let out = check(&now);
+        assert!(!out.contains("terrain") && out.contains("[[thing]]\nname = \"hut\""), "{out}");
+        let back = text::rewrite(&out, &now, &was, &legend);
+        assert!(back.find("[terrain]").unwrap() < back.find("[[thing]]").unwrap(), "{back}");
+        assert_eq!(GridLevel::from_text(&back).unwrap().terrain.map(|t| t.heights), was.terrain.as_ref().map(|t| t.heights.clone()));
+    }
+
+    /// A terrain beside blocks: the blocks' voxels first, the land where
+    /// they leave room, both standing on the floor. Past the level's size:
+    /// a mistake with its line.
+    #[test]
+    fn a_terrain_lies_beside_blocks_and_within_its_level() {
+        let mut lv = level(4, IVec3::new(8, 4, 8), &[("rock", Kind::Solid)]);
+        put(&mut lv, IVec3::new(0, 0, 4), 1, Turn::NONE);
+        lv.terrain = Some(crate::terrain::Terrain::flat(8, 4, 2, 10));
+        let world = build(&lv, &[block(4, [200, 0, 0], |_| true)], 0, 0, &[]).unwrap();
+        assert_eq!(world.palette[1][..3], [200, 0, 0], "the blocks' colors first");
+        assert_eq!(world.get(IVec3::new(1, 1, 17)), 1, "a block");
+        assert_eq!(world.get(IVec3::new(9, 1, 9)), 2, "the land");
+        assert_eq!(world.get(IVec3::new(9, 1, 10)), 0, "above it");
+        assert_eq!(world.get(IVec3::new(9, 1, 0)), 2, "down to the floor");
+        let e = GridLevel::from_text(&LAND.replace("size = [96, 64, 80]", "size = [90, 64, 80]")).unwrap_err().to_string();
+        assert!(e.contains("line 5: the terrain reaches to 96 by 64 by 40 voxels"), "{e}");
+    }
+
+    /// A wide land builds fast and the same every time; a blast through a
+    /// cliff leaves nothing loose (every column stands on the floor).
+    #[test]
+    fn a_wide_terrain_builds_fast_and_stands() {
+        let (w, d) = (640 / 16, 576 / 16);
+        let mut t = crate::terrain::Terrain::flat(16, w, d, 0);
+        for y in 0..d {
+            for x in 0..w {
+                // Rolling hills and a STEP cliff across the middle.
+                t.heights[(x + y * w) as usize] = 8 + ((x * 7 + y * 13) % 23) + if y > d / 2 { 40 } else { 0 };
+                if y == d / 2 + 1 {
+                    t.shapes[(x + y * w) as usize] = crate::terrain::Shape::Step;
+                }
+            }
+        }
+        // Every word of it at work: roughness, layers, patches, blend.
+        t.materials = vec![
+            crate::terrain::Material { above: Some(60), blend: Some(8.0), ..crate::terrain::Material::new("#eef2f5") },
+            crate::terrain::Material { steeper: Some(45.0), blend: Some(6.0), tones: vec!["#6e665c".into()], ..crate::terrain::Material::new("#7d7468") },
+            crate::terrain::Material { grain: Some(0.3), tones: vec!["#4f7d33".into(), "#6a9640".into()], patch: Some(9), ..crate::terrain::Material::new("#5c8a3a") },
+        ];
+        t.rough = Some(0.7);
+        t.layers = vec![crate::terrain::Layer { thick: 8, hard: 0.9, color: "#9c4f2e".into() }, crate::terrain::Layer { thick: 6, hard: 0.2, color: "#d9a46a".into() }];
+        let mut lv = GridLevel::new(0, IVec3::new(640, 576, 140));
+        lv.terrain = Some(t);
+        let start = std::time::Instant::now();
+        let world = build(&lv, &[], 0, 0, &[]).unwrap();
+        let ms = start.elapsed().as_secs_f64() * 1000.0;
+        println!("640 by 576 voxels of land built in {ms:.0} ms, {} chunks", world.chunk_keys().len());
+        assert!(ms < 3000.0, "{ms} ms");
+        assert_eq!(world.content_hash(), build(&lv, &[], 0, 0, &[]).unwrap().content_hash(), "the same every time");
+        // A hole through the cliff's foot: nothing above it is loose.
+        let mut grounded = crate::world::CellSet::default();
+        let mut w2 = world.clone();
+        let foot = IVec3::new(320, 300, 10);
+        for dz in 0..6 {
+            for dy in -3..3 {
+                w2.set(foot + IVec3::new(0, dy, dz), 0);
+            }
+        }
+        for z in 16..40 {
+            let p = IVec3::new(320, 310, z);
+            if w2.get(p) != 0 {
+                assert!(crate::sim::loose_piece(&w2, p, &mut grounded).is_none(), "{p} stands");
+            }
+        }
+    }
+
     fn changed_lines(a: &str, b: &str) -> Vec<String> {
         let (x, y): (Vec<&str>, Vec<&str>) = (a.lines().collect(), b.lines().collect());
         // As many lines: those that differ; else what lies between the

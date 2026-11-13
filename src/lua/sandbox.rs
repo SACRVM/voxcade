@@ -46,6 +46,8 @@ pub struct Reading {
     /// Whether one of them names `music` or `on_beat`, and `daylight`.
     pub names_music: bool,
     pub names_daylight: bool,
+    /// And whether one calls `frame:camera`.
+    pub calls_camera: bool,
     /// The environment `main.lua` runs in: the required files run in it
     /// too, as Lua's modules share their globals.
     env: Option<Table>,
@@ -324,6 +326,7 @@ fn require(lua: &Lua, files: &Rc<RefCell<Reading>>, name: &str) -> mlua::Result<
     };
     let tokens = super::lex::tokens(&path, &src).map_err(|e| mlua::Error::runtime(format!("{e:#}")))?;
     let (music, daylight) = (super::lex::names(&src, &["music", "on_beat"]), super::lex::names(&src, &["daylight"]));
+    let camera = super::lex::calls(&src, "camera");
     files.borrow_mut().loading.push(name.to_string());
     // No borrow while it runs: it may read and require in turn.
     let ran = lua.load(&src).set_name(format!("@{path}")).set_environment(env).call::<Value>(());
@@ -337,6 +340,7 @@ fn require(lua: &Lua, files: &Rc<RefCell<Reading>>, name: &str) -> mlua::Result<
     reading.modules.push((path, tokens));
     reading.names_music |= music;
     reading.names_daylight |= daylight;
+    reading.calls_camera |= camera;
     Ok(given)
 }
 

@@ -2342,16 +2342,7 @@ const FADER_WIDTH: f32 = 150.0;
 /// A dice showing five, drawn (no font has one we can count on): the sign
 /// that the buttons after it roll.
 fn dice(ui: &mut egui::Ui) -> egui::Response {
-    let side = ui.text_style_height(&egui::TextStyle::Button) + 2.0 * ui.spacing().button_padding.y;
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(side + 4.0, side), egui::Sense::hover());
-    let face = egui::Rect::from_center_size(rect.center(), egui::vec2(side - 2.0, side - 2.0));
-    let ink = ui.visuals().text_color();
-    ui.painter().rect_stroke(face, 4.0, egui::Stroke::new(1.5, ink), egui::StrokeKind::Inside);
-    let step = face.width() * 0.26;
-    for (x, y) in [(-1.0, -1.0), (1.0, -1.0), (0.0, 0.0), (-1.0, 1.0), (1.0, 1.0)] {
-        ui.painter().circle_filled(face.center() + egui::vec2(x * step, y * step), 2.2, ink);
-    }
-    response
+    crate::gui::dice(ui)
 }
 
 /// The pause between a sound's end and its next go under LOOP.

@@ -194,6 +194,14 @@ pub trait Game: Sized + 'static {
         false
     }
 
+    /// Whether the game sets its camera for a picture (`frame:camera`):
+    /// its meshes then hold every face open to the air, whichever way a
+    /// camera may look at it, and its models are left out of a picture
+    /// only once its camera is known.
+    fn moves_camera(&self) -> bool {
+        false
+    }
+
     /// The daylight of the level being played, as its file sets it
     /// (`[light]`): what it leaves out is `c.light`'s. Only the picture.
     fn daylight(&self) -> crate::session::Daylight {

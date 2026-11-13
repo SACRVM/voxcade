@@ -627,6 +627,26 @@ pub struct Renderer {
     pub stats: Stats,
     /// GPU time per pass, when asked for (`time_passes`).
     pass_times: Option<PassTimes>,
+    /// The window's (or the texture's) size in pixels, and the picture's
+    /// own shape in it, if it has one (`set_shape`): the targets are the
+    /// picture's size then.
+    window: (u32, u32),
+    shape: Option<f32>,
+}
+
+/// Where a picture of the shape `shape` (width over height) lies in a
+/// window `width` by `height` pixels: the largest rectangle of that shape
+/// it holds, in its middle, as x, y, width and height in whole pixels
+/// (letterboxed or pillarboxed; the bars are the rest).
+pub fn letterbox(width: u32, height: u32, shape: f32) -> (u32, u32, u32, u32) {
+    let (w, h) = (width.max(1), height.max(1));
+    if w as f32 / h as f32 > shape {
+        let across = ((h as f32 * shape).round() as u32).clamp(1, w);
+        ((w - across) / 2, 0, across, h)
+    } else {
+        let high = ((w as f32 / shape).round() as u32).clamp(1, h);
+        (0, (h - high) / 2, w, high)
+    }
 }
 
 /// Fewer chunks than this a thread are meshed on the calling thread: a
@@ -1039,6 +1059,8 @@ impl Renderer {
             scratch_indices: Vec::new(),
             stats: Stats::default(),
             pass_times: None,
+            window: (width, height),
+            shape: None,
         }
     }
 
@@ -1189,7 +1211,30 @@ impl Renderer {
     }
 
     pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
-        self.targets = Self::targets(device, &self.post_layout, &self.blurred_layout, &self.linear, width, height);
+        self.window = (width, height);
+        let (_, _, w, h) = self.picture();
+        self.targets = Self::targets(device, &self.post_layout, &self.blurred_layout, &self.linear, w, h);
+    }
+
+    /// The picture's own shape, width over height (`c.camera.aspect`), or
+    /// None for the window's: the frames drawn from now on fill the
+    /// largest rectangle of that shape in the window, black bars on the
+    /// other two sides. Their camera and HUD must be made for that shape.
+    pub fn set_shape(&mut self, device: &wgpu::Device, shape: Option<f32>) {
+        if self.shape != shape {
+            self.shape = shape;
+            let (width, height) = self.window;
+            self.resize(device, width, height);
+        }
+    }
+
+    /// Where the picture lies in the window: x, y, width, height.
+    fn picture(&self) -> (u32, u32, u32, u32) {
+        let (width, height) = self.window;
+        match self.shape {
+            Some(shape) => letterbox(width, height, shape),
+            None => (0, 0, width, height),
+        }
     }
 
     /// Rebuilds the meshes of the chunks that changed; how many.
@@ -1600,6 +1645,12 @@ impl Renderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+            // A picture of its own shape in its rectangle; the rest stays
+            // the black it was cleared to.
+            if self.shape.is_some() {
+                let (x, y, w, h) = self.picture();
+                pass.set_viewport(x as f32, y as f32, w as f32, h as f32, 0.0, 1.0);
+            }
             pass.set_pipeline(&self.post_composite);
             pass.set_bind_group(0, &self.targets.composite, &[]);
             pass.set_bind_group(1, &self.targets.blurred, &[]);

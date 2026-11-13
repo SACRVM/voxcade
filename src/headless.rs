@@ -59,6 +59,8 @@ pub(crate) struct Canvas {
     row: u32,
     /// The renderer times its passes (the GPU has timestamps).
     timed: bool,
+    /// The faces the meshes hold (`Session::face_mask`).
+    mask: crate::mesh::FaceMask,
 }
 
 impl Canvas {
@@ -98,7 +100,7 @@ impl Canvas {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-        Ok(Self { device, queue, renderer, view, target, readback, width, height, row, timed })
+        Ok(Self { device, queue, renderer, view, target, readback, width, height, row, timed, mask: [false; 6] })
     }
 
     /// Builds the meshes of a whole world, with the faces in `mask`.
@@ -108,15 +110,27 @@ impl Canvas {
 
     /// Builds the meshes of the whole world.
     fn mesh_all<G: Game>(&mut self, game: &mut Session<G>) {
-        let mask = game.face_mask();
-        self.renderer.rebuild_all(&self.device, &self.queue, game.world_mut(), &mask);
+        self.mask = game.face_mask();
+        self.renderer.rebuild_all(&self.device, &self.queue, game.world_mut(), &self.mask);
+    }
+
+    /// Ready to draw a frame of the game: in the picture's own shape
+    /// (`c.camera.aspect`), the meshes built anew if a picture the game set
+    /// (`frame:camera` at another pitch or field of view) needs more faces.
+    fn fit<G: Game>(&mut self, game: &mut Session<G>) {
+        self.renderer.set_shape(&self.device, game.cfg.camera.aspect);
+        if game.face_mask() != self.mask {
+            self.mesh_all(game);
+        }
     }
 
     /// Rebuilds the chunks the last tick changed and sends them to the GPU,
     /// as the game does every frame; how many.
     fn remesh<G: Game>(&mut self, game: &mut Session<G>) -> usize {
-        let mask = game.face_mask();
-        let dirty = self.renderer.update_chunks(&self.device, &self.queue, game.world_mut(), &mask);
+        if game.face_mask() != self.mask {
+            self.mesh_all(game);
+        }
+        let dirty = self.renderer.update_chunks(&self.device, &self.queue, game.world_mut(), &self.mask);
         // Held back, the uploads of all ticks pile up in GPU memory.
         self.queue.submit([]);
         dirty
@@ -440,7 +454,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     }
     let mut frame = frame.expect("a frame was built");
     if opts.screen.as_deref() == Some("attract") {
-        crate::ui::press_start(&mut frame.ui, 0.0, &game.cfg.ui, width as f32 / height as f32, &game.language());
+        crate::ui::press_start(&mut frame.ui, 0.0, &game.cfg.ui, game.picture_aspect(width as f32 / height as f32), &game.language());
     }
     // The console open over the game, the --do lines in it as run.
     if opts.screen.as_deref() == Some("console") {
@@ -452,13 +466,14 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
             prompt.take();
             prompt.answer(Ok(said.clone()));
         }
-        let (ui, aspect) = (&game.cfg.ui, width as f32 / height as f32);
+        let (ui, aspect) = (&game.cfg.ui, game.picture_aspect(width as f32 / height as f32));
         let camera = crate::ui::camera(&crate::ui::Layout::of(ui, aspect), ui.slant, ui.depth as f32);
         frame = game.compose(1.0, aspect, Scene::Play, Some((crate::ui::prompt_panel(&prompt, true, ui, aspect), Vec::new(), camera)));
         frame.view_proj = glam::Mat4::from_translation(glam::Vec3::new(0.0, 2.0 * crate::ui::prompt_lift(&prompt), 0.0)) * frame.view_proj;
     }
     builds.sort_by(f64::total_cmp);
     let frame_ms = builds[builds.len() / 2];
+    canvas.fit(&mut game);
     // What each pass takes on the GPU: the median of a few draws of this
     // frame (the first ones also set the GPU up).
     let mut gpu: Vec<(&'static str, Vec<f64>)> = Vec::new();
@@ -881,6 +896,7 @@ pub fn film<G: Game>(dir: &Path, opts: &FilmOptions) -> Result<()> {
         if tick >= first && (tick - first).is_multiple_of(every) {
             canvas.remesh(&mut game);
             let frame = game.menu_frame(&menu, &settings, 1.0, aspect, Scene::Play);
+            canvas.fit(&mut game);
             sink.push(canvas.draw(&frame)?, fps)?;
             frames += 1;
             if frames.is_multiple_of(u64::from(fps) * 10) {
@@ -1435,5 +1451,48 @@ mod tests {
             assert_eq!(total, 100, "{fps} fps");
         }
         assert_eq!((0..6).map(|n| gif_delay(n, 30)).collect::<Vec<_>>(), [3, 4, 3, 3, 4, 3]);
+    }
+
+    /// A game of its own picture shape (`c.camera.aspect`) is drawn into
+    /// the largest rectangle of it in the window, black bars on the other
+    /// two sides, exactly the rectangle's pixels; across a wide window the
+    /// bars stand left and right. Unset, the picture fills the window as
+    /// before, the same pixel for pixel.
+    #[test]
+    fn a_picture_of_its_own_shape_has_bars() {
+        let game = |name: &str, aspect: &str| {
+            let dir = crate::scratch::Scratch::new(name);
+            std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.world.size = {{ 64, 64, 8 }}\n  c.light.sky = {{ 0.3, 0.4, 0.6 }}\n  {aspect}\nend\n")).unwrap();
+            std::fs::write(dir.join("main.lua"), "function on_level_start() level:fill(0, 0, 0, 63, 63, 0, '#5a6e4a') end\nfunction on_draw(frame) frame:box(0, 0, frame.width, 4, { 255, 255, 255 }) end\n").unwrap();
+            dir
+        };
+        let picture = |dir: &Path, width: u32, height: u32, shape: Option<f32>| {
+            let mut game = Session::<crate::Voxcade>::load(dir).unwrap();
+            game.step(&crate::input::Input::default());
+            let mut canvas = Canvas::new(width, height, false).unwrap();
+            canvas.mesh_all(&mut game);
+            canvas.renderer.set_shape(&canvas.device, shape);
+            let frame = game.menu_frame(&Menu::default(), &Settings::default(), 1.0, width as f32 / height as f32, Scene::Play);
+            canvas.draw(&frame).unwrap()
+        };
+        let black_rows = |pixels: &[u8], width: u32, rows: std::ops::Range<u32>| rows.clone().all(|y| (0..width).all(|x| pixels[((y * width + x) * 4) as usize..][..3] == [0, 0, 0]));
+        let lit_row = |pixels: &[u8], width: u32, y: u32| (0..width).any(|x| pixels[((y * width + x) * 4) as usize..][..3] != [0, 0, 0]);
+        let film = game("bars", "c.camera.aspect = 2.39");
+        // 320 by 180: 320 / 2.39 = 134 rows high, 23 above and below.
+        assert_eq!(crate::render::letterbox(320, 180, 2.39), (0, 23, 320, 134));
+        let pixels = picture(&film, 320, 180, Some(2.39));
+        assert!(black_rows(&pixels, 320, 0..23) && black_rows(&pixels, 320, 157..180), "black bars above and below");
+        assert!(lit_row(&pixels, 320, 23) && lit_row(&pixels, 320, 156), "the picture fills its rectangle");
+        // The HUD lies inside it: its white band at the rectangle's top.
+        assert!(pixels[((24 * 320 + 160) * 4) as usize..][..3].iter().all(|&c| c > 200), "the HUD's white band");
+        // A window wider than the picture: bars left and right.
+        assert_eq!(crate::render::letterbox(400, 100, 2.39), (80, 0, 239, 100));
+        let wide = picture(&film, 400, 100, Some(2.39));
+        let column_black = |x: u32| (0..100).all(|y| wide[((y * 400 + x) * 4) as usize..][..3] == [0, 0, 0]);
+        assert!((0..80).all(column_black) && (319..400).all(column_black) && !column_black(80) && !column_black(318));
+        // Unset: the window's shape, as without the setting.
+        let plain = game("no-bars", "");
+        assert_eq!(picture(&plain, 320, 180, None), picture(&plain, 320, 180, Session::<crate::Voxcade>::load(&plain).unwrap().cfg.camera.aspect));
+        assert!(lit_row(&picture(&plain, 320, 180, None), 320, 0));
     }
 }

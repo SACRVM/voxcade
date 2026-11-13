@@ -128,6 +128,18 @@ pub struct ShotOptions {
     /// of the shot), its outline drawn.
     pub marquee: Option<[f32; 4]>,
     pub selection_ops: Vec<String>,
+    /// The level's terrain shown (TERRAIN; a flat one where it has none),
+    /// a point raised with the brush (`--raise X,Y --by N [--radius R]`),
+    /// a point given a shape (`--shape X,Y smooth|linear|step`), in turn.
+    pub terrain: bool,
+    pub land_ops: Vec<LandOp>,
+}
+
+/// A change `--shot` makes to the terrain.
+#[derive(Clone, Debug)]
+pub enum LandOp {
+    Raise(glam::IVec2, i32, i32),
+    Shape(glam::IVec2, crate::terrain::Shape),
 }
 
 /// Which frame or part `--clear` and `--fill` change: `--part`'s, else
@@ -535,6 +547,38 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         let item = ed.find(name).with_context(|| format!("--hide {name}: the level has nothing called so"))?;
         ed.set_hidden(item, true);
     }
+    // The terrain: shown, its points changed as the brush and SHAPE do.
+    if opts.terrain || !opts.land_ops.is_empty() {
+        anyhow::ensure!(ed.scope == Scope::Level, "--terrain is a level's: --level FILE");
+        ed.add_terrain();
+        for op in &opts.land_ops {
+            let t = ed.terrain().context("no terrain")?;
+            let point = |p: glam::IVec2| t.index(p).map(|_| p).with_context(|| format!("--raise/--shape {},{}: the terrain has {} by {} points", p.x, p.y, t.cols, t.rows));
+            match *op {
+                LandOp::Raise(p, by, radius) => {
+                    let p = point(p)?;
+                    let from = t.heights.clone();
+                    ed.land.radius = radius;
+                    ed.land.chosen = Some(p);
+                    let before = ed.terrain().cloned();
+                    ed.raise_from(&from, p, by);
+                    let after = ed.level.terrain.clone();
+                    ed.level.terrain = before;
+                    let t2 = after.clone();
+                    ed.change_level(move |l| l.terrain = t2);
+                }
+                LandOp::Shape(p, shape) => {
+                    let p = point(p)?;
+                    ed.land.chosen = Some(p);
+                    ed.land.selected.clear();
+                    ed.land_shape(shape);
+                }
+            }
+        }
+        if let Some(t) = ed.terrain() {
+            println!("terrain: {} by {} points {} apart, heights {} to {}, {} materials", t.cols, t.rows, t.spacing, t.heights.iter().min().unwrap_or(&0), t.heights.iter().max().unwrap_or(&0), t.materials.len());
+        }
+    }
     view.aspect = aspect;
     // (Where the panels will lie, for the view's middle: as in a window.)
     let (w, h) = (opts.width as f32, opts.height as f32);
@@ -877,6 +921,13 @@ fn voxel_menu(ed: &Editor, view: &View, aspect: f32, sx: f32, sy: f32) -> Option
 }
 
 /// Whether the tools work on the level's things.
+/// The terrain's points on the screen: the level's camera for the room
+/// `room` (egui's points), its size, the mouse `at` within it.
+fn land_screen(view: &View, room: egui::Rect, at: egui::Pos2) -> (glam::Mat4, glam::Vec2, glam::Vec2) {
+    let vp = view.view_proj(&view.level, room.width() / room.height().max(1.0));
+    (vp, glam::Vec2::new(room.width(), room.height()), glam::Vec2::new(at.x - room.left(), at.y - room.top()))
+}
+
 fn among_things(ed: &Editor) -> bool {
     ed.scope == Scope::Level && ed.layer == Layer::Things
 }
@@ -1395,6 +1446,12 @@ impl EditorWindow {
                     Keycode::Escape if ed.forms() && ed.drop_form() => {}
                     // SELECT's rectangle being dragged: let go of, nothing.
                     Keycode::Escape if view.marquee.is_some() => view.marquee = None,
+                    // Among the terrain's points: none chosen (a drag going
+                    // on is cancelled first, below).
+                    Keycode::Escape if ed.among_land() && !ed.stroke_open() && (ed.land.chosen.is_some() || !ed.land.selected.is_empty()) => {
+                        ed.land.chosen = None;
+                        ed.land.selected.clear();
+                    }
                     // A drag going on: cancelled, all as before it.
                     Keycode::Escape if ed.joint_drag().is_some() || ed.gripped().is_some() || ed.dragging().is_some() || ed.stroke_open() => {
                         ed.end_drag(true);
@@ -1516,6 +1573,15 @@ impl EditorWindow {
                     let busy = over || ed.hanging.is_some() || left;
                     view.grip_hover = if busy { None } else { stage::grip_under(ed, view, room, mouse) };
                     view.over = if busy || view.grip_hover.is_some() { None } else { view::item_along(ed, figures, origin, dir) };
+                } else if ed.among_land() {
+                    // The point under the mouse lit; a press held drags it
+                    // (POINTER) or brushes over the points (the others).
+                    let (vp, size, m) = land_screen(view, gui.content_rect(), input.point(x, y));
+                    let p = if over { None } else { ed.point_at(vp, size, m) };
+                    ed.land.hover = p;
+                    if left && ed.land_dragging() && view.press_at.is_none() {
+                        ed.land_drag(p, m);
+                    }
                 } else if among_things(ed) {
                     (view.spot, view.under) = if over { (None, None) } else { view.aim_things(ed, shown, figures, aspect, sx, sy) };
                     if left {
@@ -1652,6 +1718,18 @@ impl EditorWindow {
                             }
                         }
                     }
+                } else if ed.among_land() {
+                    // SELECT: a rectangle on the screen; else the point under
+                    // the mouse chosen and grabbed, or brushed.
+                    if ed.land.tool == model::land::LandTool::Select {
+                        let mode = if view.cut { model::selection::SelectMode::Add } else if view.only_empty { model::selection::SelectMode::Remove } else { ed.land.mode };
+                        view.marquee = Some(view::Marquee { from: [sx, sy], to: [sx, sy], mode });
+                    } else {
+                        let (vp, size, m) = land_screen(view, gui.content_rect(), input.point(x, y));
+                        let p = ed.point_at(vp, size, m);
+                        let up = p.and_then(|p| ed.point_spot(p)).map_or(glam::Vec2::new(0.0, -1.0), |at| model::land::up_on_screen(vp, size, at));
+                        ed.land_press(p, m, up);
+                    }
                 } else if ed.among_pieces() {
                     // What hangs on the mouse set down; a handle of the
                     // chosen one grabbed; else the item under it chosen, to
@@ -1663,8 +1741,13 @@ impl EditorWindow {
                     view.menu = None;
                     let picked = view::pick_along(ed, figures, origin, dir);
                     if ed.hanging.is_some() {
-                        ed.hang_at(view::set_down_spot(ed, figures, &shown.world, origin, dir));
-                        ed.set_down();
+                        // A model set down stays on the mouse for the next
+                        // click (a stamp: trees by the dozen) until Escape;
+                        // a double click's second click sets none.
+                        if clicks < 2 {
+                            ed.hang_at(view::set_down_spot(ed, figures, &shown.world, origin, dir));
+                            ed.stamp();
+                        }
                     } else if clicks >= 2 {
                         if let Some((item @ Item::Thing(i), _)) = picked
                             && ed.level.things[i].model.is_some()
@@ -1742,10 +1825,14 @@ impl EditorWindow {
                 if let Some(mut m) = view.marquee.take() {
                     let (sx, sy) = share(x, y);
                     m.to = [sx, sy];
-                    let vp = view.view_proj(&view.block, aspect);
                     let size = glam::Vec2::new(pw, ph);
                     let at = |s: [f32; 2]| glam::Vec2::new(s[0] * pw, s[1] * ph);
-                    ed.select_rect(vp, size, at(m.from), at(m.to), m.mode, ed.select_through);
+                    if ed.among_land() {
+                        ed.select_points(view.view_proj(&view.level, aspect), size, at(m.from), at(m.to), m.mode);
+                    } else {
+                        let vp = view.view_proj(&view.block, aspect);
+                        ed.select_rect(vp, size, at(m.from), at(m.to), m.mode, ed.select_through);
+                    }
                 }
             }
             Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } if ed.forms() && ed.joint_drag().is_none() => {
@@ -1772,6 +1859,10 @@ impl EditorWindow {
             }
             Event::MouseButtonDown { mouse_btn: MouseButton::Middle, x, y, .. } if !over(x, y) => view.held |= HELD_MIDDLE,
             Event::MouseButtonUp { mouse_btn: MouseButton::Middle, .. } => view.held &= !HELD_MIDDLE,
+            Event::MouseButtonUp { mouse_btn: MouseButton::Right, .. } if ed.among_land() => {
+                view.held &= !HELD_RIGHT;
+                view.right_press = None;
+            }
             Event::MouseButtonUp { mouse_btn: MouseButton::Right, x, y, .. } if !ed.among_pieces() => {
                 view.held &= !HELD_RIGHT;
                 // The voxel editor and the level of blocks: the menu of the
@@ -2059,6 +2150,47 @@ mod tests {
     /// make no step, and the camera stays as it looks; so do motions that
     /// carry buttons held from elsewhere (a press on a panel, a release
     /// lost). Opening frames the figure by its voxels, not its stated box.
+    /// TERRAIN in the window: a point under the mouse lit, pressed and
+    /// dragged up through the window's own events: the land up there as
+    /// the mouse goes, written at the let-go as one step; Escape lets go
+    /// of the choice.
+    #[test]
+    fn a_terrain_point_dragged_in_the_window_is_one_step() {
+        let dir = crate::scratch::Scratch::new("window-land");
+        std::fs::create_dir_all(dir.join("levels")).unwrap();
+        std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.voxcade = \"0.6.0\"\nend\n").unwrap();
+        std::fs::write(dir.join("main.lua"), "").unwrap();
+        let rows = ["4 4 4 4 4 4 4 4 4 4"; 6].join("\n");
+        std::fs::write(dir.join("levels/land.toml"), format!("format = \"voxcade level 1\"\nsize = [160, 96, 80]\n\n[terrain]\nspacing = 16\nheights = \"\"\"\n{rows}\n\"\"\"\n\n[[terrain.material]]\ncolor = \"#5c8a3a\"\n")).unwrap();
+        let (ed, view, cfg) = open::<crate::Voxcade>(&dir, Some("levels/land.toml"), None, false).unwrap();
+        let mut win = EditorWindow::headless(ed, view, cfg, &dir).unwrap();
+        view::act(&mut win.ed, &mut win.view, view::Action::Layer(Layer::Terrain));
+        for _ in 0..3 {
+            win.draw().unwrap();
+        }
+        let start = std::fs::read_to_string(dir.join("levels/land.toml")).unwrap();
+        let p = glam::IVec2::new(4, 3);
+        let vp = win.view.view_proj(&win.view.level, 1600.0 / 900.0);
+        let at = win.ed.points_on_screen(vp, glam::Vec2::new(1600.0, 900.0)).into_iter().find(|(q, _)| *q == p).unwrap().1;
+        motion(&mut win, at.x, at.y, 0);
+        assert_eq!(win.ed.land.hover, Some(p), "lit under the mouse");
+        button(&mut win, at.x, at.y, sdl3::mouse::MouseButton::Left, true);
+        for k in 1..=6 {
+            motion(&mut win, at.x, at.y - 10.0 * k as f32, 1);
+        }
+        let t = win.ed.terrain().unwrap();
+        let raised = t.heights[t.index(p).unwrap()];
+        assert!(raised > 10, "up as the mouse goes: {raised}");
+        assert_eq!(std::fs::read_to_string(dir.join("levels/land.toml")).unwrap(), start, "nothing written while dragging");
+        button(&mut win, at.x, at.y - 60.0, sdl3::mouse::MouseButton::Left, false);
+        assert_eq!(win.ed.steps(), 1, "one step");
+        assert!(std::fs::read_to_string(dir.join("levels/land.toml")).unwrap().contains(&format!(" {raised} ")));
+        assert_eq!(win.ed.land.chosen, Some(p));
+        let esc = sdl3::event::Event::KeyDown { timestamp: 0, window_id: 0, keycode: Some(sdl3::keyboard::Keycode::Escape), scancode: None, keymod: sdl3::keyboard::Mod::NOMOD, repeat: false, which: 0, raw: 0 };
+        assert!(win.handle(&esc, false));
+        assert_eq!(win.ed.land.chosen, None);
+    }
+
     /// GAME VIEW on the owner's figure: the figure fills the view from the
     /// game's angle; the wheel and the right button zoom and turn it and
     /// GAME VIEW stays on; pressed again, the editor's look as it was.

@@ -75,7 +75,7 @@ pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
         return shown;
     }
     // Among the pieces: the three zones of `stage.rs`.
-    if ed.among_pieces() {
+    if ed.among_pieces() || ed.among_land() {
         stage::ui(ui, ed, view, figures, thumbs, &mut shown);
         return shown;
     }
@@ -186,6 +186,9 @@ pub fn model_picture(path: &std::path::Path, fit: i32) -> (i32, i32, Vec<Option<
 /// places and areas with their names; and a quiet word on what the mouse
 /// does.
 pub fn marks(ui: &egui::Ui, ed: &Editor, view: &View, figures: &Figures, free: egui::Rect) {
+    if ed.among_land() && ed.question.is_none() {
+        return land_marks(ui, ed, view, free);
+    }
     if !ed.among_pieces() || ed.question.is_some() {
         return;
     }
@@ -221,6 +224,33 @@ pub fn marks(ui: &egui::Ui, ed: &Editor, view: &View, figures: &Figures, free: e
     }
     // The handles on the chosen one, over the rest.
     stage::paint_handles(&painter, ed, view, screen);
+}
+
+/// The terrain's points over the view, on its surface: a small square
+/// each, the one under the mouse and the chosen ones lit; SELECT's
+/// rectangle.
+fn land_marks(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
+    let screen = ui.ctx().content_rect();
+    let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::unique("land marks"))).with_clip_rect(free);
+    let vp = view.view_proj(&view.level, screen.width() / screen.height().max(1.0));
+    let size = glam::Vec2::new(screen.width(), screen.height());
+    let gold = ACCENT;
+    let plain = Color32::from_rgb(150, 205, 235);
+    for (p, s) in ed.points_on_screen(vp, size) {
+        let at = egui::pos2(screen.left() + s.x, screen.top() + s.y);
+        if !free.contains(at) {
+            continue;
+        }
+        let chosen = ed.land.selected.contains(&p) || (ed.land.selected.is_empty() && ed.land.chosen == Some(p));
+        let lit = ed.land.hover == Some(p);
+        let r = if lit || chosen { 4.0 } else { 2.5 };
+        let fill = if chosen { gold } else if lit { plain } else { Color32::from_rgba_unmultiplied(24, 23, 30, 200) };
+        painter.rect(egui::Rect::from_center_size(at, egui::vec2(2.0 * r, 2.0 * r)), 1.0, fill, egui::Stroke::new(1.0, if chosen || lit { Color32::from_rgb(24, 23, 30) } else { plain }), egui::StrokeKind::Middle);
+    }
+    if let Some(m) = view.marquee {
+        let at = |s: [f32; 2]| egui::pos2(screen.left() + s[0] * screen.width(), screen.top() + s[1] * screen.height());
+        painter.rect_stroke(egui::Rect::from_two_pos(at(m.from), at(m.to)), 0.0, egui::Stroke::new(1.0, gold), egui::StrokeKind::Middle);
+    }
 }
 
 /// What a key does on the panels as they were last drawn.

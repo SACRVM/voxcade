@@ -459,7 +459,7 @@ impl Editor {
 
 /// A level's state as a step keeps it.
 fn state_of(l: &GridLevel) -> LevelState {
-    LevelState { size: l.size, cells: l.cells.clone(), table: l.blocks.clone(), things: l.things.clone(), places: l.places.clone(), areas: l.areas.clone(), daylight: l.daylight.clone().map(Box::new) }
+    LevelState { size: l.size, cells: l.cells.clone(), table: l.blocks.clone(), things: l.things.clone(), places: l.places.clone(), areas: l.areas.clone(), daylight: l.daylight.clone().map(Box::new), terrain: l.terrain.clone().map(Box::new) }
 }
 
 // ------------------------------------------------------------- laying on
@@ -654,10 +654,50 @@ fn rebase_level(b: &LevelState, a: &LevelState, d: &LevelState) -> Result<LevelS
     if b.daylight != a.daylight {
         o.daylight = a.daylight.clone();
     }
+    if b.terrain != a.terrain {
+        o.terrain = rebase_terrain(b.terrain.as_deref(), a.terrain.as_deref(), d.terrain.as_deref())?.map(Box::new);
+    }
     o.things = rebase_list(&b.things, &a.things, &d.things)?;
     o.places = rebase_list(&b.places, &a.places, &d.places)?;
     o.areas = rebase_list(&b.areas, &a.areas, &d.areas)?;
     Ok(o)
+}
+
+/// A terrain's step laid on the file's: the points it changed, one by
+/// one, where both grids are alike; else the step's terrain whole, if the
+/// file's is as the step began.
+fn rebase_terrain(b: Option<&crate::terrain::Terrain>, a: Option<&crate::terrain::Terrain>, d: Option<&crate::terrain::Terrain>) -> Result<Option<crate::terrain::Terrain>, String> {
+    match (b, a, d) {
+        (Some(b), Some(a), Some(d)) if (b.cols, b.rows) == (a.cols, a.rows) && (d.cols, d.rows) == (b.cols, b.rows) => {
+            let mut o = d.clone();
+            for i in 0..b.heights.len() {
+                if b.heights[i] != a.heights[i] {
+                    o.heights[i] = a.heights[i];
+                }
+                if b.shapes[i] != a.shapes[i] {
+                    o.shapes[i] = a.shapes[i];
+                }
+            }
+            match (&b.roughness, &a.roughness, &mut o.roughness) {
+                (Some(br), Some(ar), Some(or)) => {
+                    for i in 0..br.len() {
+                        if br[i] != ar[i] {
+                            or[i] = ar[i];
+                        }
+                    }
+                }
+                (br, ar, _) if br != ar => o.roughness = ar.clone(),
+                _ => {}
+            }
+            if (b.spacing, b.at, b.terrace, b.rough, b.seed) != (a.spacing, a.at, a.terrace, a.rough, a.seed) || (&b.under, &b.materials, &b.layers) != (&a.under, &a.materials, &a.layers) {
+                (o.spacing, o.at, o.terrace, o.rough, o.seed) = (a.spacing, a.at, a.terrace, a.rough, a.seed);
+                (o.under, o.materials, o.layers) = (a.under.clone(), a.materials.clone(), a.layers.clone());
+            }
+            Ok(Some(o))
+        }
+        _ if d == b => Ok(a.cloned()),
+        _ => Err("the level's terrain changed in the file too".into()),
+    }
 }
 
 /// A block's step laid on its file as it is now: the voxels it changed.

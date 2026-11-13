@@ -1288,6 +1288,135 @@ fn a_game_sets_its_daylight() {
     }
 }
 
+/// `frame:camera` sets this picture's camera alone: a picture with it is
+/// seen from there (`look_at`, `width`; without `look_at` still on what the
+/// game's camera follows; a point without its height at the camera's),
+/// the next without it from the game's camera, as if it never was; a wrong
+/// key or value, and a turn round (yaw), say so.
+#[test]
+fn a_picture_sets_its_camera() {
+    use crate::camera;
+    let main = "function on_draw(frame)\n\
+                  if world.tick == 2 then frame:camera{ look_at = { 10, 20, 3 }, width = 40 } end\n\
+                  if world.tick == 3 then frame:camera{ width = 60 } end\n\
+                  if world.tick == 4 then frame:camera{ look_at = { 10, 20 } } end\n\
+                end\n";
+    let mut g = game_in(&code_world("camera", main, &[]));
+    let plain = |g: &Session<LuaGame>| {
+        let cam = &g.cfg.camera;
+        camera::view_proj(cam, g.view_target(0.0), 16.0 / 9.0)
+    };
+    let mut cam = g.cfg.camera.clone();
+    steps(&mut g, 1);
+    assert_eq!(g.compose(0.0, 16.0 / 9.0, Scene::Play, None).view_proj, plain(&g), "the game's camera");
+    steps(&mut g, 1);
+    let f = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+    cam.show_width(40.0);
+    let at = glam::Vec3::new(10.0, 20.0, 3.0);
+    assert_eq!(halted(&g), "");
+    assert_eq!(f.view_proj, camera::view_proj(&cam, at, 16.0 / 9.0), "seen from where the picture says");
+    assert_eq!(f.eye, camera::eye(&cam, at, 16.0 / 9.0));
+    steps(&mut g, 1);
+    // A width alone: closer, on what the game's camera follows.
+    let mut zoomed = g.cfg.camera.clone();
+    zoomed.show_width(60.0);
+    let f = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+    assert_eq!(f.view_proj, camera::view_proj(&zoomed, g.view_target(0.0), 16.0 / 9.0), "zoomed in, still following");
+    steps(&mut g, 1);
+    // A point without its height: the camera's own height there.
+    let f = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+    let z = g.view_target(0.0).z;
+    assert_eq!(f.view_proj, camera::view_proj(&g.cfg.camera, glam::Vec3::new(10.0, 20.0, z), 16.0 / 9.0));
+    steps(&mut g, 1);
+    assert_eq!(g.compose(0.0, 16.0 / 9.0, Scene::Play, None).view_proj, plain(&g), "the next picture without it: the game's camera");
+    assert_eq!(g.face_mask(), game_in(&code_world("camera-none", "function on_tick() end\n", &[])).face_mask(), "moved and zoomed: the same faces");
+    for (bad, want) in [
+        ("frame:camera{ yaw = 30 }", "does not turn round yet"),
+        ("frame:camera{ width = 0 }", "above 0"),
+        ("frame:camera{ width = 40, height = 30 }", "not both"),
+        ("frame:camera{ pitch = 120 }", "from -89"),
+        ("frame:camera{ pitch = \"steep\" }", "pitch is degrees"),
+        ("frame:camera{ fov = 5 }", "from 10 to 100"),
+        ("frame:camera{ look_at = { 1 } }", "look_at is a point"),
+        ("frame:camera{ zoom = 2 }", "no 'zoom'"),
+        ("frame:camera{ aspect = 2 }", "c.camera.aspect"),
+        ("frame:camera(3)", "a table"),
+    ] {
+        let mut g = game_in(&code_world("camera-bad", &format!("function on_draw(frame) {bad} end\n"), &[]));
+        steps(&mut g, 1);
+        g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+        assert!(halted(&g).contains(want), "{bad}: {}", halted(&g));
+    }
+}
+
+/// `frame:to_screen` after `frame:camera` says where a point shows in the
+/// picture's camera: the point looked at in the middle.
+#[test]
+fn to_screen_goes_by_the_pictures_camera() {
+    let main = "function on_draw(frame)\n\
+                  frame:camera{ look_at = { 7, 9, 2 }, width = 50 }\n\
+                  local x, y = frame:to_screen({ x = 7, y = 9, z = 2 })\n\
+                  frame:text(string.format('%d %d', math.floor(x + 0.5), math.floor(y + 0.5)), 1, 1)\n\
+                end\n";
+    let mut g = game_in(&code_world("camera-screen", main, &[]));
+    steps(&mut g, 1);
+    g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+    let layout = crate::ui::Layout::of(&g.cfg.ui, 16.0 / 9.0);
+    assert_eq!(first_text(&g), format!("{} {}", (layout.width * 0.5 + 0.5).floor(), (layout.height * 0.5 + 0.5).floor()));
+}
+
+/// Drawing with a camera of the picture's own changes nothing the game
+/// keeps: the state hash is the same drawn or not, and a run recorded
+/// while drawing plays back the same (a replay draws after every tick).
+#[test]
+fn a_pictures_camera_leaves_the_game_alone() {
+    use crate::replay::{Recorder, Verdict, play_through};
+    let main = "function on_world_start() world.state.n = 0 end\n\
+                function on_tick() world.state.n = world.state.n + math.random(1, 3) end\n\
+                function on_draw(frame) frame:camera{ look_at = { 8 + world.tick % 20, 16, 2 }, width = 30 + world.tick % 50, pitch = 20 } end\n";
+    let dir = code_world("camera-replay", main, &[]);
+    let (mut drawn, mut not) = (game_in(&dir), game_in(&dir));
+    let mut recorder = Recorder::default();
+    for _ in 0..240 {
+        drawn.step(&Input::default());
+        not.step(&Input::default());
+        drawn.compose(0.5, 21.0 / 9.0, Scene::Play, None);
+        recorder.record(&drawn);
+        assert_eq!(drawn.game.state_hash(), not.game.state_hash(), "drawn or not, the same game");
+    }
+    assert_eq!(halted(&drawn), "");
+    let replay = recorder.replay(&drawn).unwrap();
+    assert_eq!(play_through::<LuaGame>(&dir, &replay).unwrap(), Verdict::Same);
+}
+
+/// The faces a picture's camera needs: one moved or zoomed looks along the
+/// same rays (the same faces, the same meshes); one at another pitch adds
+/// what its rays can hit (looking up: the faces underneath), from that
+/// picture on, and a mesh then holds them.
+#[test]
+fn a_pictures_pitch_keeps_the_faces_it_sees() {
+    use crate::mesh::{DIRS, mesh_chunk};
+    let main = "function on_level_start() level:fill(4, 4, 4, 12, 12, 5, '#806040') end\n\
+                function on_draw(frame) if world.tick >= 3 then frame:camera{ pitch = -20 } else frame:camera{ look_at = { 4, 4, 2 }, width = 20 } end end\n";
+    let mut g = game_in(&code_world("camera-faces", main, &[]));
+    let before = g.face_mask();
+    let under = DIRS.iter().position(|d| d.z < 0).unwrap();
+    assert!(!before[under], "the game's camera never sees under");
+    steps(&mut g, 2);
+    g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+    assert_eq!(g.face_mask(), before, "moved and zoomed: the same faces");
+    steps(&mut g, 1);
+    g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+    let after = g.face_mask();
+    assert!(after[under] && before.iter().zip(after).all(|(b, a)| !b || a), "looking up: the faces underneath too, {after:?}");
+    steps(&mut g, 1);
+    assert_eq!(g.face_mask(), after, "kept from then on");
+    let (mut v, mut i, mut w, mut j) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    mesh_chunk(g.world_mut(), glam::IVec3::ZERO, &before, &mut v, &mut i);
+    mesh_chunk(g.world_mut(), glam::IVec3::ZERO, &after, &mut w, &mut j);
+    assert!(w.len() > v.len() && w.iter().any(|x| x.normal[2] < 0), "the slab's underside in the mesh");
+}
+
 /// A game's own logo, a model of parts (`c.title_screen.logo_model`:
 /// BunnyFarm's, a letter each), takes the place of its lines of letters:
 /// its parts come from the model bank, falling in one after another; its
@@ -4517,6 +4646,33 @@ fn the_hero_stands_on_a_solid_piece() {
     }
     let (x, z): (f32, f32) = (said(&mut g, "player.x").parse().unwrap(), said(&mut g, "player.z").parse().unwrap());
     assert!(x < 98.0 && x > 90.0 && z == 2.0, "stopped by the wall at {x}, {z}");
+}
+
+/// A level of a terrain and pieces: the hero lands on the land where its
+/// column's height says (`level:ground` too), and on a solid piece set on
+/// it; the land is loaded the same every time.
+#[test]
+fn the_hero_stands_on_a_terrain() {
+    let dir = crate::scratch::Scratch::new("terrain-hero");
+    std::fs::create_dir_all(dir.join("levels")).unwrap();
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3 }\n  c.things.hero = { behavior = \"hero\", height = 6 }\nend\n").unwrap();
+    std::fs::write(dir.join("slab.vvx"), SLAB).unwrap();
+    let level = "format = \"voxcade level 1\"\nsize = [128, 64, 80]\n\n[terrain]\nspacing = 16\nheights = \"\"\"\n 4  6 10 20 30 30 20 10\n 4  8 14 24 36 40 20 10\n 4  6 10 20 30 30 20 10\n 2  2  2  2  2  2  2  2\n\"\"\"\nshapes = \"\"\"\n. . . . # # . .\n. . . . # # . .\n. . . . # # . .\n. . . . . . . .\n\"\"\"\n\n[[terrain.material]]\ncolor = \"#7d7468\"\nsteeper = 45\n\n[[terrain.material]]\ncolor = \"#5c8a3a\"\ngrain = 0.3\n\n[[thing]]\nkind = \"hero\"\nat = [24, 40, 60]\n\n[[thing]]\nname = \"slab\"\nmodel = \"slab.vvx\"\nat = [72, 40, 36]\nsolid = true\n";
+    std::fs::write(dir.join("levels/hills.toml"), level).unwrap();
+    std::fs::write(dir.join("main.lua"), "").unwrap();
+    let mut g = game_in(&dir);
+    assert_eq!(halted(&g), "");
+    let ground = said(&mut g, "level:ground(24, 40)");
+    let t = crate::grid::GridLevel::from_text(level).unwrap().terrain.unwrap();
+    assert_eq!(ground, t.surface().at(glam::IVec2::new(24, 40)).unwrap().to_string(), "the ground is the land's height there");
+    steps(&mut g, 90);
+    assert_eq!(said(&mut g, "player.z"), format!("{ground}.0"), "the hero on the land");
+    // On the slab set on the terraced land (STEP): its top at 40.
+    said(&mut g, "player:place(72, 40, 50)");
+    steps(&mut g, 90);
+    assert_eq!(said(&mut g, "player.z"), "40.0", "on the slab on the plateau");
+    let again = game_in(&dir);
+    assert_eq!(g.game.sim().world.content_hash(), again.game.sim().world.content_hash(), "the same voxels every time");
 }
 
 /// A scenario that only names where the run begins (a level, a place

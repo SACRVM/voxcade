@@ -8,7 +8,8 @@ use glam::{Mat4, Vec3};
 use crate::config::CameraConfig;
 
 /// Widest screen the face set has to cover (21:9). Wider windows would
-/// need the faces of objects at the far left and right edges re-checked.
+/// need the faces of objects at the far left and right edges re-checked
+/// (a picture of its own shape, `c.camera.aspect`, wider: its width).
 const MAX_ASPECT: f32 = 2.4;
 
 pub fn view_dir(cfg: &CameraConfig) -> Vec3 {
@@ -61,7 +62,8 @@ pub fn corner_rays(cfg: &CameraConfig) -> [Vec3; 4] {
     let dir = view_dir(cfg);
     let (right, up) = right_up(cfg);
     let v = (fov(cfg) * 0.5).tan();
-    let h = v * MAX_ASPECT;
+    // (A picture of its own shape wider still: as wide as that.)
+    let h = v * cfg.aspect.map_or(MAX_ASPECT, |a| a.max(MAX_ASPECT));
     [
         (dir - right * h - up * v).normalize(),
         (dir + right * h - up * v).normalize(),

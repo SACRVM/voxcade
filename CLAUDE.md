@@ -594,6 +594,41 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   the order of the marker entries, each one's cells in reading order);
   `c.markers` is no more (the upgrade moves it into the files). The height
   and material maps stay PNG pictures.
+- A level may hold a landscape, `[terrain]` (`src/terrain.rs`,
+  `docs/tiles.md`, 2026-11-13; the owner's "landscape generator light",
+  text, no height picture): `spacing`, `at`, `heights` (whole voxels at
+  control points, the far row first, lined up), `shapes` (`.` SMOOTH a
+  clamped Catmull-Rom, `^` LINEAR, `#` STEP: that land cut into terraces
+  whose cliffs follow its contours; the first STEP, a plateau over each
+  point's square, was "more angular than Minecraft" and is gone; shapes
+  blend by the four points' bilinear weights), `terrace`, `rough` and
+  `roughness` (three octaves of value noise, a digit a point),
+  `[[terrain.layer]]` (bands of rock from the bottom up, `thick`, `hard`:
+  a wall or a slope of scree, their colors on walls only, a voxel open
+  over a drop of 3 or more, where only the unconditional material would
+  paint; the owner saw red specks on a plateau before), `seed`, `under`,
+  `[[terrain.material]]` (the first whose `above`, `below`, `steeper`,
+  `flatter` all hold paints, the slope over three voxels each way, the
+  gentler side, so a contour step is no slope; `blend` lets the borders
+  wander, lower in hollows; `colors` two or three tones in patches of
+  warped noise, `patch`; `depth`,
+  `grain` as real palette shades; the last has no conditions). Every word
+  optional, unset changing nothing (test
+  `a_terrain_without_the_later_words_builds_as_before` pins the voxels).
+  Built with the level (`grid::build`, after the blocks, their colors
+  first): every column from the world's floor up, so nothing hangs and
+  nothing falls loose, in plain sums and our own value noise (`libm`'s
+  tangent; test `the_simulation_does_its_own_math` scans it), 640 by 576
+  voxels with every word in about 160 ms (640 by 400 plain about 50). The level editor's
+  TERRAIN (`editor/land.rs`): points on the land dragged up and down with
+  a brush (RADIUS), SELECT, FLATTEN, SMOOTH, PAINT, ROUGHEN, CALM, SHAPE,
+  SPACING, POINTS, TERRACE, ROUGH, SEED with REROLL (`gui::dice`),
+  LAYERS, MATERIALS, UNDER; the view built again only where points
+  changed (`Shown::update_land`); only its lines of the file change.
+  `tools/vvx.py` reads and writes it (`read_terrain`,
+  `write_terrain_level`). A model ADDed among the pieces stays on the
+  mouse for the next click until Escape (`Editor::stamp`: firs by the
+  dozen).
 
 - The simulation (`src/sim/` and a game's rules, `src/shooter/`) is deterministic: fixed tick (`DT`), randomness
   only from `Sim::rng`, no clock, no iteration over `HashMap` in game logic.
@@ -1055,7 +1090,17 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `a_view_from_above_stops_at_the_level_edges`). Meshes only
   contain faces that some view ray or the sun can hit (`mesh::face_mask`
   over `camera::corner_rays`); if you change camera or sun handling, rebuild
-  all meshes. A game sets its daylight per picture (`frame:daylight` in
+  all meshes. A game sets its camera per picture (`frame:camera` in
+  `on_draw`: `look_at`, `width`/`height`, `pitch`, `fov`, no yaw yet;
+  `session::PictureCamera`, `Viewing`; only the picture): moved or zoomed
+  it looks along the same rays (no more faces); another pitch or fov
+  adds its rays' faces from then on (`Session::seen_faces`, the window,
+  `shot` and the IDE rebuild the meshes once when `face_mask` grows), and
+  a game whose code calls it leaves models out of view only once the
+  camera is known (`Drawing::cull`). `c.camera.aspect` draws the picture
+  into the largest rectangle of that shape, black bars round it
+  (`Renderer::set_shape`, `render::letterbox`; the callers pass
+  `Session::picture_aspect`). A game sets its daylight per picture (`frame:daylight` in
   `on_draw`: the sun's way and colour, ambient, shadow, sky; the rest
   `c.light`'s, `session::Daylight`); a game whose code names `daylight`
   keeps every face a sun above the horizon can light
@@ -1435,7 +1480,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   ADD, ERASE, PAINT, PICK), American English; the inspector's X/Y/Z
   fields on three equal columns, numbers right-aligned (`zones::col`).
   `voxcade edit GAME --level FILE --shot OUT [--choose NAME --add MODEL
-  --at X,Y,Z --hide NAME --click X,Y ...]` to look.
+  --at X,Y,Z --hide NAME --click X,Y ...]` to look; the terrain with
+  `--terrain [--raise X,Y --by N --radius R] [--shape X,Y step]`.
 - An editor never writes an older state over a newer file (the level
   editor once wrote its level as it had opened it over an agent's
   changes, the owner's lost work, 2026-11-12; `editor/disk.rs`): it

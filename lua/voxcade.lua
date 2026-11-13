@@ -31,6 +31,13 @@
 ---@field shadow? number How much a shadow darkens, 0 to 1.
 ---@field sky? Color The background's colour.
 
+---@class PictureCamera What a picture's camera sets (frame:camera); what it leaves out is c.camera's.
+---@field look_at? Point|Thing|number[] The point the view centres on, { x, y, z } in voxels (z left out: the camera's height), or a thing; left out, the view follows what the camera follows.
+---@field width? number How many voxels the picture shows across where it looks.
+---@field height? number Or how many it shows from bottom to top there (not both).
+---@field pitch? number Degrees below the horizon, -89 (looking up) to 90 (straight down).
+---@field fov? number The field of view up and down, 10 to 100 degrees.
+
 ---@class MenuRow A row of a menu (frame:menu).
 ---@field text string What it says.
 ---@field value? string|number At its right: a price, a count.
@@ -429,6 +436,10 @@ function Frame:light(at, radius, color) end
 ---This picture's daylight: the sun's way (sun = { x, y, z }, its light travelling down), its colour and strength (sun_color, white unless set), the light every face gets (ambient, 0 to 1), how dark shadows are (shadow, 0 to 1) and the sky's colour (sky); what you leave out is c.light's. Work it out from your game's clock every picture for a day and a night: the sun low and warm at dawn, white at noon, orange at dusk, a dim blue at night with frame:light lamps. Only the picture: the game's rules do not see it. A game whose code names daylight has every face a sun above the horizon can light in its level.
 ---@param light Daylight
 function Frame:daylight(light) end
+
+---This picture's camera, for a scene shot by the engine: zoom in on something and out again, a cut, a slow pan. look_at is the point the view centres on ({ x, y, z } in voxels, z left out: the camera's height; or a thing), width how many voxels the picture shows across there (or height, how many from bottom to top), pitch degrees below the horizon, fov the field of view; what you leave out is the game's camera's (c.camera), so { width = 80 } zooms in on what the camera follows and keeps following it. Only this picture: the next one without it is the game's camera again, nothing is kept, so call it in every picture the scene lasts and work a pan out from your clock (world.tick + frame.alpha, music.beat); the engine smooths nothing. Only the picture: the game's rules, the sounds and level.camera do not see it; frame:to_screen after it goes by it. The camera does not turn round yet. A picture at another pitch or fov than c.camera's needs faces of the level the game's own view never shows: the level is built anew with them once, a moment's hitch the first time.
+---@param camera PictureCamera
+function Frame:camera(camera) end
 
 ---A menu in the engine's look, on a plate: a title, tabs (tab: the chosen one, from 1), rows (a text, or { text =, value =, icon =, dim = }: a value at the right, an icon of c.icons before the text, dimmed when it cannot be had), the chosen row (at, from 1) yellow with the engine's red marker, and a hint below; an action in braces is its key. In the middle of the screen unless x and y say where (its top left), as wide as it needs unless width says; shown = how many rows show at most, a longer list scrolled to keep at in view. What is open and where the cursor stands is your game's: keep it in level.state, hold the level while it is open (level.state.held = true) and move it in on_tick (input:repeated).
 ---@param menu Menu

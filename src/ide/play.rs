@@ -366,8 +366,18 @@ impl<G: Game> Play<G> {
             self.target = Some(Target { texture, view, size, id });
         }
         let target = self.target.as_ref().expect("made above");
-        let aspect = size[0] as f32 / size[1].max(1) as f32;
+        // The picture's shape: the game's own (bars round it), else the
+        // play area's.
+        let aspect = self.game.picture_aspect(size[0] as f32 / size[1].max(1) as f32);
+        self.renderer.set_shape(device, self.game.cfg.camera.aspect);
         let frame = self.game.menu_frame(&Menu::default(), &self.settings, self.accumulator / DT, aspect, Scene::Play);
+        // A picture at another pitch or field of view (`frame:camera`) may
+        // need faces the meshes left out: built anew with them, once.
+        let faces = self.game.face_mask();
+        if faces != self.mask {
+            self.mask = faces;
+            self.renderer.rebuild_all(device, queue, self.game.world_mut(), &self.mask);
+        }
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("play") });
         self.renderer.render(device, queue, &mut encoder, &target.view, &frame);
         queue.submit([encoder.finish()]);

@@ -48,6 +48,7 @@ pub mod settings;
 pub mod shooter;
 pub mod sim;
 pub mod update;
+pub mod terrain;
 pub mod tiled;
 pub mod ui;
 pub mod vox;

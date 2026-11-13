@@ -1881,6 +1881,8 @@ pub enum Cmd {
     Drop { text: String, x: f32, y: f32, ticks: f32, color: [u8; 4], size: i32 },
     /// This picture's daylight (`frame:daylight`).
     Daylight(crate::session::Daylight),
+    /// This picture's camera (`frame:camera`).
+    Camera(crate::session::PictureCamera),
     /// A menu in the engine's look (`frame:menu`).
     Menu(Menu),
     /// Slots in a grid, an inventory's (`frame:grid`).
@@ -2164,6 +2166,9 @@ pub struct Frame {
     /// drawn on the grid (`to_screen`).
     pub view_proj: glam::Mat4,
     pub snap: bool,
+    /// How the play is seen unless `frame:camera` says otherwise (None on
+    /// the title), so `to_screen` after it goes by the picture's camera.
+    pub viewing: Option<crate::session::Viewing>,
 }
 
 /// A text size: 1 the pixel font, 2 and up the big letters.
@@ -2380,6 +2385,86 @@ fn color(v: Option<Table>, default: [u8; 4]) -> mlua::Result<[u8; 4]> {
     Ok([c(1)?, c(2)?, c(3)?, c(4)?])
 }
 
+/// `frame:camera{ look_at =, width =, height =, pitch =, fov = }`: what it
+/// sets of this picture's camera, the rest the game's (`c.camera`). A thing
+/// to look at is where it is drawn (at `alpha` into the tick, its middle).
+fn picture_camera(lua: &Lua, t: &Table, alpha: f32) -> mlua::Result<crate::session::PictureCamera> {
+    let fail = |what: String| mlua::Error::runtime(format!("frame:camera: {what}"));
+    let mut cam = crate::session::PictureCamera::default();
+    let number = |v: &Value, key: &str, says: &str| -> mlua::Result<f32> {
+        match v {
+            Value::Integer(n) => Ok(*n as f32),
+            Value::Number(n) if n.is_finite() => Ok(*n as f32),
+            _ => Err(fail(format!("{key} is {says}, not {}", v.type_name()))),
+        }
+    };
+    for pair in t.pairs::<Value, Value>() {
+        let (key, v) = pair?;
+        let key = match &key {
+            Value::String(s) => s.to_str()?.to_string(),
+            _ => return Err(fail("its keys are look_at, width, height, pitch and fov".into())),
+        };
+        match key.as_str() {
+            "look_at" => {
+                cam.look_at = Some(match &v {
+                    Value::UserData(ud) if ud.is::<ThingRef>() => {
+                        let id = ud.borrow::<ThingRef>()?.0;
+                        let at = look(lua, |h| {
+                            let b = &h.thing(id)?.body;
+                            Ok(crate::session::between(b.prev, b.pos, alpha) + (b.centre() - b.pos))
+                        })?;
+                        (at.x, at.y, Some(at.z))
+                    }
+                    Value::Table(p) => {
+                        let get = |name: &str, i: i64| -> mlua::Result<Option<f32>> {
+                            let v = match p.get::<Value>(name)? {
+                                Value::Nil => p.get::<Value>(i)?,
+                                v => v,
+                            };
+                            match v {
+                                Value::Nil => Ok(None),
+                                v => number(&v, "look_at", "a point { x, y, z } in voxels (z may be left out: the game's camera's height)").map(Some),
+                            }
+                        };
+                        let need = "look_at is a point { x, y, z } in voxels (z may be left out: the game's camera's height)";
+                        let (Some(x), Some(y)) = (get("x", 1)?, get("y", 2)?) else { return Err(fail(need.into())) };
+                        (x, y, get("z", 3)?)
+                    }
+                    _ => return Err(fail("look_at is a point { x, y, z } in voxels or a thing".into())),
+                })
+            }
+            "width" | "height" => {
+                let n = number(&v, &key, "how many voxels the picture shows across (width) or high (height) where it looks")?;
+                if n <= 0.0 {
+                    return Err(fail(format!("{key} = {n}: how many voxels the picture shows, above 0")));
+                }
+                if key == "width" { cam.width = Some(n) } else { cam.height = Some(n) }
+            }
+            "pitch" => {
+                let n = number(&v, "pitch", "degrees below the horizon")?;
+                if !(-89.0..=90.0).contains(&n) {
+                    return Err(fail(format!("pitch = {n}: degrees below the horizon, from -89 (looking up) to 90 (straight down)")));
+                }
+                cam.pitch = Some(n);
+            }
+            "fov" => {
+                let n = number(&v, "fov", "the field of view up and down in degrees")?;
+                if !(10.0..=100.0).contains(&n) {
+                    return Err(fail(format!("fov = {n}: the field of view up and down, from 10 to 100 degrees")));
+                }
+                cam.fov = Some(n);
+            }
+            "yaw" | "rotation" => return Err(fail(format!("{key}: the camera does not turn round yet (it looks the way c.camera says)"))),
+            "aspect" => return Err(fail("aspect: the picture's shape is the game's, c.camera.aspect in conf.lua".into())),
+            other => return Err(fail(format!("no '{other}': it sets look_at, width, height, pitch and fov"))),
+        }
+    }
+    if cam.width.is_some() && cam.height.is_some() {
+        return Err(fail("width or height, not both: the other follows the picture's shape".into()));
+    }
+    Ok(cam)
+}
+
 /// `frame:daylight{ sun =, sun_color =, ambient =, shadow =, sky = }`: what
 /// it sets of this picture's daylight, the rest `c.light`'s.
 fn daylight(t: &Table) -> mlua::Result<crate::session::Daylight> {
@@ -2479,6 +2564,16 @@ impl UserData for Frame {
         });
         m.add_method_mut("daylight", |_, o, t: Table| {
             o.cmds.push(Cmd::Daylight(daylight(&t)?));
+            Ok(())
+        });
+        m.add_method_mut("camera", |lua, o, t: Value| {
+            let Value::Table(t) = t else { return Err(mlua::Error::runtime("frame:camera: a table of what it sets, frame:camera({ look_at = { x, y, z }, width = 120 })")) };
+            let cam = picture_camera(lua, &t, o.alpha)?;
+            // Where points show from here on: the picture's camera.
+            if let Some(viewing) = &o.viewing {
+                o.view_proj = viewing.view_proj(Some(&cam));
+            }
+            o.cmds.push(Cmd::Camera(cam));
             Ok(())
         });
         m.add_method_mut("text", |lua, o, (text, x, y, rgba, size): (String, f32, f32, Option<Table>, Option<i32>)| {

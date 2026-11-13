@@ -502,6 +502,107 @@ def write_level(path, block, size, blocks, cells, things=(), places=(), kept=Non
         f.write(text)
 
 
+# --- terrain (src/terrain.rs): a level's [terrain] ----------------------------
+
+
+TERRAIN_HEAD = "[terrain]             # heights in voxels, the far row first; shapes . SMOOTH ^ LINEAR # STEP\n"
+MATERIAL_HEAD = "[[terrain.material]]  # the first that fits paints\n"
+LAYER_HEAD = "[[terrain.layer]]     # from the bottom up, again and again upward\n"
+
+
+def _rust_num(v):
+    """A number as the engine writes an f64 (`45`, `0.25`)."""
+    return str(int(v)) if float(v) == int(v) else repr(float(v))
+
+
+def _grid(rows, width):
+    return '"""\n' + "".join(" ".join(f"{w:>{width}}" for w in row) + "\n" for row in rows) + '"""'
+
+
+def read_terrain(path):
+    """The [terrain] of a level as {"spacing", "at", "heights": [[...]],
+    "shapes": [["." ...]], "terrace", "rough", "roughness": [[0..9 ...]] or
+    None, "seed", "under", "layers": [{"thick", "hard", "color"}],
+    "materials": [{...}]}: rows by y from the front (y 0 first; the file
+    writes the far row first), each material's and layer's fields as the
+    file gives them (a material's "colors" a list). None without one."""
+    with open(path, "rb") as f:
+        data = tomllib.load(f)
+    t = data.get("terrain")
+    if t is None:
+        return None
+    heights = [[int(w) for w in line.split()] for line in t["heights"].split("\n") if line.split()][::-1]
+    if "shapes" in t:
+        shapes = [line.split() for line in t["shapes"].split("\n") if line.split()][::-1]
+    else:
+        shapes = [["."] * len(row) for row in heights]
+    roughness = None
+    if "roughness" in t:
+        roughness = [[int(w) for w in line.split()] for line in t["roughness"].split("\n") if line.split()][::-1]
+    return {"spacing": t["spacing"], "at": t.get("at", [0, 0, 0]), "heights": heights, "shapes": shapes,
+            "terrace": t.get("terrace"), "rough": t.get("rough"), "roughness": roughness,
+            "seed": t.get("seed"), "under": t.get("under"), "layers": [dict(l) for l in t.get("layer", [])],
+            "materials": [dict(m) for m in t.get("material", [])]}
+
+
+def terrain_text(t):
+    """A terrain (as `read_terrain` gives it) as the engine writes it."""
+    rows = t["heights"][::-1]
+    width = max(len(str(h)) for row in rows for h in row)
+    text = TERRAIN_HEAD + f"spacing = {t['spacing']}\n"
+    if list(t.get("at") or [0, 0, 0]) != [0, 0, 0]:
+        text += "at = [%d, %d, %d]\n" % tuple(t["at"])
+    text += f"heights = {_grid(rows, width)}\n"
+    shapes = t.get("shapes")
+    if shapes and any(s != "." for row in shapes for s in row):
+        text += f"shapes = {_grid(shapes[::-1], width)}\n"
+    if t.get("terrace") is not None:
+        text += f"terrace = {int(t['terrace'])}\n"
+    if t.get("rough") is not None:
+        text += f"rough = {_rust_num(t['rough'])}\n"
+    if t.get("roughness") is not None:
+        text += f"roughness = {_grid(t['roughness'][::-1], width)}\n"
+    if t.get("seed") is not None:
+        text += f"seed = {t['seed']}\n"
+    if t.get("under"):
+        text += f'under = "{t["under"]}"\n'
+    for l in t.get("layers") or []:
+        text += "\n" + LAYER_HEAD + f"thick = {int(l['thick'])}\nhard = {_rust_num(l['hard'])}\n" + f'color = "{l["color"]}"\n'
+    for m in t["materials"]:
+        colors = m.get("colors")
+        if colors:
+            text += "\n" + MATERIAL_HEAD + "colors = [" + ", ".join(f'"{c}"' for c in colors) + "]\n"
+        else:
+            text += "\n" + MATERIAL_HEAD + f'color = "{m["color"]}"\n'
+        for key in ("above", "below", "steeper", "flatter", "depth", "grain", "patch", "blend"):
+            if m.get(key) is not None:
+                text += f"{key} = {_rust_num(m[key]) if key in ('steeper', 'flatter', 'grain', 'blend') else int(m[key])}\n"
+    return text
+
+
+def write_terrain_level(path, size, terrain, things=()):
+    """A level without blocks, `size` voxels, its land `terrain` (as
+    `read_terrain` gives it) and `things` [{"name"?, "kind"? or "model",
+    "at", "rotation"?, "solid"?}], as the engine writes it."""
+    text = f'format = "{LEVEL_FORMAT}"\nsize = [%d, %d, %d]    # voxels: across (x), deep (y, 0 in front), up (z); no grid of blocks\n' % tuple(size)
+    text += "\n" + terrain_text(terrain)
+    for t in things:
+        text += "\n[[thing]]\n"
+        if t.get("name"):
+            text += f'name = "{t["name"]}"\n'
+        if t.get("kind"):
+            text += f'kind = "{t["kind"]}"\n'
+        if t.get("model"):
+            text += f'model = "{t["model"]}"\n'
+        text += "at = [%d, %d, %d]\n" % tuple(t["at"])
+        if t.get("rotation") is not None:
+            text += f"rotation = {_rust_num(t['rotation'])}\n"
+        if t.get("solid"):
+            text += "solid = true\n"
+    with open(path, "w") as f:
+        f.write(text)
+
+
 # --- maps (src/map.rs) ---------------------------------------------------------
 
 
