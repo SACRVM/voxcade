@@ -68,7 +68,7 @@ run only in `shot`, `check`, `inspect` and replays; SAVE and LOAD in the
 pause menu (each slot: its level, the play time, how long ago); replays
 carry the save they began from, the slots as they began, every save they
 loaded and the menu's saves (`shot --screen save|load` shows the pages).
-Not yet: kept kinds and the touching set in saves (with the events, stage
+Not yet: the touching set in saves (with the events, stage
 6), things in `level.state` found again by name (stage 7), `c.state`
 defaults filling in what an old save lacks.
 
@@ -527,7 +527,7 @@ still has `player`, for its state and score, standing nowhere: reading
 where it stands is a mistake that says so. Abilities gained in play (a double jump, more speed, a key's
 door) are keys in `player.state`, read by the behaviors, never global
 settings. Several players: `player` is seat 1, the others are in
-`world.players` ("Several players" below: a design, not built yet).
+`world.players` ("Several players" below).
 
 ### A thing
 
@@ -548,8 +548,8 @@ settings. Several players: `player` is seat 1, the others are in
 ### `input`, `controls`, `screen`, `music`, and `on_draw`'s `frame`
 
 - `input`: the keys held this tick (`input.dir`, `input:held`,
-  `input:pressed`, `input:released`), in `on_tick`; in `on_draw` the last
-  tick's, only to look at. With several players each has its own
+  `input:pressed`, `input:released`), in `on_tick` only (reading it in
+  `on_draw` or at the start is a mistake that says so). With several players each has its own
   (`p.input`), `input` staying seat 1's; later a pointer for
   point-and-click games.
 - `controls`: what the player plays with, there everywhere:
@@ -725,16 +725,12 @@ settings. Several players: `player` is seat 1, the others are in
 ## Things that stay gone
 
 Most games want a key taken to stay taken and a chest opened to stay
-open when the level is entered again. Two ways, both kept with the run
-and its saves:
-
-- **By kind:** `c.things.key = { keep = true, … }`. A placed thing of a
-  kept kind that is removed stays removed in later visits and restarts;
-  one that stays keeps its `thing.state` and where it stands (a chest
-  stays open, a pushed crate where it was pushed). Matched by
-  `thing.name`; a spawned thing is kept only if it was given a name.
-- **By hand:** anything else in `level.kept` (a lever's position, a
-  puzzle solved), read in `on_level_start`.
+open when the level is entered again. A game keeps them by hand: in
+`level.kept` (a lever's position, a puzzle solved, which keys are taken),
+read in `on_level_start`; it lasts the run and goes into its saves. A
+`keep = true` on a kind (the engine keeping removed and changed placed
+things by their `thing.name`) is planned for 0.7: it is not built, and a
+kind that names it is refused like any unknown key.
 
 Everything else of the level is as its file has it on each visit and
 each restart (enemies back, crates where they started): the default
@@ -868,7 +864,7 @@ end. `on_draw` runs for every picture and only looks.
   keeps its own flag.
 - **Three ways on, all written in a few lines:**
   - *Start the level over:* `world:restart()`: everything of the level
-    from its file again, fresh `level.state`, kept kinds kept; the player
+    from its file again, fresh `level.state`; the player
     at the checkpoint if there is one, else at the start.
   - *Back to a checkpoint:* the script sets `player.state.checkpoint` to
     a place's or a thing's name as the player passes it;
@@ -953,7 +949,7 @@ tick.
 |---|---|---|---|---|---|
 | `world.state`, `player.state` | from `c.state` | kept | kept | from the save | kept |
 | `player.state.checkpoint` | none | forgotten | kept | from the save | kept |
-| `level.kept`, kept kinds | none | kept | kept | from the save | kept |
+| `level.kept` | none | kept | kept | from the save | kept |
 | `level.state` | fresh | fresh | fresh | from the save | fresh |
 | the level's things and voxels | from its file | from its file | from its file | from its file and the save | from its file |
 | holds, switches, hit stop, shake | none | none | none | the level's from the save | none |
@@ -991,7 +987,7 @@ The engine calls a handler if the script has it:
 | `on_fall_out(thing)` | it fell out of the level (`c.physics.lost_below` voxels under it, 48 unless set); once until it is back; other things are taken away after it, the player waits for the game |
 | `on_pickup(thing, item)` | it took an item (its `state.inventory` already raised) |
 | `on_save_loaded(version)` | a save was loaded, before its level is built: `version` is the game's `c.saves.version` that made it; bring an older one's states up to date |
-| `on_player_join(p, how)`, `on_player_leave(p)` | a seat is taken or left during the run ("Several players": a design, not built yet) |
+| `on_player_join(p, how)`, `on_player_leave(p)` | a seat is taken or left during the run ("Several players") |
 
 There is no goal event: a goal is a thing the script answers in
 `on_touch` and its states, and since stage 7 the ready-made rules have no
@@ -1533,7 +1529,7 @@ picture's, `frame.players`, a character select through `p.state.kind`.
   jump & run. Doors carry `to` and `at`; `on_touch` sends the player
   through. The hero has `player.state.hp`, an inventory (keys, potions)
   and abilities (`player.state.double_jump`); a locked door checks
-  `player.state.inventory.key`. Chests are a kept kind: opened stays
+  `player.state.inventory.key`. A chest's opening is kept in `level.kept`: opened stays
   opened. A save point calls `world:save(1)`; dialogue holds the level.
 - **Zak McKracken meets Double Dragon:** rooms are levels; items in the
   inventory; `on_interact` for talking and opening, `on_use(user, item,
@@ -1577,8 +1573,8 @@ Shovel Knight, Super Meat Boy).
 | Lesson | Seen in | Here |
 |---|---|---|
 | Doors with level numbers and raw coordinates break when a level is edited; none of the six checks them | all six | names for levels and places, places with a facing, checked at load |
-| "Taken stays taken" is every game's chore, built by hand from ids | GameMaker, Godot, RPG Maker (self switches), GB Studio | `thing.name` from the editor, kept kinds, `level.kept` |
-| Levels that only ever reset are not enough; a whole persistent level is too much | Construct (Persist), AGS (rooms keep state), GameMaker (its own tutorial drops persistent rooms) | fresh `level.state` by default, kept kinds and `level.kept` by choice |
+| "Taken stays taken" is every game's chore, built by hand from ids | GameMaker, Godot, RPG Maker (self switches), GB Studio | `thing.name` from the editor, `level.kept` (kept kinds: 0.7) |
+| Levels that only ever reset are not enough; a whole persistent level is too much | Construct (Persist), AGS (rooms keep state), GameMaker (its own tutorial drops persistent rooms) | fresh `level.state` by default, `level.kept` by choice |
 | Live object references in global state dangle after a level change | Godot, GameMaker | states outlive things only by name |
 | Collision events every step cause double pickups | GameMaker, Phaser, HaxeFlixel | `on_touch` once, `on_touch_end` |
 | Undefined or dropped event order breaks replays | GameMaker, AGS | one written order, nothing dropped |

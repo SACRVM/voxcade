@@ -34,7 +34,22 @@ pub fn run(files: &Files, cfg: &mut GameConfig) -> Result<()> {
     let value = from_lua(&Value::Table(c), Some(&defaults), "c")?;
     renamed(&value)?;
     colors(&value)?;
+    actions(&value)?;
     *cfg = value.try_into().map_err(|e: toml::de::Error| anyhow::anyhow!("conf.lua: {}", e.message()))?;
+    Ok(())
+}
+
+/// The most actions a game names (`c.actions`); the input holds one bit
+/// each, in 32.
+pub const MOST_ACTIONS: usize = 32;
+
+/// More actions than the input holds is a mistake (the 33rd would press
+/// the 1st).
+fn actions(c: &toml::Value) -> Result<()> {
+    let n = c.get("actions").and_then(toml::Value::as_array).map_or(0, Vec::len);
+    if n > MOST_ACTIONS {
+        bail!("conf.lua: c.actions names {n} actions; a game has {MOST_ACTIONS} at most");
+    }
     Ok(())
 }
 
@@ -216,5 +231,31 @@ mod tests {
         assert_eq!(cfg.camera.rotates, crate::config::Rotates::Free);
         assert_eq!((cfg.title_screen.props[0].rotation, cfg.title_screen.props[0].look()), (270, glam::IVec2::NEG_X));
         assert!(conf("function conf(c) c.title_screen.props = { { model = 'a.vvx', at = { 1, 2 }, rotation = 45 } } end").unwrap_err().to_string().contains("quarter turns"));
+    }
+
+    /// A kind without a behavior takes the engine's keys and no others: an
+    /// unknown key is a mistake naming it, the table and a near name; a
+    /// value of the wrong type says what it wants; more actions than the
+    /// input holds are refused.
+    #[test]
+    fn an_unknown_key_of_a_kind_is_refused() {
+        let kinds = |src: &str| crate::sim::things::defs(&conf(&format!("function conf(c) {src} end")).unwrap(), &[]).map(|_| ());
+        for (line, says) in [
+            ("c.things.gem = { modle = 'gem.vvx' }", "c.things.gem.modle: not a setting of a kind without a behavior"),
+            ("c.things.gem = { modle = 'gem.vvx' }", "did you mean `model`?"),
+            ("c.things.key = { keep = true }", "c.things.key.keep: not a setting"),
+            ("c.things.gem = { famliy = 'loot' }", "did you mean `family`?"),
+            ("c.things.hero = { hp = 'three' }", "c.things.hero.hp: a whole number of hits, not \"three\""),
+            ("c.things.hero = { model = 3 }", "c.things.hero.model: a model's file name, in quotes, not 3"),
+        ] {
+            let e = kinds(line).unwrap_err().to_string();
+            assert!(e.contains(says), "{line}: {e}");
+        }
+        kinds("c.things.a = { model = 'a.vvx', hp = 2, family = 'x', fixed = true, props = { worth = 1 } }; c.things.b = { like = 'a', spin = 90 }").unwrap();
+        let many: Vec<String> = (1..=33).map(|i| format!("'a{i}'")).collect();
+        let e = conf(&format!("function conf(c) c.actions = {{ {} }} end", many.join(", "))).unwrap_err().to_string();
+        assert!(e.contains("33 actions") && e.contains("32 at most"), "{e}");
+        let ok: Vec<String> = (1..=32).map(|i| format!("'a{i}'")).collect();
+        conf(&format!("function conf(c) c.actions = {{ {} }} end", ok.join(", "))).unwrap();
     }
 }

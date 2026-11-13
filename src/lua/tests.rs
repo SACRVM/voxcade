@@ -5232,3 +5232,14 @@ fn a_part_turned_at_rest_shows_in_the_sheet_and_the_level() {
     said(&mut plain, "level:thing('door').state.parts = { leaf = { rotation = -60 } }");
     assert_eq!(door_draws(&rested), door_draws(&plain), "the level's piece");
 }
+
+/// A thing's field is read, never assigned: `player.x = 5` says what to do
+/// instead, not "attempt to index a ThingRef value".
+#[test]
+fn assigning_a_thing_field_says_what_to_do() {
+    let dir = folder("assign-field", "function on_level_start() level:spawn('gem', 10, 10) end\nfunction on_tick() level:things('gem')[1].x = 5 end\n");
+    let mut g = game_in(&dir);
+    steps(&mut g, 2);
+    let e = halted(&g);
+    assert!(e.contains("thing.x cannot be assigned") && e.contains("thing.state"), "{e}");
+}

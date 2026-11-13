@@ -1515,6 +1515,16 @@ impl UserData for ThingRef {
 
     fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
         m.add_meta_method(MetaMethod::Eq, |_, a, b: AnyUserData| Ok(b.borrow::<ThingRef>().is_ok_and(|b| b.0 == a.0)));
+        // A thing's fields are read, never assigned: the body is the
+        // physics' (`thing:place`), the game's own data goes in
+        // `thing.state`.
+        m.add_meta_method(MetaMethod::NewIndex, |_, _, (key, _): (Value, Value)| -> mlua::Result<()> {
+            let key = match &key {
+                Value::String(s) => s.to_string_lossy().to_string(),
+                other => other.type_name().to_string(),
+            };
+            Err(mlua::Error::runtime(format!("thing.{key} cannot be assigned: a thing's fields are read only (thing:place(x, y, z) moves it, the game's own data goes in thing.state)")))
+        });
         m.add_meta_method(MetaMethod::ToString, |lua, t, ()| {
             match handle_seat(t.0) {
                 Some(1) => return Ok("player".to_string()),
