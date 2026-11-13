@@ -287,7 +287,7 @@ fn connected(cells: &Cells, start: [i32; 3]) -> BTreeSet<[i32; 3]> {
 impl Editor {
     /// The selection, if it was made in the scope shown.
     pub fn selection(&self) -> Option<&Selection> {
-        self.selection.as_ref().filter(|s| s.scope == self.scope && s.count() > 0)
+        self.selecting.selection.as_ref().filter(|s| s.scope == self.scope && s.count() > 0)
     }
 
     /// The owners of the voxels in the grid shown: a block, a frame (a
@@ -393,7 +393,7 @@ impl Editor {
 
     /// No selection.
     pub fn clear_selection(&mut self) {
-        self.selection = None;
+        self.selecting.selection = None;
     }
 
     /// The filled voxels in `lo..=hi` given as the file gives places (from
@@ -430,7 +430,7 @@ impl Editor {
         }
         sel.cells.retain(|_, c| !c.is_empty());
         sel.copy = false;
-        self.selection = Some(sel);
+        self.selecting.selection = Some(sel);
     }
 
     /// A double click with SELECT: the voxels of the clicked one's color
@@ -451,7 +451,7 @@ impl Editor {
             }
         }
         sel.copy = false;
-        self.selection = Some(sel);
+        self.selecting.selection = Some(sel);
     }
 
     /// The voxels a rectangle on the screen can take: of the parts that
@@ -545,14 +545,14 @@ impl Editor {
         }
         sel.cells.retain(|_, c| !c.is_empty());
         sel.copy = false;
-        self.selection = (!sel.cells.is_empty()).then_some(sel);
+        self.selecting.selection = (!sel.cells.is_empty()).then_some(sel);
     }
 
     /// The selection's arrows: at its middle, X, Y and Z, the heads only;
     /// its box the bar keeps clear of.
     pub fn selection_handles(&self, view_proj: glam::Mat4) -> Option<Handles> {
         let at = self.selection_shown();
-        if at.is_empty() || self.posing {
+        if at.is_empty() || self.rigging.posing {
             return None;
         }
         let (lo, hi) = at.iter().fold((Vec3::MAX, Vec3::MIN), |(lo, hi), &c| (lo.min(c - 0.5), hi.max(c + 0.5)));
@@ -567,7 +567,7 @@ impl Editor {
     /// Where the grid shown stands (its voxel 0, 0, 0 from the pivot, or
     /// for a frame of frames how far its voxels moved).
     fn grid_mark(&self) -> (IVec3, IVec3) {
-        (self.origin().unwrap_or(IVec3::ZERO), self.moved)
+        (self.origin().unwrap_or(IVec3::ZERO), self.history.moved)
     }
 
     /// The selection's arrow grabbed (`grab_part` passes it on): the file
@@ -579,14 +579,14 @@ impl Editor {
             Scope::Block(i) => (None, self.blocks.get(i).cloned()),
             _ => (self.model.as_ref().map(ModelFile::shaped), None),
         };
-        self.sel_drag = Some(SelDrag { model, block, selection, origin, moved });
+        self.selecting.sel_drag = Some(SelDrag { model, block, selection, origin, moved });
     }
 
     /// While the selection's arrow is dragged: how far the grid shown went
     /// since the press (a box grown on its low side), to see the drag in
     /// the grid as it was.
     pub(super) fn selection_drift(&self) -> Option<Vec3> {
-        let d = self.sel_drag.as_ref()?;
+        let d = self.selecting.sel_drag.as_ref()?;
         let (origin, moved) = self.grid_mark();
         Some(((origin - d.origin) - (moved - d.moved)).as_vec3())
     }
@@ -594,7 +594,7 @@ impl Editor {
     /// The selection moved `by` from where the drag began (`keep`: what it
     /// lands on stays), one step for the drag.
     pub fn move_selection_to(&mut self, by: IVec3, keep: bool, joined: bool) {
-        let Some(d) = self.sel_drag.clone() else { return };
+        let Some(d) = self.selecting.sel_drag.clone() else { return };
         // As far as a part may go, no further (`FAR`).
         let by = by.clamp(IVec3::splat(-super::FAR), IVec3::splat(super::FAR));
         // From the start each time: what it passes over stays.
@@ -603,22 +603,22 @@ impl Editor {
                 if let Some(m) = &mut self.model {
                     m.reshape(start);
                 }
-                self.moved = d.moved;
+                self.history.moved = d.moved;
                 self.follow_figure();
             }
             (_, Some(start), Scope::Block(i)) => self.blocks[i] = start.clone(),
             _ => return,
         }
-        self.selection = Some(d.selection.clone());
-        self.join_next = joined;
+        self.selecting.selection = Some(d.selection.clone());
+        self.rigging.join_next = joined;
         self.selection_step(SelOp::Move(by, keep, d.selection.copy));
-        self.join_next = false;
+        self.rigging.join_next = false;
     }
 
     /// The selection's arrows let go.
     pub fn let_go_of_selection(&mut self) {
-        if self.sel_drag.take().is_some()
-            && let Some(s) = &mut self.selection
+        if self.selecting.sel_drag.take().is_some()
+            && let Some(s) = &mut self.selecting.selection
         {
             s.copy = false;
         }
@@ -630,12 +630,12 @@ impl Editor {
         let Some(sel) = self.selection().cloned() else { return };
         let owners: Vec<Owner> = sel.cells.keys().copied().collect();
         if let Scope::Block(i) = self.scope {
-            let joined = match (self.join_next, self.past.last()) {
+            let joined = match (self.rigging.join_next, self.history.past.last()) {
                 (true, Some(Step::Block(k, before, _))) if *k == i => Some(before.clone()),
                 _ => None,
             };
             if joined.is_some() {
-                self.past.pop();
+                self.history.past.pop();
             }
             let before = self.blocks[i].clone();
             let mut voxels = vec![block_cells(&before, IVec3::ZERO)];
@@ -651,7 +651,7 @@ impl Editor {
             if self.blocks[i] != first {
                 self.commit(Step::Block(i, first, self.blocks[i].clone()));
             }
-            self.selection = Some(Selection { scope: self.scope, cells: BTreeMap::from([(Owner::Block(i), cells.remove(0))]), copy: sel.copy });
+            self.selecting.selection = Some(Selection { scope: self.scope, cells: BTreeMap::from([(Owner::Block(i), cells.remove(0))]), copy: sel.copy });
             return;
         }
         type Went = (Vec<BTreeSet<[i32; 3]>>, Vec<IVec3>, IVec3);
@@ -686,7 +686,7 @@ impl Editor {
         });
         self.follow_figure();
         let Some((cells, lows, shift)) = out else { return };
-        self.moved += shift;
+        self.history.moved += shift;
         let mut now = Selection { scope: self.scope, cells: BTreeMap::new(), copy: sel.copy };
         for ((o, c), low) in owners.iter().zip(cells).zip(lows) {
             let local: BTreeSet<[i32; 3]> = c.iter().map(|c| (IVec3::from(*c) - low).to_array()).collect();
@@ -694,13 +694,13 @@ impl Editor {
                 now.cells.insert(*o, local);
             }
         }
-        self.selection = Some(now);
+        self.selecting.selection = Some(now);
     }
 
     /// DUPLICATE: a copy in place, selected, to be moved away (the next
     /// move leaves the voxels where they were too).
     pub fn duplicate_selection(&mut self) {
-        if let Some(s) = self.selection.as_mut().filter(|s| s.scope == self.scope) {
+        if let Some(s) = self.selecting.selection.as_mut().filter(|s| s.scope == self.scope) {
             s.copy = true;
         }
     }
@@ -725,7 +725,7 @@ impl Editor {
             from.get_or_insert(o);
         }
         if let Some(from) = from {
-            self.clipboard = Some(Clip { cells, from });
+            self.selecting.clipboard = Some(Clip { cells, from });
         }
     }
 
@@ -733,7 +733,7 @@ impl Editor {
     /// (the part chosen; in a figure whole, the part it came from),
     /// selected, to be moved; one step.
     pub fn paste(&mut self) {
-        let Some(clip) = self.clipboard.clone() else { return };
+        let Some(clip) = self.selecting.clipboard.clone() else { return };
         let owner = match self.scope {
             Scope::Block(i) => Owner::Block(i),
             Scope::Frame(f) => Owner::Frame(f),
@@ -748,11 +748,11 @@ impl Editor {
         let local: BTreeSet<[i32; 3]> = clip.cells.keys().map(|c| (IVec3::from(*c) - off).to_array()).collect();
         let same = self.owner_block(owner).is_some_and(|b| clip.cells.iter().all(|(c, k)| b.colour_at(IVec3::from(*c) - off) == Some(*k)));
         if same {
-            self.selection = Some(Selection { scope: self.scope, cells: BTreeMap::from([(owner, local)]), copy: true });
+            self.selecting.selection = Some(Selection { scope: self.scope, cells: BTreeMap::from([(owner, local)]), copy: true });
             return;
         }
         // Else laid in: the copy is a step of its own, selected.
-        self.selection = Some(Selection { scope: self.scope, cells: BTreeMap::from([(owner, BTreeSet::new())]), copy: false });
+        self.selecting.selection = Some(Selection { scope: self.scope, cells: BTreeMap::from([(owner, BTreeSet::new())]), copy: false });
         match (owner, self.scope) {
             (Owner::Block(i), Scope::Block(_)) => {
                 let before = self.blocks[i].clone();
@@ -763,7 +763,7 @@ impl Editor {
                 self.blocks[i] = block_of(size, &before.palette, &all, IVec3::ZERO);
                 self.commit(Step::Block(i, before, self.blocks[i].clone()));
                 let local = local.into_iter().filter(|c| IVec3::from(*c).cmpge(IVec3::ZERO).all() && IVec3::from(*c).cmplt(size).all()).collect();
-                self.selection = Some(Selection { scope: self.scope, cells: BTreeMap::from([(owner, local)]), copy: false });
+                self.selecting.selection = Some(Selection { scope: self.scope, cells: BTreeMap::from([(owner, local)]), copy: false });
             }
             (Owner::Frame(f), _) => {
                 let mut low = IVec3::ZERO;
@@ -779,7 +779,7 @@ impl Editor {
                 });
                 self.follow_figure();
                 let local = clip.cells.keys().map(|c| (IVec3::from(*c) - low).to_array()).collect();
-                self.selection = Some(Selection { scope: self.scope, cells: BTreeMap::from([(owner, local)]), copy: false });
+                self.selecting.selection = Some(Selection { scope: self.scope, cells: BTreeMap::from([(owner, local)]), copy: false });
             }
             _ => {}
         }
@@ -882,7 +882,7 @@ impl Editor {
         }
         let cells = block_cells(b, IVec3::ZERO);
         let found: BTreeSet<[i32; 3]> = if all { cells.iter().filter(|(_, k)| **k == was).map(|(c, _)| *c).collect() } else { connected(&cells, hit.cell.to_array()) };
-        self.stroke = Some(match self.scope {
+        self.history.stroke = Some(match self.scope {
             Scope::Block(i) => Step::Block(i, self.blocks[i].clone(), self.blocks[i].clone()),
             Scope::Frame(_) => Step::Model(self.shaped(), Shaped::default()),
             _ => return,

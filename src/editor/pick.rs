@@ -141,7 +141,7 @@ mod tests {
         std::fs::write(dir.join("room.toml"), level).unwrap();
         let mut ed = crate::editor::model::Editor::open(&dir, "room.toml").unwrap();
         let figures = crate::editor::view::Figures::load(&dir, &crate::config::GameConfig::default()).with_pieces(&dir, &ed.level);
-        ed.sizes = figures.sizes();
+        ed.pieces.sizes = figures.sizes();
         (ed, figures, dir)
     }
 
@@ -182,7 +182,7 @@ mod tests {
         let picture = ed.find("picture").unwrap();
         ed.choose_item(Some(picture));
         ed.toggle_hidden(picture);
-        assert!(ed.is_hidden(picture) && ed.chosen.is_none(), "hidden, chosen no more");
+        assert!(ed.is_hidden(picture) && ed.pieces.chosen.is_none(), "hidden, chosen no more");
         let ray = (Vec3::new(100.5, -50.0, 20.5), Vec3::Y);
         assert_eq!(name(&ed, item_along(&ed, &figures, ray.0, ray.1)), "wall", "through it to the wall");
         let frame = crate::editor::view::frame(&ed, &crate::editor::view::View::new(&ed, &Default::default()), &crate::editor::view::Shown::new(&ed).unwrap(), &figures, &Default::default(), 1.6);
@@ -217,15 +217,15 @@ mod tests {
         let dir = crate::scratch::Scratch::new("pick-kind");
         std::fs::write(dir.join("room.toml"), "format = \"voxcade level 1\"\nsize = [100, 100, 40]\n\n[[thing]]\nname = \"door\"\nkind = \"tuer\"\nat = [10, 10, 0]\n\n[[thing]]\nname = \"bat\"\nkind = \"bat\"\nat = [30, 10, 0]\n").unwrap();
         let mut ed = crate::editor::model::Editor::open(&dir, "room.toml").unwrap();
-        ed.still_kinds.insert("tuer".into());
-        ed.kind_models.insert("tuer".into(), "door.vvx".into());
+        ed.pieces.still_kinds.insert("tuer".into());
+        ed.pieces.kind_models.insert("tuer".into(), "door.vvx".into());
         ed.choose_item(ed.find("door"));
         assert!(ed.can_turn());
         ed.turn_item(1);
         let text = std::fs::read_to_string(dir.join("room.toml")).unwrap();
         assert!(text.contains("name = \"door\"\nkind = \"tuer\"\nat = [10, 10, 0]\nfacing = \"west\"\n"), "{text}");
         ed.edit_model();
-        assert_eq!(ed.wants_model.as_deref(), Some("door.vvx"));
+        assert_eq!(ed.pieces.wants_model.as_deref(), Some("door.vvx"));
         ed.choose_item(ed.find("bat"));
         assert!(!ed.can_turn());
         ed.turn_item(1);

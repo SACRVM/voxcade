@@ -578,7 +578,7 @@ mod tests {
         act(&mut ed, &mut view, Action::Part(arm));
         act(&mut ed, &mut view, Action::PickParent);
         act(&mut ed, &mut view, Action::Part(head));
-        assert_eq!((ed.scope, ed.picking_parent), (Scope::Frame(2), false), "the arm still chosen");
+        assert_eq!((ed.scope, ed.rigging.picking_parent), (Scope::Frame(2), false), "the arm still chosen");
         act(&mut ed, &mut view, Action::Joint(2, 1));
         act(&mut ed, &mut view, Action::Joint(2, 1));
         act(&mut ed, &mut view, Action::Joint(0, -1));

@@ -290,13 +290,13 @@ impl Editor {
                 }
                 self.land.chosen = Some(p);
                 self.land.shape = shape;
-                self.stroke = Some(Step::Level(self.level_state(), self.level_state()));
+                self.history.stroke = Some(Step::Level(self.level_state(), self.level_state()));
                 let start = self.point_spot(p).and_then(|at| height_along(at, ray.0, ray.1));
                 self.land.drag = Some(Drag { grabbed: p, from, start, target: 0, last: None });
             }
             (_, p) => {
                 let target = height;
-                self.stroke = Some(Step::Level(self.level_state(), self.level_state()));
+                self.history.stroke = Some(Step::Level(self.level_state(), self.level_state()));
                 self.land.drag = Some(Drag { grabbed: p.unwrap_or_default(), from, start: None, target, last: None });
                 if let Some(p) = p {
                     self.brush(p);
@@ -649,7 +649,7 @@ impl Editor {
             names.push(name.clone());
             let facing = match rule.rotate() {
                 crate::terrain::Rotate::None => None,
-                crate::terrain::Rotate::Any if self.free_turns => Some(crate::grid::Facing::Turn(p.rotation)),
+                crate::terrain::Rotate::Any if self.pieces.free_turns => Some(crate::grid::Facing::Turn(p.rotation)),
                 _ => Some(crate::grid::Facing::Way(crate::grid::Way::nearest(p.rotation))),
             };
             let spot = [at[0] + p.column.x, at[1] + p.column.y, at[2] + p.ground - sink];
@@ -1281,7 +1281,7 @@ mod tests {
         assert!(ed.stamp());
         let names: Vec<_> = ed.level.things.iter().map(|t| (t.name.clone().unwrap(), t.at)).collect();
         assert_eq!(names, [("fir".to_string(), a.to_array()), ("fir_2".to_string(), b.to_array())]);
-        assert!(matches!(&ed.hanging, Some(super::super::room::Hanging::Thing(t)) if t.name.as_deref() == Some("fir_3")), "the next on the mouse");
+        assert!(matches!(&ed.pieces.hanging, Some(super::super::room::Hanging::Thing(t)) if t.name.as_deref() == Some("fir_3")), "the next on the mouse");
         assert_eq!(ed.steps(), 2, "a step a fir");
         assert!(ed.drop_hanging());
     }

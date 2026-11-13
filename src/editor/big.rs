@@ -304,7 +304,7 @@ fn exercise(mut win: EditorWindow) {
     let s = Instant::now();
     button(&mut win, b.0, b.1, sdl3::mouse::MouseButton::Left, false);
     draw(&mut win);
-    println!("select: whole {:.1} ms, drag worst {worst:.1}, let go {:.1} ms, selected {} {}", ms(t), ms(s), win.ed.selection.as_ref().map_or(0, |s| s.cells.len()), g());
+    println!("select: whole {:.1} ms, drag worst {worst:.1}, let go {:.1} ms, selected {} {}", ms(t), ms(s), win.ed.selecting.selection.as_ref().map_or(0, |s| s.cells.len()), g());
     let t = Instant::now();
     for _ in 0..10 {
         win.dirty = true;

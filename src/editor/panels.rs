@@ -451,7 +451,7 @@ mod tests {
         press(&mut ed, &mut view, 'q');
         assert_eq!(ed.tool, Tool::Box, "Q: BOX in a block");
         press(&mut ed, &mut view, 'f');
-        assert!(ed.bevel, "F: BEVEL, with BOX");
+        assert!(ed.forms.bevel, "F: BEVEL, with BOX");
         press(&mut ed, &mut view, 's');
         assert_eq!(ed.tool, Tool::Sphere, "S: SPHERE");
         press(&mut ed, &mut view, 'y');
@@ -707,7 +707,7 @@ mod tests {
         let ctx = egui::Context::default();
         crate::gui::style(&ctx);
         let moving = laid_out(&ctx, &ed, &view);
-        view.turning = ed.chosen;
+        view.turning = ed.pieces.chosen;
         assert!(view.turn_mode(&ed));
         let rotating = laid_out(&ctx, &ed, &view);
         assert!(moving.rects.len() > 3, "a bar at the chair");

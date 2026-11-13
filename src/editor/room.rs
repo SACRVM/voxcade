@@ -290,7 +290,7 @@ impl Editor {
 
     /// The chosen thing, if a thing is chosen.
     pub fn chosen_thing(&self) -> Option<&Thing> {
-        match self.chosen {
+        match self.pieces.chosen {
             Some(Item::Thing(i)) => self.level.things.get(i),
             _ => None,
         }
@@ -299,21 +299,21 @@ impl Editor {
     /// Chooses an item (None: nothing).
     pub fn choose_item(&mut self, item: Option<Item>) {
         self.release();
-        self.chosen = item.filter(|&i| self.exists(i));
-        self.chosen_light = None;
-        self.tuned = None;
+        self.pieces.chosen = item.filter(|&i| self.exists(i));
+        self.pieces.chosen_light = None;
+        self.pieces.tuned = None;
     }
 
     /// Chooses a light of the chosen piece (by its place among its
     /// lights; None: the piece again): its handles then move it in the
     /// model.
     pub fn choose_light(&mut self, k: Option<usize>) {
-        self.chosen_light = k.filter(|&k| self.chosen_thing().is_some_and(|t| t.model.is_some() && k < t.lights.len()));
+        self.pieces.chosen_light = k.filter(|&k| self.chosen_thing().is_some_and(|t| t.model.is_some() && k < t.lights.len()));
     }
 
     /// The size of a thing's model, if it is known (`sizes`).
     pub fn size_of(&self, t: &Thing) -> Option<IVec3> {
-        t.model.as_ref().and_then(|m| self.sizes.get(m)).copied()
+        t.model.as_ref().and_then(|m| self.pieces.sizes.get(m)).copied()
     }
 
     /// The lowest `at` an item may have in z: its lowest voxel on the
@@ -342,8 +342,8 @@ impl Editor {
 
     /// What is chosen dropped if a step took it away.
     pub(super) fn keep_choice(&mut self) {
-        if self.chosen.is_some_and(|i| !self.exists(i)) {
-            self.chosen = None;
+        if self.pieces.chosen.is_some_and(|i| !self.exists(i)) {
+            self.pieces.chosen = None;
         }
     }
 
@@ -358,11 +358,11 @@ impl Editor {
         if after == before {
             return;
         }
-        let key = tune.map(|t| (self.chosen, t));
+        let key = tune.map(|t| (self.pieces.chosen, t));
         if key.is_some()
-            && key == self.tuned
-            && let Some(Step::Level(..)) = self.past.last()
-            && let Some(Step::Level(first, _)) = self.past.pop()
+            && key == self.pieces.tuned
+            && let Some(Step::Level(..)) = self.history.past.last()
+            && let Some(Step::Level(first, _)) = self.history.past.pop()
         {
             // The step that set it last, now ending here.
             self.commit(Step::Level(first, after));
@@ -370,7 +370,7 @@ impl Editor {
         }
         let step = Step::Level(before, after);
         self.commit(step);
-        self.tuned = key;
+        self.pieces.tuned = key;
     }
 
     /// A spot kept inside the level's voxels.
@@ -414,24 +414,24 @@ impl Editor {
     /// Hangs something on the mouse to be set down.
     pub fn hang(&mut self, hanging: Hanging) {
         self.release();
-        self.hanging = Some(hanging);
-        self.hang_spot = None;
+        self.pieces.hanging = Some(hanging);
+        self.pieces.hang_spot = None;
     }
 
     /// Lets go of what hangs on the mouse; whether something did.
     pub fn drop_hanging(&mut self) -> bool {
-        self.hang_spot = None;
-        self.hanging.take().is_some()
+        self.pieces.hang_spot = None;
+        self.pieces.hanging.take().is_some()
     }
 
     /// The spot under the mouse (on the floor or a block; None: off the
     /// level), where what hangs there would stand: a light alone some
     /// way up, an area round it.
     pub fn hang_at(&mut self, spot: Option<IVec3>) {
-        self.hang_spot = spot.map(|s| self.inside(s));
-        let Some(s) = self.hang_spot else { return };
+        self.pieces.hang_spot = spot.map(|s| self.inside(s));
+        let Some(s) = self.pieces.hang_spot else { return };
         let up = (self.level.voxels().z / 2).clamp(0, 40);
-        match &mut self.hanging {
+        match &mut self.pieces.hanging {
             Some(Hanging::Thing(t)) => t.at = (s + IVec3::Z * if t.model.is_none() { up } else { 0 }).to_array(),
             Some(Hanging::Place(p)) => p.at = s.to_array(),
             Some(Hanging::Area(a)) => a.at = [s.x - a.size[0] / 2, s.y - a.size[1] / 2, s.z],
@@ -442,7 +442,7 @@ impl Editor {
     /// What hangs on the mouse set down where it is, chosen; a step.
     /// Nothing without a spot under the mouse.
     pub fn set_down(&mut self) -> bool {
-        let (Some(hanging), Some(_)) = (self.hanging.clone(), self.hang_spot) else { return false };
+        let (Some(hanging), Some(_)) = (self.pieces.hanging.clone(), self.pieces.hang_spot) else { return false };
         self.drop_hanging();
         let item = match hanging {
             Hanging::Thing(t) => {
@@ -458,7 +458,7 @@ impl Editor {
                 Item::Area(self.level.areas.len() - 1)
             }
         };
-        self.chosen = Some(item);
+        self.pieces.chosen = Some(item);
         true
     }
 
@@ -466,7 +466,7 @@ impl Editor {
     /// stays on the mouse, the next of its name, for the next click
     /// (Escape lets go of it).
     pub fn stamp(&mut self) -> bool {
-        let again = match &self.hanging {
+        let again = match &self.pieces.hanging {
             Some(Hanging::Thing(t)) if t.model.is_some() => Some(t.clone()),
             _ => None,
         };
@@ -476,7 +476,7 @@ impl Editor {
         if let Some(t) = again {
             let base = t.name.clone().unwrap_or_else(|| t.model.as_deref().and_then(|m| std::path::Path::new(m).file_stem()).map_or("piece".into(), |s| s.to_string_lossy().into_owned()));
             let name = self.name_for(Item::Thing(0), &base);
-            self.hanging = Some(Hanging::Thing(Thing { name: Some(name), line: 0, ..t }));
+            self.pieces.hanging = Some(Hanging::Thing(Thing { name: Some(name), line: 0, ..t }));
         }
         true
     }
@@ -510,7 +510,7 @@ impl Editor {
 
     /// COPY: the chosen one again, under a new name, on the mouse.
     pub fn copy_item(&mut self) {
-        let Some(item) = self.chosen else { return };
+        let Some(item) = self.pieces.chosen else { return };
         let hanging = match item {
             Item::Thing(i) => {
                 let mut t = self.level.things[i].clone();
@@ -534,16 +534,16 @@ impl Editor {
 
     /// REMOVE: the chosen one taken out of the level; a step.
     pub fn remove_item(&mut self) {
-        let Some(item) = self.chosen else { return };
+        let Some(item) = self.pieces.chosen else { return };
         // (Lights put away are kept by the places in the list.)
-        self.put_away.clear();
-        self.chosen_light = None;
+        self.pieces.put_away.clear();
+        self.pieces.chosen_light = None;
         self.change(None, |l| match item {
             Item::Thing(i) => drop(l.things.remove(i)),
             Item::Place(i) => drop(l.places.remove(i)),
             Item::Area(i) => drop(l.areas.remove(i)),
         });
-        self.chosen = None;
+        self.pieces.chosen = None;
     }
 
     /// RENAME: the item called `typed` (trimmed); refused, with why, when
@@ -590,17 +590,17 @@ impl Editor {
             self.end_drag(false);
         }
         self.choose_item(under);
-        let Some(item) = self.chosen else { return };
+        let Some(item) = self.pieces.chosen else { return };
         let at = IVec3::from(self.at_of(item).expect("chosen"));
         let Some(spot) = plane_spot(origin, dir, at.z) else { return };
-        self.stroke = Some(Step::Level(self.level_state(), self.level_state()));
-        self.dragging = Some((item, at - spot));
+        self.history.stroke = Some(Step::Level(self.level_state(), self.level_state()));
+        self.pieces.dragging = Some((item, at - spot));
     }
 
     /// The mouse dragged on with an item: it goes along, in whole voxels,
     /// at its height (let go: one step, `release`).
     pub fn drag_item(&mut self, origin: Vec3, dir: Vec3) {
-        let Some((item, grab)) = self.dragging else { return };
+        let Some((item, grab)) = self.pieces.dragging else { return };
         let Some(at) = self.at_of(item) else { return };
         let Some(spot) = plane_spot(origin, dir, at[2]) else { return };
         let to = self.inside(spot + grab);
@@ -609,18 +609,18 @@ impl Editor {
 
     /// The item being dragged, if one is.
     pub fn dragging(&self) -> Option<Item> {
-        self.dragging.map(|(i, _)| i)
+        self.pieces.dragging.map(|(i, _)| i)
     }
 
     /// The chosen one moved by `by` voxels (an arrow key, a page key);
     /// nudges one after another are one step.
     pub fn nudge(&mut self, by: IVec3) {
-        if let Some(Hanging::Thing(t)) = &mut self.hanging {
+        if let Some(Hanging::Thing(t)) = &mut self.pieces.hanging {
             // A light on the mouse goes up and down so.
             t.at[2] = (t.at[2] + by.z).max(0);
             return;
         }
-        let Some(item) = self.chosen else { return };
+        let Some(item) = self.pieces.chosen else { return };
         let to = self.inside_for(item, IVec3::from(self.at_of(item).expect("chosen")) + by);
         self.change(Some(Field::Nudge), |l| match item {
             Item::Thing(i) => l.things[i].at = to.to_array(),
@@ -644,12 +644,12 @@ impl Editor {
         if let Some(day) = self.day_field(field, v) {
             return self.change(Some(field), |l| l.daylight = Some(day));
         }
-        let Some(item) = self.chosen else { return };
+        let Some(item) = self.pieces.chosen else { return };
         // A piece turned round, tipped: as its ring would, kept on its floor.
         if let (Field::Turn | Field::Pitch | Field::Roll, Item::Thing(i)) = (field, item) {
             let t = &self.level.things[i];
             if field == Field::Turn && self.kind_turns(t) {
-                let free = self.free_kinds.contains(&t.kind);
+                let free = self.pieces.free_kinds.contains(&t.kind);
                 let now = Some(facing_at(if free { v } else { (v / 90.0).round() * 90.0 }, free));
                 return self.change(Some(field), |l| l.things[i].facing = now);
             }
@@ -701,8 +701,8 @@ impl Editor {
     /// off the quarter turns keeps its angle off them. A thing of a kind
     /// or an area has no way to face.
     pub fn turn_item(&mut self, by: i32) {
-        let free = self.free_turns;
-        let still = self.still_kinds.clone();
+        let free = self.pieces.free_turns;
+        let still = self.pieces.still_kinds.clone();
         let quarter = |t: &mut Thing| {
             if t.is_piece() || still.contains(&t.kind) {
                 t.facing = Some(facing_at(bearing_of(t) + 90.0 * by as f64, free));
@@ -713,13 +713,13 @@ impl Editor {
             p.named = p.named || p.facing.is_none();
             p.facing = Some(if by > 0 { [y, -x] } else { [-y, x] });
         };
-        match &mut self.hanging {
+        match &mut self.pieces.hanging {
             Some(Hanging::Thing(t)) => return quarter(t),
             Some(Hanging::Place(p)) => return place(p),
             Some(Hanging::Area(_)) => return,
             None => {}
         }
-        match self.chosen {
+        match self.pieces.chosen {
             Some(Item::Thing(i)) => self.change(None, |l| quarter(&mut l.things[i])),
             Some(Item::Place(i)) => self.change(None, |l| place(&mut l.places[i])),
             _ => {}
@@ -728,7 +728,7 @@ impl Editor {
 
     /// A place facing one of the four ways (FACING), named so in the file.
     pub fn face_place(&mut self, way: Way) {
-        let Some(Item::Place(i)) = self.chosen else { return };
+        let Some(Item::Place(i)) = self.pieces.chosen else { return };
         self.change(None, |l| {
             l.places[i].facing = Some(way.pair());
             l.places[i].named = true;
@@ -741,7 +741,7 @@ impl Editor {
     /// voxel kept at the height it had (laid down, a piece stays on its
     /// floor; its `at` goes under it).
     fn turned(&self, was: &Thing, bearing: f64, pitch: f64, roll: f64, snap: f64) -> Thing {
-        let free = self.free_turns && !was.solid;
+        let free = self.pieces.free_turns && !was.solid;
         let angle = |d: f64| {
             let d = d.rem_euclid(360.0);
             let quarter = (d / 90.0).round() * 90.0;
@@ -767,9 +767,9 @@ impl Editor {
     /// False (nothing done) for a turn off the quarters where the game
     /// turns on the grid, or what is chosen is no piece of a model.
     pub fn tip(&mut self, axis: usize, degrees: f64) -> bool {
-        let Some(Item::Thing(i)) = self.chosen else { return false };
+        let Some(Item::Thing(i)) = self.pieces.chosen else { return false };
         let t = &self.level.things[i];
-        if t.model.is_none() || ((!self.free_turns || t.solid) && degrees.rem_euclid(90.0) != 0.0) {
+        if t.model.is_none() || ((!self.pieces.free_turns || t.solid) && degrees.rem_euclid(90.0) != 0.0) {
             return false;
         }
         let (mut b, mut p, mut r) = (bearing_of(t), t.pitch, t.roll);
@@ -806,7 +806,7 @@ impl Editor {
     /// Whether the chosen one is a piece turned off the level's axes (its
     /// own axes are not the level's: LOCAL and GLOBAL differ).
     pub fn piece_turned_off_axes(&self) -> bool {
-        let Some(Item::Thing(i)) = self.chosen else { return false };
+        let Some(Item::Thing(i)) = self.pieces.chosen else { return false };
         let t = &self.level.things[i];
         t.model.is_some() && off_axes(t)
     }
@@ -814,8 +814,8 @@ impl Editor {
     /// Whether the chosen one turns by its rings (TURN): a piece of a model
     /// (not while its light is chosen), a place.
     pub fn can_turn(&self) -> bool {
-        match self.chosen {
-            Some(Item::Thing(i)) => (self.level.things[i].model.is_some() && self.chosen_light.is_none()) || self.kind_turns(&self.level.things[i]),
+        match self.pieces.chosen {
+            Some(Item::Thing(i)) => (self.level.things[i].model.is_some() && self.pieces.chosen_light.is_none()) || self.kind_turns(&self.level.things[i]),
             Some(Item::Place(_)) => true,
             _ => false,
         }
@@ -823,7 +823,7 @@ impl Editor {
 
     /// Every handle the chosen one has, arrows and rings alike.
     fn all_handles(&self, view_proj: glam::Mat4) -> Option<Handles> {
-        let item = self.chosen.filter(|_| self.hanging.is_none())?;
+        let item = self.pieces.chosen.filter(|_| self.pieces.hanging.is_none())?;
         let at = IVec3::from(self.at_of(item)?).as_vec3();
         let make = |c: Vec3| Handles::at(c, handles::world_size(view_proj, c, HANDLE_SHARE));
         let world = [Some(Vec3::X), Some(Vec3::Y), Some(Vec3::Z)];
@@ -832,7 +832,7 @@ impl Editor {
             Item::Thing(i) => {
                 let t = &self.level.things[i];
                 let size = self.size_of(t);
-                match (self.chosen_light.and_then(|k| t.lights.get(k)), &t.model) {
+                match (self.pieces.chosen_light.and_then(|k| t.lights.get(k)), &t.model) {
                     (Some(l), Some(_)) => {
                         h = make(light_spot(t, size, l));
                         let r = rotation_of(t);
@@ -843,7 +843,7 @@ impl Editor {
                         // MOVE: along its own axes as it stands (LOCAL) or
                         // the level's (GLOBAL); it lands on whole voxels.
                         let r = rotation_of(t);
-                        h.arrows = if self.move_global || !off_axes(t) { world } else { [Some(r * Vec3::X), Some(r * Vec3::Y), Some(r * Vec3::Z)] };
+                        h.arrows = if self.rigging.move_global || !off_axes(t) { world } else { [Some(r * Vec3::X), Some(r * Vec3::Y), Some(r * Vec3::Z)] };
                         // Its box as it lies: the arrows' heads beyond it,
                         // the rings round it (as far as the view allows).
                         if let Some(size) = size {
@@ -892,7 +892,7 @@ impl Editor {
     /// Escape (`cancel_drag`). Whether it took.
     #[allow(clippy::too_many_arguments)]
     pub fn grab(&mut self, grip: Grip, h: Handles, view_proj: glam::Mat4, screen: glam::Vec2, mouse: glam::Vec2, ray: (Vec3, Vec3)) -> bool {
-        let Some(item) = self.chosen else { return false };
+        let Some(item) = self.pieces.chosen else { return false };
         let Some(drag) = Drag::begin(&h, grip, view_proj, screen, mouse, ray) else { return false };
         self.end_drag(false);
         let was = match item {
@@ -900,30 +900,30 @@ impl Editor {
             Item::Place(i) => Was::Place(self.level.places[i].clone()),
             Item::Area(i) => Was::Area(self.level.areas[i].clone()),
         };
-        let light = self.chosen_light.filter(|_| matches!(&was, Was::Thing(t) if t.model.is_some()));
-        self.stroke = Some(Step::Level(self.level_state(), self.level_state()));
-        self.gripped = Some(Gripped { item, light, handles: h, drag, was });
+        let light = self.pieces.chosen_light.filter(|_| matches!(&was, Was::Thing(t) if t.model.is_some()));
+        self.history.stroke = Some(Step::Level(self.level_state(), self.level_state()));
+        self.pieces.gripped = Some(Gripped { item, light, handles: h, drag, was });
         true
     }
 
     /// The handle being dragged, if one is.
     pub fn gripped(&self) -> Option<&Gripped> {
-        self.gripped.as_ref()
+        self.pieces.gripped.as_ref()
     }
 
     /// The mouse dragged on with a handle: the chosen one moved along its
     /// axis by whole voxels, turned (in quarters on the grid or for a
     /// solid piece, else freely, the quarters near taken), an area sized.
     pub fn drag_grip(&mut self, view_proj: glam::Mat4, screen: glam::Vec2, mouse: glam::Vec2, ray: (Vec3, Vec3)) {
-        let Some(mut g) = self.gripped.take() else { return };
+        let Some(mut g) = self.pieces.gripped.take() else { return };
         // A click on a handle moves nothing.
         if !g.drag.travels(mouse) {
-            self.gripped = Some(g);
+            self.pieces.gripped = Some(g);
             return;
         }
         let amount = g.drag.amount(&g.handles, view_proj, screen, mouse, ray) as f64;
         self.follow_grip(&g, amount);
-        self.gripped = Some(g);
+        self.pieces.gripped = Some(g);
     }
 
     /// The item as the grip has it `amount` on (voxels or degrees) from
@@ -948,7 +948,7 @@ impl Editor {
                 }
             },
             (Was::Thing(t), Grip::Ring(a), Item::Thing(i)) if t.model.is_some() => {
-                let quarters = !self.free_turns || t.solid;
+                let quarters = !self.pieces.free_turns || t.solid;
                 let (mut b, mut p, mut r) = (bearing_of(t), t.pitch, t.roll);
                 // The right hand's way about the upright is anticlockwise
                 // seen from above: the bearing goes back.
@@ -964,7 +964,7 @@ impl Editor {
             (Was::Thing(t), Grip::Ring(_), Item::Thing(i)) if !t.is_piece() => {
                 // A thing of a kind: round only, in quarters unless its
                 // kind turns freely.
-                let free = self.free_kinds.contains(&t.kind);
+                let free = self.pieces.free_kinds.contains(&t.kind);
                 let b = handles::step(bearing_of(t), -amount, !free, RING_SNAP);
                 self.level.things[i].facing = Some(facing_at(b, free));
             }
@@ -996,11 +996,11 @@ impl Editor {
     /// Escape while dragging (a handle, or the chosen one over the floor):
     /// all as it was before the press, no step. Whether a drag was going on.
     pub fn cancel_drag(&mut self) -> bool {
-        if self.gripped.is_none() && self.dragging.is_none() {
+        if self.pieces.gripped.is_none() && self.pieces.dragging.is_none() {
             return false;
         }
-        (self.gripped, self.dragging) = (None, None);
-        if let Some(Step::Level(before, _)) = self.stroke.take() {
+        (self.pieces.gripped, self.pieces.dragging) = (None, None);
+        if let Some(Step::Level(before, _)) = self.history.stroke.take() {
             self.set_level(&before);
         }
         true
@@ -1010,19 +1010,19 @@ impl Editor {
     /// switch on again while the editor is open) or on (as they were, else
     /// a new one at its model's top); one step each.
     pub fn switch_light(&mut self) {
-        let Some(Item::Thing(i)) = self.chosen else { return };
+        let Some(Item::Thing(i)) = self.pieces.chosen else { return };
         let t = &self.level.things[i];
         if t.model.is_none() {
             return;
         }
         if !t.lights.is_empty() {
             let lights = t.lights.clone();
-            self.put_away.retain(|(j, _)| *j != i);
-            self.put_away.push((i, lights));
-            self.chosen_light = None;
+            self.pieces.put_away.retain(|(j, _)| *j != i);
+            self.pieces.put_away.push((i, lights));
+            self.pieces.chosen_light = None;
             self.change(None, |l| l.things[i].lights.clear());
-        } else if let Some(k) = self.put_away.iter().position(|(j, _)| *j == i) {
-            let (_, lights) = self.put_away.remove(k);
+        } else if let Some(k) = self.pieces.put_away.iter().position(|(j, _)| *j == i) {
+            let (_, lights) = self.pieces.put_away.remove(k);
             self.change(None, |l| l.things[i].lights = lights);
         } else {
             let top = self.size_of(t).map_or(10, |s| s.z);
@@ -1042,7 +1042,7 @@ impl Editor {
     /// its model's top, from its pivot; another beside the last, wider),
     /// warm. A light alone stays one light.
     pub fn add_piece_light(&mut self, top: i32) {
-        let Some(Item::Thing(i)) = self.chosen else { return };
+        let Some(Item::Thing(i)) = self.pieces.chosen else { return };
         if self.level.things[i].model.is_none() {
             return;
         }
@@ -1056,17 +1056,17 @@ impl Editor {
     /// REMOVE beside a light of the chosen piece: that light taken away. A
     /// light alone keeps its one light.
     pub fn remove_piece_light(&mut self, k: usize) {
-        let Some(Item::Thing(i)) = self.chosen else { return };
+        let Some(Item::Thing(i)) = self.pieces.chosen else { return };
         if self.level.things[i].model.is_none() || k >= self.level.things[i].lights.len() {
             return;
         }
         self.change(None, |l| drop(l.things[i].lights.remove(k)));
-        self.chosen_light = None;
+        self.pieces.chosen_light = None;
     }
 
     /// The colour (`#rrggbb`) of the chosen one's light `k`.
     pub fn set_colour(&mut self, k: usize, hex: &str) {
-        let Some(Item::Thing(i)) = self.chosen else { return };
+        let Some(Item::Thing(i)) = self.pieces.chosen else { return };
         let hex = hex.to_string();
         self.change(Some(Field::Colour(k)), |l| {
             if let Some(light) = l.things[i].lights.get_mut(k) {
@@ -1079,7 +1079,7 @@ impl Editor {
     /// more). Refused, with why, for a piece turned off the quarter turns:
     /// its voxels would lie off the grid.
     pub fn set_solid(&mut self, on: bool) {
-        let Some(Item::Thing(i)) = self.chosen else { return };
+        let Some(Item::Thing(i)) = self.pieces.chosen else { return };
         let t = &self.level.things[i];
         if t.model.is_none() {
             return;
@@ -1144,9 +1144,9 @@ impl Editor {
     /// EDIT MODEL: the chosen piece's model asked to open in the model
     /// editor.
     pub fn edit_model(&mut self) {
-        self.wants_model = self.chosen_thing().and_then(|t| t.model.clone().or_else(|| self.kind_models.get(&t.kind).cloned()));
+        self.pieces.wants_model = self.chosen_thing().and_then(|t| t.model.clone().or_else(|| self.pieces.kind_models.get(&t.kind).cloned()));
         // A piece: its model shaped in place, the level round it.
-        self.wants_context = match self.chosen {
+        self.wants_context = match self.pieces.chosen {
             Some(Item::Thing(i)) if self.level.things[i].is_piece() && self.level.things[i].model.is_some() => Some(super::super::context::Seed { level: self.file.clone(), piece: i, hidden: self.hidden.clone() }),
             _ => None,
         };
@@ -1155,7 +1155,7 @@ impl Editor {
     /// Whether a thing of a kind faces as the level's file turns it: a
     /// kind without a behavior (one with turns by its ready-made rules).
     pub fn kind_turns(&self, t: &Thing) -> bool {
-        !t.is_piece() && self.still_kinds.contains(&t.kind)
+        !t.is_piece() && self.pieces.still_kinds.contains(&t.kind)
     }
 
     /// The game's models a piece can be made of, by their paths in the
@@ -1183,7 +1183,7 @@ impl Editor {
         }
         let mut out = Vec::new();
         walk(&self.dir, "", &mut out);
-        out.retain(|f| !self.scenes.contains(f));
+        out.retain(|f| !self.pieces.scenes.contains(f));
         out.sort_by(|a, b| {
             let folder = |p: &str| p.rsplit_once('/').map_or(String::new(), |(f, _)| f.to_string());
             folder(a).cmp(&folder(b)).then_with(|| crate::levels::natural(a, b))
@@ -1275,7 +1275,7 @@ impl Editor {
             (Err(t), true) => self.hidden.things.push(t),
             (Err(t), false) => self.hidden.things.retain(|o| *o != t),
         }
-        if hide && self.chosen == Some(item) {
+        if hide && self.pieces.chosen == Some(item) {
             self.choose_item(None);
         }
     }
@@ -1311,7 +1311,7 @@ mod tests {
         let dir = crate::scratch::Scratch::new(&format!("room-{name}"));
         std::fs::write(dir.join("room.toml"), PIECES).unwrap();
         let mut ed = Editor::open(&dir, "room.toml").unwrap();
-        ed.free_turns = free;
+        ed.pieces.free_turns = free;
         (ed, dir)
     }
 
@@ -1341,8 +1341,8 @@ mod tests {
         ed.add_piece("room/stove.vvx");
         assert!(!ed.set_down(), "nowhere to set it down yet");
         ed.hang_at(Some(IVec3::new(70, 30, 0)));
-        assert!(ed.set_down() && ed.hanging.is_none());
-        assert_eq!(ed.chosen, Some(Item::Thing(5)));
+        assert!(ed.set_down() && ed.pieces.hanging.is_none());
+        assert_eq!(ed.pieces.chosen, Some(Item::Thing(5)));
         let t = &read(&dir).things[5];
         assert_eq!((t.name.as_deref(), t.model.as_deref(), t.at), (Some("stove_2"), Some("room/stove.vvx"), [70, 30, 0]));
         assert!(saved(&dir).starts_with(PIECES.split("[[place]]").next().unwrap().trim_end()), "the file's things as they were, the new one after them");
@@ -1350,9 +1350,9 @@ mod tests {
         // way up.
         ed.add_light();
         ed.hang_at(Some(IVec3::new(900, -5, 0)));
-        assert_eq!(ed.hang_spot, Some(IVec3::new(359, 0, 0)));
-        assert!(matches!(&ed.hanging, Some(Hanging::Thing(t)) if t.at == [359, 0, 40] && t.name.as_deref() == Some("light")));
-        assert!(ed.drop_hanging() && ed.hanging.is_none(), "Escape lets go");
+        assert_eq!(ed.pieces.hang_spot, Some(IVec3::new(359, 0, 0)));
+        assert!(matches!(&ed.pieces.hanging, Some(Hanging::Thing(t)) if t.at == [359, 0, 40] && t.name.as_deref() == Some("light")));
+        assert!(ed.drop_hanging() && ed.pieces.hanging.is_none(), "Escape lets go");
         ed.undo();
         assert_eq!(saved(&dir), PIECES, "a step back: the file as it was");
         let _ = std::fs::remove_dir_all(&dir);
@@ -1366,7 +1366,7 @@ mod tests {
         let (mut ed, dir) = room("move", false);
         let (o, d) = down(41.5, 150.5);
         ed.press_item(Some(Item::Thing(0)), o, d);
-        assert_eq!(ed.chosen, Some(Item::Thing(0)));
+        assert_eq!(ed.pieces.chosen, Some(Item::Thing(0)));
         let (o, d) = down(61.5, 140.5);
         ed.drag_item(o, d);
         ed.release();
@@ -1388,7 +1388,7 @@ mod tests {
         // Nothing under the mouse: nothing chosen.
         let (o, d) = down(5.0, 5.0);
         ed.press_item(None, o, d);
-        assert_eq!(ed.chosen, None);
+        assert_eq!(ed.pieces.chosen, None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1408,7 +1408,7 @@ mod tests {
         ed.set_field(Field::Turn, 100.0);
         assert_eq!(ed.level.things[0].facing, Some(Facing::Way(Way::East)), "on the grid an angle is its nearest way");
         assert!(saved(&dir).contains("at = [40, 150, 0]\nfacing = \"east\"\n"));
-        ed.free_turns = true;
+        ed.pieces.free_turns = true;
         ed.set_field(Field::Turn, 100.0);
         assert_eq!(ed.level.things[0].facing, Some(Facing::Turn(100.0)));
         assert!(saved(&dir).contains("at = [40, 150, 0]\nrotation = 100\n"), "{}", saved(&dir));
@@ -1590,8 +1590,8 @@ mod tests {
 
     /// The stove's model is 20 across, 14 deep and 30 tall.
     fn with_sizes(ed: &mut Editor) {
-        ed.sizes.insert("room/stove.vvx".into(), IVec3::new(20, 14, 30));
-        ed.sizes.insert("room/chair.vvx".into(), IVec3::new(8, 8, 12));
+        ed.pieces.sizes.insert("room/stove.vvx".into(), IVec3::new(20, 14, 30));
+        ed.pieces.sizes.insert("room/chair.vvx".into(), IVec3::new(8, 8, 12));
     }
 
     /// An arrow dragged moves the chosen one along its axis only, by whole
@@ -1762,7 +1762,7 @@ mod tests {
         ed.tip(1, -90.0);
         ed.tip(0, -90.0);
         assert_eq!(saved(&dir), PIECES, "laid down and stood up again: as it was");
-        ed.free_turns = true;
+        ed.pieces.free_turns = true;
         assert!(ed.tip(0, 30.0));
         assert_eq!(ed.level.things[0].pitch, 30.0);
         // A number typed keeps it on its floor the same way.
@@ -1889,9 +1889,9 @@ mod tests {
         // was clicked, chosen; the stove's light switched on and off again.
         let mut view = crate::editor::view::View::new(&ed, &crate::config::GameConfig::default());
         crate::editor::view::act(&mut ed, &mut view, Action::AddAt(0, IVec3::new(70, 30, 0)));
-        assert_eq!((ed.chosen, ed.level.things[5].at), (Some(Item::Thing(5)), [70, 30, 40]));
+        assert_eq!((ed.pieces.chosen, ed.level.things[5].at), (Some(Item::Thing(5)), [70, 30, 40]));
         crate::editor::view::act(&mut ed, &mut view, Action::OpenMenu(Item::Thing(0), [10.0, 10.0]));
-        assert_eq!((ed.chosen, view.menu.map(|m| m.on)), (Some(Item::Thing(0)), Some(MenuOn::Item(Item::Thing(0)))));
+        assert_eq!((ed.pieces.chosen, view.menu.map(|m| m.on)), (Some(Item::Thing(0)), Some(MenuOn::Item(Item::Thing(0)))));
         crate::editor::view::act(&mut ed, &mut view, Action::SwitchLight);
         assert!(view.menu.is_none() && ed.level.things[0].lights.len() == 1, "a light on, the menu closed");
         ed.set_colour(0, "#a0b8ff");
@@ -1910,7 +1910,7 @@ mod tests {
             std::fs::create_dir_all(dir.join(f).parent().unwrap()).unwrap();
             std::fs::write(dir.join(f), "").unwrap();
         }
-        ed.scenes = vec!["world.vvx".into()];
+        ed.pieces.scenes = vec!["world.vvx".into()];
         assert_eq!(ed.model_choices(), ["hero.vvx", "room/lamp.vvx", "room/stove.vvx"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
