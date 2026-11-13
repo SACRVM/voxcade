@@ -162,8 +162,8 @@ impl Shell {
         self.hide_game();
         self.help = false;
         self.open(file);
-        // A model's line shows in its text.
-        if file.ends_with(".vvx") && !self.model_text {
+        // A model's or a level's line shows in its text.
+        if (file.ends_with(".vvx") || self.is_level(file)) && !self.model_text {
             self.flush();
             self.model_as_text();
         }

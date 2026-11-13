@@ -74,7 +74,7 @@ impl Shell {
         if self.shown.is_none() {
             // Scripts and the texts they read, sounds and songs are to
             // change, the rest to look at.
-            let to_change = self.files.logic.contains(&path) || self.files.scenarios.contains(&path) || path.ends_with(".mml") || (path.ends_with(".toml") && sounds::name_of(&path).is_some()) || (self.model_text && path.ends_with(".vvx"));
+            let to_change = self.files.logic.contains(&path) || self.files.scenarios.contains(&path) || path.ends_with(".mml") || (path.ends_with(".toml") && sounds::name_of(&path).is_some()) || (self.model_text && (path.ends_with(".vvx") || self.is_level(&path))) || self.is_map(&path);
             self.shown = Some(if to_change {
                 match Buffer::open(&self.dir, &path, &self.memory_path.with_extension("journal")) {
                     Ok(buffer) => Shown::Code(Box::new(buffer)),
@@ -92,7 +92,7 @@ impl Shell {
             };
             // What an editor opens shows as a picture.
             let preview = match () {
-                _ if level => Some(Preview::level(&self.dir, &path, &self.cfg)),
+                _ if level && !self.model_text => Some(Preview::level(&self.dir, &path, &self.cfg)),
                 _ if self.is_scene(&path) && !self.model_text => Some(Preview::scene(&self.dir, &path, &self.cfg)),
                 _ if is_model_file(&path) && !self.model_text => Some(Preview::model(&self.dir, &path, &self.cfg).map(|p| p.on(self.model_background()))),
                 _ => None,
@@ -122,6 +122,7 @@ impl Shell {
             // A song's line follows its text, a model's too.
             Some(Shown::Code(b)) if path.ends_with(".mml") => Some(b.code.song.clone().unwrap_or_else(|| "The song cannot be read.".into())),
             Some(Shown::Code(b)) if path.ends_with(".vvx") => Some(b.code.model.clone().unwrap_or_else(|| "The model cannot be read.".into())),
+            Some(Shown::Code(b)) if self.is_level(&path) => Some(b.code.model.clone().unwrap_or_else(|| "The level cannot be read.".into())),
             _ => self.facts.clone(),
         };
         let had_facts = facts.is_some();
@@ -135,8 +136,14 @@ impl Shell {
                         }
                         // A model is text too: shown as its text to change,
                         // or as its picture.
-                        if path.ends_with(".vvx") {
-                            let (word, tip) = if self.model_text { ("PICTURE", "Shows the model as the game draws it.") } else { ("TEXT", "Shows the model's text, to read and change (its palette, its frames or parts, layer by layer).") };
+                        let level = self.is_level(&path);
+                        if path.ends_with(".vvx") || level {
+                            let (word, tip) = match (self.model_text, level) {
+                                (true, false) => ("PICTURE", "Shows the model as the game draws it."),
+                                (false, false) => ("TEXT", "Shows the model's text, to read and change (its palette, its frames or parts, layer by layer)."),
+                                (true, true) => ("PICTURE", "Shows the level as its editor draws it."),
+                                (false, true) => ("TEXT", "Shows the level's text, to read and change (its blocks, its cells layer by layer, its things)."),
+                            };
                             if ui.button(word).on_hover_text(tip).clicked() {
                                 self.flush();
                                 self.model_text = !self.model_text;
@@ -433,12 +440,20 @@ pub fn is_model_file(path: &str) -> bool {
     path.ends_with(".vvx") || path.ends_with(".vox")
 }
 
-pub(super) fn facts(file: &Path, path: &str, level: bool) -> String {
+/// A line of what a level is: its size, its blocks and things (a level
+/// of pieces: its things, places, areas).
+pub(in crate::ide) fn level_line(l: &crate::grid::GridLevel) -> String {
     let plural = |n: usize, one: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") };
+    if !l.has_grid() {
+        return format!("{} × {} × {} · {} · {} · {}", l.size.x, l.size.y, l.size.z, plural(l.things.len(), "thing"), plural(l.places.len(), "place"), plural(l.areas.len(), "area"));
+    }
+    format!("{} × {} × {} cells of {} · {} · {}", l.size.x, l.size.y, l.size.z, l.n, plural(l.blocks.len(), "block"), plural(l.things.len(), "thing"))
+}
+
+pub(super) fn facts(file: &Path, path: &str, level: bool) -> String {
     if level {
         return match crate::grid::GridLevel::read(file) {
-            Ok(l) if !l.has_grid() => format!("{} × {} × {} · {} · {} · {}", l.size.x, l.size.y, l.size.z, plural(l.things.len(), "thing"), plural(l.places.len(), "place"), plural(l.areas.len(), "area")),
-            Ok(l) => format!("{} × {} × {} cells of {} · {} · {}", l.size.x, l.size.y, l.size.z, l.n, plural(l.blocks.len(), "block"), plural(l.things.len(), "thing")),
+            Ok(l) => level_line(&l),
             Err(e) => format!("{e:#}"),
         };
     }

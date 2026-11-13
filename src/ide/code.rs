@@ -49,6 +49,12 @@ pub(super) enum Syntax {
     Song,
     /// A model, `.vvx` (TOML, as a sound).
     Model,
+    /// A level (`levels/NAME.toml`, "voxcade level 1") or a map
+    /// (`map.toml`, "voxcade map 1"), told by its format line: TOML, as
+    /// a sound, read by the level's or the map's reader (a level's line of
+    /// what it is in `model`, as a model's).
+    Level,
+    Map,
 }
 
 /// A text being edited.
@@ -125,7 +131,11 @@ impl Code {
     pub fn new(file: &str, text: String) -> Self {
         let syntax = match file.rsplit_once('.').map_or("", |(_, e)| e) {
             "lua" => Syntax::Lua,
-            "toml" => Syntax::Sound,
+            "toml" => match text.lines().find(|l| l.trim_start().starts_with("format")) {
+                Some(l) if l.contains(crate::grid::FORMAT) => Syntax::Level,
+                Some(l) if l.contains(crate::map::FORMAT) => Syntax::Map,
+                _ => Syntax::Sound,
+            },
             "mml" => Syntax::Song,
             "vvx" => Syntax::Model,
             _ => Syntax::Plain,
@@ -151,6 +161,11 @@ impl Code {
                 Ok(m) => (self.error, self.model) = (None, Some(super::shell::model_line(&m, &self.file))),
                 Err(e) => (self.error, self.model) = (Some(song_trouble(&format!("{e:#}"))), None),
             },
+            Syntax::Level => match crate::grid::GridLevel::from_text(&self.text) {
+                Ok(l) => (self.error, self.model) = (None, Some(super::shell::level_line(&l))),
+                Err(e) => (self.error, self.model) = (Some(song_trouble(&format!("{e:#}"))), None),
+            },
+            Syntax::Map => self.error = crate::map::MapData::read(&self.text).err().map(|e| song_trouble(&format!("{e:#}"))),
             _ => match music::parse(&self.text) {
                 Ok(song) => (self.error, self.song) = (None, Some(song_line(&song))),
                 Err(e) => (self.error, self.song) = (Some(song_trouble(&format!("{e:#}"))), None),
@@ -606,7 +621,7 @@ pub(super) fn highlight(text: &str, font: &FontId, syntax: Syntax) -> LayoutJob 
             job.append(text, 0.0, format(NAME));
             return job;
         }
-        Syntax::Sound | Syntax::Song | Syntax::Model => {
+        Syntax::Sound | Syntax::Song | Syntax::Model | Syntax::Level | Syntax::Map => {
             for (piece, colour) in plain_pieces(text, syntax) {
                 job.append(piece, 0.0, format(colour));
             }

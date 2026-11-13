@@ -45,7 +45,7 @@ use errors::*;
 use new_files::*;
 use sound_ui::*;
 pub use main_area::is_model_file;
-pub(super) use main_area::model_line;
+pub(super) use main_area::{level_line, model_line};
 use crate::audio::sound::{self, SoundDef};
 
 /// What the main area shows of the open file.
@@ -548,6 +548,11 @@ impl Shell {
         let in_levels = path.starts_with("levels/") && path.ends_with(".toml");
         // (In a game of worlds a level of pieces says what it is.)
         self.level.as_deref() == Some(path) || (in_levels && (self.level.is_some() || crate::levels::says_level(&crate::files::Files::disk(), &self.dir.join(path))))
+    }
+
+    /// Whether `path` is a map (`map.toml`): no editor, its text to change.
+    pub fn is_map(&self, path: &str) -> bool {
+        self.files.level_text(path) && !self.is_level(path)
     }
 
     /// Whether `path` is a world or a map's prefab (`crate::scene`): shown,

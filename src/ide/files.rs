@@ -108,6 +108,12 @@ impl Files {
 
     /// The heading the list shows the file under: "Logic", "Scenarios" or
     /// an asset group's name (None: the folder has no such file).
+    /// Whether `path` is a level's or a map's text (a `.toml` among the
+    /// levels): searched, and shown as text to change.
+    pub fn level_text(&self, path: &str) -> bool {
+        path.ends_with(".toml") && self.sort_of(path) == Some("Levels")
+    }
+
     pub fn sort_of(&self, path: &str) -> Option<&'static str> {
         if self.logic.iter().any(|f| f == path) {
             return Some("Logic");

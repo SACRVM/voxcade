@@ -1915,6 +1915,41 @@ fn a_model_goes_to_its_text_and_back() {
     clean_up(&dir, &shell);
 }
 
+/// A level's line SEARCH found opens in the level's text at that line
+/// (it opened the picture, where the word cannot be marked), read by the
+/// level's reader after every change, its mistake "LINE n: why"; PICTURE
+/// brings the picture back. A map is text to change always.
+#[test]
+fn a_level_found_by_search_opens_as_its_text() {
+    let (dir, memory) = sound_game("level-text");
+    std::fs::create_dir_all(dir.join("levels")).unwrap();
+    std::fs::write(dir.join("levels/01.toml"), "format = \"voxcade level 1\"\nsize = [40, 40, 20]\n\n[[place]]\nname = \"gem_spot\"\nat = [4, 4, 0]\n").unwrap();
+    std::fs::write(dir.join("map.toml"), "format = \"voxcade map 1\"\n# gem\n").unwrap();
+    let mut shell = shell_on(&dir, &memory);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut shell);
+    let (hits, _) = crate::ide::find::search(&dir, "gem_spot", false);
+    assert_eq!(hits.iter().map(|h| (h.file.as_str(), h.line)).collect::<Vec<_>>(), [("levels/01.toml", 5)]);
+    shell.go_to_hit("levels/01.toml", 5);
+    frame(&ctx, &mut shell);
+    frame(&ctx, &mut shell);
+    let Some(Shown::Code(b)) = &mut shell.shown else { panic!("the level's text") };
+    assert!(b.code.error.is_none() && b.code.model.as_deref().is_some_and(|l| l.contains("1 place")), "{:?}", b.code.model);
+    b.code.text = b.code.text.replace("size = [40, 40, 20]", "size = [40, 40");
+    b.code.check();
+    assert!(b.code.error.as_ref().is_some_and(|(line, _)| *line > 0), "a mistake with its line: {:?}", b.code.error);
+    b.code.text = b.code.text.replace("size = [40, 40", "size = [40, 40, 20]");
+    b.code.check();
+    let at = button_in_main(&ctx, &mut shell, "PICTURE");
+    click(&ctx, &mut shell, at);
+    frame(&ctx, &mut shell);
+    assert!(!shell.model_text && shell.preview.is_some(), "the picture is back");
+    shell.open("map.toml");
+    frame(&ctx, &mut shell);
+    assert!(matches!(&shell.shown, Some(Shown::Code(b)) if b.code.error.as_ref().is_some_and(|(_, why)| why.contains("size"))), "the map's text to change, read by the map's reader");
+    clean_up(&dir, &shell);
+}
+
 /// The other buttons that change what is shown in the middle of a frame:
 /// PLAY SCENARIO asks for the game and leaves the text, MAKE IT YOURS makes
 /// the file and opens it as text.
