@@ -251,7 +251,12 @@ mod tests {
     /// fails here, not silently in English on a player's screen.
     const MENU_FILES: &[(&str, &str)] = &[
         ("menu.rs", include_str!("menu.rs")),
-        ("ui.rs", include_str!("ui.rs")),
+        ("ui/mod.rs", include_str!("ui/mod.rs")),
+        ("ui/menus.rs", include_str!("ui/menus.rs")),
+        ("ui/panels.rs", include_str!("ui/panels.rs")),
+        ("ui/hud.rs", include_str!("ui/hud.rs")),
+        ("ui/logo.rs", include_str!("ui/logo.rs")),
+        ("ui/pixel.rs", include_str!("ui/pixel.rs")),
         ("network.rs", include_str!("network.rs")),
         ("seating.rs", include_str!("seating.rs")),
         ("settings.rs", include_str!("settings.rs")),
