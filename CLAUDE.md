@@ -1299,7 +1299,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   sections only (the user: "teils teils"), chords as soft pads (the
   C64 arpeggio a quiet accent in dark and action), everything low-passed,
   pulse at duty 0.5, the texture changing every 8 bars over two to three
-  minutes. The library `music/` (seven songs, for the editor's package
+  minutes. The library `music/` (eight songs, for the editor's package
   later) holds recipes and their songs; a game plays a copy in its own
   folder (the recipe's `out` writes both). Sokovox plays the two calm
   ones. Voxfox, a jump & run from the Sunny Land pack's Tiled map, was
