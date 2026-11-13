@@ -1,0 +1,31 @@
+# Voxcade replay: My Game, 600 ticks, game over, score 0
+version = 1
+game = "My Game"
+fingerprint = "9c0a5159467d903f"
+ticks = 600
+outcome = "game over"
+score = 0
+input = "up:300;none:300"
+checks = ["8ec17d10dfe49332", "6f03436b374edf82", "b249acd1f0128f55", "2a6030b9b355685c", "fa725b17b03e0b06", "991964215fc54f8b", "57e108cc33e82f0d", "45d60385f659a7ac", "c5062929c8d2e70a", "b639576fac2fab14"]
+final_state = "b639576fac2fab14"
+scenario = "last_life"
+
+[fingerprint_parts]
+"conf.lua" = "633c47078efbaaca"
+"enemy.vvx" = "6d44cfbf00f46a12"
+"main.lua" = "cf322ad9d92ed698"
+"player.vvx" = "560fe3e5a4f71cad"
+"player2.vvx" = "945d3a1ed1af1220"
+"scenarios/last_life.lua" = "d007ac32c5fa3e5e"
+
+[[controls]]
+at = 0
+device = "keyboard"
+language = "en"
+
+[controls.keys]
+fire = "X"
+grenade = "C"
+jump = "SPACE"
+pause = "ESCAPE"
+strafe = "LEFT SHIFT"
