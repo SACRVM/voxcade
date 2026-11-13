@@ -53,6 +53,7 @@ fn game_on(world: World, cfg: GameConfig) -> Session<Shooter> {
         problem: None,
         drawn_sun: Default::default(),
         seen_faces: Default::default(),
+        hud_kept: Default::default(),
         touched: false,
             problem_shown: true,
         applied: false,
@@ -100,6 +101,34 @@ fn a_huds_inner_faces_are_hidden() {
     let next_to = frame.ui.iter().filter(|i| taken.contains(&(cell(i) + IVec3::X))).collect::<Vec<_>>();
     assert!(!next_to.is_empty(), "the hearts have voxels side by side");
     assert!(next_to.iter().all(|i| i.fx[2] & 1 == 1), "their +x faces hidden");
+}
+
+/// The HUD the UI pass draws is worked out once while it stays the same,
+/// and comes out as worked out afresh: the same cubes, faces hidden, the
+/// unseen left out; a HUD changed, or seen from elsewhere, anew.
+#[test]
+fn an_unchanged_hud_is_kept_and_comes_out_the_same() {
+    let game = flat_game(32);
+    let cube = |x: i32, z: i32| Instance { pos_size: [(x % 8) as f32 + 0.5, (x / 8) as f32 + 0.5, z as f32 + 0.5, 1.0], color: [9, 9, 9, 255], fx: [0, 255, 0, 0], shade: [0; 4], turn: [0; 4] };
+    let fresh = |raw: &[Instance], eye: Vec3| {
+        let mut v = raw.to_vec();
+        crate::render::hide_inner_faces(&mut v);
+        crate::render::leave_out_unseen(&mut v, eye);
+        bytemuck::cast_slice::<Instance, u8>(&v).to_vec()
+    };
+    let bytes = |v: &[Instance]| bytemuck::cast_slice::<Instance, u8>(v).to_vec();
+    // A plate 8 by 4, two deep (cell k: x = k % 8, y = k / 8).
+    let raw: Vec<Instance> = (0..2).flat_map(|z| (0..32).map(move |k| cube(k, z))).collect();
+    let eye = Vec3::new(100.0, 50.0, 300.0);
+    let first = game.hud_cubes(raw.clone(), eye);
+    assert!(first.len() < raw.len(), "the back layer left out");
+    assert_eq!(bytes(&first), fresh(&raw, eye));
+    assert_eq!(bytes(&game.hud_cubes(raw.clone(), eye)), fresh(&raw, eye), "kept");
+    let mut more = raw.clone();
+    more.push(cube(32, 1));
+    assert_eq!(bytes(&game.hud_cubes(more.clone(), eye)), fresh(&more, eye), "changed: anew");
+    let elsewhere = Vec3::new(-100.0, 50.0, 300.0);
+    assert_eq!(bytes(&game.hud_cubes(more.clone(), elsewhere)), fresh(&more, elsewhere), "seen from elsewhere: anew");
 }
 
 /// The line round the models is the game's: none unless it sets

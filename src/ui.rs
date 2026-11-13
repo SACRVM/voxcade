@@ -191,8 +191,16 @@ pub fn camera(layout: &Layout, slant: f32, front: f32) -> Mat4 {
     let slant = slant.max(0.01);
     let distance = h / 2.0 / slant;
     let middle = Vec3::new(w / 2.0, h / 2.0, front);
-    let view = look_at_mat4(middle + Vec3::Z * distance, middle, Vec3::Y);
+    let view = look_at_mat4(eye(layout, slant, front), middle, Vec3::Y);
     perspective(2.0 * slant.atan(), w / h, 1.0, distance + 400.0) * view
+}
+
+/// Where the UI's camera (`camera`) looks from: in front of the middle of
+/// the screen.
+pub fn eye(layout: &Layout, slant: f32, front: f32) -> Vec3 {
+    let (w, h) = (layout.width.max(1.0), layout.height.max(1.0));
+    let distance = h / 2.0 / slant.max(0.01);
+    Vec3::new(w / 2.0, h / 2.0, front) + Vec3::Z * distance
 }
 
 /// An accented capital: its letter and its accent (`shown_row`: inside the
