@@ -321,7 +321,7 @@ pub fn load<G: Game>(game: &Files, cfg: &GameConfig) -> Result<Levels> {
             None => &cfg.world.file,
         };
         let path = dir.join(file);
-        let made = one(game, cfg, kind, &path)?;
+        let made = one(game, cfg, kind, &path).with_context(|| path.display().to_string())?;
         let sources = made.files.clone();
         return Ok(Levels { list: vec![Arc::new(Level::of(stem(&path), made))], files: sources });
     }

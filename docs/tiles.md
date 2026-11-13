@@ -134,7 +134,7 @@ wall = "decor"
 stone = "solid"
 spikes = "hazard"
 
-[legend]              # a sign is a block as it lies: its name, or the name and an orientation (0 to 47)
+[legend]              # a sign is a block as it lies: its name, or the name and an orientation (0 to 47, see below)
 s = "stone"
 S = "spikes"
 w = "wall"
@@ -143,7 +143,7 @@ t = { block = "stone", orientation = 17 }
 [cells]
 layers = """
 ssssssssssssssssssssssss
-s......................s *4
+s......................s *10
 s..........SS..........s
 ssssssssssssssssssssssss
 
@@ -248,13 +248,15 @@ heights = """
  4  4  6 10 14 12
  4  5  8 14 20 16
 """
-shapes = """          # the same layout: a sign a point
+# shapes: the same layout as heights, a sign a point
+shapes = """
  .  .  .  ^  ^  .
  .  .  #  #  ^  .
 """
 terrace = 8           # STEP's terraces without layers, voxels high
 rough = 0.6           # how uneven the land is, 0 to 1
-roughness = """       # each point's share of it, a digit: 0 calm to 9 (all 9 without)
+# roughness: each point's share of it, a digit: 0 calm to 9 (all 9 without)
+roughness = """
  0  0  1  9  9  2
  0  0  1  9  9  2
 """
@@ -437,7 +439,14 @@ grain = 0.3
   through a hidden file beside it so a running game never reads half a
   block. A cell lies its block in any of 48 orientations (`orientation`
   in the legend): quarter turns about the three axes, mirrored or not
-  (`blocks::Turn`); Tiled's flips are among them.
+  (`blocks::Turn`); Tiled's flips are among them. The number is
+  `8 * axes + flips`, where `axes` (0 to 5) says which axes of the block
+  as made lie across, deep and up (0: across, deep, up as made; 1: across,
+  up, deep; 2: deep, across, up; 3: deep, up, across; 4: up, across, deep;
+  5: up, deep, across) and `flips` adds 1 to read across from the far end,
+  2 deep, 4 up. So 0 is as made, 1 mirrored left to right, 17 a quarter
+  turn about the upright (anticlockwise seen from above) and 41 a quarter
+  turn about the line of sight. The editor's ROTATE and MIRROR set it.
 - **Levels** (`src/grid.rs`, `c.world.blocks = { file, margin, below,
   backdrops }`): `levels/NAME.toml` (or `level.toml`; JSON until 0.6.0,
   `voxcade upgrade` brings it over) holds the block size, the grid's size
