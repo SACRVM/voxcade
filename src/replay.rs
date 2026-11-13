@@ -96,6 +96,11 @@ pub struct Replay {
     /// on another machine (F9); else they are in the store.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub carried: BTreeMap<String, String>,
+    /// Played where level changes fade (a window): the music's clock went
+    /// on through each fade (the song plays on), so played back each level
+    /// change takes a fade's steps on it (`Session::fade_clock`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fades: bool,
 }
 
 /// Files applied during a run: after how many steps, and how many of its
@@ -519,6 +524,7 @@ impl Recorder {
             files,
             applies: done.applies,
             carried: BTreeMap::new(),
+            fades: game.fades || game.fade_clock,
         })
     }
 }
@@ -569,6 +575,7 @@ impl Playback {
         // Nobody plays until the first step, as when it was recorded.
         let nobody = Controls::nobody(game.actions());
         game.set_controls(nobody);
+        game.fade_clock = replay.fades;
         if let Some(from) = &replay.from {
             game.start_from(from)?;
         }
@@ -1339,6 +1346,7 @@ mod tests {
             files: Set::new(),
             applies: Vec::new(),
             carried: BTreeMap::new(),
+            fades: false,
         };
         replay(42, 1).save(&replays.join("a.toml")).unwrap();
         replay(7, 2).save(&replays.join("b.toml")).unwrap();

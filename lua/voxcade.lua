@@ -44,6 +44,10 @@
 ---@field icon? string An icon of c.icons before the text.
 ---@field dim? boolean Darker: it cannot be had now.
 
+---@class MusicPlay How a song begins (music:play).
+---@field from? string When it begins: at the next bar of the one playing (bar, unless said), beat or now.
+---@field crossfade? number Seconds the old song fades out as this one fades in, 0 to 60 (0: the old ends, this begins); unless said, c.audio.crossfade.
+
 ---@class Menu A menu in the engine's look (frame:menu).
 ---@field rows (string|MenuRow)[] Its rows, from the top.
 ---@field at? integer The chosen row, from 1.
@@ -518,9 +522,9 @@ function Controls:key(action) end
 ---@field bar integer|nil Bars since your game's song began, from 0 (its #meter beats to a bar, 4 unless the song says); nil while the player's own song plays.
 local Music = {}
 
----Plays a song of c.audio.music by its file's name ("storm" for music/storm.mml) as your game's own, from the next bar of the one playing (from: "bar", "beat" or "now"; at once when none of yours plays): it starts at its beat 0 and keeps time with the game, held while the game pauses. Asked for while it plays, it goes on. Without a song: the player's own again (as the settings chose), from the next bar. Your game's song wins over the player's choice.
+---Plays a song of c.audio.music by its file's name ("storm" for music/storm.mml) as your game's own, from the next bar of the one playing (from: "bar", "beat" or "now"; at once when none of yours plays): it starts at its beat 0 and keeps time with the game (music.beat, on_beat count the new song's beats from then), held while the game pauses. Asked for while it plays, it goes on, through a level change and its fade too. Without a song: the player's own again (as the settings chose), from the next bar. The old song ends as the new begins (a level's fade silent between them), unless it crossfades: { from = "now", crossfade = 3 } fades the old out as the new comes in over 3 seconds, as loud together as either alone; c.audio.crossfade sets it for every change. Your game's song wins over the player's choice.
 ---@param song? string
----@param from? string
+---@param from? string|MusicPlay
 function Music:play(song, from) end
 
 ---How loud your game's music sounds, as a part of the song's own loudness: from 0 (silent) to 1 (as loud as the song is, the start), reached smoothly over seconds (0.3 unless you say; 0 at once, still without a click). The player's music volume stays on top. It holds until you change it, from level to level too, whichever song plays: music:volume(0.25, 2) fades it to a quarter in two seconds. Without a level it gives the level you asked for last. Only heard: replays and the game itself do not change with it.
@@ -670,6 +674,7 @@ function on_pickup(thing, item) end
 
 ---@class Conf.audio
 ---@field [string] any
+---@field crossfade number
 ---@field drive number How hard the game's sound is pushed into the limiter, in decibels (0 to 12): 0 as it is, more makes it denser and louder; music you listen to for long tires sooner when dense.
 ---@field music_volume number
 ---@field volume number

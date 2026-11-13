@@ -66,6 +66,17 @@ fn song_titles(files: &Files, cfg: &GameConfig) -> Vec<String> {
         .collect()
 }
 
+/// How many steps a fade of `length` seconds takes, out or in, as a
+/// window's `Session::step` counts them.
+fn fade_steps(length: f32) -> u32 {
+    let (mut t, mut n) = (0.0f32, 0);
+    while t < length {
+        t += crate::sim::DT;
+        n += 1;
+    }
+    n
+}
+
 /// The beats of the songs of `c.audio.music`, in order: a song that does
 /// not read keeps its place, at 120 beats a minute (its mistake shows when
 /// it is played).
@@ -335,6 +346,16 @@ pub struct Session<G: Game> {
     /// shown: no ticks run meanwhile.
     pub fades: bool,
     fade: Option<Fade>,
+    /// A replay of a run whose level changes faded (`Replay::fades`): each
+    /// change takes a fade's steps on the music's clock, as the window's
+    /// did, without a picture.
+    pub fade_clock: bool,
+    /// The song changed by the game's code: over how many seconds the
+    /// next one crossfades in (0: the old ends, the new begins).
+    crossfade: Option<f32>,
+    /// A song changed without a crossfade during the fade being shown:
+    /// the music is silent until it is over (the pause between songs).
+    fade_cut: bool,
     /// The title's time its flybys count from: the window holds it at the
     /// title's time while a run's initials are picked and the high score
     /// table shows, so nothing flies over then (the rotor was loud over the
@@ -483,6 +504,9 @@ pub fn config_in<G: Game>(files: &Files) -> Result<GameConfig> {
     }
     if !(0.0..=12.0).contains(&cfg.audio.drive) {
         anyhow::bail!("c.audio.drive = {}: from 0 to 12 (decibels the sound is pushed into the limiter; 0 leaves it as it is)", cfg.audio.drive);
+    }
+    if !(0.0..=60.0).contains(&cfg.audio.crossfade) {
+        anyhow::bail!("c.audio.crossfade = {}: seconds from 0 (none: the old song ends, the new begins) to 60", cfg.audio.crossfade);
     }
     if cfg.audio.boss_music.is_some() {
         anyhow::bail!("c.audio.boss_music is no more: which song plays when is your game's code, music:play(\"end_boss\") while the boss is up and music:play() after (the song in c.audio.music)");
@@ -804,6 +828,9 @@ impl<G: Game> Session<G> {
             songs,
             cue,
             music_changed: true,
+            fade_clock: false,
+            crossfade: None,
+            fade_cut: false,
             fades: false,
             fade: None,
             flyby_from: 0.0,
@@ -1230,15 +1257,18 @@ impl<G: Game> Session<G> {
     pub fn step(&mut self, input: &crate::input::Input) {
         if let Some(fade) = &mut self.fade {
             self.ticked = false;
+            // The song plays on through the fade: its clock goes on.
+            self.game.music_step();
             fade.t += crate::sim::DT;
             if fade.t >= fade.length {
                 if fade.out {
                     (fade.out, fade.t) = (false, 0.0);
                     self.change();
                 } else {
-                    self.fade = None;
+                    (self.fade, self.fade_cut) = (None, false);
                 }
             }
+            self.notice_song();
             return;
         }
         self.ticked = true;
@@ -1253,15 +1283,41 @@ impl<G: Game> Session<G> {
             let length = self.cfg.transition.length(why);
             if self.fades && length > 0.0 {
                 self.fade = Some(Fade { out: true, t: 0.0, length, color: self.cfg.transition.rgb() });
+                self.fade_cut = false;
+            } else if self.fade_clock && length > 0.0 {
+                // A replay of a run that faded: the fade's steps on the
+                // music's clock, out and in, as the window took them.
+                let steps = fade_steps(length);
+                (0..steps).for_each(|_| self.game.music_step());
+                self.change();
+                (0..steps).for_each(|_| self.game.music_step());
             } else {
                 self.change();
             }
         }
+        self.notice_song();
+    }
+
+    /// The game's own song changed (`music:play`): it begins anew, over the
+    /// crossfade asked (or the game's), silent to the end of a fade being
+    /// shown without one.
+    fn notice_song(&mut self) {
         let cue = self.game.music().map(|c| c.song);
         if cue != self.cue {
             self.cue = cue;
             self.music_changed = true;
+            let seconds = self.game.music_switch().began.unwrap_or(self.cfg.audio.crossfade);
+            self.crossfade = Some(seconds);
+            self.fade_cut |= self.fade.is_some() && seconds <= 0.0;
         }
+    }
+
+    /// Whether the music is silent for a level's fade: a song is to change
+    /// (or changed) in it without a crossfade, the short pause between
+    /// the two (a song going on plays through).
+    fn fade_hold(&self) -> bool {
+        let cut = self.game.music_switch().pending.is_some_and(|c| c.unwrap_or(self.cfg.audio.crossfade) <= 0.0);
+        self.fade.is_some() && (self.fade_cut || cut)
     }
 
     /// Plays a tick brought whole (`Tick`: over the network, a test): its
@@ -1426,7 +1482,10 @@ impl<G: Game> Session<G> {
     pub fn feed_music(&mut self, mixer: &mut Mixer, held: bool) -> bool {
         let began = std::mem::take(&mut self.music_changed);
         if began {
-            mixer.set_music(self.music());
+            match self.crossfade.take() {
+                Some(seconds) if seconds > 0.0 => mixer.crossfade_music(self.music(), seconds),
+                _ => mixer.set_music(self.music()),
+            }
         } else if let Some(cue) = self.game.music()
             && let Some(t) = self.songs.get(cue.song)
         {
@@ -1436,7 +1495,7 @@ impl<G: Game> Session<G> {
         if !began {
             mixer.music_mix(&self.game.music_mix());
         }
-        mixer.hold_music(held && self.steers_music());
+        mixer.hold_music((held && self.steers_music()) || self.fade_hold());
         began
     }
 
@@ -2842,6 +2901,9 @@ mod tests {
             songs: Vec::new(),
             cue: None,
             music_changed: false,
+            fade_clock: false,
+            crossfade: None,
+            fade_cut: false,
             song: 0,
             options: Options::default(),
             font: None,

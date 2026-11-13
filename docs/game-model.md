@@ -575,8 +575,23 @@ settings. Several players: `player` is seat 1, the others are in
   every tick the game goes, a hit stop's too (so the music never waits),
   in the snapshot and the hash of a game whose code names `music` or
   `on_beat`, the songs' tempo and meter in its fingerprint; the audio
-  keeps time with it (unheard nudges, a jump after a pause or a fade,
-  which hold it). The game's song wins over the player's choice; music
+  keeps time with it (unheard nudges, a jump after a pause, which holds
+  it). A level change's fade in a window holds no song: its frames step
+  the clock as ticks would (no handler runs; beats that began in it are
+  told at the first tick after, in order), so a song asked for again in
+  the next level plays on through it without a gap; the run's replay
+  says it faded (`fades = true`) and takes the same steps at each level
+  change without a picture. A song changed (another asked, or the
+  player's back) ends as the new begins, the rest of a level's fade
+  silent between them (a short pause), unless it crossfades:
+  `music:play(song, { from = "now", crossfade = 3 })`, or
+  `c.audio.crossfade` for every change, fades the old out as the new
+  comes in over the seconds, equal in power (as loud together as either
+  alone), through a level's fade too; `music:volume` and `music:muffle`
+  hold over both. The clock is the new song's from the moment it begins
+  (`music.beat`, `on_beat` count its beats), the old one only heard as it
+  goes; there is no `music:stop` (a game that wants silence plays a
+  silent song). The game's song wins over the player's choice; music
   belongs to no kit. `music.intensity` (0..1, 1 unless set) is the
   game's tension: a song's layers (`#layer D C 0.35` in it; `compose.py`
   writes them with `adaptive = true`) come in above their threshold and
@@ -824,6 +839,8 @@ end. `on_draw` runs for every picture and only looks.
 - **Fades are the picture's, not the game's.** No ticks run and no input
   is read during them, so their length changes nothing in replays, and
   `shot`, `check` and `inspect` skip them; `on_draw` runs throughout.
+  Only the music's clock goes on through them (the song plays on); a
+  replay recorded where they faded takes those steps without a picture.
   `c.transition = { fade = 0.3, color = "#000000", restart = 0 }`: seconds
   out and in, 0 for a cut, with a length of its own for a reason
   (`go_to`, `restart`, `won`, `lost`) where a game wants it (a puzzle

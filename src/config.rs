@@ -934,6 +934,11 @@ pub struct AudioConfig {
     /// mastering stage's own input gain), on sounds and music together,
     /// after the player's volumes; the game's choice, not the player's.
     pub drive: f32,
+    /// Seconds one song crossfades into the next when the game's code
+    /// changes the song (`music:play`; one call may say otherwise): the
+    /// old fading out as the new fades in, equal in power. 0: the old ends
+    /// and the new begins, a level's fade between them silent.
+    pub crossfade: f32,
     /// No more: which song plays when is the game's code (`music:play`),
     /// never a kit's. Kept to say so to a `conf.lua` that sets it.
     #[serde(skip_serializing)]
@@ -966,7 +971,7 @@ impl Songs {
 
 impl Default for AudioConfig {
     fn default() -> Self {
-        Self { volume: 0.8, music: Songs::None, music_volume: 0.5, drive: 0.0, boss_music: None }
+        Self { volume: 0.8, music: Songs::None, music_volume: 0.5, drive: 0.0, crossfade: 0.0, boss_music: None }
     }
 }
 

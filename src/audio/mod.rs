@@ -98,6 +98,13 @@ struct Voice {
 pub struct Mixer {
     voices: Vec<Voice>,
     music: Option<music::Player>,
+    /// Samples the song has played since it was set.
+    music_age: u64,
+    /// The song crossfading out as `music` comes in, and where the
+    /// crossfade is: samples gone, samples in all (`crossfade_music`).
+    leaving: Option<(Option<music::Player>, u64, u64)>,
+    /// Each song's own samples while two crossfade.
+    apart: (Vec<f32>, Vec<f32>),
     /// The music held where it is (a game that reads its beats, paused).
     music_held: bool,
     /// The last stage: holds the mix under -1 dBTP (`limiter`).
@@ -106,7 +113,7 @@ pub struct Mixer {
 
 impl Default for Mixer {
     fn default() -> Self {
-        Self { voices: Vec::new(), music: None, music_held: false, limiter: limiter::Limiter::new(SAMPLE_RATE) }
+        Self { voices: Vec::new(), music: None, music_age: 0, leaving: None, apart: Default::default(), music_held: false, limiter: limiter::Limiter::new(SAMPLE_RATE) }
     }
 }
 
@@ -119,18 +126,32 @@ impl Mixer {
 
     /// Starts a song from the top (None: silence).
     pub fn set_music(&mut self, player: Option<music::Player>) {
-        self.music = player;
+        (self.music, self.music_age, self.leaving) = (player, 0, None);
+    }
+
+    /// Starts a song as the one playing fades out over `seconds`, equal in
+    /// power (the old by the cosine, the new by the sine of a quarter
+    /// turn: together as loud as either), both going on as they were. A
+    /// song begun only a moment ago (a quarter of a second) is not faded
+    /// out but replaced, as `set_music` does.
+    pub fn crossfade_music(&mut self, player: Option<music::Player>, seconds: f32) {
+        let length = (seconds * SAMPLE_RATE as f32) as u64;
+        if self.music.is_none() || self.music_age < u64::from(SAMPLE_RATE / 4) || length == 0 {
+            return self.set_music(player);
+        }
+        let old = std::mem::replace(&mut self.music, player);
+        (self.leaving, self.music_age) = (Some((old, 0, length)), 0);
     }
 
     /// Whether no music plays (none set, or a song that plays once
     /// ended).
     pub fn music_over(&self) -> bool {
-        self.music.as_ref().is_none_or(music::Player::over)
+        self.music.as_ref().is_none_or(music::Player::over) && self.leaving.is_none()
     }
 
     /// Whether nothing sounds: no voice plays and no music is set.
     pub fn idle(&self) -> bool {
-        self.voices.is_empty() && self.music.is_none()
+        self.voices.is_empty() && self.music.is_none() && self.leaving.is_none()
     }
 
     /// Keeps the music with a game's clock (`music::Player::follow`).
@@ -151,6 +172,9 @@ impl Mixer {
     /// (`music:volume`, `music:muffle`).
     pub fn music_mix(&mut self, mix: &music::Mix) {
         if let Some(m) = &mut self.music {
+            m.follow_mix(mix);
+        }
+        if let Some((Some(m), _, _)) = &mut self.leaving {
             m.follow_mix(mix);
         }
     }
@@ -174,6 +198,9 @@ impl Mixer {
         if let Some(m) = &mut self.music {
             m.volume = volume;
         }
+        if let Some((Some(m), _, _)) = &mut self.leaving {
+            m.volume = volume;
+        }
     }
 
     pub fn play(&mut self, name: &'static str, samples: &Arc<[f32]>, gain: f32, pan: f32) {
@@ -194,11 +221,45 @@ impl Mixer {
         self.voices.push(Voice { samples: samples.clone(), at: 0, left: gain * angle.cos(), right: gain * angle.sin(), name });
     }
 
+    /// The music into `out` (zeros): the song alone, or two crossfading.
+    fn mix_music(&mut self, out: &mut [f32]) {
+        let frames = out.len() as u64 / 2;
+        let Some((old, gone, length)) = &mut self.leaving else {
+            if let Some(m) = &mut self.music {
+                m.mix(out);
+            }
+            self.music_age += frames;
+            return;
+        };
+        let (a, b) = &mut self.apart;
+        for buf in [&mut *a, &mut *b] {
+            buf.clear();
+            buf.resize(out.len(), 0.0);
+        }
+        if let Some(m) = old {
+            m.mix(a);
+        }
+        if let Some(m) = &mut self.music {
+            m.mix(b);
+        }
+        for (i, frame) in out.as_chunks_mut::<2>().0.iter_mut().enumerate() {
+            let x = ((*gone + i as u64) as f32 / *length as f32).min(1.0) * std::f32::consts::FRAC_PI_2;
+            let (fade_out, fade_in) = (x.cos(), x.sin());
+            frame[0] = a[i * 2] * fade_out + b[i * 2] * fade_in;
+            frame[1] = a[i * 2 + 1] * fade_out + b[i * 2 + 1] * fade_in;
+        }
+        *gone += frames;
+        self.music_age += frames;
+        if *gone >= *length {
+            self.leaving = None;
+        }
+    }
+
     /// Fills interleaved stereo samples.
     pub fn mix(&mut self, out: &mut [f32]) {
         out.fill(0.0);
-        if let Some(m) = self.music.as_mut().filter(|_| !self.music_held) {
-            m.mix(out);
+        if !self.music_held {
+            self.mix_music(out);
         }
         for v in &mut self.voices {
             for frame in out.as_chunks_mut::<2>().0 {

@@ -795,7 +795,12 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   gliding a step a tick (`music::Glide`, `Music::mix`, `Game::music_mix`):
   in the snapshot, never in the hash, a replay or a save, the audio
   gliding too (`music::Player::follow_mix`; the title's and the
-  settings' songs never hear it); music is never a kit's),
+  settings' songs never hear it); a level's fade holds no song, its
+  frames step the clock (`Game::music_step`; a replay recorded so says
+  `fades = true` and takes the steps without a picture,
+  `Session::fade_clock`), a song changed crossfades when asked
+  (`music:play`'s `crossfade`, `c.audio.crossfade`; `Mixer::crossfade_music`),
+  else ends with the rest of the fade silent; music is never a kit's),
   the handlers `on_world_start`
   (no level yet), `on_level_start(how)` (build and place there),
   `on_tick`, `on_draw(frame)` (drawing on `frame` only there;

@@ -686,9 +686,9 @@ fn song_folder_with(name: &str, main: &str, song: &str) -> crate::scratch::Scrat
     dir
 }
 
-/// The music of `dir`'s game over `ticks` ticks, as the film's sound pass
-/// mixes it (a window's way with `fades`: the fade holds the game's own
-/// song), interleaved stereo.
+/// The music of `dir`'s game over `ticks` steps, as the film's sound pass
+/// mixes it (a window's way with `fades`: a level change fades, its frames
+/// mixed as ticks are), interleaved stereo.
 fn music_of(dir: &Path, ticks: usize, fades: bool) -> Vec<f32> {
     let mut g = game_in(dir);
     g.fades = fades;
@@ -697,7 +697,7 @@ fn music_of(dir: &Path, ticks: usize, fades: bool) -> Vec<f32> {
     let mut out = Vec::new();
     for _ in 0..ticks {
         g.step(&Input::default());
-        g.feed_music(&mut mixer, g.fading());
+        g.feed_music(&mut mixer, false);
         mixer.set_music_volume(0.5);
         mixer.mix(&mut buf);
         out.extend_from_slice(&buf);
@@ -775,6 +775,10 @@ fn the_game_turns_its_music_down_and_muffles_it() {
         assert_eq!(a.game.state_hash(), b.game.state_hash(), "tick {}", a.game.sim().tick);
     }
 
+    // A crossfade is seconds, 0 to 60.
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.toml\" }\n  c.audio.music = { \"music/song.mml\" }\n  c.audio.crossfade = -1\nend\n").unwrap();
+    assert!(start_error(&dir).contains("c.audio.crossfade = -1: seconds from 0"), "{}", start_error(&dir));
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.toml\" }\n  c.audio.music = { \"music/song.mml\" }\nend\n").unwrap();
     // Mistakes name the argument.
     for (line, says) in [
         ("music:volume(2)", "music:volume: level from 0 (silent) to 1 (as loud as the song is), not 2"),
@@ -783,6 +787,10 @@ fn the_game_turns_its_music_down_and_muffles_it() {
         ("music:muffle(0.5, 'slowly')", "music:muffle: seconds is a number, 0 (at once) or more, not \"slowly\""),
         ("music:muffle(-0.1)", "music:muffle: amount from 0 (clear) to 1 (very dull, as through a wall), not -0.1"),
         ("music:muffle(nil, 1)", "music:muffle: the amount first"),
+        ("music:play('song', { crossfade = -1 })", "music:play: crossfade is seconds from 0 (none) to 60, not -1"),
+        ("music:play('song', { from = 'soon' })", "music:play: from \"bar\", \"beat\" or \"now\", not \"soon\""),
+        ("music:play('song', { fade = 2 })", "music:play: no 'fade' (it takes from, crossfade)"),
+        ("music:play('song', 3)", "music:play: after the song, \"bar\", \"beat\" or \"now\", or { from = ..., crossfade = seconds }, not 3"),
     ] {
         std::fs::write(dir.join("main.lua"), format!("function on_tick()\n  {line}\nend\n")).unwrap();
         let mut g = game_in(&dir);
@@ -848,13 +856,114 @@ fn the_music_sounds_as_the_game_asks() {
     assert_eq!(off, 0.0, "the level change changed the music");
     eprintln!("a level change: the samples after it differ from a run without it by {off}");
 
-    // In a window the fade holds a song of the game's own (its clock
-    // waits), not the player's (c.audio.music without music:play): said.
+    // In a window the song plays on through the level's fade, the game's
+    // own (music:play) and the player's alike: the fade's frames take the
+    // music's clock on, so the sound is the run's without a level change.
     let change = format!("{stays}\n  if world.tick == 150 then world:go_to('b') end");
-    let held = music_of(&with("music-fade", &change), 300, true);
-    let free = music_of(&song_folder("music-fade-free", &format!("function on_tick()\n{change}\nend\n")), 300, true);
+    let own = music_of(&with("music-fade", &change), 300, true);
+    let theirs = music_of(&song_folder("music-fade-free", &format!("function on_tick()\n{change}\nend\n")), 300, true);
+    let theirs_on = music_of(&song_folder("music-fade-free-on", &format!("function on_tick()\n{stays}\nend\n")), 300, false);
     let silent = |s: &[f32]| s[100 * 1470..220 * 1470].chunks(1470).filter(|t| t.iter().all(|&s| s == 0.0)).count();
-    eprintln!("with the window's fade (0.3 s out, 0.3 s in): the game's own song silent for {} ticks, the player's for {}", silent(&held), silent(&free));}
+    let apart = |a: &[f32], b: &[f32]| a.iter().zip(b).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+    eprintln!("through the window's fade (0.3 s out, 0.3 s in): silent ticks {} and {}, the samples off a run without a level change by {} and {}", silent(&own), silent(&theirs), apart(&own, &on), apart(&theirs, &theirs_on));
+    assert_eq!((silent(&own), silent(&theirs)), (0, 0));
+    assert_eq!((apart(&own, &on), apart(&theirs, &theirs_on)), (0.0, 0.0), "the song went on as if no level had changed");
+}
+
+/// The power of a pure tone of `hz` in the music from tick `from` to `to`
+/// (both sides as one), from the song's start.
+fn tone(s: &[f32], hz: f64, from: usize, to: usize) -> f64 {
+    let x: Vec<f64> = s[from * 1470..to * 1470].chunks(2).map(|f| f64::from(f[0] + f[1]) * 0.5).collect();
+    let w = std::f64::consts::TAU * hz / crate::audio::SAMPLE_RATE as f64;
+    let (re, im) = x.iter().enumerate().fold((0.0, 0.0), |(re, im), (n, v)| (re + v * (w * n as f64).cos(), im - v * (w * n as f64).sin()));
+    (re * re + im * im) / (x.len() as f64 * x.len() as f64)
+}
+
+/// Two songs, `a` a low sine and `b` a high one, in a game of two levels.
+fn two_songs(name: &str, main: &str, conf: &str) -> crate::scratch::Scratch {
+    let dir = song_folder_with(name, main, "#tempo 120\n@pad sine attack=0.05 sustain=1 release=0.1 volume=0.6\nA: @pad o4 c1&c1&c1&c1&c1&c1\n");
+    std::fs::rename(dir.join("music/song.mml"), dir.join("music/a.mml")).unwrap();
+    std::fs::write(dir.join("music/b.mml"), "#tempo 90\n@pad sine attack=0.05 sustain=1 release=0.1 volume=0.6\nA: @pad o5 g1&g1&g1&g1&g1&g1\n").unwrap();
+    std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.world.blocks = {{ file = \"level.toml\" }}\n  c.player.spawn = {{ 2, 2 }}\n  c.audio.music = {{ \"music/a.mml\", \"music/b.mml\" }}\n{conf}\nend\n")).unwrap();
+    dir
+}
+
+/// A song changed crossfades when asked (`music:play`'s `crossfade`, or
+/// `c.audio.crossfade`): the old fades out as the new fades in, equal in
+/// power, both there in the middle, the old gone after the seconds, no
+/// click, as loud and muffled as the game asks; at a level change both run
+/// through the window's fade. Without a crossfade a song changed at a
+/// level change leaves the rest of the fade silent (the pause between).
+#[test]
+fn one_song_crossfades_into_the_next() {
+    const LOW: f64 = 261.63;
+    const HIGH: f64 = 783.99;
+    let game = |name: &str, ticks: &str, conf: &str| two_songs(name, &format!("function on_level_start(how)\n  if how == 'start' then music:play('a', 'now') end\nend\nfunction on_tick()\n{ticks}\n  world.state.beat = music.beat\nend\n"), conf);
+    let low = music_of(&game("cross-a", "", ""), 300, false);
+    let high = music_of(&game("cross-b", "  if world.tick == 1 then music:play('b', 'now') end", ""), 300, false);
+    let crossed = music_of(&game("cross", "  if world.tick == 60 then music:play('b', { from = 'now', crossfade = 2 }) end", ""), 300, false);
+    // It begins at tick 61, its middle a second later.
+    let (mid, end) = (121, 182);
+    let together = 10.0 * ((rms(&crossed, mid - 5, mid + 5).powi(2)) / ((rms(&low, mid - 5, mid + 5).powi(2) + rms(&high, mid - 5, mid + 5).powi(2)) / 2.0)).log10();
+    let (l, h) = (10.0 * (tone(&crossed, LOW, mid - 5, mid + 5) / tone(&low, LOW, mid - 5, mid + 5)).log10(), 10.0 * (tone(&crossed, HIGH, mid - 5, mid + 5) / tone(&high, HIGH, mid - 5, mid + 5)).log10());
+    let gone = 10.0 * (tone(&crossed, LOW, end + 2, end + 30) / tone(&low, LOW, end + 2, end + 30)).log10();
+    let steps = (largest_step(&crossed), largest_step(&low).max(largest_step(&high)));
+    eprintln!("a crossfade of 2 s: in its middle {together:+.2} dB against the two songs' mean power, the old song {l:+.1} dB, the new {h:+.1} dB; the old after it {gone:.0} dB; largest step {:.4} (the songs alone {:.4})", steps.0, steps.1);
+    assert!(together.abs() < 1.0, "a dip of {together} dB");
+    assert!((l + 3.0).abs() < 1.0 && (h + 3.0).abs() < 1.0, "both at half power in the middle: {l} {h}");
+    assert!(gone < -50.0, "the old song still sounds: {gone} dB");
+    assert!(steps.0 <= steps.1 * 1.05, "a click");
+    // Over the game's c.audio.crossfade the same; quieter as asked.
+    let by_conf = music_of(&game("cross-conf", "  if world.tick == 60 then music:play('b', 'now') end", "  c.audio.crossfade = 2"), 300, false);
+    assert_eq!(by_conf, crossed, "c.audio.crossfade = 2 is {{ crossfade = 2 }}");
+    let quiet = music_of(&game("cross-quiet", "  if world.tick == 2 then music:volume(0.25, 0) end\n  if world.tick == 60 then music:play('b', { from = 'now', crossfade = 2 }) end", ""), 300, false);
+    let db = 20.0 * (rms(&quiet, mid - 5, mid + 5) / rms(&crossed, mid - 5, mid + 5)).log10();
+    assert!((db + 12.04).abs() < 0.1, "music:volume over the crossfade: {db} dB");
+
+    // At a level change in a window: the new song asked in on_level_start.
+    let changing = |name: &str, how: &str| two_songs(name, &format!("function on_level_start(how)\n  if how == 'start' then music:play('a', 'now') else music:play('b', {how}) end\nend\nfunction on_tick()\n  if world.tick == 60 then world:go_to('b') end\nend\n"), "");
+    let faded = music_of(&changing("cross-fade", "{ from = 'now', crossfade = 2 }"), 300, true);
+    let cut = music_of(&changing("cut-fade", "'now'"), 300, true);
+    let silent = |s: &[f32]| s[40 * 1470..140 * 1470].chunks(1470).filter(|t| t.iter().all(|&s| s == 0.0)).count();
+    // The fade: from tick 60 about 19 steps out, the change (the new song
+    // asked), 19 in; 85 to 95 late in it.
+    let both = (10.0 * (tone(&faded, LOW, 85, 95) / tone(&low, LOW, 85, 95)).log10(), 10.0 * (tone(&faded, HIGH, 85, 95) / tone(&high, HIGH, 85, 95)).log10());
+    eprintln!("at a level change with the window's fade: crossfading, {} silent ticks, the old {:+.1} dB and the new {:+.1} dB late in the fade; without, {} silent ticks", silent(&faded), both.0, both.1, silent(&cut));
+    assert_eq!(silent(&faded), 0);
+    assert!(both.0 > -20.0 && both.1 > -20.0, "both songs sound across the fade: {both:?}");
+    assert!((15..=20).contains(&silent(&cut)), "the pause between the songs: {}", silent(&cut));
+}
+
+/// A run played where level changes fade takes the fades' steps on the
+/// music's clock; its replay (`fades = true`) takes them without a
+/// picture and plays the same; without them it would run apart.
+#[test]
+fn a_replay_takes_the_fades_on_the_music_clock() {
+    use crate::replay::{Recorder, Replay, Verdict, play_through};
+    let main = "function on_level_start(how)\n  music:play('song')\nend\nfunction on_beat(beat)\n  world.state.beats = (world.state.beats or 0) + 1\nend\nfunction on_tick()\n  if world.tick % 100 == 50 then world:go_to(level.name == 'a' and 'b' or 'a') end\nend\n";
+    let dir = song_folder("fade-replay", main);
+    let mut g = game_in(&dir);
+    g.fades = true;
+    let mut recorder = Recorder::default();
+    let mut ticks = 0;
+    while ticks < 600 {
+        g.step(&Input::default());
+        recorder.record(&g);
+        ticks += usize::from(g.ticked);
+    }
+    assert_eq!(halted(&g), "");
+    let replay = recorder.replay(&g).unwrap();
+    assert!(replay.fades);
+    let path = dir.join("faded.toml");
+    replay.save(&path).unwrap();
+    let back = Replay::load(&path).unwrap();
+    assert_eq!(back, replay);
+    assert_eq!(play_through::<LuaGame>(&dir, &back).unwrap(), Verdict::Same);
+    assert!(matches!(play_through::<LuaGame>(&dir, &Replay { fades: false, ..back }).unwrap(), Verdict::RunsApart(_)), "the fades' steps count");
+    // Every beat told once, as many as the song has in the steps it went.
+    let steps = 600 + 6 * 2 * 18;
+    assert_eq!(state(&mut g, "beats"), format!("{:?}", super::Value::Int((steps as i64 - 1) * 120 / 3600 + 1)));
+}
 
 /// `c.audio.drive` pushes the game's sound into the limiter, 0 to 12
 /// decibels; outside that it is a mistake that names it.

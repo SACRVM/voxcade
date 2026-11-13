@@ -928,7 +928,7 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
                         None => game.title_music(),
                     });
                 }
-            } else if game.feed_music(&mut mixer, menu.is_open() || prompt.open || game.fading()) {
+            } else if game.feed_music(&mut mixer, menu.is_open() || prompt.open) {
                 // The player's own choice numbered when there are several.
                 let choice = game.cfg.audio.music.files().len() > 1 && !game.steers_music();
                 now_playing = match mixer.music_title() {

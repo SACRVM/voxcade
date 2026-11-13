@@ -1994,7 +1994,7 @@ impl<K: Kit> LuaGame<K> {
         // The music's clock, for a game that reads or picks its music.
         if self.uses_music {
             let m = &stage.music;
-            let next = m.next.map_or(u64::MAX, |(song, when)| song.map_or(u64::MAX - 1, |s| s as u64) * 4 + when as u64);
+            let next = m.next.map_or(u64::MAX, |(song, when, _)| song.map_or(u64::MAX - 1, |s| s as u64) * 4 + when as u64);
             s.u64(0x6d75_7369).u64(m.song.map_or(u64::MAX, |s| s as u64)).u64(m.steps).u64(next).u64(m.told.unwrap_or(u64::MAX));
             // The tension only once the game sets it (so earlier checks hold).
             if m.intensity != 1.0 {
@@ -3076,6 +3076,18 @@ impl<K: Kit> Game for LuaGame<K> {
         self.stage.music.mix
     }
 
+    fn music_step(&mut self) {
+        if self.halted.borrow().is_none() {
+            let songs = Arc::clone(&self.stage.songs);
+            self.stage.music.step(&songs);
+        }
+    }
+
+    fn music_switch(&self) -> crate::game::MusicSwitch {
+        let m = &self.stage.music;
+        crate::game::MusicSwitch { pending: m.next.map(|(_, _, cross)| cross), began: m.crossed }
+    }
+
     fn music(&self) -> Option<crate::game::MusicCue> {
         let m = &self.stage.music;
         Some(crate::game::MusicCue { song: m.song?, beats: m.beats(&self.stage.songs)?, intensity: m.intensity })
@@ -3085,7 +3097,7 @@ impl<K: Kit> Game for LuaGame<K> {
     fn set_songs(&mut self, songs: &[crate::audio::music::Timing]) {
         self.stage.songs = Arc::new(songs.to_vec());
         let m = &mut self.stage.music;
-        if m.song.is_some_and(|s| s >= songs.len()) || m.next.is_some_and(|(s, _)| s.is_some_and(|s| s >= songs.len())) {
+        if m.song.is_some_and(|s| s >= songs.len()) || m.next.is_some_and(|(s, _, _)| s.is_some_and(|s| s >= songs.len())) {
             *m = host::Music { intensity: m.intensity, mix: m.mix, ..host::Music::default() };
         }
     }

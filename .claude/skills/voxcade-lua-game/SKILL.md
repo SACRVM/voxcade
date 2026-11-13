@@ -358,7 +358,10 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   a wall) glide there (0.3 s unless said, 0 at once without a click) and
   hold from level to level, whichever song plays: the same song quiet
   and dull outside a house, clear inside (`area:holds(player)` in
-  `on_tick`). Only heard, never in the replays. Music is never a kit's:
+  `on_tick`). A song asked for again plays on through a level's fade;
+  another crossfades with `music:play("shop", { from = "now", crossfade
+  = 3 })` or `c.audio.crossfade = 3` (else the old ends, a short pause,
+  the new begins). Only heard, never in the replays. Music is never a kit's:
   which song plays when is the game's code.
 
 ## main.lua: the rules

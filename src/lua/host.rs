@@ -576,13 +576,17 @@ pub enum When {
 /// player's) and its clock: the steps since it began, a step every tick
 /// the game goes (a hit stop's too, so the music never waits), from which
 /// its beats follow without adding up errors; the song asked for next and
-/// from when; the last beat told (`on_beat`).
+/// from when (and over how many seconds it crossfades, None: the game's
+/// `c.audio.crossfade`); the last beat told (`on_beat`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Music {
     pub song: Option<usize>,
     pub steps: u64,
-    pub next: Option<(Option<usize>, When)>,
+    pub next: Option<(Option<usize>, When, Option<f32>)>,
     pub told: Option<u64>,
+    /// The crossfade the song that began last asked for (None: the game's
+    /// `c.audio.crossfade`): only heard, in no hash.
+    pub crossed: Option<f32>,
     /// The game's tension, 0..1 (`music.intensity`): the song's layers
     /// follow it.
     pub intensity: f32,
@@ -595,7 +599,7 @@ pub struct Music {
 
 impl Default for Music {
     fn default() -> Self {
-        Self { song: None, steps: 0, next: None, told: None, intensity: 1.0, mix: Default::default() }
+        Self { song: None, steps: 0, next: None, told: None, crossed: None, intensity: 1.0, mix: Default::default() }
     }
 }
 
@@ -618,7 +622,7 @@ impl Music {
         if self.song.is_some() {
             self.steps += 1;
         }
-        let Some((next, when)) = self.next else { return };
+        let Some((next, when, cross)) = self.next else { return };
         let meter = self.song.and_then(|s| songs.get(s)).map_or(4, |t| t.meter) as f64;
         let due = match (before, self.beats(songs), when) {
             (Some(a), Some(b), When::Beat) => b.floor() > a.floor(),
@@ -626,7 +630,7 @@ impl Music {
             _ => true,
         };
         if due {
-            (self.song, self.steps, self.told, self.next) = (next, 0, None, None);
+            (self.song, self.steps, self.told, self.next, self.crossed) = (next, 0, None, None, cross);
         }
     }
 

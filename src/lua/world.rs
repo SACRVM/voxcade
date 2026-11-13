@@ -2076,7 +2076,28 @@ impl UserData for MusicView {
         m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, String)| -> mlua::Result<Value> {
             Err(mlua::Error::runtime(format!("music has no {key} (music:play, music:volume, music:muffle, music.song, music.beat, music.bar, music.intensity)")))
         });
-        m.add_function("play", |lua, (_, song, when): (AnyUserData, Option<String>, Option<String>)| {
+        m.add_function("play", |lua, (_, song, how): (AnyUserData, Option<String>, Value)| {
+            // From when as a word, or { from = ..., crossfade = seconds }.
+            let (when, cross) = match &how {
+                Value::Nil => (None, None),
+                Value::String(s) => (Some(s.to_str()?.to_string()), None),
+                Value::Table(t) => {
+                    known_keys(t, &["from", "crossfade"], "music:play")?;
+                    let cross = match t.raw_get::<Value>("crossfade")? {
+                        Value::Nil => None,
+                        Value::Integer(i) if (0..=60).contains(&i) => Some(i as f32),
+                        Value::Number(n) if (0.0..=60.0).contains(&n) => Some(n as f32),
+                        other => return Err(mlua::Error::runtime(format!("music:play: crossfade is seconds from 0 (none) to 60, not {}", shown(&other)))),
+                    };
+                    let from = match t.raw_get::<Value>("from")? {
+                        Value::Nil => None,
+                        Value::String(s) => Some(s.to_str()?.to_string()),
+                        other => return Err(mlua::Error::runtime(format!("music:play: from is \"bar\", \"beat\" or \"now\", not {}", shown(&other)))),
+                    };
+                    (from, cross)
+                }
+                other => return Err(mlua::Error::runtime(format!("music:play: after the song, \"bar\", \"beat\" or \"now\", or {{ from = ..., crossfade = seconds }}, not {}", shown(other)))),
+            };
             change(lua, "music:play", |h| {
                 let when = match when.as_deref() {
                     None | Some("bar") => super::host::When::Bar,
@@ -2096,7 +2117,7 @@ impl UserData for MusicView {
                     },
                 };
                 // Asked for what plays already: it goes on, nothing else asked.
-                h.music.next = if song == h.music.song { None } else { Some((song, when)) };
+                h.music.next = if song == h.music.song { None } else { Some((song, when, cross)) };
                 Ok(())
             })
         });
@@ -2106,6 +2127,17 @@ impl UserData for MusicView {
         m.add_function("muffle", |lua, (_, amount, seconds): (AnyUserData, Value, Value)| {
             mix_ask(lua, "music:muffle", "amount", "0 (clear) to 1 (very dull, as through a wall)", amount, seconds, |m| &mut m.muffle)
         });
+    }
+}
+
+/// A value as a mistake shows it: a text in quotes, a number as it is,
+/// else its type.
+fn shown(v: &Value) -> String {
+    match v {
+        Value::String(s) => format!("\"{}\"", s.to_string_lossy()),
+        Value::Integer(i) => i.to_string(),
+        Value::Number(n) => n.to_string(),
+        other => other.type_name().to_string(),
     }
 }
 
@@ -2125,10 +2157,6 @@ fn mix_ask(
         Value::Integer(i) => Some(*i as f64),
         Value::Number(n) => Some(*n),
         _ => None,
-    };
-    let shown = |v: &Value| match v {
-        Value::String(s) => format!("\"{}\"", s.to_string_lossy()),
-        other => other.type_name().to_string(),
     };
     if value.is_nil() {
         if !seconds.is_nil() {

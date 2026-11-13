@@ -577,9 +577,9 @@ end
     },
     Topic {
         title: "MUSIC THROUGH A WALL",
-        text: "One song plays all the time; only how it sounds changes. music:volume(level, seconds) makes it quieter, a part of its own loudness from 0 (silent) to 1 (as loud as it is), and music:muffle(amount, seconds) makes it dull, as heard through a wall or a door, from 0 (clear) to 1 (very dull). Each glides there over the seconds (0.3 unless you say; 0 at once) and stays until you change it, from level to level too. Here the song is quiet and dull outside the house and clear inside it (the house is an area of levels/street.toml), changing over a second as you walk in and out. Your game's sounds stay clear.",
+        text: "How the music sounds where the player is. music:volume(level, seconds) makes the song quieter, a part of its own loudness from 0 (silent) to 1 (as loud as it is), and music:muffle(amount, seconds) makes it dull, as heard through a wall or a door, from 0 (clear) to 1 (very dull). Each glides there over the seconds (0.3 unless you say; 0 at once) and stays until you change it, from level to level too. Here the street's song is quiet and dull outside and clear in the house (an area of levels/street.toml). The shop has a song of its own: music:play(\"shop\", { from = \"now\", crossfade = 3 }) fades the street's song out as the shop's comes in over three seconds, and back again as you leave (c.audio.crossfade sets it for every change). A song asked for while it plays goes on, through a level's fade too. Your game's sounds stay clear.",
         conf: r##"c.world.size = nil             -- no world made in code: the level is levels/street.toml
-c.audio.music = { "music/street.mml" }"##,
+c.audio.music = { "music/street.mml", "music/shop.mml" }"##,
         files: &[
             ("levels/street.toml", r##"format = "voxcade level 1"
 size = [64, 48, 16]
@@ -597,17 +597,30 @@ facing = "north"
 
 [[area]]
 name = "house"
-at = [20, 12, 0]
+at = [4, 12, 0]
+size = [24, 24, 16]
+
+[[area]]
+name = "shop"
+at = [36, 12, 0]
 size = [24, 24, 16]
 "##),
-            ("street/ground.vvx", "format = \"voxcade voxel 1\"\nsize = [64, 48, 1]\n\n[palette]\na = { color = \"#4f5a3c\" }\nh = { color = \"#8a6a4a\" }\n\n[[frame]]\nlayers = \"\"\"\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *12\naaaaaaaaaaaaaaaaaaaahhhhhhhhhhhhhhhhhhhhhhhhaaaaaaaaaaaaaaaaaaaa *24\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *12\n\"\"\"\n"),
+            ("street/ground.vvx", "format = \"voxcade voxel 1\"\nsize = [64, 48, 1]\n\n[palette]\na = { color = \"#4f5a3c\" }\nh = { color = \"#8a6a4a\" }\ns = { color = \"#4a5f8a\" }\n\n[[frame]]\nlayers = \"\"\"\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *12\naaaahhhhhhhhhhhhhhhhhhhhhhhhaaaaaaaassssssssssssssssssssssssaaaa *24\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *12\n\"\"\"\n"),
             ("music/street.mml", "#tempo 100\n@pad triangle attack=0.05 release=0.3 volume=0.5\n@bass square duty=0.25 volume=0.3\nA: @pad o4 l2 c e g e\nB: @bass o2 l4 c c g g\n"),
+            ("music/shop.mml", "#tempo 120\n@bell sine attack=0.01 decay=0.4 sustain=0.2 release=0.3 volume=0.5\n@bass triangle volume=0.4\nA: @bell o5 l4 e g a g e d c d\nB: @bass o3 l2 a f c g\n"),
         ],
-        code: r##"-- The song of c.audio.music plays on; where the player stands says how
--- it sounds: outside, quiet and dull through the house's walls; inside,
--- loud and clear.
+        code: r##"-- Where the player stands says what plays and how: outside, the
+-- street's song quiet and dull through the walls; in the house, loud and
+-- clear; in the shop, the shop's own song, crossfading in.
+local function room_of(p)
+  if level.areas.house:holds(p) then return "house" end
+  if level.areas.shop:holds(p) then return "shop" end
+  return "outside"
+end
+
 function on_level_start(how)
-  level.state.inside = false
+  music:play("street", "now")
+  level.state.room = "outside"
   music:volume(0.5, 0)   -- at once: the level begins outside
   music:muffle(0.7, 0)
 end
@@ -616,15 +629,18 @@ function on_tick()
   for _, p in ipairs(level:players()) do
     p:walk(p.input.dir, 40)
   end
-  local inside = level.areas.house:holds(player)
-  if inside ~= level.state.inside then
-    level.state.inside = inside
-    if inside then
-      music:volume(1, 1)   -- over a second
-      music:muffle(0, 1)
-    else
-      music:volume(0.5, 1)
+  local room = room_of(player)
+  if room ~= level.state.room then
+    level.state.room = room
+    -- the shop's song in the shop, else the street's (going on if it plays)
+    local song = room == "shop" and "shop" or "street"
+    music:play(song, { from = "now", crossfade = 3 })
+    if room == "outside" then
+      music:volume(0.5, 1)   -- over a second
       music:muffle(0.7, 1)
+    else
+      music:volume(1, 1)
+      music:muffle(0, 1)
     end
   end
 end
@@ -633,7 +649,7 @@ function on_draw(frame)
   for _, p in ipairs(level:players()) do
     frame:model(p.seat == 2 and "hero2.vvx" or "hero.vvx", p)
   end
-  frame:text(level.state.inside and "INSIDE" or "OUTSIDE", 4, 4)
+  frame:text(string.upper(level.state.room), 4, 4)
 end
 "##,
     },

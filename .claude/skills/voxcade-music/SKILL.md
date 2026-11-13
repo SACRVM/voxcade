@@ -125,9 +125,15 @@ The game's code picks a song of its own (`music:play("storm", "bar")`:
 from the next bar, `"beat"`, `"now"`) and can go with its beats
 (`on_beat`, `music.beat`, `music.bar`; `#tempo` and `#meter` in the song
 say when they fall, so they count for the game's replays). The song then
-keeps time with the game, held while it pauses or fades (a song of the
-player's choice, `c.audio.music` without `music:play`, plays on through
-a level's fade).
+keeps time with the game, held while it pauses. A level change's fade
+holds no song: the clock goes on through it (beats in it are told at the
+first tick after), so a song asked for again in the next level plays on
+without a gap. Another song: the old ends as the new begins (the rest of
+a level's fade silent, a short pause), unless it crossfades:
+`music:play("shop", { from = "now", crossfade = 3 })` or
+`c.audio.crossfade = 3` for every change fade the old out as the new
+comes in, equal in power; the clock is the new song's from then. No
+`music:stop` yet.
 
 How it sounds where the player is: `music:volume(level, seconds)` (0..1
 of the song's own loudness, under the player's volume) and

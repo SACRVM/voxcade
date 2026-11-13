@@ -75,6 +75,15 @@ pub struct MusicCue {
     pub intensity: f32,
 }
 
+/// A change of the game's song as the audio needs it (`music:play`): one
+/// asked and not begun yet, with its crossfade (None inside: the game's
+/// `c.audio.crossfade`), and the crossfade of the one that began last.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct MusicSwitch {
+    pub pending: Option<Option<f32>>,
+    pub began: Option<f32>,
+}
+
 /// A seat after the first as a tick finds it (`Game::set_seats`): what its
 /// player holds, or nobody sitting there, and what they play with.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -394,6 +403,16 @@ pub trait Game: Sized + 'static {
     /// heard, in no hash.
     fn music_mix(&self) -> crate::audio::music::Mix {
         crate::audio::music::Mix::default()
+    }
+
+    /// A step of its music's clock alone, while a level change fades (no
+    /// tick runs then; the song plays on): as a tick's, the glides too.
+    fn music_step(&mut self) {}
+
+    /// The change of song asked and the crossfade of the last
+    /// (`MusicSwitch`).
+    fn music_switch(&self) -> MusicSwitch {
+        MusicSwitch::default()
     }
 
     /// The song it plays of its own choice and how far in (None: the
