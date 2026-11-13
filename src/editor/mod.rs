@@ -465,7 +465,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         view.backgrounds = [Some(c); 2];
     }
     if let Some((lo, hi)) = opts.select {
-        ed.select_box_cells(lo.min(hi), lo.max(hi), false);
+        ed.select_from_pivot(lo, hi);
         anyhow::ensure!(ed.selection().is_some(), "--select: no voxel in that box");
     }
     for op in &opts.selection_ops {

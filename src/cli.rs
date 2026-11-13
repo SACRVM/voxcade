@@ -48,7 +48,7 @@ USAGE:
                  [--rename NAME --to NEW] [--light NAME [--radius N] [--color #rrggbb] [--at X,Y,Z]] [--room-size X,Y,Z]
                  [--choose-light K] [--menu NAME|floor|voxel|selection] [--background #rrggbb] [--tool select --marquee X0,Y0,X1,Y1] [--add-menu] [--level-settings] [--handles move|rotate] [--hover arrow-x|ring-z|face-y|...]
                  [--hide NAME] [--click X,Y] [--slice x|y|z,LAYER] [--rotate-part NAME --by DEG [--about rotation|pitch|roll]] [--pose-part NAME --by DEG [--about ...]]
-                 [--part NAME [--add-part] [--merge-into NAME] [--mirror]] [--select X0,Y0,Z0 --to X1,Y1,Z1 [--selection OP ...]] [--menu part:NAME] [--model FILE --context LEVEL:NAME [--context-off]]
+                 [--part NAME [--add-part] [--merge-into NAME] [--mirror]] [--select X0,Y0,Z0 --to X1,Y1,Z1 (from the pivot, as at) [--selection OP ...]] [--menu part:NAME] [--model FILE --context LEVEL:NAME [--context-off]]
                  [--model FILE [--frame N | --part NAME] --clear X0,Y0,Z0 --to X1,Y1,Z1 | --fill SIGN|#rrggbb --from X0,Y0,Z0 --to X1,Y1,Z1 ... [--dry]]
                    (without --shot these write the model; coordinates from its pivot, as the file's `at`)
   voxcade ide    [<game-dir>] [--shot FILE] [--open PATH] [--console CMD] [--play TICKS] [--size WxH] [--remote]

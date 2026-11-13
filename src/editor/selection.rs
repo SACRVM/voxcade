@@ -372,6 +372,21 @@ impl Editor {
         self.selection = None;
     }
 
+    /// The filled voxels in `lo..=hi` given as the file gives places (from
+    /// the model's pivot, as `at`; a block's own cells) selected: with a
+    /// part chosen, its own cells there whatever its rest rotation and
+    /// offset; with the figure whole, every part's; a frame's of a model of
+    /// frames (`--select ... --to ...`, as `--clear` and `--fill` take
+    /// them).
+    pub fn select_from_pivot(&mut self, lo: IVec3, hi: IVec3) {
+        let origin = match self.scope {
+            Scope::Frame(f) if !self.parted() => -crate::vvx::pivot(self.model.as_ref().map_or(IVec3::ONE, |m| m.frames[f].size)),
+            Scope::Frame(_) | Scope::Figure => self.origin().unwrap_or(IVec3::ZERO),
+            _ => IVec3::ZERO,
+        };
+        self.select_box_cells(lo.min(hi) - origin, lo.max(hi) - origin, false);
+    }
+
     /// The filled voxels in `lo..=hi` of the grid shown selected (`add`:
     /// besides those selected; else instead).
     pub fn select_box_cells(&mut self, lo: IVec3, hi: IVec3, add: bool) {
@@ -1128,5 +1143,41 @@ mod tests {
         assert_eq!(body_text(&text(&dir)), body_text(&before), "the body's text kept");
         ed.undo();
         assert_eq!(text(&dir), before);
+    }
+
+    /// `--select` takes the file's places (from the pivot, as `at`): on a
+    /// part turned at rest and moved by an offset, hanging on a turned
+    /// head, its own cells there; without a part, the figure's; `--fill`
+    /// on that part takes the same places.
+    #[test]
+    fn a_box_from_the_pivot_selects_a_turned_parts_own_cells() {
+        let dir = crate::scratch::Scratch::new("sel-pivot");
+        let part = |name: &str, at: [i32; 3], size: [i32; 3], sign: char, extra: &str| {
+            let rows: Vec<String> = (0..size[2]).map(|_| (0..size[1]).map(|_| sign.to_string().repeat(size[0] as usize)).collect::<Vec<_>>().join("\n")).collect();
+            format!("\n[[part]]\nname = \"{name}\"\nat = [{}, {}, {}]\n{extra}layers = \"\"\"\n{}\n\"\"\"\n", at[0], at[1], at[2], rows.join("\n\n"))
+        };
+        let text = format!(
+            "format = \"{}\"\nsize = [13, 17, 40]\n\n[palette]\na = \"#5a7aa8\"\nb = \"#d0c8b8\"\nc = \"#6b4423\"\n{}{}{}",
+            crate::vvx::FORMAT,
+            part("body", [-3, -2, 0], [6, 4, 26], 'a', ""),
+            part("head", [-3, -3, 26], [6, 6, 8], 'b', "parent = \"body\"\njoint = [0, 0, 26]\nrotation = 45\n"),
+            part("brow", [2, -7, 26], [3, 2, 11], 'c', "offset = [-0.243, 0.343, 0]\nparent = \"head\"\nrotation = -45\n"),
+        );
+        std::fs::write(dir.join("fig.vvx"), text).unwrap();
+        let mut ed = Editor::open_model(&dir, "fig.vvx").unwrap();
+        ed.follow_figure();
+        let brow = ed.figure.as_ref().unwrap().parts().iter().position(|p| p.name == "brow").unwrap();
+        ed.choose_part(brow);
+        ed.select_from_pivot(IVec3::new(2, -7, 26), IVec3::new(4, -6, 31));
+        assert_eq!(ed.selection().map(|s| s.count()), Some(3 * 2 * 6), "the brow's own cells there");
+        // Without a part: the figure's, from the pivot.
+        ed.back_to_level();
+        ed.select_from_pivot(IVec3::new(2, -7, 26), IVec3::new(4, -6, 31));
+        assert_eq!(ed.selection().map(|s| s.count()), Some(3 * 2 * 6), "the same cells from the figure whole");
+        // --fill on the turned part: the same places.
+        let mut m = crate::editor::frames::ModelFile::load(&dir.join("fig.vvx")).unwrap();
+        m.change_cells(&crate::editor::frames::CellsOf::Part("brow".into()), &[crate::editor::frames::CellOp::Clear(IVec3::new(2, -7, 26), IVec3::new(4, -6, 31))]).unwrap();
+        let k = m.parts.iter().position(|p| p.name == "brow").unwrap();
+        assert_eq!(block_cells(&m.frames[m.parts[k].frame], m.parts[k].low).len(), 3 * 2 * 5, "six layers cleared");
     }
 }
