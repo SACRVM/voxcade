@@ -50,8 +50,8 @@ pub struct Use {
     pub unit: Unit,
     /// Plain English, for people who do not know the engine.
     pub meaning: &'static str,
-    /// The values it takes (numbers), lowest and highest. In an
-    /// instrument: where it plays (MML clamps instead of refusing).
+    /// The values it takes (numbers), lowest and highest; a value outside
+    /// is refused, in a sound file and in an MML instrument alike.
     pub range: Option<(f64, f64)>,
     /// What it is when not written, as it would be written.
     pub default: &'static str,
@@ -79,6 +79,9 @@ pub const PITCHES: (f64, f64) = (20.0, 20_000.0);
 /// Times within a sound: up to the longest sound (`synth::LONGEST`).
 const TIMES: Option<(f64, f64)> = Some((0.0, super::synth::LONGEST as f64));
 
+/// Times within a song's instrument, the same ceiling.
+const SONG_TIMES: Option<(f64, f64)> = TIMES;
+
 use Form::*;
 use Unit::*;
 
@@ -92,22 +95,22 @@ pub const WORDS: &[Word] = &[
     Word {
         name: "freq",
         sound: sound(Hz, Some(PITCHES), "440", Synth, "the pitch at the start; for noise how fast it changes, higher is brighter"),
-        mml: mml(Hz, None, "the note's", "a pitch the instrument always plays, whatever the note: drums"),
+        mml: mml(Hz, Some(PITCHES), "the note's", "a pitch the instrument always plays, whatever the note: drums"),
     },
     Word {
         name: "sweep",
         sound: sound(Semitones, Some((-120.0, 120.0)), "0", Synth, "how far the pitch slides over the whole sound, evenly: -12 an octave down"),
-        mml: mml(Semitones, None, "0", "how far each note's pitch slides, over sweep_time"),
+        mml: mml(Semitones, Some((-120.0, 120.0)), "0", "how far each note's pitch slides, over sweep_time"),
     },
     Word {
         name: "duty",
         sound: sound(Share, Some((0.01, 0.99)), "0.5", Synth, "how much of a square wave's turn is high: 0.5 hollow, less thin and nasal"),
-        mml: mml(Share, Some((0.05, 0.95)), "0.5", "the same, played from 0.05 to 0.95"),
+        mml: mml(Share, Some((0.05, 0.95)), "0.5", "the same, from 0.05 to 0.95"),
     },
     Word {
         name: "attack",
         sound: sound(Seconds, TIMES, "0", Synth, "fading in from silence to full volume"),
-        mml: mml(Seconds, None, "0.004", "from silence to the peak at a note's start"),
+        mml: mml(Seconds, SONG_TIMES, "0.004", "from silence to the peak at a note's start"),
     },
     Word {
         name: "hold",
@@ -117,7 +120,7 @@ pub const WORDS: &[Word] = &[
     Word {
         name: "decay",
         sound: sound(Seconds, TIMES, "0.2", Synth, "fading from full volume to silence at the end, 0.005 at least"),
-        mml: mml(Seconds, None, "0.1", "from the peak down to the sustain level"),
+        mml: mml(Seconds, SONG_TIMES, "0.1", "from the peak down to the sustain level, where the note stays until released (in a sound file decay is the fade to silence)"),
     },
     Word {
         name: "punch",
@@ -127,12 +130,12 @@ pub const WORDS: &[Word] = &[
     Word {
         name: "vibrato",
         sound: sound(Share, Some((0.0, 1.0)), "0", Synth, "how far the pitch wobbles, a share of it; 0.01 is gentle"),
-        mml: mml(Share, None, "0", "the same wobble on every note"),
+        mml: mml(Share, Some((0.0, 1.0)), "0", "the same wobble on every note"),
     },
     Word {
         name: "vibrato_speed",
         sound: sound(Hz, Some((0.0, 50.0)), "6", Synth, "how often the pitch wobbles in a second"),
-        mml: mml(Hz, None, "6", "the same"),
+        mml: mml(Hz, Some((0.0, 50.0)), "6", "the same"),
     },
     Word {
         name: "jump",
@@ -147,7 +150,7 @@ pub const WORDS: &[Word] = &[
     Word {
         name: "lowpass",
         sound: sound(Hz, Some(PITCHES), "none", Synth, "a gentle filter: above this pitch it grows quieter, for rumble and muffling"),
-        mml: mml(Hz, None, "none", "the same gentle filter, fixed"),
+        mml: mml(Hz, Some(PITCHES), "none", "the same gentle filter, fixed"),
     },
     Word {
         name: "lowpass_end",
@@ -157,7 +160,7 @@ pub const WORDS: &[Word] = &[
     Word {
         name: "volume",
         sound: sound(Share, Some((0.0, 1.0)), "0.5", Synth, "how loud, 1 full scale"),
-        mml: mml(Share, None, "0.5", "how loud the instrument plays"),
+        mml: mml(Share, Some((0.0, 1.0)), "0.5", "how loud the instrument plays"),
     },
     Word {
         name: "silent",
@@ -166,20 +169,20 @@ pub const WORDS: &[Word] = &[
     },
     // MML's own.
     Word { name: "sustain", sound: None, mml: mml(Share, Some((0.0, 1.0)), "0.7", "the level a held note stays at after the decay") },
-    Word { name: "release", sound: None, mml: mml(Seconds, None, "0.08", "fading to silence after the note is let go") },
-    Word { name: "vibrato_delay", sound: None, mml: mml(Seconds, None, "0", "how long a note plays before it wobbles") },
+    Word { name: "release", sound: None, mml: mml(Seconds, SONG_TIMES, "0.08", "fading to silence after the note is let go") },
+    Word { name: "vibrato_delay", sound: None, mml: mml(Seconds, SONG_TIMES, "0", "how long a note plays before it wobbles") },
     Word { name: "arp", sound: None, mml: mml(SemitoneList, None, "none", "semitone steps a note cycles through, fast; 0,4,7 a major chord") },
-    Word { name: "arp_speed", sound: None, mml: mml(Hz, None, "50", "steps of arp in a second") },
-    Word { name: "sweep_time", sound: None, mml: mml(Seconds, None, "attack + decay", "how long the sweep takes") },
-    Word { name: "pwm", sound: None, mml: mml(Share, None, "0", "how far the duty wobbles") },
-    Word { name: "pwm_speed", sound: None, mml: mml(Hz, None, "1", "how often the duty wobbles") },
+    Word { name: "arp_speed", sound: None, mml: mml(Hz, Some((0.0, 1000.0)), "50", "steps of arp in a second") },
+    Word { name: "sweep_time", sound: None, mml: mml(Seconds, SONG_TIMES, "attack + decay", "how long the sweep takes") },
+    Word { name: "pwm", sound: None, mml: mml(Share, Some((0.0, 0.5)), "0", "how far the duty wobbles") },
+    Word { name: "pwm_speed", sound: None, mml: mml(Hz, Some((0.0, 50.0)), "1", "how often the duty wobbles") },
     Word { name: "filter", sound: None, mml: mml(Choice, None, "none", "the SID's filter: lowpass, bandpass or highpass") },
     Word { name: "cutoff", sound: None, mml: mml(Hz, Some((20.0, 20_000.0)), "1000", "where the SID filter cuts") },
     Word { name: "cutoff_end", sound: None, mml: mml(Hz, Some((20.0, 20_000.0)), "none", "where the cutoff slides to on every note") },
-    Word { name: "cutoff_time", sound: None, mml: mml(Seconds, None, "attack + decay", "how long the cutoff slides") },
+    Word { name: "cutoff_time", sound: None, mml: mml(Seconds, SONG_TIMES, "attack + decay", "how long the cutoff slides") },
     Word { name: "resonance", sound: None, mml: mml(Share, Some((0.0, 1.0)), "0", "how much the filter rings at its cutoff") },
     Word { name: "sidechain", sound: None, mml: mml(Share, Some((0.0, 1.0)), "0", "how far this instrument's notes duck the other channels") },
-    Word { name: "sidechain_release", sound: None, mml: mml(Seconds, None, "0.2", "how long the others take to come back") },
+    Word { name: "sidechain_release", sound: None, mml: mml(Seconds, SONG_TIMES, "0.2", "how long the others take to come back") },
     Word { name: "duck", sound: None, mml: mml(Share, Some((0.0, 1.0)), "1", "how far this instrument follows the ducking") },
 ];
 
@@ -280,9 +283,13 @@ mod tests {
         // Every word the register gives MML, MML takes.
         for w in WORDS.iter().filter(|w| w.mml.is_some() && w.name != "wave") {
             let value = match w.name {
-                "arp" => "0,4,7",
-                "filter" => "lowpass",
-                _ => "1",
+                "arp" => "0,4,7".to_string(),
+                "filter" => "lowpass".to_string(),
+                // A value inside the word's range (MML refuses the rest).
+                _ => match w.mml.as_ref().and_then(|u| u.range) {
+                    Some((lo, hi)) if lo > 1.0 || hi < 1.0 => ((lo + hi) / 2.0).to_string(),
+                    _ => "1".to_string(),
+                },
             };
             crate::audio::music::parse(&format!("@x {}={value}\nA: c", w.name)).unwrap_or_else(|e| panic!("{}: {e:#}", w.name));
         }

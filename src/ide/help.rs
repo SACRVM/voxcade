@@ -576,6 +576,31 @@ end
 "##,
     },
     Topic {
+        title: "A SONG IN MML",
+        text: "A song is a text file in the folder music, ending in .mml (the plus beside MUSIC makes one; PLAY SONG plays the text as it stands). Lines starting with # are settings (#tempo is beats a minute, 1 to 999, #meter the beats in a bar), lines starting with @ make an instrument (a wave, square, saw, triangle, sine or noise, then options like attack, decay, sustain and release, written name=number; a number out of its range is a mistake saying the range, a word one slip off says which it meant), and a line like A: is a channel of notes, one voice each. Notes are c d e f g a b, + or - for sharp and flat, then a length (4 a quarter, 8 an eighth, a dot makes it longer), r a rest, o4 the octave (0 to 9), < and > one octave down and up, l8 the default length, v0 to v15 the volume, [ ... ]3 repeats three times, $name = ... a short piece to use again, | a bar line (ignored). A channel may go on over several lines; a mistake says the line it is on. Every channel should be as long as the others, or the short ones fall silent before the song starts over. Name the file in c.audio.music and play it by its file's name, without the folder and .mml: music:play(\"drive\"). decay in an instrument is the fall from the peak to the sustain level, not the fade to silence a sound file's decay is.",
+        conf: r##"c.audio.music = { "music/drive.mml" }
+c.player.kind = "hero"
+c.things.hero = {}"##,
+        files: &[(
+            "music/drive.mml",
+            "#title Drive\n#tempo 120\n#meter 4\n\n; the instruments\n@lead square duty=0.25 attack=0.005 decay=0.15 sustain=0.6 release=0.1 volume=0.4\n@bass triangle volume=0.5\n\n; a piece to use twice\n$riff = c8 c8 g8 c8 a+8 c8 g8 c8\n\n; every channel four bars long (16 beats)\nA: @lead o5 v12 l8 [e g a g e d c d]4\nB: @bass o2 v13 [$riff]4\n",
+        )],
+        code: r##"function on_level_start(how)
+  level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 0, "#30343c")
+  -- by the file's name, without the folder and .mml
+  music:play("drive", "now")
+end
+
+function on_tick()
+  player:walk(input.dir, 40)
+end
+
+function on_draw(frame)
+  frame:cube(player.x, player.y, player.z, { 200, 90, 60 })
+end
+"##,
+    },
+    Topic {
         title: "MUSIC THROUGH A WALL",
         text: "How the music sounds where the player is. music:volume(level, seconds) makes the song quieter, a part of its own loudness from 0 (silent) to 1 (as loud as it is), and music:muffle(amount, seconds) makes it dull, as heard through a wall or a door, from 0 (clear) to 1 (very dull). Each glides there over the seconds (0.3 unless you say; 0 at once) and stays until you change it, from level to level too. Here the street's song is quiet and dull outside and clear in the house (an area of levels/street.toml). The shop has a song of its own: music:play(\"shop\", { from = \"now\", crossfade = 3 }) fades the street's song out as the shop's comes in over three seconds, and back again as you leave (c.audio.crossfade sets it for every change). A song asked for while it plays goes on, through a level's fade too. Your game's sounds stay clear.",
         conf: r##"c.world.size = nil             -- no world made in code: the level is levels/street.toml
@@ -606,7 +631,7 @@ at = [36, 12, 0]
 size = [24, 24, 16]
 "##),
             ("street/ground.vvx", "format = \"voxcade voxel 1\"\nsize = [64, 48, 1]\n\n[palette]\na = { color = \"#4f5a3c\" }\nh = { color = \"#8a6a4a\" }\ns = { color = \"#4a5f8a\" }\n\n[[frame]]\nlayers = \"\"\"\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *12\naaaahhhhhhhhhhhhhhhhhhhhhhhhaaaaaaaassssssssssssssssssssssssaaaa *24\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *12\n\"\"\"\n"),
-            ("music/street.mml", "#tempo 100\n@pad triangle attack=0.05 release=0.3 volume=0.5\n@bass square duty=0.25 volume=0.3\nA: @pad o4 l2 c e g e\nB: @bass o2 l4 c c g g\n"),
+            ("music/street.mml", "#tempo 100\n@pad triangle attack=0.05 release=0.3 volume=0.5\n@bass square duty=0.25 volume=0.3\nA: @pad o4 l2 c e g e\nB: @bass o2 l4 c c g g c c g g\n"),
             ("music/shop.mml", "#tempo 120\n@bell sine attack=0.01 decay=0.4 sustain=0.2 release=0.3 volume=0.5\n@bass triangle volume=0.4\nA: @bell o5 l4 e g a g e d c d\nB: @bass o3 l2 a f c g\n"),
         ],
         code: r##"-- Where the player stands says what plays and how: outside, the
@@ -1353,6 +1378,23 @@ mod tests {
         for (title, width) in std::iter::once(ALL).chain(TOPICS.iter().map(|t| t.title)).zip(titles) {
             assert!(width + 2.0 * crate::gui::INSET <= column, "{title}: {width} in a column of {column}");
         }
+    }
+
+    /// HELP's songs read, their channels are as long as each other (what
+    /// the text promises) and the MML topic is there.
+    #[test]
+    fn the_songs_help_writes_read_and_line_up() {
+        let mut seen = 0;
+        for topic in TOPICS {
+            for (name, text) in topic.files.iter().filter(|(n, _)| n.ends_with(".mml")) {
+                let song = crate::audio::music::parse(text).unwrap_or_else(|e| panic!("{name}: {e:#}"));
+                let lengths = song.channel_lengths();
+                assert!(lengths.iter().all(|(_, l)| (l - lengths[0].1).abs() < 0.01), "{name}: {lengths:?}");
+                seen += 1;
+            }
+        }
+        assert!(seen >= 3, "HELP has its songs ({seen})");
+        assert!(TOPICS.iter().any(|t| t.title == "A SONG IN MML"));
     }
 
     /// Every example runs as a game: the empty template's conf.lua with
