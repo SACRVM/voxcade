@@ -296,6 +296,13 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         None => Session::<G>::load(dir)?,
     };
     let load_ms = ms(started);
+    // A game without save slots has no SAVE, LOAD or CONTINUE in the
+    // window: no picture of them either (before a GPU is asked for).
+    if let Some(screen @ ("save" | "load" | "continue")) = opts.screen.as_deref()
+        && game.slots.count() == 0
+    {
+        bail!("--screen {screen}: a game with save slots (c.saves.slots) has it; {} has none", game.cfg.title);
+    }
 
     let (width, height) = (opts.width, opts.height);
     let mut canvas = Canvas::new(width, height, true)?;
@@ -1581,6 +1588,19 @@ mod tests {
         let dir = game("inspect-quiet", "function on_tick() world.state.n = (world.state.n or 0) + 1 end\n");
         let standing = inspected::<crate::Voxcade>(&dir, 130, "", &[], None, &begin).unwrap();
         assert_eq!(standing["warnings"], serde_json::json!([]));
+    }
+
+    /// `shot --screen save`, `load` and `continue` show what a game with
+    /// save slots has; a game without (Pulsar) is told so, not drawn a SAVE
+    /// page with only BACK on it.
+    #[test]
+    fn a_game_without_slots_has_no_save_screen() {
+        let pulsar = Path::new(env!("CARGO_MANIFEST_DIR")).join("games/pulsar");
+        for screen in ["save", "load", "continue"] {
+            let opts = ShotOptions { frames: Some(1), replay: None, record: None, screen: Some(screen.into()), input: String::new(), seats: Vec::new(), at: None, shadows: Default::default(), pad: None, width: 64, height: 64, out: PathBuf::from("unused.png"), begin: Default::default() };
+            let said = format!("{:#}", shot::<crate::Voxcade>(&pulsar, &opts).unwrap_err());
+            assert_eq!(said, format!("--screen {screen}: a game with save slots (c.saves.slots) has it; Pulsar has none"));
+        }
     }
 
     /// A GIF's frame times add up to the frame rate: a second of frames
