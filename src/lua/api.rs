@@ -5,7 +5,7 @@
 //! From this register come the definitions for editors (`voxcade api --lua
 //! lua/voxcade.lua`, LuaLS: completion and checks in VS Code, Zed, Neovim),
 //! the text `voxcade api` and the MCP tool `api` show, and a test keeps it
-//! in step with what `world.rs` really offers.
+//! in step with what `world/` really offers.
 
 /// One name of the API.
 pub struct Item {
@@ -533,11 +533,11 @@ mod tests {
     use super::*;
     use crate::config::GameConfig;
 
-    /// The register names exactly what `world.rs` gives the scripts, field
+    /// The register names exactly what `world/` gives the scripts, field
     /// by field and method by method.
     #[test]
     fn the_register_is_what_the_scripts_see() {
-        let src = include_str!("world.rs");
+        let src = [include_str!("world/mod.rs"), include_str!("world/run.rs"), include_str!("world/level.rs"), include_str!("world/thing.rs"), include_str!("world/input.rs"), include_str!("world/menus.rs"), include_str!("world/music.rs"), include_str!("world/screen.rs"), include_str!("world/frame.rs"), include_str!("world/controls.rs"), include_str!("world/pose.rs")].concat();
         let mut offered: Vec<(String, String)> = Vec::new();
         let mut of = "";
         for line in src.lines() {

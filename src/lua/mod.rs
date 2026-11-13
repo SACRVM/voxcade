@@ -4,7 +4,7 @@
 //! `on_tick()` 60 times a second, `on_draw(frame)` every picture),
 //! after LÖVE but deterministic: replays, `shot` and snapshots work as for
 //! every game. The scripts see the game model's objects as globals
-//! (`world`, `level`, `player`, `input`, `screen`; `world.rs`,
+//! (`world`, `level`, `player`, `input`, `screen`; `world/`,
 //! `docs/game-model.md`). A game's state lives in the engine's things and
 //! in Lua's states, `world.state`, `level.state`, `player.state` and
 //! `thing.state`, plain data the engine copies, hashes, checks every tick
