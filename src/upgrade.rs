@@ -169,10 +169,30 @@ pub fn opens(dir: &Path) -> Result<()> {
     }
 }
 
+/// Where an upgrade keeps a game's files as they were, in the config folder
+/// (as `update` keeps the program's in `before-update/`).
+pub const KEPT: &str = "before-upgrade";
+
 /// Upgrades the game in `dir`: every step it needs, then its version line;
 /// with `dry` only says what would be done. The lines of what was (or
-/// would be) done.
+/// would be) done. A game that is not in a git repository with everything
+/// committed has its files kept first, as they were, in the config
+/// folder's `before-upgrade/` (`keep_files`): the steps change files in
+/// place, and git cannot give them back.
 pub fn upgrade(dir: &Path, dry: bool) -> Result<Vec<String>> {
+    // The tests keep theirs in a scratch folder, never the user's config.
+    #[cfg(test)]
+    let scratch = crate::scratch::Scratch::new("upgrade-kept");
+    #[cfg(test)]
+    let keep = scratch.to_path_buf();
+    #[cfg(not(test))]
+    let keep = crate::settings::config_dir().join(KEPT);
+    upgrade_keeping(dir, dry, &keep)
+}
+
+/// `upgrade`, keeping the files of a game outside git in a folder under
+/// `keep`.
+pub fn upgrade_keeping(dir: &Path, dry: bool, keep: &Path) -> Result<Vec<String>> {
     if !is_lua_game(dir) {
         bail!("{}: no game made in Lua here (no conf.lua or main.lua)", dir.display());
     }
@@ -186,12 +206,22 @@ pub fn upgrade(dir: &Path, dry: bool) -> Result<Vec<String>> {
             out.push(format!("{}: nothing to do, its files are for Voxcade {}", dir.display(), stated(dir)?.unwrap_or_else(|| engine().to_string())));
             return Ok(out);
         }
-        Standing::Older { steps, .. } => steps,
+        Standing::Older { steps, made } => (steps, made),
+    };
+    let (steps, made) = steps;
+    // The files as they were, where git does not hold them all.
+    let kept = if dry || committed(dir) { None } else { Some(keep_files(dir, keep, made.as_deref())?) };
+    if let Some(k) = &kept {
+        out.push(format!("the game's files as they were are kept in {} (the folder is no git repository with everything committed)", k.display()));
+    }
+    let back = || match &kept {
+        Some(k) => format!("the game's files as they were are in {}", k.display()),
+        None => "git has the game's files as they were".to_string(),
     };
     for plan in &steps {
-        let step = STEPS.iter().find(|s| s.name == plan.name).expect("a step of the list");
+        let Some(step) = STEPS.iter().find(|s| s.name == plan.name) else { bail!("no step '{}' in this Voxcade", plan.name) };
         out.push(format!("{} (Voxcade {}):", step.name, step.since));
-        let said = if dry { plan.would.clone() } else { (step.apply)(dir)? };
+        let said = if dry { plan.would.clone() } else { (step.apply)(dir).with_context(|| format!("{}: the step '{}' stopped halfway; {}", dir.display(), step.name, back()))? };
         if said.is_empty() {
             out.push("  nothing to change".into());
         }
@@ -205,6 +235,54 @@ pub fn upgrade(dir: &Path, dry: bool) -> Result<Vec<String>> {
         out.push(format!("the replays were recorded on the old files: `voxcade check {} --refit` fits them to the new ones if every one still plays as recorded", dir.display()));
     }
     Ok(out)
+}
+
+/// Whether the folder lies in a git repository and git has every one of
+/// its files committed (nothing changed, nothing new): git can give back
+/// what an upgrade changes.
+pub fn committed(dir: &Path) -> bool {
+    let out = std::process::Command::new("git").arg("-C").arg(dir).args(["status", "--porcelain", "--", "."]).stderr(std::process::Stdio::null()).output();
+    out.is_ok_and(|o| o.status.success() && o.stdout.is_empty())
+}
+
+/// Copies the game's files (not hidden ones, not BUILD's `builds/` nor
+/// `shots/`) into a new folder under `keep`, named for the game and the
+/// Voxcade it was made for (`made`; a number after it when that is taken),
+/// and says where. Every file is copied before any step writes.
+fn keep_files(dir: &Path, keep: &Path, made: Option<&str>) -> Result<PathBuf> {
+    let name = format!("{}-for-{}", crate::settings::game_name(dir), made.unwrap_or("an-older-voxcade"));
+    let mut to = keep.join(&name);
+    let mut n = 2;
+    while to.exists() {
+        to = keep.join(format!("{name}-{n}"));
+        n += 1;
+    }
+    fn walk(dir: &Path, from: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(read) = std::fs::read_dir(dir) else { return };
+        let mut entries: Vec<PathBuf> = read.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        entries.sort();
+        for p in entries {
+            let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            if name.starts_with('.') || (dir == from && (name == "builds" || name == "shots")) {
+                continue;
+            }
+            if p.is_dir() {
+                walk(&p, from, out);
+            } else if p.is_file() {
+                out.push(p);
+            }
+        }
+    }
+    let mut files = Vec::new();
+    walk(dir, dir, &mut files);
+    for file in &files {
+        let target = to.join(file.strip_prefix(dir).unwrap_or(file));
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).with_context(|| format!("keeping the game's files before the upgrade: creating {}", parent.display()))?;
+        }
+        std::fs::copy(file, &target).with_context(|| format!("keeping the game's files before the upgrade: copying {} to {} (nothing of the game was changed)", file.display(), target.display()))?;
+    }
+    Ok(to)
 }
 
 /// How many files git counts as changed or new in the folder, when it is
@@ -1833,6 +1911,94 @@ mod tests {
         // What the step cannot place is said with its line, and left.
         let (edits, left) = words::conf_edits("function conf(c)\n  c.title_screen.props[2].turn = 2\n  local kind = { turns = \"free\" }\nend\n");
         assert!(edits.is_empty() && left.len() == 2, "{left:?}");
+    }
+
+    /// Every file under `dir` (but hidden ones) with its bytes, by its path
+    /// from `dir`.
+    fn contents(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+        fn walk(dir: &Path, from: &Path, out: &mut std::collections::BTreeMap<PathBuf, Vec<u8>>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                if p.file_name().unwrap().to_string_lossy().starts_with('.') {
+                    continue;
+                }
+                if p.is_dir() {
+                    walk(&p, from, out);
+                } else {
+                    out.insert(p.strip_prefix(from).unwrap().to_path_buf(), std::fs::read(&p).unwrap());
+                }
+            }
+        }
+        let mut out = std::collections::BTreeMap::new();
+        walk(dir, dir, &mut out);
+        out
+    }
+
+    /// A game outside git has its files kept, as they were, before the
+    /// first step writes (the steps change files in place: without git a
+    /// step failing halfway left no way back); a dry run and a game with
+    /// nothing to do keep nothing; a step that fails says where they are.
+    #[test]
+    fn an_upgrade_outside_git_keeps_the_files_first() {
+        let dir = crate::scratch::Scratch::new("upgrade-keep");
+        let keep = crate::scratch::Scratch::new("upgrade-keep-to");
+        game_of_old_words(&dir, "");
+        std::fs::create_dir_all(dir.join("shots")).unwrap();
+        std::fs::write(dir.join("shots/a.png"), b"not the game's").unwrap();
+        let before = contents(&dir);
+        upgrade_keeping(&dir, true, &keep).unwrap();
+        assert_eq!(std::fs::read_dir(&keep).unwrap().count(), 0, "a dry run keeps nothing");
+        let done = upgrade_keeping(&dir, false, &keep).unwrap().join("\n");
+        let kept = keep.join(format!("{}-for-an-older-voxcade", crate::settings::game_name(&dir)));
+        assert!(done.contains(&format!("the game's files as they were are kept in {}", kept.display())), "{done}");
+        let mut game = before.clone();
+        game.retain(|p, _| !p.starts_with("shots"));
+        assert_eq!(contents(&kept), game, "every file of the game as it was, not shots/");
+        assert_ne!(contents(&dir), before, "the game itself was upgraded");
+        assert!(upgrade_keeping(&dir, false, &keep).unwrap().join("\n").contains("nothing to do"));
+        assert_eq!(std::fs::read_dir(&keep).unwrap().count(), 1, "nothing to do, nothing kept");
+
+        // A step that cannot write says it stopped and where the files are;
+        // a second keeping takes a name of its own.
+        let stuck = crate::scratch::Scratch::new("upgrade-stuck");
+        game_of_old_words(&stuck, "");
+        // (levels/ read-only: the step writes a level beside it and renames.)
+        let levels = stuck.join("levels");
+        let was = std::fs::metadata(&levels).unwrap().permissions();
+        let mut ro = was.clone();
+        ro.set_readonly(true);
+        std::fs::set_permissions(&levels, ro).unwrap();
+        if std::fs::write(levels.join("probe"), "x").is_ok() {
+            std::fs::set_permissions(&levels, was).unwrap();
+            eprintln!("SKIPPED the failing half: a read-only folder is written here (root?)");
+            return;
+        }
+        let failed = upgrade_keeping(&stuck, false, &keep);
+        std::fs::set_permissions(&levels, was).unwrap();
+        let e = format!("{:#}", failed.unwrap_err());
+        let kept = keep.join(format!("{}-for-an-older-voxcade", crate::settings::game_name(&stuck)));
+        assert!(e.contains("stopped halfway") && e.contains(&format!("the game's files as they were are in {}", kept.display())), "{e}");
+        assert_eq!(std::fs::read(kept.join("conf.lua")).unwrap(), std::fs::read(stuck.join("conf.lua")).unwrap());
+    }
+
+    /// A game in a git repository with everything committed keeps nothing:
+    /// git has it all.
+    #[test]
+    fn an_upgrade_in_git_keeps_nothing() {
+        let dir = crate::scratch::Scratch::new("upgrade-git");
+        let keep = crate::scratch::Scratch::new("upgrade-git-to");
+        game_of_old_words(&dir, "");
+        let git = |args: &[&str]| std::process::Command::new("git").arg("-C").arg(dir.path()).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(args).output();
+        if git(&["init", "-q"]).is_err() {
+            eprintln!("SKIPPED an_upgrade_in_git_keeps_nothing: no git here");
+            return;
+        }
+        git(&["add", "-A"]).unwrap();
+        assert!(git(&["commit", "-q", "-m", "the game"]).unwrap().status.success());
+        assert!(committed(&dir));
+        let done = upgrade_keeping(&dir, false, &keep).unwrap().join("\n");
+        assert!(!done.contains("kept in") && std::fs::read_dir(&keep).unwrap().count() == 0, "{done}");
+        assert!(!committed(&dir), "the upgrade changed what git holds");
     }
 
     /// A one-model `.vox`: voxels as x, y, z, colour index; colours for

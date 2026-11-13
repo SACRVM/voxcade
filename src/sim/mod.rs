@@ -874,9 +874,6 @@ impl Sim {
     }
 }
 
-/// Collects the solid piece connected to `seed`. Returns it if it does not
-/// reach the bottom layer; otherwise (or when it is larger than MAX_LOOSE)
-/// marks everything visited as grounded and returns None.
 /// The filled cells of a blast's ball in the given layers, in order.
 fn blast_cells(world: &World, layers: &[i32], lo: IVec3, hi: IVec3, centre: Vec3, reach: f32, bedrock: bool) -> Vec<(IVec3, u8)> {
     let mut reader = world.reader();
@@ -901,6 +898,9 @@ fn blast_cells(world: &World, layers: &[i32], lo: IVec3, hi: IVec3, centre: Vec3
     out
 }
 
+/// Collects the solid piece connected to `seed`. Returns it if it does not
+/// reach the bottom layer; otherwise (or when it is larger than MAX_LOOSE)
+/// marks everything visited as grounded and returns None.
 pub(crate) fn loose_piece(world: &World, seed: IVec3, grounded: &mut CellSet) -> Option<Vec<IVec3>> {
     let mut reader = world.reader();
     // Most of what a blast leaves stands on an unbroken column down to the
@@ -1319,5 +1319,126 @@ pub(crate) mod tests {
             highest = highest.max(jumper.pos.z);
         }
         assert!(highest > 30.0 && jumper.pos.z == 30.0, "the jump through the ledge: highest {highest}, at {}", jumper.pos.z);
+    }
+
+    /// A floor 40 by 40 with a pillar at (20, 20) from the floor to z 20
+    /// and a beam across its top along x, 5 to 35: what a blast in the
+    /// pillar cuts loose.
+    fn pillar_world() -> World {
+        let mut world = flat_world(IVec3::new(40, 40, 32));
+        for z in 1..=20 {
+            world.set_raw(IVec3::new(20, 20, z), 1);
+        }
+        for x in 5..=35 {
+            world.set_raw(IVec3::new(x, 20, 21), 1);
+        }
+        world
+    }
+
+    /// A blast takes a ball of voxels (the bedrock layer kept), throws
+    /// some of them as debris, and what it cut off the ground falls; the
+    /// same blast on the same world comes out the same, voxel and particle.
+    #[test]
+    fn a_blast_takes_its_ball_and_what_it_cuts_off_falls() {
+        let blast = || {
+            let mut sim = Sim::new(pillar_world(), &GameConfig::default(), Vec3::ZERO);
+            sim.explode(Vec3::new(20.5, 20.5, 2.5), 3.0);
+            sim
+        };
+        let sim = blast();
+        let w = &sim.world;
+        assert_eq!(w.get(IVec3::new(20, 20, 0)), 1, "the bedrock layer stays");
+        assert_eq!(w.get(IVec3::new(20, 20, 2)), 0, "the ball goes");
+        assert_eq!(w.get(IVec3::new(25, 20, 0)), 1, "the floor beside it stays (its layer is bedrock)");
+        assert!((5..=35).all(|x| w.get(IVec3::new(x, 20, 21)) == 0), "the beam came down with the pillar's top");
+        assert!((6..=20).all(|z| w.get(IVec3::new(20, 20, z)) == 0), "the pillar's top fell");
+        assert!(sim.particles.iter().any(|p| matches!(p.kind, ParticleKind::Debris(1))));
+        assert!(sim.sounds.iter().any(|s| s.name == "crumble"), "a big piece rumbles");
+        let again = blast();
+        assert_eq!(again.world.content_hash(), sim.world.content_hash());
+        assert_eq!(again.particles.len(), sim.particles.len());
+        assert!(again.particles.iter().zip(&sim.particles).all(|(a, b)| a.pos == b.pos && a.vel == b.vel));
+        // No more particles than the game allows.
+        let mut cfg = GameConfig::default();
+        cfg.debris.max_particles = 10;
+        let mut few = Sim::new(pillar_world(), &cfg, Vec3::ZERO);
+        few.explode(Vec3::new(20.5, 20.5, 2.5), 3.0);
+        assert!(few.particles.len() <= 10, "{}", few.particles.len());
+        assert_eq!(few.world.content_hash(), sim.world.content_hash(), "the world comes out the same whatever the particles");
+    }
+
+    /// A piece hangs on by a corner (26 neighbours); one cut loose is
+    /// found and falls; one bigger than MAX_LOOSE is taken as held (the
+    /// search stops), and so is all it reached.
+    #[test]
+    fn a_loose_piece_is_found_up_to_its_limit() {
+        let world = pillar_world();
+        let mut grounded = CellSet::default();
+        assert!(loose_piece(&world, IVec3::new(5, 20, 21), &mut grounded).is_none(), "held by the pillar");
+        assert!(grounded.contains(&IVec3::new(5, 20, 21)));
+        let mut cut = world.clone();
+        cut.set_raw(IVec3::new(20, 20, 10), 0);
+        let piece = loose_piece(&cut, IVec3::new(5, 20, 21), &mut CellSet::default()).expect("cut loose");
+        assert_eq!(piece.len(), 31 + 10, "the beam and the pillar above the cut");
+        // A corner holds: a voxel diagonally on the pillar's top hangs on.
+        let mut corner = world.clone();
+        corner.set_raw(IVec3::new(21, 21, 22), 1);
+        assert!(loose_piece(&corner, IVec3::new(21, 21, 22), &mut CellSet::default()).is_none());
+        // A floating slab bigger than the limit: no search goes so far.
+        let side = (MAX_LOOSE as f32).sqrt() as i32 + 2;
+        let mut big = World::new(IVec3::new(side, side, 8), flat_world(IVec3::ONE).palette);
+        for y in 0..side {
+            for x in 0..side {
+                big.set_raw(IVec3::new(x, y, 5), 1);
+            }
+        }
+        let mut grounded = CellSet::default();
+        assert!(loose_piece(&big, IVec3::new(0, 0, 5), &mut grounded).is_none(), "too big to fall");
+        assert!(grounded.len() > MAX_LOOSE, "what it reached counts as held: {}", grounded.len());
+        let mut small = World::new(IVec3::new(8, 8, 8), big.palette);
+        small.set_raw(IVec3::new(3, 3, 5), 1);
+        assert_eq!(loose_piece(&small, IVec3::new(3, 3, 5), &mut CellSet::default()), Some(vec![IVec3::new(3, 3, 5)]));
+    }
+
+    /// Breaking out of a cage takes what stands round the feet up to over
+    /// the head, never the bedrock layer; what it leaves hanging falls.
+    #[test]
+    fn breaking_out_takes_the_cage_and_its_roof_falls() {
+        let mut world = flat_world(IVec3::new(40, 40, 32));
+        for z in 1..=12 {
+            for (x, y) in [(18, 20), (22, 20), (20, 18), (20, 22)] {
+                world.set_raw(IVec3::new(x, y, z), 1);
+            }
+        }
+        for y in 14..=26 {
+            for x in 14..=26 {
+                world.set_raw(IVec3::new(x, y, 13), 1);
+            }
+        }
+        let mut sim = Sim::new(world, &GameConfig::default(), Vec3::ZERO);
+        sim.break_out(Vec3::new(20.5, 20.5, 1.0), 3.0, 8.0);
+        assert!([(18, 20), (22, 20), (20, 18), (20, 22)].iter().all(|&(x, y)| sim.world.get(IVec3::new(x, y, 5)) == 0), "the bars go");
+        assert_eq!(sim.world.get(IVec3::new(20, 20, 0)), 1, "the floor stays");
+        assert_eq!(sim.world.get(IVec3::new(14, 14, 13)), 0, "the roof, left hanging, fell");
+        assert!(sim.sounds.iter().any(|s| s.name == "crumble"));
+    }
+
+    /// A model turns to the way it goes; on an exact diagonal it keeps
+    /// the side it shows; a body standing at a place is lifted out of the
+    /// ground and set down on it; it fell out only below the level.
+    #[test]
+    fn turning_standing_and_falling_out() {
+        assert_eq!(quarter_turn(Vec3::new(1.0, 0.2, 0.0), IVec2::Y), IVec2::X);
+        assert_eq!(quarter_turn(Vec3::new(-0.1, -1.0, 0.0), IVec2::X), IVec2::NEG_Y);
+        assert_eq!(quarter_turn(Vec3::new(1.0, 1.0, 0.0), IVec2::Y), IVec2::Y, "a diagonal keeps the side shown");
+        assert_eq!(quarter_turn(Vec3::new(1.0, -1.0, 0.0), IVec2::Y), IVec2::X);
+        let world = pillar_world();
+        assert_eq!(stand_at(&world, Vec3::new(10.5, 10.5, 0.0), 6.0, 1.0).z, 1.0, "lifted out of the floor");
+        assert_eq!(stand_at(&world, Vec3::new(10.5, 10.5, 15.0), 6.0, 1.0).z, 1.0, "down onto it");
+        assert_eq!(stand_at(&world, Vec3::new(20.5, 20.5, 5.0), 6.0, 1.0).z, 22.0, "up out of the pillar onto the beam");
+        let mut b = Body::new(Vec3::new(10.0, 10.0, -5.0), 6.0);
+        assert!(!fell_out(&world, &b, 20.0));
+        b.pos.z = -25.0;
+        assert!(fell_out(&world, &b, 20.0));
     }
 }
