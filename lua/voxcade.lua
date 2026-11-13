@@ -91,7 +91,7 @@
 ---@field props? table What the game's code reads of this one thing, over its kind's props: only those its kind declares (c.things.NAME.props), each a number, string, boolean or table as there.
 
 ---@class World The whole run: its state, its time, how it ends.
----@field state table The run's state, from its start to its end: numbers, strings, booleans and tables of those (each table once). No things: they live in their level (keep them in level.state). Snapshots, replays, saves and the state hash see it.
+---@field state table Your game's data for the whole run, from its start to its end. It holds numbers, strings, booleans and tables of those (each table once). No things: they live in their level (keep them in level.state). Snapshots, replays, saves and the state hash see it.
 ---@field tick integer Ticks since the run began (60 a second; none while the game holds still).
 ---@field language string The language the player chose of the ones your game speaks (c.languages = { "de", "en", "fr" }; SETTINGS offers them, the system's at first): "de", two small letters; without c.languages "en". It can change while playing: pick your texts by it every picture (texts[world.language].hello). Replays carry it. Over the network each machine draws in its own: in on_draw it is the language of the machine drawing, in on_tick and the events the host's, so keep what a text says in a state and choose its words in on_draw.
 ---@field levels string[] The levels' names in order: the files in levels/ sorted by name, numbers as numbers (01_hall, 02_tower); one level when there are none.
@@ -134,7 +134,7 @@ function World:win() end
 function World:lose() end
 
 ---@class Level The level being played: its voxels, its things, what happens in it, its camera.
----@field state table This visit's state: what the level knows while it is played (the things in it too, moves, time). Fresh each time the level is entered, a restart too; after world:load as it was saved (its things nil). The engine reads one key: level.state.held = true holds the level (the ready-made rules, the physics and touches wait; on_tick, on_draw and the time go on): for a message, a shop, a tally.
+---@field state table Your game's data for this level while it is played: the things in it too, moves, time. Fresh each time the level is entered, a restart too; after world:load as it was saved (its things nil). The engine reads one key: level.state.held = true holds the level (the ready-made rules, the physics and touches wait; on_tick, on_draw and the time go on): for a message, a shop, a tally.
 ---@field name string Its name: its file's name without the ending (hall for levels/hall.toml); main for a game's one level made in code.
 ---@field number integer Its place among world.levels, from 1.
 ---@field next string|nil The next level's name, nil after the last one.
@@ -184,7 +184,7 @@ function Level:solid(x, y, z) end
 ---@return integer
 function Level:ground(x, y) end
 
----Places a thing of a kind (c.things) at x, y, on the ground there unless options.z is given; options.facing turns it, options.state is its first state, options.name its name (one thing's in the level), options.props what your code reads of it over its kind's props. A kind without a behavior falls to the ground; with fixed = true (c.things.NAME.fixed) it stays exactly where it is put. With ready-made rules (c.kit) their kinds stand where a marker there would place them. The camera follows the player; in a game without a figure for it (no c.player.kind), the first thing placed. Pieces ("piece") come only from a level's file.
+---Puts a new thing of a kind (c.things) into the level at x, y, on the ground there unless options.z is given. Besides, options.facing turns it, options.state is its first state, options.name its name (one thing's in the level), options.props what your code reads of it over its kind's props. A kind without a behavior falls to the ground; with fixed = true (c.things.NAME.fixed) it stays exactly where it is put. With ready-made rules (c.kit) their kinds stand where a marker there would place them. The camera follows the player; in a game without a figure for it (no c.player.kind), the first thing placed. Pieces ("piece") come only from a level's file.
 ---@param kind string
 ---@param x number
 ---@param y number
@@ -252,13 +252,13 @@ function Camera:follow(thing) end
 function Camera:look_at(x, y) end
 
 ---@class Player : Thing The one who plays: a thing that belongs to no level and goes from level to level (everything a thing has); its state is the run's. Its figure is the ready-made rules' player, a thing of c.player.kind, or none (it then stands nowhere).
----@field state table The player's state for the whole run, from level to level, started from c.state.player. Keys the engine keeps (a script reads and sets them like the rest): score (a whole number), inventory (items by name and how many: player.state.inventory.key; with the ready-made shooter rules also the rounds of its guns and its grenades, items of their names), checkpoint (the name of a place or of a thing in this level where world:restart goes; forgotten on world:go_to); with a figure that has hit points, hp; with ready-made rules hp and invulnerable (ticks left without hits, or true until set back; hp set above 0 brings the shooter's player down back to life); with the ready-made shooter rules (c.kit = "shooter") also weapon (the gun in hand, by its name in c.player.weapons). Lives and the like are your game's own keys. Plain data, no things.
+---@field state table The player's data for the whole run, from level to level; it starts as c.state.player says. Keys the engine keeps (a script reads and sets them like the rest): score (a whole number), inventory (items by name and how many: player.state.inventory.key; with the ready-made shooter rules also the rounds of its guns and its grenades, items of their names), checkpoint (the name of a place or of a thing in this level where world:restart goes; forgotten on world:go_to); with a figure that has hit points, hp; with ready-made rules hp and invulnerable (ticks left without hits, or true until set back; hp set above 0 brings the shooter's player down back to life); with the ready-made shooter rules (c.kit = "shooter") also weapon (the gun in hand, by its name in c.player.weapons). Lives and the like are your game's own keys. Plain data, no things.
 local Player = {}
 
 ---@class Thing A thing in the level, by its id.
 ---@field id integer|nil Its number, never given to another thing in the same run; nil for the player, who belongs to no level.
 ---@field kind string|nil The name of its kind (c.things); "piece" for a model or a light the level's file set down (it stays exactly where it is put, as a kind with fixed = true); nil for a player of no kind (the one the ready-made shooter rules make from c.player).
----@field state table Its state while it lives: thing.state.hp, the hits it still takes, where its kind has hp (c.things.NAME.hp at the start; the engine keeps it, a script reads and sets it: at 0 on_death runs), inventory (a chest's, a trader's: items by name and how many), pose for a figure of the jump & run's ready-made rules (which set of its frames it shows, c.things.NAME.frames: a prop's, a door's or a sign's always, "open", "idle" the first; another's while you set one, over its rules' own animation, from the tick it was set: "attack", then nil for its own again; the hero's is player.state.pose), goal for a platform of the jump & run's ready-made rules ("end" or "start": it goes to that end of its travel and stays there, a platform out of a wall, a trapdoor, a lift; nil: to and fro again), freed for a hostage of the ready-made shooter rules (set true: the cage bursts, it runs off), flying for its gunship (up in the air fighting; only to read), light for a piece that brings light (a lamp the level's file set down: how bright all its lights shine together, 0 off to 1, 1 at first; their colours, places and reach are the file's), parts for a piece whose model is a figure of parts (a door with its leaf, a chest with its lid: each part by its name, a rotation about its joint in degrees and an offset in voxels, as frame:model's pose, { leaf = { rotation = 90 } } swings the leaf open; nil for at rest; the engine draws it so every picture; it lasts this visit of the level, so what must stay open the next time goes in world.state and is set again in on_level_start; a solid piece still blocks where its model stands at rest), and anything of the game's own. It goes when the thing goes.
+---@field state table This thing's data while it lives: your game's own keys, and some the engine keeps. thing.state.hp, the hits it still takes, where its kind has hp (c.things.NAME.hp at the start; the engine keeps it, a script reads and sets it: at 0 on_death runs), inventory (a chest's, a trader's: items by name and how many), pose for a figure of the jump & run's ready-made rules (which set of its frames it shows, c.things.NAME.frames: a prop's, a door's or a sign's always, "open", "idle" the first; another's while you set one, over its rules' own animation, from the tick it was set: "attack", then nil for its own again; the hero's is player.state.pose), goal for a platform of the jump & run's ready-made rules ("end" or "start": it goes to that end of its travel and stays there, a platform out of a wall, a trapdoor, a lift; nil: to and fro again), freed for a hostage of the ready-made shooter rules (set true: the cage bursts, it runs off), flying for its gunship (up in the air fighting; only to read), light for a piece that brings light (a lamp the level's file set down: how bright all its lights shine together, 0 off to 1, 1 at first; their colours, places and reach are the file's), parts for a piece whose model is a figure of parts (a door with its leaf, a chest with its lid: each part by its name, a rotation about its joint in degrees and an offset in voxels, as frame:model's pose, { leaf = { rotation = 90 } } swings the leaf open; nil for at rest; the engine draws it so every picture; it lasts this visit of the level, so what must stay open the next time goes in world.state and is set again in on_level_start; a solid piece still blocks where its model stands at rest), and anything of the game's own. It goes when the thing goes.
 ---@field x number Where it stands: the middle of its feet. A piece's is the middle of the cell its file's at names (at + 0.5): a cube for it goes at math.floor(thing.x) + dx.
 ---@field y number Where it stands: the middle of its feet. A piece's is the middle of the cell its file's at names (at + 0.5): a cube for it goes at math.floor(thing.x) + dx.
 ---@field z number The height of its feet.
@@ -270,7 +270,7 @@ local Player = {}
 ---@field controls Controls What a player plays with, as controls is seat 1's: p.controls.device, p.controls:key("fire") (a key in braces in a text is the first of frame.players's).
 ---@field name string|nil Its name in this level: the name the level's file gives it (name = "lamp"), else a thing placed by the level file is called its kind and its number among them (door_1, door_2 in the file's order), a spawned one what level:spawn named it. nil for the player and for things the ready-made rules bring later. player.state.checkpoint and level:thing take it.
 ---@field families table<string, boolean> The families of its kind (c.things.NAME.family = { "enemies" }), as a set: if b.families.enemies then ... end. Only to read.
----@field props table What your code reads of it, fixed while it lives: its kind's props (c.things.NAME.props = { worth = 100 }) and what level:spawn gave it. Only to read; what changes goes in thing.state.
+---@field props table Fixed values your code reads of this thing: its kind's props (c.things.NAME.props = { worth = 100 }) and what level:spawn gave it. Only to read; what changes goes in thing.state.
 local Thing = {}
 
 ---Walks this tick the way given at this speed (voxels a second), facing it; it falls, steps up ledges and lands by itself. Only things your script moves (a kind with no behavior in c.things, or one whose behavior thing:enable switched off).
@@ -398,7 +398,7 @@ local Screen = {}
 ---@param amount number
 function Screen:shake(amount) end
 
----An icon of c.icons bursts on the HUD at x, y (its top left): its voxels fly off and fall, a heart lost, a grenade thrown. Only shown, not part of the game.
+---Bursts an icon of c.icons on the screen at x, y (its top left): its voxels fly off and fall, a heart lost, a grenade thrown. Only shown, not part of the game.
 ---@param icon string
 ---@param x number
 ---@param y number
@@ -415,7 +415,7 @@ function Screen:flash(strength) end
 ---@field alpha number How far into the tick this picture is, 0 to 1: add it to a count of ticks for motion that runs smooth between them.
 local Frame = {}
 
----Draws a model (a kind's or one in c.models) where the thing stands in the level, facing its way; index is which of its frames (from 0); without it, its kind's frames for what it does (c.things.NAME.frames: idle standing, walk, jump in the air), else the model's own: frame 0 standing, 1 in the air, the rest walking, a frame every half its height walked. A model's pivot is its cell size / 2 across and deep (the middle cell of an odd size): of an even size it lies one voxel off the middle, so facing -y or sideways it fills cells one voxel higher on the axis a turn flips than facing +y (use odd sizes where that matters). rotation turns it further, freely, in degrees about its middle (the voxel at half its height over its pivot): { roll = 20 } banks a ship to the right, { rotation = 45 } faces a diagonal, { pitch = 10 } lifts its nose; roll is taken first, then pitch, then rotation (a level's piece with rotation, pitch and roll is drawn so). Rotated, its voxels leave the grid, but for quarter turns (90 degrees each, any of the three); a kind with rotates = "free" in c.things faces exactly its way by itself (a diagonal too), without, its quarter turns. pose moves a figure made of parts (a model whose objects have names in the file: head, body, arm_left ...): each part by its name, a rotation about its joint, what hangs on it moving along: { head = { rotation = 30 }, arm_right = { pitch = 90 } } raises the right arm forward; offset = { x, y, z } moves a part by voxels (fractions too) after its rotation, its joint along: { bust = { pitch = 10, offset = { 0, 1, 0 } } }. Over its kind's swing (c.things.NAME.swing: parts swinging as it walks).
+---Draws a model where a thing stands, facing its way: a kind's model or one in c.models. index is which of its frames (from 0); without it, its kind's frames for what it does (c.things.NAME.frames: idle standing, walk, jump in the air), else the model's own: frame 0 standing, 1 in the air, the rest walking, a frame every half its height walked. A model's pivot is its cell size / 2 across and deep (the middle cell of an odd size): of an even size it lies one voxel off the middle, so facing -y or sideways it fills cells one voxel higher on the axis a turn flips than facing +y (use odd sizes where that matters). rotation turns it further, freely, in degrees about its middle (the voxel at half its height over its pivot): { roll = 20 } banks a ship to the right, { rotation = 45 } faces a diagonal, { pitch = 10 } lifts its nose; roll is taken first, then pitch, then rotation (a level's piece with rotation, pitch and roll is drawn so). Rotated, its voxels leave the grid, but for quarter turns (90 degrees each, any of the three); a kind with rotates = "free" in c.things faces exactly its way by itself (a diagonal too), without, its quarter turns. pose moves a figure made of parts (a model whose objects have names in the file: head, body, arm_left ...): each part by its name, a rotation about its joint, what hangs on it moving along: { head = { rotation = 30 }, arm_right = { pitch = 90 } } raises the right arm forward; offset = { x, y, z } moves a part by voxels (fractions too) after its rotation, its joint along: { bust = { pitch = 10, offset = { 0, 1, 0 } } }. Over its kind's swing (c.things.NAME.swing: parts swinging as it walks).
 ---@param file string
 ---@param thing Thing
 ---@param index? integer
@@ -431,29 +431,29 @@ function Frame:model(file, thing, index, rotation, pose) end
 ---@param glow? number
 function Frame:cube(x, y, z, color, glow) end
 
----A light in the level this frame, at a thing or a point.
+---Lights the level round a thing or a point, in this picture.
 ---@param at Thing|Point
 ---@param radius number
 ---@param color? Color
 function Frame:light(at, radius, color) end
 
----This picture's daylight: the sun's way (sun = { x, y, z }, its light travelling down), its colour and strength (sun_color, white unless set), the light every face gets (ambient, 0 to 1), how dark shadows are (shadow, 0 to 1) and the sky's colour (sky); what you leave out is c.light's. Work it out from your game's clock every picture for a day and a night: the sun low and warm at dawn, white at noon, orange at dusk, a dim blue at night with frame:light lamps. Only the picture: the game's rules do not see it. A game whose code names daylight has every face a sun above the horizon can light in its level.
+---Sets the sun and the sky for this picture: a day and a night. The sun's way (sun = { x, y, z }, its light travelling down), its colour and strength (sun_color, white unless set), the light every face gets (ambient, 0 to 1), how dark shadows are (shadow, 0 to 1) and the sky's colour (sky); what you leave out is c.light's. Work it out from your game's clock every picture for a day and a night: the sun low and warm at dawn, white at noon, orange at dusk, a dim blue at night with frame:light lamps. Only the picture: the game's rules do not see it. A game whose code names daylight has every face a sun above the horizon can light in its level.
 ---@param light Daylight
 function Frame:daylight(light) end
 
----This picture's camera, for a scene shot by the engine: zoom in on something and out again, a cut, a slow pan. look_at is the point the view centres on ({ x, y, z } in voxels, z left out: the camera's height; or a thing), width how many voxels the picture shows across there (or height, how many from bottom to top), pitch degrees below the horizon, fov the field of view; what you leave out is the game's camera's (c.camera), so { width = 80 } zooms in on what the camera follows and keeps following it. Only this picture: the next one without it is the game's camera again, nothing is kept, so call it in every picture the scene lasts and work a pan out from your clock (world.tick + frame.alpha, music.beat); the engine smooths nothing. Only the picture: the game's rules, the sounds and level.camera do not see it; frame:to_screen after it goes by it. The camera does not turn round yet. A picture at another pitch or fov than c.camera's needs faces of the level the game's own view never shows: the level is built anew with them once, a moment's hitch the first time.
+---Moves the camera for this picture, for a scene: zoom in on something and out again, a cut, a slow pan. look_at is the point the view centres on ({ x, y, z } in voxels, z left out: the camera's height; or a thing), width how many voxels the picture shows across there (or height, how many from bottom to top), pitch degrees below the horizon, fov the field of view; what you leave out is the game's camera's (c.camera), so { width = 80 } zooms in on what the camera follows and keeps following it. Only this picture: the next one without it is the game's camera again, nothing is kept, so call it in every picture the scene lasts and work a pan out from your clock (world.tick + frame.alpha, music.beat); the engine smooths nothing. Only the picture: the game's rules, the sounds and level.camera do not see it; frame:to_screen after it goes by it. The camera does not turn round yet. A picture at another pitch or fov than c.camera's needs faces of the level the game's own view never shows: the level is built anew with them once, a moment's hitch the first time.
 ---@param camera PictureCamera
 function Frame:camera(camera) end
 
----A menu in the engine's look, on a plate: a title, tabs (tab: the chosen one, from 1), rows (a text, or { text =, value =, icon =, dim = }: a value at the right, an icon of c.icons before the text, dimmed when it cannot be had), the chosen row (at, from 1) yellow with the engine's red marker, and a hint below; an action in braces is its key. In the middle of the screen unless x and y say where (its top left), as wide as it needs unless width says; shown = how many rows show at most, a longer list scrolled to keep at in view. What is open and where the cursor stands is your game's: keep it in level.state, hold the level while it is open (level.state.held = true) and move it in on_tick (input:repeated).
+---Draws a menu in the engine's look, on a plate: a title, tabs (tab: the chosen one, from 1), rows (a text, or { text =, value =, icon =, dim = }: a value at the right, an icon of c.icons before the text, dimmed when it cannot be had), the chosen row (at, from 1) yellow with the engine's red marker, and a hint below; an action in braces is its key. In the middle of the screen unless x and y say where (its top left), as wide as it needs unless width says; shown = how many rows show at most, a longer list scrolled to keep at in view. What is open and where the cursor stands is your game's: keep it in level.state, hold the level while it is open (level.state.held = true) and move it in on_tick (input:repeated).
 ---@param menu Menu
 function Frame:menu(menu) end
 
----Slots in rows on a plate, an inventory's: cells, each { icon =, count =, dim = } (an icon of c.icons, a number at its corner, darker when dim) or false for an empty slot; columns across (up to 8 unless said), cell its size in UI voxels (18), at the chosen slot (from 1) edged in yellow, an optional title. In the middle unless x and y say where.
+---Draws an inventory's slots in rows, on a plate: cells, each { icon =, count =, dim = } (an icon of c.icons, a number at its corner, darker when dim) or false for an empty slot; columns across (up to 8 unless said), cell its size in UI voxels (18), at the chosen slot (from 1) edged in yellow, an optional title. In the middle unless x and y say where.
 ---@param grid Grid
 function Frame:grid(grid) end
 
----Text on the HUD, over the level: x and y its top left, from the HUD's top left in UI voxels (frame.width across, frame.height down). size 1 the small letters (7 voxels high), 2 to 4 the big ones (c.ui.display_font). An action in braces is its key as the player sees it: "PRESS {jump}" writes PRESS X, or the pad's button (controls:key); {{ writes a brace. Written as you write it: lower case, the letters of German and French (ä ö ü ß é è ê à ç œ …) and signs such as · × → ▲ ▼ ✓ … „ « » too, in the small letters and the big ones drawn from them (a display font has capitals only); a key's name in capitals.
+---Writes text on the screen, over the level. x and y are its top left, in UI voxels from the screen's top left (frame.width across, frame.height down). size 1 the small letters (7 voxels high), 2 to 4 the big ones (c.ui.display_font). An action in braces is its key as the player sees it: "PRESS {jump}" writes PRESS X, or the pad's button (controls:key); {{ writes a brace. Written as you write it: lower case, the letters of German and French (ä ö ü ß é è ê à ç œ …) and signs such as · × → ▲ ▼ ✓ … „ « » too, in the small letters and the big ones drawn from them (a display font has capitals only); a key's name in capitals.
 ---@param text string
 ---@param x number
 ---@param y number
@@ -473,7 +473,7 @@ function Frame:to_screen(at, up) end
 ---@return number
 function Frame:text_width(text, size) end
 
----A filled box on the HUD, its top left at x, y.
+---Draws a filled box on the screen, its top left at x, y.
 ---@param x number
 ---@param y number
 ---@param width number
@@ -481,7 +481,7 @@ function Frame:text_width(text, size) end
 ---@param color? Color
 function Frame:box(x, y, width, height, color) end
 
----A bar on the HUD filled the fraction (0 to 1) of its width: a boss's health, a timer. color the filled part (red unless given), back the rest.
+---Draws a bar on the screen filled the fraction (0 to 1) of its width: a boss's health, a timer. color the filled part (red unless given), back the rest.
 ---@param x number
 ---@param y number
 ---@param width number
@@ -491,13 +491,13 @@ function Frame:box(x, y, width, height, color) end
 ---@param back? Color
 function Frame:bar(x, y, width, height, fraction, color, back) end
 
----A small picture of c.icons on the HUD, its top left at x, y: c.icons.heart = { rows = { ".RR.RR.", ... }, colors = { R = { 214, 36, 44 } } }.
+---Draws a small picture of c.icons on the screen, its top left at x, y: c.icons.heart = { rows = { ".RR.RR.", ... }, colors = { R = { 214, 36, 44 } } }.
 ---@param name string
 ---@param x number
 ---@param y number
 function Frame:icon(name, x, y) end
 
----Text whose letters drop in one after another and bounce, ticks after it began (keep the tick it began in a state): GAME OVER, a stage's name. Before 0 nothing shows.
+---Writes text whose letters drop in one after another and bounce, ticks after it began (keep the tick it began in a state): GAME OVER, a stage's name. Before 0 nothing shows.
 ---@param text string
 ---@param x number
 ---@param y number
@@ -557,90 +557,90 @@ music = {}
 
 -- The engine's functions every script has.
 
----A Lua file of your game folder, run once as the game starts: require("market") runs market.lua, require("lang.de") lang/de.lua (dots between folders), and gives back what the file returns (true if nothing); asked again, the same value. Only while the game starts: at the top of main.lua and of the files it requires. The files share main.lua's globals (a handler may live in any of them) and are your game's code as main.lua is: saving one runs the game's code anew, replays count it.
+---Runs another Lua file of your game folder once and gives back what it returns. require("market") runs market.lua, require("lang.de") lang/de.lua (dots between folders), and gives back what the file returns (true if nothing); asked again, the same value. Only while the game starts: at the top of main.lua and of the files it requires. The files share main.lua's globals (a handler may live in any of them) and are your game's code as main.lua is: saving one runs the game's code anew, replays count it.
 ---@param name string
 ---@return any
 function require(name) end
 
 -- The functions a game defines; the engine calls them.
 
----conf.lua: sets the game's settings over the engine's defaults (c.title, c.physics.gravity, c.things.NAME = { ... }). Saved while the game runs, a setting takes effect at once; the ready-made rules (c.kit), the actions and keys, the level, the markers, the player's start and kind after a restart (F5).
+---conf.lua: your game's settings; what you leave out keeps the engine's default. Set them on c: c.title, c.physics.gravity, c.things.NAME = { ... }. Saved while the game runs, a setting takes effect at once; the ready-made rules (c.kit), the actions and keys, the level, the markers, the player's start and kind after a restart (F5).
 ---@param c Conf
 function conf(c) end
 
----main.lua: runs once when a run begins, before its first level is there: give the run's states their first values (world.state, player.state). Globals set until the first level has begun stay as they are from then on: what changes goes in a state.
+---Runs once when a run begins, before the first level is there. Give world.state and player.state their first values here. Globals set until the first level has begun stay as they are from then on: what changes goes in a state.
 function on_world_start() end
 
----Runs when a level is entered, before its first tick: build a level made in code, place things, give level.state its first values. how is "start" when the run begins, "go_to" after world:go_to (the same level too), "restart" after world:restart, "load" after world:load (level.state as it was saved), "reload" when its file was saved while playing. The player already stands at level.arrived: do not spawn it here when c.player.kind gives it a figure. An ask here (world:go_to …) counts at once, before the level's first tick.
+---Runs each time a level begins, before its first tick. Place things and set level.state here (and build a level made in code); how says why it began: it is "start" when the run begins, "go_to" after world:go_to (the same level too), "restart" after world:restart, "load" after world:load (level.state as it was saved), "reload" when its file was saved while playing. The player already stands at level.arrived: do not spawn it here when c.player.kind gives it a figure. An ask here (world:go_to …) counts at once, before the level's first tick.
 ---@param how string
 function on_level_start(how) end
 
----Runs when the level is about to be left: why is "go_to", "restart", "load", "won", "lost", "quit" (QUIT TO TITLE) or "reload". Copy from level.state what should outlive the visit (into world.state, player.state or level.kept). Nothing more can be asked here.
+---Runs just before the level is left. why says why: "go_to", "restart", "load", "won", "lost", "quit" (QUIT TO TITLE) or "reload". Copy from level.state what should outlive the visit (into world.state, player.state or level.kept). Nothing more can be asked here.
 ---@param why string
 function on_level_end(why) end
 
----Runs when the run ends, after on_level_end: result is "won", "lost" or "quit" (QUIT TO TITLE). The end cannot be undone here; a last chance to change the states for the record.
+---Runs when the run ends, after on_level_end. result is "won", "lost" or "quit" (QUIT TO TITLE). The end cannot be undone here; a last chance to change the states for the record.
 ---@param result string
 function on_world_end(result) end
 
----Someone takes a seat during the run (a pad's START, the keyboard's second half, a machine over the network), in its tick, first among the events; not the seats taken as the run begins. how is "new" (p.state a copy of c.state.player) or "back" (the seat's state from before it left, or from a save). Its figure comes in at the tick's end: here it may be placed (p:place), given a kind (p.state.kind) or kept waiting (p.state.out = true); else it comes in where the first player in play stands.
+---Runs when another player joins while the game runs: a pad's START, the keyboard's second half, a machine over the network. Not for the seats taken as the run begins; it runs in the tick they join, first among the events. how is "new" (p.state a copy of c.state.player) or "back" (the seat's state from before it left, or from a save). Its figure comes in at the tick's end: here it may be placed (p:place), given a kind (p.state.kind) or kept waiting (p.state.out = true); else it comes in where the first player in play stands.
 ---@param p Player
 ---@param how string
 function on_player_join(p, how) end
 
----A player left its seat (LEAVE in the pause menu, its machine gone): in its tick, first among the events. It is out of play at once, its figure goes at the tick's end; p.state is kept for its seat, and whoever takes it again comes back with it (on_player_join's "back").
+---Runs when a player leaves the game: LEAVE in the pause menu, or its machine gone. It runs in that tick, first among the events. It is out of play at once, its figure goes at the tick's end; p.state is kept for its seat, and whoever takes it again comes back with it (on_player_join's "back").
 ---@param p Player
 function on_player_leave(p) end
 
----Runs whenever a save is loaded (world:load, LOAD in the pause menu), before its level is entered, with the version of the game that made it (its c.saves.version then). Count c.saves.version up when what a save holds changes (a key renamed), and bring older saves up to date here: if version < 2 then player.state.coins = player.state.gold end. There is no level here yet.
+---Runs whenever a save is loaded, to bring an older save up to date. It runs on world:load and LOAD in the pause menu, before the save's level is entered, with the version of the game that made it (its c.saves.version then). Count c.saves.version up when what a save holds changes (a key renamed), and bring older saves up to date here: if version < 2 then player.state.coins = player.state.gold end. There is no level here yet.
 ---@param version integer
 function on_save_loaded(version) end
 
----Runs 60 times a second: the game's own rules (after the ready-made ones, if the game uses some, and after the events of this tick: on_touch, on_hit …). input holds the keys. math.random draws from the game's own random numbers, the same every time a run is played the same way (replays and saves keep them).
+---Runs 60 times a second: your game's rules go here. input tells what the player presses. It runs after the ready-made rules, if the game uses some, and after this tick's events (on_touch, on_hit …). math.random draws from the game's own random numbers, the same every time a run is played the same way (replays and saves keep them).
 function on_tick() end
 
----Runs for every picture (as often as the screen shows one, apart from the 60 ticks a second): what the game draws besides the level and the things that draw themselves, on frame, this picture alone (frame:text, frame:cube, frame:model, frame:light). Everything else is only to look at here.
+---Runs for every picture: draw text, models and lights on frame. Only drawing: change nothing here. It runs as often as the screen shows a picture, apart from the 60 ticks a second; frame is this picture alone (frame:text, frame:cube, frame:model, frame:light), drawn besides the level and the things that draw themselves. Everything else is only to look at here.
 ---@param frame Frame
 function on_draw(frame) end
 
----Two things begin to touch: once, until they part (on_touch_end), not every tick. The player is always a, else the thing that came first. where is the face of b that a met: "top" (a came down onto b: landed on it, however fast), "bottom" (a came up under b, or b came down onto a), "side" (anything else, and always for a touch within a reach). What happens is your code's: a stomp, a pickup, a door. For what lasts while touched (spikes, an enemy's contact) ask thing:touching in on_tick. Things already touching where a level begins (or where thing:place puts one) count as touching: a player arriving on a door does not go through it again. A kind with a reach (c.things.NAME.reach: a pickup, a helipad, a hostage) is touched within it, whatever touches it (two with a reach: within the larger).
+---Runs when two things start touching: a stomp, a pickup, a door. It runs once, until they part (on_touch_end), not every tick. The player is always a, else the thing that came first. where is the face of b that a met: "top" (a came down onto b: landed on it, however fast), "bottom" (a came up under b, or b came down onto a), "side" (anything else, and always for a touch within a reach). What happens is your code's: a stomp, a pickup, a door. For what lasts while touched (spikes, an enemy's contact) ask thing:touching in on_tick. Things already touching where a level begins (or where thing:place puts one) count as touching: a player arriving on a door does not go through it again. A kind with a reach (c.things.NAME.reach: a pickup, a helipad, a hostage) is touched within it, whatever touches it (two with a reach: within the larger).
 ---@param a Thing
 ---@param b Thing
 ---@param where string
 function on_touch(a, b, where) end
 
----Two things that touched part: the end of a touch on_touch began, the player a again (not when one is taken away or dies, nor when the level is left).
+---Runs when two things that touched part: the end of a touch on_touch began, the player a again (not when one is taken away or dies, nor when the level is left).
 ---@param a Thing
 ---@param b Thing
 function on_touch_end(a, b) end
 
----The player pressed the action called interact (c.actions) while touching this thing (the nearest, if several): talk, open, read. That press is used up: input:pressed("interact") is false in this tick's on_tick.
+---Runs when the player presses the action called interact (c.actions) while touching this thing (the nearest, if several): talk, open, read. That press is used up: input:pressed("interact") is false in this tick's on_tick.
 ---@param thing Thing
 ---@param by Thing
 function on_interact(thing, by) end
 
----A thing was hurt (its hit points already lowered): by the ready-made rules, or by thing:hurt (told in the next tick). by is who did it and weapon with what (a weapon of c.weapons, knife, what thing:hurt named), if known.
+---Runs when a thing is hurt; its hit points are already lowered. It is hurt by the ready-made rules, or by thing:hurt (told in the next tick). by is who did it and weapon with what (a weapon of c.weapons, knife, what thing:hurt named), if known.
 ---@param thing Thing
 ---@param by Thing|nil
 ---@param damage integer
 ---@param weapon string|nil
 function on_hit(thing, by, damage, weapon) end
 
----A thing's hit points ran out, whoever lowered them (the ready-made rules, or your script setting thing.state.hp to 0); once, until it lives again (hit points above 0). by and weapon as on_hit. It is no longer listed, counted or touched; its kind and where it was can still be read in this tick. What it means is your code's: points for it, a life less for the player (the ready-made rules only show the fall). Count here what happened (a gunship down): counting what is left cannot tell one that died from one that has not come yet.
+---Runs when a thing's hit points run out, whoever lowered them (the ready-made rules, or your script setting thing.state.hp to 0); once, until it lives again (hit points above 0). by and weapon as on_hit. It is no longer listed, counted or touched; its kind and where it was can still be read in this tick. What it means is your code's: points for it, a life less for the player (the ready-made rules only show the fall). Count here what happened (a gunship down): counting what is left cannot tell one that died from one that has not come yet.
 ---@param thing Thing
 ---@param by Thing|nil
 ---@param weapon string|nil
 function on_death(thing, by, weapon) end
 
----A beat of the song your game plays begins (music:play): beat counts from 0 at the song's start, on and on through its loops (music.bar for the bar). Runs before on_tick, in the tick the beat begins: waves, shots, a light that pulse with the music. Its clock is the game's, so replays play it the same; while the player's own song plays (none of yours), no beats.
+---Runs on every beat of the song your game plays (music:play). beat counts from 0 at the song's start, on and on through its loops (music.bar for the bar). Runs before on_tick, in the tick the beat begins: waves, shots, a light that pulse with the music. Its clock is the game's, so replays play it the same; while the player's own song plays (none of yours), no beats.
 ---@param beat integer
 function on_beat(beat) end
 
----A thing fell out of the level (c.physics.lost_below voxels under it, 48 unless set, or down on the world's floor below): once, until it is back in. Things other than the player are taken away after it; the player waits for what your code decides (a life less, and back at the checkpoint: player:place, player.state.hp). Without it the player falls on.
+---Runs when a thing falls out of the level (c.physics.lost_below voxels under it, 48 unless set, or down on the world's floor below): once, until it is back in. Things other than the player are taken away after it; the player waits for what your code decides (a life less, and back at the checkpoint: player:place, player.state.hp). Without it the player falls on.
 ---@param thing Thing
 function on_fall_out(thing) end
 
----A thing took an item of c.items with thing:take (told in the next tick). Its inventory already counts it.
+---Runs when a thing took an item of c.items with thing:take (told in the next tick). Its inventory already counts it.
 ---@param thing Thing
 ---@param item string
 function on_pickup(thing, item) end
