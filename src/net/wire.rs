@@ -31,11 +31,21 @@ pub const MAX_ASKS: usize = 16;
 pub const MAX_CHECKS: usize = 4;
 const MAX_PARTS: usize = 16;
 const MAX_NAME: usize = 32;
+/// The most bytes of a machine's name.
+pub const MAX_NAME_LEN: usize = MAX_NAME;
 pub const MAX_TEXT: usize = 200;
 /// A piece's bytes, and the most pieces a thing sent in pieces has (the
-/// run so far for a guest coming late: 1100 × 60,000, 66 MB).
+/// run so far for a guest coming late: 1100 × 60,000, 66 MB). The run so
+/// far is its recording as text, a few bytes a tick (More Blood's played
+/// run 2.7, BunnyFarm's 0.6, inputs changing every tick some 12): a
+/// ten-minute game is some 100 to 400 KB, sent in pieces of `PIECE`, 65
+/// on the way at most, each acknowledged and sent again when lost. The
+/// bound is hours of play; a run longer than `MAX_BLOB` is not offered:
+/// the host turns the late guest away saying so (`Host::admit`).
 pub const PIECE: usize = 1100;
 pub const MAX_PIECES: u32 = 60_000;
+/// The most bytes a thing sent in pieces may have.
+pub const MAX_BLOB: usize = PIECE * MAX_PIECES as usize;
 
 /// At most `max` bytes of `text`, never cut inside a character (a name
 /// with an umlaut would have stopped the program).
@@ -293,7 +303,7 @@ impl Welcome {
 
     pub fn read(r: &mut Reader) -> Read<Self> {
         let welcome = Self { index: r.u8()?, first: r.varint()?, seats: r.u8()?, blob: r.u32()?, us_per_tick: r.u32()?, info: r.bytes(MAX_EXTRA)?.to_vec() };
-        if welcome.seats as usize > MAX_SEATS || welcome.seats == 0 || welcome.blob > MAX_PIECES * PIECE as u32 {
+        if welcome.seats as usize > MAX_SEATS || welcome.seats == 0 || welcome.blob as usize > MAX_BLOB {
             return Err(Broken);
         }
         r.done()?;

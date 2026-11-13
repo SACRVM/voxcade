@@ -348,4 +348,28 @@ mod tests {
         assert_ne!(c, code(&host, &other));
         assert_ne!(c, code(&guest, &host), "who hosts counts");
     }
+
+    /// A LAN link sends to an address and drains what came, saying from
+    /// where; a datagram for a machine across the internet goes nowhere
+    /// on it; it has no ticket, code or trouble.
+    #[test]
+    fn a_lan_link_carries_datagrams_between_addresses() {
+        let (a, b) = (Udp::guest().unwrap(), Udp::guest().unwrap());
+        let (a_at, b_at) = (a.here(), b.here());
+        let (sender, mut receiver) = (Link { how: How::Lan(a) }, Link { how: How::Lan(b) });
+        sender.send(Where::Net(3), b"lost");
+        sender.send(Where::Lan(b_at), b"hello");
+        let started = std::time::Instant::now();
+        let mut came = Vec::new();
+        while came.is_empty() && started.elapsed() < std::time::Duration::from_secs(5) {
+            came = receiver.drain();
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert_eq!(came, [(Where::Lan(a_at), b"hello".to_vec())]);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        assert!(receiver.drain().is_empty(), "nothing else came");
+        assert!(sender.ticket().is_none() && sender.code().is_none() && sender.game_code().is_none());
+        assert!(receiver.trouble().is_empty() && receiver.knocking().is_empty());
+        assert_eq!(sender.limit(), crate::net::MAX_DATAGRAM);
+    }
 }

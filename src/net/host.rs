@@ -266,8 +266,21 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
 
     /// Lets the machine that asked to join in: it gets the bundles from the
     /// next tick on, and before them `blob` (the run so far) in pieces and
-    /// `info` (the session's own: how the run began).
+    /// `info` (the session's own: how the run began). A run so far longer
+    /// than the wire carries (`wire::MAX_BLOB`) turns it away, saying so: a
+    /// welcome it could not read would leave it asking for ever.
     pub fn admit(&mut self, index: Machine, blob: Vec<u8>, info: Vec<u8>) {
+        if blob.len() > wire::MAX_BLOB {
+            let why = format!("the run so far is too long to join late ({} MB, at most {} MB): join when the host starts anew", blob.len() / 1_000_000, wire::MAX_BLOB / 1_000_000);
+            if let Some(r) = self.remotes.iter_mut().find(|r| r.index == index && r.stage == Stage::Waiting) {
+                r.stage = Stage::Gone;
+                let addr = r.addr;
+                self.refused.push((addr, wire::refused(&why)));
+                self.close_later(addr);
+                self.notices.push(Notice::Left { index, dropped: true });
+            }
+            return;
+        }
         let first = self.next_tick();
         let seats = self.seats.len() as u8;
         let us_per_tick = self.us_per_tick;
@@ -656,11 +669,15 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
         }
         self.joined += 1;
         let index = self.joined;
+        // Two machines of one name (two laptops called "ubuntu") are told
+        // apart in every list and line: the later one numbered.
+        let taken: Vec<&str> = std::iter::once(self.name.as_str()).chain(self.remotes.iter().filter(|r| r.stage != Stage::Gone).map(|r| r.name.as_str())).collect();
+        let name = unique_name(&taken, &hello.name);
         self.remotes.push(Remote {
             addr: from,
             id: hello.id,
             nonce: hello.nonce,
-            name: hello.name.clone(),
+            name: name.clone(),
             commit: hello.commit.clone(),
             index,
             stage: Stage::Waiting,
@@ -677,7 +694,7 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
             sending: VecDeque::new(),
             apart: None,
         });
-        self.notices.push(Notice::Joining { index, name: hello.name, commit: hello.commit });
+        self.notices.push(Notice::Joining { index, name, commit: hello.commit });
     }
 
     /// A refusal to an address, five a minute for one reason at most; the
@@ -866,6 +883,23 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
     pub fn farewell(&self) -> Vec<(A, Vec<u8>)> {
         self.remotes.iter().filter(|r| r.stage != Stage::Gone).map(|r| (r.addr, wire::bye(self.key))).collect()
     }
+}
+
+/// `wanted`, or with a number after it (" 2", " 3" ...) when a machine
+/// in the game is called so already (the menus show names in capitals:
+/// "Anna" and "ANNA" are one).
+pub fn unique_name(taken: &[&str], wanted: &str) -> String {
+    let free = |name: &str| !taken.iter().any(|t| t.to_uppercase() == name.to_uppercase());
+    if free(wanted) {
+        return wanted.to_string();
+    }
+    (2..)
+        .map(|n| {
+            let tail = format!(" {n}");
+            format!("{}{tail}", wire::cut(wanted, wire::MAX_NAME_LEN - tail.len()))
+        })
+        .find(|name| free(name))
+        .unwrap_or_else(|| wanted.to_string())
 }
 
 /// The most a guest's hand counts for the delay.
