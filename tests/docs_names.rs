@@ -1,5 +1,5 @@
 //! The documentation names files and tests; a name that no longer exists is
-//! drift. Every backticked `src/...` path in CLAUDE.md and `docs/*.md` must
+//! drift. Every backticked `src/...` path in CLAUDE.md, README.md, CONTRIBUTING.md, `docs/*.md` and the skills must
 //! exist, and every test named after the word "test" or "tests" (a list
 //! joined by commas or "and") must be a `fn` somewhere under `src/`,
 //! `tests/` or `examples/`.
@@ -25,6 +25,11 @@ fn documents() -> Vec<(String, String)> {
     let mut docs: Vec<_> = std::fs::read_dir(Path::new(ROOT).join("docs")).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "md")).collect();
     docs.sort();
     names.extend(docs);
+    names.push(PathBuf::from(ROOT).join("README.md"));
+    names.push(PathBuf::from(ROOT).join("CONTRIBUTING.md"));
+    let mut skills: Vec<_> = std::fs::read_dir(Path::new(ROOT).join(".claude/skills")).unwrap().flatten().map(|e| e.path().join("SKILL.md")).filter(|p| p.exists()).collect();
+    skills.sort();
+    names.extend(skills);
     names.into_iter().map(|p| (p.strip_prefix(ROOT).unwrap().display().to_string(), std::fs::read_to_string(&p).unwrap())).collect()
 }
 

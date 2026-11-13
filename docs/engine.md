@@ -914,7 +914,7 @@ for save games.
 Phase 3, more genres and multiplayer (up to 8, one hosting): mouse and
 picking, pathfinding, the tile grid, then
 an RTS or city builder demo, a scroller, a racer; starter templates per
-genre (`voxcade new --template platformer`), a guide for people and
+genre (the IDE's NEW, from `templates/`), a guide for people and
 agents, packaging.
 
 More Blood grows into a full game alongside, on whatever the engine has
