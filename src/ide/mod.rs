@@ -20,7 +20,7 @@ mod prefs;
 pub use prefs::is_notes_file;
 mod preview;
 mod projects;
-mod remote;
+pub(crate) mod remote;
 mod shell;
 mod sounds;
 mod templates;
@@ -737,6 +737,14 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
         for event in first.into_iter().chain(events.poll_iter().collect::<Vec<_>>()) {
             // A real mouse takes the synthetic pointer's mark away.
             hands.saw(&event);
+            // The left button let go anywhere: every other editor window's
+            // drag still open ends there (a drag let go over the IDE's
+            // window or another, whose up event that window got).
+            if let Event::MouseButtonUp { mouse_btn: sdl3::mouse::MouseButton::Left, window_id, .. } = event {
+                for (_, e) in editors.iter_mut().filter(|(_, e)| e.id() != window_id) {
+                    e.mouse_up_elsewhere();
+                }
+            }
             // An editor's window takes its own events; closed, it goes.
             if let Route::Editor(id) = route(&event, screen.window.id()) {
                 let shift = crate::editor::shift_held(events) || hands.shift();

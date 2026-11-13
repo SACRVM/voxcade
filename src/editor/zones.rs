@@ -510,6 +510,49 @@ pub fn menu(ui: &egui::Ui, at: Pos2, free: Rect, entries: Vec<Entry>, shown: &mu
 /// refused (shown quiet then, the reason on hover).
 pub type Entry = (String, Action, Option<&'static str>, Option<String>);
 
+/// BACKGROUND in a top bar's right group: a small swatch of the view's
+/// background (`now`; none: the game's sky, `sky`); a click opens the
+/// four to choose from and a picker for any other, one click choosing.
+pub fn background_button(ui: &mut egui::Ui, now: Option<[u8; 3]>, sky: [u8; 3], shown: &mut Shown) {
+    let shows = now.unwrap_or(sky);
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(26.0, 22.0), egui::Sense::click());
+    let stroke = if response.hovered() { ACCENT } else { QUIET };
+    ui.painter().rect(rect, 4.0, Color32::from_rgb(shows[0], shows[1], shows[2]), egui::Stroke::new(1.5, stroke), egui::StrokeKind::Inside);
+    let response = response.on_hover_text("BACKGROUND");
+    egui::Popup::menu(&response).show(|ui| {
+        ui.label(RichText::new("BACKGROUND").small().color(QUIET));
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            // The first: as always (the game's sky).
+            let choices = std::iter::once((None, sky)).chain(super::background::PRESETS[1..].iter().map(|&c| (Some(c), c)));
+            for (choice, c) in choices {
+                let (r, b) = ui.allocate_exact_size(Vec2::splat(28.0), egui::Sense::click());
+                let on = choice == now;
+                ui.painter().rect(r, 4.0, Color32::from_rgb(c[0], c[1], c[2]), egui::Stroke::new(if on { 2.5 } else { 1.0 }, if on { ACCENT } else { QUIET }), egui::StrokeKind::Inside);
+                let b = b.on_hover_text(choice.map_or("As always: the game's sky".to_string(), super::background::to_hex));
+                if b.clicked() {
+                    shown.clicked.push(Action::Background(choice));
+                    ui.close();
+                }
+            }
+        });
+        let mut c = egui::Color32::from_rgb(shows[0], shows[1], shows[2]);
+        if egui::color_picker::color_picker_color32(ui, &mut c, egui::color_picker::Alpha::Opaque) {
+            shown.clicked.push(Action::Background(Some([c.r(), c.g(), c.b()])));
+        }
+    });
+}
+
+/// The marks over the view this frame (`set_marks`, by the panels).
+pub fn marks_of(ctx: &egui::Context) -> super::background::Marks {
+    ctx.data(|d| d.get_temp(egui::Id::unique("editor marks"))).unwrap_or(super::background::Marks { light: false })
+}
+
+/// The marks over the view for this frame, as its BACKGROUND asks.
+pub fn set_marks(ctx: &egui::Context, marks: super::background::Marks) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("editor marks"), marks));
+}
+
 /// When a bar at an object came (`bar_at`): the pass it was last drawn
 /// in, the time and the pointer then, and whether it takes clicks yet.
 #[derive(Clone, Copy, Debug)]

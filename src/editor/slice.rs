@@ -104,6 +104,9 @@ impl Editor {
     /// The mouse dragged on with the slice's arrow: the layer by whole
     /// voxels from where it was pressed.
     pub fn drag_slice(&mut self, view_proj: glam::Mat4, screen: glam::Vec2, mouse: glam::Vec2, ray: (Vec3, Vec3)) {
+        if !self.slice.as_mut().and_then(|s| s.drag.as_mut()).is_some_and(|(d, ..)| d.travels(mouse)) {
+            return;
+        }
         let Some((at, amount)) = self.slice.as_mut().and_then(|s| s.drag.as_mut().map(|(d, h, start)| (*start, d.amount(h, view_proj, screen, mouse, ray)))) else { return };
         self.set_slice_at(at + amount.round() as i32);
     }

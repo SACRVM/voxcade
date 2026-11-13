@@ -93,6 +93,10 @@ fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
     keyed(ui, shown, "UNDO", Action::Undo, None, "A step back");
     keyed(ui, shown, "REDO", Action::Redo, None, "The step taken back again");
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        // BACKGROUND, rightmost (not in GAME VIEW: the game's own sky).
+        if view.before_game.is_none() {
+            zones::background_button(ui, view.background(ed.scope), view.sky, shown);
+        }
         // Shaped in place: the level round it.
         if let Some(c) = &ed.context {
             keyed(ui, shown, "CONTEXT", Action::Context, Some(c.shown), &format!("The level round it, faint ({}): shown or not", c.file));
@@ -554,6 +558,7 @@ fn tools(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
         for &tool in list {
             let key = key_of(Action::Tool(tool));
             let tip = match tool {
+                Tool::Pointer => "Changes nothing: a click chooses a part (in a level, holds the block), the handles work  Esc",
                 Tool::Add => "Set voxels (a block in the level)",
                 Tool::Remove => "Take them away",
                 Tool::Paint => "Recolor (in the level: replace the block)",

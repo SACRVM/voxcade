@@ -20,12 +20,13 @@
 use egui::{Color32, Pos2, Rect, RichText, TextStyle, Vec2};
 use glam::IVec3;
 
+use super::background::Marks;
 use super::handles::{self, Grip, What};
 use super::model::room::{self, Field, Item};
 use super::model::{Editor, Layer};
 use super::panels::{Shown, Thumbs};
 use super::view::{Action, Figures, MenuOn, View, key_of};
-use super::zones::{self, AXIS, AXIS_LIT, FIELD, LABEL, Sort, keyed, list_row, rgb, row, small};
+use super::zones::{self, FIELD, LABEL, Sort, keyed, list_row, rgb, row, small};
 use crate::grid::Way;
 use crate::gui::{ACCENT, ERROR, QUIET, TEXT, WARNING};
 
@@ -78,6 +79,10 @@ fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
         keyed(ui, shown, "UNDO", Action::Undo, None, "A step back: any change, a removal too");
         keyed(ui, shown, "REDO", Action::Redo, None, "The step taken back again");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // BACKGROUND, rightmost (not in GAME VIEW: the game's own sky).
+            if view.before_game.is_none() {
+                zones::background_button(ui, view.background(ed.scope), view.sky, shown);
+            }
             keyed(ui, shown, "LEVEL", Action::LevelSettings, Some(view.level_settings || ed.chosen.is_none()), "The level's size and daylight");
             let lights: usize = ed.level.things.iter().map(|t| t.lights.len()).sum();
             let many = lights > crate::render::MAX_LIGHTS;
@@ -536,7 +541,10 @@ pub fn paint(painter: &egui::Painter, h: &handles::Handles, vp: glam::Mat4, scre
         let a = s.grip.axis();
         let on = lit == Some(s.grip) && !s.dim;
         // Seen end on: quiet, it does not grab.
-        let colour = if on { AXIS_LIT[a] } else if s.dim { AXIS[a].gamma_multiply(0.3) } else { AXIS[a] };
+        // (Deeper on a light BACKGROUND: `background::Marks`.)
+        let marks = super::zones::marks_of(painter.ctx());
+        let (plain, lit_c) = (Marks::colour(marks.axis(a, false)), Marks::colour(marks.axis(a, true)));
+        let colour = if on { lit_c } else if s.dim { plain.gamma_multiply(0.3) } else { plain };
         match s.what {
             What::Ring => {
                 for (k, w) in s.points.windows(2).enumerate() {

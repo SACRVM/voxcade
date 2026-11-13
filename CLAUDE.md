@@ -1320,7 +1320,33 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   passed (test `a_new_bar_takes_no_click_at_once`): a double click never
   lands on the REMOVE it brought. The root part shows no PARENT or JOINT.
   HELP has THE LEVEL EDITOR and THE VOXEL EDITOR (`ide/help.rs`, a line
-  `# WORD` a heading).
+  `# WORD` a heading). BACKGROUND (a swatch at the right of both top
+  bars; the owner: black on black): the view's clear color and the
+  floor's tones (`editor/background.rs`: four to choose, the first the
+  game's sky as always, and a picker), the marks over the view deeper on
+  a light one (`Marks`, test `the_marks_read_on_every_preset`); kept for
+  the person in `config_dir()/ide/settings/editors.toml`, one for each
+  editor, never in a game; GAME VIEW and the IDE's pictures keep their
+  own; `--shot` the dark one unless `--background #rrggbb`.
+- POINTER (the owner kept setting voxels with a click meant to choose a
+  part): the first tool and the one every editor opens with, Escape
+  coming back to it; it changes nothing: a click chooses a part (the
+  figure whole, or another part seen through; empty space: the figure
+  whole), in a level of blocks it holds the block clicked; handles and
+  the menu work. Test `the_pointer_changes_nothing`.
+- A drag is one step or none (the owner lost a part to a drag whose
+  let-go never came): a press while one is open ends it first as let go
+  (`Editor::end_drag`, its step made); the focus lost, the window hidden,
+  another button or Escape cancel it (all as before, no step); the left
+  button found up for 200 ms while one is open ends it as let go
+  (`EditorWindow::draw` asks SDL's global mouse state; not for the remote
+  channel's pointer), and a release heard by another window ends it too
+  (`mouse_up_elsewhere`, the IDE's routing and `voxcade edit`'s). A
+  handle moves nothing until the pointer has gone `handles::TRAVEL`
+  pixels; a drag's amount is finite and at most `handles::MOST`, a part
+  goes no further than `model::FAR` from the pivot. Tests
+  `a_drag_never_let_go_cleanly_is_ended_or_undone`,
+  `a_part_drag_never_let_go_cleanly_is_ended_or_undone`.
 - A level of pieces (`grid::text`, `editor/room.rs`; asked by a game of
   the owner's, 2026-11-12): a level's `[[thing]]` can be a piece (a
   `.vvx` set down anywhere, fixed, named for the code:

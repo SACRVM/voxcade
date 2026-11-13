@@ -7,6 +7,7 @@
 //! calm on purpose: few tools in view, large and readable. Its panels are
 //! the IDE's look (`panels.rs`, egui), the 3D view the game's own light.
 
+pub mod background;
 pub mod figure;
 pub mod context;
 pub mod frames;
@@ -115,6 +116,9 @@ pub struct ShotOptions {
     pub merge_into: Option<String>,
     /// `--mirror`: MIRROR on the part `--part` chose.
     pub mirror: bool,
+    /// `--background #rrggbb`: the view's background (else the dark one of
+    /// always, whatever the person chose).
+    pub background: Option<[u8; 3]>,
     /// `--select X0,Y0,Z0 --to X1,Y1,Z1`: the voxels in that box of the
     /// grid shown selected; `--selection OP`: done at the selection, in
     /// order (remove, paint, duplicate, flip-x|y|z, rotate-x|y|z,
@@ -450,6 +454,9 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         let tool = model::Tool::of(ed.scope, ed.layer).iter().copied().find(|t| t.label(ed.scope, ed.layer).eq_ignore_ascii_case(word));
         ed.choose(tool.with_context(|| format!("--tool {word}: no such tool here"))?);
 
+    }
+    if let Some(c) = opts.background {
+        view.backgrounds = [Some(c); 2];
     }
     if let Some((lo, hi)) = opts.select {
         ed.select_box_cells(lo.min(hi), lo.max(hi), false);
@@ -858,6 +865,18 @@ fn among_things(ed: &Editor) -> bool {
     ed.scope == Scope::Level && ed.layer == Layer::Things
 }
 
+/// How long the left button is found up, a drag still open, before the
+/// drag ends as let go (its up event lost).
+const LOST_RELEASE: Duration = Duration::from_millis(200);
+
+/// Whether the left mouse button is down, as the system has it (not as
+/// the events said: one may be lost).
+fn left_button_down() -> bool {
+    // SAFETY: SDL is running (a window is open); null positions are allowed.
+    let buttons = unsafe { sdl3::sys::mouse::SDL_GetGlobalMouseState(std::ptr::null_mut(), std::ptr::null_mut()) };
+    buttons.0 & sdl3::sys::mouse::SDL_BUTTON_LMASK.0 != 0
+}
+
 /// Opens the editor in a window on the game in `dir` (its `level`, else
 /// the one its config names; at `block` if given, or among the level's
 /// `things`; or on the `model` file) until it is closed.
@@ -907,6 +926,13 @@ pub fn run<G: Game>(dir: &Path, level: Option<&str>, block: Option<&str>, things
         };
         for event in first.into_iter().chain(events.poll_iter().collect::<Vec<_>>()) {
             let shift = shift_held(&events);
+            // The left button let go: every other window's drag still open
+            // ends too (it may have been begun there and let go here).
+            if let sdl3::event::Event::MouseButtonUp { mouse_btn: sdl3::mouse::MouseButton::Left, window_id, .. } = event {
+                for w in windows.iter_mut().filter(|w| w.id() != window_id) {
+                    w.mouse_up_elsewhere();
+                }
+            }
             match event.get_window_id() {
                 // Each window its own events; one closed goes.
                 Some(id) => {
@@ -1045,7 +1071,9 @@ impl EditorWindow {
         Self::with(video, &title, ed, view, cfg, dir, gpu)
     }
 
-    fn with(video: &sdl3::VideoSubsystem, title: &str, ed: Editor, view: View, cfg: crate::config::GameConfig, dir: &Path, gpu: Option<&crate::window::Gpu>) -> Result<Self> {
+    fn with(video: &sdl3::VideoSubsystem, title: &str, ed: Editor, mut view: View, cfg: crate::config::GameConfig, dir: &Path, gpu: Option<&crate::window::Gpu>) -> Result<Self> {
+        // The person's BACKGROUND for each editor (not the game's).
+        view.backgrounds = background::Backgrounds::load(&background::Backgrounds::path()).colours();
         let screen = crate::window::Screen::open_on(video, title, 1600, 900, false, gpu)?;
         // SDL sends typed text only to a window that asked for it: without
         // this no field of the editor (a name, a number) takes a key from a
@@ -1088,8 +1116,26 @@ impl EditorWindow {
         self.closing
     }
 
+    /// The left button let go where this window did not hear it (outside
+    /// it, over another window): a drag still open ends there as let go,
+    /// one step.
+    pub fn mouse_up_elsewhere(&mut self) {
+        self.view.up_since = None;
+        self.view.press_at = None;
+        if self.ed.drag_open() {
+            self.ed.end_drag(false);
+            self.ed.end_whole_stroke();
+            self.view.follow_origin(&self.ed);
+            self.dirty = true;
+        }
+    }
+
     /// When it wants to draw next (None: only after an event of its own).
     pub fn wakes_at(&self) -> Option<Instant> {
+        // A drag open with the button found up: soon, to end it.
+        if let Some(since) = self.view.up_since {
+            return Some(since + LOST_RELEASE);
+        }
         let look = self.looked + LOOK_EVERY;
         if self.dirty { Some(Instant::now()) } else { Some(self.repaint_at.map_or(look, |r| r.min(look))) }
     }
@@ -1228,10 +1274,23 @@ impl EditorWindow {
             // with it held would never see it let go.
             Event::KeyDown { keycode: Some(Keycode::LShift | Keycode::RShift), .. } => ed.shift_pick(true),
             Event::KeyUp { keycode: Some(Keycode::LShift | Keycode::RShift), .. } => ed.shift_pick(shift),
-            Event::Window { win_event: WindowEvent::FocusLost, .. } => {
+            // The focus lost (another window, the desktop), the window
+            // hidden: a drag still open is cancelled, all as before it.
+            Event::Window { win_event: WindowEvent::FocusLost | WindowEvent::Hidden | WindowEvent::Minimized, .. } => {
                 view.cut = false;
                 view.only_empty = false;
                 ed.shift_pick(false);
+                if ed.drag_open() {
+                    ed.end_drag(true);
+                    ed.end_whole_stroke();
+                }
+                view.press_at = None;
+            }
+            // Another button while the left one drags: cancelled.
+            Event::MouseButtonDown { mouse_btn: MouseButton::Right | MouseButton::Middle, .. } if ed.drag_open() => {
+                ed.end_drag(true);
+                ed.end_whole_stroke();
+                view.press_at = None;
             }
             // Back to the window: its files as they are now (another
             // program's change comes in); at the level, the pieces' models
@@ -1251,6 +1310,11 @@ impl EditorWindow {
                     Keycode::Plus | Keycode::Equals | Keycode::KpPlus if ed.forms() => ed.deepen(1),
                     Keycode::Minus | Keycode::KpMinus if ed.forms() => ed.deepen(-1),
                     Keycode::Escape if ed.forms() && ed.drop_form() => {}
+                    // A drag going on: cancelled, all as before it.
+                    Keycode::Escape if ed.joint_drag().is_some() || ed.gripped().is_some() || ed.dragging().is_some() || ed.stroke_open() => {
+                        ed.end_drag(true);
+                        ed.end_whole_stroke();
+                    }
                     // The selection: none selected; its voxels gone; copied,
                     // pasted.
                     Keycode::Escape if ed.joint_drag().is_none() && view.menu.is_none() && ed.selection().is_some() => ed.clear_selection(),
@@ -1285,6 +1349,9 @@ impl EditorWindow {
                         } else if ed.cancel_joint() {
                         } else if view.choosing {
                             view.choosing = false;
+                        } else if ed.tool != Tool::Pointer && Tool::of(ed.scope, ed.layer).contains(&Tool::Pointer) {
+                            // Back to POINTER, which changes nothing.
+                            ed.choose(Tool::Pointer);
                         } else {
                             view::act(ed, view, view::Action::Back);
                         }
@@ -1321,6 +1388,12 @@ impl EditorWindow {
                     view.right_press = None;
                 }
                 let over = over(x, y) && !mousestate.left();
+                // Gone a few pixels from the press: a drag now.
+                if let Some((px, py)) = view.press_at
+                    && (px - x).hypot(py - y) >= handles::TRAVEL
+                {
+                    view.press_at = None;
+                }
                 if !ed.among_pieces() {
                     let free = !(over || mousestate.left());
                     view.slice_hover = free && slice_under(ed, view, gui.content_rect(), input.point(x, y)).is_some();
@@ -1334,7 +1407,7 @@ impl EditorWindow {
                     if mousestate.left() && ed.gripped().is_some() {
                         let vp = view.view_proj(&view.level, room.width() / room.height().max(1.0));
                         ed.drag_grip(vp, glam::Vec2::new(room.width(), room.height()), glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top()), (origin, dir));
-                    } else if mousestate.left() && ed.dragging().is_some() {
+                    } else if mousestate.left() && ed.dragging().is_some() && view.press_at.is_none() {
                         ed.drag_item(origin, dir);
                     } else if ed.hanging.is_some() {
                         ed.hang_at(if over { None } else { view::set_down_spot(ed, figures, &shown.world, origin, dir) });
@@ -1385,7 +1458,12 @@ impl EditorWindow {
             }
             // A figure in GAME VIEW is only looked at.
             Event::MouseButtonDown { mouse_btn: MouseButton::Left, .. } if view.before_game.is_some() && ed.scope != Scope::Level => {}
-            Event::MouseButtonDown { mouse_btn: MouseButton::Left, clicks, x, y, .. } if !over(x, y) => {
+            Event::MouseButtonDown { mouse_btn: MouseButton::Left, clicks, x, y, which, .. } if !over(x, y) => {
+                // Where the press was (a drag moves things only once the
+                // pointer has gone a few pixels), and whether a program's
+                // pointer made it (`ide::remote`: no real button to ask).
+                view.press_at = Some((x, y));
+                view.synthetic_press = which == crate::ide::remote::SYNTHETIC;
                 let (sx, sy) = screen.share(x, y);
                 let sliced = if ed.among_pieces() { None } else { slice_under(ed, view, gui.content_rect(), input.point(x, y)) };
                 let ring = sliced.is_none() && !ed.among_pieces() && on_ring(ed, view, gui.content_rect(), input.point(x, y));
@@ -1421,6 +1499,13 @@ impl EditorWindow {
                             Some((hit, p)) if clicks >= 2 => ed.select_connected(hit.cell, Some(p), view.cut),
                             Some((hit, _)) => ed.begin_form(hit, true),
                             None => ed.clear_selection(),
+                        }
+                    } else if ed.tool == Tool::Pointer {
+                        // POINTER: the part clicked chosen, nothing changed.
+                        if let (Some(figure), Some((lo, _))) = (&ed.figure, ed.figure_box())
+                            && let Some(p) = figure.part_at(lo, origin, dir)
+                        {
+                            view::act(ed, view, view::Action::Part(p));
                         }
                     } else if let (Some(figure), Some((lo, _))) = (&ed.figure, ed.figure_box())
                         && let Some(p) = figure.part_at(lo, origin, dir)
@@ -1491,6 +1576,21 @@ impl EditorWindow {
                         ed.hold(block as usize - 1);
                         ed.open_block(block as usize - 1);
                     }
+                } else if ed.tool == Tool::Pointer && ed.scope != Scope::Level {
+                    // POINTER: in a figure's part, a click on another part
+                    // (seen through) chooses it, on empty space the figure
+                    // whole; nothing is changed, nothing dragged.
+                    if ed.part_mode().is_some() {
+                        let (origin, dir) = view.ray(ed, aspect, sx, sy);
+                        let (origin, dir) = (view.rest.transform_point3(origin), view.rest.transform_vector3(dir));
+                        let met = ed.figure.as_ref().zip(ed.figure_box()).and_then(|(f, (lo, _))| f.part_at(lo, origin, dir));
+                        let chosen = ed.figure.as_ref().and_then(|f| f.selected);
+                        match met {
+                            Some(p) if Some(p) != chosen => view::act(ed, view, view::Action::Part(p)),
+                            Some(_) => {}
+                            None => view::act(ed, view, view::Action::WholeFigure),
+                        }
+                    }
                 } else if let Some(hit) = view.aim(ed, aspect, sx, sy).filter(|h| ed.tool != Tool::Select || h.cell.z >= 0) {
                     *steps_at_click = ed.steps();
                     if ed.tool == Tool::Select {
@@ -1536,6 +1636,7 @@ impl EditorWindow {
                 ed.release();
                 ed.let_go_of_selection();
                 ed.end_whole_stroke();
+                view.press_at = None;
             }
             // A right click (not a drag) among the pieces: the menu of what
             // is under the mouse (chosen), or of the floor there.
@@ -1596,6 +1697,33 @@ impl EditorWindow {
     /// Draws a frame if something happened since the last, or the panels
     /// asked for one: the 3D view, the panels over it.
     pub fn draw(&mut self) -> Result<()> {
+        // A drag whose let-go never came (released outside the windows,
+        // over another, events lost): the real button is asked; up for a
+        // while (its up event may just be on its way), the drag ends as let
+        // go where it is, one step. (Not a program's pointer: no real
+        // button to ask.)
+        if self.ed.drag_open() && !self.view.synthetic_press && !left_button_down() {
+            let since = *self.view.up_since.get_or_insert_with(Instant::now);
+            if since.elapsed() >= LOST_RELEASE {
+                self.mouse_up_elsewhere();
+            }
+        } else {
+            self.view.up_since = None;
+        }
+        // A BACKGROUND chosen: kept for the next window, either editor's.
+        if self.view.backgrounds_changed {
+            self.view.backgrounds_changed = false;
+            let path = background::Backgrounds::path();
+            // (The other editor's as the file has it now: another window
+            // may have chosen it.)
+            let mut keep = background::Backgrounds::load(&path).colours();
+            let k = (self.ed.scope != Scope::Level) as usize;
+            keep[k] = self.view.backgrounds[k];
+            if let Err(e) = background::Backgrounds::of(keep).save(&path) {
+                eprintln!("background: {e:#}");
+            }
+            self.dirty = true;
+        }
         if self.looked.elapsed() >= LOOK_EVERY {
             self.looked = Instant::now();
             if self.ed.look_at_disk() {
@@ -1719,6 +1847,8 @@ mod tests {
         let dir = game_with_pieces("pieces-kept", "  c.camera.rotates = \"free\"\n", crate::grid::tests::PIECES);
         let text = std::fs::read_to_string(dir.join("level.toml")).unwrap();
         let (mut ed, ..) = open::<crate::Voxcade>(&dir, Some("level.toml"), None, false).unwrap();
+        // (Tools that change voxels: POINTER is the default.)
+        ed.choose(crate::editor::model::Tool::Add);
         assert!(ed.question.is_none(), "a game that turns things freely asks nothing");
         ed.kinds = vec!["walker".into()];
         ed.hold_kind(0);

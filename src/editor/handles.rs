@@ -302,7 +302,19 @@ pub struct Drag {
     pub grip: Grip,
     press: Vec2,
     measure: Measure,
+    /// The pointer has gone `TRAVEL` from the press: only then does the
+    /// drag move anything (a click on a handle moves nothing).
+    travelled: bool,
 }
+
+/// How far the pointer goes (pixels) before a handle's drag moves
+/// anything, as a click becomes a drag.
+pub const TRAVEL: f32 = 4.0;
+
+/// The most an arrow's or a face's drag goes from its press (voxels): a
+/// ray nearly along an arrow measures absurd distances, which would throw
+/// a part where it cannot be seen.
+pub const MOST: f32 = 512.0;
 
 /// The parameter along the line through `p` in direction `a` (unit) of
 /// its nearest point to the ray from `o` along `d` (unit); None where the
@@ -344,13 +356,28 @@ impl Drag {
                 }
             },
         };
-        Some(Drag { grip, press: mouse, measure })
+        Some(Drag { grip, press: mouse, measure, travelled: false })
     }
 
     /// How far the drag has gone since the press, the mouse now at
     /// `mouse` with its ray: along the axis in world units, or degrees
     /// about the ring's axis.
-    pub fn amount(&mut self, h: &Handles, view_proj: Mat4, screen: Vec2, mouse: Vec2, (origin, dir): (Vec3, Vec3)) -> f32 {
+    pub fn amount(&mut self, h: &Handles, view_proj: Mat4, screen: Vec2, mouse: Vec2, ray: (Vec3, Vec3)) -> f32 {
+        let a = self.measured(h, view_proj, screen, mouse, ray);
+        // Never NaN or endless: none, or along an axis as far as `MOST` (a
+        // ring may go round and round).
+        let most = if matches!(self.measure, Measure::Round { .. }) { f32::MAX } else { MOST };
+        if a.is_finite() { a.clamp(-most, most) } else { 0.0 }
+    }
+
+    /// Whether the pointer at `mouse` has gone far enough from the press
+    /// for the drag to move anything (once it has, it stays so).
+    pub fn travels(&mut self, mouse: Vec2) -> bool {
+        self.travelled = self.travelled || mouse.distance(self.press) >= TRAVEL;
+        self.travelled
+    }
+
+    fn measured(&mut self, h: &Handles, view_proj: Mat4, screen: Vec2, mouse: Vec2, (origin, dir): (Vec3, Vec3)) -> f32 {
         let Some(axis) = h.direction(self.grip) else { return 0.0 };
         match &mut self.measure {
             Measure::Line { from } => along_line(h.centre, axis, origin, dir).map_or(0.0, |s| s - *from),

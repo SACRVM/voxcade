@@ -169,9 +169,24 @@ pub struct View {
     /// The game's outline round its models (`c.effects.outline`: rgb, how
     /// many voxels thick), for a figure's GAME VIEW.
     pub outline: [f32; 4],
+    /// BACKGROUND: the level editor's and the voxel editor's (None: the
+    /// game's sky, as always), and whether one was chosen since the window
+    /// last kept them (`background::Backgrounds`).
+    pub backgrounds: [Option<[u8; 3]>; 2],
+    pub backgrounds_changed: bool,
+    /// The game's sky (what BACKGROUND's first choice shows).
+    pub sky: [u8; 3],
     pub level_settings: bool,
     pub picker_spot: Option<IVec3>,
     pub right_press: Option<(f32, f32)>,
+    /// Where the left button went down, until the pointer has gone
+    /// `handles::TRAVEL` from it (None: no press, or a drag now), and
+    /// whether a program's pointer pressed (`ide::remote`).
+    pub press_at: Option<(f32, f32)>,
+    pub synthetic_press: bool,
+    /// Since when the left button is up while a drag is still open (its
+    /// let-go never came: `EditorWindow::draw` ends it).
+    pub up_since: Option<std::time::Instant>,
     /// How much of the window the panels leave the view: shares of it on
     /// the left, at the top, on the right and at the bottom.
     pub room: [f32; 4],
@@ -202,9 +217,6 @@ pub enum MenuOn {
     Selection,
     ToPart,
 }
-
-/// The selection's color (its outline, SELECT's box).
-const SELECTED: [u8; 4] = [255, 214, 90, 255];
 
 /// How fast a model's frames play (on the editor's panel, in the IDE's
 /// picture).
@@ -328,9 +340,15 @@ impl View {
                 let [r, g, b] = cfg.effects.outline_color;
                 [r, g, b, cfg.effects.outline.max(0.0)]
             },
+            backgrounds: [None; 2],
+            backgrounds_changed: false,
+            sky: cfg.light.sky.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8),
             level_settings: false,
             picker_spot: None,
             right_press: None,
+            press_at: None,
+            synthetic_press: false,
+            up_since: None,
             room: [0.0; 4],
         };
         // A level without blocks: the whole room as the game looks.
@@ -385,6 +403,21 @@ impl View {
         // As wide in the room the panels leave as the game's whole window.
         let width = width / (1.0 - self.room[0] - self.room[2]).max(0.3);
         self.level = Orbit { yaw: g.yaw, pitch: g.pitch, zoom: width.max(4.0), target: Vec3::new(room.x / 2.0, room.y / 2.0, 0.0), fov: g.fov };
+    }
+
+    /// The background chosen for the editor `scope` is in (the level's,
+    /// or the voxel editor's: a block, a model, a figure); none in GAME
+    /// VIEW (the game's own sky).
+    pub fn background(&self, scope: Scope) -> Option<[u8; 3]> {
+        if self.before_game.is_some() {
+            return None;
+        }
+        self.backgrounds[(scope != Scope::Level) as usize]
+    }
+
+    /// The marks over the view, as the background asks.
+    pub fn marks(&self, scope: Scope) -> super::background::Marks {
+        super::background::Marks::on(self.background(scope))
     }
 
     /// A figure's GAME VIEW: the game's camera (its turn, tilt, field of
@@ -958,6 +991,8 @@ pub enum Action {
     SelClear,
     /// REPLACE WITH HELD: every voxel of a color takes the held one.
     ReplaceColour([u8; 3]),
+    /// BACKGROUND: the view's for this editor (None: the game's sky).
+    Background(Option<[u8; 3]>),
     AddPart(Option<usize>),
     RemovePart(usize),
     MergeInto(usize, usize),
@@ -1245,6 +1280,10 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::SelPaste => ed.paste(),
         Action::SelClear => ed.clear_selection(),
         Action::ReplaceColour(c) => ed.replace_colour(c),
+        Action::Background(c) => {
+            view.backgrounds[(ed.scope != Scope::Level) as usize] = c;
+            view.backgrounds_changed = true;
+        }
         Action::MirrorPart(p) => {
             match ed.cannot_mirror(p) {
                 Some(why) => ed.hint = Some(why),
@@ -1510,8 +1549,11 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     };
     let (light_vp, depth_range) = crate::camera::light_around(sun, room_lo.as_vec3() * unit as f32 - Vec3::new(0.0, 0.0, unit as f32), room_hi.as_vec3().max(Vec3::ONE) * unit as f32);
 
-    // The floor: a cell deep under the grid, in two shades (the editor's;
-    // not in the IDE's pictures).
+    // The floor: a cell deep under the grid, in two shades (the editor's,
+    // after its BACKGROUND; not in the IDE's pictures).
+    let background = view.background(ed.scope);
+    let floor_tones = super::background::floor(background);
+    let marks = view.marks(ed.scope);
     let mut instances = Vec::new();
     let u = unit as f32;
     let (floor_lo, floor_size) = if ed.figure_box().is_some() { (room_lo, room_hi - room_lo) } else { (IVec3::ZERO, grid) };
@@ -1524,7 +1566,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     };
     for y in floor_lo.y..floor_lo.y + floor_size.y * view.floor as i32 {
         for x in floor_lo.x..floor_lo.x + floor_size.x {
-            let shade = if (x + y).rem_euclid(2) == 0 { [58, 56, 66, 255] } else { [66, 64, 74, 255] };
+            let shade = floor_tones[(x + y).rem_euclid(2) as usize];
             instances.push(Instance { pos_size: [(x as f32 + 0.5) * u, (y as f32 + 0.5) * u, (floor_lo.z as f32 - 0.5) * u, u], color: shade, fx: [0, 255, 0, 0], shade: [0; 4], turn: [0; 4] });
         }
     }
@@ -1643,7 +1685,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
             let n = (from.distance(to) / (thin * 0.8)).ceil().max(1.0) as i32;
             for k in 0..=n {
                 let p = from.lerp(to, k as f32 / n as f32);
-                instances.push(Instance { pos_size: [p.x, p.y, p.z, thin], color: SELECTED, fx: [60, 255, 0, 0], shade: [0; 4], turn: [0; 4] });
+                instances.push(Instance { pos_size: [p.x, p.y, p.z, thin], color: { let [r, g, b] = marks.gold(); [r, g, b, 255] }, fx: [if marks.light { 0 } else { 60 }, 255, 0, 0], shade: [0; 4], turn: [0; 4] });
             }
         }
     }
@@ -1668,7 +1710,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
                     for k in 0..=n {
                         let mut p = Vec3::ZERO;
                         (p[a], p[b], p[c]) = (lo[a] + (hi[a] - lo[a]) * k as f32 / n as f32, sb, sc);
-                        instances.push(Instance { pos_size: [p.x, p.y, p.z, thin], color: [225, 220, 205, 255], fx: [0, 120, 0, 0], shade: [0; 4], turn: [0; 4] });
+                        instances.push(Instance { pos_size: [p.x, p.y, p.z, thin], color: { let [r, g, b] = marks.line(); [r, g, b, 255] }, fx: [0, 120, 0, 0], shade: [0; 4], turn: [0; 4] });
                     }
                 }
             }
@@ -1686,7 +1728,8 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         }
         let all: crate::world::CellSet = cells.iter().copied().collect();
         let color = if ed.tool == Tool::Select {
-            SELECTED
+            let [r, g, b] = marks.gold();
+            [r, g, b, 255]
         } else if view.cut || ed.drawing.is_some_and(|d| d.cut) {
             [230, 70, 60, 255]
         } else {
@@ -1745,7 +1788,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
             ShadowStyle::Voxel => 1.0,
             ShadowStyle::VoxelSoft => 2.0,
         },
-        sky: own.sky.unwrap_or(light.sky),
+        sky: background.map_or(own.sky.unwrap_or(light.sky), |c| c.map(|v| v as f32 / 255.0)),
         reflection: light.reflection,
         reflection_horizon: light.reflection_horizon,
         metal_sweep: 0.0,

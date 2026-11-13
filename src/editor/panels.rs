@@ -65,6 +65,8 @@ impl Thumbs {
 /// The panels of a frame.
 pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs: &mut Thumbs) -> Shown {
     let mut shown = Shown::default();
+    // The marks over the view as the BACKGROUND asks (`stage::paint`).
+    super::zones::set_marks(ui.ctx(), view.marks(ed.scope));
     if let Some(names) = &ed.question {
         question(ui, &ed.file, names, &mut shown);
         return shown;
@@ -122,18 +124,19 @@ pub fn joints(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
     let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::unique("joints"))).with_clip_rect(free);
     let at = |share: glam::Vec2| egui::pos2(screen.left() + share.x * screen.width(), screen.top() + share.y * screen.height());
     let chosen = marks.iter().any(|m| m.chosen);
+    let gold = super::background::Marks::colour(view.marks(ed.scope).gold());
     // The chosen part's joint, a line to the part's middle: whose it is.
     let vp_line = view.view_proj(&view.block, screen.width() / screen.height().max(1.0));
     let middle = ed.shape().filter(|_| ed.part_mode().is_some()).and_then(|b| super::handles::project(vp_line, glam::Vec2::new(screen.width(), screen.height()), b.size.as_vec3() / 2.0)).map(|(p, _)| screen.min + egui::vec2(p.x, p.y));
     for m in marks.iter().filter(|m| m.chosen) {
         if let Some(mid) = middle {
-            painter.line_segment([at(m.at), mid], egui::Stroke::new(2.0, ACCENT));
+            painter.line_segment([at(m.at), mid], egui::Stroke::new(2.0, gold));
         }
     }
     // The chosen one last, over the rest.
     for m in marks.iter().filter(|m| !m.chosen).chain(marks.iter().filter(|m| m.chosen)) {
         let (radius, colour) = match (m.chosen, m.warned) {
-            (true, _) => (6.0, ACCENT),
+            (true, _) => (6.0, gold),
             (false, true) => (4.0, WARNING),
             (false, false) if chosen => (3.0, QUIET),
             (false, false) => (4.0, TEXT),
@@ -146,8 +149,8 @@ pub fn joints(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
     let ring_lit = view.ring_hover || ed.joint_drag().is_some_and(|d| !d.part);
     if ring_lit && let Some(m) = marks.iter().find(|m| m.chosen) {
         let p = at(m.at);
-        painter.circle(p, 8.0, crate::gui::GROUND, egui::Stroke::new(3.0, ACCENT));
-        painter.text(p + egui::vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, "JOINT", TextStyle::Small.resolve(ui.style()), ACCENT);
+        painter.circle(p, 8.0, crate::gui::GROUND, egui::Stroke::new(3.0, gold));
+        painter.text(p + egui::vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, "JOINT", TextStyle::Small.resolve(ui.style()), gold);
     }
     // (GAME VIEW: the figure alone, as the game draws it.)
     if let Some(h) = ed.part_handles(vp).filter(|_| view.before_game.is_none()) {

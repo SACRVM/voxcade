@@ -556,6 +556,11 @@ impl Editor {
     /// nothing), the ray through it: the item chosen, and dragged from
     /// there over the level at its own height while the mouse is held.
     pub fn press_item(&mut self, under: Option<Item>, origin: Vec3, dir: Vec3) {
+        // A drag still open (its let-go never came): let go of it first,
+        // its step made; this one begins from what it left.
+        if self.drag_open() {
+            self.end_drag(false);
+        }
         self.choose_item(under);
         let Some(item) = self.chosen else { return };
         let at = IVec3::from(self.at_of(item).expect("chosen"));
@@ -850,7 +855,7 @@ impl Editor {
     pub fn grab(&mut self, grip: Grip, h: Handles, view_proj: glam::Mat4, screen: glam::Vec2, mouse: glam::Vec2, ray: (Vec3, Vec3)) -> bool {
         let Some(item) = self.chosen else { return false };
         let Some(drag) = Drag::begin(&h, grip, view_proj, screen, mouse, ray) else { return false };
-        self.release();
+        self.end_drag(false);
         let was = match item {
             Item::Thing(i) => Was::Thing(self.level.things[i].clone()),
             Item::Place(i) => Was::Place(self.level.places[i].clone()),
@@ -872,6 +877,11 @@ impl Editor {
     /// solid piece, else freely, the quarters near taken), an area sized.
     pub fn drag_grip(&mut self, view_proj: glam::Mat4, screen: glam::Vec2, mouse: glam::Vec2, ray: (Vec3, Vec3)) {
         let Some(mut g) = self.gripped.take() else { return };
+        // A click on a handle moves nothing.
+        if !g.drag.travels(mouse) {
+            self.gripped = Some(g);
+            return;
+        }
         let amount = g.drag.amount(&g.handles, view_proj, screen, mouse, ray) as f64;
         self.follow_grip(&g, amount);
         self.gripped = Some(g);
@@ -1578,6 +1588,80 @@ mod tests {
         ed.release();
         assert_eq!((ed.steps(), saved(&dir)), (0, PIECES.to_string()));
         assert!(!ed.cancel_drag(), "nothing dragged: Escape goes on to what it did before");
+    }
+
+    /// A drag whose let-go never comes cleanly: the focus lost or another
+    /// button (cancelled: the file as at the start, no step); the button
+    /// found up or let go over another window (one step, which one UNDO
+    /// takes back); a second press without a let-go between (the first
+    /// drag one step, the second from where it left); the disk looked at
+    /// mid-drag (the editor's own file: nothing read anew, no step lost);
+    /// a click on an arrow without travel (nothing moves, no step).
+    #[test]
+    fn a_drag_never_let_go_cleanly_is_ended_or_undone() {
+        let (mut ed, dir) = room("lost-drag", false);
+        with_sizes(&mut ed);
+        ed.choose_item(Some(Item::Thing(0)));
+        let (vp, screen) = seen(Vec3::new(40.0, 150.0, 10.0), 0.0, 30.0);
+        let grab = |ed: &mut Editor| {
+            let h = ed.handles(vp, false).unwrap();
+            let (press, ray) = at_screen(vp, screen, h.centre + Vec3::X * h.length * 0.9);
+            assert!(ed.grab(Grip::Arrow(0), h.clone(), vp, screen, press, ray));
+            let (to, ray) = at_screen(vp, screen, h.centre + Vec3::X * (h.length * 0.9 + 6.0));
+            ed.drag_grip(vp, screen, to, ray);
+            assert_ne!(ed.level.things[0].at, [40, 150, 0], "moved");
+        };
+        // Focus lost, another button, Escape: cancelled.
+        grab(&mut ed);
+        ed.end_drag(true);
+        assert_eq!((ed.steps(), saved(&dir), ed.level.things[0].at), (0, PIECES.to_string(), [40, 150, 0]));
+        assert!(!ed.drag_open());
+        // The button found up (its up event lost): one step, one UNDO.
+        grab(&mut ed);
+        ed.end_drag(false);
+        assert_eq!(ed.steps(), 1);
+        // The next motion with the button up moves nothing: no drag.
+        let h = ed.handles(vp, false).unwrap();
+        let (far, ray) = at_screen(vp, screen, h.centre + Vec3::X * 40.0);
+        ed.drag_grip(vp, screen, far, ray);
+        ed.undo();
+        assert_eq!(saved(&dir), PIECES, "one UNDO: as at the start");
+        // A second press without a let-go: on a handle, on the item.
+        grab(&mut ed);
+        let h = ed.handles(vp, false).unwrap();
+        let (press, ray) = at_screen(vp, screen, h.centre + Vec3::X * h.length * 0.9);
+        ed.grab(Grip::Arrow(0), h, vp, screen, press, ray);
+        ed.release();
+        assert_eq!(ed.steps(), 1, "the first drag its step");
+        ed.undo();
+        assert_eq!(saved(&dir), PIECES);
+        grab(&mut ed);
+        ed.press_item(Some(Item::Thing(0)), Vec3::new(41.0, 151.0, 500.0), Vec3::NEG_Z);
+        ed.release();
+        ed.undo();
+        assert_eq!((saved(&dir), ed.level.things[0].at), (PIECES.to_string(), [40, 150, 0]), "one UNDO after the press that ended it: file and editor");
+        // The disk looked at mid-drag: the editor's own file, nothing new.
+        grab(&mut ed);
+        assert!(!ed.look_at_disk(), "the editor's own file is not changed outside");
+        ed.release();
+        assert_eq!(ed.steps(), 1);
+        ed.undo();
+        assert_eq!(saved(&dir), PIECES);
+        // A click on the arrow, the pointer gone 2 pixels: nothing.
+        let h = ed.handles(vp, false).unwrap();
+        let (press, ray) = at_screen(vp, screen, h.centre + Vec3::X * h.length * 0.9);
+        ed.grab(Grip::Arrow(0), h.clone(), vp, screen, press, ray);
+        let nudge = press + glam::Vec2::new(2.0, 0.0);
+        ed.drag_grip(vp, screen, nudge, crate::editor::view::mouse_ray(vp, nudge.x / screen.x, nudge.y / screen.y));
+        ed.release();
+        assert_eq!((ed.steps(), saved(&dir)), (0, PIECES.to_string()), "a click moves nothing");
+        // A piece dragged over the floor, its let-go lost: one step.
+        ed.press_item(Some(Item::Thing(0)), Vec3::new(41.0, 151.0, 500.0), Vec3::NEG_Z);
+        ed.drag_item(Vec3::new(61.0, 151.0, 500.0), Vec3::NEG_Z);
+        ed.end_drag(false);
+        assert_eq!(ed.steps(), 1);
+        ed.undo();
+        assert_eq!(saved(&dir), PIECES);
     }
 
     /// A ring turns the piece about its axis the way it is dragged: on the

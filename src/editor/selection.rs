@@ -492,6 +492,8 @@ impl Editor {
     /// lands on stays), one step for the drag.
     pub fn move_selection_to(&mut self, by: IVec3, keep: bool, joined: bool) {
         let Some(d) = self.sel_drag.clone() else { return };
+        // As far as a part may go, no further (`FAR`).
+        let by = by.clamp(IVec3::splat(-super::FAR), IVec3::splat(super::FAR));
         // From the start each time: what it passes over stays.
         match (&d.model, &d.block, self.scope) {
             (Some(start), _, _) => {

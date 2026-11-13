@@ -389,6 +389,8 @@ mod tests {
         let file = dir.join("figure.vvx");
         let before = on_disk(&file);
         let mut ed = Editor::open_model(&dir, "figure.vvx").unwrap();
+        // (Tools that change voxels: POINTER is the default.)
+        ed.choose(crate::editor::model::Tool::Add);
         let mut view = View::new(&ed, &crate::config::GameConfig::default());
         let head = part(&ed, "head");
         act(&mut ed, &mut view, Action::Part(head));
@@ -436,6 +438,8 @@ mod tests {
         let file = dir.join("figure.vvx");
         let before = on_disk(&file);
         let mut ed = Editor::open_model(&dir, "figure.vvx").unwrap();
+        // (Tools that change voxels: POINTER is the default.)
+        ed.choose(crate::editor::model::Tool::Add);
         let mut view = View::new(&ed, &crate::config::GameConfig::default());
         let head = part(&ed, "head");
         act(&mut ed, &mut view, Action::Part(head));

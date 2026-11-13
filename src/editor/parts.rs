@@ -1087,4 +1087,104 @@ pub(crate) mod tests {
         assert!(view.before_game.is_none());
         assert_eq!(view.block, before);
     }
+
+    /// A part's arrow dragged, its let-go never clean: the focus lost or
+    /// another button (cancelled: the file as at the start, no step); the
+    /// button found up (one step, one UNDO); then a motion with the stale
+    /// drag's origin moves nothing; a second press, a tool's, without a
+    /// let-go (the drag one step first); the disk looked at mid-drag
+    /// (nothing read anew); a click on the arrow (nothing); a ray along
+    /// the arrow (never further than `FAR`, never NaN).
+    #[test]
+    fn a_part_drag_never_let_go_cleanly_is_ended_or_undone() {
+        use crate::editor::handles::{Drag, Grip, project};
+        use crate::editor::view::{FOV, Orbit, mouse_ray};
+        let (mut ed, mut view, dir) = figure("lost-part-drag");
+        let start = text(&dir);
+        let arm = part(&ed, "arm");
+        act(&mut ed, &mut view, Action::Part(arm));
+        let screen = glam::Vec2::new(1600.0, 900.0);
+        let (lo, size) = ed.figure_box().unwrap();
+        let vp = Orbit { yaw: 30.0, pitch: 30.0, zoom: 60.0, target: (lo + size / 2).as_vec3(), fov: FOV }.view_proj(screen.x / screen.y);
+        let ray = |p: glam::Vec2| mouse_ray(vp, p.x / screen.x, p.y / screen.y);
+        let at = |ed: &Editor| ed.model.as_ref().unwrap().parts.iter().find(|o| o.name == "arm").unwrap().low;
+        let was = at(&ed);
+        let grab = |ed: &mut Editor, by: f32| {
+            let h = ed.part_handles(vp).expect("its arrows");
+            let head = project(vp, screen, h.centre + Vec3::X * h.length * 0.95).unwrap().0;
+            let drag = Drag::begin(&h, Grip::Arrow(0), vp, screen, head, ray(head)).expect("the X arrow");
+            assert!(ed.grab_part(drag, h.clone()));
+            let to = project(vp, screen, h.centre + Vec3::X * (h.length * 0.95 + by)).unwrap().0;
+            ed.drag_joint(vp, screen, to, ray(to));
+        };
+        // Focus lost: cancelled.
+        grab(&mut ed, 5.0);
+        assert_ne!(at(&ed), was, "moved while dragged");
+        ed.end_drag(true);
+        assert_eq!((text(&dir), ed.steps(), at(&ed)), (start.clone(), 0, was), "cancelled: as at the start");
+        // The button found up: one step; a motion after moves nothing.
+        grab(&mut ed, 5.0);
+        ed.end_drag(false);
+        assert_eq!(ed.steps(), 1);
+        let moved = at(&ed);
+        ed.drag_joint(vp, screen, glam::Vec2::new(10.0, 10.0), ray(glam::Vec2::new(10.0, 10.0)));
+        assert_eq!(at(&ed), moved, "no drag: nothing moves");
+        ed.undo();
+        assert_eq!(text(&dir), start, "one UNDO: as at the start");
+        // A tool's press without a let-go between.
+        grab(&mut ed, 4.0);
+        ed.choose(crate::editor::model::Tool::Pick);
+        ed.press(crate::editor::model::Hit { cell: IVec3::ZERO, normal: IVec3::Z });
+        assert!(ed.joint_drag().is_none(), "the press ended the drag");
+        ed.drag_joint(vp, screen, glam::Vec2::new(10.0, 10.0), ray(glam::Vec2::new(10.0, 10.0)));
+        ed.release();
+        assert_eq!(ed.steps(), 1, "the drag its step, nothing else");
+        ed.undo();
+        assert_eq!(text(&dir), start);
+        // Two presses on the arrow without a let-go.
+        grab(&mut ed, 4.0);
+        grab(&mut ed, 0.0);
+        ed.release();
+        ed.undo();
+        assert_eq!(text(&dir), start, "one UNDO after the second press");
+        // The disk looked at mid-drag: the editor's own writes.
+        grab(&mut ed, 3.0);
+        assert!(!ed.look_at_disk(), "the editor's own file is not changed outside");
+        ed.release();
+        assert_eq!(ed.steps(), 1, "the step kept");
+        ed.undo();
+        assert_eq!(text(&dir), start);
+        // A click on the arrow, the pointer 2 pixels on: nothing.
+        let h = ed.part_handles(vp).unwrap();
+        let head = project(vp, screen, h.centre + Vec3::X * h.length * 0.95).unwrap().0;
+        assert!(ed.grab_part(Drag::begin(&h, Grip::Arrow(0), vp, screen, head, ray(head)).unwrap(), h.clone()));
+        ed.drag_joint(vp, screen, head + glam::Vec2::new(2.0, 1.0), ray(head + glam::Vec2::new(2.0, 1.0)));
+        ed.release();
+        assert_eq!((ed.steps(), text(&dir)), (0, start.clone()), "a click moves nothing");
+        // Thrown: never further than FAR, never NaN.
+        grab(&mut ed, 100_000.0);
+        ed.release();
+        assert!(at(&ed).abs().max_element() <= crate::editor::model::FAR, "{}", at(&ed));
+        ed.undo();
+        assert_eq!(text(&dir), start);
+    }
+
+    /// POINTER is the tool a model opens with and changes nothing: a press
+    /// and a drag over voxels, in a part or from the figure whole, make no
+    /// step and leave the file as it was.
+    #[test]
+    fn the_pointer_changes_nothing() {
+        let (mut ed, mut view, dir) = figure("pointer");
+        assert_eq!(ed.tool, crate::editor::model::Tool::Pointer, "the tool a model opens with");
+        let start = text(&dir);
+        let arm = part(&ed, "arm");
+        act(&mut ed, &mut view, Action::Part(arm));
+        for c in [IVec3::ZERO, IVec3::new(1, 1, 4)] {
+            ed.press(crate::editor::model::Hit { cell: c, normal: IVec3::Z });
+            ed.drag(crate::editor::model::Hit { cell: c + IVec3::X, normal: IVec3::Z });
+            ed.release();
+        }
+        assert!(!ed.forms(), "no box drawn with it");
+        assert_eq!((ed.steps(), text(&dir)), (0, start), "nothing changed");
+    }
 }

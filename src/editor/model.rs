@@ -60,6 +60,9 @@ pub struct JointDrag {
     pub fine: bool,
 }
 
+/// How far from the pivot a figure's part may be moved (voxels).
+pub const FAR: i32 = 512;
+
 /// Where a ray (from `origin` along `dir`) meets the plane where axis `n`
 /// is `at`; None if it runs along it or away.
 fn plane_hit(origin: Vec3, dir: Vec3, n: usize, at: f32) -> Option<Vec3> {
@@ -96,6 +99,11 @@ pub enum Layer {
 /// The tools, the same four on both levels (named by `Tool::label`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
+    /// Changes nothing: a click chooses (a figure's part, a level's block
+    /// to hold), the handles work, a drag on voxels does nothing. The
+    /// tool an editor opens with and Escape comes back to (the owner kept
+    /// setting voxels by a click meant to choose another part).
+    Pointer,
     /// A block into the cell before the face (a voxel before it).
     Add,
     Remove,
@@ -128,13 +136,13 @@ impl Tool {
     /// The tools of the level's blocks, its things, and of a block.
     pub fn of(scope: Scope, layer: Layer) -> &'static [Tool] {
         match (scope, layer) {
-            (Scope::Level, Layer::Blocks) => &[Tool::Add, Tool::Remove, Tool::Paint, Tool::Pick],
-            (Scope::Level, Layer::Things) => &[Tool::Add, Tool::Remove, Tool::Move, Tool::Pick],
+            (Scope::Level, Layer::Blocks) => &[Tool::Pointer, Tool::Add, Tool::Remove, Tool::Paint, Tool::Pick],
+            (Scope::Level, Layer::Things) => &[Tool::Pointer, Tool::Add, Tool::Remove, Tool::Move, Tool::Pick],
             // (Pieces are chosen and dragged, their words on the panels.)
             (Scope::Level, Layer::Pieces) => &[],
             // (The figure whole: a press on a part chooses it, and the tool
             // works there at once.)
-            (Scope::Block(_) | Scope::Frame(_) | Scope::Figure, _) => &[Tool::Add, Tool::Remove, Tool::Paint, Tool::Fill, Tool::Deep, Tool::Box, Tool::Sphere, Tool::Select, Tool::Pick],
+            (Scope::Block(_) | Scope::Frame(_) | Scope::Figure, _) => &[Tool::Pointer, Tool::Add, Tool::Remove, Tool::Paint, Tool::Fill, Tool::Deep, Tool::Box, Tool::Sphere, Tool::Select, Tool::Pick],
         }
     }
 
@@ -144,6 +152,7 @@ impl Tool {
     pub fn label(self, scope: Scope, layer: Layer) -> &'static str {
         match (scope, layer, self) {
             (Scope::Level, Layer::Things, Tool::Remove) => "REMOVE",
+            (_, _, Tool::Pointer) => "POINTER",
             (_, _, Tool::Add) => "ADD",
             (_, _, Tool::Remove) => "ERASE",
             (_, _, Tool::Paint) => "PAINT",
@@ -539,7 +548,7 @@ impl Editor {
             sheet,
             scope: Scope::Level,
             layer,
-            tool: Tool::Add,
+            tool: Tool::Pointer,
             before_pick: Tool::Add,
             shifted: false,
             held,
@@ -639,7 +648,7 @@ impl Editor {
             sheet: None,
             scope: if figure.is_some() { Scope::Figure } else { Scope::Frame(0) },
             layer: Layer::Blocks,
-            tool: Tool::Add,
+            tool: Tool::Pointer,
             before_pick: Tool::Add,
             shifted: false,
             held: Cell::default(),
@@ -901,6 +910,22 @@ impl Editor {
 
     /// The mouse pressed at a hit: PICK takes up, the others begin a stroke.
     pub fn press(&mut self, hit: Hit) {
+        // A drag still open (its let-go never came): let go of it first,
+        // its step made, before this one begins from what it left.
+        if self.drag_open() {
+            self.end_drag(false);
+        }
+        // POINTER changes nothing: in a level of blocks the block clicked
+        // is held (as a click in the list holds one).
+        if self.tool == Tool::Pointer {
+            if self.scope == Scope::Level
+                && let Some(c) = self.target(hit)
+                && self.level.cell(c).block != 0
+            {
+                self.held = self.level.cell(c);
+            }
+            return;
+        }
         if self.tool == Tool::Pick {
             if let Some(c) = self.target(hit) {
                 match self.scope {
@@ -1145,6 +1170,9 @@ impl Editor {
     /// plane, before it (or, to `cut`, in the voxel itself); the shape set
     /// before is fresh no more.
     pub fn begin_form(&mut self, hit: Hit, cut: bool) {
+        if self.drag_open() {
+            self.end_drag(false);
+        }
         self.fresh = None;
         let normal = way_out(hit);
         let start = if cut { hit.cell } else { hit.cell + normal };
@@ -1570,6 +1598,8 @@ impl Editor {
     pub fn press_thing(&mut self, spot: Option<IVec3>, under: Option<usize>) {
         self.release();
         match self.tool {
+            // POINTER changes nothing.
+            Tool::Pointer => return,
             Tool::Pick => {
                 // (A piece is no kind to put down: placing pieces is the
                 // next stage's.)
@@ -2027,7 +2057,7 @@ impl Editor {
         let n = (0..3).max_by(|&a, &b| look[a].abs().total_cmp(&look[b].abs())).unwrap_or(1);
         let Some(hit) = plane_hit(origin, dir, n, spot[n]) else { return false };
         let start = self.figure.as_ref().map_or(Vec3::ZERO, |f| f.joint(p) + f.low.as_vec3());
-        self.release();
+        self.end_drag(false);
         self.joint_drag = Some(JointDrag { drag: None, start, steps: self.past.len(), moved: false, part: false, applied: IVec3::ZERO, ring: Some((n, hit)), rest: [0.0; 3], fine: false });
         true
     }
@@ -2039,7 +2069,7 @@ impl Editor {
     pub fn grab_part(&mut self, drag: super::handles::Drag, h: super::handles::Handles) -> bool {
         // A selection's arrow: its voxels dragged.
         if self.selection().is_some() && !self.posing {
-            self.release();
+            self.end_drag(false);
             self.grab_selection();
             self.joint_drag = Some(JointDrag { drag: Some((drag, h)), start: Vec3::ZERO, steps: self.past.len(), moved: false, part: true, applied: IVec3::ZERO, ring: None, rest: [0.0; 3], fine: false });
             return true;
@@ -2048,7 +2078,7 @@ impl Editor {
         if self.chosen().is_none() && self.scope != Scope::Figure {
             return false;
         }
-        self.release();
+        self.end_drag(false);
         let rest = self.turn_values().unwrap_or_default();
         self.joint_drag = Some(JointDrag { drag: Some((drag, h)), start: Vec3::ZERO, steps: self.past.len(), moved: false, part: true, applied: IVec3::ZERO, ring: None, rest, fine: false });
         true
@@ -2158,6 +2188,13 @@ impl Editor {
             None if self.scope == Scope::Figure => self.model.as_ref().map_or(Vec::new(), |m| m.parts.iter().map(|o| o.name.clone()).collect()),
             None => return,
         };
+        // Nowhere it cannot be seen: a part stays within `FAR` voxels of
+        // the pivot (a model holds 256 each way).
+        let far = self.model.as_ref().is_some_and(|m| m.parts.iter().filter(|o| names.contains(&o.name)).any(|o| (o.low + by).abs().max_element() > FAR));
+        if far {
+            self.hint = Some(format!("A part goes no further than {FAR} voxels from the pivot"));
+            return;
+        }
         self.acting = Some(names.clone());
         self.change_model_file(|m| {
             for o in m.parts.iter_mut().filter(|o| names.contains(&o.name)) {
@@ -2170,6 +2207,53 @@ impl Editor {
         self.follow_figure();
     }
 
+    /// Whether a tool's stroke is open (pressed, not let go).
+    pub fn stroke_open(&self) -> bool {
+        self.stroke.is_some()
+    }
+
+    /// Whether a drag is open: a handle's (a part's, a selection's, a
+    /// joint's, a piece's), the slice's, a piece over the floor, a tool's
+    /// stroke, a footprint.
+    pub fn drag_open(&self) -> bool {
+        self.joint_drag.is_some() || self.gripped.is_some() || self.dragging.is_some() || self.moving.is_some() || self.stroke.is_some() || self.drawing.is_some() || self.slicing()
+    }
+
+    /// A drag ended without its own let-go (the button found up, a press
+    /// while it was open, the release outside the window): `cancel` (the
+    /// window lost the focus, another button, Escape): all as before it,
+    /// no step; else as let go where it is: one step, which UNDO takes
+    /// back whole. Never a change without its step.
+    pub fn end_drag(&mut self, cancel: bool) {
+        if cancel {
+            self.cancel_joint();
+            self.cancel_drag();
+            if let Some(stroke) = self.stroke.take() {
+                match stroke {
+                    Step::Level(before, _) => self.set_level(&before),
+                    Step::Block(i, before, _) => {
+                        if let Some(b) = self.blocks.get_mut(i) {
+                            *b = before;
+                        }
+                    }
+                    Step::Model(before, _) => {
+                        if let Some(m) = &mut self.model {
+                            m.reshape(&before);
+                        }
+                    }
+                    Step::Delete(_) => {}
+                }
+            }
+            self.moving = None;
+        }
+        // (A footprint never let go of sets nothing.)
+        self.drawing = None;
+        self.release();
+        self.let_go_of_selection();
+        self.join_next = false;
+        self.follow_figure();
+    }
+
     /// The joint being dragged, if one is.
     pub fn joint_drag(&self) -> Option<&JointDrag> {
         self.joint_drag.as_ref()
@@ -2179,6 +2263,14 @@ impl Editor {
     /// it): the joint where the drag puts it, the drag's one step.
     pub fn drag_joint(&mut self, view_proj: glam::Mat4, screen: glam::Vec2, mouse: glam::Vec2, ray: (Vec3, Vec3)) {
         let Some(mut d) = self.joint_drag.take() else { return };
+        // A click on a handle moves nothing: only a drag that has gone a
+        // few pixels.
+        if let Some((drag, _)) = &mut d.drag
+            && !drag.travels(mouse)
+        {
+            self.joint_drag = Some(d);
+            return;
+        }
         if let Some((drag, h)) = &mut d.drag {
             // The part: the grid shown goes with it, so the ray and the
             // view as they were at the press.
@@ -2516,6 +2608,8 @@ pub(crate) mod tests {
     fn placing_turning_and_removing_blocks() {
         let dir = folder("place");
         let mut ed = Editor::open(&dir, "level.toml").unwrap();
+        // (Tools that change voxels: POINTER is the default.)
+        ed.choose(crate::editor::model::Tool::Add);
         // Onto the block's top: a block in the cell above.
         let (o, d) = down(0, 0);
         let hit = ed.aim(o, d).unwrap();
@@ -2643,6 +2737,8 @@ pub(crate) mod tests {
     fn deleting_a_block_empties_its_cells_and_undo_brings_it_back() {
         let dir = folder("delete");
         let mut ed = Editor::open(&dir, "level.toml").unwrap();
+        // (Tools that change voxels: POINTER is the default.)
+        ed.choose(crate::editor::model::Tool::Add);
         ed.clone_block().unwrap();
         // The copy (block 2) in a cell beside the first.
         let (o, d) = down(1, 0);
@@ -2700,6 +2796,8 @@ pub(crate) mod tests {
     fn undo_and_redo_step_through_both_levels() {
         let dir = folder("undo");
         let mut ed = Editor::open(&dir, "level.toml").unwrap();
+        // (Tools that change voxels: POINTER is the default.)
+        ed.choose(crate::editor::model::Tool::Add);
         let start = (ed.level.clone(), ed.blocks[0].clone());
         let (o, d) = down(1, 0);
         ed.press(ed.aim(o, d).unwrap());
@@ -2798,6 +2896,8 @@ pub(crate) mod tests {
     fn placing_moving_and_removing_things() {
         let dir = folder("things");
         let mut ed = Editor::open(&dir, "level.toml").unwrap();
+        // (Tools that change voxels: POINTER is the default.)
+        ed.choose(crate::editor::model::Tool::Add);
         ed.kinds = vec!["fox".into(), "gem".into()];
         ed.hold_kind(1);
         ed.switch(Layer::Things);
@@ -3038,6 +3138,8 @@ pub(crate) mod tests {
     fn a_colours_material_is_set_and_a_colour_taken_out() {
         let dir = model_folder("material");
         let mut ed = Editor::open_model(&dir, "thing.vvx").unwrap();
+        // (Tools that change voxels: POINTER is the default.)
+        ed.choose(crate::editor::model::Tool::Add);
         ed.colour = [200, 40, 40];
         let m = ed.material().unwrap();
         ed.set_material(super::super::frames::with_word(m, 1, 0.5));
@@ -3068,6 +3170,8 @@ pub(crate) mod tests {
     fn a_model_of_any_size_is_edited_and_saved() {
         let dir = model_folder("model");
         let mut ed = Editor::open_model(&dir, "thing.vvx").unwrap();
+        // (Tools that change voxels: POINTER is the default.)
+        ed.choose(crate::editor::model::Tool::Add);
         assert_eq!((ed.scope, ed.grid(), ed.frames().len()), (Scope::Frame(0), IVec3::new(3, 2, 5), 2));
         ed.colour = [200, 40, 40];
         ed.press(Hit { cell: IVec3::new(1, 0, 4), normal: IVec3::Z });
