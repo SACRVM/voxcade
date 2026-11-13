@@ -7,10 +7,11 @@ use glam::{Mat4, Vec3};
 
 use crate::config::CameraConfig;
 
-/// Widest screen the face set has to cover (21:9). Wider windows would
-/// need the faces of objects at the far left and right edges re-checked
-/// (a picture of its own shape, `c.camera.aspect`, wider: its width).
-const MAX_ASPECT: f32 = 2.4;
+/// The widest window the meshes' faces are chosen for at first (21:9;
+/// `corner_rays`). A picture wider still (a 32:9 window, a picture of its
+/// own shape, `c.camera.aspect`) adds the faces its edges can see
+/// (`Session::compose`, `seen_faces`) and the meshes are built anew once.
+pub const WIDEST_KEPT: f32 = 2.4;
 
 pub fn view_dir(cfg: &CameraConfig) -> Vec3 {
     let (pitch, yaw) = (cfg.pitch.to_radians(), cfg.yaw.to_radians());
@@ -56,14 +57,14 @@ pub fn view_proj(cfg: &CameraConfig, target: Vec3, aspect: f32) -> Mat4 {
     perspective(fov(cfg), aspect, 1.0, distance * 12.0 + 2000.0) * view
 }
 
-/// Directions of the four corner rays of the view. Every face the camera can
+/// Directions of the four corner rays of a view `aspect` wide (width over
+/// height; never narrower than `WIDEST_KEPT`). Every face the camera can
 /// see points against at least one of them.
-pub fn corner_rays(cfg: &CameraConfig) -> [Vec3; 4] {
+pub fn corner_rays(cfg: &CameraConfig, aspect: f32) -> [Vec3; 4] {
     let dir = view_dir(cfg);
     let (right, up) = right_up(cfg);
     let v = (fov(cfg) * 0.5).tan();
-    // (A picture of its own shape wider still: as wide as that.)
-    let h = v * cfg.aspect.map_or(MAX_ASPECT, |a| a.max(MAX_ASPECT));
+    let h = v * aspect.max(WIDEST_KEPT);
     [
         (dir - right * h - up * v).normalize(),
         (dir + right * h - up * v).normalize(),

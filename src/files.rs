@@ -374,4 +374,44 @@ mod tests {
         assert!(store.get(&hash).is_err(), "a damaged file is no file");
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// A set naming a file the store does not have, or has damaged, does
+    /// not make files: the mistake names the file and its hash.
+    #[test]
+    fn a_sealed_file_missing_from_the_store_is_named() {
+        let dir = scratch("missing");
+        let store = Store::at(&dir.join("store"));
+        let kept = store.put(b"-- main").unwrap();
+        let absent = super::hash(b"never kept");
+        let set: Set = [("main.lua".to_string(), kept.clone()), ("levels/01.toml".to_string(), absent.clone())].into();
+        let e = format!("{:#}", Files::of_set(&dir, &set, &store).unwrap_err());
+        assert!(e.contains("levels/01.toml") && e.contains(&absent) && e.contains("no file"), "{e}");
+        std::fs::write(store.path_of(&kept).unwrap(), b"-- changed behind its back").unwrap();
+        let set: Set = [("main.lua".to_string(), kept.clone())].into();
+        let e = format!("{:#}", Files::of_set(&dir, &set, &store).unwrap_err());
+        assert!(e.contains("main.lua") && e.contains("damaged"), "{e}");
+        let set: Set = [("main.lua".to_string(), "../../x".to_string())].into();
+        assert!(Files::of_set(&dir, &set, &store).is_err(), "a hash that is no hash");
+    }
+
+    /// A path leaving the game folder has no name in the game, and a
+    /// sealed game reads nothing there, however it is written.
+    #[test]
+    fn a_path_leaving_the_game_folder_is_none_of_the_games() {
+        let dir = scratch("leaving");
+        let game = dir.join("game");
+        std::fs::create_dir_all(&game).unwrap();
+        std::fs::write(game.join("main.lua"), "-- main").unwrap();
+        std::fs::write(dir.join("secret.txt"), "not the game's").unwrap();
+        let (_, files) = Files::seal(&game, &Store::at(&dir.join("store"))).unwrap();
+        let beside = dir.join("secret.txt");
+        for outside in [Path::new("../secret.txt"), Path::new("levels/../../secret.txt"), beside.as_path()] {
+            assert_eq!(files.name(outside), None, "{}", outside.display());
+            assert!(files.read(outside).is_err(), "{} read from a sealed game", outside.display());
+            assert!(!files.is_file(outside), "{}", outside.display());
+        }
+        assert_eq!(files.name(Path::new("./main.lua")).as_deref(), Some("main.lua"));
+        assert_eq!(files.read_to_string("./main.lua").unwrap(), "-- main");
+        assert!(Files::folder(&game).changes_since(&Store::at(&dir.join("store"))).unwrap().is_empty(), "a folder not sealed has no changes to send");
+    }
 }

@@ -658,7 +658,14 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
                 }
                 return;
             }
-            // Started anew: what it had is gone.
+            // Started anew: what it had is gone, once it has been silent a
+            // moment (QUIET; a machine that starts again has left its old
+            // run). A HELLO with a new nonce while the old one still plays
+            // is someone else saying its id, not a restart: no packet kicks
+            // a player (the machine starting again asks on and gets in).
+            if now.saturating_sub(r.last_heard) < QUIET {
+                return;
+            }
             let index = r.index;
             self.gone(index, false);
         }

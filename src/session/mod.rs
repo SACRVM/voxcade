@@ -301,6 +301,8 @@ pub struct Session<G: Game> {
     /// The HUD as the last picture had it, worked out once while it stays
     /// the same (`hud_cubes`).
     hud_kept: std::cell::RefCell<compose::HudKept>,
+    /// The limits a picture went past, each said once (`warnings`).
+    limits: std::cell::RefCell<compose::Limits>,
 }
 
 /// What the player may turn off: the view shaking, white flashes, the blur;

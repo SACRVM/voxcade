@@ -2,8 +2,11 @@
 // occlusion, light from flashes and explosions, haze. Colours stay in
 // palette (gamma) space for the flat retro look. The scene goes to two
 // targets: its colour, and what glows (blurred and added on top later).
-
-const MAX_LIGHTS: u32 = 16u;
+//
+// The numbers the Rust side shares with it (MAX_LIGHTS, FACES, the lanes
+// of an instance's fx, the faces' order, metal's packing) are not written
+// here: render::shader::prelude writes them ahead of this text, from the
+// one table both sides read.
 
 struct Light {
     // xyz: position, w: radius
@@ -223,7 +226,9 @@ fn vs_model_outline(
 ) -> VOut {
     let grown = pos_size.w + 2.0 * g.outline.w;
     let flat = vec4<f32>(g.outline.rgb, 1.0);
-    var out = cube_at(model_corner(pos_size.xyz, pos * grown), normal.xyz, normal.xyz, model_centre(pos_size.xyz), flat, vec4<f32>(0.0, 1.0, 0.0, 0.0), vec4<f32>(0.0), actor.rot);
+    var fx = vec4<f32>(0.0);
+    fx[FX_OPACITY] = 1.0;
+    var out = cube_at(model_corner(pos_size.xyz, pos * grown), normal.xyz, normal.xyz, model_centre(pos_size.xyz), flat, fx, vec4<f32>(0.0), actor.rot);
     out.world += normalize(out.world - g.eye.xyz) * OUTLINE_BEHIND;
     out.clip = g.view_proj * vec4<f32>(out.world, 1.0);
     return out;
@@ -274,10 +279,10 @@ fn cube_at(
 ) -> VOut {
     var out: VOut;
     out.clip = g.view_proj * vec4<f32>(world, 1.0);
-    // fx.z: the faces a neighbouring cube covers (bits in mesh::DIRS order:
-    // +x -x +y -y +z -z). They are not drawn: where they meet the
-    // neighbour's surface at the same depth they would show as seams.
-    let hidden = u32(round(fx.z * 255.0));
+    // fx[FX_COVERED]: the faces a neighbouring cube covers (a bit each, in
+    // mesh::DIRS order, face_index). They are not drawn: where they meet
+    // the neighbour's surface at the same depth they would show as seams.
+    let hidden = u32(round(fx[FX_COVERED] * 255.0));
     // counted in the model's own directions, as the bits are
     let face = face_index(own);
     if (((hidden >> face) & 1u) == 1u) {
@@ -288,32 +293,32 @@ fn cube_at(
     out.centre = vec4<f32>(centre, select(0.0, 1.0, turns(q)));
     out.color = color.rgb;
     out.ao = 1.0;
-    out.fx = fx.xy;
-    // fx.w: metal, packed as vox::metal::pack.
-    let m = u32(round(fx.w * 255.0));
-    out.metal = vec2<f32>(f32(m >> 4u) / 15.0, f32(m & 15u) / 15.0);
+    out.fx = vec2<f32>(fx[FX_GLOW], fx[FX_OPACITY]);
+    // fx[FX_METAL]: metal, packed as vox::metal::pack.
+    let m = u32(round(fx[FX_METAL] * 255.0));
+    out.metal = vec2<f32>(f32(m >> METAL_SHIFT) / f32(METAL_STEPS), f32(m & METAL_STEPS) / f32(METAL_STEPS));
     // shade.w: the faces lit by shade.xyz instead of their own (bits as
     // above); with none, xyz is the way smooth glass's facet faces (or
     // nothing).
-    let lit = u32(round(shade.w * 127.0));
+    let lit = u32(round(shade.w * SNORM8));
     out.shade = vec4<f32>(shade.xyz, f32((lit >> face_index(own)) & 1u));
     return out;
 }
 
-// A face's index in mesh::DIRS order (+x -x +y -y +z -z).
+// A face's index in mesh::DIRS order (the prelude's FACE_ numbers).
 fn face_index(n: vec3<f32>) -> u32 {
     if (n.x > 0.5) {
-        return 0u;
+        return FACE_POS_X;
     } else if (n.x < -0.5) {
-        return 1u;
+        return FACE_NEG_X;
     } else if (n.y > 0.5) {
-        return 2u;
+        return FACE_POS_Y;
     } else if (n.y < -0.5) {
-        return 3u;
+        return FACE_NEG_Y;
     } else if (n.z > 0.5) {
-        return 4u;
+        return FACE_POS_Z;
     }
-    return 5u;
+    return FACE_NEG_Z;
 }
 
 @vertex
@@ -332,7 +337,7 @@ fn vs_model_shadow(
     @location(4) fx: vec4<f32>,
 ) -> @builtin(position) vec4<f32> {
     let own = vec3<f32>(quarter(normal.xy, 4u - u32(actor.origin.w)), normal.z);
-    if (((u32(round(fx.z * 255.0)) >> face_index(own)) & 1u) == 1u) {
+    if (((u32(round(fx[FX_COVERED] * 255.0)) >> face_index(own)) & 1u) == 1u) {
         return vec4<f32>(0.0, 0.0, 2.0, 1.0);
     }
     return g.light_vp * vec4<f32>(model_corner(pos_size.xyz, pos * pos_size.w), 1.0);
@@ -400,8 +405,8 @@ fn sun_visibility(world: vec3<f32>, face: vec3<f32>, n: vec3<f32>, centre: vec4<
 // forgotten (a memory of every face cost the small GPU 7 ms; a face
 // leaving it at once flickered as rounding took it back to the edge).
 // Each entry is three words: a key, a check, and lit (bit 0), how much in
-// the sun (10 bits) and the picture it was last seen in (21 bits).
-const FACES: u32 = 65536u;
+// the sun (10 bits) and the picture it was last seen in (21 bits). FACES
+// (how many) is the prelude's, render::shader::SHADOW_FACES.
 const PROBES: u32 = 8u;
 const STALE: u32 = 30u;
 const MARGIN: f32 = 0.25;
@@ -481,6 +486,10 @@ fn remembered(at: vec3<f32>, n: vec3<f32>, raw: f32) -> f32 {
         slot = (slot + 1u) % FACES;
     }
     if (clear || free == FACES) {
+        if (!clear) {
+            // no room: counted in the word after the entries (render::limits)
+            atomicAdd(&faces[FACES * 3u], 1u);
+        }
         return step(0.5, raw);
     }
     let k = free * 3u;

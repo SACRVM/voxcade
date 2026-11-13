@@ -54,6 +54,7 @@ fn game_on(world: World, cfg: GameConfig) -> Session<Shooter> {
         drawn_sun: Default::default(),
         seen_faces: Default::default(),
         hud_kept: Default::default(),
+        limits: Default::default(),
         touched: false,
             problem_shown: true,
         applied: false,
@@ -1257,4 +1258,48 @@ fn walking_over_bumps_keeps_the_camera_calm() {
     println!("step-ups {steps}, max camera rise per tick {max_cam:.3}");
     assert!(steps > 0, "the path should cross something to step over");
     assert_eq!(max_cam, 0.0, "camera height moves {max_cam} voxels in one tick");
+}
+
+/// A window wider than the meshes' faces were chosen for (32:9, past
+/// `camera::WIDEST_KEPT`) adds the faces its edges can see, as a picture
+/// at another pitch does: the window, `shot` and the IDE build the meshes
+/// anew once `face_mask` grows. A camera turned 20 degrees sees the +y
+/// faces only at the far edge of so wide a window.
+#[test]
+fn a_window_wider_than_the_faces_were_chosen_for_adds_its_faces() {
+    let mut cfg = GameConfig::default();
+    (cfg.camera.yaw, cfg.camera.pitch, cfg.camera.fov) = (20.0, 45.0, 40.0);
+    let game = game_on(crate::sim::tests::flat_world(IVec3::new(64, 64, 16)), cfg);
+    let plus_y = crate::mesh::DIRS.iter().position(|d| *d == IVec3::Y).unwrap();
+    assert!(!game.face_mask()[plus_y], "a window up to 21:9 sees no +y face");
+    game.compose(1.0, 16.0 / 9.0, Scene::Play, None);
+    assert!(!game.face_mask()[plus_y], "16:9 adds nothing");
+    let wide = game.face_mask();
+    game.compose(1.0, 32.0 / 9.0, Scene::Play, None);
+    let wider = game.face_mask();
+    assert!(wider[plus_y], "32:9 sees the +y faces at its edge");
+    assert!(wide.iter().zip(&wider).all(|(a, b)| !a || *b), "faces are only added");
+    game.compose(1.0, 16.0 / 9.0, Scene::Play, None);
+    assert_eq!(game.face_mask(), wider, "kept from then on");
+}
+
+/// More lights in a picture than the renderer draws (`render::MAX_LIGHTS`)
+/// are said, once: in a picture and in `look` (`inspect`'s, without one).
+#[test]
+fn lights_past_the_limit_are_said_once() {
+    let mut game = flat_game(256);
+    for i in 0..crate::render::MAX_LIGHTS {
+        game.game.explode(Vec3::new(20.0 + i as f32 * 12.0, 128.0, 30.0), 10.0);
+    }
+    game.compose(1.0, 16.0 / 9.0, Scene::Play, None);
+    assert!(game.warnings().is_empty(), "16 lights are all drawn");
+    for i in 0..7 {
+        game.game.explode(Vec3::new(20.0 + i as f32 * 12.0, 160.0, 30.0), 10.0);
+    }
+    game.look();
+    let said = game.warnings();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].starts_with("lights: 23 asked, 16 drawn"), "{said:?}");
+    game.compose(1.0, 16.0 / 9.0, Scene::Play, None);
+    assert!(game.warnings().is_empty(), "said once");
 }

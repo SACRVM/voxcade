@@ -39,7 +39,7 @@ impl FolderWatch {
 
     /// Files that changed and have been stable since the previous poll,
     /// and files gone since (a sound taken away: the reload sees it is
-    /// no more).
+    /// no more), in the order of their paths.
     pub fn poll(&mut self) -> Vec<PathBuf> {
         if self.last_poll.elapsed() < INTERVAL {
             return Vec::new();
@@ -66,6 +66,9 @@ impl FolderWatch {
                 self.settling.insert(path, modified);
             }
         }
+        // In the order of their names, whatever order the scan found them
+        // in: a reload and its log go the same way every time.
+        changed.sort();
         changed
     }
 }
@@ -109,5 +112,33 @@ mod tests {
         assert!(poll(&mut watch).is_empty(), "settling");
         assert_eq!(poll(&mut watch), [dir.join("sounds/zap.toml")]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Many files changed at once, new and gone among them, are told in
+    /// the order of their paths (the scan's own order is a hash map's).
+    #[test]
+    fn changed_files_are_told_in_order() {
+        let dir = crate::scratch::Scratch::new("watch-order");
+        std::fs::create_dir_all(dir.join("sounds")).unwrap();
+        for i in 0..20 {
+            std::fs::write(dir.join(format!("sounds/s{i:02}.toml")), "freq = 600\n").unwrap();
+        }
+        let mut watch = FolderWatch::new(&dir);
+        let poll = |watch: &mut FolderWatch| {
+            watch.last_poll = Instant::now() - INTERVAL;
+            watch.poll()
+        };
+        for i in 0..40 {
+            std::fs::write(dir.join(format!("{}{i:02}.lua", if i % 2 == 0 { "sounds/n" } else { "m" })), "x = 1\n").unwrap();
+        }
+        for i in (0..20).step_by(3) {
+            std::fs::remove_file(dir.join(format!("sounds/s{i:02}.toml"))).unwrap();
+        }
+        let mut told = poll(&mut watch);
+        told.extend(poll(&mut watch));
+        assert_eq!(told.len(), 47, "{told:?}");
+        let gone: Vec<_> = told.iter().filter(|p| !p.exists()).cloned().collect();
+        let new: Vec<_> = told.iter().filter(|p| p.exists()).cloned().collect();
+        assert!(gone.is_sorted() && new.is_sorted(), "{told:?}");
     }
 }

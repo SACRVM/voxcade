@@ -159,7 +159,7 @@ impl Put {
     /// `turn` before Voxcade took other tools' words): degrees clockwise,
     /// 0 to 270.
     pub fn rotation_of(quarters: i32) -> i32 {
-        (-90 * quarters).rem_euclid(360)
+        (-90 * i64::from(quarters)).rem_euclid(360) as i32
     }
 }
 
@@ -284,7 +284,7 @@ impl MapData {
         let whole = |t: &dyn TableLike, key: &str, default: i32| -> Result<i32> {
             match t.get(key) {
                 None => Ok(default),
-                Some(i) => i.as_integer().map(|v| v as i32).ok_or_else(|| r.fail(i.span(), format!("{key} must be a whole number"))),
+                Some(i) => Ok(r.whole(i, key, -vvx::MOST_WHOLE..=vvx::MOST_WHOLE)? as i32),
             }
         };
         let float = |t: &dyn TableLike, key: &str, default: f32| -> Result<f32> { t.get(key).map_or(Ok(default), |i| r.number(i, key)) };
@@ -338,13 +338,13 @@ impl MapData {
         if let Some(item) = top.get("put") {
             for t in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "what stands on the map must be tables: [[put]]"))? {
                 if let Some(old) = t.get("turn") {
-                    let was = old.as_integer().map_or(String::new(), |q| format!(": turn = {q} is rotation = {}", Put::rotation_of(q as i32)));
+                    let was = old.as_integer().map_or(String::new(), |q| i32::try_from(q).map_or(String::new(), |q| format!(": turn = {q} is rotation = {}", Put::rotation_of(q))));
                     return Err(r.fail(old.span(), format!("a [[put]]: 'turn' (quarter turns anticlockwise) is called 'rotation' now, in degrees clockwise{was} (voxcade upgrade renames it)")));
                 }
                 r.only(t, &["prefab", "thing", "at", "rotation"], "a [[put]]")?;
                 let at_item = t.get("at").ok_or_else(|| anyhow!("a [[put]] has no at (line {})", t.get("prefab").or(t.get("thing")).and_then(Item::span).map_or(0, |s| vvx::line_of(src, s.start))))?;
                 let wrong = || r.fail(at_item.span(), "at must be x, y (on the ground) or x, y, z, whole numbers");
-                let at: Vec<i32> = at_item.as_array().filter(|a| (2..=3).contains(&a.len())).ok_or_else(wrong)?.iter().map(|v| v.as_integer().map(|v| v as i32).ok_or_else(wrong)).collect::<Result<_>>()?;
+                let at: Vec<i32> = at_item.as_array().filter(|a| (2..=3).contains(&a.len())).ok_or_else(wrong)?.iter().map(|v| v.as_integer().ok_or_else(wrong)).collect::<Result<Vec<i64>>>()?.into_iter().map(|v: i64| i32::try_from(v).map_err(|_| r.fail(at_item.span(), format!("at: {v} lies outside the map")))).collect::<Result<_>>()?;
                 let (prefab, thing) = (text(t, "prefab", "prefab")?, text(t, "thing", "thing")?);
                 if prefab.is_some() == thing.is_some() {
                     return Err(r.fail(at_item.span(), "a [[put]] is a prefab = \"name\" or a thing = \"kind\", one of them"));
@@ -376,7 +376,7 @@ impl MapData {
                     None => None,
                     Some(f) => {
                         let wrong = || r.fail(f.span(), "facing must be two whole numbers, like [0, -1]");
-                        let v: Vec<i32> = f.as_array().filter(|a| a.len() == 2).ok_or_else(wrong)?.iter().map(|v| v.as_integer().map(|v| v as i32).ok_or_else(wrong)).collect::<Result<_>>()?;
+                        let v: Vec<i32> = f.as_array().filter(|a| a.len() == 2).ok_or_else(wrong)?.iter().map(|v| v.as_integer().filter(|v| v.abs() <= vvx::MOST_WHOLE).map(|v| v as i32).ok_or_else(wrong)).collect::<Result<_>>()?;
                         Some([v[0], v[1]])
                     }
                 };

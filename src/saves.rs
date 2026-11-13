@@ -210,4 +210,55 @@ mod tests {
         assert_eq!(slots.info(2), None);
         assert_eq!(slots.unreadable(), [2], "slot 9 is beyond the game's slots");
     }
+
+    /// A save cut short (no play time), empty or not text at all is no
+    /// save either, named as one; files that are no slot's are not looked at.
+    #[test]
+    fn a_truncated_save_is_named_too() {
+        let dir = crate::scratch::Scratch::new("saves-cut");
+        std::fs::write(dir.join("1.toml"), "when = 5\nlevel = \"hall\"\n").unwrap();
+        std::fs::write(dir.join("2.toml"), "").unwrap();
+        std::fs::write(dir.join("3.toml"), [0xff, 0xfe, 0x00, 0x41]).unwrap();
+        std::fs::write(dir.join("notes.toml"), "level = \"x\"\nticks = 1\n").unwrap();
+        std::fs::write(dir.join("4.txt"), "level = \"x\"\nticks = 1\n").unwrap();
+        let mut slots = Slots::on_disk_in(dir.to_path_buf());
+        slots.set_count(4);
+        assert_eq!(slots.unreadable(), [1, 2, 3]);
+        assert_eq!(slots.listing(), vec![None; 4]);
+        assert_eq!(slots.newest(), None);
+    }
+
+    /// Each game keeps its saves in a folder of its own name: a save of
+    /// another game is never among its slots.
+    #[test]
+    fn a_save_of_another_game_is_not_among_its_slots() {
+        let dir = crate::scratch::Scratch::new("saves-games");
+        let (a, b) = (dir.join("farm"), dir.join("castle"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        assert_ne!(dir_for(&a), dir_for(&b));
+        assert_eq!(dir_for(&a).file_name(), Some(std::ffi::OsStr::new("farm")));
+        let saves = dir.join("saves");
+        let mut farm = Slots::on_disk_in(saves.join("farm"));
+        farm.set_count(2);
+        farm.write(1, "level = \"meadow\"\nticks = 60\n", 7).unwrap();
+        let mut castle = Slots::on_disk_in(saves.join("castle"));
+        castle.set_count(2);
+        assert_eq!(castle.listing(), vec![None, None], "the farm's save is no castle's");
+        assert_eq!(Slots::on_disk_in(saves.join("farm")).info(1).map(|i| i.level), Some("meadow".to_string()));
+    }
+
+    /// A save that cannot be written (its folder is a file) is a mistake
+    /// naming the place, and the slot keeps what it held.
+    #[test]
+    fn a_save_that_cannot_be_written_keeps_the_slot() {
+        let dir = crate::scratch::Scratch::new("saves-blocked");
+        let blocked = dir.join("game");
+        std::fs::write(&blocked, "a file where the folder should be").unwrap();
+        let mut slots = Slots::on_disk_in(blocked.clone());
+        slots.set_count(1);
+        let e = format!("{:#}", slots.write(1, "level = \"hall\"\nticks = 6\n", 1).unwrap_err());
+        assert!(e.contains(&blocked.display().to_string()), "{e}");
+        assert_eq!(slots.info(1), None, "nothing kept that is not on disk");
+    }
 }

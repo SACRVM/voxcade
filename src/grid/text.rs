@@ -880,8 +880,11 @@ pub fn read(src: &str) -> Result<(GridLevel, Legend)> {
     let daylight = top.get("light").map(|item| read_daylight(&r, item)).transpose()?;
     let whole = |item: &Item, what: &str| -> Result<i32> {
         let v = r.number(item, what)?;
-        if v.fract() != 0.0 || v < 1.0 || v > 100_000.0 {
+        if v.fract() != 0.0 {
             return Err(r.fail(item.span(), format!("{what} must be a whole number, 1 or more")));
+        }
+        if !(1.0..=100_000.0).contains(&v) {
+            return Err(r.fail(item.span(), format!("{what} = {v}: it must be from 1 to 100000")));
         }
         Ok(v as i32)
     };
@@ -1190,7 +1193,7 @@ fn read_set_down(r: &Reader, top: &toml_edit::Table, level: &mut GridLevel) -> R
             let scatter = match t.get("scatter") {
                 None => None,
                 Some(i) => match i.as_integer() {
-                    Some(v) if v >= 1 => Some(v as u32),
+                    Some(v) if (1..=vvx::MOST_WHOLE).contains(&v) => Some(v as u32),
                     _ => return Err(r.fail(i.span(), "scatter must be the number of the terrain's scatter rule that set it down, from 1")),
                 },
             };
@@ -1210,7 +1213,7 @@ fn read_set_down(r: &Reader, top: &toml_edit::Table, level: &mut GridLevel) -> R
                 Some(f) => {
                     let wrong = || r.fail(f.span(), "facing must be two whole numbers, like [0, -1], or a way's name (\"south\")");
                     let a = f.as_array().filter(|a| a.len() == 2).ok_or_else(wrong)?;
-                    let v: Vec<i64> = a.iter().map(|v| v.as_integer().ok_or_else(wrong)).collect::<Result<_>>()?;
+                    let v: Vec<i64> = a.iter().map(|v| v.as_integer().filter(|v| v.abs() <= vvx::MOST_WHOLE).ok_or_else(wrong)).collect::<Result<_>>()?;
                     (Some([v[0] as i32, v[1] as i32]), false)
                 }
             };

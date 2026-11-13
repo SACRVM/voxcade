@@ -734,7 +734,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   maps and levels `world::too_big` (65536 each way, 4096 by 4096 columns,
   2^30 voxels; More Blood's map is 640 by 2368 by 80), all in whole
   numbers that cannot overflow. A plain mistake with its line, never a
-  panic (test `hostile_texts_are_mistakes_never_a_crash`); no game uses
+  panic (test `hostile_texts_are_mistakes_never_a_crash`). Every number
+  read from a file is range-checked before a cast, never wrapped
+  (`vvx::Reader::ints` exactly, at most `vvx::MOST_WHOLE` either way,
+  past it "past the limit"; `Reader::whole` an integer in a named range;
+  test `numbers_past_their_range_are_mistakes_never_wrapped`); no game uses
   `[terrain]` yet, so `a_terrain_level_builds_through_load_at_as_pinned`
   takes one through `grid::load_at` and pins its voxels.
 - Levels and worlds are text (`docs/tiles.md`, 2026-11-12). A level of
@@ -886,7 +890,12 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (`frame.players`, its language in `on_draw`, its high score lines); the
   state hash in parts (`Game::state_sections`, `Session::sections`) is
   compared every 10 ticks, a desync named by its part and reported in the
-  config folder (`desyncs/`). `voxcade run <game> --host [PORT]` and
+  config folder (`desyncs/`). A varint has one encoding (overlong ones
+  refused, test `a_varint_has_one_encoding`); a HELLO with a playing
+  machine's id and a new nonce replaces it only once it has been silent
+  `QUIET` (a restart), so no forged packet kicks a player (test
+  `a_hello_with_a_known_id_kicks_no_one_who_plays`; the LAN has no
+  authentication still: a spoofed BYE or address needs crypto, 0.7). `voxcade run <game> --host [PORT]` and
   `--join ADDRESS`, NETWORK on the title of a game of several; `inspect
   --host/--join --record` without a window (two programs over 127.0.0.1
   record the same run); windows tried hands-free: `run <game> --input
@@ -1236,7 +1245,16 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (`src/lang.rs`, every word by its English; a game that speaks others
   sees English).
   Shaders are WGSL compiled at run time:
-  `the_shaders_are_valid` parses them in `cargo test`.
+  `the_shaders_are_valid` parses them in `cargo test`. The numbers the
+  scene's shader shares with Rust (`MAX_LIGHTS`, `FACES`, the lanes of
+  `Instance::fx`: `render::FX_GLOW`, `FX_OPACITY`, `FX_COVERED`,
+  `FX_METAL`; the faces' order of `mesh::DIRS`; metal's packing) are
+  written ahead of `shader.wgsl` by `render::shader::prelude` from the
+  Rust constants, never a literal in the WGSL; every struct written into
+  a buffer is compared with naga's layout of its WGSL struct, member by
+  member (test `the_rust_structs_are_laid_out_as_the_shaders`), the vertex
+  buffers with the entry points' inputs (test
+  `the_vertex_inputs_are_the_rust_structs`).
 - The UI is voxels too (`src/ui/`, the user's choice; `menus.rs` the
   engine's menus, `hud.rs` a game's `frame:menu` and `frame:grid`,
   `logo.rs` big letters and the logo, `panels.rs` the error and the
@@ -1392,8 +1410,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   the screen shows stays on the level, `camera::ground_extent`; test
   `a_view_from_above_stops_at_the_level_edges`). Meshes only
   contain faces that some view ray or the sun can hit (`mesh::face_mask`
-  over `camera::corner_rays`); if you change camera or sun handling, rebuild
-  all meshes. A game sets its camera per picture (`frame:camera` in
+  over `camera::corner_rays`, a window up to `camera::WIDEST_KEPT`, 21:9;
+  a wider picture adds the faces its edges see to `seen_faces` and the
+  meshes are built anew once, test
+  `a_window_wider_than_the_faces_were_chosen_for_adds_its_faces`); if you
+  change camera or sun handling, rebuild all meshes. A game sets its camera per picture (`frame:camera` in
   `on_draw`: `look_at`, `width`/`height`, `pitch`, `fov`, no yaw yet;
   `session::PictureCamera`, `Viewing`; only the picture): moved or zoomed
   it looks along the same rays (no more faces); another pitch or fov
@@ -1436,9 +1457,26 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   three times of BunnyFarm's morning: no face goes back and forth; one
   or two faces change a picture. It costs the small GPU (Radeon 610M)
   about 2.5 ms (test `a_moving_sun_has_the_faces_remember_their_shadow`).
-- `Renderer::render` is `write_globals`, `upload_cubes`, `upload_models`,
-  `draw_models`, `shadow_pass`, `scene_pass`, `ui_pass`, `post_passes`,
-  `composite_pass`.
+- The renderer is `src/render/`: `mod.rs` the `Renderer` and `Instance`,
+  `bank.rs` the model bank, `cubes.rs` the CPU passes over a frame's
+  cubes (`hide_inner_faces`, `join_see_through`), `frame.rs` `FrameData`,
+  `shader.rs` the shader text and its uniforms, `pipelines.rs` the
+  renderer made, `chunks.rs` the chunk meshes, `passes.rs` a frame drawn,
+  `limits.rs` the faces' memory's count. `Renderer::render` is
+  `write_globals`, `upload_cubes`, `upload_models`, `draw_models`,
+  `shadow_pass`, `scene_pass`, `ui_pass`, `post_passes`,
+  `composite_pass`. A limit a frame goes past is said once, never silent:
+  lights past `MAX_LIGHTS` (`Session::warnings`, counted in `look` too),
+  the faces' memory full (the shader counts faces that found no room in
+  the word after it, `render::limits`, read without waiting every 60
+  pictures, at once by `shot`; `Renderer::warnings`); `shot` prints
+  "warning: ...", `inspect` lists them under "warnings", the IDE's PLAY
+  puts them in OUTPUT (test `lights_past_the_limit_are_said_once`). Every
+  model voxel is still an instanced cube drawn in both passes (BunnyFarm
+  about 14 ms of GPU on the Radeon 610M at MEDIUM); covered faces are
+  already collapsed in `vs_model` and `vs_model_shadow`, an early return
+  for them measured slower (scene 8.6 against 7.9 ms): static models
+  meshed like chunks, or three faces a voxel picked by the eye, is 0.7's.
 - Rendering goes scene (HDR colour + glow targets) -> quarter-size blur
   passes -> composite onto the surface (`src/post.wgsl`; a window takes
   a surface format that stores what it is given, `render::surface_format`,
@@ -1576,7 +1614,9 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   neighbours). Tests:
   `a_model_draws_only_what_can_be_seen`, `models_out_of_view_are_not_built`.
 - Hot reload polls the game folder and its subfolders (`src/watch.rs`) on
-  purpose: the user's system has no inotify watches to spare. A map level
+  purpose: the user's system has no inotify watches to spare. It tells
+  what changed in the order of the paths (test
+  `changed_files_are_told_in_order`). A map level
   rebuilds when any file it was made from changes (`Session::level_files`);
   a level made in code (`Game::level`) when `conf.lua` changes, which
   also reloads the models (kinds may have come, gone or changed theirs).

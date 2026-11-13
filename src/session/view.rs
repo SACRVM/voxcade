@@ -20,7 +20,9 @@ impl<G: Game> Session<G> {
     /// another pitch or field of view adds the faces its rays can hit, from
     /// that picture on (`seen_faces`; the meshes are built anew once).
     pub fn face_mask(&self) -> FaceMask {
-        let rays = camera::corner_rays(&self.cfg.camera);
+        // (A picture of its own shape: as wide as that; a wider window
+        // adds its faces when drawn, `seen_faces`.)
+        let rays = camera::corner_rays(&self.cfg.camera, self.cfg.camera.aspect.unwrap_or(camera::WIDEST_KEPT));
         let mut mask = if self.game.moves_sun() {
             mesh::face_mask_any_sun(&rays)
         } else {

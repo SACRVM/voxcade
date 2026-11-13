@@ -58,11 +58,11 @@ pub(crate) fn read(r: &Reader, item: &Item) -> Result<Terrain> {
         // The far row first: the file's first row is the last in y.
         let y = nrows - 1 - n;
         for (x, word) in row.iter().enumerate() {
-            let v: i32 = word.parse().map_err(|_| anyhow!("{}heights: '{word}' is no height (whole voxels, 0 or more)", at_line(*k)))?;
-            if !(0..=HIGHEST).contains(&v) {
+            let v: i64 = word.parse().map_err(|_| anyhow!("{}heights: '{word}' is no height (whole voxels, 0 or more)", at_line(*k)))?;
+            if !(0..=HIGHEST as i64).contains(&v) {
                 bail!("{}heights: {v} is out of range (0 to {HIGHEST})", at_line(*k));
             }
-            heights[x + y * cols] = v;
+            heights[x + y * cols] = v as i32;
         }
     }
     // A grid of one sign a point (shapes, roughness), laid out as the
@@ -100,7 +100,7 @@ pub(crate) fn read(r: &Reader, item: &Item) -> Result<Terrain> {
         None => None,
         Some(i) => match i.as_integer() {
             Some(v) if (1..=HIGHEST as i64).contains(&v) => Some(v as i32),
-            _ => return Err(r.fail(i.span(), "terrace must be a whole number of voxels, 1 or more")),
+            _ => return Err(r.fail(i.span(), format!("terrace must be a whole number of voxels, 1 to {HIGHEST}"))),
         },
     };
     let rough = match t.get("rough") {
@@ -133,7 +133,7 @@ pub(crate) fn read(r: &Reader, item: &Item) -> Result<Terrain> {
             let thick = match l.get("thick") {
                 Some(i) => match i.as_integer() {
                     Some(v) if (1..=HIGHEST as i64).contains(&v) => v as i32,
-                    _ => return Err(r.fail(i.span(), "thick must be a whole number of voxels, 1 or more")),
+                    _ => return Err(r.fail(i.span(), format!("thick must be a whole number of voxels, 1 to {HIGHEST}"))),
                 },
                 None => bail!("line {lline}: a terrain's layer has no thick = N (voxels)"),
             };
@@ -173,7 +173,7 @@ pub(crate) fn read(r: &Reader, item: &Item) -> Result<Terrain> {
                 .map(|i| {
                     let v = r.number(i, key)?;
                     if v.fract() != 0.0 || v.abs() > HIGHEST as f32 {
-                        return Err(r.fail(i.span(), format!("{key} must be a whole number of voxels")));
+                        return Err(r.fail(i.span(), format!("{key} must be a whole number of voxels, -{HIGHEST} to {HIGHEST}")));
                     }
                     Ok(v as i32)
                 })
@@ -261,7 +261,7 @@ pub(crate) fn read(r: &Reader, item: &Item) -> Result<Terrain> {
                 sc.get(key)
                     .map(|i| match i.as_integer() {
                         Some(v) if v >= lo as i64 && v <= HIGHEST as i64 => Ok(v as i32),
-                        _ => Err(r.fail(i.span(), format!("{key} must be a whole number of voxels"))),
+                        _ => Err(r.fail(i.span(), format!("{key} must be a whole number of voxels, {lo} to {HIGHEST}"))),
                     })
                     .transpose()
             };
@@ -465,4 +465,125 @@ pub fn check_room(t: &Terrain, room: IVec3) -> Result<()> {
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const HEAD: &str = "[terrain]\nspacing = 8\nheights = \"\"\"\n1 2\n3 4\n\"\"\"\n";
+    const MATERIAL: &str = "\n[[terrain.material]]\ncolor = \"#5c8a3a\"\n";
+
+    fn read_text(src: &str) -> Result<Terrain> {
+        let doc: toml_edit::Document<&str> = toml_edit::Document::parse(src).map_err(|e| anyhow!("{e}"))?;
+        read(&Reader { src }, doc.as_table().get("terrain").ok_or_else(|| anyhow!("no [terrain]"))?)
+    }
+
+    /// Each word alone, in `[terrain]`, a layer, a material or a scatter
+    /// rule: read, written as the file has it (its line there), and read
+    /// again the same.
+    #[test]
+    fn every_word_reads_back_as_written() {
+        let words: [(&str, &str); 37] = [
+            ("terrain", "at = [2, 3, 4]"),
+            ("terrain", "shapes = \"\"\"\n. ^\n# .\n\"\"\""),
+            ("terrain", "terrace = 12"),
+            ("terrain", "rough = 0.25"),
+            ("terrain", "roughness = \"\"\"\n3 9\n0 1\n\"\"\""),
+            ("terrain", "dip = 12.5"),
+            ("terrain", "dip_to = 300"),
+            ("terrain", "fold = 0.5"),
+            ("terrain", "fault = 0.75"),
+            ("terrain", "seed = 77"),
+            ("terrain", "under = \"#4a3a2a\""),
+            ("layer", "thick = 6\nhard = 0.9\ncolor = \"#b8603a\""),
+            ("material", "colors = [\"#7d7468\", \"#6d6458\", \"#5d5448\"]"),
+            ("material", "above = 60"),
+            ("material", "below = -4"),
+            ("material", "steeper = 45"),
+            ("material", "flatter = 12.5"),
+            ("material", "depth = 2"),
+            ("material", "grain = 0.35"),
+            ("material", "patch = 9"),
+            ("material", "blend = 8"),
+            ("scatter", "model = \"fir.vvx\"\ndensity = 2"),
+            ("scatter", "models = [\"rock.vvx\", \"rock2.vvx\"]\ndensity = 0.5"),
+            ("scatter", "model = \"fir.vvx\"\ndensity = 2\nabove = 10"),
+            ("scatter", "model = \"fir.vvx\"\ndensity = 2\nbelow = 70"),
+            ("scatter", "model = \"fir.vvx\"\ndensity = 2\nsteeper = 20.5"),
+            ("scatter", "model = \"fir.vvx\"\ndensity = 2\nflatter = 30"),
+            ("scatter", "model = \"fir.vvx\"\ndensity = 2\nblend = 4"),
+            ("scatter", "model = \"fir.vvx\"\ndensity = 2\napart = 14"),
+            ("scatter", "model = \"fir.vvx\"\ndensity = 2\nrotate = \"any\""),
+            ("scatter", "model = \"fir.vvx\"\ndensity = 2\nrotate = \"quarters\""),
+            ("scatter", "model = \"fir.vvx\"\ndensity = 2\nrotate = \"none\""),
+            ("scatter", "model = \"fir.vvx\"\ndensity = 2\nsink = 1"),
+            ("scatter", "model = \"fir.vvx\"\ndensity = 2\nas = \"pieces\""),
+            ("scatter", "model = \"fir.vvx\"\ndensity = 2\nas = \"voxels\""),
+            ("terrain", "spacing = 16"),
+            ("terrain", "heights = \"\"\"\n  0 120\n 12   4\n\"\"\""),
+        ];
+        let plain = read_text(&format!("{HEAD}{MATERIAL}")).unwrap();
+        for (table, word) in words {
+            let src = match table {
+                "terrain" if word.starts_with("spacing") => format!("{}{MATERIAL}", HEAD.replace("spacing = 8\n", &format!("{word}\n"))),
+                "terrain" if word.starts_with("heights") => format!("[terrain]\nspacing = 8\n{word}\n{MATERIAL}"),
+                "terrain" => format!("{HEAD}{word}\n{MATERIAL}"),
+                "material" if word.starts_with("colors") => format!("{HEAD}\n[[terrain.material]]\n{word}\nabove = 1\n{MATERIAL}"),
+                "material" => format!("{HEAD}\n[[terrain.material]]\ncolor = \"#eef2f5\"\n{word}\n{MATERIAL}"),
+                "layer" => format!("{HEAD}\n[[terrain.layer]]\n{word}\n{MATERIAL}"),
+                _ => format!("{HEAD}{MATERIAL}\n[[terrain.scatter]]\n{word}\n"),
+            };
+            let t = read_text(&src).unwrap_or_else(|e| panic!("{word}: {e}"));
+            assert!(t != plain, "{word}: read as if it were not there");
+            let written = text(&t);
+            for line in word.lines().filter(|l| l.contains(" = ") && !l.ends_with("\"\"\"")) {
+                assert!(written.contains(&format!("{line}\n")), "{word}: '{line}' written so in\n{written}");
+            }
+            assert_eq!(read_text(&written).unwrap_or_else(|e| panic!("{word}: {e}\n{written}")), t, "{word}: read again\n{written}");
+        }
+    }
+
+    /// Every mistake names its line and what is wrong.
+    #[test]
+    fn each_mistake_says_its_line() {
+        // (the text, a piece of the line the mistake is on, words of it)
+        let cases: [(String, &str, &str); 30] = [
+            (format!("[terrain]\nheights = \"\"\"\n1\n\"\"\"\n{MATERIAL}"), "[terrain]", "has no spacing"),
+            (format!("[terrain]\nspacing = 0\nheights = \"\"\"\n1\n\"\"\"\n{MATERIAL}"), "spacing = 0", "spacing must be a whole number of voxels, 1 to 1024"),
+            (format!("[terrain]\nspacing = 2.5\nheights = \"\"\"\n1\n\"\"\"\n{MATERIAL}"), "spacing = 2.5", "spacing must be"),
+            (format!("[terrain]\nspacing = 8\n{MATERIAL}"), "[terrain]", "has no heights"),
+            (format!("{HEAD}at = [-1, 0, 0]\n{MATERIAL}"), "at = [", "0 or more each way"),
+            (format!("{HEAD}at = [1, 2]\n{MATERIAL}"), "at = [", "three whole numbers"),
+            (format!("[terrain]\nspacing = 8\nheights = \"\"\"\n1 2\n3\n\"\"\"\n{MATERIAL}"), "\n3\n", "this row has 1 points, the first has 2"),
+            (format!("[terrain]\nspacing = 8\nheights = \"\"\"\n1 2\n3 x\n\"\"\"\n{MATERIAL}"), "3 x", "'x' is no height"),
+            (format!("[terrain]\nspacing = 8\nheights = \"\"\"\n1 2\n3 5000\n\"\"\"\n{MATERIAL}"), "3 5000", "5000 is out of range (0 to 4096)"),
+            (format!("{HEAD}shapes = \"\"\"\n. %\n. .\n\"\"\"\n{MATERIAL}"), ". %", "'%' is no shape"),
+            (format!("{HEAD}shapes = \"\"\"\n. .\n\"\"\"\n{MATERIAL}"), "shapes = ", "shapes has 1 rows, heights has 2"),
+            (format!("{HEAD}roughness = \"\"\"\n1 2\n3\n\"\"\"\n{MATERIAL}"), "\n3\n\"\"\"\n\n[[", "this row has 1 signs"),
+            (format!("{HEAD}terrace = 0\n{MATERIAL}"), "terrace = 0", "terrace must be a whole number of voxels, 1 to 4096"),
+            (format!("{HEAD}rough = 2\n{MATERIAL}"), "rough = 2", "rough must be between 0 (even) and 1"),
+            (format!("{HEAD}seed = -3\n{MATERIAL}"), "seed = -3", "seed must be a whole number, 0 or more"),
+            (format!("{HEAD}under = \"brown\"\n{MATERIAL}"), "under = ", "under must be a color written #rrggbb"),
+            (format!("{HEAD}dip = 50\n{MATERIAL}"), "dip = 50", "dip must be degrees the bands tilt, 0 (level) to 45"),
+            (format!("{HEAD}fold = -1\n{MATERIAL}"), "fold = -1", "fold must be between 0 (flat bands) and 1"),
+            (format!("{HEAD}wobble = 1\n{MATERIAL}"), "wobble = 1", "'wobble' is no field of [terrain]"),
+            (format!("{HEAD}\n[[terrain.layer]]\nhard = 1\ncolor = \"#000000\"\n{MATERIAL}"), "hard = 1", "a terrain's layer has no thick"),
+            (format!("{HEAD}\n[[terrain.layer]]\nthick = 2\nhard = 3\ncolor = \"#000000\"\n{MATERIAL}"), "hard = 3", "hard must be between 0"),
+            (format!("{HEAD}\n[[terrain.layer]]\nthick = 2\nhard = 1\n{MATERIAL}"), "thick = 2", "a terrain's layer has no color"),
+            (HEAD.to_string(), "[terrain]", "has no [[terrain.material]]"),
+            (format!("{HEAD}\n[[terrain.material]]\nabove = 3\n"), "above = 3", "a terrain's material has no color"),
+            (format!("{HEAD}\n[[terrain.material]]\ncolor = \"#000000\"\ncolors = [\"#000000\", \"#111111\"]\n"), "colors = ", "color or colors, not both"),
+            (format!("{HEAD}\n[[terrain.material]]\ncolor = \"#000000\"\ndepth = 0\n{MATERIAL}"), "depth = 0", "depth must be 1 voxel or more"),
+            (format!("{HEAD}\n[[terrain.material]]\ncolor = \"#000000\"\ngrain = 2\n{MATERIAL}"), "grain = 2", "grain must be between 0 and 1, not 2"),
+            (format!("{HEAD}{MATERIAL}\n[[terrain.scatter]]\ndensity = 2\n"), "density = 2", "a terrain's scatter has no model"),
+            (format!("{HEAD}{MATERIAL}\n[[terrain.scatter]]\nmodel = \"fir.vvx\"\ndensity = 2\nrotate = \"sometimes\"\n"), "rotate = ", "rotate must be \"any\", \"quarters\" or \"none\""),
+            (format!("{HEAD}{MATERIAL}\n[[terrain.scatter]]\nmodel = \"fir.vvx\"\ndensity = 2\napart = -1\n"), "apart = -1", "apart must be a whole number of voxels, 0 to 4096"),
+        ];
+        for (src, needle, words) in cases {
+            let e = read_text(&src).err().map(|e| e.to_string()).unwrap_or_else(|| panic!("{words}: read without a mistake:\n{src}"));
+            let at = vvx::line_of(&src, src.find(needle).unwrap_or_else(|| panic!("{needle:?} in {src}")) + usize::from(needle.starts_with('\n')));
+            assert!(e.starts_with(&format!("line {at}:")) && e.contains(words), "{words}: {e}\n{src}");
+        }
+    }
 }
