@@ -48,7 +48,9 @@ nothing else; `mod.rs` each command's work; tests
 `the_help_says_every_option_the_parsers_take`,
 `the_parsers_take_every_option_the_help_says`). `src/lua/` is the Lua door (`LuaGame<K>`: the
 sandbox, the world API over `lua::host::Host`, `conf.lua`, errors that
-halt; `api.rs` the API's register), `src/mcp.rs` the MCP server.
+halt; `api.rs` the API's register; `mod.rs` the game and `impl Game`, its
+own work by concern in `start.rs`, `calls.rs`, `course.rs`, `events.rs`,
+`seats.rs`, `saving.rs`, `hashing.rs`), `src/mcp.rs` the MCP server.
 `src/vvx.rs` is the model format, `.vvx` (text: the format line, `size`,
 a `[palette]` of signs, `[[frame]]`s or `[[part]]`s with `layers`);
 `src/vox.rs` the models as the engine holds them (`VoxModel`, `Part`) and
