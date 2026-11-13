@@ -74,6 +74,11 @@ pub struct Code {
     /// Where the cursor stood when the offer was put away (Escape): not
     /// again there.
     declined: Option<usize>,
+    /// The find row's word marked in the text (`find::mark`): the word,
+    /// whether case counts, the current match's place among them.
+    pub marking: Option<(String, bool, Option<usize>)>,
+    /// A match (bytes of the text) to scroll into view, once.
+    pub reveal: Option<std::ops::Range<usize>>,
     reader: mlua::Lua,
 }
 
@@ -87,7 +92,7 @@ impl Code {
             "vvx" => Syntax::Model,
             _ => Syntax::Plain,
         };
-        let mut code = Self { text, syntax, file: file.to_string(), error: None, sound: None, song: None, model: None, stopped: None, checked: None, offer: None, declined: None, reader: mlua::Lua::new() };
+        let mut code = Self { text, syntax, file: file.to_string(), error: None, sound: None, song: None, model: None, stopped: None, checked: None, offer: None, declined: None, marking: None, reveal: None, reader: mlua::Lua::new() };
         code.check();
         code
     }
@@ -142,7 +147,15 @@ impl Code {
         }
 
         let syntax = self.syntax;
-        let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap: f32| ui.fonts_mut(|f| f.layout_job(highlight(text.as_str(), &font, syntax)));
+        let marking = self.marking.clone();
+        let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap: f32| {
+            let mut job = highlight(text.as_str(), &font, syntax);
+            // (Found anew in the text laid out, which typing may have changed.)
+            if let Some((word, case, current)) = &marking {
+                super::find::mark(&mut job, text.as_str(), word, *case, *current);
+            }
+            ui.fonts_mut(|f| f.layout_job(job))
+        };
         let lines = self.text.split('\n').count();
         let digits = lines.to_string().len().max(3);
         let marked = |n: usize| self.error.as_ref().is_some_and(|(l, _)| *l == n) || self.stopped == Some(n);
@@ -182,6 +195,18 @@ impl Code {
         let changed = self.text != before;
         self.check();
 
+        // The find row's current match in view.
+        if let Some(range) = self.reveal.take().filter(|r| r.end <= self.text.len() && self.text.is_char_boundary(r.start) && self.text.is_char_boundary(r.end)) {
+            let (from, to) = (self.text[..range.start].chars().count(), self.text[..range.end].chars().count());
+            let at = |c| out.galley.pos_from_cursor(CCursor::new(c)).translate(out.galley_pos.to_vec2());
+            let found = at(from).union(at(to)).expand(24.0);
+            // Down to its line in the middle; sideways only if it is out of
+            // sight (the line numbers stay in view).
+            let seen = ui.clip_rect();
+            let across = if seen.x_range().contains(found.left()) && seen.x_range().contains(found.right()) { seen.x_range() } else { found.x_range() };
+            ui.scroll_to_rect(egui::Rect::from_x_y_ranges(across, found.y_range()), Some(egui::Align::Center));
+        }
+
         // What to offer where the cursor is now.
         let at = out.cursor_range.map(|r| r.primary.index.0);
         if !focused || at != self.declined {
@@ -220,6 +245,11 @@ impl Code {
         state.set_undoer(undoer);
         state.cursor.set_char_range(Some(at));
         state.store(ctx, id);
+    }
+
+    /// Whether the API's names are offered at the cursor (Escape is theirs).
+    pub fn offering(&self) -> bool {
+        self.offer.is_some()
     }
 
     /// Whether there is a step to go back to.
