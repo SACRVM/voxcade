@@ -1,0 +1,90 @@
+# The tests: on every push to main and on every pull request, Linux only
+# (the Builds workflow, started by hand or by a version tag, makes the
+# programs for each system and plays the replays there). What runs:
+# the release build, `cargo test --release`, clippy with warnings as
+# errors, `voxcade check` of every game and every template (their replays
+# must play out as recorded), and tools/check_tmp.sh (the tests leave
+# nothing named voxcade-* in the temp folder).
+#
+# The GPU: some tests draw a frame (the IDE's PLAY, the headless canvas,
+# the picture tests in tests/pictures.rs). A runner has none; mesa's
+# software Vulkan (lavapipe) stands in for it. A test that cannot get a
+# device FAILS, it never skips, and the step "A Vulkan device" fails first
+# if lavapipe is not there: a green run means the pictures were drawn.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same branch or pull request makes an older run moot.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Lavapipe's picture may differ from a GPU's in the last levels of a
+  # colour (tests/pictures.rs compares regions' mean colours).
+  VOXCADE_PICTURE_TOLERANCE: "12"
+
+jobs:
+  test:
+    name: linux-x86_64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: tests-x86_64-unknown-linux-gnu
+
+      # What SDL needs to build (as in builds.yml; SDL3 is built into the
+      # program, `static-sdl`: the runner has no SDL3), and lavapipe for the
+      # tests that draw.
+      - name: Build dependencies and a software Vulkan
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build pkg-config \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libxkbcommon-dev libwayland-dev libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
+            libdbus-1-dev libudev-dev \
+            mesa-vulkan-drivers libvulkan1 vulkan-tools
+
+      # Only lavapipe, so no other driver is picked by chance.
+      - name: A Vulkan device
+        run: |
+          icd="$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)"
+          echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
+          VK_ICD_FILENAMES="$icd" vulkaninfo --summary | tee vulkan.txt
+          grep -qi llvmpipe vulkan.txt
+
+      - name: Build
+        run: cargo build --release --locked --features static-sdl
+
+      # The unit and integration tests, the Rust Digger's replays and the
+      # picture tests; check_tmp.sh runs `cargo test --release` and fails
+      # when a test leaves something named voxcade-* in the temp folder.
+      - name: Tests
+        run: tools/check_tmp.sh --locked --features static-sdl
+
+      - name: Clippy
+        run: cargo clippy --release --locked --features static-sdl --all-targets -- -D warnings
+
+      # Every game's and every template's replays play out as recorded
+      # (the Bench is a load test and has none).
+      - name: Replays play out the same
+        run: |
+          for dir in games/*/ templates/*/; do
+            dir="${dir%/}"
+            [ "$dir" = games/bench ] && continue
+            echo "== $dir"
+            target/release/voxcade check "$dir"
+          done
