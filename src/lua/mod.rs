@@ -1367,12 +1367,16 @@ impl<K: Kit> Game for LuaGame<K> {
                     }),
                     _ => Vec::new(),
                 };
+                // Only casting a shadow (`shadow_only`): a ceiling the
+                // camera looks through.
+                out.shadow_only(p.shadow_only);
                 if pose.is_empty() {
                     out.model_turned(model, 0, out.body_origin(t.body), t.body.look, turn, None);
                 } else {
                     let posed = crate::session::posing_alone(&pose);
                     out.model_posed(model, 0, out.body_origin(t.body), t.body.look, turn, &posed, None);
                 }
+                out.shadow_only(false);
             }
             // Its lights, all as bright as its state says (one brightness for
             // them all; a light of its own each would be a list of them).

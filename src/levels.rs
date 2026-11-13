@@ -55,6 +55,8 @@ pub struct Piece {
     pub roll: f32,
     pub lights: Vec<PieceLight>,
     pub solid: bool,
+    /// Only in the sun's shadow map, never drawn (`grid::Thing`).
+    pub shadow_only: bool,
     pub index: usize,
 }
 

@@ -229,6 +229,9 @@ fn thing_text(t: &Thing) -> String {
     if t.solid {
         out += "solid = true\n";
     }
+    if t.shadow_only {
+        out += "shadow_only = true\n";
+    }
     if let Some(n) = t.scatter {
         out += &format!("scatter = {n}\n");
     }
@@ -727,8 +730,13 @@ fn thing_edits(src: &str, s: &Section, was: &Thing, now: &Thing, edits: &mut Vec
         let after = ["roll", "pitch", "rotation", "facing", "at"].into_iter().find(|k| s.table.contains_key(k));
         field(src, s, "solid", now.solid.then(|| "true".to_string()), after, &mut mine)?;
     }
-    if was.scatter != now.scatter {
+    if was.shadow_only != now.shadow_only {
+        // (A solid line new too goes in at the same place, before it.)
         let after = ["solid", "roll", "pitch", "rotation", "facing", "at"].into_iter().find(|k| s.table.contains_key(k));
+        field(src, s, "shadow_only", now.shadow_only.then(|| "true".to_string()), after, &mut mine)?;
+    }
+    if was.scatter != now.scatter {
+        let after = ["shadow_only", "solid", "roll", "pitch", "rotation", "facing", "at"].into_iter().find(|k| s.table.contains_key(k));
         field(src, s, "scatter", now.scatter.map(|n| n.to_string()), after, &mut mine)?;
     }
     if was.lights != now.lights {
@@ -1119,7 +1127,7 @@ fn read_set_down(r: &Reader, top: &toml_edit::Table, level: &mut GridLevel) -> R
     if let Some(item) = top.get("thing") {
         for t in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "things must be tables: [[thing]] with kind (or model) and at"))? {
             r.renamed(t, &[("turn", "rotation")], "a thing")?;
-            r.only(t, &["name", "kind", "model", "at", "facing", "rotation", "pitch", "roll", "solid", "light", "lights", "scatter"], "a thing")?;
+            r.only(t, &["name", "kind", "model", "at", "facing", "rotation", "pitch", "roll", "solid", "shadow_only", "light", "lights", "scatter"], "a thing")?;
             let line = line_of_table(r, t);
             let here = |why: &str| if line > 0 { anyhow!("line {line}: {why}") } else { anyhow!("{why}") };
             let name = text(t, "name", "a thing")?;
@@ -1148,6 +1156,10 @@ fn read_set_down(r: &Reader, top: &toml_edit::Table, level: &mut GridLevel) -> R
             let solid = match t.get("solid") {
                 None => false,
                 Some(item) => item.as_bool().ok_or_else(|| r.fail(item.span(), "solid must be true or false"))?,
+            };
+            let shadow_only = match t.get("shadow_only") {
+                None => false,
+                Some(item) => item.as_bool().ok_or_else(|| r.fail(item.span(), "shadow_only must be true or false"))?,
             };
             let facing = match (t.get("facing"), t.get("rotation")) {
                 (Some(_), Some(turn)) => return Err(r.fail(turn.span(), "a thing faces a way (facing = \"south\") or has a rotation (rotation = 30), not both")),
@@ -1187,6 +1199,12 @@ fn read_set_down(r: &Reader, top: &toml_edit::Table, level: &mut GridLevel) -> R
             if solid && model.is_none() {
                 return Err(here(if kind == PIECE { "solid = true needs a model: a light alone has no voxels to hold anything up" } else { "solid = true is a piece's (a model set down); a thing of a kind is held up or stopped by its rules" }));
             }
+            if shadow_only && model.is_none() {
+                return Err(here(if kind == PIECE { "shadow_only = true needs a model: a light alone has no voxels to cast a shadow" } else { "shadow_only = true is a piece's (a model set down); a thing of a kind is drawn by its rules" }));
+            }
+            if shadow_only && !lights.is_empty() {
+                return Err(here("shadow_only = true and a light: a piece that is not drawn would shine from nowhere; set the light down as a light alone (a [[thing]] with light = { ... } and no model)"));
+            }
             if let Some(other) = name.as_ref().and_then(|n| level.things.iter().find(|o| o.name.as_ref() == Some(n))) {
                 return Err(here(&format!("a second thing called '{}' (the first is on line {}): a name is one thing's", name.as_deref().unwrap_or_default(), other.line)));
             }
@@ -1197,7 +1215,7 @@ fn read_set_down(r: &Reader, top: &toml_edit::Table, level: &mut GridLevel) -> R
                     _ => return Err(r.fail(i.span(), "scatter must be the number of the terrain's scatter rule that set it down, from 1")),
                 },
             };
-            level.things.push(Thing { kind, at: triple(t, "at", "a thing")?, name, model, facing, pitch, roll, lights, solid, scatter, line });
+            level.things.push(Thing { kind, at: triple(t, "at", "a thing")?, name, model, facing, pitch, roll, lights, solid, shadow_only, scatter, line });
         }
     }
     if let Some(item) = top.get("place") {

@@ -191,7 +191,14 @@ facing = [0, -1]
   30` where the game rotates things freely, `c.camera.rotates = "free"`),
   perhaps with a `light = { at, radius, color }` (or `lights = [ ... ]`
   for several) and `solid = true` (its voxels hold bodies up, quarter
-  turns only); one with only a light is a light alone. A level may have
+  turns only), or `shadow_only = true` (2026-11-14, the owner: a ceiling
+  of voxels that does not block the view but blocks the sun: in the
+  sun's shadow map as drawn, never drawn itself; no light with it; with
+  `solid = true` too it blocks as a solid piece does; the editor shows it
+  as a ghost, SHADOW ONLY in its rows; GAME VIEW and the IDE's picture
+  only cast it); one with only a light is a light alone. Optional, left
+  out unless on: older files read as before (no format step); an older
+  engine refuses the key by name, as any key it does not know. A level may have
   its own daylight, `[light]` with `c.light`'s words. A `[[thing]]` may have a `name` (one thing's in the
   level). `[[area]]` is a named box (`name`, `at` its low corner,
   `size`). A level without `block` has no grid: `size` is its voxels and

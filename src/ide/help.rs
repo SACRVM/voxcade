@@ -1187,6 +1187,7 @@ end
 The top bar: BLOCKS, THINGS and PIECES (a level of blocks), + ADD, UNDO, REDO, and on the right LEVEL and GAME VIEW.
 The outliner on the left: THINGS, PLACES and AREAS, each folding at its heading.
 The inspector on the right: the chosen one's rows, POSITION, ROTATE, its light.
+SHADOW ONLY in a piece's rows: it casts its shadow and is not drawn in the game (a ceiling the camera looks through). Here it shows as a ghost; GAME VIEW leaves it out.
 # CHOOSING AND MOVING
 A click in the view chooses what it meets, voxel by voxel; a click on empty floor chooses nothing.
 The bar at the chosen one: MOVE shows its arrows, drag one to move it along that axis.

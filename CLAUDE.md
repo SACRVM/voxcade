@@ -1872,7 +1872,17 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `level:thing(name)`, kind "piece"), bring a light or be a light alone
   (`thing.state.light` its brightness), beside `[[place]]` and `[[area]]`
   (`level.areas.NAME`, `area:holds`); a level needs no blocks. Pieces
-  are things, not voxels: they hold nobody up. `c.camera.rotates =
+  are things, not voxels: they hold nobody up. A piece with
+  `shadow_only = true` (the owner, 2026-11-14: a ceiling of voxels that
+  does not block the view but blocks the sun) casts as it would drawn
+  and is not drawn (`ModelDraw::shadow_only`: the shadow pass only;
+  `Drawing::shadow_only`, its box raising the shadows' fit above the
+  world, `cast_top`), no light with it (refused), solid only with `solid
+  = true`; the editor draws it as a ghost and casts it
+  (`FrameData::cast_only`, `editor::view::GHOST`), SHADOW ONLY in its
+  rows, GAME VIEW and the IDE's picture casting only (`View::ghosts`);
+  tests `a_piece_only_casting_a_shadow_is_not_drawn`,
+  `a_shadow_only_ceiling_shades_the_room_and_is_not_drawn`. `c.camera.rotates =
   "free"` lets things turn off the quarter turns; a game on the grid
   names such things, and the editor asks before opening their level
   (ALIGN ALL, DON'T OPEN: the user's wording). The level editor shapes

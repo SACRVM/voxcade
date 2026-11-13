@@ -204,6 +204,19 @@ mod tests {
     /// Touching opaque unit cubes hide the faces between them, whether they
     /// sit close together (a bit per cell) or far apart (a hash set); a
     /// see-through cube neither hides nor gets hidden.
+    /// A model draw only casting a shadow goes into the sun's map and not
+    /// into the scene (nor its outline, nor the UI's); any other into
+    /// both; one without voxels into neither.
+    #[test]
+    fn a_draw_only_casting_is_in_the_shadow_pass_alone() {
+        let plain = crate::render::ModelDraw { voxels: 0..8, origin: glam::Vec3::ZERO, turn: 0, rot: glam::Quat::IDENTITY, shift: glam::Vec3::ZERO, tint: None, nearer: 0.0, shadow_only: false };
+        let casting = crate::render::ModelDraw { shadow_only: true, ..plain.clone() };
+        assert!(plain.in_pass(true) && plain.in_pass(false));
+        assert!(casting.in_pass(true) && !casting.in_pass(false));
+        let empty = crate::render::ModelDraw { voxels: 3..3, ..casting };
+        assert!(!empty.in_pass(true) && !empty.in_pass(false));
+    }
+
     #[test]
     fn touching_cubes_hide_the_faces_between_them() {
         use super::{Instance, hide_inner_faces};
