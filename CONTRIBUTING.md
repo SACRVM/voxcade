@@ -20,7 +20,7 @@ translations of the menus, docs.
 ```bash
 cargo build --release
 cargo test --release
-cargo clippy --release --all-targets
+cargo clippy --release --all-targets -- -D warnings
 for game in games/*/ templates/*/; do ./target/release/voxcade check "${game%/}"; done
 ```
 
@@ -40,7 +40,7 @@ template. Some tests draw a frame and need a GPU or a software Vulkan
 - The code is formatted by hand; please do not run `cargo fmt` over
   files you do not otherwise change.
 - A change to how something looks: add a picture (`voxcade shot`). The
-  picture tests (`tests/pictures.rs`) keep the mean colour of an 8 by 8
+  picture tests (`tests/pictures.rs`) keep the mean color of an 8 by 8
   grid of a few pictures as text in `tests/pictures.txt`; when a change is
   meant to alter them, `VOXCADE_PICTURES=renew cargo test --release --test
   pictures` writes the numbers anew: look at the diff and say so in the
@@ -57,4 +57,4 @@ allows it, and its credit.
 
 An issue with what you did, what happened and what you expected. For a
 game that plays wrong, the replay helps most: F9 keeps the run in the
-game's `replays/` folder.
+game's `replays/` folder (`voxcade run <game> --maker` has the key).

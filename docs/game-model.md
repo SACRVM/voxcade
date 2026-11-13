@@ -1250,8 +1250,7 @@ says so).
   with the number of steps it came after (`evals`) and runs it there
   again, so a run with a wolf called in is kept, put in `replays/` with
   F9 and checked like any other.
-- **In the players' hands too:** the console is there in every build, as
-  F5 and F9 are (the user, 2026-10-29: whoever wants to cheat may). A run
+- **In the players' hands too:** the console is there in every build (the user, 2026-10-29: whoever wants to cheat may); the maker's keys F5 and F9 are not, a player of a packaged game has them only behind `voxcade run --maker` (the IDE's PLAY always, 2026-11-13). A run
   it helped (a line run in it, or begun from a scenario: `Session::helped`)
   goes into the high score table as GOD, no initials asked: the table
   says so. Switching the console on from the command line only stays an

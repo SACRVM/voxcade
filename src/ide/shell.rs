@@ -290,7 +290,7 @@ const NEW_SONG: &str = "\
 ; notes c d e f g a b (+ sharp, - flat), a length (4 quarter, 8 eighth),
 ; r a rest, o4 the octave, l8 the default length, v12 the volume (0 to 15),
 ; @lead the instrument (an @ line above), | only marks a bar. PLAY SONG
-; above plays it; HELP has songs in games. A game names it in conf.lua,
+; above plays it; HELP: A SONG IN MML. A game names it in conf.lua,
 ;   c.audio.music = { \"music/NAME.mml\" }
 ; and its code plays it by its name: music:play(\"NAME\").
 

@@ -68,7 +68,7 @@ fn answer_as(msg: &Value, remote: bool) -> Option<Value> {
                 "protocolVersion": version,
                 "capabilities": { "tools": { "listChanged": false } },
                 "serverInfo": { "name": "voxcade", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": "Voxcade games are folders: conf.lua (settings), main.lua (load, tick, draw), models and levels. \
+                "instructions": "Voxcade games are folders: conf.lua (settings), main.lua (on_world_start, on_level_start, on_tick, on_draw), models and levels. \
                     Look with shot, test with run and things, make sure replays still hold with check; api lists the Lua API. \
                     With the IDE open on the game (voxcade ide): view_state says what the user sees, open shows them a file and line, \
                     play and stop run the game there, game_frame is what they see of it, errors what stops it.",
@@ -123,7 +123,7 @@ fn tools(remote: bool) -> Value {
         },
         {
             "name": "check",
-            "description": "Plays every replay in the game's replays/ folder and says whether each runs as recorded; it also catches state a script keeps outside world.state. Run it after changing the game's rules.",
+            "description": "Plays every replay in the game's replays/ folder and says whether each runs as recorded, the state its run ended in too (one recorded on other data names the files that changed); it also catches state a script keeps outside world.state. Run it after changing the game's rules.",
             "inputSchema": { "type": "object", "properties": { "game": game } },
         },
         {
