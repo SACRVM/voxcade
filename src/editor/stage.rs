@@ -48,7 +48,7 @@ pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
     if ed.among_pieces() {
         beside(ui, ed, view, free, shown);
     }
-    zones::view_buttons(ui, free, None, shown);
+    zones::view_buttons(ui, free, None, None, shown);
     menu(ui, ed, view, free, shown);
     if view.picker {
         picker(ui, ed, free, thumbs, shown);

@@ -45,7 +45,8 @@ pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
     }
     // GRID in the voxel editor, not in GAME VIEW (the game's look).
     let grid = (ed.scope != Scope::Level && view.before_game.is_none()).then_some(view.grid);
-    zones::view_buttons(ui, free, grid, shown);
+    let straight = (ed.scope != Scope::Level && view.before_game.is_none()).then(|| view.straight(ed.scope));
+    zones::view_buttons(ui, free, grid, straight, shown);
     part_bar(ui, ed, free, view, shown);
     if let Some(m) = view.menu {
         let entries = menu_entries(ed, m.on);

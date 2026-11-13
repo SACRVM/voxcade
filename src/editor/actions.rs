@@ -180,6 +180,9 @@ pub enum Action {
     /// The view's own buttons: turned an eighth round (1 clockwise seen
     /// from above, -1 back), nearer (1) or further (-1).
     TurnView(i8),
+    /// FRONT, SIDE or TOP (its place in `view::STRAIGHT`); pressed again,
+    /// the free view as it was.
+    StraightView(u8),
     ZoomView(i8),
     /// GRID in the voxel editor: the voxels' edges drawn on the faces, or
     /// not.
@@ -492,6 +495,10 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::TurnView(by) => {
             let orbit = view.orbit(ed.scope);
             orbit.yaw = (orbit.yaw + 45.0 * by as f32).rem_euclid(360.0);
+            view.leave_game_view(ed.scope);
+        }
+        Action::StraightView(k) => {
+            view.straight_view(ed.scope, k as usize);
             view.leave_game_view(ed.scope);
         }
         Action::ZoomView(by) => {

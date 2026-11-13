@@ -713,7 +713,7 @@ fn set_view(ed: &mut Editor, view: &mut View, opts: &ShotOptions, aspect: f32) -
     if let Some((yaw, pitch)) = opts.view {
         let orbit = view.orbit(ed.scope);
         orbit.yaw = yaw;
-        orbit.pitch = pitch.clamp(-85.0, 85.0);
+        orbit.pitch = pitch.clamp(-90.0, 90.0);
     }
     (view.picker, view.lights) = (opts.picker, !opts.lights_off);
     Ok(())

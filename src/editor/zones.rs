@@ -684,8 +684,9 @@ pub fn bar_at(ui: &egui::Ui, id: &str, middle: f32, bounds: Rect, free: Rect, gu
 
 /// The view's own buttons in its lower right corner: turn it, further and
 /// nearer; the mouse's ways to do the same on hover; GRID before them
-/// where `grid` says it is there (lit or not).
-pub fn view_buttons(ui: &egui::Ui, free: Rect, grid: Option<bool>, shown: &mut Shown) {
+/// where `grid` says it is there (lit or not), and FRONT, SIDE, TOP where
+/// `straight` says they are (the one lit the view looks from).
+pub fn view_buttons(ui: &egui::Ui, free: Rect, grid: Option<bool>, straight: Option<Option<usize>>, shown: &mut Shown) {
     let at = free.right_bottom() + Vec2::new(-12.0, -12.0);
     let area = egui::Area::new(egui::Id::unique("zones view buttons")).order(egui::Order::Foreground).pivot(egui::Align2::RIGHT_BOTTOM).fixed_pos(at).show(ui.ctx(), |ui| {
         ui.horizontal(|ui| {
@@ -696,6 +697,16 @@ pub fn view_buttons(ui: &egui::Ui, free: Rect, grid: Option<bool>, shown: &mut S
                 let word = RichText::new("GRID").color(if on { ACCENT } else { QUIET });
                 if ui.add(egui::Button::new(word).selected(on)).on_hover_text("The voxels' edges drawn faintly on the faces, to count them (where a voxel is big enough on the screen)").clicked() {
                     shown.clicked.push(Action::Grid);
+                }
+                ui.add_space(6.0);
+            }
+            if let Some(lit) = straight {
+                let tips = ["The front, seen straight (again: the view as it was)", "The right side, seen straight (again: the view as it was)", "From straight above (again: the view as it was)"];
+                for (k, ((word, _, _), tip)) in crate::editor::view::STRAIGHT.iter().zip(tips).enumerate() {
+                    let on = lit == Some(k);
+                    if ui.add(egui::Button::new(RichText::new(*word).color(if on { ACCENT } else { QUIET })).selected(on)).on_hover_text(tip).clicked() {
+                        shown.clicked.push(Action::StraightView(k as u8));
+                    }
                 }
                 ui.add_space(6.0);
             }
