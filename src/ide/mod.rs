@@ -542,7 +542,7 @@ fn upgrade_page(window: &mut Window, mut page: wizard::Wizard, refit: wizard::Re
         let _ = platform(&out.platform_output, cursor, video, screen, pixels_per_point);
         let delay = out.viewport_output.get(&egui::ViewportId::ROOT).map_or(Duration::MAX, |v| v.repaint_delay);
         repaint_at = Instant::now().checked_add(delay);
-        if !present(screen, painter, ctx, out, size, false).0 {
+        if !present(screen, painter, ctx, out, size, false)?.0 {
             repaint_at = Some(Instant::now());
         }
     }
@@ -606,7 +606,7 @@ fn start_page(window: &mut Window, message: Option<String>, play: Option<PathBuf
         }
         let delay = out.viewport_output.get(&egui::ViewportId::ROOT).map_or(Duration::MAX, |v| v.repaint_delay);
         repaint_at = Instant::now().checked_add(delay);
-        if !present(screen, painter, ctx, out, size, false).0 {
+        if !present(screen, painter, ctx, out, size, false)?.0 {
             repaint_at = Some(Instant::now());
         }
     }
@@ -683,25 +683,25 @@ fn platform(platform: &egui::PlatformOutput, cursor: &mut (egui::CursorIcon, Opt
     trouble
 }
 
+/// A window's picture read back: PNG bytes, or why not.
+type Picture = Result<Vec<u8>, String>;
+
 /// Paints egui's frame `out` onto the window; false when the window's
 /// surface had to be set up anew (another frame is due). With `capture`
 /// the frame is also read back, as PNG bytes, before it is shown (none if
-/// the window was not drawn).
-fn present(screen: &mut crate::window::Screen, painter: &mut Painter, ctx: &egui::Context, out: egui::FullOutput, size: [u32; 2], capture: bool) -> (bool, Option<Result<Vec<u8>, String>>) {
-    match screen.surface.get_current_texture() {
-        wgpu::CurrentSurfaceTexture::Success(texture) | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
-            let view = texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-            painter.paint(&screen.device, &screen.queue, &view, ctx, out, size);
-            let picture = capture.then(|| screen.picture(&texture.texture).map_err(|e| format!("{e:#}")));
-            screen.queue.present(texture);
-            (true, picture)
-        }
-        wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-            screen.surface.configure(&screen.device, &screen.config);
-            (false, None)
-        }
-        _ => (true, None),
-    }
+/// the window was not drawn). A lost GPU device ends the window
+/// (`Screen::texture`).
+fn present(screen: &mut crate::window::Screen, painter: &mut Painter, ctx: &egui::Context, out: egui::FullOutput, size: [u32; 2], capture: bool) -> Result<(bool, Option<Picture>)> {
+    let texture = match screen.texture()? {
+        crate::window::Got::Picture(texture) => texture,
+        crate::window::Got::Wait => return Ok((true, None)),
+        crate::window::Got::Again => return Ok((false, None)),
+    };
+    let view = texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+    painter.paint(&screen.device, &screen.queue, &view, ctx, out, size);
+    let picture = capture.then(|| screen.picture(&texture.texture).map_err(|e| format!("{e:#}")));
+    screen.queue.present(texture);
+    Ok((true, picture))
 }
 
 /// The game in `dir` in the IDE's window until it is closed or another is
@@ -1187,7 +1187,7 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
         // settled (egui wants no frame at once), or as it is when it has
         // waited long.
         let take = capture.is_some_and(|(id, late)| id == screen.window.id() && (late || (!delay.is_zero() && !pictured)));
-        let (shown, picture) = present(screen, painter, ctx, out, size, take);
+        let (shown, picture) = present(screen, painter, ctx, out, size, take)?;
         if !shown {
             repaint_at = Some(Instant::now());
         }

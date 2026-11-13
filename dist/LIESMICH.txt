@@ -43,8 +43,10 @@ Neue Versionen
   Der Launcher sieht beim Start nach, ob es eine gibt (eine kleine Datei
   von voxca.de; das lässt sich dort abschalten). UPDATE NOW holt sie,
   prüft sie und setzt sie ein. Was vorher hier lag, wandert in den
-  Ordner before-update; eigene Spiele, Einstellungen, Bestenlisten und
-  Spielstände bleiben.
+  Ordner before-update, ein Ordner je ersetzter Version (ein mitgeliefertes
+  Spiel, das du geändert hast, liegt auch dort; alte löschst du, wann du
+  willst); eigene Spiele, Einstellungen, Bestenlisten und Spielstände
+  bleiben.
 
 Wenn es nicht startet
   Bring den Grafiktreiber auf den neuesten Stand: Voxcade braucht Grafik

@@ -760,12 +760,29 @@ def delayed(line, by, total):
             for i, (s, e, *rest) in enumerate(moved) if i + 1 >= len(moved) or moved[i + 1][0] > s]
 
 
-def write(recipe, source):
+REPO = Path(__file__).resolve().parent.parent
+
+
+def named(source):
+    """The recipe as the song's first line names it: from the repository's
+    root when it lies in it (the same line from any folder), else its
+    file's name (never a path of one machine)."""
+    path = Path(source).resolve()
+    try:
+        return path.relative_to(REPO).as_posix()
+    except ValueError:
+        return path.name
+
+
+def write(recipe, source, check=False):
+    """Makes the song and writes it where the recipe's `out` says; with
+    `check`, writes nothing and says whether each file there is the song
+    byte for byte (False if one is not)."""
     song = Song(recipe)
     st = song.style
     title = recipe.get("title", Path(source).stem)
     key_name = CHORD_NAMES[song.key] + (" minor" if song.base == MINOR else " major")
-    out = [f"; {title}: made by tools/compose.py from {source}",
+    out = [f"; {title}: made by tools/compose.py from {named(source)}",
            f"; ({recipe.get('style', 'calm')}, {key_name}, {song.tempo} bpm, seed {recipe.get('seed', 1)}). Run the recipe",
            "; again after changing it, or edit this file by hand. Chords from",
            "; free-midi-chords by Ludovic Drolez (MIT, tools/progressions.toml).",
@@ -815,19 +832,29 @@ def write(recipe, source):
         out += channel("D", drums, total, ["v12", "q8", "l16", "p10"], drums=True)
     text = "\n".join(out) + "\n"
     outs = recipe.get("out", Path(source).stem.replace(".compose", "") + ".mml")
+    same = True
     for o in [outs] if isinstance(outs, str) else outs:
         path = (Path(source).parent / o).resolve()
+        if check:
+            there = path.read_text() if path.exists() else None
+            same &= there == text
+            print(f"{path}: {'the same' if there == text else 'missing' if there is None else 'differs'}")
+            continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
         seconds = total / BAR * 4 * 60 / song.tempo
         print(f"wrote {path} ({seconds:.0f} s, {len(song.sections)} sections)")
+    return same
 
 
 def main(args):
     if not args or args[0] in ("-h", "--help"):
         print(__doc__)
-        print("usage: compose.py RECIPE.compose.toml [RECIPE ...]\n       compose.py --find [MOOD ...]\n       compose.py --help")
+        print("usage: compose.py RECIPE.compose.toml [RECIPE ...]\n       compose.py --check RECIPE ...   (writes nothing: are the songs there what the recipes make?)\n       compose.py --find [MOOD ...]\n       compose.py --help")
         return
+    if args[0] == "--check":
+        same = all([write(tomllib.loads(Path(source).read_text()), source, check=True) for source in args[1:]])
+        raise SystemExit(0 if same else 1)
     if args[0].startswith("-") and args[0] != "--find":
         raise SystemExit(f"compose.py: unknown option {args[0]} (see --help)")
     if args[0] == "--find":

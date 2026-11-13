@@ -28,6 +28,8 @@ const DROP_AFTER: Duration = Duration::from_secs(4);
 const SAID_FOR: Duration = Duration::from_secs(5);
 /// What a guest asking for any game asks (its words in `lang`).
 const ANY_GAME: &str = "ANY GAME";
+/// Who a guest asks when it was given a ticket (the menus' word).
+const TICKETS_HOST: &str = "THE TICKET'S HOST";
 
 pub enum Side<G: Game> {
     Host(Box<Hosting<G, Where>>),
@@ -144,7 +146,7 @@ impl<G: Game> Network<G> {
         };
         let shown = match matchmaker_protocol::tidy(address) {
             Some(code) => code,
-            None if Link::is_ticket(address) => "THE TICKET'S HOST".to_string(),
+            None if Link::is_ticket(address) => TICKETS_HOST.to_string(),
             None => address.to_string(),
         };
         Ok(Self::with(Side::Guest(Box::new(Self::joining(dir, host))), link, Vec::new(), shown, Locals::new(players.max(1) as usize, false)))
@@ -415,7 +417,7 @@ impl<G: Game> Network<G> {
     pub fn leave(&mut self) {
         let out = match &mut self.side {
             Side::Host(h) => (0..10).flat_map(|_| h.host.farewell()).collect(),
-            Side::Guest(j) => j.end("LEFT"),
+            Side::Guest(j) => j.end("YOU LEFT"),
         };
         if let Linking::Up(link) = &self.link {
             for (to, bytes) in out {
@@ -494,6 +496,7 @@ impl<G: Game> Network<G> {
                             let asked = match self.link().and_then(Link::found_code) {
                                 Some(code) => code.to_string(),
                                 None if self.address == ANY_GAME => crate::lang::say(lang, ANY_GAME).to_string(),
+                                None if self.address == TICKETS_HOST => crate::lang::say(lang, TICKETS_HOST).to_string(),
                                 None => self.address.to_uppercase(),
                             };
                             vec![crate::lang::say_with(lang, "ASKING {}", &[&asked])]
@@ -503,7 +506,7 @@ impl<G: Game> Network<G> {
                     Joined::CatchingUp(at, of) => vec![crate::lang::say_with(lang, "CATCHING UP {}%", &[&(at * 100 / of.max(1)).to_string()])],
                     Joined::Playing => Vec::new(),
                     Joined::Apart(apart) => vec![desync_line(&apart, "", &j.host_commit)],
-                    Joined::Gone(why) => vec![why],
+                    Joined::Gone(why) => vec![crate::lang::say_line(lang, &why)],
                 };
                 let who = j.guest.roster().iter().map(|m| format!("{} {} MS", m.name.to_uppercase(), m.rtt_ms)).collect();
                 NetView { hosting: false, lines, who, help: Vec::new(), drops: Vec::new(), seated: !self.locals.seats().is_empty() && !self.watching, ticket: false, code: false, knocks: Vec::new() }
@@ -623,7 +626,7 @@ impl NetFinder {
     /// Asks (every three seconds) and takes in the answers: the games
     /// found, as JOIN lists them (their code where a LAN game has its
     /// address).
-    pub fn found(&mut self) -> Vec<crate::menu::FoundLine> {
+    pub fn found(&mut self, lang: &str) -> Vec<crate::menu::FoundLine> {
         if let Some(starting) = &self.starting
             && let Ok(started) = starting.try_recv()
         {
@@ -650,7 +653,7 @@ impl NetFinder {
             .iter()
             .map(|room| {
                 let name = room.attributes.get("name").map_or(String::new(), |n| format!("  {}", n.to_uppercase()));
-                let build = if room.attributes.get("build").is_some_and(|b| b != udp::COMMIT) { " (OTHER BUILD)" } else { "" };
+                let build = if room.attributes.get("build").is_some_and(|b| b != udp::COMMIT) { format!(" {}", crate::lang::say(lang, "(OTHER BUILD)")) } else { String::new() };
                 let line = format!("{}{name}  {}/{}  {}{build}", room.title.to_uppercase(), room.taken, room.seats, room.code);
                 crate::menu::FoundLine { line, address: room.code.clone(), same: true }
             })

@@ -20,7 +20,10 @@
 //! length (1 whole, 4 quarter, 8 eighth ...) and dots; `r` rest; `&` ties
 //! to the next note; `o4` octave, `<` `>` octave down and up; `l8` default
 //! length; `v0`..`v15` volume; `q1`..`q8` how much of a note sounds (8
-//! legato); `p-100`..`p100` pan; `t140` tempo; `@name` instrument;
+//! legato); `p-100`..`p100` pan; `t140` tempo; `@name` instrument (until
+//! a channel's first one it plays the plain instrument: a square, duty
+//! 0.5, every option at its default; no repo song leaves it out, a first
+//! song typed by hand may);
 //! `[ ... ]3` repeat; `$name` a macro; `|` bar lines, ignored. `#meter 3`
 //! (beats in a bar, 4 unless set) is what a game that reads the song's
 //! bars counts by (`music.bar`); its beats are `#tempo`'s, a `t` in a

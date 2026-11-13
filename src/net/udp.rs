@@ -68,6 +68,12 @@ impl Udp {
         Err(last.map_or_else(|| anyhow::anyhow!("no port"), anyhow::Error::from)).context("no port free for the game (26500 to 26515, UDP)")
     }
 
+    /// Where the socket is found on this machine (a test's).
+    #[cfg(test)]
+    pub(crate) fn here(&self) -> SocketAddr {
+        SocketAddr::from(([127, 0, 0, 1], self.socket.local_addr().map_or(0, |a| a.port())))
+    }
+
     /// A guest's socket on any port.
     pub fn guest() -> Result<Self> {
         Self::on(UdpSocket::bind(("0.0.0.0", 0)).context("opening a socket")?)
@@ -285,3 +291,100 @@ mod windows {
 
 /// The commit this program was built from.
 pub const COMMIT: &str = env!("VOXCADE_COMMIT");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::net::{Guest, Host, Notice};
+    use std::time::{Duration, Instant};
+
+    /// This machine's address of a socket bound to every address.
+    fn here(udp: &Udp) -> SocketAddr {
+        SocketAddr::from(([127, 0, 0, 1], udp.socket.local_addr().unwrap().port()))
+    }
+
+    /// Datagrams up to the protocol's largest go from one socket to another
+    /// on this machine whole; a socket with nothing come drains nothing at
+    /// once (it never waits).
+    #[test]
+    fn datagrams_go_between_sockets_on_this_machine() {
+        let (a, mut b) = (Udp::guest().unwrap(), Udp::guest().unwrap());
+        let started = Instant::now();
+        assert!(b.drain().is_empty() && started.elapsed() < Duration::from_millis(100), "drain does not wait");
+        let sent: Vec<Vec<u8>> = [1, 13, 600, crate::net::MAX_DATAGRAM].iter().map(|&n| (0..n).map(|i| (i * 7 + n) as u8).collect()).collect();
+        for d in &sent {
+            a.send(here(&b), d);
+        }
+        let mut came = Vec::new();
+        while came.len() < sent.len() && started.elapsed() < Duration::from_secs(5) {
+            came.extend(b.drain().into_iter().map(|(from, d)| {
+                assert_eq!(from.port(), a.socket.local_addr().unwrap().port());
+                d
+            }));
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        came.sort();
+        let mut want = sent.clone();
+        want.sort();
+        assert_eq!(came, want);
+    }
+
+    /// An address to join: the port 26500 unless given; a name of this
+    /// machine; a word that is no port is part of the name.
+    #[test]
+    fn an_address_takes_the_default_port() {
+        assert_eq!(address("127.0.0.1").unwrap(), SocketAddr::from(([127, 0, 0, 1], PORT)));
+        assert_eq!(address("127.0.0.1:27001").unwrap().port(), 27001);
+        assert_eq!(address("localhost:27002").unwrap(), SocketAddr::from(([127, 0, 0, 1], 27002)));
+        assert!(address("127.0.0.1:notaport").is_err());
+    }
+
+    /// A host and a guest, each with its own socket on this machine, as
+    /// `run --host` and `--join 127.0.0.1` have them: the guest is let in,
+    /// gets the run so far in pieces whole and the host's ticks after it.
+    #[test]
+    fn a_guest_joins_a_host_over_sockets_on_this_machine() {
+        let (mut host_socket, mut guest_socket) = (Udp::guest().unwrap(), Udp::guest().unwrap());
+        let mut host: Host<SocketAddr> = Host::new(7, "host", 2);
+        let mut guest = Guest::new(here(&host_socket), [5; 16], 1, "guest", COMMIT, 0);
+        // The run so far: several pieces.
+        let run: Vec<u8> = (0..5000u32).map(|i| (i % 251) as u8).collect();
+        let (mut got, mut played, mut ticks) = (None, 0, 0u64);
+        let started = Instant::now();
+        while (got.is_none() || played < 60) && started.elapsed() < Duration::from_secs(10) {
+            let now = started.elapsed().as_micros() as u64;
+            for (to, d) in guest.outgoing(now) {
+                guest_socket.send(to, &d);
+            }
+            for (from, d) in host_socket.drain() {
+                host.receive(now, from, &d);
+            }
+            for notice in host.notices() {
+                if let Notice::Joining { index, .. } = notice {
+                    host.admit(index, run.clone(), Vec::new());
+                }
+            }
+            while ticks < now / 16_667 {
+                host.tick(Vec::new()).unwrap();
+                ticks += 1;
+            }
+            for (to, d) in host.outgoing(now) {
+                host_socket.send(to, &d);
+            }
+            for (from, d) in guest_socket.drain() {
+                guest.receive(now, from, &d);
+            }
+            if got.is_none() {
+                got = guest.take(1);
+            }
+            while guest.next_bundle().is_some() {
+                played += 1;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(guest.welcome().is_some() && guest.gone().is_none(), "let in");
+        assert_eq!(got.as_deref(), Some(run.as_slice()), "the run so far, whole");
+        assert!(played >= 60, "the host's ticks: {played}");
+        assert_eq!(host.guests().len(), 1);
+    }
+}

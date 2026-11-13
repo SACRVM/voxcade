@@ -1,0 +1,26 @@
+# Voxcade replay: My Game, 200 ticks, quit, score 0
+version = 1
+game = "My Game"
+fingerprint = "90034dfbe57f3a3f"
+ticks = 200
+outcome = "quit"
+score = 0
+input = "right:90;up:90;none:20"
+checks = ["9f68723ce2b7edd3", "bffe7f28111a5688", "192974a362286ee2"]
+final_state = "6ab37662e59cf81d"
+scenario = "far_corner"
+
+[fingerprint_parts]
+"conf.lua" = "5aeeef7d5295b865"
+"hero.vvx" = "b1b05c6dbc5b77c6"
+"hero2.vvx" = "144b0e839e544780"
+"main.lua" = "90fb2cfd5a09b0db"
+"scenarios/far_corner.lua" = "3cd5be1c14070a33"
+
+[[controls]]
+at = 0
+device = "keyboard"
+language = "en"
+
+[controls.keys]
+pause = "ESCAPE"

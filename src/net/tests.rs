@@ -418,3 +418,68 @@ fn refusals_are_forgotten_and_closed() {
 fn the_soak() {
     assert_eq!(super::soak::soak(2), super::soak::soak(2), "the same every time");
 }
+
+/// The run so far for a guest coming late goes in pieces up to
+/// `wire::MAX_BLOB`: a run of exactly that is welcomed (the welcome reads,
+/// every piece numbered within the bound); one byte more is turned away,
+/// saying why, never a welcome the guest could not read.
+#[test]
+fn a_late_guest_gets_the_run_up_to_the_bound_and_is_told_beyond() {
+    let join = |blob: usize| {
+        let mut host: Host<usize> = Host::new(7, "host", 2);
+        let hello = Hello { id: [9; 16], nonce: 1, name: "anna".into(), commit: "x".into() };
+        host.receive(0, 1, &hello.write());
+        let Some(Notice::Joining { index, .. }) = host.notices().pop() else { panic!("asks to join") };
+        host.admit(index, vec![7; blob], Vec::new());
+        let out = host.outgoing(1);
+        (host, out)
+    };
+    let (_, out) = join(wire::MAX_BLOB);
+    let kinds: Vec<wire::Kind> = out.iter().map(|(_, d)| wire::open(d).unwrap().0).collect();
+    let (_, _, mut r) = out.iter().map(|(_, d)| wire::open(d).unwrap()).find(|(k, _, _)| *k == wire::Kind::Welcome).unwrap_or_else(|| panic!("a welcome: {kinds:?}"));
+    let welcome = wire::Welcome::read(&mut r).expect("the guest reads it");
+    assert_eq!(welcome.blob as usize, wire::MAX_BLOB);
+    for (_, d) in &out {
+        if let Ok((wire::Kind::Piece, _, mut r)) = wire::open(d) {
+            let piece = wire::Piece::read(&mut r).expect("a piece reads");
+            assert_eq!(piece.count, wire::MAX_PIECES);
+            assert!(d.len() <= wire::MAX_DATAGRAM);
+        }
+    }
+    assert_eq!(wire::MAX_BLOB.div_ceil(wire::PIECE), wire::MAX_PIECES as usize, "the last piece is within the count a guest reads");
+
+    let (mut host, out) = join(wire::MAX_BLOB + 1);
+    let said: Vec<String> = out.iter().filter_map(|(_, d)| match wire::open(d) {
+        Ok((wire::Kind::Refused, _, mut r)) => wire::read_refused(&mut r).ok(),
+        _ => None,
+    }).collect();
+    assert!(said.iter().any(|s| s.starts_with("the run so far is too long to join late (66 MB, at most 66 MB)")), "{said:?}");
+    assert!(!out.iter().any(|(_, d)| matches!(wire::open(d), Ok((wire::Kind::Welcome | wire::Kind::Piece, _, _)))), "no welcome, no pieces");
+    assert!(host.guests().is_empty(), "nobody let in");
+    assert!(matches!(host.notices().as_slice(), [Notice::Left { dropped: true, .. }]));
+}
+
+/// Two machines of one name are told apart: the later numbered, in the
+/// host's list and the line saying it joined; a third gets the next.
+#[test]
+fn machines_of_one_name_are_told_apart() {
+    assert_eq!(super::host::unique_name(&["Maschine"], "Anna"), "Anna");
+    assert_eq!(super::host::unique_name(&["Maschine"], "maschine"), "maschine 2");
+    assert_eq!(super::host::unique_name(&["Maschine", "Maschine 2"], "Maschine"), "Maschine 3");
+    let long = "x".repeat(wire::MAX_NAME_LEN);
+    assert!(super::host::unique_name(&[&long], &long).len() <= wire::MAX_NAME_LEN);
+    let mut host: Host<usize> = Host::new(7, "Maschine", 3);
+    for (n, id) in [(1u64, [1u8; 16]), (2, [2; 16])] {
+        host.receive(0, n as usize, &Hello { id, nonce: n, name: "Maschine".into(), commit: "x".into() }.write());
+    }
+    let joining: Vec<(u8, String)> = host.notices().into_iter().filter_map(|n| match n {
+        Notice::Joining { index, name, .. } => Some((index, name)),
+        _ => None,
+    }).collect();
+    assert_eq!(joining.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>(), ["Maschine 2", "Maschine 3"]);
+    for (index, _) in joining {
+        host.admit(index, Vec::new(), Vec::new());
+    }
+    let roster: Vec<String> = host.roster().into_iter().map(|m| m.name).collect();
+    assert_eq!(roster, ["Maschine", "Maschine 2", "Maschine 3"]);
+}

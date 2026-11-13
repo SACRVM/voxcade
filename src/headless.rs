@@ -1471,6 +1471,11 @@ pub fn music<G: Game>(dir: &Path, out: &Path, seconds: Option<f32>) -> Result<()
     song(&dir.join(&file), Some((game.cfg.audio.music_volume, game.cfg.audio.drive)), out, seconds)
 }
 
+/// What `voxcade music` calls a song: its `#title`, else its file's name.
+fn song_name(title: &str, file: &Path) -> String {
+    if title.trim().is_empty() { file.file_name().map_or_else(|| file.display().to_string(), |n| n.to_string_lossy().into_owned()) } else { title.to_string() }
+}
+
 /// Writes one song file as a stereo WAV, at a game's music volume and
 /// drive (the engine's defaults without a game).
 pub fn song(file: &Path, game: Option<(f32, f32)>, out: &Path, seconds: Option<f32>) -> Result<()> {
@@ -1479,7 +1484,7 @@ pub fn song(file: &Path, game: Option<(f32, f32)>, out: &Path, seconds: Option<f
     let text = std::fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
     let song = crate::audio::music::parse(&text).with_context(|| format!("in {}", file.display()))?;
     let length = song.length as f32 / SAMPLE_RATE as f32;
-    let title = song.title.clone();
+    let title = song_name(&song.title, file);
     let lengths = song.channel_lengths();
     if lengths.iter().any(|&(_, l)| (l - length).abs() > 0.01) {
         let list: Vec<String> = lengths.iter().map(|(c, l)| format!("{c} {l:.2}s")).collect();
@@ -1541,6 +1546,14 @@ fn write_wav(out: &Path, samples: &[f32], channels: u16) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A song without a `#title` is called by its file's name, not ''.
+    #[test]
+    fn a_song_without_a_title_is_its_files_name() {
+        assert_eq!(song_name("", Path::new("music/drive.mml")), "drive.mml");
+        assert_eq!(song_name("  ", Path::new("drive.mml")), "drive.mml");
+        assert_eq!(song_name("Pulsar Drive", Path::new("music/drive.mml")), "Pulsar Drive");
+    }
 
     /// `inspect` draws after every tick as a window and `check` do, so a
     /// mistake in `on_draw` halts the game there too (it said "halted":

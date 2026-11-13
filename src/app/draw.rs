@@ -2,7 +2,7 @@
 //! (the game or the title, a menu or the console over it, the lines of a
 //! network game or a failure at the top), drawn and shown.
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 
 use super::App;
 use crate::game::Game;
@@ -12,7 +12,7 @@ use crate::sim::DT;
 impl<G: Game> App<G> {
     pub(super) fn draw(&mut self) -> Result<()> {
         let App { renderer, screen, game, mask, front, net, settings, finder, net_finder, text_input, prompt, clock, parting, .. } = self;
-        let crate::window::Screen { surface, device, queue, config, window, .. } = screen;
+        let crate::window::Screen { device, queue, config, window, .. } = screen;
         renderer.update_chunks(device, queue, game.world_mut(), mask);
 
         // The picture's shape: the game's own (bars round it), else the
@@ -34,7 +34,7 @@ impl<G: Game> App<G> {
                 *net_finder = crate::network::app_of(game).ok().map(|(app, version)| crate::network::NetFinder::new(app, version));
             }
             if let Some(n) = net_finder {
-                found.extend(n.found());
+                found.extend(n.found(&settings.language()));
             }
             menu.found = found;
         } else if finder.take().is_some() | net_finder.take().is_some() {
@@ -92,20 +92,13 @@ impl<G: Game> App<G> {
             renderer.rebuild_all(device, queue, game.world_mut(), mask);
         }
 
-        match surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(texture)
-            | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
-                let view = texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-                let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-                renderer.render(device, queue, &mut encoder, &view, &frame);
-                queue.submit([encoder.finish()]);
-                queue.present(texture);
-            }
-            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-                surface.configure(device, config);
-            }
-            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {}
-            wgpu::CurrentSurfaceTexture::Validation => bail!("surface validation error"),
+        if let crate::window::Got::Picture(texture) = screen.texture()? {
+            let (device, queue) = (&screen.device, &screen.queue);
+            let view = texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            renderer.render(device, queue, &mut encoder, &view, &frame);
+            queue.submit([encoder.finish()]);
+            queue.present(texture);
         }
         Ok(())
     }

@@ -2138,3 +2138,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 }
+
+#[cfg(test)]
+#[path = "upgrade_tests.rs"]
+mod step_tests;

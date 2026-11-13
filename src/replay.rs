@@ -944,17 +944,36 @@ fn guard<G: Game>(game: &mut Session<G>, playback: &Playback, span: u64, costs: 
 /// cannot be read or played (a script's mistake, the guard) is said, the
 /// next one played, and the mistakes are the error at the end.
 pub fn check<G: Game>(dir: &Path, update: bool) -> Result<bool> {
-    each_replay(dir, |path, name| {
-        let replay = Replay::load(path)?;
-        if update {
+    if update {
+        // One after another: each writes its file.
+        return each_replay(dir, |path, name| {
+            let replay = Replay::load(path)?;
             let fresh = rerecord::<G>(dir, &replay).context("not recorded anew")?;
             fresh.save(path)?;
-            return Ok((true, format!("{name}: recorded anew ({} ticks, {}, score {})", fresh.ticks, fresh.outcome, fresh.score)));
-        }
+            Ok((true, format!("{name}: recorded anew ({} ticks, {}, score {})", fresh.ticks, fresh.outcome, fresh.score)))
+        });
+    }
+    // Each replay its own session, several at once (`check_threads`): the
+    // lines come in the files' order all the same.
+    let one = |path: &Path, name: &str| {
+        let replay = Replay::load(path)?;
         let verdict = play_through::<G>(dir, &replay)?;
         Ok((verdict == Verdict::Same, verdict.said(name, &replay)))
-    })
+    };
+    each_replay_at_once(dir, check_threads(game_replays(dir).len()), one, &mut |line| println!("{line}"))
 }
+
+/// How many replays `check` plays at once: one a core, but at most
+/// `CHECKS_AT_ONCE`, each a session of its own in memory (BunnyFarm's
+/// check peaked at 53 MB one at a time, More Blood's at 102 MB);
+/// `VOXCADE_CHECKS` says another number (1: one after another).
+fn check_threads(replays: usize) -> usize {
+    let asked = std::env::var("VOXCADE_CHECKS").ok().and_then(|n| n.parse::<usize>().ok()).filter(|&n| n > 0);
+    asked.unwrap_or_else(|| crate::par::cores().min(CHECKS_AT_ONCE)).min(replays).max(1)
+}
+
+/// The most replays `check` plays at once unless told otherwise.
+const CHECKS_AT_ONCE: usize = 6;
 
 /// Plays every replay of a game as `check` does, going back every `every`
 /// ticks and playing on from there (rollback over a network): each must
@@ -971,6 +990,65 @@ pub fn check_going_back<G: Game>(dir: &Path, every: u64) -> Result<bool> {
             _ => (false, said),
         })
     })
+}
+
+/// `each_replay` with `threads` replays played at once, each on a thread
+/// of its own taking the next replay not yet begun; each line is printed
+/// said (to `say`) as soon as it and every one before it in the files'
+/// order are done, so the output is the same as one after another.
+fn each_replay_at_once(dir: &Path, threads: usize, one: impl Fn(&Path, &str) -> Result<(bool, String)> + Sync, say: &mut dyn FnMut(String)) -> Result<bool> {
+    let replays = game_replays(dir);
+    if replays.is_empty() {
+        say(format!("{}: no replays", dir.display()));
+        return Ok(true);
+    }
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let (tell, heard) = std::sync::mpsc::channel();
+    let (all, failed) = std::thread::scope(|scope| {
+        for _ in 0..threads.clamp(1, replays.len()) {
+            let (tell, next, one, replays) = (tell.clone(), &next, &one, &replays);
+            // The main thread's stack: a game's Lua may go deep.
+            let worker = std::thread::Builder::new().name("check".into()).stack_size(8 << 20);
+            worker
+                .spawn_scoped(scope, move || {
+                    loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(path) = replays.get(i) else { break };
+                        let name = path.strip_prefix(dir).unwrap_or(path).display().to_string();
+                        // A panic in one replay is that replay's mistake.
+                        let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| one(path, &name))).unwrap_or_else(|_| Err(anyhow::anyhow!("the check panicked")));
+                        if tell.send((i, name, done)).is_err() {
+                            break;
+                        }
+                    }
+                })
+                .expect("a thread to check replays on");
+        }
+        drop(tell);
+        let mut waiting = BTreeMap::new();
+        let (mut all, mut failed, mut printed) = (true, Vec::new(), 0);
+        for (i, name, done) in heard {
+            waiting.insert(i, (name, done));
+            while let Some((name, done)) = waiting.remove(&printed) {
+                match done {
+                    Ok((fine, line)) => {
+                        say(line);
+                        all &= fine;
+                    }
+                    Err(e) => {
+                        say(format!("{name}: failed (below)"));
+                        failed.push(format!("{name}: {e:#}"));
+                    }
+                }
+                printed += 1;
+            }
+        }
+        (all, failed)
+    });
+    match failed.len() {
+        0 => Ok(all),
+        n => bail!("{n} of {} replays failed:\n{}", replays.len(), failed.join("\n")),
+    }
 }
 
 /// `one` for every replay of the game in `dir` (its path and its name in
@@ -1269,7 +1347,7 @@ impl Attract {
 }
 
 /// The time now (UTC) as a file name that sorts by time: `20261015-140312`.
-fn stamp() -> String {
+pub(crate) fn stamp() -> String {
     stamp_of(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64)
 }
 
@@ -1324,6 +1402,35 @@ mod tests {
     use crate::shooter::ACTIONS;
     /// The shooter's keys, to build its input with.
     use crate::shooter::Controls as Keys;
+
+    /// Replays checked several at once are said in the files' order,
+    /// however long each takes, a failed one among them, with the same
+    /// verdict as one after another.
+    #[test]
+    fn replays_checked_at_once_are_said_in_order() {
+        let dir = crate::scratch::Scratch::new("at-once");
+        for name in ["a", "b", "c", "d", "e", "f", "g"] {
+            std::fs::create_dir_all(dir.join("replays/tests")).unwrap();
+            std::fs::write(dir.join(if name < "d" { format!("replays/{name}.toml") } else { format!("replays/tests/{name}.toml") }), "").unwrap();
+        }
+        // The first ones take longest: the later ones finish first.
+        let one = |path: &Path, name: &str| -> Result<(bool, String)> {
+            let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
+            std::thread::sleep(std::time::Duration::from_millis(match stem.as_str() { "a" => 120, "b" => 60, _ => 5 }));
+            anyhow::ensure!(stem != "e", "e will not play");
+            Ok((stem != "c", format!("{name}: {}", if stem == "c" { "runs apart" } else { "same" })))
+        };
+        let mut serial = Vec::new();
+        let serial_done = each_replay_at_once(&dir, 1, one, &mut |l| serial.push(l));
+        for threads in [2, 4, 16] {
+            let mut lines = Vec::new();
+            let done = each_replay_at_once(&dir, threads, one, &mut |l| lines.push(l));
+            assert_eq!(lines, serial, "{threads} at once");
+            assert_eq!(format!("{:#}", done.as_ref().unwrap_err()), format!("{:#}", serial_done.as_ref().unwrap_err()));
+        }
+        assert_eq!(serial, ["replays/a.toml: same", "replays/b.toml: same", "replays/c.toml: runs apart", "replays/tests/d.toml: same", "replays/tests/e.toml: failed (below)", "replays/tests/f.toml: same", "replays/tests/g.toml: same"]);
+        assert!(format!("{:#}", serial_done.unwrap_err()).contains("1 of 7 replays failed:\nreplays/tests/e.toml: e will not play"));
+    }
 
     /// Copies a game folder for a test to change.
     fn copy(from: &Path, to: &Path) {

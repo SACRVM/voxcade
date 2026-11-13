@@ -728,7 +728,7 @@ pub fn menu(view: &MenuView, cfg: &UiConfig, alpha: f32, aspect: f32) -> (Vec<In
     if page == Page::Title {
         logo(&mut out, &mut letters, view, &layout, now, finish);
         if view.scored {
-            let score = format!("HI-SCORE {:06}", view.settings.best());
+            let score = crate::lang::say_with(lang, "HI-SCORE {}", &[&format!("{:06}", view.settings.best())]);
             text(&mut out, &score, layout.width - 3.0 - text_width(&score, 1), top - 10.0, 1, NUMBERS, depth);
         }
     } else {

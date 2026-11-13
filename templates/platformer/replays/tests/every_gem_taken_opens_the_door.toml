@@ -1,0 +1,38 @@
+# Voxcade replay: My Game, 300 ticks, quit, score 400
+version = 1
+game = "My Game"
+fingerprint = "06b3ed22ca15a1b2"
+ticks = 300
+outcome = "quit"
+score = 400
+input = "right:240;none:60"
+checks = ["e4d6310028efafbd", "c192060271471f6a", "e83a976d5f0930dc", "1914dc2ee39c2232", "e9010048c0ef0d7d"]
+final_state = "e9010048c0ef0d7d"
+scenario = "door_open"
+
+[fingerprint_parts]
+"bat.vvx" = "eb3073cff74e10e8"
+"blocks/ladder.vvx" = "12dd67094d445915"
+"blocks/plank.vvx" = "03fec5df6f2b5c34"
+"blocks/spikes.vvx" = "b77199ad72ff1ac2"
+"blocks/stone.vvx" = "4e465210edc307f9"
+"blocks/wall.vvx" = "645571179210a331"
+"conf.lua" = "c326eb8284985e80"
+"door.vvx" = "c4ca12b2f4b116a8"
+"gem.vvx" = "22c4adc438781293"
+"hero.vvx" = "52a75006cb7d7fa0"
+"hero2.vvx" = "529da5c19cd0cdf2"
+"level.toml" = "25d57e8f4dbde70d"
+"main.lua" = "cce3277fe39ab141"
+"scenarios/door_open.lua" = "3ee6eba10ce3f4e0"
+"slime.vvx" = "eff00b2ad48f51c6"
+"torch.vvx" = "ac647ff772ba7abe"
+
+[[controls]]
+at = 0
+device = "keyboard"
+language = "en"
+
+[controls.keys]
+jump = "SPACE"
+pause = "ESCAPE"

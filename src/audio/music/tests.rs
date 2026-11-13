@@ -202,3 +202,14 @@ fn the_theme_plays() {
     assert!(rms > 0.03, "the theme is nearly silent ({rms})");
     assert!(player.time < 4000, "the song did not start over");
 }
+
+/// A channel that names no instrument plays the plain one, as the module
+/// says: the same samples as a square of every default named.
+#[test]
+fn a_channel_without_an_instrument_plays_the_plain_square() {
+    let render = |text: &str| Player::new(parse(text).unwrap(), 1.0).render(None);
+    let plain = render("#tempo 120\nA: o4 c4 d4 e4 f4\n");
+    let named = render("#tempo 120\n@plain square\nA: @plain o4 c4 d4 e4 f4\n");
+    assert!(plain.iter().any(|s| s.abs() > 0.01), "it sounds");
+    assert_eq!(plain, named);
+}

@@ -6,6 +6,12 @@
 # must play out as recorded), and tools/check_tmp.sh (the tests leave
 # nothing named voxcade-* in the temp folder).
 #
+# The toolchain: the whole job runs on Rust 1.99, the version the code is
+# developed with, not on `stable`: a newer clippy brings new lints, and the
+# lint must not move under us between two pushes. Raise it here when the
+# development machine moves on. The job `msrv` checks that the code still
+# builds with the oldest Rust Cargo.toml's `rust-version` names.
+#
 # The GPU: some tests draw a frame (the IDE's PLAY, the headless canvas,
 # the picture tests in tests/pictures.rs). A runner has none; mesa's
 # software Vulkan (lavapipe) stands in for it. A test that cannot get a
@@ -37,8 +43,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.99"
           components: clippy
 
       - uses: Swatinem/rust-cache@v2
@@ -88,3 +95,33 @@ jobs:
             echo "== $dir"
             target/release/voxcade check "$dir"
           done
+
+  # The oldest Rust the code says it builds with (Cargo.toml's
+  # `rust-version`: the dependencies ask 1.95, egui first). A check, not
+  # a build: no tests run. It does not block the run while the floor is
+  # new (it was set by reading what the code and its crates use, never
+  # built locally with 1.95): once it has passed, take continue-on-error
+  # out.
+  msrv:
+    name: rust-version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv-x86_64-unknown-linux-gnu
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build pkg-config \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libxkbcommon-dev libwayland-dev libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
+            libdbus-1-dev libudev-dev
+      - name: Check
+        run: cargo check --locked --features static-sdl --all-targets

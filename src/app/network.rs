@@ -71,7 +71,7 @@ impl<G: Game> App<G> {
         {
             println!("the network game ended: {why}");
             n.keep_run(game, runs);
-            *parting = Some((why, Instant::now()));
+            *parting = Some((crate::lang::say_line(&settings.language(), &why), Instant::now()));
             *net = None;
             if rejoin {
                 // Back to the title's game, joining at once.

@@ -504,7 +504,12 @@ nearest; its replay `tests/two_ships`);
   only, mesa's lavapipe standing in for the GPU): the release build,
   `cargo test --release`, clippy with `-D warnings`, `voxcade check` of
   every game but the Bench and of every template, and
-  `tools/check_tmp.sh`. A test that draws needs a GPU or lavapipe and
+  `tools/check_tmp.sh`, all on Rust 1.99 (the development machine's, not
+  `stable`: a newer clippy's lints must not move under us; raise it with
+  the machine); its job `msrv` checks the build with Cargo.toml's
+  `rust-version` (1.95, what egui 0.37 asks; not blocking until it has
+  passed once); `.github/workflows/audit.yml` runs `cargo audit` weekly
+  and by hand, blocking nothing. A test that draws needs a GPU or lavapipe and
   fails without one, it never skips. Picture tests (`tests/pictures.rs`,
   their references as text in `tests/pictures.txt`, the owner's D12): the
   mean color of an 8 by 8 grid of five pictures within 6 levels
@@ -539,7 +544,11 @@ nearest; its replay `tests/two_ships`);
   SHA-256; `VOXCADE_UPDATE_FEED` another, a file's path too), nothing
   fetched but the feed until UPDATE NOW; the package is taken only with
   the feed's checksum and swapped in where the program lies, what was
-  there going to `before-update/`, the games folder game by game. The icon
+  there going to `before-update/<version>/`, the games folder game by
+  game; every generation is kept, none deleted by a later update (a game
+  beside the program the launcher's EDIT changed in place is in one),
+  `update --install` saying how many and their size (`update::kept`).
+  The icon
   (`tools/make_icon.py`: `src/icon.png`, `dist/voxcade.ico`) is on every
   window (`src/desktop.rs`), in the Windows program (`build.rs`), and on
   Linux the launcher keeps a desktop entry and the icon in
@@ -549,13 +558,27 @@ nearest; its replay `tests/two_ships`);
   (`cli::plainly`, English, German, French) only where the command opens
   one (`Call::opens_a_window`); `edit --fill/--clear/--scatter` and any
   `--shot` print to stderr, `edit --dry` alone is refused, and a command
-  refuses trailing words it ignored before. Fetch builds with `gh run
+  refuses trailing words it ignored before; an option with one value
+  given twice is refused (`table::REPEATABLE` names those that may come
+  again: `--do`, the editor's steps). A crash of a command that opened a
+  window is no silent close (`cli/crash.rs`, its panic hook): the
+  message, where and a backtrace go to `config_dir()/crashes/` (the newest
+  10), and the main thread's crash says in a message window where the
+  report lies (tests `a_crash_report_is_written_and_the_newest_kept`,
+  `a_crash_is_said_in_a_window_only_for_a_window`; never provoke a real
+  box). The windows take their picture through `Screen::texture`: an
+  outdated surface configured again, a lost one made anew from the
+  window, a lost GPU device (wgpu's callback) ending the window with a
+  plain message (`window::DEVICE_LOST`). Fetch builds with `gh run
   download`. A `v*` tag makes a release of them here; the public
   downloads are the same files as releases of the website's repo
   (`../voxca.de`, its README says how,
   with the blog post that goes with each version). Apple silicon later.
 - Replays (`src/replay.rs`): `voxcade check <game>` plays every replay in
-  the game's `replays/` folder without a window, drawing the game after
+  the game's `replays/` folder without a window, several at once (each its
+  own session, up to six, `VOXCADE_CHECKS` another number; the lines in
+  the files' order, test `replays_checked_at_once_are_said_in_order`;
+  `--update`, `--refit` and `--rollback` one after another), drawing the game after
   every tick as a window does (`Session::look`: the kits' things and
   `on_draw`, no picture; a mistake in `on_draw` stops it as in a window,
   test `check_draws_every_tick`), and says whether each runs as recorded
@@ -804,7 +827,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   seat (a late input goes into the next tick, a missing one repeats
   6 ticks then holds nothing), its own keys held back by the guests'
   delay; guests play the bundles at the host's pace, a guest coming late
-  gets the recording and plays it through; `Session::play` takes a
+  gets the recording and plays it through (in pieces, a few bytes a tick;
+  one longer than `wire::MAX_BLOB`, 66 MB, is turned away saying so); a
+  machine joining under a name taken is numbered ("Maschine 2",
+  `host::unique_name`); `Session::play` takes a
   `session::Tick` whole, every machine's recording is the host's byte
   for byte; `game::Local` is what a machine draws of its own
   (`frame.players`, its language in `on_draw`, its high score lines); the
@@ -1122,8 +1148,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `an_accented_capital_keeps_the_height_of_the_plain_one`,
   `accented_capitals_are_their_letters_with_the_accent_over_them`. A menu
   hint wider than the screen goes on over several lines (`ui::wrap_hint`,
-  test `hints_stay_within_the_screen`). Still untranslated: the action
-  names on CONTROLS (FIRE, JUMP in French). A
+  test `hints_stay_within_the_screen`). Every word in capitals in the
+  menus' files is in the table or named as no word (test
+  `every_menu_word_has_its_german_and_french`, which reads the files).
+  Still untranslated: the action names on CONTROLS (FIRE, JUMP in French;
+  for 0.7, the game giving its words). A
   game speaks the languages it lists (`c.languages`; SETTINGS offers
   LANGUAGE, the system's at first in a window, the game's first in
   `shot`; `world.language`; carried with the controls in replays), and
@@ -1177,7 +1206,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (`tools/compose.py`, the user's wish: Suno was much work, and C64 sound
   for half an hour "makes you want to run amok"): a recipe
   `NAME.compose.toml` (style calm, mysterious, dark, action, bright or space; key, tempo,
-  moods or progressions, seed) makes the same song every time, from
+  moods or progressions, seed) makes the same song every time (`compose.py
+  --check` writes nothing and says whether the songs there are the
+  recipes'; `audio/tools_tests.rs` runs it on every recipe, and
+  `midi2mml.py` on a tune made as MIDI, skipped without python3 or numpy), from
   free-midi-chords' progressions (Ludovic Drolez, MIT:
   `tools/progressions.toml` and its licence; keep the credit, in
   `music/README.md` too). Its rules against fatigue: the melody in some

@@ -8,10 +8,13 @@
 //! What it trusts: the feed over HTTPS from our site, and the package only
 //! if its SHA-256 is the feed's. In place: the folder the program lies in,
 //! when it is a package's (the games beside it). What was there before
-//! goes to `before-update/` in that folder (the one update before it is
-//! thrown away): the old program, and each game the package brings anew,
-//! so a change someone made to one is not lost. Games of the user's own in
-//! `games/` stay where they are.
+//! goes to `before-update/<version>/` in that folder, the version it was:
+//! the old program, and each game the package brings anew, so a change
+//! someone made to one (the launcher's EDIT opens a game beside the
+//! program in place) is not lost. Every generation is kept, never one
+//! thrown away by the next update (`kept` says how many and their size,
+//! `voxcade update --install` too); deleting them is the user's. Games of
+//! the user's own in `games/` stay where they are.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -152,9 +155,36 @@ pub fn install(release: &Release, dir: &Path, progress: &dyn Fn(f32)) -> Result<
     let staging = dir.join(STAGING);
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::create_dir_all(&staging).with_context(|| format!("{} cannot be written to", dir.display()))?;
-    let done = unpack(&package, &release.file, &staging).and_then(|()| swap(&package_root(&staging)?, dir));
+    let done = unpack(&package, &release.file, &staging).and_then(|()| swap(&package_root(&staging)?, dir, VERSION));
     let _ = std::fs::remove_dir_all(&staging);
-    done
+    done.map(|_| ())
+}
+
+/// The generations of what updates replaced in `dir` (`before-update/`'s
+/// folders, an older updater's files there counted as one) and the bytes
+/// they hold together.
+pub fn kept(dir: &Path) -> (usize, u64) {
+    let backup = dir.join(BACKUP);
+    let Ok(entries) = std::fs::read_dir(&backup) else { return (0, 0) };
+    let mut generations = 0;
+    let mut loose = false;
+    for entry in entries.flatten() {
+        if entry.path().is_dir() && entry.file_name() != "games" {
+            generations += 1;
+        } else {
+            loose = true;
+        }
+    }
+    (generations + usize::from(loose), size_of(&backup))
+}
+
+/// The bytes of the files under `path`.
+fn size_of(path: &Path) -> u64 {
+    match std::fs::symlink_metadata(path) {
+        Ok(m) if m.is_dir() => std::fs::read_dir(path).map_or(0, |entries| entries.flatten().map(|e| size_of(&e.path())).sum()),
+        Ok(m) => m.len(),
+        Err(_) => 0,
+    }
 }
 
 /// Starts the program in `dir` anew and ends this one.
@@ -232,12 +262,18 @@ fn package_root(staging: &Path) -> Result<PathBuf> {
 }
 
 /// Puts everything in `new` in place in `dir`: what it replaces goes to
-/// `before-update/` first. The games folder is gone through game by game,
-/// so games the package does not bring stay. If a step fails, what was
-/// moved is moved back.
-fn swap(new: &Path, dir: &Path) -> Result<()> {
-    let backup = dir.join(BACKUP);
-    let _ = std::fs::remove_dir_all(&backup);
+/// `before-update/<was>/` first (`was` the version being replaced; a
+/// second update from the same version to `<was>-2` and so on), and no
+/// generation before it is touched. The games folder is gone through game
+/// by game, so games the package does not bring stay. If a step fails,
+/// what was moved is moved back. The generation's folder.
+fn swap(new: &Path, dir: &Path, was: &str) -> Result<PathBuf> {
+    let mut backup = dir.join(BACKUP).join(was);
+    let mut n = 2;
+    while backup.exists() {
+        backup = dir.join(BACKUP).join(format!("{was}-{n}"));
+        n += 1;
+    }
     std::fs::create_dir_all(backup.join("games"))?;
     std::fs::create_dir_all(dir.join("games"))?;
     // (from the new, in place, its backup)
@@ -270,11 +306,12 @@ fn swap(new: &Path, dir: &Path) -> Result<()> {
                     let _ = std::fs::rename(old, place);
                 }
             }
+            let _ = std::fs::remove_dir_all(&backup);
             return Err(e.context("the new version could not be put in place: everything is as it was"));
         }
         done.push(m);
     }
-    Ok(())
+    Ok(backup)
 }
 
 #[cfg(test)]
@@ -376,8 +413,9 @@ mod tests {
             assert_eq!(read(&dir, "games/pulsar/conf.lua"), "pulsar 2");
             assert_eq!(read(&dir, "games/mine/conf.lua"), "my own game");
             assert_eq!(read(&dir, "notes.txt"), "my notes");
-            assert_eq!(read(&dir, "before-update/voxcade"), "program 1");
-            assert_eq!(read(&dir, "before-update/games/pulsar/conf.lua"), "pulsar 1, changed by hand");
+            let was = format!("before-update/{VERSION}");
+            assert_eq!(read(&dir, &format!("{was}/voxcade")), "program 1");
+            assert_eq!(read(&dir, &format!("{was}/games/pulsar/conf.lua")), "pulsar 1, changed by hand");
             assert!(!dir.join(STAGING).exists(), "the staging folder is gone");
             #[cfg(unix)]
             if file.ends_with(".tar.gz") {
@@ -387,6 +425,46 @@ mod tests {
             std::fs::remove_dir_all(&dir).unwrap();
             std::fs::remove_dir_all(&source).unwrap();
         }
+    }
+
+    /// A second update keeps the first one's generation: a game changed
+    /// by hand before the first update is still there after the second,
+    /// and `kept` counts both generations and their bytes (an older
+    /// updater's loose files as one more).
+    #[test]
+    fn every_update_keeps_its_generation() {
+        let dir = installed("generations");
+        let source = temp("generations-source");
+        let first = release(&source, "new.zip", &zipped(&NEW));
+        let third = [("voxcade", "program 3"), ("voxcade.exe", "program 3"), ("README.txt", "readme 3"), ("games/pulsar/conf.lua", "pulsar 3")];
+        let second = release(&source, "third.zip", &zipped(&third));
+        let a = swap_from(&first, &dir, "0.6.0");
+        let b = swap_from(&second, &dir, "0.7.0");
+        assert_eq!(read(&dir, "games/pulsar/conf.lua"), "pulsar 3");
+        assert_eq!(read(&a, "games/pulsar/conf.lua"), "pulsar 1, changed by hand", "the hand's change is still kept");
+        assert_eq!(read(&b, "games/pulsar/conf.lua"), "pulsar 2");
+        assert!(a.ends_with("before-update/0.6.0") && b.ends_with("before-update/0.7.0"), "{a:?} {b:?}");
+        // The same version again: beside it, not over it.
+        let again = swap_from(&first, &dir, "0.7.0");
+        assert!(again.ends_with("before-update/0.7.0-2"), "{again:?}");
+        assert_eq!(read(&b, "games/pulsar/conf.lua"), "pulsar 2");
+        put(&dir, "before-update/voxcade", "an older updater's program");
+        let (generations, bytes) = kept(&dir);
+        assert_eq!(generations, 4);
+        let sum: usize = ["program 1", "program 1", "readme 1", "pulsar 1, changed by hand", "program 2", "program 2", "readme 2", "pulsar 2", "program 3", "program 3", "readme 3", "pulsar 3", "an older updater's program"].iter().map(|t| t.len()).sum();
+        assert_eq!(bytes, sum as u64);
+        assert_eq!(kept(&source), (0, 0));
+    }
+
+    /// `install`'s steps with the version being replaced named.
+    fn swap_from(release: &Release, dir: &Path, was: &str) -> PathBuf {
+        let package = std::fs::read(&release.url).unwrap();
+        let staging = dir.join(STAGING);
+        std::fs::create_dir_all(&staging).unwrap();
+        unpack(&package, &release.file, &staging).unwrap();
+        let done = swap(&package_root(&staging).unwrap(), dir, was).unwrap();
+        std::fs::remove_dir_all(&staging).unwrap();
+        done
     }
 
     /// A package that is not the one the feed names, or no Voxcade folder
