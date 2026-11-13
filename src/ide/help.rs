@@ -577,7 +577,7 @@ end
     },
     Topic {
         title: "A SONG IN MML",
-        text: "A song is a text file in the folder music, ending in .mml (the plus beside MUSIC makes one; PLAY SONG plays the text as it stands). Lines starting with # are settings (#tempo is beats a minute, 1 to 999, #meter the beats in a bar), lines starting with @ make an instrument (a wave, square, saw, triangle, sine or noise, then options like attack, decay, sustain and release, written name=number; a number out of its range is a mistake saying the range, a word one slip off says which it meant), and a line like A: is a channel of notes, one voice each (@lead in it picks the instrument; without one it plays a plain square). Notes are c d e f g a b, + or - for sharp and flat, then a length (4 a quarter, 8 an eighth, a dot makes it longer), r a rest, o4 the octave (0 to 9), < and > one octave down and up, l8 the default length, v0 to v15 the volume, [ ... ]3 repeats three times, $name = ... a short piece to use again, | a bar line (ignored). A channel may go on over several lines; a mistake says the line it is on. Every channel should be as long as the others, or the short ones fall silent before the song starts over. Name the file in c.audio.music and play it by its file's name, without the folder and .mml: music:play(\"drive\"). decay in an instrument is the fall from the peak to the sustain level, not the fade to silence a sound file's decay is.",
+        text: "A song is a text file in the folder music, ending in .mml (the plus beside MUSIC makes one; PLAY SONG plays the text as it stands). Lines starting with # are settings (#tempo is beats a minute, 1 to 999, #meter the beats in a bar), lines starting with @ make an instrument (a wave, square, saw, triangle, sine or noise, then options like attack, decay, sustain and release, written name=number; a number out of its range is a mistake saying the range, a word one slip off says which it meant), and a line like A: is a channel of notes, one voice each (@lead in it picks the instrument; without one it plays a plain square). Notes are c d e f g a b (or C D E F G A B), + or - for sharp and flat (++ or -- twice), then a length (4 a quarter, 8 an eighth, a dot makes it longer), & holds a note on by another length (c4&8, or c4&c8: the same pitch), r a rest, o4 the octave (0 to 9), < and > one octave down and up, l8 the default length, v0 to v15 the volume, [ ... ]3 repeats three times, $name = ... a short piece to use again, | a bar line (ignored). A channel may go on over several lines; a mistake says the line it is on. Every channel should be as long as the others, or the short ones fall silent before the song starts over. Name the file in c.audio.music and play it by its file's name, without the folder and .mml: music:play(\"drive\"). decay in an instrument is the fall from the peak to the sustain level, not the fade to silence a sound file's decay is.",
         conf: r##"c.audio.music = { "music/drive.mml" }
 c.player.kind = "hero"
 c.things.hero = {}"##,
@@ -1323,7 +1323,7 @@ fn reference(ui: &mut egui::Ui) {
     use crate::lua::api::{API, What};
     ui.label(RichText::new(ALL).color(ACCENT));
     ui.add_space(8.0);
-    ui.label("Every name you can use in your game's Lua, by what it belongs to. Resting the mouse on a name in your code shows the same.");
+    ui.label("Every name you can use in your game's Lua, by what it belongs to; at the end every setting of conf.lua and every key of a kind of thing. Resting the mouse on a name in your code shows the same.");
     for (of, callbacks, heading, plain) in GROUPS {
         let items: Vec<_> = API.iter().filter(|i| i.of == *of && (!of.is_empty() || matches!(i.what, What::Callback { .. }) == *callbacks)).collect();
         if items.is_empty() {
@@ -1343,7 +1343,61 @@ fn reference(ui: &mut egui::Ui) {
             ui.add_space(10.0);
         }
     }
+    settings_part(ui);
+    kinds_part(ui);
 }
+
+/// One line of the reference's settings or kinds: how it is written, then
+/// its words.
+fn entry(ui: &mut egui::Ui, head: &str, doc: &str) {
+    ui.label(RichText::new(head).monospace().color(TEXT));
+    if !doc.is_empty() {
+        ui.label(RichText::new(doc).color(TEXT));
+    }
+    ui.add_space(8.0);
+}
+
+/// The reference's SETTINGS: every setting of conf.lua by its section,
+/// with its type, default, range and words (`lua::api::settings`).
+fn settings_part(ui: &mut egui::Ui) {
+    ui.add_space(20.0);
+    ui.label(RichText::new(SETTINGS).color(ACCENT));
+    ui.label("Set in conf.lua, inside function conf(c): c.camera.pitch = 50. What you leave out keeps the default shown after =; a number out of its range is a mistake.");
+    let mut section = String::new();
+    for s in crate::lua::api::settings() {
+        let now = s.path.split(['.', '[']).next().unwrap_or("").to_string();
+        if now != section && s.path.contains(['.', '[']) {
+            ui.add_space(10.0);
+            ui.label(RichText::new(format!("c.{now}")).small().color(QUIET));
+        }
+        section = now;
+        entry(ui, &s.head(), &s.doc);
+    }
+}
+
+/// The reference's KINDS: what every kind of thing may set, then what
+/// each behavior of the ready-made rules reads (`lua::api::kind_keys`).
+fn kinds_part(ui: &mut egui::Ui) {
+    ui.add_space(20.0);
+    ui.label(RichText::new(KINDS).color(ACCENT));
+    ui.label("A kind of thing is c.things.NAME = { ... } in conf.lua. Every kind may set the first keys; a kind with a behavior of the ready-made rules (c.kit) reads its behavior's too, each unset its default.");
+    let mut part = None;
+    for k in crate::lua::api::kind_keys() {
+        let now = (k.kit, k.behavior.clone());
+        if part.as_ref() != Some(&now) {
+            ui.add_space(10.0);
+            let heading = if k.kit.is_empty() { "EVERY KIND".to_string() } else { format!("behavior = \"{}\" (c.kit = \"{}\")", k.behavior, k.kit) };
+            ui.label(RichText::new(heading).small().color(QUIET));
+            part = Some(now);
+        }
+        let default = if k.default.is_empty() { String::new() } else { format!(" = {}", k.default) };
+        entry(ui, &format!("{}: {}{default}", k.key, k.ty), &k.doc);
+    }
+}
+
+/// The reference's parts after the API's names.
+const SETTINGS: &str = "SETTINGS (CONF.LUA)";
+const KINDS: &str = "KINDS OF THINGS (C.THINGS)";
 
 /// The topics' column: as wide as its longest title, with a row's insets,
 /// the list's margin and its scroll bar, so no title is cut; at most half

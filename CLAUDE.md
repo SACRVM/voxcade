@@ -196,7 +196,14 @@ nearest; its replay `tests/two_ships`);
   `voxcade sheet <game> <model>` writes a sheet (five sides close up,
   every frame from the side, the five sides at the game's size;
   `Session::still`). Making figures: the voxcade-models skill.
-- The Lua API: `voxcade api [NAME]` lists it; after changing it,
+- The Lua API: `voxcade api [NAME]` lists it, then every `conf.lua`
+  setting (type, default, range) and every key of a kind (the engine's,
+  each kit's behaviors' from its `kit.toml`, `api::KIT_WORDS` where that
+  says too little); NAME as printed (`thing:walk`, `world.state`,
+  `c.camera.fov`), in part, any case; an unknown one exits 1 naming the
+  nearest. A number of `conf.lua` has its range in `config::RANGES` (or
+  is one of `config::FREE`), checked as `conf.lua` is read (test
+  `every_number_of_conf_lua_has_its_range`). After changing the API,
   `voxcade api --lua lua/voxcade.lua` writes the editors' definitions
   anew (a test fails until then). `voxcade inspect <game> --frames N
   --input ...` plays without a window and prints the game's state as JSON
@@ -1093,7 +1100,9 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   in the commit when a sound is meant to change. Open: the sounds with
   `jump = 7.01955` (a 3:2 ratio from `sounds --to-files`) in games'
   files. The speaker (`audio::Speaker`) keeps its mixer
-  behind a lock of its own that SDL's callback holds only while mixing;
+  behind a lock of its own that SDL's callback holds only while mixing,
+  `audio::MIX_BLOCK` samples at a time from buffers made once (the audio
+  thread takes no memory, test `the_audio_thread_takes_no_memory`);
   the window and the IDE never lock SDL's audio stream, never pause its
   device, and close it on a thread of their own and leave SDL unquit at
   the end (a Bluetooth headset dropping out and PipeWire started anew

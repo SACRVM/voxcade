@@ -248,7 +248,7 @@ pub const API: &[Item] = &[
     // screen
     Item { of: "screen", name: "shake", what: Method { params: &[("amount", "number")], returns: "" }, doc: "Shakes the screen: 0..1 more (a small hit 0.1, a blast 0.35, 1 at most); it dies down by itself. Only the camera moves, and players can turn shaking off." },
     Item { of: "screen", name: "burst", what: Method { params: &[("icon", "string"), ("x", "number"), ("y", "number")], returns: "" }, doc: "Bursts an icon of c.icons on the screen at x, y (its top left): its voxels fly off and fall, a heart lost, a grenade thrown. Only shown, not part of the game." },
-    Item { of: "screen", name: "height", what: Field { ty: "number", set: false }, doc: "How many UI voxels the HUD is from top to bottom (c.ui.height), for a burst near its bottom; on_draw's frame has its width too." },
+    Item { of: "screen", name: "height", what: Field { ty: "number", set: false }, doc: "How many UI voxels the HUD is from top to bottom (c.ui.height), for a burst near its bottom. Its width follows the shape of each player's window, so only on_draw's frame.width says it." },
     Item { of: "screen", name: "flash", what: Method { params: &[("strength", "number")], returns: "" }, doc: "Flashes the screen white, 0..1 (times c.effects.screen_flash); it fades by itself. Players can turn flashes off." },
     Item { of: "frame", name: "model", what: Method { params: &[("file", "string"), ("thing", "Thing"), ("index?", "integer"), ("rotation?", "Rotation"), ("pose?", "table<string, Rotation>")], returns: "" }, doc: "Draws a model where a thing stands, facing its way. file is a kind's model or one in c.models. The thing is a thing, never a point.\n- index: which of its frames, from 0. Without it, its kind's frames for what it does (c.things.NAME.frames: idle, walk, jump), else the model's own: 0 standing, 1 in the air, the rest walking, a frame every half its height walked.\n- rotation: turns it further, in degrees about its middle (the voxel at half its height over its pivot). { roll = 20 } banks a ship right, { rotation = 45 } faces a diagonal, { pitch = 10 } lifts its nose. Roll is taken first, then pitch, then rotation, as for a level's piece. Off the quarter turns its voxels leave the grid.\n- pose: moves a figure of parts (a model whose parts have names: head, body, arm_left ...), each part by its name, a rotation about its joint, what hangs on it moving along. { head = { rotation = 30 }, arm_right = { pitch = 90 } } raises the right arm forward. offset = { x, y, z } moves a part by voxels (fractions too) after its rotation: { bust = { pitch = 10, offset = { 0, 1, 0 } } }. It goes over its kind's swing (c.things.NAME.swing).\nA kind with rotates = \"free\" faces exactly its way (a diagonal too), else the nearest quarter turn. A model's pivot is the middle cell of its size across and deep: of an even size one voxel off the middle, so facing -y or sideways it fills cells a voxel further on the flipped axis (use odd sizes where that matters)." },
     Item { of: "frame", name: "cube", what: Method { params: &[("x", "number"), ("y", "number"), ("z", "number"), ("color?", "Color"), ("glow?", "number")], returns: "" }, doc: "Draws one voxel in the level, at x, y, z in the level's voxels (alpha below 255: see-through; glow from 0 to 1)." },
@@ -345,15 +345,339 @@ pub fn signature(item: &Item) -> String {
     }
 }
 
-/// The API as text, one name a line with what it does; `filter` keeps the
-/// names that contain it.
-pub fn text(filter: Option<&str>) -> String {
+/// The name an item is written by (`thing:walk`, `world.state`, `on_tick`).
+pub fn written(item: &Item) -> String {
+    match item.what {
+        Field { .. } => format!("{}.{}", item.of, item.name),
+        Method { .. } => format!("{}:{}", item.of, item.name),
+        Callback { .. } | Function { .. } => item.name.to_string(),
+    }
+}
+
+/// One entry of what `voxcade api` shows: the API's names, then the
+/// settings, then the kinds' keys; its name as written, its head line and
+/// its words.
+struct Entry {
+    name: String,
+    head: String,
+    doc: String,
+}
+
+fn entries() -> Vec<Entry> {
+    let mut out: Vec<Entry> = API.iter().map(|i| Entry { name: written(i), head: signature(i), doc: i.doc.to_string() }).collect();
+    for s in settings() {
+        out.push(Entry { name: format!("c.{}", s.path), head: s.head(), doc: s.doc });
+    }
+    for k in kind_keys() {
+        out.push(Entry { name: format!("c.things.NAME.{}", k.key), head: k.head(), doc: k.doc });
+    }
+    out
+}
+
+/// A name as `voxcade api` compares it: small letters, a method's `:` a
+/// dot, no call's brackets (`Thing:Walk()` is `thing.walk`).
+fn compared(name: &str) -> String {
+    let name = name.trim().split('(').next().unwrap_or("");
+    name.to_lowercase().replace(':', ".")
+}
+
+/// The API as text, one name a line with what it does, then the settings
+/// of `conf.lua` and the keys of a kind (`c.things.NAME`). `filter` keeps
+/// the names that hold it, as written or in part, in any case, a method
+/// with `:` or `.` (`thing:walk`, `walk`, `world.state`, `view_width`); a
+/// player's names are a thing's too (`player:walk`). An unknown name is a
+/// mistake naming the nearest.
+pub fn lookup(filter: Option<&str>) -> Result<String, String> {
+    let all = entries();
+    let shown: Vec<&Entry> = match filter.map(compared).filter(|f| !f.is_empty()) {
+        None => all.iter().collect(),
+        Some(f) => {
+            let thing = f.strip_prefix("player.").map(|rest| format!("thing.{rest}"));
+            let holds = |e: &Entry| {
+                let name = compared(&e.name);
+                let last = name.rsplit('.').next().unwrap_or("");
+                name.contains(&f) || last.contains(&f) || thing.as_ref().is_some_and(|t| name.contains(t.as_str()))
+            };
+            let found: Vec<&Entry> = all.iter().filter(|e| holds(e)).collect();
+            if found.is_empty() {
+                let names: Vec<String> = all.iter().flat_map(|e| [compared(&e.name), compared(&e.name).rsplit('.').next().unwrap_or("").to_string()]).collect();
+                let near = crate::audio::words::near(&f, names.iter().map(String::as_str)).map_or(String::new(), |n| format!(" (did you mean {n}?)"));
+                return Err(format!("no name of the API, setting or kind's key is called {}{near}; voxcade api lists them all", filter.unwrap_or("").trim()));
+            }
+            found
+        }
+    };
     let mut out = String::new();
-    for item in API.iter().filter(|i| filter.is_none_or(|f| i.name.contains(f) || i.of.contains(f))) {
-        out += &format!("{}\n", signature(item));
-        for line in item.doc.lines() {
+    let mut part = "";
+    for e in shown {
+        let now = if e.name.starts_with("c.things.") { "KINDS: c.things.NAME = { ... } in conf.lua" } else if e.name.starts_with("c.") { "SETTINGS: conf.lua, function conf(c)" } else { "" };
+        if now != part {
+            out += &format!("\n== {now}\n\n");
+            part = now;
+        }
+        out += &format!("{}\n", e.head);
+        for line in e.doc.lines() {
             out += &format!("    {line}\n");
         }
+    }
+    Ok(out)
+}
+
+/// `lookup`'s text, or its mistake as text (MCP's `api` tool says it so).
+pub fn text(filter: Option<&str>) -> String {
+    lookup(filter).unwrap_or_else(|e| e)
+}
+
+/// A setting of `conf.lua` (`c.camera.view_width`), as the reference shows
+/// it: from `config.rs`'s fields, their words, their defaults and ranges.
+pub struct Setting {
+    /// Its path under `c` (`camera.view_width`; `items.NAME.stack`,
+    /// `title_screen.props[].model`).
+    pub path: String,
+    /// Its LuaLS type.
+    pub ty: String,
+    /// Its default as Lua writes it ("" unset).
+    pub default: String,
+    /// Its range in words ("" none).
+    pub range: String,
+    pub doc: String,
+}
+
+impl Setting {
+    /// `c.camera.view_width: number = 200 (above 0, up to 65536)`.
+    pub fn head(&self) -> String {
+        let default = if self.default.is_empty() { String::new() } else { format!(" = {}", self.default) };
+        let range = if self.range.is_empty() { String::new() } else { format!(" ({})", self.range) };
+        format!("c.{}: {}{default}{range}", self.path, self.ty)
+    }
+}
+
+/// A value of the settings as Lua writes it (`{ 0.45, 0.6, -1 }`); the
+/// engine's f32s as written, not as f64 spells them.
+fn lua_value(v: &toml::Value) -> String {
+    match v {
+        toml::Value::String(s) => format!("{s:?}"),
+        toml::Value::Integer(i) => i.to_string(),
+        toml::Value::Float(f) => (*f as f32).to_string(),
+        toml::Value::Boolean(b) => b.to_string(),
+        toml::Value::Datetime(d) => d.to_string(),
+        toml::Value::Array(a) if a.is_empty() => "{}".into(),
+        toml::Value::Array(a) => format!("{{ {} }}", a.iter().map(lua_value).collect::<Vec<_>>().join(", ")),
+        toml::Value::Table(t) if t.is_empty() => "{}".into(),
+        toml::Value::Table(t) => format!("{{ {} }}", t.iter().map(|(k, v)| format!("{k} = {}", lua_value(v))).collect::<Vec<_>>().join(", ")),
+    }
+}
+
+/// Every setting of `conf.lua`, section by section in `config.rs`'s order.
+pub fn settings() -> Vec<Setting> {
+    fn walk(name: &str, path: &str, ranged: &str, defaults: Option<&toml::Value>, out: &mut Vec<Setting>) {
+        for k in conf_keys(name) {
+            let (path, ranged) = (format!("{path}{}", k.key), format!("{ranged}{}", k.key));
+            let default = defaults.and_then(|d| d.get(&k.key));
+            let map = k.rust.strip_prefix("BTreeMap<String, ").and_then(|r| r.strip_suffix('>')).filter(|r| !conf_keys(r).is_empty());
+            if let Some(inner) = map {
+                walk(inner, &format!("{path}.NAME."), &format!("{ranged}.*."), None, out);
+                continue;
+            }
+            if let Some((inner, list)) = inner_struct(&k.rust) {
+                let (p, r) = if list { (format!("{path}[]."), format!("{ranged}[].")) } else { (format!("{path}."), format!("{ranged}.")) };
+                walk(inner, &p, &r, if list { None } else { default }, out);
+                continue;
+            }
+            let bounds: Vec<&crate::config::Bound> = crate::config::RANGES.iter().filter(|b| b.key == ranged || b.key.strip_prefix(ranged.as_str()).is_some_and(|rest| rest.starts_with('['))).collect();
+            let range = bounds.iter().map(|b| if b.key == ranged { b.words() } else { format!("{} {}", if b.key.ends_with("[]") { "each" } else { &b.key[ranged.len()..] }, b.words()) }).collect::<Vec<_>>().join("; ");
+            let ty = if path == "things" { kinds_type() } else { lua_of(&k.rust) };
+            out.push(Setting { path, ty, default: default.map(lua_value).unwrap_or_default(), range, doc: k.doc });
+        }
+    }
+    let defaults = toml::Value::try_from(crate::config::GameConfig::default()).ok();
+    let mut out = Vec::new();
+    walk("GameConfig", "", "", defaults.as_ref(), &mut out);
+    out
+}
+
+/// A key of a kind of thing (`c.things.NAME.hp`): the engine's, of every
+/// kind, or a behavior's of a kit (`speed` of the jump & run's hero).
+pub struct KindKey {
+    /// The kit (`c.kit`) and the behavior it is of; "" the engine's.
+    pub kit: &'static str,
+    pub behavior: String,
+    pub key: String,
+    pub ty: String,
+    /// Its default as Lua writes it ("" none).
+    pub default: String,
+    pub doc: String,
+}
+
+impl KindKey {
+    /// `c.things.NAME.speed: number = 150 (behavior = "hero", c.kit = "platformer")`.
+    pub fn head(&self) -> String {
+        let default = if self.default.is_empty() { String::new() } else { format!(" = {}", self.default) };
+        let of = if self.kit.is_empty() { String::new() } else { format!(" (behavior = \"{}\", c.kit = \"{}\")", self.behavior, self.kit) };
+        format!("c.things.NAME.{}: {}{default}{of}", self.key, self.ty)
+    }
+}
+
+/// The keys every kind has, its own and those its behavior's rules read
+/// besides (`sim::things`): name, LuaLS type, words.
+pub const KIND_KEYS: &[(&str, &str, &str)] = &[
+    ("like", "string", "Another kind this one builds on: its keys first, then this one's (like = \"rifleman\")."),
+    ("behavior", "string", "Its ready-made behavior, with a kit (c.kit): the jump & run's hero, walker, hopper, flyer, pickup, platform, prop, crate; the shooter's soldier, spawner, captive, gunship, pickup. Without one your script moves it."),
+    ("model", "string", "Its model, a .vvx of the game."),
+    ("hp", "integer", "The hits it takes: thing.state.hp at the start, on_death at 0. Without it, it takes none."),
+    ("fixed", "boolean", "It stays exactly where it is put, in the air too (a kind without a behavior)."),
+    ("width", "number", "Its body across and deep, in voxels (c.physics.body_width unless set)."),
+    ("height", "number", "Its body's height, in voxels (its model's unless set)."),
+    ("facing", "number[]", "The way it faces as it comes in, { x, y } (x east, y north)."),
+    ("props", "table", "What your code reads of it, thing.props: props = { worth = 100 }."),
+    ("family", "string|string[]", "A family, or a list of them: level:things(\"enemies\") finds them, thing.families says them."),
+    ("effect", "string|table", "Shown once where one of its things goes: a model (\"poof.vvx\", or { model = \"poof.vvx\", fps = 20 }), or \"burst\": it bursts into its voxels."),
+    ("sound", "string", "Heard where one of its things goes: a sound's name (sounds/NAME.toml)."),
+    ("reach", "number", "Touched within this many voxels on the ground, not by its box: a pickup, a helipad."),
+    ("team", "string", "Its team: the rounds, blows and blasts of a team hurt the other teams, not its own."),
+    ("immune", "string[]", "What does not hurt it: \"round\", \"melee\", \"blast\"."),
+    ("rotates", "string", "\"free\": it faces exactly its way, a diagonal too; \"quarter\" (unless set): the nearest quarter turn."),
+    ("spin", "number", "Its model turns round as it is drawn, degrees a second (a gem)."),
+    ("frames", "table", "Its model's frames for what it does, by name, first to last: frames = { walk = { 1, 4 } }; a set may say { first =, last =, fps =, stride =, loop = false }."),
+    ("fps", "number", "How fast its frames go where a set does not say, frames a second (10)."),
+    ("swing", "table<string, number>", "A figure of parts: the parts that swing as it walks, degrees forward first: swing = { leg_left = 30, leg_right = -30 }."),
+];
+
+/// Words for a behavior's keys its kit's library says too little of, or
+/// leaves out (it sets only what its kinds need): the kit, the behavior,
+/// the key, its LuaLS type, its default ("": unset) and what it is.
+const KIT_WORDS: &[(&str, &str, &str, &str, &str, &str)] = &[
+    ("shooter", "soldier", "weapon", "string", "", "The weapon he fires, a name of c.weapons."),
+    ("shooter", "soldier", "speed", "number", "", "Running once he knows of the player, voxels a second."),
+    ("shooter", "soldier", "idle_speed", "number", "", "Walking about before that, voxels a second."),
+    ("shooter", "soldier", "accel", "number", "", "How quickly he gets to either, voxels a second per second."),
+    ("shooter", "soldier", "sight", "number", "", "How far he sees the player, voxels; a comrade falling he notices as far."),
+    ("shooter", "soldier", "blast_hearing", "number", "", "How far he hears an explosion, voxels."),
+    ("shooter", "soldier", "range", "number", "", "How far he shoots, voxels."),
+    ("shooter", "soldier", "muzzle", "number[]", "", "Where his shots leave the gun, { ahead, up } of his feet in voxels (unset: from his height)."),
+    ("shooter", "soldier", "stride", "number", "", "A puff of dust every this many voxels he walks (unset: half his height) ..."),
+    ("shooter", "spawner", "spawns", "string", "", "The kind of thing it sends, a name of c.things."),
+    ("shooter", "spawner", "count", "number", "", "How many it sends in all."),
+    ("shooter", "spawner", "first", "number", "", "Ticks after the player comes within range before the first comes out."),
+    ("shooter", "spawner", "every", "number", "", "Ticks between one and the next."),
+    ("shooter", "spawner", "range", "number", "", "It sends them while the player is this near, voxels."),
+    ("shooter", "spawner", "ahead", "number[]", "", "Only while it lies this way of the player, { x, y } (x east, y north), by more than ahead_by; unset: on any side."),
+    ("shooter", "spawner", "ahead_by", "number", "", "How far that way it must lie, voxels (unset: the player's height)."),
+    ("shooter", "captive", "speed", "number", "", "Running off once freed, voxels a second."),
+    ("shooter", "captive", "accel", "number", "", "How quickly it gets to that speed."),
+    ("shooter", "gunship", "weapon", "string", "", "Its gun, a name of c.weapons."),
+    ("shooter", "gunship", "rockets", "string", "", "Its rockets, a name of c.weapons."),
+    ("shooter", "gunship", "speed", "number", "", "Flying, voxels a second."),
+    ("shooter", "gunship", "crash_blast", "number", "", "The crater where it crashes, as a weapon's blast."),
+    ("shooter", "pickup", "bob", "number", "", "It bobs up this many voxels and down again (0: it lies still; unset: a fifth of its model's height)."),
+];
+
+/// The kits whose behaviors' keys the reference lists: their name as
+/// `c.kit` writes it, and their library of kinds (`kit.toml`), whose
+/// numbers are the behaviors' defaults (test
+/// `the_kits_kinds_are_the_behaviors_defaults`).
+fn kits() -> [(&'static str, &'static str); 2] {
+    [("platformer", crate::platformer::kinds::KIT), ("shooter", crate::shooter::kinds::KIT)]
+}
+
+/// Every key of a kind: the engine's (`KIND_KEYS`), then each kit's
+/// behaviors' as its `kit.toml` writes them, with their defaults and the
+/// words beside them.
+pub fn kind_keys() -> Vec<KindKey> {
+    let mut out: Vec<KindKey> = KIND_KEYS.iter().map(|(key, ty, doc)| KindKey { kit: "", behavior: String::new(), key: key.to_string(), ty: ty.to_string(), default: String::new(), doc: doc.to_string() }).collect();
+    for (kit, text) in kits() {
+        let mut behavior: Option<String> = None;
+        let mut section_is_kind = false;
+        let mut lines: Vec<(String, toml::Value, String)> = Vec::new();
+        let flush = |behavior: &Option<String>, lines: &mut Vec<(String, toml::Value, String)>, out: &mut Vec<KindKey>| {
+            if let Some(b) = behavior {
+                for (key, value, doc) in lines.drain(..) {
+                    if !out.iter().any(|k| k.kit == kit && k.behavior == *b && k.key == key) {
+                        let ty = match &value {
+                            toml::Value::Integer(_) | toml::Value::Float(_) => "number",
+                            toml::Value::Boolean(_) => "boolean",
+                            toml::Value::String(_) => "string",
+                            toml::Value::Array(a) if a.iter().all(|v| v.is_integer() || v.is_float()) => "number[]",
+                            toml::Value::Array(_) => "string[]",
+                            _ => "table",
+                        };
+                        out.push(KindKey { kit, behavior: b.clone(), key, ty: ty.to_string(), default: lua_value(&value), doc });
+                    }
+                }
+            }
+            lines.clear();
+        };
+        for line in text.lines() {
+            let line = line.trim();
+            if line.starts_with('[') {
+                flush(&behavior, &mut lines, &mut out);
+                (behavior, section_is_kind) = (None, line.starts_with("[things."));
+                continue;
+            }
+            if !section_is_kind {
+                continue;
+            }
+            // A key, or one the library leaves out (`# ahead = [0, 1]  # ...`).
+            let (setting, doc) = match line.strip_prefix('#').map(str::trim) {
+                Some(commented) => commented.split_once(" #").map_or((commented, ""), |(s, d)| (s, d)),
+                None => line.split_once('#').map_or((line, ""), |(s, d)| (s, d)),
+            };
+            let Ok(table) = setting.trim().parse::<toml::Table>() else { continue };
+            let Some((key, value)) = table.into_iter().next() else { continue };
+            match key.as_str() {
+                "behavior" => behavior = value.as_str().map(str::to_string),
+                k if KIND_KEYS.iter().any(|(e, _, _)| *e == k) => {}
+                _ => lines.push((key, value, doc.trim().trim_start_matches("...").trim().to_string())),
+            }
+        }
+        flush(&behavior, &mut lines, &mut out);
+    }
+    for (kit, behavior, key, ty, default, doc) in KIT_WORDS {
+        match out.iter_mut().find(|k| k.kit == *kit && k.behavior == *behavior && k.key == *key) {
+            Some(k) => k.doc = doc.to_string(),
+            None => {
+                let at = out.iter().rposition(|k| k.kit == *kit && k.behavior == *behavior).map_or(out.len(), |i| i + 1);
+                out.insert(at, KindKey { kit, behavior: behavior.to_string(), key: key.to_string(), ty: ty.to_string(), default: default.to_string(), doc: doc.to_string() });
+            }
+        }
+    }
+    out
+}
+
+/// The LuaLS class of a kit's behavior's kind (`Kind.platformer.hero`).
+fn kind_class(kit: &str, behavior: &str) -> String {
+    format!("Kind.{kit}.{behavior}")
+}
+
+/// `c.things`'s type: a kind, or one of a kit's behaviors.
+fn kinds_type() -> String {
+    let mut classes = vec!["Kind".to_string()];
+    for k in kind_keys().iter().filter(|k| !k.kit.is_empty()) {
+        let class = kind_class(k.kit, &k.behavior);
+        if !classes.contains(&class) {
+            classes.push(class);
+        }
+    }
+    format!("table<string, {}>", classes.join("|"))
+}
+
+/// The kinds' classes for LuaLS: `Kind` with the engine's keys, and a
+/// class for each kit's behavior with its own.
+fn kind_classes() -> String {
+    let keys = kind_keys();
+    let mut out = String::from("\n---@class Kind A kind of thing (c.things.NAME = { ... }): what every kind may set; a behavior of a kit (c.kit) reads more.\n");
+    for k in keys.iter().filter(|k| k.kit.is_empty()) {
+        out += &format!("---@field {}? {} {}\n", k.key, k.ty, k.doc);
+    }
+    let mut done: Vec<String> = Vec::new();
+    for k in keys.iter().filter(|k| !k.kit.is_empty()) {
+        let class = kind_class(k.kit, &k.behavior);
+        if !done.contains(&class) {
+            out += &format!("\n---@class {class} : Kind behavior = \"{}\" of the ready-made rules c.kit = \"{}\": its keys besides every kind's, unset its defaults.\n", k.behavior, k.kit);
+            done.push(class);
+        }
+        let default = if k.default.is_empty() { String::new() } else { format!(" ({} unless set)", k.default) };
+        out += &format!("---@field {}? {} {}{default}\n", k.key, k.ty, k.doc);
     }
     out
 }
@@ -525,16 +849,25 @@ fn conf_classes() -> String {
     let mut out = String::from("\n---@class Conf The game's settings (conf.lua); ready-made rules (c.kit) add their own (c.weapons).\n---@field [string] table\n");
     let mut classes = String::new();
     for k in conf_keys("GameConfig") {
+        if k.key == "things" {
+            out += &format!("---@field {} {} {}\n", k.key, kinds_type(), k.doc);
+            continue;
+        }
         out += &conf_field(&k, &format!("Conf.{}", k.key), &mut classes);
     }
-    out + &classes
+    out + &classes + &kind_classes()
 }
 
 /// A key's line in its class; a key whose type is a struct of its own
 /// gets a class (`Conf.camera`, `Conf.world.backdrops`), written into `classes`.
 fn conf_field(k: &ConfKey, class: &str, classes: &mut String) -> String {
     let doc = if k.doc.is_empty() { String::new() } else { format!(" {}", k.doc) };
-    let Some((name, list)) = inner_struct(&k.rust) else { return format!("---@field {} {}{doc}\n", k.key, lua_of(&k.rust)) };
+    let Some((name, list)) = inner_struct(&k.rust) else {
+        // Its range, as the reference says it (`settings`).
+        let path = class.strip_prefix("Conf.").unwrap_or(class);
+        let range = settings().into_iter().find(|s| s.path.replace("[]", "") == path).map(|s| s.range).filter(|r| !r.is_empty()).map_or(String::new(), |r| format!(" ({r})"));
+        return format!("---@field {} {}{doc}{range}\n", k.key, lua_of(&k.rust));
+    };
     // A section the ready-made rules add to (c.player.knife) stays open.
     let open = if name == "PlayerConfig" { "---@field [string] any\n" } else { "" };
     let mut body = format!("\n---@class {class}\n{open}");
@@ -550,38 +883,151 @@ mod tests {
     use super::*;
     use crate::config::GameConfig;
 
+    /// What an object registers with Lua, recorded by name as mlua asks
+    /// for its fields and methods (`UserData::add_fields`, `add_methods`):
+    /// the names a script can reach, however the binding is written.
+    #[derive(Default)]
+    struct Recorded {
+        names: Vec<String>,
+        settable: Vec<String>,
+    }
+
+    impl<T> mlua::UserDataFields<T> for Recorded {
+        fn add_field<V: mlua::IntoLua + 'static>(&mut self, name: impl Into<String>, _: V) {
+            self.names.push(name.into());
+        }
+        fn add_field_method_get<M, R>(&mut self, name: impl Into<String>, _: M)
+        where
+            M: Fn(&mlua::Lua, &T) -> mlua::Result<R> + mlua::MaybeSend + 'static,
+            R: mlua::IntoLua,
+        {
+            self.names.push(name.into());
+        }
+        fn add_field_method_set<M, A>(&mut self, name: impl Into<String>, _: M)
+        where
+            M: FnMut(&mlua::Lua, &mut T, A) -> mlua::Result<()> + mlua::MaybeSend + 'static,
+            A: mlua::FromLua,
+        {
+            self.settable.push(name.into());
+        }
+        fn add_field_function_get<F, R>(&mut self, name: impl Into<String>, _: F)
+        where
+            F: Fn(&mlua::Lua, mlua::AnyUserData) -> mlua::Result<R> + mlua::MaybeSend + 'static,
+            R: mlua::IntoLua,
+        {
+            self.names.push(name.into());
+        }
+        fn add_field_function_set<F, A>(&mut self, name: impl Into<String>, _: F)
+        where
+            F: FnMut(&mlua::Lua, mlua::AnyUserData, A) -> mlua::Result<()> + mlua::MaybeSend + 'static,
+            A: mlua::FromLua,
+        {
+            self.settable.push(name.into());
+        }
+        fn add_meta_field<V: mlua::IntoLua + 'static>(&mut self, _: impl Into<String>, _: V) {}
+        fn add_meta_field_with<F, R>(&mut self, _: impl Into<String>, _: F)
+        where
+            F: FnOnce(&mlua::Lua) -> mlua::Result<R> + 'static,
+            R: mlua::IntoLua,
+        {
+        }
+    }
+
+    impl<T> mlua::UserDataMethods<T> for Recorded {
+        fn add_method<M, A, R>(&mut self, name: impl Into<String>, _: M)
+        where
+            M: Fn(&mlua::Lua, &T, A) -> mlua::Result<R> + mlua::MaybeSend + 'static,
+            A: mlua::FromLuaMulti,
+            R: mlua::IntoLuaMulti,
+        {
+            self.names.push(name.into());
+        }
+        fn add_method_mut<M, A, R>(&mut self, name: impl Into<String>, _: M)
+        where
+            M: FnMut(&mlua::Lua, &mut T, A) -> mlua::Result<R> + mlua::MaybeSend + 'static,
+            A: mlua::FromLuaMulti,
+            R: mlua::IntoLuaMulti,
+        {
+            self.names.push(name.into());
+        }
+        fn add_function<F, A, R>(&mut self, name: impl Into<String>, _: F)
+        where
+            F: Fn(&mlua::Lua, A) -> mlua::Result<R> + mlua::MaybeSend + 'static,
+            A: mlua::FromLuaMulti,
+            R: mlua::IntoLuaMulti,
+        {
+            self.names.push(name.into());
+        }
+        fn add_function_mut<F, A, R>(&mut self, name: impl Into<String>, _: F)
+        where
+            F: FnMut(&mlua::Lua, A) -> mlua::Result<R> + mlua::MaybeSend + 'static,
+            A: mlua::FromLuaMulti,
+            R: mlua::IntoLuaMulti,
+        {
+            self.names.push(name.into());
+        }
+        fn add_meta_method<M, A, R>(&mut self, _: impl Into<String>, _: M)
+        where
+            M: Fn(&mlua::Lua, &T, A) -> mlua::Result<R> + mlua::MaybeSend + 'static,
+            A: mlua::FromLuaMulti,
+            R: mlua::IntoLuaMulti,
+        {
+        }
+        fn add_meta_method_mut<M, A, R>(&mut self, _: impl Into<String>, _: M)
+        where
+            M: FnMut(&mlua::Lua, &mut T, A) -> mlua::Result<R> + mlua::MaybeSend + 'static,
+            A: mlua::FromLuaMulti,
+            R: mlua::IntoLuaMulti,
+        {
+        }
+        fn add_meta_function<F, A, R>(&mut self, _: impl Into<String>, _: F)
+        where
+            F: Fn(&mlua::Lua, A) -> mlua::Result<R> + mlua::MaybeSend + 'static,
+            A: mlua::FromLuaMulti,
+            R: mlua::IntoLuaMulti,
+        {
+        }
+        fn add_meta_function_mut<F, A, R>(&mut self, _: impl Into<String>, _: F)
+        where
+            F: FnMut(&mlua::Lua, A) -> mlua::Result<R> + mlua::MaybeSend + 'static,
+            A: mlua::FromLuaMulti,
+            R: mlua::IntoLuaMulti,
+        {
+        }
+    }
+
+    /// The names an object registers, and those it lets a script set.
+    fn registered<T: mlua::UserData>() -> Recorded {
+        let mut r = Recorded::default();
+        T::add_fields(&mut r);
+        T::add_methods(&mut r);
+        r
+    }
+
     /// The register names exactly what `world/` gives the scripts, field
-    /// by field and method by method.
+    /// by field and method by method: the names each object registers
+    /// with Lua, recorded as it registers them (not read from the source,
+    /// so a binding made by a helper or written another way counts too),
+    /// and what a script may set. Objects scripts never see register none.
     #[test]
     fn the_register_is_what_the_scripts_see() {
-        let src = [include_str!("world/mod.rs"), include_str!("world/run.rs"), include_str!("world/level.rs"), include_str!("world/thing.rs"), include_str!("world/input.rs"), include_str!("world/menus.rs"), include_str!("world/music.rs"), include_str!("world/screen.rs"), include_str!("world/frame.rs"), include_str!("world/controls.rs"), include_str!("world/pose.rs")].concat();
-        let mut offered: Vec<(String, String)> = Vec::new();
-        let mut of = "";
-        for line in src.lines() {
-            if let Some(rest) = line.strip_prefix("impl UserData for ") {
-                of = match rest.trim_end_matches(" {").trim_end_matches(" {}") {
-                    "Stage" | "Absent" => "",
-                    "WorldView" => "world",
-                    "LevelView" => "level",
-                    "CameraView" => "level.camera",
-                    "ThingRef" => "thing",
-                    "AreaView" => "area",
-                    "InputView" => "input",
-                    "ScreenView" => "screen",
-                    "Frame" => "frame",
-                    "ControlsView" => "controls",
-                    "MusicView" => "music",
-                    other => panic!("an object the register does not know: {other}"),
-                };
-            }
-            for call in ["add_field_method_get(\"", "add_field_function_get(\"", "add_method(\"", "add_function(\"", "add_method_mut(\""] {
-                if let Some(at) = line.find(call) {
-                    let name = line[at + call.len()..].split('"').next().unwrap();
-                    assert!(!of.is_empty(), "{name}: offered by an object scripts do not see");
-                    offered.push((of.to_string(), name.to_string()));
-                }
-            }
+        use super::super::world;
+        let objects = [
+            ("world", registered::<world::WorldView>()),
+            ("level", registered::<world::LevelView>()),
+            ("level.camera", registered::<world::CameraView>()),
+            ("thing", registered::<world::ThingRef>()),
+            ("area", registered::<world::AreaView>()),
+            ("input", registered::<world::InputView>()),
+            ("screen", registered::<world::ScreenView>()),
+            ("frame", registered::<world::Frame>()),
+            ("controls", registered::<world::ControlsView>()),
+            ("music", registered::<world::MusicView>()),
+        ];
+        for (name, r) in [("Absent", registered::<world::Absent>()), ("Stage", registered::<super::super::host::Stage>())] {
+            assert!(r.names.is_empty() && r.settable.is_empty(), "{name} offers {:?}", r.names);
         }
+        let mut offered: Vec<(String, String)> = objects.iter().flat_map(|(of, r)| r.names.iter().map(|n| (of.to_string(), n.clone()))).collect();
         offered.sort();
         offered.dedup();
         // `player` is a thing: what the register says of it, a thing offers.
@@ -590,8 +1036,89 @@ mod tests {
         listed.sort();
         listed.dedup();
         assert_eq!(listed, offered);
-        for item in API.iter().filter(|i| matches!(i.what, Field { set: true, .. })) {
-            assert!(src.contains(&format!("_set(\"{}\"", item.name)), "{}.{} is settable in the register only", item.of, item.name);
+        let mut settable: Vec<(String, String)> = objects.iter().flat_map(|(of, r)| r.settable.iter().map(|n| (of.to_string(), n.clone()))).collect();
+        settable.sort();
+        let mut said: Vec<(String, String)> = API.iter().filter(|i| matches!(i.what, Field { set: true, .. })).map(|i| (of(i), i.name.to_string())).collect();
+        said.sort();
+        assert_eq!(said, settable, "what a script may set");
+    }
+
+    /// `voxcade api` finds a name as it prints it (`thing:walk`,
+    /// `thing.walk`, `world.state`), in any case, in part, a player's as a
+    /// thing's, a setting and a kind's key; an unknown name is a mistake
+    /// naming the nearest (it printed nothing and said all was well).
+    #[test]
+    fn the_api_finds_names_as_it_prints_them() {
+        let found = |f: &str| lookup(Some(f)).unwrap_or_else(|e| panic!("{f}: {e}"));
+        for (asked, shows) in [
+            ("thing:walk", "thing:walk(way: Way, speed: number)"),
+            ("thing.walk", "thing:walk("),
+            ("Thing:Walk()", "thing:walk("),
+            ("player:walk", "thing:walk("),
+            ("world.state", "world.state: table"),
+            ("walk", "thing:walk("),
+            ("on_tick", "function on_tick()"),
+            ("view_width", "c.camera.view_width: number = 200 (above 0, up to 65536)"),
+            ("c.camera.fov", "c.camera.fov: number = 40 (from 10 to 100)"),
+            ("light.sun", "c.light.sun: number[] = { 0.45, 0.6, -1 } (each from -1000 to 1000; [3] from -1000 to below 0)"),
+            ("air_jumps", "c.things.NAME.air_jumps: number = 0 (behavior = \"hero\", c.kit = \"platformer\")"),
+            ("fixed", "c.things.NAME.fixed: boolean"),
+        ] {
+            assert!(found(asked).contains(shows), "{asked}: {}", found(asked));
+        }
+        assert!(!found("thing:walk").contains("world.state"));
+        let e = lookup(Some("wlak")).unwrap_err();
+        assert!(e.starts_with("no name of the API, setting or kind's key is called wlak (did you mean walk?)"), "{e}");
+        assert!(lookup(Some("zzzzzzzz")).is_err());
+        let all = lookup(None).unwrap();
+        assert!(all.contains("== SETTINGS") && all.contains("== KINDS") && all.contains("level:spawn("));
+    }
+
+    /// The kinds' keys in the reference are those a kind takes: the
+    /// engine's every kind has (those `sim::things` reads), and each kit's
+    /// behavior's, as its rules take them (serde's list of the keys it
+    /// knows, asked with one it does not), each with words.
+    #[test]
+    fn the_kinds_keys_are_what_a_kind_takes() {
+        let keys = kind_keys();
+        let engine: Vec<&str> = keys.iter().filter(|k| k.kit.is_empty()).map(|k| k.key.as_str()).collect();
+        let mut taken: Vec<&str> = ["like", "behavior", "model", "hp", "fixed", "width", "height", "facing"].into_iter().chain(crate::sim::things::COMMON).collect();
+        taken.sort();
+        let mut ours = engine.clone();
+        ours.sort();
+        assert_eq!(ours, taken);
+        for k in &keys {
+            assert!(!k.doc.is_empty(), "c.things.NAME.{} of {} {}: no words", k.key, k.kit, k.behavior);
+        }
+        // Each behavior's own keys, as its kit refuses one it does not know.
+        let kit_cfg = |kit: &str, behavior: &str| {
+            let library: toml::Table = toml::from_str(kits().iter().find(|(k, _)| *k == kit).unwrap().1).unwrap();
+            let mut things: std::collections::BTreeMap<String, toml::Table> = library["things"].as_table().unwrap().iter().map(|(k, v)| (k.clone(), v.as_table().unwrap().clone())).collect();
+            let probe: toml::Table = toml::from_str(&format!("behavior = \"{behavior}\"\nnot_a_key = 0")).unwrap();
+            things.insert("probe".into(), probe);
+            let mut cfg = crate::config::GameConfig { things, kit: Some(kit.into()), ..Default::default() };
+            if let Some(w) = library.get("weapons") {
+                cfg.game.insert("weapons".into(), w.clone());
+            }
+            cfg
+        };
+        let mut behaviors: Vec<(&str, &str)> = keys.iter().filter(|k| !k.kit.is_empty()).map(|k| (k.kit, k.behavior.as_str())).collect();
+        behaviors.dedup();
+        assert!(behaviors.len() >= 12, "{behaviors:?}");
+        for (kit, behavior) in behaviors {
+            let cfg = kit_cfg(kit, behavior);
+            let e = match kit {
+                "platformer" => crate::platformer::kinds::Rules::from_game(&cfg, |_| None).err(),
+                _ => crate::shooter::config::ShooterConfig::from_game(&cfg).and_then(|own| crate::shooter::kinds::Rules::from_game(&cfg, &own, &|_| None)).err(),
+            };
+            let e = format!("{:#}", e.unwrap_or_else(|| panic!("{kit} {behavior}: a key it does not know is taken")));
+            let Some((_, list)) = e.split_once("expected ") else { panic!("{kit} {behavior}: {e}") };
+            let list = list.trim_start_matches("one of ");
+            let mut theirs: Vec<String> = list.lines().next().unwrap_or("").replace("` or `", "`, `").split(", ").map(|n| n.trim_matches(|c: char| c == '`' || c == ' ').to_string()).filter(|n| !engine.contains(&n.as_str())).collect();
+            theirs.sort();
+            let mut ours: Vec<String> = keys.iter().filter(|k| k.kit == kit && k.behavior == behavior).map(|k| k.key.clone()).collect();
+            ours.sort();
+            assert_eq!(ours, theirs, "{kit} {behavior}");
         }
     }
 

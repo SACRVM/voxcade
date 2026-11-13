@@ -22,6 +22,8 @@ pub struct GameConfig {
     /// from `conf.lua` itself). In neither the fingerprint nor the hash.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub voxcade: Option<String>,
+    /// The game's name: the window's title, the title screen's logo
+    /// unless `title_screen.logo` says otherwise.
     pub title: String,
     pub world: WorldConfig,
     pub physics: PhysicsConfig,
@@ -40,9 +42,10 @@ pub struct GameConfig {
     #[serde(skip)]
     pub sounds: BTreeMap<String, GameSound>,
     pub markers: MarkersConfig,
-    /// The kinds of things the game has (`[things.NAME]`): each names its
-    /// behavior (the game's), may build on another (`like = "other"`) and
-    /// says what differs; markers place them by name (`sim::things::defs`).
+    /// The kinds of things the game has (`c.things.NAME = { ... }`): each
+    /// may name a behavior of its ready-made rules, may build on another
+    /// (`like = "other"`) and says what differs; a level places them by
+    /// name (`sim::things::defs`).
     pub things: BTreeMap<String, toml::Table>,
     /// The building kit a Lua game plays with (`"shooter"`), if any.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -50,7 +53,11 @@ pub struct GameConfig {
     /// A Lua game's actions besides the four directions (a kit brings its
     /// own), and the keys and gamepad buttons bound to them at first.
     pub actions: Vec<String>,
+    /// The keys bound to each action at first, by their US names
+    /// (`c.keys.jump = { "Z" }`); the player may change them.
     pub keys: crate::controls::Bindings,
+    /// The gamepad's buttons bound to each action at first
+    /// (`c.pad.jump = { "A" }`).
     pub pad: crate::controls::Bindings,
     /// Model files a Lua game draws besides its kinds' (`frame:model`).
     pub models: Vec<String>,
@@ -180,7 +187,10 @@ impl SeatKinds {
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct SavesConfig {
+    /// How many save slots the player has (0: no saving).
     pub slots: u32,
+    /// The game's own version of what a save holds: count it up when that
+    /// changes, `on_save_loaded(version)` brings an older save up to date.
     pub version: u32,
 }
 
@@ -226,6 +236,7 @@ impl StateConfig {
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct IconConfig {
+    /// Its rows from the top, a letter a colour of `colors`, `.` empty.
     pub rows: Vec<String>,
     /// A letter's colour: red, green, blue (and alpha), 0 to 255.
     pub colors: BTreeMap<String, Vec<u8>>,
@@ -404,6 +415,7 @@ pub struct PlayerConfig {
     pub speed: f32,
     /// How quickly it gets to running speed on the ground, and in the air.
     pub accel: f32,
+    /// How quickly it gets to running speed in the air.
     pub air_accel: f32,
     /// Height of a full jump (holding the button); letting go early cuts it.
     pub jump: f32,
@@ -440,15 +452,16 @@ impl Default for PlayerConfig {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default, deny_unknown_fields)]
 pub struct TitleScreenConfig {
-    /// What plays on the title (like `[audio] music`; none: the first song).
+    /// What plays on the title (a song of `c.audio.music`; none: the first).
     pub music: Option<String>,
     /// The ground point the camera looks at (default: where the player starts).
     pub at: Option<[f32; 2]>,
-    /// Voxels across the screen there (default: `[camera] view_width`).
+    /// Voxels across the screen there (default: `c.camera.view_width`).
     pub view_width: Option<f32>,
     /// The logo, a line each (default: the game's title), and their
     /// colours as "#rrggbb".
     pub logo: Vec<String>,
+    /// Each logo line's colour, "#rrggbb".
     pub logo_colors: Vec<String>,
     /// How high each logo line's capitals are, in UI voxels.
     pub logo_heights: Vec<u32>,
@@ -474,6 +487,7 @@ pub struct TitleScreenConfig {
     /// A model that flies over the scene now and then (a helicopter),
     /// every `flyby_every` seconds.
     pub flyby: Option<String>,
+    /// Seconds between two flybys (0: none).
     pub flyby_every: f32,
     /// How high the flyby crosses over the ground.
     pub flyby_altitude: f32,
@@ -515,8 +529,11 @@ impl Default for TitleScreenConfig {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct PropConfig {
+    /// Its model (.vvx).
     pub model: String,
+    /// Where it lies on the ground, x and y in voxels.
     pub at: [f32; 2],
+    /// Degrees clockwise seen from above, 0, 90, 180 or 270.
     #[serde(default, deserialize_with = "quarter_degrees")]
     pub rotation: i32,
 }
@@ -526,6 +543,203 @@ impl PropConfig {
     pub fn look(&self) -> glam::IVec2 {
         [glam::IVec2::Y, glam::IVec2::X, glam::IVec2::NEG_Y, glam::IVec2::NEG_X][(self.rotation / 90).rem_euclid(4) as usize]
     }
+}
+
+/// The range a number of `conf.lua` must lie in (`RANGES`), from `low` to
+/// `high`; an end that is `open` is not in it (`above 0`).
+pub struct Bound {
+    /// The setting's path under `c` (`camera.view_width`): `[]` each of a
+    /// list (`light.sky[]`, `world.blocks.backdrops[].scale`), `[n]` its
+    /// n-th from 1, `*` each entry of a table by name (`items.*.stack`).
+    pub key: &'static str,
+    pub low: f64,
+    pub high: f64,
+    pub low_open: bool,
+    pub high_open: bool,
+}
+
+const fn within(key: &'static str, low: f64, high: f64) -> Bound {
+    Bound { key, low, high, low_open: false, high_open: false }
+}
+
+/// Above `low` (not it), up to `high`.
+const fn above(key: &'static str, low: f64, high: f64) -> Bound {
+    Bound { key, low, high, low_open: true, high_open: false }
+}
+
+impl Bound {
+    /// The range in words: "from 0 to 1", "above 0, up to 65536".
+    pub fn words(&self) -> String {
+        match (self.low_open, self.high_open) {
+            (false, false) => format!("from {} to {}", self.low, self.high),
+            (true, false) => format!("above {}, up to {}", self.low, self.high),
+            (false, true) => format!("from {} to below {}", self.low, self.high),
+            (true, true) => format!("above {} and below {}", self.low, self.high),
+        }
+    }
+
+    pub fn holds(&self, v: f64) -> bool {
+        let low = if self.low_open { v > self.low } else { v >= self.low };
+        let high = if self.high_open { v < self.high } else { v <= self.high };
+        low && high
+    }
+}
+
+/// The longest a length of the world may be, in voxels (`world::MOST_SIDE`).
+const SIDE: f64 = crate::world::MOST_SIDE as f64;
+
+/// Every number of `conf.lua` that has a range, and the range: checked as
+/// the settings are read (`check_ranges`), shown by `voxcade api` and
+/// HELP's reference beside each setting. A number left out is one of
+/// `FREE` (test `every_number_of_conf_lua_has_its_range`).
+pub const RANGES: &[Bound] = &[
+    within("world.size[]", 1.0, SIDE),
+    within("world.blocks.margin", 0.0, 4096.0),
+    within("world.blocks.below", 0.0, 4096.0),
+    within("world.blocks.backdrops[].behind", 0.0, SIDE),
+    within("world.blocks.backdrops[].scale", 1.0, 64.0),
+    within("world.blocks.backdrops[].z", -4096.0, SIDE),
+    within("physics.gravity", 0.0, 100_000.0),
+    within("physics.max_fall", 0.0, 100_000.0),
+    within("physics.step", 0.0, 256.0),
+    above("physics.body_width", 0.0, 256.0),
+    within("physics.lost_below", 0.0, SIDE),
+    within("player.speed", 0.0, 100_000.0),
+    within("player.accel", 0.0, 1_000_000.0),
+    within("player.air_accel", 0.0, 1_000_000.0),
+    within("player.jump", 0.0, 10_000.0),
+    above("title_screen.view_width", 0.0, SIDE),
+    within("title_screen.logo_heights[]", 1.0, 1000.0),
+    within("title_screen.drip", 0.0, 99.0),
+    within("title_screen.logo_cracks[]", 0.0, 100.0),
+    within("title_screen.logo_bob", 0.0, 100.0),
+    within("title_screen.flyby_every", 0.0, 3600.0),
+    within("title_screen.flyby_altitude", 0.0, SIDE),
+    within("title_screen.attract_after", 0.0, 3600.0),
+    within("camera.pitch", -89.0, 90.0),
+    within("camera.yaw", -360.0, 360.0),
+    within("camera.fov", 10.0, 100.0),
+    above("camera.view_width", 0.0, SIDE),
+    above("camera.view_height", 0.0, SIDE),
+    above("camera.view_at_least[]", 0.0, SIDE),
+    above("camera.follow", 0.0, 1.0),
+    within("camera.follow_height.below", 0.0, 4096.0),
+    within("camera.follow_height.above", 0.0, 4096.0),
+    above("camera.hold[]", 0.0, SIDE),
+    within("camera.aspect", 0.25, 4.0),
+    within("light.sun[]", -1000.0, 1000.0),
+    Bound { key: "light.sun[3]", low: -1000.0, high: 0.0, low_open: false, high_open: true },
+    within("light.sun_color[]", 0.0, 1.0),
+    within("light.ambient", 0.0, 1.0),
+    within("light.shadow", 0.0, 1.0),
+    within("light.sky[]", 0.0, 1.0),
+    within("light.reflection_horizon[]", 0.0, 1.0),
+    within("light.reflection[]", 0.0, 1.0),
+    within("light.metal_sweep", 0.0, 10.0),
+    within("light.edge_tolerance", 0.0, 16.0),
+    within("debris.settle", 0.0, 1.0),
+    within("debris.max_particles", 0.0, 1_000_000.0),
+    within("debris.gore", 0.0, 1.0),
+    within("transition.fade", 0.0, 10.0),
+    within("transition.go_to", 0.0, 10.0),
+    within("transition.restart", 0.0, 10.0),
+    within("transition.won", 0.0, 10.0),
+    within("transition.lost", 0.0, 10.0),
+    within("effects.glow", 0.0, 10.0),
+    within("effects.lights", 0.0, 10.0),
+    within("effects.haze", 0.0, 1.0),
+    within("effects.haze_color[]", 0.0, 1.0),
+    within("effects.tilt_shift", 0.0, 1.0),
+    within("effects.screen_flash", 0.0, 1.0),
+    within("effects.hitstop", 0.0, 60.0),
+    within("effects.outline", 0.0, 8.0),
+    within("effects.outline_color[]", 0.0, 1.0),
+    above("ui.height", 0.0, 4096.0),
+    within("ui.depth", 1.0, 16.0),
+    within("ui.slant", 0.0, 4.0),
+    within("ui.round", 0.0, 1.0),
+    within("ui.grain", 0.0, 1.0),
+    within("audio.volume", 0.0, 1.0),
+    within("audio.music_volume", 0.0, 1.0),
+    within("audio.drive", 0.0, 12.0),
+    within("audio.crossfade", 0.0, 60.0),
+    within("items.*.stack", 1.0, 1_000_000.0),
+    within("saves.slots", 0.0, 9.0),
+    within("players", 1.0, MOST_PLAYERS as f64),
+];
+
+/// The numbers of `conf.lua` that may be any number of their type: a
+/// place on the ground (`player.spawn`: below 0 the world's middle), an
+/// order, a version, points, a quarter turn checked as it is read.
+pub const FREE: &[&str] = &["player.spawn[]", "title_screen.at[]", "title_screen.props[].at[]", "title_screen.props[].rotation", "items.*.order", "saves.version", "high_scores[][]", "icons.*.colors.*[]"];
+
+/// The range of the number at `path` (as `RANGES` writes it, `light.sun[3]`
+/// before `light.sun[]`), if it has one.
+pub fn bound(path: &str) -> Option<&'static Bound> {
+    RANGES.iter().find(|b| b.key == path)
+}
+
+/// A number of `c` (the settings as `conf(c)` gave them back) out of its
+/// range: the mistake naming it, its value and the range. A world made in
+/// code that is too big to make is one too (`world::too_big`).
+pub fn check_ranges(c: &toml::Value) -> std::result::Result<(), String> {
+    fn number(v: &toml::Value) -> Option<f64> {
+        v.as_float().or_else(|| v.as_integer().map(|i| i as f64))
+    }
+    // Every number at `key`'s path below `at`, with its path as written.
+    fn walk<'a>(at: &'a toml::Value, parts: &[&str], said: String, out: &mut Vec<(String, &'a toml::Value)>) {
+        let Some((part, rest)) = parts.split_first() else {
+            out.push((said, at));
+            return;
+        };
+        let (name, index) = match part.find('[') {
+            Some(i) => (&part[..i], Some(&part[i..])),
+            None => (*part, None),
+        };
+        let mut here = vec![];
+        if name == "*" {
+            for (k, v) in at.as_table().into_iter().flatten() {
+                here.push((format!("{said}.{k}"), v));
+            }
+        } else if let Some(v) = at.get(name) {
+            here.push((format!("{said}.{name}"), v));
+        }
+        for (said, v) in here {
+            match index {
+                None => walk(v, rest, said, out),
+                Some("[]") => {
+                    for (i, item) in v.as_array().into_iter().flatten().enumerate() {
+                        walk(item, rest, format!("{said}[{}]", i + 1), out);
+                    }
+                }
+                Some(n) => {
+                    let n: usize = n.trim_matches(['[', ']']).parse().unwrap_or(0);
+                    if let Some(item) = v.as_array().and_then(|a| a.get(n.wrapping_sub(1))) {
+                        walk(item, rest, format!("{said}[{n}]"), out);
+                    }
+                }
+            }
+        }
+    }
+    for b in RANGES {
+        let mut found = Vec::new();
+        walk(c, &b.key.split('.').collect::<Vec<_>>(), "c".into(), &mut found);
+        for (said, v) in found {
+            let Some(n) = number(v) else { continue };
+            if !b.holds(n) {
+                let shown = if v.is_integer() { n.to_string() } else { v.to_string() };
+                return Err(format!("{said} = {shown}: {}", b.words()));
+            }
+        }
+    }
+    if let Some(size) = c.get("world").and_then(|w| w.get("size")).and_then(toml::Value::as_array)
+        && let [x, y, z] = size.as_slice()
+        && let (Some(x), Some(y), Some(z)) = (number(x), number(y), number(z))
+        && let Some(why) = crate::world::too_big(glam::I64Vec3::new(x as i64, y as i64, z as i64))
+    {
+        return Err(format!("c.world.size: {why}"));
+    }
+    Ok(())
 }
 
 /// The settings that are a colour (`color`), section and name.
@@ -688,7 +902,9 @@ impl CameraConfig {
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct FollowHeight {
+    /// How far the feet may go under the camera's height, in voxels.
     pub below: f32,
+    /// How far over it.
     pub above: f32,
 }
 
@@ -714,6 +930,7 @@ pub struct LightConfig {
     /// colour).
     #[serde(deserialize_with = "color")]
     pub reflection_horizon: [f32; 3],
+    /// The sky metal mirrors overhead, 0..1 per channel.
     #[serde(deserialize_with = "color")]
     pub reflection: [f32; 3],
     /// A streak of light sweeping over metal now and then, this bright
@@ -811,10 +1028,13 @@ pub struct TransitionConfig {
     /// game's quick restart: `restart = 0`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub go_to: Option<f32>,
+    /// Seconds of the fade when the level is entered afresh.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restart: Option<f32>,
+    /// Seconds of the fade when the run is won.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub won: Option<f32>,
+    /// Seconds of the fade when the run is lost.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lost: Option<f32>,
 }
@@ -856,6 +1076,7 @@ pub struct EffectsConfig {
     pub lights: f32,
     /// Haze towards the far edge of the view, 0..1, and its colour (0..1).
     pub haze: f32,
+    /// The haze's colour, 0..1 per channel.
     #[serde(deserialize_with = "color")]
     pub haze_color: [f32; 3],
     /// Blur at the top and bottom of the screen, a miniature look, 0..1.
@@ -869,6 +1090,7 @@ pub struct EffectsConfig {
     /// and its colour (0..1). Hidden behind what stands in front, drawn
     /// where one part of a model stands before another too.
     pub outline: f32,
+    /// The outline's colour, 0..1 per channel.
     #[serde(deserialize_with = "color")]
     pub outline_color: [f32; 3],
 }
@@ -927,6 +1149,7 @@ pub struct AudioConfig {
     /// one file, or a list the keys 1..9 switch between while playing.
     #[serde(skip_serializing_if = "Songs::is_none")]
     pub music: Songs,
+    /// Loudness of the music, 0..1, times the player's music volume.
     pub music_volume: f32,
     /// How hard the game's sound is pushed into the limiter, in decibels:
     /// 0 as it is, more makes it denser and louder; music you listen to for

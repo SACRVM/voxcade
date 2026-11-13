@@ -780,7 +780,7 @@ fn the_game_turns_its_music_down_and_muffles_it() {
 
     // A crossfade is seconds, 0 to 60.
     std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.toml\" }\n  c.audio.music = { \"music/song.mml\" }\n  c.audio.crossfade = -1\nend\n").unwrap();
-    assert!(start_error(&dir).contains("c.audio.crossfade = -1: seconds from 0"), "{}", start_error(&dir));
+    assert!(start_error(&dir).contains("c.audio.crossfade = -1: from 0 to 60"), "{}", start_error(&dir));
     std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.blocks = { file = \"level.toml\" }\n  c.audio.music = { \"music/song.mml\" }\nend\n").unwrap();
     // Mistakes name the argument.
     for (line, says) in [
@@ -2802,7 +2802,7 @@ fn the_players_kind_and_the_items_are_checked_at_load() {
     assert!(start_error(&dir).contains("c.player.kind = \"hero\": the ready-made rules (c.kit) bring their own player"), "{}", start_error(&dir));
     for (name, line, says) in [
         ("unknown-kind", "  c.player.kind = \"hro\"\n", "c.player.kind = \"hro\": no kind of thing called that (c.things: gem, miner)"),
-        ("no-stack", "  c.items.key = { stack = 0 }\n", "c.items.key.stack = 0: an inventory holds at least one"),
+        ("no-stack", "  c.items.key = { stack = 0 }\n", "c.items.key.stack = 0: from 1 to 1000000"),
     ] {
         let dir = folder(name, "");
         std::fs::write(dir.join("conf.lua"), CONF.replace("  c.things.miner = {}\n", &format!("  c.things.miner = {{}}\n{line}"))).unwrap();
@@ -5386,6 +5386,31 @@ fn a_mistake_in_a_wrapper_is_said_at_the_scripts_line() {
         let e = halted(&g);
         assert!(e.starts_with(says), "{line}: {e}");
         assert!(!e.contains("prelude:") && !e.contains("raw_"), "{line}: {e}");
+    }
+}
+
+/// A library the sandbox leaves out (`os`, `io`, `coroutine`, `load` …)
+/// is said to be so, and `frame` outside `on_draw` to be on_draw's alone,
+/// not "attempt to index a nil value"; out of memory in one step says Lua
+/// tells no line rather than promising one it does not show.
+#[test]
+fn a_global_that_is_not_there_says_why() {
+    for (line, says) in [
+        ("local t = os.time()", "main.lua:2: os is not there in a game (the sandbox): no clock and no files"),
+        ("io.write('x')", "main.lua:2: io is not there in a game (the sandbox): no files"),
+        ("coroutine.wrap(function() end)()", "main.lua:2: coroutine is not there in a game (the sandbox)"),
+        ("load('x = 1')", "main.lua:2: load is not there in a game (the sandbox): no code made from text"),
+        ("collectgarbage()", "main.lua:2: collectgarbage is not there in a game (the sandbox)"),
+        ("debug.traceback()", "main.lua:2: debug is not there in a game (the sandbox)"),
+        ("frame:text('a', 0, 0)", "main.lua:2: frame is only there in on_draw: function on_draw(frame) is given it"),
+        ("nothing_here.x = 1", "main.lua:2: attempt to index a nil value (global 'nothing_here')"),
+        ("local s = string.rep('x', 1000000000)", "not enough memory: a game's Lua holds 256 MB at most (Lua tells no line"),
+    ] {
+        let mut g = game("absent", &format!("function on_tick()\n  {line}\nend\n"));
+        steps(&mut g, 1);
+        let e = halted(&g);
+        assert!(e.starts_with(says), "{line}: {e}");
+        assert!(!e.contains("the line is the one last seen"), "{line}: {e}");
     }
 }
 
