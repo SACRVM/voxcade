@@ -9,8 +9,8 @@
 -- those playing, thing.seat tells a player from a thing.
 
 local BOUNCE = 50        -- how high a hero bounces off an enemy, voxels
-local HEARTS = 3         -- hearts back after a life is lost (c.things.hero.hearts)
-local SAFE = 60          -- ticks nothing hurts it after (c.things.hero.invulnerable)
+local HEARTS = 3         -- hearts a player has, full: the same number as hp in c.state.player (conf.lua)
+local SAFE = 60          -- ticks nothing hurts it after a life is lost (a hit: c.things.hero.invulnerable)
 
 -- A life lost: back at the checkpoint (or where the level began) with
 -- every heart; with the last the player is out, and with every player

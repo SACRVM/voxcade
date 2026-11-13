@@ -4,7 +4,7 @@
 -- costs. Every rule is each player's: level:players() are those playing,
 -- thing.seat tells a player from a thing.
 
-local MAX_HP = 5          -- a player's hit points, full
+local MAX_HP = 5          -- a player's hit points, full: the same number as hp in c.state.player (conf.lua)
 local DOWN = 149          -- ticks a player lies there before coming back
 local SAFE = 150          -- ticks nothing hurts after coming back
 

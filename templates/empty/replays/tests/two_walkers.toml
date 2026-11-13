@@ -1,0 +1,29 @@
+# Voxcade replay: My Game, 200 ticks, quit, score 0
+version = 1
+game = "My Game"
+fingerprint = "b40227db2dfc3d8a"
+ticks = 200
+outcome = "quit"
+score = 0
+input = "right:60;up:40;left:30;none:70"
+checks = ["e5e41310ebe7413e", "e98f944280ef53e2", "572297075b03eb70"]
+
+[[controls]]
+at = 0
+device = "keyboard"
+language = "en"
+
+[controls.keys]
+pause = "ESCAPE"
+
+[[seats]]
+seat = 2
+input = "none:20;down:60;left:40;none:80"
+
+[[seats.controls]]
+at = 0
+device = "keyboard"
+language = "en"
+
+[seats.controls.keys]
+pause = "ESCAPE"

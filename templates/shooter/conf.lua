@@ -13,7 +13,7 @@ function conf(c)
   c.player.kind = { "hero", "hero2" }  -- each player's figure (c.things below)
   c.scored = true                 -- it keeps a score: the high score table
   c.state.player = {                -- what a run starts with
-    hp = 5,                         -- hit points (the kit keeps them: player.state.hp)
+    hp = 5,                         -- hit points (the kit keeps them: player.state.hp; main.lua's MAX_HP is the same number)
     weapon = "rifle",               -- the gun in hand (player.state.weapon)
     lives = 3,                      -- the game's own: main.lua counts them
     inventory = { grenade = 5 },

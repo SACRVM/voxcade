@@ -284,6 +284,12 @@ mod tests {
             fn walk(dir: &Path, prefix: &str, out: &mut Vec<String>) {
                 for entry in std::fs::read_dir(dir).unwrap().flatten() {
                     let name = format!("{prefix}{}", entry.file_name().to_string_lossy());
+                    // The templates' test runs (`replays/tests/`) are the
+                    // repository's: a new game does not carry them, as BUILD
+                    // leaves them out too.
+                    if name == "replays/tests" {
+                        continue;
+                    }
                     if entry.path().is_dir() {
                         walk(&entry.path(), &format!("{name}/"), out);
                     } else {

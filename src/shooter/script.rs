@@ -426,6 +426,8 @@ impl Host for Shooter {
             }
         }
         let Some((kind, at, facing, hp)) = figure else { return Ok(None) };
+        // Seat 1's first figure stands where `--at` put the players.
+        let at = if seat == 1 { self.start_at.take().unwrap_or(at) } else { at };
         let k = &self.rules.kinds[kind];
         if !matches!(k.rules, KindRules::Script) {
             return Err(format!("c.player.kind: a player's figure moves by its keys, a {} by its behavior (c.things.{}.behavior)", k.name, k.name));
