@@ -228,7 +228,7 @@ mod tests {
         assert_eq!(slots.newest(), None);
     }
 
-    /// Each game keeps its saves in a folder of its own name: a save of
+    /// Each game keeps its saves in a folder of its own: a save of
     /// another game is never among its slots.
     #[test]
     fn a_save_of_another_game_is_not_among_its_slots() {
@@ -237,7 +237,9 @@ mod tests {
         std::fs::create_dir_all(&a).unwrap();
         std::fs::create_dir_all(&b).unwrap();
         assert_ne!(dir_for(&a), dir_for(&b));
-        assert_eq!(dir_for(&a).file_name(), Some(std::ffi::OsStr::new("farm")));
+        // (A game of one's own is known by its folder's path: its name and a
+        // short hash, `settings::Identity`.)
+        assert!(dir_for(&a).file_name().is_some_and(|n| n.to_string_lossy().starts_with("farm")));
         let saves = dir.join("saves");
         let mut farm = Slots::on_disk_in(saves.join("farm"));
         farm.set_count(2);
