@@ -290,13 +290,13 @@ impl Editor {
                 }
                 self.land.chosen = Some(p);
                 self.land.shape = shape;
-                self.stroke = Some(Step::Level(self.level_state(), self.level_state()));
+                self.history.stroke = Some(Step::Level(self.level_state(), self.level_state()));
                 let start = self.point_spot(p).and_then(|at| height_along(at, ray.0, ray.1));
                 self.land.drag = Some(Drag { grabbed: p, from, start, target: 0, last: None });
             }
             (_, p) => {
                 let target = height;
-                self.stroke = Some(Step::Level(self.level_state(), self.level_state()));
+                self.history.stroke = Some(Step::Level(self.level_state(), self.level_state()));
                 self.land.drag = Some(Drag { grabbed: p.unwrap_or_default(), from, start: None, target, last: None });
                 if let Some(p) = p {
                     self.brush(p);
@@ -649,7 +649,7 @@ impl Editor {
             names.push(name.clone());
             let facing = match rule.rotate() {
                 crate::terrain::Rotate::None => None,
-                crate::terrain::Rotate::Any if self.free_turns => Some(crate::grid::Facing::Turn(p.rotation)),
+                crate::terrain::Rotate::Any if self.pieces.free_turns => Some(crate::grid::Facing::Turn(p.rotation)),
                 _ => Some(crate::grid::Facing::Way(crate::grid::Way::nearest(p.rotation))),
             };
             let spot = [at[0] + p.column.x, at[1] + p.column.y, at[2] + p.ground - sink];
@@ -999,6 +999,43 @@ mod tests {
         std::fs::read_to_string(dir.join("levels/land.toml")).unwrap()
     }
 
+    /// The view's marks as a window paints them over the land, at 1600 by
+    /// 900: the strokes' and fills' colors.
+    fn painted(ed: &Editor, view: &crate::editor::view::View) -> Vec<egui::Color32> {
+        let ctx = egui::Context::default();
+        crate::gui::style(&ctx);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 900.0));
+        let figures = crate::editor::view::Figures::load(&ed.dir, &crate::config::GameConfig::default());
+        let raw = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+        let out = ctx.run_ui(raw, |ui| crate::editor::panels::marks(ui, ed, view, &figures, screen));
+        out.shapes
+            .iter()
+            .flat_map(|c| match &c.shape {
+                egui::Shape::LineSegment { stroke, .. } => vec![stroke.color],
+                egui::Shape::Rect(r) => vec![r.fill],
+                _ => Vec::new(),
+            })
+            .collect()
+    }
+
+    /// TERRAIN shows every point of the land faintly, not only those near
+    /// the mouse, and the view has a quiet axis marker (X red, Y green, Z
+    /// blue, the handles' colors); GAME VIEW shows what the game shows,
+    /// no marker.
+    #[test]
+    fn the_lands_points_show_faintly_and_the_axes_in_the_corner() {
+        let (ed, _dir) = land("land-faint");
+        let mut view = crate::editor::view::View::new(&ed, &crate::config::GameConfig::default());
+        let colors = painted(&ed, &view);
+        let t = ed.terrain().unwrap();
+        let faint = colors.iter().filter(|c| **c == egui::Color32::from_rgba_unmultiplied(24, 23, 30, 120)).count();
+        assert_eq!(faint, (t.cols * t.rows) as usize, "every point, faintly");
+        let axes = |colors: &[egui::Color32]| crate::editor::zones::AXIS.iter().filter(|a| colors.contains(&egui::Color32::from_rgba_unmultiplied(a.r(), a.g(), a.b(), 170))).count();
+        assert_eq!(axes(&colors), 3, "X, Y and Z in the corner");
+        view.before_game = Some(view.level);
+        assert_eq!(axes(&painted(&ed, &view)), 0, "none in GAME VIEW");
+    }
+
     /// A point raised with the brush: a hill, not a spike, one step and
     /// one UNDO; only the heights' lines change, the comment kept.
     #[test]
@@ -1244,7 +1281,7 @@ mod tests {
         assert!(ed.stamp());
         let names: Vec<_> = ed.level.things.iter().map(|t| (t.name.clone().unwrap(), t.at)).collect();
         assert_eq!(names, [("fir".to_string(), a.to_array()), ("fir_2".to_string(), b.to_array())]);
-        assert!(matches!(&ed.hanging, Some(super::super::room::Hanging::Thing(t)) if t.name.as_deref() == Some("fir_3")), "the next on the mouse");
+        assert!(matches!(&ed.pieces.hanging, Some(super::super::room::Hanging::Thing(t)) if t.name.as_deref() == Some("fir_3")), "the next on the mouse");
         assert_eq!(ed.steps(), 2, "a step a fir");
         assert!(ed.drop_hanging());
     }

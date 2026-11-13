@@ -48,7 +48,7 @@ pub struct Shown {
 /// The pictures on the panels as textures, made again only when what they
 /// show changed.
 #[derive(Default)]
-pub struct Thumbs(HashMap<String, (u64, egui::TextureHandle)>);
+pub struct Thumbs(HashMap<String, (u64, egui::TextureHandle)>, HashMap<String, Option<String>>);
 
 impl Thumbs {
     /// The picture `key`, made by `make` if new or changed (`of`: what it
@@ -65,6 +65,29 @@ impl Thumbs {
         }
         let t = &self.0[&key].1;
         (t.id(), t.size_vec2())
+    }
+
+    /// The picture of the model `file` (its path in the game folder `dir`)
+    /// seen from the front (`front_of`), made anew when the file
+    /// changed, and why it does not read, if it does not (the editors'
+    /// lists mark it and say why on hover, not an empty tile).
+    pub fn model(&mut self, ctx: &egui::Context, dir: &std::path::Path, file: &str, fit: i32) -> (egui::TextureId, egui::Vec2, Option<String>) {
+        let path = dir.join(file);
+        let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        let key = format!("model {file}");
+        let mut made = None;
+        let (tex, px) = self.get(ctx, key.clone(), (file, modified), || {
+            let (picture, problem) = match crate::vox::load_model(&path) {
+                Ok(m) => (front_of(&m, fit), None),
+                Err(e) => ((1, 1, vec![None]), Some(format!("{e:#}"))),
+            };
+            made = Some(problem);
+            picture
+        });
+        if let Some(problem) = made {
+            self.1.insert(key.clone(), problem);
+        }
+        (tex, px, self.1.get(&key).cloned().flatten())
     }
 }
 
@@ -184,8 +207,7 @@ pub fn joints(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
 
 /// A model's first frame as a set-down piece shows it to the camera
 /// (facing south: its front), at most `fit` pixels each way.
-pub fn model_picture(path: &std::path::Path, fit: i32) -> (i32, i32, Vec<Option<[u8; 3]>>) {
-    let Ok(m) = crate::vox::load_model(path) else { return (1, 1, vec![None]) };
+fn front_of(m: &crate::vox::VoxModel, fit: i32) -> (i32, i32, Vec<Option<[u8; 3]>>) {
     let voxels: Vec<(glam::IVec3, [u8; 3])> = m.frames.first().map_or(Vec::new(), |f| f.iter().map(|&(p, c)| (glam::IVec3::new(-p.x, -p.y, p.z), [c[0], c[1], c[2]])).collect());
     super::view::front_picture(&voxels, fit)
 }
@@ -195,6 +217,9 @@ pub fn model_picture(path: &std::path::Path, fit: i32) -> (i32, i32, Vec<Option<
 /// places and areas with their names; and a quiet word on what the mouse
 /// does.
 pub fn marks(ui: &egui::Ui, ed: &Editor, view: &View, figures: &Figures, free: egui::Rect) {
+    if ed.question.is_none() && view.before_game.is_none() {
+        axis_marker(ui, ed, view, free);
+    }
     if ed.among_land() && ed.question.is_none() {
         return land_marks(ui, ed, view, free);
     }
@@ -235,9 +260,56 @@ pub fn marks(ui: &egui::Ui, ed: &Editor, view: &View, figures: &Figures, free: e
     stage::paint_handles(&painter, ed, view, screen);
 }
 
+/// How far the axis marker's lines reach (points), and how far its
+/// middle stands in from the view's bottom left corner.
+const AXIS_REACH: f32 = 22.0;
+const AXIS_IN: f32 = 38.0;
+
+/// A quiet axis marker in the view's bottom left corner: X red, Y green,
+/// Z blue as the handles have them, each line the way its axis runs on
+/// the screen (an axis toward the eye short), its letter at the tip.
+fn axis_marker(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
+    let screen = ui.ctx().content_rect();
+    let aspect = screen.width() / screen.height().max(1.0);
+    let orbit = match ed.scope {
+        super::model::Scope::Level => &view.level,
+        _ => &view.block,
+    };
+    let vp = orbit.view_proj(aspect);
+    let size = glam::Vec2::new(screen.width(), screen.height());
+    let Some((middle, _)) = super::handles::project(vp, size, orbit.target) else { return };
+    let step = orbit.zoom * 0.05;
+    let ways: Vec<glam::Vec2> = [glam::Vec3::X, glam::Vec3::Y, glam::Vec3::Z].iter().map(|&a| super::handles::project(vp, size, orbit.target + a * step).map_or(glam::Vec2::ZERO, |(s, _)| s - middle)).collect();
+    let longest = ways.iter().map(|w| w.length()).fold(0.0, f32::max);
+    if longest <= 1e-3 {
+        return;
+    }
+    let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::unique("axis marker"))).with_clip_rect(free);
+    let o = egui::pos2(free.left() + AXIS_IN, free.bottom() - AXIS_IN);
+    let font = TextStyle::Small.resolve(ui.style());
+    // The axis furthest from the eye first (its line under the others).
+    let mut order = [0, 1, 2];
+    order.sort_by(|&a, &b| ways[a].length().total_cmp(&ways[b].length()));
+    for a in order {
+        let w = ways[a] / longest * AXIS_REACH;
+        let [r, g, b, _] = super::zones::AXIS[a].to_array();
+        let colour = Color32::from_rgba_unmultiplied(r, g, b, 170);
+        let tip = o + egui::vec2(w.x, w.y);
+        painter.line_segment([o, tip], egui::Stroke::new(1.5, colour));
+        // (An axis toward the eye: its letter beside the middle, not on
+        // the others' lines.)
+        let away = if w.length() > 0.3 * AXIS_REACH { w.normalize() * 8.0 } else { glam::Vec2::new(-9.0, 9.0) - w };
+        painter.text(tip + egui::vec2(away.x, away.y), egui::Align2::CENTER_CENTER, ["X", "Y", "Z"][a], font.clone(), colour);
+    }
+}
+
 /// The terrain's points over the view, on its surface: a small square
 /// each, the one under the mouse and the chosen ones lit; SELECT's
 /// rectangle.
+/// How far apart on the screen (points, on average) the terrain's points
+/// must stand for those away from the mouse to show faintly.
+const FAINT_POINTS_APART: f32 = 14.0;
+
 fn land_marks(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
     let screen = ui.ctx().content_rect();
     let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::unique("land marks"))).with_clip_rect(free);
@@ -245,9 +317,20 @@ fn land_marks(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
     let size = glam::Vec2::new(screen.width(), screen.height());
     let gold = ACCENT;
     let plain = Color32::from_rgb(150, 205, 235);
-    for (p, s) in ed.points_on_screen(vp, size) {
+    let points = ed.points_on_screen(vp, size);
+    // The other points faint, a dot each, where they stand apart enough
+    // on the screen not to cover the land.
+    let inside = points.iter().filter(|(_, s)| free.contains(egui::pos2(screen.left() + s.x, screen.top() + s.y))).count();
+    let faint = inside > 0 && free.area() / inside as f32 >= FAINT_POINTS_APART * FAINT_POINTS_APART;
+    for &(p, s) in &points {
         let at = egui::pos2(screen.left() + s.x, screen.top() + s.y);
-        if !free.contains(at) || !ed.point_shown(p) {
+        if !free.contains(at) {
+            continue;
+        }
+        if !ed.point_shown(p) {
+            if faint {
+                painter.rect(egui::Rect::from_center_size(at, egui::vec2(3.0, 3.0)), 0.5, Color32::from_rgba_unmultiplied(24, 23, 30, 120), egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(150, 205, 235, 110)), egui::StrokeKind::Middle);
+            }
             continue;
         }
         let chosen = ed.land.selected.contains(&p) || (ed.land.selected.is_empty() && ed.land.chosen == Some(p));
@@ -315,6 +398,30 @@ mod tests {
         act(ed, view, key_action(&keys, key).unwrap_or_else(|| panic!("nothing on {key}")));
     }
 
+    /// A model that does not read shows in ADD MODEL marked, with why on
+    /// hover (`Thumbs::model`), not as an empty tile; one that reads has
+    /// nothing to say, and a file mended says nothing more.
+    #[test]
+    fn a_model_that_does_not_read_says_why() {
+        let dir = crate::scratch::Scratch::new("thumbs-broken");
+        std::fs::write(dir.join("broken.vvx"), "format = \"voxcade voxel 1\"\nsize = [2, 2]\n").unwrap();
+        std::fs::write(dir.join("good.vvx"), "format = \"voxcade voxel 1\"\nsize = [1, 1, 1]\n\n[palette]\na = \"#ff0000\"\n\n[[frame]]\nlayers = \"\"\"\na\n\"\"\"\n").unwrap();
+        let ctx = egui::Context::default();
+        let mut thumbs = Thumbs::default();
+        let (_, _, why) = thumbs.model(&ctx, &dir, "broken.vvx", 64);
+        let why = why.expect("a reason");
+        assert!(why.contains("size"), "{why}");
+        let (_, _, again) = thumbs.model(&ctx, &dir, "broken.vvx", 64);
+        assert_eq!(again.as_deref(), Some(why.as_str()), "kept while the file stays");
+        let (_, px, fine) = thumbs.model(&ctx, &dir, "good.vvx", 64);
+        assert_eq!((fine, px), (None, egui::vec2(1.0, 1.0)));
+        // A level of blocks without its cells says how a level without
+        // blocks is written.
+        std::fs::write(dir.join("room.toml"), "format = \"voxcade level 1\"\nblock = 10\nsize = [4, 4, 2]\n").unwrap();
+        let e = format!("{:#}", Editor::open(&dir, "room.toml").err().expect("refused"));
+        assert!(e.contains("leaves `block` out") && e.contains("`size` in voxels"), "{e}");
+    }
+
     /// The tools' rows name their keys, the same on both levels, and do
     /// what clicking them does; the number keys take the block's first ten
     /// colours.
@@ -344,7 +451,7 @@ mod tests {
         press(&mut ed, &mut view, 'q');
         assert_eq!(ed.tool, Tool::Box, "Q: BOX in a block");
         press(&mut ed, &mut view, 'f');
-        assert!(ed.bevel, "F: BEVEL, with BOX");
+        assert!(ed.forms.bevel, "F: BEVEL, with BOX");
         press(&mut ed, &mut view, 's');
         assert_eq!(ed.tool, Tool::Sphere, "S: SPHERE");
         press(&mut ed, &mut view, 'y');
@@ -600,7 +707,7 @@ mod tests {
         let ctx = egui::Context::default();
         crate::gui::style(&ctx);
         let moving = laid_out(&ctx, &ed, &view);
-        view.turning = ed.chosen;
+        view.turning = ed.pieces.chosen;
         assert!(view.turn_mode(&ed));
         let rotating = laid_out(&ctx, &ed, &view);
         assert!(moving.rects.len() > 3, "a bar at the chair");

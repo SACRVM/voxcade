@@ -48,7 +48,7 @@ impl Editor {
     /// and its pose on it while POSE is lit.
     pub fn own_rest(&self) -> Quat {
         let rest = self.part_rotation().map_or(Quat::IDENTITY, |[r, p, l]| crate::session::turning(r, p, l));
-        match self.chosen_pose().filter(|_| self.posing) {
+        match self.chosen_pose().filter(|_| self.rigging.posing) {
             Some([r, p, l]) => crate::session::turning(r, p, l) * rest,
             None => rest,
         }
@@ -63,24 +63,24 @@ impl Editor {
     pub fn chosen_posed(&self) -> Option<Posed> {
         let f = self.figure.as_ref()?;
         let name = &f.parts().get(f.selected?)?.name;
-        Some(self.pose.get(name).copied().unwrap_or_default())
+        Some(self.rigging.pose.get(name).copied().unwrap_or_default())
     }
 
     /// The chosen part's pose's offset along one axis set (POSE's POSITION
     /// fields): drawn, nothing written, no step.
     pub fn set_pose_offset(&mut self, axis: usize, voxels: f32) {
         let Some(name) = self.figure.as_ref().and_then(|f| Some(f.parts().get(f.selected?)?.name.clone())) else { return };
-        let entry = self.pose.entry(name.clone()).or_default();
+        let entry = self.rigging.pose.entry(name.clone()).or_default();
         entry.offset[axis.min(2)] = (voxels * 10.0).round() / 10.0;
         if *entry == Posed::default() {
-            self.pose.remove(&name);
+            self.rigging.pose.remove(&name);
         }
         self.follow_figure();
     }
 
     /// What the rings turn: the pose while POSE is lit, else the rest.
     pub fn turn_values(&self) -> Option<[f32; 3]> {
-        if self.posing { self.chosen_pose() } else { self.part_rotation() }
+        if self.rigging.posing { self.chosen_pose() } else { self.part_rotation() }
     }
 
     /// The chosen part's pose about one axis (as `set_part_rotation`'s)
@@ -89,10 +89,10 @@ impl Editor {
         let Some(name) = self.figure.as_ref().and_then(|f| Some(f.parts().get(f.selected?)?.name.clone())) else { return };
         let to = degrees.rem_euclid(360.0);
         let to = if to > 180.0 { to - 360.0 } else { to };
-        let entry = self.pose.entry(name.clone()).or_default();
+        let entry = self.rigging.pose.entry(name.clone()).or_default();
         entry.turn[axis.min(2)] = to;
         if *entry == Posed::default() {
-            self.pose.remove(&name);
+            self.rigging.pose.remove(&name);
         }
         self.follow_figure();
     }
@@ -100,13 +100,13 @@ impl Editor {
     /// POSE on or off (the pose kept); a part chosen shows its rings.
     pub fn set_posing(&mut self, on: bool) {
         self.release();
-        self.posing = on;
+        self.rigging.posing = on;
         self.follow_figure();
     }
 
     /// RESET: no pose.
     pub fn reset_pose(&mut self) {
-        self.pose.clear();
+        self.rigging.pose.clear();
         self.follow_figure();
     }
 
@@ -119,7 +119,7 @@ impl Editor {
         let parts: Vec<String> = order
             .iter()
             .filter_map(|name| {
-                let posed = self.pose.get(name)?;
+                let posed = self.rigging.pose.get(name)?;
                 let mut keys: Vec<String> = ["rotation", "pitch", "roll"].iter().zip(posed.turn).filter(|(_, v)| *v != 0.0).map(|(k, v)| format!("{k} = {}", num(v))).collect();
                 if posed.offset != [0.0; 3] {
                     let [x, y, z] = posed.offset.map(num);
@@ -305,7 +305,7 @@ impl Editor {
         let v = t - j + own * j;
         let whole = v.round();
         let rest = ((v - whole) * 10000.0).round() / 10000.0;
-        let joint = figure.joint(p) + figure.low.as_vec3() + whole;
+        let joint = figure.file_joint(p) + whole;
         let rotation = euler(own);
         let (from, to) = (name(p), name(q));
         let whole = whole.as_ivec3();
@@ -341,7 +341,7 @@ impl Editor {
         let Some(f) = self.model.as_ref().and_then(|m| m.parts.iter().find(|o| o.name == name)).map(|o| o.frame) else { return };
         self.release();
         self.scope = Scope::Frame(f);
-        self.part_rotating = false;
+        self.rigging.part_rotating = false;
         self.follow_figure();
     }
 
@@ -352,7 +352,7 @@ impl Editor {
     /// voxel would not be in the file, nor seen.)
     pub fn add_part(&mut self) {
         self.follow_figure();
-        let chosen = self.figure.as_ref().and_then(|f| f.selected).filter(|_| !self.painting_whole);
+        let chosen = self.figure.as_ref().and_then(|f| f.selected).filter(|_| !self.rigging.painting_whole);
         let Some(m) = self.model.as_ref() else { return };
         // Each part's top voxel nearest its box's middle (from the pivot).
         let top = |k: usize| -> Option<IVec3> {
@@ -487,7 +487,7 @@ impl Editor {
         let (Some(a), Some(b), Some(figure)) = (self.placed(src), self.placed(into), &self.figure) else { return };
         let target = figure.parts()[into].name.clone();
         let gone = figure.parts()[src].name.clone();
-        let joint = figure.joint(into) + figure.low.as_vec3();
+        let joint = figure.file_joint(into);
         let rooted = figure.parts()[into].parent.is_none();
         let kids: Vec<_> = self.rehang(src, Some(target.clone())).into_iter().filter(|(n, ..)| *n != target).collect();
         let seen = self.merge_map(src, into);
@@ -596,18 +596,18 @@ impl Editor {
         let Some(f) = self.figure.as_ref().and_then(|fig| fig.frames.get(p).copied()) else { return };
         self.release();
         self.scope = Scope::Frame(f);
-        self.painting_whole = true;
+        self.rigging.painting_whole = true;
         self.follow_figure();
     }
 
     /// The stroke from the figure whole let go of: the figure whole again
     /// (a box set stays as set; its depth is no more to change).
     pub fn end_whole_stroke(&mut self) {
-        if !self.painting_whole {
+        if !self.rigging.painting_whole {
             return;
         }
-        self.painting_whole = false;
-        self.fresh = None;
+        self.rigging.painting_whole = false;
+        self.forms.fresh = None;
         self.scope = Scope::Figure;
         self.follow_figure();
     }
@@ -615,7 +615,7 @@ impl Editor {
     /// While a part's ring is dragged: by single degrees (Ctrl held) or by
     /// fives.
     pub fn set_fine(&mut self, fine: bool) {
-        if let Some(d) = &mut self.joint_drag {
+        if let Some(d) = &mut self.rigging.joint_drag {
             d.fine = fine;
         }
     }
@@ -778,7 +778,7 @@ pub(crate) mod tests {
         for name in ["head", "body"] {
             let p = part(&ed, name);
             ed.begin_whole_stroke(p);
-            assert!(ed.painting_whole && ed.part_mode().is_some());
+            assert!(ed.rigging.painting_whole && ed.part_mode().is_some());
             // A voxel of it, straight down onto its top.
             let size = ed.shape().unwrap().size;
             let hit = ed.aim(Vec3::new(0.5, 0.5, 100.0), Vec3::NEG_Z).unwrap_or(crate::editor::model::Hit { cell: IVec3::new(0, 0, size.z - 1), normal: IVec3::Z });
@@ -854,7 +854,7 @@ pub(crate) mod tests {
         act(&mut ed, &mut view, Action::DuplicatePart(p));
         assert_eq!(names(&ed), ["body", "head", "arm", "arm_2"]);
         assert_eq!(ed.figure.as_ref().unwrap().selected, Some(part(&ed, "arm_2")));
-        assert!(!ed.part_rotating, "in MOVE, to be dragged away");
+        assert!(!ed.rigging.part_rotating, "in MOVE, to be dragged away");
     }
 
     /// RENAME: a word, unique; the file says it and what hung on it by
@@ -949,6 +949,24 @@ pub(crate) mod tests {
         assert_eq!(stated.x, 3.5, "typed 3.5 in X: the file's 3.5");
         let f = ed.figure.as_ref().unwrap();
         assert_eq!(f.joint(hand) + f.low.as_vec3(), stated, "the field shows the file's numbers");
+    }
+
+    /// The parts' tree `edit --shot` prints says where each part turns in
+    /// the numbers the file and the JOINT row use (from the pivot), not
+    /// the view's (from the figure's low corner).
+    #[test]
+    fn the_printed_tree_says_the_files_joints() {
+        let (mut ed, mut view, dir) = figure("tree-joints");
+        assert_ne!(ed.figure.as_ref().unwrap().low, IVec3::ZERO, "a figure whose low corner is not its pivot");
+        // The hand's joint typed in, as the file then states it.
+        let hand = part(&ed, "hand");
+        act(&mut ed, &mut view, Action::Part(hand));
+        act(&mut ed, &mut view, Action::JointTo(0, 3.5));
+        let file = crate::editor::frames::ModelFile::load(&dir.join("fig.vvx")).unwrap();
+        let stated = file.parts.iter().find(|o| o.name == "hand").unwrap().joint.expect("stated");
+        let lines = ed.figure.as_ref().unwrap().tree_lines();
+        let line = lines.iter().find(|l| l.trim_start().starts_with("hand ")).unwrap_or_else(|| panic!("hand in {lines:?}"));
+        assert!(line.contains(&format!("turning at {}, {}, {}", stated.x, stated.y, stated.z)), "{line}: the file's {stated}");
     }
 
     /// REDO after each of the parts' steps gives the same file again.
@@ -1088,7 +1106,7 @@ pub(crate) mod tests {
         let file = text(&dir);
         let (steps, arm) = (ed.steps(), part(&ed, "arm"));
         act(&mut ed, &mut view, Action::Pose);
-        assert!(ed.posing);
+        assert!(ed.rigging.posing);
         act(&mut ed, &mut view, Action::Part(arm));
         let at_rest = ed.figure.as_ref().unwrap().rest_map(arm, IVec3::ZERO);
         act(&mut ed, &mut view, Action::PoseValue(2, 20.0));
@@ -1105,7 +1123,7 @@ pub(crate) mod tests {
         assert!(ed.part_handles(vp).is_some_and(|h| h.rings.iter().all(Option::is_some) && h.arrows.iter().all(Option::is_none)));
         act(&mut ed, &mut view, Action::Pose);
         assert_eq!(ed.figure.as_ref().unwrap().rest_map(arm, IVec3::ZERO), at_rest, "POSE off: the rest drawn");
-        assert!(!ed.pose.is_empty(), "the pose kept");
+        assert!(!ed.rigging.pose.is_empty(), "the pose kept");
         act(&mut ed, &mut view, Action::Pose);
         assert_eq!(ed.figure.as_ref().unwrap().rest_map(arm, IVec3::ZERO), posed, "on again: posed again");
         act(&mut ed, &mut view, Action::PoseReset);
@@ -1199,7 +1217,7 @@ pub(crate) mod tests {
         assert_eq!(f.outline[3], 1.0, "the game's outline");
         // Posed: the arm's draw turned.
         act(&mut ed, &mut view, Action::Pose);
-        ed.pose.insert("arm".into(), super::Posed { turn: [0.0, 45.0, 0.0], offset: [0.0; 3] });
+        ed.rigging.pose.insert("arm".into(), super::Posed { turn: [0.0, 45.0, 0.0], offset: [0.0; 3] });
         ed.follow_figure();
         let posed = crate::editor::view::frame(&ed, &view, &shown, &figures, &light, 16.0 / 9.0);
         assert_ne!(posed.models, f.models, "posed");
@@ -1221,6 +1239,32 @@ pub(crate) mod tests {
         view.before_game = Some(view.level);
         act(&mut ed, &mut view, Action::ZoomView(1));
         assert!(view.before_game.is_none(), "a level's ends");
+    }
+
+    /// GAME VIEW draws a figure the way the game has it look: a thing's
+    /// model turned to the camera, as `frame:model` draws it on a thing of
+    /// a kind facing the camera (its +y side seen, its +x on the left); the
+    /// title's logo unturned and straight from the front, as the title
+    /// lays it (BunnyFarm's logo read mirrored before).
+    #[test]
+    fn game_view_faces_a_figure_as_the_game_does() {
+        let (mut ed, mut view, dir) = figure("game-view-face");
+        let figures = crate::editor::view::Figures::load(&dir, &crate::config::GameConfig::default());
+        let light = crate::config::LightConfig::default();
+        let turns = |ed: &Editor, view: &View| {
+            let shown = crate::editor::view::Shown::new(ed).unwrap();
+            let f = crate::editor::view::frame(ed, view, &shown, &figures, &light, 16.0 / 9.0);
+            assert!(!f.models.is_empty());
+            f.models.iter().map(|m| m.turn).collect::<std::collections::BTreeSet<u32>>()
+        };
+        assert_eq!(view.face, crate::editor::view::Face::Front);
+        act(&mut ed, &mut view, Action::GameView);
+        assert_eq!(turns(&ed, &view), [2].into(), "a thing's figure turned to the camera");
+        act(&mut ed, &mut view, Action::GameView);
+        view.face = crate::editor::view::Face::Logo;
+        act(&mut ed, &mut view, Action::GameView);
+        assert_eq!(turns(&ed, &view), [0].into(), "the logo as the title lays it");
+        assert_eq!((view.block.yaw, view.block.pitch), (0.0, 0.0), "from the front, as the title shows it");
     }
 
     /// A part's arrow dragged, its let-go never clean: the focus lost or
@@ -1454,7 +1498,7 @@ pub(crate) mod tests {
         let nose = part(&ed, "nose");
         act(&mut ed, &mut view, Action::Part(nose));
         view.follow_origin(&ed);
-        assert!(ed.part_turned() && !ed.move_global, "LOCAL at a turned part");
+        assert!(ed.part_turned() && !ed.rigging.move_global, "LOCAL at a turned part");
         let screen = glam::Vec2::new(1600.0, 900.0);
         let at = |ed: &Editor| ed.local_to_pivot().transform_point3(Vec3::splat(0.5));
         let drag_x = |ed: &mut Editor, view: &View, by: f32| {

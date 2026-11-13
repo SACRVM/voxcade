@@ -199,7 +199,7 @@ impl Editor {
     /// Every drag and stroke let go of as before it began, nothing kept:
     /// the file under it changed.
     fn drop_drags(&mut self) {
-        if let Some(stroke) = self.stroke.take() {
+        if let Some(stroke) = self.history.stroke.take() {
             match stroke {
                 Step::Level(before, _) => self.set_level(&before),
                 Step::Block(i, before, _) => {
@@ -216,20 +216,20 @@ impl Editor {
             }
         }
         self.moving = None;
-        self.dragging = None;
-        self.gripped = None;
-        self.joint_drag = None;
-        self.join_next = false;
-        self.drawing = None;
-        self.fresh = None;
-        self.tuned = None;
-        self.tuning = None;
+        self.pieces.dragging = None;
+        self.pieces.gripped = None;
+        self.rigging.joint_drag = None;
+        self.rigging.join_next = false;
+        self.forms.drawing = None;
+        self.forms.fresh = None;
+        self.pieces.tuned = None;
+        self.history.tuning = None;
     }
 
     /// What is chosen among the pieces, to find again in a level read
     /// anew: its name, else the thing as it was.
     fn chosen_mark(&self) -> Option<(Item, Option<String>, Option<Thing>)> {
-        let item = self.chosen?;
+        let item = self.pieces.chosen?;
         let thing = match item {
             Item::Thing(i) => self.level.things.get(i).cloned(),
             _ => None,
@@ -238,18 +238,18 @@ impl Editor {
     }
 
     fn choose_again(&mut self, mark: Option<(Item, Option<String>, Option<Thing>)>) {
-        self.chosen = mark.and_then(|(item, name, thing)| match (name, thing) {
+        self.pieces.chosen = mark.and_then(|(item, name, thing)| match (name, thing) {
             (Some(n), _) => self.find(&n).filter(|f| std::mem::discriminant(f) == std::mem::discriminant(&item)),
             (None, Some(t)) => self.level.things.iter().position(|o| *o == t).map(Item::Thing),
             _ => None,
         });
-        if self.chosen.is_none() {
-            self.chosen_light = None;
+        if self.pieces.chosen.is_none() {
+            self.pieces.chosen_light = None;
         }
-        if let Some(Item::Thing(i)) = self.chosen
-            && self.chosen_light.is_some_and(|k| k >= self.level.things[i].lights.len())
+        if let Some(Item::Thing(i)) = self.pieces.chosen
+            && self.pieces.chosen_light.is_some_and(|k| k >= self.level.things[i].lights.len())
         {
-            self.chosen_light = None;
+            self.pieces.chosen_light = None;
         }
     }
 
@@ -297,8 +297,8 @@ impl Editor {
             Held::Context => return Ok(()),
         }
         self.disk.remember(path, &bytes);
-        self.past.clear();
-        self.future.clear();
+        self.history.past.clear();
+        self.history.future.clear();
         Ok(())
     }
 
@@ -390,8 +390,8 @@ impl Editor {
             Step::Block(i, b, a) => self.lay_block(*i, b, a, path),
             Step::Model(b, a) => self.lay_model(b, a, path),
         };
-        self.past.clear();
-        self.future.clear();
+        self.history.past.clear();
+        self.history.future.clear();
         match laid {
             Ok(kept) => {
                 let kept = kept.map(Box::new);
@@ -932,7 +932,7 @@ mod tests {
         assert!(ed.look_at_disk());
         assert_eq!(ed.level.things[0].name.as_deref(), Some("rug"));
         assert_eq!(thing(&ed.level, "lamp").at, [220, 44, 0]);
-        assert_eq!(ed.chosen, ed.find("lamp"), "still the lamp, a place further down");
+        assert_eq!(ed.pieces.chosen, ed.find("lamp"), "still the lamp, a place further down");
         assert_eq!(ed.steps(), 0, "a step back would bring the older file back");
         assert!(ed.disk.notice.as_deref().is_some_and(|n| n.starts_with("LEVEL READ ANEW")), "{:?}", ed.disk.notice);
         assert!(!ed.look_at_disk(), "once");
@@ -981,7 +981,7 @@ mod tests {
         outside(&dir, &text);
         ed.turn_item(1);
         assert_eq!(saved(&dir), text);
-        assert!(ed.find("chair").is_none() && ed.chosen.is_none());
+        assert!(ed.find("chair").is_none() && ed.pieces.chosen.is_none());
         assert!(ed.disk.notice.as_deref().is_some_and(|n| n.starts_with("STEP NOT WRITTEN")), "{:?}", ed.disk.notice);
         assert_eq!(ed.steps(), 0);
     }

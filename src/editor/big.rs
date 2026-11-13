@@ -304,7 +304,7 @@ fn exercise(mut win: EditorWindow) {
     let s = Instant::now();
     button(&mut win, b.0, b.1, sdl3::mouse::MouseButton::Left, false);
     draw(&mut win);
-    println!("select: whole {:.1} ms, drag worst {worst:.1}, let go {:.1} ms, selected {} {}", ms(t), ms(s), win.ed.selection.as_ref().map_or(0, |s| s.cells.len()), g());
+    println!("select: whole {:.1} ms, drag worst {worst:.1}, let go {:.1} ms, selected {} {}", ms(t), ms(s), win.ed.selecting.selection.as_ref().map_or(0, |s| s.cells.len()), g());
     let t = Instant::now();
     for _ in 0..10 {
         win.dirty = true;
@@ -601,4 +601,49 @@ fn a_kept_outline_is_the_outline() {
     check(&win, "another added");
     win.ed.select_box_cells(glam::IVec3::new(0, 0, 0), glam::IVec3::new(3, 2, 3), false);
     check(&win, "a new one");
+}
+
+/// A stroke on a figure's part is drawn from the world shown: the figure
+/// (its other parts, the rig) is made again once when it is let go, not
+/// at every voxel (each voxel made the whole figure again: 22 to 25 ms a
+/// frame on the wall as a figure), and what is drawn mid-stroke is what a
+/// figure made afresh draws.
+#[test]
+fn a_stroke_on_a_figure_makes_it_again_when_let_go() {
+    let (mut win, _dir) = wall_figure_window("figure-stroke");
+    view::act(&mut win.ed, &mut win.view, view::Action::Part(0));
+    win.draw().unwrap();
+    let mut last = (800.0, 450.0);
+    let (y, x0, x1) = run_on(&win);
+    assert!(x1 - x0 > 100.0, "the wall is met along a row: {x0} to {x1}");
+    view::act(&mut win.ed, &mut win.view, view::Action::Tool(Tool::Paint));
+    win.ed.colour = [200, 40, 40];
+    motion(&mut win, x0, y, 0, &mut last);
+    win.draw().unwrap();
+    let before = win.ed.model.as_ref().unwrap().shaped();
+    button(&mut win, x0, y, sdl3::mouse::MouseButton::Left, true);
+    win.draw().unwrap();
+    for k in 1..=8 {
+        motion(&mut win, x0 + (x1 - x0) * k as f32 / 12.0, y, 1, &mut last);
+        win.draw().unwrap();
+    }
+    assert!(!win.ed.model.as_ref().unwrap().is(&before), "the stroke changed the wall");
+    assert!(win.ed.figure.as_ref().unwrap().made_of(&before), "the figure not made again mid-stroke");
+    // Drawn as a figure made afresh draws it.
+    let light = win.cfg.light.clone();
+    let stale = view::frame(&win.ed, &win.view, &win.shown, &win.figures, &light, 16.0 / 9.0);
+    let kept = win.ed.figure.take().unwrap();
+    let (mut fresh, _) = super::figure::Figure::follow(None, win.ed.model.as_ref().unwrap(), None);
+    let f = fresh.as_mut().unwrap();
+    (f.selected, f.hidden) = (kept.selected, kept.hidden.clone());
+    win.ed.figure = fresh;
+    let afresh = view::frame(&win.ed, &win.view, &win.shown, &win.figures, &light, 16.0 / 9.0);
+    assert!(bytemuck::cast_slice::<_, u8>(&stale.instances) == bytemuck::cast_slice::<_, u8>(&afresh.instances), "the same cubes mid-stroke");
+    assert_eq!(stale.models, afresh.models);
+    win.ed.figure = Some(kept);
+    button(&mut win, x1, y, sdl3::mouse::MouseButton::Left, false);
+    win.draw().unwrap();
+    let now = win.ed.model.as_ref().unwrap().shaped();
+    assert!(win.ed.figure.as_ref().unwrap().made_of(&now), "let go: made of the model as it is");
+    assert_eq!(win.ed.steps(), 1);
 }

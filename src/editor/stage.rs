@@ -92,7 +92,7 @@ fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
             if view.before_game.is_none() {
                 zones::background_button(ui, view.background(ed.scope), view.sky, shown);
             }
-            keyed(ui, shown, "LEVEL", Action::LevelSettings, Some(view.level_settings || (ed.chosen.is_none() && !ed.among_land())), "The level's size and daylight");
+            keyed(ui, shown, "LEVEL", Action::LevelSettings, Some(view.level_settings || (ed.pieces.chosen.is_none() && !ed.among_land())), "The level's size and daylight");
             let lights: usize = ed.level.things.iter().map(|t| t.lights.len()).sum();
             let many = lights > crate::render::MAX_LIGHTS;
             let tip = if many { format!("The pieces' lights in this view. {lights} lights: the game shows the {} nearest the middle of its view", crate::render::MAX_LIGHTS) } else { "The pieces' lights in this view".to_string() };
@@ -191,8 +191,8 @@ fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, sh
     // Scrolled to the chosen one when it changed (by a click in the view).
     let seen_id = egui::Id::unique("stage outliner chosen");
     let last: Option<Option<Item>> = ui.data(|d| d.get_temp(seen_id));
-    let scroll = last != Some(ed.chosen);
-    ui.data_mut(|d| d.insert_temp(seen_id, ed.chosen));
+    let scroll = last != Some(ed.pieces.chosen);
+    ui.data_mut(|d| d.insert_temp(seen_id, ed.pieces.chosen));
     let groups: [(&str, Vec<Item>); 3] = [
         ("THINGS", (0..ed.level.things.len()).map(Item::Thing).collect()),
         ("PLACES", (0..ed.level.places.len()).map(Item::Place).collect()),
@@ -213,7 +213,7 @@ fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, sh
                 if !wanted.is_empty() && !ed.label_of(item).0.to_lowercase().contains(&wanted) {
                     continue;
                 }
-                let chosen = ed.chosen == Some(item);
+                let chosen = ed.pieces.chosen == Some(item);
                 let response = outline_row(ui, ed, item, chosen, shown);
                 if response.secondary_clicked() {
                     let at = response.interact_pointer_pos().unwrap_or(response.rect.right_top());
@@ -247,7 +247,7 @@ fn inspector(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, sho
     if ed.among_land() && !view.level_settings {
         return land(ui, ed, shown);
     }
-    match ed.chosen.filter(|_| !view.level_settings) {
+    match ed.pieces.chosen.filter(|_| !view.level_settings) {
         Some(item) => chosen(ui, ed, view, figures, item, shown),
         None => level(ui, ed, shown),
     }
@@ -299,7 +299,7 @@ fn head(ui: &mut egui::Ui, ed: &Editor, view: &View, item: Item, shown: &mut Sho
     // model, if it has one).
     let shown_as = thing.and_then(|t| match &t.model {
         Some(m) => Some((m.clone(), m.clone())),
-        None if !t.is_piece() => ed.kind_models.get(&t.kind).map(|m| (t.kind.clone(), format!("{} (c.things.{}): its model {m}", t.kind, t.kind))),
+        None if !t.is_piece() => ed.pieces.kind_models.get(&t.kind).map(|m| (t.kind.clone(), format!("{} (c.things.{}): its model {m}", t.kind, t.kind))),
         None => None,
     });
     match shown_as {
@@ -354,7 +354,7 @@ fn chosen(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, item: 
                 piece_rows(ui, ed, figures, t, shown);
             } else if ed.kind_turns(t) {
                 // A thing of a kind without a behavior: round only.
-                let free = ed.free_kinds.contains(&t.kind);
+                let free = ed.pieces.free_kinds.contains(&t.kind);
                 let tip = if free { "Round, clockwise seen from above: 0 away from the camera, 180 towards it" } else { "Round, clockwise seen from above, in quarter turns (its kind turns on the grid)" };
                 row(ui, "ROTATE", "Degrees. Or drag its ring.", |ui| {
                     field(ui, shown, "Z", Some(2), room::bearing_of(t).rem_euclid(360.0), Field::Turn, if free { 0.5 } else { 2.0 }, -360.0..=720.0, tip, FIELD);
@@ -403,9 +403,9 @@ fn light_controls(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, radi
 /// A piece's rows: TURN, SOLID (and LIGHT + without one), its lights.
 fn piece_rows(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, t: &crate::grid::Thing, shown: &mut Shown) {
     // On the grid (or solid) the turns step by quarters.
-    let quarters = !ed.free_turns || t.solid;
+    let quarters = !ed.pieces.free_turns || t.solid;
     let speed = if quarters { 2.0 } else { 0.5 };
-    let tip = |what: &str| if quarters { format!("{what}, in quarter turns (this game sets things on the grid{})", if t.solid && ed.free_turns { "; a solid piece too" } else { "" }) } else { what.to_string() };
+    let tip = |what: &str| if quarters { format!("{what}, in quarter turns (this game sets things on the grid{})", if t.solid && ed.pieces.free_turns { "; a solid piece too" } else { "" }) } else { what.to_string() };
     row(ui, "ROTATE", "Degrees. Or drag its rings.", |ui| {
         field(ui, shown, "Z", Some(2), room::bearing_of(t).rem_euclid(360.0), Field::Turn, speed, -360.0..=720.0, &tip("Round, clockwise seen from above: 0 away from the camera, 180 towards it"), FIELD);
         field(ui, shown, "X", Some(0), t.pitch, Field::Pitch, speed, -360.0..=720.0, &tip("Tipped: its front up (90 lays it on its back)"), FIELD);
@@ -440,7 +440,7 @@ fn piece_rows(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, t: &crate::grid
         });
     });
     for (k, l) in t.lights.iter().enumerate() {
-        let chosen = ed.chosen_light == Some(k);
+        let chosen = ed.pieces.chosen_light == Some(k);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
             ui.spacing_mut().button_padding = egui::vec2(6.0, 3.0);
@@ -664,9 +664,7 @@ fn land_outliner(ui: &mut egui::Ui, ed: &Editor, thumbs: &mut Thumbs, shown: &mu
                             ui.spacing_mut().item_spacing.x = 3.0;
                             ui.add_space(4.0);
                             let file = r.models.first().cloned().unwrap_or_default();
-                            let path = ed.dir.join(&file);
-                            let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-                            let (tex, px) = thumbs.get(ui.ctx(), format!("model {file}"), (&file, modified), || super::panels::model_picture(&path, 64));
+                            let (tex, px, _) = thumbs.model(ui.ctx(), &ed.dir, &file, 64);
                             let (rect, _) = ui.allocate_exact_size(Vec2::new(20.0, 18.0), egui::Sense::hover());
                             let scale = 18.0 / px.x.max(px.y).max(1.0);
                             ui.painter().image(tex, Rect::from_center_size(rect.left_center() + Vec2::new(9.0, 0.0), px * scale), Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
@@ -945,7 +943,7 @@ pub fn paint(painter: &egui::Painter, h: &handles::Handles, vp: glam::Mat4, scre
 /// The buttons at the chosen one, over its handles (`zones::bar_at`):
 /// MOVE or TURN, and what is done to it most, a word each.
 fn beside(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut Shown) {
-    let Some(item) = ed.chosen.filter(|_| ed.hanging.is_none() && ed.gripped().is_none() && ed.dragging().is_none() && !view.picker) else { return };
+    let Some(item) = ed.pieces.chosen.filter(|_| ed.pieces.hanging.is_none() && ed.gripped().is_none() && ed.dragging().is_none() && !view.picker) else { return };
     let screen = ui.ctx().content_rect();
     let Some((h, vp, _)) = handles_on_screen(ed, view, screen) else { return };
     // Clear of the arrows (MOVE) and the rings (ROTATE) alike: the bar
@@ -969,7 +967,7 @@ fn beside(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut S
     };
     let turns = ed.can_turn();
     // A thing of a kind with a model: EDIT opens that.
-    let kind_model = matches!(item, Item::Thing(i) if !ed.level.things[i].is_piece() && ed.kind_models.contains_key(&ed.level.things[i].kind));
+    let kind_model = matches!(item, Item::Thing(i) if !ed.level.things[i].is_piece() && ed.pieces.kind_models.contains_key(&ed.level.things[i].kind));
     let middle = handles::project(vp, glam::Vec2::new(screen.width(), screen.height()), h.centre).map_or(bounds.center().x, |(p, _)| screen.left() + p.x);
     let turning = view.turn_mode(ed);
     let guess = if piece { 345.0 } else if turns { 234.0 } else { 122.0 };
@@ -982,8 +980,8 @@ fn beside(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut S
             // level's.
             if !turning && ed.piece_turned_off_axes() {
                 ui.add_space(6.0);
-                zones::small(ui, shown, "LOCAL", Action::MoveGlobal(false), Some(!ed.move_global), "Arrows along its own axes, as it stands (it lands on whole voxels)");
-                zones::small(ui, shown, "GLOBAL", Action::MoveGlobal(true), Some(ed.move_global), "Arrows along the level's axes");
+                zones::small(ui, shown, "LOCAL", Action::MoveGlobal(false), Some(!ed.rigging.move_global), "Arrows along its own axes, as it stands (it lands on whole voxels)");
+                zones::small(ui, shown, "GLOBAL", Action::MoveGlobal(true), Some(ed.rigging.move_global), "Arrows along the level's axes");
             }
             ui.add_space(6.0);
         }
@@ -1042,7 +1040,7 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<(String, Action, Option<&'st
                 Item::Place(_) => entries.push(("ROTATE 90°".into(), Action::TurnItem(1), Some("T"))),
                 Item::Thing(i) if !ed.level.things[i].is_piece() => {
                     let t = &ed.level.things[i];
-                    if ed.kind_models.contains_key(&t.kind) {
+                    if ed.pieces.kind_models.contains_key(&t.kind) {
                         entries.push(("EDIT MODEL".into(), Action::EditModel, Some("E")));
                     }
                     if ed.kind_turns(t) {
@@ -1120,19 +1118,31 @@ fn picker(ui: &mut egui::Ui, ed: &Editor, free: Rect, thumbs: &mut Thumbs, shown
                             if response.hovered() {
                                 ui.painter().rect_filled(rect, 4.0, crate::gui::ROW_HOVERED);
                             }
-                            let path = ed.dir.join(file);
-                            let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-                            let (tex, px) = thumbs.get(ui.ctx(), format!("model {file}"), (file, modified), || super::panels::model_picture(&path, 64));
+                            let (tex, px, problem) = thumbs.model(ui.ctx(), &ed.dir, file, 64);
                             let scale = ((tile - 16.0) / px.x.max(px.y).max(1.0)).floor().max(1.0);
                             let pic = Rect::from_center_size(Pos2::new(rect.center().x, rect.top() + tile / 2.0), px * scale);
                             ui.painter().image(tex, pic, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+                            // A model that does not read: a mark where its
+                            // picture would be, why on hover; not to set down.
+                            if problem.is_some() {
+                                let font = egui::FontId::monospace(tile * 0.4);
+                                ui.painter().text(pic.center(), egui::Align2::CENTER_CENTER, "!", font, crate::gui::WARNING);
+                            }
                             let stem = std::path::Path::new(file).file_stem().map_or(file.clone(), |s| s.to_string_lossy().into_owned());
-                            let mut job = egui::text::LayoutJob::simple_singleline(stem, TextStyle::Small.resolve(ui.style()), TEXT);
+                            let color = if problem.is_some() { QUIET } else { TEXT };
+                            let mut job = egui::text::LayoutJob::simple_singleline(stem, TextStyle::Small.resolve(ui.style()), color);
                             job.wrap = egui::text::TextWrapping::truncate_at_width(tile - 4.0);
                             let galley = ui.fonts_mut(|f| f.layout_job(job));
-                            ui.painter().galley(Pos2::new(rect.center().x - galley.size().x / 2.0, rect.bottom() - 18.0), galley, TEXT);
-                            if response.on_hover_text(file).clicked() {
-                                shown.clicked.push(Action::Piece(i));
+                            ui.painter().galley(Pos2::new(rect.center().x - galley.size().x / 2.0, rect.bottom() - 18.0), galley, color);
+                            match problem {
+                                Some(why) => {
+                                    response.on_hover_text(format!("{file}: {why}"));
+                                }
+                                None => {
+                                    if response.on_hover_text(file).clicked() {
+                                        shown.clicked.push(Action::Piece(i));
+                                    }
+                                }
                             }
                         }
                     });
