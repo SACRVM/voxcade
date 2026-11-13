@@ -15,6 +15,8 @@ pub mod words;
 
 #[cfg(test)]
 mod hardening_tests;
+#[cfg(test)]
+mod digest_tests;
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};

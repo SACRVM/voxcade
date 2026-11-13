@@ -385,7 +385,7 @@ impl<A: Copy + PartialEq + std::fmt::Debug> Guest<A> {
             }
             self.assembling.insert(p.blob, Assembly { count: p.count, pieces: vec![None; p.count as usize], got: 0 });
         }
-        let a = self.assembling.get_mut(&p.blob).expect("assembling");
+        let Some(a) = self.assembling.get_mut(&p.blob) else { return };
         if p.count != a.count || (p.index + 1 < a.count && p.data.len() != wire::PIECE) {
             return;
         }

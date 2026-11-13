@@ -253,8 +253,9 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
             "sidechain_release" => ins.sidechain_release = num()?,
             "duck" => ins.duck = num()?.clamp(0.0, 1.0),
             "volume" => ins.volume = num()?,
+            "wave" => bail!("the wave is a bare word, not wave=...: square, pulse, saw, triangle, sine or noise (like @lead square duty=0.25)"),
             other => {
-                let known = words::WORDS.iter().filter(|w| w.mml.is_some()).map(|w| w.name).chain(["pulse"]);
+                let known = words::WORDS.iter().filter(|w| w.mml.is_some() && w.name != "wave" && w.name != other).map(|w| w.name).chain(["pulse"]).chain(Wave::ALL.iter().map(|(n, _)| *n)).filter(|w| *w != other);
                 match words::near(other, known) {
                     Some(near) => bail!("unknown instrument option '{other}': did you mean '{near}'?"),
                     None => bail!("unknown instrument option '{other}'"),
@@ -539,6 +540,10 @@ impl Parser<'_> {
 }
 
 pub fn parse(text: &str) -> Result<Song> {
+    parse_song(text, false)
+}
+
+fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
     let mut title = String::new();
     let mut tempo = 120.0;
     let mut meter = 4;
@@ -584,6 +589,7 @@ pub fn parse(text: &str) -> Result<Song> {
                     meter = beats.trim().parse::<u32>().ok().filter(|&n| n > 0).with_context(|| format!("{}: #meter is the beats in a bar, like 4 or 3/4", at()))?;
                 }
                 "loop" => looping = !matches!(value.trim(), "no" | "off" | "false"),
+                "inst" | "instrument" => bail!("{}: an instrument is written @name options, like @lead square duty=0.25 (not #{key})", at()),
                 other => bail!("{}: unknown #{other}", at()),
             }
         } else if let Some(rest) = line.strip_prefix('@') {
@@ -595,12 +601,22 @@ pub fn parse(text: &str) -> Result<Song> {
             let (name, body) = rest.split_once('=').with_context(|| format!("{}: a macro is $name = notes", at()))?;
             macros.insert(name.trim().to_string(), body.trim().to_string());
         } else if let Some((channel, notes)) = line.split_once(':')
-            && channel.trim().len() == 1
+            && channel.trim().chars().count() == 1
         {
-            lines.push((channel.trim().chars().next().unwrap(), notes.to_string(), n + 1));
+            let letter = channel.trim().chars().next().unwrap();
+            if !letter.is_ascii_alphabetic() {
+                bail!("line {}: a channel is a letter, A to Z (not '{letter}')", n + 1);
+            }
+            if notes.trim().is_empty() {
+                bail!("line {}: channel {letter} has no notes", n + 1);
+            }
+            lines.push((letter, notes.to_string(), n + 1));
         } else {
             bail!("line {}: expected #setting, @instrument, $macro or a channel like 'A: c d e'", n + 1);
         }
+    }
+    if lines.is_empty() && !may_be_empty {
+        bail!("the song has no channel: write one like 'A: c d e f' (a letter, a colon, notes)");
     }
     if instruments.is_empty() {
         instruments.push(Instrument::default());
@@ -657,7 +673,7 @@ impl Song {
     /// A song of nothing, 120 beats a minute and 4 to a bar (in place of
     /// one that does not read).
     pub fn empty() -> Song {
-        parse("").expect("an empty song reads")
+        parse_song("", true).expect("an empty song reads")
     }
 
     /// Its beats, for a game: by its file's name.

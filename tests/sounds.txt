@@ -1,0 +1,29 @@
+voxcade sounds 1
+# Each built-in sound: its samples and a hash of them quantised to 12 bits.
+# Made by `VOXCADE_SOUNDS=renew cargo test --release built_in_sounds`; see src/audio/digest_tests.rs.
+engine/impact 4410 7153d083bb1e031d
+engine/explosion 52039 665e0119873b8f40
+engine/crumble 43218 9a4ea0f67a5c1639
+shooter/shot 6836 4f8ac91318dd9b2b
+shooter/enemy_shot 7277 936cdfccbdac9c21
+shooter/rocket 23814 d01d34a8da7885e9
+shooter/knife 4851 7174a7efb3e68f32
+shooter/throw 7056 80c05962100f9889
+shooter/splat 13671 db6ae4d5949c894a
+shooter/hurt 10143 d7fa3a1ec4adfff3
+shooter/down 52921 2a7783cf206dd73c
+shooter/pickup 13671 ff3e909b5ec0fe31
+shooter/rescue 22491 8553769d6c6eefcb
+shooter/jump 6174 884246f7db748f5a
+shooter/land 3969 b87ef05a25b5f555
+shooter/checkpoint 17640 6ad4bde34f2a7eb0
+shooter/win 50715 a3613be28af7db5e
+shooter/game_over 61740 ec2eca4ff617b4c2
+shooter/rotor 3837 1a9d5995ff66f513
+platformer/jump 5733 b2e0fd7ef8a70738
+platformer/stomp 6615 b5c2ff873c333a27
+platformer/hurt 10143 5c8298369cc460cc
+platformer/pickup 8379 2966dc536f711cb7
+platformer/door 30870 8c442e82ab94e22d
+platformer/checkpoint 11466 ccd30385db71a5d6
+platformer/lose 30871 526fc446b1c15291

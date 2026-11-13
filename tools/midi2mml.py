@@ -358,8 +358,12 @@ def write_channel(line, total, drums, instrument, volume, pan, octave_shift, gat
 
 
 def main():
-    if len(sys.argv) != 2:
-        raise SystemExit(__doc__)
+    if len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
+        print(__doc__)
+        print("usage: midi2mml.py IMPORT.toml")
+        return
+    if len(sys.argv) != 2 or sys.argv[1].startswith("-"):
+        raise SystemExit("usage: midi2mml.py IMPORT.toml (see --help)")
     spec_path = Path(sys.argv[1])
     spec = tomllib.loads(spec_path.read_text())
     base = spec_path.parent

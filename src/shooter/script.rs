@@ -110,7 +110,9 @@ impl Host for Shooter {
                 match key {
                     "hp" => {
                         self.arriving(1);
-                        self.departed.iter_mut().find(|(n, ..)| *n == 1).expect("made ready").2 = value as i32;
+                        if let Some(d) = self.departed.iter_mut().find(|(n, ..)| *n == 1) {
+                            d.2 = value as i32;
+                        }
                     }
                     "invulnerable" => self.arriving(1).invulnerable = value.clamp(0, u32::MAX as i64) as u32,
                     _ => return false,
@@ -118,7 +120,11 @@ impl Host for Shooter {
                 return true;
             };
             match key {
-                "hp" => self.things.get_mut(id).expect("seat 1's figure").hp = value as i32,
+                "hp" => {
+                    if let Some(t) = self.things.get_mut(id) {
+                        t.hp = value as i32;
+                    }
+                }
                 "invulnerable" => {
                     self.set_figure_number(id, key, value);
                 }
@@ -418,8 +424,7 @@ impl Host for Shooter {
     /// what it had; or taken away (its gun and rounds kept for its return).
     fn put_seat(&mut self, seat: usize, figure: Option<(usize, Vec3, Option<IVec2>, i32)>) -> Result<Option<Id>, String> {
         let was = self.seated(seat);
-        if let Some(id) = was {
-            let t = self.things.remove(id).expect("a seat's figure");
+        if let Some(t) = was.and_then(|id| self.things.remove(id)) {
             if let Brain::Player(s) = t.brain {
                 self.departed.retain(|(n, ..)| *n != seat);
                 self.departed.push((seat, *s, t.hp));

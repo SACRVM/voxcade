@@ -172,6 +172,11 @@ fn interfaces() -> Vec<(String, std::net::Ipv4Addr, std::net::Ipv4Addr)> {
 /// 64 random bits from the system (never the game's generator: joining
 /// must not change the game).
 pub fn random() -> u64 {
+    // The system's random source (session keys must not be guessable); the
+    // old mixing of the clock and the process only if the system has none.
+    if let Ok(bits) = getrandom::u64() {
+        return bits;
+    }
     use std::hash::{BuildHasher, Hasher};
     let mut h = std::collections::hash_map::RandomState::new().build_hasher();
     h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos()));

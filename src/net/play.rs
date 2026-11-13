@@ -756,7 +756,7 @@ impl<G: Game, A: Copy + PartialEq + std::fmt::Debug> Joining<G, A> {
             self.run_start = self.guest.welcome().map_or(0, |w| w.first).saturating_sub(replay.ticks);
             (self.catching, self.run) = (Some((game, playback)), Some(run));
         }
-        let (game, playback) = self.catching.as_mut().expect("catching up");
+        let Some((game, playback)) = self.catching.as_mut() else { bail!("catching up lost the run so far") };
         let started = std::time::Instant::now();
         while !playback.done() && started.elapsed() < budget {
             if let Err(apart) = playback.step(game) {
@@ -768,8 +768,7 @@ impl<G: Game, A: Copy + PartialEq + std::fmt::Debug> Joining<G, A> {
         if !playback.done() {
             return Ok(None);
         }
-        let (mut game, _) = self.catching.take().expect("caught up");
-        let run = self.run.take().expect("the run so far");
+        let (Some((mut game, _)), Some(run)) = (self.catching.take(), self.run.take()) else { bail!("catching up lost the run so far") };
         game.adopt_slots(run.slots);
         (self.known, self.when) = (run.known, run.when);
         if self.known.len() != game.cfg.players.max(1) as usize {

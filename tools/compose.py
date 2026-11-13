@@ -824,8 +824,12 @@ def write(recipe, source):
 
 
 def main(args):
-    if not args:
-        raise SystemExit(__doc__)
+    if not args or args[0] in ("-h", "--help"):
+        print(__doc__)
+        print("usage: compose.py RECIPE.compose.toml [RECIPE ...]\n       compose.py --find [MOOD ...]\n       compose.py --help")
+        return
+    if args[0].startswith("-") and args[0] != "--find":
+        raise SystemExit(f"compose.py: unknown option {args[0]} (see --help)")
     if args[0] == "--find":
         moods = set(args[1:])
         for scale, chords, tags in progressions():

@@ -397,7 +397,7 @@ async fn ask_matchmaker(endpoint: &Endpoint, conn: &mut Option<Connection>, ask:
         let at = matchmaker_at().context("no matchmaker known")?;
         *conn = Some(tokio::time::timeout(Duration::from_secs(10), endpoint.connect(at, mm::ALPN)).await.context("the matchmaker did not answer")??);
     }
-    let c = conn.as_ref().expect("connected");
+    let Some(c) = conn.as_ref() else { bail!("the matchmaker is not connected") };
     let asked = async {
         let (mut send, mut recv) = c.open_bi().await?;
         send.write_all(&serde_json::to_vec(ask)?).await?;
