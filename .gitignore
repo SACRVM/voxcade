@@ -20,3 +20,4 @@ games/*/.mcp.json
 .firepit/knowledge-pinned.md
 .mcp.json
 .claude/worktrees/
+target-work/
