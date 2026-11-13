@@ -29,6 +29,21 @@ pub fn program() -> std::io::Result<PathBuf> {
     Ok(rebuilt(std::env::current_exe()?))
 }
 
+/// The commands the program answers to (`voxcade --help`'s).
+pub fn command_names() -> Vec<&'static str> {
+    table::COMMANDS.iter().map(|c| c.name).collect()
+}
+
+/// Whether the program takes the command line `args` (the words after
+/// `voxcade`), read as `main` reads it and nothing done: the docs'
+/// examples are tested so (`tests/docs_names.rs`).
+pub fn takes(args: &[String]) -> Result<()> {
+    match parse(args)? {
+        Call::Unknown(word) => bail!("{word} is no command of voxcade's"),
+        _ => Ok(()),
+    }
+}
+
 /// Numbers as Lua writes and reads them ("1.5"), whatever language the
 /// system speaks: the C library's locale for numbers is "C" from the start.
 /// Lua's `tostring` and `string.format` go through it, and two machines
@@ -390,6 +405,62 @@ mod tests {
             "update" | "version" | "help" | "api" | "mcp" | "pads" | "soak" | "nettest" => &[],
             _ => &["g"],
         }
+    }
+
+    /// Every option given a word where it wants a number (or numbers, or a
+    /// number after a `--by`) says which option it is, what it wants and
+    /// what it got, never Rust's bare "invalid digit found in string".
+    #[test]
+    fn every_number_option_says_what_it_wants() {
+        let bare = ["invalid digit", "invalid float", "cannot parse", "number too large", "number too small"];
+        let mut said_number = 0;
+        for c in COMMANDS {
+            for o in c.opts.iter().filter(|o| !o.value.is_empty()) {
+                // The value's words, each placeholder a word in turn, the others 1.
+                let tokens: Vec<&str> = o.value.split_whitespace().filter(|t| !t.starts_with('[') && !t.ends_with(']') && *t != "|").collect();
+                for wrong in 0..tokens.len() {
+                    if tokens[wrong].starts_with("--") {
+                        continue;
+                    }
+                    let mut line: Vec<&str> = vec![c.name];
+                    line.extend(sample(c.name));
+                    line.push(o.name);
+                    // A fitting number for the others: as many as the placeholder's commas say.
+                    let fit = |t: &str| match t.matches(',').count() {
+                        0 if t == "WxH" => "1x1",
+                        0 => "1",
+                        1 => "1,1",
+                        2 => "1,1,1",
+                        _ => "1,1,1,1",
+                    };
+                    line.extend(tokens.iter().enumerate().map(|(i, t)| if t.starts_with("--") { t } else if i == wrong { "abc" } else { fit(t) }));
+                    let Err(e) = parse(&words(&line)) else { continue };
+                    let said = format!("{e:#}");
+                    assert!(!bare.iter().any(|b| said.contains(b)), "{line:?}: {said}");
+                    if said.contains(" wants ") {
+                        said_number += 1;
+                        assert!(said.contains("'abc'") && (said.contains(o.name) || tokens.iter().any(|t| t.starts_with("--") && said.contains(t))), "{line:?}: {said}");
+                    }
+                }
+            }
+        }
+        assert!(said_number > 20, "only {said_number} options said what they want");
+        let said = format!("{:#}", parse(&words(&["inspect", "g", "--frames", "abc"])).err().unwrap());
+        assert_eq!(said, "--frames N wants a whole number (0 or more), not 'abc'");
+        let said = format!("{:#}", parse(&words(&["soak", "many"])).err().unwrap());
+        assert_eq!(said, "soak SEEDS wants a whole number (0 or more), not 'many'");
+        let said = format!("{:#}", parse(&words(&["edit", "g", "--held", "1,x,3"])).err().unwrap());
+        assert_eq!(said, "--held X,Y,Z wants whole numbers apart by commas, not '1,x,3'");
+    }
+
+    /// `inspect --record` records a network game's run; without the
+    /// network it would write nothing, so it is refused, saying what does.
+    #[test]
+    fn inspect_records_only_over_the_network() {
+        let said = format!("{:#}", parse(&words(&["inspect", "g", "--record", "r.toml"])).err().expect("refused"));
+        assert!(said.contains("--host or --join") && said.contains("shot --record"), "{said}");
+        assert!(parse(&words(&["inspect", "g", "--host", "26500", "--record", "r.toml"])).is_ok());
+        assert!(parse(&words(&["inspect", "g", "--join", "127.0.0.1", "--record", "r.toml"])).is_ok());
     }
 
     /// The short help lists every command the program answers to, each

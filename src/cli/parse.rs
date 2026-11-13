@@ -50,6 +50,35 @@ impl<'a> Flags<'a> {
     }
 }
 
+/// A number on the command line, said in a mistake: what one of its type is.
+pub(super) trait Number: std::str::FromStr {
+    const ONE: &'static str;
+    const MANY: &'static str;
+}
+
+macro_rules! number_is {
+    ($one:literal, $many:literal: $($t:ty),*) => {
+        $(impl Number for $t {
+            const ONE: &'static str = $one;
+            const MANY: &'static str = $many;
+        })*
+    };
+}
+number_is!("a whole number (0 or more)", "whole numbers (0 or more)": u8, u16, u32, u64, usize);
+number_is!("a whole number", "whole numbers": i32, i64);
+number_is!("a number", "numbers": f32, f64);
+
+/// `value` as the number `what` (the option and what follows it, `--frames
+/// N`) takes, or a mistake saying which option wants what, and what it got.
+pub(super) fn number<T: Number>(what: &str, value: &str) -> Result<T> {
+    value.trim().parse().map_err(|_| anyhow::anyhow!("{what} wants {}, not '{value}'", T::ONE))
+}
+
+/// `value` as numbers apart by commas (`X,Y,Z`), as `number`.
+pub(super) fn numbers<T: Number>(what: &str, value: &str) -> Result<Vec<T>> {
+    value.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>().map_err(|_| anyhow::anyhow!("{what} wants {} apart by commas, not '{value}'", T::MANY))
+}
+
 /// The arguments from `at` on.
 pub(super) fn tail(args: &[String], at: usize) -> &[String] {
     args.get(at..).unwrap_or(&[])
@@ -270,7 +299,7 @@ pub(super) fn parse(args: &[String]) -> Result<Call> {
                 let value = f.value(flag)?;
                 match flag {
                     "--out" => out = PathBuf::from(value),
-                    "--seconds" => seconds = Some(value.parse().context("--seconds")?),
+                    "--seconds" => seconds = Some(number("--seconds", value)?),
                     other => bail!("unknown option {other}"),
                 }
             }
@@ -308,7 +337,7 @@ pub(super) fn parse(args: &[String]) -> Result<Call> {
             while let Some((flag, _)) = f.next()? {
                 let value = f.value(flag)?;
                 match flag {
-                    "--seconds" => seconds = value.parse().context("--seconds")?,
+                    "--seconds" => seconds = number("--seconds", value)?,
                     other => bail!("unknown option {other}"),
                 }
             }
@@ -324,7 +353,7 @@ pub(super) fn parse(args: &[String]) -> Result<Call> {
                         known(command("soak").expect("soak"), flag)?;
                         bail!("{flag}: not taken here");
                     }
-                    n => seeds = n.parse().with_context(|| format!("soak: '{n}' is no number of seeds"))?,
+                    n => seeds = number("soak SEEDS", n)?,
                 }
             }
             Call::Soak { seeds, digest }
@@ -398,15 +427,15 @@ pub(super) fn parse_ide(args: &[String]) -> Result<Call> {
             "--find" => opts.find = Some(value.clone()),
             "--replace" => opts.replace = Some(value.clone()),
             "--search" => opts.search = Some(value.clone()),
-            "--hit" => opts.hit = Some(value.parse().context("--hit N")?),
-            "--play" => opts.play = Some(value.parse().context("--play TICKS")?),
+            "--hit" => opts.hit = Some(number("--hit N", value)?),
+            "--play" => opts.play = Some(number("--play TICKS", value)?),
             "--shot" => {
                 opts.out = PathBuf::from(value);
                 shot = true;
             }
             "--size" => {
                 let (w, h) = value.split_once('x').context("--size WxH")?;
-                (opts.width, opts.height) = (w.parse().context("--size width")?, h.parse().context("--size height")?);
+                (opts.width, opts.height) = (number("--size WxH: its width", w)?, number("--size WxH: its height", h)?);
             }
             other => bail!("unknown option {other}"),
         }
@@ -416,7 +445,7 @@ pub(super) fn parse_ide(args: &[String]) -> Result<Call> {
 
 /// `X,Y,Z` after `flag`: three whole numbers.
 pub(super) fn three(flag: &str, value: &str) -> Result<glam::IVec3> {
-    let n: Vec<i32> = value.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>().with_context(|| format!("{flag} X,Y,Z"))?;
+    let n: Vec<i32> = numbers(&format!("{flag} X,Y,Z"), value)?;
     let [x, y, z] = n[..] else { bail!("{flag} X,Y,Z: three numbers") };
     Ok(glam::IVec3::new(x, y, z))
 }
@@ -452,7 +481,7 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
             "--level" => opts.level = Some(value.clone()),
             "--tool" => opts.tool = Some(value.clone()),
             "--held" => {
-                let n: Vec<i32> = value.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>().context("--held X,Y,Z")?;
+                let n: Vec<i32> = numbers("--held X,Y,Z", value)?;
                 let [x, y, z] = n[..] else { bail!("--held X,Y,Z: three numbers") };
                 opts.held = Some(glam::IVec3::new(x, y, z));
             }
@@ -474,7 +503,7 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
             }
             "--rotate" => {
                 let by = f.then("--by", || "--rotate NAME --by DEGREES".into())?;
-                opts.ops.push(ShotOp::Turn(value.clone(), by.parse().context("--by DEGREES")?, 2));
+                opts.ops.push(ShotOp::Turn(value.clone(), number("--rotate NAME --by DEGREES", by)?, 2));
             }
             // (After --rotate-part or --pose-part: rotation, pitch or roll.)
             "--about" if ["rotation", "pitch", "roll"].contains(&value.as_str()) => {
@@ -492,15 +521,15 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
             "--menu" => opts.menu = Some(value.clone()),
             "--move-part" | "--move-joint" => {
                 let by = f.then("--by", || format!("{flag} NAME --by X,Y,Z"))?;
-                let n: Vec<f32> = by.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>().with_context(|| format!("{flag} NAME --by X,Y,Z"))?;
+                let n: Vec<f32> = numbers(&format!("{flag} NAME --by X,Y,Z"), by)?;
                 let [x, y, z] = n[..] else { bail!("{flag} NAME --by X,Y,Z: three numbers") };
                 opts.part_moves.push((value.clone(), glam::Vec3::new(x, y, z), flag == "--move-joint"));
             }
             "--merge-into" => opts.merge_into = Some(value.clone()),
-            "--material" => opts.material = Some(value.parse().context("--material N: a terrain's material, from 1")?),
-            "--scatter" => opts.scatter.push(value.parse().context("--scatter N: a terrain's scatter rule, from 1")?),
+            "--material" => opts.material = Some(number("--material N (a terrain's material, from 1)", value)?),
+            "--scatter" => opts.scatter.push(number("--scatter N (a terrain's scatter rule, from 1)", value)?),
             "--raise" | "--shape" => {
-                let n: Vec<i32> = value.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>().with_context(|| format!("{flag} X,Y: a point's column and row"))?;
+                let n: Vec<i32> = numbers(&format!("{flag} X,Y (a point's column and row)"), value)?;
                 let [x, y] = n[..] else { bail!("{flag} X,Y: two numbers") };
                 let p = glam::IVec2::new(x, y);
                 if flag == "--shape" {
@@ -509,11 +538,11 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
                     opts.land_ops.push(crate::editor::LandOp::Shape(p, shape));
                 } else {
                     let by = f.then("--by", || "--raise X,Y --by N [--radius R]".into())?;
-                    let by: i32 = by.parse().context("--raise X,Y --by N: whole voxels")?;
+                    let by: i32 = number("--raise X,Y --by N (voxels)", by)?;
                     let radius = match f.it.peek() {
                         Some(r) if r.as_str() == "--radius" => {
                             f.it.next();
-                            f.it.next().context("--radius R")?.parse().context("--radius R: points")?
+                            number("--radius R (points)", f.it.next().context("--radius R")?)?
                         }
                         _ => 3,
                     };
@@ -523,7 +552,7 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
             "--select" => {
                 let to = f.then("--to", || "--select X0,Y0,Z0 --to X1,Y1,Z1".into())?;
                 let corner = |v: &str| -> Result<glam::IVec3> {
-                    let n: Vec<i32> = v.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>().context("--select X0,Y0,Z0 --to X1,Y1,Z1: whole numbers")?;
+                    let n: Vec<i32> = numbers("--select X0,Y0,Z0 --to X1,Y1,Z1", v)?;
                     let [x, y, z] = n[..] else { bail!("--select X0,Y0,Z0 --to X1,Y1,Z1: three numbers each") };
                     Ok(glam::IVec3::new(x, y, z))
                 };
@@ -531,20 +560,20 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
             }
             "--selection" => opts.selection_ops.push(value.clone()),
             "--marquee" => {
-                let n: Vec<f32> = value.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>().context("--marquee X0,Y0,X1,Y1")?;
+                let n: Vec<f32> = numbers("--marquee X0,Y0,X1,Y1", value)?;
                 let [a, b, c, d] = n[..] else { bail!("--marquee X0,Y0,X1,Y1: four numbers") };
                 opts.marquee = Some([a, b, c, d]);
             }
             "--background" => opts.background = Some(crate::editor::background::hex(value).context("--background #rrggbb")?),
             "--rotate-part" => {
                 let by = f.then("--by", || "--rotate-part NAME --by DEG [--about rotation|pitch|roll]".into())?;
-                let by: f32 = by.parse().context("--rotate-part NAME --by DEG: degrees")?;
+                let by: f32 = number("--rotate-part NAME --by DEG", by)?;
                 opts.part_turns.push((value.clone(), by, 0));
                 opts.last_pose = false;
             }
             "--pose-part" => {
                 let by = f.then("--by", || "--pose-part NAME --by DEG [--about rotation|pitch|roll]".into())?;
-                let by: f32 = by.parse().context("--pose-part NAME --by DEG: degrees")?;
+                let by: f32 = number("--pose-part NAME --by DEG", by)?;
                 opts.part_poses.push((value.clone(), by, 0));
                 opts.last_pose = true;
             }
@@ -554,7 +583,7 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
                 let (level, name) = value.rsplit_once(':').context("--context LEVEL:NAME (a level's file and a piece in it)")?;
                 opts.context = Some((level.to_string(), name.to_string()));
             }
-            "--frame" => opts.frame = Some(value.parse().context("--frame N (from 1)")?),
+            "--frame" => opts.frame = Some(number("--frame N (from 1)", value)?),
             "--clear" => {
                 let to = f.then("--to", || "--clear X0,Y0,Z0 --to X1,Y1,Z1".into())?;
                 opts.cells.push(crate::editor::frames::CellOp::Clear(three("--clear", value)?, three("--to", to)?));
@@ -568,10 +597,10 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
             "--slice" => {
                 let (axis, at) = value.split_once(',').context("--slice x|y|z,LAYER")?;
                 let axis = ["x", "y", "z"].iter().position(|a| *a == axis).context("--slice x|y|z,LAYER")?;
-                opts.slice = Some((axis, at.trim().parse().context("--slice x|y|z,LAYER: a whole number")?));
+                opts.slice = Some((axis, number("--slice x|y|z,LAYER", at)?));
             }
             "--click" => {
-                let n: Vec<f32> = value.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>().context("--click X,Y: a pixel of the shot")?;
+                let n: Vec<f32> = numbers("--click X,Y (a pixel of the shot)", value)?;
                 let [x, y] = n[..] else { bail!("--click X,Y: two numbers") };
                 opts.click = Some((x, y));
             }
@@ -582,7 +611,7 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
                     _ => bail!("--handles move or rotate"),
                 }
             }
-            "--choose-light" => opts.choose_light = Some(value.parse().context("--choose-light K (0 the first)")?),
+            "--choose-light" => opts.choose_light = Some(number("--choose-light K (0 the first)", value)?),
             "--rename" => {
                 let to = f.then("--to", || "--rename NAME --to NEW".into())?;
                 opts.ops.push(ShotOp::Rename(value.clone(), to.clone()));
@@ -590,7 +619,7 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
             "--radius" | "--color" => match opts.ops.last_mut() {
                 Some(ShotOp::Light(_, radius, colour, _, _)) => {
                     if flag == "--radius" {
-                        *radius = Some(value.parse().context("--radius N")?);
+                        *radius = Some(number("--radius N", value)?);
                     } else {
                         *colour = Some(value.clone());
                     }
@@ -601,7 +630,7 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
             "--part" => opts.part = Some(value.clone()),
             "--parent" => opts.parent = Some(value.clone()),
             "--joint" => {
-                let n: Vec<f32> = value.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>().context("--joint X,Y,Z")?;
+                let n: Vec<f32> = numbers("--joint X,Y,Z", value)?;
                 let [x, y, z] = n[..] else { bail!("--joint X,Y,Z: three numbers") };
                 opts.joint = Some(glam::Vec3::new(x, y, z));
             }
@@ -611,11 +640,11 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
             }
             "--view" => {
                 let (yaw, pitch) = value.split_once(',').context("--view YAW,PITCH")?;
-                opts.view = Some((yaw.trim().parse().context("--view yaw")?, pitch.trim().parse().context("--view pitch")?));
+                opts.view = Some((number("--view YAW,PITCH: its yaw", yaw)?, number("--view YAW,PITCH: its pitch", pitch)?));
             }
             "--size" => {
                 let (w, h) = value.split_once('x').context("--size WxH")?;
-                (opts.width, opts.height) = (w.parse().context("--size width")?, h.parse().context("--size height")?);
+                (opts.width, opts.height) = (number("--size WxH: its width", w)?, number("--size WxH: its height", h)?);
             }
             other => bail!("unknown option {other}"),
         }
@@ -680,7 +709,7 @@ pub(super) fn parse_check(rest: &[String]) -> Result<CheckHow> {
         Some(("--refit", _)) => CheckHow::Refit,
         Some(("--rollback", _)) => {
             let every = f.it.next().context("--rollback needs how many ticks to go back")?;
-            CheckHow::Rollback(every.parse().context("--rollback: a number of ticks")?)
+            CheckHow::Rollback(number("--rollback TICKS", every)?)
         }
         Some((other, _)) => bail!("unknown option {other}"),
     };
@@ -699,16 +728,16 @@ pub(super) fn parse_inspect(args: &[String]) -> Result<Call> {
         let value = f.value(flag)?;
         match flag {
             flag if begin.flag(flag, value) => {}
-            "--frames" => frames = value.parse().context("--frames")?,
+            "--frames" => frames = number("--frames N", value)?,
             "--input" => input = value.clone(),
             "--host" if value == "internet" => net = Some(Networked::HostNet),
-            "--host" => net = Some(Networked::Host(value.parse().context("--host PORT or internet")?)),
+            "--host" => net = Some(Networked::Host(number("--host PORT|internet: a port", value)?)),
             "--join" => net = Some(Networked::Join(value.clone())),
             "--record" => record = Some(PathBuf::from(value)),
             flag if seat_input(flag).is_some() => seats.push((seat_input(flag).unwrap_or(0), value.clone())),
             "--at" => {
                 let (x, y) = value.split_once(',').context("--at expects x,y")?;
-                at = Some([x.trim().parse().context("--at x")?, y.trim().parse().context("--at y")?]);
+                at = Some([number("--at X,Y: its x", x)?, number("--at X,Y: its y", y)?]);
             }
             other => bail!("unknown option {other}"),
         }
@@ -716,6 +745,8 @@ pub(super) fn parse_inspect(args: &[String]) -> Result<Call> {
     if net.is_some() {
         anyhow::ensure!(seats.is_empty() && at.is_none(), "over the network each machine plays its own keys (--input): no --input2 or --at");
     }
+    // Nothing would be written: said, not left silent.
+    anyhow::ensure!(record.is_none() || net.is_some(), "inspect --record goes with --host or --join; a run without the network is recorded by shot --record FILE");
     Ok(Call::Inspect { dir, frames, input, seats, at, begin, net, record })
 }
 
@@ -727,13 +758,13 @@ pub(super) fn parse_film(args: &[String]) -> Result<Call> {
     while let Some((flag, _)) = f.next()? {
         let value = f.value(flag)?;
         match flag {
-            "--from" => opts.from = value.parse().context("--from")?,
-            "--to" => opts.to = Some(value.parse().context("--to")?),
-            "--fps" => opts.fps = Some(value.parse().context("--fps")?),
-            "--max-mb" => opts.max_mb = Some(value.parse().context("--max-mb")?),
+            "--from" => opts.from = number("--from SECONDS", value)?,
+            "--to" => opts.to = Some(number("--to SECONDS", value)?),
+            "--fps" => opts.fps = Some(number("--fps N", value)?),
+            "--max-mb" => opts.max_mb = Some(number("--max-mb MB", value)?),
             "--size" => {
                 let (w, h) = value.split_once('x').context("--size expects WxH")?;
-                opts.size = Some((w.parse().context("--size width")?, h.parse().context("--size height")?));
+                opts.size = Some((number("--size WxH: its width", w)?, number("--size WxH: its height", h)?));
             }
             "--out" => opts.out = PathBuf::from(value),
             other => bail!("unknown option {other}"),
@@ -749,9 +780,9 @@ pub(super) fn parse_nettest(args: &[String]) -> Result<Call> {
     let mut it = tail(args, 1).iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
-            "--guests" => guests = it.next().context("--guests needs a number")?.parse().context("--guests")?,
-            "--seconds" => seconds = it.next().context("--seconds needs a number")?.parse().context("--seconds")?,
-            "--size" => size = it.next().context("--size needs a number")?.parse().context("--size")?,
+            "--guests" => guests = number("--guests N", it.next().context("--guests needs a number")?)?,
+            "--seconds" => seconds = number("--seconds N", it.next().context("--seconds needs a number")?)?,
+            "--size" => size = number("--size BYTES", it.next().context("--size needs a number")?)?,
             word @ ("internet" | "relayed" | "direct") => reach = crate::net::trial::reach_named(word)?,
             flag if flag.starts_with("--") => {
                 known(command("nettest").expect("nettest"), flag)?;
@@ -795,7 +826,7 @@ pub(super) fn shot_options(args: &[String]) -> Result<headless::ShotOptions> {
         let value = f.value(flag)?;
         match flag {
             flag if opts.begin.flag(flag, value) => {}
-            "--frames" => opts.frames = Some(value.parse().context("--frames")?),
+            "--frames" => opts.frames = Some(number("--frames N", value)?),
             "--replay" => opts.replay = Some(PathBuf::from(value)),
             "--record" => opts.record = Some(PathBuf::from(value)),
             "--input" => opts.input = value.clone(),
@@ -807,7 +838,7 @@ pub(super) fn shot_options(args: &[String]) -> Result<headless::ShotOptions> {
             }
             "--at" => {
                 let (x, y) = value.split_once(',').context("--at expects x,y")?;
-                opts.at = Some([x.trim().parse().context("--at x")?, y.trim().parse().context("--at y")?]);
+                opts.at = Some([number("--at X,Y: its x", x)?, number("--at X,Y: its y", y)?]);
             }
             "--out" => opts.out = PathBuf::from(value),
             "--shadows" => {
@@ -816,8 +847,8 @@ pub(super) fn shot_options(args: &[String]) -> Result<headless::ShotOptions> {
             "--pad" => opts.pad = Some(PadStyle::named(value).context("--pad: xbox, nintendo or playstation")?),
             "--size" => {
                 let (w, h) = value.split_once('x').context("--size expects WxH")?;
-                opts.width = w.parse().context("--size width")?;
-                opts.height = h.parse().context("--size height")?;
+                opts.width = number("--size WxH: its width", w)?;
+                opts.height = number("--size WxH: its height", h)?;
             }
             other => bail!("unknown option {other}"),
         }

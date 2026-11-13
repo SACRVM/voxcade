@@ -313,7 +313,7 @@ pub(super) const COMMANDS: &[Command] = &[
             opt("--input", "SCRIPT", "the player's keys (INPUT SCRIPT below)"),
             opt("--scenario", "NAME", "the run begun there, as for run"),
             opt("--do", "LINE", "a line of Lua before the first tick, as for run (again for more)"),
-            opt("--record", "FILE", "the run written as a replay (a guest's equals the host's)"),
+            opt("--record", "FILE", "with --host or --join: the run written as a replay (a guest's equals the host's); without the network, shot --record does it"),
             opt("--host", "PORT | internet", "host a network game in real time (UDP) playing N ticks, then say farewell once its guests have them all; internet: across the internet (iroh), printing its ticket, then its code from our server, letting in every machine that asks"),
             opt("--join", "ADDRESS[:PORT] | CODE | TICKET | any", "join one as a guest: play the run so far through, take a seat and play --input until the host leaves"),
             trial("--input2", "SCRIPT", "a game of several: seat 2's keys (--input3 and on the seats after it)"),

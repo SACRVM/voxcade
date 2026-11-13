@@ -537,10 +537,16 @@ nearest; its replay `tests/two_ships`);
   the level, map and model examples of `docs/tiles.md` with the engine's
   own readers; `a_picture_drawn_twice_is_the_same_to_the_byte` (in
   `tests/pictures.rs`) draws each picture twice. `tests/docs_names.rs`
-  checks that the `src/` paths and test names the docs cite exist.
+  checks that the `src/` paths and test names the docs cite exist, and
+  that every `voxcade …` example in README.md, CONTRIBUTING.md and
+  `dist/*.txt` parses with the real parser (`cli::takes`) and names
+  files and scenarios of the repo that are there
+  (`the_command_examples_in_the_docs_run`).
 - Builds for other machines: GitHub
   Actions `Builds` (`.github/workflows/builds.yml`), started by hand
-  (`gh workflow run builds.yml`) or by a `v*` tag, never on every push
+  (`gh workflow run builds.yml`) or by a `v*` tag, never on every push,
+  on the Rust `.github/rust-toolchain` names, as Tests and Audit (one
+  line to raise; `the_workflows_build_with_one_rust`)
   (macOS minutes count ten times on the private repo; the internet step
   is `continue-on-error`, a warning in the run's summary, and no longer
   holds the packages back): Linux and Windows
@@ -582,7 +588,10 @@ nearest; its replay `tests/two_ships`);
   `--shot` print to stderr, `edit --dry` alone is refused, and a command
   refuses trailing words it ignored before; an option with one value
   given twice is refused (`table::REPEATABLE` names those that may come
-  again: `--do`, the editor's steps). A crash of a command that opened a
+  again: `--do`, the editor's steps); a number option given a word says
+  which option wants what and what it got (`parse::number`, test
+  `every_number_option_says_what_it_wants`); `inspect --record` without
+  `--host`/`--join` is refused (`shot --record` records). A crash of a command that opened a
   window is no silent close (`cli/crash.rs`, its panic hook): the
   message, where and a backtrace go to `config_dir()/crashes/` (the newest
   10), and the main thread's crash says in a message window where the
@@ -1180,7 +1189,9 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   --help` lists them). Check menus with
   `shot --screen title|continue|settings|audio|video|controls|players|player-controls|network|find|join|joining|intro|pause|host-pause|guest-pause|save|load|attract`
   (a game with a save offers CONTINUE first on the title: the newest
-  save, `Slots::newest`). More Blood's title:
+  save, `Slots::newest`; `continue`, `save` and `load` are refused for
+  a game without slots, which has none of them,
+  `a_game_without_slots_has_no_save_screen`). More Blood's title:
   giant dog tags lying in a clearing at the start (generated, the user's
   wish), stamped with the hero's name: Nick Pain (the user's choice), metal (MagicaVoxel metal material: sky reflection, highlight,
   `metal_sweep`). Big letters use `c.ui.display_font`, a glyph atlas from a
