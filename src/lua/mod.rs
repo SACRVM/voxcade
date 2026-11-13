@@ -2098,6 +2098,13 @@ impl<K: Kit> Game for LuaGame<K> {
         {
             anyhow::bail!("conf.lua: c.kit = \"{kit}\": there is no such kit (this program's: \"{}\")", K::names().join("\", \""));
         }
+        // A section nearly a setting's name (`c.titel`) is a slip: the one
+        // meant (the engine says the rest, `session::config_in`).
+        let sections = Self::sections(cfg);
+        let known: Vec<String> = api::conf_keys("GameConfig").into_iter().map(|k| k.key).chain(sections.iter().map(|s| s.to_string())).collect();
+        if let Some((given, near)) = cfg.game.keys().filter(|k| !sections.contains(&k.as_str())).find_map(|k| crate::audio::words::near(k, known.iter().map(String::as_str)).map(|n| (k.clone(), n.to_string()))) {
+            anyhow::bail!("conf.lua: c.{given}: no such setting (did you mean `c.{near}`?)");
+        }
         Ok(())
     }
 

@@ -234,7 +234,7 @@ c.keys = { jump = { "Space" } }"##,
   level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 0, "#5a6e4a")
   level:spawn("slime", 50, 32)
   level:spawn("water", 70, 32)
-  level:spawn("door", 100, 32)
+  level:spawn("door", 90, 32)
 end
 
 -- Once, as a touch begins: landed on, the slime goes and the hero
@@ -1305,9 +1305,11 @@ fn first_sentence(doc: &str) -> (&str, Option<&str>) {
         match c {
             b'(' | b'{' | b'[' => depth += 1,
             b')' | b'}' | b']' => depth -= 1,
-            b'.' if depth <= 0 && b.get(i + 1) == Some(&b' ') && i > 0 && b[i - 1] != b'.' => {
+            b'.' if depth <= 0 && matches!(b.get(i + 1), Some(b' ' | b'\n')) && i > 0 && b[i - 1] != b'.' => {
                 return (&doc[..=i], Some(doc[i + 2..].trim()));
             }
+            // A line of its own (a list's items) begins the rest.
+            b'\n' => return (doc[..i].trim_end(), Some(doc[i + 1..].trim())),
             _ => {}
         }
     }
@@ -1473,6 +1475,8 @@ mod tests {
         assert_eq!(first_sentence("Plays it. Then more."), ("Plays it.", Some("Then more.")));
         assert_eq!(first_sentence("One: and so on"), ("One: and so on", None));
         assert_eq!(first_sentence("Sets c.things.NAME = { ... }. Then more."), ("Sets c.things.NAME = { ... }.", Some("Then more.")));
+        assert_eq!(first_sentence("Its keys:\n- hp: hits.\n- pose: a name."), ("Its keys:", Some("- hp: hits.\n- pose: a name.")));
+        assert_eq!(first_sentence("Its data.\n- hp: hits."), ("Its data.", Some("- hp: hits.")));
     }
 
     /// HELP's songs read, their channels are as long as each other (what

@@ -23,6 +23,28 @@ pub(super) fn title_models(cfg: &GameConfig) -> impl Iterator<Item = &str> {
     t.props.iter().map(|p| p.model.as_str()).chain(t.flyby.as_deref()).chain(t.logo_model.as_deref())
 }
 
+/// A model that would not load, said by the setting that names it
+/// (`c.things.foe.model`, `c.models`, `c.items.NAME.model`, the title's) and,
+/// for a file that is not there, in plain words.
+fn model_error(cfg: &GameConfig, file: &str, e: anyhow::Error) -> anyhow::Error {
+    let names = |v: Option<&toml::Value>| v.and_then(toml::Value::as_str) == Some(file);
+    let by = cfg
+        .things
+        .iter()
+        .find(|(_, t)| names(t.get("model")))
+        .map(|(kind, _)| format!("c.things.{kind}.model"))
+        .or_else(|| cfg.items.iter().find(|(_, i)| i.model.as_deref() == Some(file)).map(|(name, _)| format!("c.items.{name}.model")))
+        .or_else(|| cfg.models.iter().any(|m| m == file).then(|| "c.models".to_string()))
+        .or_else(|| title_models(cfg).any(|m| m == file).then(|| "c.title_screen".to_string()));
+    let missing = e.chain().any(|c| c.downcast_ref::<std::io::Error>().is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound));
+    match (by, missing) {
+        (Some(by), true) => anyhow::anyhow!("{by}: no file \"{file}\" in the game folder"),
+        (Some(by), false) => e.context(format!("{by}: \"{file}\"")),
+        (None, true) => anyhow::anyhow!("the model \"{file}\": no such file in the game folder"),
+        (None, false) => e,
+    }
+}
+
 impl Models {
     /// The game's models, and the parts its kinds swing checked against
     /// them (`c.things.NAME.swing`: a figure of parts, each part there).
@@ -56,7 +78,7 @@ impl Models {
 
     pub(super) fn load(files: &Files, cfg: &GameConfig, specs: Vec<ModelSpec>) -> Result<Self> {
         let load = |file: &str| -> Result<VoxModel> {
-            let mut model = vox::load_model_in(files, &files.path(file))?;
+            let mut model = vox::load_model_in(files, &files.path(file)).map_err(|e| model_error(cfg, file, e))?;
             let light = &cfg.light;
             model.shade(light.model_shading_for.get(file).copied().unwrap_or(light.model_shading), light.edge_tolerance);
             Ok(model)

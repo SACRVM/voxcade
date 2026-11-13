@@ -25,11 +25,29 @@ pub const CALL_BUDGET: u64 = 20_000_000;
 pub const START_BUDGET: u64 = 200_000_000;
 const MEMORY: usize = 256 << 20;
 
-/// What the instruction budget counts: how much is left, and what runs.
+/// What the instruction budget counts: how much is left, and what runs;
+/// and the script's line it last saw running (`file:line`), for a call
+/// stopped by the budget or the memory limit, which Lua tells no line of.
 #[derive(Default)]
 struct Budget {
     left: Cell<i64>,
     what: Cell<&'static str>,
+    place: RefCell<String>,
+}
+
+/// The script's line running now: the innermost frame of the game's own
+/// files (not the prelude, mlua's Lua or C), as `main.lua:12`.
+fn running_line(lua: &Lua) -> Option<String> {
+    (0..64).map_while(|level| lua.inspect_stack(level, |d| (d.source().short_src.map(|s| s.to_string()), d.current_line()))).find_map(|(src, line)| {
+        let (src, line) = (src?, line?);
+        (!src.starts_with('[') && src != "prelude" && !src.starts_with("__mlua")).then(|| format!("{src}:{line}"))
+    })
+}
+
+/// "main.lua:12: " for the line `budget` last saw running, if any.
+fn at_place(budget: &Budget) -> String {
+    let place = budget.place.borrow();
+    if place.is_empty() { String::new() } else { format!("{place}: ") }
 }
 
 /// The files of the game folder its `main.lua` reads while it starts
@@ -169,13 +187,17 @@ impl Sandbox {
         }
         let budget = Rc::new(Budget::default());
         let counter = budget.clone();
-        lua.set_hook(HookTriggers::new().every_nth_instruction(EVERY), move |_, _| {
+        lua.set_hook(HookTriggers::new().every_nth_instruction(EVERY), move |lua, _| {
             let left = counter.left.get() - EVERY as i64;
             counter.left.set(left);
+            if let Some(place) = running_line(lua) {
+                *counter.place.borrow_mut() = place;
+            }
             if left < 0 {
                 // Stays spent until the next call: a pcall cannot swallow it.
                 return Err(mlua::Error::runtime(format!(
-                    "{} ran over {} million instructions: an endless loop?",
+                    "{}{} ran over {} million instructions: an endless loop?",
+                    at_place(&counter),
                     counter.what.get(),
                     if counter.what.get() == "the start" { START_BUDGET } else { CALL_BUDGET } / 1_000_000
                 )));
@@ -264,7 +286,11 @@ impl Sandbox {
         match r {
             Ok(_) if left < 0 => {
                 let budget = if what == "the start" { START_BUDGET } else { CALL_BUDGET };
-                anyhow::bail!("{what} ran over {} million instructions: an endless loop?", budget / 1_000_000)
+                anyhow::bail!("{}{what} ran over {} million instructions: an endless loop?", at_place(&self.budget), budget / 1_000_000)
+            }
+            // Lua's memory error tells no line: the one last seen running.
+            Err(e) if e.to_string() == "not enough memory" => {
+                anyhow::bail!("{}not enough memory: a game's Lua holds {} MB at most (the line is the one last seen running)", at_place(&self.budget), MEMORY >> 20)
             }
             r => r,
         }
@@ -273,6 +299,7 @@ impl Sandbox {
     fn start(&self, what: &'static str, budget: u64) {
         self.budget.what.set(what);
         self.budget.left.set(budget as i64);
+        self.budget.place.borrow_mut().clear();
     }
 }
 
@@ -361,6 +388,12 @@ pub fn error_text(e: &mlua::Error) -> String {
         (cause, traceback) = (&**inner, Some(t.as_str()));
     }
     let what = cause_text(cause);
+    // mlua's own Lua (`__mlua_index`, the objects' fallbacks) is no place
+    // of the script's: the script's line is the traceback's.
+    let what = match engine_position(&what) {
+        Some(rest) if traceback.is_some() => rest.to_string(),
+        _ => what,
+    };
     let text = match traceback {
         Some(t) => {
             let at = if has_position(&what) { String::new() } else { position_in(t).unwrap_or_default() };
@@ -368,7 +401,10 @@ pub fn error_text(e: &mlua::Error) -> String {
         }
         None => what,
     };
-    text.trim_end().to_string()
+    // The traceback without the engine's own Lua (the prelude's wrappers,
+    // mlua's fallbacks): only the script's frames and the calls into C.
+    let lines: Vec<&str> = text.lines().filter(|l| !l.strip_prefix('\t').is_some_and(|l| l.starts_with("prelude:") || l.starts_with("__mlua"))).collect();
+    lines.join("\n").trim_end().to_string()
 }
 
 fn cause_text(e: &mlua::Error) -> String {
@@ -390,10 +426,26 @@ fn has_position(text: &str) -> bool {
     !file.is_empty() && !file.contains(char::is_whitespace) && digits > 0 && rest[digits..].starts_with(':')
 }
 
+/// A message that begins at a place of the engine's own Lua (the prelude,
+/// mlua's `__mlua_index`): what follows that place.
+fn engine_position(text: &str) -> Option<&str> {
+    if !has_position(text) || !(text.starts_with("prelude:") || text.starts_with("__mlua")) {
+        return None;
+    }
+    let (_, rest) = text.split_once(':')?;
+    rest.split_once(':').map(|(_, rest)| rest.trim_start())
+}
+
+/// Whether a traceback's line is one of the engine's own frames (`[C]`,
+/// the prelude, mlua's Lua).
+fn engine_frame(line: &str) -> bool {
+    line.starts_with('[') || line.starts_with("prelude:") || line.starts_with("__mlua") || line.starts_with('(')
+}
+
 /// The script's place a traceback names first (`main.lua:12: `): not the
 /// engine's own frames (`[C]`, the prelude).
 fn position_in(traceback: &str) -> Option<String> {
-    traceback.lines().filter_map(|l| l.strip_prefix('\t')).filter(|l| !l.starts_with('[') && !l.starts_with("prelude:") && !l.starts_with('(')).find(|l| has_position(l)).map(|l| {
+    traceback.lines().filter_map(|l| l.strip_prefix('\t')).filter(|l| !engine_frame(l)).find(|l| has_position(l)).map(|l| {
         let (file, rest) = l.split_once(':').expect("has a position");
         let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
         format!("{file}:{digits}: ")

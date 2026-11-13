@@ -633,6 +633,11 @@ const GIF_SECONDS: f32 = 10.0;
 pub fn inspect<G: Game>(dir: &Path, frames: u32, input: &str, seats: &[(usize, String)], at: Option<[f32; 2]>, begin: &crate::session::Begin) -> Result<()> {
     let standing = inspected::<G>(dir, frames, input, seats, at, begin)?;
     println!("{}", serde_json::to_string_pretty(&standing)?);
+    // A halted script fails the command, as `shot`'s does; the JSON says
+    // where.
+    if let Some(error) = standing["halted"].as_str() {
+        anyhow::bail!("the game stopped at tick {}: {}", standing["tick"], error.lines().next().unwrap_or(""));
+    }
     Ok(())
 }
 
@@ -1553,6 +1558,9 @@ mod tests {
         let dir = game("inspect-draws", "function on_draw(frame)\n  world.state.x = 1\nend\n");
         let standing = inspected::<crate::Voxcade>(&dir, 5, "", &[], None, &begin).unwrap();
         assert!(standing["halted"].as_str().is_some_and(|h| h.starts_with("main.lua:2: only to look at here")), "{standing}");
+        // The command fails with it, as `shot` does (its JSON printed first).
+        let e = inspect::<crate::Voxcade>(&dir, 5, "", &[], None, &begin).unwrap_err().to_string();
+        assert!(e.starts_with("the game stopped at tick") && e.contains("main.lua:2: only to look at here"), "{e}");
         let dir = game("inspect-hidden", "local n = 0\nfunction on_tick() n = n + 1 end\n");
         let standing = inspected::<crate::Voxcade>(&dir, 130, "", &[], None, &begin).unwrap();
         assert!(standing["halted"].is_null(), "{standing}");

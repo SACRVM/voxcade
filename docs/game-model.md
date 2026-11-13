@@ -53,6 +53,18 @@ code: the engine offers the parts, the script decides.
 
 ## The objects
 
+The engine's objects (`world`, `level`, `player` and every thing,
+`input`, `screen`, `controls`, `music`, `frame`, an area, `level.camera`)
+have exactly the names below and in the register (`src/lua/api.rs`): reading
+a name one does not have is a mistake at its line, never a silent nil (it
+names the object, the name and the one meant: `level.szie` says "level
+has no szie: did you mean level.size?"; `input.jump` says an action is asked by its
+name, `input:held("jump")`), and setting one is too (the game's own data
+goes in the states). The states, `props` and the tables a field gives
+(`level.places`, `level.areas`) are plain tables of the game's: a key
+nobody set reads nil there. A field that may be empty by design reads nil
+where nothing is (`thing.name`, `thing.wall`, `level.next`, `music.song`).
+
 ### `world`: the whole run
 
 | Name | What |
@@ -60,13 +72,13 @@ code: the engine offers the parts, the script decides.
 | `world.state` | the run's state |
 | `world.tick` | ticks the game has run in this run (60 a second): every tick `on_tick` runs; none during the engine's pause, a hit stop or a level change |
 | `world.levels` | the levels' names, in order |
-| `world.players` | every seat: `world.players[n]` is seat n's player, or `false` while nobody sits there (one seat until several players are built) |
-| `world.saves` | what lies in each save slot (level, play time, when), read-only |
+| `world.players` | every seat (`c.players`, 1 unless set): `world.players[n]` is seat n's player, or `false` while nobody sits there |
+| `world.saves` | what lies in each save slot, `{ level, seconds }` (the level it was saved in, the play time), nil for an empty one; read-only |
 | `world.leaving` | nil, or why the level is about to be left (`"go_to"`, `"restart"`, `"load"`, `"won"`, `"lost"`): an ask is pending; nil again once the change is done (in `on_level_start`) |
 | `world:go_to(level, place?)` | leave this level for another (a name, or a number in `world.levels`) at the tick's end; arrive at `place`, or where the level starts |
 | `world:restart(place?)` | enter this level afresh at the tick's end: at `place`, else at the checkpoint, else where it starts |
 | `world:win()`, `world:lose()` | the run ends at the tick's end (`on_world_end` says how) |
-| `world:hitstop(ticks)` | the whole game holds still for a few ticks, `on_tick` and the time too: the punch of a hit |
+| `world:hitstop(ticks)` | the whole game holds still for a few ticks, `on_tick` and the time too: the punch of a hit; 60 (a second) at most, more is cut to 60 |
 | `world:read(name)` | a file of the game folder as text, while `main.lua` starts |
 | `world:save(slot)`, `world:load(slot)` | at the tick's end (save games, below); loading an empty slot is a mistake with its line (`world.saves[slot]` tells first) |
 
@@ -84,7 +96,7 @@ code: the engine offers the parts, the script decides.
 | `level.areas` | its named areas, boxes set in its file: `level.areas.by_the_stove:holds(player)` (a thing where its feet stand, or a point `{ x, y, z }`, z left out: any height); only to read |
 | `level.arrived` | where the player came into this level (a place, with its name): a game without the engine's figure for the player stands its hero there |
 | `level:voxel(x, y, z)`, `level:solid(x, y, z)`, `level:set_voxel(…)`, `level:fill(…)`, `level:ground(x, y)` | its voxels (`solid`: whether bodies stand on it; soft voxels are not) |
-| `level:spawn(kind, x, y, options?)`, `level:thing(name or id)`, `level:things(kind or family?)`, `level:count(kind or family?)` | its things; `options`: `{ z =, name =, facing =, props =, state = }`; a thing that died is no longer listed or counted (only its picture lingers until its rules take it away) |
+| `level:spawn(kind, x, y, options?)`, `level:thing(name or id)`, `level:things(kind or family?)`, `level:count(kind or family?)` | its things; `options`: `{ z =, name =, facing =, props =, state = }`; x and y inside the level (only a kind with `fixed = true` may wait outside, coming in from off the screen); a thing that died is no longer listed or counted (only its picture lingers until its rules take it away) |
 | `level:explode(at, radius)`, `level:sound(name, at, volume?)` | what happens in it (a sound by its file's name: `sounds/NAME.toml`, or one the engine or a kit brings) |
 | `level.camera:follow(thing)`, `level.camera:look_at(x, y)` | where the camera looks (one picture's camera: `frame:camera` in `on_draw`) |
 

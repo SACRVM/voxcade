@@ -7,6 +7,7 @@ pub struct WorldView;
 
 impl UserData for WorldView {
     fn add_fields<F: UserDataFields<Self>>(f: &mut F) {
+        f.add_meta_field(MetaMethod::Type, "world");
         f.add_field_function_get("state", |lua, _| plain_state(lua, "voxcade.state"));
         f.add_field_function_get("tick", |lua, _| look(lua, |h| Ok(h.host.sim().tick)));
         f.add_field_function_get("language", |lua, _| look(lua, |h| Ok(if looking(lua) { drawn_language(h) } else { language_of(h) })));
@@ -60,6 +61,8 @@ impl UserData for WorldView {
 
     fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
         m.add_meta_method(MetaMethod::ToString, |_, _, ()| Ok("world"));
+        m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, Value)| -> mlua::Result<Value> { Err(no_such("world", &key, Some("world.state"))) });
+        m.add_meta_function(MetaMethod::NewIndex, |_, (_, key, _): (AnyUserData, Value, Value)| -> mlua::Result<()> { Err(not_settable("world", &key, Some("world.state"))) });
         m.add_function("go_to", |lua, (_, level, place): (AnyUserData, Value, Option<String>)| {
             let index = look(lua, |h| {
                 let n = h.levels.list.len();

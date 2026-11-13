@@ -42,11 +42,14 @@ impl Stage {
 
 impl UserData for ControlsView {
     fn add_fields<F: UserDataFields<Self>>(f: &mut F) {
+        f.add_meta_field(MetaMethod::Type, "controls");
         f.add_field_method_get("device", |lua, c| look(lua, |h| Ok(c.of(lua, h).device.map(|d| d.name()))));
     }
 
     fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
         m.add_meta_method(MetaMethod::ToString, |_, _, ()| Ok("controls"));
+        m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, Value)| -> mlua::Result<Value> { Err(no_such("controls", &key, None)) });
+        m.add_meta_function(MetaMethod::NewIndex, |_, (_, key, _): (AnyUserData, Value, Value)| -> mlua::Result<()> { Err(not_settable("controls", &key, None)) });
         m.add_method("key", |lua, c, action: String| look(lua, |h| key_of(c.of(lua, h), &action, "controls:key").map(str::to_owned)));
     }
 }

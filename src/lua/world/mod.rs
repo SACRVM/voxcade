@@ -456,7 +456,8 @@ fn thing_id(v: &Value, what: &str) -> mlua::Result<u32> {
     match v {
         Value::UserData(ud) if ud.is::<ThingRef>() => Ok(ud.borrow::<ThingRef>()?.0),
         Value::Integer(i) if *i >= 0 => Ok(*i as u32),
-        _ => Err(mlua::Error::runtime(format!("{what}: a thing"))),
+        Value::Table(_) => Err(mlua::Error::runtime(format!("{what}: a thing, not a table (a point or a list): it goes by where a thing stands"))),
+        other => Err(mlua::Error::runtime(format!("{what}: a thing, not {}", if other.is_nil() { "nil".to_string() } else { format!("a {}", other.type_name()) }))),
     }
 }
 
@@ -884,3 +885,58 @@ fn thing_state(lua: &Lua, id: u32) -> mlua::Result<Value> {
 /// The game as the registry holds it for a call; scripts see it through
 /// `world`, `level` and `player`.
 impl UserData for Stage {}
+
+/// A key a script read or set on an engine's object, as it wrote it
+/// (`tik`, `[1]`).
+fn key_shown(key: &Value) -> String {
+    match key {
+        Value::String(s) => s.to_string_lossy().to_string(),
+        Value::Integer(i) => format!("[{i}]"),
+        Value::Number(n) => format!("[{n}]"),
+        other => format!("[{}]", other.type_name()),
+    }
+}
+
+/// Reading a name the engine's object `of` (one of `api::OWNERS`, or
+/// `player`) does not have is a mistake, not a nil: it names the object,
+/// the name, the one meant if one is near (a method with `:`, a field with
+/// `.`), else what it has. `own`: where the game's own data goes, if the
+/// object keeps a state.
+pub(super) fn no_such(of: &str, key: &Value, own: Option<&str>) -> mlua::Error {
+    let name = key_shown(key);
+    let items: Vec<&crate::lua::api::Item> = crate::lua::api::items_of(of).collect();
+    let call = |i: &crate::lua::api::Item| match i.what {
+        crate::lua::api::What::Method { .. } => format!("{of}:{}", i.name),
+        _ => format!("{of}.{}", i.name),
+    };
+    let near = near_item(&name, &items);
+    let own = own.map_or(String::new(), |o| format!("; the game's own data goes in {o}"));
+    match near {
+        Some(i) => mlua::Error::runtime(format!("{of} has no `{name}`: did you mean `{}`?", call(i))),
+        None => {
+            let mut names: Vec<String> = items.iter().map(|i| call(i)).collect();
+            names.sort();
+            names.dedup();
+            mlua::Error::runtime(format!("{of} has no `{name}` (it has {}){own}", names.join(", ")))
+        }
+    }
+}
+
+/// The name of `items` that `name` nearly is: a letter or two off (one
+/// for the short ones), case and swapped letters as one.
+fn near_item<'a>(name: &str, items: &[&'a crate::lua::api::Item]) -> Option<&'a crate::lua::api::Item> {
+    let name = name.to_lowercase();
+    items.iter().map(|i| (super::edits(&name, i.name), *i)).filter(|(d, i)| *d <= if i.name.len().min(name.len()) <= 4 { 1 } else { 2 }).min_by_key(|(d, _)| *d).map(|(_, i)| i)
+}
+
+/// Setting a name on an engine's object that is not one it lets a script
+/// set: its fields are read only.
+pub(super) fn not_settable(of: &str, key: &Value, own: Option<&str>) -> mlua::Error {
+    let name = key_shown(key);
+    let known = crate::lua::api::items_of(of).any(|i| i.name == name);
+    let what = if known { format!("{of}.{name} is only to read") } else { format!("{of} has no `{name}` to set") };
+    match own {
+        Some(o) => mlua::Error::runtime(format!("{what}: the game's own data goes in {o}")),
+        None => mlua::Error::runtime(format!("{what}: {of}'s fields are only to read")),
+    }
+}

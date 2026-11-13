@@ -10,6 +10,7 @@ pub struct ThingRef(pub u32);
 
 impl UserData for ThingRef {
     fn add_fields<F: UserDataFields<Self>>(f: &mut F) {
+        f.add_meta_field(MetaMethod::Type, "thing");
         f.add_field_method_get("id", |_, t| Ok(handle_seat(t.0).is_none().then_some(t.0)));
         f.add_field_method_get("seat", |_, t| Ok(handle_seat(t.0)));
         // A player's keys (`input` is seat 1's) and what it plays with.
@@ -104,12 +105,14 @@ impl UserData for ThingRef {
         // A thing's fields are read, never assigned: the body is the
         // physics' (`thing:place`), the game's own data goes in
         // `thing.state`.
-        m.add_meta_method(MetaMethod::NewIndex, |_, _, (key, _): (Value, Value)| -> mlua::Result<()> {
-            let key = match &key {
-                Value::String(s) => s.to_string_lossy().to_string(),
-                other => other.type_name().to_string(),
-            };
-            Err(mlua::Error::runtime(format!("thing.{key} cannot be assigned: a thing's fields are read only (thing:place(x, y, z) moves it, the game's own data goes in thing.state)")))
+        m.add_meta_method(MetaMethod::NewIndex, |_, t, (key, _): (Value, Value)| -> mlua::Result<()> {
+            let of = if handle_seat(t.0).is_some() { "player" } else { "thing" };
+            Err(mlua::Error::runtime(format!("{of}.{} cannot be set: a thing's fields are only to read (thing:place(x, y, z) moves it, the game's own data goes in {of}.state)", key_shown(&key))))
+        });
+        // A name a thing does not have is a mistake, not a nil.
+        m.add_meta_method(MetaMethod::Index, |_, t, key: Value| -> mlua::Result<Value> {
+            let of = if handle_seat(t.0).is_some() { "player" } else { "thing" };
+            Err(no_such(of, &key, Some(if of == "player" { "player.state" } else { "thing.state" })))
         });
         m.add_meta_method(MetaMethod::ToString, |lua, t, ()| {
             match handle_seat(t.0) {
