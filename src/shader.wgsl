@@ -486,6 +486,10 @@ fn remembered(at: vec3<f32>, n: vec3<f32>, raw: f32) -> f32 {
         slot = (slot + 1u) % FACES;
     }
     if (clear || free == FACES) {
+        if (!clear) {
+            // no room: counted in the word after the entries (render::limits)
+            atomicAdd(&faces[FACES * 3u], 1u);
+        }
         return step(0.5, raw);
     }
     let k = free * 3u;

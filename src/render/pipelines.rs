@@ -4,7 +4,7 @@
 use wgpu::util::DeviceExt;
 
 use super::bank::ActorData;
-use super::shader::{Globals, PostParams, SHADER, SHADOW_FACES, plain_shader};
+use super::shader::{Globals, PostParams, SHADER, plain_shader};
 use super::bank::ACTOR_STRIDE;
 use super::Stats;
 use super::{DEPTH_FORMAT, HDR_FORMAT, Instance, Renderer, SHRINK, composite_entry};
@@ -53,7 +53,7 @@ pub(super) enum Memory {
     Unasked,
     /// Its pipelines, the layout and bind group of the main pass with the
     /// faces' buffer, the buffer.
-    Ready { scene: ScenePipelines, layout: wgpu::BindGroupLayout, bind: wgpu::BindGroup, faces: wgpu::Buffer },
+    Ready { scene: ScenePipelines, layout: wgpu::BindGroupLayout, bind: wgpu::BindGroup, faces: wgpu::Buffer, full: super::limits::FullWatch },
     /// The GPU cannot write storage from a fragment shader (said once):
     /// the plain pipelines draw, a moving shadow's edge may flicker.
     Lacking,
@@ -419,6 +419,8 @@ impl Renderer {
             pass_times: None,
             window: (width, height),
             shape: None,
+            told_full: false,
+            said: Vec::new(),
         }
     }
 
@@ -592,12 +594,12 @@ impl Renderer {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("voxcade shader, remembering"), source: wgpu::ShaderSource::Wgsl(SHADER.as_str().into()) });
         let layout = main_layout(device, true);
         let scene = scene_pipelines(device, &module, &layout, &self.actor_layout);
-        let faces = device.create_buffer(&wgpu::BufferDescriptor { label: Some("faces' shadows"), size: SHADOW_FACES * 3 * 4, usage: wgpu::BufferUsages::STORAGE, mapped_at_creation: false });
+        let faces = device.create_buffer(&wgpu::BufferDescriptor { label: Some("faces' shadows"), size: super::limits::MEMORY_BYTES, usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC, mapped_at_creation: false });
         let bind = Self::memory_bind(device, &layout, &self.globals, &self.shadow_view, &self.shadow_sampler, &faces);
         let failed = [pollster::block_on(validation.pop()), pollster::block_on(internal.pop())];
         match failed.into_iter().flatten().next() {
             Some(e) => Err(e.to_string().lines().next().unwrap_or_default().to_string()),
-            None => Ok(Memory::Ready { scene, layout, bind, faces }),
+            None => Ok(Memory::Ready { scene, layout, bind, faces, full: super::limits::FullWatch::new(device) }),
         }
     }
 

@@ -129,6 +129,7 @@ impl<G: Game> Session<G> {
             drawn_sun: Default::default(),
             seen_faces: Default::default(),
             hud_kept: Default::default(),
+            limits: Default::default(),
             slots_at_start: slots.headers(),
             slots,
             started_from: None,

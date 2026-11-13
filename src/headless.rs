@@ -559,6 +559,12 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
 
     let s = canvas.renderer.stats;
     println!("wrote {} ({width}x{height})", opts.out.display());
+    // A limit the pictures went past (lights left out, the faces' memory
+    // full), said once.
+    canvas.renderer.memory_now(&canvas.device, &canvas.queue)?;
+    for line in game.warnings().into_iter().chain(canvas.renderer.warnings()) {
+        println!("warning: {line}");
+    }
     println!(
         "ticks {} | load {load_ms:.0} ms | sim {sim_ms:.1} ms | mesh {mesh_ms:.0} ms | chunks {}/{} drawn, {} in shadow map | {}k of {}k verts | {} particles",
         frames,
@@ -679,6 +685,8 @@ fn inspected<G: Game>(dir: &Path, frames: u32, input: &str, seats: &[(usize, Str
             break;
         }
     }
+    // A limit its pictures went past (lights left out), said once.
+    warnings.extend(game.warnings());
     let mut standing = standing(&game, &heard);
     standing["warnings"] = serde_json::json!(warnings);
     Ok(standing)

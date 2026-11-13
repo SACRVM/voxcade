@@ -8,6 +8,7 @@ mod bank;
 mod chunks;
 mod cubes;
 mod frame;
+mod limits;
 mod passes;
 mod pipelines;
 mod shader;
@@ -149,6 +150,10 @@ pub struct Renderer {
     /// picture's size then.
     window: (u32, u32),
     shape: Option<f32>,
+    /// Whether the faces' memory was said to be full, and what is to be
+    /// said (`limits`, `warnings`).
+    told_full: bool,
+    said: Vec<String>,
 }
 
 /// Where a picture of the shape `shape` (width over height) lies in a

@@ -206,7 +206,8 @@ mod tests {
             ("pivot", offset_of!(ActorData, pivot)),
         ];
         let params = [("params", offset_of!(PostParams, params)), ("step", offset_of!(PostParams, step))];
-        let pairs: [(&wgpu::naga::Module, &str, usize, &[(&str, usize)]); 4] = [
+        type Fields<'a> = &'a [(&'a str, usize)];
+        let pairs: [(&wgpu::naga::Module, &str, usize, Fields); 4] = [
             (&scene, "Globals", size_of::<Globals>(), &globals),
             (&scene, "Light", size_of::<LightData>(), &light),
             (&scene, "Actor", size_of::<ActorData>(), &actor),
@@ -215,11 +216,11 @@ mod tests {
         for (module, name, size, rust) in pairs {
             let (span, align, members) = wgsl_struct(module, name);
             assert_eq!(span as usize, size, "{name}: the shader's size and the Rust struct's");
-            assert_eq!(size % align as usize, 0, "{name}: its size a whole number of its WGSL alignment ({align})");
+            assert!(size.is_multiple_of(align as usize), "{name}: its size a whole number of its WGSL alignment ({align})");
             let rust: Vec<(String, u32)> = rust.iter().map(|(n, o)| (n.to_string(), *o as u32)).collect();
             assert_eq!(members, rust, "{name}: the members and their offsets");
         }
-        assert!(size_of::<ActorData>() <= ACTOR_STRIDE && ACTOR_STRIDE % 256 == 0, "a model draw's place fits its stride, which every GPU allows");
+        assert!(size_of::<ActorData>() <= ACTOR_STRIDE && ACTOR_STRIDE.is_multiple_of(256), "a model draw's place fits its stride, which every GPU allows");
     }
 
     /// The vertex buffers the pipelines give (`chunk_buffers`,

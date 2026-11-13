@@ -267,7 +267,9 @@ impl<G: Game> Play<G> {
     /// What the game said since last asked, for OUTPUT: what it did of
     /// itself, files that would not load, and what its script printed.
     pub fn said(&mut self) -> Vec<(super::output::Kind, String)> {
-        let notes = self.notes.drain(..).map(|n| (super::output::Kind::Note, n));
+        // (A limit the pictures went past, lights left out and the like.)
+        let limits = self.game.warnings().into_iter().chain(self.renderer.warnings());
+        let notes = self.notes.drain(..).chain(limits).map(|n| (super::output::Kind::Note, n));
         let failed = self.failed.drain(..).chain(self.hidden.drain(..)).map(|f| (super::output::Kind::Error, f));
         let printed = self.game.printed().into_iter().map(|p| (super::output::Kind::Print, p));
         notes.chain(failed).chain(printed).collect()

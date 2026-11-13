@@ -70,6 +70,7 @@ impl Renderer {
         // (made the first time, where the GPU has them).
         let remember = frame.remember && self.remembering(device);
         self.pictures = self.pictures.wrapping_add(1);
+        self.watch_memory(device, encoder);
         self.write_globals(queue, frame, remember);
         self.upload_cubes(device, queue, frame);
         self.upload_models(device, queue, frame);

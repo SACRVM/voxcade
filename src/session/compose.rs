@@ -130,6 +130,32 @@ impl<G: Game> Session<G> {
         let view = (camera::view_proj(cam, target, aspect), light_vp, camera::eye(cam, target, aspect));
         let mut out = self.drawing(&sim.world, 1.0, view, aspect, 512);
         self.game.draw(&mut out);
+        self.count_lights(sim.flares.len() + out.lights.len());
+    }
+
+    /// A picture's lights, `asked` of them: past the renderer's
+    /// `MAX_LIGHTS` (the nearest the middle drawn, the rest not), said once
+    /// (`warnings`).
+    fn count_lights(&self, asked: usize) {
+        let most = crate::render::MAX_LIGHTS;
+        if asked > most {
+            self.say_once("lights", format!("lights: {asked} asked, {most} drawn (the {most} nearest the middle of the view; a picture lights {most} at most)"));
+        }
+    }
+
+    /// Says `text` of the limit `what`, the first time a picture goes past it.
+    pub(super) fn say_once(&self, what: &'static str, text: String) {
+        let mut limits = self.limits.borrow_mut();
+        if limits.told.insert(what) {
+            limits.new.push(text);
+        }
+    }
+
+    /// What pictures went past since last asked (lights dropped and the
+    /// like), each limit said once: `shot` prints it, `inspect` lists it
+    /// under "warnings", the IDE's PLAY puts it in OUTPUT.
+    pub fn warnings(&self) -> Vec<String> {
+        std::mem::take(&mut self.limits.borrow_mut().new)
     }
 
     /// A frame of `scene`; `ui` (the menus) instead of the HUD when given;
@@ -241,13 +267,18 @@ impl<G: Game> Session<G> {
             view_proj = camera::view_proj(&cam, target, aspect);
             eye = camera::eye(&cam, target, aspect);
             (voxels.eye, voxels.moved) = (eye, true);
-            if cam.pitch != self.cfg.camera.pitch || cam.fov != self.cfg.camera.fov {
-                let mut seen = self.seen_faces.get();
-                for (s, o) in seen.iter_mut().zip(mesh::face_mask(&camera::corner_rays(&cam), self.sun())) {
-                    *s |= o;
-                }
-                self.seen_faces.set(seen);
+        }
+        // Another pitch or field of view than the camera's (a picture the
+        // game set), or a window wider than the meshes' faces were chosen
+        // for (`camera::corner_rays`): the faces its rays can hit kept in
+        // the meshes from now on, built anew once.
+        let other = picture.is_some() && (cam.pitch != self.cfg.camera.pitch || cam.fov != self.cfg.camera.fov);
+        if other || aspect > camera::WIDEST_KEPT {
+            let mut seen = self.seen_faces.get();
+            for (s, o) in seen.iter_mut().zip(mesh::face_mask(&camera::corner_rays(&cam, aspect), self.sun())) {
+                *s |= o;
             }
+            self.seen_faces.set(seen);
         }
         // The daylight the game set for this picture, else its level's
         // (`[light]`), else c.light's; the shadows fitted to its sun.
@@ -292,6 +323,7 @@ impl<G: Game> Session<G> {
             .chain(game_lights)
             .collect();
         lights.sort_by(|a, b| a.pos.distance_squared(target).total_cmp(&b.pos.distance_squared(target)));
+        self.count_lights(lights.len());
         lights.truncate(crate::render::MAX_LIGHTS);
 
         // What stopped the game or a reload, over everything until mended
@@ -356,6 +388,14 @@ impl<G: Game> Session<G> {
             ui_view_proj,
         }
     }
+}
+
+/// The limits pictures went past: those said, and those to say
+/// (`Session::warnings`).
+#[derive(Default)]
+pub(crate) struct Limits {
+    told: std::collections::BTreeSet<&'static str>,
+    new: Vec<String>,
 }
 
 /// The HUD as the last picture had it (`Session::hud_cubes`): the cubes
