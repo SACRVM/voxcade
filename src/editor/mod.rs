@@ -9,11 +9,12 @@
 
 pub mod background;
 #[cfg(test)]
-mod big;
+pub(crate) mod big;
 pub mod figure;
 pub mod context;
 pub mod frames;
 pub mod handles;
+pub mod keys;
 pub mod model;
 pub mod panels;
 pub mod pick;
@@ -697,7 +698,10 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
             let screen = ctx.content_rect();
             if let Some(name) = &opts.menu {
                 let at = egui::pos2(screen.left() + mx * screen.width(), screen.top() + my * screen.height());
-                if let Some(part) = name.strip_prefix("part:") {
+                if name == "keys" {
+                    // F1's page of the keys.
+                    view.keys_shown = true;
+                } else if let Some(part) = name.strip_prefix("part:") {
                     // A figure's part's menu (its row's, a right click).
                     let p = part_of(&ed, part)?;
                     view.menu = Some(view::Menu { on: view::MenuOn::Part(p), at: [zones::OUTLINER - 40.0, 120.0] });
@@ -1478,6 +1482,9 @@ impl EditorWindow {
                     *figures = Figures::load(&ed.dir, cfg).with_pieces(&ed.dir, &ed.level);
                 }
             }
+            // F1: the page of the keys; Esc closes it first.
+            Event::KeyDown { keycode: Some(Keycode::F1), .. } if !gui.egui_wants_keyboard_input() => view::act(ed, view, view::Action::Keys),
+            Event::KeyDown { keycode: Some(Keycode::Escape), .. } if view.keys_shown => view.keys_shown = false,
             Event::KeyDown { keycode: Some(key), keymod, .. } if ed.among_pieces() && !gui.egui_wants_keyboard_input() && pieces_key(ed, view, key, keymod) => {}
             Event::KeyDown { keycode: Some(key), keymod, .. } if !gui.egui_wants_keyboard_input() => {
                 let ctrl = keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD | Mod::LGUIMOD | Mod::RGUIMOD);

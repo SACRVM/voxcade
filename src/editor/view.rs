@@ -194,6 +194,8 @@ pub struct View {
     /// SELECT's rectangle being dragged on the screen (shares of the
     /// window, from the press to the pointer) and what it will do.
     pub marquee: Option<Marquee>,
+    /// F1's page of the keys shown over the view (`keys.rs`).
+    pub keys_shown: bool,
     /// How much of the window the panels leave the view: shares of it on
     /// the left, at the top, on the right and at the bottom.
     pub room: [f32; 4],
@@ -267,21 +269,54 @@ pub enum Face {
     Front,
     /// A block as it lies in the level: its y 0 side, the level's front.
     Block,
+    /// The title's logo (`c.title_screen.logo_model`): the game lays its
+    /// x across and its y towards the player (`ui::logo_model_parts`),
+    /// which a view of the world shows the right way round, to read it,
+    /// only from its y 0 side (from +y its letters read mirrored).
+    Logo,
 }
 
 /// The side the game shows of the model `file` (its path in the game
 /// folder) as a run starts: of a block its front as it lies; of a figure
-/// (a kind with it whose behavior walks or flies) the side it looks to,
-/// the hero right, the others left; else its front.
+/// (a kind with it) the side it looks to (`start_way`); of the title's
+/// logo the side that reads the right way round; else its front.
 pub fn face_of(file: &str, cfg: &GameConfig) -> Face {
     if file.starts_with(&format!("{}/", crate::blocks::FOLDER)) {
         return Face::Block;
     }
-    let behavior = cfg.things.values().filter(|t| t.get("model").and_then(|m| m.as_str()) == Some(file)).find_map(|t| t.get("behavior").and_then(|b| b.as_str()));
-    match behavior {
-        Some("hero") => Face::Right,
-        Some(b) if SIDEWAYS.contains(&b) => Face::Left,
+    if cfg.title_screen.logo_model.as_deref() == Some(file) {
+        return Face::Logo;
+    }
+    let kind = cfg.things.values().find(|t| t.get("model").and_then(|m| m.as_str()) == Some(file));
+    match kind.map(start_way) {
+        Some(crate::grid::Way::East) => Face::Right,
+        Some(crate::grid::Way::West) => Face::Left,
+        // (Facing away there is no side for: its front.)
         _ => Face::Front,
+    }
+}
+
+/// The way a kind of thing (`c.things.NAME`) faces as a run starts, as
+/// the game turns it: the way its `facing` says where it sets one (a bat
+/// to the front, wings spread, whether or not it turns to the hero later),
+/// else as its behavior goes: a figure (it walks or flies) seen from the
+/// side, the hero right, the others left; anything else to the camera.
+fn start_way(kind: &toml::Table) -> crate::grid::Way {
+    use crate::grid::Way;
+    let number = |v: &toml::Value| v.as_float().or(v.as_integer().map(|i| i as f64));
+    let facing = kind.get("facing").and_then(|f| f.as_array()).and_then(|f| Some((number(f.first()?)?, number(f.get(1)?)?)));
+    if let Some((x, y)) = facing
+        && (x, y) != (0.0, 0.0)
+    {
+        // As the game turns a body to it (`sim::quarter_turn`, from facing
+        // the camera).
+        let look = crate::sim::quarter_turn(Vec3::new(x as f32, y as f32, 0.0), glam::IVec2::NEG_Y);
+        return Way::of_pair(look.to_array()).unwrap_or(Way::South);
+    }
+    match kind.get("behavior").and_then(|b| b.as_str()) {
+        Some("hero") => Way::East,
+        Some(b) if SIDEWAYS.contains(&b) => Way::West,
+        _ => Way::South,
     }
 }
 
@@ -292,7 +327,7 @@ pub fn seen(frame: &Block, face: Face) -> (i32, i32, Vec<Option<[u8; 3]>>) {
     let s = frame.size;
     let w = match face {
         Face::Right | Face::Left => s.y,
-        Face::Front | Face::Block => s.x,
+        Face::Front | Face::Block | Face::Logo => s.x,
     };
     let pixels = (0..w * s.z)
         .map(|i| {
@@ -302,7 +337,7 @@ pub fn seen(frame: &Block, face: Face) -> (i32, i32, Vec<Option<[u8; 3]>>) {
                 Face::Right => (0..s.x).rev().find_map(|x| frame.colour_at(IVec3::new(x, c, z))),
                 Face::Left => (0..s.x).find_map(|x| frame.colour_at(IVec3::new(x, s.y - 1 - c, z))),
                 Face::Front => (0..s.y).rev().find_map(|y| frame.colour_at(IVec3::new(s.x - 1 - c, y, z))),
-                Face::Block => (0..s.y).find_map(|y| frame.colour_at(IVec3::new(c, y, z))),
+                Face::Block | Face::Logo => (0..s.y).find_map(|y| frame.colour_at(IVec3::new(c, y, z))),
             }
         })
         .collect();
@@ -342,6 +377,7 @@ impl View {
                     Face::Left => 110.0,
                     Face::Front => 160.0,
                     Face::Block => -30.0,
+                    Face::Logo => -20.0,
                 };
                 Orbit { yaw, pitch: 20.0, zoom: (size.max_element() * 2.8).max(16.0), target: lo + size / 2.0, fov: FOV }
             }
@@ -392,6 +428,7 @@ impl View {
             held: 0,
             up_since: None,
             marquee: None,
+            keys_shown: false,
             room: [0.0; 4],
         };
         // A level without blocks: the whole room as the game looks.
@@ -999,8 +1036,7 @@ impl Figures {
     pub fn load(dir: &Path, cfg: &GameConfig) -> Self {
         let mut figures = BTreeMap::new();
         for (kind, table) in &cfg.things {
-            let behavior = table.get("behavior").and_then(|b| b.as_str());
-            let sideways = behavior.is_some_and(|b| SIDEWAYS.contains(&b));
+            let start = start_way(table);
             let number = |key: &str| table.get(key).and_then(|v| v.as_float().or(v.as_integer().map(|i| i as f64)));
             let model = table.get("model").and_then(|m| m.as_str()).and_then(|file| crate::vox::load_model(&dir.join(file)).ok());
             // Facing each way as a level's file may turn it (its forward
@@ -1025,16 +1061,11 @@ impl Figures {
                         .map(|&k| {
                             let (p, color) = m.frames[0][k as usize];
                             // Turned as the game turns it as a run starts
-                            // (`face_of`), about the model's pivot: the hero
-                            // to the right, the other figures to the left,
-                            // anything else to the camera.
-                            let l = p - pivot;
-                            let l = match (sideways, behavior) {
-                                (true, Some("hero")) => IVec3::new(l.y, -l.x, l.z),
-                                (true, _) => IVec3::new(-l.y, l.x, l.z),
-                                _ => IVec3::new(-l.x, -l.y, l.z),
-                            };
-                            (l, [color[0], color[1], color[2]])
+                            // (`start_way`), about the model's pivot: the
+                            // way its kind faces (Voxkeep's bat to the
+                            // front, its wings spread), else a figure to
+                            // the side, anything else to the camera.
+                            (turned_to(start, p - pivot), [color[0], color[1], color[2]])
                         })
                         .collect()
                 }
@@ -1381,6 +1412,8 @@ pub enum Action {
     DayColour(bool, [u8; 3]),
     DayAsGame,
     GameView,
+    /// F1: the page of the keys shown, or hidden again.
+    Keys,
     Lights,
     /// Among the pieces: a thing's menu opened (on the one in the list
     /// right-clicked, at egui's point), closed; ADD's menu on the top bar
@@ -1884,6 +1917,7 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
             }
             None => {}
         },
+        Action::Keys => view.keys_shown = !view.keys_shown,
         Action::GameView => match view.before_game.take() {
             Some(orbit) => view.level = orbit,
             None => {
@@ -2038,7 +2072,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         let look = match view.face {
             Face::Right => glam::IVec2::X,
             Face::Left => glam::IVec2::NEG_X,
-            Face::Front | Face::Block => glam::IVec2::NEG_Y,
+            Face::Front | Face::Block | Face::Logo => glam::IVec2::NEG_Y,
         };
         let mut draws = Vec::new();
         crate::session::model_drawn(&model, origin, look, &figure.pose, &mut draws, &mut through);
@@ -2582,6 +2616,38 @@ pub const SHADOW_MAP: u32 = 4096;
 mod tests {
     use super::*;
     use crate::editor::model::tests::folder;
+
+    /// A kind of thing is drawn facing as the game faces it as a run
+    /// starts: Voxkeep's bat (a flyer whose kind says `facing = { 0, -1 }`)
+    /// to the front, its wings spread across, not edge on as the other
+    /// figures go; its model opens from the front too. A kind facing
+    /// right shows its right; the hero and a walker without `facing` from
+    /// the side as before, a prop to the camera.
+    #[test]
+    fn a_kind_faces_as_its_facing_says() {
+        let dir = Path::new("games/voxkeep");
+        let cfg = crate::session::config::<crate::Voxcade>(dir).unwrap();
+        let figures = Figures::load(dir, &cfg);
+        let bat = crate::vox::load_model(&dir.join("bat.vvx")).unwrap();
+        assert!(bat.size.x > 3 * bat.size.y, "the bat is wide across, thin deep: {}", bat.size);
+        let across = |kind: &str| {
+            let (lo, hi) = figures.bounds(kind);
+            (hi - lo).truncate()
+        };
+        assert_eq!(across("bat"), glam::IVec2::new(bat.size.x, bat.size.y), "the bat to the front, its wings across");
+        assert_eq!(face_of("bat.vvx", &cfg), Face::Front);
+        // The others as before: the hero right, a walker left, a prop to
+        // the camera.
+        assert_eq!(face_of("hero.vvx", &cfg), Face::Right);
+        assert_eq!(face_of("slime.vvx", &cfg), Face::Left);
+        assert_eq!(face_of("torch.vvx", &cfg), Face::Front);
+        let way = |table: &str| start_way(&toml::from_str::<toml::Table>(table).unwrap());
+        assert_eq!(way("behavior = \"walker\"\nfacing = [1, 0]"), crate::grid::Way::East);
+        assert_eq!(way("behavior = \"flyer\"\nfacing = [0.2, -1.0]"), crate::grid::Way::South);
+        assert_eq!(way("behavior = \"hero\""), crate::grid::Way::East);
+        assert_eq!(way("behavior = \"hopper\""), crate::grid::Way::West);
+        assert_eq!(way("behavior = \"prop\""), crate::grid::Way::South);
+    }
 
     /// The ray through the middle of the screen passes through the point
     /// the camera looks at, from any side.

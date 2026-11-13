@@ -2,10 +2,11 @@
 //! tests): a level of blocks and the block being shaped, the tools, the
 //! history, saving every change at once.
 //!
-//! Both levels of the editor are a grid with the same four tools: in the
-//! level the cells hold blocks (ADD, ERASE, PAINT, PICK, and the held
-//! block turned, rolled, mirrored), in a block the voxels hold colours
-//! (ADD, ERASE, PAINT, PICK). A ray from the view finds the cell it meets
+//! Both levels of the editor are a grid with the same tools at heart
+//! (`Tool::of`): in the level the cells hold blocks (POINTER, ADD, ERASE,
+//! PAINT, PICK, and the held block turned, rolled, mirrored), in a block,
+//! a model or a figure the voxels hold colours (those and FILL, DEEP
+//! PAINT, BOX, SPHERE, SELECT). A ray from the view finds the cell it meets
 //! first and the face it enters through; a floor under the grid makes room
 //! to build on nothing. A stroke (pressed, dragged, let go) works on the
 //! surface it began on: dragging ADD lays one layer, ERASE takes one off,

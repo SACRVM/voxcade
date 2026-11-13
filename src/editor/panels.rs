@@ -26,6 +26,9 @@ pub const BAR: f32 = 76.0;
 pub struct Shown {
     pub clicked: Vec<Action>,
     pub keys: Vec<(char, Action)>,
+    /// The keys the panels name with the words of their buttons, in the
+    /// order drawn (F1's overview, `keys.rs`).
+    pub named: Vec<(String, String)>,
     pub rects: Vec<egui::Rect>,
     /// A name typed for an item and Enter pressed (`Editor::rename`).
     pub renamed: Option<(Item, String)>,
@@ -74,13 +77,19 @@ pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
         question(ui, &ed.file, names, &mut shown);
         return shown;
     }
-    // Among the pieces: the three zones of `stage.rs`.
+    // Among the pieces: the three zones of `stage.rs`; else the voxel
+    // editor and the level of blocks: `shaping.rs`.
     if ed.among_pieces() || ed.among_land() {
         stage::ui(ui, ed, view, figures, thumbs, &mut shown);
-        return shown;
+    } else {
+        super::shaping::ui(ui, ed, view, figures, thumbs, &mut shown);
     }
-    // Else the voxel editor and the level of blocks: `shaping.rs`.
-    super::shaping::ui(ui, ed, view, figures, thumbs, &mut shown);
+    // F1: the keys of what is open, over the view.
+    if view.keys_shown {
+        let groups = super::keys::overview(ed, &shown.named);
+        let free = shown.free.unwrap_or_else(|| ui.ctx().content_rect());
+        super::keys::page(ui, free, &groups, &mut shown);
+    }
     shown
 }
 
@@ -257,6 +266,23 @@ fn land_marks(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
 pub fn key_action(keys: &[(char, Action)], key: char) -> Option<Action> {
     let key = key.to_ascii_uppercase();
     keys.iter().find(|(k, _)| *k == key).map(|&(_, a)| a)
+}
+
+/// The panels laid out at 1600 by 900 as a window lays them (a few frames
+/// for egui to settle), and what egui painted of them (for tests).
+#[cfg(test)]
+pub(crate) fn laid_out_at(ed: &Editor, view: &View) -> (Shown, Vec<egui::epaint::ClippedShape>) {
+    let ctx = egui::Context::default();
+    crate::gui::style(&ctx);
+    let cfg = crate::session::config::<crate::Voxcade>(&ed.dir).unwrap_or_default();
+    let (figures, mut thumbs) = (Figures::load(&ed.dir, &cfg).with_pieces(&ed.dir, &ed.level), Thumbs::default());
+    let mut out = None;
+    let mut shapes = Vec::new();
+    for _ in 0..3 {
+        let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 900.0))), ..Default::default() };
+        shapes = ctx.run_ui(raw, |u| out = Some(self::ui(u, ed, view, &figures, &mut thumbs))).shapes;
+    }
+    (out.expect("drawn"), shapes)
 }
 
 #[cfg(test)]
