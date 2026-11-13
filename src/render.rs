@@ -1440,6 +1440,42 @@ impl Renderer {
         // (made the first time, where the GPU has them).
         let remember = frame.remember && self.remembering(device);
         self.pictures = self.pictures.wrapping_add(1);
+        self.write_globals(queue, frame, remember);
+        self.upload_cubes(device, queue, frame);
+        self.upload_models(device, queue, frame);
+        let instance_count = frame.instances.len();
+        let all_models = frame.models.len() + frame.ui_models.len();
+
+        if let Some(t) = &self.pass_times {
+            t.labels.borrow_mut().clear();
+        }
+        let mut stats = Stats {
+            instances: instance_count,
+            models: all_models,
+            model_cubes: frame.models.iter().chain(&frame.ui_models).map(|m| m.voxels.len()).sum(),
+            ui_instances: frame.ui.len(),
+            chunks: self.meshes.len(),
+            vertices_total: self.meshes.values().map(|m| m.vertex_count).sum(),
+            ..Stats::default()
+        };
+        self.shadow_pass(encoder, frame, &mut stats);
+        self.scene_pass(encoder, frame, remember, &mut stats);
+        self.ui_pass(encoder, frame);
+        self.post_passes(encoder);
+        self.composite_pass(encoder, target);
+        if let Some(t) = &self.pass_times {
+            let count = 2 * t.labels.borrow().len() as u32;
+            if count > 0 {
+                encoder.resolve_query_set(&t.queries, 0..count, &t.resolve, 0);
+                encoder.copy_buffer_to_buffer(&t.resolve, 0, &t.readback, 0, count as u64 * 8);
+            }
+        }
+        self.stats = stats;
+    }
+
+    /// The globals of the world's scene and the UI's, and the composite's
+    /// numbers, for this frame.
+    fn write_globals(&self, queue: &wgpu::Queue, frame: &FrameData, remember: bool) {
         let mut lights = [LightData::zeroed(); MAX_LIGHTS];
         for (slot, l) in lights.iter_mut().zip(&frame.lights) {
             *slot = LightData { pos_radius: l.pos.extend(l.radius).to_array(), color: [l.color[0], l.color[1], l.color[2], 0.0] };
@@ -1482,10 +1518,12 @@ impl Renderer {
         queue.write_buffer(&self.ui_globals, 0, bytemuck::bytes_of(&ui_globals));
         let composite = PostParams { params: [frame.glow, frame.tilt_shift, frame.screen_flash, 0.0], step: frame.fade };
         queue.write_buffer(&self.targets.composite_params, 0, bytemuck::bytes_of(&composite));
+    }
 
+    /// The frame's cubes into the instance buffer (grown if need be).
+    fn upload_cubes(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, frame: &FrameData) {
         // The world's cubes, then the UI's, in one buffer.
         let instance_count = frame.instances.len();
-        let (behind, opaque) = frame.cube_runs();
         let total = instance_count + frame.ui.len();
         if total > self.instance_capacity {
             self.instance_capacity = total.next_power_of_two();
@@ -1498,7 +1536,10 @@ impl Renderer {
             let offset = (instance_count * size_of::<Instance>()) as u64;
             queue.write_buffer(&self.instances, offset, bytemuck::cast_slice(&frame.ui));
         }
+    }
 
+    /// The model bank, and the model draws' places.
+    fn upload_models(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, frame: &FrameData) {
         // The model bank the first time it comes (and again after models
         // reload), the draws' places every frame.
         // The world's model draws, then the UI's: their places in that order.
@@ -1524,184 +1565,187 @@ impl Renderer {
             }
             queue.write_buffer(&self.actors, 0, &places);
         }
-        let bank = self.bank.as_ref().map(|(_, buffer)| buffer).filter(|_| all_models > 0);
-        // Each model draw: its place (the `first` of all places), and its
-        // voxels in the bank.
-        let draw_models = |pass: &mut wgpu::RenderPass, pipeline: &wgpu::RenderPipeline, models: &[ModelDraw], first: usize| {
-            let Some(bank) = bank.filter(|_| !models.is_empty()) else { return };
-            pass.set_pipeline(pipeline);
+    }
+
+    /// Each model draw: its place (the `first` of all `all_models`
+    /// places), and its voxels in the bank.
+    fn draw_models(&self, pass: &mut wgpu::RenderPass, pipeline: &wgpu::RenderPipeline, models: &[ModelDraw], first: usize, all_models: usize) {
+        let Some((_, bank)) = self.bank.as_ref().filter(|_| all_models > 0 && !models.is_empty()) else { return };
+        pass.set_pipeline(pipeline);
+        pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
+        pass.set_vertex_buffer(1, bank.slice(..));
+        pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
+        for (i, m) in models.iter().enumerate() {
+            if m.voxels.is_empty() {
+                continue;
+            }
+            pass.set_bind_group(1, &self.actor_bind, &[((first + i) * ACTOR_STRIDE) as u32]);
+            pass.draw_indexed(0..self.cube_index_count, 0, m.voxels.clone());
+        }
+    }
+
+    /// The sun's shadow map: the chunks, the models, the opaque cubes.
+    fn shadow_pass(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameData, stats: &mut Stats) {
+        let all_models = frame.models.len() + frame.ui_models.len();
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("sun shadows"),
+            color_attachments: &[],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.shadow_view,
+                depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: self.pass_times.as_ref().and_then(|t| t.writes("shadows")),
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_bind_group(0, &self.shadow_bind, &[]);
+        pass.set_pipeline(&self.chunk_shadow);
+        for mesh in self.meshes.values() {
+            if !on_screen(&frame.light_vp, mesh.min, mesh.max) {
+                continue;
+            }
+            stats.shadowed += 1;
+            pass.set_vertex_buffer(0, mesh.vertices.slice(..mesh.vertex_bytes()));
+            pass.set_index_buffer(mesh.indices.slice(..mesh.index_bytes()), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+        }
+        self.draw_models(&mut pass, &self.model_shadow, &frame.models, 0, all_models);
+        // Only the opaque cubes: fire, smoke, dust, glass and what lies
+        // faint behind everything cast no shadow.
+        let casting = frame.shadow_cubes();
+        if !casting.is_empty() {
+            pass.set_pipeline(&self.inst_shadow);
             pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
-            pass.set_vertex_buffer(1, bank.slice(..));
+            pass.set_vertex_buffer(1, self.instances.slice(..));
             pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
-            for (i, m) in models.iter().enumerate() {
-                if m.voxels.is_empty() {
-                    continue;
-                }
-                pass.set_bind_group(1, &self.actor_bind, &[((first + i) * ACTOR_STRIDE) as u32]);
-                pass.draw_indexed(0..self.cube_index_count, 0, m.voxels.clone());
-            }
-        };
-
-        if let Some(t) = &self.pass_times {
-            t.labels.borrow_mut().clear();
+            pass.draw_indexed(0..self.cube_index_count, 0, casting);
         }
-        let mut stats = Stats {
-            instances: instance_count,
-            models: all_models,
-            model_cubes: frame.models.iter().chain(&frame.ui_models).map(|m| m.voxels.len()).sum(),
-            ui_instances: frame.ui.len(),
-            chunks: self.meshes.len(),
-            vertices_total: self.meshes.values().map(|m| m.vertex_count).sum(),
-            ..Stats::default()
+    }
+
+    /// The world's scene: what lies faint behind, the chunks, the models
+    /// (their outline), the cubes, opaque then see-through; with the faces'
+    /// memory where `remember`.
+    fn scene_pass(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameData, remember: bool, stats: &mut Stats) {
+        let all_models = frame.models.len() + frame.ui_models.len();
+        let instance_count = frame.instances.len();
+        let (behind, opaque) = frame.cube_runs();
+        let [r, g, b] = frame.sky.map(f64::from);
+        let t = &self.targets;
+        let attachment = |view, clear| {
+            Some(wgpu::RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(clear), store: wgpu::StoreOp::Store },
+            })
         };
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("sun shadows"),
-                color_attachments: &[],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.shadow_view,
-                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }),
-                    stencil_ops: None,
-                }),
-                timestamp_writes: self.pass_times.as_ref().and_then(|t| t.writes("shadows")),
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_bind_group(0, &self.shadow_bind, &[]);
-            pass.set_pipeline(&self.chunk_shadow);
-            for mesh in self.meshes.values() {
-                if !on_screen(&frame.light_vp, mesh.min, mesh.max) {
-                    continue;
-                }
-                stats.shadowed += 1;
-                pass.set_vertex_buffer(0, mesh.vertices.slice(..mesh.vertex_bytes()));
-                pass.set_index_buffer(mesh.indices.slice(..mesh.index_bytes()), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("scene"),
+            color_attachments: &[
+                attachment(&t.scene, wgpu::Color { r, g, b, a: 1.0 }),
+                attachment(&t.glow, wgpu::Color::TRANSPARENT),
+            ],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &t.depth,
+                depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Discard }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: self.pass_times.as_ref().and_then(|t| t.writes("scene")),
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        let (scene, bind) = match &self.memory {
+            Memory::Ready { scene, bind, .. } if remember => (scene, bind),
+            _ => (&self.plain, &self.main_bind),
+        };
+        pass.set_bind_group(0, bind, &[]);
+        // What lies behind everything else, faint: first.
+        if behind > 0 {
+            pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
+            pass.set_vertex_buffer(1, self.instances.slice(..));
+            pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
+            pass.set_pipeline(&scene.see_through);
+            pass.draw_indexed(0..self.cube_index_count, 0, 0..behind);
+        }
+        pass.set_pipeline(&scene.chunk);
+        for mesh in self.meshes.values() {
+            if !on_screen(&frame.view_proj, mesh.min, mesh.max) {
+                continue;
             }
-            draw_models(&mut pass, &self.model_shadow, &frame.models, 0);
-            // Only the opaque cubes: fire, smoke, dust, glass and what lies
-            // faint behind everything cast no shadow.
-            let casting = frame.shadow_cubes();
-            if !casting.is_empty() {
-                pass.set_pipeline(&self.inst_shadow);
-                pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
-                pass.set_vertex_buffer(1, self.instances.slice(..));
-                pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..self.cube_index_count, 0, casting);
+            stats.drawn += 1;
+            stats.vertices += mesh.vertex_count;
+            pass.set_vertex_buffer(0, mesh.vertices.slice(..mesh.vertex_bytes()));
+            pass.set_index_buffer(mesh.indices.slice(..mesh.index_bytes()), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+        }
+        // The models before the cubes: where a cube shares a cell with a
+        // model's voxel (or a model with the world), the one drawn first
+        // keeps it, at the same depth.
+        self.draw_models(&mut pass, &scene.model, &frame.models, 0, all_models);
+        if frame.outline[3] > 0.0 {
+            self.draw_models(&mut pass, &self.model_outline, &frame.models, 0, all_models);
+        }
+        if instance_count > 0 {
+            pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
+            pass.set_vertex_buffer(1, self.instances.slice(..));
+            pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
+            if opaque > behind {
+                pass.set_pipeline(&scene.inst);
+                pass.draw_indexed(0..self.cube_index_count, 0, behind..opaque);
+            }
+            if (opaque as usize) < instance_count {
+                pass.set_pipeline(&scene.see_through);
+                pass.draw_indexed(0..self.cube_index_count, 0, opaque..instance_count as u32);
             }
         }
+    }
 
-        {
-            let [r, g, b] = frame.sky.map(f64::from);
-            let t = &self.targets;
-            let attachment = |view, clear| {
+    /// The UI's scene into its own layer (and the glow).
+    fn ui_pass(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameData) {
+        let all_models = frame.models.len() + frame.ui_models.len();
+        let instance_count = frame.instances.len();
+        let total = instance_count + frame.ui.len();
+        // The UI: its own layer (cleared every frame) and the glow.
+        let t = &self.targets;
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("ui"),
+            color_attachments: &[
                 Some(wgpu::RenderPassColorAttachment {
-                    view,
+                    view: &t.ui,
                     depth_slice: None,
                     resolve_target: None,
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(clear), store: wgpu::StoreOp::Store },
-                })
-            };
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("scene"),
-                color_attachments: &[
-                    attachment(&t.scene, wgpu::Color { r, g, b, a: 1.0 }),
-                    attachment(&t.glow, wgpu::Color::TRANSPARENT),
-                ],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &t.depth,
-                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Discard }),
-                    stencil_ops: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
                 }),
-                timestamp_writes: self.pass_times.as_ref().and_then(|t| t.writes("scene")),
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            let (scene, bind) = match &self.memory {
-                Memory::Ready { scene, bind, .. } if remember => (scene, bind),
-                _ => (&self.plain, &self.main_bind),
-            };
-            pass.set_bind_group(0, bind, &[]);
-            // What lies behind everything else, faint: first.
-            if behind > 0 {
-                pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
-                pass.set_vertex_buffer(1, self.instances.slice(..));
-                pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
-                pass.set_pipeline(&scene.see_through);
-                pass.draw_indexed(0..self.cube_index_count, 0, 0..behind);
-            }
-            pass.set_pipeline(&scene.chunk);
-            for mesh in self.meshes.values() {
-                if !on_screen(&frame.view_proj, mesh.min, mesh.max) {
-                    continue;
-                }
-                stats.drawn += 1;
-                stats.vertices += mesh.vertex_count;
-                pass.set_vertex_buffer(0, mesh.vertices.slice(..mesh.vertex_bytes()));
-                pass.set_index_buffer(mesh.indices.slice(..mesh.index_bytes()), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
-            }
-            // The models before the cubes: where a cube shares a cell with a
-            // model's voxel (or a model with the world), the one drawn first
-            // keeps it, at the same depth.
-            draw_models(&mut pass, &scene.model, &frame.models, 0);
-            if frame.outline[3] > 0.0 {
-                draw_models(&mut pass, &self.model_outline, &frame.models, 0);
-            }
-            if instance_count > 0 {
-                pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
-                pass.set_vertex_buffer(1, self.instances.slice(..));
-                pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
-                if opaque > behind {
-                    pass.set_pipeline(&scene.inst);
-                    pass.draw_indexed(0..self.cube_index_count, 0, behind..opaque);
-                }
-                if (opaque as usize) < instance_count {
-                    pass.set_pipeline(&scene.see_through);
-                    pass.draw_indexed(0..self.cube_index_count, 0, opaque..instance_count as u32);
-                }
-            }
-        }
-
-        {
-            // The UI: its own layer (cleared every frame) and the glow.
-            let t = &self.targets;
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("ui"),
-                color_attachments: &[
-                    Some(wgpu::RenderPassColorAttachment {
-                        view: &t.ui,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
-                    }),
-                    Some(wgpu::RenderPassColorAttachment {
-                        view: &t.glow,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
-                    }),
-                ],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &t.depth,
-                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Discard }),
-                    stencil_ops: None,
+                Some(wgpu::RenderPassColorAttachment {
+                    view: &t.glow,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
                 }),
-                timestamp_writes: self.pass_times.as_ref().and_then(|t| t.writes("ui")),
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_bind_group(0, &self.ui_bind, &[]);
-            draw_models(&mut pass, &self.plain.model, &frame.ui_models, frame.models.len());
-            if !frame.ui.is_empty() {
-                pass.set_pipeline(&self.plain.inst);
-                pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
-                pass.set_vertex_buffer(1, self.instances.slice(..));
-                pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..self.cube_index_count, 0, instance_count as u32..total as u32);
-            }
+            ],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &t.depth,
+                depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Discard }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: self.pass_times.as_ref().and_then(|t| t.writes("ui")),
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_bind_group(0, &self.ui_bind, &[]);
+        self.draw_models(&mut pass, &self.plain.model, &frame.ui_models, frame.models.len(), all_models);
+        if !frame.ui.is_empty() {
+            pass.set_pipeline(&self.plain.inst);
+            pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
+            pass.set_vertex_buffer(1, self.instances.slice(..));
+            pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..self.cube_index_count, 0, instance_count as u32..total as u32);
         }
+    }
 
+    /// The scene and the glow shrunk and blurred.
+    fn post_passes(&self, encoder: &mut wgpu::CommandEncoder) {
         for (kind, source, dest) in &self.targets.passes {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("post"),
@@ -1723,40 +1767,33 @@ impl Renderer {
             pass.set_bind_group(0, source, &[]);
             pass.draw(0..3, 0..1);
         }
+    }
 
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("composite"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: target,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: self.pass_times.as_ref().and_then(|t| t.writes("composite")),
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            // A picture of its own shape in its rectangle; the rest stays
-            // the black it was cleared to.
-            if self.shape.is_some() {
-                let (x, y, w, h) = self.picture();
-                pass.set_viewport(x as f32, y as f32, w as f32, h as f32, 0.0, 1.0);
-            }
-            pass.set_pipeline(&self.post_composite);
-            pass.set_bind_group(0, &self.targets.composite, &[]);
-            pass.set_bind_group(1, &self.targets.blurred, &[]);
-            pass.draw(0..3, 0..1);
+    /// The picture put together on `target`.
+    fn composite_pass(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("composite"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: self.pass_times.as_ref().and_then(|t| t.writes("composite")),
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        // A picture of its own shape in its rectangle; the rest stays
+        // the black it was cleared to.
+        if self.shape.is_some() {
+            let (x, y, w, h) = self.picture();
+            pass.set_viewport(x as f32, y as f32, w as f32, h as f32, 0.0, 1.0);
         }
-        if let Some(t) = &self.pass_times {
-            let count = 2 * t.labels.borrow().len() as u32;
-            if count > 0 {
-                encoder.resolve_query_set(&t.queries, 0..count, &t.resolve, 0);
-                encoder.copy_buffer_to_buffer(&t.resolve, 0, &t.readback, 0, count as u64 * 8);
-            }
-        }
-        self.stats = stats;
+        pass.set_pipeline(&self.post_composite);
+        pass.set_bind_group(0, &self.targets.composite, &[]);
+        pass.set_bind_group(1, &self.targets.blurred, &[]);
+        pass.draw(0..3, 0..1);
     }
 
     /// Whether the faces can remember their shadow: the pipelines with the

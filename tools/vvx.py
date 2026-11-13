@@ -382,7 +382,7 @@ def write_scene(path, size, voxels, colours, markers=None, world=False):
         f.write(text)
 
 
-# --- levels of blocks (src/grid.rs, `text`) ----------------------------------
+# --- levels of blocks (src/grid/, `text`) -------------------------------------
 
 
 LEVEL_FORMAT = "voxcade level 1"
@@ -523,7 +523,7 @@ def write_level(path, block, size, blocks, cells, things=(), places=(), kept=Non
         f.write(text)
 
 
-# --- terrain (src/terrain.rs): a level's [terrain] ----------------------------
+# --- terrain (src/terrain/): a level's [terrain] -----------------------------
 
 
 TERRAIN_HEAD = "[terrain]             # heights in voxels, the far row first; shapes . SMOOTH ^ LINEAR # STEP\n"
