@@ -19,3 +19,4 @@ games/*/shots/
 games/*/.mcp.json
 .firepit/knowledge-pinned.md
 .mcp.json
+.claude/worktrees/
