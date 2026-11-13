@@ -57,7 +57,10 @@ struct Scratch(PathBuf);
 
 impl Scratch {
     fn new() -> Self {
-        let dir = std::env::temp_dir().join(format!("voxcade-pictures-{}", std::process::id()));
+        Self::new_named("one")
+    }
+    fn new_named(name: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("voxcade-pictures-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         Scratch(dir)
@@ -239,6 +242,27 @@ fn the_pictures_look_as_they_did() {
         }
     }
     assert!(said.is_empty(), "the pictures changed (on purpose: VOXCADE_PICTURES=renew cargo test --release --test pictures):\n{said}");
+}
+
+/// The finer check, where it can be robust: on one machine the same
+/// picture comes out the same to the byte, drawn twice (the chunks drawn
+/// in a fixed order, the particles, the faces' memory of a moving sun's
+/// shadow: nothing may depend on a hash map's order or a thread's timing).
+/// Exact references kept per GPU were weighed and left: every driver
+/// update would renew them, and the cells above already hold across GPUs.
+#[test]
+fn a_picture_drawn_twice_is_the_same_to_the_byte() {
+    const TWICE: &[Picture] = &[
+        Picture { name: "voxkeep_frame", args: &["shot", "games/voxkeep", "--frames", "60", "--size", "640x360", "--out", "{out}"] },
+        Picture { name: "pulsar_frame", args: &["shot", "games/pulsar", "--frames", "90", "--size", "640x360", "--out", "{out}"] },
+        // A game moving its sun: the faces remember their shadow.
+        Picture { name: "bunnyfarm_frame", args: &["shot", "games/bunnyfarm", "--frames", "60", "--size", "640x360", "--out", "{out}"] },
+    ];
+    let (one, two) = (Scratch::new_named("twice"), Scratch::new_named("again"));
+    for p in TWICE {
+        let (a, b) = (draw(p, one.path()), draw(p, two.path()));
+        assert!(a == b, "picture {}: drawn twice on this machine, the two differ (voxcade {})", p.name, p.args.join(" "));
+    }
 }
 
 #[test]

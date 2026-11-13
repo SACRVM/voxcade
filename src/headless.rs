@@ -114,6 +114,13 @@ impl Canvas {
         self.renderer.rebuild_all(&self.device, &self.queue, world, mask);
     }
 
+    /// Whether the faces remember their shadow here (made the first time
+    /// a frame asked): the tests'.
+    #[cfg(test)]
+    pub(crate) fn remembers(&self) -> bool {
+        self.renderer.remembers()
+    }
+
     /// Builds the meshes of the whole world.
     fn mesh_all<G: Game>(&mut self, game: &mut Session<G>) {
         self.mask = game.face_mask();

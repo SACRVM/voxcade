@@ -3253,6 +3253,76 @@ mod tests {
         assert_ne!(at(7.0), at(7.0 + 1.0 / 600.0), "the shadows follow the sun picture by picture");
     }
 
+    /// On the GPU: posts' shadows creep over the floor as the sun goes
+    /// round slowly, a little each picture (too little for a shadow to
+    /// pass a face wholly). Remembering, no face of the floor turns lit
+    /// and back (or shaded and back): each changes once at most as an
+    /// edge passes. Without the memory the shadow map's texels, laid anew
+    /// every picture, flip faces at the edges back and forth (what the
+    /// user saw in BunnyFarm). A game whose sun stands still draws with
+    /// the plain pipelines, the memory never made.
+    #[test]
+    fn a_moving_sun_turns_each_face_once() {
+        let mut world = crate::sim::tests::flat_world(IVec3::new(96, 96, 24));
+        for (x, y, h) in [(30, 40, 14), (50, 30, 10), (60, 60, 18), (40, 66, 12), (70, 40, 16)] {
+            for z in 1..=h {
+                for (dx, dy) in [(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (2, 1), (0, 2), (1, 2), (2, 2)] {
+                    world.set_raw(IVec3::new(x + dx, y + dy, z), 1);
+                }
+            }
+        }
+        let mut cfg = GameConfig::default();
+        cfg.light.shadow_style = crate::config::ShadowStyle::Voxel;
+        cfg.camera.view_width = 100.0;
+        let mut game = game_on(world, cfg);
+        game.game.sim_mut().cam_target = Vec3::new(48.0, 48.0, 1.0);
+        game.game.sim_mut().cam_prev = Vec3::new(48.0, 48.0, 1.0);
+        let (w, h) = (480u32, 270u32);
+        const PICTURES: usize = 48;
+        // Each picture's light at each pixel (r + g + b), remembering or not.
+        let mut looks = |remember: bool| -> (Vec<Vec<i32>>, bool) {
+            let mut canvas = crate::headless::Canvas::new(w, h, false).unwrap();
+            canvas.mesh_world(game.world_mut(), &[true; 6]);
+            let mut out = Vec::new();
+            for k in 0..PICTURES {
+                let a = 0.6 + k as f32 * 0.0015;
+                game.cfg.light.sun = [a.cos() * 0.7, a.sin() * 0.7, -1.0];
+                let mut f = game.frame(1.0, w as f32 / h as f32);
+                f.remember = remember;
+                let pixels = canvas.draw(&f).unwrap();
+                out.push(pixels.chunks(4).map(|p| p[0] as i32 + p[1] as i32 + p[2] as i32).collect());
+            }
+            (out, canvas.remembers())
+        };
+        // A pixel that grows clearly lighter and later clearly darker (or
+        // the other way) went back.
+        let flips = |looks: &[Vec<i32>]| {
+            (0..looks[0].len())
+                .filter(|&i| {
+                    let mut way = 0;
+                    for k in 1..looks.len() {
+                        let d = looks[k][i] - looks[k - 1][i];
+                        if d.abs() > 40 {
+                            if way != 0 && d.signum() != way {
+                                return true;
+                            }
+                            way = d.signum();
+                        }
+                    }
+                    false
+                })
+                .count()
+        };
+        let (plain, made) = looks(false);
+        assert!(!made, "a game whose sun stands still never makes the memory");
+        let (kept, made) = looks(true);
+        assert!(made, "the GPU keeps the faces' memory");
+        let (plain, kept) = (flips(&plain), flips(&kept));
+        eprintln!("faces flipping back and forth: {plain} pixels without the memory, {kept} with it");
+        assert!(plain > 0, "the scene shows the texels' jitter without the memory (else the test sees nothing)");
+        assert_eq!(kept, 0, "with the memory no face goes back ({plain} pixels did without it)");
+    }
+
     /// Saving any file a map level is built from, a prefab for one, rebuilds
     /// the level; other files leave it alone.
     #[test]

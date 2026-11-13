@@ -458,6 +458,10 @@ struct Globals {
     lights: [LightData; MAX_LIGHTS],
 }
 
+/// The scene's shader, the faces' memory of their shadow in it
+/// (`plain_shader` takes it out).
+const SHADER: &str = include_str!("shader.wgsl");
+
 /// How many faces' shadows the memory holds (the shader's FACES; three
 /// words each, `FrameData::remember`).
 const SHADOW_FACES: u64 = 65536;
@@ -641,17 +645,17 @@ pub struct Renderer {
     /// The shadow map's width and height (`settings::Shadows`).
     shadow_size: u32,
     shadow_sampler: wgpu::Sampler,
-    /// The faces' memory of their shadow (`FrameData::remember`), and the
-    /// pictures drawn, to tell the faces seen lately.
-    faces: wgpu::Buffer,
+    /// The faces' memory of their shadow (`FrameData::remember`), made the
+    /// first time a frame asks, and the pictures drawn, to tell the faces
+    /// seen lately.
+    memory: Memory,
     pictures: u32,
     main_layout: wgpu::BindGroupLayout,
-    chunk_main: wgpu::RenderPipeline,
+    /// The scene's pipelines without the memory (every game's, and the
+    /// UI's).
+    plain: ScenePipelines,
     chunk_shadow: wgpu::RenderPipeline,
-    inst_main: wgpu::RenderPipeline,
-    inst_see_through: wgpu::RenderPipeline,
     inst_shadow: wgpu::RenderPipeline,
-    model_main: wgpu::RenderPipeline,
     /// The models' outline: their voxels grown, the far faces drawn
     /// (`c.effects.outline`).
     model_outline: wgpu::RenderPipeline,
@@ -688,6 +692,147 @@ pub struct Renderer {
     /// picture's size then.
     window: (u32, u32),
     shape: Option<f32>,
+}
+
+/// The pipelines that draw the scene with `fs_main`: the chunks, the
+/// opaque cubes, the see-through ones, the models from the bank.
+struct ScenePipelines {
+    chunk: wgpu::RenderPipeline,
+    inst: wgpu::RenderPipeline,
+    see_through: wgpu::RenderPipeline,
+    model: wgpu::RenderPipeline,
+}
+
+/// The faces' memory of their shadow (`FrameData::remember`, the shader's
+/// `remembered`): only a game that moves its sun needs it, and only its
+/// pipelines carry it (`plain_shader`).
+enum Memory {
+    /// No frame has asked for it yet.
+    Unasked,
+    /// Its pipelines, the layout and bind group of the main pass with the
+    /// faces' buffer, the buffer.
+    Ready { scene: ScenePipelines, layout: wgpu::BindGroupLayout, bind: wgpu::BindGroup, faces: wgpu::Buffer },
+    /// The GPU cannot write storage from a fragment shader (said once):
+    /// the plain pipelines draw, a moving shadow's edge may flicker.
+    Lacking,
+}
+
+/// The shader without what lies between its MEMORY marks (lines `// MEMORY
+/// {` and `// } MEMORY`): the faces' memory of their shadow, which only a
+/// game moving its sun needs. A fragment shader that may write storage
+/// loses early depth testing on many GPUs (the scene pass cost 10 to 30 %
+/// more with it, never used, on the Radeon 610M), and some GPUs have no
+/// such writes at all.
+pub(crate) fn plain_shader(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let mut inside = false;
+    for line in src.split_inclusive('\n') {
+        match line.trim() {
+            "// MEMORY {" => inside = true,
+            "// } MEMORY" => inside = false,
+            _ if !inside => out.push_str(line),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The main pass's bind group layout: the globals, the shadow map and its
+/// sampler, and with `memory` the faces' memory of their shadow.
+fn main_layout(device: &wgpu::Device, memory: bool) -> wgpu::BindGroupLayout {
+    let mut entries = vec![
+        uniform_entry(0, wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT),
+        wgpu::BindGroupLayoutEntry {
+            binding: 1,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Depth, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
+            count: None,
+        },
+        wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison), count: None },
+    ];
+    if memory {
+        entries.push(wgpu::BindGroupLayoutEntry {
+            binding: 3,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None },
+            count: None,
+        });
+    }
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some(if memory { "main pass, remembering" } else { "main pass" }), entries: &entries })
+}
+
+/// The vertex buffers of a chunk mesh.
+fn chunk_buffers() -> [Option<wgpu::VertexBufferLayout<'static>>; 1] {
+    [Some(wgpu::VertexBufferLayout { array_stride: size_of::<Vertex>() as u64, step_mode: wgpu::VertexStepMode::Vertex, attributes: &CHUNK_ATTRS })]
+}
+
+/// The vertex buffers of instanced cubes: the unit cube, the instances.
+fn instance_buffers() -> [Option<wgpu::VertexBufferLayout<'static>>; 2] {
+    [
+        Some(wgpu::VertexBufferLayout { array_stride: size_of::<Vertex>() as u64, step_mode: wgpu::VertexStepMode::Vertex, attributes: &CUBE_ATTRS }),
+        Some(wgpu::VertexBufferLayout { array_stride: size_of::<Instance>() as u64, step_mode: wgpu::VertexStepMode::Instance, attributes: &INSTANCE_ATTRS }),
+    ]
+}
+
+/// The scene's colour and glow targets, blended or not.
+fn scene_targets(blend: Option<wgpu::BlendState>) -> [Option<wgpu::ColorTargetState>; 2] {
+    let target = Some(wgpu::ColorTargetState { format: HDR_FORMAT, blend, write_mask: wgpu::ColorWrites::ALL });
+    [target.clone(), target]
+}
+
+/// A pipeline of the shader `module`: `targets` empty, a shadow pass (no
+/// fragment stage, both sides, a depth bias); `depth_write` false: the
+/// see-through cubes.
+#[allow(clippy::too_many_arguments)]
+fn scene_pipeline(
+    device: &wgpu::Device,
+    module: &wgpu::ShaderModule,
+    label: &str,
+    layout: &wgpu::PipelineLayout,
+    vs: &str,
+    buffers: &[Option<wgpu::VertexBufferLayout>],
+    targets: &[Option<wgpu::ColorTargetState>],
+    depth_write: bool,
+) -> wgpu::RenderPipeline {
+    let shadow = targets.is_empty();
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some(label),
+        layout: Some(layout),
+        vertex: wgpu::VertexState { module, entry_point: Some(vs), compilation_options: Default::default(), buffers },
+        primitive: wgpu::PrimitiveState {
+            front_face: wgpu::FrontFace::Ccw,
+            // Meshes only contain camera- and sun-facing faces; the
+            // shadow pass must see all of them.
+            cull_mode: if shadow { None } else { Some(wgpu::Face::Back) },
+            ..Default::default()
+        },
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: Some(depth_write),
+            depth_compare: Some(wgpu::CompareFunction::Less),
+            stencil: Default::default(),
+            bias: if shadow { wgpu::DepthBiasState { constant: 2, slope_scale: 1.5, clamp: 0.0 } } else { Default::default() },
+        }),
+        multisample: Default::default(),
+        fragment: if shadow { None } else { Some(wgpu::FragmentState { module, entry_point: Some("fs_main"), compilation_options: Default::default(), targets }) },
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
+/// The scene's pipelines of the shader `module`, its main pass laid out as
+/// `main`, a model draw's place as `actor`.
+fn scene_pipelines(device: &wgpu::Device, module: &wgpu::ShaderModule, main: &wgpu::BindGroupLayout, actor: &wgpu::BindGroupLayout) -> ScenePipelines {
+    let layout = |label: &str, groups: &[Option<&wgpu::BindGroupLayout>]| device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some(label), bind_group_layouts: groups, immediate_size: 0 });
+    let main_pipeline_layout = layout("main pass", &[Some(main)]);
+    let model_main_layout = layout("models", &[Some(main), Some(actor)]);
+    let (opaque, see_through) = (scene_targets(None), scene_targets(Some(wgpu::BlendState::ALPHA_BLENDING)));
+    ScenePipelines {
+        chunk: scene_pipeline(device, module, "chunks", &main_pipeline_layout, "vs_chunk", &chunk_buffers(), &opaque, true),
+        inst: scene_pipeline(device, module, "instances", &main_pipeline_layout, "vs_inst", &instance_buffers(), &opaque, true),
+        see_through: scene_pipeline(device, module, "see-through", &main_pipeline_layout, "vs_inst", &instance_buffers(), &see_through, false),
+        model: scene_pipeline(device, module, "models", &model_main_layout, "vs_model", &instance_buffers(), &opaque, true),
+    }
 }
 
 /// Where a picture of the shape `shape` (width over height) lies in a
@@ -793,7 +938,7 @@ impl Renderer {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, width: u32, height: u32) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("voxcade shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(plain_shader(SHADER).into()),
         });
         let post_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("voxcade post"),
@@ -838,34 +983,7 @@ impl Renderer {
             label: Some("shadow pass"),
             entries: &[globals_entry],
         });
-        let main_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("main pass"),
-            entries: &[
-                globals_entry,
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Depth,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None },
-                    count: None,
-                },
-            ],
-        });
+        let main_layout = main_layout(device, false);
         let post_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("post source"),
             entries: &[
@@ -889,13 +1007,7 @@ impl Renderer {
             layout: &shadow_layout,
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() }],
         });
-        let faces = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("faces' shadows"),
-            size: SHADOW_FACES * 3 * 4,
-            usage: wgpu::BufferUsages::STORAGE,
-            mapped_at_creation: false,
-        });
-        let (main_bind, ui_bind) = Self::scene_binds(device, &main_layout, &globals, &ui_globals, &shadow_view, &shadow_sampler, &faces);
+        let (main_bind, ui_bind) = Self::scene_binds(device, &main_layout, &globals, &ui_globals, &shadow_view, &shadow_sampler);
 
         let layout = |label: &str, groups: &[Option<&wgpu::BindGroupLayout>]| {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -919,101 +1031,21 @@ impl Renderer {
             }],
         });
         let shadow_pipeline_layout = layout("shadow pass", &[Some(&shadow_layout)]);
-        let main_pipeline_layout = layout("main pass", &[Some(&main_layout)]);
         let model_shadow_layout = layout("model shadows", &[Some(&shadow_layout), Some(&actor_layout)]);
         let model_main_layout = layout("models", &[Some(&main_layout), Some(&actor_layout)]);
         let post_pipeline_layout = layout("post", &[Some(&post_layout)]);
         let composite_pipeline_layout = layout("composite", &[Some(&post_layout), Some(&blurred_layout)]);
 
-        let chunk_buffers = [Some(wgpu::VertexBufferLayout {
-            array_stride: size_of::<Vertex>() as u64,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &CHUNK_ATTRS,
-        })];
-        let instance_buffers = [
-            Some(wgpu::VertexBufferLayout {
-                array_stride: size_of::<Vertex>() as u64,
-                step_mode: wgpu::VertexStepMode::Vertex,
-                attributes: &CUBE_ATTRS,
-            }),
-            Some(wgpu::VertexBufferLayout {
-                array_stride: size_of::<Instance>() as u64,
-                step_mode: wgpu::VertexStepMode::Instance,
-                attributes: &INSTANCE_ATTRS,
-            }),
-        ];
-
-        let scene_target = |blend: Option<wgpu::BlendState>| {
-            Some(wgpu::ColorTargetState { format: HDR_FORMAT, blend, write_mask: wgpu::ColorWrites::ALL })
-        };
-        let opaque_targets = [scene_target(None), scene_target(None)];
-        let see_through_targets =
-            [scene_target(Some(wgpu::BlendState::ALPHA_BLENDING)), scene_target(Some(wgpu::BlendState::ALPHA_BLENDING))];
-
-        // `targets` empty: a shadow pass. `depth_write` false: see-through.
-        let pipeline = |label: &str,
-                        layout: &wgpu::PipelineLayout,
-                        vs: &str,
-                        buffers: &[Option<wgpu::VertexBufferLayout>],
-                        targets: &[Option<wgpu::ColorTargetState>],
-                        depth_write: bool| {
-            let shadow = targets.is_empty();
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(label),
-                layout: Some(layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some(vs),
-                    compilation_options: Default::default(),
-                    buffers,
-                },
-                primitive: wgpu::PrimitiveState {
-                    front_face: wgpu::FrontFace::Ccw,
-                    // Meshes only contain camera- and sun-facing faces; the
-                    // shadow pass must see all of them.
-                    cull_mode: if shadow { None } else { Some(wgpu::Face::Back) },
-                    ..Default::default()
-                },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: DEPTH_FORMAT,
-                    depth_write_enabled: Some(depth_write),
-                    depth_compare: Some(wgpu::CompareFunction::Less),
-                    stencil: Default::default(),
-                    bias: if shadow {
-                        wgpu::DepthBiasState { constant: 2, slope_scale: 1.5, clamp: 0.0 }
-                    } else {
-                        Default::default()
-                    },
-                }),
-                multisample: Default::default(),
-                fragment: if shadow {
-                    None
-                } else {
-                    Some(wgpu::FragmentState {
-                        module: &shader,
-                        entry_point: Some("fs_main"),
-                        compilation_options: Default::default(),
-                        targets,
-                    })
-                },
-                multiview_mask: None,
-                cache: None,
-            })
-        };
-
-        let chunk_main = pipeline("chunks", &main_pipeline_layout, "vs_chunk", &chunk_buffers, &opaque_targets, true);
-        let chunk_shadow = pipeline("chunk shadows", &shadow_pipeline_layout, "vs_chunk_shadow", &chunk_buffers, &[], true);
-        let inst_main = pipeline("instances", &main_pipeline_layout, "vs_inst", &instance_buffers, &opaque_targets, true);
-        let inst_see_through =
-            pipeline("see-through", &main_pipeline_layout, "vs_inst", &instance_buffers, &see_through_targets, false);
-        let inst_shadow = pipeline("instance shadows", &shadow_pipeline_layout, "vs_inst_shadow", &instance_buffers, &[], true);
-        let model_main = pipeline("models", &model_main_layout, "vs_model", &instance_buffers, &opaque_targets, true);
-        let model_shadow = pipeline("model shadows", &model_shadow_layout, "vs_model_shadow", &instance_buffers, &[], true);
+        let opaque_targets = scene_targets(None);
+        let plain = scene_pipelines(device, &shader, &main_layout, &actor_layout);
+        let chunk_shadow = scene_pipeline(device, &shader, "chunk shadows", &shadow_pipeline_layout, "vs_chunk_shadow", &chunk_buffers(), &[], true);
+        let inst_shadow = scene_pipeline(device, &shader, "instance shadows", &shadow_pipeline_layout, "vs_inst_shadow", &instance_buffers(), &[], true);
+        let model_shadow = scene_pipeline(device, &shader, "model shadows", &model_shadow_layout, "vs_model_shadow", &instance_buffers(), &[], true);
         // The outline: the far faces of the grown voxels, in a flat colour.
         let model_outline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("model outlines"),
             layout: Some(&model_main_layout),
-            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_model_outline"), compilation_options: Default::default(), buffers: &instance_buffers },
+            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_model_outline"), compilation_options: Default::default(), buffers: &instance_buffers() },
             primitive: wgpu::PrimitiveState { front_face: wgpu::FrontFace::Ccw, cull_mode: Some(wgpu::Face::Front), ..Default::default() },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: DEPTH_FORMAT,
@@ -1082,15 +1114,12 @@ impl Renderer {
             shadow_view,
             shadow_size,
             shadow_sampler,
-            faces,
+            memory: Memory::Unasked,
             pictures: 0,
             main_layout,
-            chunk_main,
+            plain,
             chunk_shadow,
-            inst_main,
-            inst_see_through,
             inst_shadow,
-            model_main,
             model_outline,
             model_shadow,
             post_down,
@@ -1153,7 +1182,6 @@ impl Renderer {
         ui_globals: &wgpu::Buffer,
         shadow_view: &wgpu::TextureView,
         shadow_sampler: &wgpu::Sampler,
-        faces: &wgpu::Buffer,
     ) -> (wgpu::BindGroup, wgpu::BindGroup) {
         let bind = |label, buffer: &wgpu::Buffer| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1163,7 +1191,6 @@ impl Renderer {
                     wgpu::BindGroupEntry { binding: 0, resource: buffer.as_entire_binding() },
                     wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(shadow_view) },
                     wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(shadow_sampler) },
-                    wgpu::BindGroupEntry { binding: 3, resource: faces.as_entire_binding() },
                 ],
             })
         };
@@ -1404,9 +1431,14 @@ impl Renderer {
         if frame.shadow_map != self.shadow_size {
             self.shadow_size = frame.shadow_map;
             self.shadow_view = Self::shadow_map(device, self.shadow_size);
-            (self.main_bind, self.ui_bind) =
-                Self::scene_binds(device, &self.main_layout, &self.globals, &self.ui_globals, &self.shadow_view, &self.shadow_sampler, &self.faces);
+            (self.main_bind, self.ui_bind) = Self::scene_binds(device, &self.main_layout, &self.globals, &self.ui_globals, &self.shadow_view, &self.shadow_sampler);
+            if let Memory::Ready { layout, bind, faces, .. } = &mut self.memory {
+                *bind = Self::memory_bind(device, layout, &self.globals, &self.shadow_view, &self.shadow_sampler, faces);
+            }
         }
+        // A game moving its sun: the pipelines with the faces' memory
+        // (made the first time, where the GPU has them).
+        let remember = frame.remember && self.remembering(device);
         self.pictures = self.pictures.wrapping_add(1);
         let mut lights = [LightData::zeroed(); MAX_LIGHTS];
         for (slot, l) in lights.iter_mut().zip(&frame.lights) {
@@ -1426,7 +1458,7 @@ impl Renderer {
             horizon: [frame.reflection_horizon[0], frame.reflection_horizon[1], frame.reflection_horizon[2], 0.0],
             outline: frame.outline,
             sun_color: [frame.sun_color[0], frame.sun_color[1], frame.sun_color[2], 0.0],
-            memory: [self.pictures, u32::from(frame.remember), 0, 0],
+            memory: [self.pictures, u32::from(remember), 0, 0],
             lights,
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
@@ -1585,16 +1617,20 @@ impl Renderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            pass.set_bind_group(0, &self.main_bind, &[]);
+            let (scene, bind) = match &self.memory {
+                Memory::Ready { scene, bind, .. } if remember => (scene, bind),
+                _ => (&self.plain, &self.main_bind),
+            };
+            pass.set_bind_group(0, bind, &[]);
             // What lies behind everything else, faint: first.
             if behind > 0 {
                 pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
                 pass.set_vertex_buffer(1, self.instances.slice(..));
                 pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
-                pass.set_pipeline(&self.inst_see_through);
+                pass.set_pipeline(&scene.see_through);
                 pass.draw_indexed(0..self.cube_index_count, 0, 0..behind);
             }
-            pass.set_pipeline(&self.chunk_main);
+            pass.set_pipeline(&scene.chunk);
             for mesh in self.meshes.values() {
                 if !on_screen(&frame.view_proj, mesh.min, mesh.max) {
                     continue;
@@ -1608,7 +1644,7 @@ impl Renderer {
             // The models before the cubes: where a cube shares a cell with a
             // model's voxel (or a model with the world), the one drawn first
             // keeps it, at the same depth.
-            draw_models(&mut pass, &self.model_main, &frame.models, 0);
+            draw_models(&mut pass, &scene.model, &frame.models, 0);
             if frame.outline[3] > 0.0 {
                 draw_models(&mut pass, &self.model_outline, &frame.models, 0);
             }
@@ -1617,11 +1653,11 @@ impl Renderer {
                 pass.set_vertex_buffer(1, self.instances.slice(..));
                 pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
                 if opaque > behind {
-                    pass.set_pipeline(&self.inst_main);
+                    pass.set_pipeline(&scene.inst);
                     pass.draw_indexed(0..self.cube_index_count, 0, behind..opaque);
                 }
                 if (opaque as usize) < instance_count {
-                    pass.set_pipeline(&self.inst_see_through);
+                    pass.set_pipeline(&scene.see_through);
                     pass.draw_indexed(0..self.cube_index_count, 0, opaque..instance_count as u32);
                 }
             }
@@ -1656,9 +1692,9 @@ impl Renderer {
                 multiview_mask: None,
             });
             pass.set_bind_group(0, &self.ui_bind, &[]);
-            draw_models(&mut pass, &self.model_main, &frame.ui_models, frame.models.len());
+            draw_models(&mut pass, &self.plain.model, &frame.ui_models, frame.models.len());
             if !frame.ui.is_empty() {
-                pass.set_pipeline(&self.inst_main);
+                pass.set_pipeline(&self.plain.inst);
                 pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
                 pass.set_vertex_buffer(1, self.instances.slice(..));
                 pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
@@ -1721,6 +1757,62 @@ impl Renderer {
             }
         }
         self.stats = stats;
+    }
+
+    /// Whether the faces can remember their shadow: the pipelines with the
+    /// memory, made the first time a frame asks; where the GPU cannot write
+    /// storage from a fragment shader (or anything else in making them
+    /// fails), said once, and the plain pipelines draw from then on.
+    fn remembering(&mut self, device: &wgpu::Device) -> bool {
+        if matches!(self.memory, Memory::Unasked) {
+            self.memory = self.make_memory(device).unwrap_or_else(|why| {
+                eprintln!("this GPU cannot keep the faces' memory of their shadow ({why}): where the game moves its sun, a shadow's edge may flicker");
+                Memory::Lacking
+            });
+        }
+        matches!(self.memory, Memory::Ready { .. })
+    }
+
+    /// The faces' memory of their shadow: its pipelines (the whole
+    /// shader), its layout, buffer and bind group. A mistake where the GPU
+    /// cannot have them.
+    fn make_memory(&self, device: &wgpu::Device) -> Result<Memory, String> {
+        if device.limits().max_storage_buffers_per_shader_stage == 0 {
+            return Err("no storage buffers".into());
+        }
+        let internal = device.push_error_scope(wgpu::ErrorFilter::Internal);
+        let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("voxcade shader, remembering"), source: wgpu::ShaderSource::Wgsl(SHADER.into()) });
+        let layout = main_layout(device, true);
+        let scene = scene_pipelines(device, &module, &layout, &self.actor_layout);
+        let faces = device.create_buffer(&wgpu::BufferDescriptor { label: Some("faces' shadows"), size: SHADOW_FACES * 3 * 4, usage: wgpu::BufferUsages::STORAGE, mapped_at_creation: false });
+        let bind = Self::memory_bind(device, &layout, &self.globals, &self.shadow_view, &self.shadow_sampler, &faces);
+        let failed = [pollster::block_on(validation.pop()), pollster::block_on(internal.pop())];
+        match failed.into_iter().flatten().next() {
+            Some(e) => Err(e.to_string().lines().next().unwrap_or_default().to_string()),
+            None => Ok(Memory::Ready { scene, layout, bind, faces }),
+        }
+    }
+
+    /// The main pass's bind group with the faces' memory.
+    fn memory_bind(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, globals: &wgpu::Buffer, shadow_view: &wgpu::TextureView, shadow_sampler: &wgpu::Sampler, faces: &wgpu::Buffer) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("main pass, remembering"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(shadow_view) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(shadow_sampler) },
+                wgpu::BindGroupEntry { binding: 3, resource: faces.as_entire_binding() },
+            ],
+        })
+    }
+
+    /// Whether the faces remember their shadow on this GPU (asked once a
+    /// frame wanted it): the tests'.
+    #[cfg(test)]
+    pub(crate) fn remembers(&self) -> bool {
+        matches!(self.memory, Memory::Ready { .. })
     }
 
     /// Times every pass from now on, if the device can (`Features::TIMESTAMP_QUERY`):
@@ -1802,6 +1894,8 @@ pub(crate) fn on_screen(view_proj: &Mat4, min: Vec3, max: Vec3) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::{SHADER, plain_shader};
+
     /// Touching opaque unit cubes hide the faces between them, whether they
     /// sit close together (a bit per cell) or far apart (a hash set); a
     /// see-through cube neither hides nor gets hidden.
@@ -1915,12 +2009,18 @@ mod tests {
     #[test]
     fn the_shaders_are_valid() {
         use wgpu::naga;
-        for (name, src) in [("shader.wgsl", include_str!("shader.wgsl")), ("post.wgsl", include_str!("post.wgsl"))] {
+        let plain = plain_shader(SHADER);
+        for (name, src) in [("shader.wgsl", SHADER), ("shader.wgsl without the memory", plain.as_str()), ("post.wgsl", include_str!("post.wgsl"))] {
             let module = naga::front::wgsl::parse_str(src).unwrap_or_else(|e| panic!("{name}: {}", e.emit_to_string(src)));
             naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::all())
                 .validate(&module)
                 .unwrap_or_else(|e| panic!("{name}: {e:?}"));
         }
+        // The plain shader holds nothing of the memory: no storage, no
+        // atomics (the whole one has both); the marks come in pairs.
+        assert!(SHADER.contains("atomicCompareExchangeWeak") && SHADER.contains("var<storage, read_write>"));
+        assert!(!plain.contains("atomic") && !plain.contains("var<storage") && !plain.contains("remembered("), "{plain}");
+        assert_eq!(SHADER.matches("// MEMORY {").count(), SHADER.matches("// } MEMORY").count());
     }
 
     /// A cube lying against a filled cell (a figure's part against the
