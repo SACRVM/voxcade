@@ -602,6 +602,36 @@ pub fn search_id() -> egui::Id {
     egui::Id::unique("search word")
 }
 
+/// The part of `line` that `room` letters show with its first match of
+/// `word` in it: the line's start if the match ends within it, else from a
+/// little before the match, an ellipsis for what is left out at either end.
+pub fn around_match(line: &str, word: &str, case: bool, room: usize) -> String {
+    let chars: Vec<char> = line.chars().collect();
+    let room = room.max(8);
+    if chars.len() <= room {
+        return line.to_string();
+    }
+    let at = matches(line, word, case).first().map(|r| (line[..r.start].chars().count(), line[r.clone()].chars().count()));
+    let start = match at {
+        Some((from, len)) if from + len > room - 1 => from.saturating_sub(6).min(chars.len().saturating_sub(room - 1)),
+        _ => 0,
+    };
+    let mut out = String::new();
+    let mut left = room;
+    if start > 0 {
+        out.push('…');
+        left -= 1;
+    }
+    let end = (start + left).min(chars.len());
+    let cut = end < chars.len();
+    let end = if cut { end - 1 } else { end };
+    out.extend(&chars[start..end]);
+    if cut {
+        out.push('…');
+    }
+    out
+}
+
 /// A hit as a row of the list: its line's number, quiet, then its text,
 /// the word on the matches' ground; the whole row clicked.
 fn hit_row(ui: &mut egui::Ui, hit: &Hit, word: &str, case: bool, on: bool) -> egui::Response {
@@ -609,7 +639,10 @@ fn hit_row(ui: &mut egui::Ui, hit: &Hit, word: &str, case: bool, on: bool) -> eg
     let number = format!("{:>4}  ", hit.line);
     let mut job = LayoutJob::default();
     job.append(&number, 0.0, TextFormat { font_id: font.clone(), color: QUIET, ..Default::default() });
-    let shown: String = hit.text.chars().take(200).collect();
+    // As much of the line as the row has room for, the first match in it.
+    let letter = ui.painter().layout_no_wrap("M".into(), font.clone(), TEXT).size().x.max(1.0);
+    let room = ((ui.available_width() / letter) as usize).saturating_sub(number.chars().count());
+    let shown = around_match(&hit.text, word, case, room);
     job.append(&shown, 0.0, TextFormat { font_id: font.clone(), color: TEXT, ..Default::default() });
     let whole = format!("{number}{shown}");
     mark(&mut job, &whole, word, case, None);
@@ -635,6 +668,18 @@ fn hit_row(ui: &mut egui::Ui, hit: &Hit, word: &str, case: bool, on: bool) -> eg
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A long line in the list shows its match, not only its start.
+    #[test]
+    fn a_hit_shows_its_match_in_a_narrow_row() {
+        let line = "-- the score and the time: every gem taken counts";
+        let shown = around_match(line, "gem", false, 20);
+        assert!(shown.contains("gem") && shown.starts_with('…') && shown.chars().count() <= 20, "{shown}");
+        assert_eq!(around_match("c.things.gem = { big }", "gem", false, 20), "c.things.gem = { bi…");
+        assert_eq!(around_match("short gem", "gem", false, 20), "short gem");
+        // The match at the very end: the row ends with it.
+        assert!(around_match("a long line that ends with the word gem", "GEM", false, 12).ends_with("gem"));
+    }
 
     /// Matches are counted with the case ignored by default, exactly with
     /// MATCH CASE; NEXT goes round at the end and PREVIOUS at the start.

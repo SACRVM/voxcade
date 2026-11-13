@@ -392,6 +392,9 @@ impl<G: Game> Play<G> {
         // play area's.
         let aspect = self.game.picture_aspect(size[0] as f32 / size[1].max(1) as f32);
         self.renderer.set_shape(device, self.game.cfg.camera.aspect);
+        // What stops it is said in the IDE's red line over the picture
+        // (the traceback in OUTPUT), not in the game's big letters.
+        self.game.problem_shown = false;
         let frame = self.game.menu_frame(&Menu::default(), &self.settings, self.accumulator / DT, aspect, Scene::Play);
         // A picture at another pitch or field of view (`frame:camera`) may
         // need faces the meshes left out: built anew with them, once.
@@ -469,6 +472,38 @@ pub fn line_of(trouble: &str) -> Option<(String, usize)> {
     Some((file.to_string(), digits.parse().ok()?))
 }
 
+/// Lua's most common mistakes in plain words, as one short line under the
+/// message (by its first line; None: no plain words for it).
+pub fn plain_words(trouble: &str) -> Option<String> {
+    let first = trouble.lines().next().unwrap_or("");
+    // The type Lua names in "attempt to ... a number value".
+    let what = |after: &str| first.split(after).nth(1).and_then(|r| r.split_whitespace().next()).map(str::to_string);
+    let said = if first.contains("attempt to index a nil value") {
+        "Something here is nil: a name misspelt, or not set yet.".to_string()
+    } else if first.contains("attempt to call a nil value") {
+        "A function here does not exist: its name misspelt, or not defined yet.".to_string()
+    } else if first.contains("attempt to perform arithmetic on a nil value") {
+        "A number here is nil: a name misspelt, or not set yet.".to_string()
+    } else if first.contains("attempt to concatenate a nil value") {
+        "Text joined with .. here is nil: a name misspelt, or not set yet.".to_string()
+    } else if first.contains("attempt to compare") {
+        "Two values here cannot be compared with < or >: one is nil, or a number meets a text.".to_string()
+    } else if let Some(t) = what("attempt to index a ") {
+        format!("Something here is a {t}, not a table: it has no fields to read.")
+    } else if let Some(t) = what("attempt to call a ") {
+        format!("Something called here is a {t}, not a function.")
+    } else if let Some(t) = what("attempt to perform arithmetic on a ") {
+        format!("Something counted with here is a {t}, not a number.")
+    } else if first.contains("' expected") || first.contains("unexpected symbol") || first.contains("unfinished string") {
+        "Lua cannot read this line: often an end, a bracket or a quote missing, here or above.".to_string()
+    } else if first.contains("stack overflow") {
+        "A function calls itself again and again without end.".to_string()
+    } else {
+        return None;
+    };
+    Some(said)
+}
+
 /// A fresh run begun from `scenario`: a mistake in the scenario's code
 /// stops the game, shown over it until mended (as one in `main.lua`); a
 /// scenario that is not there is said at once.
@@ -523,6 +558,13 @@ mod tests {
         play.step(1, &crate::input::Input::default());
         let trouble = play.trouble().expect("stopped");
         assert_eq!(line_of(&trouble), Some(("main.lua".into(), 3)), "{trouble}");
+        // The error in big letters over the picture is a window's: the
+        // IDE's red line says it instead.
+        let letters = |play: &Play<crate::Voxcade>| play.game.compose(0.0, 1.0, crate::session::Scene::Play, None).ui.len();
+        assert!(letters(&play) > 0, "a window shows it over the game");
+        let mut egui = egui_wgpu::Renderer::new(device, FORMAT, egui_wgpu::RendererOptions::default());
+        play.draw(device, queue, &mut egui, [64, 64]);
+        assert_eq!(letters(&play), 0, "PLAY in the IDE does not");
         play.hold();
         // (A file counts as saved once it stood still for a look.)
         std::thread::sleep(std::time::Duration::from_millis(20));
@@ -672,6 +714,19 @@ mod tests {
         assert!(errors(&mut play).is_empty(), "{:?}", errors(&mut play));
         assert!(play.game.game.sim().tick > 200, "played on");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The common mistakes have plain words, the rest none.
+    #[test]
+    fn common_mistakes_are_said_plainly() {
+        let said = |t: &str| plain_words(t).unwrap_or_default();
+        assert!(said("main.lua:148: attempt to index a nil value (global 'nothing_here')\nstack traceback:").starts_with("Something here is nil"));
+        assert!(said("main.lua:3: attempt to call a nil value (method 'jmp')").starts_with("A function here does not exist"));
+        assert!(said("main.lua:3: attempt to perform arithmetic on a nil value (field 'x')").starts_with("A number here is nil"));
+        assert!(said("main.lua:3: attempt to compare number with nil").starts_with("Two values"));
+        assert_eq!(said("main.lua:3: attempt to index a number value (local 'n')"), "Something here is a number, not a table: it has no fields to read.");
+        assert!(said("main.lua:9: 'end' expected (to close 'function' at line 3) near <eof>").starts_with("Lua cannot read"));
+        assert_eq!(plain_words("main.lua:1: the level 'x' is not there"), None);
     }
 
     /// A script's error names its file and line.

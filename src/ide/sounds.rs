@@ -5,6 +5,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use super::refs::Ref;
 use crate::audio::SoundBank;
 use crate::audio::sound::SoundDef;
 use crate::audio::synth::{Synth, Wave};
@@ -61,34 +62,13 @@ fn interval(semitones: f64) -> String {
     }
 }
 
-/// One place in the game that names a sound.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Use {
-    pub file: String,
-    pub line: usize,
-    /// The line as written, trimmed.
-    pub text: String,
-}
-
-/// Where the game names the sound `name`: every line of its scripts (their
-/// paths in `dir`) with `"name"` or `'name'` as a whole string. More
-/// sources of uses (a song naming it as an instrument) go in here.
-pub fn used(dir: &Path, scripts: &[String], name: &str) -> Vec<Use> {
-    lua_uses(dir, scripts, name)
-}
-
-fn lua_uses(dir: &Path, scripts: &[String], name: &str) -> Vec<Use> {
-    let (double, single) = (format!("\"{name}\""), format!("'{name}'"));
-    let mut out = Vec::new();
-    for file in scripts.iter().filter(|f| f.ends_with(".lua")) {
-        let Ok(text) = std::fs::read_to_string(dir.join(file)) else { continue };
-        for (i, line) in text.lines().enumerate() {
-            if line.contains(&double) || line.contains(&single) {
-                out.push(Use { file: file.clone(), line: i + 1, text: line.trim().to_string() });
-            }
-        }
-    }
-    out
+/// Where the game names the sound `name`: every place of its scripts
+/// (their paths in `dir`) where a sound is taken by that name for certain,
+/// then those where the name stands in quotes and may mean it (`refs`).
+/// More sources of uses (a song naming it as an instrument) go in here.
+pub fn used(dir: &Path, scripts: &[String], name: &str) -> Vec<Ref> {
+    let path = format!("sounds/{name}.toml");
+    super::refs::find(dir, scripts, &path, &path, super::refs::Sort::Sound)
 }
 
 /// The sound as the game's mixer gets it (mono, at the engine's rate), for
@@ -125,15 +105,16 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The lines naming a sound as a whole string are found, `"coin"` or
-    /// `'coin'`, not `"coins"`.
+    /// The places naming a sound are found, `"coin"` or `'coin'`, not
+    /// `"coins"`, the game's own call apart as a maybe.
     #[test]
     fn a_sound_is_found_where_the_scripts_name_it() {
         let dir = crate::scratch::Scratch::new("ide-uses");
-        std::fs::write(dir.join("main.lua"), "function on_tick()\n  level:sound(\"coin\", player)\n  x = \"coins\"\nend\n").unwrap();
+        std::fs::write(dir.join("main.lua"), "function on_tick()\n  level:sound(\"coin\", player)\n  x = \"coins\"\n  fx.fly(\"coin\")\nend\n").unwrap();
         std::fs::write(dir.join("conf.lua"), "function conf(c)\n\n  c.things.gem = { sound = 'coin' }\nend\n").unwrap();
         let found = used(&dir, &["conf.lua".into(), "main.lua".into()], "coin");
-        assert_eq!(found, [Use { file: "conf.lua".into(), line: 3, text: "c.things.gem = { sound = 'coin' }".into() }, Use { file: "main.lua".into(), line: 2, text: "level:sound(\"coin\", player)".into() }]);
+        let rows: Vec<(&str, usize, &str, bool)> = found.iter().map(|u| (u.file.as_str(), u.line, u.text.as_str(), u.sure)).collect();
+        assert_eq!(rows, [("conf.lua", 3, "c.things.gem = { sound = 'coin' }", true), ("main.lua", 2, "level:sound(\"coin\", player)", true), ("main.lua", 4, "fx.fly(\"coin\")", false)]);
         assert!(used(&dir, &["main.lua".into()], "bell").is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }

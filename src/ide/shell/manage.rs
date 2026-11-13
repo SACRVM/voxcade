@@ -1,9 +1,10 @@
 //! RENAME and DELETE for the game's files, from the list's right click and
 //! from the buttons over the open file. A name is typed in place in the
 //! list as the plus's is (`new_file`'s checks: no folders, no empty name,
-//! no name taken); the lines of the game's Lua that name the file (a
-//! sound by its name, a module by `require`, a model or a song by its
-//! path) are changed too if the user says so. DELETE asks nothing: the
+//! no name taken); the places in the game's Lua that name the file
+//! (`refs`: a sound where a sound is taken, a module by `require`, a model
+//! or a song by its path) are listed with a tick each, the certain ones
+//! ticked, the maybes apart and not, and the ticked ones changed too. DELETE asks nothing: the
 //! file goes to the system's trash and an UNDO shows for a few seconds
 //! (the bytes are kept in memory for it).
 
@@ -13,8 +14,9 @@ use std::time::{Duration, Instant};
 use egui::RichText;
 
 use super::{Kind, Shell};
-use crate::gui::{ACCENT, PANEL, QUIET};
-use crate::ide::sounds::{self, Use};
+use crate::gui::{ACCENT, PANEL, QUIET, TEXT};
+use crate::ide::refs::{self, Ref};
+pub use crate::ide::refs::Sort;
 
 /// How long UNDO shows after a delete.
 pub const UNDO_FOR: Duration = Duration::from_secs(20);
@@ -27,32 +29,6 @@ pub const MAX_UNDO: u64 = 8_000_000;
 pub enum Act {
     Rename,
     Delete,
-}
-
-/// The sorts of file that can be renamed or deleted, by what names them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Sort {
-    Lua,
-    Scenario,
-    Model,
-    Sound,
-    Song,
-    /// Images and the rest: named by their path in quotes, if at all.
-    Other,
-}
-
-impl Sort {
-    /// The sort of file listed under the heading `group`.
-    pub fn of(group: &str) -> Self {
-        match group {
-            "Logic" => Sort::Lua,
-            "Scenarios" => Sort::Scenario,
-            "Models" => Sort::Model,
-            "Sounds" => Sort::Sound,
-            "Music" => Sort::Song,
-            _ => Sort::Other,
-        }
-    }
 }
 
 /// Why a file of the list cannot be renamed or deleted (None: it can).
@@ -113,74 +89,15 @@ pub fn renamed(dir: &Path, path: &str, typed: &str, sort: Sort) -> Result<String
     if taken { Err(format!("{new} is already there.")) } else { Ok(new) }
 }
 
-/// The texts of the game's Lua that name `from`, and what they say once it
-/// is `to` (a sound by its name in quotes, a module in `require`, a model,
-/// a song or any other file by its path in quotes). A scenario is named by
-/// nothing.
-pub fn pairs(from: &str, to: &str, sort: Sort) -> Vec<(String, String)> {
-    let quoted = |a: &str, b: &str| vec![(format!("\"{a}\""), format!("\"{b}\"")), (format!("'{a}'"), format!("'{b}'"))];
-    match sort {
-        Sort::Scenario => Vec::new(),
-        Sort::Sound => match (sounds::name_of(from), sounds::name_of(to)) {
-            (Some(a), Some(b)) => quoted(a, b),
-            _ => Vec::new(),
-        },
-        // `require` names the file without its ending, dots for folders.
-        Sort::Lua => {
-            let module = |p: &str| p.strip_suffix(".lua").unwrap_or(p).replace('/', ".");
-            let (a, b) = (module(from), module(to));
-            vec![
-                (format!("require(\"{a}\")"), format!("require(\"{b}\")")),
-                (format!("require('{a}')"), format!("require('{b}')")),
-                (format!("require \"{a}\""), format!("require \"{b}\"")),
-                (format!("require '{a}'"), format!("require '{b}'")),
-            ]
-        }
-        Sort::Model | Sort::Song | Sort::Other => quoted(from, to),
-    }
-}
-
-/// Every line of the scripts (their paths in `dir`) that holds one of the
-/// texts `pairs` change.
-pub fn find(dir: &Path, scripts: &[String], pairs: &[(String, String)]) -> Vec<Use> {
-    let mut out = Vec::new();
-    if pairs.is_empty() {
-        return out;
-    }
-    for file in scripts {
-        let Ok(text) = std::fs::read_to_string(dir.join(file)) else { continue };
-        for (i, line) in text.lines().enumerate() {
-            if pairs.iter().any(|(old, _)| line.contains(old.as_str())) {
-                out.push(Use { file: file.clone(), line: i + 1, text: line.trim().to_string() });
-            }
-        }
-    }
-    out
-}
-
-/// The scripts written anew with every text of `pairs` changed (each saved
-/// whole at once); the files that changed.
-pub fn rewrite(dir: &Path, scripts: &[String], pairs: &[(String, String)]) -> anyhow::Result<Vec<String>> {
-    let mut changed = Vec::new();
-    for file in scripts {
-        let Ok(text) = std::fs::read_to_string(dir.join(file)) else { continue };
-        let new = pairs.iter().fold(text.clone(), |t, (old, new)| t.replace(old.as_str(), new));
-        if new != text {
-            crate::blocks::save_at_once(&dir.join(file), new.as_bytes())?;
-            changed.push(file.clone());
-        }
-    }
-    Ok(changed)
-}
-
-/// The lines of `rows` in words of what the game still does with a file
-/// just deleted: "main.lua still plays it in 2 lines".
-pub fn still_used(rows: &[Use], sort: Sort) -> Option<String> {
+/// The places of `rows` (the certain ones) in words of what the game still
+/// does with a file just deleted: "main.lua still plays it in 2 lines".
+pub fn still_used(rows: &[Ref], sort: Sort) -> Option<String> {
+    let rows: Vec<&Ref> = rows.iter().filter(|r| r.sure).collect();
     if rows.is_empty() {
         return None;
     }
     let mut files: Vec<&str> = Vec::new();
-    for r in rows {
+    for r in &rows {
         if !files.contains(&r.file.as_str()) {
             files.push(&r.file);
         }
@@ -266,38 +183,28 @@ pub struct Renaming {
     pub fresh: bool,
 }
 
-/// The question of a rename that other lines of the game depend on.
+/// The question of a rename that other places of the game name: each
+/// place with its tick (the certain ones ticked at first, the maybes not).
 pub struct Question {
     pub from: String,
     pub to: String,
-    pub sort: Sort,
-    pub pairs: Vec<(String, String)>,
-    pub rows: Vec<Use>,
-    /// CHANGE THEM is to take the keys, once.
+    pub rows: Vec<Ref>,
+    pub ticked: Vec<bool>,
+    /// RENAME is to take the keys, once.
     pub fresh: bool,
 }
 
 impl Question {
-    /// "3 lines of your game play this sound by its name. Change them too?"
-    pub(super) fn sentence(&self) -> String {
-        let (many, one, what) = match self.sort {
-            Sort::Sound => ("play", "plays", "this sound by its name"),
-            Sort::Lua => ("load", "loads", "this file with require"),
-            Sort::Model => ("name", "names", "this model"),
-            Sort::Song => ("name", "names", "this song"),
-            _ => ("name", "names", "this file"),
-        };
-        match self.rows.len() {
-            1 => format!("1 line of your game {one} {what}. Change it too?"),
-            n => format!("{n} lines of your game {many} {what}. Change them too?"),
-        }
+    /// The places ticked.
+    pub fn chosen(&self) -> Vec<&Ref> {
+        self.rows.iter().zip(&self.ticked).filter(|(_, t)| **t).map(|(r, _)| r).collect()
     }
 }
 
 /// The answers to a `Question`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Answer {
-    /// Rename the file and change the lines.
+    /// Rename the file and change the places ticked.
     Change,
     OnlyTheFile,
     Cancel,
@@ -325,12 +232,12 @@ impl Gone {
     }
 }
 
-/// RENAME and DELETE, small and quiet, as the open file's row has them:
+/// RENAME and DELETE, small buttons, as the open file's row has them:
 /// what was asked. `why` is the reason they are off, if they are.
 pub fn buttons(ui: &mut egui::Ui, why: Option<&str>) -> Option<Act> {
     let mut asked = None;
     let mut one = |ui: &mut egui::Ui, word: &str, act: Act, tip: &str| {
-        let button = egui::Button::new(RichText::new(word).small().color(QUIET)).frame(false);
+        let button = egui::Button::new(RichText::new(word).small());
         let response = ui.add_enabled(why.is_none(), button).on_hover_text(tip).on_disabled_hover_text(why.unwrap_or(""));
         if response.clicked() {
             asked = Some(act);
@@ -384,12 +291,12 @@ impl Shell {
             return Ok(());
         }
         self.flush();
-        let pairs = pairs(from, &to, sort);
-        let rows = find(&self.dir, &self.scripts(), &pairs);
+        let rows = refs::find(&self.dir, &self.scripts(), from, &to, sort);
         if rows.is_empty() {
             self.do_rename(from, &to, &[]);
         } else {
-            self.asking = Some(Question { from: from.to_string(), to, sort, pairs, rows, fresh: true });
+            let ticked = rows.iter().map(|r| r.sure).collect();
+            self.asking = Some(Question { from: from.to_string(), to, rows, ticked, fresh: true });
         }
         Ok(())
     }
@@ -399,17 +306,17 @@ impl Shell {
     pub fn answer(&mut self, answer: Answer) {
         let Some(q) = self.asking.take() else { return };
         match answer {
-            Answer::Change => self.do_rename(&q.from, &q.to, &q.pairs),
+            Answer::Change => self.do_rename(&q.from, &q.to, &q.chosen()),
             Answer::OnlyTheFile => self.do_rename(&q.from, &q.to, &[]),
             Answer::Cancel => {}
         }
     }
 
-    /// The file `from` renamed `to` (checked), the texts of `pairs` changed in
-    /// the game's Lua. What the IDE remembers of the file goes with it: the
-    /// open file stays open, scroll and cursor kept, no journal left under
-    /// the old name.
-    fn do_rename(&mut self, from: &str, to: &str, pairs: &[(String, String)]) {
+    /// The file `from` renamed `to` (checked), the places `chosen` changed
+    /// in the game's Lua. What the IDE remembers of the file goes with it:
+    /// the open file stays open, scroll and cursor kept, no journal left
+    /// under the old name.
+    fn do_rename(&mut self, from: &str, to: &str, chosen: &[&Ref]) {
         self.flush();
         if self.listening.as_deref() == Some(from) {
             self.hush();
@@ -436,8 +343,8 @@ impl Shell {
             }
         }
         let mut changed = Vec::new();
-        if !pairs.is_empty() {
-            match rewrite(&self.dir, &self.scripts(), pairs) {
+        if !chosen.is_empty() {
+            match refs::rewrite(&self.dir, chosen) {
                 Ok(files) => changed = files,
                 Err(e) => self.tell(format!("{e:#}")),
             }
@@ -473,7 +380,7 @@ impl Shell {
         // A text of the user's not in the file (kept while it changed
         // outside too) would go with it, unasked: the question first.
         if super::super::buffer::holds_unsaved(&self.dir, path, &self.journals()) {
-            return self.tell(format!("{path} changed outside while your text was not saved yet: open it and choose KEEP MINE or TAKE THE NEW before deleting it."));
+            return self.tell(format!("{path} changed outside while your text was not saved yet: open it and choose KEEP MINE or TAKE THE FILE'S before deleting it."));
         }
         if self.listening.as_deref() == Some(path) {
             self.hush();
@@ -481,7 +388,7 @@ impl Shell {
         let file = self.dir.join(path);
         let size = std::fs::metadata(&file).map_or(0, |m| m.len());
         let bytes = if size <= MAX_UNDO { std::fs::read(&file).ok() } else { None };
-        let still = still_used(&find(&self.dir, &self.scripts(), &pairs(path, path, sort)), sort);
+        let still = still_used(&refs::find(&self.dir, &self.scripts(), path, path, sort), sort);
         let (place, why) = match discard(&self.dir, path, &self.deleted_dir) {
             Ok(went) => went,
             Err(e) => return self.tell(e),
@@ -556,35 +463,40 @@ impl Shell {
         self.note(format!("PUT {name} BACK"));
     }
 
-    /// The question over the window: the lines of the game that name the
-    /// file being renamed, and what to do with them.
+    /// The question over the window: the places of the game that name the
+    /// file being renamed, each with its tick, and what to do.
     pub(super) fn question_ui(&mut self, ui: &mut egui::Ui) {
         let Some(q) = &mut self.asking else { return };
         let mut answer = None;
         let fresh = std::mem::take(&mut q.fresh);
+        let name = |p: &str| p.rsplit('/').next().unwrap_or(p).to_string();
+        let title = format!("RENAME {} TO {}", name(&q.from), name(&q.to));
         let modal = egui::Modal::new(egui::Id::unique("rename asks")).frame(egui::Frame::popup(ui.style()).fill(PANEL).inner_margin(egui::Margin::same(20))).show(ui.ctx(), |ui| {
-            ui.set_width(520.0);
-            ui.label(RichText::new("RENAME").color(ACCENT));
-            ui.add_space(8.0);
-            ui.label(q.sentence());
-            ui.add_space(6.0);
-            for row in q.rows.iter().take(6) {
-                let shown: String = row.text.chars().take(70).collect();
-                ui.label(RichText::new(format!("{}:{}  {shown}", row.file, row.line)).small().monospace().color(QUIET));
-            }
-            if q.rows.len() > 6 {
-                ui.label(RichText::new(format!("and {} more", q.rows.len() - 6)).small().color(QUIET));
-            }
+            ui.set_width(720.0f32.min(ui.ctx().content_rect().width() - 80.0));
+            ui.label(RichText::new(title).color(ACCENT));
+            ui.add_space(10.0);
+            egui::ScrollArea::vertical().max_height(ui.ctx().content_rect().height() * 0.5).auto_shrink([false, true]).show(ui, |ui| {
+                let maybes = q.rows.iter().position(|r| !r.sure);
+                for (i, (row, tick)) in q.rows.iter().zip(q.ticked.iter_mut()).enumerate() {
+                    if Some(i) == maybes {
+                        ui.add_space(8.0);
+                        ui.label(RichText::new("MAYBE").small().color(QUIET)).on_hover_text("The same name in quotes where the game's code may mean something else (its own function, a variable): tick the ones that mean this file.");
+                    }
+                    let shown: String = row.text.chars().take(90).collect();
+                    let text = RichText::new(format!("{}:{}  {shown}", row.file, row.line)).monospace().color(if *tick { TEXT } else { QUIET });
+                    ui.checkbox(tick, text);
+                }
+            });
             ui.add_space(12.0);
             ui.horizontal(|ui| {
-                let change = ui.button("CHANGE THEM").on_hover_text("Renames the file and changes the lines above to its new name.");
+                let change = ui.button("RENAME").on_hover_text("Renames the file and changes the places ticked to its new name.");
                 if fresh {
                     change.request_focus();
                 }
                 if change.clicked() {
                     answer = Some(Answer::Change);
                 }
-                if ui.button("ONLY THE FILE").on_hover_text("Renames the file and leaves the lines as they are (the game will not find it by its old name).").clicked() {
+                if ui.button("ONLY THE FILE").on_hover_text("Renames the file and leaves every place as it is (the game will not find it by its old name there).").clicked() {
                     answer = Some(Answer::OnlyTheFile);
                 }
                 if ui.button("CANCEL").on_hover_text("Leaves the file as it is.").clicked() {
@@ -633,29 +545,16 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The texts naming a file are found as whole quoted names (or
-    /// `require`) and changed in every script, nothing else touched.
+    /// What a deleted file's certain places say, in words.
     #[test]
-    fn the_lines_naming_a_file_are_found_and_changed() {
+    fn what_still_names_a_deleted_file_is_said() {
         let dir = folder("refs");
-        std::fs::write(dir.join("main.lua"), "local t = require(\"tools\")\nlocal u = require 'tools'\nx = \"toolset\"\nlevel:sound(\"coin\", p) -- \"coin\"\nm = \"hero.vvx\"\n").unwrap();
-        std::fs::write(dir.join("conf.lua"), "c.a = { sound = 'coin' }\nlocal l = require(\"lang.de\")\n").unwrap();
+        std::fs::write(dir.join("main.lua"), "level:sound(\"coin\", p)\nfx.fly(\"coin\")\n").unwrap();
+        std::fs::write(dir.join("conf.lua"), "c.a = { sound = 'coin' }\n").unwrap();
         let scripts = ["conf.lua".to_string(), "main.lua".to_string()];
-        let p = pairs("sounds/coin.toml", "sounds/ring.toml", Sort::Sound);
-        let rows = find(&dir, &scripts, &p);
-        assert_eq!(rows.iter().map(|r| (r.file.as_str(), r.line)).collect::<Vec<_>>(), [("conf.lua", 1), ("main.lua", 4)]);
-        assert_eq!(rewrite(&dir, &scripts, &p).unwrap(), ["conf.lua", "main.lua"]);
-        assert_eq!(std::fs::read_to_string(dir.join("conf.lua")).unwrap(), "c.a = { sound = 'ring' }\nlocal l = require(\"lang.de\")\n");
-        assert!(std::fs::read_to_string(dir.join("main.lua")).unwrap().contains("level:sound(\"ring\", p) -- \"ring\"\n"));
-        // Modules: both spellings of require, folders as dots.
-        let p = pairs("tools.lua", "kit.lua", Sort::Lua);
-        assert_eq!(find(&dir, &scripts, &p).len(), 2);
-        rewrite(&dir, &scripts, &p).unwrap();
-        assert!(std::fs::read_to_string(dir.join("main.lua")).unwrap().starts_with("local t = require(\"kit\")\nlocal u = require 'kit'\nx = \"toolset\"\n"));
-        assert_eq!(pairs("lang/de.lua", "lang/en.lua", Sort::Lua)[0], ("require(\"lang.de\")".into(), "require(\"lang.en\")".into()));
-        assert_eq!(find(&dir, &scripts, &pairs("hero.vvx", "knight.vvx", Sort::Model)).len(), 1);
-        assert!(pairs("scenarios/late.lua", "scenarios/soon.lua", Sort::Scenario).is_empty());
-        assert_eq!(still_used(&find(&dir, &scripts, &pairs("sounds/ring.toml", "sounds/ring.toml", Sort::Sound)), Sort::Sound).as_deref(), Some("conf.lua and main.lua still play it in 2 lines"));
+        let rows = refs::find(&dir, &scripts, "sounds/coin.toml", "sounds/coin.toml", Sort::Sound);
+        assert_eq!(rows.len(), 3, "two certain, one maybe");
+        assert_eq!(still_used(&rows, Sort::Sound).as_deref(), Some("conf.lua and main.lua still play it in 2 lines"));
         assert_eq!(still_used(&[], Sort::Sound), None);
         let _ = std::fs::remove_dir_all(&dir);
     }

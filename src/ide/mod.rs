@@ -23,6 +23,7 @@ mod preview;
 mod projects;
 pub(crate) mod remote;
 mod shell;
+mod refs;
 mod sounds;
 mod templates;
 mod terminal;
@@ -218,6 +219,8 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
     }
     let mut shell = Shell::new(dir, cfg, scratch.join("memory.toml"), console).with_sounds(brought);
     shell.animate = false;
+    // (Not the person's editor background: shots look the same anywhere.)
+    shell.own_background = false;
     // A command run in the console is meant to be seen: unfolded (else a
     // shot shows a game's console as a game opens, folded).
     if opts.console.is_some() {
@@ -304,7 +307,7 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
     let encoder = canvas.gpu().0.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     let pixels = canvas.read(encoder)?;
     crate::headless::write_png(&opts.out, opts.width, opts.height, &pixels)?;
-    println!("{}: {} open", opts.out.display(), shell.opened().unwrap_or("nothing"));
+    println!("{}: {} open", opts.out.display(), shell.showing());
     Ok(())
 }
 

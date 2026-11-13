@@ -76,6 +76,14 @@ impl Preview {
         Ok(Self { ed, view, shown, figures, cfg: cfg.clone(), renderer: None, target: None, wanted: None, dirty: true, meshed: false, fitted: false, paused: false })
     }
 
+    /// A model, a block or a figure seen on `background` (a lighter one
+    /// than the game's night sky: a dark figure on black was hard to see).
+    pub fn on(mut self, background: [u8; 3]) -> Self {
+        self.view.backgrounds[1] = Some(background);
+        self.dirty = true;
+        self
+    }
+
     /// The picture, filling what is left of `ui`; a drag turns it. A
     /// model's frames play when `animate` (not in a shot), held with
     /// PAUSE, stepped with PREV and NEXT.
