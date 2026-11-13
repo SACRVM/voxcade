@@ -451,8 +451,8 @@ mod tests {
         let mut s = Scene::new(IVec3::new(10, 10, 2));
         s.colours = (0..90).map(|i| [i as u8, 255 - i as u8, 7]).collect();
         s.markers = vec!["guard".into()];
-        for i in 0..90 {
-            s.cells[i] = (89 - i) as u16 + 1;
+        for (i, cell) in s.cells.iter_mut().enumerate().take(90) {
+            *cell = (89 - i) as u16 + 1;
         }
         s.cells[150] = 91;
         let text = s.write();
