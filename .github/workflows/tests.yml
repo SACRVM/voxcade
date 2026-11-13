@@ -6,10 +6,11 @@
 # must play out as recorded), and tools/check_tmp.sh (the tests leave
 # nothing named voxcade-* in the temp folder).
 #
-# The toolchain: the whole job runs on Rust 1.99, the version the code is
-# developed with, not on `stable`: a newer clippy brings new lints, and the
-# lint must not move under us between two pushes. Raise it here when the
-# development machine moves on. The job `msrv` checks that the code still
+# The toolchain: the whole job runs on the Rust .github/rust-toolchain
+# names (1.99), the version the code is developed with, not on `stable`: a
+# newer clippy brings new lints, and the lint must not move under us
+# between two pushes. Builds and Audit read the same file. Raise it there
+# when the development machine moves on. The job `msrv` checks that the code still
 # builds with the oldest Rust Cargo.toml's `rust-version` names.
 #
 # The GPU: some tests draw a frame (the IDE's PLAY, the headless canvas,
@@ -43,9 +44,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Rust's version
+        id: rust
+        shell: bash
+        run: echo "toolchain=$(head -n 1 .github/rust-toolchain)" >> "$GITHUB_OUTPUT"
+
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.99"
+          toolchain: ${{ steps.rust.outputs.toolchain }}
           components: clippy
 
       - uses: Swatinem/rust-cache@v2

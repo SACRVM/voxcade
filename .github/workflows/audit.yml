@@ -15,9 +15,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+      - name: Rust's version
+        id: rust
+        shell: bash
+        run: echo "toolchain=$(head -n 1 .github/rust-toolchain)" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.99"
+          toolchain: ${{ steps.rust.outputs.toolchain }}
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit

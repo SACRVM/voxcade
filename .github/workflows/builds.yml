@@ -44,8 +44,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Rust's version
+        id: rust
+        shell: bash
+        run: echo "toolchain=$(head -n 1 .github/rust-toolchain)" >> "$GITHUB_OUTPUT"
+
+      # The Rust the Tests workflow ran on (.github/rust-toolchain), not
+      # `stable`: a release is built as it was tested.
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ steps.rust.outputs.toolchain }}
           targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2

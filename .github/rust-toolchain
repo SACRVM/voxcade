@@ -1,0 +1,6 @@
+1.99
+# The Rust every workflow builds with (Tests, Builds, Audit), read by their
+# step "Rust's version" from this first line: the releases are built with
+# the Rust the tests ran on. Raise it here when the development machine
+# moves on. (Not a rust-toolchain.toml: that would also bind every
+# contributor's machine and the Tests workflow's rust-version job.)
