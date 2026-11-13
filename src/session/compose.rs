@@ -134,6 +134,24 @@ impl<G: Game> Session<G> {
 
     /// A frame of `scene`; `ui` (the menus) instead of the HUD when given;
     /// `aspect` the window's shape (or the picture's already).
+    /// The HUD's cubes as the UI pass draws them, from those `on_draw` gave
+    /// (`raw`), seen from `eye`: faces a neighbour covers hidden (else they
+    /// show as seams, thin dark lines through the hearts at some sizes),
+    /// cubes of which nothing can show left out (a plate's back layer: half
+    /// of BunnyFarm's 59,000). A HUD the same as the last picture's is not
+    /// worked out again (`HudKept`): the picture is the same either way.
+    pub(super) fn hud_cubes(&self, raw: Vec<Instance>, eye: Vec3) -> Vec<Instance> {
+        let mut kept = self.hud_kept.borrow_mut();
+        if kept.eye == eye && bytemuck::cast_slice::<Instance, u8>(&kept.raw) == bytemuck::cast_slice::<Instance, u8>(&raw) {
+            return kept.done.clone();
+        }
+        let mut done = raw.clone();
+        crate::render::hide_inner_faces(&mut done);
+        crate::render::leave_out_unseen(&mut done, eye);
+        *kept = HudKept { raw, done: done.clone(), eye };
+        done
+    }
+
     pub fn compose(&self, alpha: f32, aspect: f32, scene: Scene, ui: Option<(Vec<Instance>, Vec<ModelDraw>, Mat4)>) -> FrameData {
         let aspect = self.picture_aspect(aspect);
         let sim = self.game.sim();
@@ -282,11 +300,9 @@ impl<G: Game> Session<G> {
         let (mut ui, ui_models, ui_view_proj) = ui.unwrap_or_else(|| {
             let ui = &self.cfg.ui;
             let camera = crate::ui::camera(&crate::ui::Layout::of(ui, aspect), ui.slant, ui.depth as f32);
-            let mut hud = if problem.is_some() { Vec::new() } else { self.game.hud(ui, alpha, aspect, self.font.as_deref()) };
-            // Every game's HUD: faces a neighbour covers would show as
-            // seams (thin dark lines through the hearts at some sizes).
-            crate::render::hide_inner_faces(&mut hud);
-            (hud, Vec::new(), camera)
+            let hud = if problem.is_some() { Vec::new() } else { self.game.hud(ui, alpha, aspect, self.font.as_deref()) };
+            let eye = crate::ui::eye(&crate::ui::Layout::of(ui, aspect), ui.slant, ui.depth as f32);
+            (self.hud_cubes(hud, eye), Vec::new(), camera)
         });
         if let Some(problem) = problem.filter(|_| self.problem_shown) {
             ui.extend(crate::ui::error_panel(&problem, &self.cfg.ui, aspect));
@@ -340,4 +356,14 @@ impl<G: Game> Session<G> {
             ui_view_proj,
         }
     }
+}
+
+/// The HUD as the last picture had it (`Session::hud_cubes`): the cubes
+/// `on_draw` gave, the eye they were seen from, and what the UI pass drew
+/// of them.
+#[derive(Default)]
+pub(crate) struct HudKept {
+    raw: Vec<Instance>,
+    done: Vec<Instance>,
+    eye: Vec3,
 }

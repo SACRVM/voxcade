@@ -898,8 +898,8 @@ pub fn read(src: &str) -> Result<(GridLevel, Legend)> {
         if size.cmplt(IVec3::ONE).any() {
             return Err(r.fail(size_item.span(), "size must be at least one voxel each way"));
         }
-        if (size.x as i64) * (size.y as i64) * (size.z as i64) > 1 << 31 {
-            return Err(r.fail(size_item.span(), "the level is too big"));
+        if let Some(why) = crate::world::too_big(size.as_i64vec3()) {
+            return Err(r.fail(size_item.span(), format!("the level of {why}")));
         }
         let mut level = GridLevel::new(0, size);
         level.daylight = daylight;
@@ -914,7 +914,10 @@ pub fn read(src: &str) -> Result<(GridLevel, Legend)> {
         return Err(r.fail(size_item.span(), "size must be at least one cell each way"));
     }
     if (size.x as i64) * (size.y as i64) * (size.z as i64) > 1 << 26 {
-        return Err(r.fail(size_item.span(), "the grid is too big"));
+        return Err(r.fail(size_item.span(), "the grid is too big: 67108864 cells at most"));
+    }
+    if let Some(why) = crate::world::too_big(size.as_i64vec3() * n as i64) {
+        return Err(r.fail(size_item.span(), format!("the level of {why} (its cells times block = {n})")));
     }
     let view = match top.get("view") {
         None => None,
@@ -983,9 +986,9 @@ pub fn read(src: &str) -> Result<(GridLevel, Legend)> {
     let text = item.as_str().ok_or_else(|| r.fail(item.span(), "layers must be a text between \"\"\" marks"))?;
     let first = r.first_line(item);
     let line = |i: usize| if first > 0 { format!("line {}: ", first + i) } else { String::new() };
-    let layers = vvx::layer_list(text, &line)?;
     let order = reading_order(size, view.unwrap_or_default());
     let (want_layers, want_rows) = (order.len(), order.first().map_or(0, Vec::len));
+    let layers = vvx::layer_list(text, &line, vvx::Room { rows: want_rows, layers: want_layers })?;
     let read_layers: usize = layers.iter().map(|l| l.times).sum();
     let what = match view.unwrap_or_default() {
         View::Above => ("layers up", "rows deep"),
@@ -1231,4 +1234,161 @@ fn read_set_down(r: &Reader, top: &toml_edit::Table, level: &mut GridLevel) -> R
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A level of blocks with every sort of cell: two kinds, a block
+    /// lying turned, empty cells, rows and layers that repeat.
+    fn blocks(size: IVec3) -> GridLevel {
+        let mut lv = GridLevel::new(4, size);
+        lv.blocks.push(BlockEntry { name: "rock".into(), kind: Kind::Solid });
+        lv.blocks.push(BlockEntry { name: "rope".into(), kind: Kind::Ladder });
+        for z in 0..size.z {
+            for y in 0..size.y {
+                for x in 0..size.x {
+                    let block = if z == 0 { 1 } else if x == 2 { 2 } else { 0 };
+                    let turn = if x == size.x - 1 && z == 0 { 17 } else { 0 };
+                    let i = lv.index(IVec3::new(x, y, z)).unwrap();
+                    lv.cells[i] = Cell { block, turn: Turn::from_number(turn).unwrap() };
+                }
+            }
+        }
+        lv.things.push(Thing::new("hero", [4, 4, 4]));
+        lv
+    }
+
+    /// Without the lines things, places and areas were read on.
+    fn unlined(mut lv: GridLevel) -> GridLevel {
+        lv.things.iter_mut().for_each(|t| t.line = 0);
+        lv.places.iter_mut().for_each(|p| p.line = 0);
+        lv.areas.iter_mut().for_each(|a| a.line = 0);
+        lv
+    }
+
+    /// A level of blocks, seen from above or from the front, reads back as
+    /// written and is written again the same to the byte: its signs (an
+    /// orientation a sign of its own), repeats and its things.
+    #[test]
+    fn a_level_of_blocks_reads_back_and_writes_the_same() {
+        for (size, view) in [(IVec3::new(5, 4, 3), View::Above), (IVec3::new(5, 2, 6), View::Front)] {
+            let lv = blocks(size);
+            let text = write(&lv, &Legend::default());
+            assert!(text.contains(&format!("view = \"{}\"", view.name())), "{text}");
+            assert!(text.contains("= { block = \"rock\", orientation = 17 }"), "{text}");
+            assert!(text.contains(" *"), "rows or layers repeated: {text}");
+            let (back, legend) = read(&text).unwrap();
+            assert_eq!(unlined(back.clone()), lv, "{text}");
+            assert_eq!(write(&back, &legend), text, "written again the same");
+        }
+    }
+
+    /// More pairs of block and orientation than one sign a cell holds take
+    /// two signs a cell, and read back.
+    #[test]
+    fn many_pairs_take_two_signs_a_cell() {
+        let mut lv = GridLevel::new(2, IVec3::new(48, 2, 1));
+        lv.blocks.push(BlockEntry { name: "rock".into(), kind: Kind::Solid });
+        lv.blocks.push(BlockEntry { name: "moss".into(), kind: Kind::Decor });
+        for x in 0..48 {
+            for (y, block) in [(0, 1), (1, 2)] {
+                let i = lv.index(IVec3::new(x, y, 0)).unwrap();
+                lv.cells[i] = Cell { block, turn: Turn::from_number(x as u8).unwrap() };
+            }
+        }
+        let text = write(&lv, &Legend::default());
+        let (back, legend) = read(&text).unwrap();
+        assert!(legend.signs.iter().all(|(s, ..)| s.len() == 2) && legend.signs.len() == 96, "{text}");
+        assert_eq!(unlined(back.clone()), lv);
+        assert_eq!(write(&back, &legend), text);
+    }
+
+    /// The repo's levels are read and kept to the byte (`rewrite` of an
+    /// unchanged level), and what the writer makes of them reads back as
+    /// the same level.
+    #[test]
+    fn the_games_levels_read_back_and_are_kept_to_the_byte() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut seen = 0;
+        for game in ["games/voxkeep", "games/bunnyfarm"] {
+            for entry in std::fs::read_dir(root.join(game).join("levels")).unwrap() {
+                let path = entry.unwrap().path();
+                if path.extension().is_none_or(|e| e != "toml") {
+                    continue;
+                }
+                let src = std::fs::read_to_string(&path).unwrap();
+                let (lv, legend) = read(&src).unwrap();
+                assert_eq!(rewrite(&src, &lv, &lv, &legend), src, "{}", path.display());
+                let again = write(&lv, &legend);
+                assert_eq!(unlined(read(&again).unwrap().0), unlined(lv), "{}", path.display());
+                seen += 1;
+            }
+        }
+        assert!(seen >= 7, "the levels were found ({seen})");
+    }
+
+    /// A rewrite touches only the lines of what changed: a thing moved is
+    /// its `at` line, a place gone its lines and its comment, a cell
+    /// changed the grid; the comments and the rest stay to the character.
+    #[test]
+    fn a_rewrite_changes_only_its_lines() {
+        let mut src = write(&blocks(IVec3::new(5, 4, 3)), &Legend::default());
+        src = src.replace("[[thing]]\n", "# The hero starts here.\n[[thing]]   # him\n");
+        src += "\n# A place to go.\n[[place]]\nname = \"door\"\nat = [1, 2, 3]\n";
+        let (was, legend) = read(&src).unwrap();
+        let mut now = was.clone();
+        now.things[0].at = [6, 4, 4];
+        let out = rewrite(&src, &was, &now, &legend);
+        let changed: Vec<(&str, &str)> = src.lines().zip(out.lines()).filter(|(a, b)| a != b).collect();
+        assert_eq!(changed, [("at = [4, 4, 4]", "at = [6, 4, 4]")], "{out}");
+        assert_eq!(src.lines().count(), out.lines().count());
+        let mut now = was.clone();
+        now.places.clear();
+        let out = rewrite(&src, &was, &now, &legend);
+        assert_eq!(out, src.replace("\n# A place to go.\n[[place]]\nname = \"door\"\nat = [1, 2, 3]\n", ""), "{out}");
+        let mut now = was.clone();
+        let i = now.index(IVec3::new(0, 0, 2)).unwrap();
+        now.cells[i] = Cell { block: 2, turn: Turn::from_number(0).unwrap() };
+        let out = rewrite(&src, &was, &now, &legend);
+        assert!(out.contains("# The hero starts here.\n[[thing]]   # him\n") && out.contains("[blocks]              # blocks/NAME.vvx") && out != src, "{out}");
+        assert_eq!(unlined(read(&out).unwrap().0), unlined(now));
+    }
+
+    /// Every mistake in a level's text says its line and what is wrong.
+    #[test]
+    fn mistakes_say_their_line() {
+        let src = write(&blocks(IVec3::new(5, 4, 3)), &Legend::default());
+        // (what is changed, into what, a piece of the line the mistake is
+        // on, words of the mistake)
+        let cases = [
+            ("format = \"voxcade level 1\"", "format = \"voxcade level 9\"", "level 9", "newer Voxcade"),
+            ("rock = \"solid\"", "rock = \"granite\"", "granite", "'granite' is no kind of block"),
+            ("view = \"above\"", "view = \"sideways\"", "sideways", "view must be"),
+            ("orientation = 17", "orientation = 48", "orientation = 48", "from 0 to 47"),
+            ("o = \"rope\"\n", "o = \"rope\"\nq = \"brick\"\n", "q = \"brick\"", "no block 'brick'"),
+            ("rrrrR *4", "rrxrR *4", "rrxrR", "'x' is no sign of the legend"),
+            ("rrrrR *4", "rrrR *4", "rrrR", "this row has 4 characters"),
+            ("rrrrR *4", "rrrrR *5", "rrrrR *5", "that makes 5 rows"),
+            ("\n..o.. *4\n\"\"\"", "\n..o.. *4\n\n..o..\n\"\"\"", "..o..\n\"\"\"", "that makes 4 layers"),
+            ("\n\n..o.. *4\n\"\"\"", "\n\"\"\"", "layers = \"\"\"", "the cells have 2 layers, but a grid 5 by 4 by 3 seen above has 3"),
+            ("kind = \"hero\"", "kind = \"hero\"\nfacing = \"up\"", "facing = \"up\"", "facing must be"),
+            ("kind = \"hero\"", "kind = \"hero\"\nspeed = 3", "speed = 3", "'speed' is no field of a thing"),
+        ];
+        for (from, to, needle, words) in cases {
+            assert!(src.contains(from), "{from:?} in {src}");
+            let text = src.replacen(from, to, 1);
+            let e = read(&text).err().map(|e| e.to_string()).unwrap_or_else(|| panic!("{to:?}: read without a mistake"));
+            let at = vvx::line_of(&text, text.find(needle).unwrap_or_else(|| panic!("{needle:?} in {text}")));
+            assert!(e.starts_with(&format!("line {at}:")) && e.contains(words), "{to:?}: {e}");
+        }
+        // Things, places and areas: their own mistakes on their lines.
+        let more = |extra: &str| read(&format!("{src}\n{extra}")).err().map(|e| e.to_string()).unwrap_or_default();
+        let base = src.lines().count() + 1;
+        let e = more("[[area]]\nname = \"a\"\nat = [0, 0, 0]\nsize = [0, 1, 1]\n");
+        assert!(e.starts_with(&format!("line {}:", base + 4)) && e.contains("at least one voxel"), "{e}");
+        let e = more("[[thing]]\nname = \"x\"\nkind = \"hero\"\nat = [0, 0, 0]\n\n[[thing]]\nname = \"x\"\nkind = \"hero\"\nat = [1, 0, 0]\n");
+        assert!(e.starts_with(&format!("line {}:", base + 7)) && e.contains("a second thing called 'x'"), "{e}");
+    }
 }

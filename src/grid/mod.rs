@@ -1367,6 +1367,58 @@ size = [40, 30, 40]
         assert!(e.contains("more than 255 colors with the terrain's scatter 1 (rock.vvx)"), "{e}");
     }
 
+    /// No game ships a landscape yet, so one is made here and taken the
+    /// whole way a game's level goes: its text in a game folder, read and
+    /// built by `load_at` (the scatter rule's model read from its file),
+    /// every word of `[terrain]` at work. The voxels are pinned by their
+    /// hash: a change to how land is built shows here, deliberately.
+    #[test]
+    fn a_terrain_level_builds_through_load_at_as_pinned() {
+        let dir = crate::scratch::Scratch::new("terrain-level");
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("levels")).unwrap();
+        let (w, d) = (12, 10);
+        let mut t = crate::terrain::Terrain::flat(8, w, d, 0);
+        for y in 0..d {
+            for x in 0..w {
+                let i = (x + y * w) as usize;
+                t.heights[i] = 6 + (x * 5 + y * 3) % 11 + if y > d / 2 { 18 } else { 0 };
+                t.shapes[i] = [crate::terrain::Shape::Smooth, crate::terrain::Shape::Linear, crate::terrain::Shape::Step][((x + 2 * y) % 3) as usize];
+            }
+        }
+        t.terrace = Some(4);
+        t.rough = Some(0.6);
+        t.roughness = Some((0..w * d).map(|i| (i % 10) as u8).collect());
+        t.dip = Some(10.0);
+        t.fold = Some(0.4);
+        t.seed = Some(7);
+        t.layers = vec![crate::terrain::Layer { thick: 5, hard: 0.9, color: "#9c4f2e".into() }, crate::terrain::Layer { thick: 4, hard: 0.2, color: "#d9a46a".into() }];
+        t.materials = vec![
+            crate::terrain::Material { above: Some(30), blend: Some(4.0), ..crate::terrain::Material::new("#eef2f5") },
+            crate::terrain::Material { steeper: Some(45.0), tones: vec!["#6e665c".into()], ..crate::terrain::Material::new("#7d7468") },
+            crate::terrain::Material { grain: Some(0.3), tones: vec!["#4f7d33".into(), "#6a9640".into()], patch: Some(6), ..crate::terrain::Material::new("#5c8a3a") },
+        ];
+        t.scatter = vec![crate::terrain::Scatter { as_: Some(crate::terrain::ScatterAs::Voxels), apart: Some(9), density: 6.0, ..crate::terrain::Scatter::new("rock.vvx") }];
+        let terrain = crate::terrain::text(&t);
+        for word in ["[terrain]", "shapes = ", "roughness = ", "[[terrain.layer]]", "[[terrain.material]]", "[[terrain.scatter]]"] {
+            assert!(terrain.contains(word), "{word} in {terrain}");
+        }
+        let level = format!("format = \"voxcade level 1\"\nsize = [96, 80, 64]\n\n{terrain}\n[[thing]]\nkind = \"hero\"\nat = [10, 10, 40]\n");
+        std::fs::write(root.join("levels/land.toml"), &level).unwrap();
+        std::fs::write(root.join("rock.vvx"), "format = \"voxcade voxel 1\"\nsize = [3, 3, 2]\n\n[palette]\na = \"#c80a0a\"\n\n[[frame]]\nlayers = \"\"\"\naaa *3\n*2\n\"\"\"\n").unwrap();
+        let files = crate::files::Files::folder(root);
+        let made = load_at(&files, &crate::config::BlocksConfig::default(), &root.join("levels/land.toml"), &["hero"], false).unwrap();
+        let world = &made.world;
+        assert_eq!(world.size, IVec3::new(96, 80, 64));
+        assert!(made.files.iter().any(|f| f.ends_with("rock.vvx")), "the scatter's model is one of the level's files");
+        assert_eq!(made.markers.len(), 1);
+        let red = (1..256).find(|&i| world.palette[i][..3] == [0xc8, 0x0a, 0x0a]);
+        assert!(red.is_some(), "the rocks are baked in");
+        let filled = world.chunk_keys().len();
+        assert!(filled > 10, "{filled} chunks of land");
+        assert_eq!(world.content_hash(), 6365688342963315467, "the land's voxels as pinned");
+    }
+
     fn changed_lines(a: &str, b: &str) -> Vec<String> {
         let (x, y): (Vec<&str>, Vec<&str>) = (a.lines().collect(), b.lines().collect());
         // As many lines: those that differ; else what lies between the

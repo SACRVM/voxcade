@@ -515,7 +515,11 @@ nearest; its replay `tests/two_ships`);
   mean color of an 8 by 8 grid of five pictures within 6 levels
   (`VOXCADE_PICTURE_TOLERANCE`; the workflow sets 12 for lavapipe); renew
   them on purpose with `VOXCADE_PICTURES=renew cargo test --release --test
-  pictures` and say so in the commit. `tests/docs_examples.rs` reads
+  pictures` and say so in the commit; `every_letter_reads_as_it_did`
+  draws every character of the pixel font and More Blood's display font
+  on a plain sky, its means in cells of 8 by 8 pixels against
+  `tests/letters.txt` (a wrong letter moves cells; renewed alike).
+  `tests/docs_examples.rs` reads
   the level, map and model examples of `docs/tiles.md` with the engine's
   own readers; `a_picture_drawn_twice_is_the_same_to_the_byte` (in
   `tests/pictures.rs`) draws each picture twice. `tests/docs_names.rs`
@@ -687,6 +691,18 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   brings a game over (a map's `turn` q is `rotation = -90 q mod 360`). A
   new name an author writes or reads follows suit (no colour, centre,
   grey in a key, a field or a flag); prose may stay as it is.
+- What a file asks for is counted before it is made (an `*99999999999`
+  once asked for 2.4 TB and aborted): a layers text's rows and layers
+  against its box's room (`vvx::Room`, `layer_list`), read by one reader
+  for models, worlds and prefabs (`vvx::read_cells`); a model's box
+  `vvx::MOST_VOXELS`, its frames together `MOST_IN_ALL`, `MOST_PARTS`
+  parts; a world or prefab `scene::MOST_VOXELS` (1024 by 1024 by 128);
+  maps and levels `world::too_big` (65536 each way, 4096 by 4096 columns,
+  2^30 voxels; More Blood's map is 640 by 2368 by 80), all in whole
+  numbers that cannot overflow. A plain mistake with its line, never a
+  panic (test `hostile_texts_are_mistakes_never_a_crash`); no game uses
+  `[terrain]` yet, so `a_terrain_level_builds_through_load_at_as_pinned`
+  takes one through `grid::load_at` and pins its voxels.
 - Levels and worlds are text (`docs/tiles.md`, 2026-11-12). A level of
   blocks is `levels/NAME.toml` ("voxcade level 1", `grid::text`): `block`,
   `size`, `view`, `[blocks]` (name = kind), `[legend]` (a sign a block
@@ -1072,7 +1088,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   wish for it: landed letters bob gently, a smooth wave through them
   (whole voxels looked like stuttering, the user), `ui::bob`, test
   `the_logo_bobs_once_landed`, 0 unless set); the menus (`src/menu.rs`,
-  drawn in `src/ui.rs`) work with keyboard and gamepad alike, Escape pauses
+  drawn in `src/ui/menus.rs`) work with keyboard and gamepad alike, Escape pauses
   instead of quitting. Key bindings are places on the keyboard by their US
   names (More Blood's Z and X side by side on any layout); the menus label
   them as the keyboard in use does (`Settings::key_names`: a German
@@ -1133,7 +1149,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   wish), stamped with the hero's name: Nick Pain (the user's choice), metal (MagicaVoxel metal material: sky reflection, highlight,
   `metal_sweep`). Big letters use `c.ui.display_font`, a glyph atlas from a
   bold typeface (`src/font.rs`); the user wanted real letter shapes, not
-  the 5 x 7 font blown up. For depth (the user's wish) they have rounded
+  the 5 x 7 font blown up. What its atlas lacks it makes
+  (`DisplayFont::glyph`): ß as SS, Ç's cedilla below the line, Œ and Æ
+  joined, the signs (→ « » …) blown up from the pixel font; a character
+  neither font has is left out in both (test
+  `the_display_font_writes_every_letter_the_pixel_font_writes`). For depth (the user's wish) they have rounded
   front edges (`c.ui.round`), uneven colour (`grain`) and, in the logo,
   cracks (`logo_cracks`, mostly in BLOOD); `ui::extrude` builds them, test
   `big_letters_are_rounded_and_cracked`. The pixel font (`ui::FONT`, 5
@@ -1161,7 +1181,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   sees English).
   Shaders are WGSL compiled at run time:
   `the_shaders_are_valid` parses them in `cargo test`.
-- The UI is voxels too (`src/ui.rs`, the user's choice): a second scene
+- The UI is voxels too (`src/ui/`, the user's choice; `menus.rs` the
+  engine's menus, `hud.rs` a game's `frame:menu` and `frame:grid`,
+  `logo.rs` big letters and the logo, `panels.rs` the error and the
+  console's prompt, `pixel.rs` the pixel font): a second scene
   drawn into its own layer after the world and laid over it after the
   blur, so the tilt-shift never softens it. Its camera is a one-point
   perspective with the vanishing point in the middle of the screen (the
@@ -1172,7 +1195,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   its `on_draw` draws it (`frame.width`/`height`/`alpha`, `frame:text`
   with a size, `text_width`, `box`, `bar`, `icon` from `c.icons`,
   `drop_in`; `screen:burst`, the voxels only shown, `HudState`); the
-  engine helps with how and where, the kits draw none.
+  engine helps with how and where, the kits draw none. Its cubes go to
+  the UI pass through `Session::hud_cubes`: covered faces hidden, the
+  cubes nothing of which shows from the UI's eye left out
+  (`render::leave_out_unseen`: a plate's back layer, half of BunnyFarm's
+  HUD), worked out once while `on_draw` gives the same.
 - Music is MML (`src/audio/music/`: `song.rs` `Song`, `Instrument`,
   `Timing`; `parse.rs` MML to `Song`, refusing an empty song, a channel
   with no notes and a non-letter channel; `player.rs` `Player`, voices,
@@ -1357,7 +1384,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `draw_models`, `shadow_pass`, `scene_pass`, `ui_pass`, `post_passes`,
   `composite_pass`.
 - Rendering goes scene (HDR colour + glow targets) -> quarter-size blur
-  passes -> composite onto the surface (`src/post.wgsl`). Instances are
+  passes -> composite onto the surface (`src/post.wgsl`; a window takes
+  a surface format that stores what it is given, `render::surface_format`,
+  else an sRGB one whose composite decodes once, `fs_composite_srgb`, or
+  the colours were brightened twice). Instances are
   opaque first, then see-through ones sorted far to near
   (`FrameData::see_through`); see-through cubes write no depth and cast no
   shadow. See-through cubes that touch, flush in neighbouring cells,
@@ -1471,7 +1501,9 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   the GPU once (`render::ModelBank`, filled in `Models::load`): a frame
   sends one `ModelDraw` per model (where, quarter turn, flash) and the
   shader's `vs_model` places the voxels as `ModelBank::cubes` does (test
-  `models_from_the_bank_match_their_cubes`); glass and fading models stay
+  `models_from_the_bank_match_their_cubes`), the faces another voxel
+  covers left out, in the shadow pass too (`vs_model_shadow`: BunnyFarm's
+  shadows 11.5 to 5.5 ms on the small GPU at HIGH); glass and fading models stay
   cubes built every frame. The title logo's letters lie there too
   (`ui::logo_letters`; the game builds the bank anew when a model, the
   font or `conf.lua` changes, `Session::rebuild_bank`; test

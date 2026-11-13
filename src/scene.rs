@@ -62,14 +62,33 @@ pub struct Scene {
     pub cells: Vec<u16>,
 }
 
+/// The most voxels a world or a prefab's box may hold (1024 by 1024 by
+/// 128): every cell of it is kept, two bytes each. The Arena's world is
+/// 512 by 512 by 48; a bigger land is a map (`crate::map`) or a level.
+pub const MOST_VOXELS: i64 = 1 << 27;
+
+/// The mistake for a world or a prefab `size` big, None when it may be
+/// read (`MOST_VOXELS`, and what any world may be, `world::too_big`).
+pub fn too_big(size: IVec3) -> Option<String> {
+    let volume = size.max(IVec3::ZERO).as_i64vec3().element_product();
+    if volume > MOST_VOXELS {
+        return Some(format!("the box is too big: {} by {} by {} is {volume} voxels, a world or a prefab holds {MOST_VOXELS} at most (1024 by 1024 by 128; a bigger land is a map or a level)", size.x, size.y, size.z));
+    }
+    crate::world::too_big(size.as_i64vec3())
+}
+
 impl Scene {
+    /// An empty scene `size` big: a size from a file is checked with
+    /// `too_big` first.
     pub fn new(size: IVec3) -> Self {
-        Self { size, colours: Vec::new(), markers: Vec::new(), cells: vec![0; (size.x.max(0) * size.y.max(0) * size.z.max(0)) as usize] }
+        let volume = size.max(IVec3::ZERO).as_i64vec3().element_product() as usize;
+        Self { size, colours: Vec::new(), markers: Vec::new(), cells: vec![0; volume] }
     }
 
     /// The place of cell `p` in `cells`.
     pub fn index(&self, p: IVec3) -> usize {
-        (p.x + self.size.x * (p.y + self.size.y * p.z)) as usize
+        let s = self.size.as_i64vec3();
+        (p.x as i64 + s.x * (p.y as i64 + s.y * p.z as i64)) as usize
     }
 
     /// The cell at place `i` of `cells`.
@@ -226,7 +245,9 @@ pub fn read(src: &str) -> Result<Scene> {
             return None;
         }
         let head = format!("{}\"\"\"{}\"\"\"{}", &src[..open], "\n".repeat(body.matches('\n').count()), &src[close + 3..]);
-        let first = vvx::line_of(src, open) + usize::from(body.starts_with('\n') || body.starts_with("\r\n"));
+        // (The body's first line is the rest of the opening line, so its
+        // line i is the opening line's number plus i.)
+        let first = vvx::line_of(src, open);
         Some((head, body, first))
     })();
     match fast {
@@ -254,8 +275,8 @@ fn read_parts(src: &str, layers: Option<(&str, usize)>) -> Result<Scene> {
     if size.cmplt(IVec3::ONE).any() {
         return Err(r.fail(size_item.span(), "size must be at least one voxel each way"));
     }
-    if (size.x as i64) * (size.y as i64) * (size.z as i64) > 1 << 31 {
-        return Err(r.fail(size_item.span(), "the box is too big: two billion voxels at most"));
+    if let Some(why) = too_big(size) {
+        return Err(r.fail(size_item.span(), why));
     }
     let palette_item = top.get("palette").ok_or_else(|| anyhow!("no [palette]: the signs and their colors"))?;
     let table = palette_item.as_table_like().ok_or_else(|| r.fail(palette_item.span(), "palette must be a table of signs"))?;
@@ -318,17 +339,15 @@ fn read_parts(src: &str, layers: Option<(&str, usize)>) -> Result<Scene> {
     Ok(scene)
 }
 
-/// The layers' text into the scene's cells, its box's low corner at `low`.
+/// The layers' text into the scene's cells, its box's low corner at `low`
+/// (read as a model's are, `vvx::read_cells`).
 fn fill(scene: &mut Scene, text: &str, first: usize, numbers: &HashMap<String, u16>, width: usize, low: IVec3) -> Result<()> {
     let line = |i: usize| if first > 0 { format!("line {}: ", first + i) } else { String::new() };
-    let layers = vvx::layer_list(text, &line)?;
-    const UNKNOWN: u16 = u16::MAX;
-    let mut one = [UNKNOWN; 256];
-    one[b'.' as usize] = 0;
-    let mut two: HashMap<[u8; 2], u16> = HashMap::from([(*b"..", 0)]);
+    let mut one = [None; 256];
+    let mut two: HashMap<[u8; 2], u16> = HashMap::new();
     for (sign, &n) in numbers {
         match *sign.as_bytes() {
-            [b] => one[b as usize] = n,
+            [b] => one[b as usize] = Some(n),
             [a, b] => _ = two.insert([a, b], n),
             _ => {}
         }
@@ -338,47 +357,11 @@ fn fill(scene: &mut Scene, text: &str, first: usize, numbers: &HashMap<String, u
         signs.sort();
         signs.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
     };
+    let sign = |s: &[u8]| if width == 1 { one[s[0] as usize] } else { two.get(&[s[0], s[1]]).copied() };
     let size = scene.size;
-    let (mut cols, mut depth) = (None, None);
-    let mut z = low.z;
-    for layer in &layers {
-        let rows = layer.rows.len();
-        if *depth.get_or_insert(rows) != rows {
-            bail!("{}this layer has {rows} rows, the first has {}: every layer must be as deep as the first", line(layer.rows[0].0), depth.unwrap());
-        }
-        for _ in 0..layer.times {
-            for (r, &(i, row)) in layer.rows.iter().enumerate() {
-                let bytes = row.as_bytes();
-                if !bytes.len().is_multiple_of(width) {
-                    bail!("{}a row is {} characters, but every cell is {width} (the palette's signs are that long)", line(i), bytes.len());
-                }
-                let n = bytes.len() / width;
-                if *cols.get_or_insert(n) != n {
-                    bail!("{}this row has {n} cells, the first has {}: every row must be as long as the first", line(i), cols.unwrap());
-                }
-                let y = low.y + (rows - 1 - r) as i32;
-                let inside_row = (0..size.y).contains(&y) && (0..size.z).contains(&z);
-                for (x, sign) in bytes.chunks(width).enumerate() {
-                    let v = if width == 1 { one[sign[0] as usize] } else { two.get(&[sign[0], sign[1]]).copied().unwrap_or(UNKNOWN) };
-                    if v == 0 {
-                        continue;
-                    }
-                    if v == UNKNOWN {
-                        bail!("{}'{}' is no sign of the palette (it has {})", line(i), String::from_utf8_lossy(sign), known());
-                    }
-                    let p = IVec3::new(low.x + x as i32, y, z);
-                    if !inside_row || !(0..size.x).contains(&p.x) {
-                        let f = p - vvx::pivot(size);
-                        bail!("{}a voxel at [{}, {}, {}] (from the pivot) lies outside the box [{}, {}, {}]: make size bigger or move it in", line(i), f.x, f.y, f.z, size.x, size.y, size.z);
-                    }
-                    let k = scene.index(p);
-                    scene.cells[k] = v;
-                }
-            }
-            z += 1;
-        }
-    }
-    Ok(())
+    let lay = vvx::Lay { width, low, size, pivot: vvx::pivot(size), what: "the box" };
+    let cells = &mut scene.cells;
+    vvx::read_cells(text, &line, &lay, sign, known, |p, v| cells[p.x as usize + size.x as usize * (p.y as usize + size.y as usize * p.z as usize)] = v)
 }
 
 #[cfg(test)]
@@ -436,8 +419,13 @@ mod tests {
     #[test]
     fn mistakes_say_the_line() {
         let text = scene().write();
-        let e = read(&text.replace(".a..\n", ".x..\n")).err().unwrap().to_string();
-        assert!(e.contains("'x' is no sign") && e.starts_with("line "), "{e}");
+        let wrong = text.replace(".a..\n", ".x..\n");
+        let at = wrong.lines().position(|l| l == ".x..").unwrap() + 1;
+        let e = read(&wrong).err().unwrap().to_string();
+        assert!(e.contains("'x' is no sign") && e.starts_with(&format!("line {at}:")), "the line the row is on (read the quick way): {e}");
+        let slow = wrong.replace("layers = \"\"\"", "layers = '''").replacen("\"\"\"\n", "'''\n", 1);
+        let e = read(&slow).err().unwrap().to_string();
+        assert!(e.starts_with(&format!("line {at}:")), "the same line read as TOML: {e}");
         let e = read(&text.replace("b = \"#c80000\"", "b = { color = \"#c80000\", glow = 1.0 }")).err().unwrap().to_string();
         assert!(e.contains("plain"), "{e}");
         assert!(crate::vvx::read(&text).err().unwrap().to_string().contains("is a marker"));

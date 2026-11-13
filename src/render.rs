@@ -319,6 +319,26 @@ pub fn hide_inner_faces(instances: &mut [Instance]) {
     });
 }
 
+/// Leaves out the opaque unit cubes of which nothing can show from `eye`
+/// (the UI's camera): every face either covered (`hide_inner_faces`, run
+/// first) or turned clearly away from the eye, which the pipeline culls. A
+/// plate `[ui] depth` deep has its whole back layer so. The picture is the
+/// same: what is left out made no fragment, and the rest keeps its order.
+pub fn leave_out_unseen(instances: &mut Vec<Instance>, eye: Vec3) {
+    instances.retain(|i| {
+        let solid = i.pos_size[3] == 1.0 && i.fx[1] == 255 && i.turn == [0; 4];
+        if !solid {
+            return true;
+        }
+        let centre = Vec3::from_slice(&i.pos_size[..3]);
+        crate::mesh::DIRS.iter().enumerate().any(|(bit, d)| {
+            let n = d.as_vec3();
+            // (Half a voxel of room: a face edge-on, or nearly, is kept.)
+            i.fx[2] >> bit & 1 == 0 && n.dot(eye - (centre + n * 0.5)) > -0.5
+        })
+    });
+}
+
 /// All of the eye's way (`toward`) that `join_see_through` goes by: the
 /// three ways by how much they face it, the most first, and on which side
 /// of each it is (true: the low one). Two eyes alike in this join the same
@@ -802,8 +822,10 @@ fn scene_pipeline(
         primitive: wgpu::PrimitiveState {
             front_face: wgpu::FrontFace::Ccw,
             // Meshes only contain camera- and sun-facing faces; the
-            // shadow pass must see all of them.
-            cull_mode: if shadow { None } else { Some(wgpu::Face::Back) },
+            // shadow pass must see all of them. A model from the bank is
+            // a closed surface (its covered faces left out): what of it
+            // faces away from the sun lies behind what faces it.
+            cull_mode: if !shadow { Some(wgpu::Face::Back) } else { None },
             ..Default::default()
         },
         depth_stencil: Some(wgpu::DepthStencilState {
@@ -886,6 +908,23 @@ impl PassTimes {
         })
     }
 }
+
+/// The format to draw a window's pictures in, of those its surface offers:
+/// one that stores what it is given (the lighting happens in palette
+/// space, like the old machines), else the first, which is sRGB, and the
+/// composite decodes once for it (`composite_entry`). None when it offers
+/// none.
+pub fn surface_format(formats: &[wgpu::TextureFormat]) -> Option<wgpu::TextureFormat> {
+    formats.iter().copied().find(|f| !f.is_srgb()).or_else(|| formats.first().copied())
+}
+
+/// The composite's entry point for a target of `format`: an sRGB target
+/// encodes what it is given, so its picture is decoded first; else the
+/// picture as it is.
+pub fn composite_entry(format: wgpu::TextureFormat) -> &'static str {
+    if format.is_srgb() { "fs_composite_srgb" } else { "fs_composite" }
+}
+
 const CHUNK_ATTRS: [wgpu::VertexAttribute; 3] =
     wgpu::vertex_attr_array![0 => Float32x3, 1 => Snorm8x4, 2 => Unorm8x4];
 const CUBE_ATTRS: [wgpu::VertexAttribute; 2] =
@@ -1085,7 +1124,7 @@ impl Renderer {
         };
         let post_down = post_pipeline("shrink", &post_pipeline_layout, "fs_down", HDR_FORMAT);
         let post_blur = post_pipeline("blur", &post_pipeline_layout, "fs_blur", HDR_FORMAT);
-        let post_composite = post_pipeline("composite", &composite_pipeline_layout, "fs_composite", format);
+        let post_composite = post_pipeline("composite", &composite_pipeline_layout, composite_entry(format), format);
 
         let (cube_v, cube_i) = mesh::unit_cube();
         let cube_vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -1931,7 +1970,7 @@ pub(crate) fn on_screen(view_proj: &Mat4, min: Vec3, max: Vec3) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{SHADER, plain_shader};
+    use super::{SHADER, composite_entry, plain_shader, surface_format};
 
     /// Touching opaque unit cubes hide the faces between them, whether they
     /// sit close together (a bit per cell) or far apart (a hash set); a
@@ -2058,6 +2097,75 @@ mod tests {
         assert!(SHADER.contains("atomicCompareExchangeWeak") && SHADER.contains("var<storage, read_write>"));
         assert!(!plain.contains("atomic") && !plain.contains("var<storage") && !plain.contains("remembered("), "{plain}");
         assert_eq!(SHADER.matches("// MEMORY {").count(), SHADER.matches("// } MEMORY").count());
+        // Both composites are there by the names the renderer asks for.
+        for entry in [composite_entry(wgpu::TextureFormat::Bgra8Unorm), composite_entry(wgpu::TextureFormat::Bgra8UnormSrgb)] {
+            assert!(include_str!("post.wgsl").contains(&format!("fn {entry}(")), "{entry}");
+        }
+    }
+
+    /// A plate of the HUD two voxels deep, left of and below the UI's eye:
+    /// its front layer stays whole; of its back layer only the cubes whose
+    /// sides face the eye (the right column, the top row), the rest left
+    /// out (BunnyFarm's HUD went from 59,248 cubes to 29,241, the picture
+    /// the same to the byte).
+    #[test]
+    fn cubes_nothing_of_which_shows_are_left_out() {
+        let cube = |x: i32, y: i32, z: i32| crate::render::Instance { pos_size: [x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5, 1.0], color: [9, 9, 9, 255], fx: [0, 255, 0, 0], shade: [0; 4], turn: [0; 4] };
+        let mut plate: Vec<_> = (0..2).flat_map(|z| (0..4).flat_map(move |y| (0..6).map(move |x| cube(x, y, z)))).collect();
+        let glass = crate::render::Instance { color: [9, 9, 9, 100], fx: [0, 128, 0, 0], ..cube(2, 2, -1) };
+        plate.push(glass);
+        crate::render::hide_inner_faces(&mut plate);
+        crate::render::leave_out_unseen(&mut plate, glam::Vec3::new(50.0, 50.0, 200.0));
+        let at = |i: &crate::render::Instance| (i.pos_size[0] as i32, i.pos_size[1] as i32, i.pos_size[2] as i32);
+        let back: Vec<(i32, i32, i32)> = plate.iter().filter(|i| i.pos_size[2] < 1.0 && i.fx[1] == 255).map(at).collect();
+        assert_eq!(plate.iter().filter(|i| i.pos_size[2] > 1.0).count(), 24, "the front layer whole");
+        assert_eq!(back.len(), 9, "{back:?}");
+        assert!(back.iter().all(|&(x, y, _)| x == 5 || y == 3), "{back:?}");
+        assert!(plate.iter().any(|i| i.fx[1] != 255), "what is see-through stays");
+        let order: Vec<_> = plate.iter().filter(|i| i.fx[1] == 255).map(at).map(|(x, y, z)| (z, y, x)).collect();
+        assert!(order.windows(2).all(|w| w[0] < w[1]), "the cubes keep their order: {order:?}");
+    }
+
+    /// The shadow pass leaves out a model's covered faces as the main pass
+    /// does (BunnyFarm's shadows took 11.5 ms of 21.9 on the small GPU at
+    /// HIGH with every face of every voxel drawn; 5.5 without them, the
+    /// pictures the same): its vertex stage reads the faces' direction and
+    /// the covered bits (`fx`, location 4) as `vs_model` does.
+    #[test]
+    fn the_shadow_pass_leaves_out_covered_faces() {
+        use wgpu::naga;
+        let module = naga::front::wgsl::parse_str(SHADER).unwrap();
+        let locations = |name: &str| -> Vec<u32> {
+            let entry = module.entry_points.iter().find(|e| e.name == name).unwrap_or_else(|| panic!("{name}"));
+            entry.function.arguments.iter().filter_map(|a| match a.binding {
+                Some(naga::Binding::Location { location, .. }) => Some(location),
+                _ => None,
+            }).collect()
+        };
+        for wanted in [1, 4] {
+            assert!(locations("vs_model").contains(&wanted));
+            assert!(locations("vs_model_shadow").contains(&wanted), "vs_model_shadow reads location {wanted}");
+        }
+        let body = &SHADER[SHADER.find("fn vs_model_shadow(").unwrap()..];
+        let body = &body[..body.find("\n}\n").unwrap()];
+        assert!(body.contains("fx.z") && body.contains("face_index(own)"), "{body}");
+    }
+
+    /// A window draws in a format that stores what it is given where its
+    /// surface offers one, whatever comes first; a surface of sRGB only is
+    /// drawn in sRGB with the composite that decodes once, never the
+    /// palette space's colours encoded a second time (too bright).
+    #[test]
+    fn the_surface_format_keeps_the_palettes_colours() {
+        use wgpu::TextureFormat::*;
+        assert_eq!(surface_format(&[Bgra8UnormSrgb, Bgra8Unorm, Rgba16Float]), Some(Bgra8Unorm));
+        assert_eq!(surface_format(&[Rgba8Unorm]), Some(Rgba8Unorm));
+        assert_eq!(surface_format(&[Bgra8UnormSrgb, Rgba8UnormSrgb]), Some(Bgra8UnormSrgb));
+        assert_eq!(surface_format(&[]), None);
+        assert_eq!(composite_entry(Bgra8Unorm), "fs_composite");
+        assert_eq!(composite_entry(Rgba8Unorm), "fs_composite");
+        assert_eq!(composite_entry(Bgra8UnormSrgb), "fs_composite_srgb");
+        assert_eq!(composite_entry(Rgba8UnormSrgb), "fs_composite_srgb");
     }
 
     /// A cube lying against a filled cell (a figure's part against the

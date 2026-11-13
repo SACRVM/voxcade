@@ -298,6 +298,9 @@ pub struct Session<G: Game> {
     /// than its camera's could see (`frame:camera`): the meshes keep them
     /// too from then on (`face_mask`).
     seen_faces: std::cell::Cell<FaceMask>,
+    /// The HUD as the last picture had it, worked out once while it stays
+    /// the same (`hud_cubes`).
+    hud_kept: std::cell::RefCell<compose::HudKept>,
 }
 
 /// What the player may turn off: the view shaking, white flashes, the blur;

@@ -98,8 +98,8 @@ impl Screen {
         let (adapter, device, queue) = (&gpu.adapter, gpu.device.clone(), gpu.queue.clone());
 
         let caps = surface.get_capabilities(adapter);
-        // Non-sRGB target: lighting happens in palette space, like the old machines.
-        let format = caps.formats.iter().copied().find(|f| !f.is_srgb()).unwrap_or(caps.formats[0]);
+        // Non-sRGB where there is one; else the renderer decodes for sRGB.
+        let format = crate::render::surface_format(&caps.formats).context("the window's surface offers no format to draw in")?;
         let present_mode = present_mode(&caps.present_modes, if quick { FrameRate::Unlimited } else { FrameRate::Vsync });
         let (w, h) = window.size_in_pixels();
         let mut config = surface.get_default_config(adapter, w, h).context("surface unsupported")?;

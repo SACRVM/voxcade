@@ -321,11 +321,20 @@ fn vs_chunk_shadow(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> 
     return g.light_vp * vec4<f32>(pos, 1.0);
 }
 
+// A model's voxel into the shadow map: the faces another voxel covers are
+// left out as in vs_model (inside the model, behind its own faces from
+// the sun as from anywhere).
 @vertex
 fn vs_model_shadow(
     @location(0) pos: vec3<f32>,
+    @location(1) normal: vec4<f32>,
     @location(2) pos_size: vec4<f32>,
+    @location(4) fx: vec4<f32>,
 ) -> @builtin(position) vec4<f32> {
+    let own = vec3<f32>(quarter(normal.xy, 4u - u32(actor.origin.w)), normal.z);
+    if (((u32(round(fx.z * 255.0)) >> face_index(own)) & 1u) == 1u) {
+        return vec4<f32>(0.0, 0.0, 2.0, 1.0);
+    }
     return g.light_vp * vec4<f32>(model_corner(pos_size.xyz, pos * pos_size.w), 1.0);
 }
 
