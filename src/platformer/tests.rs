@@ -265,6 +265,33 @@ fn a_platform_coming_down_waits_or_crushes() {
     }
 }
 
+/// A crushing platform hurts the hero under it whichever seat it is, and
+/// goes on through it as through seat 1's; any other body (a walker) stops
+/// it.
+#[test]
+fn a_crushing_platform_hurts_the_hero_of_any_seat() {
+    let mut cfg = config(&[("lift", "behavior = \"platform\"\nmodel = \"platform.vox\"\ntravel = [0, -40]\nspeed = 40\npause = 0\ncrushes = true"), ("slime", "behavior = \"walker\"\nheight = 8\nspeed = 0")]);
+    cfg.players = 2;
+    // Seat 2's hero stands under the lift, seat 1's far away.
+    let mut g = game(flat_world(IVec3::new(160, 16, 64)), &cfg, &[("lift", IVec3::new(100, 8, 45)), ("fox", IVec3::new(20, 8, 1))]);
+    let kind = g.hero_kind().unwrap();
+    let seat2 = crate::lua::host::Host::put_seat(&mut g, 2, Some((kind, Vec3::new(100.5, 8.5, 1.0), None, 3))).unwrap().unwrap();
+    for _ in 0..90 {
+        g.run(&NONE);
+    }
+    assert_eq!(g.status.hp, 3, "seat 1's hero was never under it");
+    assert!(g.things.get(seat2).unwrap().hp < 3, "seat 2's hero crushed: a heart less");
+    // A walker under it stops it.
+    let mut g = game(flat_world(IVec3::new(160, 16, 64)), &cfg, &[("lift", IVec3::new(100, 8, 45)), ("fox", IVec3::new(20, 8, 1)), ("slime", IVec3::new(100, 8, 1))]);
+    for _ in 0..90 {
+        g.run(&NONE);
+    }
+    let top = |t: &crate::sim::things::Thing<Brain>| t.body.pos.z + t.body.height;
+    let walker = g.things.iter().find(|t| matches!(t.brain, Brain::Walker { .. })).unwrap();
+    let lift = g.things.iter().find(|t| matches!(t.brain, Brain::Platform(_))).unwrap();
+    assert!(lift.body.pos.z >= top(walker) - 0.01, "the lift waits on the walker: lift at {}, walker's top at {}", lift.body.pos.z, top(walker));
+}
+
 /// A flyer that keeps the way its kind says faces it as soon as the
 /// settings change while the game runs, not only once placed anew.
 #[test]

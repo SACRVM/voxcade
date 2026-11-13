@@ -407,7 +407,7 @@ fn muzzle_at(body: &Body, muzzle: Option<[f32; 2]>, half: f32) -> Vec3 {
     body.pos + body.facing * ahead + Vec3::Z * up
 }
 
-/// More Blood's game on the engine's core: the player with his weapons,
+/// The shooter kit's game on the engine's core (More Blood was its first): the player with his weapons,
 /// enemies, hostages, huts, gunships, pickups, grenades and bullets, lives
 /// and score. It reads through to the core (`Deref`): `shooter.world`,
 /// `shooter.particles`.
@@ -441,6 +441,10 @@ pub struct Shooter {
     /// Each seat's team this tick (seat 1 first; none: `PLAYER_TEAM`), the
     /// game's `p.state.team`.
     seat_teams: Vec<Option<&'static str>>,
+    /// Where a tool (`--at`) put the players before their figures were
+    /// there (a game of several makes them as its first tick begins): seat
+    /// 1's stands there, the others beside it. Not simulation state.
+    pub(crate) start_at: Option<Vec3>,
     /// The seats' players taken out of the world as another level is
     /// entered: theirs again as their figures come back (hit points, gun,
     /// rounds), by seat.
@@ -520,6 +524,7 @@ impl Shooter {
             places: Arc::new([]),
             seat_inputs: Vec::new(),
             seat_teams: Vec::new(),
+            start_at: None,
             departed: Vec::new(),
         };
         shooter.populate(markers);
@@ -775,6 +780,24 @@ impl Shooter {
         let height = self.player.body.height;
         let at = spawn_point(&self.sim.world, [x, y], height, self.sim.half());
         self.put_player(at);
+        if !self.several() {
+            return;
+        }
+        // A game of several: every seat's figure there too, side by side;
+        // before the figures exist, the first to come stands there.
+        self.start_at = Some(at);
+        let mut seated: Vec<(usize, crate::sim::things::Id)> = self.things.iter().filter_map(|t| match &t.brain {
+            Brain::Player(s) => Some((s.seat, t.id)),
+            _ => None,
+        }).collect();
+        seated.sort();
+        let half = self.sim.half();
+        for (n, (_, id)) in seated.into_iter().enumerate() {
+            let Some(t) = self.things.get_mut(id) else { continue };
+            let at = crate::sim::stand_at(&self.sim.world, at + Vec3::X * (n as f32 * half * 2.0), t.body.height, half);
+            (t.body.pos, t.body.prev, t.body.vel) = (at, at, Vec3::ZERO);
+            self.start_at = None;
+        }
     }
 
     /// Stands the player with its feet at `at` (a level's place): up out of
@@ -1691,3 +1714,6 @@ pub(crate) mod tests {
         assert!(pile > 15, "the fallen piece should mostly settle on the ground");
     }
 }
+
+#[cfg(test)]
+mod seat_tests;

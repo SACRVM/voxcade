@@ -390,6 +390,7 @@ impl Platformer {
             .filter(|t| matches!(t.brain, Brain::Hero(_) | Brain::Walker { .. } | Brain::Hopper { .. } | Brain::Crate))
             .map(|t| (t.id, t.body.pos, self.rules.kinds[t.kind].width * 0.5, t.body.height))
             .collect();
+        let heroes = self.heroes();
         let mut crushed = Vec::new();
         for t in self.things.iter_mut().filter(|t| t.off.is_none()) {
             let k = &self.rules.kinds[t.kind];
@@ -422,11 +423,8 @@ impl Platformer {
                 let top = at.z + k.size.z as f32;
                 let onto = under.iter().find(|&&(_, p, half, height)| (p.x - at.x).abs() < half + half_x && p.z < top - 0.5 && p.z + height > at.z);
                 match onto {
-                    Some(&(id, ..)) if r.crushes => {
-                        if Some(id) == self.hero {
-                            crushed.push((t.id, at.x));
-                        }
-                    }
+                    // A hero under it, of any seat, is crushed; any other body stops it.
+                    Some(&(id, ..)) if r.crushes && heroes.contains(&id) => crushed.push((t.id, id, at.x)),
                     Some(_) => {
                         *m = was;
                         at = m.at;
@@ -444,9 +442,10 @@ impl Platformer {
             }
         }
         // Crushed: a heart less, thrown out from under it.
-        for (platform, x) in crushed {
-            if let Some(r) = self.hero_rules() {
-                self.hurt(x, &r, 1, Some(Who::Thing(platform)), None);
+        for (platform, hero, x) in crushed {
+            let Some(t) = self.things.get(hero) else { continue };
+            if let KindRules::Hero(r) = self.rules.kinds[t.kind].rules.clone() {
+                self.hurt_hero(hero, x, &r, 1, Some(Who::Thing(platform)), None);
             }
         }
         (ledges, moves)

@@ -10,7 +10,7 @@ function conf(c)
   c.kit = "platformer"
   c.players = 2                   -- two can play: a second joins with START on a pad (or Return)
   c.scored = true                 -- it keeps a score: the high score table
-  c.state.player = { hp = 3, lives = 3, taken = 0 }  -- what a run starts with: hit points (the kit's), lives and pickups taken (main.lua's)
+  c.state.player = { hp = 3, lives = 3, taken = 0 }  -- what a run starts with: hit points (the kit's; main.lua's HEARTS is the same number), lives and pickups taken (main.lua's)
 
   -- The room: a level of voxel blocks 10 each way (level.toml, blocks/),
   -- the lane in front, the wall behind; the camera rests on all of it.
