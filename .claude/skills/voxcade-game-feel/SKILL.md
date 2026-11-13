@@ -84,7 +84,7 @@ game by hand.
 - **Hit stop holds everything,** the script's `on_tick` and the shake too
   (it stands still and dies down after). In Lua these calls work in
   `on_world_start` and `on_tick`; `on_draw` only looks. New feedback the API lacks is new API
-  (`src/lua/world.rs`, `src/lua/api.rs`, then `voxcade api --lua
+  (`src/lua/world/`, `src/lua/api.rs`, then `voxcade api --lua
   lua/voxcade.lua`): propose it, do not work around it.
 
 ## Recipes

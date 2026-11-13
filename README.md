@@ -292,7 +292,7 @@ opens the launcher, which also fetches new versions (`src/update.rs`).
 
 | Path | What |
 |---|---|
-| `src/game.rs`, `src/session.rs` | The game API (`Game`) and a loaded game folder (hot reload, title, music, the frame, scenarios, the console, snapshots) |
+| `src/game.rs`, `src/session/` | The game API (`Game`) and a loaded game folder (hot reload, title, music, the frame, scenarios, the console, snapshots) |
 | `src/sim/` | The simulation's core every game shares: fixed 60 Hz, deterministic, things with ids and kinds |
 | `src/lua/` | Lua games: the sandbox, the API (`api.rs` its register), `conf.lua`, saves |
 | `src/shooter/`, `src/platformer/` | The two kits, ready-made rules for whole genres |

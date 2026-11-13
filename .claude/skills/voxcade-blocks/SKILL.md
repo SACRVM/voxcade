@@ -70,7 +70,7 @@ were tried and rejected as fake 3D. So:
   to fall out of, pictures far behind).
 - In Rust: `src/blocks.rs` (`Block`: load, save at once, drawn out of a
   tile, turned; `Turn` with `TURN`, `ROLL`, `MIRROR` and Tiled's flips),
-  `src/grid.rs` (`GridLevel`: read, save, build; `stamp`; `CellKinds`).
+  `src/grid/` (`GridLevel`: read, save, build; `stamp`; `CellKinds`).
 
 ## Kinds: what a block is to the game
 

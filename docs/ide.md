@@ -212,7 +212,7 @@ against the last save.
 - **Breakpoints after the fact.** A past tick runs again from its
   snapshot while `mlua::set_hook` with `every_line` writes down every step:
   forwards and backwards without stopping the game. A classic blocking
-  breakpoint would freeze the single-threaded SDL loop (`src/app.rs`).
+  breakpoint would freeze the single-threaded SDL loop (`src/app/`).
   Models: Tomorrow Corporation's tool demo and Wesley's GDC talk of 2013.
 - **Replays as tests and bug reports**, which the agent plays over MCP and
   looks at with `shot`.
@@ -364,7 +364,7 @@ Stage by stage (the plan of 2026-10-18):
    (`config_dir()/ide/<game>.journal/`) that brings it back after a
    crash, and looks at the file twice a second: changed from outside, it
    comes in by itself when there are no changes of one's own, else the
-   IDE asks (KEEP MINE, TAKE THE NEW). The IDE draws only when something
+   IDE asks (KEEP MINE, TAKE THE FILE'S). The IDE draws only when something
    happened (an event, a change on disk, a save).
    **Scenarios** (2026-10-29): `scenarios/NAME.lua` listed under a heading
    of their own below the logic, always there (a plus in the heading, as at LOGIC, MODELS and MUSIC:
@@ -378,7 +378,7 @@ Stage by stage (the plan of 2026-10-18):
    a texture of its own as big as the area, its sound through the
    player's speaker, its keys bound as the player set them;
    `controls::read_input`, `audio::speaker` and `Settings::options` came
-   out of `app.rs` for it, `voxcade run` uses them as before). The game
+   out of `src/app/` for it, `voxcade run` uses them as before). The game
    has the keys while it shows and nothing else has them (a click in the
    console takes them, one on the game gives them back); Escape goes
    back to the file and the game holds still, BACK TO THE GAME in the bar
@@ -647,7 +647,7 @@ Stage by stage (the plan of 2026-10-18):
 ## Sources
 
 Read locally: `docs/concept.md`, `docs/engine.md`, `src/headless.rs`,
-`src/app.rs`, `src/map.rs`, dot_vox 5.2.0 (`write_vox`).
+`src/app/`, `src/map.rs`, dot_vox 5.2.0 (`write_vox`).
 
 On the web:
 - [Bevy 0.20](https://bevy.org/news/bevy-0-20/), [Fyrox blog](https://fyrox.rs/blog/)

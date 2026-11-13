@@ -267,10 +267,10 @@ src/lib.rs        the library `voxcade`: every module, the window and the
                   headless tools included, so a game in Rust has them all
 src/main.rs       the `voxcade` program: cli::main::<Voxcade>, Lua games
                   with the shooter kit (Voxcade = LuaGame<Shooter>)
-src/cli.rs        the command line any game gets (run, shot, check, film,
+src/cli/          the command line any game gets (run, shot, check, film,
                   replay, replays, sounds, music, inspect, api, mcp)
 src/game.rs       trait Game: what a game gives the engine
-src/session.rs    Session<G>: a loaded game folder and the frame it makes
+src/session/       Session<G>: a loaded game folder and the frame it makes
 src/sim/          the simulation's core every game shares (Sim)
 src/lua/          the Lua door: LuaGame<K>, the sandbox, the world API,
                   conf.lua, the API's register (step 4)
@@ -402,7 +402,7 @@ game's settings are code (the user's choice: "nur im Code, fertig").
   `on_level_start(how)`. In a window the change fades (`c.transition`,
   `Session::fade`): no ticks run then, so recordings and replays never see
   it.
-- **The game model's objects** (`src/lua/world.rs`; the whole list:
+- **The game model's objects** (`src/lua/world/`; the whole list:
   `voxcade api`), globals in every script: `world` (the run:
   `world.state`, `world.tick`, `world:win`, `world:lose`), `level` (the
   level being played: `level.state`, `level:spawn(kind, x, y, { z,
@@ -914,7 +914,7 @@ for save games.
 Phase 3, more genres and multiplayer (up to 8, one hosting): mouse and
 picking, pathfinding, the tile grid, then
 an RTS or city builder demo, a scroller, a racer; starter templates per
-genre (`voxcade new --template platformer`), a guide for people and
+genre (the IDE's NEW, from `templates/`), a guide for people and
 agents, packaging.
 
 More Blood grows into a full game alongside, on whatever the engine has

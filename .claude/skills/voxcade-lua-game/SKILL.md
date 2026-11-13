@@ -216,7 +216,7 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   start), `world.items` lists them in order to draw. The code takes them:
   `player:take(b.props.item)` in `on_touch`.
 - The ready-made rules (kits) move things; what a touch, a hit, a death or
-  a fall means is `main.lua`'s (`docs/game-model.md`, stage 7): `on_touch(a,
+  a fall means is `main.lua`'s (`docs/game-model.md`, "Events"): `on_touch(a,
   b, where)` for what begins (a stomp when `where == "top"`, a pickup, a
   door), `player:touching(...)` in `on_tick` for what lasts (an enemy's
   contact, spikes; `player:hurt` counts nothing while the player may not be

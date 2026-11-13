@@ -126,11 +126,8 @@ impl Shell {
         };
         let had_facts = facts.is_some();
         if let Some(facts) = facts {
-            ui.horizontal(|ui| {
-                file_name(ui, &path);
-                ui.label(RichText::new(facts.to_uppercase()).color(QUIET));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add_space(16.0);
+            header_row(ui, &path, Some((&facts, "")), |ui| {
+                {
                     if self.editable(&path) {
                         if ui.button("EDIT").on_hover_text("Opens it in its editor, a window of its own (so does a double click in the list).").clicked() {
                             self.flush();
@@ -156,7 +153,7 @@ impl Shell {
                     }
                     act = act.or(manage::buttons(ui, why_not));
                     want_find |= saved_label(ui, saved);
-                });
+                }
             });
             // (A text to change shows it with its own messages.)
             if !matches!(self.shown, Some(Shown::Code(_))) && let Some(message) = &self.message {
@@ -167,15 +164,10 @@ impl Shell {
         // A scenario: what it is, and PLAY SCENARIO.
         if let Some(name) = path.strip_prefix("scenarios/").and_then(|n| n.strip_suffix(".lua")).filter(|_| self.files.scenarios.contains(&path)) {
             let mut play = false;
-            ui.horizontal(|ui| {
-                file_name(ui, &path);
-                ui.label(RichText::new("SCENARIO").color(QUIET)).on_hover_text("The game begun late, set up by this code.");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add_space(16.0);
-                    play = ui.button("PLAY SCENARIO").on_hover_text("Plays the game from it (saved first); F5 begins it again.").clicked();
-                    act = act.or(manage::buttons(ui, why_not));
-                    want_find |= saved_label(ui, saved);
-                });
+            header_row(ui, &path, Some(("scenario", "The game begun late, set up by this code.")), |ui| {
+                play = ui.button("PLAY SCENARIO").on_hover_text("Plays the game from it (saved first); F5 begins it again.").clicked();
+                act = act.or(manage::buttons(ui, why_not));
+                want_find |= saved_label(ui, saved);
             });
             ui.add_space(6.0);
             if play {
@@ -184,13 +176,9 @@ impl Shell {
         } else if !had_facts && sounds::name_of(&path).is_none() {
             // Any other file: its name, its buttons, and the word if it is a
             // text to change.
-            ui.horizontal(|ui| {
-                file_name(ui, &path);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add_space(16.0);
-                    act = act.or(manage::buttons(ui, why_not));
-                    want_find |= saved_label(ui, saved);
-                });
+            header_row(ui, &path, None, |ui| {
+                act = act.or(manage::buttons(ui, why_not));
+                want_find |= saved_label(ui, saved);
             });
             ui.add_space(6.0);
         }
@@ -211,15 +199,10 @@ impl Shell {
                 self.sound_line = Some((key, line));
             }
             let line = self.sound_line.as_ref().map(|(_, l)| l.clone()).unwrap_or_default();
-            ui.horizontal(|ui| {
-                file_name(ui, &path);
-                ui.label(RichText::new(line.to_uppercase()).color(QUIET));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add_space(16.0);
-                    play_sound = ui.button("PLAY SOUND").on_hover_text("Plays the sound as it stands, at the game's sound volume.").clicked();
-                    act = act.or(manage::buttons(ui, why_not));
-                    want_find |= saved_label(ui, saved);
-                });
+            header_row(ui, &path, Some((&line, "")), |ui| {
+                play_sound = ui.button("PLAY SOUND").on_hover_text("Plays the sound as it stands, at the game's sound volume.").clicked();
+                act = act.or(manage::buttons(ui, why_not));
+                want_find |= saved_label(ui, saved);
             });
             if !matches!(self.shown, Some(Shown::Code(_))) && let Some(message) = &self.message {
                 error_row(ui, message, message);
@@ -407,9 +390,26 @@ pub(super) fn saved_label(ui: &mut egui::Ui, saved: Option<&str>) -> bool {
     find
 }
 
-/// The open file's name, at the left of the row over it.
-pub(super) fn file_name(ui: &mut egui::Ui, path: &str) {
-    ui.label(RichText::new(path).color(TEXT));
+/// The row over an open file: its path and a line of what it is (with its
+/// own hover words, or the whole line when it is cut) take the room left of
+/// the buttons, cut with "…" where there is none; the buttons keep theirs,
+/// right to left from the edge, so nothing ever runs into them.
+pub(super) fn header_row(ui: &mut egui::Ui, path: &str, facts: Option<(&str, &str)>, buttons: impl FnOnce(&mut egui::Ui)) {
+    egui::Sides::new().spacing(14.0).shrink_left().truncate().show(
+        ui,
+        |ui| {
+            ui.label(RichText::new(path).color(TEXT)).on_hover_text(path);
+            if let Some((line, tip)) = facts {
+                let line = line.to_uppercase();
+                let hover = if tip.is_empty() { line.clone() } else { format!("{line}\n{tip}") };
+                ui.label(RichText::new(line).color(QUIET)).on_hover_text(hover);
+            }
+        },
+        |ui| {
+            ui.add_space(16.0);
+            buttons(ui);
+        },
+    );
 }
 
 /// A picture, its pixels as whole squares, as large as fit.

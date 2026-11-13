@@ -29,12 +29,24 @@ still goes straight to `main`.
 ## Layout
 
 Voxcade is a library (`src/lib.rs`) with one game API (`docs/engine.md`,
-"The game API"): `src/game.rs` the `Game` trait, `src/session.rs`
+"The game API"): `src/game.rs` the `Game` trait, `src/session/`
 `Session<G>` (a loaded game folder, its title, music, hot reload, replays'
-fingerprint, the frame, `snapshot`/`restore`), `src/sim/` the simulation's
+fingerprint, the frame, `snapshot`/`restore`; `mod.rs` `Session`, `Tick`,
+`Event`, `Snapshot`, the fingerprint's parts, `load.rs` `load`, `fingerprint`,
+`reload*`, `apply`, `play.rs` `step`, `play`, `snapshot`, `restore`, seats,
+saves, scenarios, `eval`, `sound.rs` `feed_music`, `play_sounds`, `view.rs`
+`sun`, `face_mask`, `view_target`, `PictureCamera`, `Viewing`, `Daylight`,
+`compose.rs` `compose`, `menu_frame`, `still`, `look`, `drawing.rs` `Drawing`,
+`Voxels`, `figures.rs` `part_chain`, `model_drawn`, `swinging`, `rest_turn`,
+`part_at_rest`, `models.rs` `Models`; paths like `crate::session::Drawing`
+stay), `src/sim/` the simulation's
 core every game shares (`Sim`; `sim::things`: things in one list with
-ids, kinds from `c.things.NAME` with `like`, parts), `src/cli.rs` the
-command line any game gets. `src/lua/` is the Lua door (`LuaGame<K>`: the
+ids, kinds from `c.things.NAME` with `like`, parts), `src/cli/` the
+command line any game gets (`table.rs` its one table of commands and
+options, the help written from it; `parse.rs` the parsers, which take
+nothing else; `mod.rs` each command's work; tests
+`the_help_says_every_option_the_parsers_take`,
+`the_parsers_take_every_option_the_help_says`). `src/lua/` is the Lua door (`LuaGame<K>`: the
 sandbox, the world API over `lua::host::Host`, `conf.lua`, errors that
 halt; `api.rs` the API's register), `src/mcp.rs` the MCP server.
 `src/vvx.rs` is the model format, `.vvx` (text: the format line, `size`,
@@ -54,7 +66,7 @@ disk itself, so a game can play sealed files while its folder changes.
 stage 4): `Host` and `Guest` state machines without I/O over `wire`'s
 datagrams, `SimNet` a simulated network for the tests, `soak` its stub
 game, `play` a session played by bundles (`Hosting`, `Joining`,
-`Locals`), `udp` the socket, `quic` iroh across the internet (a thread
+`Locals`), `udp` the socket (`udp::random` the OS random source, `getrandom`; `docs/multiplayer.md` has the trust model), `quic` iroh across the internet (a thread
 of its own, channels; stage 6), `link` either as one transport (`Where`,
 machines asking in let in by a spoken code), `trial` iroh's measures
 (`voxcade nettest`; the four signs both screens show to let a machine in
@@ -78,7 +90,7 @@ More Blood, the Arena and the Bench with `c.kit = "shooter"`,
 `games/sokovox` (Sokoban in voxels) and `games/pulsar` (a space shooter
 whose waves come on the music's bars, `music:play`, `on_beat`) in Lua
 alone, `games/voxkeep` (a jump & run in a castle at night) levels of
-voxel blocks (`src/blocks.rs`, `src/grid.rs`; `src/tiled.rs` brings a
+voxel blocks (`src/blocks.rs`, `src/grid/`; `src/tiled.rs` brings a
 Tiled map in once; `src/editor/` the editor, `src/window.rs` the window
 it shares with the game) with `c.kit = "platformer"` (`src/platformer/`,
 a jump & run kit like the
@@ -231,7 +243,10 @@ nearest; its replay `tests/two_ships`);
 - Models from MagicaVoxel: `voxcade import <game> FILE.vox [--as
   NAME.vvx]` writes each as a `.vvx` in the game, leaving the source; a
   game made for an older Voxcade: `voxcade upgrade <game> [--dry]` (every
-  step it needs, then `c.voxcade`; it commits nothing). The IDE (and the
+  step it needs, then `c.voxcade`; it commits nothing; a game not in git
+  with everything committed has its files kept first in
+  `config_dir()/before-upgrade/<game>-for-<version>/`, `upgrade::committed`,
+  `upgrade_keeping`). The IDE (and the
   launcher's EDIT and PLAY) opens such a game on its upgrade page
   (`ide/wizard.rs`, the user's: a wizard, not a command): the version it
   was made for and this one, the steps' dry run in their words, a word
@@ -256,7 +271,11 @@ nearest; its replay `tests/two_ships`);
   it, a right-click menu whose entries are each also a visible control
   (`stage::menu_entries`). A piece turns by `rotation`, `pitch` and `roll`
   (`docs/game-model.md`).
-- The IDE (`src/ide/`, `docs/ide.md`; phase 2, built in stages):
+- The IDE (`src/ide/`, `docs/ide.md`; phase 2, built in stages; `ide/shell.rs`
+  is the shell's state, frame, open/flush/tick, the rest in `src/ide/shell/`:
+  `bar`, `list`, `new_files` (`make_file`), `main_area`, `sound_ui`,
+  `finding`, `game`, `errors` (`game_error`), `below`, `agent`, `view_state`,
+  `manage`, `tests`):
   `voxcade ide <game>` opens it in a window (the user's), `--shot FILE
   [--open PATH] [--console CMD] [--size WxH]` draws it without one
   (`--console`: a command run in the console and waited for). egui 0.37 on the
@@ -325,7 +344,8 @@ nearest; its replay `tests/two_ships`);
   double click in the list or EDIT above the file opens one; the main
   area shows it as a picture (`ide/preview.rs`, the editor's view
   without panels, turned by dragging; a figure of parts whole; a `.vox`
-  world or prefab too, to look at), read afresh when the IDE's window
+  world or prefab too, to look at; a model sits on a mid gray or the voxel
+  editor's BACKGROUND), read afresh when the IDE's window
   is focused again. A `.vvx` is text too: TEXT beside EDIT shows it to
   read and change in the main area as a sound's (`ide/code.rs`
   `Syntax::Model`, read by `vvx::read` after every change, its mistake
@@ -347,7 +367,10 @@ nearest; its replay `tests/two_ships`);
   `on_level_start` shows without F5; a change to the rules alone keeps
   the run; Escape back to the file, F5 over, F9 keeps the run (the maker's
   keys, always on in PLAY), STOP; runs recorded as in `voxcade run`; a script's error with
-  TO THE LINE, the line marked in the file until mended); `--shot
+  TO THE LINE, the line marked in the file until mended; PLAY draws no
+  error panel over the game, `Session::problem_shown`, one plain line
+  under the script's mistake, `play::plain_words`, and OUTPUT gets the
+  whole traceback); `--shot
   --play TICKS` draws it (with `--open` the file over the game held).
   The headings LOGIC, SCENARIOS, MODELS and MUSIC are always there, each with a plus
   left of the arrow: a name typed in place makes a small Lua file, scenario,
@@ -382,14 +405,17 @@ nearest; its replay `tests/two_ships`);
   edit's undo (UNDO and Ctrl+Z alike). A song (`.mml`) is text to change
   too, parsed after every change (`music::parse`), PLAY SONG plays the text
   as it stands. Every text one can change says SAVED or NOT SAVED YET above
-  it, left of the buttons, and Ctrl+S saves at once. RENAME and DELETE
+  it, left of the buttons (the path and the line of facts take the room left
+  of them and are cut with "…", full text on hover: `main_area::header_row`),
+  and Ctrl+S saves at once. RENAME and DELETE
   (`ide/shell/manage.rs`; a right click on a row, and small beside SAVED
   over the open file) for the logic, scenarios, models, sounds, songs,
   images and the rest, not `main.lua`/`conf.lua`, levels or blocks (off
   with the reason on hover): the name typed in place as the plus's, the
-  lines of the game's Lua naming the file (a sound's quoted name,
-  `require`, a model's, song's or other file's quoted path) changed only
-  if the user says so; DELETE asks nothing, the system's trash (`trash`
+  lines of the game's Lua naming the file (found by `ide/refs.rs`: Lua
+  tokens, by where a quoted name stands) ticked one by one in a modal
+  (certain ones ticked, MAYBE ones unticked; RENAME, ONLY THE FILE,
+  CANCEL) and changed only for the ticked; USED lists MAYBE apart; DELETE asks nothing, the system's trash (`trash`
   crate, else `config_dir()/ide/deleted/<game>/`) and UNDO in the bar for 20
   s (`manage::UNDO_FOR`) from the bytes kept in memory (up to 8 MB). Ctrl+F
   (or FIND beside SAVED) shows the find row above the open text
@@ -480,11 +506,15 @@ nearest; its replay `tests/two_ships`);
   them on purpose with `VOXCADE_PICTURES=renew cargo test --release --test
   pictures` and say so in the commit. `tests/docs_examples.rs` reads
   the level, map and model examples of `docs/tiles.md` with the engine's
-  own readers.
+  own readers; `a_picture_drawn_twice_is_the_same_to_the_byte` (in
+  `tests/pictures.rs`) draws each picture twice. `tests/docs_names.rs`
+  checks that the `src/` paths and test names the docs cite exist.
 - Builds for other machines: GitHub
   Actions `Builds` (`.github/workflows/builds.yml`), started by hand
   (`gh workflow run builds.yml`) or by a `v*` tag, never on every push
-  (macOS minutes count ten times on the private repo): Linux and Windows
+  (macOS minutes count ten times on the private repo; the internet step
+  is `continue-on-error`, a warning in the run's summary, and no longer
+  holds the packages back): Linux and Windows
   (macOS Intel only started by hand with it), SDL3 built in (`--features
   static-sdl`); `tools/package.py` puts the folder together (the games
   but the Bench, `dist/README.txt` and `LIESMICH.txt`, players first; on
@@ -510,7 +540,10 @@ nearest; its replay `tests/two_ships`);
   `~/.local/share` (a Wayland desktop takes a window's icon from the
   entry named as its app id, `voxcade`). A
   mistake at the start of a window is said in a window in plain words
-  (`cli::plainly`, English, German, French). Fetch builds with `gh run
+  (`cli::plainly`, English, German, French) only where the command opens
+  one (`Call::opens_a_window`); `edit --fill/--clear/--scatter` and any
+  `--shot` print to stderr, `edit --dry` alone is refused, and a command
+  refuses trailing words it ignored before. Fetch builds with `gh run
   download`. A `v*` tag makes a release of them here; the public
   downloads are the same files as releases of the website's repo
   (`../voxca.de`, its README says how,
@@ -604,7 +637,15 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   and reads `.vvx`, levels and maps from Python, as the engine writes
   them; the generators write those (byte for byte what the upgrade made
   of the games' files; gen_moreblood, gen_arena's player and pulsar's
-  `make_models.py` still write `.vox` figures, to import).
+  `make_models.py` still write `.vox` figures, to import): `write_world(path,
+  model, palette_signs(path))` for a world or prefab, `write_model` for
+  models only (test `the_python_writer_writes_what_the_engine_writes`). A
+  model's box holds at most `vvx::MOST_VOXELS` (512 by 512 by 128);
+  `sheet` says what it cannot draw; a block's colors are plain (glass,
+  metal, glow are refused with the line). A level's things, places and
+  areas beside its ground plan or under its floor are a mistake at load
+  (`grid::outside_mistake`; the sky above is open; the editor still reads
+  such a level), a map's `[[put]]` and `[[place]]` the same.
 - Names say what other tools say (the owner, 2026-11-12: "turn" meant
   five things; LÖVE's and the common words, American spelling): a
   bearing is a `rotation` (degrees clockwise seen from above, north 0: a
@@ -639,7 +680,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   the order of the marker entries, each one's cells in reading order);
   `c.markers` is no more (the upgrade moves it into the files). The height
   and material maps stay PNG pictures.
-- A level may hold a landscape, `[terrain]` (`src/terrain.rs`,
+- A level may hold a landscape, `[terrain]` (`src/terrain/`,
   `docs/tiles.md`, 2026-11-13; the owner's "landscape generator light",
   text, no height picture): `spacing`, `at`, `heights` (whole voxels at
   control points, the far row first, lined up), `shapes` (`.` SMOOTH a
@@ -819,7 +860,18 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   and never a data file beside it (the user's choice); a setting takes
   effect live or after a restart (F5, `GameConfig::restart_only`: the kit,
   actions and keys, the level, markers, the player's start). The sandbox
-  keeps Lua deterministic (`sandbox.rs`, `prelude.lua`, `lex.rs`): only
+  keeps Lua deterministic (`sandbox.rs`, `prelude.lua`, `lex.rs`; `table.sort` is the prelude's, Lua's
+  quicksort without the clock, since Lua 5.4's own takes a pivot from
+  `clock()`/`time()` on a badly partitioned big list, test
+  `table_sort_is_luas_without_the_clock`; a global function a letter or
+  two off a handler is a mistake at load, `a_misspelt_handler_is_named`;
+  `level:set_voxel` outside the level is a mistake; errors from the
+  engine's calls start with file:line and name the parameter,
+  `sandbox::error_text`; `conf.lua` mistakes name `c.section.key`,
+  `conf::culprit`; the register's `Conf` classes come from `config.rs`'s
+  fields and doc comments, test `the_settings_are_what_conf_lua_sets`: a
+  new setting's `///` line is its documentation; `inspect` draws every
+  tick and, like `shot`, warns of hidden locals, `"warnings"`): only
   table, string, math, utf8 (and `require` for the game's own Lua files
   while it starts); maths through libm; `^` refused but for
   squares; `pairs`/`next` in key order; `math.random` from `Sim::rng`; no
@@ -876,11 +928,13 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   itself (`on_hit`, `on_death`, `on_fall_out`, `on_pickup`, `on_touch`,
   `on_touch_end`, `on_interact`; `LuaGame::tell_events`); after the run's end the script
   hears nothing more. The kits move and fight; what a touch, a kill or a
-  fall means is the game's code (`docs/game-model.md`, stage 7): points,
+  fall means is the game's code (`docs/game-model.md`, "Events"): points,
   pickups, checkpoints, a life lost, winning and losing (More Blood's
   `main.lua`, the templates'). The pins, pure Rust, keep More Blood's
   rules in Rust (`pins::Classic`, `gunships_guard`). The Lua API has one source, `src/lua/api.rs`: a field
-  or method new in `world.rs` goes into the register too (test
+  or method new in `src/lua/world/` (`run.rs`, `level.rs`, `thing.rs`,
+  `input.rs`, `menus.rs`, `music.rs`, `screen.rs`, `frame.rs`, `controls.rs`,
+  `pose.rs`; `mod.rs` `impl Stage`) goes into the register too (test
   `the_register_is_what_the_scripts_see`), then `voxcade api --lua
   lua/voxcade.lua` (test `the_editors_definitions_are_up_to_date`). Tests:
   `src/lua/tests.rs`.
@@ -943,7 +997,12 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (`voxcade sounds GAME --to-files` writes an older game's). A file in
   `sounds/` saved, new or gone while playing makes only that sound anew
   (`Session::reload_sounds`). Sounds are in neither the fingerprint nor
-  the state hash. The speaker (`audio::Speaker`) keeps its mixer
+  the state hash. The built-in sounds are pinned as 12-bit integer
+  digests (`tests/sounds.txt`, `src/audio/digest_tests.rs`): renew with
+  `VOXCADE_SOUNDS=renew cargo test --release built_in_sounds` and say so
+  in the commit when a sound is meant to change. Open: the sounds with
+  `jump = 7.01955` (a 3:2 ratio from `sounds --to-files`) in games'
+  files. The speaker (`audio::Speaker`) keeps its mixer
   behind a lock of its own that SDL's callback holds only while mixing;
   the window and the IDE never lock SDL's audio stream, never pause its
   device, and close it on a thread of their own and leave SDL unquit at
@@ -1013,8 +1072,13 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (`blocks::save_at_once`, `Settings::save`); an unreadable settings file
   is kept as `NAME.toml.broken` before defaults are saved, and a failed
   SAVE or LOAD, a settings error or an unreadable save is said on the
-  screen (`parting` in `app.rs`).
-  Check menus with
+  screen (`parting` in `src/app/mod.rs`; the window's front end is
+  `src/app/`: `App`'s steps, `front::Front` the front-end state, `keys.rs`
+  `play_key` and `maker_key`, `events.rs`, `commands.rs`, `network.rs`,
+  `draw.rs`; tests `pausing_gives_way_to_the_games_keys`,
+  `the_title_plays_its_round_after_a_while`).
+  `shot --screen` takes the names in `headless::SCREENS` (`voxcade shot
+  --help` lists them). Check menus with
   `shot --screen title|continue|settings|audio|video|controls|players|player-controls|network|find|join|joining|intro|pause|host-pause|guest-pause|save|load|attract`
   (a game with a save offers CONTINUE first on the title: the newest
   save, `Slots::newest`). More Blood's title:
@@ -1059,7 +1123,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   with a size, `text_width`, `box`, `bar`, `icon` from `c.icons`,
   `drop_in`; `screen:burst`, the voxels only shown, `HudState`); the
   engine helps with how and where, the kits draw none.
-- Music is MML (`src/audio/music.rs`), text so the user and agents can
+- Music is MML (`src/audio/music/`: `song.rs` `Song`, `Instrument`,
+  `Timing`; `parse.rs` MML to `Song`, refusing an empty song, a channel
+  with no notes and a non-letter channel; `player.rs` `Player`, voices,
+  sidechain, bus; `mix.rs` `Glide`, `Mix`, `muffle_cutoff`; `tests.rs`), text so the user and agents can
   write it. MIDI comes in through `tools/midi2mml.py` and an import file
   (`games/moreblood/music/end_boss.import.toml`); the user makes music
   in Suno (Pro) and exports MIDI or audio stems. Audio stems go through
@@ -1218,7 +1285,12 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   and the way it looks, not by pixel, so a face stays whole): how much in
   the sun lately and whether lit, changing only a margin past the
   middle, so a face changes once as the edge passes and the shadows move
-  with the sun face by face. Only faces at an edge make a memory; a clear
+  with the sun face by face. Only the pipelines of a game that moves its
+  sun carry it (`render::plain_shader` takes the shader's MEMORY marks out
+  for every other pipeline, `render::Memory` is made the first time a
+  frame asks, a GPU without fragment storage writes says so and draws
+  plain; test `a_moving_sun_turns_each_face_once`; the scene pass of a
+  game that does not move its sun is 10 to 30 % quicker). Only faces at an edge make a memory; a clear
   face looks whether it has one and lets it fade. Tried and dropped: the
   sun in steps of 0.4, 1.5 or 3 degrees (flickered less, or jumped; the
   user: "3 degree jumps are not ok"), the map's texels laid on the
@@ -1228,6 +1300,9 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   three times of BunnyFarm's morning: no face goes back and forth; one
   or two faces change a picture. It costs the small GPU (Radeon 610M)
   about 2.5 ms (test `a_moving_sun_has_the_faces_remember_their_shadow`).
+- `Renderer::render` is `write_globals`, `upload_cubes`, `upload_models`,
+  `draw_models`, `shadow_pass`, `scene_pass`, `ui_pass`, `post_passes`,
+  `composite_pass`.
 - Rendering goes scene (HDR colour + glow targets) -> quarter-size blur
   passes -> composite onto the surface (`src/post.wgsl`). Instances are
   opaque first, then see-through ones sorted far to near
@@ -1546,6 +1621,24 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   fed, its frames run, nothing drawn); tests
   `clicks_on_the_rows_choose_and_change_nothing`,
   `pointer_trim_and_a_local_move_change_only_their_own`.
+- Where things are in the editor (the `Editor`'s state is in sub-structs:
+  `ed.history`, `ed.forms`, `ed.pieces`, `ed.rigging`, `ed.selecting`):
+  `editor/tools.rs` `Editor::shift_pick`, `end_drag`, `release`; `rig.rs`
+  `follow_figure`, `move_part`, `move_part_by`, `grab_joint`, `rest_view`,
+  `pin_rig`; `forms.rs` BOX and SPHERE; `history.rs` undo and redo;
+  `cells.rs`; `model_file.rs`; `picture.rs` `view::frame`; `shown.rs`
+  `Shown::update_land`; `figures.rs` `Figures`; `actions.rs` `act`;
+  `aim.rs`; `marks.rs`. A level's GAME VIEW looks where the game's camera
+  looks as a run starts (`view::GameStart`, `session::within`: the place
+  `start`, else the hero, else `c.player.spawn`; `stop_at_edges`); lights
+  a game sets with `frame:light` it cannot know. A figure's GAME VIEW
+  faces by `Face::look` (the logo unturned, from the front). A quiet axis
+  marker sits in the view's corner (`panels::axis_marker`); TERRAIN shows
+  every point faintly. ADD MODEL marks a model that does not read with "!"
+  and says why on hover (`Thumbs::model`). `edit --shot` prints joints from
+  the pivot (`Figure::tree_lines`, `Figure::file_joint`). A stroke on a
+  figure's part remakes the figure at let-go (`Figure::only_chosen_voxels_changed`,
+  `rigging.made_figure` via `pin_rig`).
 - POINTER (the owner kept setting voxels with a click meant to choose a
   part): the first tool and the one every editor opens with, Escape
   coming back to it; it changes nothing: a click chooses a part (the
