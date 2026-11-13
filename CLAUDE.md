@@ -1664,6 +1664,12 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `editor/tools.rs` `Editor::shift_pick`, `end_drag`, `release`; `rig.rs`
   `follow_figure`, `move_part`, `move_part_by`, `grab_joint`, `rest_view`,
   `pin_rig`; `forms.rs` BOX and SPHERE; `history.rs` undo and redo;
+  `shot.rs` `voxcade edit --shot` (`ShotOptions`, `shot` and its flags'
+  steps: `choose_part`, `shape_parts`, `try_pieces`, `set_view`,
+  `pointer_flags`, `print_facts`) and the windowless writes;
+  `window.rs` `EditorWindow` (`handle` by the event's kind: `key_down`,
+  `Here::motion`, `Here::left_down`, `Here::right_up`; `draw`);
+  `cell_lines.rs` GRID;
   `cells.rs`; `model_file.rs`; `picture.rs` `view::frame`; `shown.rs`
   `Shown::update_land`; `figures.rs` `Figures`; `actions.rs` `act`;
   `aim.rs`; `marks.rs`. A level's GAME VIEW looks where the game's camera
