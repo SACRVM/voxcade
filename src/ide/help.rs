@@ -1232,12 +1232,22 @@ A file changed by another program is read anew; the editor never writes an older
 /// The first topic's title: every name of the API with what it does.
 const ALL: &str = "REFERENCE";
 
+/// The topics' column: as wide as its longest title, with a row's insets,
+/// the list's margin and its scroll bar, so no title is cut; at most half
+/// the room in a narrow window.
+fn topics_width(ui: &egui::Ui) -> f32 {
+    let font = TextStyle::Body.resolve(ui.style());
+    let widest = std::iter::once(ALL).chain(TOPICS.iter().map(|t| t.title)).map(|t| ui.painter().layout_no_wrap(t.to_string(), font.clone(), TEXT).size().x).fold(0.0, f32::max);
+    let width = widest + 2.0 * crate::gui::INSET + 6.0 + ui.spacing().scroll.allocated_width() + ui.spacing().scroll.bar_width;
+    width.min(ui.available_width() / 2.0).ceil()
+}
+
 /// HELP in `ui`: the topics on the left, the one `chosen` (its place in
 /// that list: 0 every name of the API, then TOPICS from 1) beside them.
 pub fn ui(ui: &mut egui::Ui, chosen: &mut usize) {
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
-            ui.set_width(250.0);
+            ui.set_width(topics_width(ui));
             ui.label(RichText::new("HELP").small().color(QUIET));
             egui::ScrollArea::vertical().id_salt("help topics").auto_shrink([false, false]).content_margin(egui::Margin { right: 6, bottom: 14, ..egui::Margin::ZERO }).show(ui, |ui| {
                 // The reference first, then the examples.
@@ -1321,6 +1331,29 @@ fn code(ui: &mut egui::Ui, text: &str) {
 mod tests {
     use super::*;
     use std::path::Path;
+
+    /// The topics' column is as wide as its longest title: none is cut at
+    /// its edge (it was a fixed 250 pixels, cutting "SPEAK THE PLAYER'S
+    /// LANGUAGE" even 1920 wide).
+    #[test]
+    fn every_topic_title_fits_its_column() {
+        let ctx = egui::Context::default();
+        crate::gui::style(&ctx);
+        let mut widths = None;
+        // Twice: the fonts are there from the second frame on.
+        for _ in 0..2 {
+            let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0))), ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| {
+                let font = TextStyle::Body.resolve(ui.style());
+                let titles: Vec<f32> = std::iter::once(ALL).chain(TOPICS.iter().map(|t| t.title)).map(|t| ui.painter().layout_no_wrap(t.to_string(), font.clone(), TEXT).size().x).collect();
+                widths = Some((topics_width(ui), titles));
+            });
+        }
+        let (column, titles) = widths.unwrap();
+        for (title, width) in std::iter::once(ALL).chain(TOPICS.iter().map(|t| t.title)).zip(titles) {
+            assert!(width + 2.0 * crate::gui::INSET <= column, "{title}: {width} in a column of {column}");
+        }
+    }
 
     /// Every example runs as a game: the empty template's conf.lua with
     /// the topic's lines, the topic's main.lua, played with the arrows and

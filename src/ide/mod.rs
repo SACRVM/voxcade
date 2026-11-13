@@ -52,6 +52,10 @@ pub struct ShotOptions {
     /// A game made for another Voxcade: its upgrade's page as after
     /// UPGRADE, the upgrade run dry (nothing changed).
     pub upgraded: bool,
+    /// A text left in the open file's journal before the IDE opens it, as
+    /// an older IDE leaves one (saying nothing of the file it was changed
+    /// from): unlike the file, it is asked about (CHANGED OUTSIDE TOO).
+    pub journal: Option<PathBuf>,
     pub width: u32,
     pub height: u32,
     pub out: PathBuf,
@@ -198,6 +202,11 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
     let brought = G::sounds(&cfg);
     // What the shell remembers goes in a folder that is gone with the shot.
     let scratch = crate::scratch::Scratch::new("ide-shot");
+    if let (Some(text), Some(path)) = (&opts.journal, &opts.open) {
+        let journals = scratch.join("memory.journal");
+        std::fs::create_dir_all(&journals)?;
+        std::fs::copy(text, journals.join(path.replace(['/', '\\'], "%"))).with_context(|| format!("--journal {}", text.display()))?;
+    }
     let mut shell = Shell::new(dir, cfg, scratch.join("memory.toml"), console).with_sounds(brought);
     shell.animate = false;
     // A command run in the console is meant to be seen: unfolded (else a

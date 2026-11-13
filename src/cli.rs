@@ -51,7 +51,7 @@ USAGE:
                  [--part NAME [--add-part] [--merge-into NAME] [--mirror]] [--select X0,Y0,Z0 --to X1,Y1,Z1 (from the pivot, as at) [--selection OP ...]] [--menu part:NAME] [--model FILE --context LEVEL:NAME [--context-off]]
                  [--model FILE [--frame N | --part NAME] --clear X0,Y0,Z0 --to X1,Y1,Z1 | --fill SIGN|#rrggbb --from X0,Y0,Z0 --to X1,Y1,Z1 ... [--dry]]
                    (without --shot these write the model; coordinates from its pivot, as the file's `at`)
-  voxcade ide    [<game-dir>] [--shot FILE] [--open PATH] [--console CMD] [--play TICKS] [--size WxH] [--remote]
+  voxcade ide    [<game-dir>] [--shot FILE] [--open PATH] [--console CMD] [--journal FILE] [--play TICKS] [--size WxH] [--remote]
   voxcade mcp    [--remote]
   voxcade film   <game-dir> <replay-file> [--from S] [--to S] [--fps N] [--size WxH]
                  [--max-mb N] [--out FILE.mp4|.webm|.gif]
@@ -894,7 +894,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                 Some(_) => Some(game_dir(&args)?),
                 None => None,
             };
-            let mut opts = crate::ide::ShotOptions { open: None, console: None, play: None, upgraded: false, width: 1920, height: 1080, out: PathBuf::new() };
+            let mut opts = crate::ide::ShotOptions { open: None, console: None, play: None, upgraded: false, journal: None, width: 1920, height: 1080, out: PathBuf::new() };
             let mut shot = false;
             let mut remote = false;
             let mut it = args[if dir.is_some() { 2 } else { 1 }..].iter();
@@ -911,6 +911,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                 match flag.as_str() {
                     "--open" => opts.open = Some(value.clone()),
                     "--console" => opts.console = Some(value.clone()),
+                    "--journal" => opts.journal = Some(PathBuf::from(value)),
                     "--play" => opts.play = Some(value.parse().context("--play TICKS")?),
                     "--shot" => {
                         opts.out = PathBuf::from(value);
