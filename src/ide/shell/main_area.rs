@@ -245,6 +245,12 @@ impl Shell {
             ui.allocate_ui(egui::vec2(ui.available_width() - 12.0, ui.available_height() - 14.0), |ui| preview.ui(ui, animate));
             return;
         }
+        // Unloaded by a button of this frame (TEXT, PICTURE): shown anew in
+        // the next one.
+        if self.shown.is_none() {
+            ui.ctx().request_repaint();
+            return;
+        }
         // A line to go to (a game's error): the cursor there, in view.
         let mut focus = focus;
         if let (Some((line, keys)), Some(Shown::Code(buffer))) = (goto, &self.shown) {
