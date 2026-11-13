@@ -424,11 +424,11 @@ impl Host for Shooter {
     /// what it had; or taken away (its gun and rounds kept for its return).
     fn put_seat(&mut self, seat: usize, figure: Option<(usize, Vec3, Option<IVec2>, i32)>) -> Result<Option<Id>, String> {
         let was = self.seated(seat);
-        if let Some(t) = was.and_then(|id| self.things.remove(id)) {
-            if let Brain::Player(s) = t.brain {
-                self.departed.retain(|(n, ..)| *n != seat);
-                self.departed.push((seat, *s, t.hp));
-            }
+        if let Some(t) = was.and_then(|id| self.things.remove(id))
+            && let Brain::Player(s) = t.brain
+        {
+            self.departed.retain(|(n, ..)| *n != seat);
+            self.departed.push((seat, *s, t.hp));
         }
         let Some((kind, at, facing, hp)) = figure else { return Ok(None) };
         // Seat 1's first figure stands where `--at` put the players.
