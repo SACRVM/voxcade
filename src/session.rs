@@ -364,6 +364,9 @@ pub struct Session<G: Game> {
     /// Whether the last `step` played a tick (not a fade's frame): what
     /// recordings count.
     pub ticked: bool,
+    /// What stops the game is drawn over the picture (a window's); the
+    /// IDE's PLAY says it in its own red line instead.
+    pub problem_shown: bool,
     pub sounds: SoundBank,
     /// The music changed (its file or which file): start it over.
     pub music_changed: bool,
@@ -835,6 +838,7 @@ impl<G: Game> Session<G> {
             fade: None,
             flyby_from: 0.0,
             ticked: false,
+            problem_shown: true,
             song: 0,
             options: Options::default(),
             font: display_font(&files, &cfg_ui),
@@ -2022,7 +2026,7 @@ impl<G: Game> Session<G> {
             crate::render::hide_inner_faces(&mut hud);
             (hud, Vec::new(), camera)
         });
-        if let Some(problem) = problem {
+        if let Some(problem) = problem.filter(|_| self.problem_shown) {
             ui.extend(crate::ui::error_panel(&problem, &self.cfg.ui, aspect));
         }
 
@@ -2896,6 +2900,7 @@ mod tests {
             fade: None,
             flyby_from: 0.0,
             ticked: false,
+            problem_shown: true,
             sounds: SoundBank::default(),
             song_titles: Vec::new(),
             songs: Vec::new(),

@@ -1275,6 +1275,74 @@ Ctrl+S saves at once (a text saves itself a second after the last change). Ctrl+
 /// The first topic's title: every name of the API with what it does.
 const ALL: &str = "REFERENCE";
 
+/// The reference's groups in the order a game meets them: whose names
+/// (`Item::of`; "" with `callbacks` the functions a game writes, else the
+/// ones every script is given), a heading, and what they are in plain
+/// words.
+const GROUPS: &[(&str, bool, &str, &str)] = &[
+    ("", true, "YOUR FUNCTIONS", "Functions you write in your Lua files. The engine calls each one when its moment comes: on_tick 60 times a second, on_draw for every picture, on_touch when two things meet."),
+    ("", false, "FUNCTIONS YOU CALL", "Given to every script."),
+    ("world", false, "WORLD", "The whole run, from start to end: the time, what is kept for the run, going from level to level, winning and losing."),
+    ("level", false, "LEVEL", "The level being played: its things, its blocks, sounds and effects in it."),
+    ("level.camera", false, "LEVEL.CAMERA", "What the camera looks at."),
+    ("area", false, "AREAS", "A box set in a level (ADD AREA in the level editor), to ask who is inside: level.areas.NAME."),
+    ("player", false, "PLAYER", "The player's figure: a thing like any other, so every name under THING works on it too."),
+    ("thing", false, "THING", "Anything in a level: the player, an enemy, a pickup, a piece. Where it is, what it remembers, how it moves."),
+    ("input", false, "INPUT", "What the player presses, in on_tick."),
+    ("controls", false, "CONTROLS", "Which keys or pad buttons the player uses, to show them in your game's words."),
+    ("screen", false, "SCREEN", "Effects over the whole picture."),
+    ("music", false, "MUSIC", "Your game's song and its beat."),
+    ("frame", false, "FRAME", "Drawing a picture, in on_draw: models, cubes, lights, text and the HUD. Only drawn, never part of the game."),
+];
+
+/// A name's doc as the reference shows it: its first sentence, then the
+/// rest (None when it is one sentence). A sentence ends at a full stop and
+/// a space outside brackets (not `{ ... }` nor `(e.g. this)`).
+fn first_sentence(doc: &str) -> (&str, Option<&str>) {
+    let mut depth = 0i32;
+    let b = doc.as_bytes();
+    for (i, &c) in b.iter().enumerate() {
+        match c {
+            b'(' | b'{' | b'[' => depth += 1,
+            b')' | b'}' | b']' => depth -= 1,
+            b'.' if depth <= 0 && b.get(i + 1) == Some(&b' ') && i > 0 && b[i - 1] != b'.' => {
+                return (&doc[..=i], Some(doc[i + 2..].trim()));
+            }
+            _ => {}
+        }
+    }
+    (doc, None)
+}
+
+/// Every name of the API under its group's heading: the name as it is
+/// written, its first sentence under it, the rest of what the register
+/// says quieter below.
+fn reference(ui: &mut egui::Ui) {
+    use crate::lua::api::{API, What};
+    ui.label(RichText::new(ALL).color(ACCENT));
+    ui.add_space(8.0);
+    ui.label("Every name you can use in your game's Lua, by what it belongs to. Resting the mouse on a name in your code shows the same.");
+    for (of, callbacks, heading, plain) in GROUPS {
+        let items: Vec<_> = API.iter().filter(|i| i.of == *of && (!of.is_empty() || matches!(i.what, What::Callback { .. }) == *callbacks)).collect();
+        if items.is_empty() {
+            continue;
+        }
+        ui.add_space(20.0);
+        ui.label(RichText::new(*heading).color(ACCENT));
+        ui.label(*plain);
+        ui.add_space(10.0);
+        for item in items {
+            ui.label(RichText::new(crate::lua::api::signature(item)).monospace().color(TEXT));
+            let (first, rest) = first_sentence(item.doc);
+            ui.label(RichText::new(first).color(TEXT));
+            if let Some(rest) = rest {
+                ui.label(RichText::new(rest).small().color(QUIET));
+            }
+            ui.add_space(10.0);
+        }
+    }
+}
+
 /// The topics' column: as wide as its longest title, with a row's insets,
 /// the list's margin and its scroll bar, so no title is cut; at most half
 /// the room in a narrow window.
@@ -1338,18 +1406,7 @@ pub fn ui(ui: &mut egui::Ui, chosen: &mut usize) {
                         code(ui, text);
                     }
                 }
-                None => {
-                    ui.label(RichText::new(ALL).color(ACCENT));
-                    ui.add_space(8.0);
-                    ui.label("Every name the API has, with what it does. Hold the mouse over a name in your code for the same.");
-                    ui.add_space(12.0);
-                    // Each name as it is written, what it does under it.
-                    for item in crate::lua::api::API {
-                        ui.label(RichText::new(crate::lua::api::signature(item)).monospace().color(TEXT));
-                        ui.label(RichText::new(item.doc).color(QUIET));
-                        ui.add_space(8.0);
-                    }
-                }
+                None => reference(ui),
             });
         });
     });
@@ -1360,7 +1417,13 @@ fn code(ui: &mut egui::Ui, text: &str) {
     egui::Frame::new().fill(PANEL).corner_radius(4.0).inner_margin(egui::Margin::same(12)).show(ui, |ui| {
         ui.horizontal_top(|ui| {
             let font = TextStyle::Monospace.resolve(ui.style());
-            let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap: f32| ui.fonts_mut(|f| f.layout_job(super::code::highlight(text.as_str(), &font, super::code::Syntax::Lua)));
+            // Long lines wrap: the example is read whole in a narrow window
+            // (COPY takes the text as written).
+            let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap: f32| {
+                let mut job = super::code::highlight(text.as_str(), &font, super::code::Syntax::Lua);
+                job.wrap.max_width = wrap;
+                ui.fonts_mut(|f| f.layout_job(job))
+            };
             let mut shown = text;
             ui.add(egui::TextEdit::multiline(&mut shown).code_editor().frame(egui::Frame::NONE).desired_rows(1).desired_width(ui.available_width() - 80.0).layouter(&mut layouter));
             if ui.button("COPY").on_hover_text("Copies all of it, to paste into your file.").clicked() {
@@ -1396,6 +1459,20 @@ mod tests {
         for (title, width) in std::iter::once(ALL).chain(TOPICS.iter().map(|t| t.title)).zip(titles) {
             assert!(width + 2.0 * crate::gui::INSET <= column, "{title}: {width} in a column of {column}");
         }
+    }
+
+    /// Every name of the register stands under one of the reference's
+    /// groups (a new owner in the register needs a group here).
+    #[test]
+    fn every_name_has_a_group_in_the_reference() {
+        use crate::lua::api::{API, What};
+        for item in API {
+            let groups = GROUPS.iter().filter(|(of, callbacks, _, _)| item.of == *of && (!of.is_empty() || matches!(item.what, What::Callback { .. }) == *callbacks)).count();
+            assert_eq!(groups, 1, "{}.{}", item.of, item.name);
+        }
+        assert_eq!(first_sentence("Plays it. Then more."), ("Plays it.", Some("Then more.")));
+        assert_eq!(first_sentence("One: and so on"), ("One: and so on", None));
+        assert_eq!(first_sentence("Sets c.things.NAME = { ... }. Then more."), ("Sets c.things.NAME = { ... }.", Some("Then more.")));
     }
 
     /// HELP's songs read, their channels are as long as each other (what

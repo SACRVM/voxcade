@@ -76,6 +76,9 @@ pub struct Shell {
     asking: Option<Question>,
     gone: Option<Gone>,
     previous: Option<String>,
+    /// The open file was in the folder when it was opened (else it never
+    /// was: not said to be gone).
+    opened_there: bool,
     deleted_dir: PathBuf,
     /// Where UNDO was drawn (for the tests' mouse).
     #[cfg(test)]
@@ -85,6 +88,9 @@ pub struct Shell {
     headings: Vec<(String, egui::Rect, egui::Rect)>,
     /// The game's settings (the light and camera previews use).
     cfg: crate::config::GameConfig,
+    /// A model's picture lies on the voxel editor's BACKGROUND as the
+    /// person chose it (else, and in a shot or a test, on a mid gray).
+    pub own_background: bool,
     /// The picture of the model, block or level open, and the one before
     /// (the new one takes over its renderer).
     preview: Option<Preview>,
@@ -180,7 +186,7 @@ pub struct Shell {
 /// Where the game's code names the sound open.
 struct Used {
     name: String,
-    rows: Vec<sounds::Use>,
+    rows: Vec<super::refs::Ref>,
     at: std::time::Instant,
 }
 
@@ -383,7 +389,7 @@ impl Shell {
             memory.open = files.logic.iter().find(|f| *f == "main.lua").or(files.logic.first()).cloned();
         }
         let restore = memory.open.as_ref().and_then(|f| memory.scroll.get(f).copied());
-        Self { title, dir: dir.to_path_buf(), files, listing, list_at: std::time::Instant::now() + LIST_EVERY, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, renaming: None, asking: None, gone: None, previous: None, #[cfg(test)] undo_button: None, deleted_dir: crate::settings::config_dir().join("ide").join("deleted").join(crate::settings::game_name(dir)), #[cfg(test)] headings: Vec::new(), cfg, preview: None, model_text: false, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, building: None, start_failed: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, console_seen: None, console_dragged: false, reported: None, output_saved: std::time::Instant::now(), brought: Vec::new(), builtin: None, sound_line: None, used: None, heard: None, rolls: 0, looping: false, again_at: None, fading: None, #[cfg(test)] finder: super::claude::Finder::in_dirs(Vec::new()), #[cfg(not(test))] finder: super::claude::Finder::system(), no_agent: false, #[cfg(test)] used_rows: Vec::new(), find: Default::default(), search: Default::default() }
+        Self { title, dir: dir.to_path_buf(), files, listing, list_at: std::time::Instant::now() + LIST_EVERY, memory, memory_path, shown: None, outside: None, facts: None, restore, console, level, edits: Vec::new(), message: None, naming: None, renaming: None, asking: None, gone: None, previous: None, opened_there: true, #[cfg(test)] undo_button: None, deleted_dir: crate::settings::config_dir().join("ide").join("deleted").join(crate::settings::game_name(dir)), #[cfg(test)] headings: Vec::new(), cfg, own_background: cfg!(not(test)), preview: None, model_text: false, spare: None, retired: Vec::new(), look_at: std::time::Instant::now(), animate: true, stage: None, asks: Vec::new(), goto: None, focus_code: false, notice: None, notice_until: None, building: None, start_failed: None, listening: None, prefs: Prefs::default(), prefs_path: None, new_game: None, leaving: None, help: false, help_topic: 0, output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, console_seen: None, console_dragged: false, reported: None, output_saved: std::time::Instant::now(), brought: Vec::new(), builtin: None, sound_line: None, used: None, heard: None, rolls: 0, looping: false, again_at: None, fading: None, #[cfg(test)] finder: super::claude::Finder::in_dirs(Vec::new()), #[cfg(not(test))] finder: super::claude::Finder::system(), no_agent: false, #[cfg(test)] used_rows: Vec::new(), find: Default::default(), search: Default::default() }
     }
 
     /// The sounds the game's code brings (`Game::sounds`), listed under
@@ -483,7 +489,10 @@ impl Shell {
         if trouble != self.reported {
             if let Some(t) = &trouble {
                 let at = super::play::line_of(t);
-                self.report(Kind::Error, format!("THE GAME STOPPED: {}", t.lines().next().unwrap_or("")), at);
+                // Whole, its traceback too (Lua's own frames left out): the
+                // red line over the game says only its first line.
+                let whole: Vec<&str> = t.lines().filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with("[C]:")).collect();
+                self.report(Kind::Error, format!("THE GAME STOPPED: {}", whole.join("\n")), at);
             }
             self.reported = trouble;
         }
@@ -575,6 +584,7 @@ impl Shell {
         self.hush();
         self.previous = self.memory.open.clone();
         self.memory.open = Some(path.to_string());
+        self.opened_there = self.files.has(path);
         self.model_text = false;
         self.unload();
         self.restore = Some(self.memory.scroll.get(path).copied().unwrap_or(0.0));
@@ -1221,6 +1231,30 @@ impl Shell {
 
     pub fn console_mut(&mut self) -> &mut Console {
         &mut self.console
+    }
+
+    /// What a model's picture lies on: the voxel editor's BACKGROUND, else
+    /// a mid gray (the game's night sky hid dark figures).
+    fn model_background(&self) -> [u8; 3] {
+        use crate::editor::background::{Backgrounds, PRESETS};
+        let chosen = if self.own_background { Backgrounds::load(&Backgrounds::path()).colours()[1] } else { None };
+        chosen.unwrap_or(PRESETS[1])
+    }
+
+    /// What the main area shows, in words for a shot: HELP, the game, the
+    /// open file (and whether it is not in the game), or nothing.
+    pub fn showing(&self) -> String {
+        if self.help {
+            return "HELP".into();
+        }
+        if self.stage.as_ref().is_some_and(|s| s.shown) {
+            return "the game".into();
+        }
+        match self.opened() {
+            Some(path) if !self.files.has(path) => format!("{path} (no such file in the game)"),
+            Some(path) => path.to_string(),
+            None => "nothing".into(),
+        }
     }
 
     /// The file open in the main area.
@@ -1895,6 +1929,9 @@ impl Shell {
         if let Some((said, copy)) = self.game_error() {
             let at = super::play::line_of(&copy).filter(|(file, _)| self.files.has(file));
             let (go, show) = game_error_row(ui, &said, &copy, at.is_some());
+            if let Some(plain) = super::play::plain_words(&copy) {
+                ui.label(RichText::new(plain).color(QUIET));
+            }
             ui.add_space(8.0);
             if show {
                 self.show_output();
@@ -1948,7 +1985,8 @@ impl Shell {
         // by itself. A text keeps its text (SAVE AGAIN, below); anything else
         // has nothing to show.
         if !self.files.has(&path) && !matches!(self.shown, Some(Shown::Code(_))) {
-            ui.label(RichText::new(format!("{path} IS GONE FROM THE FOLDER")).color(ACCENT));
+            let said = if self.opened_there { format!("{path} IS GONE FROM THE FOLDER") } else { format!("NO FILE {path} IN THE GAME") };
+            ui.label(RichText::new(said).color(ACCENT));
             return;
         }
         if self.shown.is_none() {
@@ -1974,7 +2012,7 @@ impl Shell {
             let preview = match () {
                 _ if level => Some(Preview::level(&self.dir, &path, &self.cfg)),
                 _ if self.is_scene(&path) && !self.model_text => Some(Preview::scene(&self.dir, &path, &self.cfg)),
-                _ if is_model_file(&path) && !self.model_text => Some(Preview::model(&self.dir, &path, &self.cfg)),
+                _ if is_model_file(&path) && !self.model_text => Some(Preview::model(&self.dir, &path, &self.cfg).map(|p| p.on(self.model_background()))),
                 _ => None,
             };
             self.preview = preview.and_then(|p| p.map_err(|e| self.message = Some(format!("{e:#}"))).ok());
@@ -2007,6 +2045,7 @@ impl Shell {
         let had_facts = facts.is_some();
         if let Some(facts) = facts {
             ui.horizontal(|ui| {
+                file_name(ui, &path);
                 ui.label(RichText::new(facts.to_uppercase()).color(QUIET));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(16.0);
@@ -2047,6 +2086,7 @@ impl Shell {
         if let Some(name) = path.strip_prefix("scenarios/").and_then(|n| n.strip_suffix(".lua")).filter(|_| self.files.scenarios.contains(&path)) {
             let mut play = false;
             ui.horizontal(|ui| {
+                file_name(ui, &path);
                 ui.label(RichText::new("SCENARIO").color(QUIET)).on_hover_text("The game begun late, set up by this code.");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(16.0);
@@ -2060,8 +2100,10 @@ impl Shell {
                 self.play_scenario(name);
             }
         } else if !had_facts && sounds::name_of(&path).is_none() {
-            // Any other file: its buttons, and the word if it is a text to change.
+            // Any other file: its name, its buttons, and the word if it is a
+            // text to change.
             ui.horizontal(|ui| {
+                file_name(ui, &path);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(16.0);
                     act = act.or(manage::buttons(ui, why_not));
@@ -2088,6 +2130,7 @@ impl Shell {
             }
             let line = self.sound_line.as_ref().map(|(_, l)| l.clone()).unwrap_or_default();
             ui.horizontal(|ui| {
+                file_name(ui, &path);
                 ui.label(RichText::new(line.to_uppercase()).color(QUIET));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(16.0);
@@ -2164,7 +2207,7 @@ impl Shell {
                     if ui.button("KEEP MINE").clicked() {
                         buffer.keep_mine();
                     }
-                    if ui.button("TAKE THE NEW").clicked() {
+                    if ui.button("TAKE THE FILE'S").clicked() {
                         buffer.take_theirs();
                     }
                 });
@@ -2642,7 +2685,7 @@ fn agent_missing(ui: &mut egui::Ui, agent: Agent) -> bool {
 fn saved_label(ui: &mut egui::Ui, saved: Option<&str>) -> bool {
     let Some(word) = saved else { return false };
     // (Right to left: FIND shows right of the word, before RENAME.)
-    let find = ui.add(egui::Button::new(RichText::new("FIND").small().color(QUIET)).frame(false)).on_hover_text("Find and replace in this text · Ctrl+F, Ctrl+H").clicked();
+    let find = ui.add(egui::Button::new(RichText::new("FIND").small())).on_hover_text("Find and replace in this text · Ctrl+F, Ctrl+H").clicked();
     ui.label(RichText::new(word).small().color(QUIET)).on_hover_text("The text is saved by itself a second after the last change; Ctrl+S saves it at once.");
     find
 }
@@ -2650,7 +2693,7 @@ fn saved_label(ui: &mut egui::Ui, saved: Option<&str>) -> bool {
 /// Where a sound is used, under its text: USED, then what the game's code
 /// says of it (`says`) and each line of it that names it, clicked to open
 /// there (the file and the line returned; `rects` where the rows are).
-fn used_ui(ui: &mut egui::Ui, name: &str, says: &[String], rows: &[sounds::Use], rects: &mut Vec<egui::Rect>) -> Option<(String, usize)> {
+fn used_ui(ui: &mut egui::Ui, name: &str, says: &[String], rows: &[super::refs::Ref], rects: &mut Vec<egui::Rect>) -> Option<(String, usize)> {
     let mut go = None;
     ui.add_space(18.0);
     ui.label(RichText::new("USED").small().color(QUIET));
@@ -2661,7 +2704,13 @@ fn used_ui(ui: &mut egui::Ui, name: &str, says: &[String], rows: &[sounds::Use],
     if says.is_empty() && rows.is_empty() {
         ui.label(RichText::new("NOT USED YET").color(QUIET)).on_hover_text(format!("level:sound(\"{name}\", player) plays it."));
     }
-    for row in rows {
+    let maybes = rows.iter().position(|r| !r.sure);
+    for (i, row) in rows.iter().enumerate() {
+        // The same name quoted where the code may mean something else.
+        if Some(i) == maybes {
+            ui.add_space(8.0);
+            ui.label(RichText::new("MAYBE").small().color(QUIET)).on_hover_text("The name in quotes where the game's code may mean something else (its own function, a variable).");
+        }
         let shown: String = row.text.chars().take(100).collect();
         let at = ui.horizontal(|ui| {
             let place = ui.add(egui::Label::new(RichText::new(format!("{}:{}", row.file, row.line)).color(ACCENT)).sense(egui::Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -2674,6 +2723,11 @@ fn used_ui(ui: &mut egui::Ui, name: &str, says: &[String], rows: &[sounds::Use],
         }
     }
     go
+}
+
+/// The open file's name, at the left of the row over it.
+fn file_name(ui: &mut egui::Ui, path: &str) {
+    ui.label(RichText::new(path).color(TEXT));
 }
 
 /// A picture, its pixels as whole squares, as large as fit.
@@ -3597,7 +3651,7 @@ mod tests {
         frame(&ctx, &mut shell);
         assert_eq!(shell.rename("sounds/coin.toml", "ring"), Ok(()));
         let q = shell.asking.as_ref().expect("asked");
-        assert_eq!((q.rows.len(), q.sentence().as_str()), (2, "2 lines of your game play this sound by its name. Change them too?"));
+        assert_eq!((q.rows.len(), q.ticked.as_slice()), (2, [true, true].as_slice()), "both certain, both ticked");
         frame(&ctx, &mut shell);
         assert!(dir.join("sounds/coin.toml").exists(), "nothing done before the answer");
         shell.answer(Answer::Cancel);
@@ -3633,6 +3687,60 @@ mod tests {
             shell.answer(Answer::Change);
             assert!(std::fs::read_to_string(dir.join("main.lua")).unwrap().contains(line), "{line}");
         }
+        clean_up(&dir, &shell);
+    }
+
+    /// A file asked for that never was in the game is said so, not as gone;
+    /// a shot says what the main area shows (HELP, not the file behind it).
+    #[test]
+    fn a_file_that_never_was_is_not_said_to_be_gone() {
+        let (dir, _, mut shell) = managed_game("never-was");
+        let ctx = egui::Context::default();
+        shell.open("models/bat.vvx");
+        drawn_text(&ctx, &mut shell, Vec::new());
+        let texts = drawn_text(&ctx, &mut shell, Vec::new());
+        assert!(says(&texts, "NO FILE models/bat.vvx IN THE GAME") && !says(&texts, "GONE"), "{texts:?}");
+        assert_eq!(shell.showing(), "models/bat.vvx (no such file in the game)");
+        // One that was there and went is gone.
+        shell.open("notes.txt");
+        drawn_text(&ctx, &mut shell, Vec::new());
+        std::fs::remove_file(dir.join("notes.txt")).unwrap();
+        shell.rescan();
+        shell.unload();
+        assert!(says(&drawn_text(&ctx, &mut shell, Vec::new()), "notes.txt IS GONE FROM THE FOLDER"));
+        shell.help = true;
+        assert_eq!(shell.showing(), "HELP");
+        clean_up(&dir, &shell);
+    }
+
+    /// RENAME lists the places with a tick each: the certain ones ticked,
+    /// a maybe (the game's own call) apart and not, an icon of the same
+    /// name not at all (BunnyFarm's coin); a tick clicked takes a maybe in,
+    /// and RENAME changes only the places ticked.
+    #[test]
+    fn the_places_to_change_are_ticked_one_by_one() {
+        let (dir, _, mut shell) = managed_game("rename-ticks");
+        std::fs::write(dir.join("main.lua"), "function on_tick()\n  level:sound(\"coin\", player)\n  fly(\"coin\")\nend\nfunction on_draw(frame)\n  frame:icon(\"coin\", 1, 1)\nend\n").unwrap();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut shell);
+        assert_eq!(shell.rename("sounds/coin.toml", "ring"), Ok(()));
+        let q = shell.asking.as_ref().expect("asked");
+        let rows: Vec<(&str, usize, bool)> = q.rows.iter().map(|r| (r.file.as_str(), r.line, r.sure)).collect();
+        assert_eq!(rows, [("conf.lua", 5, true), ("main.lua", 2, true), ("main.lua", 3, false)], "the icon is no place of the sound");
+        assert_eq!(q.ticked, [true, true, false]);
+        drawn_text(&ctx, &mut shell, Vec::new());
+        let texts = drawn_text(&ctx, &mut shell, Vec::new());
+        assert!(says(&texts, "MAYBE") && says(&texts, "RENAME coin.toml TO ring.toml"), "{texts:?}");
+        // The maybe's tick, by its text.
+        let maybe = texts.iter().find(|(t, _)| t.starts_with("main.lua:3 ")).expect("the maybe's row").1;
+        click(&ctx, &mut shell, maybe);
+        assert_eq!(shell.asking.as_ref().map(|q| q.ticked.clone()), Some(vec![true, true, true]));
+        let texts = drawn_text(&ctx, &mut shell, Vec::new());
+        // The question's RENAME, drawn over the main area's.
+        let rename = texts.iter().rev().find(|(t, _)| t == "RENAME").expect("the button").1;
+        click(&ctx, &mut shell, rename);
+        assert!(shell.asking.is_none() && dir.join("sounds/ring.toml").is_file());
+        assert_eq!(std::fs::read_to_string(dir.join("main.lua")).unwrap(), "function on_tick()\n  level:sound(\"ring\", player)\n  fly(\"ring\")\nend\nfunction on_draw(frame)\n  frame:icon(\"coin\", 1, 1)\nend\n");
         clean_up(&dir, &shell);
     }
 
@@ -4133,7 +4241,11 @@ mod tests {
         let texts = drawn_text(&ctx, &mut shell, vec![]);
         assert!(says(&texts, "THE GAME STOPPED: main.lua:3: attempt to index a nil value"), "over a sound: {texts:?}");
         assert!(!says(&texts, "stack traceback"), "its first line");
+        assert!(says(&texts, "Something here is nil"), "in plain words under it: {texts:?}");
         assert!(["TO THE LINE", "SHOW", "COPY"].iter().all(|b| says(&texts, b)));
+        // OUTPUT has it whole, the traceback too, Lua's own frames left out.
+        shell.game_said(shell.stage.as_ref().unwrap().trouble.clone(), Vec::new());
+        assert!(shell.output.text().contains("THE GAME STOPPED: main.lua:3: attempt to index a nil value\nstack traceback:") && !shell.output.text().contains("[C]"), "{}", shell.output.text());
         // Over HELP, the game and nothing.
         shell.help = true;
         assert!(says(&drawn_text(&ctx, &mut shell, vec![]), "THE GAME STOPPED"), "over HELP");
@@ -4284,8 +4396,8 @@ mod tests {
         assert_eq!(shell.opened(), Some("tools.lua"));
         assert_eq!((buffer(&shell).code.text.as_str(), buffer(&shell).theirs.as_deref()), (mine.as_str(), Some(theirs)));
         assert!(says(&texts, "CHANGED OUTSIDE TOO"), "{texts:?}");
-        // TAKE THE NEW: the user's text let go of, by the user.
-        let at = texts.iter().find(|(t, _)| t == "TAKE THE NEW").expect("the button").1;
+        // TAKE THE FILE'S: the user's text let go of, by the user.
+        let at = texts.iter().find(|(t, _)| t == "TAKE THE FILE'S").expect("the button").1;
         click(&ctx, &mut shell, at);
         assert_eq!(buffer(&shell).code.text, theirs);
         assert!(!shell.journals().join("tools.lua").exists());
