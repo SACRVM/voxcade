@@ -124,7 +124,8 @@ pub fn view_extent(cfg: &CameraConfig, aspect: f32) -> (f32, f32, f32) {
 /// view frustum covers between the floor and the top of the world, plus
 /// everything between it and the sun. A view from the side (some corner
 /// ray not pointing down) takes the stage instead: what the frustum covers
-/// between its front and its back. The box keeps its size and moves in
+/// between its front and its back. From above, never wider than the world
+/// as the sun sees it. The box keeps its size and moves in
 /// whole shadow texels, so shadows stand still while the view scrolls. A
 /// sun that moves turns it every picture: the faces keep a memory of
 /// their shadow then (`FrameData::remember`).
@@ -177,6 +178,7 @@ pub fn light_view_proj(
     }
     // Depth: from beyond the top of the world (or the stage) towards the
     // sun down to its floor, wherever in it the box is.
+    let (mut box_min, mut box_max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     for corner in 0..8 {
         let c = Vec3::new(
             if corner & 1 == 0 { box_lo.x } else { box_hi.x },
@@ -184,8 +186,24 @@ pub fn light_view_proj(
             if corner & 4 == 0 { box_lo.z } else { box_hi.z },
         );
         let p = view.transform_point3(c);
-        lo.z = lo.z.min(p.z);
-        hi.z = hi.z.max(p.z);
+        box_min = box_min.min(p);
+        box_max = box_max.max(p);
+    }
+    lo.z = lo.z.min(box_min.z);
+    hi.z = hi.z.max(box_max.z);
+    // Seen from above, across never wider than the world itself, as the
+    // sun sees it. A view whose upper corners look nearly level (or a
+    // camera far above the floor) meets the floor plane far beyond the
+    // level, and the map spread over that empty ground had texels of
+    // several voxels: a window's narrow opening let no sunlight through.
+    // Where the view's ground is the narrower, the box is the view's, as
+    // before, and keeps its size while the view scrolls; else the world's,
+    // which stands still. (A view from the side keeps its fit to the stage
+    // as before: what lies behind it, a backdrop, is drawn there too.)
+    for a in 0..2 {
+        if from_above && hi[a] - lo[a] > box_max[a] - box_min[a] {
+            (lo[a], hi[a]) = (box_min[a], box_max[a]);
+        }
     }
     let size = (hi - lo).truncate() + 2.0;
     let texel = size / texels as f32;
@@ -241,6 +259,47 @@ mod tests {
                 assert!(p.x.abs() <= 1.0 && p.y.abs() <= 1.0 && (0.0..=1.0).contains(&p.z), "{sun}: {c} lands at {p}");
             }
         }
+    }
+
+    /// How many shadow texels a voxel of the floor gets across, by a 2048
+    /// map fitted to a view of `cam` at `target` over `world`, the sun of
+    /// a room lit by day through its windows.
+    fn texels_a_voxel(cam: &CameraConfig, target: Vec3, world: Vec3) -> f32 {
+        let sun = Vec3::new(1.0, 0.18, -0.62);
+        let (m, _) = light_view_proj(cam, target, 16.0 / 9.0, sun, world, (Vec3::ZERO, world), 2048);
+        let floor = Vec3::new(world.x * 0.3, world.y * 0.5, 0.0);
+        let (a, b) = (m.project_point3(floor), m.project_point3(floor + Vec3::X));
+        (b - a).truncate().length() * 0.5 * 2048.0
+    }
+
+    /// A room of 200 by 200 voxels seen at a pitch just steeper than half
+    /// the field of view (its upper corners look nearly level), or from a
+    /// camera far above its floor (a level 280 high, the view at its top):
+    /// the map is fitted to the room, not to the floor plane out to the
+    /// horizon, and a window's opening of 8 voxels is several texels wide.
+    /// (It was a third of a texel a voxel and less: the openings closed.)
+    #[test]
+    fn the_sun_is_fitted_to_the_level_not_to_the_horizon() {
+        for (pitch, target_z, high) in [(22.0, 2.0, 150.0), (22.0, 2.0, 280.0), (30.0, 295.0, 280.0), (35.0, 295.0, 280.0)] {
+            let cam = CameraConfig { pitch, view_width: 300.0, ..Default::default() };
+            let texels = texels_a_voxel(&cam, Vec3::new(100.0, 100.0, target_z), Vec3::new(200.0, 200.0, high));
+            assert!(texels > 2.5, "pitch {pitch}, the view at {target_z} over a level {high} high: {texels} texels a voxel");
+        }
+    }
+
+    /// Where the ground the view shows is narrower than the world (as the
+    /// sun sees both), the map is the view's as before: in a big world the
+    /// same across whatever lies further out.
+    #[test]
+    fn a_view_within_the_world_keeps_its_map() {
+        let sun = Vec3::new(0.35, 0.8, -1.0);
+        let cam = CameraConfig { pitch: 50.0, view_width: 320.0, ..Default::default() };
+        let target = Vec3::new(1000.0, 1000.0, 8.0);
+        let across = |world: Vec3| {
+            let (m, _) = light_view_proj(&cam, target, 16.0 / 9.0, sun, world, (Vec3::ZERO, world), 2048);
+            (m.row(0), m.row(1))
+        };
+        assert_eq!(across(Vec3::new(2000.0, 2000.0, 64.0)), across(Vec3::new(20000.0, 20000.0, 64.0)));
     }
 
     /// With `view_height` the screen shows the same height in any window
