@@ -57,6 +57,19 @@ use std::collections::HashMap;
 use anyhow::{Context, Result, bail};
 
 use super::synth::{SAMPLE_RATE, Wave};
+use super::words;
+
+/// The most a song may ask of the reader: notes in a channel, steps of
+/// reading in one (repeats multiply), characters of a channel after its
+/// macros are expanded, repeats of one `[ ]`, beats a minute, note lengths
+/// and octaves.
+const MOST_NOTES: usize = 200_000;
+const MOST_STEPS: usize = 20_000_000;
+const MOST_TEXT: usize = 1 << 20;
+const MOST_REPEATS: f32 = 999.0;
+const TEMPOS: (f32, f32) = (1.0, 999.0);
+const LENGTHS: (f32, f32) = (1.0, 192.0);
+const OCTAVES: (i32, i32) = (0, 9);
 
 #[derive(Clone, Debug)]
 pub struct Instrument {
@@ -175,7 +188,17 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
             None => (word, None),
         };
         let num = || -> Result<f32> {
-            value.with_context(|| format!("{key} needs a value"))?.parse::<f32>().with_context(|| format!("{key}={}", value.unwrap_or("")))
+            let v = value.with_context(|| format!("{key} needs a value"))?.parse::<f32>().with_context(|| format!("{key}={}", value.unwrap_or("")))?;
+            if !v.is_finite() {
+                bail!("{key}={} is no number", value.unwrap_or(""));
+            }
+            if let Some(u) = words::word(key).and_then(|w| w.mml.as_ref())
+                && let Some((lo, hi)) = u.range
+                && (f64::from(v) < lo || f64::from(v) > hi)
+            {
+                bail!("{key}={} is out of range, {}", value.unwrap_or(""), words::range_words(u));
+            }
+            Ok(v)
         };
         match key {
             "square" | "pulse" => ins.wave = Wave::Square,
@@ -197,7 +220,7 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
                 ins.arp = value
                     .context("arp needs semitones like 0,4,7")?
                     .split(',')
-                    .map(|n| n.trim().parse::<f32>().with_context(|| format!("arp step '{n}'")))
+                    .map(|n| n.trim().parse::<f32>().ok().filter(|v| v.is_finite() && v.abs() <= 120.0).with_context(|| format!("arp step '{n}' is not semitones from -120 to 120")))
                     .collect::<Result<_>>()?
             }
             "arp_speed" => ins.arp_speed = num()?,
@@ -230,7 +253,13 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
             "sidechain_release" => ins.sidechain_release = num()?,
             "duck" => ins.duck = num()?.clamp(0.0, 1.0),
             "volume" => ins.volume = num()?,
-            other => bail!("unknown instrument option '{other}'"),
+            other => {
+                let known = words::WORDS.iter().filter(|w| w.mml.is_some()).map(|w| w.name).chain(["pulse"]);
+                match words::near(other, known) {
+                    Some(near) => bail!("unknown instrument option '{other}': did you mean '{near}'?"),
+                    None => bail!("unknown instrument option '{other}'"),
+                }
+            }
         }
     }
     Ok(ins)
@@ -238,6 +267,14 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
 
 /// Expands `$name` macros (up to a depth, so a macro cannot loop forever).
 fn expand(text: &str, macros: &HashMap<String, String>, depth: u32) -> Result<String> {
+    let out = expand_in(text, macros, depth)?;
+    if out.len() > MOST_TEXT {
+        bail!("macros grow past {MOST_TEXT} characters");
+    }
+    Ok(out)
+}
+
+fn expand_in(text: &str, macros: &HashMap<String, String>, depth: u32) -> Result<String> {
     if depth > 8 {
         bail!("macros nest too deep");
     }
@@ -259,8 +296,41 @@ fn expand(text: &str, macros: &HashMap<String, String>, depth: u32) -> Result<St
         }
         let body = macros.get(&name).with_context(|| format!("no macro ${name}"))?;
         out.push_str(&expand(body, macros, depth + 1)?);
+        if out.len() > MOST_TEXT {
+            bail!("macros grow past {MOST_TEXT} characters");
+        }
     }
     Ok(out)
+}
+
+/// A channel's text with its macros expanded, each character with the line
+/// of the file it came from (a macro's: the line that uses it).
+fn expand_lines(text: &[(char, usize)], macros: &HashMap<String, String>) -> Result<(Vec<char>, Vec<usize>)> {
+    let (mut chars, mut lines) = (Vec::new(), Vec::new());
+    let mut i = 0;
+    while i < text.len() {
+        let (c, line) = text[i];
+        i += 1;
+        let piece = if c == '$' {
+            let mut name = String::new();
+            while i < text.len() && (text[i].0.is_alphanumeric() || text[i].0 == '_') {
+                name.push(text[i].0);
+                i += 1;
+            }
+            let body = macros.get(&name).with_context(|| format!("line {line}: no macro ${name}"))?;
+            expand(body, macros, 1).with_context(|| format!("line {line}: macro ${name}"))?
+        } else {
+            c.to_string()
+        };
+        for ch in piece.chars() {
+            chars.push(ch);
+            lines.push(line);
+        }
+        if chars.len() > MOST_TEXT {
+            bail!("line {line}: the channel grows past {MOST_TEXT} characters");
+        }
+    }
+    Ok((chars, lines))
 }
 
 /// What a channel line has set so far.
@@ -277,7 +347,12 @@ struct State {
 
 struct Parser<'a> {
     chars: Vec<char>,
+    /// The line of the song's file each of `chars` came from (a macro's
+    /// characters: the line that uses it).
+    lines: Vec<usize>,
     at: usize,
+    /// Steps of reading so far, repeats counted every pass.
+    steps: usize,
     instruments: &'a HashMap<String, usize>,
 }
 
@@ -304,8 +379,12 @@ impl Parser<'_> {
     }
 
     /// A note length (`4`, `8.`), in beats; without a number the default.
-    fn duration(&mut self, state: &State) -> f32 {
-        let length = self.number().unwrap_or(state.length).max(0.01);
+    fn duration(&mut self, state: &State) -> Result<f32> {
+        let length = match self.number() {
+            Some(n) if (LENGTHS.0..=LENGTHS.1).contains(&n) => n,
+            Some(n) => bail!("a note length of {n} is out of range, {} to {}", LENGTHS.0, LENGTHS.1),
+            None => state.length,
+        };
         let mut beats = 4.0 / length;
         let mut dot = beats / 2.0;
         while self.peek() == Some('.') {
@@ -313,7 +392,23 @@ impl Parser<'_> {
             beats += dot;
             dot /= 2.0;
         }
-        beats
+        Ok(beats)
+    }
+
+    /// A number that must lie within `range`, or a mistake saying so.
+    fn within(&mut self, what: &str, range: (f32, f32)) -> Result<f32> {
+        let v = self.number().with_context(|| format!("{what} needs a number from {} to {}", range.0, range.1))?;
+        if v < range.0 || v > range.1 {
+            bail!("{what} is {v}: from {} to {}", range.0, range.1);
+        }
+        Ok(v)
+    }
+
+    fn octave(&self, octave: i32) -> Result<i32> {
+        if octave < OCTAVES.0 || octave > OCTAVES.1 {
+            bail!("octave {octave} is out of range, {} to {}", OCTAVES.0, OCTAVES.1);
+        }
+        Ok(octave)
     }
 
     fn sequence(&mut self, state: &mut State, notes: &mut Vec<Note>, until: Option<char>) -> Result<()> {
@@ -323,9 +418,17 @@ impl Parser<'_> {
                 return Ok(());
             }
             self.at += 1;
+            self.steps += 1;
+            if self.steps > MOST_STEPS {
+                bail!("this channel asks for too much reading (repeats inside repeats)");
+            }
             match c.to_ascii_lowercase() {
                 ' ' | '\t' | '\n' | '\r' | '|' => {}
                 'a'..='g' if c.is_ascii_lowercase() => {
+                    if notes.len() >= MOST_NOTES {
+                        bail!("more than {MOST_NOTES} notes in one channel");
+                    }
+                    let note_octave = self.octave(state.octave)?;
                     let mut semitone = match c {
                         'c' => 0,
                         'd' => 2,
@@ -346,7 +449,7 @@ impl Parser<'_> {
                         }
                         _ => {}
                     }
-                    let mut beats = self.duration(state);
+                    let mut beats = self.duration(state)?;
                     // `&` ties the following note's length on.
                     while self.peek() == Some('&') {
                         self.at += 1;
@@ -360,13 +463,13 @@ impl Parser<'_> {
                                 self.at += 1;
                             }
                         }
-                        beats += self.duration(state);
+                        beats += self.duration(state)?;
                     }
                     let seconds = beats as f64 * 60.0 / state.tempo as f64;
                     notes.push(Note {
                         start: (state.time * rate) as u64,
                         held: (seconds * state.gate as f64 * rate) as u64,
-                        freq: Some(note_freq(state.octave, semitone)),
+                        freq: Some(note_freq(note_octave, semitone)),
                         instrument: state.instrument,
                         volume: state.volume,
                         pan: state.pan,
@@ -374,17 +477,20 @@ impl Parser<'_> {
                     state.time += seconds;
                 }
                 'r' => {
-                    let beats = self.duration(state);
+                    let beats = self.duration(state)?;
                     state.time += beats as f64 * 60.0 / state.tempo as f64;
                 }
-                'o' => state.octave = self.number().context("o needs an octave")? as i32,
-                '<' => state.octave -= 1,
-                '>' => state.octave += 1,
-                'l' => state.length = self.number().context("l needs a length")?,
-                'v' => state.volume = (self.number().context("v needs 0..15")? / 15.0).clamp(0.0, 1.0),
-                'q' => state.gate = (self.number().context("q needs 1..8")? / 8.0).clamp(0.05, 1.0),
-                'p' => state.pan = (self.number().context("p needs -100..100")? / 100.0).clamp(-1.0, 1.0),
-                't' => state.tempo = self.number().context("t needs a tempo")?.max(1.0),
+                'o' => {
+                    let o = self.number().context("o needs an octave, like o4")?;
+                    state.octave = self.octave(o as i32)?;
+                }
+                '<' => state.octave = self.octave(state.octave - 1)?,
+                '>' => state.octave = self.octave(state.octave + 1)?,
+                'l' => state.length = self.within("l (the default note length)", LENGTHS)?,
+                'v' => state.volume = self.within("v (volume)", (0.0, 15.0))? / 15.0,
+                'q' => state.gate = self.within("q (how much of a note sounds)", (1.0, 8.0))? / 8.0,
+                'p' => state.pan = self.within("p (pan)", (-100.0, 100.0))? / 100.0,
+                't' => state.tempo = self.within("t (tempo)", TEMPOS)?,
                 '@' => {
                     let start = self.at;
                     while self.peek().is_some_and(|c| c.is_alphanumeric() || c == '_') {
@@ -406,7 +512,11 @@ impl Parser<'_> {
                         }
                         self.at += 1;
                         if first {
-                            times = self.number().unwrap_or(2.0).max(1.0) as u32;
+                            let count = self.number().unwrap_or(2.0);
+                            if !(1.0..=MOST_REPEATS).contains(&count) {
+                                bail!("a repeat of {count} is out of range, 1 to {MOST_REPEATS}");
+                            }
+                            times = count as u32;
                             first = false;
                         }
                         times -= 1;
@@ -449,7 +559,9 @@ pub fn parse(text: &str) -> Result<Song> {
             let (key, value) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
             match key {
                 "title" => title = value.trim().to_string(),
-                "tempo" => tempo = value.trim().parse().with_context(at)?,
+                "tempo" => {
+                    tempo = value.trim().parse::<f32>().ok().filter(|t| (TEMPOS.0..=TEMPOS.1).contains(t)).with_context(|| format!("{}: #tempo is the beats a minute, {} to {} (not '{}')", at(), TEMPOS.0, TEMPOS.1, value.trim()))?
+                }
                 "layer" => {
                     // Channel letters, then the tension they sound from.
                     let words: Vec<&str> = value.split_whitespace().collect();
@@ -497,27 +609,26 @@ pub fn parse(text: &str) -> Result<Song> {
 
     // Lines of the same channel continue each other.
     let mut order: Vec<char> = Vec::new();
-    let mut texts: HashMap<char, String> = HashMap::new();
-    let mut first_line: HashMap<char, usize> = HashMap::new();
+    let mut texts: HashMap<char, Vec<(char, usize)>> = HashMap::new();
     for (channel, notes, n) in lines {
         if !order.contains(&channel) {
             order.push(channel);
-            first_line.insert(channel, n);
         }
         let text = texts.entry(channel).or_default();
-        text.push(' ');
-        text.push_str(&notes);
+        text.push((' ', n));
+        text.extend(notes.chars().map(|c| (c, n)));
     }
     let mut channels = Vec::new();
     let letters = order.clone();
     for channel in order {
-        let text = expand(&texts[&channel], &macros, 0).with_context(|| format!("channel {channel}"))?;
+        let (text, lines) = expand_lines(&texts[&channel], &macros).with_context(|| format!("channel {channel}"))?;
         let mut state = State { octave: 4, length: 4.0, volume: 0.8, gate: 0.875, pan: 0.0, tempo, instrument: 0, time: 0.0 };
         let mut notes = Vec::new();
-        let mut parser = Parser { chars: text.chars().collect(), at: 0, instruments: &names };
+        let mut parser = Parser { chars: text, lines, at: 0, steps: 0, instruments: &names };
         parser.sequence(&mut state, &mut notes, None).with_context(|| {
             let around: String = parser.chars[parser.at.saturating_sub(12)..(parser.at + 4).min(parser.chars.len())].iter().collect();
-            format!("channel {channel} (from line {}), near '{}'", first_line[&channel], around.trim())
+            let line = parser.lines.get(parser.at.saturating_sub(1)).or(parser.lines.last()).copied().unwrap_or(0);
+            format!("line {line}: channel {channel}, near '{}'", around.trim())
         })?;
         // The channel's end is where its last note or rest ends.
         let end = (state.time * SAMPLE_RATE as f64) as u64;
@@ -990,7 +1101,9 @@ impl Player {
                 v.phase = v.phase.fract();
                 let duty = (ins.duty + ins.pwm * (std::f32::consts::TAU * ins.pwm_speed * t).sin()).clamp(0.05, 0.95);
                 let mut s = match ins.wave {
-                    Wave::Square => if v.phase < duty { 1.0 } else { -1.0 },
+                    // A pulse off duty 0.5 is high longer than low: taken off
+                    // its middle so it swings round zero (as in `synth`).
+                    Wave::Square => (if v.phase < duty { 1.0 } else { -1.0 }) - (2.0 * duty - 1.0),
                     Wave::Saw => 2.0 * v.phase - 1.0,
                     Wave::Triangle => 1.0 - 4.0 * (v.phase - 0.5).abs(),
                     Wave::Sine => (std::f32::consts::TAU * v.phase).sin(),

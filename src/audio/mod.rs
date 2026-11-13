@@ -13,6 +13,9 @@ pub mod sound;
 pub mod synth;
 pub mod words;
 
+#[cfg(test)]
+mod hardening_tests;
+
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -92,7 +95,13 @@ struct Voice {
     left: f32,
     right: f32,
     name: &'static str,
+    /// Samples of fade-out left, once stolen for a new sound (never to
+    /// count again): it ends in silence instead of a click.
+    fade: Option<usize>,
 }
+
+/// A stolen voice fades out over 5 ms.
+const STEAL_FADE: usize = SAMPLE_RATE as usize / 200;
 
 /// Mixes the music and the sounds that are playing; runs in the audio thread.
 pub struct Mixer {
@@ -208,17 +217,22 @@ impl Mixer {
             return;
         }
         // Replace the oldest of the same sound, or of any once full.
-        let same: Vec<usize> = (0..self.voices.len()).filter(|&i| self.voices[i].name == name).collect();
-        if same.len() >= MAX_SAME {
-            let oldest = same.into_iter().max_by_key(|&i| self.voices[i].at).unwrap();
-            self.voices.swap_remove(oldest);
-        } else if self.voices.len() >= MAX_VOICES {
-            let oldest = (0..self.voices.len()).max_by_key(|&i| self.voices[i].at).unwrap();
-            self.voices.swap_remove(oldest);
+        // (Fading ones, already given up, do not count.)
+        let live = |v: &Voice| v.fade.is_none();
+        let same: Vec<usize> = (0..self.voices.len()).filter(|&i| self.voices[i].name == name && live(&self.voices[i])).collect();
+        let steal = if same.len() >= MAX_SAME {
+            same.into_iter().max_by_key(|&i| self.voices[i].at)
+        } else if self.voices.iter().filter(|v| live(v)).count() >= MAX_VOICES {
+            (0..self.voices.len()).filter(|&i| live(&self.voices[i])).max_by_key(|&i| self.voices[i].at)
+        } else {
+            None
+        };
+        if let Some(i) = steal {
+            self.voices[i].fade = Some(STEAL_FADE);
         }
         // Equal-power panning.
         let angle = (pan.clamp(-1.0, 1.0) + 1.0) * std::f32::consts::FRAC_PI_4;
-        self.voices.push(Voice { samples: samples.clone(), at: 0, left: gain * angle.cos(), right: gain * angle.sin(), name });
+        self.voices.push(Voice { samples: samples.clone(), at: 0, left: gain * angle.cos(), right: gain * angle.sin(), name, fade: None });
     }
 
     /// The music into `out` (zeros): the song alone, or two crossfading.
@@ -264,12 +278,20 @@ impl Mixer {
         for v in &mut self.voices {
             for frame in out.as_chunks_mut::<2>().0 {
                 let Some(&s) = v.samples.get(v.at) else { break };
+                let s = match &mut v.fade {
+                    Some(0) => break,
+                    Some(left) => {
+                        *left -= 1;
+                        s * *left as f32 / STEAL_FADE as f32
+                    }
+                    None => s,
+                };
                 frame[0] += s * v.left;
                 frame[1] += s * v.right;
                 v.at += 1;
             }
         }
-        self.voices.retain(|v| v.at < v.samples.len());
+        self.voices.retain(|v| v.at < v.samples.len() && v.fade != Some(0));
         // When much plays at once, turned down just enough to stay under the
         // ceiling, both sides alike, and back up slowly; a mix under it comes
         // out as it is, 1.5 ms later. (It went through tanh, which bent
