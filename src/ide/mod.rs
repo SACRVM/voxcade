@@ -683,12 +683,15 @@ fn platform(platform: &egui::PlatformOutput, cursor: &mut (egui::CursorIcon, Opt
     trouble
 }
 
+/// A window's picture read back: PNG bytes, or why not.
+type Picture = Result<Vec<u8>, String>;
+
 /// Paints egui's frame `out` onto the window; false when the window's
 /// surface had to be set up anew (another frame is due). With `capture`
 /// the frame is also read back, as PNG bytes, before it is shown (none if
 /// the window was not drawn). A lost GPU device ends the window
 /// (`Screen::texture`).
-fn present(screen: &mut crate::window::Screen, painter: &mut Painter, ctx: &egui::Context, out: egui::FullOutput, size: [u32; 2], capture: bool) -> Result<(bool, Option<Result<Vec<u8>, String>>)> {
+fn present(screen: &mut crate::window::Screen, painter: &mut Painter, ctx: &egui::Context, out: egui::FullOutput, size: [u32; 2], capture: bool) -> Result<(bool, Option<Picture>)> {
     let texture = match screen.texture()? {
         crate::window::Got::Picture(texture) => texture,
         crate::window::Got::Wait => return Ok((true, None)),
