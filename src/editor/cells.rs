@@ -3,6 +3,27 @@
 
 use super::*;
 
+/// A level of blocks holds this many cells each way at most in the editor.
+pub const MOST_CELLS: i32 = 256;
+
+/// The level's grid made `size` cells from its cell `lo` on (`lo` below
+/// zero: grown on the low side; above: cut there): the cells kept where
+/// they stay, the rest empty; what is set down (things, places, areas, the
+/// terrain) moved with them, by as many voxels as the grid moved.
+pub(super) fn reframe(level: &mut GridLevel, lo: IVec3, size: IVec3) {
+    let s = size.max(IVec3::ZERO);
+    let cells: Vec<Cell> = (0..(s.x * s.y * s.z) as usize).map(|k| level.cell(IVec3::new(k as i32 % s.x, k as i32 / s.x % s.y, k as i32 / (s.x * s.y)) + lo)).collect();
+    let by = -lo * level.n;
+    let moved = |at: &mut [i32; 3]| *at = (IVec3::from_array(*at) + by).to_array();
+    level.things.iter_mut().for_each(|t| moved(&mut t.at));
+    level.places.iter_mut().for_each(|p| moved(&mut p.at));
+    level.areas.iter_mut().for_each(|a| moved(&mut a.at));
+    if let Some(t) = &mut level.terrain {
+        moved(&mut t.at);
+    }
+    (level.size, level.cells) = (s, cells);
+}
+
 impl Editor {
     /// A copy of the block shown or held, under a new number, held (and
     /// opened, when a block was open).
@@ -289,21 +310,57 @@ impl Editor {
     /// whether it does.
     pub(super) fn grow(&mut self, c: IVec3) -> bool {
         let old = self.level.size;
-        if c.cmplt(IVec3::ZERO).any() || c.cmpgt(old).any() {
+        if c.cmplt(IVec3::ZERO).any() || c.cmpgt(old).any() || c.cmpge(IVec3::splat(MOST_CELLS)).any() {
             return false;
         }
-        let size = old.max(c + 1);
-        let mut cells = vec![Cell::default(); (size.x * size.y * size.z) as usize];
-        for z in 0..old.z {
-            for y in 0..old.y {
-                for x in 0..old.x {
-                    cells[(x + y * size.x + z * size.x * size.y) as usize] = self.level.cells[(x + y * old.x + z * old.x * old.y) as usize];
+        reframe(&mut self.level, IVec3::ZERO, old.max(c + 1));
+        true
+    }
+
+    /// The grid `size` cells big, grown or cut on the side `anchor` does
+    /// not hold (true: the low side stays, it changes at the right, back,
+    /// top; false: there it stays, it changes at the left, front, bottom),
+    /// each way at least one cell and at most `MOST_CELLS`; the cells kept
+    /// where they stay, what is set down moved with them. One step (a cut
+    /// that loses blocks too: UNDO brings them back). LEVEL's SIZE fields
+    /// do it a number at a time (`set_field`).
+    pub fn resize_level(&mut self, size: IVec3, anchor: [bool; 3]) {
+        if !self.level.has_grid() {
+            return;
+        }
+        let size = size.clamp(IVec3::ONE, IVec3::splat(MOST_CELLS));
+        let old = self.level.size;
+        let lo = IVec3::from_array(std::array::from_fn(|a| if anchor[a] { 0 } else { old[a] - size[a] }));
+        self.change_level(|l| reframe(l, lo, size));
+    }
+
+    /// FILL among the level's blocks at a hit: the cells of the block
+    /// clicked joined to it face to face (`all`: every cell of it) take
+    /// the block held, as it is turned; one step.
+    pub fn fill_cells(&mut self, hit: Hit, all: bool) {
+        let (was, held) = (self.level.cell(hit.cell), self.held);
+        if was.block == 0 || held.block == 0 || was == held || self.level.index(hit.cell).is_none() {
+            return;
+        }
+        let size = self.level.size;
+        let at = |i: usize| IVec3::new(i as i32 % size.x, i as i32 / size.x % size.y, i as i32 / (size.x * size.y));
+        let found: Vec<usize> = if all {
+            self.level.cells.iter().enumerate().filter(|(_, c)| c.block == was.block).map(|(i, _)| i).collect()
+        } else {
+            let mut seen = std::collections::BTreeSet::from([self.level.index(hit.cell).expect("inside")]);
+            let mut todo: Vec<usize> = seen.iter().copied().collect();
+            while let Some(i) = todo.pop() {
+                for d in crate::mesh::DIRS {
+                    if let Some(j) = self.level.index(at(i) + d).filter(|&j| self.level.cells[j].block == was.block)
+                        && seen.insert(j)
+                    {
+                        todo.push(j);
+                    }
                 }
             }
-        }
-        self.level.size = size;
-        self.level.cells = cells;
-        true
+            seen.into_iter().collect()
+        };
+        self.change_level(|l| found.iter().for_each(|&i| l.cells[i] = held));
     }
 
     pub(super) fn level_state(&self) -> LevelState {

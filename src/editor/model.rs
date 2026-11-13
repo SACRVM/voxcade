@@ -53,6 +53,7 @@ mod model_file;
 #[path = "rig.rs"]
 mod rig;
 pub use room::{Field, Hanging, Item};
+pub use cells::MOST_CELLS;
 
 /// A joint's arrow being dragged: the drag, the handles as they were at
 /// the press, where the joint was (from the pivot), how many steps there
@@ -158,7 +159,7 @@ impl Tool {
     /// The tools of the level's blocks, its things, and of a block.
     pub fn of(scope: Scope, layer: Layer) -> &'static [Tool] {
         match (scope, layer) {
-            (Scope::Level, Layer::Blocks) => &[Tool::Pointer, Tool::Add, Tool::Remove, Tool::Paint, Tool::Pick],
+            (Scope::Level, Layer::Blocks) => &[Tool::Pointer, Tool::Add, Tool::Remove, Tool::Paint, Tool::Fill, Tool::Box, Tool::Pick],
             (Scope::Level, Layer::Things) => &[Tool::Pointer, Tool::Add, Tool::Remove, Tool::Move, Tool::Pick],
             // (Pieces are chosen and dragged, their words on the panels.)
             (Scope::Level, Layer::Pieces) => &[],
@@ -623,6 +624,9 @@ pub struct Editor {
     /// puts down.
     pub kinds: Vec<String>,
     pub held_kind: Option<String>,
+    /// LEVEL's ANCHOR for a level of blocks: the side of each axis that
+    /// stays when SIZE changes (true: the low one, left, front, bottom).
+    pub anchor: [bool; 3],
     /// The thing MOVE drags (its place in the level's list).
     moving: Option<usize>,
     /// The steps back and forth, the stroke going on.
@@ -706,6 +710,7 @@ impl Editor {
             colour,
             kinds: Vec::new(),
             held_kind: None,
+            anchor: [true; 3],
             moving: None,
             message: None,
             model: None,
@@ -774,6 +779,7 @@ impl Editor {
             colour,
             kinds: Vec::new(),
             held_kind: None,
+            anchor: [true; 3],
             moving: None,
             message,
             model: Some(model),

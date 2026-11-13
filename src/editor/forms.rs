@@ -5,9 +5,13 @@
 use super::*;
 
 impl Editor {
-    /// Whether the tool is BOX or SPHERE (in a block or a model).
+    /// Whether the tool is BOX or SPHERE (in a block or a model; BOX among
+    /// a level's blocks too, its cells the level's).
     pub fn forms(&self) -> bool {
-        matches!(self.tool, Tool::Box | Tool::Sphere) && self.scope != Scope::Level
+        match self.scope {
+            Scope::Level => self.tool == Tool::Box && self.layer == Layer::Blocks,
+            _ => matches!(self.tool, Tool::Box | Tool::Sphere),
+        }
     }
 
     /// BOX or SPHERE pressed at a hit: a footprint begins on the face's
@@ -156,6 +160,10 @@ impl Editor {
     /// saved.
     pub(super) fn place_cells(&mut self, lo: IVec3, hi: IVec3, cut: bool, only_empty: bool) -> IVec3 {
         let mut cells = self.shape_cells(lo, hi);
+        if self.scope == Scope::Level {
+            self.place_level_cells(cells, cut, only_empty);
+            return IVec3::ZERO;
+        }
         if cells.is_empty() || self.shape().is_none() {
             return IVec3::ZERO;
         }
@@ -200,6 +208,36 @@ impl Editor {
         }
         self.release();
         moved
+    }
+
+    /// BOX among a level's blocks: its cells take the block held, as it is
+    /// turned (only empty ones with `only_empty`), or are emptied to
+    /// `cut`; the level grows on its right, back and top to hold it (cells
+    /// left of, before or under it left out: SIZE grows it there). One
+    /// step, saved.
+    fn place_level_cells(&mut self, cells: Vec<IVec3>, cut: bool, only_empty: bool) {
+        let held = self.held;
+        if cells.is_empty() || (!cut && held.block == 0) {
+            return;
+        }
+        let inside = |c: &IVec3| c.cmpge(IVec3::ZERO).all() && c.cmplt(IVec3::splat(super::cells::MOST_CELLS)).all();
+        let cells: Vec<IVec3> = cells.into_iter().filter(inside).collect();
+        self.change_level(|l| {
+            if !cut
+                && let Some(hi) = cells.iter().copied().reduce(IVec3::max)
+                && hi.cmpge(l.size).any()
+            {
+                super::cells::reframe(l, IVec3::ZERO, l.size.max(hi + 1));
+            }
+            for c in &cells {
+                let Some(i) = l.index(*c) else { continue };
+                l.cells[i] = match (cut, l.cells[i].block != 0) {
+                    (true, _) => Cell::default(),
+                    (false, true) if only_empty => continue,
+                    (false, _) => held,
+                };
+            }
+        });
     }
 
     /// A shape `size` big set at a face (`hit`, centred on it across, its

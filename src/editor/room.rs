@@ -664,7 +664,13 @@ impl Editor {
             if !self.level.has_grid() {
                 return self.change(Some(field), |l| l.size[axis.min(2)] = whole.clamp(1, 4096));
             }
-            return;
+            let (mut size, axis) = (self.level.size, axis.min(2));
+            size[axis] = whole.clamp(1, super::cells::MOST_CELLS);
+            let mut lo = IVec3::ZERO;
+            if !self.anchor[axis] {
+                lo[axis] = self.level.size[axis] - size[axis];
+            }
+            return self.change(Some(field), |l| super::cells::reframe(l, lo, size));
         }
         if let Some(day) = self.day_field(field, v) {
             return self.change(Some(field), |l| l.daylight = Some(day));

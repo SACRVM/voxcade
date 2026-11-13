@@ -183,6 +183,8 @@ pub enum Action {
     /// FRONT, SIDE or TOP (its place in `view::STRAIGHT`); pressed again,
     /// the free view as it was.
     StraightView(u8),
+    /// LEVEL's ANCHOR on an axis of a level of blocks: the other side stays.
+    Anchor(u8),
     ZoomView(i8),
     /// GRID in the voxel editor: the voxels' edges drawn on the faces, or
     /// not.
@@ -496,6 +498,11 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
             let orbit = view.orbit(ed.scope);
             orbit.yaw = (orbit.yaw + 45.0 * by as f32).rem_euclid(360.0);
             view.leave_game_view(ed.scope);
+        }
+        Action::Anchor(a) => {
+            if let Some(side) = ed.anchor.get_mut(a as usize) {
+                *side = !*side;
+            }
         }
         Action::StraightView(k) => {
             view.straight_view(ed.scope, k as usize);

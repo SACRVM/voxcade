@@ -480,8 +480,19 @@ fn level(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
     ui.label(RichText::new("LEVEL").color(TEXT)).on_hover_text(&ed.file);
     let s = ed.level.size;
     if ed.level.has_grid() {
-        row(ui, "SIZE", "Its size in blocks (BLOCKS changes it)", |ui| {
-            ui.label(format!("{} × {} × {}", s.x, s.y, s.z));
+        row(ui, "SIZE", "How big the grid is, in blocks: across, in depth, up (it grows or is cut on the side ANCHOR leaves free)", |ui| {
+            for a in 0..3 {
+                field(ui, shown, ["X", "Y", "Z"][a], Some(a), s[a] as f64, Field::LevelSize(a), 0.1, 1.0..=crate::editor::model::MOST_CELLS as f64, "", FIELD);
+            }
+        });
+        row(ui, "ANCHOR", "The side that stays when SIZE changes", |ui| {
+            for (a, sides) in [["LEFT", "RIGHT"], ["FRONT", "BACK"], ["BOTTOM", "TOP"]].into_iter().enumerate() {
+                let width = zones::col(ui, 1);
+                let word = sides[!ed.anchor[a] as usize];
+                if ui.add_sized([width, ui.text_style_height(&TextStyle::Body) + 8.0], egui::Button::new(RichText::new(word).small())).on_hover_text(format!("{word} stays; a click: {}", sides[ed.anchor[a] as usize])).clicked() {
+                    shown.clicked.push(Action::Anchor(a as u8));
+                }
+            }
         });
     } else {
         row(ui, "SIZE", "How big the room is, in voxels: across, in depth, up", |ui| {

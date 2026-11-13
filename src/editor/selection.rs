@@ -872,8 +872,12 @@ impl Editor {
 
     /// FILL at a hit: the voxels connected to the one hit of its color (in
     /// its block, frame or part) take the held color; `all`: every voxel
-    /// of that color there. One step.
+    /// of that color there. One step. Among a level's blocks the cells'
+    /// (`fill_cells`).
     pub fn fill_at(&mut self, hit: Hit, all: bool) {
+        if self.scope == Scope::Level {
+            return self.fill_cells(hit, all);
+        }
         let colour = self.colour;
         let Some(b) = self.shape() else { return };
         let Some(was) = b.colour_at(hit.cell) else { return };
