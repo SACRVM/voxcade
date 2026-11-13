@@ -250,6 +250,16 @@ fn piece() -> Def {
     }
 }
 
+/// What a wrong value was, for a mistake: ", not \"three\"".
+fn got(v: &toml::Value) -> String {
+    match v {
+        toml::Value::String(s) => format!(", not \"{s}\""),
+        toml::Value::Table(_) => ", not a table".to_string(),
+        toml::Value::Array(_) => ", not a list".to_string(),
+        other => format!(", not {other}"),
+    }
+}
+
 fn own_defs(cfg: &GameConfig, behaviors: &[&str]) -> Result<Vec<Def>> {
     resolve_like("things", &cfg.things)?
         .into_iter()
@@ -260,7 +270,7 @@ fn own_defs(cfg: &GameConfig, behaviors: &[&str]) -> Result<Vec<Def>> {
                     bail!("{} is called {} now (voxcade upgrade renames it)", what(old), what(new));
                 }
             }
-            let behavior = params.remove("behavior").map(|b| b.as_str().map(str::to_string).with_context(|| what("behavior"))).transpose()?;
+            let behavior = params.remove("behavior").map(|b| b.as_str().map(str::to_string).with_context(|| format!("{}: the name of a behavior, in quotes{}", what("behavior"), got(&b)))).transpose()?;
             if let Some(b) = &behavior
                 && !behaviors.contains(&b.as_str())
                 && let Some((_, instead)) = RETIRED.iter().find(|(r, _)| r == b)
@@ -275,8 +285,8 @@ fn own_defs(cfg: &GameConfig, behaviors: &[&str]) -> Result<Vec<Def>> {
                 }
                 bail!("c.things.{name}.behavior = \"{b}\": no such behavior (behaviors: {})", behaviors.join(", "));
             }
-            let model = params.remove("model").map(|m| m.as_str().map(str::to_string).with_context(|| what("model"))).transpose()?;
-            let hp = params.remove("hp").map(|h| h.as_integer().map(|h| h as i32).with_context(|| what("hp"))).transpose()?;
+            let model = params.remove("model").map(|m| m.as_str().map(str::to_string).with_context(|| format!("{}: a model's file name, in quotes{}", what("model"), got(&m)))).transpose()?;
+            let hp = params.remove("hp").map(|h| h.as_integer().map(|h| h as i32).with_context(|| format!("{}: a whole number of hits{}", what("hp"), got(&h)))).transpose()?;
             let props = match params.remove("props") {
                 None => toml::Table::new(),
                 Some(toml::Value::Table(t)) => t,
@@ -288,7 +298,7 @@ fn own_defs(cfg: &GameConfig, behaviors: &[&str]) -> Result<Vec<Def>> {
                 Some(toml::Value::Array(list)) => list.iter().map(|f| f.as_str().map(str::to_string)).collect::<Option<Vec<_>>>().with_context(|| format!("{}: names of families", what("family")))?,
                 Some(_) => bail!("{}: a family's name or a list of them (family = {{ \"enemies\" }})", what("family")),
             };
-            let text = |key: &str, params: &mut toml::Table| params.remove(key).map(|v| v.as_str().map(str::to_string).with_context(|| what(key))).transpose();
+            let text = |key: &str, params: &mut toml::Table| params.remove(key).map(|v| v.as_str().map(str::to_string).with_context(|| format!("{}: a name, in quotes{}", what(key), got(&v)))).transpose();
             let effect_is = || format!("{}: a model, {{ model = \"poof.vvx\", fps = 20 }} (its frames a second, {EFFECT_FPS} without), or \"{BURST}\" (it bursts into its voxels)", what("effect"));
             let effect = match params.remove("effect") {
                 None => None,
@@ -305,7 +315,7 @@ fn own_defs(cfg: &GameConfig, behaviors: &[&str]) -> Result<Vec<Def>> {
                 Some(_) => bail!(effect_is()),
             };
             let sound = text("sound", &mut params)?;
-            let reach = params.remove("reach").map(|r| r.as_float().or_else(|| r.as_integer().map(|i| i as f64)).map(|r| r as f32).with_context(|| what("reach"))).transpose()?;
+            let reach = params.remove("reach").map(|r| r.as_float().or_else(|| r.as_integer().map(|i| i as f64)).map(|r| r as f32).with_context(|| format!("{}: a length in voxels, a number", what("reach")))).transpose()?;
             let team = text("team", &mut params)?;
             let immune = match params.remove("immune") {
                 None => Vec::new(),
@@ -334,7 +344,7 @@ fn own_defs(cfg: &GameConfig, behaviors: &[&str]) -> Result<Vec<Def>> {
             }
             let fps = match params.remove("fps") {
                 None => FPS,
-                Some(f) => f.as_float().or_else(|| f.as_integer().map(|i| i as f64)).with_context(|| what("fps"))?.max(0.1) as f32,
+                Some(f) => f.as_float().or_else(|| f.as_integer().map(|i| i as f64)).with_context(|| format!("{}: frames a second, a number", what("fps")))?.max(0.1) as f32,
             };
             let frames = match params.remove("frames") {
                 None => BTreeMap::new(),
@@ -352,6 +362,13 @@ fn own_defs(cfg: &GameConfig, behaviors: &[&str]) -> Result<Vec<Def>> {
                     .collect::<Result<_>>()?,
                 Some(_) => bail!("{}: parts by name and how far they swing (swing = {{ leg_left = 30, leg_right = -30 }})", what("swing")),
             };
+            if behavior.is_none()
+                && let Some(key) = params.keys().find(|k| !["width", "height", "facing"].contains(&k.as_str()))
+            {
+                let known = ["like", "behavior", "model", "hp", "fixed", "width", "height", "facing"].into_iter().chain(COMMON);
+                let near = crate::audio::words::near(key, known).map(|k| format!(" (did you mean `{k}`?)")).unwrap_or_default();
+                bail!("{}: not a setting of a kind without a behavior (the script's: model, hp, fixed, width, height, facing and {}){near}", what(key), COMMON.join(", "));
+            }
             Ok(Def { name, behavior, model, hp, props, families, effect, sound, reach, team, immune, free_turn, spin, fixed, frames, fps, swing, params })
         })
         .collect()
