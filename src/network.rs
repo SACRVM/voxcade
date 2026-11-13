@@ -34,9 +34,34 @@ pub enum Side<G: Game> {
     Guest(Box<Joining<G, Where>>),
 }
 
+/// How the machines reach each other, as it comes: across the internet it
+/// starts on a thread of its own (reaching the relay takes up to 15 s), and
+/// the window never waits for it: the game plays, JOINING shows and BACK
+/// leaves meanwhile.
+enum Linking {
+    Up(Link),
+    Starting(std::sync::mpsc::Receiver<Result<Link>>),
+    /// It would not start.
+    Down,
+}
+
+impl Linking {
+    fn start(make: impl FnOnce() -> Result<Link> + Send + 'static) -> Self {
+        let (started, starting) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = started.send(make());
+        });
+        Self::Starting(starting)
+    }
+}
+
 pub struct Network<G: Game> {
     pub side: Side<G>,
-    link: Link,
+    link: Linking,
+    /// Why the host's link would not start (said once), and whether its
+    /// ticket came since asked.
+    broken: Option<String>,
+    new_ticket: bool,
     start: Instant,
     /// Where the game is found (the host's addresses with its port); the
     /// host joined (as typed).
@@ -60,6 +85,10 @@ pub struct Network<G: Game> {
 }
 
 impl<G: Game> Network<G> {
+    fn with(side: Side<G>, link: Linking, found: Vec<String>, address: String, locals: Locals) -> Self {
+        Self { side, link, broken: None, new_ticket: false, start: Instant::now(), found, address, locals, watching: false, held: Default::default(), said: Vec::new(), quiet: BTreeMap::new(), failed: None, room: None }
+    }
+
     /// Hosts `game` (a run about to begin) on the first free port from
     /// 26500, or `port`.
     pub fn host(game: &Session<G>, port: Option<u16>) -> Result<Self> {
@@ -82,67 +111,141 @@ impl<G: Game> Network<G> {
         if found.is_empty() {
             found.push(format!("PORT {port}"));
         }
-        Ok(Self { side: Side::Host(Box::new(hosting)), link, start: Instant::now(), found, address: String::new(), locals: Locals::new(players, true), watching: false, held: Default::default(), said: Vec::new(), quiet: BTreeMap::new(), failed: None, room: None })
+        Ok(Self::with(Side::Host(Box::new(hosting)), Linking::Up(link), found, String::new(), Locals::new(players, true)))
     }
 
     /// Hosts `game` across the internet: who has the ticket may ask in,
     /// and the host's player lets each in (`let_in`). Where our
     /// matchmaker is known the game opens a room there: its code, and a
-    /// line in the list of open games.
+    /// line in the list of open games. The game begins at once, its link
+    /// on the way (`new_ticket` once it is there; `broken` if it would
+    /// not start).
     pub fn host_net(game: &Session<G>) -> Result<Self> {
-        let link = Link::net_host(crate::net::quic::reach(), Some(room_of(game)?))?;
+        let room = room_of(game)?;
         let mut hosting = Hosting::new(game, udp::random(), &udp::machine_name())?;
         hosting.reports_to = Some(crate::net::play::reports());
-        hosting.host.set_limit(link.limit());
+        hosting.host.set_limit(crate::net::link::NET_LIMIT);
         let players = game.cfg.players.max(1) as usize;
-        println!("hosting across the internet; the ticket:\n{}", link.ticket().unwrap_or_default());
-        Ok(Self { side: Side::Host(Box::new(hosting)), link, start: Instant::now(), found: Vec::new(), address: String::new(), locals: Locals::new(players, true), watching: false, held: Default::default(), said: Vec::new(), quiet: BTreeMap::new(), failed: None, room: None })
+        let reach = crate::net::quic::reach();
+        let link = Linking::start(move || Link::net_host(reach, Some(room)));
+        Ok(Self::with(Side::Host(Box::new(hosting)), link, Vec::new(), String::new(), Locals::new(players, true)))
     }
 
     /// Joins the game hosted at `address` (`host[:port]` on the LAN), or
     /// across the internet by its ticket or its code (`game`: the app and
     /// version played here, `app_of`, so a code of another is refused as
-    /// such).
+    /// such; the link on the way, JOINING shows meanwhile).
     pub fn join(dir: &std::path::Path, address: &str, players: u32, game: Option<(String, String)>) -> Result<Self> {
         let (link, host) = if Link::is_net(address) {
-            Link::net_guest(address, crate::net::quic::reach(), game)?
+            let (text, reach) = (address.to_string(), crate::net::quic::reach());
+            (Linking::start(move || Link::net_guest(&text, reach, game).map(|(link, _)| link)), Where::Net(0))
         } else {
-            (Link::lan_guest()?, Where::Lan(udp::address(address)?))
+            (Linking::Up(Link::lan_guest()?), Where::Lan(udp::address(address)?))
         };
-        let guest = crate::net::Guest::new(host, udp::program_id(), udp::random(), &udp::machine_name(), udp::COMMIT, 0);
-        let mut joining = Joining::new(dir, guest);
-        joining.reports_to = Some(crate::net::play::reports());
         let shown = match matchmaker_protocol::tidy(address) {
             Some(code) => code,
             None if Link::is_ticket(address) => "THE TICKET'S HOST".to_string(),
             None => address.to_string(),
         };
-        Ok(Self { side: Side::Guest(Box::new(joining)), link, start: Instant::now(), found: Vec::new(), address: shown, locals: Locals::new(players.max(1) as usize, false), watching: false, held: Default::default(), said: Vec::new(), quiet: BTreeMap::new(), failed: None, room: None })
+        Ok(Self::with(Side::Guest(Box::new(Self::joining(dir, host))), link, Vec::new(), shown, Locals::new(players.max(1) as usize, false)))
     }
 
     /// Joins any game of `app` and `version` across the internet with a
     /// free seat (our matchmaker's quick join).
     pub fn join_any(dir: &std::path::Path, players: u32, app: String, version: String) -> Result<Self> {
-        let (link, host) = Link::net_guest_any(crate::net::quic::reach(), mm::Search { app, version, ..mm::Search::default() })?;
-        let guest = crate::net::Guest::new(host, udp::program_id(), udp::random(), &udp::machine_name(), udp::COMMIT, 0);
+        let reach = crate::net::quic::reach();
+        let link = Linking::start(move || Link::net_guest_any(reach, mm::Search { app, version, ..mm::Search::default() }).map(|(link, _)| link));
+        Ok(Self::with(Side::Guest(Box::new(Self::joining(dir, Where::Net(0)))), link, Vec::new(), ANY_GAME.to_string(), Locals::new(players.max(1) as usize, false)))
+    }
+
+    /// A guest of the host at `host`: across the internet it sends no
+    /// bigger datagrams than iroh carries.
+    fn joining(dir: &std::path::Path, host: Where) -> Joining<G, Where> {
+        let mut guest = crate::net::Guest::new(host, udp::program_id(), udp::random(), &udp::machine_name(), udp::COMMIT, 0);
+        if matches!(host, Where::Net(_)) {
+            guest.set_limit(crate::net::link::NET_LIMIT);
+        }
         let mut joining = Joining::new(dir, guest);
         joining.reports_to = Some(crate::net::play::reports());
-        Ok(Self { side: Side::Guest(Box::new(joining)), link, start: Instant::now(), found: Vec::new(), address: ANY_GAME.to_string(), locals: Locals::new(players.max(1) as usize, false), watching: false, held: Default::default(), said: Vec::new(), quiet: BTreeMap::new(), failed: None, room: None })
+        joining
+    }
+
+    /// The link, once it is there.
+    fn link(&self) -> Option<&Link> {
+        match &self.link {
+            Linking::Up(link) => Some(link),
+            _ => None,
+        }
+    }
+
+    /// Takes the link in once it started; one that would not start ends a
+    /// guest's joining, or the host's network game (`broken`), saying why.
+    fn settle_link(&mut self) {
+        let Linking::Starting(starting) = &self.link else { return };
+        let why = match starting.try_recv() {
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            Ok(Ok(link)) => {
+                if let Some(ticket) = link.ticket() {
+                    println!("hosting across the internet; the ticket:\n{ticket}");
+                    self.new_ticket = true;
+                }
+                self.link = Linking::Up(link);
+                // Its clock begins now: a guest asks the host for as long as
+                // it would have, the time reaching the relay not counted.
+                self.start = Instant::now();
+                return;
+            }
+            Ok(Err(e)) => format!("{e:#}"),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => "the network's thread ended".to_string(),
+        };
+        eprintln!("the network: {why}");
+        self.link = Linking::Down;
+        match &mut self.side {
+            Side::Guest(j) => {
+                j.end(&why.to_uppercase());
+            }
+            Side::Host(_) => self.broken = Some(why),
+        }
+    }
+
+    /// Why the host's link across the internet would not start, once: its
+    /// network game is over (the game plays on alone).
+    pub fn broken(&mut self) -> Option<String> {
+        self.broken.take()
+    }
+
+    /// The ticket of a game hosted across the internet, once, as it came.
+    pub fn new_ticket(&mut self) -> Option<String> {
+        if !std::mem::take(&mut self.new_ticket) {
+            return None;
+        }
+        self.ticket().map(str::to_string)
+    }
+
+    /// Whether the console line `line` may run now (`Hosting::takes_line`:
+    /// it must travel whole with the next tick); a guest has no console.
+    pub fn takes_line(&self, game: &Session<G>, line: &str) -> Result<()> {
+        match &self.side {
+            Side::Host(h) => h.takes_line(game, line),
+            Side::Guest(_) => Ok(()),
+        }
     }
 
     /// The ticket of a game hosted across the internet.
     pub fn ticket(&self) -> Option<&str> {
-        self.link.ticket()
+        self.link()?.ticket()
     }
 
     /// The code it goes by, once our server gave one.
     pub fn game_code(&self) -> Option<&str> {
-        self.link.game_code()
+        self.link()?.game_code()
     }
 
     /// Lets a machine asking in across the internet into the game.
     pub fn let_in(&mut self, peer: u32) {
-        self.link.let_in(peer);
+        if let Linking::Up(link) = &mut self.link {
+            link.let_in(peer);
+        }
     }
 
     /// Its clock (µs since it began).
@@ -179,15 +282,18 @@ impl<G: Game> Network<G> {
     /// What came since the last frame; the host lets in who asks to join
     /// and hears who went quiet or left.
     pub fn receive(&mut self, game: &Session<G>, lang: &str) -> Result<()> {
-        let now = self.now();
-        let came = self.link.drain();
+        // Nothing comes before the link is there.
+        self.settle_link();
+        let Linking::Up(link) = &mut self.link else { return Ok(()) };
+        let now = self.start.elapsed().as_micros() as u64;
+        let came = link.drain();
         // A guest that got nowhere says why where it waits: the
         // matchmaker's refusal in the game's words, or what went wrong.
         let waiting = matches!(&self.side, Side::Guest(j) if matches!(j.state(), Joined::Waiting(None)));
-        if let Some(refusal) = self.link.refused() {
+        if let Some(refusal) = link.refused() {
             self.failed = Some(refusal_line(lang, refusal, &self.address));
         }
-        for trouble in self.link.trouble() {
+        for trouble in link.trouble() {
             println!("the network: {trouble}");
             if waiting && self.failed.is_none() {
                 self.failed = Some(trouble.to_uppercase());
@@ -195,12 +301,12 @@ impl<G: Game> Network<G> {
         }
         // The host's room shows the seats as they are.
         if let Side::Host(h) = &self.side
-            && self.link.game_code().is_some()
+            && link.game_code().is_some()
         {
             let seats = h.host.seats_taken();
             if self.room != Some(seats) {
                 self.room = Some(seats);
-                self.link.update_room(mm::Update { taken: Some(seats.0 as u32), seats: Some(seats.1 as u32), ..mm::Update::default() });
+                link.update_room(mm::Update { taken: Some(seats.0 as u32), seats: Some(seats.1 as u32), ..mm::Update::default() });
             }
         }
         match &mut self.side {
@@ -287,12 +393,20 @@ impl<G: Game> Network<G> {
     /// What is to be sent now.
     pub fn send(&mut self) {
         let now = self.now();
+        // Nothing goes before the link is there (a guest's HELLO waits).
+        let Linking::Up(link) = &mut self.link else { return };
         let out = match &mut self.side {
             Side::Host(h) => h.host.outgoing(now),
             Side::Guest(j) => j.guest.outgoing(now),
         };
         for (to, bytes) in out {
-            self.link.send(to, &bytes);
+            link.send(to, &bytes);
+        }
+        // The host closes who was refused or is gone (across the internet).
+        if let Side::Host(h) = &mut self.side {
+            for at in h.host.to_close(now) {
+                link.close(at);
+            }
         }
     }
 
@@ -303,8 +417,10 @@ impl<G: Game> Network<G> {
             Side::Host(h) => (0..10).flat_map(|_| h.host.farewell()).collect(),
             Side::Guest(j) => j.end("LEFT"),
         };
-        for (to, bytes) in out {
-            self.link.send(to, &bytes);
+        if let Linking::Up(link) = &self.link {
+            for (to, bytes) in out {
+                link.send(to, &bytes);
+            }
         }
     }
 
@@ -314,7 +430,7 @@ impl<G: Game> Network<G> {
         self.said.retain(|(_, at)| at.elapsed() < SAID_FOR);
         let mut lines: Vec<String> = self.quiet.values().map(|(name, _)| format!("{name} ...")).collect();
         // Across the internet: who asks in, with the code to compare.
-        for knock in self.link.knocking() {
+        for knock in self.link().map(Link::knocking).unwrap_or_default() {
             lines.push(crate::lang::say_with(lang, "{} ASKS IN, SAYS {}", &[&knock_name(&knock), &knock.code]));
         }
         // A guest hears who went quiet from the host, and sees the host go
@@ -342,21 +458,22 @@ impl<G: Game> Network<G> {
         match &self.side {
             Side::Host(h) => {
                 let mut lines: Vec<String> = self.found.iter().map(|at| crate::lang::say_with(lang, "HOSTED AT {}", &[at])).collect();
-                let knocks: Vec<(u32, String)> = self.link.knocking().iter().map(|k| (k.peer, format!("{} {}", knock_name(k), k.code))).collect();
-                if self.link.ticket().is_some() {
-                    match self.link.game_code() {
+                let knocks: Vec<(u32, String)> = self.link().map(Link::knocking).unwrap_or_default().iter().map(|k| (k.peer, format!("{} {}", knock_name(k), k.code))).collect();
+                if self.ticket().is_some() {
+                    match self.game_code() {
                         Some(code) => lines.push(crate::lang::say_with(lang, "ON THE INTERNET: CODE {}", &[code])),
                         None => lines.push(crate::lang::say(lang, "HOSTED ON THE INTERNET").to_string()),
                     }
                     if h.host.roster().len() == 1 && knocks.is_empty() {
-                        let send = if self.link.game_code().is_some() { "SEND THE CODE (COPY THE CODE)" } else { "SEND THE TICKET (COPY THE TICKET)" };
+                        let send = if self.game_code().is_some() { "SEND THE CODE (COPY THE CODE)" } else { "SEND THE TICKET (COPY THE TICKET)" };
                         lines.push(crate::lang::say(lang, send).to_string());
                     }
                 }
                 let who = h.host.roster().iter().skip(1).map(|m| format!("{} {} MS{}", m.name.to_uppercase(), m.rtt_ms, if m.quiet { " ..." } else { "" })).collect();
-                // Nobody came yet: how to let them in on this system.
+                // Nobody came yet: how to let them in on this system (a
+                // LAN's host: its addresses are found).
                 let mut help = Vec::new();
-                if h.host.roster().len() == 1 && self.link.ticket().is_none() {
+                if h.host.roster().len() == 1 && !self.found.is_empty() {
                     let port = self.found.first().and_then(|f| f.rsplit(':').next()).unwrap_or("26500").to_string();
                     let (first, second) = match std::env::consts::OS {
                         "windows" => ("NOBODY COMES? LET VOXCADE IN (FIREWALL)", "AND MAKE THE NETWORK PRIVATE"),
@@ -366,15 +483,15 @@ impl<G: Game> Network<G> {
                     help = vec![crate::lang::say_with(lang, first, &[&port]), crate::lang::say_with(lang, second, &[&port])];
                 }
                 let drops = self.quiet.iter().filter(|(_, (_, since))| since.elapsed() >= DROP_AFTER).map(|(&m, (name, _))| (m, name.clone())).collect();
-                NetView { hosting: true, lines, who, help, drops, seated: true, ticket: self.link.ticket().is_some(), code: self.link.game_code().is_some(), knocks }
+                NetView { hosting: true, lines, who, help, drops, seated: true, ticket: self.ticket().is_some(), code: self.game_code().is_some(), knocks }
             }
             Side::Guest(j) => {
                 let lines = match j.state() {
-                    Joined::Waiting(None) => match (self.link.code(), &self.failed) {
+                    Joined::Waiting(None) => match (self.link().and_then(Link::code), &self.failed) {
                         (Some(code), _) => vec![crate::lang::say_with(lang, "THE HOST LETS YOU IN: SAY {}", &[code])],
                         (None, Some(failed)) => vec![failed.clone()],
                         (None, None) => {
-                            let asked = match self.link.found_code() {
+                            let asked = match self.link().and_then(Link::found_code) {
                                 Some(code) => code.to_string(),
                                 None if self.address == ANY_GAME => crate::lang::say(lang, ANY_GAME).to_string(),
                                 None => self.address.to_uppercase(),
@@ -538,5 +655,79 @@ impl NetFinder {
                 crate::menu::FoundLine { line, address: room.code.clone(), same: true }
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    type Lua = crate::Voxcade;
+
+    fn pulsar() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("games/pulsar")
+    }
+
+    /// A link across the internet that takes long to start (up to 15 s for
+    /// the relays): it would not start once let go.
+    fn slow() -> (std::sync::mpsc::Sender<()>, Linking) {
+        let (go, wait) = std::sync::mpsc::channel::<()>();
+        let link = Linking::start(move || {
+            let _ = wait.recv();
+            anyhow::bail!("no relay answered within 15 s")
+        });
+        (go, link)
+    }
+
+    /// The frames of a window until `done` holds (5 s at most).
+    fn frames(net: &mut Network<Lua>, game: &Session<Lua>, mut done: impl FnMut(&mut Network<Lua>) -> bool) -> bool {
+        let until = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < until {
+            net.receive(game, "en").unwrap();
+            net.send();
+            if done(net) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        false
+    }
+
+    /// Joining or hosting across the internet holds no frame of the window
+    /// while the link starts: JOINING shows what it asks, the host's game
+    /// plays. A link that would not start ends the guest's joining, or the
+    /// host's network game (the game plays on alone), saying why.
+    #[test]
+    fn a_link_starting_holds_no_frame() {
+        let game = Session::<Lua>::load(&pulsar()).unwrap();
+        let guest = crate::net::Guest::new(Where::Net(0), [4; 16], 1, "guest", "x", 0);
+        let (go, link) = slow();
+        let mut net = Network::with(Side::Guest(Box::new(Joining::new(&pulsar(), guest))), link, Vec::new(), "AAX7QK".into(), Locals::new(1, false));
+        let begun = Instant::now();
+        for _ in 0..10 {
+            net.receive(&game, "en").unwrap();
+            net.send();
+        }
+        assert!(begun.elapsed() < Duration::from_millis(500), "ten frames took {:?}", begun.elapsed());
+        assert!(matches!(&net.side, Side::Guest(j) if j.state() == Joined::Waiting(None)));
+        assert_eq!(net.view("en").lines, ["ASKING AAX7QK"]);
+        go.send(()).unwrap();
+        assert!(frames(&mut net, &game, |n| matches!(&n.side, Side::Guest(j) if matches!(j.state(), Joined::Gone(_)))), "it ends");
+        let Side::Guest(j) = &net.side else { unreachable!() };
+        assert_eq!(j.state(), Joined::Gone("NO RELAY ANSWERED WITHIN 15 S".into()));
+
+        let hosting = Hosting::new(&game, 1, "host").unwrap();
+        let (go, link) = slow();
+        let mut net = Network::with(Side::Host(Box::new(hosting)), link, Vec::new(), String::new(), Locals::new(2, true));
+        net.receive(&game, "en").unwrap();
+        assert_eq!((net.broken(), net.new_ticket(), net.ticket()), (None, None, None), "on the way");
+        assert!(net.view("en").help.is_empty(), "no word about a LAN's firewall");
+        go.send(()).unwrap();
+        let mut why = None;
+        assert!(frames(&mut net, &game, |n| {
+            why = n.broken();
+            why.is_some()
+        }));
+        assert!(why.unwrap().contains("no relay"));
     }
 }

@@ -357,3 +357,52 @@ fn level_changes_fade_on_every_machine_alike() {
     assert!(recorded.ticks > 700, "{} ticks", recorded.ticks);
     assert_eq!(game.game.game.eval("return world.state.ends").unwrap(), "2");
 }
+
+/// A console line `bytes` long setting `world.state.s` to a text of
+/// umlauts (two bytes each) and `a`s.
+fn line_of(bytes: usize) -> String {
+    let head = "world.state.s = \"";
+    let umlauts = (bytes - head.len() - 2) / 2;
+    let line = format!("{head}{}{}\"", "ü".repeat(umlauts), "a".repeat(bytes - head.len() - 1 - 2 * umlauts));
+    assert_eq!(line.len(), bytes);
+    line
+}
+
+/// The host's console lines in a network game travel whole or not at all:
+/// a line at the limit, umlauts to its end, runs on every machine alike;
+/// a line longer is refused before it runs, its last umlaut across the
+/// limit (once a panic); a second long line before the tick is refused
+/// (two once ended the game), and runs once a tick went; a line too long
+/// run without asking (`inspect --do`) ends the network game saying why,
+/// nothing cut, nothing sent.
+#[test]
+fn console_lines_travel_whole_or_not_at_all() {
+    let dir = saving_game();
+    let mut game = Game::new(&dir, 8, Link::lan(), "right:2000");
+    game.guest(0, "left:2000");
+    game.to(2_000_000);
+    let at_limit = line_of(play::MAX_LINE);
+    game.host.takes_line(&game.game, &at_limit).expect("a line at the limit travels");
+    game.game.eval(&at_limit).unwrap();
+    let over = format!("{}ü\"", &at_limit[..play::MAX_LINE - 1]);
+    assert!(over.len() == play::MAX_LINE + 2 && !over.is_char_boundary(play::MAX_LINE));
+    let why = game.host.takes_line(&game.game, &over).expect_err("a line longer is refused");
+    assert!(format!("{why}").contains("too long"), "{why}");
+    let second = line_of(400);
+    let why = game.host.takes_line(&game.game, &second).expect_err("no room for a second long line before the tick");
+    assert!(format!("{why}").contains("no more lines"), "{why}");
+    game.to(3_000_000);
+    game.host.takes_line(&game.game, &second).expect("room again after a tick");
+    game.game.eval(&second).unwrap();
+    game.to(4_000_000);
+    game.agree();
+    let guest = game.guests[0].game.as_mut().unwrap();
+    assert_eq!(guest.game.eval("return #world.state.s").unwrap(), (400 - 18).to_string(), "the guest ran it whole");
+    // Run without asking: refused at the tick, before a byte goes out.
+    game.held = false;
+    let sent = game.host.host.next_tick();
+    game.game.eval(&line_of(play::MAX_LINE + 50)).unwrap();
+    let why = game.host.tick(&mut game.game).expect_err("too long to travel");
+    assert!(format!("{why}").contains("too long"), "{why}");
+    assert_eq!(game.host.host.next_tick(), sent, "no bundle built");
+}

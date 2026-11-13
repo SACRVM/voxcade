@@ -22,9 +22,14 @@ use crate::input::Input;
 use crate::replay::{Playback, Recorder, Replay, replay_session};
 use crate::session::{Event, Session, Tick};
 
-/// The most bytes of a console line that travel (a bundle must fit a
-/// datagram).
+/// The most bytes of a console line in a network game (a bundle must fit
+/// a datagram): a longer one is refused before it runs (`Hosting::takes_line`),
+/// never cut.
 pub const MAX_LINE: usize = 600;
+
+/// Bytes of a bundle kept for saves (SAVE in the pause menu, about 15
+/// bytes each) when console lines fill the rest.
+const SAVES_ROOM: usize = 48;
 
 /// What a bundle says to the session.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -47,7 +52,8 @@ impl Extra {
         for e in &self.events {
             match e {
                 Event::Save { slot, when } => w.u8(2).varint(*slot as u64).u64(*when),
-                Event::Eval(code) => w.u8(3).str(&code[..code.len().min(MAX_LINE)]),
+                // Whole, never cut (the host checks its length first).
+                Event::Eval(code) => w.u8(3).str(code),
                 // Files go first and only their hash in a bundle, as LOAD
                 // goes (docs/multiplayer.md, stage 6, step 7): not yet.
                 Event::Apply(_) => &mut w,
@@ -453,6 +459,24 @@ impl<G: Game, A: Copy + Ord + std::fmt::Debug> Hosting<G, A> {
         self.loading.is_some()
     }
 
+    /// Whether the console line `line` may run on `game` now: it travels
+    /// whole with the next tick's bundle, beside the lines and saves before
+    /// it (they ran here already, and run on every guest before that
+    /// tick). Too long, or no room left before the next tick (the console
+    /// open holds the game): why, in the console's words.
+    pub fn takes_line(&self, game: &Session<G>, line: &str) -> Result<()> {
+        if line.len() > MAX_LINE {
+            bail!("a line of {} bytes is too long for a network game: {MAX_LINE} at most", line.len());
+        }
+        let mut events = game.pending().to_vec();
+        events.push(Event::Eval(line.to_string()));
+        let bytes = Extra { when: Some(u64::MAX), events, ..Extra::default() }.write().len();
+        if bytes + SAVES_ROOM > self.host.extra_room() {
+            bail!("the network takes no more lines before the next tick: close the console a moment, then go on");
+        }
+        Ok(())
+    }
+
     /// Lets in every machine asking to join, with the run so far; compares
     /// the guests' state hashes with its own (a guest whose game ran apart
     /// is told so, every screen says where, a report is written); what
@@ -528,7 +552,17 @@ impl<G: Game, A: Copy + Ord + std::fmt::Debug> Hosting<G, A> {
         } else {
             extra.events = game.pending().to_vec();
         }
-        let bundle = self.host.tick(extra.write()).map_err(|_| anyhow::anyhow!("a tick's bundle is too big for a datagram (a console line too long?)"))?;
+        // Lines run without asking `takes_line` first (`inspect --do`):
+        // the network game ends saying why, before anything is sent.
+        if let Some(long) = extra.events.iter().find_map(|e| match e {
+            Event::Eval(code) if code.len() > MAX_LINE => Some(code.len()),
+            _ => None,
+        }) {
+            bail!("a console line of {long} bytes is too long for a network game: {MAX_LINE} at most");
+        }
+        let bytes = extra.write();
+        let (size, room) = (bytes.len(), self.host.extra_room());
+        let bundle = self.host.tick(bytes).map_err(|_| anyhow::anyhow!("the console lines and saves before this tick take {size} bytes, more than a network game carries in one ({room})"))?;
         self.when = Some(when);
         for e in &bundle.seats {
             match *e {
