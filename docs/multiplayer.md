@@ -283,7 +283,7 @@ it says so. What remains is the evening on the home network.
   replay: a guest. Today it plays no tick while a menu or the console is
   open or the window has lost its focus, and every frame it writes this
   machine's controls into seat 1 and its `Seating` into the seats
-  (`app.rs`). A guest instead plays whenever a bundle is in hand,
+  (`src/app/`). A guest instead plays whenever a bundle is in hand,
   whatever menu is open (drawn over the running game) and whatever the
   focus; the bundle sets every seat and seat 1's controls; what the
   guest's devices give becomes its readings and its asks.

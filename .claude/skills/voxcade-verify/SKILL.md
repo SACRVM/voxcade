@@ -26,7 +26,7 @@ same replay; a difference always means something changed.
 | simulation, a kit (`src/sim`, `src/shooter`, `src/platformer`), a game's `conf.lua`/`main.lua`, a level or its blocks | the standard pass (replays!), a `shot` of the place |
 | rendering, shaders, meshing, camera, UI | the standard pass, shots before and after, frame times |
 | the editor (`src/editor`) | the standard pass, `edit --shot` of both levels and of the things (`--things`) |
-| the Lua API (`world.rs`, `api.rs`) | `voxcade api --lua lua/voxcade.lua`, then the standard pass |
+| the Lua API (`src/lua/world/`, `api.rs`) | `voxcade api --lua lua/voxcade.lua`, then the standard pass |
 | music or sounds | `voxcade music`/`sounds` to WAV, a spectrogram |
 | docs only | nothing to run |
 

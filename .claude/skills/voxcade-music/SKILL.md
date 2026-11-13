@@ -21,7 +21,7 @@ and edit, and which the running game plays anew on every save. The
 engine's voices are SID-like (pulse with width wobble, saw, triangle,
 sine, noise; envelopes, vibrato, sweeps, chords as fast arpeggios, the
 SID's filter, sidechain ducking). The format is described at the top of
-`src/audio/music.rs`.
+`src/audio/music/mod.rs`.
 
 You cannot listen. Everything you say about how a song sounds comes from
 its structure, its numbers and its spectrogram; say so, and let the user

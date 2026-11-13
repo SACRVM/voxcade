@@ -450,7 +450,7 @@ grain = 0.3
   2 deep, 4 up. So 0 is as made, 1 mirrored left to right, 17 a quarter
   turn about the upright (anticlockwise seen from above) and 41 a quarter
   turn about the line of sight. The editor's ROTATE and MIRROR set it.
-- **Levels** (`src/grid.rs`, `c.world.blocks = { file, margin, below,
+- **Levels** (`src/grid/`, `c.world.blocks = { file, margin, below,
   backdrops }`): `levels/NAME.toml` (or `level.toml`; JSON until 0.6.0,
   `voxcade upgrade` brings it over) holds the block size, the grid's size
   in cells, the blocks by name with what each is to the game (`solid`,
