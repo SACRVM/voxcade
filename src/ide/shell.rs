@@ -318,7 +318,7 @@ pub enum Ask {
     /// A song (its file) to play, and silence again.
     Listen(String),
     Hush,
-    /// The sound PLAY SOUND made ready (`Shell::heard`) to play once.
+    /// The sound PLAY SOUND made ready (`SoundPage::heard`) to play once.
     Sound,
     /// Another game, or the system's dialog to pick a folder (the menu on
     /// the game's name, the settings).
