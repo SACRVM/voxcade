@@ -121,9 +121,10 @@ impl Editor {
         self.land.chosen = self.land.chosen.filter(has);
     }
 
-    /// How many steps there are to take back.
+    /// How many steps were taken and not taken back (those gone too: the
+    /// oldest go past `KEPT_STEPS` or `KEPT_BYTES`).
     pub fn steps(&self) -> usize {
-        self.history.past.len()
+        self.history.count()
     }
 
     /// Takes the last step back for good (a click that was the first of a
@@ -146,6 +147,7 @@ impl Editor {
             disk::Saved::Rebased(kept) => self.history.past.extend(kept.map(|s| *s)),
             disk::Saved::Dropped => {}
         }
+        self.history.bound();
     }
 
     /// Writes the level over the text it was opened from

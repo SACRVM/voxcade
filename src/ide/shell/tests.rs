@@ -576,6 +576,34 @@ fn a_sound_shows_where_it_is_used() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A sound of numbers shows one PLAY for it (the maker's, beside LOOP),
+/// no PLAY SOUND over it; at 1024 by 600 the faders lie in two rows, none
+/// cut at the edge, and UNDO stays beside PLAY and LOOP; wide, one row.
+#[test]
+fn the_sound_page_has_one_play_and_its_faders_fit() {
+    let (dir, memory) = sound_game("one-play");
+    let mut shell = shell_on(&dir, &memory);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut shell);
+    shell.open("sounds/coin.toml");
+    for (width, height, rows) in [(1024.0, 600.0, 2), (1920.0, 1080.0, 1)] {
+        let size = egui::vec2(width, height);
+        drawn_rects(&ctx, &mut shell, size);
+        let texts = drawn_rects(&ctx, &mut shell, size);
+        let main: Vec<_> = texts.iter().filter(|(_, r)| r.min.x > 250.0 && r.min.y > 52.0).collect();
+        assert!(!main.iter().any(|(t, _)| t == "PLAY SOUND"), "{width}: no PLAY SOUND over the maker");
+        assert_eq!(main.iter().filter(|(t, _)| t == "PLAY").count(), 1, "{width}: one PLAY");
+        let faders: Vec<egui::Rect> = ["PITCH", "LENGTH", "SLIDE", "BRIGHT", "PUNCH"].iter().map(|w| main.iter().find(|(t, _)| t == w).unwrap_or_else(|| panic!("{width}: no {w}")).1).collect();
+        assert!(faders.iter().all(|r| r.max.x + 150.0 - r.width() <= width), "{width}: a fader cut: {faders:?}");
+        let mut tops: Vec<i32> = faders.iter().map(|r| r.min.y.round() as i32).collect();
+        tops.dedup();
+        assert_eq!(tops.len(), rows, "{width}: the faders' rows");
+        let at = |w: &str| main.iter().find(|(t, _)| t == w).unwrap().1;
+        assert!((at("UNDO").center().y - at("PLAY").center().y).abs() < 2.0 && (at("LOOP").center().y - at("PLAY").center().y).abs() < 2.0, "{width}: PLAY, LOOP and UNDO on one row");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The sound maker: a sort's button replaces the sound with a fresh one
 /// of its sort (the leading comment kept) and plays it; UNDO goes back
 /// over the rolls one by one, and Ctrl+Z in the text over the same
@@ -1735,6 +1763,9 @@ fn the_project_search_opens_the_line_found() {
     frame_with(&ctx, &mut shell, vec![]);
     let places: Vec<(&str, usize)> = shell.search.hits.iter().map(|h| (h.file.as_str(), h.line)).collect();
     assert_eq!(places, [("conf.lua", 5), ("main.lua", 1), ("main.lua", 3)]);
+    // The panel wider while it searches (the list's is 250): a hit shows
+    // more of its line.
+    assert!(shell.search.rows[0].width() > 340.0, "{:?}", shell.search.rows[0]);
     let row = shell.search.rows[2];
     click(&ctx, &mut shell, row.center());
     assert_eq!(shell.opened(), Some("main.lua"));

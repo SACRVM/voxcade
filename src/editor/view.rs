@@ -283,6 +283,11 @@ pub struct View {
     /// How much of the window the panels leave the view: shares of it on
     /// the left, at the top, on the right and at the bottom.
     pub room: [f32; 4],
+    /// GRID: faint lines along the voxels' edges on the faces seen, in the
+    /// voxel editor (`cell_lines.rs`); the lines worked out last, kept
+    /// while neither the view nor the voxels change.
+    pub grid: bool,
+    pub grid_lines: std::cell::RefCell<super::cell_lines::Kept>,
 }
 
 /// SELECT's rectangle on the screen: where it began and where the pointer
@@ -530,6 +535,8 @@ impl View {
             marquee: None,
             keys_shown: false,
             room: [0.0; 4],
+            grid: true,
+            grid_lines: Default::default(),
         };
         // A level without blocks: the whole room as the game looks.
         if !ed.level.has_grid() {

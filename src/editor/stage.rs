@@ -26,7 +26,7 @@ use super::model::room::{self, Field, Item};
 use super::model::{Editor, Layer};
 use super::panels::{Shown, Thumbs};
 use super::view::{Action, Figures, MenuOn, View, key_of};
-use super::zones::{self, FIELD, LABEL, Sort, keyed, list_row, rgb, row, small};
+use super::zones::{self, FIELD, LABEL, Sort, keyed, rgb, row, small};
 use crate::grid::Way;
 use crate::gui::{ACCENT, ERROR, QUIET, TEXT, WARNING};
 
@@ -48,7 +48,7 @@ pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
     if ed.among_pieces() {
         beside(ui, ed, view, free, shown);
     }
-    zones::view_buttons(ui, free, shown);
+    zones::view_buttons(ui, free, None, shown);
     menu(ui, ed, view, free, shown);
     if view.picker {
         picker(ui, ed, free, thumbs, shown);
@@ -165,7 +165,9 @@ fn outline_row(ui: &mut egui::Ui, ed: &Editor, item: Item, chosen: bool, shown: 
         ui.spacing_mut().item_spacing.x = 0.0;
         // The hide mark, as the figure's parts have it.
         zones::hide_mark(ui, hidden, Action::HideItem(item), shown);
-        list_row(ui, sort_of(ed, item), None, &label, 0.0, chosen, !named || hidden, light, None, &what_of(ed, item))
+        // Its place, quiet at the end: two gems are told apart.
+        let at = ed.at_of(item).map(|[x, y, z]| format!("{x} {y} {z}"));
+        zones::list_row_aside(ui, sort_of(ed, item), None, &label, 0.0, chosen, !named || hidden, light, None, at.as_deref(), &what_of(ed, item), egui::Sense::click())
     })
     .inner
 }
@@ -406,10 +408,12 @@ fn piece_rows(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, t: &crate::grid
     let quarters = !ed.pieces.free_turns || t.solid;
     let speed = if quarters { 2.0 } else { 0.5 };
     let tip = |what: &str| if quarters { format!("{what}, in quarter turns (this game sets things on the grid{})", if t.solid && ed.pieces.free_turns { "; a solid piece too" } else { "" }) } else { what.to_string() };
-    row(ui, "ROTATE", "Degrees. Or drag its rings.", |ui| {
-        field(ui, shown, "Z", Some(2), room::bearing_of(t).rem_euclid(360.0), Field::Turn, speed, -360.0..=720.0, &tip("Round, clockwise seen from above: 0 away from the camera, 180 towards it"), FIELD);
-        field(ui, shown, "X", Some(0), t.pitch, Field::Pitch, speed, -360.0..=720.0, &tip("Tipped: its front up (90 lays it on its back)"), FIELD);
-        field(ui, shown, "Y", Some(1), t.roll, Field::Roll, speed, -360.0..=720.0, &tip("Rolled: its right side down (90 lays it on its right side)"), FIELD);
+    // X, Y, Z as POSITION and the rings' colors: about X its pitch, about
+    // Y its roll, about Z its rotation (the file's words).
+    row(ui, "ROTATE", "Degrees about X, Y and Z (pitch, roll, rotation in the level's file). Or drag its rings.", |ui| {
+        field(ui, shown, "X", Some(0), t.pitch, Field::Pitch, speed, -360.0..=720.0, &tip("pitch: its front up (90 lays it on its back)"), FIELD);
+        field(ui, shown, "Y", Some(1), t.roll, Field::Roll, speed, -360.0..=720.0, &tip("roll: its right side down (90 lays it on its right side)"), FIELD);
+        field(ui, shown, "Z", Some(2), room::bearing_of(t).rem_euclid(360.0), Field::Turn, speed, -360.0..=720.0, &tip("rotation: round, clockwise seen from above; 0 away from the camera, 180 towards it (a new piece faces the camera)"), FIELD);
     });
     let top = t.model.as_deref().and_then(|m| figures.model(m)).map_or(10, |m| m.size.z);
     row(ui, "", "", |ui| {

@@ -1,7 +1,7 @@
-; Pulsar Drive: made by tools/compose.py from music/pulsar_drive.compose.toml
-; (space, D minor, 120 bpm, seed 3). Run the recipe
-; again after changing it, or edit this file by hand. Chords from
-; free-midi-chords by Ludovic Drolez (MIT, tools/progressions.toml).
+; Pulsar Drive: made by Voxcade's composer (tools/compose.py in Voxcade's source)
+; from its recipe music/pulsar_drive.compose.toml (space, D minor, 120 bpm,
+; seed 3). Neither comes with a game: change the song here, by hand.
+; Chords from free-midi-chords by Ludovic Drolez (MIT).
 ;
 ; A: i VI VII v (minor): Dm Bb C Am
 ; B: v i iv VII (minor): Am Dm Gm C

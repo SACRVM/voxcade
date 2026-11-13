@@ -5,6 +5,9 @@
 
 use super::*;
 
+/// How wide the list's panel grows at most while SEARCH is open.
+pub(super) const SEARCH_WIDE: f32 = 560.0;
+
 impl Shell {
     /// The list on the left (or the search in its place), and what was
     /// chosen, made or renamed in it.
@@ -16,7 +19,15 @@ impl Shell {
         // The margins on the right lie inside the scroll areas, so that their
         // bars sit at the edge.
         let (mut hit, mut search_closed) = (None, false);
-        egui::Panel::left("files").default_size(250.0).frame(egui::Frame::new().fill(PANEL).inner_margin(egui::Margin { left: 14, right: 0, top: 12, bottom: 12 })).show(ui, |ui| {
+        // While SEARCH is open the panel is wider (a third of the window,
+        // up to SEARCH_WIDE), so that a hit shows more of its line.
+        let panel = if self.search.shown {
+            let wide = (ui.ctx().content_rect().width() * 0.34).clamp(250.0, SEARCH_WIDE);
+            egui::Panel::left("files searched").exact_size(wide)
+        } else {
+            egui::Panel::left("files").default_size(250.0)
+        };
+        panel.frame(egui::Frame::new().fill(PANEL).inner_margin(egui::Margin { left: 14, right: 0, top: 12, bottom: 12 })).show(ui, |ui| {
             // The search across the game in the list's place while shown.
             if self.search.shown {
                 (hit, search_closed) = self.search.ui(ui, &self.dir);

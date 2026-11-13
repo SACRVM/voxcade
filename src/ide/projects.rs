@@ -244,6 +244,51 @@ fn logo(ctx: &egui::Context) -> Option<egui::TextureHandle> {
 enum Asked {
     Play,
     Edit,
+    /// Of a game that came with the program: copied into the projects
+    /// folder and the copy opened, or opened where it is.
+    Copy,
+    EditHere,
+}
+
+/// Folders a game's copy leaves out: what belongs to no game.
+const NOT_COPIED: [&str; 3] = ["builds", "shots", "target"];
+
+/// A copy of the game in `dir` in the projects folder `projects`, under
+/// its title (`title`, `title-2` … where one is there), hidden files and
+/// `NOT_COPIED` left out, begun as a git repository where git is there
+/// (as NEW's games); its folder.
+pub fn copy_game(dir: &Path, title: &str, projects: &Path) -> anyhow::Result<PathBuf> {
+    use anyhow::Context as _;
+    let first = templates::folder_for(projects, title);
+    let first = if first == projects { projects.join("game") } else { first };
+    let to = (1..)
+        .map(|n| if n == 1 { first.clone() } else { PathBuf::from(format!("{}-{n}", first.display())) })
+        .find(|p| !p.exists())
+        .expect("a free name");
+    fn copy(from: &Path, to: &Path, top: bool) -> anyhow::Result<()> {
+        std::fs::create_dir_all(to).with_context(|| format!("making {}", to.display()))?;
+        for entry in std::fs::read_dir(from).with_context(|| format!("reading {}", from.display()))? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') || (top && NOT_COPIED.contains(&name.as_str())) {
+                continue;
+            }
+            let kind = entry.file_type()?;
+            if kind.is_dir() {
+                copy(&entry.path(), &to.join(&name), false)?;
+            } else if kind.is_file() {
+                std::fs::copy(entry.path(), to.join(&name)).with_context(|| format!("copying {}", entry.path().display()))?;
+            }
+        }
+        Ok(())
+    }
+    if let Err(e) = copy(dir, &to, true) {
+        // Nothing half made is left.
+        let _ = std::fs::remove_dir_all(&to);
+        return Err(e);
+    }
+    let _ = templates::begin_repository(&to, &format!("A copy of {title}, from the games that come with Voxcade"), &[]);
+    Ok(to)
 }
 
 /// A card's least width and the room between cards.
@@ -310,6 +355,9 @@ pub struct StartPage {
     logo: Option<Option<egui::TextureHandle>>,
     /// The games found below a folder that is none, to choose from.
     found: Option<(PathBuf, Vec<Entry>)>,
+    /// A game that came with the program whose EDIT was pressed: its card
+    /// asks MAKE A COPY or EDIT HERE.
+    asking: Option<PathBuf>,
 }
 
 impl StartPage {
@@ -320,7 +368,7 @@ impl StartPage {
         // made to be shown (a test game in the source has none).
         let mut bundled = update::games_dir().map(|d| games_in(&d)).unwrap_or_default();
         bundled.retain(|g| g.dir.join("cover.png").is_file());
-        let mut page = Self { prefs, new: None, message, bundled, own: Vec::new(), playing: None, update: Update::Idle, logo: None, found: None };
+        let mut page = Self { prefs, new: None, message, bundled, own: Vec::new(), playing: None, update: Update::Idle, logo: None, found: None, asking: None };
         page.find_own();
         if look && page.prefs.updates {
             page.look();
@@ -355,6 +403,14 @@ impl StartPage {
     pub fn show_new(&mut self, name: &str) {
         let template = TEMPLATES.iter().position(|t| t.name == "JUMP & RUN").unwrap_or(0);
         self.new = Some(NewGame { name: name.to_string(), template, notes: self.prefs.console, trouble: None });
+    }
+
+    /// EDIT pressed on the card of the game that came with the program
+    /// whose folder's name is `name`, as a picture of it wants it
+    /// (`voxcade ide --shot FILE --open edit:NAME`); whether there is one.
+    pub fn show_asking(&mut self, name: &str) -> bool {
+        self.asking = self.bundled.iter().find(|g| g.dir.file_name().is_some_and(|n| n == name)).map(|g| g.dir.clone());
+        self.asking.is_some()
     }
 
     /// The games found below `folder`, which is none, listed first.
@@ -447,7 +503,9 @@ impl StartPage {
 
     /// The games as cards in rows that fill the width,
     /// each its picture, its title, PLAY and EDIT; what was asked of one.
-    fn cards(ui: &mut egui::Ui, games: &mut [Entry], can_play: bool) -> Option<(usize, Asked)> {
+    /// The card of `asking` (a game that came with the program, EDIT
+    /// pressed) asks over its picture: MAKE A COPY or EDIT HERE.
+    fn cards(ui: &mut egui::Ui, games: &mut [Entry], can_play: bool, asking: Option<&Path>) -> Option<(usize, Asked)> {
         let mut asked = None;
         let room = ui.available_width();
         let columns = (((room + GAP) / (CARD + GAP)).floor() as usize).clamp(1, 4);
@@ -476,19 +534,39 @@ impl StartPage {
                                     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, &game.title, TextStyle::Heading.resolve(ui.style()), ACCENT);
                                 }
                             }
-                            if shown.hovered() && can_play {
-                                ui.painter().rect_stroke(rect, corners, egui::Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
-                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                            }
-                            if shown.on_hover_text("Plays the game in a window of its own.").clicked() {
-                                asked = Some((i, Asked::Play));
+                            if asking == Some(game.dir.as_path()) {
+                                // Over its picture: a copy of one's own, or
+                                // this one as it is installed.
+                                ui.painter().rect_filled(rect, corners, egui::Color32::from_rgba_unmultiplied(20, 19, 24, 215));
+                                let buttons = egui::Rect::from_center_size(rect.center(), egui::vec2(rect.width() - 20.0, 32.0));
+                                // (A child of its own: the card's rows keep their places.)
+                                let ui = &mut ui.new_child(egui::UiBuilder::new().max_rect(buttons).layout(egui::Layout::left_to_right(egui::Align::Center)));
+                                {
+                                    ui.spacing_mut().item_spacing.x = 8.0;
+                                    let width = ui.fonts_mut(|f| f.layout_no_wrap("MAKE A COPY".into(), TextStyle::Button.resolve(ui.style()), TEXT).size().x + f.layout_no_wrap("EDIT HERE".into(), TextStyle::Button.resolve(ui.style()), TEXT).size().x) + 4.0 * ui.spacing().button_padding.x + 8.0;
+                                    ui.add_space(((buttons.width() - width) / 2.0).max(0.0));
+                                    if ui.button(RichText::new("MAKE A COPY").color(ACCENT)).on_hover_text("Copies the game into your games folder and opens the copy to change. The game that came with Voxcade stays as it is.").clicked() {
+                                        asked = Some((i, Asked::Copy));
+                                    }
+                                    if ui.button("EDIT HERE").on_hover_text("Changes the game where Voxcade keeps it. The next update puts a fresh one in its place and moves yours to the folder before-update.").clicked() {
+                                        asked = Some((i, Asked::EditHere));
+                                    }
+                                }
+                            } else {
+                                if shown.hovered() && can_play {
+                                    ui.painter().rect_stroke(rect, corners, egui::Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                }
+                                if shown.on_hover_text("Plays the game in a window of its own.").clicked() {
+                                    asked = Some((i, Asked::Play));
+                                }
                             }
                             egui::Frame::new().inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
                                 ui.allocate_ui_with_layout(egui::vec2(width - 20.0, ui.spacing().interact_size.y + 4.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
                                     ui.spacing_mut().item_spacing.x = 8.0;
                                     ui.add(egui::Label::new(RichText::new(&game.title).color(TEXT)).truncate()).on_hover_text(game.dir.display().to_string());
                                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                        if ui.button("EDIT").on_hover_text("Opens the game in the IDE: its code, models and levels, to change it.").clicked() {
+                                        if ui.add(egui::Button::new("EDIT").selected(asking == Some(game.dir.as_path()))).on_hover_text("Opens the game in the IDE: its code, models and levels, to change it.").clicked() {
                                             asked = Some((i, Asked::Edit));
                                         }
                                         if ui.add_enabled(can_play, egui::Button::new(RichText::new("PLAY").color(ACCENT))).on_hover_text("Plays the game in a window of its own.").clicked() {
@@ -620,15 +698,29 @@ impl StartPage {
                         if let Some((folder, games)) = &mut self.found {
                             ui.label(RichText::new(format!("GAMES IN {}", short(folder).to_uppercase())).small().color(QUIET)).on_hover_text(folder.display().to_string());
                             ui.add_space(4.0);
-                            if let Some((i, what)) = Self::cards(ui, games, can_play) {
+                            if let Some((i, what)) = Self::cards(ui, games, can_play, None) {
                                 asked = Some((games[i].dir.clone(), games[i].title.clone(), what));
                             }
                         }
                         if !self.bundled.is_empty() {
                             ui.label(RichText::new("GAMES").small().color(QUIET));
                             ui.add_space(4.0);
-                            if let Some((i, what)) = Self::cards(ui, &mut self.bundled, can_play) {
-                                asked = Some((self.bundled[i].dir.clone(), self.bundled[i].title.clone(), what));
+                            if let Some((i, what)) = Self::cards(ui, &mut self.bundled, can_play, self.asking.as_deref()) {
+                                // EDIT on a game that came with the program
+                                // asks first (again: no more).
+                                let dir = self.bundled[i].dir.clone();
+                                let what = match what {
+                                    Asked::Edit if self.asking.as_ref() == Some(&dir) => {
+                                        self.asking = None;
+                                        None
+                                    }
+                                    Asked::Edit => {
+                                        self.asking = Some(dir.clone());
+                                        None
+                                    }
+                                    other => Some(other),
+                                };
+                                asked = what.map(|w| (dir, self.bundled[i].title.clone(), w));
                             }
                         }
                         // Your games, and beside the heading where they
@@ -644,16 +736,38 @@ impl StartPage {
                         });
                         ui.add_space(4.0);
                         if self.own.is_empty() {
+                            // None yet: the way to one, where they will be.
+                            let size = egui::vec2(CARD, (CARD * 9.0 / 16.0).round());
+                            let new = egui::Button::new(RichText::new("+ NEW GAME").color(ACCENT)).fill(PANEL).corner_radius(6.0);
+                            if ui.add_sized(size, new).on_hover_text("Begins a game of your own from a template, in this folder.").clicked() {
+                                self.new = Some(NewGame::new(&self.prefs));
+                            }
                             ui.add_space(GAP);
-                        } else if let Some((i, what)) = Self::cards(ui, &mut self.own, can_play) {
+                        } else if let Some((i, what)) = Self::cards(ui, &mut self.own, can_play, None) {
                             asked = Some((self.own[i].dir.clone(), self.own[i].title.clone(), what));
+                        }
+                        if let Some((_, _, Asked::Play)) = &asked {
+                            self.asking = None;
                         }
                         match asked {
                             // A game made for another Voxcade: the upgrade's
                             // page first.
                             Some((dir, _, Asked::Play)) if super::wizard::needed(&dir) => wish = Some(Wish::Upgrade(dir, true)),
                             Some((dir, title, Asked::Play)) => self.play(&dir, &title),
-                            Some((dir, _, Asked::Edit)) => wish = Some(Wish::Open(dir)),
+                            Some((dir, _, Asked::Edit | Asked::EditHere)) => {
+                                self.asking = None;
+                                wish = Some(Wish::Open(dir));
+                            }
+                            Some((dir, title, Asked::Copy)) => {
+                                self.asking = None;
+                                match copy_game(&dir, &title, &self.prefs.projects_dir()) {
+                                    Ok(copy) => {
+                                        self.find_own();
+                                        wish = Some(Wish::Open(copy));
+                                    }
+                                    Err(e) => self.message = Some(format!("{title} could not be copied: {e:#}")),
+                                }
+                            }
                             None => {}
                         }
                     });
@@ -734,6 +848,43 @@ mod tests {
         assert!(matches!(opening(&many), Opening::Several(g) if names(&many, &g) == ["games/a", "games/b"]));
         let none = tree("open-none", &[("notes/readme.txt", "")]);
         assert_eq!(opening(&none), Opening::Nothing);
+    }
+
+    /// MAKE A COPY on a game that came with the program: a copy in the
+    /// projects folder under its title (hidden files, builds and shots
+    /// left out), a second one beside it; the game itself untouched.
+    #[test]
+    fn a_game_that_came_with_the_program_is_copied_to_change() {
+        let games = tree("copy-from", &[("farm/conf.lua", "function conf(c)\n  c.title = \"Bunny Farm\"\nend\n"), ("farm/main.lua", "x"), ("farm/levels/01.toml", "y"), ("farm/.hidden", "z"), ("farm/builds/farm.zip", "w"), ("farm/shots/a.png", "v")]);
+        let projects = crate::scratch::Scratch::new("copy-to");
+        let from = games.join("farm");
+        let copy = copy_game(&from, &title_of(&from), &projects).unwrap();
+        assert_eq!(copy, projects.join("bunny-farm"));
+        assert_eq!(std::fs::read_to_string(copy.join("levels/01.toml")).unwrap(), "y");
+        assert!(copy.join("conf.lua").is_file() && !copy.join(".hidden").exists() && !copy.join("builds").exists() && !copy.join("shots").exists());
+        let again = copy_game(&from, "Bunny Farm", &projects).unwrap();
+        assert_eq!(again, projects.join("bunny-farm-2"));
+        assert!(from.join("builds/farm.zip").is_file(), "the game itself stays");
+    }
+
+    /// EDIT pressed on a game that came with the program: its card asks
+    /// MAKE A COPY or EDIT HERE (drawn), nothing opened yet.
+    #[test]
+    fn edit_on_a_game_that_came_with_the_program_asks_first() {
+        let games = tree("asking", &[("farm/conf.lua", ""), ("farm/cover.png", "")]);
+        let mut page = StartPage::new(Prefs::default(), None, false);
+        page.bundled = vec![Entry::new(games.join("farm"))];
+        assert!(page.show_asking("farm") && !page.show_asking("nope"));
+        assert!(page.show_asking("farm"));
+        let ctx = egui::Context::default();
+        let mut texts = Vec::new();
+        for _ in 0..2 {
+            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 720.0))), ..Default::default() }, |ui| {
+                assert_eq!(page.ui(ui), None);
+            });
+            texts = out.shapes.iter().filter_map(|s| if let egui::Shape::Text(t) = &s.shape { Some(t.galley.job.text.clone()) } else { None }).collect();
+        }
+        assert!(texts.iter().any(|t| t == "MAKE A COPY") && texts.iter().any(|t| t == "EDIT HERE"), "{texts:?}");
     }
 
     /// The start page draws the games found below a folder, and the

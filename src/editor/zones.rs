@@ -181,21 +181,42 @@ pub fn hide_mark(ui: &mut egui::Ui, hidden: bool, action: Action, shown: &mut Sh
 /// key works while the panels show it.
 pub fn keyed(ui: &mut egui::Ui, shown: &mut Shown, label: &str, action: Action, on: Option<bool>, tip: &str) -> egui::Response {
     let key = key_of(action);
+    // UNDO and REDO: Ctrl+Z and Ctrl+Y as everywhere, their tooltips and
+    // F1 say so; the letter works on, unsaid on the button.
+    let main = main_keys(action);
     if let Some(k) = key {
-        key_named(shown, k, action, label);
+        if main.is_some() {
+            shown.keys.push((k, action));
+        } else {
+            key_named(shown, k, action, label);
+        }
     }
     let mut job = egui::text::LayoutJob::default();
     let colour = if on == Some(true) { ACCENT } else { TEXT };
     job.append(label, 0.0, egui::TextFormat { font_id: TextStyle::Button.resolve(ui.style()), color: colour, ..Default::default() });
-    if let Some(k) = key {
+    if let Some(k) = key.filter(|_| main.is_none()) {
         job.append(&format!(" {k}"), 0.0, egui::TextFormat { font_id: TextStyle::Small.resolve(ui.style()), color: QUIET, valign: egui::Align::Center, ..Default::default() });
     }
     let response = ui.add(egui::Button::new(job).selected(on == Some(true)));
+    let tip = match main {
+        Some(keys) => format!("{tip}  {keys}"),
+        None => tip.to_string(),
+    };
     let response = if tip.is_empty() { response } else { response.on_hover_text(tip) };
     if response.clicked() {
         shown.clicked.push(action);
     }
     response
+}
+
+/// The keys every program has for `action`, said first where it is named
+/// (its tooltip, F1): UNDO's and REDO's; its letter (`key_of`) works too.
+pub fn main_keys(action: Action) -> Option<&'static str> {
+    match action {
+        Action::Undo => Some("Ctrl+Z"),
+        Action::Redo => Some("Ctrl+Y"),
+        _ => None,
+    }
 }
 
 /// A key the panels show working while they show it (`action`), named in
@@ -418,6 +439,13 @@ pub fn list_row(ui: &mut egui::Ui, sort: Sort, pic: Option<(egui::TextureId, Vec
 /// another).
 #[allow(clippy::too_many_arguments)]
 pub fn list_row_sensed(ui: &mut egui::Ui, sort: Sort, pic: Option<(egui::TextureId, Vec2)>, label: &str, indent: f32, chosen: bool, quiet: bool, dot: Option<Color32>, warn: Option<&str>, tip: &str, sense: egui::Sense) -> egui::Response {
+    list_row_aside(ui, sort, pic, label, indent, chosen, quiet, dot, warn, None, tip, sense)
+}
+
+/// `list_row_sensed` with a quiet second column at its end (`aside`: a
+/// thing's place, so that rows of one kind differ), the name cut before it.
+#[allow(clippy::too_many_arguments)]
+pub fn list_row_aside(ui: &mut egui::Ui, sort: Sort, pic: Option<(egui::TextureId, Vec2)>, label: &str, indent: f32, chosen: bool, quiet: bool, dot: Option<Color32>, warn: Option<&str>, aside: Option<&str>, tip: &str, sense: egui::Sense) -> egui::Response {
     let height = if pic.is_some() { 40.0 } else { ui.text_style_height(&TextStyle::Body) + 8.0 };
     let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), sense);
     let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
@@ -455,6 +483,12 @@ pub fn list_row_sensed(ui: &mut egui::Ui, sort: Sort, pic: Option<(egui::Texture
         let t = Pos2::new(at.x - 9.0, rect.center().y);
         painter.add(egui::Shape::convex_polygon(vec![t + Vec2::new(0.0, -5.0), t + Vec2::new(5.0, 4.0), t + Vec2::new(-5.0, 4.0)], Color32::TRANSPARENT, egui::Stroke::new(1.3, WARNING)));
         right = at.x - 18.0;
+    }
+    if let Some(words) = aside {
+        let g = painter.layout_no_wrap(words.to_string(), TextStyle::Small.resolve(ui.style()), QUIET);
+        let at = Pos2::new(right - g.size().x, rect.center().y - g.size().y / 2.0);
+        painter.galley(at, g, QUIET);
+        right = at.x - 10.0;
     }
     let mut job = egui::text::LayoutJob::simple_singleline(label.to_string(), font, colour);
     job.wrap = egui::text::TextWrapping::truncate_at_width((right - text_at).max(10.0));
@@ -649,13 +683,22 @@ pub fn bar_at(ui: &egui::Ui, id: &str, middle: f32, bounds: Rect, free: Rect, gu
 }
 
 /// The view's own buttons in its lower right corner: turn it, further and
-/// nearer; the mouse's ways to do the same on hover.
-pub fn view_buttons(ui: &egui::Ui, free: Rect, shown: &mut Shown) {
+/// nearer; the mouse's ways to do the same on hover; GRID before them
+/// where `grid` says it is there (lit or not).
+pub fn view_buttons(ui: &egui::Ui, free: Rect, grid: Option<bool>, shown: &mut Shown) {
     let at = free.right_bottom() + Vec2::new(-12.0, -12.0);
     let area = egui::Area::new(egui::Id::unique("zones view buttons")).order(egui::Order::Foreground).pivot(egui::Align2::RIGHT_BOTTOM).fixed_pos(at).show(ui.ctx(), |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 3.0;
             ui.spacing_mut().button_padding = egui::vec2(8.0, 3.0);
+            // GRID (the voxel editor's): the voxels' edges on the faces.
+            if let Some(on) = grid {
+                let word = RichText::new("GRID").color(if on { ACCENT } else { QUIET });
+                if ui.add(egui::Button::new(word).selected(on)).on_hover_text("The voxels' edges drawn faintly on the faces, to count them (where a voxel is big enough on the screen)").clicked() {
+                    shown.clicked.push(Action::Grid);
+                }
+                ui.add_space(6.0);
+            }
             for (word, action, tip) in [
                 ("<", Action::TurnView(-1), "Turn the view (or drag with the right mouse button)"),
                 (">", Action::TurnView(1), "Turn the view (or drag with the right mouse button)"),

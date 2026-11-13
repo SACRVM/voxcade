@@ -22,7 +22,7 @@ use glam::IVec3;
 use super::figure::Figure;
 use super::model::{Editor, Layer, Scope, Tool};
 use super::panels::{Shown, Thumbs};
-use super::view::{Action, Figures, MenuOn, View, front, key_of, seen};
+use super::view::{Action, Figures, MenuOn, View, above_front, key_of, seen};
 use super::zones::{self, FIELD, Sort, keyed, list_row, row, small};
 use crate::blocks::Turn;
 use crate::grid::Kind;
@@ -43,7 +43,9 @@ pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
     if ed.hint.is_none() || ed.disk.clash.is_some() {
         zones::from_disk(ui, free, ed, shown);
     }
-    zones::view_buttons(ui, free, shown);
+    // GRID in the voxel editor, not in GAME VIEW (the game's look).
+    let grid = (ed.scope != Scope::Level && view.before_game.is_none()).then_some(view.grid);
+    zones::view_buttons(ui, free, grid, shown);
     part_bar(ui, ed, free, view, shown);
     if let Some(m) = view.menu {
         let entries = menu_entries(ed, m.on);
@@ -212,17 +214,24 @@ fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thum
     });
 }
 
+/// How many pixels high a block's picture is in the list and as the one
+/// held (`above_front`).
+const THUMB_HIGH: i32 = 32;
+const HELD_HIGH: i32 = 64;
+
 /// The level's blocks, each its picture and name: chosen, the one held
 /// (or open); a click holds one, a second (or a double click) opens it.
 fn blocks(ui: &mut egui::Ui, ed: &Editor, thumbs: &mut Thumbs, shown: &mut Shown) {
     let listed = ed.level.blocks.len();
+    // Seen as the level is: from above (a farm), else from the front.
+    let from_above = crate::grid::View::for_size(ed.level.size) == crate::grid::View::Above;
     if !zones::group(ui, "BLOCKS", Some(listed), "The level's blocks: a click holds one, again opens it") {
         return;
     }
     for i in 0..listed {
         let block = &ed.blocks[i];
         let entry = &ed.level.blocks[i];
-        let pic = thumbs.get(ui.ctx(), format!("block {i}"), (&block.voxels, &block.palette), || (block.size.x, block.size.z, front(block)));
+        let pic = thumbs.get(ui.ctx(), format!("block {i}"), (&block.voxels, &block.palette), || above_front(block, THUMB_HIGH, from_above));
         let chosen = match ed.scope {
             Scope::Block(b) => b == i,
             _ => ed.held.block as usize == i + 1,
@@ -749,11 +758,23 @@ fn swatch_menu(r: &egui::Response, ed: &Editor, c: [u8; 3], shown: &mut Shown) {
     });
 }
 
+/// How light a colour is (0 to 255), as the eye has it.
+fn lightness(c: [u8; 3]) -> f32 {
+    0.3 * c[0] as f32 + 0.59 * c[1] as f32 + 0.11 * c[2] as f32
+}
+
+/// The quiet line round a swatch: lighter round a dark colour, so a
+/// colour as dark as the panel still shows its square (the Huey's
+/// blacks vanished); the faint one of always round the rest.
+fn swatch_edge(c: [u8; 3]) -> Color32 {
+    if lightness(c) < 70.0 { Color32::from_rgba_unmultiplied(190, 183, 172, 170) } else { Color32::from_rgba_unmultiplied(132, 126, 118, 90) }
+}
+
 fn swatch(ui: &mut egui::Ui, c: [u8; 3], size: f32, chosen: bool, digit: Option<char>) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click());
     ui.painter().rect_filled(rect, 3.0, Color32::from_rgb(c[0], c[1], c[2]));
     // (A dark colour on the dark panel still shows its square.)
-    ui.painter().rect_stroke(rect, 3.0, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(132, 126, 118, 90)), egui::StrokeKind::Inside);
+    ui.painter().rect_stroke(rect, 3.0, egui::Stroke::new(1.0, swatch_edge(c)), egui::StrokeKind::Inside);
     if chosen || response.hovered() {
         ui.painter().rect_stroke(rect.expand(2.0), 4.0, egui::Stroke::new(2.0, if chosen { ACCENT } else { QUIET }), egui::StrokeKind::Outside);
     }
@@ -819,10 +840,11 @@ fn rig(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, p: usize, shown: &mut Sh
         });
     }
     // ROTATE: its rest rotation about its joint, as a level's piece's row
-    // (Z round, X its nose up, Y rolled), in the file's degrees.
+    // (X its nose up, Y rolled, Z round: POSITION's order and the rings'
+    // colors), in the file's degrees (`r`: rotation, pitch, roll).
     if let Some(r) = ed.part_rotation().filter(|_| !ed.rigging.posing) {
-        row(ui, "ROTATE", "Degrees about its joint (what hangs on it turns along). Or drag its rings (ROTATE).", |ui| {
-            for (axis, letter, colour, tip) in [(0, "Z", 2, "Round, clockwise seen from above"), (1, "X", 0, "Its front up"), (2, "Y", 1, "Its right side down")] {
+        row(ui, "ROTATE", "Degrees about its joint, about X, Y and Z (pitch, roll, rotation in the file; what hangs on it turns along). Or drag its rings (ROTATE).", |ui| {
+            for (axis, letter, colour, tip) in [(1, "X", 0, "pitch: its front up"), (2, "Y", 1, "roll: its right side down"), (0, "Z", 2, "rotation: round, clockwise seen from above")] {
                 zones::number(ui, shown, letter, Some(colour), r[axis] as f64, 1, 0.5, -360.0..=360.0, tip, FIELD, |v| Action::PartRotation(axis as u8, v as f32));
             }
         });
@@ -830,7 +852,7 @@ fn rig(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, p: usize, shown: &mut Sh
     // POSE: its pose on top of the rest (nothing saved), as the rings.
     if let Some(r) = ed.chosen_pose().filter(|_| ed.rigging.posing && !ed.root_chosen()) {
         row(ui, "POSE", "Degrees on top of its rest, as frame:model's pose (nothing saved). Or drag its rings.", |ui| {
-            for (axis, letter, colour, tip) in [(0, "Z", 2, "rotation: round, clockwise seen from above"), (1, "X", 0, "pitch: its front up"), (2, "Y", 1, "roll: its right side down")] {
+            for (axis, letter, colour, tip) in [(1, "X", 0, "pitch: its front up"), (2, "Y", 1, "roll: its right side down"), (0, "Z", 2, "rotation: round, clockwise seen from above")] {
                 zones::number(ui, shown, letter, Some(colour), r[axis] as f64, 1, 0.5, -360.0..=360.0, tip, FIELD, |v| Action::PoseValue(axis as u8, v as f32));
             }
         });
@@ -897,8 +919,7 @@ fn level(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thumbs,
         let turn = ed.held.turn;
         ui.label(RichText::new(format!("HELD {}", ed.level.blocks[i].name.to_uppercase())).color(TEXT));
         let pic = thumbs.get(ui.ctx(), "held".into(), (&block.voxels, &block.palette, turn), || {
-            let turned = block.turned(turn);
-            (turned.size.x, turned.size.z, front(&turned))
+            above_front(&block.turned(turn), HELD_HIGH, crate::grid::View::for_size(ed.level.size) == crate::grid::View::Above)
         });
         ui.horizontal(|ui| {
             picture(ui, pic, 72.0);
@@ -1131,5 +1152,23 @@ mod tests {
             }
         }
         assert!(tool_tip(Tool::Pointer, None).ends_with("  Esc"));
+    }
+
+    /// A swatch of a colour as dark as the panel (the Huey's blacks) keeps
+    /// a line round it that stands out from the panel and from the colour.
+    #[test]
+    fn a_dark_swatch_keeps_its_edge() {
+        // The edge laid over the panel, as egui blends it.
+        let over = |edge: Color32, under: [u8; 3]| -> [f32; 3] {
+            let a = edge.a() as f32 / 255.0;
+            let [r, g, b, _] = edge.to_srgba_unmultiplied();
+            [r, g, b].iter().zip(under).map(|(&e, u)| e as f32 * a + u as f32 * (1.0 - a)).collect::<Vec<_>>().try_into().unwrap()
+        };
+        let panel = crate::gui::PANEL;
+        for dark in [[0x3a, 0x3c, 0x3e], [0x1c, 0x1c, 0x1e], [0x2a, 0x30, 0x22], [31, 29, 38]] {
+            let edge = over(swatch_edge(dark), [panel.r(), panel.g(), panel.b()]);
+            let l = 0.3 * edge[0] + 0.59 * edge[1] + 0.11 * edge[2];
+            assert!(l - lightness(dark) > 50.0 && l - lightness([panel.r(), panel.g(), panel.b()]) > 50.0, "{dark:?}: its edge {l}");
+        }
     }
 }

@@ -370,6 +370,25 @@ struct LevelState {
     terrain: Option<Box<crate::terrain::Terrain>>,
 }
 
+impl LevelState {
+    /// About how many bytes it holds.
+    fn bytes(&self) -> usize {
+        use std::mem::size_of;
+        let terrain = self.terrain.as_ref().map_or(0, |t| size_of::<crate::terrain::Terrain>() + t.heights.len() * 4 + t.shapes.len() * size_of::<crate::terrain::Shape>() + t.roughness.as_ref().map_or(0, Vec::len));
+        size_of::<Self>() + self.cells.len() * size_of::<Cell>() + self.table.len() * size_of::<BlockEntry>() + self.things.len() * size_of::<Thing>() + self.places.len() * size_of::<Place>() + self.areas.len() * size_of::<Area>() + terrain
+    }
+}
+
+/// About how many bytes a block holds.
+fn block_bytes(b: &Block) -> usize {
+    std::mem::size_of::<Block>() + b.voxels.len() + b.palette.len() * 3
+}
+
+/// About how many bytes a model's step keeps of it.
+fn shaped_bytes(s: &Shaped) -> usize {
+    s.frames.iter().map(block_bytes).sum::<usize>() + s.parts.len() * std::mem::size_of::<super::frames::Placed>() + s.palette.len() * std::mem::size_of::<super::frames::Colour>()
+}
+
 /// One step of the history, before and after.
 enum Step {
     Level(LevelState, LevelState),
@@ -382,6 +401,17 @@ enum Step {
 }
 
 impl Step {
+    /// About how many bytes it holds (what is kept of the level, the
+    /// block or the model before and after it).
+    fn bytes(&self) -> usize {
+        match self {
+            Step::Level(b, a) => b.bytes() + a.bytes(),
+            Step::Block(_, b, a) => block_bytes(b) + block_bytes(a),
+            Step::Delete(d) => block_bytes(&d.block) + d.before.bytes() + d.after.bytes(),
+            Step::Model(b, a) => shaped_bytes(b) + shaped_bytes(a),
+        }
+    }
+
     /// The step the other way (taking it back).
     fn reversed(&self) -> Step {
         match self {
@@ -404,12 +434,22 @@ struct Deletion {
     after: LevelState,
 }
 
+/// How many steps the editor keeps to take back, and how many bytes they
+/// may hold together (each keeps the level or the model before and after
+/// it whole): past either, the oldest go.
+pub const KEPT_STEPS: usize = 300;
+pub const KEPT_BYTES: usize = 256 << 20;
+
 /// The editor's steps: those to take back and to do again, the stroke
 /// going on, the colour whose material the last step set.
-#[derive(Default)]
 pub struct History {
     past: Vec<Step>,
     future: Vec<Step>,
+    /// How many of the oldest steps went (`bound`): the count of steps
+    /// ever taken is theirs and the past's (`count`).
+    dropped: usize,
+    /// At most so many steps and bytes kept (`KEPT_STEPS`, `KEPT_BYTES`).
+    keep: (usize, usize),
     /// The stroke going on: how the level or block stood when it began.
     stroke: Option<Step>,
     /// The colour whose material the last step set: the next setting of it
@@ -419,6 +459,35 @@ pub struct History {
     /// grown on the low sides), and since the view last followed them.
     grown: IVec3,
     pub moved: IVec3,
+}
+
+impl Default for History {
+    fn default() -> Self {
+        Self { past: Vec::new(), future: Vec::new(), dropped: 0, keep: (KEPT_STEPS, KEPT_BYTES), stroke: None, tuning: None, grown: IVec3::ZERO, moved: IVec3::ZERO }
+    }
+}
+
+impl History {
+    /// How many steps were ever taken and not taken back: those kept and
+    /// those gone (a drag compares it before and after, whatever went).
+    pub(super) fn count(&self) -> usize {
+        self.dropped + self.past.len()
+    }
+
+    /// The oldest steps gone while more are kept than `keep` allows (by
+    /// count, or by bytes with the steps to do again); the newest stays.
+    pub(super) fn bound(&mut self) {
+        let mut bytes: usize = self.past.iter().chain(&self.future).map(Step::bytes).sum();
+        let mut gone = 0;
+        while self.past.len() - gone > 1 && (self.past.len() - gone > self.keep.0 || bytes > self.keep.1) {
+            bytes -= self.past[gone].bytes();
+            gone += 1;
+        }
+        if gone > 0 {
+            self.past.drain(..gone);
+            self.dropped += gone;
+        }
+    }
 }
 
 /// BOX and SPHERE: the footprint being dragged out, the shape set last

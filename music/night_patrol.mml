@@ -1,7 +1,7 @@
-; Night Patrol: made by tools/compose.py from music/night_patrol.compose.toml
-; (dark, D minor, 108 bpm, seed 4). Run the recipe
-; again after changing it, or edit this file by hand. Chords from
-; free-midi-chords by Ludovic Drolez (MIT, tools/progressions.toml).
+; Night Patrol: made by Voxcade's composer (tools/compose.py in Voxcade's source)
+; from its recipe music/night_patrol.compose.toml (dark, D minor, 108 bpm,
+; seed 4). Neither comes with a game: change the song here, by hand.
+; Chords from free-midi-chords by Ludovic Drolez (MIT).
 ;
 ; A: im bIIM bIIIM bIIM (modal): Dm Eb F Eb
 ; B: bVIM bVIIm im bIIM (modal): Bb Cm Dm Eb

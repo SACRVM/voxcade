@@ -253,7 +253,8 @@ nearest; its replay `tests/two_ships`);
   (`ide/wizard.rs`, the user's: a wizard, not a command): the version it
   was made for and this one, the steps' dry run in their words, a word
   on changes git has not committed, UPGRADE on a thread, what was done
-  (COPY), REFIT THE REPLAYS (`replay::refit_saying`), then the game; a
+  (COPY; not the line naming `voxcade check --refit`, which REFIT THE
+  REPLAYS below does), REFIT THE REPLAYS (`replay::refit_saying`), then the game; a
   game of a newer Voxcade is told to get the update. A `conf.lua` stating
   no `c.voxcade` is taken as made before 0.6.0, but where no step finds
   anything to change it opens (`Standing::Current`), the missing line said
@@ -360,7 +361,15 @@ nearest; its replay `tests/two_ships`);
   fingerprint, is made, the same byte for byte, test
   `highlighting_keeps_the_fingerprint`; Lua reads the text after every
   change and marks the line it cannot; the API's names offered after
-  `world:` and the like, from `lua::api`), saved a second after the last
+  `world:` and the like, from `lua::api`; Enter keeps the line's indent,
+  two spaces more after `then`, `do`, `else`, `repeat`, a function's head
+  or an open bracket, Tab and Shift+Tab indent the lines chosen by two
+  spaces or take them away, each one step of the text's undo; the
+  bracket at the cursor marked with its partner; the line numbers
+  painted where the view begins, so they stay when a long line scrolls
+  sideways; the text's and the numbers' layouts kept while they show the
+  same, `code::Laid`: a still frame of 3,000 lines 0.6 ms, was 3.1),
+  saved a second after the last
   change (`ide/buffer.rs`, a journal in the config folder against
   crashes; a change on disk comes in, or the IDE asks whose to keep).
   PLAY plays the game in the main area (`ide/play.rs`, no title or
@@ -395,7 +404,8 @@ nearest; its replay `tests/two_ships`);
   read after every change by `audio::sound::read`, its mistake "LINE n:
   why" with the line marked, comments, strings and numbers coloured, no
   completion yet), a line of words of what it is (`ide/sounds.rs`), PLAY
-  SOUND (the text as it stands rendered by `SoundBank::put`, through a
+  SOUND only where the maker is not over the text (one PLAY for a sound;
+  the text as it stands rendered by `SoundBank::put`, through a
   speaker of its own at the game's sound volume and the player's) and
   under the text USED: the lines of the game's Lua that name it in quotes,
   a click opening the file there (`sounds::used`, where songs naming a
@@ -403,10 +413,13 @@ nearest; its replay `tests/two_ships`);
   sound maker (`ide/maker.rs`, the sfxr family's way): COIN, JUMP, SHOT,
   BLAST, HIT, POWER UP, BLIP roll a fresh sound of the sort from a small
   table of ranges and play it (a dice before them their sign; the same
-  sort again rolls another), UNDO a step back, PLAY and LOOP (again
-  and again with a short pause, the user's idea) before them; a roll is rendered and measured before it is shown
+  sort again rolls another), PLAY, LOOP (again
+  and again with a short pause, the user's idea) and UNDO a step back
+  before them, the sorts on a row of their own where the room is short;
+  a roll is rendered and measured before it is shown
   (`maker::good`), the faders PITCH, LENGTH, SLIDE, BRIGHT, PUNCH move
-  words of their own; every change rewrites the text through `toml_edit`
+  words of their own, as many a row as the room takes (three and two at
+  1024 wide; test `the_sound_page_has_one_play_and_its_faders_fit`); every change rewrites the text through `toml_edit`
   (comments kept) into the buffer as typing does, one step of the text
   edit's undo (UNDO and Ctrl+Z alike). A song (`.mml`) is text to change
   too, parsed after every change (`music::parse`), PLAY SONG plays the text
@@ -430,7 +443,7 @@ nearest; its replay `tests/two_ships`);
   match marked and the current one scrolled to; Ctrl+H or its arrow shows
   REPLACE WITH, REPLACE and REPLACE ALL, each one step of the text's undo.
   Ctrl+Shift+F or SEARCH in the bar searches the game in the list's place
-  (on a thread, the files the list shows that open as text: logic,
+  (the panel a third of the window wide meanwhile, up to 560 points; on a thread, the files the list shows that open as text: logic,
   scenarios, sounds, songs, models, no levels), a line clicked opens its
   file there with the word current; `--shot --find WORD [--replace TEXT]`,
   `--search WORD [--hit N]`. (Go to definition, references and rename are
@@ -538,7 +551,11 @@ nearest; its replay `tests/two_ships`);
   SDL, Lua and egui's fonts). The program started without anything opens
   the launcher (`ide/projects.rs`, `StartPage`: the games beside the
   program and the user's own, PLAY in a window of its own, EDIT in the
-  IDE, NEW GAME, the line about new versions; each game a card with
+  IDE (on a game beside the program it asks over the picture first: MAKE
+  A COPY into the projects folder, `projects::copy_game`, the copy
+  opened, or EDIT HERE, which an update replaces; `ide --shot --open
+  edit:FOLDER`), NEW GAME (and a tile + NEW GAME under YOUR GAMES while
+  there are none), the line about new versions; each game a card with
   its picture, `cover.png` in its folder, 480 by 270, a shot of the
   game; without one the card shows its name; of the games beside the
   program only those with a cover are listed, and the package leaves
@@ -1656,7 +1673,28 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   F1 (and Esc) shows the keys of what is open on one page
   (`editor/keys.rs`, the owner's D8): the buttons' keys with their words,
   the scope's own, those everywhere, the mouse's; each small button's
-  tooltip ends with its key; `--shot --menu keys`. A kind's `facing` is
+  tooltip ends with its key; `--shot --menu keys`. UNDO and REDO are
+  Ctrl+Z and Ctrl+Y as everywhere (`zones::main_keys`: their tooltips and
+  F1 say those; U and R still work, unsaid on the buttons). GRID (beside
+  the view's corner buttons, lit when the voxel editor opens; never in
+  GAME VIEW or a level): faint lines along the voxels' edges on the faces
+  the eye sees, where a voxel spans 7 points or more
+  (`editor/cell_lines.rs`, egui lines over the view, an edge drawn where
+  its middle is seen; kept while the view and the voxels stay; not over a
+  figure whose parts are turned or posed). A level's blocks are pictured
+  from above and the front at once, as the level is seen
+  (`view::above_front`: a level seen from above its tops whole, else its
+  fronts), so grass, a path and a pond differ; among the pieces each row
+  ends in its place, quiet (two gems told apart). ROTATE's fields run X,
+  Y, Z as POSITION's, in the handles' colors: pitch, roll, rotation (the
+  file's words, on hover); a new piece faces the camera, rotation 180
+  (north 0). A dark swatch keeps a light edge (`shaping::swatch_edge`).
+  Undo keeps at most `KEPT_STEPS` steps and `KEPT_BYTES` bytes of them
+  (each holds the level or model before and after), the oldest going
+  (`History::bound`; `Editor::steps` still counts them); test
+  `undo_keeps_a_bounded_number_of_steps_and_bytes`. `--joint` sets a
+  joint from the pivot, as the file and the printed tree have it (test
+  `the_joint_flag_is_from_the_pivot`). A kind's `facing` is
   how the editor draws it too (`view::start_way`), the title's logo opens
   from its y-0 side (`Face::Logo`), a joint set by hand is never LOOSE.
   In the voxel editor the level round a model (CONTEXT) and a selection's
@@ -1711,6 +1749,12 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `editor/tools.rs` `Editor::shift_pick`, `end_drag`, `release`; `rig.rs`
   `follow_figure`, `move_part`, `move_part_by`, `grab_joint`, `rest_view`,
   `pin_rig`; `forms.rs` BOX and SPHERE; `history.rs` undo and redo;
+  `shot.rs` `voxcade edit --shot` (`ShotOptions`, `shot` and its flags'
+  steps: `choose_part`, `shape_parts`, `try_pieces`, `set_view`,
+  `pointer_flags`, `print_facts`) and the windowless writes;
+  `window.rs` `EditorWindow` (`handle` by the event's kind: `key_down`,
+  `Here::motion`, `Here::left_down`, `Here::right_up`; `draw`);
+  `cell_lines.rs` GRID;
   `cells.rs`; `model_file.rs`; `picture.rs` `view::frame`; `shown.rs`
   `Shown::update_land`; `figures.rs` `Figures`; `actions.rs` `act`;
   `aim.rs`; `marks.rs`. A level's GAME VIEW looks where the game's camera

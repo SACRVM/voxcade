@@ -1,7 +1,7 @@
-; Quiet Warehouse: made by tools/compose.py from music/quiet_warehouse.compose.toml
-; (calm, A minor, 76 bpm, seed 2). Run the recipe
-; again after changing it, or edit this file by hand. Chords from
-; free-midi-chords by Ludovic Drolez (MIT, tools/progressions.toml).
+; Quiet Warehouse: made by Voxcade's composer (tools/compose.py in Voxcade's source)
+; from its recipe music/quiet_warehouse.compose.toml (calm, A minor, 76 bpm,
+; seed 2). Neither comes with a game: change the song here, by hand.
+; Chords from free-midi-chords by Ludovic Drolez (MIT).
 ;
 ; A: i VI III VII (minor): Am F C G
 ; B: VI7 VII6 i VII6 (minor): Fmaj7 G6 Am G6

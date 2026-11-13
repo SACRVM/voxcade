@@ -446,6 +446,11 @@ fn shot_start(opts: &ShotOptions, message: Option<String>, found: Option<(PathBu
     if let Some(name) = opts.open.as_deref().and_then(|o| o.strip_prefix("new:")) {
         page.show_new(name);
     }
+    // `--open edit:FOLDER`: EDIT pressed on a game that came with the
+    // program, its card asking MAKE A COPY or EDIT HERE.
+    if let Some(name) = opts.open.as_deref().and_then(|o| o.strip_prefix("edit:")) {
+        anyhow::ensure!(page.show_asking(name), "--open edit:{name}: no game of that folder comes with the program");
+    }
     let mut canvas = crate::headless::Canvas::new(opts.width, opts.height, false)?;
     let ctx = egui::Context::default();
     crate::gui::style(&ctx);

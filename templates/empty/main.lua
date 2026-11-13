@@ -1,13 +1,15 @@
--- A ground, and the players their keys walk about. Everything that
--- changes while playing goes into a state: world.state for the run,
--- level.state for the level being played and its things, player.state
--- (p.state: each player's), thing.state; voxcade api lists what there is.
--- The IDE's HELP has whole examples to copy. When this walks about to
--- your liking, the platformer template (NEW GAME) is the next step: it
--- adds jumping, enemies, pickups and a goal.
+-- An empty game: some ground, and players who walk around on it.
+-- Anything that changes during play is kept in a state:
+--   world.state   for the whole run
+--   level.state   for the level being played
+--   player.state  for each player (p.state)
+--   thing.state   for each thing
+-- HELP (top right) has whole examples to copy. "voxcade api" lists every
+-- name. Ready for more? Start a new game from the JUMP & RUN template:
+-- it adds jumping, enemies, pickups and a goal.
 
--- The ground in layers, from the bottom up: each a colour and how many
--- voxels thick. Whatever digs or blasts into it lays the next one bare.
+-- The ground, in layers from the bottom up: a color and a thickness in
+-- voxels. Digging or a blast uncovers the layer below.
 local GROUND = {
   { "#6f6f73", 4 },   -- stone
   { "#6b5138", 3 },   -- earth
@@ -24,17 +26,15 @@ function on_level_start(how)
 end
 
 function on_tick()
-  -- level:players(): those playing, each with its own keys; p.input.dir
-  -- is its arrow keys (or its stick) as a direction
+  -- level:players() lists everyone playing. p.input.dir is that
+  -- player's arrow keys (or stick) as a direction.
   for _, p in ipairs(level:players()) do
     p:walk(p.input.dir, 40)
   end
 end
 
--- Each player's figure, a model (hero.vvx, hero2.vvx: reshape them in
--- the voxel editor): frame:model draws it where the player is on its way
--- from tick to tick, so it glides. PLAYER 2: PRESS START at the top right while a
--- seat is free.
+-- Draw each player with its model (hero.vvx, hero2.vvx). Double-click a
+-- model in the list to change it. A free seat says how to join.
 function on_draw(frame)
   for _, p in ipairs(level:players()) do
     frame:model(p.seat == 2 and "hero2.vvx" or "hero.vvx", p)
