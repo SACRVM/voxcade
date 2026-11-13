@@ -1751,3 +1751,98 @@ fn the_project_search_opens_the_line_found() {
     key(&ctx, &mut shell, egui::Key::Escape);
     assert!(!shell.search.shown, "Escape shows the list again");
 }
+
+/// A frame at `size` and the texts it drew with the room each takes.
+fn drawn_rects(ctx: &egui::Context, shell: &mut Shell, size: egui::Vec2) -> Vec<(String, egui::Rect)> {
+    let time = ctx.input(|i| i.time) + 0.1;
+    let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)), time: Some(time), ..Default::default() };
+    let out = ctx.run_ui(raw, |ui| shell.ui(ui));
+    out.shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Text(t) => Some((t.galley.text().to_string(), t.galley.rect.translate(t.pos.to_vec2()))),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The button with `word` in the main area (right of the list), by where it was drawn.
+fn button_in_main(ctx: &egui::Context, shell: &mut Shell, word: &str) -> egui::Pos2 {
+    drawn_text(ctx, shell, vec![]).into_iter().find(|(t, at)| t == word && at.x > 300.0).unwrap_or_else(|| panic!("no button {word}")).1
+}
+
+/// The row over an open file never runs into its buttons: in a narrow
+/// window the line of facts is cut with "…" and ends left of SAVED (a
+/// sound, a song, a script, a model), in a wide one it is whole.
+#[test]
+fn the_row_over_a_file_leaves_its_buttons_their_room() {
+    let (dir, _, mut shell) = managed_game("header-row");
+    std::fs::write(dir.join("sounds/coin.toml"), "wave = \"triangle\"\nfreq = 880\nhold = 0.04\ndecay = 0.16\nsweep = -12\njump = 7\njump_at = 0.05\n").unwrap();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut shell);
+    let mut widths = Vec::new();
+    for (file, facts) in [("sounds/coin.toml", "0.2"), ("music/tune.mml", "TUNE"), ("hero.vvx", "MODEL"), ("main.lua", "")] {
+        shell.open(file);
+        for width in [860.0, 1280.0, 1920.0] {
+            let size = egui::vec2(width, 720.0);
+            drawn_rects(&ctx, &mut shell, size);
+            let texts = drawn_rects(&ctx, &mut shell, size);
+            let in_main: Vec<_> = texts.iter().filter(|(_, r)| r.min.x > 250.0 && r.min.y < 110.0).collect();
+            let name = in_main.iter().find(|(t, _)| t == file).unwrap_or_else(|| panic!("{file} at {width}: {in_main:?}")).1;
+            let buttons_from = in_main.iter().filter(|(t, _)| ["RENAME", "DELETE", "SAVED", "FIND", "EDIT", "TEXT", "PLAY SONG", "PLAY SOUND"].contains(&t.as_str())).map(|(_, r)| r.min.x).fold(f32::MAX, f32::min);
+            assert!(name.max.x <= buttons_from, "{file} at {width}: the path runs into the buttons");
+            if let Some((line, r)) = in_main.iter().find(|(t, _)| !facts.is_empty() && t.starts_with(facts) && t != file) {
+                assert!(r.max.x <= buttons_from, "{file} at {width}: {line:?} runs into the buttons");
+                widths.push((file, width, r.width()));
+            }
+        }
+    }
+    // The sound's long line is cut in the narrow window, whole in the wide one.
+    let of = |w: f32| widths.iter().find(|(f, width, _)| *f == "sounds/coin.toml" && *width == w).map(|x| x.2).unwrap();
+    assert!(of(860.0) < of(1920.0), "{widths:?}");
+    clean_up(&dir, &shell);
+}
+
+/// TEXT on a model shows its text and PICTURE brings the picture back: the
+/// button unloads the file in the middle of the frame, and nothing below it
+/// may expect what was loaded.
+#[test]
+fn a_model_goes_to_its_text_and_back() {
+    let (dir, _, mut shell) = managed_game("model-text");
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut shell);
+    shell.open("hero.vvx");
+    frame(&ctx, &mut shell);
+    frame(&ctx, &mut shell);
+    assert!(shell.preview.is_some() && !matches!(shell.shown, Some(Shown::Code(_))), "the picture first");
+    let at = button_in_main(&ctx, &mut shell, "TEXT");
+    click(&ctx, &mut shell, at);
+    assert!(shell.model_text && matches!(shell.shown, Some(Shown::Code(_))), "the text shows");
+    assert!(shell.preview.is_none());
+    let at = button_in_main(&ctx, &mut shell, "PICTURE");
+    click(&ctx, &mut shell, at);
+    assert!(!shell.model_text && !matches!(shell.shown, Some(Shown::Code(_))) && shell.preview.is_some(), "the picture is back");
+    clean_up(&dir, &shell);
+}
+
+/// The other buttons that change what is shown in the middle of a frame:
+/// PLAY SCENARIO asks for the game and leaves the text, MAKE IT YOURS makes
+/// the file and opens it as text.
+#[test]
+fn buttons_that_change_what_is_shown_leave_a_whole_frame() {
+    let (dir, _, shell) = managed_game("mid-frame");
+    let mut shell = shell.with_sounds(crate::audio::core_sounds());
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut shell);
+    shell.open("scenarios/late.lua");
+    frame(&ctx, &mut shell);
+    let at = button_in_main(&ctx, &mut shell, "PLAY SCENARIO");
+    click(&ctx, &mut shell, at);
+    assert!(shell.take_asks().iter().any(|a| matches!(a, Ask::Play(Some(n)) if n == "late")));
+    shell.builtin = Some("explosion");
+    frame(&ctx, &mut shell);
+    let at = button_in_main(&ctx, &mut shell, "MAKE IT YOURS");
+    click(&ctx, &mut shell, at);
+    assert!(dir.join("sounds/explosion.toml").exists() && matches!(shell.shown, Some(Shown::Code(_))));
+    clean_up(&dir, &shell);
+}

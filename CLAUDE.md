@@ -405,7 +405,9 @@ nearest; its replay `tests/two_ships`);
   edit's undo (UNDO and Ctrl+Z alike). A song (`.mml`) is text to change
   too, parsed after every change (`music::parse`), PLAY SONG plays the text
   as it stands. Every text one can change says SAVED or NOT SAVED YET above
-  it, left of the buttons, and Ctrl+S saves at once. RENAME and DELETE
+  it, left of the buttons (the path and the line of facts take the room left
+  of them and are cut with "…", full text on hover: `main_area::header_row`),
+  and Ctrl+S saves at once. RENAME and DELETE
   (`ide/shell/manage.rs`; a right click on a row, and small beside SAVED
   over the open file) for the logic, scenarios, models, sounds, songs,
   images and the rest, not `main.lua`/`conf.lua`, levels or blocks (off
