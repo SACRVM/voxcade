@@ -426,6 +426,12 @@ mod tests {
         // Right at the edge is inside.
         assert!(std::fs::write(&file, pieces([8, 8, 8], "[[area]]\nname = \"pit\"\nat = [4, 4, 0]\nsize = [4, 4, 8]\n")).is_ok());
         assert!(load::<Game>(&Files::folder(&dir), &GameConfig::default()).is_ok());
+        // Above the level the sky is open: a thing on its top layer, a
+        // lamp hanging high over it; under its floor is outside.
+        std::fs::write(&file, pieces([8, 8, 8], "[[thing]]\nname = \"lamp\"\nat = [2, 2, 40]\nlight = { radius = 20 }\n")).unwrap();
+        assert!(load::<Game>(&Files::folder(&dir), &GameConfig::default()).is_ok());
+        let e = why("[[thing]]\nname = \"lamp\"\nat = [2, 2, -1]\nlight = { radius = 20 }\n");
+        assert!(e.contains("stands outside the level") && e.contains("y 0 to 7, z from 0 up"), "{e}");
         let e = why("[[thing]]\nkind = \"slimee\"\nat = [1, 1, 1]\n");
         assert!(e.contains("line 5: thing at [1, 1, 1]: 'slimee' is no kind of thing"), "{e}");
         std::fs::remove_file(&file).unwrap();

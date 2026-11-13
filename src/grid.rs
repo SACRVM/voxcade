@@ -2016,17 +2016,17 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], fr
 
 /// The mistake for the first thing, place or area of a level that lies
 /// outside its world (`size` voxels, the grid's low corner at `origin`):
-/// a thing or a place by where it stands, an area whole. None when all lie
-/// within. The editor reads such a level all the same, to drag it back.
+/// a thing or a place by where it stands, an area whole. Above the world
+/// the sky is open (a thing stands on the top layer, a lamp hangs over a
+/// floor, something comes down into the level): no limit upwards. None
+/// when all lie within. The editor reads such a level all the same, to
+/// drag it back.
 pub fn outside_mistake(level: &GridLevel, origin: IVec3, size: IVec3) -> Option<String> {
-    let (low, high) = (-origin, size - origin);
-    let inside = |at: IVec3, extent: IVec3| at.cmpge(low).all() && (at + extent).cmple(high).all();
+    let v = level.voxels();
+    let (low, high) = (-origin, (size - origin).with_z(i32::MAX));
+    let inside = |at: IVec3, extent: IVec3| at.cmpge(low).all() && (at.as_i64vec3() + extent.as_i64vec3()).cmple(high.as_i64vec3()).all();
     let line = |n: usize| if n > 0 { format!("line {n}: ") } else { String::new() };
-    let room = || {
-        let v = level.voxels();
-        let span = |a: usize| if low[a] == 0 && high[a] == v[a] { format!("0 to {}", high[a] - 1) } else { format!("{} to {}", low[a], high[a] - 1) };
-        format!("the level is {} by {} by {} voxels: x {}, y {}, z {}", v.x, v.y, v.z, span(0), span(1), span(2))
-    };
+    let room = || format!("the level is {} by {} by {} voxels: x {} to {}, y {} to {}, z from {} up", v.x, v.y, v.z, low.x, high.x - 1, low.y, high.y - 1, low.z);
     if let Some(t) = level.things.iter().find(|t| !inside(IVec3::from(t.at), IVec3::ONE)) {
         let [x, y, z] = t.at;
         let what = t.name.clone().or_else(|| t.model.clone()).unwrap_or_else(|| t.kind.clone());

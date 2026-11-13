@@ -346,10 +346,10 @@ impl MapData {
                 if prefab.is_some() == thing.is_some() {
                     return Err(r.fail(at_item.span(), "a [[put]] is a prefab = \"name\" or a thing = \"kind\", one of them"));
                 }
-                if let Some(axis) = (0..at.len()).find(|&a| at[a] < 0 || at[a] >= size[a]) {
+                if let Some(axis) = (0..at.len()).find(|&a| at[a] < 0 || (a < 2 && at[a] >= size[a])) {
                     let shown = at.iter().map(i32::to_string).collect::<Vec<_>>().join(", ");
                     let axis = ["x", "y", "z"][axis];
-                    return Err(r.fail(at_item.span(), format!("at = [{shown}]: {axis} lies outside the map, which is {} by {} by {} voxels (x 0 to {}, y 0 to {}, z 0 to {})", size.x, size.y, size.z, size.x - 1, size.y - 1, size.z - 1)));
+                    return Err(r.fail(at_item.span(), format!("at = [{shown}]: {axis} lies outside the map, which is {} by {} by {} voxels (x 0 to {}, y 0 to {}, z from 0 up: the sky over it is open)", size.x, size.y, size.z, size.x - 1, size.y - 1)));
                 }
                 let rotation = whole(t, "rotation", 0)?;
                 if rotation % 90 != 0 {
@@ -365,9 +365,9 @@ impl MapData {
                 let name = text(t, "name", "name")?.ok_or_else(|| anyhow!("a place has no name"))?;
                 let at_item = t.get("at").ok_or_else(|| anyhow!("place '{name}' has no at = [x, y, z]"))?;
                 let at = r.ints(at_item, "at")?.to_array();
-                if let Some(axis) = (0..3).find(|&a| at[a] < 0 || at[a] >= size[a]) {
+                if let Some(axis) = (0..3).find(|&a| at[a] < 0 || (a < 2 && at[a] >= size[a])) {
                     let axis = ["x", "y", "z"][axis];
-                    return Err(r.fail(at_item.span(), format!("place '{name}' at [{}, {}, {}]: {axis} lies outside the map, which is {} by {} by {} voxels (x 0 to {}, y 0 to {}, z 0 to {})", at[0], at[1], at[2], size.x, size.y, size.z, size.x - 1, size.y - 1, size.z - 1)));
+                    return Err(r.fail(at_item.span(), format!("place '{name}' at [{}, {}, {}]: {axis} lies outside the map, which is {} by {} by {} voxels (x 0 to {}, y 0 to {}, z from 0 up: the sky over it is open)", at[0], at[1], at[2], size.x, size.y, size.z, size.x - 1, size.y - 1)));
                 }
                 let facing = match t.get("facing") {
                     None => None,
@@ -860,11 +860,12 @@ mod tests {
             format!("{:#}", MapData::read(&text.replacen(from, to, 1)).expect_err("a mistake"))
         };
         let e = why("at = [10, 12]", "at = [-99999, 12]");
-        assert!(e.starts_with(&format!("line {}:", line_of("at = [10, 12]"))) && e.contains("x lies outside the map, which is 64 by 48 by 20 voxels (x 0 to 63, y 0 to 47, z 0 to 19)"), "{e}");
+        assert!(e.starts_with(&format!("line {}:", line_of("at = [10, 12]"))) && e.contains("x lies outside the map, which is 64 by 48 by 20 voxels (x 0 to 63, y 0 to 47, z from 0 up: the sky over it is open)"), "{e}");
         let e = why("at = [0, 47, 3]", "at = [0, 48, 3]");
         assert!(e.starts_with(&format!("line {}:", line_of("at = [0, 47, 3]"))) && e.contains("y lies outside the map"), "{e}");
-        let e = why("at = [0, 47, 3]", "at = [0, 47, 20]");
+        let e = why("at = [0, 47, 3]", "at = [0, 47, -1]");
         assert!(e.contains("z lies outside the map"), "{e}");
+        assert!(MapData::read(&text.replacen("at = [0, 47, 3]", "at = [0, 47, 30]", 1)).is_ok(), "the sky over the map is open");
         let e = why("at = [5, 6, 2]", "at = [5, 6, -1]");
         assert!(e.starts_with(&format!("line {}:", line_of("at = [5, 6, 2]"))) && e.contains("place 'start' at [5, 6, -1]: z lies outside the map"), "{e}");
         let e = why("rotation = 90", "rotation = 45");
