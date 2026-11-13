@@ -657,7 +657,7 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<(String, Action, Option<&'st
             }
         }
         // (The voxel editor's: `shaping::menu_entries`.)
-        MenuOn::Voxel(..) | MenuOn::Frame(_) | MenuOn::Part(_) | MenuOn::Block(_) | MenuOn::MergeWith(_) => {}
+        MenuOn::Voxel(..) | MenuOn::Frame(_) | MenuOn::Part(_) | MenuOn::Block(_) | MenuOn::MergeWith(_) | MenuOn::Selection | MenuOn::ToPart => {}
     }
     entries
 }

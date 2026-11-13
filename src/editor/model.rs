@@ -35,6 +35,8 @@ pub mod room;
 pub mod disk;
 #[path = "parts.rs"]
 pub mod parts;
+#[path = "selection.rs"]
+pub mod selection;
 pub use room::{Field, Hanging, Item};
 
 /// A joint's arrow being dragged: the drag, the handles as they were at
@@ -113,6 +115,13 @@ pub enum Tool {
     Box,
     /// The same, an ellipsoid in that box.
     Sphere,
+    /// In a block or a model: voxels selected by a box drawn as BOX's
+    /// (into the voxels), or a double click (the color connected); worked
+    /// on at the selection (`selection.rs`).
+    Select,
+    /// The bucket: the connected voxels of the color clicked take the held
+    /// one (Ctrl: all of that color there).
+    Fill,
 }
 
 impl Tool {
@@ -125,7 +134,7 @@ impl Tool {
             (Scope::Level, Layer::Pieces) => &[],
             // (The figure whole: a press on a part chooses it, and the tool
             // works there at once.)
-            (Scope::Block(_) | Scope::Frame(_) | Scope::Figure, _) => &[Tool::Add, Tool::Remove, Tool::Paint, Tool::Deep, Tool::Box, Tool::Sphere, Tool::Pick],
+            (Scope::Block(_) | Scope::Frame(_) | Scope::Figure, _) => &[Tool::Add, Tool::Remove, Tool::Paint, Tool::Fill, Tool::Deep, Tool::Box, Tool::Sphere, Tool::Select, Tool::Pick],
         }
     }
 
@@ -143,6 +152,8 @@ impl Tool {
             (_, _, Tool::Pick) => "PICK",
             (_, _, Tool::Box) => "BOX",
             (_, _, Tool::Sphere) => "SPHERE",
+            (_, _, Tool::Select) => "SELECT",
+            (_, _, Tool::Fill) => "FILL",
         }
     }
 }
@@ -493,6 +504,14 @@ pub struct Editor {
     /// `frame:model`'s), kept when POSE goes off (drawn again when it
     /// comes back) until RESET or the editor closes.
     pub posing: bool,
+    /// SELECT: the voxels selected, the box drawn last (for + and -), the
+    /// arrows' drag, COPY's voxels, and whether a move keeps what it lands
+    /// on (Alt).
+    pub selection: Option<selection::Selection>,
+    pub select_box: Option<selection::SelectBox>,
+    sel_drag: Option<selection::SelDrag>,
+    pub clipboard: Option<selection::Clip>,
+    pub sel_keep: bool,
     pub pose: std::collections::BTreeMap<String, [f32; 3]>,
 }
 
@@ -573,6 +592,11 @@ impl Editor {
             painting_whole: false,
             acting: None,
             posing: false,
+            selection: None,
+            select_box: None,
+            sel_drag: None,
+            clipboard: None,
+            sel_keep: false,
             pose: std::collections::BTreeMap::new(),
         })
         .map(|mut ed: Self| {
@@ -670,6 +694,11 @@ impl Editor {
             painting_whole: false,
             acting: None,
             posing: false,
+            selection: None,
+            select_box: None,
+            sel_drag: None,
+            clipboard: None,
+            sel_keep: false,
             pose: std::collections::BTreeMap::new(),
         })
         .map(|mut ed: Self| {
@@ -713,6 +742,7 @@ impl Editor {
     pub fn choose(&mut self, tool: Tool) {
         if tool != self.tool {
             self.fresh = None;
+            self.select_box = None;
         }
         if tool == Tool::Pick && self.tool != Tool::Pick {
             self.before_pick = self.tool;
@@ -1108,7 +1138,7 @@ impl Editor {
 
     /// Whether the tool is BOX or SPHERE (in a block or a model).
     pub fn forms(&self) -> bool {
-        matches!(self.tool, Tool::Box | Tool::Sphere) && self.scope != Scope::Level
+        matches!(self.tool, Tool::Box | Tool::Sphere | Tool::Select) && self.scope != Scope::Level
     }
 
     /// BOX or SPHERE pressed at a hit: a footprint begins on the face's
@@ -1215,6 +1245,10 @@ impl Editor {
     /// it is fresh, in place (its step still one); else the depth the next
     /// footprint gets (the one being dragged out too).
     pub fn deepen(&mut self, by: i32) {
+        // SELECT: the box drawn last, selected again deeper.
+        if self.tool == Tool::Select && self.deepen_select(by) {
+            return;
+        }
         let Some(mut fresh) = self.take_fresh_back() else {
             self.depth = (self.depth + by).clamp(1, 256);
             return;
@@ -1316,6 +1350,8 @@ impl Editor {
     pub fn undo(&mut self) {
         self.release();
         self.fresh = None;
+        self.selection = None;
+        self.select_box = None;
         self.tuning = None;
         self.tuned = None;
         // Another program's change first: then there is nothing to take
@@ -1332,6 +1368,8 @@ impl Editor {
     pub fn redo(&mut self) {
         self.release();
         self.fresh = None;
+        self.selection = None;
+        self.select_box = None;
         self.tuning = None;
         self.tuned = None;
         self.look_at_disk();
@@ -1999,6 +2037,13 @@ impl Editor {
     /// voxels, those hanging on it along, until let go (one step) or
     /// Escape (back as it was, no step).
     pub fn grab_part(&mut self, drag: super::handles::Drag, h: super::handles::Handles) -> bool {
+        // A selection's arrow: its voxels dragged.
+        if self.selection().is_some() && !self.posing {
+            self.release();
+            self.grab_selection();
+            self.joint_drag = Some(JointDrag { drag: Some((drag, h)), start: Vec3::ZERO, steps: self.past.len(), moved: false, part: true, applied: IVec3::ZERO, ring: None, rest: [0.0; 3], fine: false });
+            return true;
+        }
         // (The figure whole: its arrows move every part.)
         if self.chosen().is_none() && self.scope != Scope::Figure {
             return false;
@@ -2023,6 +2068,10 @@ impl Editor {
     }
 
     pub fn part_handles(&self, view_proj: glam::Mat4) -> Option<super::handles::Handles> {
+        // A selection: its arrows (MOVE), whatever is chosen.
+        if let Some(h) = self.selection_handles(view_proj) {
+            return Some(h);
+        }
         // POSE: only its rings.
         if self.posing {
             return self.rest_rings(view_proj);
@@ -2133,7 +2182,8 @@ impl Editor {
         if let Some((drag, h)) = &mut d.drag {
             // The part: the grid shown goes with it, so the ray and the
             // view as they were at the press.
-            let back = d.applied.as_vec3();
+            // (A selection's: the grid moves only where a box grows.)
+            let back = self.selection_drift().unwrap_or(d.applied.as_vec3());
             let vp = view_proj * glam::Mat4::from_translation(-back);
             let amount = drag.amount(h, vp, screen, mouse, (ray.0 + back, ray.1));
             // A ring (ROTATE): the part's rest rotation about its joint,
@@ -2165,6 +2215,15 @@ impl Editor {
                 }
                 _ => (h.direction(drag.grip).unwrap_or(Vec3::ZERO) * amount).round().as_ivec3(),
             };
+            if self.sel_drag.is_some() {
+                if to != d.applied {
+                    let joined = d.moved && self.past.len() > d.steps;
+                    self.move_selection_to(to, self.sel_keep, joined);
+                    (d.applied, d.moved) = (to, true);
+                }
+                self.joint_drag = Some(d);
+                return;
+            }
             if to != d.applied {
                 self.join_next = d.moved && self.past.len() > d.steps;
                 self.move_part(to - d.applied);
@@ -2196,6 +2255,15 @@ impl Editor {
     /// Escape while a joint is dragged: as it was, no step.
     pub fn cancel_joint(&mut self) -> bool {
         let Some(d) = self.joint_drag.take() else { return false };
+        // A selection dragged: back where it was, no step.
+        if let Some(s) = self.sel_drag.take() {
+            if d.moved && self.past.len() > d.steps {
+                self.undo();
+                self.future.pop();
+            }
+            self.selection = Some(s.selection().clone());
+            return true;
+        }
         // A pose dragged: as it was.
         if self.posing && d.part && d.drag.as_ref().is_some_and(|(g, _)| matches!(g.grip, super::handles::Grip::Ring(_))) {
             for axis in 0..3 {

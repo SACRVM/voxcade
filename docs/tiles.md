@@ -84,6 +84,14 @@ hard on the eyes); calm, few tools in view, large and readable.
   the rings, nothing saved, the pose as Lua to COPY; GAME VIEW shows the
   figure as the game draws it (camera, light, shading, outline), posed
   while POSE is lit.
+- A selection (2026-11-13): SELECT (L) draws a box into the voxels as BOX
+  draws one (+ and - deeper), or a double click takes the color
+  connected; Ctrl adds, Escape clears. Its arrows move the voxels (Alt:
+  what they land on stays), SELECTION at the inspector's foot and its
+  menu DUPLICATE, REMOVE, PAINT,
+  FLIP, ROTATE, NEW PART, MOVE TO PART…, COPY, PASTE; in the figure whole
+  it may span parts. FILL (W) is the bucket (Ctrl: every voxel of the
+  color). A swatch's right click: REPLACE WITH HELD, REMOVE.
 - Without the window (2026-11-12): `voxcade edit GAME --model FILE
   [--frame N | --part NAME] --clear X0,Y0,Z0 --to X1,Y1,Z1` and `--fill
   SIGN|#rrggbb --from X0,Y0,Z0 --to X1,Y1,Z1`, both corners in, from the

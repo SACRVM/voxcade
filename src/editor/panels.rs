@@ -549,6 +549,43 @@ mod tests {
         assert_eq!(moving.rects[3..], rotating.rects[3..], "model: the bar moved");
     }
 
+    /// A bar that comes under the pointer takes no click until the pointer
+    /// has moved a few pixels or 300 ms have passed (a double click's
+    /// second click never lands on what the first put there); then it does.
+    #[test]
+    fn a_new_bar_takes_no_click_at_once() {
+        use crate::editor::model::room::Item;
+        let dir = crate::scratch::Scratch::new("bar-arm");
+        std::fs::write(dir.join("room.toml"), crate::grid::tests::PIECES).unwrap();
+        let mut ed = Editor::open(&dir, "room.toml").unwrap();
+        let mut view = View::new(&ed, &GameConfig::default());
+        let ctx = egui::Context::default();
+        crate::gui::style(&ctx);
+        let (figures, mut thumbs) = (Figures::load(&ed.dir, &GameConfig::default()), Thumbs::default());
+        let frame = |ed: &Editor, view: &View, thumbs: &mut Thumbs, t: f64, events: Vec<egui::Event>| -> Shown {
+            let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 900.0))), time: Some(t), events, ..Default::default() };
+            let mut out = None;
+            let _ = ctx.run_ui(raw, |ui| out = Some(super::ui(ui, ed, view, &figures, thumbs)));
+            out.unwrap()
+        };
+        // Where the chair's bar will come: found once, then the bar gone.
+        act(&mut ed, &mut view, Action::ChooseItem(Some(Item::Thing(3))));
+        let bar = frame(&ed, &view, &mut thumbs, 0.0, vec![]).rects[3];
+        let at = bar.left_center() + egui::vec2(24.0, 0.0);
+        act(&mut ed, &mut view, Action::ChooseItem(None));
+        frame(&ed, &view, &mut thumbs, 1.0, vec![egui::Event::PointerMoved(at)]);
+        // Chosen with the pointer resting there: the bar comes under it.
+        act(&mut ed, &mut view, Action::ChooseItem(Some(Item::Thing(3))));
+        let click = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(&ed, &view, &mut thumbs, 1.02, vec![]);
+        frame(&ed, &view, &mut thumbs, 1.05, vec![click(true)]);
+        let early = frame(&ed, &view, &mut thumbs, 1.08, vec![click(false)]);
+        assert!(early.clicked.is_empty(), "a click at once: nothing ({:?})", early.clicked);
+        frame(&ed, &view, &mut thumbs, 1.5, vec![click(true)]);
+        let late = frame(&ed, &view, &mut thumbs, 1.55, vec![click(false)]);
+        assert!(!late.clicked.is_empty(), "after 300 ms: the button's action");
+    }
+
     /// H and K switch the level's tools between its things and its blocks;
     /// M is MOVE among the things, MIRROR among the blocks; nothing of the
     /// blocks is offered among the things.

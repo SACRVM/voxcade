@@ -510,6 +510,21 @@ pub fn menu(ui: &egui::Ui, at: Pos2, free: Rect, entries: Vec<Entry>, shown: &mu
 /// refused (shown quiet then, the reason on hover).
 pub type Entry = (String, Action, Option<&'static str>, Option<String>);
 
+/// When a bar at an object came (`bar_at`): the pass it was last drawn
+/// in, the time and the pointer then, and whether it takes clicks yet.
+#[derive(Clone, Copy, Debug)]
+struct Born {
+    seen: u64,
+    at: f64,
+    pointer: Option<Pos2>,
+    armed: bool,
+}
+
+/// How far the pointer moves (points), or how long it waits (seconds),
+/// before a new bar takes a click.
+pub const ARM_MOVE: f32 = 4.0;
+pub const ARM_TIME: f64 = 0.3;
+
 /// A bar of buttons at the chosen thing in the view: over the box its
 /// marks take on the screen (`bounds`), from `middle` (its middle's x) to
 /// the right; slid left only as far as the view's edge asks (it never
@@ -521,6 +536,23 @@ pub fn bar_at(ui: &egui::Ui, id: &str, middle: f32, bounds: Rect, free: Rect, gu
     let width: f32 = ui.data(|d| d.get_temp(width_id)).unwrap_or(guess).max(guess * 0.5);
     let x = (middle - 16.0).min(free.right() - 8.0 - width).max(free.left() + 8.0);
     let y = if bounds.top() - 38.0 >= free.top() + 8.0 { bounds.top() - 38.0 } else { (bounds.bottom() + 8.0).min(free.bottom() - 40.0) };
+    // A bar new under the pointer (it came, or another took its place,
+    // after a click) takes no click until the pointer has moved a few
+    // pixels or 300 ms have passed: a second click of the one that made
+    // it never lands on what it put there (REMOVE where NEW PART was).
+    let born_id = egui::Id::unique((id, "born"));
+    let (pass, now, pointer) = (ui.ctx().cumulative_pass_nr(), ui.input(|i| i.time), ui.input(|i| i.pointer.latest_pos()));
+    let born = match ui.data(|d| d.get_temp::<Born>(born_id)) {
+        Some(b) if b.seen + 1 >= pass => Born { seen: pass, ..b },
+        _ => Born { seen: pass, at: now, pointer, armed: false },
+    };
+    let moved = match (born.pointer, pointer) {
+        (Some(a), Some(b)) => a.distance(b) > ARM_MOVE,
+        _ => false,
+    };
+    let born = Born { armed: born.armed || moved || now - born.at >= ARM_TIME, ..born };
+    ui.data_mut(|d| d.insert_temp(born_id, born));
+    let clicks = shown.clicked.len();
     let area = egui::Area::new(egui::Id::unique(id)).order(egui::Order::Foreground).fixed_pos(Pos2::new(x, y)).show(ui.ctx(), |ui| {
         egui::Frame::new().fill(Color32::from_rgba_unmultiplied(31, 29, 38, 235)).corner_radius(4.0).inner_margin(egui::Margin::same(4)).show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -530,6 +562,9 @@ pub fn bar_at(ui: &egui::Ui, id: &str, middle: f32, bounds: Rect, free: Rect, gu
             });
         });
     });
+    if !born.armed {
+        shown.clicked.truncate(clicks);
+    }
     let rect = area.response.rect;
     ui.data_mut(|d| d.insert_temp(width_id, rect.width()));
     shown.rects.push(rect);

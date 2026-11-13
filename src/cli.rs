@@ -46,9 +46,9 @@ USAGE:
                  [--choose NAME] [--game-view] [--picker] [--lights-off] [--add|--hang MODEL|light|place|area --at X,Y,Z]
                  [--move NAME --at X,Y,Z] [--rotate NAME --by DEG [--about x|y|z]] [--lay NAME] [--copy NAME --at X,Y,Z] [--remove NAME]
                  [--rename NAME --to NEW] [--light NAME [--radius N] [--color #rrggbb] [--at X,Y,Z]] [--room-size X,Y,Z]
-                 [--choose-light K] [--menu NAME|floor|voxel] [--add-menu] [--level-settings] [--handles move|rotate] [--hover arrow-x|ring-z|face-y|...]
+                 [--choose-light K] [--menu NAME|floor|voxel|selection] [--add-menu] [--level-settings] [--handles move|rotate] [--hover arrow-x|ring-z|face-y|...]
                  [--hide NAME] [--click X,Y] [--slice x|y|z,LAYER] [--rotate-part NAME --by DEG [--about rotation|pitch|roll]] [--pose-part NAME --by DEG [--about ...]]
-                 [--part NAME [--add-part] [--merge-into NAME] [--mirror]] [--menu part:NAME] [--model FILE --context LEVEL:NAME [--context-off]]
+                 [--part NAME [--add-part] [--merge-into NAME] [--mirror]] [--select X0,Y0,Z0 --to X1,Y1,Z1 [--selection OP ...]] [--menu part:NAME] [--model FILE --context LEVEL:NAME [--context-off]]
                  [--model FILE [--frame N | --part NAME] --clear X0,Y0,Z0 --to X1,Y1,Z1 | --fill SIGN|#rrggbb --from X0,Y0,Z0 --to X1,Y1,Z1 ... [--dry]]
                    (without --shot these write the model; coordinates from its pivot, as the file's `at`)
   voxcade ide    [<game-dir>] [--shot FILE] [--open PATH] [--console CMD] [--play TICKS] [--size WxH] [--remote]
@@ -666,7 +666,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
         }
         Some("edit") => {
             let dir = opened(&args)?;
-            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new(), ops: Vec::new(), choose: None, game_view: false, picker: false, lights_off: false, choose_light: None, menu: None, add_menu: false, level_settings: false, hover: None, turn_handles: false, part_moves: Vec::new(), hide: Vec::new(), click: None, slice: None, cells: Vec::new(), frame: None, dry: false, context: None, context_off: false, part_turns: Vec::new(), part_poses: Vec::new(), last_pose: false, add_part: false, merge_into: None, mirror: false };
+            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new(), ops: Vec::new(), choose: None, game_view: false, picker: false, lights_off: false, choose_light: None, menu: None, add_menu: false, level_settings: false, hover: None, turn_handles: false, part_moves: Vec::new(), hide: Vec::new(), click: None, slice: None, cells: Vec::new(), frame: None, dry: false, context: None, context_off: false, part_turns: Vec::new(), part_poses: Vec::new(), last_pose: false, add_part: false, merge_into: None, mirror: false, select: None, selection_ops: Vec::new() };
             let mut shot = false;
             let three = |flag: &str, value: &str| -> Result<glam::IVec3> {
                 let n: Vec<i32> = value.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>().with_context(|| format!("{flag} X,Y,Z"))?;
@@ -753,6 +753,16 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                         opts.part_moves.push((value.clone(), glam::Vec3::new(x, y, z), flag == "--move-joint"));
                     }
                     "--merge-into" => opts.merge_into = Some(value.clone()),
+                    "--select" => {
+                        let to = it.next().filter(|b| *b == "--to").and(it.next()).context("--select X0,Y0,Z0 --to X1,Y1,Z1")?;
+                        let corner = |v: &str| -> Result<glam::IVec3> {
+                            let n: Vec<i32> = v.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>().context("--select X0,Y0,Z0 --to X1,Y1,Z1: whole numbers")?;
+                            let [x, y, z] = n[..] else { bail!("--select X0,Y0,Z0 --to X1,Y1,Z1: three numbers each") };
+                            Ok(glam::IVec3::new(x, y, z))
+                        };
+                        opts.select = Some((corner(value)?, corner(to)?));
+                    }
+                    "--selection" => opts.selection_ops.push(value.clone()),
                     "--rotate-part" => {
                         let by = it.next().filter(|b| *b == "--by").and(it.next()).context("--rotate-part NAME --by DEG [--about rotation|pitch|roll]")?;
                         let by: f32 = by.parse().context("--rotate-part NAME --by DEG: degrees")?;

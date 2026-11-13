@@ -1042,6 +1042,70 @@ end
 "##,
     },
     Topic {
+        title: "THE LEVEL EDITOR",
+        text: "EDIT on a level (or a double click on it under LEVELS) opens it in a window of its own.
+# THE THREE ZONES
+The top bar: BLOCKS, THINGS and PIECES (a level of blocks), + ADD, UNDO, REDO, and on the right LEVEL and GAME VIEW.
+The outliner on the left: THINGS, PLACES and AREAS, each folding at its heading.
+The inspector on the right: the chosen one's rows, POSITION, ROTATE, its light.
+# CHOOSING AND MOVING
+A click in the view chooses what it meets, voxel by voxel; a click on empty floor chooses nothing.
+The bar at the chosen one: MOVE shows its arrows, drag one to move it along that axis.
+ROTATE shows its rings: drag one to rotate it about that axis. EDIT opens its model in the voxel editor.
+The number fields take a drag sideways, or a click and typing (Enter sets, Escape leaves it).
+# THE MENU
+A right click on a thing or on the floor opens its menu; every entry is also a button somewhere.
+# ADDING
++ ADD (or a right click on the floor): a model of the game, a light, a place, an area.
+# HIDE MARKS
+The mark at a row's left hides that thing in the editor only; SHOW ALL at the heading shows them again.
+# GAME VIEW
+The level as the game's camera sees it; press it again to go back.
+# SAVING
+Every step is saved at once. UNDO takes it back, REDO does it again.
+A file changed by another program (an agent, your text editor) is read anew; the editor never writes an older state over it.",
+        conf: "",
+        files: &[],
+        code: "",
+    },
+    Topic {
+        title: "THE VOXEL EDITOR",
+        text: "EDIT on a model (.vvx) opens it in a window of its own: a model of frames, or a figure of parts.
+# THE THREE ZONES
+The top bar: the model's name, UNDO, REDO, and on the right POSE and GAME VIEW (a figure).
+The outliner on the left: the frames, or the figure whole and its parts by what they hang on.
+The inspector on the right: the part chosen, the tools, the colors and the held color's material.
+# TOOLS
+ADD, ERASE and PAINT work on the voxel clicked; FILL paints the connected voxels of its color (Ctrl: all of it).
+BOX and SPHERE: drag a footprint on a face; + and - make it deeper while it is fresh. Alt: only where empty, Ctrl: cut.
+PICK (or Shift held) takes up a color. SYMMETRY mirrors every tool left to right.
+# SELECT
+Drag a box over voxels, or double click one for its color connected; Ctrl adds, Escape clears.
+Its arrows move the voxels; SELECTION in the inspector and a right click on them hold the rest: DUPLICATE, REMOVE, PAINT, FLIP, ROTATE, NEW PART, MOVE TO PART, COPY, PASTE.
+# PARTS
+A click on a part's row (or a double click in the view) chooses it; the figure whole is the first row.
+MOVE | ROTATE at a part: its arrows move it with what hangs on it, its rings rotate it about its joint.
+PARENT and JOINT in the inspector set what it hangs on and where it turns.
+A right click on a row: ADD PART, DUPLICATE, MIRROR (for NAME_left and NAME_right), RENAME, MERGE, REMOVE.
+# POSE
+The rings turn parts on top of their rest, nothing saved. COPY gives the pose as Lua for frame:model.
+# GAME VIEW
+The figure as the game draws it: its camera, light, shading and outline.
+# SLICE AND CONTEXT
+SLICE cuts the model across an axis to reach inside; drag its arrow or use Page Up and Page Down.
+CONTEXT (a model opened from a level's piece) shows the level round it, faint.
+# HIDE MARKS
+The mark at a part's row hides it from the picture; SHOW ALL at the PARTS heading shows every part.
+# COLORS
+A click on a swatch holds it; a right click: REPLACE WITH HELD, or REMOVE for a color no voxel has.
+# SAVING
+Every step is saved at once. UNDO takes it back, REDO does it again.
+A file changed by another program is read anew; the editor never writes an older state over it.",
+        conf: "",
+        files: &[],
+        code: "",
+    },
+    Topic {
         title: "CLAUDE IN THE CONSOLE",
         text: "CLAUDE in the console below starts Claude Code, an AI agent that helps you make your game: it reads and changes the game's files and sees the IDE. It is Anthropic's program, not a part of Voxcade: install it yourself (claude.com/claude-code). It needs a Claude subscription or an API key; you sign in the first time it starts in the console, and /login there changes the account later. The gear at the top right says whether it starts with the IDE.",
         conf: "",
@@ -1076,7 +1140,19 @@ pub fn ui(ui: &mut egui::Ui, chosen: &mut usize) {
                 Some(topic) => {
                     ui.label(RichText::new(topic.title).color(ACCENT));
                     ui.add_space(8.0);
-                    ui.label(topic.text);
+                    // A line "# WORD" is a heading (the editors' pages:
+                    // headings and one line each).
+                    for line in topic.text.lines() {
+                        match line.strip_prefix("# ") {
+                            Some(heading) => {
+                                ui.add_space(8.0);
+                                ui.label(RichText::new(heading).small().color(QUIET));
+                            }
+                            None => {
+                                ui.label(line);
+                            }
+                        }
+                    }
                     ui.add_space(12.0);
                     if !topic.conf.is_empty() {
                         ui.label(RichText::new("IN CONF.LUA, INSIDE function conf(c)").small().color(QUIET));

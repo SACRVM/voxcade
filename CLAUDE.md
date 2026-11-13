@@ -1298,7 +1298,29 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `--rotate-part NAME --by DEG [--about rotation|pitch|roll]`,
   `--pose-part NAME --by DEG [--about ...]`, `--handles rotate`,
   `--add-part`, `--merge-into NAME`, `--mirror`, `--game-view`, `--menu
-  part:NAME` in a shot. To come: a selection to split a part.
+  part:NAME` in a shot. SELECT (L; `editor/selection.rs`) in a block, a
+  frame, a part or across the parts of the figure whole: a box drawn as
+  BOX's, into the voxels, deeper by + and - and DEPTH, or a double click
+  (the color connected), Ctrl adding; Escape or a click on empty space
+  clears it; outlined. At it its arrows (MOVE, whole voxels, from where
+  the drag began, Alt keeping what they land on; a part's or frame's box
+  grows, a block's keeps its size; no bar at it), SELECTION at the
+  inspector's foot (nothing above it moves) and its menu: DUPLICATE (the
+  next move leaves the voxels), REMOVE (Del), PAINT, FLIP X/Y/Z, ROTATE
+  X/Y/Z, in a figure NEW PART (hanging on the part most of it came
+  from) and MOVE TO PART…, COPY and PASTE (Ctrl+C, Ctrl+V: where it
+  lay); each one step. FILL (W): the connected voxels of the color
+  clicked, Ctrl every one of it. A swatch's right-click menu: REPLACE
+  WITH HELD, REMOVE (a model's unused color). `--select X0,Y0,Z0 --to
+  X1,Y1,Z1 [--selection remove|paint|duplicate|flip-x|rotate-z|new-part|move-to:PART|copy|paste|move:X,Y,Z]`,
+  `--menu selection`, `--tool select|fill` in a shot; in a figure whole
+  a part turned at rest is selected where the file has its voxels. A bar
+  at an object (both editors, `zones::bar_at`) that comes under the
+  pointer takes no click until the pointer moved 4 points or 300 ms
+  passed (test `a_new_bar_takes_no_click_at_once`): a double click never
+  lands on the REMOVE it brought. The root part shows no PARENT or JOINT.
+  HELP has THE LEVEL EDITOR and THE VOXEL EDITOR (`ide/help.rs`, a line
+  `# WORD` a heading).
 - A level of pieces (`grid::text`, `editor/room.rs`; asked by a game of
   the owner's, 2026-11-12): a level's `[[thing]]` can be a piece (a
   `.vvx` set down anywhere, fixed, named for the code:

@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 
 use crate::game::Game;
-use model::{Editor, Item, Layer, Scope};
+use model::{Editor, Item, Layer, Scope, Tool};
 use view::{Figures, Shown, View};
 
 /// How `voxcade edit --shot` draws the editor without a window.
@@ -115,6 +115,12 @@ pub struct ShotOptions {
     pub merge_into: Option<String>,
     /// `--mirror`: MIRROR on the part `--part` chose.
     pub mirror: bool,
+    /// `--select X0,Y0,Z0 --to X1,Y1,Z1`: the voxels in that box of the
+    /// grid shown selected; `--selection OP`: done at the selection, in
+    /// order (remove, paint, duplicate, flip-x|y|z, rotate-x|y|z,
+    /// new-part, move-to:PART, copy, paste, move:X,Y,Z).
+    pub select: Option<(glam::IVec3, glam::IVec3)>,
+    pub selection_ops: Vec<String>,
 }
 
 /// Which frame or part `--clear` and `--fill` change: `--part`'s, else
@@ -445,6 +451,41 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         ed.choose(tool.with_context(|| format!("--tool {word}: no such tool here"))?);
 
     }
+    if let Some((lo, hi)) = opts.select {
+        ed.select_box_cells(lo.min(hi), lo.max(hi), false);
+        anyhow::ensure!(ed.selection().is_some(), "--select: no voxel in that box");
+    }
+    for op in &opts.selection_ops {
+        use model::selection::SelOp;
+        let axis = |w: &str| ["x", "y", "z"].iter().position(|a| *a == w).with_context(|| format!("--selection {op}: an axis x, y or z"));
+        match op.split_once(['-', ':']).unwrap_or((op.as_str(), "")) {
+            ("remove", _) => ed.selection_step(SelOp::Remove),
+            ("paint", _) => ed.selection_step(SelOp::Paint(ed.colour)),
+            ("duplicate", _) => ed.duplicate_selection(),
+            ("flip", a) => ed.selection_step(SelOp::Flip(axis(a)?)),
+            ("rotate", a) => ed.selection_step(SelOp::Rotate(axis(a)?)),
+            ("new", "part") => {
+                ed.selection_to_new_part().context("--selection new-part: only in a figure, with voxels selected")?;
+            }
+            ("move", "") => bail!("--selection move:X,Y,Z or move-to:PART"),
+            ("move", rest) if rest.starts_with("to:") => {
+                let p = part_of(&ed, &rest[3..])?;
+                ed.selection_to_part(p);
+            }
+            ("move", by) => {
+                let n: Vec<i32> = by.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>().context("--selection move:X,Y,Z")?;
+                let [x, y, z] = n[..] else { bail!("--selection move:X,Y,Z: three numbers") };
+                ed.grab_selection();
+                ed.move_selection_to(glam::IVec3::new(x, y, z), false, false);
+                ed.let_go_of_selection();
+            }
+            ("copy", _) => ed.copy_selection(),
+            ("paste", _) => ed.paste(),
+            _ => bail!("--selection {op}: remove, paint, duplicate, flip-x|y|z, rotate-x|y|z, new-part, move-to:PART, copy, paste or move:X,Y,Z"),
+        }
+        ed.follow_figure();
+        view.follow_origin(&ed);
+    }
     if opts.shift {
         ed.shift_pick(true);
     }
@@ -572,6 +613,10 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
                     // A figure's part's menu (its row's, a right click).
                     let p = part_of(&ed, part)?;
                     view.menu = Some(view::Menu { on: view::MenuOn::Part(p), at: [zones::OUTLINER - 40.0, 120.0] });
+                } else if name == "selection" {
+                    // The selection's (a right click on it), at the middle.
+                    anyhow::ensure!(ed.selection().is_some(), "--menu selection: nothing selected (--select)");
+                    view.menu = Some(view::Menu { on: view::MenuOn::Selection, at: [at.x, at.y] });
                 } else if !ed.among_pieces() {
                     // The voxel editor's, of what is under the middle.
                     anyhow::ensure!(name == "voxel", "--menu voxel: the menu of the voxel (the part, the block) under the middle of the view (or part:NAME, a part's)");
@@ -779,6 +824,16 @@ fn voxel_menu(ed: &Editor, view: &View, aspect: f32, sx: f32, sy: f32) -> Option
     // stands.)
     let (origin, dir) = (view.rest.transform_point3(origin), view.rest.transform_vector3(dir));
     let part = || ed.figure.as_ref().zip(ed.figure_box()).and_then(|(f, (lo, _))| f.part_at(lo, origin, dir));
+    // On a selected voxel: the selection's menu.
+    if ed.selection().is_some() {
+        let on = match ed.scope {
+            Scope::Figure => ed.aim_whole(view.ray(ed, aspect, sx, sy).0, view.ray(ed, aspect, sx, sy).1).map(|(h, p)| (h.cell, Some(p))),
+            _ => view.aim(ed, aspect, sx, sy).map(|h| (h.cell, None)),
+        };
+        if on.is_some_and(|(c, p)| ed.is_selected(c, p)) {
+            return Some(view::MenuOn::Selection);
+        }
+    }
     match ed.scope {
         Scope::Figure => part().map(view::MenuOn::Part),
         Scope::Level if ed.layer == Layer::Blocks => {
@@ -1192,6 +1247,12 @@ impl EditorWindow {
                     Keycode::Plus | Keycode::Equals | Keycode::KpPlus if ed.forms() => ed.deepen(1),
                     Keycode::Minus | Keycode::KpMinus if ed.forms() => ed.deepen(-1),
                     Keycode::Escape if ed.forms() && ed.drop_form() => {}
+                    // The selection: none selected; its voxels gone; copied,
+                    // pasted.
+                    Keycode::Escape if ed.joint_drag().is_none() && view.menu.is_none() && ed.selection().is_some() => ed.clear_selection(),
+                    Keycode::Delete | Keycode::Backspace if ed.selection().is_some() => view::act(ed, view, view::Action::SelRemove),
+                    Keycode::C if ctrl && ed.selection().is_some() => view::act(ed, view, view::Action::SelCopy),
+                    Keycode::V if ctrl && ed.clipboard.is_some() => view::act(ed, view, view::Action::SelPaste),
                     Keycode::Z if ctrl && shift => ed.redo(),
                     // The chosen part: its name to type, removed.
                     Keycode::F2 if ed.part_mode().is_some() => view::act(ed, view, view::Action::RenamePart(ed.figure.as_ref().and_then(|f| f.selected).unwrap_or(usize::MAX))),
@@ -1296,6 +1357,7 @@ impl EditorWindow {
                     let vp = view.view_proj(&view.block, room.width() / room.height().max(1.0));
                     let ray = view.ray(ed, aspect, sx, sy);
                     ed.set_fine(view.cut);
+                    ed.sel_keep = view.only_empty;
                     ed.drag_joint(vp, glam::Vec2::new(room.width(), room.height()), glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top()), ray);
                     // (A part moved moves the grid shown: the view keeps the
                     // figure still at once, for the next motion's ray.)
@@ -1349,7 +1411,14 @@ impl EditorWindow {
                     // click chooses that part, the first click's work taken
                     // back. A click never both chooses and paints.
                     let (origin, dir) = view.ray(ed, aspect, sx, sy);
-                    if let (Some(figure), Some((lo, _))) = (&ed.figure, ed.figure_box())
+                    if ed.tool == Tool::Select {
+                        // SELECT in the figure whole: across its parts.
+                        match ed.aim_whole(origin, dir) {
+                            Some((hit, p)) if clicks >= 2 => ed.select_connected(hit.cell, Some(p), view.cut),
+                            Some((hit, _)) => ed.begin_form(hit, true),
+                            None => ed.clear_selection(),
+                        }
+                    } else if let (Some(figure), Some((lo, _))) = (&ed.figure, ed.figure_box())
                         && let Some(p) = figure.part_at(lo, origin, dir)
                     {
                         if clicks >= 2 {
@@ -1364,7 +1433,9 @@ impl EditorWindow {
                             // kept still, the ray taken anew.)
                             view.follow_origin(ed);
                             if let Some(hit) = view.aim(ed, aspect, sx, sy) {
-                                if ed.forms() {
+                                if ed.tool == Tool::Fill {
+                                    ed.fill_at(hit, view.cut);
+                                } else if ed.forms() {
                                     ed.begin_form(hit, view.cut);
                                 } else {
                                     ed.press(hit);
@@ -1416,13 +1487,27 @@ impl EditorWindow {
                         ed.hold(block as usize - 1);
                         ed.open_block(block as usize - 1);
                     }
-                } else if let Some(hit) = view.aim(ed, aspect, sx, sy) {
+                } else if let Some(hit) = view.aim(ed, aspect, sx, sy).filter(|h| ed.tool != Tool::Select || h.cell.z >= 0) {
                     *steps_at_click = ed.steps();
-                    if ed.forms() {
+                    if ed.tool == Tool::Select {
+                        // SELECT: a box into the voxels (Ctrl: adding), a
+                        // double click the color connected.
+                        if clicks >= 2 {
+                            ed.drawing = None;
+                            ed.select_connected(hit.cell, None, view.cut);
+                        } else {
+                            ed.begin_form(hit, true);
+                        }
+                    } else if ed.tool == Tool::Fill {
+                        ed.fill_at(hit, view.cut);
+                    } else if ed.forms() {
                         ed.begin_form(hit, view.cut);
                     } else {
                         ed.press(hit);
                     }
+                } else if ed.selection().is_some() {
+                    // A click on empty space: none selected.
+                    ed.clear_selection();
                 } else if ed.part_mode().is_some() {
                     // A part shaped, a click on empty space: the figure
                     // whole again.
@@ -1433,14 +1518,19 @@ impl EditorWindow {
             // was drawn (Alt: only where empty; Ctrl, held as it was
             // pressed: cut away), fresh for + and - until the next action.
             Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } if ed.slicing() => ed.let_go_of_slice(),
-            Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } if ed.forms() => {
+            Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } if ed.forms() && ed.joint_drag().is_none() => {
                 if ed.drawing.is_some() {
-                    ed.set_drawn(view.only_empty);
+                    if ed.tool == Tool::Select {
+                        ed.select_drawn(view.cut);
+                    } else {
+                        ed.set_drawn(view.only_empty);
+                    }
                 }
                 ed.end_whole_stroke();
             }
             Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } => {
                 ed.release();
+                ed.let_go_of_selection();
                 ed.end_whole_stroke();
             }
             // A right click (not a drag) among the pieces: the menu of what

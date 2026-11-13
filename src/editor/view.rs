@@ -198,7 +198,13 @@ pub enum MenuOn {
     Block(usize),
     /// MERGE WITH…: the parts a part may be merged into.
     MergeWith(usize),
+    /// The selection's (SELECT), and its MOVE TO PART…: the parts.
+    Selection,
+    ToPart,
 }
+
+/// The selection's color (its outline, SELECT's box).
+const SELECTED: [u8; 4] = [255, 214, 90, 255];
 
 /// How fast a model's frames play (on the editor's panel, in the IDE's
 /// picture).
@@ -936,6 +942,22 @@ pub enum Action {
     PoseReset,
     /// MIRROR: a part's partner of its pair made or made anew.
     MirrorPart(usize),
+    /// At the selection (SELECT): REMOVE, PAINT, FLIP and ROTATE about an
+    /// axis, DUPLICATE, NEW PART, MOVE TO PART (the menu of the parts, at
+    /// [0, 0] where the last menu was), COPY, PASTE, none selected.
+    SelRemove,
+    SelPaint,
+    SelFlip(u8),
+    SelRotate(u8),
+    SelDuplicate,
+    SelNewPart,
+    SelToPart(usize),
+    SelToPartMenu([f32; 2]),
+    SelCopy,
+    SelPaste,
+    SelClear,
+    /// REPLACE WITH HELD: every voxel of a color takes the held one.
+    ReplaceColour([u8; 3]),
     AddPart(Option<usize>),
     RemovePart(usize),
     MergeInto(usize, usize),
@@ -1097,6 +1119,8 @@ pub fn key_of(action: Action) -> Option<char> {
         Action::Tool(Tool::Pick) => 'I',
         Action::Tool(Tool::Box) => 'Q',
         Action::Tool(Tool::Sphere) => 'S',
+        Action::Tool(Tool::Select) => 'L',
+        Action::Tool(Tool::Fill) => 'W',
         Action::Bevel => 'F',
         Action::Symmetry => 'Y',
         Action::Layer(Layer::Blocks) => 'K',
@@ -1203,6 +1227,24 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::Pose => ed.set_posing(!ed.posing),
         Action::PoseValue(axis, v) => ed.set_pose(axis as usize, v),
         Action::PoseReset => ed.reset_pose(),
+        Action::SelRemove => ed.selection_step(super::model::selection::SelOp::Remove),
+        Action::SelPaint => ed.selection_step(super::model::selection::SelOp::Paint(ed.colour)),
+        Action::SelFlip(a) => ed.selection_step(super::model::selection::SelOp::Flip(a.min(2) as usize)),
+        Action::SelRotate(a) => ed.selection_step(super::model::selection::SelOp::Rotate(a.min(2) as usize)),
+        Action::SelDuplicate => ed.duplicate_selection(),
+        Action::SelNewPart => {
+            if let Some(name) = ed.selection_to_new_part() {
+                // Its name to type in its row.
+                view.renaming_part = ed.figure.as_ref().and_then(|f| f.parts().iter().position(|p| p.name == name));
+                view.follow_origin(ed);
+            }
+        }
+        Action::SelToPart(p) => ed.selection_to_part(p),
+        Action::SelToPartMenu(at) => view.menu = Some(Menu { on: MenuOn::ToPart, at: if at == [0.0, 0.0] { view.menu.map_or(at, |m| m.at) } else { at } }),
+        Action::SelCopy => ed.copy_selection(),
+        Action::SelPaste => ed.paste(),
+        Action::SelClear => ed.clear_selection(),
+        Action::ReplaceColour(c) => ed.replace_colour(c),
         Action::MirrorPart(p) => {
             match ed.cannot_mirror(p) {
                 Some(why) => ed.hint = Some(why),
@@ -1344,10 +1386,11 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
             ed.delete_block();
         }
         Action::Depth(d) => {
-            let now = ed.fresh.filter(|_| ed.drawing.is_none()).map_or(ed.depth, |f| {
+            let boxed = ed.select_box.as_ref().filter(|_| ed.drawing.is_none() && ed.tool == Tool::Select).map(|b| b.size[(0..3).max_by_key(|&a| b.way[a].abs()).unwrap_or(2)]);
+            let now = boxed.unwrap_or_else(|| ed.fresh.filter(|_| ed.drawing.is_none()).map_or(ed.depth, |f| {
                 let a = (0..3).max_by_key(|&a| f.way[a].abs()).unwrap_or(2);
                 f.size[a]
-            });
+            }));
             ed.deepen(d.clamp(1, 256) - now);
         }
         Action::ParentTo(p) => ed.set_parent(p.map(usize::from)),
@@ -1422,7 +1465,7 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
     if view.picker || !ed.among_pieces() {
         ed.drop_hanging();
     }
-    if !matches!(action, Action::OpenMenu(..) | Action::AddMenu | Action::BlockMenu(..) | Action::FrameMenu(..) | Action::PartMenu(..) | Action::MergeMenu(..)) {
+    if !matches!(action, Action::OpenMenu(..) | Action::AddMenu | Action::BlockMenu(..) | Action::FrameMenu(..) | Action::PartMenu(..) | Action::MergeMenu(..) | Action::SelToPartMenu(..)) {
         view.menu = None;
     }
     // The figure made again at once (a part chosen, its rig set), and the
@@ -1593,6 +1636,17 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     // grid of every cube's faces blended over each other.
     through.extend(glass);
     crate::render::join_see_through(&mut through, eye - grid.as_vec3() / 2.0);
+    // The selection (SELECT): its outline, thin and light, over all.
+    if !game_view {
+        let thin = 0.1;
+        for (from, to) in ed.selection_edges() {
+            let n = (from.distance(to) / (thin * 0.8)).ceil().max(1.0) as i32;
+            for k in 0..=n {
+                let p = from.lerp(to, k as f32 / n as f32);
+                instances.push(Instance { pos_size: [p.x, p.y, p.z, thin], color: SELECTED, fx: [60, 255, 0, 0], shade: [0; 4], turn: [0; 4] });
+            }
+        }
+    }
     if things {
         if let (Tool::Add, Some(at), Some(kind)) = (ed.tool, view.spot, &ed.held_kind) {
             let start = instances.len();
@@ -1628,10 +1682,16 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         if ed.drawing.is_none()
             && let Some(hit) = view.hover
         {
-            cells.push(if view.cut { hit.cell } else { hit.cell + if hit.normal == IVec3::ZERO { IVec3::Z } else { hit.normal } });
+            cells.push(if view.cut || ed.tool == Tool::Select { hit.cell } else { hit.cell + if hit.normal == IVec3::ZERO { IVec3::Z } else { hit.normal } });
         }
         let all: crate::world::CellSet = cells.iter().copied().collect();
-        let color = if view.cut || ed.drawing.is_some_and(|d| d.cut) { [230, 70, 60, 255] } else { [ed.colour[0], ed.colour[1], ed.colour[2], 255] };
+        let color = if ed.tool == Tool::Select {
+            SELECTED
+        } else if view.cut || ed.drawing.is_some_and(|d| d.cut) {
+            [230, 70, 60, 255]
+        } else {
+            [ed.colour[0], ed.colour[1], ed.colour[2], 255]
+        };
         let start = instances.len();
         for c in cells.iter().filter(|c| crate::mesh::DIRS.iter().any(|d| !all.contains(&(**c + *d)))) {
             let p = (c.as_vec3() + 0.5) * u;

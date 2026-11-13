@@ -117,6 +117,11 @@ fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
 /// The bar at a figure's chosen part, over its arrows: what is done to a
 /// part there (HIDE).
 fn part_bar(ui: &mut egui::Ui, ed: &Editor, free: Rect, view: &View, shown: &mut Shown) {
+    // A selection: its arrows and outline only; its actions in the
+    // inspector (`selection_rows`).
+    if ed.selection().is_some() {
+        return;
+    }
     let Some(p) = ed.figure.as_ref().and_then(|f| f.selected).filter(|_| ed.part_mode().is_some() && ed.joint_drag().is_none() && ed.drawing.is_none() && !ed.posing) else { return };
     let screen = ui.ctx().content_rect();
     let vp = view.view_proj(&view.block, screen.width() / screen.height().max(1.0));
@@ -410,6 +415,76 @@ fn inspector(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thu
             shaping(ui, ed, shown);
         }
     }
+    // Below every other row (nothing above it moves when it comes).
+    if ed.selection().is_some() {
+        selection_rows(ui, ed, shown);
+    }
+}
+
+/// SELECTION, while voxels are selected: what is done at them, on the
+/// column grid (each also in the menu a right click on them opens).
+fn selection_rows(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+    let count = ed.selection().map_or(0, |s| s.count());
+    ui.separator();
+    ui.label(RichText::new(format!("SELECTION {count}")).color(TEXT)).on_hover_text("Voxels selected: its arrows move them (Alt: what they land on stays); Escape: none");
+    // A button a column wide (or two), on the grid.
+    let cell = |ui: &mut egui::Ui, shown: &mut Shown, word: &str, colour: egui::Color32, cols: usize, action: Action, refused: Option<&str>, tip: &str| {
+        let b = egui::Button::new(RichText::new(word).small().color(if refused.is_some() { QUIET } else { colour }));
+        let r = ui
+            .add_enabled_ui(refused.is_none(), |ui| {
+                // (Its word within its column: DUPLICATE too.)
+                ui.spacing_mut().button_padding.x = 2.0;
+                ui.add_sized([zones::col(ui, cols), ui.text_style_height(&egui::TextStyle::Body) + 6.0], b)
+            })
+            .inner;
+        let r = match refused {
+            Some(why) => r.on_disabled_hover_text(why),
+            None => r.on_hover_text(tip),
+        };
+        if r.clicked() {
+            shown.clicked.push(action);
+        }
+    };
+    row(ui, "", "", |ui| {
+        // (DUPLICATE is wider than a column: two.)
+        cell(ui, shown, "DUPLICATE", TEXT, 2, Action::SelDuplicate, None, "A copy in place: the next move leaves these where they are");
+        cell(ui, shown, "REMOVE", TEXT, 1, Action::SelRemove, None, "Take them away  Del");
+    });
+    for (word, flip) in [("FLIP", true), ("ROTATE", false)] {
+        row(ui, word, if flip { "Mirrored across the selection's box" } else { "A quarter turn about its middle" }, |ui| {
+            for a in 0..3 {
+                let action = if flip { Action::SelFlip(a as u8) } else { Action::SelRotate(a as u8) };
+                cell(ui, shown, ["X", "Y", "Z"][a], zones::AXIS[a], 1, action, None, if flip { "Mirrored along this axis" } else { "90° about this axis" });
+            }
+        });
+    }
+    if ed.figure.is_some() {
+        let refused = ed.cannot_part();
+        row(ui, "PART", "", |ui| {
+            cell(ui, shown, "NEW PART", TEXT, 1, Action::SelNewPart, refused, "A part of their own, hanging on the part most came from (named to type)");
+            // MOVE TO PART…: the parts to choose from.
+            let parts: Vec<String> = ed.figure.as_ref().map_or_else(Vec::new, |f| f.parts().iter().map(|p| p.name.clone()).collect());
+            ui.add_enabled_ui(refused.is_none(), |ui| {
+                ui.set_width(zones::col(ui, 2));
+                ui.menu_button(RichText::new("MOVE TO PART…").small().color(TEXT), |ui| {
+                    for (q, name) in parts.iter().enumerate() {
+                        if ui.button(name.to_uppercase()).clicked() {
+                            shown.clicked.push(Action::SelToPart(q));
+                            ui.close();
+                        }
+                    }
+                })
+                .response
+                .on_hover_text("Into another part, where they lie");
+            });
+        });
+    }
+    row(ui, "", "", |ui| {
+        cell(ui, shown, "COPY", TEXT, 1, Action::SelCopy, None, "Ctrl+C");
+        let none = ed.clipboard.is_none().then_some("Nothing copied yet");
+        cell(ui, shown, "PASTE", TEXT, 1, Action::SelPaste, none, "Where it lay, selected, to move  Ctrl+V");
+        cell(ui, shown, "PAINT", TEXT, 1, Action::SelPaint, None, "The color held onto them");
+    });
 }
 
 /// What a block or a frame (a part) is shaped with: the tools, BEVEL and
@@ -487,6 +562,8 @@ fn tools(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
                 Tool::Sphere => "The same, round",
                 Tool::Pick => "Take up a color (a block) from what is clicked; Shift held does the same",
                 Tool::Move => "Drag a thing to another place",
+                Tool::Select => "Drag a box over voxels, or double click: the color connected. Ctrl: add. Its arrows move them, a right click for the rest",
+                Tool::Fill => "The connected voxels of the color clicked take the held one. Ctrl: every voxel of that color",
             };
             let tip = key.map_or(tip.to_string(), |k| format!("{tip}  {k}"));
             small(ui, shown, tool.label(ed.scope, ed.layer), Action::Tool(tool), Some(ed.tool == tool), &tip);
@@ -512,7 +589,9 @@ fn colours(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
             }
             let hex = format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
             let tip = digit.map_or(hex.clone(), |d| format!("{hex}  {d}"));
-            if swatch(ui, c, 26.0, c == ed.colour, digit).on_hover_text(tip).clicked() {
+            let r = swatch(ui, c, 26.0, c == ed.colour, digit).on_hover_text(tip);
+            swatch_menu(&r, ed, c, shown);
+            if r.clicked() {
                 shown.clicked.push(Action::Colour(c));
             }
         }
@@ -523,12 +602,10 @@ fn colours(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
             ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
             for c in others {
                 let hex = format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
-                let unused = ed.model.as_ref().is_some_and(|m| !m.uses(c));
                 let response = swatch(ui, c, 16.0, c == ed.colour, None);
-                let response = if unused { response.on_hover_text(format!("{hex}: no voxel has it; a right click takes it out")) } else { response.on_hover_text(hex) };
-                if response.secondary_clicked() && unused {
-                    shown.clicked.push(Action::Forget(c));
-                } else if response.clicked() {
+                let response = response.on_hover_text(hex);
+                swatch_menu(&response, ed, c, shown);
+                if response.clicked() {
                     shown.clicked.push(Action::Colour(c));
                 }
             }
@@ -576,6 +653,27 @@ fn material(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
 }
 
 /// A colour to click, its digit on it (a key) if it has one.
+/// A color's menu (a right click on its swatch): REPLACE WITH HELD, and
+/// REMOVE for a model's color no voxel has.
+fn swatch_menu(r: &egui::Response, ed: &Editor, c: [u8; 3], shown: &mut Shown) {
+    r.context_menu(|ui| {
+        let held = c == ed.colour;
+        let b = ui.add_enabled(!held, egui::Button::new("REPLACE WITH HELD"));
+        if b.on_disabled_hover_text("It is the color held").clicked() {
+            shown.clicked.push(Action::ReplaceColour(c));
+            ui.close();
+        }
+        if ed.model.is_some() {
+            let unused = ed.model.as_ref().is_some_and(|m| !m.uses(c));
+            let b = ui.add_enabled(unused, egui::Button::new("REMOVE"));
+            if b.on_disabled_hover_text("Voxels have it").clicked() {
+                shown.clicked.push(Action::Forget(c));
+                ui.close();
+            }
+        }
+    });
+}
+
 fn swatch(ui: &mut egui::Ui, c: [u8; 3], size: f32, chosen: bool, digit: Option<char>) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click());
     ui.painter().rect_filled(rect, 3.0, Color32::from_rgb(c[0], c[1], c[2]));
@@ -651,6 +749,9 @@ fn rig(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, p: usize, shown: &mut Sh
             }
         });
     }
+    // The root hangs on nothing and turns about no joint: neither row.
+    let root = ed.root_chosen();
+    if !root {
     row(ui, "PARENT", if by_hand { "What it hangs on: set by hand" } else { "What it hangs on: found by the rules" }, |ui| {
         let now = part.parent.map_or("none".to_string(), |q| figure.parts()[q].name.clone());
         ui.menu_button(RichText::new(format!("{now} ▾")).color(if by_hand { ACCENT } else { TEXT }), |ui| {
@@ -689,6 +790,7 @@ fn rig(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, p: usize, shown: &mut Sh
                 small(ui, shown, "JOINT BY THE RULES", Action::JointWorkedOut, None, "Where the rules find it: the middle of where it meets its parent");
             }
         });
+    }
     }
 }
 
@@ -777,6 +879,29 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<zones::Entry> {
             let any = (0..figure.parts().len()).any(|q| ed.cannot_merge(p, q).is_none());
             out.push(("MERGE WITH…".into(), Action::MergeMenu(p, [0.0, 0.0]), None, (!any).then(|| "No part it can merge with as it stands".to_string())));
             out.push(("REMOVE".into(), Action::RemovePart(p), Some("Del"), ed.cannot_remove(p).map(str::to_string)));
+        }
+        MenuOn::Selection => {
+            let part = ed.cannot_part().map(str::to_string);
+            out.push(("DUPLICATE".into(), Action::SelDuplicate, None, None));
+            out.push(("REMOVE".into(), Action::SelRemove, Some("Del"), None));
+            out.push(("PAINT".into(), Action::SelPaint, None, None));
+            for (a, w) in ["X", "Y", "Z"].iter().enumerate() {
+                out.push((format!("FLIP {w}"), Action::SelFlip(a as u8), None, None));
+            }
+            for (a, w) in ["X", "Y", "Z"].iter().enumerate() {
+                out.push((format!("ROTATE {w}"), Action::SelRotate(a as u8), None, None));
+            }
+            out.push(("NEW PART".into(), Action::SelNewPart, None, part.clone()));
+            out.push(("MOVE TO PART…".into(), Action::SelToPartMenu([0.0, 0.0]), None, part));
+            out.push(("COPY".into(), Action::SelCopy, Some("Ctrl+C"), None));
+            out.push(("PASTE".into(), Action::SelPaste, Some("Ctrl+V"), ed.clipboard.is_none().then(|| "Nothing copied yet".to_string())));
+        }
+        MenuOn::ToPart => {
+            if let Some(f) = &ed.figure {
+                for (q, o) in f.parts().iter().enumerate() {
+                    out.push((o.name.to_uppercase(), Action::SelToPart(q), None, None));
+                }
+            }
         }
         MenuOn::MergeWith(p) => {
             let Some(figure) = &ed.figure else { return out };

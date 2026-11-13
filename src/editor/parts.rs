@@ -235,7 +235,7 @@ impl Editor {
     }
 
     /// A free name for a part: `base`, else `base_2`, `base_3` ...
-    fn free_part_name(&self, base: &str) -> String {
+    pub(super) fn free_part_name(&self, base: &str) -> String {
         let taken = |n: &str| self.model.as_ref().is_some_and(|m| m.parts.iter().any(|o| o.name == n));
         let base = base.trim_end_matches(|c: char| c.is_ascii_digit()).trim_end_matches('_');
         let base = if base.is_empty() { "part" } else { base };
@@ -246,7 +246,7 @@ impl Editor {
     }
 
     /// The part called `name` chosen (shaped), in MOVE.
-    fn choose_named(&mut self, name: &str) {
+    pub(super) fn choose_named(&mut self, name: &str) {
         self.follow_figure();
         let Some(f) = self.model.as_ref().and_then(|m| m.parts.iter().find(|o| o.name == name)).map(|o| o.frame) else { return };
         self.release();
