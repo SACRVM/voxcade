@@ -23,6 +23,8 @@ pub struct Input {
     focused: bool,
     /// Text being composed with an input method (SDL's text editing).
     composing: bool,
+    /// Where the pointer was last (egui's points).
+    last: Option<Pos2>,
 }
 
 /// Whether windows keep the keyboard for egui while the system's focus is
@@ -39,7 +41,7 @@ pub fn keep_focus(on: bool) {
 
 impl Default for Input {
     fn default() -> Self {
-        Self { start: Instant::now(), events: Vec::new(), modifiers: Modifiers::default(), scale: 1.0, focused: true, composing: false }
+        Self { start: Instant::now(), events: Vec::new(), modifiers: Modifiers::default(), scale: 1.0, focused: true, composing: false, last: None }
     }
 }
 
@@ -86,7 +88,10 @@ impl Input {
                 self.composing = !text.is_empty();
                 self.events.push(Event::Ime(egui::ImeEvent::Preedit { text: text.clone(), active_range_chars: None }));
             }
-            SdlEvent::MouseMotion { x, y, .. } => self.events.push(Event::PointerMoved(at(*x, *y))),
+            SdlEvent::MouseMotion { x, y, .. } => {
+                self.last = Some(at(*x, *y));
+                self.events.push(Event::PointerMoved(at(*x, *y)));
+            }
             SdlEvent::MouseButtonDown { mouse_btn, x, y, .. } | SdlEvent::MouseButtonUp { mouse_btn, x, y, .. } => {
                 let button = match mouse_btn {
                     MouseButton::Left => PointerButton::Primary,
@@ -124,6 +129,20 @@ impl Input {
     }
 
     /// A point of the window in SDL's points as egui's.
+    /// Every button let go where the pointer was last (a release the
+    /// window never heard: egui would hold it down for good, and the next
+    /// click would be no click).
+    pub fn release_buttons(&mut self) {
+        let pos = self.events.iter().rev().find_map(|e| match e {
+            Event::PointerMoved(p) | Event::PointerButton { pos: p, .. } => Some(*p),
+            _ => None,
+        });
+        let pos = pos.or(self.last).unwrap_or_default();
+        for button in [PointerButton::Primary, PointerButton::Secondary, PointerButton::Middle] {
+            self.events.push(Event::PointerButton { pos, button, pressed: false, modifiers: self.modifiers });
+        }
+    }
+
     pub fn point(&self, x: f32, y: f32) -> egui::Pos2 {
         Pos2::new(x * self.scale, y * self.scale)
     }

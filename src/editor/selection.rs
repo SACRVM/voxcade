@@ -722,7 +722,7 @@ impl Editor {
                 return;
             }
             m.frames.push(Block::boxed(IVec3::ONE));
-            m.parts.push(Placed { name: new.clone(), frame: m.frames.len() - 1, low: IVec3::ZERO, parent, joint: None, rotation: [0.0; 3] });
+            m.parts.push(Placed { name: new.clone(), frame: m.frames.len() - 1, low: IVec3::ZERO, parent, joint: None, rotation: [0.0; 3], offset: Vec3::ZERO });
             let f = m.frames.len() - 1;
             m.parts.last_mut().expect("just put").low = IVec3::from(*taken.keys().next().expect("one at least"));
             put_frame(m, f, &taken);

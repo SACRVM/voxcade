@@ -1032,7 +1032,8 @@ mod tests {
         ed.move_part(IVec3::X);
         let was = figure_text();
         let now = model_text(&dir);
-        assert_eq!(now, was.replace("at = [1, -1, 1]", "at = [2, -1, 1]"), "{now}");
+        // (The first step makes the figure's box tight: its `size` too.)
+        assert_eq!(now, was.replace("at = [1, -1, 1]", "at = [2, -1, 1]").replace("size = [6, 4, 6]", "size = [5, 2, 4]"), "{now}");
         ed.undo();
         assert_eq!(model_text(&dir), was);
     }
@@ -1053,7 +1054,7 @@ mod tests {
         let text = text.replace("name = \"head\"\nat = [-1, -1, 3]", "name = \"head\"\nat = [-1, -1, 3]\njoint = [0, 0, 3]");
         std::fs::write(dir.join("figure.vvx"), &text).unwrap();
         ed.move_part(IVec3::X);
-        assert_eq!(model_text(&dir), text.replace("at = [1, -1, 1]", "at = [2, -1, 1]"), "both");
+        assert_eq!(model_text(&dir), text.replace("at = [1, -1, 1]", "at = [2, -1, 1]").replace("size = [6, 4, 6]", "size = [5, 2, 4]"), "both");
         assert_eq!(ed.steps(), 1);
         // The hand taken out of the file, then moved in the editor.
         let now = model_text(&dir);

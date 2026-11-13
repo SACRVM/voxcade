@@ -184,6 +184,10 @@ pub struct View {
     /// whether a program's pointer pressed (`ide::remote`).
     pub press_at: Option<(f32, f32)>,
     pub synthetic_press: bool,
+    /// The buttons that went down in the view and are not let go since
+    /// (`HELD_LEFT`, `HELD_RIGHT`, `HELD_MIDDLE`): a motion drags or turns
+    /// only with these, whatever button state it carries.
+    pub held: u8,
     /// Since when the left button is up while a drag is still open (its
     /// let-go never came: `EditorWindow::draw` ends it).
     pub up_since: Option<std::time::Instant>,
@@ -216,6 +220,22 @@ pub enum MenuOn {
     /// The selection's (SELECT), and its MOVE TO PART…: the parts.
     Selection,
     ToPart,
+}
+
+/// Cubes placed in a part's own grid moved to where the part stands
+/// (`rest`: its grid to the figure's), turned with it; placed from one
+/// cube exactly by the turn the shader draws them with, so neighbours
+/// meet corner to corner.
+fn place_turned(cubes: &mut [Instance], rest: Mat4) {
+    let (_, turn, _) = rest.to_scale_rotation_translation();
+    let (snorm, drawn) = (crate::render::snorm_turn(turn), crate::render::turn_as_drawn(turn));
+    let Some(anchor) = cubes.first().map(|c| Vec3::from_slice(&c.pos_size[..3])) else { return };
+    let to = rest.transform_point3(anchor);
+    for c in cubes {
+        let at = Vec3::from_slice(&c.pos_size[..3]);
+        let p = to + drawn * (at - anchor);
+        (c.pos_size[0], c.pos_size[1], c.pos_size[2], c.turn) = (p.x, p.y, p.z, snorm);
+    }
 }
 
 /// How fast a model's frames play (on the editor's panel, in the IDE's
@@ -295,14 +315,23 @@ impl View {
             // little turned so that some of its front shows, all of it in
             // view.
             Scope::Frame(_) | Scope::Figure => {
-                let size = ed.grid().as_vec3();
+                // A figure framed by its voxels, not by its stated box (a
+                // box left far too big by a part that flew off and came
+                // back would show the figure as a speck).
+                let (lo, size) = match (ed.scope, &ed.figure) {
+                    (Scope::Figure, Some(f)) => match f.model.frames[0].iter().map(|v| v.0).fold(None, |b: Option<(IVec3, IVec3)>, c| Some(b.map_or((c, c), |(lo, hi)| (lo.min(c), hi.max(c))))) {
+                        Some((lo, hi)) => (lo.as_vec3(), (hi - lo + 1).as_vec3()),
+                        None => (Vec3::ZERO, ed.grid().as_vec3()),
+                    },
+                    _ => (Vec3::ZERO, ed.grid().as_vec3()),
+                };
                 let yaw = match face {
                     Face::Right => 250.0,
                     Face::Left => 110.0,
                     Face::Front => 160.0,
                     Face::Block => -30.0,
                 };
-                Orbit { yaw, pitch: 20.0, zoom: (size.max_element() * 2.8).max(16.0), target: size / 2.0, fov: FOV }
+                Orbit { yaw, pitch: 20.0, zoom: (size.max_element() * 2.8).max(16.0), target: lo + size / 2.0, fov: FOV }
             }
             _ => Orbit { yaw: -30.0, pitch: 25.0, zoom: n * 4.5, target: Vec3::splat(n / 2.0), fov: FOV },
         };
@@ -348,6 +377,7 @@ impl View {
             right_press: None,
             press_at: None,
             synthetic_press: false,
+            held: 0,
             up_since: None,
             room: [0.0; 4],
         };
@@ -559,6 +589,8 @@ pub struct Shown {
     /// (its axis, layer and side).
     shape: Option<Block>,
     slice: Option<(usize, i32, i32)>,
+    /// The part shown is turned at rest (drawn as cubes, the world empty).
+    turned: bool,
 }
 
 /// What of the slice the world shown depends on.
@@ -568,7 +600,7 @@ fn slice_key(ed: &Editor) -> Option<(usize, i32, i32)> {
 
 impl Shown {
     pub fn new(ed: &Editor) -> Result<Self> {
-        let mut shown = Self { world: World::new(IVec3::ONE, [[0; 4]; 256]), scope: ed.scope, size: IVec3::ZERO, cells: Vec::new(), blocks: Vec::new(), shape: None, slice: None };
+        let mut shown = Self { world: World::new(IVec3::ONE, [[0; 4]; 256]), scope: ed.scope, size: IVec3::ZERO, cells: Vec::new(), blocks: Vec::new(), shape: None, slice: None, turned: false };
         shown.build(ed)?;
         Ok(shown)
     }
@@ -577,6 +609,9 @@ impl Shown {
         let listed = ed.level.blocks.len();
         self.world = match ed.scope {
             Scope::Level => crate::grid::build(&ed.level, &ed.blocks[..listed], 0, 0, &[])?,
+            // A figure's part turned at rest is drawn as cubes where it
+            // stands (`frame`), not as the world (which cannot turn).
+            Scope::Frame(_) if ed.rest_view() != Mat4::IDENTITY => World::new(IVec3::ONE, [[0; 4]; 256]),
             Scope::Block(_) | Scope::Frame(_) => {
                 let block = ed.shape().expect("a block or frame shown");
                 let mut world = World::new(block.size, [[0; 4]; 256]);
@@ -597,6 +632,7 @@ impl Shown {
         self.scope = ed.scope;
         self.shape = ed.shape().cloned();
         self.slice = slice_key(ed);
+        self.turned = ed.rest_view() != Mat4::IDENTITY;
         self.size = ed.level.size;
         self.cells = ed.level.cells.clone();
         self.blocks = ed.level.blocks.iter().zip(&ed.blocks).map(|(e, b)| (b.clone(), e.kind)).collect();
@@ -610,7 +646,7 @@ impl Shown {
         let same_blocks = |shown: &Self| shown.blocks.len() == listed && shown.blocks.iter().zip(ed.level.blocks.iter().zip(&ed.blocks)).all(|((b, k), (e, m))| *k == e.kind && b == m);
         match ed.scope {
             Scope::Block(_) | Scope::Frame(_) | Scope::Figure => {
-                if self.scope == ed.scope && self.shape.as_ref() == ed.shape() && self.slice == slice_key(ed) && (ed.scope != Scope::Figure || self.world.size == ed.grid()) {
+                if self.scope == ed.scope && self.shape.as_ref() == ed.shape() && self.slice == slice_key(ed) && self.turned == (ed.rest_view() != Mat4::IDENTITY) && (ed.scope != Scope::Figure || self.world.size == ed.grid()) {
                     return Ok(false);
                 }
             }
@@ -975,6 +1011,8 @@ pub enum Action {
     PoseReset,
     /// MIRROR: a part's partner of its pair made or made anew.
     MirrorPart(usize),
+    /// MOVE at a turned part: along the figure's axes (GLOBAL) or its own.
+    MoveGlobal(bool),
     /// At the selection (SELECT): REMOVE, PAINT, FLIP and ROTATE about an
     /// axis, DUPLICATE, NEW PART, MOVE TO PART (the menu of the parts, at
     /// [0, 0] where the last menu was), COPY, PASTE, none selected.
@@ -1137,7 +1175,7 @@ pub enum Action {
     EraseAt(IVec3),
     /// A figure's chosen part moved to a place along an axis (its POSITION
     /// field).
-    PartAt(u8, i32),
+    PartAt(u8, f32),
 }
 
 /// The key an action answers to (the panels show it beside its word): a
@@ -1284,6 +1322,7 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
             view.backgrounds[(ed.scope != Scope::Level) as usize] = c;
             view.backgrounds_changed = true;
         }
+        Action::MoveGlobal(on) => ed.move_global = on,
         Action::MirrorPart(p) => {
             match ed.cannot_mirror(p) {
                 Some(why) => ed.hint = Some(why),
@@ -1439,15 +1478,25 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
             {
                 // (From the pivot, as the file and the field have it.)
                 let mut at = figure.joint(p) + figure.low.as_vec3();
-                at[axis.min(2) as usize] = (v * 2.0).round() / 2.0;
+                at[axis.min(2) as usize] = (v * 10.0).round() / 10.0;
                 ed.set_joint(Some(at));
             }
         }
+        // POSITION typed: its `at` and `offset` (4.3: at 4, offset 0.3);
+        // in POSE the pose's offset.
         Action::PartAt(axis, v) => {
-            if let Some(now) = ed.part_at() {
-                let mut by = IVec3::ZERO;
-                by[axis.min(2) as usize] = v - now[axis.min(2) as usize];
-                ed.move_part(by);
+            let a = axis.min(2) as usize;
+            let v = (v * 10.0).round() / 10.0;
+            if ed.posing {
+                if let (Some(now), Some(posed)) = (ed.part_place(), ed.chosen_posed()) {
+                    ed.set_pose_offset(a, v - (now[a] - posed.offset[a]));
+                }
+            } else if let Some(now) = ed.part_place() {
+                let mut by = Vec3::ZERO;
+                by[a] = v - now[a];
+                if by != Vec3::ZERO {
+                    ed.move_part_by(by);
+                }
             }
         }
         Action::PickAt(cell) => ed.pick_at(cell),
@@ -1527,23 +1576,26 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         Scope::Block(_) | Scope::Frame(_) | Scope::Figure => (&view.block, 1),
     };
     let grid = ed.grid();
-    let view_proj = view.view_proj(orbit, aspect);
-    // A figure's part shaped at rest: the view looks through its turn
-    // (`View::rest`), so what is placed in the figure (the other parts, the
-    // floor, the room round it) is drawn in the part's own grid, and the
-    // eye and the sun are seen from there too.
+    // The camera and the world as they are, whatever part is chosen (the
+    // owner: a view that tilts with every choice disorients). A part
+    // turned at rest is drawn where and how it stands: its own voxels and
+    // the tools' marks, which lie in its own grid, placed by `rest` (its
+    // grid to the figure's); the tools' rays come the other way
+    // (`View::view_proj` of the block, `View::ray`).
+    let view_proj = Mat4::from_translation(Vec3::new(-view.inset.x, view.inset.y, 0.0)) * orbit.view_proj(aspect);
     let rest = if std::ptr::eq(orbit, &view.block) { view.rest } else { Mat4::IDENTITY };
-    let seen = rest.inverse();
-    let (_, seen_turn, _) = seen.to_scale_rotation_translation();
     let turned = rest != Mat4::IDENTITY;
-    let eye = seen.transform_point3(crate::camera::eye(&orbit.camera(), orbit.target, aspect));
+    let seen = Mat4::IDENTITY;
+    let eye = crate::camera::eye(&orbit.camera(), orbit.target, aspect);
     // The level's own daylight over the game's (`[light]`), in the level
     // only; a block or a model in the game's.
     let own = ed.level.daylight.as_ref().filter(|_| ed.scope == Scope::Level).map(crate::grid::Daylight::picture).unwrap_or_default();
-    let sun = seen_turn * own.sun.unwrap_or_else(|| Vec3::from(light.sun)).normalize_or(Vec3::NEG_Z);
+    let sun = own.sun.unwrap_or_else(|| Vec3::from(light.sun)).normalize_or(Vec3::NEG_Z);
     // A figure's part is shaped in the figure: the room is the figure's
     // (with the part's box), the floor under it all.
+    // (A part turned: its own box is in its own grid, not the figure's.)
     let (room_lo, room_hi) = match ed.figure_box() {
+        Some((lo, size)) if turned => (lo, lo + size),
         Some((lo, size)) => (lo.min(IVec3::ZERO), (lo + size).max(shown.world.size)),
         None => (IVec3::ZERO, shown.world.size),
     };
@@ -1568,18 +1620,6 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         for x in floor_lo.x..floor_lo.x + floor_size.x {
             let shade = floor_tones[(x + y).rem_euclid(2) as usize];
             instances.push(Instance { pos_size: [(x as f32 + 0.5) * u, (y as f32 + 0.5) * u, (floor_lo.z as f32 - 0.5) * u, u], color: shade, fx: [0, 255, 0, 0], shade: [0; 4], turn: [0; 4] });
-        }
-    }
-    if turned {
-        // (Placed by the turn as drawn, from one tile placed exactly: the
-        // tiles meet corner to corner.)
-        let snorm = crate::render::snorm_turn(seen_turn);
-        let drawn = crate::render::turn_as_drawn(seen_turn);
-        let anchor = instances.first().map(|c| Vec3::from_slice(&c.pos_size[..3]));
-        for c in &mut instances {
-            let at = Vec3::from_slice(&c.pos_size[..3]);
-            let p = anchor.map_or(at, |a| seen.transform_point3(a) + drawn * (at - a));
-            (c.pos_size[0], c.pos_size[1], c.pos_size[2], c.turn) = (p.x, p.y, p.z, snorm);
         }
     }
     let u = unit as f32;
@@ -1657,6 +1697,19 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         let start = instances.len();
         // (A stroke from the figure whole dims nothing.)
         through = figure.cubes_seen(lo, seen, figure.selected.is_some() && !ed.painting_whole, &|c| ed.cut(c), &mut instances);
+        // The chosen part turned at rest: its own voxels (not the world
+        // shown, which is drawn unturned) where it stands, solid.
+        if turned && let Some(b) = ed.shape() {
+            let at = |c: IVec3| b.get(c) != 0 && !ed.cut(c);
+            let cells: Vec<IVec3> = (0..b.voxels.len()).map(|k| b.at(k)).filter(|&c| at(c) && crate::mesh::DIRS.iter().any(|d| !at(c + *d))).collect();
+            let mut own: Vec<Instance> = cells.iter().filter_map(|&c| b.colour_at(c).map(|k| (c, k))).map(|(c, k)| {
+                let p = c.as_vec3() + 0.5;
+                Instance { pos_size: [p.x, p.y, p.z, 1.0], color: [k[0], k[1], k[2], 255], fx: [0, 255, 0, 0], shade: [0; 4], turn: [0; 4] }
+            }).collect();
+            crate::render::hide_inner_faces(&mut own);
+            place_turned(&mut own, rest);
+            instances.extend(own);
+        }
         // The faces between its own voxels left out, as the game's bank
         // leaves them (`vox::covered`): seen nearly edge on they won
         // single pixels along the edges. And those against the chosen
@@ -1678,6 +1731,8 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     // grid of every cube's faces blended over each other.
     through.extend(glass);
     crate::render::join_see_through(&mut through, eye - grid.as_vec3() / 2.0);
+    // From here the tools' marks: in the grid shown (a turned part's own).
+    let local_from = instances.len();
     // The selection (SELECT): its outline, thin and light, over all.
     if !game_view {
         let thin = 0.1;
@@ -1761,6 +1816,13 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         let p = (c.as_vec3() + 0.5) * u;
         instances.push(Instance { pos_size: [p.x, p.y, p.z, size], color, fx: [0, 110, 0, 0], shade: [0; 4], turn: [0; 4] });
         see_through = 1;
+    }
+    // A turned part's marks placed with it, the see-through ones far to
+    // near again.
+    if turned && instances.len() > local_from {
+        place_turned(&mut instances[local_from..], rest);
+        let n = instances.len();
+        instances[n - see_through..].sort_by(|a, b| far(a).total_cmp(&far(b)));
     }
     if !through.is_empty() {
         through.extend(instances.drain(instances.len() - see_through..));

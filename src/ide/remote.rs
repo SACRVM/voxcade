@@ -275,6 +275,12 @@ impl Pointer {
     pub fn steps(&mut self, window: u32, action: Action, button: MouseButton, at: (f32, f32), to: Option<(f32, f32)>, mods: Mod) -> Result<Vec<Step>, String> {
         let mut steps = Vec::new();
         let one = |e: Event| Step::Push(vec![e]);
+        // A click or a drag is whole in itself: no button is held from an
+        // earlier press that was never let go (its motions would carry it
+        // into every window, a drag nobody began).
+        if matches!(action, Action::Click | Action::DoubleClick | Action::Drag) {
+            self.buttons = 0;
+        }
         steps.push(one(self.motion(window, at.0, at.1)));
         match action {
             Action::Move => {}

@@ -442,10 +442,13 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         if *joint {
             let figure = ed.figure.as_ref().context("--move-joint: no figure")?;
             anyhow::ensure!(!ed.root_chosen(), "--move-joint {name}: the root turns about nothing, it has no joint");
-            let at = figure.joint(p) + figure.low.as_vec3() + (*by * 2.0).round() / 2.0;
+            let at = figure.joint(p) + figure.low.as_vec3() + (*by * 10.0).round() / 10.0;
             ed.set_joint(Some(at));
-        } else {
+        } else if *by == by.round() {
             ed.move_part(by.round().as_ivec3());
+        } else {
+            // Tenths too: into its `offset`.
+            ed.move_part_by((*by * 10.0).round() / 10.0);
         }
         ed.follow_figure();
         view.follow_origin(&ed);
@@ -865,6 +868,11 @@ fn among_things(ed: &Editor) -> bool {
     ed.scope == Scope::Level && ed.layer == Layer::Things
 }
 
+/// The buttons pressed in the view and not yet let go (`View::held`).
+pub const HELD_LEFT: u8 = 1;
+pub const HELD_RIGHT: u8 = 2;
+pub const HELD_MIDDLE: u8 = 4;
+
 /// How long the left button is found up, a drag still open, before the
 /// drag ends as let go (its up event lost).
 const LOST_RELEASE: Duration = Duration::from_millis(200);
@@ -1015,8 +1023,11 @@ const LOOK_EVERY: Duration = Duration::from_secs(1);
 /// IDE opens (several, on the IDE's GPU). It takes the events of its
 /// window and draws when something happened.
 pub struct EditorWindow {
-    screen: crate::window::Screen,
-    renderer: crate::render::Renderer,
+    /// Its window, its 3D view's renderer and the panels' painter (none:
+    /// a window without a window, for tests that feed its events).
+    win: Option<Win>,
+    /// The size a window without a window has (its points and pixels).
+    headless: [u32; 2],
     ed: Editor,
     view: View,
     shown: Shown,
@@ -1026,10 +1037,12 @@ pub struct EditorWindow {
     /// keys they named and where they lay, last frame.
     gui: egui::Context,
     input: crate::gui::input::Input,
-    painter: crate::gui::Painter,
     thumbs: panels::Thumbs,
     keys: Vec<(char, view::Action)>,
     rects: Vec<egui::Rect>,
+    /// Where the parts' rows lay, last frame (for tests that click them).
+    #[cfg(test)]
+    rows: Vec<(String, egui::Rect)>,
     /// Steps there were when the last left click came: a double click
     /// takes back what its first click did.
     steps_at_click: usize,
@@ -1049,6 +1062,14 @@ pub struct EditorWindow {
     /// When it last looked whether another program changed its files
     /// (`Editor::look_at_disk`: once a second, as the IDE's list).
     looked: Instant,
+}
+
+/// An editor window's own: the window, the 3D view's renderer, the
+/// panels' painter.
+struct Win {
+    screen: crate::window::Screen,
+    renderer: crate::render::Renderer,
+    painter: crate::gui::Painter,
 }
 
 impl EditorWindow {
@@ -1086,9 +1107,25 @@ impl EditorWindow {
         let gui = egui::Context::default();
         crate::gui::style(&gui);
         let painter = crate::gui::Painter::new(&screen.device, screen.config.format, true);
-        Ok(Self {
-            screen,
-            renderer,
+        Ok(Self::of(Some(Win { screen, renderer, painter }), ed, view, cfg, shown, figures, gui))
+    }
+
+    /// An editor window without a window (`win` none): its events fed and
+    /// its frames run as a window's, nothing drawn; for tests.
+    #[cfg(test)]
+    pub fn headless(ed: Editor, view: View, cfg: crate::config::GameConfig, dir: &Path) -> Result<Self> {
+        let shown = Shown::new(&ed)?;
+        let figures = Figures::load(dir, &cfg).with_pieces(dir, &ed.level);
+        let gui = egui::Context::default();
+        crate::gui::style(&gui);
+        Ok(Self::of(None, ed, view, cfg, shown, figures, gui))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn of(win: Option<Win>, ed: Editor, view: View, cfg: crate::config::GameConfig, shown: Shown, figures: Figures, gui: egui::Context) -> Self {
+        Self {
+            win,
+            headless: [1600, 900],
             ed,
             view,
             shown,
@@ -1096,10 +1133,11 @@ impl EditorWindow {
             cfg,
             gui,
             input: crate::gui::input::Input::default(),
-            painter,
             thumbs: panels::Thumbs::default(),
             keys: Vec::new(),
             rects: Vec::new(),
+            #[cfg(test)]
+            rows: Vec::new(),
             steps_at_click: 0,
             dirty: true,
             repaint_at: None,
@@ -1108,7 +1146,18 @@ impl EditorWindow {
             picture: None,
             closing: false,
             looked: Instant::now(),
-        })
+        }
+    }
+
+    /// Its size in points (as the mouse gives them) and in pixels.
+    fn sizes(&self) -> ((f32, f32), [u32; 2]) {
+        match &self.win {
+            Some(w) => {
+                let (pw, ph) = w.screen.window.size();
+                ((pw as f32, ph as f32), [w.screen.config.width, w.screen.config.height])
+            }
+            None => ((self.headless[0] as f32, self.headless[1] as f32), self.headless),
+        }
     }
 
     /// Whether it is to close (DON'T OPEN was answered).
@@ -1122,6 +1171,9 @@ impl EditorWindow {
     pub fn mouse_up_elsewhere(&mut self) {
         self.view.up_since = None;
         self.view.press_at = None;
+        self.view.held = 0;
+        // The panels let go too (egui would hold the button down for good).
+        self.input.release_buttons();
         if self.ed.drag_open() {
             self.ed.end_drag(false);
             self.ed.end_whole_stroke();
@@ -1142,13 +1194,16 @@ impl EditorWindow {
 
     /// Its window's SDL id: the events that are its.
     pub fn id(&self) -> u32 {
-        self.screen.window.id()
+        self.win.as_ref().map_or(0, |w| w.screen.window.id())
     }
 
     /// Its title, size in pixels, pixels to one of SDL's points (the
     /// mouse's) and whether it has the keyboard.
     pub fn info(&self) -> (String, u32, u32, f32, bool) {
-        (self.screen.window.title().to_string(), self.screen.config.width, self.screen.config.height, self.screen.window.pixel_density(), self.screen.window.has_input_focus())
+        match &self.win {
+            Some(w) => (w.screen.window.title().to_string(), w.screen.config.width, w.screen.config.height, w.screen.window.pixel_density(), w.screen.window.has_input_focus()),
+            None => (String::new(), self.headless[0], self.headless[1], 1.0, true),
+        }
     }
 
     /// Where a synthetic pointer is (SDL's points), if it is.
@@ -1197,7 +1252,7 @@ impl EditorWindow {
 
     /// The GPU it draws with, to open another window on.
     pub fn gpu(&self) -> &crate::window::Gpu {
-        self.screen.gpu()
+        self.win.as_ref().expect("a window").screen.gpu()
     }
 
     /// The model file it shapes, if it shapes one.
@@ -1213,7 +1268,9 @@ impl EditorWindow {
 
     /// Brings the window to the front.
     pub fn raise(&mut self) {
-        self.screen.window.raise();
+        if let Some(w) = &mut self.win {
+            w.screen.window.raise();
+        }
     }
 
     /// Opens the level's block `name` to shape it (nothing if the level
@@ -1244,14 +1301,20 @@ impl EditorWindow {
             self.dirty = true;
             match *event {
                 Event::Quit { .. } | Event::Window { win_event: WindowEvent::CloseRequested, .. } => return false,
-                Event::Window { win_event: WindowEvent::PixelSizeChanged(w, h), .. } => self.screen.resize(&mut self.renderer, w, h),
+                Event::Window { win_event: WindowEvent::PixelSizeChanged(w, h), .. } => {
+                    if let Some(win) = &mut self.win {
+                        win.screen.resize(&mut win.renderer, w, h);
+                    }
+                }
                 _ => {}
             }
             return true;
         }
-        let Self { screen, renderer, ed, view, shown, figures, cfg, keys, rects, gui, input, steps_at_click, .. } = self;
+        let ((pw, ph), [wide, high]) = self.sizes();
+        let Self { win, ed, view, shown, figures, cfg, keys, rects, gui, input, steps_at_click, .. } = self;
         self.dirty = true;
-        let aspect = screen.aspect();
+        let aspect = wide as f32 / high.max(1) as f32;
+        let share = |x: f32, y: f32| (x / pw.max(1.0), y / ph.max(1.0));
         // The mouse over the panels (or a list or picker of theirs open
         // there) is theirs, not the 3D view's.
         // (By where the mouse is now, not where egui last saw it: a click
@@ -1262,7 +1325,11 @@ impl EditorWindow {
         };
         match *event {
             Event::Quit { .. } | Event::Window { win_event: WindowEvent::CloseRequested, .. } => return false,
-            Event::Window { win_event: WindowEvent::PixelSizeChanged(w, h), .. } => screen.resize(renderer, w, h),
+            Event::Window { win_event: WindowEvent::PixelSizeChanged(w, h), .. } => {
+                if let Some(win) = win {
+                    win.screen.resize(&mut win.renderer, w, h);
+                }
+            }
             // Ctrl down or up: BOX and SPHERE cut away while it is held.
             Event::KeyDown { keycode: Some(Keycode::LCtrl | Keycode::RCtrl), .. } => view.cut = true,
             Event::KeyUp { keycode: Some(Keycode::LCtrl | Keycode::RCtrl), .. } => view.cut = false,
@@ -1285,6 +1352,7 @@ impl EditorWindow {
                     ed.end_whole_stroke();
                 }
                 view.press_at = None;
+                view.held = 0;
             }
             // Another button while the left one drags: cancelled.
             Event::MouseButtonDown { mouse_btn: MouseButton::Right | MouseButton::Middle, .. } if ed.drag_open() => {
@@ -1372,12 +1440,21 @@ impl EditorWindow {
                 }
             }
             Event::MouseMotion { mousestate, x, y, xrel, yrel, .. } => {
-                let (sx, sy) = screen.share(x, y);
-                let (dx, dy) = screen.share(xrel, yrel);
-                if mousestate.middle() || (mousestate.right() && shift) {
+                // A button counts as held only if it went down in this
+                // window's view and was not let go since (as the window
+                // heard it): a motion carrying a button held from elsewhere
+                // (pressed on a panel, in another window, a press whose
+                // release was lost) drags nothing and turns nothing.
+                let held = |b: u8| view.held & b != 0;
+                let left = mousestate.left() && held(HELD_LEFT);
+                let right = mousestate.right() && held(HELD_RIGHT);
+                let middle = mousestate.middle() && held(HELD_MIDDLE);
+                let (sx, sy) = share(x, y);
+                let (dx, dy) = share(xrel, yrel);
+                if middle || (right && shift) {
                     view.orbit(ed.scope).pan(dx, dy, aspect);
                     view.before_game = None;
-                } else if mousestate.right() {
+                } else if right {
                     view.orbit(ed.scope).turn(dx, dy);
                     view.before_game = None;
                 }
@@ -1387,7 +1464,7 @@ impl EditorWindow {
                 {
                     view.right_press = None;
                 }
-                let over = over(x, y) && !mousestate.left();
+                let over = over(x, y) && !left;
                 // Gone a few pixels from the press: a drag now.
                 if let Some((px, py)) = view.press_at
                     && (px - x).hypot(py - y) >= handles::TRAVEL
@@ -1395,7 +1472,7 @@ impl EditorWindow {
                     view.press_at = None;
                 }
                 if !ed.among_pieces() {
-                    let free = !(over || mousestate.left());
+                    let free = !(over || left);
                     view.slice_hover = free && slice_under(ed, view, gui.content_rect(), input.point(x, y)).is_some();
                     view.ring_hover = free && !view.slice_hover && on_ring(ed, view, gui.content_rect(), input.point(x, y));
                     view.grip_hover = if !free || view.ring_hover || view.slice_hover { None } else { joint_under(ed, view, gui.content_rect(), input.point(x, y)).map(|(g, ..)| g) };
@@ -1404,36 +1481,37 @@ impl EditorWindow {
                     let (origin, dir) = view.voxel_ray(aspect, sx, sy);
                     let room = gui.content_rect();
                     let mouse = input.point(x, y);
-                    if mousestate.left() && ed.gripped().is_some() {
+                    if left && ed.gripped().is_some() {
                         let vp = view.view_proj(&view.level, room.width() / room.height().max(1.0));
                         ed.drag_grip(vp, glam::Vec2::new(room.width(), room.height()), glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top()), (origin, dir));
-                    } else if mousestate.left() && ed.dragging().is_some() && view.press_at.is_none() {
+                    } else if left && ed.dragging().is_some() && view.press_at.is_none() {
                         ed.drag_item(origin, dir);
                     } else if ed.hanging.is_some() {
                         ed.hang_at(if over { None } else { view::set_down_spot(ed, figures, &shown.world, origin, dir) });
                     }
-                    let busy = over || ed.hanging.is_some() || mousestate.left();
+                    let busy = over || ed.hanging.is_some() || left;
                     view.grip_hover = if busy { None } else { stage::grip_under(ed, view, room, mouse) };
                     view.over = if busy || view.grip_hover.is_some() { None } else { view::item_along(ed, figures, origin, dir) };
                 } else if among_things(ed) {
                     (view.spot, view.under) = if over { (None, None) } else { view.aim_things(ed, shown, figures, aspect, sx, sy) };
-                    if mousestate.left() {
+                    if left {
                         ed.drag_thing(view.spot);
                     }
-                } else if ed.slicing() && mousestate.left() {
+                } else if ed.slicing() && left {
                     // SLICE's arrow dragged.
                     let room = gui.content_rect();
                     let mouse = input.point(x, y);
                     let vp = view.view_proj(&view.block, room.width() / room.height().max(1.0));
                     let ray = view.ray(ed, aspect, sx, sy);
                     ed.drag_slice(vp, glam::Vec2::new(room.width(), room.height()), glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top()), ray);
-                } else if ed.joint_drag().is_some() && mousestate.left() {
+                } else if ed.joint_drag().is_some() && left {
                     // A joint's arrow dragged.
                     let room = gui.content_rect();
                     let mouse = input.point(x, y);
                     let vp = view.view_proj(&view.block, room.width() / room.height().max(1.0));
                     let ray = view.ray(ed, aspect, sx, sy);
-                    ed.set_fine(view.cut);
+                    // (Shift: finer, a tenth of a voxel, a degree.)
+                    ed.set_fine(shift);
                     ed.sel_keep = view.only_empty;
                     ed.drag_joint(vp, glam::Vec2::new(room.width(), room.height()), glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top()), ray);
                     // (A part moved moves the grid shown: the view keeps the
@@ -1443,13 +1521,13 @@ impl EditorWindow {
                     // BOX and SPHERE: the footprint dragged out on its face's
                     // plane.
                     view.hover = if over { None } else { view.aim(ed, aspect, sx, sy) };
-                    if mousestate.left() && ed.drawing.is_some() {
+                    if left && ed.drawing.is_some() {
                         let (origin, dir) = view.ray(ed, aspect, sx, sy);
                         ed.draw_form(origin, dir);
                     }
                 } else {
                     view.hover = if over { None } else { view.aim(ed, aspect, sx, sy) };
-                    if mousestate.left()
+                    if left
                         && let Some(hit) = view.hover
                     {
                         ed.drag(hit);
@@ -1459,12 +1537,13 @@ impl EditorWindow {
             // A figure in GAME VIEW is only looked at.
             Event::MouseButtonDown { mouse_btn: MouseButton::Left, .. } if view.before_game.is_some() && ed.scope != Scope::Level => {}
             Event::MouseButtonDown { mouse_btn: MouseButton::Left, clicks, x, y, which, .. } if !over(x, y) => {
+                view.held |= HELD_LEFT;
                 // Where the press was (a drag moves things only once the
                 // pointer has gone a few pixels), and whether a program's
                 // pointer made it (`ide::remote`: no real button to ask).
                 view.press_at = Some((x, y));
                 view.synthetic_press = which == crate::ide::remote::SYNTHETIC;
-                let (sx, sy) = screen.share(x, y);
+                let (sx, sy) = share(x, y);
                 let sliced = if ed.among_pieces() { None } else { slice_under(ed, view, gui.content_rect(), input.point(x, y)) };
                 let ring = sliced.is_none() && !ed.among_pieces() && on_ring(ed, view, gui.content_rect(), input.point(x, y));
                 let joint = if ring || sliced.is_some() { None } else { joint_under(ed, view, gui.content_rect(), input.point(x, y)) };
@@ -1621,8 +1700,12 @@ impl EditorWindow {
             // BOX and SPHERE: the footprint let go is set right where it
             // was drawn (Alt: only where empty; Ctrl, held as it was
             // pressed: cut away), fresh for + and - until the next action.
-            Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } if ed.slicing() => ed.let_go_of_slice(),
+            Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } if ed.slicing() => {
+                view.held &= !HELD_LEFT;
+                ed.let_go_of_slice();
+            }
             Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } if ed.forms() && ed.joint_drag().is_none() => {
+                view.held &= !HELD_LEFT;
                 if ed.drawing.is_some() {
                     if ed.tool == Tool::Select {
                         ed.select_drawn(view.cut);
@@ -1633,6 +1716,7 @@ impl EditorWindow {
                 ed.end_whole_stroke();
             }
             Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } => {
+                view.held &= !HELD_LEFT;
                 ed.release();
                 ed.let_go_of_selection();
                 ed.end_whole_stroke();
@@ -1640,12 +1724,20 @@ impl EditorWindow {
             }
             // A right click (not a drag) among the pieces: the menu of what
             // is under the mouse (chosen), or of the floor there.
-            Event::MouseButtonDown { mouse_btn: MouseButton::Right, x, y, .. } => view.right_press = (!over(x, y)).then_some((x, y)),
+            Event::MouseButtonDown { mouse_btn: MouseButton::Right, x, y, .. } => {
+                view.right_press = (!over(x, y)).then_some((x, y));
+                if !over(x, y) {
+                    view.held |= HELD_RIGHT;
+                }
+            }
+            Event::MouseButtonDown { mouse_btn: MouseButton::Middle, x, y, .. } if !over(x, y) => view.held |= HELD_MIDDLE,
+            Event::MouseButtonUp { mouse_btn: MouseButton::Middle, .. } => view.held &= !HELD_MIDDLE,
             Event::MouseButtonUp { mouse_btn: MouseButton::Right, x, y, .. } if !ed.among_pieces() => {
+                view.held &= !HELD_RIGHT;
                 // The voxel editor and the level of blocks: the menu of the
                 // voxel (the part) or the block under the mouse.
                 if view.right_press.take().is_some() {
-                    let (sx, sy) = screen.share(x, y);
+                    let (sx, sy) = share(x, y);
                     let at = input.point(x, y);
                     if let Some(on) = voxel_menu(ed, view, aspect, sx, sy) {
                         if let view::MenuOn::Block(i) = on {
@@ -1656,8 +1748,9 @@ impl EditorWindow {
                 }
             }
             Event::MouseButtonUp { mouse_btn: MouseButton::Right, x, y, .. } => {
+                view.held &= !HELD_RIGHT;
                 if view.right_press.take().is_some() && ed.among_pieces() && ed.hanging.is_none() {
-                    let (sx, sy) = screen.share(x, y);
+                    let (sx, sy) = share(x, y);
                     let (origin, dir) = view.voxel_ray(aspect, sx, sy);
                     let at = input.point(x, y);
                     let room = gui.content_rect();
@@ -1702,7 +1795,7 @@ impl EditorWindow {
         // while (its up event may just be on its way), the drag ends as let
         // go where it is, one step. (Not a program's pointer: no real
         // button to ask.)
-        if self.ed.drag_open() && !self.view.synthetic_press && !left_button_down() {
+        if self.ed.drag_open() && !self.view.synthetic_press && self.win.is_some() && !left_button_down() {
             let since = *self.view.up_since.get_or_insert_with(Instant::now);
             if since.elapsed() >= LOST_RELEASE {
                 self.mouse_up_elsewhere();
@@ -1734,21 +1827,23 @@ impl EditorWindow {
             return Ok(());
         }
         self.dirty = false;
-        let Self { screen, renderer, ed, view, shown, figures, cfg, gui, input, painter, thumbs, keys, rects, .. } = self;
+        let (_, size) = self.sizes();
+        let (scale, density) = self.win.as_ref().map_or((1.0, 1.0), |w| (w.screen.window.display_scale(), w.screen.window.pixel_density()));
+        let aspect = size[0] as f32 / size[1].max(1) as f32;
+        let Self { win, ed, view, shown, figures, cfg, gui, input, thumbs, keys, rects, .. } = self;
         // The panels first: what was clicked there acts before the 3D view
         // is drawn.
-        let size = [screen.config.width, screen.config.height];
-        let raw = input.take(size, screen.window.display_scale(), screen.window.pixel_density());
+        let raw = input.take(size, scale, density);
         let mut drawn = panels::Shown::default();
         let marker = self.marker.map(|(x, y)| input.point(x, y));
         // A figure's parts as its frames stand now (a stroke, a step back),
         // the view kept on it; the pieces' models, a new one's too.
         ed.follow_figure();
         view.follow_origin(ed);
-        ed.slice_toward(view.block_eye(screen.aspect()));
+        ed.slice_toward(view.block_eye(aspect));
         figures.follow(&ed.dir, ed);
         ed.sizes = figures.sizes();
-        view.aspect = screen.aspect();
+        view.aspect = aspect;
         let out = gui.run_ui(raw, |ui| {
             drawn = panels::ui(ui, ed, view, figures, thumbs);
             let free = room_of(&drawn, ui.ctx().content_rect()).0;
@@ -1781,6 +1876,10 @@ impl EditorWindow {
         }
         view.set_room(room_of(&drawn, gui.content_rect()).1);
         (*keys, *rects) = (drawn.keys, drawn.rects);
+        #[cfg(test)]
+        {
+            self.rows = drawn.rows;
+        }
         let delay = out.viewport_output.get(&egui::ViewportId::ROOT).map_or(Duration::MAX, |v| v.repaint_delay);
         // A picture asked for is taken once the panels have settled.
         let capture = self.capture.is_some_and(|late| late || (!acted && !delay.is_zero()));
@@ -1788,14 +1887,22 @@ impl EditorWindow {
         self.repaint_at = if acted { Some(Instant::now()) } else { Instant::now().checked_add(delay) };
 
         // The world brought up to the editor, the frame drawn.
-        match shown.update(ed) {
+        let rebuilt = shown.update(ed);
+        let frame = view::frame(ed, view, shown, figures, &cfg.light, aspect);
+        // (A window without a window draws nothing.)
+        let Some(Win { screen, renderer, painter }) = win else {
+            if let Err(e) = rebuilt {
+                ed.message = Some(format!("{e:#}"));
+            }
+            return Ok(());
+        };
+        match rebuilt {
             Ok(true) => renderer.rebuild_all(&screen.device, &screen.queue, &mut shown.world, &ALL_FACES),
             Ok(false) => {
                 renderer.update_chunks(&screen.device, &screen.queue, &mut shown.world, &ALL_FACES);
             }
             Err(e) => ed.message = Some(format!("{e:#}")),
         }
-        let frame = view::frame(ed, view, shown, figures, &cfg.light, screen.aspect());
         match screen.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(texture) | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
                 let target = texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -1826,6 +1933,158 @@ pub(crate) const ALL_FACES: crate::mesh::FaceMask = [true; 6];
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A figure like the owner's: hips; a head on them turned 45; a nose
+    /// on the head turned -45; hair on the head, its box far out in front
+    /// and its joint set by hand to many digits; its box stated far too
+    /// big (a part flew off once and came back). An editor window without a
+    /// window on it.
+    fn owners_like(name: &str) -> (EditorWindow, crate::scratch::Scratch) {
+        let dir = crate::scratch::Scratch::new(&format!("window-{name}"));
+        std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.voxcade = \"0.6.0\"\nend\n").unwrap();
+        std::fs::write(dir.join("main.lua"), "").unwrap();
+        let part = |name: &str, at: [i32; 3], size: [i32; 3], sign: char, extra: &str| {
+            let rows: Vec<String> = (0..size[2]).map(|_| (0..size[1]).map(|_| sign.to_string().repeat(size[0] as usize)).collect::<Vec<_>>().join("\n")).collect();
+            format!("\n[[part]]\nname = \"{name}\"\nat = [{}, {}, {}]\n{extra}layers = \"\"\"\n{}\n\"\"\"\n", at[0], at[1], at[2], rows.join("\n\n"))
+        };
+        let text = format!(
+            "format = \"{}\"\nsize = [13, 2001, 42]\n\n[palette]\na = \"#5a7aa8\"\nb = \"#d0c8b8\"\nc = \"#c85a4a\"\nd = \"#6b4423\"\n{}{}{}{}",
+            crate::vvx::FORMAT,
+            part("hips", [-3, -2, 0], [6, 4, 8], 'a', ""),
+            part("head", [-2, -2, 8], [4, 4, 4], 'b', "parent = \"hips\"\njoint = [0, 0, 8]\nrotation = 45\n"),
+            part("hair", [-2, -12, 10], [4, 3, 2], 'd', "parent = \"head\"\njoint = [0.5, -15.24295, 38.045776]\n"),
+            part("nose", [0, -4, 9], [1, 2, 1], 'c', "parent = \"head\"\nrotation = -45\n"),
+        );
+        std::fs::write(dir.join("fig.vvx"), text).unwrap();
+        let (ed, view, cfg) = open_model::<crate::Voxcade>(&dir, "fig.vvx").unwrap();
+        let mut win = EditorWindow::headless(ed, view, cfg, &dir).unwrap();
+        for _ in 0..3 {
+            win.draw().unwrap();
+        }
+        (win, dir)
+    }
+
+    fn file(dir: &Path) -> String {
+        std::fs::read_to_string(dir.join("fig.vvx")).unwrap()
+    }
+
+    /// The camera as it looks: its turn, tilt and distance, and its middle
+    /// from the model's pivot (the grid shown moves with the part chosen).
+    fn camera(win: &EditorWindow) -> (f32, f32, f32, glam::Vec3) {
+        let o = win.view.block;
+        (o.yaw, o.pitch, o.zoom, o.target + win.ed.origin().unwrap_or(glam::IVec3::ZERO).as_vec3())
+    }
+
+    /// The window's events: the pointer moved there (`held`: the buttons
+    /// the motion says are down, SDL's bits), a button down and up.
+    fn motion(win: &mut EditorWindow, x: f32, y: f32, held: u32) {
+        thread_local!(static LAST: std::cell::Cell<(f32, f32)> = const { std::cell::Cell::new((800.0, 450.0)) });
+        let (px, py) = LAST.with(|l| l.replace((x, y)));
+        let e = sdl3::event::Event::MouseMotion { timestamp: 0, window_id: 0, which: 0, mousestate: sdl3::mouse::MouseState::from_sdl_state(held), x, y, xrel: x - px, yrel: y - py };
+        assert!(win.handle(&e, false));
+        win.draw().unwrap();
+    }
+
+    fn button(win: &mut EditorWindow, x: f32, y: f32, button: sdl3::mouse::MouseButton, down: bool) {
+        let e = if down {
+            sdl3::event::Event::MouseButtonDown { timestamp: 0, window_id: 0, which: 0, mouse_btn: button, clicks: 1, x, y }
+        } else {
+            sdl3::event::Event::MouseButtonUp { timestamp: 0, window_id: 0, which: 0, mouse_btn: button, clicks: 1, x, y }
+        };
+        assert!(win.handle(&e, false));
+        win.draw().unwrap();
+    }
+
+    fn click(win: &mut EditorWindow, at: egui::Pos2) {
+        motion(win, at.x, at.y, 0);
+        button(win, at.x, at.y, sdl3::mouse::MouseButton::Left, true);
+        button(win, at.x, at.y, sdl3::mouse::MouseButton::Left, false);
+        // (Past a double click's time: the next click is a click of its own.)
+        std::thread::sleep(std::time::Duration::from_millis(350));
+        win.draw().unwrap();
+    }
+
+    fn row(win: &EditorWindow, name: &str) -> egui::Pos2 {
+        win.rows.iter().find(|(n, _)| n == name).unwrap_or_else(|| panic!("no row {name}: {:?}", win.rows)).1.center()
+    }
+
+    fn chosen(win: &EditorWindow) -> String {
+        let f = win.ed.figure.as_ref().unwrap();
+        f.selected.map_or(String::new(), |p| f.parts()[p].name.clone())
+    }
+
+    /// The owner's case through the window's own events: clicks on the
+    /// parts' rows (the nose, the head, the nose again, the hair, the
+    /// figure whole) each choose that row, change nothing of the file and
+    /// make no step, and the camera stays as it looks; so do motions that
+    /// carry buttons held from elsewhere (a press on a panel, a release
+    /// lost). Opening frames the figure by its voxels, not its stated box.
+    #[test]
+    fn clicks_on_the_rows_choose_and_change_nothing() {
+        let (mut win, dir) = owners_like("rows");
+        let start = file(&dir);
+        let cam = camera(&win);
+        assert!(win.view.block.zoom < 100.0, "framed by its voxels, not a box 2001 deep: {}", win.view.block.zoom);
+        for name in ["nose", "head", "nose", "hair", "", "nose"] {
+            let at = row(&win, name);
+            click(&mut win, at);
+            assert_eq!(chosen(&win), name, "a click on the row {name:?} chooses it");
+            assert_eq!((file(&dir), win.ed.steps()), (start.clone(), 0), "after the row {name:?}: the file as it was, no step");
+            let now = camera(&win);
+            assert_eq!((now.0, now.1, now.2), (cam.0, cam.1, cam.2), "after the row {name:?}: the camera turns nowhere");
+            assert!((now.3 - cam.3).length() < 1e-3, "after the row {name:?}: its middle stays: {:?} {:?}", now.3, cam.3);
+        }
+        // Motions carrying the left and right buttons held from elsewhere,
+        // across the view: nothing turns, nothing moves.
+        for (x, y) in [(600.0, 300.0), (900.0, 500.0), (700.0, 700.0)] {
+            motion(&mut win, x, y, 0b101);
+        }
+        // A press on a row, the pointer dragged on into the view, let go.
+        let at = row(&win, "head");
+        motion(&mut win, at.x, at.y, 0);
+        button(&mut win, at.x, at.y, sdl3::mouse::MouseButton::Left, true);
+        for (x, y) in [(400.0, 400.0), (700.0, 450.0)] {
+            motion(&mut win, x, y, 1);
+        }
+        button(&mut win, 700.0, 450.0, sdl3::mouse::MouseButton::Left, false);
+        let now = camera(&win);
+        assert_eq!((now.0, now.1, now.2), (cam.0, cam.1, cam.2), "the camera turns nowhere");
+        assert_eq!((file(&dir), win.ed.steps()), (start, 0), "nothing changed");
+    }
+
+    /// POINTER's clicks on parts in the view choose them and change
+    /// nothing; TRIM changes only `size` (the joint written by hand to its
+    /// last digit stays); a LOCAL move of the nose changes only the nose.
+    #[test]
+    fn pointer_trim_and_a_local_move_change_only_their_own() {
+        let (mut win, dir) = owners_like("pointer");
+        let start = file(&dir);
+        // A click on the head where it shows.
+        let aspect = 1600.0 / 900.0;
+        let vp = win.view.view_proj(&win.view.block, aspect);
+        let head = win.ed.figure.as_ref().unwrap().parts().iter().position(|p| p.name == "head").unwrap();
+        let f = win.ed.figure.as_ref().unwrap();
+        let k = f.model.parts[head].visible[0] as usize;
+        let middle = f.rest_map(head, win.ed.figure_box().unwrap().0).transform_point3(f.model.frames[0][k].0.as_vec3() + 0.5);
+        let p = vp * middle.extend(1.0);
+        let at = egui::pos2((p.x / p.w + 1.0) / 2.0 * 1600.0, (1.0 - p.y / p.w) / 2.0 * 900.0);
+        click(&mut win, at);
+        assert_eq!((chosen(&win), file(&dir), win.ed.steps()), ("head".to_string(), start.clone(), 0), "POINTER: the head chosen, nothing changed");
+        // TRIM: only the size line.
+        win.ed.back_to_level();
+        win.ed.trim();
+        let trimmed = file(&dir);
+        let changed: Vec<(&str, &str)> = start.lines().zip(trimmed.lines()).filter(|(a, b)| a != b).collect();
+        assert_eq!(changed.len(), 1, "only one line: {changed:?}");
+        assert!(changed[0].0.starts_with("size") && trimmed.contains("joint = [0.5, -15.24295, 38.045776]"), "{changed:?}");
+        // A LOCAL move of the nose: the nose's lines only.
+        let nose = win.ed.figure.as_ref().unwrap().parts().iter().position(|p| p.name == "nose").unwrap();
+        win.ed.choose_part(nose);
+        win.ed.move_part_by(glam::Vec3::new(1.0, 0.0, 0.0));
+        let moved = file(&dir);
+        let others = |t: &str| t.split("[[part]]").filter(|p| !p.contains("name = \"nose\"")).map(str::to_string).collect::<Vec<_>>();
+        assert_eq!(others(&moved), others(&trimmed), "only the nose's text changed");
+    }
 
     /// The editor's test level with the sketch's things, places and areas
     /// after its cells (`grid::tests::PIECES`), in a game folder whose
@@ -1897,3 +2156,4 @@ mod tests {
         assert_eq!(std::fs::read_to_string(dir.join("level.toml")).unwrap(), text, "a step back");
     }
 }
+

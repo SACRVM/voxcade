@@ -95,6 +95,10 @@ pub struct Part {
     /// picture: the simulation, solid cells, bursts and `visible` see the
     /// part unturned. A pose turns on from it (`session::rest_turn`).
     pub rest: [f32; 3],
+    /// Where it is drawn moved by less than a voxel (`offset`, from its
+    /// `at`), with what hangs on it and its joint; only the picture, as
+    /// `rest`. Zero unless the file sets it.
+    pub offset: Vec3,
     /// Its voxels that can be seen once it moves apart from the rest (its
     /// own surface, the joint's faces too), and of those the see-through.
     pub visible: Vec<u32>,
@@ -554,7 +558,7 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
             let (seen, covered) = visible_voxels(&own);
             let visible: Vec<u32> = seen.into_iter().map(|i| members[p][i as usize]).collect();
             let glass = visible.iter().copied().filter(|&k| frame[k as usize].1[3] < 255).collect();
-            Part { name: names[p].clone(), voxels: members[p].clone(), parent: parent[p], joint: joint[p] - pivot, joint_by_hand: stated[p].1.is_some(), rest: [0.0; 3], visible, glass, covered, bank: 0..0, hung: how[p].clone(), overlaps }
+            Part { name: names[p].clone(), voxels: members[p].clone(), parent: parent[p], joint: joint[p] - pivot, joint_by_hand: stated[p].1.is_some(), rest: [0.0; 3], offset: Vec3::ZERO, visible, glass, covered, bank: 0..0, hung: how[p].clone(), overlaps }
         })
         .collect()
 }

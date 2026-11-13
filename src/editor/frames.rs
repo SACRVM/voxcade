@@ -71,6 +71,8 @@ pub struct Placed {
     pub joint: Option<Vec3>,
     /// Its rest rotation (`vvx::Piece::rotation`), kept as the file has it.
     pub rotation: [f32; 3],
+    /// Moved by less than a voxel (`vvx::Piece::offset`), within ±0.5.
+    pub offset: Vec3,
 }
 
 /// What of a model file an editor's step takes and gives back: its
@@ -197,7 +199,7 @@ impl ModelFile {
             }
             frames.push(block);
             if shape.parted {
-                parts.push(Placed { name: piece.name.clone(), frame: i, low, parent: piece.parent.clone(), joint: piece.joint, rotation: piece.rotation });
+                parts.push(Placed { name: piece.name.clone(), frame: i, low, parent: piece.parent.clone(), joint: piece.joint, rotation: piece.rotation, offset: piece.offset });
             }
         }
         let loaded = Shaped { frames: frames.clone(), parts: parts.clone(), size: shape.size, palette: colours.clone() };
@@ -320,10 +322,31 @@ impl ModelFile {
             .map(|p| {
                 let frame = self.frames.get(p.frame);
                 let voxels = frame.map_or_else(Vec::new, |f| self.reading(f, p.low + raise));
-                Piece { name: p.name.clone(), voxels, parent: p.parent.clone(), joint: p.joint.map(|j| j + raise.as_vec3()), rotation: p.rotation }
+                Piece { name: p.name.clone(), voxels, parent: p.parent.clone(), joint: p.joint.map(|j| j + raise.as_vec3()), rotation: p.rotation, offset: p.offset }
             })
             .collect();
         Shape { size, parted: true, pieces }
+    }
+
+    /// A figure's box as tight as its parts allow, about its pivot (as it
+    /// grows): what every step leaves it at, and TRIM; the file's own
+    /// `size` for a model of frames or a figure without voxels.
+    pub fn tight_size(&self) -> IVec3 {
+        if !self.parted() {
+            return self.size;
+        }
+        let mut loose = self.clone();
+        loose.size = IVec3::ONE;
+        let (raise, size) = loose.fitted();
+        if raise == IVec3::ZERO && size == IVec3::ONE && self.parts.iter().all(|p| self.frames.get(p.frame).is_none_or(|f| f.voxels.iter().all(|&v| v == 0))) {
+            return self.size;
+        }
+        size
+    }
+
+    /// Whether a figure's box is as tight as its parts allow.
+    pub fn is_tight(&self) -> bool {
+        !self.parted() || self.fitted().1 == self.tight_size()
     }
 
     /// A figure's raise (when a part reaches under the floor) and its box:

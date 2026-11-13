@@ -1698,7 +1698,7 @@ impl<G: Game> Session<G> {
     /// (`turning`), a figure of parts posed by `pose`, `view_width` voxels
     /// across the view. None: no such model.
     #[allow(clippy::too_many_arguments)]
-    pub fn still(&self, name: &str, frame: usize, look: IVec2, turn: Quat, pose: &dyn Fn(&str) -> Quat, view_width: f32, aspect: f32) -> Option<FrameData> {
+    pub fn still(&self, name: &str, frame: usize, look: IVec2, turn: Quat, pose: &dyn Fn(&str) -> PartPose, view_width: f32, aspect: f32) -> Option<FrameData> {
         let m = self.models.named(name)?;
         let size = m.size.as_vec3();
         // An empty world of its own round it: the level is not drawn.
@@ -1713,7 +1713,7 @@ impl<G: Game> Session<G> {
         let (light_vp, depth_range) = camera::light_view_proj(&cam, target, aspect, self.sun(), room, (Vec3::ZERO, room), self.options.shadow_map);
         let eye = camera::eye(&cam, target, aspect);
         let mut out = self.drawing(&world, 1.0, (view_proj, light_vp, eye), aspect, 512);
-        let turns: Vec<Quat> = m.parts.iter().map(|p| pose(&p.name)).collect();
+        let turns: Vec<PartPose> = m.parts.iter().map(|p| pose(&p.name)).collect();
         out.put_posed(m, frame.min(m.frames.len() - 1), origin, look, turn, &turns, None);
         let floor = (size.x.max(size.y) * 0.5).ceil() as i32 + 3;
         for y in -floor..floor {
@@ -2057,10 +2057,10 @@ impl Drawing<'_> {
     /// part by its name about its joint (`turning`, in the model's own
     /// directions; identity: as it stands), moving what hangs on it along.
     #[allow(clippy::too_many_arguments)]
-    pub fn model_posed(&mut self, name: &str, frame: usize, origin: Vec3, look: IVec2, turn: Quat, pose: &dyn Fn(&str) -> Quat, tint: Option<[u8; 4]>) {
+    pub fn model_posed(&mut self, name: &str, frame: usize, origin: Vec3, look: IVec2, turn: Quat, pose: &dyn Fn(&str) -> PartPose, tint: Option<[u8; 4]>) {
         let models = self.models;
         if let Some(m) = models.get(name) {
-            let turns: Vec<Quat> = m.parts.iter().map(|p| pose(&p.name)).collect();
+            let turns: Vec<PartPose> = m.parts.iter().map(|p| pose(&p.name)).collect();
             self.put_posed(m, frame, origin, look, turn, &turns, tint);
         }
     }
@@ -2082,7 +2082,7 @@ impl Drawing<'_> {
         let Some(m) = models.get(name) else { return };
         let frame = crate::sim::things::figure_frame(sets, body, m.frames.len(), m.size.z as f32);
         let swung = swinging(swing, body, m.size.z as f32);
-        let turns: Vec<Quat> = m.parts.iter().map(|p| swung(&p.name)).collect();
+        let turns: Vec<PartPose> = m.parts.iter().map(|p| swung(&p.name)).collect();
         self.put_posed(m, frame, origin, look, turn, &turns, tint);
     }
 
@@ -2091,8 +2091,8 @@ impl Drawing<'_> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn put_posed(&mut self, m: &VoxModel, frame: usize, origin: Vec3, look: IVec2, turn: Quat, pose: &[Quat], tint: Option<[u8; 4]>) {
-        let posed = pose.iter().any(|q| *q != Quat::IDENTITY) || rests_turned(m);
+    fn put_posed(&mut self, m: &VoxModel, frame: usize, origin: Vec3, look: IVec2, turn: Quat, pose: &[PartPose], tint: Option<[u8; 4]>) {
+        let posed = pose.iter().any(|q| *q != PartPose::REST) || rests_turned(m);
         let (lo, hi) = if turn == Quat::IDENTITY && !posed {
             let reach = (m.size.x.max(m.size.y) / 2 + 1) as f32;
             (origin - Vec3::new(reach, reach, 0.0), origin + Vec3::new(reach, reach, m.size.z as f32))
@@ -2239,24 +2239,48 @@ pub fn facing(free: bool, body: &Body) -> Quat {
 /// in `swing` pitched forward and back by its degrees (forward first; less
 /// than 0: back first), a stride every half its height (`tall`) walked;
 /// standing, as it stands.
-pub fn swinging<'a>(swing: &'a BTreeMap<String, f32>, body: &Body, tall: f32) -> impl Fn(&str) -> Quat + 'a {
+pub fn swinging<'a>(swing: &'a BTreeMap<String, f32>, body: &Body, tall: f32) -> impl Fn(&str) -> PartPose + 'a {
     let phase = crate::sim::math::sin(std::f32::consts::PI * body.walked / (tall * 0.5).max(1.0));
-    move |part| swing.get(part).map_or(Quat::IDENTITY, |&degrees| turning(0.0, degrees * phase, 0.0))
+    move |part| swing.get(part).map_or(PartPose::REST, |&degrees| PartPose::turned(turning(0.0, degrees * phase, 0.0)))
 }
 
+/// How a figure's part is posed: turned about its joint (on its rest
+/// rotation), and moved by less than a voxel (`offset`, on its own), with
+/// what hangs on it. Only the picture.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PartPose {
+    pub turn: Quat,
+    pub offset: Vec3,
+}
+
+impl PartPose {
+    pub const REST: Self = Self { turn: Quat::IDENTITY, offset: Vec3::ZERO };
+
+    pub fn turned(turn: Quat) -> Self {
+        Self { turn, ..Self::REST }
+    }
+}
+
+/// A script's pose entry: a part by its name, degrees round, nose up,
+/// rolled (`turning`), and its offset in voxels.
+pub type PoseEntry = (String, [f32; 3], [f32; 3]);
+
 /// A script's pose (each part by its name: degrees round, nose up, rolled,
-/// `turning`) over `under` (the kind's swing).
-pub fn posing<'a>(pose: &'a [(String, [f32; 3])], under: impl Fn(&str) -> Quat + 'a) -> impl Fn(&str) -> Quat + 'a {
+/// `turning`, an offset) over `under` (the kind's swing).
+pub fn posing<'a>(pose: &'a [PoseEntry], under: impl Fn(&str) -> PartPose + 'a) -> impl Fn(&str) -> PartPose + 'a {
     move |part| {
-        let own = pose.iter().find(|(p, _)| p == part).map_or(Quat::IDENTITY, |(_, [round, pitch, roll])| turning(*round, *pitch, *roll));
-        own * under(part)
+        let under = under(part);
+        match pose.iter().find(|(p, ..)| p == part) {
+            Some((_, [round, pitch, roll], offset)) => PartPose { turn: turning(*round, *pitch, *roll) * under.turn, offset: Vec3::from(*offset) + under.offset },
+            None => under,
+        }
     }
 }
 
 /// A script's pose alone (a level's piece, `thing.state.parts`), no swing
 /// under it.
-pub fn posing_alone(pose: &[(String, [f32; 3])]) -> impl Fn(&str) -> Quat + '_ {
-    posing(pose, |_| Quat::IDENTITY)
+pub fn posing_alone(pose: &[PoseEntry]) -> impl Fn(&str) -> PartPose + '_ {
+    posing(pose, |_| PartPose::REST)
 }
 
 /// What `draw` hands over for each voxel it draws as a cube: its corner,
@@ -2279,7 +2303,7 @@ type Piece<'a> = (Option<std::ops::Range<u32>>, &'a [u32], &'a [u32], &'a [u8], 
 /// (sorted with the frame's other see-through ones), and all of them
 /// without `on_gpu` or a bank (a model fading out).
 #[allow(clippy::too_many_arguments)]
-fn draw(put: &mut Put, on_gpu: Option<&mut Vec<ModelDraw>>, model: &VoxModel, frame: usize, origin: Vec3, look: IVec2, free_turn: Quat, pose: &[Quat], tint: Option<[u8; 4]>) {
+fn draw(put: &mut Put, on_gpu: Option<&mut Vec<ModelDraw>>, model: &VoxModel, frame: usize, origin: Vec3, look: IVec2, free_turn: Quat, pose: &[PartPose], tint: Option<[u8; 4]>) {
     draw_placed(put, on_gpu, model, frame, origin, look, free_turn, pose, tint, false);
 }
 
@@ -2301,7 +2325,7 @@ fn draw_placed(
     origin: Vec3,
     look: IVec2,
     free_turn: Quat,
-    pose: &[Quat],
+    pose: &[PartPose],
     tint: Option<[u8; 4]>,
     as_drawn: bool,
 ) {
@@ -2333,7 +2357,7 @@ fn draw_placed(
         // Posed (or a part turned at rest), a part's depth is taken nearer
         // by how far down the figure it hangs (`ModelDraw::nearer`); at
         // rest nothing overlaps.
-        let posed = pose.iter().any(|q| *q != Quat::IDENTITY) || rests_turned(model);
+        let posed = pose.iter().any(|q| *q != PartPose::REST) || rests_turned(model);
         let steps = |mut i: usize| {
             let mut n = 0.0;
             while let Some(p) = model.parts[i].parent.filter(|_| n < 16.0) {
@@ -2488,7 +2512,7 @@ pub fn model_cubes(model: &VoxModel, frame: usize, origin: Vec3, look: IVec2, tu
 /// part, on its rest), its opaque voxels from the model bank its
 /// `VoxModel::bank` was filled into (`draws`: outlined and shaded as the
 /// game's), its glass as cubes.
-pub fn model_drawn(model: &VoxModel, origin: Vec3, look: IVec2, pose: &[Quat], draws: &mut Vec<ModelDraw>, glass: &mut Vec<Instance>) {
+pub fn model_drawn(model: &VoxModel, origin: Vec3, look: IVec2, pose: &[PartPose], draws: &mut Vec<ModelDraw>, glass: &mut Vec<Instance>) {
     let mut put = |corner: Vec3, color: [u8; 4], metal: u8, glow: u8, shade: [i8; 4], turn: [i8; 4], covered: u8| {
         let covered = if color[3] < 255 { 0 } else { covered };
         glass.push(Instance { pos_size: (corner + 0.5).extend(1.0).to_array(), color, fx: [glow, color[3], covered, metal], shade, turn });
@@ -2498,7 +2522,7 @@ pub fn model_drawn(model: &VoxModel, origin: Vec3, look: IVec2, pose: &[Quat], d
 
 /// Where part `i` of a figure stands posed by `pose` (a turn per part, on
 /// its rest rotation): its turn and shift, as `part_at_rest` gives them.
-pub fn part_posed(model: &VoxModel, pose: &[Quat], i: usize) -> (Quat, Vec3) {
+pub fn part_posed(model: &VoxModel, pose: &[PartPose], i: usize) -> (Quat, Vec3) {
     let mut chain = vec![None; model.parts.len()];
     part_chain(model, pose, i, &mut chain)
 }
@@ -2507,25 +2531,29 @@ pub fn part_posed(model: &VoxModel, pose: &[Quat], i: usize) -> (Quat, Vec3) {
 /// take a voxel's middle (from the pivot cell's minimum corner, in the
 /// model's own directions) to where it is, each part turned about its
 /// joint and carried by the part it hangs on.
-fn part_chain(model: &VoxModel, pose: &[Quat], i: usize, chain: &mut [Option<(Quat, Vec3)>]) -> (Quat, Vec3) {
+fn part_chain(model: &VoxModel, pose: &[PartPose], i: usize, chain: &mut [Option<(Quat, Vec3)>]) -> (Quat, Vec3) {
     if let Some(done) = chain[i] {
         return done;
     }
     let part = &model.parts[i];
     // The pose turns on from the part's rest rotation, about the same
     // joint: `pose · rest` (the rest first).
-    let own = pose.get(i).copied().unwrap_or(Quat::IDENTITY);
+    let posed = pose.get(i).copied().unwrap_or(PartPose::REST);
     let own = match rest_turn(part) {
-        Some(rest) => own * rest,
-        None => own,
+        Some(rest) => posed.turn * rest,
+        None => posed.turn,
     };
+    // Turned about its joint, then moved by its offset (the file's and
+    // the pose's), in its parent's directions: the joint goes along, and
+    // what hangs on it.
+    let offset = part.offset + posed.offset;
     let joint = part.joint;
     let done = match part.parent {
-        None => (own, joint - own * joint),
+        None => (own, joint - own * joint + offset),
         Some(p) => {
             let (turn, shift) = part_chain(model, pose, p, chain);
             let turned = turn * own;
-            (turned, turn * joint + shift - turned * joint)
+            (turned, turn * (joint + offset) + shift - turned * joint)
         }
     };
     chain[i] = Some(done);
@@ -2552,7 +2580,7 @@ pub fn part_at_rest(model: &VoxModel, i: usize) -> (Quat, Vec3) {
 
 /// Whether a figure has a part turned at rest (`vox::Part::rest`).
 pub fn rests_turned(model: &VoxModel) -> bool {
-    model.parts.iter().any(|p| p.rest != [0.0; 3])
+    model.parts.iter().any(|p| p.rest != [0.0; 3] || p.offset != Vec3::ZERO)
 }
 
 #[cfg(test)]
@@ -2669,14 +2697,14 @@ mod tests {
     #[test]
     fn a_still_draws_one_model_alone() {
         let game = Session::<Shooter>::load(Path::new("games/arena")).unwrap();
-        let front = game.still("player", 0, IVec2::NEG_Y, Quat::IDENTITY, &|_| Quat::IDENTITY, 40.0, 0.75).unwrap();
+        let front = game.still("player", 0, IVec2::NEG_Y, Quat::IDENTITY, &|_| PartPose::REST, 40.0, 0.75).unwrap();
         assert_eq!(front.models.len(), 1, "the player alone");
         assert!(front.instances.len() >= 100, "on a floor: {}", front.instances.len());
-        let by_file = game.still(&game.cfg.player.model, 0, IVec2::NEG_Y, Quat::IDENTITY, &|_| Quat::IDENTITY, 40.0, 0.75).unwrap();
+        let by_file = game.still(&game.cfg.player.model, 0, IVec2::NEG_Y, Quat::IDENTITY, &|_| PartPose::REST, 40.0, 0.75).unwrap();
         assert_eq!(by_file.models[0].voxels, front.models[0].voxels);
-        let turned = game.still("player", 0, IVec2::NEG_Y, turning(-45.0, 0.0, 0.0), &|_| Quat::IDENTITY, 40.0, 0.75).unwrap();
+        let turned = game.still("player", 0, IVec2::NEG_Y, turning(-45.0, 0.0, 0.0), &|_| PartPose::REST, 40.0, 0.75).unwrap();
         assert!(turned.models[0].rot != Quat::IDENTITY);
-        assert!(game.still("nothing.vox", 0, IVec2::Y, Quat::IDENTITY, &|_| Quat::IDENTITY, 40.0, 0.75).is_none());
+        assert!(game.still("nothing.vox", 0, IVec2::Y, Quat::IDENTITY, &|_| PartPose::REST, 40.0, 0.75).is_none());
     }
 
     /// Standing still on raised ground must draw the same frame every time,
@@ -3127,6 +3155,8 @@ mod tests {
         type Cube = ([u32; 3], [u8; 4], u8, [i8; 4], [i8; 4], u8);
         let key = |centre: Vec3, color, metal, shade, turn, covered| -> Cube { (centre.to_array().map(f32::to_bits), color, metal, shade, turn, covered) };
         let cubes = |look: IVec2, rot: Quat, pose: &[Quat]| {
+            let pose: Vec<PartPose> = pose.iter().map(|q| PartPose::turned(*q)).collect();
+            let pose = &pose[..];
             let mut all: Vec<Cube> = Vec::new();
             draw(&mut |corner: Vec3, color, metal, _, shade, turn, covered| all.push(key(corner + 0.5, color, metal, shade, turn, covered)), None, &m, 0, origin, look, rot, pose, None);
             let mut gpu: Vec<Cube> = Vec::new();
@@ -3155,6 +3185,8 @@ mod tests {
         // faces of two parts in one plane do not flicker (a bent elbow); at
         // rest every part lies as it is.
         let nearer = |pose: &[Quat]| {
+            let pose: Vec<PartPose> = pose.iter().map(|q| PartPose::turned(*q)).collect();
+            let pose = &pose[..];
             let mut on_gpu = Vec::new();
             draw(&mut |_, _, _, _, _, _, _| {}, Some(&mut on_gpu), &m, 0, origin, IVec2::Y, Quat::IDENTITY, pose, None);
             on_gpu.iter().map(|d| d.nearer).collect::<Vec<f32>>()
@@ -3180,6 +3212,8 @@ mod tests {
         let origin = Vec3::new(40.0, 50.0, 3.0);
         // The cubes (every voxel, as a fading model draws) and the bank's draws.
         let drawn = |m: &VoxModel, look: IVec2, rot: Quat, pose: &[Quat]| {
+            let pose: Vec<PartPose> = pose.iter().map(|q| PartPose::turned(*q)).collect();
+            let pose = &pose[..];
             let mut cubes: Vec<[u32; 3]> = Vec::new();
             draw(&mut |corner: Vec3, _, _, _, _, _, _| cubes.push(corner.to_array().map(f32::to_bits)), None, m, 0, origin, look, rot, pose, None);
             let mut on_gpu = Vec::new();
@@ -3291,7 +3325,7 @@ mod tests {
             let m = crate::vox::load_model(&file).unwrap();
             let mut zs = Vec::new();
             let colour = m.frames[0][m.parts[1].voxels[0] as usize].1;
-            draw(&mut |corner: Vec3, c, _, _, _, _, _| if c == colour { zs.push(corner.z + 0.5) }, None, &m, 0, Vec3::ZERO, IVec2::Y, Quat::IDENTITY, &[Quat::IDENTITY, turning(0.0, 180.0, 0.0)], None);
+            draw(&mut |corner: Vec3, c, _, _, _, _, _| if c == colour { zs.push(corner.z + 0.5) }, None, &m, 0, Vec3::ZERO, IVec2::Y, Quat::IDENTITY, &[PartPose::REST, PartPose::turned(turning(0.0, 180.0, 0.0))], None);
             (m.parts[1].joint.z, zs.iter().copied().fold(f32::MAX, f32::min), zs.iter().copied().fold(f32::MIN, f32::max))
         };
         // Its top: the arm's voxels end at z 7 (from 1 to 7).

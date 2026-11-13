@@ -37,6 +37,9 @@ pub struct Shown {
     pub free: Option<egui::Rect>,
     /// Where each number field lies (its letter or word), as laid out.
     pub fields: Vec<(String, egui::Rect)>,
+    /// Where each row of a figure's parts lies (its part's name; the
+    /// figure whole's: empty), as laid out.
+    pub rows: Vec<(String, egui::Rect)>,
 }
 
 /// The pictures on the panels as textures, made again only when what they
@@ -539,7 +542,9 @@ mod tests {
         assert!(view.turn_mode(&ed));
         let rotating = laid_out(&ctx, &ed, &view);
         assert!(moving.rects.len() > 3, "a bar at the chair");
-        assert_eq!(moving.rects[3..], rotating.rects[3..], "level: the bar moved");
+        // (Its place; at a piece turned off the axes MOVE has LOCAL and
+        // GLOBAL besides, so the bar is wider in MOVE.)
+        assert_eq!(moving.rects[3].min, rotating.rects[3].min, "level: the bar moved");
         let (mut ed, mut view, _dir) = crate::editor::model::parts::tests::figure("bar");
         let arm = crate::editor::model::parts::tests::part(&ed, "arm");
         act(&mut ed, &mut view, Action::Part(arm));
@@ -611,3 +616,4 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+

@@ -1871,7 +1871,7 @@ impl UserData for Absent {
 #[derive(Clone, Debug)]
 pub enum Cmd {
     /// `turn`: degrees round, nose up, rolled right (`session::turning`).
-    Model { file: String, thing: u32, frame: Option<usize>, turn: [f32; 3], pose: Vec<(String, [f32; 3])> },
+    Model { file: String, thing: u32, frame: Option<usize>, turn: [f32; 3], pose: Vec<crate::session::PoseEntry> },
     Cube { at: Vec3, color: [u8; 4], glow: f32 },
     Light { at: Vec3, radius: f32, color: [f32; 3] },
     /// The HUD's, from its top left in UI voxels.
@@ -2276,6 +2276,12 @@ impl UserData for ControlsView {
 /// unless given), any other key a mistake (`turn`, its name before, says
 /// the new one).
 fn turning(t: &Table, what: &str) -> mlua::Result<[f32; 3]> {
+    turning_with(t, what, false).map(|(r, _)| r)
+}
+
+/// A pose entry: `turning`'s rotation, and with `offset` allowed the
+/// part's offset in voxels, `offset = { x, y, z }` (each 0 unless given).
+fn turning_with(t: &Table, what: &str, offset: bool) -> mlua::Result<([f32; 3], [f32; 3])> {
     const KEYS: [&str; 3] = ["rotation", "pitch", "roll"];
     for pair in t.pairs::<Value, Value>() {
         let (key, _) = pair?;
@@ -2286,10 +2292,29 @@ fn turning(t: &Table, what: &str) -> mlua::Result<[f32; 3]> {
         if name == "turn" {
             return Err(mlua::Error::runtime(format!("{what}: 'turn' is called 'rotation' now: {{ rotation = 45 }}")));
         }
-        if !KEYS.contains(&name.as_str()) {
-            return Err(mlua::Error::runtime(format!("{what}: a rotation has rotation, pitch and roll in degrees ({{ roll = 20 }}), not '{name}'")));
+        if !KEYS.contains(&name.as_str()) && !(offset && name == "offset") {
+            let words = if offset { "a pose entry has rotation, pitch and roll in degrees and an offset in voxels ({ roll = 20, offset = { 0, 0.5, 0 } })" } else { "a rotation has rotation, pitch and roll in degrees ({ roll = 20 })" };
+            return Err(mlua::Error::runtime(format!("{what}: {words}, not '{name}'")));
         }
     }
+    let moved = match t.raw_get::<Value>("offset")? {
+        Value::Nil => [0.0; 3],
+        Value::Table(o) => {
+            let n = |k: i64| -> mlua::Result<f32> {
+                match o.raw_get::<Value>(k)? {
+                    Value::Nil => Ok(0.0),
+                    Value::Integer(i) => Ok(i as f32),
+                    Value::Number(x) if x.is_finite() => Ok(x as f32),
+                    _ => Err(mlua::Error::runtime(format!("{what}: an offset is three numbers of voxels, {{ x, y, z }}"))),
+                }
+            };
+            if o.raw_len() > 3 {
+                return Err(mlua::Error::runtime(format!("{what}: an offset is three numbers of voxels, {{ x, y, z }}")));
+            }
+            [n(1)?, n(2)?, n(3)?]
+        }
+        _ => return Err(mlua::Error::runtime(format!("{what}: an offset is three numbers of voxels, {{ x, y, z }}"))),
+    };
     let get = |key: &str| -> mlua::Result<f32> {
         match t.raw_get::<Value>(key)? {
             Value::Nil => Ok(0.0),
@@ -2298,14 +2323,14 @@ fn turning(t: &Table, what: &str) -> mlua::Result<[f32; 3]> {
             _ => Err(mlua::Error::runtime(format!("{what}: the rotation's {key} is a number of degrees"))),
         }
     };
-    Ok([get("rotation")?, get("pitch")?, get("roll")?])
+    Ok(([get("rotation")?, get("pitch")?, get("roll")?], moved))
 }
 
 /// A pose of the figure of parts `file` (`frame:model`'s, a piece's
 /// `thing.state.parts`): each part by its name, a rotation about its joint
-/// (`turning`), in the parts' names' order. `parts` are the figure's parts
+/// (`turning`) and an offset in voxels, in the parts' names' order. `parts` are the figure's parts
 /// (none: no figure); `what` names it in a mistake.
-pub fn pose_of(pose: &Table, file: &str, parts: Option<&Vec<String>>, what: &str) -> mlua::Result<Vec<(String, [f32; 3])>> {
+pub fn pose_of(pose: &Table, file: &str, parts: Option<&Vec<String>>, what: &str) -> mlua::Result<Vec<crate::session::PoseEntry>> {
     let mut posed = Vec::new();
     for pair in pose.pairs::<Value, Value>() {
         let (part, t) = pair?;
@@ -2321,13 +2346,19 @@ pub fn pose_of(pose: &Table, file: &str, parts: Option<&Vec<String>>, what: &str
     }
     // The first mistake the same every run (a table's own walk is not).
     posed.sort_by(|a, b| a.0.cmp(&b.0));
-    posed.into_iter().map(|(part, t)| Ok((part.clone(), turning(&t, &format!("{what}, part '{part}'"))?))).collect()
+    posed
+        .into_iter()
+        .map(|(part, t)| {
+            let (turn, offset) = turning_with(&t, &format!("{what}, part '{part}'"), true)?;
+            Ok((part, turn, offset))
+        })
+        .collect()
 }
 
 /// A piece's pose as its state holds it (`thing.state.parts`, `v`): none
 /// for nil; `model` its model (none: a light alone), `name` what a mistake
 /// calls it (its name, or "thing N").
-pub fn piece_pose(v: &Value, model: Option<&str>, parts: &std::collections::BTreeMap<String, Vec<String>>, name: &str) -> mlua::Result<Vec<(String, [f32; 3])>> {
+pub fn piece_pose(v: &Value, model: Option<&str>, parts: &std::collections::BTreeMap<String, Vec<String>>, name: &str) -> mlua::Result<Vec<crate::session::PoseEntry>> {
     let what = format!("thing.state.parts of {name}");
     match v {
         Value::Nil => Ok(Vec::new()),

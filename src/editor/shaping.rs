@@ -156,8 +156,15 @@ fn part_bar(ui: &mut egui::Ui, ed: &Editor, free: Rect, view: &View, shown: &mut
     let removable = ed.cannot_remove(p);
     zones::bar_at(ui, &format!("part bar {p}"), middle, bounds, free, 400.0, shown, |ui, shown| {
         // MOVE (its arrows) or ROTATE (its rings about its joint), one lit.
-        small(ui, shown, "MOVE", Action::PartRotating(false), Some(!rotating), "Arrows: move it (what hangs on it goes along)");
-        small(ui, shown, "ROTATE", Action::PartRotating(true), Some(rotating), "Rings: rotate it about its joint (by 5°; Ctrl held: by 1°)");
+        small(ui, shown, "MOVE", Action::PartRotating(false), Some(!rotating), "Arrows: move it by whole voxels (Shift held: by tenths; what hangs on it goes along)");
+        small(ui, shown, "ROTATE", Action::PartRotating(true), Some(rotating), "Rings: rotate it about its joint (by 5°; Shift held: by 1°)");
+        // A part turned as it stands: its arrows along its own axes or
+        // the figure's.
+        if ed.part_turned() && !rotating {
+            ui.add_space(6.0);
+            small(ui, shown, "LOCAL", Action::MoveGlobal(false), Some(!ed.move_global), "Arrows along the part's own axes, as it stands");
+            small(ui, shown, "GLOBAL", Action::MoveGlobal(true), Some(ed.move_global), "Arrows along the figure's axes");
+        }
         ui.add_space(6.0);
         small(ui, shown, "HIDE", Action::Hide(p), None, "Hide it from the picture (the outliner's mark shows it again)  H");
         small(ui, shown, "DUPLICATE", Action::DuplicatePart(p), None, "A copy of it where it stands, chosen to be moved away");
@@ -295,6 +302,7 @@ fn parts(ui: &mut egui::Ui, ed: &Editor, view: &View, figure: &Figure, name: &st
         ui.add_space(18.0);
         list_row(ui, Sort::Piece, None, name, 0.0, whole_chosen, false, None, None, "The figure whole: every part as it is; the tools work on the part they meet (Esc)")
     });
+    shown.rows.push((String::new(), whole.inner.rect));
     if whole.inner.clicked() {
         shown.clicked.push(Action::WholeFigure);
     }
@@ -348,6 +356,7 @@ fn parts(ui: &mut egui::Ui, ed: &Editor, view: &View, figure: &Figure, name: &st
                 list_row(ui, Sort::Part, None, &part.name, 0.0, chosen, hidden, None, zones::warning_word(&warnings), &tip)
             })
             .inner;
+        shown.rows.push((part.name.clone(), r.rect));
         if r.secondary_clicked() {
             let at = r.interact_pointer_pos().unwrap_or(r.rect.right_top());
             shown.clicked.push(Action::PartMenu(p, [at.x, at.y]));
@@ -383,6 +392,7 @@ fn inspector(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thu
                 ui.label(RichText::new(format!("FIGURE {}", stem(&ed.file).to_uppercase())).color(TEXT));
                 row(ui, "SIZE", "Voxels across, deep and up", |ui| {
                     ui.label(format!("{} × {} × {}", s.x, s.y, s.z));
+                    trim_button(ui, ed, shown);
                 });
                 row(ui, "PARTS", "Its parts; a click on one (here or in the view) shapes it", |ui| {
                     ui.label(format!("{}", figure.parts().len()));
@@ -408,7 +418,7 @@ fn inspector(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thu
                         // to the inspector's room.)
                         ui.spacing_mut().button_padding = egui::vec2(4.0, 3.0);
                         small(ui, shown, "ROTATE", Action::Turn(Turn::TURN), None, "Rotate the model 90°, round the upright  T");
-                        small(ui, shown, "TRIM", Action::Trim, None, "Its box cut down to its voxels  M");
+                        trim_button(ui, ed, shown);
                         if !parted {
                             small(ui, shown, "COPY", Action::CopyFrame, None, "One more frame: a copy of this one, after it  C");
                             small(ui, shown, "REMOVE", Action::DeleteFrame, Some(false), "This frame taken out (UNDO brings it back)  D");
@@ -422,6 +432,16 @@ fn inspector(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thu
     // Below every other row (nothing above it moves when it comes).
     if ed.selection().is_some() {
         selection_rows(ui, ed, shown);
+    }
+}
+
+/// TRIM: the box cut down to what the voxels need (the figure whole's,
+/// a part's own, a model of frames'); quiet when there is nothing to cut.
+fn trim_button(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+    let can = ed.can_trim();
+    let r = ui.add_enabled(can, egui::Button::new(RichText::new("TRIM").small()));
+    if r.on_hover_text("Its box cut down to its voxels  M").on_disabled_hover_text("ALREADY TIGHT").clicked() {
+        shown.clicked.push(Action::Trim);
     }
 }
 
@@ -730,11 +750,22 @@ fn rig(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, p: usize, shown: &mut Sh
     let part = &figure.parts()[p];
     ui.label(RichText::new(format!("PART {}", part.name.to_uppercase())).color(TEXT));
     let by_hand = part.hung == crate::vox::Hung::ByHand;
-    if let Some(at) = ed.part_at() {
-        row(ui, "POSITION", "Where it stands from the figure's pivot, in voxels (those hanging on it go along). Or drag its arrows (MOVE).", |ui| {
+    // From the pivot: its `at` and `offset` (a tenth shown only where it
+    // has one); in POSE with the pose's offset, which typing sets.
+    if let Some(at) = ed.part_place() {
+        let tip = if ed.posing { "Where it stands posed, from the figure's pivot: typing sets the pose's offset (nothing saved)" } else { "Where it stands from the figure's pivot, in voxels, tenths too (those hanging on it go along). Or drag its arrows (MOVE; Shift: tenths)" };
+        row(ui, "POSITION", tip, |ui| {
             for a in 0..3 {
-                zones::number(ui, shown, ["X", "Y", "Z"][a], Some(a), at[a] as f64, 0, 0.1, -1000.0..=1000.0, "", FIELD, |v| Action::PartAt(a as u8, v.round() as i32));
+                zones::number(ui, shown, ["X", "Y", "Z"][a], Some(a), ((at[a] * 10.0).round() / 10.0) as f64, 1, 0.1, -1000.0..=1000.0, "", FIELD, |v| Action::PartAt(a as u8, v as f32));
             }
+        });
+    }
+    // Its own box, and TRIM when it holds more than its voxels.
+    if let Some(b) = ed.shape() {
+        let s = b.size;
+        row(ui, "SIZE", "Its own box: voxels across, deep and up", |ui| {
+            ui.label(format!("{} × {} × {}", s.x, s.y, s.z));
+            trim_button(ui, ed, shown);
         });
     }
     // ROTATE: its rest rotation about its joint, as a level's piece's row
@@ -867,7 +898,8 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<zones::Entry> {
         MenuOn::Part(p) => {
             let Some(figure) = &ed.figure else { return out };
             let name = figure.parts()[p].name.to_uppercase();
-            out.push((if figure.selected == Some(p) { "THE WHOLE FIGURE".into() } else { format!("SELECT {name}") }, Action::Part(p), None, None));
+            let whole = figure.selected == Some(p);
+            out.push((if whole { "THE WHOLE FIGURE".into() } else { format!("SELECT {name}") }, if whole { Action::WholeFigure } else { Action::Part(p) }, None, None));
             out.push((if figure.hidden[p] { "SHOW".into() } else { "HIDE".into() }, Action::Hide(p), None, None));
             out.push(("HIDE OTHERS".into(), Action::HideOthers(p), None, None));
             if figure.hidden.iter().any(|&h| h) {

@@ -3356,6 +3356,22 @@ end
     let frame = g.frame(1.0, 16.0 / 9.0);
     assert_eq!(frame.models.len(), 2, "a draw a part");
     assert!(frame.models.iter().any(|m| m.rot != glam::Quat::IDENTITY), "the arm turned");
+    // An offset moves the arm's draw by voxels; a key a pose entry lacks
+    // is a mistake naming what it takes.
+    let shift = |m: &crate::render::ModelDraw| m.shift;
+    let before: Vec<glam::Vec3> = frame.models.iter().map(shift).collect();
+    std::fs::write(dir.join("main.lua"), main.replace("{ arm = { pitch = 90 } }", "{ arm = { pitch = 90, offset = { 0, 0.5, 0 } } }")).unwrap();
+    let mut g = game_in(&dir);
+    steps(&mut g, 10);
+    let frame = g.frame(1.0, 16.0 / 9.0);
+    assert_eq!(halted(&g), "");
+    let after: Vec<glam::Vec3> = frame.models.iter().map(shift).collect();
+    assert_eq!(before[0], after[0], "the body as it was");
+    assert!((after[1] - before[1]).length() > 0.49, "the arm moved by its offset: {before:?} {after:?}");
+    std::fs::write(dir.join("main.lua"), main.replace("{ arm = { pitch = 90 } }", "{ arm = { pitch = 90, shift = 1 } }")).unwrap();
+    let g = game_in(&dir);
+    let _ = g.frame(1.0, 16.0 / 9.0);
+    assert!(halted(&g).contains("a pose entry has rotation, pitch and roll in degrees and an offset in voxels"), "{}", halted(&g));
     std::fs::write(dir.join("main.lua"), main.replace("{ arm =", "{ leg =")).unwrap();
     let g = game_in(&dir);
     let _ = g.frame(1.0, 16.0 / 9.0);
@@ -4759,7 +4775,7 @@ fn a_part_turned_at_rest_shows_in_the_sheet_and_the_level() {
     let rested = game_in(&dir);
     let leaf = crate::session::turning(-60.0, 0.0, 0.0);
     let posed = |part: &str| if part == "leaf" { leaf } else { glam::Quat::IDENTITY };
-    let sheet = |g: &Session<LuaGame>, pose: &dyn Fn(&str) -> glam::Quat| g.still("door.vvx", 0, glam::IVec2::NEG_Y, glam::Quat::IDENTITY, pose, 40.0, 1.0).unwrap().models;
+    let sheet = |g: &Session<LuaGame>, pose: &dyn Fn(&str) -> glam::Quat| g.still("door.vvx", 0, glam::IVec2::NEG_Y, glam::Quat::IDENTITY, &|p| crate::session::PartPose::turned(pose(p)), 40.0, 1.0).unwrap().models;
     assert_eq!(sheet(&rested, &|_| glam::Quat::IDENTITY), sheet(&plain, &posed), "the sheet");
     assert_ne!(sheet(&rested, &|_| glam::Quat::IDENTITY), sheet(&plain, &|_| glam::Quat::IDENTITY));
     said(&mut plain, "level:thing('door').state.parts = { leaf = { rotation = -60 } }");

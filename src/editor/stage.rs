@@ -600,6 +600,13 @@ fn beside(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut S
         if turns {
             zones::small(ui, shown, "MOVE", Action::HandleMode(false), Some(!turning), "Arrows: move it along X, Y, Z (or drag it over the floor)");
             zones::small(ui, shown, "ROTATE", Action::HandleMode(true), Some(turning), "Rings: rotate it about its sides and the upright");
+            // Turned off the level's axes: its arrows along its own or the
+            // level's.
+            if !turning && ed.piece_turned_off_axes() {
+                ui.add_space(6.0);
+                zones::small(ui, shown, "LOCAL", Action::MoveGlobal(false), Some(!ed.move_global), "Arrows along its own axes, as it stands (it lands on whole voxels)");
+                zones::small(ui, shown, "GLOBAL", Action::MoveGlobal(true), Some(ed.move_global), "Arrows along the level's axes");
+            }
             ui.add_space(6.0);
         }
         small(ui, shown, "COPY", Action::CopyItem, None, "Copy it: the copy hangs on the mouse, a click sets it down  C");

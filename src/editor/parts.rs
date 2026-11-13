@@ -19,6 +19,14 @@ fn is_word(name: &str) -> bool {
     chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// A part's pose in the editor (POSE): its rotation, degrees as
+/// `frame:model` has them, and its offset in voxels.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Posed {
+    pub turn: [f32; 3],
+    pub offset: [f32; 3],
+}
+
 impl Editor {
     /// The chosen part's place among the file's parts (`ModelFile::parts`).
     fn placed(&self, p: usize) -> Option<usize> {
@@ -46,11 +54,28 @@ impl Editor {
         }
     }
 
-    /// The chosen part's pose (POSE), 0 where it has none.
+    /// The chosen part's pose's rotation (POSE), 0 where it has none.
     pub fn chosen_pose(&self) -> Option<[f32; 3]> {
+        self.chosen_posed().map(|p| p.turn)
+    }
+
+    /// The chosen part's pose (POSE): its rotation and offset.
+    pub fn chosen_posed(&self) -> Option<Posed> {
         let f = self.figure.as_ref()?;
         let name = &f.parts().get(f.selected?)?.name;
         Some(self.pose.get(name).copied().unwrap_or_default())
+    }
+
+    /// The chosen part's pose's offset along one axis set (POSE's POSITION
+    /// fields): drawn, nothing written, no step.
+    pub fn set_pose_offset(&mut self, axis: usize, voxels: f32) {
+        let Some(name) = self.figure.as_ref().and_then(|f| Some(f.parts().get(f.selected?)?.name.clone())) else { return };
+        let entry = self.pose.entry(name.clone()).or_default();
+        entry.offset[axis.min(2)] = (voxels * 10.0).round() / 10.0;
+        if *entry == Posed::default() {
+            self.pose.remove(&name);
+        }
+        self.follow_figure();
     }
 
     /// What the rings turn: the pose while POSE is lit, else the rest.
@@ -65,8 +90,8 @@ impl Editor {
         let to = degrees.rem_euclid(360.0);
         let to = if to > 180.0 { to - 360.0 } else { to };
         let entry = self.pose.entry(name.clone()).or_default();
-        entry[axis.min(2)] = to;
-        if *entry == [0.0; 3] {
+        entry.turn[axis.min(2)] = to;
+        if *entry == Posed::default() {
             self.pose.remove(&name);
         }
         self.follow_figure();
@@ -94,8 +119,12 @@ impl Editor {
         let parts: Vec<String> = order
             .iter()
             .filter_map(|name| {
-                let turns = self.pose.get(name)?;
-                let keys: Vec<String> = ["rotation", "pitch", "roll"].iter().zip(turns).filter(|(_, v)| **v != 0.0).map(|(k, v)| format!("{k} = {}", num(*v))).collect();
+                let posed = self.pose.get(name)?;
+                let mut keys: Vec<String> = ["rotation", "pitch", "roll"].iter().zip(posed.turn).filter(|(_, v)| *v != 0.0).map(|(k, v)| format!("{k} = {}", num(v))).collect();
+                if posed.offset != [0.0; 3] {
+                    let [x, y, z] = posed.offset.map(num);
+                    keys.push(format!("offset = {{ {x}, {y}, {z} }}"));
+                }
                 (!keys.is_empty()).then(|| format!("{name} = {{ {} }}", keys.join(", ")))
             })
             .collect();
@@ -192,13 +221,14 @@ impl Editor {
                 Some(k) => k,
                 None => {
                     m.frames.push(Block::boxed(IVec3::ONE));
-                    m.parts.push(Placed { name: name.clone(), frame: m.frames.len() - 1, low: IVec3::ZERO, parent: None, joint: None, rotation: [0.0; 3] });
+                    m.parts.push(Placed { name: name.clone(), frame: m.frames.len() - 1, low: IVec3::ZERO, parent: None, joint: None, rotation: [0.0; 3], offset: Vec3::ZERO });
                     m.parts.len() - 1
                 }
             };
             set_cells(m, k, &cells);
             let o = &mut m.parts[k];
             (o.parent, o.joint, o.rotation) = (parent, joint, rotation);
+            o.offset = Vec3::new(-source.offset.x, source.offset.y, source.offset.z);
         });
         self.follow_figure();
     }
@@ -289,7 +319,7 @@ impl Editor {
             let mut voxel = Block::boxed(IVec3::ONE);
             let _ = voxel.set(IVec3::ZERO, Some(colour));
             m.frames.push(voxel);
-            m.parts.push(Placed { name: new, frame: m.frames.len() - 1, low: at, parent: Some(parent), joint: None, rotation: [0.0; 3] });
+            m.parts.push(Placed { name: new, frame: m.frames.len() - 1, low: at, parent: Some(parent), joint: None, rotation: [0.0; 3], offset: Vec3::ZERO });
         });
         self.choose_named(&name);
     }
@@ -589,7 +619,7 @@ pub(crate) mod tests {
             format!("\n[[part]]\nname = \"{name}\"\nat = [{}, {}, {}]\n{parent}layers = \"\"\"\n{}\n\"\"\"\n", at[0], at[1], at[2], rows.join("\n\n"))
         };
         let text = format!(
-            "format = \"{}\"\nsize = [12, 6, 12]\n\n[palette]\na = \"#5a7aa8\"\nb = \"#d0c8b8\"\nc = \"#c89a4a\"\n{}{}{}{}",
+            "format = \"{}\"\nsize = [9, 4, 11]\n\n[palette]\na = \"#5a7aa8\"\nb = \"#d0c8b8\"\nc = \"#c89a4a\"\n{}{}{}{}",
             crate::vvx::FORMAT,
             part("body", [-3, -2, 0], [6, 4, 8], 'a', None),
             part("head", [-2, -2, 8], [4, 4, 3], 'b', None),
@@ -1079,7 +1109,7 @@ pub(crate) mod tests {
         assert_eq!(f.outline[3], 1.0, "the game's outline");
         // Posed: the arm's draw turned.
         act(&mut ed, &mut view, Action::Pose);
-        ed.pose.insert("arm".into(), [0.0, 45.0, 0.0]);
+        ed.pose.insert("arm".into(), super::Posed { turn: [0.0, 45.0, 0.0], offset: [0.0; 3] });
         ed.follow_figure();
         let posed = crate::editor::view::frame(&ed, &view, &shown, &figures, &light, 16.0 / 9.0);
         assert_ne!(posed.models, f.models, "posed");
@@ -1186,5 +1216,167 @@ pub(crate) mod tests {
         }
         assert!(!ed.forms(), "no box drawn with it");
         assert_eq!((ed.steps(), text(&dir)), (0, start), "nothing changed");
+    }
+
+    /// A figure's box is never larger than its parts need: a part moved
+    /// 500 voxels away grows it, moved back it is as it was, the file as
+    /// at the start. A file opened with a box far too large is not changed
+    /// by opening; TRIM (one step) makes it tight, UNDO gives it back.
+    #[test]
+    fn a_figures_box_shrinks_back_and_trim_makes_it_tight() {
+        let (mut ed, mut view, dir) = figure("trim");
+        let start = text(&dir);
+        let arm = part(&ed, "arm");
+        act(&mut ed, &mut view, Action::Part(arm));
+        ed.move_part(IVec3::new(0, 500, 0));
+        assert!(text(&dir).contains("size = [9, 100"), "grown: {}", text(&dir).lines().nth(1).unwrap());
+        ed.move_part(IVec3::new(0, -500, 0));
+        assert_eq!(text(&dir), start, "moved back: the box as it was");
+        // A file left with a huge box.
+        let loose = start.replace("size = [9, 4, 11]", "size = [13, 2001, 41]");
+        std::fs::write(dir.join("fig.vvx"), &loose).unwrap();
+        let mut ed = Editor::open_model(&dir, "fig.vvx").unwrap();
+        ed.follow_figure();
+        assert_eq!(text(&dir), loose, "opening changes nothing");
+        assert!(ed.can_trim(), "TRIM has something to cut");
+        let steps = ed.steps();
+        ed.trim();
+        assert_eq!((ed.steps(), text(&dir)), (steps + 1, start.clone()), "TRIM: tight, one step");
+        assert!(!ed.can_trim(), "ALREADY TIGHT");
+        ed.undo();
+        assert_eq!(text(&dir), loose);
+    }
+
+    /// A figure like the owner's: a head turned 45 round and tipped, a nose
+    /// turned -45 on it.
+    fn nosed(name: &str) -> (Editor, View, crate::scratch::Scratch) {
+        let dir = crate::scratch::Scratch::new(&format!("parts-{name}"));
+        let part = |name: &str, at: [i32; 3], size: [i32; 3], sign: char, extra: &str| {
+            let rows: Vec<String> = (0..size[2]).map(|_| (0..size[1]).map(|_| sign.to_string().repeat(size[0] as usize)).collect::<Vec<_>>().join("\n")).collect();
+            format!("\n[[part]]\nname = \"{name}\"\nat = [{}, {}, {}]\n{extra}layers = \"\"\"\n{}\n\"\"\"\n", at[0], at[1], at[2], rows.join("\n\n"))
+        };
+        let text = format!(
+            "format = \"{}\"\nsize = [8, 8, 12]\n\n[palette]\na = \"#5a7aa8\"\nb = \"#d0c8b8\"\nc = \"#c85a4a\"\n{}{}{}",
+            crate::vvx::FORMAT,
+            part("body", [-3, -2, 0], [6, 4, 8], 'a', ""),
+            part("head", [-2, -2, 8], [4, 4, 4], 'b', "parent = \"body\"\njoint = [0, 0, 8]\nrotation = 45\npitch = 20\n"),
+            part("nose", [0, -4, 9], [1, 2, 1], 'c', "parent = \"head\"\nrotation = -45\n"),
+        );
+        std::fs::write(dir.join("fig.vvx"), text).unwrap();
+        let mut ed = Editor::open_model(&dir, "fig.vvx").unwrap();
+        ed.follow_figure();
+        let view = View::new(&ed, &crate::config::GameConfig::default());
+        (ed, view, dir)
+    }
+
+    /// Where the cubes of a color show on the screen (shares), as drawn.
+    fn seen_at(f: &crate::render::FrameData, colour: [u8; 3]) -> Vec<glam::Vec2> {
+        f.instances
+            .iter()
+            .filter(|c| c.color[..3] == colour)
+            .map(|c| {
+                let p = f.view_proj * Vec3::from_slice(&c.pos_size[..3]).extend(1.0);
+                glam::Vec2::new((p.x / p.w + 1.0) / 2.0, (1.0 - p.y / p.w) / 2.0)
+            })
+            .collect()
+    }
+
+    /// Choosing a part turned at rest moves neither the camera nor the
+    /// other parts on the screen (the head stays where it shows); the
+    /// chosen nose is drawn where it stands; a tool's ray at a voxel of the
+    /// nose on the screen meets that voxel in the nose's own grid.
+    #[test]
+    fn choosing_a_turned_part_keeps_the_view() {
+        let (mut ed, mut view, dir) = nosed("nosed");
+        let figures = crate::editor::view::Figures::load(&dir, &crate::config::GameConfig::default());
+        let light = crate::config::LightConfig::default();
+        let frame = |ed: &Editor, view: &View| {
+            let shown = crate::editor::view::Shown::new(ed).unwrap();
+            crate::editor::view::frame(ed, view, &shown, &figures, &light, 16.0 / 9.0)
+        };
+        let whole = frame(&ed, &view);
+        let head = [0xd0, 0xc8, 0xb8];
+        let nose = [0xc8, 0x5a, 0x4a];
+        let (head_before, nose_before) = (seen_at(&whole, head), seen_at(&whole, nose));
+        assert!(!head_before.is_empty() && !nose_before.is_empty());
+        let p = part(&ed, "nose");
+        act(&mut ed, &mut view, Action::Part(p));
+        view.follow_origin(&ed);
+        assert_ne!(view.rest, glam::Mat4::IDENTITY, "a turned part");
+        let chosen = frame(&ed, &view);
+        let close = |a: &[glam::Vec2], b: &[glam::Vec2]| a.len() == b.len() && a.iter().all(|p| b.iter().any(|q| p.distance(*q) < 1e-3));
+        assert!(close(&seen_at(&chosen, head), &head_before), "the head shows where it showed");
+        assert!(close(&seen_at(&chosen, nose), &nose_before), "the nose drawn where it stands");
+        // A ray through a nose voxel on the screen meets the nose.
+        let at = seen_at(&chosen, nose)[0];
+        let (origin, dir) = view.ray(&ed, 16.0 / 9.0, at.x, at.y);
+        let hit = ed.aim(origin, dir).expect("the nose met");
+        assert!(ed.shape().unwrap().get(hit.cell) != 0, "a voxel of the nose: {hit:?}");
+    }
+
+    /// Moved by tenths (Shift on an arrow, POSITION typed 4.3): the whole
+    /// voxels go into `at`, the rest into `offset`, kept within half a
+    /// voxel; the file says it one line after `at`; UNDO gives it back.
+    #[test]
+    fn a_part_moves_by_tenths_into_its_offset() {
+        let (mut ed, mut view, dir) = figure("tenths");
+        let start = text(&dir);
+        let arm = part(&ed, "arm");
+        act(&mut ed, &mut view, Action::Part(arm));
+        act(&mut ed, &mut view, Action::PartAt(1, -0.7));
+        let o = ed.model.as_ref().unwrap().parts.iter().find(|o| o.name == "arm").unwrap().clone();
+        assert_eq!((o.low.y, (o.offset.y * 10.0).round()), (-1, 3.0), "-0.7: at -1, offset 0.3");
+        assert!(text(&dir).contains("name = \"arm\"\nat = [3, -1, 3]\noffset = [0, 0.3, 0]\n"), "{}", text(&dir));
+        assert_eq!(ed.part_place().map(|p| (p.y * 10.0).round()), Some(-7.0));
+        // More tenths: it folds over into `at`, the offset within half.
+        ed.move_part_by(Vec3::new(0.0, 0.4, 0.0));
+        let o = ed.model.as_ref().unwrap().parts.iter().find(|o| o.name == "arm").unwrap().clone();
+        assert_eq!((o.low.y, (o.offset.y * 10.0).round()), (0, -3.0), "-0.3: at 0, offset -0.3");
+        ed.undo();
+        ed.undo();
+        assert_eq!(text(&dir), start);
+    }
+
+    /// LOCAL (the default) moves a part along its own axes as it stands, a
+    /// whole voxel along a turned axis split into `at` and `offset`; GLOBAL
+    /// along the figure's. Shift held never makes PICK while a handle is
+    /// dragged.
+    #[test]
+    fn local_moves_along_the_parts_own_axes() {
+        use crate::editor::handles::{Drag, Grip, project};
+        use crate::editor::view::{FOV, Orbit, mouse_ray};
+        let (mut ed, mut view, _dir) = nosed("local");
+        let nose = part(&ed, "nose");
+        act(&mut ed, &mut view, Action::Part(nose));
+        view.follow_origin(&ed);
+        assert!(ed.part_turned() && !ed.move_global, "LOCAL at a turned part");
+        let screen = glam::Vec2::new(1600.0, 900.0);
+        let at = |ed: &Editor| ed.local_to_pivot().transform_point3(Vec3::splat(0.5));
+        let drag_x = |ed: &mut Editor, view: &View, by: f32| {
+            let vp = Orbit { yaw: 20.0, pitch: 25.0, zoom: 40.0, target: view.block.target, fov: FOV }.view_proj(screen.x / screen.y) * ed.rest_view();
+            let ray = |p: glam::Vec2| mouse_ray(vp, p.x / screen.x, p.y / screen.y);
+            let h = ed.part_handles(vp).unwrap();
+            let x = h.arrows[0].unwrap();
+            let head = project(vp, screen, h.centre + x * h.length * 0.95).unwrap().0;
+            assert!(ed.grab_part(Drag::begin(&h, Grip::Arrow(0), vp, screen, head, ray(head)).unwrap(), h.clone()));
+            ed.shift_pick(true);
+            assert_ne!(ed.tool, crate::editor::model::Tool::Pick, "Shift on a handle: no PICK");
+            let to = project(vp, screen, h.centre + x * (h.length * 0.95 + by)).unwrap().0;
+            ed.drag_joint(vp, screen, to, ray(to));
+            ed.release();
+            ed.shift_pick(false);
+        };
+        let (before, own) = (at(&ed), ed.rest_view().to_scale_rotation_translation().1);
+        drag_x(&mut ed, &view, 3.0);
+        let went = at(&ed) - before;
+        let along = own * Vec3::X;
+        assert!((went - along * 3.0).length() < 0.15, "three voxels along its own X {along}: went {went}");
+        ed.undo();
+        // GLOBAL: along the figure's X.
+        act(&mut ed, &mut view, Action::MoveGlobal(true));
+        let before = at(&ed);
+        drag_x(&mut ed, &view, 2.0);
+        let went = at(&ed) - before;
+        assert!((went - Vec3::X * 2.0).length() < 0.15, "two voxels along the figure's X: went {went}");
     }
 }

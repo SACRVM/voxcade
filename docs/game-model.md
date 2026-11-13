@@ -338,8 +338,9 @@ leaf hung on the hinge by `parent` and `joint`) is posed through its
 state (2026-11-12): `thing.state.parts = { leaf = { rotation = 100 },
 handle = { roll = 20 } }`, exactly the pose `frame:model` takes (each
 part by its name, `rotation`, `pitch`, `roll` in degrees about its
-joint, what hangs on it moving along; `turn` refused with its new
-name), and the engine draws the piece so every picture, its own
+joint, `offset = { x, y, z }` in voxels (moved after the rotation, its
+joint along: a part's `offset` in the file and the pose's add up), what
+hangs on it moving along; `turn` refused with its new name), and the engine draws the piece so every picture, its own
 rotation, pitch, roll and lights as before (its lights do not follow a
 part). nil or an empty table: at rest, drawn exactly as an unposed
 piece. It is the script's data in the thing's state, an engine key only

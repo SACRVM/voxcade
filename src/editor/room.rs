@@ -108,6 +108,13 @@ pub fn turn_of(t: &Thing) -> (IVec2, Quat) {
 
 /// A thing's turn as a whole: clockwise seen from above by its bearing,
 /// tipped by its pitch and roll (`session::turning`).
+/// Whether a thing is turned off the level's axes (not by quarter turns
+/// alone): its own axes are not the level's.
+fn off_axes(t: &Thing) -> bool {
+    let r = rotation_of(t);
+    [Vec3::X, Vec3::Y, Vec3::Z].iter().any(|&a| (r * a).abs().max_element() < 0.999)
+}
+
 pub fn rotation_of(t: &Thing) -> Quat {
     turning(bearing_of(t), t.pitch, t.roll)
 }
@@ -775,6 +782,14 @@ impl Editor {
         Some(h)
     }
 
+    /// Whether the chosen one is a piece turned off the level's axes (its
+    /// own axes are not the level's: LOCAL and GLOBAL differ).
+    pub fn piece_turned_off_axes(&self) -> bool {
+        let Some(Item::Thing(i)) = self.chosen else { return false };
+        let t = &self.level.things[i];
+        t.model.is_some() && off_axes(t)
+    }
+
     /// Whether the chosen one turns by its rings (TURN): a piece of a model
     /// (not while its light is chosen), a place.
     pub fn can_turn(&self) -> bool {
@@ -804,7 +819,10 @@ impl Editor {
                     }
                     (_, Some(_)) => {
                         h = make(model_point(t, size, centre_in(size)));
-                        h.arrows = world;
+                        // MOVE: along its own axes as it stands (LOCAL) or
+                        // the level's (GLOBAL); it lands on whole voxels.
+                        let r = rotation_of(t);
+                        h.arrows = if self.move_global || !off_axes(t) { world } else { [Some(r * Vec3::X), Some(r * Vec3::Y), Some(r * Vec3::Z)] };
                         // Its box as it lies: the arrows' heads beyond it,
                         // the rings round it (as far as the view allows).
                         if let Some(size) = size {
@@ -900,7 +918,11 @@ impl Editor {
                     self.level.things[i].lights[k].at = Some(to.to_array());
                 }
                 None => {
-                    let to = self.inside_for(g.item, IVec3::from(t.at) + along(a));
+                    // Along the arrow (its own axis, LOCAL: off the level's
+                    // axes the place snaps to whole voxels).
+                    let dir = g.handles.direction(Grip::Arrow(a)).unwrap_or(Vec3::ZERO);
+                    let by = if dir.abs().max_element() > 0.999 { along(a) } else { (dir * amount as f32).round().as_ivec3() };
+                    let to = self.inside_for(g.item, IVec3::from(t.at) + by);
                     self.level.things[i].at = to.to_array();
                 }
             },

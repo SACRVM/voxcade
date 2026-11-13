@@ -58,6 +58,11 @@ pub struct JointDrag {
     /// and whether the angles go by single degrees (Ctrl) or by fives.
     rest: [f32; 3],
     pub fine: bool,
+    /// A part's arrow: the part's grid to the pivot's at the press (the
+    /// drag measured in the grid as it was, `local_to_pivot`), and how far
+    /// it has gone in the file's directions so far (fractions too).
+    press: Option<glam::Mat4>,
+    applied_f: Vec3,
 }
 
 /// How far from the pivot a figure's part may be moved (voxels).
@@ -513,6 +518,9 @@ pub struct Editor {
     /// `frame:model`'s), kept when POSE goes off (drawn again when it
     /// comes back) until RESET or the editor closes.
     pub posing: bool,
+    /// MOVE at a part turned as it stands: along the figure's axes
+    /// (GLOBAL), else along its own (LOCAL, the default).
+    pub move_global: bool,
     /// SELECT: the voxels selected, the box drawn last (for + and -), the
     /// arrows' drag, COPY's voxels, and whether a move keeps what it lands
     /// on (Alt).
@@ -521,7 +529,10 @@ pub struct Editor {
     sel_drag: Option<selection::SelDrag>,
     pub clipboard: Option<selection::Clip>,
     pub sel_keep: bool,
-    pub pose: std::collections::BTreeMap<String, [f32; 3]>,
+    /// A handle's drag is changing the model now (no tightening of the
+    /// figure's box until it is let go).
+    in_drag: bool,
+    pub pose: std::collections::BTreeMap<String, parts::Posed>,
 }
 
 impl Editor {
@@ -601,11 +612,13 @@ impl Editor {
             painting_whole: false,
             acting: None,
             posing: false,
+            move_global: false,
             selection: None,
             select_box: None,
             sel_drag: None,
             clipboard: None,
             sel_keep: false,
+            in_drag: false,
             pose: std::collections::BTreeMap::new(),
         })
         .map(|mut ed: Self| {
@@ -703,11 +716,13 @@ impl Editor {
             painting_whole: false,
             acting: None,
             posing: false,
+            move_global: false,
             selection: None,
             select_box: None,
             sel_drag: None,
             clipboard: None,
             sel_keep: false,
+            in_drag: false,
             pose: std::collections::BTreeMap::new(),
         })
         .map(|mut ed: Self| {
@@ -771,7 +786,8 @@ impl Editor {
     /// change under the mouse, nor where there is no PICK.
     pub fn shift_pick(&mut self, down: bool) {
         if down {
-            let free = self.stroke.is_none() && self.drawing.is_none() && Tool::of(self.scope, self.layer).contains(&Tool::Pick);
+            // (Not while a handle is dragged: Shift is its fine step then.)
+            let free = self.stroke.is_none() && self.drawing.is_none() && self.joint_drag.is_none() && self.gripped.is_none() && Tool::of(self.scope, self.layer).contains(&Tool::Pick);
             if !self.shifted && self.tool != Tool::Pick && free {
                 self.choose(Tool::Pick);
                 self.shifted = true;
@@ -1122,6 +1138,16 @@ impl Editor {
     /// The mouse let go: the stroke, if it changed anything, is a step and
     /// is saved.
     pub fn release(&mut self) {
+        // A drag of a part or a selection let go: the figure's box made
+        // tight, in the drag's own step.
+        if let Some(d) = self.joint_drag.take()
+            && d.moved
+            && self.model.as_ref().is_some_and(|m| m.parted() && !m.is_tight())
+        {
+            self.join_next = self.past.len() > d.steps;
+            self.change_model_file(|m| m.size = m.tight_size());
+            self.join_next = false;
+        }
         self.let_go_of_slice();
         self.moving = None;
         self.dragging = None;
@@ -1149,6 +1175,9 @@ impl Editor {
                     m.list_new_colours();
                 }
                 self.land_on_partner(&before);
+                if let Some(m) = self.model.as_mut().filter(|m| m.parted()) {
+                    m.size = m.tight_size();
+                }
                 self.pin_rig(&before);
                 if self.model.as_ref().is_none_or(|m| m.is(&before)) {
                     return;
@@ -1844,6 +1873,10 @@ impl Editor {
     /// stands on its lowest voxel); a figure's part's box alone, the part
     /// staying where it stands. A step.
     pub fn trim(&mut self) {
+        // The figure whole: its box as tight as its parts allow.
+        if self.scope == Scope::Figure {
+            return self.change_model_file(|m| m.size = m.tight_size());
+        }
         let part = self.part_mode();
         let mut bounds: Option<(IVec3, IVec3)> = None;
         for (_, frame) in self.frames().iter().enumerate().filter(|&(k, _)| part.is_none_or(|f| f == k)) {
@@ -1879,6 +1912,34 @@ impl Editor {
         });
     }
 
+    /// Whether TRIM has something to cut: the figure whole's box, a
+    /// part's own box, a model of frames' box (about its pivot) larger
+    /// than its voxels need. (A level's block keeps its N×N×N.)
+    pub fn can_trim(&self) -> bool {
+        match self.scope {
+            Scope::Figure => self.model.as_ref().is_some_and(|m| !m.is_tight()),
+            Scope::Frame(_) => {
+                let part = self.part_mode();
+                let mut bounds: Option<(IVec3, IVec3)> = None;
+                for (_, frame) in self.frames().iter().enumerate().filter(|&(k, _)| part.is_none_or(|f| f == k)) {
+                    for k in (0..frame.voxels.len()).filter(|&k| frame.voxels[k] != 0) {
+                        let p = frame.at(k);
+                        bounds = Some(bounds.map_or((p, p), |(lo, hi)| (lo.min(p), hi.max(p))));
+                    }
+                }
+                let Some((lo, hi)) = bounds else { return false };
+                match part {
+                    Some(_) => lo != IVec3::ZERO || hi + 1 != self.grid(),
+                    None => {
+                        let p = crate::vvx::pivot(self.grid());
+                        super::frames::least(lo - p, hi - p) != self.grid()
+                    }
+                }
+            }
+            _ => false,
+        }
+    }
+
     /// The figure whole made again if its frames or parts changed (a
     /// stroke, a step back, a parent or a joint set); its trouble said.
     pub fn follow_figure(&mut self) {
@@ -1906,7 +1967,7 @@ impl Editor {
             };
             // The pose drawn while POSE is lit.
             f.pose = if posing && !pose.is_empty() {
-                f.model.parts.iter().map(|o| pose.get(&o.name).map_or(glam::Quat::IDENTITY, |&[r, p, l]| crate::session::turning(r, p, l))).collect()
+                f.model.parts.iter().map(|o| pose.get(&o.name).map_or(crate::session::PartPose::REST, |q| crate::session::PartPose { turn: crate::session::turning(q.turn[0], q.turn[1], q.turn[2]), offset: Vec3::from(q.offset) })).collect()
             } else {
                 Vec::new()
             };
@@ -1953,10 +2014,12 @@ impl Editor {
             self.picking_parent = false;
             return self.set_parent(Some(p));
         }
-        let Some((frame, again)) = self.figure.as_ref().and_then(|f| Some((*f.frames.get(p)?, f.selected == Some(p)))) else { return };
+        // (Chosen again: it stays chosen; the figure whole is its own row,
+        // Escape, or a click on empty space.)
+        let Some(frame) = self.figure.as_ref().and_then(|f| f.frames.get(p).copied()) else { return };
         self.release();
         self.drop_form();
-        self.scope = if again || frame >= self.frames().len() { Scope::Figure } else { Scope::Frame(frame) };
+        self.scope = if frame >= self.frames().len() { Scope::Figure } else { Scope::Frame(frame) };
         self.hint = None;
         self.sync_choice();
     }
@@ -2058,7 +2121,7 @@ impl Editor {
         let Some(hit) = plane_hit(origin, dir, n, spot[n]) else { return false };
         let start = self.figure.as_ref().map_or(Vec3::ZERO, |f| f.joint(p) + f.low.as_vec3());
         self.end_drag(false);
-        self.joint_drag = Some(JointDrag { drag: None, start, steps: self.past.len(), moved: false, part: false, applied: IVec3::ZERO, ring: Some((n, hit)), rest: [0.0; 3], fine: false });
+        self.joint_drag = Some(JointDrag { drag: None, start, steps: self.past.len(), moved: false, part: false, applied: IVec3::ZERO, ring: Some((n, hit)), rest: [0.0; 3], fine: false, press: None, applied_f: Vec3::ZERO });
         true
     }
 
@@ -2071,7 +2134,7 @@ impl Editor {
         if self.selection().is_some() && !self.posing {
             self.end_drag(false);
             self.grab_selection();
-            self.joint_drag = Some(JointDrag { drag: Some((drag, h)), start: Vec3::ZERO, steps: self.past.len(), moved: false, part: true, applied: IVec3::ZERO, ring: None, rest: [0.0; 3], fine: false });
+            self.joint_drag = Some(JointDrag { drag: Some((drag, h)), start: Vec3::ZERO, steps: self.past.len(), moved: false, part: true, applied: IVec3::ZERO, ring: None, rest: [0.0; 3], fine: false, press: None, applied_f: Vec3::ZERO });
             return true;
         }
         // (The figure whole: its arrows move every part.)
@@ -2080,7 +2143,7 @@ impl Editor {
         }
         self.end_drag(false);
         let rest = self.turn_values().unwrap_or_default();
-        self.joint_drag = Some(JointDrag { drag: Some((drag, h)), start: Vec3::ZERO, steps: self.past.len(), moved: false, part: true, applied: IVec3::ZERO, ring: None, rest, fine: false });
+        self.joint_drag = Some(JointDrag { drag: Some((drag, h)), start: Vec3::ZERO, steps: self.past.len(), moved: false, part: true, applied: IVec3::ZERO, ring: None, rest, fine: false, press: self.part_mode().map(|_| self.local_to_pivot()), applied_f: Vec3::ZERO });
         true
     }
 
@@ -2132,9 +2195,10 @@ impl Editor {
         };
         let centre = size / 2.0;
         let mut h = super::handles::Handles::at(centre, super::handles::world_size(view_proj, centre, 0.1));
-        // A part at rest turned: its arrows along the axes it moves by in
-        // the file (its parent's), its own turn taken back.
-        let back = self.own_rest().inverse();
+        // MOVE's arrows: LOCAL along the part's own axes as it stands (its
+        // parents' rests and its own; in the grid shown, which is its own),
+        // GLOBAL along the figure's.
+        let back = if self.move_global { self.rest_view().to_scale_rotation_translation().1.inverse() } else { glam::Quat::IDENTITY };
         h.arrows = [Some(back * Vec3::X), Some(back * Vec3::Y), Some(back * Vec3::Z)];
         h.body = (0..8).map(|k| Vec3::new(if k & 1 == 0 { 0.0 } else { size.x }, if k & 2 == 0 { 0.0 } else { size.y }, if k & 4 == 0 { 0.0 } else { size.z })).collect();
         h.heads_only = true;
@@ -2147,6 +2211,15 @@ impl Editor {
         let (figure, model) = (self.figure.as_ref()?, self.model.as_ref()?);
         let name = &figure.parts()[figure.selected?].name;
         model.parts.iter().find(|o| &o.name == name).map(|o| o.low)
+    }
+
+    /// Where the chosen part stands from the pivot: its `at` and `offset`,
+    /// and in POSE its pose's offset too.
+    pub fn part_place(&self) -> Option<Vec3> {
+        let k = self.chosen_placed_index()?;
+        let o = &self.model.as_ref()?.parts[k];
+        let posed = if self.posing { self.chosen_posed().map_or(Vec3::ZERO, |p| Vec3::from(p.offset)) } else { Vec3::ZERO };
+        Some(o.low.as_vec3() + o.offset + posed)
     }
 
     /// Whether the chosen part is the figure's root (it hangs on nothing:
@@ -2195,8 +2268,12 @@ impl Editor {
             self.hint = Some(format!("A part goes no further than {FAR} voxels from the pivot"));
             return;
         }
+        let keep = self.chosen().zip(self.chosen_placed_index()).and_then(|(p, k)| self.joint_kept(p, k).map(|j| (k, j)));
         self.acting = Some(names.clone());
         self.change_model_file(|m| {
+            if let Some((k, j)) = keep {
+                m.parts[k].joint = Some(j);
+            }
             for o in m.parts.iter_mut().filter(|o| names.contains(&o.name)) {
                 o.low += by;
                 if let Some(j) = &mut o.joint {
@@ -2205,6 +2282,71 @@ impl Editor {
             }
         });
         self.follow_figure();
+    }
+
+    /// The chosen part moved by `by` voxels in the file's directions (its
+    /// parent's), fractions too: what makes whole voxels goes into its
+    /// `at`, with what hangs on it and its joint set by hand (as
+    /// `move_part`), the rest into its `offset`, kept within half a voxel
+    /// (the part's cells move with it, so nothing shifts against a grid);
+    /// one step.
+    pub fn move_part_by(&mut self, by: Vec3) {
+        self.follow_figure();
+        let (Some(p), Some(k)) = (self.chosen(), self.chosen_placed_index()) else { return };
+        let Some(m) = self.model.as_ref() else { return };
+        let off = m.parts[k].offset + by;
+        let whole = off.round();
+        let rest = ((off - whole) * 1000.0).round() / 1000.0;
+        let whole = whole.as_ivec3();
+        let names = self.moving_with(p);
+        if m.parts.iter().filter(|o| names.contains(&o.name)).any(|o| (o.low + whole).abs().max_element() > FAR) {
+            self.hint = Some(format!("A part goes no further than {FAR} voxels from the pivot"));
+            return;
+        }
+        let keep = self.joint_kept(p, k);
+        self.acting = Some(names.clone());
+        self.change_model_file(|m| {
+            if let Some(j) = keep {
+                m.parts[k].joint = Some(j);
+            }
+            for o in m.parts.iter_mut().filter(|o| names.contains(&o.name)) {
+                o.low += whole;
+                if let Some(j) = &mut o.joint {
+                    *j += whole.as_vec3();
+                }
+            }
+            m.parts[k].offset = rest;
+        });
+        self.follow_figure();
+    }
+
+    /// A part rotated at rest whose joint the rules find (where it meets
+    /// its parent): that joint as it is now, to state before the part
+    /// moves, so that it turns about the same point where it goes (else the
+    /// joint found anew would swing it elsewhere).
+    fn joint_kept(&self, p: usize, k: usize) -> Option<Vec3> {
+        let (m, f) = (self.model.as_ref()?, self.figure.as_ref()?);
+        let o = &m.parts[k];
+        (o.joint.is_none() && o.rotation != [0.0; 3] && f.parts()[p].parent.is_some()).then(|| f.joint(p) + f.low.as_vec3())
+    }
+
+    /// The chosen part's place among the file's parts.
+    fn chosen_placed_index(&self) -> Option<usize> {
+        let f = self.figure.as_ref()?;
+        let name = &f.parts().get(f.selected?)?.name;
+        self.model.as_ref()?.parts.iter().position(|o| &o.name == name)
+    }
+
+    /// Whether the chosen part stands turned (its parents' rests and its
+    /// own): LOCAL and GLOBAL differ only then.
+    pub fn part_turned(&self) -> bool {
+        self.part_mode().is_some() && self.rest_view().to_scale_rotation_translation().1.angle_between(glam::Quat::IDENTITY) > 1e-4
+    }
+
+    /// The grid shown to the model's pivot: a part's own (turned at rest,
+    /// moved by its offset) where it stands; else as it is.
+    pub fn local_to_pivot(&self) -> glam::Mat4 {
+        glam::Mat4::from_translation(self.origin().unwrap_or(IVec3::ZERO).as_vec3()) * self.rest_view()
     }
 
     /// Whether a tool's stroke is open (pressed, not let go).
@@ -2262,12 +2404,40 @@ impl Editor {
     /// The mouse dragged on with a joint's arrow (as `Drag::amount` takes
     /// it): the joint where the drag puts it, the drag's one step.
     pub fn drag_joint(&mut self, view_proj: glam::Mat4, screen: glam::Vec2, mouse: glam::Vec2, ray: (Vec3, Vec3)) {
+        self.in_drag = true;
+        self.drag_joint_now(view_proj, screen, mouse, ray);
+        self.in_drag = false;
+    }
+
+    fn drag_joint_now(&mut self, view_proj: glam::Mat4, screen: glam::Vec2, mouse: glam::Vec2, ray: (Vec3, Vec3)) {
         let Some(mut d) = self.joint_drag.take() else { return };
         // A click on a handle moves nothing: only a drag that has gone a
         // few pixels.
         if let Some((drag, _)) = &mut d.drag
             && !drag.travels(mouse)
         {
+            self.joint_drag = Some(d);
+            return;
+        }
+        // A part's arrow (MOVE, LOCAL or GLOBAL): measured in its grid as
+        // it was at the press; whole voxels along the arrow (Shift: tenths),
+        // into its `at` and `offset` (`move_part_by`).
+        if let (Some((drag, h)), Some(p0)) = (&mut d.drag, d.press)
+            && matches!(drag.grip, super::handles::Grip::Arrow(_))
+            && self.sel_drag.is_none()
+        {
+            let fix = self.local_to_pivot().inverse() * p0;
+            let back = fix.inverse();
+            let amount = drag.amount(h, view_proj * fix, screen, mouse, (back.transform_point3(ray.0), back.transform_vector3(ray.1).normalize_or_zero()));
+            let along = if d.fine { (amount * 10.0).round() / 10.0 } else { amount.round() };
+            let way = self.own_rest() * h.direction(drag.grip).unwrap_or(Vec3::ZERO);
+            let to = way * along;
+            if (to - d.applied_f).abs().max_element() > 1e-4 {
+                self.join_next = d.moved && self.past.len() > d.steps;
+                self.move_part_by(to - d.applied_f);
+                self.join_next = false;
+                (d.applied_f, d.moved) = (to, true);
+            }
             self.joint_drag = Some(d);
             return;
         }
@@ -2283,6 +2453,7 @@ impl Editor {
             if let super::handles::Grip::Ring(a) = drag.grip {
                 let axis = [1, 2, 0][a.min(2)];
                 let way = if axis == 0 { -amount } else { amount };
+                // (Shift: by single degrees.)
                 let snap = if d.fine { 1.0 } else { 5.0 };
                 let to = ((d.rest[axis] + way) / snap).round() * snap;
                 if self.posing {
@@ -2327,7 +2498,9 @@ impl Editor {
         {
             let mut by = hit - from;
             by[n] = 0.0;
-            let at = d.start + (by * 2.0).round() / 2.0;
+            // By halves of a voxel (Shift: tenths).
+            let step = if d.fine { 10.0 } else { 2.0 };
+            let at = d.start + (by * step).round() / step;
             if let (Some(p), Some(figure)) = (self.chosen(), &self.figure) {
                 let now = figure.joint(p) + figure.low.as_vec3();
                 if now != at {
@@ -2400,6 +2573,12 @@ impl Editor {
         let before = model.shaped();
         change(model);
         model.list_new_colours();
+        // A figure's box as tight as its parts allow at every step's end
+        // (a drag's at its let-go: `release`), as it grows: a part that
+        // flew far and came back leaves no huge box behind.
+        if model.parted() && !self.in_drag {
+            model.size = model.tight_size();
+        }
         self.pin_rig(&before);
         let Some(model) = &self.model else { return };
         if model.is(&before) && joined.is_none() {
@@ -2435,15 +2614,23 @@ impl Editor {
                 // (A parent that went keeps nothing: what hung on it was
                 // acted on.)
                 let parent_stays = old.0.as_ref().is_none_or(|q| now.contains_key(q));
-                (old != rig && parent_stays).then(|| (name.clone(), old.0.clone(), old.1))
+                // (Worked out through the figure's box, a joint comes back
+                // a hair off in the last digits: no change.)
+                let moved = old.0 != rig.0 || (old.1 - rig.1).abs().max_element() > 1e-3;
+                (moved && parent_stays).then(|| (name.clone(), old.0.clone(), old.1))
             })
             .collect();
         let Some(model) = &mut self.model else { return };
         for (name, parent, joint) in pins {
             if let Some(o) = model.parts.iter_mut().find(|o| o.name == name) {
-                // The root stays the root (nothing to state); else both.
+                // The root stays the root (nothing to state); else both. A
+                // joint the file states is the file's: never rewritten
+                // (its number kept to the last digit).
                 if parent.is_some() {
-                    (o.parent, o.joint) = (parent, Some(joint));
+                    o.parent = parent;
+                    if o.joint.is_none() {
+                        o.joint = Some(joint);
+                    }
                 }
             }
         }

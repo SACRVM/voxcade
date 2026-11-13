@@ -377,7 +377,7 @@ impl<K: Kit> LuaGame<K> {
 
     /// The pose of piece `id` its state `state` holds (`thing.state.parts`;
     /// empty: at rest), or the mistake in it, naming the piece and the part.
-    fn piece_pose(&self, id: u32, state: &Table) -> Result<Vec<(String, [f32; 3])>> {
+    fn piece_pose(&self, id: u32, state: &Table) -> Result<Vec<crate::session::PoseEntry>> {
         let v: mlua::Value = state.raw_get(world::PARTS)?;
         if v.is_nil() {
             return Ok(Vec::new());

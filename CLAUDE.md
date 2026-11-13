@@ -1297,7 +1297,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   bar at the chosen one stands clear of its arrows and rings alike.
   `--rotate-part NAME --by DEG [--about rotation|pitch|roll]`,
   `--pose-part NAME --by DEG [--about ...]`, `--handles rotate`,
-  `--add-part`, `--merge-into NAME`, `--mirror`, `--game-view`, `--menu
+  `--add-part`, `--merge-into NAME`, `--mirror`, `--game-view`,
+  `--move-part NAME --by X,Y,Z` (tenths into `offset`), `--menu
   part:NAME` in a shot. SELECT (L; `editor/selection.rs`) in a block, a
   frame, a part or across the parts of the figure whole: a box drawn as
   BOX's, into the voxels, deeper by + and - and DEPTH, or a double click
@@ -1328,6 +1329,47 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   the person in `config_dir()/ide/settings/editors.toml`, one for each
   editor, never in a game; GAME VIEW and the IDE's pictures keep their
   own; `--shot` the dark one unless `--background #rrggbb`.
+- A figure's box is never larger than its parts need (the owner's
+  `size` stuck at 2001 after a part flew off): every step's end leaves
+  `size` the tightest about the pivot (`ModelFile::tight_size`; a drag's
+  at its let-go); opening changes nothing, TRIM (the figure's SIZE row,
+  a part's own SIZE row, a model of frames' MODEL row; quiet "ALREADY
+  TIGHT") does it at once; a model of frames' box and a part's own box
+  grow by strokes and shrink only by TRIM; a level's block keeps N×N×N.
+  Test `a_figures_box_shrinks_back_and_trim_makes_it_tight`.
+- A part's `offset` (`[[part]]` `offset = [x, y, z]`, within ±0.5, one
+  line after `at`, only when not 0; refused on a frame; `tools/vvx.py`
+  too): drawn moved after its rest rotation, its joint and what hangs on
+  it along; only the picture (`session::part_chain`). A pose entry takes
+  it too, `{ bust = { pitch = 10, offset = { 0, 1, 0 } } }`
+  (`session::PartPose`, `PoseEntry`). In the editor Shift is the fine
+  step on every handle: arrows by tenths (whole voxels into `at`, the
+  rest into `offset`, folded within ±0.5: `Editor::move_part_by`), rings
+  by 1°, the joint ring by tenths; never PICK while a handle is dragged.
+  POSITION shows and takes tenths (in POSE it sets the pose's offset).
+  MOVE at a part turned as it stands: LOCAL (its own axes after the
+  whole chain, the default) | GLOBAL (the figure's) at its bar; a
+  rotated part's worked-out joint is stated before it moves, so it turns
+  about the same point. A level's piece turned off the axes has the same
+  switch (it lands on whole voxels). Choosing a part never turns the
+  view: the camera and the figure stay, the chosen part (turned) drawn
+  as cubes where it stands, its tools' marks with it, the tools' rays
+  taken into its grid (`View::view_proj` of the block; `view::frame`
+  draws with the camera alone; no ALIGN VIEW built). Tests
+  `a_part_keeps_its_offset`, `a_part_moves_by_tenths_into_its_offset`,
+  `local_moves_along_the_parts_own_axes`,
+  `choosing_a_turned_part_keeps_the_view`.
+- The window counts a button as held only if it went down in its view
+  (`View::held`): a motion carrying a button held from elsewhere (a press
+  on a panel, another window, a release lost, the remote pointer's stale
+  state) drags nothing and turns the camera nowhere; a lost release lets
+  egui's button go too (`Input::release_buttons`). A row chosen again
+  stays chosen. A figure opens framed by its voxels, not its stated box.
+  `pin_rig` never rewrites a joint the file states. An `EditorWindow`
+  runs without a window for tests (`EditorWindow::headless`: its events
+  fed, its frames run, nothing drawn); tests
+  `clicks_on_the_rows_choose_and_change_nothing`,
+  `pointer_trim_and_a_local_move_change_only_their_own`.
 - POINTER (the owner kept setting voxels with a click meant to choose a
   part): the first tool and the one every editor opens with, Escape
   coming back to it; it changes nothing: a click chooses a part (the

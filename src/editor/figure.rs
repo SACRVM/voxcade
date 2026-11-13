@@ -35,7 +35,7 @@ pub struct Figure {
     pub low: IVec3,
     /// Each part's pose in the editor (POSE: turned on top of its rest,
     /// nothing written; empty, none), set by the editor.
-    pub pose: Vec<glam::Quat>,
+    pub pose: Vec<crate::session::PartPose>,
     /// The frames and parts it was made of, to know when to make it again.
     of: Shaped,
 }
@@ -101,7 +101,7 @@ impl Figure {
     /// without rest rotations.
     pub fn rest_map(&self, p: usize, shift: IVec3) -> Mat4 {
         // (Posed in the editor (POSE): the pose on top of the rest.)
-        let (turn, moved) = if self.pose.iter().any(|q| *q != glam::Quat::IDENTITY) { crate::session::part_posed(&self.model, &self.pose, p) } else { crate::session::part_at_rest(&self.model, p) };
+        let (turn, moved) = if self.pose.iter().any(|q| *q != crate::session::PartPose::REST) { crate::session::part_posed(&self.model, &self.pose, p) } else { crate::session::part_at_rest(&self.model, p) };
         let s = self.model.size;
         let o = (IVec3::new(s.x / 2, s.y / 2, 0) + shift).as_vec3();
         Mat4::from_translation(o + moved) * Mat4::from_quat(turn) * Mat4::from_translation(-o)
@@ -596,9 +596,9 @@ mod tests {
         let steps = ed.steps();
         let by = IVec3::new(2, 0, 1);
         let x = ed.part_at().unwrap().x + 2;
-        act(&mut ed, &mut view, Action::PartAt(0, x));
+        act(&mut ed, &mut view, Action::PartAt(0, x as f32));
         let z = ed.part_at().unwrap().z + 1;
-        act(&mut ed, &mut view, Action::PartAt(2, z));
+        act(&mut ed, &mut view, Action::PartAt(2, z as f32));
         assert_eq!(ed.steps(), steps + 2, "a typed value a step");
         let after = on_disk(&file);
         let shifted = |v: &Vec<[i32; 3]>| v.iter().map(|p| [p[0] + by.x, p[1] + by.y, p[2] + by.z]).collect::<Vec<_>>();

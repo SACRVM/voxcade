@@ -86,7 +86,11 @@ aaaaa *3
   `swing`) turns on from it (`pose · rest`, the rest first). Only the
   picture: the simulation, a solid piece's cells, bursting into voxels
   see the parts unturned. `turn` is refused (it is `rotation`), and a
-  `[[frame]]` does not rotate.
+  `[[frame]]` does not rotate. `offset = [x, y, z]` (one line after
+  `at`, each within ±0.5, only when not 0) moves a part by less than a
+  voxel, after its rest rotation, its joint and what hangs on it along:
+  for lining up the edges of turned parts; the editor's arrows with
+  Shift write it. A pose entry takes `offset = { x, y, z }` too.
 - **Signs stay**: written again (the editor, a tool), a model keeps the
   signs its file had and adds new ones; with more than 62 entries every
   sign is two characters. One cell, one voxel per frame or part.

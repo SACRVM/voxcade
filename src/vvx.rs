@@ -26,6 +26,10 @@
 //! [[part]]                     # a figure: its parts in order, each its own box
 //! name = "arm"
 //! at = [2, -1, 4]              # the box's low corner, from the pivot
+//! offset = [0, 0.3, 0]         # moved by less than a voxel (-0.5 to 0.5 each),
+//!                              #   only when not 0; only the picture: drawn moved
+//!                              #   with its joint and what hangs on it, after its
+//!                              #   rest rotation (a frame has none)
 //! parent = "body"              # only when set by hand
 //! joint = [2, 0, 7.5]          # only when set by hand, from the pivot
 //! rotation = 45                # at rest turned about its joint, in degrees, as a
@@ -179,6 +183,9 @@ pub struct Piece {
     /// (round, clockwise seen from above), `pitch`, `roll`, as a pose
     /// entry of `frame:model` (`vox::Part::rest`); all 0 unless set.
     pub rotation: [f32; 3],
+    /// A part moved by less than a voxel from its `at` (`offset`, each
+    /// within a voxel), drawn so with what hangs on it: only the picture.
+    pub offset: Vec3,
 }
 
 // ---------------------------------------------------------------- writing
@@ -401,7 +408,7 @@ fn shape_of(model: &VoxModel, rig: &[Rig]) -> Shape {
             .enumerate()
             .map(|(i, p)| {
                 let (parent, joint) = rig.get(i).copied().unwrap_or_default();
-                Piece { name: p.name.clone(), voxels: voxels(0, &mut p.voxels.iter().map(|&k| k as usize)), parent: parent.map(|q| model.parts[q].name.clone()), joint, rotation: p.rest }
+                Piece { name: p.name.clone(), voxels: voxels(0, &mut p.voxels.iter().map(|&k| k as usize)), parent: parent.map(|q| model.parts[q].name.clone()), joint, rotation: p.rest, offset: p.offset }
             })
             .collect()
     };
@@ -428,6 +435,10 @@ pub fn write_shape(shape: &Shape, kept: &Palette, all: bool) -> String {
             body += &format!("\n[[part]]\nname = {}\n", quoted(&piece.name));
             if let Some((low, _)) = &layers {
                 body += &format!("at = {}\n", triple_text(low.as_vec3()));
+            }
+            // Moved by less than a voxel, only when it is.
+            if piece.offset != Vec3::ZERO {
+                body += &format!("offset = {}\n", triple_text(piece.offset));
             }
             if let Some(q) = &piece.parent {
                 body += &format!("parent = {}\n", quoted(q));
@@ -768,6 +779,7 @@ pub fn model_of(shape: &Shape) -> VoxModel {
         model.parts = crate::vox::parts_of(&frame, &owner, names, size, &stated);
         for (part, piece) in model.parts.iter_mut().zip(&shape.pieces) {
             part.rest = piece.rotation;
+            part.offset = piece.offset;
         }
         model
     };
@@ -824,6 +836,9 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
                 if let Some((key, v)) = t.iter().find(|(k, _)| ROTATION.contains(k) || *k == "turn") {
                     return Err(r.fail(v.span(), format!("a frame does not rotate ('{key}'): a figure's part does, [[part]] with rotation, pitch and roll")));
                 }
+                if let Some(v) = t.get("offset") {
+                    return Err(r.fail(v.span(), "a frame has no offset: a figure's part does, [[part]] with offset = [x, y, z]"));
+                }
                 r.only(t, &["at", "layers"], "a frame")?;
                 let at = t.get("at").map_or(Ok(box_low), |a| r.ints(a, "at"))?;
                 let voxels = match t.get("layers") {
@@ -845,7 +860,7 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
                 if let Some(v) = t.get("turn") {
                     return Err(r.fail(v.span(), "a part's 'turn' is called 'rotation' now (degrees round, clockwise seen from above)"));
                 }
-                r.only(t, &["name", "at", "parent", "joint", "rotation", "pitch", "roll", "layers"], "a part")?;
+                r.only(t, &["name", "at", "offset", "parent", "joint", "rotation", "pitch", "roll", "layers"], "a part")?;
                 let name_item = t.get("name").ok_or_else(|| anyhow!("a part has no name (name = \"arm\") before line {}", t.get("layers").and_then(Item::span).map_or(0, |s| line_of(src, s.start))))?;
                 let name = name_item.as_str().filter(|n| !n.trim().is_empty()).ok_or_else(|| r.fail(name_item.span(), "a part's name must be text, not empty"))?.to_string();
                 if pieces.iter().any(|p| p.name == name) {
@@ -873,7 +888,17 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
                         *r_ = r.number(i, key)?;
                     }
                 }
-                pieces.push(Piece { name, voxels: from_pivot(voxels), parent, joint, rotation });
+                let offset = match t.get("offset") {
+                    None => Vec3::ZERO,
+                    Some(i) => {
+                        let o = Vec3::from(r.triple(i, "offset")?);
+                        if o.abs().max_element() > 0.5 + 1e-4 {
+                            return Err(r.fail(i.span(), "an offset is less than a voxel each way (-0.5 to 0.5): whole voxels go into 'at'"));
+                        }
+                        o
+                    }
+                };
+                pieces.push(Piece { name, voxels: from_pivot(voxels), parent, joint, rotation, offset });
             }
             if pieces.is_empty() {
                 bail!("the model has no part: [[part]] with a name and its layers");
@@ -1198,6 +1223,32 @@ mod tests {
         let frame = head("[1, 1, 1]") + "[palette]\na = \"#888888\"\n[[frame]]\nrotation = 45\nlayers = \"\"\"\na\n\"\"\"\n";
         let e = read(&frame).err().map(|e| e.to_string()).unwrap();
         assert!(e.contains("a frame does not rotate ('rotation')"), "{e}");
+    }
+
+    /// A part's offset (less than a voxel from its `at`): read, written
+    /// one line after `at` only when not 0, byte for byte; drawn moved, its
+    /// joint and what hangs on it along; refused on a frame and beyond half
+    /// a voxel.
+    #[test]
+    fn a_part_keeps_its_offset() {
+        let plain = head("[2, 1, 3]") + "\n[palette]\na = \"#888888\"\n\n[[part]]\nname = \"foot\"\nat = [-1, 0, 0]\nlayers = \"\"\"\naa\n\"\"\"\n\n[[part]]\nname = \"leg\"\nat = [-1, 0, 1]\nparent = \"foot\"\njoint = [-0.5, 0, 1.5]\nlayers = \"\"\"\na\n\"\"\"\n";
+        let moved = plain.replace("name = \"foot\"\nat = [-1, 0, 0]\n", "name = \"foot\"\nat = [-1, 0, 0]\noffset = [0, 0.3, -0.25]\n");
+        let (shape, palette) = read_shape(&moved).unwrap();
+        assert_eq!(shape.pieces[0].offset, Vec3::new(0.0, 0.3, -0.25));
+        assert_eq!(write_shape(&shape, &palette, false), moved, "written back byte for byte");
+        let (shape, palette) = read_shape(&plain).unwrap();
+        assert_eq!(write_shape(&shape, &palette, false), plain, "none: no line");
+        // Drawn moved by it, the leg hanging on the foot along.
+        let (m, n) = (read(&moved).unwrap(), read(&plain).unwrap());
+        for p in 0..2 {
+            let (a, b) = (crate::session::part_at_rest(&m, p).1, crate::session::part_at_rest(&n, p).1);
+            assert!((a - b - Vec3::new(0.0, 0.3, -0.25)).length() < 1e-5, "part {p}: {a} against {b}");
+        }
+        let e = read(&moved.replace("offset = [0, 0.3, -0.25]", "offset = [0, 0.7, 0]")).err().map(|e| e.to_string()).unwrap();
+        assert!(e.contains("less than a voxel"), "{e}");
+        let frame = head("[1, 1, 1]") + "[palette]\na = \"#888888\"\n[[frame]]\noffset = [0, 0.5, 0]\nlayers = \"\"\"\na\n\"\"\"\n";
+        let e = read(&frame).err().map(|e| e.to_string()).unwrap();
+        assert!(e.contains("a frame has no offset"), "{e}");
     }
 
     /// A figure's parts keep their order, names and the rig set by hand;
