@@ -433,6 +433,13 @@ pub trait Game: Sized + 'static {
         Ok(())
     }
 
+    /// Levels read anew (a level file saved while playing) the game can
+    /// take: a mistake keeps the levels it plays (as one at the load would
+    /// stop it). By default every one.
+    fn check_levels(&self, _levels: &crate::levels::Levels) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     /// The levels were read anew (a level file saved while playing): by
     /// default the first one replaces the world.
     fn replace_levels(&mut self, levels: std::sync::Arc<crate::levels::Levels>) {

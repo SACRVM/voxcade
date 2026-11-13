@@ -62,6 +62,8 @@ enum Held {
     Level,
     Block(usize),
     Model,
+    /// The level round a model shaped in place: read, never written.
+    Context,
 }
 
 /// What became of a step at its write.
@@ -82,6 +84,7 @@ fn word(held: Held) -> &'static str {
         Held::Level => "LEVEL",
         Held::Block(_) => "BLOCK",
         Held::Model => "MODEL",
+        Held::Context => "CONTEXT",
     }
 }
 
@@ -89,7 +92,8 @@ impl Editor {
     /// The files the editor holds and writes.
     fn held(&self) -> Vec<(PathBuf, Held)> {
         if let Some(m) = &self.model {
-            return if m.foreign { Vec::new() } else { vec![(m.path.clone(), Held::Model)] };
+            let room = self.context.iter().map(|c| (self.dir.join(&c.file), Held::Context));
+            return if m.foreign { Vec::new() } else { std::iter::once((m.path.clone(), Held::Model)).chain(room).collect() };
         }
         let mut out = vec![(self.dir.join(&self.file), Held::Level)];
         out.extend(self.level.blocks.iter().enumerate().map(|(i, b)| (blocks::path(&self.dir, &b.name), Held::Block(i))));
@@ -97,7 +101,7 @@ impl Editor {
     }
 
     /// Remembers every file held as it is on disk now (opening).
-    pub(super) fn remember_held(&mut self) {
+    pub(crate) fn remember_held(&mut self) {
         for (path, _) in self.held() {
             let now = hash_of(&path);
             self.disk.seen.insert(path, now);
@@ -131,6 +135,23 @@ impl Editor {
             }
             came = true;
             let name = path.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
+            if held == Held::Context {
+                // The room round the model: drawn anew, nothing of the
+                // model's touched.
+                self.disk.seen.insert(path.clone(), now);
+                match GridLevel::read(&path) {
+                    Ok(level) => {
+                        if let Some(c) = &mut self.context
+                            && !c.reread(level)
+                        {
+                            self.context = None;
+                            self.disk.notice = Some(format!("CONTEXT GONE: the piece is no longer in {name}"));
+                        }
+                    }
+                    Err(e) => self.disk.notice = Some(format!("CONTEXT DOES NOT READ: {e:#}")),
+                }
+                continue;
+            }
             if now.is_none() {
                 self.disk.seen.insert(path, None);
                 self.disk.notice = Some(format!("{} GONE FROM DISK: {name} was taken away; the next step writes it anew", word(held)));
@@ -158,7 +179,7 @@ impl Editor {
             Some(Held::Level) => Step::Level(self.level_state(), self.level_state()),
             Some(Held::Block(i)) => Step::Block(i, self.blocks[i].clone(), self.blocks[i].clone()),
             Some(Held::Model) => Step::Model(self.shaped(), self.shaped()),
-            None => return,
+            Some(Held::Context) | None => return,
         };
         self.save(&step);
     }
@@ -272,6 +293,8 @@ impl Editor {
                 self.model = Some(fresh);
                 self.choose_part_again(part);
             }
+            // (Read in `look_at_disk`, never a step's.)
+            Held::Context => return Ok(()),
         }
         self.disk.remember(path, &bytes);
         self.past.clear();

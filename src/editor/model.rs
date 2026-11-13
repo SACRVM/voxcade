@@ -33,6 +33,8 @@ use crate::grid::{Area, BlockEntry, Cell, GridLevel, Kind, Place, Thing};
 pub mod room;
 #[path = "disk.rs"]
 pub mod disk;
+#[path = "parts.rs"]
+pub mod parts;
 pub use room::{Field, Hanging, Item};
 
 /// A joint's arrow being dragged: the drag, the handles as they were at
@@ -50,6 +52,10 @@ pub struct JointDrag {
     /// The joint's ring dragged: the axis left out (the one most along
     /// the view) and where the ray met the plane across it at the press.
     ring: Option<(usize, Vec3)>,
+    /// A part's ring dragged (ROTATE): its rest rotation at the press,
+    /// and whether the angles go by single degrees (Ctrl) or by fives.
+    rest: [f32; 3],
+    pub fine: bool,
 }
 
 /// Where a ray (from `origin` along `dir`) meets the plane where axis `n`
@@ -117,8 +123,9 @@ impl Tool {
             (Scope::Level, Layer::Things) => &[Tool::Add, Tool::Remove, Tool::Move, Tool::Pick],
             // (Pieces are chosen and dragged, their words on the panels.)
             (Scope::Level, Layer::Pieces) => &[],
-            (Scope::Block(_) | Scope::Frame(_), _) => &[Tool::Add, Tool::Remove, Tool::Paint, Tool::Deep, Tool::Box, Tool::Sphere, Tool::Pick],
-            (Scope::Figure, _) => &[],
+            // (The figure whole: a press on a part chooses it, and the tool
+            // works there at once.)
+            (Scope::Block(_) | Scope::Frame(_) | Scope::Figure, _) => &[Tool::Add, Tool::Remove, Tool::Paint, Tool::Deep, Tool::Box, Tool::Sphere, Tool::Pick],
         }
     }
 
@@ -467,6 +474,26 @@ pub struct Editor {
     pub kind_models: std::collections::BTreeMap<String, String>,
     pub still_kinds: std::collections::BTreeSet<String>,
     pub free_kinds: std::collections::BTreeSet<String>,
+    /// SLICE: the plane cutting the model in the view (`slice.rs`).
+    pub slice: Option<super::slice::Slice>,
+    /// The level round the model, shaped in place (`context.rs`); the one
+    /// EDIT asks the model's window to open it in.
+    pub context: Option<super::context::Context>,
+    pub wants_context: Option<super::context::Seed>,
+    /// A figure's part: its rings (ROTATE) at it rather than its arrows
+    /// (MOVE); a stroke begun from the figure whole on the part it met
+    /// (the figure stays chosen, nothing is dimmed).
+    pub part_rotating: bool,
+    pub painting_whole: bool,
+    /// The parts the next step acts on, by name (None: the chosen part):
+    /// every other part keeps its parent and joint (`pin_rig`).
+    acting: Option<Vec<String>>,
+    /// POSE: the rings turn the chosen part as a pose on top of its rest,
+    /// nothing written; the pose by part name (rotation, pitch, roll, as
+    /// `frame:model`'s), kept when POSE goes off (drawn again when it
+    /// comes back) until RESET or the editor closes.
+    pub posing: bool,
+    pub pose: std::collections::BTreeMap<String, [f32; 3]>,
 }
 
 impl Editor {
@@ -539,6 +566,14 @@ impl Editor {
             kind_models: Default::default(),
             still_kinds: Default::default(),
             free_kinds: Default::default(),
+            slice: None,
+            context: None,
+            wants_context: None,
+            part_rotating: false,
+            painting_whole: false,
+            acting: None,
+            posing: false,
+            pose: std::collections::BTreeMap::new(),
         })
         .map(|mut ed: Self| {
             ed.remember_held();
@@ -628,6 +663,14 @@ impl Editor {
             kind_models: Default::default(),
             still_kinds: Default::default(),
             free_kinds: Default::default(),
+            slice: None,
+            context: None,
+            wants_context: None,
+            part_rotating: false,
+            painting_whole: false,
+            acting: None,
+            posing: false,
+            pose: std::collections::BTreeMap::new(),
         })
         .map(|mut ed: Self| {
             ed.remember_held();
@@ -798,13 +841,15 @@ impl Editor {
         };
         // A figure's part is aimed at in the figure's room, its floor under
         // the figure: the other parts are not hit, the tools go through.
+        // (What the slice cuts away is not met: the tools reach the cut
+        // face and what lies behind it.)
         if let Some((lo, figure)) = self.part_mode().and_then(|_| self.figure_box()) {
             let lo = lo.min(IVec3::ZERO);
             let hi = (lo + figure).max(size);
-            let hit = pick(origin - lo.as_vec3(), dir, hi - lo, |c| self.filled(c + lo, true))?;
+            let hit = pick(origin - lo.as_vec3(), dir, hi - lo, |c| self.filled(c + lo, true) && !self.cut(c + lo))?;
             return Some(Hit { cell: hit.cell + lo, normal: hit.normal });
         }
-        pick(origin, dir, size, |c| c.cmpge(IVec3::ZERO).all() && self.filled(c, true))
+        pick(origin, dir, size, |c| c.cmpge(IVec3::ZERO).all() && self.filled(c, true) && !self.cut(c))
     }
 
     /// The cell the tool works on at a hit (None: nothing there for it).
@@ -821,7 +866,7 @@ impl Editor {
             Scope::Block(_) | Scope::Frame(_) => (IVec3::ZERO, self.grid()),
             Scope::Figure => return None,
         };
-        (c.cmpge(low).all() && c.cmplt(limit).all()).then_some(c)
+        (c.cmpge(low).all() && c.cmplt(limit).all() && !self.cut(c)).then_some(c)
     }
 
     /// The mouse pressed at a hit: PICK takes up, the others begin a stroke.
@@ -944,6 +989,11 @@ impl Editor {
         if !self.symmetry || self.scope == Scope::Level {
             return None;
         }
+        // One of a pair with its partner there: the partner takes the
+        // mirror (`land_on_partner`), not this part's far side.
+        if self.symmetry_on_partner() {
+            return None;
+        }
         // A figure's part about the figure's middle: its two sides alike.
         let (lo, size) = self.part_mode().and_then(|_| self.figure_box()).unwrap_or((IVec3::ZERO, self.grid()));
         let m = IVec3::new(2 * lo.x + size.x - 1 - c.x, c.y, c.z);
@@ -1017,6 +1067,7 @@ impl Editor {
     /// The mouse let go: the stroke, if it changed anything, is a step and
     /// is saved.
     pub fn release(&mut self) {
+        self.let_go_of_slice();
         self.moving = None;
         self.dragging = None;
         self.gripped = None;
@@ -1042,6 +1093,8 @@ impl Editor {
                 if let Some(m) = &mut self.model {
                     m.list_new_colours();
                 }
+                self.land_on_partner(&before);
+                self.pin_rig(&before);
                 if self.model.as_ref().is_none_or(|m| m.is(&before)) {
                     return;
                 }
@@ -1777,10 +1830,17 @@ impl Editor {
     /// shaped is that part's.
     fn sync_choice(&mut self) {
         let scope = self.scope;
+        let (posing, pose) = (self.posing, &self.pose);
         if let Some(f) = &mut self.figure {
             f.selected = match scope {
                 Scope::Frame(k) => f.frames.iter().position(|&m| m == k),
                 _ => None,
+            };
+            // The pose drawn while POSE is lit.
+            f.pose = if posing && !pose.is_empty() {
+                f.model.parts.iter().map(|o| pose.get(&o.name).map_or(glam::Quat::IDENTITY, |&[r, p, l]| crate::session::turning(r, p, l))).collect()
+            } else {
+                Vec::new()
             };
         }
     }
@@ -1930,7 +1990,7 @@ impl Editor {
         let Some(hit) = plane_hit(origin, dir, n, spot[n]) else { return false };
         let start = self.figure.as_ref().map_or(Vec3::ZERO, |f| f.joint(p) + f.low.as_vec3());
         self.release();
-        self.joint_drag = Some(JointDrag { drag: None, start, steps: self.past.len(), moved: false, part: false, applied: IVec3::ZERO, ring: Some((n, hit)) });
+        self.joint_drag = Some(JointDrag { drag: None, start, steps: self.past.len(), moved: false, part: false, applied: IVec3::ZERO, ring: Some((n, hit)), rest: [0.0; 3], fine: false });
         true
     }
 
@@ -1939,23 +1999,64 @@ impl Editor {
     /// voxels, those hanging on it along, until let go (one step) or
     /// Escape (back as it was, no step).
     pub fn grab_part(&mut self, drag: super::handles::Drag, h: super::handles::Handles) -> bool {
-        if self.chosen().is_none() {
+        // (The figure whole: its arrows move every part.)
+        if self.chosen().is_none() && self.scope != Scope::Figure {
             return false;
         }
         self.release();
-        self.joint_drag = Some(JointDrag { drag: Some((drag, h)), start: Vec3::ZERO, steps: self.past.len(), moved: false, part: true, applied: IVec3::ZERO, ring: None });
+        let rest = self.turn_values().unwrap_or_default();
+        self.joint_drag = Some(JointDrag { drag: Some((drag, h)), start: Vec3::ZERO, steps: self.past.len(), moved: false, part: true, applied: IVec3::ZERO, ring: None, rest, fine: false });
         true
     }
 
     /// The chosen part's arrows (MOVE): along X, Y, Z from its box's
     /// middle in the grid shown, their heads clear of its box, the heads
     /// only grabbing (the tools work on the shafts' line).
+    /// Where the grid shown is drawn: a figure's part is shaped at rest
+    /// (its rest rotation and its parents'), the view looking through that
+    /// (`View::rest`); else as it is.
+    pub fn rest_view(&self) -> glam::Mat4 {
+        match (self.part_mode(), &self.figure, self.figure_box()) {
+            (Some(_), Some(f), Some((lo, _))) => f.selected.map_or(glam::Mat4::IDENTITY, |p| f.rest_map(p, lo)),
+            _ => glam::Mat4::IDENTITY,
+        }
+    }
+
     pub fn part_handles(&self, view_proj: glam::Mat4) -> Option<super::handles::Handles> {
-        self.figure.as_ref()?.selected.filter(|_| self.part_mode().is_some())?;
-        let size = self.shape()?.size.as_vec3();
+        // POSE: only its rings.
+        if self.posing {
+            return self.rest_rings(view_proj);
+        }
+        self.part_handles_as(view_proj, self.part_rotating)
+    }
+
+    /// The chosen part's handles in ROTATE (`rotating`) or MOVE, whichever
+    /// is lit (the bar at the part stands clear of both).
+    pub fn part_handles_as(&self, view_proj: glam::Mat4, rotating: bool) -> Option<super::handles::Handles> {
+        if self.painting_whole {
+            return None;
+        }
+        // ROTATE: the chosen part's rings, about its joint.
+        if rotating
+            && let Some(h) = self.rest_rings(view_proj)
+        {
+            return Some(h);
+        }
+        // The figure whole: its arrows move every part together (as the
+        // root's do).
+        let size = match (self.scope, &self.figure) {
+            (Scope::Figure, Some(f)) => f.model.size.as_vec3(),
+            _ => {
+                self.figure.as_ref()?.selected.filter(|_| self.part_mode().is_some())?;
+                self.shape()?.size.as_vec3()
+            }
+        };
         let centre = size / 2.0;
         let mut h = super::handles::Handles::at(centre, super::handles::world_size(view_proj, centre, 0.1));
-        h.arrows = [Some(Vec3::X), Some(Vec3::Y), Some(Vec3::Z)];
+        // A part at rest turned: its arrows along the axes it moves by in
+        // the file (its parent's), its own turn taken back.
+        let back = self.own_rest().inverse();
+        h.arrows = [Some(back * Vec3::X), Some(back * Vec3::Y), Some(back * Vec3::Z)];
         h.body = (0..8).map(|k| Vec3::new(if k & 1 == 0 { 0.0 } else { size.x }, if k & 2 == 0 { 0.0 } else { size.y }, if k & 4 == 0 { 0.0 } else { size.z })).collect();
         h.heads_only = true;
         Some(h)
@@ -1999,11 +2100,16 @@ impl Editor {
     /// game).
     pub fn move_part(&mut self, by: IVec3) {
         self.follow_figure();
-        let Some(p) = self.chosen() else { return };
         if by == IVec3::ZERO {
             return;
         }
-        let names = self.moving_with(p);
+        // No part chosen (the figure whole): every part.
+        let names = match self.chosen() {
+            Some(p) => self.moving_with(p),
+            None if self.scope == Scope::Figure => self.model.as_ref().map_or(Vec::new(), |m| m.parts.iter().map(|o| o.name.clone()).collect()),
+            None => return,
+        };
+        self.acting = Some(names.clone());
         self.change_model_file(|m| {
             for o in m.parts.iter_mut().filter(|o| names.contains(&o.name)) {
                 o.low += by;
@@ -2030,8 +2136,35 @@ impl Editor {
             let back = d.applied.as_vec3();
             let vp = view_proj * glam::Mat4::from_translation(-back);
             let amount = drag.amount(h, vp, screen, mouse, (ray.0 + back, ray.1));
-            let along = h.direction(drag.grip).unwrap_or(Vec3::ZERO);
-            let to = (along * amount).round().as_ivec3();
+            // A ring (ROTATE): the part's rest rotation about its joint,
+            // by fives (Ctrl: by single degrees), one step for the drag.
+            if let super::handles::Grip::Ring(a) = drag.grip {
+                let axis = [1, 2, 0][a.min(2)];
+                let way = if axis == 0 { -amount } else { amount };
+                let snap = if d.fine { 1.0 } else { 5.0 };
+                let to = ((d.rest[axis] + way) / snap).round() * snap;
+                if self.posing {
+                    // A pose: nothing written, no step.
+                    self.set_pose(axis, to);
+                } else if self.part_rotation().is_some_and(|r| r[axis] != to) {
+                    self.join_next = d.moved && self.past.len() > d.steps;
+                    self.set_part_rotation(axis, to);
+                    self.join_next = false;
+                    d.moved = true;
+                }
+                self.joint_drag = Some(d);
+                return;
+            }
+            // Its arrows lie along the axes the part moves by in the file
+            // (its parent's, the part's own rest turned back).
+            let to = match drag.grip {
+                super::handles::Grip::Arrow(a) => {
+                    let mut v = IVec3::ZERO;
+                    v[a] = amount.round() as i32;
+                    v
+                }
+                _ => (h.direction(drag.grip).unwrap_or(Vec3::ZERO) * amount).round().as_ivec3(),
+            };
             if to != d.applied {
                 self.join_next = d.moved && self.past.len() > d.steps;
                 self.move_part(to - d.applied);
@@ -2063,6 +2196,13 @@ impl Editor {
     /// Escape while a joint is dragged: as it was, no step.
     pub fn cancel_joint(&mut self) -> bool {
         let Some(d) = self.joint_drag.take() else { return false };
+        // A pose dragged: as it was.
+        if self.posing && d.part && d.drag.as_ref().is_some_and(|(g, _)| matches!(g.grip, super::handles::Grip::Ring(_))) {
+            for axis in 0..3 {
+                self.set_pose(axis, d.rest[axis]);
+            }
+            return true;
+        }
         if d.moved && self.past.len() > d.steps {
             self.undo();
             self.future.pop();
@@ -2084,7 +2224,10 @@ impl Editor {
     /// A change to the model's frames or a figure's parts as a step, saved
     /// (nothing if it changes nothing).
     fn change_model_file(&mut self, change: impl FnOnce(&mut ModelFile)) {
+        // (What a drag let go of here commits is its own step.)
+        let acting = self.acting.take();
         self.release();
+        self.acting = acting;
         // A drag's next change joins the step its first made.
         let joined = match (self.join_next, self.past.pop()) {
             (true, Some(Step::Model(before, _))) => Some(before),
@@ -2097,6 +2240,8 @@ impl Editor {
         let before = model.shaped();
         change(model);
         model.list_new_colours();
+        self.pin_rig(&before);
+        let Some(model) = &self.model else { return };
         if model.is(&before) && joined.is_none() {
             return;
         }
@@ -2104,6 +2249,49 @@ impl Editor {
         let step = Step::Model(before, model.shaped());
         self.commit(step);
         self.tuning = None;
+    }
+
+    /// After a change to a figure (from `before`): every part it did not
+    /// act on (`acting`, else the chosen part) whose parent or joint the
+    /// rules would now find otherwise keeps them, stated in the file (its
+    /// parent by name, its joint from the pivot), so that no step re-hangs
+    /// or re-hinges a part nobody touched (a copy laid over its original,
+    /// a voxel set where two parts meet).
+    fn pin_rig(&mut self, before: &Shaped) {
+        let acting = self.acting.take();
+        let Some(model) = &self.model else { return };
+        if !model.parted() {
+            return;
+        }
+        let acting = acting.unwrap_or_else(|| self.chosen().and_then(|p| self.figure.as_ref().map(|f| vec![f.parts()[p].name.clone()])).unwrap_or_default());
+        let mut old = model.clone();
+        old.reshape(before);
+        let (Some(was), Some(now)) = (rig_of(&old), rig_of(model)) else { return };
+        let pins: Vec<(String, Option<String>, Vec3)> = now
+            .iter()
+            .filter(|(name, _)| !acting.contains(name))
+            .filter_map(|(name, rig)| {
+                let old = was.get(name)?;
+                // (A parent that went keeps nothing: what hung on it was
+                // acted on.)
+                let parent_stays = old.0.as_ref().is_none_or(|q| now.contains_key(q));
+                (old != rig && parent_stays).then(|| (name.clone(), old.0.clone(), old.1))
+            })
+            .collect();
+        let Some(model) = &mut self.model else { return };
+        for (name, parent, joint) in pins {
+            if let Some(o) = model.parts.iter_mut().find(|o| o.name == name) {
+                // The root stays the root (nothing to state); else both.
+                if parent.is_some() {
+                    (o.parent, o.joint) = (parent, Some(joint));
+                }
+            }
+        }
+    }
+
+    /// The parts that the next step acts on, by name (`pin_rig`).
+    pub(crate) fn acting_on(&mut self, names: Vec<String>) {
+        self.acting = Some(names);
     }
 
     /// What the colour held is made of in the model (None without one).
@@ -2184,6 +2372,15 @@ pub fn level_file(dir: &Path, cfg: &crate::config::GameConfig) -> Result<String>
         .unwrap_or_default();
     found.sort_by(|a, b| crate::levels::natural(a, b));
     found.into_iter().next().context("this game has no level to edit: no c.world.blocks, and no level file in levels/ (format = \"voxcade level 1\")")
+}
+
+/// A figure's rig by part name: what each hangs on (by name) and its
+/// joint from the pivot, as the rules or the file have them (None: no
+/// figure, or one that cannot be made).
+fn rig_of(m: &ModelFile) -> Option<std::collections::BTreeMap<String, (Option<String>, Vec3)>> {
+    let f = Figure::of(m)?.ok()?;
+    let low = f.low.as_vec3();
+    Some(f.parts().iter().enumerate().map(|(p, o)| (o.name.clone(), (o.parent.map(|q| f.parts()[q].name.clone()), f.joint(p) + low))).collect())
 }
 
 #[cfg(test)]

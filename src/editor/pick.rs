@@ -173,7 +173,7 @@ mod tests {
 
     /// A thing hidden in the editor is neither drawn nor met by a click
     /// (the click goes on to what is behind), and the level's file is not
-    /// touched; SHOW ALL shows it again; ONLY THIS hides the rest.
+    /// touched; SHOW ALL shows it again; HIDE OTHERS hides the rest.
     #[test]
     fn a_hidden_thing_is_not_met_and_the_file_stays() {
         use crate::editor::view::item_along;

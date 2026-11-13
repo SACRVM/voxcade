@@ -92,43 +92,76 @@ fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
     ui.add_space(8.0);
     keyed(ui, shown, "UNDO", Action::Undo, None, "A step back");
     keyed(ui, shown, "REDO", Action::Redo, None, "The step taken back again");
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| match ed.scope {
-        Scope::Level => {
-            keyed(ui, shown, "GAME VIEW", Action::GameView, Some(view.before_game.is_some()), "Look as the game's camera does; again: back");
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        // Shaped in place: the level round it.
+        if let Some(c) = &ed.context {
+            keyed(ui, shown, "CONTEXT", Action::Context, Some(c.shown), &format!("The level round it, faint ({}): shown or not", c.file));
         }
-        Scope::Frame(_) if ed.figure.is_none() && !ed.parted() && ed.frames().len() > 1 => {
-            keyed(ui, shown, "PLAY", Action::Play, Some(view.playing), "Its frames one after another, as the game shows them (the outliner's picture)");
+        match ed.scope {
+            Scope::Level => {
+                keyed(ui, shown, "GAME VIEW", Action::GameView, Some(view.before_game.is_some()), "Look as the game's camera does; again: back");
+            }
+            Scope::Frame(_) if ed.figure.is_none() && !ed.parted() && ed.frames().len() > 1 => {
+                keyed(ui, shown, "PLAY", Action::Play, Some(view.playing), "Its frames one after another, as the game shows them (the outliner's picture)");
+            }
+            // A figure: as the game draws it; posed by its rings.
+            Scope::Frame(_) | Scope::Figure if ed.figure.is_some() => {
+                keyed(ui, shown, "GAME VIEW", Action::GameView, Some(view.before_game.is_some()), "As the game draws it: its camera, light, shading and outline (posed while POSE is lit); again: back");
+                keyed(ui, shown, "POSE", Action::Pose, Some(ed.posing), "The rings turn parts as a pose on top of their rest, nothing saved: the pose as Lua to copy");
+            }
+            _ => {}
         }
-        _ => {}
     });
 }
 
 /// The bar at a figure's chosen part, over its arrows: what is done to a
 /// part there (HIDE).
 fn part_bar(ui: &mut egui::Ui, ed: &Editor, free: Rect, view: &View, shown: &mut Shown) {
-    let Some(p) = ed.figure.as_ref().and_then(|f| f.selected).filter(|_| ed.part_mode().is_some() && ed.joint_drag().is_none() && ed.drawing.is_none()) else { return };
+    let Some(p) = ed.figure.as_ref().and_then(|f| f.selected).filter(|_| ed.part_mode().is_some() && ed.joint_drag().is_none() && ed.drawing.is_none() && !ed.posing) else { return };
     let screen = ui.ctx().content_rect();
     let vp = view.view_proj(&view.block, screen.width() / screen.height().max(1.0));
     let Some(h) = ed.part_handles(vp) else { return };
     let size = glam::Vec2::new(screen.width(), screen.height());
+    // Clear of the arrows (MOVE) and the rings (ROTATE) alike, and of the
+    // part's box: the bar stays where it is while MOVE and ROTATE switch.
     let mut bounds = Rect::NOTHING;
-    for s in h.shapes(vp, size) {
-        for q in &s.points {
-            bounds.extend_with(screen.min + Vec2::new(q.x, q.y));
+    for h in [ed.part_handles_as(vp, false), ed.part_handles_as(vp, true)].into_iter().flatten() {
+        for s in h.shapes(vp, size) {
+            for q in &s.points {
+                bounds.extend_with(screen.min + Vec2::new(q.x, q.y));
+            }
         }
-    }
-    // The part's box too: the bar goes above or below it, never over it.
-    for c in &h.body {
-        if let Some((q, _)) = super::handles::project(vp, size, *c) {
-            bounds.extend_with(screen.min + Vec2::new(q.x, q.y));
+        for c in &h.body {
+            if let Some((q, _)) = super::handles::project(vp, size, *c) {
+                bounds.extend_with(screen.min + Vec2::new(q.x, q.y));
+            }
         }
     }
     if !bounds.is_positive() {
         return;
     }
-    let middle = super::handles::project(vp, size, h.centre).map_or(bounds.center().x, |(q, _)| screen.left() + q.x);
-    zones::bar_at(ui, &format!("part bar {p}"), middle, bounds, free, 70.0, shown, |ui, shown| {
-        small(ui, shown, "HIDE", Action::Hide(p), None, "Hide it from the picture (the outliner's mark shows it again)");
+    // (From the part's middle, its arrows' place, in either.)
+    let centre = ed.part_handles_as(vp, false).map_or(h.centre, |h| h.centre);
+    let middle = super::handles::project(vp, size, centre).map_or(bounds.center().x, |(q, _)| screen.left() + q.x);
+    let rotating = ed.part_rotating;
+    let removable = ed.cannot_remove(p);
+    zones::bar_at(ui, &format!("part bar {p}"), middle, bounds, free, 400.0, shown, |ui, shown| {
+        // MOVE (its arrows) or ROTATE (its rings about its joint), one lit.
+        small(ui, shown, "MOVE", Action::PartRotating(false), Some(!rotating), "Arrows: move it (what hangs on it goes along)");
+        small(ui, shown, "ROTATE", Action::PartRotating(true), Some(rotating), "Rings: rotate it about its joint (by 5°; Ctrl held: by 1°)");
+        ui.add_space(6.0);
+        small(ui, shown, "HIDE", Action::Hide(p), None, "Hide it from the picture (the outliner's mark shows it again)  H");
+        small(ui, shown, "DUPLICATE", Action::DuplicatePart(p), None, "A copy of it where it stands, chosen to be moved away");
+        let refused = ed.cannot_mirror(p);
+        let tip = refused.clone().unwrap_or_else(|| "Its partner of the pair (_left, _right) made or made anew, mirrored across the figure's middle".into());
+        if ui.add_enabled(refused.is_none(), egui::Button::new(RichText::new("MIRROR").small())).on_hover_text(&tip).on_disabled_hover_text(&tip).clicked() {
+            shown.clicked.push(Action::MirrorPart(p));
+        }
+        let tip = removable.unwrap_or("Remove it with its voxels; what hangs on it hangs on its parent (UNDO brings it back)  Del");
+        let word = RichText::new("REMOVE").small();
+        if ui.add_enabled(removable.is_none(), egui::Button::new(word)).on_hover_text(tip).on_disabled_hover_text(tip).clicked() {
+            shown.clicked.push(Action::RemovePart(p));
+        }
     });
 }
 
@@ -156,7 +189,7 @@ fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thum
             Scope::Level if ed.layer == Layer::Things => kinds(ui, ed, figures, thumbs, shown),
             Scope::Level | Scope::Block(_) => blocks(ui, ed, thumbs, shown),
             Scope::Frame(_) | Scope::Figure => match &ed.figure {
-                Some(figure) => parts(ui, figure, shown),
+                Some(figure) => parts(ui, ed, view, figure, &stem(&ed.file), shown),
                 None => frames(ui, ed, view, thumbs, shown),
             },
         }
@@ -236,13 +269,30 @@ fn frames(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, show
 /// A figure's parts by what they hang on, the root first: each its name
 /// (quiet while hidden), a sign and a word where it hangs oddly (the whole
 /// of it on hover), a mark at the left that hides it from the picture.
-fn parts(ui: &mut egui::Ui, figure: &Figure, shown: &mut Shown) {
-    if !zones::group(ui, "PARTS", Some(figure.parts().len()), "The figure's parts by what they hang on: a click shapes one, again the whole figure") {
+fn parts(ui: &mut egui::Ui, ed: &Editor, view: &View, figure: &Figure, name: &str, shown: &mut Shown) {
+    // The heading's own buttons: SHOW ALL (quiet while none is hidden), +
+    // a new part (each one click, always in view).
+    let hidden = figure.hidden.iter().any(|&h| h);
+    let extras = [("SHOW ALL", Action::ShowAll, "Every part shown again", hidden), ("+", Action::AddPart(None), "Add a part: one voxel of the color held, on top of the part chosen, hanging on it (named to type)", true)];
+    if !zones::group_with(ui, "PARTS", Some(figure.parts().len()), "The figure's parts by what they hang on: a click shapes one, again the whole figure", &extras, shown) {
         return;
     }
+    // The figure whole first, the parts under it (the editor opens on it;
+    // Escape or a click on empty space in the view comes back to it; a
+    // stroke from it on a part keeps it chosen).
+    let whole_chosen = figure.selected.is_none() || ed.painting_whole;
+    let whole = ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.add_space(18.0);
+        list_row(ui, Sort::Piece, None, name, 0.0, whole_chosen, false, None, None, "The figure whole: every part as it is; the tools work on the part they meet (Esc)")
+    });
+    if whole.inner.clicked() {
+        shown.clicked.push(Action::WholeFigure);
+    }
     for &(p, depth) in &figure.tree {
+        let depth = depth + 1;
         let part = &figure.parts()[p];
-        let (hidden, chosen) = (figure.hidden[p], figure.selected == Some(p));
+        let (hidden, chosen) = (figure.hidden[p], figure.selected == Some(p) && !ed.painting_whole);
         let warnings = figure.warnings(p);
         let by_hand = match (part.hung == crate::vox::Hung::ByHand, part.joint_by_hand) {
             (true, true) => "parent and joint set by hand",
@@ -250,7 +300,37 @@ fn parts(ui: &mut egui::Ui, figure: &Figure, shown: &mut Shown) {
             (false, true) => "joint set by hand",
             (false, false) => "parent and joint by the rules",
         };
-        let tip = std::iter::once(format!("{}: {by_hand}", part.name)).chain(warnings.iter().cloned()).collect::<Vec<_>>().join("\n");
+        // (Its name as the game's code uses it: `thing.state.parts.NAME`.)
+        let tip = std::iter::once(format!("{} (in code: parts.{}): {by_hand}", part.name, part.name)).chain(warnings.iter().cloned()).collect::<Vec<_>>().join("\n");
+        if view.renaming_part == Some(p) {
+            ui.horizontal(|ui| {
+                ui.add_space(depth as f32 * 12.0 + 18.0);
+                let id = egui::Id::unique(("part name", p));
+                let mut text: String = ui.data(|d| d.get_temp(id)).unwrap_or_else(|| part.name.clone());
+                let field = ui.add(egui::TextEdit::singleline(&mut text).desired_width(f32::INFINITY));
+                if !field.has_focus() && ui.data(|d| d.get_temp::<bool>(id.with("asked"))).is_none() {
+                    field.request_focus();
+                    ui.data_mut(|d| d.insert_temp(id.with("asked"), true));
+                }
+                ui.data_mut(|d| d.insert_temp(id, text.clone()));
+                let (enter, escape) = ui.input(|i| (i.key_pressed(egui::Key::Enter), i.key_pressed(egui::Key::Escape)));
+                if field.lost_focus() || enter || escape {
+                    ui.data_mut(|d| {
+                        d.remove::<String>(id);
+                        d.remove::<bool>(id.with("asked"));
+                    });
+                    if escape {
+                        shown.clicked.push(Action::RenamePart(usize::MAX));
+                    } else {
+                        shown.renamed_part = Some((p, text));
+                    }
+                }
+            });
+            if let Some(problem) = &view.rename_problem {
+                ui.label(RichText::new(problem).small().color(crate::gui::ERROR));
+            }
+            continue;
+        }
         let r = ui
             .horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
@@ -262,6 +342,8 @@ fn parts(ui: &mut egui::Ui, figure: &Figure, shown: &mut Shown) {
         if r.secondary_clicked() {
             let at = r.interact_pointer_pos().unwrap_or(r.rect.right_top());
             shown.clicked.push(Action::PartMenu(p, [at.x, at.y]));
+        } else if r.double_clicked() {
+            shown.clicked.push(Action::RenamePart(p));
         } else if r.clicked() {
             shown.clicked.push(Action::Part(p));
         }
@@ -270,7 +352,11 @@ fn parts(ui: &mut egui::Ui, figure: &Figure, shown: &mut Shown) {
 
 /// The inspector.
 fn inspector(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thumbs, shown: &mut Shown) {
-    match ed.scope {
+    if ed.posing && ed.figure.is_some() {
+        pose(ui, ed, shown);
+    }
+    // (A stroke from the figure whole: still the figure's rows.)
+    match if ed.painting_whole { Scope::Figure } else { ed.scope } {
         Scope::Level => level(ui, ed, figures, thumbs, shown),
         Scope::Block(i) => {
             ui.label(RichText::new(format!("BLOCK {}", ed.level.blocks[i].name.to_uppercase())).color(TEXT));
@@ -289,11 +375,12 @@ fn inspector(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thu
                 row(ui, "SIZE", "Voxels across, deep and up", |ui| {
                     ui.label(format!("{} × {} × {}", s.x, s.y, s.z));
                 });
-                if figure.hidden.iter().any(|&h| h) {
-                    row(ui, "", "", |ui| {
-                        small(ui, shown, "SHOW ALL", Action::ShowAll, None, "Every part shown again");
-                    });
-                }
+                row(ui, "PARTS", "Its parts; a click on one (here or in the view) shapes it", |ui| {
+                    ui.label(format!("{}", figure.parts().len()));
+                });
+                // The tools as for a part: a press on a part chooses it
+                // and the tool works there at once.
+                shaping(ui, ed, shown);
             }
         }
         Scope::Frame(f) => {
@@ -308,6 +395,9 @@ fn inspector(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thu
                         ui.label(format!("{} × {} × {}", s.x, s.y, s.z));
                     });
                     row(ui, "MODEL", "", |ui| {
+                        // (Four words: a little less padding, so they keep
+                        // to the inspector's room.)
+                        ui.spacing_mut().button_padding = egui::vec2(4.0, 3.0);
                         small(ui, shown, "ROTATE", Action::Turn(Turn::TURN), None, "Rotate the model 90°, round the upright  T");
                         small(ui, shown, "TRIM", Action::Trim, None, "Its box cut down to its voxels  M");
                         if !parted {
@@ -325,6 +415,7 @@ fn inspector(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thu
 /// What a block or a frame (a part) is shaped with: the tools, BEVEL and
 /// SYMMETRY, a fresh box's DEPTH, the colours and the held one's material.
 fn shaping(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+    slice_rows(ui, ed, shown);
     tools(ui, ed, shown);
     let fresh = ed.fresh.filter(|_| ed.drawing.is_none());
     row(ui, "", "", |ui| {
@@ -343,6 +434,35 @@ fn shaping(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
         });
     }
     colours(ui, ed, shown);
+}
+
+/// SLICE: X, Y, Z on the columns (lit the one cutting; again: off), and
+/// while it cuts its LAYER and OFF.
+fn slice_rows(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+    if !ed.can_slice() {
+        return;
+    }
+    let on = ed.slice.as_ref().map(|s| s.axis);
+    row(ui, "SLICE", "Cut the model across an axis: what lies before the plane is neither drawn nor touched; the file stays as it is", |ui| {
+        let width = zones::col(ui, 1);
+        for (a, letter) in ["X", "Y", "Z"].into_iter().enumerate() {
+            let word = RichText::new(letter).color(if on == Some(a) { zones::AXIS_LIT[a] } else { zones::AXIS[a] });
+            let tip = if on == Some(a) { format!("Slicing across {letter}: click for off") } else { format!("Slice across {letter}") };
+            if ui.add_sized([width, ui.text_style_height(&TextStyle::Body) + 8.0], egui::Button::new(word).selected(on == Some(a))).on_hover_text(tip).clicked() {
+                shown.clicked.push(Action::Slice(Some(a as u8)));
+            }
+        }
+    });
+    if let Some(s) = &ed.slice {
+        let room = ed.slice_room()[s.axis];
+        row(ui, "LAYER", "Where the plane lies, in voxels from the box's low side (or drag its arrow)", |ui| {
+            zones::number(ui, shown, ["X", "Y", "Z"][s.axis], Some(s.axis), s.at as f64, 0, 0.1, 0.0..=(room - 1).max(0) as f64, "Page Up, Page Down", FIELD, |v| Action::SliceAt(v.round() as i32));
+            let width = zones::col(ui, 1);
+            if ui.add_sized([width, ui.text_style_height(&TextStyle::Body) + 8.0], egui::Button::new("OFF")).on_hover_text("The whole model again").clicked() {
+                shown.clicked.push(Action::Slice(None));
+            }
+        });
+    }
 }
 
 /// The tools in a row: their words, lit the one in hand, each its key.
@@ -483,6 +603,23 @@ fn kind(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
     });
 }
 
+/// POSE: the pose as Lua (`frame:model`'s pose table), COPY and RESET.
+fn pose(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+    let lua = ed.pose_lua();
+    ui.label(RichText::new("POSE").color(TEXT));
+    ui.add(egui::Label::new(RichText::new(&lua).monospace().small().color(if ed.pose.is_empty() { QUIET } else { TEXT })).wrap()).on_hover_text("frame:model's pose: the parts by name, their rotation, pitch and roll in degrees");
+    row(ui, "", "", |ui| {
+        if ui.add(egui::Button::new(RichText::new("COPY").small())).on_hover_text("The pose as Lua to the clipboard").clicked() {
+            ui.ctx().copy_text(lua.clone());
+        }
+        let r = ui.add_enabled(!ed.pose.is_empty(), egui::Button::new(RichText::new("RESET").small()));
+        if r.on_hover_text("No pose: every part at rest").on_disabled_hover_text("No pose: every part at rest").clicked() {
+            shown.clicked.push(Action::PoseReset);
+        }
+    });
+    ui.separator();
+}
+
 /// The chosen part: its name, PARENT (a menu of the parts, or as the rules
 /// find it) and JOINT (where it turns, by halves of a voxel; or as the
 /// rules find it).
@@ -494,6 +631,23 @@ fn rig(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, p: usize, shown: &mut Sh
         row(ui, "POSITION", "Where it stands from the figure's pivot, in voxels (those hanging on it go along). Or drag its arrows (MOVE).", |ui| {
             for a in 0..3 {
                 zones::number(ui, shown, ["X", "Y", "Z"][a], Some(a), at[a] as f64, 0, 0.1, -1000.0..=1000.0, "", FIELD, |v| Action::PartAt(a as u8, v.round() as i32));
+            }
+        });
+    }
+    // ROTATE: its rest rotation about its joint, as a level's piece's row
+    // (Z round, X its nose up, Y rolled), in the file's degrees.
+    if let Some(r) = ed.part_rotation().filter(|_| !ed.posing) {
+        row(ui, "ROTATE", "Degrees about its joint (what hangs on it turns along). Or drag its rings (ROTATE).", |ui| {
+            for (axis, letter, colour, tip) in [(0, "Z", 2, "Round, clockwise seen from above"), (1, "X", 0, "Its front up"), (2, "Y", 1, "Its right side down")] {
+                zones::number(ui, shown, letter, Some(colour), r[axis] as f64, 1, 0.5, -360.0..=360.0, tip, FIELD, |v| Action::PartRotation(axis as u8, v as f32));
+            }
+        });
+    }
+    // POSE: its pose on top of the rest (nothing saved), as the rings.
+    if let Some(r) = ed.chosen_pose().filter(|_| ed.posing && !ed.root_chosen()) {
+        row(ui, "POSE", "Degrees on top of its rest, as frame:model's pose (nothing saved). Or drag its rings.", |ui| {
+            for (axis, letter, colour, tip) in [(0, "Z", 2, "rotation: round, clockwise seen from above"), (1, "X", 0, "pitch: its front up"), (2, "Y", 1, "roll: its right side down")] {
+                zones::number(ui, shown, letter, Some(colour), r[axis] as f64, 1, 0.5, -360.0..=360.0, tip, FIELD, |v| Action::PoseValue(axis as u8, v as f32));
             }
         });
     }
@@ -519,15 +673,19 @@ fn rig(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, p: usize, shown: &mut Sh
             }
         });
     });
-    let j = figure.joint(p);
+    // From the pivot, halves of a voxel, as the file says it.
+    let j = figure.joint(p) + figure.low.as_vec3();
     row(ui, "JOINT", if part.joint_by_hand { "Where it turns: set by hand (or drag its arrows)" } else { "Where it turns: found by the rules (or drag its arrows)" }, |ui| {
         for a in 0..3 {
-            zones::number(ui, shown, ["X", "Y", "Z"][a], Some(a), j[a] as f64, 1, 0.05, -1000.0..=1000.0, "", FIELD, |v| Action::JointTo(a as u8, v as f32));
+            // (A joint the rules found may lie at quarters: shown as it is.)
+            zones::number(ui, shown, ["X", "Y", "Z"][a], Some(a), j[a] as f64, 3, 0.05, -1000.0..=1000.0, "", FIELD, |v| Action::JointTo(a as u8, v as f32));
         }
     });
-    if part.joint_by_hand || by_hand {
+    // (Only while there is something to give back to the rules: no empty
+    // row.)
+    if part.joint_by_hand {
         row(ui, "", "", |ui| {
-            if part.joint_by_hand {
+            {
                 small(ui, shown, "JOINT BY THE RULES", Action::JointWorkedOut, None, "Where the rules find it: the middle of where it meets its parent");
             }
         });
@@ -579,39 +737,57 @@ fn level(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thumbs,
 
 /// What a menu of the voxel editor offers (each also a control somewhere:
 /// the inspector, the outliner, the tools).
-pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<(String, Action, Option<&'static str>)> {
-    let mut out: Vec<(String, Action, Option<&'static str>)> = Vec::new();
+pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<zones::Entry> {
+    let mut out: Vec<zones::Entry> = Vec::new();
     match on {
         MenuOn::Voxel(cell, part) => {
-            out.push(("PICK COLOR".into(), Action::PickAt(cell), Some("Shift")));
+            out.push(("PICK COLOR".into(), Action::PickAt(cell), Some("Shift"), None));
             if matches!(ed.scope, Scope::Block(_) | Scope::Frame(_)) && ed.shape().is_some_and(|b| b.get(cell) != 0) {
-                out.push(("ERASE".into(), Action::EraseAt(cell), None));
+                out.push(("ERASE".into(), Action::EraseAt(cell), None, None));
             }
             if let Some(p) = part.filter(|&p| ed.figure.as_ref().is_some_and(|f| f.selected != Some(p as usize))) {
                 let name = ed.figure.as_ref().map_or(String::new(), |f| f.parts()[p as usize].name.to_uppercase());
-                out.push((format!("SHAPE {name}"), Action::Part(p as usize), None));
+                out.push((format!("SELECT {name}"), Action::Part(p as usize), None, None));
             }
         }
         MenuOn::Frame(f) => {
-            out.push(("SHAPE".into(), Action::GoFrame(f), None));
-            out.push(("COPY".into(), Action::CopyFrameOf(f), Some("C")));
+            out.push(("SHAPE".into(), Action::GoFrame(f), None, None));
+            out.push(("COPY".into(), Action::CopyFrameOf(f), Some("C"), None));
             if ed.frames().len() > 1 {
-                out.push(("REMOVE".into(), Action::DeleteFrameOf(f), Some("D")));
+                out.push(("REMOVE".into(), Action::DeleteFrameOf(f), Some("D"), None));
             }
         }
         MenuOn::Part(p) => {
             let Some(figure) = &ed.figure else { return out };
             let name = figure.parts()[p].name.to_uppercase();
-            out.push((if figure.selected == Some(p) { "THE WHOLE FIGURE".into() } else { format!("SHAPE {name}") }, Action::Part(p), None));
-            out.push((if figure.hidden[p] { "SHOW".into() } else { "HIDE".into() }, Action::Hide(p), None));
+            out.push((if figure.selected == Some(p) { "THE WHOLE FIGURE".into() } else { format!("SELECT {name}") }, Action::Part(p), None, None));
+            out.push((if figure.hidden[p] { "SHOW".into() } else { "HIDE".into() }, Action::Hide(p), None, None));
+            out.push(("HIDE OTHERS".into(), Action::HideOthers(p), None, None));
             if figure.hidden.iter().any(|&h| h) {
-                out.push(("SHOW ALL".into(), Action::ShowAll, None));
+                out.push(("SHOW ALL".into(), Action::ShowAll, None, None));
+            }
+            out.push(("ADD PART".into(), Action::AddPart(Some(p)), None, None));
+            out.push(("DUPLICATE".into(), Action::DuplicatePart(p), None, None));
+            out.push(("MIRROR".into(), Action::MirrorPart(p), None, ed.cannot_mirror(p)));
+            out.push(("RENAME".into(), Action::RenamePart(p), Some("F2"), None));
+            // (Refused ones too, quiet, why on hover: every action is seen.)
+            if let Some(q) = figure.parts()[p].parent {
+                out.push((format!("MERGE INTO {}", figure.parts()[q].name.to_uppercase()), Action::MergeInto(p, q), None, ed.cannot_merge(p, q).map(str::to_string)));
+            }
+            let any = (0..figure.parts().len()).any(|q| ed.cannot_merge(p, q).is_none());
+            out.push(("MERGE WITH…".into(), Action::MergeMenu(p, [0.0, 0.0]), None, (!any).then(|| "No part it can merge with as it stands".to_string())));
+            out.push(("REMOVE".into(), Action::RemovePart(p), Some("Del"), ed.cannot_remove(p).map(str::to_string)));
+        }
+        MenuOn::MergeWith(p) => {
+            let Some(figure) = &ed.figure else { return out };
+            for q in (0..figure.parts().len()).filter(|&q| q != p) {
+                out.push((format!("INTO {}", figure.parts()[q].name.to_uppercase()), Action::MergeInto(p, q), None, ed.cannot_merge(p, q).map(str::to_string)));
             }
         }
         MenuOn::Block(i) => {
-            out.push(("OPEN".into(), Action::OpenBlock(i), None));
-            out.push(("COPY".into(), Action::CloneOf(i), Some("C")));
-            out.push(("REMOVE".into(), Action::DeleteOf(i), Some("D")));
+            out.push(("OPEN".into(), Action::OpenBlock(i), None, None));
+            out.push(("COPY".into(), Action::CloneOf(i), Some("C"), None));
+            out.push(("REMOVE".into(), Action::DeleteOf(i), Some("D"), None));
         }
         MenuOn::Item(_) | MenuOn::Floor(_) | MenuOn::Add => {}
     }

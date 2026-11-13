@@ -1028,6 +1028,7 @@ impl<G: Game> Session<G> {
         let new_level = self.cfg.world.size.is_none() && changed.parent().is_some_and(|d| same_file(d, &self.dir.join("levels"))) && (changed.extension().is_some_and(|e| e == ending) || crate::levels::says_level(&self.files, changed));
         if block || new_level || self.level_files.iter().any(|f| same_file(f, changed)) {
             let levels = std::sync::Arc::new(crate::levels::load::<G>(&self.files, &self.cfg)?);
+            self.game.check_levels(&levels)?;
             self.level_files = levels.files.clone();
             // The pieces' models may have come, gone or changed.
             self.piece_models = levels.piece_models();
@@ -1915,6 +1916,7 @@ impl<G: Game> Session<G> {
             bank: self.bank.clone(),
             instances,
             see_through,
+            behind: 0,
             ui,
             ui_view_proj,
         }
@@ -2090,7 +2092,7 @@ impl Drawing<'_> {
 
     #[allow(clippy::too_many_arguments)]
     fn put_posed(&mut self, m: &VoxModel, frame: usize, origin: Vec3, look: IVec2, turn: Quat, pose: &[Quat], tint: Option<[u8; 4]>) {
-        let posed = pose.iter().any(|q| *q != Quat::IDENTITY);
+        let posed = pose.iter().any(|q| *q != Quat::IDENTITY) || rests_turned(m);
         let (lo, hi) = if turn == Quat::IDENTITY && !posed {
             let reach = (m.size.x.max(m.size.y) / 2 + 1) as f32;
             (origin - Vec3::new(reach, reach, 0.0), origin + Vec3::new(reach, reach, m.size.z as f32))
@@ -2251,6 +2253,12 @@ pub fn posing<'a>(pose: &'a [(String, [f32; 3])], under: impl Fn(&str) -> Quat +
     }
 }
 
+/// A script's pose alone (a level's piece, `thing.state.parts`), no swing
+/// under it.
+pub fn posing_alone(pose: &[(String, [f32; 3])]) -> impl Fn(&str) -> Quat + '_ {
+    posing(pose, |_| Quat::IDENTITY)
+}
+
 /// What `draw` hands over for each voxel it draws as a cube: its corner,
 /// colour, metal, glow, the way it is lit and its free turn.
 type Put<'a> = dyn FnMut(Vec3, [u8; 4], u8, u8, [i8; 4], [i8; 4], u8) + 'a;
@@ -2307,9 +2315,10 @@ fn draw(
     } else {
         let mut chain: Vec<Option<(Quat, Vec3)>> = vec![None; model.parts.len()];
         let centre = Vec3::new(0.5, 0.5, 0.0);
-        // Posed, a part's depth is taken nearer by how far down the figure
-        // it hangs (`ModelDraw::nearer`); at rest nothing overlaps.
-        let posed = pose.iter().any(|q| *q != Quat::IDENTITY);
+        // Posed (or a part turned at rest), a part's depth is taken nearer
+        // by how far down the figure it hangs (`ModelDraw::nearer`); at
+        // rest nothing overlaps.
+        let posed = pose.iter().any(|q| *q != Quat::IDENTITY) || rests_turned(model);
         let steps = |mut i: usize| {
             let mut n = 0.0;
             while let Some(p) = model.parts[i].parent.filter(|_| n < 16.0) {
@@ -2451,6 +2460,26 @@ pub fn model_cubes(model: &VoxModel, frame: usize, origin: Vec3, look: IVec2, tu
     draw(&mut put, None, model, frame, origin, look, turn, &[], None);
 }
 
+/// A model as a game draws it alone (the editors' GAME VIEW): with its
+/// feet at `origin` facing `look`, a figure posed by `pose` (a turn per
+/// part, on its rest), its opaque voxels from the model bank its
+/// `VoxModel::bank` was filled into (`draws`: outlined and shaded as the
+/// game's), its glass as cubes.
+pub fn model_drawn(model: &VoxModel, origin: Vec3, look: IVec2, pose: &[Quat], draws: &mut Vec<ModelDraw>, glass: &mut Vec<Instance>) {
+    let mut put = |corner: Vec3, color: [u8; 4], metal: u8, glow: u8, shade: [i8; 4], turn: [i8; 4], covered: u8| {
+        let covered = if color[3] < 255 { 0 } else { covered };
+        glass.push(Instance { pos_size: (corner + 0.5).extend(1.0).to_array(), color, fx: [glow, color[3], covered, metal], shade, turn });
+    };
+    draw(&mut put, Some(draws), model, 0, origin, look, Quat::IDENTITY, pose, None);
+}
+
+/// Where part `i` of a figure stands posed by `pose` (a turn per part, on
+/// its rest rotation): its turn and shift, as `part_at_rest` gives them.
+pub fn part_posed(model: &VoxModel, pose: &[Quat], i: usize) -> (Quat, Vec3) {
+    let mut chain = vec![None; model.parts.len()];
+    part_chain(model, pose, i, &mut chain)
+}
+
 /// Where part `i` of a figure stands, posed: the turn and the shift that
 /// take a voxel's middle (from the pivot cell's minimum corner, in the
 /// model's own directions) to where it is, each part turned about its
@@ -2460,7 +2489,13 @@ fn part_chain(model: &VoxModel, pose: &[Quat], i: usize, chain: &mut [Option<(Qu
         return done;
     }
     let part = &model.parts[i];
+    // The pose turns on from the part's rest rotation, about the same
+    // joint: `pose · rest` (the rest first).
     let own = pose.get(i).copied().unwrap_or(Quat::IDENTITY);
+    let own = match rest_turn(part) {
+        Some(rest) => own * rest,
+        None => own,
+    };
     let joint = part.joint;
     let done = match part.parent {
         None => (own, joint - own * joint),
@@ -2472,6 +2507,29 @@ fn part_chain(model: &VoxModel, pose: &[Quat], i: usize, chain: &mut [Option<(Qu
     };
     chain[i] = Some(done);
     done
+}
+
+/// A part's rest rotation (`vox::Part::rest`) as a turn in the model's own
+/// directions about its joint (`turning`), none where it has none.
+pub fn rest_turn(part: &crate::vox::Part) -> Option<Quat> {
+    let [round, pitch, roll] = part.rest;
+    (part.rest != [0.0; 3]).then(|| turning(round, pitch, roll))
+}
+
+/// Where part `i` of a figure stands at rest (no pose): its turn and its
+/// shift in the model's own directions, its parents' rest rotations and
+/// its own about their joints: a point `p` of it, measured from the
+/// pivot's low corner as `Part::joint` is (a voxel's middle half a voxel
+/// past its corner), lies at `turn * p + shift`. What `draw` turns a
+/// figure's part by, for the editors' own drawing of a figure.
+pub fn part_at_rest(model: &VoxModel, i: usize) -> (Quat, Vec3) {
+    let mut chain = vec![None; model.parts.len()];
+    part_chain(model, &[], i, &mut chain)
+}
+
+/// Whether a figure has a part turned at rest (`vox::Part::rest`).
+pub fn rests_turned(model: &VoxModel) -> bool {
+    model.parts.iter().any(|p| p.rest != [0.0; 3])
 }
 
 #[cfg(test)]
@@ -3032,6 +3090,46 @@ mod tests {
         };
         assert_eq!(nearer(&[]), [0.0; 4], "at rest");
         assert_eq!(nearer(&[Quat::IDENTITY, Quat::IDENTITY, turning(-90.0, 0.0, 0.0), Quat::IDENTITY]), [0.0, 1.0, 1.0, 2.0], "body, head, arm, hand");
+    }
+
+    /// A part turned at rest in its file (`rotation`, `pitch`, `roll`) is
+    /// drawn exactly as the unturned figure posed so: from the bank and as
+    /// cubes alike, what hangs on it carried along; a pose turns on from
+    /// the rest (`pose · rest`); `part_at_rest` is where `draw` puts it.
+    #[test]
+    fn a_part_turned_at_rest_draws_as_the_same_pose() {
+        let text = |rest: &str| format!("format = \"voxcade voxel 1\"\nsize = [9, 3, 12]\n\n[palette]\np = \"#6a4a30\"\nl = \"#a07040\"\nh = \"#d0b040\"\n\n[[part]]\nname = \"frame\"\nat = [-4, 0, 0]\nlayers = \"\"\"\np.......p\n*11\n\nppppppppp\n\"\"\"\n\n[[part]]\nname = \"leaf\"\nat = [-3, 0, 0]\nparent = \"frame\"\njoint = [-3, 0.5, 5.5]\n{rest}layers = \"\"\"\nlllllll\n*11\n\"\"\"\n\n[[part]]\nname = \"handle\"\nat = [2, -1, 5]\nparent = \"leaf\"\nlayers = \"\"\"\nh\n\"\"\"\n");
+        let model = |rest: &str| {
+            let mut m = crate::vvx::read(&text(rest)).unwrap();
+            ModelBank::default().add(&mut m);
+            m
+        };
+        let (plain, rested) = (model(""), model("rotation = -70\npitch = 15\n"));
+        assert!(!rests_turned(&plain) && rests_turned(&rested));
+        let origin = Vec3::new(40.0, 50.0, 3.0);
+        // The cubes (every voxel, as a fading model draws) and the bank's draws.
+        let drawn = |m: &VoxModel, look: IVec2, rot: Quat, pose: &[Quat]| {
+            let mut cubes: Vec<[u32; 3]> = Vec::new();
+            draw(&mut |corner: Vec3, _, _, _, _, _, _| cubes.push(corner.to_array().map(f32::to_bits)), None, m, 0, origin, look, rot, pose, None);
+            let mut on_gpu = Vec::new();
+            draw(&mut |_, _, _, _, _, _, _| {}, Some(&mut on_gpu), m, 0, origin, look, rot, pose, None);
+            (cubes, on_gpu)
+        };
+        let leaf = turning(-70.0, 15.0, 0.0);
+        for (look, rot) in [(IVec2::Y, Quat::IDENTITY), (IVec2::X, turning(20.0, 0.0, 10.0)), (IVec2::NEG_Y, Quat::IDENTITY)] {
+            assert_eq!(drawn(&rested, look, rot, &[]), drawn(&plain, look, rot, &[Quat::IDENTITY, leaf, Quat::IDENTITY]), "{look}: the rest is that pose");
+            // A pose on top: round further, after the rest.
+            let more = turning(30.0, 0.0, 0.0);
+            assert_eq!(drawn(&rested, look, rot, &[Quat::IDENTITY, more, Quat::IDENTITY]), drawn(&plain, look, rot, &[Quat::IDENTITY, more * leaf, Quat::IDENTITY]), "{look}: pose · rest");
+        }
+        let (_, at_rest) = drawn(&plain, IVec2::Y, Quat::IDENTITY, &[]);
+        assert!(at_rest.iter().all(|d| d.rot == Quat::IDENTITY && d.nearer == 0.0), "none at rest: as before");
+        let (_, turned) = drawn(&rested, IVec2::Y, Quat::IDENTITY, &[]);
+        assert_eq!(turned.iter().map(|d| d.nearer).collect::<Vec<_>>(), [0.0, 1.0, 2.0], "a part turned at rest is taken nearer as a posed one");
+        assert_eq!(part_at_rest(&rested, 2).0, leaf, "the handle carried by the leaf");
+        assert_eq!(part_at_rest(&plain, 2), (Quat::IDENTITY, Vec3::ZERO));
+        // Only the picture: the simulation's cells are the unturned ones.
+        assert_eq!(quarter_cells(&rested, IVec2::Y), quarter_cells(&plain, IVec2::Y));
     }
 
     /// MagicaVoxel's emission material on a colour makes a model's voxels

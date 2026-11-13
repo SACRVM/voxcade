@@ -168,25 +168,37 @@ def write_frames(path, size, frames, colours, materials=None):
     _write(path, size, blocks)
 
 
+def _rest_lines(rotation, pitch, roll):
+    """A part's rest rotation (degrees about its joint), each line only
+    when not 0, as the engine writes them."""
+    def number(v):
+        return str(int(v)) if float(v).is_integer() else str(v)
+    return "".join(f"{k} = {number(v)}\n" for k, v in (("rotation", rotation), ("pitch", pitch), ("roll", roll)) if v)
+
+
 def write_parts(path, parts, colours, materials=None):
     """A figure of parts: each (name, size, its voxels as (x, y, z, colour
     index) in its own box, where its box's low corner stands in the figure),
-    as gen_sokovox.write_parts takes them; the model's box is all of them."""
+    as gen_sokovox.write_parts takes them, and optionally its rest rotation
+    (rotation, pitch, roll in degrees about its joint) as a fifth; the
+    model's box is all of them."""
     entries = _entries(colours, materials)
     placed = []
-    for name, _, voxels, low in parts:
+    for part in parts:
+        name, _, voxels, low = part[:4]
+        rest = part[4] if len(part) > 4 else (0, 0, 0)
         cells = {}
         for x, y, z, i in voxels:
             cells.setdefault((low[0] + x, low[1] + y, low[2] + z), entries[i])
-        placed.append((name, cells))
-    every = [p for _, cells in placed for p in cells]
+        placed.append((name, cells, rest))
+    every = [p for _, cells, _ in placed for p in cells]
     lo = tuple(min(p[a] for p in every) for a in range(3))
     hi = tuple(max(p[a] for p in every) for a in range(3))
     size = tuple(hi[a] - lo[a] + 1 for a in range(3))
     blocks = []
-    for name, cells in placed:
+    for name, cells, rest in placed:
         shifted = {tuple(p[a] - lo[a] for a in range(3)): e for p, e in cells.items()}
-        blocks.append(([f'name = "{name}"\n'], shifted))
+        blocks.append(([f'name = "{name}"\n', _rest_lines(*rest)], shifted))
     _write(path, size, blocks)
 
 
@@ -247,6 +259,7 @@ def read(path):
     parts = []
     for t in data.get("part", []):
         extra = "".join(f'{k} = "{t[k]}"\n' if isinstance(t[k], str) else f"{k} = [{', '.join(str(v) for v in t[k])}]\n" for k in ("parent", "joint") if k in t)
+        extra += _rest_lines(t.get("rotation", 0), t.get("pitch", 0), t.get("roll", 0))
         parts.append((t["name"], cells(t, box), extra))
     return {"size": size, "palette": palette, "colours": colours, "markers": markers, "frames": frames, "parts": parts}
 

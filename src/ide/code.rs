@@ -397,9 +397,9 @@ fn song_trouble(message: &str) -> (usize, String) {
 /// its channels.
 pub(super) fn song_line(song: &music::Song) -> String {
     let seconds = (song.length / crate::audio::SAMPLE_RATE as u64) as u32;
-    let title = if song.title.is_empty() { String::new() } else { format!("{}, ", song.title) };
-    let ending = if song.looping { "starting over" } else { "once" };
-    format!("A song: {title}{}:{:02}, {} channels, {ending}.", seconds / 60, seconds % 60, song.names.len())
+    let title = if song.title.is_empty() { String::new() } else { format!("{} · ", song.title) };
+    let ending = if song.looping { "loops" } else { "once" };
+    format!("{title}{}:{:02} · {} channels · {ending}", seconds / 60, seconds % 60, song.names.len())
 }
 
 /// The first line of `text` (the file `file`) Lua cannot read or the
@@ -554,7 +554,7 @@ mod tests {
         assert!(matches!(&song.error, Some((4, _))), "inside a channel: its first line: {:?}", song.error);
         song.text = "#title t\nA: c d e\n".into();
         song.check();
-        assert!(song.error.is_none() && song.song.as_deref().is_some_and(|l| l.starts_with("A song: t, ")));
+        assert!(song.error.is_none() && song.song.as_deref().is_some_and(|l| l.starts_with("t · ")));
     }
 
     /// Comments, strings and numbers of a sound and a song are coloured,

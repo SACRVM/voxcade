@@ -16,7 +16,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use glam::{IVec3, Vec3};
 
 use crate::blocks::Block;
@@ -69,6 +69,8 @@ pub struct Placed {
     pub low: IVec3,
     pub parent: Option<String>,
     pub joint: Option<Vec3>,
+    /// Its rest rotation (`vvx::Piece::rotation`), kept as the file has it.
+    pub rotation: [f32; 3],
 }
 
 /// What of a model file an editor's step takes and gives back: its
@@ -195,7 +197,7 @@ impl ModelFile {
             }
             frames.push(block);
             if shape.parted {
-                parts.push(Placed { name: piece.name.clone(), frame: i, low, parent: piece.parent.clone(), joint: piece.joint });
+                parts.push(Placed { name: piece.name.clone(), frame: i, low, parent: piece.parent.clone(), joint: piece.joint, rotation: piece.rotation });
             }
         }
         let loaded = Shaped { frames: frames.clone(), parts: parts.clone(), size: shape.size, palette: colours.clone() };
@@ -318,7 +320,7 @@ impl ModelFile {
             .map(|p| {
                 let frame = self.frames.get(p.frame);
                 let voxels = frame.map_or_else(Vec::new, |f| self.reading(f, p.low + raise));
-                Piece { name: p.name.clone(), voxels, parent: p.parent.clone(), joint: p.joint.map(|j| j + raise.as_vec3()) }
+                Piece { name: p.name.clone(), voxels, parent: p.parent.clone(), joint: p.joint.map(|j| j + raise.as_vec3()), rotation: p.rotation }
             })
             .collect();
         Shape { size, parted: true, pieces }
@@ -444,6 +446,162 @@ pub fn fit(size: IVec3, lo: IVec3, hi: IVec3) -> IVec3 {
 /// pivot, standing on `lo`'s layer.
 pub fn least(lo: IVec3, hi: IVec3) -> IVec3 {
     fit(IVec3::new(1, 1, hi.z - lo.z + 1), IVec3::new(lo.x, lo.y, 0), IVec3::new(hi.x, hi.y, 0))
+}
+
+/// A change to a model's cells made without the window (`voxcade edit
+/// --model FILE --clear ... | --fill ...`): a box of cells (from the
+/// pivot, as the file's `at`; both corners in) emptied, or filled with a
+/// color (a sign of the palette, or `#rrggbb`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum CellOp {
+    Clear(IVec3, IVec3),
+    Fill(String, IVec3, IVec3),
+}
+
+/// Which frame or part a `CellOp` changes.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CellsOf {
+    /// A model's frame (from 1, as the editor counts them).
+    Frame(usize),
+    Part(String),
+}
+
+/// What `change_cells` did: cells set to a color they did not have, cells
+/// emptied, the box before and after if it grew.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Changed {
+    pub set: usize,
+    pub cleared: usize,
+    pub grown: Option<(IVec3, IVec3)>,
+}
+
+impl std::fmt::Display for Changed {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{} cells set, {} cleared", self.set, self.cleared)?;
+        if let Some((was, now)) = self.grown {
+            write!(f, ", the box grown from {} x {} x {} to {} x {} x {}", was.x, was.y, was.z, now.x, now.y, now.z)?;
+        }
+        Ok(())
+    }
+}
+
+impl ModelFile {
+    /// The key of a color as `--fill` names it: a sign of the palette, or
+    /// `#rrggbb` (an entry of that color plain, else a new one, which
+    /// takes the next free sign when written, as the editor's does).
+    fn key_named(&mut self, color: &str) -> Result<[u8; 3]> {
+        if let Some(hex) = color.strip_prefix('#') {
+            let rgb = (hex.len() == 6).then(|| u32::from_str_radix(hex, 16).ok()).flatten().ok_or_else(|| anyhow!("'{color}' is no color: #rrggbb"))?;
+            let rgb = [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8];
+            if let Some(c) = self.palette.iter().find(|c| c.mat == plain(rgb)) {
+                return Ok(c.key);
+            }
+            let key = free_key(&self.palette, rgb);
+            self.palette.push(Colour { key, sign: None, mat: plain(rgb) });
+            return Ok(key);
+        }
+        self.palette.iter().find(|c| c.sign.as_deref() == Some(color)).map(|c| c.key).ok_or_else(|| {
+            let signs: Vec<&str> = self.palette.iter().filter_map(|c| c.sign.as_deref()).collect();
+            anyhow!("the palette has no sign '{color}' (its signs: {}); or give a color as #rrggbb", signs.join(", "))
+        })
+    }
+
+    /// Changes a frame's or a part's cells as `ops` say, in order: a box
+    /// that reaches past the frame's grows it (a part's about itself, a
+    /// model of frames about its pivot, every frame alike; never under the
+    /// floor). The text is written as the editor writes it (`save`).
+    pub fn change_cells(&mut self, of: &CellsOf, ops: &[CellOp]) -> Result<Changed> {
+        if self.foreign {
+            return Err(bring_it_in(&self.path));
+        }
+        let (f, part) = match of {
+            CellsOf::Frame(n) if self.parted() => bail!("--frame {n}: this model is a figure of parts: --part NAME (its parts: {})", self.parts.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ")),
+            CellsOf::Frame(n) => (n.checked_sub(1).filter(|&f| f < self.frames.len()).ok_or_else(|| anyhow!("--frame {n}: the model has frames 1 to {}", self.frames.len()))?, None),
+            CellsOf::Part(name) => {
+                let k = self.parts.iter().position(|p| &p.name == name).ok_or_else(|| anyhow!("--part {name}: the figure has no such part (its parts: {})", self.parts.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ")))?;
+                (self.parts[k].frame, Some(k))
+            }
+        };
+        let pivot = |size: IVec3| vvx::pivot(size);
+        let mut changed = Changed::default();
+        let box_size = |m: &Self| if m.parted() { m.fitted().1 } else { m.frames[f].size };
+        let before = box_size(self);
+        for op in ops {
+            let (a, b, key) = match op {
+                CellOp::Clear(a, b) => (*a, *b, None),
+                CellOp::Fill(color, a, b) => (*a, *b, Some(self.key_named(color)?)),
+            };
+            let (lo, hi) = (a.min(b), a.max(b));
+            if key.is_some() && lo.z < 0 {
+                bail!("z {} is under the floor: a model stands on z 0", lo.z);
+            }
+            // Where the frame's cell 0 lies from the pivot, grown to hold a fill.
+            let mut low = match part {
+                Some(k) => self.parts[k].low,
+                None => -pivot(self.frames[f].size),
+            };
+            if key.is_some() {
+                let size = self.frames[f].size;
+                let (was_lo, was_hi) = (low, low + size - 1);
+                if lo.cmplt(was_lo).any() || hi.cmpgt(was_hi).any() {
+                    match part {
+                        Some(k) => {
+                            let (new_lo, new_hi) = (was_lo.min(lo), was_hi.max(hi));
+                            let mut grown = Block::boxed(new_hi - new_lo + 1);
+                            copy_into(&self.frames[f], &mut grown, was_lo - new_lo)?;
+                            self.frames[f] = grown;
+                            self.parts[k].low = new_lo;
+                            low = new_lo;
+                        }
+                        None => {
+                            let size = fit(self.frames[f].size, lo.min(was_lo), hi.max(was_hi));
+                            for frame in &mut self.frames {
+                                let mut grown = Block::boxed(size);
+                                copy_into(frame, &mut grown, pivot(size) - pivot(frame.size))?;
+                                *frame = grown;
+                            }
+                            self.size = size;
+                            low = -pivot(size);
+                        }
+                    }
+                }
+            }
+            let frame = &mut self.frames[f];
+            for z in lo.z..=hi.z {
+                for y in lo.y..=hi.y {
+                    for x in lo.x..=hi.x {
+                        let c = IVec3::new(x, y, z) - low;
+                        if frame.index(c).is_none() {
+                            continue;
+                        }
+                        let was = frame.colour_at(c);
+                        if was == key {
+                            continue;
+                        }
+                        frame.set(c, key)?;
+                        match key {
+                            Some(_) => changed.set += 1,
+                            None => changed.cleared += 1,
+                        }
+                    }
+                }
+            }
+        }
+        self.list_new_colours();
+        let after = box_size(self);
+        changed.grown = (before != after).then_some((before, after));
+        Ok(changed)
+    }
+}
+
+/// Every voxel of `from` into `to`, moved by `shift`.
+fn copy_into(from: &Block, to: &mut Block, shift: IVec3) -> Result<()> {
+    for k in 0..from.voxels.len() {
+        if let Some(c) = from.colour_at(from.at(k)) {
+            to.set(from.at(k) + shift, Some(c))?;
+        }
+    }
+    Ok(())
 }
 
 /// One `[[part]]` or `[[frame]]` of a model's text: the comments right
@@ -718,5 +876,48 @@ mod tests {
         assert_eq!(fit(IVec3::new(5, 3, 2), IVec3::new(-3, -1, 0), IVec3::new(2, 1, 1)), IVec3::new(6, 3, 2), "one more on the left");
         assert_eq!(fit(IVec3::new(5, 3, 2), IVec3::new(-2, -1, 0), IVec3::new(3, 1, 1)), IVec3::new(7, 3, 2), "on the right: one each side");
         assert_eq!(least(IVec3::new(0, 0, 2), IVec3::new(1, 0, 4)), IVec3::new(3, 1, 3));
+    }
+
+    /// `--fill` and `--clear` without the window: cells set and emptied
+    /// by their place from the pivot; a color new to the palette takes
+    /// the next free sign; a box past the frame's grows it about the
+    /// pivot; written as the editor writes (the other frame's text kept).
+    #[test]
+    fn cells_change_as_the_editor_writes_them() {
+        let (file, _dir) = write("cells", &frames_text());
+        let mut m = ModelFile::load(&file).unwrap();
+        // The model is 3 by 1 by 2, its pivot at x 1: frame 1's row "qbg"
+        // stands at x -1, 0, 1.
+        let changed = m.change_cells(&CellsOf::Frame(1), &[CellOp::Clear(IVec3::new(-1, 0, 0), IVec3::new(-1, 0, 0)), CellOp::Fill("#00ff00".into(), IVec3::new(1, 0, 0), IVec3::new(1, 0, 0))]).unwrap();
+        assert_eq!((changed.set, changed.cleared, changed.grown), (1, 1, None));
+        m.save().unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains("a = \"#00ff00\"\n") && text.contains("at = [0, 0, 0]\nlayers = \"\"\"\nba\n"), "{text}");
+        assert!(text.ends_with("at = [0, 0, 1]\nlayers = \"\"\"\nb\n\"\"\"\n"), "the second frame's text as it was: {text}");
+        // A sign of the palette, past the box: it grows about the pivot,
+        // every frame alike.
+        let changed = m.change_cells(&CellsOf::Frame(2), &[CellOp::Fill("q".into(), IVec3::new(2, 0, 0), IVec3::new(2, 0, 0))]).unwrap();
+        assert_eq!(changed.grown, Some((IVec3::new(3, 1, 2), IVec3::new(5, 1, 2))));
+        m.save().unwrap();
+        let back = ModelFile::load(&file).unwrap();
+        assert_eq!(back.frames[1].colour_at(IVec3::new(4, 0, 0)), back.palette.iter().find(|c| c.sign.as_deref() == Some("q")).map(|c| c.key));
+        assert!(m.change_cells(&CellsOf::Frame(3), &[]).is_err() && m.change_cells(&CellsOf::Frame(1), &[CellOp::Fill("zz".into(), IVec3::ZERO, IVec3::ZERO)]).is_err());
+        assert!(m.change_cells(&CellsOf::Frame(1), &[CellOp::Fill("q".into(), IVec3::new(0, 0, -1), IVec3::ZERO)]).is_err(), "under the floor");
+    }
+
+    /// A figure's part filled past its box grows that part alone; every
+    /// other part keeps its text byte for byte.
+    #[test]
+    fn a_part_grows_by_its_cells_alone() {
+        let text = format!("format = \"{}\"\nsize = [4, 2, 3]\n\n[palette]\na = \"#ff0000\"\nb = \"#0000ff\"\n\n# The body.\n[[part]]\nname = \"body\"\nat = [-2, -1, 0]\nlayers = \"\"\"\naaaa\naaaa\n*2\n\"\"\"\n\n[[part]]\nname = \"head\"\nat = [-1, -1, 2]\nlayers = \"\"\"\nbb\nbb\n\"\"\"\n", vvx::FORMAT);
+        let (file, _dir) = write("cells-part", &text);
+        let mut m = ModelFile::load(&file).unwrap();
+        let changed = m.change_cells(&CellsOf::Part("head".into()), &[CellOp::Fill("b".into(), IVec3::new(-1, -1, 3), IVec3::new(0, 0, 3))]).unwrap();
+        assert_eq!((changed.set, changed.cleared), (4, 0));
+        assert!(changed.grown.is_some());
+        m.save().unwrap();
+        let now = std::fs::read_to_string(&file).unwrap();
+        assert!(now.contains("# The body.\n[[part]]\nname = \"body\"\nat = [-2, -1, 0]\nlayers = \"\"\"\naaaa\naaaa\n*2\n\"\"\"\n"), "{now}");
+        assert!(now.contains("name = \"head\"\nat = [-1, -1, 2]\nlayers = \"\"\"\nbb\nbb\n\nbb\nbb\n\"\"\"\n"), "{now}");
     }
 }

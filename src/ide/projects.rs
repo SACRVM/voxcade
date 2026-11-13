@@ -37,6 +37,71 @@ pub fn is_game(dir: &Path) -> bool {
     dir.join("conf.lua").is_file()
 }
 
+/// How many folders below a folder that is no game its games are looked for.
+const SEARCH_DEPTH: usize = 3;
+
+/// Folders no search for games goes into, whatever the `.gitignore` says
+/// (hidden ones too).
+const NOT_SEARCHED: [&str; 4] = ["target", "node_modules", "shots", "builds"];
+
+/// The games below `folder`: folders with a `conf.lua` up to
+/// `SEARCH_DEPTH` levels down, by their paths. Hidden folders, `NOT_SEARCHED`
+/// and what the `.gitignore` files ignore are skipped, and a game's own
+/// folders are not searched.
+pub fn find_games(folder: &Path) -> Vec<PathBuf> {
+    let root = folder.canonicalize().unwrap_or_else(|_| folder.to_path_buf());
+    let mut found = Vec::new();
+    search(&root, "", 1, &crate::gitignore::Ignore::for_game(&root), &mut found);
+    found.sort();
+    found
+}
+
+fn search(root: &Path, prefix: &str, depth: usize, ignore: &crate::gitignore::Ignore, found: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(root.join(prefix)) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') || NOT_SEARCHED.contains(&name.as_str()) || !entry.file_type().is_ok_and(|t| t.is_dir()) {
+            continue;
+        }
+        let path = if prefix.is_empty() { name } else { format!("{prefix}/{name}") };
+        if ignore.ignores(&path, true) {
+            continue;
+        }
+        let dir = root.join(&path);
+        if is_game(&dir) {
+            found.push(dir);
+        } else if depth < SEARCH_DEPTH {
+            search(root, &path, depth + 1, &ignore.entered(&path), found);
+        }
+    }
+}
+
+/// What opening a folder comes to.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Opening {
+    /// The folder is a game.
+    Here,
+    /// It is not, but one game lies below it: that one.
+    Only(PathBuf),
+    /// Several games lie below it, to choose from.
+    Several(Vec<PathBuf>),
+    /// No game at all.
+    Nothing,
+}
+
+/// What opening `folder` comes to (`find_games` when it is no game).
+pub fn opening(folder: &Path) -> Opening {
+    if is_game(folder) {
+        return Opening::Here;
+    }
+    let mut games = find_games(folder);
+    match games.len() {
+        0 => Opening::Nothing,
+        1 => Opening::Only(games.remove(0)),
+        _ => Opening::Several(games),
+    }
+}
+
 /// The games opened last (but `current`), as rows under their heading;
 /// the folder of the one chosen.
 pub fn recent(ui: &mut egui::Ui, prefs: &Prefs, current: Option<&Path>) -> Option<PathBuf> {
@@ -243,6 +308,8 @@ pub struct StartPage {
     playing: Option<(String, std::process::Child)>,
     update: Update,
     logo: Option<Option<egui::TextureHandle>>,
+    /// The games found below a folder that is none, to choose from.
+    found: Option<(PathBuf, Vec<Entry>)>,
 }
 
 impl StartPage {
@@ -253,7 +320,7 @@ impl StartPage {
         // made to be shown (a test game in the source has none).
         let mut bundled = update::games_dir().map(|d| games_in(&d)).unwrap_or_default();
         bundled.retain(|g| g.dir.join("cover.png").is_file());
-        let mut page = Self { prefs, new: None, message, bundled, own: Vec::new(), playing: None, update: Update::Idle, logo: None };
+        let mut page = Self { prefs, new: None, message, bundled, own: Vec::new(), playing: None, update: Update::Idle, logo: None, found: None };
         page.find_own();
         if look && page.prefs.updates {
             page.look();
@@ -288,6 +355,11 @@ impl StartPage {
     pub fn show_new(&mut self, name: &str) {
         let template = TEMPLATES.iter().position(|t| t.name == "JUMP & RUN").unwrap_or(0);
         self.new = Some(NewGame { name: name.to_string(), template, notes: self.prefs.console, trouble: None });
+    }
+
+    /// The games found below `folder`, which is none, listed first.
+    pub fn show_found(&mut self, folder: PathBuf, games: Vec<PathBuf>) {
+        self.found = Some((folder, games.into_iter().map(Entry::new).collect()));
     }
 
     /// Says what went wrong.
@@ -469,7 +541,7 @@ impl StartPage {
                 } else if ui.button("GET IT AT VOXCA.DE").clicked() {
                     update::show("https://voxca.de/#download");
                 }
-                ui.label(RichText::new(format!("Version {} is there (this is {})", release.version, update::VERSION)).color(ACCENT));
+                ui.label(RichText::new(format!("VERSION {} IS THERE", release.version)).color(ACCENT)).on_hover_text(format!("This is version {}.", update::VERSION));
             }
             Update::Fetching(release, _, share) => {
                 ui.add(egui::ProgressBar::new(share.clamp(0.0, 1.0)).desired_width(140.0));
@@ -536,16 +608,22 @@ impl StartPage {
                                 }
                             }
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                let say = match &self.playing {
-                                    Some((title, _)) => format!("Playing {title} in its own window …"),
-                                    None => "Play a game, or make one.".to_string(),
-                                };
-                                ui.label(RichText::new(say).color(QUIET));
+                                if let Some((title, _)) = &self.playing {
+                                    let say = format!("PLAYING {} …", title.to_uppercase());
+                                    ui.label(RichText::new(say).color(QUIET));
+                                }
                             });
                         });
                         ui.add_space(22.0);
                         let can_play = self.playing.is_none();
                         let mut asked = None;
+                        if let Some((folder, games)) = &mut self.found {
+                            ui.label(RichText::new(format!("GAMES IN {}", short(folder).to_uppercase())).small().color(QUIET)).on_hover_text(folder.display().to_string());
+                            ui.add_space(4.0);
+                            if let Some((i, what)) = Self::cards(ui, games, can_play) {
+                                asked = Some((games[i].dir.clone(), games[i].title.clone(), what));
+                            }
+                        }
                         if !self.bundled.is_empty() {
                             ui.label(RichText::new("GAMES").small().color(QUIET));
                             ui.add_space(4.0);
@@ -566,7 +644,6 @@ impl StartPage {
                         });
                         ui.add_space(4.0);
                         if self.own.is_empty() {
-                            ui.label(RichText::new("None yet. NEW GAME below begins one from a template.").color(QUIET));
                             ui.add_space(GAP);
                         } else if let Some((i, what)) = Self::cards(ui, &mut self.own, can_play) {
                             asked = Some((self.own[i].dir.clone(), self.own[i].title.clone(), what));
@@ -594,5 +671,84 @@ impl StartPage {
             }
         }
         wish
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A folder of `files` (paths with their text), in a scratch folder.
+    fn tree(name: &str, files: &[(&str, &str)]) -> crate::scratch::Scratch {
+        let dir = crate::scratch::Scratch::new(name);
+        for (path, text) in files {
+            let file = dir.join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, text).unwrap();
+        }
+        dir
+    }
+
+    fn names(root: &Path, games: &[PathBuf]) -> Vec<String> {
+        let root = root.canonicalize().unwrap();
+        games.iter().map(|g| g.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/")).collect()
+    }
+
+    /// Games lie up to three folders down; deeper ones, hidden folders,
+    /// `target`, `node_modules`, `shots`, `builds` and what the
+    /// `.gitignore` ignores are not looked into, nor a game's own folders.
+    #[test]
+    fn games_are_found_three_folders_down_and_the_skips_hold() {
+        let dir = tree(
+            "find-games",
+            &[
+                ("games/arena/conf.lua", ""),
+                ("games/arena/levels/inner/conf.lua", ""),
+                ("a/b/c/deep/conf.lua", ""),
+                ("one/two/three/conf.lua", ""),
+                (".hidden/game/conf.lua", ""),
+                ("target/game/conf.lua", ""),
+                ("node_modules/game/conf.lua", ""),
+                ("shots/game/conf.lua", ""),
+                ("builds/game/conf.lua", ""),
+                ("old/game/conf.lua", ""),
+                ("tools/old/conf.lua", ""),
+                ("tools/kept/conf.lua", ""),
+                (".gitignore", "old/\ntools/old\n"),
+            ],
+        );
+        let found = find_games(&dir);
+        assert_eq!(names(&dir, &found), ["games/arena", "one/two/three", "tools/kept"]);
+    }
+
+    /// A folder that is a game opens as it is; one game below it opens
+    /// that; several are listed; none says so.
+    #[test]
+    fn opening_a_folder_comes_to_one_of_four_things() {
+        let game = tree("open-here", &[("conf.lua", ""), ("sub/conf.lua", "")]);
+        assert_eq!(opening(&game), Opening::Here);
+        let one = tree("open-one", &[("x/y/conf.lua", "")]);
+        let Opening::Only(game) = opening(&one) else { panic!("not the only game") };
+        assert_eq!(names(&one, &[game]), ["x/y"]);
+        let many = tree("open-many", &[("games/a/conf.lua", ""), ("games/b/conf.lua", "")]);
+        assert!(matches!(opening(&many), Opening::Several(g) if names(&many, &g) == ["games/a", "games/b"]));
+        let none = tree("open-none", &[("notes/readme.txt", "")]);
+        assert_eq!(opening(&none), Opening::Nothing);
+    }
+
+    /// The start page draws the games found below a folder, and the
+    /// message when there are none.
+    #[test]
+    fn the_start_page_lists_found_games() {
+        let many = tree("found-page", &[("games/a/conf.lua", ""), ("games/b/conf.lua", "")]);
+        let mut page = StartPage::new(Prefs::default(), None, false);
+        page.show_found(many.to_path_buf(), find_games(&many));
+        assert_eq!(page.found.as_ref().map(|(_, g)| g.len()), Some(2));
+        let ctx = egui::Context::default();
+        for _ in 0..2 {
+            let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 720.0))), ..Default::default() }, |ui| {
+                page.ui(ui);
+            });
+        }
     }
 }

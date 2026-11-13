@@ -186,7 +186,10 @@ fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
     egui::ScrollArea::vertical().id_salt("outliner").auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
         for ((title, items), tip) in groups.into_iter().zip(tips) {
-            if !zones::group(ui, title, Some(items.len()), tip) {
+            // SHOW ALL at the heading, always, quiet while nothing of the
+            // group is hidden: one click, no row moving.
+            let extras = [("SHOW ALL", Action::ShowAllItems, "Everything shown again", items.iter().any(|&i| ed.is_hidden(i)))];
+            if !zones::group_with(ui, title, Some(items.len()), tip, &extras, shown) {
                 continue;
             }
             for item in items {
@@ -558,7 +561,18 @@ pub fn paint(painter: &egui::Painter, h: &handles::Handles, vp: glam::Mat4, scre
 fn beside(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut Shown) {
     let Some(item) = ed.chosen.filter(|_| ed.hanging.is_none() && ed.gripped().is_none() && ed.dragging().is_none() && !view.picker) else { return };
     let screen = ui.ctx().content_rect();
-    let Some((h, vp, bounds)) = handles_on_screen(ed, view, screen) else { return };
+    let Some((h, vp, _)) = handles_on_screen(ed, view, screen) else { return };
+    // Clear of the arrows (MOVE) and the rings (ROTATE) alike: the bar
+    // stays where it is while they switch.
+    let size = glam::Vec2::new(screen.width(), screen.height());
+    let mut bounds = Rect::NOTHING;
+    for both in [ed.handles(vp, false), ed.handles(vp, true)].into_iter().flatten() {
+        for s in both.shapes(vp, size) {
+            for p in &s.points {
+                bounds.extend_with(screen.min + Vec2::new(p.x, p.y));
+            }
+        }
+    }
     if !bounds.is_positive() {
         return;
     }
@@ -614,7 +628,7 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<(String, Action, Option<&'st
             }
             entries.extend([("COPY".into(), Action::CopyItem, Some("C")), ("REMOVE".into(), Action::RemoveItem, Some("Del")), ("RENAME".into(), Action::Rename(Some(item)), Some("F2"))]);
             entries.push((if ed.is_hidden(item) { "SHOW".into() } else { "HIDE".into() }, Action::HideItem(item), None));
-            entries.push(("ONLY THIS".into(), Action::OnlyItem(item), None));
+            entries.push(("HIDE OTHERS".into(), Action::OnlyItem(item), None));
             if ed.any_hidden() {
                 entries.push(("SHOW ALL".into(), Action::ShowAllItems, None));
             }
@@ -643,7 +657,7 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<(String, Action, Option<&'st
             }
         }
         // (The voxel editor's: `shaping::menu_entries`.)
-        MenuOn::Voxel(..) | MenuOn::Frame(_) | MenuOn::Part(_) | MenuOn::Block(_) => {}
+        MenuOn::Voxel(..) | MenuOn::Frame(_) | MenuOn::Part(_) | MenuOn::Block(_) | MenuOn::MergeWith(_) => {}
     }
     entries
 }
@@ -661,6 +675,7 @@ fn menu(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut Sho
     if entries.is_empty() {
         return;
     }
+    let entries = entries.into_iter().map(|(w, a, k)| (w, a, k, None)).collect();
     if zones::menu(ui, at, free, entries, shown) && !matches!(m.on, MenuOn::Add) {
         shown.clicked.push(Action::CloseMenu);
     }

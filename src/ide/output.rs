@@ -121,9 +121,6 @@ impl Output {
         self.unseen = 0;
         let mut go = None;
         egui::ScrollArea::vertical().id_salt("output").auto_shrink([false, false]).stick_to_bottom(true).content_margin(egui::Margin { left: 20, right: 12, top: 6, bottom: 10 }).show(ui, |ui| {
-            if self.lines.is_empty() {
-                ui.label(RichText::new("Nothing yet: what BUILD makes, the game's errors and what the script prints come here.").color(QUIET));
-            }
             for line in &self.lines {
                 match line.kind {
                     Kind::Opened => {

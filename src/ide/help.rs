@@ -944,6 +944,104 @@ end
 "##,
     },
     Topic {
+        title: "A DOOR THAT OPENS",
+        text: "A piece whose model is a figure of parts moves its parts as its state says. door.vvx here has two: its frame, and its leaf, hung on the frame's left post (parent and joint in the file: the hinge). thing.state.parts names each part to move with a rotation about its joint, in degrees, as frame:model's pose: { leaf = { rotation = -90 } } swings the leaf open; nil puts it back at rest. The state lasts as long as you stay in the level, so a door that must stand open the next time you come is kept in world.state and set again in on_level_start.",
+        conf: r##"c.world.size = nil             -- no world made in code: the level is levels/hall.toml"##,
+        files: &[
+            ("levels/hall.toml", r##"format = "voxcade level 1"
+size = [64, 48, 24]
+
+[[thing]]
+name = "floor"
+model = "hall/floor.vvx"
+at = [32, 24, 0]
+solid = true
+
+[[thing]]
+name = "door"
+model = "hall/door.vvx"
+at = [32, 30, 1]
+facing = "north"
+
+[[place]]
+name = "start"
+at = [32, 12, 1]
+facing = "north"
+"##),
+            ("hall/floor.vvx", "format = \"voxcade voxel 1\"\nsize = [64, 48, 1]\n\n[palette]\na = { color = \"#5b4a3a\" }\n\n[[frame]]\nlayers = \"\"\"\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *48\n\"\"\"\n"),
+            ("hall/door.vvx", r##"format = "voxcade voxel 1"
+size = [9, 1, 12]
+
+[palette]
+p = "#6a4a30"
+l = "#a07040"
+k = "#d0b040"
+
+[[part]]
+name = "frame"
+at = [-4, 0, 0]
+layers = """
+p.......p
+*11
+
+ppppppppp
+"""
+
+[[part]]
+name = "leaf"
+at = [-3, 0, 0]
+parent = "frame"
+joint = [-3, 0.5, 5.5]
+layers = """
+lllllll
+*5
+
+lllllkl
+
+lllllll
+*5
+"""
+"##),
+        ],
+        code: r##"-- The hall is levels/hall.toml: a floor and the door, a piece whose
+-- model hall/door.vvx is a figure of two parts, its frame and its leaf.
+local function swing(door, angle)
+  door.state.angle = angle
+  -- each part by its name, turned about its joint: the leaf about the hinge
+  door.state.parts = { leaf = { rotation = -angle } }
+end
+
+function on_level_start(how)
+  -- thing.state lasts this visit of the level, world.state the whole run:
+  -- a door opened once stands open whenever the level begins again
+  if world.state.door_open then
+    swing(level:thing("door"), 90)
+  end
+end
+
+function on_tick()
+  for _, p in ipairs(level:players()) do
+    p:walk(p.input.dir, 40)
+  end
+  -- the player near: it swings open, 3 degrees a tick
+  local door = level:thing("door")
+  local angle = door.state.angle or 0
+  if angle < 90 and player:near(door, 24) then
+    swing(door, math.min(angle + 3, 90))
+    if door.state.angle == 90 then
+      world.state.door_open = true
+    end
+  end
+end
+
+function on_draw(frame)
+  for _, p in ipairs(level:players()) do
+    frame:model(p.seat == 2 and "hero2.vvx" or "hero.vvx", p)
+  end
+end
+"##,
+    },
+    Topic {
         title: "CLAUDE IN THE CONSOLE",
         text: "CLAUDE in the console below starts Claude Code, an AI agent that helps you make your game: it reads and changes the game's files and sees the IDE. It is Anthropic's program, not a part of Voxcade: install it yourself (claude.com/claude-code). It needs a Claude subscription or an API key; you sign in the first time it starts in the console, and /login there changes the account later. The gear at the top right says whether it starts with the IDE.",
         conf: "",

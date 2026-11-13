@@ -51,6 +51,48 @@ hard on the eyes); calm, few tools in view, large and readable.
   undo; the block's colors as its palette.
 - It saves by itself, like the rest of the IDE; the running game shows
   the change at once.
+- SLICE (2026-11-12, MagicaVoxel's and Goxel's way in): X, Y or Z in
+  the inspector and the LAYER (or the arrow along the axis in the view,
+  Page Up and Page Down) cut a block, a model's frame or a whole figure
+  (every part by the one plane, in the figure's box): what lies on the
+  eye's side of the plane is neither drawn nor met by the tools, which
+  work on the cut face and what lies behind it. The window's alone, the
+  file untouched (`editor/slice.rs`; `--slice z,12` in a shot).
+- Shaping in place (2026-11-12): EDIT on a piece in the level editor
+  opens its model with the level's other pieces round it, faint and
+  see-through, as they stand relative to this piece: the model upright,
+  the room turned instead (`editor/context.rs`). CONTEXT in the top bar
+  shows it or not; the level's hide marks at the time of EDIT hold;
+  only drawn, never met by the tools, never written; the level file read
+  anew when it changes. `--context LEVEL:NAME [--context-off]` in a
+  shot.
+- A figure's parts (2026-11-13): the list begins with the figure whole,
+  where it opens: every part solid, the tools on the part they meet, the
+  whole kept chosen (a part is chosen by its row, a double click, or
+  SELECT in its menu: a click never both chooses and paints). A part
+  chosen has MOVE | ROTATE at it (rings about its joint, by 5°, Ctrl by
+  1°) and a ROTATE row under POSITION; it is drawn and shaped at its
+  rest rotation, the tools in its own grid. ADD PART (on top of it,
+  touching), REMOVE, MERGE INTO its parent or WITH… another (a part
+  rotated by quarter turns of the other merges as it shows), DUPLICATE,
+  MIRROR (pairs named `_left`/`_right` or `_l`/`_r`; SYMMETRY on one of
+  a pair lands on the other), RENAME, HIDE, HIDE OTHERS and SHOW ALL are
+  in its row's menu, its menu in the view and its bar, a refused one
+  quiet with why on hover; + and SHOW ALL at the PARTS heading. No step
+  re-hangs a part it did not act on: such a part's parent and joint are
+  stated first. POSE (top bar) turns parts on top of their rest with
+  the rings, nothing saved, the pose as Lua to COPY; GAME VIEW shows the
+  figure as the game draws it (camera, light, shading, outline), posed
+  while POSE is lit.
+- Without the window (2026-11-12): `voxcade edit GAME --model FILE
+  [--frame N | --part NAME] --clear X0,Y0,Z0 --to X1,Y1,Z1` and `--fill
+  SIGN|#rrggbb --from X0,Y0,Z0 --to X1,Y1,Z1`, both corners in, from the
+  pivot as the file's `at`, in order, write the model exactly as the
+  editor does (`ModelFile::change_cells`, `keep_text`): a color new to
+  the palette takes the next free sign, a box past the frame's grows it
+  (a part about itself, frames about the pivot), every other frame or
+  part keeps its text. It prints the cells set and cleared and the box
+  grown; `--dry` only says; with `--shot` it only shows.
 
 ## Decided
 
@@ -157,7 +199,7 @@ facing = [0, -1]
   a light of a piece chosen has arrows along the model's own axes; the
   thing itself is dragged over the floor at its height. Beside it COPY,
   REMOVE, EDIT (its model) and LIGHT (on and off); a right click on it,
-  or on its row, offers those and more (RENAME, HIDE or SHOW, ONLY THIS,
+  or on its row, offers those and more (RENAME, HIDE or SHOW, HIDE OTHERS,
   SHOW ALL, ROTATE 90°, LAY DOWN, SOLID), on the floor what can be added
   there; a double click opens a piece's model. A click chooses what the
   picture shows under the mouse: the first voxel the ray meets, a small

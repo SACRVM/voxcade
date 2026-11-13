@@ -28,6 +28,9 @@
 //! at = [2, -1, 4]              # the box's low corner, from the pivot
 //! parent = "body"              # only when set by hand
 //! joint = [2, 0, 7.5]          # only when set by hand, from the pivot
+//! rotation = 45                # at rest turned about its joint, in degrees, as a
+//! pitch = 10                   #   pose entry of frame:model (rotation, pitch, roll),
+//!                              #   each only when not 0; only the picture
 //! layers = """ ... """
 //! ```
 //!
@@ -172,6 +175,10 @@ pub struct Piece {
     /// when set by hand.
     pub parent: Option<String>,
     pub joint: Option<Vec3>,
+    /// A part's rest rotation about its joint, in degrees: `rotation`
+    /// (round, clockwise seen from above), `pitch`, `roll`, as a pose
+    /// entry of `frame:model` (`vox::Part::rest`); all 0 unless set.
+    pub rotation: [f32; 3],
 }
 
 // ---------------------------------------------------------------- writing
@@ -358,6 +365,9 @@ fn triple_text(v: Vec3) -> String {
     format!("[{}, {}, {}]", v.x, v.y, v.z)
 }
 
+/// A part's rest rotation's keys, in `Piece::rotation`'s order.
+const ROTATION: [&str; 3] = ["rotation", "pitch", "roll"];
+
 /// What the text says of a part's rig: the parent (its place among the
 /// parts) and the joint (from the pivot), each only when set by hand.
 type Rig = (Option<usize>, Option<Vec3>);
@@ -391,7 +401,7 @@ fn shape_of(model: &VoxModel, rig: &[Rig]) -> Shape {
             .enumerate()
             .map(|(i, p)| {
                 let (parent, joint) = rig.get(i).copied().unwrap_or_default();
-                Piece { name: p.name.clone(), voxels: voxels(0, &mut p.voxels.iter().map(|&k| k as usize)), parent: parent.map(|q| model.parts[q].name.clone()), joint }
+                Piece { name: p.name.clone(), voxels: voxels(0, &mut p.voxels.iter().map(|&k| k as usize)), parent: parent.map(|q| model.parts[q].name.clone()), joint, rotation: p.rest }
             })
             .collect()
     };
@@ -424,6 +434,12 @@ pub fn write_shape(shape: &Shape, kept: &Palette, all: bool) -> String {
             }
             if let Some(j) = piece.joint {
                 body += &format!("joint = {}\n", triple_text(j));
+            }
+            // Its rest rotation, each only when not 0.
+            for (key, degrees) in ROTATION.iter().zip(piece.rotation) {
+                if degrees != 0.0 {
+                    body += &format!("{key} = {degrees}\n");
+                }
             }
         } else {
             body += "\n[[frame]]\n";
@@ -750,6 +766,9 @@ pub fn model_of(shape: &Shape) -> VoxModel {
             model.glow = vec![glows];
         }
         model.parts = crate::vox::parts_of(&frame, &owner, names, size, &stated);
+        for (part, piece) in model.parts.iter_mut().zip(&shape.pieces) {
+            part.rest = piece.rotation;
+        }
         model
     };
     model.size = size;
@@ -802,6 +821,9 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
             let list = tables(f).ok_or_else(|| r.fail(f.span(), "frames must be tables: [[frame]]"))?;
             let mut pieces = Vec::new();
             for t in list {
+                if let Some((key, v)) = t.iter().find(|(k, _)| ROTATION.contains(k) || *k == "turn") {
+                    return Err(r.fail(v.span(), format!("a frame does not rotate ('{key}'): a figure's part does, [[part]] with rotation, pitch and roll")));
+                }
                 r.only(t, &["at", "layers"], "a frame")?;
                 let at = t.get("at").map_or(Ok(box_low), |a| r.ints(a, "at"))?;
                 let voxels = match t.get("layers") {
@@ -820,7 +842,10 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
             let mut pieces: Vec<Piece> = Vec::new();
             let mut spans = Vec::new();
             for t in list {
-                r.only(t, &["name", "at", "parent", "joint", "layers"], "a part")?;
+                if let Some(v) = t.get("turn") {
+                    return Err(r.fail(v.span(), "a part's 'turn' is called 'rotation' now (degrees round, clockwise seen from above)"));
+                }
+                r.only(t, &["name", "at", "parent", "joint", "rotation", "pitch", "roll", "layers"], "a part")?;
                 let name_item = t.get("name").ok_or_else(|| anyhow!("a part has no name (name = \"arm\") before line {}", t.get("layers").and_then(Item::span).map_or(0, |s| line_of(src, s.start))))?;
                 let name = name_item.as_str().filter(|n| !n.trim().is_empty()).ok_or_else(|| r.fail(name_item.span(), "a part's name must be text, not empty"))?.to_string();
                 if pieces.iter().any(|p| p.name == name) {
@@ -842,7 +867,13 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
                     None => None,
                     Some(i) => Some(Vec3::from(r.triple(i, "joint")?)),
                 };
-                pieces.push(Piece { name, voxels: from_pivot(voxels), parent, joint });
+                let mut rotation = [0.0; 3];
+                for (r_, key) in rotation.iter_mut().zip(ROTATION) {
+                    if let Some(i) = t.get(key) {
+                        *r_ = r.number(i, key)?;
+                    }
+                }
+                pieces.push(Piece { name, voxels: from_pivot(voxels), parent, joint, rotation });
             }
             if pieces.is_empty() {
                 bail!("the model has no part: [[part]] with a name and its layers");
@@ -956,6 +987,9 @@ pub fn differences(a: &VoxModel, b: &VoxModel) -> Vec<String> {
         }
         if p.joint != q.joint {
             out.push(format!("{label}: joint {} then {}", p.joint, q.joint));
+        }
+        if p.rest != q.rest {
+            out.push(format!("{label}: rotated at rest {:?} then {:?}", p.rest, q.rest));
         }
         if p.overlaps != q.overlaps {
             out.push(format!("{label}: overlaps {:?} vs {:?}", p.overlaps, q.overlaps));
@@ -1134,6 +1168,36 @@ mod tests {
         assert!(bad("*2\n").contains("comes on the line after its rows"));
         assert!(bad("aa *2\n*3\n").contains("outside the model's size"), "three layers in a box two high");
         assert!(read(&(head("[2, 2, 2]") + "[palette]\na = \"#ff0000\"\n[[frame]]\nlayers = \"\"\"\naa *2\n*2\n\"\"\"\n")).is_ok_and(|m| m.frames[0].len() == 8));
+    }
+
+    /// A part's rest rotation (`rotation`, `pitch`, `roll` about its joint,
+    /// degrees) is read, kept and written back as it was, each line only
+    /// when not 0; a figure without one writes as before. `turn` on a part
+    /// is refused with its new name, a rotation on a frame refused.
+    #[test]
+    fn a_part_keeps_its_rest_rotation() {
+        let plain = head("[2, 1, 3]") + "\n[palette]\na = \"#888888\"\n\n[[part]]\nname = \"foot\"\nat = [-1, 0, 0]\nlayers = \"\"\"\naa\n\"\"\"\n\n[[part]]\nname = \"leg\"\nat = [-1, 0, 1]\nparent = \"foot\"\njoint = [-0.5, 0, 1.5]\nlayers = \"\"\"\na\n\"\"\"\n";
+        let turned = plain.replace("joint = [-0.5, 0, 1.5]\n", "joint = [-0.5, 0, 1.5]\nrotation = 45\nroll = -12.5\n");
+        let m = read(&turned).unwrap();
+        assert_eq!((m.parts[0].rest, m.parts[1].rest), ([0.0; 3], [45.0, 0.0, -12.5]));
+        let (shape, palette) = read_shape(&turned).unwrap();
+        assert_eq!(shape.pieces[1].rotation, [45.0, 0.0, -12.5]);
+        assert_eq!(write_shape(&shape, &palette, false), turned, "written back byte for byte");
+        let (written, _) = round_trip(&m);
+        assert_eq!(written, turned);
+        let (shape, palette) = read_shape(&plain).unwrap();
+        assert_eq!(write_shape(&shape, &palette, false), plain, "none: as before");
+        assert!(read(&plain).unwrap().parts.iter().all(|p| p.rest == [0.0; 3]));
+        // The root may rest turned too.
+        let root = plain.replace("at = [-1, 0, 0]\n", "at = [-1, 0, 0]\npitch = 90\n");
+        assert_eq!(read(&root).unwrap().parts[0].rest, [0.0, 90.0, 0.0]);
+        let e = read(&plain.replace("joint = [-0.5, 0, 1.5]\n", "joint = [-0.5, 0, 1.5]\nturn = 45\n")).err().map(|e| e.to_string()).unwrap();
+        assert!(e.contains("'turn' is called 'rotation' now") && e.contains("line "), "{e}");
+        let e = read(&plain.replace("joint = [-0.5, 0, 1.5]\n", "joint = [-0.5, 0, 1.5]\npitch = \"up\"\n")).err().map(|e| e.to_string()).unwrap();
+        assert!(e.contains("pitch must be a number"), "{e}");
+        let frame = head("[1, 1, 1]") + "[palette]\na = \"#888888\"\n[[frame]]\nrotation = 45\nlayers = \"\"\"\na\n\"\"\"\n";
+        let e = read(&frame).err().map(|e| e.to_string()).unwrap();
+        assert!(e.contains("a frame does not rotate ('rotation')"), "{e}");
     }
 
     /// A figure's parts keep their order, names and the rig set by hand;

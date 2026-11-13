@@ -29,6 +29,9 @@ pub struct Shown {
     pub rects: Vec<egui::Rect>,
     /// A name typed for an item and Enter pressed (`Editor::rename`).
     pub renamed: Option<(Item, String)>,
+    /// A name typed for a figure's part and Enter pressed
+    /// (`Editor::rename_part`).
+    pub renamed_part: Option<(usize, String)>,
     /// The room the panels leave the 3D view (egui's points), where it is
     /// not the room right of nothing and above the bottom bar.
     pub free: Option<egui::Rect>,
@@ -146,8 +149,14 @@ pub fn joints(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
         painter.circle(p, 8.0, crate::gui::GROUND, egui::Stroke::new(3.0, ACCENT));
         painter.text(p + egui::vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, "JOINT", TextStyle::Small.resolve(ui.style()), ACCENT);
     }
-    if let Some(h) = ed.part_handles(vp) {
+    // (GAME VIEW: the figure alone, as the game draws it.)
+    if let Some(h) = ed.part_handles(vp).filter(|_| view.before_game.is_none()) {
         let lit = ed.joint_drag().and_then(|d| d.drag.as_ref().map(|(g, _)| g.grip)).or(view.grip_hover);
+        stage::paint(&painter, &h, vp, screen, lit);
+    }
+    // SLICE's arrow, lit under the mouse or dragged.
+    if let Some(h) = ed.slice_handles(vp) {
+        let lit = (view.slice_hover || ed.slicing()).then(|| ed.slice.as_ref().map(|s| super::handles::Grip::Arrow(s.axis))).flatten();
         stage::paint(&painter, &h, vp, screen, lit);
     }
 }
@@ -437,6 +446,107 @@ mod tests {
         frame(&mut ed, &mut view, &mut input, vec![key(true), key(false)]);
         frame(&mut ed, &mut view, &mut input, vec![]);
         assert_eq!(ed.level.things[1].lights[0].radius, 120.0);
+    }
+
+    /// The panels laid out at the window's size, as a window lays them.
+    fn laid_out(ctx: &egui::Context, ed: &Editor, view: &View) -> Shown {
+        let (figures, mut thumbs) = (Figures::load(&ed.dir, &GameConfig::default()), Thumbs::default());
+        let mut out = None;
+        for _ in 0..3 {
+            let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 900.0))), ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| out = Some(super::ui(ui, ed, view, &figures, &mut thumbs)));
+        }
+        out.expect("drawn")
+    }
+
+    /// A wide number never moves the inspector: the panels and every field
+    /// stand where they stood with 0 in them, whether a field holds
+    /// -180.5, 1000 or -1000; in the level editor (a piece's POSITION and
+    /// ROTATE) and the voxel editor (a part's POSITION, ROTATE, JOINT).
+    #[test]
+    fn a_wide_number_never_moves_the_inspector() {
+        use crate::editor::model::room::Item;
+        let same = |what: &str, a: &Shown, b: &Shown| {
+            // (The three zones; a bar at the chosen one goes with it.)
+            assert_eq!(a.rects[..3], b.rects[..3], "{what}: the panels moved");
+            assert_eq!(a.free, b.free, "{what}: the view's room changed");
+            assert_eq!(a.fields.len(), b.fields.len(), "{what}: fields came or went");
+            for ((w, r), (_, s)) in a.fields.iter().zip(&b.fields) {
+                assert_eq!(r, s, "{what}: the field {w} moved or grew");
+            }
+        };
+        // The level editor: the chair, every number in it wide.
+        let dir = crate::scratch::Scratch::new("wide-level");
+        std::fs::write(dir.join("room.toml"), crate::grid::tests::PIECES).unwrap();
+        let mut ed = Editor::open(&dir, "room.toml").unwrap();
+        let mut view = View::new(&ed, &GameConfig::default());
+        let ctx = egui::Context::default();
+        crate::gui::style(&ctx);
+        act(&mut ed, &mut view, Action::ChooseItem(Some(Item::Thing(3))));
+        let set = |ed: &mut Editor, v: f64| {
+            let t = &mut ed.level.things[3];
+            t.at = [v as i32; 3];
+            t.facing = Some(crate::grid::Facing::Turn(v));
+            t.pitch = v;
+            t.roll = v;
+        };
+        set(&mut ed, 0.0);
+        let plain = laid_out(&ctx, &ed, &view);
+        assert!(plain.fields.len() >= 6, "the chair's fields: {:?}", plain.fields);
+        for v in [-180.5, 1000.0, -1000.0] {
+            set(&mut ed, v);
+            same(&format!("level, {v}"), &plain, &laid_out(&ctx, &ed, &view));
+        }
+        // The voxel editor: the arm, its place, rotation and joint wide.
+        let (mut ed, mut view, _dir) = crate::editor::model::parts::tests::figure("wide");
+        let arm = crate::editor::model::parts::tests::part(&ed, "arm");
+        act(&mut ed, &mut view, Action::Part(arm));
+        let ctx = egui::Context::default();
+        crate::gui::style(&ctx);
+        let set = |ed: &mut Editor, v: f32| {
+            let model = ed.model.as_mut().unwrap();
+            let o = model.parts.iter_mut().find(|o| o.name == "arm").unwrap();
+            o.rotation = [v; 3];
+            o.joint = Some(glam::Vec3::splat(v));
+            ed.follow_figure();
+        };
+        set(&mut ed, 0.0);
+        let plain = laid_out(&ctx, &ed, &view);
+        assert!(plain.fields.len() >= 9, "the arm's fields: {:?}", plain.fields);
+        for v in [-180.5, 1000.0, -1000.0] {
+            set(&mut ed, v);
+            same(&format!("model, {v}"), &plain, &laid_out(&ctx, &ed, &view));
+        }
+    }
+
+    /// The bar at the chosen one stays where it is while MOVE and ROTATE
+    /// switch, in the level editor (a piece) and the voxel editor (a part).
+    #[test]
+    fn the_bar_stays_while_move_and_rotate_switch() {
+        use crate::editor::model::room::Item;
+        let dir = crate::scratch::Scratch::new("bar-level");
+        std::fs::write(dir.join("room.toml"), crate::grid::tests::PIECES).unwrap();
+        let mut ed = Editor::open(&dir, "room.toml").unwrap();
+        let mut view = View::new(&ed, &GameConfig::default());
+        act(&mut ed, &mut view, Action::ChooseItem(Some(Item::Thing(3))));
+        let ctx = egui::Context::default();
+        crate::gui::style(&ctx);
+        let moving = laid_out(&ctx, &ed, &view);
+        view.turning = ed.chosen;
+        assert!(view.turn_mode(&ed));
+        let rotating = laid_out(&ctx, &ed, &view);
+        assert!(moving.rects.len() > 3, "a bar at the chair");
+        assert_eq!(moving.rects[3..], rotating.rects[3..], "level: the bar moved");
+        let (mut ed, mut view, _dir) = crate::editor::model::parts::tests::figure("bar");
+        let arm = crate::editor::model::parts::tests::part(&ed, "arm");
+        act(&mut ed, &mut view, Action::Part(arm));
+        let ctx = egui::Context::default();
+        crate::gui::style(&ctx);
+        let moving = laid_out(&ctx, &ed, &view);
+        act(&mut ed, &mut view, Action::PartRotating(true));
+        let rotating = laid_out(&ctx, &ed, &view);
+        assert!(moving.rects.len() > 3, "a bar at the arm");
+        assert_eq!(moving.rects[3..], rotating.rects[3..], "model: the bar moved");
     }
 
     /// H and K switch the level's tools between its things and its blocks;

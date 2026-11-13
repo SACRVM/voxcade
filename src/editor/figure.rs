@@ -11,7 +11,7 @@
 //! came as near to the body as the upper arm.
 
 use anyhow::Result;
-use glam::{IVec3, Vec3};
+use glam::{IVec3, Mat4, Quat, Vec3};
 
 use super::frames::{ModelFile, Shaped};
 use crate::render::Instance;
@@ -33,6 +33,9 @@ pub struct Figure {
     /// Where its low corner (voxel 0, 0, 0 of `model`) stands from the
     /// model's pivot, as the file places every part and joint.
     pub low: IVec3,
+    /// Each part's pose in the editor (POSE: turned on top of its rest,
+    /// nothing written; empty, none), set by the editor.
+    pub pose: Vec<glam::Quat>,
     /// The frames and parts it was made of, to know when to make it again.
     of: Shaped,
 }
@@ -51,7 +54,7 @@ impl Figure {
     pub fn of(file: &ModelFile) -> Option<Result<Self>> {
         Some(file.figure()?.map(|(model, frames, low)| {
             let count = model.parts.len();
-            Self { tree: tree(&model.parts), model, frames, selected: None, hidden: vec![false; count], low, of: file.shaped() }
+            Self { tree: tree(&model.parts), model, frames, selected: None, hidden: vec![false; count], low, pose: Vec::new(), of: file.shaped() }
         }))
     }
 
@@ -89,6 +92,29 @@ impl Figure {
     pub fn joint(&self, p: usize) -> Vec3 {
         let s = self.model.size;
         self.model.parts[p].joint + glam::IVec3::new(s.x / 2, s.y / 2, 0).as_vec3()
+    }
+
+    /// Where part `p` is drawn at rest, as a map of the grid shown (the
+    /// figure's voxel 0, 0, 0 at `shift`): from where its voxels lie in the
+    /// file to where they show, its rest rotation and its parents' about
+    /// their joints (`session::part_at_rest`); the identity for a figure
+    /// without rest rotations.
+    pub fn rest_map(&self, p: usize, shift: IVec3) -> Mat4 {
+        // (Posed in the editor (POSE): the pose on top of the rest.)
+        let (turn, moved) = if self.pose.iter().any(|q| *q != glam::Quat::IDENTITY) { crate::session::part_posed(&self.model, &self.pose, p) } else { crate::session::part_at_rest(&self.model, p) };
+        let s = self.model.size;
+        let o = (IVec3::new(s.x / 2, s.y / 2, 0) + shift).as_vec3();
+        Mat4::from_translation(o + moved) * Mat4::from_quat(turn) * Mat4::from_translation(-o)
+    }
+
+    /// Where part `p`'s joint shows at rest in the grid shown (it turns
+    /// with its parent, not with itself).
+    pub fn joint_shown(&self, p: usize, shift: IVec3) -> Vec3 {
+        let at = self.joint(p) + shift.as_vec3();
+        match self.model.parts[p].parent {
+            Some(q) => self.rest_map(q, shift).transform_point3(at),
+            None => at,
+        }
     }
 
     /// What is plainly wrong with how part `p` hangs, in plain words (none:
@@ -132,6 +158,10 @@ impl Figure {
         let frame = &self.model.frames[0];
         let mut best: Option<(f32, usize)> = None;
         for (p, part) in self.model.parts.iter().enumerate().filter(|&(p, _)| !self.hidden[p]) {
+            // The ray into the part's own place (its rest turn undone): the
+            // voxel met is the one seen.
+            let back = self.rest_map(p, shift).inverse();
+            let (origin, dir) = (back.transform_point3(origin), back.transform_vector3(dir));
             for &k in &part.visible {
                 let at = (frame[k as usize].0 + shift).as_vec3();
                 if let Some(d) = super::view::ray_box(origin, dir, at, at + 1.0)
@@ -149,17 +179,55 @@ impl Figure {
     /// draws itself as it is being shaped: the others dimmed while one is
     /// chosen. The opaque ones go into `out`; the see-through ones (dimmed
     /// parts, glass) come back, to be drawn after them far to near.
-    pub fn cubes(&self, shift: IVec3, out: &mut Vec<Instance>) -> Vec<Instance> {
+    pub fn cubes(&self, shift: IVec3, cut: &dyn Fn(IVec3) -> bool, out: &mut Vec<Instance>) -> Vec<Instance> {
+        self.cubes_seen(shift, Mat4::IDENTITY, self.selected.is_some(), cut, out)
+    }
+
+    /// `cubes`, each part at rest (its rest rotation and its parents',
+    /// `rest_map`), then moved by `seen` (into the frame the view draws
+    /// in: the chosen part's own, `Editor::rest_view`'s inverse).
+    pub fn cubes_seen(&self, shift: IVec3, seen_by: Mat4, dim: bool, cut: &dyn Fn(IVec3) -> bool, out: &mut Vec<Instance>) -> Vec<Instance> {
         let frame = &self.model.frames[0];
         let mut through = Vec::new();
-        for part in (0..self.model.parts.len()).filter(|&p| !self.hidden[p] && self.selected != Some(p)).map(|p| &self.model.parts[p]) {
-            let dim = self.selected.is_some();
-            // Its own surface (the faces it shares with a part hidden show).
-            for &k in &part.visible {
+        let (_, seen_turn, _) = seen_by.to_scale_rotation_translation();
+        for p in (0..self.model.parts.len()).filter(|&p| !self.hidden[p] && self.selected != Some(p)) {
+            let part = &self.model.parts[p];
+            let map = seen_by * self.rest_map(p, shift);
+            let turn = seen_turn * crate::session::part_at_rest(&self.model, p).0;
+            let square = turn.dot(Quat::IDENTITY).abs() > 1.0 - 1e-6;
+            let snorm = if square { [0; 4] } else { crate::render::snorm_turn(turn) };
+            // Its own surface (the faces it shares with a part hidden
+            // show); sliced, what the cut leaves of it, its inside where
+            // the cut opens it.
+            let sliced = part.voxels.iter().any(|&k| cut(frame[k as usize].0 + shift));
+            let seen: Vec<u32> = if sliced {
+                let filled: crate::world::CellSet = part.voxels.iter().map(|&k| frame[k as usize].0).filter(|&p| !cut(p + shift)).collect();
+                part.voxels.iter().copied().filter(|&k| {
+                    let p = frame[k as usize].0;
+                    filled.contains(&p) && crate::mesh::DIRS.iter().any(|d| !filled.contains(&(p + *d)))
+                }).collect()
+            } else {
+                part.visible.clone()
+            };
+            // A turned part's faces between its own voxels left out as the
+            // game leaves them (`covered`, in the order of `visible`).
+            let covered = |n: usize| if sliced { 0 } else { part.covered.get(n).copied().unwrap_or(0) };
+            // Turned: placed by the turn the shader draws them with, from
+            // one voxel placed exactly, so neighbours meet corner to corner.
+            let drawn = crate::render::turn_as_drawn(turn);
+            let anchor = seen.first().map(|&k| (frame[k as usize].0 + shift).as_vec3() + 0.5);
+            let place = |cell: Vec3| match anchor.filter(|_| !square) {
+                Some(a) => map.transform_point3(a) + drawn * (cell - a),
+                None => map.transform_point3(cell),
+            };
+            for (n, &k) in seen.iter().enumerate() {
                 let (at, c) = frame[k as usize];
                 let opacity = if dim { DIMMED.min(c[3]) } else { c[3] };
-                let pos = (at + shift).as_vec3() + 0.5;
-                let cube = Instance { pos_size: [pos.x, pos.y, pos.z, 1.0], color: [c[0], c[1], c[2], 255], fx: [0, opacity, 0, 0], shade: [0; 4], turn: [0; 4] };
+                let pos = place((at + shift).as_vec3() + 0.5);
+                // (Dimmed too: a part seen through is its surface, not a
+                // grid of every cube's faces.)
+                let hidden = if c[3] < 255 { 0 } else { covered(n) };
+                let cube = Instance { pos_size: [pos.x, pos.y, pos.z, 1.0], color: [c[0], c[1], c[2], 255], fx: [0, opacity, hidden, 0], shade: [0; 4], turn: snorm };
                 if opacity < 255 { through.push(cube) } else { out.push(cube) }
             }
         }
@@ -583,7 +651,7 @@ mod tests {
         let mut view = View::new(&ed, &crate::config::GameConfig::default());
         let words = |ed: &Editor, on| crate::editor::shaping::menu_entries(ed, on).into_iter().map(|(w, ..)| w).collect::<Vec<_>>();
         let (body, head) = (part(&ed, "body"), part(&ed, "head"));
-        assert_eq!(words(&ed, MenuOn::Part(head)), ["SHAPE HEAD", "HIDE"]);
+        assert_eq!(words(&ed, MenuOn::Part(head)), ["SELECT HEAD", "HIDE", "HIDE OTHERS", "ADD PART", "DUPLICATE", "MIRROR", "RENAME", "MERGE INTO BODY", "MERGE WITH…", "REMOVE"]);
         // From high above the figure's middle: the head on top.
         let (lo, size) = ed.figure_box().unwrap();
         let top = Vec3::new(lo.x as f32 + 2.5, lo.y as f32 + 2.5, 100.0);
@@ -591,7 +659,7 @@ mod tests {
         let _ = size;
         act(&mut ed, &mut view, Action::Part(body));
         let cell = (0..ed.grid().x).flat_map(|x| (0..ed.grid().z).map(move |z| IVec3::new(x, 1, z))).find(|&c| ed.shape().is_some_and(|b| b.get(c) != 0)).unwrap();
-        assert_eq!(words(&ed, MenuOn::Voxel(cell, Some(head as u16))), ["PICK COLOR", "ERASE", "SHAPE HEAD"]);
+        assert_eq!(words(&ed, MenuOn::Voxel(cell, Some(head as u16))), ["PICK COLOR", "ERASE", "SELECT HEAD"]);
         let held = ed.colour;
         ed.colour = [1, 2, 3];
         act(&mut ed, &mut view, Action::PickAt(cell));
@@ -602,5 +670,36 @@ mod tests {
         assert_eq!((ed.shape().unwrap().get(cell), ed.steps()), (0, steps + 1));
         assert_eq!(words(&ed, MenuOn::Voxel(cell, None)), ["PICK COLOR"], "nothing there to erase");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The figure whole is the first row and the state a figure opens in:
+    /// every part solid, none chosen; a part chosen (its row), the whole
+    /// again by its row (or Escape, `back_to_level`); its arrows move
+    /// every part together, one step, the file shifted alike.
+    #[test]
+    fn the_whole_figure_is_its_first_row() {
+        let dir = figure("whole");
+        let file = dir.join("figure.vvx");
+        let mut ed = Editor::open_model(&dir, "figure.vvx").unwrap();
+        let mut view = View::new(&ed, &crate::config::GameConfig::default());
+        ed.follow_figure();
+        assert_eq!((ed.scope, ed.figure.as_ref().unwrap().selected), (Scope::Figure, None), "opened whole");
+        assert!(!crate::editor::model::Tool::of(ed.scope, ed.layer).is_empty(), "the tools there: a press on a part works at once");
+        let arm = part(&ed, "arm");
+        act(&mut ed, &mut view, Action::Part(arm));
+        assert_eq!(ed.figure.as_ref().unwrap().selected, Some(arm));
+        act(&mut ed, &mut view, Action::WholeFigure);
+        assert_eq!((ed.scope, ed.figure.as_ref().unwrap().selected), (Scope::Figure, None));
+        // Its arrows: every part moves.
+        let orbit = crate::editor::view::Orbit { yaw: 20.0, pitch: 25.0, zoom: 60.0, target: Vec3::splat(3.0), fov: crate::editor::view::FOV };
+        assert!(ed.part_handles(orbit.view_proj(16.0 / 9.0)).is_some());
+        let before = on_disk(&file);
+        let steps = ed.steps();
+        ed.move_part(IVec3::X);
+        let after = on_disk(&file);
+        assert_eq!(ed.steps(), steps + 1);
+        for (name, (voxels, ..)) in &before {
+            assert_eq!(after[name].0, voxels.iter().map(|p| [p[0] + 1, p[1], p[2]]).collect::<Vec<_>>(), "{name}");
+        }
     }
 }

@@ -4562,3 +4562,206 @@ end
     let e = start_error(&dir);
     assert!(e.contains("ready-made rules"), "{e}");
 }
+
+/// A level file saved while the game runs that turns a thing of a kind
+/// with a behavior is refused as at the load: the game keeps the level it
+/// plays.
+#[test]
+fn a_level_read_anew_refuses_a_ruled_kind_turned() {
+    let dir = levels_folder("kind-facing-reload", "", &[("a", &[])]);
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.kit = \"platformer\"\n  c.world.blocks = { file = \"level.toml\" }\n  c.player.spawn = { 2, 2 }\n  c.things.box = { behavior = \"pickup\" }\nend\n").unwrap();
+    let path = dir.join("levels/a.toml");
+    let text = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(&path, text.clone() + "\n[[thing]]\nkind = \"box\"\nat = [8, 2, 4]\n").unwrap();
+    let mut g = game_in(&dir);
+    steps(&mut g, 1);
+    assert_eq!(halted(&g), "");
+    std::fs::write(&path, text + "\n[[thing]]\nkind = \"box\"\nat = [8, 2, 4]\nfacing = \"east\"\n").unwrap();
+    let e = format!("{:#}", g.reload(&path).unwrap_err());
+    assert!(e.contains("ready-made rules"), "{e}");
+}
+
+/// A door of three parts: its frame (the root), its leaf hung on the
+/// frame's left post (a joint set by hand at the hinge) and a handle on
+/// the leaf, in front of it.
+const DOOR: &str = r##"format = "voxcade voxel 1"
+size = [9, 3, 12]
+
+[palette]
+p = "#6a4a30"
+l = "#a07040"
+h = "#d0b040"
+
+[[part]]
+name = "frame"
+at = [-4, 0, 0]
+layers = """
+p.......p
+*11
+
+ppppppppp
+"""
+
+[[part]]
+name = "leaf"
+at = [-3, 0, 0]
+parent = "frame"
+joint = [-3, 0.5, 5.5]
+layers = """
+lllllll
+*11
+"""
+
+[[part]]
+name = "handle"
+at = [2, -1, 5]
+parent = "leaf"
+layers = """
+h
+"""
+"##;
+
+/// A level of a door, a box (no figure) and a light alone.
+const DOORWAY: &str = r##"format = "voxcade level 1"
+size = [64, 64, 32]
+
+[[thing]]
+name = "door"
+model = "door.vvx"
+at = [32, 32, 0]
+
+[[thing]]
+name = "box"
+model = "box.vvx"
+at = [10, 50, 0]
+
+[[thing]]
+name = "lamp"
+at = [5, 5, 20]
+light = { radius = 30 }
+
+[[place]]
+name = "start"
+at = [32, 10, 0]
+"##;
+
+/// A game in `DOORWAY` with this `main.lua`.
+fn doorway(name: &str, main: &str) -> Session<LuaGame> {
+    let dir = pieces_folder(name, "", DOORWAY, main);
+    std::fs::write(dir.join("door.vvx"), DOOR).unwrap();
+    game_in(&dir)
+}
+
+/// The door's draws in a picture (the box's last: the pieces in the order
+/// the level sets them down, the script's after them).
+fn door_draws(g: &Session<LuaGame>) -> Vec<crate::render::ModelDraw> {
+    g.compose(0.0, 16.0 / 9.0, Scene::Play, None).models
+}
+
+/// `thing.state.parts` poses a piece whose model is a figure of parts, as
+/// `frame:model`'s pose would: the same draws as `frame:model` of its
+/// model with that pose where it stands, a part turned about its joint
+/// with what hangs on it; nil or an empty table draws it at rest exactly as
+/// before. It is the thing's state: in its hash (only while it is set),
+/// in a snapshot, in `inspect`; only to look at in `on_draw`.
+#[test]
+fn a_pieces_parts_are_posed_by_its_state() {
+    let pose = "{ leaf = { rotation = -90 }, handle = { roll = 20 } }";
+    let mut g = doorway("parts", "");
+    assert_eq!(halted(&g), "");
+    let rest = door_draws(&g);
+    assert_eq!(rest.len(), 4, "a draw a part of the door, and the box");
+    assert!(rest.iter().all(|m| m.rot == glam::Quat::IDENTITY), "at rest");
+    let hash = g.game.state_hash();
+    said(&mut g, &format!("level:thing('door').state.parts = {pose}"));
+    assert_eq!(halted(&g), "");
+    let posed = door_draws(&g);
+    assert_eq!(posed.len(), 4);
+    assert_eq!(posed[0], rest[0], "the frame stays");
+    assert_eq!(posed[3], rest[3], "the box is no part of it");
+    assert!(posed[1].rot != glam::Quat::IDENTITY && posed[2].rot != posed[1].rot, "the leaf turned, the handle further");
+    assert_ne!(g.game.state_hash(), hash, "the pose is part of the game");
+    let inspect = g.game.inspect();
+    let door = inspect["things"].as_array().unwrap().iter().find(|t| t["name"] == "door").unwrap().clone();
+    assert_eq!(door["state"]["parts"]["leaf"]["rotation"].as_i64(), Some(-90), "{door}");
+    assert_eq!(said(&mut g, "level:thing('door').state.parts.handle.roll"), "20");
+
+    // As frame:model of the same model and pose on the same thing draws it,
+    // after the piece at rest.
+    let drawn = doorway("parts-frame", &format!("function on_draw(frame)\n  frame:model('door.vvx', level:thing('door'), nil, nil, {pose})\nend\n"));
+    assert_eq!(halted(&drawn), "");
+    let both = door_draws(&drawn);
+    assert_eq!(&both[..4], &rest[..], "the piece at rest");
+    assert_eq!(&both[4..], &posed[..3], "frame:model's pose is the piece's");
+
+    // A snapshot keeps it.
+    let kept = g.snapshot().unwrap();
+    said(&mut g, "level:thing('door').state.parts = nil");
+    assert_eq!(door_draws(&g), rest, "nil: at rest");
+    assert_eq!(g.game.state_hash(), hash, "unset, the hash is as before");
+    said(&mut g, "level:thing('door').state.parts = {}");
+    assert_eq!(door_draws(&g), rest, "an empty pose: at rest");
+    g.restore(&kept);
+    assert_eq!(door_draws(&g), posed, "a snapshot keeps the pose");
+
+    // Changed in on_tick a part at a time, read in on_draw (only to look).
+    let mut g = doorway("parts-tick", "function on_tick()\n  local door = level:thing('door')\n  door.state.parts = door.state.parts or { leaf = { rotation = 0 } }\n  door.state.parts.leaf.rotation = door.state.parts.leaf.rotation - 3\nend\nfunction on_draw(frame)\n  frame:text(tostring(level:thing('door').state.parts.leaf.rotation), 4, 4)\nend\n");
+    steps(&mut g, 30);
+    assert_eq!(halted(&g), "");
+    assert_eq!(said(&mut g, "level:thing('door').state.parts.leaf.rotation"), "-90");
+    assert_eq!(door_draws(&g)[1], posed[1], "the leaf as posed by the console");
+    assert_eq!(first_text(&g), "-90");
+    let g = doorway("parts-draw", "function on_draw(frame)\n  level:thing('door').state.parts = { leaf = { rotation = 10 } }\nend\n");
+    let _ = door_draws(&g);
+    assert!(halted(&g).contains("only to look at here (parts)"), "{}", halted(&g));
+}
+
+/// A pose a piece cannot take is a mistake that names the piece and the
+/// part: set in a handler, with the line that set it; changed inside it, at
+/// the tick's end. A part the figure lacks, a model that is no figure, a
+/// light alone, a rotation that is no number, the old word `turn`, a pose
+/// that is no table.
+#[test]
+fn a_pieces_pose_is_checked() {
+    for (line, says) in [
+        ("level:thing('door').state.parts = { leef = { rotation = 9 } }", "thing.state.parts of 'door': door.vvx has no part 'leef' (its parts: frame, leaf, handle)"),
+        ("level:thing('box').state.parts = { lid = { pitch = 9 } }", "thing.state.parts of 'box': box.vvx is no figure of parts"),
+        ("level:thing('lamp').state.parts = { leaf = { pitch = 9 } }", "thing.state.parts of 'lamp': it has no model to pose"),
+        ("level:thing('door').state.parts = { leaf = { rotation = 'open' } }", "thing.state.parts of 'door', part 'leaf': the rotation's rotation is a number of degrees"),
+        ("level:thing('door').state.parts = { leaf = { turn = 90 } }", "thing.state.parts of 'door', part 'leaf': 'turn' is called 'rotation' now"),
+        ("level:thing('door').state.parts = { leaf = 90 }", "thing.state.parts of 'door': a pose is parts by name, each a rotation"),
+        ("level:thing('door').state.parts = 'open'", "thing.state.parts of 'door': a pose is parts by name, each a rotation ({ leaf = { rotation = 90 } }), or nil for at rest, not a string"),
+    ] {
+        let mut g = doorway("pose-wrong", &format!("function on_tick()\n  {line}\nend\n"));
+        steps(&mut g, 1);
+        assert!(halted(&g).contains(says) && halted(&g).contains("main.lua:2"), "{line}: {}", halted(&g));
+    }
+    let mut g = doorway("pose-inside", "function on_tick()\n  local door = level:thing('door')\n  door.state.parts = { leaf = { rotation = 9 } }\n  door.state.parts.leaf.pitch = 'up'\nend\n");
+    steps(&mut g, 1);
+    assert!(halted(&g).contains("thing.state.parts of 'door', part 'leaf': the rotation's pitch is a number of degrees") && halted(&g).contains("at the end of tick"), "{}", halted(&g));
+    // Nil or an empty pose: at rest, for any piece.
+    let mut g = doorway("pose-none", "");
+    said(&mut g, "level:thing('box').state.parts = {}");
+    said(&mut g, "level:thing('lamp').state.parts = nil");
+    assert_eq!(said(&mut g, "level:thing('box').state.parts ~= nil"), "true");
+    steps(&mut g, 1);
+    assert_eq!(halted(&g), "");
+}
+
+/// A part turned at rest in its file shows wherever the figure is drawn,
+/// as the unturned figure posed so: `voxcade sheet`'s pictures
+/// (`Session::still`) and a level's piece.
+#[test]
+fn a_part_turned_at_rest_shows_in_the_sheet_and_the_level() {
+    let mut plain = doorway("rest-plain", "");
+    let dir = pieces_folder("rest-turned", "", DOORWAY, "");
+    std::fs::write(dir.join("door.vvx"), DOOR.replace("joint = [-3, 0.5, 5.5]\n", "joint = [-3, 0.5, 5.5]\nrotation = -60\n")).unwrap();
+    let rested = game_in(&dir);
+    let leaf = crate::session::turning(-60.0, 0.0, 0.0);
+    let posed = |part: &str| if part == "leaf" { leaf } else { glam::Quat::IDENTITY };
+    let sheet = |g: &Session<LuaGame>, pose: &dyn Fn(&str) -> glam::Quat| g.still("door.vvx", 0, glam::IVec2::NEG_Y, glam::Quat::IDENTITY, pose, 40.0, 1.0).unwrap().models;
+    assert_eq!(sheet(&rested, &|_| glam::Quat::IDENTITY), sheet(&plain, &posed), "the sheet");
+    assert_ne!(sheet(&rested, &|_| glam::Quat::IDENTITY), sheet(&plain, &|_| glam::Quat::IDENTITY));
+    said(&mut plain, "level:thing('door').state.parts = { leaf = { rotation = -60 } }");
+    assert_eq!(door_draws(&rested), door_draws(&plain), "the level's piece");
+}

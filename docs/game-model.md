@@ -332,7 +332,33 @@ first) dims them together (an engine key kept in `Stage::lights`:
 snapshots, saves by the piece's name, and the state hash only where a
 level has lights, so earlier replays stay as they were). A light of its
 own each would come later as a list, `thing.state.lights[k]` (1 at
-first, multiplied with `light`), so `light` keeps its meaning. A picture
+first, multiplied with `light`), so `light` keeps its meaning. A piece
+whose model is a figure of parts (`[[part]]`s: a door's frame and its
+leaf hung on the hinge by `parent` and `joint`) is posed through its
+state (2026-11-12): `thing.state.parts = { leaf = { rotation = 100 },
+handle = { roll = 20 } }`, exactly the pose `frame:model` takes (each
+part by its name, `rotation`, `pitch`, `roll` in degrees about its
+joint, what hangs on it moving along; `turn` refused with its new
+name), and the engine draws the piece so every picture, its own
+rotation, pitch, roll and lights as before (its lights do not follow a
+part). nil or an empty table: at rest, drawn exactly as an unposed
+piece. It is the script's data in the thing's state, an engine key only
+in that a mistake is said: as it is set (the line that set it: a part
+the figure lacks, a model that is no figure, a light alone, a rotation
+that is no number, a pose that is no table), and at every tick's end (a
+part changed inside the table), naming the piece and the part; a
+mistake halts the game, the piece standing at rest meanwhile. As every
+`thing.state`, it is in the state hash (only where something is set, so
+earlier replays stay), snapshots and `inspect`, and lasts as long as the
+thing lives in this visit of the level: saves do not keep it, nor does
+entering the level again. What must outlast the visit (a door left open)
+the game keeps in `world.state` and sets again in `on_level_start` (the
+owner: "ein wenig programmieren muss man ja schon noch"). A solid piece
+blocks in the cells of its model at rest: a pose moves no cell that
+blocks (later work). Only pieces: a thing of a kind without a behavior
+is drawn by the script (`frame:model`, which takes a pose), and the
+kits' own figures by their rules (the jump & run's `thing.state.pose`
+is a set of frames). A picture
 shows the 16 lights nearest the middle of the view
 (`render::MAX_LIGHTS`), each light of a piece counting. A piece with
 `solid = true` holds bodies up and stops them, rounds and debris too,
@@ -562,7 +588,15 @@ settings. Several players: `player` is seat 1, the others are in
   round the upright are the same either way. A
   model's file (`.vvx`, `src/vvx.rs`) measures its frames' and parts'
   `at` and the joints from this cell, so growing a part moves nothing
-  else and the model keeps standing where it stood.
+  else and the model keeps standing where it stood. A part may rest
+  turned about its joint (`rotation`, `pitch`, `roll` on its `[[part]]`,
+  degrees, the root's too; written only when not 0): the words, sense
+  and order of a pose entry, and every pose (`frame:model`'s, a piece's
+  `thing.state.parts`, a kind's `swing`) turns on from it: `pose · rest`
+  about the same joint, the rest first (`{ rotation = 10 }` on a part
+  resting at `rotation = 45` faces it 55 round). Only the picture: the
+  simulation, a solid piece's cells, bursting into voxels and which
+  voxels can be seen see the parts unturned.
 - **A game's version**: `conf.lua` says which Voxcade its files are for,
   `c.voxcade = "0.6.0"` (read as that line; in neither the fingerprint
   nor the hash). A game for an older Voxcade, or without the line, does
@@ -580,7 +614,7 @@ settings. Several players: `player` is seat 1, the others are in
 | `level.state` | one visit of one level; fresh each time it is entered, a restart too | crates moved, enemies left, time in the level, a sequence's steps |
 | `level.kept` | the whole run, one per level | what this level keeps across visits that the game tracks itself |
 | `player.state` | the whole run, from level to level | `lives`, `score`, `hp`, `inventory`, `checkpoint`, abilities |
-| `thing.state` | as long as the thing lives | `hp`, a chest's or a trader's `inventory`, a piece's `light` (0 off to 1) |
+| `thing.state` | as long as the thing lives | `hp`, a chest's or a trader's `inventory`, a piece's `light` (0 off to 1), a piece's `parts` (its figure's pose) |
 
 - **Engine keys.** The engine reads and writes fixed keys, and the script
   uses the same: a hit lowers `thing.state.hp`; a pickup raises

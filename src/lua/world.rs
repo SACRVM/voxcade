@@ -747,6 +747,28 @@ fn seat_state(lua: &Lua, seat: usize) -> mlua::Result<Value> {
 /// The key of a piece's light in its state (`thing.state.light`).
 const LIGHT: &str = "light";
 
+/// The key of a piece's pose in its state (`thing.state.parts`): its
+/// figure's parts by name, each a rotation, as `frame:model`'s pose.
+pub const PARTS: &str = "parts";
+
+/// What a mistake calls thing `id`: its name, else its number.
+pub fn piece_name(h: &Stage, id: u32) -> String {
+    h.names.get(&id).map_or_else(|| format!("thing {id}"), |n| format!("'{n}'"))
+}
+
+/// The table thing `id`'s state keeps the script's keys in.
+fn own_state(lua: &Lua, id: u32) -> mlua::Result<Table> {
+    let all: Table = lua.named_registry_value("voxcade.data")?;
+    match all.raw_get::<Option<Table>>(id)? {
+        Some(t) => Ok(t),
+        None => {
+            let t = lua.create_table()?;
+            all.raw_set(id, &t)?;
+            Ok(t)
+        }
+    }
+}
+
 /// `thing.state`: a thing's state while it lives; its hit points (`hp`)
 /// are the engine's where its kind has them. The player's is
 /// `player.state`.
@@ -756,7 +778,7 @@ fn thing_state(lua: &Lua, id: u32) -> mlua::Result<Value> {
         Some(seat) => return seat_state(lua, seat),
         None => {}
     }
-    let (has_hp, own, lit) = look(lua, |h| Ok((h.kinds[h.thing(id)?.kind].has_hp, h.host.thing_keys(Id::from_raw(id)), h.lights.contains_key(&id))))?;
+    let (has_hp, own, lit, piece) = look(lua, |h| Ok((h.kinds[h.thing(id)?.kind].has_hp, h.host.thing_keys(Id::from_raw(id)), h.lights.contains_key(&id), h.pieces.contains_key(&id))))?;
     if let Some(v) = view(lua, id)? {
         return Ok(Value::Table(v));
     }
@@ -775,6 +797,11 @@ fn thing_state(lua: &Lua, id: u32) -> mlua::Result<Value> {
         }
         if key == LIGHT {
             return look(lua, |h| Ok(h.lights.get(&id).map_or(Value::Nil, |b| Value::Number(*b as f64))));
+        }
+        // A piece's pose is the script's, kept in its state as it is.
+        if key == PARTS {
+            let v = own_state(lua, id)?.raw_get::<Value>(PARTS)?;
+            return if looking(lua) { lua.named_registry_value::<Function>("voxcade.readonly")?.call(v) } else { Ok(v) };
         }
         let kept = look(lua, |h| Ok(h.host.thing_value(Id::from_raw(id), &key)))?;
         Ok(match kept {
@@ -806,6 +833,12 @@ fn thing_state(lua: &Lua, id: u32) -> mlua::Result<Value> {
                 Ok(())
             });
         }
+        // Checked as it is set (the line that set it named), and again at
+        // the tick's end (a part changed inside it); kept as it is.
+        if key == PARTS {
+            look(lua, |h| piece_pose(&v, h.pieces.get(&id).and_then(|p| p.model.as_deref()), &h.parts, &piece_name(h, id)).map(|_| ()))?;
+            return own_state(lua, id)?.raw_set(PARTS, v);
+        }
         let value = match v {
             Value::Boolean(b) => super::host::Kept::Bool(b),
             Value::Nil => super::host::Kept::Bool(false),
@@ -818,6 +851,10 @@ fn thing_state(lua: &Lua, id: u32) -> mlua::Result<Value> {
     // A piece that brings a light: how bright it is.
     if lit {
         keys.push(LIGHT);
+    }
+    // A piece: how its figure's parts are posed.
+    if piece {
+        keys.push(PARTS);
     }
     engine_state(lua, Value::Integer(id as i64), backing, &keys, get, set)
 }
@@ -2238,7 +2275,7 @@ impl UserData for ControlsView {
 /// `frame:model`'s rotation: degrees round, nose up, rolled (each 0
 /// unless given), any other key a mistake (`turn`, its name before, says
 /// the new one).
-fn turning(t: &Table) -> mlua::Result<[f32; 3]> {
+fn turning(t: &Table, what: &str) -> mlua::Result<[f32; 3]> {
     const KEYS: [&str; 3] = ["rotation", "pitch", "roll"];
     for pair in t.pairs::<Value, Value>() {
         let (key, _) = pair?;
@@ -2247,10 +2284,10 @@ fn turning(t: &Table) -> mlua::Result<[f32; 3]> {
             other => format!("{other:?}"),
         };
         if name == "turn" {
-            return Err(mlua::Error::runtime("frame:model: 'turn' is called 'rotation' now: { rotation = 45 }"));
+            return Err(mlua::Error::runtime(format!("{what}: 'turn' is called 'rotation' now: {{ rotation = 45 }}")));
         }
         if !KEYS.contains(&name.as_str()) {
-            return Err(mlua::Error::runtime(format!("frame:model: a rotation has rotation, pitch and roll in degrees ({{ roll = 20 }}), not '{name}'")));
+            return Err(mlua::Error::runtime(format!("{what}: a rotation has rotation, pitch and roll in degrees ({{ roll = 20 }}), not '{name}'")));
         }
     }
     let get = |key: &str| -> mlua::Result<f32> {
@@ -2258,10 +2295,49 @@ fn turning(t: &Table) -> mlua::Result<[f32; 3]> {
             Value::Nil => Ok(0.0),
             Value::Integer(i) => Ok(i as f32),
             Value::Number(n) if n.is_finite() => Ok(n as f32),
-            _ => Err(mlua::Error::runtime(format!("frame:model: the rotation's {key} is a number of degrees"))),
+            _ => Err(mlua::Error::runtime(format!("{what}: the rotation's {key} is a number of degrees"))),
         }
     };
     Ok([get("rotation")?, get("pitch")?, get("roll")?])
+}
+
+/// A pose of the figure of parts `file` (`frame:model`'s, a piece's
+/// `thing.state.parts`): each part by its name, a rotation about its joint
+/// (`turning`), in the parts' names' order. `parts` are the figure's parts
+/// (none: no figure); `what` names it in a mistake.
+pub fn pose_of(pose: &Table, file: &str, parts: Option<&Vec<String>>, what: &str) -> mlua::Result<Vec<(String, [f32; 3])>> {
+    let mut posed = Vec::new();
+    for pair in pose.pairs::<Value, Value>() {
+        let (part, t) = pair?;
+        let (Value::String(part), Value::Table(t)) = (part, t) else {
+            return Err(mlua::Error::runtime(format!("{what}: a pose is parts by name, each a rotation: {{ head = {{ rotation = 20 }} }}")));
+        };
+        let part = part.to_str()?.to_string();
+        match parts {
+            None => return Err(mlua::Error::runtime(format!("{what}: {file} is no figure of parts (its objects named in the file) to pose"))),
+            Some(names) if !names.contains(&part) => return Err(mlua::Error::runtime(format!("{what}: {file} has no part '{part}' (its parts: {})", names.join(", ")))),
+            Some(_) => posed.push((part, t)),
+        }
+    }
+    // The first mistake the same every run (a table's own walk is not).
+    posed.sort_by(|a, b| a.0.cmp(&b.0));
+    posed.into_iter().map(|(part, t)| Ok((part.clone(), turning(&t, &format!("{what}, part '{part}'"))?))).collect()
+}
+
+/// A piece's pose as its state holds it (`thing.state.parts`, `v`): none
+/// for nil; `model` its model (none: a light alone), `name` what a mistake
+/// calls it (its name, or "thing N").
+pub fn piece_pose(v: &Value, model: Option<&str>, parts: &std::collections::BTreeMap<String, Vec<String>>, name: &str) -> mlua::Result<Vec<(String, [f32; 3])>> {
+    let what = format!("thing.state.parts of {name}");
+    match v {
+        Value::Nil => Ok(Vec::new()),
+        Value::Table(t) => match model {
+            Some(file) => pose_of(t, file, parts.get(file), &what),
+            None if t.is_empty() => Ok(Vec::new()),
+            None => Err(mlua::Error::runtime(format!("{what}: it has no model to pose (a light alone)"))),
+        },
+        other => Err(mlua::Error::runtime(format!("{what}: a pose is parts by name, each a rotation ({{ leaf = {{ rotation = 90 }} }}), or nil for at rest, not a {}", other.type_name()))),
+    }
 }
 
 /// The empty part of `frame:bar`.
@@ -2341,22 +2417,14 @@ impl UserData for Frame {
                 return Err(mlua::Error::runtime(format!("frame:model: no model called '{file}' (the game knows a kind's model in c.things, and the files listed in c.models: list it there)")));
             }
             let turn = match rotation {
-                Some(t) => turning(&t)?,
+                Some(t) => turning(&t, "frame:model")?,
                 None => [0.0; 3],
             };
             // A figure of parts posed: each part by its name, a rotation.
-            let mut posed = Vec::new();
-            if let Some(pose) = pose {
-                let parts = o.parts.get(&file);
-                for pair in pose.pairs::<String, Table>() {
-                    let (part, t) = pair.map_err(|_| mlua::Error::runtime("frame:model: a pose is parts by name, each a rotation: { head = { rotation = 20 } }"))?;
-                    match parts {
-                        None => return Err(mlua::Error::runtime(format!("frame:model: {file} is no figure of parts (its objects named in the file) to pose"))),
-                        Some(names) if !names.contains(&part) => return Err(mlua::Error::runtime(format!("frame:model: {file} has no part '{part}' (its parts: {})", names.join(", ")))),
-                        Some(_) => posed.push((part, turning(&t)?)),
-                    }
-                }
-            }
+            let posed = match pose {
+                Some(pose) => pose_of(&pose, &file, o.parts.get(&file), "frame:model")?,
+                None => Vec::new(),
+            };
             o.cmds.push(Cmd::Model { file, thing, frame, turn, pose: posed });
             Ok(())
         });

@@ -8,12 +8,14 @@
 //! the IDE's look (`panels.rs`, egui), the 3D view the game's own light.
 
 pub mod figure;
+pub mod context;
 pub mod frames;
 pub mod handles;
 pub mod model;
 pub mod panels;
 pub mod pick;
 pub mod shaping;
+pub mod slice;
 pub mod stage;
 pub mod zones;
 pub mod view;
@@ -88,6 +90,58 @@ pub struct ShotOptions {
     /// at a pixel of the shot, what it chooses printed and chosen.
     pub hide: Vec<String>,
     pub click: Option<(f32, f32)>,
+    /// A block, a model or a figure sliced across an axis (0 x, 1 y, 2 z)
+    /// at a layer.
+    pub slice: Option<(usize, i32)>,
+    /// A model's cells changed (`--clear`, `--fill`) in its frame (from 1)
+    /// or its part (`--part`); `dry`: printed, not written.
+    pub cells: Vec<frames::CellOp>,
+    pub frame: Option<usize>,
+    pub dry: bool,
+    /// A model shaped in place: the level's file and the piece (by name)
+    /// round which it stands; CONTEXT switched off.
+    pub context: Option<(String, String)>,
+    pub context_off: bool,
+    /// A figure's parts rotated at rest about their joints (`--rotate-part
+    /// NAME --by DEG [--about rotation|pitch|roll]`), in turn.
+    pub part_turns: Vec<(String, f32, usize)>,
+    /// `--pose-part NAME --by DEG [--about ...]`: POSE lit, the part posed
+    /// so (nothing written); `last_pose`: the last of these flags was one.
+    pub part_poses: Vec<(String, f32, usize)>,
+    pub last_pose: bool,
+    /// A part added to the one `--part` chose; that part merged into
+    /// another (by name).
+    pub add_part: bool,
+    pub merge_into: Option<String>,
+    /// `--mirror`: MIRROR on the part `--part` chose.
+    pub mirror: bool,
+}
+
+/// Which frame or part `--clear` and `--fill` change: `--part`'s, else
+/// `--frame`'s (the first).
+fn cells_of(opts: &ShotOptions) -> frames::CellsOf {
+    match &opts.part {
+        Some(name) => frames::CellsOf::Part(name.clone()),
+        None => frames::CellsOf::Frame(opts.frame.unwrap_or(1)),
+    }
+}
+
+/// `voxcade edit GAME --model FILE --clear ... | --fill ...` without a
+/// window: the model's cells changed and written as the editor writes
+/// them (`--dry`: only said). Prints what changed.
+pub fn change_cells(dir: &Path, opts: &ShotOptions) -> Result<()> {
+    let file = opts.model.as_deref().context("--clear and --fill change a model: --model FILE")?;
+    let mut model = frames::ModelFile::load(&dir.join(file))?;
+    let changed = model.change_cells(&cells_of(opts), &opts.cells)?;
+    if changed == frames::Changed::default() {
+        println!("{file}: nothing changed");
+        return Ok(());
+    }
+    if !opts.dry {
+        model.save()?;
+    }
+    println!("{file}: {changed}{}", if opts.dry { " (dry: nothing written)" } else { "" });
+    Ok(())
 }
 
 /// A change `--shot` tries among the pieces, to see what it does: a model
@@ -323,6 +377,53 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     } else if opts.parent.is_some() || opts.joint.is_some() {
         bail!("--parent and --joint set the rig of the part --part names");
     }
+    if opts.add_part {
+        ed.add_part();
+    }
+    if opts.mirror {
+        let p = ed.figure.as_ref().and_then(|f| f.selected).context("--mirror mirrors the part --part chose")?;
+        if let Some(why) = ed.cannot_mirror(p) {
+            bail!("--mirror: {why}");
+        }
+        ed.mirror_part(p);
+        view.follow_origin(&ed);
+    }
+    if let Some(into) = &opts.merge_into {
+        let src = ed.figure.as_ref().and_then(|f| f.selected).context("--merge-into NAME merges the part --part chose")?;
+        let into = part_of(&ed, into)?;
+        if let Some(why) = ed.cannot_merge(src, into) {
+            bail!("--merge-into: {why}");
+        }
+        ed.merge_part(src, into);
+    }
+    for (name, by, about) in &opts.part_turns {
+        let p = part_of(&ed, name)?;
+        if ed.figure.as_ref().and_then(|f| f.selected) != Some(p) {
+            view::act(&mut ed, &mut view, view::Action::Part(p));
+        }
+        let now = ed.part_rotation().context("--rotate-part: no figure's part chosen")?;
+        ed.set_part_rotation(*about, now[*about] + by);
+        ed.follow_figure();
+        view.follow_origin(&ed);
+    }
+    for (name, by, about) in &opts.part_poses {
+        let p = part_of(&ed, name)?;
+        if !ed.posing {
+            ed.set_posing(true);
+        }
+        if ed.figure.as_ref().and_then(|f| f.selected) != Some(p) {
+            view::act(&mut ed, &mut view, view::Action::Part(p));
+        }
+        let now = ed.chosen_pose().context("--pose-part: no figure's part chosen")?;
+        ed.set_pose(*about, now[*about] + by);
+        view.follow_origin(&ed);
+    }
+    // Rotated or posed without --part: the figure whole after.
+    if (!opts.part_turns.is_empty() || !opts.part_poses.is_empty()) && opts.part.is_none() {
+        view::act(&mut ed, &mut view, view::Action::WholeFigure);
+        ed.follow_figure();
+        view.follow_origin(&ed);
+    }
     for (name, by, joint) in &opts.part_moves {
         let p = part_of(&ed, name)?;
         if ed.figure.as_ref().and_then(|f| f.selected) != Some(p) {
@@ -348,7 +449,17 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         ed.shift_pick(true);
     }
     let aspect = opts.width as f32 / opts.height as f32;
+    if let Some((level, name)) = &opts.context {
+        anyhow::ensure!(ed.model.is_some(), "--context shapes a model in place: --model FILE");
+        let lv = crate::grid::GridLevel::read(&dir.join(level))?;
+        let piece = lv.things.iter().position(|t| t.name.as_deref() == Some(name)).with_context(|| format!("--context {level}:{name}: the level has no piece called so"))?;
+        ed.set_context(context::Seed { level: level.clone(), piece, hidden: Default::default() })?;
+        if opts.context_off {
+            ed.toggle_context();
+        }
+    }
     let mut figures = Figures::load(dir, &cfg).with_pieces(dir, &ed.level);
+    figures.follow(dir, &ed);
     // The changes tried among the pieces, then the one chosen, the view.
     if !opts.ops.is_empty() || opts.choose.is_some() {
         if ed.level.has_grid() {
@@ -385,9 +496,12 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         anyhow::ensure!(ed.chosen_light == Some(k), "--choose-light {k}: the chosen piece has no light {k} (they count from 0)");
     }
     view.level_settings = opts.level_settings;
-    if opts.turn_handles {
+    if opts.turn_handles && ed.part_mode().is_some() {
+        // A figure's part: its rings.
+        ed.part_rotating = true;
+    } else if opts.turn_handles {
         view::act(&mut ed, &mut view, view::Action::HandleMode(true));
-        anyhow::ensure!(view.turn_mode(&ed), "--handles rotate: what is chosen does not turn (a piece of a model or a place does)");
+        anyhow::ensure!(view.turn_mode(&ed), "--handles rotate: what is chosen does not turn (a piece of a model, a place or a figure's part does)");
     }
     if opts.add_menu {
         view::act(&mut ed, &mut view, view::Action::AddMenu);
@@ -398,6 +512,20 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         orbit.pitch = pitch.clamp(-85.0, 85.0);
     }
     (view.picker, view.lights) = (opts.picker, !opts.lights_off);
+    // Cells changed, to look at (nothing written).
+    if !opts.cells.is_empty() {
+        let model = ed.model.as_mut().context("--clear and --fill change a model: --model FILE")?;
+        let changed = model.change_cells(&cells_of(opts), &opts.cells)?;
+        println!("{}: {changed} (shown, not written)", opts.model.as_deref().unwrap_or_default());
+        ed.follow_figure();
+        view.follow_origin(&ed);
+    }
+    if let Some((axis, at)) = opts.slice {
+        anyhow::ensure!(ed.can_slice(), "--slice cuts a block, a model or a figure");
+        ed.set_slice(Some(axis));
+        ed.set_slice_at(at);
+        ed.slice_toward(view.block_eye(aspect));
+    }
     let mut shown = Shown::new(&ed)?;
     // A shot holds a model's frames still (the one shaped shows).
     view.playing = false;
@@ -440,9 +568,13 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
             let screen = ctx.content_rect();
             if let Some(name) = &opts.menu {
                 let at = egui::pos2(screen.left() + mx * screen.width(), screen.top() + my * screen.height());
-                if !ed.among_pieces() {
+                if let Some(part) = name.strip_prefix("part:") {
+                    // A figure's part's menu (its row's, a right click).
+                    let p = part_of(&ed, part)?;
+                    view.menu = Some(view::Menu { on: view::MenuOn::Part(p), at: [zones::OUTLINER - 40.0, 120.0] });
+                } else if !ed.among_pieces() {
                     // The voxel editor's, of what is under the middle.
-                    anyhow::ensure!(name == "voxel", "--menu voxel: the menu of the voxel (the part, the block) under the middle of the view");
+                    anyhow::ensure!(name == "voxel", "--menu voxel: the menu of the voxel (the part, the block) under the middle of the view (or part:NAME, a part's)");
                     let on = voxel_menu(&ed, &view, aspect, mx, my).context("--menu voxel: nothing under the middle of the view")?;
                     view.menu = Some(view::Menu { on, at: [at.x, at.y] });
                 } else if name == "floor" {
@@ -618,6 +750,15 @@ pub(crate) fn on_ring(ed: &Editor, view: &View, room: egui::Rect, mouse: egui::P
     handles::project(vp, glam::Vec2::new(room.width(), room.height()), spot).is_some_and(|(p, _)| p.distance(glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top())) <= RING_GRAB)
 }
 
+/// SLICE's arrow under the mouse (egui's point): the grip, the handles,
+/// the view's matrix, the mouse in the room's pixels.
+fn slice_under(ed: &Editor, view: &View, room: egui::Rect, mouse: egui::Pos2) -> Option<(handles::Grip, handles::Handles, glam::Mat4, glam::Vec2)> {
+    let vp = view.view_proj(&view.block, room.width() / room.height().max(1.0));
+    let at = glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top());
+    let (grip, h) = ed.slice_grip(vp, glam::Vec2::new(room.width(), room.height()), at)?;
+    Some((grip, h, vp, at))
+}
+
 /// The arrow of the chosen part under the mouse (egui's point): which,
 /// the handles, the view's matrix, the mouse in the room's pixels.
 fn joint_under(ed: &Editor, view: &View, room: egui::Rect, mouse: egui::Pos2) -> Option<(handles::Grip, handles::Handles, glam::Mat4, glam::Vec2)> {
@@ -634,6 +775,9 @@ fn joint_under(ed: &Editor, view: &View, room: egui::Rect, mouse: egui::Pos2) ->
 /// the level.
 fn voxel_menu(ed: &Editor, view: &View, aspect: f32, sx: f32, sy: f32) -> Option<view::MenuOn> {
     let (origin, dir) = view.ray(ed, aspect, sx, sy);
+    // (The ray in the grid shown, drawn through a part's rest: as the figure
+    // stands.)
+    let (origin, dir) = (view.rest.transform_point3(origin), view.rest.transform_vector3(dir));
     let part = || ed.figure.as_ref().zip(ed.figure_box()).and_then(|(f, (lo, _))| f.part_at(lo, origin, dir));
     match ed.scope {
         Scope::Figure => part().map(view::MenuOn::Part),
@@ -676,14 +820,22 @@ pub fn run<G: Game>(dir: &Path, level: Option<&str>, block: Option<&str>, things
         for w in &mut windows {
             w.draw()?;
         }
-        let asked: Vec<String> = windows.iter_mut().filter_map(EditorWindow::take_model_edit).collect();
-        for file in asked {
+        let asked: Vec<(String, Option<context::Seed>)> = windows.iter_mut().filter_map(|w| w.take_model_edit().map(|f| (f, w.take_model_context()))).collect();
+        for (file, seed) in asked {
             if let Some(w) = windows.iter_mut().find(|w| w.model_file() == Some(file.as_str())) {
+                if let Some(seed) = seed {
+                    w.set_context(seed);
+                }
                 w.raise();
                 continue;
             }
             match EditorWindow::open_model::<G>(&video, dir, &file, Some(windows[0].gpu())) {
-                Ok(w) => windows.push(w),
+                Ok(mut w) => {
+                    if let Some(seed) = seed {
+                        w.set_context(seed);
+                    }
+                    windows.push(w)
+                }
                 Err(e) => windows[0].say(format!("{e:#}")),
             }
         }
@@ -922,6 +1074,22 @@ impl EditorWindow {
         self.ed.wants_model.take()
     }
 
+    /// The level round the model EDIT asked to open, for a piece: to shape
+    /// it in place (`context.rs`), once.
+    pub fn take_model_context(&mut self) -> Option<context::Seed> {
+        self.ed.wants_context.take()
+    }
+
+    /// Opens the level round its model (EDIT on a piece of it): said over
+    /// the panels where it cannot.
+    pub fn set_context(&mut self, seed: context::Seed) {
+        if let Err(e) = self.ed.set_context(seed) {
+            self.ed.message = Some(format!("{e:#}"));
+        }
+        self.ed.remember_held();
+        self.dirty = true;
+    }
+
     /// The GPU it draws with, to open another window on.
     pub fn gpu(&self) -> &crate::window::Gpu {
         self.screen.gpu()
@@ -1025,9 +1193,25 @@ impl EditorWindow {
                     Keycode::Minus | Keycode::KpMinus if ed.forms() => ed.deepen(-1),
                     Keycode::Escape if ed.forms() && ed.drop_form() => {}
                     Keycode::Z if ctrl && shift => ed.redo(),
+                    // The chosen part: its name to type, removed.
+                    Keycode::F2 if ed.part_mode().is_some() => view::act(ed, view, view::Action::RenamePart(ed.figure.as_ref().and_then(|f| f.selected).unwrap_or(usize::MAX))),
+                    Keycode::Delete if ed.part_mode().is_some() => {
+                        if let Some(p) = ed.figure.as_ref().and_then(|f| f.selected).filter(|&p| ed.cannot_remove(p).is_none()) {
+                            view::act(ed, view, view::Action::RemovePart(p));
+                        }
+                    }
                     Keycode::Z if ctrl => ed.undo(),
                     Keycode::Y if ctrl => ed.redo(),
                     // A model's frames, one by one.
+                    // SLICE's layer, a voxel at a time.
+                    Keycode::PageUp if ed.slice.is_some() => {
+                        let at = ed.slice.as_ref().map_or(0, |s| s.at);
+                        ed.set_slice_at(at + 1);
+                    }
+                    Keycode::PageDown if ed.slice.is_some() => {
+                        let at = ed.slice.as_ref().map_or(0, |s| s.at);
+                        ed.set_slice_at(at - 1);
+                    }
                     Keycode::Left => ed.step_frame(-1),
                     Keycode::Right => ed.step_frame(1),
                     Keycode::Escape => {
@@ -1074,8 +1258,9 @@ impl EditorWindow {
                 let over = over(x, y) && !mousestate.left();
                 if !ed.among_pieces() {
                     let free = !(over || mousestate.left());
-                    view.ring_hover = free && on_ring(ed, view, gui.content_rect(), input.point(x, y));
-                    view.grip_hover = if !free || view.ring_hover { None } else { joint_under(ed, view, gui.content_rect(), input.point(x, y)).map(|(g, ..)| g) };
+                    view.slice_hover = free && slice_under(ed, view, gui.content_rect(), input.point(x, y)).is_some();
+                    view.ring_hover = free && !view.slice_hover && on_ring(ed, view, gui.content_rect(), input.point(x, y));
+                    view.grip_hover = if !free || view.ring_hover || view.slice_hover { None } else { joint_under(ed, view, gui.content_rect(), input.point(x, y)).map(|(g, ..)| g) };
                 }
                 if ed.among_pieces() {
                     let (origin, dir) = view.voxel_ray(aspect, sx, sy);
@@ -1097,12 +1282,20 @@ impl EditorWindow {
                     if mousestate.left() {
                         ed.drag_thing(view.spot);
                     }
+                } else if ed.slicing() && mousestate.left() {
+                    // SLICE's arrow dragged.
+                    let room = gui.content_rect();
+                    let mouse = input.point(x, y);
+                    let vp = view.view_proj(&view.block, room.width() / room.height().max(1.0));
+                    let ray = view.ray(ed, aspect, sx, sy);
+                    ed.drag_slice(vp, glam::Vec2::new(room.width(), room.height()), glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top()), ray);
                 } else if ed.joint_drag().is_some() && mousestate.left() {
                     // A joint's arrow dragged.
                     let room = gui.content_rect();
                     let mouse = input.point(x, y);
                     let vp = view.view_proj(&view.block, room.width() / room.height().max(1.0));
                     let ray = view.ray(ed, aspect, sx, sy);
+                    ed.set_fine(view.cut);
                     ed.drag_joint(vp, glam::Vec2::new(room.width(), room.height()), glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top()), ray);
                     // (A part moved moves the grid shown: the view keeps the
                     // figure still at once, for the next motion's ray.)
@@ -1124,14 +1317,23 @@ impl EditorWindow {
                     }
                 }
             }
+            // A figure in GAME VIEW is only looked at.
+            Event::MouseButtonDown { mouse_btn: MouseButton::Left, .. } if view.before_game.is_some() && ed.scope != Scope::Level => {}
             Event::MouseButtonDown { mouse_btn: MouseButton::Left, clicks, x, y, .. } if !over(x, y) => {
                 let (sx, sy) = screen.share(x, y);
-                let ring = !ed.among_pieces() && on_ring(ed, view, gui.content_rect(), input.point(x, y));
-                let joint = if ring { None } else { joint_under(ed, view, gui.content_rect(), input.point(x, y)) };
+                let sliced = if ed.among_pieces() { None } else { slice_under(ed, view, gui.content_rect(), input.point(x, y)) };
+                let ring = sliced.is_none() && !ed.among_pieces() && on_ring(ed, view, gui.content_rect(), input.point(x, y));
+                let joint = if ring || sliced.is_some() { None } else { joint_under(ed, view, gui.content_rect(), input.point(x, y)) };
                 if !ed.among_pieces() {
                     view.menu = None;
                 }
-                if ring {
+                if let Some((grip, h, vp, mouse)) = sliced {
+                    // SLICE's arrow: dragged until let go.
+                    let room = gui.content_rect();
+                    if let Some(drag) = handles::Drag::begin(&h, grip, vp, glam::Vec2::new(room.width(), room.height()), mouse, view.ray(ed, aspect, sx, sy)) {
+                        ed.grab_slice(drag, h);
+                    }
+                } else if ring {
                     // The joint's ring: dragged across the view.
                     let look = crate::camera::view_dir(&view.block.camera());
                     ed.grab_joint(view.ray(ed, aspect, sx, sy), look);
@@ -1142,12 +1344,33 @@ impl EditorWindow {
                         ed.grab_part(drag, h);
                     }
                 } else if ed.scope == Scope::Figure {
-                    // The figure whole: a click chooses the part under it.
+                    // The figure whole: the tool works on the part it meets
+                    // (the figure stays chosen, nothing dimmed); a double
+                    // click chooses that part, the first click's work taken
+                    // back. A click never both chooses and paints.
                     let (origin, dir) = view.ray(ed, aspect, sx, sy);
                     if let (Some(figure), Some((lo, _))) = (&ed.figure, ed.figure_box())
                         && let Some(p) = figure.part_at(lo, origin, dir)
                     {
-                        view::act(ed, view, view::Action::Part(p));
+                        if clicks >= 2 {
+                            if ed.steps() > *steps_at_click {
+                                ed.take_back();
+                            }
+                            view::act(ed, view, view::Action::Part(p));
+                        } else {
+                            *steps_at_click = ed.steps();
+                            ed.begin_whole_stroke(p);
+                            // (The grid shown is the part's now: the view
+                            // kept still, the ray taken anew.)
+                            view.follow_origin(ed);
+                            if let Some(hit) = view.aim(ed, aspect, sx, sy) {
+                                if ed.forms() {
+                                    ed.begin_form(hit, view.cut);
+                                } else {
+                                    ed.press(hit);
+                                }
+                            }
+                        }
                     }
                 } else if ed.among_pieces() {
                     // What hangs on the mouse set down; a handle of the
@@ -1200,17 +1423,26 @@ impl EditorWindow {
                     } else {
                         ed.press(hit);
                     }
+                } else if ed.part_mode().is_some() {
+                    // A part shaped, a click on empty space: the figure
+                    // whole again.
+                    view::act(ed, view, view::Action::WholeFigure);
                 }
             }
             // BOX and SPHERE: the footprint let go is set right where it
             // was drawn (Alt: only where empty; Ctrl, held as it was
             // pressed: cut away), fresh for + and - until the next action.
+            Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } if ed.slicing() => ed.let_go_of_slice(),
             Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } if ed.forms() => {
                 if ed.drawing.is_some() {
                     ed.set_drawn(view.only_empty);
                 }
+                ed.end_whole_stroke();
             }
-            Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } => ed.release(),
+            Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } => {
+                ed.release();
+                ed.end_whole_stroke();
+            }
             // A right click (not a drag) among the pieces: the menu of what
             // is under the mouse (chosen), or of the floor there.
             Event::MouseButtonDown { mouse_btn: MouseButton::Right, x, y, .. } => view.right_press = (!over(x, y)).then_some((x, y)),
@@ -1291,6 +1523,7 @@ impl EditorWindow {
         // the view kept on it; the pieces' models, a new one's too.
         ed.follow_figure();
         view.follow_origin(ed);
+        ed.slice_toward(view.block_eye(screen.aspect()));
         figures.follow(&ed.dir, ed);
         ed.sizes = figures.sizes();
         view.aspect = screen.aspect();
@@ -1303,7 +1536,13 @@ impl EditorWindow {
                 crate::gui::marker::paint(ui.ctx(), tip);
             }
         });
-        let acted = !drawn.clicked.is_empty() || drawn.renamed.is_some();
+        let acted = !drawn.clicked.is_empty() || drawn.renamed.is_some() || drawn.renamed_part.is_some();
+        if let Some((p, typed)) = drawn.renamed_part.take() {
+            match ed.rename_part(p, &typed) {
+                Ok(()) => (view.renaming_part, view.rename_problem) = (None, None),
+                Err(problem) => view.rename_problem = Some(problem),
+            }
+        }
         if let Some((item, typed)) = drawn.renamed.take() {
             match ed.rename(item, &typed) {
                 Ok(()) => (view.renaming, view.rename_problem) = (None, None),

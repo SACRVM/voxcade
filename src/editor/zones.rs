@@ -38,13 +38,18 @@ const GAP: f32 = 4.0;
 
 /// The width of `n` of a row's three equal columns (and the gaps between
 /// them): from the left edge every row's controls begin at (after its
-/// label) to the panel's right edge, so that every row's X, Y and Z, and
-/// whatever else sits on the columns, line up down the inspector. Called
-/// inside a `row`.
-pub fn col(ui: &egui::Ui, n: usize) -> f32 {
-    let one = ((ui.max_rect().width() - LABEL - 3.0 * GAP) / 3.0).floor();
+/// label) to the inspector's right edge less the same room as on its left
+/// (`RIGHT_ROOM`), so that every row's X, Y and Z, and whatever else sits
+/// on the columns, line up down the inspector, in both editors alike (the
+/// inspector is as wide in both; a row's own room differed by a few
+/// pixels between them).
+pub fn col(_ui: &egui::Ui, n: usize) -> f32 {
+    let one = (INSPECTOR - SIDE_LEFT - RIGHT_ROOM as f32 - LABEL - 3.0 * GAP) / 3.0;
     one * n as f32 + GAP * (n as f32 - 1.0)
 }
+
+/// The side panels' room on their left (their frame's margin).
+const SIDE_LEFT: f32 = 10.0;
 
 /// The axes' colours, as the handles and the fields' letters have them: X
 /// red, Y green, Z blue; and the same lit (under the mouse, dragged).
@@ -58,7 +63,7 @@ pub fn layout(ui: &mut egui::Ui, shown: &mut Shown, top: impl FnOnce(&mut egui::
     let bar = egui::Frame::new().fill(crate::gui::PANEL).inner_margin(egui::Margin::symmetric(12, 6));
     // The side panels' scroll bars flush with their right edge, the rows
     // using the width up to them (no margin on the right: the bar's).
-    let side = egui::Frame::new().fill(crate::gui::PANEL).inner_margin(egui::Margin { left: 10, right: 0, top: 10, bottom: 10 });
+    let side = egui::Frame::new().fill(crate::gui::PANEL).inner_margin(egui::Margin { left: SIDE_LEFT as i8, right: 0, top: 10, bottom: 10 });
     let t = egui::Panel::top("zones top").exact_size(TOP).resizable(false).frame(bar).show(ui, |ui| ui.horizontal_centered(|ui| top(ui, shown)));
     let l = egui::Panel::left("zones outliner").exact_size(OUTLINER).resizable(false).frame(side).show(ui, |ui| {
         flush(ui);
@@ -78,6 +83,9 @@ pub fn layout(ui: &mut egui::Ui, shown: &mut Shown, top: impl FnOnce(&mut egui::
     free
 }
 
+/// The rows' room on a side panel's right: the same as on its left.
+const RIGHT_ROOM: i8 = 11;
+
 /// Scroll bars in `ui` at its right edge, the content up to them (a
 /// little room between); what is not in a scroll keeps the same room.
 pub fn flush(ui: &mut egui::Ui) {
@@ -88,7 +96,9 @@ pub fn flush(ui: &mut egui::Ui) {
     scroll.floating = true;
     (scroll.floating_width, scroll.floating_allocated_width) = (scroll.bar_width, 0.0);
     (scroll.bar_outer_margin, scroll.bar_inner_margin) = (0.0, 0.0);
-    scroll.content_margin = egui::Margin { right: (scroll.bar_width + 4.0) as i8, ..egui::Margin::ZERO };
+    // As much room on the right as the rows have on the left (the side
+    // frame's 10 and the panel's line), the bar laid inside it.
+    scroll.content_margin = egui::Margin { right: ((scroll.bar_width + 4.0) as i8).max(RIGHT_ROOM), ..egui::Margin::ZERO };
     // Always seen while there is something to scroll, as a solid one.
     (scroll.dormant_background_opacity, scroll.dormant_handle_opacity) = (0.4, 0.6);
 }
@@ -223,6 +233,10 @@ pub fn cell_word(ui: &mut egui::Ui, word: &str, tip: &str) {
     }
 }
 
+/// A number field's room on either side of its text (a sign more for
+/// the number than a button's).
+const PAD: f32 = 3.0;
+
 /// A number field: its letter before the number, in its axis's colour
 /// (`axis` 0..2; else quiet), dragged sideways or typed, to `decimals`
 /// places at most; a change gives the action `set` makes of the new value.
@@ -235,11 +249,22 @@ pub fn number(ui: &mut egui::Ui, shown: &mut Shown, letter: &str, axis: Option<u
     // The number right-aligned: padded to as many signs as the field
     // holds (one typeface, every sign as wide), so that the letters stand
     // at the same place in every field and 0, 120 and -18 end together.
-    let font = ui.style().drag_value_text_style.resolve(ui.style());
     let small = TextStyle::Small.resolve(ui.style());
-    let (sign, letters) = ui.ctx().fonts_mut(|f| (f.glyph_width(&font, '0'), f.glyph_width(&small, '0') * (letter.chars().count() + 1) as f32));
-    let room = width - 2.0 * ui.spacing().button_padding.x - letters - 2.0;
-    let signs = (room / sign.max(1.0)).floor().max(1.0) as usize;
+    let room = |style: &TextStyle| {
+        let font = style.resolve(ui.style());
+        let (sign, letters) = ui.ctx().fonts_mut(|f| (f.glyph_width(&font, '0'), f.glyph_width(&small, '0') * (letter.chars().count() + 1) as f32));
+        ((width - 2.0 * PAD - letters - 2.0) / sign.max(1.0)).floor().max(1.0) as usize
+    };
+    // Whole numbers as whole numbers (-35, not -35.0), else to as many
+    // places as it has, `decimals` at most.
+    let text_of = move |v: f64| if v.fract() == 0.0 { format!("{}", v as i64) } else { egui::emath::format_with_decimals_in_range(v, 0..=decimals) };
+    // One too long for the field's type in the smaller type, as it is
+    // (-180.5); too long for that too, whole; then cut by the field: it
+    // never grows.
+    let body = ui.style().drag_value_text_style.clone();
+    let long = text_of(value).chars().count() > room(&body);
+    let style = if long { TextStyle::Small } else { body };
+    let signs = room(&style);
     // Typed, it takes effect on Enter or a click elsewhere (one step),
     // Escape leaving it as it was.
     let drag = egui::DragValue::new(&mut v)
@@ -248,14 +273,27 @@ pub fn number(ui: &mut egui::Ui, shown: &mut Shown, letter: &str, axis: Option<u
         .min_decimals(0)
         .max_decimals(decimals)
         .update_while_editing(false)
-        .custom_formatter(move |v, r| format!("{:>signs$}", egui::emath::format_with_decimals_in_range(v, r)))
+        .custom_formatter(move |v, _| {
+            let text = text_of(v);
+            let text = if text.chars().count() > signs { format!("{}", v.round() as i64) } else { text };
+            format!("{text:>signs$}")
+        })
         .prefix(RichText::new(format!("{letter} ")).color(colour).small());
     // Escape while typing: the number as it was. (egui keeps the text
     // and sets it the frame after, when Escape is no longer pressed: the
     // field remembers it was left so and drops that.)
     let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
-    let response = ui.add_sized([width, ui.text_style_height(&TextStyle::Body) + 8.0], drag);
-    shown.fields.push((letter.to_string(), response.rect));
+    // Its room exactly, whatever it holds: a long number is cut inside it,
+    // the row and the panel never move.
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, ui.text_style_height(&TextStyle::Body) + 8.0), egui::Sense::hover());
+    // (A child that takes nothing of the row: whatever the field would
+    // want, the row goes on after `rect`.)
+    let mut inside = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+    inside.set_clip_rect(rect.intersect(ui.clip_rect()));
+    inside.style_mut().drag_value_text_style = style;
+    inside.spacing_mut().button_padding.x = PAD;
+    let response = inside.add_sized(rect.size(), drag);
+    shown.fields.push((letter.to_string(), rect));
     let id = response.id;
     let escaped = escape && (response.lost_focus() || response.has_focus());
     let left_by_escape = ui.data_mut(|d| d.remove_temp::<bool>(id.with("escaped")).is_some());
@@ -393,7 +431,36 @@ pub fn list_row(ui: &mut egui::Ui, sort: Sort, pic: Option<(egui::TextureId, Vec
 
 /// A heading of an outliner's group that folds with a click (open at
 /// first; remembered while the editor is open), its count after it.
+/// `group`, with small buttons at the heading's right (SHOW ALL, +):
+/// always one click away, folded or not.
+pub fn group_with(ui: &mut egui::Ui, title: &str, count: Option<usize>, tip: &str, extras: &[(&str, Action, &str, bool)], shown: &mut Shown) -> bool {
+    let (open, heading) = group_heading(ui, title, count, tip);
+    let y = heading.center().y;
+    let mut right = heading.right() - 4.0;
+    // Each always in its place on the heading's line, quiet while it has
+    // nothing to do (`on` false): nothing comes or goes, no row moves.
+    for &(word, action, tip, on) in extras.iter().rev() {
+        let galley = ui.painter().layout_no_wrap(word.to_string(), TextStyle::Small.resolve(ui.style()), TEXT);
+        let size = galley.size() + egui::vec2(2.0 * 4.0 + 2.0, 4.0);
+        let rect = Rect::from_center_size(Pos2::new(right - size.x / 2.0, y), size);
+        right -= size.x + 4.0;
+        let r = ui.put(rect, |ui: &mut egui::Ui| {
+            ui.spacing_mut().button_padding.x = 4.0;
+            ui.add_enabled(on, egui::Button::new(RichText::new(word).small()).wrap_mode(egui::TextWrapMode::Extend))
+        }).on_hover_text(tip).on_disabled_hover_text(tip);
+        if r.clicked() {
+            shown.clicked.push(action);
+        }
+    }
+    open
+}
+
 pub fn group(ui: &mut egui::Ui, title: &str, count: Option<usize>, tip: &str) -> bool {
+    group_heading(ui, title, count, tip).0
+}
+
+/// `group`, and where its heading lies.
+fn group_heading(ui: &mut egui::Ui, title: &str, count: Option<usize>, tip: &str) -> (bool, Rect) {
     let open_id = egui::Id::unique(("zones group", title));
     let open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(true);
     let (rect, heading) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ui.text_style_height(&TextStyle::Small) + 12.0), egui::Sense::click());
@@ -406,20 +473,28 @@ pub fn group(ui: &mut egui::Ui, title: &str, count: Option<usize>, tip: &str) ->
     if heading.on_hover_text(tip).clicked() {
         ui.data_mut(|d| d.insert_temp(open_id, !open));
     }
-    open
+    (open, rect)
 }
 
 /// A menu over the view at `at` (kept inside `free`): its entries, each
 /// with its key on the right; a click on one gives its action. Whether a
 /// left click fell elsewhere (it closes then).
-pub fn menu(ui: &egui::Ui, at: Pos2, free: Rect, entries: Vec<(String, Action, Option<&'static str>)>, shown: &mut Shown) -> bool {
+pub fn menu(ui: &egui::Ui, at: Pos2, free: Rect, entries: Vec<Entry>, shown: &mut Shown) -> bool {
     let area = egui::Area::new(egui::Id::unique("zones menu")).order(egui::Order::Foreground).fixed_pos(at).constrain_to(free).show(ui.ctx(), |ui| {
         egui::Frame::popup(ui.style()).show(ui, |ui| {
             ui.set_width(200.0);
             ui.spacing_mut().item_spacing.y = 0.0;
-            for (word, action, key) in entries {
-                if crate::gui::row(ui, &word, TextStyle::Body, TEXT, false, key).clicked() {
-                    shown.clicked.push(action);
+            for (word, action, key, refused) in entries {
+                // Refused: quiet, why on hover, nothing on a click.
+                match refused {
+                    Some(why) => {
+                        crate::gui::row(ui, &word, TextStyle::Body, QUIET, false, key).on_hover_text(why);
+                    }
+                    None => {
+                        if crate::gui::row(ui, &word, TextStyle::Body, TEXT, false, key).clicked() {
+                            shown.clicked.push(action);
+                        }
+                    }
                 }
             }
         });
@@ -430,6 +505,10 @@ pub fn menu(ui: &egui::Ui, at: Pos2, free: Rect, entries: Vec<(String, Action, O
     // a click a program makes), and a right click elsewhere opens another.
     area.response.clicked_elsewhere() && ui.input(|i| i.pointer.button_clicked(egui::PointerButton::Primary))
 }
+
+/// An entry of a menu: its word, what it does, its key, and why it is
+/// refused (shown quiet then, the reason on hover).
+pub type Entry = (String, Action, Option<&'static str>, Option<String>);
 
 /// A bar of buttons at the chosen thing in the view: over the box its
 /// marks take on the screen (`bounds`), from `middle` (its middle's x) to

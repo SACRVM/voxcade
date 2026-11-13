@@ -543,7 +543,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   figures and blocks are `.vvx` (`src/vvx.rs`; the models skill has the
   format: the format line first, signs a colour with its material,
   layers bottom first and the far row first, repeats `*N`, `at` and
-  joints from the pivot). MagicaVoxel's `.vox` is only brought in
+  joints from the pivot, a part's rest rotation `rotation`, `pitch`,
+  `roll` about its joint, written only when not 0). MagicaVoxel's `.vox` is only brought in
   (`voxcade import`, `voxcade upgrade`); JSON is gone from a game (the
   owner: it only gets in the way of git's diffs), but for `.mcp.json`
   and LuaLS's `.luarc.json` (other programs' files) and a Tiled map read
@@ -1151,7 +1152,14 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   is the root, each other hangs on the part it touches most and turns
   about the middle of where they meet (`parts_of`); a kind's `swing`
   swings parts with its steps (`session::swinging`), `frame:model`'s pose
-  turns them by name (`Drawing::model_posed`, `part_chain`); a part a draw
+  turns them by name (`Drawing::model_posed`, `part_chain`); a part may
+  rest turned (`rotation`, `pitch`, `roll` on its `[[part]]`, the root's
+  too: `vox::Part::rest`, the owner, 2026-11-12: "die grund figur muss
+  nicht im voxelraster sitzen"), every pose turning on from it (`pose ·
+  rest` about the joint; `session::rest_turn`, `part_at_rest` for the
+  editors), only the picture (the simulation, solid cells, bursts and
+  `visible` see the parts unturned; test
+  `a_part_turned_at_rest_draws_as_the_same_pose`); a part a draw
   in the bank; posed, a part's depth is taken a little nearer the eye the
   further out it hangs (`ModelDraw::nearer`, the shader's `PART_NEARER`),
   so a bent limb's faces in one plane with its parent's do not flicker.
@@ -1244,8 +1252,53 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `a_joint_is_dragged_by_its_ring_in_one_step`. `voxcade edit GAME
   --model FILE --shot OUT [--part NAME --parent NAME --joint X,Y,Z
   --move-part NAME --by X,Y,Z --move-joint NAME --by X,Y,Z --tool box
-  --held X,Y,Z --stamp --view YAW,PITCH]` to look. To come:
-  posing with the numbers for Lua, mirrored pairs, the game's view.
+  --held X,Y,Z --stamp --view YAW,PITCH]` to look. SLICE cuts a block,
+  a frame or a figure across an axis (the eye's side neither drawn nor
+  touched; `editor/slice.rs`, `--slice z,12`); EDIT on a piece shapes its
+  model in place, the level's other pieces faint round it as they stand
+  (`editor/context.rs`, CONTEXT, `--context LEVEL:NAME`); `--clear` and
+  `--fill` change a model's cells without the window, written as the
+  editor writes (`ModelFile::change_cells`; docs/tiles.md). The parts'
+  list begins with the figure whole (the state it opens in): every part
+  solid, the tools working on the part they meet while it stays chosen
+  (`Editor::begin_whole_stroke`); a part is chosen by its row, a double
+  click in the view or SELECT in its menu, never by a click that paints.
+  A part rotates at rest about its joint (MOVE | ROTATE at it, its
+  rings by 5°, Ctrl by 1°; the ROTATE row; `rotation`/`pitch`/`roll` in
+  its `[[part]]`): the view looks through the chosen part's rest
+  (`View::rest`, `Editor::rest_view`), so the tools, the slice and its
+  handles work in its own grid and the rest of the figure is drawn
+  turned round it (`Figure::rest_map`, `session::part_at_rest`). Parts
+  as objects (`editor/parts.rs`): ADD PART (one voxel of the color held,
+  on top of the part chosen or the figure, touching it, its name to
+  type), REMOVE (what hung on it hangs on its parent where it stands;
+  not the root while parts hang on it), MERGE INTO its parent or WITH…
+  another (the target's voxels win; a part rotated by quarter turns of
+  the other merges as it shows, `merge_map`), DUPLICATE, MIRROR (a pair
+  `NAME_left`/`NAME_right`, or `_l`/`_r`: the partner made or made anew
+  across the figure's middle, voxels, place, joint, rest rotation; with
+  SYMMETRY a stroke on one lands on the other, `land_on_partner`),
+  RENAME (F2, a word), HIDE, HIDE OTHERS, SHOW ALL (always at the PARTS
+  heading, quiet when nothing is hidden); each in the row's menu, the
+  part's menu in the view and its bar, refused ones quiet with why on
+  hover (`zones::Entry`). No step re-hangs or re-hinges a part it did
+  not act on (`Editor::pin_rig`: such a part's parent and joint are
+  stated in the file first; test `no_step_rehangs_a_part_it_did_not_act_on`);
+  the JOINT row says the file's numbers (from the pivot). POSE (the top
+  bar): the rings and the POSE row turn parts on top of their rest,
+  nothing written (`Editor::pose`, `Figure::pose`, `session::part_posed`),
+  the pose as Lua for `frame:model` with COPY and RESET; off, the rest
+  is drawn and the pose kept until RESET. GAME VIEW (the top bar): the
+  figure whole from the game's camera at its size, shaded, lit and
+  outlined as the game draws it, from a model bank (`session::model_drawn`),
+  posed while POSE is lit, only looked at. A number field never widens
+  (`zones::number`: its room exactly, a long number in the small type,
+  too long whole; test `a_wide_number_never_moves_the_inspector`); the
+  bar at the chosen one stands clear of its arrows and rings alike.
+  `--rotate-part NAME --by DEG [--about rotation|pitch|roll]`,
+  `--pose-part NAME --by DEG [--about ...]`, `--handles rotate`,
+  `--add-part`, `--merge-into NAME`, `--mirror`, `--game-view`, `--menu
+  part:NAME` in a shot. To come: a selection to split a part.
 - A level of pieces (`grid::text`, `editor/room.rs`; asked by a game of
   the owner's, 2026-11-12): a level's `[[thing]]` can be a piece (a
   `.vvx` set down anywhere, fixed, named for the code:
@@ -1264,7 +1317,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   meets first voxel by voxel (`editor/pick.rs`: a small piece in a big
   one's hollow before the big one; boxes only for lights, places,
   areas), ADD sets down on the face met; the mark at a row's left hides
-  a thing in the editor only (HIDE, ONLY THIS, SHOW ALL; nothing
+  a thing in the editor only (HIDE, HIDE OTHERS, SHOW ALL; nothing
   written). A thing of a kind without a behavior takes `facing`/`rotation`
   in the file as a piece does (it starts so in the game:
   `Stage::name_things`; a kind with a behavior is refused,

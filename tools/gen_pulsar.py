@@ -57,7 +57,7 @@ def prefab(path, size, voxels):
     """A prefab of the map: (x, y, z, (r, g, b)) in its box, its colours
     numbered by their first use (the order the map takes them)."""
     index, body = {}, []
-    for x, y, z, c in sorted({(x, y, z): c for x, y, z, c in voxels if 0 <= x < size[0] and 0 <= y < size[1] and 0 <= z < size[2]}.items()):
+    for (x, y, z), c in sorted({(x, y, z): c for x, y, z, c in voxels if 0 <= x < size[0] and 0 <= y < size[1] and 0 <= z < size[2]}.items()):
         body.append((x, y, z, index.setdefault(c, len(index) + 1)))
     path.parent.mkdir(parents=True, exist_ok=True)
     write_scene(path, size, body, {i: c for c, i in index.items()})
@@ -384,6 +384,12 @@ def level():
 
 
 def main():
+    # The game has grown past this script (its level twice as wide, its
+    # models from games/pulsar/make_models.py): what it writes is no longer
+    # the game's, and the replays would not run on it. It only writes over
+    # a game that is there when told to.
+    if (GAME / "map.toml").exists() and "--over" not in sys.argv:
+        sys.exit(f"{GAME} is there and is not what this script makes any more: nothing written (--over writes over it)")
     ship()
     enemies()
     boss()

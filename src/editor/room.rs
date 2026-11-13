@@ -1092,6 +1092,11 @@ impl Editor {
     /// editor.
     pub fn edit_model(&mut self) {
         self.wants_model = self.chosen_thing().and_then(|t| t.model.clone().or_else(|| self.kind_models.get(&t.kind).cloned()));
+        // A piece: its model shaped in place, the level round it.
+        self.wants_context = match self.chosen {
+            Some(Item::Thing(i)) if self.level.things[i].is_piece() && self.level.things[i].model.is_some() => Some(super::super::context::Seed { level: self.file.clone(), piece: i, hidden: self.hidden.clone() }),
+            _ => None,
+        };
     }
 
     /// Whether a thing of a kind faces as the level's file turns it: a
@@ -1156,28 +1161,46 @@ pub struct Hidden {
     things: Vec<Thing>,
 }
 
-impl Editor {
-    /// How `item` is known to `Hidden`: its sort and name, else the thing.
-    fn hidden_key(&self, item: Item) -> Option<Result<(u8, String), Thing>> {
-        let sort = match item {
-            Item::Thing(_) => 0,
-            Item::Place(_) => 1,
-            Item::Area(_) => 2,
-        };
-        match (self.name_of(item), item) {
-            (Some(n), _) => Some(Ok((sort, n.to_string()))),
-            (None, Item::Thing(i)) => self.level.things.get(i).cloned().map(Err),
-            _ => None,
+/// How `item` of `level` is known to `Hidden`: its sort and name, else
+/// the thing.
+fn hidden_key(level: &GridLevel, item: Item) -> Option<Result<(u8, String), Thing>> {
+    let (sort, name) = match item {
+        Item::Thing(i) => (0, level.things.get(i)?.name.clone()),
+        Item::Place(i) => (1, Some(level.places.get(i)?.name.clone())),
+        Item::Area(i) => (2, Some(level.areas.get(i)?.name.clone())),
+    };
+    match (name, item) {
+        (Some(n), _) => Some(Ok((sort, n))),
+        (None, Item::Thing(i)) => level.things.get(i).cloned().map(Err),
+        _ => None,
+    }
+}
+
+impl Hidden {
+    /// Whether this hides `item` of `level`.
+    pub(crate) fn hides_in(&self, level: &GridLevel, item: Item) -> bool {
+        match hidden_key(level, item) {
+            Some(Ok(k)) => self.names.contains(&k),
+            Some(Err(t)) => self.things.contains(&t),
+            None => false,
         }
+    }
+}
+
+impl Editor {
+    fn hidden_key(&self, item: Item) -> Option<Result<(u8, String), Thing>> {
+        hidden_key(&self.level, item)
     }
 
     /// Whether `item` is hidden in the editor.
     pub fn is_hidden(&self, item: Item) -> bool {
-        match self.hidden_key(item) {
-            Some(Ok(k)) => self.hidden.names.contains(&k),
-            Some(Err(t)) => self.hidden.things.contains(&t),
-            None => false,
-        }
+        self.hidden.hides_in(&self.level, item)
+    }
+
+    /// What the editor hides (for a model opened from here in place:
+    /// `context::Seed`).
+    pub fn hidden(&self) -> &Hidden {
+        &self.hidden
     }
 
     /// Whether anything is hidden.
@@ -1210,7 +1233,7 @@ impl Editor {
         self.set_hidden(item, !hidden);
     }
 
-    /// ONLY THIS: everything else hidden, it shown.
+    /// HIDE OTHERS: everything else hidden, it shown.
     pub fn only(&mut self, item: Item) {
         let all: Vec<Item> = (0..self.level.things.len()).map(Item::Thing).chain((0..self.level.places.len()).map(Item::Place)).chain((0..self.level.areas.len()).map(Item::Area)).collect();
         for other in all {
@@ -1726,13 +1749,13 @@ mod tests {
         use crate::editor::view::{Action, MenuOn};
         let (mut ed, _dir) = room("menu", false);
         let words = |ed: &Editor, on| crate::editor::stage::menu_entries(ed, on).into_iter().map(|(w, ..)| w).collect::<Vec<_>>();
-        assert_eq!(words(&ed, MenuOn::Item(Item::Thing(0))), ["COPY", "REMOVE", "RENAME", "HIDE", "ONLY THIS", "EDIT MODEL", "LIGHT ON", "ROTATE 90°", "LAY DOWN", "SOLID"]);
+        assert_eq!(words(&ed, MenuOn::Item(Item::Thing(0))), ["COPY", "REMOVE", "RENAME", "HIDE", "HIDE OTHERS", "EDIT MODEL", "LIGHT ON", "ROTATE 90°", "LAY DOWN", "SOLID"]);
         assert_eq!(words(&ed, MenuOn::Item(Item::Thing(1)))[6], "LIGHT OFF", "the lamp has its light");
         assert!(!words(&ed, MenuOn::Item(Item::Thing(3))).contains(&"SOLID".to_string()), "the chair at 45 degrees cannot be solid");
         for item in [Item::Thing(2), Item::Thing(4), Item::Area(0)] {
-            assert_eq!(words(&ed, MenuOn::Item(item)), ["COPY", "REMOVE", "RENAME", "HIDE", "ONLY THIS"], "{item:?}");
+            assert_eq!(words(&ed, MenuOn::Item(item)), ["COPY", "REMOVE", "RENAME", "HIDE", "HIDE OTHERS"], "{item:?}");
         }
-        assert_eq!(words(&ed, MenuOn::Item(Item::Place(0))), ["COPY", "REMOVE", "RENAME", "HIDE", "ONLY THIS", "ROTATE 90°"]);
+        assert_eq!(words(&ed, MenuOn::Item(Item::Place(0))), ["COPY", "REMOVE", "RENAME", "HIDE", "HIDE OTHERS", "ROTATE 90°"]);
         assert_eq!(words(&ed, MenuOn::Floor(IVec3::new(5, 5, 0))), ["ADD MODEL…", "ADD LIGHT", "ADD PLACE", "ADD AREA"]);
         assert_eq!(words(&ed, MenuOn::Add), ["MODEL…", "LIGHT", "PLACE", "AREA"]);
         // Its entries do what they say: a light set down where the floor

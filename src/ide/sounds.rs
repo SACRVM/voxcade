@@ -17,26 +17,26 @@ pub fn name_of(path: &str) -> Option<&str> {
     (!stem.contains('/') && ending == "toml").then_some(stem)
 }
 
-/// A sound in a line of words: how long, and what kind.
+/// A sound as a line of facts: how long, its wave, how its pitch moves.
 pub fn describe(def: &SoundDef) -> String {
     match def {
-        SoundDef::Silent => "A sound that is silent.".into(),
-        SoundDef::Synth(s) => format!("A sound: {:.2} s, {}.", s.length(), synth_words(s)),
+        SoundDef::Silent => "silent".into(),
+        SoundDef::Synth(s) => format!("{:.2} s · {}", s.length(), synth_words(s)),
     }
 }
 
 /// What a synthesized sound is: its wave, and how its pitch moves.
 fn synth_words(s: &Synth) -> String {
     let mut out = match s.wave {
-        Wave::Noise => "a burst of noise".to_string(),
-        wave => format!("a {} wave", wave.name()),
+        Wave::Noise => "noise".to_string(),
+        wave => format!("{} wave", wave.name()),
     };
     if s.wave != Wave::Noise {
         if s.sweep.round() != 0.0 {
-            out.push_str(&format!(" {} {}", if s.sweep < 0.0 { "falling" } else { "rising" }, interval(s.sweep.abs())));
+            out.push_str(&format!(" · {} {}", if s.sweep < 0.0 { "falling" } else { "rising" }, interval(s.sweep.abs())));
         }
         if s.jump.round() != 0.0 {
-            out.push_str(&format!(", jumping {} {}", if s.jump < 0.0 { "down" } else { "up" }, interval(s.jump.abs())));
+            out.push_str(&format!(" · jumping {} {}", if s.jump < 0.0 { "down" } else { "up" }, interval(s.jump.abs())));
         }
     }
     out
@@ -115,10 +115,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sounds")).unwrap();
         let ping = def("wave = \"square\"\nhold = 0.1\ndecay = 0.1\nsweep = -18\n");
-        assert_eq!(describe(&ping), "A sound: 0.20 s, a square wave falling an octave and a half.");
-        assert_eq!(describe(&def("wave = \"noise\"\nhold = 0\ndecay = 0.3\n")), "A sound: 0.30 s, a burst of noise.");
-        assert_eq!(describe(&def("wave = \"triangle\"\njump = 5\njump_at = 0.05\n")), "A sound: 0.30 s, a triangle wave, jumping up 5 semitones.");
-        assert_eq!(describe(&def("silent = true\n")), "A sound that is silent.");
+        assert_eq!(describe(&ping), "0.20 s · square wave · falling an octave and a half");
+        assert_eq!(describe(&def("wave = \"noise\"\nhold = 0\ndecay = 0.3\n")), "0.30 s · noise");
+        assert_eq!(describe(&def("wave = \"triangle\"\njump = 5\njump_at = 0.05\n")), "0.30 s · triangle wave · jumping up 5 semitones");
+        assert_eq!(describe(&def("silent = true\n")), "silent");
         // PLAY SOUND's buffer: the synth as the mixer has it, a silent one empty.
         assert_eq!(render(&ping, &dir).unwrap().len(), (0.2 * crate::audio::SAMPLE_RATE as f32).ceil() as usize);
         assert!(render(&def("silent = true\n"), &dir).unwrap().is_empty());

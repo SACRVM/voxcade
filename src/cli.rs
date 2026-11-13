@@ -47,7 +47,10 @@ USAGE:
                  [--move NAME --at X,Y,Z] [--rotate NAME --by DEG [--about x|y|z]] [--lay NAME] [--copy NAME --at X,Y,Z] [--remove NAME]
                  [--rename NAME --to NEW] [--light NAME [--radius N] [--color #rrggbb] [--at X,Y,Z]] [--room-size X,Y,Z]
                  [--choose-light K] [--menu NAME|floor|voxel] [--add-menu] [--level-settings] [--handles move|rotate] [--hover arrow-x|ring-z|face-y|...]
-                 [--hide NAME] [--click X,Y]
+                 [--hide NAME] [--click X,Y] [--slice x|y|z,LAYER] [--rotate-part NAME --by DEG [--about rotation|pitch|roll]] [--pose-part NAME --by DEG [--about ...]]
+                 [--part NAME [--add-part] [--merge-into NAME] [--mirror]] [--menu part:NAME] [--model FILE --context LEVEL:NAME [--context-off]]
+                 [--model FILE [--frame N | --part NAME] --clear X0,Y0,Z0 --to X1,Y1,Z1 | --fill SIGN|#rrggbb --from X0,Y0,Z0 --to X1,Y1,Z1 ... [--dry]]
+                   (without --shot these write the model; coordinates from its pivot, as the file's `at`)
   voxcade ide    [<game-dir>] [--shot FILE] [--open PATH] [--console CMD] [--play TICKS] [--size WxH] [--remote]
   voxcade mcp    [--remote]
   voxcade film   <game-dir> <replay-file> [--from S] [--to S] [--fps N] [--size WxH]
@@ -663,7 +666,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
         }
         Some("edit") => {
             let dir = opened(&args)?;
-            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new(), ops: Vec::new(), choose: None, game_view: false, picker: false, lights_off: false, choose_light: None, menu: None, add_menu: false, level_settings: false, hover: None, turn_handles: false, part_moves: Vec::new(), hide: Vec::new(), click: None };
+            let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new(), ops: Vec::new(), choose: None, game_view: false, picker: false, lights_off: false, choose_light: None, menu: None, add_menu: false, level_settings: false, hover: None, turn_handles: false, part_moves: Vec::new(), hide: Vec::new(), click: None, slice: None, cells: Vec::new(), frame: None, dry: false, context: None, context_off: false, part_turns: Vec::new(), part_poses: Vec::new(), last_pose: false, add_part: false, merge_into: None, mirror: false };
             let mut shot = false;
             let three = |flag: &str, value: &str| -> Result<glam::IVec3> {
                 let n: Vec<i32> = value.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>().with_context(|| format!("{flag} X,Y,Z"))?;
@@ -674,6 +677,14 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
             while let Some(flag) = it.next() {
                 if flag == "--things" || flag == "--stamp" {
                     (opts.things, opts.stamp) = (opts.things || flag == "--things", opts.stamp || flag == "--stamp");
+                    continue;
+                }
+                if flag == "--mirror" {
+                    opts.mirror = true;
+                    continue;
+                }
+                if flag == "--dry" || flag == "--context-off" || flag == "--add-part" {
+                    (opts.dry, opts.context_off, opts.add_part) = (opts.dry || flag == "--dry", opts.context_off || flag == "--context-off", opts.add_part || flag == "--add-part");
                     continue;
                 }
                 if flag == "--shift" || flag == "--align" {
@@ -721,6 +732,14 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                         let by = it.next().filter(|b| *b == "--by").and(it.next()).context("--rotate NAME --by DEGREES")?;
                         opts.ops.push(crate::editor::ShotOp::Turn(value.clone(), by.parse().context("--by DEGREES")?, 2));
                     }
+                    // (After --rotate-part or --pose-part: rotation, pitch or roll.)
+                    "--about" if ["rotation", "pitch", "roll"].contains(&value.as_str()) => {
+                        let axis = ["rotation", "pitch", "roll"].iter().position(|a| a == value).expect("one of them");
+                        match (opts.last_pose, opts.part_poses.last_mut(), opts.part_turns.last_mut()) {
+                            (true, Some(t), _) | (false, _, Some(t)) => t.2 = axis,
+                            _ => bail!("--about rotation|pitch|roll follows --rotate-part NAME --by DEG (or --pose-part)"),
+                        }
+                    }
                     "--about" => match opts.ops.last_mut() {
                         Some(crate::editor::ShotOp::Turn(_, _, axis)) => *axis = ["x", "y", "z"].iter().position(|a| a == value).context("--about x, y or z")?,
                         _ => bail!("--about follows --rotate NAME --by DEGREES"),
@@ -733,8 +752,40 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                         let [x, y, z] = n[..] else { bail!("{flag} NAME --by X,Y,Z: three numbers") };
                         opts.part_moves.push((value.clone(), glam::Vec3::new(x, y, z), flag == "--move-joint"));
                     }
+                    "--merge-into" => opts.merge_into = Some(value.clone()),
+                    "--rotate-part" => {
+                        let by = it.next().filter(|b| *b == "--by").and(it.next()).context("--rotate-part NAME --by DEG [--about rotation|pitch|roll]")?;
+                        let by: f32 = by.parse().context("--rotate-part NAME --by DEG: degrees")?;
+                        opts.part_turns.push((value.clone(), by, 0));
+                        opts.last_pose = false;
+                    }
+                    "--pose-part" => {
+                        let by = it.next().filter(|b| *b == "--by").and(it.next()).context("--pose-part NAME --by DEG [--about rotation|pitch|roll]")?;
+                        let by: f32 = by.parse().context("--pose-part NAME --by DEG: degrees")?;
+                        opts.part_poses.push((value.clone(), by, 0));
+                        opts.last_pose = true;
+                    }
                     "--hover" => opts.hover = Some(value.clone()),
                     "--hide" => opts.hide.push(value.clone()),
+                    "--context" => {
+                        let (level, name) = value.rsplit_once(':').context("--context LEVEL:NAME (a level's file and a piece in it)")?;
+                        opts.context = Some((level.to_string(), name.to_string()));
+                    }
+                    "--frame" => opts.frame = Some(value.parse().context("--frame N (from 1)")?),
+                    "--clear" => {
+                        let to = it.next().filter(|b| *b == "--to").and(it.next()).context("--clear X0,Y0,Z0 --to X1,Y1,Z1")?;
+                        opts.cells.push(crate::editor::frames::CellOp::Clear(three("--clear", value)?, three("--to", to)?));
+                    }
+                    "--fill" => {
+                        let from = it.next().filter(|b| *b == "--from").and(it.next()).context("--fill SIGN|#rrggbb --from X0,Y0,Z0 --to X1,Y1,Z1")?;
+                        let to = it.next().filter(|b| *b == "--to").and(it.next()).context("--fill SIGN|#rrggbb --from X0,Y0,Z0 --to X1,Y1,Z1")?;
+                        opts.cells.push(crate::editor::frames::CellOp::Fill(value.clone(), three("--from", from)?, three("--to", to)?));
+                    }
+                    "--slice" => {
+                        let (axis, at) = value.split_once(',').context("--slice x|y|z,LAYER")?;
+                        let axis = ["x", "y", "z"].iter().position(|a| *a == axis).context("--slice x|y|z,LAYER")?;
+                        opts.slice = Some((axis, at.trim().parse().context("--slice x|y|z,LAYER: a whole number")?));
+                    }
                     "--click" => {
                         let n: Vec<f32> = value.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>().context("--click X,Y: a pixel of the shot")?;
                         let [x, y] = n[..] else { bail!("--click X,Y: two numbers") };
@@ -785,7 +836,14 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
                     other => bail!("unknown option {other}"),
                 }
             }
-            if shot { crate::editor::shot::<G>(&dir, &opts) } else { crate::editor::run::<G>(&dir, opts.level.as_deref(), opts.block.as_deref(), opts.things, opts.model.as_deref()) }
+            if shot {
+                crate::editor::shot::<G>(&dir, &opts)
+            } else if !opts.cells.is_empty() {
+                // Without a window: written as the editor writes.
+                crate::editor::change_cells(&dir, &opts)
+            } else {
+                crate::editor::run::<G>(&dir, opts.level.as_deref(), opts.block.as_deref(), opts.things, opts.model.as_deref())
+            }
         }
         Some("ide") => {
             // Without a game: the start page.

@@ -175,13 +175,13 @@ impl Wizard {
         };
         let made = match &standing {
             Standing::Newer { made } => {
-                ui.label(format!("This game was made with Voxcade {made}. This is Voxcade {}, which is older and cannot open it.", engine()));
+                ui.label(format!("MADE WITH VOXCADE {made} · THIS IS {}", engine()));
                 ui.add_space(6.0);
-                ui.label(RichText::new("Get the new version: the start page's line about new versions fetches it (voxca.de has it too). The game is left as it is.").color(QUIET));
+                ui.label(RichText::new("GET THE NEW VERSION").color(QUIET)).on_hover_text("The start page's line about new versions fetches it (voxca.de has it too). The game is left as it is.");
                 return;
             }
             Standing::Current if matches!(self.stage, Stage::Asking) => {
-                ui.label(format!("This game is for Voxcade {}: nothing to bring up to date.", engine()));
+                ui.label(format!("MADE FOR VOXCADE {} · UP TO DATE", engine()));
                 return;
             }
             Standing::Older { made: Some(v), .. } => format!("Voxcade {v}"),
@@ -189,9 +189,9 @@ impl Wizard {
         };
         match &self.stage {
             Stage::Asking => {
-                ui.label(format!("This game was made for {made}. This is Voxcade {}.", engine()));
+                ui.label(format!("MADE FOR {} · THIS IS VOXCADE {}", made.to_uppercase(), engine()));
                 ui.add_space(4.0);
-                ui.label(RichText::new("Its files are brought up to date before it opens here. What the upgrade would do:").color(QUIET));
+                ui.label(RichText::new("STEPS").color(QUIET)).on_hover_text("The files are brought up to date before the game opens here. This is what the upgrade would do.");
                 ui.add_space(12.0);
                 if let Standing::Older { steps, .. } = &standing {
                     for step in steps {
@@ -211,14 +211,12 @@ impl Wizard {
                 ui.label(RichText::new("UPGRADING…").color(ACCENT));
             }
             Stage::Failed(e) => {
-                ui.label("The upgrade stopped:");
+                ui.label(RichText::new("THE UPGRADE STOPPED").color(ACCENT)).on_hover_text("What it did before is kept; what it could not do is said below. Try again once it is mended, or bring it up to date by hand (voxcade upgrade).");
                 ui.add_space(6.0);
                 error(ui, e);
-                ui.add_space(6.0);
-                ui.label(RichText::new("What it did before is kept; what it could not do is said above. Try again once it is mended, or bring it up to date by hand (voxcade upgrade).").color(QUIET));
             }
             Stage::Upgraded { lines, dry, refit } => {
-                ui.label(if *dry { "What the upgrade would have done (a dry run: nothing was changed):".to_string() } else { format!("Brought up to date for Voxcade {}:", engine()) });
+                ui.label(if *dry { "DRY RUN · NOTHING CHANGED".to_string() } else { format!("BROUGHT UP TO DATE FOR VOXCADE {}", engine()) });
                 ui.add_space(8.0);
                 for line in lines {
                     said(ui, line);
@@ -229,13 +227,13 @@ impl Wizard {
                 match refit {
                     Refit::Nothing => {}
                     Refit::Offered => {
-                        ui.label("The game's replays were recorded on the old files. Refitted, they take the new ones if every one still plays exactly as recorded (nothing else in them changes).");
+                        ui.label("REPLAYS RECORDED ON THE OLD FILES").on_hover_text("Refitted, they take the new files if every one still plays exactly as recorded (nothing else in them changes).");
                     }
                     Refit::Running(_) => {
                         ui.label(RichText::new("PLAYING THE REPLAYS…").color(ACCENT));
                     }
                     Refit::Done(fine, lines) => {
-                        ui.label(if *fine { "Every replay plays as recorded and takes the new files:" } else { "Not every replay plays as recorded: nothing was written into them." });
+                        ui.label(if *fine { "EVERY REPLAY PLAYS AS RECORDED" } else { "NOT EVERY REPLAY PLAYS AS RECORDED · NOTHING WRITTEN" });
                         for line in lines {
                             said(ui, line);
                         }
@@ -253,7 +251,7 @@ impl Wizard {
         let open = if self.play { ("PLAY", Wish::Play) } else { ("OPEN THE GAME", Wish::Open) };
         let asking = matches!(self.stage, Stage::Asking) && matches!(self.standing, Ok(Standing::Older { .. }));
         if asking && let Some(n) = self.changes {
-            ui.label(RichText::new(format!("The folder has {n} change{} git has not committed. Save a step first (commit them), so that the upgrade's changes stand apart from yours: the upgrade commits nothing.", if n == 1 { "" } else { "s" })).color(ACCENT));
+            ui.label(RichText::new(format!("{n} UNCOMMITTED CHANGE{}", if n == 1 { "" } else { "S" })).color(ACCENT)).on_hover_text("Save a step first (commit them), so that the upgrade's changes stand apart from yours: the upgrade commits nothing.");
             ui.add_space(8.0);
         }
         ui.horizontal(|ui| {

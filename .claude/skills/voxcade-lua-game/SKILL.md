@@ -119,7 +119,18 @@ names the things (the editor offers ALIGN ALL). `light = { at = [0, 0,
 model's voxels, turning with it; `lights = [ {...}, {...} ]` for
 several (a flame and its glow); `thing.state.light` dims all of them, 0
 off to 1 (1 at first), kept by saves; more than 16 lights in view: the
-16 nearest the middle of the view shine, each light counting. A piece's
+16 nearest the middle of the view shine, each light counting. A piece
+whose model is a figure of parts (a door: its frame, the leaf with
+`parent = "frame"` and its `joint` at the hinge) is posed by its state:
+`level:thing("door").state.parts = { leaf = { rotation = 90 } }`, the
+pose `frame:model` takes (parts by name, `rotation`, `pitch`, `roll` in
+degrees about each part's joint), nil for at rest; the engine draws it so
+every picture. A wrong part, a model that is no figure, a rotation that
+is no number stop the game naming the piece and the part. It lasts this
+visit of the level only (not in saves): keep what must stay open in
+`world.state` (`world.state.door_open = true`) and set the pose again in
+`on_level_start`. A solid piece blocks where it stands at rest, whatever
+its pose (HELP's A DOOR THAT OPENS). A piece's
 `at` is its pivot cell and `thing.x` reads `at + 0.5`: a cube beside it
 goes at `math.floor(thing.x) + dx`. A level's own daylight: `[light]`
 in its file with `c.light`'s words (`sun = [x, y, z]`, `sun_color`,
@@ -361,7 +372,8 @@ Levels: the files in `levels/` (named by their file, in name order:
 `01_meadow.toml`, `02_cave.toml`; worlds `.vvx`; without any, one level
 as `c.world` says), each with named places (`[[place]]` in the file),
 named areas (`[[area]]`, `level.areas.NAME:holds(player)`) and pieces
-(`level:things("piece")`, `level:thing("lamp").state.light = 0`).
+(`level:things("piece")`, `level:thing("lamp").state.light = 0`,
+`level:thing("door").state.parts = { leaf = { rotation = 90 } }`).
 `world:go_to(level.next)` or `world:go_to("cave", "west")`,
 `world:restart()` (to `player.state.checkpoint` if set),
 `world:win()`, `world:lose()` ask for the end of the tick; one ask counts

@@ -44,6 +44,18 @@ pub struct Instance {
 
 /// A free turn as an instance carries it (`Instance::turn`): none for no
 /// turn at all, so cubes square to the grid stay exactly as they were.
+/// The turn the shader turns a cube by when it is given `snorm_turn(rot)`
+/// (read back, normalized): cubes placed by it meet their neighbours
+/// corner to corner (placed by `rot` itself, the packed turn's error left
+/// single pixels open between them).
+pub fn turn_as_drawn(rot: Quat) -> Quat {
+    let s = snorm_turn(rot);
+    if s == [0; 4] {
+        return Quat::IDENTITY;
+    }
+    Quat::from_array(s.map(|c| c as f32 / 127.0)).normalize()
+}
+
 pub fn snorm_turn(rot: Quat) -> [i8; 4] {
     if rot == Quat::IDENTITY {
         return [0; 4];
@@ -238,13 +250,29 @@ const ACTOR_STRIDE: usize = 256;
 /// cell (2 MB); more, and it looks them up in a hash set.
 const DENSE_CELLS: i64 = 1 << 24;
 
+/// Marks besides the faces of opaque unit cubes that lie against a cell
+/// `taken` says is filled (a figure's part drawn as cubes against the
+/// part being shaped, which is the world: one covered face otherwise won
+/// single pixels at the seam).
+pub fn hide_faces_against(instances: &mut [Instance], taken: impl Fn(glam::IVec3) -> bool) {
+    for i in instances.iter_mut().filter(|i| i.pos_size[3] == 1.0 && i.fx[1] == 255 && i.turn == [0; 4]) {
+        let c = glam::Vec3::from_slice(&i.pos_size[..3]).floor().as_ivec3();
+        for (bit, d) in crate::mesh::DIRS.iter().enumerate() {
+            if taken(c + *d) {
+                i.fx[2] |= 1 << bit;
+            }
+        }
+    }
+}
+
 /// Marks the faces of opaque unit cubes that touch another opaque unit
 /// cube, so they are not drawn: they are never seen, and where such a face
 /// meets the neighbour's surface at the same depth it shows as a seam.
 /// Runs every frame over the UI's tens of thousands of voxels, so which
 /// cells are taken is a bit per cell of the box around them.
 pub fn hide_inner_faces(instances: &mut [Instance]) {
-    let solid = |i: &Instance| i.pos_size[3] == 1.0 && i.fx[1] == 255;
+    // (A cube turned freely lies on no cell: its own model marks its faces.)
+    let solid = |i: &Instance| i.pos_size[3] == 1.0 && i.fx[1] == 255 && i.turn == [0; 4];
     let cell = |i: &Instance| glam::Vec3::from_slice(&i.pos_size[..3]).floor().as_ivec3();
     let (mut lo, mut hi) = (glam::IVec3::MAX, glam::IVec3::MIN);
     for i in instances.iter().filter(|i| solid(i)) {
@@ -456,6 +484,10 @@ pub struct FrameData {
     /// Opaque cubes first, then the last `see_through` ones, sorted far to near.
     pub instances: Vec<Instance>,
     pub see_through: usize,
+    /// The first `behind` of `instances`: see-through cubes drawn before
+    /// everything else, so that whatever is drawn after them lies over them
+    /// (the room round a model shaped in place never tints the model).
+    pub behind: usize,
     /// The UI's voxels, in their own scene over the world, and its camera.
     pub ui: Vec<Instance>,
     pub ui_view_proj: Mat4,
@@ -1320,7 +1352,8 @@ impl Renderer {
 
         // The world's cubes, then the UI's, in one buffer.
         let instance_count = frame.instances.len();
-        let opaque = (instance_count - frame.see_through.min(instance_count)) as u32;
+        let behind = frame.behind.min(instance_count) as u32;
+        let opaque = (instance_count - frame.see_through.min(instance_count)).max(behind as usize) as u32;
         let total = instance_count + frame.ui.len();
         if total > self.instance_capacity {
             self.instance_capacity = total.next_power_of_two();
@@ -1451,6 +1484,14 @@ impl Renderer {
                 multiview_mask: None,
             });
             pass.set_bind_group(0, &self.main_bind, &[]);
+            // What lies behind everything else, faint: first.
+            if behind > 0 {
+                pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
+                pass.set_vertex_buffer(1, self.instances.slice(..));
+                pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
+                pass.set_pipeline(&self.inst_see_through);
+                pass.draw_indexed(0..self.cube_index_count, 0, 0..behind);
+            }
             pass.set_pipeline(&self.chunk_main);
             for mesh in self.meshes.values() {
                 if !on_screen(&frame.view_proj, mesh.min, mesh.max) {
@@ -1473,9 +1514,9 @@ impl Renderer {
                 pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
                 pass.set_vertex_buffer(1, self.instances.slice(..));
                 pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
-                if opaque > 0 {
+                if opaque > behind {
                     pass.set_pipeline(&self.inst_main);
-                    pass.draw_indexed(0..self.cube_index_count, 0, 0..opaque);
+                    pass.draw_indexed(0..self.cube_index_count, 0, behind..opaque);
                 }
                 if (opaque as usize) < instance_count {
                     pass.set_pipeline(&self.inst_see_through);
@@ -1772,5 +1813,16 @@ mod tests {
                 .validate(&module)
                 .unwrap_or_else(|e| panic!("{name}: {e:?}"));
         }
+    }
+
+    /// A cube lying against a filled cell (a figure's part against the
+    /// part shaped) leaves out the face between them, and only that.
+    #[test]
+    fn a_cube_hides_the_face_against_what_is_filled() {
+        let cube = |p: glam::Vec3| crate::render::Instance { pos_size: [p.x + 0.5, p.y + 0.5, p.z + 0.5, 1.0], color: [9, 9, 9, 255], fx: [0, 255, 0, 0], shade: [0; 4], turn: [0; 4] };
+        let mut cubes = vec![cube(glam::Vec3::ZERO)];
+        crate::render::hide_faces_against(&mut cubes, |c| c == glam::IVec3::X);
+        let bit = crate::mesh::DIRS.iter().position(|d| *d == glam::IVec3::X).unwrap();
+        assert_eq!(cubes[0].fx[2], 1 << bit);
     }
 }

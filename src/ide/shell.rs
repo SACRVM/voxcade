@@ -320,11 +320,11 @@ struct Naming {
 /// What a plus at a heading makes, and its hover text (`None`: no plus there).
 fn new_what(sort: &str) -> Option<&'static str> {
     Some(match sort {
-        "Logic" => "New Lua file",
-        "Scenarios" => "New scenario",
-        "Models" => "New model",
-        "Sounds" => "New sound",
-        "Music" => "New song",
+        "Logic" => "New Lua file: code the game runs",
+        "Scenarios" => "New scenario: a run begun late, to try what happens there",
+        "Models" => "New model: a figure, prop or block, to shape in the editor",
+        "Sounds" => "New sound: a blip to change",
+        "Music" => "New song: a text to change and play",
         "Levels" => "New level",
         _ => return None,
     })
@@ -759,7 +759,7 @@ impl Shell {
         egui::Panel::bottom("lua line").frame(egui::Frame::new().inner_margin(egui::Margin { left: 20, right: 12, top: 4, bottom: 8 })).show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(">").text_style(TextStyle::Monospace).color(QUIET));
-                let edit = ui.add(egui::TextEdit::singleline(&mut self.lua.line).font(TextStyle::Monospace).desired_width(f32::INFINITY).hint_text("Lua in the game being played: player.state.score = 5000"));
+                let edit = ui.add(egui::TextEdit::singleline(&mut self.lua.line).font(TextStyle::Monospace).desired_width(f32::INFINITY).hint_text("player.state.score = 5000"));
                 if edit.has_focus() {
                     if ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
                         self.lua.recall(-1);
@@ -1347,7 +1347,7 @@ impl Shell {
                             }
                         }
                     } else if shown {
-                        ui.label(RichText::new("ESCAPE back to the file · F5 again · F9 keeps the run").small().color(QUIET));
+                        ui.label(RichText::new("ESCAPE FILE · F5 AGAIN · F9 KEEP RUN").small().color(QUIET));
                     }
                 });
             });
@@ -1521,16 +1521,6 @@ impl Shell {
                                     }
                                 }
                             });
-                        }
-                        if files.is_empty() && self.naming.as_ref().is_none_or(|n| n.sort != sort) {
-                            let none = match sort {
-                                "Scenarios" => "None yet: runs begun late, to try what happens there.",
-                                "Models" | "Sounds" | "Music" => "None yet: the plus makes one.",
-                                _ => "",
-                            };
-                            if !none.is_empty() {
-                                ui.label(RichText::new(none).small().color(QUIET));
-                            }
                         }
                         // The sounds the game has from the engine and its
                         // ready-made rules, which no file of its own replaces.
@@ -1767,7 +1757,7 @@ impl Shell {
             return Vec::new();
         }
         let core = crate::audio::CORE_FILES.iter().any(|(n, _)| *n == name);
-        vec![if core { "Played by the engine itself, when the world is hit, blown up or falls apart.".into() } else { "Played by the game's ready-made rules.".to_string() }]
+        vec![if core { "THE ENGINE".into() } else { "THE GAME'S READY-MADE RULES".to_string() }]
     }
 
     /// A sound the game brings, shown in the main area: what it is, PLAY
@@ -1777,10 +1767,10 @@ impl Shell {
             self.builtin = None;
             return;
         };
-        let line = format!("{} Built in: the game has no file of its own for it.", sounds::describe(&def));
+        let line = format!("{} · built in", sounds::describe(&def));
         let (mut play, mut yours) = (false, false);
         ui.horizontal(|ui| {
-            ui.label(RichText::new(line).color(QUIET));
+            ui.label(RichText::new(line.to_uppercase()).color(QUIET)).on_hover_text("Built in: the game has no file of its own for it.");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(16.0);
                 play = ui.button("PLAY SOUND").on_hover_text("Plays the sound as it stands, at the game's sound volume.").clicked();
@@ -1902,7 +1892,7 @@ impl Shell {
                 self.shown = Some(load(&file, &file.to_string_lossy(), ui.ctx()));
                 self.facts = None;
             }
-            ui.label(RichText::new(format!("{} (not a file of the game, to look at)", file.display())).color(QUIET));
+            ui.label(RichText::new(format!("{} · NOT IN THE GAME", file.display())).color(QUIET));
             ui.add_space(10.0);
             egui::ScrollArea::both().id_salt("outside").auto_shrink([false, false]).content_margin(egui::Margin { right: 12, bottom: 14, ..egui::Margin::ZERO }).show(ui, |ui| match self.shown.as_ref() {
                 Some(Shown::Image(texture)) => picture(ui, texture),
@@ -1917,7 +1907,6 @@ impl Shell {
             return self.builtin_ui(ui, name);
         }
         let Some(path) = self.memory.open.clone() else {
-            ui.label(RichText::new("Nothing here yet.").color(QUIET));
             return;
         };
         // The open file gone from the folder (the agent, or anything outside
@@ -1925,7 +1914,7 @@ impl Shell {
         // by itself. A text keeps its text (SAVE AGAIN, below); anything else
         // has nothing to show.
         if !self.files.has(&path) && !matches!(self.shown, Some(Shown::Code(_))) {
-            ui.label(RichText::new(format!("{path} is gone from the game folder: it was removed or renamed outside the IDE. Choose another file in the list.")).color(ACCENT));
+            ui.label(RichText::new(format!("{path} IS GONE FROM THE FOLDER")).color(ACCENT));
             return;
         }
         if self.shown.is_none() {
@@ -1983,7 +1972,7 @@ impl Shell {
         let had_facts = facts.is_some();
         if let Some(facts) = facts {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(facts).color(QUIET));
+                ui.label(RichText::new(facts.to_uppercase()).color(QUIET));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(16.0);
                     if self.editable(&path) {
@@ -2023,7 +2012,7 @@ impl Shell {
         if let Some(name) = path.strip_prefix("scenarios/").and_then(|n| n.strip_suffix(".lua")).filter(|_| self.files.scenarios.contains(&path)) {
             let mut play = false;
             ui.horizontal(|ui| {
-                ui.label(RichText::new("A scenario: the game begun late, set up by this code").color(QUIET));
+                ui.label(RichText::new("SCENARIO").color(QUIET)).on_hover_text("The game begun late, set up by this code.");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(16.0);
                     play = ui.button("PLAY SCENARIO").on_hover_text("Plays the game from it (saved first); F5 begins it again.").clicked();
@@ -2064,7 +2053,7 @@ impl Shell {
             }
             let line = self.sound_line.as_ref().map(|(_, l)| l.clone()).unwrap_or_default();
             ui.horizontal(|ui| {
-                ui.label(RichText::new(line).color(QUIET));
+                ui.label(RichText::new(line.to_uppercase()).color(QUIET));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(16.0);
                     play_sound = ui.button("PLAY SOUND").on_hover_text("Plays the sound as it stands, at the game's sound volume.").clicked();
@@ -2127,7 +2116,7 @@ impl Shell {
         if let Some(Shown::Code(buffer)) = &mut self.shown {
             if buffer.gone {
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(RichText::new(format!("{path} is gone from the game folder: it was removed or renamed outside the IDE. Its text is kept here.")).color(ACCENT));
+                    ui.label(RichText::new(format!("{path} IS GONE FROM THE FOLDER · TEXT KEPT")).color(ACCENT));
                     if ui.button("SAVE AGAIN").on_hover_text(format!("Writes the text back into the game folder as {path}.")).clicked() {
                         put_back = true;
                     }
@@ -2136,7 +2125,7 @@ impl Shell {
             }
             if buffer.theirs.is_some() {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Changed outside while you changed it too.").color(ACCENT));
+                    ui.label(RichText::new("CHANGED OUTSIDE TOO").color(ACCENT));
                     if ui.button("KEEP MINE").clicked() {
                         buffer.keep_mine();
                     }
@@ -2147,7 +2136,7 @@ impl Shell {
                 ui.add_space(8.0);
             }
             if buffer.restored {
-                ui.label(RichText::new("Your changes came back from the journal.").color(QUIET));
+                ui.label(RichText::new("RESTORED FROM THE JOURNAL").color(QUIET));
                 ui.add_space(8.0);
             }
             if let Some((line, why)) = &buffer.code.error {
@@ -2426,18 +2415,14 @@ fn game_error_row(ui: &mut egui::Ui, shown: &str, copy: &str, line: bool) -> (bo
     (go, show)
 }
 
-/// What the console shows where the agent's program was not found: what an
-/// agent is, that it is a program of its own with a maker's subscription or
-/// credit behind it, where to get it (the address opens in the browser),
-/// that the IDE works without one and where the agent is chosen. LOOK
-/// AGAIN, pressed after installing it: true.
+/// What the console shows where the agent's program was not found: a
+/// heading (what an agent is, on hover), where to get it (the address
+/// opens in the browser) and LOOK AGAIN, pressed after installing it: true.
 fn agent_missing(ui: &mut egui::Ui, agent: Agent) -> bool {
     let mut again = false;
     egui::ScrollArea::vertical().auto_shrink([false, false]).content_margin(egui::Margin { left: 20, right: 20, top: 12, bottom: 12 }).show(ui, |ui| {
         ui.set_max_width(680.0f32.min(ui.available_width()));
-        ui.label(RichText::new("NO AGENT FOUND").color(ACCENT));
-        ui.add_space(6.0);
-        ui.add(egui::Label::new(RichText::new("An agent is a helper you tell in plain words what your game should do: it writes the files for you. It is a program of its own that has to be installed first, for example Claude Code, which needs a subscription or credit with its maker.").color(TEXT)).wrap());
+        ui.label(RichText::new("NO AGENT FOUND").color(ACCENT)).on_hover_text("An agent is a helper you tell in plain words what your game should do: it writes the files for you. It is a program of its own, installed first (Claude Code needs a subscription or credit with its maker). The IDE works without one.");
         ui.add_space(6.0);
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new(format!("Get {}:", agent.called())).color(TEXT));
@@ -2445,8 +2430,6 @@ fn agent_missing(ui: &mut egui::Ui, agent: Agent) -> bool {
                 crate::update::show(agent.home());
             }
         });
-        ui.add_space(6.0);
-        ui.add(egui::Label::new(RichText::new("The IDE works without one: everything else here needs none.").color(TEXT)).wrap());
         ui.add_space(10.0);
         again = ui.button("LOOK AGAIN").on_hover_text("Looks once more for the agent, after you installed it, and starts it when it is there.").clicked();
     });
@@ -2472,7 +2455,7 @@ fn used_ui(ui: &mut egui::Ui, name: &str, says: &[String], rows: &[sounds::Use],
         ui.label(RichText::new(said).color(QUIET));
     }
     if says.is_empty() && rows.is_empty() {
-        ui.label(RichText::new(format!("Nothing in the game plays it yet: level:sound(\"{name}\", player) does.")).color(QUIET));
+        ui.label(RichText::new("NOT USED YET").color(QUIET)).on_hover_text(format!("level:sound(\"{name}\", player) plays it."));
     }
     for row in rows {
         let shown: String = row.text.chars().take(100).collect();
@@ -2510,13 +2493,13 @@ fn facts(file: &Path, path: &str, level: bool) -> String {
     let plural = |n: usize, one: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") };
     if level {
         return match crate::grid::GridLevel::read(file) {
-            Ok(l) if !l.has_grid() => format!("A level of pieces, without blocks: {} by {} by {} voxels, {}, {}, {}.", l.size.x, l.size.y, l.size.z, plural(l.things.len(), "thing"), plural(l.places.len(), "place"), plural(l.areas.len(), "area")),
-            Ok(l) => format!("The level: {} by {} by {} cells of {} voxels, {}, {}.", l.size.x, l.size.y, l.size.z, l.n, plural(l.blocks.len(), "block"), plural(l.things.len(), "thing")),
+            Ok(l) if !l.has_grid() => format!("{} × {} × {} · {} · {} · {}", l.size.x, l.size.y, l.size.z, plural(l.things.len(), "thing"), plural(l.places.len(), "place"), plural(l.areas.len(), "area")),
+            Ok(l) => format!("{} × {} × {} cells of {} · {} · {}", l.size.x, l.size.y, l.size.z, l.n, plural(l.blocks.len(), "block"), plural(l.things.len(), "thing")),
             Err(e) => format!("{e:#}"),
         };
     }
     if !path.ends_with(".vvx") {
-        return "A MagicaVoxel file, shown only (a model to shape here: voxcade import).".into();
+        return "MagicaVoxel file".into();
     }
     match crate::vox::load_model(file) {
         Ok(m) => model_line(&m, path),
@@ -2529,12 +2512,12 @@ fn facts(file: &Path, path: &str, level: bool) -> String {
 fn scene_facts(file: &Path, path: &str) -> String {
     match crate::scene::load(file) {
         Ok(s) => {
-            let what = if path.starts_with("prefabs/") { "A prefab of the map" } else { "A world" };
+            let what = if path.starts_with("prefabs/") { "Prefab" } else { "World" };
             let markers = match s.markers.len() {
                 0 => String::new(),
-                n => format!(", {n} marker{} ({})", if n == 1 { "" } else { "s" }, s.markers.join(", ")),
+                n => format!(" · {n} marker{} ({})", if n == 1 { "" } else { "s" }, s.markers.join(", ")),
             };
-            format!("{what}, {} by {} by {} voxels, {} colors{markers}; shown only.", s.size.x, s.size.y, s.size.z, s.colours.len())
+            format!("{what} · {} × {} × {} · {} colors{markers}", s.size.x, s.size.y, s.size.z, s.colours.len())
         }
         Err(e) => format!("{e:#}"),
     }
@@ -2546,9 +2529,9 @@ pub(super) fn model_line(m: &crate::vox::VoxModel, path: &str) -> String {
     let plural = |n: usize, one: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") };
     let s = m.size;
     match () {
-        _ if path.starts_with("blocks/") => format!("A block of the level, {} by {} by {} voxels.", s.x, s.y, s.z),
-        _ if !m.parts.is_empty() => format!("A figure, {} by {} by {} voxels, {}.", s.x, s.y, s.z, plural(m.parts.len(), "part")),
-        _ => format!("A model, {} by {} by {} voxels, {}.", s.x, s.y, s.z, plural(m.frames.len(), "frame")),
+        _ if path.starts_with("blocks/") => format!("Block · {} × {} × {}", s.x, s.y, s.z),
+        _ if !m.parts.is_empty() => format!("Figure · {} × {} × {} · {}", s.x, s.y, s.z, plural(m.parts.len(), "part")),
+        _ => format!("Model · {} × {} × {} · {}", s.x, s.y, s.z, plural(m.frames.len(), "frame")),
     }
 }
 
@@ -2557,12 +2540,7 @@ pub(super) fn model_line(m: &crate::vox::VoxModel, path: &str) -> String {
 fn song_facts(file: &Path) -> String {
     let song = std::fs::read_to_string(file).map_err(anyhow::Error::from).and_then(|text| crate::audio::music::parse(&text));
     match song {
-        Ok(song) => {
-            let seconds = (song.length / crate::audio::SAMPLE_RATE as u64) as u32;
-            let title = if song.title.is_empty() { String::new() } else { format!("{}, ", song.title) };
-            let ending = if song.looping { "starting over" } else { "once" };
-            format!("A song: {title}{}:{:02}, {} channels, {ending}.", seconds / 60, seconds % 60, song.names.len())
-        }
+        Ok(song) => super::code::song_line(&song),
         Err(e) => format!("The song cannot be read: {e:#}"),
     }
 }
@@ -2820,7 +2798,7 @@ mod tests {
         let song = "music/under_the_dunes.mml";
         shell.open(song);
         frame(&ctx, &mut shell);
-        assert!(shell.facts.as_deref().is_some_and(|f| f.starts_with("A song: ") && f.contains("channels")), "{:?}", shell.facts);
+        assert!(shell.facts.as_deref().is_some_and(|f| f.contains("channels")), "{:?}", shell.facts);
         assert!(shell.song(song).is_ok(), "it reads");
         shell.listen();
         assert_eq!(shell.take_asks(), [Ask::Listen(song.into())]);
@@ -3089,7 +3067,7 @@ mod tests {
         frame(&ctx, &mut shell);
         frame(&ctx, &mut shell);
         assert!(shell.used.as_ref().is_some_and(|u| u.name == "explosion" && u.rows.is_empty()));
-        assert!(shell.rules_say("explosion")[0].starts_with("Played by the engine itself"));
+        assert!(shell.rules_say("explosion")[0].starts_with("THE ENGINE"));
         assert!(!dir.join("sounds/explosion.toml").exists(), "looking writes nothing");
         shell.make_it_yours("explosion");
         let text = std::fs::read_to_string(dir.join("sounds/explosion.toml")).unwrap();
@@ -3111,7 +3089,7 @@ mod tests {
         shell.open("sounds/coin.toml");
         frame(&ctx, &mut shell);
         frame(&ctx, &mut shell);
-        assert_eq!(shell.sound_line.as_ref().map(|(_, l)| l.as_str()), Some("A sound: 0.20 s, a triangle wave falling an octave."));
+        assert_eq!(shell.sound_line.as_ref().map(|(_, l)| l.as_str()), Some("0.20 s · triangle wave · falling an octave"));
         // A mistake on a line of its own, typed at the end.
         type_into_text(&ctx, &mut shell, "frq = 1\n");
         let error = buffer(&shell).code.error.clone();
@@ -3125,7 +3103,7 @@ mod tests {
         frame(&ctx, &mut shell);
         frame(&ctx, &mut shell);
         assert!(buffer(&shell).code.error.is_none());
-        assert!(shell.sound_line.as_ref().is_some_and(|(_, l)| l.starts_with("A sound: 0.20 s")));
+        assert!(shell.sound_line.as_ref().is_some_and(|(_, l)| l.starts_with("0.20 s")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -3682,7 +3660,7 @@ mod tests {
         shell.tick(later);
         assert!(!shell.has("scenarios/late.lua"));
         let texts = drawn_text(&ctx, &mut shell, vec![]);
-        assert!(says(&texts, "scenarios/late.lua is gone from the game folder") && says(&texts, "SAVE AGAIN") && says(&texts, "FILE GONE"), "{texts:?}");
+        assert!(says(&texts, "scenarios/late.lua IS GONE FROM THE FOLDER") && says(&texts, "SAVE AGAIN") && says(&texts, "FILE GONE"), "{texts:?}");
         // The autosave's second goes by, and the folder is looked at again.
         shell.tick(later + super::super::buffer::SAVE_AFTER * 3);
         shell.flush();
@@ -3701,7 +3679,7 @@ mod tests {
         frame(&ctx, &mut shell);
         std::fs::remove_file(dir.join("back.png")).unwrap();
         shell.tick(later + LIST_EVERY * 8);
-        assert!(says(&drawn_text(&ctx, &mut shell, vec![]), "back.png is gone from the game folder"));
+        assert!(says(&drawn_text(&ctx, &mut shell, vec![]), "back.png IS GONE FROM THE FOLDER"));
         clean_up(&dir, &shell);
         let _ = std::fs::remove_file(&memory);
     }
@@ -3817,7 +3795,7 @@ mod tests {
         assert!(shell.no_agent && shell.console.typed().is_empty(), "nothing typed");
         assert!(!shell.memory.console_folded, "asked for: the console opens");
         let texts = drawn_text(&ctx, &mut shell, vec![]);
-        for word in ["NO AGENT FOUND", "An agent is a helper", "Claude Code", "subscription or credit", "https://claude.com/claude-code", "works without one", "LOOK AGAIN"] {
+        for word in ["NO AGENT FOUND", "Claude Code", "https://claude.com/claude-code", "LOOK AGAIN"] {
             assert!(says(&texts, word), "{word} in {texts:?}");
         }
         // Looking again with nothing installed changes nothing.
@@ -3962,7 +3940,7 @@ mod tests {
         shell.memory.open = None;
         shell.unload();
         let texts = drawn_text(&ctx, &mut shell, vec![]);
-        assert!(says(&texts, "THE GAME STOPPED") && says(&texts, "Nothing here yet."), "over nothing");
+        assert!(says(&texts, "THE GAME STOPPED"), "over nothing");
         // A file that would not load, and a game that would not start.
         shell.stage.as_mut().unwrap().trouble = None;
         shell.stage.as_mut().unwrap().unloaded = Some("sounds/coin.toml would not load: LINE 2: nope".into());

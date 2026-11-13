@@ -174,7 +174,19 @@ fn route(event: &sdl3::event::Event, ide: u32) -> Route {
 /// Draws the IDE as it opens into a PNG (without a game: its start page,
 /// with the games opened last as the settings have them).
 pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
-    let Some(dir) = dir else { return shot_start(opts) };
+    let Some(dir) = dir else { return shot_start(opts, None, None) };
+    // A folder that is no game: the only game below it, or the start page.
+    let only;
+    let dir = match projects::opening(dir) {
+        projects::Opening::Here => dir,
+        projects::Opening::Only(game) => {
+            println!("{}: the only game in {}", game.display(), dir.display());
+            only = game;
+            &only
+        }
+        projects::Opening::Several(games) => return shot_start(opts, None, Some((dir.to_path_buf(), games))),
+        projects::Opening::Nothing => return shot_start(opts, Some(no_game(dir)), None),
+    };
     // A game made for another Voxcade: the upgrade's page, as it opens or
     // (`--upgraded`) as after UPGRADE run dry.
     if wizard::needed(dir) {
@@ -295,6 +307,8 @@ fn window_infos(screen: &crate::window::Screen, editors: &[(Editing, crate::edit
 /// went wrong, if something did), or nothing: it closes.
 enum Next {
     Game(PathBuf),
+    /// The start page with the games found below this folder.
+    Found(PathBuf, Vec<PathBuf>),
     Start(Option<String>),
     /// A game made for another Voxcade: the upgrade's page (`play`: from
     /// the launcher's PLAY).
@@ -329,6 +343,9 @@ struct Window {
     cursor: (egui::CursorIcon, Option<sdl3::mouse::Cursor>),
     /// The folders the system's dialog picked.
     picked: (mpsc::Sender<Picked>, mpsc::Receiver<Picked>),
+    /// What the game opened next is to say in OUTPUT (which one was opened
+    /// of the games below a folder).
+    note: Option<String>,
 }
 
 impl Window {
@@ -355,7 +372,7 @@ impl Window {
         };
         let pads = crate::pads::Pads::new(&sdl);
         let events = sdl.event_pump().context("SDL events")?;
-        Ok(Self { sdl, video, screen, ctx, painter, input: sdl_egui::Input::default(), woken, wake, pads, events, cursor: (egui::CursorIcon::Default, None), picked: mpsc::channel() })
+        Ok(Self { sdl, video, screen, ctx, painter, input: sdl_egui::Input::default(), woken, wake, pads, events, cursor: (egui::CursorIcon::Default, None), picked: mpsc::channel(), note: None })
     }
 }
 
@@ -392,9 +409,12 @@ fn shot_upgrade<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
 }
 
 /// Draws the start page into a PNG.
-fn shot_start(opts: &ShotOptions) -> Result<()> {
+fn shot_start(opts: &ShotOptions, message: Option<String>, found: Option<(PathBuf, Vec<PathBuf>)>) -> Result<()> {
     // A picture looks for a new version only at a feed named for it.
-    let mut page = projects::StartPage::new(prefs::Prefs::load(&prefs::Prefs::path()).unwrap_or_default(), None, std::env::var_os("VOXCADE_UPDATE_FEED").is_some());
+    let mut page = projects::StartPage::new(prefs::Prefs::load(&prefs::Prefs::path()).unwrap_or_default(), message, std::env::var_os("VOXCADE_UPDATE_FEED").is_some());
+    if let Some((folder, games)) = found {
+        page.show_found(folder, games);
+    }
     // `--open new:NAME`: NEW GAME's form with the name typed.
     if let Some(name) = opts.open.as_deref().and_then(|o| o.strip_prefix("new:")) {
         page.show_new(name);
@@ -433,7 +453,7 @@ pub fn run<G: Game>(first: Option<&Path>, remote: bool) -> Result<()> {
     crate::gui::input::keep_focus(remote);
     let mut window = Window::open()?;
     let mut next = match first {
-        Some(dir) => Next::Game(dir.to_path_buf()),
+        Some(dir) => choose(&mut window.note, dir),
         None => Next::Start(None),
     };
     loop {
@@ -446,8 +466,9 @@ pub fn run<G: Game>(first: Option<&Path>, remote: bool) -> Result<()> {
                 Err(e) => Next::Start(Some(format!("{}: {e:#}", dir.display()))),
             },
             Next::Upgrade(dir, play) => upgrade_page(&mut window, wizard::Wizard::new(&dir, play), crate::replay::refit_saying::<G>)?,
-            Next::Start(message) => start_page(&mut window, message, None)?,
-            Next::Play(dir) => start_page(&mut window, None, Some(dir))?,
+            Next::Start(message) => start_page(&mut window, message, None, None)?,
+            Next::Found(folder, games) => start_page(&mut window, None, None, Some((folder, games)))?,
+            Next::Play(dir) => start_page(&mut window, None, Some(dir), None)?,
             Next::Quit => {
                 // SDL not quit: its audio may hang in a sound server gone
                 // away, and the window's end must not wait for it (the
@@ -502,9 +523,9 @@ fn upgrade_page(window: &mut Window, mut page: wizard::Wizard, refit: wizard::Re
 
 /// The start page in the IDE's window until a game is chosen or the window
 /// closed; with `play`, that game played at once.
-fn start_page(window: &mut Window, message: Option<String>, play: Option<PathBuf>) -> Result<Next> {
+fn start_page(window: &mut Window, message: Option<String>, play: Option<PathBuf>, found: Option<(PathBuf, Vec<PathBuf>)>) -> Result<Next> {
     use sdl3::event::{Event, WindowEvent};
-    let Window { video, screen, ctx, painter, input, woken, wake, events, cursor, picked, .. } = window;
+    let Window { video, screen, ctx, painter, input, woken, wake, events, cursor, picked, note, .. } = window;
     let _ = screen.window.set_title("Voxcade");
     fresh(ctx);
     let (prefs, trouble) = match prefs::Prefs::load(&prefs::Prefs::path()) {
@@ -514,6 +535,9 @@ fn start_page(window: &mut Window, message: Option<String>, play: Option<PathBuf
     let mut page = projects::StartPage::new(prefs, message.or(trouble), true);
     if let Some(dir) = play {
         page.play(&dir, &projects::title_of(&dir));
+    }
+    if let Some((folder, games)) = found {
+        page.show_found(folder, games);
     }
     let mut repaint_at = Some(Instant::now());
     loop {
@@ -531,8 +555,11 @@ fn start_page(window: &mut Window, message: Option<String>, play: Option<PathBuf
         }
         while let Ok(folder) = picked.1.try_recv() {
             match folder {
-                Picked::Game(dir) if projects::is_game(&dir) => return Ok(Next::Game(dir)),
-                Picked::Game(dir) => page.tell(no_game(&dir)),
+                Picked::Game(dir) => match choose(note, &dir) {
+                    Next::Found(folder, games) => page.show_found(folder, games),
+                    Next::Start(Some(message)) => page.tell(message),
+                    next => return Ok(next),
+                },
                 Picked::Projects(dir) => page.set_projects(dir),
             }
         }
@@ -568,7 +595,22 @@ fn fresh(ctx: &mut egui::Context) {
 
 /// What the IDE says of a folder without a game.
 fn no_game(dir: &Path) -> String {
-    format!("No game in {}: a game's folder has its conf.lua.", dir.display())
+    format!("NO GAME HERE · {}", dir.display())
+}
+
+/// What a folder chosen to open comes to: the game itself, the only game
+/// below it (`note` says which, in OUTPUT of that game), the games found
+/// below it to choose from, or the start page saying there is none.
+fn choose(note: &mut Option<String>, dir: &Path) -> Next {
+    match projects::opening(dir) {
+        projects::Opening::Here => Next::Game(dir.to_path_buf()),
+        projects::Opening::Only(game) => {
+            *note = Some(format!("Opened {}, the only game in {}.", game.display(), dir.display()));
+            Next::Game(game)
+        }
+        projects::Opening::Several(games) => Next::Found(dir.to_path_buf(), games),
+        projects::Opening::Nothing => Next::Start(Some(no_game(dir))),
+    }
 }
 
 /// The system's folder dialog over `window`, starting `at`; the folder
@@ -642,7 +684,7 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
 
     let cfg = crate::session::config::<G>(dir)?;
     let title = cfg.title.clone();
-    let Window { sdl, video, screen, ctx, painter, input, woken, wake, pads, events, cursor, picked } = window;
+    let Window { sdl, video, screen, ctx, painter, input, woken, wake, pads, events, cursor, picked, note } = window;
     let _ = screen.window.set_title(&format!("{title} - Voxcade"));
     // egui afresh: what it keeps of widgets (a text's cursor by its path)
     // belongs to the game before.
@@ -652,8 +694,14 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
     let console = Console::new(dir.to_path_buf(), Start::Shell, wake.clone());
     let brought = G::sounds(&cfg);
     let mut shell = Shell::new(dir, cfg, memory::Memory::path_for(dir), console).with_sounds(brought).with_prefs(prefs::Prefs::path()).with_output(output::Output::path_for(dir));
+    if let Some(said) = note.take() {
+        shell.note(said);
+    }
     // The editors' windows, on the IDE's GPU.
     let mut editors: Vec<(Editing, crate::editor::EditorWindow)> = Vec::new();
+    // Models EDIT asked for from a level, to open in place (the level
+    // round them).
+    let mut in_place: Vec<(String, crate::editor::context::Seed)> = Vec::new();
     // The game being played in the main area, and whether the window has
     // the focus (elsewhere the game holds still, unless the IDE answers
     // another session, `remote`).
@@ -799,6 +847,10 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
             // EDIT MODEL in a level's editor: the model in a window of its
             // own, as one opened from the list.
             if let Some(model) = editor.take_model_edit() {
+                // A piece's: shaped in place, the level round it.
+                if let Some(seed) = editor.take_model_context() {
+                    in_place.push((model.clone(), seed));
+                }
                 shell.ask_edit(model);
                 repaint_at = Some(Instant::now());
             }
@@ -810,8 +862,14 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
         while let Ok(folder) = picked.1.try_recv() {
             happened = true;
             match folder {
-                Picked::Game(to) if projects::is_game(&to) => shell.leave_for(to),
-                Picked::Game(to) => shell.tell(no_game(&to)),
+                Picked::Game(to) => match choose(note, &to) {
+                    Next::Game(game) => shell.leave_for(game),
+                    Next::Found(folder, games) => {
+                        shell.flush();
+                        break 'project Next::Found(folder, games);
+                    }
+                    _ => shell.tell(no_game(&to)),
+                },
                 Picked::Projects(to) => shell.set_projects(to),
             }
         }
@@ -1064,6 +1122,10 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
             if let Some(name) = block {
                 editor.open_block(name);
             }
+            // EDIT on a piece: the level round the model.
+            if let Some(k) = in_place.iter().position(|(m, _)| *m == path) {
+                editor.set_context(in_place.remove(k).1);
+            }
             editor.raise();
             repaint_at = Some(Instant::now());
         }
@@ -1074,6 +1136,9 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
             // EDIT MODEL in a level's editor: the model in a window of its
             // own, as one opened from the list.
             if let Some(model) = editor.take_model_edit() {
+                if let Some(seed) = editor.take_model_context() {
+                    in_place.push((model.clone(), seed));
+                }
                 shell.ask_edit(model);
                 repaint_at = Some(Instant::now());
             }
@@ -1115,6 +1180,27 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
 mod tests {
     use super::*;
     use sdl3::event::Event;
+
+    /// A folder chosen to open: a game opens as it is, the only game below
+    /// one opens with a note saying which, several are listed, none is
+    /// said to be none.
+    #[test]
+    fn a_folder_that_is_no_game_opens_what_lies_below() {
+        let root = crate::scratch::Scratch::new("ide-choose");
+        for path in ["here/conf.lua", "one/deep/game/conf.lua", "many/a/conf.lua", "many/b/conf.lua", "none/notes.txt"] {
+            let file = root.join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, "").unwrap();
+        }
+        let mut note = None;
+        assert!(matches!(choose(&mut note, &root.join("here")), Next::Game(g) if g == root.join("here")));
+        assert_eq!(note, None);
+        let Next::Game(game) = choose(&mut note, &root.join("one")) else { panic!("not opened") };
+        assert!(game.ends_with("one/deep/game"));
+        assert!(note.as_deref().is_some_and(|n| n.contains("the only game in")), "{note:?}");
+        assert!(matches!(choose(&mut note, &root.join("many")), Next::Found(_, games) if games.len() == 2));
+        assert!(matches!(choose(&mut note, &root.join("none")), Next::Start(Some(m)) if m.starts_with("NO GAME HERE")));
+    }
 
     /// The console's tools are answered only by an IDE started with
     /// `--remote`; the other tools never wait on it.

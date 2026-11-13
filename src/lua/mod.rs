@@ -367,8 +367,23 @@ impl<K: Kit> LuaGame<K> {
             let state: Table = data.raw_get(id)?;
             check(state.clone(), &format!("thing {id}'s state"), true)?;
             check_inventory(&state, &format!("thing {id}'s state"), items)?;
+            // A piece's pose, a part of it changed since it was set too.
+            if self.stage.pieces.contains_key(&id) {
+                self.piece_pose(id, &state)?;
+            }
         }
         Ok(())
+    }
+
+    /// The pose of piece `id` its state `state` holds (`thing.state.parts`;
+    /// empty: at rest), or the mistake in it, naming the piece and the part.
+    fn piece_pose(&self, id: u32, state: &Table) -> Result<Vec<(String, [f32; 3])>> {
+        let v: mlua::Value = state.raw_get(world::PARTS)?;
+        if v.is_nil() {
+            return Ok(Vec::new());
+        }
+        let model = self.stage.pieces.get(&id).and_then(|p| p.model.as_deref());
+        Ok(world::piece_pose(&v, model, &self.stage.parts, &world::piece_name(&self.stage, id))?)
     }
 
     /// Runs `main.lua` (anew), keeping the game's state: its functions,
@@ -2348,6 +2363,12 @@ impl<K: Kit> Game for LuaGame<K> {
         !self.started
     }
 
+    /// A level read anew turns a thing of a kind with a behavior: refused
+    /// as at the load (`check_facings`).
+    fn check_levels(&self, levels: &crate::levels::Levels) -> Result<()> {
+        check_facings(levels, &self.stage.kinds)
+    }
+
     /// The levels were read anew (a level file saved while playing): the
     /// level being played is entered afresh from its file (`"reload"`), the
     /// player where it stood.
@@ -2810,7 +2831,24 @@ impl<K: Kit> Game for LuaGame<K> {
             if let Some(model) = &p.model {
                 let facing = crate::session::facing(true, t.body);
                 let turn = if tipped { facing * crate::session::turning(0.0, p.pitch, p.roll) } else { facing };
-                out.model_turned(model, 0, out.body_origin(t.body), t.body.look, turn, None);
+                // Its figure's parts posed as its state says (checked at
+                // every tick's end: a mistake halts the game, and the
+                // piece stands at rest meanwhile).
+                let pose = match self.registry("voxcade.data").and_then(|d| Ok(d.raw_get::<Option<Table>>(id)?)) {
+                    Ok(Some(state)) => self.piece_pose(id, &state).unwrap_or_else(|e| {
+                        if self.halted.borrow().is_none() {
+                            self.halt(e);
+                        }
+                        Vec::new()
+                    }),
+                    _ => Vec::new(),
+                };
+                if pose.is_empty() {
+                    out.model_turned(model, 0, out.body_origin(t.body), t.body.look, turn, None);
+                } else {
+                    let posed = crate::session::posing_alone(&pose);
+                    out.model_posed(model, 0, out.body_origin(t.body), t.body.look, turn, &posed, None);
+                }
             }
             // Its lights, all as bright as its state says (one brightness for
             // them all; a light of its own each would be a list of them).

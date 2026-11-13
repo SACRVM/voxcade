@@ -77,7 +77,16 @@ aaaaa *3
   model keeps standing where it stood.
 - **Parts**: `[[part]]` with `name`, `at`, `layers`, and only where set
   by hand `parent = "body"` and `joint = [x, y, z]` (halves: a voxel's
-  middle, `2.5` the middle of the voxel from 2 to 3).
+  middle, `2.5` the middle of the voxel from 2 to 3), and only where not
+  0 its rest rotation about its joint, `rotation = 45`, `pitch = 10`,
+  `roll = -20` (degrees, each on its own line, the root's too): a head
+  turned 45 degrees, two blocks tipped apart, off the voxel grid at rest.
+  The same words, sense and order as a pose entry of `frame:model`; a
+  pose (`frame:model`'s, a piece's `thing.state.parts`, a kind's
+  `swing`) turns on from it (`pose · rest`, the rest first). Only the
+  picture: the simulation, a solid piece's cells, bursting into voxels
+  see the parts unturned. `turn` is refused (it is `rotation`), and a
+  `[[frame]]` does not rotate.
 - **Signs stay**: written again (the editor, a tool), a model keeps the
   signs its file had and adds new ones; with more than 62 entries every
   sign is two characters. One cell, one voxel per frame or part.
@@ -223,6 +232,18 @@ fills empty voxels, Ctrl cuts; Shift held is PICK in every tool), BEVEL (F) cuts
 edges as `rbox` does, SYMMETRY (Y) mirrors every tool left to right.
 Suggest them when the user shapes a figure by hand.
 
+A small change to a model that is there (a hole, a patch of another
+color) goes through the editor's own writer, never a hand-written or
+regenerated file: `voxcade edit <game> --model FILE [--frame N |
+--part NAME] --clear X0,Y0,Z0 --to X1,Y1,Z1` and `--fill SIGN|#rrggbb
+--from X0,Y0,Z0 --to X1,Y1,Z1` (both corners in, from the pivot as the
+file's `at`; several in a row, in order; `--dry` says what it would do).
+It prints the cells set and cleared and whether the box grew; a color
+new to the palette takes the next free sign; every other frame or part
+keeps its text byte for byte. With `--shot FILE` it only shows. SLICE
+in the editor (`--slice z,12` in a shot) cuts the model open to look at
+its inside.
+
 **A game's models are the user's once they are there.** The user shapes
 figures in the voxel editor ("that is what the editor is for"): never
 run a generator over a game's model files (`gen_voxkeep.py` keeps every
@@ -258,7 +279,11 @@ Two ways, chosen per figure:
   kind's `swing = { leg_left = 30, leg_right = -30, arm_left = -25,
   arm_right = 25 }` makes a walk without a single walk frame;
   `frame:model(file, thing, nil, nil, { arm_right = { pitch = 90 } })`
-  poses parts by name from the script (attacks, waves, looking round).
+  poses parts by name from the script (attacks, waves, looking round),
+  a level's piece by its state (`thing.state.parts = { leaf = { rotation
+  = 90 } }`: a door, a lid). A part may rest turned in the file
+  (`rotation`, `pitch`, `roll` on its `[[part]]`, above): the poses turn
+  on from there.
   A figure of parts has one frame. `save_parts` writes one, a cell
   claimed by a later part taken from the earlier ones.
 
