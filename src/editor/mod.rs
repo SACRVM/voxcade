@@ -1470,10 +1470,10 @@ impl EditorWindow {
                 let (dx, dy) = share(xrel, yrel);
                 if middle || (right && shift) {
                     view.orbit(ed.scope).pan(dx, dy, aspect);
-                    view.before_game = None;
+                    view.leave_game_view(ed.scope);
                 } else if right {
                     view.orbit(ed.scope).turn(dx, dy);
-                    view.before_game = None;
+                    view.leave_game_view(ed.scope);
                 }
                 // The right button dragged: no click, no menu.
                 if let Some((px, py)) = view.right_press
@@ -1816,7 +1816,7 @@ impl EditorWindow {
             // Over the panels the wheel scrolls them (egui), else it zooms.
             Event::MouseWheel { y, mouse_x, mouse_y, .. } if !over(mouse_x, mouse_y) => {
                 view.orbit(ed.scope).zoom_by(y);
-                view.before_game = None;
+                view.leave_game_view(ed.scope);
             }
             _ => {}
         }
@@ -2059,6 +2059,34 @@ mod tests {
     /// make no step, and the camera stays as it looks; so do motions that
     /// carry buttons held from elsewhere (a press on a panel, a release
     /// lost). Opening frames the figure by its voxels, not its stated box.
+    /// GAME VIEW on the owner's figure: the figure fills the view from the
+    /// game's angle; the wheel and the right button zoom and turn it and
+    /// GAME VIEW stays on; pressed again, the editor's look as it was.
+    #[test]
+    fn game_view_frames_the_figure_and_the_wheel_and_right_button_work() {
+        let (mut win, _dir) = owners_like("game-view");
+        let before = win.view.block;
+        view::act(&mut win.ed, &mut win.view, view::Action::GameView);
+        win.draw().unwrap();
+        let game = win.view.game.clone();
+        let framed = win.view.block;
+        assert_eq!((framed.yaw, framed.pitch, framed.fov), (game.yaw, game.pitch, game.fov));
+        assert!(framed.zoom < 100.0 && framed.zoom < game.view_width, "framed by the figure, not the game's width: {}", framed.zoom);
+        let wheel = sdl3::event::Event::MouseWheel { timestamp: 0, window_id: 0, which: 0, x: 0.0, y: 1.0, direction: sdl3::mouse::MouseWheelDirection::Normal, mouse_x: 800.0, mouse_y: 450.0, integer_x: 0, integer_y: 1 };
+        assert!(win.handle(&wheel, false));
+        win.draw().unwrap();
+        assert!(win.view.block.zoom < framed.zoom, "the wheel zooms");
+        motion(&mut win, 800.0, 450.0, 0);
+        button(&mut win, 800.0, 450.0, sdl3::mouse::MouseButton::Right, true);
+        motion(&mut win, 860.0, 470.0, 0b100);
+        button(&mut win, 860.0, 470.0, sdl3::mouse::MouseButton::Right, false);
+        assert!(win.view.block.yaw != framed.yaw || win.view.block.pitch != framed.pitch, "the right button turns");
+        assert!(win.view.before_game.is_some(), "and GAME VIEW stays on");
+        view::act(&mut win.ed, &mut win.view, view::Action::GameView);
+        assert!(win.view.before_game.is_none());
+        assert_eq!(win.view.block, before, "off: the editor's look");
+    }
+
     #[test]
     fn clicks_on_the_rows_choose_and_change_nothing() {
         let (mut win, dir) = owners_like("rows");

@@ -1091,7 +1091,7 @@ A right click on a row: ADD PART, DUPLICATE, MIRROR (for NAME_left and NAME_righ
 # POSE
 The rings turn parts on top of their rest, nothing saved. COPY gives the pose as Lua for frame:model.
 # GAME VIEW
-The figure as the game draws it: its camera, light, shading and outline.
+The figure as the game lights and shades it, outline too, from the game's angle and filling the view. The wheel and the right button zoom and turn it as always; GAME VIEW again goes back to the editor's look.
 # SLICE AND CONTEXT
 SLICE cuts the model across an axis to reach inside; drag its arrow or use Page Up and Page Down.
 CONTEXT (a model opened from a level's piece) shows the level round it, faint.

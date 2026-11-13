@@ -465,16 +465,27 @@ impl View {
 
     /// A figure's GAME VIEW: the game's camera (its turn, tilt, field of
     /// view and width) on the figure's middle.
+    /// GAME VIEW on a figure: the game's angle (yaw, pitch, fov), framed
+    /// as the editor frames it (the figure's voxels fill the view), not at
+    /// the game's distance: a figure of 40 voxels in a view 500 across is
+    /// a speck. The wheel, the corner buttons and the right button go on
+    /// from there.
     pub fn figure_game_view(&mut self, ed: &Editor) {
         let g = &self.game;
-        let width = match (g.view_at_least, g.view_height) {
-            (Some([w, h]), _) => w.max(h * self.aspect),
-            (None, Some(h)) => h * self.aspect,
-            (None, None) => g.view_width,
-        };
-        let width = width / (1.0 - self.room[0] - self.room[2]).max(0.3);
-        let target = ed.figure_box().map_or(Vec3::ZERO, |(lo, size)| lo.as_vec3() + size.as_vec3() * Vec3::new(0.5, 0.5, 0.5));
-        self.block = Orbit { yaw: g.yaw, pitch: g.pitch, zoom: width.max(4.0), target, fov: g.fov };
+        // (By its voxels, as a figure opens, not by its stated box.)
+        let at = ed.figure_box().map_or(IVec3::ZERO, |(lo, _)| lo);
+        let voxels = ed.figure.as_ref().and_then(|f| f.model.frames[0].iter().map(|v| v.0).fold(None, |b: Option<(IVec3, IVec3)>, c| Some(b.map_or((c, c), |(lo, hi)| (lo.min(c), hi.max(c))))));
+        let (lo, size) = voxels.map_or((Vec3::ZERO, ed.grid().as_vec3()), |(lo, hi)| ((at + lo).as_vec3(), (hi - lo + 1).as_vec3()));
+        self.block = Orbit { yaw: g.yaw, pitch: g.pitch, zoom: (size.max_element() * 2.8).max(16.0), target: lo + size / 2.0, fov: g.fov };
+    }
+
+    /// The view moved by hand: a level's GAME VIEW is the game's camera
+    /// and ends; a figure's stays on (its light and outline), only the
+    /// angle and the size the user's.
+    pub fn leave_game_view(&mut self, scope: Scope) {
+        if scope == Scope::Level {
+            self.before_game = None;
+        }
     }
 
     pub fn orbit(&mut self, scope: Scope) -> &mut Orbit {
@@ -1441,11 +1452,11 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::TurnView(by) => {
             let orbit = view.orbit(ed.scope);
             orbit.yaw = (orbit.yaw + 45.0 * by as f32).rem_euclid(360.0);
-            view.before_game = None;
+            view.leave_game_view(ed.scope);
         }
         Action::ZoomView(by) => {
             view.orbit(ed.scope).zoom_by(by as f32 * 2.0);
-            view.before_game = None;
+            view.leave_game_view(ed.scope);
         }
         Action::BlockMenu(i, at) => {
             if ed.scope == Scope::Level {
@@ -1548,7 +1559,8 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::DayAsGame => ed.day_as_game(),
         // GAME VIEW on and off: off, the camera as it was before.
         // A figure's: the figure whole as the game draws it, from its
-        // camera's angle, at the size it shows it.
+        // camera's angle, framed to fill the view; on again, the game's
+        // angle afresh.
         Action::GameView if ed.scope != Scope::Level => match view.before_game.take() {
             Some(orbit) => {
                 view.block = orbit;

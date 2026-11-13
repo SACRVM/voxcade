@@ -110,8 +110,8 @@ fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
             }
             // A figure: as the game draws it; posed by its rings.
             Scope::Frame(_) | Scope::Figure if ed.figure.is_some() => {
-                keyed(ui, shown, "GAME VIEW", Action::GameView, Some(view.before_game.is_some()), "As the game draws it: its camera, light, shading and outline (posed while POSE is lit); again: back");
-                keyed(ui, shown, "POSE", Action::Pose, Some(ed.posing), "The rings turn parts as a pose on top of their rest, nothing saved: the pose as Lua to copy");
+                keyed(ui, shown, "GAME VIEW", Action::GameView, Some(view.before_game.is_some()), "As the game lights and shades it");
+                keyed(ui, shown, "POSE", Action::Pose, Some(ed.posing), "Turn the parts to try a pose; nothing is saved. COPY gives the Lua table");
             }
             _ => {}
         }

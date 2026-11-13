@@ -82,7 +82,8 @@ hard on the eyes); calm, few tools in view, large and readable.
   re-hangs a part it did not act on: such a part's parent and joint are
   stated first. POSE (top bar) turns parts on top of their rest with
   the rings, nothing saved, the pose as Lua to COPY; GAME VIEW shows the
-  figure as the game draws it (camera, light, shading, outline), posed
+  figure as the game draws it (the game's angle, light, shading,
+  outline) framed to fill the view, zoomed and turned as always, posed
   while POSE is lit.
 - A selection (2026-11-13): SELECT (L) is a rectangle dragged on the
   screen: the voxels of the active parts whose middles it holds (THROUGH:

@@ -1289,9 +1289,14 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   nothing written (`Editor::pose`, `Figure::pose`, `session::part_posed`),
   the pose as Lua for `frame:model` with COPY and RESET; off, the rest
   is drawn and the pose kept until RESET. GAME VIEW (the top bar): the
-  figure whole from the game's camera at its size, shaded, lit and
-  outlined as the game draws it, from a model bank (`session::model_drawn`),
-  posed while POSE is lit, only looked at. A number field never widens
+  figure whole from the game's angle (yaw, pitch, fov) but framed to
+  fill the view, not at the game's distance (the owner: a speck one
+  cannot zoom into), shaded, lit and outlined as the game draws it, from
+  a model bank (`session::model_drawn`), posed while POSE is lit, only
+  looked at; the wheel, the corner buttons and the right button zoom
+  and turn it and it stays on (`View::leave_game_view`: a level's GAME
+  VIEW, the game's camera, ends), pressed again the editor's look as it
+  was, on again the game's angle afresh. A number field never widens
   (`zones::number`: its room exactly, a long number in the small type,
   too long whole; test `a_wide_number_never_moves_the_inspector`); the
   bar at the chosen one stands clear of its arrows and rings alike.

@@ -1183,7 +1183,17 @@ pub(crate) mod tests {
         act(&mut ed, &mut view, Action::GameView);
         assert!(view.before_game.is_some() && ed.scope == Scope::Figure);
         let shown = crate::editor::view::Shown::new(&ed).unwrap();
-        assert_eq!((view.block.pitch, view.block.fov), (view.game.pitch, view.game.fov), "the game's camera");
+        assert_eq!((view.block.yaw, view.block.pitch, view.block.fov), (view.game.yaw, view.game.pitch, view.game.fov), "the game's angle");
+        // Framed as the editor frames it, not at the game's distance.
+        // (Its voxels' box, as a figure opens.)
+        let at = ed.figure_box().unwrap().0;
+        let cells: Vec<glam::IVec3> = ed.figure.as_ref().unwrap().model.frames[0].iter().map(|v| v.0).collect();
+        let lo = cells.iter().fold(cells[0], |a, &c| a.min(c));
+        let size = cells.iter().fold(cells[0], |a, &c| a.max(c)) - lo + 1;
+        assert_eq!(view.block.zoom, (size.max_element() as f32 * 2.8).max(16.0), "the figure fills the view");
+        assert!(view.block.zoom < view.game.view_width, "nearer than the game's view");
+        assert_eq!(view.block.target, (at + lo).as_vec3() + size.as_vec3() / 2.0, "its middle");
+        let framed = view.block;
         let f = crate::editor::view::frame(&ed, &view, &shown, &figures, &light, 16.0 / 9.0);
         assert_eq!(f.models.len(), 4, "a draw from the bank for each part");
         assert_eq!(f.outline[3], 1.0, "the game's outline");
@@ -1193,9 +1203,24 @@ pub(crate) mod tests {
         ed.follow_figure();
         let posed = crate::editor::view::frame(&ed, &view, &shown, &figures, &light, 16.0 / 9.0);
         assert_ne!(posed.models, f.models, "posed");
+        // Zoomed and turned by the corner buttons: still GAME VIEW, the
+        // user's angle and size.
+        act(&mut ed, &mut view, Action::ZoomView(1));
+        act(&mut ed, &mut view, Action::TurnView(1));
+        assert!(view.before_game.is_some(), "GAME VIEW stays on");
+        assert!(view.block.zoom < framed.zoom && view.block.yaw != framed.yaw);
         act(&mut ed, &mut view, Action::GameView);
         assert!(view.before_game.is_none());
-        assert_eq!(view.block, before);
+        assert_eq!(view.block, before, "off: the editor's look as it was");
+        // On again: the game's angle afresh.
+        act(&mut ed, &mut view, Action::GameView);
+        assert_eq!(view.block, framed, "on again: the game's angle, framed");
+        act(&mut ed, &mut view, Action::GameView);
+        // A level's GAME VIEW is the game's camera: the corner buttons end it.
+        ed.scope = Scope::Level;
+        view.before_game = Some(view.level);
+        act(&mut ed, &mut view, Action::ZoomView(1));
+        assert!(view.before_game.is_none(), "a level's ends");
     }
 
     /// A part's arrow dragged, its let-go never clean: the focus lost or
