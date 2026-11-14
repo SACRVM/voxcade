@@ -18,6 +18,9 @@ pub struct Files {
     pub logic: Vec<String>,
     pub scenarios: Vec<String>,
     pub assets: Vec<Group>,
+    /// The files whose name another of their heading has too: listed by
+    /// their whole path.
+    shared_names: std::collections::HashSet<String>,
 }
 
 /// Assets of one sort.
@@ -98,7 +101,16 @@ impl Files {
         // IDE's plus there makes the first one); the other sorts show when
         // there are some.
         files.assets = GROUPS.iter().zip(groups).filter(|(name, g)| !g.is_empty() || ALWAYS.contains(name)).map(|(&name, files)| Group { name, files }).collect();
+        let headings = std::iter::once(&files.scenarios).chain(files.assets.iter().map(|g| &g.files));
+        files.shared_names = headings.flat_map(|list| list.iter().filter(|f| list.iter().filter(|g| base(g) == base(f)).count() > 1)).cloned().collect();
         files
+    }
+
+    /// How the list shows the file `path` under the heading `sort`: the
+    /// scripts by their paths, the rest by their names alone, by the path
+    /// where two of a heading have the same name.
+    pub fn label<'a>(&self, sort: &str, path: &'a str) -> &'a str {
+        if sort == "Logic" || self.shared_names.contains(path) { path } else { base(path) }
     }
 
     /// Whether the folder has this file.
@@ -123,6 +135,11 @@ impl Files {
         }
         self.assets.iter().find(|g| g.files.iter().any(|f| f == path)).map(|g| g.name)
     }
+}
+
+/// A file's name without its folders.
+fn base(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
 }
 
 /// The folders at the top of a game folder that are never listed, however

@@ -76,6 +76,9 @@ pub struct Play<G: Game> {
     /// those that changed, for OUTPUT.
     guard: crate::lua::hidden::Watch,
     hidden: Vec<String>,
+    /// Seat 1's keys as the line under the game shows them (`keys_of`),
+    /// made anew only when the seating or the game changes.
+    keys: Vec<(String, String)>,
 }
 
 impl<G: Game> Play<G> {
@@ -97,8 +100,9 @@ impl<G: Game> Play<G> {
         runs.start(&game);
         let seating = crate::seating::Seating::new(game.cfg.players);
         let mark = game.start_mark();
-        let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), unloaded: Default::default(), accumulator: 0.0, last: None, scenario: scenario.map(str::to_string), seating, mark, notes: Vec::new(), guard: Default::default(), hidden: Vec::new() };
+        let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), unloaded: Default::default(), accumulator: 0.0, last: None, scenario: scenario.map(str::to_string), seating, mark, notes: Vec::new(), guard: Default::default(), hidden: Vec::new(), keys: Vec::new() };
         play.guard.begin(play.game.game.hidden());
+        play.name_keys();
         play.music();
         Ok(play)
     }
@@ -122,6 +126,7 @@ impl<G: Game> Play<G> {
         self.mask = self.game.face_mask();
         self.renderer.rebuild_all(device, queue, self.game.world_mut(), &self.mask);
         self.music();
+        self.name_keys();
     }
 
     /// A console line run in the game between two ticks (the line under
@@ -161,8 +166,13 @@ impl<G: Game> Play<G> {
 
     /// The keys of seat 1 as the window's controls menu would show them
     /// (`keys_of`): the keyboard's or the pad's, as that seat plays here.
-    pub fn keys(&self) -> Vec<(String, String)> {
-        keys_of(self.game.actions(), self.seating.keys(1), &self.settings)
+    pub fn keys(&self) -> &[(String, String)] {
+        &self.keys
+    }
+
+    /// Names seat 1's keys anew (the game begun, a seat taken).
+    fn name_keys(&mut self) {
+        self.keys = keys_of(self.game.actions(), self.seating.keys(1), &self.settings);
     }
 
     /// A pad's START: a seat taken (a pad no seat has), else nothing.
@@ -171,6 +181,7 @@ impl<G: Game> Play<G> {
             && let crate::seating::Start::Join(seat) = self.seating.pad_start(pad, plugged, None)
         {
             self.game.set_seat(seat, Some(crate::input::Input::default()));
+            self.name_keys();
         }
     }
 
@@ -183,6 +194,7 @@ impl<G: Game> Play<G> {
             && let crate::seating::Start::Join(seat) = self.seating.keyboard_start(None)
         {
             self.game.set_seat(seat, Some(crate::input::Input::default()));
+            self.name_keys();
         }
     }
 

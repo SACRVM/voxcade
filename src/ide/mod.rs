@@ -286,7 +286,7 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
             {
                 let first = stage.picture.is_none();
                 stage.picture = Some(p.draw(device, queue, &mut painter.renderer, size));
-                stage.keys = p.keys();
+                stage.keys = p.keys().to_vec();
                 stage.trouble = p.trouble();
                 stage.unloaded = p.unloaded();
                 settled &= !first;
@@ -1010,7 +1010,7 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
             match ask {
                 Ask::Play(scenario) => match Play::<G>::start(dir, &screen.device, &screen.queue, crate::audio::speaker(sdl), scenario.as_deref()) {
                     Ok(p) => {
-                        shell.stage = Some(Stage { shown: true, keys: p.keys(), ..Stage::default() });
+                        shell.stage = Some(Stage { shown: true, keys: p.keys().to_vec(), ..Stage::default() });
                         play = Some(p);
                         shell.start_mended();
                         start_watch = None;
@@ -1103,7 +1103,9 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
                     stage.picture = Some(p.frame(&screen.device, &screen.queue, &mut painter.renderer, size, &held));
                     stage.trouble = p.trouble();
                     stage.unloaded = p.unloaded();
-                    stage.keys = p.keys();
+                    if stage.keys != p.keys() {
+                        stage.keys = p.keys().to_vec();
+                    }
                     running = true;
                 }
                 None => p.hold(),

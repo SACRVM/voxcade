@@ -87,13 +87,26 @@ pub struct Console {
     /// now means news while it is folded or under OUTPUT.
     seen: u64,
     news: bool,
+    /// The terminal's cells as last drawn, and what they were made from:
+    /// made anew only when one of those changed.
+    picture: Option<(Drawn, terminal::Picture)>,
+}
+
+/// What the terminal's picture is made from: its output so far, the
+/// view's place in the history, the selection, the size.
+#[derive(PartialEq)]
+struct Drawn {
+    arrivals: u64,
+    offset: usize,
+    selection: Option<alacritty_terminal::selection::Selection>,
+    size: Size,
 }
 
 impl Console {
     /// A console in the game folder `dir` running `start`; `wake` wakes
     /// the window (from another thread) when there is output to draw.
     pub fn new(dir: PathBuf, start: Start, wake: Arc<dyn Fn() + Send + Sync>) -> Self {
-        Self { dir, start, wake, terminal: None, failed: None, typed: Vec::new(), take_keys: false, selected: None, wants_selection: false, held: None, told: None, wheel: 0.0, mcp: None, mcp_failed: None, link: None, opened: None, trouble: None, typed_once: false, started: false, seen: 0, news: false }
+        Self { dir, start, wake, terminal: None, failed: None, typed: Vec::new(), take_keys: false, selected: None, wants_selection: false, held: None, told: None, wheel: 0.0, mcp: None, mcp_failed: None, link: None, opened: None, trouble: None, typed_once: false, started: false, seen: 0, news: false, picture: None }
     }
 
     /// Whether the console was opened and drawn, so the shell was asked
@@ -330,7 +343,7 @@ impl Console {
             };
             let wake = self.wake.clone();
             match Terminal::start(&self.dir, command, size, cell_pixels, move || wake()) {
-                Ok(t) => self.terminal = Some(t),
+                Ok(t) => (self.terminal, self.picture) = (Some(t), None),
                 Err(e) => {
                     self.failed = Some(format!("{e:#}"));
                     return;
@@ -516,15 +529,19 @@ impl Console {
             }
         }
 
-        let mut picture = terminal.with(|t| terminal::picture(t));
-        if let Some(link) = &self.link {
-            for &(line, column) in &link.cells {
-                if let Some(glyph) = usize::try_from(line).ok().and_then(|y| picture.lines.get_mut(y)).and_then(|l| l.get_mut(column)) {
-                    glyph.underline = true;
-                }
+        // (The output counted inside the lock: the reader counts it there
+        // once the cells hold it.)
+        let kept = &mut self.picture;
+        terminal.with(|t| {
+            let drawn = Drawn { arrivals: terminal.arrivals(), offset: t.grid().display_offset(), selection: t.selection.clone(), size };
+            if kept.as_ref().is_none_or(|(was, _)| *was != drawn) {
+                *kept = Some((drawn, terminal::picture(t)));
             }
+        });
+        let link = self.link.as_ref().map_or(&[][..], |l| l.cells.as_slice());
+        if let Some((_, picture)) = &self.picture {
+            draw(ui, inner, cell, &font, picture, link, focused);
         }
-        draw(ui, inner, cell, &font, &picture, focused);
     }
 }
 
@@ -628,8 +645,9 @@ fn write_mcp(dir: &std::path::Path) -> anyhow::Result<()> {
     crate::blocks::save_at_once(&path, (serde_json::to_string_pretty(&config)? + "\n").as_bytes())
 }
 
-/// The terminal's cells into `inner`, `cell` points each.
-fn draw(ui: &egui::Ui, inner: Rect, cell: Vec2, font: &FontId, picture: &terminal::Picture, focused: bool) {
+/// The terminal's cells into `inner`, `cell` points each, the cells of
+/// `link` (line, column) underlined.
+fn draw(ui: &egui::Ui, inner: Rect, cell: Vec2, font: &FontId, picture: &terminal::Picture, link: &[(i32, usize)], focused: bool) {
     let painter = ui.painter_at(inner.expand2(MARGIN));
     let at = |x: usize, y: usize| egui::pos2(inner.left() + x as f32 * cell.x, inner.top() + y as f32 * cell.y);
     for (y, line) in picture.lines.iter().enumerate() {
@@ -643,6 +661,7 @@ fn draw(ui: &egui::Ui, inner: Rect, cell: Vec2, font: &FontId, picture: &termina
         }
         // Then the letters: runs of plain ones in one colour together,
         // every other letter at its own cell (its font may be wider).
+        let linked: Vec<usize> = link.iter().filter(|(l, _)| usize::try_from(*l) == Ok(y)).map(|&(_, c)| c).collect();
         let mut run = (0, FOREGROUND, String::new());
         let flush = |run: &mut (usize, Color32, String)| {
             if !run.2.trim().is_empty() {
@@ -654,7 +673,7 @@ fn draw(ui: &egui::Ui, inner: Rect, cell: Vec2, font: &FontId, picture: &termina
             if g.spacer {
                 continue;
             }
-            if g.underline {
+            if g.underline || linked.contains(&x) {
                 let bottom = at(x, y + 1).y - 1.0;
                 painter.hline(at(x, y).x..=at(x + 1, y).x, bottom, egui::Stroke::new(1.0, g.fg));
             }

@@ -121,10 +121,6 @@ impl Shell {
                                 made = Some((sort.to_string(), naming.text.clone(), naming.blocks));
                             }
                         }
-                        // The scripts by their paths; assets say what they
-                        // are by their group: the name alone, the path where
-                        // two have the same name.
-                        let base = |f: &str| f.rsplit('/').next().unwrap_or(f).to_string();
                         for f in files {
                             // A file being renamed: its name typed in its place.
                             if let Some(r) = self.managing.renaming.as_mut().filter(|r| r.path == *f) {
@@ -166,9 +162,10 @@ impl Shell {
                                 }
                                 continue;
                             }
-                            let short = sort != "Logic" && files.iter().filter(|g| base(g) == base(f)).count() == 1;
+                            // The scripts by their paths; assets say what
+                            // they are by their group (`Files::label`).
                             let on = open.as_deref() == Some(f.as_str());
-                            let response = crate::gui::row(ui, &if short { base(f) } else { f.clone() }, TextStyle::Body, if on { ACCENT } else { TEXT }, on, None);
+                            let response = crate::gui::row(ui, self.files.label(sort, f), TextStyle::Body, if on { ACCENT } else { TEXT }, on, None);
                             if response.clicked() {
                                 clicked = Some(f.clone());
                             }
