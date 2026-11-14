@@ -411,7 +411,11 @@ impl Editor {
     pub(super) fn change(&mut self, tune: Option<Field>, f: impl FnOnce(&mut GridLevel)) {
         self.release();
         let before = self.level_state();
+        let (locked, count) = (self.locked_things(), self.level.things.len());
         f(&mut self.level);
+        if !locked.is_empty() && self.level.things.len() == count {
+            self.lock_again(&locked);
+        }
         let after = self.level_state();
         if Arc::ptr_eq(&after, &before) || after == before {
             return;
@@ -1446,7 +1450,34 @@ impl Editor {
                 props.insert(at, crate::grid::Prop { key: key.to_string(), value, line: 0 });
             }
         }
-        self.change(tune, |l| l.things[i].props = props);
+        let fixed = self.names_to_fix(t, key, props.iter().find(|p| p.key == key).map(|p| &p.value));
+        self.change(tune, |l| {
+            l.things[i].props = props;
+            for (n, name) in fixed {
+                l.things[n].name = Some(name);
+            }
+        });
+    }
+
+    /// The things a prop that names things (`key`, its `value`) names by
+    /// the name the game gives them (`lever_2`, none of their own), with
+    /// it: written as their own in the same step, so that a thing of the
+    /// kind taken out before them leaves the prop naming them still.
+    /// (`levels::thing_names` counts named things as it numbers, so the
+    /// others keep the names they have.)
+    fn names_to_fix(&self, t: &Thing, key: &str, value: Option<&toml::Value>) -> Vec<(usize, String)> {
+        let Some(value) = value else { return Vec::new() };
+        let named: Vec<&str> = match self.declared_names(t).and_then(|n| n.get(key)) {
+            Some(Named::Thing) => value.as_str().into_iter().collect(),
+            Some(Named::Things) => value.as_array().into_iter().flatten().filter_map(toml::Value::as_str).collect(),
+            _ => return Vec::new(),
+        };
+        let called = self.thing_names();
+        named
+            .into_iter()
+            .filter(|name| !name.is_empty() && self.level.things.iter().all(|o| o.name.as_deref() != Some(name)))
+            .filter_map(|name| called.iter().position(|c| c.as_deref() == Some(name)).map(|n| (n, name.to_string())))
+            .collect()
     }
 
     /// A prop of the chosen thing as typed (`voxcade edit --prop
@@ -1525,7 +1556,7 @@ pub fn facing_at(degrees: f64, free: bool) -> Facing {
 /// What is hidden in the editor alone (its eye in the outliner, HIDE in
 /// a menu): not drawn, not met by a click, nothing of it written to the
 /// level's file; kept while the window is open. By name; an unnamed thing
-/// as it is.
+/// as it is. What is locked (LOCK, `Pieces::locked`) is kept so too.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Hidden {
     names: std::collections::BTreeSet<(u8, String)>,
@@ -1556,12 +1587,39 @@ impl Hidden {
             None => false,
         }
     }
+
+    /// Whether it holds nothing.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.names.is_empty() && self.things.is_empty()
+    }
+
+    /// Its things (not its places and areas) those at `things` in `level`
+    /// now (a step changed them; an unnamed one is known as it is).
+    pub(crate) fn rekeyed(&mut self, level: &GridLevel, things: &[usize]) {
+        self.things.clear();
+        self.names.retain(|(sort, _)| *sort != 0);
+        for &i in things {
+            self.set_in(level, Item::Thing(i), true);
+        }
+    }
+
+    /// `item` of `level` in it (`on`) or out of it.
+    pub(crate) fn set_in(&mut self, level: &GridLevel, item: Item, on: bool) {
+        let Some(key) = hidden_key(level, item) else { return };
+        match (key, on) {
+            (Ok(k), true) => {
+                self.names.insert(k);
+            }
+            (Ok(k), false) => {
+                self.names.remove(&k);
+            }
+            (Err(t), true) => self.things.push(t),
+            (Err(t), false) => self.things.retain(|o| *o != t),
+        }
+    }
 }
 
 impl Editor {
-    fn hidden_key(&self, item: Item) -> Option<Result<(u8, String), Thing>> {
-        hidden_key(&self.level, item)
-    }
 
     /// Whether `item` is hidden in the editor.
     pub fn is_hidden(&self, item: Item) -> bool {
@@ -1582,17 +1640,7 @@ impl Editor {
     /// `item` hidden or shown again (no step: the file is not touched); a
     /// hidden one chosen is chosen no more.
     pub fn set_hidden(&mut self, item: Item, hide: bool) {
-        let Some(key) = self.hidden_key(item) else { return };
-        match (key, hide) {
-            (Ok(k), true) => {
-                self.hidden.names.insert(k);
-            }
-            (Ok(k), false) => {
-                self.hidden.names.remove(&k);
-            }
-            (Err(t), true) => self.hidden.things.push(t),
-            (Err(t), false) => self.hidden.things.retain(|o| *o != t),
-        }
+        self.hidden.set_in(&self.level, item, hide);
         if hide && self.pieces.chosen == Some(item) {
             self.choose_item(None);
         }
@@ -1980,6 +2028,51 @@ mod tests {
         ed.set_prop("next", "ghost".into());
         assert!(saved(&dir).contains("next = \"ghost\"") && !ed.name_choices()["next"].contains(&"ghost".to_string()));
         assert!(Editor::open(&dir, "room.toml").is_ok_and(|e| e.level.things[4].props.iter().any(|p| p.value.as_str() == Some("ghost"))), "a level holding it opens");
+    }
+
+    /// A prop set to the name the game gives a thing (`lever_2`, none of
+    /// its own) writes that name into the thing in the same step: the
+    /// lever before it taken out, the prop names the same lever still, and
+    /// the levers after it keep their names (`levels::unused`); naming one
+    /// renumbers none of the others (counted named or not). UNDO brings the
+    /// file back to the byte.
+    #[test]
+    fn a_name_a_prop_chooses_is_written_into_the_thing() {
+        let dir = crate::scratch::Scratch::new("room-name-fixed");
+        let lever = |x: i32| format!("[[thing]]\nkind = \"lever\"\nat = [{x}, 20, 0]\n\n");
+        let text = format!("format = \"voxcade level 1\"\nsize = [360, 200, 120]\n\n[[thing]]\nkind = \"walker\"\nat = [100, 20, 0]\n\n{}{}{}{}", lever(10), lever(20), lever(30), lever(40));
+        let text = text.trim_end().to_string() + "\n";
+        std::fs::write(dir.join("room.toml"), &text).unwrap();
+        let mut ed = Editor::open(&dir, "room.toml").unwrap();
+        naming(&mut ed);
+        ed.choose_item(Some(Item::Thing(0)));
+        let names = |ed: &Editor| ed.thing_names().iter().map(|n| n.clone().unwrap_or_default()).collect::<Vec<_>>();
+        assert_eq!(names(&ed), ["walker_1", "lever_1", "lever_2", "lever_3", "lever_4"]);
+        let steps = ed.steps();
+        ed.set_prop("works", ed.typed_prop("works", "lever_2, lever_4").unwrap());
+        assert_eq!(ed.steps(), steps + 1, "one step");
+        assert_eq!(names(&ed), ["walker_1", "lever_1", "lever_2", "lever_3", "lever_4"], "every name as it was");
+        assert_eq!(ed.level.things.iter().map(|t| t.name.as_deref()).collect::<Vec<_>>(), [None, None, Some("lever_2"), None, Some("lever_4")], "the names chosen the levers' own");
+        let lines: Vec<String> = saved(&dir).lines().filter(|l| !text.lines().any(|p| p == *l)).map(String::from).collect();
+        assert_eq!(lines, ["props = { works = [\"lever_2\", \"lever_4\"] }", "name = \"lever_2\"", "name = \"lever_4\""], "only their lines");
+        ed.undo();
+        assert_eq!(saved(&dir), text, "UNDO: the file to the byte");
+        ed.redo();
+        // The first lever taken out: the prop's levers are the same, the
+        // third keeps its name.
+        ed.choose_item(Some(Item::Thing(1)));
+        ed.remove_item();
+        assert_eq!(names(&ed), ["walker_1", "lever_2", "lever_3", "lever_4"]);
+        assert_eq!(listed(&ed.level.things, &ed.thing_names(), "lever_2"), Some(1), "the lever at x 20");
+        assert_eq!(ed.level.things[1].at[0], 20);
+        // The game names them so too (`Host::name_things` the same rule).
+        assert_eq!(crate::levels::thing_names([("lever", None, false), ("lever", Some("lever_1"), false), ("lever", None, false)].into_iter()), [Some("lever_2".to_string()), Some("lever_1".into()), Some("lever_3".into())]);
+        // A name the game does not give, or a thing's own, writes no name.
+        ed.choose_item(Some(Item::Thing(0)));
+        let before = ed.level.things.clone();
+        ed.set_prop("next", "lever_4".into());
+        ed.set_prop("next", "ghost".into());
+        assert!(ed.level.things[1..].iter().zip(&before[1..]).all(|(a, b)| a.name == b.name));
     }
 
     /// SHADOW ONLY on a piece writes its one line, UNDO takes it back in
@@ -2380,13 +2473,13 @@ mod tests {
         use crate::editor::view::{Action, MenuOn};
         let (mut ed, _dir) = room("menu", false);
         let words = |ed: &Editor, on| crate::editor::stage::menu_entries(ed, on).into_iter().map(|(w, ..)| w).collect::<Vec<_>>();
-        assert_eq!(words(&ed, MenuOn::Item(Item::Thing(0))), ["COPY", "REMOVE", "RENAME", "HIDE", "HIDE OTHERS", "EDIT MODEL", "LIGHT ON", "ROTATE 90°", "LAY DOWN", "SOLID"]);
-        assert_eq!(words(&ed, MenuOn::Item(Item::Thing(1)))[6], "LIGHT OFF", "the lamp has its light");
+        assert_eq!(words(&ed, MenuOn::Item(Item::Thing(0))), ["COPY", "REMOVE", "RENAME", "HIDE", "HIDE OTHERS", "LOCK", "EDIT MODEL", "LIGHT ON", "ROTATE 90°", "LAY DOWN", "SOLID"]);
+        assert_eq!(words(&ed, MenuOn::Item(Item::Thing(1)))[7], "LIGHT OFF", "the lamp has its light");
         assert!(!words(&ed, MenuOn::Item(Item::Thing(3))).contains(&"SOLID".to_string()), "the chair at 45 degrees cannot be solid");
         for item in [Item::Thing(2), Item::Thing(4), Item::Area(0)] {
-            assert_eq!(words(&ed, MenuOn::Item(item)), ["COPY", "REMOVE", "RENAME", "HIDE", "HIDE OTHERS"], "{item:?}");
+            assert_eq!(words(&ed, MenuOn::Item(item)), ["COPY", "REMOVE", "RENAME", "HIDE", "HIDE OTHERS", "LOCK"], "{item:?}");
         }
-        assert_eq!(words(&ed, MenuOn::Item(Item::Place(0))), ["COPY", "REMOVE", "RENAME", "HIDE", "HIDE OTHERS", "ROTATE 90°"]);
+        assert_eq!(words(&ed, MenuOn::Item(Item::Place(0))), ["COPY", "REMOVE", "RENAME", "HIDE", "HIDE OTHERS", "LOCK", "ROTATE 90°"]);
         assert_eq!(words(&ed, MenuOn::Floor(IVec3::new(5, 5, 0))), ["ADD MODEL…", "ADD LIGHT", "ADD PLACE", "ADD AREA"]);
         assert_eq!(words(&ed, MenuOn::Add), ["MODEL…", "LIGHT", "PLACE", "AREA", "TERRAIN"], "TERRAIN while the level has none");
         // Its entries do what they say: a light set down where the floor

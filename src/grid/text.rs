@@ -341,6 +341,9 @@ fn thing_text(t: &Thing) -> String {
     if let Some(value) = props_text(&t.props) {
         out += &format!("props = {value}\n");
     }
+    if let Some(group) = &t.group {
+        out += &format!("group = {}\n", vvx::quoted(group));
+    }
     out
 }
 
@@ -882,6 +885,11 @@ fn thing_edits(src: &str, s: &Section, was: &Thing, now: &Thing, edits: &mut Vec
             (None, None) => {}
         }
     }
+    if was.group != now.group {
+        // The thing's last line (the writer's too), else after its last.
+        let last = last_key(s)?;
+        field(src, s, "group", now.group.as_deref().map(vvx::quoted), Some(&last), &mut mine)?;
+    }
     edits.extend(mine);
     Some(())
 }
@@ -1277,7 +1285,7 @@ fn read_set_down(r: &Reader, top: &toml_edit::Table, level: &mut GridLevel) -> R
     if let Some(item) = top.get("thing") {
         for t in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "things must be tables: [[thing]] with kind (or model) and at"))? {
             r.renamed(t, &[("turn", "rotation")], "a thing")?;
-            r.only(t, &["name", "kind", "model", "at", "facing", "rotation", "pitch", "roll", "solid", "shadow_only", "light", "lights", "scatter", "props"], "a thing")?;
+            r.only(t, &["name", "kind", "model", "at", "facing", "rotation", "pitch", "roll", "solid", "shadow_only", "light", "lights", "scatter", "props", "group"], "a thing")?;
             let line = line_of_table(r, t);
             let here = |why: &str| if line > 0 { anyhow!("line {line}: {why}") } else { anyhow!("{why}") };
             let name = text(t, "name", "a thing")?;
@@ -1369,10 +1377,17 @@ fn read_set_down(r: &Reader, top: &toml_edit::Table, level: &mut GridLevel) -> R
                 None => Vec::new(),
                 Some(item) => read_props(r, item)?,
             };
+            // The editor's group: a name in quotes, nothing to the game.
+            let group = text(t, "group", "a thing")?;
+            if let Some(g) = &group
+                && (g.trim() != g || g.contains(['"', '\\']) || g.chars().any(char::is_control))
+            {
+                return Err(r.fail(t.get("group").and_then(Item::span), "a thing's group must be a name in quotes, no spaces at its ends, no quotes or backslashes (group = \"forest\")"));
+            }
             if !props.is_empty() && kind == PIECE {
                 return Err(r.fail(t.get("props").and_then(Item::span), "props need a kind: a piece (a model or a light set down) has none to declare them (c.things.NAME.props); a thing with props has kind = \"NAME\""));
             }
-            level.things.push(Thing { kind, at: triple(t, "at", "a thing")?, name, model, facing, pitch, roll, lights, solid, shadow_only, scatter, props, line });
+            level.things.push(Thing { kind, at: triple(t, "at", "a thing")?, name, model, facing, pitch, roll, lights, solid, shadow_only, scatter, props, group, line });
         }
     }
     if let Some(item) = top.get("place") {

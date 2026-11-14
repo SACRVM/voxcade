@@ -83,6 +83,7 @@ pub(super) struct Command {
 pub(super) const REPEATABLE: &[&str] = &[
     "--do", "--add", "--hang", "--move", "--copy", "--remove", "--light", "--add-light", "--solid", "--room-size", "--at", "--rotate", "--about", "--lay", "--move-part",
     "--move-joint", "--scatter", "--raise", "--shape", "--selection", "--rotate-part", "--pose-part", "--hide", "--clear", "--fill", "--rename", "--radius", "--color", "--prop",
+    "--fold", "--lock",
 ];
 
 /// Old names of options, refused with the new one.
@@ -216,6 +217,9 @@ pub(super) const COMMANDS: &[Command] = &[
             look("--choose-light", "K", "the chosen piece's light K (0 the first)"),
             look("--hide", "NAME", "an item hidden in the editor"),
             look("--prop", "KEY=VALUE", "a prop of the chosen thing set (by its kind's type)"),
+            look("--group", "NAME", "the chosen thing's group in the outliner set (\"\" none)"),
+            look("--fold", "GROUP", "a group of the outliner folded"),
+            look("--lock", "GROUP", "a group's things locked against a click in the view"),
             look("--picker", "", "ADD MODEL's pictures shown"),
             look("--add-menu", "", "ADD's menu open"),
             look("--level-settings", "", "LEVEL shown in the inspector"),

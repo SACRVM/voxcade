@@ -209,11 +209,17 @@ pub fn called(kind: &str, n: u32) -> String {
 /// a thing of its kind, in the order they lie in: the file's, else
 /// `called`'s, counted by kind (named ones too, as the game counts them).
 /// The first thing of such a kind becomes the player: no name, no number
-/// (`Stage::name_things` skips the players' figures so); None.
+/// (`Stage::name_things` skips the players' figures so); None. A number
+/// whose name another thing has (its own, or given before) is passed over
+/// (`unused`).
 pub fn thing_names<'a>(things: impl Iterator<Item = (&'a str, Option<&'a str>, bool)>) -> Vec<Option<String>> {
+    let things: Vec<_> = things.collect();
+    let owns: std::collections::BTreeSet<&str> = things.iter().filter_map(|t| t.1).collect();
+    let mut given = std::collections::BTreeSet::new();
     let mut counts: BTreeMap<&str, u32> = BTreeMap::new();
     let mut player = false;
     things
+        .into_iter()
         .map(|(kind, own, stands_player)| {
             if stands_player && !player {
                 player = true;
@@ -221,9 +227,21 @@ pub fn thing_names<'a>(things: impl Iterator<Item = (&'a str, Option<&'a str>, b
             }
             let n = counts.entry(kind).or_insert(0);
             *n += 1;
-            Some(own.map_or_else(|| called(kind, *n), str::to_string))
+            Some(own.map_or_else(|| unused(kind, *n, &owns, &mut given), str::to_string))
         })
         .collect()
+}
+
+/// `called(kind, n)`, or past `n` the first number whose name is neither
+/// another thing's own (`owns`) nor `given` already, then given: after
+/// `lever_1` was taken out, the lever a prop named keeps `lever_2` as its
+/// own and the next is `lever_3` still, not a second `lever_2`. Where no
+/// own name is a kind's name and a number, as in every level written
+/// before, it is `called`.
+pub fn unused(kind: &str, n: u32, owns: &std::collections::BTreeSet<&str>, given: &mut std::collections::BTreeSet<String>) -> String {
+    let name = (n..).map(|k| called(kind, k)).find(|name| !owns.contains(name.as_str()) && !given.contains(name)).expect("a free number");
+    given.insert(name.clone());
+    name
 }
 
 /// Every level of a game, in order.

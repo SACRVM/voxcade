@@ -162,6 +162,7 @@ kind = "tuer"         # a kind without a behavior may face a way (or rotation = 
 at = [80, 5, 0]
 facing = "east"
 props = { to = "02_crypt", locked = true }   # this one's, over its kind's c.things.tuer.props
+group = "doors"       # the level editor's group for it, nothing to the game
 
 [[place]]
 name = "door"
@@ -281,9 +282,23 @@ facing = [0, -1]
   `--choose` and the facts a shot prints say these names (the player's
   marker its kind), nothing is written to the file for one; a name typed
   is the thing's own, cleared it is the game's again. An automatic name
-  changes when a thing of its kind before it is removed: a prop naming
-  it by that name then names another (RENAME rewrites such props, REMOVE
-  does not).
+  changes when a thing of its kind before it is removed, so a prop set
+  to one in PROPS (or by `--prop`) writes it into that thing as its own
+  in the same step: `lever_2` stays the lever it was. A number whose name
+  another thing has as its own is passed over (the next lever after the
+  named `lever_2` is `lever_3`, never a second `lever_2`).
+- **Groups** (2026-11-14, the owner: "wie sorgen wir für übersicht im
+  editor?"): `group = "forest"` on a `[[thing]]` lists it under that
+  group in the level editor's outliner; the game reads nothing of it
+  (no Lua name, not in the state hash; the level file's bytes are in a
+  replay's fingerprint, as every line of it is). Optional; written last
+  on the thing; a name in quotes, no spaces at its ends. In the editor
+  a group's row folds, hides and locks its things (a locked thing is not
+  chosen by a click in the view, its row still chooses it; folds, hides
+  and locks are not written); GROUP in a thing's rows sets it (a group
+  there is, or a name typed; cleared: none), RENAME and UNGROUP on the
+  group's row change all its things in one step. `voxcade edit --choose
+  NAME --group forest`, `--fold forest`, `--lock forest` in a shot.
 
 ## A terrain (2026-11-13)
 

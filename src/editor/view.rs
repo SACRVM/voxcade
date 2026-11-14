@@ -243,6 +243,8 @@ pub struct View {
     pub rename_problem: Option<String>,
     /// A figure's part whose name is being typed in its row.
     pub renaming_part: Option<usize>,
+    /// A group whose name is being typed in its row (RENAME).
+    pub renaming_group: Option<u16>,
     /// Among the pieces: the handle under the mouse (lit), the menu open
     /// (a right click's, or ADD's on the top bar), the camera before GAME
     /// VIEW (to go back to; None: GAME VIEW is off), the level's own
@@ -329,6 +331,8 @@ pub struct Menu {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MenuOn {
     Item(Item),
+    /// A group of the outliner's (by its place among `Editor::groups`).
+    Group(u16),
     Floor(IVec3),
     Add,
     /// The voxel editor's: a voxel (its cell in the grid shown, and the
@@ -530,6 +534,7 @@ impl View {
             renaming: None,
             rename_problem: None,
             renaming_part: None,
+            renaming_group: None,
             grip_hover: None,
             turning: None,
             ring_hover: false,

@@ -214,6 +214,30 @@ mod tests {
         assert_eq!(std::fs::read_to_string(dir.join("room.toml")).unwrap(), text);
     }
 
+    /// A locked thing (LOCK, its group's or its own) is drawn but not met
+    /// by a click: the click goes on to what is behind; its row still
+    /// chooses it; ADD still sets down on its face; nothing written.
+    #[test]
+    fn a_locked_thing_is_passed_through_by_a_click() {
+        use crate::editor::view::item_along;
+        let (mut ed, figures, dir) = wall_and_picture("locked", "north");
+        let text = std::fs::read_to_string(dir.join("room.toml")).unwrap();
+        let picture = ed.find("picture").unwrap();
+        let ray = (Vec3::new(100.5, -50.0, 20.5), Vec3::Y);
+        assert_eq!(name(&ed, item_along(&ed, &figures, ray.0, ray.1)), "picture");
+        ed.choose_item(Some(picture));
+        ed.set_group("art").unwrap();
+        ed.toggle_group_locked("art");
+        assert!(ed.is_locked(picture) && ed.pieces.chosen == Some(picture), "locked, chosen still");
+        assert_eq!(name(&ed, item_along(&ed, &figures, ray.0, ray.1)), "wall", "through it to the wall");
+        let shown = crate::editor::view::Shown::new(&ed).unwrap();
+        assert_eq!(crate::editor::view::set_down_spot(&ed, &figures, &shown.world, ray.0, ray.1), Some(IVec3::new(100, 98, 20)), "set down on its face still");
+        ed.toggle_locked(picture);
+        assert_eq!(name(&ed, item_along(&ed, &figures, ray.0, ray.1)), "picture");
+        ed.set_group("").unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join("room.toml")).unwrap(), text, "only the group was written, and is gone again");
+    }
+
     /// ADD sets down on the face of the voxel met: in front of the
     /// picture, not on the floor behind the wall's box.
     #[test]

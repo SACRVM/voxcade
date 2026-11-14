@@ -191,6 +191,29 @@ pub fn hide_mark(ui: &mut egui::Ui, hidden: bool, action: Action, shown: &mut Pa
     }
 }
 
+/// The mark beside the hide mark that locks a row's item against a click
+/// in the view (LOCK, the editor only): a closed padlock while locked, an
+/// open one faint while free.
+pub fn lock_mark(ui: &mut egui::Ui, locked: bool, action: Action, shown: &mut PanelsDrawn) {
+    let (rect, mark) = ui.allocate_exact_size(egui::vec2(13.0, ui.text_style_height(&TextStyle::Body) + 8.0), egui::Sense::click());
+    let colour = if mark.hovered() { TEXT } else if locked { QUIET } else { QUIET.gamma_multiply(0.45) };
+    let c = rect.center() + egui::vec2(0.0, 2.0);
+    let body = Rect::from_center_size(c - egui::vec2(1.5, 0.0), egui::vec2(8.0, 6.0));
+    let stroke = egui::Stroke::new(1.4, colour);
+    // The shackle: closed on both sides locked, open on the right free.
+    let (l, r, top) = (body.left() + 2.0, body.right() - 2.0, body.top() - 4.0);
+    let right_down = if locked { body.top() } else { top + 1.5 };
+    ui.painter().add(egui::Shape::line(vec![Pos2::new(l, body.top()), Pos2::new(l, top), Pos2::new(r, top), Pos2::new(r, right_down)], stroke));
+    if locked {
+        ui.painter().rect_filled(body, 1.0, colour);
+    } else {
+        ui.painter().rect_stroke(body, 1.0, stroke, egui::StrokeKind::Inside);
+    }
+    if mark.on_hover_text(if locked { "Unlock it: a click in the view chooses it again" } else { "Lock it: a click in the view passes through it (its row still chooses it)" }).clicked() {
+        shown.clicked.push(action);
+    }
+}
+
 /// A button whose key follows its word, quiet; `on`: a toggle, lit while
 /// on (it still looks as a button does: what is clicked has a frame). Its
 /// key works while the panels show it.
