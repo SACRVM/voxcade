@@ -158,14 +158,10 @@ impl UserData for ThingRef {
             let ids = look(lua, |h| {
                 h.thing(t.0)?;
                 let pick = what.map(|w| h.pick(&w, "thing:touching")).transpose()?;
-                let others = h.contacts().into_iter().filter_map(|(a, b)| if a == t.0 { Some(b) } else if b == t.0 { Some(a) } else { None });
+                let others = h.contacts_of(t.0).into_iter().map(|(a, b)| if a == t.0 { b } else { a });
                 Ok(others.filter(|&o| pick.as_ref().is_none_or(|p| h.is(o, p))).collect::<Vec<u32>>())
             })?;
-            let list = lua.create_table()?;
-            for (n, id) in ids.into_iter().enumerate() {
-                list.raw_set(n + 1, handle(lua, id)?)?;
-            }
-            Ok(list)
+            handles(lua, ids)
         });
         m.add_method("in_block", |lua, t, kind: String| {
             let flag = block_flag(&kind, "thing:in_block")?;

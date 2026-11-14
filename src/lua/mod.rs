@@ -209,17 +209,16 @@ pub struct LuaGame<K: Kit> {
     state_failed: Cell<bool>,
     /// The save the run goes on from at once (`Game::start_from`).
     start_text: Option<String>,
-    /// The saves made since the session took them (`Game::saving`).
     /// The thing the player arrives at in the level entered next (a
     /// checkpoint by its name).
     arrive_at: Option<String>,
     /// Where a save stood the players of the seats after the first, for the
     /// level it enters.
     seat_places: Vec<(usize, crate::levels::Place)>,
+    /// The saves made since the session took them (`Game::saving`).
     written: Vec<(u32, String)>,
     /// What `on_draw` asked for the last time it ran (shown while stopped).
     drawn: RefCell<Vec<Cmd>>,
-    /// What `on_draw` wrote for the HUD.
     /// What `on_draw` put on the HUD, drawn there (`hud`).
     overlay: RefCell<Vec<Cmd>>,
     kit: PhantomData<K>,
@@ -274,11 +273,13 @@ fn near_handler(name: &str) -> Option<&'static str> {
     if handlers.clone().any(|h| h == name) || RENAMED.iter().any(|(old, _)| *old == name) {
         return None;
     }
-    handlers
-        .map(|h| (h, edits(&rest, &h["on_".len()..])))
-        .filter(|(h, d)| *d <= if h.len() - "on_".len() <= 4 { 1 } else { 2 })
-        .min_by_key(|(_, d)| *d)
-        .map(|(h, _)| h)
+    nearest(&rest, handlers.map(|h| (&h["on_".len()..], h)), |h| if h.len() <= 4 { 1 } else { 2 })
+}
+
+/// What the name of `among` that `name` nearly is stands for: at most
+/// `most(that name)` edits off, the nearest (of equals the first).
+fn nearest<'a, T>(name: &str, among: impl Iterator<Item = (&'a str, T)>, most: impl Fn(&str) -> usize) -> Option<T> {
+    among.map(|(n, t)| (edits(name, n), n, t)).filter(|(d, n, _)| *d <= most(n)).min_by_key(|(d, ..)| *d).map(|(.., t)| t)
 }
 
 /// How many letters to put in, take out, change or swap with the next to
@@ -550,10 +551,6 @@ impl<K: Kit> Game for LuaGame<K> {
             anyhow::bail!("conf.lua: c.{given}: no such setting (did you mean `c.{near}`?)");
         }
         Ok(())
-    }
-
-    fn config_file() -> Option<&'static str> {
-        Some("conf.lua")
     }
 
     fn sections(cfg: &GameConfig) -> Vec<&'static str> {

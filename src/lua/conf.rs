@@ -7,7 +7,7 @@
 
 
 use anyhow::{Context, Result, bail};
-use mlua::{Lua, Table, Value};
+use mlua::{Table, Value};
 
 use super::sandbox::Sandbox;
 use crate::config::GameConfig;
@@ -24,7 +24,7 @@ pub fn run(files: &Files, cfg: &mut GameConfig) -> Result<()> {
     let env = sandbox.run("conf.lua", &src)?;
     let conf = Sandbox::function(&env, "conf")?.context("conf.lua: it defines no `function conf(c)`")?;
     let defaults = toml::Value::try_from(&*cfg)?;
-    let c = to_lua(&sandbox.lua, &defaults)?;
+    let c = super::world::from_toml(&sandbox.lua, &defaults)?;
     let Value::Table(c) = c else { bail!("the engine's settings are no table") };
     let grow: mlua::Function = sandbox.lua.load("return function(t, k) local v = {} rawset(t, k, v) return v end").eval()?;
     let meta = sandbox.lua.create_table()?;
@@ -202,30 +202,6 @@ fn renamed(c: &toml::Value) -> Result<()> {
         }
     }
     Ok(())
-}
-
-fn to_lua(lua: &Lua, v: &toml::Value) -> Result<Value> {
-    Ok(match v {
-        toml::Value::String(s) => Value::String(lua.create_string(s)?),
-        toml::Value::Integer(i) => Value::Integer(*i),
-        toml::Value::Float(f) => Value::Number(*f),
-        toml::Value::Boolean(b) => Value::Boolean(*b),
-        toml::Value::Datetime(d) => Value::String(lua.create_string(d.to_string())?),
-        toml::Value::Array(a) => {
-            let t = lua.create_table()?;
-            for (i, item) in a.iter().enumerate() {
-                t.raw_set(i + 1, to_lua(lua, item)?)?;
-            }
-            Value::Table(t)
-        }
-        toml::Value::Table(m) => {
-            let t = lua.create_table()?;
-            for (k, item) in m {
-                t.raw_set(k.as_str(), to_lua(lua, item)?)?;
-            }
-            Value::Table(t)
-        }
-    })
 }
 
 /// A setting back from Lua; `default` is what the engine had there (an

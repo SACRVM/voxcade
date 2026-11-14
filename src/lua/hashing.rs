@@ -3,7 +3,6 @@
 use super::*;
 
 impl<K: Kit> LuaGame<K> {
-    /// The plain host's state as one number.
     /// The state hash (`Game::state_hash`), each part's hash kept in
     /// `parts` as it is taken in: the ready-made rules with their things
     /// (or the core's things), `world.state`, `player.state`,
@@ -121,6 +120,7 @@ impl<K: Kit> LuaGame<K> {
         s.finish()
     }
 
+    /// The plain host's state as one number.
     pub(super) fn plain_hash(h: &Plain, s: &mut Stable) {
         s.u64(h.sim.tick).u64(h.sim.rng.state()).u64(h.sim.world.changes()).u64(h.sim.freeze as u64);
         s.u64(h.things.len() as u64);

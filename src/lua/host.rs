@@ -935,19 +935,31 @@ impl Stage {
         let mut pairs = std::collections::BTreeSet::new();
         for (i, a) in bodies.iter().enumerate() {
             for b in &bodies[i + 1..] {
-                if self.host.touches(a, b).unwrap_or_else(|| touch(a, b)) {
-                    // A player first, of two the lower seat; else the one
-                    // that came first.
-                    pairs.insert(match (handle_seat(a.id), handle_seat(b.id)) {
-                        (Some(sa), Some(sb)) if sb < sa => (b.id, a.id),
-                        (Some(_), _) => (a.id, b.id),
-                        (None, Some(_)) => (b.id, a.id),
-                        (None, None) => (a.id.min(b.id), a.id.max(b.id)),
-                    });
+                if self.touching(a, b) {
+                    pairs.insert(pair(a.id, b.id));
                 }
             }
         }
         pairs
+    }
+
+    /// The pairs of `contacts` that thing `id` is in (`thing:touching`),
+    /// found by testing it alone against the others.
+    pub fn contacts_of(&self, id: u32) -> std::collections::BTreeSet<(u32, u32)> {
+        let bodies = self.bodies();
+        let Some(i) = bodies.iter().position(|b| b.id == id) else { return Default::default() };
+        let me = &bodies[i];
+        // Each pair tested in the order `contacts` tests it: the one that
+        // came first first.
+        let before = bodies[..i].iter().filter(|b| self.touching(b, me));
+        let after = bodies[i + 1..].iter().filter(|b| self.touching(me, b));
+        before.chain(after).map(|b| pair(me.id, b.id)).collect()
+    }
+
+    /// Whether two of the bodies touch, by the rules' shape for it or the
+    /// engine's.
+    fn touching(&self, a: &Touching, b: &Touching) -> bool {
+        self.host.touches(a, b).unwrap_or_else(|| touch(a, b))
     }
 
     /// How `a`'s touch of `b` began: from where both stood when touches
@@ -1101,6 +1113,17 @@ fn burst(sim: &mut Sim, shape: &crate::sim::Shape, at: Vec3, look: IVec2) {
         })
         .collect();
     sim.gib(&voxels, size, at, Vec3::ZERO);
+}
+
+/// A pair of things touching as `Stage::contacts` keeps it: a player
+/// first, of two the lower seat; else the one that came first.
+fn pair(a: u32, b: u32) -> (u32, u32) {
+    match (handle_seat(a), handle_seat(b)) {
+        (Some(sa), Some(sb)) if sb < sa => (b, a),
+        (Some(_), _) => (a, b),
+        (None, Some(_)) => (b, a),
+        (None, None) => (a.min(b), a.max(b)),
+    }
 }
 
 /// Whether two bodies touch: their boxes overlap, or one stands within the

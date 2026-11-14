@@ -117,6 +117,17 @@ pub struct Sandbox {
 /// How many printed lines wait to be asked for.
 const PRINTED: usize = 500;
 
+/// A line printed (or the engine's note): on the terminal, and kept for
+/// OUTPUT, the newest `PRINTED`.
+fn say(kept: &RefCell<std::collections::VecDeque<String>>, line: String) {
+    eprintln!("[lua] {line}");
+    let mut kept = kept.borrow_mut();
+    if kept.len() == PRINTED {
+        kept.pop_front();
+    }
+    kept.push_back(line);
+}
+
 impl Sandbox {
     pub fn new() -> Result<Self> {
         // Safe: the debug library stays with the engine (tracebacks, the
@@ -140,13 +151,7 @@ impl Sandbox {
             "print",
             lua.create_function(move |_, args: mlua::Variadic<Value>| {
                 let parts: Vec<String> = args.iter().map(|a| tostring.call::<String>(a.clone()).unwrap_or_default()).collect();
-                let line = parts.join("\t");
-                eprintln!("[lua] {line}");
-                let mut kept = kept.borrow_mut();
-                if kept.len() == PRINTED {
-                    kept.pop_front();
-                }
-                kept.push_back(line);
+                say(&kept, parts.join("\t"));
                 Ok(())
             })?,
         )?;
@@ -156,12 +161,7 @@ impl Sandbox {
         lua.set_named_registry_value(
             "voxcade.note",
             lua.create_function(move |_, line: String| {
-                eprintln!("[lua] {line}");
-                let mut kept = notes.borrow_mut();
-                if kept.len() == PRINTED {
-                    kept.pop_front();
-                }
-                kept.push_back(line);
+                say(&notes, line);
                 Ok(())
             })?,
         )?;

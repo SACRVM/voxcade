@@ -480,5 +480,4 @@ return {
   freeze = freeze,
   set_global = set_global,
   plain = plain,
-  guard = function(t) guarded[t] = true end,
 }

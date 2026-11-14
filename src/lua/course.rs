@@ -4,6 +4,11 @@
 use super::*;
 
 impl<K: Kit> LuaGame<K> {
+    /// Does what the script asked at the tick's end (`docs/game-model.md`,
+    /// "Leaving a level"): `on_level_end(why)`, then another level entered
+    /// (or this one afresh) and `on_level_start(how)`, or the run's end. An
+    /// ask in that `on_level_start` counts at once; a mistake stops the
+    /// game.
     pub(super) fn change_levels(&mut self) {
         loop {
             if self.halted.borrow().is_some() || self.stage.ended {

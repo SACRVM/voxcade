@@ -96,11 +96,7 @@ impl UserData for Frame {
         // at one machine), in seat order.
         f.add_field_function_get("players", |lua, _| {
             let seats = look(lua, |h| Ok(h.drawn_seats()))?;
-            let list = lua.create_table()?;
-            for (n, seat) in seats.into_iter().enumerate() {
-                list.raw_set(n + 1, handle(lua, seat_handle(seat))?)?;
-            }
-            Ok(list)
+            handles(lua, seats.into_iter().map(seat_handle))
         });
         f.add_field_method_get("height", |_, o| Ok(o.height));
         f.add_field_method_get("alpha", |_, o| Ok(o.alpha));

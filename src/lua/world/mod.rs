@@ -250,7 +250,7 @@ fn block_flag(kind: &str, what: &str) -> mlua::Result<u8> {
     BLOCK_KINDS.iter().find(|(n, _)| *n == kind).map(|(_, f)| *f).ok_or_else(|| mlua::Error::runtime(format!("{what}: no kind of block called '{kind}' (hazard, ladder, oneway, solid)")))
 }
 
-/// A value of `conf.lua` (a kind's props) as Lua has it.
+/// A value of `conf.lua` (its defaults, a kind's props) as Lua has it.
 pub(super) fn from_toml(lua: &Lua, v: &toml::Value) -> mlua::Result<Value> {
     Ok(match v {
         toml::Value::String(s) => Value::String(lua.create_string(s)?),
@@ -404,6 +404,15 @@ pub fn handle(lua: &Lua, id: u32) -> mlua::Result<AnyUserData> {
     let h = lua.create_userdata(ThingRef(id))?;
     handles.raw_set(id, &h)?;
     Ok(h)
+}
+
+/// The handles of things `ids`, as a list.
+fn handles(lua: &Lua, ids: impl IntoIterator<Item = u32>) -> mlua::Result<Table> {
+    let list = lua.create_table()?;
+    for (n, id) in ids.into_iter().enumerate() {
+        list.raw_set(n + 1, handle(lua, id)?)?;
+    }
+    Ok(list)
 }
 
 /// `id`, or a player's handle where it is a player's figure.
@@ -667,15 +676,7 @@ fn seat_state(lua: &Lua, seat: usize) -> mlua::Result<Value> {
     if let Some(v) = view(lua, key.as_str())? {
         return Ok(Value::Table(v));
     }
-    let seats: Table = lua.named_registry_value("voxcade.seats")?;
-    let backing = match seats.raw_get::<Option<Table>>(seat)? {
-        Some(t) => t,
-        None => {
-            let t = lua.create_table()?;
-            seats.raw_set(seat, &t)?;
-            t
-        }
-    };
+    let backing = table_at(lua, &lua.named_registry_value("voxcade.seats")?, seat)?;
     // Hit points where its kind has them, or a run starts with some.
     let has_hp = look(lua, |h| Ok(h.seat_kind(seat).is_some_and(|k| h.kinds[k].has_hp) || h.host.sim().cfg.state.player_number("hp").is_some()))?;
     let get = lua.create_function(move |lua, key: String| {
@@ -781,12 +782,16 @@ pub fn piece_name(h: &Stage, id: u32) -> String {
 
 /// The table thing `id`'s state keeps the script's keys in.
 fn own_state(lua: &Lua, id: u32) -> mlua::Result<Table> {
-    let all: Table = lua.named_registry_value("voxcade.data")?;
-    match all.raw_get::<Option<Table>>(id)? {
+    table_at(lua, &lua.named_registry_value("voxcade.data")?, id)
+}
+
+/// The table `parent` holds at `key`, made there if it holds none.
+pub(super) fn table_at(lua: &Lua, parent: &Table, key: impl mlua::IntoLua + Copy) -> mlua::Result<Table> {
+    match parent.raw_get::<Option<Table>>(key)? {
         Some(t) => Ok(t),
         None => {
             let t = lua.create_table()?;
-            all.raw_set(id, &t)?;
+            parent.raw_set(key, &t)?;
             Ok(t)
         }
     }
@@ -805,15 +810,7 @@ fn thing_state(lua: &Lua, id: u32) -> mlua::Result<Value> {
     if let Some(v) = view(lua, id)? {
         return Ok(Value::Table(v));
     }
-    let all: Table = lua.named_registry_value("voxcade.data")?;
-    let backing = match all.raw_get::<Option<Table>>(id)? {
-        Some(t) => t,
-        None => {
-            let t = lua.create_table()?;
-            all.raw_set(id, t.clone())?;
-            t
-        }
-    };
+    let backing = own_state(lua, id)?;
     let get = lua.create_function(move |lua, key: String| {
         if key == "hp" {
             return look(lua, |h| Ok(Value::Integer(h.thing(id)?.hp as i64)));
@@ -926,7 +923,7 @@ pub(super) fn no_such(of: &str, key: &Value, own: Option<&str>) -> mlua::Error {
 /// for the short ones), case and swapped letters as one.
 fn near_item<'a>(name: &str, items: &[&'a crate::lua::api::Item]) -> Option<&'a crate::lua::api::Item> {
     let name = name.to_lowercase();
-    items.iter().map(|i| (super::edits(&name, i.name), *i)).filter(|(d, i)| *d <= if i.name.len().min(name.len()) <= 4 { 1 } else { 2 }).min_by_key(|(d, _)| *d).map(|(_, i)| i)
+    super::nearest(&name, items.iter().map(|i| (i.name, *i)), |n| if n.len().min(name.len()) <= 4 { 1 } else { 2 })
 }
 
 /// Setting a name on an engine's object that is not one it lets a script

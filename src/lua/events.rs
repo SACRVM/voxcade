@@ -61,8 +61,7 @@ impl<K: Kit> LuaGame<K> {
         // ready-made rules did this tick.
         let later = std::mem::take(&mut self.stage.later);
         let ruled = std::mem::take(&mut self.stage.host.sim_mut().events);
-        let mut events = later.into_iter();
-        for event in events.by_ref() {
+        for event in later {
             self.tell_event(event)?;
         }
         let stage = &mut self.stage;
