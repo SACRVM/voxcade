@@ -148,7 +148,13 @@ impl Sandbox {
         // never see the globals it is in.
         let lua = unsafe { Lua::unsafe_new_with(StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::UTF8 | StdLib::DEBUG, LuaOptions::new()) };
         lua.set_memory_limit(MEMORY)?;
-        let tools: Table = lua.load(PRELUDE).set_name("=prelude").eval()?;
+        // The prelude is told the engine's globals (`set_global` keeps
+        // their names for them).
+        let globals = lua.create_table()?;
+        for o in super::api::OBJECTS.iter().filter(|o| o.global) {
+            globals.raw_set(o.of, true)?;
+        }
+        let tools: Table = lua.load(PRELUDE).set_name("=prelude").call(globals)?;
         let g = lua.globals();
         let base = lua.create_table()?;
         for name in ["assert", "error", "ipairs", "pcall", "xpcall", "select", "tonumber", "type", "rawequal", "rawget", "rawlen", "getmetatable", "_VERSION"] {
@@ -511,19 +517,7 @@ fn position_in(traceback: &str) -> Option<String> {
 
 /// The script's name of an engine's object (mlua names the Rust type).
 fn script_owner(rust: &str) -> Option<&'static str> {
-    Some(match rust {
-        "WorldView" => "world",
-        "LevelView" => "level",
-        "CameraView" => "level.camera",
-        "ThingRef" => "thing",
-        "AreaView" => "area",
-        "InputView" => "input",
-        "ScreenView" => "screen",
-        "Frame" => "frame",
-        "ControlsView" => "controls",
-        "MusicView" => "music",
-        _ => return None,
-    })
+    super::api::OBJECTS.iter().find(|o| o.rust == Some(rust)).map(|o| o.of)
 }
 
 /// A Lua value's kind as a message says it was given.

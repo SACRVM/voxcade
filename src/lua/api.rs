@@ -607,9 +607,56 @@ pub const API: &[Item] = &[
             pad (B, CIRCLE). Empty if nothing is bound or nobody plays." },
 ];
 
+/// One of the game model's objects as scripts name it: the class the
+/// editors' definitions give it, the Rust type behind it (mlua's name in
+/// mistakes; `player` is a thing's), whether every script has it as a
+/// global (the prelude refuses a global of the game's by that name), and
+/// what it is. The one list of them: `OWNERS`, the definitions, the
+/// sandbox's mistakes and the prelude read it.
+pub struct Object {
+    pub of: &'static str,
+    pub class: &'static str,
+    pub rust: Option<&'static str>,
+    pub global: bool,
+    pub about: &'static str,
+}
+
+pub const OBJECTS: [Object; 11] = [
+    Object { of: "world", class: "World", rust: Some("WorldView"), global: true, about: "The whole run: its state, its time, how it ends." },
+    Object { of: "level", class: "Level", rust: Some("LevelView"), global: true, about: "The level being played: its voxels, its things, \
+            what happens in it, its camera." },
+    Object { of: "level.camera", class: "Camera", rust: Some("CameraView"), global: false, about: "Where the camera looks." },
+    Object { of: "player", class: "Player", rust: None, global: true, about: "The one who plays: a thing that belongs to no level and goes \
+            from level to level (everything a thing has); its state is the run's. Its figure is the ready-made rules' player, a thing of \
+            c.player.kind, or none (it then stands nowhere)." },
+    Object { of: "thing", class: "Thing", rust: Some("ThingRef"), global: false, about: "A thing in the level, by its id." },
+    Object { of: "area", class: "Area", rust: Some("AreaView"), global: false, about: "A named box of the level, set in its file \
+            (level.areas.NAME): only to read." },
+    Object { of: "input", class: "Input", rust: Some("InputView"), global: true, about: "The keys held this tick, by the game's action \
+            names: only in on_tick." },
+    Object { of: "screen", class: "Screen", rust: Some("ScreenView"), global: true, about: "The picture's effects (a shake, a flash, an icon \
+            bursting), from anywhere the game changes." },
+    Object { of: "frame", class: "Frame", rust: Some("Frame"), global: false, about: "The picture on_draw makes (function on_draw(frame)): \
+            only there, only for this picture." },
+    Object { of: "controls", class: "Controls", rust: Some("ControlsView"), global: true, about: "What the player plays with: the device and \
+            the keys as the player sees them (their keyboard's, their pad's). Replays carry it, so the game may go by it anywhere. Seat 1's; \
+            in on_draw the first player's at the machine drawing (frame.players)." },
+    Object { of: "music", class: "Music", rust: Some("MusicView"), global: true, about: "The song your game plays of its own choice, its \
+            beats and bars, and how loud and how muffled it sounds: the game can go with the music (waves on the beat), and replays play it \
+            the same." },
+];
+
 /// The game model's objects, as scripts name them: the globals and
 /// `level.camera`. Their names are offered after a dot or colon.
-pub const OWNERS: [&str; 11] = ["world", "level", "level.camera", "player", "thing", "area", "input", "screen", "frame", "controls", "music"];
+pub const OWNERS: [&str; OBJECTS.len()] = {
+    let mut owners = [""; OBJECTS.len()];
+    let mut i = 0;
+    while i < OBJECTS.len() {
+        owners[i] = OBJECTS[i].of;
+        i += 1;
+    }
+    owners
+};
 
 /// What `of` offers: its own names, and for `player` a thing's too (it is
 /// one; its own say more, `player.state`).
@@ -617,45 +664,6 @@ pub fn items_of(of: &str) -> impl Iterator<Item = &'static Item> + '_ {
     let own = API.iter().filter(move |i| i.of == of);
     let inherited = API.iter().filter(move |i| of == "player" && i.of == "thing" && !API.iter().any(|p| p.of == "player" && p.name == i.name));
     own.chain(inherited)
-}
-
-/// The objects every script has as globals.
-const GLOBALS: [&str; 7] = ["world", "level", "player", "input", "screen", "controls", "music"];
-
-/// The class each owner's items belong to.
-fn class(of: &str) -> &'static str {
-    match of {
-        "world" => "World",
-        "level" => "Level",
-        "level.camera" => "Camera",
-        "player" => "Player",
-        "thing" => "Thing",
-        "area" => "Area",
-        "input" => "Input",
-        "screen" => "Screen",
-        "frame" => "Frame",
-        "controls" => "Controls",
-        "music" => "Music",
-        _ => "",
-    }
-}
-
-/// What each object is, for the definitions' classes.
-fn about(of: &str) -> &'static str {
-    match of {
-        "world" => "The whole run: its state, its time, how it ends.",
-        "level" => "The level being played: its voxels, its things, what happens in it, its camera.",
-        "level.camera" => "Where the camera looks.",
-        "player" => "The one who plays: a thing that belongs to no level and goes from level to level (everything a thing has); its state is the run's. Its figure is the ready-made rules' player, a thing of c.player.kind, or none (it then stands nowhere).",
-        "thing" => "A thing in the level, by its id.",
-        "area" => "A named box of the level, set in its file (level.areas.NAME): only to read.",
-        "input" => "The keys held this tick, by the game's action names: only in on_tick.",
-        "screen" => "The picture's effects (a shake, a flash, an icon bursting), from anywhere the game changes.",
-        "frame" => "The picture on_draw makes (function on_draw(frame)): only there, only for this picture.",
-        "controls" => "What the player plays with: the device and the keys as the player sees them (their keyboard's, their pad's). Replays carry it, so the game may go by it anywhere. Seat 1's; in on_draw the first player's at the machine drawing (frame.players).",
-        "music" => "The song your game plays of its own choice, its beats and bars, and how loud and how muffled it sounds: the game can go with the music (waves on the beat), and replays play it the same.",
-        _ => "",
-    }
 }
 
 fn params_text(params: &[(&str, &str)]) -> String {
@@ -1017,10 +1025,10 @@ pub fn definitions() -> String {
         "---@meta voxcade\n-- Voxcade's Lua API for editors (LuaLS), written by `voxcade api --lua`\n-- from the engine's register of it (src/lua/api.rs): made anew, not edited.\n\n",
     );
     out += TYPES;
-    for of in OWNERS {
-        let class = class(of);
+    for object in &OBJECTS {
+        let (of, class) = (object.of, object.class);
         let parent = if of == "player" { " : Thing" } else { "" };
-        out += &format!("\n---@class {class}{parent} {}\n", about(of));
+        out += &format!("\n---@class {class}{parent} {}\n", object.about);
         for item in API.iter().filter(|i| i.of == of) {
             if let Field { ty, .. } = item.what {
                 // Words of more than one line go above the field, where
@@ -1040,8 +1048,8 @@ pub fn definitions() -> String {
         }
     }
     out += "\n-- The game model's objects, there in every script.\n";
-    for of in GLOBALS {
-        out += &format!("---@type {}\n{of} = {{}}\n", class(of));
+    for o in OBJECTS.iter().filter(|o| o.global) {
+        out += &format!("---@type {}\n{} = {{}}\n", o.class, o.of);
     }
     out += "\n-- The engine's functions every script has.\n";
     for item in API {
