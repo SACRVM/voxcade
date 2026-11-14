@@ -68,7 +68,7 @@ disk itself, so a game can play sealed files while its folder changes.
 stage 4): `Host` and `Guest` state machines without I/O over `wire`'s
 datagrams, `SimNet` a simulated network for the tests, `soak` its stub
 game, `play` a session played by bundles (`Hosting`, `Joining`,
-`Locals`), `udp` the socket (`udp::random` the OS random source, `getrandom`; `docs/multiplayer.md` has the trust model), `quic` iroh across the internet (a thread
+`Locals`), `udp` the socket, `machine` what a machine is to the others (its id, name, build; `machine::random` the OS random source, `getrandom`; `docs/multiplayer.md` has the trust model), `quic` iroh across the internet (a thread
 of its own, channels; stage 6), `link` either as one transport (`Where`,
 machines asking in let in by a spoken code), `trial` iroh's measures
 (`voxcade nettest`; the four signs both screens show to let a machine in

@@ -563,7 +563,7 @@ impl<G: Game, A: Copy + Ord + std::fmt::Debug> Hosting<G, A> {
         let replay = toml::to_string(&self.run.recorder.replay(game)?)?;
         let slots = game.slots.texts().into_iter().map(|(n, t)| (n, t.to_string())).collect();
         let files = game.fingerprint_files()?;
-        Ok(RunSoFar { replay, when: self.when.unwrap_or(0), known: self.run.known.clone(), slots, files, commit: super::udp::COMMIT.to_string() }.write())
+        Ok(RunSoFar { replay, when: self.when.unwrap_or(0), known: self.run.known.clone(), slots, files, commit: super::machine::COMMIT.to_string() }.write())
     }
 
     /// Builds the next tick's bundle and plays it on `game`; a level
@@ -774,8 +774,8 @@ impl<G: Game, A: Copy + PartialEq + std::fmt::Debug> Joining<G, A> {
                 let differ: Vec<&str> = run.files.iter().filter(|f| !mine.contains(f)).map(|(name, _)| name.as_str()).chain(mine.iter().filter(|f| !run.files.iter().any(|(n, _)| *n == f.0)).map(|(name, _)| name.as_str())).collect();
                 bail!("{} differs from the host's", if differ.is_empty() { "this machine's game".to_string() } else { differ.join(", ") });
             }
-            if run.commit != super::udp::COMMIT {
-                eprintln!("the host's program is built from {}, this one from {}: the checks will tell whether they play alike", run.commit, super::udp::COMMIT);
+            if run.commit != super::machine::COMMIT {
+                eprintln!("the host's program is built from {}, this one from {}: the checks will tell whether they play alike", run.commit, super::machine::COMMIT);
             }
             self.host_commit = run.commit.clone();
             self.run.start = self.guest.welcome().map_or(0, |w| w.first).saturating_sub(replay.ticks);

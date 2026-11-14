@@ -329,7 +329,7 @@ it says so. What remains is the evening on the home network.
   one's. Each machine has an id of its own, a random 128-bit number kept
   in its config folder; the computer's name, cut short, is only what
   people read. As built: a window joins with that id mixed with its
-  process (`udp::program_id`), so two windows on one computer are two
+  process (`machine::program_id`), so two windows on one computer are two
   guests (the first was thrown out as "started anew" when testing with
   several windows); a program started anew is then a new guest, the old
   one's seat freed after 10 s of silence.
@@ -387,7 +387,7 @@ it says so. What remains is the evening on the home network.
   signs both screens show (or by the game's code at the matchmaker): the
   code is the gate.
 - Session keys and machine ids come from the operating system's random
-  source (`udp::random`, `getrandom`), the old mix of clock and process
+  source (`machine::random`, `getrandom`), the old mix of clock and process
   only if the system has none.
 - A peer or the network can never make a program panic: every state a
   datagram can reach ends the session with a message (the fuzz test sends

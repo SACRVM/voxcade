@@ -16,6 +16,7 @@
 mod guest;
 mod host;
 pub mod link;
+pub mod machine;
 pub mod play;
 pub mod quic;
 mod simnet;
