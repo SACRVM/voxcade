@@ -51,29 +51,19 @@ const NOT_SEARCHED: [&str; 4] = ["target", "node_modules", "shots", "builds"];
 pub fn find_games(folder: &Path) -> Vec<PathBuf> {
     let root = folder.canonicalize().unwrap_or_else(|_| folder.to_path_buf());
     let mut found = Vec::new();
-    search(&root, "", 1, &crate::gitignore::Ignore::for_game(&root), &mut found);
+    super::files::walk(&root, &mut |e| {
+        if !e.is_dir || NOT_SEARCHED.contains(&e.name) || e.ignored {
+            return false;
+        }
+        let dir = root.join(e.path);
+        let game = is_game(&dir);
+        if game {
+            found.push(dir);
+        }
+        !game && e.depth + 1 < SEARCH_DEPTH
+    });
     found.sort();
     found
-}
-
-fn search(root: &Path, prefix: &str, depth: usize, ignore: &crate::gitignore::Ignore, found: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(root.join(prefix)) else { return };
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with('.') || NOT_SEARCHED.contains(&name.as_str()) || !entry.file_type().is_ok_and(|t| t.is_dir()) {
-            continue;
-        }
-        let path = if prefix.is_empty() { name } else { format!("{prefix}/{name}") };
-        if ignore.ignores(&path, true) {
-            continue;
-        }
-        let dir = root.join(&path);
-        if is_game(&dir) {
-            found.push(dir);
-        } else if depth < SEARCH_DEPTH {
-            search(root, &path, depth + 1, &ignore.entered(&path), found);
-        }
-    }
 }
 
 /// What opening a folder comes to.

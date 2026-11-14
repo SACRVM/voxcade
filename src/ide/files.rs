@@ -51,7 +51,15 @@ impl Files {
     /// see whether `scan` has anything new to say.
     pub fn names(dir: &Path) -> Vec<String> {
         let mut all = Vec::new();
-        walk(dir, "", 0, &Ignore::for_game(dir), &mut all);
+        walk(dir, &mut |e| {
+            if e.is_dir {
+                return e.depth + 1 < DEPTH && !(e.depth == 0 && NEVER_LISTED.contains(&e.name)) && !e.ignored;
+            }
+            if !e.ignored {
+                all.push(e.path.to_string());
+            }
+            false
+        });
         all.sort();
         all
     }
@@ -146,24 +154,42 @@ fn base(path: &str) -> &str {
 /// the `.gitignore` reads: the recorded runs, what BUILD made, test renders.
 pub const NEVER_LISTED: [&str; 3] = ["replays", "builds", "shots"];
 
-/// Every file under `dir/prefix` that belongs to the game (`ignore`: what
-/// the `.gitignore` files say), its path from `dir`.
-fn walk(dir: &Path, prefix: &str, depth: usize, ignore: &Ignore, out: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(dir.join(prefix)) else { return };
+/// A file or folder met walking a folder (`walk`).
+pub struct Entry<'a> {
+    /// Its path from the folder walked (`/` between folders), its name.
+    pub path: &'a str,
+    pub name: &'a str,
+    /// How many folders down it lies (0: in the folder walked).
+    pub depth: usize,
+    pub is_dir: bool,
+    /// What the `.gitignore` files say of it, or of a folder it lies in.
+    pub ignored: bool,
+}
+
+/// Walks the folder `root`, hidden files and folders left out, showing
+/// `visit` every entry; a folder is gone into where `visit` says so (the
+/// folder lists, BUILD and the search for games each have their own
+/// ways).
+pub fn walk(root: &Path, visit: &mut dyn FnMut(&Entry) -> bool) {
+    walk_in(root, "", 0, Some(&Ignore::for_game(root)), visit);
+}
+
+/// `walk` in the folder `prefix` of `root`, `depth` folders down (`ignore`
+/// None: within an ignored folder).
+fn walk_in(root: &Path, prefix: &str, depth: usize, ignore: Option<&Ignore>, visit: &mut dyn FnMut(&Entry) -> bool) {
+    let Ok(entries) = std::fs::read_dir(root.join(prefix)) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
+        let Ok(kind) = entry.file_type() else { continue };
         if name.starts_with('.') {
             continue;
         }
         let path = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
-        match entry.file_type() {
-            Ok(t) if t.is_dir() => {
-                if depth + 1 < DEPTH && !(prefix.is_empty() && NEVER_LISTED.contains(&name.as_str())) && !ignore.ignores(&path, true) {
-                    walk(dir, &path, depth + 1, &ignore.entered(&path), out);
-                }
-            }
-            Ok(_) if !ignore.ignores(&path, false) => out.push(path),
-            _ => {}
+        let is_dir = kind.is_dir();
+        let ignored = ignore.is_none_or(|i| i.ignores(&path, is_dir));
+        if visit(&Entry { path: &path, name: &name, depth, is_dir, ignored }) && is_dir {
+            let inner = ignore.filter(|_| !ignored).map(|i| i.entered(&path));
+            walk_in(root, &path, depth + 1, inner.as_ref(), visit);
         }
     }
 }
