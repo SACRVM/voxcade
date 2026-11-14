@@ -2,49 +2,95 @@
 //! with its line, and its words written as the file has them.
 
 use super::*;
+use toml_edit::TableLike;
 
 /// A grid of words as a file has it: its rows of words, the line its
 /// first row is on, its item.
 pub(super) type Grid<'a> = (Vec<Vec<String>>, usize, &'a Item);
 
-/// The `[terrain]` table of a level's text, every mistake with its line.
+/// The `[terrain]` table of a level's text, every mistake with its line
+/// (the words read in the order they are checked in).
 pub(crate) fn read(r: &Reader, item: &Item) -> Result<Terrain> {
     let t = item.as_table_like().ok_or_else(|| r.fail(item.span(), "terrain must be a table: [terrain]"))?;
     r.only(t, &["spacing", "at", "heights", "shapes", "terrace", "rough", "roughness", "dip", "dip_to", "fold", "fault", "seed", "under", "layer", "material", "scatter"], "[terrain]")?;
     // Its line: its header's.
     let first = t.iter().filter_map(|(_, v)| v.span()).map(|s| s.start).min().unwrap_or(0);
     let line = r.src[..first].rfind("[terrain]").map_or(0, |at| vvx::line_of(r.src, at));
-    let spacing = match t.get("spacing") {
-        None => bail!("line {line}: [terrain] has no spacing = N (voxels between its points)"),
-        Some(i) => {
-            let v = r.number(i, "spacing")?;
-            if v.fract() != 0.0 || !(1.0..=1024.0).contains(&v) {
-                return Err(r.fail(i.span(), "spacing must be a whole number of voxels, 1 to 1024"));
-            }
-            v as i32
-        }
+    let spacing = read_spacing(r, t, line)?;
+    let at = read_corner(r, t)?;
+    let (heights, cols, nrows) = read_heights(r, t, line)?;
+    let shapes: Vec<Shape> = match sign_grid(r, t, (cols, nrows), "shapes", "shape (. SMOOTH, ^ LINEAR, # STEP)", &|c| Shape::of_sign(c).map(|s| s as u8))? {
+        None => vec![Shape::Smooth; cols * nrows],
+        Some(v) => v.into_iter().map(|k| Shape::ALL.into_iter().find(|s| *s as u8 == k).expect("read")).collect(),
     };
-    let at = match t.get("at") {
-        None => [0; 3],
-        Some(i) => {
-            let a = r.ints(i, "at")?;
-            if a.cmplt(IVec3::ZERO).any() {
-                return Err(r.fail(i.span(), "at must be 0 or more each way (the terrain's low corner in the level)"));
-            }
-            a.to_array()
-        }
-    };
-    let grid = |key: &str| -> Result<Option<Grid>> {
-        let Some(i) = t.get(key) else { return Ok(None) };
-        let text = i.as_str().ok_or_else(|| r.fail(i.span(), format!("{key} must be a text between \"\"\" marks, a row a line")))?;
-        let first = r.first_line(i);
-        let rows: Vec<Vec<String>> = text.lines().map(|l| l.split_whitespace().map(str::to_string).collect()).collect();
-        Ok(Some((rows, first, i)))
-    };
-    let (rows, first, hitem) = grid("heights")?.ok_or_else(|| anyhow!("line {line}: [terrain] has no heights = \"\"\" ... \"\"\" (a row of heights a line, the far row first)"))?;
-    let at_line = |k: usize| if first > 0 { format!("line {}: ", first + k) } else { String::new() };
-    // The rows with their lines; blank lines are no rows.
-    let filled: Vec<(usize, &Vec<String>)> = rows.iter().enumerate().filter(|(_, r)| !r.is_empty()).collect();
+    let roughness = sign_grid(r, t, (cols, nrows), "roughness", "roughness (a digit, 0 calm to 9)", &|c| c.to_digit(10).map(|d| d as u8))?;
+    let terrace = t.get("terrace").map(|i| whole_in(r, i, "terrace", 1)).transpose()?;
+    let rough = t.get("rough").map(|i| match i.as_float().or_else(|| i.as_integer().map(|v| v as f64)) {
+        Some(v) if (0.0..=1.0).contains(&v) => Ok(v),
+        _ => Err(r.fail(i.span(), "rough must be between 0 (even) and 1")),
+    });
+    let rough = rough.transpose()?;
+    let seed = t.get("seed").map(|i| match i.as_integer() {
+        Some(v) if v >= 0 => Ok(v as u64),
+        _ => Err(r.fail(i.span(), "seed must be a whole number, 0 or more")),
+    });
+    let seed = seed.transpose()?;
+    let under = t.get("under").map(|i| colour(r, i, "under")).transpose()?;
+    let layers = read_layers(r, t)?;
+    let materials = read_materials(r, t, line)?;
+    let scatter = read_scatter(r, t)?;
+    let ranged = |key: &str, lo: f64, hi: f64, why: &str| t.get(key).map(|i| ranged(r, i, key, lo..=hi, &format!("{key} must be {why}"))).transpose();
+    let dip = ranged("dip", 0.0, 45.0, "degrees the bands tilt, 0 (level) to 45")?;
+    let dip_to = ranged("dip_to", -360.0, 720.0, "degrees clockwise from north, the way the bands tilt down")?;
+    let fold = ranged("fold", 0.0, 1.0, "between 0 (flat bands) and 1")?;
+    let fault = ranged("fault", 0.0, 1.0, "between 0 (none) and 1")?;
+    Ok(Terrain { spacing, at, cols: cols as i32, rows: nrows as i32, heights, shapes, terrace, rough, roughness, layers, scatter, dip, dip_to, fold, fault, seed, under, materials, line })
+}
+
+/// `spacing`: whole voxels between the points.
+fn read_spacing(r: &Reader, t: &dyn TableLike, line: usize) -> Result<i32> {
+    let Some(i) = t.get("spacing") else { bail!("line {line}: [terrain] has no spacing = N (voxels between its points)") };
+    let v = r.number(i, "spacing")?;
+    if v.fract() != 0.0 || !(1.0..=1024.0).contains(&v) {
+        return Err(r.fail(i.span(), "spacing must be a whole number of voxels, 1 to 1024"));
+    }
+    Ok(v as i32)
+}
+
+/// `at`: the terrain's low corner in the level.
+fn read_corner(r: &Reader, t: &dyn TableLike) -> Result<[i32; 3]> {
+    let Some(i) = t.get("at") else { return Ok([0; 3]) };
+    let a = r.ints(i, "at")?;
+    if a.cmplt(IVec3::ZERO).any() {
+        return Err(r.fail(i.span(), "at must be 0 or more each way (the terrain's low corner in the level)"));
+    }
+    Ok(a.to_array())
+}
+
+/// A grid of words (`heights`, `shapes`, `roughness`), if the table has it.
+fn grid<'t>(r: &Reader, t: &'t dyn TableLike, key: &str) -> Result<Option<Grid<'t>>> {
+    let Some(i) = t.get(key) else { return Ok(None) };
+    let text = i.as_str().ok_or_else(|| r.fail(i.span(), format!("{key} must be a text between \"\"\" marks, a row a line")))?;
+    let first = r.first_line(i);
+    let rows: Vec<Vec<String>> = text.lines().map(|l| l.split_whitespace().map(str::to_string).collect()).collect();
+    Ok(Some((rows, first, i)))
+}
+
+/// A grid's rows with their lines (blank lines are no rows), and the
+/// prefix of a mistake on its row `k`.
+fn rows_of(rows: &[Vec<String>]) -> Vec<(usize, &Vec<String>)> {
+    rows.iter().enumerate().filter(|(_, r)| !r.is_empty()).collect()
+}
+
+fn row_line(first: usize, k: usize) -> String {
+    if first > 0 { format!("line {}: ", first + k) } else { String::new() }
+}
+
+/// `heights`: whole voxels at the points, the far row first; with the
+/// points across and the rows.
+fn read_heights(r: &Reader, t: &dyn TableLike, line: usize) -> Result<(Vec<i32>, usize, usize)> {
+    let (rows, first, hitem) = grid(r, t, "heights")?.ok_or_else(|| anyhow!("line {line}: [terrain] has no heights = \"\"\" ... \"\"\" (a row of heights a line, the far row first)"))?;
+    let filled = rows_of(&rows);
     if filled.is_empty() {
         return Err(r.fail(hitem.span(), "heights has no rows"));
     }
@@ -53,177 +99,123 @@ pub(crate) fn read(r: &Reader, item: &Item) -> Result<Terrain> {
     let mut heights = vec![0; cols * nrows];
     for (n, (k, row)) in filled.iter().enumerate() {
         if row.len() != cols {
-            bail!("{}heights: this row has {} points, the first has {cols}", at_line(*k), row.len());
+            bail!("{}heights: this row has {} points, the first has {cols}", row_line(first, *k), row.len());
         }
         // The far row first: the file's first row is the last in y.
         let y = nrows - 1 - n;
         for (x, word) in row.iter().enumerate() {
-            let v: i64 = word.parse().map_err(|_| anyhow!("{}heights: '{word}' is no height (whole voxels, 0 or more)", at_line(*k)))?;
+            let v: i64 = word.parse().map_err(|_| anyhow!("{}heights: '{word}' is no height (whole voxels, 0 or more)", row_line(first, *k)))?;
             if !(0..=HIGHEST as i64).contains(&v) {
-                bail!("{}heights: {v} is out of range (0 to {HIGHEST})", at_line(*k));
+                bail!("{}heights: {v} is out of range (0 to {HIGHEST})", row_line(first, *k));
             }
             heights[x + y * cols] = v as i32;
         }
     }
-    // A grid of one sign a point (shapes, roughness), laid out as the
-    // heights; `sign` reads one, `what` names the signs in a mistake.
-    let signs = |key: &str, what: &str, sign: &dyn Fn(char) -> Option<u8>| -> Result<Option<Vec<u8>>> {
-        let Some((srows, sfirst, sitem)) = grid(key)? else { return Ok(None) };
-        let sline = |k: usize| if sfirst > 0 { format!("line {}: ", sfirst + k) } else { String::new() };
-        let sfilled: Vec<(usize, &Vec<String>)> = srows.iter().enumerate().filter(|(_, r)| !r.is_empty()).collect();
-        if sfilled.len() != nrows {
-            return Err(r.fail(sitem.span(), format!("{key} has {} rows, heights has {nrows}", sfilled.len())));
+    Ok((heights, cols, nrows))
+}
+
+/// A grid of one sign a point (shapes, roughness), laid out as the heights
+/// (`cols` by `nrows`); `sign` reads one, `what` names the signs in a
+/// mistake.
+fn sign_grid(r: &Reader, t: &dyn TableLike, (cols, nrows): (usize, usize), key: &str, what: &str, sign: &dyn Fn(char) -> Option<u8>) -> Result<Option<Vec<u8>>> {
+    let Some((rows, first, item)) = grid(r, t, key)? else { return Ok(None) };
+    let filled = rows_of(&rows);
+    if filled.len() != nrows {
+        return Err(r.fail(item.span(), format!("{key} has {} rows, heights has {nrows}", filled.len())));
+    }
+    let mut out = vec![0; cols * nrows];
+    for (n, (k, row)) in filled.iter().enumerate() {
+        if row.len() != cols {
+            bail!("{}{key}: this row has {} signs, a row of heights has {cols}", row_line(first, *k), row.len());
         }
-        let mut out = vec![0; cols * nrows];
-        for (n, (k, row)) in sfilled.iter().enumerate() {
-            if row.len() != cols {
-                bail!("{}{key}: this row has {} signs, a row of heights has {cols}", sline(*k), row.len());
-            }
-            let y = nrows - 1 - n;
-            for (x, word) in row.iter().enumerate() {
-                let mut chars = word.chars();
-                let v = match (chars.next(), chars.next()) {
-                    (Some(c), None) => sign(c),
-                    _ => None,
-                };
-                out[x + y * cols] = v.ok_or_else(|| anyhow!("{}{key}: '{word}' is no {what}", sline(*k)))?;
-            }
-        }
-        Ok(Some(out))
-    };
-    let shapes: Vec<Shape> = match signs("shapes", "shape (. SMOOTH, ^ LINEAR, # STEP)", &|c| Shape::of_sign(c).map(|s| s as u8))? {
-        None => vec![Shape::Smooth; cols * nrows],
-        Some(v) => v.into_iter().map(|k| Shape::ALL.into_iter().find(|s| *s as u8 == k).expect("read")).collect(),
-    };
-    let roughness = signs("roughness", "roughness (a digit, 0 calm to 9)", &|c| c.to_digit(10).map(|d| d as u8))?;
-    let terrace = match t.get("terrace") {
-        None => None,
-        Some(i) => match i.as_integer() {
-            Some(v) if (1..=HIGHEST as i64).contains(&v) => Some(v as i32),
-            _ => return Err(r.fail(i.span(), format!("terrace must be a whole number of voxels, 1 to {HIGHEST}"))),
-        },
-    };
-    let rough = match t.get("rough") {
-        None => None,
-        Some(i) => match i.as_float().or_else(|| i.as_integer().map(|v| v as f64)) {
-            Some(v) if (0.0..=1.0).contains(&v) => Some(v),
-            _ => return Err(r.fail(i.span(), "rough must be between 0 (even) and 1")),
-        },
-    };
-    let seed = match t.get("seed") {
-        None => None,
-        Some(i) => match i.as_integer() {
-            Some(v) if v >= 0 => Some(v as u64),
-            _ => return Err(r.fail(i.span(), "seed must be a whole number, 0 or more")),
-        },
-    };
-    let colour = |i: &Item, what: &str| -> Result<String> {
-        let text = i.as_str().filter(|s| crate::grid::hex(s).is_some());
-        text.map(str::to_string).ok_or_else(|| r.fail(i.span(), format!("{what} must be a color written #rrggbb")))
-    };
-    let under = t.get("under").map(|i| colour(i, "under")).transpose()?;
-    // (Numbers of fractions as the file writes them, not as f32: a
-    // grain of 0.35 written back 0.35.)
-    let exact = |i: &Item, what: &str| -> Result<f64> { i.as_float().or_else(|| i.as_integer().map(|v| v as f64)).filter(|v| v.is_finite()).ok_or_else(|| r.fail(i.span(), format!("{what} must be a number"))) };
-    let mut layers = Vec::new();
-    if let Some(item) = t.get("layer") {
-        for l in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "layer must be tables: [[terrain.layer]]"))? {
-            r.only(l, &["thick", "hard", "color"], "a terrain's layer")?;
-            let lline = l.iter().filter_map(|(_, v)| v.span()).map(|s| vvx::line_of(r.src, s.start)).min().unwrap_or(0);
-            let thick = match l.get("thick") {
-                Some(i) => match i.as_integer() {
-                    Some(v) if (1..=HIGHEST as i64).contains(&v) => v as i32,
-                    _ => return Err(r.fail(i.span(), format!("thick must be a whole number of voxels, 1 to {HIGHEST}"))),
-                },
-                None => bail!("line {lline}: a terrain's layer has no thick = N (voxels)"),
+        let y = nrows - 1 - n;
+        for (x, word) in row.iter().enumerate() {
+            let mut chars = word.chars();
+            let v = match (chars.next(), chars.next()) {
+                (Some(c), None) => sign(c),
+                _ => None,
             };
-            let hard = match l.get("hard") {
-                Some(i) => {
-                    let v = exact(i, "hard")?;
-                    if !(0.0..=1.0).contains(&v) {
-                        return Err(r.fail(i.span(), "hard must be between 0 (soft: a slope of scree) and 1 (a wall)"));
-                    }
-                    v
-                }
-                None => bail!("line {lline}: a terrain's layer has no hard = 0 to 1"),
-            };
-            let color = colour(l.get("color").ok_or_else(|| anyhow!("line {lline}: a terrain's layer has no color = \"#rrggbb\""))?, "color")?;
-            layers.push(Layer { thick, hard, color });
+            out[x + y * cols] = v.ok_or_else(|| anyhow!("{}{key}: '{word}' is no {what}", row_line(first, *k)))?;
         }
     }
-    let mut materials = Vec::new();
+    Ok(Some(out))
+}
+
+/// A colour as `#rrggbb`.
+fn colour(r: &Reader, i: &Item, what: &str) -> Result<String> {
+    let text = i.as_str().filter(|s| vvx::hex(s).is_some());
+    text.map(str::to_string).ok_or_else(|| r.fail(i.span(), format!("{what} must be a color written #rrggbb")))
+}
+
+/// A number as the file writes it, not as f32 (a grain of 0.35 written
+/// back 0.35).
+fn exact(r: &Reader, i: &Item, what: &str) -> Result<f64> {
+    i.as_float().or_else(|| i.as_integer().map(|v| v as f64)).filter(|v| v.is_finite()).ok_or_else(|| r.fail(i.span(), format!("{what} must be a number")))
+}
+
+/// An exact number in `range`, else the mistake `why`.
+fn ranged(r: &Reader, i: &Item, what: &str, range: std::ops::RangeInclusive<f64>, why: &str) -> Result<f64> {
+    let v = exact(r, i, what)?;
+    if !range.contains(&v) {
+        return Err(r.fail(i.span(), why));
+    }
+    Ok(v)
+}
+
+/// A whole number of voxels from `lo` to `HIGHEST`, an integer in the file.
+fn whole_in(r: &Reader, i: &Item, key: &str, lo: i32) -> Result<i32> {
+    match i.as_integer() {
+        Some(v) if v >= lo as i64 && v <= HIGHEST as i64 => Ok(v as i32),
+        _ => Err(r.fail(i.span(), format!("{key} must be a whole number of voxels, {lo} to {HIGHEST}"))),
+    }
+}
+
+/// Degrees of slope, 0 to less than 90 (a material's or scatter's
+/// `steeper`, `flatter`).
+fn degrees(r: &Reader, t: &dyn TableLike, key: &str) -> Result<Option<f64>> {
+    t.get(key)
+        .map(|i| {
+            let v = exact(r, i, key)?;
+            if !(0.0..90.0).contains(&v) {
+                return Err(r.fail(i.span(), format!("{key} must be degrees of slope, 0 to less than 90")));
+            }
+            Ok(v)
+        })
+        .transpose()
+}
+
+/// The line a table of the terrain begins on (its first field's).
+fn table_line(r: &Reader, t: &dyn TableLike) -> usize {
+    t.iter().filter_map(|(_, v)| v.span()).map(|s| vvx::line_of(r.src, s.start)).min().unwrap_or(0)
+}
+
+/// `[[terrain.layer]]`: the bands of rock from the bottom up.
+fn read_layers(r: &Reader, t: &dyn TableLike) -> Result<Vec<Layer>> {
+    let mut layers = Vec::new();
+    let Some(item) = t.get("layer") else { return Ok(layers) };
+    for l in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "layer must be tables: [[terrain.layer]]"))? {
+        r.only(l, &["thick", "hard", "color"], "a terrain's layer")?;
+        let lline = table_line(r, l);
+        let thick = match l.get("thick") {
+            Some(i) => whole_in(r, i, "thick", 1)?,
+            None => bail!("line {lline}: a terrain's layer has no thick = N (voxels)"),
+        };
+        let hard = match l.get("hard") {
+            Some(i) => ranged(r, i, "hard", 0.0..=1.0, "hard must be between 0 (soft: a slope of scree) and 1 (a wall)")?,
+            None => bail!("line {lline}: a terrain's layer has no hard = 0 to 1"),
+        };
+        let color = colour(r, l.get("color").ok_or_else(|| anyhow!("line {lline}: a terrain's layer has no color = \"#rrggbb\""))?, "color")?;
+        layers.push(Layer { thick, hard, color });
+    }
+    Ok(layers)
+}
+
+/// `[[terrain.material]]`: the first that fits paints, the last (without
+/// conditions) everything else.
+fn read_materials(r: &Reader, t: &dyn TableLike, line: usize) -> Result<Vec<Material>> {
     let mitem = t.get("material").ok_or_else(|| anyhow!("line {line}: [terrain] has no [[terrain.material]] (its colors: the first that fits paints, the last for everything else)"))?;
     let tables = vvx::tables(mitem).ok_or_else(|| r.fail(mitem.span(), "material must be tables: [[terrain.material]]"))?;
-    for m in tables {
-        r.only(m, &["color", "colors", "above", "below", "steeper", "flatter", "depth", "grain", "patch", "blend"], "a terrain's material")?;
-        let mline = m.iter().filter_map(|(_, v)| v.span()).map(|s| vvx::line_of(r.src, s.start)).min().unwrap_or(0);
-        let (color, tones) = match (m.get("color"), m.get("colors")) {
-            (Some(i), None) => (colour(i, "color")?, Vec::new()),
-            (None, Some(i)) => {
-                let wrong = || r.fail(i.span(), "colors must be two or three colors, [\"#rrggbb\", \"#rrggbb\"]");
-                let list = i.as_array().filter(|a| (2..=3).contains(&a.len())).ok_or_else(wrong)?;
-                let all: Vec<String> = list.iter().map(|v| v.as_str().filter(|s| crate::grid::hex(s).is_some()).map(str::to_string)).collect::<Option<_>>().ok_or_else(wrong)?;
-                (all[0].clone(), all[1..].to_vec())
-            }
-            (Some(_), Some(i)) => return Err(r.fail(i.span(), "a material has color or colors, not both")),
-            (None, None) => bail!("line {mline}: a terrain's material has no color = \"#rrggbb\""),
-        };
-        let whole = |key: &str| -> Result<Option<i32>> {
-            m.get(key)
-                .map(|i| {
-                    let v = r.number(i, key)?;
-                    if v.fract() != 0.0 || v.abs() > HIGHEST as f32 {
-                        return Err(r.fail(i.span(), format!("{key} must be a whole number of voxels, -{HIGHEST} to {HIGHEST}")));
-                    }
-                    Ok(v as i32)
-                })
-                .transpose()
-        };
-        let degrees = |key: &str| -> Result<Option<f64>> {
-            m.get(key)
-                .map(|i| {
-                    let v = exact(i, key)?;
-                    if !(0.0..90.0).contains(&v) {
-                        return Err(r.fail(i.span(), format!("{key} must be degrees of slope, 0 to less than 90")));
-                    }
-                    Ok(v)
-                })
-                .transpose()
-        };
-        let depth = whole("depth")?;
-        if let (Some(d), Some(i)) = (depth, m.get("depth"))
-            && d < 1
-        {
-            return Err(r.fail(i.span(), "depth must be 1 voxel or more"));
-        }
-        let grain = match m.get("grain") {
-            None => None,
-            Some(i) => {
-                let v = exact(i, "grain")?;
-                if !(0.0..=1.0).contains(&v) {
-                    return Err(r.fail(i.span(), format!("grain must be between 0 and 1, not {v}")));
-                }
-                Some(v)
-            }
-        };
-        let patch = whole("patch")?;
-        if let (Some(v), Some(i)) = (patch, m.get("patch"))
-            && v < 1
-        {
-            return Err(r.fail(i.span(), "patch must be 1 voxel or more"));
-        }
-        let blend = match m.get("blend") {
-            None => None,
-            Some(i) => {
-                let v = exact(i, "blend")?;
-                if !(0.0..=1000.0).contains(&v) {
-                    return Err(r.fail(i.span(), "blend must be 0 or more (voxels of height, degrees of slope)"));
-                }
-                Some(v)
-            }
-        };
-        materials.push(Material { color, above: whole("above")?, below: whole("below")?, steeper: degrees("steeper")?, flatter: degrees("flatter")?, depth, grain, tones, patch, blend });
-    }
+    let materials = tables.into_iter().map(|m| read_material(r, m)).collect::<Result<Vec<_>>>()?;
     if materials.len() > MATERIALS {
         return Err(r.fail(mitem.span(), format!("a terrain has {MATERIALS} materials at most")));
     }
@@ -232,78 +224,90 @@ pub(crate) fn read(r: &Reader, item: &Item) -> Result<Terrain> {
     {
         return Err(r.fail(mitem.span(), format!("the terrain's last material ({}) has conditions: the last one paints whatever no other does, so it has none", last.color)));
     }
-    let mut scatter = Vec::new();
-    if let Some(item) = t.get("scatter") {
-        for sc in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "scatter must be tables: [[terrain.scatter]]"))? {
-            r.only(sc, &["model", "models", "density", "above", "below", "steeper", "flatter", "blend", "apart", "rotate", "sink", "as"], "a terrain's scatter")?;
-            let sline = sc.iter().filter_map(|(_, v)| v.span()).map(|s| vvx::line_of(r.src, s.start)).min().unwrap_or(0);
-            let models = match (sc.get("model"), sc.get("models")) {
-                (Some(i), None) => vec![i.as_str().filter(|s| !s.is_empty()).ok_or_else(|| r.fail(i.span(), "model must be a model's file in quotes"))?.to_string()],
-                (None, Some(i)) => {
-                    let wrong = || r.fail(i.span(), "models must be models' files in quotes, [\"fir.vvx\", \"fir2.vvx\"]");
-                    let list = i.as_array().filter(|a| !a.is_empty()).ok_or_else(wrong)?;
-                    list.iter().map(|v| v.as_str().filter(|s| !s.is_empty()).map(str::to_string)).collect::<Option<Vec<_>>>().ok_or_else(wrong)?
-                }
-                (Some(_), Some(i)) => return Err(r.fail(i.span(), "a scatter has model or models, not both")),
-                (None, None) => bail!("line {sline}: a terrain's scatter has no model = \"NAME.vvx\""),
-            };
-            let density = match sc.get("density") {
-                Some(i) => {
-                    let v = exact(i, "density")?;
-                    if !(0.0..=10_000.0).contains(&v) {
-                        return Err(r.fail(i.span(), "density must be how many on 100 by 100 voxels, 0 or more"));
-                    }
-                    v
-                }
-                None => bail!("line {sline}: a terrain's scatter has no density = N (how many on 100 by 100 voxels of ground that fits)"),
-            };
-            let whole = |key: &str, lo: i32| -> Result<Option<i32>> {
-                sc.get(key)
-                    .map(|i| match i.as_integer() {
-                        Some(v) if v >= lo as i64 && v <= HIGHEST as i64 => Ok(v as i32),
-                        _ => Err(r.fail(i.span(), format!("{key} must be a whole number of voxels, {lo} to {HIGHEST}"))),
-                    })
-                    .transpose()
-            };
-            let degrees = |key: &str| -> Result<Option<f64>> {
-                sc.get(key)
-                    .map(|i| {
-                        let v = exact(i, key)?;
-                        if !(0.0..90.0).contains(&v) {
-                            return Err(r.fail(i.span(), format!("{key} must be degrees of slope, 0 to less than 90")));
-                        }
-                        Ok(v)
-                    })
-                    .transpose()
-            };
-            let rotate = match sc.get("rotate") {
-                None => None,
-                Some(i) => Some(Rotate::ALL.into_iter().find(|w| Some(w.word()) == i.as_str()).ok_or_else(|| r.fail(i.span(), "rotate must be \"any\", \"quarters\" or \"none\""))?),
-            };
-            let as_ = match sc.get("as") {
-                None => None,
-                Some(i) => Some([ScatterAs::Pieces, ScatterAs::Voxels].into_iter().find(|w| Some(w.word()) == i.as_str()).ok_or_else(|| r.fail(i.span(), "as must be \"pieces\" or \"voxels\""))?),
-            };
-            let blend = sc.get("blend").map(|i| exact(i, "blend")).transpose()?;
-            scatter.push(Scatter { models, density, above: whole("above", -HIGHEST)?, below: whole("below", -HIGHEST)?, steeper: degrees("steeper")?, flatter: degrees("flatter")?, blend, apart: whole("apart", 0)?, rotate, sink: whole("sink", 0)?, as_ });
+    Ok(materials)
+}
+
+fn read_material(r: &Reader, m: &dyn TableLike) -> Result<Material> {
+    r.only(m, &["color", "colors", "above", "below", "steeper", "flatter", "depth", "grain", "patch", "blend"], "a terrain's material")?;
+    let mline = table_line(r, m);
+    let (color, tones) = match (m.get("color"), m.get("colors")) {
+        (Some(i), None) => (colour(r, i, "color")?, Vec::new()),
+        (None, Some(i)) => {
+            let wrong = || r.fail(i.span(), "colors must be two or three colors, [\"#rrggbb\", \"#rrggbb\"]");
+            let list = i.as_array().filter(|a| (2..=3).contains(&a.len())).ok_or_else(wrong)?;
+            let all: Vec<String> = list.iter().map(|v| v.as_str().filter(|s| vvx::hex(s).is_some()).map(str::to_string)).collect::<Option<_>>().ok_or_else(wrong)?;
+            (all[0].clone(), all[1..].to_vec())
         }
-    }
-    let ranged = |key: &str, lo: f64, hi: f64, why: &str| -> Result<Option<f64>> {
-        t.get(key)
+        (Some(_), Some(i)) => return Err(r.fail(i.span(), "a material has color or colors, not both")),
+        (None, None) => bail!("line {mline}: a terrain's material has no color = \"#rrggbb\""),
+    };
+    let whole = |key: &str| -> Result<Option<i32>> {
+        m.get(key)
             .map(|i| {
-                let v = exact(i, key)?;
-                if !(lo..=hi).contains(&v) {
-                    return Err(r.fail(i.span(), format!("{key} must be {why}")));
+                let v = r.number(i, key)?;
+                if v.fract() != 0.0 || v.abs() > HIGHEST as f32 {
+                    return Err(r.fail(i.span(), format!("{key} must be a whole number of voxels, -{HIGHEST} to {HIGHEST}")));
                 }
-                Ok(v)
+                Ok(v as i32)
             })
             .transpose()
     };
-    let dip = ranged("dip", 0.0, 45.0, "degrees the bands tilt, 0 (level) to 45")?;
-    let dip_to = ranged("dip_to", -360.0, 720.0, "degrees clockwise from north, the way the bands tilt down")?;
-    let fold = ranged("fold", 0.0, 1.0, "between 0 (flat bands) and 1")?;
-    let fault = ranged("fault", 0.0, 1.0, "between 0 (none) and 1")?;
-    Ok(Terrain { spacing, at, cols: cols as i32, rows: nrows as i32, heights, shapes, terrace, rough, roughness, layers, scatter, dip, dip_to, fold, fault, seed, under, materials, line })
+    // At least 1 voxel where it is set.
+    let positive = |key: &str, why: &str| -> Result<Option<i32>> {
+        let v = whole(key)?;
+        match (v, m.get(key)) {
+            (Some(v), Some(i)) if v < 1 => Err(r.fail(i.span(), why)),
+            _ => Ok(v),
+        }
+    };
+    let depth = positive("depth", "depth must be 1 voxel or more")?;
+    let grain = m.get("grain").map(|i| {
+        let v = exact(r, i, "grain")?;
+        if !(0.0..=1.0).contains(&v) {
+            return Err(r.fail(i.span(), format!("grain must be between 0 and 1, not {v}")));
+        }
+        Ok(v)
+    });
+    let grain = grain.transpose()?;
+    let patch = positive("patch", "patch must be 1 voxel or more")?;
+    let blend = m.get("blend").map(|i| ranged(r, i, "blend", 0.0..=1000.0, "blend must be 0 or more (voxels of height, degrees of slope)")).transpose()?;
+    Ok(Material { color, above: whole("above")?, below: whole("below")?, steeper: degrees(r, m, "steeper")?, flatter: degrees(r, m, "flatter")?, depth, grain, tones, patch, blend })
+}
+
+/// `[[terrain.scatter]]`: the models strewn over the land.
+fn read_scatter(r: &Reader, t: &dyn TableLike) -> Result<Vec<Scatter>> {
+    let mut scatter = Vec::new();
+    let Some(item) = t.get("scatter") else { return Ok(scatter) };
+    for sc in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "scatter must be tables: [[terrain.scatter]]"))? {
+        scatter.push(read_one_scatter(r, sc)?);
+    }
+    Ok(scatter)
+}
+
+fn read_one_scatter(r: &Reader, sc: &dyn TableLike) -> Result<Scatter> {
+    r.only(sc, &["model", "models", "density", "above", "below", "steeper", "flatter", "blend", "apart", "rotate", "sink", "as"], "a terrain's scatter")?;
+    let sline = table_line(r, sc);
+    let models = match (sc.get("model"), sc.get("models")) {
+        (Some(i), None) => vec![i.as_str().filter(|s| !s.is_empty()).ok_or_else(|| r.fail(i.span(), "model must be a model's file in quotes"))?.to_string()],
+        (None, Some(i)) => {
+            let wrong = || r.fail(i.span(), "models must be models' files in quotes, [\"fir.vvx\", \"fir2.vvx\"]");
+            let list = i.as_array().filter(|a| !a.is_empty()).ok_or_else(wrong)?;
+            list.iter().map(|v| v.as_str().filter(|s| !s.is_empty()).map(str::to_string)).collect::<Option<Vec<_>>>().ok_or_else(wrong)?
+        }
+        (Some(_), Some(i)) => return Err(r.fail(i.span(), "a scatter has model or models, not both")),
+        (None, None) => bail!("line {sline}: a terrain's scatter has no model = \"NAME.vvx\""),
+    };
+    let density = match sc.get("density") {
+        Some(i) => ranged(r, i, "density", 0.0..=10_000.0, "density must be how many on 100 by 100 voxels, 0 or more")?,
+        None => bail!("line {sline}: a terrain's scatter has no density = N (how many on 100 by 100 voxels of ground that fits)"),
+    };
+    let whole = |key: &str, lo: i32| sc.get(key).map(|i| whole_in(r, i, key, lo)).transpose();
+    let rotate = sc.get("rotate").map(|i| Rotate::ALL.into_iter().find(|w| Some(w.word()) == i.as_str()).ok_or_else(|| r.fail(i.span(), "rotate must be \"any\", \"quarters\" or \"none\"")));
+    let rotate = rotate.transpose()?;
+    let as_ = sc.get("as").map(|i| [ScatterAs::Pieces, ScatterAs::Voxels].into_iter().find(|w| Some(w.word()) == i.as_str()).ok_or_else(|| r.fail(i.span(), "as must be \"pieces\" or \"voxels\"")));
+    let as_ = as_.transpose()?;
+    let blend = sc.get("blend").map(|i| exact(r, i, "blend")).transpose()?;
+    Ok(Scatter { models, density, above: whole("above", -HIGHEST)?, below: whole("below", -HIGHEST)?, steeper: degrees(r, sc, "steeper")?, flatter: degrees(r, sc, "flatter")?, blend, apart: whole("apart", 0)?, rotate, sink: whole("sink", 0)?, as_ })
 }
 
 /// A grid of the points as the file writes it: the far row first, each

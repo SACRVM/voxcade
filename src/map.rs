@@ -65,12 +65,12 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use glam::{IVec2, IVec3};
-use toml_edit::{Document, Item, TableLike};
+use toml_edit::{Item, TableLike};
 
 use crate::files::Files;
 use crate::vvx::{self, Reader};
 use crate::world::Marker;
-use crate::world::{CHUNK, World};
+use crate::world::{CHUNK, World, cell_hash};
 
 /// The ending of a map's file.
 pub const EXTENSION: &str = "toml";
@@ -156,8 +156,7 @@ impl Put {
     }
 
     /// The rotation of `quarters` anticlockwise quarter turns (a map's
-    /// `turn` before Voxcade took other tools' words): degrees clockwise,
-    /// 0 to 270.
+    /// old `turn`): degrees clockwise, 0 to 270.
     pub fn rotation_of(quarters: i32) -> i32 {
         (-90 * i64::from(quarters)).rem_euclid(360) as i32
     }
@@ -250,19 +249,12 @@ impl MapData {
 
     /// The map a text says, every mistake with its line.
     pub fn read(src: &str) -> Result<Self> {
-        let doc = Document::parse(src).map_err(|e| match e.span() {
-            Some(s) => anyhow!("line {}: {}", vvx::line_of(src, s.start), e.message()),
-            None => anyhow!("{}", e.message()),
-        })?;
+        let doc = vvx::parse(src)?;
         let r = Reader { src };
         let top = doc.as_table();
         vvx::check_format_of(&r, top, FORMAT_NAME, VERSION, "map")?;
         r.only(top, &["format", "size", "ground", "prefabs", "put", "place"], "a map")?;
-        let size_item = top.get("size").ok_or_else(|| anyhow!("no size = [x, y, z] (the world, in voxels)"))?;
-        let size = r.ints(size_item, "size")?;
-        if size.cmplt(IVec3::ONE).any() {
-            return Err(r.fail(size_item.span(), "size must be positive"));
-        }
+        let (size, size_item) = r.size(top, "the world, in voxels", "size must be positive")?;
         if let Some(why) = crate::world::too_big(size.as_i64vec3()) {
             return Err(r.fail(size_item.span(), format!("the map of {why}")));
         }
@@ -438,29 +430,16 @@ impl Palette {
     }
 }
 
+/// `#rrggbb` (or `rrggbb`) as a colour of the world's palette.
 fn parse_hex(text: &str) -> Result<[u8; 4]> {
-    let digits = text.strip_prefix('#').unwrap_or(text);
-    let value = u32::from_str_radix(digits, 16).ok().filter(|_| digits.len() == 6);
-    let v = value.with_context(|| format!("'{text}' is not a color like #d6b880"))?;
-    Ok([(v >> 16) as u8, (v >> 8) as u8, v as u8, 255])
+    let [r, g, b] = vvx::hex(&format!("#{}", text.strip_prefix('#').unwrap_or(text))).with_context(|| format!("'{text}' is not a color like #d6b880"))?;
+    Ok([r, g, b, 255])
 }
 
 /// A PNG as width, height and RGB per pixel (grey repeated).
 pub(crate) fn read_png_in(files: &Files, path: &Path) -> Result<(u32, u32, Vec<[u8; 3]>)> {
-    let bytes = files.read(path).with_context(|| format!("reading {}", path.display()))?;
-    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
-    decoder.set_transformations(png::Transformations::normalize_to_color8());
-    let mut reader = decoder.read_info().with_context(|| format!("decoding {}", path.display()))?;
-    let mut buf = vec![0; reader.output_buffer_size().context("image too large")?];
-    let info = reader.next_frame(&mut buf).with_context(|| format!("decoding {}", path.display()))?;
-    let samples = info.color_type.samples();
-    let mut pixels = Vec::with_capacity((info.width * info.height) as usize);
-    for row in buf.chunks(info.line_size).take(info.height as usize) {
-        for px in row.chunks(samples).take(info.width as usize) {
-            pixels.push(if samples >= 3 { [px[0], px[1], px[2]] } else { [px[0]; 3] });
-        }
-    }
-    Ok((info.width, info.height, pixels))
+    let (width, height, pixels) = read_png_rgba_in(files, path)?;
+    Ok((width, height, pixels.into_iter().map(|[r, g, b, _]| [r, g, b]).collect()))
 }
 
 /// A picture's pixels with their alpha (a picture without one is opaque).
@@ -502,10 +481,10 @@ fn turn(l: IVec3, quarters: i32) -> IVec3 {
     }
 }
 
-/// Builds the world a map describes (`names`: the kinds of things).
-/// Returns it, the markers to place things, and every file it was made from
-/// (for hot reload).
-pub fn load_map(path: &Path, names: &[&str]) -> Result<(World, Vec<Marker>, Vec<PathBuf>)> {
+/// Builds the world a map on the disk describes (`names`: the kinds of
+/// things): it, the markers to place things, and every file it was made from.
+#[cfg(test)]
+pub(crate) fn load_map(path: &Path, names: &[&str]) -> Result<(World, Vec<Marker>, Vec<PathBuf>)> {
     let made = load_map_at(&Files::disk(), path, names)?;
     Ok((made.world, made.markers, made.files))
 }
@@ -535,10 +514,31 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
     if let Some(why) = crate::world::too_big(size.as_i64vec3()) {
         bail!("{}: the map of {why}", path.display());
     }
+    // The ground's colours take the world's first numbers, then the
+    // prefabs' in the order of their names, each one's in its palette's.
     let mut palette = Palette::new();
+    let colours = ground_colours(&map.ground, &mut palette, path)?;
+    let heights = ground_heights(files, dir, &map.ground, size, &mut sources)?;
+    let kinds = ground_kinds(files, dir, &map.ground, size, &colours.keys, &mut sources)?;
+    let mut world = ground_world(size, &heights, &kinds, &colours.materials, colours.bedrock);
+    let prefabs = prefabs_of(map, prefab_scenes, names, &mut palette, &mut sources)?;
+    let found = put_all(map, path, names, &prefabs, &heights, &mut world)?;
+    world.palette = palette.colours;
+    world.soft = palette.soft;
+    world.mark_all_dirty();
+    let places = map.places.iter().map(|p| crate::levels::Place::new(&p.name, IVec3::from(p.at).as_vec3() + glam::Vec3::new(0.5, 0.5, 0.0), p.facing)).collect();
+    Ok(crate::levels::Made { world, markers: found, files: sources, places, marker_names: Vec::new(), marker_facings: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight: Default::default() })
+}
 
-    // --- ground ---
-    let ground = &map.ground;
+/// The ground's bedrock and materials in the world's numbers, and the
+/// material map's colour for each material (its place in `materials`).
+struct GroundColours {
+    bedrock: Option<u8>,
+    materials: Vec<Colours>,
+    keys: HashMap<[u8; 4], u8>,
+}
+
+fn ground_colours(ground: &Ground, palette: &mut Palette, path: &Path) -> Result<GroundColours> {
     if ground.materials.is_empty() {
         bail!("{}: ground needs at least one material", path.display());
     }
@@ -562,49 +562,66 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
             wobble: m.wobble,
         });
     }
+    Ok(GroundColours { bedrock, materials, keys })
+}
 
-    let columns = (size.x * size.y) as usize;
-    let height_path = dir.join(&ground.height);
-    let (w, h, pixels) = read_png_in(files, &height_path)?;
+/// Where a map's column (x, y) is in a picture of the ground: its rows
+/// run north to south, world y south to north.
+fn pixel_of(size: IVec3, x: i32, y: i32) -> usize {
+    (x + (size.y - 1 - y) * size.x) as usize
+}
+
+/// A picture of the ground as big as the map, its file noted.
+fn ground_picture(files: &Files, path: PathBuf, size: IVec3, sources: &mut Vec<PathBuf>) -> Result<Vec<[u8; 3]>> {
+    let (w, h, pixels) = read_png_in(files, &path)?;
     if (w as i32, h as i32) != (size.x, size.y) {
-        bail!("{}: {w}x{h}, but the map is {}x{}", height_path.display(), size.x, size.y);
+        bail!("{}: {w}x{h}, but the map is {}x{}", path.display(), size.x, size.y);
     }
-    sources.push(height_path);
-    // Image rows run north to south; world y runs south to north.
-    let column = |x: i32, y: i32| (x + (size.y - 1 - y) * size.x) as usize;
-    let mut heights = vec![0i32; columns];
+    sources.push(path);
+    Ok(pixels)
+}
+
+/// Every column's height from the height map, at most the map's.
+fn ground_heights(files: &Files, dir: &Path, ground: &Ground, size: IVec3, sources: &mut Vec<PathBuf>) -> Result<Vec<i32>> {
+    let pixels = ground_picture(files, dir.join(&ground.height), size, sources)?;
+    let mut heights = vec![0i32; (size.x * size.y) as usize];
     for y in 0..size.y {
         for x in 0..size.x {
-            heights[(x + y * size.x) as usize] = (pixels[column(x, y)][0] as i32).min(size.z);
+            heights[(x + y * size.x) as usize] = (pixels[pixel_of(size, x, y)][0] as i32).min(size.z);
         }
     }
-    let mut kinds = vec![0u8; columns];
-    if let Some(file) = &ground.material {
-        let material_path = dir.join(file);
-        let (w, h, pixels) = read_png_in(files, &material_path)?;
-        if (w as i32, h as i32) != (size.x, size.y) {
-            bail!("{}: {w}x{h}, but the map is {}x{}", material_path.display(), size.x, size.y);
-        }
-        let mut unknown = None;
-        for y in 0..size.y {
-            for x in 0..size.x {
-                let [r, g, b] = pixels[column(x, y)];
-                kinds[(x + y * size.x) as usize] = *keys.get(&[r, g, b, 255]).unwrap_or_else(|| {
-                    unknown.get_or_insert((r, g, b));
-                    &0
-                });
-            }
-        }
-        if let Some((r, g, b)) = unknown {
-            eprintln!(
-                "warning: {}: color #{r:02x}{g:02x}{b:02x} names no material; using the first",
-                material_path.display()
-            );
-        }
-        sources.push(material_path);
-    }
+    Ok(heights)
+}
 
+/// Every column's material from the material map (the first without one,
+/// and where its colour names none).
+fn ground_kinds(files: &Files, dir: &Path, ground: &Ground, size: IVec3, keys: &HashMap<[u8; 4], u8>, sources: &mut Vec<PathBuf>) -> Result<Vec<u8>> {
+    let mut kinds = vec![0u8; (size.x * size.y) as usize];
+    let Some(file) = &ground.material else { return Ok(kinds) };
+    let material_path = dir.join(file);
+    let shown = material_path.display().to_string();
+    let pixels = ground_picture(files, material_path, size, sources)?;
+    let mut unknown = None;
+    for y in 0..size.y {
+        for x in 0..size.x {
+            let [r, g, b] = pixels[pixel_of(size, x, y)];
+            kinds[(x + y * size.x) as usize] = *keys.get(&[r, g, b, 255]).unwrap_or_else(|| {
+                unknown.get_or_insert((r, g, b));
+                &0
+            });
+        }
+    }
+    if let Some((r, g, b)) = unknown {
+        eprintln!("warning: {shown}: color #{r:02x}{g:02x}{b:02x} names no material; using the first");
+    }
+    Ok(kinds)
+}
+
+/// The world of the ground: each column filled up to its height with its
+/// material's surface and strata.
+fn ground_world(size: IVec3, heights: &[i32], kinds: &[u8], materials: &[Colours], bedrock: Option<u8>) -> World {
     // Per column: where the strata bands sit and which surface patch it is in.
+    let columns = (size.x * size.y) as usize;
     let mut wobble = vec![0i32; columns];
     let mut patch = vec![0.5f32; columns];
     for y in 0..size.y {
@@ -633,7 +650,7 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
         let m = &materials[kinds[i] as usize];
         let pick = |colours: &[u8], v: f32| colours[((v * colours.len() as f32) as usize).min(colours.len() - 1)];
         if m.strata.is_empty() || (top - 1 - p.z < m.depth && !m.surface.is_empty()) {
-            let speckle = hash(p);
+            let speckle = cell_hash(p, 0);
             let v = if m.pattern > 0.0 { patch[i] * (1.0 - m.grain) + speckle * m.grain } else { speckle };
             let colours = if m.surface.is_empty() { &m.strata } else { &m.surface };
             return pick(colours, v);
@@ -641,7 +658,6 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
         let band = (p.z + wobble[i]).div_euclid(m.band).rem_euclid(m.strata.len() as i32);
         m.strata[band as usize]
     };
-
     let mut world = World::new(size, [[0; 4]; 256]);
     let chunks = (size + CHUNK - 1) / CHUNK;
     for cy in 0..chunks.y {
@@ -659,10 +675,12 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
             }
         }
     }
+    world
+}
 
-    // --- prefabs ---
-    // Their colours take the world's numbers in the order of their names,
-    // each one's in its palette's order.
+/// The prefabs by name: their voxels in the world's numbers and their
+/// markers, from their anchors.
+fn prefabs_of(map: &MapData, prefab_scenes: Vec<(String, crate::scene::Scene, PathBuf)>, names: &[&str], palette: &mut Palette, sources: &mut Vec<PathBuf>) -> Result<HashMap<String, Prefab>> {
     let mut prefabs = HashMap::new();
     for (name, scene, file) in prefab_scenes {
         let soft = map.prefabs.get(&name).is_some_and(|p| p.soft);
@@ -682,8 +700,13 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
         prefabs.insert(name, prefab);
         sources.push(file);
     }
+    Ok(prefabs)
+}
 
-    // --- placements ---
+/// What the map's `[[put]]`s set down, in order: prefabs into the world,
+/// their markers and things where they stand.
+fn put_all(map: &MapData, path: &Path, names: &[&str], prefabs: &HashMap<String, Prefab>, heights: &[i32], world: &mut World) -> Result<Vec<Marker>> {
+    let size = world.size;
     let mut found = Vec::new();
     let ground_at = |at: IVec2| {
         let x = at.x.clamp(0, size.x - 1);
@@ -699,9 +722,7 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
         };
         match (&place.prefab, &place.thing) {
             (Some(name), None) => {
-                let prefab = prefabs
-                    .get(name.as_str())
-                    .ok_or_else(|| anyhow!("{}: put {n}: no prefab named '{name}'", path.display()))?;
+                let prefab = prefabs.get(name.as_str()).ok_or_else(|| anyhow!("{}: put {n}: no prefab named '{name}'", path.display()))?;
                 for &(l, i) in &prefab.voxels {
                     world.set_raw(at + turn(l, place.quarters()), i);
                 }
@@ -710,21 +731,13 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
                 }
             }
             (None, Some(name)) => {
-                let kind = names
-                    .iter()
-                    .position(|m| m == name)
-                    .ok_or_else(|| anyhow!("{}: put {n}: '{name}' is no kind of thing (c.things: {})", path.display(), names.join(", ")))?;
+                let kind = names.iter().position(|m| m == name).ok_or_else(|| anyhow!("{}: put {n}: '{name}' is no kind of thing (c.things: {})", path.display(), names.join(", ")))?;
                 found.push(Marker { kind, cell: at });
             }
             _ => bail!("{}: put {n}: give either 'prefab' or 'thing'", path.display()),
         }
     }
-
-    world.palette = palette.colours;
-    world.soft = palette.soft;
-    world.mark_all_dirty();
-    let places = map.places.iter().map(|p| crate::levels::Place::new(&p.name, IVec3::from(p.at).as_vec3() + glam::Vec3::new(0.5, 0.5, 0.0), p.facing)).collect();
-    Ok(crate::levels::Made { world, markers: found, files: sources, places, marker_names: Vec::new(), marker_facings: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight: Default::default() })
+    Ok(found)
 }
 
 const SEED: i64 = 0x5EED;
@@ -746,19 +759,6 @@ fn noise(x: f32, y: f32, scale: f32) -> f32 {
     let a = lattice(ix, iy) + (lattice(ix + 1, iy) - lattice(ix, iy)) * tx;
     let b = lattice(ix, iy + 1) + (lattice(ix + 1, iy + 1) - lattice(ix, iy + 1)) * tx;
     a + (b - a) * ty
-}
-
-/// A fixed random number in 0..1 for every voxel.
-fn hash(p: IVec3) -> f32 {
-    let mut h = (p.x as u32).wrapping_mul(0x8DA6_B343)
-        ^ (p.y as u32).wrapping_mul(0xD816_3841)
-        ^ (p.z as u32).wrapping_mul(0xCB1A_B31F);
-    h ^= h >> 15;
-    h = h.wrapping_mul(0x2C1B_3C6D);
-    h ^= h >> 12;
-    h = h.wrapping_mul(0x297A_2D39);
-    h ^= h >> 15;
-    (h >> 8) as f32 / (1u32 << 24) as f32
 }
 
 #[cfg(test)]

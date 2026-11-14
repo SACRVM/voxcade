@@ -225,7 +225,11 @@ impl Block {
     /// `save`, saying the text written (the editor remembers what it
     /// wrote, to see when another program writes the file).
     pub fn save_saying(&self, path: &Path) -> Result<String> {
-        let text = crate::vvx::write(&self.model(), &crate::vvx::Palette::of_file(path));
+        use crate::vvx::{Mat, Piece, Shape};
+        let pivot = crate::vvx::pivot(self.size);
+        let voxels = (0..self.voxels.len()).filter_map(|i| self.colour_at(self.at(i)).map(|[r, g, b]| (self.at(i) - pivot, Mat { rgba: [r, g, b, 255], metal: 0, glow: 0 }))).collect();
+        let shape = Shape { size: self.size, parted: false, pieces: vec![Piece { voxels, ..Piece::default() }] };
+        let text = crate::vvx::write_shape(&shape, &crate::vvx::Palette::of_file(path), false);
         save_at_once(path, text.as_bytes())?;
         Ok(text)
     }

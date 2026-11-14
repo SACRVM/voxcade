@@ -206,7 +206,7 @@ pub struct Piece {
 /// The material of voxel `k` of frame `f`.
 fn mat_of(model: &VoxModel, f: usize, k: usize) -> Mat {
     let rgba = model.frames[f][k].1;
-    Mat { rgba, metal: model.metal.get(f).and_then(|m| m.get(k)).copied().unwrap_or(0), glow: model.glow.get(f).and_then(|g| g.get(k)).copied().unwrap_or(0) }
+    Mat { rgba, metal: model.metal_at(f, k), glow: model.glow_at(f, k) }
 }
 
 /// The signs a text gives out: those the file had for the same material
@@ -214,7 +214,8 @@ fn mat_of(model: &VoxModel, f: usize, k: usize) -> Mat {
 struct Signs {
     width: usize,
     kept: Vec<(String, Mat)>,
-    of: HashMap<Mat, String>,
+    /// Each material's place in `order`.
+    of: HashMap<Mat, usize>,
     order: Vec<(String, Mat)>,
     next: usize,
 }
@@ -225,34 +226,35 @@ impl Signs {
         Self { width, kept, of: HashMap::new(), order: Vec::new(), next: 0 }
     }
 
-    fn nth(&self, i: usize) -> String {
-        if self.width == 1 { (SIGNS[i] as char).to_string() } else { format!("{}{}", SIGNS[i / ONE_SIGN] as char, SIGNS[i % ONE_SIGN] as char) }
-    }
-
-    fn sign(&mut self, mat: Mat) -> String {
-        if let Some(s) = self.of.get(&mat) {
-            return s.clone();
-        }
-        let s = match self.kept.iter().find(|(_, m)| *m == mat) {
-            Some((s, _)) => s.clone(),
-            None => loop {
-                let s = self.nth(self.next);
-                self.next += 1;
-                if !self.kept.iter().any(|(k, _)| *k == s) && !self.order.iter().any(|(k, _)| *k == s) {
-                    break s;
-                }
-            },
+    /// The sign of `mat`, given out the first time it comes.
+    fn sign(&mut self, mat: Mat) -> &str {
+        let at = match self.of.get(&mat) {
+            Some(&at) => at,
+            None => {
+                let s = match self.kept.iter().find(|(_, m)| *m == mat) {
+                    Some((s, _)) => s.clone(),
+                    None => loop {
+                        let s = nth_sign(self.next, self.width);
+                        self.next += 1;
+                        if !self.kept.iter().any(|(k, _)| *k == s) && !self.order.iter().any(|(k, _)| *k == s) {
+                            break s;
+                        }
+                    },
+                };
+                self.of.insert(mat, self.order.len());
+                self.order.push((s, mat));
+                self.order.len() - 1
+            }
         };
-        self.of.insert(mat, s.clone());
-        self.order.push((s.clone(), mat));
-        s
+        &self.order[at].0
     }
 
     /// The palette's lines: the kept signs used (with `all` every kept
     /// one, used or not, but a second for a material another sign has), in
     /// the file's order, then the new ones as they came.
     fn lines(&self, all: bool) -> String {
-        let mut used: Vec<&(String, Mat)> = self.kept.iter().filter(|(s, m)| self.of.get(m).map_or(all && !self.kept.iter().take_while(|(k, _)| k != s).any(|(_, o)| o == m), |o| o == s)).collect();
+        let given = |m: &Mat| self.of.get(m).map(|&at| &self.order[at].0);
+        let mut used: Vec<&(String, Mat)> = self.kept.iter().filter(|(s, m)| given(m).map_or(all && !self.kept.iter().take_while(|(k, _)| k != s).any(|(_, o)| o == m), |o| o == s)).collect();
         used.extend(self.order.iter().filter(|(s, _)| !self.kept.iter().any(|(k, _)| k == s)));
         used.iter().map(|(s, m)| format!("{s} = {}\n", material_text(m))).collect()
     }
@@ -276,12 +278,14 @@ fn layers_of(voxels: &[(IVec3, Mat)], signs: &mut Signs) -> Option<(IVec3, Vec<V
             (0..dim.y)
                 .rev()
                 .map(|y| {
-                    (0..dim.x)
-                        .map(|x| match cells[((z * dim.y + y) * dim.x + x) as usize] {
-                            None => dots.clone(),
-                            Some(m) => signs.sign(m),
-                        })
-                        .collect()
+                    let mut row = String::with_capacity(dim.x as usize * signs.width);
+                    for cell in &cells[((z * dim.y + y) * dim.x) as usize..][..dim.x as usize] {
+                        row.push_str(match cell {
+                            None => &dots,
+                            Some(m) => signs.sign(*m),
+                        });
+                    }
+                    row
                 })
                 .collect()
         })
@@ -308,12 +312,15 @@ pub(crate) fn layers_text(layers: &[Vec<String>]) -> String {
         if k > 0 {
             s.push('\n');
         }
-        for (row, n) in rows_runs(layer) {
-            s += row;
+        for (row, n) in runs(layer) {
             if n >= REPEAT_FROM {
+                s += row;
                 s += &format!(" *{n}\n");
             } else {
-                s += &format!("\n{}", format!("{row}\n").repeat(n - 1));
+                for _ in 0..n {
+                    s += row;
+                    s.push('\n');
+                }
             }
         }
         if times > 1 {
@@ -327,10 +334,6 @@ pub(crate) fn layers_text(layers: &[Vec<String>]) -> String {
 /// one by one.
 fn layers_runs(layers: &[Vec<String>]) -> Vec<(&Vec<String>, usize)> {
     runs(layers).into_iter().flat_map(|(l, n)| if n >= REPEAT_FROM { vec![(l, n)] } else { vec![(l, 1); n] }).collect()
-}
-
-fn rows_runs(rows: &[String]) -> Vec<(&String, usize)> {
-    runs(rows)
 }
 
 /// A key's text as TOML writes a string.
@@ -495,6 +498,60 @@ pub(crate) struct Reader<'a> {
 
 type Span = Option<std::ops::Range<usize>>;
 
+/// A text of TOML as a document, its mistake said with its line.
+pub(crate) fn parse(src: &str) -> Result<Document<&str>> {
+    Document::parse(src).map_err(|e| match e.span() {
+        Some(s) => anyhow!("line {}: {}", line_of(src, s.start), e.message()),
+        None => anyhow!("{}", e.message()),
+    })
+}
+
+/// `#rrggbb` as three bytes.
+pub(crate) fn hex(text: &str) -> Option<[u8; 3]> {
+    let h = text.strip_prefix('#').filter(|h| h.len() == 6 && h.chars().all(|c| c.is_ascii_hexdigit()))?;
+    Some([0, 2, 4].map(|i| u8::from_str_radix(&h[i..i + 2], 16).expect("hex digits")))
+}
+
+/// The `i`-th sign given out (`SIGNS`), one character or two.
+pub(crate) fn nth_sign(i: usize, width: usize) -> String {
+    if width == 1 { (SIGNS[i] as char).to_string() } else { format!("{}{}", SIGNS[i / ONE_SIGN] as char, SIGNS[i % ONE_SIGN] as char) }
+}
+
+/// The signs of a palette or a legend by their bytes, quick to look up: a
+/// table of one byte, or of two.
+pub(crate) struct SignTable<T> {
+    width: usize,
+    one: [Option<T>; 256],
+    two: HashMap<[u8; 2], T>,
+}
+
+impl<T: Copy> SignTable<T> {
+    /// The table of `signs`, each `width` characters (checked, `Reader::sign`).
+    pub fn new<'s>(width: usize, signs: impl IntoIterator<Item = (&'s str, T)>) -> Self {
+        let mut table = Self { width, one: [None; 256], two: HashMap::new() };
+        for (sign, value) in signs {
+            match *sign.as_bytes() {
+                [b] => table.one[b as usize] = Some(value),
+                [a, b] => _ = table.two.insert([a, b], value),
+                _ => {}
+            }
+        }
+        table
+    }
+
+    /// What a cell's sign (`width` bytes) stands for.
+    pub fn get(&self, cell: &[u8]) -> Option<T> {
+        if self.width == 1 { self.one[cell[0] as usize] } else { self.two.get(&[cell[0], cell[1]]).copied() }
+    }
+}
+
+/// Signs as a mistake lists them: sorted, comma by comma.
+pub(crate) fn sorted_signs<'s>(signs: impl Iterator<Item = &'s String>) -> String {
+    let mut signs: Vec<&String> = signs.collect();
+    signs.sort();
+    signs.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+}
+
 /// One layer of a `layers` text as read: its rows (the line each is on
 /// within the text), how many times it stands.
 pub(crate) struct Layer<'a> {
@@ -658,6 +715,32 @@ impl Reader<'_> {
         }
     }
 
+    /// The file's `size`, three whole numbers: `missing` says what it is
+    /// where there is none, `small` the mistake where one is under 1.
+    pub fn size<'t>(&self, top: &'t toml_edit::Table, missing: &str, small: &str) -> Result<(IVec3, &'t Item)> {
+        let item = top.get("size").ok_or_else(|| anyhow!("no size = [x, y, z] ({missing})"))?;
+        let size = self.ints(item, "size")?;
+        if size.cmplt(IVec3::ONE).any() {
+            return Err(self.fail(item.span(), small));
+        }
+        Ok((size, item))
+    }
+
+    /// A palette's or a legend's sign checked: one or two letters or
+    /// digits, as long as the signs before it (`width`, 0 before the
+    /// first; then the sign's).
+    pub fn sign(&self, sign: &str, item: &Item, width: &mut usize) -> Result<()> {
+        let n = sign.chars().count();
+        if !(1..=2).contains(&n) || sign.chars().any(|c| !c.is_ascii_alphanumeric()) {
+            return Err(self.fail(item.span(), format!("'{sign}' cannot be a sign: one or two letters or digits")));
+        }
+        if *width != 0 && *width != n {
+            return Err(self.fail(item.span(), format!("'{sign}' has {n} characters, the signs before have {width}: all signs of a file are as long as one another")));
+        }
+        *width = n;
+        Ok(())
+    }
+
     pub fn number(&self, item: &Item, what: &str) -> Result<f32> {
         // (Finite as an f32 too: 1e300 is no number a game can hold.)
         let v = item.as_float().or_else(|| item.as_integer().map(|i| i as f64)).filter(|v| v.is_finite()).ok_or_else(|| self.fail(item.span(), format!("{what} must be a number")))?;
@@ -741,12 +824,7 @@ impl Reader<'_> {
     }
 
     pub fn material(&self, sign: &str, item: &Item) -> Result<Mat> {
-        let hex = |text: &str, at: &Item| -> Result<[u8; 3]> {
-            let h = text.strip_prefix('#').filter(|h| h.len() == 6 && h.bytes().all(|b| b.is_ascii_hexdigit()));
-            let h = h.ok_or_else(|| self.fail(at.span(), format!("'{text}' is no color: write it as #rrggbb")))?;
-            let v = u32::from_str_radix(h, 16).unwrap_or(0);
-            Ok([(v >> 16) as u8, (v >> 8) as u8, v as u8])
-        };
+        let hex = |text: &str, at: &Item| hex(text).ok_or_else(|| self.fail(at.span(), format!("'{text}' is no color: write it as #rrggbb")));
         if let Some(text) = item.as_str() {
             let [r, g, b] = hex(text, item)?;
             return Ok(Mat { rgba: [r, g, b, 255], metal: 0, glow: 0 });
@@ -779,21 +857,9 @@ impl Reader<'_> {
         let text = item.as_str().ok_or_else(|| self.fail(item.span(), "layers must be a text between \"\"\" marks"))?;
         let first = self.first_line(item);
         let line = |i: usize| if first > 0 { format!("line {}: ", first + i) } else { String::new() };
-        let known = || {
-            let mut signs: Vec<&String> = palette.keys().collect();
-            signs.sort();
-            signs.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
-        };
-        // The signs by their bytes, quick to look up: one a cell, or two.
-        let mut one = [None; 256];
-        let mut two: HashMap<&[u8], Mat> = HashMap::new();
-        for (sign, mat) in palette {
-            match sign.as_bytes() {
-                [b] => one[*b as usize] = Some(*mat),
-                bytes => _ = two.insert(bytes, *mat),
-            }
-        }
-        let sign = |s: &[u8]| if width == 1 { one[s[0] as usize] } else { two.get(s).copied() };
+        let known = || sorted_signs(palette.keys());
+        let table = SignTable::new(width, palette.iter().map(|(s, m)| (s.as_str(), *m)));
+        let sign = |s: &[u8]| table.get(s);
         let lay = Lay { width, low: at + pivot, size, pivot, what: "the model's size" };
         let mut out = Vec::new();
         read_cells(text, &line, &lay, sign, known, |p, mat| out.push((p, mat)))?;
@@ -890,19 +956,12 @@ pub fn model_of(shape: &Shape) -> VoxModel {
 /// its line: the model editor's reading, the engine's (`read`) before the
 /// rules hang the parts.
 pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
-    let doc = Document::parse(src).map_err(|e| match e.span() {
-        Some(s) => anyhow!("line {}: {}", line_of(src, s.start), e.message()),
-        None => anyhow!("{}", e.message()),
-    })?;
+    let doc = parse(src)?;
     let r = Reader { src };
     let top = doc.as_table();
     check_format(&r, top)?;
     r.only(top, &["format", "size", "palette", "frame", "part"], "a model")?;
-    let size_item = top.get("size").ok_or_else(|| anyhow!("no size = [x, y, z] (the model's box, in voxels)"))?;
-    let size = r.ints(size_item, "size")?;
-    if size.cmplt(IVec3::ONE).any() {
-        return Err(r.fail(size_item.span(), "size must be at least one voxel each way"));
-    }
+    let (size, size_item) = r.size(top, "the model's box, in voxels", "size must be at least one voxel each way")?;
     let volume = size.as_i64vec3().element_product();
     if volume > MOST_VOXELS {
         return Err(r.fail(size_item.span(), format!("the model's box is too big: {} by {} by {} is {volume} voxels, a model holds {MOST_VOXELS} at most (512 by 512 by 128)", size.x, size.y, size.z)));
@@ -913,14 +972,7 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
     let (mut palette, mut entries) = (HashMap::new(), Vec::new());
     let mut width = 0;
     for (sign, item) in table.iter() {
-        let n = sign.chars().count();
-        if !(1..=2).contains(&n) || sign.chars().any(|c| !c.is_ascii_alphanumeric()) {
-            return Err(r.fail(item.span(), format!("'{sign}' cannot be a sign: one or two letters or digits")));
-        }
-        if width != 0 && width != n {
-            return Err(r.fail(item.span(), format!("'{sign}' has {n} characters, the signs before have {width}: all signs of a file are as long as one another")));
-        }
-        width = n;
+        r.sign(sign, item, &mut width)?;
         if item.as_table_like().is_some_and(|t| t.contains_key("marker")) {
             return Err(r.fail(item.span(), format!("the palette's '{sign}' is a marker: markers place things in a world or a map's prefab, a model has none")));
         }
@@ -995,10 +1047,7 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
                         Some(i.as_str().ok_or_else(|| r.fail(i.span(), "parent must be the name of a part"))?.to_string())
                     }
                 };
-                let joint = match t.get("joint") {
-                    None => None,
-                    Some(i) => Some(Vec3::from(r.triple(i, "joint")?)),
-                };
+                let joint = t.get("joint").map(|i| r.triple(i, "joint").map(Vec3::from)).transpose()?;
                 let mut rotation = [0.0; 3];
                 for (r_, key) in rotation.iter_mut().zip(ROTATION) {
                     if let Some(i) = t.get(key) {
@@ -1031,12 +1080,8 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
                     })?),
                 });
             }
-            if let Some(chain) = (0..names.len()).find_map(|p| crate::vox::ring(&parents, p)) {
-                let named: Vec<&str> = chain.iter().map(|&p| names[p]).collect();
-                if chain.len() == 2 {
-                    bail!("part '{}' hangs on itself (parent): it must hang on another part, or on none", named[0]);
-                }
-                bail!("part '{}' hangs on itself by way of the others ({}): one of them must hang on another part, or on none", named[0], named.join(" on "));
+            if let Some(why) = crate::vox::ring_mistake(&parents, &names, "parent") {
+                bail!(why);
             }
             Shape { size, parted: true, pieces }
         }
@@ -1142,7 +1187,7 @@ pub fn differences(a: &VoxModel, b: &VoxModel) -> Vec<String> {
 
 /// How many voxels lie in a cell another voxel of the same frame (or part)
 /// already fills: the text keeps the first, the rest are dropped.
-pub fn doubled(model: &VoxModel) -> usize {
+fn doubled(model: &VoxModel) -> usize {
     let count = |f: usize, ks: &mut dyn Iterator<Item = usize>| {
         let mut seen = crate::world::CellSet::default();
         ks.filter(|&k| !seen.insert(model.frames[f][k].0)).count()

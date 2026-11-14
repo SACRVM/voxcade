@@ -21,17 +21,25 @@ pub(super) struct Targets {
     /// Quarter size: scene blurred (0) and its scratch (1), glow blurred (2)
     /// and its scratch (3).
     pub(super) small: [wgpu::TextureView; 4],
-    /// The post passes in order: what they do, what they read, which small
-    /// target they write.
-    pub(super) passes: Vec<(PostPass, wgpu::BindGroup, usize)>,
+    /// The scene's blur and the glow's, each its passes in order: what they
+    /// do, what they read, which small target they write.
+    pub(super) scene_blur: Vec<PostPass>,
+    pub(super) glow_blur: Vec<PostPass>,
     /// The composite pass: the sharp scene plus the two blurred copies.
     pub(super) composite: wgpu::BindGroup,
     pub(super) blurred: wgpu::BindGroup,
     pub(super) composite_params: wgpu::Buffer,
 }
 
+/// A post pass: what it does, what it reads, which small target it writes.
+pub(super) struct PostPass {
+    pub(super) kind: PostKind,
+    pub(super) source: wgpu::BindGroup,
+    pub(super) dest: usize,
+}
+
 #[derive(Clone, Copy)]
-pub(super) enum PostPass {
+pub(super) enum PostKind {
     Down,
     Blur,
 }
@@ -102,9 +110,21 @@ fn scene_targets(blend: Option<wgpu::BlendState>) -> [Option<wgpu::ColorTargetSt
     [target.clone(), target]
 }
 
-/// A pipeline of the shader `module`: `targets` empty, a shadow pass (no
-/// fragment stage, both sides, a depth bias); `depth_write` false: the
-/// see-through cubes.
+/// How a scene pipeline draws: into the sun's shadow map (no fragment
+/// stage, both sides, a depth bias), or with a fragment entry onto
+/// `targets` culling `cull` (the back faces; an outline the front ones).
+enum Draws<'a> {
+    Shadow,
+    Scene { fs: &'a str, cull: wgpu::Face, targets: &'a [Option<wgpu::ColorTargetState>] },
+}
+
+/// What scene pipelines draw: back faces culled, through `fs_main`.
+fn scene(targets: &[Option<wgpu::ColorTargetState>]) -> Draws<'_> {
+    Draws::Scene { fs: "fs_main", cull: wgpu::Face::Back, targets }
+}
+
+/// A pipeline of the shader `module` that draws as `draws` says;
+/// `depth_write` false: the see-through cubes.
 #[allow(clippy::too_many_arguments)]
 fn scene_pipeline(
     device: &wgpu::Device,
@@ -113,10 +133,10 @@ fn scene_pipeline(
     layout: &wgpu::PipelineLayout,
     vs: &str,
     buffers: &[Option<wgpu::VertexBufferLayout>],
-    targets: &[Option<wgpu::ColorTargetState>],
+    draws: Draws,
     depth_write: bool,
 ) -> wgpu::RenderPipeline {
-    let shadow = targets.is_empty();
+    let shadow = matches!(draws, Draws::Shadow);
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(label),
         layout: Some(layout),
@@ -127,7 +147,10 @@ fn scene_pipeline(
             // shadow pass must see all of them. A model from the bank is
             // a closed surface (its covered faces left out): what of it
             // faces away from the sun lies behind what faces it.
-            cull_mode: if !shadow { Some(wgpu::Face::Back) } else { None },
+            cull_mode: match draws {
+                Draws::Shadow => None,
+                Draws::Scene { cull, .. } => Some(cull),
+            },
             ..Default::default()
         },
         depth_stencil: Some(wgpu::DepthStencilState {
@@ -138,7 +161,10 @@ fn scene_pipeline(
             bias: if shadow { wgpu::DepthBiasState { constant: 2, slope_scale: 1.5, clamp: 0.0 } } else { Default::default() },
         }),
         multisample: Default::default(),
-        fragment: if shadow { None } else { Some(wgpu::FragmentState { module, entry_point: Some("fs_main"), compilation_options: Default::default(), targets }) },
+        fragment: match draws {
+            Draws::Shadow => None,
+            Draws::Scene { fs, targets, .. } => Some(wgpu::FragmentState { module, entry_point: Some(fs), compilation_options: Default::default(), targets }),
+        },
         multiview_mask: None,
         cache: None,
     })
@@ -152,10 +178,10 @@ fn scene_pipelines(device: &wgpu::Device, module: &wgpu::ShaderModule, main: &wg
     let model_main_layout = layout("models", &[Some(main), Some(actor)]);
     let (opaque, see_through) = (scene_targets(None), scene_targets(Some(wgpu::BlendState::ALPHA_BLENDING)));
     ScenePipelines {
-        chunk: scene_pipeline(device, module, "chunks", &main_pipeline_layout, "vs_chunk", &chunk_buffers(), &opaque, true),
-        inst: scene_pipeline(device, module, "instances", &main_pipeline_layout, "vs_inst", &instance_buffers(), &opaque, true),
-        see_through: scene_pipeline(device, module, "see-through", &main_pipeline_layout, "vs_inst", &instance_buffers(), &see_through, false),
-        model: scene_pipeline(device, module, "models", &model_main_layout, "vs_model", &instance_buffers(), &opaque, true),
+        chunk: scene_pipeline(device, module, "chunks", &main_pipeline_layout, "vs_chunk", &chunk_buffers(), scene(&opaque), true),
+        inst: scene_pipeline(device, module, "instances", &main_pipeline_layout, "vs_inst", &instance_buffers(), scene(&opaque), true),
+        see_through: scene_pipeline(device, module, "see-through", &main_pipeline_layout, "vs_inst", &instance_buffers(), scene(&see_through), false),
+        model: scene_pipeline(device, module, "models", &model_main_layout, "vs_model", &instance_buffers(), scene(&opaque), true),
     }
 }
 
@@ -166,7 +192,9 @@ const CUBE_ATTRS: [wgpu::VertexAttribute; 2] =
 const INSTANCE_ATTRS: [wgpu::VertexAttribute; 5] =
     wgpu::vertex_attr_array![2 => Float32x4, 3 => Unorm8x4, 4 => Unorm8x4, 5 => Snorm8x4, 6 => Snorm8x4];
 
-fn texture(device: &wgpu::Device, label: &str, width: u32, height: u32, format: wgpu::TextureFormat) -> wgpu::TextureView {
+/// A target drawn into, and read after where `read`.
+fn texture(device: &wgpu::Device, label: &str, width: u32, height: u32, format: wgpu::TextureFormat, read: bool) -> wgpu::TextureView {
+    let usage = if read { wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING } else { wgpu::TextureUsages::RENDER_ATTACHMENT };
     device
         .create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
@@ -175,7 +203,7 @@ fn texture(device: &wgpu::Device, label: &str, width: u32, height: u32, format: 
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage,
             view_formats: &[],
         })
         .create_view(&wgpu::TextureViewDescriptor::default())
@@ -311,27 +339,12 @@ impl Renderer {
 
         let opaque_targets = scene_targets(None);
         let plain = scene_pipelines(device, &shader, &main_layout, &actor_layout);
-        let chunk_shadow = scene_pipeline(device, &shader, "chunk shadows", &shadow_pipeline_layout, "vs_chunk_shadow", &chunk_buffers(), &[], true);
-        let inst_shadow = scene_pipeline(device, &shader, "instance shadows", &shadow_pipeline_layout, "vs_inst_shadow", &instance_buffers(), &[], true);
-        let model_shadow = scene_pipeline(device, &shader, "model shadows", &model_shadow_layout, "vs_model_shadow", &instance_buffers(), &[], true);
+        let chunk_shadow = scene_pipeline(device, &shader, "chunk shadows", &shadow_pipeline_layout, "vs_chunk_shadow", &chunk_buffers(), Draws::Shadow, true);
+        let inst_shadow = scene_pipeline(device, &shader, "instance shadows", &shadow_pipeline_layout, "vs_inst_shadow", &instance_buffers(), Draws::Shadow, true);
+        let model_shadow = scene_pipeline(device, &shader, "model shadows", &model_shadow_layout, "vs_model_shadow", &instance_buffers(), Draws::Shadow, true);
         // The outline: the far faces of the grown voxels, in a flat colour.
-        let model_outline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("model outlines"),
-            layout: Some(&model_main_layout),
-            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_model_outline"), compilation_options: Default::default(), buffers: &instance_buffers() },
-            primitive: wgpu::PrimitiveState { front_face: wgpu::FrontFace::Ccw, cull_mode: Some(wgpu::Face::Front), ..Default::default() },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::Less),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: Default::default(),
-            fragment: Some(wgpu::FragmentState { module: &shader, entry_point: Some("fs_outline"), compilation_options: Default::default(), targets: &opaque_targets }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let outline = Draws::Scene { fs: "fs_outline", cull: wgpu::Face::Front, targets: &opaque_targets };
+        let model_outline = scene_pipeline(device, &shader, "model outlines", &model_main_layout, "vs_model_outline", &instance_buffers(), outline, true);
 
         let post_pipeline = |label: &str, layout: &wgpu::PipelineLayout, fs: &str, format: wgpu::TextureFormat| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -415,6 +428,7 @@ impl Renderer {
             meshes: crate::world::CellMap::default(),
             scratch_vertices: Vec::new(),
             scratch_indices: Vec::new(),
+            places: Vec::new(),
             stats: Stats::default(),
             pass_times: None,
             window: (width, height),
@@ -434,18 +448,7 @@ impl Renderer {
     }
 
     pub(super) fn shadow_map(device: &wgpu::Device, size: u32) -> wgpu::TextureView {
-        device
-            .create_texture(&wgpu::TextureDescriptor {
-                label: Some("shadow map"),
-                size: wgpu::Extent3d { width: size, height: size, depth_or_array_layers: 1 },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: DEPTH_FORMAT,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            })
-            .create_view(&wgpu::TextureViewDescriptor::default())
+        texture(device, "shadow map", size, size, DEPTH_FORMAT, true)
     }
 
     /// What the world's and the UI's scene read: their globals and the
@@ -502,23 +505,12 @@ impl Renderer {
         width: u32,
         height: u32,
     ) -> Targets {
-        let depth = device
-            .create_texture(&wgpu::TextureDescriptor {
-                label: Some("depth"),
-                size: wgpu::Extent3d { width: width.max(1), height: height.max(1), depth_or_array_layers: 1 },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: DEPTH_FORMAT,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                view_formats: &[],
-            })
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        let scene = texture(device, "scene", width, height, HDR_FORMAT);
-        let glow = texture(device, "glow", width, height, HDR_FORMAT);
-        let ui = texture(device, "ui", width, height, HDR_FORMAT);
+        let depth = texture(device, "depth", width, height, DEPTH_FORMAT, false);
+        let scene = texture(device, "scene", width, height, HDR_FORMAT, true);
+        let glow = texture(device, "glow", width, height, HDR_FORMAT, true);
+        let ui = texture(device, "ui", width, height, HDR_FORMAT, true);
         let (sw, sh) = ((width / SHRINK).max(1), (height / SHRINK).max(1));
-        let small = std::array::from_fn(|i| texture(device, &format!("small {i}"), sw, sh, HDR_FORMAT));
+        let small = std::array::from_fn(|i| texture(device, &format!("small {i}"), sw, sh, HDR_FORMAT, true));
 
         let bind = |view: &wgpu::TextureView, params: PostParams| {
             let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -543,17 +535,20 @@ impl Renderer {
         let across = PostParams { params: [0.0; 4], step: [quarter[0], quarter[1], 1.0, 0.0] };
         let upwards = PostParams { params: [0.0; 4], step: [quarter[0], quarter[1], 0.0, 1.0] };
 
+        let pass = |kind, source, params, dest| PostPass { kind, source: bind(source, params).0, dest };
         // Scene: shrink, blur across, blur up. Glow: shrink, then blur twice
         // for a wider halo.
-        let passes = vec![
-            (PostPass::Down, bind(&scene, down).0, 0),
-            (PostPass::Blur, bind(&small[0], across).0, 1),
-            (PostPass::Blur, bind(&small[1], upwards).0, 0),
-            (PostPass::Down, bind(&glow, down).0, 2),
-            (PostPass::Blur, bind(&small[2], across).0, 3),
-            (PostPass::Blur, bind(&small[3], upwards).0, 2),
-            (PostPass::Blur, bind(&small[2], across).0, 3),
-            (PostPass::Blur, bind(&small[3], upwards).0, 2),
+        let scene_blur = vec![
+            pass(PostKind::Down, &scene, down, 0),
+            pass(PostKind::Blur, &small[0], across, 1),
+            pass(PostKind::Blur, &small[1], upwards, 0),
+        ];
+        let glow_blur = vec![
+            pass(PostKind::Down, &glow, down, 2),
+            pass(PostKind::Blur, &small[2], across, 3),
+            pass(PostKind::Blur, &small[3], upwards, 2),
+            pass(PostKind::Blur, &small[2], across, 3),
+            pass(PostKind::Blur, &small[3], upwards, 2),
         ];
         let (composite, composite_params) = bind(&scene, down);
         let blurred = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -565,7 +560,7 @@ impl Renderer {
                 wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&ui) },
             ],
         });
-        Targets { depth, scene, glow, ui, small, passes, composite, blurred, composite_params }
+        Targets { depth, scene, glow, ui, small, scene_blur, glow_blur, composite, blurred, composite_params }
     }
 
     /// Whether the faces can remember their shadow: the pipelines with the

@@ -132,27 +132,14 @@ pub(crate) const FONT: &[(char, [&str; 9])] = &[
 /// An accented capital: its letter and its accent (`shown_row`: inside the
 /// capitals' height).
 pub(super) fn accented(ch: char) -> Option<(char, [&'static str; 2])> {
-    const DIAERESIS: [&str; 2] = [".#.#.", "....."];
-    const ACUTE: [&str; 2] = ["...#.", "..#.."];
-    const GRAVE: [&str; 2] = [".#...", "..#.."];
-    const CIRCUMFLEX: [&str; 2] = ["..#..", ".#.#."];
-    Some(match ch {
-        'Ä' => ('A', DIAERESIS),
-        'À' => ('A', GRAVE),
-        'Â' => ('A', CIRCUMFLEX),
-        'É' => ('E', ACUTE),
-        'È' => ('E', GRAVE),
-        'Ê' => ('E', CIRCUMFLEX),
-        'Ë' => ('E', DIAERESIS),
-        'Î' => ('I', CIRCUMFLEX),
-        'Ï' => ('I', DIAERESIS),
-        'Ö' => ('O', DIAERESIS),
-        'Ô' => ('O', CIRCUMFLEX),
-        'Ü' => ('U', DIAERESIS),
-        'Û' => ('U', CIRCUMFLEX),
-        'Ù' => ('U', GRAVE),
-        _ => return None,
-    })
+    use crate::font::Accent;
+    let (letter, accent) = crate::font::accent_of(ch)?;
+    Some((letter, match accent {
+        Accent::Diaeresis => [".#.#.", "....."],
+        Accent::Acute => ["...#.", "..#.."],
+        Accent::Grave => [".#...", "..#.."],
+        Accent::Circumflex => ["..#..", ".#.#."],
+    }))
 }
 
 /// A character's glyph: rows from the top, the bottom two below the line
@@ -178,7 +165,15 @@ pub(crate) fn alike(ch: char) -> char {
 /// A text as the engine writes its own (menus, the logo): in capitals as
 /// always, but for the small x of "x3".
 pub fn engine_case(s: &str) -> String {
-    s.chars().flat_map(|c| if c == 'x' { vec![c] } else { c.to_uppercase().collect() }).collect()
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if c == 'x' {
+            out.push(c);
+        } else {
+            out.extend(c.to_uppercase());
+        }
+    }
+    out
 }
 
 pub fn text_width(s: &str, scale: i32) -> f32 {
@@ -257,20 +252,6 @@ pub(super) fn letter(out: &mut Vec<Instance>, g: &[&str; 9], accent: Option<[&st
                         voxel(out, px, py, z as f32, color);
                     }
                 }
-            }
-        }
-    }
-}
-
-pub fn icon(out: &mut Vec<Instance>, art: &[&str], x: f32, y: f32, depth: i32) {
-    let rows = art.len() as f32;
-    for (r, row) in art.iter().enumerate() {
-        for (c, ch) in row.chars().enumerate() {
-            if ch == '.' {
-                continue;
-            }
-            for z in 0..depth {
-                voxel(out, x + c as f32, y + rows - 1.0 - r as f32, z as f32, icon_color(ch));
             }
         }
     }

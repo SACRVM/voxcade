@@ -40,10 +40,10 @@ use std::path::Path;
 
 use anyhow::{Context, Result, anyhow, bail};
 use glam::IVec3;
-use toml_edit::{Document, Item};
+use toml_edit::Item;
 
 use crate::files::Files;
-use crate::vvx::{self, ONE_SIGN, Reader, SIGNS};
+use crate::vvx::{self, ONE_SIGN, Reader};
 use crate::world::{Marker, World};
 
 /// A world or a prefab as its file holds it.
@@ -163,7 +163,7 @@ impl Scene {
     pub fn write(&self) -> String {
         let entries = self.colours.len() + self.markers.len();
         let width = if entries <= ONE_SIGN { 1 } else { 2 };
-        let sign = |i: usize| if width == 1 { (SIGNS[i] as char).to_string() } else { format!("{}{}", SIGNS[i / ONE_SIGN] as char, SIGNS[i % ONE_SIGN] as char) };
+        let sign = |i: usize| vvx::nth_sign(i, width);
         let mut text = format!("format = \"{}\"\nsize = [{}, {}, {}]\n\n", vvx::FORMAT, self.size.x, self.size.y, self.size.z);
         text += "# The colours are the world's numbers in this order (the first is 1);\n# a marker places a thing of that kind instead of a voxel.\n[palette]\n";
         for (i, [r, g, b]) in self.colours.iter().enumerate() {
@@ -259,10 +259,7 @@ pub fn read(src: &str) -> Result<Scene> {
 /// What a scene's text says, its layers' text (and the line it begins on)
 /// given apart or read from the TOML.
 fn read_parts(src: &str, layers: Option<(&str, usize)>) -> Result<Scene> {
-    let doc = Document::parse(src).map_err(|e| match e.span() {
-        Some(s) => anyhow!("line {}: {}", vvx::line_of(src, s.start), e.message()),
-        None => anyhow!("{}", e.message()),
-    })?;
+    let doc = vvx::parse(src)?;
     let r = Reader { src };
     let top = doc.as_table();
     vvx::check_format_of(&r, top, vvx::FORMAT_NAME, vvx::VERSION, "world")?;
@@ -270,11 +267,7 @@ fn read_parts(src: &str, layers: Option<(&str, usize)>) -> Result<Scene> {
         return Err(r.fail(p.span(), "a world or a prefab is one box of voxels, one [[frame]]: it has no parts"));
     }
     r.only(top, &["format", "size", "palette", "frame"], "a world or a prefab")?;
-    let size_item = top.get("size").ok_or_else(|| anyhow!("no size = [x, y, z] (the box, in voxels)"))?;
-    let size = r.ints(size_item, "size")?;
-    if size.cmplt(IVec3::ONE).any() {
-        return Err(r.fail(size_item.span(), "size must be at least one voxel each way"));
-    }
+    let (size, size_item) = r.size(top, "the box, in voxels", "size must be at least one voxel each way")?;
     if let Some(why) = too_big(size) {
         return Err(r.fail(size_item.span(), why));
     }
@@ -285,14 +278,7 @@ fn read_parts(src: &str, layers: Option<(&str, usize)>) -> Result<Scene> {
     let mut entries: Vec<(String, Result<[u8; 3], String>)> = Vec::new();
     let mut width = 0;
     for (sign, item) in table.iter() {
-        let n = sign.chars().count();
-        if !(1..=2).contains(&n) || sign.chars().any(|c| !c.is_ascii_alphanumeric()) {
-            return Err(r.fail(item.span(), format!("'{sign}' cannot be a sign: one or two letters or digits")));
-        }
-        if width != 0 && width != n {
-            return Err(r.fail(item.span(), format!("'{sign}' has {n} characters, the signs before have {width}: all signs of a file are as long as one another")));
-        }
-        width = n;
+        r.sign(sign, item, &mut width)?;
         if let Some(t) = item.as_table_like().filter(|t| t.contains_key("marker")) {
             r.only(t, &["marker"], &format!("the palette's '{sign}' (a marker)"))?;
             let kind = t.get("marker").and_then(Item::as_str).filter(|k| !k.trim().is_empty());
@@ -343,21 +329,9 @@ fn read_parts(src: &str, layers: Option<(&str, usize)>) -> Result<Scene> {
 /// (read as a model's are, `vvx::read_cells`).
 fn fill(scene: &mut Scene, text: &str, first: usize, numbers: &HashMap<String, u16>, width: usize, low: IVec3) -> Result<()> {
     let line = |i: usize| if first > 0 { format!("line {}: ", first + i) } else { String::new() };
-    let mut one = [None; 256];
-    let mut two: HashMap<[u8; 2], u16> = HashMap::new();
-    for (sign, &n) in numbers {
-        match *sign.as_bytes() {
-            [b] => one[b as usize] = Some(n),
-            [a, b] => _ = two.insert([a, b], n),
-            _ => {}
-        }
-    }
-    let known = || {
-        let mut signs: Vec<&String> = numbers.keys().collect();
-        signs.sort();
-        signs.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
-    };
-    let sign = |s: &[u8]| if width == 1 { one[s[0] as usize] } else { two.get(&[s[0], s[1]]).copied() };
+    let table = vvx::SignTable::new(width, numbers.iter().map(|(s, &n)| (s.as_str(), n)));
+    let known = || vvx::sorted_signs(numbers.keys());
+    let sign = |s: &[u8]| table.get(s);
     let size = scene.size;
     let lay = vvx::Lay { width, low, size, pivot: vvx::pivot(size), what: "the box" };
     let cells = &mut scene.cells;

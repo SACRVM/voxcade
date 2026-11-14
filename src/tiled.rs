@@ -162,14 +162,11 @@ pub fn import(path: &Path) -> Result<Imported> {
         let (width, _, pixels) = crate::map::read_png_rgba(&base.join(image))?;
         for tile in &set.tiles {
             let class = if tile.kind.is_empty() { &tile.class } else { &tile.kind };
-            let kind = match class.as_str() {
-                "" => continue,
-                "solid" => Kind::Solid,
-                "oneway" => Kind::Oneway,
-                "ladder" => Kind::Ladder,
-                "hazard" => Kind::Hazard,
-                "decor" => Kind::Decor,
-                other => return Err(at(format!("tile {}: class '{other}' is no kind of block (solid, oneway, ladder, hazard, decor)", set.firstgid + tile.id))),
+            if class.is_empty() {
+                continue;
+            }
+            let Some(kind) = Kind::ALL.into_iter().find(|k| k.name() == class) else {
+                return Err(at(format!("tile {}: class '{class}' is no kind of block (solid, oneway, ladder, hazard, decor)", set.firstgid + tile.id)));
             };
             kinds.insert(set.firstgid + tile.id, kind);
         }

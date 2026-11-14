@@ -118,44 +118,31 @@ impl ModelBank {
     /// Puts the opaque visible voxels of each of `model`'s frames in the
     /// bank and notes where (`VoxModel::bank`).
     pub fn add(&mut self, model: &mut crate::vox::VoxModel) {
-        let pivot = IVec3::new(model.size.x / 2, model.size.y / 2, 0);
-        model.bank = (0..model.frames.len())
-            .map(|f| {
-                let start = self.voxels.len() as u32;
-                for (i, &k) in model.visible[f].iter().enumerate() {
-                    let k = k as usize;
-                    let (v, color) = model.frames[f][k];
-                    if color[3] < 255 {
-                        continue;
-                    }
-                    let l = (v - pivot).as_vec3();
-                    let metal = model.metal.get(f).and_then(|m| m.get(k)).copied().unwrap_or(0);
-                    let glow = model.glow.get(f).and_then(|g| g.get(k)).copied().unwrap_or(0);
-                    let shade = model.shade.get(f).and_then(|s| s.get(k)).copied().unwrap_or([0; 4]);
-                    let covered = model.covered.get(f).and_then(|c| c.get(i)).copied().unwrap_or(0);
-                    self.voxels.push(Instance { pos_size: [l.x, l.y, l.z, 1.0], color, fx: [glow, 255, covered, metal], shade, turn: [0; 4] });
-                }
-                start..self.voxels.len() as u32
-            })
-            .collect();
-        // A figure's parts: each its own run, its joints' faces too.
-        for part in &mut model.parts {
-            let start = self.voxels.len() as u32;
-            for (i, &k) in part.visible.iter().enumerate() {
-                let k = k as usize;
-                let (v, color) = model.frames[0][k];
-                if color[3] < 255 {
-                    continue;
-                }
-                let l = (v - pivot).as_vec3();
-                let metal = model.metal.first().and_then(|m| m.get(k)).copied().unwrap_or(0);
-                let glow = model.glow.first().and_then(|g| g.get(k)).copied().unwrap_or(0);
-                let shade = model.shade.first().and_then(|s| s.get(k)).copied().unwrap_or([0; 4]);
-                let covered = part.covered.get(i).copied().unwrap_or(0);
-                self.voxels.push(Instance { pos_size: [l.x, l.y, l.z, 1.0], color, fx: [glow, 255, covered, metal], shade, turn: [0; 4] });
-            }
-            part.bank = start..self.voxels.len() as u32;
+        model.bank = (0..model.frames.len()).map(|f| self.add_voxels(model, f, &model.visible[f], &model.covered[f])).collect();
+        // A figure's parts: each its own run of its one frame, its joints'
+        // faces too.
+        let banked: Vec<Range<u32>> = model.parts.iter().map(|part| self.add_voxels(model, 0, &part.visible, &part.covered)).collect();
+        for (part, bank) in model.parts.iter_mut().zip(banked) {
+            part.bank = bank;
         }
+    }
+
+    /// The opaque ones of `visible` (voxels of frame `f`, each with its
+    /// `covered` faces) relative to the pivot: where they lie in the bank.
+    fn add_voxels(&mut self, model: &crate::vox::VoxModel, f: usize, visible: &[u32], covered: &[u8]) -> Range<u32> {
+        let pivot = IVec3::new(model.size.x / 2, model.size.y / 2, 0);
+        let start = self.voxels.len() as u32;
+        for (i, &k) in visible.iter().enumerate() {
+            let k = k as usize;
+            let (v, color) = model.frames[f][k];
+            if color[3] < 255 {
+                continue;
+            }
+            let l = (v - pivot).as_vec3();
+            let fx = [model.glow_at(f, k), 255, covered.get(i).copied().unwrap_or(0), model.metal_at(f, k)];
+            self.voxels.push(Instance { pos_size: [l.x, l.y, l.z, 1.0], color, fx, shade: model.shade_at(f, k), turn: [0; 4] });
+        }
+        start..self.voxels.len() as u32
     }
 
     /// The cubes a draw puts in the world, worked out as the GPU does

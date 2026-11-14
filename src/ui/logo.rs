@@ -59,8 +59,8 @@ pub(super) fn logo(out: &mut Vec<Instance>, letters: &mut Vec<ModelDraw>, view: 
 /// share of a tick): a slow wave running through the letters left to
 /// right, `amount` voxels up and down, coming in over a second once the
 /// letter has landed and stopped bouncing. Smooth, not in whole voxels:
-/// a letter stepping a voxel at a time looked as if the game stuttered
-/// (the user); its voxels keep their grid among themselves.
+/// a letter stepping a voxel at a time looks as if the game stuttered;
+/// its voxels keep their grid among themselves.
 pub(super) fn bob(t: f32, now: f32, i: usize, amount: f32) -> f32 {
     const LANDED: f32 = 60.0;
     const PERIOD: f32 = 150.0;
@@ -362,30 +362,19 @@ pub(super) fn grain(color: [u8; 4], c: i32, r: i32, z: i32, finish: Finish) -> [
     if finish.grain <= 0.0 {
         return color;
     }
-    let speckle = hash(c, r, z, finish.seed) - 0.5;
+    let speckle = cell_hash(IVec3::new(c, r, z), finish.seed) - 0.5;
     let blotch = smooth_noise(c as f32 / 5.0, r as f32 / 5.0, finish.seed) - 0.5;
     let k = 1.0 + finish.grain * (speckle * 0.8 + blotch * 1.6);
     let f = |v: u8| (v as f32 * k).round().clamp(0.0, 255.0) as u8;
     [f(color[0]), f(color[1]), f(color[2]), color[3]]
 }
 
-/// A number in [0, 1) for a cell, the same every time.
-pub(super) fn hash(a: i32, b: i32, c: i32, seed: u32) -> f32 {
-    let mut h = (a as u32).wrapping_mul(0x8da6_b343) ^ (b as u32).wrapping_mul(0xd816_3841) ^ (c as u32).wrapping_mul(0xcb1a_b31f) ^ seed.wrapping_mul(0x9e37_79b9);
-    h ^= h >> 15;
-    h = h.wrapping_mul(0x2c1b_3c6d);
-    h ^= h >> 12;
-    h = h.wrapping_mul(0x297a_2d39);
-    h ^= h >> 15;
-    (h >> 8) as f32 / (1u32 << 24) as f32
-}
-
-/// Smooth noise in [0, 1): `hash` on a lattice, blended between.
+/// Smooth noise in [0, 1): `cell_hash` on a lattice, blended between.
 pub(super) fn smooth_noise(x: f32, y: f32, seed: u32) -> f32 {
     let (x0, y0) = (x.floor(), y.floor());
     let ease = |t: f32| t * t * (3.0 - 2.0 * t);
     let (sx, sy) = (ease(x - x0), ease(y - y0));
-    let v = |dx: i32, dy: i32| hash(x0 as i32 + dx, y0 as i32 + dy, -1, seed);
+    let v = |dx: i32, dy: i32| cell_hash(IVec3::new(x0 as i32 + dx, y0 as i32 + dy, -1), seed);
     let top = v(0, 0) + (v(1, 0) - v(0, 0)) * sx;
     let bottom = v(0, 1) + (v(1, 1) - v(0, 1)) * sx;
     top + (bottom - top) * sy

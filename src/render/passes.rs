@@ -10,7 +10,7 @@ use wgpu::util::DeviceExt;
 
 use super::bank::{ACTOR_STRIDE, ActorData};
 use super::frame::{UI_AMBIENT, UI_SUN};
-use super::pipelines::{Memory, PostPass};
+use super::pipelines::{Memory, PostKind, PostPass};
 use super::shader::{Globals, LightData, PostParams};
 use super::{FrameData, Instance, MAX_LIGHTS, ModelDraw, Renderer, Stats, off_grid, on_screen};
 
@@ -47,6 +47,11 @@ impl PassTimes {
     }
 }
 
+/// A colour target of a pass, loaded as `load` says and stored.
+fn color(view: &wgpu::TextureView, load: wgpu::LoadOp<wgpu::Color>) -> Option<wgpu::RenderPassColorAttachment<'_>> {
+    Some(wgpu::RenderPassColorAttachment { view, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load, store: wgpu::StoreOp::Store } })
+}
+
 impl Renderer {
     pub fn render(
         &mut self,
@@ -73,9 +78,9 @@ impl Renderer {
         self.watch_memory(device, encoder);
         self.write_globals(queue, frame, remember);
         self.upload_cubes(device, queue, frame);
-        self.upload_models(device, queue, frame);
-        let instance_count = frame.instances.len();
         let all_models = frame.models.len() + frame.ui_models.len();
+        self.upload_models(device, queue, frame, all_models);
+        let instance_count = frame.instances.len();
 
         if let Some(t) = &self.pass_times {
             t.labels.borrow_mut().clear();
@@ -89,10 +94,10 @@ impl Renderer {
             vertices_total: self.meshes.values().map(|m| m.vertex_count).sum(),
             ..Stats::default()
         };
-        self.shadow_pass(encoder, frame, &mut stats);
-        self.scene_pass(encoder, frame, remember, &mut stats);
-        self.ui_pass(encoder, frame);
-        self.post_passes(encoder);
+        self.shadow_pass(encoder, frame, all_models, &mut stats);
+        self.scene_pass(encoder, frame, all_models, remember, &mut stats);
+        self.ui_pass(encoder, frame, all_models);
+        self.post_passes(encoder, frame);
         self.composite_pass(encoder, target);
         if let Some(t) = &self.pass_times {
             let count = 2 * t.labels.borrow().len() as u32;
@@ -169,12 +174,10 @@ impl Renderer {
         }
     }
 
-    /// The model bank, and the model draws' places.
-    fn upload_models(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, frame: &FrameData) {
-        // The model bank the first time it comes (and again after models
-        // reload), the draws' places every frame.
-        // The world's model draws, then the UI's: their places in that order.
-        let all_models = frame.models.len() + frame.ui_models.len();
+    /// The model bank the first time it comes (and again after models
+    /// reload), and every frame the places of its `all_models` draws: the
+    /// world's, then the UI's.
+    fn upload_models(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, frame: &FrameData, all_models: usize) {
         if all_models > 0 && !self.bank.as_ref().is_some_and(|(b, _)| Arc::ptr_eq(b, &frame.bank)) {
             let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("model bank"),
@@ -188,13 +191,15 @@ impl Renderer {
             (self.actors, self.actor_bind) = Self::actor_buffer(device, &self.actor_layout, self.actor_capacity);
         }
         if all_models > 0 {
-            let mut places = vec![0u8; all_models * ACTOR_STRIDE];
+            let places = &mut self.places;
+            places.clear();
+            places.resize(all_models * ACTOR_STRIDE, 0);
             for (m, place) in frame.models.iter().chain(&frame.ui_models).zip(places.as_chunks_mut::<ACTOR_STRIDE>().0) {
                 let tint = m.tint.map_or([0.0; 4], |[r, g, b]| [f32::from(r) / 255.0, f32::from(g) / 255.0, f32::from(b) / 255.0, 1.0]);
                 let data = ActorData { origin: m.origin.extend(m.turn as f32).to_array(), tint, extra: [m.nearer, 0.0, 0.0, 0.0], rot: m.rot.to_array(), pivot: m.shift.extend(if off_grid(m.rot, m.shift) { 1.0 } else { 0.0 }).to_array() };
                 place[..size_of::<ActorData>()].copy_from_slice(bytemuck::bytes_of(&data));
             }
-            queue.write_buffer(&self.actors, 0, &places);
+            queue.write_buffer(&self.actors, 0, places);
         }
     }
 
@@ -217,8 +222,7 @@ impl Renderer {
     }
 
     /// The sun's shadow map: the chunks, the models, the opaque cubes.
-    fn shadow_pass(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameData, stats: &mut Stats) {
-        let all_models = frame.models.len() + frame.ui_models.len();
+    fn shadow_pass(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameData, all_models: usize, stats: &mut Stats) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("sun shadows"),
             color_attachments: &[],
@@ -258,26 +262,14 @@ impl Renderer {
     /// The world's scene: what lies faint behind, the chunks, the models
     /// (their outline), the cubes, opaque then see-through; with the faces'
     /// memory where `remember`.
-    fn scene_pass(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameData, remember: bool, stats: &mut Stats) {
-        let all_models = frame.models.len() + frame.ui_models.len();
+    fn scene_pass(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameData, all_models: usize, remember: bool, stats: &mut Stats) {
         let instance_count = frame.instances.len();
         let (behind, opaque) = frame.cube_runs();
         let [r, g, b] = frame.sky.map(f64::from);
         let t = &self.targets;
-        let attachment = |view, clear| {
-            Some(wgpu::RenderPassColorAttachment {
-                view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(clear), store: wgpu::StoreOp::Store },
-            })
-        };
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("scene"),
-            color_attachments: &[
-                attachment(&t.scene, wgpu::Color { r, g, b, a: 1.0 }),
-                attachment(&t.glow, wgpu::Color::TRANSPARENT),
-            ],
+            color_attachments: &[color(&t.scene, wgpu::LoadOp::Clear(wgpu::Color { r, g, b, a: 1.0 })), color(&t.glow, wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT))],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: &t.depth,
                 depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Discard }),
@@ -336,28 +328,14 @@ impl Renderer {
     }
 
     /// The UI's scene into its own layer (and the glow).
-    fn ui_pass(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameData) {
-        let all_models = frame.models.len() + frame.ui_models.len();
+    fn ui_pass(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameData, all_models: usize) {
         let instance_count = frame.instances.len();
         let total = instance_count + frame.ui.len();
         // The UI: its own layer (cleared every frame) and the glow.
         let t = &self.targets;
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("ui"),
-            color_attachments: &[
-                Some(wgpu::RenderPassColorAttachment {
-                    view: &t.ui,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
-                }),
-                Some(wgpu::RenderPassColorAttachment {
-                    view: &t.glow,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
-                }),
-            ],
+            color_attachments: &[color(&t.ui, wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)), color(&t.glow, wgpu::LoadOp::Load)],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: &t.depth,
                 depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Discard }),
@@ -378,25 +356,25 @@ impl Renderer {
         }
     }
 
-    /// The scene and the glow shrunk and blurred.
-    fn post_passes(&self, encoder: &mut wgpu::CommandEncoder) {
-        for (kind, source, dest) in &self.targets.passes {
+    /// The scene and the glow shrunk and blurred: each only where the
+    /// composite weighs it (tilt-shift, glow), else what its small target
+    /// holds from before is multiplied by 0 there.
+    fn post_passes(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameData) {
+        let t = &self.targets;
+        let scene = if frame.tilt_shift != 0.0 { &t.scene_blur[..] } else { &[] };
+        let glow = if frame.glow != 0.0 { &t.glow_blur[..] } else { &[] };
+        for PostPass { kind, source, dest } in scene.iter().chain(glow) {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("post"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.targets.small[*dest],
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
-                })],
+                color_attachments: &[color(&t.small[*dest], wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT))],
                 depth_stencil_attachment: None,
                 timestamp_writes: self.pass_times.as_ref().and_then(|t| t.writes("blur")),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
             pass.set_pipeline(match kind {
-                PostPass::Down => &self.post_down,
-                PostPass::Blur => &self.post_blur,
+                PostKind::Down => &self.post_down,
+                PostKind::Blur => &self.post_blur,
             });
             pass.set_bind_group(0, source, &[]);
             pass.draw(0..3, 0..1);
@@ -407,12 +385,7 @@ impl Renderer {
     fn composite_pass(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("composite"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
-            })],
+            color_attachments: &[color(target, wgpu::LoadOp::Clear(wgpu::Color::BLACK))],
             depth_stencil_attachment: None,
             timestamp_writes: self.pass_times.as_ref().and_then(|t| t.writes("composite")),
             occlusion_query_set: None,

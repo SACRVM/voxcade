@@ -20,6 +20,7 @@ use crate::render::{Instance, ModelDraw};
 use crate::rng::Rng;
 use crate::settings::{Settings, VOLUME_STEPS};
 use crate::sim::DT;
+use crate::world::cell_hash;
 
 // The parts: a game's menus drawn from its HUD (`hud`), big letters and
 // the title's logo (`logo`), the engine's menus (`menus`), the panels over
@@ -35,22 +36,6 @@ pub use logo::*;
 pub use menus::*;
 pub use panels::*;
 pub use pixel::*;
-
-pub fn icon_color(c: char) -> [u8; 4] {
-    match c {
-        'R' => [214, 36, 44, 255],
-        'W' => [255, 176, 170, 255],
-        'K' => [96, 70, 64, 255],
-        'S' => [172, 172, 160, 255],
-        'G' => [84, 104, 56, 255],
-        'L' => [128, 152, 84, 255],
-        'H' => [34, 28, 26, 255],
-        'B' => [196, 40, 36, 255],
-        'E' => [24, 22, 20, 255],
-        'T' => [214, 168, 126, 255],
-        _ => [255, 0, 255, 255],
-    }
-}
 
 pub const TEXT: [u8; 4] = [240, 230, 204, 255];
 pub const NUMBERS: [u8; 4] = [255, 214, 90, 255];
