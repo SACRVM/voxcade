@@ -759,6 +759,11 @@ fn pointer_flags(ed: &mut Editor, view: &mut View, figures: &Figures, shown: &Sh
             // A figure's part's menu (its row's, a right click).
             let p = part_of(ed, part)?;
             view.menu = Some(view::Menu { on: view::MenuOn::Part(p), at: [zones::OUTLINER - 40.0, 120.0] });
+        } else if let Some(key) = name.strip_prefix("prop:") {
+            // The list of names of a prop of the chosen thing (PROPS).
+            let named = ed.chosen_thing().and_then(|t| ed.declared_names(t)).is_some_and(|n| n.contains_key(key));
+            anyhow::ensure!(named, "--menu prop:{key}: the chosen thing (--choose) has no prop {key} that names something (c.things.KIND.names)");
+            view.open_prop = Some(key.to_string());
         } else if name == "selection" {
             // The selection's (a right click on it), at the middle.
             anyhow::ensure!(ed.selection().is_some(), "--menu selection: nothing selected (--select)");

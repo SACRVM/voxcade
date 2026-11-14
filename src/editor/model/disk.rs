@@ -121,6 +121,8 @@ impl Editor {
     /// a drag going on let go of; one gone is said. Whether anything came.
     pub fn look_at_disk(&mut self) -> bool {
         self.pieces.choices.take();
+        self.pieces.levels.take();
+        self.pieces.names.take();
         if self.dry {
             return false;
         }

@@ -868,6 +868,7 @@ pub const KIND_KEYS: &[(&str, &str, &str)] = &[
     ("height", "number", "Its body's height, in voxels (its model's unless set)."),
     ("facing", "number[]", "The way it faces as it comes in, { x, y } (x east, y north)."),
     ("props", "table", "What your code reads of it, thing.props: props = { worth = 100 }. A level's thing or level:spawn may give one its own of these."),
+    ("names", "table", "Which of its props name something, checked as the game loads and at level:spawn: names = { to = \"level\", at = \"place\", works = \"things\" }.\n- \"level\": a level of the game.\n- \"place\": a place in the level its \"level\" prop names, else in its own (\"start\" always).\n- \"thing\": a named thing of its level; \"things\": a list of them.\n\"\" (or {}) names nothing. The level editor offers the names there are."),
     ("family", "string|string[]", "A family, or a list of them: level:things(\"enemies\") finds them, thing.families says them."),
     ("effect", "string|table", "Shown once where one of its things goes: a model (\"poof.vvx\", or { model = \"poof.vvx\", fps = 20 }), or \"burst\": it bursts into its voxels."),
     ("sound", "string", "Heard where one of its things goes: a sound's name (sounds/NAME.toml)."),

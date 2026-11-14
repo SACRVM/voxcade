@@ -449,9 +449,10 @@ end
     },
     Topic {
         title: "DOORS WITH PROPS",
-        text: "A kind declares its props in conf.lua, each with its default: c.things.door.props = { to = \"01_hall\", at = \"start\", locked = false }. A door set down in a level's file gives its own over those, props = { to = \"02_crypt\", at = \"stairs\" } on its [[thing]] (in the level editor: PROPS in its rows), and thing.props reads them, the kind's where it gives none. Each must be one its kind declares, of the same type (a number, a string, true or false): a misspelt one is a mistake when the game loads, naming the file and the line. Here each door leads where its props say, and a locked one stays shut.",
+        text: "A kind declares its props in conf.lua, each with its default: c.things.door.props = { to = \"01_hall\", at = \"start\", locked = false }. A door set down in a level's file gives its own over those, props = { to = \"02_crypt\", at = \"stairs\" } on its [[thing]] (in the level editor: PROPS in its rows), and thing.props reads them, the kind's where it gives none. Each must be one its kind declares, of the same type (a number, a string, true or false): a misspelt one is a mistake when the game loads, naming the file and the line. The kind's names say which props name something: to a level, at a place in the level to names (\"start\" is every level's); \"thing\" and \"things\" would name things of the door's own level. A name that is not there is a mistake when the game loads too, with the nearest there is, and the level editor offers the names there are. Here each door leads where its props say, and a locked one stays shut.",
         conf: r##"c.world.size = nil             -- no world made in code: the levels are in levels/
-c.things.door = { props = { to = "01_hall", at = "start", locked = false } }"##,
+c.things.door = { props = { to = "01_hall", at = "start", locked = false },
+                  names = { to = "level", at = "place" } }"##,
         files: &[
             ("levels/01_hall.toml", r##"format = "voxcade level 1"
 size = [64, 48, 16]
@@ -1265,7 +1266,7 @@ The top bar: BLOCKS, THINGS and PIECES (a level of blocks), + ADD, UNDO, REDO, a
 The outliner on the left: THINGS, PLACES and AREAS, each folding at its heading.
 The inspector on the right: the chosen one's rows, POSITION, ROTATE, its light.
 SHADOW ONLY in a piece's rows: it casts its shadow and is not drawn in the game (a ceiling the camera looks through). Here it shows as a ghost; GAME VIEW leaves it out.
-PROPS in a thing's rows: a row for each prop its kind declares (c.things.NAME.props), its own value or else its kind's in the quiet color. Type a string, drag or type a number, click TRUE or FALSE; its kind's value takes it out of the file. A table is only shown: change it in TEXT.
+PROPS in a thing's rows: a row for each prop its kind declares (c.things.NAME.props), its own value or else its kind's in the quiet color. Type a string, drag or type a number, tick a box; its kind's value takes it out of the file. A prop its kind names (c.things.NAME.names) offers the names there are: the levels, the places, the level's things (a list of things ticked one by one); a name that is not there shows in the warning color. RENAME of a thing or a place changes the props of this level's things that name it, in the same step. A table is only shown: change it in TEXT.
 # CHOOSING AND MOVING
 A click in the view chooses what it meets, voxel by voxel; a click on empty floor chooses nothing.
 The bar at the chosen one: MOVE shows its arrows, drag one to move it along that axis.

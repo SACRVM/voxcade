@@ -223,7 +223,10 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   hurt), `on_death` and `on_fall_out` for a life lost. What the code reads
   of a kind is its `props` (`props = { worth = 100 }`; a level's
   `[[thing]]` gives one thing its own over them, `props = { worth = 500 }`,
-  each one the kind declares: HELP's DOORS WITH PROPS), what kinds belong
+  each one the kind declares: HELP's DOORS WITH PROPS; a prop that names
+  a level, a place or things says so in the kind's `names = { to =
+  "level", at = "place", works = "things" }`, and the engine checks the
+  names as the game loads, so `main.lua` need not), what kinds belong
   together their `family`; a kind's `effect` and `sound` show as one of
   its things goes. The platformer template's `main.lua` has the classic
   rules written out: copy and change them. `effect = "burst"` bursts a

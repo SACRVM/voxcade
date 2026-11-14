@@ -777,10 +777,13 @@ touches there touches without `on_touch`.
   cross) live in the level file, set in the level editor.
 - **Places.** A level holds named places, each with a facing if it
   wants one (else the player faces as its rules turn it), set in the
-  level editor; a named thing is a place too (arriving at `"door_west"`
-  stands in front of that door). A door's props name the level and the
-  place it leads to; both are checked when the game loads, a wrong name is
-  a mistake with its place. Without a place, `go_to` arrives where the
+  level editor; `"start"` is every level's. (A named thing as a place,
+  arriving at `"door_west"` in front of that door, is not built: `go_to`
+  takes the places and `"start"`.) A door's props name the level and the
+  place it leads to (`names = { to = "level", at = "place" }` on its kind,
+  "Kinds of things"); both are checked when the game loads with every
+  level read, a wrong name a mistake with its file, line and the nearest
+  name there is. Without a place, `go_to` arrives where the
   level starts: its place called `start`, else where its ready-made rules
   stand the player (the hero's marker), else `c.player.spawn`; the first
   level of a run starts there too. Levels of blocks and maps hold places;
@@ -958,7 +961,7 @@ yet: areas' events, setting a light's colour or radius in code.
   a behavior it is a mistake, for its ready-made rules move it.
 - **`like = "other"`** builds a kind on another, as today.
 - **Props are declared** with their type and default:
-  `c.things.door = { props = { to = "level", at = "place", locked = false } }`.
+  `c.things.door = { props = { to = "01_hall", at = "start", locked = false } }`.
   A level's thing sets its own (`props = { to = "02_crypt" }` on its
   `[[thing]]`, `docs/tiles.md`); the level editor shows them as a row
   each under PROPS (its kind's value quiet, setting it takes the prop out
@@ -967,6 +970,28 @@ yet: areas' events, setting a light's colour or radius in code.
   the game loads (its file and line), in `level:spawn{ props = }` when it
   runs; one check for both. `thing.props` and `thing.families` are only
   to read.
+- **Props that name something** say so beside `props` (the owner,
+  2026-11-14): `names = { to = "level", at = "place", works = "things" }`.
+  `"level"` a level of the game (as `world:go_to` takes it); `"place"` a
+  place `go_to` arrives at (`"start"` or one of the level's places) in
+  the level the thing's one `"level"` prop names, else in its own level;
+  `"thing"` a thing of its own level by the name `level:thing` finds it by
+  (the file's, else `lift_1`: its kind and its number among them);
+  `"things"` a list of those. `""` (or `{}`) names nothing. Checked with
+  every level read as the game loads, again as a level file or
+  `conf.lua` is read anew while playing, and at `level:spawn` (against
+  the level played and its things then): each thing's value in effect,
+  its own or its kind's, a wrong name a mistake with the file, the line,
+  the key and the nearest name (`levels::Levels::check_named`, one check
+  for all three). `conf.lua` refuses a key that is no declared prop, a
+  word not among the four, a default of another type (a list for
+  `"things"`, else a string) and a `"place"` beside two `"level"` props;
+  `like` carries `names` as it carries `props`. A map's `[[put]]` things
+  have no props of their own yet. The level editor offers the names there
+  are for such a prop (a list; a list of ticks for `"things"`), a name
+  that is not there shown in the warning colour, and RENAME of a thing or
+  a place rewrites the props of the level's things naming it in the same
+  step. Nothing of it enters a run: the files' fingerprint has the props.
 
 ## Save games
 

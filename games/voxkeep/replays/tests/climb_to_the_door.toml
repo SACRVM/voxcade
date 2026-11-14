@@ -1,7 +1,7 @@
 # Voxcade replay: Voxkeep, 473 ticks, quit, score 100
 version = 1
 game = "Voxkeep"
-fingerprint = "734a96268096d317"
+fingerprint = "c869832518e4135b"
 ticks = 473
 outcome = "quit"
 score = 100
@@ -16,7 +16,7 @@ final_state = "00c82a9e344f90cb"
 "blocks/spikes.vvx" = "b77199ad72ff1ac2"
 "blocks/stone.vvx" = "4e465210edc307f9"
 "blocks/wall.vvx" = "645571179210a331"
-"conf.lua" = "f130149e7a169209"
+"conf.lua" = "832fb3d96510598c"
 "crate.vvx" = "604cd107977c01d4"
 "door.vvx" = "c4ca12b2f4b116a8"
 "gem.vvx" = "22c4adc438781293"
@@ -29,7 +29,7 @@ final_state = "00c82a9e344f90cb"
 "levels/05_crates.toml" = "ef4b6200280f289b"
 "levels/06_keep.toml" = "455ec0402173ca40"
 "lever.vvx" = "761ceb1f366acd3c"
-"main.lua" = "33db6e3f776fe91e"
+"main.lua" = "96163c3155aa3722"
 "plate.vvx" = "1dd27e7de4f20423"
 "skull.vvx" = "3230a7cbd5aef661"
 "slab.vvx" = "6158b3a73eb14598"

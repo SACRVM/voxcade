@@ -367,7 +367,7 @@ fn chosen(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, item: 
                     row(ui, "LIGHT", "Its color and how far it shines (its radius)", |ui| light_controls(ui, l, 0, zones::FIELD2, shown));
                 }
             }
-            prop_rows(ui, ed, i, shown);
+            prop_rows(ui, ed, view, i, shown);
         }
         Item::Place(i) => {
             let p = &ed.level.places[i];
@@ -395,11 +395,13 @@ fn chosen(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, item: 
 /// PROPS: a row for each prop the chosen thing's kind declares, its key
 /// the label, its own value or else its kind's (quiet): a number, a
 /// string typed (Enter or a click elsewhere sets it, Escape leaves it), a
-/// boolean clicked; a table only shown (changed in TEXT). Its kind's
-/// value set takes it out of the file.
-fn prop_rows(ui: &mut egui::Ui, ed: &Editor, i: usize, shown: &mut PanelsDrawn) {
+/// boolean clicked; a table only shown (changed in TEXT); a name chosen
+/// from those there are (`name_choice`). Its kind's value set takes it
+/// out of the file.
+fn prop_rows(ui: &mut egui::Ui, ed: &Editor, view: &View, i: usize, shown: &mut PanelsDrawn) {
     let t = &ed.level.things[i];
     let Some(declared) = ed.declared_props(t) else { return };
+    let (names, choices) = (ed.declared_names(t), ed.name_choices());
     ui.label(RichText::new("PROPS").small().color(QUIET)).on_hover_text(format!("What the game's code reads of this one thing (thing.props), over its kind's (c.things.{}.props)", t.kind));
     let height = ui.text_style_height(&TextStyle::Body) + 8.0;
     for (k, (key, default)) in declared.iter().enumerate() {
@@ -411,6 +413,9 @@ fn prop_rows(ui: &mut egui::Ui, ed: &Editor, i: usize, shown: &mut PanelsDrawn) 
         let colour = if own.is_some() { TEXT } else { QUIET };
         row(ui, key, &tip, |ui| {
             ui.visuals_mut().override_text_color = Some(colour);
+            if let (Some(&named), Some(there)) = (names.and_then(|n| n.get(key)), choices.get(key)) {
+                return name_choice(ui, view, (i, key), named, own.unwrap_or(default), there, &tip, shown);
+            }
             match own.unwrap_or(default) {
                 v @ (toml::Value::Integer(_) | toml::Value::Float(_)) => {
                     let n = v.as_float().unwrap_or_else(|| v.as_integer().unwrap_or(0) as f64);
@@ -453,6 +458,62 @@ fn prop_rows(ui: &mut egui::Ui, ed: &Editor, i: usize, shown: &mut PanelsDrawn) 
                 }
             }
         });
+    }
+}
+
+/// What a prop that names something shows for none ("").
+const NONE: &str = "\u{2014}";
+
+/// A prop that names something (its kind's `names`): a list of the names
+/// there are opened under it, none first (a quiet dash); for `things` a
+/// name ticked or not at a time. A name not there shows in WARNING, in
+/// the list too, to be seen and mended. A long one cut with "…".
+#[allow(clippy::too_many_arguments)]
+fn name_choice(ui: &mut egui::Ui, view: &View, (i, key): (usize, &str), named: crate::sim::things::Named, value: &toml::Value, there: &[String], tip: &str, shown: &mut PanelsDrawn) {
+    let list = named == crate::sim::things::Named::Things;
+    let chosen: Vec<&str> = match value {
+        toml::Value::Array(a) => a.iter().filter_map(toml::Value::as_str).collect(),
+        v => v.as_str().filter(|s| !s.is_empty()).into_iter().collect(),
+    };
+    let missing = |name: &str| !there.iter().any(|c| c == name);
+    let not_there: Vec<&str> = chosen.iter().copied().filter(|n| missing(n)).collect();
+    let text = if chosen.is_empty() { NONE.to_string() } else { chosen.join(", ") };
+    let colour = if !not_there.is_empty() { WARNING } else if chosen.is_empty() { QUIET } else { ui.visuals().override_text_color.unwrap_or(TEXT) };
+    let mut combo = egui::ComboBox::from_id_salt(("prop names", i, key)).selected_text(RichText::new(&text).color(colour)).width(zones::col(3)).wrap_mode(egui::TextWrapMode::Truncate);
+    if list {
+        // Ticked one after another: open until a click elsewhere.
+        combo = combo.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+    }
+    let set = |v: toml::Value| Some((key.to_string(), v));
+    let r = combo.show_ui(ui, |ui| {
+        if list {
+            for name in there.iter().map(String::as_str).chain(not_there.iter().copied()) {
+                let mut on = chosen.contains(&name);
+                if ui.checkbox(&mut on, RichText::new(name).color(if missing(name) { WARNING } else { TEXT })).changed() {
+                    let now = chosen.iter().copied().filter(|n| *n != name).chain(on.then_some(name));
+                    shown.prop = set(toml::Value::Array(now.map(|n| toml::Value::String(n.to_string())).collect()));
+                }
+            }
+            return;
+        }
+        if ui.selectable_label(chosen.is_empty(), RichText::new(NONE).color(QUIET)).clicked() {
+            shown.prop = set(toml::Value::String(String::new()));
+        }
+        for name in there {
+            if ui.selectable_label(chosen == [name.as_str()], name).clicked() {
+                shown.prop = set(toml::Value::String(name.clone()));
+            }
+        }
+    });
+    let hover = match (chosen.is_empty(), not_there.is_empty()) {
+        (true, _) => tip.to_string(),
+        (false, true) => format!("{text}\n{tip}"),
+        (false, false) => format!("{text}\n{tip}\nNot there: {}", not_there.join(", ")),
+    };
+    let response = r.response.on_hover_text(hover);
+    let popup = egui::Popup::default_response_id(&response);
+    if view.open_prop.as_deref() == Some(key) && !egui::Popup::is_id_open(ui.ctx(), popup) {
+        egui::Popup::open_id(ui.ctx(), popup);
     }
 }
 

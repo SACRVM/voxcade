@@ -293,6 +293,9 @@ pub struct View {
     pub marquee: Option<Marquee>,
     /// F1's page of the keys shown over the view (`keys.rs`).
     pub keys_shown: bool,
+    /// The list of names of the chosen thing's prop of this key opened
+    /// (PROPS; a shot's `--menu prop:KEY`, a window opens it by a click).
+    pub open_prop: Option<String>,
     /// How much of the window the panels leave the view: shares of it on
     /// the left, at the top, on the right and at the bottom.
     pub room: [f32; 4],
@@ -551,6 +554,7 @@ impl View {
             up_since: None,
             marquee: None,
             keys_shown: false,
+            open_prop: None,
             room: [0.0; 4],
             grid: true,
             free: None,

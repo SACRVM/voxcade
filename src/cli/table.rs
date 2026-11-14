@@ -178,7 +178,7 @@ pub(super) const COMMANDS: &[Command] = &[
             look("--click", "X,Y", "a click at a pixel of the picture; what it chooses printed and chosen"),
             look("--hover", "WORD", "a handle lit as under the mouse: arrow-x, ring-z, face-y, face-y-low ... (a part's joint's too)"),
             look("--handles", "move|rotate", "the chosen one's arrows (move) or rings (rotate)"),
-            look("--menu", "NAME|floor|voxel|selection|part:NAME|keys", "a menu open: a thing's right-click menu, the floor's under the middle of the view, the voxel editor's, the selection's, a part's, or F1's page of the keys"),
+            look("--menu", "NAME|floor|voxel|selection|part:NAME|prop:KEY|keys", "a menu open: a thing's right-click menu, the floor's under the middle of the view, the voxel editor's, the selection's, a part's, the names a prop of the chosen thing may take, or F1's page of the keys"),
             look("--slice", "x|y|z,LAYER", "SLICE across an axis at a layer"),
             look("--context", "LEVEL:NAME", "with --model: shaped in place, the level's other pieces faint round it"),
             look("--context-off", "", "CONTEXT switched off"),

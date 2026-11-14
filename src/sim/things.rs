@@ -33,6 +33,10 @@ pub struct Def {
     /// What the game's code reads of its things (`thing.props`), by name:
     /// fixed, never a state (`c.things.gem.props = { worth = 100 }`).
     pub props: toml::Table,
+    /// Which of its props name something of the game, and what
+    /// (`c.things.door.names = { to = "level" }`): checked as the game
+    /// loads, `level:spawn` too.
+    pub names: BTreeMap<String, Named>,
     /// The families it belongs to (`level:things("enemies")`).
     pub families: Vec<String>,
     /// What shows and sounds when one of its things goes (dies, or is
@@ -193,7 +197,7 @@ impl Effect {
 
 /// The keys every kind has besides `like`, `behavior`, `model` and `hp`
 /// (`Def`): a behavior's own numbers are the rest.
-pub const COMMON: [&str; 12] = ["props", "family", "effect", "sound", "reach", "team", "immune", "rotates", "spin", "frames", "fps", "swing"];
+pub const COMMON: [&str; 13] = ["props", "names", "family", "effect", "sound", "reach", "team", "immune", "rotates", "spin", "frames", "fps", "swing"];
 
 /// The player's team (a kind's `team` names others).
 pub const PLAYER_TEAM: &str = "player";
@@ -234,6 +238,7 @@ fn piece() -> Def {
         model: None,
         hp: None,
         props: toml::Table::new(),
+        names: BTreeMap::new(),
         families: Vec::new(),
         effect: None,
         sound: None,
@@ -282,6 +287,75 @@ pub fn check_prop(kind: &str, declared: &toml::Table, key: &str, value: &toml::V
     prop_of_its_type(kind, key, declared_prop(kind, declared, key)?, value)
 }
 
+/// What a prop a kind declares names (`c.things.KIND.names`): a level of
+/// the game, a place (in the level its thing's `Level` prop names, else
+/// in its own), a named thing of its own level, a list of such things. ""
+/// (or an empty list) names nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Named {
+    Level,
+    Place,
+    Thing,
+    Things,
+}
+
+impl Named {
+    /// The words `names` takes, as `conf.lua` writes them.
+    pub const WORDS: [(&str, Named); 4] = [("level", Named::Level), ("place", Named::Place), ("thing", Named::Thing), ("things", Named::Things)];
+
+    pub fn word(self) -> &'static str {
+        Self::WORDS.iter().find(|(_, n)| *n == self).expect("each has its word").0
+    }
+}
+
+/// The names a kind's table (`like` filled in) gives its props, read as
+/// `defs` reads them: for the level editor, which reads the kinds without
+/// the game.
+pub fn kind_names(kind: &str, table: &toml::Table) -> Result<BTreeMap<String, Named>> {
+    let props = table.get("props").and_then(toml::Value::as_table).cloned().unwrap_or_default();
+    read_names(kind, table.get("names").cloned(), &props)
+}
+
+/// A kind's `names`: each key a prop it declares, its word one of
+/// `Named::WORDS`, its default of that word's type (a list for `things`,
+/// else a string); a `place` beside two `level` props could lie in either.
+fn read_names(kind: &str, names: Option<toml::Value>, props: &toml::Table) -> Result<BTreeMap<String, Named>> {
+    let what = |key: &str| format!("c.things.{kind}.names.{key}");
+    let names = match names {
+        None => return Ok(BTreeMap::new()),
+        Some(toml::Value::Table(t)) => t,
+        Some(toml::Value::Array(a)) if a.is_empty() => return Ok(BTreeMap::new()),
+        Some(_) => bail!("c.things.{kind}.names: which of its props name a level, a place or things, by the prop (names = {{ to = \"level\" }})"),
+    };
+    let mut out = BTreeMap::new();
+    for (key, word) in names {
+        let Some(default) = props.get(&key) else {
+            let near = crate::audio::words::near(&key, props.keys().map(String::as_str)).map(|k| format!(": did you mean `{k}`?")).unwrap_or_default();
+            let has = if props.is_empty() { " declares none".to_string() } else { format!(": {}", props.keys().map(String::as_str).collect::<Vec<_>>().join(", ")) };
+            bail!("{}: a {kind} has no such prop (c.things.{kind}.props{has}){near}", what(&key));
+        };
+        let Some(&(_, named)) = word.as_str().and_then(|w| Named::WORDS.iter().find(|(n, _)| *n == w)) else {
+            let near = word.as_str().and_then(|w| crate::audio::words::near(w, Named::WORDS.iter().map(|(n, _)| *n))).map(|w| format!(": did you mean \"{w}\"?")).unwrap_or_default();
+            bail!("{}: \"level\", \"place\", \"thing\" or \"things\"{}{near}", what(&key), got(&word));
+        };
+        let (fits, wants) = match named {
+            Named::Things => (default.is_array() || default.as_table().is_some_and(toml::Table::is_empty), "a list of names ({})"),
+            _ => (default.is_str(), "a name in quotes (\"\" for none)"),
+        };
+        if !fits {
+            bail!("{} = \"{}\": its default is {wants}, not c.things.{kind}.props.{key} = {default}", what(&key), named.word());
+        }
+        out.insert(key, named);
+    }
+    let levels: Vec<&str> = out.iter().filter(|(_, n)| **n == Named::Level).map(|(k, _)| k.as_str()).collect();
+    if levels.len() > 1
+        && let Some((place, _)) = out.iter().find(|(_, n)| **n == Named::Place)
+    {
+        bail!("{} = \"place\": a place lies in the level its thing names, and a {kind} names two ({}): which one? (one prop names the level, the place is in it)", what(place), levels.join(" and "));
+    }
+    Ok(out)
+}
+
 /// What a wrong value was, for a mistake: ", not \"three\"".
 fn got(v: &toml::Value) -> String {
     match v {
@@ -324,6 +398,7 @@ fn own_defs(cfg: &GameConfig, behaviors: &[&str]) -> Result<Vec<Def>> {
                 Some(toml::Value::Table(t)) => t,
                 Some(_) => bail!("{}: a table of what the game's code reads (props = {{ worth = 100 }})", what("props")),
             };
+            let names = read_names(&name, params.remove("names"), &props)?;
             let families = match params.remove("family") {
                 None => Vec::new(),
                 Some(toml::Value::String(f)) => vec![f],
@@ -401,7 +476,7 @@ fn own_defs(cfg: &GameConfig, behaviors: &[&str]) -> Result<Vec<Def>> {
                 let near = crate::audio::words::near(key, known).map(|k| format!(" (did you mean `{k}`?)")).unwrap_or_default();
                 bail!("{}: not a setting of a kind without a behavior (the script's: model, hp, fixed, width, height, facing and {}){near}", what(key), COMMON.join(", "));
             }
-            Ok(Def { name, behavior, model, hp, props, families, effect, sound, reach, team, immune, free_turn, spin, fixed, frames, fps, swing, params })
+            Ok(Def { name, behavior, model, hp, props, names, families, effect, sound, reach, team, immune, free_turn, spin, fixed, frames, fps, swing, params })
         })
         .collect()
 }

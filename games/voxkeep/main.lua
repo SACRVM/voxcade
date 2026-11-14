@@ -17,13 +17,11 @@ local SAFE = 60          -- ticks nothing hurts it after (c.things.hero.invulner
 -- plate_1, hatch_1). A lever thrown sets its platforms to work for good
 -- (a slab out of its wall, a lift going up and down); a plate holds its
 -- hatch open while the hero or a crate lies on it, and lets it shut again.
+-- (conf.lua's names = { works = "things" }: a name that is no thing of
+-- the level is a mistake as the game loads.)
 local function works(thing)
   local out = {}
-  for _, name in ipairs(thing.props.works) do
-    local t = level:thing(name)
-    if not t then error(thing.name .. " works " .. name .. ", and the level " .. level.name .. " has no such thing", 0) end
-    out[#out + 1] = t
-  end
+  for _, name in ipairs(thing.props.works) do out[#out + 1] = level:thing(name) end
   return out
 end
 
@@ -125,7 +123,6 @@ function on_level_start(how)
     for _, t in ipairs(works(lever)) do t.state.goal = "start" end
   end
   for _, hatch in ipairs(level:things("hatch")) do hatch.state.goal = "start" end
-  for _, plate in ipairs(level:things("plate")) do works(plate) end  -- a name that is no thing stops here
 end
 
 -- Every tick: the door opening once no gem is left, and what hurts as
