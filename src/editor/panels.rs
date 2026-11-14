@@ -34,6 +34,10 @@ pub struct PanelsDrawn {
     /// A prop of the chosen thing given a string typed or a boolean
     /// clicked (`Editor::set_prop`; a number is an `Action::Set`).
     pub prop: Option<(String, toml::Value)>,
+    /// The chosen thing's group chosen or typed (GROUP; empty: none), and
+    /// a group's name typed in its row (RENAME).
+    pub grouped: Option<String>,
+    pub group_renamed: Option<(u16, String)>,
     /// The room the panels leave the 3D view (egui's points), where it is
     /// not the room right of nothing and above the bottom bar.
     pub free: Option<egui::Rect>,

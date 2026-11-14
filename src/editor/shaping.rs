@@ -1047,7 +1047,7 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<zones::Entry> {
             out.push(("COPY".into(), Action::CloneOf(i), Some("C"), None));
             out.push(("REMOVE".into(), Action::DeleteOf(i), Some("Del"), None));
         }
-        MenuOn::Item(_) | MenuOn::Floor(_) | MenuOn::Add => {}
+        MenuOn::Item(_) | MenuOn::Group(_) | MenuOn::Floor(_) | MenuOn::Add => {}
     }
     out
 }

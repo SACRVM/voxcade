@@ -16,6 +16,17 @@ pub enum Action {
     HideItem(Item),
     OnlyItem(Item),
     ShowAllItems,
+    /// LOCK: an item passed through by a click in the view, or no more.
+    LockItem(Item),
+    /// A group of the outliner (by its place among `Editor::groups`):
+    /// folded or unfolded, its things hidden or shown, locked or free, its
+    /// name to type (RENAME), its things in none (UNGROUP), its menu.
+    GroupFold(u16),
+    GroupHide(u16),
+    GroupLock(u16),
+    GroupRename(u16),
+    Ungroup(u16),
+    GroupMenu(u16, [f32; 2]),
     /// SLICE across an axis (the same again: off; None: off), its layer.
     Slice(Option<u8>),
     SliceAt(i32),
@@ -362,6 +373,29 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::Hide(p) => ed.hide_part(p),
         Action::KeepMine => ed.keep_mine(),
         Action::HideItem(item) => ed.toggle_hidden(item),
+        Action::LockItem(item) => ed.toggle_locked(item),
+        Action::GroupFold(g) => {
+            if let Some(g) = ed.group_at(g.into()) {
+                ed.toggle_fold(&g);
+            }
+        }
+        Action::GroupHide(g) => {
+            if let Some(g) = ed.group_at(g.into()) {
+                ed.toggle_group_hidden(&g);
+            }
+        }
+        Action::GroupLock(g) => {
+            if let Some(g) = ed.group_at(g.into()) {
+                ed.toggle_group_locked(&g);
+            }
+        }
+        Action::GroupRename(g) => (view.renaming_group, view.rename_problem) = ((g != u16::MAX).then_some(g), None),
+        Action::Ungroup(g) => {
+            if let Some(g) = ed.group_at(g.into()) {
+                ed.ungroup(&g);
+            }
+        }
+        Action::GroupMenu(g, at) => view.menu = Some(Menu { on: MenuOn::Group(g), at }),
         Action::OnlyItem(item) => ed.only(item),
         Action::ShowAllItems => ed.show_all(),
         Action::Slice(axis) => ed.set_slice(axis.map(usize::from)),

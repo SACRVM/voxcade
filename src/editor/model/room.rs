@@ -411,7 +411,11 @@ impl Editor {
     pub(super) fn change(&mut self, tune: Option<Field>, f: impl FnOnce(&mut GridLevel)) {
         self.release();
         let before = self.level_state();
+        let (locked, count) = (self.locked_things(), self.level.things.len());
         f(&mut self.level);
+        if !locked.is_empty() && self.level.things.len() == count {
+            self.lock_again(&locked);
+        }
         let after = self.level_state();
         if Arc::ptr_eq(&after, &before) || after == before {
             return;
@@ -1552,7 +1556,7 @@ pub fn facing_at(degrees: f64, free: bool) -> Facing {
 /// What is hidden in the editor alone (its eye in the outliner, HIDE in
 /// a menu): not drawn, not met by a click, nothing of it written to the
 /// level's file; kept while the window is open. By name; an unnamed thing
-/// as it is.
+/// as it is. What is locked (LOCK, `Pieces::locked`) is kept so too.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Hidden {
     names: std::collections::BTreeSet<(u8, String)>,
@@ -1583,12 +1587,39 @@ impl Hidden {
             None => false,
         }
     }
+
+    /// Whether it holds nothing.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.names.is_empty() && self.things.is_empty()
+    }
+
+    /// Its things (not its places and areas) those at `things` in `level`
+    /// now (a step changed them; an unnamed one is known as it is).
+    pub(crate) fn rekeyed(&mut self, level: &GridLevel, things: &[usize]) {
+        self.things.clear();
+        self.names.retain(|(sort, _)| *sort != 0);
+        for &i in things {
+            self.set_in(level, Item::Thing(i), true);
+        }
+    }
+
+    /// `item` of `level` in it (`on`) or out of it.
+    pub(crate) fn set_in(&mut self, level: &GridLevel, item: Item, on: bool) {
+        let Some(key) = hidden_key(level, item) else { return };
+        match (key, on) {
+            (Ok(k), true) => {
+                self.names.insert(k);
+            }
+            (Ok(k), false) => {
+                self.names.remove(&k);
+            }
+            (Err(t), true) => self.things.push(t),
+            (Err(t), false) => self.things.retain(|o| *o != t),
+        }
+    }
 }
 
 impl Editor {
-    fn hidden_key(&self, item: Item) -> Option<Result<(u8, String), Thing>> {
-        hidden_key(&self.level, item)
-    }
 
     /// Whether `item` is hidden in the editor.
     pub fn is_hidden(&self, item: Item) -> bool {
@@ -1609,17 +1640,7 @@ impl Editor {
     /// `item` hidden or shown again (no step: the file is not touched); a
     /// hidden one chosen is chosen no more.
     pub fn set_hidden(&mut self, item: Item, hide: bool) {
-        let Some(key) = self.hidden_key(item) else { return };
-        match (key, hide) {
-            (Ok(k), true) => {
-                self.hidden.names.insert(k);
-            }
-            (Ok(k), false) => {
-                self.hidden.names.remove(&k);
-            }
-            (Err(t), true) => self.hidden.things.push(t),
-            (Err(t), false) => self.hidden.things.retain(|o| *o != t),
-        }
+        self.hidden.set_in(&self.level, item, hide);
         if hide && self.pieces.chosen == Some(item) {
             self.choose_item(None);
         }
@@ -2452,13 +2473,13 @@ mod tests {
         use crate::editor::view::{Action, MenuOn};
         let (mut ed, _dir) = room("menu", false);
         let words = |ed: &Editor, on| crate::editor::stage::menu_entries(ed, on).into_iter().map(|(w, ..)| w).collect::<Vec<_>>();
-        assert_eq!(words(&ed, MenuOn::Item(Item::Thing(0))), ["COPY", "REMOVE", "RENAME", "HIDE", "HIDE OTHERS", "EDIT MODEL", "LIGHT ON", "ROTATE 90°", "LAY DOWN", "SOLID"]);
-        assert_eq!(words(&ed, MenuOn::Item(Item::Thing(1)))[6], "LIGHT OFF", "the lamp has its light");
+        assert_eq!(words(&ed, MenuOn::Item(Item::Thing(0))), ["COPY", "REMOVE", "RENAME", "HIDE", "HIDE OTHERS", "LOCK", "EDIT MODEL", "LIGHT ON", "ROTATE 90°", "LAY DOWN", "SOLID"]);
+        assert_eq!(words(&ed, MenuOn::Item(Item::Thing(1)))[7], "LIGHT OFF", "the lamp has its light");
         assert!(!words(&ed, MenuOn::Item(Item::Thing(3))).contains(&"SOLID".to_string()), "the chair at 45 degrees cannot be solid");
         for item in [Item::Thing(2), Item::Thing(4), Item::Area(0)] {
-            assert_eq!(words(&ed, MenuOn::Item(item)), ["COPY", "REMOVE", "RENAME", "HIDE", "HIDE OTHERS"], "{item:?}");
+            assert_eq!(words(&ed, MenuOn::Item(item)), ["COPY", "REMOVE", "RENAME", "HIDE", "HIDE OTHERS", "LOCK"], "{item:?}");
         }
-        assert_eq!(words(&ed, MenuOn::Item(Item::Place(0))), ["COPY", "REMOVE", "RENAME", "HIDE", "HIDE OTHERS", "ROTATE 90°"]);
+        assert_eq!(words(&ed, MenuOn::Item(Item::Place(0))), ["COPY", "REMOVE", "RENAME", "HIDE", "HIDE OTHERS", "LOCK", "ROTATE 90°"]);
         assert_eq!(words(&ed, MenuOn::Floor(IVec3::new(5, 5, 0))), ["ADD MODEL…", "ADD LIGHT", "ADD PLACE", "ADD AREA"]);
         assert_eq!(words(&ed, MenuOn::Add), ["MODEL…", "LIGHT", "PLACE", "AREA", "TERRAIN"], "TERRAIN while the level has none");
         // Its entries do what they say: a light set down where the floor

@@ -154,9 +154,10 @@ fn what_of(ed: &Editor, called: &[Option<String>], item: Item) -> String {
     format!("{label}\n{what}\n{code}")
 }
 
-/// One row of the outliner: the item's sign, its name, its light's colour
-/// at the end; chosen, marked.
-fn outline_row(ui: &mut egui::Ui, ed: &Editor, called: &[Option<String>], item: Item, chosen: bool, shown: &mut PanelsDrawn) -> egui::Response {
+/// One row of the outliner: its hide and lock marks, the item's sign
+/// (`indent` in under its group's row), its name, its light's colour at
+/// the end; chosen, marked.
+fn outline_row(ui: &mut egui::Ui, ed: &Editor, called: &[Option<String>], item: Item, indent: f32, chosen: bool, shown: &mut PanelsDrawn) -> egui::Response {
     let (label, named) = ed.label_in(called, item);
     let light = match item {
         Item::Thing(i) => ed.level.things[i].lights.first().map(|l| rgb(bytes_of(l.color.as_deref()))),
@@ -167,15 +168,118 @@ fn outline_row(ui: &mut egui::Ui, ed: &Editor, called: &[Option<String>], item: 
         ui.spacing_mut().item_spacing.x = 0.0;
         // The hide mark, as the figure's parts have it.
         zones::hide_mark(ui, hidden, Action::HideItem(item), shown);
+        zones::lock_mark(ui, ed.is_locked(item), Action::LockItem(item), shown);
         // Its place, quiet at the end: two gems are told apart.
         let at = ed.at_of(item).map(|[x, y, z]| format!("{x} {y} {z}"));
-        zones::list_row_aside(ui, sort_of(ed, item), None, &label, 0.0, chosen, !named || hidden, light, None, at.as_deref(), &what_of(ed, called, item), egui::Sense::click())
+        zones::list_row_aside(ui, sort_of(ed, item), None, &label, indent, chosen, !named || hidden, light, None, at.as_deref(), &what_of(ed, called, item), egui::Sense::click())
     })
     .inner
 }
 
+/// How far in a thing's row stands under its group's.
+const IN_GROUP: f32 = 10.0;
+
+/// A group's row in the outliner (`group = "forest"`): its hide and lock
+/// marks for all its things, the fold arrow, its name and how many things
+/// it holds; a click folds it, a right click opens its menu; RENAME types
+/// its name in place.
+fn group_row(ui: &mut egui::Ui, ed: &Editor, view: &View, (g, name): (u16, &str), count: usize, folded: bool, shown: &mut PanelsDrawn) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        zones::hide_mark(ui, ed.group_hidden(name), Action::GroupHide(g), shown);
+        zones::lock_mark(ui, ed.group_locked(name), Action::GroupLock(g), shown);
+        let height = ui.text_style_height(&TextStyle::Body) + 8.0;
+        if view.renaming_group == Some(g) {
+            let id = egui::Id::unique(("stage group name", g));
+            let mut text: String = ui.data(|d| d.get_temp(id)).unwrap_or_else(|| name.to_string());
+            let response = ui.add_sized([ui.available_width(), height], egui::TextEdit::singleline(&mut text).font(TextStyle::Body));
+            if ui.data(|d| d.get_temp::<bool>(id.with("asked"))).is_none() {
+                response.request_focus();
+                ui.data_mut(|d| d.insert_temp(id.with("asked"), true));
+            }
+            let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+            if response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) || escape {
+                response.surrender_focus();
+            }
+            if response.has_focus() {
+                ui.data_mut(|d| d.insert_temp(id, text));
+            } else if response.lost_focus() {
+                match escape || text.trim() == name {
+                    true => shown.clicked.push(Action::GroupRename(u16::MAX)),
+                    false => shown.group_renamed = Some((g, text)),
+                }
+                ui.data_mut(|d| {
+                    d.remove::<String>(id);
+                    d.remove::<bool>(id.with("asked"));
+                });
+            }
+            return;
+        }
+        let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), egui::Sense::click());
+        // (Where it lies, for tests that click it: `EditorWindow::rows`.)
+        shown.rows.push((format!("group:{name}"), rect));
+        if response.hovered() {
+            ui.painter().rect_filled(rect, 3.0, crate::gui::ROW_HOVERED);
+        }
+        crate::gui::arrow(ui, Pos2::new(rect.left() + 10.0, rect.center().y), if folded { 0.0 } else { 1.0 });
+        let mut job = egui::text::LayoutJob::default();
+        job.append(name, 0.0, egui::TextFormat { font_id: TextStyle::Body.resolve(ui.style()), color: TEXT, ..Default::default() });
+        job.append(&format!("  {count}"), 0.0, egui::TextFormat { font_id: TextStyle::Small.resolve(ui.style()), color: QUIET, valign: egui::Align::Center, ..Default::default() });
+        job.wrap = egui::text::TextWrapping::truncate_at_width(rect.width() - 30.0);
+        let galley = ui.painter().layout_job(job);
+        ui.painter().galley(Pos2::new(rect.left() + 22.0, rect.center().y - galley.size().y / 2.0), galley, TEXT);
+        let response = response.on_hover_text(format!("{name}: a group of {count} (group = \"{name}\" on each)\nClick: fold or unfold. Right click: RENAME, UNGROUP"));
+        if response.secondary_clicked() {
+            let at = response.interact_pointer_pos().unwrap_or(rect.right_top());
+            shown.clicked.push(Action::GroupMenu(g, [at.x, at.y]));
+        } else if response.clicked() {
+            shown.clicked.push(Action::GroupFold(g));
+        }
+    });
+}
+
+/// What the outliner's THINGS list shows, in order: a thing alone or in
+/// its group (its place in the level's list), or a group's row (by its
+/// place among `Editor::groups`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Listed {
+    Thing(usize, bool),
+    Group(u16),
+}
+
+/// The THINGS list's rows (`Listed`): each group's row where its first
+/// thing lies in the file, its things under it (none while it is folded);
+/// `keep` the things the find field lets through (a group with none of
+/// them left out; every group open while it finds).
+pub fn things_listed(ed: &Editor, keep: impl Fn(usize) -> bool, finding: bool) -> Vec<Listed> {
+    let groups = ed.groups();
+    let mut out = Vec::new();
+    let mut done = vec![false; groups.len()];
+    for i in 0..ed.level.things.len() {
+        let Some(g) = ed.group_of(i).and_then(|name| groups.iter().position(|n| n == name)) else {
+            if keep(i) {
+                out.push(Listed::Thing(i, false));
+            }
+            continue;
+        };
+        if std::mem::replace(&mut done[g], true) {
+            continue;
+        }
+        let items: Vec<usize> = (i..ed.level.things.len()).filter(|&j| ed.group_of(j) == Some(&groups[g]) && keep(j)).collect();
+        if items.is_empty() {
+            continue;
+        }
+        out.push(Listed::Group(g as u16));
+        if finding || !ed.pieces.folded.contains(&groups[g]) {
+            out.extend(items.into_iter().map(|j| Listed::Thing(j, true)));
+        }
+    }
+    out
+}
+
 /// The outliner: the three groups with their counts, each folding at its
-/// heading; a field to find by name when there are many; one scroll.
+/// heading (THINGS its things' groups, `things_listed`, each folding too);
+/// a field to find by name when there are many; one scroll.
 fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, shown: &mut PanelsDrawn) {
     if ed.among_land() {
         return land_outliner(ui, ed, thumbs, shown);
@@ -214,12 +318,24 @@ fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, sh
             if !zones::group_with(ui, title, Some(items.len()), tip, &extras, shown) {
                 continue;
             }
-            for item in items {
-                if !wanted.is_empty() && !ed.label_in(&called, item).0.to_lowercase().contains(&wanted) {
-                    continue;
-                }
+            let keep = |item: Item| wanted.is_empty() || ed.label_in(&called, item).0.to_lowercase().contains(&wanted);
+            let rows: Vec<Listed> = match items.first() {
+                Some(Item::Thing(_)) => things_listed(ed, |i| keep(Item::Thing(i)), !wanted.is_empty()),
+                _ => items.iter().enumerate().filter(|(_, i)| keep(**i)).map(|(n, _)| Listed::Thing(n, false)).collect(),
+            };
+            let groups = ed.groups();
+            for listed in rows {
+                let (n, grouped) = match listed {
+                    Listed::Thing(n, grouped) => (n, grouped),
+                    Listed::Group(g) => {
+                        let name = &groups[g as usize];
+                        group_row(ui, ed, view, (g, name), ed.group_items(name).len(), ed.pieces.folded.contains(name) && wanted.is_empty(), shown);
+                        continue;
+                    }
+                };
+                let item = items[n];
                 let chosen = ed.pieces.chosen == Some(item);
-                let response = outline_row(ui, ed, &called, item, chosen, shown);
+                let response = outline_row(ui, ed, &called, item, if grouped { IN_GROUP } else { 0.0 }, chosen, shown);
                 if response.secondary_clicked() {
                     let at = response.interact_pointer_pos().unwrap_or(response.rect.right_top());
                     shown.clicked.push(Action::OpenMenu(item, [at.x, at.y]));
@@ -235,7 +351,6 @@ fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, sh
             ui.add_space(6.0);
         }
     });
-    let _ = view;
 }
 
 /// A number field of the level (`zones::number`): its value set as `set`
@@ -371,6 +486,7 @@ fn chosen(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, item: 
                 }
             }
             prop_rows(ui, ed, view, i, shown);
+            group_rows(ui, ed, i, shown);
         }
         Item::Place(i) => {
             let p = &ed.level.places[i];
@@ -462,6 +578,52 @@ fn prop_rows(ui: &mut egui::Ui, ed: &Editor, view: &View, i: usize, shown: &mut 
             }
         });
     }
+}
+
+/// GROUP: the group the thing is listed under in the outliner, typed
+/// (Enter or a click elsewhere sets it, Escape leaves it; empty: none) or
+/// chosen from the groups there are; in one, RENAME and UNGROUP for every
+/// thing of it.
+fn group_rows(ui: &mut egui::Ui, ed: &Editor, i: usize, shown: &mut PanelsDrawn) {
+    let now = ed.group_of(i).unwrap_or_default().to_string();
+    let groups = ed.groups();
+    let tip = "The group it is listed under in the outliner (group = \"NAME\"): a group there is, or a new name typed; empty: none. Nothing to the game";
+    let height = ui.text_style_height(&TextStyle::Body) + 6.0;
+    row(ui, "GROUP", tip, |ui| {
+        let id = egui::Id::unique(("stage group", i));
+        let mut text: String = ui.data(|d| d.get_temp(id)).unwrap_or_else(|| now.clone());
+        let response = ui.add_sized([zones::col(2), height], egui::TextEdit::singleline(&mut text).font(TextStyle::Body).hint_text(RichText::new(NONE).color(QUIET))).on_hover_text(tip);
+        let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+        if response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) || escape {
+            response.surrender_focus();
+        }
+        if response.has_focus() {
+            ui.data_mut(|d| d.insert_temp(id, text));
+        } else {
+            if response.lost_focus() && !escape && text.trim() != now {
+                shown.grouped = Some(text);
+            }
+            ui.data_mut(|d| d.remove::<String>(id));
+        }
+        // The groups there are, none first.
+        let combo = egui::ComboBox::from_id_salt(("stage groups", i)).selected_text("").width(zones::col(1)).wrap_mode(egui::TextWrapMode::Truncate);
+        combo.show_ui(ui, |ui| {
+            if ui.selectable_label(now.is_empty(), RichText::new(NONE).color(QUIET)).clicked() {
+                shown.grouped = Some(String::new());
+            }
+            for g in &groups {
+                if ui.selectable_label(*g == now, g).clicked() {
+                    shown.grouped = Some(g.clone());
+                }
+            }
+        }).response.on_hover_text("The groups there are");
+    });
+    let Some(g) = groups.iter().position(|g| *g == now) else { return };
+    let count = ed.group_items(&now).len();
+    row(ui, "", "", |ui| {
+        small(ui, shown, "RENAME", Action::GroupRename(g as u16), None, &format!("Rename the group {now}: all its {count} things"));
+        small(ui, shown, "UNGROUP", Action::Ungroup(g as u16), None, &format!("Take its {count} things out of the group {now}"));
+    });
 }
 
 /// What a prop that names something shows for none ("").
@@ -1173,6 +1335,13 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<(String, Action, Option<&'st
                 entries.push(("TERRAIN".into(), Action::AddTerrain, None));
             }
         }
+        MenuOn::Group(g) => {
+            let Some(name) = ed.group_at(g.into()) else { return entries };
+            entries.push(("RENAME".into(), Action::GroupRename(g), None));
+            entries.push(("UNGROUP".into(), Action::Ungroup(g), None));
+            entries.push((if ed.group_hidden(&name) { "SHOW".into() } else { "HIDE".into() }, Action::GroupHide(g), None));
+            entries.push((if ed.group_locked(&name) { "UNLOCK".into() } else { "LOCK".into() }, Action::GroupLock(g), None));
+        }
         MenuOn::Floor(spot) => {
             entries.extend([("ADD MODEL…".into(), Action::AddModelAt(spot), None), ("ADD LIGHT".into(), Action::AddAt(0, spot), None), ("ADD PLACE".into(), Action::AddAt(1, spot), None), ("ADD AREA".into(), Action::AddAt(2, spot), None)]);
         }
@@ -1186,6 +1355,7 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<(String, Action, Option<&'st
             if ed.any_hidden() {
                 entries.push(("SHOW ALL".into(), Action::ShowAllItems, None));
             }
+            entries.push((if ed.is_locked(item) { "UNLOCK".into() } else { "LOCK".into() }, Action::LockItem(item), None));
             match item {
                 Item::Thing(i) if ed.level.things[i].model.is_some() => {
                     let t = &ed.level.things[i];

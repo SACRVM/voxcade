@@ -278,7 +278,7 @@ pub(crate) use crate::vvx::hex;
 /// level (else its kind's and a number, `walker_1`); `props` what the game's
 /// code reads of this one thing over its kind's (`thing.props`; a thing of
 /// a kind only, its kind declaring each); `line` where the file says it,
-/// for mistakes (0: from no file).
+/// for mistakes (0: from no file); `group` the level editor's.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Thing {
@@ -312,6 +312,10 @@ pub struct Thing {
     pub scatter: Option<u32>,
     #[serde(skip)]
     pub props: Vec<Prop>,
+    /// The editor's group it is listed under (`group = "forest"`): the
+    /// level editor's order only, nothing to the game.
+    #[serde(skip)]
+    pub group: Option<String>,
     #[serde(skip)]
     pub line: usize,
 }
@@ -337,6 +341,7 @@ impl PartialEq for Thing {
     fn eq(&self, o: &Self) -> bool {
         (&self.kind, self.at, &self.name, &self.model, self.facing, self.pitch, self.roll, &self.lights, self.solid, self.shadow_only, self.scatter, &self.props)
             == (&o.kind, o.at, &o.name, &o.model, o.facing, o.pitch, o.roll, &o.lights, o.solid, o.shadow_only, o.scatter, &o.props)
+            && self.group == o.group
     }
 }
 
@@ -1560,6 +1565,39 @@ size = [40, 30, 40]
         }
     }
 
+    /// A thing's group (`group = "forest"`, the editor's): read, written
+    /// last only when set, a change touching only its line (added after
+    /// the thing's last, changed in place, removed), comments kept; a
+    /// level without one reads and writes as before; what is no name is
+    /// refused with its line.
+    #[test]
+    fn a_things_group_is_read_written_and_rewritten_on_its_line() {
+        let src = commented();
+        let was = GridLevel::from_text(&src).unwrap();
+        assert!(was.things.iter().all(|t| t.group.is_none()));
+        assert_eq!(GridLevel::from_text(PIECES).unwrap().to_text(), PIECES, "no group: as before");
+        let legend = Legend::default();
+        let mut now = was.clone();
+        now.things[0].group = Some("kitchen".into());
+        now.things[1].group = Some("kitchen".into());
+        let out = text::rewrite(&src, &was, &now, &legend);
+        assert_eq!(GridLevel::from_text(&out).unwrap(), now, "{out}");
+        let new_lines: Vec<&str> = out.lines().filter(|l| !src.lines().any(|p| p == *l)).collect();
+        assert_eq!((new_lines, out.lines().count()), (vec!["group = \"kitchen\"", "group = \"kitchen\""], src.lines().count() + 2), "{out}");
+        let mut renamed = now.clone();
+        renamed.things[1].group = Some("hall way".into());
+        let out2 = text::rewrite(&out, &now, &renamed, &legend);
+        assert_eq!(changed_lines(&out, &out2), ["group = \"hall way\""], "{out2}");
+        assert_eq!(text::rewrite(&out2, &renamed, &was, &legend), src, "ungrouped: the file as it was");
+        assert_eq!(GridLevel::from_text(&renamed.to_text()).unwrap(), renamed, "written whole: the same");
+        assert!(renamed.to_text().contains("group = \"kitchen\"\n"));
+        let wrong = |to: &str| format!("{:#}", GridLevel::from_text(&PIECES.replacen("name = \"lamp\"", &format!("name = \"lamp\"\n{to}"), 1)).unwrap_err());
+        for (to, says) in [("group = \"\"", "line 12"), ("group = 3", "group must be a name"), ("group = \" a\"", "no spaces at its ends")] {
+            let e = wrong(to);
+            assert!(e.contains(says), "{to}: {e}");
+        }
+    }
+
     /// A thing's own props (`props = {...}`): read in the file's order,
     /// each with its line, written last as one inline table; a change
     /// touches only that line (added after the thing's last, changed in
@@ -1609,9 +1647,9 @@ size = [40, 30, 40]
         }
     }
 
-    /// `tools/vvx.py` writes a level's things' props as the engine does
-    /// (`the_python_writer_writes_what_the_engine_writes` for models), and
-    /// reads them back.
+    /// `tools/vvx.py` writes a level's things' props and group as the
+    /// engine does (`the_python_writer_writes_what_the_engine_writes` for
+    /// models), and reads them back.
     #[test]
     fn the_python_writer_writes_props_as_the_engine() {
         if std::process::Command::new("python3").arg("--version").output().is_err() {
@@ -1624,15 +1662,16 @@ import sys
 sys.path.insert(0, sys.argv[1])
 import vvx
 props = {"to": "02_crypt", "locked": True, "worth": 50, "speed": 1.5, "say \"hi\"": ["a", 2], "more": {"z": 1, "a": {}}}
-vvx.write_level(sys.argv[2], 4, [2, 1, 1], [("rock", "solid")], {(0, 0, 0): (1, 0)}, things=[{"kind": "door", "at": [1, 2, 3], "props": props}, {"kind": "door", "at": [5, 2, 3]}])
+vvx.write_level(sys.argv[2], 4, [2, 1, 1], [("rock", "solid")], {(0, 0, 0): (1, 0)}, things=[{"kind": "door", "at": [1, 2, 3], "props": props, "group": "gates"}, {"kind": "door", "at": [5, 2, 3]}])
 assert vvx.read_level(sys.argv[2])["things"][0]["props"] == props
+assert vvx.read_level(sys.argv[2])["things"][0]["group"] == "gates"
 "#;
         let file = out.join("level.toml");
         let run = std::process::Command::new("python3").arg("-B").arg("-c").arg(script).arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tools")).arg(&file).output().unwrap();
         assert!(run.status.success(), "tools/vvx.py: {}", String::from_utf8_lossy(&run.stderr));
         let wrote = std::fs::read_to_string(&file).unwrap();
         let level = GridLevel::from_text(&wrote).unwrap();
-        assert_eq!(level.things[0].props.len(), 6);
+        assert_eq!((level.things[0].props.len(), level.things[0].group.as_deref(), level.things[1].group.as_deref()), (6, Some("gates"), None));
         assert!(wrote.contains("props = { to = \"02_crypt\", locked = true, worth = 50, speed = 1.5, \"say \\\"hi\\\"\" = [\"a\", 2], more = { a = {}, z = 1 } }\n"), "{wrote}");
         assert_eq!(level.to_text(), wrote, "the engine writes it so too");
     }

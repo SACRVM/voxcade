@@ -32,6 +32,7 @@ use crate::blocks::{self, Block, Turn};
 use crate::grid::{Area, BlockEntry, Cell, GridLevel, Kind, Place, Thing};
 
 pub mod room;
+pub mod groups;
 pub mod disk;
 pub mod parts;
 pub mod selection;
@@ -647,6 +648,11 @@ pub struct Pieces {
     /// (`Editor::thing_names`).
     pub player_kinds: std::collections::BTreeSet<String>,
     called: std::cell::RefCell<Option<(u64, room::Called)>>,
+    /// The outliner's groups folded, by name, and the items a click in the
+    /// view passes through (LOCK): the editor's while it is open, nothing
+    /// written.
+    pub folded: std::collections::BTreeSet<String>,
+    pub locked: room::Hidden,
 }
 
 /// A figure's parts being shaped (`parts.rs`): what the next click in the

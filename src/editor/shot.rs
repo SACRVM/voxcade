@@ -65,6 +65,11 @@ pub struct ShotOptions {
     /// Among the pieces: things hidden in the editor (by name); a click
     /// at a pixel of the shot, what it chooses printed and chosen.
     pub hide: Vec<String>,
+    /// The chosen thing's group set (`--group`, "" none); groups of the
+    /// outliner folded and locked (by name).
+    pub group: Option<String>,
+    pub fold: Vec<String>,
+    pub lock: Vec<String>,
     /// Props of the chosen thing set in turn (`--prop KEY=VALUE`), each
     /// read by its kind's type.
     pub props: Vec<(String, String)>,
@@ -618,7 +623,7 @@ fn in_context(dir: &Path, ed: &mut Editor, opts: &ShotOptions) -> Result<()> {
 fn try_pieces(dir: &Path, ed: &mut Editor, figures: &mut Figures, opts: &ShotOptions) -> Result<()> {
     // The changes tried among the pieces, then the one chosen, the view.
     // (ADD MODEL's pictures are the pieces' too.)
-    if !opts.ops.is_empty() || opts.choose.is_some() || opts.picker {
+    if !opts.ops.is_empty() || opts.choose.is_some() || opts.picker || !opts.fold.is_empty() || !opts.lock.is_empty() {
         if ed.level.has_grid() {
             ed.switch(Layer::Pieces);
         }
@@ -641,6 +646,24 @@ fn try_pieces(dir: &Path, ed: &mut Editor, figures: &mut Figures, opts: &ShotOpt
     for name in &opts.hide {
         let item = ed.find_listed(name).with_context(|| format!("--hide {name}: the level has nothing called so"))?;
         ed.set_hidden(item, true);
+    }
+    if let Some(group) = &opts.group {
+        anyhow::ensure!(ed.chosen_thing().is_some(), "--group {group}: choose a thing first (--choose NAME)");
+        ed.set_group(group).map_err(|why| anyhow::anyhow!("--group {group}: {why}"))?;
+    }
+    let there = |ed: &Editor, flag: &str, group: &str| -> Result<()> {
+        anyhow::ensure!(ed.groups().iter().any(|g| g == group), "{flag} {group}: the level has no such group (it has {})", ed.groups().join(", "));
+        Ok(())
+    };
+    for group in &opts.fold {
+        there(ed, "--fold", group)?;
+        ed.pieces.folded.insert(group.clone());
+    }
+    for group in &opts.lock {
+        there(ed, "--lock", group)?;
+        if !ed.group_locked(group) {
+            ed.toggle_group_locked(group);
+        }
     }
     Ok(())
 }

@@ -459,6 +459,12 @@ def _prop_text(v):
     return repr(float(v)) if isinstance(v, float) else str(v)
 
 
+def _group_line(t):
+    """A thing's group (`group = "forest"`, the level editor's), as the
+    engine writes it: none without one."""
+    return f'group = "{t["group"]}"\n' if t.get("group") else ""
+
+
 def _props_line(props):
     """A thing's own props (`props = {...}`, a dict in its order), as
     the engine writes them: none without any."""
@@ -471,7 +477,8 @@ def write_level(path, block, size, blocks, cells, things=(), places=(), kept=Non
     """A level of voxel blocks: `block` voxels each way, `size` cells (x
     across, y deep from the front, z up), `blocks` [(name, kind)],
     `cells` {(x, y, z): (block number from 1, orientation)}, `things`
-    [{"kind", "at", "props"?}] (props: a dict over the kind's, in order),
+    [{"kind", "at", "props"?, "group"?}] (props: a dict over the kind's,
+    in order; group: the editor's),
     `places` [{"name", "at", "facing"?}]. As the editor
     writes it: the signs of `kept` ({sign: (name, orientation)}, a level
     read) and its `view` kept; a new one seen from the front when taller
@@ -547,6 +554,7 @@ def write_level(path, block, size, blocks, cells, things=(), places=(), kept=Non
     for t in things:
         text += '\n[[thing]]\nkind = "%s"\nat = [%d, %d, %d]\n' % (t["kind"], *t["at"])
         text += _props_line(t.get("props"))
+        text += _group_line(t)
     for p in places:
         text += '\n[[place]]\nname = "%s"\nat = [%d, %d, %d]\n' % (p["name"], *p["at"])
         if p.get("facing"):
@@ -657,7 +665,7 @@ def terrain_text(t):
 def write_terrain_level(path, size, terrain, things=()):
     """A level without blocks, `size` voxels, its land `terrain` (as
     `read_terrain` gives it) and `things` [{"name"?, "kind"? or "model",
-    "at", "rotation"?, "solid"?, "shadow_only"?, "props"?}], as the engine
+    "at", "rotation"?, "solid"?, "shadow_only"?, "props"?, "group"?}], as the engine
     writes it."""
     text = f'format = "{LEVEL_FORMAT}"\nsize = [%d, %d, %d]    # voxels: across (x), deep (y, 0 in front), up (z); no grid of blocks\n' % tuple(size)
     text += "\n" + terrain_text(terrain)
@@ -679,6 +687,7 @@ def write_terrain_level(path, size, terrain, things=()):
         if t.get("scatter"):
             text += f"scatter = {int(t['scatter'])}\n"
         text += _props_line(t.get("props"))
+        text += _group_line(t)
     with open(path, "w") as f:
         f.write(text)
 

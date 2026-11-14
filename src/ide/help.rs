@@ -1266,7 +1266,10 @@ The top bar: BLOCKS, THINGS and PIECES (a level of blocks), + ADD, UNDO, REDO, a
 The outliner on the left: THINGS, PLACES and AREAS, each folding at its heading.
 The inspector on the right: the chosen one's rows, POSITION, ROTATE, its light.
 SHADOW ONLY in a piece's rows: it casts its shadow and is not drawn in the game (a ceiling the camera looks through). Here it shows as a ghost; GAME VIEW leaves it out.
-PROPS in a thing's rows: a row for each prop its kind declares (c.things.NAME.props), its own value or else its kind's in the quiet color. Type a string, drag or type a number, tick a box; its kind's value takes it out of the file. A prop its kind names (c.things.NAME.names) offers the names there are: the levels, the places, the level's things (a list of things ticked one by one); a name that is not there shows in the warning color. RENAME of a thing or a place changes the props of this level's things that name it, in the same step. A table is only shown: change it in TEXT.
+PROPS in a thing's rows: a row for each prop its kind declares (c.things.NAME.props), its own value or else its kind's in the quiet color. Type a string, drag or type a number, tick a box; its kind's value takes it out of the file. A prop its kind names (c.things.NAME.names) offers the names there are: the levels, the places, the level's things (a list of things ticked one by one); a name that is not there shows in the warning color. RENAME of a thing or a place changes the props of this level's things that name it, in the same step. A thing chosen by the name the game gives it (lever_2) gets that name as its own, so it stays the same lever when another is removed. A table is only shown: change it in TEXT.
+# GROUPS
+GROUP in a thing's rows lists it under a group in the outliner: one there is, or a new name typed; empty takes it out. The game reads nothing of it.
+A group's row folds with a click; its marks hide or lock all its things. RENAME and UNGROUP (in a grouped thing's rows, or the group's menu) change every thing of it at once.
 # CHOOSING AND MOVING
 A click in the view chooses what it meets, voxel by voxel; a click on empty floor chooses nothing.
 The bar at the chosen one: MOVE shows its arrows, drag one to move it along that axis.
@@ -1278,6 +1281,7 @@ A right click on a thing or on the floor opens its menu; every entry is also a b
 + ADD (or a right click on the floor): a model of the game, a light, a place, an area.
 # HIDE MARKS
 The mark at a row's left hides that thing in the editor only; SHOW ALL at the heading shows them again.
+The padlock beside it locks it: a click in the view passes through it to what lies behind, its row still chooses it. Neither is written to the file.
 # GAME VIEW
 The level as the game's camera sees it; press it again to go back.
 # SAVING

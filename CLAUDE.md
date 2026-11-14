@@ -1996,7 +1996,14 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   right edge is dragged wider, up to half the window (kept for the
   person in `editors.toml`); the mark at a row's left hides
   a thing in the editor only (HIDE, HIDE OTHERS, SHOW ALL; nothing
-  written). A thing of a kind without a behavior takes `facing`/`rotation`
+  written), the padlock beside it LOCKs it (a click in the view passes
+  through, `hit_along`; its row still chooses it; nothing written). A
+  `[[thing]]`'s `group = "forest"` (the editor's alone: no Lua name, not
+  hashed; its line in the file's bytes as any) lists it under a group's
+  row in the outliner (`editor/model/groups.rs`, `stage::things_listed`:
+  where its first thing lies), which folds, hides and locks its things;
+  GROUP in a thing's rows, RENAME and UNGROUP one step each; `edit --shot
+  --group NAME --fold G --lock G`. A thing of a kind without a behavior takes `facing`/`rotation`
   in the file as a piece does (it starts so in the game:
   `Stage::name_things`; a kind with a behavior is refused,
   `check_facings`; `rotates = "free"` kinds exactly, others the nearest

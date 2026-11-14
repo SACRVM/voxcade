@@ -158,6 +158,31 @@ fn game_view_frames_the_figure_and_the_wheel_and_right_button_work() {
     assert_eq!(win.view.block, before, "off: the editor's look");
 }
 
+/// A click on a group's row in the level editor's outliner, through the
+/// window's own events, folds it (its things listed no more) and again
+/// unfolds it; nothing written, no step, nothing chosen.
+#[test]
+fn a_click_on_a_groups_row_folds_it_and_writes_nothing() {
+    let dir = big::room_game("groups-fold", 4);
+    let path = dir.join("levels/room.toml");
+    let text = std::fs::read_to_string(&path).unwrap().replace("name = \"p6\"\n", "name = \"p6\"\ngroup = \"kitchen\"\n").replace("name = \"p7\"\n", "name = \"p7\"\ngroup = \"kitchen\"\n");
+    std::fs::write(&path, &text).unwrap();
+    let (ed, view, cfg) = open::<crate::Voxcade>(&dir, Some("levels/room.toml"), None, false).unwrap();
+    let mut win = EditorWindow::headless(ed, view, cfg, &dir).unwrap();
+    for _ in 0..3 {
+        win.draw().unwrap();
+    }
+    let at = row(&win, "group:kitchen");
+    click(&mut win, at);
+    assert!(win.ed.pieces.folded.contains("kitchen"), "folded");
+    let listed = crate::editor::stage::things_listed(&win.ed, |_| true, false);
+    assert_eq!(listed.iter().filter(|l| matches!(l, crate::editor::stage::Listed::Thing(..))).count(), 6, "its two things listed no more");
+    let at = row(&win, "group:kitchen");
+    click(&mut win, at);
+    assert!(!win.ed.pieces.folded.contains("kitchen"), "open again");
+    assert_eq!((std::fs::read_to_string(&path).unwrap(), win.ed.steps(), win.ed.pieces.chosen), (text, 0, None), "nothing written, nothing chosen");
+}
+
 /// The owner's case through the window's own events: clicks on the
 /// parts' rows (the nose, the head, the nose again, the hair, the
 /// figure whole) each choose that row, change nothing of the file and

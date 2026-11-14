@@ -594,6 +594,9 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
             }
             "--hover" => opts.hover = Some(value.clone()),
             "--hide" => opts.hide.push(value.clone()),
+            "--group" => opts.group = Some(value.clone()),
+            "--fold" => opts.fold.push(value.clone()),
+            "--lock" => opts.lock.push(value.clone()),
             "--prop" => {
                 let (key, text) = value.split_once('=').with_context(|| format!("--prop KEY=VALUE: a prop of the chosen thing and its value, not {value}"))?;
                 opts.props.push((key.trim().to_string(), text.to_string()));

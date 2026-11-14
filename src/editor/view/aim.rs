@@ -78,7 +78,8 @@ pub struct Met {
 /// voxels; a light alone, a piece's light and a place by a small box; a
 /// piece only casting a shadow where nothing drawn is met, an
 /// area only where nothing else is met (with `marks`: lights, places and
-/// areas count). Hidden ones are left out.
+/// areas count; a locked one is passed through, LOCK: the ray goes on to
+/// what lies behind). Hidden ones are left out.
 pub fn hit_along(ed: &Editor, figures: &Figures, origin: Vec3, dir: Vec3, marks: bool) -> Option<Met> {
     let (mut best, mut ghost): (Option<Met>, Option<Met>) = (None, None);
     fn take(best: &mut Option<Met>, d: Option<(f32, Vec3)>, item: Item, light: Option<usize>) {
@@ -90,7 +91,7 @@ pub fn hit_along(ed: &Editor, figures: &Figures, origin: Vec3, dir: Vec3, marks:
     }
     let boxed = |lo: Vec3, hi: Vec3| ray_box(origin, dir, lo, hi).map(|d| (d, Vec3::ZERO));
     for (i, t) in ed.level.things.iter().enumerate() {
-        if ed.is_hidden(Item::Thing(i)) {
+        if ed.is_hidden(Item::Thing(i)) || marks && ed.is_locked(Item::Thing(i)) {
             continue;
         }
         let at = IVec3::from(t.at).as_vec3();
@@ -147,7 +148,7 @@ pub fn hit_along(ed: &Editor, figures: &Figures, origin: Vec3, dir: Vec3, marks:
         return best.or(ghost);
     }
     for (i, p) in ed.level.places.iter().enumerate() {
-        if ed.is_hidden(Item::Place(i)) {
+        if ed.is_hidden(Item::Place(i)) || ed.is_locked(Item::Place(i)) {
             continue;
         }
         let at = IVec3::from(p.at).as_vec3() + Vec3::new(0.5, 0.5, 0.0);
@@ -156,7 +157,7 @@ pub fn hit_along(ed: &Editor, figures: &Figures, origin: Vec3, dir: Vec3, marks:
     best = best.or(ghost);
     if best.is_none() {
         for (i, a) in ed.level.areas.iter().enumerate() {
-            if ed.is_hidden(Item::Area(i)) {
+            if ed.is_hidden(Item::Area(i)) || ed.is_locked(Item::Area(i)) {
                 continue;
             }
             let at = IVec3::from(a.at).as_vec3();
