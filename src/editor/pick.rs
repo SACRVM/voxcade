@@ -171,6 +171,21 @@ mod tests {
         assert_eq!(from_left(115.5, 20.5), "wall");
     }
 
+    /// A piece only casting a shadow is seen through, so a click goes
+    /// through it too: it is met only where nothing drawn lies behind.
+    #[test]
+    fn a_click_goes_through_a_piece_only_casting_a_shadow() {
+        use crate::editor::view::item_along;
+        let (mut ed, figures, _dir) = wall_and_picture("ghost", "north");
+        let wall = ed.find("wall").unwrap();
+        ed.pieces.chosen = Some(wall);
+        ed.set_shadow_only(true);
+        ed.pieces.chosen = None;
+        let from_behind = |x: f32| name(&ed, item_along(&ed, &figures, Vec3::new(x, 300.0, 20.5), Vec3::NEG_Y));
+        assert_eq!(from_behind(100.5), "picture", "through the wall's plate, the picture behind it");
+        assert_eq!(from_behind(115.5), "wall", "nothing behind: the ghost itself");
+    }
+
     /// A thing hidden in the editor is neither drawn nor met by a click
     /// (the click goes on to what is behind), and the level's file is not
     /// touched; SHOW ALL shows it again; HIDE OTHERS hides the rest.

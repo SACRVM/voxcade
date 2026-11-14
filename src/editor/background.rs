@@ -22,6 +22,8 @@ pub const PRESETS: [[u8; 3]; 4] = [[15, 18, 26], [80, 82, 88], [184, 184, 184], 
 pub struct Backgrounds {
     pub voxel: Option<String>,
     pub level: Option<String>,
+    /// The outliner's width where the person dragged it wider.
+    pub outliner: Option<f32>,
 }
 
 impl Backgrounds {
@@ -48,8 +50,9 @@ impl Backgrounds {
         [self.level.as_deref().and_then(hex), self.voxel.as_deref().and_then(hex)]
     }
 
-    pub fn of(colours: [Option<[u8; 3]>; 2]) -> Self {
-        Self { level: colours[0].map(to_hex), voxel: colours[1].map(to_hex) }
+    /// With these colors, the rest kept.
+    pub fn with_colours(self, colours: [Option<[u8; 3]>; 2]) -> Self {
+        Self { level: colours[0].map(to_hex), voxel: colours[1].map(to_hex), ..self }
     }
 }
 
@@ -151,7 +154,7 @@ mod tests {
         let dir = crate::scratch::Scratch::new("backgrounds");
         let path = dir.join("settings").join("editors.toml");
         assert_eq!(Backgrounds::load(&path), Backgrounds::default());
-        let b = Backgrounds::of([Some(PRESETS[3]), Some([1, 2, 3])]);
+        let b = Backgrounds::default().with_colours([Some(PRESETS[3]), Some([1, 2, 3])]);
         b.save(&path).unwrap();
         assert_eq!(Backgrounds::load(&path).colours(), [Some(PRESETS[3]), Some([1, 2, 3])]);
         std::fs::write(&path, "voxel = [").unwrap();

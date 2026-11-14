@@ -56,6 +56,16 @@ const SIDE_LEFT: f32 = 10.0;
 pub const AXIS: [Color32; 3] = [Color32::from_rgb(232, 92, 84), Color32::from_rgb(118, 204, 96), Color32::from_rgb(92, 148, 240)];
 pub const AXIS_LIT: [Color32; 3] = [Color32::from_rgb(255, 170, 160), Color32::from_rgb(196, 250, 170), Color32::from_rgb(170, 205, 255)];
 
+/// The outliner's width in this window: as dragged, at first as set
+/// (`set_outliner_width`), else `OUTLINER`.
+pub fn outliner_width(ctx: &egui::Context) -> f32 {
+    ctx.data(|d| d.get_temp(egui::Id::unique("zones outliner width"))).unwrap_or(OUTLINER)
+}
+
+pub fn set_outliner_width(ctx: &egui::Context, width: f32) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("zones outliner width"), width));
+}
+
 /// The three zones: the top bar, the outliner and the inspector (its
 /// contents in one scroll), laid out with the contents given; where the
 /// view's room is (`shown.free`, and returned).
@@ -65,7 +75,11 @@ pub fn layout(ui: &mut egui::Ui, shown: &mut PanelsDrawn, top: impl FnOnce(&mut 
     // using the width up to them (no margin on the right: the bar's).
     let side = egui::Frame::new().fill(crate::gui::PANEL).inner_margin(egui::Margin { left: SIDE_LEFT as i8, right: 0, top: 10, bottom: 10 });
     let t = egui::Panel::top("zones top").exact_size(TOP).resizable(false).frame(bar).show(ui, |ui| ui.horizontal_centered(|ui| top(ui, shown)));
-    let l = egui::Panel::left("zones outliner").exact_size(OUTLINER).resizable(false).frame(side).show(ui, |ui| {
+    // The outliner is as wide as the person dragged it (long names, deep
+    // trees): from `OUTLINER` to half the window, the width kept in the
+    // context for whoever keeps it between windows (`outliner_width`).
+    let most = (ui.ctx().content_rect().width() * 0.5).max(OUTLINER);
+    let l = egui::Panel::left("zones outliner").default_size(outliner_width(ui.ctx()).clamp(OUTLINER, most)).size_range(OUTLINER..=most).resizable(true).frame(side).show(ui, |ui| {
         flush(ui);
         left(ui, shown)
     });
@@ -76,6 +90,7 @@ pub fn layout(ui: &mut egui::Ui, shown: &mut PanelsDrawn, top: impl FnOnce(&mut 
             right(ui, shown)
         });
     });
+    set_outliner_width(ui.ctx(), l.response.rect.width());
     let screen = ui.ctx().content_rect();
     let free = Rect::from_min_max(Pos2::new(l.response.rect.right(), t.response.rect.bottom()), Pos2::new(r.response.rect.left(), screen.bottom()));
     shown.rects.extend([r.response.rect, t.response.rect, l.response.rect]);

@@ -1965,7 +1965,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (`grid::text::rewrite`, comments kept). A click chooses what the ray
   meets first voxel by voxel (`editor/pick.rs`: a small piece in a big
   one's hollow before the big one; boxes only for lights, places,
-  areas), ADD sets down on the face met; the mark at a row's left hides
+  areas; a piece only casting a shadow, a ghost, only where nothing
+  drawn lies behind it), ADD sets down on the face met; the outliner's
+  right edge is dragged wider, up to half the window (kept for the
+  person in `editors.toml`); the mark at a row's left hides
   a thing in the editor only (HIDE, HIDE OTHERS, SHOW ALL; nothing
   written). A thing of a kind without a behavior takes `facing`/`rotation`
   in the file as a piece does (it starts so in the game:

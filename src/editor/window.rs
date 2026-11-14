@@ -186,6 +186,8 @@ pub struct EditorWindow {
     pub(super) last: Option<(crate::render::FrameData, bool)>,
     /// Steps there were when the last left click came: a double click
     /// takes back what its first click did.
+    /// The outliner's width as last kept for the person.
+    outliner: f32,
     pub(super) steps_at_click: usize,
     /// Something happened since the last frame, and when the panels want
     /// to be drawn again (None: only after an event).
@@ -234,8 +236,10 @@ impl EditorWindow {
     }
 
     fn with(video: &sdl3::VideoSubsystem, title: &str, ed: Editor, mut view: View, cfg: crate::config::GameConfig, dir: &Path, gpu: Option<&crate::window::Gpu>) -> Result<Self> {
-        // The person's BACKGROUND for each editor (not the game's).
-        view.backgrounds = background::Backgrounds::load(&background::Backgrounds::path()).colours();
+        // The person's BACKGROUND for each editor (not the game's), and
+        // how wide they dragged the outliner.
+        let kept = background::Backgrounds::load(&background::Backgrounds::path());
+        view.backgrounds = kept.colours();
         let screen = crate::window::Screen::open_on(video, title, 1600, 900, false, gpu)?;
         // SDL sends typed text only to a window that asked for it: without
         // this no field of the editor (a name, a number) takes a key from a
@@ -247,6 +251,9 @@ impl EditorWindow {
         let figures = Figures::load(dir, &cfg).with_pieces(dir, &ed.level);
         let gui = egui::Context::default();
         crate::gui::style(&gui);
+        if let Some(width) = kept.outliner.filter(|w| w.is_finite()) {
+            zones::set_outliner_width(&gui, width);
+        }
         let painter = crate::gui::Painter::new(&screen.device, screen.config.format, true);
         Ok(Self::of(Some(Win { screen, renderer, painter }), ed, view, cfg, shown, figures, gui))
     }
@@ -272,7 +279,6 @@ impl EditorWindow {
             shown,
             figures,
             cfg,
-            gui,
             input: crate::gui::input::Input::default(),
             thumbs: panels::Thumbs::default(),
             keys: Vec::new(),
@@ -291,6 +297,8 @@ impl EditorWindow {
             picture: None,
             closing: false,
             looked: Instant::now(),
+            outliner: zones::outliner_width(&gui),
+            gui,
         }
     }
 
@@ -626,13 +634,24 @@ impl EditorWindow {
             let path = background::Backgrounds::path();
             // (The other editor's as the file has it now: another window
             // may have chosen it.)
-            let mut keep = background::Backgrounds::load(&path).colours();
+            let kept = background::Backgrounds::load(&path);
+            let mut keep = kept.colours();
             let k = (self.ed.scope != Scope::Level) as usize;
             keep[k] = self.view.backgrounds[k];
-            if let Err(e) = background::Backgrounds::of(keep).save(&path) {
+            if let Err(e) = kept.with_colours(keep).save(&path) {
                 eprintln!("background: {e:#}");
             }
             self.dirty = true;
+        }
+        // The outliner dragged to another width: kept too, once let go.
+        let width = zones::outliner_width(&self.gui).round();
+        if width != self.outliner && self.win.is_some() && !self.gui.input(|i| i.pointer.any_down()) {
+            self.outliner = width;
+            let path = background::Backgrounds::path();
+            let kept = background::Backgrounds { outliner: Some(width), ..background::Backgrounds::load(&path) };
+            if let Err(e) = kept.save(&path) {
+                eprintln!("outliner: {e:#}");
+            }
         }
         if self.looked.elapsed() >= LOOK_EVERY {
             self.looked = Instant::now();

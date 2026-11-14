@@ -75,11 +75,12 @@ pub struct Met {
 /// voxels the ray meets, walked in the piece's own turned frame (glass
 /// counts), never by its box (a small piece in the hollow of a big one is
 /// chosen where the picture shows it); a thing of a kind by its figure's
-/// voxels; a light alone, a piece's light and a place by a small box; an
+/// voxels; a light alone, a piece's light and a place by a small box; a
+/// piece only casting a shadow where nothing drawn is met, an
 /// area only where nothing else is met (with `marks`: lights, places and
 /// areas count). Hidden ones are left out.
 pub fn hit_along(ed: &Editor, figures: &Figures, origin: Vec3, dir: Vec3, marks: bool) -> Option<Met> {
-    let mut best: Option<Met> = None;
+    let (mut best, mut ghost): (Option<Met>, Option<Met>) = (None, None);
     fn take(best: &mut Option<Met>, d: Option<(f32, Vec3)>, item: Item, light: Option<usize>) {
         if let Some((d, normal)) = d
             && best.is_none_or(|b| d < b.at)
@@ -131,7 +132,10 @@ pub fn hit_along(ed: &Editor, figures: &Figures, origin: Vec3, dir: Vec3, marks:
                 ray_box(local, back * dir, lo, hi).map(|d| (d, Vec3::ZERO))
             }
         };
-        take(&mut best, met, Item::Thing(i), None);
+        // A piece only casting a shadow is a ghost in the view: what is
+        // seen through it is met first (a ceiling over a whole room took
+        // every click from above).
+        take(if t.shadow_only { &mut ghost } else { &mut best }, met, Item::Thing(i), None);
         // Its lights before it, a little nearer (they sit on or in it).
         if marks {
             for (k, (spot, _)) in room::light_spots(t, size).enumerate() {
@@ -140,7 +144,7 @@ pub fn hit_along(ed: &Editor, figures: &Figures, origin: Vec3, dir: Vec3, marks:
         }
     }
     if !marks {
-        return best;
+        return best.or(ghost);
     }
     for (i, p) in ed.level.places.iter().enumerate() {
         if ed.is_hidden(Item::Place(i)) {
@@ -149,6 +153,7 @@ pub fn hit_along(ed: &Editor, figures: &Figures, origin: Vec3, dir: Vec3, marks:
         let at = IVec3::from(p.at).as_vec3() + Vec3::new(0.5, 0.5, 0.0);
         take(&mut best, boxed(at - Vec3::new(4.0, 4.0, 0.0), at + Vec3::new(4.0, 4.0, 10.0)), Item::Place(i), None);
     }
+    best = best.or(ghost);
     if best.is_none() {
         for (i, a) in ed.level.areas.iter().enumerate() {
             if ed.is_hidden(Item::Area(i)) {

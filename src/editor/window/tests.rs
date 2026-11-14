@@ -427,3 +427,30 @@ fn pointer_trim_and_a_local_move_change_only_their_own() {
     let others = |t: &str| t.split("[[part]]").filter(|p| !p.contains("name = \"nose\"")).map(str::to_string).collect::<Vec<_>>();
     assert_eq!(others(&moved), others(&trimmed), "only the nose's text changed");
 }
+
+/// The outliner's right edge dragged makes it wider (long names, deep
+/// trees), never narrower than it opens and never past half the window;
+/// nothing of the model changes.
+#[test]
+fn the_outliner_is_dragged_wider() {
+    let (mut win, dir) = owners_like("outliner");
+    let start = file(&dir);
+    let width = |win: &EditorWindow| zones::outliner_width(&win.gui);
+    assert_eq!(width(&win), zones::OUTLINER);
+    let drag = |win: &mut EditorWindow, to: f32| {
+        let from = width(win);
+        motion(win, from, 450.0, 0);
+        button(win, from, 450.0, sdl3::mouse::MouseButton::Left, true);
+        for x in [from + (to - from) * 0.5, to] {
+            motion(win, x, 450.0, 1);
+        }
+        button(win, to, 450.0, sdl3::mouse::MouseButton::Left, false);
+    };
+    drag(&mut win, 400.0);
+    assert!((width(&win) - 400.0).abs() < 4.0, "dragged to 400: {}", width(&win));
+    drag(&mut win, 1500.0);
+    assert!((width(&win) - 800.0).abs() < 4.0, "half the window at most: {}", width(&win));
+    drag(&mut win, 20.0);
+    assert_eq!(width(&win), zones::OUTLINER, "never narrower than it opens");
+    assert_eq!((file(&dir), win.ed.steps()), (start, 0), "nothing changed");
+}
