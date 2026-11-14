@@ -128,7 +128,6 @@ impl Input {
         }
     }
 
-    /// A point of the window in SDL's points as egui's.
     /// Every button let go where the pointer was last (a release the
     /// window never heard: egui would hold it down for good, and the next
     /// click would be no click).
@@ -143,6 +142,7 @@ impl Input {
         }
     }
 
+    /// A point of the window in SDL's points as egui's.
     pub fn point(&self, x: f32, y: f32) -> egui::Pos2 {
         Pos2::new(x * self.scale, y * self.scale)
     }

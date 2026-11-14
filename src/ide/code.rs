@@ -88,7 +88,8 @@ pub struct Code {
     pub marking: Option<(String, bool, Option<usize>)>,
     /// A match (bytes of the text) to scroll into view, once.
     pub reveal: Option<std::ops::Range<usize>>,
-    reader: mlua::Lua,
+    /// The Lua that reads a script, made for a script only.
+    reader: Option<mlua::Lua>,
     /// The text laid out last and the line numbers (`Laid`): laid out
     /// anew only when what they show changed, not every frame.
     laid: Laid,
@@ -149,7 +150,7 @@ impl Code {
             "vvx" => Syntax::Model,
             _ => Syntax::Plain,
         };
-        let mut code = Self { text, revision: fresh_revision(), syntax, file: file.to_string(), error: None, sound: None, song: None, model: None, stopped: None, checked: None, offer: None, declined: None, marking: None, reveal: None, reader: mlua::Lua::new(), laid: Laid::default() };
+        let mut code = Self { text, revision: fresh_revision(), syntax, file: file.to_string(), error: None, sound: None, song: None, model: None, stopped: None, checked: None, offer: None, declined: None, marking: None, reveal: None, reader: None, laid: Laid::default() };
         code.check();
         code
     }
@@ -184,23 +185,23 @@ impl Code {
             return;
         }
         match self.syntax {
-            Syntax::Lua => self.error = check(&self.reader, &self.file, &self.text),
+            Syntax::Lua => self.error = check(self.reader.get_or_insert_with(mlua::Lua::new), &self.file, &self.text),
             Syntax::Sound => match sound::read(&self.file, &self.text) {
                 Ok(def) => (self.error, self.sound) = (None, Some(def)),
                 Err(e) => (self.error, self.sound) = (Some(sound_trouble(&self.file, &format!("{e:#}"))), None),
             },
             Syntax::Model => match crate::vvx::read(&self.text) {
                 Ok(m) => (self.error, self.model) = (None, Some(super::shell::model_line(&m, &self.file))),
-                Err(e) => (self.error, self.model) = (Some(song_trouble(&format!("{e:#}"))), None),
+                Err(e) => (self.error, self.model) = (Some(line_trouble(&format!("{e:#}"))), None),
             },
             Syntax::Level => match crate::grid::GridLevel::from_text(&self.text) {
                 Ok(l) => (self.error, self.model) = (None, Some(super::shell::level_line(&l))),
-                Err(e) => (self.error, self.model) = (Some(song_trouble(&format!("{e:#}"))), None),
+                Err(e) => (self.error, self.model) = (Some(line_trouble(&format!("{e:#}"))), None),
             },
-            Syntax::Map => self.error = crate::map::MapData::read(&self.text).err().map(|e| song_trouble(&format!("{e:#}"))),
+            Syntax::Map => self.error = crate::map::MapData::read(&self.text).err().map(|e| line_trouble(&format!("{e:#}"))),
             _ => match music::parse(&self.text) {
                 Ok(song) => (self.error, self.song) = (None, Some(song_line(&song))),
-                Err(e) => (self.error, self.song) = (Some(song_trouble(&format!("{e:#}"))), None),
+                Err(e) => (self.error, self.song) = (Some(line_trouble(&format!("{e:#}"))), None),
             },
         }
         self.checked = Some(self.revision);
@@ -738,10 +739,11 @@ fn sound_trouble(file: &str, message: &str) -> (usize, String) {
     (0, rest.trim_start_matches(": ").trim().to_string())
 }
 
-/// A song's mistake as `music::parse` words it: "line 3: why" for
-/// directives, instruments and macros, "channel A (from line 5), near
-/// ...: why" inside a channel (its first line).
-fn song_trouble(message: &str) -> (usize, String) {
+/// A mistake as the readers of songs, models, levels and maps word it:
+/// "line 3: why" (a song's directives, instruments and macros too),
+/// "channel A (from line 5), near ...: why" inside a song's channel (its
+/// first line).
+fn line_trouble(message: &str) -> (usize, String) {
     if let Some(after) = message.strip_prefix("line ")
         && let Some((n, why)) = after.split_once(": ")
         && let Ok(line) = n.parse::<usize>()

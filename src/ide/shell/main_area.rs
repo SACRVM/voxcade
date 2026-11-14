@@ -419,8 +419,6 @@ pub(super) fn picture(ui: &mut egui::Ui, texture: &egui::TextureHandle) {
     ui.image((texture.id(), size * scale));
 }
 
-/// A line of what a file an editor opens is (`level`: the game's level of
-/// blocks).
 /// Whether a file of the game is a model or a block: Voxcade's `.vvx`, or a
 /// MagicaVoxel `.vox` (a world, a map's prefab, or a model not brought in
 /// yet), shown as a picture.
@@ -431,13 +429,18 @@ pub fn is_model_file(path: &str) -> bool {
 /// A line of what a level is: its size, its blocks and things (a level
 /// of pieces: its things, places, areas).
 pub(in crate::ide) fn level_line(l: &crate::grid::GridLevel) -> String {
-    let plural = |n: usize, one: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") };
     if !l.has_grid() {
         return format!("{} × {} × {} · {} · {} · {}", l.size.x, l.size.y, l.size.z, plural(l.things.len(), "thing"), plural(l.places.len(), "place"), plural(l.areas.len(), "area"));
     }
     format!("{} × {} × {} cells of {} · {} · {}", l.size.x, l.size.y, l.size.z, l.n, plural(l.blocks.len(), "block"), plural(l.things.len(), "thing"))
 }
 
+/// `n` of a thing called `one`: "1 part", "3 parts".
+fn plural(n: usize, one: &str) -> String {
+    if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") }
+}
+
+/// A line of what a file an editor opens is (`level`: a level).
 pub(super) fn facts(file: &Path, path: &str, level: bool) -> String {
     if level {
         return match crate::grid::GridLevel::read(file) {
@@ -473,7 +476,6 @@ pub(super) fn scene_facts(file: &Path, path: &str) -> String {
 /// A line of what a model (`path` in the game folder) is: a block, a
 /// figure of parts or frames, and how big.
 pub(in crate::ide) fn model_line(m: &crate::vox::VoxModel, path: &str) -> String {
-    let plural = |n: usize, one: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") };
     let s = m.size;
     match () {
         _ if path.starts_with("blocks/") => format!("Block · {} × {} × {}", s.x, s.y, s.z),

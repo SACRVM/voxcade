@@ -186,7 +186,7 @@ impl Shell {
             back = ui.add_enabled(can_go_back, egui::Button::new("UNDO")).on_hover_text("Back to the sound before the last change (a roll, a fader or typing); again for the one before. Ctrl+Z in the text does the same.").clicked();
         };
         let mut rolls = |ui: &mut egui::Ui| {
-            dice(ui).on_hover_text("These roll the dice: each press makes a new sound of that sort, never the same twice. Press one again for another.");
+            crate::gui::dice(ui).on_hover_text("These roll the dice: each press makes a new sound of that sort, never the same twice. Press one again for another.");
             for sort in maker::Sort::ALL {
                 if ui.button(sort.word()).on_hover_text(sort.hover()).clicked() {
                     rolled = Some(sort);
@@ -307,12 +307,6 @@ impl Shell {
 
 /// How wide a fader of the sound maker is.
 pub(super) const FADER_WIDTH: f32 = 150.0;
-
-/// A dice showing five, drawn (no font has one we can count on): the sign
-/// that the buttons after it roll.
-pub(super) fn dice(ui: &mut egui::Ui) -> egui::Response {
-    crate::gui::dice(ui)
-}
 
 /// The pause between a sound's end and its next go under LOOP.
 pub(super) const LOOP_PAUSE: std::time::Duration = std::time::Duration::from_millis(500);
