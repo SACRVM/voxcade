@@ -474,7 +474,6 @@ impl Platformer {
         let input = if down { &still } else { input };
         let cfg = self.sim.cfg.clone();
         let rules = self.rules.clone();
-        let tops: Vec<Ledge> = ledges.iter().map(|(_, l)| *l).collect();
         let mut sounds = Vec::new();
         let world = &self.sim.world;
         let Some(t) = self.things.get_mut(id).filter(|t| t.off.is_none()) else { return };
@@ -484,182 +483,40 @@ impl Platformer {
         if let Some(d) = h.riding.and_then(|p| moves.iter().find(|(i, _)| *i == p)).map(|(_, d)| *d) {
             b.pos += d;
         }
-        let dir = input.right as i32 - input.left as i32;
-        let jump = input.held(JUMP);
-        let pressed = jump && !h.held;
-        h.held = jump;
-        h.asked = if pressed { 0 } else { h.asked.saturating_add(1) };
-        h.air = if b.on_ground { 0 } else { h.air.saturating_add(1) };
-        h.hurt = h.hurt.saturating_sub(1);
-        let half = k.width * 0.5;
-        let g = cfg.physics.gravity;
-        // Hanging from a ledge's edge: up or jump pulls it up (rising first,
-        // then over the edge), down lets go; the body neither falls nor
-        // steers meanwhile.
-        let hung = h.edge.is_some();
-        if let Some(stand) = h.edge {
-            b.vel = Vec3::ZERO;
-            if h.pulling == 0 && (pressed || input.up) {
-                (h.pulling, h.from) = (1, b.pos);
-            } else if h.pulling == 0 && input.down {
-                h.edge = None;
-            }
-            if h.pulling > 0 {
-                let done = h.pulling as f32 / r.pull.max(1) as f32;
-                let (up, over) = ((done / 0.6).min(1.0), ((done - 0.6) / 0.4).clamp(0.0, 1.0));
-                b.pos = Vec3::new((h.from.x + (stand.x - h.from.x) * over).round(), h.from.y, (h.from.z + (stand.z - h.from.z) * up).round());
-                h.pulling += 1;
-                if h.pulling > r.pull.max(1) {
-                    (b.pos, b.on_ground) = (stand, true);
-                    (h.edge, h.pulling, h.air) = (None, 0, 0);
-                }
-            }
-        }
+        let keys = h.read_keys(b, input);
+        let (half, g) = (k.width * 0.5, cfg.physics.gravity);
+        let hung = h.hang(b, r, input, keys.pressed);
         if b.on_ground || h.climbing || hung {
             h.air_left = r.air_jumps;
         }
-        let on_ladder = |p: Vec3| world.cells.as_ref().is_some_and(|g| g.at(p) & crate::grid::LADDER != 0);
-        let ladder = !hung && on_ladder(b.centre());
-        // A ladder just under the feet: climbed on up to its top, or down
-        // from there.
-        let below = !hung && on_ladder(b.pos - Vec3::Z * 0.5);
-        if h.climbing && (!(ladder || below) || pressed) {
-            h.climbing = false;
-        }
-        if !h.climbing && ((ladder && (input.up || (input.down && !b.on_ground))) || (below && input.down)) {
-            h.climbing = true;
-            h.jumping = false;
-        }
+        h.take_to_ladder(b, world, input, keys.pressed, hung);
         if hung {
             // Held still (or pulled) above.
         } else if h.climbing {
-            let up = (input.up as i32 - input.down as i32) as f32;
-            // Climbing without left or right, it moves to the ladder's
-            // middle (through a hole one cell wide its head would catch
-            // the edge); with them it steps aside. Gravity is taken off
-            // again as the body moves.
-            let middle = world.cells.as_ref().map_or(b.pos.x, |g| g.middle(b.centre()).x);
-            let across = if dir != 0 { dir as f32 * r.climb * 0.5 } else { ((middle - b.pos.x) / DT).clamp(-r.climb, r.climb) };
-            b.vel = Vec3::new(across, 0.0, up * r.climb + g * DT);
+            h.climb(b, r, world, input, keys.dir, g);
         } else {
-            h.crouch = input.down && b.on_ground;
-            let target = if h.crouch { 0.0 } else { dir as f32 * r.speed };
-            let accel = if b.on_ground { r.accel } else { r.air_accel } * DT;
-            b.vel.x += (target - b.vel.x).clamp(-accel, accel);
-            b.vel.y = 0.0;
-            if h.asked <= r.buffer && (b.on_ground || h.air <= r.coyote) && !h.jumping {
-                b.vel.z = (2.0 * g * r.jump).sqrt();
-                h.jumping = true;
-                h.asked = u32::MAX / 2;
-                h.air = u32::MAX / 2;
-                h.riding = None;
-                sounds.push(("jump", b.pos));
-            } else if pressed && !b.on_ground && h.air > r.coyote && h.air_left > 0 {
-                // Again in the air (a double jump): from where it is now.
-                b.vel.z = (2.0 * g * r.air_jump).sqrt();
-                h.air_left -= 1;
-                h.jumping = true;
-                h.asked = u32::MAX / 2;
-                sounds.push(("jump", b.pos));
-            }
-            if h.jumping && !jump && b.vel.z > 0.0 {
-                b.vel.z *= r.jump_cut;
-                h.jumping = false;
-            }
-            if b.vel.z <= 0.0 {
-                h.jumping = false;
-            }
+            h.run_and_jump(b, r, input, keys, g, &mut sounds);
         }
-        if dir != 0 && !hung {
-            b.face(Vec3::new(dir as f32, 0.0, 0.0));
+        if keys.dir != 0 && !hung {
+            b.face(Vec3::new(keys.dir as f32, 0.0, 0.0));
         }
-        if !hung && !h.climbing && !b.on_ground {
-            // Lighter at the top while jump is held (time to steer), heavier
-            // on the way down (snappy): on top of the gravity advance_in adds.
-            let top = jump && b.vel.z.abs() < r.hang_speed;
-            let extra = if top { r.hang - 1.0 } else if b.vel.z < 0.0 { r.fall_gravity - 1.0 } else { 0.0 };
-            b.vel.z -= g * extra * DT;
-        }
-        if !hung && !h.climbing && b.vel.z > 0.0 && r.corner > 0 {
-            // A head about to clip a ceiling's edge slips past it sideways,
-            // by the fewest voxels that free it.
-            let rise = (b.vel.z * DT).max(0.5);
-            if body_hits(world, b.pos + Vec3::Z * rise, half, b.height) {
-                'nudge: for k in 1..=r.corner {
-                    for side in [1.0f32, -1.0] {
-                        let dx = side * k as f32;
-                        if !body_hits(world, b.pos + Vec3::new(dx, 0.0, rise), half, b.height) && !body_hits(world, b.pos + Vec3::X * dx, half, b.height) {
-                            b.pos.x += dx;
-                            // Running on under the ceiling would undo it.
-                            if b.vel.x * dx < 0.0 {
-                                b.vel.x = 0.0;
-                            }
-                            break 'nudge;
-                        }
-                    }
-                }
-            }
+        if !hung && !h.climbing {
+            fall_as_a_hero(b, r, world, half, keys.jump, g);
         }
         if !hung {
-            // A ladder's top holds from above, as a plank would, unless down
-            // is held (the way down it).
-            let mut tops = tops.clone();
-            if let Some(g) = world.cells.as_deref().filter(|_| !h.climbing && !input.down) {
-                let cell = g.cell.as_vec3();
-                for z in [b.pos.z - 0.5, b.pos.z + (b.vel.z * DT).min(0.0) - 1.0] {
-                    let mid = g.middle(Vec3::new(b.pos.x, b.pos.y, z));
-                    if g.at(mid) & crate::grid::LADDER != 0 && g.at(mid + Vec3::Z * cell.z) & crate::grid::LADDER == 0 {
-                        tops.push(Ledge { min: (mid - cell * 0.5).truncate(), max: (mid + cell * 0.5).truncate(), z: mid.z + cell.z * 0.5 });
-                    }
-                }
+            let mut tops: Vec<Ledge> = ledges.iter().map(|(_, l)| *l).collect();
+            if !h.climbing && !input.down {
+                tops.extend(ladder_tops(world, b));
             }
             b.advance_in(world, &cfg.physics, half, &tops);
         }
         h.riding = if b.on_ground { ledges.iter().find(|(_, l)| l.under(b.pos, half) && (l.z - b.pos.z).abs() < 0.05).map(|(i, _)| *i) } else { None };
-        // An edge too high to land on caught near the top of a jump or
-        // falling past it, steering towards it (or holding up or jump):
-        // above the head it hangs from it, lower it pulls itself up.
-        let f = b.look.x as f32;
-        if r.grab > 0.0 && f != 0.0 && !hung && !h.climbing && !b.on_ground && !input.down && b.vel.z <= r.hang_speed && (dir as f32 == f || input.up || jump)
-            && let Some((at, stand, hangs)) = edge(world, b.pos, half, b.height, f, r)
-        {
-            (b.pos, b.vel) = (at, Vec3::ZERO);
-            (h.edge, h.jumping, h.riding) = (Some(stand), false, None);
-            if !hangs {
-                (h.pulling, h.from) = (1, at);
-            }
-        }
+        h.grab_edge(b, r, world, half, input, keys, hung);
         // A jump pressed just before landing goes the tick it lands.
         if !hung && !h.climbing && b.on_ground && h.asked <= r.buffer && !h.jumping {
-            b.vel.z = (2.0 * g * r.jump).sqrt();
-            h.jumping = true;
-            h.asked = u32::MAX / 2;
-            h.air = u32::MAX / 2;
-            h.riding = None;
-            sounds.push(("jump", b.pos));
+            h.jump(b, (2.0 * g * r.jump).sqrt(), &mut sounds);
         }
-        let anim = if h.hurt + HURT_SHOWN > r.invulnerable && h.hurt > 0 {
-            Anim::Hurt
-        } else if h.pulling > 0 {
-            Anim::Pull
-        } else if h.edge.is_some() {
-            Anim::Hang
-        } else if h.climbing {
-            Anim::Climb
-        } else if !b.on_ground {
-            if b.vel.z > 0.0 { Anim::Jump } else { Anim::Fall }
-        } else if h.crouch {
-            Anim::Crouch
-        } else if b.vel.x.abs() > 2.0 {
-            Anim::Run
-        } else {
-            Anim::Idle
-        };
-        if anim == h.anim {
-            h.age += 1;
-        } else {
-            (h.anim, h.age) = (anim, 0);
-        }
+        h.show(b, r);
         for (name, at) in sounds {
             self.sim.sound(name, at, 0.8);
         }
@@ -892,6 +749,212 @@ impl Platformer {
         };
         k.frames.get(name).map_or(0, |f| f.at(age as u64, t.body.walked))
     }
+}
+
+/// The keys a hero's step reads: left or right (-1, 0, 1), jump held, and
+/// jump pressed this tick.
+#[derive(Clone, Copy)]
+struct Keys {
+    dir: i32,
+    jump: bool,
+    pressed: bool,
+}
+
+/// A hero's step in its parts (`Platformer::hero_step`, in this order).
+impl Hero {
+    /// The keys, and the counts they and the ground keep: the jump buffer,
+    /// coyote time, the hurt's.
+    fn read_keys(&mut self, b: &Body, input: &Input) -> Keys {
+        let dir = input.right as i32 - input.left as i32;
+        let jump = input.held(JUMP);
+        let pressed = jump && !self.held;
+        self.held = jump;
+        self.asked = if pressed { 0 } else { self.asked.saturating_add(1) };
+        self.air = if b.on_ground { 0 } else { self.air.saturating_add(1) };
+        self.hurt = self.hurt.saturating_sub(1);
+        Keys { dir, jump, pressed }
+    }
+
+    /// Hanging from a ledge's edge: up or jump pulls it up (rising first,
+    /// then over the edge), down lets go; the body neither falls nor
+    /// steers meanwhile. Whether it hung as the step began.
+    fn hang(&mut self, b: &mut Body, r: &kinds::HeroRules, input: &Input, pressed: bool) -> bool {
+        let Some(stand) = self.edge else { return false };
+        b.vel = Vec3::ZERO;
+        if self.pulling == 0 && (pressed || input.up) {
+            (self.pulling, self.from) = (1, b.pos);
+        } else if self.pulling == 0 && input.down {
+            self.edge = None;
+        }
+        if self.pulling > 0 {
+            let done = self.pulling as f32 / r.pull.max(1) as f32;
+            let (up, over) = ((done / 0.6).min(1.0), ((done - 0.6) / 0.4).clamp(0.0, 1.0));
+            b.pos = Vec3::new((self.from.x + (stand.x - self.from.x) * over).round(), self.from.y, (self.from.z + (stand.z - self.from.z) * up).round());
+            self.pulling += 1;
+            if self.pulling > r.pull.max(1) {
+                (b.pos, b.on_ground) = (stand, true);
+                (self.edge, self.pulling, self.air) = (None, 0, 0);
+            }
+        }
+        true
+    }
+
+    /// Onto a ladder (up or down along it; down from just over its top) or
+    /// off it (gone from it, or jumping).
+    fn take_to_ladder(&mut self, b: &Body, world: &World, input: &Input, pressed: bool, hung: bool) {
+        let on_ladder = |p: Vec3| world.cells.as_ref().is_some_and(|g| g.at(p) & crate::grid::LADDER != 0);
+        let ladder = !hung && on_ladder(b.centre());
+        // A ladder just under the feet: climbed on up to its top, or down
+        // from there.
+        let below = !hung && on_ladder(b.pos - Vec3::Z * 0.5);
+        if self.climbing && (!(ladder || below) || pressed) {
+            self.climbing = false;
+        }
+        if !self.climbing && ((ladder && (input.up || (input.down && !b.on_ground))) || (below && input.down)) {
+            self.climbing = true;
+            self.jumping = false;
+        }
+    }
+
+    /// Climbing without left or right, it moves to the ladder's middle
+    /// (through a hole one cell wide its head would catch the edge); with
+    /// them it steps aside. Gravity is taken off again as the body moves.
+    fn climb(&self, b: &mut Body, r: &kinds::HeroRules, world: &World, input: &Input, dir: i32, g: f32) {
+        let up = (input.up as i32 - input.down as i32) as f32;
+        let middle = world.cells.as_ref().map_or(b.pos.x, |g| g.middle(b.centre()).x);
+        let across = if dir != 0 { dir as f32 * r.climb * 0.5 } else { ((middle - b.pos.x) / DT).clamp(-r.climb, r.climb) };
+        b.vel = Vec3::new(across, 0.0, up * r.climb + g * DT);
+    }
+
+    /// On its feet or in the air: running, crouching, a jump (buffered, in
+    /// coyote time), one again in the air, a jump let go cut short.
+    fn run_and_jump(&mut self, b: &mut Body, r: &kinds::HeroRules, input: &Input, keys: Keys, g: f32, sounds: &mut Vec<(&'static str, Vec3)>) {
+        self.crouch = input.down && b.on_ground;
+        let target = if self.crouch { 0.0 } else { keys.dir as f32 * r.speed };
+        let accel = if b.on_ground { r.accel } else { r.air_accel } * DT;
+        b.vel.x += (target - b.vel.x).clamp(-accel, accel);
+        b.vel.y = 0.0;
+        if self.asked <= r.buffer && (b.on_ground || self.air <= r.coyote) && !self.jumping {
+            self.jump(b, (2.0 * g * r.jump).sqrt(), sounds);
+        } else if keys.pressed && !b.on_ground && self.air > r.coyote && self.air_left > 0 {
+            // Again in the air (a double jump): from where it is now.
+            self.air_left -= 1;
+            self.take_off(b, (2.0 * g * r.air_jump).sqrt(), sounds);
+        }
+        if self.jumping && !keys.jump && b.vel.z > 0.0 {
+            b.vel.z *= r.jump_cut;
+            self.jumping = false;
+        }
+        if b.vel.z <= 0.0 {
+            self.jumping = false;
+        }
+    }
+
+    /// A jump off the ground (or a platform) at `speed` up.
+    fn jump(&mut self, b: &mut Body, speed: f32, sounds: &mut Vec<(&'static str, Vec3)>) {
+        self.take_off(b, speed, sounds);
+        self.air = u32::MAX / 2;
+        self.riding = None;
+    }
+
+    /// Up at `speed`, rising, the jump pressed used up.
+    fn take_off(&mut self, b: &mut Body, speed: f32, sounds: &mut Vec<(&'static str, Vec3)>) {
+        b.vel.z = speed;
+        self.jumping = true;
+        self.asked = u32::MAX / 2;
+        sounds.push(("jump", b.pos));
+    }
+
+    /// An edge too high to land on caught near the top of a jump or
+    /// falling past it, steering towards it (or holding up or jump): above
+    /// the head it hangs from it, lower it pulls itself up.
+    #[allow(clippy::too_many_arguments)]
+    fn grab_edge(&mut self, b: &mut Body, r: &kinds::HeroRules, world: &World, half: f32, input: &Input, keys: Keys, hung: bool) {
+        let f = b.look.x as f32;
+        if r.grab > 0.0 && f != 0.0 && !hung && !self.climbing && !b.on_ground && !input.down && b.vel.z <= r.hang_speed && (keys.dir as f32 == f || input.up || keys.jump)
+            && let Some((at, stand, hangs)) = edge(world, b.pos, half, b.height, f, r)
+        {
+            (b.pos, b.vel) = (at, Vec3::ZERO);
+            (self.edge, self.jumping, self.riding) = (Some(stand), false, None);
+            if !hangs {
+                (self.pulling, self.from) = (1, at);
+            }
+        }
+    }
+
+    /// What it shows now, and for how many ticks.
+    fn show(&mut self, b: &Body, r: &kinds::HeroRules) {
+        let anim = if self.hurt + HURT_SHOWN > r.invulnerable && self.hurt > 0 {
+            Anim::Hurt
+        } else if self.pulling > 0 {
+            Anim::Pull
+        } else if self.edge.is_some() {
+            Anim::Hang
+        } else if self.climbing {
+            Anim::Climb
+        } else if !b.on_ground {
+            if b.vel.z > 0.0 { Anim::Jump } else { Anim::Fall }
+        } else if self.crouch {
+            Anim::Crouch
+        } else if b.vel.x.abs() > 2.0 {
+            Anim::Run
+        } else {
+            Anim::Idle
+        };
+        if anim == self.anim {
+            self.age += 1;
+        } else {
+            (self.anim, self.age) = (anim, 0);
+        }
+    }
+}
+
+/// A hero in the air or on its feet (not hanging, not climbing): lighter
+/// at the top of a jump while jump is held (time to steer), heavier on the
+/// way down (snappy), on top of the gravity `advance_in` adds; a head about
+/// to clip a ceiling's edge slips past it sideways, by the fewest voxels
+/// that free it.
+fn fall_as_a_hero(b: &mut Body, r: &kinds::HeroRules, world: &World, half: f32, jump: bool, g: f32) {
+    if !b.on_ground {
+        let top = jump && b.vel.z.abs() < r.hang_speed;
+        let extra = if top { r.hang - 1.0 } else if b.vel.z < 0.0 { r.fall_gravity - 1.0 } else { 0.0 };
+        b.vel.z -= g * extra * DT;
+    }
+    if b.vel.z <= 0.0 || r.corner == 0 {
+        return;
+    }
+    let rise = (b.vel.z * DT).max(0.5);
+    if !body_hits(world, b.pos + Vec3::Z * rise, half, b.height) {
+        return;
+    }
+    for k in 1..=r.corner {
+        for side in [1.0f32, -1.0] {
+            let dx = side * k as f32;
+            if !body_hits(world, b.pos + Vec3::new(dx, 0.0, rise), half, b.height) && !body_hits(world, b.pos + Vec3::X * dx, half, b.height) {
+                b.pos.x += dx;
+                // Running on under the ceiling would undo it.
+                if b.vel.x * dx < 0.0 {
+                    b.vel.x = 0.0;
+                }
+                return;
+            }
+        }
+    }
+}
+
+/// The tops of the ladders at a body's feet: a ladder's top holds from
+/// above, as a plank would (unless down is held: the way down it).
+fn ladder_tops(world: &World, b: &Body) -> Vec<Ledge> {
+    let Some(g) = world.cells.as_deref() else { return Vec::new() };
+    let cell = g.cell.as_vec3();
+    let mut tops = Vec::new();
+    for z in [b.pos.z - 0.5, b.pos.z + (b.vel.z * DT).min(0.0) - 1.0] {
+        let mid = g.middle(Vec3::new(b.pos.x, b.pos.y, z));
+        if g.at(mid) & crate::grid::LADDER != 0 && g.at(mid + Vec3::Z * cell.z) & crate::grid::LADDER == 0 {
+            tops.push(Ledge { min: (mid - cell * 0.5).truncate(), max: (mid + cell * 0.5).truncate(), z: mid.z + cell.z * 0.5 });
+        }
+    }
+    tops
 }
 
 /// A ledge's edge a body at `pos` (`half` its half width, `height` tall)
