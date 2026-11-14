@@ -155,13 +155,13 @@ pub fn joints(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
         super::cell_lines::paint(ui, ed, view, free);
     }
     let screen = ui.ctx().content_rect();
-    let marks = super::view::joint_marks(ed, view, screen.width() / screen.height().max(1.0), view.inset);
+    let marks = super::view::joint_marks(ed, view, crate::editor::ViewRoom(screen).aspect(), view.inset);
     let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::unique("joints"))).with_clip_rect(free);
     let at = |share: glam::Vec2| egui::pos2(screen.left() + share.x * screen.width(), screen.top() + share.y * screen.height());
     let chosen = marks.iter().any(|m| m.chosen);
     let gold = super::background::MarkColors::colour(view.marks(ed.scope).gold());
     // The chosen part's joint, a line to the part's middle: whose it is.
-    let vp_line = view.view_proj(&view.block, screen.width() / screen.height().max(1.0));
+    let vp_line = view.view_proj(&view.block, crate::editor::ViewRoom(screen).aspect());
     let middle = ed.shape().filter(|_| ed.part_mode().is_some()).and_then(|b| super::handles::project(vp_line, glam::Vec2::new(screen.width(), screen.height()), b.size.as_vec3() / 2.0)).map(|(p, _)| screen.min + egui::vec2(p.x, p.y));
     for m in marks.iter().filter(|m| m.chosen) {
         if let Some(mid) = middle {
@@ -180,7 +180,7 @@ pub fn joints(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
     }
     // The chosen part's arrows; its joint's ring lit under the mouse (or
     // dragged), its word beside it.
-    let vp = view.view_proj(&view.block, screen.width() / screen.height().max(1.0));
+    let vp = view.view_proj(&view.block, crate::editor::ViewRoom(screen).aspect());
     let ring_lit = view.ring_hover || ed.joint_drag().is_some_and(|d| !d.part);
     if ring_lit && let Some(m) = marks.iter().find(|m| m.chosen) {
         let p = at(m.at);
@@ -227,7 +227,7 @@ pub fn marks(ui: &egui::Ui, ed: &Editor, view: &View, figures: &Figures, free: e
         return;
     }
     let screen = ui.ctx().content_rect();
-    let marks = super::view::marks(ed, view, figures, screen.width() / screen.height().max(1.0), view.inset);
+    let marks = super::view::marks(ed, view, figures, crate::editor::ViewRoom(screen).aspect(), view.inset);
     let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::unique("pieces marks"))).with_clip_rect(free);
     let at = |share: glam::Vec2| egui::pos2(screen.left() + share.x * screen.width(), screen.top() + share.y * screen.height());
     let colour = |tone: super::view::Tone| match tone {
@@ -270,7 +270,7 @@ const AXIS_IN: f32 = 38.0;
 /// the screen (an axis toward the eye short), its letter at the tip.
 fn axis_marker(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
     let screen = ui.ctx().content_rect();
-    let aspect = screen.width() / screen.height().max(1.0);
+    let aspect = crate::editor::ViewRoom(screen).aspect();
     let orbit = match ed.scope {
         super::model::Scope::Level => &view.level,
         _ => &view.block,
@@ -313,7 +313,7 @@ const FAINT_POINTS_APART: f32 = 14.0;
 fn land_marks(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
     let screen = ui.ctx().content_rect();
     let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::unique("land marks"))).with_clip_rect(free);
-    let vp = view.view_proj(&view.level, screen.width() / screen.height().max(1.0));
+    let vp = view.view_proj(&view.level, crate::editor::ViewRoom(screen).aspect());
     let size = glam::Vec2::new(screen.width(), screen.height());
     let gold = ACCENT;
     let plain = Color32::from_rgb(150, 205, 235);

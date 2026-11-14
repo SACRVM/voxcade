@@ -913,7 +913,7 @@ fn land(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
 /// Where the handles lie on the screen (egui's points): the box round
 /// them, and the matrix and size they were made for.
 pub fn handles_on_screen(ed: &Editor, view: &View, screen: Rect) -> Option<(handles::Handles, glam::Mat4, Rect)> {
-    let vp = view.view_proj(&view.level, screen.width() / screen.height().max(1.0));
+    let vp = view.view_proj(&view.level, crate::editor::ViewRoom(screen).aspect());
     let h = ed.handles(vp, view.turn_mode(ed))?;
     let size = glam::Vec2::new(screen.width(), screen.height());
     let shapes = h.shapes(vp, size);

@@ -644,6 +644,14 @@ impl View {
         self.block = Orbit { yaw, pitch, zoom: (size.max_element() * 2.8).max(16.0), target: lo + size / 2.0, fov: g.fov };
     }
 
+    /// The pointer let go of the view: no press, no button held, no
+    /// rectangle being dragged (its let-go lost, the focus gone).
+    pub fn let_go(&mut self) {
+        self.press_at = None;
+        self.held = 0;
+        self.marquee = None;
+    }
+
     /// The view moved by hand: a level's GAME VIEW is the game's camera
     /// and ends; a figure's stays on (its light and outline), only the
     /// angle and the size the user's.

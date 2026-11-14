@@ -104,33 +104,56 @@ pub(crate) fn room_of(drawn: &panels::PanelsDrawn, screen: egui::Rect) -> (egui:
     (free, [(free.left() - screen.left()) / w, (free.top() - screen.top()) / h, (screen.right() - free.right()) / w, (screen.bottom() - free.bottom()) / h])
 }
 
+/// The window as the handles and the marks over the view see it, in
+/// egui's points: its size, the shape of the view drawn into it, a point
+/// of the mouse from its top left corner, a camera's matrix for it.
+#[derive(Clone, Copy)]
+pub(crate) struct ViewRoom(pub egui::Rect);
+
+impl ViewRoom {
+    pub fn size(self) -> glam::Vec2 {
+        glam::Vec2::new(self.0.width(), self.0.height())
+    }
+
+    pub fn aspect(self) -> f32 {
+        self.0.width() / self.0.height().max(1.0)
+    }
+
+    pub fn local(self, mouse: egui::Pos2) -> glam::Vec2 {
+        glam::Vec2::new(mouse.x - self.0.left(), mouse.y - self.0.top())
+    }
+
+    pub fn view_proj(self, view: &View, orbit: &view::Orbit) -> glam::Mat4 {
+        view.view_proj(orbit, self.aspect())
+    }
+}
+
 /// How near the mouse must be to the joint's ring to take it (points).
 pub(crate) const RING_GRAB: f32 = 9.0;
 
 /// Whether the mouse (egui's point) is on the chosen part's joint's ring
 /// (only the ring itself takes the mouse: around it the tools work).
-pub(crate) fn on_ring(ed: &Editor, view: &View, room: egui::Rect, mouse: egui::Pos2) -> bool {
-    let vp = view.view_proj(&view.block, room.width() / room.height().max(1.0));
+pub(crate) fn on_ring(ed: &Editor, view: &View, room: ViewRoom, mouse: egui::Pos2) -> bool {
     let Some(spot) = ed.joint_spot() else { return false };
-    handles::project(vp, glam::Vec2::new(room.width(), room.height()), spot).is_some_and(|(p, _)| p.distance(glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top())) <= RING_GRAB)
+    handles::project(room.view_proj(view, &view.block), room.size(), spot).is_some_and(|(p, _)| p.distance(room.local(mouse)) <= RING_GRAB)
 }
 
-/// SLICE's arrow under the mouse (egui's point): the grip, the handles,
-/// the view's matrix, the mouse in the room's pixels.
-fn slice_under(ed: &Editor, view: &View, room: egui::Rect, mouse: egui::Pos2) -> Option<(handles::Grip, handles::Handles, glam::Mat4, glam::Vec2)> {
-    let vp = view.view_proj(&view.block, room.width() / room.height().max(1.0));
-    let at = glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top());
-    let (grip, h) = ed.slice_grip(vp, glam::Vec2::new(room.width(), room.height()), at)?;
+/// A handle under the mouse (egui's point): the grip, the handles, the
+/// view's matrix, the mouse in the room's points.
+type Under = (handles::Grip, handles::Handles, glam::Mat4, glam::Vec2);
+
+/// SLICE's arrow under the mouse.
+fn slice_under(ed: &Editor, view: &View, room: ViewRoom, mouse: egui::Pos2) -> Option<Under> {
+    let (vp, at) = (room.view_proj(view, &view.block), room.local(mouse));
+    let (grip, h) = ed.slice_grip(vp, room.size(), at)?;
     Some((grip, h, vp, at))
 }
 
-/// The arrow of the chosen part under the mouse (egui's point): which,
-/// the handles, the view's matrix, the mouse in the room's pixels.
-fn joint_under(ed: &Editor, view: &View, room: egui::Rect, mouse: egui::Pos2) -> Option<(handles::Grip, handles::Handles, glam::Mat4, glam::Vec2)> {
-    let vp = view.view_proj(&view.block, room.width() / room.height().max(1.0));
+/// The arrow of the chosen part under the mouse.
+fn joint_under(ed: &Editor, view: &View, room: ViewRoom, mouse: egui::Pos2) -> Option<Under> {
+    let (vp, at) = (room.view_proj(view, &view.block), room.local(mouse));
     let h = ed.part_handles(vp)?;
-    let at = glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top());
-    let grip = h.grip_at(vp, glam::Vec2::new(room.width(), room.height()), at)?;
+    let grip = h.grip_at(vp, room.size(), at)?;
     Some((grip, h, vp, at))
 }
 
@@ -171,13 +194,6 @@ fn voxel_menu(ed: &Editor, view: &View, aspect: f32, sx: f32, sy: f32) -> Option
             }
         }
     }
-}
-
-/// The terrain's points on the screen: the level's camera for the room
-/// `room` (egui's points), its size, the mouse `at` within it.
-fn land_screen(view: &View, room: egui::Rect, at: egui::Pos2) -> (glam::Mat4, glam::Vec2, glam::Vec2) {
-    let vp = view.view_proj(&view.level, room.width() / room.height().max(1.0));
-    (vp, glam::Vec2::new(room.width(), room.height()), glam::Vec2::new(at.x - room.left(), at.y - room.top()))
 }
 
 /// Whether the tools work on the level's things.

@@ -315,9 +315,7 @@ impl EditorWindow {
     /// one step.
     pub fn mouse_up_elsewhere(&mut self) {
         self.view.up_since = None;
-        self.view.press_at = None;
-        self.view.held = 0;
-        self.view.marquee = None;
+        self.view.let_go();
         // The panels let go too (egui would hold the button down for good).
         self.input.release_buttons();
         if self.ed.drag_open() {
@@ -461,15 +459,8 @@ impl EditorWindow {
         let Self { win, ed, view, shown, figures, cfg, keys, rects, gui, input, steps_at_click, .. } = self;
         self.dirty = true;
         let aspect = wide as f32 / high.max(1) as f32;
-        let share = |x: f32, y: f32| (x / pw.max(1.0), y / ph.max(1.0));
-        // The mouse over the panels (or a list or picker of theirs open
-        // there) is theirs, not the 3D view's.
-        // (By where the mouse is now, not where egui last saw it: a click
-        // whose motion, press and release come at once is the view's.)
-        let over = |x: f32, y: f32| {
-            let p = input.point(x, y);
-            rects.iter().any(|r| r.contains(p)) || gui.egui_is_using_pointer() || gui.layer_id_at(p).is_some_and(|l| l.order != egui::Order::Background)
-        };
+        let share = |x: f32, y: f32| share((pw, ph), x, y);
+        let over = |x: f32, y: f32| over(gui, input, rects, x, y);
         match *event {
             Event::Quit { .. } | Event::Window { win_event: WindowEvent::CloseRequested, .. } => return false,
             Event::Window { win_event: WindowEvent::PixelSizeChanged(w, h), .. } => {
@@ -498,9 +489,7 @@ impl EditorWindow {
                     ed.end_drag(true);
                     ed.end_whole_stroke();
                 }
-                view.press_at = None;
-                view.held = 0;
-                view.marquee = None;
+                view.let_go();
             }
             // Another button while the left one drags: cancelled.
             Event::MouseButtonDown { mouse_btn: MouseButton::Right | MouseButton::Middle, .. } if ed.drag_open() => {
@@ -849,6 +838,21 @@ fn key_down(ed: &mut Editor, view: &mut View, keys: &[(char, view::Action)], key
     }
 }
 
+/// A point of the window (SDL's points) as shares of its size `(pw, ph)`:
+/// what the view's rays take.
+fn share((pw, ph): (f32, f32), x: f32, y: f32) -> (f32, f32) {
+    (x / pw.max(1.0), y / ph.max(1.0))
+}
+
+/// Whether the mouse at `x`, `y` (SDL's points) is over the panels (or a
+/// list or picker of theirs open there): then it is theirs, not the 3D
+/// view's. By where the mouse is now, not where egui last saw it: a click
+/// whose motion, press and release come at once is the view's.
+fn over(gui: &egui::Context, input: &crate::gui::input::Input, rects: &[egui::Rect], x: f32, y: f32) -> bool {
+    let p = input.point(x, y);
+    rects.iter().any(|r| r.contains(p)) || gui.egui_is_using_pointer() || gui.layer_id_at(p).is_some_and(|l| l.order != egui::Order::Background)
+}
+
 /// What an event of the window works on (`EditorWindow::handle`): the
 /// editor, its view and what they show, the panels as last drawn, the
 /// steps there were at the last click, the window's size in points and
@@ -875,14 +879,9 @@ impl<'a> Here<'a> {
     /// The mouse moved: the camera turned or moved, what is dragged
     /// follows, what lies under it lit.
     fn motion(self, mousestate: sdl3::mouse::MouseState, x: f32, y: f32, xrel: f32, yrel: f32, shift: bool) {
-        let Here { ed, view, shown, figures, gui, input, rects, size: (pw, ph), aspect, .. } = self;
-        let share = |x: f32, y: f32| (x / pw.max(1.0), y / ph.max(1.0));
-        // The mouse over the panels (or a list or picker of theirs open
-        // there) is theirs, not the 3D view's.
-        let over = |x: f32, y: f32| {
-            let p = input.point(x, y);
-            rects.iter().any(|r| r.contains(p)) || gui.egui_is_using_pointer() || gui.layer_id_at(p).is_some_and(|l| l.order != egui::Order::Background)
-        };
+        let Here { ed, view, shown, figures, gui, input, rects, size, aspect, .. } = self;
+        let share = |x: f32, y: f32| share(size, x, y);
+        let room = ViewRoom(gui.content_rect());
         // A button counts as held only if it went down in this
         // window's view and was not let go since (as the window
         // heard it): a motion carrying a button held from elsewhere
@@ -907,7 +906,7 @@ impl<'a> Here<'a> {
         {
             view.right_press = None;
         }
-        let over = over(x, y) && !left;
+        let over = over(gui, input, rects, x, y) && !left;
         // SELECT's rectangle follows the pointer.
         if let Some(m) = &mut view.marquee
             && left
@@ -923,29 +922,27 @@ impl<'a> Here<'a> {
         }
         if !ed.among_pieces() {
             let free = !(over || left);
-            view.slice_hover = free && slice_under(ed, view, gui.content_rect(), input.point(x, y)).is_some();
-            view.ring_hover = free && !view.slice_hover && on_ring(ed, view, gui.content_rect(), input.point(x, y));
-            view.grip_hover = if !free || view.ring_hover || view.slice_hover { None } else { joint_under(ed, view, gui.content_rect(), input.point(x, y)).map(|(g, ..)| g) };
+            view.slice_hover = free && slice_under(ed, view, room, input.point(x, y)).is_some();
+            view.ring_hover = free && !view.slice_hover && on_ring(ed, view, room, input.point(x, y));
+            view.grip_hover = if !free || view.ring_hover || view.slice_hover { None } else { joint_under(ed, view, room, input.point(x, y)).map(|(g, ..)| g) };
         }
         if ed.among_pieces() {
             let (origin, dir) = view.voxel_ray(aspect, sx, sy);
-            let room = gui.content_rect();
             let mouse = input.point(x, y);
             if left && ed.gripped().is_some() {
-                let vp = view.view_proj(&view.level, room.width() / room.height().max(1.0));
-                ed.drag_grip(vp, glam::Vec2::new(room.width(), room.height()), glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top()), (origin, dir));
+                ed.drag_grip(room.view_proj(view, &view.level), room.size(), room.local(mouse), (origin, dir));
             } else if left && ed.dragging().is_some() && view.press_at.is_none() {
                 ed.drag_item(origin, dir);
             } else if ed.pieces.hanging.is_some() {
                 ed.hang_at(if over { None } else { view::set_down_spot(ed, figures, &shown.world, origin, dir) });
             }
             let busy = over || ed.pieces.hanging.is_some() || left;
-            view.grip_hover = if busy { None } else { stage::grip_under(ed, view, room, mouse) };
+            view.grip_hover = if busy { None } else { stage::grip_under(ed, view, room.0, mouse) };
             view.over = if busy || view.grip_hover.is_some() { None } else { view::item_along(ed, figures, origin, dir) };
         } else if ed.among_land() {
             // The point under the mouse lit; a press held drags it
             // (POINTER) or brushes over the points (the others).
-            let (vp, size, m) = land_screen(view, gui.content_rect(), input.point(x, y));
+            let (vp, size, m) = (room.view_proj(view, &view.level), room.size(), room.local(input.point(x, y)));
             let p = if over { None } else { ed.point_at(vp, size, m) };
             ed.land.hover = p;
             ed.land.near = if over { None } else { ed.nearest_point(vp, size, m) };
@@ -959,21 +956,16 @@ impl<'a> Here<'a> {
             }
         } else if ed.slicing() && left {
             // SLICE's arrow dragged.
-            let room = gui.content_rect();
             let mouse = input.point(x, y);
-            let vp = view.view_proj(&view.block, room.width() / room.height().max(1.0));
-            let ray = view.ray(ed, aspect, sx, sy);
-            ed.drag_slice(vp, glam::Vec2::new(room.width(), room.height()), glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top()), ray);
+            ed.drag_slice(room.view_proj(view, &view.block), room.size(), room.local(mouse), view.ray(ed, aspect, sx, sy));
         } else if ed.joint_drag().is_some() && left {
             // A joint's arrow dragged.
-            let room = gui.content_rect();
             let mouse = input.point(x, y);
-            let vp = view.view_proj(&view.block, room.width() / room.height().max(1.0));
-            let ray = view.ray(ed, aspect, sx, sy);
+            let (vp, ray) = (room.view_proj(view, &view.block), view.ray(ed, aspect, sx, sy));
             // (Shift: finer, a tenth of a voxel, a degree.)
             ed.set_fine(shift);
             ed.selecting.sel_keep = view.only_empty;
-            ed.drag_joint(vp, glam::Vec2::new(room.width(), room.height()), glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top()), ray);
+            ed.drag_joint(vp, room.size(), room.local(mouse), ray);
             // (A part moved moves the grid shown: the view keeps the
             // figure still at once, for the next motion's ray.)
             view.follow_origin(ed);
@@ -998,8 +990,9 @@ impl<'a> Here<'a> {
     /// The left button down in the view: what the tool, the scope and
     /// what lies under it make of the press.
     fn left_down(self, clicks: u8, x: f32, y: f32, which: u32) {
-        let Here { ed, view, shown, figures, gui, input, steps_at_click, size: (pw, ph), aspect, .. } = self;
-        let share = |x: f32, y: f32| (x / pw.max(1.0), y / ph.max(1.0));
+        let Here { ed, view, shown, figures, gui, input, steps_at_click, size, aspect, .. } = self;
+        let share = |x: f32, y: f32| share(size, x, y);
+        let room = ViewRoom(gui.content_rect());
         view.held |= HELD_LEFT;
         // Where the press was (a drag moves things only once the
         // pointer has gone a few pixels), and whether a program's
@@ -1007,16 +1000,15 @@ impl<'a> Here<'a> {
         view.press_at = Some((x, y));
         view.synthetic_press = which == crate::ide::remote::SYNTHETIC;
         let (sx, sy) = share(x, y);
-        let sliced = if ed.among_pieces() { None } else { slice_under(ed, view, gui.content_rect(), input.point(x, y)) };
-        let ring = sliced.is_none() && !ed.among_pieces() && on_ring(ed, view, gui.content_rect(), input.point(x, y));
-        let joint = if ring || sliced.is_some() { None } else { joint_under(ed, view, gui.content_rect(), input.point(x, y)) };
+        let sliced = if ed.among_pieces() { None } else { slice_under(ed, view, room, input.point(x, y)) };
+        let ring = sliced.is_none() && !ed.among_pieces() && on_ring(ed, view, room, input.point(x, y));
+        let joint = if ring || sliced.is_some() { None } else { joint_under(ed, view, room, input.point(x, y)) };
         if !ed.among_pieces() {
             view.menu = None;
         }
         if let Some((grip, h, vp, mouse)) = sliced {
             // SLICE's arrow: dragged until let go.
-            let room = gui.content_rect();
-            if let Some(drag) = handles::Drag::begin(&h, grip, vp, glam::Vec2::new(room.width(), room.height()), mouse, view.ray(ed, aspect, sx, sy)) {
+            if let Some(drag) = handles::Drag::begin(&h, grip, vp, room.size(), mouse, view.ray(ed, aspect, sx, sy)) {
                 ed.grab_slice(drag, h);
             }
         } else if ring {
@@ -1025,8 +1017,7 @@ impl<'a> Here<'a> {
             ed.grab_joint(view.ray(ed, aspect, sx, sy), look);
         } else if let Some((grip, h, vp, mouse)) = joint {
             // The part's arrow: dragged until let go.
-            let room = gui.content_rect();
-            if let Some(drag) = handles::Drag::begin(&h, grip, vp, glam::Vec2::new(room.width(), room.height()), mouse, view.ray(ed, aspect, sx, sy)) {
+            if let Some(drag) = handles::Drag::begin(&h, grip, vp, room.size(), mouse, view.ray(ed, aspect, sx, sy)) {
                 ed.grab_part(drag, h);
             }
         } else if ed.tool == Tool::Select && ed.scope != Scope::Level {
@@ -1098,7 +1089,7 @@ impl<'a> Here<'a> {
                 let mode = if view.cut { model::selection::SelectMode::Add } else if view.only_empty { model::selection::SelectMode::Remove } else { ed.land.mode };
                 view.marquee = Some(view::Marquee { from: [sx, sy], to: [sx, sy], mode });
             } else {
-                let (vp, size, m) = land_screen(view, gui.content_rect(), input.point(x, y));
+                let (vp, size, m) = (room.view_proj(view, &view.level), room.size(), room.local(input.point(x, y)));
                 let p = ed.point_at(vp, size, m);
                 ed.land_press(p, view.voxel_ray(aspect, sx, sy));
             }
@@ -1108,7 +1099,6 @@ impl<'a> Here<'a> {
             // be dragged (nothing: none chosen, the level shown); a
             // double click opens a piece's model.
             let (origin, dir) = view.voxel_ray(aspect, sx, sy);
-            let room = gui.content_rect();
             let mouse = input.point(x, y);
             view.menu = None;
             let picked = view::pick_along(ed, figures, origin, dir);
@@ -1127,8 +1117,8 @@ impl<'a> Here<'a> {
                     ed.choose_item(Some(item));
                     ed.edit_model();
                 }
-            } else if let (Some(grip), Some((h, vp, _))) = (stage::grip_under(ed, view, room, mouse), stage::handles_on_screen(ed, view, room)) {
-                ed.grab(grip, h, vp, glam::Vec2::new(room.width(), room.height()), glam::Vec2::new(mouse.x - room.left(), mouse.y - room.top()), (origin, dir));
+            } else if let (Some(grip), Some((h, vp, _))) = (stage::grip_under(ed, view, room.0, mouse), stage::handles_on_screen(ed, view, room.0)) {
+                ed.grab(grip, h, vp, room.size(), room.local(mouse), (origin, dir));
             } else {
                 ed.press_item(picked.map(|(item, _)| item), origin, dir);
                 ed.choose_light(picked.and_then(|(_, light)| light));
@@ -1188,8 +1178,8 @@ impl<'a> Here<'a> {
     /// The right button let go among the pieces, without a drag: the menu
     /// of what is under the mouse, or of the floor there.
     fn right_up(self, x: f32, y: f32) {
-        let Here { ed, view, shown, figures, gui, input, size: (pw, ph), aspect, .. } = self;
-        let share = |x: f32, y: f32| (x / pw.max(1.0), y / ph.max(1.0));
+        let Here { ed, view, shown, figures, gui, input, size, aspect, .. } = self;
+        let share = |x: f32, y: f32| share(size, x, y);
         view.held &= !HELD_RIGHT;
         if view.right_press.take().is_some() && ed.among_pieces() && ed.pieces.hanging.is_none() {
             let (sx, sy) = share(x, y);

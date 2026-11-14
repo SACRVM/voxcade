@@ -131,7 +131,7 @@ fn part_bar(ui: &mut egui::Ui, ed: &Editor, free: Rect, view: &View, shown: &mut
     }
     let Some(p) = ed.figure.as_ref().and_then(|f| f.selected).filter(|_| ed.part_mode().is_some() && ed.joint_drag().is_none() && ed.forms.drawing.is_none() && !ed.rigging.posing) else { return };
     let screen = ui.ctx().content_rect();
-    let vp = view.view_proj(&view.block, screen.width() / screen.height().max(1.0));
+    let vp = view.view_proj(&view.block, crate::editor::ViewRoom(screen).aspect());
     let Some(h) = ed.part_handles(vp) else { return };
     let size = glam::Vec2::new(screen.width(), screen.height());
     // Clear of the arrows (MOVE) and the rings (ROTATE) alike, and of the
