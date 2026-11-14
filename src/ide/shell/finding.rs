@@ -159,15 +159,12 @@ impl Shell {
     /// A line the project search found: its file open at it, the keys in
     /// the text, the word found there current in the find row.
     pub(super) fn go_to_hit(&mut self, file: &str, line: usize) {
-        self.hide_game();
-        self.help = false;
-        self.open(file);
+        self.show_at(file, line);
         // A model's or a level's line shows in its text.
         if (file.ends_with(".vvx") || self.is_level(file)) && !self.pictures.model_text {
             self.flush();
             self.model_as_text();
         }
-        self.opening.goto = Some((line, true));
         self.find.word = self.search.word.clone();
         self.find.match_case = self.search.match_case;
         self.find.shown = true;

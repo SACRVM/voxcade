@@ -19,11 +19,7 @@ impl Shell {
                 self.show_output();
             }
             if let (true, Some((file, line))) = (go, at) {
-                self.hide_game();
-                self.help = false;
-                self.outside = None;
-                self.open(&file);
-                self.opening.goto = Some((line, true));
+                self.show_at(&file, line);
             }
         }
         self.main_area(ui);
@@ -367,10 +363,7 @@ impl Shell {
         });
         self.memory.scroll.insert(path, out.state.clamped_offset().y);
         if let Some((file, line)) = go_used {
-            self.hide_game();
-            self.help = false;
-            self.open(&file);
-            self.opening.goto = Some((line, true));
+            self.show_at(&file, line);
         }
     }
 

@@ -616,6 +616,24 @@ impl Shell {
         self.opening.goto = line.map(|l| (l, false));
     }
 
+    /// Shows the file `path` at `line`, its text taking the keys (a line
+    /// clicked: an error's, a place that names a sound, a search's hit),
+    /// the game held still and HELP put away.
+    pub(super) fn show_at(&mut self, path: &str, line: usize) {
+        self.hide_game();
+        self.help = false;
+        self.open(path);
+        self.opening.goto = Some((line, true));
+    }
+
+    /// Shows the file `path` the IDE just made, its text taking the keys.
+    pub(super) fn show_made(&mut self, path: &str) {
+        self.rescan();
+        self.open(path);
+        self.back_to_file();
+        self.help = false;
+    }
+
     /// A path clicked in the console (resolved by it: an existing file,
     /// inside the game folder or a picture): a file of the game opens as a
     /// click in the list opens it, at `line` if given; a picture from

@@ -21,10 +21,7 @@ impl Shell {
             _ => crate::editor::frames::ModelFile::begun(&full).save().map(drop),
         });
         made.map_err(|e| format!("{path}: {e:#}"))?;
-        self.rescan();
-        self.open(&path);
-        self.back_to_file();
-        self.help = false;
+        self.show_made(&path);
         Ok(path)
     }
 
@@ -49,10 +46,7 @@ impl Shell {
         let full = self.dir.join(&path);
         let made = std::fs::create_dir_all(full.parent().unwrap_or(&self.dir)).map_err(anyhow::Error::from).and_then(|()| Ok(std::fs::write(&full, level.to_text())?));
         made.map_err(|e| format!("{path}: {e:#}"))?;
-        self.rescan();
-        self.open(&path);
-        self.back_to_file();
-        self.help = false;
+        self.show_made(&path);
         self.edits.push(path.clone());
         Ok(path)
     }

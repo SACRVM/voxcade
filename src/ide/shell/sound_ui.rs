@@ -90,11 +90,7 @@ impl Shell {
                 return self.tell(format!("{path}: {e}"));
             }
         }
-        self.rescan();
-        self.sound.builtin = None;
-        self.unload();
-        self.open(&path);
-        self.back_to_file();
+        self.show_made(&path);
     }
 
     /// Where the game's code names the sound `name`, looked for afresh when
@@ -157,10 +153,7 @@ impl Shell {
             self.make_it_yours(name);
         }
         if let Some((file, line)) = go {
-            self.sound.builtin = None;
-            self.hide_game();
-            self.open(&file);
-            self.opening.goto = Some((line, true));
+            self.show_at(&file, line);
         }
     }
 
