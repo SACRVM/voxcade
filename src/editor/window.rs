@@ -659,7 +659,7 @@ impl EditorWindow {
         view.follow_origin(ed);
         ed.slice_toward(view.block_eye(aspect));
         figures.follow(&ed.dir, ed);
-        ed.pieces.sizes = figures.sizes();
+        figures.keep_sizes(&mut ed.pieces.sizes);
         view.aspect = aspect;
         let out = gui.run_ui(raw, |ui| {
             drawn = panels::ui(ui, ed, view, figures, thumbs);

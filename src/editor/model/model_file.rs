@@ -108,7 +108,7 @@ impl Editor {
     /// The model's frames and a figure's parts as they stand.
     /// The model as a step keeps it: the newest a step keeps, shared,
     /// while the model still stands so; else a copy.
-    pub(super) fn shaped(&self) -> Arc<Shaped> {
+    pub(crate) fn shaped(&self) -> Arc<Shaped> {
         match (&self.model, &self.history.model_now) {
             (Some(m), Some(now)) if m.is(now) => Arc::clone(now),
             (m, _) => Arc::new(m.as_ref().map_or_else(Shaped::default, ModelFile::shaped)),

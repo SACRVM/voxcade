@@ -1211,8 +1211,13 @@ impl Editor {
     /// The game's models a piece can be made of, by their paths in the
     /// game folder (folders first, then names, in natural order): every
     /// `.vvx` but the blocks, the levels, the builds and the game's worlds
-    /// and prefabs.
-    pub fn model_choices(&self) -> Vec<String> {
+    /// and prefabs. Kept until the editor looks at the disk again (once a
+    /// second, `look_at_disk`): the panels ask for them every frame.
+    pub fn model_choices(&self) -> std::rc::Rc<[String]> {
+        self.pieces.choices.borrow_mut().get_or_insert_with(|| self.find_model_choices().into()).clone()
+    }
+
+    fn find_model_choices(&self) -> Vec<String> {
         fn walk(dir: &std::path::Path, from: &str, out: &mut Vec<String>) {
             let Ok(entries) = std::fs::read_dir(dir) else { return };
             for e in entries.flatten() {
@@ -1234,12 +1239,14 @@ impl Editor {
         let mut out = Vec::new();
         walk(&self.dir, "", &mut out);
         out.retain(|f| !self.pieces.scenes.contains(f));
-        out.sort_by(|a, b| {
-            let folder = |p: &str| p.rsplit_once('/').map_or(String::new(), |(f, _)| f.to_string());
-            folder(a).cmp(&folder(b)).then_with(|| crate::levels::natural(a, b))
-        });
+        out.sort_by(|a, b| folder_of(a).cmp(folder_of(b)).then_with(|| crate::levels::natural(a, b)));
         out
     }
+}
+
+/// The folder a path in the game folder lies in ("" at the top).
+fn folder_of(path: &str) -> &str {
+    path.rsplit_once('/').map_or("", |(f, _)| f)
 }
 
 /// The facing an angle gives: within `SNAP` of a quarter turn (or always
@@ -2008,7 +2015,7 @@ mod tests {
             std::fs::write(dir.join(f), "").unwrap();
         }
         ed.pieces.scenes = vec!["world.vvx".into()];
-        assert_eq!(ed.model_choices(), ["hero.vvx", "room/lamp.vvx", "room/stove.vvx"]);
+        assert_eq!(ed.model_choices()[..], ["hero.vvx", "room/lamp.vvx", "room/stove.vvx"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

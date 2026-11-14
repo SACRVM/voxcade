@@ -387,7 +387,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     // With --held or --stamp twice: the shape set, then all drawn again.
     let again = opts.stamp || opts.held.is_some() || opts.menu.is_some() || opts.hover.is_some() || opts.click.is_some() || opts.marquee.is_some();
     for pass in 0..=again as usize {
-        ed.pieces.sizes = figures.sizes();
+        figures.keep_sizes(&mut ed.pieces.sizes);
         let out = settle(&ctx, &mut input, [opts.width, opts.height], pass, |ui| {
             drawn = panels::ui(ui, &ed, &view, &figures, &mut thumbs);
             let free = room_of(&drawn, ui.ctx().content_rect()).0;
@@ -623,7 +623,7 @@ fn try_pieces(dir: &Path, ed: &mut Editor, figures: &mut Figures, opts: &ShotOpt
     }
     for op in &opts.ops {
         figures.follow(dir, ed);
-        ed.pieces.sizes = figures.sizes();
+        figures.keep_sizes(&mut ed.pieces.sizes);
         try_op(ed, figures, op)?;
         figures.follow(dir, ed);
     }

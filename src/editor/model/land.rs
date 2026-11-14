@@ -679,7 +679,7 @@ impl Editor {
 
     /// SCATTER's plus: a rule more, the game's first model, firs' numbers.
     pub fn add_scatter(&mut self) {
-        let model = self.model_choices().into_iter().next().unwrap_or_else(|| "tree.vvx".into());
+        let model = self.model_choices().first().cloned().unwrap_or_else(|| "tree.vvx".into());
         self.change(None, |l| {
             if let Some(t) = l.terrain.as_mut() {
                 t.scatter.push(crate::terrain::Scatter { apart: Some(12), flatter: Some(30.0), ..crate::terrain::Scatter::new(&model) });

@@ -120,6 +120,7 @@ impl Editor {
     /// second, when the window gets the focus): one that did is read anew,
     /// a drag going on let go of; one gone is said. Whether anything came.
     pub fn look_at_disk(&mut self) -> bool {
+        self.pieces.choices.take();
         if self.dry {
             return false;
         }

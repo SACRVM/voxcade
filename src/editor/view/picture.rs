@@ -135,23 +135,21 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     let mut through = Vec::new();
     let mut drawn = (Vec::new(), Arc::<crate::render::ModelBank>::default(), [0.0; 4]);
     let game_view = view.before_game.is_some() && ed.scope != Scope::Level;
-    // (The figure as the game holds it is made only in GAME VIEW: made on
-    // every frame it cost a big figure a frame's time and more.)
+    // (The figure as the game holds it is made only in GAME VIEW, and kept
+    // until the model changes: made on every frame it cost a big figure a
+    // frame's time and more.)
     if let (true, Some(figure), Some((lo, _))) = (game_view, &ed.figure, ed.figure_box())
-        && let Some(Ok((mut model, ..))) = ed.model.as_ref().and_then(|m| m.figure())
+        && let Some((model, bank)) = shown.game_view_model(ed, light)
     {
         // GAME VIEW: the figure as the game draws it: shaded as the game
         // shades it, from a model bank (outlined), posed while POSE is lit,
         // facing the way the game shows it.
-        model.shade(light.model_shading_for.get(&ed.file).copied().unwrap_or(light.model_shading), light.edge_tolerance);
-        let mut bank = crate::render::ModelBank::default();
-        bank.add(&mut model);
         let s = model.size;
         let origin = (lo + IVec3::new(s.x / 2, s.y / 2, 0)).as_vec3();
         let look = view.face.look();
         let mut draws = Vec::new();
         crate::session::model_drawn(&model, origin, look, &figure.pose, &mut draws, &mut through);
-        drawn = (draws, Arc::new(bank), view.outline);
+        drawn = (draws, bank, view.outline);
     } else if let (Some(figure), Some((lo, _))) = (&ed.figure, ed.figure_box()) {
         let start = instances.len();
         // (A stroke from the figure whole dims nothing.)
@@ -176,13 +174,6 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         crate::render::hide_inner_faces(&mut instances[start..]);
         let world = &shown.world;
         crate::render::hide_faces_against(&mut instances[start..], |c| c.cmpge(IVec3::ZERO).all() && c.cmplt(world.size).all() && world.get(c) != 0);
-    }
-    // The level round a model shaped in place, faint (`context.rs`): drawn
-    // before everything else (`FrameData::behind`), so the model, drawn
-    // after it, always lies over it in its own colors.
-    let mut room = Vec::new();
-    if matches!(ed.scope, Scope::Frame(_) | Scope::Figure) && !game_view {
-        room = shown.room(ed, figures, seen, eye, grid);
     }
     // The pieces' glass joined too, as the game joins it: one body, not a
     // grid of every cube's faces blended over each other.
@@ -286,11 +277,10 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         see_through = through.len();
         instances.extend(through);
     }
-    let behind = room.len();
-    if behind > 0 {
-        room.extend(instances);
-        instances = room;
-    }
+    // The level round a model shaped in place, faint (`context.rs`): drawn
+    // before everything else (`FrameData::behind`), so the model, drawn
+    // after it, always lies over it in its own colors.
+    let behind = if matches!(ed.scope, Scope::Frame(_) | Scope::Figure) && !game_view { shown.room_before(ed, figures, seen, eye, grid, &mut instances) } else { 0 };
     // The cubes only casting, after the opaque ones (`FrameData::cast_only`).
     let cast_only = cast.len();
     let at = instances.len() - see_through;

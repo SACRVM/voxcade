@@ -603,6 +603,9 @@ pub struct Pieces {
     /// their models' files; those without a behavior (only they face as
     /// the file turns them); those that turn freely (`rotates = "free"`).
     pub kind_models: std::collections::BTreeMap<String, String>,
+    /// The game's models a piece can be made of (`Editor::model_choices`),
+    /// as last found.
+    choices: std::cell::RefCell<Option<std::rc::Rc<[String]>>>,
     pub still_kinds: std::collections::BTreeSet<String>,
     pub free_kinds: std::collections::BTreeSet<String>,
 }

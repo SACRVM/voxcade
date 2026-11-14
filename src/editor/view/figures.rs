@@ -123,6 +123,14 @@ impl Figures {
         self.models.iter().map(|(f, m)| (f.clone(), m.size)).collect()
     }
 
+    /// `sizes()` kept in `sizes`: made anew only when models came (they
+    /// only ever come, never change), not on every frame.
+    pub fn keep_sizes(&self, sizes: &mut BTreeMap<String, IVec3>) {
+        if sizes.len() != self.models.len() {
+            *sizes = self.sizes();
+        }
+    }
+
     /// The model of the file `model` (its path in the game folder), if it
     /// was loaded (`with_pieces`, `load_models`).
     pub fn model(&self, model: &str) -> Option<&crate::vox::VoxModel> {
