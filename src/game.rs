@@ -113,15 +113,24 @@ impl Local {
     }
 }
 
+/// A game the engine plays (`docs/engine.md`, "The game API"): a Rust
+/// game gives `Snapshot`, `load`, `snapshot`, `restore`, `sim`, `sim_mut`,
+/// `step` and `state_hash`; the rest has a default, most of it for what
+/// only a game of a script has (the Lua door, `LuaGame`).
 pub trait Game: Sized + 'static {
-    /// Its whole state as it stands at a tick (`Game::snapshot`).
-    type Snapshot;
+    // What a game is by its config, asked before it exists.
 
     /// Sets its config, starting from the engine's defaults: the
     /// `conf.lua` in its folder (`function conf(c) ... end`), if there is
     /// one; a Rust game may set it in code instead.
     fn conf(files: &crate::files::Files, cfg: &mut GameConfig) -> Result<()> {
         crate::lua::conf::run(files, cfg)
+    }
+
+    /// The file in its folder its config comes from, read anew when it
+    /// changes (none: the config is the game's Rust code).
+    fn config_file() -> Option<&'static str> {
+        Some("conf.lua")
     }
 
     /// The sections it adds to the config besides the engine's (they are
@@ -172,6 +181,11 @@ pub trait Game: Sized + 'static {
         Ok(None)
     }
 
+    // The simulation: made, kept, brought back, stepped, hashed.
+
+    /// Its whole state as it stands at a tick (`Game::snapshot`).
+    type Snapshot;
+
     /// Makes it from its folder.
     fn load(setup: Setup) -> Result<Self>;
 
@@ -191,10 +205,49 @@ pub trait Game: Sized + 'static {
         Vec::new()
     }
 
-    /// The file in its folder its config comes from, read anew when it
-    /// changes (none: the config is the game's Rust code).
-    fn config_file() -> Option<&'static str> {
-        Some("conf.lua")
+    /// The engine's core it steps (the world, debris, sounds, the camera).
+    fn sim(&self) -> &Sim;
+
+    fn sim_mut(&mut self) -> &mut Sim;
+
+    /// One tick, with the keys held.
+    fn step(&mut self, input: &Input);
+
+    /// Its state as one number, the same on every machine for the same run
+    /// (replays check it every second): take in everything that carries the
+    /// game forward, the core's with it.
+    fn state_hash(&self) -> u64;
+
+    /// The state hash by its parts, in the order it takes them in: each
+    /// part's name and the hash after it, the last `state_hash` itself.
+    /// Two machines whose games ran apart learn where from the first part
+    /// that differs (`docs/multiplayer.md`, "Desyncs").
+    fn state_sections(&self) -> Vec<(&'static str, u64)> {
+        vec![("game", self.state_hash())]
+    }
+
+    // What is drawn, followed and heard (only looked at).
+
+    /// What it draws besides the world and the debris: its models, cubes,
+    /// lights (`Drawing`).
+    fn draw(&self, _out: &mut Drawing) {}
+
+    /// Its HUD: voxels in the UI's scene (`ui`'s text and icons).
+    fn hud(&self, _cfg: &UiConfig, _alpha: f32, _aspect: f32, _font: Option<&DisplayFont>) -> Vec<Instance> {
+        Vec::new()
+    }
+
+    /// The body the camera keeps on screen: with `[camera] snap` the view
+    /// sits on its drawn voxel.
+    fn focus(&self) -> Option<&Body> {
+        None
+    }
+
+    /// The bodies the camera keeps together on one screen, the first its
+    /// anchor (several players: the middle of their span, `Session::view_target`);
+    /// the focus alone unless said.
+    fn focus_group(&self) -> Vec<&Body> {
+        self.focus().into_iter().collect()
     }
 
     /// Whether the game sets its sun as it runs (`frame:daylight`): its
@@ -223,25 +276,141 @@ pub trait Game: Sized + 'static {
         Vec::new()
     }
 
+    /// How loud and how muffled the game asks its song to sound while it
+    /// plays (`music:volume`, `music:muffle`), whichever song plays: only
+    /// heard, in no hash.
+    fn music_mix(&self) -> crate::audio::music::Mix {
+        crate::audio::music::Mix::default()
+    }
+
+    /// A step of its music's clock alone, while a level change fades (no
+    /// tick runs then; the song plays on): as a tick's, the glides too.
+    fn music_step(&mut self) {}
+
+    /// The change of song asked and the crossfade of the last
+    /// (`MusicSwitch`).
+    fn music_switch(&self) -> MusicSwitch {
+        MusicSwitch::default()
+    }
+
+    /// The song it plays of its own choice and how far in (None: the
+    /// player's, as the settings chose it).
+    fn music(&self) -> Option<MusicCue> {
+        None
+    }
+
+    /// The songs of `c.audio.music` changed (a song or the list edited).
+    fn set_songs(&mut self, _songs: &[crate::audio::music::Timing]) {}
+
+    /// Whether it reads or picks its music (its code names `music` or
+    /// `on_beat`): the songs' beats are then part of its data.
+    fn uses_music(&self) -> bool {
+        false
+    }
+
+    /// How hard and how long (ms) gamepads rumble after this tick.
+    fn rumble(&self) -> Option<(f32, u32)> {
+        None
+    }
+
+    // How the run ends and what it scored.
+
+    /// Won or lost, once it is.
+    fn outcome(&self) -> Option<Outcome> {
+        None
+    }
+
+    /// It keeps a score (the title shows the high score) and what it is.
+    fn scored(&self) -> bool {
+        false
+    }
+
+    fn score(&self) -> u32 {
+        0
+    }
+
+    /// The lines a run gives the high score table, with whose they are (a
+    /// game of several players: each player's own, or the team's in one,
+    /// `c.team_score`): seat and score.
+    fn scores(&self) -> Vec<(usize, u32)> {
+        vec![(1, self.score())]
+    }
+
+    /// One line on how it goes (the window's title, `shot`).
+    fn summary(&self) -> Option<String> {
+        None
+    }
+
+    // Its files changed while playing (hot reload).
+
     /// A file of its code changed while it runs: takes it in, keeping the
     /// game's state; whether the file was its code.
     fn reload_code(&mut self, _files: &crate::files::Files, _file: &Path) -> Result<bool> {
         Ok(false)
     }
 
-    /// The values its code keeps outside its state (a Lua game: the locals
-    /// of `main.lua` its functions keep), by name, each as one number:
-    /// `voxcade check` names those that changed when the game runs
-    /// differently from a snapshot.
-    fn hidden(&self) -> Vec<(String, u64)> {
+    /// Its config changed while it runs.
+    fn apply_config(&mut self, cfg: &GameConfig) -> Result<()> {
+        self.sim_mut().apply_config(cfg);
+        Ok(())
+    }
+
+    /// A sound file came or went while it runs (`cfg.sounds` has the
+    /// game's sounds now): a game that checks sounds by name knows the new
+    /// names. A mistake (a kind's sound gone) keeps the old.
+    fn sounds_changed(&mut self, _cfg: &GameConfig) -> Result<()> {
+        Ok(())
+    }
+
+    /// Levels read anew (a level file saved while playing) the game can
+    /// take: a mistake keeps the levels it plays (as one at the load would
+    /// stop it). By default every one.
+    fn check_levels(&self, _levels: &crate::levels::Levels) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// The levels were read anew (a level file saved while playing): by
+    /// default the first one replaces the world.
+    fn replace_levels(&mut self, levels: std::sync::Arc<crate::levels::Levels>) {
+        let first = &levels.list[0];
+        self.replace_world(first.world.clone(), &first.markers);
+    }
+
+    /// The level changed while it runs.
+    fn replace_world(&mut self, world: World, _markers: &[Marker]) {
+        self.sim_mut().replace_world(world);
+    }
+
+    /// The level being played as a mark that moves on whenever a level is
+    /// entered, the same one again too (a restart): a level's models are
+    /// seen to then (`level_models`). From the game's state, so a state
+    /// brought back brings its mark back.
+    fn level_mark(&self) -> u64 {
+        0
+    }
+
+    /// The model files the level being played names (its pieces'): loaded
+    /// as it is entered and kept while it is played; other models a game
+    /// only draws are let go when it leaves (`Session::enter_level`).
+    fn level_models(&self) -> Vec<String> {
         Vec::new()
     }
 
-    /// Its things and state as JSON for tools (`voxcade inspect`, the MCP
-    /// tool `things`); nothing by default.
-    fn inspect(&self) -> serde_json::Value {
-        serde_json::Value::Null
+    /// A model file came or changed: a drawing that stopped for want of it
+    /// (`frame:model` naming a file not there yet) is tried again. Whether
+    /// one had stopped.
+    fn models_came(&mut self) -> bool {
+        false
     }
+
+    /// Its models changed while it runs.
+    fn reshape(&mut self, _models: &Models) {}
+
+    /// Puts the player at (x, y) as if it started there (`shot --at`).
+    fn place_player(&mut self, _x: f32, _y: f32) {}
+
+    // A game with a script's run course (the Lua door's): a halt, levels left,
+    // the run's end, saves.
 
     /// What stopped it (a script's error: where and what); it waits until
     /// that is mended (`reload_code`).
@@ -295,6 +464,9 @@ pub trait Game: Sized + 'static {
         anyhow::bail!("this game does not load saves")
     }
 
+    // Looking in and trying it late: scenarios, the console, what `shot`,
+    // `inspect` and `check` print.
+
     /// The scenarios a run may begin from (`scenarios/NAME.lua`,
     /// `docs/game-model.md`): each one's name and what it is about.
     fn scenarios(&mut self) -> Result<Vec<(String, String)>> {
@@ -314,6 +486,38 @@ pub trait Game: Sized + 'static {
         anyhow::bail!("this game has no console")
     }
 
+    /// What its script printed since last asked (the IDE's OUTPUT).
+    fn printed(&mut self) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// Its things and state as JSON for tools (`voxcade inspect`, the MCP
+    /// tool `things`); nothing by default.
+    fn inspect(&self) -> serde_json::Value {
+        serde_json::Value::Null
+    }
+
+    /// The values its code keeps outside its state (a Lua game: the locals
+    /// of `main.lua` its functions keep), by name, each as one number:
+    /// `voxcade check` names those that changed when the game runs
+    /// differently from a snapshot.
+    fn hidden(&self) -> Vec<(String, u64)> {
+        Vec::new()
+    }
+
+    /// Its kinds and weapons with the numbers in effect, a line each as
+    /// `conf.lua` would write them (`voxcade kinds`): defaults included.
+    fn numbers(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// Lines `shot` prints about it.
+    fn report(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    // The machine and the seats: who plays with what, and the save slots.
+
     /// What the player plays with from the next tick on
     /// (`Session::set_controls`): input like the keys, never game state.
     fn set_controls(&mut self, _controls: &crate::controls::Controls) {}
@@ -329,185 +533,4 @@ pub trait Game: Sized + 'static {
 
     /// What lies in its save slots now, and the saves (after a save).
     fn set_slots(&mut self, _slots: Vec<Option<crate::saves::SlotInfo>>, _texts: std::collections::BTreeMap<u32, std::sync::Arc<str>>) {}
-
-    /// What its script printed since last asked (the IDE's OUTPUT).
-    fn printed(&mut self) -> Vec<String> {
-        Vec::new()
-    }
-
-    /// The engine's core it steps (the world, debris, sounds, the camera).
-    fn sim(&self) -> &Sim;
-    fn sim_mut(&mut self) -> &mut Sim;
-
-    /// One tick, with the keys held.
-    fn step(&mut self, input: &Input);
-
-    /// Its state as one number, the same on every machine for the same run
-    /// (replays check it every second): take in everything that carries the
-    /// game forward, the core's with it.
-    fn state_hash(&self) -> u64;
-
-    /// The state hash by its parts, in the order it takes them in: each
-    /// part's name and the hash after it, the last `state_hash` itself.
-    /// Two machines whose games ran apart learn where from the first part
-    /// that differs (`docs/multiplayer.md`, "Desyncs").
-    fn state_sections(&self) -> Vec<(&'static str, u64)> {
-        vec![("game", self.state_hash())]
-    }
-
-    /// What it draws besides the world and the debris: its models, cubes,
-    /// lights (`Drawing`).
-    fn draw(&self, _out: &mut Drawing) {}
-
-    /// Its HUD: voxels in the UI's scene (`ui`'s text and icons).
-    fn hud(&self, _cfg: &UiConfig, _alpha: f32, _aspect: f32, _font: Option<&DisplayFont>) -> Vec<Instance> {
-        Vec::new()
-    }
-
-    /// The body the camera keeps on screen: with `[camera] snap` the view
-    /// sits on its drawn voxel.
-    fn focus(&self) -> Option<&Body> {
-        None
-    }
-
-    /// The bodies the camera keeps together on one screen, the first its
-    /// anchor (several players: the middle of their span, `Session::view_target`);
-    /// the focus alone unless said.
-    fn focus_group(&self) -> Vec<&Body> {
-        self.focus().into_iter().collect()
-    }
-
-    /// Won or lost, once it is.
-    fn outcome(&self) -> Option<Outcome> {
-        None
-    }
-
-    /// It keeps a score (the title shows the high score) and what it is.
-    fn scored(&self) -> bool {
-        false
-    }
-
-    fn score(&self) -> u32 {
-        0
-    }
-
-    /// The lines a run gives the high score table, with whose they are (a
-    /// game of several players: each player's own, or the team's in one,
-    /// `c.team_score`): seat and score.
-    fn scores(&self) -> Vec<(usize, u32)> {
-        vec![(1, self.score())]
-    }
-
-    /// How loud and how muffled the game asks its song to sound while it
-    /// plays (`music:volume`, `music:muffle`), whichever song plays: only
-    /// heard, in no hash.
-    fn music_mix(&self) -> crate::audio::music::Mix {
-        crate::audio::music::Mix::default()
-    }
-
-    /// A step of its music's clock alone, while a level change fades (no
-    /// tick runs then; the song plays on): as a tick's, the glides too.
-    fn music_step(&mut self) {}
-
-    /// The change of song asked and the crossfade of the last
-    /// (`MusicSwitch`).
-    fn music_switch(&self) -> MusicSwitch {
-        MusicSwitch::default()
-    }
-
-    /// The song it plays of its own choice and how far in (None: the
-    /// player's, as the settings chose it).
-    fn music(&self) -> Option<MusicCue> {
-        None
-    }
-
-    /// The songs of `c.audio.music` changed (a song or the list edited).
-    fn set_songs(&mut self, _songs: &[crate::audio::music::Timing]) {}
-
-    /// Whether it reads or picks its music (its code names `music` or
-    /// `on_beat`): the songs' beats are then part of its data.
-    fn uses_music(&self) -> bool {
-        false
-    }
-
-    /// How hard and how long (ms) gamepads rumble after this tick.
-    fn rumble(&self) -> Option<(f32, u32)> {
-        None
-    }
-
-    /// One line on how it goes (the window's title, `shot`).
-    fn summary(&self) -> Option<String> {
-        None
-    }
-
-    /// Its kinds and weapons with the numbers in effect, a line each as
-    /// `conf.lua` would write them (`voxcade kinds`): defaults included.
-    fn numbers(&self) -> Vec<String> {
-        Vec::new()
-    }
-
-    /// Lines `shot` prints about it.
-    fn report(&self) -> Vec<String> {
-        Vec::new()
-    }
-
-    /// Puts the player at (x, y) as if it started there (`shot --at`).
-    fn place_player(&mut self, _x: f32, _y: f32) {}
-
-    /// A sound file came or went while it runs (`cfg.sounds` has the
-    /// game's sounds now): a game that checks sounds by name knows the new
-    /// names. A mistake (a kind's sound gone) keeps the old.
-    fn sounds_changed(&mut self, _cfg: &GameConfig) -> Result<()> {
-        Ok(())
-    }
-
-    /// Its config changed while it runs.
-    fn apply_config(&mut self, cfg: &GameConfig) -> Result<()> {
-        self.sim_mut().apply_config(cfg);
-        Ok(())
-    }
-
-    /// Levels read anew (a level file saved while playing) the game can
-    /// take: a mistake keeps the levels it plays (as one at the load would
-    /// stop it). By default every one.
-    fn check_levels(&self, _levels: &crate::levels::Levels) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    /// The levels were read anew (a level file saved while playing): by
-    /// default the first one replaces the world.
-    fn replace_levels(&mut self, levels: std::sync::Arc<crate::levels::Levels>) {
-        let first = &levels.list[0];
-        self.replace_world(first.world.clone(), &first.markers);
-    }
-
-    /// The level changed while it runs.
-    fn replace_world(&mut self, world: World, _markers: &[Marker]) {
-        self.sim_mut().replace_world(world);
-    }
-
-    /// The level being played as a mark that moves on whenever a level is
-    /// entered, the same one again too (a restart): a level's models are
-    /// seen to then (`level_models`). From the game's state, so a state
-    /// brought back brings its mark back.
-    fn level_mark(&self) -> u64 {
-        0
-    }
-
-    /// The model files the level being played names (its pieces'): loaded
-    /// as it is entered and kept while it is played; other models a game
-    /// only draws are let go when it leaves (`Session::enter_level`).
-    fn level_models(&self) -> Vec<String> {
-        Vec::new()
-    }
-
-    /// A model file came or changed: a drawing that stopped for want of it
-    /// (`frame:model` naming a file not there yet) is tried again. Whether
-    /// one had stopped.
-    fn models_came(&mut self) -> bool {
-        false
-    }
-
-    /// Its models changed while it runs.
-    fn reshape(&mut self, _models: &Models) {}
 }
