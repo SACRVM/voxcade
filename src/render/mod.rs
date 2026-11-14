@@ -142,6 +142,8 @@ pub struct Renderer {
     meshes: crate::world::CellMap<ChunkMesh>,
     scratch_vertices: Vec<Vertex>,
     scratch_indices: Vec<u32>,
+    /// The model draws' places of a frame, kept from frame to frame.
+    places: Vec<u8>,
     pub stats: Stats,
     /// GPU time per pass, when asked for (`time_passes`).
     pass_times: Option<PassTimes>,

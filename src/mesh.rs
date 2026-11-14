@@ -61,18 +61,6 @@ pub fn mesh_chunk(
     let Some(chunk) = world.chunk(cc) else { return };
     let base = cc * CHUNK;
 
-    // The chunk plus a one-voxel border, so every lookup below is an array access.
-    let mut pad = vec![0u8; (PAD * PAD * PAD) as usize];
-    for z in -1..=CHUNK {
-        for y in -1..=CHUNK {
-            for x in -1..=CHUNK {
-                let l = IVec3::new(x, y, z);
-                let inside = l.cmpge(IVec3::ZERO).all() && l.cmplt(IVec3::splat(CHUNK)).all();
-                pad[pad_index(l)] =
-                    if inside { chunk.voxels[local_index(l)] } else { world.get(base + l) };
-            }
-        }
-    }
     // Every visible face goes into its slice (by direction and depth), as
     // its colour (high byte) and its corners' openness (two bits each),
     // in one pass over the voxels. Then slice by slice faces of one colour
@@ -97,7 +85,19 @@ pub fn mesh_chunk(
         .collect();
     SLICES.with(|slices| {
         let mut slices = slices.borrow_mut();
-        let Slices { faces, lists } = &mut *slices;
+        let Slices { pad, faces, lists } = &mut *slices;
+        // The chunk plus a one-voxel border, so every lookup below is an
+        // array access (every place of it written).
+        let mut around = world.reader();
+        for z in -1..=CHUNK {
+            for y in -1..=CHUNK {
+                for x in -1..=CHUNK {
+                    let l = IVec3::new(x, y, z);
+                    let inside = l.cmpge(IVec3::ZERO).all() && l.cmplt(IVec3::splat(CHUNK)).all();
+                    pad[pad_index(l)] = if inside { chunk.voxels[local_index(l)] } else { around.get(base + l) };
+                }
+            }
+        }
         for z in 0..CHUNK {
             for y in 0..CHUNK {
                 for x in 0..CHUNK {
@@ -180,13 +180,15 @@ const SIDE: usize = CHUNK as usize;
 /// A chunk's visible faces by direction and slice while it is meshed: each
 /// meshing thread keeps one, and leaves it empty for the next chunk.
 struct Slices {
+    /// The chunk and its border (`PAD` each way).
+    pad: Vec<u8>,
     faces: Vec<u16>,
     lists: Vec<Vec<u16>>,
 }
 
 thread_local! {
     static SLICES: std::cell::RefCell<Slices> =
-        std::cell::RefCell::new(Slices { faces: vec![0; 6 * SIDE * SIDE * SIDE], lists: vec![Vec::new(); 6 * SIDE] });
+        std::cell::RefCell::new(Slices { pad: vec![0; (PAD * PAD * PAD) as usize], faces: vec![0; 6 * SIDE * SIDE * SIDE], lists: vec![Vec::new(); 6 * SIDE] });
 }
 
 /// A face's corners all open (two bits each, `mesh_chunk`): nothing beside
