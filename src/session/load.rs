@@ -203,10 +203,9 @@ impl<G: Game> Session<G> {
         let mut files = Vec::new();
         for path in paths {
             // Named the same on every system: relative, with forward slashes.
-            let name = path.strip_prefix(&self.dir).unwrap_or(&path);
-            let name: Vec<String> = name.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+            let name = crate::files::slashed(path.strip_prefix(&self.dir).unwrap_or(&path));
             let bytes = self.files.read(&path).with_context(|| format!("reading {}", path.display()))?;
-            files.push((name.join("/"), bytes));
+            files.push((name, bytes));
         }
         files.extend(self.game.code());
         // A game that reads or picks its music: the songs' beats.

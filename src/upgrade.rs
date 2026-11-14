@@ -303,25 +303,7 @@ fn keep_files(dir: &Path, keep: &Path, made: Option<&str>) -> Result<PathBuf> {
         to = keep.join(format!("{name}-{n}"));
         n += 1;
     }
-    fn walk(dir: &Path, from: &Path, out: &mut Vec<PathBuf>) {
-        let Ok(read) = std::fs::read_dir(dir) else { return };
-        let mut entries: Vec<PathBuf> = read.filter_map(|e| e.ok().map(|e| e.path())).collect();
-        entries.sort();
-        for p in entries {
-            let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-            if name.starts_with('.') || (dir == from && (name == "builds" || name == "shots")) {
-                continue;
-            }
-            if p.is_dir() {
-                walk(&p, from, out);
-            } else if p.is_file() {
-                out.push(p);
-            }
-        }
-    }
-    let mut files = Vec::new();
-    walk(dir, dir, &mut files);
-    for file in &files {
+    for file in &game_files(dir) {
         let target = to.join(file.strip_prefix(dir).unwrap_or(file));
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent).with_context(|| format!("keeping the game's files before the upgrade: creating {}", parent.display()))?;
@@ -388,37 +370,39 @@ fn set_version_in_file(dir: &Path, version: &str, dry: bool) -> Result<String> {
     }
 }
 
-/// The game's files of an ending, under `dir` (not hidden ones, not BUILD's
-/// `builds/` nor `shots/`), sorted, as paths from `dir`.
+/// The game's files of an ending, under `dir` (`game_files`), as paths
+/// from `dir`.
 pub(crate) fn files_ending(dir: &Path, ending: &str) -> Vec<PathBuf> {
-    fn walk(dir: &Path, from: &Path, ending: &str, out: &mut Vec<PathBuf>) {
+    let ends = |p: &PathBuf| p.extension().is_some_and(|e| e.eq_ignore_ascii_case(ending));
+    game_files(dir).into_iter().filter(ends).map(|p| p.strip_prefix(dir).map(Path::to_path_buf).unwrap_or(p)).collect()
+}
+
+/// The game's files under `dir` as the upgrade sees them (not hidden ones,
+/// not BUILD's `builds/` nor `shots/`), sorted folder by folder.
+fn game_files(dir: &Path) -> Vec<PathBuf> {
+    fn walk(dir: &Path, from: &Path, out: &mut Vec<PathBuf>) {
         let Ok(read) = std::fs::read_dir(dir) else { return };
         let mut entries: Vec<PathBuf> = read.filter_map(|e| e.ok().map(|e| e.path())).collect();
         entries.sort();
         for p in entries {
             let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-            if name.starts_with('.') {
+            if name.starts_with('.') || (dir == from && (name == "builds" || name == "shots")) {
                 continue;
             }
             if p.is_dir() {
-                if dir == from && (name == "builds" || name == "shots") {
-                    continue;
-                }
-                walk(&p, from, ending, out);
-            } else if p.extension().is_some_and(|e| e.eq_ignore_ascii_case(ending)) {
-                out.push(p.strip_prefix(from).unwrap_or(&p).to_path_buf());
+                walk(&p, from, out);
+            } else if p.is_file() {
+                out.push(p);
             }
         }
     }
     let mut out = Vec::new();
-    walk(dir, dir, ending, &mut out);
+    walk(dir, dir, &mut out);
     out
 }
 
 /// A path from the game folder as the game's Lua names it (`/` between).
-fn named(path: &Path) -> String {
-    path.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/")
-}
+use crate::files::slashed as named;
 
 /// Step 0.6.0: every model, figure and block of a game a `.vvx`
 /// (`crate::vvx`), the `.vox` gone once the text reads back the same, the

@@ -272,8 +272,7 @@ pub fn scene_files(dir: &Path, cfg: &GameConfig) -> Vec<String> {
         let folder = Path::new(&map).parent().unwrap_or(Path::new("")).to_path_buf();
         let Ok(data) = std::fs::read_to_string(dir.join(&map)).map_err(anyhow::Error::from).and_then(|t| crate::map::MapData::read(&t)) else { continue };
         for p in data.prefabs.values() {
-            let path = folder.join(&p.file);
-            out.push(path.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/"));
+            out.push(crate::files::slashed(&folder.join(&p.file)));
         }
     }
     out.sort();

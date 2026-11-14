@@ -225,6 +225,12 @@ impl Files {
     }
 }
 
+/// A path's parts with `/` between, as the game names a file on every
+/// system (`main.lua`, `levels/hall.toml`).
+pub fn slashed(path: &Path) -> String {
+    path.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/")
+}
+
 /// Every file of the game under `folder`, by its name in `dir`.
 fn gather(dir: &Path, folder: &Path, files: &mut BTreeMap<String, File>) -> Result<()> {
     let mut entries: Vec<_> = std::fs::read_dir(folder).with_context(|| format!("reading {}", folder.display()))?.collect::<io::Result<_>>()?;
@@ -239,9 +245,8 @@ fn gather(dir: &Path, folder: &Path, files: &mut BTreeMap<String, File>) -> Resu
             gather(dir, &entry.path(), files)?;
         } else if kind.is_file() {
             let path = entry.path();
-            let rel: Vec<String> = path.strip_prefix(dir)?.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
             let bytes = std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
-            files.insert(rel.join("/"), File::of(bytes));
+            files.insert(slashed(path.strip_prefix(dir)?), File::of(bytes));
         }
     }
     Ok(())
