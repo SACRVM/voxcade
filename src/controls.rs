@@ -257,25 +257,28 @@ pub enum Nav {
 
 // Reading the keyboard and gamepads (the game's window and the IDE's).
 
-/// A gamepad button's name in the bindings (positional, like SDL's).
+/// The gamepad's buttons by their names in the bindings (positional, like
+/// SDL's).
+const BUTTONS: [(Button, &str); 14] = [
+    (Button::South, "south"),
+    (Button::East, "east"),
+    (Button::West, "west"),
+    (Button::North, "north"),
+    (Button::LeftShoulder, "leftshoulder"),
+    (Button::RightShoulder, "rightshoulder"),
+    (Button::LeftStick, "leftstick"),
+    (Button::RightStick, "rightstick"),
+    (Button::Start, "start"),
+    (Button::Back, "back"),
+    (Button::DPadUp, "dpup"),
+    (Button::DPadDown, "dpdown"),
+    (Button::DPadLeft, "dpleft"),
+    (Button::DPadRight, "dpright"),
+];
+
+/// A gamepad button's name in the bindings.
 pub fn button_name(button: Button) -> Option<&'static str> {
-    Some(match button {
-        Button::South => "south",
-        Button::East => "east",
-        Button::West => "west",
-        Button::North => "north",
-        Button::LeftShoulder => "leftshoulder",
-        Button::RightShoulder => "rightshoulder",
-        Button::LeftStick => "leftstick",
-        Button::RightStick => "rightstick",
-        Button::Start => "start",
-        Button::Back => "back",
-        Button::DPadUp => "dpup",
-        Button::DPadDown => "dpdown",
-        Button::DPadLeft => "dpleft",
-        Button::DPadRight => "dpright",
-        _ => return None,
-    })
+    BUTTONS.iter().find(|(b, _)| *b == button).map(|(_, name)| *name)
 }
 
 /// Whether the button (or trigger) a binding names is held on `pad`.
@@ -283,25 +286,7 @@ pub fn pad_held(pad: &Gamepad, name: &str) -> bool {
     match name {
         "lefttrigger" => pad.axis(Axis::TriggerLeft) > 12_000,
         "righttrigger" => pad.axis(Axis::TriggerRight) > 12_000,
-        _ => [
-            Button::South,
-            Button::East,
-            Button::West,
-            Button::North,
-            Button::LeftShoulder,
-            Button::RightShoulder,
-            Button::LeftStick,
-            Button::RightStick,
-            Button::Start,
-            Button::Back,
-            Button::DPadUp,
-            Button::DPadDown,
-            Button::DPadLeft,
-            Button::DPadRight,
-        ]
-        .into_iter()
-        .find(|&b| button_name(b) == Some(name))
-        .is_some_and(|b| pad.button(b)),
+        _ => BUTTONS.iter().find(|(_, n)| *n == name).is_some_and(|(b, _)| pad.button(*b)),
     }
 }
 
