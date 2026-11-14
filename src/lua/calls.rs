@@ -77,7 +77,7 @@ impl<K: Kit> LuaGame<K> {
     /// phase saying where the call is (the level being left: no more asks
     /// there).
     pub(super) fn call_handler(&mut self, name: &'static str, arg: &'static str, phase: Option<world::Phase>) -> Result<()> {
-        let Some(f) = self.globals.as_ref().map(|g| Sandbox::function(g, name)).transpose()?.flatten() else { return Ok(()) };
+        let Some(f) = self.code.globals.as_ref().map(|g| Sandbox::function(g, name)).transpose()?.flatten() else { return Ok(()) };
         world::set_phase(&self.sandbox.lua, phase);
         let called = if name == "on_level_start" { self.with_world(|sb, _| sb.call_start::<()>(&f, arg)) } else { self.with_world(|sb, _| sb.call::<()>(&f, arg, name)) };
         world::set_phase(&self.sandbox.lua, None);
@@ -91,18 +91,18 @@ impl<K: Kit> LuaGame<K> {
     /// not (the line itself is in the replay, and the fingerprint is
     /// checked before the first tick).
     pub(super) fn reopened<R>(&mut self, counts: bool, f: impl FnOnce(&mut Self, &Table) -> Result<R>) -> Result<R> {
-        let env = self.env.clone().context("the game has not started (mend main.lua first)")?;
-        *self.sandbox.reading.borrow_mut() = sandbox::Reading::reopened(&self.files, env.clone(), self.required.clone());
+        let env = self.code.env.clone().context("the game has not started (mend main.lua first)")?;
+        *self.sandbox.reading.borrow_mut() = sandbox::Reading::reopened(&self.files, env.clone(), self.code.required.clone());
         let done = f(self, &env);
         let mut reading = self.sandbox.reading.borrow_mut();
-        self.required = reading.given();
+        self.code.required = reading.given();
         let (modules, read) = (std::mem::take(&mut reading.modules), std::mem::take(&mut reading.read));
         reading.close();
         drop(reading);
         if counts {
             for file in modules.into_iter().chain(read) {
-                if !self.modules.iter().chain(&self.data).any(|(name, _)| *name == file.0) {
-                    self.modules.push(file);
+                if !self.code.modules.iter().chain(&self.code.data).any(|(name, _)| *name == file.0) {
+                    self.code.modules.push(file);
                 }
             }
         }

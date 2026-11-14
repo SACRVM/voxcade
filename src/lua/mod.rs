@@ -101,35 +101,11 @@ const PARTS: [&str; 9] = ["things", "world.state", "player.state", "level.state"
 pub struct LuaGame<K: Kit> {
     stage: Stage,
     sandbox: Sandbox,
-    tick: Option<Function>,
-    draw: Option<Function>,
-    /// The script's globals as `on_world_start` left them (the kit's
-    /// questions are answered by its functions there).
-    globals: Option<Table>,
-    /// `main.lua` as tokens (what counts of it for replays).
-    code: Vec<u8>,
-    /// Whether `main.lua` names `music` or `on_beat`: its music's clock
-    /// then counts for replays (`Game::uses_music`).
-    uses_music: bool,
-    /// Whether its code names `daylight`: it moves its sun
-    /// (`Game::moves_sun`).
-    moves_sun: bool,
-    /// Whether its code calls `frame:camera`: the models out of view are
-    /// left out only once the picture's camera is known
-    /// (`Game::moves_camera`).
-    moves_camera: bool,
-    /// The files `main.lua` read as it started (`read`): they count for
-    /// replays too, and saving one runs `main.lua` anew.
-    data: Vec<(String, Vec<u8>)>,
-    /// The game's files (`crate::files`), its environment once started (the
-    /// globals frozen) and what each file required gave back: a scenario
-    /// and a console line run there, `require` giving the same modules.
+    /// The game's code as `main.lua` last ran (`start::run_main`).
+    code: Code,
+    /// The game's files (`crate::files`): a scenario and a console line
+    /// read theirs there.
     files: Files,
-    env: Option<Table>,
-    required: Vec<(String, mlua::Value)>,
-    /// The game's Lua files `main.lua` required (`require`), by path, as
-    /// tokens: its code as much as `main.lua` is.
-    modules: Vec<(String, Vec<u8>)>,
     actions: Arc<Vec<&'static str>>,
     /// The game keeps a score without a kit (`c.scored`).
     scored: bool,
@@ -167,6 +143,40 @@ pub struct LuaGame<K: Kit> {
     /// the picture's part drawn in `draw`, the HUD's in `hud`.
     drawn: RefCell<Vec<Cmd>>,
     kit: PhantomData<K>,
+}
+
+/// The game's code as it last ran: its handlers, globals and environment,
+/// what of it counts for replays, and what it names.
+#[derive(Default)]
+struct Code {
+    tick: Option<Function>,
+    draw: Option<Function>,
+    /// The script's globals as `on_world_start` left them (the kit's
+    /// questions are answered by its functions there).
+    globals: Option<Table>,
+    /// `main.lua` as tokens (what counts of it for replays).
+    main: Vec<u8>,
+    /// The game's Lua files `main.lua` required (`require`), by path, as
+    /// tokens: its code as much as `main.lua` is.
+    modules: Vec<(String, Vec<u8>)>,
+    /// The files `main.lua` read as it started (`read`): they count for
+    /// replays too, and saving one runs `main.lua` anew.
+    data: Vec<(String, Vec<u8>)>,
+    /// Its environment once started (the globals frozen) and what each
+    /// file required gave back: a scenario and a console line run there,
+    /// `require` giving the same modules.
+    env: Option<Table>,
+    required: Vec<(String, mlua::Value)>,
+    /// Whether `main.lua` names `music` or `on_beat`: its music's clock
+    /// then counts for replays (`Game::uses_music`).
+    uses_music: bool,
+    /// Whether its code names `daylight`: it moves its sun
+    /// (`Game::moves_sun`).
+    moves_sun: bool,
+    /// Whether its code calls `frame:camera`: the models out of view are
+    /// left out only once the picture's camera is known
+    /// (`Game::moves_camera`).
+    moves_camera: bool,
 }
 
 /// `thing.state` of every thing that has some, by id (the script's part:
@@ -560,9 +570,9 @@ impl<K: Kit> Game for LuaGame<K> {
     }
 
     fn code(&self) -> Vec<(String, Vec<u8>)> {
-        let mut code = if self.code.is_empty() { Vec::new() } else { vec![("main.lua".into(), self.code.clone())] };
-        code.extend(self.modules.iter().cloned());
-        code.extend(self.data.iter().cloned());
+        let mut code = if self.code.main.is_empty() { Vec::new() } else { vec![("main.lua".into(), self.code.main.clone())] };
+        code.extend(self.code.modules.iter().cloned());
+        code.extend(self.code.data.iter().cloned());
         code
     }
 
@@ -570,7 +580,7 @@ impl<K: Kit> Game for LuaGame<K> {
     /// `main.lua` runs anew.
     fn reload_code(&mut self, files: &Files, file: &Path) -> Result<bool> {
         let Some(changed) = files.name(file) else { return Ok(false) };
-        if changed != "main.lua" && !self.modules.iter().chain(&self.data).any(|(name, _)| *name == changed) {
+        if changed != "main.lua" && !self.code.modules.iter().chain(&self.code.data).any(|(name, _)| *name == changed) {
             return Ok(false);
         }
         self.files = files.clone();
@@ -618,11 +628,11 @@ impl<K: Kit> Game for LuaGame<K> {
     }
 
     fn moves_sun(&self) -> bool {
-        self.moves_sun
+        self.code.moves_sun
     }
 
     fn moves_camera(&self) -> bool {
-        self.moves_camera
+        self.code.moves_camera
     }
 
     fn daylight(&self) -> crate::session::Daylight {
@@ -759,7 +769,7 @@ impl<K: Kit> Game for LuaGame<K> {
 
     /// The locals of `main.lua` its functions keep (upvalues).
     fn hidden(&self) -> Vec<(String, u64)> {
-        self.globals.as_ref().and_then(|g| hidden::upvalues(&self.sandbox.lua, g).ok()).unwrap_or_default()
+        self.code.globals.as_ref().and_then(|g| hidden::upvalues(&self.sandbox.lua, g).ok()).unwrap_or_default()
     }
 
     fn sim(&self) -> &Sim {
@@ -853,7 +863,7 @@ impl<K: Kit> Game for LuaGame<K> {
         // The beats of the game's song begun since the last tick, each told
         // (`on_beat`), before on_tick.
         let beats = self.stage.music.untold(&songs);
-        let on_beat = self.globals.as_ref().and_then(|g| Sandbox::function(g, "on_beat").ok().flatten());
+        let on_beat = self.code.globals.as_ref().and_then(|g| Sandbox::function(g, "on_beat").ok().flatten());
         if let Some(f) = on_beat.filter(|_| !over) {
             for beat in beats {
                 if self.halted.borrow().is_some() {
@@ -870,7 +880,7 @@ impl<K: Kit> Game for LuaGame<K> {
             let held = if k < 4 { dirs[k] } else { input.held(k - 4) };
             *n = if held { n.saturating_add(1) } else { 0 };
         }
-        if let Some(tick) = self.tick.clone().filter(|_| self.halted.borrow().is_none() && !over) {
+        if let Some(tick) = self.code.tick.clone().filter(|_| self.halted.borrow().is_none() && !over) {
             // A press an on_interact used is no new press for on_tick.
             let mut before = self.before;
             let mut held_for = self.held_for;
@@ -1025,7 +1035,7 @@ impl<K: Kit> Game for LuaGame<K> {
     }
 
     fn uses_music(&self) -> bool {
-        self.uses_music
+        self.code.uses_music
     }
 
     fn numbers(&self) -> Vec<String> {

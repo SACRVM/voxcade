@@ -181,7 +181,7 @@ impl<K: Kit> LuaGame<K> {
         // The script hears every load, with the version of the game that
         // made the save (an older one it brings up to date), before its
         // level is built.
-        if let Some(f) = self.globals.as_ref().map(|g| Sandbox::function(g, "on_save_loaded")).transpose()?.flatten() {
+        if let Some(f) = self.code.globals.as_ref().map(|g| Sandbox::function(g, "on_save_loaded")).transpose()?.flatten() {
             world::set_phase(&lua, Some(world::Phase::WorldStart));
             let called = self.with_world(|sb, _| sb.call::<()>(&f, save.version, "on_save_loaded"));
             world::set_phase(&self.sandbox.lua, None);

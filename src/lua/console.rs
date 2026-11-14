@@ -35,7 +35,7 @@ impl<K: Kit> LuaGame<K> {
         anyhow::ensure!(self.stage.host.sim().tick == 0 && self.start_text.is_none(), "a scenario begins a run: before its first tick, and not after a save");
         let path = format!("scenarios/{name}.lua");
         let src = self.files.read_to_string(&path).with_context(|| format!("reading {path}"))?;
-        self.modules.push((path.clone(), lex::tokens(&path, &src)?));
+        self.code.modules.push((path.clone(), lex::tokens(&path, &src)?));
         let set_up = self.reopened(true, |game, env| {
             let table = scenario_table(&path, game.sandbox.run_in(&path, &src, env, "the start")?)?;
             for key in table.pairs::<mlua::Value, mlua::Value>() {

@@ -91,18 +91,8 @@ impl<K: Kit> LuaGame<K> {
                 music: Default::default(),
             },
             sandbox,
-            tick: None,
-            draw: None,
-            globals: None,
-            code: Vec::new(),
-            uses_music: false,
-            moves_sun: false,
-            moves_camera: false,
-            data: Vec::new(),
+            code: Code::default(),
             files: files.clone(),
-            env: None,
-            required: Vec::new(),
-            modules: Vec::new(),
             actions,
             scored: cfg.scored,
             before: Input::default(),
@@ -152,7 +142,7 @@ impl<K: Kit> LuaGame<K> {
             // environment of their own all the same.
             let env = game.sandbox.run("console", "")?;
             game.sandbox.freeze(&env)?;
-            game.env = Some(env);
+            game.code.env = Some(env);
         }
         game.built();
         if let Some(b) = game.focus_body() {
@@ -176,21 +166,21 @@ impl<K: Kit> LuaGame<K> {
         let given = reading.given();
         reading.close();
         let env = started?;
-        self.data = std::mem::take(&mut reading.read);
-        self.modules = std::mem::take(&mut reading.modules);
+        self.code.data = std::mem::take(&mut reading.read);
+        self.code.modules = std::mem::take(&mut reading.modules);
         let modules_name_music = reading.names_music;
         let modules_name_daylight = reading.names_daylight;
         let modules_call_camera = reading.calls_camera;
         drop(reading);
         let kept = self.sandbox.freeze(&env)?;
-        (self.env, self.required) = (Some(env), given);
-        self.tick = Sandbox::function(&kept, "on_tick")?;
-        self.draw = Sandbox::function(&kept, "on_draw")?;
-        self.globals = Some(kept);
-        self.code = code;
-        self.uses_music = modules_name_music || lex::names(&src, &["music", "on_beat"]);
-        self.moves_sun = modules_name_daylight || lex::names(&src, &["daylight"]);
-        self.moves_camera = modules_call_camera || lex::calls(&src, "camera");
+        (self.code.env, self.code.required) = (Some(env), given);
+        self.code.tick = Sandbox::function(&kept, "on_tick")?;
+        self.code.draw = Sandbox::function(&kept, "on_draw")?;
+        self.code.globals = Some(kept);
+        self.code.main = code;
+        self.code.uses_music = modules_name_music || lex::names(&src, &["music", "on_beat"]);
+        self.code.moves_sun = modules_name_daylight || lex::names(&src, &["daylight"]);
+        self.code.moves_camera = modules_call_camera || lex::calls(&src, "camera");
         Ok(())
     }
 
@@ -221,7 +211,7 @@ impl<K: Kit> LuaGame<K> {
         if first {
             // The handlers called from here on (`on_level_end` of an ask in
             // the first `on_level_start`) are found in what main.lua made.
-            self.globals = Some(env.clone());
+            self.code.globals = Some(env.clone());
             // A handler's mistake stops the game rather than its loading:
             // mended, it starts afresh (`start_failed`).
             if let Err(e) = self.start_handlers(&env) {

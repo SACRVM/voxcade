@@ -72,7 +72,7 @@ impl<K: Kit> LuaGame<K> {
         }
         // Stopped by `on_tick`, the game is still drawn as it stands;
         // stopped by `on_draw`, as `on_draw` last showed it.
-        if let Some(draw) = &self.draw
+        if let Some(draw) = &self.code.draw
             && !self.draw_failed.get()
         {
             let (width, height) = out.hud_size();
@@ -139,7 +139,7 @@ impl<K: Kit> LuaGame<K> {
                 Cmd::Daylight(day) => out.daylight(*day),
                 // (Its code names it as Lua writes a call, or what is out
                 // of the game's own view would be missing.)
-                Cmd::Camera(_) if !self.moves_camera => {
+                Cmd::Camera(_) if !self.code.moves_camera => {
                     if self.halted.borrow().is_none() {
                         self.halt(anyhow::anyhow!("frame:camera: call it as frame:camera({{ ... }}) in the game's code, so the engine knows the game sets its camera"));
                     }

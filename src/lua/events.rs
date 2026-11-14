@@ -19,12 +19,12 @@ impl<K: Kit> LuaGame<K> {
 
     /// Whether the script has a handler called `name`.
     pub(super) fn handles(&self, name: &str) -> bool {
-        self.globals.as_ref().and_then(|g| Sandbox::function(g, name).ok().flatten()).is_some()
+        self.code.globals.as_ref().and_then(|g| Sandbox::function(g, name).ok().flatten()).is_some()
     }
 
     /// Calls the script's handler `name` (if it has one) with `args`.
     pub(super) fn tell(&mut self, name: &'static str, args: Vec<Told>) -> Result<()> {
-        let Some(f) = self.globals.as_ref().map(|g| Sandbox::function(g, name)).transpose()?.flatten() else { return Ok(()) };
+        let Some(f) = self.code.globals.as_ref().map(|g| Sandbox::function(g, name)).transpose()?.flatten() else { return Ok(()) };
         world::set_phase(&self.sandbox.lua, None);
         self.with_world(|sb, _| {
             let lua = &sb.lua;
