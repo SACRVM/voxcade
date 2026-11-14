@@ -628,9 +628,17 @@ pub struct Pieces {
     /// the props each declares (`props`, `like` filled in: PROPS).
     pub kind_models: std::collections::BTreeMap<String, String>,
     pub kind_props: std::collections::BTreeMap<String, toml::Table>,
+    /// Which of those props name a level, a place or things (`names`),
+    /// and where the game's levels lie (`c.world`): what PROPS offers.
+    pub kind_names: std::collections::BTreeMap<String, std::collections::BTreeMap<String, crate::sim::things::Named>>,
+    pub world: crate::config::WorldConfig,
     /// The game's models a piece can be made of (`Editor::model_choices`),
     /// as last found.
     choices: std::cell::RefCell<Option<std::rc::Rc<[String]>>>,
+    /// The names the chosen thing's props may take (`Editor::name_choices`),
+    /// with what they were found for; the game's levels, as last found.
+    names: std::cell::RefCell<Option<(u64, std::rc::Rc<room::NameChoices>)>>,
+    levels: std::cell::RefCell<Option<room::GameLevels>>,
     pub still_kinds: std::collections::BTreeSet<String>,
     pub free_kinds: std::collections::BTreeSet<String>,
 }

@@ -647,10 +647,12 @@ impl<K: Kit> Game for LuaGame<K> {
         !self.started
     }
 
-    /// A level read anew turns a thing of a kind with a behavior: refused
-    /// as at the load (`check_facings`).
+    /// A level read anew turns a thing of a kind with a behavior, or names
+    /// in its props what is not there: refused as at the load
+    /// (`check_facings`, `check_names`).
     fn check_levels(&self, levels: &crate::levels::Levels) -> Result<()> {
-        check_facings(levels, &self.stage.kinds)
+        check_facings(levels, &self.stage.kinds)?;
+        check_names(levels, &self.stage.kinds)
     }
 
     /// The levels were read anew (a level file saved while playing): the
@@ -1086,6 +1088,7 @@ impl<K: Kit> Game for LuaGame<K> {
         Self::check_items(cfg)?;
         Self::check_kinds_sounds(cfg, &kinds)?;
         check_props(&self.stage.levels, &kinds)?;
+        check_names(&self.stage.levels, &kinds)?;
         // The views of things' states hold their kinds' keys (hp or not),
         // their props are their kinds' anew.
         self.sandbox.lua.set_named_registry_value("voxcade.views", self.sandbox.lua.create_table()?)?;

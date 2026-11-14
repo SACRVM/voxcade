@@ -897,6 +897,11 @@ function on_pickup(thing, item) end
 ---@field height? number Its body's height, in voxels (its model's unless set).
 ---@field facing? number[] The way it faces as it comes in, { x, y } (x east, y north).
 ---@field props? table What your code reads of it, thing.props: props = { worth = 100 }. A level's thing or level:spawn may give one its own of these.
+---@field names? table Which of its props name something, checked as the game loads and at level:spawn: names = { to = "level", at = "place", works = "things" }.
+- "level": a level of the game.
+- "place": a place in the level its "level" prop names, else in its own ("start" always).
+- "thing": a named thing of its level; "things": a list of them.
+"" (or {}) names nothing. The level editor offers the names there are.
 ---@field family? string|string[] A family, or a list of them: level:things("enemies") finds them, thing.families says them.
 ---@field effect? string|table Shown once where one of its things goes: a model ("poof.vvx", or { model = "poof.vvx", fps = 20 }), or "burst": it bursts into its voxels.
 ---@field sound? string Heard where one of its things goes: a sound's name (sounds/NAME.toml).

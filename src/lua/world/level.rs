@@ -158,6 +158,17 @@ impl UserData for LevelView {
                 Some(p) => Some(look(lua, |h| own_props(&kind, &h.kinds[h.kind(&kind)?].props, p))?).filter(|p| !p.is_empty()).map(Arc::new),
                 None => None,
             };
+            // What its props name is in the level being played, as a level's
+            // file's are checked (the things there now).
+            look(lua, |h| {
+                let k = &h.kinds[h.kind(&kind)?];
+                if k.names.is_empty() {
+                    return Ok(());
+                }
+                let things: Vec<&str> = h.here.names.values().map(String::as_str).filter(|n| h.named(n).is_some()).collect();
+                let value = |key: &str| props.as_ref().and_then(|p| p.get(key)).or_else(|| k.props.get(key));
+                h.levels.check_named(h.level, &things, &k.names, value).map_err(|(_, why)| mlua::Error::runtime(format!("level:spawn: {why}")))
+            })?;
             if let Some(name) = &o.name
                 && look(lua, |h| Ok(h.named(name).is_some()))?
             {

@@ -254,9 +254,23 @@ facing = [0, -1]
   written last on the thing as one line, keys in the kind's order (the
   editor's), only when there are any. Optional: older files read as
   before. The level editor shows them under PROPS in the chosen thing's
-  rows, a row each: a number, a string to type, TRUE/FALSE to click, a
+  rows, a row each: a number, a string to type, a box to tick, a
   table only shown (changed in TEXT); its kind's value in the quiet
   colour, setting it takes the prop out of the file.
+- **Props that name something** (2026-11-14, `docs/game-model.md`,
+  "Kinds of things"): the kind says which, `c.things.tuer.names = { to =
+  "level", at = "place" }` (`"thing"`, `"things"` for things of the same
+  level, `works = ["lift_1"]`). A name that is not there is a mistake as
+  the game loads, every level read: `levels/01_hall.toml: line 20:
+  props.to: no level called 02_cript (did you mean 02_crypt?)`. PROPS
+  offers the names there are in a list (the levels; the places of the
+  level `to` names, else this one's, `start` first; this level's things
+  but the thing itself; ticks for `"things"`), none first as a quiet
+  dash; a name that is not there stays in the file, shown in the warning
+  colour, and the editor opens such a level. RENAME of a thing or a
+  place rewrites the props of this level's things that name it, one step
+  with it. `voxcade edit --prop works=lift_1,slab_1` sets a list;
+  `--menu prop:KEY` opens the list in a shot.
 
 ## A terrain (2026-11-13)
 

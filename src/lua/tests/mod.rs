@@ -6,6 +6,7 @@ mod events;
 mod input;
 mod kits;
 mod mistakes;
+mod names;
 mod music;
 mod picture;
 mod pieces;

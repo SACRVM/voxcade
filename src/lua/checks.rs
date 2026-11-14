@@ -66,6 +66,32 @@ pub(super) fn check_props(levels: &crate::levels::Levels, kinds: &[Kind]) -> Res
     Ok(())
 }
 
+/// The props of the levels' things that their kinds say name something
+/// (`c.things.KIND.names`) name what there is, every level read
+/// (`levels::Levels::check_named`): as the game loads, a level file read
+/// anew, `conf.lua` changed. Each thing's value in effect, its own (the
+/// line it is on) or its kind's.
+pub(super) fn check_names(levels: &crate::levels::Levels, kinds: &[Kind]) -> Result<()> {
+    for (at, level) in levels.list.iter().enumerate() {
+        let things = level.thing_names(|k| kinds.get(k).map_or("", |k| k.name.as_str()));
+        let things: Vec<&str> = things.iter().map(String::as_str).collect();
+        for (m, marker) in level.markers.iter().enumerate() {
+            let Some(kind) = kinds.get(marker.kind).filter(|k| !k.names.is_empty()) else { continue };
+            let own = level.marker_props.get(m).and_then(Option::as_ref);
+            let value = |key: &str| own.and_then(|o| o.values.get(key)).or_else(|| kind.props.get(key));
+            let Err((key, why)) = levels.check_named(at, &things, &kind.names, value) else { continue };
+            match own.and_then(|o| o.lines.iter().find(|(k, _)| *k == key)) {
+                Some((_, line)) => anyhow::bail!("{}: line {line}: {why}", level.file),
+                None => {
+                    let called = level.marker_names.get(m).and_then(Option::as_deref).map(|n| format!(" '{n}'")).unwrap_or_default();
+                    anyhow::bail!("{}: the {}{called}: {why} (its kind's, c.things.{}.props.{key})", level.file, kind.name, kind.name);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The old API's handlers, refused with their new names.
 pub(super) const OLD_NAMES: [(&str, &str); 3] = [("load", "on_world_start()"), ("tick", "on_tick()"), ("draw", "on_draw(frame)")];
 

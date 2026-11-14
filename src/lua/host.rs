@@ -34,6 +34,8 @@ pub struct Kind {
     pub scripted: bool,
     /// What the game's code reads of its things (`thing.props`).
     pub props: toml::Table,
+    /// Which of its props name a level, a place or things (`names`).
+    pub names: std::collections::BTreeMap<String, crate::sim::things::Named>,
     /// The families it belongs to.
     pub families: Vec<String>,
     /// What shows and sounds when one of its things goes.
@@ -1000,7 +1002,7 @@ impl Stage {
                     name
                 }
             };
-            self.here.names.insert(id.raw(), own.unwrap_or_else(|| format!("{}_{n}", k.name)));
+            self.here.names.insert(id.raw(), own.unwrap_or_else(|| crate::levels::called(&k.name, *n)));
         }
         // (Only kinds without a behavior have a way in a file: `LuaGame`
         // refuses the rest as it loads.)

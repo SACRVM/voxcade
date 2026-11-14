@@ -137,7 +137,8 @@ shooter's things stay in `src/shooter/`.
   kit's puzzles: bats to time, ferries over spikes, a lever and a lift,
   slabs out of the floor, a crate on a plate holding a hatch open; the
   door opens once every gem is taken and leads on; a lever's and a
-  plate's `props = { works = [...] }` in the level say what each works; its replay `all_six_rooms` plays through): `-- run games/voxkeep` (blocks,
+  plate's `props = { works = [...] }` in the level say what each works,
+  checked as the game loads by `names = { works = "things" }`; its replay `all_six_rooms` plays through): `-- run games/voxkeep` (blocks,
   figures and the rooms first made by `python3 tools/gen_voxkeep.py`,
   which now only makes what is
   missing: the files there are the user's, shaped in the editors; never
@@ -799,7 +800,19 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (`sim::things::check_prop`, `levels::Made::check_props`; again when
   `conf.lua` changes), `thing.props` reading them alike, PROPS in the
   level editor's rows (`stage::prop_rows`, `Editor::set_prop`, `edit
-  --prop KEY=VALUE`).
+  --prop KEY=VALUE`); a kind's `names = { to = "level", at = "place",
+  works = "things" }` (the owner's words, 2026-11-14: `"level"`,
+  `"place"`, `"thing"`, `"things"`; `sim::things::Named`) says which name
+  something, checked with every level read as the game loads, a level
+  file or `conf.lua` read anew and at `level:spawn`, one check
+  (`levels::Levels::check_named`, `lua::checks::check_names`: a place is
+  one `go_to` takes, `"start"` or the level's places, in the level the
+  `"level"` prop names; a thing by `level:thing`'s name, the file's or
+  `levels::called`'s `lift_1`); PROPS offers the names there are
+  (`stage::name_choice`, `Editor::name_choices`, found anew only when
+  their sources change; `--menu prop:KEY`), a name not there in WARNING,
+  and RENAME rewrites the props naming the thing or place in its step
+  (`Editor::props_renamed`).
   `view = "front"`: each layer the grid seen from the front, the front
   layer first, its top row first (a side view's room reads as the
   picture); `"above"`: the bottom layer first, its far row first (a farm
@@ -1123,7 +1136,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   in the spec and in `kit.toml`, test
   `the_kits_kinds_are_the_behaviors_defaults`), not into a section of
   its own. A kind without a behavior takes the engine's keys (`model`,
-  `hp`, `fixed`, `width`, `height`, `facing`, `props`, `family`,
+  `hp`, `fixed`, `width`, `height`, `facing`, `props`, `names`, `family`,
   `effect`, `sound`, `reach`, `team`, `immune`, `rotates`, `spin`,
   `frames`, `fps`, `swing`) and no others: an unknown key is refused at
   load, naming the key, the table and a near name (the owner's D2, test

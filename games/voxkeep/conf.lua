@@ -70,9 +70,9 @@ function conf(c)
   -- pushed there. A level's lever says which: props = { works = ["lift_1"] }
   -- in its [[thing]] (things are named by their kind and the order they lie in).
   c.things.lever = { behavior = "prop", stands = true, model = "lever.vvx", width = 6, height = 9,
-                     frames = { idle = { 0, 0 }, on = { 1, 1 } }, props = { works = {} } }
+                     frames = { idle = { 0, 0 }, on = { 1, 1 } }, props = { works = {} }, names = { works = "things" } }
   c.things.plate = { behavior = "prop", stands = true, model = "plate.vvx", width = 10, height = 3,
-                     frames = { idle = { 0, 0 }, down = { 1, 1 } }, props = { works = {} } }
+                     frames = { idle = { 0, 0 }, down = { 1, 1 } }, props = { works = {} }, names = { works = "things" } }
   c.things.crate = { behavior = "crate", model = "crate.vvx", width = 8, height = 8, push = 25 }
   c.things.slab = { behavior = "platform", model = "slab.vvx", travel = { 30, 0 }, speed = 40, pause = 0 }  -- out of a wall
   c.things.slab_left = { like = "slab", travel = { -30, 0 } }

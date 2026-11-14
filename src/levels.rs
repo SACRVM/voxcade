@@ -9,6 +9,7 @@
 //! time.
 
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -18,6 +19,7 @@ use glam::{IVec2, IVec3, Vec3};
 use crate::config::GameConfig;
 use crate::files::Files;
 use crate::game::Game;
+use crate::sim::things::Named;
 use crate::world::{Marker, World};
 
 /// Where a player arrives in a level: its name, where its feet stand (in
@@ -163,6 +165,9 @@ pub struct Level {
     /// Its name: the file's stem (`hall` for `levels/hall.toml`); `main`
     /// for a game's one level made in code.
     pub name: String,
+    /// Its file as a mistake names it (`levels/hall.toml`; "" for a level
+    /// made in code).
+    pub file: String,
     pub made: Made,
 }
 
@@ -177,8 +182,36 @@ impl std::ops::Deref for Level {
 impl Level {
     /// A level of a world, markers and places, nothing set down.
     pub fn plain(name: &str, world: World, markers: Vec<Marker>, places: Vec<Place>) -> Self {
-        Self { name: name.to_string(), made: Made { places, ..Made::world(world, markers, Vec::new()) } }
+        Self { name: name.to_string(), file: String::new(), made: Made { places, ..Made::world(world, markers, Vec::new()) } }
     }
+
+    /// The names its things have as it is entered (`level:thing(name)`),
+    /// the markers' (`kind` gives a marker's kind's name) and the pieces':
+    /// the file's, else `called`'s.
+    pub fn thing_names<'a>(&'a self, kind: impl Fn(usize) -> &'a str) -> Vec<String> {
+        let markers = self.markers.iter().enumerate().map(|(m, marker)| (kind(marker.kind), self.marker_names.get(m).and_then(Option::as_deref)));
+        thing_names(markers.chain(self.pieces.iter().map(|p| (crate::grid::PIECE, p.name.as_deref()))))
+    }
+}
+
+/// The name of the `n`-th thing of `kind` in its level (from 1) that its
+/// file gives none: `lift_1` (`level:thing`).
+pub fn called(kind: &str, n: u32) -> String {
+    format!("{kind}_{n}")
+}
+
+/// The names of a level's things, given by kind and the name the file
+/// gives each (if it does), in the order they lie in: the file's, else
+/// `called`'s, counted by kind (named ones too, as the game counts them).
+pub fn thing_names<'a>(things: impl Iterator<Item = (&'a str, Option<&'a str>)>) -> Vec<String> {
+    let mut counts: BTreeMap<&str, u32> = BTreeMap::new();
+    things
+        .map(|(kind, own)| {
+            let n = counts.entry(kind).or_insert(0);
+            *n += 1;
+            own.map_or_else(|| called(kind, *n), str::to_string)
+        })
+        .collect()
 }
 
 /// Every level of a game, in order.
@@ -227,6 +260,64 @@ impl Levels {
     pub fn names(&self) -> Vec<&str> {
         self.list.iter().map(|l| l.name.as_str()).collect()
     }
+
+    /// Whether the props of a thing in level `at` that its kind says name
+    /// something (`names`) name what there is: a level of the game; a
+    /// place `world:go_to` arrives at (`START`, or one of the level's
+    /// places) in the level its `Level` prop names, else in `at`; one of
+    /// `things`, the names of the things in `at`. `value` gives a prop's
+    /// value in effect (its own, else its kind's); "" names nothing. The
+    /// mistake: the prop's key and why.
+    pub fn check_named<'v>(&self, at: usize, things: &[&str], names: &BTreeMap<String, Named>, value: impl Fn(&str) -> Option<&'v toml::Value>) -> Result<(), (String, String)> {
+        let text = |key: &str| value(key).and_then(toml::Value::as_str).unwrap_or("");
+        let fail = |key: &str, why: String| (key.to_string(), format!("props.{key}: {why}"));
+        // The level first: a place lies in the one it names.
+        let mut level = at;
+        for (key, _) in names.iter().filter(|(_, n)| **n == Named::Level) {
+            let name = text(key);
+            if !name.is_empty() {
+                level = self.find(name).ok_or_else(|| fail(key, no_such("level", name, "", "levels", &self.names())))?;
+            }
+        }
+        let places: Vec<&str> = std::iter::once(START).chain(self.list[level].places.iter().map(|p| p.name.as_str())).collect();
+        for (key, named) in names {
+            let among = |name: &str, place: bool| {
+                let (what, list, level, there) = if place { ("place", "its places", level, places.as_slice()) } else { ("thing", "its named things", at, things) };
+                match name.is_empty() || there.contains(&name) {
+                    true => Ok(()),
+                    false => Err(fail(key, no_such(what, name, &self.list[level].name, list, there))),
+                }
+            };
+            match named {
+                Named::Level => {}
+                Named::Place => among(text(key), true)?,
+                Named::Thing => among(text(key), false)?,
+                Named::Things => {
+                    for v in value(key).and_then(toml::Value::as_array).into_iter().flatten() {
+                        let Some(name) = v.as_str() else { return Err(fail(key, format!("a list of things' names, in quotes, not {v}"))) };
+                        among(name, false)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The place every level has (`world:go_to(level, "start")`): where it
+/// starts, its place of that name or else where its rules stand the player.
+pub const START: &str = "start";
+
+/// "no level called 02_cript (did you mean 02_crypt?)": the nearest name
+/// there is, else those there are (`list` says what they are).
+fn no_such(what: &str, name: &str, level: &str, list: &str, there: &[&str]) -> String {
+    let within = if level.is_empty() { String::new() } else { format!(" in level {level}") };
+    let hint = match crate::audio::words::near(name, there.iter().copied()) {
+        Some(near) => format!("did you mean {near}?"),
+        None if there.is_empty() => format!("{list}: none"),
+        None => format!("{list}: {}", there.join(", ")),
+    };
+    format!("no {what} called {name}{within} ({hint})")
 }
 
 /// Names compared as people read them: runs of digits as numbers
@@ -273,10 +364,10 @@ enum Kind {
 
 impl Kind {
     /// The kind `c.world` says: blocks, a map (`.toml`) or a world (`.vvx`).
-    fn of(cfg: &GameConfig) -> Self {
-        if cfg.world.blocks.is_some() {
+    fn of(world: &crate::config::WorldConfig) -> Self {
+        if world.blocks.is_some() {
             Kind::Blocks
-        } else if cfg.world.file.ends_with(".toml") {
+        } else if world.file.ends_with(".toml") {
             Kind::Map
         } else {
             Kind::World
@@ -292,7 +383,7 @@ impl Kind {
 /// The ending of the level files in `levels/` of a game of this config:
 /// `toml` for levels of blocks and maps, `vvx` for worlds.
 pub fn ending(cfg: &GameConfig) -> &'static str {
-    Kind::of(cfg).ending()
+    Kind::of(&cfg.world).ending()
 }
 
 /// The game's worlds and map prefabs (`crate::scene`), as paths from the
@@ -300,7 +391,7 @@ pub fn ending(cfg: &GameConfig) -> &'static str {
 /// `levels/`, or the prefabs its maps name, read as the game reads its
 /// folder (`Files`). What the IDE shows but does not shape as a model.
 pub fn scene_files(dir: &Path, cfg: &GameConfig) -> Vec<String> {
-    let kind = Kind::of(cfg);
+    let kind = Kind::of(&cfg.world);
     if cfg.world.size.is_some() || kind == Kind::Blocks {
         return Vec::new();
     }
@@ -350,36 +441,38 @@ pub fn load<G: Game>(game: &Files, cfg: &GameConfig) -> Result<Levels> {
         }
         return Ok(Levels::one("main", World::new(IVec3::new(x, y, z), [[0; 4]; 256]), Vec::new(), Vec::new(), Vec::new()));
     }
-    let kind = Kind::of(cfg);
+    let kind = Kind::of(&cfg.world);
     older_format(cfg.world.blocks.as_ref().map_or(&cfg.world.file, |b| &b.file))?;
     if !cfg.markers.is_empty() {
         anyhow::bail!("c.markers: since Voxcade 0.6.0 a marker is a palette entry of the world or the prefab it lies in ({{ marker = \"rifleman\" }}); `voxcade upgrade` moves them there");
     }
-    let extension = kind.ending();
-    // The files of the kind c.world says, and levels of pieces whatever
-    // it says (their first line tells: format = "voxcade level 1").
-    let mut files: Vec<PathBuf> =
-        game.list(dir.join("levels")).into_iter().filter(|p| p.extension().is_some_and(|e| e == extension) || (kind == Kind::World && says_level(game, p))).collect();
-    files.sort_by(|a, b| natural(&stem(a), &stem(b)));
-    if files.is_empty() {
-        let file = match &cfg.world.blocks {
-            Some(blocks) => &blocks.file,
-            None => &cfg.world.file,
-        };
-        let path = dir.join(file);
-        let made = one(game, cfg, kind, &path).with_context(|| path.display().to_string())?;
-        let sources = made.files.clone();
-        return Ok(Levels { list: vec![Arc::new(Level { name: stem(&path), made })], files: sources });
-    }
     let mut levels = Levels { list: Vec::new(), files: Vec::new() };
-    for path in files {
-        let made = one(game, cfg, kind, &path).with_context(|| format!("levels/{}", path.file_name().unwrap_or_default().to_string_lossy()))?;
+    for (name, file) in level_files(game, &cfg.world) {
+        let path = dir.join(&file);
+        let made = one(game, cfg, kind, &path).with_context(|| file.clone())?;
         levels.files.extend(made.files.iter().cloned());
-        levels.list.push(Arc::new(Level { name: stem(&path), made }));
+        levels.list.push(Arc::new(Level { name, file, made }));
     }
     levels.files.sort();
     levels.files.dedup();
     Ok(levels)
+}
+
+/// The game's level files by their levels' names, in order, each as the
+/// game folder names it (`levels/01_hall.toml`): the files in `levels/` of
+/// the kind `c.world` says and levels of pieces whatever it says (their
+/// first line tells: format = "voxcade level 1"), else its one file.
+/// Nothing read but those first lines (the level editor lists them so).
+pub fn level_files(game: &Files, world: &crate::config::WorldConfig) -> Vec<(String, String)> {
+    let kind = Kind::of(world);
+    let extension = kind.ending();
+    let mut files: Vec<PathBuf> = game.list(game.dir().join("levels")).into_iter().filter(|p| p.extension().is_some_and(|e| e == extension) || (kind == Kind::World && says_level(game, p))).collect();
+    files.sort_by(|a, b| natural(&stem(a), &stem(b)));
+    if files.is_empty() {
+        let file = world.blocks.as_ref().map_or(&world.file, |b| &b.file);
+        return vec![(stem(Path::new(file)), file.clone())];
+    }
+    files.iter().map(|p| (stem(p), format!("levels/{}", p.file_name().unwrap_or_default().to_string_lossy()))).collect()
 }
 
 /// Whether the file at `path` is a level of blocks or pieces by its first

@@ -10,9 +10,11 @@
 use glam::{IVec2, IVec3, Quat, Vec3};
 
 use super::{Begun, Editor, Layer, Scope, Step};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use crate::editor::handles::{self, Drag, Grip, Handles};
 use crate::grid::{Area, Facing, GridLevel, PIECE, Place, Thing, ThingLight, Way};
+use crate::sim::things::Named;
 
 /// Something set down in the level, by its place in its list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,7 +104,7 @@ pub fn what_it_is(t: &Thing) -> String {
 }
 
 /// The thing called `name`, or the unnamed one the list shows so (the
-/// first; `NAME#K` the K-th, from 1).
+/// first; `NAME#K` the K-th, from 1), or the one the game calls so.
 pub fn listed(things: &[Thing], name: &str) -> Option<usize> {
     if let Some(i) = things.iter().position(|t| t.name.as_deref() == Some(name)) {
         return Some(i);
@@ -111,7 +113,9 @@ pub fn listed(things: &[Thing], name: &str) -> Option<usize> {
         Some((what, k)) => (what, k.parse::<usize>().ok()?.checked_sub(1)?),
         None => (name, 0),
     };
-    things.iter().enumerate().filter(|(_, t)| t.name.is_none() && what_it_is(t) == what).nth(k).map(|(i, _)| i)
+    let shown = things.iter().enumerate().filter(|(_, t)| t.name.is_none() && what_it_is(t) == what).nth(k).map(|(i, _)| i);
+    // Else by the name the game gives it (`lever_2`, as props name it).
+    shown.or_else(|| crate::levels::thing_names(things.iter().map(|t| (t.kind.as_str(), t.name.as_deref()))).iter().position(|n| n == name))
 }
 
 pub fn bearing_of(t: &Thing) -> f64 {
@@ -601,12 +605,71 @@ impl Editor {
             return Err(format!("Another {what} is called {name}: a name is one {what}'s."));
         }
         let name = name.to_string();
-        self.change(None, |l| match item {
-            Item::Thing(i) => l.things[i].name = Some(name),
-            Item::Place(i) => l.places[i].name = name,
-            Item::Area(i) => l.areas[i].name = name,
+        let old = match item {
+            Item::Thing(i) => self.thing_names().into_iter().nth(i),
+            Item::Place(i) => Some(self.level.places[i].name.clone()),
+            Item::Area(_) => None,
+        };
+        let renamed = old.map(|old| self.props_renamed(matches!(item, Item::Place(_)), &old, &name)).unwrap_or_default();
+        self.change(None, |l| {
+            match item {
+                Item::Thing(i) => l.things[i].name = Some(name),
+                Item::Place(i) => l.places[i].name = name,
+                Item::Area(i) => l.areas[i].name = name,
+            }
+            for (n, props) in renamed {
+                l.things[n].props = props;
+            }
         });
         Ok(())
+    }
+
+    /// The props of this level's things that name a thing (or, `place`, a
+    /// place of this level) called `old`, called `new` instead: the things
+    /// whose props change, with them (one step with the rename). A kind's
+    /// own value is conf.lua's, left as it is.
+    fn props_renamed(&self, place: bool, old: &str, new: &str) -> Vec<(usize, Vec<crate::grid::Prop>)> {
+        let here = self.level_name();
+        let same = |v: &mut toml::Value| match v.as_str() == Some(old) {
+            true => {
+                *v = toml::Value::String(new.to_string());
+                true
+            }
+            false => false,
+        };
+        let mut out = Vec::new();
+        for (n, t) in self.level.things.iter().enumerate() {
+            let Some(names) = self.declared_names(t) else { continue };
+            // A place prop names one of this level's where its level prop
+            // names none or this one.
+            let in_here = names.iter().filter(|(_, w)| **w == Named::Level).all(|(k, _)| self.prop_in_effect(t, k).and_then(toml::Value::as_str).is_none_or(|l| l.is_empty() || l == here));
+            let mut props = t.props.clone();
+            let mut changed = false;
+            for p in &mut props {
+                changed |= match (names.get(&p.key), place) {
+                    (Some(Named::Thing), false) => same(&mut p.value),
+                    // Every one in the list (`|`, not `||`: none skipped).
+                    (Some(Named::Things), false) => p.value.as_array_mut().into_iter().flatten().fold(false, |c, v| same(v) | c),
+                    (Some(Named::Place), true) if in_here => same(&mut p.value),
+                    _ => false,
+                };
+            }
+            if changed {
+                out.push((n, props));
+            }
+        }
+        out
+    }
+
+    /// The names this level's things have in the game, in their order
+    /// (`levels::thing_names`: the file's, else `lift_1` by kind).
+    pub fn thing_names(&self) -> Vec<String> {
+        crate::levels::thing_names(self.level.things.iter().map(|t| (t.kind.as_str(), t.name.as_deref())))
+    }
+
+    /// This level's name, as the game calls it (`level.name`): its file's stem.
+    fn level_name(&self) -> String {
+        std::path::Path::new(&self.file).file_stem().unwrap_or_default().to_string_lossy().into_owned()
     }
 
     /// The press of the mouse on an item (None: on nothing, which chooses
@@ -1221,6 +1284,86 @@ impl Editor {
         self.pieces.kind_props.get(&t.kind).filter(|p| !p.is_empty() && !t.is_piece())
     }
 
+    /// Which of a thing's props name something (its kind's `names`); none
+    /// for a piece, or a kind naming nothing.
+    pub fn declared_names(&self, t: &Thing) -> Option<&BTreeMap<String, Named>> {
+        self.pieces.kind_names.get(&t.kind).filter(|_| !t.is_piece())
+    }
+
+    /// The names each prop of the chosen thing that names something may
+    /// take (PROPS offers them), in natural order ignoring case, "" aside:
+    /// the game's levels; the places of the level its `Level` prop names
+    /// (this one's as they stand, another's from its file), `START` first;
+    /// the named things of this level but itself. Found again only when
+    /// what they come from changed (the choice, the names here, the level
+    /// prop; the disk is looked at once a second, `look_at_disk`).
+    pub fn name_choices(&self) -> std::rc::Rc<NameChoices> {
+        use std::hash::{Hash, Hasher};
+        let Some(Item::Thing(i)) = self.pieces.chosen else { return Default::default() };
+        let t = &self.level.things[i];
+        let Some(names) = self.declared_names(t) else { return Default::default() };
+        let mut hash = std::hash::DefaultHasher::new();
+        i.hash(&mut hash);
+        self.level.things.iter().for_each(|t| (&t.kind, &t.name).hash(&mut hash));
+        self.level.places.iter().for_each(|p| p.name.hash(&mut hash));
+        names.keys().for_each(|k| self.prop_in_effect(t, k).map(|v| v.to_string()).hash(&mut hash));
+        let key = hash.finish();
+        if let Some((was, choices)) = &*self.pieces.names.borrow()
+            && *was == key
+        {
+            return choices.clone();
+        }
+        let choices = std::rc::Rc::new(self.find_name_choices(i, names));
+        *self.pieces.names.borrow_mut() = Some((key, choices.clone()));
+        choices
+    }
+
+    fn find_name_choices(&self, i: usize, names: &BTreeMap<String, Named>) -> NameChoices {
+        let t = &self.level.things[i];
+        let here = self.level_name();
+        let mut things = self.thing_names();
+        things.remove(i);
+        let levels = self.game_levels();
+        // The level a place lies in: the one its `Level` prop names, else this.
+        let within = names.iter().find(|(_, n)| **n == Named::Level).and_then(|(k, _)| self.prop_in_effect(t, k)?.as_str().filter(|s| !s.is_empty()).map(str::to_string)).unwrap_or_else(|| here.clone());
+        let places = || -> Vec<String> {
+            let mut out: Vec<String> = if within == here {
+                self.level.places.iter().map(|p| p.name.clone()).collect()
+            } else {
+                levels.iter().find(|(name, _)| *name == within).map(|(_, file)| place_names(&self.dir, file)).unwrap_or_default()
+            };
+            sort_names(&mut out);
+            out.retain(|p| p != crate::levels::START);
+            out.insert(0, crate::levels::START.to_string());
+            out
+        };
+        names
+            .iter()
+            .map(|(key, named)| {
+                let mut list = match named {
+                    Named::Level => levels.iter().map(|(name, _)| name.clone()).collect(),
+                    Named::Place => places(),
+                    Named::Thing | Named::Things => things.clone(),
+                };
+                if *named != Named::Place {
+                    sort_names(&mut list);
+                }
+                (key.clone(), list.into())
+            })
+            .collect()
+    }
+
+    /// The game's levels by name with their files (`levels::level_files`),
+    /// kept until the disk is looked at again.
+    fn game_levels(&self) -> GameLevels {
+        self.pieces.levels.borrow_mut().get_or_insert_with(|| crate::levels::level_files(&crate::files::Files::folder(&self.dir), &self.pieces.world).into()).clone()
+    }
+
+    /// A thing's prop as the game reads it: its own, else its kind's.
+    pub fn prop_in_effect<'a>(&'a self, t: &'a Thing, key: &str) -> Option<&'a toml::Value> {
+        t.props.iter().find(|p| p.key == key).map(|p| &p.value).or_else(|| self.declared_props(t)?.get(key))
+    }
+
     /// A prop of the chosen thing set (PROPS: over its kind's,
     /// `thing.props`), one step writing its line only: its kind's default
     /// takes it out of the file; a value not of the default's type is
@@ -1235,9 +1378,12 @@ impl Editor {
         let t = &self.level.things[i];
         let Some(declared) = self.declared_props(t) else { return };
         let Some(default) = declared.get(key) else { return };
-        // A number as its kind's: whole for a whole default.
+        // A number as its kind's: whole for a whole default; an empty list
+        // its kind's empty one (conf.lua's {} may read as either).
+        let empty = |v: &toml::Value| v.as_array().is_some_and(Vec::is_empty) || v.as_table().is_some_and(toml::Table::is_empty);
         let value = match (default, value) {
             (toml::Value::Integer(_), toml::Value::Float(f)) => toml::Value::Integer(f.round() as i64),
+            (d, v) if empty(d) && empty(&v) => d.clone(),
             (_, v) => v,
         };
         if crate::sim::things::prop_of_its_type(&t.kind, key, default, &value).is_err() {
@@ -1265,6 +1411,10 @@ impl Editor {
         let declared = self.declared_props(t).ok_or_else(|| anyhow::anyhow!("--prop {key}: a {} declares no props (c.things.{}.props)", t.kind, t.kind))?;
         let default = crate::sim::things::declared_prop(&t.kind, declared, key).map_err(|e| anyhow::anyhow!("--prop {e}"))?;
         let wrong = || anyhow::anyhow!("--prop {key}={text}: props.{key} is a {} like {default}", match default { toml::Value::Integer(_) | toml::Value::Float(_) => "number", toml::Value::Boolean(_) => "boolean", _ => "table" });
+        // A list of things' names, comma-separated (`works=lift_1,slab_1`).
+        if self.declared_names(t).and_then(|n| n.get(key)) == Some(&Named::Things) {
+            return Ok(toml::Value::Array(text.split(',').map(str::trim).filter(|n| !n.is_empty()).map(|n| toml::Value::String(n.to_string())).collect()));
+        }
         Ok(match default {
             toml::Value::String(_) => toml::Value::String(text.to_string()),
             toml::Value::Integer(_) | toml::Value::Float(_) => toml::Value::Float(text.parse::<f64>().ok().filter(|v| v.abs() <= crate::vvx::MOST_WHOLE as f64).ok_or_else(wrong)?),
@@ -1420,6 +1570,28 @@ impl Editor {
     pub fn show_all(&mut self) {
         self.hidden = Hidden::default();
     }
+}
+
+/// The names each prop that names something may take, by the prop's key
+/// (`Editor::name_choices`).
+pub type NameChoices = BTreeMap<String, std::rc::Rc<[String]>>;
+
+/// The game's levels by name with their files, in order (`levels::level_files`).
+pub type GameLevels = std::rc::Rc<[(String, String)]>;
+
+/// Names as a list shows them: numbers as numbers, case aside.
+fn sort_names(names: &mut [String]) {
+    names.sort_by(|a, b| crate::levels::natural(&a.to_lowercase(), &b.to_lowercase()).then_with(|| a.cmp(b)));
+}
+
+/// The places another level's file names (a level of blocks or pieces, a
+/// map; a world has none), read as they are: none where it does not read.
+fn place_names(dir: &std::path::Path, file: &str) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(dir.join(file)) else { return Vec::new() };
+    if let Ok(level) = GridLevel::from_text(&text) {
+        return level.places.into_iter().map(|p| p.name).collect();
+    }
+    crate::map::MapData::read(&text).map(|m| m.places.into_iter().map(|p| p.name).collect()).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -1697,6 +1869,71 @@ mod tests {
         assert_eq!(saved(&dir), PIECES, "none left: the line gone");
         ed.choose_item(Some(Item::Thing(0)));
         assert!(ed.declared_props(&ed.level.things[0]).is_none(), "a piece has no kind declaring props");
+    }
+
+    /// The walker's kind names a level, a place, a thing and things.
+    fn naming(ed: &mut Editor) {
+        let declared: toml::Table = toml::from_str("to = \"\"\nat = \"\"\nnext = \"\"\nworks = []").unwrap();
+        let names = [("to", Named::Level), ("at", Named::Place), ("next", Named::Thing), ("works", Named::Things)];
+        ed.pieces.kind_props.insert("walker".into(), declared);
+        ed.pieces.kind_names.insert("walker".into(), names.into_iter().map(|(k, n)| (k.to_string(), n)).collect());
+        ed.choose_item(Some(Item::Thing(4)));
+    }
+
+    /// PROPS offers for a prop that names something the names there are,
+    /// in natural order, case aside: the game's levels; the places of the
+    /// level its `to` names (this one's as it stands, another's from its
+    /// file), `start` first; this level's named things but itself. Found
+    /// anew when what they come from changes.
+    #[test]
+    fn a_prop_that_names_offers_the_names_there_are() {
+        let (mut ed, dir) = room("names-offered", false);
+        std::fs::create_dir_all(dir.join("levels")).unwrap();
+        for (level, places) in [("2_b", ""), ("10_c", "[[place]]\nname = \"Top\"\nat = [1, 1, 0]\n\n[[place]]\nname = \"gate\"\nat = [2, 1, 0]\n"), ("A", "")] {
+            std::fs::write(dir.join(format!("levels/{level}.toml")), format!("format = \"voxcade level 1\"\nsize = [8, 8, 8]\n\n{places}")).unwrap();
+        }
+        naming(&mut ed);
+        let offered = |ed: &Editor, key: &str| ed.name_choices()[key].to_vec();
+        assert_eq!(offered(&ed, "to"), ["2_b", "10_c", "A"]);
+        assert_eq!(offered(&ed, "at"), ["start", "door", "window"], "this level's places");
+        assert_eq!(offered(&ed, "next"), ["chair", "lamp", "moon", "stove"], "its named things, itself left out");
+        assert_eq!(offered(&ed, "works"), offered(&ed, "next"));
+        ed.set_prop("to", "10_c".into());
+        assert_eq!(offered(&ed, "at"), ["start", "gate", "Top"], "the places of the level it leads to");
+        ed.rename(Item::Thing(1), "Beacon").unwrap();
+        assert_eq!(offered(&ed, "next"), ["Beacon", "chair", "moon", "stove"]);
+        // A thing of a kind without names offers nothing.
+        ed.choose_item(Some(Item::Thing(0)));
+        assert!(ed.name_choices().is_empty());
+    }
+
+    /// A tick in a list of things is one step and its one line; RENAME of
+    /// a thing (or a place) rewrites the props of this level's things that
+    /// name it in the same step, UNDO bringing the file back to the byte; a
+    /// name that is no thing is kept, read and offered no more, and a level
+    /// holding one opens.
+    #[test]
+    fn a_tick_and_a_rename_change_the_names_in_one_step() {
+        let (mut ed, dir) = room("names-ticked", false);
+        naming(&mut ed);
+        let steps = ed.steps();
+        ed.set_prop("works", toml::Value::Array(vec!["lamp".into()]));
+        ed.set_prop("works", ed.typed_prop("works", "lamp, stove").unwrap());
+        let lines: Vec<String> = saved(&dir).lines().filter(|l| !PIECES.lines().any(|p| p == *l)).map(String::from).collect();
+        assert_eq!((ed.steps(), lines), (steps + 2, vec!["props = { works = [\"lamp\", \"stove\"] }".to_string()]), "a step a tick, its one line");
+        ed.set_prop("at", "door".into());
+        let before = saved(&dir);
+        ed.rename(Item::Thing(0), "oven").unwrap();
+        assert_eq!(ed.steps(), steps + 4, "the rename and its props one step");
+        assert!(saved(&dir).contains("name = \"oven\"") && saved(&dir).contains("works = [\"lamp\", \"oven\"]"), "{}", saved(&dir));
+        ed.undo();
+        assert_eq!(saved(&dir), before, "UNDO: the file to the byte");
+        ed.rename(Item::Place(0), "hall").unwrap();
+        assert!(saved(&dir).contains("at = \"hall\""), "a place of this level renamed in its props");
+        // A name that is not there: kept, and not offered.
+        ed.set_prop("next", "ghost".into());
+        assert!(saved(&dir).contains("next = \"ghost\"") && !ed.name_choices()["next"].contains(&"ghost".to_string()));
+        assert!(Editor::open(&dir, "room.toml").is_ok_and(|e| e.level.things[4].props.iter().any(|p| p.value.as_str() == Some("ghost"))), "a level holding it opens");
     }
 
     /// SHADOW ONLY on a piece writes its one line, UNDO takes it back in
