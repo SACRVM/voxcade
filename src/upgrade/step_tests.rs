@@ -2,7 +2,7 @@
 //! scratch folder: a dry run changes no byte and names the files the run
 //! then changes, the run names the same files, every file it changed is
 //! named, and afterwards the game opens and a second run has nothing to
-//! do. (The steps' own tests in `upgrade.rs` check what each one writes.)
+//! do. (The steps' own tests in `upgrade/tests.rs` check what each one writes.)
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -113,7 +113,7 @@ fn old_games() -> Vec<(&'static str, crate::scratch::Scratch)> {
 fn every_step_has_an_old_game_here() {
     let games = old_games();
     for step in STEPS {
-        assert!(games.iter().any(|(name, _)| *name == step.name), "the step '{}' has no game in upgrade_tests.rs", step.name);
+        assert!(games.iter().any(|(name, _)| *name == step.name), "the step '{}' has no game in upgrade/step_tests.rs", step.name);
     }
     for (name, dir) in &games {
         let Standing::Older { steps, .. } = standing(dir).unwrap() else { panic!("{name}: not older") };

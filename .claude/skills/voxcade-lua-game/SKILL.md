@@ -52,7 +52,7 @@ misspelt key or a wrong type is an error that names the table
 are for: `c.voxcade = "0.6.0"` (the engine reads that line as written).
 A game for an older Voxcade (or without the line) does not open: `voxcade
 upgrade <game>` brings its files up to date and writes the line (`--dry`
-says what it would do; `src/upgrade.rs`); one for a newer Voxcade does not
+says what it would do; `src/upgrade/`); one for a newer Voxcade does not
 open either. A new game from a template has it. Where to find every
 setting:
 

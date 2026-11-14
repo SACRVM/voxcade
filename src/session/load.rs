@@ -203,10 +203,9 @@ impl<G: Game> Session<G> {
         let mut files = Vec::new();
         for path in paths {
             // Named the same on every system: relative, with forward slashes.
-            let name = path.strip_prefix(&self.dir).unwrap_or(&path);
-            let name: Vec<String> = name.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+            let name = crate::files::slashed(path.strip_prefix(&self.dir).unwrap_or(&path));
             let bytes = self.files.read(&path).with_context(|| format!("reading {}", path.display()))?;
-            files.push((name.join("/"), bytes));
+            files.push((name, bytes));
         }
         files.extend(self.game.code());
         // A game that reads or picks its music: the songs' beats.
@@ -215,6 +214,24 @@ impl<G: Game> Session<G> {
             files.push(("music".into(), beats.into_bytes()));
         }
         Ok(files)
+    }
+
+    /// The models read anew from the files (the kinds', the pieces', the
+    /// title's) and the game's shapes from them: the run no longer starts
+    /// from the files it began on.
+    fn reload_models(&mut self) -> Result<()> {
+        self.models = Models::load_for::<G>(&self.files, &self.cfg, &self.piece_models)?;
+        self.game.reshape(&self.models);
+        self.touched = true;
+        Ok(())
+    }
+
+    /// The models read anew shown: those the level no longer draws let go,
+    /// the bank built anew, the title's props on their ground again.
+    fn show_models(&mut self) {
+        self.models.needed.let_go(&self.game.level_models());
+        self.rebuild_bank();
+        self.place_props();
     }
 
     /// Puts the models and the title logo's letters in a new model bank
@@ -344,13 +361,9 @@ impl<G: Game> Session<G> {
                 self.game.replace_world(world, &[]);
             }
             // Kinds of things may have come, gone or changed their models.
-            self.models = Models::load_for::<G>(&self.files, &self.cfg, &self.piece_models)?;
-            self.game.reshape(&self.models);
-            self.touched = true;
+            self.reload_models()?;
             self.sounds = SoundBank::load(&self.files, &self.cfg.sounds, &G::sounds(&self.cfg))?;
-            self.models.needed.let_go(&self.game.level_models());
-            self.rebuild_bank();
-            self.place_props();
+            self.show_models();
             // The camera or sun may have moved, which changes the face set.
             return Ok(Reloaded::World);
         }
@@ -393,22 +406,14 @@ impl<G: Game> Session<G> {
             self.level_files = levels.files.clone();
             // The pieces' models may have come, gone or changed.
             self.piece_models = levels.piece_models();
-            self.models = Models::load_for::<G>(&self.files, &self.cfg, &self.piece_models)?;
-            self.game.reshape(&self.models);
+            self.reload_models()?;
             self.game.replace_levels(levels);
-            self.models.needed.let_go(&self.game.level_models());
-            self.rebuild_bank();
-            self.touched = true;
-            self.place_props();
+            self.show_models();
             return Ok(Reloaded::World);
         }
         if self.models.files(false).chain(self.models.piece_files()).any(is) || title_models(&self.cfg).any(is) {
-            self.models = Models::load_for::<G>(&self.files, &self.cfg, &self.piece_models)?;
-            self.game.reshape(&self.models);
-            self.touched = true;
-            self.models.needed.let_go(&self.game.level_models());
-            self.rebuild_bank();
-            self.place_props();
+            self.reload_models()?;
+            self.show_models();
             return Ok(Reloaded::Models);
         }
         // Any other model file of the game, drawn only: loaded anew the

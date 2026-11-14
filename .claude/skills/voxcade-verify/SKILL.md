@@ -67,7 +67,7 @@ and the state its run ended in. Read what `check` says:
 - **"made for an older Voxcade"** (any command; "an earlier Voxcade
   0.6.0 (before: ...)" for a game stating this version whose files a step
   of it still changes): the game's `c.voxcade` is older than a format
-  step (`src/upgrade.rs`). `voxcade upgrade games/NAME --dry` says what it
+  step (`src/upgrade/`). `voxcade upgrade games/NAME --dry` says what it
   would do, without `--dry` it does it; then `--refit` its replays. A
   change of a format brings its own step and runs it over every game and
   template here; levels, maps and worlds are text since 0.6.0 (a world's

@@ -67,8 +67,6 @@ pub const BLOOD_COLORS: [[u8; 4]; 4] =
     [[150, 16, 20, 255], [118, 10, 14, 255], [178, 30, 28, 255], [92, 6, 10, 255]];
 /// Smoke from light to dark.
 const SMOKE_COLORS: [[u8; 4]; 3] = [[132, 124, 112, 255], [108, 102, 94, 255], [84, 80, 74, 255]];
-/// A muzzle flash from its core outwards.
-const FLASH_COLORS: [[u8; 4]; 3] = [[255, 255, 230, 255], [255, 220, 110, 255], [255, 150, 50, 255]];
 const SPARK_COLORS: [[u8; 4]; 4] =
     [[255, 250, 210, 255], [255, 208, 90, 255], [255, 146, 48, 255], [240, 90, 40, 255]];
 
@@ -305,6 +303,11 @@ pub struct Flare {
 }
 
 impl Flare {
+    /// A light at `pos`, `radius` its reach, fading out over `span` seconds.
+    pub fn new(pos: Vec3, radius: f32, color: [f32; 3], span: f32) -> Self {
+        Self { pos, radius, color, life: span, span }
+    }
+
     /// 1 when it starts, fading to 0.
     pub fn strength(&self) -> f32 {
         (self.life / self.span).clamp(0.0, 1.0)
@@ -440,6 +443,12 @@ impl Sim {
         self.sounds.push(SoundEvent { name, at, volume: volume.clamp(0.0, 1.0) });
     }
 
+    /// Whether the particles are as many as `[debris] max_particles`
+    /// allows: an effect makes no more (nor draws the numbers for them).
+    pub fn particles_full(&self) -> bool {
+        self.particles.len() >= self.cfg.debris.max_particles
+    }
+
     /// Half the width of every walking body's collision box.
     pub fn half(&self) -> f32 {
         self.cfg.physics.body_width * 0.5
@@ -455,7 +464,7 @@ impl Sim {
     pub fn dust(&mut self, at: Vec3, count: usize, color: [u8; 4]) {
         let k = self.effect_scale();
         for _ in 0..count {
-            if self.particles.len() >= self.cfg.debris.max_particles {
+            if self.particles_full() {
                 break;
             }
             let a = self.rng.range(0.0, std::f32::consts::TAU);
@@ -471,7 +480,7 @@ impl Sim {
         let core = radius * 0.8;
         let fire = (radius * radius * 1.6) as usize;
         for _ in 0..fire {
-            if self.particles.len() >= self.cfg.debris.max_particles {
+            if self.particles_full() {
                 return;
             }
             let dir = self.random_dir();
@@ -484,7 +493,7 @@ impl Sim {
         }
         let smoke = (radius * radius * 1.2) as usize;
         for _ in 0..smoke {
-            if self.particles.len() >= self.cfg.debris.max_particles {
+            if self.particles_full() {
                 return;
             }
             let dir = self.random_dir();
@@ -513,7 +522,6 @@ impl Sim {
         self.chip_colors.clear();
         let k = self.effect_scale();
         let bedrock = self.cfg.world.bedrock;
-        let max_particles = self.cfg.debris.max_particles;
         let mut removed = Vec::new();
         // Only cells inside the world can hold anything.
         let lo = (centre - radius).floor().as_ivec3().max(IVec3::ZERO);
@@ -532,7 +540,7 @@ impl Sim {
             self.chip_colors.push(v);
             self.world.set(cell, 0);
             removed.push(cell);
-            if self.particles.len() >= max_particles || self.rng.f32() > 0.8 {
+            if self.particles_full() || self.rng.f32() > 0.8 {
                 continue;
             }
             let out = (mid - centre).normalize_or_zero();
@@ -559,7 +567,7 @@ impl Sim {
         } else {
             self.sound("explosion", centre, (radius / (width * 2.0)).clamp(0.4, 1.0));
             self.fireball(centre, radius);
-            self.flares.push(Flare { pos: centre, radius: radius * 4.0, color: [2.0, 1.3, 0.6], life: 0.3, span: 0.3 });
+            self.flares.push(Flare::new(centre, radius * 4.0, [2.0, 1.3, 0.6], 0.3));
             if radius >= width * 1.5 {
                 let flash = (radius / (width * 8.0)).min(0.4) * self.cfg.effects.screen_flash;
                 self.screen_flash = (self.screen_flash + flash).min(0.5);
@@ -574,7 +582,7 @@ impl Sim {
     pub fn sparks(&mut self, centre: Vec3, count: usize) {
         let k = self.effect_scale();
         for _ in 0..count {
-            if self.particles.len() >= self.cfg.debris.max_particles {
+            if self.particles_full() {
                 break;
             }
             let dir = Vec3::new(
@@ -590,64 +598,6 @@ impl Sim {
         }
     }
 
-    /// Blood from a hit that does not kill: out of the far side along the
-    /// shot and fanning wide and up, so it shows round the body, falling to
-    /// lie on the ground. Only in a game with gore (`[debris] gore`).
-    pub fn blood_spray(&mut self, at: Vec3, along: Vec3) {
-        if self.cfg.debris.gore <= 0.0 {
-            return;
-        }
-        let k = self.effect_scale();
-        let along = along.truncate().normalize_or_zero().extend(0.0);
-        for _ in 0..22 {
-            if self.particles.len() >= self.cfg.debris.max_particles {
-                break;
-            }
-            let fan = Vec3::new(self.rng.range(-1.0, 1.0), self.rng.range(-1.0, 1.0), self.rng.range(0.4, 1.4));
-            let dir = (along * 0.6 + fan).normalize_or_zero();
-            let vel = dir * self.rng.range(16.0, 44.0) * k;
-            let color = BLOOD_COLORS[(self.rng.next_u32() % 4) as usize];
-            let life = self.rng.range(1.2, 2.4);
-            self.particles.push(Particle::new(at, vel, color, ParticleKind::Gib, life));
-        }
-    }
-
-    /// A muzzle flash: a bright core at the gun and a tongue of fire along
-    /// the shot, for a few ticks.
-    pub fn flash(&mut self, at: Vec3, dir: Vec3) {
-        let size = self.effect_scale().round().max(1.0) as i32;
-        let side = Vec3::new(-dir.y, dir.x, 0.0).normalize_or_zero();
-        let up = side.cross(dir).normalize_or_zero();
-        let mut spots = Vec::new();
-        let core = size + 1;
-        let middle = (core - 1) as f32 * 0.5;
-        for z in 0..core {
-            for y in 0..core {
-                for x in 0..core {
-                    spots.push((Vec3::new(x as f32, y as f32, z as f32) - middle, 0));
-                }
-            }
-        }
-        let reach = 3 * size + 1;
-        for i in 1..=reach {
-            spots.push((dir * (middle + i as f32), (3 * i / (reach + 1)) as usize));
-        }
-        // Spikes fanning out forwards, like a star.
-        for j in 1..=size + 1 {
-            for spike in [side, -side, up, -up, (side + up) * 0.7, (side - up) * 0.7, (up - side) * 0.7, -(side + up) * 0.7] {
-                spots.push((spike * (middle + j as f32) + dir * j as f32, (1 + j as usize / 2).min(2)));
-            }
-        }
-        for (offset, shade) in spots {
-            if self.particles.len() >= self.cfg.debris.max_particles {
-                break;
-            }
-            self.particles.push(Particle::new(at + offset, Vec3::ZERO, FLASH_COLORS[shade.min(2)], ParticleKind::Flash, 3.5 * DT));
-        }
-        let radius = self.cfg.physics.body_width * 4.0;
-        self.flares.push(Flare { pos: at, radius, color: [1.6, 1.2, 0.6], life: 3.5 * DT, span: 3.5 * DT });
-    }
-
     /// Bursts a body into its voxels; `push` sends the pieces away from a
     /// hit (in the speeds of a body EFFECT_WIDTH wide, like the rest).
     pub fn gib(&mut self, shape_voxels: &[(IVec3, [u8; 4])], size: IVec3, at: Vec3, push: Vec3) {
@@ -655,7 +605,7 @@ impl Sim {
         let gore = self.cfg.debris.gore;
         let pivot = IVec3::new(size.x / 2, size.y / 2, 0);
         for &(v, color) in shape_voxels {
-            if self.particles.len() >= self.cfg.debris.max_particles {
+            if self.particles_full() {
                 break;
             }
             let pos = at + (v - pivot).as_vec3() + 0.5;
@@ -675,43 +625,6 @@ impl Sim {
             let life = self.rng.range(1.5, 3.0);
             self.particles.push(Particle::new(pos, vel, color, ParticleKind::Gib, life));
         }
-    }
-
-    /// Bursts whatever stands around a body (a cage) outwards as debris:
-    /// everything within `radius` of `feet`, from the ground up to a little
-    /// over the body's head. Nobody is hurt; what is left hanging falls.
-    pub fn break_out(&mut self, feet: Vec3, radius: f32, height: f32) {
-        let k = self.effect_scale();
-        let bedrock = self.cfg.world.bedrock;
-        let max_particles = self.cfg.debris.max_particles;
-        let lo = (feet - Vec3::new(radius, radius, 0.0)).floor().as_ivec3();
-        let hi = (feet + Vec3::new(radius, radius, height + 4.0)).ceil().as_ivec3();
-        let mut removed = Vec::new();
-        for z in lo.z..=hi.z {
-            for y in lo.y..=hi.y {
-                for x in lo.x..=hi.x {
-                    let cell = IVec3::new(x, y, z);
-                    let mid = cell.as_vec3() + 0.5;
-                    let out = Vec3::new(mid.x - feet.x, mid.y - feet.y, 0.0);
-                    if out.length() > radius || (bedrock && z == 0) || !self.world.voxel_solid(cell) {
-                        continue;
-                    }
-                    let v = self.world.get(cell);
-                    self.world.set(cell, 0);
-                    removed.push(cell);
-                    if self.particles.len() >= max_particles {
-                        continue;
-                    }
-                    let vel = (out.normalize_or_zero() * self.rng.range(20.0, 45.0) + Vec3::Z * self.rng.range(10.0, 35.0)) * k;
-                    let life = self.rng.range(3.0, 5.0);
-                    self.particles.push(Particle::new(mid, vel, self.world.palette[v as usize], ParticleKind::Debris(v), life));
-                }
-            }
-        }
-        if !removed.is_empty() {
-            self.sound("crumble", feet, 0.6);
-        }
-        self.drop_loose(&removed);
     }
 
     /// Finds the pieces next to the removed voxels that no longer connect to
@@ -766,7 +679,7 @@ impl Sim {
         for &cell in piece {
             let v = self.world.get(cell);
             self.world.set(cell, 0);
-            if self.particles.len() >= self.cfg.debris.max_particles {
+            if self.particles_full() {
                 continue;
             }
             let mid = cell.as_vec3() + 0.5;
@@ -1075,14 +988,10 @@ impl Ledge {
     }
 }
 
-/// Moves a body by its velocity for one tick: axis by axis, in small
-/// sub-steps, stepping up low ledges while on the ground.
-pub fn move_body(world: &World, b: &mut Body, physics: &PhysicsConfig) {
-    move_body_in(world, b, physics, physics.body_width * 0.5, &[]);
-}
-
-/// `move_body` for a body `half` its width across, standing on one-way
-/// voxels and `ledges` only when it comes down onto them from above.
+/// Moves a body `half` its width across by its velocity for one tick: axis
+/// by axis, in small sub-steps, stepping up low ledges while on the ground,
+/// standing on one-way voxels and `ledges` only when it comes down onto
+/// them from above.
 pub fn move_body_in(world: &World, b: &mut Body, physics: &PhysicsConfig, half: f32, ledges: &[Ledge]) {
     let d = b.vel * DT;
     let steps = (d.abs().max_element() / 0.45).ceil().max(1.0) as i32;
@@ -1398,29 +1307,6 @@ pub(crate) mod tests {
         let mut small = World::new(IVec3::new(8, 8, 8), big.palette);
         small.set_raw(IVec3::new(3, 3, 5), 1);
         assert_eq!(loose_piece(&small, IVec3::new(3, 3, 5), &mut CellSet::default()), Some(vec![IVec3::new(3, 3, 5)]));
-    }
-
-    /// Breaking out of a cage takes what stands round the feet up to over
-    /// the head, never the bedrock layer; what it leaves hanging falls.
-    #[test]
-    fn breaking_out_takes_the_cage_and_its_roof_falls() {
-        let mut world = flat_world(IVec3::new(40, 40, 32));
-        for z in 1..=12 {
-            for (x, y) in [(18, 20), (22, 20), (20, 18), (20, 22)] {
-                world.set_raw(IVec3::new(x, y, z), 1);
-            }
-        }
-        for y in 14..=26 {
-            for x in 14..=26 {
-                world.set_raw(IVec3::new(x, y, 13), 1);
-            }
-        }
-        let mut sim = Sim::new(world, &GameConfig::default(), Vec3::ZERO);
-        sim.break_out(Vec3::new(20.5, 20.5, 1.0), 3.0, 8.0);
-        assert!([(18, 20), (22, 20), (20, 18), (20, 22)].iter().all(|&(x, y)| sim.world.get(IVec3::new(x, y, 5)) == 0), "the bars go");
-        assert_eq!(sim.world.get(IVec3::new(20, 20, 0)), 1, "the floor stays");
-        assert_eq!(sim.world.get(IVec3::new(14, 14, 13)), 0, "the roof, left hanging, fell");
-        assert!(sim.sounds.iter().any(|s| s.name == "crumble"));
     }
 
     /// A model turns to the way it goes; on an exact diagonal it keeps

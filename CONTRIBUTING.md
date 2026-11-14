@@ -47,7 +47,7 @@ long, read the part about what you change.
   MML; no WAV, no JSON (but other programs' own files). MagicaVoxel's
   `.vox` and Tiled's maps only come in through `voxcade import`. A file
   of Voxcade's own says its format and version on its first line; a
-  format that changes brings a step in `src/upgrade.rs`.
+  format that changes brings a step in `src/upgrade/`.
 - **Names are the ones other tools use**, in American English:
   `rotation`, `color`, `radius`, `behavior`; in the code a reader sees,
   in flags, fields and the Lua API.

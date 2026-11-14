@@ -145,9 +145,8 @@ impl<G: Game> Session<G> {
         }
     }
 
-    /// Hands the sounds of the last tick to the mixer, placed by where they
-    /// happened in the view.
-    /// Hands the last tick's sounds to the mixer, `gain` the player's volume.
+    /// Hands the last tick's sounds to the mixer, placed by where they
+    /// happened in the view, `gain` the player's volume.
     pub fn play_sounds(&self, mixer: &mut Mixer, gain: f32) {
         let sim = self.game.sim();
         let listener = sim.cam_target;
@@ -162,7 +161,9 @@ impl<G: Game> Session<G> {
     }
 
     /// The title's sounds for tick `tick`, `time` seconds in: the flyby's
-    /// rotor chopping as it crosses, placed where it is.
+    /// rotor chopping as it crosses, placed where it is. (The sound's name
+    /// is More Blood's gunship's, the one word of a game's in the engine
+    /// until the title names its flyby's sound.)
     pub fn title_sounds(&self, mixer: &mut Mixer, tick: u64, time: f32, gain: f32) {
         let Some(at) = self.flyby_at(time) else { return };
         if !tick.is_multiple_of(5) {

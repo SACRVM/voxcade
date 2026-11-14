@@ -319,7 +319,7 @@ def write_scene(path, size, voxels, colours, markers=None, world=False):
     are (x, y, z, colour index) in the order a .vox would hold them (a
     later one in a cell covers an earlier), `colours` an index's (r, g, b),
     `markers` an index's kind of thing. As `voxcade upgrade` writes them
-    (src/upgrade.rs, `worlds::convert`): a world's colours are its indices
+    (src/upgrade/worlds.rs, `worlds::convert`): a world's colours are its indices
     1, 2, ... in order (its voxels keep their numbers); a prefab's in the
     order of their first use (the order the map takes them); a marker's
     entry names its kind, the things coming in the order of the voxels."""

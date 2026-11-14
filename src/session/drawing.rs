@@ -167,14 +167,6 @@ impl<'a> Drawing<'a> {
         }
     }
 
-    /// Frame `frame` of a model on the grid, a figure of parts swinging its
-    /// parts with its steps (`swing`, `swinging`; its height `tall`).
-    #[allow(clippy::too_many_arguments)]
-    pub fn model_swung(&mut self, name: &str, frame: usize, origin: Vec3, look: IVec2, swing: &BTreeMap<String, f32>, body: &Body, tall: f32, tint: Option<[u8; 4]>) {
-        let swung = swinging(swing, body, tall);
-        self.model_posed(name, frame, origin, look, Quat::IDENTITY, &swung, tint);
-    }
-
     /// A figure as its kind animates it: the frame for what its body does
     /// (`sets`, `things::figure_frame`), its parts swinging with its steps
     /// (`swing`), turned `turn`.

@@ -415,7 +415,6 @@ impl Rules {
     rules_of!(gunship, Gunship, GunshipRules);
     rules_of!(pickup, Pickup, PickupRules);
 
-
     /// The kind called `name`.
     pub fn find(&self, name: &str) -> Option<usize> {
         self.kinds.iter().position(|k| k.name == name)

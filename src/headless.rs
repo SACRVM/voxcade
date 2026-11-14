@@ -306,20 +306,11 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
 
     let (width, height) = (opts.width, opts.height);
     let mut canvas = Canvas::new(width, height, true)?;
-    let timed = canvas.timed;
     let started = Instant::now();
     canvas.mesh_all(&mut game);
     let mesh_ms = ms(started);
 
-    if opts.replay.is_some() && (!opts.input.is_empty() || !opts.seats.is_empty()) {
-        bail!("--replay plays its own input: leave out --input");
-    }
-    if (opts.replay.is_some() || opts.record.is_some()) && opts.at.is_some() {
-        bail!("a replay starts where the game starts: leave out --at");
-    }
-    if opts.replay.is_some() && !opts.begin.is_empty() {
-        bail!("a replay begins as its run began: leave out --scenario and --do");
-    }
+    shot_options_agree(opts)?;
     // What the lines answered, for the console's picture (--screen console).
     let mut answered = Vec::new();
     opts.begin.apply(&mut game, |line, said| {
@@ -331,14 +322,104 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     if let Some([x, y]) = opts.at {
         game.game.place_player(x, y);
     }
-    // Every tick timed, the simulation and the meshes it changed rebuilt as
-    // the game does: blasts show as the slowest ticks.
-    let mut ticks: Vec<(u32, f64, f64, usize)> = Vec::new();
-    let started = Instant::now();
-    // What would have been heard: sounds per event, in the order they first came.
-    let mut heard: Vec<(&'static str, u32)> = Vec::new();
+    let (mut menu, title, settings) = shot_menu(&game, opts)?;
+    game.options.shadow_map = opts.shadows.map_size();
+    let mut playback = replay.as_ref().map(|r| Playback::new(r, &mut game)).transpose()?;
+    // Told once it began as the run did (a scenario's file counts).
+    if replay.as_ref().is_some_and(|r| !r.fits(game.fingerprint().unwrap_or(0))) {
+        eprintln!("warning: the replay was recorded on other game data");
+    }
+    // Someone plays: on the keyboard, or the pad `--pad` names (a replay
+    // brings its own).
+    if playback.is_none() {
+        let (device, style) = opts.pad.map_or((Device::Keyboard, PadStyle::default()), |style| (Device::Gamepad, style));
+        let controls = game.player_controls(device, style, &settings);
+        for &(seat, _) in &opts.seats {
+            game.set_seat_controls(seat, controls.clone());
+        }
+        game.set_controls(controls);
+    }
+    let mut recorder = opts.record.as_ref().map(|_| Recorder::default());
+    let frames = opts.frames.or(replay.as_ref().map(|r| r.ticks as u32)).unwrap_or(90);
     // A menu screen: the title's run their animations for the frames
     // instead of the game; pause first plays them.
+    let played = if title {
+        for _ in 0..frames {
+            menu.update();
+        }
+        Played::default()
+    } else {
+        play_ticks(&mut game, &mut canvas, frames, &mut playback, &mut script, &mut seats, &mut recorder)
+    };
+    for line in &played.warnings {
+        println!("warning: {line}");
+    }
+    if let Some(screen @ ("pause" | "save" | "load" | "host-pause" | "host-alone" | "host-net-pause" | "guest-pause")) = opts.screen.as_deref() {
+        menu = pause_menu(screen, &game, std::mem::take(&mut menu.seats));
+    }
+    if let Some(p) = &playback {
+        match played.apart {
+            None => println!("replay: as recorded ({} s checked)", p.steps() / crate::replay::CHECK_EVERY),
+            Some(a) => println!("replay: runs apart after {} s", a.second),
+        }
+    }
+    if let (Some(r), Some(path), None) = (&recorder, &opts.record, game.game.halted()) {
+        let replay = r.replay(&game)?;
+        replay.save(path)?;
+        println!("recorded {} ({} ticks, {}, score {})", path.display(), replay.ticks, replay.outcome, replay.score);
+    }
+    let time = frames as f32 * crate::sim::DT;
+    let scene = match opts.screen.as_deref() {
+        Some("intro") => Scene::Intro { time, t: time / crate::session::INTRO_TIME },
+        _ if title => Scene::Title { time },
+        _ => Scene::Play,
+    };
+    let (frame, frame_ms) = shot_frame(&game, &mut menu, &settings, opts, scene, &answered);
+    canvas.fit(&mut game);
+    let gpu = time_passes(&mut canvas, &frame)?;
+    let pixels = canvas.draw(&frame)?;
+    write_png(&opts.out, width, height, &pixels)?;
+    if game.game.halted().is_some() {
+        println!("wrote {} ({width}x{height}), the game's error over it", opts.out.display());
+        return game.stopped();
+    }
+    println!("wrote {} ({width}x{height})", opts.out.display());
+    // A limit the pictures went past (lights left out, the faces' memory
+    // full), said once.
+    canvas.renderer.memory_now(&canvas.device, &canvas.queue)?;
+    for line in game.warnings().into_iter().chain(canvas.renderer.warnings()) {
+        println!("warning: {line}");
+    }
+    report_shot(&canvas, &game, frames, [load_ms, mesh_ms, frame_ms], &gpu, &played);
+    Ok(())
+}
+
+/// The options of a shot that cannot go together.
+fn shot_options_agree(opts: &ShotOptions) -> Result<()> {
+    if opts.replay.is_some() && (!opts.input.is_empty() || !opts.seats.is_empty()) {
+        bail!("--replay plays its own input: leave out --input");
+    }
+    if (opts.replay.is_some() || opts.record.is_some()) && opts.at.is_some() {
+        bail!("a replay starts where the game starts: leave out --at");
+    }
+    if opts.replay.is_some() && !opts.begin.is_empty() {
+        bail!("a replay begins as its run began: leave out --scenario and --do");
+    }
+    Ok(())
+}
+
+/// The player's settings as a shot has them: the defaults, the game's keys
+/// and languages (`shot`, `inspect`).
+fn game_settings<G: Game>(game: &Session<G>) -> Settings {
+    let mut settings = Settings::default();
+    settings.adopt(game.actions(), &game.default_keys(), &game.default_pad());
+    settings.offer_languages(&game.cfg.languages);
+    settings
+}
+
+/// The menu a shot shows (`--screen`), whether the title's scene is behind
+/// it, and the settings it shows.
+fn shot_menu<G: Game>(game: &Session<G>, opts: &ShotOptions) -> Result<(Menu, bool, Settings)> {
     let (mut menu, title) = screen_menu(opts.screen.as_deref(), &game.cfg.title, game.cfg.players, opts.replay.is_some())?;
     // A game of several offers NETWORK on its title.
     menu.network = game.cfg.players > 1;
@@ -358,10 +439,8 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     } else if matches!(opts.screen.as_deref(), Some("players" | "player-controls")) {
         bail!("--screen {}: a game of several players (c.players) has it", opts.screen.as_deref().unwrap_or(""));
     }
-    let mut settings = Settings::default();
+    let mut settings = game_settings(game);
     settings.shadows = opts.shadows;
-    settings.adopt(game.actions(), &game.default_keys(), &game.default_pad());
-    settings.offer_languages(&game.cfg.languages);
     settings.adopt_scores(&game.cfg.high_scores);
     // A sample run: third in the game's table.
     let sample = settings.high_scores.get(1..3).map_or(1000, |h| (h[0].score + h[1].score) / 2);
@@ -375,140 +454,121 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         }
         _ => {}
     }
-    game.options.shadow_map = opts.shadows.map_size();
-    let mut playback = replay.as_ref().map(|r| Playback::new(r, &mut game)).transpose()?;
-    // Told once it began as the run did (a scenario's file counts).
-    if replay.as_ref().is_some_and(|r| !r.fits(game.fingerprint().unwrap_or(0))) {
-        eprintln!("warning: the replay was recorded on other game data");
-    }
-    // Someone plays: on the keyboard, or the pad `--pad` names (a replay
-    // brings its own).
-    if playback.is_none() {
-        let (device, style) = opts.pad.map_or((Device::Keyboard, PadStyle::default()), |style| (Device::Gamepad, style));
-        let controls = game.player_controls(device, style, &settings);
-        for &(seat, _) in &opts.seats {
-            game.set_seat_controls(seat, controls.clone());
-        }
-        game.set_controls(controls);
-    }
-    let mut recorder = opts.record.as_ref().map(|_| Recorder::default());
-    let mut apart = None;
-    let frames = opts.frames.or(replay.as_ref().map(|r| r.ticks as u32)).unwrap_or(90);
+    Ok((menu, title, settings))
+}
+
+/// What a shot's ticks played: each tick's times (the tick, the
+/// simulation's ms, the remeshing's ms, the chunks remeshed), the sounds
+/// per event in the order they first came, the hidden-state guard's
+/// warnings, and where a replay ran apart.
+#[derive(Default)]
+struct Played {
+    ticks: Vec<(u32, f64, f64, usize)>,
+    heard: Vec<(&'static str, u32)>,
+    warnings: Vec<String>,
+    apart: Option<crate::replay::Apart>,
+}
+
+/// Plays `frames` ticks of a shot, each timed, the simulation and the
+/// meshes it changed rebuilt as the game does (blasts show as the slowest
+/// ticks); a script's error ends them (the frame shows it).
+fn play_ticks<G: Game>(game: &mut Session<G>, canvas: &mut Canvas, frames: u32, playback: &mut Option<Playback>, script: &mut Script, seats: &mut SeatScripts, recorder: &mut Option<Recorder>) -> Played {
+    let mut played = Played::default();
     // The hidden-state guard as the IDE's PLAY has it (`inspect` too).
     let mut watch = crate::lua::hidden::Watch::default();
     watch.begin(game.game.hidden());
-    let mut warnings = Vec::new();
     for tick in 0..frames {
-        if title {
-            menu.update();
-            continue;
-        }
         let step = Instant::now();
-        let input = match &mut playback {
-            Some(p) => p.next_input(&mut game),
+        let input = match playback {
+            Some(p) => p.next_input(game),
             None => {
-                seats.next(&mut game);
+                seats.next(game);
                 script.next_input()
             }
         };
         game.step(&input);
         let sim_tick = ms(step);
-        if let Some(Err(a)) = playback.as_mut().map(|p| p.check(&mut game)) {
-            apart.get_or_insert(a);
+        if let Some(Err(a)) = playback.as_mut().map(|p| p.check(game)) {
+            played.apart.get_or_insert(a);
         }
-        if let Some(r) = &mut recorder {
-            r.record(&game);
+        if let Some(r) = recorder {
+            r.record(game);
         }
         let remesh = Instant::now();
-        let dirty = canvas.remesh(&mut game);
-        ticks.push((tick, sim_tick, ms(remesh), dirty));
+        let dirty = canvas.remesh(game);
+        played.ticks.push((tick, sim_tick, ms(remesh), dirty));
         for event in &game.game.sim().sounds {
-            match heard.iter_mut().find(|(name, _)| *name == event.name) {
+            match played.heard.iter_mut().find(|(name, _)| *name == event.name) {
                 Some((_, count)) => *count += 1,
-                None => heard.push((event.name, 1)),
+                None => played.heard.push((event.name, 1)),
             }
         }
-        warnings.extend(watch.tick(|| game.game.hidden()));
-        // A script's error: the frame shows it, then the shot ends with it.
+        played.warnings.extend(watch.tick(|| game.game.hidden()));
         if game.game.halted().is_some() {
             break;
         }
     }
-    for line in &warnings {
-        println!("warning: {line}");
-    }
-    let _ = started;
-    let sim_ms = ticks.iter().fold(0.0, |sum, t| sum + t.1);
+    played
+}
 
-
-    if let Some(screen @ ("pause" | "save" | "load" | "host-pause" | "host-alone" | "host-net-pause" | "guest-pause")) = opts.screen.as_deref() {
-        let now = crate::saves::now();
-        let seats = std::mem::take(&mut menu.seats);
-        menu = Menu::pause().with_slots((1..=game.slots.count()).map(|n| game.slots.info(n).map(|i| crate::menu::slot_line(n, Some(&i), now, &game.language()))).collect()).with_seats(seats);
-        // A network game's: the host's addresses, who plays, one gone
-        // quiet to drop; a guest's own menu.
-        menu.net = match screen {
-            "host-pause" => Some(crate::menu::NetView {
-                hosting: true,
-                lines: vec!["HOSTED AT 192.168.1.5:26500".into()],
-                who: vec!["ANNA 4 MS".into(), "BEN 31 MS ...".into()],
-                help: Vec::new(),
-                drops: vec![(2, "ben".into())],
-                seated: true,
-                ticket: false,
-                code: false,
-                knocks: Vec::new(),
-            }),
-            // Nobody came yet: the help to let them in.
-            "host-alone" => Some(crate::menu::NetView {
-                hosting: true,
-                lines: vec!["HOSTED AT 192.168.1.5:26500".into()],
-                help: vec![crate::lang::say_with("en", "NOBODY COMES? LET UDP {} IN:", &["26500"]), crate::lang::say_with("en", "SUDO UFW ALLOW {}/UDP", &["26500"])],
-                ..Default::default()
-            }),
-            // Across the internet: the game's code, a machine asking in
-            // with the signs to compare, the code to copy again.
-            "host-net-pause" => Some(crate::menu::NetView {
-                hosting: true,
-                lines: vec![crate::lang::say_with("en", "ON THE INTERNET: CODE {}", &["DX67A3"])],
-                who: vec!["ANNA 23 MS".into()],
-                seated: true,
-                ticket: true,
-                code: true,
-                knocks: vec![(2, "BEN KQ7P".into())],
-                ..Default::default()
-            }),
-            "guest-pause" => Some(crate::menu::NetView { hosting: false, who: vec!["HOST 0 MS".into(), "ANNA 4 MS".into()], seated: true, ..Default::default() }),
-            _ => None,
-        };
-        match screen {
-            "save" => menu.stack = vec![(Page::Pause, 1), (Page::Save, 1)],
-            "load" => menu.stack = vec![(Page::Pause, 2), (Page::Load, 1)],
-            _ => {}
-        }
-        for _ in 0..30 {
-            menu.update();
-        }
-    }
-    if let Some(p) = &playback {
-        match apart {
-            None => println!("replay: as recorded ({} s checked)", p.steps() / crate::replay::CHECK_EVERY),
-            Some(a) => println!("replay: runs apart after {} s", a.second),
-        }
-    }
-    if let (Some(r), Some(path), None) = (&recorder, &opts.record, game.game.halted()) {
-        let replay = r.replay(&game)?;
-        replay.save(path)?;
-        println!("recorded {} ({} ticks, {}, score {})", path.display(), replay.ticks, replay.outcome, replay.score);
-    }
-    let time = frames as f32 * crate::sim::DT;
-    let scene = match opts.screen.as_deref() {
-        Some("intro") => Scene::Intro { time, t: time / crate::session::INTRO_TIME },
-        _ if title => Scene::Title { time },
-        _ => Scene::Play,
+/// The pause page a `--screen` shows, the run's saves in it, `seats` its
+/// players; a network game's with sample lines: the host's addresses, who
+/// plays, one gone quiet to drop, a guest's own menu.
+fn pause_menu<G: Game>(screen: &str, game: &Session<G>, seats: Vec<crate::menu::SeatLine>) -> Menu {
+    let now = crate::saves::now();
+    let slots = (1..=game.slots.count()).map(|n| game.slots.info(n).map(|i| crate::menu::slot_line(n, Some(&i), now, &game.language()))).collect();
+    let mut menu = Menu::pause().with_slots(slots).with_seats(seats);
+    menu.net = match screen {
+        "host-pause" => Some(crate::menu::NetView {
+            hosting: true,
+            lines: vec!["HOSTED AT 192.168.1.5:26500".into()],
+            who: vec!["ANNA 4 MS".into(), "BEN 31 MS ...".into()],
+            help: Vec::new(),
+            drops: vec![(2, "ben".into())],
+            seated: true,
+            ticket: false,
+            code: false,
+            knocks: Vec::new(),
+        }),
+        // Nobody came yet: the help to let them in.
+        "host-alone" => Some(crate::menu::NetView {
+            hosting: true,
+            lines: vec!["HOSTED AT 192.168.1.5:26500".into()],
+            help: vec![crate::lang::say_with("en", "NOBODY COMES? LET UDP {} IN:", &["26500"]), crate::lang::say_with("en", "SUDO UFW ALLOW {}/UDP", &["26500"])],
+            ..Default::default()
+        }),
+        // Across the internet: the game's code, a machine asking in with
+        // the signs to compare, the code to copy again.
+        "host-net-pause" => Some(crate::menu::NetView {
+            hosting: true,
+            lines: vec![crate::lang::say_with("en", "ON THE INTERNET: CODE {}", &["DX67A3"])],
+            who: vec!["ANNA 23 MS".into()],
+            seated: true,
+            ticket: true,
+            code: true,
+            knocks: vec![(2, "BEN KQ7P".into())],
+            ..Default::default()
+        }),
+        "guest-pause" => Some(crate::menu::NetView { hosting: false, who: vec!["HOST 0 MS".into(), "ANNA 4 MS".into()], seated: true, ..Default::default() }),
+        _ => None,
     };
-    // What building the frame takes on the CPU: the median of a few builds
-    // (the first also fills caches, like the display font's glyphs).
+    match screen {
+        "save" => menu.stack = vec![(Page::Pause, 1), (Page::Save, 1)],
+        "load" => menu.stack = vec![(Page::Pause, 2), (Page::Load, 1)],
+        _ => {}
+    }
+    for _ in 0..30 {
+        menu.update();
+    }
+    menu
+}
+
+/// The frame a shot draws, and what building it takes on the CPU: the
+/// median of a few builds (the first also fills caches, like the display
+/// font's glyphs); PRESS START over an attract run, the console open over
+/// the game with the --do lines in it as run (`answered`).
+fn shot_frame<G: Game>(game: &Session<G>, menu: &mut Menu, settings: &Settings, opts: &ShotOptions, scene: Scene, answered: &[(String, String)]) -> (FrameData, f64) {
+    let aspect = opts.width as f32 / opts.height as f32;
     let mut builds = Vec::new();
     let mut frame = None;
     if let Some(style) = opts.pad {
@@ -516,62 +576,58 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     }
     for _ in 0..TIMED_DRAWS {
         let started = Instant::now();
-        frame = Some(game.menu_frame(&menu, &settings, 1.0, width as f32 / height as f32, scene));
+        frame = Some(game.menu_frame(menu, settings, 1.0, aspect, scene));
         builds.push(ms(started));
     }
     let mut frame = frame.expect("a frame was built");
     if opts.screen.as_deref() == Some("attract") {
-        crate::ui::press_start(&mut frame.ui, 0.0, &game.cfg.ui, game.picture_aspect(width as f32 / height as f32), &game.language());
+        crate::ui::press_start(&mut frame.ui, 0.0, &game.cfg.ui, game.picture_aspect(aspect), &game.language());
     }
-    // The console open over the game, the --do lines in it as run.
     if opts.screen.as_deref() == Some("console") {
         let mut prompt = crate::prompt::Prompt::default();
         prompt.open();
         prompt.part = 1.0;
-        for (line, said) in &answered {
+        for (line, said) in answered {
             prompt.type_text(line);
             prompt.take();
             prompt.answer(Ok(said.clone()));
         }
-        let (ui, aspect) = (&game.cfg.ui, game.picture_aspect(width as f32 / height as f32));
+        let (ui, aspect) = (&game.cfg.ui, game.picture_aspect(aspect));
         let camera = crate::ui::camera(&crate::ui::Layout::of(ui, aspect), ui.slant, ui.depth as f32);
         frame = game.compose(1.0, aspect, Scene::Play, Some((crate::ui::prompt_panel(&prompt, true, ui, aspect), Vec::new(), camera)));
         frame.view_proj = glam::Mat4::from_translation(glam::Vec3::new(0.0, 2.0 * crate::ui::prompt_lift(&prompt), 0.0)) * frame.view_proj;
     }
     builds.sort_by(f64::total_cmp);
-    let frame_ms = builds[builds.len() / 2];
-    canvas.fit(&mut game);
-    // What each pass takes on the GPU: the median of a few draws of this
-    // frame (the first ones also set the GPU up).
+    (frame, builds[builds.len() / 2])
+}
+
+/// What each pass takes on the GPU (where it has timestamps): every time a
+/// few draws of `frame` gave, past the first ones that set the GPU up.
+fn time_passes(canvas: &mut Canvas, frame: &FrameData) -> Result<Vec<(&'static str, Vec<f64>)>> {
     let mut gpu: Vec<(&'static str, Vec<f64>)> = Vec::new();
-    if timed {
-        for k in 0..TIMED_DRAWS {
-            canvas.render(&frame);
-            for (label, took) in canvas.renderer.pass_times(&canvas.device)? {
-                if k >= WARM_UP_DRAWS {
-                    match gpu.iter_mut().find(|(l, _)| *l == label) {
-                        Some((_, all)) => all.push(took),
-                        None => gpu.push((label, vec![took])),
-                    }
+    if !canvas.timed {
+        return Ok(gpu);
+    }
+    for k in 0..TIMED_DRAWS {
+        canvas.render(frame);
+        for (label, took) in canvas.renderer.pass_times(&canvas.device)? {
+            if k >= WARM_UP_DRAWS {
+                match gpu.iter_mut().find(|(l, _)| *l == label) {
+                    Some((_, all)) => all.push(took),
+                    None => gpu.push((label, vec![took])),
                 }
             }
         }
     }
-    let pixels = canvas.draw(&frame)?;
-    write_png(&opts.out, width, height, &pixels)?;
-    if game.game.halted().is_some() {
-        println!("wrote {} ({width}x{height}), the game's error over it", opts.out.display());
-        return game.stopped();
-    }
+    Ok(gpu)
+}
 
+/// The lines a shot prints of what it drew and what it took: the stats,
+/// a frame's cost (`[load, mesh, frame]` ms and the passes on the GPU),
+/// the slowest ticks (what a blast costs), the game's report, the sounds.
+fn report_shot<G: Game>(canvas: &Canvas, game: &Session<G>, frames: u32, [load_ms, mesh_ms, frame_ms]: [f64; 3], gpu: &[(&str, Vec<f64>)], played: &Played) {
     let s = canvas.renderer.stats;
-    println!("wrote {} ({width}x{height})", opts.out.display());
-    // A limit the pictures went past (lights left out, the faces' memory
-    // full), said once.
-    canvas.renderer.memory_now(&canvas.device, &canvas.queue)?;
-    for line in game.warnings().into_iter().chain(canvas.renderer.warnings()) {
-        println!("warning: {line}");
-    }
+    let sim_ms = played.ticks.iter().fold(0.0, |sum, t| sum + t.1);
     println!(
         "ticks {} | load {load_ms:.0} ms | sim {sim_ms:.1} ms | mesh {mesh_ms:.0} ms | chunks {}/{} drawn, {} in shadow map | {}k of {}k verts | {} particles",
         frames,
@@ -582,7 +638,6 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         s.vertices_total / 1000,
         game.game.sim().particles.len(),
     );
-    // What one frame costs: building it on the CPU, drawing it on the GPU.
     let median = |all: &[f64]| {
         let mut sorted = all.to_vec();
         sorted.sort_by(f64::total_cmp);
@@ -596,27 +651,25 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         s.model_cubes,
         s.models,
         s.ui_instances,
-        if timed { format!("{total:.2} ms ({})", passes.join(", ")) } else { "not timed (no timestamp queries)".to_string() }
+        if canvas.timed { format!("{total:.2} ms ({})", passes.join(", ")) } else { "not timed (no timestamp queries)".to_string() }
     );
-    // The slowest ticks: what a blast costs.
-    if !ticks.is_empty() {
-        let mut slow = ticks.clone();
+    if !played.ticks.is_empty() {
+        let mut slow = played.ticks.clone();
         slow.sort_by(|a, b| (b.1 + b.2).total_cmp(&(a.1 + a.2)));
         let list: Vec<String> = slow
             .iter()
             .take(3)
             .map(|(tick, sim, remesh, chunks)| format!("tick {tick}: sim {sim:.2} + remesh {remesh:.2} ms ({chunks} chunks)"))
             .collect();
-        println!("ticks: sim {:.3} ms on average | slowest {}", sim_ms / ticks.len() as f64, list.join(", "));
+        println!("ticks: sim {:.3} ms on average | slowest {}", sim_ms / played.ticks.len() as f64, list.join(", "));
     }
     for line in game.game.report() {
         println!("{line}");
     }
-    if !heard.is_empty() {
-        let list: Vec<String> = heard.iter().map(|(name, count)| format!("{name} {count}")).collect();
+    if !played.heard.is_empty() {
+        let list: Vec<String> = played.heard.iter().map(|(name, count)| format!("{name} {count}")).collect();
         println!("sounds: {}", list.join(", "));
     }
-    Ok(())
 }
 
 /// What `film` makes and how.
@@ -711,10 +764,7 @@ pub enum Networked {
 
 /// The keys someone at the keyboard has, as in `shot` and `inspect`.
 fn keyboard<G: Game>(game: &Session<G>) -> crate::controls::Controls {
-    let mut settings = Settings::default();
-    settings.adopt(game.actions(), &game.default_keys(), &game.default_pad());
-    settings.offer_languages(&game.cfg.languages);
-    game.player_controls(Device::Keyboard, PadStyle::default(), &settings)
+    game.player_controls(Device::Keyboard, PadStyle::default(), &game_settings(game))
 }
 
 /// How the game stands, as `inspect` prints it.

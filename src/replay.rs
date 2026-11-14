@@ -358,8 +358,8 @@ pub fn write_seat_script(script: &[(Option<Input>, u32)], actions: &[&str]) -> S
 /// holding nothing.
 #[derive(Clone, Default)]
 pub struct SeatScripts {
-    /// Each seat, its segments, the segment at and the ticks of it used.
-    seats: Vec<(usize, SeatSegments, usize, u32)>,
+    /// Each seat and what it held, tick by tick.
+    seats: Vec<(usize, Segments<Option<Input>>)>,
 }
 
 /// A seat's input in runs: what it held (None: nobody sat there), how many
@@ -374,28 +374,16 @@ impl SeatScripts {
             if *seat < 2 || *seat > seats as usize {
                 bail!("--input{seat}: the game has {seats} seat{} (c.players)", if seats == 1 { "" } else { "s" });
             }
-            read.push((*seat, parse_seat_script(text, actions).with_context(|| format!("--input{seat}"))?, 0, 0));
+            read.push((*seat, Segments::new(parse_seat_script(text, actions).with_context(|| format!("--input{seat}"))?)));
         }
         Ok(Self { seats: read })
     }
 
     /// Sets each seat's input for the next step on `game`.
     pub fn next<G: Game>(&mut self, game: &mut Session<G>) {
-        for (seat, segments, at, used) in &mut self.seats {
-            let mut input = None;
-            loop {
-                match segments.get(*at) {
-                    Some(&(held, ticks)) if *used < ticks => {
-                        *used += 1;
-                        input = Some(held);
-                        break;
-                    }
-                    Some(_) => (*at, *used) = (*at + 1, 0),
-                    None => break,
-                }
-            }
+        for (seat, segments) in &mut self.seats {
             // After the end: as the last segment left it, nothing held.
-            let held = input.unwrap_or_else(|| segments.last().and_then(|(held, _)| held.map(|_| Input::default())));
+            let held = segments.next().unwrap_or_else(|| segments.last().and_then(|held| held.map(|_| Input::default())));
             game.set_seat(*seat, held);
         }
     }
@@ -405,30 +393,51 @@ impl SeatScripts {
     }
 }
 
-/// A script's input tick by tick, nothing held after its end.
-#[derive(Clone)]
-pub struct Script {
-    segments: Vec<(Input, u32)>,
+/// Runs of a value, each held for some ticks, played tick by tick: the
+/// runs, the run at and the ticks of it used.
+#[derive(Clone, Default)]
+struct Segments<T> {
+    all: Vec<(T, u32)>,
     at: usize,
     used: u32,
 }
 
-impl Script {
-    pub fn new(segments: Vec<(Input, u32)>) -> Self {
-        Self { segments, at: 0, used: 0 }
+impl<T: Copy> Segments<T> {
+    fn new(all: Vec<(T, u32)>) -> Self {
+        Self { all, at: 0, used: 0 }
     }
 
-    /// The next tick's input.
-    pub fn next_input(&mut self) -> Input {
-        while let Some(&(input, ticks)) = self.segments.get(self.at) {
+    /// The next tick's value; None after the last run.
+    fn next(&mut self) -> Option<T> {
+        while let Some(&(value, ticks)) = self.all.get(self.at) {
             if self.used < ticks {
                 self.used += 1;
-                return input;
+                return Some(value);
             }
             self.at += 1;
             self.used = 0;
         }
-        Input::default()
+        None
+    }
+
+    /// The last run's value.
+    fn last(&self) -> Option<T> {
+        self.all.last().map(|&(value, _)| value)
+    }
+}
+
+/// A script's input tick by tick, nothing held after its end.
+#[derive(Clone)]
+pub struct Script(Segments<Input>);
+
+impl Script {
+    pub fn new(segments: Vec<(Input, u32)>) -> Self {
+        Self(Segments::new(segments))
+    }
+
+    /// The next tick's input.
+    pub fn next_input(&mut self) -> Input {
+        self.0.next().unwrap_or_default()
     }
 }
 
@@ -803,6 +812,15 @@ impl Verdict {
     }
 }
 
+/// The replays (`.toml` files) right in a folder, by name; none if it
+/// cannot be read.
+fn tomls_in(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.is_file() && p.extension().is_some_and(|e| e == "toml")).collect();
+    paths.sort();
+    paths
+}
+
 /// The game's replays (`replays/` and the folders in it, by name): the
 /// regression runs in `replays/tests/` and the ones the title shows.
 pub fn game_replays(dir: &Path) -> Vec<PathBuf> {
@@ -946,12 +964,13 @@ fn guard<G: Game>(game: &mut Session<G>, playback: &Playback, span: u64, costs: 
 pub fn check<G: Game>(dir: &Path, update: bool) -> Result<bool> {
     if update {
         // One after another: each writes its file.
-        return each_replay(dir, |path, name| {
+        let one = |path: &Path, name: &str| {
             let replay = Replay::load(path)?;
             let fresh = rerecord::<G>(dir, &replay).context("not recorded anew")?;
             fresh.save(path)?;
             Ok((true, format!("{name}: recorded anew ({} ticks, {}, score {})", fresh.ticks, fresh.outcome, fresh.score)))
-        });
+        };
+        return each_replay(dir, 1, one, &mut |line| println!("{line}"));
     }
     // Each replay its own session, several at once (`check_threads`): the
     // lines come in the files' order all the same.
@@ -960,7 +979,7 @@ pub fn check<G: Game>(dir: &Path, update: bool) -> Result<bool> {
         let verdict = play_through::<G>(dir, &replay)?;
         Ok((verdict == Verdict::Same, verdict.said(name, &replay)))
     };
-    each_replay_at_once(dir, check_threads(game_replays(dir).len()), one, &mut |line| println!("{line}"))
+    each_replay(dir, check_threads(game_replays(dir).len()), one, &mut |line| println!("{line}"))
 }
 
 /// How many replays `check` plays at once: one a core, but at most
@@ -980,7 +999,7 @@ const CHECKS_AT_ONCE: usize = 6;
 /// come out as recorded. Says what keeping and bringing back the game cost.
 pub fn check_going_back<G: Game>(dir: &Path, every: u64) -> Result<bool> {
     anyhow::ensure!(every > 0, "--rollback: going back a number of ticks, 1 or more");
-    each_replay(dir, |path, name| {
+    let one = |path: &Path, name: &str| {
         let replay = Replay::load(path)?;
         let mut costs = Costs::default();
         let verdict = play_going_back::<G>(dir, &replay, Some(every), &mut costs)?;
@@ -989,14 +1008,18 @@ pub fn check_going_back<G: Game>(dir: &Path, every: u64) -> Result<bool> {
             Verdict::Same => (true, format!("{said}, going back every {every} ticks; {}", costs.said())),
             _ => (false, said),
         })
-    })
+    };
+    each_replay(dir, 1, one, &mut |line| println!("{line}"))
 }
 
-/// `each_replay` with `threads` replays played at once, each on a thread
-/// of its own taking the next replay not yet begun; each line is printed
-/// said (to `say`) as soon as it and every one before it in the files'
-/// order are done, so the output is the same as one after another.
-fn each_replay_at_once(dir: &Path, threads: usize, one: impl Fn(&Path, &str) -> Result<(bool, String)> + Sync, say: &mut dyn FnMut(String)) -> Result<bool> {
+/// `one` for every replay of the game in `dir` (its path and its name in
+/// the game), `threads` of them at once, each on a thread of its own taking
+/// the next replay not yet begun; each line it says is said (to `say`) as
+/// soon as it and every one before it in the files' order are done, so the
+/// output is the same as one after another. Whether every one was fine;
+/// one that fails is said and the next one played, their mistakes, each
+/// with its replay's name, the error at the end.
+fn each_replay(dir: &Path, threads: usize, one: impl Fn(&Path, &str) -> Result<(bool, String)> + Sync, say: &mut dyn FnMut(String)) -> Result<bool> {
     let replays = game_replays(dir);
     if replays.is_empty() {
         say(format!("{}: no replays", dir.display()));
@@ -1045,37 +1068,6 @@ fn each_replay_at_once(dir: &Path, threads: usize, one: impl Fn(&Path, &str) -> 
         }
         (all, failed)
     });
-    match failed.len() {
-        0 => Ok(all),
-        n => bail!("{n} of {} replays failed:\n{}", replays.len(), failed.join("\n")),
-    }
-}
-
-/// `one` for every replay of the game in `dir` (its path and its name in
-/// the game), each line it says printed: whether every one was fine. One
-/// that fails is said and the next one played; their mistakes, each with
-/// its replay's name, are the error at the end.
-fn each_replay(dir: &Path, mut one: impl FnMut(&Path, &str) -> Result<(bool, String)>) -> Result<bool> {
-    let replays = game_replays(dir);
-    if replays.is_empty() {
-        println!("{}: no replays", dir.display());
-        return Ok(true);
-    }
-    let mut all = true;
-    let mut failed = Vec::new();
-    for path in &replays {
-        let name = path.strip_prefix(dir).unwrap_or(path).display().to_string();
-        match one(path, &name) {
-            Ok((fine, line)) => {
-                println!("{line}");
-                all &= fine;
-            }
-            Err(e) => {
-                println!("{name}: failed (below)");
-                failed.push(format!("{name}: {e:#}"));
-            }
-        }
-    }
     match failed.len() {
         0 => Ok(all),
         n => bail!("{n} of {} replays failed:\n{}", replays.len(), failed.join("\n")),
@@ -1269,11 +1261,7 @@ impl Runs {
 
     fn keep_named(&self, replay: &Replay, name: &str) -> Result<()> {
         replay.save(&self.kept.join(format!("{name}.toml")))?;
-        let mut kept: Vec<PathBuf> = std::fs::read_dir(&self.kept)?
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.extension().is_some_and(|e| e == "toml"))
-            .collect();
-        kept.sort();
+        let kept = tomls_in(&self.kept);
         let gone = kept.len().saturating_sub(KEEP);
         for old in &kept[..gone] {
             std::fs::remove_file(old)?;
@@ -1329,10 +1317,7 @@ impl Attract {
     /// list; the wait starts over.
     pub fn next(&mut self, fingerprint: u64) -> Option<Replay> {
         self.idle = 0.0;
-        let mut paths: Vec<PathBuf> = std::fs::read_dir(self.game_dir.join("replays"))
-            .map(|entries| entries.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.is_file() && p.extension().is_some_and(|e| e == "toml")).collect())
-            .unwrap_or_default();
-        paths.sort();
+        let paths = tomls_in(&self.game_dir.join("replays"));
         for _ in 0..paths.len() {
             let path = &paths[self.next % paths.len()];
             self.next += 1;
@@ -1372,10 +1357,7 @@ pub fn list<G: Game>(game_dir: &Path) -> Result<()> {
     crate::settings::settle(game_dir);
     let kept = crate::settings::replays_for(game_dir);
     let fingerprint = Session::<G>::load(game_dir)?.fingerprint()?;
-    let mut paths: Vec<PathBuf> = std::fs::read_dir(&kept)
-        .map(|entries| entries.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|e| e == "toml")).collect())
-        .unwrap_or_default();
-    paths.sort();
+    let paths = tomls_in(&kept);
     if paths.is_empty() {
         println!("no runs kept yet in {}", kept.display());
     }
@@ -1422,10 +1404,10 @@ mod tests {
             Ok((stem != "c", format!("{name}: {}", if stem == "c" { "runs apart" } else { "same" })))
         };
         let mut serial = Vec::new();
-        let serial_done = each_replay_at_once(&dir, 1, one, &mut |l| serial.push(l));
+        let serial_done = each_replay(&dir, 1, one, &mut |l| serial.push(l));
         for threads in [2, 4, 16] {
             let mut lines = Vec::new();
-            let done = each_replay_at_once(&dir, threads, one, &mut |l| lines.push(l));
+            let done = each_replay(&dir, threads, one, &mut |l| lines.push(l));
             assert_eq!(lines, serial, "{threads} at once");
             assert_eq!(format!("{:#}", done.as_ref().unwrap_err()), format!("{:#}", serial_done.as_ref().unwrap_err()));
         }
