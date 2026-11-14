@@ -17,16 +17,24 @@ impl UserData for WorldView {
         });
         f.add_field_function_get("leaving", |lua, _| look(lua, |h| Ok(h.ask.as_ref().map(Ask::why))));
         f.add_field_function_get("saves", |lua, _| {
-            let slots = look(lua, |h| Ok(h.slots.clone()))?;
+            let (slots, newest) = look(lua, |h| Ok((h.slots.clone(), h.newest_save())))?;
             let list = lua.create_table()?;
             for (n, info) in slots.into_iter().enumerate() {
                 if let Some(info) = info {
                     let t = lua.create_table()?;
                     t.raw_set("level", info.level)?;
                     t.raw_set("seconds", info.ticks / 60)?;
+                    t.raw_set("label", info.label)?;
                     list.raw_set(n + 1, t)?;
                 }
             }
+            // `newest` is read through the table's metatable, so `pairs`,
+            // `ipairs` and `#` meet the numbered slots only, as ever.
+            let more = lua.create_table()?;
+            more.raw_set("newest", newest)?;
+            let meta = lua.create_table()?;
+            meta.raw_set("__index", more)?;
+            list.set_metatable(Some(meta))?;
             Ok(list)
         });
         // Every seat: its player, or false while nobody sits there.
@@ -97,18 +105,29 @@ impl UserData for WorldView {
             }
             ask(lua, "world:restart", Ask::Restart { place, fade })
         });
-        m.add_function("save", |lua, (_, n): (AnyUserData, i64)| {
+        m.add_function("save", |lua, (_, n, options): (AnyUserData, i64, Value)| {
             if phase(lua).is_some() {
                 return Err(mlua::Error::runtime("world:save: only while a level is played (on_level_start, on_tick): there is none to save here"));
             }
             if look(lua, |h| Ok(h.on_title()))? {
                 return Err(mlua::Error::runtime("world:save: no saving on the title (c.title_screen.level): it is no run, world:new_game() begins one"));
             }
+            let label = label_of(options)?;
             change(lua, "world:save", |h| {
                 let n = slot(h, n, "world:save")?;
-                if !h.saving.contains(&n) {
-                    h.saving.push(n);
+                h.saving.retain(|(s, _)| *s != n);
+                h.saving.push((n, SlotAsk::Save(label)));
+                Ok(())
+            })
+        });
+        m.add_function("delete_save", |lua, (_, n): (AnyUserData, i64)| {
+            change(lua, "world:delete_save", |h| {
+                let n = slot(h, n, "world:delete_save")?;
+                if h.slots[n as usize - 1].is_none() {
+                    return Err(mlua::Error::runtime(format!("world:delete_save: slot {n} is empty (world.saves[{n}] tells before)")));
                 }
+                h.saving.retain(|(s, _)| *s != n);
+                h.saving.push((n, SlotAsk::Delete));
                 Ok(())
             })
         });
@@ -184,6 +203,33 @@ fn place_and_fade(lua: &Lua, place: Value, options: Value, what: &str) -> mlua::
         place => Ok((Some(lua.unpack(place)?), fade_of(options, what)?)),
     }
 }
+
+/// `world:save`'s options, `{ label = "..." }`: the label, one line of at
+/// most `MOST_LABEL` characters.
+fn label_of(options: Value) -> mlua::Result<Option<String>> {
+    let what = "world:save";
+    let t = match options {
+        Value::Nil => return Ok(None),
+        Value::Table(t) => t,
+        other => return Err(mlua::Error::runtime(format!("{what}: the options are a table, {{ label = \"text\" }}, not {}", shown(&other)))),
+    };
+    known_keys(&t, &["label"], what)?;
+    match t.raw_get::<Value>("label")? {
+        Value::Nil => Ok(None),
+        Value::String(s) => {
+            let label = s.to_str()?.to_string();
+            match (label.chars().count(), label.chars().any(char::is_control)) {
+                (n, _) if n > MOST_LABEL => Err(mlua::Error::runtime(format!("{what}: label is one line of {MOST_LABEL} characters at most, this is {n}"))),
+                (_, true) => Err(mlua::Error::runtime(format!("{what}: label is one line: no line breaks or control characters in it"))),
+                _ => Ok(Some(label)),
+            }
+        }
+        other => Err(mlua::Error::runtime(format!("{what}: label is a string, not {}", shown(&other)))),
+    }
+}
+
+/// The most characters a save's label has.
+const MOST_LABEL: usize = 80;
 
 /// An ask's options, `{ fade = seconds }`: this change's fade, in the
 /// sense and range of `c.transition.fade` (seconds out, as many in; 0: a

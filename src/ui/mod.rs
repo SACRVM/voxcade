@@ -179,7 +179,7 @@ mod tests {
         texts.extend(["de", "en", "fr"].map(crate::lang::name));
         texts.extend(["PRESS A KEY OR BUTTON", "ENTER: SELECT   ESC: BACK", "A: SELECT   B: BACK", "HI-SCORE 000000", "< ON >", "OFF"].map(String::from));
         texts.push("MOVE: ARROWS OR WASD, LEFT STICK OR D-PAD".to_string());
-        let info = crate::saves::SlotInfo { level: "level_02".into(), ticks: 600, when: 1 };
+        let info = crate::saves::SlotInfo { level: "level_02".into(), ticks: 600, when: 1, label: None };
         texts.extend(["SAVE", "LOAD", "2  EMPTY", "JUST NOW", "5 MIN AGO", "3 DAYS AGO"].map(String::from));
         texts.push(crate::menu::slot_line(1, Some(&info), 3_601, "en"));
         texts.extend(["ENTER YOUR INITIALS", "TYPE OR UP/DOWN   ENTER: NEXT   ESC: BACK", "UP/DOWN: LETTER", "ENTER: CONTINUE", "10TH PLACE   SCORE 000000"].map(String::from));

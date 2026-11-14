@@ -79,14 +79,14 @@ where nothing is (`thing.name`, `thing.wall`, `level.next`, `music.song`).
 | `world.tick` | ticks the game has run in this run (60 a second): every tick `on_tick` runs; none during the engine's pause, a hit stop or a level change |
 | `world.levels` | the levels' names, in order |
 | `world.players` | every seat (`c.players`, 1 unless set): `world.players[n]` is seat n's player, or `false` while nobody sits there |
-| `world.saves` | what lies in each save slot, `{ level, seconds }` (the level it was saved in, the play time), nil for an empty one; read-only |
+| `world.saves` | what lies in each save slot, `{ level, seconds, label }` (the level it was saved in, the play time, the label `world:save` was given or nil), nil for an empty one; `world.saves.newest` the slot saved last, nil while all are empty (read through a metatable: `pairs`, `ipairs` and `#` go over the numbered slots only); read-only |
 | `world.leaving` | nil, or why the level is about to be left (`"go_to"`, `"restart"`, `"load"`, `"won"`, `"lost"`, `"new_game"`): an ask is pending; nil again once the change is done (in `on_level_start`) |
 | `world:go_to(level, place?, options?)` | leave this level for another (a name, or a number in `world.levels`) at the tick's end; arrive at `place`, or where the level starts; `{ fade = seconds }` this change's fade (below) |
 | `world:restart(place?, options?)` | enter this level afresh at the tick's end: at `place`, else at the checkpoint, else where it starts |
 | `world:win(options?)`, `world:lose(options?)` | the run ends at the tick's end (`on_world_end` says how) |
 | `world:hitstop(ticks)` | the whole game holds still for a few ticks, `on_tick` and the time too: the punch of a hit; 60 (a second) at most, more is cut to 60 |
 | `world:read(name)` | a file of the game folder as text, while `main.lua` starts |
-| `world:save(slot)`, `world:load(slot, options?)` | at the tick's end (save games, below); loading an empty slot is a mistake with its line (`world.saves[slot]` tells first); on the game's own title `world:load` begins the run from the save and `world:save` is a mistake |
+| `world:save(slot, options?)`, `world:load(slot, options?)`, `world:delete_save(slot)` | at the tick's end (save games, below); a save's `options` are `{ label = "..." }`, one line of 80 characters at most; a delete empties the slot for good at the tick's end (the script still sees it that tick, `world.saves[slot]` is nil from the next) and an empty slot is a mistake; loading an empty slot is a mistake with its line (`world.saves[slot]` tells first); on the game's own title `world:load` begins the run from the save and `world:save` is a mistake |
 | `world:new_game(options?)` | on the game's own title only (`c.title_screen.level`, below): a fresh run begins at the tick's end in the level a run begins in |
 | `world:open(page)` | a page of the engine's over the game, held while it shows (`"settings"`, the only one so far; another name is a mistake listing them): asked of the window, not of the run |
 | `world:quit()` | the program ends (the IDE's PLAY stops, `shot` and `inspect` end the run there): asked of the window, not of the run |
@@ -1105,7 +1105,14 @@ yet: areas' events, setting a light's colour or radius in code.
   `on_level_start("load")`, and what they set gives way to the save's
   states. Scripts: `world:save(slot)` (save points, saving on its own in
   `on_level_start` after a level change), `world:load(slot)` (an empty
-  slot is a mistake with its line), `world.saves`. A save is written
+  slot is a mistake with its line), `world.saves`. A save may carry a
+  `label` (`world:save(slot, { label = "Chapter 2" })`, `world.saves[slot].label`,
+  shown by the engine's SAVE and LOAD pages; a pause-menu save has none);
+  `world:delete_save(slot)` empties a slot at the tick's end (this run's
+  slots only where `shot`, `check` and replays keep theirs for the run);
+  `world.saves.newest` is the slot saved last (`world:load(world.saves.newest)`
+  is CONTINUE): the saves of the run count in the order made, never by the
+  clock, so a replay reads it alike. A save is written
   at the tick's end before an ask is done, so a save and a `go_to` in one
   tick save the level being left.
 - **Where:** in the player's config folder (`saves/<game>/1.toml`), never

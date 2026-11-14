@@ -443,7 +443,7 @@ Save games: `c.saves = { slots = 3, version = 1 }` puts SAVE and LOAD in
 the pause menu and CONTINUE on the title (the newest save); `world:save(slot)` at the tick's end (save points),
 `world:load(slot)` like a level change (`"load"` for `on_level_end` and
 `on_level_start`; `level.state` as saved, things in it nil: spawn them
-again from what the state says), `world.saves[slot]` (`level`,
+again from what the state says), `world:save(slot, { label })`, `world:delete_save(slot)`, `world.saves.newest` (CONTINUE is `world:load(world.saves.newest)`), `world.saves[slot]` (`label`, `level`,
 `seconds`, or nil), `on_save_loaded(version)` brings an older save's
 states up to date when `c.saves.version` went up. Slots live in the
 player's config folder; `shot`, `check` and `inspect` keep theirs for the

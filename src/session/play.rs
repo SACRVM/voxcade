@@ -38,14 +38,19 @@ impl<G: Game> Session<G> {
         self.saves_due();
     }
 
-    /// Writes the saves the game made (`world:save`) into their slots.
+    /// Writes the saves the game made (`world:save`) into their slots and
+    /// empties those it deleted (`world:delete_save`).
     pub(super) fn saves_due(&mut self) {
         let due = self.game.saving();
         if due.is_empty() {
             return;
         }
-        for (slot, text) in due {
-            if let Err(e) = self.slots.write(slot, &text, self.clock) {
+        for change in due {
+            let done = match change {
+                Change::Write(slot, text) => self.slots.write(slot, &text, self.clock),
+                Change::Delete(slot) => self.slots.delete(slot),
+            };
+            if let Err(e) = done {
                 eprintln!("{e:#}");
                 self.problem = Some(format!("{e:#}"));
             }

@@ -85,6 +85,14 @@
 ---@class SaveInfo What lies in a save slot.
 ---@field level string The level it was saved in.
 ---@field seconds integer The play time when it was saved.
+---@field label? string The label the game gave it (world:save's options), nil when it has none.
+
+---@class Saves What lies in the save slots: the slots by number, and which was saved last.
+---@field [integer] SaveInfo
+---@field newest? integer The number of the slot saved last, nil while every slot is empty.
+
+---@class SaveOptions What a save is given (world:save).
+---@field label? string One line of 80 characters at most to tell the save by (a chapter, a place).
 
 ---@class SpawnOptions How a thing comes into the level.
 ---@field z? number The height of its feet (else it stands on the ground).
@@ -99,7 +107,11 @@
 ---@field language string The language the player chose of the ones your game speaks (c.languages = { "de", "en", "fr" }; SETTINGS offers them, the system's at first): "de", two small letters; without c.languages "en". It can change while playing: pick your texts by it every picture (texts[world.language].hello). Replays carry it. Over the network each machine draws in its own: in on_draw it is the language of the machine drawing, in on_tick and the events the host's, so keep what a text says in a state and choose its words in on_draw.
 ---@field levels string[] The levels' names in order: the files in levels/ sorted by name, numbers as numbers (01_hall, 02_tower); one level when there are none.
 ---@field leaving string|nil Why the level is about to be left at the end of this tick ("go_to", "restart", "load", "won", "lost", "new_game"), or nil: the ask that counts so far. One ask counts in a tick: going on (go_to, win, new_game) before starting over (restart, load, lose); among those of one rank the first asked. (Leaving by QUIT TO TITLE or a level file saved while playing is no ask: on_level_end hears "quit" and "reload".)
----@field saves table<integer, SaveInfo> What lies in each save slot (c.saves.slots of them): world.saves[1] is nil while slot 1 is empty, else { level, seconds }.
+---What lies in each save slot (c.saves.slots of them): world.saves[1] is nil while slot 1 is empty, else { level, seconds, label }.
+---- label is what the game gave that save in world:save's options, nil when it gave none (a save made from the pause menu has none).
+---- world.saves.newest is the number of the slot saved last, nil while every slot is empty: world:load(world.saves.newest) is what CONTINUE does. It is not met by pairs or ipairs, which go over the numbered slots only.
+---- Slots made or emptied by world:save and world:delete_save show from the next tick.
+---@field saves Saves
 ---@field players (Player|false)[] Every seat of the game (c.players, 1 unless set), in order: world.players[n] is the player on seat n, or false while nobody sits there (#world.players is how many seats; world.players[1] is player). A HUD shows PRESS START where a seat is false. Players in play in this level: level:players().
 ---@field items Item[] The kinds of item (c.items) in their order (c.items.NAME.order, then by name), each { name, model, stack }: for drawing an inventory.
 local World = {}
@@ -122,17 +134,23 @@ function World:restart(place, options) end
 ---@return string
 function World:read(name) end
 
----Saves the game into a slot (1 to c.saves.slots) at the end of the tick, or of the on_level_start that asks: for save points, or saving on its own. The player can save from the pause menu too. Never on your game's own title (c.title_screen.level).
+---Saves the game into a slot (1 to c.saves.slots) at the end of the tick, or of the on_level_start that asks: for save points, or saving on its own. The player can save from the pause menu too (such a save has no label). Never on your game's own title (c.title_screen.level).
+---- options: { label = "Chapter 2: the station" } tells the save by a line of your own, one line of 80 characters at most: world.saves[slot].label reads it back, and the engine's own SAVE and LOAD pages show it in place of the level's name.
 ---- Kept: world.state, player.state, every level's level.kept, the level being played with its level.state and the voxels changed in it (blown away, built), and where the player stands.
 ---- Not kept: the level's things. They come from its file when it is loaded; a thing kept in level.state comes back as nil, so keep what you need to place them again.
 ---@param slot integer
-function World:save(slot) end
+---@param options? SaveOptions
+function World:save(slot, options) end
 
 ---Goes on from the save in a slot at the end of the tick, like a level change (on_level_end("load"), then on_level_start("load")): the states as they were saved, the level from its file with the voxels changed in it as they were, the player where it stood. An empty slot is a mistake: world.saves tells first. On your game's own title (c.title_screen.level) it begins the run from the save, as CONTINUE does. One ask counts in a tick: world.leaving.
 ---- options: { fade = seconds } for this change alone, as world:go_to's.
 ---@param slot integer
 ---@param options? LevelChange
 function World:load(slot, options) end
+
+---Empties a save slot for good at the end of the tick (or of the on_level_start that asks), as world:save is done: world.saves[slot] is nil from the next tick on. An empty slot is a mistake: world.saves tells first. Allowed in a run and on your game's own title (c.title_screen.level), for a load menu that lets the player delete a save. Only this game's own slot is emptied, its file is gone and cannot be brought back; shot, check, inspect and replays keep their saves for the run only, so they delete nothing on disk.
+---@param slot integer
+function World:delete_save(slot) end
 
 ---Holds the game still for this many ticks: a hit 2 or 3. Everything stops, on_tick too. 60 (a second) at most: more is cut to 60. It is part of the game, so replays see it.
 ---@param ticks integer

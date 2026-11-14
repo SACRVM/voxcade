@@ -51,6 +51,7 @@ impl<K: Kit> LuaGame<K> {
             game: sim.cfg.title.clone(),
             version: sim.cfg.saves.version,
             level: level.name.clone(),
+            label: None,
             ticks: sim.tick,
             rng: format!("{:016x}", sim.rng.state()),
             states: save::States { world: write(&captured.state), player: write(&captured.player), level: write(&captured.level) },
@@ -66,25 +67,42 @@ impl<K: Kit> LuaGame<K> {
         })
     }
 
-    /// Makes the saves `world:save` asked for, as the game stands now (the
-    /// tick's end, the end of an `on_level_start`): the script reads them
-    /// at once (`world.saves`, `world:load`), the session writes them into
-    /// the slots. A game stopped by a mistake is in no state to keep.
+    /// Does what `world:save` and `world:delete_save` asked, as the game
+    /// stands now (the tick's end, the end of an `on_level_start`): the
+    /// script reads the result at once (`world.saves`, `world:load`), the
+    /// session writes it into the slots. A game stopped by a mistake is in
+    /// no state to keep.
     pub(super) fn write_saves(&mut self) {
-        let slots = std::mem::take(&mut self.stage.saving);
-        if slots.is_empty() || self.halted.borrow().is_some() {
+        let asks = std::mem::take(&mut self.stage.saving);
+        if asks.is_empty() || self.halted.borrow().is_some() {
             return;
         }
-        let saved = self.save_data().and_then(|data| Ok((data.write()?, data)));
-        let (text, data) = match saved {
-            Ok(saved) => saved,
-            Err(e) => return self.halt(e.context("world:save")),
-        };
-        for n in slots {
-            let info = crate::saves::SlotInfo { level: data.level.clone(), ticks: data.ticks, when: 0 };
-            self.stage.slots[n as usize - 1] = Some(info);
+        let mut data = None;
+        for (n, ask) in asks {
+            let slot = n as usize - 1;
+            let SlotAsk::Save(label) = ask else {
+                self.stage.slots[slot] = None;
+                self.stage.slot_texts.remove(&n);
+                self.stage.recent.retain(|&r| r != n);
+                self.written.push(Change::Delete(n));
+                continue;
+            };
+            if data.is_none() {
+                match self.save_data() {
+                    Ok(d) => data = Some(d),
+                    Err(e) => return self.halt(e.context("world:save")),
+                }
+            }
+            let data = data.as_mut().expect("the save is made");
+            data.label = label.clone();
+            let text = match data.write() {
+                Ok(text) => text,
+                Err(e) => return self.halt(e.context("world:save")),
+            };
+            self.stage.slots[slot] = Some(crate::saves::SlotInfo { level: data.level.clone(), ticks: data.ticks, when: 0, label });
             self.stage.slot_texts.insert(n, Arc::from(text.as_str()));
-            self.written.push((n, text.clone()));
+            self.stage.saved(n);
+            self.written.push(Change::Write(n, text));
         }
     }
 

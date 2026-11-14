@@ -216,3 +216,171 @@ fn bunnyfarms_fence_saved_with_a_gap_still_mends_whole() {
     assert_eq!(halted(&loaded), "");
     assert_eq!(loaded.game.inspect()["level"]["fences"]["chicken"]["taken"], taken, "what the gap took, known after loading");
 }
+
+/// A script that does what `world.state.cmd` says, once: `save1`, `save2`,
+/// `label1`, `del1`, `del2` (slots 1 and 2).
+const DOES: &str = r#"
+function on_tick()
+  local c = world.state.cmd
+  world.state.cmd = nil
+  if c == "save1" then world:save(1) elseif c == "save2" then world:save(2)
+  elseif c == "label1" then world:save(1, { label = "Chapter 0 – Station" })
+  elseif c == "del1" then world:delete_save(1) elseif c == "del2" then world:delete_save(2) end
+end
+"#;
+
+/// Does `cmd` in the next tick.
+fn does(g: &mut Session<LuaGame>, cmd: &str) {
+    said(g, &format!("world.state.cmd = \"{cmd}\""));
+    steps(g, 1);
+}
+
+/// A label is kept with the save: read back as `world.saves[n].label`
+/// (nil without one), by a session reading the slots afresh too, through
+/// a load, and a save from before labels still reads and loads.
+#[test]
+fn a_label_is_kept_with_the_save() {
+    let dir = saves_folder("save-label", DOES);
+    let mut g = game_in(&dir);
+    does(&mut g, "save2");
+    assert_eq!(said(&mut g, "world.saves[2].label"), "nil", "none given, none shown");
+    does(&mut g, "label1");
+    assert_eq!(halted(&g), "");
+    assert_eq!(said(&mut g, "world.saves[1].label"), "\"Chapter 0 – Station\"");
+    assert_eq!(g.slots.info(1).and_then(|i| i.label).as_deref(), Some("Chapter 0 – Station"), "the engine's pages read it");
+    let (text, plain) = (g.slots.read(1).unwrap().to_string(), g.slots.read(2).unwrap().to_string());
+    assert!(text.contains("label = "), "kept in the save file");
+    assert!(!plain.contains("label"), "a save without one writes none");
+    let slots = |one: &str| crate::saves::Slots::holding([(1, one.to_string())].into());
+    let mut fresh = Session::<LuaGame>::load_with(&dir, slots(&text)).unwrap();
+    assert_eq!(said(&mut fresh, "world.saves[1].label"), "\"Chapter 0 – Station\"", "a fresh session reads the slots");
+    fresh.start_from(&text).unwrap();
+    assert_eq!(halted(&fresh), "");
+    assert_eq!(said(&mut fresh, "world.saves[1].label"), "\"Chapter 0 – Station\"", "and goes on from it");
+    // An older save has no such line.
+    let old: String = text.lines().filter(|l| !l.starts_with("label")).collect::<Vec<_>>().join("\n") + "\n";
+    let mut older = Session::<LuaGame>::load_with(&dir, slots(&old)).unwrap();
+    assert_eq!(said(&mut older, "world.saves[1].label"), "nil");
+    assert_eq!(said(&mut older, "world.saves[1].level"), "\"a\"");
+    older.start_from(&old).unwrap();
+    assert_eq!(halted(&older), "");
+}
+
+/// A label is one line of 80 characters at most, a string; the options take
+/// no other key.
+#[test]
+fn a_label_that_is_not_one_short_line_is_a_mistake() {
+    let long = "x".repeat(81);
+    for (name, options, says) in [
+        ("long", format!("{{ label = \"{long}\" }}"), "world:save: label is one line of 80 characters at most, this is 81"),
+        ("number", "{ label = 5 }".to_string(), "world:save: label is a string, not 5"),
+        ("lines", "{ label = \"a\\nb\" }".to_string(), "world:save: label is one line"),
+        ("key", "{ name = \"x\" }".to_string(), "world:save: no 'name' (it takes label)"),
+        ("text", "\"x\"".to_string(), "world:save: the options are a table"),
+    ] {
+        let dir = saves_folder(&format!("label-{name}"), &format!("function on_tick() world:save(1, {options}) end\n"));
+        let mut g = game_in(&dir);
+        steps(&mut g, 1);
+        assert!(halted(&g).contains(says), "{name}: {}", halted(&g));
+    }
+    let ok = "é".repeat(80);
+    let dir = saves_folder("label-80", &format!("function on_tick() world:save(1, {{ label = \"{ok}\" }}) end\n"));
+    let mut g = game_in(&dir);
+    steps(&mut g, 2);
+    assert_eq!(halted(&g), "", "80 characters, however many bytes");
+}
+
+/// `world:delete_save` empties the slot at the tick's end: the script still
+/// sees it in that tick and not in the next; an empty slot or one out of
+/// range is a mistake; a save and a delete of a tick leave the last ask.
+#[test]
+fn a_save_is_deleted_at_the_ticks_end() {
+    let main = "function on_tick()\n  local seen = world.saves[1] and 'x' or '-'\n  if world.tick == 2 then world:save(1) end\n  \
+        if world.tick == 5 then world:delete_save(1); seen = seen .. (world.saves[1] and 'x' or '-') .. '!' end\n  \
+        world.state.log = (world.state.log or '') .. seen\nend\n";
+    let mut g = game_in(&saves_folder("delete-timing", main));
+    steps(&mut g, 8);
+    assert_eq!(halted(&g), "");
+    assert_eq!(said(&mut g, "world.state.log"), "\"--xxxx!---\"", "still there in the tick that deleted it, gone in the next");
+    assert!(g.slots.info(1).is_none(), "the slot is empty");
+    for (name, line, says) in [
+        ("empty", "world:delete_save(2)", "world:delete_save: slot 2 is empty (world.saves[2] tells before)"),
+        ("range", "world:delete_save(3)", "world:delete_save: no slot 3: the game's are 1 to 2 (c.saves.slots)"),
+    ] {
+        let mut g = game_in(&saves_folder(&format!("delete-{name}"), &format!("function on_tick() {line} end\n")));
+        steps(&mut g, 1);
+        assert!(halted(&g).contains(says), "{name}: {}", halted(&g));
+    }
+    let mut g = game("delete-no-slots", "function on_tick() world:delete_save(1) end\n");
+    steps(&mut g, 1);
+    assert!(halted(&g).contains("the game has no save slots"), "{}", halted(&g));
+    // Save, then delete in one tick: the last ask counts.
+    let mut g = game_in(&saves_folder("delete-last", "function on_tick()\n  if world.tick == 1 then world:save(1) end\n  if world.tick == 3 then world:save(1); world:delete_save(1) end\nend\n"));
+    steps(&mut g, 2);
+    assert!(g.slots.info(1).is_some());
+    steps(&mut g, 2);
+    assert_eq!(halted(&g), "");
+    assert!(g.slots.info(1).is_none());
+}
+
+/// `world.saves.newest` is the slot saved last, nil while all are empty,
+/// and moves after a delete; `pairs`, `ipairs` and `#` go over the numbered
+/// slots as ever.
+#[test]
+fn newest_is_the_slot_saved_last() {
+    let mut g = game_in(&saves_folder("newest", DOES));
+    assert_eq!(said(&mut g, "world.saves.newest"), "nil");
+    does(&mut g, "save2");
+    assert_eq!(said(&mut g, "world.saves.newest"), "2");
+    does(&mut g, "save1");
+    assert_eq!(said(&mut g, "world.saves.newest"), "1", "the last made, not the highest");
+    does(&mut g, "save2");
+    assert_eq!(said(&mut g, "world.saves.newest"), "2");
+    let count = "(function() local c, k = 0, 0 for _ in pairs(world.saves) do c = c + 1 end for _ in ipairs(world.saves) do k = k + 1 end return c .. ':' .. k .. ':' .. #world.saves end)()";
+    assert_eq!(said(&mut g, count), "\"2:2:2\"", "newest is no slot");
+    does(&mut g, "del2");
+    assert_eq!(said(&mut g, "world.saves.newest"), "1", "it moves to the next");
+    does(&mut g, "del1");
+    assert_eq!(halted(&g), "");
+    assert_eq!(said(&mut g, "world.saves.newest"), "nil");
+    assert_eq!(said(&mut g, count), "\"0:0:0\"");
+    // A save from the pause menu is the newest, whatever the script saved.
+    let mut g = game_in(&saves_folder("newest-menu", DOES));
+    g.set_clock(100);
+    does(&mut g, "save1");
+    g.set_clock(200);
+    g.save_to(2).unwrap();
+    assert_eq!(said(&mut g, "world.saves.newest"), "2");
+    does(&mut g, "save1");
+    assert_eq!(said(&mut g, "world.saves.newest"), "1");
+}
+
+/// A run that saves with a label, deletes and reads `newest` plays back
+/// the same from its replay, whatever the clock said.
+#[test]
+fn replays_carry_labels_deletes_and_newest() {
+    use crate::replay::{Recorder, check};
+    let main = r#"
+function on_tick()
+  if world.tick == 4 then world:save(1, { label = "one" }) end
+  if world.tick == 6 then world:save(2) end
+  if world.tick == 8 then world:delete_save(2) end
+  if world.tick == 10 then world:save(2, { label = "two" }) end
+  if world.tick == 12 then world:save(1) end
+  world.state.seen = tostring(world.saves.newest) .. tostring(world.saves[1] and world.saves[1].label) .. tostring(world.saves[2] and world.saves[2].label)
+end
+"#;
+    let dir = saves_folder("replay-labels", main);
+    let mut g = game_in(&dir);
+    let mut recorder = Recorder::default();
+    for i in 0..40 {
+        g.set_clock(1_000 - i);
+        g.step(&Input::default());
+        recorder.record(&g);
+    }
+    assert_eq!(halted(&g), "");
+    assert_eq!(said(&mut g, "world.state.seen"), "\"1niltwo\"");
+    std::fs::create_dir_all(dir.join("replays")).unwrap();
+    recorder.replay(&g).unwrap().save(&dir.join("replays/labels.toml")).unwrap();
+    assert!(check::<LuaGame>(&dir, false).unwrap(), "plays the same");
+}
