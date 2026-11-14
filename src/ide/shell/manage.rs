@@ -523,7 +523,6 @@ mod tests {
 
     fn folder(name: &str) -> crate::scratch::Scratch {
         let dir = crate::scratch::Scratch::new(&format!("manage-{name}"));
-        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sounds")).unwrap();
         dir
     }

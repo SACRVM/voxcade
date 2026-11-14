@@ -188,12 +188,10 @@ mod tests {
     #[test]
     fn claudes_choices_from_before_come_along() {
         let ide = crate::scratch::Scratch::new("prefs-before");
-        std::fs::create_dir_all(&ide).unwrap();
         std::fs::write(ide.join("claude.toml"), "with_ide = true\nresume = true\nconnect = true\n[sessions]\nvoxkeep = \"81fd2a14\"\n").unwrap();
         let prefs = Prefs::load(&ide.join("settings").join("ide.toml")).unwrap();
         assert!(prefs.claude.with_ide && prefs.console);
         assert_eq!(prefs.claude.sessions.get("voxkeep").map(String::as_str), Some("81fd2a14"));
-        let _ = std::fs::remove_dir_all(&ide);
     }
 
     /// The games opened last: the newest first, each once, those gone left

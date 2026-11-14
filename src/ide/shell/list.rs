@@ -35,8 +35,6 @@ impl Shell {
             }
             egui::ScrollArea::vertical().content_margin(egui::Margin { right: 6, ..egui::Margin::ZERO }).show(ui, |ui| {
                 let open = if self.outside.is_some() || self.sound.builtin.is_some() { None } else { self.memory.open.clone() };
-                #[cfg(test)]
-                self.managing.headings.clear();
                 // Each sort of file under its name, which opens and closes
                 // it: the logic, then the assets, the big groups closed at
                 // first.
@@ -62,8 +60,6 @@ impl Shell {
                         if plus.hovered() {
                             ui.painter().rect_filled(rect, 3.0, crate::gui::ROW_HOVERED);
                         }
-                        #[cfg(test)]
-                        self.managing.headings.push((sort.to_string(), rect, header.rect));
                         let colour = if plus.hovered() { TEXT } else { QUIET };
                         ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, "+", TextStyle::Body.resolve(ui.style()), colour);
                         if plus.clicked() {

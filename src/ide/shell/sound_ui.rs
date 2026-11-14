@@ -141,19 +141,15 @@ impl Shell {
         self.refresh_used(name);
         let rows = self.sound.used.as_ref().map(|u| u.rows.clone()).unwrap_or_default();
         let says = self.rules_say(name);
-        let (mut rects, mut go) = (Vec::new(), None);
+        let mut go = None;
         let text = sound::write(&def, &[]);
         egui::ScrollArea::both().id_salt(("builtin", name)).auto_shrink([false, false]).content_margin(egui::Margin { right: 12, bottom: 14, ..egui::Margin::ZERO }).show(ui, |ui| {
             let font = TextStyle::Monospace.resolve(ui.style());
             let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap: f32| ui.fonts_mut(|f| f.layout_job(crate::ide::code::highlight(text.as_str(), &font, crate::ide::code::Syntax::Sound)));
             let mut shown = text.as_str();
             ui.add(egui::TextEdit::multiline(&mut shown).code_editor().frame(egui::Frame::NONE).desired_width(f32::INFINITY).layouter(&mut layouter));
-            go = used_ui(ui, name, &says, &rows, &mut rects);
+            go = used_ui(ui, name, &says, &rows);
         });
-        #[cfg(test)]
-        {
-            self.sound.used_rows = rects;
-        }
         if play {
             self.play_sound();
         }
@@ -330,8 +326,8 @@ pub(super) const LOOP_PAUSE: std::time::Duration = std::time::Duration::from_mil
 
 /// Where a sound is used, under its text: USED, then what the game's code
 /// says of it (`says`) and each line of it that names it, clicked to open
-/// there (the file and the line returned; `rects` where the rows are).
-pub(super) fn used_ui(ui: &mut egui::Ui, name: &str, says: &[String], rows: &[crate::ide::refs::Ref], rects: &mut Vec<egui::Rect>) -> Option<(String, usize)> {
+/// there (the file and the line returned).
+pub(super) fn used_ui(ui: &mut egui::Ui, name: &str, says: &[String], rows: &[crate::ide::refs::Ref]) -> Option<(String, usize)> {
     let mut go = None;
     ui.add_space(18.0);
     ui.label(RichText::new("USED").small().color(QUIET));
@@ -355,7 +351,6 @@ pub(super) fn used_ui(ui: &mut egui::Ui, name: &str, says: &[String], rows: &[cr
             let text = ui.add(egui::Label::new(RichText::new(shown).text_style(TextStyle::Monospace).color(QUIET)).sense(egui::Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand);
             place.clicked() || text.clicked()
         });
-        rects.push(at.response.rect);
         if at.inner {
             go = Some((row.file.clone(), row.line));
         }

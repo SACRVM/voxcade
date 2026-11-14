@@ -215,7 +215,6 @@ mod tests {
             assert!(create(template, &projects, &name, None).is_err(), "taken");
         }
         assert!(create(&TEMPLATES[0], &projects, "  ", None).is_err(), "no name");
-        let _ = std::fs::remove_dir_all(&projects);
     }
 
     /// The tick in NEW puts the game's notes for the agent in, named for the
@@ -244,7 +243,6 @@ mod tests {
             b.step(&crate::input::Input::default());
         }
         assert!(b.trouble().is_none());
-        let _ = std::fs::remove_dir_all(&projects);
     }
 
     /// A new game is a git repository when git is there: one commit with
@@ -272,7 +270,6 @@ mod tests {
         assert_eq!(log.trim(), "A new game from the test template");
         let files = String::from_utf8(git(&dir, &["ls-files"]).unwrap().stdout).unwrap();
         assert_eq!(files.lines().collect::<Vec<_>>(), [".gitignore", "main.lua"]);
-        let _ = std::fs::remove_dir_all(&projects);
     }
 
     /// The templates built in are the ones in the repository, every file.

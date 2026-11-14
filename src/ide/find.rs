@@ -122,9 +122,6 @@ pub struct Find {
     /// the word, the case).
     counted: Option<(u64, String, bool)>,
     ranges: Vec<Range<usize>>,
-    /// A button pressed by the tests' hand, on the next frame.
-    #[cfg(test)]
-    pub press: Option<Act>,
 }
 
 impl Find {
@@ -317,10 +314,6 @@ impl Find {
         }
         self.focus = None;
         self.had_keys = keys;
-        #[cfg(test)]
-        if let Some(pressed) = self.press.take() {
-            act = Some(pressed);
-        }
         act
     }
 }
@@ -462,9 +455,6 @@ pub struct Search {
     pub had_keys: bool,
     /// The hit chosen last.
     chosen: Option<(String, usize)>,
-    /// Where the hits were drawn (for the tests' mouse).
-    #[cfg(test)]
-    pub rows: Vec<egui::Rect>,
 }
 
 impl Search {
@@ -567,8 +557,6 @@ impl Search {
         });
         self.poll(dir, ui.ctx());
         ui.add_space(8.0);
-        #[cfg(test)]
-        self.rows.clear();
         let (word, case) = (self.word.clone(), self.match_case);
         egui::ScrollArea::vertical().id_salt("search hits").auto_shrink([false, false]).content_margin(egui::Margin { right: 6, bottom: 8, ..egui::Margin::ZERO }).show(ui, |ui| {
             let mut file = None;
@@ -585,8 +573,6 @@ impl Search {
                 }
                 let on = self.chosen.as_ref().is_some_and(|(f, l)| *f == hit.file && *l == hit.line);
                 let row = hit_row(ui, hit, &word, case, on).on_hover_text(format!("{}:{}  {}", hit.file, hit.line, hit.text));
-                #[cfg(test)]
-                self.rows.push(row.rect);
                 if row.clicked() {
                     go = Some((hit.file.clone(), hit.line));
                 }

@@ -181,12 +181,6 @@ struct Managing {
     renaming: Option<Renaming>,
     asking: Option<Question>,
     gone: Option<Gone>,
-    /// Where UNDO was drawn (for the tests' mouse).
-    #[cfg(test)]
-    undo_button: Option<egui::Rect>,
-    /// Where the pluses and their headings were drawn (for the tests' mouse).
-    #[cfg(test)]
-    headings: Vec<(String, egui::Rect, egui::Rect)>,
 }
 
 /// The picture of a model, block or level open.
@@ -274,9 +268,6 @@ pub struct SoundPage {
     fading: Option<maker::Fader>,
     /// The song playing (its file), started with PLAY SONG over it.
     pub listening: Option<String>,
-    /// Where the rows of USED were drawn (for the tests' mouse).
-    #[cfg(test)]
-    used_rows: Vec<egui::Rect>,
 }
 
 /// Where the agent's program is looked for, and whether it was not found
@@ -401,7 +392,7 @@ impl Shell {
             deleted_dir: crate::settings::kept_for(dir, crate::settings::Kept::IdeDeleted),
             journals,
             cfg,
-            pictures: Pictures { own_background: cfg!(not(test)), preview: None, model_text: false, spare: None, retired: Vec::new(), animate: true },
+            pictures: Pictures { own_background: true, preview: None, model_text: false, spare: None, retired: Vec::new(), animate: true },
             stage: None,
             asks: Vec::new(),
             bar: BarState::default(),
@@ -411,9 +402,6 @@ impl Shell {
             help_topic: 0,
             below: Below { output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, console_seen: None, console_dragged: false, reported: None, output_saved: std::time::Instant::now() },
             sound: SoundPage::default(),
-            #[cfg(test)]
-            agent: AgentState { finder: super::claude::Finder::in_dirs(Vec::new()), no_agent: false },
-            #[cfg(not(test))]
             agent: AgentState { finder: super::claude::Finder::system(), no_agent: false },
             find: Default::default(),
             search: Default::default(),

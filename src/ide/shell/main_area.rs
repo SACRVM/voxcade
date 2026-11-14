@@ -334,7 +334,7 @@ impl Shell {
             used_rows = self.sound.used.as_ref().map(|u| u.rows.clone()).unwrap_or_default();
             says = self.rules_say(name);
         }
-        let (mut rects, mut go_used) = (Vec::new(), None);
+        let mut go_used = None;
         let mut scroll = egui::ScrollArea::both().id_salt(&path).auto_shrink([false, false]).content_margin(egui::Margin { right: 12, bottom: 14, ..egui::Margin::ZERO });
         if let Some(offset) = self.opening.restore.take() {
             scroll = scroll.vertical_scroll_offset(offset);
@@ -362,14 +362,10 @@ impl Shell {
             }
             }
             if let Some(name) = &sound_name {
-                go_used = used_ui(ui, name, &says, &used_rows, &mut rects);
+                go_used = used_ui(ui, name, &says, &used_rows);
             }
         });
         self.memory.scroll.insert(path, out.state.clamped_offset().y);
-        #[cfg(test)]
-        {
-            self.sound.used_rows = rects;
-        }
         if let Some((file, line)) = go_used {
             self.hide_game();
             self.help = false;

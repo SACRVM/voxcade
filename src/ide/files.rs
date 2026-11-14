@@ -178,7 +178,6 @@ mod tests {
     #[test]
     fn a_game_folder_splits_into_logic_and_assets() {
         let dir = crate::scratch::Scratch::new("ide-files");
-        let _ = std::fs::remove_dir_all(&dir);
         for (path, text) in [
             ("main.lua", "-- see levels/README.txt\nlocal levels = read(\"levels/one.txt\")"),
             ("conf.lua", "function conf(c) end"),
@@ -221,7 +220,6 @@ mod tests {
             ]
         );
         assert!(files.has("blocks/stone.vvx") && !files.has("replays/tests/run.toml"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Test renders in `shots/` are never listed, with a `.gitignore` or
@@ -230,7 +228,6 @@ mod tests {
     #[test]
     fn the_list_leaves_out_what_is_ignored() {
         let dir = crate::scratch::Scratch::new("ide-ignored");
-        let _ = std::fs::remove_dir_all(&dir);
         for (path, text) in [
             ("main.lua", ""),
             ("shots/a.png", ""),
@@ -256,6 +253,5 @@ mod tests {
         assert_eq!(names, ["hero.vvx", "kept.vvx", "main.lua", "sounds/new.toml"].map(String::from), "ignored files, folders and the subfolder's own file are out");
         // A file ignored but open stays open: the list only does not name it.
         assert!(!Files::scan(&dir).has("notes/ideas.txt"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

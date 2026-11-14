@@ -330,7 +330,6 @@ mod tests {
 
     fn folder(name: &str) -> (PathBuf, PathBuf, crate::scratch::Scratch) {
         let dir = crate::scratch::Scratch::new(&format!("buffer-{name}"));
-        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("game")).unwrap();
         std::fs::write(dir.join("game/main.lua"), "function on_tick() end\n").unwrap();
         (dir.join("game"), dir.join("journal"), dir)

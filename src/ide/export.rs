@@ -201,7 +201,6 @@ mod tests {
     #[test]
     fn a_build_lands_in_the_games_folder_and_is_not_packed_again() {
         let dir = crate::scratch::Scratch::new("export-where");
-        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("builds")).unwrap();
         std::fs::write(dir.join("main.lua"), "x").unwrap();
         std::fs::write(dir.join("builds/old.zip"), "x").unwrap();
@@ -209,7 +208,6 @@ mod tests {
         let mut files = Vec::new();
         walk(&dir, "", &Ignore::for_game(&dir), &mut files, &mut Vec::new());
         assert_eq!(files, ["main.lua"]);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A build leaves out `shots/` (a `.gitignore` or none) and what the
@@ -218,7 +216,6 @@ mod tests {
     #[test]
     fn a_build_leaves_out_what_is_ignored_and_says_what_the_game_needs() {
         let dir = crate::scratch::Scratch::new("export-ignored");
-        let _ = std::fs::remove_dir_all(&dir);
         for (path, text) in [
             ("main.lua", "local m = \"models/hero.vvx\"\nsound(\"coin\")"),
             ("shots/a.png", "x"),
@@ -243,7 +240,6 @@ mod tests {
         assert_eq!(files, ["kept.txt", "main.lua"]);
         ignored.sort();
         assert_eq!(needed(&dir, &files, &ignored), ["models/hero.vvx", "sounds/coin.toml"], "named by the game; the spare model and the notes are not");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A build that fails partway leaves no half a zip behind (`.zip.part`),
@@ -266,7 +262,6 @@ mod tests {
     #[test]
     fn a_build_leaves_the_agents_notes_out() {
         let dir = crate::scratch::Scratch::new("export-notes");
-        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("levels")).unwrap();
         for file in ["main.lua", "CLAUDE.md", "levels/CLAUDE.md", ".gitignore"] {
             std::fs::write(dir.join(file), "x").unwrap();
@@ -275,7 +270,6 @@ mod tests {
         walk(&dir, "", &Ignore::for_game(&dir), &mut files, &mut Vec::new());
         files.sort();
         assert_eq!(files, ["levels/CLAUDE.md", "main.lua"]);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A build holds the program, the game (no hidden files, no regression
@@ -286,7 +280,6 @@ mod tests {
     fn an_export_holds_the_game_and_runs() {
         let dir = Path::new("games/voxkeep");
         let tmp = crate::scratch::Scratch::new("export");
-        let _ = std::fs::remove_dir_all(&tmp);
         // A stand-in for the program: the test's own.
         let program = std::env::current_exe().unwrap();
         let zip = tmp.join("voxkeep.zip");
@@ -307,6 +300,5 @@ mod tests {
             a.step(&crate::input::Input::default());
         }
         assert!(a.trouble().is_none());
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

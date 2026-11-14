@@ -720,17 +720,22 @@ mod tests {
     use super::*;
     use std::path::Path;
 
+    /// A frame's input for a console 800 by 400 points big: `events`, at
+    /// `time` if given.
+    fn input(events: Vec<egui::Event>, time: Option<f64>) -> egui::RawInput {
+        egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 400.0))), events, time, ..Default::default() }
+    }
+
     /// CLAUDE pressed gives the console the keys (asked for in the
     /// click's own frame, egui took them back: the click was elsewhere).
     #[test]
     fn claude_gives_the_console_the_keys() {
         let dir = crate::scratch::Scratch::new("console-keys");
-        std::fs::create_dir_all(&dir).unwrap();
         let mut console = Console::new(dir.to_path_buf(), Start::Nothing, Arc::new(|| {}));
         let ctx = egui::Context::default();
         let mut folded = false;
         let mut frame = |events: Vec<egui::Event>, console: &mut Console| {
-            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 400.0))), events, ..Default::default() };
+            let raw = input(events, None);
             let _ = ctx.run_ui(raw, |ui| {
                 // (The shell types the agent's command.)
                 if console.heading(ui, &mut folded, Agent::Claude, true, &mut false, 0).agent {
@@ -753,7 +758,6 @@ mod tests {
         assert_eq!(console.typed, b"claude\r", "CLAUDE was pressed");
         frame(Vec::new(), &mut console);
         assert_eq!(ctx.memory(|m| m.focused()), Some(Id::unique("terminal")), "the console has the keys");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Only the arrow folds the console: a click beside the tabs leaves it
@@ -761,13 +765,12 @@ mod tests {
     #[test]
     fn only_the_arrow_folds() {
         let dir = crate::scratch::Scratch::new("console-fold");
-        std::fs::create_dir_all(&dir).unwrap();
         let mut console = Console::new(dir.to_path_buf(), Start::Nothing, Arc::new(|| {}));
         let ctx = egui::Context::default();
         let mut folded = false;
         let mut click = |at: Pos2, folded: &mut bool| {
             for events in [vec![egui::Event::PointerMoved(at)], vec![true, false].into_iter().map(|pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }).collect()] {
-                let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 400.0))), events, ..Default::default() };
+                let raw = input(events, None);
                 let _ = ctx.run_ui(raw, |ui| {
                     console.heading(ui, folded, Agent::Claude, true, &mut false, 0);
                 });
@@ -777,7 +780,6 @@ mod tests {
         assert!(!folded, "a click beside the tabs");
         click(Pos2::new(800.0 - INSET - 4.0, 16.0), &mut folded);
         assert!(folded, "the arrow");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Text dragged over with the mouse goes to the system's selection,
@@ -785,11 +787,10 @@ mod tests {
     #[test]
     fn what_is_selected_is_copied() {
         let dir = crate::scratch::Scratch::new("console-copy");
-        std::fs::create_dir_all(&dir).unwrap();
         let mut console = Console::new(dir.to_path_buf(), Start::Command("printf 'hello world'; sleep 3".into()), Arc::new(|| {}));
         let ctx = egui::Context::default();
         let frame = |events: Vec<egui::Event>, console: &mut Console| {
-            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 400.0))), events, ..Default::default() };
+            let raw = input(events, None);
             let out = ctx.run_ui(raw, |ui| console.body(ui));
             out.platform_output.commands.iter().filter_map(|c| if let egui::OutputCommand::CopyText(t) = c { Some(t.clone()) } else { None }).collect::<Vec<_>>()
         };
@@ -814,7 +815,6 @@ mod tests {
         let shift = egui::Modifiers { ctrl: true, shift: true, command: true, ..Default::default() };
         let key = egui::Event::Key { key: Key::C, physical_key: None, pressed: true, repeat: false, modifiers: shift };
         assert_eq!(frame(vec![key], &mut console), ["hello"], "Ctrl+Shift+C");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A program that asked for the mouse (as Claude Code's full screen
@@ -822,7 +822,6 @@ mod tests {
     #[test]
     fn a_program_that_asks_for_the_mouse_hears_it() {
         let dir = crate::scratch::Scratch::new("console-mouse");
-        std::fs::create_dir_all(&dir).unwrap();
         let heard = dir.join("heard");
         let command = format!("printf '\\033[?1049h\\033[?1002h\\033[?1006h'; stty raw -echo; cat > '{}'", heard.display());
         let mut console = Console::new(dir.to_path_buf(), Start::Command(command), Arc::new(|| {}));
@@ -830,7 +829,7 @@ mod tests {
         let mut time = 0.0;
         let mut frame = |events: Vec<egui::Event>, console: &mut Console| {
             time += 1.0 / 60.0;
-            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 400.0))), events, time: Some(time), ..Default::default() };
+            let raw = input(events, Some(time));
             let _ = ctx.run_ui(raw, |ui| console.body(ui));
         };
         frame(Vec::new(), &mut console);
@@ -862,7 +861,6 @@ mod tests {
         assert!(got.contains("M") && got.contains("\x1b[<0;") && got.ends_with('m'), "pressed and let go: {got:?}");
         assert!(console.terminal.as_ref().unwrap().with(|t| t.selection.is_none()), "the console selected nothing");
         drop(console);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A path in the console's text lights while the mouse is over it and
@@ -875,7 +873,7 @@ mod tests {
         let mut time = 0.0;
         let mut frame = |events: Vec<egui::Event>, console: &mut Console| {
             time += 1.0 / 60.0;
-            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 400.0))), events, time: Some(time), ..Default::default() };
+            let raw = input(events, Some(time));
             let _ = ctx.run_ui(raw, |ui| console.body(ui));
         };
         frame(Vec::new(), &mut console);
@@ -948,7 +946,6 @@ mod tests {
         assert_eq!(resolve(&game, other.join("pic.png").to_str().unwrap()), Some(canonical(other.join("pic.png"))), "a picture elsewhere");
         assert_eq!(resolve(&game, other.join("notes.txt").to_str().unwrap()), None, "other files elsewhere");
         assert_eq!(resolve(&game, "../other/notes.txt"), None, "out of the folder by dots");
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// The MCP button names voxcade mcp in the game folder's .mcp.json,
@@ -963,6 +960,5 @@ mod tests {
         let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join(".mcp.json")).unwrap()).unwrap();
         assert_eq!(config["mcpServers"]["other"]["command"], "x", "kept");
         assert_eq!(config["mcpServers"]["voxcade"]["args"][0], "mcp");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

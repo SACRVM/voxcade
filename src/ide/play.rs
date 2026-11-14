@@ -589,7 +589,6 @@ mod tests {
             came |= play.reload(device, queue);
         }
         assert!(came && play.trouble().is_none(), "mended: {:?}", play.trouble());
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A game in a folder of its own with `main` as its `main.lua`: played
@@ -643,7 +642,6 @@ mod tests {
         assert_eq!(floor(&play), [255, 0, 0], "the new floor");
         assert_eq!(play.game.game.sim().tick, 0, "begun anew");
         assert!(noted(&mut play));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A number of the rules alone: the run goes on.
@@ -657,7 +655,6 @@ mod tests {
         assert_eq!(play.game.game.sim().tick, 5, "played on");
         assert_eq!(floor(&play), [0, 255, 0]);
         assert!(!noted(&mut play));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A setting that waits for a restart changed in `conf.lua`.
@@ -669,7 +666,6 @@ mod tests {
         saved(&dir, "conf.lua", "function conf(c)\n  c.world.size = { 32, 32, 8 }\n  c.player.spawn = { 10, 10 }\nend\n", &mut play, device, queue);
         assert_eq!(play.game.game.sim().tick, 0, "begun anew");
         assert!(noted(&mut play));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The run played is recorded: F9 puts it in the game's replays,
@@ -694,7 +690,6 @@ mod tests {
         assert!(replay.ticks > 0 && replay.score as u64 == replay.ticks, "{} ticks, {} points", replay.ticks, replay.score);
         assert!(matches!(crate::replay::play_through::<crate::Voxcade>(&dir, &replay).unwrap(), crate::replay::Verdict::Same));
         play.end(&mut egui);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// What OUTPUT shows as a mistake.
@@ -727,7 +722,6 @@ mod tests {
         play.step(180, &crate::input::Input::default());
         assert!(errors(&mut play).is_empty(), "{:?}", errors(&mut play));
         assert!(play.game.game.sim().tick > 200, "played on");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The common mistakes have plain words, the rest none.
@@ -774,7 +768,6 @@ mod tests {
         let canvas = crate::headless::Canvas::new(64, 64, false).unwrap();
         let (device, queue, _) = canvas.gpu();
         let dir = crate::scratch::Scratch::new("play-again");
-        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("scenarios")).unwrap();
         std::fs::write(dir.join("conf.lua"), CONF).unwrap();
         std::fs::write(dir.join("main.lua"), "function on_tick()\n  player.state.score = player.state.score + 1\nend\n").unwrap();
@@ -788,6 +781,5 @@ mod tests {
         assert_eq!(play.scenario.as_deref(), Some("late"), "the scenario again");
         let score = play.eval("player.state.score").unwrap();
         assert!(score.contains("1003"), "begun from the scenario's 1000, three ticks on: {score}");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

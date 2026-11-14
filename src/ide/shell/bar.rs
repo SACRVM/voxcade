@@ -104,12 +104,7 @@ impl Shell {
                             Some(left) => {
                                 ui.ctx().request_repaint_after(left);
                                 if gone.can_undo() {
-                                    let button = ui.button("UNDO").on_hover_text("Puts the file back as it was.");
-                                    #[cfg(test)]
-                                    {
-                                        self.managing.undo_button = Some(button.rect);
-                                    }
-                                    undo |= button.clicked();
+                                    undo |= ui.button("UNDO").on_hover_text("Puts the file back as it was.").clicked();
                                 }
                                 ui.add(egui::Label::new(RichText::new(&gone.said).small().color(QUIET)).truncate()).on_hover_text(&gone.said);
                             }

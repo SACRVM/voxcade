@@ -384,7 +384,6 @@ mod tests {
         let outside = brief_with(&files, &alone, "Keep", Some(Path::new("/home/x/.claude"))).unwrap();
         assert_eq!(outside.settings, None, "nothing left out");
         assert!(!std::fs::read_to_string(outside.prompt.unwrap()).unwrap().contains("engine's own source"));
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     /// A conversation Claude Code kept is gone on with; without one
@@ -413,7 +412,6 @@ mod tests {
         fresh.sessions.clear();
         std::fs::write(root.join("projects").join(&path).join("x; rm.jsonl"), "{}\n").unwrap();
         assert!(fresh.command(dir, "Voxkeep", false, None, &Briefing::default()).contains("--session-id"));
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// The agent's program is found in the folders given (a file that runs),
@@ -431,6 +429,5 @@ mod tests {
         assert!(finder.finds("voxcade-no-such-agent"), "found");
         assert!(!Finder::in_dirs(Vec::new()).finds("voxcade-no-such-agent"), "not in other folders");
         assert!(Finder::in_dirs(Vec::new()).finds(&dir.join("voxcade-no-such-agent").to_string_lossy()), "a path as it is");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }
