@@ -181,7 +181,7 @@ pub fn joints(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
     // The chosen part's arrows; its joint's ring lit under the mouse (or
     // dragged), its word beside it.
     let vp = view.view_proj(&view.block, crate::editor::ViewRoom(screen).aspect());
-    let ring_lit = view.ring_hover || ed.joint_drag().is_some_and(|d| !d.part);
+    let ring_lit = view.ring_hover || ed.handle_drag().is_some_and(|d| matches!(d.dragged, super::model::Dragged::Joint { .. }));
     if ring_lit && let Some(m) = marks.iter().find(|m| m.chosen) {
         let p = at(m.at);
         painter.circle(p, 8.0, crate::gui::GROUND, egui::Stroke::new(3.0, gold));
@@ -195,7 +195,7 @@ pub fn joints(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
     }
     // (GAME VIEW: the figure alone, as the game draws it.)
     if let Some(h) = ed.part_handles(vp).filter(|_| view.before_game.is_none()) {
-        let lit = ed.joint_drag().and_then(|d| d.drag.as_ref().map(|(g, _)| g.grip)).or(view.grip_hover);
+        let lit = ed.handle_drag().and_then(super::model::HandleDrag::grip).or(view.grip_hover);
         stage::paint(&painter, &h, vp, screen, lit);
     }
     // SLICE's arrow, lit under the mouse or dragged.

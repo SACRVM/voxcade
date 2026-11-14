@@ -654,7 +654,7 @@ mod tests {
         let steps = ed.steps();
         assert!(ed.grab_joint(ray(spot), Vec3::Y));
         for k in 1..=6 {
-            ed.drag_joint(glam::Mat4::IDENTITY, glam::Vec2::ONE, glam::Vec2::ZERO, ray(spot + Vec3::new(k as f32 * 0.5, 0.0, k as f32 * 0.25)));
+            ed.drag_handle(glam::Mat4::IDENTITY, glam::Vec2::ONE, glam::Vec2::ZERO, ray(spot + Vec3::new(k as f32 * 0.5, 0.0, k as f32 * 0.25)));
         }
         ed.release();
         assert_eq!((joint(&mut ed), ed.steps()), (start + Vec3::new(3.0, 0.0, 1.5), steps + 1), "across the view, by halves, one step");
@@ -662,7 +662,7 @@ mod tests {
         assert_eq!(joint(&mut ed), start);
         // Escape while dragging: as it was, no step.
         ed.grab_joint(ray(spot), Vec3::Y);
-        ed.drag_joint(glam::Mat4::IDENTITY, glam::Vec2::ONE, glam::Vec2::ZERO, ray(spot + Vec3::X * 2.0));
+        ed.drag_handle(glam::Mat4::IDENTITY, glam::Vec2::ONE, glam::Vec2::ZERO, ray(spot + Vec3::X * 2.0));
         assert_ne!(joint(&mut ed), start);
         assert!(ed.cancel_joint());
         assert_eq!((joint(&mut ed), ed.steps()), (start, steps));
@@ -730,7 +730,7 @@ mod tests {
         let far = crate::editor::handles::project(vp, screen, h.centre + Vec3::X * (h.length + 3.2)).unwrap().0;
         let along = crate::editor::handles::project(vp, screen, h.centre + Vec3::X * h.length).unwrap().0;
         let to = head + (far - along);
-        ed.drag_joint(vp, screen, to, ray(to));
+        ed.drag_handle(vp, screen, to, ray(to));
         ed.release();
         assert_eq!((ed.part_at().unwrap().x - x0, ed.steps()), (3, steps + 1));
         ed.undo();

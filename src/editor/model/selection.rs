@@ -607,9 +607,7 @@ impl Editor {
             _ => return,
         }
         self.selecting.selection = Some(d.selection.clone());
-        self.rigging.join_next = joined;
-        self.selection_step(SelOp::Move(by, keep, d.selection.copy));
-        self.rigging.join_next = false;
+        self.joining(joined, |ed| ed.selection_step(SelOp::Move(by, keep, d.selection.copy)));
     }
 
     /// The selection's arrows let go.

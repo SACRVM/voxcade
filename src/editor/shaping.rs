@@ -129,7 +129,7 @@ fn part_bar(ui: &mut egui::Ui, ed: &Editor, free: Rect, view: &View, shown: &mut
     if ed.selection().is_some() {
         return;
     }
-    let Some(p) = ed.figure.as_ref().and_then(|f| f.selected).filter(|_| ed.part_mode().is_some() && ed.joint_drag().is_none() && ed.forms.drawing.is_none() && !ed.rigging.posing) else { return };
+    let Some(p) = ed.figure.as_ref().and_then(|f| f.selected).filter(|_| ed.part_mode().is_some() && ed.handle_drag().is_none() && ed.forms.drawing.is_none() && !ed.rigging.posing) else { return };
     let screen = ui.ctx().content_rect();
     let vp = view.view_proj(&view.block, crate::editor::ViewRoom(screen).aspect());
     let Some(h) = ed.part_handles(vp) else { return };

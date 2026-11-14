@@ -207,7 +207,7 @@ impl Editor {
         self.moving = None;
         self.pieces.dragging = None;
         self.pieces.gripped = None;
-        self.rigging.joint_drag = None;
+        self.rigging.handle_drag = None;
         self.rigging.join_next = false;
         self.forms.drawing = None;
         self.forms.fresh = None;

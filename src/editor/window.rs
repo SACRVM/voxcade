@@ -544,7 +544,7 @@ impl EditorWindow {
                     }
                 }
             }
-            Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } if ed.forms() && ed.joint_drag().is_none() => {
+            Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } if ed.forms() && ed.handle_drag().is_none() => {
                 view.held &= !HELD_LEFT;
                 if ed.forms.drawing.is_some() {
                     ed.set_drawn(view.only_empty);
@@ -772,13 +772,13 @@ fn key_down(ed: &mut Editor, view: &mut View, keys: &[(char, view::Action)], key
             ed.land.selected.clear();
         }
         // A drag going on: cancelled, all as before it.
-        Keycode::Escape if ed.joint_drag().is_some() || ed.gripped().is_some() || ed.dragging().is_some() || ed.stroke_open() => {
+        Keycode::Escape if ed.handle_drag().is_some() || ed.gripped().is_some() || ed.dragging().is_some() || ed.stroke_open() => {
             ed.end_drag(true);
             ed.end_whole_stroke();
         }
         // The selection: none selected; its voxels gone; copied,
         // pasted.
-        Keycode::Escape if ed.joint_drag().is_none() && view.menu.is_none() && ed.selection().is_some() => ed.clear_selection(),
+        Keycode::Escape if ed.handle_drag().is_none() && view.menu.is_none() && ed.selection().is_some() => ed.clear_selection(),
         Keycode::Delete | Keycode::Backspace if ed.selection().is_some() => view::act(ed, view, view::Action::SelRemove),
         Keycode::C if ctrl && ed.selection().is_some() => view::act(ed, view, view::Action::SelCopy),
         Keycode::V if ctrl && ed.selecting.clipboard.is_some() => view::act(ed, view, view::Action::SelPaste),
@@ -958,14 +958,14 @@ impl<'a> Here<'a> {
             // SLICE's arrow dragged.
             let mouse = input.point(x, y);
             ed.drag_slice(room.view_proj(view, &view.block), room.size(), room.local(mouse), view.ray(ed, aspect, sx, sy));
-        } else if ed.joint_drag().is_some() && left {
+        } else if ed.handle_drag().is_some() && left {
             // A joint's arrow dragged.
             let mouse = input.point(x, y);
             let (vp, ray) = (room.view_proj(view, &view.block), view.ray(ed, aspect, sx, sy));
             // (Shift: finer, a tenth of a voxel, a degree.)
             ed.set_fine(shift);
             ed.selecting.sel_keep = view.only_empty;
-            ed.drag_joint(vp, room.size(), room.local(mouse), ray);
+            ed.drag_handle(vp, room.size(), room.local(mouse), ray);
             // (A part moved moves the grid shown: the view keeps the
             // figure still at once, for the next motion's ray.)
             view.follow_origin(ed);

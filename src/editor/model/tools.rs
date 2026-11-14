@@ -28,7 +28,7 @@ impl Editor {
     pub fn shift_pick(&mut self, down: bool) {
         if down {
             // (Not while a handle is dragged: Shift is its fine step then.)
-            let free = self.history.stroke.is_none() && self.forms.drawing.is_none() && self.rigging.joint_drag.is_none() && self.pieces.gripped.is_none() && Tool::of(self.scope, self.layer).contains(&Tool::Pick);
+            let free = self.history.stroke.is_none() && self.forms.drawing.is_none() && self.rigging.handle_drag.is_none() && self.pieces.gripped.is_none() && Tool::of(self.scope, self.layer).contains(&Tool::Pick);
             if !self.shifted && self.tool != Tool::Pick && free {
                 self.choose(Tool::Pick);
                 self.shifted = true;
@@ -381,20 +381,18 @@ impl Editor {
     pub fn release(&mut self) {
         // A drag of a part or a selection let go: the figure's box made
         // tight, in the drag's own step.
-        if let Some(d) = self.rigging.joint_drag.take()
+        if let Some(d) = self.rigging.handle_drag.take()
             && d.moved
             && self.model.as_ref().is_some_and(|m| m.parted() && !m.is_tight())
         {
-            self.rigging.join_next = self.history.count() > d.steps;
-            self.change_model_file(|m| m.size = m.tight_size());
-            self.rigging.join_next = false;
+            self.joining(d.joins(self.history.count()), |ed| ed.change_model_file(|m| m.size = m.tight_size()));
         }
         self.let_go_of_slice();
         self.let_go_of_land();
         self.moving = None;
         self.pieces.dragging = None;
         self.pieces.gripped = None;
-        self.rigging.joint_drag = None;
+        self.rigging.handle_drag = None;
         let Some(stroke) = self.history.stroke.take() else { return };
         let step = match stroke {
             Begun::Level(before) => {
@@ -439,7 +437,7 @@ impl Editor {
     /// joint's, a piece's), the slice's, a piece over the floor, a tool's
     /// stroke, a footprint.
     pub fn drag_open(&self) -> bool {
-        self.rigging.joint_drag.is_some() || self.pieces.gripped.is_some() || self.pieces.dragging.is_some() || self.moving.is_some() || self.history.stroke.is_some() || self.forms.drawing.is_some() || self.slicing()
+        self.rigging.handle_drag.is_some() || self.pieces.gripped.is_some() || self.pieces.dragging.is_some() || self.moving.is_some() || self.history.stroke.is_some() || self.forms.drawing.is_some() || self.slicing()
     }
 
     /// A drag ended without its own let-go (the button found up, a press

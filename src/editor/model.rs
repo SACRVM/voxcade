@@ -45,30 +45,53 @@ mod rig;
 pub use room::{Field, Hanging, Item};
 pub use cells::MOST_CELLS;
 
-/// A joint's arrow being dragged: the drag, the handles as they were at
-/// the press, where the joint was (from the pivot), how many steps there
-/// were then and whether it moved since.
+/// A handle of the voxel editor being dragged (`Editor::handle_drag`):
+/// what it moves, the steps there were at the press and whether it moved
+/// since (its first change makes the drag's one step, the next ones join
+/// it), and whether Shift asks for the fine steps (tenths, single
+/// degrees).
 #[derive(Clone, Debug)]
-pub struct JointDrag {
-    pub drag: Option<(super::handles::Drag, super::handles::Handles)>,
-    start: Vec3,
+pub struct HandleDrag {
+    pub dragged: Dragged,
     steps: usize,
     moved: bool,
-    /// The part itself dragged by an arrow; how far it went.
-    pub part: bool,
-    applied: IVec3,
-    /// The joint's ring dragged: the axis left out (the one most along
-    /// the view) and where the ray met the plane across it at the press.
-    ring: Option<(usize, Vec3)>,
-    /// A part's ring dragged (ROTATE): its rest rotation at the press,
-    /// and whether the angles go by single degrees (Ctrl) or by fives.
-    rest: [f32; 3],
     pub fine: bool,
-    /// A part's arrow: the part's grid to the pivot's at the press (the
-    /// drag measured in the grid as it was, `local_to_pivot`), and how far
-    /// it has gone in the file's directions so far (fractions too).
-    press: Option<glam::Mat4>,
-    applied_f: Vec3,
+}
+
+/// What a handle's drag moves.
+#[derive(Clone, Debug)]
+pub enum Dragged {
+    /// A part's arrow or ring, or the figure whole's arrows: the drag and
+    /// the handles at the press; the part's rest rotation then (ROTATE);
+    /// its grid to the pivot's then (a part's arrow: the drag measured in
+    /// the grid as it was, `local_to_pivot`); how far it has gone, in whole
+    /// voxels and in the file's directions with fractions.
+    Part { drag: super::handles::Drag, h: super::handles::Handles, rest: [f32; 3], press: Option<glam::Mat4>, applied: IVec3, applied_f: Vec3 },
+    /// A selection's arrow: its voxels dragged, how far.
+    Selection { drag: super::handles::Drag, h: super::handles::Handles, applied: IVec3 },
+    /// The joint's ring: the axis left out (the one most along the view),
+    /// where the ray met the plane across it at the press, and where the
+    /// joint was then (from the pivot).
+    Joint { axis: usize, from: Vec3, start: Vec3 },
+}
+
+impl HandleDrag {
+    fn new(dragged: Dragged, steps: usize) -> Self {
+        Self { dragged, steps, moved: false, fine: false }
+    }
+
+    /// Whether a change now joins the drag's step (its first made one).
+    fn joins(&self, steps_now: usize) -> bool {
+        self.moved && steps_now > self.steps
+    }
+
+    /// The arrow or ring dragged (none: the joint's ring).
+    pub fn grip(&self) -> Option<super::handles::Grip> {
+        match &self.dragged {
+            Dragged::Part { drag, .. } | Dragged::Selection { drag, .. } => Some(drag.grip),
+            Dragged::Joint { .. } => None,
+        }
+    }
 }
 
 /// How far from the pivot a figure's part may be moved (voxels).
@@ -614,9 +637,9 @@ pub struct Pieces {
 /// list, a drag, a pose and the next step do to them.
 #[derive(Default)]
 pub struct Rigging {
-    /// A figure's joint being dragged by its arrow, and whether the next
-    /// change to the model joins the last step (the drag's).
-    joint_drag: Option<JointDrag>,
+    /// A figure's handle being dragged, and whether the next change to the
+    /// model joins the last step (the drag's: `Editor::joining`).
+    handle_drag: Option<HandleDrag>,
     join_next: bool,
     /// A figure's part: its rings (ROTATE) at it rather than its arrows
     /// (MOVE); a stroke begun from the figure whole on the part it met
