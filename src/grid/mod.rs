@@ -12,7 +12,7 @@
 //! level's edges, `below` voxels of open space under it make pits deep
 //! enough to fall out of.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -659,13 +659,6 @@ pub struct Picture {
     pub pixels: Vec<[u8; 4]>,
 }
 
-/// Builds the level `cfg` names: the world, its markers (`names`: the kinds
-/// of things) and the files it was made from.
-pub fn load(dir: &Path, cfg: &BlocksConfig, names: &[&str]) -> Result<(World, Vec<Marker>, Vec<PathBuf>)> {
-    let made = load_at(&Files::folder(dir), cfg, &dir.join(&cfg.file), names, false)?;
-    Ok((made.world, made.markers, made.files))
-}
-
 /// The mistake for a level whose things are turned off the quarter turns in
 /// a game that sets things on the grid: which, and the two ways out.
 pub fn off_grid_mistake(off: &[&Thing]) -> String {
@@ -1068,6 +1061,14 @@ pub(crate) fn stamp(world: &mut World, block: &Block, kind: Kind) -> Option<Vec<
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    /// Builds the level `cfg` names from the folder: the world, its markers
+    /// (`names`: the kinds of things) and the files it was made from.
+    fn load(dir: &Path, cfg: &BlocksConfig, names: &[&str]) -> Result<(World, Vec<Marker>, Vec<PathBuf>)> {
+        let made = load_at(&Files::folder(dir), cfg, &dir.join(&cfg.file), names, false)?;
+        Ok((made.world, made.markers, made.files))
+    }
 
     /// A block of size `n` with one colour in the cells `filled` names.
     fn block(n: i32, colour: [u8; 3], filled: impl Fn(IVec3) -> bool) -> Block {

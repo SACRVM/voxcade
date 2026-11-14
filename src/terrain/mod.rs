@@ -347,19 +347,10 @@ impl Terrain {
     /// The height of column `c` (from the terrain's corner): whole voxels,
     /// the column filled up to it.
     pub fn height_at(&self, c: IVec2) -> i32 {
-        let s = self.spacing;
-        // Where between the points: the cell of points (i, j) to (i + 1,
-        // j + 1), and how far across it (exact fractions of whole numbers).
-        let u = c - IVec2::splat(s / 2);
-        let (i, j) = (u.x.div_euclid(s), u.y.div_euclid(s));
-        let (fx, fy) = (u.x.rem_euclid(s) as f64 / s as f64, u.y.rem_euclid(s) as f64 / s as f64);
+        let (i, j, fx, fy) = self.between(c);
         let (a, b, cc, d) = (self.h(i, j), self.h(i + 1, j), self.h(i, j + 1), self.h(i + 1, j + 1));
-        // How much of a shape the four points round it have, each by its
-        // nearness.
-        let weight = |shape: Shape| {
-            let is = |x: i32, y: i32| (self.shapes[(x.clamp(0, self.cols - 1) + y.clamp(0, self.rows - 1) * self.cols) as usize] == shape) as i32 as f64;
-            (1.0 - fx) * (1.0 - fy) * is(i, j) + fx * (1.0 - fy) * is(i + 1, j) + (1.0 - fx) * fy * is(i, j + 1) + fx * fy * is(i + 1, j + 1)
-        };
+        // How much of a shape the four points round it have.
+        let weight = |shape: Shape| self.nearness((i, j, fx, fy), |k| (self.shapes[k] == shape) as i32 as f64);
         let (linear, step) = (weight(Shape::Linear), weight(Shape::Step));
         let straight = {
             let low = a + (b - a) * fx;
@@ -377,7 +368,7 @@ impl Terrain {
         };
         // Uneven where it is rough; STEP: then cut into terraces (the
         // bands shifted up and down a little), as much as it weighs in.
-        let amount = self.rough_at(c, fx, fy, i, j);
+        let amount = self.rough_at((i, j, fx, fy));
         let h = if amount > 0.0 { h + amount * self.relief(c) } else { h };
         let h = if step > 0.0 {
             let shift = amount * self.band_shift(c) + self.strata_shift(c);
@@ -388,35 +379,43 @@ impl Terrain {
         ((h + 0.5).floor() as i32).max(0)
     }
 
+    /// Where column `c` lies between the points: the cell of points (i, j)
+    /// to (i + 1, j + 1), and how far across it (exact fractions of whole
+    /// numbers).
+    fn between(&self, c: IVec2) -> (i32, i32, f64, f64) {
+        let s = self.spacing;
+        let u = c - IVec2::splat(s / 2);
+        (u.x.div_euclid(s), u.y.div_euclid(s), u.x.rem_euclid(s) as f64 / s as f64, u.y.rem_euclid(s) as f64 / s as f64)
+    }
+
+    /// The four points round a place between them (`between`), each one's
+    /// `of` (by its index in the points) weighed by its nearness.
+    fn nearness(&self, (i, j, fx, fy): (i32, i32, f64, f64), of: impl Fn(usize) -> f64) -> f64 {
+        let at = |x: i32, y: i32| of((x.clamp(0, self.cols - 1) + y.clamp(0, self.rows - 1) * self.cols) as usize);
+        (1.0 - fx) * (1.0 - fy) * at(i, j) + fx * (1.0 - fy) * at(i + 1, j) + (1.0 - fx) * fy * at(i, j + 1) + fx * fy * at(i + 1, j + 1)
+    }
+
     /// How much STEP weighs in at column `c` (0 to 1: the four points
     /// round it, each by its nearness).
     pub fn step_at(&self, c: IVec2) -> f64 {
-        let s = self.spacing;
-        let u = c - IVec2::splat(s / 2);
-        let (i, j) = (u.x.div_euclid(s), u.y.div_euclid(s));
-        let (fx, fy) = (u.x.rem_euclid(s) as f64 / s as f64, u.y.rem_euclid(s) as f64 / s as f64);
-        let is = |x: i32, y: i32| (self.shapes[(x.clamp(0, self.cols - 1) + y.clamp(0, self.rows - 1) * self.cols) as usize] == Shape::Step) as i32 as f64;
-        (1.0 - fx) * (1.0 - fy) * is(i, j) + fx * (1.0 - fy) * is(i + 1, j) + (1.0 - fx) * fy * is(i, j + 1) + fx * fy * is(i + 1, j + 1)
+        self.nearness(self.between(c), |k| (self.shapes[k] == Shape::Step) as i32 as f64)
     }
 
-    /// How uneven the land is at column `c`: `rough` times the four
-    /// points' roughness round it (each of 9), by their nearness.
-    fn rough_at(&self, _c: IVec2, fx: f64, fy: f64, i: i32, j: i32) -> f64 {
+    /// How uneven the land is at a place between the points: `rough`
+    /// times the four points' roughness round it (each of 9), by their
+    /// nearness.
+    fn rough_at(&self, place: (i32, i32, f64, f64)) -> f64 {
         let rough = self.rough.unwrap_or(ROUGH);
         if rough <= 0.0 {
             return 0.0;
         }
         let Some(r) = &self.roughness else { return rough };
-        let at = |x: i32, y: i32| r[(x.clamp(0, self.cols - 1) + y.clamp(0, self.rows - 1) * self.cols) as usize] as f64 / 9.0;
-        rough * ((1.0 - fx) * (1.0 - fy) * at(i, j) + fx * (1.0 - fy) * at(i + 1, j) + (1.0 - fx) * fy * at(i, j + 1) + fx * fy * at(i + 1, j + 1))
+        rough * self.nearness(place, |k| r[k] as f64 / 9.0)
     }
 
     /// How uneven the land is at column `c`, from 0 to 1 (`rough_at`).
     pub fn roughness_at(&self, c: IVec2) -> f64 {
-        let s = self.spacing;
-        let u = c - IVec2::splat(s / 2);
-        let (i, j) = (u.x.div_euclid(s), u.y.div_euclid(s));
-        self.rough_at(c, u.x.rem_euclid(s) as f64 / s as f64, u.y.rem_euclid(s) as f64 / s as f64, i, j)
+        self.rough_at(self.between(c))
     }
 
     /// The unevenness at `rough = 1`, voxels up or down: three octaves of
@@ -756,13 +755,8 @@ fn catmull_rom(p0: f64, p1: f64, p2: f64, p3: f64, t: f64) -> f64 {
 /// Smooth noise from -1 to 1 over a lattice `cell` columns wide: a number
 /// at each node from `seed`, between them eased (smoothstep).
 fn value_noise(seed: u64, c: IVec2, cell: i32) -> f64 {
-    let (gx, gy) = (c.x.div_euclid(cell), c.y.div_euclid(cell));
-    let ease = |f: f64| f * f * (3.0 - 2.0 * f);
-    let (fx, fy) = (ease(c.x.rem_euclid(cell) as f64 / cell as f64), ease(c.y.rem_euclid(cell) as f64 / cell as f64));
-    let node = |x: i32, y: i32| (grain_hash(seed, IVec3::new(x, y, 0)) >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0;
-    let low = node(gx, gy) + (node(gx + 1, gy) - node(gx, gy)) * fx;
-    let high = node(gx, gy + 1) + (node(gx + 1, gy + 1) - node(gx, gy + 1)) * fx;
-    low + (high - low) * fy
+    let (fx, fy) = (c.x.rem_euclid(cell) as f64 / cell as f64, c.y.rem_euclid(cell) as f64 / cell as f64);
+    eased_nodes(seed, c.x.div_euclid(cell), c.y.div_euclid(cell), fx, fy)
 }
 
 /// Smooth noise in -1 to 1 over a lattice `cell` wide, at a point of
@@ -770,9 +764,14 @@ fn value_noise(seed: u64, c: IVec2, cell: i32) -> f64 {
 fn value_noise_at(seed: u64, x: f64, y: f64, cell: f64) -> f64 {
     let (u, v) = (x / cell, y / cell);
     let (gx, gy) = (u.floor(), v.floor());
+    eased_nodes(seed, gx as i32, gy as i32, u - gx, v - gy)
+}
+
+/// Value noise between the lattice's nodes (gx, gy) to (gx + 1, gy + 1),
+/// (fx, fy) across, eased: each node a number from `seed`.
+fn eased_nodes(seed: u64, gx: i32, gy: i32, fx: f64, fy: f64) -> f64 {
     let ease = |f: f64| f * f * (3.0 - 2.0 * f);
-    let (fx, fy) = (ease(u - gx), ease(v - gy));
-    let (gx, gy) = (gx as i32, gy as i32);
+    let (fx, fy) = (ease(fx), ease(fy));
     let node = |x: i32, y: i32| (grain_hash(seed, IVec3::new(x, y, 0)) >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0;
     let low = node(gx, gy) + (node(gx + 1, gy) - node(gx, gy)) * fx;
     let high = node(gx, gy + 1) + (node(gx + 1, gy + 1) - node(gx, gy + 1)) * fx;

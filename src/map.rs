@@ -70,7 +70,7 @@ use toml_edit::{Document, Item, TableLike};
 use crate::files::Files;
 use crate::vvx::{self, Reader};
 use crate::world::Marker;
-use crate::world::{CHUNK, World};
+use crate::world::{CHUNK, World, cell_hash};
 
 /// The ending of a map's file.
 pub const EXTENSION: &str = "toml";
@@ -447,20 +447,8 @@ fn parse_hex(text: &str) -> Result<[u8; 4]> {
 
 /// A PNG as width, height and RGB per pixel (grey repeated).
 pub(crate) fn read_png_in(files: &Files, path: &Path) -> Result<(u32, u32, Vec<[u8; 3]>)> {
-    let bytes = files.read(path).with_context(|| format!("reading {}", path.display()))?;
-    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
-    decoder.set_transformations(png::Transformations::normalize_to_color8());
-    let mut reader = decoder.read_info().with_context(|| format!("decoding {}", path.display()))?;
-    let mut buf = vec![0; reader.output_buffer_size().context("image too large")?];
-    let info = reader.next_frame(&mut buf).with_context(|| format!("decoding {}", path.display()))?;
-    let samples = info.color_type.samples();
-    let mut pixels = Vec::with_capacity((info.width * info.height) as usize);
-    for row in buf.chunks(info.line_size).take(info.height as usize) {
-        for px in row.chunks(samples).take(info.width as usize) {
-            pixels.push(if samples >= 3 { [px[0], px[1], px[2]] } else { [px[0]; 3] });
-        }
-    }
-    Ok((info.width, info.height, pixels))
+    let (width, height, pixels) = read_png_rgba_in(files, path)?;
+    Ok((width, height, pixels.into_iter().map(|[r, g, b, _]| [r, g, b]).collect()))
 }
 
 /// A picture's pixels with their alpha (a picture without one is opaque).
@@ -502,10 +490,10 @@ fn turn(l: IVec3, quarters: i32) -> IVec3 {
     }
 }
 
-/// Builds the world a map describes (`names`: the kinds of things).
-/// Returns it, the markers to place things, and every file it was made from
-/// (for hot reload).
-pub fn load_map(path: &Path, names: &[&str]) -> Result<(World, Vec<Marker>, Vec<PathBuf>)> {
+/// Builds the world a map on the disk describes (`names`: the kinds of
+/// things): it, the markers to place things, and every file it was made from.
+#[cfg(test)]
+pub(crate) fn load_map(path: &Path, names: &[&str]) -> Result<(World, Vec<Marker>, Vec<PathBuf>)> {
     let made = load_map_at(&Files::disk(), path, names)?;
     Ok((made.world, made.markers, made.files))
 }
@@ -633,7 +621,7 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
         let m = &materials[kinds[i] as usize];
         let pick = |colours: &[u8], v: f32| colours[((v * colours.len() as f32) as usize).min(colours.len() - 1)];
         if m.strata.is_empty() || (top - 1 - p.z < m.depth && !m.surface.is_empty()) {
-            let speckle = hash(p);
+            let speckle = cell_hash(p, 0);
             let v = if m.pattern > 0.0 { patch[i] * (1.0 - m.grain) + speckle * m.grain } else { speckle };
             let colours = if m.surface.is_empty() { &m.strata } else { &m.surface };
             return pick(colours, v);
@@ -746,19 +734,6 @@ fn noise(x: f32, y: f32, scale: f32) -> f32 {
     let a = lattice(ix, iy) + (lattice(ix + 1, iy) - lattice(ix, iy)) * tx;
     let b = lattice(ix, iy + 1) + (lattice(ix + 1, iy + 1) - lattice(ix, iy + 1)) * tx;
     a + (b - a) * ty
-}
-
-/// A fixed random number in 0..1 for every voxel.
-fn hash(p: IVec3) -> f32 {
-    let mut h = (p.x as u32).wrapping_mul(0x8DA6_B343)
-        ^ (p.y as u32).wrapping_mul(0xD816_3841)
-        ^ (p.z as u32).wrapping_mul(0xCB1A_B31F);
-    h ^= h >> 15;
-    h = h.wrapping_mul(0x2C1B_3C6D);
-    h ^= h >> 12;
-    h = h.wrapping_mul(0x297A_2D39);
-    h ^= h >> 15;
-    (h >> 8) as f32 / (1u32 << 24) as f32
 }
 
 #[cfg(test)]

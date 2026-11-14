@@ -365,6 +365,18 @@ pub(crate) fn read_joint(text: &str) -> Option<Vec3> {
     }
 }
 
+/// The mistake of parts hanging on each other in a ring (`ring`), the
+/// file's word for a parent `key`; none without a ring.
+pub(crate) fn ring_mistake(parents: &[Option<usize>], names: &[&str], key: &str) -> Option<String> {
+    let chain = (0..parents.len()).find_map(|p| ring(parents, p))?;
+    let named: Vec<&str> = chain.iter().map(|&p| names[p]).collect();
+    Some(if chain.len() == 2 {
+        format!("part '{}' hangs on itself ({key}): it must hang on another part, or on none", named[0])
+    } else {
+        format!("part '{}' hangs on itself by way of the others ({}): one of them must hang on another part, or on none", named[0], named.join(" on "))
+    })
+}
+
 /// The parts hanging on each other in a ring by the parents the file names
 /// (`parents`, by place), the first found, from part `p` round to it; none
 /// if every chain ends at a part naming no parent.
@@ -421,12 +433,9 @@ fn figure_of_parts(path: &Path, data: &DotVoxData, objects: &[Object], alpha: &[
         stated.push((parent, joint));
     }
     let parents: Vec<Option<usize>> = stated.iter().map(|s| s.0).collect();
-    if let Some(chain) = (0..objects.len()).find_map(|p| ring(&parents, p)) {
-        let names: Vec<&str> = chain.iter().map(|&p| objects[p].name.as_str()).collect();
-        if chain.len() == 2 {
-            return Err(anyhow!("{}: part '{}' hangs on itself (_parent): it must hang on another part, or on none", path.display(), names[0]));
-        }
-        return Err(anyhow!("{}: part '{}' hangs on itself by way of the others ({}): one of them must hang on another part, or on none", path.display(), names[0], names.join(" on ")));
+    let names: Vec<&str> = objects.iter().map(|o| o.name.as_str()).collect();
+    if let Some(why) = ring_mistake(&parents, &names, "_parent") {
+        return Err(anyhow!("{}: {why}", path.display()));
     }
     let frame: Vec<(IVec3, [u8; 4])> = placed.iter().map(|&(v, c, ..)| (v - low, c)).collect();
     let metal = placed.iter().map(|p| p.2).collect();
@@ -477,10 +486,11 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
     let boxes: Vec<(Vec3, Vec3)> = members.iter().map(|m| m.iter().fold((Vec3::MAX, Vec3::MIN), |(l, h), &k| (l.min(frame[k as usize].0.as_vec3()), h.max(frame[k as usize].0.as_vec3())))).collect();
     let point_gap = |v: Vec3, q: usize| (boxes[q].0 - v).max(v - boxes[q].1).max(Vec3::ZERO).length_squared();
     let box_gap = |p: usize, q: usize| (boxes[q].0 - boxes[p].1).max(boxes[p].0 - boxes[q].1).max(Vec3::ZERO).length_squared();
-    // Between the nearest voxels of `p` and `q` (the first pair found of
-    // the nearest), and how near squared.
-    let nearest_pair = |p: usize, q: usize| {
-        let mut best = (f32::MAX, Vec3::ZERO);
+    // Between the nearest voxels of `p` and `q` nearer than `bound` (the
+    // first pair found of the nearest), and how near squared; `bound`
+    // itself if none is.
+    let nearest_pair = |p: usize, q: usize, bound: f32| {
+        let mut best = (bound, Vec3::ZERO);
         for &a in &members[p] {
             if point_gap(frame[a as usize].0.as_vec3(), q) >= best.0 {
                 continue;
@@ -501,7 +511,7 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
         // voxels.
         if let Some(p) = (0..count).find(|&p| !hung[p] && stated[p].0.is_some_and(|q| hung[q])) {
             let q = stated[p].0.unwrap_or(root);
-            let at = if touch[p][q].0 > 0 { touch[p][q].1 / touch[p][q].0 as f32 } else { nearest_pair(p, q).1 };
+            let at = if touch[p][q].0 > 0 { touch[p][q].1 / touch[p][q].0 as f32 } else { nearest_pair(p, q, f32::MAX).1 };
             how[p] = Hung::ByHand;
             (parent[p], joint[p], hung[p]) = (Some(q), stated[p].1.unwrap_or(at), true);
             continue;
@@ -522,22 +532,14 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
                     if box_gap(p, q) >= best.0 {
                         continue;
                     }
-                    for &a in &members[p] {
-                        if point_gap(frame[a as usize].0.as_vec3(), q) >= best.0 {
-                            continue;
-                        }
-                        for &b in &members[q] {
-                            let (va, vb) = (frame[a as usize].0.as_vec3(), frame[b as usize].0.as_vec3());
-                            let d = va.distance_squared(vb);
-                            if d < best.0 {
-                                best = (d, p, q, (va + vb) * 0.5 + 0.5);
-                            }
-                        }
+                    let (d, at) = nearest_pair(p, q, best.0);
+                    if d < best.0 {
+                        best = (d, p, q, at);
                     }
                 }
             }
             let (p, q) = (best.1, best.2);
-            let as_near = (0..count).filter(|&r| hung[r] && r != q).find(|&r| best.0 < f32::MAX && box_gap(p, r) <= best.0 && nearest_pair(p, r).0 <= best.0);
+            let as_near = (0..count).filter(|&r| hung[r] && r != q).find(|&r| best.0 < f32::MAX && box_gap(p, r) <= best.0 && nearest_pair(p, r, f32::MAX).0 <= best.0);
             how[p] = Hung::Nearest { touches: (0..count).filter(|&r| touch[p][r].0 > 0).collect(), as_near };
             (p, q, best.3)
         };
@@ -611,6 +613,22 @@ impl VoxModel {
         let smooth_glass = |m: &u8| *m != 0 && *m >> 4 == 0;
         let facets = if metal.iter().flatten().any(smooth_glass) { frames.iter().zip(&metal).map(|(frame, m)| facets(frame, m)).collect() } else { Vec::new() };
         Self { size, frames, metal, glow: Vec::new(), shade: Vec::new(), facets, visible, glass, covered, bank: Vec::new(), parts: Vec::new() }
+    }
+
+    /// How metal voxel `k` of frame `f` is (`metal`; 0 not at all).
+    pub fn metal_at(&self, f: usize, k: usize) -> u8 {
+        self.metal.get(f).and_then(|m| m.get(k)).copied().unwrap_or(0)
+    }
+
+    /// How much voxel `k` of frame `f` glows (`glow`; 0 not at all).
+    pub fn glow_at(&self, f: usize, k: usize) -> u8 {
+        self.glow.get(f).and_then(|g| g.get(k)).copied().unwrap_or(0)
+    }
+
+    /// The direction voxel `k` of frame `f` is lit by (`shade`; none: its
+    /// faces' own).
+    pub fn shade_at(&self, f: usize, k: usize) -> [i8; 4] {
+        self.shade.get(f).and_then(|s| s.get(k)).copied().unwrap_or([0; 4])
     }
 
     /// Works out how each voxel is lit (`shade`). With `Smooth` a whole

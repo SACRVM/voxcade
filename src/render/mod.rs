@@ -219,14 +219,7 @@ impl Renderer {
 /// Whether a box may overlap the view: false only when all eight corners lie
 /// outside the same clip plane. Works for perspective, where w varies.
 pub(crate) fn on_screen(view_proj: &Mat4, min: Vec3, max: Vec3) -> bool {
-    let clip: [Vec4; 8] = std::array::from_fn(|i| {
-        let corner = Vec3::new(
-            if i & 1 == 0 { min.x } else { max.x },
-            if i & 2 == 0 { min.y } else { max.y },
-            if i & 4 == 0 { min.z } else { max.z },
-        );
-        *view_proj * corner.extend(1.0)
-    });
+    let clip: [Vec4; 8] = crate::camera::box_corners(min, max).map(|corner| *view_proj * corner.extend(1.0));
     let outside = |f: fn(&Vec4) -> bool| clip.iter().all(f);
     !(outside(|c| c.x < -c.w)
         || outside(|c| c.x > c.w)

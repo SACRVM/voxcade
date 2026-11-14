@@ -28,6 +28,32 @@ fn right_up(cfg: &CameraConfig) -> (Vec3, Vec3) {
     (right, right.cross(view_dir(cfg)))
 }
 
+/// The up of a view along `dir`: Z, or Y for a view straight up or down.
+fn up_for(dir: Vec3) -> Vec3 {
+    if dir.z.abs() > 0.999 { Vec3::Y } else { Vec3::Z }
+}
+
+/// The rays through the four corners of a view `aspect` wide (width over
+/// height): bottom left, bottom right, top left, top right.
+fn corners(cfg: &CameraConfig, aspect: f32) -> [Vec3; 4] {
+    let dir = view_dir(cfg);
+    let (right, up) = right_up(cfg);
+    let v = (fov(cfg) * 0.5).tan();
+    let h = v * aspect;
+    [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)].map(|(sx, sy)| (dir + right * h * sx + up * v * sy).normalize())
+}
+
+/// The eight corners of the box `lo` to `hi`.
+pub fn box_corners(lo: Vec3, hi: Vec3) -> [Vec3; 8] {
+    std::array::from_fn(|i| {
+        Vec3::new(
+            if i & 1 == 0 { lo.x } else { hi.x },
+            if i & 2 == 0 { lo.y } else { hi.y },
+            if i & 4 == 0 { lo.z } else { hi.z },
+        )
+    })
+}
+
 /// How many voxels the screen spans across in the plane through the
 /// target: `view_width`, or `view_height` times the window's shape, or
 /// enough for `view_at_least` both ways.
@@ -51,9 +77,8 @@ pub fn eye(cfg: &CameraConfig, target: Vec3, aspect: f32) -> Vec3 {
 
 pub fn view_proj(cfg: &CameraConfig, target: Vec3, aspect: f32) -> Mat4 {
     let dir = view_dir(cfg);
-    let up = if dir.z.abs() > 0.999 { Vec3::Y } else { Vec3::Z };
     let distance = eye_distance(cfg, aspect);
-    let view = look_at_mat4(target - dir * distance, target, up);
+    let view = look_at_mat4(target - dir * distance, target, up_for(dir));
     perspective(fov(cfg), aspect, 1.0, distance * 12.0 + 2000.0) * view
 }
 
@@ -61,16 +86,7 @@ pub fn view_proj(cfg: &CameraConfig, target: Vec3, aspect: f32) -> Mat4 {
 /// height; never narrower than `WIDEST_KEPT`). Every face the camera can
 /// see points against at least one of them.
 pub fn corner_rays(cfg: &CameraConfig, aspect: f32) -> [Vec3; 4] {
-    let dir = view_dir(cfg);
-    let (right, up) = right_up(cfg);
-    let v = (fov(cfg) * 0.5).tan();
-    let h = v * aspect.max(WIDEST_KEPT);
-    [
-        (dir - right * h - up * v).normalize(),
-        (dir + right * h - up * v).normalize(),
-        (dir - right * h + up * v).normalize(),
-        (dir + right * h + up * v).normalize(),
-    ]
+    corners(cfg, aspect.max(WIDEST_KEPT))
 }
 
 /// Seen from above (every corner ray pointing down), how far the ground
@@ -79,14 +95,9 @@ pub fn corner_rays(cfg: &CameraConfig, aspect: f32) -> [Vec3; 4] {
 /// voxels (the far edge the wider: a view in perspective). None for a
 /// view from the side. Where the camera stops at a level's edges.
 pub fn ground_extent(cfg: &CameraConfig, aspect: f32) -> Option<(glam::Vec2, glam::Vec2)> {
-    let dir = view_dir(cfg);
-    let (right, up) = right_up(cfg);
-    let v = (fov(cfg) * 0.5).tan();
-    let h = v * aspect;
-    let eye = -dir * eye_distance(cfg, aspect);
+    let eye = -view_dir(cfg) * eye_distance(cfg, aspect);
     let (mut lo, mut hi) = (glam::Vec2::splat(f32::MAX), glam::Vec2::splat(f32::MIN));
-    for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
-        let ray = (dir + right * h * sx + up * v * sy).normalize();
+    for ray in corners(cfg, aspect) {
         if ray.z > -1e-3 {
             return None;
         }
@@ -142,24 +153,18 @@ pub fn light_view_proj(
 ) -> (Mat4, f32) {
     let sun = sun.normalize();
     // A fixed orientation, so moving the box never turns the texel grid.
-    let up = if sun.z.abs() > 0.999 { Vec3::Y } else { Vec3::Z };
-    let view = look_at_mat4(Vec3::ZERO, sun, up);
+    let view = look_at_mat4(Vec3::ZERO, sun, up_for(sun));
 
     // Where the corner rays meet the floor and the top of the world.
     let distance = eye_distance(cfg, aspect);
     let eye = target - view_dir(cfg) * distance;
     let far = distance * 12.0;
-    let (right, screen_up) = right_up(cfg);
-    let v = (fov(cfg) * 0.5).tan();
-    let h = v * aspect;
     let mut lo = Vec3::splat(f32::MAX);
     let mut hi = Vec3::splat(f32::MIN);
-    let corners = [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)];
-    let ray = |(sx, sy): (f32, f32)| (view_dir(cfg) + right * h * sx + screen_up * v * sy).normalize();
-    let from_above = corners.iter().all(|&c| ray(c).z < -1e-3);
+    let rays = corners(cfg, aspect);
+    let from_above = rays.iter().all(|ray| ray.z < -1e-3);
     let (box_lo, box_hi) = if from_above { (Vec3::ZERO, world) } else { stage };
-    for c in corners {
-        let ray = ray(c);
+    for ray in rays {
         if from_above {
             for plane in [0.0, world.z] {
                 let t = if ray.z < -1e-3 { ((plane - eye.z) / ray.z).clamp(0.0, far) } else { far };
@@ -180,12 +185,7 @@ pub fn light_view_proj(
     // Depth: from beyond the top of the world (or the stage) towards the
     // sun down to its floor, wherever in it the box is.
     let (mut box_min, mut box_max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-    for corner in 0..8 {
-        let c = Vec3::new(
-            if corner & 1 == 0 { box_lo.x } else { box_hi.x },
-            if corner & 2 == 0 { box_lo.y } else { box_hi.y },
-            if corner & 4 == 0 { box_lo.z } else { box_hi.z },
-        );
+    for c in box_corners(box_lo, box_hi) {
         let p = view.transform_point3(c);
         box_min = box_min.min(p);
         box_max = box_max.max(p);
@@ -221,15 +221,9 @@ pub fn light_view_proj(
 /// spans in voxels.
 pub fn light_around(sun: Vec3, lo: Vec3, hi: Vec3) -> (Mat4, f32) {
     let sun = sun.normalize();
-    let up = if sun.z.abs() > 0.999 { Vec3::Y } else { Vec3::Z };
-    let view = look_at_mat4(Vec3::ZERO, sun, up);
+    let view = look_at_mat4(Vec3::ZERO, sun, up_for(sun));
     let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-    for corner in 0..8 {
-        let c = Vec3::new(
-            if corner & 1 == 0 { lo.x } else { hi.x },
-            if corner & 2 == 0 { lo.y } else { hi.y },
-            if corner & 4 == 0 { lo.z } else { hi.z },
-        );
+    for c in box_corners(lo, hi) {
         let p = view.transform_point3(c);
         min = min.min(p);
         max = max.max(p);
@@ -250,12 +244,7 @@ mod tests {
         let (lo, hi) = (Vec3::new(0.0, 0.0, -16.0), Vec3::new(928.0, 32.0, 400.0));
         for sun in [Vec3::new(0.35, 0.8, -1.0), Vec3::new(-1.0, 0.2, -0.3), Vec3::NEG_Z, Vec3::new(0.0, -1.0, 0.1)] {
             let (m, _) = light_around(sun, lo, hi);
-            for corner in 0..8 {
-                let c = Vec3::new(
-                    if corner & 1 == 0 { lo.x } else { hi.x },
-                    if corner & 2 == 0 { lo.y } else { hi.y },
-                    if corner & 4 == 0 { lo.z } else { hi.z },
-                );
+            for c in box_corners(lo, hi) {
                 let p = m.project_point3(c);
                 assert!(p.x.abs() <= 1.0 && p.y.abs() <= 1.0 && (0.0..=1.0).contains(&p.z), "{sun}: {c} lands at {p}");
             }

@@ -206,7 +206,7 @@ pub struct Piece {
 /// The material of voxel `k` of frame `f`.
 fn mat_of(model: &VoxModel, f: usize, k: usize) -> Mat {
     let rgba = model.frames[f][k].1;
-    Mat { rgba, metal: model.metal.get(f).and_then(|m| m.get(k)).copied().unwrap_or(0), glow: model.glow.get(f).and_then(|g| g.get(k)).copied().unwrap_or(0) }
+    Mat { rgba, metal: model.metal_at(f, k), glow: model.glow_at(f, k) }
 }
 
 /// The signs a text gives out: those the file had for the same material
@@ -308,7 +308,7 @@ pub(crate) fn layers_text(layers: &[Vec<String>]) -> String {
         if k > 0 {
             s.push('\n');
         }
-        for (row, n) in rows_runs(layer) {
+        for (row, n) in runs(layer) {
             s += row;
             if n >= REPEAT_FROM {
                 s += &format!(" *{n}\n");
@@ -327,10 +327,6 @@ pub(crate) fn layers_text(layers: &[Vec<String>]) -> String {
 /// one by one.
 fn layers_runs(layers: &[Vec<String>]) -> Vec<(&Vec<String>, usize)> {
     runs(layers).into_iter().flat_map(|(l, n)| if n >= REPEAT_FROM { vec![(l, n)] } else { vec![(l, 1); n] }).collect()
-}
-
-fn rows_runs(rows: &[String]) -> Vec<(&String, usize)> {
-    runs(rows)
 }
 
 /// A key's text as TOML writes a string.
@@ -1031,12 +1027,8 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
                     })?),
                 });
             }
-            if let Some(chain) = (0..names.len()).find_map(|p| crate::vox::ring(&parents, p)) {
-                let named: Vec<&str> = chain.iter().map(|&p| names[p]).collect();
-                if chain.len() == 2 {
-                    bail!("part '{}' hangs on itself (parent): it must hang on another part, or on none", named[0]);
-                }
-                bail!("part '{}' hangs on itself by way of the others ({}): one of them must hang on another part, or on none", named[0], named.join(" on "));
+            if let Some(why) = crate::vox::ring_mistake(&parents, &names, "parent") {
+                bail!(why);
             }
             Shape { size, parted: true, pieces }
         }
@@ -1142,7 +1134,7 @@ pub fn differences(a: &VoxModel, b: &VoxModel) -> Vec<String> {
 
 /// How many voxels lie in a cell another voxel of the same frame (or part)
 /// already fills: the text keeps the first, the rest are dropped.
-pub fn doubled(model: &VoxModel) -> usize {
+fn doubled(model: &VoxModel) -> usize {
     let count = |f: usize, ks: &mut dyn Iterator<Item = usize>| {
         let mut seen = crate::world::CellSet::default();
         ks.filter(|&k| !seen.insert(model.frames[f][k].0)).count()

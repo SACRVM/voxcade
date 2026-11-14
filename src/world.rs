@@ -45,6 +45,18 @@ impl Hasher for CellHasher {
 pub type CellMap<V> = HashMap<IVec3, V, BuildHasherDefault<CellHasher>>;
 pub type CellSet = HashSet<IVec3, BuildHasherDefault<CellHasher>>;
 
+/// A number in [0, 1) for a cell and a seed, the same on every machine: a
+/// map's speckle, the grain of big letters.
+pub fn cell_hash(p: IVec3, seed: u32) -> f32 {
+    let mut h = (p.x as u32).wrapping_mul(0x8da6_b343) ^ (p.y as u32).wrapping_mul(0xd816_3841) ^ (p.z as u32).wrapping_mul(0xcb1a_b31f) ^ seed.wrapping_mul(0x9e37_79b9);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2c1b_3c6d);
+    h ^= h >> 12;
+    h = h.wrapping_mul(0x297a_2d39);
+    h ^= h >> 15;
+    (h >> 8) as f32 / (1u32 << 24) as f32
+}
+
 pub const CHUNK: i32 = 32;
 pub const CHUNK_VOLUME: usize = (CHUNK * CHUNK * CHUNK) as usize;
 

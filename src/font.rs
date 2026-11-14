@@ -78,8 +78,9 @@ impl Glyph {
     }
 }
 
+/// The accents of the capitals both fonts write (`accent_of`).
 #[derive(Clone, Copy)]
-enum Accent {
+pub(crate) enum Accent {
     Diaeresis,
     Acute,
     Grave,
@@ -87,7 +88,7 @@ enum Accent {
 }
 
 /// The capital an accented capital is made of, and its accent.
-fn accent_of(ch: char) -> Option<(char, Accent)> {
+pub(crate) fn accent_of(ch: char) -> Option<(char, Accent)> {
     use Accent::*;
     Some(match ch {
         'Ä' => ('A', Diaeresis),
