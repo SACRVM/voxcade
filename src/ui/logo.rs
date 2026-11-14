@@ -59,8 +59,8 @@ pub(super) fn logo(out: &mut Vec<Instance>, letters: &mut Vec<ModelDraw>, view: 
 /// share of a tick): a slow wave running through the letters left to
 /// right, `amount` voxels up and down, coming in over a second once the
 /// letter has landed and stopped bouncing. Smooth, not in whole voxels:
-/// a letter stepping a voxel at a time looked as if the game stuttered
-/// (the user); its voxels keep their grid among themselves.
+/// a letter stepping a voxel at a time looks as if the game stuttered;
+/// its voxels keep their grid among themselves.
 pub(super) fn bob(t: f32, now: f32, i: usize, amount: f32) -> f32 {
     const LANDED: f32 = 60.0;
     const PERIOD: f32 = 150.0;

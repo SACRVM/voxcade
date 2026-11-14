@@ -156,8 +156,7 @@ impl Put {
     }
 
     /// The rotation of `quarters` anticlockwise quarter turns (a map's
-    /// `turn` before Voxcade took other tools' words): degrees clockwise,
-    /// 0 to 270.
+    /// old `turn`): degrees clockwise, 0 to 270.
     pub fn rotation_of(quarters: i32) -> i32 {
         (-90 * i64::from(quarters)).rem_euclid(360) as i32
     }

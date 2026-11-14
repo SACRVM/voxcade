@@ -1,5 +1,100 @@
 //! A level's text (`voxcade level 1`): reading, writing, rewriting only
-//! what changed (see the module's doc in `grid`).
+//! what changed.
+//!
+//! A level of blocks as text (`levels/NAME.toml`, "voxcade level 1"):
+//!
+//! ```toml
+//! format = "voxcade level 1"
+//! block = 10            # a block is 10 voxels each way
+//! size = [24, 2, 13]    # cells: across (x), deep (y, 0 in front), up (z)
+//! view = "front"        # each layer the grid seen from the front, front layer first
+//!
+//! [blocks]              # blocks/NAME.vvx, each what it is to the game
+//! wall = "decor"
+//! stone = "solid"
+//!
+//! [legend]              # a sign is a block as it lies: its name, or the name and an orientation (0 to 47)
+//! w = "wall"
+//! s = "stone"
+//! S = { block = "stone", orientation = 17 }
+//!
+//! [cells]
+//! layers = """
+//! ssssssssssssssssssssssss
+//! s.....................ws
+//! ...
+//! """
+//!
+//! [[thing]]
+//! kind = "gem"
+//! at = [45, 5, 12]      # where its feet stand, in voxels from the grid's low corner
+//!
+//! [[thing]]             # a piece: a model set down by its pivot, fixed
+//! name = "lamp"         # its name in the level (level:thing("lamp")); else its kind's and a number
+//! model = "room/lamp.vvx"
+//! at = [212, 40, 0]
+//! facing = "west"       # north, east, south (the default) or west; or rotation = 30 where c.camera.rotates = "free"
+//! light = { at = [3, 3, 41], radius = 60, color = "#ffd9a0" }   # at: from the pivot in the model's voxels
+//!
+//! [[thing]]             # a piece with two lights that holds bodies up and stops them
+//! name = "stove"
+//! model = "room/stove.vvx"
+//! at = [40, 150, 0]
+//! solid = true          # its voxels block, exactly where the model is drawn (quarter turns only)
+//! lights = [
+//!   { at = [0, 2, 12], radius = 20, color = "#ffb060" },
+//!   { at = [0, 2, 14], radius = 90, color = "#ff8040" },
+//! ]
+//!
+//! [[thing]]             # a light alone
+//! name = "moon"
+//! at = [300, 190, 90]
+//! light = { radius = 120, color = "#a0b8ff" }
+//!
+//! [[place]]
+//! name = "door"
+//! at = [25, 8, 70]
+//! facing = [0, -1]      # or a way's name: "south"
+//!
+//! [[area]]              # a named box (level.areas.by_the_stove): its low corner and size
+//! name = "by_the_stove"
+//! at = [30, 120, 0]
+//! size = [40, 30, 40]
+//! ```
+//!
+//! A level may have its own daylight, before the things: `[light]` with
+//! the words of `c.light` (each left out is the game's):
+//!
+//! ```toml
+//! [light]
+//! sun = [-0.4, 0.6, -1]     # the way the sunlight travels, towards the ground (z below 0)
+//! sun_color = "#ffd0a0"     # its colour and strength
+//! ambient = 0.3             # the light every face gets, 0 to 1
+//! shadow = 0.6              # how dark shadows are, 0 to 1
+//! sky = "#20304a"
+//! ```
+//!
+//! The cells are layers of rows of signs, `.` empty, an empty line between
+//! layers; a row followed by ` *N` stands N times in all, a line `*N`
+//! after a layer's rows the layer N times (as in a `.vvx`). `view` says
+//! which way the layers read, the same for every level of whatever
+//! camera: `"above"` (the bottom layer first, each seen from above with
+//! the far row first) or `"front"` (the front layer first, each seen from
+//! the front with the top row first); x runs left to right in both. One
+//! letter or digit a sign (62), two each when a level needs more (`..`
+//! empty). Things, places and areas come in their order.
+//!
+//! A level without `block` has no grid (a room of models, a stage):
+//! `size` is then its voxels, and it holds no `[blocks]`, `[legend]` or
+//! `[cells]`, only what is set down in it. A piece (a `[[thing]]` with a
+//! `model` or a `light` and no kind: its kind is `PIECE`) stays where it
+//! is put, anywhere, on a wall or in the air; its `at` is where the
+//! model's pivot stands (the cell `size / 2` across and deep on its floor,
+//! `vvx::pivot`), as every thing's, so `thing.x` is `at`'s x and a half
+//! (the middle of that cell) with the grid's low corner added. `rotation`
+//! is a bearing, degrees clockwise seen from above: 0 faces north (a model's
+//! own forward, away from the camera), 90 east, 180 south, 270 west. Names
+//! are one thing's and one area's; every mistake says its line.
 
 use super::*;
 use crate::vvx::{self, ONE_SIGN, Reader};

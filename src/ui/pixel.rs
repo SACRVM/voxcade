@@ -165,7 +165,15 @@ pub(crate) fn alike(ch: char) -> char {
 /// A text as the engine writes its own (menus, the logo): in capitals as
 /// always, but for the small x of "x3".
 pub fn engine_case(s: &str) -> String {
-    s.chars().flat_map(|c| if c == 'x' { vec![c] } else { c.to_uppercase().collect() }).collect()
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if c == 'x' {
+            out.push(c);
+        } else {
+            out.extend(c.to_uppercase());
+        }
+    }
+    out
 }
 
 pub fn text_width(s: &str, scale: i32) -> f32 {

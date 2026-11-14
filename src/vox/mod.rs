@@ -75,8 +75,8 @@ pub struct VoxModel {
 /// corner, an edge's or a face's middle, a voxel's). A MagicaVoxel figure
 /// brought in may say the same as `_parent` and `_joint` on the transform
 /// node that carries the object's `_name` (a joint in the space of the
-/// part's own translation `_t`), which the editor wrote for a few days
-/// before models were text; they are read, never written.
+/// part's own translation `_t`), as an older editor wrote them; they are
+/// read, never written.
 #[derive(Clone, Debug)]
 pub struct Part {
     pub name: String,
