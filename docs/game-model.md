@@ -81,12 +81,12 @@ where nothing is (`thing.name`, `thing.wall`, `level.next`, `music.song`).
 | `world.players` | every seat (`c.players`, 1 unless set): `world.players[n]` is seat n's player, or `false` while nobody sits there |
 | `world.saves` | what lies in each save slot, `{ level, seconds }` (the level it was saved in, the play time), nil for an empty one; read-only |
 | `world.leaving` | nil, or why the level is about to be left (`"go_to"`, `"restart"`, `"load"`, `"won"`, `"lost"`): an ask is pending; nil again once the change is done (in `on_level_start`) |
-| `world:go_to(level, place?)` | leave this level for another (a name, or a number in `world.levels`) at the tick's end; arrive at `place`, or where the level starts |
-| `world:restart(place?)` | enter this level afresh at the tick's end: at `place`, else at the checkpoint, else where it starts |
-| `world:win()`, `world:lose()` | the run ends at the tick's end (`on_world_end` says how) |
+| `world:go_to(level, place?, options?)` | leave this level for another (a name, or a number in `world.levels`) at the tick's end; arrive at `place`, or where the level starts; `{ fade = seconds }` this change's fade (below) |
+| `world:restart(place?, options?)` | enter this level afresh at the tick's end: at `place`, else at the checkpoint, else where it starts |
+| `world:win(options?)`, `world:lose(options?)` | the run ends at the tick's end (`on_world_end` says how) |
 | `world:hitstop(ticks)` | the whole game holds still for a few ticks, `on_tick` and the time too: the punch of a hit; 60 (a second) at most, more is cut to 60 |
 | `world:read(name)` | a file of the game folder as text, while `main.lua` starts |
-| `world:save(slot)`, `world:load(slot)` | at the tick's end (save games, below); loading an empty slot is a mistake with its line (`world.saves[slot]` tells first) |
+| `world:save(slot)`, `world:load(slot, options?)` | at the tick's end (save games, below); loading an empty slot is a mistake with its line (`world.saves[slot]` tells first) |
 
 ### `level`: the level being played
 
@@ -551,7 +551,14 @@ end. `on_draw` runs for every picture and only looks.
   `c.transition = { fade = 0.3, color = "#000000", restart = 0 }`: seconds
   out and in, 0 for a cut, with a length of its own for a reason
   (`go_to`, `restart`, `won`, `lost`) where a game wants it (a puzzle
-  game's quick restart). The engine's pause opens only between ticks and
+  game's quick restart). An ask that fades takes `{ fade = seconds }`
+  for that change alone, in the same sense and range as
+  `c.transition.fade` (0 to 10): `world:go_to("chapter2", nil, { fade =
+  1.2 })` a slow fade between chapters, `world:go_to("b", "door", { fade
+  = 0 })` a cut, the next picture the new level; `go_to` and `restart`
+  take the table in the place's stead too (`world:go_to("b", { fade = 0
+  })`: a place is a name). The length comes from the script, so a replay
+  takes the same steps on the music's clock. The engine's pause opens only between ticks and
   waits until a fade is over, so QUIT TO TITLE never meets a pending ask.
 - **"Next" and the last level.** `world:go_to(level.next)` goes on in
   order; after the last level `level.next` is nil, and `go_to(nil)` is a

@@ -272,8 +272,9 @@ impl<G: Game> Session<G> {
         self.played.hash_into(&mut self.inputs);
         self.game.step(input);
         self.saves_due();
-        if let Some(why) = self.game.leaving() {
-            let length = self.cfg.transition.length(why);
+        if let Some(leaving) = self.game.leaving() {
+            // The ask's own fade, else the setting's for its reason.
+            let length = leaving.fade.unwrap_or_else(|| self.cfg.transition.length(leaving.why));
             if self.fades && length > 0.0 {
                 self.fade = Some(Fade { out: true, t: 0.0, length, color: self.cfg.transition.rgb() });
                 self.fade_cut = false;

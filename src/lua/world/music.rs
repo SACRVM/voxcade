@@ -90,7 +90,7 @@ impl UserData for MusicView {
 
 /// A value as a mistake shows it: a text in quotes, a number as it is,
 /// else its type.
-fn shown(v: &Value) -> String {
+pub(super) fn shown(v: &Value) -> String {
     match v {
         Value::String(s) => format!("\"{}\"", s.to_string_lossy()),
         Value::Integer(i) => i.to_string(),

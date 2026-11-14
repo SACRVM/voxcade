@@ -59,7 +59,7 @@ impl<K: Kit> LuaGame<K> {
                     if let Some(place) = &place {
                         anyhow::ensure!(game.place_in(index, Some(place.clone())).is_some(), "{path}: the level {level} has no place called {place}");
                     }
-                    game.stage.ask = Some(Ask::GoTo { level, place });
+                    game.stage.ask = Some(Ask::GoTo { level, place, fade: None });
                     game.change_levels();
                     if let Some(e) = game.halted() {
                         anyhow::bail!("{e}");

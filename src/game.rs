@@ -84,6 +84,16 @@ pub struct MusicSwitch {
     pub began: Option<f32>,
 }
 
+/// A change the game asked for at the end of the tick just played: why the
+/// level is left (`TransitionConfig::length`'s reasons), and the seconds of
+/// its fade when the ask said them (`world:go_to(..., { fade = 0 })`; None:
+/// `c.transition`'s for that reason).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Leaving {
+    pub why: &'static str,
+    pub fade: Option<f32>,
+}
+
 /// A seat after the first as a tick finds it (`Game::set_seats`): what its
 /// player holds, or nobody sitting there, and what they play with.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -428,7 +438,7 @@ pub trait Game: Sized + 'static {
     /// Why the level is about to be left, when the game asked for a change
     /// at the end of the tick just played (`world:go_to` and the like):
     /// the session fades out (in a window) and then calls `change`.
-    fn leaving(&self) -> Option<&'static str> {
+    fn leaving(&self) -> Option<Leaving> {
         None
     }
 

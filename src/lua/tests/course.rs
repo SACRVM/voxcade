@@ -155,6 +155,73 @@ fn a_fade_is_no_tick() {
     assert!(check::<LuaGame>(&dir, false).unwrap(), "the run plays the same without the fade");
 }
 
+/// The frames of fade each level change took, in order, playing `frames`
+/// where changes fade (a game counting its levels' starts in
+/// `world.state.starts`); and what the session was told of each change
+/// that fades as it began (`Game::leaving`).
+fn fades_of(g: &mut Session<LuaGame>, frames: usize) -> (Vec<u32>, Vec<crate::game::Leaving>) {
+    let (mut runs, mut told) = (Vec::new(), Vec::new());
+    let mut starts = state(g, "starts");
+    for _ in 0..frames {
+        g.step(&Input::default());
+        if !g.ticked {
+            *runs.last_mut().unwrap() += 1;
+        } else if g.fading() || state(g, "starts") != starts {
+            // A change in this tick: fading out now (waiting, asked as the
+            // session was told), or cut and done.
+            runs.push(0);
+            told.extend(g.game.leaving());
+        }
+        starts = state(g, "starts");
+    }
+    (runs, told)
+}
+
+/// An ask's `{ fade = seconds }` is that change's alone: 0 cuts (the next
+/// picture is the new level), 1.2 fades 1.2 s out and as long in, and the
+/// next change without it fades as `c.transition` says; a table in the
+/// place's stead is the options.
+#[test]
+fn an_ask_takes_its_own_fade() {
+    let main = "function on_level_start(how) world.state.starts = (world.state.starts or 0) + 1 end\nfunction on_tick()\n  if world.tick == 2 then world:go_to('b', { fade = 0 }) end\n  if world.tick == 4 then world:go_to('c', 'start', { fade = 1.2 }) end\n  if world.tick == 6 then world:restart() end\n  if world.tick == 8 then world:restart({ fade = 0 }) end\n  world.state.at = level.name\nend\n";
+    let dir = levels_folder("own-fade", main, &[("a", &[]), ("b", &[]), ("c", &[])]);
+    let mut g = game_in(&dir);
+    g.fades = true;
+    let (runs, told) = fades_of(&mut g, 260);
+    assert_eq!(halted(&g), "");
+    assert_eq!(state(&mut g, "at"), format!("{:?}", crate::lua::Value::Str(b"c".to_vec())));
+    assert_eq!(runs.len(), 4, "four changes, the cuts among them: {runs:?}");
+    assert_eq!(runs[0], 0, "a cut: no frame of fade");
+    assert!((144..=146).contains(&runs[1]), "1.2 s out and 1.2 in: {runs:?}");
+    assert!((36..=38).contains(&runs[2]), "c.transition's 0.3 s again: {runs:?}");
+    assert_eq!(runs[3], 0, "the restart's own cut");
+    let fades: Vec<Option<f32>> = told.iter().map(|l| l.fade).collect();
+    assert_eq!(fades, [Some(1.2), None], "only the changes that fade wait, each as asked: {told:?}");
+    assert_eq!(g.game.sim().tick, 260 - runs.iter().sum::<u32>() as u64, "no ticks while fading");
+}
+
+/// An ask's options are checked where they are given: an unknown key names
+/// the one there is, a fade not seconds from 0 to 10 says so, each at the
+/// script's line.
+#[test]
+fn an_asks_options_are_checked() {
+    for (call, said) in [
+        ("world:go_to('b', nil, { fad = 0 })", "world:go_to: no 'fad' (it takes fade)"),
+        ("world:go_to('b', { fade = 'slow' })", "world:go_to: fade is seconds from 0 to 10 (0: a cut), not \"slow\""),
+        ("world:restart({ fade = -1 })", "world:restart: fade is seconds from 0 to 10 (0: a cut), not -1"),
+        ("world:win({ fade = 11 })", "world:win: fade is seconds from 0 to 10 (0: a cut), not 11"),
+        ("world:lose({ fade = 0/0 })", "world:lose: fade is seconds from 0 to 10"),
+        ("world:go_to('b', 'start', 0)", "world:go_to: the options are a table, { fade = seconds }, not 0"),
+    ] {
+        let main = format!("function on_tick()\n  if world.tick == 2 then {call} end\nend\n");
+        let dir = levels_folder("fade-mistakes", &main, &[("a", &[]), ("b", &[])]);
+        let mut g = game_in(&dir);
+        steps(&mut g, 3);
+        let error = halted(&g);
+        assert!(error.starts_with(&format!("main.lua:2: {said}")), "{call}: {error}");
+    }
+}
+
 /// The ready-made rules keep their run from level to level (the score, the
 /// lives); the player stands where the next level starts.
 #[test]

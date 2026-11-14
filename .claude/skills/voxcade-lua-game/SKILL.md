@@ -418,7 +418,10 @@ named areas (`[[area]]`, `level.areas.NAME:holds(player)`) and pieces
 (going on before starting over). `on_level_end(why)` copies what should
 stay out of `level.state`, `on_level_start(how)` builds and places;
 `on_world_end(result)` hears the end. `level.kept` lasts the run;
-`c.transition` sets the fade (window only).
+`c.transition` sets the fade (window only); an ask's last argument
+`{ fade = seconds }` sets it for that change alone, 0 a cut
+(`world:go_to("b", "door", { fade = 0 })`, `world:restart({ fade = 0 })`,
+`world:go_to("chapter2", { fade = 1.2 })` between chapters).
 
 Save games: `c.saves = { slots = 3, version = 1 }` puts SAVE and LOAD in
 the pause menu and CONTINUE on the title (the newest save); `world:save(slot)` at the tick's end (save points),

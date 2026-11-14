@@ -433,6 +433,45 @@ fn a_replay_takes_the_fades_on_the_music_clock() {
     assert_eq!(state(&mut g, "beats"), format!("{:?}", crate::lua::Value::Int((steps as i64 - 1) * 120 / 3600 + 1)));
 }
 
+/// An ask's own fade is the steps the music's clock takes through it: runs
+/// whose go_to fades 0 and 1.2 s each replay the same, going back every 30
+/// ticks too, and their beats after the change differ by the fade's
+/// length; a snapshot taken before the ask's tick plays on the same.
+#[test]
+fn an_asks_own_fade_is_taken_on_the_music_clock() {
+    use crate::replay::{Recorder, check, check_going_back};
+    let beats = |fade: &str| {
+        let main = format!("function on_level_start(how)\n  music:play('song')\nend\nfunction on_beat(beat)\n  world.state.beats = (world.state.beats or 0) + 1\nend\nfunction on_tick()\n  if world.tick == 50 then world:go_to('b', {{ fade = {fade} }}) end\nend\n");
+        let dir = song_folder("own-fade-music", &main);
+        let mut g = game_in(&dir);
+        g.fades = true;
+        let mut recorder = Recorder::default();
+        while g.game.sim().tick < 400 {
+            g.step(&Input::default());
+            recorder.record(&g);
+        }
+        assert_eq!(halted(&g), "");
+        std::fs::create_dir_all(dir.join("replays")).unwrap();
+        recorder.replay(&g).unwrap().save(&dir.join("replays/run.toml")).unwrap();
+        assert!(check::<LuaGame>(&dir, false).unwrap(), "fade {fade}: the replay plays the same");
+        assert!(check_going_back::<LuaGame>(&dir, 30).unwrap(), "fade {fade}: going back every 30 ticks too");
+        // Kept before the ask's tick and brought back, it plays on the same
+        // (the fade's steps taken as a replay takes them).
+        let mut again = game_in(&dir);
+        again.fade_clock = true;
+        steps(&mut again, 49);
+        let kept = again.snapshot().unwrap();
+        let ahead = |s: &mut Session<LuaGame>| -> Vec<u64> { (0..20).map(|_| { steps(s, 1); s.game.state_hash() }).collect() };
+        let first = ahead(&mut again);
+        again.restore(&kept);
+        assert_eq!(first, ahead(&mut again), "fade {fade}: from the snapshot");
+        g.game.eval("return world.state.beats").unwrap().parse::<i64>().unwrap()
+    };
+    let (cut, slow) = (beats("0"), beats("1.2"));
+    // 120 a minute: 2.4 s of fade, out and in, is about 4.8 beats more.
+    assert!((4..=6).contains(&(slow - cut)), "beats {cut} cut, {slow} after the slow fade");
+}
+
 /// `c.audio.drive` pushes the game's sound into the limiter, 0 to 12
 /// decibels; outside that it is a mistake that names it.
 #[test]

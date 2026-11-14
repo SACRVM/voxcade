@@ -417,7 +417,7 @@ end
     },
     Topic {
         title: "LEVEL AFTER LEVEL",
-        text: "A game's levels are the files in its levels/ folder, in the order of their names (01_meadow.toml, 02_cave.toml); without any it has one, made in code like this one. world:go_to(level.next) goes on to the next at the end of the tick, world:win() wins after the last, world:restart() starts this one over. on_level_start(how) says how a level was entered; level.state is fresh each time, world.state and player.state go along, and so does the player.",
+        text: "A game's levels are the files in its levels/ folder, in the order of their names (01_meadow.toml, 02_cave.toml); without any it has one, made in code like this one. world:go_to(level.next) goes on to the next at the end of the tick, world:win() wins after the last, world:restart() starts this one over. on_level_start(how) says how a level was entered; level.state is fresh each time, world.state and player.state go along, and so does the player. Between two levels the picture fades out and in (c.transition: 0.3 seconds each way unless set); an ask's last argument says it for that one change: { fade = 1 } a slow fade, as between chapters, { fade = 0 } a cut, the next picture already the new level.",
         conf: r##"c.player.kind = "hero"
 c.things.hero = {}"##,
         files: &[],
@@ -433,13 +433,13 @@ end
 
 function on_tick()
   player:walk(input.dir, 40)
-  -- at the far right: on to the next level, after the last the game is won
+  -- at the far right: on to the next level slowly, after the last the game is won
   if player.x > level.size.x - 4 then
-    if level.next then world:go_to(level.next) else world:win() end
+    if level.next then world:go_to(level.next, { fade = 1 }) else world:win() end
   end
-  -- out of time: this level again from its start
+  -- out of time: this level again from its start, a cut
   level.state.time = level.state.time - 1
-  if level.state.time == 0 then world:restart() end
+  if level.state.time == 0 then world:restart({ fade = 0 }) end
 end
 
 function on_draw(frame)

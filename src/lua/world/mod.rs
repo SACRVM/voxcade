@@ -313,8 +313,8 @@ pub fn verb(ask: &Ask) -> &'static str {
         Ask::GoTo { .. } => "go_to",
         Ask::Restart { .. } => "restart",
         Ask::Load { .. } => "load",
-        Ask::Won => "win",
-        Ask::Lost => "lose",
+        Ask::Won { .. } => "win",
+        Ask::Lost { .. } => "lose",
     }
 }
 
