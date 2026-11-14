@@ -14,13 +14,31 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 /// What a slot shows: the level, the play time, when (seconds since 1970;
-/// 0 where nobody knows).
+/// 0 where nobody knows), and the label the game gave the save, if it did
+/// (`world:save(slot, { label = ... })`).
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct SlotInfo {
     pub level: String,
     pub ticks: u64,
     #[serde(default)]
     pub when: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+/// What the game did to its slots, in the order it asked (`Game::saving`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Change {
+    /// A save's text, into the slot.
+    Write(u32, String),
+    /// The slot emptied (`world:delete_save`).
+    Delete(u32),
+}
+
+/// The slot holding the newest save of a listing (`Slots::listing`): the
+/// last one made, a tie going to the higher slot.
+pub fn newest_of(list: &[Option<SlotInfo>]) -> Option<u32> {
+    list.iter().zip(1..).filter_map(|(info, slot)| Some((info.as_ref()?.when, slot))).max().map(|(_, slot)| slot)
 }
 
 /// A game's slots.
@@ -129,7 +147,7 @@ impl Slots {
 
     /// The slot holding the newest save (the title's CONTINUE), if any.
     pub fn newest(&self) -> Option<u32> {
-        (1..=self.count).filter_map(|slot| Some((self.info(slot)?.when, slot))).max().map(|(_, slot)| slot)
+        newest_of(&self.listing())
     }
 
     /// What lies in `slot`, if anything.
@@ -146,6 +164,21 @@ impl Slots {
     /// there).
     pub fn texts(&self) -> BTreeMap<u32, Arc<str>> {
         self.texts.iter().filter(|(n, _)| (1..=self.count).contains(*n)).map(|(n, t)| (*n, t.clone())).collect()
+    }
+
+    /// Empties `slot`: its file goes for good, nothing else (a game's own
+    /// slot, `dir`'s `N.toml`; for one run only there is nothing on disk).
+    pub fn delete(&mut self, slot: u32) -> Result<()> {
+        anyhow::ensure!((1..=self.count).contains(&slot), "save slot {slot}: the game has slots 1 to {}", self.count);
+        self.texts.remove(&slot);
+        if let Some(dir) = &self.dir {
+            let path = dir.join(format!("{slot}.toml"));
+            match std::fs::remove_file(&path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e).with_context(|| format!("deleting {}", path.display())),
+                _ => {}
+            }
+        }
+        Ok(())
     }
 
     /// Puts `text` (a game's save) into `slot`, stamped with `when`; on
@@ -187,13 +220,16 @@ mod tests {
         let mut slots = Slots::for_run(2);
         assert_eq!(slots.info(1), None);
         slots.write(1, "level = \"hall\"\nticks = 600\n[states]\nworld = '{}'\n", 1_761_000_000).unwrap();
-        assert_eq!(slots.info(1), Some(SlotInfo { level: "hall".into(), ticks: 600, when: 1_761_000_000 }));
+        assert_eq!(slots.info(1), Some(SlotInfo { level: "hall".into(), ticks: 600, when: 1_761_000_000, label: None }));
         assert!(slots.read(1).unwrap().contains("[states]"));
         assert!(slots.write(3, "", 0).unwrap_err().to_string().contains("slots 1 to 2"));
         assert_eq!(slots.newest(), Some(1));
         slots.write(2, "level = \"tower\"\nticks = 60\n[states]\nworld = '{}'\n", 1_761_000_100).unwrap();
         assert_eq!(slots.newest(), Some(2), "the newest save, whatever its slot");
         assert_eq!(Slots::for_run(2).newest(), None);
+        slots.delete(2).unwrap();
+        assert_eq!((slots.info(2), slots.newest()), (None, Some(1)), "a deleted slot is empty");
+        assert!(slots.delete(3).is_err());
     }
 
     /// A save file that does not read is an empty slot, but never a silent
@@ -248,6 +284,29 @@ mod tests {
         castle.set_count(2);
         assert_eq!(castle.listing(), vec![None, None], "the farm's save is no castle's");
         assert_eq!(Slots::on_disk_in(saves.join("farm")).info(1).map(|i| i.level), Some("meadow".to_string()));
+    }
+
+    /// A slot deleted loses its file and only its file: the other slots,
+    /// a slot's neighbours that are no slots and another game's saves stay.
+    #[test]
+    fn a_deleted_slot_loses_its_file_and_nothing_else() {
+        let dir = crate::scratch::Scratch::new("saves-delete");
+        let mut slots = Slots::on_disk_in(dir.join("farm"));
+        slots.set_count(2);
+        slots.write(1, "level = \"a\"\nticks = 6\nlabel = \"First\"\n", 7).unwrap();
+        slots.write(2, "level = \"b\"\nticks = 6\n", 8).unwrap();
+        std::fs::write(dir.join("farm/notes.toml"), "mine").unwrap();
+        std::fs::write(dir.join("other.toml"), "not a slot").unwrap();
+        assert_eq!(slots.info(1).and_then(|i| i.label).as_deref(), Some("First"));
+        slots.delete(1).unwrap();
+        assert!(!dir.join("farm/1.toml").exists());
+        assert!(dir.join("farm/2.toml").exists() && dir.join("farm/notes.toml").exists() && dir.join("other.toml").exists());
+        assert_eq!(slots.info(1), None);
+        assert_eq!(Slots::on_disk_in(dir.join("farm")).listing().len(), 0, "read afresh from the disk (no count yet)");
+        let mut again = Slots::on_disk_in(dir.join("farm"));
+        again.set_count(2);
+        assert_eq!((again.info(1), again.info(2).map(|i| i.level)), (None, Some("b".to_string())));
+        slots.delete(1).unwrap();
     }
 
     /// A save that cannot be written (its folder is a file) is a mistake

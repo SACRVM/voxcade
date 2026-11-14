@@ -70,6 +70,7 @@ impl<K: Kit> LuaGame<K> {
                 arrived: crate::levels::Place::new("start", Vec3::ZERO, None),
                 ended: false,
                 saving: Vec::new(),
+                recent: Vec::new(),
                 slots: setup_slots,
                 slot_texts: setup_texts,
                 replayed: setup_replayed.into(),

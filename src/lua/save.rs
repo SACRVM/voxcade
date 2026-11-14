@@ -28,6 +28,9 @@ pub struct SaveData {
     pub version: u32,
     /// The level being played, by its name.
     pub level: String,
+    /// What the game called this save (`world:save`'s `label`), if it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     /// The play time: ticks since the run began (`world.tick`).
     pub ticks: u64,
     /// The random generator's state (hex).

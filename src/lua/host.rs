@@ -489,9 +489,14 @@ pub struct Stage {
     /// Whether the run has ended and the script was told
     /// (`on_world_end`): asks count no more.
     pub ended: bool,
-    /// The save slots `world:save` asked for, saved at the tick's end (or
-    /// after the `on_level_start` that asked).
-    pub saving: Vec<u32>,
+    /// What `world:save` and `world:delete_save` asked of the slots, done at
+    /// the tick's end (or after the `on_level_start` that asked); the last
+    /// ask of a slot counts.
+    pub saving: Vec<(u32, SlotAsk)>,
+    /// The slots saved in this run, the last one made last (what
+    /// `world.saves.newest` follows: the clock is the machine's, never the
+    /// run's).
+    pub recent: Vec<u32>,
     /// What lies in each save slot (`world.saves`), from 1, and the saves.
     pub slots: Vec<Option<crate::saves::SlotInfo>>,
     pub slot_texts: std::collections::BTreeMap<u32, Arc<str>>,
@@ -841,7 +846,28 @@ impl Ask {
     }
 }
 
+/// What a script asked of a save slot.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SlotAsk {
+    /// A save, with its label.
+    Save(Option<String>),
+    Delete,
+}
+
 impl Stage {
+    /// The slot saved last: of the saves made in this run the last, else by
+    /// when the files were made (`saves::newest_of`).
+    pub fn newest_save(&self) -> Option<u32> {
+        let filled = |n: &&u32| self.slots.get(**n as usize - 1).is_some_and(Option::is_some);
+        self.recent.iter().rev().find(filled).copied().or_else(|| crate::saves::newest_of(&self.slots))
+    }
+
+    /// `slot` is now the slot saved last.
+    pub fn saved(&mut self, slot: u32) {
+        self.recent.retain(|&n| n != slot);
+        self.recent.push(slot);
+    }
+
     /// Whether the level being played is the game's own title
     /// (`c.title_screen.level`): it is played in no run.
     pub fn on_title(&self) -> bool {

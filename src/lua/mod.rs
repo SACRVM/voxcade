@@ -63,11 +63,12 @@ use crate::hash::Stable;
 use crate::input::Input;
 use crate::render::{Instance, Light};
 use crate::session::{Drawing, Models};
+use crate::saves::Change;
 use crate::sim::things::{self, Id};
 use crate::sim::{Body, Marker, Sim, body_hits, spawn_point};
 use crate::world::World;
 use checks::*;
-use host::{Ask, Host, Kind, Kit, PLAYER, Plain, Stage};
+use host::{Ask, Host, Kind, Kit, PLAYER, Plain, SlotAsk, Stage};
 use sandbox::Sandbox;
 use value::Value;
 use world::{Absent, Cmd, ControlsView, Frame, InputView, LevelView, ScreenView, WorldView};
@@ -138,7 +139,7 @@ pub struct LuaGame<K: Kit> {
     /// level it enters.
     seat_places: Vec<(usize, crate::levels::Place)>,
     /// The saves made since the session took them (`Game::saving`).
-    written: Vec<(u32, String)>,
+    written: Vec<crate::saves::Change>,
     /// What `on_draw` asked for the last time it ran (shown while stopped):
     /// the picture's part drawn in `draw`, the HUD's in `hud`.
     drawn: RefCell<Vec<Cmd>>,
@@ -687,7 +688,7 @@ impl<K: Kit> Game for LuaGame<K> {
         self.stage.ask.as_ref().filter(|_| self.halted.borrow().is_none() && !self.stage.ended).map(|a| crate::game::Leaving { why: a.why(), fade: a.fade() })
     }
 
-    fn saving(&mut self) -> Vec<(u32, String)> {
+    fn saving(&mut self) -> Vec<crate::saves::Change> {
         std::mem::take(&mut self.written)
     }
 
@@ -738,6 +739,15 @@ impl<K: Kit> Game for LuaGame<K> {
     }
 
     fn set_slots(&mut self, slots: Vec<Option<crate::saves::SlotInfo>>, texts: std::collections::BTreeMap<u32, Arc<str>>) {
+        // A slot filled from outside the script (SAVE in the pause menu: not
+        // one the script saved, which stands at `when` 0 until now) is the
+        // newest.
+        for (n, info) in slots.iter().enumerate() {
+            let old = self.stage.slots.get(n);
+            if info.is_some() && old != Some(info) && !old.is_some_and(|o| o.as_ref().is_some_and(|o| o.when == 0)) {
+                self.stage.saved(n as u32 + 1);
+            }
+        }
         self.stage.slots = slots;
         self.stage.slot_texts = texts;
     }

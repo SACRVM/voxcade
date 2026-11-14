@@ -20,7 +20,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use glam::{IVec2, IVec3, Mat4, Quat, Vec2, Vec3};
 
-use crate::saves::Slots;
+use crate::saves::{Change, Slots};
 use crate::audio::{self, Mixer, SoundBank};
 use crate::camera;
 use crate::config::{GameConfig, ShadowStyle};

@@ -828,7 +828,7 @@ impl Menu {
     }
 }
 
-/// A save slot's line in the menu: its level, the play time and how long
+/// A save slot's line in the menu: its label (else its level), the play time and how long
 /// ago it was saved (`now` and `when` in seconds since 1970).
 pub fn slot_line(n: u32, info: Option<&crate::saves::SlotInfo>, now: u64, lang: &str) -> String {
     use crate::lang::{say, say_with};
@@ -843,7 +843,7 @@ pub fn slot_line(n: u32, info: Option<&crate::saves::SlotInfo>, now: u64, lang: 
         3600..86_400 => say_with(lang, "{} H AGO", &[&(ago / 3600).to_string()]),
         _ => say_with(lang, "{} DAYS AGO", &[&(ago / 86_400).to_string()]),
     };
-    let level: String = info.level.to_uppercase().chars().take(12).collect();
+    let level: String = info.label.as_ref().unwrap_or(&info.level).to_uppercase().chars().take(12).collect();
     format!("{n}  {level}  {played}  {ago}").trim_end().to_string()
 }
 
@@ -1051,7 +1051,7 @@ mod tests {
     #[test]
     fn the_pause_page_saves_and_loads() {
         let mut s = Settings::default();
-        let info = crate::saves::SlotInfo { level: "hall".into(), ticks: 3723 * 60, when: 1_000 };
+        let info = crate::saves::SlotInfo { level: "hall".into(), ticks: 3723 * 60, when: 1_000, label: None };
         let mut m = Menu::pause().with_slots(vec![Some(slot_line(1, Some(&info), 1_000 + 7_200, "en")), None]);
         assert_eq!(m.slots[0].as_deref(), Some("1  HALL  1:02:03  2 H AGO"));
         assert_eq!(m.items(Page::Pause, &Settings::default()), [Item::Resume, Item::SaveGame, Item::LoadGame, Item::Settings, Item::Restart, Item::ToTitle]);

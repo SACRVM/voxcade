@@ -495,10 +495,11 @@ pub trait Game: Sized + 'static {
     /// is told (a Lua game's `on_level_end("quit")`, `on_world_end("quit")`).
     fn quit(&mut self) {}
 
-    /// The saves it made since asked (`world:save`, made where they were
-    /// asked for: at a tick's end, after an `on_level_start`), each with
-    /// its slot, taken: the session writes them into the slots.
-    fn saving(&mut self) -> Vec<(u32, String)> {
+    /// The saves it made and the slots it emptied since asked
+    /// (`world:save`, `world:delete_save`, done where they were asked for:
+    /// at a tick's end, after an `on_level_start`), in order, taken: the
+    /// session writes them into the slots.
+    fn saving(&mut self) -> Vec<crate::saves::Change> {
         Vec::new()
     }
 

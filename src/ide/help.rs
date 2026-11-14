@@ -565,7 +565,7 @@ end
     },
     Topic {
         title: "YOUR OWN TITLE",
-        text: "A game with save games may open on a title of its own: a level of the game (levels/title.toml here) that c.title_screen.level names, in place of the engine's title with its high scores. The window opens in it, and what happens there is your code: here a menu drawn with frame:menu and moved with the arrows. world:new_game() begins a run in the level a run begins in (the first but the title, or c.start's), world:load(slot) a run from a save (world.saves says what lies in the slots), world:open(\"settings\") shows the engine's SETTINGS over the game, world:quit() ends the program. The title is no run: it is never recorded, nothing is saved there, Escape is yours. level.name says where the game is. A run's end and QUIT TO TITLE come back to it; PLAY in the IDE begins the run at once (a scenario with level = \"title\" plays the title).",
+        text: "A game with save games may open on a title of its own: a level of the game (levels/title.toml here) that c.title_screen.level names, in place of the engine's title with its high scores. The window opens in it, and what happens there is your code: here a menu drawn with frame:menu and moved with the arrows. world:new_game() begins a run in the level a run begins in (the first but the title, or c.start's), world:load(slot) a run from a save (world.saves says what lies in the slots, world.saves.newest which was saved last: CONTINUE is world:load(world.saves.newest), nil while there is none), world:save(slot, { label = \"Meadow\" }) tells a save by a line of your own (world.saves[slot].label), world:delete_save(slot) empties a slot at the tick's end, world:open(\"settings\") shows the engine's SETTINGS over the game, world:quit() ends the program. The title is no run: it is never recorded, nothing is saved there, Escape is yours. level.name says where the game is. A run's end and QUIT TO TITLE come back to it; PLAY in the IDE begins the run at once (a scenario with level = \"title\" plays the title).",
         conf: r##"c.world.size = nil
 c.title_screen.level = "title"
 c.saves = { slots = 1 }
@@ -593,7 +593,7 @@ local function title_tick()
   level.state.at = at
   if input:pressed("act") then
     if at == 1 then world:new_game()
-    elseif at == 2 and world.saves[1] then world:load(1)
+    elseif at == 2 and world.saves.newest then world:load(world.saves.newest)
     elseif at == 3 then world:open("settings")
     elseif at == 4 then world:quit() end
   end
@@ -602,14 +602,14 @@ end
 function on_tick()
   if level.name == "title" then return title_tick() end
   player:walk(input.dir, 40)
-  if input:pressed("act") then world:save(1) end
+  if input:pressed("act") then world:save(1, { label = "Meadow" }) end
 end
 
 function on_draw(frame)
   if level.name == "title" then
     local rows = {}
     for i, text in ipairs(ROWS) do
-      rows[i] = { text = text, dim = i == 2 and not world.saves[1] }
+      rows[i] = { text = text, dim = i == 2 and not world.saves.newest }
     end
     frame:menu{ title = "My Game", rows = rows, at = level.state.at, hint = "{act} chooses" }
   else

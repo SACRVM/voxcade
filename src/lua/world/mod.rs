@@ -20,7 +20,7 @@ use std::sync::Arc;
 use glam::{IVec3, Vec3};
 use mlua::{AnyUserData, Function, Lua, MetaMethod, Table, UserData, UserDataFields, UserDataMethods, Value};
 
-use super::host::{Ask, Kept, PLAYER, Seen, Stage, Touched, handle_seat, seat_handle};
+use super::host::{Ask, Kept, PLAYER, Seen, SlotAsk, Stage, Touched, handle_seat, seat_handle};
 use crate::sim::{Event, Who};
 use crate::levels::{Level, Place};
 use crate::input::Input;
