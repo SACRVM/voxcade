@@ -10,6 +10,7 @@
 mod combat;
 pub mod config;
 mod draw;
+mod effects;
 mod helicopter;
 pub mod kinds;
 #[cfg(test)]
@@ -1106,7 +1107,7 @@ impl Shooter {
                 let survives = self.things.get(id).is_some_and(|t| t.hp > damage);
                 self.damage_enemy_by(id, damage, false, by(team, from), name(weapon));
                 if survives {
-                    self.sim.blood_spray(pos, vel);
+                    effects::blood_spray(&mut self.sim, pos, vel);
                 }
             }
         }

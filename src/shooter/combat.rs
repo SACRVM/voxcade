@@ -395,7 +395,7 @@ impl Shooter {
     fn fire(&mut self, from: Vec3, dir: Vec3, w: usize, hostile: bool, team: Option<&'static str>, by: Option<Id>) {
         let rules = Arc::clone(&self.rules);
         let weapon = &rules.weapons[w];
-        self.sim.flash(from, dir);
+        super::effects::muzzle_flash(&mut self.sim, from, dir);
         self.sim.sound(weapon.sound.0, from, 1.0);
         self.bullets.push(Bullet::fired(weapon, w, from, dir, hostile, team, by));
     }
@@ -1004,7 +1004,7 @@ impl Shooter {
         let (at, height, reach) = (t.body.pos, t.body.height, self.rules.captive(t.kind).reach);
         let player = self.fighters().first().map_or(at, |f| f.body.pos);
         self.sound(Sfx::Rescue, player, 1.0);
-        self.sim.break_out(at, reach * 0.6, height);
+        super::effects::break_out(&mut self.sim, at, reach * 0.6, height);
         true
     }
 

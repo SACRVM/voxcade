@@ -297,7 +297,7 @@ impl Shooter {
             let scatter = if assist { w.spread } else { 0.0 };
             let spread = Vec3::new(self.sim.rng.range(-scatter, scatter), self.sim.rng.range(-scatter, scatter), 0.0);
             // The flash along the line, the round scattered off it.
-            self.sim.flash(from, aim);
+            super::effects::muzzle_flash(&mut self.sim, from, aim);
             self.sim.sound(w.sound.0, from, 1.0);
             self.bullets.push(Bullet::fired(w, weapon, from, (aim + spread).normalize_or_zero(), true, team, None));
         }
@@ -340,7 +340,7 @@ impl Shooter {
     fn trail(&mut self, at: Vec3) {
         let k = self.sim.effect_scale();
         for kind in [ParticleKind::Smoke, ParticleKind::Smoke, ParticleKind::Fire] {
-            if self.sim.particles.len() >= self.sim.cfg.debris.max_particles {
+            if self.sim.particles_full() {
                 return;
             }
             let jitter = Vec3::new(self.sim.rng.range(-1.0, 1.0), self.sim.rng.range(-1.0, 1.0), self.sim.rng.range(0.0, 1.0));
@@ -367,7 +367,7 @@ impl Shooter {
         let k = self.sim.effect_scale();
         let pivot = IVec3::new(size.x / 2, size.y / 2, 0);
         for &(v, color) in voxels.iter().step_by(2) {
-            if self.sim.particles.len() >= self.sim.cfg.debris.max_particles {
+            if self.sim.particles_full() {
                 break;
             }
             let l = v - pivot;
