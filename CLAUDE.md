@@ -53,8 +53,8 @@ own work by concern in `start.rs`, `calls.rs`, `course.rs`, `events.rs`,
 `seats.rs`, `saving.rs`, `hashing.rs`), `src/mcp.rs` the MCP server.
 `src/vvx.rs` is the model format, `.vvx` (text: the format line, `size`,
 a `[palette]` of signs, `[[frame]]`s or `[[part]]`s with `layers`);
-`src/vox.rs` the models as the engine holds them (`VoxModel`, `Part`) and
-MagicaVoxel's `.vox`, only read (`import_model`, an older game's worlds
+`src/vox/` the models as the engine holds them (`VoxModel`, `Part`) and
+MagicaVoxel's `.vox` (`magica.rs`), only read (`import_model`, an older game's worlds
 for the upgrade; never written); `src/scene.rs` a world or a map's prefab
 as a `.vvx` (`Scene`: its colours the world's numbers in the palette's
 order, markers as palette entries naming a kind); `src/upgrade.rs` brings a game made for an older
