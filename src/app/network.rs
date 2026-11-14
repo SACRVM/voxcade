@@ -27,7 +27,7 @@ impl<G: Game> App<G> {
             *net = None;
         }
         let Some(n) = net.as_mut() else { return };
-        if let Err(e) = n.receive(game, &settings.language()) {
+        if let Err(e) = n.receive(game, settings.language()) {
             eprintln!("the network game: {e:#}");
         }
         if let crate::network::Side::Guest(j) = &mut n.side {
@@ -71,7 +71,7 @@ impl<G: Game> App<G> {
         {
             println!("the network game ended: {why}");
             n.keep_run(game, runs);
-            *parting = Some((crate::lang::say_line(&settings.language(), &why), Instant::now()));
+            *parting = Some((crate::lang::say_line(settings.language(), &why), Instant::now()));
             *net = None;
             if rejoin {
                 // Back to the title's game, joining at once.
@@ -109,7 +109,7 @@ impl<G: Game> App<G> {
                 } else {
                     n.watching = true;
                 }
-                n.say(crate::lang::say(&lang, "NO SEAT FREE: YOU WATCH").to_string());
+                n.say(crate::lang::say(lang, "NO SEAT FREE: YOU WATCH").to_string());
             }
             let of_seat = |seat: usize| pads.open.iter().filter(|p| p.id().ok().and_then(|id| seating.pad_seat(id.raw())) == Some(seat)).collect::<Vec<_>>();
             // A guest's own menu open, its players hold nothing.
@@ -128,7 +128,7 @@ impl<G: Game> App<G> {
                 };
                 n.read(seat, input, controls);
             }
-            game.set_local(crate::game::Local { seats: Some(n.locals.seats()), language: Some(lang) });
+            game.set_local(crate::game::Local { seats: Some(n.locals.seats()), language: Some(lang.to_string()) });
         }
     }
 
@@ -186,14 +186,14 @@ impl<G: Game> App<G> {
             if let Some(ticket) = n.new_ticket()
                 && video.clipboard().set_clipboard_text(&ticket).is_ok()
             {
-                n.say(crate::lang::say(&settings.language(), "TICKET COPIED: SEND IT").to_string());
+                n.say(crate::lang::say(settings.language(), "TICKET COPIED: SEND IT").to_string());
             }
             if let Some(code) = n.game_code().map(str::to_string)
                 && copied_code.as_ref() != Some(&code)
             {
                 if video.clipboard().set_clipboard_text(&code).is_ok() {
-                    n.say(crate::lang::say_with(&settings.language(), "ON THE INTERNET: CODE {}", &[&code]));
-                    n.say(crate::lang::say(&settings.language(), "CODE COPIED: SEND IT").to_string());
+                    n.say(crate::lang::say_with(settings.language(), "ON THE INTERNET: CODE {}", &[&code]));
+                    n.say(crate::lang::say(settings.language(), "CODE COPIED: SEND IT").to_string());
                 }
                 *copied_code = Some(code);
             }

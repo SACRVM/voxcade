@@ -24,17 +24,17 @@ impl<G: Game> App<G> {
         (menu.device, menu.pad_style) = (front.played_with, front.pad_kind);
         // What the menus show of the network game; the games found on the
         // LAN while JOIN lists them; the host's address typed as text.
-        menu.net = net.as_ref().filter(|_| menu.is_open()).map(|n| n.view(&settings.language()));
+        menu.net = net.as_ref().filter(|_| menu.is_open()).map(|n| n.view(settings.language()));
         if menu.page() == Some(Page::Find) {
             if finder.is_none() {
                 *finder = game.fingerprint().ok().and_then(|f| crate::network::Finder::new(f).map_err(|e| eprintln!("searching the network: {e:#}")).ok());
             }
-            let mut found = finder.as_mut().map(|f| f.found(&settings.language())).unwrap_or_default();
+            let mut found = finder.as_mut().map(|f| f.found(settings.language())).unwrap_or_default();
             if net_finder.is_none() && menu.internet {
                 *net_finder = crate::network::app_of(game).ok().map(|(app, version)| crate::network::NetFinder::new(app, version));
             }
             if let Some(n) = net_finder {
-                found.extend(n.found(&settings.language()));
+                found.extend(n.found(settings.language()));
             }
             menu.found = found;
         } else if finder.take().is_some() | net_finder.take().is_some() {
@@ -63,14 +63,14 @@ impl<G: Game> App<G> {
             game.menu_frame(menu, settings, clock.accumulator / DT, aspect, scene)
         };
         if front.attracting {
-            crate::ui::press_start(&mut frame.ui, front.attract_time, &game.cfg.ui, aspect, &settings.language());
+            crate::ui::press_start(&mut frame.ui, front.attract_time, &game.cfg.ui, aspect, settings.language());
         }
         if settings.show_fps {
             crate::ui::fps(&mut frame.ui, clock.fps.round() as u32, &game.cfg.ui, aspect);
         }
         // The network's lines at the top: who went quiet, who paused; on
         // leaving, why.
-        let mut said = net.as_mut().map(|n| n.notices(&settings.language())).unwrap_or_default();
+        let mut said = net.as_mut().map(|n| n.notices(settings.language())).unwrap_or_default();
         if let Some((why, at)) = parting {
             if at.elapsed().as_secs() < 6 {
                 said.push(why.clone());

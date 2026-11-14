@@ -240,10 +240,10 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
         let lang = settings.language();
         let mut said = Vec::new();
         if settings_trouble.is_some() {
-            said.push(crate::lang::say(&lang, "SETTINGS UNREADABLE, THE OLD FILE IS KEPT AS .BROKEN").to_string());
+            said.push(crate::lang::say(lang, "SETTINGS UNREADABLE, THE OLD FILE IS KEPT AS .BROKEN").to_string());
         }
         for slot in game.slots.unreadable() {
-            said.push(crate::lang::say_with(&lang, "SAVE {} CANNOT BE READ", &[&slot.to_string()]));
+            said.push(crate::lang::say_with(lang, "SAVE {} CANNOT BE READ", &[&slot.to_string()]));
         }
         if !said.is_empty() {
             parting = Some((said.join("  "), Instant::now()));
@@ -357,7 +357,7 @@ impl<G: Game> App<G> {
     fn save_settings(&mut self) {
         if let Err(e) = self.settings.save(&self.settings_path) {
             eprintln!("settings: {e:#}");
-            self.parting = Some(trouble(&self.settings.language(), "SETTINGS NOT SAVED: {}", &e));
+            self.parting = Some(trouble(self.settings.language(), "SETTINGS NOT SAVED: {}", &e));
         }
     }
 
@@ -444,8 +444,8 @@ impl<G: Game> App<G> {
     fn read_input(&mut self, keyboard: &sdl3::keyboard::KeyboardState) -> crate::input::Input {
         let App { game, pads, settings, seating, front, playback, net, .. } = self;
         // The players page shows the run's seats while playing, else the
-        // plan (a game of several).
-        if game.cfg.players > 1 {
+        // plan (a game of several); only an open menu shows them.
+        if game.cfg.players > 1 && front.menu.is_open() {
             let named = pads.named();
             let shown = if front.playing { seating.clone() } else { planned(settings, &named, game.cfg.players) };
             front.menu.seats = crate::menu::SeatLine::all(&shown, &named);

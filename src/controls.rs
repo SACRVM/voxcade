@@ -80,7 +80,7 @@ impl Controls {
     /// language chosen in `s`.
     fn labelled(actions: &[&str], device: Device, s: &crate::settings::Settings, label: impl Fn(&str) -> Option<String>) -> Self {
         let keys = actions.iter().chain([&PAUSE]).map(|a| (a.to_string(), label(a).unwrap_or_default())).collect();
-        Self { device: Some(device), keys, language: Some(s.language()) }
+        Self { device: Some(device), keys, language: Some(s.language().to_string()) }
     }
 
     /// These controls with a key for each of `actions` and pause: a replay

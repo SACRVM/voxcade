@@ -91,14 +91,14 @@ impl<G: Game> App<G> {
                     self.front.menu.stack.push((Page::Joining, 0));
                     self.queued.push(Command::JoinCode);
                 }
-                _ => self.parting = Some((crate::lang::say(&self.settings.language(), "NO TICKET OR CODE ON THE CLIPBOARD").to_string(), Instant::now())),
+                _ => self.parting = Some((crate::lang::say(self.settings.language(), "NO TICKET OR CODE ON THE CLIPBOARD").to_string(), Instant::now())),
             },
             Command::CopyCode => {
                 if let Some(n) = &mut self.net
                     && let Some(code) = n.game_code().map(str::to_string)
                     && self.video.clipboard().set_clipboard_text(&code).is_ok()
                 {
-                    n.say(crate::lang::say(&self.settings.language(), "CODE COPIED: SEND IT").to_string());
+                    n.say(crate::lang::say(self.settings.language(), "CODE COPIED: SEND IT").to_string());
                 }
             }
             Command::CopyTicket => {
@@ -106,7 +106,7 @@ impl<G: Game> App<G> {
                     && let Some(ticket) = n.ticket().map(str::to_string)
                     && self.video.clipboard().set_clipboard_text(&ticket).is_ok()
                 {
-                    n.say(crate::lang::say(&self.settings.language(), "TICKET COPIED: SEND IT").to_string());
+                    n.say(crate::lang::say(self.settings.language(), "TICKET COPIED: SEND IT").to_string());
                 }
             }
             Command::LetIn(peer) => {
@@ -161,7 +161,7 @@ impl<G: Game> App<G> {
                 self.game.set_clock(crate::saves::now());
                 if let Err(e) = self.game.save_to(slot) {
                     eprintln!("saving into slot {slot}: {e:#}");
-                    self.parting = Some(trouble(&self.settings.language(), "COULD NOT SAVE: {}", &e));
+                    self.parting = Some(trouble(self.settings.language(), "COULD NOT SAVE: {}", &e));
                 }
                 // Back on the pause page, the slot's new line in it.
                 self.front.menu.slots = pause_menu(&self.game, true).slots;
@@ -174,7 +174,7 @@ impl<G: Game> App<G> {
                     && let Err(e) = h.load(&self.game, slot)
                 {
                     eprintln!("loading slot {slot}: {e:#}");
-                    self.parting = Some(trouble(&self.settings.language(), "COULD NOT LOAD: {}", &e));
+                    self.parting = Some(trouble(self.settings.language(), "COULD NOT LOAD: {}", &e));
                 }
                 self.front.menu = Menu::default();
             }
@@ -250,7 +250,7 @@ impl<G: Game> App<G> {
             }
             Some(Err(e)) => {
                 eprintln!("loading slot {slot}: {e:#}");
-                self.parting = Some(trouble(&self.settings.language(), "COULD NOT LOAD: {}", &e));
+                self.parting = Some(trouble(self.settings.language(), "COULD NOT LOAD: {}", &e));
                 self.front.menu = if self.front.playing { pause_menu(&self.game, true) } else { title_menu(&self.game) };
             }
             None => self.front.menu = if self.front.playing { pause_menu(&self.game, self.watching.is_none()) } else { title_menu(&self.game) },

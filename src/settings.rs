@@ -336,9 +336,9 @@ impl Settings {
     /// The language the game speaks to this player: the one chosen if the
     /// game speaks it, else the first of the system's it speaks, else its
     /// first; English for a game that names none.
-    pub fn language(&self) -> String {
-        let speaks = |l: &String| self.languages.contains(l);
-        self.language.iter().chain(&self.system_languages).find(|l| speaks(l)).or(self.languages.first()).cloned().unwrap_or_else(|| "en".into())
+    pub fn language(&self) -> &str {
+        let speaks = |l: &&String| self.languages.contains(l);
+        self.language.iter().chain(&self.system_languages).find(speaks).or(self.languages.first()).map_or("en", String::as_str)
     }
 
     /// The next (or, `back`, the last) of the game's languages

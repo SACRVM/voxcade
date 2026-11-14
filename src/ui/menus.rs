@@ -61,7 +61,6 @@ pub fn menu(view: &MenuView, cfg: &UiConfig, alpha: f32, aspect: f32) -> (Vec<In
     let top = layout.height;
     // The engine's words in the player's language (`c.languages`).
     let lang = view.settings.language();
-    let lang = lang.as_str();
     let say = |en: &'static str| crate::lang::say(lang, en);
 
     if page == Page::Title {
@@ -496,7 +495,7 @@ pub(super) fn row(out: &mut Vec<Instance>, view: &MenuView, i: usize, label: &st
 pub(super) fn setting(out: &mut Vec<Instance>, view: &MenuView, item: Item, x: f32, y: f32, selected: bool, depth: i32) {
     let s = view.settings;
     let lang = s.language();
-    let flag = |on: bool| crate::lang::say(&lang, if on { "ON" } else { "OFF" });
+    let flag = |on: bool| crate::lang::say(lang, if on { "ON" } else { "OFF" });
     let color = if selected { NUMBERS } else { TEXT };
     match item {
         Item::Music | Item::Sound => {
@@ -523,17 +522,17 @@ pub(super) fn setting(out: &mut Vec<Instance>, view: &MenuView, item: Item, x: f
         Item::Blur => text(out, flag(s.blur), x, y, 1, color, depth),
         Item::Rumble => text(out, flag(s.rumble), x, y, 1, color, depth),
         Item::Shadows => {
-            let label = crate::lang::say(&lang, s.shadows.label());
+            let label = crate::lang::say(lang, s.shadows.label());
             let shown = if selected { format!("< {label} >") } else { label.to_string() };
             text(out, &shown, x, y, 1, color, depth);
         }
         Item::FrameRate => {
-            let label = crate::lang::say(&lang, s.frame_rate.label());
+            let label = crate::lang::say(lang, s.frame_rate.label());
             let shown = if selected { format!("< {label} >") } else { label.to_string() };
             text(out, &shown, x, y, 1, color, depth);
         }
         Item::Language => {
-            let name = crate::lang::name(&lang);
+            let name = crate::lang::name(lang);
             let shown = if selected { format!("< {name} >") } else { name };
             text(out, &shown, x, y, 1, color, depth);
         }
