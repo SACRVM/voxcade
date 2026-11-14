@@ -64,14 +64,15 @@ function conf(c)
                      family = "enemies", props = { worth = 150 }, sound = "stomp", effect = "burst",
                      frames = { idle = { 0, 0 }, jump = { 1, 1 } } }
 
-  -- The puzzles (main.lua says what they do): a lever (lever_N, by the
-  -- order they lie in) sets the slabs and lifts of its number to work; a
-  -- plate (plate_N) holds the hatch of its number open while something
-  -- lies on it, the hero or a crate he pushed there.
+  -- The puzzles (main.lua says what they do): a lever sets the slabs and
+  -- lifts named in its props to work; a plate holds the hatches named in
+  -- its props open while something lies on it, the hero or a crate he
+  -- pushed there. A level's lever says which: props = { works = ["lift_1"] }
+  -- in its [[thing]] (things are named by their kind and the order they lie in).
   c.things.lever = { behavior = "prop", stands = true, model = "lever.vvx", width = 6, height = 9,
-                     frames = { idle = { 0, 0 }, on = { 1, 1 } } }
+                     frames = { idle = { 0, 0 }, on = { 1, 1 } }, props = { works = {} } }
   c.things.plate = { behavior = "prop", stands = true, model = "plate.vvx", width = 10, height = 3,
-                     frames = { idle = { 0, 0 }, down = { 1, 1 } } }
+                     frames = { idle = { 0, 0 }, down = { 1, 1 } }, props = { works = {} } }
   c.things.crate = { behavior = "crate", model = "crate.vvx", width = 8, height = 8, push = 25 }
   c.things.slab = { behavior = "platform", model = "slab.vvx", travel = { 30, 0 }, speed = 40, pause = 0 }  -- out of a wall
   c.things.slab_left = { like = "slab", travel = { -30, 0 } }

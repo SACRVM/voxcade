@@ -136,8 +136,8 @@ shooter's things stay in `src/shooter/`.
   `levels/`, a demo of going from level to level and of the jump & run
   kit's puzzles: bats to time, ferries over spikes, a lever and a lift,
   slabs out of the floor, a crate on a plate holding a hatch open; the
-  door opens once every gem is taken and leads on; `main.lua`'s LINKS
-  says which lever works what; its replay `all_six_rooms` plays through): `-- run games/voxkeep` (blocks,
+  door opens once every gem is taken and leads on; a lever's and a
+  plate's `props = { works = [...] }` in the level say what each works; its replay `all_six_rooms` plays through): `-- run games/voxkeep` (blocks,
   figures and the rooms first made by `python3 tools/gen_voxkeep.py`,
   which now only makes what is
   missing: the files there are the user's, shaped in the editors; never

@@ -269,6 +269,13 @@ pub fn row(ui: &mut egui::Ui, word: &str, tip: &str, add: impl FnOnce(&mut egui:
         job.wrap = egui::text::TextWrapping::truncate_at_width(LABEL + GAP - 1.0);
         let galley = ui.painter().layout_job(job);
         ui.painter().galley(rect.left_center() - Vec2::new(0.0, galley.size().y / 2.0), galley, QUIET);
+        // A cut word shows whole where the pointer rests on it, before the tip.
+        let whole = ui.painter().layout_no_wrap(word.to_string(), TextStyle::Small.resolve(ui.style()), QUIET).size().x;
+        let tip = match (whole > LABEL + GAP - 1.0, tip.is_empty()) {
+            (true, true) => word.to_string(),
+            (true, false) => format!("{word}\n{tip}"),
+            _ => tip.to_string(),
+        };
         if !tip.is_empty() {
             response.on_hover_text(tip);
         }

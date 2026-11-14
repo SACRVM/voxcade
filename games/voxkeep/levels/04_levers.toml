@@ -36,6 +36,7 @@ at = [15, 5, 30]
 [[thing]]
 kind = "lever"
 at = [25, 5, 30]
+props = { works = ["lift_1"] }
 
 [[thing]]
 kind = "gem"
@@ -60,6 +61,7 @@ at = [15, 5, 72]
 [[thing]]
 kind = "lever"
 at = [25, 5, 70]
+props = { works = ["slab_1", "slab_left_1"] }
 
 [[thing]]
 kind = "door"
