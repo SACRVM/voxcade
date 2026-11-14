@@ -296,6 +296,10 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   the game leaves out it has none of (no `hp`: the first hit counts). The
   shooter's rounds and grenades are items of the inventory (a weapon
   with `ammo` is an item of its name): `player:take("machine_gun", 150)`.
+- Levels: a run begins in the first of `world.levels` (file-name order) or
+  in `c.start = "hut_outside"`, a level's name as `world:go_to` takes it
+  (restart-only; a scenario's `level` and a save win; no way to begin
+  elsewhere through `world:go_to` in `on_level_start("start")`).
 - Scores: the code counts in `player.state.score`; `c.scored = true`
   gives the game a high score table (with a kit or without). `c.high_scores` is the table to beat:
   ten lines `{ "ABC", 1000 }`.

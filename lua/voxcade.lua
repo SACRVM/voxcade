@@ -753,6 +753,7 @@ function on_pickup(thing, item) end
 ---@field keys table The keys bound to each action at first, by their US names (c.keys.jump = { "Z" }); the player may change them.
 ---@field pad table The gamepad's buttons bound to each action at first (c.pad.jump = { "A" }).
 ---@field scored boolean The game keeps a score (player.state.score), with ready-made rules or without: the title shows the best, and runs go into the high score table.
+---@field start string The level a run begins in (c.start = "hut_outside"), a file in levels/ by the name world:go_to takes. Unset: the first of world.levels, in the order of the file names. A scenario's level, a save and a replay begin elsewhere as they say. Takes effect after a restart (F5).
 ---@field items table<string, table> What can be carried (c.items.key = { model = "key.vvx", stack = 1 }): an inventory (player.state.inventory) counts these by name.
 ---@field state Conf.state What a run starts with (c.state.world, c.state.player): the states' first keys, the engine's own among them (hp, weapon, inventory) and the game's (lives).
 ---@field icons table<string, table> Small pictures for the HUD (frame:icon, screen:burst): c.icons.heart = { rows = { ".RR.RR.",... }, colors = { R = { 214, 36, 44 } } }.

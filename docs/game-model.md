@@ -483,9 +483,14 @@ fade out ─► on_level_end(why) ─► on_world_end(result) ─► high scores
   globals, no statics, no snapshot to restart from).
 - `on_world_start()` runs first, once: the run's own states. There is no
   level yet; `level` used there is a mistake that says so.
-- The first level is the first in `world.levels` (`--level NAME` for
-  `run`, `shot`, `inspect` and the IDE's PLAY starts at another: the same
-  order, `on_world_start` first).
+- The first level is the first in `world.levels`, or the one `c.start`
+  names (`Levels::first`, the one rule for every beginning of a run: a
+  game loaded, F5, AGAIN, attract mode, `shot`, `inspect`, `check`; it
+  waits for a restart when `conf.lua` changes, and is part of the replays'
+  fingerprint only when set). What says where a run begins wins over it:
+  a scenario's `level` (`--scenario`), a save loaded, a replay's own
+  start (`on_world_start` runs first). `world:go_to` in `on_level_start("start")` is
+  no way to begin elsewhere: a scenario's level arrives with "start" too.
 - `on_level_start("start")` places what the level needs (a level made in
   code is built here), gives `level.state` its first values and starts any
   intro as a sequence. The screen is still dark: it only sets things up.
@@ -769,7 +774,10 @@ touches there touches without `on_touch`.
   (`levels/hall.toml`), named by the
   file's stem and ordered by name, numbers counted as numbers (`2` before
   `10`; `01_hall`, `02_tower`). That order is `world.levels`, the first
-  starts, `level.number` and `level.next` follow it. No list in
+  starts unless `c.start = "hut_outside"` names another (a game whose
+  levels are named by place has no file order that is the story's; the
+  name `world:go_to` takes; a mistake with a near name if it is none,
+  or if the game has no levels in `levels/`), `level.number` and `level.next` follow it. No list in
   `conf.lua`: the script decides where to go, the files say what exists.
   Other files there (Sokovox's puzzle text) are not levels.
 - **A game without level files** has one level, its world as `c.world`

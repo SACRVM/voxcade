@@ -46,7 +46,8 @@ pub struct Setup<'a> {
     /// The game's files (`crate::files`): its folder, or a set sealed.
     pub files: &'a crate::files::Files,
     pub cfg: &'a GameConfig,
-    /// The first level's world, as built (`levels.list[0]`).
+    /// The first level's world, as built (`levels.first()`: the level a run
+    /// begins in, `c.start`).
     pub world: World,
     /// The level's markers (`[markers]` gives the colours that place each
     /// kind of thing; `kind` is the kind's place in `sim::things::defs`).
@@ -382,7 +383,7 @@ pub trait Game: Sized + 'static {
     /// The levels were read anew (a level file saved while playing): by
     /// default the first one replaces the world.
     fn replace_levels(&mut self, levels: std::sync::Arc<crate::levels::Levels>) {
-        let first = &levels.list[0];
+        let first = levels.first();
         self.replace_world(first.world.clone(), &first.markers);
     }
 

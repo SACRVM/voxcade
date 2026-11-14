@@ -1253,7 +1253,7 @@ impl Game for Shooter {
             anyhow::bail!("c.players = {}: each player's figure is a kind of thing without behavior (c.things.hero = {{ model = \"player.vvx\" }}), named by c.player.kind = {{ \"hero\", \"hero2\" }} (or one for all)", setup.cfg.players);
         }
         let shapes = shapes_of(setup.models, &rules)?;
-        let places = setup.levels.list.first().map(|l| l.places.clone()).unwrap_or_default();
+        let places = setup.levels.first().places.clone();
         let mut shooter = Self::with_rules(setup.world, setup.cfg, own, rules, shapes, &setup.markers);
         shooter.places = places.into();
         Ok(shooter)

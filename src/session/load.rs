@@ -79,7 +79,7 @@ impl<G: Game> Session<G> {
         let level_files = levels.files.clone();
         let piece_models = levels.piece_models();
         let models = Models::load_for::<G>(&files, &cfg, &piece_models)?;
-        let first = &levels.list[0];
+        let first = levels.first();
         let songs = song_timings(&files, &cfg);
         let game = G::load(Setup { files: &files, cfg: &cfg, world: first.world.clone(), markers: first.markers.clone(), models: &models, levels: levels.clone(), slots: slots.listing(), slot_texts: slots.texts(), replayed: slots.replayed().to_vec(), songs: songs.clone() })?;
         let cue = game.music().map(|c| c.song);
@@ -343,6 +343,7 @@ impl<G: Game> Session<G> {
         if let Some(file) = G::config_file().filter(|f| is(f)) {
             let before = self.cfg.audio.music.clone();
             let mut cfg = config_in::<G>(&self.files)?;
+            crate::levels::check_start::<G>(&self.files, &cfg)?;
             let waiting = self.cfg.restart_only(&cfg);
             if !waiting.is_empty() {
                 self.cfg.keep_for_restart(&mut cfg);

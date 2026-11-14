@@ -250,12 +250,20 @@ pub struct Levels {
     pub list: Vec<Arc<Level>>,
     /// The files they were made from (the replays' fingerprint, hot reload).
     pub files: Vec<PathBuf>,
+    /// The level a run begins in (`c.start`; the first one unless set): the
+    /// one rule for every start of a run, `first`.
+    pub start: usize,
 }
 
 impl Levels {
     /// A game of one level.
     pub fn one(name: &str, world: World, markers: Vec<Marker>, places: Vec<Place>, files: Vec<PathBuf>) -> Self {
-        Self { list: vec![Arc::new(Level::plain(name, world, markers, places))], files }
+        Self { list: vec![Arc::new(Level::plain(name, world, markers, places))], files, start: 0 }
+    }
+
+    /// The level a run begins in, as `c.start` names it, else the first.
+    pub fn first(&self) -> &Arc<Level> {
+        &self.list[self.start]
     }
 
     /// The models the levels' pieces show, each once, in order: the game
@@ -462,10 +470,12 @@ fn older_format(file: &str) -> Result<()> {
 pub fn load<G: Game>(game: &Files, cfg: &GameConfig) -> Result<Levels> {
     let dir = game.dir();
     if let Some(world) = G::level(cfg)? {
+        start_in(cfg, &[])?;
         return Ok(Levels::one("main", world, Vec::new(), Vec::new(), Vec::new()));
     }
     // A world its script builds: made once, never anew from the config.
     if let Some([x, y, z]) = cfg.world.size {
+        start_in(cfg, &[])?;
         if x < 1 || y < 1 || z < 1 {
             anyhow::bail!("c.world.size = {{ {x}, {y}, {z} }}: a world is at least one voxel each way");
         }
@@ -476,7 +486,8 @@ pub fn load<G: Game>(game: &Files, cfg: &GameConfig) -> Result<Levels> {
     if !cfg.markers.is_empty() {
         anyhow::bail!("c.markers: since Voxcade 0.6.0 a marker is a palette entry of the world or the prefab it lies in ({{ marker = \"rifleman\" }}); `voxcade upgrade` moves them there");
     }
-    let mut levels = Levels { list: Vec::new(), files: Vec::new() };
+    let start = start_in(cfg, &folder_files(game, &cfg.world).iter().map(|p| stem(p)).collect::<Vec<_>>())?;
+    let mut levels = Levels { list: Vec::new(), files: Vec::new(), start };
     for (name, file) in level_files(game, &cfg.world) {
         let path = dir.join(&file);
         let made = one(game, cfg, kind, &path).with_context(|| file.clone())?;
@@ -494,15 +505,47 @@ pub fn load<G: Game>(game: &Files, cfg: &GameConfig) -> Result<Levels> {
 /// first line tells: format = "voxcade level 1"), else its one file.
 /// Nothing read but those first lines (the level editor lists them so).
 pub fn level_files(game: &Files, world: &crate::config::WorldConfig) -> Vec<(String, String)> {
-    let kind = Kind::of(world);
-    let extension = kind.ending();
-    let mut files: Vec<PathBuf> = game.list(game.dir().join("levels")).into_iter().filter(|p| p.extension().is_some_and(|e| e == extension) || (kind == Kind::World && says_level(game, p))).collect();
-    files.sort_by(|a, b| natural(&stem(a), &stem(b)));
+    let files = folder_files(game, world);
     if files.is_empty() {
         let file = world.blocks.as_ref().map_or(&world.file, |b| &b.file);
         return vec![(stem(Path::new(file)), file.clone())];
     }
     files.iter().map(|p| (stem(p), format!("levels/{}", p.file_name().unwrap_or_default().to_string_lossy()))).collect()
+}
+
+/// The level files in `levels/`, in the order of their names.
+fn folder_files(game: &Files, world: &crate::config::WorldConfig) -> Vec<PathBuf> {
+    let kind = Kind::of(world);
+    let extension = kind.ending();
+    let mut files: Vec<PathBuf> = game.list(game.dir().join("levels")).into_iter().filter(|p| p.extension().is_some_and(|e| e == extension) || (kind == Kind::World && says_level(game, p))).collect();
+    files.sort_by(|a, b| natural(&stem(a), &stem(b)));
+    files
+}
+
+/// Where a run begins (`c.start`): the place of the level it names among
+/// `names` (the files of `levels/`), else 0. A name that is no level, or a
+/// game without levels in `levels/`, is a mistake saying so.
+fn start_in(cfg: &GameConfig, names: &[String]) -> Result<usize> {
+    let Some(name) = &cfg.start else { return Ok(0) };
+    if names.is_empty() {
+        anyhow::bail!("c.start = \"{name}\": the game has no levels in levels/ to begin in (a map, a world made in code and a game of one level begin where they are)");
+    }
+    let there: Vec<&str> = names.iter().map(String::as_str).collect();
+    match names.iter().position(|n| n == name) {
+        Some(at) => Ok(at),
+        None => anyhow::bail!("c.start = \"{name}\": {}", no_such("level", name, "", "levels", &there)),
+    }
+}
+
+/// `c.start` read anew (`conf.lua` changed) checked as the game loads: the
+/// same mistakes, the levels not built.
+pub fn check_start<G: Game>(game: &Files, cfg: &GameConfig) -> Result<()> {
+    if cfg.start.is_none() {
+        return Ok(());
+    }
+    let none = G::level(cfg)?.is_some() || cfg.world.size.is_some();
+    let names: Vec<String> = if none { Vec::new() } else { folder_files(game, &cfg.world).iter().map(|p| stem(p)).collect() };
+    start_in(cfg, &names).map(|_| ())
 }
 
 /// Whether the file at `path` is a level of blocks or pieces by its first

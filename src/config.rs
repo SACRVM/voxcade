@@ -74,6 +74,12 @@ pub struct GameConfig {
     /// or without: the title shows the best, and runs go into the high
     /// score table.
     pub scored: bool,
+    /// The level a run begins in (`c.start = "hut_outside"`), a file in `levels/` by the name `world:go_to` takes.
+    /// Unset: the first of `world.levels`, in the order of the file names.
+    /// A scenario's level, a save and a replay begin elsewhere as they say.
+    /// Takes effect after a restart (F5).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start: Option<String>,
     /// What can be carried (`c.items.key = { model = "key.vvx", stack = 1 }`):
     /// an inventory (`player.state.inventory`) counts these by name.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -149,6 +155,7 @@ impl Default for GameConfig {
             languages: Vec::new(),
             players: 1,
             team_score: false,
+            start: None,
         }
     }
 }
@@ -1264,6 +1271,7 @@ impl GameConfig {
             ("player.spawn", self.player.spawn != new.player.spawn),
             ("player.kind", self.player.kind != new.player.kind),
             ("players", self.players != new.players),
+            ("start", self.start != new.start),
             ("camera.rotates", self.camera.rotates != new.camera.rotates),
         ] {
             if differs {
@@ -1287,6 +1295,7 @@ impl GameConfig {
         new.player.spawn = self.player.spawn;
         new.player.kind = self.player.kind.clone();
         new.players = self.players;
+        new.start = self.start.clone();
         new.camera.rotates = self.camera.rotates;
     }
 }
