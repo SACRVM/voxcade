@@ -1184,32 +1184,33 @@ fn lua_of(rust: &str) -> String {
 /// made rules' own sections and keys (c.weapons, c.player.knife) left open.
 fn conf_classes() -> String {
     let mut out = String::from("\n---@class Conf The game's settings (conf.lua); ready-made rules (c.kit) add their own (c.weapons).\n---@field [string] table\n");
-    let mut classes = String::new();
+    let (mut classes, settings) = (String::new(), settings());
     for k in conf_keys("GameConfig") {
         if k.key == "things" {
             out += &format!("---@field {} {} {}\n", k.key, kinds_type(), k.doc);
             continue;
         }
-        out += &conf_field(&k, &format!("Conf.{}", k.key), &mut classes);
+        out += &conf_field(&k, &format!("Conf.{}", k.key), &settings, &mut classes);
     }
     out + &classes + &kind_classes()
 }
 
 /// A key's line in its class; a key whose type is a struct of its own
-/// gets a class (`Conf.camera`, `Conf.world.backdrops`), written into `classes`.
-fn conf_field(k: &ConfKey, class: &str, classes: &mut String) -> String {
+/// gets a class (`Conf.camera`, `Conf.world.backdrops`), written into `classes`;
+/// a range as `settings` (the reference's) says it.
+fn conf_field(k: &ConfKey, class: &str, settings: &[Setting], classes: &mut String) -> String {
     let doc = if k.doc.is_empty() { String::new() } else { format!(" {}", k.doc) };
     let Some((name, list)) = inner_struct(&k.rust) else {
         // Its range, as the reference says it (`settings`).
         let path = class.strip_prefix("Conf.").unwrap_or(class);
-        let range = settings().into_iter().find(|s| s.path.replace("[]", "") == path).map(|s| s.range).filter(|r| !r.is_empty()).map_or(String::new(), |r| format!(" ({r})"));
+        let range = settings.iter().find(|s| s.path.replace("[]", "") == path).map(|s| s.range.as_str()).filter(|r| !r.is_empty()).map_or(String::new(), |r| format!(" ({r})"));
         return format!("---@field {} {}{doc}{range}\n", k.key, lua_of(&k.rust));
     };
     // A section the ready-made rules add to (c.player.knife) stays open.
     let open = if name == "PlayerConfig" { "---@field [string] any\n" } else { "" };
     let mut body = format!("\n---@class {class}\n{open}");
     for inner in conf_keys(name) {
-        body += &conf_field(&inner, &format!("{class}.{}", inner.key), classes);
+        body += &conf_field(&inner, &format!("{class}.{}", inner.key), settings, classes);
     }
     *classes += &body;
     format!("---@field {} {class}{}{doc}\n", k.key, if list { "[]" } else { "" })
