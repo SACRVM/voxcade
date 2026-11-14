@@ -20,7 +20,7 @@ use std::sync::Arc;
 use glam::{IVec3, Vec3};
 use mlua::{AnyUserData, Function, Lua, MetaMethod, Table, UserData, UserDataFields, UserDataMethods, Value};
 
-use super::host::{Ask, PLAYER, Seen, Stage, Touched, handle_seat, seat_handle};
+use super::host::{Ask, Kept, PLAYER, Seen, Stage, Touched, handle_seat, seat_handle};
 use crate::sim::{Event, Who};
 use crate::levels::{Level, Place};
 use crate::input::Input;
@@ -545,6 +545,25 @@ fn whole(v: Value, what: &str) -> mlua::Result<i64> {
     }
 }
 
+/// A value the ready-made rules keep, as the script reads it.
+fn kept_value(lua: &Lua, kept: Option<Kept>) -> mlua::Result<Value> {
+    Ok(match kept {
+        Some(Kept::Text(t)) => Value::String(lua.create_string(t)?),
+        Some(Kept::Bool(b)) => Value::Boolean(b),
+        None => Value::Nil,
+    })
+}
+
+/// A name set for the rules to keep (`Kept::Text`), or nil for none;
+/// None for anything else.
+fn named_or_none(v: &Value) -> mlua::Result<Option<Kept>> {
+    Ok(match v {
+        Value::String(s) => Some(Kept::Text(s.to_str()?.to_string())),
+        Value::Nil => Some(Kept::Bool(false)),
+        _ => None,
+    })
+}
+
 /// `player.state.invulnerable = true`: as many ticks as never run out.
 const FOREVER: i64 = u32::MAX as i64 / 2;
 
@@ -572,13 +591,11 @@ fn player_state(lua: &Lua) -> mlua::Result<Value> {
         }
         moved(lua, &key)?;
         let (n, kept) = look(lua, |h| Ok((h.host.player_number(&key), h.host.player_kept(&key))))?;
-        Ok(match (n, kept) {
-            (Some(n), _) if key == "invulnerable" && n >= FOREVER => Value::Boolean(true),
-            (Some(n), _) => Value::Integer(n),
-            (None, Some(super::host::Kept::Text(t))) => Value::String(lua.create_string(t)?),
-            (None, Some(super::host::Kept::Bool(b))) => Value::Boolean(b),
-            (None, None) => Value::Nil,
-        })
+        match n {
+            Some(n) if key == "invulnerable" && n >= FOREVER => Ok(Value::Boolean(true)),
+            Some(n) => Ok(Value::Integer(n)),
+            None => kept_value(lua, kept),
+        }
     })?;
     let set = lua.create_function(move |lua, (key, v): (String, Value)| {
         if SEAT_KEYS.contains(&key.as_str()) {
@@ -589,11 +606,7 @@ fn player_state(lua: &Lua) -> mlua::Result<Value> {
         // A key that is no number (the shooter's weapon, the hero's pose):
         // by its name, or nil for none.
         let number = look(lua, |h| Ok(h.host.player_number(&key).is_some()))?;
-        let kept = match (&v, number || key == "invulnerable") {
-            (Value::String(text), false) => Some(super::host::Kept::Text(text.to_str()?.to_string())),
-            (Value::Nil, false) => Some(super::host::Kept::Bool(false)),
-            _ => None,
-        };
+        let kept = if number || key == "invulnerable" { None } else { named_or_none(&v)? };
         if let Some(kept) = kept {
             return change(lua, &what, |h| h.host.set_player_kept(&key, kept).map_err(|e| mlua::Error::runtime(format!("{what}: {e}"))));
         }
@@ -703,13 +716,13 @@ fn seat_state(lua: &Lua, seat: usize) -> mlua::Result<Value> {
             return Ok(v);
         }
         let pose = look(lua, |h| Ok(h.host.seat_figure(seat).and_then(|f| h.host.thing_value(f, "pose")).filter(|_| key == "pose")))?;
-        if let Some(super::host::Kept::Text(p)) = pose {
+        if let Some(Kept::Text(p)) = pose {
             return Ok(Value::String(lua.create_string(p)?));
         }
         // The gun in hand where the rules keep one (the shooter's).
         if key == "weapon" {
             return look(lua, |h| match h.host.seat_kept(seat, "weapon") {
-                Some(super::host::Kept::Text(gun)) => Ok(Value::String(lua.create_string(gun)?)),
+                Some(Kept::Text(gun)) => Ok(Value::String(lua.create_string(gun)?)),
                 _ => Ok(Value::Nil),
             });
         }
@@ -734,18 +747,14 @@ fn seat_state(lua: &Lua, seat: usize) -> mlua::Result<Value> {
         }
         let what = format!("player {seat}'s state.{key}");
         if key == "weapon" {
-            let gun = match v {
-                Value::String(s) => super::host::Kept::Text(s.to_str()?.to_string()),
-                Value::Nil => super::host::Kept::Bool(false),
-                other => return Err(mlua::Error::runtime(format!("{what}: the name of a weapon (c.weapons), not a {}", other.type_name()))),
+            let Some(gun) = named_or_none(&v)? else {
+                return Err(mlua::Error::runtime(format!("{what}: the name of a weapon (c.weapons), not a {}", v.type_name())));
             };
             return change(lua, &what, |h| h.host.set_seat_kept(seat, "weapon", gun).map_err(|e| mlua::Error::runtime(format!("{what}: {e}"))));
         }
         if key == "pose" {
-            let pose = match v {
-                Value::String(s) => super::host::Kept::Text(s.to_str()?.to_string()),
-                Value::Nil => super::host::Kept::Bool(false),
-                other => return Err(mlua::Error::runtime(format!("{what}: a name of its frames, not a {}", other.type_name()))),
+            let Some(pose) = named_or_none(&v)? else {
+                return Err(mlua::Error::runtime(format!("{what}: a name of its frames, not a {}", v.type_name())));
             };
             return change(lua, &what, |h| match h.host.seat_figure(seat) {
                 Some(f) => h.host.set_thing_value(f, "pose", pose).map_err(|e| mlua::Error::runtime(format!("{what}: {e}"))),
@@ -843,11 +852,7 @@ fn thing_state(lua: &Lua, id: u32) -> mlua::Result<Value> {
             return if looking(lua) { lua.named_registry_value::<Function>("voxcade.readonly")?.call(v) } else { Ok(v) };
         }
         let kept = look(lua, |h| Ok(h.host.thing_value(Id::from_raw(id), &key)))?;
-        Ok(match kept {
-            Some(super::host::Kept::Bool(b)) => Value::Boolean(b),
-            Some(super::host::Kept::Text(t)) => Value::String(lua.create_string(t)?),
-            None => Value::Nil,
-        })
+        kept_value(lua, kept)
     })?;
     let set = lua.create_function(move |lua, (key, v): (String, Value)| {
         let what = format!("thing.state.{key}");
@@ -878,11 +883,10 @@ fn thing_state(lua: &Lua, id: u32) -> mlua::Result<Value> {
             look(lua, |h| piece_pose(&v, h.here.pieces.get(&id).and_then(|p| p.model.as_deref()), &h.parts, &piece_name(h, id)).map(|_| ()))?;
             return own_state(lua, id)?.raw_set(PARTS, v);
         }
-        let value = match v {
-            Value::Boolean(b) => super::host::Kept::Bool(b),
-            Value::Nil => super::host::Kept::Bool(false),
-            Value::String(s) => super::host::Kept::Text(s.to_str()?.to_string()),
-            other => return Err(mlua::Error::runtime(format!("{what}: true, false or a name, not a {}", other.type_name()))),
+        let value = match (named_or_none(&v)?, v) {
+            (Some(kept), _) => kept,
+            (None, Value::Boolean(b)) => Kept::Bool(b),
+            (None, other) => return Err(mlua::Error::runtime(format!("{what}: true, false or a name, not a {}", other.type_name()))),
         };
         change(lua, &what, |h| h.host.set_thing_value(Id::from_raw(id), &key, value).map_err(|e| mlua::Error::runtime(format!("{what}: {e}"))))
     })?;

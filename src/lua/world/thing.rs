@@ -137,18 +137,14 @@ impl UserData for ThingRef {
         });
         m.add_method("face", |lua, t, dir: Value| {
             let way = to_dir(&dir, "thing:face")?;
-            change(lua, "thing:face", |h| {
-                let Some(id) = h.target(t.0) else { return Err(h.no_target(t.0, "player:face")) };
-                h.thing(t.0)?;
-                h.host.face(Id::from_raw(id), way).map_err(|e| mlua::Error::runtime(format!("thing:face: {e}")))
-            })
+            on_target(lua, t.0, "thing:face", |h, id| h.host.face(id, way))
         });
         m.add_method("jump", |lua, t, height: f32| {
             change(lua, "thing:jump", |h| {
                 let gravity = h.host.sim().cfg.physics.gravity;
                 let b = h.moved(t.0, "thing:jump")?.0;
                 if b.on_ground {
-                    b.vel.z = (2.0 * gravity * height.max(0.0)).sqrt();
+                    b.vel.z = rise_speed(gravity, height);
                     b.on_ground = false;
                 }
                 Ok(())
@@ -169,28 +165,18 @@ impl UserData for ThingRef {
         });
         m.add_method("launch", |lua, t, (dir, speed, rise): (Value, f32, Option<f32>)| {
             let way = to_dir(&dir, "thing:launch")?.normalize_or_zero();
-            change(lua, "thing:launch", |h| {
-                let gravity = h.host.sim().cfg.physics.gravity;
-                let Some(id) = h.target(t.0) else { return Err(h.no_target(t.0, "player:launch")) };
-                h.thing(t.0)?;
-                let up = rise.map_or(0.0, |r| (2.0 * gravity * r.max(0.0)).sqrt());
-                h.host.launch(Id::from_raw(id), way * speed + Vec3::Z * up).map_err(|e| mlua::Error::runtime(format!("thing:launch: {e}")))
+            on_target(lua, t.0, "thing:launch", |h, id| {
+                let up = rise.map_or(0.0, |r| rise_speed(h.host.sim().cfg.physics.gravity, r));
+                h.host.launch(id, way * speed + Vec3::Z * up)
             })
         });
         m.add_method("enable", |lua, t, (behavior, on): (String, bool)| {
-            change(lua, "thing:enable", |h| {
-                let Some(id) = h.target(t.0) else { return Err(h.no_target(t.0, "player:enable")) };
-                h.thing(t.0)?;
-                h.host.enable(Id::from_raw(id), &behavior, on).map_err(|e| mlua::Error::runtime(format!("thing:enable: {e}")))
-            })
+            on_target(lua, t.0, "thing:enable", |h, id| h.host.enable(id, &behavior, on))
         });
         m.add_method("bounce", |lua, t, height: f32| {
-            change(lua, "thing:bounce", |h| {
-                let gravity = h.host.sim().cfg.physics.gravity;
-                let Some(id) = h.target(t.0) else { return Err(h.no_target(t.0, "player:bounce")) };
-                h.thing(t.0)?;
-                let speed = (2.0 * gravity * height.max(0.0)).sqrt();
-                h.host.bounce(Id::from_raw(id), speed).map_err(|e| mlua::Error::runtime(format!("thing:bounce: {e}")))
+            on_target(lua, t.0, "thing:bounce", |h, id| {
+                let speed = rise_speed(h.host.sim().cfg.physics.gravity, height);
+                h.host.bounce(id, speed)
             })
         });
         m.add_method("ahead", |lua, t, distance: f32| {
@@ -374,4 +360,20 @@ impl UserData for ThingRef {
             })
         });
     }
+}
+
+/// `what` (`thing:face`) done by the host to what it acts on for thing
+/// `t` (a player's figure for a player), its refusal said as `what: why`.
+fn on_target(lua: &Lua, t: u32, what: &'static str, act: impl FnOnce(&mut Stage, Id) -> Result<(), String>) -> mlua::Result<()> {
+    change(lua, what, |h| {
+        let Some(id) = h.target(t) else { return Err(h.no_target(t, &what.replace("thing:", "player:"))) };
+        h.thing(t)?;
+        act(h, Id::from_raw(id)).map_err(|e| mlua::Error::runtime(format!("{what}: {e}")))
+    })
+}
+
+/// How fast a body leaves the ground to rise `height` voxels against
+/// `gravity`.
+fn rise_speed(gravity: f32, height: f32) -> f32 {
+    (2.0 * gravity * height.max(0.0)).sqrt()
 }
