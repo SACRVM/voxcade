@@ -90,34 +90,18 @@ impl Area {
 }
 
 /// A level as made from its file: its world, the markers that place its
-/// things (and the name the file gives each, if it does), the files it
-/// came from, its places, its pieces and areas, its own daylight.
+/// things, the files it came from, its places, its pieces and areas, its
+/// own daylight.
 pub struct Made {
     pub world: World,
     pub markers: Vec<Marker>,
     pub files: Vec<PathBuf>,
     pub places: Vec<Place>,
+    /// The names the file gives its markers' things (if it does), in the
+    /// markers' order.
     pub marker_names: Vec<Option<String>>,
     /// The ways the file turns its markers' things (degrees clockwise
     /// seen from above, north 0), in the markers' order.
-    pub marker_facings: Vec<Option<f64>>,
-    pub pieces: Vec<Piece>,
-    pub areas: Vec<Area>,
-    pub daylight: crate::session::Daylight,
-}
-
-/// One level as it was read.
-pub struct Level {
-    /// Its name: the file's stem (`hall` for `levels/hall.toml`); `main`
-    /// for a game's one level made in code.
-    pub name: String,
-    pub world: World,
-    pub markers: Vec<Marker>,
-    pub places: Vec<Place>,
-    /// The names the file gives its markers' things (`marker_names`), its
-    /// pieces and its areas.
-    pub marker_names: Vec<Option<String>>,
-    /// The ways the file turns its markers' things (`marker_facings`).
     pub marker_facings: Vec<Option<f64>>,
     pub pieces: Vec<Piece>,
     pub areas: Vec<Area>,
@@ -126,14 +110,36 @@ pub struct Level {
     pub daylight: crate::session::Daylight,
 }
 
+impl Made {
+    /// A world and the markers in it, made from `files`: nothing else set
+    /// down, no places, the game's daylight.
+    pub fn world(world: World, markers: Vec<Marker>, files: Vec<PathBuf>) -> Self {
+        let daylight = Default::default();
+        Self { world, markers, files, places: Vec::new(), marker_names: Vec::new(), marker_facings: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight }
+    }
+}
+
+/// One level as it was read: its name, and what its file made (read
+/// through the level: `level.world`, `level.places`).
+pub struct Level {
+    /// Its name: the file's stem (`hall` for `levels/hall.toml`); `main`
+    /// for a game's one level made in code.
+    pub name: String,
+    pub made: Made,
+}
+
+impl std::ops::Deref for Level {
+    type Target = Made;
+
+    fn deref(&self) -> &Made {
+        &self.made
+    }
+}
+
 impl Level {
     /// A level of a world, markers and places, nothing set down.
     pub fn plain(name: &str, world: World, markers: Vec<Marker>, places: Vec<Place>) -> Self {
-        Self { name: name.to_string(), world, markers, places, marker_names: Vec::new(), marker_facings: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight: Default::default() }
-    }
-
-    fn of(name: String, made: Made) -> Self {
-        Self { name, world: made.world, markers: made.markers, places: made.places, marker_names: made.marker_names, marker_facings: made.marker_facings, pieces: made.pieces, areas: made.areas, daylight: made.daylight }
+        Self { name: name.to_string(), made: Made { places, ..Made::world(world, markers, Vec::new()) } }
     }
 }
 
@@ -253,16 +259,17 @@ pub fn ending(cfg: &GameConfig) -> &'static str {
 
 /// The game's worlds and map prefabs (`crate::scene`), as paths from the
 /// game folder `dir` (`/` between): the world file or the worlds in
-/// `levels/`, or the prefabs its maps name. What the IDE shows but does not
-/// shape as a model.
+/// `levels/`, or the prefabs its maps name, read as the game reads its
+/// folder (`Files`). What the IDE shows but does not shape as a model.
 pub fn scene_files(dir: &Path, cfg: &GameConfig) -> Vec<String> {
     let kind = Kind::of(cfg);
     if cfg.world.size.is_some() || kind == Kind::Blocks {
         return Vec::new();
     }
-    let in_levels: Vec<String> = std::fs::read_dir(dir.join("levels"))
-        .map(|d| d.flatten().filter_map(|e| e.file_name().to_str().map(str::to_string)).filter(|n| n.ends_with(&format!(".{}", kind.ending()))).map(|n| format!("levels/{n}")).collect())
-        .unwrap_or_default();
+    let game = Files::folder(dir);
+    let ending = format!(".{}", kind.ending());
+    let names = game.list("levels").into_iter().filter_map(|p| p.file_name()?.to_str().map(str::to_string));
+    let in_levels: Vec<String> = names.filter(|n| n.ends_with(&ending)).map(|n| format!("levels/{n}")).collect();
     let files = if in_levels.is_empty() { vec![cfg.world.file.clone()] } else { in_levels };
     if kind == Kind::World {
         return files;
@@ -270,7 +277,7 @@ pub fn scene_files(dir: &Path, cfg: &GameConfig) -> Vec<String> {
     let mut out = Vec::new();
     for map in files {
         let folder = Path::new(&map).parent().unwrap_or(Path::new("")).to_path_buf();
-        let Ok(data) = std::fs::read_to_string(dir.join(&map)).map_err(anyhow::Error::from).and_then(|t| crate::map::MapData::read(&t)) else { continue };
+        let Ok(data) = game.read_to_string(&map).map_err(anyhow::Error::from).and_then(|t| crate::map::MapData::read(&t)) else { continue };
         for p in data.prefabs.values() {
             out.push(crate::files::slashed(&folder.join(&p.file)));
         }
@@ -324,13 +331,13 @@ pub fn load<G: Game>(game: &Files, cfg: &GameConfig) -> Result<Levels> {
         let path = dir.join(file);
         let made = one(game, cfg, kind, &path).with_context(|| path.display().to_string())?;
         let sources = made.files.clone();
-        return Ok(Levels { list: vec![Arc::new(Level::of(stem(&path), made))], files: sources });
+        return Ok(Levels { list: vec![Arc::new(Level { name: stem(&path), made })], files: sources });
     }
     let mut levels = Levels { list: Vec::new(), files: Vec::new() };
     for path in files {
         let made = one(game, cfg, kind, &path).with_context(|| format!("levels/{}", path.file_name().unwrap_or_default().to_string_lossy()))?;
         levels.files.extend(made.files.iter().cloned());
-        levels.list.push(Arc::new(Level::of(stem(&path), made)));
+        levels.list.push(Arc::new(Level { name: stem(&path), made }));
     }
     levels.files.sort();
     levels.files.dedup();
@@ -355,7 +362,7 @@ fn one(game: &Files, cfg: &GameConfig, kind: Kind, path: &Path) -> Result<Made> 
         (Kind::Map, _) => crate::map::load_map_at(game, path, &names),
         _ => {
             let (world, found) = crate::scene::load_in(game, path)?.world(&names).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
-            Ok(Made { world, markers: found, files: vec![path.to_path_buf()], places: Vec::new(), marker_names: Vec::new(), marker_facings: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight: Default::default() })
+            Ok(Made::world(world, found, vec![path.to_path_buf()]))
         }
     }
 }
