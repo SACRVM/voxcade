@@ -21,6 +21,7 @@
 //! in voxels, places and areas, all a level without blocks has.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use glam::{IVec3, Vec3};
@@ -372,6 +373,32 @@ struct LevelState {
 }
 
 impl LevelState {
+    /// The level's state as a step keeps it.
+    fn of(l: &GridLevel) -> Self {
+        Self {
+            size: l.size,
+            cells: l.cells.clone(),
+            table: l.blocks.clone(),
+            things: l.things.clone(),
+            places: l.places.clone(),
+            areas: l.areas.clone(),
+            daylight: l.daylight.clone().map(Box::new),
+            terrain: l.terrain.clone().map(Box::new),
+        }
+    }
+
+    /// Whether the level stands as it keeps it (nothing copied).
+    fn is(&self, l: &GridLevel) -> bool {
+        self.size == l.size
+            && self.cells == l.cells
+            && self.table == l.blocks
+            && self.things == l.things
+            && self.places == l.places
+            && self.areas == l.areas
+            && self.daylight.as_deref() == l.daylight.as_ref()
+            && self.terrain.as_deref() == l.terrain.as_ref()
+    }
+
     /// About how many bytes it holds.
     fn bytes(&self) -> usize {
         use std::mem::size_of;
@@ -390,38 +417,65 @@ fn shaped_bytes(s: &Shaped) -> usize {
     s.frames.iter().map(block_bytes).sum::<usize>() + s.parts.len() * std::mem::size_of::<super::frames::Placed>() + s.palette.len() * std::mem::size_of::<super::frames::Colour>()
 }
 
-/// One step of the history, before and after.
+/// One step of the history, before and after. A level's or a model's
+/// states are shared: a step's after is the next step's before, kept once.
 enum Step {
-    Level(LevelState, LevelState),
+    Level(Arc<LevelState>, Arc<LevelState>),
     Block(usize, Block, Block),
     Delete(Box<Deletion>),
     /// A model's frames, all of them, and a figure's parts as placed and
     /// rigged (a stroke on one, or frames copied, taken out, turned, the
     /// box grown or trimmed, a part's parent or joint set).
-    Model(Shaped, Shaped),
+    Model(Arc<Shaped>, Arc<Shaped>),
 }
 
 impl Step {
-    /// About how many bytes it holds (what is kept of the level, the
-    /// block or the model before and after it).
-    fn bytes(&self) -> usize {
+    /// What it keeps, each with its bytes: the level, the block or the
+    /// model before and after it; a shared state with its address, to be
+    /// counted once (`kept_bytes`), a block of its own with none.
+    fn kept(&self) -> Vec<(Option<usize>, usize)> {
+        let level = |s: &Arc<LevelState>| (Some(Arc::as_ptr(s) as usize), s.bytes());
+        let model = |s: &Arc<Shaped>| (Some(Arc::as_ptr(s) as usize), shaped_bytes(s));
         match self {
-            Step::Level(b, a) => b.bytes() + a.bytes(),
-            Step::Block(_, b, a) => block_bytes(b) + block_bytes(a),
-            Step::Delete(d) => block_bytes(&d.block) + d.before.bytes() + d.after.bytes(),
-            Step::Model(b, a) => shaped_bytes(b) + shaped_bytes(a),
+            Step::Level(b, a) => vec![level(b), level(a)],
+            Step::Block(_, b, a) => vec![(None, block_bytes(b)), (None, block_bytes(a))],
+            Step::Delete(d) => vec![(None, block_bytes(&d.block)), level(&d.before), level(&d.after)],
+            Step::Model(b, a) => vec![model(b), model(a)],
         }
     }
 
-    /// The step the other way (taking it back).
-    fn reversed(&self) -> Step {
+    /// The level or the model as the step leaves it (`forward`), or as it
+    /// found it.
+    fn state(&self, forward: bool) -> Option<Now> {
         match self {
-            Step::Level(b, a) => Step::Level(a.clone(), b.clone()),
-            Step::Block(i, b, a) => Step::Block(*i, a.clone(), b.clone()),
-            Step::Model(b, a) => Step::Model(a.clone(), b.clone()),
-            Step::Delete(d) => Step::Delete(Box::new(Deletion { index: d.index, entry: d.entry.clone(), block: d.block.clone(), before: d.after.clone(), after: d.before.clone() })),
+            Step::Level(b, a) => Some(Now::Level(Arc::clone(if forward { a } else { b }))),
+            Step::Delete(d) => Some(Now::Level(Arc::clone(if forward { &d.after } else { &d.before }))),
+            Step::Model(b, a) => Some(Now::Model(Arc::clone(if forward { a } else { b }))),
+            Step::Block(..) => None,
         }
     }
+}
+
+/// About how many bytes steps keep together, a state two of them share
+/// counted once.
+fn kept_bytes<'a>(steps: impl Iterator<Item = &'a Step>) -> usize {
+    let mut seen = std::collections::BTreeSet::new();
+    steps.flat_map(Step::kept).filter(|(at, _)| at.is_none_or(|at| seen.insert(at))).map(|(_, bytes)| bytes).sum()
+}
+
+/// How the level, a block or the model stood when the stroke going on
+/// began (what letting go makes a step of, and Escape brings back).
+enum Begun {
+    Level(Arc<LevelState>),
+    Block(usize, Block),
+    Model(Arc<Shaped>),
+}
+
+/// The newest state a step keeps of the level or the model: the next
+/// step's before shares it while they still stand so.
+enum Now {
+    Level(Arc<LevelState>),
+    Model(Arc<Shaped>),
 }
 
 /// A block taken out of the level: its place in the list, what it was,
@@ -431,13 +485,13 @@ struct Deletion {
     index: usize,
     entry: BlockEntry,
     block: Block,
-    before: LevelState,
-    after: LevelState,
+    before: Arc<LevelState>,
+    after: Arc<LevelState>,
 }
 
 /// How many steps the editor keeps to take back, and how many bytes they
 /// may hold together (each keeps the level or the model before and after
-/// it whole): past either, the oldest go.
+/// it, shared with its neighbours): past either, the oldest go.
 pub const KEPT_STEPS: usize = 300;
 pub const KEPT_BYTES: usize = 256 << 20;
 
@@ -452,7 +506,11 @@ pub struct History {
     /// At most so many steps and bytes kept (`KEPT_STEPS`, `KEPT_BYTES`).
     keep: (usize, usize),
     /// The stroke going on: how the level or block stood when it began.
-    stroke: Option<Step>,
+    stroke: Option<Begun>,
+    /// The newest level and model a step keeps (`Editor::level_state`,
+    /// `shaped`: shared by the next step while they still stand so).
+    level_now: Option<Arc<LevelState>>,
+    model_now: Option<Arc<Shaped>>,
     /// The colour whose material the last step set: the next setting of it
     /// joins that step (a slider dragged is one step back).
     tuning: Option<[u8; 3]>,
@@ -464,7 +522,18 @@ pub struct History {
 
 impl Default for History {
     fn default() -> Self {
-        Self { past: Vec::new(), future: Vec::new(), dropped: 0, keep: (KEPT_STEPS, KEPT_BYTES), stroke: None, tuning: None, grown: IVec3::ZERO, moved: IVec3::ZERO }
+        Self {
+            past: Vec::new(),
+            future: Vec::new(),
+            dropped: 0,
+            keep: (KEPT_STEPS, KEPT_BYTES),
+            stroke: None,
+            level_now: None,
+            model_now: None,
+            tuning: None,
+            grown: IVec3::ZERO,
+            moved: IVec3::ZERO,
+        }
     }
 }
 
@@ -478,15 +547,23 @@ impl History {
     /// The oldest steps gone while more are kept than `keep` allows (by
     /// count, or by bytes with the steps to do again); the newest stays.
     pub(super) fn bound(&mut self) {
-        let mut bytes: usize = self.past.iter().chain(&self.future).map(Step::bytes).sum();
         let mut gone = 0;
-        while self.past.len() - gone > 1 && (self.past.len() - gone > self.keep.0 || bytes > self.keep.1) {
-            bytes -= self.past[gone].bytes();
+        while self.past.len() - gone > 1 && (self.past.len() - gone > self.keep.0 || kept_bytes(self.past[gone..].iter().chain(&self.future)) > self.keep.1) {
             gone += 1;
         }
         if gone > 0 {
             self.past.drain(..gone);
             self.dropped += gone;
+        }
+    }
+
+    /// `step` taken (`forward`) or taken back: the state it leaves is the
+    /// newest, for the next step to share.
+    fn remember(&mut self, step: &Step, forward: bool) {
+        match step.state(forward) {
+            Some(Now::Level(s)) => self.level_now = Some(s),
+            Some(Now::Model(s)) => self.model_now = Some(s),
+            None => {}
         }
     }
 }

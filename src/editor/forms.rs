@@ -169,8 +169,8 @@ impl Editor {
         }
         self.history.stroke = Some(match self.scope {
             Scope::Level | Scope::Figure => return IVec3::ZERO,
-            Scope::Block(i) => Step::Block(i, self.blocks[i].clone(), self.blocks[i].clone()),
-            Scope::Frame(_) => Step::Model(self.shaped(), Shaped::default()),
+            Scope::Block(i) => Begun::Block(i, self.blocks[i].clone()),
+            Scope::Frame(_) => Begun::Model(self.shaped()),
         });
         self.history.grown = IVec3::ZERO;
         let mut moved = IVec3::ZERO;

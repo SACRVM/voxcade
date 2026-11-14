@@ -44,7 +44,7 @@ impl Editor {
         let Some(i) = self.block_index() else { return };
         self.release();
         let before = self.level_state();
-        let mut after = before.clone();
+        let mut after = LevelState::clone(&before);
         let entry = after.table.remove(i);
         let gone = i as u16 + 1;
         for c in &mut after.cells {
@@ -54,8 +54,9 @@ impl Editor {
                 c.block -= 1;
             }
         }
-        let step = Step::Delete(Box::new(Deletion { index: i, entry, block: self.blocks[i].clone(), before, after }));
+        let step = Step::Delete(Box::new(Deletion { index: i, entry, block: self.blocks[i].clone(), before, after: Arc::new(after) }));
         self.go(&step, true);
+        self.history.remember(&step, true);
         self.history.past.push(step);
         self.history.future.clear();
         self.history.bound();
@@ -140,7 +141,7 @@ impl Editor {
             Tool::Remove | Tool::Move if under.is_none() => return,
             _ => {}
         }
-        self.history.stroke = Some(Step::Level(self.level_state(), self.level_state()));
+        self.history.stroke = Some(Begun::Level(self.level_state()));
         match self.tool {
             Tool::Add => {
                 let (kind, at) = (self.held_kind.clone().unwrap(), spot.unwrap());
@@ -159,7 +160,7 @@ impl Editor {
     /// step is; the question is answered and the level opens.
     pub fn align_all(&mut self) {
         self.release();
-        self.history.stroke = Some(Step::Level(self.level_state(), self.level_state()));
+        self.history.stroke = Some(Begun::Level(self.level_state()));
         for t in &mut self.level.things {
             if let Some(f) = t.facing.filter(|f| f.off_grid()) {
                 t.facing = Some(crate::grid::Facing::Way(crate::grid::Way::nearest(f.bearing())));
@@ -342,8 +343,12 @@ impl Editor {
         self.change_level(|l| found.iter().for_each(|&i| l.cells[i] = held));
     }
 
-    pub(super) fn level_state(&self) -> LevelState {
-        let l = &self.level;
-        LevelState { size: l.size, cells: l.cells.clone(), table: l.blocks.clone(), things: l.things.clone(), places: l.places.clone(), areas: l.areas.clone(), daylight: l.daylight.clone().map(Box::new), terrain: l.terrain.clone().map(Box::new) }
+    /// The level as a step keeps it: the newest a step keeps, shared,
+    /// while the level still stands so; else a copy.
+    pub(super) fn level_state(&self) -> Arc<LevelState> {
+        match &self.history.level_now {
+            Some(now) if now.is(&self.level) => Arc::clone(now),
+            _ => Arc::new(LevelState::of(&self.level)),
+        }
     }
 }

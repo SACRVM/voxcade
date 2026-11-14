@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use glam::{IVec3, Vec3};
 
-use super::{Editor, Hit, Scope, Step};
+use super::{Begun, Editor, Hit, Scope, Step};
 use crate::blocks::Block;
 use crate::editor::frames::{ModelFile, Placed, Shaped};
 use crate::editor::handles::{self, Handles};
@@ -884,8 +884,8 @@ impl Editor {
         let cells = block_cells(b, IVec3::ZERO);
         let found: BTreeSet<[i32; 3]> = if all { cells.iter().filter(|(_, k)| **k == was).map(|(c, _)| *c).collect() } else { connected(&cells, hit.cell.to_array()) };
         self.history.stroke = Some(match self.scope {
-            Scope::Block(i) => Step::Block(i, self.blocks[i].clone(), self.blocks[i].clone()),
-            Scope::Frame(_) => Step::Model(self.shaped(), Shaped::default()),
+            Scope::Block(i) => Begun::Block(i, self.blocks[i].clone()),
+            Scope::Frame(_) => Begun::Model(self.shaped()),
             _ => return,
         });
         if let Some(b) = self.shape_mut() {

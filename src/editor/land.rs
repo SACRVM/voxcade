@@ -10,7 +10,9 @@
 use glam::{IVec2, Mat4, Vec2, Vec3};
 
 use super::selection::SelectMode;
-use super::{Editor, Layer, Scope, Step};
+use std::sync::Arc;
+
+use super::{Begun, Editor, Layer, Scope, Step};
 use crate::terrain::{HIGHEST, MATERIALS, Material, Shape, Terrain};
 
 /// What a press among the points does.
@@ -296,13 +298,13 @@ impl Editor {
                 }
                 self.land.chosen = Some(p);
                 self.land.shape = shape;
-                self.history.stroke = Some(Step::Level(self.level_state(), self.level_state()));
+                self.history.stroke = Some(Begun::Level(self.level_state()));
                 let start = self.point_spot(p).and_then(|at| height_along(at, ray.0, ray.1));
                 self.land.drag = Some(PointDrag { grabbed: p, from, start, target: 0, last: None });
             }
             (_, p) => {
                 let target = height;
-                self.history.stroke = Some(Step::Level(self.level_state(), self.level_state()));
+                self.history.stroke = Some(Begun::Level(self.level_state()));
                 self.land.drag = Some(PointDrag { grabbed: p.unwrap_or_default(), from, start: None, target, last: None });
                 if let Some(p) = p {
                     self.brush(p);
@@ -782,6 +784,8 @@ impl Editor {
     /// purpose stays.
     pub(super) fn follow_land(&mut self, step: &mut Step) {
         let Step::Level(before, after) = step else { return };
+        // (Its own still: the step is being taken.)
+        let after = Arc::make_mut(after);
         let (Some(b), Some(a)) = (before.terrain.as_deref(), after.terrain.as_deref()) else { return };
         let same_surface = (&b.heights, &b.shapes, b.spacing, b.at, b.cols, b.rows, b.terrace, b.rough, &b.roughness, &b.layers, b.seed) == (&a.heights, &a.shapes, a.spacing, a.at, a.cols, a.rows, a.terrace, a.rough, &a.roughness, &a.layers, a.seed);
         if same_surface {

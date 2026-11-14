@@ -106,8 +106,13 @@ impl Editor {
     }
 
     /// The model's frames and a figure's parts as they stand.
-    pub(super) fn shaped(&self) -> Shaped {
-        self.model.as_ref().map_or_else(Shaped::default, ModelFile::shaped)
+    /// The model as a step keeps it: the newest a step keeps, shared,
+    /// while the model still stands so; else a copy.
+    pub(super) fn shaped(&self) -> Arc<Shaped> {
+        match (&self.model, &self.history.model_now) {
+            (Some(m), Some(now)) if m.is(now) => Arc::clone(now),
+            (m, _) => Arc::new(m.as_ref().map_or_else(Shaped::default, ModelFile::shaped)),
+        }
     }
 
     /// A change to the model's frames as a step, saved (nothing if it
@@ -131,8 +136,8 @@ impl Editor {
                 None
             }
         };
+        let before = self.shaped();
         let Some(model) = &mut self.model else { return };
-        let before = model.shaped();
         change(model);
         model.list_new_colours();
         // A figure's box as tight as its parts allow at every step's end
@@ -142,12 +147,11 @@ impl Editor {
             model.size = model.tight_size();
         }
         self.pin_rig(&before);
-        let Some(model) = &self.model else { return };
-        if model.is(&before) && joined.is_none() {
+        if self.model.as_ref().is_none_or(|m| m.is(&before)) && joined.is_none() {
             return;
         }
         let before = joined.unwrap_or(before);
-        let step = Step::Model(before, model.shaped());
+        let step = Step::Model(before, self.shaped());
         self.commit(step);
         self.history.tuning = None;
     }
@@ -165,10 +169,10 @@ impl Editor {
             return;
         }
         self.release();
+        let before = self.shaped();
         let Some(model) = &mut self.model else { return };
-        let before = model.shaped();
         model.set_material(key, mat);
-        let after = model.shaped();
+        let after = self.shaped();
         let first = match self.history.past.last() {
             Some(Step::Model(first, _)) if self.history.tuning == Some(key) => Some(first.clone()),
             _ => None,

@@ -692,7 +692,7 @@ fn undo_keeps_a_bounded_number_of_steps_and_bytes() {
     assert_eq!(ed.blocks[0].colour_at(IVec3::new(2, 0, N - 1)), Some([12, 20, 30]));
     assert_eq!(ed.blocks[0].colour_at(IVec3::new(3, 0, N - 1)), Some([128, 128, 128]), "the fourth was taken back");
     // By bytes: a step of this block holds two copies of it.
-    let one = Step::Block(0, ed.blocks[0].clone(), ed.blocks[0].clone()).bytes();
+    let one = kept_bytes([Step::Block(0, ed.blocks[0].clone(), ed.blocks[0].clone())].iter());
     ed.history.keep = (KEPT_STEPS, 3 * one + one / 2);
     for k in 0..6 {
         paint(&mut ed, k);
