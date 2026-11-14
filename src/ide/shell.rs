@@ -141,6 +141,8 @@ pub struct Shell {
     /// across the game in the list's place (Ctrl+Shift+F, SEARCH).
     pub find: super::find::Find,
     pub search: super::find::Search,
+    /// The filter over the list's names (Ctrl+P); not kept between sessions.
+    filter: list::Filter,
 }
 
 /// What `Shell` looks at again now and then.
@@ -405,12 +407,15 @@ impl Shell {
             agent: AgentState { finder: super::claude::Finder::system(), no_agent: false },
             find: Default::default(),
             search: Default::default(),
+            filter: Default::default(),
         }
     }
 
     /// The sounds the game's code brings (`Game::sounds`), listed under
     /// SOUNDS for the ones the game has no file for.
-    pub fn with_sounds(mut self, brought: Vec<(&'static str, SoundDef)>) -> Self {
+    pub fn with_sounds(mut self, mut brought: Vec<(&'static str, SoundDef)>) -> Self {
+        // In the order of the list's rows, below the game's own sounds.
+        brought.sort_by(|(a, _), (b, _)| super::files::by_label(a, b));
         self.sound.brought = brought;
         self
     }
@@ -559,6 +564,7 @@ impl Shell {
     fn rescan(&mut self) {
         self.polling.listing = Files::names(&self.dir);
         self.files = Files::from_names(&self.dir, self.polling.listing.clone());
+        self.filter.stale();
     }
 
     /// Compares the folder's file names with the list, and reads the list
@@ -572,6 +578,7 @@ impl Shell {
             return false;
         }
         self.files = Files::from_names(&self.dir, names.clone());
+        self.filter.stale();
         self.polling.listing = names;
         // A name being typed for a file that is gone has no row to stand in.
         if self.managing.renaming.as_ref().is_some_and(|r| !self.files.has(&r.path)) {

@@ -103,15 +103,56 @@ impl Files {
             };
             groups[group].push(f);
         }
-        // The game's own two first, the other scripts after them.
-        files.logic.sort_by_key(|f| (["conf.lua", "main.lua"].iter().position(|n| n == f).unwrap_or(2), f.clone()));
         // The levels, models, sounds and music always have their place (the
         // IDE's plus there makes the first one); the other sorts show when
         // there are some.
         files.assets = GROUPS.iter().zip(groups).filter(|(name, g)| !g.is_empty() || ALWAYS.contains(name)).map(|(&name, files)| Group { name, files }).collect();
         let headings = std::iter::once(&files.scenarios).chain(files.assets.iter().map(|g| &g.files));
         files.shared_names = headings.flat_map(|list| list.iter().filter(|f| list.iter().filter(|g| base(g) == base(f)).count() > 1)).cloned().collect();
+        files.order();
         files
+    }
+
+    /// Each heading's files in the order of what their rows show
+    /// (`by_label`), the game's own two scripts first. The levels keep the
+    /// order the game plays them in (`levels::natural` on their paths): that
+    /// order is their meaning.
+    fn order(&mut self) {
+        let mut logic = std::mem::take(&mut self.logic);
+        self.sort("Logic", &mut logic);
+        logic.sort_by_key(|f| ["conf.lua", "main.lua"].iter().position(|n| n == f).unwrap_or(2));
+        self.logic = logic;
+        let mut scenarios = std::mem::take(&mut self.scenarios);
+        self.sort("Scenarios", &mut scenarios);
+        self.scenarios = scenarios;
+        let mut assets = std::mem::take(&mut self.assets);
+        for g in &mut assets {
+            if g.name == "Levels" {
+                g.files.sort_by(|a, b| crate::levels::natural(a, b));
+            } else {
+                self.sort(g.name, &mut g.files);
+            }
+        }
+        self.assets = assets;
+    }
+
+    /// `list`, a heading's files, by the labels the rows show, ties by path.
+    fn sort(&self, sort: &str, list: &mut Vec<String>) {
+        let mut keyed: Vec<(String, String)> = list.drain(..).map(|f| (self.label(sort, &f).to_lowercase(), f)).collect();
+        keyed.sort_by(|(a, fa), (b, fb)| crate::levels::natural(a, b).then_with(|| fa.cmp(fb)));
+        list.extend(keyed.into_iter().map(|(_, f)| f));
+    }
+
+    /// The headings in the order the list shows them (Logic, Scenarios, then
+    /// the assets) with their files.
+    pub fn headings(&self) -> impl Iterator<Item = (&str, &Vec<String>)> {
+        [("Logic", &self.logic), ("Scenarios", &self.scenarios)].into_iter().chain(self.assets.iter().map(|g| (g.name, &g.files)))
+    }
+
+    /// For each heading, the places in its files of those whose label or
+    /// path holds `needle` (lower case), in order.
+    pub fn matching(&self, needle: &str) -> Vec<Vec<usize>> {
+        self.headings().map(|(sort, files)| files.iter().enumerate().filter(|(_, f)| self.label(sort, f).to_lowercase().contains(needle) || f.to_lowercase().contains(needle)).map(|(i, _)| i).collect()).collect()
     }
 
     /// How the list shows the file `path` under the heading `sort`: the
@@ -143,6 +184,12 @@ impl Files {
         }
         self.assets.iter().find(|g| g.files.iter().any(|f| f == path)).map(|g| g.name)
     }
+}
+
+/// Names as a person sorts them: letters of either case alike, runs of
+/// digits as numbers (`hero2` before `hero10`).
+pub fn by_label(a: &str, b: &str) -> std::cmp::Ordering {
+    crate::levels::natural(&a.to_lowercase(), &b.to_lowercase())
 }
 
 /// A file's name without its folders.
@@ -242,10 +289,29 @@ mod tests {
                 ("Images", vec!["back.png"]),
                 ("Sounds", vec!["sounds/coin.toml"]),
                 ("Music", vec!["music/song.mml"]),
-                ("Other", vec!["levels/README.txt", "sounds/boom.wav", "sounds/raw/deep.wav", "tiled/level.json"]),
+                ("Other", vec!["sounds/boom.wav", "sounds/raw/deep.wav", "tiled/level.json", "levels/README.txt"]),
             ]
         );
         assert!(files.has("blocks/stone.vvx") && !files.has("replays/tests/run.toml"));
+    }
+
+    /// A heading's files are ordered by what their rows show: the name in
+    /// either case, numbers as numbers, folders not counting; the levels in
+    /// the order they are played, the game's own scripts first.
+    #[test]
+    fn a_headings_files_are_ordered_by_their_labels() {
+        let dir = crate::scratch::Scratch::new("ide-order");
+        for path in ["props/apple.vvx", "Zebra.vvx", "hero10.vvx", "hero2.vvx", "bat.vvx", "levels/10_last.toml", "levels/2_middle.toml", "levels/1_first.toml", "util.lua", "Main.lua", "main.lua", "conf.lua", "Alpha.lua"] {
+            let p = dir.join(path);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, "").unwrap();
+        }
+        let files = Files::scan(&dir);
+        let models = &files.assets.iter().find(|g| g.name == "Models").unwrap().files;
+        assert_eq!(models, &["props/apple.vvx", "bat.vvx", "hero2.vvx", "hero10.vvx", "Zebra.vvx"].map(String::from));
+        let levels = &files.assets.iter().find(|g| g.name == "Levels").unwrap().files;
+        assert_eq!(levels, &["levels/1_first.toml", "levels/2_middle.toml", "levels/10_last.toml"].map(String::from));
+        assert_eq!(files.logic, ["conf.lua", "main.lua", "Alpha.lua", "Main.lua", "util.lua"]);
     }
 
     /// Test renders in `shots/` are never listed, with a `.gitignore` or

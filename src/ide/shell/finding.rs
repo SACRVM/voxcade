@@ -4,13 +4,19 @@
 use super::*;
 
 impl Shell {
+    /// Whether the game or the console has the keys: the IDE's chords leave
+    /// them alone then.
+    pub(super) fn keys_are_taken(&self, ui: &egui::Ui) -> bool {
+        self.stage.as_ref().is_some_and(|s| s.shown) || ui.memory(|m| m.focused()) == Some(egui::Id::unique("terminal"))
+    }
+
     /// The keys of finding: Ctrl+F and Ctrl+H the find row over the open
     /// text, Ctrl+Shift+F the search across the game, F3 and Shift+F3 the
     /// next match and the one before, Escape the row or the search put
     /// away while it (or the text under the row) had the keys. Never while
     /// the game or the console has the keys.
     pub(super) fn find_keys(&mut self, ui: &mut egui::Ui) {
-        if self.stage.as_ref().is_some_and(|s| s.shown) || ui.memory(|m| m.focused()) == Some(egui::Id::unique("terminal")) {
+        if self.keys_are_taken(ui) {
             return;
         }
         let ctx = ui.ctx().clone();

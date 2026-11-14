@@ -1343,6 +1343,8 @@ Escape or CLOSE puts the row away; the text has the keys again.
 Ctrl+H (or the arrow left of FIND) shows REPLACE WITH under it. REPLACE (or Enter there) replaces the current match and goes on to the next; REPLACE ALL replaces every one. Ctrl+Z takes either back in one step.
 # SEARCH THE GAME
 Ctrl+Shift+F (or SEARCH at the top) finds the word in every text of the game: its Lua files, scenarios, sounds, songs and models; not what its .gitignore leaves out. The lines found stand in the list's place under their files; a click opens the file at that line with the word marked. Enter searches again, Escape or CLOSE shows the list again.
+# FILTER THE LIST
+Ctrl+P (or a click in FILTER at the top of the list) types a name: only the files whose names hold it stay in the list, each heading counting them. Enter opens the first one, Escape or the cross clears the text. It looks at names only; SEARCH looks inside the files.
 # OTHER KEYS
 Ctrl+S saves at once (a text saves itself a second after the last change). Ctrl+Z goes back a step.",
         conf: "",

@@ -417,6 +417,7 @@ pub(super) fn parse_ide(args: &[String]) -> Result<Call> {
         replace: None,
         search: None,
         hit: None,
+        filter: None,
         width: 1920,
         height: 1080,
         out: PathBuf::new(),
@@ -440,6 +441,7 @@ pub(super) fn parse_ide(args: &[String]) -> Result<Call> {
             "--find" => opts.find = Some(value.clone()),
             "--replace" => opts.replace = Some(value.clone()),
             "--search" => opts.search = Some(value.clone()),
+            "--filter" => opts.filter = Some(value.clone()),
             "--hit" => opts.hit = Some(number("--hit N", value)?),
             "--play" => opts.play = Some(number("--play TICKS", value)?),
             "--shot" => {

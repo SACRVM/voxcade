@@ -39,6 +39,8 @@ pub struct ShotOptions {
     /// as a click does (`--search`, `--hit`).
     pub search: Option<String>,
     pub hit: Option<usize>,
+    /// The list filtered by this text (`--filter`).
+    pub filter: Option<String>,
     pub width: u32,
     pub height: u32,
     pub out: PathBuf,
@@ -175,6 +177,9 @@ impl<G: Game> Page for GamePage<'_, G> {
     fn begin(&mut self, ctx: &egui::Context) {
         if let Some(word) = &self.opts.search {
             self.shell.show_search(word, ctx, self.opts.hit);
+        }
+        if let Some(text) = &self.opts.filter {
+            self.shell.show_filter(text);
         }
         if let Some(word) = &self.opts.find {
             self.shell.show_find(word, self.opts.replace.as_deref());
