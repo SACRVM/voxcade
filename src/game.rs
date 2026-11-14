@@ -47,7 +47,7 @@ pub struct Setup<'a> {
     pub files: &'a crate::files::Files,
     pub cfg: &'a GameConfig,
     /// The first level's world, as built (`levels.first()`: the level a run
-    /// begins in, `c.start`).
+    /// begins in, `c.start` or a scenario's `level`).
     pub world: World,
     /// The level's markers (`[markers]` gives the colours that place each
     /// kind of thing; `kind` is the kind's place in `sim::things::defs`).
@@ -55,6 +55,9 @@ pub struct Setup<'a> {
     pub models: &'a Models,
     /// Every level of the game, in order (`crate::levels`).
     pub levels: std::sync::Arc<crate::levels::Levels>,
+    /// The place of the first level the run begins at (a scenario's
+    /// `place`); None: the level's start.
+    pub place: Option<String>,
     /// What lies in its save slots (`c.saves.slots` of them, from 1), and
     /// the saves themselves (a load reads them when it is asked for).
     pub slots: Vec<Option<crate::saves::SlotInfo>>,
@@ -485,8 +488,11 @@ pub trait Game: Sized + 'static {
     }
 
     /// A fresh run goes on from the scenario `name` at once, before its
-    /// first tick: to its level, then its `setup()`.
-    fn start_scenario(&mut self, _name: &str) -> Result<()> {
+    /// first tick: its `setup()`. A scenario naming a level (and a place
+    /// there) the run did not begin in does nothing but say them: the
+    /// session begins the game there anew (`Setup::levels`' start,
+    /// `Setup::place`) and asks again.
+    fn start_scenario(&mut self, _name: &str) -> Result<Option<(String, Option<String>)>> {
         anyhow::bail!("this game has no scenarios")
     }
 

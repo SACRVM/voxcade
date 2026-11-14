@@ -28,7 +28,7 @@ fn a_scenario_and_console_lines_are_part_of_the_run() {
     assert_eq!(g.scenarios().unwrap(), vec![("late".to_string(), "Day 30 in b".to_string())]);
     g.start_scenario("late").unwrap();
     let seen = g.game.inspect();
-    assert_eq!((&seen["at"]["name"], &seen["level"]["how"], &seen["level"]["set"]), (&"b".into(), &"go_to".into(), &true.into()), "{seen}");
+    assert_eq!((&seen["at"]["name"], &seen["level"]["how"], &seen["level"]["set"]), (&"b".into(), &"start".into(), &true.into()), "{seen}");
     assert_eq!(state(&mut g, "day"), format!("{:?}", crate::lua::Value::Int(30)));
     let mut recorder = Recorder::default();
     for n in 0..120 {
@@ -119,15 +119,17 @@ fn scenarios_and_console_lines_say_what_went_wrong() {
         ("plain", "return 3\n"),
         ("odd", "return { setup = function() end, start = 1 }\n"),
         ("bare", "return { about = \"no setup\" }\n"),
+        ("nowhere", "return { level = \"zz\" }\n"),
         ("broken", "return {\n  setup = function()\n    world.state.x = nothing.here\n  end,\n}\n"),
     ] {
         std::fs::write(dir.join(format!("scenarios/{name}.lua")), src).unwrap();
     }
     for (name, says) in [
-        ("gone", "no scenario 'gone' (the game's: bare, broken, odd, plain)"),
+        ("gone", "no scenario 'gone' (the game's: bare, broken, nowhere, odd, plain)"),
         ("plain", "scenarios/plain.lua: a scenario gives back a table"),
         ("odd", "scenarios/odd.lua: no field called 'start' (about, level, place, setup)"),
         ("bare", "scenarios/bare.lua: a scenario says where the run begins (level = \"name\", place = \"name\") or sets it up"),
+        ("nowhere", "scenarios/nowhere.lua: level = \"zz\" is none of the game's levels"),
         ("broken", "scenarios/broken.lua:3:"),
     ] {
         let mut g = game_in(&dir);
@@ -160,4 +162,8 @@ fn a_scenario_may_only_name_a_level() {
     assert_eq!(said(&mut g, "level.arrived.name"), "\"door\"");
     steps(&mut g, 5);
     assert_eq!(halted(&g), "");
+    std::fs::write(dir.join("scenarios/at_nothing.lua"), "return { level = \"b\", place = \"nothing\" }\n").unwrap();
+    let mut g = game_in(&dir);
+    let e = format!("{:#}", g.start_scenario("at_nothing").unwrap_err());
+    assert!(e.contains("scenarios/at_nothing.lua: the level b has no place called nothing") && !halted(&g).is_empty(), "{e}");
 }

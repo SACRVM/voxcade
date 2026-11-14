@@ -488,14 +488,16 @@ fade out ─► on_level_end(why) ─► on_world_end(result) ─► high scores
   game loaded, F5, AGAIN, attract mode, `shot`, `inspect`, `check`; it
   waits for a restart when `conf.lua` changes, and is part of the replays'
   fingerprint only when set). What says where a run begins wins over it:
-  a scenario's `level` (`--scenario`), a save loaded, a replay's own
-  start (`on_world_start` runs first). `world:go_to` in `on_level_start("start")` is
-  no way to begin elsewhere: a scenario's level arrives with "start" too.
+  a scenario's `level` (`--scenario`: the run begins there, as if
+  `c.start` named it, at the scenario's `place`; the first level is never
+  entered), a save loaded, a replay's own start (`on_world_start` runs
+  first). `world:go_to` in `on_level_start("start")` is no way to begin
+  elsewhere.
 - `on_level_start("start")` places what the level needs (a level made in
   code is built here), gives `level.state` its first values and starts any
   intro as a sequence. The screen is still dark: it only sets things up.
-- A run begun from a scenario (below) goes on from here: to its level,
-  then its `setup()`; a run begun from a save, from the save.
+- A run begun from a scenario (below) began in its level and goes on
+  from here with its `setup()`; a run begun from a save, from the save.
 - Then the first tick runs (from the title, the view glides from the
   title's camera to the player; no fade).
 
@@ -1093,10 +1095,11 @@ says so).
   }
   ```
 
-  The run starts as every run does (`on_world_start`, the first level's
-  `on_level_start("start")`); a scenario with a `level` then goes there as
-  `world:go_to` would (`on_level_end("go_to")`, `on_level_start("go_to")`
-  at `place`); then `setup()` runs once, before the first tick, as
+  The run starts as every run does (`on_world_start`, then
+  `on_level_start("start")`), but in the scenario's `level` at its
+  `place` (else the level's start), as if `c.start` named it: the first
+  level is never entered, no `on_level_end` runs (a scenario is for
+  trying a level or a situation directly); then `setup()` runs once, before the first tick, as
   `on_tick` could (the states, things, the player's place; `input` is not
   there). Asks it makes are done before the first tick. Its file may
   `require` the game's files (the same modules `main.lua` has, and its

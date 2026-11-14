@@ -73,12 +73,33 @@ impl<G: Game> Session<G> {
     /// tick (`docs/game-model.md`, "Scenarios and the console").
     pub fn start_scenario(&mut self, name: &str) -> Result<()> {
         let shown = self.game.sim().world.clone();
-        let started = self.game.start_scenario(name);
+        let mut started = self.game.start_scenario(name);
+        // A scenario naming a level begins the run there: the game begun
+        // anew in it, as if `c.start` named it, the start level never
+        // entered; then its setup.
+        if let Ok(Some((level, place))) = started {
+            started = self.begin_in(&level, place).and_then(|()| self.game.start_scenario(name));
+        }
         self.game.sim_mut().world.mark_changed_since(&shown);
         self.enter_level();
-        started?;
+        if let Some((level, _)) = started? {
+            anyhow::bail!("the scenario {name} did not begin in the level {level}");
+        }
         self.scenario = Some(name.to_string());
         self.saves_due();
+        Ok(())
+    }
+
+    /// The game begun anew on its files in `level` at `place` (its start
+    /// unless named), before the run's first tick.
+    fn begin_in(&mut self, level: &str, place: Option<String>) -> Result<()> {
+        anyhow::ensure!(self.started_from.is_none(), "a scenario begins a run: before its first tick, and not after a save");
+        let mut levels = crate::levels::load::<G>(&self.files, &self.cfg)?;
+        levels.start = levels.find(level).with_context(|| format!("no level {level}"))?;
+        self.game = super::load::begun::<G>(&self.files, &self.cfg, &self.models, Arc::new(levels), place, &self.slots, &self.songs)?;
+        self.cue = self.game.music().map(|c| c.song);
+        self.game.set_controls(&self.controls);
+        self.game.set_local(&self.local);
         Ok(())
     }
 

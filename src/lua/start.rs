@@ -14,7 +14,7 @@ impl<K: Kit> LuaGame<K> {
         let kinds_bursting = Arc::new(bursts(&kinds, models));
         let levels = setup.levels.clone();
         let (setup_slots, setup_texts, setup_replayed) = (setup.slots.clone(), setup.slot_texts.clone(), setup.replayed.clone());
-        let songs = setup.songs.clone();
+        let (songs, begin_at) = (setup.songs.clone(), setup.place.clone());
         let player_kind = Self::player_kind(cfg, &kinds)?;
         Self::check_players(cfg)?;
         Self::check_items(cfg)?;
@@ -111,11 +111,12 @@ impl<K: Kit> LuaGame<K> {
             drawn: RefCell::new(Vec::new()),
             kit: PhantomData,
         };
-        // The first level's place called start, if it has one, as every
-        // entry of it later.
+        // The first level's place called start (or the scenario's place),
+        // if it has one, as every entry of it later.
         let at = game.stage.levels.start;
-        game.stage.arrived = game.stage.start(at);
-        let (start, placed) = (game.stage.arrived.clone(), game.place_in(at, None).is_some());
+        let place = game.place_in(at, begin_at);
+        game.stage.arrived = place.clone().unwrap_or_else(|| game.stage.start(at));
+        let (start, placed) = (game.stage.arrived.clone(), place.is_some());
         let levels = Arc::clone(&game.stage.levels);
         let first = levels.first();
         match game.kit_mut() {

@@ -79,9 +79,8 @@ impl<G: Game> Session<G> {
         let level_files = levels.files.clone();
         let piece_models = levels.piece_models();
         let models = Models::load_for::<G>(&files, &cfg, &piece_models)?;
-        let first = levels.first();
         let songs = song_timings(&files, &cfg);
-        let game = G::load(Setup { files: &files, cfg: &cfg, world: first.world.clone(), markers: first.markers.clone(), models: &models, levels: levels.clone(), slots: slots.listing(), slot_texts: slots.texts(), replayed: slots.replayed().to_vec(), songs: songs.clone() })?;
+        let game = begun::<G>(&files, &cfg, &models, levels, None, &slots, &songs)?;
         let cue = game.music().map(|c| c.song);
         let game_mark = game.level_mark();
         let sounds = SoundBank::load(&files, &cfg.sounds, &G::sounds(&cfg))?;
@@ -459,4 +458,11 @@ impl<G: Game> Session<G> {
         self.cfg.sounds = own;
         Ok(Reloaded::Sounds)
     }
+}
+
+/// The game begun on its files in `levels.first()` (`c.start`, or a
+/// scenario's level) at `place` (the level's start unless named).
+pub(super) fn begun<G: Game>(files: &Files, cfg: &GameConfig, models: &Models, levels: Arc<crate::levels::Levels>, place: Option<String>, slots: &Slots, songs: &[audio::music::Timing]) -> Result<G> {
+    let first = levels.first().clone();
+    G::load(Setup { files, cfg, world: first.world.clone(), markers: first.markers.clone(), models, levels, place, slots: slots.listing(), slot_texts: slots.texts(), replayed: slots.replayed().to_vec(), songs: songs.to_vec() })
 }
