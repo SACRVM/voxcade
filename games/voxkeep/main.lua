@@ -11,31 +11,18 @@ local BOUNCE = 50        -- how high the hero bounces off an enemy, voxels
 local HEARTS = 3         -- hearts back after a life is lost (c.things.hero.hearts)
 local SAFE = 60          -- ticks nothing hurts it after (c.things.hero.invulnerable)
 
--- The puzzles. Things are named by their kind and the order they lie in
--- (lever_1, slab_1, lift_1, plate_1, hatch_1). A lever thrown sets its
--- platforms to work for good (a slab out of its wall, a lift going up and
--- down); a plate holds its hatch open while the hero or a crate lies on
--- it, and lets it shut again. Which are whose: as LINKS says for a room,
--- else those of its number.
-local LINKS = {
-  ["04_levers"] = { lever_1 = { "lift_1" }, lever_2 = { "slab_1", "slab_left_1" } },
-}
-local LEVERED, PLATED = { "slab", "slab_left", "lift" }, { "hatch" }
-
-local function number(thing)
-  return thing.name:match("_(%d+)$")
-end
-
-local function works(thing, kinds)
-  local out, named = {}, LINKS[level.name] and LINKS[level.name][thing.name]
-  if named then
-    for _, name in ipairs(named) do out[#out + 1] = level:thing(name) end
-    return out
-  end
-  for _, kind in ipairs(kinds) do
-    for _, t in ipairs(level:things(kind)) do
-      if number(t) == number(thing) then out[#out + 1] = t end
-    end
+-- The puzzles. A lever and a plate name what they work in their props
+-- (levels/*.toml: props = { works = ["lift_1"] }; the things are named
+-- by their kind and the order they lie in: lever_1, slab_1, lift_1,
+-- plate_1, hatch_1). A lever thrown sets its platforms to work for good
+-- (a slab out of its wall, a lift going up and down); a plate holds its
+-- hatch open while the hero or a crate lies on it, and lets it shut again.
+local function works(thing)
+  local out = {}
+  for _, name in ipairs(thing.props.works) do
+    local t = level:thing(name)
+    if not t then error(thing.name .. " works " .. name .. ", and the level " .. level.name .. " has no such thing", 0) end
+    out[#out + 1] = t
   end
   return out
 end
@@ -44,7 +31,7 @@ local function throw(lever)
   if lever.state.pose == "on" then return end
   lever.state.pose = "on"
   level:sound("door", lever)
-  for _, t in ipairs(works(lever, LEVERED)) do
+  for _, t in ipairs(works(lever)) do
     if t.kind == "lift" then t.state.goal = nil else t.state.goal = "end" end
   end
 end
@@ -60,7 +47,7 @@ local function plates()
       plate.state.pose = down and "down" or "idle"
       level:sound("door", plate)
     end
-    for _, hatch in ipairs(works(plate, PLATED)) do hatch.state.goal = down and "end" or "start" end
+    for _, hatch in ipairs(works(plate)) do hatch.state.goal = down and "end" or "start" end
   end
 end
 
@@ -135,9 +122,10 @@ function on_level_start(how)
     player.state.taken = world.state.entered.taken
   end
   for _, lever in ipairs(level:things("lever")) do
-    for _, t in ipairs(works(lever, LEVERED)) do t.state.goal = "start" end
+    for _, t in ipairs(works(lever)) do t.state.goal = "start" end
   end
   for _, hatch in ipairs(level:things("hatch")) do hatch.state.goal = "start" end
+  for _, plate in ipairs(level:things("plate")) do works(plate) end  -- a name that is no thing stops here
 end
 
 -- Every tick: the door opening once no gem is left, and what hurts as

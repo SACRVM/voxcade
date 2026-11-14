@@ -56,6 +56,7 @@ at = [185, 5, 30]
 [[thing]]
 kind = "lever"
 at = [205, 5, 30]
+props = { works = ["lift_1"] }
 
 [[thing]]
 kind = "torch"
@@ -68,6 +69,7 @@ at = [185, 7, 41]
 [[thing]]
 kind = "plate"
 at = [95, 5, 70]
+props = { works = ["hatch_1"] }
 
 [[thing]]
 kind = "crate"

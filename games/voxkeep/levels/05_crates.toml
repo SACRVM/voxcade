@@ -60,6 +60,7 @@ at = [205, 7, 41]
 [[thing]]
 kind = "plate"
 at = [75, 5, 70]
+props = { works = ["hatch_1"] }
 
 [[thing]]
 kind = "gem"
