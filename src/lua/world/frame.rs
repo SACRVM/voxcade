@@ -16,9 +16,11 @@ pub struct Frame {
     pub alpha: f32,
     /// The parts of the game's figures of parts, by model (a pose's names).
     pub parts: std::sync::Arc<std::collections::BTreeMap<String, Vec<String>>>,
-    /// The game's models by name, with their frame counts: what
-    /// `frame:model` may name (an unknown file would draw nothing).
+    /// The game's kept models by name, with their frame counts, and the
+    /// models loaded when needed: `frame:model` draws a kept one or any
+    /// model file of the game (one that is not there is a mistake).
     pub known: std::sync::Arc<std::collections::BTreeMap<String, usize>>,
+    pub needed: Option<std::sync::Arc<crate::session::Needed>>,
     /// The camera's projection this picture, and whether moving things are
     /// drawn on the grid (`to_screen`).
     pub view_proj: glam::Mat4,
@@ -114,16 +116,24 @@ impl UserData for Frame {
                 return Err(mlua::Error::runtime("frame:model(file, thing, ...): a model is drawn where a thing stands, so the second is a thing, not a point (for a model at a place: a thing of a kind without a behavior, placed there)"));
             }
             let thing = thing_id(&thing, "frame:model")?;
-            if !o.known.contains_key(&file) {
-                return Err(mlua::Error::runtime(format!("frame:model: no model called '{file}' (the game knows a kind's model in c.things, and the files listed in c.models: list it there)")));
-            }
+            // A model the game keeps, else any model file of the game,
+            // loaded now if this is the first time it is drawn.
+            let loaded = match (o.known.contains_key(&file), &o.needed) {
+                (true, _) => None,
+                (false, Some(needed)) => Some(needed.load(&file).map_err(|e| mlua::Error::runtime(format!("frame:model: {e:#}")))?),
+                (false, None) => return Err(mlua::Error::runtime(format!("frame:model: no model \"{file}\""))),
+            };
             let turn = match rotation {
                 Some(t) => turning(&t, "frame:model")?,
                 None => [0.0; 3],
             };
             // A figure of parts posed: each part by its name, a rotation.
             let posed = match pose {
-                Some(pose) => pose_of(&pose, &file, o.parts.get(&file), "frame:model")?,
+                Some(pose) => {
+                    let parts: Option<Vec<String>> = loaded.as_ref().map(|m| m.parts.iter().map(|p| p.name.clone()).collect());
+                    let parts = parts.as_ref().filter(|p| !p.is_empty()).or(o.parts.get(&file));
+                    pose_of(&pose, &file, parts, "frame:model")?
+                }
                 None => Vec::new(),
             };
             o.cmds.push(Cmd::Model { file, thing, frame, turn, pose: posed });

@@ -210,8 +210,16 @@ settings. Several players: `player` is seat 1, the others are in
   of parts (`pose`: each part by its name, a rotation about its joint): only the
   picture, decided anew each frame from the states, as a kind's `swing`
   (parts swinging with its steps) is decided from its body.
-  `frame:model` of a file the game does not know (no kind's `model`, no
-  `c.models`, item or effect names it) stops the game with a mistake.
+  `frame:model` draws any model file of the game by its path in the game
+  folder (`"sheet.vvx"`, `"props/sheet.vvx"`), named nowhere else (the
+  owner, 2026-11-14: "ich gebe den ort an wo das model geladen wird -
+  wieso muss es irgendwo angemeldet werden?"; `c.models` is no more,
+  `voxcade upgrade` takes it out): what a level names (its pieces') is
+  loaded as the level is entered, any other model the first time it is
+  drawn, and let go when the level is left, so a sheet one scene shows
+  does not lie in memory the whole run. A file that is not there, or no
+  model, stops the game with a mistake at the line that draws it. Only
+  the picture: a model only drawn counts for no replay, hash or save.
 - **A model's pivot** is the cell `size / 2` (whole voxels, rounded
   down) across and deep of the model's own box, on the floor: a thing's
   position is that cell, and a model turns about its middle. For an odd

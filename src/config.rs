@@ -59,8 +59,11 @@ pub struct GameConfig {
     /// The gamepad's buttons bound to each action at first
     /// (`c.pad.jump = { "A" }`).
     pub pad: crate::controls::Bindings,
-    /// Model files a Lua game draws besides its kinds' (`frame:model`).
-    pub models: Vec<String>,
+    /// No more: `frame:model` draws any model file of the game by its
+    /// path, loaded when it is first drawn. Kept to say so to a `conf.lua`
+    /// that sets it (`voxcade upgrade` takes it out).
+    #[serde(skip_serializing)]
+    pub models: Option<toml::Value>,
     /// The game keeps a score (`player.state.score`), with ready-made rules
     /// or without: the title shows the best, and runs go into the high
     /// score table.
@@ -130,7 +133,7 @@ impl Default for GameConfig {
             actions: Vec::new(),
             keys: Default::default(),
             pad: Default::default(),
-            models: Vec::new(),
+            models: None,
             items: BTreeMap::new(),
             icons: BTreeMap::new(),
             state: StateConfig::default(),

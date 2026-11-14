@@ -1219,7 +1219,7 @@ const SIDES: [((i32, i32), f32); 5] = [((0, -1), 0.0), ((0, -1), -45.0), ((1, 0)
 /// them (a voxel as many pixels as in a 1920 by 1080 window).
 pub fn sheet<G: Game>(dir: &Path, opts: &SheetOptions) -> Result<()> {
     let game = Session::<G>::load(dir)?;
-    let m = game.models.named(&opts.model).with_context(|| format!("no model '{}' in the game (a kind's model, or one in c.models)", opts.model))?;
+    let m = game.models.drawn_or_why(&opts.model)?;
     let (size, count) = (m.size.as_vec3(), m.frames.len());
     let colours: std::collections::BTreeSet<[u8; 4]> = m.frames.iter().flatten().map(|(_, c)| *c).collect();
     // A cell's view: the model and some floor, a voxel the same size in

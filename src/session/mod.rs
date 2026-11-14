@@ -253,9 +253,13 @@ pub struct Session<G: Game> {
     pub options: Options,
     /// The big letters' font (`[ui] display_font`).
     pub font: Option<Arc<DisplayFont>>,
-    /// The opaque voxels of every model and the title logo's letters, put
-    /// on the GPU once (`rebuild_bank`).
-    pub bank: std::sync::Arc<ModelBank>,
+    /// The opaque voxels of every model in memory and the title logo's
+    /// letters, put on the GPU once (`rebuild_bank`; a model loaded when
+    /// needed goes in as it is first drawn, `bank_fresh`).
+    bank: std::cell::RefCell<std::sync::Arc<ModelBank>>,
+    /// The level last entered as the game marks it (`Game::level_mark`):
+    /// the models loaded when needed follow it (`enter_level`).
+    entered: u64,
     /// Where the logo's letters lie in the bank, per line.
     logo: Vec<Vec<std::ops::Range<u32>>>,
     /// The game's own logo model in the model bank, if it has one
@@ -372,6 +376,9 @@ pub fn config_in<G: Game>(files: &Files) -> Result<GameConfig> {
     }
     if !(0.0..=60.0).contains(&cfg.audio.crossfade) {
         anyhow::bail!("c.audio.crossfade = {}: seconds from 0 (none: the old song ends, the new begins) to 60", cfg.audio.crossfade);
+    }
+    if cfg.models.is_some() {
+        anyhow::bail!("c.models is no more: frame:model draws any model file of the game by its path (\"sheet.vvx\", \"props/sheet.vvx\"), loaded when it is first drawn; take the c.models lines out (`voxcade upgrade {}` does it)", files.dir().display());
     }
     if cfg.audio.boss_music.is_some() {
         anyhow::bail!("c.audio.boss_music is no more: which song plays when is your game's code, music:play(\"end_boss\") while the boss is up and music:play() after (the song in c.audio.music)");

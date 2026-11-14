@@ -71,19 +71,10 @@ function conf(c)
   c.things.cow = { width = 10, height = 15 }
   -- The crops (data.lua's), each a model of its four stages, dry and wet.
   local CROPS = { "carrot", "wheat", "blueberry", "tomato", "radish", "cauliflower", "turnip", "cabbage", "eggplant", "cucumber", "pumpkin" }
-  c.models = {}
-  for _, crop in ipairs(CROPS) do
-    c.models[#c.models + 1] = crop .. ".vvx"
-  end
   -- The barn's animals, a model a colour (main.lua draws each as it is:
   -- young or grown, walking, at work, its product showing).
   local COLOURS = { chicken = { "white", "brown", "red", "blue", "green", "rainbow" }, sheep = { "white", "brown", "black" },
                     cow = { "light", "brown", "pink", "purple", "green" } }
-  for _, sp in ipairs({ "chicken", "sheep", "cow" }) do
-    for _, colour in ipairs(COLOURS[sp]) do
-      c.models[#c.models + 1] = sp .. "_" .. colour .. ".vvx"
-    end
-  end
 
   -- What the bag holds: seeds, fertilizer and the harvest (carrots are
   -- money, apart).

@@ -42,7 +42,7 @@ pub struct Drawing<'a> {
     pub(super) cast_top: f32,
 }
 
-impl Drawing<'_> {
+impl<'a> Drawing<'a> {
     /// This picture's daylight, as the game sets it.
     pub fn daylight(&mut self, day: Daylight) {
         self.daylight = Some(day);
@@ -117,16 +117,23 @@ impl Drawing<'_> {
         self.chunky
     }
 
-    /// The game's model called `name`, if it has one.
-    pub fn model_of(&self, name: &str) -> Option<&VoxModel> {
-        self.models.get(name)
+    /// The game's model called `name` (a kept one's name, or any model
+    /// file of the game: `Models::drawn`), if there is one.
+    pub fn model_of(&self, name: &str) -> Option<ModelRef<'a>> {
+        self.models.drawn(name)
+    }
+
+    /// The models loaded when needed (what `frame:model` asks for a file
+    /// the game keeps no model of).
+    pub fn needed(&self) -> Arc<Needed> {
+        self.models.needed()
     }
 
     /// The frame of the model `name` for what a figure's body does: its
     /// kind's `sets` (idle, walk, jump), else the model's own layout
     /// (`things::figure_frame`).
     pub fn figure_frame(&self, name: &str, sets: &BTreeMap<String, Frames>, body: &Body) -> usize {
-        self.models.get(name).map_or(0, |m| crate::sim::things::figure_frame(sets, body, m.frames.len(), m.size.z as f32))
+        self.models.drawn(name).map_or(0, |m| crate::sim::things::figure_frame(sets, body, m.frames.len(), m.size.z as f32))
     }
 
     /// One frame of the game's model `name` with its feet at `origin`,
@@ -143,8 +150,8 @@ impl Drawing<'_> {
     /// leave the grid then, but for quarter turns.
     pub fn model_turned(&mut self, name: &str, frame: usize, origin: Vec3, look: IVec2, turn: Quat, tint: Option<[u8; 4]>) {
         let models = self.models;
-        if let Some(m) = models.get(name) {
-            self.put_model(m, frame, origin, look, turn, tint);
+        if let Some(m) = models.drawn(name) {
+            self.put_model(&m, frame, origin, look, turn, tint);
         }
     }
 
@@ -154,9 +161,9 @@ impl Drawing<'_> {
     #[allow(clippy::too_many_arguments)]
     pub fn model_posed(&mut self, name: &str, frame: usize, origin: Vec3, look: IVec2, turn: Quat, pose: &dyn Fn(&str) -> PartPose, tint: Option<[u8; 4]>) {
         let models = self.models;
-        if let Some(m) = models.get(name) {
+        if let Some(m) = models.drawn(name) {
             let turns: Vec<PartPose> = m.parts.iter().map(|p| pose(&p.name)).collect();
-            self.put_posed(m, frame, origin, look, turn, &turns, tint);
+            self.put_posed(&m, frame, origin, look, turn, &turns, tint);
         }
     }
 
@@ -174,11 +181,11 @@ impl Drawing<'_> {
     #[allow(clippy::too_many_arguments)]
     pub fn figure(&mut self, name: &str, sets: &BTreeMap<String, Frames>, swing: &BTreeMap<String, f32>, body: &Body, origin: Vec3, look: IVec2, turn: Quat, tint: Option<[u8; 4]>) {
         let models = self.models;
-        let Some(m) = models.get(name) else { return };
+        let Some(m) = models.drawn(name) else { return };
         let frame = crate::sim::things::figure_frame(sets, body, m.frames.len(), m.size.z as f32);
         let swung = swinging(swing, body, m.size.z as f32);
         let turns: Vec<PartPose> = m.parts.iter().map(|p| swung(&p.name)).collect();
-        self.put_posed(m, frame, origin, look, turn, &turns, tint);
+        self.put_posed(&m, frame, origin, look, turn, &turns, tint);
     }
 
     pub(super) fn put_model(&mut self, m: &VoxModel, frame: usize, origin: Vec3, look: IVec2, turn: Quat, tint: Option<[u8; 4]>) {

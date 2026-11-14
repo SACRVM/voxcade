@@ -318,7 +318,7 @@ impl UserData for LevelView {
             };
             change(lua, "level:effect", |h| {
                 if !h.frames.contains_key(&model) {
-                    return Err(mlua::Error::runtime(format!("level:effect: no model called '{model}' (a kind's model, or one in c.models)")));
+                    return Err(mlua::Error::runtime(format!("level:effect: no model called '{model}' (a kind's model or effect, an item's, or a level's piece)")));
                 }
                 h.effects.push(crate::lua::host::Shown { model, at, age: 0, fps: fps.unwrap_or(crate::sim::things::EFFECT_FPS).max(0.1) });
                 Ok(())

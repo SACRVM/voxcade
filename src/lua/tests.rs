@@ -4557,15 +4557,19 @@ fn every_games_keys_are_keys() {
     assert!(seen > 20, "{seen} keys looked at");
 }
 
-/// `frame:model` of a file the game does not know is a mistake that halts
-/// the game and says where models come from; it used to draw nothing.
+/// `frame:model` draws any model file of the game by its path, one in a
+/// folder too, though nothing else names it (no kind, no list): loaded the
+/// first time it is drawn, then in the bank. A file that is not there is a
+/// mistake at the line that draws it, naming the file; saved while the
+/// game stands halted for it, the game draws on. `c.models` is refused
+/// with what replaced it.
 #[test]
-fn an_unknown_model_halts_the_game() {
-    let conf = |models: &str| format!("
+fn any_model_file_draws_where_it_is_named() {
+    let conf = |more: &str| format!("
 function conf(c)
   c.world.size = {{ 64, 64, 16 }}
   c.things.robot = {{ model = \"robot.vvx\" }}
-  {models}
+  {more}
 end
 ");
     let main = r##"
@@ -4575,25 +4579,180 @@ function on_level_start()
 end
 
 function on_draw(frame)
-  frame:model("ghost.vvx", level.state.r)
+  frame:model("props/sheet.vvx", level.state.r, nil, nil, { body = { rotation = 10 } })
 end
 "##;
-    let dir = folder("unknown-model", main);
-    crate::vox::write_figure(&dir.join("robot.vvx"), &[("body", glam::IVec3::new(4, 4, 8), glam::IVec3::ZERO)]);
-    crate::vox::write_figure(&dir.join("ghost.vvx"), &[("body", glam::IVec3::new(4, 4, 8), glam::IVec3::ZERO)]);
+    let dir = folder("any-model", main);
     std::fs::write(dir.join("conf.lua"), conf("")).unwrap();
+    crate::vox::write_figure(&dir.join("robot.vvx"), &[("body", glam::IVec3::new(4, 4, 8), glam::IVec3::ZERO)]);
+    std::fs::create_dir_all(dir.join("props")).unwrap();
     let mut g = game_in(&dir);
     steps(&mut g, 2);
     let _ = g.frame(1.0, 16.0 / 9.0);
     let why = halted(&g);
-    assert!(why.contains("no model called 'ghost.vvx'") && why.contains("c.models"), "{why}");
-    // Listed in `c.models` it is the game's, and draws.
-    std::fs::write(dir.join("conf.lua"), conf("c.models = { \"ghost.vvx\" }")).unwrap();
-    let mut g = game_in(&dir);
-    steps(&mut g, 2);
+    assert!(why.contains("main.lua:8") && why.contains("frame:model: no model file \"props/sheet.vvx\" in the game folder"), "{why}");
+    // The file saved: the game draws on, the model from the bank.
+    crate::vox::write_figure(&dir.join("props/sheet.vvx"), &[("body", glam::IVec3::new(2, 1, 3), glam::IVec3::ZERO), ("corner", glam::IVec3::new(1, 1, 1), glam::IVec3::new(2, 0, 2))]);
+    assert_eq!(g.reload(&dir.join("props/sheet.vvx")).unwrap(), crate::session::Reloaded::Models);
     let frame = g.frame(1.0, 16.0 / 9.0);
     assert_eq!(halted(&g), "");
-    assert_eq!(frame.models.len(), 1, "the ghost is drawn");
+    assert_eq!(frame.models.len(), 2, "the sheet is drawn, each part from the bank");
+    assert_eq!(g.models.needed().names(), ["props/sheet.vvx"]);
+    let held = g.bank().voxels.len();
+    assert!(held > 0 && frame.instances.is_empty(), "its voxels in the bank, none as cubes");
+    // A file of no model, a path out of the game: mistakes naming them.
+    for (file, says) in [("conf.lua", "conf.lua: a model is a .vvx file"), ("../sheet.vvx", "\"../sheet.vvx\" is no file of the game")] {
+        std::fs::write(dir.join("main.lua"), main.replace("props/sheet.vvx", file)).unwrap();
+        let g = game_in(&dir);
+        let _ = g.frame(1.0, 16.0 / 9.0);
+        assert!(halted(&g).contains(says), "{file}: {}", halted(&g));
+    }
+    // A list of models is no more.
+    std::fs::write(dir.join("conf.lua"), conf("c.models = { \"robot.vvx\" }")).unwrap();
+    let e = start_error(&dir);
+    assert!(e.contains("c.models is no more: frame:model draws any model file of the game by its path"), "{e}");
+}
+
+/// A model only drawn is the picture's alone: in memory or not, loaded at
+/// the first tick or never, let go half way, the simulation plays the same
+/// (each tick's state hash), and the game's fingerprint does not count it.
+#[test]
+fn a_model_only_drawn_never_changes_the_run() {
+    let main = r##"
+function on_level_start()
+  level:fill(0, 0, 0, 63, 63, 0, "#808080")
+  level.state.r = level:spawn("robot", 32, 32)
+end
+
+function on_tick()
+  level.state.r:walk(input.dir, 10)
+end
+
+function on_draw(frame)
+  frame:model("sheet.vvx", level.state.r, nil, { rotation = 30 })
+end
+"##;
+    let dir = folder("only-drawn", main);
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 64, 64, 16 }\n  c.things.robot = { model = \"robot.vvx\" }\nend\n").unwrap();
+    crate::vox::write_figure(&dir.join("robot.vvx"), &[("body", glam::IVec3::new(4, 4, 8), glam::IVec3::ZERO)]);
+    crate::vox::write_figure(&dir.join("sheet.vvx"), &[("body", glam::IVec3::new(3, 1, 4), glam::IVec3::ZERO)]);
+    let run = |looking: Option<usize>, letting_go: Option<usize>| {
+        let mut g = game_in(&dir);
+        let mut hashes = Vec::new();
+        for tick in 0..120 {
+            let input = Input { right: tick % 40 < 20, up: tick % 30 < 10, ..Input::default() };
+            g.step(&input);
+            if looking.is_some_and(|from| tick >= from) {
+                g.look();
+            }
+            if letting_go == Some(tick) {
+                g.models.needed().let_go(&[]);
+            }
+            hashes.push(g.game.state_hash());
+        }
+        assert_eq!(halted(&g), "");
+        (hashes, g.fingerprint().unwrap(), g.models.needed().names())
+    };
+    let (drawn, print, held) = run(Some(0), None);
+    assert_eq!(held, ["sheet.vvx"], "drawn: in memory");
+    let (never, never_print, none) = run(None, None);
+    assert!(none.is_empty(), "never drawn: never loaded");
+    assert_eq!(drawn, never, "the run is the same drawn or not");
+    assert_eq!(print, never_print);
+    let (late, ..) = run(Some(60), Some(90));
+    assert_eq!(drawn, late, "loaded late and let go half way, the same again");
+    // Its file changed: the run's fingerprint stays.
+    crate::vox::write_figure(&dir.join("sheet.vvx"), &[("body", glam::IVec3::new(5, 2, 4), glam::IVec3::ZERO)]);
+    assert_eq!(run(Some(0), None).1, print, "a model only drawn is no part of the fingerprint");
+}
+
+/// Entering a level loads what it names (its pieces' models) and lets go
+/// of what the level left named, out of memory and the bank: what one
+/// room shows does not lie in memory in the next; models only drawn go at
+/// the change too and come again when drawn. The simulation reads the
+/// pieces of every level the same (a piece's height).
+#[test]
+fn a_level_change_lets_go_of_the_models_of_the_level_left() {
+    let hall = ROOM.replace("model = \"box.vvx\"\nat = [40, 30, 12]", "model = \"lamp.vvx\"\nat = [40, 30, 12]");
+    let attic = "format = \"voxcade level 1\"\nsize = [64, 48, 40]\n\n[[thing]]\nname = \"chest\"\nmodel = \"props/chest.vvx\"\nat = [20, 20, 0]\n";
+    let main = r##"
+function on_tick()
+  if input:pressed("jump") then world:go_to(level.next or 1) end
+end
+
+function on_draw(frame)
+  if level.name == "1_room" then frame:model("sheet.vvx", level:thing("stove")) end
+end
+"##;
+    let dir = pieces_folder("change", "  c.actions = { \"jump\" }\n", &hall, main);
+    std::fs::rename(dir.join("levels/room.toml"), dir.join("levels/1_room.toml")).unwrap();
+    std::fs::write(dir.join("levels/2_attic.toml"), attic).unwrap();
+    std::fs::create_dir_all(dir.join("props")).unwrap();
+    crate::vox::write_figure(&dir.join("lamp.vvx"), &[("body", glam::IVec3::new(3, 3, 6), glam::IVec3::ZERO)]);
+    crate::vox::write_figure(&dir.join("props/chest.vvx"), &[("body", glam::IVec3::new(2, 2, 5), glam::IVec3::ZERO)]);
+    crate::vox::write_figure(&dir.join("sheet.vvx"), &[("body", glam::IVec3::new(3, 1, 4), glam::IVec3::ZERO)]);
+    let mut g = game_in(&dir);
+    let held = |g: &Session<LuaGame>| g.models.needed().names();
+    assert_eq!(held(&g), ["box.vvx", "lamp.vvx"], "the first room's pieces, not the attic's chest");
+    steps(&mut g, 2);
+    let _ = g.frame(1.0, 16.0 / 9.0);
+    assert_eq!(halted(&g), "");
+    assert_eq!(held(&g), ["box.vvx", "lamp.vvx", "sheet.vvx"], "the sheet drawn: loaded");
+    let room_bank = g.bank().voxels.len();
+    let tall = |g: &mut Session<LuaGame>, name: &str| {
+        let id = crate::sim::things::Id::from_raw(said(g, &format!("level:thing('{name}').id")).parse().unwrap());
+        g.game.stage.host.get(id).unwrap().body.height
+    };
+    let stove = tall(&mut g, "stove");
+    assert_eq!(stove, 4.0, "a piece as tall as its model");
+    // To the attic.
+    g.step(&Input { actions: 1, ..Input::default() });
+    steps(&mut g, 2);
+    assert_eq!(said(&mut g, "level.name"), "\"2_attic\"");
+    assert_eq!(held(&g), ["props/chest.vvx"], "the room's models let go, the attic's loaded");
+    let attic_bank = g.bank().voxels.len();
+    assert!(attic_bank < room_bank, "the bank holds less: {attic_bank} after {room_bank}");
+    assert_eq!(tall(&mut g, "chest"), 5.0, "a piece as tall as its model");
+    let frame = g.frame(1.0, 16.0 / 9.0);
+    assert_eq!(frame.models.len(), 1, "the chest from the bank");
+    // And back: the room's again, the sheet when it is drawn.
+    g.step(&Input { actions: 1, ..Input::default() });
+    steps(&mut g, 2);
+    assert_eq!(held(&g), ["box.vvx", "lamp.vvx"]);
+    let _ = g.frame(1.0, 16.0 / 9.0);
+    assert_eq!(held(&g), ["box.vvx", "lamp.vvx", "sheet.vvx"]);
+    assert_eq!(g.bank().voxels.len(), room_bank, "the bank as it was in the room");
+    assert_eq!(tall(&mut g, "stove"), stove);
+}
+
+/// A game of sealed files draws a model only drawn from its sealed files,
+/// whatever the folder holds since.
+#[test]
+fn a_sealed_game_draws_a_model_from_its_files() {
+    let main = r##"
+function on_level_start()
+  level:fill(0, 0, 0, 63, 63, 0, "#808080")
+  level.state.r = level:spawn("robot", 32, 32)
+end
+
+function on_draw(frame)
+  frame:model("props/sheet.vvx", level.state.r)
+end
+"##;
+    let dir = folder("sealed-model", main);
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 64, 64, 16 }\n  c.things.robot = {}\nend\n").unwrap();
+    std::fs::create_dir_all(dir.join("props")).unwrap();
+    crate::vox::write_figure(&dir.join("props/sheet.vvx"), &[("body", glam::IVec3::new(3, 1, 4), glam::IVec3::ZERO)]);
+    let store_dir = crate::scratch::Scratch::new("sealed-model-store");
+    let store = crate::files::Store::at(&store_dir);
+    let (_, files) = crate::files::Files::seal(&dir, &store).unwrap();
+    // The folder's file gone: the sealed one draws.
+    std::fs::remove_file(dir.join("props/sheet.vvx")).unwrap();
+    let g = Session::<LuaGame>::load_from(files, crate::saves::Slots::default()).unwrap();
+    let frame = g.frame(1.0, 16.0 / 9.0);
+    assert_eq!(halted(&g), "");
+    assert_eq!(frame.models.len(), 1, "drawn from the sealed files");
+    assert_eq!(g.models.needed().names(), ["props/sheet.vvx"]);
 }
 
 /// A kind with `fixed = true` has no gravity and does not land: it stays
