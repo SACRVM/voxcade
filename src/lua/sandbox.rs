@@ -643,6 +643,9 @@ fn maths(lua: &Lua, native: &Table) -> Result<Table> {
     m.raw_set("asin", one(libm::asin)?)?;
     m.raw_set("acos", one(libm::acos)?)?;
     m.raw_set("exp", one(libm::exp)?)?;
+    // (Lua's own: one multiplication, the same bits on every system.)
+    m.raw_set("rad", one(|x| x * (std::f64::consts::PI / 180.0))?)?;
+    m.raw_set("deg", one(|x| x * (180.0 / std::f64::consts::PI))?)?;
     m.raw_set("atan", lua.create_function(|_, (y, x): (f64, Option<f64>)| Ok(libm::atan2(y, x.unwrap_or(1.0))))?)?;
     m.raw_set(
         "log",

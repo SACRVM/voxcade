@@ -273,6 +273,15 @@ fn maths_go_through_libm() {
     assert_eq!(state(&mut g, "s"), format!("{:?}", super::Value::Float(want.to_bits())));
 }
 
+/// Degrees and radians as Lua has them (a scene leans a model by the
+/// camera's pitch).
+#[test]
+fn degrees_and_radians_are_there() {
+    let mut g = game("rad", "function on_world_start() world.state.r = math.rad(180) world.state.d = math.deg(math.pi / 2) end\n");
+    assert_eq!(state(&mut g, "r"), format!("{:?}", super::Value::Float(std::f64::consts::PI.to_bits())));
+    assert_eq!(state(&mut g, "d"), format!("{:?}", super::Value::Float(90f64.to_bits())));
+}
+
 /// A power other than a square is refused where it stands.
 #[test]
 fn power_is_refused_but_squares_are_not() {
