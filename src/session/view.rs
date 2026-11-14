@@ -154,7 +154,7 @@ impl<G: Game> Session<G> {
 
     /// Where the title's flyby is `time` seconds in (its skids), if it is
     /// crossing the view now: from the left edge to the right, a little up
-    /// the screen, at the gunship's height over the ground.
+    /// the screen, `c.title_screen.flyby_altitude` over the ground.
     pub fn flyby_at(&self, time: f32) -> Option<Vec3> {
         let time = time - self.flyby_from;
         let t = &self.cfg.title_screen;
