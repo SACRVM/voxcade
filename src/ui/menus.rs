@@ -605,7 +605,7 @@ pub(super) fn row(out: &mut Vec<Instance>, view: &MenuView, i: usize, label: &st
 pub(super) fn setting(out: &mut Vec<Instance>, view: &MenuView, item: Item, x: f32, y: f32, selected: bool, depth: i32) {
     let s = view.settings;
     let lang = s.language();
-    let flag = |on: bool| crate::lang::say(&lang, if on { "ON" } else { "OFF" });
+    let flag = |on: bool| crate::lang::say(lang, if on { "ON" } else { "OFF" });
     let color = if selected { NUMBERS } else { TEXT };
     match item {
         Item::Music | Item::Sound => {
@@ -631,13 +631,13 @@ pub(super) fn setting(out: &mut Vec<Instance>, view: &MenuView, item: Item, x: f
         Item::Blur => text(out, flag(s.blur), x, y, 1, color, depth),
         Item::Rumble => text(out, flag(s.rumble), x, y, 1, color, depth),
         Item::Shadows => {
-            text(out, &chosen(crate::lang::say(&lang, s.shadows.label()), selected), x, y, 1, color, depth);
+            text(out, &chosen(crate::lang::say(lang, s.shadows.label()), selected), x, y, 1, color, depth);
         }
         Item::FrameRate => {
-            text(out, &chosen(crate::lang::say(&lang, s.frame_rate.label()), selected), x, y, 1, color, depth);
+            text(out, &chosen(crate::lang::say(lang, s.frame_rate.label()), selected), x, y, 1, color, depth);
         }
         Item::Language => {
-            text(out, &chosen(&crate::lang::name(&lang), selected), x, y, 1, color, depth);
+            text(out, &chosen(&crate::lang::name(lang), selected), x, y, 1, color, depth);
         }
         Item::ShowFps => text(out, flag(s.show_fps), x, y, 1, color, depth),
         _ => {}
