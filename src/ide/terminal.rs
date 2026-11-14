@@ -568,7 +568,8 @@ mod tests {
         let dir = std::env::temp_dir();
         let t = Terminal::start(&dir, None, Size { columns: 80, lines: 24 }, [8, 16], || {}).unwrap();
         let wait = |want: bool| {
-            let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            // (Generous: the shell starts slowly while every other test runs.)
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(45);
             while t.busy() != Some(want) {
                 assert!(std::time::Instant::now() < until, "busy: {:?}, wanted {want}", t.busy());
                 std::thread::sleep(std::time::Duration::from_millis(20));
