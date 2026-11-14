@@ -60,6 +60,16 @@ pub(crate) fn button(win: &mut EditorWindow, x: f32, y: f32, button: sdl3::mouse
     assert!(win.handle(&e, false));
 }
 
+/// An action as the window takes it from a key or a click: done, and the
+/// window marked to draw (`handle` marks it so for every event). Done past
+/// `handle`, the next `draw` would draw only if egui asked for a frame,
+/// which it does or not by timing: the room round a model once stayed as
+/// it was after CONTEXT off and on, a run in three.
+pub(crate) fn act(win: &mut EditorWindow, action: view::Action) {
+    view::act(&mut win.ed, &mut win.view, action);
+    win.dirty = true;
+}
+
 fn ms(t: Instant) -> f64 {
     t.elapsed().as_secs_f64() * 1000.0
 }
@@ -231,7 +241,7 @@ fn exercise(mut win: EditorWindow) {
     println!("idle frame: {:.2} ms, instances {}", ms(t) / 10.0, instances(&win));
     gpu.borrow_mut().present(&mut win);
     g();
-    view::act(&mut win.ed, &mut win.view, view::Action::Tool(Tool::Add));
+    act(&mut win, view::Action::Tool(Tool::Add));
     draw(&mut win);
     g();
     let t = Instant::now();
@@ -257,7 +267,7 @@ fn exercise(mut win: EditorWindow) {
     draw(&mut win);
     let (y, x0, x1) = run_on(&win);
     for tool in [Tool::Paint, Tool::Add, Tool::Remove] {
-        view::act(&mut win.ed, &mut win.view, view::Action::Tool(tool));
+        act(&mut win, view::Action::Tool(tool));
         draw(&mut win);
         motion(&mut win, x0, y, 0, &mut last);
         draw(&mut win);
@@ -282,10 +292,10 @@ fn exercise(mut win: EditorWindow) {
         println!("{tool:?}: press {press:.1} ms, drag frame {drag:.2} ms (worst {worst:.1}), let go (saved) {:.1} ms, steps {}, worlds built whole {} {}", ms(t), win.ed.steps(), win.rebuilds - rebuilds, g());
     }
     let t = Instant::now();
-    view::act(&mut win.ed, &mut win.view, view::Action::Undo);
+    act(&mut win, view::Action::Undo);
     draw(&mut win);
     println!("undo: {:.1} ms {}", ms(t), g());
-    view::act(&mut win.ed, &mut win.view, view::Action::Tool(Tool::Select));
+    act(&mut win, view::Action::Tool(Tool::Select));
     draw(&mut win);
     let (a, b) = ((x0 + 10.0, y - 100.0), (x1 - 10.0, y + 60.0));
     motion(&mut win, a.0, a.1, 0, &mut last);
@@ -338,7 +348,7 @@ fn big_model_timings() {
         win.draw().unwrap();
     }
     println!("figure whole, idle frame: {:.2} ms, instances {}", ms(t) / 10.0, win.last.as_ref().map_or(0, |l| l.0.instances.len()));
-    view::act(&mut win.ed, &mut win.view, view::Action::Part(0));
+    act(&mut win, view::Action::Part(0));
     win.draw().unwrap();
     println!("chosen: {}", win.ed.figure.as_ref().and_then(|f| f.selected).map_or("none".into(), |p| win.ed.figure.as_ref().unwrap().parts()[p].name.clone()));
     exercise(win);
@@ -403,7 +413,7 @@ fn a_stroke_on_a_big_model_sets_only_its_voxels() {
     assert!(x1 - x0 > 100.0, "the wall is met along a row: {x0} to {x1}");
     let rebuilds = win.rebuilds;
     for tool in [Tool::Paint, Tool::Remove] {
-        view::act(&mut win.ed, &mut win.view, view::Action::Tool(tool));
+        act(&mut win, view::Action::Tool(tool));
         win.ed.colour = [200, 40, 40];
         motion(&mut win, x0, y, 0, &mut last);
         win.draw().unwrap();
@@ -418,7 +428,7 @@ fn a_stroke_on_a_big_model_sets_only_its_voxels() {
         assert_eq!(colours_of(&win.shown.world), colours_of(&Shown::new(&win.ed).unwrap().world), "{tool:?}: the world as built afresh");
     }
     assert_eq!(win.ed.steps(), 2, "two strokes, two steps");
-    view::act(&mut win.ed, &mut win.view, view::Action::Undo);
+    act(&mut win, view::Action::Undo);
     win.draw().unwrap();
     assert_eq!(colours_of(&win.shown.world), colours_of(&Shown::new(&win.ed).unwrap().world), "undone: the world as built afresh");
     assert_eq!(win.rebuilds, rebuilds, "no world built anew whole");
@@ -442,7 +452,7 @@ fn the_room_round_a_model_is_made_once_and_drawn_the_same() {
     };
     same_as_afresh(&win, "opened");
     let (y, x0, x1) = run_on(&win);
-    view::act(&mut win.ed, &mut win.view, view::Action::Tool(Tool::Paint));
+    act(&mut win, view::Action::Tool(Tool::Paint));
     win.ed.colour = [200, 40, 40];
     for k in 0..6 {
         motion(&mut win, x0 + (x1 - x0) * k as f32 / 6.0, y, 0, &mut last);
@@ -471,9 +481,9 @@ fn the_room_round_a_model_is_made_once_and_drawn_the_same() {
     same_as_afresh(&win, "turned round");
     assert_eq!((win.shown.rooms_made(), win.shown.room_joins()), (1, 2));
     // CONTEXT off and on: made again.
-    view::act(&mut win.ed, &mut win.view, view::Action::Context);
+    act(&mut win, view::Action::Context);
     win.draw().unwrap();
-    view::act(&mut win.ed, &mut win.view, view::Action::Context);
+    act(&mut win, view::Action::Context);
     win.draw().unwrap();
     same_as_afresh(&win, "shown again");
     assert_eq!(win.shown.rooms_made(), 3);
@@ -611,12 +621,12 @@ fn a_kept_outline_is_the_outline() {
 #[test]
 fn a_stroke_on_a_figure_makes_it_again_when_let_go() {
     let (mut win, _dir) = wall_figure_window("figure-stroke");
-    view::act(&mut win.ed, &mut win.view, view::Action::Part(0));
+    act(&mut win, view::Action::Part(0));
     win.draw().unwrap();
     let mut last = (800.0, 450.0);
     let (y, x0, x1) = run_on(&win);
     assert!(x1 - x0 > 100.0, "the wall is met along a row: {x0} to {x1}");
-    view::act(&mut win.ed, &mut win.view, view::Action::Tool(Tool::Paint));
+    act(&mut win, view::Action::Tool(Tool::Paint));
     win.ed.colour = [200, 40, 40];
     motion(&mut win, x0, y, 0, &mut last);
     win.draw().unwrap();

@@ -95,7 +95,7 @@ fn a_terrain_point_dragged_in_the_window_is_one_step() {
     std::fs::write(dir.join("levels/land.toml"), format!("format = \"voxcade level 1\"\nsize = [160, 96, 80]\n\n[terrain]\nspacing = 16\nheights = \"\"\"\n{rows}\n\"\"\"\n\n[[terrain.material]]\ncolor = \"#5c8a3a\"\n")).unwrap();
     let (ed, view, cfg) = open::<crate::Voxcade>(&dir, Some("levels/land.toml"), None, false).unwrap();
     let mut win = EditorWindow::headless(ed, view, cfg, &dir).unwrap();
-    view::act(&mut win.ed, &mut win.view, view::Action::Layer(Layer::Terrain));
+    big::act(&mut win, view::Action::Layer(Layer::Terrain));
     for _ in 0..3 {
         win.draw().unwrap();
     }
@@ -137,7 +137,7 @@ fn a_terrain_point_dragged_in_the_window_is_one_step() {
 fn game_view_frames_the_figure_and_the_wheel_and_right_button_work() {
     let (mut win, _dir) = owners_like("game-view");
     let before = win.view.block;
-    view::act(&mut win.ed, &mut win.view, view::Action::GameView);
+    big::act(&mut win, view::Action::GameView);
     win.draw().unwrap();
     let game = win.view.game.clone();
     let framed = win.view.block;
@@ -153,7 +153,7 @@ fn game_view_frames_the_figure_and_the_wheel_and_right_button_work() {
     button(&mut win, 860.0, 470.0, sdl3::mouse::MouseButton::Right, false);
     assert!(win.view.block.yaw != framed.yaw || win.view.block.pitch != framed.pitch, "the right button turns");
     assert!(win.view.before_game.is_some(), "and GAME VIEW stays on");
-    view::act(&mut win.ed, &mut win.view, view::Action::GameView);
+    big::act(&mut win, view::Action::GameView);
     assert!(win.view.before_game.is_none());
     assert_eq!(win.view.block, before, "off: the editor's look");
 }
@@ -254,7 +254,7 @@ fn selected(win: &EditorWindow) -> (Vec<String>, usize) {
 fn select_is_a_rectangle_on_the_screen() {
     let (mut win, dir) = owners_like("marquee");
     let start = file(&dir);
-    view::act(&mut win.ed, &mut win.view, view::Action::Tool(model::Tool::Select));
+    big::act(&mut win, view::Action::Tool(model::Tool::Select));
     win.draw().unwrap();
     let mut both = part_on_screen(&win, "head");
     both.extend(part_on_screen(&win, "nose"));
@@ -264,19 +264,19 @@ fn select_is_a_rectangle_on_the_screen() {
     assert!(names.contains(&"head".to_string()) && names.contains(&"nose".to_string()), "from both: {names:?}");
     // The nose hidden: never.
     let nose = win.ed.figure.as_ref().unwrap().parts().iter().position(|o| o.name == "nose").unwrap();
-    view::act(&mut win.ed, &mut win.view, view::Action::Hide(nose));
+    big::act(&mut win, view::Action::Hide(nose));
     marquee(&mut win, a, b);
     assert!(!selected(&win).0.contains(&"nose".to_string()), "a hidden part never");
-    view::act(&mut win.ed, &mut win.view, view::Action::Hide(nose));
+    big::act(&mut win, view::Action::Hide(nose));
     // THROUGH: the head's voxels behind too; off: only those seen.
     let (h0, h1) = about(&part_on_screen(&win, "head"));
     marquee(&mut win, h0, h1);
     let through = selected(&win).1;
-    view::act(&mut win.ed, &mut win.view, view::Action::SelectThrough);
+    big::act(&mut win, view::Action::SelectThrough);
     marquee(&mut win, h0, h1);
     let seen = selected(&win).1;
     assert!(seen < through && seen > 0, "seen {seen} of {through}");
-    view::act(&mut win.ed, &mut win.view, view::Action::SelectThrough);
+    big::act(&mut win, view::Action::SelectThrough);
     // With the head chosen: the head's alone.
     let head = win.ed.figure.as_ref().unwrap().parts().iter().position(|o| o.name == "head").unwrap();
     win.ed.choose_part(head);
@@ -289,21 +289,21 @@ fn select_is_a_rectangle_on_the_screen() {
     let mid = (h0 + h1) / 2.0;
     marquee(&mut win, h0, glam::Vec2::new(mid.x, h1.y));
     let left = selected(&win).1;
-    view::act(&mut win.ed, &mut win.view, view::Action::SelectMode(model::selection::SelectMode::Add));
+    big::act(&mut win, view::Action::SelectMode(model::selection::SelectMode::Add));
     marquee(&mut win, glam::Vec2::new(mid.x, h0.y), h1);
     let all = selected(&win).1;
     assert!(all > left, "ADD: more ({all} after {left})");
-    view::act(&mut win.ed, &mut win.view, view::Action::SelectMode(model::selection::SelectMode::Remove));
+    big::act(&mut win, view::Action::SelectMode(model::selection::SelectMode::Remove));
     marquee(&mut win, h0, glam::Vec2::new(mid.x, h1.y));
     let right = selected(&win).1;
     assert!(right < all && right > 0, "REMOVE: fewer ({right} of {all})");
-    view::act(&mut win.ed, &mut win.view, view::Action::SelectMode(model::selection::SelectMode::New));
+    big::act(&mut win, view::Action::SelectMode(model::selection::SelectMode::New));
     assert_eq!((file(&dir), win.ed.steps()), (start.clone(), 0), "selecting changes nothing");
     // NEW PART, REMOVE, PAINT: each a step, undone byte for byte.
     for action in [view::Action::SelNewPart, view::Action::SelRemove, view::Action::SelPaint] {
         marquee(&mut win, h0, h1);
         assert!(win.ed.selection().is_some(), "{action:?}: selected");
-        view::act(&mut win.ed, &mut win.view, action);
+        big::act(&mut win, action);
         assert_ne!(file(&dir), start, "{action:?}: done");
         win.ed.undo();
         assert_eq!(file(&dir), start, "{action:?}: undone byte for byte");
