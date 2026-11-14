@@ -407,7 +407,20 @@ pub(super) fn parse_ide(args: &[String]) -> Result<Call> {
     // Without a game: the start page.
     // (A game made for another Voxcade opens on its upgrade's page.)
     let dir = args.get(1).filter(|a| !a.starts_with("--")).map(PathBuf::from);
-    let mut opts = crate::ide::ShotOptions { open: None, console: None, play: None, upgraded: false, journal: None, find: None, replace: None, search: None, hit: None, width: 1920, height: 1080, out: PathBuf::new() };
+    let mut opts = crate::ide::ShotOptions {
+        open: None,
+        console: None,
+        play: None,
+        upgraded: false,
+        journal: None,
+        find: None,
+        replace: None,
+        search: None,
+        hit: None,
+        width: 1920,
+        height: 1080,
+        out: PathBuf::new(),
+    };
     let (mut shot, mut remote) = (false, false);
     let mut f = Flags::new("ide", tail(args, if dir.is_some() { 2 } else { 1 }));
     while let Some((flag, _)) = f.next()? {
@@ -452,7 +465,7 @@ pub(super) fn three(flag: &str, value: &str) -> Result<glam::IVec3> {
 
 pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions, EditMode)> {
     use crate::editor::ShotOp;
-    let mut opts = crate::editor::ShotOptions { level: None, block: None, model: None, part: None, parent: None, joint: None, stamp: false, things: false, shift: false, align: false, tool: None, held: None, view: None, width: 1920, height: 1080, out: PathBuf::new(), ops: Vec::new(), choose: None, game_view: false, picker: false, lights_off: false, choose_light: None, menu: None, add_menu: false, level_settings: false, hover: None, turn_handles: false, part_moves: Vec::new(), hide: Vec::new(), click: None, slice: None, cells: Vec::new(), frame: None, dry: false, context: None, context_off: false, part_turns: Vec::new(), part_poses: Vec::new(), last_pose: false, add_part: false, merge_into: None, mirror: false, background: None, marquee: None, select: None, selection_ops: Vec::new(), terrain: false, land_ops: Vec::new(), material: None, scatter: Vec::new() };
+    let mut opts = crate::editor::ShotOptions { width: 1920, height: 1080, ..Default::default() };
     let mut shot = false;
     let mut f = Flags::new("edit", rest);
     while let Some((flag, opt)) = f.next()? {

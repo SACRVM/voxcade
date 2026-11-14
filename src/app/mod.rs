@@ -165,14 +165,27 @@ impl Display {
     }
 }
 
-/// Runs the game folder `dir`, a game of kind `G`, in a window; with
-/// `watching`, shows that replay instead; with `network`, hosts a network
-/// game at once or joins one (`--host`, `--join`).
-///
-/// `maker`: the maker's keys work (`voxcade run --maker`: F5 restarts the
-/// run on the files as they are, F9 keeps it, 1 to 9 pick the song); a
-/// player of a packaged game, or of the launcher's PLAY, has none of them.
-pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session::Begin, network: Option<crate::headless::Networked>, keys: Option<&str>, maker: bool) -> Result<()> {
+/// How a window plays a game (`run`): all unset, the game from its title.
+#[derive(Default)]
+pub struct RunOptions {
+    /// A replay shown instead of a game played (`voxcade replay`).
+    pub watching: Option<Replay>,
+    /// The scenario and lines every run begins with (`--scenario`, `--do`).
+    pub begin: crate::session::Begin,
+    /// A network game hosted at once or joined (`--host`, `--join`).
+    pub network: Option<crate::headless::Networked>,
+    /// Player 1's keys from a script (`--input`), instead of the devices.
+    pub keys: Option<String>,
+    /// The maker's keys work (`voxcade run --maker`: F5 restarts the run on
+    /// the files as they are, F9 keeps it, 1 to 9 pick the song); a player
+    /// of a packaged game, or of the launcher's PLAY, has none of them.
+    pub maker: bool,
+}
+
+/// Runs the game folder `dir`, a game of kind `G`, in a window, as
+/// `options` say.
+pub fn run<G: Game>(dir: &Path, options: RunOptions) -> Result<()> {
+    let RunOptions { watching, begin, network, keys, maker } = options;
     // Who the game is in the config folder, before its settings, saves and
     // runs are read there (`kept::settle`).
     crate::kept::settle(dir);
@@ -279,7 +292,7 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
             parting = say_now(said.join("  "));
         }
     }
-    let scripted = keys.map(|k| crate::replay::parse_script(k, game.actions()).map(crate::replay::Script::new)).transpose()?.map(|s| (s, 0.0f32, crate::input::Input::default()));
+    let scripted = keys.map(|k| crate::replay::parse_script(&k, game.actions()).map(crate::replay::Script::new)).transpose()?.map(|s| (s, 0.0f32, crate::input::Input::default()));
     let text_input = video.text_input();
     let watch = FolderWatch::new(dir);
 
