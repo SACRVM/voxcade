@@ -286,15 +286,37 @@ fn key(dir: &Path) -> String {
     dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf()).to_string_lossy().into_owned()
 }
 
-/// Writes the IDE's MCP server (this program's `voxcade mcp`) for Claude's
-/// `--mcp-config` to `file`.
-pub fn write_mcp(file: &Path) -> Result<()> {
+/// The IDE's MCP server as an MCP configuration names it: this program's
+/// `voxcade mcp`.
+fn mcp_server() -> Result<serde_json::Value> {
     let exe = crate::cli::program()?;
-    let config = serde_json::json!({ "mcpServers": { "voxcade": { "type": "stdio", "command": exe, "args": ["mcp"] } } });
+    Ok(serde_json::json!({ "type": "stdio", "command": exe, "args": ["mcp"] }))
+}
+
+/// Writes the IDE's MCP server for Claude's `--mcp-config` to `file`.
+pub fn write_mcp(file: &Path) -> Result<()> {
+    let config = serde_json::json!({ "mcpServers": { "voxcade": mcp_server()? } });
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir)?;
     }
     crate::blocks::save_at_once(file, (serde_json::to_string_pretty(&config)? + "\n").as_bytes())
+}
+
+/// Whether the game folder's `.mcp.json` names `voxcade mcp`.
+pub fn has_mcp(dir: &Path) -> bool {
+    std::fs::read_to_string(dir.join(".mcp.json")).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()).is_some_and(|v| v["mcpServers"]["voxcade"].is_object())
+}
+
+/// Writes the IDE's MCP server into the game folder's `.mcp.json` (the
+/// MCP button), keeping what else it names.
+pub fn add_mcp(dir: &Path) -> Result<()> {
+    let path = dir.join(".mcp.json");
+    let mut config: serde_json::Value = match std::fs::read_to_string(&path) {
+        Ok(text) => serde_json::from_str(&text).map_err(|e| anyhow::anyhow!("{}: {e} (left as it is)", path.display()))?,
+        Err(_) => serde_json::json!({}),
+    };
+    config["mcpServers"]["voxcade"] = mcp_server()?;
+    crate::blocks::save_at_once(&path, (serde_json::to_string_pretty(&config)? + "\n").as_bytes())
 }
 
 /// A new session id: a random UUID (version 4), as Claude Code takes it.
@@ -429,5 +451,19 @@ mod tests {
         assert!(finder.finds("voxcade-no-such-agent"), "found");
         assert!(!Finder::in_dirs(Vec::new()).finds("voxcade-no-such-agent"), "not in other folders");
         assert!(Finder::in_dirs(Vec::new()).finds(&dir.join("voxcade-no-such-agent").to_string_lossy()), "a path as it is");
+    }
+
+    /// The MCP button names voxcade mcp in the game folder's .mcp.json,
+    /// keeping the servers it named already.
+    #[test]
+    fn the_mcp_button_names_voxcade_in_the_game_folder() {
+        let dir = crate::scratch::Scratch::new("mcp-json");
+        assert!(!has_mcp(&dir));
+        std::fs::write(dir.join(".mcp.json"), r#"{"mcpServers":{"other":{"command":"x"}}}"#).unwrap();
+        add_mcp(&dir).unwrap();
+        assert!(has_mcp(&dir));
+        let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join(".mcp.json")).unwrap()).unwrap();
+        assert_eq!(config["mcpServers"]["other"]["command"], "x", "kept");
+        assert_eq!(config["mcpServers"]["voxcade"]["args"][0], "mcp");
     }
 }

@@ -10,6 +10,7 @@ use alacritty_terminal::term::TermMode;
 use egui::{Color32, Event, EventFilter, FontId, Id, Key, Pos2, Rect, RichText, Sense, TextStyle, Vec2};
 
 use crate::gui::{ACCENT, ERROR, INSET, PANEL, QUIET, ROW_HOVERED, ROW_OPEN, TEXT, arrow};
+use super::claude;
 use super::prefs::Agent;
 use super::terminal::{self, Size, Terminal, BACKGROUND, FOREGROUND};
 
@@ -303,10 +304,10 @@ impl Console {
             // .mcp.json names voxcade mcp: the button that writes it
             // (Claude Code started here then has the game's and the IDE's
             // tools; it asks once).
-            if !told_of_ide && !*self.mcp.get_or_insert_with(|| has_mcp(&self.dir)) {
+            if !told_of_ide && !*self.mcp.get_or_insert_with(|| claude::has_mcp(&self.dir)) {
                 let tip = "Writes .mcp.json into the game folder: Claude Code started here finds voxcade mcp, the game's tools and the IDE's (what you see, the game you play). It asks once whether to trust it.";
                 if ui.button("MCP").on_hover_text(tip).clicked() {
-                    self.mcp_failed = write_mcp(&self.dir).err().map(|e| format!("{e:#}"));
+                    self.mcp_failed = claude::add_mcp(&self.dir).err().map(|e| format!("{e:#}"));
                     self.mcp = None;
                 }
             }
@@ -627,24 +628,6 @@ pub fn resolve(dir: &std::path::Path, path: &str) -> Option<PathBuf> {
     (picture || full.starts_with(dir.canonicalize().ok()?)).then_some(full)
 }
 
-/// Whether the game folder's `.mcp.json` names `voxcade mcp`.
-fn has_mcp(dir: &std::path::Path) -> bool {
-    std::fs::read_to_string(dir.join(".mcp.json")).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()).is_some_and(|v| v["mcpServers"]["voxcade"].is_object())
-}
-
-/// Writes `voxcade mcp` (this program) into the game folder's
-/// `.mcp.json`, keeping what else it names.
-fn write_mcp(dir: &std::path::Path) -> anyhow::Result<()> {
-    let path = dir.join(".mcp.json");
-    let mut config: serde_json::Value = match std::fs::read_to_string(&path) {
-        Ok(text) => serde_json::from_str(&text).map_err(|e| anyhow::anyhow!("{}: {e} (left as it is)", path.display()))?,
-        Err(_) => serde_json::json!({}),
-    };
-    let exe = crate::cli::program()?;
-    config["mcpServers"]["voxcade"] = serde_json::json!({ "type": "stdio", "command": exe, "args": ["mcp"] });
-    crate::blocks::save_at_once(&path, (serde_json::to_string_pretty(&config)? + "\n").as_bytes())
-}
-
 /// The terminal's cells into `inner`, `cell` points each, the cells of
 /// `link` (line, column) underlined.
 fn draw(ui: &egui::Ui, inner: Rect, cell: Vec2, font: &FontId, picture: &terminal::Picture, link: &[(i32, usize)], focused: bool) {
@@ -946,19 +929,5 @@ mod tests {
         assert_eq!(resolve(&game, other.join("pic.png").to_str().unwrap()), Some(canonical(other.join("pic.png"))), "a picture elsewhere");
         assert_eq!(resolve(&game, other.join("notes.txt").to_str().unwrap()), None, "other files elsewhere");
         assert_eq!(resolve(&game, "../other/notes.txt"), None, "out of the folder by dots");
-    }
-
-    /// The MCP button names voxcade mcp in the game folder's .mcp.json,
-    /// keeping the servers it named already.
-    #[test]
-    fn the_mcp_button_names_voxcade_in_the_game_folder() {
-        let dir = crate::scratch::Scratch::new("mcp-json");
-        assert!(!has_mcp(&dir));
-        std::fs::write(dir.join(".mcp.json"), r#"{"mcpServers":{"other":{"command":"x"}}}"#).unwrap();
-        write_mcp(&dir).unwrap();
-        assert!(has_mcp(&dir));
-        let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join(".mcp.json")).unwrap()).unwrap();
-        assert_eq!(config["mcpServers"]["other"]["command"], "x", "kept");
-        assert_eq!(config["mcpServers"]["voxcade"]["args"][0], "mcp");
     }
 }
