@@ -715,7 +715,7 @@ impl<K: Kit> Game for LuaGame<K> {
         self.scenarios_about()
     }
 
-    fn start_scenario(&mut self, name: &str) -> Result<()> {
+    fn start_scenario(&mut self, name: &str) -> Result<Option<(String, Option<String>)>> {
         self.begin_scenario(name)
     }
 

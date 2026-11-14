@@ -1012,7 +1012,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   part of every game (`docs/game-model.md`, "Scenarios and the console").
   A scenario, `scenarios/NAME.lua`, begins a run late (`about`, `level`,
   `place`, `setup = function() ... end`, run once before the first tick,
-  `require` giving the game's modules); a game gives its scenarios words
+  `require` giving the game's modules); a scenario's `level` is where the
+  run begins, as if `c.start` named it, the start level never entered
+  (`Game::start_scenario` names it, `Session::start_scenario` begins the
+  game anew there, then its setup runs; the owner, 2026-11-14); a game
+  gives its scenarios words
   of its own where its states are many (BunnyFarm's `setup.lua`). Every
   game in `games/` (the Bench aside, a load test) and every template has
   some, each starting and playing on (test

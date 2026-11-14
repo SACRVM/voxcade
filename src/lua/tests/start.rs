@@ -52,8 +52,9 @@ fn a_wrong_c_start_is_a_mistake_naming_it() {
     assert!(e.contains("start"), "{e}");
 }
 
-/// What says where a run begins wins: a scenario's level. A conf.lua read
-/// anew waits for a restart for it, and a wrong name there is a mistake.
+/// What says where a run begins wins: a scenario's level, the run begun
+/// there. A conf.lua read anew waits for a restart for it, and a wrong
+/// name there is a mistake.
 #[test]
 fn a_scenario_wins_and_a_change_waits_for_f5() {
     let dir = folder_starting("wins", Some("\"b\""));
@@ -61,7 +62,7 @@ fn a_scenario_wins_and_a_change_waits_for_f5() {
     std::fs::write(dir.join("scenarios/early.lua"), "return { about = \"In a\", level = \"a\" }\n").unwrap();
     let mut g = game_in(&dir);
     g.start_scenario("early").unwrap();
-    assert_eq!(where_it_is(&mut g), ("a".into(), "go_to".into()));
+    assert_eq!(where_it_is(&mut g), ("a".into(), "start".into()));
     let mut g = game_in(&dir);
     let conf = std::fs::read_to_string(dir.join("conf.lua")).unwrap();
     std::fs::write(dir.join("conf.lua"), conf.replace("c.start = \"b\"", "c.start = \"a\"")).unwrap();
@@ -70,6 +71,43 @@ fn a_scenario_wins_and_a_change_waits_for_f5() {
     std::fs::write(dir.join("conf.lua"), conf.replace("c.start = \"b\"", "c.start = \"z\"")).unwrap();
     let e = g.reload(&dir.join("conf.lua")).map(|_| ()).unwrap_err();
     assert!(format!("{e:#}").contains("c.start = \"z\""), "{e:#}");
+}
+
+/// A scenario's level is where the run begins: the same run as one whose
+/// `c.start` names it, the random numbers drawn alike, the start level
+/// never entered (what its `on_level_start` did nowhere, no
+/// `on_level_end`), the scenario's level visited once.
+#[test]
+fn a_scenario_begins_the_run_in_its_level_as_c_start_would() {
+    let main = "function on_world_start() world.state.seed = math.random(1000) end\n\
+        function on_level_start(how)\n  if level.name == \"a\" then world.state.in_a = math.random(1000) end\n  world.state.how = how\n  world.state.starts = (world.state.starts or 0) + 1\nend\n\
+        function on_level_end(why) world.state.ended = why end\n\
+        function on_tick() world.state.roll = math.random(1000) end\n";
+    let scenario = levels_folder("scenario-b", main, &[("a", &[]), ("b", &[("gate", [8, 2, 4])])]);
+    std::fs::create_dir_all(scenario.join("scenarios")).unwrap();
+    std::fs::write(scenario.join("scenarios/in_b.lua"), "return { level = \"b\" }\n").unwrap();
+    let started = levels_folder("start-b", main, &[("a", &[]), ("b", &[("gate", [8, 2, 4])])]);
+    let conf = std::fs::read_to_string(started.join("conf.lua")).unwrap();
+    std::fs::write(started.join("conf.lua"), conf.replace("\nend", "\n  c.start = \"b\"\nend")).unwrap();
+    let mut s = game_in(&scenario);
+    s.start_scenario("in_b").unwrap();
+    let mut c = game_in(&started);
+    let seen = s.game.inspect();
+    assert_eq!((&seen["at"]["name"], &seen["at"]["visits"], &seen["state"]["starts"], &seen["state"]["how"]), (&"b".into(), &1.into(), &1.into(), &"start".into()), "{seen}");
+    assert!(seen["state"]["in_a"].is_null() && seen["state"]["ended"].is_null(), "level a never entered: {seen}");
+    assert_eq!(seen, c.game.inspect());
+    for tick in 0..30 {
+        assert_eq!((s.game.state_hash(), s.start_mark()), (c.game.state_hash(), c.start_mark()), "tick {tick}");
+        s.step(&Input::default());
+        c.step(&Input::default());
+    }
+    // A scenario naming the start level enters it once, as every run.
+    std::fs::write(scenario.join("scenarios/in_a.lua"), "return { level = \"a\" }\n").unwrap();
+    let mut s = game_in(&scenario);
+    s.start_scenario("in_a").unwrap();
+    let seen = s.game.inspect();
+    assert_eq!((&seen["at"]["name"], &seen["at"]["visits"], &seen["state"]["starts"]), (&"a".into(), &1.into(), &1.into()), "{seen}");
+    assert_eq!(seen, game_in(&scenario).game.inspect());
 }
 
 /// A run recorded from `c.start` plays back the same; the setting is part

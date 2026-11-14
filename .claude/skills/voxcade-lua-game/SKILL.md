@@ -504,7 +504,8 @@ itself is the voxcade-api skill's subject.
   tried from a scenario, never by playing there first: `scenarios/NAME.lua`
   gives back `{ about = "...", level = "...", place = "...", setup =
   function() ... end }` (all optional, but a scenario names a level, a
-  place or a setup: `{ level = "cellar" }` alone begins there); setup runs once before
+  place or a setup: `{ level = "cellar" }` alone begins the run there, the
+  start level never entered); setup runs once before
   the first tick, as `on_tick` could, `require` giving the game's
   modules. Where the states are many, give the scenarios words of the
   game's (BunnyFarm's `setup.lua`: `set.day(12, "21:30")`,
