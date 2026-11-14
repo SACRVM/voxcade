@@ -1218,7 +1218,21 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   bunny ears on the B and a carrot for the Y; `logo_bob`, the user's
   wish for it: landed letters bob gently, a smooth wave through them
   (whole voxels looked like stuttering, the user), `ui::bob`, test
-  `the_logo_bobs_once_landed`, 0 unless set); the menus (`src/menu.rs`,
+  `the_logo_bobs_once_landed`, 0 unless set), or, for a story game with
+  save games, a title of its own (the owner, 2026-11-14):
+  `c.title_screen.level` names a level of `levels/` (never the start;
+  `Levels::title`, `levels::start_in`) that the window opens in
+  (`Session::begin_title`, `app::own_title`), no engine title, table or
+  initials, a run's end and QUIT TO TITLE back there; a run of its own
+  that counts for nothing (`Session::on_title`: `Runs::start` records
+  none, no `world:save`, no pause); its code asks `world:new_game()` or
+  `world:load(slot)` (`Game::anew`: the session begins the run in its
+  place, `Session::new_run`, `begun` for the window to record),
+  `world:open("settings")` and `world:quit()` (`game::Request`, the
+  machine's, never the run's: `Session::requests`, `Front::asked`;
+  `shot`/`inspect` end at a quit, the IDE's PLAY stops); PLAY, `shot`,
+  `inspect` begin past it, `shot --screen title` shows it (tests in
+  `src/lua/tests/title.rs`); the menus (`src/menu.rs`,
   drawn in `src/ui/menus.rs`) work with keyboard and gamepad alike, Escape pauses
   instead of quitting. Key bindings are places on the keyboard by their US
   names (More Blood's Z and X side by side on any layout); the menus label
