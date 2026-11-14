@@ -54,8 +54,7 @@ impl Keys {
 
     /// `step` choices on, round the list.
     pub fn step(self, step: i32) -> Self {
-        let at = Self::ALL.iter().position(|&k| k == self).unwrap_or(0) as i32;
-        Self::ALL[(at + step).rem_euclid(Self::ALL.len() as i32) as usize]
+        crate::settings::cycle(&Self::ALL, self, step)
     }
 
     /// Its word on the PLAYERS page.

@@ -137,8 +137,7 @@ impl<G: Game> App<G> {
                     Command::SeatKeys(seat, step) => seats.set_keyboard(seat, seats.keys(seat).step(step)),
                     Command::SeatPad(seat, step) => {
                         let choices: Vec<Option<u32>> = std::iter::once(None).chain(named.iter().map(|(id, _)| Some(*id))).collect();
-                        let at = choices.iter().position(|&p| p == seats.pad(seat)).unwrap_or(0) as i32;
-                        seats.set_pad(seat, choices[(at + step).rem_euclid(choices.len() as i32) as usize]);
+                        seats.set_pad(seat, crate::settings::cycle(&choices, seats.pad(seat), step));
                         chosen = Some(seat);
                     }
                     _ => seats.swap(1, 2),

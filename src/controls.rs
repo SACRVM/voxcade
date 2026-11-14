@@ -58,25 +58,29 @@ impl Controls {
     /// The player's: `device` (a pad printing its buttons as `pad_style`
     /// does), the keys as `settings` bind and the keyboard labels them.
     pub fn of(actions: &[&str], device: Device, pad_style: PadStyle, s: &crate::settings::Settings) -> Self {
-        let label = |action: &str| match device {
+        Self::labelled(actions, device, s, |action| match device {
             Device::Keyboard => s.keys.get(action).first().map(|k| s.key_label(k)),
             Device::Gamepad => s.pad.get(action).first().map(|b| pad_label(b, pad_style)),
-        };
-        Self { device: Some(device), keys: actions.iter().chain([&PAUSE]).map(|a| (a.to_string(), label(a).unwrap_or_default())).collect(), language: Some(s.language()) }
+        })
     }
 
     /// A player's on one half of the shared keyboard: the half's keys
     /// (`Settings::left_keys`, `right_keys`), as the keyboard labels them.
     pub fn of_half(actions: &[&str], half: crate::seating::Keys, s: &crate::settings::Settings) -> Self {
         let bound = s.keys_of(half);
-        let label = |action: &str| bound.and_then(|b| b.get(action).first()).map(|k| s.key_label(k)).unwrap_or_default();
-        Self { device: Some(Device::Keyboard), keys: actions.iter().chain([&PAUSE]).map(|a| (a.to_string(), label(a))).collect(), language: Some(s.language()) }
+        Self::labelled(actions, Device::Keyboard, s, |action| bound.and_then(|b| b.get(action).first()).map(|k| s.key_label(k)))
     }
 
     /// A player's on a pad of its own buttons (`Settings::pad_of`).
     pub fn of_pad(actions: &[&str], pad_style: PadStyle, pad: &Bindings, s: &crate::settings::Settings) -> Self {
-        let label = |action: &str| pad.get(action).first().map(|b| pad_label(b, pad_style)).unwrap_or_default();
-        Self { device: Some(Device::Gamepad), keys: actions.iter().chain([&PAUSE]).map(|a| (a.to_string(), label(a))).collect(), language: Some(s.language()) }
+        Self::labelled(actions, Device::Gamepad, s, |action| pad.get(action).first().map(|b| pad_label(b, pad_style)))
+    }
+
+    /// A player's on `device`: each action and pause with its `label`, the
+    /// language chosen in `s`.
+    fn labelled(actions: &[&str], device: Device, s: &crate::settings::Settings, label: impl Fn(&str) -> Option<String>) -> Self {
+        let keys = actions.iter().chain([&PAUSE]).map(|a| (a.to_string(), label(a).unwrap_or_default())).collect();
+        Self { device: Some(device), keys, language: Some(s.language()) }
     }
 
     /// These controls with a key for each of `actions` and pause: a replay

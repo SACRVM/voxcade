@@ -49,8 +49,7 @@ impl Shadows {
 
     /// `step` levels coarser (negative: finer), round the list.
     pub fn step(self, step: i32) -> Self {
-        let at = Self::ALL.iter().position(|&s| s == self).unwrap_or(0) as i32;
-        Self::ALL[(at + step).rem_euclid(Self::ALL.len() as i32) as usize]
+        cycle(&Self::ALL, self, step)
     }
 }
 
@@ -100,9 +99,15 @@ impl FrameRate {
 
     /// `step` places on, round the list.
     pub fn step(self, step: i32) -> Self {
-        let at = Self::ALL.iter().position(|&s| s == self).unwrap_or(0) as i32;
-        Self::ALL[(at + step).rem_euclid(Self::ALL.len() as i32) as usize]
+        cycle(&Self::ALL, self, step)
     }
+}
+
+/// The one `step` places on from `now` in `all`, round the list (from the
+/// first where `now` is none of them).
+pub fn cycle<T: Copy + PartialEq>(all: &[T], now: T, step: i32) -> T {
+    let at = all.iter().position(|&x| x == now).unwrap_or(0) as i32;
+    all[(at + step).rem_euclid(all.len() as i32) as usize]
 }
 
 /// Lines in the high score table.

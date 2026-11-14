@@ -49,12 +49,18 @@ enum Linking {
 
 impl Linking {
     fn start(make: impl FnOnce() -> Result<Link> + Send + 'static) -> Self {
-        let (started, starting) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = started.send(make());
-        });
-        Self::Starting(starting)
+        Self::Starting(on_a_thread(make))
     }
+}
+
+/// What `make` makes, on a thread of its own: taken from the channel when
+/// it is there.
+fn on_a_thread<T: Send + 'static>(make: impl FnOnce() -> T + Send + 'static) -> std::sync::mpsc::Receiver<T> {
+    let (made, making) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = made.send(make());
+    });
+    making
 }
 
 pub struct Network<G: Game> {
@@ -402,7 +408,7 @@ impl<G: Game> Network<G> {
             Side::Guest(j) => j.guest.outgoing(now),
         };
         for (to, bytes) in out {
-            link.send(to, &bytes);
+            link.send(to, bytes);
         }
         // The host closes who was refused or is gone (across the internet).
         if let Side::Host(h) = &mut self.side {
@@ -421,7 +427,7 @@ impl<G: Game> Network<G> {
         };
         if let Linking::Up(link) = &self.link {
             for (to, bytes) in out {
-                link.send(to, &bytes);
+                link.send(to, bytes);
             }
         }
     }
@@ -616,10 +622,7 @@ pub struct NetFinder {
 
 impl NetFinder {
     pub fn new(app: String, version: String) -> Self {
-        let (started, starting) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = started.send(crate::net::quic::Quic::start(crate::net::quic::reach()));
-        });
+        let starting = on_a_thread(|| crate::net::quic::Quic::start(crate::net::quic::reach()));
         Self { starting: Some(starting), quic: None, search: mm::Search { app, version, ..mm::Search::default() }, last: None, rooms: Vec::new() }
     }
 

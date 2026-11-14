@@ -793,52 +793,38 @@ impl Menu {
     /// The JOIN page on a pad, as initials are picked: up and down the last
     /// sign, right one more, left one less, confirm joins, back goes back.
     fn edit_address(&mut self, nav: Nav) -> Option<Command> {
-        let signs: Vec<char> = Self::ADDRESS.chars().collect();
-        match nav {
-            Nav::Up | Nav::Down => {
-                let last = self.address.pop().unwrap_or('0');
-                let at = signs.iter().position(|&c| c == last).unwrap_or(0) as i32;
-                let step = if nav == Nav::Up { 1 } else { -1 };
-                self.address.push(signs[(at + step).rem_euclid(signs.len() as i32) as usize]);
-            }
-            Nav::Right if self.address.len() < 40 => self.address.push('0'),
-            Nav::Left => {
-                self.address.pop();
-            }
-            Nav::Confirm if !self.address.trim().is_empty() => {
-                self.stack.truncate(1);
-                self.open(Page::Joining);
-                return Some(Command::Join);
-            }
-            Nav::Back | Nav::Pause => self.close(),
-            _ => return None,
+        if nav == Nav::Confirm && !self.address.trim().is_empty() {
+            return Some(self.joining(Command::Join));
         }
-        self.moved = self.tick;
-        None
+        let signs: Vec<char> = Self::ADDRESS.chars().collect();
+        let edited = edit_signs(&mut self.address, &signs, 40, nav);
+        self.edited(edited, nav)
     }
 
     /// The code page on a pad, as the JOIN page: up and down the last
     /// sign (a code's own: no 0 and O, no 1 and I), right one more, left
     /// one less; confirm joins once all six are there.
     fn edit_code(&mut self, nav: Nav) -> Option<Command> {
-        let signs = matchmaker_protocol::SIGNS;
+        if nav == Nav::Confirm && self.code.len() == matchmaker_protocol::LENGTH {
+            return Some(self.joining(Command::JoinCode));
+        }
+        let signs: Vec<char> = matchmaker_protocol::SIGNS.iter().map(|&b| b as char).collect();
+        let edited = edit_signs(&mut self.code, &signs, matchmaker_protocol::LENGTH, nav);
+        self.edited(edited, nav)
+    }
+
+    /// JOINING over the title, for `join`.
+    fn joining(&mut self, join: Command) -> Command {
+        self.stack.truncate(1);
+        self.open(Page::Joining);
+        join
+    }
+
+    /// After a sign was edited (`edited`) or not: back closes the page.
+    fn edited(&mut self, edited: bool, nav: Nav) -> Option<Command> {
         match nav {
-            Nav::Up | Nav::Down => {
-                let last = self.code.pop().unwrap_or('A');
-                let at = signs.iter().position(|&c| c as char == last).unwrap_or(0) as i32;
-                let step = if nav == Nav::Up { 1 } else { -1 };
-                self.code.push(signs[(at + step).rem_euclid(signs.len() as i32) as usize] as char);
-            }
-            Nav::Right if self.code.len() < matchmaker_protocol::LENGTH => self.code.push('A'),
-            Nav::Left => {
-                self.code.pop();
-            }
-            Nav::Confirm if self.code.len() == matchmaker_protocol::LENGTH => {
-                self.stack.truncate(1);
-                self.open(Page::Joining);
-                return Some(Command::JoinCode);
-            }
             Nav::Back | Nav::Pause => self.close(),
+            _ if edited => {}
             _ => return None,
         }
         self.moved = self.tick;
@@ -917,6 +903,25 @@ pub fn slot_line(n: u32, info: Option<&crate::saves::SlotInfo>, now: u64, lang: 
     };
     let level: String = info.level.to_uppercase().chars().take(12).collect();
     format!("{n}  {level}  {played}  {ago}").trim_end().to_string()
+}
+
+/// A text typed with `signs` on a pad: up and down step its last sign
+/// through them (the first where there is none), right adds the first
+/// while it is shorter than `most`, left takes the last; whether it was
+/// edited.
+fn edit_signs(text: &mut String, signs: &[char], most: usize, nav: Nav) -> bool {
+    match nav {
+        Nav::Up | Nav::Down => {
+            let last = text.pop().unwrap_or(signs[0]);
+            text.push(crate::settings::cycle(signs, last, if nav == Nav::Up { 1 } else { -1 }));
+        }
+        Nav::Right if text.len() < most => text.push(signs[0]),
+        Nav::Left => {
+            text.pop();
+        }
+        _ => return false,
+    }
+    true
 }
 
 /// Flips an on/off item; the command to apply it.

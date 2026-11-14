@@ -822,7 +822,7 @@ pub fn inspect_net<G: Game>(dir: &Path, frames: u32, input: &str, begin: &crate:
                     if hosting.host.all_delivered() || since.elapsed().as_secs() >= 3 {
                         for _ in 0..10 {
                             for (to, bytes) in hosting.host.farewell() {
-                                socket.send(to, &bytes);
+                                socket.send(to, bytes);
                             }
                         }
                         break;
@@ -830,7 +830,7 @@ pub fn inspect_net<G: Game>(dir: &Path, frames: u32, input: &str, begin: &crate:
                 }
                 last = now;
                 for (to, bytes) in hosting.host.outgoing(now) {
-                    socket.send(to, &bytes);
+                    socket.send(to, bytes);
                 }
                 std::thread::sleep((frame * (n + 1)).saturating_sub(start.elapsed()));
             }
@@ -902,7 +902,7 @@ pub fn inspect_net<G: Game>(dir: &Path, frames: u32, input: &str, begin: &crate:
                     }
                 }
                 for (to, bytes) in joining.guest.outgoing(now) {
-                    socket.send(to, &bytes);
+                    socket.send(to, bytes);
                 }
                 match joining.state() {
                     Joined::Gone(why) if why == "THE HOST LEFT" => break,

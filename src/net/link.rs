@@ -249,10 +249,10 @@ impl Link {
         }
     }
 
-    pub fn send(&self, to: Where, bytes: &[u8]) {
+    pub fn send(&self, to: Where, bytes: Vec<u8>) {
         match (&self.how, to) {
-            (How::Lan(udp), Where::Lan(addr)) => udp.send(addr, bytes),
-            (How::Net(n), Where::Net(peer)) if !n.hosting || n.let_in.contains(&peer) => n.quic.send(peer, bytes.to_vec()),
+            (How::Lan(udp), Where::Lan(addr)) => udp.send(addr, &bytes),
+            (How::Net(n), Where::Net(peer)) if !n.hosting || n.let_in.contains(&peer) => n.quic.send(peer, bytes),
             _ => {}
         }
     }
@@ -357,8 +357,8 @@ mod tests {
         let (a, b) = (Udp::guest().unwrap(), Udp::guest().unwrap());
         let (a_at, b_at) = (a.here(), b.here());
         let (sender, mut receiver) = (Link { how: How::Lan(a) }, Link { how: How::Lan(b) });
-        sender.send(Where::Net(3), b"lost");
-        sender.send(Where::Lan(b_at), b"hello");
+        sender.send(Where::Net(3), b"lost".to_vec());
+        sender.send(Where::Lan(b_at), b"hello".to_vec());
         let started = std::time::Instant::now();
         let mut came = Vec::new();
         while came.is_empty() && started.elapsed() < std::time::Duration::from_secs(5) {
