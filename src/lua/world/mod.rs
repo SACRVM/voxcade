@@ -209,7 +209,7 @@ impl Stage {
         self.host
             .ids()
             .into_iter()
-            .filter(|&id| !figures.contains(&id) && !self.dead.contains(&id.raw()) && !self.gone.contains(&id.raw()) && pick.is_none_or(|p| self.is(id.raw(), p)))
+            .filter(|&id| !figures.contains(&id) && !self.here.dead.contains(&id.raw()) && !self.here.gone.contains(&id.raw()) && pick.is_none_or(|p| self.is(id.raw(), p)))
             .collect()
     }
 
@@ -796,7 +796,7 @@ pub const PARTS: &str = "parts";
 
 /// What a mistake calls thing `id`: its name, else its number.
 pub fn piece_name(h: &Stage, id: u32) -> String {
-    h.names.get(&id).map_or_else(|| format!("thing {id}"), |n| format!("'{n}'"))
+    h.here.names.get(&id).map_or_else(|| format!("thing {id}"), |n| format!("'{n}'"))
 }
 
 /// The table thing `id`'s state keeps the script's keys in.
@@ -825,7 +825,7 @@ fn thing_state(lua: &Lua, id: u32) -> mlua::Result<Value> {
         Some(seat) => return seat_state(lua, seat),
         None => {}
     }
-    let (has_hp, own, lit, piece) = look(lua, |h| Ok((h.kinds[h.thing(id)?.kind].has_hp, h.host.thing_keys(Id::from_raw(id)), h.lights.contains_key(&id), h.pieces.contains_key(&id))))?;
+    let (has_hp, own, lit, piece) = look(lua, |h| Ok((h.kinds[h.thing(id)?.kind].has_hp, h.host.thing_keys(Id::from_raw(id)), h.here.lights.contains_key(&id), h.here.pieces.contains_key(&id))))?;
     if let Some(v) = view(lua, id)? {
         return Ok(Value::Table(v));
     }
@@ -835,7 +835,7 @@ fn thing_state(lua: &Lua, id: u32) -> mlua::Result<Value> {
             return look(lua, |h| Ok(Value::Integer(h.thing(id)?.hp as i64)));
         }
         if key == LIGHT {
-            return look(lua, |h| Ok(h.lights.get(&id).map_or(Value::Nil, |b| Value::Number(*b as f64))));
+            return look(lua, |h| Ok(h.here.lights.get(&id).map_or(Value::Nil, |b| Value::Number(*b as f64))));
         }
         // A piece's pose is the script's, kept in its state as it is.
         if key == PARTS {
@@ -868,14 +868,14 @@ fn thing_state(lua: &Lua, id: u32) -> mlua::Result<Value> {
                 return Err(mlua::Error::runtime(format!("{what}: how bright its light is, 0 (off) to 1, not {b}")));
             }
             return change(lua, &what, |h| {
-                h.lights.insert(id, b as f32);
+                h.here.lights.insert(id, b as f32);
                 Ok(())
             });
         }
         // Checked as it is set (the line that set it named), and again at
         // the tick's end (a part changed inside it); kept as it is.
         if key == PARTS {
-            look(lua, |h| piece_pose(&v, h.pieces.get(&id).and_then(|p| p.model.as_deref()), &h.parts, &piece_name(h, id)).map(|_| ()))?;
+            look(lua, |h| piece_pose(&v, h.here.pieces.get(&id).and_then(|p| p.model.as_deref()), &h.parts, &piece_name(h, id)).map(|_| ()))?;
             return own_state(lua, id)?.raw_set(PARTS, v);
         }
         let value = match v {

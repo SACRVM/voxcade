@@ -463,12 +463,13 @@ pub trait Kit: Game + Host + Clone {
 
 /// The world a script works on (`world` in Lua): the host, and the kinds of
 /// things and sound events by name.
+#[derive(Clone)]
 pub struct Stage {
     pub host: Box<dyn Host>,
+    /// The level being played's things as the script knows them.
+    pub here: Here,
     pub kinds: Arc<Vec<Kind>>,
     pub sounds: Arc<Vec<&'static str>>,
-    /// Things the script removed, gone at the tick's end (`thing:remove`).
-    pub gone: Vec<u32>,
     /// The game's levels, the one being played (its place among them) and
     /// how often each was entered in this run.
     pub levels: Arc<crate::levels::Levels>,
@@ -493,6 +494,47 @@ pub struct Stage {
     pub replayed: std::collections::VecDeque<Arc<str>>,
     /// The saves loaded in this run, in order (a replay carries them).
     pub loaded: Vec<Arc<str>>,
+    /// What the player plays with (`controls`).
+    pub controls: crate::controls::Controls,
+    /// Every seat, seat 1 first (`c.players`; one in a game of one).
+    pub seats: Vec<SeatState>,
+    /// What the machine drawing has of the game (`Game::set_local`): its
+    /// players in `on_draw`, their keys and language.
+    pub local: crate::game::Local,
+    /// Whether `on_tick` runs (a player's keys are only there then).
+    pub ticking: bool,
+    /// The game's actions (`p.input`).
+    pub actions: Arc<Vec<&'static str>>,
+    /// The languages the game speaks (`c.languages`): `world.language` is
+    /// the player's of them, else the first.
+    pub languages: Arc<Vec<String>>,
+    /// Pictures played once where something happened (`level:effect`, a
+    /// thing that went): only shown, not part of the game.
+    pub effects: Vec<Shown>,
+    /// How many frames each of the game's models has (`level:effect`).
+    pub frames: Arc<std::collections::BTreeMap<String, usize>>,
+    /// How tall each of the game's models is (a piece's body).
+    pub heights: Arc<std::collections::BTreeMap<String, f32>>,
+    /// The voxels each kind that bursts as it goes bursts into (`effect =
+    /// "burst"`), by its place among the kinds.
+    pub bursts: Arc<std::collections::BTreeMap<usize, crate::sim::Shape>>,
+    /// The parts of its figures of parts (`frame:model`'s pose).
+    pub parts: Arc<std::collections::BTreeMap<String, Vec<String>>>,
+    /// What the HUD's means need between frames (`frame:icon`,
+    /// `screen:burst`).
+    pub hud: HudState,
+    /// The songs of `c.audio.music`, their names and beats, and the song
+    /// the game plays of its own choice with its clock (`music`).
+    pub songs: Arc<Vec<crate::audio::music::Timing>>,
+    pub music: Music,
+}
+
+/// What the level being played holds of its things for the script, made
+/// afresh as a level is entered (`LuaGame::enter`).
+#[derive(Clone, Default)]
+pub struct Here {
+    /// Things the script removed, gone at the tick's end (`thing:remove`).
+    pub gone: Vec<u32>,
     /// The pairs of things touching, each once: the player first, else the
     /// one that came first (`on_touch` when a pair begins, `on_touch_end`
     /// when it ends). Made from the bodies, so not in the state hash.
@@ -512,20 +554,6 @@ pub struct Stage {
     /// Who brought the script's own things' hit points to 0 by
     /// `thing:hurt`, and with what: `on_death`'s `by` and `weapon`.
     pub killers: std::collections::BTreeMap<u32, (Option<u32>, Option<String>)>,
-    /// What the player plays with (`controls`).
-    pub controls: crate::controls::Controls,
-    /// Every seat, seat 1 first (`c.players`; one in a game of one).
-    pub seats: Vec<SeatState>,
-    /// What the machine drawing has of the game (`Game::set_local`): its
-    /// players in `on_draw`, their keys and language.
-    pub local: crate::game::Local,
-    /// Whether `on_tick` runs (a player's keys are only there then).
-    pub ticking: bool,
-    /// The game's actions (`p.input`).
-    pub actions: Arc<Vec<&'static str>>,
-    /// The languages the game speaks (`c.languages`): `world.language` is
-    /// the player's of them, else the first.
-    pub languages: Arc<Vec<String>>,
     /// The things' names in this level (`thing.name`, `level:thing(name)`):
     /// a placed thing's is its kind's and its number (`door_1`), a spawned
     /// one's what `level:spawn` named it.
@@ -533,29 +561,10 @@ pub struct Stage {
     /// Where the things stood when touches were last looked for: how a
     /// touch began (`on_touch`'s `where`) is judged from there.
     pub seen_at: std::collections::BTreeMap<u32, Vec3>,
-    /// Pictures played once where something happened (`level:effect`, a
-    /// thing that went): only shown, not part of the game.
-    pub effects: Vec<Shown>,
     /// What `level:spawn` gave a thing besides its kind's props.
     pub props: std::collections::BTreeMap<u32, super::value::Value>,
     /// Things told to have fallen out of the level (once each).
     pub fallen: std::collections::BTreeSet<u32>,
-    /// How many frames each of the game's models has (`level:effect`).
-    pub frames: Arc<std::collections::BTreeMap<String, usize>>,
-    /// How tall each of the game's models is (a piece's body).
-    pub heights: Arc<std::collections::BTreeMap<String, f32>>,
-    /// The voxels each kind that bursts as it goes bursts into (`effect =
-    /// "burst"`), by its place among the kinds.
-    pub bursts: Arc<std::collections::BTreeMap<usize, crate::sim::Shape>>,
-    /// The parts of its figures of parts (`frame:model`'s pose).
-    pub parts: Arc<std::collections::BTreeMap<String, Vec<String>>>,
-    /// What the HUD's means need between frames (`frame:icon`,
-    /// `screen:burst`).
-    pub hud: HudState,
-    /// The songs of `c.audio.music`, their names and beats, and the song
-    /// the game plays of its own choice with its clock (`music`).
-    pub songs: Arc<Vec<crate::audio::music::Timing>>,
-    pub music: Music,
     /// The pieces the level set down (`grid::PIECE`), by their things'
     /// ids: the model each shows, the way it faces, the light it brings.
     pub pieces: std::collections::BTreeMap<u32, crate::levels::Piece>,
@@ -759,51 +768,9 @@ pub struct Touching {
     pub reach: Option<f32>,
 }
 
-impl Clone for Stage {
+impl Clone for Box<dyn Host> {
     fn clone(&self) -> Self {
-        Self {
-            host: self.host.box_clone(),
-            kinds: self.kinds.clone(),
-            sounds: self.sounds.clone(),
-            gone: self.gone.clone(),
-            levels: self.levels.clone(),
-            level: self.level,
-            visits: self.visits.clone(),
-            ask: self.ask.clone(),
-            arrived: self.arrived.clone(),
-            ended: self.ended,
-            saving: self.saving.clone(),
-            slots: self.slots.clone(),
-            slot_texts: self.slot_texts.clone(),
-            replayed: self.replayed.clone(),
-            loaded: self.loaded.clone(),
-            touching: self.touching.clone(),
-            dead: self.dead.clone(),
-            graveyard: self.graveyard.clone(),
-            placed: self.placed.clone(),
-            later: self.later.clone(),
-            killers: self.killers.clone(),
-            controls: self.controls.clone(),
-            seats: self.seats.clone(),
-            local: self.local.clone(),
-            ticking: false,
-            actions: self.actions.clone(),
-            languages: self.languages.clone(),
-            hud: self.hud.clone(),
-            names: self.names.clone(),
-            seen_at: self.seen_at.clone(),
-            effects: self.effects.clone(),
-            props: self.props.clone(),
-            fallen: self.fallen.clone(),
-            frames: self.frames.clone(),
-            heights: self.heights.clone(),
-            bursts: self.bursts.clone(),
-            parts: self.parts.clone(),
-            songs: self.songs.clone(),
-            music: self.music.clone(),
-            pieces: self.pieces.clone(),
-            lights: self.lights.clone(),
-        }
+        self.box_clone()
     }
 }
 
@@ -894,7 +861,7 @@ impl Stage {
             None => self.host.get(Id::from_raw(id)),
         };
         living.or_else(|| {
-            let (_, kind, body, half) = self.graveyard.iter().find(|(gone, ..)| *gone == id)?;
+            let (_, kind, body, half) = self.here.graveyard.iter().find(|(gone, ..)| *gone == id)?;
             Some(Seen { kind: *kind, body, hp: 0, flash: 0, half: *half, reach: None })
         })
     }
@@ -905,19 +872,19 @@ impl Stage {
     pub fn bodies(&self) -> Vec<Touching> {
         let host = &self.host;
         let mut bodies = Vec::new();
-        if let Some(p) = host.player_seen().filter(|_| !self.dead.contains(&PLAYER) && self.in_play(1)) {
+        if let Some(p) = host.player_seen().filter(|_| !self.here.dead.contains(&PLAYER) && self.in_play(1)) {
             bodies.push(Touching { id: PLAYER, at: p.body.pos, height: p.body.height, half: p.half, reach: p.reach });
         }
         // The seats after the first, in play, by their handles.
         for seat in 2..=self.seats.len() {
             let handle = seat_handle(seat);
-            if let Some(p) = self.seen(handle).filter(|_| self.in_play(seat) && !self.dead.contains(&handle)) {
+            if let Some(p) = self.seen(handle).filter(|_| self.in_play(seat) && !self.here.dead.contains(&handle)) {
                 bodies.push(Touching { id: handle, at: p.body.pos, height: p.body.height, half: p.half, reach: p.reach });
             }
         }
         let figures: Vec<Id> = (1..=self.seats.len()).filter_map(|n| self.figure(n)).collect();
         for id in host.ids() {
-            if figures.contains(&id) || self.dead.contains(&id.raw()) || self.gone.contains(&id.raw()) {
+            if figures.contains(&id) || self.here.dead.contains(&id.raw()) || self.here.gone.contains(&id.raw()) {
                 continue;
             }
             if let Some(t) = host.get(id) {
@@ -974,7 +941,7 @@ impl Stage {
         }
         let step = self.host.sim().cfg.physics.step as f32;
         let (na, nb) = (ta.body.pos, tb.body.pos);
-        let (pa, pb) = (self.seen_at.get(&a).copied().unwrap_or(na), self.seen_at.get(&b).copied().unwrap_or(nb));
+        let (pa, pb) = (self.here.seen_at.get(&a).copied().unwrap_or(na), self.here.seen_at.get(&b).copied().unwrap_or(nb));
         let (fall_a, fall_b) = (na.z - pa.z, nb.z - pb.z);
         if pa.z >= pb.z + tb.body.height - step && fall_a < fall_b {
             Met::Top
@@ -985,13 +952,13 @@ impl Stage {
         }
     }
 
-    /// Names the level's things as they stand when it is entered: the name
+    /// Names the level's things as they stand when it is entered (its
+    /// `Here` fresh): the name
     /// the level's file gives one (a piece's, a thing's of a kind in the
     /// order its kind's markers come), else its kind's name and its number
     /// among its kind (`door_1`), in the order they came; what the script
     /// gave or the level kept goes with them.
     pub fn name_things(&mut self) {
-        (self.names, self.props, self.fallen, self.seen_at) = Default::default();
         let figures: Vec<Id> = (1..=self.seats.len()).filter_map(|n| self.figure(n)).collect();
         let levels = Arc::clone(&self.levels);
         let level = &levels.list[self.level];
@@ -1015,7 +982,7 @@ impl Stage {
             let Some(k) = self.kinds.get(kind) else { continue };
             let n = counts.entry(kind).or_insert(0);
             *n += 1;
-            let own = match self.pieces.get(&id.raw()) {
+            let own = match self.here.pieces.get(&id.raw()) {
                 Some(p) => p.name.clone(),
                 None => {
                     if let Some(bearing) = ways.get_mut(&kind).and_then(|q| q.pop_front()).flatten() {
@@ -1024,7 +991,7 @@ impl Stage {
                     given.get_mut(&kind).and_then(|q| q.pop_front()).flatten()
                 }
             };
-            self.names.insert(id.raw(), own.unwrap_or_else(|| format!("{}_{n}", k.name)));
+            self.here.names.insert(id.raw(), own.unwrap_or_else(|| format!("{}_{n}", k.name)));
         }
         // (Only kinds without a behavior have a way in a file: `LuaGame`
         // refuses the rest as it loads.)
@@ -1035,12 +1002,12 @@ impl Stage {
 
     /// The thing called `name` in this level, if it is still there.
     pub fn named(&self, name: &str) -> Option<u32> {
-        self.names.iter().find(|(id, n)| n.as_str() == name && self.seen(**id).is_some() && !self.dead.contains(id)).map(|(id, _)| *id)
+        self.here.names.iter().find(|(id, n)| n.as_str() == name && self.seen(**id).is_some() && !self.here.dead.contains(id)).map(|(id, _)| *id)
     }
 
     /// Remembers where every body stands now, for the next touches' `where`.
     pub fn note_positions(&mut self) {
-        self.seen_at = self.bodies().iter().map(|b| (b.id, b.at)).collect();
+        self.here.seen_at = self.bodies().iter().map(|b| (b.id, b.at)).collect();
     }
 
     /// What shows and sounds as a thing of `kind` goes at `at`, facing
@@ -1061,23 +1028,23 @@ impl Stage {
     /// Takes the things the script removed out of the game (the tick's
     /// end), each with its kind's effect and sound.
     pub fn settle(&mut self) {
-        for id in std::mem::take(&mut self.gone) {
+        for id in std::mem::take(&mut self.here.gone) {
             let going = self.host.get(Id::from_raw(id)).map(|t| (t.kind, t.body.pos, t.body.look));
             // (Not for what fell out of the level: nobody sees it go.)
-            if let Some((kind, at, look)) = going.filter(|_| !self.dead.contains(&id) && !self.fallen.contains(&id)) {
+            if let Some((kind, at, look)) = going.filter(|_| !self.here.dead.contains(&id) && !self.here.fallen.contains(&id)) {
                 self.goes(kind, at, look);
             }
             // A solid piece's cells go with it (`world::Solids`).
-            if let Some(i) = self.pieces.get(&id).filter(|p| p.solid).map(|p| p.index) {
+            if let Some(i) = self.here.pieces.get(&id).filter(|p| p.solid).map(|p| p.index) {
                 self.host.sim_mut().world.lift_piece(i);
             }
             self.host.remove(Id::from_raw(id));
         }
         // What died and went is read no more; the dead that went are no
         // longer kept as dead.
-        self.graveyard.clear();
+        self.here.graveyard.clear();
         let (host, player) = (&self.host, self.host.player_seen().is_some());
-        self.dead.retain(|&id| if id == PLAYER { player } else { host.get(Id::from_raw(id)).is_some() });
+        self.here.dead.retain(|&id| if id == PLAYER { player } else { host.get(Id::from_raw(id)).is_some() });
     }
 }
 

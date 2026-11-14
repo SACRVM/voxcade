@@ -445,7 +445,7 @@ impl<K: Kit> LuaGame<K> {
             check(state.clone(), &path, true)?;
             check_inventory(&state, &path, items)?;
             // A piece's pose, a part of it changed since it was set too.
-            if self.stage.pieces.contains_key(&id) {
+            if self.stage.here.pieces.contains_key(&id) {
                 self.piece_pose(id, &state)?;
             }
         }
@@ -459,7 +459,7 @@ impl<K: Kit> LuaGame<K> {
         if v.is_nil() {
             return Ok(Vec::new());
         }
-        let model = self.stage.pieces.get(&id).and_then(|p| p.model.as_deref());
+        let model = self.stage.here.pieces.get(&id).and_then(|p| p.model.as_deref());
         Ok(world::piece_pose(&v, model, &self.stage.parts, &world::piece_name(&self.stage, id))?)
     }
 
@@ -687,9 +687,9 @@ impl<K: Kit> Game for LuaGame<K> {
         let mut game = Self {
             stage: Stage {
                 host,
+                here: Default::default(),
                 kinds,
                 sounds: Self::sound_names(cfg),
-                gone: Vec::new(),
                 visits: (0..levels.list.len()).map(|i| (i == 0) as u32).collect(),
                 levels,
                 level: 0,
@@ -701,12 +701,6 @@ impl<K: Kit> Game for LuaGame<K> {
                 slot_texts: setup_texts,
                 replayed: setup_replayed.into(),
                 loaded: Vec::new(),
-                touching: Default::default(),
-                dead: Default::default(),
-                graveyard: Vec::new(),
-                placed: Vec::new(),
-                later: Vec::new(),
-                killers: Default::default(),
                 controls: crate::controls::Controls::nobody(&actions),
                 seats: (1..=cfg.players.max(1))
                     .map(|n| host::SeatState { taken: n == 1, been: n == 1, controls: crate::controls::Controls::nobody(&actions), ..Default::default() })
@@ -715,11 +709,7 @@ impl<K: Kit> Game for LuaGame<K> {
                 ticking: false,
                 actions: actions.clone(),
                 languages: Arc::new(cfg.languages.clone()),
-                names: Default::default(),
-                seen_at: Default::default(),
                 effects: Vec::new(),
-                props: Default::default(),
-                fallen: Default::default(),
                 frames: Arc::new(models.frame_counts()),
                 heights: Arc::new(models.heights()),
                 bursts: kinds_bursting,
@@ -727,8 +717,6 @@ impl<K: Kit> Game for LuaGame<K> {
                 hud: host::HudState::new(cfg),
                 songs: Arc::new(songs),
                 music: Default::default(),
-                pieces: Default::default(),
-                lights: Default::default(),
             },
             sandbox,
             tick: None,
@@ -804,7 +792,9 @@ impl<K: Kit> Game for LuaGame<K> {
     }
 
     fn snapshot(&self) -> Result<LuaSnapshot> {
-        Ok(LuaSnapshot { stage: self.stage.clone(), script: self.capture()?, before: self.before, held_for: self.held_for })
+        // (Taken between ticks: `on_tick` runs in none.)
+        let stage = Stage { ticking: false, ..self.stage.clone() };
+        Ok(LuaSnapshot { stage, script: self.capture()?, before: self.before, held_for: self.held_for })
     }
 
     fn restore(&mut self, kept: &LuaSnapshot) {
@@ -1154,14 +1144,14 @@ impl<K: Kit> Game for LuaGame<K> {
                 if self.stage.kinds[t.kind].has_hp {
                     own["hp"] = t.hp.into();
                 }
-                if let Some(b) = self.stage.lights.get(&id.raw()) {
+                if let Some(b) = self.stage.here.lights.get(&id.raw()) {
                     own["light"] = (*b).into();
                 }
                 let mut thing = serde_json::json!({ "id": id.raw(), "kind": self.stage.kinds[t.kind].name, "x": p.x, "y": p.y, "z": p.z, "state": own });
-                if let Some(name) = self.stage.names.get(&id.raw()) {
+                if let Some(name) = self.stage.here.names.get(&id.raw()) {
                     thing["name"] = name.clone().into();
                 }
-                if let Some(model) = self.stage.pieces.get(&id.raw()).and_then(|p| p.model.clone()) {
+                if let Some(model) = self.stage.here.pieces.get(&id.raw()).and_then(|p| p.model.clone()) {
                     thing["model"] = model.into();
                 }
                 Some(thing)
@@ -1385,8 +1375,8 @@ impl<K: Kit> Game for LuaGame<K> {
         // The pieces the level set down, each its model where its pivot
         // stands, facing its way, and its light as bright as its state says
         // (off at 0). The script draws nothing for them.
-        for (&id, p) in &self.stage.pieces {
-            let Some(t) = self.stage.seen(id).filter(|_| !self.stage.dead.contains(&id)) else { continue };
+        for (&id, p) in &self.stage.here.pieces {
+            let Some(t) = self.stage.seen(id).filter(|_| !self.stage.here.dead.contains(&id)) else { continue };
             // Tipped too (`pitch`, `roll`): as `frame:model` would turn it
             // with the same three numbers.
             let tipped = p.pitch != 0.0 || p.roll != 0.0;
@@ -1418,7 +1408,7 @@ impl<K: Kit> Game for LuaGame<K> {
             }
             // Its lights, all as bright as its state says (one brightness for
             // them all; a light of its own each would be a list of them).
-            let brightness = self.stage.lights.get(&id).copied().unwrap_or(0.0);
+            let brightness = self.stage.here.lights.get(&id).copied().unwrap_or(0.0);
             if brightness > 0.0 {
                 let (sin, cos) = crate::sim::math::sin_cos((p.facing.bearing() as f32).to_radians());
                 // A tipped piece's lights turn with it about its turn's

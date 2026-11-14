@@ -172,14 +172,14 @@ impl<K: Kit> LuaGame<K> {
         }
     }
 
-    /// Sets down the pieces of the level being played (`grid::PIECE`):
+    /// Sets down the pieces of the level being played (`grid::PIECE`, its
+    /// `Here` fresh):
     /// each a thing of the piece kind standing exactly where the file puts
     /// its pivot, as tall as its model, facing its way, its light on. The
     /// camera keeps to what it followed.
     pub(super) fn spawn_pieces(&mut self) {
         let levels = Arc::clone(&self.stage.levels);
         let level = &levels.list[self.stage.level];
-        (self.stage.pieces, self.stage.lights) = Default::default();
         let Some(kind) = self.stage.kinds.iter().position(|k| k.name == crate::grid::PIECE) else { return };
         let focus = self.plain().map(|h| h.focus);
         for p in &level.pieces {
@@ -200,9 +200,9 @@ impl<K: Kit> LuaGame<K> {
                 body.prev = body.pos;
             }
             if !p.lights.is_empty() {
-                self.stage.lights.insert(id.raw(), 1.0);
+                self.stage.here.lights.insert(id.raw(), 1.0);
             }
-            self.stage.pieces.insert(id.raw(), p.clone());
+            self.stage.here.pieces.insert(id.raw(), p.clone());
         }
         if let (Some(h), Some(focus)) = (self.plain_mut(), focus) {
             h.focus = focus;

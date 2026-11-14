@@ -29,7 +29,7 @@ impl<K: Kit> LuaGame<K> {
             (Some(kit), _) => {
                 let moved_on = self.stage.level != 0 || self.stage.visits.iter().enumerate().any(|(i, &v)| v != (i == 0) as u32);
                 let solid = self.stage.host.sim().world.pieces.is_some();
-                if script.state.is_none() && script.player.is_none() && script.level.is_none() && script.kept.is_empty() && script.data.is_empty() && !moved_on && !self.uses_music && self.stage.lights.is_empty() && !solid {
+                if script.state.is_none() && script.player.is_none() && script.level.is_none() && script.kept.is_empty() && script.data.is_empty() && !moved_on && !self.uses_music && self.stage.here.lights.is_empty() && !solid {
                     let only = kit.state_hash();
                     for name in PARTS {
                         mark(name, only);
@@ -77,7 +77,7 @@ impl<K: Kit> LuaGame<K> {
         }
         // The pieces' lights, in a level that has some (others hash as
         // before).
-        for (id, b) in &stage.lights {
+        for (id, b) in &stage.here.lights {
             s.u64(0x6c69_6768).u64(*id as u64).f32(*b);
         }
         // The solid pieces taken away, in a level that has some (others

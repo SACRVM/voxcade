@@ -200,10 +200,10 @@ impl UserData for LevelView {
                     h.moved(id.raw(), "level:spawn: facing")?.0.face(way);
                 }
                 if let Some(name) = o.name {
-                    h.names.insert(id.raw(), name);
+                    h.here.names.insert(id.raw(), name);
                 }
                 if let Some(props) = props {
-                    h.props.insert(id.raw(), props);
+                    h.here.props.insert(id.raw(), props);
                 }
                 Ok(id.raw())
             })?;
@@ -233,7 +233,7 @@ impl UserData for LevelView {
                 }
                 _ => thing_id(&v, "level:thing")?,
             };
-            if look(lua, |h| Ok(h.seen(id).is_some() && !h.gone.contains(&id)))? { Ok(Some(handle(lua, id)?)) } else { Ok(None) }
+            if look(lua, |h| Ok(h.seen(id).is_some() && !h.here.gone.contains(&id)))? { Ok(Some(handle(lua, id)?)) } else { Ok(None) }
         });
         m.add_function("things", |lua, (_, kind): (AnyUserData, Option<String>)| {
             level_here(lua, "level:things")?;

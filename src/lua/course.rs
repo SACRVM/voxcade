@@ -149,16 +149,16 @@ impl<K: Kit> LuaGame<K> {
         if how != "reload" && how != "load" {
             self.stage.visits[index] += 1;
         }
-        self.stage.gone.clear();
-        // The level's things are new: nothing touches, nothing died yet.
-        (self.stage.touching, self.stage.dead, self.stage.graveyard, self.stage.placed, self.stage.later, self.stage.killers) = Default::default();
+        // The level's things are new: nothing touches, nothing died yet,
+        // none named or set down.
+        self.stage.here = host::Here::default();
         self.spawn_pieces();
         self.stage.name_things();
         // A save's lights as they were, by the pieces' names.
         if let Some(l) = &loaded {
             for (name, brightness) in &l.lights {
-                if let Some(id) = self.stage.named(name).filter(|id| self.stage.lights.contains_key(id)) {
-                    self.stage.lights.insert(id, brightness.clamp(0.0, 1.0));
+                if let Some(id) = self.stage.named(name).filter(|id| self.stage.here.lights.contains_key(id)) {
+                    self.stage.here.lights.insert(id, brightness.clamp(0.0, 1.0));
                 }
             }
         }

@@ -67,7 +67,7 @@ impl UserData for ThingRef {
             Ok(w)
         });
         f.add_field_method_get("state", |lua, t| thing_state(lua, t.0));
-        f.add_field_method_get("name", |lua, t| look(lua, |h| Ok(h.names.get(&t.0).cloned())));
+        f.add_field_method_get("name", |lua, t| look(lua, |h| Ok(h.here.names.get(&t.0).cloned())));
         f.add_field_method_get("families", |lua, t| {
             let families = look(lua, |h| Ok(h.kinds.get(h.thing(t.0)?.kind).map(|k| k.families.clone()).unwrap_or_default()))?;
             let set = lua.create_table()?;
@@ -81,7 +81,7 @@ impl UserData for ThingRef {
             if let Some(p) = cache.raw_get::<Option<Value>>(t.0)? {
                 return Ok(p);
             }
-            let (kind, own) = look(lua, |h| Ok((h.kinds.get(h.thing(t.0)?.kind).map(|k| k.props.clone()).unwrap_or_default(), h.props.get(&t.0).cloned())))?;
+            let (kind, own) = look(lua, |h| Ok((h.kinds.get(h.thing(t.0)?.kind).map(|k| k.props.clone()).unwrap_or_default(), h.here.props.get(&t.0).cloned())))?;
             let props = lua.create_table()?;
             for (k, v) in &kind {
                 props.raw_set(k.as_str(), from_toml(lua, v)?)?;
@@ -254,13 +254,13 @@ impl UserData for ThingRef {
                     && let Some(figure) = h.host.seat_figure(seat).filter(|&f| h.host.get_mut(f).is_some_and(|m| m.moved.is_none()))
                 {
                     h.host.put_figure(figure, at).map_err(|e| mlua::Error::runtime(format!("player:place: {e}")))?;
-                    h.placed.push(t.0);
+                    h.here.placed.push(t.0);
                     return Ok(());
                 }
                 // The player of ready-made rules is stood there by them.
                 if t.0 == PLAYER && h.host.player_id().is_none_or(|id| h.host.get_mut(id).is_some_and(|m| m.moved.is_none())) {
                     h.host.put_player(at).map_err(|e| mlua::Error::runtime(format!("player:place: {e}")))?;
-                    h.placed.push(t.0);
+                    h.here.placed.push(t.0);
                     return Ok(());
                 }
                 let body = h.moved(t.0, "thing:place")?.0;
@@ -269,7 +269,7 @@ impl UserData for ThingRef {
                     body.face(way);
                 }
                 // What it touches there it touches without on_touch.
-                h.placed.push(t.0);
+                h.here.placed.push(t.0);
                 Ok(())
             })
         });
@@ -312,15 +312,15 @@ impl UserData for ThingRef {
                         let hp = h.thing_mut(t.0)?.hp;
                         *hp -= damage as i32;
                         if *hp <= 0 {
-                            h.killers.insert(t.0, (by_handle, weapon.clone()));
+                            h.here.killers.insert(t.0, (by_handle, weapon.clone()));
                         }
-                        h.later.push(Event::Hit { who: whom, by, damage: damage as i32, weapon: weapon.clone() });
+                        h.here.later.push(Event::Hit { who: whom, by, damage: damage as i32, weapon: weapon.clone() });
                     }
                     // The ready-made rules' own, taken by their rules.
                     _ => {
                         h.host.hurt(whom, damage as i32, by, weapon.clone()).map_err(|e| mlua::Error::runtime(format!("thing:hurt: {e}")))?;
                         let told = std::mem::take(&mut h.host.sim_mut().events);
-                        h.later.extend(told);
+                        h.here.later.extend(told);
                     }
                 }
                 Ok(())
@@ -355,7 +355,7 @@ impl UserData for ThingRef {
             if taken > 0 {
                 change(lua, "thing:take", |h| {
                     let who = h.who(t.0);
-                    h.later.push(Event::Pickup { who, item });
+                    h.here.later.push(Event::Pickup { who, item });
                     Ok(())
                 })?;
             }
@@ -366,9 +366,9 @@ impl UserData for ThingRef {
                 return Err(mlua::Error::runtime("player:remove: the player belongs to no level; it goes from level to level (out of play: state.out = true)"));
             }
             change(lua, "thing:remove", |h| {
-                let there = h.host.get(Id::from_raw(t.0)).is_some() && !h.gone.contains(&t.0);
+                let there = h.host.get(Id::from_raw(t.0)).is_some() && !h.here.gone.contains(&t.0);
                 if there {
-                    h.gone.push(t.0);
+                    h.here.gone.push(t.0);
                 }
                 Ok(there)
             })

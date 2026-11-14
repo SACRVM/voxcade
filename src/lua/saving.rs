@@ -62,7 +62,7 @@ impl<K: Kit> LuaGame<K> {
             voxels: save::write_voxels(&changed, sim.world.size),
             size: sim.world.size.to_array(),
             palette,
-            lights: stage.lights.iter().filter(|(id, _)| host.get(Id::from_raw(**id)).is_some()).filter_map(|(id, b)| Some((stage.names.get(id)?.clone(), *b))).collect(),
+            lights: stage.here.lights.iter().filter(|(id, _)| host.get(Id::from_raw(**id)).is_some()).filter_map(|(id, b)| Some((stage.here.names.get(id)?.clone(), *b))).collect(),
         })
     }
 
