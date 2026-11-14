@@ -92,6 +92,28 @@ struct Remote<A> {
 /// drops it, and a line for every screen goes.
 const TELLING: u64 = 2_000_000;
 
+/// Every bundle of a run as sent, one after another in one buffer (a
+/// bundle of a few bytes a buffer of its own cost three times that).
+#[derive(Default)]
+struct History {
+    bytes: Vec<u8>,
+    /// Where each bundle ends in `bytes`.
+    ends: Vec<usize>,
+}
+
+impl History {
+    fn push(&mut self, bundle: &[u8]) {
+        self.bytes.extend_from_slice(bundle);
+        self.ends.push(self.bytes.len());
+    }
+
+    /// The bundle of tick `tick`.
+    fn get(&self, tick: usize) -> &[u8] {
+        let start = tick.checked_sub(1).map_or(0, |t| self.ends[t]);
+        &self.bytes[start..self.ends[tick]]
+    }
+}
+
 /// The host's side, sending datagrams to addresses of type `A`.
 pub struct Host<A> {
     key: u64,
@@ -100,7 +122,7 @@ pub struct Host<A> {
     remotes: Vec<Remote<A>>,
     joined: u8,
     /// Every bundle of the run, as sent.
-    history: Vec<Vec<u8>>,
+    history: History,
     /// The host's own players' readings, each with the tick it was read
     /// before, held back by `delay`.
     own: VecDeque<(u64, u8, Input)>,
@@ -182,7 +204,7 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
             seats: slots,
             remotes: Vec::new(),
             joined: 0,
-            history: Vec::new(),
+            history: History::default(),
             own: VecDeque::new(),
             own_last: vec![Input::default(); seats],
             delay: 0,
@@ -216,7 +238,7 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
 
     /// The next tick it builds.
     pub fn next_tick(&self) -> u64 {
-        self.history.len() as u64
+        self.history.ends.len() as u64
     }
 
     /// The ticks a guest's seat held nothing because its keys did not
@@ -524,7 +546,7 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
         let bundle = Bundle { tick, inputs, seats: events, controls, extra };
         let bytes = wire::bundle_bytes(&bundle);
         debug_assert!(bytes.len() <= most, "a bundle of {} bytes", bytes.len());
-        self.history.push(bytes);
+        self.history.push(&bytes);
         self.measure_delay();
         Ok(bundle)
     }
@@ -836,7 +858,7 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
             let lacks: Vec<u64> = (r.got..next).filter(|&t| t == r.got || t - r.got > 64 || r.mask >> (t - r.got - 1) & 1 == 0).collect();
             let (mut from, mut sent) = (0, 0);
             loop {
-                let bundles: Vec<&[u8]> = lacks[from..].iter().map(|&t| self.history[t as usize].as_slice()).collect();
+                let bundles: Vec<&[u8]> = lacks[from..].iter().map(|&t| self.history.get(t as usize)).collect();
                 let (datagram, n) = wire::down(&head, self.key, &bundles, self.limit);
                 if n == 0 {
                     // Nothing to send: a word now and then all the same.
