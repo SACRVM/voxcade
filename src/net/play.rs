@@ -176,11 +176,22 @@ impl RunSoFar {
     }
 }
 
-/// The tick a bundle plays: its inputs, every seat's controls as the
-/// bundles have them, the clock, and the events it brings.
-fn tick_of(b: &Bundle, known: &[Controls], when: u64, events: Vec<Event>) -> Tick {
-    let seats = (1..known.len()).map(|n| Seat { input: b.inputs.get(n).copied().flatten(), controls: known[n].clone() }).collect();
-    Tick { events, when, controls: known[0].clone(), input: b.inputs.first().copied().flatten().unwrap_or_default(), seats }
+/// The tick a bundle plays, made in `tick` (the one before): its inputs,
+/// every seat's controls as the bundles have them (copied only where they
+/// differ from the tick before's), the clock, and the events it brings.
+fn tick_of<'a>(tick: &'a mut Tick, b: &Bundle, known: &[Controls], when: u64, events: Vec<Event>) -> &'a Tick {
+    (tick.events, tick.when) = (events, when);
+    tick.input = b.inputs.first().copied().flatten().unwrap_or_default();
+    tick.seats.resize_with(known.len().saturating_sub(1), Seat::default);
+    for (to, from) in std::iter::once(&mut tick.controls).chain(tick.seats.iter_mut().map(|s| &mut s.controls)).zip(known) {
+        if to != from {
+            to.clone_from(from);
+        }
+    }
+    for (n, seat) in tick.seats.iter_mut().enumerate() {
+        seat.input = b.inputs.get(n + 1).copied().flatten();
+    }
+    tick
 }
 
 /// Takes the controls a bundle changed.
@@ -276,11 +287,13 @@ struct Run {
     known: Vec<Controls>,
     start: u64,
     checks: std::collections::VecDeque<Check>,
+    /// The last tick played, made anew in place for the next (`tick_of`).
+    tick: Tick,
 }
 
 impl Run {
     fn new(dir: &Path, fingerprint: u64, known: Vec<Controls>) -> Self {
-        Self { dir: dir.to_path_buf(), recorder: Recorder::default(), fingerprint, known, start: 0, checks: Default::default() }
+        Self { dir: dir.to_path_buf(), recorder: Recorder::default(), fingerprint, known, start: 0, checks: Default::default(), tick: Tick::default() }
     }
 
     /// The run begun anew at the bundle of `tick` (F5, LOAD): `game` made
@@ -613,7 +626,7 @@ impl<G: Game, A: Copy + Ord + std::fmt::Debug> Hosting<G, A> {
         }
         take_controls(&mut self.run.known, &bundle)?;
         // The host has made its saves and run its lines already.
-        game.play(&tick_of(&bundle, &self.run.known, when, Vec::new()));
+        game.play(tick_of(&mut self.run.tick, &bundle, &self.run.known, when, Vec::new()));
         self.run.recorder.record(game);
         if bundle.tick.is_multiple_of(CHECK_EVERY) {
             self.run.keep_check(bundle.tick, game.sections());
@@ -834,13 +847,12 @@ impl<G: Game, A: Copy + PartialEq + std::fmt::Debug> Joining<G, A> {
             self.run.renew(game, slots_of(game), text.as_deref(), b.tick)?;
         }
         take_controls(&mut self.run.known, b)?;
-        #[allow(unused_mut)]
-        let mut tick = tick_of(b, &self.run.known, self.when, extra.events);
+        tick_of(&mut self.run.tick, b, &self.run.known, self.when, extra.events);
         #[cfg(test)]
         if std::mem::take(&mut self.break_next) {
-            tick.input.up = !tick.input.up;
+            self.run.tick.input.up = !self.run.tick.input.up;
         }
-        game.play(&tick);
+        game.play(&self.run.tick);
         game.stopped()?;
         self.run.recorder.record(game);
         if b.tick.is_multiple_of(CHECK_EVERY) {
