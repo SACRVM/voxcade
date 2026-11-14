@@ -296,41 +296,16 @@ impl Shooter {
             let aim = towards(from, player);
             let scatter = if assist { w.spread } else { 0.0 };
             let spread = Vec3::new(self.sim.rng.range(-scatter, scatter), self.sim.rng.range(-scatter, scatter), 0.0);
+            // The flash along the line, the round scattered off it.
             self.sim.flash(from, aim);
             self.sim.sound(w.sound.0, from, 1.0);
-            self.bullets.push(Bullet {
-                pos: from,
-                prev: from,
-                origin: from,
-                vel: (aim + spread).normalize_or_zero() * w.speed,
-                life: w.life,
-                damage: w.damage,
-                blast: w.blast,
-                rocket: w.rocket,
-                hostile: true,
-                weapon,
-                team,
-                from: None,
-            });
+            self.bullets.push(Bullet::fired(w, weapon, from, (aim + spread).normalize_or_zero(), true, team, None));
         }
         for (from, weapon, team, player) in rockets {
             let w = &rules.weapons[weapon];
             let aim = towards(from, player);
             self.sim.sound(w.sound.0, from, 1.0);
-            self.bullets.push(Bullet {
-                pos: from,
-                prev: from,
-                origin: from,
-                vel: aim * w.speed,
-                life: w.life,
-                damage: w.damage,
-                blast: w.blast,
-                rocket: w.rocket,
-                hostile: true,
-                weapon,
-                team,
-                from: None,
-            });
+            self.bullets.push(Bullet::fired(w, weapon, from, aim, true, team, None));
         }
         for id in crashes.into_iter().rev() {
             self.crash(id);
@@ -382,7 +357,8 @@ impl Shooter {
         let (at, crash_blast) = (centre(&h.body, r.size), r.crash_blast);
         self.blast_of(at, crash_blast, None, self.rules.kinds[h.kind].team, r.crash_damage, None);
         self.sim.shake = 1.0;
-        let shape = self.shapes.kind(&self.rules.kinds[h.kind]).clone();
+        let shapes = Arc::clone(&self.shapes);
+        let shape = shapes.kind(&self.rules.kinds[h.kind]);
         self.wreck(&shape.voxels, shape.size, h.body.pos, h.body.look);
     }
 

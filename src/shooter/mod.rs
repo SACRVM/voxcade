@@ -28,6 +28,7 @@ use crate::session::{Drawing, Models};
 use crate::controls::Bindings;
 use crate::input::Input;
 use crate::sim::math;
+use crate::sim::things::Id;
 use crate::sim::{Body, DT, Marker, Shape, Sim, SoundEvent, body_hits, spawn_point};
 use crate::world::World;
 
@@ -153,88 +154,62 @@ pub struct Controls {
     pub strafe: bool,
 }
 
-/// Something that makes a sound. The simulation only reports these; what
-/// they sound like is the game's business (`audio`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Sfx {
-    Shot,
-    EnemyShot,
-    Rocket,
-    Knife,
-    /// A shot chipping the world.
-    Impact,
-    Explosion,
-    Throw,
-    /// A body bursting.
-    Splat,
-    Hurt,
-    /// The player going down.
-    Down,
-    Pickup,
-    Rescue,
-    Jump,
-    Land,
-    Checkpoint,
-    Win,
-    GameOver,
-    /// A piece cut off from the ground coming down.
-    Crumble,
-    /// One chop of a gunship's rotor (it repeats while it flies).
-    Rotor,
+/// The kit's sound events, each with its name: the enum, `Sfx::ALL` and
+/// `Sfx::name` from one list.
+macro_rules! sound_events {
+    ($($(#[$doc:meta])* $sfx:ident = $name:literal,)*) => {
+        /// Something that makes a sound. The simulation only reports these;
+        /// what they sound like is the game's business (`audio`).
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        pub enum Sfx {
+            $($(#[$doc])* $sfx,)*
+        }
+
+        impl Sfx {
+            pub const ALL: &[Sfx] = &[$(Sfx::$sfx),*];
+
+            /// Its name, the sound's (`sounds/NAME.toml`).
+            pub fn name(self) -> &'static str {
+                match self {
+                    $(Sfx::$sfx => $name,)*
+                }
+            }
+        }
+    };
 }
 
+sound_events! {
+    Shot = "shot",
+    EnemyShot = "enemy_shot",
+    Rocket = "rocket",
+    Knife = "knife",
+    /// A shot chipping the world.
+    Impact = "impact",
+    Explosion = "explosion",
+    Throw = "throw",
+    /// A body bursting.
+    Splat = "splat",
+    Hurt = "hurt",
+    /// The player going down.
+    Down = "down",
+    Pickup = "pickup",
+    Rescue = "rescue",
+    Jump = "jump",
+    Land = "land",
+    Checkpoint = "checkpoint",
+    Win = "win",
+    GameOver = "game_over",
+    /// A piece cut off from the ground coming down.
+    Crumble = "crumble",
+    /// One chop of a gunship's rotor (it repeats while it flies).
+    Rotor = "rotor",
+}
+
+#[cfg(test)]
 impl Sfx {
-    pub const ALL: [Sfx; 19] = [
-        Sfx::Shot,
-        Sfx::EnemyShot,
-        Sfx::Rocket,
-        Sfx::Knife,
-        Sfx::Impact,
-        Sfx::Explosion,
-        Sfx::Throw,
-        Sfx::Splat,
-        Sfx::Hurt,
-        Sfx::Down,
-        Sfx::Pickup,
-        Sfx::Rescue,
-        Sfx::Jump,
-        Sfx::Land,
-        Sfx::Checkpoint,
-        Sfx::Win,
-        Sfx::GameOver,
-        Sfx::Crumble,
-        Sfx::Rotor,
-    ];
-
-    /// Its name in `c.sounds`.
-    pub fn name(self) -> &'static str {
-        match self {
-            Sfx::Shot => "shot",
-            Sfx::EnemyShot => "enemy_shot",
-            Sfx::Rocket => "rocket",
-            Sfx::Knife => "knife",
-            Sfx::Impact => "impact",
-            Sfx::Explosion => "explosion",
-            Sfx::Throw => "throw",
-            Sfx::Splat => "splat",
-            Sfx::Hurt => "hurt",
-            Sfx::Down => "down",
-            Sfx::Pickup => "pickup",
-            Sfx::Rescue => "rescue",
-            Sfx::Jump => "jump",
-            Sfx::Land => "land",
-            Sfx::Checkpoint => "checkpoint",
-            Sfx::Win => "win",
-            Sfx::GameOver => "game_over",
-            Sfx::Crumble => "crumble",
-            Sfx::Rotor => "rotor",
-        }
-    }
-
-    #[cfg(test)]
     pub fn from_name(name: &str) -> Option<Sfx> {
-        Sfx::ALL.into_iter().find(|s| s.name() == name)
+        Sfx::ALL.iter().copied().find(|s| s.name() == name)
     }
 }
 
@@ -335,12 +310,19 @@ pub struct Bullet {
     pub team: Option<&'static str>,
     /// The seat's player who fired it, in a game of several (whose hit it
     /// is); the one player's and the others' none.
-    pub from: Option<crate::sim::things::Id>,
+    pub from: Option<Id>,
 }
 
 pub use crate::sim::things::PLAYER_TEAM;
 
 impl Bullet {
+    /// A round of `weapon` (`rules`, its place in `Rules::weapons`) leaving
+    /// `from` along `dir`, fired by `team` (by a seat's player: `by`).
+    pub(super) fn fired(rules: &kinds::WeaponRules, weapon: usize, from: Vec3, dir: Vec3, hostile: bool, team: Option<&'static str>, by: Option<Id>) -> Self {
+        let (vel, life, damage, blast, rocket) = (dir * rules.speed, rules.life, rules.damage, rules.blast, rules.rocket);
+        Bullet { pos: from, prev: from, origin: from, vel, life, damage, blast, rocket, hostile, weapon, team, from: by }
+    }
+
     /// Colours of a rocket's head and of the fire behind it.
     pub fn colors(&self) -> ([u8; 4], [u8; 4]) {
         ([250, 250, 240, 255], [255, 150, 60, 255])
@@ -434,7 +416,7 @@ pub struct Shooter {
     /// Attacks the game's code asked for this tick (`thing:attack`), and
     /// the ticks until a thing may attack so again.
     queued: Vec<Queued>,
-    busy: std::collections::BTreeMap<crate::sim::things::Id, u32>,
+    busy: std::collections::BTreeMap<Id, u32>,
     shapes: Arc<Shapes>,
     /// The level's places (a hostage may run to one, `flee`).
     places: Arc<[crate::levels::Place]>,
@@ -469,7 +451,7 @@ fn with_items(cfg: &GameConfig, rules: &Rules) -> GameConfig {
 
 /// An attack the game's code asked for: who, with which weapon, at what
 /// (a point, and the thing there).
-type Queued = (crate::sim::Who, usize, Option<(Vec3, Option<crate::sim::things::Id>)>);
+type Queued = (crate::sim::Who, usize, Option<(Vec3, Option<Id>)>);
 
 impl std::ops::Deref for Shooter {
     type Target = Sim;
@@ -668,16 +650,22 @@ impl Shooter {
         if !self.several() {
             return vec![Fighter { who: crate::sim::Who::Player, body: self.player.body.clone(), team: self.seat_team(1), playing: on }];
         }
-        let mut seated: Vec<(usize, Fighter)> = self
-            .things
-            .iter()
-            .filter_map(|t| match &t.brain {
-                Brain::Player(s) => Some((s.seat, Fighter { who: crate::sim::Who::Thing(t.id), body: t.body.clone(), team: self.seat_team(s.seat), playing: on && !s.down })),
-                _ => None,
-            })
-            .collect();
-        seated.sort_by_key(|(seat, _)| *seat);
-        seated.into_iter().map(|(_, f)| f).collect()
+        let fighter = |(seat, id): (usize, Id)| {
+            let t = self.things.get(id)?;
+            let Brain::Player(s) = &t.brain else { return None };
+            Some(Fighter { who: crate::sim::Who::Thing(id), body: t.body.clone(), team: self.seat_team(seat), playing: on && !s.down })
+        };
+        self.seats().into_iter().filter_map(fighter).collect()
+    }
+
+    /// The seats' figures in a game of several, by seat: (seat, id).
+    fn seats(&self) -> Vec<(usize, Id)> {
+        let mut seats: Vec<(usize, Id)> = self.things.iter().filter_map(|t| match &t.brain {
+            Brain::Player(s) => Some((s.seat, t.id)),
+            _ => None,
+        }).collect();
+        seats.sort_by_key(|(seat, _)| *seat);
+        seats
     }
 
     /// Seat `seat`'s team (`p.state.team`, `PLAYER_TEAM` unless set).
@@ -703,7 +691,7 @@ impl Shooter {
     }
 
     /// Seat `seat`'s figure in a game of several.
-    pub(crate) fn seated(&self, seat: usize) -> Option<crate::sim::things::Id> {
+    pub(crate) fn seated(&self, seat: usize) -> Option<Id> {
         self.things.iter().find(|t| matches!(&t.brain, Brain::Player(s) if s.seat == seat)).map(|t| t.id)
     }
 
@@ -723,12 +711,7 @@ impl Shooter {
 
     /// The seats' players, in seat order, each with what it holds.
     fn update_seats(&mut self, input: &Input) {
-        let mut seats: Vec<(usize, crate::sim::things::Id)> = self.things.iter().filter_map(|t| match &t.brain {
-            Brain::Player(s) => Some((s.seat, t.id)),
-            _ => None,
-        }).collect();
-        seats.sort_by_key(|(seat, _)| *seat);
-        for (seat, id) in seats {
+        for (seat, id) in self.seats() {
             let held = match seat {
                 1 => *input,
                 n => self.seat_inputs.get(n - 2).copied().flatten().unwrap_or_default(),
@@ -740,7 +723,7 @@ impl Shooter {
 
     /// One seat's player a tick: as the one player moves and attacks;
     /// down, it lies there until the game's code gives it hit points.
-    fn update_seated(&mut self, id: crate::sim::things::Id, input: &Input) {
+    fn update_seated(&mut self, id: Id, input: &Input) {
         let Some(t) = self.things.get_mut(id) else { return };
         let Brain::Player(s) = &mut t.brain else { return };
         if s.down && t.hp > 0 {
@@ -755,11 +738,16 @@ impl Shooter {
         s.invulnerable = s.invulnerable.saturating_sub(1);
         s.busy = s.busy.saturating_sub(1);
         let before = std::mem::replace(&mut s.held, input.actions);
-        let who = crate::sim::Who::Thing(id);
+        self.attack_on_keys(crate::sim::Who::Thing(id), &input, before);
+    }
+
+    /// Each action attacks with the first of its weapons that can, while
+    /// held (a weapon that is not `auto`: once a press); `before` the
+    /// actions held the tick before.
+    fn attack_on_keys(&mut self, who: crate::sim::Who, input: &Input, before: u32) {
         let rules = Arc::clone(&self.rules);
         for (slot, (action, choices)) in rules.binds.attacks.iter().enumerate() {
-            let Some(Brain::Player(s)) = self.things.get_mut(id).map(|t| &mut t.brain) else { return };
-            let cooldown = &mut s.cooldowns[slot];
+            let Some(cooldown) = self.cooldowns(who).map(|c| &mut c[slot]) else { return };
             *cooldown = cooldown.saturating_sub(1);
             if !input.held(*action) || *cooldown > 0 {
                 continue;
@@ -770,9 +758,21 @@ impl Shooter {
                 continue;
             }
             let wait = self.attack(who, weapon, target, None);
-            if let Some(Brain::Player(s)) = self.things.get_mut(id).map(|t| &mut t.brain) {
-                s.cooldowns[slot] = wait;
+            if let Some(cooldowns) = self.cooldowns(who) {
+                cooldowns[slot] = wait;
             }
+        }
+    }
+
+    /// A player's weapons' cooldowns, by attack: the one player's, or a
+    /// seat's.
+    fn cooldowns(&mut self, who: crate::sim::Who) -> Option<&mut [u32]> {
+        match who {
+            crate::sim::Who::Player => Some(&mut self.player.cooldowns),
+            crate::sim::Who::Thing(id) => match self.things.get_mut(id).map(|t| &mut t.brain) {
+                Some(Brain::Player(s)) => Some(&mut s.cooldowns),
+                _ => None,
+            },
         }
     }
 
@@ -788,13 +788,8 @@ impl Shooter {
         // A game of several: every seat's figure there too, side by side;
         // before the figures exist, the first to come stands there.
         self.start_at = Some(at);
-        let mut seated: Vec<(usize, crate::sim::things::Id)> = self.things.iter().filter_map(|t| match &t.brain {
-            Brain::Player(s) => Some((s.seat, t.id)),
-            _ => None,
-        }).collect();
-        seated.sort();
         let half = self.sim.half();
-        for (n, (_, id)) in seated.into_iter().enumerate() {
+        for (n, (_, id)) in self.seats().into_iter().enumerate() {
             let Some(t) = self.things.get_mut(id) else { continue };
             let at = crate::sim::stand_at(&self.sim.world, at + Vec3::X * (n as f32 * half * 2.0), t.body.height, half);
             (t.body.pos, t.body.prev, t.body.vel) = (at, at, Vec3::ZERO);
@@ -950,7 +945,7 @@ impl Shooter {
 
     /// Dust from a body's steps (one puff a stride) and from landing, as
     /// its kind (or the player's config) says.
-    fn footsteps(&mut self, thing: Option<crate::sim::things::Id>, walked_before: f32) {
+    fn footsteps(&mut self, thing: Option<Id>, walked_before: f32) {
         let (body, steps) = match thing {
             None => (&self.player.body, self.cfg.player.steps()),
             Some(id) => {
@@ -990,26 +985,10 @@ impl Shooter {
         let walked = walk(&mut p.body, &mut p.jump_held, input, &mut self.sim, &self.rules.binds);
         self.footsteps(None, walked);
         let p = &mut self.player;
-
         p.invulnerable = p.invulnerable.saturating_sub(1);
         p.busy = p.busy.saturating_sub(1);
         let before = std::mem::replace(&mut p.held, input.actions);
-        // Each action attacks with the first of its weapons that can, while
-        // held (a weapon that is not `auto`: once a press).
-        let rules = Arc::clone(&self.rules);
-        for (slot, (action, choices)) in rules.binds.attacks.iter().enumerate() {
-            let cooldown = &mut self.player.cooldowns[slot];
-            *cooldown = cooldown.saturating_sub(1);
-            if !input.held(*action) || *cooldown > 0 {
-                continue;
-            }
-            let pressed = before >> action & 1 == 0;
-            let Some((weapon, target)) = self.first_that_can(crate::sim::Who::Player, choices) else { continue };
-            if !rules.weapons[weapon].auto && !pressed {
-                continue;
-            }
-            self.player.cooldowns[slot] = self.attack(crate::sim::Who::Player, weapon, target, None);
-        }
+        self.attack_on_keys(crate::sim::Who::Player, input, before);
     }
 
     fn update_bullets(&mut self) {
@@ -1023,7 +1002,7 @@ impl Shooter {
         let gunships: Vec<(&Body, [f32; 3], usize)> =
             self.things.iter().filter(|t| is_gunship(t)).map(|t| (&t.body, self.rules.gunship(t.kind).size, t.kind)).collect();
         let enemies: Vec<(&Body, usize)> = self.things.iter().filter(|t| is_soldier(t)).map(|t| (&t.body, t.kind)).collect();
-        let others: Vec<(crate::sim::things::Id, &Body, usize)> = self
+        let others: Vec<(Id, &Body, usize)> = self
             .things
             .iter()
             .filter(|t| {
@@ -1044,7 +1023,7 @@ impl Shooter {
         let mut impacts = Vec::new();
         let mut enemy_hits = Vec::new();
         let mut other_hits = Vec::new();
-        let mut player_hits: Vec<(i32, Option<usize>, Option<crate::sim::things::Id>)> = vec![(0, None, None); fighters.len()];
+        let mut player_hits: Vec<(i32, Option<usize>, Option<Id>)> = vec![(0, None, None); fighters.len()];
         self.bullets.retain_mut(|b| {
             b.prev = b.pos;
             b.life -= DT;
@@ -1088,7 +1067,7 @@ impl Shooter {
         let rules = Arc::clone(&self.rules);
         let name = |w: usize| Some(rules.weapon_names[w].clone());
         let one = self.seat_team(1);
-        let by = |team: Option<&str>, from: Option<crate::sim::things::Id>| match from {
+        let by = |team: Option<&str>, from: Option<Id>| match from {
             Some(id) => Some(crate::sim::Who::Thing(id)),
             None => (team == Some(one)).then_some(crate::sim::Who::Player),
         };

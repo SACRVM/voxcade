@@ -208,6 +208,20 @@ pub(super) fn nearest(targets: &[(Vec3, Vec3)], at: Vec3) -> Option<(Vec3, Vec3)
     best.map(|(_, t)| t)
 }
 
+/// Whether a blow of `weapon` from the body `from` reaches feet at `at`:
+/// close in front, within its cone, at the attacker's height.
+fn in_blow(weapon: &kinds::WeaponRules, from: &Body, at: Vec3) -> bool {
+    let to = at - from.pos;
+    let flat = to.truncate();
+    let ahead = math::cos((weapon.cone * 0.5).to_radians());
+    flat.length() < weapon.reach && to.z.abs() < from.height * 0.6 && flat.normalize_or_zero().dot(from.facing.truncate()) > ahead
+}
+
+/// Where a body's throw leaves its hand: high in front of it.
+fn throw_from(b: &Body, half: f32) -> Vec3 {
+    b.pos + Vec3::Z * b.height * 0.8 + b.facing * (half + 0.5)
+}
+
 /// Where a body placed by a marker stands: on the marker's cell, lifted out
 /// of anything solid.
 fn place(world: &crate::world::World, cell: IVec3, height: f32, half: f32) -> Vec3 {
@@ -361,19 +375,10 @@ impl Shooter {
     /// The first a blow of weapon `w` reaches and can hurt: close in front,
     /// within its cone, at the player's height.
     fn in_reach(&self, who: Who, w: usize) -> Option<Id> {
-        let rules = &self.rules.weapons[w];
+        let weapon = &self.rules.weapons[w];
         let b = self.body_of(who)?;
-        let (pos, facing, height) = (b.pos, b.facing, b.height);
-        let ahead = math::cos((rules.cone * 0.5).to_radians());
         let team = Some(self.team_of(who));
-        self.things
-            .iter()
-            .find(|t| {
-                let to = t.body.pos - pos;
-                let flat = to.truncate();
-                self.hurt_by(t, team, true) && flat.length() < rules.reach && to.z.abs() < height * 0.6 && flat.normalize_or_zero().dot(facing.truncate()) > ahead
-            })
-            .map(|t| t.id)
+        self.things.iter().find(|t| self.hurt_by(t, team, true) && in_blow(weapon, b, t.body.pos)).map(|t| t.id)
     }
 
     /// How far a weapon's attack is heard.
@@ -383,6 +388,16 @@ impl Shooter {
             Some(n) if n <= 0.0 => None,
             Some(n) => Some(Noise::Within(n)),
         }
+    }
+
+    /// A round of weapon `w` fired from `from` along `dir`: the muzzle's
+    /// flash, the weapon's sound, the round on its way.
+    fn fire(&mut self, from: Vec3, dir: Vec3, w: usize, hostile: bool, team: Option<&'static str>, by: Option<Id>) {
+        let rules = Arc::clone(&self.rules);
+        let weapon = &rules.weapons[w];
+        self.sim.flash(from, dir);
+        self.sim.sound(weapon.sound.0, from, 1.0);
+        self.bullets.push(Bullet::fired(weapon, w, from, dir, hostile, team, by));
     }
 
     /// The player (`who`: the one, or a seat's) attacks with weapon `w`: a
@@ -427,7 +442,7 @@ impl Shooter {
         };
         if weapon.thrown() {
             let (throw, blast, sound) = (weapon.throw, weapon.blast, weapon.sound.0);
-            let from = b.pos + Vec3::Z * b.height * 0.8 + b.facing * (self.sim.half() + 0.5);
+            let from = throw_from(b, self.sim.half());
             let target = at.unwrap_or(b.pos + b.facing * throw);
             let team = Some(self.team_of(who));
             self.grenades.push(Grenade::lobbed(from, target, throw, blast, self.sim.cfg.physics.gravity, w, team, Some(who)));
@@ -435,14 +450,13 @@ impl Shooter {
             return weapon.cooldown;
         }
         let facing = b.facing;
-        let (speed, damage, blast, spread, life, rocket) = (weapon.speed, weapon.damage, weapon.blast, weapon.spread, weapon.life, weapon.rocket);
         let half = self.sim.half();
         let muzzle = muzzle_at(b, self.cfg.player.muzzle, half);
         // At what the game named, or the nearest enemy or gunship in the
         // line of fire (with aim assist, in a narrow cone around it); else
         // the way the player faces. Without aim assist nothing strays off
         // the 8 ways, not even the machine gun's spray.
-        let reach = speed * life;
+        let reach = weapon.speed * weapon.life;
         let assist = rules.aim_assist;
         let aimed = match at {
             Some(at) => (at - muzzle).normalize_or(facing),
@@ -466,11 +480,8 @@ impl Shooter {
                 aim(muzzle, facing, reach, assist, targets).unwrap_or(facing)
             }
         };
-        let dir = if assist { rotate_z(aimed, self.sim.rng.range(-spread, spread)) } else { aimed };
-        self.sim.flash(muzzle, dir);
-        self.sim.sound(weapon.sound.0, muzzle, 1.0);
-        let team = Some(self.team_of(who));
-        self.bullets.push(Bullet { pos: muzzle, prev: muzzle, origin: muzzle, vel: dir * speed, life, damage, blast, rocket, hostile: false, weapon: w, team, from });
+        let dir = if assist { rotate_z(aimed, self.sim.rng.range(-weapon.spread, weapon.spread)) } else { aimed };
+        self.fire(muzzle, dir, w, false, Some(self.team_of(who)), from);
         if let Some(noise) = self.noise_of(w) {
             self.alert(muzzle, noise);
         }
@@ -545,12 +556,8 @@ impl Shooter {
     /// Whether a blow of weapon `w` by `who` from `from` reaches thing
     /// `id`: close in front, within its cone, at the attacker's height.
     fn reaches(&self, w: usize, who: Who, from: &Body, id: Id) -> bool {
-        let rules = &self.rules.weapons[w];
         let team = Some(self.team_of(who));
-        let Some(t) = self.things.get(id).filter(|t| self.hurt_by(t, team, true)) else { return false };
-        let to = t.body.pos - from.pos;
-        let flat = to.truncate();
-        flat.length() < rules.reach && to.z.abs() < from.height * 0.6 && flat.normalize_or_zero().dot(from.facing.truncate()) > math::cos((rules.cone * 0.5).to_radians())
+        self.things.get(id).is_some_and(|t| self.hurt_by(t, team, true) && in_blow(&self.rules.weapons[w], from, t.body.pos))
     }
 
     /// One of the things attacks with weapon `w` (the game's code): a blow
@@ -564,15 +571,7 @@ impl Shooter {
         let facing = body.facing;
         if weapon.melee() {
             // The first player in reach, in seat order.
-            let ahead = math::cos((weapon.cone * 0.5).to_radians());
-            let struck = self.fighters().into_iter().find(|f| {
-                let to = f.body.pos - body.pos;
-                if !kinds::hurts(team, Some(f.team)) {
-                    return false;
-                }
-                let flat = to.truncate();
-                flat.length() < weapon.reach && to.z.abs() < body.height * 0.6 && flat.normalize_or_zero().dot(facing.truncate()) > ahead
-            });
+            let struck = self.fighters().into_iter().find(|f| kinds::hurts(team, Some(f.team)) && in_blow(weapon, &body, f.body.pos));
             if let Some(f) = struck {
                 let hit = f.body.centre();
                 self.sim.sound(weapon.sound.0, hit, 1.0);
@@ -582,7 +581,7 @@ impl Shooter {
             return weapon.cooldown;
         }
         if weapon.thrown() {
-            let from = body.pos + Vec3::Z * body.height * 0.8 + facing * (self.sim.half() + 0.5);
+            let from = throw_from(&body, self.sim.half());
             let target = at.unwrap_or(body.pos + facing * weapon.throw);
             self.grenades.push(Grenade::lobbed(from, target, weapon.throw, weapon.blast, self.sim.cfg.physics.gravity, w, team, None));
             self.sim.sound(weapon.sound.0, from, 1.0);
@@ -590,9 +589,7 @@ impl Shooter {
         }
         let muzzle = muzzle_at(&body, None, self.sim.half());
         let dir = at.map_or(facing, |p| (p - muzzle).normalize_or(facing));
-        self.sim.flash(muzzle, dir);
-        self.sim.sound(weapon.sound.0, muzzle, 1.0);
-        self.bullets.push(Bullet { pos: muzzle, prev: muzzle, origin: muzzle, vel: dir * weapon.speed, life: weapon.life, damage: weapon.damage, blast: weapon.blast, rocket: weapon.rocket, hostile: true, weapon: w, team, from: None });
+        self.fire(muzzle, dir, w, true, team, None);
         weapon.cooldown
     }
 
@@ -668,7 +665,8 @@ impl Shooter {
             let h = self.things.remove(id).expect("a hostage in the list");
             self.sim.events.push(Event::Death { who: Who::Thing(id), by, kind: h.kind, body: h.body.clone(), weapon });
             self.sound(Sfx::Splat, h.body.centre(), 1.0);
-            let shape = self.shapes.kind(&self.rules.kinds[h.kind]).clone();
+            let shapes = Arc::clone(&self.shapes);
+            let shape = shapes.kind(&self.rules.kinds[h.kind]);
             self.sim.gib(&shape.voxels, shape.size, h.body.pos, Vec3::ZERO);
         }
     }
@@ -744,7 +742,8 @@ impl Shooter {
         if !quiet {
             self.alert(e.body.pos, Noise::Fall);
         }
-        let shape = self.shapes.kind(&self.rules.kinds[e.kind]).clone();
+        let shapes = Arc::clone(&self.shapes);
+        let shape = shapes.kind(&self.rules.kinds[e.kind]);
         // Away from who killed him (a seat's player), else the first.
         let killer = by.and_then(|who| self.body_of(who)).filter(|_| self.several()).map(|b| b.pos);
         let from = killer.or_else(|| self.fighters().first().map(|f| f.body.pos)).unwrap_or(e.body.pos);
@@ -776,15 +775,8 @@ impl Shooter {
             t.hp = 0;
             s.down = true;
         }
-        let (at, kind, body) = (t.body.centre(), t.kind, t.body.clone());
-        self.sim.events.push(Event::Hit { who: Who::Thing(id), by, damage, weapon: weapon.clone() });
-        self.sim.shake = (self.sim.shake + 0.5).min(1.0);
-        self.sound(if down { Sfx::Down } else { Sfx::Hurt }, at, 1.0);
-        if down {
-            self.sim.events.push(Event::Death { who: Who::Thing(id), by, kind, body: body.clone(), weapon });
-            let shape = self.shapes.kind(&self.rules.kinds[kind]).clone();
-            self.sim.gib(&shape.voxels, shape.size, body.pos, Vec3::ZERO);
-        }
+        let (kind, body) = (t.kind, t.body.clone());
+        self.tell_hurt(Who::Thing(id), kind, body, down, damage, by, weapon);
     }
 
     pub(super) fn hurt_player(&mut self, damage: i32, by: Option<Who>, weapon: Option<String>) {
@@ -792,17 +784,27 @@ impl Shooter {
             return;
         }
         self.status.hp -= damage;
-        self.sim.events.push(Event::Hit { who: Who::Player, by, damage, weapon: weapon.clone() });
         self.player.invulnerable = self.cfg.player.invulnerable;
-        self.sim.shake = (self.sim.shake + 0.5).min(1.0);
-        let at = self.player.body.centre();
-        self.sound(if self.status.hp <= 0 { Sfx::Down } else { Sfx::Hurt }, at, 1.0);
-        if self.status.hp <= 0 {
+        let down = self.status.hp <= 0;
+        if down {
             self.status.hp = 0;
             self.status.phase = Phase::Down;
-            self.sim.events.push(Event::Death { who: Who::Player, by, kind: usize::MAX, body: self.player.body.clone(), weapon });
-            let shape = self.shapes.player.clone();
-            let at = self.player.body.pos;
+        }
+        self.tell_hurt(Who::Player, usize::MAX, self.player.body.clone(), down, damage, by, weapon);
+    }
+
+    /// What a player's hit tells and shows: the hit, a shake and its sound;
+    /// down, its death and its figure bursting.
+    #[allow(clippy::too_many_arguments)]
+    fn tell_hurt(&mut self, who: Who, kind: usize, body: Body, down: bool, damage: i32, by: Option<Who>, weapon: Option<String>) {
+        self.sim.events.push(Event::Hit { who, by, damage, weapon: weapon.clone() });
+        self.sim.shake = (self.sim.shake + 0.5).min(1.0);
+        self.sound(if down { Sfx::Down } else { Sfx::Hurt }, body.centre(), 1.0);
+        if down {
+            let at = body.pos;
+            self.sim.events.push(Event::Death { who, by, kind, body, weapon });
+            let shapes = Arc::clone(&self.shapes);
+            let shape = if who == Who::Player { &shapes.player } else { shapes.kind(&self.rules.kinds[kind]) };
             self.sim.gib(&shape.voxels, shape.size, at, Vec3::ZERO);
         }
     }
@@ -946,23 +948,7 @@ impl Shooter {
             self.kill_enemy(id, false, None, None);
         }
         for (from, dir, weapon, team) in shots {
-            let w = &rules.weapons[weapon];
-            self.sim.flash(from, dir);
-            self.sim.sound(w.sound.0, from, 1.0);
-            self.bullets.push(Bullet {
-                pos: from,
-                prev: from,
-                origin: from,
-                vel: dir * w.speed,
-                life: w.life,
-                damage: w.damage,
-                blast: w.blast,
-                rocket: w.rocket,
-                hostile: true,
-                weapon,
-                team,
-                from: None,
-            });
+            self.fire(from, dir, weapon, true, team, None);
         }
         let gravity = self.sim.cfg.physics.gravity;
         for (from, to, weapon, team) in throws {
