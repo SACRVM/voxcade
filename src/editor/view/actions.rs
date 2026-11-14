@@ -712,7 +712,7 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
     if view.picker || !ed.among_pieces() {
         ed.drop_hanging();
     }
-    if !matches!(action, Action::OpenMenu(..) | Action::AddMenu | Action::BlockMenu(..) | Action::FrameMenu(..) | Action::PartMenu(..) | Action::MergeMenu(..) | Action::SelToPartMenu(..)) {
+    if !matches!(action, Action::OpenMenu(..) | Action::GroupMenu(..) | Action::AddMenu | Action::BlockMenu(..) | Action::FrameMenu(..) | Action::PartMenu(..) | Action::MergeMenu(..) | Action::SelToPartMenu(..)) {
         view.menu = None;
     }
     // The figure made again at once (a part chosen, its rig set), and the

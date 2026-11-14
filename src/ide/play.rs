@@ -293,7 +293,8 @@ impl<G: Game> Play<G> {
     /// locals the game's functions keep and says which changed.
     /// After a tick: a run the game's own title began (`world:new_game()`)
     /// recorded from here, its locals looked at afresh, its song;
-    /// `world:quit()` heard (the shell stops the game, `quits`); the
+    /// `world:quit()` heard (the shell stops the game, `quits`), a page it
+    /// asks for said in OUTPUT; the
     /// hidden-state guard.
     fn guard_tick(&mut self) {
         if std::mem::take(&mut self.game.begun) {
@@ -302,7 +303,13 @@ impl<G: Game> Play<G> {
             self.guard.begin(self.game.game.hidden());
             self.music();
         }
-        self.quit |= self.game.requests().contains(&crate::game::Request::Quit);
+        for asked in self.game.requests() {
+            match asked {
+                crate::game::Request::Quit => self.quit = true,
+                // PLAY has no menus: said, so a row that seems to do nothing is explained.
+                crate::game::Request::Open(page) => self.notes.push(format!("The game opens the engine's {} page here: shown when it plays in its own window, not in PLAY.", page.to_uppercase())),
+            }
+        }
         let game = &self.game.game;
         self.hidden.extend(self.guard.tick(|| game.hidden()));
     }

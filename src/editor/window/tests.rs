@@ -181,6 +181,16 @@ fn a_click_on_a_groups_row_folds_it_and_writes_nothing() {
     click(&mut win, at);
     assert!(!win.ed.pieces.folded.contains("kitchen"), "open again");
     assert_eq!((std::fs::read_to_string(&path).unwrap(), win.ed.steps(), win.ed.pieces.chosen), (text, 0, None), "nothing written, nothing chosen");
+    // A right click on it: its menu, still there the frames after (it
+    // closed in the frame it opened once, seen only in a real window).
+    let at = row(&win, "group:kitchen");
+    motion(&mut win, at.x, at.y, 0);
+    button(&mut win, at.x, at.y, sdl3::mouse::MouseButton::Right, true);
+    button(&mut win, at.x, at.y, sdl3::mouse::MouseButton::Right, false);
+    for _ in 0..3 {
+        win.draw().unwrap();
+    }
+    assert!(matches!(win.view.menu, Some(crate::editor::view::Menu { on: crate::editor::view::MenuOn::Group(_), .. })), "the group's menu: {:?}", win.view.menu.map(|m| m.at));
 }
 
 /// The owner's case through the window's own events: clicks on the
