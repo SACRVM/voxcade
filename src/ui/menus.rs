@@ -48,344 +48,453 @@ pub struct MenuView<'a> {
 /// title the logo and the main items over the scene, the other pages over
 /// a darkened screen.
 pub fn menu(view: &MenuView, cfg: &UiConfig, alpha: f32, aspect: f32) -> (Vec<Instance>, Vec<ModelDraw>, Mat4) {
-    let layout = Layout { width: (cfg.height * aspect).round(), height: cfg.height };
+    let layout = Layout::of(cfg, aspect);
     let camera = camera(&layout, cfg.slant, cfg.depth as f32);
-    let finish = Finish::of(cfg);
     let mut out = Vec::new();
     let mut letters = Vec::new();
     let menu = view.menu;
     let Some(page) = menu.page() else { return (out, letters, camera) };
-    let depth = cfg.depth;
-    let t = (menu.tick - menu.opened) as f32 + alpha;
-    let now = menu.tick as f32 + alpha;
-    let top = layout.height;
     // The engine's words in the player's language (`c.languages`).
     let lang = view.settings.language();
-    let lang = lang.as_str();
-    let say = |en: &'static str| crate::lang::say(lang, en);
+    let pen = Pen {
+        view,
+        layout,
+        lang: lang.as_str(),
+        depth: cfg.depth,
+        t: (menu.tick - menu.opened) as f32 + alpha,
+        now: menu.tick as f32 + alpha,
+        finish: Finish::of(cfg),
+    };
+    heading(&mut out, &mut letters, &pen, page);
+    match page {
+        Page::Title => title_page(&mut out, &pen),
+        Page::Pause | Page::Network => pause_page(&mut out, &pen, page),
+        Page::Find => find_page(&mut out, &pen),
+        Page::Join => join_page(&mut out, &pen),
+        Page::Code => code_page(&mut out, &pen),
+        Page::Joining => joining_page(&mut out, &pen),
+        Page::Settings => settings_page(&mut out, &pen),
+        Page::Audio | Page::Video => audio_video_page(&mut out, &pen, page),
+        Page::Controls => controls_page(&mut out, &pen),
+        Page::Players => players_page(&mut out, &pen),
+        Page::PlayerControls(seat) => player_controls_page(&mut out, &pen, seat),
+        Page::Save | Page::Load => slots_page(&mut out, &pen, page),
+        Page::Initials => initials_page(&mut out, &pen),
+        Page::HighScores => high_scores_page(&mut out, &pen),
+    }
+    hint_lines(&mut out, &pen, page);
+    crate::render::hide_inner_faces(&mut out);
+    (out, letters, camera)
+}
 
+/// What the menu's pages are drawn with: the view, the UI grid, the
+/// player's language, the letters' depth, the ticks since the page opened
+/// (`t`) and since the menu began (`now`), the big letters' finish.
+struct Pen<'a> {
+    view: &'a MenuView<'a>,
+    layout: Layout,
+    lang: &'a str,
+    depth: i32,
+    t: f32,
+    now: f32,
+    finish: Finish,
+}
+
+impl Pen<'_> {
+    fn say(&self, en: &'static str) -> &'static str {
+        crate::lang::say(self.lang, en)
+    }
+
+    fn top(&self) -> f32 {
+        self.layout.height
+    }
+
+    fn text(&self, out: &mut Vec<Instance>, s: &str, x: f32, y: f32, color: [u8; 4]) {
+        text(out, s, x, y, 1, color, self.depth);
+    }
+
+    fn centred(&self, out: &mut Vec<Instance>, s: &str, y: f32, scale: i32, color: [u8; 4]) {
+        centred(out, &self.layout, s, y, scale, color, self.depth);
+    }
+
+    fn row(&self, out: &mut Vec<Instance>, i: usize, label: &str, x: f32, y: f32, scale: i32) {
+        row(out, self.view, i, label, x, y, scale, self.depth, self.now);
+    }
+}
+
+/// The title's logo and high score, or another page's dimming and its
+/// heading dropping in.
+fn heading(out: &mut Vec<Instance>, letters: &mut Vec<ModelDraw>, pen: &Pen, page: Page) {
+    let (view, layout, top) = (pen.view, &pen.layout, pen.top());
+    let menu = view.menu;
     if page == Page::Title {
-        logo(&mut out, &mut letters, view, &layout, now, finish);
+        logo(out, letters, view, layout, pen.now, pen.finish);
         if view.scored {
-            let score = crate::lang::say_with(lang, "HI-SCORE {}", &[&format!("{:06}", view.settings.best())]);
-            text(&mut out, &score, layout.width - 3.0 - text_width(&score, 1), top - 10.0, 1, NUMBERS, depth);
+            let score = crate::lang::say_with(pen.lang, "HI-SCORE {}", &[&format!("{:06}", view.settings.best())]);
+            text(out, &score, layout.width - 3.0 - text_width(&score, 1), top - 10.0, 1, NUMBERS, pen.depth);
         }
     } else {
-        dim(&mut out, &layout, 0.8);
+        dim(out, layout, 0.8);
         // A guest's own menu stops nothing: no PAUSED over it.
         let guest = page == Page::Pause && menu.net.as_ref().is_some_and(|n| !n.hosting);
         let heading = if guest { "MENU" } else { page.heading() };
-        dropping(&mut out, say(heading), &layout, None, top - 38.0, 3, TEXT, depth, t, view.font, finish);
+        dropping(out, pen.say(heading), layout, None, top - 38.0, 3, TEXT, pen.depth, pen.t, view.font, pen.finish);
     }
+}
 
-    match page {
-        Page::Title => {
-            // Big items low on the left, clear of what lies in the scene:
-            // the last always where it was, a fourth (CONTINUE) above.
-            let items = menu.items(page, view.settings);
-            let first = 28.0 + (items.len() as f32 - 1.0) * 17.0;
-            for (i, item) in items.iter().enumerate() {
-                row(&mut out, view, i, &item.label_in(lang), 24.0, first - i as f32 * 17.0, 2, depth, now);
+/// Big items low on the left, clear of what lies in the scene: the last
+/// always where it was, a fourth (CONTINUE) above.
+fn title_page(out: &mut Vec<Instance>, pen: &Pen) {
+    let items = pen.view.menu.items(Page::Title, pen.view.settings);
+    let first = 28.0 + (items.len() as f32 - 1.0) * 17.0;
+    for (i, item) in items.iter().enumerate() {
+        pen.row(out, i, &item.label_in(pen.lang), 24.0, first - i as f32 * 17.0, 2);
+    }
+}
+
+/// The pause page (a network game's with who plays and who knocks) or
+/// NETWORK's.
+fn pause_page(out: &mut Vec<Instance>, pen: &Pen, page: Page) {
+    let (menu, layout, top, lang) = (pen.view.menu, &pen.layout, pen.top(), pen.lang);
+    let items = menu.items(page, pen.view.settings);
+    // Closer where a network game's pause page has many.
+    let apart = if items.len() > 6 { 13.0 } else { 17.0 };
+    for (i, item) in items.iter().enumerate() {
+        let label = match item {
+            Item::Drop(m) => {
+                let name = menu.net.iter().flat_map(|n| &n.drops).find(|(d, _)| d == m).map_or(String::new(), |(_, n)| n.to_uppercase());
+                crate::lang::say_with(lang, "DROP {}", &[&name])
             }
-        }
-        Page::Pause | Page::Network => {
-            let items = menu.items(page, view.settings);
-            // Closer where a network game's pause page has many.
-            let apart = if items.len() > 6 { 13.0 } else { 17.0 };
-            for (i, item) in items.iter().enumerate() {
-                let label = match item {
-                    Item::Drop(m) => {
-                        let name = menu.net.iter().flat_map(|n| &n.drops).find(|(d, _)| d == m).map_or(String::new(), |(_, n)| n.to_uppercase());
-                        crate::lang::say_with(lang, "DROP {}", &[&name])
-                    }
-                    Item::LetIn(p) => {
-                        let line = menu.net.iter().flat_map(|n| &n.knocks).find(|(k, _)| k == p).map_or(String::new(), |(_, l)| l.clone());
-                        crate::lang::say_with(lang, "LET IN {}", &[&line])
-                    }
-                    other => other.label_in(lang),
-                };
-                let scale = if text_width(&label, 2) > layout.width - 8.0 { 1 } else { 2 };
-                let x = ((layout.width - text_width(&label, scale)) / 2.0).round();
-                row(&mut out, view, i, &label, x, top - 70.0 - i as f32 * apart, scale, depth, now);
+            Item::LetIn(p) => {
+                let line = menu.net.iter().flat_map(|n| &n.knocks).find(|(k, _)| k == p).map_or(String::new(), |(_, l)| l.clone());
+                crate::lang::say_with(lang, "LET IN {}", &[&line])
             }
-            // Where the game is found, small at the top left (one line above
-            // the heading's), who plays at the top right, how to let others
-            // in under the items.
-            if page == Page::Pause
-                && let Some(net) = &menu.net
-            {
-                for (i, line) in net.lines.iter().enumerate() {
-                    text(&mut out, line, 6.0, top - 10.0 - i as f32 * 9.0, 1, MUTED_LIGHT, depth);
-                }
-                for (i, line) in net.who.iter().enumerate() {
-                    text(&mut out, line, layout.width - 6.0 - text_width(line, 1), top - 10.0 - i as f32 * 9.0, 1, MUTED_LIGHT, depth);
-                }
-                for (i, line) in net.help.iter().rev().enumerate() {
-                    centred(&mut out, &layout, line, 14.0 + i as f32 * 9.0, 1, MUTED_LIGHT, depth);
-                }
-            }
+            other => other.label_in(lang),
+        };
+        let scale = if text_width(&label, 2) > layout.width - 8.0 { 1 } else { 2 };
+        let x = ((layout.width - text_width(&label, scale)) / 2.0).round();
+        pen.row(out, i, &label, x, top - 70.0 - i as f32 * apart, scale);
+    }
+    // Where the game is found, small at the top left (one line above the
+    // heading's), who plays at the top right, how to let others in under
+    // the items.
+    if page == Page::Pause
+        && let Some(net) = &menu.net
+    {
+        for (i, line) in net.lines.iter().enumerate() {
+            pen.text(out, line, 6.0, top - 10.0 - i as f32 * 9.0, MUTED_LIGHT);
         }
-        // The games found on the LAN, another game's greyed; typing an
-        // address instead.
-        Page::Find => {
-            let items = menu.items(page, view.settings);
-            let x0 = (layout.width / 2.0 - 120.0).round();
-            for (i, &item) in items.iter().enumerate() {
-                let y = top - 66.0 - i as f32 * 13.0;
-                match item {
-                    Item::Found(n) if !menu.found[n].same => text(&mut out, &menu.found[n].line, x0, y, 1, MUTED_LIGHT, depth),
-                    Item::Found(n) => row(&mut out, view, i, &menu.found[n].line, x0, y, 1, depth, now),
-                    other => row(&mut out, view, i, &other.label_in(lang), x0, y, 1, depth, now),
-                }
-            }
-            if menu.found.is_empty() {
-                centred(&mut out, &layout, say("SEARCHING THE NETWORK ..."), top - 52.0, 1, MUTED_LIGHT, depth);
-                centred(&mut out, &layout, say("NONE FOUND? TYPE THE HOST'S ADDRESS"), 27.0, 1, MUTED_LIGHT, depth);
-                centred(&mut out, &layout, say("(A FIREWALL MAY HIDE IT)"), 18.0, 1, MUTED_LIGHT, depth);
-            }
+        for (i, line) in net.who.iter().enumerate() {
+            pen.text(out, line, layout.width - 6.0 - text_width(line, 1), top - 10.0 - i as f32 * 9.0, MUTED_LIGHT);
         }
-        // The host's address being typed, big, the cursor blinking.
-        Page::Join => {
-            centred(&mut out, &layout, say("THE HOST'S ADDRESS (ITS PAUSE PAGE SAYS IT)"), top - 62.0, 1, MUTED_LIGHT, depth);
-            let shown = format!("{}{}", menu.address, if (menu.tick / 20).is_multiple_of(2) { "_" } else { " " });
-            let scale = if text_width(&shown, 3) > layout.width - 8.0 { 2 } else { 3 };
-            centred(&mut out, &layout, &shown, top - 96.0, scale, NUMBERS, depth);
+        for (i, line) in net.help.iter().rev().enumerate() {
+            pen.centred(out, line, 14.0 + i as f32 * 9.0, 1, MUTED_LIGHT);
         }
-        // A game's code being typed: six places, the cursor blinking in the
-        // next.
-        Page::Code => {
-            centred(&mut out, &layout, say("THE GAME'S CODE (THE HOST SENDS IT)"), top - 62.0, 1, MUTED_LIGHT, depth);
-            let blink = (menu.tick / 20).is_multiple_of(2);
-            let shown: String = (0..matchmaker_protocol::LENGTH)
-                .map(|i| match menu.code.chars().nth(i) {
-                    Some(c) => c,
-                    None if i == menu.code.len() && blink => '_',
-                    None => '.',
-                })
-                .collect();
-            centred(&mut out, &layout, &shown, top - 96.0, 3, NUMBERS, depth);
+    }
+}
+
+/// The games found on the LAN, another game's greyed; typing an address
+/// instead.
+fn find_page(out: &mut Vec<Instance>, pen: &Pen) {
+    let (menu, top) = (pen.view.menu, pen.top());
+    let items = menu.items(Page::Find, pen.view.settings);
+    let x0 = (pen.layout.width / 2.0 - 120.0).round();
+    for (i, &item) in items.iter().enumerate() {
+        let y = top - 66.0 - i as f32 * 13.0;
+        match item {
+            Item::Found(n) if !menu.found[n].same => pen.text(out, &menu.found[n].line, x0, y, MUTED_LIGHT),
+            Item::Found(n) => pen.row(out, i, &menu.found[n].line, x0, y, 1),
+            other => pen.row(out, i, &other.label_in(pen.lang), x0, y, 1),
         }
-        Page::Joining => {
-            let lines = menu.net.as_ref().map_or(&[][..], |n| &n.lines[..]);
-            for (i, line) in lines.iter().enumerate() {
-                centred(&mut out, &layout, line, top - 70.0 - i as f32 * 12.0, 1, if i == 0 { NUMBERS } else { TEXT }, depth);
-            }
+    }
+    if menu.found.is_empty() {
+        pen.centred(out, pen.say("SEARCHING THE NETWORK ..."), top - 52.0, 1, MUTED_LIGHT);
+        pen.centred(out, pen.say("NONE FOUND? TYPE THE HOST'S ADDRESS"), 27.0, 1, MUTED_LIGHT);
+        pen.centred(out, pen.say("(A FIREWALL MAY HIDE IT)"), 18.0, 1, MUTED_LIGHT);
+    }
+}
+
+/// The host's address being typed, big, the cursor blinking.
+fn join_page(out: &mut Vec<Instance>, pen: &Pen) {
+    let (menu, top) = (pen.view.menu, pen.top());
+    pen.centred(out, pen.say("THE HOST'S ADDRESS (ITS PAUSE PAGE SAYS IT)"), top - 62.0, 1, MUTED_LIGHT);
+    let shown = format!("{}{}", menu.address, if (menu.tick / 20).is_multiple_of(2) { "_" } else { " " });
+    let scale = if text_width(&shown, 3) > pen.layout.width - 8.0 { 2 } else { 3 };
+    pen.centred(out, &shown, top - 96.0, scale, NUMBERS);
+}
+
+/// A game's code being typed: six places, the cursor blinking in the next.
+fn code_page(out: &mut Vec<Instance>, pen: &Pen) {
+    let (menu, top) = (pen.view.menu, pen.top());
+    pen.centred(out, pen.say("THE GAME'S CODE (THE HOST SENDS IT)"), top - 62.0, 1, MUTED_LIGHT);
+    let blink = (menu.tick / 20).is_multiple_of(2);
+    let shown: String = (0..matchmaker_protocol::LENGTH)
+        .map(|i| match menu.code.chars().nth(i) {
+            Some(c) => c,
+            None if i == menu.code.len() && blink => '_',
+            None => '.',
+        })
+        .collect();
+    pen.centred(out, &shown, top - 96.0, 3, NUMBERS);
+}
+
+fn joining_page(out: &mut Vec<Instance>, pen: &Pen) {
+    let lines = pen.view.menu.net.as_ref().map_or(&[][..], |n| &n.lines[..]);
+    for (i, line) in lines.iter().enumerate() {
+        pen.centred(out, line, pen.top() - 70.0 - i as f32 * 12.0, 1, if i == 0 { NUMBERS } else { TEXT });
+    }
+}
+
+/// The settings' own page as the pause page: big rows in the middle,
+/// LANGUAGE with its value (small where it would not fit).
+fn settings_page(out: &mut Vec<Instance>, pen: &Pen) {
+    let width = pen.layout.width;
+    for (i, &item) in pen.view.menu.items(Page::Settings, pen.view.settings).iter().enumerate() {
+        let mut label = item.label_in(pen.lang);
+        if item == Item::Language {
+            label = format!("{label} < {} >", crate::lang::name(pen.lang));
         }
-        // The settings' own page as the pause page: big rows in the middle,
-        // LANGUAGE with its value (small where it would not fit).
-        Page::Settings => {
-            for (i, &item) in menu.items(page, view.settings).iter().enumerate() {
-                let mut label = item.label_in(lang);
-                if item == Item::Language {
-                    label = format!("{label} < {} >", crate::lang::name(lang));
-                }
-                let scale = if text_width(&label, 2) > layout.width - 8.0 { 1 } else { 2 };
-                let x = ((layout.width - text_width(&label, scale)) / 2.0).round();
-                row(&mut out, view, i, &label, x, top - 70.0 - i as f32 * 17.0, scale, depth, now);
-            }
+        let scale = if text_width(&label, 2) > width - 8.0 { 1 } else { 2 };
+        let x = ((width - text_width(&label, scale)) / 2.0).round();
+        pen.row(out, i, &label, x, pen.top() - 70.0 - i as f32 * 17.0, scale);
+    }
+}
+
+/// A few rows each, roomy under the heading.
+fn audio_video_page(out: &mut Vec<Instance>, pen: &Pen, page: Page) {
+    let menu = pen.view.menu;
+    let x0 = (pen.layout.width / 2.0 - 100.0).round();
+    for (i, &item) in menu.items(page, pen.view.settings).iter().enumerate() {
+        let y = pen.top() - 58.0 - i as f32 * 13.0;
+        pen.row(out, i, &item.label_in(pen.lang), x0, y, 1);
+        setting(out, pen.view, item, x0 + 120.0, y, menu.cursor() == i, pen.depth);
+    }
+}
+
+/// The KEYBOARD and GAMEPAD heads of a page of bindings from `x0`, and
+/// where their columns are.
+fn binding_heads(out: &mut Vec<Instance>, pen: &Pen, x0: f32) -> (f32, f32) {
+    let (kx, px) = (x0 + 70.0, x0 + 160.0);
+    pen.text(out, pen.say("KEYBOARD"), kx, pen.top() - 56.0, MUTED_LIGHT);
+    pen.text(out, pen.say("GAMEPAD"), px, pen.top() - 56.0, MUTED_LIGHT);
+    (kx, px)
+}
+
+/// Whether `action` is being bound: PRESS A KEY OR BUTTON blinking in its
+/// row then.
+fn rebinding(out: &mut Vec<Instance>, pen: &Pen, action: &str, kx: f32, y: f32) -> bool {
+    let menu = pen.view.menu;
+    if menu.rebinding != Some(action) {
+        return false;
+    }
+    if (menu.tick / 15).is_multiple_of(2) {
+        pen.text(out, pen.say("PRESS A KEY OR BUTTON"), kx, y, NUMBERS);
+    }
+    true
+}
+
+/// A game of one's keys and buttons.
+fn controls_page(out: &mut Vec<Instance>, pen: &Pen) {
+    let (view, top) = (pen.view, pen.top());
+    let menu = view.menu;
+    let x0 = (pen.layout.width / 2.0 - 110.0).round();
+    let (kx, px) = binding_heads(out, pen, x0);
+    let items = menu.items(Page::Controls, view.settings);
+    // Down to above the hint at the bottom, closer where there are many.
+    let apart = ((top - 70.0 - 30.0) / (items.len().max(2) - 1) as f32).floor().min(12.0);
+    for (i, &item) in items.iter().enumerate() {
+        let y = top - 70.0 - i as f32 * apart;
+        pen.row(out, i, &item.label_in(pen.lang), x0, y, 1);
+        setting(out, view, item, kx, y, menu.cursor() == i, pen.depth);
+        let Item::Bind(action) = item else { continue };
+        if rebinding(out, pen, action, kx, y) {
+            continue;
         }
-        Page::Audio | Page::Video => {
-            let x0 = (layout.width / 2.0 - 100.0).round();
-            let items = menu.items(page, view.settings);
-            // A few rows each, roomy under the heading.
-            for (i, &item) in items.iter().enumerate() {
-                let y = top - 58.0 - i as f32 * 13.0;
-                row(&mut out, view, i, &item.label_in(lang), x0, y, 1, depth, now);
-                let selected = menu.cursor() == i;
-                setting(&mut out, view, item, x0 + 120.0, y, selected, depth);
-            }
-        }
-        Page::Controls => {
-            let x0 = (layout.width / 2.0 - 110.0).round();
-            let (kx, px) = (x0 + 70.0, x0 + 160.0);
-            text(&mut out, say("KEYBOARD"), kx, top - 56.0, 1, MUTED_LIGHT, depth);
-            text(&mut out, say("GAMEPAD"), px, top - 56.0, 1, MUTED_LIGHT, depth);
-            let items = menu.items(page, view.settings);
-            // Down to above the hint at the bottom, closer where there are many.
-            let apart = ((top - 70.0 - 30.0) / (items.len().max(2) - 1) as f32).floor().min(12.0);
-            for (i, &item) in items.iter().enumerate() {
-                let y = top - 70.0 - i as f32 * apart;
-                row(&mut out, view, i, &item.label_in(lang), x0, y, 1, depth, now);
-                setting(&mut out, view, item, kx, y, menu.cursor() == i, depth);
-                let Item::Bind(action) = item else { continue };
-                if menu.rebinding == Some(action) {
-                    if (menu.tick / 15).is_multiple_of(2) {
-                        text(&mut out, say("PRESS A KEY OR BUTTON"), kx, y, 1, NUMBERS, depth);
-                    }
-                    continue;
-                }
-                let keys = view.settings.keys.get(action).first().map(|k| view.settings.key_label(k)).unwrap_or_default();
-                let pads = view.settings.pad.get(action).first().map(|b| pad_label(b, menu.pad_style)).unwrap_or_default();
-                text(&mut out, &keys, kx, y, 1, TEXT, depth);
-                text(&mut out, &pads, px, y, 1, TEXT, depth);
-            }
-            let y = top - 70.0 - items.len() as f32 * apart - 4.0;
-            text(&mut out, say("MOVE: ARROWS OR WASD, LEFT STICK OR D-PAD"), x0, y, 1, MUTED_LIGHT, depth);
-        }
-        Page::Players => {
-            // A heading for each seat with its three rows under it, then
-            // SWAP, RUMBLE and BACK; scrolled so the chosen row stays in view.
-            let x0 = (layout.width / 2.0 - 110.0).round();
-            let vx = x0 + 100.0;
-            let items = menu.items(page, view.settings);
-            let mut rows = Vec::with_capacity(items.len());
-            let mut heads = Vec::new();
-            let mut y = top - 54.0;
-            for &item in &items {
-                match item {
-                    Item::SeatKeys(n) => {
-                        y -= 3.0;
-                        heads.push((n, y));
-                        y -= 10.0;
-                    }
-                    Item::Swap => y -= 4.0,
-                    _ => {}
-                }
-                rows.push(y);
+        let keys = view.settings.keys.get(action).first().map(|k| view.settings.key_label(k)).unwrap_or_default();
+        let pads = view.settings.pad.get(action).first().map(|b| pad_label(b, menu.pad_style)).unwrap_or_default();
+        pen.text(out, &keys, kx, y, TEXT);
+        pen.text(out, &pads, px, y, TEXT);
+    }
+    let y = top - 70.0 - items.len() as f32 * apart - 4.0;
+    pen.text(out, pen.say("MOVE: ARROWS OR WASD, LEFT STICK OR D-PAD"), x0, y, MUTED_LIGHT);
+}
+
+/// A heading for each seat with its three rows under it, then SWAP, RUMBLE
+/// and BACK; scrolled so the chosen row stays in view.
+fn players_page(out: &mut Vec<Instance>, pen: &Pen) {
+    let (view, top, lang) = (pen.view, pen.top(), pen.lang);
+    let menu = view.menu;
+    let x0 = (pen.layout.width / 2.0 - 110.0).round();
+    let vx = x0 + 100.0;
+    let items = menu.items(Page::Players, view.settings);
+    let mut rows = Vec::with_capacity(items.len());
+    let mut heads = Vec::new();
+    let mut y = top - 54.0;
+    for &item in &items {
+        match item {
+            Item::SeatKeys(n) => {
+                y -= 3.0;
+                heads.push((n, y));
                 y -= 10.0;
             }
-            let lowest = 16.0;
-            let shift = (lowest - rows.get(menu.cursor()).copied().unwrap_or(lowest)).max(0.0);
-            let shown = |y: f32| (lowest..=top - 50.0).contains(&y);
-            for (n, y) in heads {
-                let y = y + shift;
-                if !shown(y) {
-                    continue;
-                }
-                let head = crate::lang::say_with(lang, "PLAYER {}", &[&n.to_string()]);
-                text(&mut out, &head, x0, y, 1, NUMBERS, depth);
-                // A seat nobody sits on: START takes it.
-                if !view.menu.seats.get(n - 1).is_some_and(|s| s.taken) {
-                    text(&mut out, say("PRESS START"), vx, y, 1, MUTED_LIGHT, depth);
-                }
-            }
-            for (i, (&item, &y)) in items.iter().zip(&rows).enumerate() {
-                let y = y + shift;
-                if !shown(y) {
-                    continue;
-                }
-                let indent = if matches!(item, Item::SeatKeys(_) | Item::SeatPad(_) | Item::SeatControls(_)) { 10.0 } else { 0.0 };
-                row(&mut out, view, i, &item.label_in(lang), x0 + indent, y, 1, depth, now);
-                setting(&mut out, view, item, vx, y, menu.cursor() == i, depth);
-                let value = match item {
-                    Item::SeatKeys(n) => say(menu.seats.get(n - 1).map_or(crate::seating::Keys::Nothing, |s| s.keyboard).label()).to_string(),
-                    Item::SeatPad(n) => match menu.seats.get(n - 1).map(|s| s.pad.as_str()) {
-                        Some(name) if !name.is_empty() => name.to_uppercase().chars().take(24).collect(),
-                        _ => say("NONE").to_string(),
-                    },
-                    _ => continue,
-                };
-                let selected = menu.cursor() == i;
-                let shown = if selected { format!("< {value} >") } else { value };
-                text(&mut out, &shown, vx, y, 1, if selected { NUMBERS } else { TEXT }, depth);
-            }
+            Item::Swap => y -= 4.0,
+            _ => {}
         }
-        Page::PlayerControls(seat) => {
-            let part = menu.seats.get(seat - 1).map_or(crate::seating::Keys::Nothing, |s| s.keyboard);
-            let head = crate::lang::say_with(lang, "PLAYER {}", &[&seat.to_string()]);
-            centred(&mut out, &layout, &head, top - 46.0, 1, NUMBERS, depth);
-            let x0 = (layout.width / 2.0 - 110.0).round();
-            let (kx, px) = (x0 + 70.0, x0 + 160.0);
-            text(&mut out, say("KEYBOARD"), kx, top - 56.0, 1, MUTED_LIGHT, depth);
-            text(&mut out, say("GAMEPAD"), px, top - 56.0, 1, MUTED_LIGHT, depth);
-            let items = menu.items(page, view.settings);
-            // Down to above the hint at the bottom, closer where there are many.
-            let apart = ((top - 66.0 - 24.0) / (items.len().max(2) - 1) as f32).floor().min(12.0);
-            let keys = view.settings.keys_of(part);
-            let pad = view.settings.pad_of(seat);
-            for (i, &item) in items.iter().enumerate() {
-                let y = top - 66.0 - i as f32 * apart;
-                row(&mut out, view, i, &item.label_in(lang), x0, y, 1, depth, now);
-                let Item::Bind(action) = item else { continue };
-                if menu.rebinding == Some(action) {
-                    if (menu.tick / 15).is_multiple_of(2) {
-                        text(&mut out, say("PRESS A KEY OR BUTTON"), kx, y, 1, NUMBERS, depth);
-                    }
-                    continue;
-                }
-                let key = keys.map_or_else(|| "-".to_string(), |b| b.get(action).first().map(|k| view.settings.key_label(k)).unwrap_or_default());
-                let button = if crate::seating::DIRECTIONS.contains(&action) { String::new() } else { pad.get(action).first().map(|b| pad_label(b, menu.pad_style)).unwrap_or_default() };
-                text(&mut out, &key, kx, y, 1, TEXT, depth);
-                text(&mut out, &button, px, y, 1, TEXT, depth);
-            }
-            // How it moves where its directions are no rows of their own.
-            if !matches!(part, crate::seating::Keys::Left | crate::seating::Keys::Right) {
-                let y = top - 66.0 - items.len() as f32 * apart - 4.0;
-                let moving = if part == crate::seating::Keys::Whole { "MOVE: ARROWS OR WASD, LEFT STICK OR D-PAD" } else { "MOVE: LEFT STICK OR D-PAD" };
-                text(&mut out, say(moving), x0, y, 1, MUTED_LIGHT, depth);
-            }
+        rows.push(y);
+        y -= 10.0;
+    }
+    let lowest = 16.0;
+    let shift = (lowest - rows.get(menu.cursor()).copied().unwrap_or(lowest)).max(0.0);
+    let shown = |y: f32| (lowest..=top - 50.0).contains(&y);
+    for (n, y) in heads {
+        let y = y + shift;
+        if !shown(y) {
+            continue;
         }
-        Page::Save | Page::Load => {
-            let x0 = (layout.width / 2.0 - 100.0).round();
-            for (i, &item) in menu.items(page, view.settings).iter().enumerate() {
-                let label = match item {
-                    Item::Slot(n) => menu.slots[n].clone().unwrap_or_else(|| format!("{}  {}", n + 1, say("EMPTY"))),
-                    other => other.label_in(lang),
-                };
-                row(&mut out, view, i, &label, x0, top - 70.0 - i as f32 * 14.0, 1, depth, now);
-            }
-        }
-        Page::Initials => {
-            let e = &menu.entry;
-            let line = crate::lang::say_with(lang, "{} PLACE   SCORE {}", &[&crate::lang::ordinal(lang, e.rank + 1), &format!("{:06}", e.score)]);
-            centred(&mut out, &layout, &line, top - 58.0, 1, NUMBERS, depth);
-            centred(&mut out, &layout, say("ENTER YOUR INITIALS"), top - 74.0, 1, MUTED_LIGHT, depth);
-            // Whose, where several played.
-            if let Some(seat) = e.seat {
-                centred(&mut out, &layout, &crate::lang::say_with(lang, "PLAYER {}", &[&seat.to_string()]), top - 48.0, 1, TEXT, depth);
-            }
-            // Three big letters; the one being picked blinks and hops when
-            // it changes, those to come wait as lines.
-            let (scale, cell) = (5, 40.0);
-            let x0 = (layout.width / 2.0 - cell * 1.5).round();
-            for (k, &c) in e.letters.iter().enumerate() {
-                let x = x0 + k as f32 * cell;
-                if k > e.at {
-                    for bx in 6..cell as i32 - 6 {
-                        for by in 36..39 {
-                            for z in 0..depth {
-                                voxel(&mut out, x + bx as f32, by as f32, z as f32, MUTED_LIGHT);
-                            }
-                        }
-                    }
-                    continue;
-                }
-                let color = if k < e.at || (menu.tick / 10).is_multiple_of(2) { TEXT } else { RED };
-                let since = now - menu.moved as f32;
-                let hop = if k == e.at && since < 10.0 { ((std::f32::consts::PI * since / 10.0).sin() * 3.0).round() } else { 0.0 };
-                big_letter(&mut out, c, x, cell, 36.0 + hop, scale, color, depth, view.font, finish);
-            }
-        }
-        Page::HighScores => {
-            // The lines drop in one after another, the new one blinking.
-            for (i, h) in view.settings.high_scores.iter().enumerate() {
-                let Some(lift) = drop_lift(t - 15.0 - i as f32 * 4.0, 60.0, 0.25) else { continue };
-                let line = format!("{:>4}  {:<3}  {:06}", crate::lang::ordinal(lang, i + 1), h.initials, h.score);
-                let color = match (menu.highlight == Some(i), i) {
-                    (true, _) if (menu.tick / 8).is_multiple_of(2) => RED,
-                    (true, _) | (false, 0) => NUMBERS,
-                    _ => TEXT,
-                };
-                centred(&mut out, &layout, &line, top - 60.0 - i as f32 * 11.0 + lift, 1, color, depth);
-            }
+        let head = crate::lang::say_with(lang, "PLAYER {}", &[&n.to_string()]);
+        pen.text(out, &head, x0, y, NUMBERS);
+        // A seat nobody sits on: START takes it.
+        if !menu.seats.get(n - 1).is_some_and(|s| s.taken) {
+            pen.text(out, pen.say("PRESS START"), vx, y, MUTED_LIGHT);
         }
     }
+    for (i, (&item, &y)) in items.iter().zip(&rows).enumerate() {
+        let y = y + shift;
+        if !shown(y) {
+            continue;
+        }
+        let indent = if matches!(item, Item::SeatKeys(_) | Item::SeatPad(_) | Item::SeatControls(_)) { 10.0 } else { 0.0 };
+        pen.row(out, i, &item.label_in(lang), x0 + indent, y, 1);
+        setting(out, view, item, vx, y, menu.cursor() == i, pen.depth);
+        let value = match item {
+            Item::SeatKeys(n) => pen.say(menu.seats.get(n - 1).map_or(crate::seating::Keys::Nothing, |s| s.keyboard).label()).to_string(),
+            Item::SeatPad(n) => match menu.seats.get(n - 1).map(|s| s.pad.as_str()) {
+                Some(name) if !name.is_empty() => name.to_uppercase().chars().take(24).collect(),
+                _ => pen.say("NONE").to_string(),
+            },
+            _ => continue,
+        };
+        let selected = menu.cursor() == i;
+        pen.text(out, &chosen(&value, selected), vx, y, if selected { NUMBERS } else { TEXT });
+    }
+}
 
-    // How to steer, for the device in hand; a line too long for the screen
-    // goes on over two or more.
-    let hint = hint_text(menu, page, lang);
+/// A seat's own keys and buttons.
+fn player_controls_page(out: &mut Vec<Instance>, pen: &Pen, seat: usize) {
+    let (view, top) = (pen.view, pen.top());
+    let menu = view.menu;
+    let part = menu.seats.get(seat - 1).map_or(crate::seating::Keys::Nothing, |s| s.keyboard);
+    let head = crate::lang::say_with(pen.lang, "PLAYER {}", &[&seat.to_string()]);
+    pen.centred(out, &head, top - 46.0, 1, NUMBERS);
+    let x0 = (pen.layout.width / 2.0 - 110.0).round();
+    let (kx, px) = binding_heads(out, pen, x0);
+    let items = menu.items(Page::PlayerControls(seat), view.settings);
+    // Down to above the hint at the bottom, closer where there are many.
+    let apart = ((top - 66.0 - 24.0) / (items.len().max(2) - 1) as f32).floor().min(12.0);
+    let keys = view.settings.keys_of(part);
+    let pad = view.settings.pad_of(seat);
+    for (i, &item) in items.iter().enumerate() {
+        let y = top - 66.0 - i as f32 * apart;
+        pen.row(out, i, &item.label_in(pen.lang), x0, y, 1);
+        let Item::Bind(action) = item else { continue };
+        if rebinding(out, pen, action, kx, y) {
+            continue;
+        }
+        let key = keys.map_or_else(|| "-".to_string(), |b| b.get(action).first().map(|k| view.settings.key_label(k)).unwrap_or_default());
+        let button = if crate::seating::DIRECTIONS.contains(&action) { String::new() } else { pad.get(action).first().map(|b| pad_label(b, menu.pad_style)).unwrap_or_default() };
+        pen.text(out, &key, kx, y, TEXT);
+        pen.text(out, &button, px, y, TEXT);
+    }
+    // How it moves where its directions are no rows of their own.
+    if !matches!(part, crate::seating::Keys::Left | crate::seating::Keys::Right) {
+        let y = top - 66.0 - items.len() as f32 * apart - 4.0;
+        let moving = if part == crate::seating::Keys::Whole { "MOVE: ARROWS OR WASD, LEFT STICK OR D-PAD" } else { "MOVE: LEFT STICK OR D-PAD" };
+        pen.text(out, pen.say(moving), x0, y, MUTED_LIGHT);
+    }
+}
+
+/// The run's save slots, to save into or load from.
+fn slots_page(out: &mut Vec<Instance>, pen: &Pen, page: Page) {
+    let menu = pen.view.menu;
+    let x0 = (pen.layout.width / 2.0 - 100.0).round();
+    for (i, &item) in menu.items(page, pen.view.settings).iter().enumerate() {
+        let label = match item {
+            Item::Slot(n) => menu.slots[n].clone().unwrap_or_else(|| format!("{}  {}", n + 1, pen.say("EMPTY"))),
+            other => other.label_in(pen.lang),
+        };
+        pen.row(out, i, &label, x0, pen.top() - 70.0 - i as f32 * 14.0, 1);
+    }
+}
+
+/// A run's initials being picked: three big letters, the one being picked
+/// blinking and hopping when it changes, those to come waiting as lines.
+fn initials_page(out: &mut Vec<Instance>, pen: &Pen) {
+    let (view, top, lang, depth) = (pen.view, pen.top(), pen.lang, pen.depth);
+    let menu = view.menu;
+    let e = &menu.entry;
+    let line = crate::lang::say_with(lang, "{} PLACE   SCORE {}", &[&crate::lang::ordinal(lang, e.rank + 1), &format!("{:06}", e.score)]);
+    pen.centred(out, &line, top - 58.0, 1, NUMBERS);
+    pen.centred(out, pen.say("ENTER YOUR INITIALS"), top - 74.0, 1, MUTED_LIGHT);
+    // Whose, where several played.
+    if let Some(seat) = e.seat {
+        pen.centred(out, &crate::lang::say_with(lang, "PLAYER {}", &[&seat.to_string()]), top - 48.0, 1, TEXT);
+    }
+    let (scale, cell) = (5, 40.0);
+    let x0 = (pen.layout.width / 2.0 - cell * 1.5).round();
+    for (k, &c) in e.letters.iter().enumerate() {
+        let x = x0 + k as f32 * cell;
+        if k > e.at {
+            for bx in 6..cell as i32 - 6 {
+                for by in 36..39 {
+                    for z in 0..depth {
+                        voxel(out, x + bx as f32, by as f32, z as f32, MUTED_LIGHT);
+                    }
+                }
+            }
+            continue;
+        }
+        let color = if k < e.at || (menu.tick / 10).is_multiple_of(2) { TEXT } else { RED };
+        let since = pen.now - menu.moved as f32;
+        let hop = if k == e.at && since < 10.0 { ((std::f32::consts::PI * since / 10.0).sin() * 3.0).round() } else { 0.0 };
+        big_letter(out, c, x, cell, 36.0 + hop, scale, color, depth, view.font, pen.finish);
+    }
+}
+
+/// The lines drop in one after another, the new one blinking.
+fn high_scores_page(out: &mut Vec<Instance>, pen: &Pen) {
+    let menu = pen.view.menu;
+    for (i, h) in pen.view.settings.high_scores.iter().enumerate() {
+        let Some(lift) = drop_lift(pen.t - 15.0 - i as f32 * 4.0, 60.0, 0.25) else { continue };
+        let line = format!("{:>4}  {:<3}  {:06}", crate::lang::ordinal(pen.lang, i + 1), h.initials, h.score);
+        let color = match (menu.highlight == Some(i), i) {
+            (true, _) if (menu.tick / 8).is_multiple_of(2) => RED,
+            (true, _) | (false, 0) => NUMBERS,
+            _ => TEXT,
+        };
+        pen.centred(out, &line, pen.top() - 60.0 - i as f32 * 11.0 + lift, 1, color);
+    }
+}
+
+/// How to steer, for the device in hand; a line too long for the screen
+/// goes on over two or more.
+fn hint_lines(out: &mut Vec<Instance>, pen: &Pen, page: Page) {
+    let layout = &pen.layout;
+    let hint = hint_text(pen.view.menu, page, pen.lang);
     let room = layout.width - if page == Page::Title { 16.0 } else { 8.0 };
     let lines = wrap_hint(&hint, (room / 6.0).floor() as usize);
     for (i, line) in lines.iter().rev().enumerate() {
         let (x, color) = if page == Page::Title {
-            (8.0, if view.light_menu { MUTED_LIGHT } else { MUTED_DARK })
+            (8.0, if pen.view.light_menu { MUTED_LIGHT } else { MUTED_DARK })
         } else {
             (((layout.width - text_width(line, 1)) / 2.0).round(), MUTED_LIGHT)
         };
-        text(&mut out, line, x, 4.0 + i as f32 * 11.0, 1, color, depth);
+        pen.text(out, line, x, 4.0 + i as f32 * 11.0, color);
     }
-    crate::render::hide_inner_faces(&mut out);
-    (out, letters, camera)
+}
+
+/// A chosen setting's value between arrows (`< ON >`), another's as it is.
+fn chosen(value: &str, selected: bool) -> String {
+    if selected { format!("< {value} >") } else { value.to_string() }
 }
 
 /// The hint line of a page: how to steer, for the device in hand.
@@ -514,8 +623,7 @@ pub(super) fn setting(out: &mut Vec<Instance>, view: &MenuView, item: Item, x: f
         }
         Item::Song => {
             let name = view.songs.get(s.song).map(String::as_str).unwrap_or("-");
-            let shown = if selected { format!("< {} >", name.to_uppercase()) } else { name.to_uppercase() };
-            text(out, &shown, x, y, 1, color, depth);
+            text(out, &chosen(&name.to_uppercase(), selected), x, y, 1, color, depth);
         }
         Item::Fullscreen => text(out, flag(s.fullscreen), x, y, 1, color, depth),
         Item::Shake => text(out, flag(s.shake), x, y, 1, color, depth),
@@ -523,19 +631,13 @@ pub(super) fn setting(out: &mut Vec<Instance>, view: &MenuView, item: Item, x: f
         Item::Blur => text(out, flag(s.blur), x, y, 1, color, depth),
         Item::Rumble => text(out, flag(s.rumble), x, y, 1, color, depth),
         Item::Shadows => {
-            let label = crate::lang::say(&lang, s.shadows.label());
-            let shown = if selected { format!("< {label} >") } else { label.to_string() };
-            text(out, &shown, x, y, 1, color, depth);
+            text(out, &chosen(crate::lang::say(&lang, s.shadows.label()), selected), x, y, 1, color, depth);
         }
         Item::FrameRate => {
-            let label = crate::lang::say(&lang, s.frame_rate.label());
-            let shown = if selected { format!("< {label} >") } else { label.to_string() };
-            text(out, &shown, x, y, 1, color, depth);
+            text(out, &chosen(crate::lang::say(&lang, s.frame_rate.label()), selected), x, y, 1, color, depth);
         }
         Item::Language => {
-            let name = crate::lang::name(&lang);
-            let shown = if selected { format!("< {name} >") } else { name };
-            text(out, &shown, x, y, 1, color, depth);
+            text(out, &chosen(&crate::lang::name(&lang), selected), x, y, 1, color, depth);
         }
         Item::ShowFps => text(out, flag(s.show_fps), x, y, 1, color, depth),
         _ => {}
@@ -547,7 +649,7 @@ pub(super) fn setting(out: &mut Vec<Instance>, view: &MenuView, item: Item, x: f
 /// over a menu (its heading and the host's lines are at the top), from
 /// `low` up.
 pub fn notice(out: &mut Vec<Instance>, lines: &[String], cfg: &UiConfig, aspect: f32, low: Option<f32>) {
-    let layout = Layout { width: (cfg.height * aspect).round(), height: cfg.height };
+    let layout = Layout::of(cfg, aspect);
     let mut voxels = Vec::new();
     for (i, line) in lines.iter().enumerate() {
         let y = match low {
@@ -563,7 +665,7 @@ pub fn notice(out: &mut Vec<Instance>, lines: &[String], cfg: &UiConfig, aspect:
 /// The frames a second, small in the bottom right corner, over the game
 /// and the menus alike (`Settings::show_fps`).
 pub fn fps(out: &mut Vec<Instance>, fps: u32, cfg: &UiConfig, aspect: f32) {
-    let layout = Layout { width: (cfg.height * aspect).round(), height: cfg.height };
+    let layout = Layout::of(cfg, aspect);
     let label = format!("{fps} FPS");
     let mut voxels = Vec::new();
     text(&mut voxels, &label, layout.width - 3.0 - text_width(&label, 1), 3.0, 1, TEXT, cfg.depth);
@@ -577,7 +679,7 @@ pub fn press_start(out: &mut Vec<Instance>, seconds: f32, cfg: &UiConfig, aspect
     if (seconds * 2.0) as u32 % 2 == 1 {
         return;
     }
-    let layout = Layout { width: (cfg.height * aspect).round(), height: cfg.height };
+    let layout = Layout::of(cfg, aspect);
     let label = crate::lang::say(lang, "PRESS START");
     let mut voxels = Vec::new();
     text(&mut voxels, label, ((layout.width - text_width(label, 2)) / 2.0).round(), (layout.height * 0.22).round(), 2, NUMBERS, cfg.depth);
