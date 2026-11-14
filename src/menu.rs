@@ -417,6 +417,12 @@ impl Menu {
         Self { stack: vec![(Page::Pause, 0)], ..Self::default() }
     }
 
+    /// SETTINGS over the game, as the game opened it (`world:open`): back
+    /// from it, the game goes on.
+    pub fn settings() -> Self {
+        Self { stack: vec![(Page::Settings, 0)], ..Self::default() }
+    }
+
     /// The title offering CONTINUE from this slot (the newest save), if
     /// there is one.
     pub fn continuing(mut self, slot: Option<u32>) -> Self {
@@ -598,7 +604,7 @@ impl Menu {
                 if self.stack.len() > 1 {
                     self.close();
                     None
-                } else if page == Page::Pause {
+                } else if matches!(page, Page::Pause | Page::Settings) {
                     self.closed(Command::Resume)
                 } else {
                     None
@@ -606,7 +612,7 @@ impl Menu {
             }
             Nav::Pause => match page {
                 Page::Title => self.nav(Nav::Confirm, settings, songs),
-                _ if self.stack[0].0 == Page::Pause => self.closed(Command::Resume),
+                _ if matches!(self.stack[0].0, Page::Pause | Page::Settings) => self.closed(Command::Resume),
                 _ => None,
             },
         }

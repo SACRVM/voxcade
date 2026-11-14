@@ -288,7 +288,18 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   `c.pad = { jump = { "south" } }`. Pause (Escape, P, Start) gives way to
   a game's own keys.
 - Title: `c.title_screen` (`at`, `view_width`, `logo`, `logo_colors`,
-  `light_menu` for light letters over a dark scene, `music`).
+  `light_menu` for light letters over a dark scene, `music`). A story
+  game with saves builds its own: `c.title_screen.level = "title"` (a
+  level in `levels/`, never the start): the window opens in it, no
+  engine title, table or initials; its code draws the menu (`frame:menu`,
+  `input:pressed`, `world.saves`) and asks `world:new_game()` (a fresh
+  run in the start level), `world:load(slot)` (a run from a save),
+  `world:open("settings")` (the engine's SETTINGS over the game),
+  `world:quit()`. It is no run: not recorded, no `world:save`,
+  `go_to`/`win`/`lose` there are mistakes, the pause keys are the game's;
+  `level.name` tells it is there. PLAY, `shot`, `inspect` begin past it;
+  `shot --screen title` shows it; a scenario with `level = "title"`
+  plays it. HELP's "YOUR OWN TITLE" is a whole example.
 - A run starts as `c.state` says: `c.state.player = { hp = 5, lives =
   3, inventory = { grenade = 5 } }`, `c.state.world = { ... }`. The
   engine's keys (`hp`, `score`, the shooter's `weapon`) go where it keeps
@@ -296,7 +307,8 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   the game leaves out it has none of (no `hp`: the first hit counts). The
   shooter's rounds and grenades are items of the inventory (a weapon
   with `ammo` is an item of its name): `player:take("machine_gun", 150)`.
-- Levels: a run begins in the first of `world.levels` (file-name order) or
+- Levels: a run begins in the first of `world.levels` (file-name order,
+  the game's own title passed over) or
   in `c.start = "hut_outside"`, a level's name as `world:go_to` takes it
   (restart-only; a scenario's `level` and a save win; no way to begin
   elsewhere through `world:go_to` in `on_level_start("start")`).

@@ -18,6 +18,7 @@ mod scenarios;
 mod seats;
 mod start;
 mod states;
+pub(crate) mod title;
 
 use std::path::{Path, PathBuf};
 
@@ -121,11 +122,11 @@ fn code_world(name: &str, main: &str, files: &[(&str, &str)]) -> crate::scratch:
 }
 
 /// A level's name and its places (name, where).
-type LevelPlaces<'a> = (&'a str, &'a [(&'a str, [i32; 3])]);
+pub(crate) type LevelPlaces<'a> = (&'a str, &'a [(&'a str, [i32; 3])]);
 
 /// A game folder of levels of blocks in `levels/`, each a floor of rock
 /// four cells long with these places, and this `main.lua`.
-fn levels_folder(name: &str, main: &str, levels: &[LevelPlaces]) -> crate::scratch::Scratch {
+pub(crate) fn levels_folder(name: &str, main: &str, levels: &[LevelPlaces]) -> crate::scratch::Scratch {
     use crate::blocks::{self, Block};
     use crate::grid::{BlockEntry, Cell, GridLevel, Kind, Place};
     use glam::IVec3;

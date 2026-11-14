@@ -98,6 +98,30 @@ pub struct Leaving {
     pub fade: Option<f32>,
 }
 
+/// The run a game asks for on its own title (`c.title_screen.level`), in
+/// place of the title's, which counts for nothing: a fresh one
+/// (`world:new_game()`), or one going on from the save in a slot
+/// (`world:load(slot)`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Anew {
+    Fresh,
+    Load(u32),
+}
+
+/// What a game asks of the machine it is played on, not of its run
+/// (`Game::requests`): a page of the engine's opened over it
+/// (`world:open`, one of `PAGES`), the program ended (`world:quit()`). A
+/// window does it; without one it changes nothing, so a run plays the
+/// same with or without a window.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Request {
+    Open(&'static str),
+    Quit,
+}
+
+/// The engine's pages a game opens over itself (`world:open`).
+pub const PAGES: &[&str] = &["settings"];
+
 /// A seat after the first as a tick finds it (`Game::set_seats`): what its
 /// player holds, or nobody sitting there, and what they play with.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -449,6 +473,23 @@ pub trait Game: Sized + 'static {
     /// Does the change `leaving` names: the level left, the next entered
     /// (or the run ended), between two ticks.
     fn change(&mut self) {}
+
+    /// Whether it plays its own title (`c.title_screen.level`), a run of
+    /// its own that does not count.
+    fn on_title(&self) -> bool {
+        false
+    }
+
+    /// The run its title asked for at the tick's end (`world:new_game()`,
+    /// `world:load` there): in place of `change`, the session begins it.
+    fn anew(&self) -> Option<Anew> {
+        None
+    }
+
+    /// What it asked of the machine since last asked (`Request`), taken.
+    fn requests(&mut self) -> Vec<Request> {
+        Vec::new()
+    }
 
     /// The player left the run (QUIT TO TITLE): a game that wants to know
     /// is told (a Lua game's `on_level_end("quit")`, `on_world_end("quit")`).

@@ -250,18 +250,22 @@ pub struct Levels {
     pub list: Vec<Arc<Level>>,
     /// The files they were made from (the replays' fingerprint, hot reload).
     pub files: Vec<PathBuf>,
-    /// The level a run begins in (`c.start`; the first one unless set): the
-    /// one rule for every start of a run, `first`.
+    /// The level a run begins in (`c.start`; the first one that is not the
+    /// title unless set): the one rule for every start of a run, `first`.
     pub start: usize,
+    /// The game's own title (`c.title_screen.level`): played before a run,
+    /// never in one.
+    pub title: Option<usize>,
 }
 
 impl Levels {
     /// A game of one level.
     pub fn one(name: &str, world: World, markers: Vec<Marker>, places: Vec<Place>, files: Vec<PathBuf>) -> Self {
-        Self { list: vec![Arc::new(Level::plain(name, world, markers, places))], files, start: 0 }
+        Self { list: vec![Arc::new(Level::plain(name, world, markers, places))], files, start: 0, title: None }
     }
 
-    /// The level a run begins in, as `c.start` names it, else the first.
+    /// The level a run begins in, as `c.start` names it, else the first
+    /// that is not the title.
     pub fn first(&self) -> &Arc<Level> {
         &self.list[self.start]
     }
@@ -486,8 +490,8 @@ pub fn load<G: Game>(game: &Files, cfg: &GameConfig) -> Result<Levels> {
     if !cfg.markers.is_empty() {
         anyhow::bail!("c.markers: since Voxcade 0.6.0 a marker is a palette entry of the world or the prefab it lies in ({{ marker = \"rifleman\" }}); `voxcade upgrade` moves them there");
     }
-    let start = start_in(cfg, &folder_files(game, &cfg.world).iter().map(|p| stem(p)).collect::<Vec<_>>())?;
-    let mut levels = Levels { list: Vec::new(), files: Vec::new(), start };
+    let (start, title) = start_in(cfg, &folder_files(game, &cfg.world).iter().map(|p| stem(p)).collect::<Vec<_>>())?;
+    let mut levels = Levels { list: Vec::new(), files: Vec::new(), start, title };
     for (name, file) in level_files(game, &cfg.world) {
         let path = dir.join(&file);
         let made = one(game, cfg, kind, &path).with_context(|| file.clone())?;
@@ -522,25 +526,34 @@ fn folder_files(game: &Files, world: &crate::config::WorldConfig) -> Vec<PathBuf
     files
 }
 
-/// Where a run begins (`c.start`): the place of the level it names among
-/// `names` (the files of `levels/`), else 0. A name that is no level, or a
-/// game without levels in `levels/`, is a mistake saying so.
-fn start_in(cfg: &GameConfig, names: &[String]) -> Result<usize> {
-    let Some(name) = &cfg.start else { return Ok(0) };
-    if names.is_empty() {
-        anyhow::bail!("c.start = \"{name}\": the game has no levels in levels/ to begin in (a map, a world made in code and a game of one level begin where they are)");
+/// Where a run begins (`c.start`) and the game's own title
+/// (`c.title_screen.level`), by their places among `names` (the files of
+/// `levels/`): the start the level named, else the first that is not the
+/// title. A name that is no level, a game without levels in `levels/`, a
+/// title that is the start or the only level, is a mistake saying so.
+fn start_in(cfg: &GameConfig, names: &[String]) -> Result<(usize, Option<usize>)> {
+    let named = |setting: &str, name: &str| -> Result<usize> {
+        if names.is_empty() {
+            anyhow::bail!("{setting} = \"{name}\": the game has no levels in levels/ to begin in (a map, a world made in code and a game of one level begin where they are)");
+        }
+        let there: Vec<&str> = names.iter().map(String::as_str).collect();
+        names.iter().position(|n| n == name).with_context(|| format!("{setting} = \"{name}\": {}", no_such("level", name, "", "levels", &there)))
+    };
+    let title = cfg.title_screen.level.as_deref().map(|name| named("c.title_screen.level", name)).transpose()?;
+    let start = match &cfg.start {
+        Some(name) => named("c.start", name)?,
+        None => (0..names.len().max(1)).find(|&i| Some(i) != title).with_context(|| format!("c.title_screen.level = \"{}\": a run begins in another level of levels/, and there is none", names[0]))?,
+    };
+    if let Some(t) = title.filter(|&t| t == start) {
+        anyhow::bail!("c.title_screen.level = \"{}\" is c.start too: the title is played before a run, which begins in another level", names[t]);
     }
-    let there: Vec<&str> = names.iter().map(String::as_str).collect();
-    match names.iter().position(|n| n == name) {
-        Some(at) => Ok(at),
-        None => anyhow::bail!("c.start = \"{name}\": {}", no_such("level", name, "", "levels", &there)),
-    }
+    Ok((start, title))
 }
 
-/// `c.start` read anew (`conf.lua` changed) checked as the game loads: the
-/// same mistakes, the levels not built.
+/// `c.start` and `c.title_screen.level` read anew (`conf.lua` changed)
+/// checked as the game loads: the same mistakes, the levels not built.
 pub fn check_start<G: Game>(game: &Files, cfg: &GameConfig) -> Result<()> {
-    if cfg.start.is_none() {
+    if cfg.start.is_none() && cfg.title_screen.level.is_none() {
         return Ok(());
     }
     let none = G::level(cfg)?.is_some() || cfg.world.size.is_some();

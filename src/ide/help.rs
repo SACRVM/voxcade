@@ -564,6 +564,61 @@ end
 "##,
     },
     Topic {
+        title: "YOUR OWN TITLE",
+        text: "A game with save games may open on a title of its own: a level of the game (levels/title.toml here) that c.title_screen.level names, in place of the engine's title with its high scores. The window opens in it, and what happens there is your code: here a menu drawn with frame:menu and moved with the arrows. world:new_game() begins a run in the level a run begins in (the first but the title, or c.start's), world:load(slot) a run from a save (world.saves says what lies in the slots), world:open(\"settings\") shows the engine's SETTINGS over the game, world:quit() ends the program. The title is no run: it is never recorded, nothing is saved there, Escape is yours. level.name says where the game is. A run's end and QUIT TO TITLE come back to it; PLAY in the IDE begins the run at once (a scenario with level = \"title\" plays the title).",
+        conf: r##"c.world.size = nil
+c.title_screen.level = "title"
+c.saves = { slots = 1 }
+c.actions = { "act" }
+c.keys = { act = { "Space" } }
+c.pad = { act = { "south" } }"##,
+        files: &[
+            ("levels/title.toml", "format = \"voxcade level 1\"\nsize = [96, 64, 32]\n"),
+            ("levels/meadow.toml", "format = \"voxcade level 1\"\nsize = [96, 64, 32]\n"),
+        ],
+        code: r##"local ROWS = { "New game", "Continue", "Settings", "Quit" }
+
+function on_level_start(how)
+  level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 0, "#5a6e4a")
+  if level.name == "title" then
+    level.state.at = 1
+  end
+end
+
+-- The title's menu: up and down choose, act does what the row says.
+local function title_tick()
+  local at = level.state.at
+  if input:repeated("down") then at = at % #ROWS + 1 end
+  if input:repeated("up") then at = (at - 2) % #ROWS + 1 end
+  level.state.at = at
+  if input:pressed("act") then
+    if at == 1 then world:new_game()
+    elseif at == 2 and world.saves[1] then world:load(1)
+    elseif at == 3 then world:open("settings")
+    elseif at == 4 then world:quit() end
+  end
+end
+
+function on_tick()
+  if level.name == "title" then return title_tick() end
+  player:walk(input.dir, 40)
+  if input:pressed("act") then world:save(1) end
+end
+
+function on_draw(frame)
+  if level.name == "title" then
+    local rows = {}
+    for i, text in ipairs(ROWS) do
+      rows[i] = { text = text, dim = i == 2 and not world.saves[1] }
+    end
+    frame:menu{ title = "My Game", rows = rows, at = level.state.at, hint = "{act} chooses" }
+  else
+    frame:text("{act} saves", 4, 4)
+  end
+end
+"##,
+    },
+    Topic {
         title: "YOUR OWN LUA FILES",
         text: "A bigger game splits its code into files of its own. require(\"market\") runs market.lua once as the game starts and gives back what the file returns, here a table with the prices and a function; asked again it gives the same. Dots go into folders: require(\"lang.de\") is lang/de.lua. Call it at the top of main.lua or of a file it requires, never later. The files share main.lua's globals (world, level, player and the rest are there; a handler may live in any of them) and are your game's code as main.lua is: saving one runs the code anew. What changes still goes in a state, never in a file's own locals.",
         conf: r##"c.player.kind = "hero"
@@ -1660,20 +1715,29 @@ mod tests {
             for model in topic.conf.split('"').filter(|w| w.ends_with(".vvx")) {
                 std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("games/arena/player.vvx"), dir.join(model)).unwrap();
             }
-            let mut game = crate::session::Session::<crate::Voxcade>::load(&dir).unwrap_or_else(|e| panic!("{}: {e:#}", topic.title));
-            for tick in 0..240 {
-                let mut input = crate::input::Input { right: tick % 90 < 45, up: tick % 70 < 30, ..Default::default() };
-                input.hold(0, tick % 50 < 3);
-                // A second player, where the game has seats for one: in,
-                // walking, then gone again.
-                game.set_seat(2, (30..200).contains(&tick).then_some(crate::input::Input { left: tick % 80 < 40, ..Default::default() }));
-                game.step(&input);
-                // a picture after every tick, as a window draws: on_draw
-                // only looks, and a mistake there shows in the frame after
-                // the tick that set it up (BunnyFarm's dog's board did)
-                let _ = game.compose(0.0, 16.0 / 9.0, crate::session::Scene::Play, None);
+            let load = || crate::session::Session::<crate::Voxcade>::load(&dir).unwrap_or_else(|e| panic!("{}: {e:#}", topic.title));
+            // A game with a title of its own plays a run, then its title.
+            let mut games = vec![load()];
+            if games[0].cfg.title_screen.level.is_some() {
+                let mut titled = load();
+                titled.begin_title().unwrap();
+                games.push(titled);
             }
-            assert!(game.trouble().is_none(), "{}: {:?}", topic.title, game.trouble());
+            for mut game in games {
+                for tick in 0..240 {
+                    let mut input = crate::input::Input { right: tick % 90 < 45, up: tick % 70 < 30, ..Default::default() };
+                    input.hold(0, tick % 50 < 3);
+                    // A second player, where the game has seats for one: in,
+                    // walking, then gone again.
+                    game.set_seat(2, (30..200).contains(&tick).then_some(crate::input::Input { left: tick % 80 < 40, ..Default::default() }));
+                    game.step(&input);
+                    // a picture after every tick, as a window draws: on_draw
+                    // only looks, and a mistake there shows in the frame after
+                    // the tick that set it up (BunnyFarm's dog's board did)
+                    let _ = game.compose(0.0, 16.0 / 9.0, crate::session::Scene::Play, None);
+                }
+                assert!(game.trouble().is_none(), "{}: {:?}", topic.title, game.trouble());
+            }
             let _ = std::fs::remove_dir_all(&dir);
         }
     }

@@ -80,13 +80,16 @@ where nothing is (`thing.name`, `thing.wall`, `level.next`, `music.song`).
 | `world.levels` | the levels' names, in order |
 | `world.players` | every seat (`c.players`, 1 unless set): `world.players[n]` is seat n's player, or `false` while nobody sits there |
 | `world.saves` | what lies in each save slot, `{ level, seconds }` (the level it was saved in, the play time), nil for an empty one; read-only |
-| `world.leaving` | nil, or why the level is about to be left (`"go_to"`, `"restart"`, `"load"`, `"won"`, `"lost"`): an ask is pending; nil again once the change is done (in `on_level_start`) |
+| `world.leaving` | nil, or why the level is about to be left (`"go_to"`, `"restart"`, `"load"`, `"won"`, `"lost"`, `"new_game"`): an ask is pending; nil again once the change is done (in `on_level_start`) |
 | `world:go_to(level, place?, options?)` | leave this level for another (a name, or a number in `world.levels`) at the tick's end; arrive at `place`, or where the level starts; `{ fade = seconds }` this change's fade (below) |
 | `world:restart(place?, options?)` | enter this level afresh at the tick's end: at `place`, else at the checkpoint, else where it starts |
 | `world:win(options?)`, `world:lose(options?)` | the run ends at the tick's end (`on_world_end` says how) |
 | `world:hitstop(ticks)` | the whole game holds still for a few ticks, `on_tick` and the time too: the punch of a hit; 60 (a second) at most, more is cut to 60 |
 | `world:read(name)` | a file of the game folder as text, while `main.lua` starts |
-| `world:save(slot)`, `world:load(slot, options?)` | at the tick's end (save games, below); loading an empty slot is a mistake with its line (`world.saves[slot]` tells first) |
+| `world:save(slot)`, `world:load(slot, options?)` | at the tick's end (save games, below); loading an empty slot is a mistake with its line (`world.saves[slot]` tells first); on the game's own title `world:load` begins the run from the save and `world:save` is a mistake |
+| `world:new_game(options?)` | on the game's own title only (`c.title_screen.level`, below): a fresh run begins at the tick's end in the level a run begins in |
+| `world:open(page)` | a page of the engine's over the game, held while it shows (`"settings"`, the only one so far; another name is a mistake listing them): asked of the window, not of the run |
+| `world:quit()` | the program ends (the IDE's PLAY stops, `shot` and `inspect` end the run there): asked of the window, not of the run |
 
 ### `level`: the level being played
 
@@ -457,8 +460,8 @@ what they leave to each game to guard by hand, and those guards are the
 engine's here.
 
 ```
-title (the engine's) ── NEW GAME
-  │
+title (the engine's) ── NEW GAME      or the game's own title level ── world:new_game()
+  │                                     (a run of its own that counts for nothing)
   ▼
 on_world_start()                     the run's states from c.state; no level yet
   │
@@ -474,7 +477,52 @@ fade out ─► on_level_end(why) ─► the next level ─► on_level_start(ho
   │ won, lost, quit
   ▼
 fade out ─► on_level_end(why) ─► on_world_end(result) ─► high scores (the engine's) ─► title
+                                                         (a game's own title: no table, its title level)
 ```
+
+### The game's own title
+
+A story game with save games builds its own start screen (new game,
+continue, load, settings, quit) instead of the engine's arcade title:
+`c.title_screen.level = "title"` names a level in `levels/` (checked as
+the game loads and when `conf.lua` is read anew, a wrong name a mistake
+with the near one; it waits for a restart, it is part of the replays'
+fingerprint only when set, and it may not be the level a run begins in).
+Then:
+
+- A window opens in it, straight in: the engine's title, its menu, PRESS
+  START, attract mode, the high score table and initials never show. A
+  run's end and QUIT TO TITLE come back to it, a fresh title run.
+- It is played as a run of its own that counts for nothing:
+  `on_world_start`, `on_level_start("start")` there, ticks as always;
+  never recorded or kept (F9 keeps nothing), no `world:save`, and the
+  pause keys do not pause (Escape is the game's, if it binds it). There
+  is no name for "on the title": `level.name` says it.
+- What happens there is the game's code: `frame:menu`, `input:pressed`,
+  `world.saves`. `world:new_game()` begins a run at the tick's end in the
+  level a run begins in, as the engine's NEW GAME does: the title's run
+  left without `on_level_end`, the game loaded anew (`on_world_start`,
+  the states fresh, tick 0), recorded from its first tick.
+  `world:load(slot)` there begins the run from the save, as CONTINUE
+  does. `world:go_to`, `world:win` and `world:lose` there are mistakes
+  saying so; `world:new_game()` during a run is a mistake (from the title
+  only), and so is going to the title level.
+- The level a run begins in is `c.start`'s, else the first of
+  `world.levels` that is not the title (`Levels::first`); `world.levels`
+  still lists it, and `level.next` passes it over.
+- `world:open("settings")` (the title and a run alike) shows the
+  engine's SETTINGS over the game, held as the pause holds it; back from
+  it the game goes on. `world:quit()` ends the program. Both are asked of
+  the machine, not the run (`game::Request`): no state, no hash, nothing
+  in a replay; a window does them, `shot`, `inspect` and `check` do not
+  (`world:quit()` ends their run there), the IDE's PLAY stops on
+  `world:quit()`. In a network game the window does neither yet.
+- The IDE's PLAY, `shot`, `inspect` and `check` begin in the level a run
+  begins in, past the title, as they pass the engine's; a scenario with
+  `level = "title"` plays the title. `voxcade shot GAME --screen title`
+  shows the title level a few ticks in (the settings' screens over it);
+  the engine's title screens (`continue`, `intro`, `attract`,
+  `highscores`, `initials`, the network's) are refused for such a game.
 
 ### Starting
 
@@ -483,8 +531,8 @@ fade out ─► on_level_end(why) ─► on_world_end(result) ─► high scores
   globals, no statics, no snapshot to restart from).
 - `on_world_start()` runs first, once: the run's own states. There is no
   level yet; `level` used there is a mistake that says so.
-- The first level is the first in `world.levels`, or the one `c.start`
-  names (`Levels::first`, the one rule for every beginning of a run: a
+- The first level is the first in `world.levels` (the game's own title
+  passed over), or the one `c.start` names (`Levels::first`, the one rule for every beginning of a run: a
   game loaded, F5, AGAIN, attract mode, `shot`, `inspect`, `check`; it
   waits for a restart when `conf.lua` changes, and is part of the replays'
   fingerprint only when set). What says where a run begins wins over it:
@@ -513,7 +561,10 @@ end. `on_draw` runs for every picture and only looks.
   `world:win()`, `world:lose()` and `world:load(slot)` ask; nothing
   happens at once. The handler runs on, and `world.leaving` says what is
   pending.
-- **One ask counts.** Going on (`go_to`, `win`) outranks starting over
+- **On the game's own title** `world:new_game()` and `world:load(slot)`
+  are the asks that begin a run (above); `world:restart()` begins the
+  title again.
+- **One ask counts.** Going on (`go_to`, `win`, `new_game`) outranks starting over
   (`restart`, `lose`, `load`): the flag and a Goomba touched in the same
   tick win the level, as in every classic. Among asks of the same rank the
   first counts: a goal touched twice, two exits in one tick. Every
@@ -642,12 +693,13 @@ also close it.
 - QUIT TO TITLE in the pause menu ends the run the same way with
   `"quit"`.
 - Then the engine's part: initials if the score beats the table, the
-  table, the title. An ending, credits or a final tally before that is a
+  table, the title; a game with its own title goes back to its title
+  level (no table). An ending, credits or a final tally before that is a
   sequence the game plays before it asks to win.
 
 ### What each handler may do
 
-| Where | changes the game | asks (`go_to`, `restart`, `win`, `lose`, `save`, `load`) | `math.random` | `input` | `level` |
+| Where | changes the game | asks (`go_to`, `restart`, `win`, `lose`, `save`, `load`, `new_game`) | `math.random` | `input` | `level` |
 |---|---|---|---|---|---|
 | the top of `main.lua` | no: constants only | no | no | no | no |
 | `on_world_start()` | the states | no | yes | no | no: there is none yet |
@@ -662,6 +714,11 @@ also close it.
 | `on_draw(frame)` | no: it only looks | no | no | the last tick's | to read |
 | a scenario's `setup()` | yes | yes: done before the first tick | yes | no | yes |
 | a console line | yes | yes: done at once, before the next tick | yes | no | yes |
+
+On the game's own title only `restart`, `load` and `new_game` ask (the
+others are mistakes there), and `new_game` nowhere else. `world:open`
+and `world:quit` are no asks, nothing of the run: anywhere that changes
+the game (not `on_draw`), taking effect in the window after the tick.
 
 A mistake here names the handler and the line. A level that asks to be
 left in `on_level_start` again and again (a hub that sends on, a loop

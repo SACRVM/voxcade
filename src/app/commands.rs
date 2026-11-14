@@ -252,7 +252,10 @@ impl<G: Game> App<G> {
             n.leave();
         }
         let watching = self.watching.is_some();
-        let left = (command == Command::ToTitle && !watching && self.game.game.scored()).then(|| self.game.local_scores());
+        // A game's own title has no high score table; F5 on it plays it anew.
+        let titled = self.game.cfg.title_screen.level.is_some();
+        let on_title = self.game.on_title();
+        let left = (command == Command::ToTitle && !watching && !titled && self.game.game.scored()).then(|| self.game.local_scores());
         let helped = self.game.helped();
         if command == Command::ToTitle && !watching && self.game.game.outcome().is_none() {
             self.game.game.quit();
@@ -268,7 +271,9 @@ impl<G: Game> App<G> {
             Ok(fresh) => self.renew(fresh),
             Err(e) => eprintln!("reloading the game failed: {e:#}"),
         }
-        if command == Command::Restart {
+        if command == Command::Restart && on_title && self.begin.is_empty() {
+            self.play_own_title();
+        } else if command == Command::Restart {
             match &self.watching {
                 Some(replay) => self.playback = Some(Playback::new(replay, &mut self.game)?),
                 None => {
@@ -278,7 +283,8 @@ impl<G: Game> App<G> {
             }
             self.front.straight_in();
             play_the_games_song(&mut self.game, &self.settings);
-        } else {
+        } else if watching || !self.play_own_title() {
+            // The engine's title (a game's own plays itself).
             let menu = match left {
                 Some(lines) if helped => {
                     // The console or a scenario helped: its lines go in

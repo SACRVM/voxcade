@@ -1201,10 +1201,11 @@ impl Runs {
         Self { game_dir: game_dir.to_path_buf(), kept: crate::settings::replays_for(game_dir), recording: None, over: 0, last: None }
     }
 
-    /// A run starts on a freshly loaded game.
+    /// A run starts on a freshly loaded game; the game's own title is none
+    /// (`c.title_screen.level`: never recorded).
     pub fn start<G: Game>(&mut self, game: &Session<G>) {
         self.end(game);
-        self.recording = (!game.touched).then(Recorder::default);
+        self.recording = (!game.touched && !game.on_title()).then(Recorder::default);
         self.over = 0;
     }
 
@@ -1272,6 +1273,9 @@ impl Runs {
     /// Puts the run being played, or else the last one, in the game's
     /// `replays/` folder (F9); where it went.
     pub fn keep<G: Game>(&self, game: &Session<G>) -> Result<PathBuf> {
+        if game.on_title() {
+            bail!("the title (c.title_screen.level) is no run: nothing to keep");
+        }
         let mut replay = match &self.recording {
             Some(recorder) if !game.touched => recorder.replay(game)?,
             Some(_) => bail!("the game's files changed during this run"),

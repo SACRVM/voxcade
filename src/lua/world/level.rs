@@ -89,7 +89,8 @@ impl UserData for LevelView {
         });
         f.add_field_function_get("next", |lua, _| {
             level_here(lua, "level.next")?;
-            look(lua, |h| Ok(h.levels.list.get(h.level + 1).map(|l| l.name.clone())))
+            // The game's own title is no level of a run.
+            look(lua, |h| Ok(h.levels.list.iter().enumerate().skip(h.level + 1).find(|&(i, _)| h.levels.title != Some(i)).map(|(_, l)| l.name.clone())))
         });
         f.add_field_function_get("visits", |lua, _| {
             level_here(lua, "level.visits")?;

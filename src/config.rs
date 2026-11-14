@@ -514,6 +514,12 @@ pub struct TitleScreenConfig {
     /// letters (default: dark ones, over bright ground like More Blood's
     /// sand).
     pub light_menu: bool,
+    /// A level of the game as its own title (`c.title_screen.level = "title"`), a file in `levels/`, in place of the engine's title.
+    /// The window opens in it; its code draws the menu and begins a run with `world:new_game()` or `world:load(slot)`.
+    /// It is played before a run and never counts: not recorded, no saving there. Never the level a run begins in.
+    /// Takes effect after a restart (F5).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub level: Option<String>,
 }
 
 impl Default for TitleScreenConfig {
@@ -535,6 +541,7 @@ impl Default for TitleScreenConfig {
             flyby_altitude: 40.0,
             attract_after: 30.0,
             light_menu: false,
+            level: None,
         }
     }
 }
@@ -1272,6 +1279,7 @@ impl GameConfig {
             ("player.kind", self.player.kind != new.player.kind),
             ("players", self.players != new.players),
             ("start", self.start != new.start),
+            ("title_screen.level", self.title_screen.level != new.title_screen.level),
             ("camera.rotates", self.camera.rotates != new.camera.rotates),
         ] {
             if differs {
@@ -1296,6 +1304,7 @@ impl GameConfig {
         new.player.kind = self.player.kind.clone();
         new.players = self.players;
         new.start = self.start.clone();
+        new.title_screen.level = self.title_screen.level.clone();
         new.camera.rotates = self.camera.rotates;
     }
 }

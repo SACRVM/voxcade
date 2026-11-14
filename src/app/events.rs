@@ -24,8 +24,9 @@ impl<G: Game> App<G> {
                 screen.resize(renderer, w, h);
             }
             // Looking away pauses the game (a network game's host fetching
-            // a drink would freeze every screen: ESCAPE does it).
-            Event::Window { win_event: WindowEvent::FocusLost, .. } if self.front.playing && !self.front.menu.is_open() && !phase_over && self.net.is_none() => {
+            // a drink would freeze every screen: ESCAPE does it). The game's
+            // own title is no run to pause.
+            Event::Window { win_event: WindowEvent::FocusLost, .. } if self.front.playing && !self.front.menu.is_open() && !phase_over && self.net.is_none() && !self.game.on_title() => {
                 if self.game.fading() {
                     self.front.pause_after_fade = true;
                 } else {
@@ -92,8 +93,10 @@ impl<G: Game> App<G> {
             return Flow::Go;
         }
         let maker_code = keys::maker_key(code, *maker, watching.is_some());
-        // Playing, not watching a replay: a key pressed, not one held.
+        // Playing, not watching a replay: a key pressed, not one held. On
+        // the game's own title the pause keys are the game's alone.
         let in_play = !repeat && front.playing && watching.is_none();
+        let pauses = !game.on_title();
         if code == Scancode::F11 && !repeat {
             settings.fullscreen = !settings.fullscreen;
             commands.push(Command::Fullscreen);
@@ -126,6 +129,7 @@ impl<G: Game> App<G> {
                 commands.extend(front.menu.nav(nav, settings, game.cfg.audio.music.files().len()));
             }
         } else if in_play
+            && pauses
             && !phase_over
             && let Some(seat) = (1..=seating.seats()).filter(|&n| matches!(seating.keys(n), Keys::Left | Keys::Right)).find(|&n| settings.keys_of(seating.keys(n)).and_then(|b| b.action_of(name)) == Some(PAUSE))
         {
@@ -133,7 +137,7 @@ impl<G: Game> App<G> {
             if !game.fading() {
                 pause_for(front, game, true, (seat > 1).then_some(seat));
             }
-        } else if in_play && !phase_over && !seating.alone() && name == crate::seating::KEYBOARD_START && settings.keys.action_of(name).is_none() {
+        } else if in_play && pauses && !phase_over && !seating.alone() && name == crate::seating::KEYBOARD_START && settings.keys.action_of(name).is_none() {
             // The keyboard (whole, or its right half): a seat taken, then
             // its pause.
             match seating.keyboard_start(planned_keyboard(settings)) {
@@ -148,8 +152,8 @@ impl<G: Game> App<G> {
                 PlayKey::ToTitle => commands.push(Command::ToTitle),
                 // A level change's fade is seen out first; the whole
                 // keyboard another seat's, LEAVE offered.
-                PlayKey::Pause => pause_for(front, game, true, seating.keyboard_seat().filter(|&s| seating.keys(s) == Keys::Whole)),
-                PlayKey::Game => {}
+                PlayKey::Pause if pauses => pause_for(front, game, true, seating.keyboard_seat().filter(|&s| seating.keys(s) == Keys::Whole)),
+                PlayKey::Pause | PlayKey::Game => {}
             }
         }
         Flow::Go
@@ -226,7 +230,7 @@ impl<G: Game> App<G> {
                 // A pad no seat has takes one; a seat's START pauses (a
                 // fade seen out first), offering LEAVE to a player after
                 // the first.
-                PlayKey::Pause => {
+                PlayKey::Pause if !game.on_title() => {
                     let plugged = pads.ids();
                     match seating.pad_start(which.raw(), &plugged, planned_pad(settings, &pads.named(), which.raw())) {
                         Start::Pause(seat) => pause_for(front, game, true, (seat > 1).then_some(seat)),
@@ -234,7 +238,7 @@ impl<G: Game> App<G> {
                         Start::Full => {}
                     }
                 }
-                PlayKey::Game => {}
+                PlayKey::Pause | PlayKey::Game => {}
             }
         }
     }

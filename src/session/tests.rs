@@ -64,6 +64,7 @@ fn game_on(world: World, cfg: GameConfig) -> Session<Shooter> {
         started_from: None,
         scenario: None,
         evals: Vec::new(),
+        begun: false,
     }
 }
 

@@ -315,6 +315,7 @@ pub fn verb(ask: &Ask) -> &'static str {
         Ask::Load { .. } => "load",
         Ask::Won { .. } => "win",
         Ask::Lost { .. } => "lose",
+        Ask::NewGame { .. } => "new_game",
     }
 }
 

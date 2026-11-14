@@ -64,6 +64,7 @@ impl UserData for WorldView {
         m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, Value)| -> mlua::Result<Value> { Err(no_such("world", &key, Some("world.state"))) });
         m.add_meta_function(MetaMethod::NewIndex, |_, (_, key, _): (AnyUserData, Value, Value)| -> mlua::Result<()> { Err(not_settable("world", &key, Some("world.state"))) });
         m.add_function("go_to", |lua, (_, level, place, options): (AnyUserData, Value, Value, Value)| {
+            no_run_here(lua, "world:go_to")?;
             let (place, fade) = place_and_fade(lua, place, options, "world:go_to")?;
             let index = look(lua, |h| {
                 let n = h.levels.list.len();
@@ -78,10 +79,14 @@ impl UserData for WorldView {
                     Value::Nil => return Err(mlua::Error::runtime("world:go_to: which level? (nil: after the last level, level.next is nil; a game is won with world:win())")),
                     other => return Err(mlua::Error::runtime(format!("world:go_to: a level's name or number, not a {}", other.type_name()))),
                 };
+                let name = &h.levels.list[index].name;
+                if h.levels.title == Some(index) {
+                    return Err(mlua::Error::runtime(format!("world:go_to: '{name}' is the game's title (c.title_screen.level), played before a run and never in one: a run ends with world:win() or world:lose()")));
+                }
                 if let Some(p) = &place {
                     check_place(&h.levels.list[index], p, "world:go_to")?;
                 }
-                Ok(h.levels.list[index].name.clone())
+                Ok(name.clone())
             })?;
             ask(lua, "world:go_to", Ask::GoTo { level: index, place, fade })
         });
@@ -95,6 +100,9 @@ impl UserData for WorldView {
         m.add_function("save", |lua, (_, n): (AnyUserData, i64)| {
             if phase(lua).is_some() {
                 return Err(mlua::Error::runtime("world:save: only while a level is played (on_level_start, on_tick): there is none to save here"));
+            }
+            if look(lua, |h| Ok(h.on_title()))? {
+                return Err(mlua::Error::runtime("world:save: no saving on the title (c.title_screen.level): it is no run, world:new_game() begins one"));
             }
             change(lua, "world:save", |h| {
                 let n = slot(h, n, "world:save")?;
@@ -123,9 +131,48 @@ impl UserData for WorldView {
             })
         });
         m.add_function("read", |lua, (_, name): (AnyUserData, String)| lua.named_registry_value::<Function>("voxcade.read")?.call::<mlua::LuaString>(name));
-        m.add_function("win", |lua, (_, options): (AnyUserData, Value)| ask(lua, "world:win", Ask::Won { fade: fade_of(options, "world:win")? }));
-        m.add_function("lose", |lua, (_, options): (AnyUserData, Value)| ask(lua, "world:lose", Ask::Lost { fade: fade_of(options, "world:lose")? }));
+        m.add_function("win", |lua, (_, options): (AnyUserData, Value)| {
+            no_run_here(lua, "world:win")?;
+            ask(lua, "world:win", Ask::Won { fade: fade_of(options, "world:win")? })
+        });
+        m.add_function("lose", |lua, (_, options): (AnyUserData, Value)| {
+            no_run_here(lua, "world:lose")?;
+            ask(lua, "world:lose", Ask::Lost { fade: fade_of(options, "world:lose")? })
+        });
+        m.add_function("new_game", |lua, (_, options): (AnyUserData, Value)| {
+            if !look(lua, |h| Ok(h.on_title()))? {
+                return Err(mlua::Error::runtime("world:new_game: from the game's own title only (c.title_screen.level): in a run world:restart() begins the level again"));
+            }
+            ask(lua, "world:new_game", Ask::NewGame { fade: fade_of(options, "world:new_game")? })
+        });
+        // Asked of the machine, not of the run: a window does it.
+        m.add_function("open", |lua, (_, page): (AnyUserData, String)| {
+            let Some(&page) = crate::game::PAGES.iter().find(|&&p| p == page) else {
+                return Err(mlua::Error::runtime(format!("world:open: no page called '{page}' (the engine's: {})", crate::game::PAGES.join(", "))));
+            };
+            request(lua, "world:open", crate::game::Request::Open(page))
+        });
+        m.add_function("quit", |lua, _: AnyUserData| request(lua, "world:quit", crate::game::Request::Quit));
     }
+}
+
+/// On the game's own title an ask that would leave a level of a run is a
+/// mistake: it is no run.
+fn no_run_here(lua: &Lua, what: &str) -> mlua::Result<()> {
+    match look(lua, |h| Ok(h.on_title()))? {
+        true => Err(mlua::Error::runtime(format!("{what}: the title (c.title_screen.level) is no run: world:new_game() begins one, world:load(slot) one from a save"))),
+        false => Ok(()),
+    }
+}
+
+/// `new` asked of the machine the game is played on, once however often.
+fn request(lua: &Lua, what: &str, new: crate::game::Request) -> mlua::Result<()> {
+    change(lua, what, |h| {
+        if !h.requests.contains(&new) {
+            h.requests.push(new);
+        }
+        Ok(())
+    })
 }
 
 /// An ask's place and options: `(place)`, `(place, options)` or

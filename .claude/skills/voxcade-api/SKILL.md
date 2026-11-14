@@ -117,7 +117,9 @@ thing; `player` is seat 1 only), out of play (`p.state.out`), a team
 (those in play), `frame.players` (those at the machine drawing). A new
 name for players asks the cross test with two or four: does it work for
 seat 3, over the network, in a replay? Asks: `world:go_to`, `world:restart`,
-`world:win`, `world:lose`, `world:save`, `world:load`. Holds: the
+`world:win`, `world:lose`, `world:save`, `world:load`, `world:new_game`
+(the game's own title only). Asked of the machine, never the run (no
+state, no replay): `world:open(page)`, `world:quit()`. Holds: the
 engine's pause, `level.state.held`, `level:hitstop`. Scenario (a run
 begun late, set up in code: `scenarios/NAME.lua`) and console (a line
 of Lua between two ticks): every game has both, and a new name is tried
