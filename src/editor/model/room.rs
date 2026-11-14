@@ -103,19 +103,27 @@ pub fn what_it_is(t: &Thing) -> String {
     }
 }
 
-/// The thing called `name`, or the unnamed one the list shows so (the
-/// first; `NAME#K` the K-th, from 1), or the one the game calls so.
-pub fn listed(things: &[Thing], name: &str) -> Option<usize> {
-    if let Some(i) = things.iter().position(|t| t.name.as_deref() == Some(name)) {
-        return Some(i);
-    }
+/// The names a level's things have in the game, kept (`Editor::thing_names`).
+pub type Called = std::rc::Rc<[Option<String>]>;
+
+/// The names a level's things have in the game (`level:thing`), in their
+/// order, `players` the kinds the first of which becomes the player
+/// (`levels::thing_names`: the file's, else `lift_1` by kind; the player
+/// none).
+pub fn called_names(things: &[Thing], players: &std::collections::BTreeSet<String>) -> Vec<Option<String>> {
+    crate::levels::thing_names(things.iter().map(|t| (t.kind.as_str(), t.name.as_deref(), players.contains(&t.kind))))
+}
+
+/// The thing called `name` (its own, or the game's: `called`, `lever_2`, as
+/// props name it), else the unnamed one that `what_it_is` says so (the
+/// first; `NAME#K` the K-th: `--choose torch#3`).
+pub fn listed(things: &[Thing], called: &[Option<String>], name: &str) -> Option<usize> {
+    let own = things.iter().position(|t| t.name.as_deref() == Some(name));
     let (what, k) = match name.rsplit_once('#') {
         Some((what, k)) => (what, k.parse::<usize>().ok()?.checked_sub(1)?),
         None => (name, 0),
     };
-    let shown = things.iter().enumerate().filter(|(_, t)| t.name.is_none() && what_it_is(t) == what).nth(k).map(|(i, _)| i);
-    // Else by the name the game gives it (`lever_2`, as props name it).
-    shown.or_else(|| crate::levels::thing_names(things.iter().map(|t| (t.kind.as_str(), t.name.as_deref()))).iter().position(|n| n == name))
+    own.or_else(|| called.iter().position(|n| n.as_deref() == Some(name))).or_else(|| things.iter().enumerate().filter(|(_, t)| t.name.is_none() && what_it_is(t) == what).nth(k).map(|(i, _)| i))
 }
 
 pub fn bearing_of(t: &Thing) -> f64 {
@@ -287,21 +295,34 @@ impl Editor {
         }
     }
 
-    /// How the list calls an item: its name, or (unnamed, `false`) what it
-    /// is: its kind, its model's file, a light.
+    /// How the list calls an item: its name, or (unnamed, `false`) the
+    /// name the game gives a thing, `lever_2` (`thing_names`), and for the
+    /// thing that becomes the player, which has none, what it is: its kind.
     pub fn label_of(&self, item: Item) -> (String, bool) {
+        self.label_in(&self.thing_names(), item)
+    }
+
+    /// `label_of` among the names already at hand (a list of rows asks
+    /// `thing_names` once).
+    pub fn label_in(&self, called: &[Option<String>], item: Item) -> (String, bool) {
         if let Some(name) = self.name_of(item) {
             return (name.to_string(), true);
         }
         let Item::Thing(i) = item else { return (String::new(), false) };
-        (what_it_is(&self.level.things[i]), false)
+        (called.get(i).cloned().flatten().unwrap_or_else(|| what_it_is(&self.level.things[i])), false)
     }
 
-    /// The item the list calls `name` (`find`'s, or an unnamed thing by
-    /// what the list shows for it: the first so, `NAME#K` the K-th), for
-    /// the command line's `--choose` and the like.
+    /// Whether the thing becomes the player in the game: it has no name
+    /// there (`levels::thing_names`).
+    pub fn is_player(&self, i: usize) -> bool {
+        self.thing_names().get(i).is_some_and(Option::is_none)
+    }
+
+    /// The item the list calls `name` (`find`'s, or a thing by the name
+    /// the game gives it, or an unnamed thing by what it is: the first so,
+    /// `NAME#K` the K-th), for the command line's `--choose` and the like.
     pub fn find_listed(&self, name: &str) -> Option<Item> {
-        self.find(name).or_else(|| listed(&self.level.things, name).map(Item::Thing))
+        self.find(name).or_else(|| listed(&self.level.things, &self.thing_names(), name).map(Item::Thing))
     }
 
     /// Where an item stands (an area: its low corner), in voxels from the
@@ -424,7 +445,7 @@ impl Editor {
     /// one at `except`.
     fn taken(&self, sort: Item, name: &str, except: Option<usize>) -> bool {
         match sort {
-            Item::Thing(_) => self.level.things.iter().enumerate().any(|(i, t)| Some(i) != except && t.name.as_deref() == Some(name)),
+            Item::Thing(_) => self.thing_names().iter().enumerate().any(|(i, n)| Some(i) != except && n.as_deref() == Some(name)) || self.level.things.iter().enumerate().any(|(i, t)| Some(i) != except && t.name.as_deref() == Some(name)),
             Item::Place(_) => self.level.places.iter().enumerate().any(|(i, p)| Some(i) != except && p.name == name),
             Item::Area(_) => self.level.areas.iter().enumerate().any(|(i, a)| Some(i) != except && a.name == name),
         }
@@ -580,10 +601,12 @@ impl Editor {
     }
 
     /// RENAME: the item called `typed` (trimmed); refused, with why, when
-    /// it is empty or another of its sort has it.
+    /// it is empty or another of its sort has it. A thing's name may be
+    /// cleared: the game's own, `lever_2`, is its again.
     pub fn rename(&mut self, item: Item, typed: &str) -> Result<(), String> {
         let name = typed.trim();
-        if name.is_empty() {
+        let clearing = name.is_empty() && matches!(item, Item::Thing(_));
+        if name.is_empty() && !clearing {
             return Err("A name needs a letter at least.".into());
         }
         if name.contains(['"', '\\']) || name.chars().any(char::is_control) {
@@ -601,21 +624,23 @@ impl Editor {
             Item::Place(i) => (i, "place"),
             Item::Area(i) => (i, "area"),
         };
-        if self.taken(item, name, Some(i)) {
+        if !clearing && self.taken(item, name, Some(i)) {
             return Err(format!("Another {what} is called {name}: a name is one {what}'s."));
         }
-        let name = name.to_string();
+        let name = (!clearing).then(|| name.to_string());
         let old = match item {
-            Item::Thing(i) => self.thing_names().into_iter().nth(i),
+            Item::Thing(i) => self.thing_names().get(i).cloned().flatten(),
             Item::Place(i) => Some(self.level.places[i].name.clone()),
             Item::Area(_) => None,
         };
-        let renamed = old.map(|old| self.props_renamed(matches!(item, Item::Place(_)), &old, &name)).unwrap_or_default();
+        // What it is called then: the name typed, or the one the game gives.
+        let now = name.clone().or_else(|| self.name_without_own(i));
+        let renamed = old.zip(now).map(|(old, now)| self.props_renamed(matches!(item, Item::Place(_)), &old, &now)).unwrap_or_default();
         self.change(None, |l| {
             match item {
-                Item::Thing(i) => l.things[i].name = Some(name),
-                Item::Place(i) => l.places[i].name = name,
-                Item::Area(i) => l.areas[i].name = name,
+                Item::Thing(i) => l.things[i].name = name,
+                Item::Place(i) => l.places[i].name = name.unwrap_or_default(),
+                Item::Area(i) => l.areas[i].name = name.unwrap_or_default(),
             }
             for (n, props) in renamed {
                 l.things[n].props = props;
@@ -662,9 +687,27 @@ impl Editor {
     }
 
     /// The names this level's things have in the game, in their order
-    /// (`levels::thing_names`: the file's, else `lift_1` by kind).
-    pub fn thing_names(&self) -> Vec<String> {
-        crate::levels::thing_names(self.level.things.iter().map(|t| (t.kind.as_str(), t.name.as_deref())))
+    /// (`called_names`), worked out again only when a thing's kind or name
+    /// changed, or one came or went.
+    pub fn thing_names(&self) -> Called {
+        use std::hash::{Hash, Hasher};
+        let mut hash = std::hash::DefaultHasher::new();
+        self.level.things.iter().for_each(|t| (&t.kind, &t.name).hash(&mut hash));
+        let key = hash.finish();
+        if let Some((was, names)) = &*self.pieces.called.borrow()
+            && *was == key
+        {
+            return names.clone();
+        }
+        let names: Called = called_names(&self.level.things, &self.pieces.player_kinds).into();
+        *self.pieces.called.borrow_mut() = Some((key, names.clone()));
+        names
+    }
+
+    /// The name thing `i` would have in the game with none of its own.
+    fn name_without_own(&self, i: usize) -> Option<String> {
+        let things = self.level.things.iter().enumerate().map(|(n, t)| (t.kind.as_str(), t.name.as_deref().filter(|_| n != i), self.pieces.player_kinds.contains(&t.kind)));
+        crate::levels::thing_names(things).into_iter().nth(i).flatten()
     }
 
     /// This level's name, as the game calls it (`level.name`): its file's stem.
@@ -1321,8 +1364,7 @@ impl Editor {
     fn find_name_choices(&self, i: usize, names: &BTreeMap<String, Named>) -> NameChoices {
         let t = &self.level.things[i];
         let here = self.level_name();
-        let mut things = self.thing_names();
-        things.remove(i);
+        let things: Vec<String> = self.thing_names().iter().enumerate().filter(|(n, _)| *n != i).filter_map(|(_, name)| name.clone()).collect();
         let levels = self.game_levels();
         // The level a place lies in: the one its `Level` prop names, else this.
         let within = names.iter().find(|(_, n)| **n == Named::Level).and_then(|(k, _)| self.prop_in_effect(t, k)?.as_str().filter(|s| !s.is_empty()).map(str::to_string)).unwrap_or_else(|| here.clone());
@@ -1745,7 +1787,7 @@ mod tests {
         assert!(!saved(&dir).contains("\"lamp\""));
         ed.undo();
         assert!(read(&dir).things.iter().any(|t| t.name.as_deref() == Some("lamp")), "a step back brings it back");
-        assert_eq!(ed.rename(Item::Thing(0), "  "), Err("A name needs a letter at least.".into()));
+        assert_eq!(ed.rename(Item::Place(0), "  "), Err("A name needs a letter at least.".into()), "a place and an area keep a name (a thing's may be cleared)");
         assert_eq!(ed.rename(Item::Thing(0), "lamp"), Err("Another thing is called lamp: a name is one thing's.".into()));
         assert_eq!(ed.rename(Item::Thing(0), "stove"), Ok(()), "its own name");
         assert_eq!(ed.rename(Item::Place(0), "window"), Err("Another place is called window: a name is one place's.".into()));

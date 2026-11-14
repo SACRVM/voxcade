@@ -73,8 +73,8 @@ pub(super) fn check_props(levels: &crate::levels::Levels, kinds: &[Kind]) -> Res
 /// line it is on) or its kind's.
 pub(super) fn check_names(levels: &crate::levels::Levels, kinds: &[Kind]) -> Result<()> {
     for (at, level) in levels.list.iter().enumerate() {
-        let things = level.thing_names(|k| kinds.get(k).map_or("", |k| k.name.as_str()));
-        let things: Vec<&str> = things.iter().map(String::as_str).collect();
+        let things = level.thing_names(|k| kinds.get(k).map_or(("", false), |k| (k.name.as_str(), k.player)));
+        let things: Vec<&str> = things.iter().flatten().map(String::as_str).collect();
         for (m, marker) in level.markers.iter().enumerate() {
             let Some(kind) = kinds.get(marker.kind).filter(|k| !k.names.is_empty()) else { continue };
             let own = level.marker_props.get(m).and_then(Option::as_ref);

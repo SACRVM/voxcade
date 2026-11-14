@@ -265,12 +265,25 @@ facing = [0, -1]
   props.to: no level called 02_cript (did you mean 02_crypt?)`. PROPS
   offers the names there are in a list (the levels; the places of the
   level `to` names, else this one's, `start` first; this level's things
-  but the thing itself; ticks for `"things"`), none first as a quiet
+  by the names the game gives them (below) but the thing itself; ticks
+  for `"things"`), none first as a quiet
   dash; a name that is not there stays in the file, shown in the warning
   colour, and the editor opens such a level. RENAME of a thing or a
   place rewrites the props of this level's things that name it, one step
   with it. `voxcade edit --prop works=lift_1,slab_1` sets a list;
   `--menu prop:KEY` opens the list in a shot.
+- **The names things have** (`level:thing(name)`): the file's `name`, else
+  the kind and the number among its kind in the file, counted named ones
+  too (`lever_2`; a piece's `piece_3`). The first thing of a kind the
+  ready-made rules stand the player as (the jump & run's `hero`) becomes
+  the player and has no name, no number: the next hero marker is
+  `hero_1`. The level editor's list, its name field's quiet hint, FIND,
+  `--choose` and the facts a shot prints say these names (the player's
+  marker its kind), nothing is written to the file for one; a name typed
+  is the thing's own, cleared it is the game's again. An automatic name
+  changes when a thing of its kind before it is removed: a prop naming
+  it by that name then names another (RENAME rewrites such props, REMOVE
+  does not).
 
 ## A terrain (2026-11-13)
 

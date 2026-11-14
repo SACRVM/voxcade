@@ -133,3 +133,69 @@ fn a_reload_that_breaks_a_name_is_refused() {
     let e = format!("{:#}", g.reload(&conf).unwrap_err());
     assert!(e.contains("props.at: no thing called stairs in level a"), "{e}");
 }
+
+/// A game of one level `a` (a floor of rock) whose `conf.lua` is `conf`
+/// and whose things are, in this order, a `hero`, a `lever`, a second
+/// `hero` and a second `lever`; the levers' `opens` names a thing.
+fn heroes_and_levers(name: &str, conf: &str, opens: &str) -> crate::scratch::Scratch {
+    let dir = levels_folder(name, MAIN, &[("a", &[])]);
+    // (The shooter kit's player has a model.)
+    std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("games/arena/player.vvx"), dir.join("player.vvx")).unwrap();
+    let kinds = "  c.things.lever = { props = { opens = \"\" }, names = { opens = \"thing\" } }\n";
+    std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.world.blocks = {{ file = \"level.toml\" }}\n  c.player.spawn = {{ 2, 2 }}\n{conf}{kinds}end\n")).unwrap();
+    let path = dir.join("levels/a.toml");
+    let mut level = crate::grid::GridLevel::read(&path).unwrap();
+    for (kind, x) in [("hero", 3), ("lever", 5), ("hero", 8), ("lever", 10)] {
+        let mut thing = crate::grid::Thing::new(kind, [x, 2, 4]);
+        if kind == "lever" && !opens.is_empty() {
+            thing.props.push(crate::grid::Prop { key: "opens".into(), value: opens.into(), line: 0 });
+        }
+        level.things.push(thing);
+    }
+    level.save(&path).unwrap();
+    dir
+}
+
+/// The names the level's things have by its file's reading
+/// (`Level::thing_names`) and the names `level:things()` gives in play,
+/// both sorted.
+fn names_in_the_file_and_in_play(dir: &Path) -> (Vec<String>, Vec<String>) {
+    let mut g = game_in(dir);
+    let (kinds, level) = (&g.game.stage.kinds, &g.game.stage.levels.list[0]);
+    let mut file: Vec<String> = level.thing_names(|k| kinds.get(k).map_or(("", false), |k| (k.name.as_str(), k.player))).into_iter().flatten().collect();
+    file.sort();
+    let play = said(&mut g, "local n = {} for _, t in ipairs(level:things()) do if t.name then n[#n + 1] = t.name end end table.sort(n) return table.concat(n, ' ')");
+    (file, play.trim_matches('"').split(' ').map(str::to_string).collect())
+}
+
+const PLATFORMER: &str = "  c.kit = \"platformer\"\n  c.state.player = { hp = 3 }\n  c.things.hero = { behavior = \"hero\", height = 6 }\n";
+
+/// The thing that becomes the player has no name in play, and the file's
+/// reading says the same, so its number goes to nobody: the first of the
+/// jump & run's heroes, while a game's own figure is never a marker. The
+/// second hero marker is `hero_1`, as `level:thing` finds it.
+#[test]
+fn the_thing_that_becomes_the_player_has_no_name_in_the_file_or_in_play() {
+    let shooter = "  c.kit = \"shooter\"\n  c.things.hero = {}\n";
+    let plain = "  c.player.kind = \"hero\"\n  c.things.hero = { hp = 3 }\n";
+    for (conf, names) in [
+        (PLATFORMER, ["hero_1", "lever_1", "lever_2"].as_slice()),
+        (shooter, ["hero_1", "hero_2", "lever_1", "lever_2"].as_slice()),
+        (plain, ["hero_1", "hero_2", "lever_1", "lever_2"].as_slice()),
+    ] {
+        let (file, play) = names_in_the_file_and_in_play(&heroes_and_levers("player-name", conf, ""));
+        assert_eq!(file, names, "{conf}");
+        assert_eq!(play, names, "{conf}");
+    }
+}
+
+/// A prop naming a name the player's marker would have is refused as the
+/// game loads, with the nearest there is; the second hero marker may be
+/// named, and in a game without that rule both are things.
+#[test]
+fn a_prop_cannot_name_the_thing_that_becomes_the_player() {
+    let e = start_error(&heroes_and_levers("player-prop", PLATFORMER, "hero_2"));
+    assert!(e.contains("props.opens: no thing called hero_2 in level a (did you mean hero_1?)"), "{e}");
+    assert_eq!(start_error(&heroes_and_levers("player-prop-right", PLATFORMER, "hero_1")), "");
+    assert_eq!(start_error(&heroes_and_levers("player-prop-shooter", "  c.kit = \"shooter\"\n  c.things.hero = {}\n", "hero_2")), "");
+}

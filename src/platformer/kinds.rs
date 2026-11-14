@@ -78,7 +78,7 @@ impl KindRules {
 pub fn behavior_name(rules: &KindRules) -> &'static str {
     match rules {
         KindRules::Script => "",
-        KindRules::Hero(_) => "hero",
+        KindRules::Hero(_) => crate::sim::things::PLAYER_BEHAVIOR,
         KindRules::Walker(_) => "walker",
         KindRules::Hopper(_) => "hopper",
         KindRules::Flyer(_) => "flyer",
@@ -332,7 +332,7 @@ impl Rules {
                         }
                         KindRules::Script
                     }
-                    Some("hero") => {
+                    Some(crate::sim::things::PLAYER_BEHAVIOR) => {
                         let mut r: HeroRules = read("hero")?.try_into().with_context(|| format!("c.things.{name}"))?;
                         let (f, [up, back]) = (f("hero"), &mut r.knockback);
                         scale(&own, f, &mut [

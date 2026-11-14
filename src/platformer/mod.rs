@@ -41,7 +41,7 @@ use crate::sim::{Body, DT, Event, Ledge, Sim, Who, body_hits};
 use crate::world::{Hold, Marker, World};
 
 /// The behaviors a kind may have (`c.things.NAME.behavior`).
-pub const BEHAVIORS: [&str; 8] = ["hero", "walker", "hopper", "flyer", "pickup", "platform", "prop", "crate"];
+pub const BEHAVIORS: [&str; 8] = [crate::sim::things::PLAYER_BEHAVIOR, "walker", "hopper", "flyer", "pickup", "platform", "prop", "crate"];
 
 /// Its actions besides the four directions.
 pub const ACTIONS: [&str; 1] = ["jump"];

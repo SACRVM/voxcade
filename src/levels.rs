@@ -186,11 +186,15 @@ impl Level {
     }
 
     /// The names its things have as it is entered (`level:thing(name)`),
-    /// the markers' (`kind` gives a marker's kind's name) and the pieces':
-    /// the file's, else `called`'s.
-    pub fn thing_names<'a>(&'a self, kind: impl Fn(usize) -> &'a str) -> Vec<String> {
-        let markers = self.markers.iter().enumerate().map(|(m, marker)| (kind(marker.kind), self.marker_names.get(m).and_then(Option::as_deref)));
-        thing_names(markers.chain(self.pieces.iter().map(|p| (crate::grid::PIECE, p.name.as_deref()))))
+    /// the markers' and the pieces', in that order (`thing_names`): `kind`
+    /// gives a marker's kind's name and whether the ready-made rules stand
+    /// the player as it (`PLAYER_BEHAVIOR`).
+    pub fn thing_names<'a>(&'a self, kind: impl Fn(usize) -> (&'a str, bool)) -> Vec<Option<String>> {
+        let markers = self.markers.iter().enumerate().map(|(m, marker)| {
+            let (name, player) = kind(marker.kind);
+            (name, self.marker_names.get(m).and_then(Option::as_deref), player)
+        });
+        thing_names(markers.chain(self.pieces.iter().map(|p| (crate::grid::PIECE, p.name.as_deref(), false))))
     }
 }
 
@@ -200,16 +204,24 @@ pub fn called(kind: &str, n: u32) -> String {
     format!("{kind}_{n}")
 }
 
-/// The names of a level's things, given by kind and the name the file
-/// gives each (if it does), in the order they lie in: the file's, else
+/// The names of a level's things, given by kind, the name the file gives
+/// each (if it does) and whether the ready-made rules stand the player as
+/// a thing of its kind, in the order they lie in: the file's, else
 /// `called`'s, counted by kind (named ones too, as the game counts them).
-pub fn thing_names<'a>(things: impl Iterator<Item = (&'a str, Option<&'a str>)>) -> Vec<String> {
+/// The first thing of such a kind becomes the player: no name, no number
+/// (`Stage::name_things` skips the players' figures so); None.
+pub fn thing_names<'a>(things: impl Iterator<Item = (&'a str, Option<&'a str>, bool)>) -> Vec<Option<String>> {
     let mut counts: BTreeMap<&str, u32> = BTreeMap::new();
+    let mut player = false;
     things
-        .map(|(kind, own)| {
+        .map(|(kind, own, stands_player)| {
+            if stands_player && !player {
+                player = true;
+                return None;
+            }
             let n = counts.entry(kind).or_insert(0);
             *n += 1;
-            own.map_or_else(|| called(kind, *n), str::to_string)
+            Some(own.map_or_else(|| called(kind, *n), str::to_string))
         })
         .collect()
 }

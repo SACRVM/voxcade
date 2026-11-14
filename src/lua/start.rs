@@ -296,7 +296,7 @@ impl<K: Kit> LuaGame<K> {
                 let height = height(&d.name, d.model.as_deref());
                 let sound = d.sound.map(|s| crate::names::intern(&s));
                 let figure = figures.contains(&d.name);
-                Kind { name: d.name, model: d.model, height, hp: d.hp.unwrap_or(0), has_hp: d.hp.is_some() || d.behavior.is_some() || figure, scripted: d.behavior.is_none() && !figure, props: d.props, names: d.names, families: d.families, effect: d.effect, sound, reach: d.reach, team: d.team, free_turn: d.free_turn, spin: d.spin, fixed: d.fixed, frames: d.frames, swing: d.swing }
+                Kind { name: d.name, model: d.model, height, hp: d.hp.unwrap_or(0), has_hp: d.hp.is_some() || d.behavior.is_some() || figure, scripted: d.behavior.is_none() && !figure, player: d.behavior.as_deref() == Some(things::PLAYER_BEHAVIOR), props: d.props, names: d.names, families: d.families, effect: d.effect, sound, reach: d.reach, team: d.team, free_turn: d.free_turn, spin: d.spin, fixed: d.fixed, frames: d.frames, swing: d.swing }
             })
             .collect())
     }

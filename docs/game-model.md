@@ -918,7 +918,9 @@ that level, under `frame:daylight` in `on_draw`, the picture only (no
 hash); the meshes keep the faces every level's sun lights (`Game::suns`).
 `[[area]]` is a named box: `level.areas.NAME`,
 `area:holds(thing or point)`. Names given in the file are the things'
-names (`level:thing(name)`); unnamed ones keep their kind and number. Not
+names (`level:thing(name)`); unnamed ones keep their kind and number
+(`lever_2`; the thing that becomes the player, the kit's hero, has none,
+`levels::thing_names`). Not
 yet: areas' events, setting a light's colour or radius in code.
 
 ## Items and the inventory

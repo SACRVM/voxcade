@@ -72,6 +72,9 @@ fn open<G: Game>(dir: &Path, level: Option<&str>, block: Option<&str>, things: b
     }
     // (A mistake in the kinds is the game's to say; the editor opens.)
     for (kind, table) in crate::config::resolve_like("things", &cfg.things).unwrap_or_default() {
+        if table.get("behavior").and_then(toml::Value::as_str) == Some(crate::sim::things::PLAYER_BEHAVIOR) {
+            ed.pieces.player_kinds.insert(kind.clone());
+        }
         if let Some(toml::Value::Table(props)) = table.get("props") {
             ed.pieces.kind_props.insert(kind.clone(), props.clone());
         }
