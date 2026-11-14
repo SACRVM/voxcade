@@ -305,7 +305,7 @@ nearest; its replay `tests/two_ships`);
   heading that folds (arrow on the right, one level only), the whole row
   clicked; in the main area the one file open (no tabs). What was open
   and how far scrolled, the cursor in each text, live in the config
-  folder (`ide/<key>.toml`, `settings::Identity`).
+  folder (`ide/<key>.toml`, `kept::Identity`).
   Below the main area the console: the user's shell in the game folder
   (`ide/terminal.rs` over `alacritty_terminal`, `ide/console.rs` the
   panel), CLAUDE looks for Claude Code's program first (`claude::Finder`; missing:
@@ -1191,17 +1191,17 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (`Bindings::pause_gives_way`, test `pausing_gives_way_to_the_game`). Player settings, the high score table and save games
   (`src/saves.rs`, `saves/<key>/N.toml`; `shot`, `check`, `inspect` and
   replays keep theirs for the run only) live in the user's config folder
-  (`src/settings.rs`; `$XDG_CONFIG_HOME` or `~/.config`, macOS too for
+  (`src/kept.rs`; `$XDG_CONFIG_HOME` or `~/.config`, macOS too for
   now; on Windows `%APPDATA%`, an older Voxcade's folder under `HOME`
   kept in use while `%APPDATA%` has none), never in the game folder.
-  Everything kept of a game there goes by its key (`settings::Identity`,
+  Everything kept of a game there goes by its key (`kept::Identity`,
   `Kept`; review round 4: a copy of Voxkeep shared Voxkeep's saves and the
   IDE's journals): a game that comes with Voxcade (its folder in the
   `games` of a package or of Voxcade's source, `GAMES_OF_VOXCADE`) keeps
   its bare folder name, so its scores survive an update and a package
   unpacked elsewhere; any other game is its folder's name and 8 signs of
   the BLAKE3 of its canonical path (`test-1a2b3c4d`). The journals and
-  the MCP lock are always the folder's own. Adoption (`settings::settle`,
+  the MCP lock are always the folder's own. Adoption (`kept::settle`,
   before the window plays a game, the IDE opens one, `voxcade replays`):
   a game not yet in `folders/index.toml` takes what an older Voxcade kept
   under its bare name (settings, saves, kept runs, the IDE's memory,

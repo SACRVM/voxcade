@@ -140,8 +140,8 @@ struct App<G: Game> {
 /// player of a packaged game, or of the launcher's PLAY, has none of them.
 pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session::Begin, network: Option<crate::headless::Networked>, keys: Option<&str>, maker: bool) -> Result<()> {
     // Who the game is in the config folder, before its settings, saves and
-    // runs are read there (`settings::settle`).
-    settings::settle(dir);
+    // runs are read there (`kept::settle`).
+    crate::kept::settle(dir);
     // A replay watched plays on slots of its own, never the player's.
     let mut game = match &watching {
         Some(replay) => replay_session::<G>(dir, replay)?,

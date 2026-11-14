@@ -23,6 +23,7 @@ pub mod headless;
 pub mod gui;
 pub mod ide;
 pub mod input;
+pub mod kept;
 pub mod lang;
 pub mod levels;
 pub mod lua;

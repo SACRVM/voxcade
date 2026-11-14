@@ -223,7 +223,7 @@ type Check = (u64, Vec<(&'static str, u64)>);
 
 /// Where reports of games run apart go: `desyncs/` in the config folder.
 pub fn reports() -> PathBuf {
-    crate::settings::config_dir().join("desyncs")
+    crate::kept::config_dir().join("desyncs")
 }
 
 /// Writes what is known of a game run apart under `base` (the window's:
@@ -234,7 +234,7 @@ pub fn reports() -> PathBuf {
 /// that did not. Where it went.
 #[allow(clippy::too_many_arguments)]
 pub fn report<G: Game>(base: &Path, dir: &Path, recording: &Replay, apart: &wire::Apart, run_start: u64, mine: &[(&'static str, u64)], theirs: &[u64], agreed: Option<u64>, who: &str) -> Result<PathBuf> {
-    let at = base.join(crate::settings::game_name(dir)).join(format!("{}-{}", crate::saves::now(), apart.tick));
+    let at = base.join(crate::kept::game_name(dir)).join(format!("{}-{}", crate::saves::now(), apart.tick));
     std::fs::create_dir_all(&at).with_context(|| format!("creating {}", at.display()))?;
     recording.save(&at.join("recording.toml"))?;
     let mut text = format!("{who}: the state ran apart after tick {} (the run's {}) in {}; {}\n\npart          this machine      the other\n", apart.tick, apart.tick + 1 - run_start, apart.part, if apart.inputs { "what was played differs (the network)" } else { "what was played is the same (the game)" });

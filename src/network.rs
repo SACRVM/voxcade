@@ -105,7 +105,7 @@ impl<G: Game> Network<G> {
         hosting.reports_to = Some(crate::net::play::reports());
         // What a search for games on the LAN finds.
         hosting.host.set_here(crate::net::wire::Here {
-            game: crate::settings::game_name(&game.dir),
+            game: crate::kept::game_name(&game.dir),
             title: game.cfg.title.clone(),
             fingerprint: game.fingerprint()?,
             commit: udp::COMMIT.to_string(),
@@ -524,7 +524,7 @@ impl<G: Game> Network<G> {
 /// What our matchmaker knows a game by: `voxcade/` and its folder's name,
 /// and its data's fingerprint (only the same meet, as on a LAN).
 pub fn app_of<G: Game>(game: &Session<G>) -> Result<(String, String)> {
-    Ok((format!("voxcade/{}", crate::settings::game_name(&game.dir)), format!("{:016x}", game.fingerprint()?)))
+    Ok((format!("voxcade/{}", crate::kept::game_name(&game.dir)), format!("{:016x}", game.fingerprint()?)))
 }
 
 /// The room a game hosted here opens at our matchmaker: its title, seats,

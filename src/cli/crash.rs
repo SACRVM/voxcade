@@ -15,7 +15,7 @@ pub const KEPT: usize = 10;
 
 /// The folder the reports go to.
 pub fn folder() -> PathBuf {
-    crate::settings::config_dir().join("crashes")
+    crate::kept::config_dir().join("crashes")
 }
 
 /// Puts the hook in place (the program was started for a window).

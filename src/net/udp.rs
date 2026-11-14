@@ -204,7 +204,7 @@ pub fn program_id() -> MachineId {
 
 /// This machine's id, made once and kept in the config folder.
 pub fn machine_id() -> MachineId {
-    let path = crate::settings::config_dir().join("machine-id");
+    let path = crate::kept::config_dir().join("machine-id");
     if let Ok(text) = std::fs::read_to_string(&path)
         && let Some(id) = from_hex(text.trim())
     {
