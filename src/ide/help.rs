@@ -1281,7 +1281,7 @@ A right click on a thing or on the floor opens its menu; every entry is also a b
 + ADD (or a right click on the floor): a model of the game, a light, a place, an area.
 # HIDE MARKS
 The mark at a row's left hides that thing in the editor only; SHOW ALL at the heading shows them again.
-The padlock beside it locks it: a click in the view passes through it to what lies behind, its row still chooses it. Neither is written to the file.
+The padlock beside it (on a group, a locked row and the chosen one; LOCK in the menu) locks it: a click in the view passes through it to what lies behind, its row still chooses it. Neither is written to the file.
 # GAME VIEW
 The level as the game's camera sees it; press it again to go back.
 # SAVING

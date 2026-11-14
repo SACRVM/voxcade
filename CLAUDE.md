@@ -1996,7 +1996,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   right edge is dragged wider, up to half the window (kept for the
   person in `editors.toml`); the mark at a row's left hides
   a thing in the editor only (HIDE, HIDE OTHERS, SHOW ALL; nothing
-  written), the padlock beside it LOCKs it (a click in the view passes
+  written), the padlock beside it (on a group's row, a locked row and the chosen one) LOCKs it (a click in the view passes
   through, `hit_along`; its row still chooses it; nothing written). A
   `[[thing]]`'s `group = "forest"` (the editor's alone: no Lua name, not
   hashed; its line in the file's bytes as any) lists it under a group's

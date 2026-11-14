@@ -154,7 +154,8 @@ fn what_of(ed: &Editor, called: &[Option<String>], item: Item) -> String {
     format!("{label}\n{what}\n{code}")
 }
 
-/// One row of the outliner: its hide and lock marks, the item's sign
+/// One row of the outliner: its hide mark, its lock mark while locked or
+/// chosen, the item's sign
 /// (`indent` in under its group's row), its name, its light's colour at
 /// the end; chosen, marked.
 fn outline_row(ui: &mut egui::Ui, ed: &Editor, called: &[Option<String>], item: Item, indent: f32, chosen: bool, shown: &mut PanelsDrawn) -> egui::Response {
@@ -168,7 +169,12 @@ fn outline_row(ui: &mut egui::Ui, ed: &Editor, called: &[Option<String>], item: 
         ui.spacing_mut().item_spacing.x = 0.0;
         // The hide mark, as the figure's parts have it.
         zones::hide_mark(ui, hidden, Action::HideItem(item), shown);
-        zones::lock_mark(ui, ed.is_locked(item), Action::LockItem(item), shown);
+        // The lock only where it says or does something: on a locked row
+        // and on the chosen one (the names keep the room on the others).
+        let locked = ed.is_locked(item);
+        if locked || chosen {
+            zones::lock_mark(ui, locked, Action::LockItem(item), shown);
+        }
         // Its place, quiet at the end: two gems are told apart.
         let at = ed.at_of(item).map(|[x, y, z]| format!("{x} {y} {z}"));
         zones::list_row_aside(ui, sort_of(ed, item), None, &label, indent, chosen, !named || hidden, light, None, at.as_deref(), &what_of(ed, called, item), egui::Sense::click())
