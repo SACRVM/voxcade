@@ -11,7 +11,8 @@ impl<K: Kit> LuaGame<K> {
     /// game.
     pub(super) fn change_levels(&mut self) {
         loop {
-            if self.halted.borrow().is_some() || self.stage.ended {
+            // A run asked for on the title is the session's to begin.
+            if self.halted.borrow().is_some() || self.stage.ended || self.anew().is_some() {
                 return;
             }
             let Some(ask) = self.stage.ask.take() else { return };
@@ -29,6 +30,8 @@ impl<K: Kit> LuaGame<K> {
             let entered = match ask {
                 Ask::Won { .. } => return self.end_run(Outcome::Won),
                 Ask::Lost { .. } => return self.end_run(Outcome::Lost),
+                // Never here: the session begins it (`anew`).
+                Ask::NewGame { .. } => Err(anyhow::anyhow!("world:new_game: from the game's own title only")),
                 Ask::GoTo { level, place, .. } => match self.stage.levels.find(&level) {
                     Some(index) => {
                         // A checkpoint belongs to the level it was reached in

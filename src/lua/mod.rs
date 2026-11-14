@@ -39,7 +39,7 @@ mod saving;
 mod seats;
 mod start;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 pub mod value;
 pub mod world;
 
@@ -744,6 +744,23 @@ impl<K: Kit> Game for LuaGame<K> {
 
     fn change(&mut self) {
         self.change_levels();
+    }
+
+    fn on_title(&self) -> bool {
+        self.stage.on_title()
+    }
+
+    fn anew(&self) -> Option<crate::game::Anew> {
+        self.leaving()?;
+        match self.stage.ask {
+            Some(Ask::NewGame { .. }) => Some(crate::game::Anew::Fresh),
+            Some(Ask::Load { slot: Some(n), .. }) if self.stage.on_title() => Some(crate::game::Anew::Load(n)),
+            _ => None,
+        }
+    }
+
+    fn requests(&mut self) -> Vec<crate::game::Request> {
+        std::mem::take(&mut self.stage.requests)
     }
 
     fn quit(&mut self) {

@@ -21,7 +21,17 @@ impl<G: Game> Session<G> {
     /// reads its slot now (a replay's: the save it loaded then).
     pub(super) fn change(&mut self) {
         let shown = self.game.sim().world.clone();
-        self.game.change();
+        match self.game.anew() {
+            Some(anew) => {
+                // One that would not begin is said once, and asked again.
+                if let Err(e) = self.new_run(anew)
+                    && self.problem.replace(format!("{e:#}")).is_none()
+                {
+                    eprintln!("{e:#}");
+                }
+            }
+            None => self.game.change(),
+        }
         self.game.sim_mut().world.mark_changed_since(&shown);
         self.enter_level();
         // A save asked for in on_level_start.
@@ -78,7 +88,8 @@ impl<G: Game> Session<G> {
         // anew in it, as if `c.start` named it, the start level never
         // entered; then its setup.
         if let Ok(Some((level, place))) = started {
-            started = self.begin_in(&level, place).and_then(|()| self.game.start_scenario(name));
+            anyhow::ensure!(self.started_from.is_none(), "a scenario begins a run: before its first tick, and not after a save");
+            started = self.begin_in(Some(&level), place).and_then(|()| self.game.start_scenario(name));
         }
         self.game.sim_mut().world.mark_changed_since(&shown);
         self.enter_level();
@@ -90,17 +101,67 @@ impl<G: Game> Session<G> {
         Ok(())
     }
 
-    /// The game begun anew on its files in `level` at `place` (its start
-    /// unless named), before the run's first tick.
-    fn begin_in(&mut self, level: &str, place: Option<String>) -> Result<()> {
-        anyhow::ensure!(self.started_from.is_none(), "a scenario begins a run: before its first tick, and not after a save");
+    /// The game begun anew on its files in `level` (else the level a run
+    /// begins in, `Levels::first`) at `place` (its start unless named).
+    fn begin_in(&mut self, level: Option<&str>, place: Option<String>) -> Result<()> {
         let mut levels = crate::levels::load::<G>(&self.files, &self.cfg)?;
-        levels.start = levels.find(level).with_context(|| format!("no level {level}"))?;
+        if let Some(level) = level {
+            levels.start = levels.find(level).with_context(|| format!("no level {level}"))?;
+        }
         self.game = super::load::begun::<G>(&self.files, &self.cfg, &self.models, Arc::new(levels), place, &self.slots, &self.songs)?;
         self.cue = self.game.music().map(|c| c.song);
         self.game.set_controls(&self.controls);
         self.game.set_local(&self.local);
         Ok(())
+    }
+
+    /// Whether the game plays its own title (`c.title_screen.level`): a run
+    /// of its own that counts for nothing (never recorded, kept or saved).
+    pub fn on_title(&self) -> bool {
+        self.game.on_title()
+    }
+
+    /// The game begun anew on its own title (`c.title_screen.level`), as a
+    /// window opens it: `on_world_start`, then the title's
+    /// `on_level_start("start")`.
+    pub fn begin_title(&mut self) -> Result<()> {
+        let title = self.cfg.title_screen.level.clone().context("the game has no title of its own (c.title_screen.level)")?;
+        let shown = self.game.sim().world.clone();
+        self.begin_in(Some(&title), None)?;
+        self.game.sim_mut().world.mark_changed_since(&shown);
+        self.enter_level();
+        Ok(())
+    }
+
+    /// The run the title asked for (`Game::anew`) begun in its place: the
+    /// game anew in the level a run begins in, as from the engine's title
+    /// (START), or going on from the save in a slot (CONTINUE). Nothing of
+    /// the title's run is left: its ticks, console lines and scenario.
+    fn new_run(&mut self, anew: crate::game::Anew) -> Result<()> {
+        let save = match anew {
+            crate::game::Anew::Load(slot) => Some(self.slots.read(slot).with_context(|| format!("world:load: slot {slot} is empty"))?.to_string()),
+            crate::game::Anew::Fresh => None,
+        };
+        self.begin_in(None, None)?;
+        (self.scenario, self.started_from) = (None, None);
+        self.evals.clear();
+        self.pending.clear();
+        (self.played, self.inputs) = (Tick::default(), Default::default());
+        self.slots_at_start = self.slots.headers();
+        // The step that asked was the title's: no tick of the run.
+        (self.begun, self.ticked) = (true, false);
+        if let Some(text) = save {
+            self.game.start_from(&text)?;
+            self.started_from = Some(text);
+        }
+        Ok(())
+    }
+
+    /// What the game asked of the machine since last asked
+    /// (`game::Request`: a page opened, the program ended), taken: a
+    /// window does it, a tool without one may end the run.
+    pub fn requests(&mut self) -> Vec<crate::game::Request> {
+        self.game.requests()
     }
 
     /// A console line run between two ticks: what it gave back and

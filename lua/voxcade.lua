@@ -98,7 +98,7 @@
 ---@field tick integer Ticks since the run began (60 a second; none while the game holds still).
 ---@field language string The language the player chose of the ones your game speaks (c.languages = { "de", "en", "fr" }; SETTINGS offers them, the system's at first): "de", two small letters; without c.languages "en". It can change while playing: pick your texts by it every picture (texts[world.language].hello). Replays carry it. Over the network each machine draws in its own: in on_draw it is the language of the machine drawing, in on_tick and the events the host's, so keep what a text says in a state and choose its words in on_draw.
 ---@field levels string[] The levels' names in order: the files in levels/ sorted by name, numbers as numbers (01_hall, 02_tower); one level when there are none.
----@field leaving string|nil Why the level is about to be left at the end of this tick ("go_to", "restart", "load", "won", "lost"), or nil: the ask that counts so far. One ask counts in a tick: going on (go_to, win) before starting over (restart, load, lose); among those of one rank the first asked. (Leaving by QUIT TO TITLE or a level file saved while playing is no ask: on_level_end hears "quit" and "reload".)
+---@field leaving string|nil Why the level is about to be left at the end of this tick ("go_to", "restart", "load", "won", "lost", "new_game"), or nil: the ask that counts so far. One ask counts in a tick: going on (go_to, win, new_game) before starting over (restart, load, lose); among those of one rank the first asked. (Leaving by QUIT TO TITLE or a level file saved while playing is no ask: on_level_end hears "quit" and "reload".)
 ---@field saves table<integer, SaveInfo> What lies in each save slot (c.saves.slots of them): world.saves[1] is nil while slot 1 is empty, else { level, seconds }.
 ---@field players (Player|false)[] Every seat of the game (c.players, 1 unless set), in order: world.players[n] is the player on seat n, or false while nobody sits there (#world.players is how many seats; world.players[1] is player). A HUD shows PRESS START where a seat is false. Players in play in this level: level:players().
 ---@field items Item[] The kinds of item (c.items) in their order (c.items.NAME.order, then by name), each { name, model, stack }: for drawing an inventory.
@@ -122,13 +122,13 @@ function World:restart(place, options) end
 ---@return string
 function World:read(name) end
 
----Saves the game into a slot (1 to c.saves.slots) at the end of the tick, or of the on_level_start that asks: for save points, or saving on its own. The player can save from the pause menu too.
+---Saves the game into a slot (1 to c.saves.slots) at the end of the tick, or of the on_level_start that asks: for save points, or saving on its own. The player can save from the pause menu too. Never on your game's own title (c.title_screen.level).
 ---- Kept: world.state, player.state, every level's level.kept, the level being played with its level.state and the voxels changed in it (blown away, built), and where the player stands.
 ---- Not kept: the level's things. They come from its file when it is loaded; a thing kept in level.state comes back as nil, so keep what you need to place them again.
 ---@param slot integer
 function World:save(slot) end
 
----Goes on from the save in a slot at the end of the tick, like a level change (on_level_end("load"), then on_level_start("load")): the states as they were saved, the level from its file with the voxels changed in it as they were, the player where it stood. An empty slot is a mistake: world.saves tells first. One ask counts in a tick: world.leaving.
+---Goes on from the save in a slot at the end of the tick, like a level change (on_level_end("load"), then on_level_start("load")): the states as they were saved, the level from its file with the voxels changed in it as they were, the player where it stood. An empty slot is a mistake: world.saves tells first. On your game's own title (c.title_screen.level) it begins the run from the save, as CONTINUE does. One ask counts in a tick: world.leaving.
 ---- options: { fade = seconds } for this change alone, as world:go_to's.
 ---@param slot integer
 ---@param options? LevelChange
@@ -148,11 +148,23 @@ function World:win(options) end
 ---@param options? LevelChange
 function World:lose(options) end
 
+---On your game's own title (c.title_screen.level) only: a new run begins at the end of the tick, in the level a run begins in (c.start, else the first but the title), as from the engine's title: on_world_start, on_level_start("start"), the states fresh, tick 0. Nothing of the title is kept. world:load(slot) there goes on from a save instead. One ask counts in a tick: world.leaving.
+---- options: { fade = seconds } for this change alone, as world:go_to's.
+---@param options? LevelChange
+function World:new_game(options) end
+
+---Opens a page of the engine's over the game, the game held while it shows as by the pause: "settings" (SETTINGS: the volumes, the picture, the keys). Closing it goes back to the game. For your own title's menu or pause menu. Only the window opens it: the game plays the same without one (a replay, shot, inspect).
+---@param page string
+function World:open(page) end
+
+---Ends the program, as QUIT on the engine's title: for your own title's menu. In the IDE's PLAY it stops the game; shot and inspect end the run there. Only the window does it: the game plays the same without one.
+function World:quit() end
+
 ---@class Level The level being played: its voxels, its things, what happens in it, its camera.
 ---@field state table Your game's data for this level while it is played: the things in it too, moves, time. Fresh each time the level is entered, a restart too; after world:load as it was saved (its things nil). The engine reads one key: level.state.held = true holds the level (the ready-made rules, the physics and touches wait; on_tick, on_draw and the time go on): for a message, a shop, a tally.
 ---@field name string Its name: its file's name without the ending (hall for levels/hall.toml); main for a game's one level made in code.
 ---@field number integer Its place among world.levels, from 1.
----@field next string|nil The next level's name, nil after the last one.
+---@field next string|nil The next level's name, nil after the last one. Your game's own title (c.title_screen.level) is passed over.
 ---@field visits integer How often it was entered in this run, restarts too: 1 the first time.
 ---@field kept table What this level keeps across visits for the whole run (a lever pulled, a puzzle solved): read it in on_level_start. Plain data, no things.
 ---@field arrived Place Where the player arrived in this level, with its name (a place's, or start): a game without a figure of the engine's stands its hero there in on_level_start.
@@ -820,6 +832,7 @@ function on_pickup(thing, item) end
 ---@field flyby_altitude number How high the flyby crosses over the ground. (from 0 to 65536)
 ---@field attract_after number Seconds on the title without a key pressed before it plays the game's replays (replays/), as the arcade machines did; 0: never. (from 0 to 3600)
 ---@field light_menu boolean The scene behind the menu is dark: its rows and hint in light letters (default: dark ones, over bright ground like More Blood's sand).
+---@field level string A level of the game as its own title (c.title_screen.level = "title"), a file in levels/, in place of the engine's title. The window opens in it; its code draws the menu and begins a run with world:new_game() or world:load(slot). It is played before a run and never counts: not recorded, no saving there. Never the level a run begins in. Takes effect after a restart (F5).
 
 ---@class Conf.camera.follow_height
 ---@field below number How far the feet may go under the camera's height, in voxels. (from 0 to 4096)

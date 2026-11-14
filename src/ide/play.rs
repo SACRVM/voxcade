@@ -79,6 +79,8 @@ pub struct Play<G: Game> {
     /// Seat 1's keys as the line under the game shows them (`keys_of`),
     /// made anew only when the seating or the game changes.
     keys: Vec<(String, String)>,
+    /// The game asked to end (`world:quit()`): PLAY stops it, never the IDE.
+    quit: bool,
 }
 
 impl<G: Game> Play<G> {
@@ -100,7 +102,7 @@ impl<G: Game> Play<G> {
         runs.start(&game);
         let seating = crate::seating::Seating::new(game.cfg.players);
         let mark = game.start_mark();
-        let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), unloaded: Default::default(), accumulator: 0.0, last: None, scenario: scenario.map(str::to_string), seating, mark, notes: Vec::new(), guard: Default::default(), hidden: Vec::new(), keys: Vec::new() };
+        let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), unloaded: Default::default(), accumulator: 0.0, last: None, scenario: scenario.map(str::to_string), seating, mark, notes: Vec::new(), guard: Default::default(), hidden: Vec::new(), keys: Vec::new(), quit: false };
         play.guard.begin(play.game.game.hidden());
         play.name_keys();
         play.music();
@@ -289,7 +291,18 @@ impl<G: Game> Play<G> {
 
     /// A tick played: once a second the hidden-state guard looks at the
     /// locals the game's functions keep and says which changed.
+    /// After a tick: a run the game's own title began (`world:new_game()`)
+    /// recorded from here, its locals looked at afresh, its song;
+    /// `world:quit()` heard (the shell stops the game, `quits`); the
+    /// hidden-state guard.
     fn guard_tick(&mut self) {
+        if std::mem::take(&mut self.game.begun) {
+            self.runs.start(&self.game);
+            self.mark = self.game.start_mark();
+            self.guard.begin(self.game.game.hidden());
+            self.music();
+        }
+        self.quit |= self.game.requests().contains(&crate::game::Request::Quit);
         let game = &self.game.game;
         self.hidden.extend(self.guard.tick(|| game.hidden()));
     }
@@ -298,6 +311,11 @@ impl<G: Game> Play<G> {
     /// first, if several), what was said of it; None once they all load.
     pub fn unloaded(&self) -> Option<String> {
         self.unloaded.values().next().cloned()
+    }
+
+    /// Whether the game asked to end (`world:quit()`): STOP for it.
+    pub fn quits(&self) -> bool {
+        self.quit
     }
 
     /// Whether the run is won or lost (PRESS START: the IDE has no title

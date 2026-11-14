@@ -249,6 +249,10 @@ pub struct Session<G: Game> {
     /// The console lines run so far, in order (a recording takes each with
     /// the step it came after).
     pub evals: Vec<String>,
+    /// A run began in place of the game's own title's (`world:new_game()`,
+    /// `world:load` there) since a window last took it: it records from
+    /// here, its song plays.
+    pub begun: bool,
     /// The player's choices for the screen (the settings).
     pub options: Options,
     /// The big letters' font (`[ui] display_font`).
@@ -432,6 +436,11 @@ fn fingerprint_parts(cfg: &GameConfig, sections: &[&str], actions: &[&str], file
     // Where a run begins, if the game says (unset adds nothing).
     if let Some(v) = all.get("start") {
         read.insert("start".into(), v.clone());
+    }
+    // The game's own title, if it has one: the start is the first level
+    // but it.
+    if let Some(v) = all.get("title_screen").and_then(|t| t.get("level")) {
+        read.insert("title_screen.level".into(), v.clone());
     }
     read.insert("actions".into(), toml::Value::Array(actions.iter().map(|a| toml::Value::String(a.to_string())).collect()));
     let mut parts = vec![("conf.lua".to_string(), toml::to_string(&read)?.into_bytes())];

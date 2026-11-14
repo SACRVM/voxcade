@@ -516,6 +516,9 @@ pub struct Stage {
     /// Pictures played once where something happened (`level:effect`, a
     /// thing that went): only shown, not part of the game.
     pub effects: Vec<Shown>,
+    /// What the script asked of the machine (`world:open`, `world:quit`):
+    /// not part of the game.
+    pub requests: Vec<crate::game::Request>,
     /// How many frames each of the game's models has (`level:effect`).
     pub frames: Arc<std::collections::BTreeMap<String, usize>>,
     /// How tall each of the game's models is (a piece's body).
@@ -798,6 +801,9 @@ pub enum Ask {
     Load { slot: Option<u32>, fade: Option<f32> },
     Won { fade: Option<f32> },
     Lost { fade: Option<f32> },
+    /// A fresh run in place of the title's (`world:new_game()`, on the
+    /// game's own title only): the session begins it.
+    NewGame { fade: Option<f32> },
 }
 
 impl Ask {
@@ -809,21 +815,22 @@ impl Ask {
             Ask::Load { .. } => "load",
             Ask::Won { .. } => "won",
             Ask::Lost { .. } => "lost",
+            Ask::NewGame { .. } => "new_game",
         }
     }
 
     /// The seconds of its fade the script asked for, if it did.
     pub fn fade(&self) -> Option<f32> {
         match self {
-            Ask::GoTo { fade, .. } | Ask::Restart { fade, .. } | Ask::Load { fade, .. } | Ask::Won { fade } | Ask::Lost { fade } => *fade,
+            Ask::GoTo { fade, .. } | Ask::Restart { fade, .. } | Ask::Load { fade, .. } | Ask::Won { fade } | Ask::Lost { fade } | Ask::NewGame { fade } => *fade,
         }
     }
 
-    /// Whether it goes on (to another level, to the win): going on
-    /// outranks starting over (a restart, a loss), so a death in the tick
-    /// the goal is reached does not undo it.
+    /// Whether it goes on (to another level, to the win, from the title to
+    /// a new game): going on outranks starting over (a restart, a loss), so
+    /// a death in the tick the goal is reached does not undo it.
     pub fn goes_on(&self) -> bool {
-        matches!(self, Ask::GoTo { .. } | Ask::Won { .. })
+        matches!(self, Ask::GoTo { .. } | Ask::Won { .. } | Ask::NewGame { .. })
     }
 
     /// Whether it takes the place of `held`, the ask that counted so far:
@@ -835,6 +842,12 @@ impl Ask {
 }
 
 impl Stage {
+    /// Whether the level being played is the game's own title
+    /// (`c.title_screen.level`): it is played in no run.
+    pub fn on_title(&self) -> bool {
+        self.levels.title == Some(self.level)
+    }
+
     /// Seat `seat`'s figure where it is one of the things (seat 1's: the
     /// player's).
     pub fn figure(&self, seat: usize) -> Option<Id> {

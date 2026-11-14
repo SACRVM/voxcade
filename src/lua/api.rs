@@ -227,8 +227,8 @@ pub const API: &[Item] = &[
     Item { of: "world", name: "levels", what: Field { ty: "string[]", set: false }, doc: "The levels' names in order: the files in levels/ \
             sorted by name, numbers as numbers (01_hall, 02_tower); one level when there are none." },
     Item { of: "world", name: "leaving", what: Field { ty: "string|nil", set: false }, doc: "Why the level is about to be left at the end of \
-            this tick (\"go_to\", \"restart\", \"load\", \"won\", \"lost\"), or nil: the ask that counts so far. One ask counts in a tick: \
-            going on (go_to, win) before starting over (restart, load, lose); among those of one rank the first asked. (Leaving by QUIT TO \
+            this tick (\"go_to\", \"restart\", \"load\", \"won\", \"lost\", \"new_game\"), or nil: the ask that counts so far. One ask \
+            counts in a tick: going on (go_to, win, new_game) before starting over (restart, load, lose); among those of one rank the first asked. (Leaving by QUIT TO \
             TITLE or a level file saved while playing is no ask: on_level_end hears \"quit\" and \"reload\".)" },
     Item { of: "world", name: "saves", what: Field { ty: "table<integer, SaveInfo>", set: false },
         doc: "What lies in each save slot (c.saves.slots of them): world.saves[1] is nil while slot 1 is empty, else { level, seconds }." },
@@ -253,14 +253,15 @@ pub const API: &[Item] = &[
             its top, in on_world_start or the first on_level_start. The files read count for the replays, and saving one runs main.lua anew." },
     Item { of: "world", name: "save", what: Method { params: &[("slot", "integer")], returns: "" },
         doc: "Saves the game into a slot (1 to c.saves.slots) at the end of the tick, or of the on_level_start that asks: for save points, \
-            or saving on its own. The player can save from the pause menu too.\n- Kept: world.state, player.state, every level's level.kept, \
+            or saving on its own. The player can save from the pause menu too. Never on your game's own title (c.title_screen.level).\n- Kept: world.state, player.state, every level's level.kept, \
             the level being played with its level.state and the voxels changed in it (blown away, built), and where the player stands.\n- \
             Not kept: the level's things. They come from its file when it is loaded; a thing kept in level.state comes back as nil, so keep \
             what you need to place them again." },
     Item { of: "world", name: "load", what: Method { params: &[("slot", "integer"), ("options?", "LevelChange")], returns: "" },
         doc: "Goes on from the save in a slot at the end of the tick, like a level change (on_level_end(\"load\"), then \
             on_level_start(\"load\")): the states as they were saved, the level from its file with the voxels changed in it as they were, \
-            the player where it stood. An empty slot is a mistake: world.saves tells first. One ask counts in a tick: world.leaving.\n- \
+            the player where it stood. An empty slot is a mistake: world.saves tells first. On your game's own title \
+            (c.title_screen.level) it begins the run from the save, as CONTINUE does. One ask counts in a tick: world.leaving.\n- \
             options: { fade = seconds } for this change alone, as world:go_to's." },
     Item { of: "world", name: "hitstop", what: Method { params: &[("ticks", "integer")], returns: "" },
         doc: "Holds the game still for this many ticks: a hit 2 or 3. Everything stops, on_tick too. 60 (a second) at most: more is cut to \
@@ -271,6 +272,18 @@ pub const API: &[Item] = &[
     Item { of: "world", name: "lose", what: Method { params: &[("options?", "LevelChange")], returns: "" }, doc: "The run is lost at the end \
             of the tick (on_level_end, then on_world_end); after that the script hears nothing more. One ask counts in a tick: a win or a \
             go_to in the same tick counts before it (world.leaving).\n- options: { fade = seconds } for this change alone, as world:go_to's." },
+    Item { of: "world", name: "new_game", what: Method { params: &[("options?", "LevelChange")], returns: "" }, doc: "On your game's own \
+            title (c.title_screen.level) only: a new run begins at the end of the tick, in the level a run begins in (c.start, else the \
+            first but the title), as from the engine's title: on_world_start, on_level_start(\"start\"), the states fresh, tick 0. Nothing \
+            of the title is kept. world:load(slot) there goes on from a save instead. One ask counts in a tick: world.leaving.\n- options: { \
+            fade = seconds } for this change alone, as world:go_to's." },
+    Item { of: "world", name: "open", what: Method { params: &[("page", "string")], returns: "" }, doc: "Opens a page of the engine's over \
+            the game, the game held while it shows as by the pause: \"settings\" (SETTINGS: the volumes, the picture, the keys). Closing \
+            it goes back to the game. For your own title's menu or pause menu. Only the window opens it: the game plays the same without \
+            one (a replay, shot, inspect)." },
+    Item { of: "world", name: "quit", what: Method { params: &[], returns: "" }, doc: "Ends the program, as QUIT on the engine's title: for \
+            your own title's menu. In the IDE's PLAY it stops the game; shot and inspect end the run there. Only the window does it: the \
+            game plays the same without one." },
     // level
     Item { of: "level", name: "state", what: Field { ty: "table", set: false }, doc: "Your game's data for this level while it is played: \
             the things in it too, moves, time. Fresh each time the level is entered, a restart too; after world:load as it was saved (its \
@@ -279,7 +292,8 @@ pub const API: &[Item] = &[
     Item { of: "level", name: "name", what: Field { ty: "string", set: false }, doc: "Its name: its file's name without the ending (hall for \
             levels/hall.toml); main for a game's one level made in code." },
     Item { of: "level", name: "number", what: Field { ty: "integer", set: false }, doc: "Its place among world.levels, from 1." },
-    Item { of: "level", name: "next", what: Field { ty: "string|nil", set: false }, doc: "The next level's name, nil after the last one." },
+    Item { of: "level", name: "next", what: Field { ty: "string|nil", set: false }, doc: "The next level's name, nil after the last one. Your game's own \
+            title (c.title_screen.level) is passed over." },
     Item { of: "level", name: "visits", what: Field { ty: "integer", set: false }, doc: "How often it was entered in this run, restarts too: \
             1 the first time." },
     Item { of: "level", name: "kept", what: Field { ty: "table", set: false }, doc: "What this level keeps across visits for the whole run \

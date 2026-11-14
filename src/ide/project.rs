@@ -525,6 +525,10 @@ impl<G: Game> Project<'_, G> {
         if stage.keys != p.keys() {
             stage.keys = p.keys().to_vec();
         }
+        // The game's `world:quit()`: STOP, never the IDE.
+        if p.quits() {
+            self.shell.stop();
+        }
         true
     }
 

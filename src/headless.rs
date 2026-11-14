@@ -303,6 +303,15 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     {
         bail!("--screen {screen}: a game with save slots (c.saves.slots) has it; {} has none", game.cfg.title);
     }
+    // A game with a title of its own never shows the engine's: `title` is
+    // its title level a few ticks in, the settings over it.
+    let titled = game.cfg.title_screen.level.is_some();
+    let own_title = titled && matches!(opts.screen.as_deref(), Some("title" | "settings" | "audio" | "video" | "controls" | "players" | "player-controls"));
+    if let Some(screen @ ("continue" | "intro" | "attract" | "highscores" | "initials" | "network" | "find" | "join" | "code" | "joining" | "joining-net")) = opts.screen.as_deref()
+        && titled
+    {
+        bail!("--screen {screen}: {} has a title of its own (c.title_screen.level), never the engine's: --screen title shows it", game.cfg.title);
+    }
 
     let (width, height) = (opts.width, opts.height);
     let mut canvas = Canvas::new(width, height, true)?;
@@ -313,16 +322,27 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     shot_options_agree(opts)?;
     // What the lines answered, for the console's picture (--screen console).
     let mut answered = Vec::new();
+    if own_title {
+        game.begin_title()?;
+        canvas.mesh_all(&mut game);
+    }
     opts.begin.apply(&mut game, |line, said| {
         println!("> {line}\n{said}");
         answered.push((line.to_string(), said.to_string()));
     })?;
+    if opts.record.is_some() && game.on_title() {
+        bail!("--record: the title (c.title_screen.level) is no run and is never recorded");
+    }
     let mut script = Script::new(parse_script(&opts.input, game.actions())?);
     let mut seats = SeatScripts::parse(&opts.seats, game.actions(), game.cfg.players)?;
     if let Some([x, y]) = opts.at {
         game.game.place_player(x, y);
     }
-    let (mut menu, title, settings) = shot_menu(&game, opts)?;
+    let (mut menu, mut title, settings) = shot_menu(&game, opts)?;
+    if own_title {
+        menu.stack.retain(|&(page, _)| page != Page::Title);
+        title = false;
+    }
     game.options.shadow_map = opts.shadows.map_size();
     let mut playback = replay.as_ref().map(|r| Playback::new(r, &mut game)).transpose()?;
     // Told once it began as the run did (a scenario's file counts).
@@ -503,8 +523,13 @@ fn play_ticks<G: Game>(game: &mut Session<G>, canvas: &mut Canvas, frames: u32, 
                 None => played.heard.push((event.name, 1)),
             }
         }
+        // A run its own title began is a game anew.
+        if std::mem::take(&mut game.begun) {
+            watch.begin(game.game.hidden());
+        }
         played.warnings.extend(watch.tick(|| game.game.hidden()));
-        if game.game.halted().is_some() {
+        // `world:quit()` ends the run here as the window would.
+        if game.game.halted().is_some() || game.requests().contains(&crate::game::Request::Quit) {
             break;
         }
     }
@@ -740,8 +765,13 @@ fn inspected<G: Game>(dir: &Path, frames: u32, input: &str, seats: &[(usize, Str
         for event in &game.game.sim().sounds {
             *heard.entry(event.name).or_default() += 1;
         }
+        // A run its own title began is a game anew.
+        if std::mem::take(&mut game.begun) {
+            watch.begin(game.game.hidden());
+        }
         warnings.extend(watch.tick(|| game.game.hidden()));
-        if game.game.halted().is_some() {
+        // `world:quit()` ends the run here as the window would.
+        if game.game.halted().is_some() || game.requests().contains(&crate::game::Request::Quit) {
             break;
         }
     }

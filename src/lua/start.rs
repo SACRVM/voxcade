@@ -83,6 +83,7 @@ impl<K: Kit> LuaGame<K> {
                 actions: actions.clone(),
                 languages: Arc::new(cfg.languages.clone()),
                 effects: Vec::new(),
+                requests: Vec::new(),
                 frames: Arc::new(models.frame_counts()),
                 heights: Arc::new(models.heights()),
                 bursts: kinds_bursting,

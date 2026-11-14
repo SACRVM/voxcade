@@ -136,6 +136,7 @@ impl<G: Game> Session<G> {
             started_from: None,
             scenario: None,
             evals: Vec::new(),
+            begun: false,
             files,
         };
         // Every level's pieces were read for what the simulation reads of

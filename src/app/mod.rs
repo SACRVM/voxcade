@@ -259,6 +259,9 @@ pub fn run<G: Game>(dir: &Path, options: RunOptions) -> Result<()> {
         play_the_games_song(&mut game, &settings);
     }
 
+    // Opening on the title, a game with a title of its own opens in it
+    // (once the app is made).
+    let on_title = watching.is_none() && begin.is_empty() && network.is_none();
     // A network game, what to do first (the command line's --host and
     // --join).
     let mut host_port = None;
@@ -330,6 +333,9 @@ pub fn run<G: Game>(dir: &Path, options: RunOptions) -> Result<()> {
         begin,
         maker,
     };
+    if on_title {
+        app.play_own_title();
+    }
     // Made after the app, so it is dropped before it at the end.
     let mut events = sdl.event_pump().context("SDL event pump")?;
 
@@ -383,6 +389,22 @@ impl<G: Game> App<G> {
             begun(&self.begin, &mut self.game);
             self.display.remesh(&mut self.game);
         }
+    }
+
+    /// The game's own title played (`c.title_screen.level`) in place of
+    /// the engine's, if it has one: straight in, unrecorded, its song; one
+    /// that would not begin is said. Whether it has one.
+    fn play_own_title(&mut self) -> bool {
+        let titled = own_title(&mut self.game, &mut self.front).unwrap_or_else(|e| {
+            eprintln!("the title: {e:#}");
+            self.parting = say_now(failure(&e));
+            true
+        });
+        if titled {
+            self.display.remesh(&mut self.game);
+            play_the_games_song(&mut self.game, &self.settings);
+        }
+        titled
     }
 
     /// A run begins from the title: recorded, its players seated, the
@@ -664,10 +686,16 @@ impl<G: Game> App<G> {
                     }
                     _ => {}
                 }
-                let App { front, playback, game, runs, speaker, settings, pads, watching, .. } = self;
+                let App { front, playback, game, runs, speaker, settings, pads, watching, net, queued, .. } = self;
                 if front.pause_after_fade && !game.fading() {
                     front.pause_after_fade = false;
                     pause_for(front, game, watching.is_none(), None);
+                }
+                // What the game asked of the window: SETTINGS over it, the
+                // end (not a replay's, nor over the network yet).
+                let asked = game.requests();
+                if playback.is_none() && net.is_none() && front.asked(&asked) {
+                    queued.push(Command::Quit);
                 }
                 match playback {
                     Some(p) => {
@@ -681,6 +709,12 @@ impl<G: Game> App<G> {
                         if p.done() && !front.attracting {
                             println!("replay over: F5 plays it again, Escape quits");
                         }
+                    }
+                    // The game's own title began a run in its place
+                    // (`world:new_game()`): recorded from here, its song.
+                    None if std::mem::take(&mut game.begun) => {
+                        runs.start(game);
+                        play_the_games_song(game, settings);
                     }
                     None => runs.step(game),
                 }
@@ -749,6 +783,17 @@ impl<G: Game> App<G> {
 fn play_the_games_song<G: Game>(game: &mut Session<G>, settings: &Settings) {
     game.select_song(settings.song.min(game.cfg.audio.music.files().len().saturating_sub(1)));
     game.music_changed = true;
+}
+
+/// The game's own title (`c.title_screen.level`) begun in place of the
+/// engine's, if it has one: straight in, no menu. Whether it has one.
+fn own_title<G: Game>(game: &mut Session<G>, front: &mut Front) -> Result<bool> {
+    if game.cfg.title_screen.level.is_none() {
+        return Ok(false);
+    }
+    front.straight_in();
+    game.begin_title()?;
+    Ok(true)
 }
 
 /// The title's menu: CONTINUE first when a save slot holds a save (the
@@ -916,5 +961,39 @@ mod tests {
         let e = anyhow::anyhow!("No space left on device (os error 28)").context("writing /x/1.toml");
         assert_eq!(trouble("en", "COULD NOT SAVE: {}", &e).0, "COULD NOT SAVE: NO SPACE LEFT ON DEVICE (OS ERROR 28)");
         assert!(trouble("de", "COULD NOT SAVE: {}", &e).0.starts_with("SPEICHERN FEHLGESCHLAGEN"));
+    }
+
+    /// A game with a title of its own opens in it, never on the engine's
+    /// title page; SETTINGS it asks for opens over it and back goes on;
+    /// its QUIT ends the window; a run's QUIT TO TITLE lands on it again.
+    #[test]
+    fn a_game_with_its_own_title_opens_in_it_and_comes_back_to_it() {
+        use crate::controls::Nav;
+        use crate::game::Request;
+        let main = "function on_tick() if world.state.go then world:new_game() end end\n";
+        let dir = crate::lua::tests::title::title_folder("app", main);
+        let mut game = Session::<crate::Voxcade>::load(&dir).unwrap();
+        let mut front = Front::new(title_menu(&game));
+        assert!(own_title(&mut game, &mut front).unwrap());
+        assert!(front.playing && !front.menu.is_open() && !front.on_title() && game.on_title(), "the game's title, not the engine's");
+        let mut settings = Settings::default();
+        assert!(!front.asked(&[Request::Open("settings")]));
+        assert_eq!(front.menu.page(), Some(Page::Settings));
+        assert_eq!(front.menu.nav(Nav::Back, &mut settings, 0), Some(Command::Resume), "back from it, the game goes on");
+        assert!(!front.menu.is_open());
+        assert!(front.asked(&[Request::Quit]), "QUIT ends the window");
+        game.eval("world.state.go = true").unwrap();
+        game.step(&crate::input::Input::default());
+        assert!(game.begun && !game.on_title(), "a run");
+        let mut menu = pause_menu(&game, true);
+        menu.nav(Nav::Up, &mut settings, 0);
+        assert_eq!(menu.nav(Nav::Confirm, &mut settings, 0), Some(Command::ToTitle));
+        let mut fresh = Session::<crate::Voxcade>::load(&dir).unwrap();
+        assert!(own_title(&mut fresh, &mut front).unwrap() && fresh.on_title(), "QUIT TO TITLE: its own title again");
+        // A game without one has the engine's.
+        let plain = crate::lua::tests::levels_folder("app-plain", main, &[("a", &[])]);
+        let mut plain = Session::<crate::Voxcade>::load(&plain).unwrap();
+        let mut front = Front::new(title_menu(&plain));
+        assert!(!own_title(&mut plain, &mut front).unwrap() && front.on_title());
     }
 }

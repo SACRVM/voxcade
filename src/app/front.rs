@@ -4,6 +4,7 @@
 //! need neither SDL nor a GPU, so they are tested here.
 
 use crate::controls::{Device, Nav, PadStyle};
+use crate::game::Request;
 use crate::menu::{Menu, Page};
 use crate::session::{INTRO_TIME, Scene};
 
@@ -121,6 +122,21 @@ impl Front {
         self.title_time = 0.0;
         self.title_music = true;
         self.previewing = None;
+    }
+
+    /// What the game asked of the window in a tick (`Session::requests`):
+    /// SETTINGS opened over it, the game held while it shows; whether to
+    /// quit.
+    pub fn asked(&mut self, requests: &[Request]) -> bool {
+        let mut quit = false;
+        for request in requests {
+            match request {
+                Request::Open("settings") => self.menu = Menu::settings(),
+                Request::Open(_) => {}
+                Request::Quit => quit = true,
+            }
+        }
+        quit
     }
 
     /// A key or button while the title plays a replay: it asks the replay to
