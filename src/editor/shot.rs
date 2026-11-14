@@ -605,7 +605,7 @@ fn in_context(dir: &Path, ed: &mut Editor, opts: &ShotOptions) -> Result<()> {
     if let Some((level, name)) = &opts.context {
         anyhow::ensure!(ed.model.is_some(), "--context shapes a model in place: --model FILE");
         let lv = crate::grid::GridLevel::read(&dir.join(level))?;
-        let piece = model::room::listed(&lv.things, name).with_context(|| format!("--context {level}:{name}: the level has no piece called so"))?;
+        let piece = model::room::listed(&lv.things, &model::room::called_names(&lv.things, &ed.pieces.player_kinds), name).with_context(|| format!("--context {level}:{name}: the level has no piece called so"))?;
         ed.set_context(context::Seed { level: level.clone(), piece, hidden: Default::default() })?;
         if opts.context_off {
             ed.toggle_context();

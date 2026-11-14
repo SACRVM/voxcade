@@ -128,9 +128,10 @@ pub fn bytes_of(hex: Option<&str>) -> [u8; 3] {
 }
 
 /// What an item is, for a tooltip: its model's file, a light, its kind, a
-/// place, an area; and how the game's code finds it by its name.
-fn what_of(ed: &Editor, item: Item) -> String {
-    let (label, named) = ed.label_of(item);
+/// place, an area; and how the game's code finds it by its name (the
+/// thing that becomes the player has none: `called` has none for it).
+fn what_of(ed: &Editor, called: &[Option<String>], item: Item) -> String {
+    let (label, named) = ed.label_in(called, item);
     let what = match item {
         Item::Thing(i) => {
             let t = &ed.level.things[i];
@@ -143,19 +144,20 @@ fn what_of(ed: &Editor, item: Item) -> String {
         Item::Place(_) => "a place a player arrives at".into(),
         Item::Area(_) => "an area".into(),
     };
-    let code = match (item, named) {
-        (_, false) => "no name yet".to_string(),
-        (Item::Thing(_), true) => format!("level:thing(\"{label}\")"),
-        (Item::Place(_), true) => format!("world:go_to(level, \"{label}\")"),
-        (Item::Area(_), true) => format!("level.areas.{label}"),
+    let code = match item {
+        Item::Thing(i) if called.get(i).is_some_and(Option::is_some) => format!("level:thing(\"{label}\")"),
+        Item::Thing(_) => "the player: no name".to_string(),
+        _ if !named => "no name yet".to_string(),
+        Item::Place(_) => format!("world:go_to(level, \"{label}\")"),
+        Item::Area(_) => format!("level.areas.{label}"),
     };
     format!("{label}\n{what}\n{code}")
 }
 
 /// One row of the outliner: the item's sign, its name, its light's colour
 /// at the end; chosen, marked.
-fn outline_row(ui: &mut egui::Ui, ed: &Editor, item: Item, chosen: bool, shown: &mut PanelsDrawn) -> egui::Response {
-    let (label, named) = ed.label_of(item);
+fn outline_row(ui: &mut egui::Ui, ed: &Editor, called: &[Option<String>], item: Item, chosen: bool, shown: &mut PanelsDrawn) -> egui::Response {
+    let (label, named) = ed.label_in(called, item);
     let light = match item {
         Item::Thing(i) => ed.level.things[i].lights.first().map(|l| rgb(bytes_of(l.color.as_deref()))),
         _ => None,
@@ -167,7 +169,7 @@ fn outline_row(ui: &mut egui::Ui, ed: &Editor, item: Item, chosen: bool, shown: 
         zones::hide_mark(ui, hidden, Action::HideItem(item), shown);
         // Its place, quiet at the end: two gems are told apart.
         let at = ed.at_of(item).map(|[x, y, z]| format!("{x} {y} {z}"));
-        zones::list_row_aside(ui, sort_of(ed, item), None, &label, 0.0, chosen, !named || hidden, light, None, at.as_deref(), &what_of(ed, item), egui::Sense::click())
+        zones::list_row_aside(ui, sort_of(ed, item), None, &label, 0.0, chosen, !named || hidden, light, None, at.as_deref(), &what_of(ed, called, item), egui::Sense::click())
     })
     .inner
 }
@@ -202,6 +204,7 @@ fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, sh
     ];
     let tips = ["Models, lights and things set down", "Where a player arrives (world:go_to)", "Boxes the game's code asks about (level.areas)"];
     let wanted = filter.trim().to_lowercase();
+    let called = ed.thing_names();
     egui::ScrollArea::vertical().id_salt("outliner").auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
         for ((title, items), tip) in groups.into_iter().zip(tips) {
@@ -212,11 +215,11 @@ fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, sh
                 continue;
             }
             for item in items {
-                if !wanted.is_empty() && !ed.label_of(item).0.to_lowercase().contains(&wanted) {
+                if !wanted.is_empty() && !ed.label_in(&called, item).0.to_lowercase().contains(&wanted) {
                     continue;
                 }
                 let chosen = ed.pieces.chosen == Some(item);
-                let response = outline_row(ui, ed, item, chosen, shown);
+                let response = outline_row(ui, ed, &called, item, chosen, shown);
                 if response.secondary_clicked() {
                     let at = response.interact_pointer_pos().unwrap_or(response.rect.right_top());
                     shown.clicked.push(Action::OpenMenu(item, [at.x, at.y]));
@@ -264,7 +267,7 @@ fn head(ui: &mut egui::Ui, ed: &Editor, view: &View, item: Item, shown: &mut Pan
     let now = if named { label.clone() } else { String::new() };
     let mut text: String = ui.data(|d| d.get_temp(id)).unwrap_or_else(|| now.clone());
     let edit = egui::TextEdit::singleline(&mut text).font(TextStyle::Body).hint_text(RichText::new(&label).color(QUIET)).desired_width(f32::INFINITY);
-    let response = ui.add(edit).on_hover_text(what_of(ed, item));
+    let response = ui.add(edit).on_hover_text(what_of(ed, &ed.thing_names(), item));
     if view.renaming == Some(item) && !response.has_focus() && ui.data(|d| d.get_temp::<bool>(id.with("asked"))).is_none() {
         response.request_focus();
         ui.data_mut(|d| d.insert_temp(id.with("asked"), true));
@@ -1378,5 +1381,55 @@ mod tests {
             }
         }
         assert!(named >= 7, "the menus name keys: {named}");
+    }
+
+    /// What egui painted as text.
+    fn painted(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
+        shapes.iter().filter_map(|s| if let egui::Shape::Text(t) = &s.shape { Some(t.galley.job.text.clone()) } else { None }).collect()
+    }
+
+    /// The rows say what the game calls the things (`lever_1`, the file's
+    /// name where it has one), the thing that becomes the player, which has
+    /// no name there, its kind; the chosen one's name field has the same as
+    /// its quiet hint; `--choose` finds a thing by it, the old `lever#2`
+    /// still too.
+    #[test]
+    fn rows_say_what_the_game_calls_the_things() {
+        let (mut ed, view, _) = crate::editor::open::<crate::Voxcade>(std::path::Path::new("games/voxkeep"), Some("levels/04_levers.toml"), None, false).unwrap();
+        ed.switch(Layer::Pieces);
+        let labels: Vec<(String, bool)> = (0..ed.level.things.len()).map(|i| ed.label_of(Item::Thing(i))).collect();
+        let said: Vec<&str> = labels.iter().map(|(l, _)| l.as_str()).collect();
+        assert_eq!(said[..8], ["hero", "lever_1", "gem_1", "gem_2", "torch_1", "torch_2", "gem_3", "lever_2"], "the hero has no name: its kind");
+        assert!(labels.iter().all(|(_, named)| !named), "none named in the file: all quiet");
+        let second = ed.find_listed("lever_2");
+        assert_eq!(second, Some(Item::Thing(7)));
+        assert_eq!(ed.find_listed("lever#2"), second, "the old way works too");
+        assert_eq!(ed.find_listed("hero"), Some(Item::Thing(0)));
+        assert_eq!(ed.find_listed("hero_1"), None, "the player has no such name");
+        assert!(ed.is_player(0) && !ed.is_player(1));
+        ed.choose_item(second);
+        let (_, shapes) = laid_out_at(&ed, &view);
+        let texts = painted(&shapes);
+        assert!(texts.iter().any(|t| t == "lever_1") && texts.iter().any(|t| t == "gem_3") && texts.iter().any(|t| t == "hero"), "the rows: {texts:?}");
+        assert_eq!(texts.iter().filter(|t| *t == "lever").count(), 1, "the kind only under the name field, not as a row: {texts:?}");
+        assert_eq!(texts.iter().filter(|t| *t == "lever_2").count(), 2, "its row and the quiet hint of its name field: {texts:?}");
+    }
+
+    /// A name typed is the thing's own, kept in the file; cleared it goes
+    /// back to the game's (nothing left in the file), and a name the game
+    /// gives another is taken.
+    #[test]
+    fn a_name_typed_is_kept_and_cleared_it_is_the_games_again() {
+        let dir = crate::editor::big::room_game("stage-names", 3);
+        let mut ed = Editor::open(&dir, "levels/room.toml").unwrap();
+        let file = dir.join("levels/room.toml");
+        let item = Item::Thing(3);
+        assert_eq!(ed.label_of(item), ("p3".to_string(), true));
+        ed.rename(item, "").unwrap();
+        assert_eq!(ed.label_of(item), ("piece_4".to_string(), false), "the fourth piece, as the game counts the named too");
+        assert!(!std::fs::read_to_string(&file).unwrap().contains("p3"), "no name left in the file");
+        assert_eq!(ed.rename(Item::Thing(0), "piece_4").unwrap_err(), "Another thing is called piece_4: a name is one thing's.");
+        ed.rename(item, "lamp").unwrap();
+        assert!(std::fs::read_to_string(&file).unwrap().contains("name = \"lamp\""));
     }
 }

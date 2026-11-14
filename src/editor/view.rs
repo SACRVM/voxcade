@@ -141,7 +141,7 @@ pub struct GameStart {
 impl GameStart {
     pub fn of(cfg: &GameConfig, dir: &Path) -> Self {
         let number = |v: &toml::Value| v.as_float().or(v.as_integer().map(|i| i as f64)).map(|f| f as f32);
-        let heroes: Vec<String> = cfg.things.iter().filter(|(_, t)| t.get("behavior").and_then(|b| b.as_str()) == Some("hero")).map(|(k, _)| k.clone()).collect();
+        let heroes: Vec<String> = cfg.things.iter().filter(|(_, t)| t.get("behavior").and_then(|b| b.as_str()) == Some(crate::sim::things::PLAYER_BEHAVIOR)).map(|(k, _)| k.clone()).collect();
         let player = cfg.player.kind.as_ref().map(|k| k.of(1).to_string()).filter(|k| !k.is_empty());
         let mut heights: BTreeMap<String, f32> = heroes.iter().filter_map(|k| Some((k.clone(), cfg.things.get(k)?.get("height").and_then(number)?))).collect();
         if let Some(k) = player.as_ref().filter(|k| !heights.contains_key(*k)) {

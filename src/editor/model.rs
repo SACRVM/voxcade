@@ -641,6 +641,12 @@ pub struct Pieces {
     levels: std::cell::RefCell<Option<room::GameLevels>>,
     pub still_kinds: std::collections::BTreeSet<String>,
     pub free_kinds: std::collections::BTreeSet<String>,
+    /// The kinds the ready-made rules stand the player as
+    /// (`sim::things::PLAYER_BEHAVIOR`), and the names the level's things
+    /// have in play, with what they were worked out for
+    /// (`Editor::thing_names`).
+    pub player_kinds: std::collections::BTreeSet<String>,
+    called: std::cell::RefCell<Option<(u64, room::Called)>>,
 }
 
 /// A figure's parts being shaped (`parts.rs`): what the next click in the

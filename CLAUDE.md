@@ -384,9 +384,18 @@ nearest; its replay `tests/two_ships`);
   front (+y), its right side and from above (a level's block: its y 0
   side), the one lit pressed again the free view as it was
   (`view::STRAIGHT`, `View::straight_view`; no keys: the number keys are
-  the colors); `--choose`, `--hide`, `--menu`, `--context` take an unnamed
-  thing by what the list shows (`torch`, `torch#3` the third;
-  `room::listed`); `--scatter N` without such a rule names the rules there
+  the colors); a level's list, name field (its quiet hint), FIND and the
+  shot's facts say the names the game gives its things (`lever_2`, a
+  piece's `piece_3`; the file's own where it has one; the thing that
+  becomes the player has none, its kind shows: `sim::things::PLAYER_BEHAVIOR`,
+  `levels::thing_names`, the one rule of the editor, the load check and
+  `Stage::name_things`; test
+  `the_thing_that_becomes_the_player_has_no_name_in_the_file_or_in_play`;
+  `Editor::thing_names` kept until a kind or name changes), nothing
+  written for them, a name typed the thing's own and cleared the game's
+  again; `--choose`, `--hide`, `--menu`, `--context` take such a name,
+  and still an unnamed thing by its kind or model (`torch`, `torch#3`
+  the third; `room::listed`); `--scatter N` without such a rule names the rules there
   are; a shot draws the panels as they are after two seconds where egui
   never settles (ADD MODEL's find in focus; `shot::settle`), and
   `--picker` opens among the pieces;

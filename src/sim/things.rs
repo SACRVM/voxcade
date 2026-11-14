@@ -216,6 +216,11 @@ const RETIRED: [(&str, &str); 3] = [
     ("hazard", "spikes are a thing your code answers: a kind with a family (the platformer's behavior = \"prop\"), and in on_tick: if #player:touching(\"hazards\") > 0 then player:hurt(1) end"),
 ];
 
+/// The behavior the ready-made rules stand the player as (the jump & run's
+/// hero): of a level's things of such kinds the first becomes the player
+/// (`levels::thing_names`).
+pub const PLAYER_BEHAVIOR: &str = "hero";
+
 /// The kinds of things a game defines, in the order of their names: a
 /// thing's and a marker's `kind` is the place here. `behaviors` are the
 /// game's; any other is a mistake in `conf.lua`.

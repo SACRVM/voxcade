@@ -32,6 +32,9 @@ pub struct Kind {
     /// declares `hp`, or the ready-made rules move it.
     pub has_hp: bool,
     pub scripted: bool,
+    /// Whether the ready-made rules stand the player as the first of its
+    /// things in a level (`PLAYER_BEHAVIOR`): that one has no name.
+    pub player: bool,
     /// What the game's code reads of its things (`thing.props`).
     pub props: toml::Table,
     /// Which of its props name a level, a place or things (`names`).
