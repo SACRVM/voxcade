@@ -23,6 +23,7 @@ impl<G: Game> Session<G> {
         let shown = self.game.sim().world.clone();
         self.game.change();
         self.game.sim_mut().world.mark_changed_since(&shown);
+        self.enter_level();
         // A save asked for in on_level_start.
         self.saves_due();
     }
@@ -62,6 +63,7 @@ impl<G: Game> Session<G> {
         let shown = self.game.sim().world.clone();
         self.game.start_from(text)?;
         self.game.sim_mut().world.mark_changed_since(&shown);
+        self.enter_level();
         self.started_from = Some(text.to_string());
         self.saves_due();
         Ok(())
@@ -73,6 +75,7 @@ impl<G: Game> Session<G> {
         let shown = self.game.sim().world.clone();
         let started = self.game.start_scenario(name);
         self.game.sim_mut().world.mark_changed_since(&shown);
+        self.enter_level();
         started?;
         self.scenario = Some(name.to_string());
         self.saves_due();
@@ -86,6 +89,7 @@ impl<G: Game> Session<G> {
         let shown = self.game.sim().world.clone();
         let said = self.game.eval(code);
         self.game.sim_mut().world.mark_changed_since(&shown);
+        self.enter_level();
         self.evals.push(code.to_string());
         self.pending.push(Event::Eval(code.to_string()));
         self.saves_due();
@@ -223,6 +227,7 @@ impl<G: Game> Session<G> {
         self.played = snapshot.played.clone();
         (self.inputs, self.clock) = (snapshot.inputs, snapshot.clock);
         self.game.set_local(&self.local);
+        self.enter_level();
     }
 
     /// The world, to build its meshes from.
@@ -284,6 +289,9 @@ impl<G: Game> Session<G> {
                 self.change();
             }
         }
+        // A level entered within the tick (an ask its code made carried
+        // out at once) is seen to as one changed after it.
+        self.enter_level();
         self.notice_song();
     }
 

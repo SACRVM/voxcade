@@ -16,6 +16,7 @@ use crate::files::Files;
 /// A model with its own colours, read from a `.vvx` (or a MagicaVoxel `.vox`
 /// brought in): frame 0 stands still, frames 1.. are its other poses (a
 /// walk cycle), or the model is a figure of parts (`parts`).
+#[derive(Clone)]
 pub struct VoxModel {
     /// Size of the largest frame.
     pub size: IVec3,

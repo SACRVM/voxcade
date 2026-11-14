@@ -83,6 +83,7 @@ impl<G: Game> Session<G> {
         let songs = song_timings(&files, &cfg);
         let game = G::load(Setup { files: &files, cfg: &cfg, world: first.world.clone(), markers: first.markers.clone(), models: &models, levels: levels.clone(), slots: slots.listing(), slot_texts: slots.texts(), replayed: slots.replayed().to_vec(), songs: songs.clone() })?;
         let cue = game.music().map(|c| c.song);
+        let game_mark = game.level_mark();
         let sounds = SoundBank::load(&files, &cfg.sounds, &G::sounds(&cfg))?;
         let actions = G::actions(&cfg);
         let song_titles = song_titles(&files, &cfg);
@@ -111,6 +112,7 @@ impl<G: Game> Session<G> {
             options: Options::default(),
             font: display_font(&files, &cfg_ui),
             bank: Default::default(),
+            entered: game_mark,
             logo: Vec::new(),
             logo_model: None,
             props_ground: Vec::new(),
@@ -137,6 +139,9 @@ impl<G: Game> Session<G> {
             evals: Vec::new(),
             files,
         };
+        // Every level's pieces were read for what the simulation reads of
+        // them: those the level entered does not name are let go.
+        session.models.needed.let_go(&session.game.level_models());
         session.rebuild_bank();
         session.place_props();
         // A save asked for in the first on_level_start.
@@ -225,7 +230,52 @@ impl<G: Game> Session<G> {
         }
         self.logo = letters.iter().map(|line| line.iter().map(|cubes| bank.add_cubes(cubes)).collect()).collect();
         self.logo_model = own.map(|(size, parts)| crate::ui::LogoModel { size, parts: parts.iter().map(|(cubes, at)| (bank.add_cubes(cubes), *at)).collect() });
-        self.bank = std::sync::Arc::new(bank);
+        // The models loaded when needed last: the bank grows by those to
+        // come (`bank_fresh`).
+        self.models.needed.bank(&mut bank, true);
+        *self.bank.borrow_mut() = std::sync::Arc::new(bank);
+    }
+
+    /// The model bank as it stands (what a frame draws from).
+    pub fn bank(&self) -> std::sync::Arc<ModelBank> {
+        self.bank.borrow().clone()
+    }
+
+    /// Puts the models loaded since the bank was made (drawn the first
+    /// time, `frame:model`) in it: a new bank of the voxels there and
+    /// theirs after them, which the renderer uploads with the next frame.
+    /// Whether there were any.
+    pub(super) fn bank_fresh(&self) -> bool {
+        if !self.models.needed.fresh() {
+            return false;
+        }
+        let mut bank = ModelBank { voxels: self.bank.borrow().voxels.clone() };
+        self.models.needed.bank(&mut bank, false);
+        *self.bank.borrow_mut() = std::sync::Arc::new(bank);
+        true
+    }
+
+    /// Whether a level was entered since the last look (a change, a
+    /// restart, a console line's, a save or a scenario begun, a state
+    /// brought back: `Game::level_mark` moved on): the models loaded when
+    /// needed but those it names (its pieces', `Game::level_models`) are
+    /// let go, out of memory and the bank, and its own are loaded, so that
+    /// what one level alone shows does not lie in memory for the rest of
+    /// the run. Only the picture reads them.
+    pub(super) fn enter_level(&mut self) {
+        let mark = self.game.level_mark();
+        if mark == self.entered {
+            return;
+        }
+        self.entered = mark;
+        let keep = self.game.level_models();
+        let dropped = self.models.needed.let_go(&keep);
+        self.models.needed.load_all(&keep);
+        if dropped {
+            self.rebuild_bank();
+        } else {
+            self.bank_fresh();
+        }
     }
 
     /// The logo's lines and their colours: `[title_screen] logo`, else the
@@ -268,6 +318,9 @@ impl<G: Game> Session<G> {
     }
 
     pub(super) fn reload_file(&mut self, changed: &Path) -> Result<Reloaded> {
+        // A model loaded when needed from now on comes from the files as
+        // they are (an APPLY changed them).
+        self.models.needed.set_files(&self.files);
         let name = changed.file_name();
         let is = |file: &str| name == Path::new(file).file_name();
         if let Some(file) = G::config_file().filter(|f| is(f)) {
@@ -295,6 +348,7 @@ impl<G: Game> Session<G> {
             self.game.reshape(&self.models);
             self.touched = true;
             self.sounds = SoundBank::load(&self.files, &self.cfg.sounds, &G::sounds(&self.cfg))?;
+            self.models.needed.let_go(&self.game.level_models());
             self.rebuild_bank();
             self.place_props();
             // The camera or sun may have moved, which changes the face set.
@@ -341,19 +395,34 @@ impl<G: Game> Session<G> {
             self.piece_models = levels.piece_models();
             self.models = Models::load_for::<G>(&self.files, &self.cfg, &self.piece_models)?;
             self.game.reshape(&self.models);
-            self.rebuild_bank();
             self.game.replace_levels(levels);
+            self.models.needed.let_go(&self.game.level_models());
+            self.rebuild_bank();
             self.touched = true;
             self.place_props();
             return Ok(Reloaded::World);
         }
-        if self.models.files(false).any(is) || title_models(&self.cfg).any(is) {
+        if self.models.files(false).chain(self.models.piece_files()).any(is) || title_models(&self.cfg).any(is) {
             self.models = Models::load_for::<G>(&self.files, &self.cfg, &self.piece_models)?;
             self.game.reshape(&self.models);
             self.touched = true;
+            self.models.needed.let_go(&self.game.level_models());
             self.rebuild_bank();
             self.place_props();
             return Ok(Reloaded::Models);
+        }
+        // Any other model file of the game, drawn only: loaded anew the
+        // next time it is drawn (one new in the folder at once), a drawing
+        // that stopped for want of it tried again; the run goes on as a
+        // replay would (the picture alone).
+        if crate::vvx::is_model(changed) && self.files.name(changed).is_some() {
+            let held = self.models.needed.forget(&self.files, changed);
+            if held {
+                self.rebuild_bank();
+            }
+            if held | self.game.models_came() {
+                return Ok(Reloaded::Models);
+            }
         }
         Ok(Reloaded::Nothing)
     }

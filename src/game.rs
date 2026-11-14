@@ -486,6 +486,28 @@ pub trait Game: Sized + 'static {
         self.sim_mut().replace_world(world);
     }
 
+    /// The level being played as a mark that moves on whenever a level is
+    /// entered, the same one again too (a restart): a level's models are
+    /// seen to then (`level_models`). From the game's state, so a state
+    /// brought back brings its mark back.
+    fn level_mark(&self) -> u64 {
+        0
+    }
+
+    /// The model files the level being played names (its pieces'): loaded
+    /// as it is entered and kept while it is played; other models a game
+    /// only draws are let go when it leaves (`Session::enter_level`).
+    fn level_models(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// A model file came or changed: a drawing that stopped for want of it
+    /// (`frame:model` naming a file not there yet) is tried again. Whether
+    /// one had stopped.
+    fn models_came(&mut self) -> bool {
+        false
+    }
+
     /// Its models changed while it runs.
     fn reshape(&mut self, _models: &Models) {}
 }

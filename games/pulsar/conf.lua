@@ -37,7 +37,6 @@ function conf(c)
 
   -- The ship (drawn by main.lua: it banks), shots, enemies. reach: the
   -- radius things are hit within (the ship's small, as in the arcades).
-  c.models = { "ship.vvx", "ship2.vvx" }
   c.things.ship = { reach = 5 }
   c.things.ship2 = { like = "ship" }
   c.things.shot = {}

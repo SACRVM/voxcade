@@ -241,7 +241,7 @@ pub(super) const COMMANDS: &[Command] = &[
         args: &["<game-dir>"],
         line: "bring a game made for an older Voxcade up to date",
         making: true,
-        text: "brings a game made for an older Voxcade up to date: every step it needs (0.6.0: its models, figures and blocks become .vvx; its levels of blocks and maps .toml; its worlds and map prefabs .vvx too, their markers named in them instead of c.markers; the Lua naming the files follows), then c.voxcade in conf.lua says this version. It says what each step did. It commits nothing, and says first when the folder has changes git has not committed. A game for an older Voxcade does not open until then; one for a newer neither.",
+        text: "brings a game made for an older Voxcade up to date: every step it needs (0.6.0: its models, figures and blocks become .vvx; its levels of blocks and maps .toml; its worlds and map prefabs .vvx too, their markers named in them instead of c.markers; the Lua naming the files follows; c.models taken out of conf.lua, as frame:model draws any model file), then c.voxcade in conf.lua says this version. It says what each step did. It commits nothing, and says first when the folder has changes git has not committed. A game for an older Voxcade does not open until then; one for a newer neither.",
         opts: &[opt("--dry", "", "only say what it would do")],
     },
     Command {
@@ -333,7 +333,7 @@ pub(super) const COMMANDS: &[Command] = &[
         args: &["<game-dir> <model>"],
         line: "draw one of a game's models alone, as the game draws it",
         making: false,
-        text: "draws one of the game's models (a kind's, or one in c.models: its file or name) alone as the game draws it, its light, camera angle and shading, into one PNG: five sides close up, every frame from the side, the five sides at the game's size.",
+        text: "draws one of the game's models (any model file of the game by its path, or a kind's model by its name) alone as the game draws it, its light, camera angle and shading, into one PNG: five sides close up, every frame from the side, the five sides at the game's size.",
         opts: &[opt("--out", "FILE", "where the sheet goes (default shots/<model>_sheet.png)")],
     },
     Command {

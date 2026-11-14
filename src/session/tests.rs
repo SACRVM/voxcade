@@ -13,7 +13,7 @@ fn flat_game(size: i32) -> Session<Shooter> {
 /// A game in `world` with `cfg`, without model files.
 fn game_on(world: World, cfg: GameConfig) -> Session<Shooter> {
     let player = VoxModel::new(IVec3::new(5, 4, 10), vec![Vec::new()], vec![Vec::new()]);
-    let models = Models { actors: vec![(ModelSpec { name: "player".into(), file: String::new(), shaped: true }, player)], props: HashMap::new() };
+    let models = Models::kept(vec![(ModelSpec { name: "player".into(), file: String::new(), shaped: true }, player)]);
     let game = Shooter::new(world, &cfg, crate::shooter::tests::shapes(), &[]);
     Session {
         dir: PathBuf::new(),
@@ -39,6 +39,7 @@ fn game_on(world: World, cfg: GameConfig) -> Session<Shooter> {
         options: Options::default(),
         font: None,
         bank: Default::default(),
+        entered: 0,
         logo: Vec::new(),
         logo_model: None,
         props_ground: Vec::new(),
@@ -642,7 +643,7 @@ fn models_from_the_bank_match_their_cubes() {
                     draw(&mut |corner: Vec3, color, metal, _, shade, turn, covered| new.push(key(corner + 0.5, color, metal, shade, turn, covered)), Some(&mut on_gpu), m, 1, origin, look, rot, &[], tint);
                     assert_eq!(on_gpu.len(), 1);
                     let glass = new.len();
-                    let bank = &game.bank;
+                    let bank = game.bank();
                     new.extend(on_gpu.iter().flat_map(|d| bank.cubes(d)).map(|i| key(Vec3::from_slice(&i.pos_size[..3]), i.color, i.fx[3], i.shade, i.turn, i.fx[2])));
                     assert!(new.len() > glass * 10, "most of the model should come from the bank");
                     old.sort_unstable();

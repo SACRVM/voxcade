@@ -80,7 +80,10 @@ impl<G: Game> Session<G> {
     /// across the view. None: no such model.
     #[allow(clippy::too_many_arguments)]
     pub fn still(&self, name: &str, frame: usize, look: IVec2, turn: Quat, pose: &dyn Fn(&str) -> PartPose, view_width: f32, aspect: f32) -> Option<FrameData> {
-        let m = self.models.named(name)?;
+        // Any model file of the game, in the bank before it is drawn.
+        self.models.drawn(name)?;
+        self.bank_fresh();
+        let m = self.models.drawn(name)?;
         let size = m.size.as_vec3();
         // An empty world of its own round it: the level is not drawn.
         let across = (size.x.max(size.y) * 2.0).ceil() as i32 + 8;
@@ -95,7 +98,7 @@ impl<G: Game> Session<G> {
         let eye = camera::eye(&cam, target, aspect);
         let mut out = self.drawing(&world, 1.0, (view_proj, light_vp, eye), aspect, 512);
         let turns: Vec<PartPose> = m.parts.iter().map(|p| pose(&p.name)).collect();
-        out.put_posed(m, frame.min(m.frames.len() - 1), origin, look, turn, &turns, None);
+        out.put_posed(&m, frame.min(m.frames.len() - 1), origin, look, turn, &turns, None);
         let floor = (size.x.max(size.y) * 0.5).ceil() as i32 + 3;
         for y in -floor..floor {
             for x in -floor..floor {
@@ -249,8 +252,14 @@ impl<G: Game> Session<G> {
             out.fade = 1.0;
         }
 
-        // The game's things, then the debris, fire, smoke and sparks.
+        // The game's things, then the debris, fire, smoke and sparks. A
+        // model drawn the first time was loaded meanwhile, drawn as cubes:
+        // it goes in the bank and the picture is made again from there.
         self.game.draw(&mut out);
+        if self.bank_fresh() {
+            drop(out);
+            return self.compose(alpha, aspect, scene, ui);
+        }
         for q in &sim.particles {
             let at = between(q.prev, q.pos, alpha);
             let (color, glow, opacity) = q.look();
@@ -386,7 +395,7 @@ impl<G: Game> Session<G> {
             fade: self.fade.as_ref().map_or([0.0; 4], Fade::look),
             models,
             ui_models,
-            bank: self.bank.clone(),
+            bank: self.bank(),
             instances,
             see_through,
             behind: 0,

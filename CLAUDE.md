@@ -1632,7 +1632,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (`VoxModel::visible`: open space or glass beside them; the simulation
   still bursts bodies into all of them), and a frame skips models outside the
   view and the shadow box (`Drawing::model`). Their opaque voxels lie on
-  the GPU once (`render::ModelBank`, filled in `Models::load`): a frame
+  the GPU once (`render::ModelBank`, `Session::rebuild_bank`): a frame
   sends one `ModelDraw` per model (where, quarter turn, flash) and the
   shader's `vs_model` places the voxels as `ModelBank::cubes` does (test
   `models_from_the_bank_match_their_cubes`), the faces another voxel
@@ -1642,7 +1642,25 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (`ui::logo_letters`; the game builds the bank anew when a model, the
   font or `conf.lua` changes, `Session::rebuild_bank`; test
   `the_logo_from_the_bank_matches_its_cubes`), and the title's props find
-  their ground once (`Session::place_props`). Where two things share a cell, the one drawn
+  their ground once (`Session::place_props`). No model is registered (the
+  owner, 2026-11-14: "ich gebe den ort an wo das model geladen wird -
+  wieso muss es irgendwo angemeldet werden?"; `c.models` is refused, the
+  upgrade step "no list of models" takes it out): `frame:model` draws
+  any model file of the game by its path through the session's `files`
+  (`session::Needed`, sealed files too); the kinds', items', effects' and
+  title's models are kept the whole run (`Models::actors`, `props`),
+  every other model is loaded when needed: a level's pieces' as it is
+  entered (`Session::enter_level`, on `Game::level_mark` moving on, on
+  all cores), the rest the first time it is drawn (drawn as cubes, put
+  in the bank, `Session::bank_fresh`, and the picture made again), and
+  let go at the next level change, out of the bank (rebuilt whole; a fade
+  is when it comes). What the simulation reads of a model never depends
+  on it: the kept ones (`Models::get`, `shape`) and the levels' pieces'
+  frames, heights and parts, read once as the game loads
+  (`Models::pieces`); a model only drawn is no part of the fingerprint
+  (test `a_model_only_drawn_never_changes_the_run`). A model file saved
+  or new comes in at the next draw, an `on_draw` stopped for want of it
+  draws again (`Game::models_came`). Where two things share a cell, the one drawn
   first keeps it at equal depth: the world, then models, then cubes.
   Changed chunks are meshed
   on all cores (`Renderer::remesh_all`) and uploaded in the order given,

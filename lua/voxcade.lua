@@ -457,7 +457,7 @@ function Screen:flash(strength) end
 ---@field alpha number How far into the tick this picture is, 0 to 1: add it to a count of ticks for motion that runs smooth between them.
 local Frame = {}
 
----Draws a model where a thing stands, facing its way. file is a kind's model or one in c.models. The thing is a thing, never a point.
+---Draws a model where a thing stands, facing its way. file is any model file of the game, by its path in the game folder ("sheet.vvx", "props/sheet.vvx"): loaded the first time it is drawn, let go when the level is left; a file that is not there is a mistake. The thing is a thing, never a point.
 ---- index: which of its frames, from 0. Without it, its kind's frames for what it does (c.things.NAME.frames: idle, walk, jump), else the model's own: 0 standing, 1 in the air, the rest walking, a frame every half its height walked.
 ---- rotation: turns it further, in degrees about its middle (the voxel at half its height over its pivot). { roll = 20 } banks a ship right, { rotation = 45 } faces a diagonal, { pitch = 10 } lifts its nose. Roll is taken first, then pitch, then rotation, as for a level's piece. Off the quarter turns its voxels leave the grid.
 ---- pose: moves a figure of parts (a model whose parts have names: head, body, arm_left ...), each part by its name, a rotation about its joint, what hangs on it moving along. { head = { rotation = 30 }, arm_right = { pitch = 90 } } raises the right arm forward. offset = { x, y, z } moves a part by voxels (fractions too) after its rotation: { bust = { pitch = 10, offset = { 0, 1, 0 } } }. It goes over its kind's swing (c.things.NAME.swing).
@@ -739,7 +739,6 @@ function on_pickup(thing, item) end
 ---@field actions string[] A Lua game's actions besides the four directions (a kit brings its own), and the keys and gamepad buttons bound to them at first.
 ---@field keys table The keys bound to each action at first, by their US names (c.keys.jump = { "Z" }); the player may change them.
 ---@field pad table The gamepad's buttons bound to each action at first (c.pad.jump = { "A" }).
----@field models string[] Model files a Lua game draws besides its kinds' (frame:model).
 ---@field scored boolean The game keeps a score (player.state.score), with ready-made rules or without: the title shows the best, and runs go into the high score table.
 ---@field items table<string, table> What can be carried (c.items.key = { model = "key.vvx", stack = 1 }): an inventory (player.state.inventory) counts these by name.
 ---@field state Conf.state What a run starts with (c.state.world, c.state.player): the states' first keys, the engine's own among them (hp, weapon, inventory) and the game's (lives).

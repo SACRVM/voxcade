@@ -201,6 +201,9 @@ pub struct LuaGame<K: Kit> {
     changes: u32,
     /// Whether `on_draw` stopped the game (it waits for the mended file).
     draw_failed: Cell<bool>,
+    /// Whether the game stands halted by `on_draw` (not by an earlier
+    /// mistake): a model file that came may mend it (`models_came`).
+    draw_halted: Cell<bool>,
     /// Whether the state check at a tick's end stopped the game (a change
     /// of `conf.lua`, its items, may mend it too).
     state_failed: Cell<bool>,
@@ -379,6 +382,7 @@ impl<K: Kit> LuaGame<K> {
     fn mended(&self) {
         *self.halted.borrow_mut() = None;
         self.draw_failed.set(false);
+        self.draw_halted.set(false);
         self.state_failed.set(false);
     }
 
@@ -603,7 +607,9 @@ impl<K: Kit> Game for LuaGame<K> {
     }
 
     /// The kit's models or the kinds' (their shapes count for the
-    /// simulation), and the others it draws (`c.models`).
+    /// simulation), and the items' and the kinds' effects', kept for the
+    /// whole run; any other model file `frame:model` loads when it is
+    /// first drawn (`session::Needed`).
     fn models(cfg: &GameConfig) -> Result<Vec<ModelSpec>> {
         let mut specs: Vec<ModelSpec> = Vec::new();
         if with::<K>(cfg) {
@@ -619,7 +625,7 @@ impl<K: Kit> Game for LuaGame<K> {
         }
         // What shows when a thing goes: every kind's.
         let effects: Vec<String> = things::defs(cfg, &Self::behaviors(cfg)).map(|defs| defs.into_iter().filter_map(|d| d.effect.filter(|e| !e.bursts()).map(|e| e.model)).collect()).unwrap_or_default();
-        for file in cfg.models.iter().chain(cfg.items.values().filter_map(|i| i.model.as_ref())).chain(effects.iter()) {
+        for file in cfg.items.values().filter_map(|i| i.model.as_ref()).chain(effects.iter()) {
             if !specs.iter().any(|s| &s.file == file) {
                 specs.push(ModelSpec { name: file.clone(), file: file.clone(), shaped: false });
             }
@@ -746,6 +752,7 @@ impl<K: Kit> Game for LuaGame<K> {
             started: true,
             changes: 0,
             draw_failed: Cell::new(false),
+            draw_halted: Cell::new(false),
             state_failed: Cell::new(false),
             start_text: None,
             arrive_at: None,
@@ -865,6 +872,38 @@ impl<K: Kit> Game for LuaGame<K> {
 
     fn halted(&self) -> Option<String> {
         self.halted.borrow().clone()
+    }
+
+    /// The level being played and how often it was entered.
+    fn level_mark(&self) -> u64 {
+        let visits = self.stage.visits.get(self.stage.level).copied().unwrap_or(0);
+        (self.stage.level as u64) << 32 | visits as u64
+    }
+
+    /// The models of the level being played's pieces.
+    fn level_models(&self) -> Vec<String> {
+        let level = self.stage.levels.list.get(self.stage.level);
+        let mut out: Vec<String> = Vec::new();
+        for m in level.iter().flat_map(|l| l.pieces.iter().filter_map(|p| p.model.clone())) {
+            if !out.contains(&m) {
+                out.push(m);
+            }
+        }
+        out
+    }
+
+    /// A model file came: `on_draw` stopped by `frame:model` naming one
+    /// not there (or broken) draws again, and stops again if it still
+    /// cannot.
+    fn models_came(&mut self) -> bool {
+        if !self.draw_failed.get() {
+            return false;
+        }
+        self.draw_failed.set(false);
+        if self.draw_halted.take() {
+            *self.halted.borrow_mut() = None;
+        }
+        true
     }
 
     fn moves_sun(&self) -> bool {
@@ -1419,6 +1458,7 @@ impl<K: Kit> Game for LuaGame<K> {
                 viewing: out.viewing().cloned(),
                 parts: self.stage.parts.clone(),
                 known: self.stage.frames.clone(),
+                needed: Some(out.needed()),
                 ..Frame::default()
             };
             let lua = &self.sandbox.lua;
@@ -1439,6 +1479,7 @@ impl<K: Kit> Game for LuaGame<K> {
                     self.draw_failed.set(true);
                     if self.halted.borrow().is_none() {
                         self.halt(e);
+                        self.draw_halted.set(true);
                     }
                 }
             }
