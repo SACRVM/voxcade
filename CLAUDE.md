@@ -57,7 +57,7 @@ a `[palette]` of signs, `[[frame]]`s or `[[part]]`s with `layers`);
 MagicaVoxel's `.vox`, only read (`import_model`, an older game's worlds
 for the upgrade; never written); `src/scene.rs` a world or a map's prefab
 as a `.vvx` (`Scene`: its colours the world's numbers in the palette's
-order, markers as palette entries naming a kind); `src/upgrade.rs` brings a game made for an older
+order, markers as palette entries naming a kind); `src/upgrade/` brings a game made for an older
 Voxcade up to date (its steps, `c.voxcade`, `opens`, `standing` for the
 IDE's upgrade page, `src/ide/wizard.rs`).
 `src/files.rs` is a game's files as the engine reads them (`Files`: the
@@ -737,7 +737,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   reading order: More Blood's men burst into theirs in that order. Every
   file of Voxcade's own states its format and version on its first line;
   every game states its Voxcade (`c.voxcade`); a format that changes
-  brings a step in `src/upgrade.rs` (a step that comes while a version is
+  brings a step in `src/upgrade/` (a step that comes while a version is
   being made also comes to the games already stating it, by `left`: their
   files still have what it changes), and the repo's games and templates
   are brought over with `voxcade upgrade` itself. `tools/vvx.py` writes

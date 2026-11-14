@@ -267,7 +267,7 @@ settings. Several players: `player` is seat 1, the others are in
   `c.voxcade = "0.6.0"` (read as that line; in neither the fingerprint
   nor the hash). A game for an older Voxcade, or without the line, does
   not open (`run`, `shot`, `check`, the IDE, the launcher) until `voxcade
-  upgrade` has brought its files up to date (`src/upgrade.rs`: a step
+  upgrade` has brought its files up to date (`src/upgrade/`: a step
   for each change of a format, 0.6.0's the models as `.vvx`); one for a
   newer Voxcade does not open either. Games given to the engine in tests
   as text are not asked.
