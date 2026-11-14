@@ -4,18 +4,59 @@
 //! across the game in its place.
 
 use super::*;
+use crate::ide::find::{self, FIELD_MARGIN, field, select_all};
 
 /// How wide the list's panel grows at most while SEARCH is open.
 pub(super) const SEARCH_WIDE: f32 = 560.0;
 
+/// The filter over the list's names (Ctrl+P): what is typed, and the rows
+/// it leaves, worked out when the text or the files change, not every frame.
+#[derive(Default)]
+pub(super) struct Filter {
+    pub(super) text: String,
+    /// The text trimmed that `rows` are for, and for each heading the places
+    /// in its files of the rows left (`Files::matching`).
+    rows: Option<(String, Vec<Vec<usize>>)>,
+}
+
+impl Filter {
+    /// The files changed: the rows are worked out again.
+    pub(super) fn stale(&mut self) {
+        self.rows = None;
+    }
+
+    /// The text to look for (trimmed) and the rows it leaves; None while
+    /// there is nothing to look for.
+    fn shown(&mut self, files: &Files) -> Option<(&str, &[Vec<usize>])> {
+        let needle = self.text.trim();
+        if needle.is_empty() {
+            return None;
+        }
+        if self.rows.as_ref().is_none_or(|(t, _)| t != needle) {
+            self.rows = Some((needle.to_string(), files.matching(&needle.to_lowercase())));
+        }
+        self.rows.as_ref().map(|(t, r)| (t.as_str(), r.as_slice()))
+    }
+}
+
+/// The filter field's id.
+pub(super) fn filter_id() -> egui::Id {
+    egui::Id::unique("list filter")
+}
+
 impl Shell {
+    /// The list filtered by `text` (a shot's `--filter`).
+    pub fn show_filter(&mut self, text: &str) {
+        self.filter.text = text.to_string();
+    }
+
     /// The list on the left (or the search in its place), and what was
     /// chosen, made or renamed in it.
     pub(super) fn list(&mut self, ui: &mut egui::Ui) {
         let (mut clicked, mut edit, mut made, mut builtin) = (None, None, None, None);
         let mut managed: Option<(Act, String)> = None;
         let mut renamed: Option<(String, String)> = None;
-        let mut stop_renaming = false;
+        let (mut stop_renaming, mut unfilter) = (false, false);
         // The margins on the right lie inside the scroll areas, so that their
         // bars sit at the edge.
         let (mut hit, mut search_closed) = (None, false);
@@ -33,21 +74,65 @@ impl Shell {
                 (hit, search_closed) = self.search.ui(ui, &self.dir);
                 return;
             }
-            egui::ScrollArea::vertical().content_margin(egui::Margin { right: 6, ..egui::Margin::ZERO }).show(ui, |ui| {
+            // The filter over the names, above the headings: no label, its
+            // hint says what it is.
+            let want_focus = !self.keys_are_taken(ui) && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::P));
+            let typed = ui.add(field(ui, &mut self.filter.text, filter_id(), ui.available_width() - 16.0 - 2.0 * FIELD_MARGIN.x).hint_text("FILTER"));
+            let typed = typed.on_hover_text("Shows only the files whose names hold this text. Ctrl+P · Escape clears it. SEARCH looks inside the files.");
+            if want_focus {
+                select_all(ui.ctx(), filter_id(), &self.filter.text);
+                typed.request_focus();
+            }
+            // An ✕ at the field's right end while there is text (drawn over
+            // the field, so nothing below moves).
+            if !self.filter.text.is_empty() {
+                let cross = egui::Rect::from_center_size(egui::pos2(typed.rect.right() - 14.0, typed.rect.center().y), egui::vec2(18.0, 18.0));
+                let hit = ui.interact(cross, filter_id().with("clear"), egui::Sense::click()).on_hover_text("Clear · Escape");
+                let colour = if hit.hovered() { TEXT } else { QUIET };
+                let c = cross.center();
+                for (a, b) in [(egui::vec2(-3.5, -3.5), egui::vec2(3.5, 3.5)), (egui::vec2(-3.5, 3.5), egui::vec2(3.5, -3.5))] {
+                    ui.painter().line_segment([c + a, c + b], egui::Stroke::new(1.5, colour));
+                }
+                if hit.clicked() {
+                    self.filter.text.clear();
+                    typed.request_focus();
+                }
+            }
+            let (enter, escape) = if typed.has_focus() || typed.lost_focus() { ui.input(|i| (i.key_pressed(egui::Key::Enter), i.key_pressed(egui::Key::Escape))) } else { (false, false) };
+            if escape {
+                self.filter.text.clear();
+            }
+            let enter = enter && typed.lost_focus();
+            ui.add_space(6.0);
+            let shown = self.filter.shown(&self.files);
+            // Enter opens the first row left.
+            if let Some((_, rows)) = shown.filter(|_| enter) {
+                clicked = self.files.headings().zip(rows).find_map(|((_, files), at)| at.first().map(|&i| files[i].clone()));
+            }
+            egui::ScrollArea::vertical().auto_shrink([false, false]).content_margin(egui::Margin { right: 6, ..egui::Margin::ZERO }).show(ui, |ui| {
                 let open = if self.outside.is_some() || self.sound.builtin.is_some() { None } else { self.memory.open.clone() };
                 // Each sort of file under its name, which opens and closes
                 // it: the logic, then the assets, the big groups closed at
-                // first.
-                // The scenarios after the logic, there even while the game
-                // has none: every game should have some to be tried with.
-                let logic = [("Logic", &self.files.logic, true), ("Scenarios", &self.files.scenarios, true)].into_iter();
-                let assets = self.files.assets.iter().map(|g| (g.name, &g.files, g.files.len() <= 12 && g.name != "Other"));
-                for (i, (sort, files, open_at_first)) in logic.chain(assets).enumerate() {
-                    if i > 0 {
+                // first. The scenarios after the logic, there even while
+                // the game has none: every game should have some to be
+                // tried with.
+                // While a filter is set only the headings with a row left
+                // show, all open, and the folds are neither read nor written.
+                let needle = shown.map(|(n, _)| n);
+                let mut drawn = false;
+                for (i, (sort, files)) in self.files.headings().enumerate() {
+                    let here = shown.map(|(_, rows)| rows[i].as_slice());
+                    let builtin_left = sort == "Sounds" && needle.is_some_and(|n| self.sound.brought.iter().any(|(name, _)| !find::matches(name, n, false).is_empty()));
+                    let naming_here = self.managing.naming.as_ref().is_some_and(|n| n.sort == sort);
+                    if here.is_some_and(<[usize]>::is_empty) && !builtin_left && !naming_here {
+                        continue;
+                    }
+                    if std::mem::replace(&mut drawn, true) {
                         ui.add_space(10.0);
                     }
+                    let open_at_first = matches!(sort, "Logic" | "Scenarios") || (files.len() <= 12 && sort != "Other");
                     let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), ui.make_persistent_id(sort), open_at_first);
-                    let header = crate::gui::row(ui, &format!("{} ({})", sort.to_uppercase(), files.len()), TextStyle::Small, QUIET, false, None);
+                    let header = crate::gui::row(ui, &format!("{} ({})", sort.to_uppercase(), here.map_or(files.len(), <[usize]>::len)), TextStyle::Small, QUIET, false, None);
                     let at = egui::pos2(header.rect.right() - INSET - 4.0, header.rect.center().y);
                     // A plus of its own left of the arrow (over the row, so it
                     // takes its clicks): a new file there, its name typed
@@ -64,18 +149,24 @@ impl Shell {
                         ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, "+", TextStyle::Body.resolve(ui.style()), colour);
                         if plus.clicked() {
                             self.managing.naming = Some(Naming { sort: sort.to_string(), text: String::new(), blocks: false, problem: None, fresh: true });
+                            // (A file made must show: the filter goes.)
+                            unfilter = true;
                             state.set_open(true);
+                            state.store(ui.ctx());
                         }
                     }
-                    if header.clicked() && !over_plus {
+                    if header.clicked() && !over_plus && here.is_none() {
                         state.toggle(ui);
                     }
-                    arrow(ui, at, state.openness(ui.ctx()));
-                    // A file being renamed from the main area: its heading opens.
-                    if self.managing.renaming.as_ref().is_some_and(|r| r.fresh && files.contains(&r.path)) {
+                    arrow(ui, at, if here.is_some() { 1.0 } else { state.openness(ui.ctx()) });
+                    // A file being renamed from the main area: its heading
+                    // opens, and the filter goes if it hides the file.
+                    if let Some(at) = self.managing.renaming.as_ref().filter(|r| r.fresh).and_then(|r| files.iter().position(|f| *f == r.path)) {
+                        unfilter |= here.is_some_and(|rows| rows.binary_search(&at).is_err());
                         state.set_open(true);
+                        state.store(ui.ctx());
                     }
-                    state.show_body_unindented(ui, |ui| {
+                    let mut body = |ui: &mut egui::Ui| {
                         // The name being typed for a new file, first.
                         if let Some(naming) = self.managing.naming.as_mut().filter(|n| n.sort == sort) {
                             let (mut enter, mut cancel) = (false, false);
@@ -117,7 +208,7 @@ impl Shell {
                                 made = Some((sort.to_string(), naming.text.clone(), naming.blocks));
                             }
                         }
-                        for f in files {
+                        for (_, f) in files.iter().enumerate().filter(|(j, _)| here.is_none_or(|rows| rows.binary_search(j).is_ok())) {
                             // A file being renamed: its name typed in its place.
                             if let Some(r) = self.managing.renaming.as_mut().filter(|r| r.path == *f) {
                                 let (ext, mut enter, mut cancel) = (format!(".{}", manage::split_name(f).2), false, false);
@@ -184,7 +275,7 @@ impl Shell {
                         // ready-made rules, which no file of its own replaces.
                         if sort == "Sounds" {
                             for (name, _) in &self.sound.brought {
-                                if files.iter().any(|f| sounds::name_of(f) == Some(name)) {
+                                if files.iter().any(|f| sounds::name_of(f) == Some(name)) || needle.is_some_and(|n| find::matches(name, n, false).is_empty()) {
                                     continue;
                                 }
                                 let on = self.sound.builtin == Some(*name) && self.outside.is_none();
@@ -193,10 +284,24 @@ impl Shell {
                                 }
                             }
                         }
+                    };
+                    if here.is_some() {
+                        body(ui);
+                    } else {
+                        state.show_body_unindented(ui, body);
+                    }
+                }
+                if needle.is_some() && !drawn {
+                    ui.horizontal(|ui| {
+                        ui.add_space(INSET);
+                        ui.label(RichText::new("NOTHING FOUND").small().color(QUIET));
                     });
                 }
             });
         });
+        if unfilter {
+            self.filter.text.clear();
+        }
         if let Some(path) = clicked {
             self.open(&path);
             self.back_to_file();
@@ -224,7 +329,10 @@ impl Shell {
         if let Some((sort, typed, blocks)) = made {
             let made = if sort == "Levels" { self.make_level(&typed, blocks) } else { self.make_file(&sort, &typed) };
             match made {
-                Ok(_) => self.managing.naming = None,
+                Ok(_) => {
+                    self.managing.naming = None;
+                    self.filter.text.clear();
+                }
                 Err(problem) => {
                     if let Some(n) = &mut self.managing.naming {
                         n.problem = Some(problem);

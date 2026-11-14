@@ -144,6 +144,7 @@ pub(super) const COMMANDS: &[Command] = &[
             look("--replace", "TEXT", "with --find: the replace row too"),
             look("--search", "WORD", "the search through the game's files"),
             look("--hit", "N", "with --search: its line N chosen"),
+            look("--filter", "TEXT", "the list on the left filtered by TEXT, as typed in FILTER"),
             look("--journal", "FILE", "a text left in the open file's journal before the IDE opens it"),
             look("--upgraded", "", "a game for an older Voxcade: its upgrade's page as after UPGRADE run dry"),
             trial("--remote", "", "let another session type into the console and read it, and use the IDE's windows as a person does (`voxcade mcp --remote`); without it the IDE refuses them all"),

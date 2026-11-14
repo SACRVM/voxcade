@@ -471,7 +471,7 @@ fn sounds_have_a_group_of_their_own() {
     std::fs::write(dir.join("sounds/impact.toml"), "wave = \"noise\"\n").unwrap();
     shell.files = Files::scan(&dir);
     let listed: Vec<&str> = shell.sound.brought.iter().map(|(n, _)| *n).filter(|n| !shell.files.has(&format!("sounds/{n}.toml"))).collect();
-    assert_eq!(listed, ["explosion", "crumble"]);
+    assert_eq!(listed, ["crumble", "explosion"]);
 }
 
 /// A built-in sound opens read-only in the main area with its text;
@@ -1898,4 +1898,86 @@ fn buttons_that_change_what_is_shown_leave_a_whole_frame() {
     let at = button_in_main(&ctx, &mut shell, "MAKE IT YOURS");
     click(&ctx, &mut shell, at);
     assert!(dir.join("sounds/explosion.toml").exists() && matches!(shell.shown, Some(Shown::Code(_))));
+}
+
+/// A game with models in a few folders and cases.
+fn filtered_game(name: &str) -> (crate::scratch::Scratch, Shell, egui::Context) {
+    let (dir, memory) = bare_game(name);
+    std::fs::create_dir_all(dir.join("props")).unwrap();
+    for model in ["props/apple.vvx", "Zebra.vvx", "hero10.vvx", "hero2.vvx", "bat.vvx"] {
+        crate::editor::frames::ModelFile::begun(&dir.join(model)).save().unwrap();
+    }
+    let mut shell = shell_on(&dir, &memory);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut shell);
+    (dir, shell, ctx)
+}
+
+/// What a frame of the list shows, top to bottom (below the filter field).
+fn list_words(ctx: &egui::Context, shell: &mut Shell) -> Vec<String> {
+    let mut words: Vec<(String, egui::Rect)> = drawn_rects(ctx, shell, egui::vec2(1280.0, 720.0)).into_iter().filter(|(t, r)| t != "+" && r.left() < 250.0 && r.top() > 85.0).collect();
+    words.sort_by(|a, b| a.1.top().total_cmp(&b.1.top()));
+    words.into_iter().map(|(t, _)| t).collect()
+}
+
+/// A heading's rows read in the order of what they show: the name, any
+/// case, numbers as numbers, a file in a folder by its name.
+#[test]
+fn a_headings_rows_are_in_the_order_of_their_names() {
+    let (_dir, mut shell, ctx) = filtered_game("list-order");
+    let words = list_words(&ctx, &mut shell);
+    let models: Vec<&str> = words.iter().map(String::as_str).skip_while(|w| !w.starts_with("MODELS")).skip(1).take(5).collect();
+    assert_eq!(models, ["apple.vvx", "bat.vvx", "hero2.vvx", "hero10.vvx", "Zebra.vvx"]);
+}
+
+/// A filter shows the rows whose names hold the text, each heading counting
+/// them and the others away; NOTHING FOUND when there is none; cleared, the
+/// list and the folds are as they were, a heading folded stays folded.
+#[test]
+fn the_filter_shows_the_names_that_match_and_leaves_the_folds() {
+    let (_dir, mut shell, ctx) = filtered_game("list-filter");
+    // MODELS folded by a click on its heading.
+    let at = heading(&ctx, &mut shell, "MODELS").1.center();
+    click(&ctx, &mut shell, at);
+    let before = list_words(&ctx, &mut shell);
+    assert!(before.iter().any(|w| w == "MODELS (5)") && !before.iter().any(|w| w == "bat.vvx"), "{before:?}");
+    shell.show_filter("HERO");
+    frame_with(&ctx, &mut shell, vec![]);
+    assert_eq!(list_words(&ctx, &mut shell), ["MODELS (2)", "hero2.vvx", "hero10.vvx"], "a folded heading opens, matching ignores case");
+    shell.show_filter("props");
+    frame_with(&ctx, &mut shell, vec![]);
+    assert_eq!(list_words(&ctx, &mut shell), ["MODELS (1)", "apple.vvx"], "the folder's name matches too");
+    shell.show_filter("zzzz");
+    frame_with(&ctx, &mut shell, vec![]);
+    assert_eq!(list_words(&ctx, &mut shell), ["NOTHING FOUND"]);
+    shell.show_filter("");
+    frame_with(&ctx, &mut shell, vec![]);
+    assert_eq!(list_words(&ctx, &mut shell), before, "cleared: the list and its folds as they were");
+}
+
+/// Ctrl+P gives the field the keys, typing filters, Enter opens the first
+/// row left and Escape clears the text.
+#[test]
+fn ctrl_p_filters_and_enter_opens_the_first_row() {
+    let (_dir, mut shell, ctx) = filtered_game("list-keys");
+    chord(&ctx, &mut shell, egui::Key::P, egui::Modifiers::COMMAND);
+    assert!(ctx.memory(|m| m.has_focus(super::list::filter_id())), "Ctrl+P: the field has the keys");
+    frame_with(&ctx, &mut shell, vec![egui::Event::Text("hero".into())]);
+    assert_eq!(shell.filter.text, "hero");
+    key(&ctx, &mut shell, egui::Key::Enter);
+    assert_eq!(shell.opened(), Some("hero2.vvx"), "the first row shown");
+    chord(&ctx, &mut shell, egui::Key::P, egui::Modifiers::COMMAND);
+    key(&ctx, &mut shell, egui::Key::Escape);
+    assert_eq!(shell.filter.text, "", "Escape clears it");
+}
+
+/// A plus while a filter is set makes its file shown: the filter goes.
+#[test]
+fn a_file_made_while_filtering_shows() {
+    let (_dir, mut shell, ctx) = filtered_game("list-plus");
+    shell.show_filter("hero");
+    frame_with(&ctx, &mut shell, vec![]);
+    click_plus(&ctx, &mut shell, "MODELS");
+    assert_eq!(shell.filter.text, "", "the filter goes with the plus");
+    assert!(shell.managing.naming.as_ref().is_some_and(|n| n.sort == "Models"));
 }

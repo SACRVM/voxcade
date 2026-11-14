@@ -319,11 +319,11 @@ impl Find {
 }
 
 /// Room round a field's text.
-const FIELD_MARGIN: egui::Vec2 = egui::vec2(6.0, 4.0);
+pub(super) const FIELD_MARGIN: egui::Vec2 = egui::vec2(6.0, 4.0);
 
 /// A field to type a word in: framed, so it shows on the main area's
 /// ground too.
-fn field<'a>(ui: &egui::Ui, text: &'a mut String, id: egui::Id, width: f32) -> egui::TextEdit<'a> {
+pub(super) fn field<'a>(ui: &egui::Ui, text: &'a mut String, id: egui::Id, width: f32) -> egui::TextEdit<'a> {
     // (Its edge lighter while it has the keys.)
     let edge = if ui.memory(|m| m.has_focus(id)) { QUIET } else { FIELD_EDGE };
     let frame = egui::Frame::new().fill(crate::gui::GROUND).stroke(egui::Stroke::new(1.0, edge)).corner_radius(3).inner_margin(egui::Margin::symmetric(FIELD_MARGIN.x as i8, FIELD_MARGIN.y as i8));
@@ -343,7 +343,7 @@ fn with_id() -> egui::Id {
 }
 
 /// The whole of a field selected, to be typed over.
-fn select_all(ctx: &egui::Context, id: egui::Id, text: &str) {
+pub(super) fn select_all(ctx: &egui::Context, id: egui::Id, text: &str) {
     let mut state = egui::TextEdit::load_state(ctx, id).unwrap_or_default();
     state.cursor.set_char_range(Some(egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(text.chars().count()))));
     state.store(ctx, id);

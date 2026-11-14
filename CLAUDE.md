@@ -303,7 +303,14 @@ nearest; its replay `tests/two_ships`);
   monospace typeface in two sizes (the user's choice: the retro feel),
   calm colours. On the left the logic and each sort of asset under a
   heading that folds (arrow on the right, one level only), the whole row
-  clicked; in the main area the one file open (no tabs). What was open
+  clicked, its rows in the order of what they show (case ignored, numbers
+  as numbers, a folder not counting; the levels as the game plays them;
+  `Files::order`, `by_label`); a FILTER field above the headings
+  (Ctrl+P, the owner: "sortieren und ne suchfunktion"; names only, SEARCH
+  does the files' insides; a heading counts its matches and the others
+  hide, folds neither read nor written meanwhile, NOTHING FOUND, Enter
+  opens the first row, Escape or the ✕ clears; rows worked out only when
+  text or files change, `list::Filter`; `--shot --filter TEXT`); in the main area the one file open (no tabs). What was open
   and how far scrolled, the cursor in each text, live in the config
   folder (`ide/<key>.toml`, `kept::Identity`).
   Below the main area the console: the user's shell in the game folder
