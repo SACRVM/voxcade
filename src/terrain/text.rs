@@ -118,7 +118,7 @@ pub(crate) fn read(r: &Reader, item: &Item) -> Result<Terrain> {
         },
     };
     let colour = |i: &Item, what: &str| -> Result<String> {
-        let text = i.as_str().filter(|s| crate::grid::hex(s).is_some());
+        let text = i.as_str().filter(|s| vvx::hex(s).is_some());
         text.map(str::to_string).ok_or_else(|| r.fail(i.span(), format!("{what} must be a color written #rrggbb")))
     };
     let under = t.get("under").map(|i| colour(i, "under")).transpose()?;
@@ -162,7 +162,7 @@ pub(crate) fn read(r: &Reader, item: &Item) -> Result<Terrain> {
             (None, Some(i)) => {
                 let wrong = || r.fail(i.span(), "colors must be two or three colors, [\"#rrggbb\", \"#rrggbb\"]");
                 let list = i.as_array().filter(|a| (2..=3).contains(&a.len())).ok_or_else(wrong)?;
-                let all: Vec<String> = list.iter().map(|v| v.as_str().filter(|s| crate::grid::hex(s).is_some()).map(str::to_string)).collect::<Option<_>>().ok_or_else(wrong)?;
+                let all: Vec<String> = list.iter().map(|v| v.as_str().filter(|s| vvx::hex(s).is_some()).map(str::to_string)).collect::<Option<_>>().ok_or_else(wrong)?;
                 (all[0].clone(), all[1..].to_vec())
             }
             (Some(_), Some(i)) => return Err(r.fail(i.span(), "a material has color or colors, not both")),

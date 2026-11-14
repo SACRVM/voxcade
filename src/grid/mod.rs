@@ -265,11 +265,7 @@ impl Daylight {
     }
 }
 
-/// `#rrggbb` as three bytes.
-pub(crate) fn hex(text: &str) -> Option<[u8; 3]> {
-    let h = text.strip_prefix('#').filter(|h| h.len() == 6 && h.chars().all(|c| c.is_ascii_hexdigit()))?;
-    Some([0, 2, 4].map(|i| u8::from_str_radix(&h[i..i + 2], 16).expect("hex digits")))
-}
+pub(crate) use crate::vvx::hex;
 
 /// A thing placed freely: its kind's name and where it stands (the middle
 /// of its feet), in voxels from the grid's low corner. A piece (`PIECE`) is

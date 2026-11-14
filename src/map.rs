@@ -65,7 +65,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use glam::{IVec2, IVec3};
-use toml_edit::{Document, Item, TableLike};
+use toml_edit::{Item, TableLike};
 
 use crate::files::Files;
 use crate::vvx::{self, Reader};
@@ -250,19 +250,12 @@ impl MapData {
 
     /// The map a text says, every mistake with its line.
     pub fn read(src: &str) -> Result<Self> {
-        let doc = Document::parse(src).map_err(|e| match e.span() {
-            Some(s) => anyhow!("line {}: {}", vvx::line_of(src, s.start), e.message()),
-            None => anyhow!("{}", e.message()),
-        })?;
+        let doc = vvx::parse(src)?;
         let r = Reader { src };
         let top = doc.as_table();
         vvx::check_format_of(&r, top, FORMAT_NAME, VERSION, "map")?;
         r.only(top, &["format", "size", "ground", "prefabs", "put", "place"], "a map")?;
-        let size_item = top.get("size").ok_or_else(|| anyhow!("no size = [x, y, z] (the world, in voxels)"))?;
-        let size = r.ints(size_item, "size")?;
-        if size.cmplt(IVec3::ONE).any() {
-            return Err(r.fail(size_item.span(), "size must be positive"));
-        }
+        let (size, size_item) = r.size(top, "the world, in voxels", "size must be positive")?;
         if let Some(why) = crate::world::too_big(size.as_i64vec3()) {
             return Err(r.fail(size_item.span(), format!("the map of {why}")));
         }
@@ -438,11 +431,10 @@ impl Palette {
     }
 }
 
+/// `#rrggbb` (or `rrggbb`) as a colour of the world's palette.
 fn parse_hex(text: &str) -> Result<[u8; 4]> {
-    let digits = text.strip_prefix('#').unwrap_or(text);
-    let value = u32::from_str_radix(digits, 16).ok().filter(|_| digits.len() == 6);
-    let v = value.with_context(|| format!("'{text}' is not a color like #d6b880"))?;
-    Ok([(v >> 16) as u8, (v >> 8) as u8, v as u8, 255])
+    let [r, g, b] = vvx::hex(&format!("#{}", text.strip_prefix('#').unwrap_or(text))).with_context(|| format!("'{text}' is not a color like #d6b880"))?;
+    Ok([r, g, b, 255])
 }
 
 /// A PNG as width, height and RGB per pixel (grey repeated).

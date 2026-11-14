@@ -2,7 +2,7 @@
 //! what changed (see the module's doc in `grid`).
 
 use super::*;
-use crate::vvx::{self, ONE_SIGN, Reader, SIGNS};
+use crate::vvx::{self, ONE_SIGN, Reader};
 use toml_edit::{Document, Item};
 
 /// The level's text, keeping the view and the signs of `kept` (the
@@ -859,9 +859,9 @@ fn new_sign(name: &str, width: usize, taken: &[String]) -> String {
         if let Some(s) = wished.into_iter().find(free) {
             return s;
         }
-        return SIGNS.iter().map(|&b| (b as char).to_string()).find(free).expect("62 signs for 62 pairs");
+        return (0..ONE_SIGN).map(|i| vvx::nth_sign(i, 1)).find(free).expect("62 signs for 62 pairs");
     }
-    (0..ONE_SIGN * ONE_SIGN).map(|i| format!("{}{}", SIGNS[i / ONE_SIGN] as char, SIGNS[i % ONE_SIGN] as char)).find(free).expect("signs enough")
+    (0..ONE_SIGN * ONE_SIGN).map(|i| vvx::nth_sign(i, 2)).find(free).expect("signs enough")
 }
 
 /// The cells' places in `cells` as the layers read: layers of rows of
@@ -877,10 +877,7 @@ fn reading_order(size: IVec3, view: View) -> Vec<Vec<Vec<usize>>> {
 /// The level a text says and its legend, every mistake said with its
 /// line.
 pub fn read(src: &str) -> Result<(GridLevel, Legend)> {
-    let doc = Document::parse(src).map_err(|e| match e.span() {
-        Some(s) => anyhow!("line {}: {}", vvx::line_of(src, s.start), e.message()),
-        None => anyhow!("{}", e.message()),
-    })?;
+    let doc = vvx::parse(src)?;
     let r = Reader { src };
     let top = doc.as_table();
     vvx::check_format_of(&r, top, FORMAT_NAME, VERSION, "level")?;
@@ -904,11 +901,7 @@ pub fn read(src: &str) -> Result<(GridLevel, Legend)> {
                 return Err(r.fail(item.span(), format!("{key} is for a level of blocks: block = N first (a block's voxels each way)")));
             }
         }
-        let size_item = top.get("size").ok_or_else(|| anyhow!("no size = [x, y, z] (the level's voxels; or block = N and the grid's cells)"))?;
-        let size = r.ints(size_item, "size")?;
-        if size.cmplt(IVec3::ONE).any() {
-            return Err(r.fail(size_item.span(), "size must be at least one voxel each way"));
-        }
+        let (size, size_item) = r.size(top, "the level's voxels; or block = N and the grid's cells", "size must be at least one voxel each way")?;
         if let Some(why) = crate::world::too_big(size.as_i64vec3()) {
             return Err(r.fail(size_item.span(), format!("the level of {why}")));
         }
@@ -919,11 +912,7 @@ pub fn read(src: &str) -> Result<(GridLevel, Legend)> {
         return Ok((level, Legend::default()));
     };
     let n = whole(block, "block")?;
-    let size_item = top.get("size").ok_or_else(|| anyhow!("no size = [x, y, z] (the grid's cells)"))?;
-    let size = r.ints(size_item, "size")?;
-    if size.cmplt(IVec3::ONE).any() {
-        return Err(r.fail(size_item.span(), "size must be at least one cell each way"));
-    }
+    let (size, size_item) = r.size(top, "the grid's cells", "size must be at least one cell each way")?;
     if (size.x as i64) * (size.y as i64) * (size.z as i64) > 1 << 26 {
         return Err(r.fail(size_item.span(), "the grid is too big: 67108864 cells at most"));
     }
@@ -956,14 +945,7 @@ pub fn read(src: &str) -> Result<(GridLevel, Legend)> {
     if let Some(item) = top.get("legend") {
         let table = item.as_table_like().ok_or_else(|| r.fail(item.span(), "legend must be a table of signs"))?;
         for (sign, entry) in table.iter() {
-            let len = sign.chars().count();
-            if !(1..=2).contains(&len) || sign.chars().any(|c| !c.is_ascii_alphanumeric()) {
-                return Err(r.fail(entry.span(), format!("'{sign}' cannot be a sign: one or two letters or digits")));
-            }
-            if width != 0 && width != len {
-                return Err(r.fail(entry.span(), format!("'{sign}' has {len} characters, the signs before have {width}: all signs of a file are as long as one another")));
-            }
-            width = len;
+            r.sign(sign, entry, &mut width)?;
             let (block, turn) = match (entry.as_str(), entry.as_table_like()) {
                 (Some(name), _) => (name.to_string(), 0),
                 (None, Some(t)) => {
@@ -1009,6 +991,7 @@ pub fn read(src: &str) -> Result<(GridLevel, Legend)> {
         return Err(r.fail(item.span(), format!("the cells have {read_layers} layers, but a grid {} by {} by {} seen {} has {want_layers} ({})", size.x, size.y, size.z, view.unwrap_or_default().name(), what.0)));
     }
     let known = || cells_of.iter().map(|(s, _)| s.as_str()).collect::<Vec<_>>().join(", ");
+    let signs = vvx::SignTable::new(width, cells_of.iter().map(|(s, c)| (s.as_str(), *c)));
     let mut k = 0;
     for layer in &layers {
         if layer.rows.len() != want_rows {
@@ -1025,8 +1008,7 @@ pub fn read(src: &str) -> Result<(GridLevel, Legend)> {
                     if sign.iter().all(|&b| b == b'.') {
                         continue;
                     }
-                    let cell = cells_of.iter().find(|(s, _)| s.as_bytes() == sign).map(|(_, c)| *c);
-                    let cell = cell.ok_or_else(|| anyhow!("{}'{}' is no sign of the legend (it has {})", line(i), String::from_utf8_lossy(sign), known()))?;
+                    let cell = signs.get(sign).ok_or_else(|| anyhow!("{}'{}' is no sign of the legend (it has {})", line(i), String::from_utf8_lossy(sign), known()))?;
                     level.cells[order[k][r_][x]] = cell;
                 }
             }
