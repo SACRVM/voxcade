@@ -1427,7 +1427,7 @@ mod tests {
         assert_eq!(ed.label_of(item), ("p3".to_string(), true));
         ed.rename(item, "").unwrap();
         assert_eq!(ed.thing_names()[3].as_deref(), Some("piece_4"), "the fourth piece, as the game counts the named too");
-        assert_eq!(ed.label_of(item).1, false, "the list calls an unnamed piece by its model");
+        assert!(!ed.label_of(item).1, "the list calls an unnamed piece by its model");
         assert!(!std::fs::read_to_string(&file).unwrap().contains("p3"), "no name left in the file");
         assert_eq!(ed.rename(Item::Thing(0), "piece_4").unwrap_err(), "Another thing is called piece_4: a name is one thing's.");
         ed.rename(item, "lamp").unwrap();
