@@ -5,6 +5,164 @@
 use super::*;
 
 impl<K: Kit> LuaGame<K> {
+    /// `Game::load`: the host (the kit's, or a plain one with the player's
+    /// figure and the markers' things), the sandbox and its objects, the
+    /// first level entered, then `main.lua`.
+    pub(super) fn begin(setup: Setup) -> Result<Self> {
+        let (cfg, files, models) = (setup.cfg, setup.files, setup.models);
+        let kinds = Arc::new(Self::kinds(cfg, |_, model| model.and_then(|m| models.shape(m)).map_or(1.0, |s| s.height()))?);
+        let kinds_bursting = Arc::new(bursts(&kinds, models));
+        let levels = setup.levels.clone();
+        let (setup_slots, setup_texts, setup_replayed) = (setup.slots.clone(), setup.slot_texts.clone(), setup.replayed.clone());
+        let songs = setup.songs.clone();
+        let player_kind = Self::player_kind(cfg, &kinds)?;
+        Self::check_players(cfg)?;
+        Self::check_items(cfg)?;
+        Self::check_kinds_sounds(cfg, &kinds)?;
+        check_facings(&levels, &kinds)?;
+        let host: Box<dyn Host> = if with::<K>(cfg) {
+            Box::new(K::load(setup)?)
+        } else {
+            let at = spawn_point(&setup.world, cfg.player.spawn, 1.0, cfg.physics.body_width * 0.5);
+            let seats = vec![None; cfg.players.max(1) as usize - 1];
+            let mut plain = Plain { sim: Sim::new(setup.world, cfg, at), things: Default::default(), kinds: kinds.clone(), focus: None, looking: false, score: 0, outcome: None, player: None, seats };
+            // The player's figure first: the camera follows it.
+            if let Some(k) = player_kind {
+                plain.player = Some(plain.spawn(k, at.x, at.y, None).expect("a plain host places every kind"));
+            }
+            Self::place(&mut plain, &setup.markers);
+            Box::new(plain)
+        };
+        let sandbox = Sandbox::new()?;
+        for name in ["voxcade.state", "voxcade.player", "voxcade.seats", "voxcade.level", "voxcade.kept", "voxcade.data", "voxcade.views", "voxcade.props"] {
+            sandbox.lua.set_named_registry_value(name, sandbox.lua.create_table()?)?;
+        }
+        let is_thing = sandbox.lua.create_function(|_, v: mlua::Value| {
+            Ok(match v {
+                mlua::Value::UserData(ref ud) if ud.is::<world::ThingRef>() => Some(if host::handle_seat(ud.borrow::<world::ThingRef>()?.0).is_some() { "player" } else { "thing" }),
+                _ => None,
+            })
+        })?;
+        sandbox.lua.set_named_registry_value("voxcade.is_thing", is_thing)?;
+        sandbox.provide("world", WorldView)?;
+        sandbox.provide("level", LevelView)?;
+        // `player`, the one handle of the player's figure, whatever its id.
+        sandbox.provide("player", world::handle(&sandbox.lua, PLAYER)?)?;
+        if !host.sim().cfg.items.is_empty() {
+            sandbox.lua.named_registry_value::<Table>("voxcade.player")?.raw_set("inventory", sandbox.lua.create_table()?)?;
+        }
+        sandbox.provide("input", Absent(NO_INPUT))?;
+        sandbox.provide("screen", ScreenView)?;
+        sandbox.provide("controls", ControlsView(0))?;
+        sandbox.provide("music", world::MusicView)?;
+        let actions = Arc::new(Self::actions(cfg));
+        let mut game = Self {
+            stage: Stage {
+                host,
+                here: Default::default(),
+                kinds,
+                sounds: Self::sound_names(cfg),
+                visits: (0..levels.list.len()).map(|i| (i == 0) as u32).collect(),
+                levels,
+                level: 0,
+                ask: None,
+                arrived: crate::levels::Place::new("start", Vec3::ZERO, None),
+                ended: false,
+                saving: Vec::new(),
+                slots: setup_slots,
+                slot_texts: setup_texts,
+                replayed: setup_replayed.into(),
+                loaded: Vec::new(),
+                controls: crate::controls::Controls::nobody(&actions),
+                seats: (1..=cfg.players.max(1))
+                    .map(|n| host::SeatState { taken: n == 1, been: n == 1, controls: crate::controls::Controls::nobody(&actions), ..Default::default() })
+                    .collect(),
+                local: Default::default(),
+                ticking: false,
+                actions: actions.clone(),
+                languages: Arc::new(cfg.languages.clone()),
+                effects: Vec::new(),
+                frames: Arc::new(models.frame_counts()),
+                heights: Arc::new(models.heights()),
+                bursts: kinds_bursting,
+                parts: Arc::new(models.part_names()),
+                hud: host::HudState::new(cfg),
+                songs: Arc::new(songs),
+                music: Default::default(),
+            },
+            sandbox,
+            tick: None,
+            draw: None,
+            globals: None,
+            code: Vec::new(),
+            uses_music: false,
+            moves_sun: false,
+            moves_camera: false,
+            data: Vec::new(),
+            files: files.clone(),
+            env: None,
+            required: Vec::new(),
+            modules: Vec::new(),
+            actions,
+            scored: cfg.scored,
+            before: Input::default(),
+            held_for: [0; world::KEYS],
+            halted: RefCell::new(None),
+            started: true,
+            changes: 0,
+            draw_failed: Cell::new(false),
+            draw_halted: Cell::new(false),
+            state_failed: Cell::new(false),
+            start_text: None,
+            arrive_at: None,
+            seat_places: Vec::new(),
+            written: Vec::new(),
+            drawn: RefCell::new(Vec::new()),
+            kit: PhantomData,
+        };
+        // The first level's place called start, if it has one, as every
+        // entry of it later.
+        game.stage.arrived = game.stage.start(0);
+        let (start, placed) = (game.stage.arrived.clone(), game.place_in(0, None).is_some());
+        let levels = Arc::clone(&game.stage.levels);
+        let first = &levels.list[0];
+        match game.kit_mut() {
+            // The ready-made rules stood their player by their own rules
+            // unless the level has a place called start.
+            Some(kit) => {
+                if placed {
+                    kit.enter_level(first.world.clone(), &first.markers, &first.places, Some((start.at, start.facing)));
+                }
+            }
+            None => {
+                let h = game.plain_mut().expect("a plain host without a kit");
+                Self::stand_player(h, &start);
+                (h.sim.cam_target, h.sim.cam_prev) = (start.at, start.at);
+            }
+        }
+        game.spawn_pieces();
+        game.stage.name_things();
+        // The run's start (`c.state`), a game without code too; the start
+        // handlers begin from it again.
+        game.start_states()?;
+        if files.is_file("main.lua") {
+            game.run_main(files, true)?;
+        } else {
+            // No rules of its own: its scenarios and the console run in an
+            // environment of their own all the same.
+            let env = game.sandbox.run("console", "")?;
+            game.sandbox.freeze(&env)?;
+            game.env = Some(env);
+        }
+        game.built();
+        if let Some(b) = game.focus_body() {
+            let target = b.pos + Vec3::Z * b.height * 0.5;
+            let sim = game.stage.host.sim_mut();
+            (sim.cam_target, sim.cam_prev) = (target, target);
+        }
+        Ok(game)
+    }
+
     /// Runs `main.lua` (anew), keeping the game's state: its functions,
     /// globals frozen after `on_world_start` (which runs only the first
     /// time).

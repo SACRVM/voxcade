@@ -21,13 +21,17 @@
 
 pub mod api;
 mod calls;
+mod checks;
 pub mod conf;
+mod console;
 mod course;
 pub mod data;
+mod drawing;
 mod events;
 mod hashing;
 pub mod hidden;
 pub mod host;
+mod inspect;
 pub mod lex;
 mod sandbox;
 pub mod save;
@@ -62,46 +66,11 @@ use crate::session::{Drawing, Models};
 use crate::sim::things::{self, Id};
 use crate::sim::{Body, Marker, Sim, body_hits, spawn_point};
 use crate::world::World;
+use checks::*;
 use host::{Ask, Host, Kind, Kit, PLAYER, Plain, Stage};
 use sandbox::Sandbox;
 use value::Value;
 use world::{Absent, Cmd, ControlsView, Frame, InputView, LevelView, ScreenView, WorldView};
-
-/// An inventory (`state.inventory`, in the state at `path`) counts items of
-/// `c.items` by name, each from 0 to its stack.
-/// `path` gives where the state sits, made only for a mistake.
-fn check_inventory(state: &Table, path: &dyn Fn() -> String, items: &std::collections::BTreeMap<String, crate::config::ItemConfig>) -> Result<()> {
-    let inventory = match state.raw_get::<mlua::Value>("inventory")? {
-        mlua::Value::Nil => return Ok(()),
-        mlua::Value::Table(t) => t,
-        other => anyhow::bail!("{}.inventory is {}: an inventory is a table of items by name and how many", path(), value::a(other.type_name())),
-    };
-    let mut entries: Vec<(mlua::Value, mlua::Value)> = inventory.pairs().collect::<mlua::Result<_>>()?;
-    entries.sort_by(|a, b| format!("{:?}", a.0).cmp(&format!("{:?}", b.0)));
-    for (key, count) in entries {
-        let mlua::Value::String(name) = &key else { anyhow::bail!("{}: items by name (c.items), not by a {}", value::key_path(&format!("{}.inventory", path()), &key), key.type_name()) };
-        let name = name.to_string_lossy();
-        let at = || format!("{}.inventory.{name}", path());
-        let Some(item) = items.get(&name) else {
-            let mut names: Vec<(&i32, &str)> = items.iter().map(|(n, i)| (&i.order, n.as_str())).collect();
-            names.sort();
-            let names: Vec<&str> = names.into_iter().map(|(_, n)| n).collect();
-            if names.is_empty() {
-                anyhow::bail!("{}: there are no items (c.items names them)", at());
-            }
-            anyhow::bail!("{}: no item called '{name}' (c.items: {})", at(), names.join(", "));
-        };
-        let n = match count {
-            mlua::Value::Integer(i) => i,
-            mlua::Value::Number(f) if f.fract() == 0.0 => f as i64,
-            other => anyhow::bail!("{} is {}: a count is a whole number", at(), match other { mlua::Value::Number(f) => f.to_string(), o => value::a(o.type_name()) }),
-        };
-        if n < 0 || n > item.stack as i64 {
-            anyhow::bail!("{} = {n}: from 0 to {} (c.items.{name}.stack)", at(), item.stack);
-        }
-    }
-    Ok(())
-}
 
 /// An argument of a handler the engine calls (`LuaGame::tell`).
 enum Told {
@@ -124,33 +93,9 @@ struct Loaded {
 /// The most save slots a game may have (a menu shows them all).
 const MAX_SLOTS: u32 = 9;
 
-/// White over a thing that was just hit.
-const FLASH: [u8; 4] = [255, 255, 255, 255];
-
 /// The parts of a Lua game's state hash, in the order it takes them in
 /// (`LuaGame::hash_by_parts`): what a desync names.
 const PARTS: [&str; 9] = ["things", "world.state", "player.state", "level.state", "levels", "kept", "thing.state", "seats", "music"];
-
-/// A kind's frames where there is no kind: the model's own layout.
-static NO_FRAMES: std::collections::BTreeMap<String, crate::sim::things::Frames> = std::collections::BTreeMap::new();
-/// A kind's swing where there is no kind: none.
-static NO_SWING: std::collections::BTreeMap<String, f32> = std::collections::BTreeMap::new();
-
-/// A thing of a kind that its level's file turns (`facing`, `rotation`)
-/// must be one the script moves: a kind with a behavior turns by its
-/// ready-made rules, as `level:spawn`'s facing says.
-fn check_facings(levels: &crate::levels::Levels, kinds: &[Kind]) -> Result<()> {
-    for level in &levels.list {
-        for (m, f) in level.markers.iter().zip(&level.marker_facings) {
-            if let (Some(_), Some(k)) = (f, kinds.get(m.kind))
-                && !k.scripted
-            {
-                anyhow::bail!("level {}: a {} faces as its ready-made rules turn it (its behavior): facing and turn in a level's file are for kinds without one, as level:spawn's facing", level.name, k.name);
-            }
-        }
-    }
-    Ok(())
-}
 
 /// A Lua game, with the kit `K` when its `conf.lua` asks for it.
 pub struct LuaGame<K: Kit> {
@@ -251,78 +196,6 @@ pub struct LuaSnapshot {
     script: Captured,
     before: Input,
     held_for: [u16; world::KEYS],
-}
-
-/// The old API's handlers, refused with their new names.
-const OLD_NAMES: [(&str, &str); 3] = [("load", "on_world_start()"), ("tick", "on_tick()"), ("draw", "on_draw(frame)")];
-
-/// Handlers renamed since, refused with their new names.
-const RENAMED: [(&str, &str); 1] = [("on_leave", "on_touch_end")];
-
-/// The handlers whose event brings nothing to say: they take no
-/// parameters (one named `world` would hide the global). `on_level_start`
-/// takes one, how the level was entered.
-const WITHOUT_PARAMETERS: [&str; 2] = ["on_world_start", "on_tick"];
-
-/// The handler a global function `on_...` nearly is, if it is none
-/// itself: a letter or two off (one for the short ones, `on_tik`), case
-/// aside. Other names starting with `on_` are the game's own.
-fn near_handler(name: &str) -> Option<&'static str> {
-    let rest = name.strip_prefix("on_")?.to_lowercase();
-    let handlers = api::API.iter().filter(|i| matches!(i.what, api::What::Callback { .. }) && i.name.starts_with("on_")).map(|i| i.name);
-    if handlers.clone().any(|h| h == name) || RENAMED.iter().any(|(old, _)| *old == name) {
-        return None;
-    }
-    nearest(&rest, handlers.map(|h| (&h["on_".len()..], h)), |h| if h.len() <= 4 { 1 } else { 2 })
-}
-
-/// What the name of `among` that `name` nearly is stands for: at most
-/// `most(that name)` edits off, the nearest (of equals the first).
-fn nearest<'a, T>(name: &str, among: impl Iterator<Item = (&'a str, T)>, most: impl Fn(&str) -> usize) -> Option<T> {
-    among.map(|(n, t)| (edits(name, n), n, t)).filter(|(d, n, _)| *d <= most(n)).min_by_key(|(d, ..)| *d).map(|(.., t)| t)
-}
-
-/// How many letters to put in, take out, change or swap with the next to
-/// make `a` into `b` (Damerau-Levenshtein, the optimal string alignment).
-fn edits(a: &str, b: &str) -> usize {
-    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
-    let mut d = vec![vec![0usize; b.len() + 1]; a.len() + 1];
-    for (i, row) in d.iter_mut().enumerate() {
-        row[0] = i;
-    }
-    for (j, cell) in d[0].iter_mut().enumerate() {
-        *cell = j;
-    }
-    for i in 1..=a.len() {
-        for j in 1..=b.len() {
-            let cost = usize::from(a[i - 1] != b[j - 1]);
-            d[i][j] = (d[i - 1][j] + 1).min(d[i][j - 1] + 1).min(d[i - 1][j - 1] + cost);
-            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
-                d[i][j] = d[i][j].min(d[i - 2][j - 2] + 1);
-            }
-        }
-    }
-    d[a.len()][b.len()]
-}
-
-/// A global function nearly a handler's name (`function on_tik()`) is
-/// a mistake at load: nothing would ever call it.
-fn misspelt_handler(env: &Table) -> Result<()> {
-    let mut found: Vec<(String, Function)> = Vec::new();
-    for pair in env.pairs::<mlua::Value, mlua::Value>() {
-        if let (mlua::Value::String(k), mlua::Value::Function(f)) = pair? {
-            found.push((k.to_string_lossy(), f));
-        }
-    }
-    found.sort_by(|a, b| a.0.cmp(&b.0));
-    for (name, f) in found {
-        if let Some(near) = near_handler(&name) {
-            let info = f.info();
-            let at = format!("{}:{}", info.short_src.unwrap_or_else(|| "main.lua".into()), info.line_defined.unwrap_or(0));
-            anyhow::bail!("{at}: function {name} is no handler the engine calls: did you mean {near}? (a function of your own wants a name further from the handlers')");
-        }
-    }
-    Ok(())
 }
 
 /// Where `input` may be used.
@@ -637,158 +510,7 @@ impl<K: Kit> Game for LuaGame<K> {
     }
 
     fn load(setup: Setup) -> Result<Self> {
-        let (cfg, files, models) = (setup.cfg, setup.files, setup.models);
-        let kinds = Arc::new(Self::kinds(cfg, |_, model| model.and_then(|m| models.shape(m)).map_or(1.0, |s| s.height()))?);
-        let kinds_bursting = Arc::new(bursts(&kinds, models));
-        let levels = setup.levels.clone();
-        let (setup_slots, setup_texts, setup_replayed) = (setup.slots.clone(), setup.slot_texts.clone(), setup.replayed.clone());
-        let songs = setup.songs.clone();
-        let player_kind = Self::player_kind(cfg, &kinds)?;
-        Self::check_players(cfg)?;
-        Self::check_items(cfg)?;
-        Self::check_kinds_sounds(cfg, &kinds)?;
-        check_facings(&levels, &kinds)?;
-        let host: Box<dyn Host> = if with::<K>(cfg) {
-            Box::new(K::load(setup)?)
-        } else {
-            let at = spawn_point(&setup.world, cfg.player.spawn, 1.0, cfg.physics.body_width * 0.5);
-            let seats = vec![None; cfg.players.max(1) as usize - 1];
-            let mut plain = Plain { sim: Sim::new(setup.world, cfg, at), things: Default::default(), kinds: kinds.clone(), focus: None, looking: false, score: 0, outcome: None, player: None, seats };
-            // The player's figure first: the camera follows it.
-            if let Some(k) = player_kind {
-                plain.player = Some(plain.spawn(k, at.x, at.y, None).expect("a plain host places every kind"));
-            }
-            Self::place(&mut plain, &setup.markers);
-            Box::new(plain)
-        };
-        let sandbox = Sandbox::new()?;
-        for name in ["voxcade.state", "voxcade.player", "voxcade.seats", "voxcade.level", "voxcade.kept", "voxcade.data", "voxcade.views", "voxcade.props"] {
-            sandbox.lua.set_named_registry_value(name, sandbox.lua.create_table()?)?;
-        }
-        let is_thing = sandbox.lua.create_function(|_, v: mlua::Value| {
-            Ok(match v {
-                mlua::Value::UserData(ref ud) if ud.is::<world::ThingRef>() => Some(if host::handle_seat(ud.borrow::<world::ThingRef>()?.0).is_some() { "player" } else { "thing" }),
-                _ => None,
-            })
-        })?;
-        sandbox.lua.set_named_registry_value("voxcade.is_thing", is_thing)?;
-        sandbox.provide("world", WorldView)?;
-        sandbox.provide("level", LevelView)?;
-        // `player`, the one handle of the player's figure, whatever its id.
-        sandbox.provide("player", world::handle(&sandbox.lua, PLAYER)?)?;
-        if !host.sim().cfg.items.is_empty() {
-            sandbox.lua.named_registry_value::<Table>("voxcade.player")?.raw_set("inventory", sandbox.lua.create_table()?)?;
-        }
-        sandbox.provide("input", Absent(NO_INPUT))?;
-        sandbox.provide("screen", ScreenView)?;
-        sandbox.provide("controls", ControlsView(0))?;
-        sandbox.provide("music", world::MusicView)?;
-        let actions = Arc::new(Self::actions(cfg));
-        let mut game = Self {
-            stage: Stage {
-                host,
-                here: Default::default(),
-                kinds,
-                sounds: Self::sound_names(cfg),
-                visits: (0..levels.list.len()).map(|i| (i == 0) as u32).collect(),
-                levels,
-                level: 0,
-                ask: None,
-                arrived: crate::levels::Place::new("start", Vec3::ZERO, None),
-                ended: false,
-                saving: Vec::new(),
-                slots: setup_slots,
-                slot_texts: setup_texts,
-                replayed: setup_replayed.into(),
-                loaded: Vec::new(),
-                controls: crate::controls::Controls::nobody(&actions),
-                seats: (1..=cfg.players.max(1))
-                    .map(|n| host::SeatState { taken: n == 1, been: n == 1, controls: crate::controls::Controls::nobody(&actions), ..Default::default() })
-                    .collect(),
-                local: Default::default(),
-                ticking: false,
-                actions: actions.clone(),
-                languages: Arc::new(cfg.languages.clone()),
-                effects: Vec::new(),
-                frames: Arc::new(models.frame_counts()),
-                heights: Arc::new(models.heights()),
-                bursts: kinds_bursting,
-                parts: Arc::new(models.part_names()),
-                hud: host::HudState::new(cfg),
-                songs: Arc::new(songs),
-                music: Default::default(),
-            },
-            sandbox,
-            tick: None,
-            draw: None,
-            globals: None,
-            code: Vec::new(),
-            uses_music: false,
-            moves_sun: false,
-            moves_camera: false,
-            data: Vec::new(),
-            files: files.clone(),
-            env: None,
-            required: Vec::new(),
-            modules: Vec::new(),
-            actions,
-            scored: cfg.scored,
-            before: Input::default(),
-            held_for: [0; world::KEYS],
-            halted: RefCell::new(None),
-            started: true,
-            changes: 0,
-            draw_failed: Cell::new(false),
-            draw_halted: Cell::new(false),
-            state_failed: Cell::new(false),
-            start_text: None,
-            arrive_at: None,
-            seat_places: Vec::new(),
-            written: Vec::new(),
-            drawn: RefCell::new(Vec::new()),
-            kit: PhantomData,
-        };
-        // The first level's place called start, if it has one, as every
-        // entry of it later.
-        game.stage.arrived = game.stage.start(0);
-        let (start, placed) = (game.stage.arrived.clone(), game.place_in(0, None).is_some());
-        let levels = Arc::clone(&game.stage.levels);
-        let first = &levels.list[0];
-        match game.kit_mut() {
-            // The ready-made rules stood their player by their own rules
-            // unless the level has a place called start.
-            Some(kit) => {
-                if placed {
-                    kit.enter_level(first.world.clone(), &first.markers, &first.places, Some((start.at, start.facing)));
-                }
-            }
-            None => {
-                let h = game.plain_mut().expect("a plain host without a kit");
-                Self::stand_player(h, &start);
-                (h.sim.cam_target, h.sim.cam_prev) = (start.at, start.at);
-            }
-        }
-        game.spawn_pieces();
-        game.stage.name_things();
-        // The run's start (`c.state`), a game without code too; the start
-        // handlers begin from it again.
-        game.start_states()?;
-        if files.is_file("main.lua") {
-            game.run_main(files, true)?;
-        } else {
-            // No rules of its own: its scenarios and the console run in an
-            // environment of their own all the same.
-            let env = game.sandbox.run("console", "")?;
-            game.sandbox.freeze(&env)?;
-            game.env = Some(env);
-        }
-        game.built();
-        if let Some(b) = game.focus_body() {
-            let target = b.pos + Vec3::Z * b.height * 0.5;
-            let sim = game.stage.host.sim_mut();
-            (sim.cam_target, sim.cam_prev) = (target, target);
-        }
-        Ok(game)
+        Self::begin(setup)
     }
 
     fn snapshot(&self) -> Result<LuaSnapshot> {
@@ -978,109 +700,15 @@ impl<K: Kit> Game for LuaGame<K> {
     }
 
     fn scenarios(&mut self) -> Result<Vec<(String, String)>> {
-        let mut out = Vec::new();
-        for name in scenario_names(&self.files) {
-            let path = format!("scenarios/{name}.lua");
-            let src = self.files.read_to_string(&path).with_context(|| format!("reading {path}"))?;
-            let about = self.reopened(false, |game, env| {
-                let table = scenario_table(&path, game.sandbox.run_in(&path, &src, env, "the start")?)?;
-                Ok(table.raw_get::<Option<String>>("about")?.unwrap_or_default())
-            });
-            out.push((name, about.unwrap_or_else(|e| format!("(a mistake: {e:#})"))));
-        }
-        Ok(out)
+        self.scenarios_about()
     }
 
     fn start_scenario(&mut self, name: &str) -> Result<()> {
-        let names = scenario_names(&self.files);
-        if !names.iter().any(|n| n == name) {
-            match names.is_empty() {
-                true => anyhow::bail!("no scenario '{name}': the game has none yet (scenarios/NAME.lua in its folder, docs/game-model.md)"),
-                false => anyhow::bail!("no scenario '{name}' (the game's: {})", names.join(", ")),
-            }
-        }
-        if let Some(e) = self.halted() {
-            anyhow::bail!("{e}");
-        }
-        anyhow::ensure!(self.stage.host.sim().tick == 0 && self.start_text.is_none(), "a scenario begins a run: before its first tick, and not after a save");
-        let path = format!("scenarios/{name}.lua");
-        let src = self.files.read_to_string(&path).with_context(|| format!("reading {path}"))?;
-        self.modules.push((path.clone(), lex::tokens(&path, &src)?));
-        let set_up = self.reopened(true, |game, env| {
-            let table = scenario_table(&path, game.sandbox.run_in(&path, &src, env, "the start")?)?;
-            for key in table.pairs::<mlua::Value, mlua::Value>() {
-                let (key, _) = key?;
-                let key = key.to_string().unwrap_or_else(|_| "?".into());
-                anyhow::ensure!(["about", "level", "place", "setup"].contains(&key.as_str()), "{path}: no field called '{key}' (about, level, place, setup)");
-            }
-            // A scenario that names where the run begins needs no setup.
-            let setup: Option<Function> = table.raw_get("setup")?;
-            let (level, place): (Option<String>, Option<String>) = (table.raw_get("level")?, table.raw_get("place")?);
-            anyhow::ensure!(
-                setup.is_some() || level.is_some() || place.is_some(),
-                "{path}: a scenario says where the run begins (level = \"name\", place = \"name\") or sets it up: setup is the function that sets the run up: setup = function() ... end"
-            );
-            match (level, place) {
-                (Some(level), place) => {
-                    let Some(index) = game.stage.levels.find(&level) else {
-                        let all: Vec<&str> = game.stage.levels.list.iter().map(|l| l.name.as_str()).collect();
-                        anyhow::bail!("{path}: level = \"{level}\" is none of the game's levels ({})", all.join(", "));
-                    };
-                    if let Some(place) = &place {
-                        anyhow::ensure!(game.place_in(index, Some(place.clone())).is_some(), "{path}: the level {level} has no place called {place}");
-                    }
-                    game.stage.ask = Some(Ask::GoTo { level, place });
-                    game.change_levels();
-                    if let Some(e) = game.halted() {
-                        anyhow::bail!("{e}");
-                    }
-                }
-                (None, Some(_)) => anyhow::bail!("{path}: a place belongs to a level: level = \"...\", place = \"...\""),
-                (None, None) => {}
-            }
-            match &setup {
-                Some(setup) => game.with_world(|sb, _| sb.call_start::<()>(setup, ())),
-                None => Ok(()),
-            }
-        });
-        if let Err(e) = set_up {
-            self.halt(anyhow::anyhow!("{e:#}"));
-            return Err(e);
-        }
-        self.settle_between(&format!("the scenario {name}"))
+        self.begin_scenario(name)
     }
 
     fn eval(&mut self, code: &str) -> Result<String> {
-        if let Some(e) = self.halted() {
-            anyhow::bail!("the game has stopped: {e}");
-        }
-        // An expression shows its value, as Lua's own console does.
-        let expression = format!("return {code}");
-        let chunk = if self.sandbox.lua.load(&expression).into_function().is_ok() { expression } else { code.to_string() };
-        // What the line prints is shown with it, and goes to OUTPUT too.
-        let before = std::mem::take(&mut *self.sandbox.printed.borrow_mut());
-        let ran = self.reopened(false, |game, env| {
-            game.with_world(|sb, _| {
-                let values = sb.run_in("console", &chunk, env, "the console")?;
-                let tostring = sb.tool("tostring")?;
-                Ok(values.iter().map(|v| shown(v, &tostring)).collect::<Vec<String>>())
-            })
-        });
-        let printed: Vec<String> = {
-            let mut kept = self.sandbox.printed.borrow_mut();
-            let said: Vec<String> = kept.drain(..).collect();
-            kept.extend(before);
-            kept.extend(said.iter().cloned());
-            said
-        };
-        let settled = self.settle_between("the console line");
-        let values = ran?;
-        settled?;
-        let mut lines = printed;
-        if !values.is_empty() {
-            lines.push(values.join("\t"));
-        }
-        Ok(lines.join("\n"))
+        self.console_line(code)
     }
 
     fn set_seats(&mut self, seats: &[crate::game::Seat]) {
@@ -1126,73 +754,7 @@ impl<K: Kit> Game for LuaGame<K> {
     /// `level.state` and `player.state` (with the engine's keys). A state
     /// that is no plain data stops the game, as it would at the next check.
     fn inspect(&self) -> serde_json::Value {
-        let Captured { state, player, level, kept, data, seats } = self.capture().unwrap_or_else(|e| {
-            self.halt(e);
-            Captured::default()
-        });
-        let host = &self.stage.host;
-        // The level's things; the players' figures are the players'.
-        let figures: Vec<Id> = (1..=self.stage.seats.len()).filter_map(|n| self.stage.figure(n)).collect();
-        let things: Vec<serde_json::Value> = host
-            .ids()
-            .into_iter()
-            .filter(|id| !figures.contains(id))
-            .filter_map(|id| {
-                let t = host.get(id)?;
-                let p = t.body.pos;
-                let mut own = data.iter().find(|(i, _)| *i == id.raw()).map(|(_, d)| value::to_json(d)).filter(|j| j.is_object()).unwrap_or_else(|| serde_json::json!({}));
-                if self.stage.kinds[t.kind].has_hp {
-                    own["hp"] = t.hp.into();
-                }
-                if let Some(b) = self.stage.here.lights.get(&id.raw()) {
-                    own["light"] = (*b).into();
-                }
-                let mut thing = serde_json::json!({ "id": id.raw(), "kind": self.stage.kinds[t.kind].name, "x": p.x, "y": p.y, "z": p.z, "state": own });
-                if let Some(name) = self.stage.here.names.get(&id.raw()) {
-                    thing["name"] = name.clone().into();
-                }
-                if let Some(model) = self.stage.here.pieces.get(&id.raw()).and_then(|p| p.model.clone()) {
-                    thing["model"] = model.into();
-                }
-                Some(thing)
-            })
-            .collect();
-        let mut player = player.as_ref().map(value::to_json).filter(|j| j.is_object()).unwrap_or_else(|| serde_json::json!({}));
-        for key in host.player_keys() {
-            if let Some(n) = host.player_number(key) {
-                player[*key] = n.into();
-            }
-        }
-        let mut player = serde_json::json!({ "state": player });
-        if let Some(t) = host.player_seen() {
-            let p = t.body.pos;
-            (player["x"], player["y"], player["z"]) = (p.x.into(), p.y.into(), p.z.into());
-            player["kind"] = self.stage.kinds.get(t.kind).map(|k| k.name.clone()).into();
-        }
-        let stage = &self.stage;
-        let at = serde_json::json!({ "name": stage.levels.list[stage.level].name, "number": stage.level + 1, "visits": stage.visits[stage.level], "levels": stage.levels.names() });
-        let kept: serde_json::Map<String, serde_json::Value> = kept.iter().map(|(n, v)| (n.clone(), value::to_json(v))).collect();
-        let mut out = serde_json::json!({ "things": things, "state": state.as_ref().map(value::to_json), "level": level.as_ref().map(value::to_json), "at": at, "kept": kept, "player": player });
-        // The other seats, a game of several's.
-        if stage.seats.len() > 1 {
-            let players: Vec<serde_json::Value> = (2..=stage.seats.len())
-                .map(|n| {
-                    let s = &stage.seats[n - 1];
-                    let mut state = seats.iter().find(|(m, _)| *m == n).map(|(_, v)| value::to_json(v)).filter(|j| j.is_object()).unwrap_or_else(|| serde_json::json!({}));
-                    state["score"] = s.score.into();
-                    let mut p = serde_json::json!({ "seat": n, "taken": s.taken, "out": s.out, "state": state });
-                    if let Some(t) = stage.seen(host::seat_handle(n)) {
-                        let at = t.body.pos;
-                        (p["x"], p["y"], p["z"]) = (at.x.into(), at.y.into(), at.z.into());
-                        p["kind"] = stage.kinds.get(t.kind).map(|k| k.name.clone()).into();
-                        p["state"]["hp"] = t.hp.into();
-                    }
-                    p
-                })
-                .collect();
-            out["players"] = players.into();
-        }
-        out
+        self.inspected()
     }
 
     /// The locals of `main.lua` its functions keep (upvalues).
@@ -1369,193 +931,13 @@ impl<K: Kit> Game for LuaGame<K> {
     /// The kit's things, then the script's `on_draw`: models of things,
     /// cubes, lights, text for the HUD; the game only to look at.
     fn draw(&self, out: &mut Drawing) {
-        if let Some(kit) = self.kit() {
-            kit.draw(out);
-        }
-        // The pieces the level set down, each its model where its pivot
-        // stands, facing its way, and its light as bright as its state says
-        // (off at 0). The script draws nothing for them.
-        for (&id, p) in &self.stage.here.pieces {
-            let Some(t) = self.stage.seen(id).filter(|_| !self.stage.here.dead.contains(&id)) else { continue };
-            // Tipped too (`pitch`, `roll`): as `frame:model` would turn it
-            // with the same three numbers.
-            let tipped = p.pitch != 0.0 || p.roll != 0.0;
-            if let Some(model) = &p.model {
-                let facing = crate::session::facing(true, t.body);
-                let turn = if tipped { facing * crate::session::turning(0.0, p.pitch, p.roll) } else { facing };
-                // Its figure's parts posed as its state says (checked at
-                // every tick's end: a mistake halts the game, and the
-                // piece stands at rest meanwhile).
-                let pose = match self.registry("voxcade.data").and_then(|d| Ok(d.raw_get::<Option<Table>>(id)?)) {
-                    Ok(Some(state)) => self.piece_pose(id, &state).unwrap_or_else(|e| {
-                        if self.halted.borrow().is_none() {
-                            self.halt(e);
-                        }
-                        Vec::new()
-                    }),
-                    _ => Vec::new(),
-                };
-                // Only casting a shadow (`shadow_only`): a ceiling the
-                // camera looks through.
-                out.shadow_only(p.shadow_only);
-                if pose.is_empty() {
-                    out.model_turned(model, 0, out.body_origin(t.body), t.body.look, turn, None);
-                } else {
-                    let posed = crate::session::posing_alone(&pose);
-                    out.model_posed(model, 0, out.body_origin(t.body), t.body.look, turn, &posed, None);
-                }
-                out.shadow_only(false);
-            }
-            // Its lights, all as bright as its state says (one brightness for
-            // them all; a light of its own each would be a list of them).
-            let brightness = self.stage.here.lights.get(&id).copied().unwrap_or(0.0);
-            if brightness > 0.0 {
-                let (sin, cos) = crate::sim::math::sin_cos((p.facing.bearing() as f32).to_radians());
-                // A tipped piece's lights turn with it about its turn's
-                // centre (the voxel at half its height).
-                let size = p.model.as_ref().and_then(|m| out.model_of(m)).map(|m| m.size);
-                let tip = size.filter(|_| tipped).map(|size| (crate::session::turning(p.facing.bearing() as f32, p.pitch, p.roll), crate::render::turn_centre(size)));
-                for l in &p.lights {
-                    // Its offset in the model's own voxels, turned with it (a
-                    // bearing clockwise seen from above, the model's forward +y).
-                    let o = l.at.as_vec3();
-                    let turned = match tip {
-                        Some((rot, about)) => rot * (o + Vec3::splat(0.5) - about) + about - Vec3::splat(0.5),
-                        None => Vec3::new(o.x * cos + o.y * sin, -o.x * sin + o.y * cos, o.z),
-                    };
-                    let at = t.body.pos + Vec3::Z * 0.5 + turned;
-                    out.light(Light { pos: at, radius: l.radius, color: l.color.map(|c| c * brightness) });
-                }
-            }
-        }
-        for e in &self.stage.effects {
-            out.model(&e.model, (e.age as f32 * e.fps / 60.0) as usize, e.at.floor(), glam::IVec2::NEG_Y, None);
-        }
-        // Stopped by `on_tick`, the game is still drawn as it stands;
-        // stopped by `on_draw`, as `on_draw` last showed it.
-        if let Some(draw) = &self.draw
-            && !self.draw_failed.get()
-        {
-            let (width, height) = out.hud_size();
-            let mut rec = Frame {
-                width,
-                height,
-                font: out.font(),
-                alpha: out.alpha(),
-                view_proj: out.view_proj(),
-                snap: out.snaps(),
-                viewing: out.viewing().cloned(),
-                parts: self.stage.parts.clone(),
-                known: self.stage.frames.clone(),
-                needed: Some(out.needed()),
-                ..Frame::default()
-            };
-            let lua = &self.sandbox.lua;
-            let mut result = None;
-            let scoped = lua.scope(|scope| {
-                let world = scope.create_userdata_ref(&self.stage)?;
-                lua.set_named_registry_value("voxcade.world", &world)?;
-                lua.set_named_registry_value("voxcade.looking", true)?;
-                // The picture is the handler's alone: there is none to keep.
-                let frame = scope.create_userdata_ref_mut(&mut rec)?;
-                result = Some(self.sandbox.call::<()>(draw, frame, "on_draw"));
-                lua.unset_named_registry_value("voxcade.world")?;
-                lua.set_named_registry_value("voxcade.looking", false)
-            });
-            match scoped.map_err(sandbox::script_error).and_then(|()| result.expect("draw ran")) {
-                Ok(()) => *self.drawn.borrow_mut() = rec.cmds,
-                Err(e) => {
-                    self.draw_failed.set(true);
-                    if self.halted.borrow().is_none() {
-                        self.halt(e);
-                        self.draw_halted.set(true);
-                    }
-                }
-            }
-        }
-        for cmd in self.drawn.borrow().iter() {
-            match cmd {
-                Cmd::Model { file, thing, frame, turn, pose } => {
-                    let Some(t) = self.stage.seen(*thing) else { continue };
-                    let kind = self.stage.kinds.get(t.kind);
-                    let frame = frame.unwrap_or_else(|| out.figure_frame(file, kind.map_or(&NO_FRAMES, |k| &k.frames), t.body));
-                    let origin = out.body_origin(t.body);
-                    // Its kind may face exactly its way and spin; the
-                    // script turns it further.
-                    let facing = crate::session::facing(kind.is_some_and(|k| k.free_turn), t.body);
-                    let spin = crate::session::spinning(kind.map_or(0.0, |k| k.spin), self.stage.host.sim().tick as f32 + out.alpha());
-                    let [round, pitch, roll] = *turn;
-                    let turn = facing * spin * crate::session::turning(round, pitch, roll);
-                    // A figure of parts swings as its kind says, the
-                    // script's pose on top.
-                    let tall = out.model_of(file).map_or(1.0, |m| m.size.z as f32);
-                    let swung = crate::session::swinging(kind.map_or(&NO_SWING, |k| &k.swing), t.body, tall);
-                    let posed = crate::session::posing(pose, swung);
-                    out.model_posed(file, frame, origin, t.body.look, turn, &posed, (t.flash > 0).then_some(FLASH));
-                }
-                // On the grid when the camera snaps, gliding as the models
-                // do otherwise.
-                Cmd::Cube { at, color, glow } => out.cube(out.snapped(*at), *color, *glow, color[3] as f32 / 255.0),
-                Cmd::Light { at, radius, color } => out.light(Light { pos: *at, radius: *radius, color: *color }),
-                Cmd::Daylight(day) => out.daylight(*day),
-                // (Its code names it as Lua writes a call, or what is out
-                // of the game's own view would be missing.)
-                Cmd::Camera(_) if !self.moves_camera => {
-                    if self.halted.borrow().is_none() {
-                        self.halt(anyhow::anyhow!("frame:camera: call it as frame:camera({{ ... }}) in the game's code, so the engine knows the game sets its camera"));
-                    }
-                }
-                Cmd::Camera(cam) => out.camera(*cam),
-                // The HUD's, drawn by `hud`.
-                _ => {}
-            }
-        }
+        self.draw_game(out)
     }
 
     /// The HUD `on_draw` drew (from the top left in UI voxels), and the
     /// voxels of icons that burst.
     fn hud(&self, cfg: &UiConfig, alpha: f32, aspect: f32, font: Option<&DisplayFont>) -> Vec<Instance> {
-        use crate::ui;
-        let mut out = Vec::new();
-        let layout = ui::Layout::of(cfg, aspect);
-        let (top, depth, finish) = (layout.height, cfg.depth, ui::Finish::of(cfg));
-        for cmd in self.drawn.borrow().iter() {
-            match cmd {
-                Cmd::Text { text, x, y, color, size } => {
-                    ui::line(&mut out, text, &layout, *x, top - y - ui::line_height(*size, font), *size, *color, depth, font, finish);
-                }
-                Cmd::Box { x, y, width, height, color } => {
-                    let (w, h) = (width.round() as i32, height.round() as i32);
-                    for i in 0..w {
-                        for j in 0..h {
-                            for z in 0..depth {
-                                ui::voxel(&mut out, x + i as f32, top - y - h as f32 + j as f32, z as f32, *color);
-                            }
-                        }
-                    }
-                }
-                Cmd::Icon { name, x, y } => {
-                    let Some(icon) = self.stage.hud.icons.get(name) else { continue };
-                    for (c, r, color) in icon.voxels() {
-                        for z in 0..depth {
-                            ui::voxel(&mut out, x + c as f32, top - y - 1.0 - r as f32, z as f32, color);
-                        }
-                    }
-                }
-                Cmd::Drop { text, x, y, ticks, color, size } => {
-                    ui::dropping(&mut out, text, &layout, Some(*x), top - y - ui::line_height(*size, font), *size, *color, depth, *ticks + alpha, font, finish);
-                }
-                Cmd::Menu(m) => ui::game_menu(&mut out, m, &layout, depth, &self.stage.hud.icons, self.stage.host.sim().tick),
-                Cmd::Grid(g) => ui::game_grid(&mut out, g, &layout, depth, &self.stage.hud.icons),
-                _ => {}
-            }
-        }
-        for b in &self.stage.hud.bits {
-            let at = crate::session::between(b.prev, b.pos, alpha);
-            let size = (b.life / b.span).clamp(0.2, 1.0);
-            out.push(Instance { pos_size: (at + 0.5).extend(size).to_array(), color: b.color, fx: [0, 255, 0, 0], shade: [0; 4], turn: [0; 4] });
-        }
-        out
+        self.draw_hud(cfg, alpha, aspect, font)
     }
 
     fn focus(&self) -> Option<&Body> {
@@ -1756,32 +1138,6 @@ impl<K: Kit> Game for LuaGame<K> {
             Some(kit) => kit.reshape(models),
             None => self.plain_mut().expect("a plain host without a kit").kinds = kinds,
         }
-    }
-}
-
-/// The game's scenarios by name (`scenarios/NAME.lua`), in order.
-fn scenario_names(files: &Files) -> Vec<String> {
-    files.list("scenarios").iter().filter_map(|p| p.file_name()?.to_str()?.strip_suffix(".lua").map(str::to_string)).collect()
-}
-
-/// What a scenario's file gave back: a table.
-fn scenario_table(path: &str, got: mlua::MultiValue) -> Result<Table> {
-    match got.into_iter().next() {
-        Some(mlua::Value::Table(t)) => Ok(t),
-        _ => anyhow::bail!("{path}: a scenario gives back a table: return {{ about = \"...\", setup = function() ... end }}"),
-    }
-}
-
-/// A value as the console shows it: plain data as a state is written in
-/// a save, anything else as `tostring` gives it (a thing, a function).
-fn shown(v: &mlua::Value, tostring: &Function) -> String {
-    match v {
-        mlua::Value::Table(_) => match value::capture(v, "", &mut value::Seen::default(), false) {
-            Ok(Some(plain)) => data::write(&plain),
-            _ => tostring.call::<String>(v.clone()).unwrap_or_default(),
-        },
-        mlua::Value::String(s) => format!("{:?}", s.to_string_lossy()),
-        other => tostring.call::<String>(other.clone()).unwrap_or_default(),
     }
 }
 
