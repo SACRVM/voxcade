@@ -143,7 +143,7 @@ impl<K: Kit> LuaGame<K> {
                     }
                     Self::set_figure(h, n, Some(id));
                     // What it stands in it touches without on_touch.
-                    self.stage.placed.push(host::seat_handle(n));
+                    self.stage.here.placed.push(host::seat_handle(n));
                 }
                 _ => {}
             }
@@ -176,7 +176,7 @@ impl<K: Kit> LuaGame<K> {
                     };
                     let hp = self.stage.seats[n - 1].hp.take().unwrap_or(self.stage.kinds[k].hp);
                     let placed = self.stage.host.put_seat(n, Some((k, at, facing, hp)));
-                    self.stage.placed.push(host::seat_handle(n));
+                    self.stage.here.placed.push(host::seat_handle(n));
                     placed
                 }
                 _ => Ok(None),
@@ -212,8 +212,8 @@ impl<K: Kit> LuaGame<K> {
     /// Arriving somewhere (a level entered, the game's start): what touches
     /// now touches without `on_touch`, until it parts.
     pub(super) fn arrive(&mut self) {
-        self.stage.touching = if self.handles("on_touch") || self.handles("on_touch_end") || self.actions.contains(&"interact") { self.stage.contacts() } else { Default::default() };
-        self.stage.placed.clear();
+        self.stage.here.touching = if self.handles("on_touch") || self.handles("on_touch_end") || self.actions.contains(&"interact") { self.stage.contacts() } else { Default::default() };
+        self.stage.here.placed.clear();
         self.stage.note_positions();
     }
 
@@ -223,16 +223,16 @@ impl<K: Kit> LuaGame<K> {
     pub(super) fn fell_out(&mut self) {
         let stage = &mut self.stage;
         // Back in the level (placed again): it may fall out again.
-        let fallen: Vec<u32> = stage.fallen.iter().copied().filter(|&raw| stage.seen(raw).is_some_and(|t| crate::sim::fell_out(&stage.host.sim().world, t.body, stage.host.sim().cfg.physics.lost_below))).collect();
-        stage.fallen = fallen.into_iter().collect();
+        let fallen: Vec<u32> = stage.here.fallen.iter().copied().filter(|&raw| stage.seen(raw).is_some_and(|t| crate::sim::fell_out(&stage.host.sim().world, t.body, stage.host.sim().cfg.physics.lost_below))).collect();
+        stage.here.fallen = fallen.into_iter().collect();
         let mut fell = Vec::new();
         for id in stage.host.ids() {
             let Some(t) = stage.host.get(id) else { continue };
             let raw = stage.figure_handle(id).unwrap_or(id.raw());
             // (A piece stays where its level put it, under the floor too: a
             // piece laid on its side has its pivot there.)
-            let scripted = stage.kinds.get(t.kind).is_some_and(|k| k.scripted) && !stage.pieces.contains_key(&id.raw());
-            if scripted && !stage.fallen.contains(&raw) && crate::sim::fell_out(&stage.host.sim().world, t.body, stage.host.sim().cfg.physics.lost_below) {
+            let scripted = stage.kinds.get(t.kind).is_some_and(|k| k.scripted) && !stage.here.pieces.contains_key(&id.raw());
+            if scripted && !stage.here.fallen.contains(&raw) && crate::sim::fell_out(&stage.host.sim().world, t.body, stage.host.sim().cfg.physics.lost_below) {
                 fell.push(raw);
             }
         }
@@ -242,7 +242,7 @@ impl<K: Kit> LuaGame<K> {
                 Some(seat) => crate::sim::Who::Thing(stage.figure(seat).expect("a figure that fell")),
                 None => crate::sim::Who::Thing(Id::from_raw(raw)),
             };
-            stage.later.push(crate::sim::Event::FellOut { who });
+            stage.here.later.push(crate::sim::Event::FellOut { who });
         }
     }
 

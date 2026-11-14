@@ -67,7 +67,7 @@ impl UserData for ThingRef {
             Ok(w)
         });
         f.add_field_method_get("state", |lua, t| thing_state(lua, t.0));
-        f.add_field_method_get("name", |lua, t| look(lua, |h| Ok(h.names.get(&t.0).cloned())));
+        f.add_field_method_get("name", |lua, t| look(lua, |h| Ok(h.here.names.get(&t.0).cloned())));
         f.add_field_method_get("families", |lua, t| {
             let families = look(lua, |h| Ok(h.kinds.get(h.thing(t.0)?.kind).map(|k| k.families.clone()).unwrap_or_default()))?;
             let set = lua.create_table()?;
@@ -81,7 +81,7 @@ impl UserData for ThingRef {
             if let Some(p) = cache.raw_get::<Option<Value>>(t.0)? {
                 return Ok(p);
             }
-            let (kind, own) = look(lua, |h| Ok((h.kinds.get(h.thing(t.0)?.kind).map(|k| k.props.clone()).unwrap_or_default(), h.props.get(&t.0).cloned())))?;
+            let (kind, own) = look(lua, |h| Ok((h.kinds.get(h.thing(t.0)?.kind).map(|k| k.props.clone()).unwrap_or_default(), h.here.props.get(&t.0).cloned())))?;
             let props = lua.create_table()?;
             for (k, v) in &kind {
                 props.raw_set(k.as_str(), from_toml(lua, v)?)?;
@@ -137,18 +137,14 @@ impl UserData for ThingRef {
         });
         m.add_method("face", |lua, t, dir: Value| {
             let way = to_dir(&dir, "thing:face")?;
-            change(lua, "thing:face", |h| {
-                let Some(id) = h.target(t.0) else { return Err(h.no_target(t.0, "player:face")) };
-                h.thing(t.0)?;
-                h.host.face(Id::from_raw(id), way).map_err(|e| mlua::Error::runtime(format!("thing:face: {e}")))
-            })
+            on_target(lua, t.0, "thing:face", |h, id| h.host.face(id, way))
         });
         m.add_method("jump", |lua, t, height: f32| {
             change(lua, "thing:jump", |h| {
                 let gravity = h.host.sim().cfg.physics.gravity;
                 let b = h.moved(t.0, "thing:jump")?.0;
                 if b.on_ground {
-                    b.vel.z = (2.0 * gravity * height.max(0.0)).sqrt();
+                    b.vel.z = rise_speed(gravity, height);
                     b.on_ground = false;
                 }
                 Ok(())
@@ -158,14 +154,10 @@ impl UserData for ThingRef {
             let ids = look(lua, |h| {
                 h.thing(t.0)?;
                 let pick = what.map(|w| h.pick(&w, "thing:touching")).transpose()?;
-                let others = h.contacts().into_iter().filter_map(|(a, b)| if a == t.0 { Some(b) } else if b == t.0 { Some(a) } else { None });
+                let others = h.contacts_of(t.0).into_iter().map(|(a, b)| if a == t.0 { b } else { a });
                 Ok(others.filter(|&o| pick.as_ref().is_none_or(|p| h.is(o, p))).collect::<Vec<u32>>())
             })?;
-            let list = lua.create_table()?;
-            for (n, id) in ids.into_iter().enumerate() {
-                list.raw_set(n + 1, handle(lua, id)?)?;
-            }
-            Ok(list)
+            handles(lua, ids)
         });
         m.add_method("in_block", |lua, t, kind: String| {
             let flag = block_flag(&kind, "thing:in_block")?;
@@ -173,28 +165,18 @@ impl UserData for ThingRef {
         });
         m.add_method("launch", |lua, t, (dir, speed, rise): (Value, f32, Option<f32>)| {
             let way = to_dir(&dir, "thing:launch")?.normalize_or_zero();
-            change(lua, "thing:launch", |h| {
-                let gravity = h.host.sim().cfg.physics.gravity;
-                let Some(id) = h.target(t.0) else { return Err(h.no_target(t.0, "player:launch")) };
-                h.thing(t.0)?;
-                let up = rise.map_or(0.0, |r| (2.0 * gravity * r.max(0.0)).sqrt());
-                h.host.launch(Id::from_raw(id), way * speed + Vec3::Z * up).map_err(|e| mlua::Error::runtime(format!("thing:launch: {e}")))
+            on_target(lua, t.0, "thing:launch", |h, id| {
+                let up = rise.map_or(0.0, |r| rise_speed(h.host.sim().cfg.physics.gravity, r));
+                h.host.launch(id, way * speed + Vec3::Z * up)
             })
         });
         m.add_method("enable", |lua, t, (behavior, on): (String, bool)| {
-            change(lua, "thing:enable", |h| {
-                let Some(id) = h.target(t.0) else { return Err(h.no_target(t.0, "player:enable")) };
-                h.thing(t.0)?;
-                h.host.enable(Id::from_raw(id), &behavior, on).map_err(|e| mlua::Error::runtime(format!("thing:enable: {e}")))
-            })
+            on_target(lua, t.0, "thing:enable", |h, id| h.host.enable(id, &behavior, on))
         });
         m.add_method("bounce", |lua, t, height: f32| {
-            change(lua, "thing:bounce", |h| {
-                let gravity = h.host.sim().cfg.physics.gravity;
-                let Some(id) = h.target(t.0) else { return Err(h.no_target(t.0, "player:bounce")) };
-                h.thing(t.0)?;
-                let speed = (2.0 * gravity * height.max(0.0)).sqrt();
-                h.host.bounce(Id::from_raw(id), speed).map_err(|e| mlua::Error::runtime(format!("thing:bounce: {e}")))
+            on_target(lua, t.0, "thing:bounce", |h, id| {
+                let speed = rise_speed(h.host.sim().cfg.physics.gravity, height);
+                h.host.bounce(id, speed)
             })
         });
         m.add_method("ahead", |lua, t, distance: f32| {
@@ -258,13 +240,13 @@ impl UserData for ThingRef {
                     && let Some(figure) = h.host.seat_figure(seat).filter(|&f| h.host.get_mut(f).is_some_and(|m| m.moved.is_none()))
                 {
                     h.host.put_figure(figure, at).map_err(|e| mlua::Error::runtime(format!("player:place: {e}")))?;
-                    h.placed.push(t.0);
+                    h.here.placed.push(t.0);
                     return Ok(());
                 }
                 // The player of ready-made rules is stood there by them.
                 if t.0 == PLAYER && h.host.player_id().is_none_or(|id| h.host.get_mut(id).is_some_and(|m| m.moved.is_none())) {
                     h.host.put_player(at).map_err(|e| mlua::Error::runtime(format!("player:place: {e}")))?;
-                    h.placed.push(t.0);
+                    h.here.placed.push(t.0);
                     return Ok(());
                 }
                 let body = h.moved(t.0, "thing:place")?.0;
@@ -273,7 +255,7 @@ impl UserData for ThingRef {
                     body.face(way);
                 }
                 // What it touches there it touches without on_touch.
-                h.placed.push(t.0);
+                h.here.placed.push(t.0);
                 Ok(())
             })
         });
@@ -316,15 +298,15 @@ impl UserData for ThingRef {
                         let hp = h.thing_mut(t.0)?.hp;
                         *hp -= damage as i32;
                         if *hp <= 0 {
-                            h.killers.insert(t.0, (by_handle, weapon.clone()));
+                            h.here.killers.insert(t.0, (by_handle, weapon.clone()));
                         }
-                        h.later.push(Event::Hit { who: whom, by, damage: damage as i32, weapon: weapon.clone() });
+                        h.here.later.push(Event::Hit { who: whom, by, damage: damage as i32, weapon: weapon.clone() });
                     }
                     // The ready-made rules' own, taken by their rules.
                     _ => {
                         h.host.hurt(whom, damage as i32, by, weapon.clone()).map_err(|e| mlua::Error::runtime(format!("thing:hurt: {e}")))?;
                         let told = std::mem::take(&mut h.host.sim_mut().events);
-                        h.later.extend(told);
+                        h.here.later.extend(told);
                     }
                 }
                 Ok(())
@@ -359,7 +341,7 @@ impl UserData for ThingRef {
             if taken > 0 {
                 change(lua, "thing:take", |h| {
                     let who = h.who(t.0);
-                    h.later.push(Event::Pickup { who, item });
+                    h.here.later.push(Event::Pickup { who, item });
                     Ok(())
                 })?;
             }
@@ -370,12 +352,28 @@ impl UserData for ThingRef {
                 return Err(mlua::Error::runtime("player:remove: the player belongs to no level; it goes from level to level (out of play: state.out = true)"));
             }
             change(lua, "thing:remove", |h| {
-                let there = h.host.get(Id::from_raw(t.0)).is_some() && !h.gone.contains(&t.0);
+                let there = h.host.get(Id::from_raw(t.0)).is_some() && !h.here.gone.contains(&t.0);
                 if there {
-                    h.gone.push(t.0);
+                    h.here.gone.push(t.0);
                 }
                 Ok(there)
             })
         });
     }
+}
+
+/// `what` (`thing:face`) done by the host to what it acts on for thing
+/// `t` (a player's figure for a player), its refusal said as `what: why`.
+fn on_target(lua: &Lua, t: u32, what: &'static str, act: impl FnOnce(&mut Stage, Id) -> Result<(), String>) -> mlua::Result<()> {
+    change(lua, what, |h| {
+        let Some(id) = h.target(t) else { return Err(h.no_target(t, &what.replace("thing:", "player:"))) };
+        h.thing(t)?;
+        act(h, Id::from_raw(id)).map_err(|e| mlua::Error::runtime(format!("{what}: {e}")))
+    })
+}
+
+/// How fast a body leaves the ground to rise `height` voxels against
+/// `gravity`.
+fn rise_speed(gravity: f32, height: f32) -> f32 {
+    (2.0 * gravity * height.max(0.0)).sqrt()
 }

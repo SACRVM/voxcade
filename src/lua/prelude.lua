@@ -346,7 +346,8 @@ end
 
 -- A script's globals before they freeze: the game model's objects keep
 -- their names.
-local engine_objects = { world = true, level = true, player = true, input = true, screen = true, controls = true, music = true }
+-- The engine's globals, by name: told by the engine (`api::OBJECTS`).
+local engine_objects = ...
 local function set_global(env, k, v)
   if engine_objects[k] then raw_error("'" .. raw_tostring(k) .. "' is the engine's (the game model's object): give yours another name", 2) end
   raw_rawset(env, k, v)
@@ -480,5 +481,4 @@ return {
   freeze = freeze,
   set_global = set_global,
   plain = plain,
-  guard = function(t) guarded[t] = true end,
 }

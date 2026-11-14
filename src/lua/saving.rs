@@ -62,7 +62,7 @@ impl<K: Kit> LuaGame<K> {
             voxels: save::write_voxels(&changed, sim.world.size),
             size: sim.world.size.to_array(),
             palette,
-            lights: stage.lights.iter().filter(|(id, _)| host.get(Id::from_raw(**id)).is_some()).filter_map(|(id, b)| Some((stage.names.get(id)?.clone(), *b))).collect(),
+            lights: stage.here.lights.iter().filter(|(id, _)| host.get(Id::from_raw(**id)).is_some()).filter_map(|(id, b)| Some((stage.here.names.get(id)?.clone(), *b))).collect(),
         })
     }
 
@@ -181,10 +181,10 @@ impl<K: Kit> LuaGame<K> {
         // The script hears every load, with the version of the game that
         // made the save (an older one it brings up to date), before its
         // level is built.
-        if let Some(f) = self.globals.as_ref().map(|g| Sandbox::function(g, "on_save_loaded")).transpose()?.flatten() {
-            lua.set_named_registry_value("voxcade.phase", "world_start")?;
+        if let Some(f) = self.code.globals.as_ref().map(|g| Sandbox::function(g, "on_save_loaded")).transpose()?.flatten() {
+            world::set_phase(&lua, Some(world::Phase::WorldStart));
             let called = self.with_world(|sb, _| sb.call::<()>(&f, save.version, "on_save_loaded"));
-            lua.unset_named_registry_value("voxcade.phase")?;
+            world::set_phase(&self.sandbox.lua, None);
             called?;
         }
         let place = save.figure.as_ref().filter(|_| found.is_some()).map(|f| crate::levels::Place { name: "saved".into(), at: Vec3::from(f.at), facing: Some(glam::IVec2::from(f.facing)) });

@@ -4,6 +4,11 @@
 use super::*;
 
 impl<K: Kit> LuaGame<K> {
+    /// Does what the script asked at the tick's end (`docs/game-model.md`,
+    /// "Leaving a level"): `on_level_end(why)`, then another level entered
+    /// (or this one afresh) and `on_level_start(how)`, or the run's end. An
+    /// ask in that `on_level_start` counts at once; a mistake stops the
+    /// game.
     pub(super) fn change_levels(&mut self) {
         loop {
             if self.halted.borrow().is_some() || self.stage.ended {
@@ -15,7 +20,7 @@ impl<K: Kit> LuaGame<K> {
                 self.halt(anyhow::anyhow!("levels keep being left before a tick was played (a hundred times): does on_level_start ask again and again?"));
                 return;
             }
-            if let Err(e) = self.call_handler("on_level_end", ask.why(), Some("level_end")) {
+            if let Err(e) = self.call_handler("on_level_end", ask.why(), Some(world::Phase::LevelEnd)) {
                 // Nothing has changed yet: the ask waits for the file to be mended.
                 self.stage.ask = Some(ask);
                 self.halt(e);
@@ -89,7 +94,8 @@ impl<K: Kit> LuaGame<K> {
     /// `level.state` fresh (or a save's, with the voxels its file would not
     /// bring back), then `on_level_start(how)`.
     pub(super) fn enter(&mut self, index: usize, place: Option<crate::levels::Place>, how: &'static str, loaded: Option<Loaded>) -> Result<()> {
-        let level = self.stage.levels.list[index].clone();
+        let levels = Arc::clone(&self.stage.levels);
+        let level = &levels.list[index];
         let arrived = place.clone().unwrap_or_else(|| self.stage.start(index));
         self.stage.level = index;
         let mut world = level.world.clone();
@@ -143,16 +149,16 @@ impl<K: Kit> LuaGame<K> {
         if how != "reload" && how != "load" {
             self.stage.visits[index] += 1;
         }
-        self.stage.gone.clear();
-        // The level's things are new: nothing touches, nothing died yet.
-        (self.stage.touching, self.stage.dead, self.stage.graveyard, self.stage.placed, self.stage.later, self.stage.killers) = Default::default();
+        // The level's things are new: nothing touches, nothing died yet,
+        // none named or set down.
+        self.stage.here = host::Here::default();
         self.spawn_pieces();
         self.stage.name_things();
         // A save's lights as they were, by the pieces' names.
         if let Some(l) = &loaded {
             for (name, brightness) in &l.lights {
-                if let Some(id) = self.stage.named(name).filter(|id| self.stage.lights.contains_key(id)) {
-                    self.stage.lights.insert(id, brightness.clamp(0.0, 1.0));
+                if let Some(id) = self.stage.named(name).filter(|id| self.stage.here.lights.contains_key(id)) {
+                    self.stage.here.lights.insert(id, brightness.clamp(0.0, 1.0));
                 }
             }
         }
@@ -222,7 +228,7 @@ impl<K: Kit> LuaGame<K> {
             Outcome::Won => "won",
             Outcome::Lost => "lost",
         };
-        if let Err(e) = self.call_handler("on_world_end", result, Some("world_end")) {
+        if let Err(e) = self.call_handler("on_world_end", result, Some(world::Phase::WorldEnd)) {
             self.halt(e);
         }
         self.stage.host.end(outcome);

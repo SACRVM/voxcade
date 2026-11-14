@@ -35,13 +35,26 @@ struct Budget {
     place: RefCell<String>,
 }
 
-/// The script's line running now: the innermost frame of the game's own
-/// files (not the prelude, mlua's Lua or C), as `main.lua:12`.
-fn running_line(lua: &Lua) -> Option<String> {
-    (0..64).map_while(|level| lua.inspect_stack(level, |d| (d.source().short_src.map(|s| s.to_string()), d.current_line()))).find_map(|(src, line)| {
-        let (src, line) = (src?, line?);
-        (!src.starts_with('[') && src != "prelude" && !src.starts_with("__mlua")).then(|| format!("{src}:{line}"))
-    })
+/// Writes the script's line running now into `place`, as `main.lua:12`:
+/// the innermost frame of the game's own files (not the prelude, mlua's
+/// Lua or C); `place` stays as it was where there is none.
+fn note_running_line(lua: &Lua, place: &RefCell<String>) {
+    use std::fmt::Write;
+    for level in 0..64 {
+        let found = lua.inspect_stack(level, |d| {
+            let (Some(src), Some(line)) = (d.source().short_src, d.current_line()) else { return false };
+            if src.starts_with('[') || src == "prelude" || src.starts_with("__mlua") {
+                return false;
+            }
+            let mut place = place.borrow_mut();
+            place.clear();
+            let _ = write!(place, "{src}:{line}");
+            true
+        });
+        if found != Some(false) {
+            return;
+        }
+    }
 }
 
 /// "main.lua:12: " for the line `budget` last saw running, if any.
@@ -117,6 +130,17 @@ pub struct Sandbox {
 /// How many printed lines wait to be asked for.
 const PRINTED: usize = 500;
 
+/// A line printed (or the engine's note): on the terminal, and kept for
+/// OUTPUT, the newest `PRINTED`.
+fn say(kept: &RefCell<std::collections::VecDeque<String>>, line: String) {
+    eprintln!("[lua] {line}");
+    let mut kept = kept.borrow_mut();
+    if kept.len() == PRINTED {
+        kept.pop_front();
+    }
+    kept.push_back(line);
+}
+
 impl Sandbox {
     pub fn new() -> Result<Self> {
         // Safe: the debug library stays with the engine (tracebacks, the
@@ -124,7 +148,13 @@ impl Sandbox {
         // never see the globals it is in.
         let lua = unsafe { Lua::unsafe_new_with(StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::UTF8 | StdLib::DEBUG, LuaOptions::new()) };
         lua.set_memory_limit(MEMORY)?;
-        let tools: Table = lua.load(PRELUDE).set_name("=prelude").eval()?;
+        // The prelude is told the engine's globals (`set_global` keeps
+        // their names for them).
+        let globals = lua.create_table()?;
+        for o in super::api::OBJECTS.iter().filter(|o| o.global) {
+            globals.raw_set(o.of, true)?;
+        }
+        let tools: Table = lua.load(PRELUDE).set_name("=prelude").call(globals)?;
         let g = lua.globals();
         let base = lua.create_table()?;
         for name in ["assert", "error", "ipairs", "pcall", "xpcall", "select", "tonumber", "type", "rawequal", "rawget", "rawlen", "getmetatable", "_VERSION"] {
@@ -140,13 +170,7 @@ impl Sandbox {
             "print",
             lua.create_function(move |_, args: mlua::Variadic<Value>| {
                 let parts: Vec<String> = args.iter().map(|a| tostring.call::<String>(a.clone()).unwrap_or_default()).collect();
-                let line = parts.join("\t");
-                eprintln!("[lua] {line}");
-                let mut kept = kept.borrow_mut();
-                if kept.len() == PRINTED {
-                    kept.pop_front();
-                }
-                kept.push_back(line);
+                say(&kept, parts.join("\t"));
                 Ok(())
             })?,
         )?;
@@ -156,12 +180,7 @@ impl Sandbox {
         lua.set_named_registry_value(
             "voxcade.note",
             lua.create_function(move |_, line: String| {
-                eprintln!("[lua] {line}");
-                let mut kept = notes.borrow_mut();
-                if kept.len() == PRINTED {
-                    kept.pop_front();
-                }
-                kept.push_back(line);
+                say(&notes, line);
                 Ok(())
             })?,
         )?;
@@ -190,9 +209,7 @@ impl Sandbox {
         lua.set_hook(HookTriggers::new().every_nth_instruction(EVERY), move |lua, _| {
             let left = counter.left.get() - EVERY as i64;
             counter.left.set(left);
-            if let Some(place) = running_line(lua) {
-                *counter.place.borrow_mut() = place;
-            }
+            note_running_line(lua, &counter.place);
             if left < 0 {
                 // Stays spent until the next call: a pcall cannot swallow it.
                 return Err(mlua::Error::runtime(format!(
@@ -500,19 +517,7 @@ fn position_in(traceback: &str) -> Option<String> {
 
 /// The script's name of an engine's object (mlua names the Rust type).
 fn script_owner(rust: &str) -> Option<&'static str> {
-    Some(match rust {
-        "WorldView" => "world",
-        "LevelView" => "level",
-        "CameraView" => "level.camera",
-        "ThingRef" => "thing",
-        "AreaView" => "area",
-        "InputView" => "input",
-        "ScreenView" => "screen",
-        "Frame" => "frame",
-        "ControlsView" => "controls",
-        "MusicView" => "music",
-        _ => return None,
-    })
+    super::api::OBJECTS.iter().find(|o| o.rust == Some(rust)).map(|o| o.of)
 }
 
 /// A Lua value's kind as a message says it was given.
@@ -686,7 +691,7 @@ fn maths(lua: &Lua, native: &Table) -> Result<Table> {
 impl Sandbox {
     /// The function `name` among a script's globals (frozen or not).
     pub fn function(globals: &Table, name: &str) -> Result<Option<Function>> {
-        match globals.raw_get::<Value>(name).context(name.to_string())? {
+        match globals.raw_get::<Value>(name).with_context(|| name.to_string())? {
             Value::Function(f) => Ok(Some(f)),
             Value::Nil => Ok(None),
             other => anyhow::bail!("'{name}' should be a function, not a {}", other.type_name()),

@@ -20,7 +20,7 @@ use std::sync::Arc;
 use glam::{IVec3, Vec3};
 use mlua::{AnyUserData, Function, Lua, MetaMethod, Table, UserData, UserDataFields, UserDataMethods, Value};
 
-use super::host::{Ask, PLAYER, Seen, Stage, Touched, handle_seat, seat_handle};
+use super::host::{Ask, Kept, PLAYER, Seen, Stage, Touched, handle_seat, seat_handle};
 use crate::sim::{Event, Who};
 use crate::levels::{Level, Place};
 use crate::input::Input;
@@ -209,7 +209,7 @@ impl Stage {
         self.host
             .ids()
             .into_iter()
-            .filter(|&id| !figures.contains(&id) && !self.dead.contains(&id.raw()) && !self.gone.contains(&id.raw()) && pick.is_none_or(|p| self.is(id.raw(), p)))
+            .filter(|&id| !figures.contains(&id) && !self.here.dead.contains(&id.raw()) && !self.here.gone.contains(&id.raw()) && pick.is_none_or(|p| self.is(id.raw(), p)))
             .collect()
     }
 
@@ -250,7 +250,7 @@ fn block_flag(kind: &str, what: &str) -> mlua::Result<u8> {
     BLOCK_KINDS.iter().find(|(n, _)| *n == kind).map(|(_, f)| *f).ok_or_else(|| mlua::Error::runtime(format!("{what}: no kind of block called '{kind}' (hazard, ladder, oneway, solid)")))
 }
 
-/// A value of `conf.lua` (a kind's props) as Lua has it.
+/// A value of `conf.lua` (its defaults, a kind's props) as Lua has it.
 pub(super) fn from_toml(lua: &Lua, v: &toml::Value) -> mlua::Result<Value> {
     Ok(match v {
         toml::Value::String(s) => Value::String(lua.create_string(s)?),
@@ -336,9 +336,9 @@ fn caller_line(lua: &Lua) -> String {
 /// and the like): not where there is no level to leave or it is being left
 /// already; a note for OUTPUT when an ask did not count.
 fn ask(lua: &Lua, what: &str, new: Ask) -> mlua::Result<()> {
-    match lua.named_registry_value::<Option<String>>("voxcade.phase")?.as_deref() {
-        Some("world_start") => return Err(mlua::Error::runtime(format!("{what}: there is no level to leave yet in on_world_start"))),
-        Some("level_end" | "world_end") => return Err(mlua::Error::runtime(format!("{what}: the level is being left already (on_level_end and on_world_end ask nothing more)"))),
+    match phase(lua) {
+        Some(Phase::WorldStart) => return Err(mlua::Error::runtime(format!("{what}: there is no level to leave yet in on_world_start"))),
+        Some(Phase::LevelEnd | Phase::WorldEnd) => return Err(mlua::Error::runtime(format!("{what}: the level is being left already (on_level_end and on_world_end ask nothing more)"))),
         _ => {}
     }
     // After the run's end nothing more counts (a standing `if … then
@@ -387,10 +387,29 @@ fn looking(lua: &Lua) -> bool {
 /// `level` is not there yet in `on_world_start`: the run begins before its
 /// first level.
 fn level_here(lua: &Lua, what: &str) -> mlua::Result<()> {
-    match lua.named_registry_value::<Option<String>>("voxcade.phase")? {
-        Some(phase) if phase == "world_start" => Err(mlua::Error::runtime(format!("{what}: there is no level yet in on_world_start; build it in on_level_start"))),
+    match phase(lua) {
+        Some(Phase::WorldStart) => Err(mlua::Error::runtime(format!("{what}: there is no level yet in on_world_start; build it in on_level_start"))),
         _ => Ok(()),
     }
+}
+
+/// Where the handler running now was called from, where that limits what
+/// it may do: no level yet (`on_world_start`, `on_save_loaded`), or the
+/// level being left (`on_level_end`, `on_world_end`). None: anywhere else.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phase {
+    WorldStart,
+    LevelEnd,
+    WorldEnd,
+}
+
+/// Sets where the calls from now on are (`Phase`).
+pub fn set_phase(lua: &Lua, phase: Option<Phase>) {
+    lua.set_app_data(phase);
+}
+
+fn phase(lua: &Lua) -> Option<Phase> {
+    lua.app_data_ref::<Option<Phase>>().and_then(|p| *p)
 }
 
 /// The handle of thing `id`: the same userdata every time while anything
@@ -404,6 +423,15 @@ pub fn handle(lua: &Lua, id: u32) -> mlua::Result<AnyUserData> {
     let h = lua.create_userdata(ThingRef(id))?;
     handles.raw_set(id, &h)?;
     Ok(h)
+}
+
+/// The handles of things `ids`, as a list.
+fn handles(lua: &Lua, ids: impl IntoIterator<Item = u32>) -> mlua::Result<Table> {
+    let list = lua.create_table()?;
+    for (n, id) in ids.into_iter().enumerate() {
+        list.raw_set(n + 1, handle(lua, id)?)?;
+    }
+    Ok(list)
 }
 
 /// `id`, or a player's handle where it is a player's figure.
@@ -517,6 +545,25 @@ fn whole(v: Value, what: &str) -> mlua::Result<i64> {
     }
 }
 
+/// A value the ready-made rules keep, as the script reads it.
+fn kept_value(lua: &Lua, kept: Option<Kept>) -> mlua::Result<Value> {
+    Ok(match kept {
+        Some(Kept::Text(t)) => Value::String(lua.create_string(t)?),
+        Some(Kept::Bool(b)) => Value::Boolean(b),
+        None => Value::Nil,
+    })
+}
+
+/// A name set for the rules to keep (`Kept::Text`), or nil for none;
+/// None for anything else.
+fn named_or_none(v: &Value) -> mlua::Result<Option<Kept>> {
+    Ok(match v {
+        Value::String(s) => Some(Kept::Text(s.to_str()?.to_string())),
+        Value::Nil => Some(Kept::Bool(false)),
+        _ => None,
+    })
+}
+
 /// `player.state.invulnerable = true`: as many ticks as never run out.
 const FOREVER: i64 = u32::MAX as i64 / 2;
 
@@ -544,13 +591,11 @@ fn player_state(lua: &Lua) -> mlua::Result<Value> {
         }
         moved(lua, &key)?;
         let (n, kept) = look(lua, |h| Ok((h.host.player_number(&key), h.host.player_kept(&key))))?;
-        Ok(match (n, kept) {
-            (Some(n), _) if key == "invulnerable" && n >= FOREVER => Value::Boolean(true),
-            (Some(n), _) => Value::Integer(n),
-            (None, Some(super::host::Kept::Text(t))) => Value::String(lua.create_string(t)?),
-            (None, Some(super::host::Kept::Bool(b))) => Value::Boolean(b),
-            (None, None) => Value::Nil,
-        })
+        match n {
+            Some(n) if key == "invulnerable" && n >= FOREVER => Ok(Value::Boolean(true)),
+            Some(n) => Ok(Value::Integer(n)),
+            None => kept_value(lua, kept),
+        }
     })?;
     let set = lua.create_function(move |lua, (key, v): (String, Value)| {
         if SEAT_KEYS.contains(&key.as_str()) {
@@ -561,11 +606,7 @@ fn player_state(lua: &Lua) -> mlua::Result<Value> {
         // A key that is no number (the shooter's weapon, the hero's pose):
         // by its name, or nil for none.
         let number = look(lua, |h| Ok(h.host.player_number(&key).is_some()))?;
-        let kept = match (&v, number || key == "invulnerable") {
-            (Value::String(text), false) => Some(super::host::Kept::Text(text.to_str()?.to_string())),
-            (Value::Nil, false) => Some(super::host::Kept::Bool(false)),
-            _ => None,
-        };
+        let kept = if number || key == "invulnerable" { None } else { named_or_none(&v)? };
         if let Some(kept) = kept {
             return change(lua, &what, |h| h.host.set_player_kept(&key, kept).map_err(|e| mlua::Error::runtime(format!("{what}: {e}"))));
         }
@@ -667,15 +708,7 @@ fn seat_state(lua: &Lua, seat: usize) -> mlua::Result<Value> {
     if let Some(v) = view(lua, key.as_str())? {
         return Ok(Value::Table(v));
     }
-    let seats: Table = lua.named_registry_value("voxcade.seats")?;
-    let backing = match seats.raw_get::<Option<Table>>(seat)? {
-        Some(t) => t,
-        None => {
-            let t = lua.create_table()?;
-            seats.raw_set(seat, &t)?;
-            t
-        }
-    };
+    let backing = table_at(lua, &lua.named_registry_value("voxcade.seats")?, seat)?;
     // Hit points where its kind has them, or a run starts with some.
     let has_hp = look(lua, |h| Ok(h.seat_kind(seat).is_some_and(|k| h.kinds[k].has_hp) || h.host.sim().cfg.state.player_number("hp").is_some()))?;
     let get = lua.create_function(move |lua, key: String| {
@@ -683,13 +716,13 @@ fn seat_state(lua: &Lua, seat: usize) -> mlua::Result<Value> {
             return Ok(v);
         }
         let pose = look(lua, |h| Ok(h.host.seat_figure(seat).and_then(|f| h.host.thing_value(f, "pose")).filter(|_| key == "pose")))?;
-        if let Some(super::host::Kept::Text(p)) = pose {
+        if let Some(Kept::Text(p)) = pose {
             return Ok(Value::String(lua.create_string(p)?));
         }
         // The gun in hand where the rules keep one (the shooter's).
         if key == "weapon" {
             return look(lua, |h| match h.host.seat_kept(seat, "weapon") {
-                Some(super::host::Kept::Text(gun)) => Ok(Value::String(lua.create_string(gun)?)),
+                Some(Kept::Text(gun)) => Ok(Value::String(lua.create_string(gun)?)),
                 _ => Ok(Value::Nil),
             });
         }
@@ -714,18 +747,14 @@ fn seat_state(lua: &Lua, seat: usize) -> mlua::Result<Value> {
         }
         let what = format!("player {seat}'s state.{key}");
         if key == "weapon" {
-            let gun = match v {
-                Value::String(s) => super::host::Kept::Text(s.to_str()?.to_string()),
-                Value::Nil => super::host::Kept::Bool(false),
-                other => return Err(mlua::Error::runtime(format!("{what}: the name of a weapon (c.weapons), not a {}", other.type_name()))),
+            let Some(gun) = named_or_none(&v)? else {
+                return Err(mlua::Error::runtime(format!("{what}: the name of a weapon (c.weapons), not a {}", v.type_name())));
             };
             return change(lua, &what, |h| h.host.set_seat_kept(seat, "weapon", gun).map_err(|e| mlua::Error::runtime(format!("{what}: {e}"))));
         }
         if key == "pose" {
-            let pose = match v {
-                Value::String(s) => super::host::Kept::Text(s.to_str()?.to_string()),
-                Value::Nil => super::host::Kept::Bool(false),
-                other => return Err(mlua::Error::runtime(format!("{what}: a name of its frames, not a {}", other.type_name()))),
+            let Some(pose) = named_or_none(&v)? else {
+                return Err(mlua::Error::runtime(format!("{what}: a name of its frames, not a {}", v.type_name())));
             };
             return change(lua, &what, |h| match h.host.seat_figure(seat) {
                 Some(f) => h.host.set_thing_value(f, "pose", pose).map_err(|e| mlua::Error::runtime(format!("{what}: {e}"))),
@@ -776,17 +805,21 @@ pub const PARTS: &str = "parts";
 
 /// What a mistake calls thing `id`: its name, else its number.
 pub fn piece_name(h: &Stage, id: u32) -> String {
-    h.names.get(&id).map_or_else(|| format!("thing {id}"), |n| format!("'{n}'"))
+    h.here.names.get(&id).map_or_else(|| format!("thing {id}"), |n| format!("'{n}'"))
 }
 
 /// The table thing `id`'s state keeps the script's keys in.
 fn own_state(lua: &Lua, id: u32) -> mlua::Result<Table> {
-    let all: Table = lua.named_registry_value("voxcade.data")?;
-    match all.raw_get::<Option<Table>>(id)? {
+    table_at(lua, &lua.named_registry_value("voxcade.data")?, id)
+}
+
+/// The table `parent` holds at `key`, made there if it holds none.
+pub(super) fn table_at(lua: &Lua, parent: &Table, key: impl mlua::IntoLua + Copy) -> mlua::Result<Table> {
+    match parent.raw_get::<Option<Table>>(key)? {
         Some(t) => Ok(t),
         None => {
             let t = lua.create_table()?;
-            all.raw_set(id, &t)?;
+            parent.raw_set(key, &t)?;
             Ok(t)
         }
     }
@@ -801,25 +834,17 @@ fn thing_state(lua: &Lua, id: u32) -> mlua::Result<Value> {
         Some(seat) => return seat_state(lua, seat),
         None => {}
     }
-    let (has_hp, own, lit, piece) = look(lua, |h| Ok((h.kinds[h.thing(id)?.kind].has_hp, h.host.thing_keys(Id::from_raw(id)), h.lights.contains_key(&id), h.pieces.contains_key(&id))))?;
+    let (has_hp, own, lit, piece) = look(lua, |h| Ok((h.kinds[h.thing(id)?.kind].has_hp, h.host.thing_keys(Id::from_raw(id)), h.here.lights.contains_key(&id), h.here.pieces.contains_key(&id))))?;
     if let Some(v) = view(lua, id)? {
         return Ok(Value::Table(v));
     }
-    let all: Table = lua.named_registry_value("voxcade.data")?;
-    let backing = match all.raw_get::<Option<Table>>(id)? {
-        Some(t) => t,
-        None => {
-            let t = lua.create_table()?;
-            all.raw_set(id, t.clone())?;
-            t
-        }
-    };
+    let backing = own_state(lua, id)?;
     let get = lua.create_function(move |lua, key: String| {
         if key == "hp" {
             return look(lua, |h| Ok(Value::Integer(h.thing(id)?.hp as i64)));
         }
         if key == LIGHT {
-            return look(lua, |h| Ok(h.lights.get(&id).map_or(Value::Nil, |b| Value::Number(*b as f64))));
+            return look(lua, |h| Ok(h.here.lights.get(&id).map_or(Value::Nil, |b| Value::Number(*b as f64))));
         }
         // A piece's pose is the script's, kept in its state as it is.
         if key == PARTS {
@@ -827,11 +852,7 @@ fn thing_state(lua: &Lua, id: u32) -> mlua::Result<Value> {
             return if looking(lua) { lua.named_registry_value::<Function>("voxcade.readonly")?.call(v) } else { Ok(v) };
         }
         let kept = look(lua, |h| Ok(h.host.thing_value(Id::from_raw(id), &key)))?;
-        Ok(match kept {
-            Some(super::host::Kept::Bool(b)) => Value::Boolean(b),
-            Some(super::host::Kept::Text(t)) => Value::String(lua.create_string(t)?),
-            None => Value::Nil,
-        })
+        kept_value(lua, kept)
     })?;
     let set = lua.create_function(move |lua, (key, v): (String, Value)| {
         let what = format!("thing.state.{key}");
@@ -852,21 +873,20 @@ fn thing_state(lua: &Lua, id: u32) -> mlua::Result<Value> {
                 return Err(mlua::Error::runtime(format!("{what}: how bright its light is, 0 (off) to 1, not {b}")));
             }
             return change(lua, &what, |h| {
-                h.lights.insert(id, b as f32);
+                h.here.lights.insert(id, b as f32);
                 Ok(())
             });
         }
         // Checked as it is set (the line that set it named), and again at
         // the tick's end (a part changed inside it); kept as it is.
         if key == PARTS {
-            look(lua, |h| piece_pose(&v, h.pieces.get(&id).and_then(|p| p.model.as_deref()), &h.parts, &piece_name(h, id)).map(|_| ()))?;
+            look(lua, |h| piece_pose(&v, h.here.pieces.get(&id).and_then(|p| p.model.as_deref()), &h.parts, &piece_name(h, id)).map(|_| ()))?;
             return own_state(lua, id)?.raw_set(PARTS, v);
         }
-        let value = match v {
-            Value::Boolean(b) => super::host::Kept::Bool(b),
-            Value::Nil => super::host::Kept::Bool(false),
-            Value::String(s) => super::host::Kept::Text(s.to_str()?.to_string()),
-            other => return Err(mlua::Error::runtime(format!("{what}: true, false or a name, not a {}", other.type_name()))),
+        let value = match (named_or_none(&v)?, v) {
+            (Some(kept), _) => kept,
+            (None, Value::Boolean(b)) => Kept::Bool(b),
+            (None, other) => return Err(mlua::Error::runtime(format!("{what}: true, false or a name, not a {}", other.type_name()))),
         };
         change(lua, &what, |h| h.host.set_thing_value(Id::from_raw(id), &key, value).map_err(|e| mlua::Error::runtime(format!("{what}: {e}"))))
     })?;
@@ -926,7 +946,7 @@ pub(super) fn no_such(of: &str, key: &Value, own: Option<&str>) -> mlua::Error {
 /// for the short ones), case and swapped letters as one.
 fn near_item<'a>(name: &str, items: &[&'a crate::lua::api::Item]) -> Option<&'a crate::lua::api::Item> {
     let name = name.to_lowercase();
-    items.iter().map(|i| (super::edits(&name, i.name), *i)).filter(|(d, i)| *d <= if i.name.len().min(name.len()) <= 4 { 1 } else { 2 }).min_by_key(|(d, _)| *d).map(|(_, i)| i)
+    super::nearest(&name, items.iter().map(|i| (i.name, *i)), |n| if n.len().min(name.len()) <= 4 { 1 } else { 2 })
 }
 
 /// Setting a name on an engine's object that is not one it lets a script

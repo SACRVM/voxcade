@@ -112,15 +112,7 @@ impl UserData for LevelView {
         f.add_field_function_get("kept", |lua, _| {
             level_here(lua, "level.kept")?;
             let name = look(lua, |h| Ok(h.levels.list[h.level].name.clone()))?;
-            let all: Table = lua.named_registry_value("voxcade.kept")?;
-            let kept = match all.raw_get::<Option<Table>>(name.as_str())? {
-                Some(t) => t,
-                None => {
-                    let t = lua.create_table()?;
-                    all.raw_set(name.as_str(), &t)?;
-                    t
-                }
-            };
+            let kept = table_at(lua, &lua.named_registry_value("voxcade.kept")?, name.as_str())?;
             if looking(lua) { lua.named_registry_value::<Function>("voxcade.readonly")?.call(kept) } else { Ok(Value::Table(kept)) }
         });
         f.add_field_function_get("arrived", |lua, _| {
@@ -208,10 +200,10 @@ impl UserData for LevelView {
                     h.moved(id.raw(), "level:spawn: facing")?.0.face(way);
                 }
                 if let Some(name) = o.name {
-                    h.names.insert(id.raw(), name);
+                    h.here.names.insert(id.raw(), name);
                 }
                 if let Some(props) = props {
-                    h.props.insert(id.raw(), props);
+                    h.here.props.insert(id.raw(), props);
                 }
                 Ok(id.raw())
             })?;
@@ -241,7 +233,7 @@ impl UserData for LevelView {
                 }
                 _ => thing_id(&v, "level:thing")?,
             };
-            if look(lua, |h| Ok(h.seen(id).is_some() && !h.gone.contains(&id)))? { Ok(Some(handle(lua, id)?)) } else { Ok(None) }
+            if look(lua, |h| Ok(h.seen(id).is_some() && !h.here.gone.contains(&id)))? { Ok(Some(handle(lua, id)?)) } else { Ok(None) }
         });
         m.add_function("things", |lua, (_, kind): (AnyUserData, Option<String>)| {
             level_here(lua, "level:things")?;
@@ -249,21 +241,13 @@ impl UserData for LevelView {
                 let pick = kind.map(|k| h.pick(&k, "level:things")).transpose()?;
                 Ok(h.ids_of(pick.as_ref()))
             })?;
-            let list = lua.create_table()?;
-            for (n, id) in ids.into_iter().enumerate() {
-                list.raw_set(n + 1, handle(lua, id.raw())?)?;
-            }
-            Ok(list)
+            handles(lua, ids.into_iter().map(Id::raw))
         });
         // The players playing in this level, in seat order.
         m.add_function("players", |lua, _: AnyUserData| {
             level_here(lua, "level:players")?;
             let seats = look(lua, |h| Ok((1..=h.seats.len()).filter(|&n| h.playing(n)).collect::<Vec<_>>()))?;
-            let list = lua.create_table()?;
-            for (n, seat) in seats.into_iter().enumerate() {
-                list.raw_set(n + 1, handle(lua, seat_handle(seat))?)?;
-            }
-            Ok(list)
+            handles(lua, seats.into_iter().map(seat_handle))
         });
         m.add_function("count", |lua, (_, kind): (AnyUserData, Option<String>)| {
             level_here(lua, "level:count")?;

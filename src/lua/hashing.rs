@@ -3,7 +3,6 @@
 use super::*;
 
 impl<K: Kit> LuaGame<K> {
-    /// The plain host's state as one number.
     /// The state hash (`Game::state_hash`), each part's hash kept in
     /// `parts` as it is taken in: the ready-made rules with their things
     /// (or the core's things), `world.state`, `player.state`,
@@ -30,7 +29,7 @@ impl<K: Kit> LuaGame<K> {
             (Some(kit), _) => {
                 let moved_on = self.stage.level != 0 || self.stage.visits.iter().enumerate().any(|(i, &v)| v != (i == 0) as u32);
                 let solid = self.stage.host.sim().world.pieces.is_some();
-                if script.state.is_none() && script.player.is_none() && script.level.is_none() && script.kept.is_empty() && script.data.is_empty() && !moved_on && !self.uses_music && self.stage.lights.is_empty() && !solid {
+                if script.state.is_none() && script.player.is_none() && script.level.is_none() && script.kept.is_empty() && script.data.is_empty() && !moved_on && !self.code.uses_music && self.stage.here.lights.is_empty() && !solid {
                     let only = kit.state_hash();
                     for name in PARTS {
                         mark(name, only);
@@ -78,7 +77,7 @@ impl<K: Kit> LuaGame<K> {
         }
         // The pieces' lights, in a level that has some (others hash as
         // before).
-        for (id, b) in &stage.lights {
+        for (id, b) in &stage.here.lights {
             s.u64(0x6c69_6768).u64(*id as u64).f32(*b);
         }
         // The solid pieces taken away, in a level that has some (others
@@ -108,7 +107,7 @@ impl<K: Kit> LuaGame<K> {
         }
         mark(PARTS[7], s.finish());
         // The music's clock, for a game that reads or picks its music.
-        if self.uses_music {
+        if self.code.uses_music {
             let m = &stage.music;
             let next = m.next.map_or(u64::MAX, |(song, when, _)| song.map_or(u64::MAX - 1, |s| s as u64) * 4 + when as u64);
             s.u64(0x6d75_7369).u64(m.song.map_or(u64::MAX, |s| s as u64)).u64(m.steps).u64(next).u64(m.told.unwrap_or(u64::MAX));
@@ -121,6 +120,7 @@ impl<K: Kit> LuaGame<K> {
         s.finish()
     }
 
+    /// The plain host's state as one number.
     pub(super) fn plain_hash(h: &Plain, s: &mut Stable) {
         s.u64(h.sim.tick).u64(h.sim.rng.state()).u64(h.sim.world.changes()).u64(h.sim.freeze as u64);
         s.u64(h.things.len() as u64);

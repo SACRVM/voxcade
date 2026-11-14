@@ -201,36 +201,34 @@ fn close_long(b: &[u8], from: usize, level: usize) -> Option<usize> {
 mod tests {
     use super::*;
 
-    /// The fingerprint's tokens made from the spans are, byte for byte,
-    /// those the lexer made before them: of every game's scripts and of
-    /// pieces that go wrong.
+    /// The tokens `spans` makes (the IDE's colours) are the fingerprint's
+    /// as the lexer before them made it, byte for byte: pinned here for
+    /// the pieces that go wrong, and for every game's scripts by its
+    /// replays (their fingerprint takes main.lua's tokens).
     #[test]
     fn highlighting_keeps_the_fingerprint() {
-        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-            for e in std::fs::read_dir(dir).unwrap().flatten() {
-                let p = e.path();
-                if p.is_dir() {
-                    walk(&p, out);
-                } else if p.extension().is_some_and(|x| x == "lua") {
-                    out.push(p);
-                }
-            }
-        }
-        let mut files = Vec::new();
-        walk(std::path::Path::new("games"), &mut files);
-        walk(std::path::Path::new("lua"), &mut files);
-        let mut sources: Vec<String> = files.iter().map(|f| std::fs::read_to_string(f).unwrap()).collect();
-        assert!(sources.len() > 8);
-        for odd in [
-            "x = 2 ^ 2.5", "x = a^2_", "x = a ^ --[[c]] 2", "s = 'never", "s = \"a\\\nb", "--[[ open", "s = [==[ open ]=]", "x = 0x1p+4 .. 1e-3", "x = 'é' .. ü", "a ^", "a = b..c...d == e ~= f // g :: h",
-        ] {
-            sources.push(odd.to_string());
-        }
-        for src in &sources {
-            let (new, old) = (tokens("t.lua", src), reference("t.lua", src));
-            match (new, old) {
-                (Ok(a), Ok(b)) => assert!(a == b, "{src:?}"),
-                (Err(a), Err(b)) => assert_eq!(a.to_string(), b.to_string(), "{src:?}"),
+        const POWER: &str = "t.lua:1: `^` differs between Linux, Windows and macOS: use math.pow(x, y) (x ^ 2 is fine)";
+        let made: [(&str, Result<&[u8], &str>); 12] = [
+            ("x = 2 ^ 2.5", Err(POWER)),
+            ("x = a^2_", Err(POWER)),
+            ("x = a ^ --[[c]] 2", Err(POWER)),
+            ("s = 'never", Err("t.lua:1: a string that never ends")),
+            ("s = \"a\\\nb", Err("t.lua:2: a string that never ends")),
+            ("--[[ open", Err("t.lua:1: a comment that never ends")),
+            ("s = [==[ open ]=]", Err("t.lua:1: a string that never ends")),
+            ("x = 0x1p+4 .. 1e-3", Ok(b"x\x00=\x000x1p+4\x00..\x001e-3\x00")),
+            ("x = '\u{e9}' .. \u{fc}", Ok(b"x\x00=\x00'\xc3\xa9'\x00..\x00\xc3\x00\xbc\x00")),
+            ("a ^", Err("t.lua:1: `^` at the end of the script")),
+            ("a = b..c...d == e ~= f // g :: h", Ok(b"a\x00=\x00b\x00..\x00c\x00...\x00d\x00==\x00e\x00~=\x00f\x00//\x00g\x00::\x00h\x00")),
+            (
+                "local t = { [1] = 'x', y = 2^2 } -- c\nfunction f(a, ...) return #a, ... end\n",
+                Ok(b"local\x00t\x00=\x00{\x00[\x001\x00]\x00=\x00'x'\x00,\x00y\x00=\x002\x00^\x002\x00}\x00function\x00f\x00(\x00a\x00,\x00...\x00)\x00return\x00#\x00a\x00,\x00...\x00end\x00"),
+            ),
+        ];
+        for (src, want) in made {
+            match (tokens("t.lua", src), want) {
+                (Ok(a), Ok(b)) => assert!(a == b, "{src:?}: {}", a.escape_ascii()),
+                (Err(a), Err(b)) => assert_eq!(a.to_string(), b, "{src:?}"),
                 (a, b) => panic!("{src:?}: {a:?} against {b:?}"),
             }
         }
@@ -263,123 +261,6 @@ mod tests {
                 ("'open", String, true),
             ]
         );
-    }
-
-    /// The tokens as they were made before `spans` (the fingerprint must
-    /// stay the same, byte for byte).
-    fn reference(file: &str, src: &str) -> Result<Vec<u8>> {
-        let b = src.as_bytes();
-        let mut out = Vec::new();
-        let mut i = 0;
-        let mut line = 1;
-        let mut last_power: Option<usize> = None;
-        let push = |out: &mut Vec<u8>, tok: &[u8]| {
-            out.extend_from_slice(tok);
-            out.push(0);
-        };
-        while i < b.len() {
-            let c = b[i];
-            if c == b'\n' {
-                line += 1;
-                i += 1;
-                continue;
-            }
-            if c.is_ascii_whitespace() {
-                i += 1;
-                continue;
-            }
-            // A power must have a plain 2 after it.
-            if let Some(at) = last_power.take() {
-                let two = c == b'2' && !b.get(i + 1).is_some_and(|n| n.is_ascii_alphanumeric() || *n == b'.' || *n == b'_');
-                if !two {
-                    bail!("{file}:{at}: `^` differs between Linux, Windows and macOS: use math.pow(x, y) (x ^ 2 is fine)");
-                }
-            }
-            let start = i;
-            if c == b'-' && b.get(i + 1) == Some(&b'-') {
-                i += 2;
-                if let Some(level) = long_bracket(b, i) {
-                    let end = close_long(b, i + level + 2, level).ok_or_else(|| anyhow::anyhow!("{file}:{line}: a comment that never ends"))?;
-                    line += b[i..end].iter().filter(|&&x| x == b'\n').count();
-                    i = end;
-                } else {
-                    while i < b.len() && b[i] != b'\n' {
-                        i += 1;
-                    }
-                }
-                continue;
-            }
-            if c == b'['
-                && let Some(level) = long_bracket(b, i)
-            {
-                let end = close_long(b, i + level + 2, level).ok_or_else(|| anyhow::anyhow!("{file}:{line}: a string that never ends"))?;
-                line += b[i..end].iter().filter(|&&x| x == b'\n').count();
-                push(&mut out, &b[start..end]);
-                i = end;
-                continue;
-            }
-            if c == b'"' || c == b'\'' {
-                i += 1;
-                while i < b.len() && b[i] != c {
-                    if b[i] == b'\\' {
-                        i += 1;
-                    }
-                    if i < b.len() && b[i] == b'\n' {
-                        line += 1;
-                    }
-                    i += 1;
-                }
-                if i >= b.len() {
-                    bail!("{file}:{line}: a string that never ends");
-                }
-                i += 1;
-                push(&mut out, &b[start..i]);
-                continue;
-            }
-            if c.is_ascii_alphabetic() || c == b'_' {
-                while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
-                    i += 1;
-                }
-                push(&mut out, &b[start..i]);
-                continue;
-            }
-            if c.is_ascii_digit() || (c == b'.' && b.get(i + 1).is_some_and(u8::is_ascii_digit)) {
-                let hex = c == b'0' && matches!(b.get(i + 1), Some(b'x' | b'X'));
-                if hex {
-                    i += 2;
-                }
-                while let Some(&d) = b.get(i) {
-                    let exponent = if hex { matches!(d, b'p' | b'P') } else { matches!(d, b'e' | b'E') };
-                    if exponent && matches!(b.get(i + 1), Some(b'+' | b'-')) {
-                        i += 2;
-                    } else if d.is_ascii_alphanumeric() || d == b'.' {
-                        i += 1;
-                    } else {
-                        break;
-                    }
-                }
-                push(&mut out, &b[start..i]);
-                continue;
-            }
-            let three = [b"...".as_slice()];
-            let two = [b"..".as_slice(), b"==", b"~=", b"<=", b">=", b"<<", b">>", b"//", b"::"];
-            let len = if three.iter().any(|t| b[i..].starts_with(t)) {
-                3
-            } else if two.iter().any(|t| b[i..].starts_with(t)) {
-                2
-            } else {
-                1
-            };
-            if c == b'^' {
-                last_power = Some(line);
-            }
-            push(&mut out, &b[i..i + len]);
-            i += len;
-        }
-        if let Some(at) = last_power {
-            bail!("{file}:{at}: `^` at the end of the script");
-        }
-        Ok(out)
     }
 
     /// Comments, blank lines and indentation leave the tokens as they were;

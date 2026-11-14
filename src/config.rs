@@ -5,6 +5,12 @@
 //! no unit conversion. A game drawn on a finer grid states bigger numbers
 //! (a jump of 8 voxels with 10-voxel figures is a jump of 16 with
 //! 20-voxel figures). The defaults fit figures about 10 voxels tall.
+//!
+//! This file's text is read too: `lua::api::conf_keys` lists the settings
+//! and their docs from the structs as they are written here (`pub struct
+//! NAME {` to its `}`, a doc over every field), for `voxcade api` and the
+//! editors' definitions; test `the_settings_are_what_conf_lua_sets` holds
+//! that list to what serde reads.
 
 use std::collections::BTreeMap;
 

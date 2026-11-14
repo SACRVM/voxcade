@@ -19,13 +19,13 @@ impl<K: Kit> LuaGame<K> {
 
     /// Whether the script has a handler called `name`.
     pub(super) fn handles(&self, name: &str) -> bool {
-        self.globals.as_ref().and_then(|g| Sandbox::function(g, name).ok().flatten()).is_some()
+        self.code.globals.as_ref().and_then(|g| Sandbox::function(g, name).ok().flatten()).is_some()
     }
 
     /// Calls the script's handler `name` (if it has one) with `args`.
     pub(super) fn tell(&mut self, name: &'static str, args: Vec<Told>) -> Result<()> {
-        let Some(f) = self.globals.as_ref().map(|g| Sandbox::function(g, name)).transpose()?.flatten() else { return Ok(()) };
-        self.sandbox.lua.unset_named_registry_value("voxcade.phase")?;
+        let Some(f) = self.code.globals.as_ref().map(|g| Sandbox::function(g, name)).transpose()?.flatten() else { return Ok(()) };
+        world::set_phase(&self.sandbox.lua, None);
         self.with_world(|sb, _| {
             let lua = &sb.lua;
             let mut values = Vec::new();
@@ -52,17 +52,16 @@ impl<K: Kit> LuaGame<K> {
         // Things back to life.
         let stage = &mut self.stage;
         let alive = |stage: &Stage, id: u32| stage.seen(id).is_some_and(|t| t.hp > 0);
-        let back: Vec<u32> = stage.dead.iter().copied().filter(|&id| alive(stage, id)).collect();
+        let back: Vec<u32> = stage.here.dead.iter().copied().filter(|&id| alive(stage, id)).collect();
         for id in back {
-            stage.dead.remove(&id);
+            stage.here.dead.remove(&id);
         }
         // What the script did to things last tick (thing:hurt, thing:take),
         // then the script's things whose hit points ran out, then what the
         // ready-made rules did this tick.
-        let later = std::mem::take(&mut self.stage.later);
+        let later = std::mem::take(&mut self.stage.here.later);
         let ruled = std::mem::take(&mut self.stage.host.sim_mut().events);
-        let mut events = later.into_iter();
-        for event in events.by_ref() {
+        for event in later {
             self.tell_event(event)?;
         }
         let stage = &mut self.stage;
@@ -71,21 +70,21 @@ impl<K: Kit> LuaGame<K> {
             let Some(t) = stage.host.get(id) else { continue };
             let raw = stage.figure_handle(id).unwrap_or(id.raw());
             let kind = &stage.kinds[t.kind];
-            if kind.scripted && kind.has_hp && t.hp <= 0 && !stage.dead.contains(&raw) {
+            if kind.scripted && kind.has_hp && t.hp <= 0 && !stage.here.dead.contains(&raw) {
                 died.push((raw, t.kind, t.body.pos, t.body.look));
             }
         }
         // A hurt it lived through names nobody's later death.
-        self.stage.killers.retain(|id, _| died.iter().any(|d| d.0 == *id));
+        self.stage.here.killers.retain(|id, _| died.iter().any(|d| d.0 == *id));
         for (id, kind, at, look) in died {
             // Its kind's effect and sound, as for the ready-made rules' dead
             // (a player's figure stays).
             if host::handle_seat(id).is_none() {
                 self.stage.goes(kind, at, look);
             }
-            self.stage.dead.insert(id);
+            self.stage.here.dead.insert(id);
             // Who did it, where thing:hurt did (not hit points set by hand).
-            let (by, weapon) = self.stage.killers.remove(&id).unwrap_or_default();
+            let (by, weapon) = self.stage.here.killers.remove(&id).unwrap_or_default();
             let by = by.filter(|&b| self.stage.seen(b).is_some() || host::handle_seat(b).is_some()).map_or(Told::Nil, Told::Thing);
             self.tell("on_death", vec![Told::Thing(id), by, weapon.map_or(Told::Nil, Told::Str)])?;
         }
@@ -102,12 +101,12 @@ impl<K: Kit> LuaGame<K> {
         let found = self.handles("on_touch") || self.handles("on_touch_end") || any_pressed;
         if found {
             let now = self.stage.contacts();
-            let ended: Vec<(u32, u32)> = self.stage.touching.difference(&now).copied().collect();
-            let placed = std::mem::take(&mut self.stage.placed);
+            let ended: Vec<(u32, u32)> = self.stage.here.touching.difference(&now).copied().collect();
+            let placed = std::mem::take(&mut self.stage.here.placed);
             // How each began, judged from where things stood when touches
             // were last looked for, before anything is told.
             let begun: Vec<(u32, u32, &'static str)> = now
-                .difference(&self.stage.touching)
+                .difference(&self.stage.here.touching)
                 .filter(|(a, b)| !placed.contains(a) && !placed.contains(b))
                 .map(|&(a, b)| match self.stage.met(a, b) {
                     // Of two players, the one that came down onto the other.
@@ -115,13 +114,13 @@ impl<K: Kit> LuaGame<K> {
                     met => (a, b, met.word()),
                 })
                 .collect();
-            self.stage.touching = now;
+            self.stage.here.touching = now;
             self.stage.note_positions();
             for (a, b, met) in begun {
                 self.tell("on_touch", vec![Told::Thing(a), Told::Thing(b), Told::Str(met.to_string())])?;
             }
             for (a, b) in ended {
-                let there = |id: u32| self.stage.seen(id).is_some() && !self.stage.dead.contains(&id) && !self.stage.gone.contains(&id) && !self.stage.graveyard.iter().any(|(g, ..)| *g == id);
+                let there = |id: u32| self.stage.seen(id).is_some() && !self.stage.here.dead.contains(&id) && !self.stage.here.gone.contains(&id) && !self.stage.here.graveyard.iter().any(|(g, ..)| *g == id);
                 if there(a) && there(b) {
                     self.tell("on_touch_end", vec![Told::Thing(a), Told::Thing(b)])?;
                 }
@@ -152,7 +151,7 @@ impl<K: Kit> LuaGame<K> {
         let Some(me) = self.stage.seen(who).map(|t| t.body.pos) else { return Ok(false) };
         let nearest = self
             .stage
-            .touching
+            .here.touching
             .iter()
             .filter_map(|&(a, b)| (a == who).then_some(b).or((b == who).then_some(a)))
             .filter_map(|b| Some((self.stage.seen(b)?.body.pos.truncate().distance_squared(me.truncate()), b)))
@@ -174,14 +173,14 @@ impl<K: Kit> LuaGame<K> {
                 // Once until it is back in, whoever saw it fall (a kit tells
                 // every tick it is out).
                 let id = self.fold(who);
-                if self.stage.seen(id).is_none() || !self.stage.fallen.insert(id) {
+                if self.stage.seen(id).is_none() || !self.stage.here.fallen.insert(id) {
                     return Ok(());
                 }
                 self.tell("on_fall_out", vec![Told::Thing(id)])?;
                 // What nobody can reach any more is taken away; the player
                 // waits for what the game decides.
-                if host::handle_seat(id).is_none() && !self.stage.gone.contains(&id) {
-                    self.stage.gone.push(id);
+                if host::handle_seat(id).is_none() && !self.stage.here.gone.contains(&id) {
+                    self.stage.here.gone.push(id);
                 }
                 Ok(())
             }
@@ -192,9 +191,9 @@ impl<K: Kit> LuaGame<K> {
                 }
                 if self.stage.seen(id).is_none() {
                     let half = self.stage.host.sim().half();
-                    self.stage.graveyard.push((id, kind, body, half));
+                    self.stage.here.graveyard.push((id, kind, body, half));
                 }
-                if !self.stage.dead.insert(id) {
+                if !self.stage.here.dead.insert(id) {
                     // Told already (its hit points ran out by the script's hand).
                     return Ok(());
                 }

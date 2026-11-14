@@ -91,7 +91,7 @@ impl UserData for WorldView {
             ask(lua, "world:restart", Ask::Restart { place })
         });
         m.add_function("save", |lua, (_, n): (AnyUserData, i64)| {
-            if lua.named_registry_value::<Option<String>>("voxcade.phase")?.is_some() {
+            if phase(lua).is_some() {
                 return Err(mlua::Error::runtime("world:save: only while a level is played (on_level_start, on_tick): there is none to save here"));
             }
             change(lua, "world:save", |h| {
