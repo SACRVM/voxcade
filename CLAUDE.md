@@ -1083,7 +1083,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `pose.rs`; `mod.rs` `impl Stage`) goes into the register too (test
   `the_register_is_what_the_scripts_see`), then `voxcade api --lua
   lua/voxcade.lua` (test `the_editors_definitions_are_up_to_date`). Tests:
-  `src/lua/tests.rs`.
+  `src/lua/tests/` (a file a topic).
 - Blocks are shaped by hand only (the user rejected relief, rounding and
   primitive models made by tools as fake 3D): an imported tile is drawn
   out through its depth, every layer its picture, nothing more (a block's
