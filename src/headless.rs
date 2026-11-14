@@ -746,7 +746,7 @@ fn standing<G: Game>(game: &Session<G>, heard: &std::collections::BTreeMap<&str,
 pub fn inspect_net<G: Game>(dir: &Path, frames: u32, input: &str, begin: &crate::session::Begin, net: &Networked, record: Option<&Path>) -> Result<()> {
     use crate::net::link::{Link, Where};
     use crate::net::play::{Hosting, Joined, Joining, Locals};
-    use crate::net::udp;
+    use crate::net::{machine, udp};
     let start = Instant::now();
     let micros = || start.elapsed().as_micros() as u64;
     let frame = std::time::Duration::from_micros(crate::net::TICK_US);
@@ -764,7 +764,7 @@ pub fn inspect_net<G: Game>(dir: &Path, frames: u32, input: &str, begin: &crate:
             begin.apply(&mut game, |line, said| eprintln!("> {line}\n{said}"))?;
             game.set_clock(crate::saves::now());
             let mut script = Script::new(parse_script(input, game.actions())?);
-            let mut hosting = Hosting::<G, Where>::new(&game, udp::random(), &udp::machine_name())?;
+            let mut hosting = Hosting::<G, Where>::new(&game, machine::random(), &machine::machine_name())?;
             hosting.reports_to = Some(crate::net::play::reports());
             hosting.host.set_limit(socket.limit());
             match (port, socket.ticket()) {
@@ -774,8 +774,8 @@ pub fn inspect_net<G: Game>(dir: &Path, frames: u32, input: &str, begin: &crate:
                         game: crate::settings::game_name(dir),
                         title: game.cfg.title.clone(),
                         fingerprint: game.fingerprint()?,
-                        commit: udp::COMMIT.to_string(),
-                        name: udp::machine_name(),
+                        commit: machine::COMMIT.to_string(),
+                        name: machine::machine_name(),
                         seats: 0,
                         taken: 0,
                         port,
@@ -822,7 +822,7 @@ pub fn inspect_net<G: Game>(dir: &Path, frames: u32, input: &str, begin: &crate:
                     if hosting.host.all_delivered() || since.elapsed().as_secs() >= 3 {
                         for _ in 0..10 {
                             for (to, bytes) in hosting.host.farewell() {
-                                socket.send(to, &bytes);
+                                socket.send(to, bytes);
                             }
                         }
                         break;
@@ -830,7 +830,7 @@ pub fn inspect_net<G: Game>(dir: &Path, frames: u32, input: &str, begin: &crate:
                 }
                 last = now;
                 for (to, bytes) in hosting.host.outgoing(now) {
-                    socket.send(to, &bytes);
+                    socket.send(to, bytes);
                 }
                 std::thread::sleep((frame * (n + 1)).saturating_sub(start.elapsed()));
             }
@@ -856,8 +856,8 @@ pub fn inspect_net<G: Game>(dir: &Path, frames: u32, input: &str, begin: &crate:
             };
             // A machine of its own each time: two of these on one computer
             // are two guests.
-            let id = [udp::random().to_le_bytes(), udp::random().to_le_bytes()].concat().try_into().expect("16 bytes");
-            let guest = crate::net::Guest::new(host, id, udp::random(), &udp::machine_name(), udp::COMMIT, micros());
+            let id = [machine::random().to_le_bytes(), machine::random().to_le_bytes()].concat().try_into().expect("16 bytes");
+            let guest = crate::net::Guest::new(host, id, machine::random(), &machine::machine_name(), machine::COMMIT, micros());
             let mut joining = Joining::<G, Where>::new(dir, guest);
             joining.reports_to = Some(crate::net::play::reports());
             let mut game: Option<Session<G>> = None;
@@ -902,7 +902,7 @@ pub fn inspect_net<G: Game>(dir: &Path, frames: u32, input: &str, begin: &crate:
                     }
                 }
                 for (to, bytes) in joining.guest.outgoing(now) {
-                    socket.send(to, &bytes);
+                    socket.send(to, bytes);
                 }
                 match joining.state() {
                     Joined::Gone(why) if why == "THE HOST LEFT" => break,

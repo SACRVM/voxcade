@@ -216,11 +216,10 @@ impl Item {
     pub fn label_in(self, lang: &str) -> String {
         match self {
             // A half's directions are the engine's words.
-            Item::Bind(way) if crate::seating::DIRECTIONS.contains(&way) => crate::lang::say(lang, direction_word(way)).to_string(),
+            Item::Bind(way) if crate::input::DIRECTIONS.contains(&way) => crate::lang::say(lang, direction_word(way)).to_string(),
             // The game's own name for it, as written: a game cannot yet
-            // name its actions in each language (planned for 0.7, the
-            // game giving the words; BunnyFarm's German CONTROLS still
-            // reads ACT, BACK, PREV, NEXT, BAG).
+            // name its actions in each language (BunnyFarm's German
+            // CONTROLS reads ACT, BACK, PREV, NEXT, BAG).
             Item::Bind(action) => action.to_uppercase(),
             other => crate::lang::say(lang, other.fixed_label()).to_string(),
         }
@@ -585,188 +584,124 @@ impl Menu {
                             Command::Changed
                         })
                     }
-                    Item::Song if songs > 0 => {
-                        settings.song = (settings.song as i32 + step).rem_euclid(songs as i32) as usize;
-                        Some(Command::Song)
-                    }
-                    Item::Language => {
-                        settings.step_language(step < 0);
-                        Some(Command::Changed)
-                    }
-                    // Right: finer.
-                    Item::Shadows => {
-                        settings.shadows = settings.shadows.step(-step);
-                        Some(Command::Changed)
-                    }
-                    Item::FrameRate => {
-                        settings.frame_rate = settings.frame_rate.step(step);
-                        Some(Command::Changed)
-                    }
-                    Item::SeatKeys(seat) => Some(Command::SeatKeys(seat, step)),
-                    Item::SeatPad(seat) => Some(Command::SeatPad(seat, step)),
-                    _ => toggle(item, settings),
+                    _ => stepped(item, settings, songs, step).or_else(|| toggle(item, settings)),
                 }
             }
-            Nav::Confirm => match item {
-                Item::Start => Some(Command::Start),
-                Item::Quit => Some(Command::Quit),
-                Item::Resume => {
-                    self.stack.clear();
-                    Some(Command::Resume)
+            Nav::Confirm => {
+                if let Some(page) = self.opens(item) {
+                    self.open(page);
+                    return None;
                 }
-                Item::Leave => {
-                    self.stack.clear();
-                    // A guest's first player too (it then watches).
-                    Some(Command::Leave(self.leaving.unwrap_or(1)))
-                }
-                Item::Restart => {
-                    self.stack.clear();
-                    Some(Command::Restart)
-                }
-                Item::ToTitle => Some(Command::ToTitle),
-                Item::Settings => {
-                    self.open(Page::Settings);
-                    None
-                }
-                Item::Audio => {
-                    self.open(Page::Audio);
-                    None
-                }
-                Item::Video => {
-                    self.open(Page::Video);
-                    None
-                }
-                // A game of several: who plays with what, each its keys.
-                Item::Controls => {
-                    self.open(if self.seats.len() > 1 { Page::Players } else { Page::Controls });
-                    None
-                }
-                Item::SeatControls(seat) => {
-                    self.open(Page::PlayerControls(seat));
-                    None
-                }
-                Item::SeatKeys(seat) => Some(Command::SeatKeys(seat, 1)),
-                Item::SeatPad(seat) => Some(Command::SeatPad(seat, 1)),
-                Item::Swap => Some(Command::Swap),
-                Item::Network => {
-                    self.open(Page::Network);
-                    None
-                }
-                Item::Host => {
-                    self.stack.clear();
-                    Some(Command::Host)
-                }
-                Item::HostNet => {
-                    self.stack.clear();
-                    Some(Command::HostNet)
-                }
-                Item::PasteTicket => Some(Command::PasteTicket),
-                Item::CopyCode => Some(Command::CopyCode),
-                Item::CopyTicket => Some(Command::CopyTicket),
-                Item::AnyGame => {
-                    self.stack.truncate(1);
-                    self.open(Page::Joining);
-                    Some(Command::JoinAny)
-                }
-                Item::TypeCode => {
-                    self.code.clear();
-                    self.open(Page::Code);
-                    None
-                }
-                Item::LetIn(peer) => Some(Command::LetIn(peer)),
-                Item::Join => {
-                    self.open(Page::Find);
-                    None
-                }
-                Item::TypeAddress => {
-                    if self.address.is_empty() {
-                        self.address = settings.address.clone();
-                    }
-                    self.open(Page::Join);
-                    None
-                }
-                // Another game's greyed: nothing.
-                Item::Found(n) => {
-                    let found = self.found.get(n).filter(|f| f.same)?;
-                    self.address = found.address.clone();
-                    self.stack.truncate(1);
-                    self.open(Page::Joining);
-                    Some(Command::Join)
-                }
-                Item::Drop(m) => Some(Command::Drop(m)),
-                Item::Back => {
-                    self.close();
-                    None
-                }
-                Item::SaveGame => {
-                    self.open(Page::Save);
-                    None
-                }
-                Item::LoadGame => {
-                    self.open(Page::Load);
-                    None
-                }
-                Item::Continue => {
-                    self.stack.clear();
-                    self.continues.map(Command::Load)
-                }
-                Item::Slot(n) if page == Page::Save => Some(Command::Save(n as u32 + 1)),
-                // An empty slot holds nothing to go on from.
-                Item::Slot(n) if self.slots.get(n).is_some_and(Option::is_some) => {
-                    self.stack.clear();
-                    Some(Command::Load(n as u32 + 1))
-                }
-                Item::Slot(_) => None,
-                Item::Song if songs > 0 => {
-                    settings.song = (settings.song + 1) % songs;
-                    Some(Command::Song)
-                }
-                Item::Shadows => {
-                    settings.shadows = settings.shadows.step(1);
-                    Some(Command::Changed)
-                }
-                Item::FrameRate => {
-                    settings.frame_rate = settings.frame_rate.step(1);
-                    Some(Command::Changed)
-                }
-                Item::Language => {
-                    settings.step_language(false);
-                    Some(Command::Changed)
-                }
-                Item::Music | Item::Sound | Item::Song => None,
-                Item::Bind(action) => {
-                    self.rebinding = Some(action);
-                    None
-                }
-                Item::Reset => {
-                    match page {
-                        Page::PlayerControls(seat) => settings.reset_seat(seat, self.seats.get(seat - 1).map_or(Keys::Nothing, |s| s.keyboard)),
-                        _ => settings.reset_controls(),
-                    }
-                    Some(Command::Changed)
-                }
-                _ => toggle(item, settings),
-            },
+                self.confirm(item, page, settings, songs)
+            }
             Nav::Back => {
                 if self.stack.len() > 1 {
                     self.close();
                     None
                 } else if page == Page::Pause {
-                    self.stack.clear();
-                    Some(Command::Resume)
+                    self.closed(Command::Resume)
                 } else {
                     None
                 }
             }
             Nav::Pause => match page {
                 Page::Title => self.nav(Nav::Confirm, settings, songs),
-                _ if self.stack[0].0 == Page::Pause => {
-                    self.stack.clear();
-                    Some(Command::Resume)
-                }
+                _ if self.stack[0].0 == Page::Pause => self.closed(Command::Resume),
                 _ => None,
             },
         }
+    }
+
+    /// The page choosing `item` opens, if it opens one: in a game of
+    /// several CONTROLS opens who plays with what.
+    fn opens(&self, item: Item) -> Option<Page> {
+        Some(match item {
+            Item::Settings => Page::Settings,
+            Item::Audio => Page::Audio,
+            Item::Video => Page::Video,
+            Item::Controls if self.seats.len() > 1 => Page::Players,
+            Item::Controls => Page::Controls,
+            Item::SeatControls(seat) => Page::PlayerControls(seat),
+            Item::Network => Page::Network,
+            Item::Join => Page::Find,
+            Item::SaveGame => Page::Save,
+            Item::LoadGame => Page::Load,
+            _ => return None,
+        })
+    }
+
+    /// `item` chosen on `page` (one that opens no page of its own).
+    fn confirm(&mut self, item: Item, page: Page, settings: &mut Settings, songs: usize) -> Option<Command> {
+        match item {
+            Item::Start => Some(Command::Start),
+            Item::Quit => Some(Command::Quit),
+            Item::Resume => self.closed(Command::Resume),
+            // A guest's first player too (it then watches).
+            Item::Leave => self.closed(Command::Leave(self.leaving.unwrap_or(1))),
+            Item::Restart => self.closed(Command::Restart),
+            Item::ToTitle => Some(Command::ToTitle),
+            Item::Swap => Some(Command::Swap),
+            Item::Host => self.closed(Command::Host),
+            Item::HostNet => self.closed(Command::HostNet),
+            Item::PasteTicket => Some(Command::PasteTicket),
+            Item::CopyCode => Some(Command::CopyCode),
+            Item::CopyTicket => Some(Command::CopyTicket),
+            Item::AnyGame => Some(self.joining(Command::JoinAny)),
+            Item::TypeCode => {
+                self.code.clear();
+                self.open(Page::Code);
+                None
+            }
+            Item::LetIn(peer) => Some(Command::LetIn(peer)),
+            Item::TypeAddress => {
+                if self.address.is_empty() {
+                    self.address = settings.address.clone();
+                }
+                self.open(Page::Join);
+                None
+            }
+            // Another game's greyed: nothing.
+            Item::Found(n) => {
+                let found = self.found.get(n).filter(|f| f.same)?;
+                self.address = found.address.clone();
+                Some(self.joining(Command::Join))
+            }
+            Item::Drop(m) => Some(Command::Drop(m)),
+            Item::Back => {
+                self.close();
+                None
+            }
+            Item::Continue => {
+                self.stack.clear();
+                self.continues.map(Command::Load)
+            }
+            Item::Slot(n) if page == Page::Save => Some(Command::Save(n as u32 + 1)),
+            // An empty slot holds nothing to go on from.
+            Item::Slot(n) if self.slots.get(n).is_some_and(Option::is_some) => self.closed(Command::Load(n as u32 + 1)),
+            Item::Slot(_) => None,
+            // Confirm steps as right does; the shadows coarser, as left.
+            Item::Shadows => stepped(item, settings, songs, -1),
+            Item::Song | Item::Language | Item::FrameRate | Item::SeatKeys(_) | Item::SeatPad(_) => stepped(item, settings, songs, 1),
+            Item::Music | Item::Sound => None,
+            Item::Bind(action) => {
+                self.rebinding = Some(action);
+                None
+            }
+            Item::Reset => {
+                match page {
+                    Page::PlayerControls(seat) => settings.reset_seat(seat, self.seats.get(seat - 1).map_or(Keys::Nothing, |s| s.keyboard)),
+                    _ => settings.reset_controls(),
+                }
+                Some(Command::Changed)
+            }
+            _ => toggle(item, settings),
+        }
+    }
+
+    /// Every page closed, for `command`.
+    fn closed(&mut self, command: Command) -> Option<Command> {
+        self.stack.clear();
+        Some(command)
     }
 
     /// Picking initials like at an arcade machine: up and down step through
@@ -787,8 +722,6 @@ impl Menu {
         None
     }
 
-    /// A letter typed while picking initials: it is taken, and the next is
-    /// picked (after the third they are in).
     /// The signs an address is typed with on a pad, in the order up steps
     /// through them.
     pub const ADDRESS: &str = "0123456789.:";
@@ -796,52 +729,38 @@ impl Menu {
     /// The JOIN page on a pad, as initials are picked: up and down the last
     /// sign, right one more, left one less, confirm joins, back goes back.
     fn edit_address(&mut self, nav: Nav) -> Option<Command> {
-        let signs: Vec<char> = Self::ADDRESS.chars().collect();
-        match nav {
-            Nav::Up | Nav::Down => {
-                let last = self.address.pop().unwrap_or('0');
-                let at = signs.iter().position(|&c| c == last).unwrap_or(0) as i32;
-                let step = if nav == Nav::Up { 1 } else { -1 };
-                self.address.push(signs[(at + step).rem_euclid(signs.len() as i32) as usize]);
-            }
-            Nav::Right if self.address.len() < 40 => self.address.push('0'),
-            Nav::Left => {
-                self.address.pop();
-            }
-            Nav::Confirm if !self.address.trim().is_empty() => {
-                self.stack.truncate(1);
-                self.open(Page::Joining);
-                return Some(Command::Join);
-            }
-            Nav::Back | Nav::Pause => self.close(),
-            _ => return None,
+        if nav == Nav::Confirm && !self.address.trim().is_empty() {
+            return Some(self.joining(Command::Join));
         }
-        self.moved = self.tick;
-        None
+        let signs: Vec<char> = Self::ADDRESS.chars().collect();
+        let edited = edit_signs(&mut self.address, &signs, 40, nav);
+        self.edited(edited, nav)
     }
 
     /// The code page on a pad, as the JOIN page: up and down the last
     /// sign (a code's own: no 0 and O, no 1 and I), right one more, left
     /// one less; confirm joins once all six are there.
     fn edit_code(&mut self, nav: Nav) -> Option<Command> {
-        let signs = matchmaker_protocol::SIGNS;
+        if nav == Nav::Confirm && self.code.len() == matchmaker_protocol::LENGTH {
+            return Some(self.joining(Command::JoinCode));
+        }
+        let signs: Vec<char> = matchmaker_protocol::SIGNS.iter().map(|&b| b as char).collect();
+        let edited = edit_signs(&mut self.code, &signs, matchmaker_protocol::LENGTH, nav);
+        self.edited(edited, nav)
+    }
+
+    /// JOINING over the title, for `join`.
+    fn joining(&mut self, join: Command) -> Command {
+        self.stack.truncate(1);
+        self.open(Page::Joining);
+        join
+    }
+
+    /// After a sign was edited (`edited`) or not: back closes the page.
+    fn edited(&mut self, edited: bool, nav: Nav) -> Option<Command> {
         match nav {
-            Nav::Up | Nav::Down => {
-                let last = self.code.pop().unwrap_or('A');
-                let at = signs.iter().position(|&c| c as char == last).unwrap_or(0) as i32;
-                let step = if nav == Nav::Up { 1 } else { -1 };
-                self.code.push(signs[(at + step).rem_euclid(signs.len() as i32) as usize] as char);
-            }
-            Nav::Right if self.code.len() < matchmaker_protocol::LENGTH => self.code.push('A'),
-            Nav::Left => {
-                self.code.pop();
-            }
-            Nav::Confirm if self.code.len() == matchmaker_protocol::LENGTH => {
-                self.stack.truncate(1);
-                self.open(Page::Joining);
-                return Some(Command::JoinCode);
-            }
             Nav::Back | Nav::Pause => self.close(),
+            _ if edited => {}
             _ => return None,
         }
         self.moved = self.tick;
@@ -869,6 +788,8 @@ impl Menu {
         self.moved = self.tick;
     }
 
+    /// A letter typed while picking initials: it is taken, and the next is
+    /// picked (after the third they are in).
     pub fn type_letter(&mut self, c: char) -> Option<Command> {
         let c = c.to_ascii_uppercase();
         if self.page() != Some(Page::Initials) || !LETTERS.contains(c) {
@@ -918,6 +839,52 @@ pub fn slot_line(n: u32, info: Option<&crate::saves::SlotInfo>, now: u64, lang: 
     };
     let level: String = info.level.to_uppercase().chars().take(12).collect();
     format!("{n}  {level}  {played}  {ago}").trim_end().to_string()
+}
+
+/// A text typed with `signs` on a pad: up and down step its last sign
+/// through them (the first where there is none), right adds the first
+/// while it is shorter than `most`, left takes the last; whether it was
+/// edited.
+fn edit_signs(text: &mut String, signs: &[char], most: usize, nav: Nav) -> bool {
+    match nav {
+        Nav::Up | Nav::Down => {
+            let last = text.pop().unwrap_or(signs[0]);
+            text.push(crate::settings::cycle(signs, last, if nav == Nav::Up { 1 } else { -1 }));
+        }
+        Nav::Right if text.len() < most => text.push(signs[0]),
+        Nav::Left => {
+            text.pop();
+        }
+        _ => return false,
+    }
+    true
+}
+
+/// A choice stepped `step` places on, as right steps it (left: -1); the
+/// command to apply it, if `item` is such a choice.
+fn stepped(item: Item, settings: &mut Settings, songs: usize, step: i32) -> Option<Command> {
+    match item {
+        Item::Song if songs > 0 => {
+            settings.song = (settings.song as i32 + step).rem_euclid(songs as i32) as usize;
+            Some(Command::Song)
+        }
+        Item::Language => {
+            settings.step_language(step < 0);
+            Some(Command::Changed)
+        }
+        // Right: finer.
+        Item::Shadows => {
+            settings.shadows = settings.shadows.step(-step);
+            Some(Command::Changed)
+        }
+        Item::FrameRate => {
+            settings.frame_rate = settings.frame_rate.step(step);
+            Some(Command::Changed)
+        }
+        Item::SeatKeys(seat) => Some(Command::SeatKeys(seat, step)),
+        Item::SeatPad(seat) => Some(Command::SeatPad(seat, step)),
+        _ => None,
+    }
 }
 
 /// Flips an on/off item; the command to apply it.
@@ -1171,7 +1138,7 @@ mod tests {
         assert_eq!(s.shadows, Shadows::Medium);
         m.nav(Nav::Left, &mut s, 4);
         m.nav(Nav::Left, &mut s, 4);
-        assert_eq!(s.shadows, Shadows::High, "the list does not go round");
+        assert_eq!(s.shadows, Shadows::High, "the list goes round");
     }
 
     /// The pause button closes the pause menu, back closes a page on top

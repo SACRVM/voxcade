@@ -68,7 +68,7 @@ disk itself, so a game can play sealed files while its folder changes.
 stage 4): `Host` and `Guest` state machines without I/O over `wire`'s
 datagrams, `SimNet` a simulated network for the tests, `soak` its stub
 game, `play` a session played by bundles (`Hosting`, `Joining`,
-`Locals`), `udp` the socket (`udp::random` the OS random source, `getrandom`; `docs/multiplayer.md` has the trust model), `quic` iroh across the internet (a thread
+`Locals`), `udp` the socket, `machine` what a machine is to the others (its id, name, build; `machine::random` the OS random source, `getrandom`; `docs/multiplayer.md` has the trust model), `quic` iroh across the internet (a thread
 of its own, channels; stage 6), `link` either as one transport (`Where`,
 machines asking in let in by a spoken code), `trial` iroh's measures
 (`voxcade nettest`; the four signs both screens show to let a machine in
@@ -305,7 +305,7 @@ nearest; its replay `tests/two_ships`);
   heading that folds (arrow on the right, one level only), the whole row
   clicked; in the main area the one file open (no tabs). What was open
   and how far scrolled, the cursor in each text, live in the config
-  folder (`ide/<key>.toml`, `settings::Identity`).
+  folder (`ide/<key>.toml`, `kept::Identity`).
   Below the main area the console: the user's shell in the game folder
   (`ide/terminal.rs` over `alacritty_terminal`, `ide/console.rs` the
   panel), CLAUDE looks for Claude Code's program first (`claude::Finder`; missing:
@@ -643,7 +643,7 @@ nearest; its replay `tests/two_ships`);
   message, where and a backtrace go to `config_dir()/crashes/` (the newest
   10), and the main thread's crash says in a message window where the
   report lies (tests `a_crash_report_is_written_and_the_newest_kept`,
-  `a_crash_is_said_in_a_window_only_for_a_window`; never provoke a real
+  `a_crash_is_said_in_the_systems_language`; never provoke a real
   box). The windows take their picture through `Screen::texture`: an
   outdated surface configured again, a lost one made anew from the
   window, a lost GPU device (wgpu's callback) ending the window with a
@@ -1191,17 +1191,17 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (`Bindings::pause_gives_way`, test `pausing_gives_way_to_the_game`). Player settings, the high score table and save games
   (`src/saves.rs`, `saves/<key>/N.toml`; `shot`, `check`, `inspect` and
   replays keep theirs for the run only) live in the user's config folder
-  (`src/settings.rs`; `$XDG_CONFIG_HOME` or `~/.config`, macOS too for
+  (`src/kept.rs`; `$XDG_CONFIG_HOME` or `~/.config`, macOS too for
   now; on Windows `%APPDATA%`, an older Voxcade's folder under `HOME`
   kept in use while `%APPDATA%` has none), never in the game folder.
-  Everything kept of a game there goes by its key (`settings::Identity`,
+  Everything kept of a game there goes by its key (`kept::Identity`,
   `Kept`; review round 4: a copy of Voxkeep shared Voxkeep's saves and the
   IDE's journals): a game that comes with Voxcade (its folder in the
   `games` of a package or of Voxcade's source, `GAMES_OF_VOXCADE`) keeps
   its bare folder name, so its scores survive an update and a package
   unpacked elsewhere; any other game is its folder's name and 8 signs of
   the BLAKE3 of its canonical path (`test-1a2b3c4d`). The journals and
-  the MCP lock are always the folder's own. Adoption (`settings::settle`,
+  the MCP lock are always the folder's own. Adoption (`kept::settle`,
   before the window plays a game, the IDE opens one, `voxcade replays`):
   a game not yet in `folders/index.toml` takes what an older Voxcade kept
   under its bare name (settings, saves, kept runs, the IDE's memory,

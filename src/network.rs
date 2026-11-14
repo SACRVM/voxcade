@@ -17,6 +17,7 @@ use crate::game::Game;
 use crate::menu::NetView;
 use crate::net::link::{Link, Where};
 use crate::net::play::{Hosting, Joined, Joining, Locals};
+use crate::net::machine;
 use crate::net::udp::{self, Udp};
 use crate::net::{Machine, Notice};
 use crate::session::Session;
@@ -49,12 +50,18 @@ enum Linking {
 
 impl Linking {
     fn start(make: impl FnOnce() -> Result<Link> + Send + 'static) -> Self {
-        let (started, starting) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = started.send(make());
-        });
-        Self::Starting(starting)
+        Self::Starting(on_a_thread(make))
     }
+}
+
+/// What `make` makes, on a thread of its own: taken from the channel when
+/// it is there.
+fn on_a_thread<T: Send + 'static>(make: impl FnOnce() -> T + Send + 'static) -> std::sync::mpsc::Receiver<T> {
+    let (made, making) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = made.send(make());
+    });
+    making
 }
 
 pub struct Network<G: Game> {
@@ -95,15 +102,15 @@ impl<G: Game> Network<G> {
     /// 26500, or `port`.
     pub fn host(game: &Session<G>, port: Option<u16>) -> Result<Self> {
         let (link, port) = Link::lan_host(port)?;
-        let mut hosting = Hosting::new(game, udp::random(), &udp::machine_name())?;
+        let mut hosting = Hosting::new(game, machine::random(), &machine::machine_name())?;
         hosting.reports_to = Some(crate::net::play::reports());
         // What a search for games on the LAN finds.
         hosting.host.set_here(crate::net::wire::Here {
-            game: crate::settings::game_name(&game.dir),
+            game: crate::kept::game_name(&game.dir),
             title: game.cfg.title.clone(),
             fingerprint: game.fingerprint()?,
-            commit: udp::COMMIT.to_string(),
-            name: udp::machine_name(),
+            commit: machine::COMMIT.to_string(),
+            name: machine::machine_name(),
             seats: 0,
             taken: 0,
             port,
@@ -124,7 +131,7 @@ impl<G: Game> Network<G> {
     /// not start).
     pub fn host_net(game: &Session<G>) -> Result<Self> {
         let room = room_of(game)?;
-        let mut hosting = Hosting::new(game, udp::random(), &udp::machine_name())?;
+        let mut hosting = Hosting::new(game, machine::random(), &machine::machine_name())?;
         hosting.reports_to = Some(crate::net::play::reports());
         hosting.host.set_limit(crate::net::link::NET_LIMIT);
         let players = game.cfg.players.max(1) as usize;
@@ -163,7 +170,7 @@ impl<G: Game> Network<G> {
     /// A guest of the host at `host`: across the internet it sends no
     /// bigger datagrams than iroh carries.
     fn joining(dir: &std::path::Path, host: Where) -> Joining<G, Where> {
-        let mut guest = crate::net::Guest::new(host, udp::program_id(), udp::random(), &udp::machine_name(), udp::COMMIT, 0);
+        let mut guest = crate::net::Guest::new(host, machine::program_id(), machine::random(), &machine::machine_name(), machine::COMMIT, 0);
         if matches!(host, Where::Net(_)) {
             guest.set_limit(crate::net::link::NET_LIMIT);
         }
@@ -402,7 +409,7 @@ impl<G: Game> Network<G> {
             Side::Guest(j) => j.guest.outgoing(now),
         };
         for (to, bytes) in out {
-            link.send(to, &bytes);
+            link.send(to, bytes);
         }
         // The host closes who was refused or is gone (across the internet).
         if let Side::Host(h) = &mut self.side {
@@ -421,7 +428,7 @@ impl<G: Game> Network<G> {
         };
         if let Linking::Up(link) = &self.link {
             for (to, bytes) in out {
-                link.send(to, &bytes);
+                link.send(to, bytes);
             }
         }
     }
@@ -518,7 +525,7 @@ impl<G: Game> Network<G> {
 /// What our matchmaker knows a game by: `voxcade/` and its folder's name,
 /// and its data's fingerprint (only the same meet, as on a LAN).
 pub fn app_of<G: Game>(game: &Session<G>) -> Result<(String, String)> {
-    Ok((format!("voxcade/{}", crate::settings::game_name(&game.dir)), format!("{:016x}", game.fingerprint()?)))
+    Ok((format!("voxcade/{}", crate::kept::game_name(&game.dir)), format!("{:016x}", game.fingerprint()?)))
 }
 
 /// The room a game hosted here opens at our matchmaker: its title, seats,
@@ -531,7 +538,7 @@ pub fn room_of<G: Game>(game: &Session<G>) -> Result<mm::Room> {
         title: game.cfg.title.clone(),
         seats: game.cfg.players.max(1),
         taken: 1,
-        attributes: [("name".to_string(), udp::machine_name()), ("build".to_string(), udp::COMMIT.to_string())].into(),
+        attributes: [("name".to_string(), machine::machine_name()), ("build".to_string(), machine::COMMIT.to_string())].into(),
         ..mm::Room::default()
     })
 }
@@ -594,7 +601,7 @@ impl Finder {
         self.found
             .iter()
             .map(|(at, (h, _))| {
-                let build = if h.commit != udp::COMMIT { format!(" {}", crate::lang::say(lang, "(OTHER BUILD)")) } else { String::new() };
+                let build = if h.commit != machine::COMMIT { format!(" {}", crate::lang::say(lang, "(OTHER BUILD)")) } else { String::new() };
                 let line = format!("{}  {}  {}/{}  {at}{build}", h.title.to_uppercase(), h.name.to_uppercase(), h.taken, h.seats);
                 crate::menu::FoundLine { line, address: at.to_string(), same: h.fingerprint == self.fingerprint }
             })
@@ -616,10 +623,7 @@ pub struct NetFinder {
 
 impl NetFinder {
     pub fn new(app: String, version: String) -> Self {
-        let (started, starting) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = started.send(crate::net::quic::Quic::start(crate::net::quic::reach()));
-        });
+        let starting = on_a_thread(|| crate::net::quic::Quic::start(crate::net::quic::reach()));
         Self { starting: Some(starting), quic: None, search: mm::Search { app, version, ..mm::Search::default() }, last: None, rooms: Vec::new() }
     }
 
@@ -653,7 +657,7 @@ impl NetFinder {
             .iter()
             .map(|room| {
                 let name = room.attributes.get("name").map_or(String::new(), |n| format!("  {}", n.to_uppercase()));
-                let build = if room.attributes.get("build").is_some_and(|b| b != udp::COMMIT) { format!(" {}", crate::lang::say(lang, "(OTHER BUILD)")) } else { String::new() };
+                let build = if room.attributes.get("build").is_some_and(|b| b != machine::COMMIT) { format!(" {}", crate::lang::say(lang, "(OTHER BUILD)")) } else { String::new() };
                 let line = format!("{}{name}  {}/{}  {}{build}", room.title.to_uppercase(), room.taken, room.seats, room.code);
                 crate::menu::FoundLine { line, address: room.code.clone(), same: true }
             })

@@ -50,12 +50,6 @@ pub fn serve(remote: bool) -> Result<()> {
     Ok(())
 }
 
-/// The reply to one message of a server without `--remote`.
-#[cfg(test)]
-fn answer(msg: &Value) -> Option<Value> {
-    answer_as(msg, false)
-}
-
 /// The reply to one message (none to a notification).
 fn answer_as(msg: &Value, remote: bool) -> Option<Value> {
     let id = msg.get("id")?.clone();
@@ -395,6 +389,11 @@ pub(crate) fn base64(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The reply to one message of a server without `--remote`.
+    fn answer(msg: &Value) -> Option<Value> {
+        answer_as(msg, false)
+    }
 
     #[test]
     fn base64_as_everyone_writes_it() {

@@ -1,14 +1,10 @@
 //! The network game on a UDP socket (`docs/multiplayer.md`, stage 4,
 //! "What travels"): one socket, not blocking, emptied every frame; the
-//! host on port 26500 or the next free up to 26515, a guest on any. And
-//! what a machine is to the others: its id kept in the config folder, its
-//! name, its build.
+//! host on port 26500 or the next free up to 26515, a guest on any.
 
 use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
 
 use anyhow::{Context, Result};
-
-use super::MachineId;
 
 /// The port a host listens on (UDP), and the last it tries when that one
 /// is taken (a second host on one machine).
@@ -175,84 +171,6 @@ fn interfaces() -> Vec<(String, std::net::Ipv4Addr, std::net::Ipv4Addr)> {
     Vec::new()
 }
 
-/// 64 random bits from the system (never the game's generator: joining
-/// must not change the game).
-pub fn random() -> u64 {
-    // The system's random source (session keys must not be guessable); the
-    // old mixing of the clock and the process only if the system has none.
-    if let Ok(bits) = getrandom::u64() {
-        return bits;
-    }
-    use std::hash::{BuildHasher, Hasher};
-    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-    h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos()));
-    h.write_u32(std::process::id());
-    h.finish()
-}
-
-/// This program's id among the machines: the machine's (made once, kept
-/// in the config folder) mixed with the program's process, so two windows
-/// on one computer are two guests (testing with several windows on one
-/// machine is common); a program started anew comes as a new guest, the
-/// old one's seat freed after 10 s of silence.
-pub fn program_id() -> MachineId {
-    let mut id = machine_id();
-    let mixed = crate::hash::mix(u64::from_le_bytes(id[..8].try_into().expect("8 bytes")) ^ std::process::id() as u64);
-    id[..8].copy_from_slice(&mixed.to_le_bytes());
-    id
-}
-
-/// This machine's id, made once and kept in the config folder.
-pub fn machine_id() -> MachineId {
-    let path = crate::settings::config_dir().join("machine-id");
-    if let Ok(text) = std::fs::read_to_string(&path)
-        && let Some(id) = from_hex(text.trim())
-    {
-        return id;
-    }
-    let mut id = [0u8; 16];
-    id[..8].copy_from_slice(&random().to_le_bytes());
-    id[8..].copy_from_slice(&random().to_le_bytes());
-    let text: String = id.iter().map(|b| format!("{b:02x}")).collect();
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let _ = std::fs::write(&path, text + "\n");
-    id
-}
-
-fn from_hex(text: &str) -> Option<MachineId> {
-    let mut id = [0u8; 16];
-    if text.len() != 32 {
-        return None;
-    }
-    for (n, b) in id.iter_mut().enumerate() {
-        *b = u8::from_str_radix(text.get(n * 2..n * 2 + 2)?, 16).ok()?;
-    }
-    Some(id)
-}
-
-/// What people call this machine: its name, cut short.
-pub fn machine_name() -> String {
-    let name = system_name().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| "player".into());
-    name.split('.').next().unwrap_or("player").chars().take(16).collect()
-}
-
-#[cfg(unix)]
-fn system_name() -> Option<String> {
-    let mut buf = [0u8; 256];
-    // SAFETY: the buffer is as long as said; the name ends with a zero
-    // within it, or is cut at its end.
-    let ok = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0;
-    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-    ok.then(|| String::from_utf8_lossy(&buf[..end]).into_owned())
-}
-
-#[cfg(not(unix))]
-fn system_name() -> Option<String> {
-    std::env::var("COMPUTERNAME").ok()
-}
-
 /// Windows tells a socket that a datagram it sent earlier found no
 /// listener by failing its next read (and drops it after a network
 /// reset): both off, so one machine gone leaves the others' socket alone
@@ -288,9 +206,6 @@ mod windows {
 mod windows {
     pub fn quiet_resets(_socket: &std::net::UdpSocket) {}
 }
-
-/// The commit this program was built from.
-pub const COMMIT: &str = env!("VOXCADE_COMMIT");
 
 #[cfg(test)]
 mod tests {
@@ -346,7 +261,7 @@ mod tests {
     fn a_guest_joins_a_host_over_sockets_on_this_machine() {
         let (mut host_socket, mut guest_socket) = (Udp::guest().unwrap(), Udp::guest().unwrap());
         let mut host: Host<SocketAddr> = Host::new(7, "host", 2);
-        let mut guest = Guest::new(here(&host_socket), [5; 16], 1, "guest", COMMIT, 0);
+        let mut guest = Guest::new(here(&host_socket), [5; 16], 1, "guest", crate::net::machine::COMMIT, 0);
         // The run so far: several pieces.
         let run: Vec<u8> = (0..5000u32).map(|i| (i % 251) as u8).collect();
         let (mut got, mut played, mut ticks) = (None, 0, 0u64);
@@ -361,7 +276,7 @@ mod tests {
             }
             for notice in host.notices() {
                 if let Notice::Joining { index, .. } = notice {
-                    host.admit(index, run.clone(), Vec::new());
+                    host.admit(index, run.clone());
                 }
             }
             while ticks < now / 16_667 {

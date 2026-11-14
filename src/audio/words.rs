@@ -36,14 +36,6 @@ impl Unit {
     }
 }
 
-/// Which form of sound a word belongs to: synthesized from numbers, or a
-/// file that says only this (`silent`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Form {
-    Synth,
-    Alone,
-}
-
 /// What a word means in one of the two readers.
 #[derive(Clone, Copy, Debug)]
 pub struct Use {
@@ -55,7 +47,6 @@ pub struct Use {
     pub range: Option<(f64, f64)>,
     /// What it is when not written, as it would be written.
     pub default: &'static str,
-    pub form: Form,
 }
 
 pub struct Word {
@@ -66,12 +57,12 @@ pub struct Word {
     pub mml: Option<Use>,
 }
 
-const fn sound(unit: Unit, range: Option<(f64, f64)>, default: &'static str, form: Form, meaning: &'static str) -> Option<Use> {
-    Some(Use { unit, meaning, range, default, form })
+const fn sound(unit: Unit, range: Option<(f64, f64)>, default: &'static str, meaning: &'static str) -> Option<Use> {
+    Some(Use { unit, meaning, range, default })
 }
 
 const fn mml(unit: Unit, range: Option<(f64, f64)>, default: &'static str, meaning: &'static str) -> Option<Use> {
-    Some(Use { unit, meaning, range, default, form: Form::Synth })
+    Some(Use { unit, meaning, range, default })
 }
 
 /// Pitches a sound starts, ends and filters at: the range of hearing.
@@ -82,89 +73,88 @@ const TIMES: Option<(f64, f64)> = Some((0.0, super::synth::LONGEST as f64));
 /// Times within a song's instrument, the same ceiling.
 const SONG_TIMES: Option<(f64, f64)> = TIMES;
 
-use Form::*;
 use Unit::*;
 
 /// Every word, a sound's in the order a sound file is written.
 pub const WORDS: &[Word] = &[
     Word {
         name: "wave",
-        sound: sound(Choice, None, "square", Synth, "the oscillator's wave: square, saw, triangle, sine or noise; pulse is square"),
+        sound: sound(Choice, None, "square", "the oscillator's wave: square, saw, triangle, sine or noise; pulse is square"),
         mml: mml(Choice, None, "square", "the same waves, written as a bare word: @lead square ..."),
     },
     Word {
         name: "freq",
-        sound: sound(Hz, Some(PITCHES), "440", Synth, "the pitch at the start; for noise how fast it changes, higher is brighter"),
+        sound: sound(Hz, Some(PITCHES), "440", "the pitch at the start; for noise how fast it changes, higher is brighter"),
         mml: mml(Hz, Some(PITCHES), "the note's", "a pitch the instrument always plays, whatever the note: drums"),
     },
     Word {
         name: "sweep",
-        sound: sound(Semitones, Some((-120.0, 120.0)), "0", Synth, "how far the pitch slides over the whole sound, evenly: -12 an octave down"),
+        sound: sound(Semitones, Some((-120.0, 120.0)), "0", "how far the pitch slides over the whole sound, evenly: -12 an octave down"),
         mml: mml(Semitones, Some((-120.0, 120.0)), "0", "how far each note's pitch slides, over sweep_time"),
     },
     Word {
         name: "duty",
-        sound: sound(Share, Some((0.01, 0.99)), "0.5", Synth, "how much of a square wave's turn is high: 0.5 hollow, less thin and nasal"),
+        sound: sound(Share, Some((0.01, 0.99)), "0.5", "how much of a square wave's turn is high: 0.5 hollow, less thin and nasal"),
         mml: mml(Share, Some((0.05, 0.95)), "0.5", "the same, from 0.05 to 0.95"),
     },
     Word {
         name: "attack",
-        sound: sound(Seconds, TIMES, "0", Synth, "fading in from silence to full volume"),
+        sound: sound(Seconds, TIMES, "0", "fading in from silence to full volume"),
         mml: mml(Seconds, SONG_TIMES, "0.004", "from silence to the peak at a note's start"),
     },
     Word {
         name: "hold",
-        sound: sound(Seconds, TIMES, "0.1", Synth, "time at full volume after the attack"),
+        sound: sound(Seconds, TIMES, "0.1", "time at full volume after the attack"),
         mml: None,
     },
     Word {
         name: "decay",
-        sound: sound(Seconds, TIMES, "0.2", Synth, "fading from full volume to silence at the end, 0.005 at least"),
+        sound: sound(Seconds, TIMES, "0.2", "fading from full volume to silence at the end, 0.005 at least"),
         mml: mml(Seconds, SONG_TIMES, "0.1", "from the peak down to the sustain level, where the note stays until released (in a sound file decay is the fade to silence)"),
     },
     Word {
         name: "punch",
-        sound: sound(Share, Some((0.0, 1.0)), "0", Synth, "extra loudness at the start of the hold, falling away"),
+        sound: sound(Share, Some((0.0, 1.0)), "0", "extra loudness at the start of the hold, falling away"),
         mml: None,
     },
     Word {
         name: "vibrato",
-        sound: sound(Share, Some((0.0, 1.0)), "0", Synth, "how far the pitch wobbles, a share of it; 0.01 is gentle"),
+        sound: sound(Share, Some((0.0, 1.0)), "0", "how far the pitch wobbles, a share of it; 0.01 is gentle"),
         mml: mml(Share, Some((0.0, 1.0)), "0", "the same wobble on every note"),
     },
     Word {
         name: "vibrato_speed",
-        sound: sound(Hz, Some((0.0, 50.0)), "6", Synth, "how often the pitch wobbles in a second"),
+        sound: sound(Hz, Some((0.0, 50.0)), "6", "how often the pitch wobbles in a second"),
         mml: mml(Hz, Some((0.0, 50.0)), "6", "the same"),
     },
     Word {
         name: "jump",
-        sound: sound(Semitones, Some((-48.0, 48.0)), "0", Synth, "the pitch jumps by this many semitones once, at jump_at; a coin: 5, a fourth"),
+        sound: sound(Semitones, Some((-48.0, 48.0)), "0", "the pitch jumps by this many semitones once, at jump_at; a coin: 5, a fourth"),
         mml: None,
     },
     Word {
         name: "jump_at",
-        sound: sound(Seconds, TIMES, "0", Synth, "when the pitch jumps, from the sound's start"),
+        sound: sound(Seconds, TIMES, "0", "when the pitch jumps, from the sound's start"),
         mml: None,
     },
     Word {
         name: "lowpass",
-        sound: sound(Hz, Some(PITCHES), "none", Synth, "a gentle filter: above this pitch it grows quieter, for rumble and muffling"),
+        sound: sound(Hz, Some(PITCHES), "none", "a gentle filter: above this pitch it grows quieter, for rumble and muffling"),
         mml: mml(Hz, Some(PITCHES), "none", "the same gentle filter, fixed"),
     },
     Word {
         name: "lowpass_end",
-        sound: sound(Hz, Some(PITCHES), "lowpass", Synth, "where the filter has slid to at the end, from lowpass"),
+        sound: sound(Hz, Some(PITCHES), "lowpass", "where the filter has slid to at the end, from lowpass"),
         mml: None,
     },
     Word {
         name: "volume",
-        sound: sound(Share, Some((0.0, 1.0)), "0.5", Synth, "how loud, 1 full scale"),
+        sound: sound(Share, Some((0.0, 1.0)), "0.5", "how loud, 1 full scale"),
         mml: mml(Share, Some((0.0, 1.0)), "0.5", "how loud the instrument plays"),
     },
     Word {
         name: "silent",
-        sound: sound(YesNo, None, "false", Alone, "true: no sound at all, silencing one the engine or the ready-made rules bring"),
+        sound: sound(YesNo, None, "false", "true: no sound at all, silencing one the engine or the ready-made rules bring"),
         mml: None,
     },
     // MML's own.
@@ -185,13 +175,6 @@ pub const WORDS: &[Word] = &[
     Word { name: "sidechain_release", sound: None, mml: mml(Seconds, SONG_TIMES, "0.2", "how long the others take to come back") },
     Word { name: "duck", sound: None, mml: mml(Share, Some((0.0, 1.0)), "1", "how far this instrument follows the ducking") },
 ];
-
-/// Words both readers know whose unit differs, each with why it may.
-/// None since `sustain` (a sound's time at full volume, MML's level) became
-/// the sound's `hold`, `arp`/`arp_at` (a factor, MML's cycling list) the
-/// sound's `jump`/`jump_at` in semitones, and `freq_end` (Hz) the sound's
-/// `sweep` in semitones.
-pub const DIFFERENT: &[(&str, &str)] = &[];
 
 /// Names a sound once had (in `c.sounds`), and what says it now.
 pub const RENAMED: &[(&str, &str)] = &[
@@ -245,14 +228,13 @@ mod tests {
     use super::*;
 
     /// One vocabulary: a word a sound file and an MML instrument both know
-    /// is counted in the same unit in both, or stands in `DIFFERENT` with
-    /// its reason; and the register holds exactly the words each reader
-    /// takes.
+    /// is counted in the same unit in both; and the register holds exactly
+    /// the words each reader takes.
     #[test]
     fn a_word_means_the_same_in_a_sound_and_an_instrument() {
         for w in WORDS {
             if let (Some(s), Some(m)) = (&w.sound, &w.mml) {
-                assert!(s.unit == m.unit || DIFFERENT.iter().any(|(n, _)| *n == w.name), "{}: {:?} in a sound, {:?} in MML", w.name, s.unit, m.unit);
+                assert!(s.unit == m.unit, "{}: {:?} in a sound, {:?} in MML", w.name, s.unit, m.unit);
             }
             assert!(w.sound.is_some() || w.mml.is_some(), "{} is a word of neither", w.name);
         }

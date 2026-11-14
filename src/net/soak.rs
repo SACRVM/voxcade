@@ -223,7 +223,7 @@ pub(crate) fn frame(node: &mut Node, addr: usize, now: u64, dt: u64) -> Vec<(usi
             let game = node.game.as_mut().expect("the host plays");
             for notice in h.notices() {
                 if let Notice::Joining { index, .. } = notice {
-                    h.admit(index, game.blob(pad), Vec::new());
+                    h.admit(index, game.blob(pad));
                 }
             }
             h.read(1, keys);

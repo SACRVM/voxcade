@@ -1,8 +1,9 @@
 //! The player: renders a song's voices, sidechain, layers, filter and the game's mix.
 
+use super::SAMPLE_RATE;
 use super::mix::{Mix, SHORTEST, muffle_cutoff};
-use super::song::{FilterMode, Song};
-use super::{SAMPLE_RATE, Wave};
+use super::song::{FilterMode, Instrument, Note, Song};
+use crate::audio::synth::{OnePole, Oscillator};
 
 /// One channel's voice: the note it plays and where the oscillator is.
 #[derive(Default)]
@@ -10,13 +11,27 @@ pub(super) struct Voice {
     pub(super) next: usize,
     pub(super) note: Option<usize>,
     pub(super) started: u64,
-    pub(super) phase: f32,
-    pub(super) noise: f32,
-    pub(super) seed: u32,
-    pub(super) low: f32,
+    pub(super) osc: Oscillator,
+    pub(super) low: OnePole,
     pub(super) filter: Svf,
     /// Envelope level while the key is held, where the release starts from.
     pub(super) released_at: f32,
+    /// What the note it plays keeps the same from start to end: how far
+    /// its instrument's low-pass moves a sample, and its pan's share of
+    /// each side.
+    alpha: f32,
+    pan: (f32, f32),
+}
+
+impl Voice {
+    /// Takes up `notes[index]` (played by `ins`) from its start.
+    fn take_up(&mut self, notes: &[Note], index: usize, ins: &Instrument) {
+        let n = &notes[index];
+        (self.note, self.started, self.osc.phase) = (Some(index), n.start, 0.0);
+        self.alpha = ins.lowpass.map_or(0.0, OnePole::alpha);
+        let angle = (n.pan + 1.0) * std::f32::consts::FRAC_PI_4;
+        self.pan = (angle.cos(), angle.sin());
+    }
 }
 
 /// A state-variable filter (the SID's kind: low, band and high pass from
@@ -26,12 +41,19 @@ pub(super) struct Voice {
 pub(super) struct Svf {
     ic1: f32,
     ic2: f32,
+    /// The cutoff its coefficient was last worked out for, and it.
+    cut: f32,
+    g: f32,
 }
 
 impl Svf {
     fn process(&mut self, x: f32, cutoff: f32, resonance: f32, mode: FilterMode) -> f32 {
         let sr = SAMPLE_RATE as f32;
-        let g = (std::f32::consts::PI * cutoff.clamp(20.0, sr * 0.45) / sr).tan();
+        let cutoff = cutoff.clamp(20.0, sr * 0.45);
+        if cutoff != self.cut {
+            (self.cut, self.g) = (cutoff, (std::f32::consts::PI * cutoff / sr).tan());
+        }
+        let g = self.g;
         // Damping: Butterworth (no peak) at 0, a ringing peak near 1.
         let k = (std::f32::consts::SQRT_2 * (1.0 - resonance)).max(0.1);
         let a1 = 1.0 / (1.0 + g * (g + k));
@@ -194,7 +216,7 @@ impl Player {
     }
 
     pub fn new(song: Song, volume: f32) -> Self {
-        let voices = (0..song.channels.len()).map(|i| Voice { seed: 0x1234_5678 ^ (i as u32 * 7919), ..Voice::default() }).collect();
+        let voices = (0..song.channels.len()).map(|i| Voice { osc: Oscillator::new(0x1234_5678 ^ (i as u32 * 7919)), ..Voice::default() }).collect();
         let loud = song.layers.iter().map(|_| 1.0).collect();
         Self { song, voices, time: 0, duck: None, volume, rate: 1.0, carry: 0.0, since_jump: FADE_IN, intensity: 1.0, loud, bus: Bus::default() }
     }
@@ -246,7 +268,7 @@ impl Player {
             v.next = notes.partition_point(|n| n.start <= at);
             v.note = v.next.checked_sub(1).filter(|&i| notes[i].freq.is_some());
             if let Some(i) = v.note {
-                (v.started, v.phase) = (notes[i].start, 0.0);
+                v.take_up(notes, i, &self.song.instruments[notes[i].instrument]);
             }
         }
     }
@@ -282,6 +304,8 @@ impl Player {
     /// Adds the next frames to interleaved stereo `out`.
     pub fn mix(&mut self, out: &mut [f32]) {
         let sr = SAMPLE_RATE as f32;
+        // The layers move towards the tension, a bar's worth a bar.
+        let step = self.song.tempo / (60.0 * SAMPLE_RATE as f32 * self.song.meter as f32);
         for frame in out.as_chunks_mut::<2>().0 {
             if self.time >= self.song.length {
                 if !self.song.looping {
@@ -295,8 +319,6 @@ impl Player {
                 }
             }
             let ducked = self.duck.map_or(0.0, |d| d.amount(self.time));
-            // The layers move towards the tension, a bar's worth a bar.
-            let step = self.song.tempo / (60.0 * SAMPLE_RATE as f32 * self.song.meter as f32);
             for (loud, &from) in self.loud.iter_mut().zip(&self.song.layers) {
                 let want = if self.intensity >= from { 1.0 } else { 0.0 };
                 *loud = if *loud < want { (*loud + step).min(want) } else { (*loud - step).max(want) };
@@ -307,10 +329,8 @@ impl Player {
                 while v.next < notes.len() && notes[v.next].start <= self.time {
                     // Rests and the end marker have no pitch: the note before rings out.
                     if notes[v.next].freq.is_some() {
-                        v.note = Some(v.next);
-                        v.started = notes[v.next].start;
-                        v.phase = 0.0;
                         let ins = &self.song.instruments[notes[v.next].instrument];
+                        v.take_up(notes, v.next, ins);
                         if ins.sidechain > 0.0 {
                             self.duck = Some(Duck { from: self.time, depth: ins.sidechain, release: ins.sidechain_release });
                         }
@@ -355,31 +375,10 @@ impl Player {
                 if ins.vibrato > 0.0 && t > ins.vibrato_delay {
                     freq *= 1.0 + ins.vibrato * (std::f32::consts::TAU * ins.vibrato_speed * (t - ins.vibrato_delay)).sin();
                 }
-                v.phase += freq / sr;
-                let wrapped = v.phase >= 1.0;
-                v.phase = v.phase.fract();
                 let duty = (ins.duty + ins.pwm * (std::f32::consts::TAU * ins.pwm_speed * t).sin()).clamp(0.05, 0.95);
-                let mut s = match ins.wave {
-                    // A pulse off duty 0.5 is high longer than low: taken off
-                    // its middle so it swings round zero (as in `synth`).
-                    Wave::Square => (if v.phase < duty { 1.0 } else { -1.0 }) - (2.0 * duty - 1.0),
-                    Wave::Saw => 2.0 * v.phase - 1.0,
-                    Wave::Triangle => 1.0 - 4.0 * (v.phase - 0.5).abs(),
-                    Wave::Sine => (std::f32::consts::TAU * v.phase).sin(),
-                    Wave::Noise => {
-                        if wrapped {
-                            v.seed ^= v.seed << 13;
-                            v.seed ^= v.seed >> 17;
-                            v.seed ^= v.seed << 5;
-                            v.noise = v.seed as f32 / u32::MAX as f32 * 2.0 - 1.0;
-                        }
-                        v.noise
-                    }
-                };
-                if let Some(cut) = ins.lowpass {
-                    let alpha = 1.0 - (-std::f32::consts::TAU * cut / sr).exp();
-                    v.low += alpha * (s - v.low);
-                    s = v.low;
+                let mut s = v.osc.next(ins.wave, freq / sr, duty, false);
+                if ins.lowpass.is_some() {
+                    s = v.low.next(s, v.alpha);
                 }
                 if let Some(mode) = ins.filter {
                     // The cutoff swept per note, evenly in octaves.
@@ -394,9 +393,8 @@ impl Player {
                 let duck = if ins.sidechain > 0.0 { 1.0 } else { 1.0 - ducked * ins.duck };
                 let fade = if self.since_jump < FADE_IN { self.since_jump as f32 / FADE_IN as f32 } else { 1.0 };
                 let gain = s * level * ins.volume * n.volume * self.volume * duck * fade * self.loud[ch];
-                let angle = (n.pan + 1.0) * std::f32::consts::FRAC_PI_4;
-                sum[0] += gain * angle.cos() * std::f32::consts::SQRT_2;
-                sum[1] += gain * angle.sin() * std::f32::consts::SQRT_2;
+                sum[0] += gain * v.pan.0 * std::f32::consts::SQRT_2;
+                sum[1] += gain * v.pan.1 * std::f32::consts::SQRT_2;
             }
             // As loud and as clear as the game asked (`Mix`).
             let (l, r) = self.bus.apply(sum[0], sum[1]);

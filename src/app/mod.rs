@@ -25,17 +25,20 @@ use anyhow::{Context, Result};
 use sdl3::gamepad::Gamepad;
 use sdl3::keyboard::Scancode;
 
-use crate::controls::Device;
+use crate::controls::{Controls, Device};
 use crate::game::Game;
 use crate::menu::{Command, Menu, Page};
-use crate::render::Renderer;
+use crate::mesh::FaceMask;
+use crate::render::{FrameData, Renderer};
 use crate::replay::replay_session;
 use crate::replay::{Attract, Playback, Replay, Runs};
 use crate::saves::Slots;
+use crate::seating::{Keys, Seating};
 use crate::session::{Reloaded, Session};
-use crate::settings::{self, Settings};
+use crate::settings::{self, FrameRate, Settings};
 use crate::sim::DT;
 use crate::watch::FolderWatch;
+use crate::window::Screen;
 use front::{Front, Idle};
 
 /// Simulation ticks allowed per rendered frame before we drop time.
@@ -108,7 +111,7 @@ struct App<G: Game> {
     /// Who plays on which seat (`c.players`): the pad pressed last before
     /// a run began is seat 1's, with the keyboard.
     last_pad: Option<u32>,
-    seating: crate::seating::Seating,
+    seating: Seating,
     /// Gamepads: every one plugged in now or later drives the game.
     pads: crate::pads::Pads,
     settings: Settings,
@@ -116,10 +119,7 @@ struct App<G: Game> {
     /// Sound is welcome, not required: without an audio device the game
     /// runs silent.
     speaker: Option<crate::audio::Speaker>,
-    mask: crate::mesh::FaceMask,
-    renderer: Renderer,
-    adapter: wgpu::Adapter,
-    screen: crate::window::Screen,
+    display: Display,
     video: sdl3::VideoSubsystem,
     game: Session<G>,
     dir: PathBuf,
@@ -131,17 +131,64 @@ struct App<G: Game> {
     maker: bool,
 }
 
-/// Runs the game folder `dir`, a game of kind `G`, in a window; with
-/// `watching`, shows that replay instead; with `network`, hosts a network
-/// game at once or joins one (`--host`, `--join`).
-///
-/// `maker`: the maker's keys work (`voxcade run --maker`: F5 restarts the
-/// run on the files as they are, F9 keeps it, 1 to 9 pick the song); a
-/// player of a packaged game, or of the launcher's PLAY, has none of them.
-pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session::Begin, network: Option<crate::headless::Networked>, keys: Option<&str>, maker: bool) -> Result<()> {
+/// The window's picture: the renderer, the surface it draws on, and the
+/// faces the world's meshes hold. (Its fields drop in this order.)
+struct Display {
+    mask: FaceMask,
+    renderer: Renderer,
+    screen: Screen,
+}
+
+impl Display {
+    /// `game`'s world built anew on the GPU with the faces it shows now.
+    fn remesh<G: Game>(&mut self, game: &mut Session<G>) {
+        let mask = game.face_mask();
+        self.remesh_with(game, mask);
+    }
+
+    /// `game`'s world built anew on the GPU with the faces of `mask`.
+    fn remesh_with<G: Game>(&mut self, game: &mut Session<G>, mask: FaceMask) {
+        self.mask = mask;
+        self.renderer.rebuild_all(&self.screen.device, &self.screen.queue, game.world_mut(), &self.mask);
+    }
+
+    /// The pictures presented as `rate` says.
+    fn set_frame_rate(&mut self, rate: FrameRate) {
+        let adapter = self.screen.gpu().adapter().clone();
+        let Screen { surface, device, config, .. } = &mut self.screen;
+        crate::window::set_frame_rate(surface, device, config, &adapter, rate);
+    }
+
+    /// `frame` drawn and shown, if the surface gives a picture.
+    fn show(&mut self, frame: &FrameData) -> Result<()> {
+        self.screen.show(&mut self.renderer, frame)
+    }
+}
+
+/// How a window plays a game (`run`): all unset, the game from its title.
+#[derive(Default)]
+pub struct RunOptions {
+    /// A replay shown instead of a game played (`voxcade replay`).
+    pub watching: Option<Replay>,
+    /// The scenario and lines every run begins with (`--scenario`, `--do`).
+    pub begin: crate::session::Begin,
+    /// A network game hosted at once or joined (`--host`, `--join`).
+    pub network: Option<crate::headless::Networked>,
+    /// Player 1's keys from a script (`--input`), instead of the devices.
+    pub keys: Option<String>,
+    /// The maker's keys work (`voxcade run --maker`: F5 restarts the run on
+    /// the files as they are, F9 keeps it, 1 to 9 pick the song); a player
+    /// of a packaged game, or of the launcher's PLAY, has none of them.
+    pub maker: bool,
+}
+
+/// Runs the game folder `dir`, a game of kind `G`, in a window, as
+/// `options` say.
+pub fn run<G: Game>(dir: &Path, options: RunOptions) -> Result<()> {
+    let RunOptions { watching, begin, network, keys, maker } = options;
     // Who the game is in the config folder, before its settings, saves and
-    // runs are read there (`settings::settle`).
-    settings::settle(dir);
+    // runs are read there (`kept::settle`).
+    crate::kept::settle(dir);
     // A replay watched plays on slots of its own, never the player's.
     let mut game = match &watching {
         Some(replay) => replay_session::<G>(dir, replay)?,
@@ -150,16 +197,12 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
 
     let sdl = sdl3::init().context("initializing SDL")?;
     let video = sdl.video().context("initializing SDL video")?;
-    let mut screen = crate::window::Screen::open(&video, &format!("voxcade - {}", game.cfg.title), 1600, 900, true)?;
+    let screen = Screen::open(&video, &format!("voxcade - {}", game.cfg.title), 1600, 900, true)?;
     // Shadows start coarser on the processor's own graphics (`Settings::load_for`).
-    let adapter = screen.gpu().adapter().clone();
-    let integrated = adapter.get_info().device_type == wgpu::DeviceType::IntegratedGpu;
-    let crate::window::Screen { surface, device, queue, config, window, .. } = &mut screen;
-    let (format, width, height) = (config.format, config.width, config.height);
-
-    let mut renderer = Renderer::new(device, format, width, height);
-    let mask = game.face_mask();
-    renderer.rebuild_all(device, queue, game.world_mut(), &mask);
+    let integrated = screen.gpu().adapter().get_info().device_type == wgpu::DeviceType::IntegratedGpu;
+    let renderer = Renderer::new(&screen.device, screen.config.format, screen.config.width, screen.config.height);
+    let mut display = Display { mask: game.face_mask(), renderer, screen };
+    display.remesh(&mut game);
 
     // Sound is welcome, not required: without an audio device the game runs silent.
     let mut speaker = crate::audio::speaker(&sdl);
@@ -179,9 +222,9 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
         }
     }
     apply_settings(&mut game, &mut settings);
-    crate::window::set_frame_rate(surface, device, config, &adapter, settings.frame_rate);
+    display.set_frame_rate(settings.frame_rate);
     if settings.fullscreen {
-        window.set_fullscreen(true).context("fullscreen")?;
+        display.screen.window.set_fullscreen(true).context("fullscreen")?;
     }
 
     let pads = crate::pads::Pads::new(&sdl);
@@ -189,7 +232,7 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
     // The front end: the title (its menu, its scene's clock), or the game,
     // paused while the menu is open.
     let mut front = Front::new(title_menu(&game));
-    let seating = crate::seating::Seating::new(game.cfg.players);
+    let seating = Seating::new(game.cfg.players);
     if let Some(mut mixer) = speaker.as_mut().and_then(|s| s.lock()) {
         mixer.set_music(game.title_music());
     }
@@ -210,7 +253,7 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
     } else if !begin.is_empty() {
         // A scenario to try: past the title, straight into it.
         begun(&begin, &mut game);
-        renderer.rebuild_all(device, queue, game.world_mut(), &mask);
+        display.remesh(&mut game);
         runs.start(&game);
         front.straight_in();
         play_the_games_song(&mut game, &settings);
@@ -240,16 +283,16 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
         let lang = settings.language();
         let mut said = Vec::new();
         if settings_trouble.is_some() {
-            said.push(crate::lang::say(&lang, "SETTINGS UNREADABLE, THE OLD FILE IS KEPT AS .BROKEN").to_string());
+            said.push(crate::lang::say(lang, "SETTINGS UNREADABLE, THE OLD FILE IS KEPT AS .BROKEN").into());
         }
         for slot in game.slots.unreadable() {
-            said.push(crate::lang::say_with(&lang, "SAVE {} CANNOT BE READ", &[&slot.to_string()]));
+            said.push(crate::lang::say_with(lang, "SAVE {} CANNOT BE READ", &[&slot.to_string()]));
         }
         if !said.is_empty() {
-            parting = Some((said.join("  "), Instant::now()));
+            parting = say_now(said.join("  "));
         }
     }
-    let scripted = keys.map(|k| crate::replay::parse_script(k, game.actions()).map(crate::replay::Script::new)).transpose()?.map(|s| (s, 0.0f32, crate::input::Input::default()));
+    let scripted = keys.map(|k| crate::replay::parse_script(&k, game.actions()).map(crate::replay::Script::new)).transpose()?.map(|s| (s, 0.0f32, crate::input::Input::default()));
     let text_input = video.text_input();
     let watch = FolderWatch::new(dir);
 
@@ -279,10 +322,7 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
         settings,
         settings_path,
         speaker,
-        mask,
-        renderer,
-        adapter,
-        screen,
+        display,
         video: video.clone(),
         game,
         dir: dir.to_path_buf(),
@@ -290,7 +330,7 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
         begin,
         maker,
     };
-    // (Made after the app, so it goes first at the end, as it always did.)
+    // Made after the app, so it is dropped before it at the end.
     let mut events = sdl.event_pump().context("SDL event pump")?;
 
     loop {
@@ -330,18 +370,28 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
 }
 
 impl<G: Game> App<G> {
-    /// The game's world built anew on the GPU with the faces it shows now.
-    fn remesh(&mut self) {
-        self.mask = self.game.face_mask();
-        self.renderer.rebuild_all(&self.screen.device, &self.screen.queue, self.game.world_mut(), &self.mask);
-    }
-
     /// `fresh` in place of the game, the player's settings on it, its world
     /// built.
     fn renew(&mut self, fresh: Session<G>) {
-        self.game = fresh;
-        apply_settings(&mut self.game, &mut self.settings);
-        self.remesh();
+        renew(&mut self.game, fresh, &mut self.settings, &mut self.display);
+    }
+
+    /// The scenario and lines every run begins with (`--scenario`, `--do`)
+    /// played into the game, its world built anew.
+    fn begin_scenario(&mut self) {
+        if !self.begin.is_empty() {
+            begun(&self.begin, &mut self.game);
+            self.display.remesh(&mut self.game);
+        }
+    }
+
+    /// A run begins from the title: recorded, its players seated, the
+    /// glide into it, its song.
+    fn start_run(&mut self) {
+        self.runs.start(&self.game);
+        self.seat_the_players();
+        self.front.glide_in();
+        play_the_games_song(&mut self.game, &self.settings);
     }
 
     /// The game loaded afresh from its folder, in place of the one there;
@@ -357,15 +407,14 @@ impl<G: Game> App<G> {
     fn save_settings(&mut self) {
         if let Err(e) = self.settings.save(&self.settings_path) {
             eprintln!("settings: {e:#}");
-            self.parting = Some(trouble(&self.settings.language(), "SETTINGS NOT SAVED: {}", &e));
+            self.parting = Some(trouble(self.settings.language(), "SETTINGS NOT SAVED: {}", &e));
         }
     }
 
     /// The seats as a run begins: the plan in the settings, the pad pressed
     /// last seat 1's.
     fn seat_the_players(&mut self) {
-        self.seating = crate::seating::Seating::new(self.game.cfg.players);
-        self.seating.begin(self.last_pad.filter(|_| self.front.played_with == Device::Gamepad), &crate::seating::resolve(&self.settings.players, &self.pads.named()));
+        self.seating = seated(self.game.cfg.players, self.last_pad, &self.front, &self.settings, &self.pads);
     }
 
     /// The title's replay ends at any key, at its end, or where it runs
@@ -401,7 +450,7 @@ impl<G: Game> App<G> {
             }
             if rebuild {
                 apply_settings(&mut self.game, &mut self.settings);
-                self.remesh();
+                self.display.remesh(&mut self.game);
                 println!("reloaded world");
             }
         }
@@ -444,8 +493,8 @@ impl<G: Game> App<G> {
     fn read_input(&mut self, keyboard: &sdl3::keyboard::KeyboardState) -> crate::input::Input {
         let App { game, pads, settings, seating, front, playback, net, .. } = self;
         // The players page shows the run's seats while playing, else the
-        // plan (a game of several).
-        if game.cfg.players > 1 {
+        // plan (a game of several); only an open menu shows them.
+        if game.cfg.players > 1 && front.menu.is_open() {
             let named = pads.named();
             let shown = if front.playing { seating.clone() } else { planned(settings, &named, game.cfg.players) };
             front.menu.seats = crate::menu::SeatLine::all(&shown, &named);
@@ -455,20 +504,16 @@ impl<G: Game> App<G> {
         } else {
             // Each seat its keys and pads; who sits there for the ticks to
             // come (a replay brings its own).
-            let of_seat = |seat: usize| pads.open.iter().filter(|p| p.id().ok().and_then(|id| seating.pad_seat(id.raw())) == Some(seat)).collect::<Vec<_>>();
             for seat in 2..=seating.seats() {
-                let input = crate::controls::read_seat(Some(keyboard), seating.keys(seat), &of_seat(seat), settings.pad_of(seat), settings, game.actions());
+                let its_pads = pads_of(pads, seating, seat);
+                let input = crate::controls::read_seat(Some(keyboard), seating.keys(seat), &its_pads, settings.pad_of(seat), settings, game.actions());
                 if playback.is_none() && front.playing && net.is_none() {
-                    let controls = match seating.keys(seat) {
-                        crate::seating::Keys::Whole => crate::controls::Controls::of(game.actions(), Device::Keyboard, front.pad_kind, settings),
-                        crate::seating::Keys::Nothing => crate::controls::Controls::of_pad(game.actions(), of_seat(seat).first().map_or(front.pad_kind, |p| keys::pad_style(p.r#type())), settings.pad_of(seat), settings),
-                        half => crate::controls::Controls::of_half(game.actions(), half, settings),
-                    };
+                    let controls = seat_controls(game, settings, front, seating.keys(seat), seat, its_pads.first().copied());
                     game.set_seat(seat, seating.taken(seat).then_some(input));
                     game.set_seat_controls(seat, controls);
                 }
             }
-            crate::controls::read_seat(Some(keyboard), seating.keys(1), &of_seat(1), &settings.pad, settings, game.actions())
+            crate::controls::read_seat(Some(keyboard), seating.keys(1), &pads_of(pads, seating, 1), &settings.pad, settings, game.actions())
         }
     }
 
@@ -563,12 +608,7 @@ impl<G: Game> App<G> {
         // brings its own), and the time a save in them is stamped with.
         self.game.set_clock(crate::saves::now());
         if self.playback.is_none() && self.net.is_none() {
-            let controls = match self.seating.keys(1) {
-                half @ (crate::seating::Keys::Left | crate::seating::Keys::Right) if self.front.played_with == Device::Keyboard => crate::controls::Controls::of_half(self.game.actions(), half, &self.settings),
-                // The keyboard another's: seat 1 plays on its pad.
-                crate::seating::Keys::Nothing => self.game.player_controls(Device::Gamepad, self.front.pad_kind, &self.settings),
-                _ => self.game.player_controls(self.front.played_with, self.front.pad_kind, &self.settings),
-            };
+            let controls = seat_controls(&self.game, &self.settings, &self.front, self.seating.keys(1), 1, None);
             self.game.set_controls(controls);
         }
     }
@@ -612,12 +652,12 @@ impl<G: Game> App<G> {
                 match hosted {
                     // F5 or LOAD: a new run for everyone.
                     Some(Ok(true)) => {
-                        self.remesh();
+                        self.display.remesh(&mut self.game);
                         self.runs.start(&self.game);
                     }
                     Some(Err(e)) => {
                         eprintln!("the network game: {e:#}");
-                        *parting = Some((format!("{e:#}").to_uppercase(), Instant::now()));
+                        *parting = say_now(failure(&e));
                         if let Some(mut n) = net.take() {
                             n.leave();
                         }
@@ -627,7 +667,7 @@ impl<G: Game> App<G> {
                 let App { front, playback, game, runs, speaker, settings, pads, watching, .. } = self;
                 if front.pause_after_fade && !game.fading() {
                     front.pause_after_fade = false;
-                    front.menu = pause_menu(game, watching.is_none());
+                    pause_for(front, game, watching.is_none(), None);
                 }
                 match playback {
                     Some(p) => {
@@ -644,15 +684,8 @@ impl<G: Game> App<G> {
                     }
                     None => runs.step(game),
                 }
-                if !game.game.sim().sounds.is_empty() {
-                    if let Some(mut mixer) = speaker.as_mut().and_then(|s| s.lock()) {
-                        let quiet = if front.attracting { ATTRACT_SOUNDS } else { 1.0 };
-                        game.play_sounds(&mut mixer, settings.sound_gain() * quiet);
-                    }
-                    if settings.rumble && !front.attracting {
-                        rumble(&mut pads.open, game);
-                    }
-                }
+                let quiet = if front.attracting { ATTRACT_SOUNDS } else { 1.0 };
+                tick_sounds(game, speaker, pads, settings, quiet, !front.attracting);
             } else if !front.playing {
                 front.title_tick += 1;
                 if let Some(mut mixer) = speaker.as_mut().and_then(|s| s.lock()) {
@@ -675,7 +708,7 @@ impl<G: Game> App<G> {
         if self.clock.fps_since.elapsed() >= Duration::from_millis(500) {
             self.clock.fps = self.clock.fps_frames as f32 / self.clock.fps_since.elapsed().as_secs_f32();
             let fps = self.clock.fps;
-            let s = self.renderer.stats;
+            let s = self.display.renderer.stats;
             let (game, front) = (&self.game, &self.front);
             let title = match game.game.summary() {
                 Some(hud) if front.playing => {
@@ -692,7 +725,7 @@ impl<G: Game> App<G> {
                     game.game.sim().particles.len()
                 ),
             };
-            let _ = self.screen.window.set_title(&title);
+            let _ = self.display.screen.window.set_title(&title);
             self.clock.fps_frames = 0;
             self.clock.fps_since = Instant::now();
         }
@@ -751,18 +784,55 @@ fn pause_menu<G: Game>(game: &Session<G>, playing: bool) -> Menu {
     Menu::pause().with_slots((1..=game.slots.count()).map(|n| game.slots.info(n).map(|i| crate::menu::slot_line(n, Some(&i), now, &game.language()))).collect())
 }
 
+/// The game paused (`pause_menu`), LEAVE offered to the player on
+/// `leaving`.
+fn pause_for<G: Game>(front: &mut Front, game: &Session<G>, playing: bool, leaving: Option<usize>) {
+    front.menu = pause_menu(game, playing);
+    front.menu.leaving = leaving;
+}
+
 /// The seats as the plan in the settings has them, with the pads plugged
 /// in (the players page before a run, and where its runs begin).
-fn planned(settings: &Settings, named: &[(u32, String)], seats: u32) -> crate::seating::Seating {
-    let mut s = crate::seating::Seating::new(seats);
+fn planned(settings: &Settings, named: &[(u32, String)], seats: u32) -> Seating {
+    let mut s = Seating::new(seats);
     s.begin(None, &crate::seating::resolve(&settings.players, named));
     s
+}
+
+/// The seats as a run begins: the plan in the settings, the pad pressed
+/// last (`last_pad`) seat 1's where the title was steered with a pad.
+fn seated(seats: u32, last_pad: Option<u32>, front: &Front, settings: &Settings, pads: &crate::pads::Pads) -> Seating {
+    let mut s = Seating::new(seats);
+    s.begin(last_pad.filter(|_| front.played_with == Device::Gamepad), &crate::seating::resolve(&settings.players, &pads.named()));
+    s
+}
+
+/// The pads plugged in that `seat` plays with.
+fn pads_of<'a>(pads: &'a crate::pads::Pads, seating: &Seating, seat: usize) -> Vec<&'a Gamepad> {
+    pads.open.iter().filter(|p| p.id().ok().and_then(|id| seating.pad_seat(id.raw())) == Some(seat)).collect()
+}
+
+/// What the player on `seat` (its part of the keyboard `part`) plays with,
+/// as the game sees it: seat 1 the device it steered with last, its half
+/// of the keyboard, or its pad where the keyboard is another's; a seat
+/// after it its part of the keyboard or its own pad's buttons (`pad`, the
+/// first of its pads, says their letters).
+fn seat_controls<G: Game>(game: &Session<G>, settings: &Settings, front: &Front, part: Keys, seat: usize, pad: Option<&Gamepad>) -> Controls {
+    let actions = game.actions();
+    match (seat, part) {
+        (1, half @ (Keys::Left | Keys::Right)) if front.played_with == Device::Keyboard => Controls::of_half(actions, half, settings),
+        (1, Keys::Nothing) => game.player_controls(Device::Gamepad, front.pad_kind, settings),
+        (1, _) => game.player_controls(front.played_with, front.pad_kind, settings),
+        (_, Keys::Whole) => Controls::of(actions, Device::Keyboard, front.pad_kind, settings),
+        (_, Keys::Nothing) => Controls::of_pad(actions, pad.map_or(front.pad_kind, |p| keys::pad_style(p.r#type())), settings.pad_of(seat), settings),
+        (_, half) => Controls::of_half(actions, half, settings),
+    }
 }
 
 /// The seat after the first the plan gives the keyboard (its start key
 /// takes it).
 fn planned_keyboard(settings: &Settings) -> Option<usize> {
-    settings.players.iter().enumerate().skip(1).find(|(_, p)| p.keyboard != crate::seating::Keys::Nothing).map(|(i, _)| i + 1)
+    settings.players.iter().enumerate().skip(1).find(|(_, p)| p.keyboard != Keys::Nothing).map(|(i, _)| i + 1)
 }
 
 /// The seat the plan gives a pad (its START takes it).
@@ -778,6 +848,28 @@ fn apply_settings<G: Game>(game: &mut Session<G>, settings: &mut Settings) {
     game.options = settings.options();
 }
 
+/// `fresh` in place of `game`, the player's settings on it, its world
+/// built.
+fn renew<G: Game>(game: &mut Session<G>, fresh: Session<G>, settings: &mut Settings, display: &mut Display) {
+    *game = fresh;
+    apply_settings(game, settings);
+    display.remesh(game);
+}
+
+/// The sounds of the tick just played, at `quiet` of the player's volume,
+/// and the gamepads' rumble with them if `rumbles`.
+fn tick_sounds<G: Game>(game: &mut Session<G>, speaker: &mut Option<crate::audio::Speaker>, pads: &mut crate::pads::Pads, settings: &Settings, quiet: f32, rumbles: bool) {
+    if game.game.sim().sounds.is_empty() {
+        return;
+    }
+    if let Some(mut mixer) = speaker.as_mut().and_then(|s| s.lock()) {
+        game.play_sounds(&mut mixer, settings.sound_gain() * quiet);
+    }
+    if settings.rumble && rumbles {
+        rumble(&mut pads.open, game);
+    }
+}
+
 /// Gamepads rumble with what happened in the last tick, as hard and as
 /// long as the game says (`Game::rumble`).
 fn rumble<G: Game>(pads: &mut [Gamepad], game: &Session<G>) {
@@ -786,6 +878,16 @@ fn rumble<G: Game>(pads: &mut [Gamepad], game: &Session<G>) {
     for pad in pads.iter_mut() {
         let _ = pad.set_rumble(level, level / 2, ms);
     }
+}
+
+/// A line said on the screen for a few seconds, from now.
+fn say_now(line: String) -> Option<(String, Instant)> {
+    Some((line, Instant::now()))
+}
+
+/// A failure as the screen says it: the whole chain, in capitals.
+fn failure(e: &anyhow::Error) -> String {
+    format!("{e:#}").to_uppercase()
 }
 
 /// A failure said on the screen for a few seconds: `what` with the cause's

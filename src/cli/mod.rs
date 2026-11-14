@@ -73,14 +73,14 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
     if args.is_empty()
         && let Some(dir) = default
     {
-        crash::install(true);
-        return app::run::<G>(dir, None, Default::default(), None, None, false);
+        crash::install();
+        return app::run::<G>(dir, app::RunOptions::default());
     }
     let call = parse(&args)?;
     // A crash in a window is reported, not silent (`crash`); the commands
     // without one say it on the terminal as ever.
     if call.opens_a_window() {
-        crash::install(true);
+        crash::install();
     }
     match call {
         // Started by a double click: the launcher (the IDE's start page).
@@ -88,10 +88,10 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
             crate::desktop::keep_entry();
             crate::ide::run::<G>(None, false)
         }
-        Call::Run { dir, begin, net, keys, maker } => app::run::<G>(&opened(&dir)?, None, begin, net, keys.as_deref(), maker),
+        Call::Run { dir, begin, net, keys, maker } => app::run::<G>(&opened(&dir)?, app::RunOptions { begin, network: net, keys, maker, ..Default::default() }),
         Call::Replay { dir, file } => {
             let dir = opened(&dir)?;
-            app::run::<G>(&dir, Some(replay::Replay::load(&file)?), Default::default(), None, None, false)
+            app::run::<G>(&dir, app::RunOptions { watching: Some(replay::Replay::load(&file)?), ..Default::default() })
         }
         Call::Replays { dir } => replay::list::<G>(&opened(&dir)?),
         Call::Ide { dir, opts, shot, remote } => {

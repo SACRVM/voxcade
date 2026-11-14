@@ -37,6 +37,69 @@ impl Wave {
     }
 }
 
+/// The oscillator of a sound and of a song's voice alike: where it is in
+/// its wave's turn (0 to 1), and the noise's generator and the value it
+/// holds for a turn.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Oscillator {
+    pub(crate) phase: f32,
+    seed: u32,
+    held: f32,
+}
+
+impl Oscillator {
+    pub(crate) fn new(seed: u32) -> Self {
+        Self { phase: 0.0, seed, held: 0.0 }
+    }
+
+    /// The next sample of `wave`, `step` of a turn on (its frequency over
+    /// the sample rate). A pulse off duty 0.5 is high longer than low (or
+    /// the other way): its middle lies off zero, a DC offset that thumps
+    /// and takes headroom, taken off exactly so it swings round zero
+    /// (nothing changes at 0.5). Noise draws a new value each turn, and
+    /// where `draw`.
+    pub(crate) fn next(&mut self, wave: Wave, step: f32, duty: f32, draw: bool) -> f32 {
+        self.phase += step;
+        let wrapped = self.phase >= 1.0;
+        self.phase = self.phase.fract();
+        match wave {
+            Wave::Square => (if self.phase < duty { 1.0 } else { -1.0 }) - (2.0 * duty - 1.0),
+            Wave::Saw => 2.0 * self.phase - 1.0,
+            Wave::Sine => (std::f32::consts::TAU * self.phase).sin(),
+            Wave::Triangle => 1.0 - 4.0 * (self.phase - 0.5).abs(),
+            Wave::Noise => {
+                if wrapped || draw {
+                    self.seed ^= self.seed << 13;
+                    self.seed ^= self.seed >> 17;
+                    self.seed ^= self.seed << 5;
+                    self.held = self.seed as f32 / u32::MAX as f32 * 2.0 - 1.0;
+                }
+                self.held
+            }
+        }
+    }
+}
+
+/// The gentle low-pass of a sound and of a song's instrument: one pole,
+/// 6 dB an octave.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct OnePole {
+    low: f32,
+}
+
+impl OnePole {
+    /// How far a sample moves it for a cutoff at `cut` Hz.
+    pub(crate) fn alpha(cut: f32) -> f32 {
+        1.0 - (-std::f32::consts::TAU * cut / SAMPLE_RATE as f32).exp()
+    }
+
+    /// `s` through it, moving `alpha` of the way.
+    pub(crate) fn next(&mut self, s: f32, alpha: f32) -> f32 {
+        self.low += alpha * (s - self.low);
+        self.low
+    }
+}
+
 /// One synthesized sound. Times in seconds, frequencies in Hz, pitch
 /// changes in semitones (the words of `audio::words`).
 #[derive(Clone, Debug, PartialEq)]
@@ -129,21 +192,14 @@ impl Synth {
         let total = (attack + hold + decay).min(LONGEST);
         let count = (total * sr).ceil() as usize;
         let mut out = Vec::with_capacity(count);
-        let mut phase = 0.0f32;
-        let mut held = 0.0f32;
-        let mut seed = 0x9E37_79B9u32;
-        let mut low = 0.0f32;
+        let mut osc = Oscillator::new(0x9E37_79B9);
+        let mut low = OnePole::default();
         // The file speaks semitones; the oscillator goes in Hz and ratios,
         // computed once (the end pitch exactly as an end frequency in Hz
         // gave it before).
         let end = (self.sweep != 0.0).then(|| self.freq_end());
         let jump = ratio(self.jump);
         let duty = self.duty.clamp(0.01, 0.99);
-        // A pulse off 0.5 is high longer than low (or the other way): its
-        // middle lies off zero, a DC offset that thumps and takes headroom.
-        // Taken off exactly, so the pulse swings round zero (0 at 0.5:
-        // nothing changes there).
-        let centre = 2.0 * duty - 1.0;
         for i in 0..count {
             let t = i as f32 / sr;
             let u = t / total;
@@ -155,32 +211,13 @@ impl Synth {
                 freq *= jump;
             }
             freq *= 1.0 + self.vibrato * (std::f32::consts::TAU * self.vibrato_speed * t).sin();
-            phase += freq.max(0.0) / sr;
-            let wrapped = phase >= 1.0;
-            phase = phase.fract();
-            let mut s = match self.wave {
-                Wave::Square => (if phase < duty { 1.0 } else { -1.0 }) - centre,
-                Wave::Saw => 2.0 * phase - 1.0,
-                Wave::Sine => (std::f32::consts::TAU * phase).sin(),
-                Wave::Triangle => 1.0 - 4.0 * (phase - 0.5).abs(),
-                Wave::Noise => {
-                    if wrapped || i == 0 {
-                        seed ^= seed << 13;
-                        seed ^= seed >> 17;
-                        seed ^= seed << 5;
-                        held = seed as f32 / u32::MAX as f32 * 2.0 - 1.0;
-                    }
-                    held
-                }
-            };
+            let mut s = osc.next(self.wave, freq.max(0.0) / sr, duty, i == 0);
             if let Some(cut) = self.lowpass {
                 let cut = match self.lowpass_end {
                     Some(end) if end > 0.0 && cut > 0.0 => cut * (end / cut).powf(u),
                     _ => cut,
                 };
-                let alpha = 1.0 - (-std::f32::consts::TAU * cut / sr).exp();
-                low += alpha * (s - low);
-                s = low;
+                s = low.next(s, OnePole::alpha(cut));
             }
             let envelope = if t < attack {
                 t / attack

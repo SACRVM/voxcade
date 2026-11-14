@@ -321,8 +321,7 @@ impl Mixer {
         self.voices.retain(|v| v.at < v.samples.len() && v.fade != Some(0));
         // When much plays at once, turned down just enough to stay under the
         // ceiling, both sides alike, and back up slowly; a mix under it comes
-        // out as it is, 1.5 ms later. (It went through tanh, which bent
-        // anything loud a little, 0.5 out as 0.46, and held no ceiling.)
+        // out as it is, 1.5 ms later.
         self.limiter.process_interleaved_stereo(out);
     }
 }

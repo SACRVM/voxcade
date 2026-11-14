@@ -92,6 +92,28 @@ struct Remote<A> {
 /// drops it, and a line for every screen goes.
 const TELLING: u64 = 2_000_000;
 
+/// Every bundle of a run as sent, one after another in one buffer (a
+/// bundle of a few bytes a buffer of its own cost three times that).
+#[derive(Default)]
+struct History {
+    bytes: Vec<u8>,
+    /// Where each bundle ends in `bytes`.
+    ends: Vec<usize>,
+}
+
+impl History {
+    fn push(&mut self, bundle: &[u8]) {
+        self.bytes.extend_from_slice(bundle);
+        self.ends.push(self.bytes.len());
+    }
+
+    /// The bundle of tick `tick`.
+    fn get(&self, tick: usize) -> &[u8] {
+        let start = tick.checked_sub(1).map_or(0, |t| self.ends[t]);
+        &self.bytes[start..self.ends[tick]]
+    }
+}
+
 /// The host's side, sending datagrams to addresses of type `A`.
 pub struct Host<A> {
     key: u64,
@@ -100,7 +122,7 @@ pub struct Host<A> {
     remotes: Vec<Remote<A>>,
     joined: u8,
     /// Every bundle of the run, as sent.
-    history: Vec<Vec<u8>>,
+    history: History,
     /// The host's own players' readings, each with the tick it was read
     /// before, held back by `delay`.
     own: VecDeque<(u64, u8, Input)>,
@@ -112,7 +134,6 @@ pub struct Host<A> {
     own_asks: u32,
     paused: Option<Machine>,
     notices: Vec<Notice>,
-    us_per_tick: u32,
     last_roster: Option<u64>,
     /// Refusals sent to an address for a reason this minute, and those
     /// still to send.
@@ -183,7 +204,7 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
             seats: slots,
             remotes: Vec::new(),
             joined: 0,
-            history: Vec::new(),
+            history: History::default(),
             own: VecDeque::new(),
             own_last: vec![Input::default(); seats],
             delay: 0,
@@ -192,7 +213,6 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
             own_asks: 0,
             paused: None,
             notices: Vec::new(),
-            us_per_tick: 0,
             last_roster: None,
             refusals: BTreeMap::new(),
             refused: Vec::new(),
@@ -218,7 +238,7 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
 
     /// The next tick it builds.
     pub fn next_tick(&self) -> u64 {
-        self.history.len() as u64
+        self.history.ends.len() as u64
     }
 
     /// The ticks a guest's seat held nothing because its keys did not
@@ -235,12 +255,6 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
     /// The machine sitting on a seat (from 1), if any.
     pub fn owner(&self, seat: u8) -> Option<Machine> {
         self.seats.get(seat as usize - 1).and_then(|s| s.owner)
-    }
-
-    /// What a tick of the simulation costs it (µs): a guest coming late
-    /// guesses from it how long catching up takes.
-    pub fn set_cost(&mut self, us_per_tick: u32) {
-        self.us_per_tick = us_per_tick;
     }
 
     /// Who paused the game (its loop standing still), if anyone.
@@ -265,11 +279,11 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
     }
 
     /// Lets the machine that asked to join in: it gets the bundles from the
-    /// next tick on, and before them `blob` (the run so far) in pieces and
-    /// `info` (the session's own: how the run began). A run so far longer
+    /// next tick on, and before them `blob` (the run so far) in pieces. A
+    /// run so far longer
     /// than the wire carries (`wire::MAX_BLOB`) turns it away, saying so: a
     /// welcome it could not read would leave it asking for ever.
-    pub fn admit(&mut self, index: Machine, blob: Vec<u8>, info: Vec<u8>) {
+    pub fn admit(&mut self, index: Machine, blob: Vec<u8>) {
         if blob.len() > wire::MAX_BLOB {
             let why = format!("the run so far is too long to join late ({} MB, at most {} MB): join when the host starts anew", blob.len() / 1_000_000, wire::MAX_BLOB / 1_000_000);
             if let Some(r) = self.remotes.iter_mut().find(|r| r.index == index && r.stage == Stage::Waiting) {
@@ -283,9 +297,8 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
         }
         let first = self.next_tick();
         let seats = self.seats.len() as u8;
-        let us_per_tick = self.us_per_tick;
         let Some(r) = self.remotes.iter_mut().find(|r| r.index == index && r.stage == Stage::Waiting) else { return };
-        r.welcome = Some(Welcome { index, first, seats, blob: blob.len() as u32, us_per_tick, info });
+        r.welcome = Some(Welcome { index, first, seats, blob: blob.len() as u32, us_per_tick: 0, info: Vec::new() });
         (r.stage, r.got, r.last_welcome) = (Stage::Welcomed, first, None);
         if !blob.is_empty() {
             r.sending.push_back(sending(1, blob.into()));
@@ -533,7 +546,7 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
         let bundle = Bundle { tick, inputs, seats: events, controls, extra };
         let bytes = wire::bundle_bytes(&bundle);
         debug_assert!(bytes.len() <= most, "a bundle of {} bytes", bytes.len());
-        self.history.push(bytes);
+        self.history.push(&bytes);
         self.measure_delay();
         Ok(bundle)
     }
@@ -845,7 +858,7 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
             let lacks: Vec<u64> = (r.got..next).filter(|&t| t == r.got || t - r.got > 64 || r.mask >> (t - r.got - 1) & 1 == 0).collect();
             let (mut from, mut sent) = (0, 0);
             loop {
-                let bundles: Vec<&[u8]> = lacks[from..].iter().map(|&t| self.history[t as usize].as_slice()).collect();
+                let bundles: Vec<&[u8]> = lacks[from..].iter().map(|&t| self.history.get(t as usize)).collect();
                 let (datagram, n) = wire::down(&head, self.key, &bundles, self.limit);
                 if n == 0 {
                     // Nothing to send: a word now and then all the same.

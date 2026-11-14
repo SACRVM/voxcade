@@ -176,11 +176,22 @@ impl RunSoFar {
     }
 }
 
-/// The tick a bundle plays: its inputs, every seat's controls as the
-/// bundles have them, the clock, and the events it brings.
-fn tick_of(b: &Bundle, known: &[Controls], when: u64, events: Vec<Event>) -> Tick {
-    let seats = (1..known.len()).map(|n| Seat { input: b.inputs.get(n).copied().flatten(), controls: known[n].clone() }).collect();
-    Tick { events, when, controls: known[0].clone(), input: b.inputs.first().copied().flatten().unwrap_or_default(), seats }
+/// The tick a bundle plays, made in `tick` (the one before): its inputs,
+/// every seat's controls as the bundles have them (copied only where they
+/// differ from the tick before's), the clock, and the events it brings.
+fn tick_of<'a>(tick: &'a mut Tick, b: &Bundle, known: &[Controls], when: u64, events: Vec<Event>) -> &'a Tick {
+    (tick.events, tick.when) = (events, when);
+    tick.input = b.inputs.first().copied().flatten().unwrap_or_default();
+    tick.seats.resize_with(known.len().saturating_sub(1), Seat::default);
+    for (to, from) in std::iter::once(&mut tick.controls).chain(tick.seats.iter_mut().map(|s| &mut s.controls)).zip(known) {
+        if to != from {
+            to.clone_from(from);
+        }
+    }
+    for (n, seat) in tick.seats.iter_mut().enumerate() {
+        seat.input = b.inputs.get(n + 1).copied().flatten();
+    }
+    tick
 }
 
 /// Takes the controls a bundle changed.
@@ -223,7 +234,7 @@ type Check = (u64, Vec<(&'static str, u64)>);
 
 /// Where reports of games run apart go: `desyncs/` in the config folder.
 pub fn reports() -> PathBuf {
-    crate::settings::config_dir().join("desyncs")
+    crate::kept::config_dir().join("desyncs")
 }
 
 /// Writes what is known of a game run apart under `base` (the window's:
@@ -234,7 +245,7 @@ pub fn reports() -> PathBuf {
 /// that did not. Where it went.
 #[allow(clippy::too_many_arguments)]
 pub fn report<G: Game>(base: &Path, dir: &Path, recording: &Replay, apart: &wire::Apart, run_start: u64, mine: &[(&'static str, u64)], theirs: &[u64], agreed: Option<u64>, who: &str) -> Result<PathBuf> {
-    let at = base.join(crate::settings::game_name(dir)).join(format!("{}-{}", crate::saves::now(), apart.tick));
+    let at = base.join(crate::kept::game_name(dir)).join(format!("{}-{}", crate::saves::now(), apart.tick));
     std::fs::create_dir_all(&at).with_context(|| format!("creating {}", at.display()))?;
     recording.save(&at.join("recording.toml"))?;
     let mut text = format!("{who}: the state ran apart after tick {} (the run's {}) in {}; {}\n\npart          this machine      the other\n", apart.tick, apart.tick + 1 - run_start, apart.part, if apart.inputs { "what was played differs (the network)" } else { "what was played is the same (the game)" });
@@ -263,6 +274,50 @@ pub fn report<G: Game>(base: &Path, dir: &Path, recording: &Replay, apart: &wire
         }
     });
     Ok(at)
+}
+
+/// What the host and a guest alike keep of the run: the game's folder,
+/// the run's recording, the fingerprint of the files the network game
+/// began with, every seat's controls as the bundles have them, the bundle
+/// the run began with (F5 and LOAD begin anew) and its own checks.
+struct Run {
+    dir: PathBuf,
+    recorder: Recorder,
+    fingerprint: u64,
+    known: Vec<Controls>,
+    start: u64,
+    checks: std::collections::VecDeque<Check>,
+    /// The last tick played, made anew in place for the next (`tick_of`).
+    tick: Tick,
+}
+
+impl Run {
+    fn new(dir: &Path, fingerprint: u64, known: Vec<Controls>) -> Self {
+        Self { dir: dir.to_path_buf(), recorder: Recorder::default(), fingerprint, known, start: 0, checks: Default::default(), tick: Tick::default() }
+    }
+
+    /// The run begun anew at the bundle of `tick` (F5, LOAD): `game` made
+    /// afresh with `slots`, from the save `text` if one, keeping the
+    /// player's options and fades; nobody's controls known, nothing
+    /// recorded or checked yet.
+    fn renew<G: Game>(&mut self, game: &mut Session<G>, slots: crate::saves::Slots, text: Option<&str>, tick: u64) -> Result<()> {
+        let mut fresh = fresh::<G>(&game.files, slots, text, self.fingerprint)?;
+        (fresh.options, fresh.fades) = (game.options, game.fades);
+        *game = fresh;
+        self.recorder = Recorder::default();
+        self.known = nobody(game);
+        (self.start, self.checks) = (tick, Default::default());
+        Ok(())
+    }
+
+    /// The state hash by parts after `tick`, kept to compare (the newest
+    /// `KEPT_CHECKS`).
+    fn keep_check(&mut self, tick: u64, sections: Vec<(&'static str, u64)>) {
+        self.checks.push_back((tick, sections));
+        while self.checks.len() > KEPT_CHECKS {
+            self.checks.pop_front();
+        }
+    }
 }
 
 /// The slots as a run keeps them for itself (a guest's: the host's).
@@ -368,12 +423,8 @@ impl Locals {
 /// caller keeps, as a window does).
 pub struct Hosting<G: Game, A> {
     pub host: Host<A>,
-    dir: PathBuf,
-    recorder: Recorder,
-    fingerprint: u64,
-    /// Every seat's controls as the bundles have them, and what the host's
-    /// own players play with (asked for when it changes).
-    known: Vec<Controls>,
+    run: Run,
+    /// What the host's own players play with (asked for when it changes).
     own: BTreeMap<u8, (Controls, bool)>,
     when: Option<u64>,
     restart: bool,
@@ -382,11 +433,8 @@ pub struct Hosting<G: Game, A> {
     loading: Option<(u32, Arc<[u8]>, String)>,
     blobs: u32,
     answers: Vec<(u32, Option<u8>)>,
-    /// The bundle the run began with (F5 and LOAD begin anew), the host's
-    /// own checks, the last tick each guest agreed at, and the reports
-    /// written of games run apart.
-    run_start: u64,
-    checks: std::collections::VecDeque<Check>,
+    /// The last tick each guest agreed at, and the reports written of
+    /// games run apart.
     agreed: BTreeMap<super::Machine, u64>,
     pub reports: Vec<PathBuf>,
     /// Where they go (none: nowhere).
@@ -401,18 +449,13 @@ impl<G: Game, A: Copy + Ord + std::fmt::Debug> Hosting<G, A> {
         let seats = game.cfg.players.max(1) as usize;
         Ok(Self {
             host: Host::new(key, name, seats),
-            dir: game.dir.clone(),
-            recorder: Recorder::default(),
-            fingerprint: game.fingerprint()?,
-            known: nobody(game),
+            run: Run::new(&game.dir, game.fingerprint()?, nobody(game)),
             own: BTreeMap::new(),
             when: None,
             restart: false,
             loading: None,
             blobs: 1,
             answers: Vec::new(),
-            run_start: 0,
-            checks: Default::default(),
             agreed: BTreeMap::new(),
             reports: Vec::new(),
             reports_to: None,
@@ -436,7 +479,7 @@ impl<G: Game, A: Copy + Ord + std::fmt::Debug> Hosting<G, A> {
     /// F5: the run starts anew for everyone at the next tick, on the files
     /// the network game began with (a file changed since: refused).
     pub fn restart(&mut self, game: &Session<G>) -> Result<()> {
-        fresh::<G>(&game.files, slots_of(game), None, self.fingerprint)?;
+        fresh::<G>(&game.files, slots_of(game), None, self.run.fingerprint)?;
         self.restart = true;
         Ok(())
     }
@@ -483,7 +526,7 @@ impl<G: Game, A: Copy + Ord + std::fmt::Debug> Hosting<G, A> {
     /// else the network said.
     pub fn notices(&mut self, game: &Session<G>) -> Result<Vec<Notice>> {
         for (index, tick, theirs) in self.host.checks() {
-            let Some((_, mine)) = self.checks.iter().find(|(t, _)| *t == tick) else { continue };
+            let Some((_, mine)) = self.run.checks.iter().find(|(t, _)| *t == tick) else { continue };
             let Some(n) = mine.iter().zip(&theirs).position(|((_, a), b)| a != b).or((mine.len() != theirs.len()).then_some(0)) else {
                 self.agreed.insert(index, tick);
                 continue;
@@ -496,7 +539,7 @@ impl<G: Game, A: Copy + Ord + std::fmt::Debug> Hosting<G, A> {
             let mine = mine.clone();
             self.host.tell_apart(index, apart.clone());
             if let Some(base) = &self.reports_to {
-                match report::<G>(base, &self.dir, &self.recorder.replay(game)?, &apart, self.run_start, &mine, &theirs, self.agreed.get(&index).copied(), &format!("the host; the other {name} ({commit})")) {
+                match report::<G>(base, &self.run.dir, &self.run.recorder.replay(game)?, &apart, self.run.start, &mine, &theirs, self.agreed.get(&index).copied(), &format!("the host; the other {name} ({commit})")) {
                     Ok(at) => self.reports.push(at),
                     Err(e) => eprintln!("the desync's report: {e:#}"),
                 }
@@ -506,7 +549,7 @@ impl<G: Game, A: Copy + Ord + std::fmt::Debug> Hosting<G, A> {
         for notice in self.host.notices() {
             if let Notice::Joining { index, .. } = &notice {
                 let blob = self.run_so_far(game)?;
-                self.host.admit(*index, blob, Vec::new());
+                self.host.admit(*index, blob);
                 if let Some((id, data, _)) = &self.loading {
                     self.host.send(*index, *id, data.clone());
                 }
@@ -517,10 +560,10 @@ impl<G: Game, A: Copy + Ord + std::fmt::Debug> Hosting<G, A> {
     }
 
     fn run_so_far(&self, game: &Session<G>) -> Result<Vec<u8>> {
-        let replay = toml::to_string(&self.recorder.replay(game)?)?;
+        let replay = toml::to_string(&self.run.recorder.replay(game)?)?;
         let slots = game.slots.texts().into_iter().map(|(n, t)| (n, t.to_string())).collect();
         let files = game.fingerprint_files()?;
-        Ok(RunSoFar { replay, when: self.when.unwrap_or(0), known: self.known.clone(), slots, files, commit: super::udp::COMMIT.to_string() }.write())
+        Ok(RunSoFar { replay, when: self.when.unwrap_or(0), known: self.run.known.clone(), slots, files, commit: super::machine::COMMIT.to_string() }.write())
     }
 
     /// Builds the next tick's bundle and plays it on `game`; a level
@@ -530,7 +573,7 @@ impl<G: Game, A: Copy + Ord + std::fmt::Debug> Hosting<G, A> {
         if game.fading() {
             game.step(&Input::default());
             // A check due at a level change is taken once it is done.
-            self.recorder.record(game);
+            self.run.recorder.record(game);
             return Ok(false);
         }
         for (seat, (controls, asked)) in &mut self.own {
@@ -574,33 +617,26 @@ impl<G: Game, A: Copy + Ord + std::fmt::Debug> Hosting<G, A> {
         let renewed = extra.restart || extra.load.is_some();
         if renewed {
             let text = self.loading.take().filter(|_| extra.load.is_some()).map(|(_, _, text)| text);
-            let mut fresh = fresh::<G>(&game.files, game.slots.clone(), text.as_deref(), self.fingerprint)?;
-            (fresh.options, fresh.fades) = (game.options, game.fades);
-            *game = fresh;
-            self.recorder = Recorder::default();
-            self.known = nobody(game);
+            let slots = game.slots.clone();
+            self.run.renew(game, slots, text.as_deref(), bundle.tick)?;
             for (_, asked) in self.own.values_mut() {
                 *asked = false;
             }
             self.restart = false;
-            (self.run_start, self.checks) = (bundle.tick, Default::default());
         }
-        take_controls(&mut self.known, &bundle)?;
+        take_controls(&mut self.run.known, &bundle)?;
         // The host has made its saves and run its lines already.
-        game.play(&tick_of(&bundle, &self.known, when, Vec::new()));
-        self.recorder.record(game);
+        game.play(tick_of(&mut self.run.tick, &bundle, &self.run.known, when, Vec::new()));
+        self.run.recorder.record(game);
         if bundle.tick.is_multiple_of(CHECK_EVERY) {
-            self.checks.push_back((bundle.tick, game.sections()));
-            while self.checks.len() > KEPT_CHECKS {
-                self.checks.pop_front();
-            }
+            self.run.keep_check(bundle.tick, game.sections());
         }
         Ok(renewed)
     }
 
     /// The run so far as a replay.
     pub fn recording(&self, game: &Session<G>) -> Result<Replay> {
-        self.recorder.replay(game)
+        self.run.recorder.replay(game)
     }
 }
 
@@ -618,7 +654,7 @@ impl<G: Game, A: Copy + Ord + std::fmt::Debug> Seats for Hosting<G, A> {
     }
 
     fn held(&self) -> Vec<u8> {
-        (1..=self.known.len() as u8).filter(|&s| self.host.owner(s) == Some(0)).collect()
+        (1..=self.run.known.len() as u8).filter(|&s| self.host.owner(s) == Some(0)).collect()
     }
 }
 
@@ -641,23 +677,17 @@ pub enum Joined {
 /// (`catch_up`) and plays the bundles on it (`ticks`, `play`).
 pub struct Joining<G: Game, A> {
     pub guest: Guest<A>,
-    dir: PathBuf,
+    run: Run,
     catching: Option<(Session<G>, Playback)>,
     caught_up: bool,
-    run: Option<RunSoFar>,
-    recorder: Recorder,
-    fingerprint: u64,
-    known: Vec<Controls>,
+    so_far: Option<RunSoFar>,
     when: u64,
     /// Its players' controls (asked for when they change), and why it
     /// ended.
     own: BTreeMap<u8, Controls>,
     ended: Option<String>,
-    /// The host's build, the bundle the run began with, its own checks and
-    /// the last tick the host agreed at (checks are compared up to then).
+    /// The host's build.
     pub host_commit: String,
-    run_start: u64,
-    checks: std::collections::VecDeque<Check>,
     /// Where a report of its game run apart goes (none: nowhere).
     pub reports_to: Option<PathBuf>,
     /// A test's: the next bundle played has seat 1's keys changed, as a
@@ -671,19 +701,14 @@ impl<G: Game, A: Copy + PartialEq + std::fmt::Debug> Joining<G, A> {
     pub fn new(dir: &Path, guest: Guest<A>) -> Self {
         Self {
             guest,
-            dir: dir.to_path_buf(),
+            run: Run::new(dir, 0, Vec::new()),
             catching: None,
             caught_up: false,
-            run: None,
-            recorder: Recorder::default(),
-            fingerprint: 0,
-            known: Vec::new(),
+            so_far: None,
             when: 0,
             own: BTreeMap::new(),
             ended: None,
             host_commit: String::new(),
-            run_start: 0,
-            checks: Default::default(),
             reports_to: None,
             #[cfg(test)]
             break_next: false,
@@ -740,21 +765,21 @@ impl<G: Game, A: Copy + PartialEq + std::fmt::Debug> Joining<G, A> {
             let Some(blob) = self.guest.take(1) else { return Ok(None) };
             let run = RunSoFar::read(&blob).map_err(|_| anyhow::anyhow!("the run so far does not read"))?;
             let replay: Replay = toml::from_str(&run.replay).context("the run so far")?;
-            let mut game = replay_session::<G>(&self.dir, &replay)?;
+            let mut game = replay_session::<G>(&self.run.dir, &replay)?;
             let playback = Playback::new(&replay, &mut game)?;
-            self.fingerprint = game.fingerprint()?;
-            if !replay.fits(self.fingerprint) {
+            self.run.fingerprint = game.fingerprint()?;
+            if !replay.fits(self.run.fingerprint) {
                 // Which files, by name.
                 let mine = game.fingerprint_files()?;
                 let differ: Vec<&str> = run.files.iter().filter(|f| !mine.contains(f)).map(|(name, _)| name.as_str()).chain(mine.iter().filter(|f| !run.files.iter().any(|(n, _)| *n == f.0)).map(|(name, _)| name.as_str())).collect();
                 bail!("{} differs from the host's", if differ.is_empty() { "this machine's game".to_string() } else { differ.join(", ") });
             }
-            if run.commit != super::udp::COMMIT {
-                eprintln!("the host's program is built from {}, this one from {}: the checks will tell whether they play alike", run.commit, super::udp::COMMIT);
+            if run.commit != super::machine::COMMIT {
+                eprintln!("the host's program is built from {}, this one from {}: the checks will tell whether they play alike", run.commit, super::machine::COMMIT);
             }
             self.host_commit = run.commit.clone();
-            self.run_start = self.guest.welcome().map_or(0, |w| w.first).saturating_sub(replay.ticks);
-            (self.catching, self.run) = (Some((game, playback)), Some(run));
+            self.run.start = self.guest.welcome().map_or(0, |w| w.first).saturating_sub(replay.ticks);
+            (self.catching, self.so_far) = (Some((game, playback)), Some(run));
         }
         let Some((game, playback)) = self.catching.as_mut() else { bail!("catching up lost the run so far") };
         let started = std::time::Instant::now();
@@ -763,15 +788,15 @@ impl<G: Game, A: Copy + PartialEq + std::fmt::Debug> Joining<G, A> {
                 bail!("the run so far played out differently here after {} s", apart.second);
             }
             game.stopped()?;
-            self.recorder.record(game);
+            self.run.recorder.record(game);
         }
         if !playback.done() {
             return Ok(None);
         }
-        let (Some((mut game, _)), Some(run)) = (self.catching.take(), self.run.take()) else { bail!("catching up lost the run so far") };
+        let (Some((mut game, _)), Some(run)) = (self.catching.take(), self.so_far.take()) else { bail!("catching up lost the run so far") };
         game.adopt_slots(run.slots);
-        (self.known, self.when) = (run.known, run.when);
-        if self.known.len() != game.cfg.players.max(1) as usize {
+        (self.run.known, self.when) = (run.known, run.when);
+        if self.run.known.len() != game.cfg.players.max(1) as usize {
             bail!("the host's game has other seats");
         }
         self.caught_up = true;
@@ -803,7 +828,7 @@ impl<G: Game, A: Copy + PartialEq + std::fmt::Debug> Joining<G, A> {
     /// done, as a replay sees it).
     pub fn fade(&mut self, game: &mut Session<G>) {
         game.step(&Input::default());
-        self.recorder.record(game);
+        self.run.recorder.record(game);
     }
 
     /// Plays a bundle on `game`; whether the run started anew (F5, LOAD:
@@ -819,30 +844,21 @@ impl<G: Game, A: Copy + PartialEq + std::fmt::Debug> Joining<G, A> {
                 Some(id) => Some(String::from_utf8(self.guest.take(id).with_context(|| format!("tick {}: the save to load has not come", b.tick))?).context("the save to load")?),
                 None => None,
             };
-            let mut fresh = fresh::<G>(&game.files, slots_of(game), text.as_deref(), self.fingerprint)?;
-            (fresh.options, fresh.fades) = (game.options, game.fades);
-            *game = fresh;
-            self.recorder = Recorder::default();
-            self.known = nobody(game);
-            (self.run_start, self.checks) = (b.tick, Default::default());
+            self.run.renew(game, slots_of(game), text.as_deref(), b.tick)?;
         }
-        take_controls(&mut self.known, b)?;
-        #[allow(unused_mut)]
-        let mut tick = tick_of(b, &self.known, self.when, extra.events);
+        take_controls(&mut self.run.known, b)?;
+        tick_of(&mut self.run.tick, b, &self.run.known, self.when, extra.events);
         #[cfg(test)]
         if std::mem::take(&mut self.break_next) {
-            tick.input.up = !tick.input.up;
+            self.run.tick.input.up = !self.run.tick.input.up;
         }
-        game.play(&tick);
+        game.play(&self.run.tick);
         game.stopped()?;
-        self.recorder.record(game);
+        self.run.recorder.record(game);
         if b.tick.is_multiple_of(CHECK_EVERY) {
             let sections = game.sections();
             self.guest.check(b.tick, sections.iter().map(|(_, h)| *h).collect());
-            self.checks.push_back((b.tick, sections));
-            while self.checks.len() > KEPT_CHECKS {
-                self.checks.pop_front();
-            }
+            self.run.keep_check(b.tick, sections);
         }
         Ok(renewed)
     }
@@ -850,14 +866,14 @@ impl<G: Game, A: Copy + PartialEq + std::fmt::Debug> Joining<G, A> {
     /// Writes the report of its game run apart (`report`): where it went.
     pub fn report(&self, game: &Session<G>, apart: &wire::Apart) -> Result<Option<PathBuf>> {
         let Some(base) = &self.reports_to else { return Ok(None) };
-        let mine = self.checks.iter().find(|(t, _)| *t == apart.tick).map(|(_, m)| m.clone()).unwrap_or_default();
-        let agreed = self.checks.iter().map(|(t, _)| *t).filter(|&t| t < apart.tick).max();
-        report::<G>(base, &self.dir, &self.recorder.replay(game)?, apart, self.run_start, &mine, &[], agreed, &format!("a guest; the host's build {}", self.host_commit)).map(Some)
+        let mine = self.run.checks.iter().find(|(t, _)| *t == apart.tick).map(|(_, m)| m.clone()).unwrap_or_default();
+        let agreed = self.run.checks.iter().map(|(t, _)| *t).filter(|&t| t < apart.tick).max();
+        report::<G>(base, &self.run.dir, &self.run.recorder.replay(game)?, apart, self.run.start, &mine, &[], agreed, &format!("a guest; the host's build {}", self.host_commit)).map(Some)
     }
 
     /// The run so far as a replay (equal to the host's, byte for byte).
     pub fn recording(&self, game: &Session<G>) -> Result<Replay> {
-        self.recorder.replay(game)
+        self.run.recorder.replay(game)
     }
 }
 

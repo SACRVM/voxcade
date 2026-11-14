@@ -151,23 +151,23 @@ pub fn words() -> impl Iterator<Item = &'static str> {
 
 /// The engine's word `en` in `lang` (English where it has no other).
 pub fn say(lang: &str, en: &'static str) -> &'static str {
-    let column = match lang {
-        "de" => 1,
-        "fr" => 2,
-        _ => return en,
-    };
-    WORDS.iter().find(|w| w.0 == en).map_or(en, |w| if column == 1 { w.1 } else { w.2 })
+    lookup(lang, en).unwrap_or(en)
 }
 
 /// A line made at run time (a network game's end, kept as English
 /// until shown) in `lang`: the table's if it has it, else as it is.
 pub fn say_line(lang: &str, en: &str) -> String {
-    let column = match lang {
-        "de" => 1,
-        "fr" => 2,
-        _ => return en.to_string(),
+    lookup(lang, en).unwrap_or(en).to_string()
+}
+
+/// `en` in `lang` where the table has it (English: never).
+fn lookup(lang: &str, en: &str) -> Option<&'static str> {
+    let column: fn(&(&'static str, &'static str, &'static str)) -> &'static str = match lang {
+        "de" => |w| w.1,
+        "fr" => |w| w.2,
+        _ => return None,
     };
-    WORDS.iter().find(|w| w.0 == en).map_or(en, |w| if column == 1 { w.1 } else { w.2 }).to_string()
+    WORDS.iter().find(|w| w.0 == en).map(column)
 }
 
 /// `say` with each `{}` filled, in order, by `parts`.
