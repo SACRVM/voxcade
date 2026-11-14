@@ -288,8 +288,10 @@ impl Hello {
 
 /// The host's answer to a HELLO it takes: the guest's number, the first
 /// tick it gets bundles of, the game's seats, the run so far sent in
-/// pieces (its size), the host's cost of a tick, and the session's own
-/// bytes (how the run began, what is compared).
+/// pieces (its size). `us_per_tick` (the host's cost of a tick) and `info`
+/// (the session's own bytes) are on the wire for what may come: no host
+/// fills them yet (always 0 and empty), no guest reads them, and taking
+/// them out would change the protocol's version.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Welcome {
     pub index: super::Machine,

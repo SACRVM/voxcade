@@ -216,11 +216,10 @@ impl Item {
     pub fn label_in(self, lang: &str) -> String {
         match self {
             // A half's directions are the engine's words.
-            Item::Bind(way) if crate::seating::DIRECTIONS.contains(&way) => crate::lang::say(lang, direction_word(way)).to_string(),
+            Item::Bind(way) if crate::input::DIRECTIONS.contains(&way) => crate::lang::say(lang, direction_word(way)).to_string(),
             // The game's own name for it, as written: a game cannot yet
-            // name its actions in each language (planned for 0.7, the
-            // game giving the words; BunnyFarm's German CONTROLS still
-            // reads ACT, BACK, PREV, NEXT, BAG).
+            // name its actions in each language (BunnyFarm's German
+            // CONTROLS reads ACT, BACK, PREV, NEXT, BAG).
             Item::Bind(action) => action.to_uppercase(),
             other => crate::lang::say(lang, other.fixed_label()).to_string(),
         }
@@ -787,8 +786,6 @@ impl Menu {
         None
     }
 
-    /// A letter typed while picking initials: it is taken, and the next is
-    /// picked (after the third they are in).
     /// The signs an address is typed with on a pad, in the order up steps
     /// through them.
     pub const ADDRESS: &str = "0123456789.:";
@@ -869,6 +866,8 @@ impl Menu {
         self.moved = self.tick;
     }
 
+    /// A letter typed while picking initials: it is taken, and the next is
+    /// picked (after the third they are in).
     pub fn type_letter(&mut self, c: char) -> Option<Command> {
         let c = c.to_ascii_uppercase();
         if self.page() != Some(Page::Initials) || !LETTERS.contains(c) {
@@ -1171,7 +1170,7 @@ mod tests {
         assert_eq!(s.shadows, Shadows::Medium);
         m.nav(Nav::Left, &mut s, 4);
         m.nav(Nav::Left, &mut s, 4);
-        assert_eq!(s.shadows, Shadows::High, "the list does not go round");
+        assert_eq!(s.shadows, Shadows::High, "the list goes round");
     }
 
     /// The pause button closes the pause menu, back closes a page on top

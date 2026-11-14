@@ -112,7 +112,6 @@ pub struct Host<A> {
     own_asks: u32,
     paused: Option<Machine>,
     notices: Vec<Notice>,
-    us_per_tick: u32,
     last_roster: Option<u64>,
     /// Refusals sent to an address for a reason this minute, and those
     /// still to send.
@@ -192,7 +191,6 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
             own_asks: 0,
             paused: None,
             notices: Vec::new(),
-            us_per_tick: 0,
             last_roster: None,
             refusals: BTreeMap::new(),
             refused: Vec::new(),
@@ -237,12 +235,6 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
         self.seats.get(seat as usize - 1).and_then(|s| s.owner)
     }
 
-    /// What a tick of the simulation costs it (µs): a guest coming late
-    /// guesses from it how long catching up takes.
-    pub fn set_cost(&mut self, us_per_tick: u32) {
-        self.us_per_tick = us_per_tick;
-    }
-
     /// Who paused the game (its loop standing still), if anyone.
     pub fn set_paused(&mut self, who: Option<Machine>) {
         self.paused = who;
@@ -265,11 +257,11 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
     }
 
     /// Lets the machine that asked to join in: it gets the bundles from the
-    /// next tick on, and before them `blob` (the run so far) in pieces and
-    /// `info` (the session's own: how the run began). A run so far longer
+    /// next tick on, and before them `blob` (the run so far) in pieces. A
+    /// run so far longer
     /// than the wire carries (`wire::MAX_BLOB`) turns it away, saying so: a
     /// welcome it could not read would leave it asking for ever.
-    pub fn admit(&mut self, index: Machine, blob: Vec<u8>, info: Vec<u8>) {
+    pub fn admit(&mut self, index: Machine, blob: Vec<u8>) {
         if blob.len() > wire::MAX_BLOB {
             let why = format!("the run so far is too long to join late ({} MB, at most {} MB): join when the host starts anew", blob.len() / 1_000_000, wire::MAX_BLOB / 1_000_000);
             if let Some(r) = self.remotes.iter_mut().find(|r| r.index == index && r.stage == Stage::Waiting) {
@@ -283,9 +275,8 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
         }
         let first = self.next_tick();
         let seats = self.seats.len() as u8;
-        let us_per_tick = self.us_per_tick;
         let Some(r) = self.remotes.iter_mut().find(|r| r.index == index && r.stage == Stage::Waiting) else { return };
-        r.welcome = Some(Welcome { index, first, seats, blob: blob.len() as u32, us_per_tick, info });
+        r.welcome = Some(Welcome { index, first, seats, blob: blob.len() as u32, us_per_tick: 0, info: Vec::new() });
         (r.stage, r.got, r.last_welcome) = (Stage::Welcomed, first, None);
         if !blob.is_empty() {
             r.sending.push_back(sending(1, blob.into()));

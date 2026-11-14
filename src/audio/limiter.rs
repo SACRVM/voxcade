@@ -203,11 +203,6 @@ impl Limiter {
         self.lookahead
     }
 
-    /// The reduction now, in dB, 0 or above (0: not limiting).
-    pub fn last_gain_reduction_db(&self) -> f64 {
-        if self.gr_slow < 1.0 { (-20.0 * self.gr_slow.log10()).max(0.0) } else { 0.0 }
-    }
-
     /// The gain applied to the last frame (1: none).
     pub fn gain(&self) -> f32 {
         self.gr_slow as f32

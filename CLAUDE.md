@@ -643,7 +643,7 @@ nearest; its replay `tests/two_ships`);
   message, where and a backtrace go to `config_dir()/crashes/` (the newest
   10), and the main thread's crash says in a message window where the
   report lies (tests `a_crash_report_is_written_and_the_newest_kept`,
-  `a_crash_is_said_in_a_window_only_for_a_window`; never provoke a real
+  `a_crash_is_said_in_the_systems_language`; never provoke a real
   box). The windows take their picture through `Screen::texture`: an
   outdated surface configured again, a lost one made anew from the
   window, a lost GPU device (wgpu's callback) ending the window with a

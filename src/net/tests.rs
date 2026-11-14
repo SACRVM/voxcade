@@ -170,7 +170,7 @@ fn a_former_generation_steers_nobody() {
     let hello = Hello { id: [9; 16], nonce: 1, name: "anna".into(), commit: "x".into() };
     host.receive(0, 1, &hello.write());
     let Some(Notice::Joining { index, .. }) = host.notices().pop() else { panic!("asks to join") };
-    host.admit(index, Vec::new(), Vec::new());
+    host.admit(index, Vec::new());
     let up = |asks: Vec<wire::Ask>, readings: Vec<wire::Readings>, from: u32| Up { got: 0, asks_from: from, asks, readings, ..Up::default() }.write(7);
     host.receive(1, 1, &up(vec![wire::Ask::Take], Vec::new(), 0));
     let b = host.tick(Vec::new()).unwrap();
@@ -401,7 +401,7 @@ fn refusals_are_forgotten_and_closed() {
     }
     for notice in host.notices() {
         if let Notice::Joining { index, .. } = notice {
-            host.admit(index, Vec::new(), Vec::new());
+            host.admit(index, Vec::new());
         }
     }
     host.receive(61_000_000, 2, &wire::bye(7));
@@ -421,7 +421,7 @@ fn a_hello_with_a_known_id_kicks_no_one_who_plays() {
     let mut host: Host<usize> = Host::new(7, "host", 2);
     host.receive(0, 1, &Hello { id: [3; 16], nonce: 1, name: "anna".into(), commit: "x".into() }.write());
     let Some(Notice::Joining { index, .. }) = host.notices().pop() else { panic!("asks to join") };
-    host.admit(index, Vec::new(), Vec::new());
+    host.admit(index, Vec::new());
     host.receive(100_000, 1, &Up::default().write(7));
     let forged = Hello { id: [3; 16], nonce: 99, name: "mallory".into(), commit: "x".into() }.write();
     host.receive(150_000, 2, &forged);
@@ -452,7 +452,7 @@ fn a_late_guest_gets_the_run_up_to_the_bound_and_is_told_beyond() {
         let hello = Hello { id: [9; 16], nonce: 1, name: "anna".into(), commit: "x".into() };
         host.receive(0, 1, &hello.write());
         let Some(Notice::Joining { index, .. }) = host.notices().pop() else { panic!("asks to join") };
-        host.admit(index, vec![7; blob], Vec::new());
+        host.admit(index, vec![7; blob]);
         let out = host.outgoing(1);
         (host, out)
     };
@@ -500,7 +500,7 @@ fn machines_of_one_name_are_told_apart() {
     }).collect();
     assert_eq!(joining.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>(), ["Maschine 2", "Maschine 3"]);
     for (index, _) in joining {
-        host.admit(index, Vec::new(), Vec::new());
+        host.admit(index, Vec::new());
     }
     let roster: Vec<String> = host.roster().into_iter().map(|m| m.name).collect();
     assert_eq!(roster, ["Maschine", "Maschine 2", "Maschine 3"]);

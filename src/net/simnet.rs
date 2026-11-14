@@ -1,8 +1,8 @@
 //! A network simulated in one process, for tests of network play without
 //! a window (`docs/multiplayer.md`, stage 4, "Tests without a window"):
 //! datagrams wait in a queue by when they arrive and in what order they
-//! were sent; each link has its delay, jitter, loss (also in bursts),
-//! duplicates and reordering, and may be cut. Its chances come from its
+//! were sent; every link has the same delay, jitter, loss (also in
+//! bursts), duplicates and reordering, and each may be cut. Its chances come from its
 //! own seed (never the game's generator), time is whole microseconds, so a
 //! test plays the same every time, on every system.
 
@@ -44,7 +44,7 @@ pub struct SimNet {
     now: u64,
     order: u64,
     queue: BTreeMap<(u64, u64), (usize, usize, Vec<u8>)>,
-    links: BTreeMap<(usize, usize), Link>,
+    /// How every link behaves.
     all: Link,
     cut: BTreeSet<(usize, usize)>,
     bursting: BTreeMap<(usize, usize), u32>,
@@ -56,7 +56,7 @@ pub struct SimNet {
 
 impl SimNet {
     pub fn new(seed: u64, all: Link) -> Self {
-        Self { seed, now: 0, order: 0, queue: BTreeMap::new(), links: BTreeMap::new(), all, cut: BTreeSet::new(), bursting: BTreeMap::new(), largest: 0, too_big: 0, sent: 0 }
+        Self { seed, now: 0, order: 0, queue: BTreeMap::new(), all, cut: BTreeSet::new(), bursting: BTreeMap::new(), largest: 0, too_big: 0, sent: 0 }
     }
 
     /// splitmix64: a number from the network's own sequence.
@@ -71,11 +71,6 @@ impl SimNet {
 
     fn upto(&mut self, max: u64) -> u64 {
         if max == 0 { 0 } else { self.next() % (max + 1) }
-    }
-
-    /// The link from one machine to another behaves so.
-    pub fn set_link(&mut self, from: usize, to: usize, link: Link) {
-        self.links.insert((from, to), link);
     }
 
     /// Cuts the link both ways (or mends it): nothing gets through.
@@ -109,7 +104,7 @@ impl SimNet {
         if self.cut.contains(&(from, to)) {
             return;
         }
-        let link = self.links.get(&(from, to)).copied().unwrap_or(self.all);
+        let link = self.all;
         if let Some(left) = self.bursting.get_mut(&(from, to)) {
             *left -= 1;
             if *left == 0 {

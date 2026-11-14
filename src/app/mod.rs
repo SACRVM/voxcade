@@ -290,7 +290,7 @@ pub fn run<G: Game>(dir: &Path, watching: Option<Replay>, begin: crate::session:
         begin,
         maker,
     };
-    // (Made after the app, so it goes first at the end, as it always did.)
+    // Made after the app, so it is dropped before it at the end.
     let mut events = sdl.event_pump().context("SDL event pump")?;
 
     loop {

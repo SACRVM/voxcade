@@ -506,7 +506,7 @@ impl<G: Game, A: Copy + Ord + std::fmt::Debug> Hosting<G, A> {
         for notice in self.host.notices() {
             if let Notice::Joining { index, .. } = &notice {
                 let blob = self.run_so_far(game)?;
-                self.host.admit(*index, blob, Vec::new());
+                self.host.admit(*index, blob);
                 if let Some((id, data, _)) = &self.loading {
                     self.host.send(*index, *id, data.clone());
                 }

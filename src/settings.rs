@@ -153,7 +153,7 @@ pub struct Settings {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub address: String,
     /// The keyboard's halves once two play at it: the four directions
-    /// (`seating::DIRECTIONS`) and each action, the halves' own
+    /// (`input::DIRECTIONS`) and each action, the halves' own
     /// (`seating::LEFT_HALF`, `RIGHT_HALF` to start with).
     #[serde(default, skip_serializing_if = "Bindings::is_empty")]
     pub left_keys: Bindings,
@@ -250,7 +250,8 @@ impl Settings {
         }
         // The keyboard's halves: their directions, the game's actions in
         // order, their pause.
-        use crate::seating::{DIRECTIONS, KEYBOARD_START, LEFT_HALF, LEFT_PAUSE, RIGHT_HALF};
+        use crate::input::DIRECTIONS;
+        use crate::seating::{KEYBOARD_START, LEFT_HALF, LEFT_PAUSE, RIGHT_HALF};
         let half = |(dirs, keys): ([&str; 4], [&str; 6]), pause: &str| {
             let mut b = Bindings::default();
             for (name, key) in DIRECTIONS.iter().zip(dirs) {

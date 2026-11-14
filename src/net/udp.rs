@@ -361,7 +361,7 @@ mod tests {
             }
             for notice in host.notices() {
                 if let Notice::Joining { index, .. } = notice {
-                    host.admit(index, run.clone(), Vec::new());
+                    host.admit(index, run.clone());
                 }
             }
             while ticks < now / 16_667 {

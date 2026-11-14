@@ -18,8 +18,8 @@ pub fn folder() -> PathBuf {
     crate::settings::config_dir().join("crashes")
 }
 
-/// Puts the hook in place: `window`, the program was started for a window.
-pub fn install(window: bool) {
+/// Puts the hook in place (the program was started for a window).
+pub fn install() {
     let before = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         // The terminal's lines as ever.
@@ -31,18 +31,14 @@ pub fn install(window: bool) {
             Ok(path) => eprintln!("the crash report lies in {}", path.display()),
             Err(e) => eprintln!("the crash report could not be written: {e:#}"),
         }
-        if says_in_a_window(window, main) {
+        // Only a crash of the main thread, the one whose end ends the
+        // program, is said in a window (a worker's reaches it when it is
+        // waited for).
+        if main {
             let message = plainly(written.as_deref().ok(), &crate::settings::system_languages());
             let _ = sdl3::messagebox::show_simple_message_box(sdl3::messagebox::MessageBoxFlag::ERROR, "Voxcade", &message, None);
         }
     }));
-}
-
-/// Whether a crash is said in a message window: only for a program that
-/// opened one, and only for a crash of the main thread, the one whose end
-/// ends the program (a worker's crash reaches it when it is waited for).
-pub fn says_in_a_window(opened_a_window: bool, main_thread: bool) -> bool {
-    opened_a_window && main_thread
 }
 
 /// The report's text: the version, the command line, the thread, the
@@ -153,15 +149,9 @@ mod tests {
         assert!(left.contains(&first.file_name().unwrap().to_string_lossy().into_owned()) && left.contains(&second.file_name().unwrap().to_string_lossy().into_owned()));
     }
 
-    /// Only a program that opened a window says it in one, and only for a
-    /// crash of its main thread; the words name the report's place in the
-    /// system's language.
+    /// The words name the report's place in the system's language.
     #[test]
-    fn a_crash_is_said_in_a_window_only_for_a_window() {
-        assert!(says_in_a_window(true, true));
-        assert!(!says_in_a_window(true, false));
-        assert!(!says_in_a_window(false, true));
-        assert!(!says_in_a_window(false, false));
+    fn a_crash_is_said_in_the_systems_language() {
         let at = Path::new("/home/x/.config/voxcade/crashes/crash-1.txt");
         assert!(plainly(Some(at), &["de".into()]).contains("Bericht") && plainly(Some(at), &["de".into()]).contains("crash-1.txt"));
         assert!(plainly(Some(at), &["ja".into(), "fr".into()]).starts_with("Voxcade s'est arrêté"));

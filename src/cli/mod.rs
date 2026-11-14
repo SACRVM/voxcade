@@ -73,14 +73,14 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
     if args.is_empty()
         && let Some(dir) = default
     {
-        crash::install(true);
+        crash::install();
         return app::run::<G>(dir, None, Default::default(), None, None, false);
     }
     let call = parse(&args)?;
     // A crash in a window is reported, not silent (`crash`); the commands
     // without one say it on the terminal as ever.
     if call.opens_a_window() {
-        crash::install(true);
+        crash::install();
     }
     match call {
         // Started by a double click: the launcher (the IDE's start page).

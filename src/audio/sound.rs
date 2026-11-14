@@ -28,7 +28,7 @@ use std::path::Path;
 use anyhow::{Result, anyhow, bail};
 
 use super::synth::{self, Synth, Wave};
-use super::words::{self, Form};
+use super::words;
 
 /// The folder of a game's sounds.
 pub const FOLDER: &str = "sounds";
@@ -69,13 +69,12 @@ pub fn read(file: &str, text: &str) -> Result<SoundDef> {
     if let Some(f) = table.get("file") {
         return Err(said("file", format!(" = {}: {NO_RECORDINGS}", f.get_ref())));
     }
-    // The form: nothing if silent, else numbers for the synth.
+    // Nothing if silent, else numbers for the synth.
     let silent = match table.get("silent").map(|v| v.get_ref()) {
         None => false,
         Some(toml::Value::Boolean(b)) => *b,
         Some(_) => return Err(said("silent", ": true or false".into())),
     };
-    let form = if silent { Form::Alone } else { Form::Synth };
     for (name, value) in &table {
         let Some((_, u)) = words::sound_words().find(|(n, _)| n == name) else {
             let line = line_of(text, value.span().start);
@@ -93,11 +92,7 @@ pub fn read(file: &str, text: &str) -> Result<SoundDef> {
             };
             bail!("{file} line {line}: {name}: no such field{near}");
         };
-        let fits = match form {
-            Form::Alone => *name == "silent",
-            _ => true,
-        };
-        if !fits {
+        if silent && name != "silent" {
             return Err(said(name, ": a silent sound says nothing else".into()));
         }
         // Numbers in their range.
@@ -116,52 +111,50 @@ pub fn read(file: &str, text: &str) -> Result<SoundDef> {
             Some(_) => Err(said(name, ": a word in quotes".into())),
         }
     };
-    match form {
-        Form::Alone => Ok(SoundDef::Silent),
-        _ => {
-            let d = Synth::default();
-            let wave = match text_of("wave").map_err(|_| said("wave", format!(": a word in quotes, one of {}", waves())))? {
-                None => d.wave,
-                Some(w) if w == "pulse" => Wave::Square,
-                Some(w) => Wave::ALL.iter().find(|(n, _)| *n == w).map(|(_, wave)| *wave).ok_or_else(|| said("wave", format!(": \"{w}\" is no wave ({})", waves())))?,
-            };
-            let f = |name: &str, default: f32| num(name).map_or(default, |n| n as f32);
-            let s = Synth {
-                wave,
-                freq: f("freq", d.freq),
-                sweep: num("sweep").unwrap_or(d.sweep),
-                duty: f("duty", d.duty),
-                attack: f("attack", d.attack),
-                hold: f("hold", d.hold),
-                decay: f("decay", d.decay),
-                punch: f("punch", d.punch),
-                vibrato: f("vibrato", d.vibrato),
-                vibrato_speed: f("vibrato_speed", d.vibrato_speed),
-                jump: num("jump").unwrap_or(d.jump),
-                jump_at: f("jump_at", d.jump_at),
-                lowpass: num("lowpass").map(|n| n as f32),
-                lowpass_end: num("lowpass_end").map(|n| n as f32),
-                volume: f("volume", d.volume),
-            };
-            // What the numbers say together.
-            let length = s.length();
-            if length > synth::LONGEST {
-                let last = ["attack", "hold", "decay"].into_iter().max_by_key(|n| at(n)).unwrap_or("decay");
-                return Err(said(last, format!(": attack, hold and decay last {length:.2} seconds together; a sound lasts {} seconds at most (longer is music: c.audio.music)", synth::LONGEST)));
-            }
-            let end = s.freq_end() as f64;
-            if s.sweep != 0.0 && !(words::PITCHES.0..=words::PITCHES.1).contains(&end) {
-                return Err(said("sweep", format!(" = {}: slides the pitch from {} Hz to {end:.0} Hz; it ends from {} to {} Hz", s.sweep, s.freq, words::PITCHES.0, words::PITCHES.1)));
-            }
-            if s.jump != 0.0 && s.jump_at as f64 >= length as f64 {
-                return Err(said("jump_at", format!(" = {}: after the sound's end ({length:.2} seconds), so it never jumps", s.jump_at)));
-            }
-            if s.lowpass_end.is_some() && s.lowpass.is_none() {
-                return Err(said("lowpass_end", ": needs lowpass, where the filter starts".into()));
-            }
-            Ok(SoundDef::Synth(s))
-        }
+    if silent {
+        return Ok(SoundDef::Silent);
     }
+    let d = Synth::default();
+    let wave = match text_of("wave").map_err(|_| said("wave", format!(": a word in quotes, one of {}", waves())))? {
+        None => d.wave,
+        Some(w) if w == "pulse" => Wave::Square,
+        Some(w) => Wave::ALL.iter().find(|(n, _)| *n == w).map(|(_, wave)| *wave).ok_or_else(|| said("wave", format!(": \"{w}\" is no wave ({})", waves())))?,
+    };
+    let f = |name: &str, default: f32| num(name).map_or(default, |n| n as f32);
+    let s = Synth {
+        wave,
+        freq: f("freq", d.freq),
+        sweep: num("sweep").unwrap_or(d.sweep),
+        duty: f("duty", d.duty),
+        attack: f("attack", d.attack),
+        hold: f("hold", d.hold),
+        decay: f("decay", d.decay),
+        punch: f("punch", d.punch),
+        vibrato: f("vibrato", d.vibrato),
+        vibrato_speed: f("vibrato_speed", d.vibrato_speed),
+        jump: num("jump").unwrap_or(d.jump),
+        jump_at: f("jump_at", d.jump_at),
+        lowpass: num("lowpass").map(|n| n as f32),
+        lowpass_end: num("lowpass_end").map(|n| n as f32),
+        volume: f("volume", d.volume),
+    };
+    // What the numbers say together.
+    let length = s.length();
+    if length > synth::LONGEST {
+        let last = ["attack", "hold", "decay"].into_iter().max_by_key(|n| at(n)).unwrap_or("decay");
+        return Err(said(last, format!(": attack, hold and decay last {length:.2} seconds together; a sound lasts {} seconds at most (longer is music: c.audio.music)", synth::LONGEST)));
+    }
+    let end = s.freq_end() as f64;
+    if s.sweep != 0.0 && !(words::PITCHES.0..=words::PITCHES.1).contains(&end) {
+        return Err(said("sweep", format!(" = {}: slides the pitch from {} Hz to {end:.0} Hz; it ends from {} to {} Hz", s.sweep, s.freq, words::PITCHES.0, words::PITCHES.1)));
+    }
+    if s.jump != 0.0 && s.jump_at as f64 >= length as f64 {
+        return Err(said("jump_at", format!(" = {}: after the sound's end ({length:.2} seconds), so it never jumps", s.jump_at)));
+    }
+    if s.lowpass_end.is_some() && s.lowpass.is_none() {
+        return Err(said("lowpass_end", ": needs lowpass, where the filter starts".into()));
+    }
+    Ok(SoundDef::Synth(s))
 }
 
 /// A TOML number as f64 (integers too: `freq = 880`); None for anything

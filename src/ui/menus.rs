@@ -304,7 +304,7 @@ pub fn menu(view: &MenuView, cfg: &UiConfig, alpha: f32, aspect: f32) -> (Vec<In
                     continue;
                 }
                 let key = keys.map_or_else(|| "-".to_string(), |b| b.get(action).first().map(|k| view.settings.key_label(k)).unwrap_or_default());
-                let button = if crate::seating::DIRECTIONS.contains(&action) { String::new() } else { pad.get(action).first().map(|b| pad_label(b, menu.pad_style)).unwrap_or_default() };
+                let button = if crate::input::DIRECTIONS.contains(&action) { String::new() } else { pad.get(action).first().map(|b| pad_label(b, menu.pad_style)).unwrap_or_default() };
                 text(&mut out, &key, kx, y, 1, TEXT, depth);
                 text(&mut out, &button, px, y, 1, TEXT, depth);
             }
