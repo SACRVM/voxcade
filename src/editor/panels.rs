@@ -1,9 +1,9 @@
 //! The editor's panels, drawn with egui as the IDE is (`crate::gui`), so
-//! the two are of a piece: on the right what is shown or held and the
-//! tools, rows like the IDE's list with each one's key at the end; along
-//! the bottom the level's blocks, the tileset's tiles, the kinds of things
-//! or the colours, as pictures. What is clicked comes back as `Action`s,
-//! and the keys the panels name do the same.
+//! the two are of a piece: the three zones (`zones.rs`) as the pieces and
+//! the terrain fill them (`stage.rs`), else the voxel editor and the level
+//! of blocks (`shaping.rs`); over the view the joints and the marks. What
+//! is clicked comes back as `Action`s, and the keys the panels name do the
+//! same.
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -16,14 +16,10 @@ use super::model::Editor;
 use super::view::{Action, Figures, View};
 use crate::gui::{ACCENT, QUIET, TEXT, WARNING};
 
-/// How wide the panel on the right is, how high the bar along the bottom.
-pub const COLUMN: f32 = 250.0;
-pub const BAR: f32 = 76.0;
-
 /// What a frame of the panels gave: the clicks, the keys named on them
 /// (a letter or a colour's digit, and what it does), and where they lie.
 #[derive(Default)]
-pub struct Shown {
+pub struct PanelsDrawn {
     pub clicked: Vec<Action>,
     pub keys: Vec<(char, Action)>,
     /// The keys the panels name with the words of their buttons, in the
@@ -92,8 +88,8 @@ impl Thumbs {
 }
 
 /// The panels of a frame.
-pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs: &mut Thumbs) -> Shown {
-    let mut shown = Shown::default();
+pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs: &mut Thumbs) -> PanelsDrawn {
+    let mut shown = PanelsDrawn::default();
     // The marks over the view as the BACKGROUND asks (`stage::paint`).
     super::zones::set_marks(ui.ctx(), view.marks(ed.scope));
     if let Some(names) = &ed.question {
@@ -119,7 +115,7 @@ pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
 /// The question before a level turned off the grid opens, over the whole
 /// window in the panels' look: what is wrong in a few words, which things
 /// (the first few), ALIGN ALL and DON'T OPEN.
-fn question(ui: &mut egui::Ui, file: &str, names: &[String], shown: &mut Shown) {
+fn question(ui: &mut egui::Ui, file: &str, names: &[String], shown: &mut PanelsDrawn) {
     let frame = egui::Frame::new().fill(crate::gui::PANEL).inner_margin(egui::Margin::same(40));
     egui::CentralPanel::default().frame(frame).show(ui, |ui| {
         ui.vertical_centered(|ui| {
@@ -159,13 +155,13 @@ pub fn joints(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
         super::cell_lines::paint(ui, ed, view, free);
     }
     let screen = ui.ctx().content_rect();
-    let marks = super::view::joint_marks(ed, view, screen.width() / screen.height().max(1.0), view.inset);
+    let marks = super::view::joint_marks(ed, view, crate::editor::ViewRoom(screen).aspect(), view.inset);
     let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::unique("joints"))).with_clip_rect(free);
     let at = |share: glam::Vec2| egui::pos2(screen.left() + share.x * screen.width(), screen.top() + share.y * screen.height());
     let chosen = marks.iter().any(|m| m.chosen);
-    let gold = super::background::Marks::colour(view.marks(ed.scope).gold());
+    let gold = super::background::MarkColors::colour(view.marks(ed.scope).gold());
     // The chosen part's joint, a line to the part's middle: whose it is.
-    let vp_line = view.view_proj(&view.block, screen.width() / screen.height().max(1.0));
+    let vp_line = view.view_proj(&view.block, crate::editor::ViewRoom(screen).aspect());
     let middle = ed.shape().filter(|_| ed.part_mode().is_some()).and_then(|b| super::handles::project(vp_line, glam::Vec2::new(screen.width(), screen.height()), b.size.as_vec3() / 2.0)).map(|(p, _)| screen.min + egui::vec2(p.x, p.y));
     for m in marks.iter().filter(|m| m.chosen) {
         if let Some(mid) = middle {
@@ -184,8 +180,8 @@ pub fn joints(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
     }
     // The chosen part's arrows; its joint's ring lit under the mouse (or
     // dragged), its word beside it.
-    let vp = view.view_proj(&view.block, screen.width() / screen.height().max(1.0));
-    let ring_lit = view.ring_hover || ed.joint_drag().is_some_and(|d| !d.part);
+    let vp = view.view_proj(&view.block, crate::editor::ViewRoom(screen).aspect());
+    let ring_lit = view.ring_hover || ed.handle_drag().is_some_and(|d| matches!(d.dragged, super::model::Dragged::Joint { .. }));
     if ring_lit && let Some(m) = marks.iter().find(|m| m.chosen) {
         let p = at(m.at);
         painter.circle(p, 8.0, crate::gui::GROUND, egui::Stroke::new(3.0, gold));
@@ -194,12 +190,12 @@ pub fn joints(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
     // SELECT's rectangle: a thin outline from the press to the pointer.
     if let Some(m) = view.marquee {
         let at = |s: [f32; 2]| egui::pos2(screen.left() + s[0] * screen.width(), screen.top() + s[1] * screen.height());
-        let gold = super::background::Marks::colour(view.marks(ed.scope).gold());
+        let gold = super::background::MarkColors::colour(view.marks(ed.scope).gold());
         painter.rect_stroke(egui::Rect::from_two_pos(at(m.from), at(m.to)), 0.0, egui::Stroke::new(1.0, gold), egui::StrokeKind::Middle);
     }
     // (GAME VIEW: the figure alone, as the game draws it.)
     if let Some(h) = ed.part_handles(vp).filter(|_| view.before_game.is_none()) {
-        let lit = ed.joint_drag().and_then(|d| d.drag.as_ref().map(|(g, _)| g.grip)).or(view.grip_hover);
+        let lit = ed.handle_drag().and_then(super::model::HandleDrag::grip).or(view.grip_hover);
         stage::paint(&painter, &h, vp, screen, lit);
     }
     // SLICE's arrow, lit under the mouse or dragged.
@@ -231,7 +227,7 @@ pub fn marks(ui: &egui::Ui, ed: &Editor, view: &View, figures: &Figures, free: e
         return;
     }
     let screen = ui.ctx().content_rect();
-    let marks = super::view::marks(ed, view, figures, screen.width() / screen.height().max(1.0), view.inset);
+    let marks = super::view::marks(ed, view, figures, crate::editor::ViewRoom(screen).aspect(), view.inset);
     let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::unique("pieces marks"))).with_clip_rect(free);
     let at = |share: glam::Vec2| egui::pos2(screen.left() + share.x * screen.width(), screen.top() + share.y * screen.height());
     let colour = |tone: super::view::Tone| match tone {
@@ -274,7 +270,7 @@ const AXIS_IN: f32 = 38.0;
 /// the screen (an axis toward the eye short), its letter at the tip.
 fn axis_marker(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
     let screen = ui.ctx().content_rect();
-    let aspect = screen.width() / screen.height().max(1.0);
+    let aspect = crate::editor::ViewRoom(screen).aspect();
     let orbit = match ed.scope {
         super::model::Scope::Level => &view.level,
         _ => &view.block,
@@ -317,7 +313,7 @@ const FAINT_POINTS_APART: f32 = 14.0;
 fn land_marks(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
     let screen = ui.ctx().content_rect();
     let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::unique("land marks"))).with_clip_rect(free);
-    let vp = view.view_proj(&view.level, screen.width() / screen.height().max(1.0));
+    let vp = view.view_proj(&view.level, crate::editor::ViewRoom(screen).aspect());
     let size = glam::Vec2::new(screen.width(), screen.height());
     let gold = ACCENT;
     let plain = Color32::from_rgb(150, 205, 235);
@@ -358,7 +354,7 @@ pub fn key_action(keys: &[(char, Action)], key: char) -> Option<Action> {
 /// The panels laid out at 1600 by 900 as a window lays them (a few frames
 /// for egui to settle), and what egui painted of them (for tests).
 #[cfg(test)]
-pub(crate) fn laid_out_at(ed: &Editor, view: &View) -> (Shown, Vec<egui::epaint::ClippedShape>) {
+pub(crate) fn laid_out_at(ed: &Editor, view: &View) -> (PanelsDrawn, Vec<egui::epaint::ClippedShape>) {
     let ctx = egui::Context::default();
     crate::gui::style(&ctx);
     let cfg = crate::session::config::<crate::Voxcade>(&ed.dir).unwrap_or_default();
@@ -384,7 +380,7 @@ mod tests {
     use glam::IVec3;
 
     /// The panels as they are drawn: what they offer and its keys.
-    fn shown(ed: &Editor, view: &View) -> Shown {
+    fn shown(ed: &Editor, view: &View) -> PanelsDrawn {
         let ctx = egui::Context::default();
         crate::gui::style(&ctx);
         let (figures, mut thumbs) = (Figures::load(&ed.dir, &GameConfig::default()), Thumbs::default());
@@ -393,7 +389,7 @@ mod tests {
         out.expect("drawn")
     }
 
-    fn ui_inner(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs: &mut Thumbs) -> Shown {
+    fn ui_inner(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs: &mut Thumbs) -> PanelsDrawn {
         super::ui(ui, ed, view, figures, thumbs)
     }
 
@@ -435,9 +431,9 @@ mod tests {
             b
         };
         let (grass, pond) = (block([90, 160, 60]), block([70, 130, 220]));
-        assert_eq!(super::super::view::front(&grass)[8..], super::super::view::front(&pond)[8..], "the front's rows below the top alike");
+        assert_eq!(crate::editor::view::front(&grass)[8..], crate::editor::view::front(&pond)[8..], "the front's rows below the top alike");
         for above in [true, false] {
-            let (a, b) = (super::super::view::above_front(&grass, 32, above), super::super::view::above_front(&pond, 32, above));
+            let (a, b) = (crate::editor::view::above_front(&grass, 32, above), crate::editor::view::above_front(&pond, 32, above));
             assert_eq!((a.0, a.1), (b.0, b.1));
             let differ = a.2.iter().zip(&b.2).filter(|(p, q)| p != q).count();
             assert!(differ * 5 >= a.2.len(), "from {}: {differ} of {} pixels differ", if above { "above" } else { "the front" }, a.2.len());
@@ -600,7 +596,7 @@ mod tests {
         crate::gui::style(&ctx);
         let (figures, mut thumbs) = (Figures::load(&ed.dir, &GameConfig::default()), Thumbs::default());
         let mut t = 0.0;
-        let mut frame = |ed: &mut Editor, view: &mut View, events: Vec<egui::Event>| -> Shown {
+        let mut frame = |ed: &mut Editor, view: &mut View, events: Vec<egui::Event>| -> PanelsDrawn {
             t += 0.05;
             let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 900.0))), time: Some(t), events, ..Default::default() };
             let mut out = None;
@@ -611,7 +607,7 @@ mod tests {
             }
             shown
         };
-        let reach = |s: &Shown| s.fields.iter().find(|(w, _)| w == "RADIUS").expect("a RADIUS field").1.center();
+        let reach = |s: &PanelsDrawn| s.fields.iter().find(|(w, _)| w == "RADIUS").expect("a RADIUS field").1.center();
         let at = reach(&frame(&mut ed, &mut view, vec![]));
         let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
         let key = |k| egui::Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
@@ -663,7 +659,7 @@ mod tests {
         crate::gui::style(&ctx);
         let (figures, mut thumbs) = (Figures::load(&ed.dir, &GameConfig::default()), Thumbs::default());
         let mut input = crate::gui::input::Input::default();
-        let mut frame = |ed: &mut Editor, view: &mut View, input: &mut crate::gui::input::Input, events: Vec<E>| -> Shown {
+        let mut frame = |ed: &mut Editor, view: &mut View, input: &mut crate::gui::input::Input, events: Vec<E>| -> PanelsDrawn {
             for e in &events {
                 input.handle(e, || None);
             }
@@ -692,7 +688,7 @@ mod tests {
     }
 
     /// The panels laid out at the window's size, as a window lays them.
-    fn laid_out(ctx: &egui::Context, ed: &Editor, view: &View) -> Shown {
+    fn laid_out(ctx: &egui::Context, ed: &Editor, view: &View) -> PanelsDrawn {
         let (figures, mut thumbs) = (Figures::load(&ed.dir, &GameConfig::default()), Thumbs::default());
         let mut out = None;
         for _ in 0..3 {
@@ -709,7 +705,7 @@ mod tests {
     #[test]
     fn a_wide_number_never_moves_the_inspector() {
         use crate::editor::model::room::Item;
-        let same = |what: &str, a: &Shown, b: &Shown| {
+        let same = |what: &str, a: &PanelsDrawn, b: &PanelsDrawn| {
             // (The three zones; a bar at the chosen one goes with it.)
             assert_eq!(a.rects[..3], b.rects[..3], "{what}: the panels moved");
             assert_eq!(a.free, b.free, "{what}: the view's room changed");
@@ -807,7 +803,7 @@ mod tests {
         let ctx = egui::Context::default();
         crate::gui::style(&ctx);
         let (figures, mut thumbs) = (Figures::load(&ed.dir, &GameConfig::default()), Thumbs::default());
-        let frame = |ed: &Editor, view: &View, thumbs: &mut Thumbs, t: f64, events: Vec<egui::Event>| -> Shown {
+        let frame = |ed: &Editor, view: &View, thumbs: &mut Thumbs, t: f64, events: Vec<egui::Event>| -> PanelsDrawn {
             let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 900.0))), time: Some(t), events, ..Default::default() };
             let mut out = None;
             let _ = ctx.run_ui(raw, |ui| out = Some(super::ui(ui, ed, view, &figures, thumbs)));

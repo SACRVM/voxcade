@@ -21,6 +21,7 @@
 //! in voxels, places and areas, all a level without blocks has.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use glam::{IVec3, Vec3};
@@ -30,55 +31,67 @@ use super::frames::{ModelFile, Shaped};
 use crate::blocks::{self, Block, Turn};
 use crate::grid::{Area, BlockEntry, Cell, GridLevel, Kind, Place, Thing};
 
-#[path = "room.rs"]
 pub mod room;
-#[path = "disk.rs"]
 pub mod disk;
-#[path = "parts.rs"]
 pub mod parts;
-#[path = "selection.rs"]
 pub mod selection;
-#[path = "land.rs"]
 pub mod land;
-#[path = "tools.rs"]
 mod tools;
-#[path = "forms.rs"]
 mod forms;
-#[path = "history.rs"]
 mod history;
-#[path = "cells.rs"]
 mod cells;
-#[path = "model_file.rs"]
 mod model_file;
-#[path = "rig.rs"]
 mod rig;
 pub use room::{Field, Hanging, Item};
 pub use cells::MOST_CELLS;
 
-/// A joint's arrow being dragged: the drag, the handles as they were at
-/// the press, where the joint was (from the pivot), how many steps there
-/// were then and whether it moved since.
+/// A handle of the voxel editor being dragged (`Editor::handle_drag`):
+/// what it moves, the steps there were at the press and whether it moved
+/// since (its first change makes the drag's one step, the next ones join
+/// it), and whether Shift asks for the fine steps (tenths, single
+/// degrees).
 #[derive(Clone, Debug)]
-pub struct JointDrag {
-    pub drag: Option<(super::handles::Drag, super::handles::Handles)>,
-    start: Vec3,
+pub struct HandleDrag {
+    pub dragged: Dragged,
     steps: usize,
     moved: bool,
-    /// The part itself dragged by an arrow; how far it went.
-    pub part: bool,
-    applied: IVec3,
-    /// The joint's ring dragged: the axis left out (the one most along
-    /// the view) and where the ray met the plane across it at the press.
-    ring: Option<(usize, Vec3)>,
-    /// A part's ring dragged (ROTATE): its rest rotation at the press,
-    /// and whether the angles go by single degrees (Ctrl) or by fives.
-    rest: [f32; 3],
     pub fine: bool,
-    /// A part's arrow: the part's grid to the pivot's at the press (the
-    /// drag measured in the grid as it was, `local_to_pivot`), and how far
-    /// it has gone in the file's directions so far (fractions too).
-    press: Option<glam::Mat4>,
-    applied_f: Vec3,
+}
+
+/// What a handle's drag moves.
+#[derive(Clone, Debug)]
+pub enum Dragged {
+    /// A part's arrow or ring, or the figure whole's arrows: the drag and
+    /// the handles at the press; the part's rest rotation then (ROTATE);
+    /// its grid to the pivot's then (a part's arrow: the drag measured in
+    /// the grid as it was, `local_to_pivot`); how far it has gone, in whole
+    /// voxels and in the file's directions with fractions.
+    Part { drag: super::handles::Drag, h: super::handles::Handles, rest: [f32; 3], press: Option<glam::Mat4>, applied: IVec3, applied_f: Vec3 },
+    /// A selection's arrow: its voxels dragged, how far.
+    Selection { drag: super::handles::Drag, h: super::handles::Handles, applied: IVec3 },
+    /// The joint's ring: the axis left out (the one most along the view),
+    /// where the ray met the plane across it at the press, and where the
+    /// joint was then (from the pivot).
+    Joint { axis: usize, from: Vec3, start: Vec3 },
+}
+
+impl HandleDrag {
+    fn new(dragged: Dragged, steps: usize) -> Self {
+        Self { dragged, steps, moved: false, fine: false }
+    }
+
+    /// Whether a change now joins the drag's step (its first made one).
+    fn joins(&self, steps_now: usize) -> bool {
+        self.moved && steps_now > self.steps
+    }
+
+    /// The arrow or ring dragged (none: the joint's ring).
+    pub fn grip(&self) -> Option<super::handles::Grip> {
+        match &self.dragged {
+            Dragged::Part { drag, .. } | Dragged::Selection { drag, .. } => Some(drag.grip),
+            Dragged::Joint { .. } => None,
+        }
+    }
 }
 
 /// How far from the pivot a figure's part may be moved (voxels).
@@ -372,6 +385,32 @@ struct LevelState {
 }
 
 impl LevelState {
+    /// The level's state as a step keeps it.
+    fn of(l: &GridLevel) -> Self {
+        Self {
+            size: l.size,
+            cells: l.cells.clone(),
+            table: l.blocks.clone(),
+            things: l.things.clone(),
+            places: l.places.clone(),
+            areas: l.areas.clone(),
+            daylight: l.daylight.clone().map(Box::new),
+            terrain: l.terrain.clone().map(Box::new),
+        }
+    }
+
+    /// Whether the level stands as it keeps it (nothing copied).
+    fn is(&self, l: &GridLevel) -> bool {
+        self.size == l.size
+            && self.cells == l.cells
+            && self.table == l.blocks
+            && self.things == l.things
+            && self.places == l.places
+            && self.areas == l.areas
+            && self.daylight.as_deref() == l.daylight.as_ref()
+            && self.terrain.as_deref() == l.terrain.as_ref()
+    }
+
     /// About how many bytes it holds.
     fn bytes(&self) -> usize {
         use std::mem::size_of;
@@ -390,38 +429,65 @@ fn shaped_bytes(s: &Shaped) -> usize {
     s.frames.iter().map(block_bytes).sum::<usize>() + s.parts.len() * std::mem::size_of::<super::frames::Placed>() + s.palette.len() * std::mem::size_of::<super::frames::Colour>()
 }
 
-/// One step of the history, before and after.
+/// One step of the history, before and after. A level's or a model's
+/// states are shared: a step's after is the next step's before, kept once.
 enum Step {
-    Level(LevelState, LevelState),
+    Level(Arc<LevelState>, Arc<LevelState>),
     Block(usize, Block, Block),
     Delete(Box<Deletion>),
     /// A model's frames, all of them, and a figure's parts as placed and
     /// rigged (a stroke on one, or frames copied, taken out, turned, the
     /// box grown or trimmed, a part's parent or joint set).
-    Model(Shaped, Shaped),
+    Model(Arc<Shaped>, Arc<Shaped>),
 }
 
 impl Step {
-    /// About how many bytes it holds (what is kept of the level, the
-    /// block or the model before and after it).
-    fn bytes(&self) -> usize {
+    /// What it keeps, each with its bytes: the level, the block or the
+    /// model before and after it; a shared state with its address, to be
+    /// counted once (`kept_bytes`), a block of its own with none.
+    fn kept(&self) -> Vec<(Option<usize>, usize)> {
+        let level = |s: &Arc<LevelState>| (Some(Arc::as_ptr(s) as usize), s.bytes());
+        let model = |s: &Arc<Shaped>| (Some(Arc::as_ptr(s) as usize), shaped_bytes(s));
         match self {
-            Step::Level(b, a) => b.bytes() + a.bytes(),
-            Step::Block(_, b, a) => block_bytes(b) + block_bytes(a),
-            Step::Delete(d) => block_bytes(&d.block) + d.before.bytes() + d.after.bytes(),
-            Step::Model(b, a) => shaped_bytes(b) + shaped_bytes(a),
+            Step::Level(b, a) => vec![level(b), level(a)],
+            Step::Block(_, b, a) => vec![(None, block_bytes(b)), (None, block_bytes(a))],
+            Step::Delete(d) => vec![(None, block_bytes(&d.block)), level(&d.before), level(&d.after)],
+            Step::Model(b, a) => vec![model(b), model(a)],
         }
     }
 
-    /// The step the other way (taking it back).
-    fn reversed(&self) -> Step {
+    /// The level or the model as the step leaves it (`forward`), or as it
+    /// found it.
+    fn state(&self, forward: bool) -> Option<Now> {
         match self {
-            Step::Level(b, a) => Step::Level(a.clone(), b.clone()),
-            Step::Block(i, b, a) => Step::Block(*i, a.clone(), b.clone()),
-            Step::Model(b, a) => Step::Model(a.clone(), b.clone()),
-            Step::Delete(d) => Step::Delete(Box::new(Deletion { index: d.index, entry: d.entry.clone(), block: d.block.clone(), before: d.after.clone(), after: d.before.clone() })),
+            Step::Level(b, a) => Some(Now::Level(Arc::clone(if forward { a } else { b }))),
+            Step::Delete(d) => Some(Now::Level(Arc::clone(if forward { &d.after } else { &d.before }))),
+            Step::Model(b, a) => Some(Now::Model(Arc::clone(if forward { a } else { b }))),
+            Step::Block(..) => None,
         }
     }
+}
+
+/// About how many bytes steps keep together, a state two of them share
+/// counted once.
+fn kept_bytes<'a>(steps: impl Iterator<Item = &'a Step>) -> usize {
+    let mut seen = std::collections::BTreeSet::new();
+    steps.flat_map(Step::kept).filter(|(at, _)| at.is_none_or(|at| seen.insert(at))).map(|(_, bytes)| bytes).sum()
+}
+
+/// How the level, a block or the model stood when the stroke going on
+/// began (what letting go makes a step of, and Escape brings back).
+enum Begun {
+    Level(Arc<LevelState>),
+    Block(usize, Block),
+    Model(Arc<Shaped>),
+}
+
+/// The newest state a step keeps of the level or the model: the next
+/// step's before shares it while they still stand so.
+enum Now {
+    Level(Arc<LevelState>),
+    Model(Arc<Shaped>),
 }
 
 /// A block taken out of the level: its place in the list, what it was,
@@ -431,13 +497,13 @@ struct Deletion {
     index: usize,
     entry: BlockEntry,
     block: Block,
-    before: LevelState,
-    after: LevelState,
+    before: Arc<LevelState>,
+    after: Arc<LevelState>,
 }
 
 /// How many steps the editor keeps to take back, and how many bytes they
 /// may hold together (each keeps the level or the model before and after
-/// it whole): past either, the oldest go.
+/// it, shared with its neighbours): past either, the oldest go.
 pub const KEPT_STEPS: usize = 300;
 pub const KEPT_BYTES: usize = 256 << 20;
 
@@ -452,7 +518,11 @@ pub struct History {
     /// At most so many steps and bytes kept (`KEPT_STEPS`, `KEPT_BYTES`).
     keep: (usize, usize),
     /// The stroke going on: how the level or block stood when it began.
-    stroke: Option<Step>,
+    stroke: Option<Begun>,
+    /// The newest level and model a step keeps (`Editor::level_state`,
+    /// `shaped`: shared by the next step while they still stand so).
+    level_now: Option<Arc<LevelState>>,
+    model_now: Option<Arc<Shaped>>,
     /// The colour whose material the last step set: the next setting of it
     /// joins that step (a slider dragged is one step back).
     tuning: Option<[u8; 3]>,
@@ -464,7 +534,18 @@ pub struct History {
 
 impl Default for History {
     fn default() -> Self {
-        Self { past: Vec::new(), future: Vec::new(), dropped: 0, keep: (KEPT_STEPS, KEPT_BYTES), stroke: None, tuning: None, grown: IVec3::ZERO, moved: IVec3::ZERO }
+        Self {
+            past: Vec::new(),
+            future: Vec::new(),
+            dropped: 0,
+            keep: (KEPT_STEPS, KEPT_BYTES),
+            stroke: None,
+            level_now: None,
+            model_now: None,
+            tuning: None,
+            grown: IVec3::ZERO,
+            moved: IVec3::ZERO,
+        }
     }
 }
 
@@ -478,15 +559,23 @@ impl History {
     /// The oldest steps gone while more are kept than `keep` allows (by
     /// count, or by bytes with the steps to do again); the newest stays.
     pub(super) fn bound(&mut self) {
-        let mut bytes: usize = self.past.iter().chain(&self.future).map(Step::bytes).sum();
         let mut gone = 0;
-        while self.past.len() - gone > 1 && (self.past.len() - gone > self.keep.0 || bytes > self.keep.1) {
-            bytes -= self.past[gone].bytes();
+        while self.past.len() - gone > 1 && (self.past.len() - gone > self.keep.0 || kept_bytes(self.past[gone..].iter().chain(&self.future)) > self.keep.1) {
             gone += 1;
         }
         if gone > 0 {
             self.past.drain(..gone);
             self.dropped += gone;
+        }
+    }
+
+    /// `step` taken (`forward`) or taken back: the state it leaves is the
+    /// newest, for the next step to share.
+    fn remember(&mut self, step: &Step, forward: bool) {
+        match step.state(forward) {
+            Some(Now::Level(s)) => self.level_now = Some(s),
+            Some(Now::Model(s)) => self.model_now = Some(s),
+            None => {}
         }
     }
 }
@@ -537,6 +626,9 @@ pub struct Pieces {
     /// their models' files; those without a behavior (only they face as
     /// the file turns them); those that turn freely (`rotates = "free"`).
     pub kind_models: std::collections::BTreeMap<String, String>,
+    /// The game's models a piece can be made of (`Editor::model_choices`),
+    /// as last found.
+    choices: std::cell::RefCell<Option<std::rc::Rc<[String]>>>,
     pub still_kinds: std::collections::BTreeSet<String>,
     pub free_kinds: std::collections::BTreeSet<String>,
 }
@@ -545,12 +637,9 @@ pub struct Pieces {
 /// list, a drag, a pose and the next step do to them.
 #[derive(Default)]
 pub struct Rigging {
-    /// FIGURE: the next part clicked in the list becomes the chosen part's
-    /// parent (PARENT ... CHOOSE).
-    pub picking_parent: bool,
-    /// A figure's joint being dragged by its arrow, and whether the next
-    /// change to the model joins the last step (the drag's).
-    joint_drag: Option<JointDrag>,
+    /// A figure's handle being dragged, and whether the next change to the
+    /// model joins the last step (the drag's: `Editor::joining`).
+    handle_drag: Option<HandleDrag>,
     join_next: bool,
     /// A figure's part: its rings (ROTATE) at it rather than its arrows
     /// (MOVE); a stroke begun from the figure whole on the part it met
@@ -680,6 +769,50 @@ pub struct Editor {
 }
 
 impl Editor {
+    /// An editor on `file` of the game in `dir` with nothing open yet: no
+    /// level, no model, every tool and choice as it starts.
+    fn blank(dir: &Path, file: &str) -> Self {
+        Self {
+            dir: dir.to_path_buf(),
+            file: file.to_string(),
+            level: GridLevel::new(1, IVec3::ZERO),
+            blocks: Vec::new(),
+            sheet: None,
+            scope: Scope::Level,
+            layer: Layer::Blocks,
+            tool: Tool::Pointer,
+            before_pick: Tool::Add,
+            shifted: false,
+            held: Cell::default(),
+            colour: [200, 200, 200],
+            kinds: Vec::new(),
+            held_kind: None,
+            anchor: [true; 3],
+            moving: None,
+            history: History::default(),
+            message: None,
+            model: None,
+            forms: Forms::default(),
+            symmetry: false,
+            figure: None,
+            rigging: Rigging::default(),
+            hint: None,
+            dry: false,
+            question: None,
+            source: String::new(),
+            source_level: GridLevel::new(1, IVec3::ZERO),
+            game_light: Default::default(),
+            pieces: Pieces::default(),
+            land: land::Land::default(),
+            disk: Default::default(),
+            hidden: Default::default(),
+            slice: None,
+            context: None,
+            wants_context: None,
+            selecting: Selecting::default(),
+        }
+    }
+
     /// Opens the level `file` of the game in `dir`, with its blocks and
     /// tileset.
     pub fn open(dir: &Path, file: &str) -> Result<Self> {
@@ -689,65 +822,26 @@ impl Editor {
         let blocks = level.load_blocks(dir)?;
         let sheet_path = dir.join(blocks::FOLDER).join(crate::tiled::SHEET);
         let sheet = if sheet_path.exists() && level.has_grid() { Some(Sheet::load(&sheet_path, level.n)?) } else { None };
-        let held = Cell { block: (!level.blocks.is_empty()) as u16, turn: Turn::NONE };
-        let colour = blocks.first().and_then(|b| b.colours().first().copied()).unwrap_or([200, 200, 200]);
+        let mut ed = Self::blank(dir, file);
+        ed.held = Cell { block: (!level.blocks.is_empty()) as u16, turn: Turn::NONE };
+        ed.colour = blocks.first().and_then(|b| b.colours().first().copied()).unwrap_or(ed.colour);
         // A level without blocks is its pieces.
-        let layer = if level.has_grid() { Layer::Blocks } else { Layer::Pieces };
-        Ok(Self {
-            dir: dir.to_path_buf(),
-            file: file.to_string(),
-            source_level: level.clone(),
-            source,
-            level,
-            blocks,
-            sheet,
-            scope: Scope::Level,
-            layer,
-            tool: Tool::Pointer,
-            before_pick: Tool::Add,
-            shifted: false,
-            held,
-            colour,
-            kinds: Vec::new(),
-            held_kind: None,
-            anchor: [true; 3],
-            moving: None,
-            message: None,
-            model: None,
-            symmetry: false,
-            figure: None,
-            hint: None,
-            dry: false,
-            question: None,
-            game_light: Default::default(),
-            land: land::Land::default(),
-            disk: Default::default(),
-            hidden: Default::default(),
-            slice: None,
-            context: None,
-            wants_context: None,
-            history: History::default(),
-            forms: Forms::default(),
-            rigging: Rigging::default(),
-            pieces: Pieces::default(),
-            selecting: Selecting::default(),
-        })
-        .map(|mut ed: Self| {
-            ed.remember_held();
-            ed
-        })
+        ed.layer = if level.has_grid() { Layer::Blocks } else { Layer::Pieces };
+        (ed.source_level, ed.source, ed.level, ed.blocks, ed.sheet) = (level.clone(), source, level, blocks, sheet);
+        ed.remember_held();
+        Ok(ed)
     }
 
     /// Opens the model `file` of the game in `dir`, at its first frame; a
     /// figure of parts whole (FIGURE).
     pub fn open_model(dir: &Path, file: &str) -> Result<Self> {
-        Self::with_model(dir, file, ModelFile::load(&dir.join(file))?)
+        Ok(Self::with_model(dir, file, ModelFile::load(&dir.join(file))?))
     }
 
     /// The model `file` of the game in `dir` to look at, a MagicaVoxel
     /// `.vox` too (the IDE's picture of it): nothing written.
     pub fn look_at_model(dir: &Path, file: &str) -> Result<Self> {
-        let mut ed = Self::with_model(dir, file, ModelFile::look(&dir.join(file))?)?;
+        let mut ed = Self::with_model(dir, file, ModelFile::look(&dir.join(file))?);
         ed.dry = true;
         Ok(ed)
     }
@@ -755,58 +849,19 @@ impl Editor {
     /// The world or map's prefab `file` of the game in `dir` to look at (the
     /// IDE's picture of it): nothing written.
     pub fn look_at_scene(dir: &Path, file: &str) -> Result<Self> {
-        let mut ed = Self::with_model(dir, file, ModelFile::look_at_scene(&dir.join(file))?)?;
+        let mut ed = Self::with_model(dir, file, ModelFile::look_at_scene(&dir.join(file))?);
         ed.dry = true;
         Ok(ed)
     }
 
-    fn with_model(dir: &Path, file: &str, model: ModelFile) -> Result<Self> {
-        let level = GridLevel::new(1, IVec3::ZERO);
-        let colour = model.colours().first().copied().unwrap_or([200, 200, 200]);
-        let (figure, message) = Figure::follow(None, &model, None);
-        Ok(Self {
-            dir: dir.to_path_buf(),
-            file: file.to_string(),
-            level,
-            blocks: Vec::new(),
-            sheet: None,
-            scope: if figure.is_some() { Scope::Figure } else { Scope::Frame(0) },
-            layer: Layer::Blocks,
-            tool: Tool::Pointer,
-            before_pick: Tool::Add,
-            shifted: false,
-            held: Cell::default(),
-            colour,
-            kinds: Vec::new(),
-            held_kind: None,
-            anchor: [true; 3],
-            moving: None,
-            message,
-            model: Some(model),
-            symmetry: false,
-            figure,
-            hint: None,
-            dry: false,
-            question: None,
-            source: String::new(),
-            source_level: GridLevel::new(1, IVec3::ZERO),
-            game_light: Default::default(),
-            land: land::Land::default(),
-            disk: Default::default(),
-            hidden: Default::default(),
-            slice: None,
-            context: None,
-            wants_context: None,
-            history: History::default(),
-            forms: Forms::default(),
-            rigging: Rigging::default(),
-            pieces: Pieces::default(),
-            selecting: Selecting::default(),
-        })
-        .map(|mut ed: Self| {
-            ed.remember_held();
-            ed
-        })
+    fn with_model(dir: &Path, file: &str, model: ModelFile) -> Self {
+        let mut ed = Self::blank(dir, file);
+        ed.colour = model.colours().first().copied().unwrap_or(ed.colour);
+        (ed.figure, ed.message) = Figure::follow(None, &model, None);
+        ed.scope = if ed.figure.is_some() { Scope::Figure } else { Scope::Frame(0) };
+        ed.model = Some(model);
+        ed.remember_held();
+        ed
     }
 
     /// The box of voxels shaped: the open block, or the model's frame.
@@ -864,5 +919,4 @@ fn rig_of(m: &ModelFile) -> Option<std::collections::BTreeMap<String, (Option<St
 }
 
 #[cfg(test)]
-#[path = "model_tests.rs"]
 pub(crate) mod tests;

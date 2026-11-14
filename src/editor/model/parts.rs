@@ -615,7 +615,7 @@ impl Editor {
     /// While a part's ring is dragged: by single degrees (Ctrl held) or by
     /// fives.
     pub fn set_fine(&mut self, fine: bool) {
-        if let Some(d) = &mut self.rigging.joint_drag {
+        if let Some(d) = &mut self.rigging.handle_drag {
             d.fine = fine;
         }
     }
@@ -905,7 +905,7 @@ pub(crate) mod tests {
 
     /// The rig of every part by name (parent, joint from the pivot).
     fn rig(ed: &Editor) -> std::collections::BTreeMap<String, (Option<String>, Vec3)> {
-        super::super::rig_of(ed.model.as_ref().unwrap()).expect("a figure")
+        crate::editor::model::rig_of(ed.model.as_ref().unwrap()).expect("a figure")
     }
 
     /// No step re-hangs or re-hinges a part nobody acted on: a copy laid
@@ -1038,7 +1038,7 @@ pub(crate) mod tests {
         for k in 1..=6 {
             let a = (k as f32 * 10.0).to_radians();
             let p = middle + glam::Vec2::new(a.cos(), -a.sin()) * r;
-            ed.drag_joint(vp, screen, p, ray(p));
+            ed.drag_handle(vp, screen, p, ray(p));
         }
         assert_ne!(ed.part_rotation(), was.2, "turned while dragged");
         assert!(ed.cancel_joint());
@@ -1294,7 +1294,7 @@ pub(crate) mod tests {
             let drag = Drag::begin(&h, Grip::Arrow(0), vp, screen, head, ray(head)).expect("the X arrow");
             assert!(ed.grab_part(drag, h.clone()));
             let to = project(vp, screen, h.centre + Vec3::X * (h.length * 0.95 + by)).unwrap().0;
-            ed.drag_joint(vp, screen, to, ray(to));
+            ed.drag_handle(vp, screen, to, ray(to));
         };
         // Focus lost: cancelled.
         grab(&mut ed, 5.0);
@@ -1306,7 +1306,7 @@ pub(crate) mod tests {
         ed.end_drag(false);
         assert_eq!(ed.steps(), 1);
         let moved = at(&ed);
-        ed.drag_joint(vp, screen, glam::Vec2::new(10.0, 10.0), ray(glam::Vec2::new(10.0, 10.0)));
+        ed.drag_handle(vp, screen, glam::Vec2::new(10.0, 10.0), ray(glam::Vec2::new(10.0, 10.0)));
         assert_eq!(at(&ed), moved, "no drag: nothing moves");
         ed.undo();
         assert_eq!(text(&dir), start, "one UNDO: as at the start");
@@ -1314,8 +1314,8 @@ pub(crate) mod tests {
         grab(&mut ed, 4.0);
         ed.choose(crate::editor::model::Tool::Pick);
         ed.press(crate::editor::model::Hit { cell: IVec3::ZERO, normal: IVec3::Z });
-        assert!(ed.joint_drag().is_none(), "the press ended the drag");
-        ed.drag_joint(vp, screen, glam::Vec2::new(10.0, 10.0), ray(glam::Vec2::new(10.0, 10.0)));
+        assert!(ed.handle_drag().is_none(), "the press ended the drag");
+        ed.drag_handle(vp, screen, glam::Vec2::new(10.0, 10.0), ray(glam::Vec2::new(10.0, 10.0)));
         ed.release();
         assert_eq!(ed.steps(), 1, "the drag its step, nothing else");
         ed.undo();
@@ -1337,7 +1337,7 @@ pub(crate) mod tests {
         let h = ed.part_handles(vp).unwrap();
         let head = project(vp, screen, h.centre + Vec3::X * h.length * 0.95).unwrap().0;
         assert!(ed.grab_part(Drag::begin(&h, Grip::Arrow(0), vp, screen, head, ray(head)).unwrap(), h.clone()));
-        ed.drag_joint(vp, screen, head + glam::Vec2::new(2.0, 1.0), ray(head + glam::Vec2::new(2.0, 1.0)));
+        ed.drag_handle(vp, screen, head + glam::Vec2::new(2.0, 1.0), ray(head + glam::Vec2::new(2.0, 1.0)));
         ed.release();
         assert_eq!((ed.steps(), text(&dir)), (0, start.clone()), "a click moves nothing");
         // Thrown: never further than FAR, never NaN.
@@ -1511,7 +1511,7 @@ pub(crate) mod tests {
             ed.shift_pick(true);
             assert_ne!(ed.tool, crate::editor::model::Tool::Pick, "Shift on a handle: no PICK");
             let to = project(vp, screen, h.centre + x * (h.length * 0.95 + by)).unwrap().0;
-            ed.drag_joint(vp, screen, to, ray(to));
+            ed.drag_handle(vp, screen, to, ray(to));
             ed.release();
             ed.shift_pick(false);
         };

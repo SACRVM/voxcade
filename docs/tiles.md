@@ -203,7 +203,7 @@ facing = [0, -1]
   level). `[[area]]` is a named box (`name`, `at` its low corner,
   `size`). A level without `block` has no grid: `size` is its voxels and
   it holds only what is set down (a stage of models). The editor opens
-  such a level among its pieces (`src/editor/room.rs`; a level of blocks
+  such a level among its pieces (`src/editor/model/room.rs`; a level of blocks
   has PIECES beside BLOCKS and THINGS) in three zones (`stage.rs`): a
   bar along the top (the level, + ADD with MODEL…, LIGHT, PLACE and AREA,
   UNDO, REDO; GAME VIEW, LIGHTS and LEVEL on the right), the outliner on
@@ -404,7 +404,7 @@ grain = 0.3
   go, a typed height, REROLL ...) moves the things and places standing on
   it (their feet on the land as it was, within a voxel) with it, in the
   same step; what is set in the air or sunk deeper stays.
-- **The editor** (`editor/land.rs`): + ADD's TERRAIN makes a flat one over
+- **The editor** (`editor/model/land.rs`): + ADD's TERRAIN makes a flat one over
   the level, TERRAIN beside PIECES (and BLOCKS and THINGS) shows it. The
   outliner holds the terrain's lists instead of the level's things (they
   stay drawn): MATERIALS (one row each: its tones, its conditions in short,

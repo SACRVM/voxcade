@@ -28,7 +28,18 @@ pub struct Shown {
     /// frame took a fifth of a second (the owner's back wall: "ruckelig
     /// wie sau").
     room: std::cell::RefCell<RoomCache>,
-    pub(super) outline: std::cell::RefCell<super::super::model::selection::Outlines>,
+    pub(super) outline: std::cell::RefCell<crate::editor::model::selection::Outlines>,
+    /// GAME VIEW's figure as the game holds it, shaded, and its bank.
+    game_view: std::cell::RefCell<Option<GameViewOf>>,
+}
+
+/// A figure as GAME VIEW draws it (`Shown::game_view_model`): what it was
+/// made of (the model, its shading) and the model and bank made.
+struct GameViewOf {
+    of: Arc<crate::editor::frames::Shaped>,
+    shading: (crate::config::ModelShading, f32),
+    model: Arc<crate::vox::VoxModel>,
+    bank: Arc<crate::render::ModelBank>,
 }
 
 /// The room round a model shaped in place as `frame` draws it: what it was
@@ -54,7 +65,7 @@ pub(super) struct RoomCache {
 /// figure's box and the grid they are drawn in.
 #[derive(Clone, PartialEq)]
 pub(super) struct RoomOf {
-    context: Option<super::super::context::Context>,
+    context: Option<crate::editor::context::Context>,
     models: usize,
     figure_box: Option<(IVec3, IVec3)>,
     seen: [f32; 16],
@@ -111,7 +122,7 @@ pub(super) fn slice_key(ed: &Editor) -> Option<(usize, i32, i32)> {
 
 impl Shown {
     pub fn new(ed: &Editor) -> Result<Self> {
-        let mut shown = Self { world: World::new(IVec3::ONE, [[0; 4]; 256]), scope: ed.scope, size: IVec3::ZERO, cells: Vec::new(), blocks: Vec::new(), shape: None, slice: None, turned: false, terrain: None, surface: None, room: Default::default(), outline: Default::default() };
+        let mut shown = Self { world: World::new(IVec3::ONE, [[0; 4]; 256]), scope: ed.scope, size: IVec3::ZERO, cells: Vec::new(), blocks: Vec::new(), shape: None, slice: None, turned: false, terrain: None, surface: None, room: Default::default(), outline: Default::default(), game_view: Default::default() };
         shown.build(ed)?;
         Ok(shown)
     }
@@ -198,13 +209,13 @@ impl Shown {
     }
 
     /// The level round a model shaped in place (`Editor::context_cubes`),
-    /// joined and sorted far to near from `eye` as `frame` draws it: made
-    /// again only when what it is made of changes, sorted again only when
-    /// the eye moves.
-    pub(super) fn room(&self, ed: &Editor, figures: &Figures, seen: Mat4, eye: Vec3, grid: IVec3) -> Vec<Instance> {
+    /// joined and sorted far to near from `eye` as `frame` draws it, laid
+    /// before `instances` (how many): made again only when what it is made
+    /// of changes, sorted again only when the eye moves.
+    pub(super) fn room_before(&self, ed: &Editor, figures: &Figures, seen: Mat4, eye: Vec3, grid: IVec3, instances: &mut Vec<Instance>) -> usize {
         let toward = eye - grid.as_vec3() / 2.0;
         let context = ed.context.as_ref().filter(|c| c.shown);
-        let (models, figure_box, seen_at, side) = (figures.1.len(), ed.figure_box(), seen.to_cols_array(), crate::render::see_through_side(toward));
+        let (models, figure_box, seen_at, side) = (figures.models.len(), ed.figure_box(), seen.to_cols_array(), crate::render::see_through_side(toward));
         let mut cache = self.room.borrow_mut();
         let same = cache.made_of.as_ref().is_some_and(|m| m.context.as_ref() == context && m.models == models && m.figure_box == figure_box && m.seen == seen_at);
         if !same {
@@ -224,7 +235,28 @@ impl Shown {
             let sorted = far_to_near_order(&cache.joined, eye).into_iter().map(|k| cache.joined[k as usize]).collect();
             (cache.sorted, cache.sorted_for) = (sorted, Some(eye));
         }
-        cache.sorted.clone()
+        instances.splice(0..0, cache.sorted.iter().copied());
+        cache.sorted.len()
+    }
+
+    /// The editor's figure as the game holds it (GAME VIEW), shaded as the
+    /// game shades it, and a model bank of it: made again only when the
+    /// model or its shading changed. None where it is no figure.
+    pub(super) fn game_view_model(&self, ed: &Editor, light: &LightConfig) -> Option<(Arc<crate::vox::VoxModel>, Arc<crate::render::ModelBank>)> {
+        let file = ed.model.as_ref()?;
+        let shading = (light.model_shading_for.get(&ed.file).copied().unwrap_or(light.model_shading), light.edge_tolerance);
+        let mut kept = self.game_view.borrow_mut();
+        if let Some(k) = kept.as_ref().filter(|k| k.shading == shading && file.is(&k.of)) {
+            return Some((k.model.clone(), k.bank.clone()));
+        }
+        let Some(Ok((mut model, ..))) = file.figure() else { return None };
+        model.shade(shading.0, shading.1);
+        let mut bank = crate::render::ModelBank::default();
+        bank.add(&mut model);
+        let made = GameViewOf { of: ed.shaped(), shading, model: Arc::new(model), bank: Arc::new(bank) };
+        let out = (made.model.clone(), made.bank.clone());
+        *kept = Some(made);
+        Some(out)
     }
 
     /// How often the room round a model was made, and joined (for tests).

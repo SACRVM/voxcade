@@ -9,7 +9,8 @@
 
 use glam::{IVec2, IVec3, Quat, Vec3};
 
-use super::{Editor, Layer, Scope, Step};
+use super::{Begun, Editor, Layer, Scope, Step};
+use std::sync::Arc;
 use crate::editor::handles::{self, Drag, Grip, Handles};
 use crate::grid::{Area, Facing, GridLevel, PIECE, Place, Thing, ThingLight, Way};
 
@@ -380,7 +381,7 @@ impl Editor {
         let before = self.level_state();
         f(&mut self.level);
         let after = self.level_state();
-        if after == before {
+        if Arc::ptr_eq(&after, &before) || after == before {
             return;
         }
         let key = tune.map(|t| (self.pieces.chosen, t));
@@ -618,7 +619,7 @@ impl Editor {
         let Some(item) = self.pieces.chosen else { return };
         let at = IVec3::from(self.at_of(item).expect("chosen"));
         let Some(spot) = plane_spot(origin, dir, at.z) else { return };
-        self.history.stroke = Some(Step::Level(self.level_state(), self.level_state()));
+        self.history.stroke = Some(Begun::Level(self.level_state()));
         self.pieces.dragging = Some((item, at - spot));
     }
 
@@ -932,7 +933,7 @@ impl Editor {
             Item::Area(i) => Was::Area(self.level.areas[i].clone()),
         };
         let light = self.pieces.chosen_light.filter(|_| matches!(&was, Was::Thing(t) if t.model.is_some()));
-        self.history.stroke = Some(Step::Level(self.level_state(), self.level_state()));
+        self.history.stroke = Some(Begun::Level(self.level_state()));
         self.pieces.gripped = Some(Gripped { item, light, handles: h, drag, was });
         true
     }
@@ -1031,7 +1032,7 @@ impl Editor {
             return false;
         }
         (self.pieces.gripped, self.pieces.dragging) = (None, None);
-        if let Some(Step::Level(before, _)) = self.history.stroke.take() {
+        if let Some(Begun::Level(before)) = self.history.stroke.take() {
             self.set_level(&before);
         }
         true
@@ -1196,7 +1197,7 @@ impl Editor {
         self.pieces.wants_model = self.chosen_thing().and_then(|t| t.model.clone().or_else(|| self.pieces.kind_models.get(&t.kind).cloned()));
         // A piece: its model shaped in place, the level round it.
         self.wants_context = match self.pieces.chosen {
-            Some(Item::Thing(i)) if self.level.things[i].is_piece() && self.level.things[i].model.is_some() => Some(super::super::context::Seed { level: self.file.clone(), piece: i, hidden: self.hidden.clone() }),
+            Some(Item::Thing(i)) if self.level.things[i].is_piece() && self.level.things[i].model.is_some() => Some(crate::editor::context::Seed { level: self.file.clone(), piece: i, hidden: self.hidden.clone() }),
             _ => None,
         };
     }
@@ -1210,8 +1211,13 @@ impl Editor {
     /// The game's models a piece can be made of, by their paths in the
     /// game folder (folders first, then names, in natural order): every
     /// `.vvx` but the blocks, the levels, the builds and the game's worlds
-    /// and prefabs.
-    pub fn model_choices(&self) -> Vec<String> {
+    /// and prefabs. Kept until the editor looks at the disk again (once a
+    /// second, `look_at_disk`): the panels ask for them every frame.
+    pub fn model_choices(&self) -> std::rc::Rc<[String]> {
+        self.pieces.choices.borrow_mut().get_or_insert_with(|| self.find_model_choices().into()).clone()
+    }
+
+    fn find_model_choices(&self) -> Vec<String> {
         fn walk(dir: &std::path::Path, from: &str, out: &mut Vec<String>) {
             let Ok(entries) = std::fs::read_dir(dir) else { return };
             for e in entries.flatten() {
@@ -1233,12 +1239,14 @@ impl Editor {
         let mut out = Vec::new();
         walk(&self.dir, "", &mut out);
         out.retain(|f| !self.pieces.scenes.contains(f));
-        out.sort_by(|a, b| {
-            let folder = |p: &str| p.rsplit_once('/').map_or(String::new(), |(f, _)| f.to_string());
-            folder(a).cmp(&folder(b)).then_with(|| crate::levels::natural(a, b))
-        });
+        out.sort_by(|a, b| folder_of(a).cmp(folder_of(b)).then_with(|| crate::levels::natural(a, b)));
         out
     }
+}
+
+/// The folder a path in the game folder lies in ("" at the top).
+fn folder_of(path: &str) -> &str {
+    path.rsplit_once('/').map_or("", |(f, _)| f)
 }
 
 /// The facing an angle gives: within `SNAP` of a quarter turn (or always
@@ -2007,7 +2015,7 @@ mod tests {
             std::fs::write(dir.join(f), "").unwrap();
         }
         ed.pieces.scenes = vec!["world.vvx".into()];
-        assert_eq!(ed.model_choices(), ["hero.vvx", "room/lamp.vvx", "room/stove.vvx"]);
+        assert_eq!(ed.model_choices()[..], ["hero.vvx", "room/lamp.vvx", "room/stove.vvx"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -598,8 +598,8 @@ fn a_colours_material_is_set_and_a_colour_taken_out() {
     ed.choose(crate::editor::model::Tool::Add);
     ed.colour = [200, 40, 40];
     let m = ed.material().unwrap();
-    ed.set_material(super::super::frames::with_word(m, 1, 0.5));
-    ed.set_material(super::super::frames::with_word(ed.material().unwrap(), 1, 0.8));
+    ed.set_material(crate::editor::frames::with_word(m, 1, 0.5));
+    ed.set_material(crate::editor::frames::with_word(ed.material().unwrap(), 1, 0.8));
     assert_eq!(ed.steps(), 1, "one step for the slider");
     let text = std::fs::read_to_string(dir.join("thing.vvx")).unwrap();
     assert!(text.contains("a = { color = \"#c82828\", metal = 0.8, rough = 0.3 }"), "{text}");
@@ -692,7 +692,7 @@ fn undo_keeps_a_bounded_number_of_steps_and_bytes() {
     assert_eq!(ed.blocks[0].colour_at(IVec3::new(2, 0, N - 1)), Some([12, 20, 30]));
     assert_eq!(ed.blocks[0].colour_at(IVec3::new(3, 0, N - 1)), Some([128, 128, 128]), "the fourth was taken back");
     // By bytes: a step of this block holds two copies of it.
-    let one = Step::Block(0, ed.blocks[0].clone(), ed.blocks[0].clone()).bytes();
+    let one = kept_bytes([Step::Block(0, ed.blocks[0].clone(), ed.blocks[0].clone())].iter());
     ed.history.keep = (KEPT_STEPS, 3 * one + one / 2);
     for k in 0..6 {
         paint(&mut ed, k);
@@ -799,7 +799,7 @@ fn the_size_of_a_level_of_blocks_grows_and_is_cut_on_any_side() {
     ed.undo();
     assert_eq!(ed.level, start, "UNDO: the block again, the gem where it stood");
     // A cut alone: one step.
-    ed.resize_level(IVec3::new(2, 2, 2), [false, true, true]);
+    ed.set_field(Field::LevelSize(0), 2.0);
     assert_eq!((ed.level.size.x, ed.level.cell(IVec3::ZERO).block, ed.steps()), (2, 0, 2));
     ed.undo();
     assert_eq!(ed.level, start);

@@ -28,7 +28,7 @@ impl Editor {
     pub fn shift_pick(&mut self, down: bool) {
         if down {
             // (Not while a handle is dragged: Shift is its fine step then.)
-            let free = self.history.stroke.is_none() && self.forms.drawing.is_none() && self.rigging.joint_drag.is_none() && self.pieces.gripped.is_none() && Tool::of(self.scope, self.layer).contains(&Tool::Pick);
+            let free = self.history.stroke.is_none() && self.forms.drawing.is_none() && self.rigging.handle_drag.is_none() && self.pieces.gripped.is_none() && Tool::of(self.scope, self.layer).contains(&Tool::Pick);
             if !self.shifted && self.tool != Tool::Pick && free {
                 self.choose(Tool::Pick);
                 self.shifted = true;
@@ -112,14 +112,14 @@ impl Editor {
     /// stroke going on found it.
     pub(super) fn filled(&self, c: IVec3, then: bool) -> bool {
         match (self.scope, then.then_some(self.history.stroke.as_ref()).flatten()) {
-            (Scope::Level, Some(Step::Level(before, _))) => {
+            (Scope::Level, Some(Begun::Level(before))) => {
                 let s = before.size;
                 c.cmplt(s).all() && before.cells[(c.x + c.y * s.x + c.z * s.x * s.y) as usize].block != 0
             }
             (Scope::Level, _) => self.level.cell(c).block != 0,
-            (Scope::Block(_), Some(Step::Block(_, before, _))) => before.get(c) != 0,
+            (Scope::Block(_), Some(Begun::Block(_, before))) => before.get(c) != 0,
             // (The model as the stroke found it, moved as its box grew.)
-            (Scope::Frame(f), Some(Step::Model(before, _))) => before.frames.get(f).is_some_and(|b| b.get(c - self.history.grown) != 0),
+            (Scope::Frame(f), Some(Begun::Model(before))) => before.frames.get(f).is_some_and(|b| b.get(c - self.history.grown) != 0),
             (Scope::Block(_) | Scope::Frame(_), _) => self.shape().is_some_and(|b| b.get(c) != 0),
             (Scope::Figure, _) => false,
         }
@@ -199,9 +199,9 @@ impl Editor {
             return;
         }
         self.history.stroke = Some(match self.scope {
-            Scope::Level => Step::Level(self.level_state(), self.level_state()),
-            Scope::Block(i) => Step::Block(i, self.blocks[i].clone(), self.blocks[i].clone()),
-            Scope::Frame(_) => Step::Model(self.shaped(), Shaped::default()),
+            Scope::Level => Begun::Level(self.level_state()),
+            Scope::Block(i) => Begun::Block(i, self.blocks[i].clone()),
+            Scope::Frame(_) => Begun::Model(self.shaped()),
             Scope::Figure => return,
         });
         self.history.grown = IVec3::ZERO;
@@ -344,7 +344,7 @@ impl Editor {
             None => {
                 let p = crate::vvx::pivot(old);
                 let raise = IVec3::Z * (-lo.z).max(0);
-                let size = super::super::frames::fit(old + raise, lo - p + raise, hi - 1 - p + raise);
+                let size = crate::editor::frames::fit(old + raise, lo - p + raise, hi - 1 - p + raise);
                 if size.cmpgt(IVec3::splat(256)).any() {
                     return None;
                 }
@@ -381,38 +381,34 @@ impl Editor {
     pub fn release(&mut self) {
         // A drag of a part or a selection let go: the figure's box made
         // tight, in the drag's own step.
-        if let Some(d) = self.rigging.joint_drag.take()
+        if let Some(d) = self.rigging.handle_drag.take()
             && d.moved
             && self.model.as_ref().is_some_and(|m| m.parted() && !m.is_tight())
         {
-            self.rigging.join_next = self.history.count() > d.steps;
-            self.change_model_file(|m| m.size = m.tight_size());
-            self.rigging.join_next = false;
+            self.joining(d.joins(self.history.count()), |ed| ed.change_model_file(|m| m.size = m.tight_size()));
         }
         self.let_go_of_slice();
         self.let_go_of_land();
         self.moving = None;
         self.pieces.dragging = None;
         self.pieces.gripped = None;
-        self.rigging.joint_drag = None;
+        self.rigging.handle_drag = None;
         let Some(stroke) = self.history.stroke.take() else { return };
         let step = match stroke {
-            // Strokes keep the level or a block; nothing is taken out.
-            Step::Delete(_) => return,
-            Step::Level(before, _) => {
+            Begun::Level(before) => {
                 let after = self.level_state();
-                if after == before {
+                if Arc::ptr_eq(&after, &before) || after == before {
                     return;
                 }
                 Step::Level(before, after)
             }
-            Step::Block(i, before, _) => {
+            Begun::Block(i, before) => {
                 if self.blocks[i] == before {
                     return;
                 }
                 Step::Block(i, before, self.blocks[i].clone())
             }
-            Step::Model(before, _) => {
+            Begun::Model(before) => {
                 if let Some(m) = &mut self.model {
                     m.list_new_colours();
                 }
@@ -441,7 +437,7 @@ impl Editor {
     /// joint's, a piece's), the slice's, a piece over the floor, a tool's
     /// stroke, a footprint.
     pub fn drag_open(&self) -> bool {
-        self.rigging.joint_drag.is_some() || self.pieces.gripped.is_some() || self.pieces.dragging.is_some() || self.moving.is_some() || self.history.stroke.is_some() || self.forms.drawing.is_some() || self.slicing()
+        self.rigging.handle_drag.is_some() || self.pieces.gripped.is_some() || self.pieces.dragging.is_some() || self.moving.is_some() || self.history.stroke.is_some() || self.forms.drawing.is_some() || self.slicing()
     }
 
     /// A drag ended without its own let-go (the button found up, a press
@@ -454,20 +450,7 @@ impl Editor {
             self.cancel_joint();
             self.cancel_drag();
             if let Some(stroke) = self.history.stroke.take() {
-                match stroke {
-                    Step::Level(before, _) => self.set_level(&before),
-                    Step::Block(i, before, _) => {
-                        if let Some(b) = self.blocks.get_mut(i) {
-                            *b = before;
-                        }
-                    }
-                    Step::Model(before, _) => {
-                        if let Some(m) = &mut self.model {
-                            m.reshape(&before);
-                        }
-                    }
-                    Step::Delete(_) => {}
-                }
+                self.undo_stroke(stroke);
             }
             self.moving = None;
         }

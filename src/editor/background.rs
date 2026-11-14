@@ -4,7 +4,7 @@
 //! in the config folder beside the IDE's settings (`ide/settings/
 //! editors.toml`), never in a game. None: as always (the game's sky).
 //! The marks over the view (handles, the selection's outline, joints)
-//! take deeper colors on a light background (`Marks`).
+//! take deeper colors on a light background (`MarkColors`).
 
 use std::path::{Path, PathBuf};
 
@@ -85,11 +85,11 @@ pub fn contrast(a: [u8; 3], b: [u8; 3]) -> f32 {
 /// The colors of the marks over the view on a background: the usual ones
 /// on a dark one, deeper ones on a light one.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Marks {
+pub struct MarkColors {
     pub light: bool,
 }
 
-impl Marks {
+impl MarkColors {
     /// The marks for `background` (none: the usual dark).
     pub fn on(background: Option<[u8; 3]>) -> Self {
         Self { light: background.is_some_and(|c| luminance(c) > 0.25) }
@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn the_marks_read_on_every_preset() {
         for bg in PRESETS {
-            let m = Marks::on(Some(bg));
+            let m = MarkColors::on(Some(bg));
             let mut marks: Vec<(String, [u8; 3])> = (0..3).flat_map(|a| [(format!("axis {a}"), m.axis(a, false)), (format!("axis {a} lit"), m.axis(a, true))]).collect();
             marks.extend([("gold".to_string(), m.gold()), ("line".into(), m.line())]);
             for (what, c) in marks {

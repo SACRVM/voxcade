@@ -147,6 +147,13 @@ impl Input {
         Pos2::new(x * self.scale, y * self.scale)
     }
 
+    /// The clock egui is given moved on by `by` (tests: a click past a
+    /// double click's time without waiting for it).
+    #[cfg(test)]
+    pub fn later(&mut self, by: std::time::Duration) {
+        self.start -= by;
+    }
+
     /// The input for a frame of a window `size` pixels big with
     /// `pixels_per_point` pixels to egui's point and `density` pixels to
     /// one of SDL's points.

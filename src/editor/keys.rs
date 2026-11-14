@@ -1,7 +1,7 @@
 //! F1: the keys of what is open, on one page over the view (the owner,
 //! 2026-11-13: an overview of the keys for each scope, and each tool's
 //! key in its button's tooltip; no sentences in the panels). The keys the
-//! panels show come with the words of their buttons (`Shown::named`); the
+//! panels show come with the words of their buttons (`PanelsDrawn::named`); the
 //! ones the window takes itself are listed here, by scope, in the words
 //! the buttons and menus use.
 
@@ -101,7 +101,7 @@ fn scope_name(ed: &Editor) -> &'static str {
 /// quiet colour and its word; F1 or Esc closes it. No wider than the
 /// view: the groups that do not fit beside the others go on in a row
 /// below (each group's width as the last frame laid it out).
-pub fn page(ui: &egui::Ui, free: egui::Rect, groups: &[Group], shown: &mut super::panels::Shown) {
+pub fn page(ui: &egui::Ui, free: egui::Rect, groups: &[Group], shown: &mut super::panels::PanelsDrawn) {
     use egui::{RichText, TextStyle};
     const GAP: f32 = 28.0;
     let room = (free.width() - 80.0).max(200.0);

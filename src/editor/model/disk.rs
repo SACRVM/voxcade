@@ -27,6 +27,7 @@ use crate::grid::{Area, GridLevel, Place, Thing};
 use crate::editor::frames::{Colour, ModelFile, Placed, Shaped};
 use super::room::Item;
 use super::{Editor, LevelState, Scope, Step};
+use std::sync::Arc;
 
 /// A file's bytes as a hash; None when it is not there (or cannot be
 /// read).
@@ -119,6 +120,7 @@ impl Editor {
     /// second, when the window gets the focus): one that did is read anew,
     /// a drag going on let go of; one gone is said. Whether anything came.
     pub fn look_at_disk(&mut self) -> bool {
+        self.pieces.choices.take();
         if self.dry {
             return false;
         }
@@ -181,7 +183,7 @@ impl Editor {
             Some(Held::Model) => Step::Model(self.shaped(), self.shaped()),
             Some(Held::Context) | None => return,
         };
-        self.save(&step);
+        self.save(&step, true);
     }
 
     /// TAKE THE FILE'S: the file read anew, what the editor held of it gone.
@@ -200,25 +202,12 @@ impl Editor {
     /// the file under it changed.
     fn drop_drags(&mut self) {
         if let Some(stroke) = self.history.stroke.take() {
-            match stroke {
-                Step::Level(before, _) => self.set_level(&before),
-                Step::Block(i, before, _) => {
-                    if let Some(b) = self.blocks.get_mut(i) {
-                        *b = before;
-                    }
-                }
-                Step::Model(before, _) => {
-                    if let Some(m) = &mut self.model {
-                        m.reshape(&before);
-                    }
-                }
-                Step::Delete(_) => {}
-            }
+            self.undo_stroke(stroke);
         }
         self.moving = None;
         self.pieces.dragging = None;
         self.pieces.gripped = None;
-        self.rigging.joint_drag = None;
+        self.rigging.handle_drag = None;
         self.rigging.join_next = false;
         self.forms.drawing = None;
         self.forms.fresh = None;
@@ -329,11 +318,12 @@ impl Editor {
         self.choose_again(mark);
     }
 
-    /// Writes what `step` changed, after looking at the file: as it is
-    /// when the file is as last seen (or gone: written anew); laid on the
-    /// file as it is now when another program changed it; held when the
-    /// file changed while a write of it had failed (`Disk::clash`).
-    pub(super) fn save(&mut self, step: &Step) -> Saved {
+    /// Writes what `step` changed (taken, `forward`, or taken back), after
+    /// looking at the file: as it is when the file is as last seen (or
+    /// gone: written anew); laid on the file as it is now when another
+    /// program changed it; held when the file changed while a write of it
+    /// had failed (`Disk::clash`).
+    pub(super) fn save(&mut self, step: &Step, forward: bool) -> Saved {
         if self.dry {
             return Saved::Kept;
         }
@@ -357,7 +347,7 @@ impl Editor {
                 self.disk.clash = Some(path);
                 return Saved::Kept;
             }
-            return self.save_onto_fresh(step, &path, held);
+            return self.save_onto_fresh(step, forward, &path, held);
         }
         let gone = seen.is_some() && now.is_none();
         let written = match step {
@@ -379,16 +369,29 @@ impl Editor {
         Saved::Kept
     }
 
-    /// `step` laid on the file `path` as another program left it, written;
-    /// or, where it no longer fits, nothing written and the file read anew.
-    fn save_onto_fresh(&mut self, step: &Step, path: &Path, held: Held) -> Saved {
+    /// `step` (taken, `forward`, or taken back) laid on the file `path` as
+    /// another program left it, written; or, where it no longer fits,
+    /// nothing written and the file read anew.
+    fn save_onto_fresh(&mut self, step: &Step, forward: bool, path: &Path, held: Held) -> Saved {
         self.drop_drags();
         let name = path.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
         let laid = match step {
-            Step::Level(b, a) => self.lay_level(b, a, path, true),
-            Step::Delete(d) => self.lay_level(&d.before, &d.after, path, false),
-            Step::Block(i, b, a) => self.lay_block(*i, b, a, path),
-            Step::Model(b, a) => self.lay_model(b, a, path),
+            Step::Level(b, a) => {
+                let (b, a) = way(forward, b, a);
+                self.lay_level(b, a, path, true)
+            }
+            Step::Delete(d) => {
+                let (b, a) = way(forward, &d.before, &d.after);
+                self.lay_level(b, a, path, false)
+            }
+            Step::Block(i, b, a) => {
+                let (b, a) = way(forward, b, a);
+                self.lay_block(*i, b, a, path)
+            }
+            Step::Model(b, a) => {
+                let (b, a) = way(forward, b, a);
+                self.lay_model(b, a, path)
+            }
         };
         self.history.past.clear();
         self.history.future.clear();
@@ -414,7 +417,7 @@ impl Editor {
     fn lay_level(&mut self, b: &LevelState, a: &LevelState, path: &Path, keep: bool) -> Result<Option<Step>, String> {
         let text = std::fs::read_to_string(path).map_err(|e| format!("reading {name}: {e}", name = path.display()))?;
         let fresh = GridLevel::from_text(&text).map_err(|e| format!("the file does not read: {e:#}"))?;
-        let d = state_of(&fresh);
+        let d = LevelState::of(&fresh);
         let now = rebase_level(b, a, &d)?;
         let mark = self.chosen_mark();
         let names = |s: &LevelState| s.table.iter().map(|e| e.name.clone()).collect::<Vec<_>>();
@@ -430,7 +433,7 @@ impl Editor {
         self.choose_again(mark);
         let written = self.save_level().map_err(|e| format!("{e:#}"))?;
         self.disk.remember(path, written.as_bytes());
-        Ok(keep.then_some(Step::Level(d, now)))
+        Ok(keep.then_some(Step::Level(Arc::new(d), Arc::new(now))))
     }
 
     fn lay_block(&mut self, i: usize, b: &Block, a: &Block, path: &Path) -> Result<Option<Step>, String> {
@@ -453,13 +456,14 @@ impl Editor {
         self.model = Some(fresh);
         self.choose_part_again(part);
         self.disk.remember(path, written.as_bytes());
-        Ok(Some(Step::Model(d, self.shaped())))
+        Ok(Some(Step::Model(Arc::new(d), self.shaped())))
     }
 }
 
-/// A level's state as a step keeps it.
-fn state_of(l: &GridLevel) -> LevelState {
-    LevelState { size: l.size, cells: l.cells.clone(), table: l.blocks.clone(), things: l.things.clone(), places: l.places.clone(), areas: l.areas.clone(), daylight: l.daylight.clone().map(Box::new), terrain: l.terrain.clone().map(Box::new) }
+/// A step's before and after as it goes: taken (`forward`), or taken back
+/// (after and before).
+fn way<T>(forward: bool, before: T, after: T) -> (T, T) {
+    if forward { (before, after) } else { (after, before) }
 }
 
 // ------------------------------------------------------------- laying on

@@ -3,6 +3,24 @@
 //! moved by handles, the rig kept for the parts a step did not act on.
 
 use super::*;
+use crate::editor::handles::{Drag, Grip, Handles};
+
+/// The view's matrix, the screen's size, the mouse on it and its ray: how
+/// a handle's drag is measured.
+type Pointing = (glam::Mat4, glam::Vec2, glam::Vec2, (Vec3, Vec3));
+
+/// The way an arrow drags, in whole voxels: along its axis (the axes the
+/// part moves by in the file), else its direction.
+fn arrow_way(grip: Grip, h: &Handles, amount: f32) -> IVec3 {
+    match grip {
+        Grip::Arrow(a) => {
+            let mut v = IVec3::ZERO;
+            v[a] = amount.round() as i32;
+            v
+        }
+        _ => (h.direction(grip).unwrap_or(Vec3::ZERO) * amount).round().as_ivec3(),
+    }
+}
 
 impl Editor {
     /// The figure whole made again if its frames or parts changed (a
@@ -79,13 +97,8 @@ impl Editor {
     }
 
     /// A part chosen in the figure's list, to shape in the figure and to
-    /// rig; chosen again, none. While PARENT is being chosen, the part
-    /// clicked becomes the parent instead.
+    /// rig.
     pub fn choose_part(&mut self, p: usize) {
-        if self.rigging.picking_parent {
-            self.rigging.picking_parent = false;
-            return self.set_parent(Some(p));
-        }
         // (Chosen again: it stays chosen; the figure whole is its own row,
         // Escape, or a click on empty space.)
         let Some(frame) = self.figure.as_ref().and_then(|f| f.frames.get(p).copied()) else { return };
@@ -155,16 +168,6 @@ impl Editor {
         Some(format!("{} hangs on {} by hand: that would make a ring ({})", name(q), name(p), names.join(" on ")))
     }
 
-    /// The chosen part's joint where the figure has it now (to the nearest
-    /// half voxel), moved by `by` (halves of a voxel), set by hand; a step.
-    pub fn move_joint(&mut self, by: Vec3) {
-        self.follow_figure();
-        let (Some(p), Some(figure)) = (self.chosen(), &self.figure) else { return };
-        // On halves of a voxel (a joint the rules found may lie between).
-        let at = ((figure.file_joint(p)) * 2.0).round() / 2.0 + by;
-        self.set_joint(Some(at));
-    }
-
     /// The chosen part's joint set by hand at `at` (from the pivot), or
     /// (None) where the rules find it; a step.
     pub fn set_joint(&mut self, at: Option<Vec3>) {
@@ -193,7 +196,7 @@ impl Editor {
         let Some(hit) = plane_hit(origin, dir, n, spot[n]) else { return false };
         let start = self.figure.as_ref().map_or(Vec3::ZERO, |f| f.file_joint(p));
         self.end_drag(false);
-        self.rigging.joint_drag = Some(JointDrag { drag: None, start, steps: self.history.count(), moved: false, part: false, applied: IVec3::ZERO, ring: Some((n, hit)), rest: [0.0; 3], fine: false, press: None, applied_f: Vec3::ZERO });
+        self.rigging.handle_drag = Some(HandleDrag::new(Dragged::Joint { axis: n, from: hit, start }, self.history.count()));
         true
     }
 
@@ -201,12 +204,12 @@ impl Editor {
     /// `part_handles` gave them): the part dragged along its axis by whole
     /// voxels, those hanging on it along, until let go (one step) or
     /// Escape (back as it was, no step).
-    pub fn grab_part(&mut self, drag: super::super::handles::Drag, h: super::super::handles::Handles) -> bool {
+    pub fn grab_part(&mut self, drag: crate::editor::handles::Drag, h: crate::editor::handles::Handles) -> bool {
         // A selection's arrow: its voxels dragged.
         if self.selection().is_some() && !self.rigging.posing {
             self.end_drag(false);
             self.grab_selection();
-            self.rigging.joint_drag = Some(JointDrag { drag: Some((drag, h)), start: Vec3::ZERO, steps: self.history.count(), moved: false, part: true, applied: IVec3::ZERO, ring: None, rest: [0.0; 3], fine: false, press: None, applied_f: Vec3::ZERO });
+            self.rigging.handle_drag = Some(HandleDrag::new(Dragged::Selection { drag, h, applied: IVec3::ZERO }, self.history.count()));
             return true;
         }
         // (The figure whole: its arrows move every part.)
@@ -215,7 +218,9 @@ impl Editor {
         }
         self.end_drag(false);
         let rest = self.turn_values().unwrap_or_default();
-        self.rigging.joint_drag = Some(JointDrag { drag: Some((drag, h)), start: Vec3::ZERO, steps: self.history.count(), moved: false, part: true, applied: IVec3::ZERO, ring: None, rest, fine: false, press: self.part_mode().map(|_| self.local_to_pivot()), applied_f: Vec3::ZERO });
+        let press = self.part_mode().map(|_| self.local_to_pivot());
+        let part = Dragged::Part { drag, h, rest, press, applied: IVec3::ZERO, applied_f: Vec3::ZERO };
+        self.rigging.handle_drag = Some(HandleDrag::new(part, self.history.count()));
         true
     }
 
@@ -232,7 +237,7 @@ impl Editor {
         }
     }
 
-    pub fn part_handles(&self, view_proj: glam::Mat4) -> Option<super::super::handles::Handles> {
+    pub fn part_handles(&self, view_proj: glam::Mat4) -> Option<crate::editor::handles::Handles> {
         // A selection: its arrows (MOVE), whatever is chosen.
         if let Some(h) = self.selection_handles(view_proj) {
             return Some(h);
@@ -246,7 +251,7 @@ impl Editor {
 
     /// The chosen part's handles in ROTATE (`rotating`) or MOVE, whichever
     /// is lit (the bar at the part stands clear of both).
-    pub fn part_handles_as(&self, view_proj: glam::Mat4, rotating: bool) -> Option<super::super::handles::Handles> {
+    pub fn part_handles_as(&self, view_proj: glam::Mat4, rotating: bool) -> Option<crate::editor::handles::Handles> {
         if self.rigging.painting_whole {
             return None;
         }
@@ -266,7 +271,7 @@ impl Editor {
             }
         };
         let centre = size / 2.0;
-        let mut h = super::super::handles::Handles::at(centre, super::super::handles::world_size(view_proj, centre, 0.1));
+        let mut h = crate::editor::handles::Handles::at(centre, crate::editor::handles::world_size(view_proj, centre, 0.1));
         // MOVE's arrows: LOCAL along the part's own axes as it stands (its
         // parents' rests and its own; in the grid shown, which is its own),
         // GLOBAL along the figure's.
@@ -421,133 +426,147 @@ impl Editor {
         glam::Mat4::from_translation(self.origin().unwrap_or(IVec3::ZERO).as_vec3()) * self.rest_view()
     }
 
-    /// The joint being dragged, if one is.
-    pub fn joint_drag(&self) -> Option<&JointDrag> {
-        self.rigging.joint_drag.as_ref()
+    /// The handle being dragged, if one is.
+    pub fn handle_drag(&self) -> Option<&HandleDrag> {
+        self.rigging.handle_drag.as_ref()
     }
 
     /// The mouse dragged on with a joint's arrow (as `Drag::amount` takes
     /// it): the joint where the drag puts it, the drag's one step.
-    pub fn drag_joint(&mut self, view_proj: glam::Mat4, screen: glam::Vec2, mouse: glam::Vec2, ray: (Vec3, Vec3)) {
+    pub fn drag_handle(&mut self, view_proj: glam::Mat4, screen: glam::Vec2, mouse: glam::Vec2, ray: (Vec3, Vec3)) {
         self.rigging.in_drag = true;
-        self.drag_joint_now(view_proj, screen, mouse, ray);
+        self.drag_handle_now(view_proj, screen, mouse, ray);
         self.rigging.in_drag = false;
     }
 
-    pub(super) fn drag_joint_now(&mut self, view_proj: glam::Mat4, screen: glam::Vec2, mouse: glam::Vec2, ray: (Vec3, Vec3)) {
-        let Some(mut d) = self.rigging.joint_drag.take() else { return };
+    pub(super) fn drag_handle_now(&mut self, view_proj: glam::Mat4, screen: glam::Vec2, mouse: glam::Vec2, ray: (Vec3, Vec3)) {
+        let Some(mut d) = self.rigging.handle_drag.take() else { return };
         // A click on a handle moves nothing: only a drag that has gone a
         // few pixels.
-        if let Some((drag, _)) = &mut d.drag
-            && !drag.travels(mouse)
-        {
-            self.rigging.joint_drag = Some(d);
+        let travels = match &mut d.dragged {
+            Dragged::Part { drag, .. } | Dragged::Selection { drag, .. } => drag.travels(mouse),
+            Dragged::Joint { .. } => true,
+        };
+        if !travels {
+            self.rigging.handle_drag = Some(d);
             return;
         }
-        // A part's arrow (MOVE, LOCAL or GLOBAL): measured in its grid as
-        // it was at the press; whole voxels along the arrow (Shift: tenths),
-        // into its `at` and `offset` (`move_part_by`).
-        if let (Some((drag, h)), Some(p0)) = (&mut d.drag, d.press)
-            && matches!(drag.grip, super::super::handles::Grip::Arrow(_))
-            && self.selecting.sel_drag.is_none()
-        {
-            let fix = self.local_to_pivot().inverse() * p0;
-            let back = fix.inverse();
-            let amount = drag.amount(h, view_proj * fix, screen, mouse, (back.transform_point3(ray.0), back.transform_vector3(ray.1).normalize_or_zero()));
-            let along = if d.fine { (amount * 10.0).round() / 10.0 } else { amount.round() };
-            let way = self.own_rest() * h.direction(drag.grip).unwrap_or(Vec3::ZERO);
-            let to = way * along;
-            if (to - d.applied_f).abs().max_element() > 1e-4 {
-                self.rigging.join_next = d.moved && self.history.count() > d.steps;
-                self.move_part_by(to - d.applied_f);
-                self.rigging.join_next = false;
-                (d.applied_f, d.moved) = (to, true);
+        let (join, fine) = (d.joins(self.history.count()), d.fine);
+        let moved = match &mut d.dragged {
+            Dragged::Part { drag, h, press: Some(p0), applied_f, .. } if matches!(drag.grip, Grip::Arrow(_)) => {
+                self.drag_part_local((drag, h), *p0, applied_f, (view_proj, screen, mouse, ray), (fine, join))
             }
-            self.rigging.joint_drag = Some(d);
-            return;
+            Dragged::Part { drag, h, rest, applied, .. } => {
+                let amount = self.amount_in_grid(drag, h, *applied, (view_proj, screen, mouse, ray));
+                match drag.grip {
+                    Grip::Ring(a) => self.drag_part_ring(a, amount, *rest, fine, join),
+                    _ => {
+                        let to = arrow_way(drag.grip, h, amount);
+                        let moved = to != *applied;
+                        if moved {
+                            self.joining(join, |ed| ed.move_part(to - *applied));
+                            *applied = to;
+                        }
+                        moved
+                    }
+                }
+            }
+            Dragged::Selection { drag, h, applied } => {
+                let amount = self.amount_in_grid(drag, h, *applied, (view_proj, screen, mouse, ray));
+                let to = arrow_way(drag.grip, h, amount);
+                let moved = to != *applied;
+                if moved {
+                    self.move_selection_to(to, self.selecting.sel_keep, join);
+                    *applied = to;
+                }
+                moved
+            }
+            Dragged::Joint { axis, from, start } => self.drag_joint_ring(*axis, *from, *start, ray, fine, join),
+        };
+        d.moved |= moved;
+        self.rigging.handle_drag = Some(d);
+    }
+
+    /// A part's arrow (MOVE, LOCAL or GLOBAL) dragged on: measured in its
+    /// grid as it was at the press (`p0`); whole voxels along the arrow
+    /// (`fine`: tenths), into its `at` and `offset` (`move_part_by`).
+    /// Whether it moved.
+    fn drag_part_local(&mut self, (drag, h): (&mut Drag, &Handles), p0: glam::Mat4, went: &mut Vec3, pointing: Pointing, (fine, join): (bool, bool)) -> bool {
+        let (view_proj, screen, mouse, ray) = pointing;
+        let fix = self.local_to_pivot().inverse() * p0;
+        let back = fix.inverse();
+        let amount = drag.amount(h, view_proj * fix, screen, mouse, (back.transform_point3(ray.0), back.transform_vector3(ray.1).normalize_or_zero()));
+        let along = if fine { (amount * 10.0).round() / 10.0 } else { amount.round() };
+        let to = self.own_rest() * h.direction(drag.grip).unwrap_or(Vec3::ZERO) * along;
+        let moves = (to - *went).abs().max_element() > 1e-4;
+        if moves {
+            self.joining(join, |ed| ed.move_part_by(to - *went));
+            *went = to;
         }
-        if let Some((drag, h)) = &mut d.drag {
-            // The part: the grid shown goes with it, so the ray and the
-            // view as they were at the press.
-            // (A selection's: the grid moves only where a box grows.)
-            let back = self.selection_drift().unwrap_or(d.applied.as_vec3());
-            let vp = view_proj * glam::Mat4::from_translation(-back);
-            let amount = drag.amount(h, vp, screen, mouse, (ray.0 + back, ray.1));
-            // A ring (ROTATE): the part's rest rotation about its joint,
-            // by fives (Ctrl: by single degrees), one step for the drag.
-            if let super::super::handles::Grip::Ring(a) = drag.grip {
-                let axis = [1, 2, 0][a.min(2)];
-                let way = if axis == 0 { -amount } else { amount };
-                // (Shift: by single degrees.)
-                let snap = if d.fine { 1.0 } else { 5.0 };
-                let to = ((d.rest[axis] + way) / snap).round() * snap;
-                if self.rigging.posing {
-                    // A pose: nothing written, no step.
-                    self.set_pose(axis, to);
-                } else if self.part_rotation().is_some_and(|r| r[axis] != to) {
-                    self.rigging.join_next = d.moved && self.history.count() > d.steps;
-                    self.set_part_rotation(axis, to);
-                    self.rigging.join_next = false;
-                    d.moved = true;
-                }
-                self.rigging.joint_drag = Some(d);
-                return;
-            }
-            // Its arrows lie along the axes the part moves by in the file
-            // (its parent's, the part's own rest turned back).
-            let to = match drag.grip {
-                super::super::handles::Grip::Arrow(a) => {
-                    let mut v = IVec3::ZERO;
-                    v[a] = amount.round() as i32;
-                    v
-                }
-                _ => (h.direction(drag.grip).unwrap_or(Vec3::ZERO) * amount).round().as_ivec3(),
-            };
-            if self.selecting.sel_drag.is_some() {
-                if to != d.applied {
-                    let joined = d.moved && self.history.count() > d.steps;
-                    self.move_selection_to(to, self.selecting.sel_keep, joined);
-                    (d.applied, d.moved) = (to, true);
-                }
-                self.rigging.joint_drag = Some(d);
-                return;
-            }
-            if to != d.applied {
-                self.rigging.join_next = d.moved && self.history.count() > d.steps;
-                self.move_part(to - d.applied);
-                self.rigging.join_next = false;
-                (d.applied, d.moved) = (to, true);
-            }
-        } else if let Some((n, from)) = d.ring
-            && let Some(hit) = plane_hit(ray.0, ray.1, n, from[n])
-        {
-            let mut by = hit - from;
-            by[n] = 0.0;
-            // By halves of a voxel (Shift: tenths).
-            let step = if d.fine { 10.0 } else { 2.0 };
-            let at = d.start + (by * step).round() / step;
-            if let (Some(p), Some(figure)) = (self.chosen(), &self.figure) {
-                let now = figure.file_joint(p);
-                if now != at {
-                    // One step for the whole drag: the first change makes
-                    // it, the next ones take its place.
-                    self.rigging.join_next = d.moved && self.history.count() > d.steps;
-                    self.set_joint(Some(at));
-                    self.rigging.join_next = false;
-                    self.follow_figure();
-                    d.moved = true;
-                }
-            }
+        moves
+    }
+
+    /// How far an arrow or ring is dragged, measured in the grid as it was
+    /// at the press: a part's grid goes with it (`applied`), a selection's
+    /// moves only where a box grows.
+    fn amount_in_grid(&self, drag: &mut Drag, h: &Handles, applied: IVec3, (view_proj, screen, mouse, ray): Pointing) -> f32 {
+        let back = self.selection_drift().unwrap_or(applied.as_vec3());
+        drag.amount(h, view_proj * glam::Mat4::from_translation(-back), screen, mouse, (ray.0 + back, ray.1))
+    }
+
+    /// A part's ring (ROTATE) turned on by `amount`: its rest rotation
+    /// about its joint from `rest` (at the press), by fives (`fine`:
+    /// single degrees); in POSE a pose, nothing written. Whether a step
+    /// was made or joined.
+    fn drag_part_ring(&mut self, a: usize, amount: f32, rest: [f32; 3], fine: bool, join: bool) -> bool {
+        let axis = [1, 2, 0][a.min(2)];
+        let way = if axis == 0 { -amount } else { amount };
+        let snap = if fine { 1.0 } else { 5.0 };
+        let to = ((rest[axis] + way) / snap).round() * snap;
+        if self.rigging.posing {
+            self.set_pose(axis, to);
+            return false;
         }
-        self.rigging.joint_drag = Some(d);
+        if self.part_rotation().is_none_or(|r| r[axis] == to) {
+            return false;
+        }
+        self.joining(join, |ed| ed.set_part_rotation(axis, to));
+        true
+    }
+
+    /// The joint's ring dragged across the view (the plane across `axis`
+    /// through `from`): the joint from `start` by halves of a voxel
+    /// (`fine`: tenths). Whether it moved.
+    fn drag_joint_ring(&mut self, axis: usize, from: Vec3, start: Vec3, ray: (Vec3, Vec3), fine: bool, join: bool) -> bool {
+        let Some(hit) = plane_hit(ray.0, ray.1, axis, from[axis]) else { return false };
+        let mut by = hit - from;
+        by[axis] = 0.0;
+        let step = if fine { 10.0 } else { 2.0 };
+        let at = start + (by * step).round() / step;
+        let (Some(p), Some(figure)) = (self.chosen(), &self.figure) else { return false };
+        if figure.file_joint(p) == at {
+            return false;
+        }
+        self.joining(join, |ed| ed.set_joint(Some(at)));
+        self.follow_figure();
+        true
+    }
+
+    /// `step` done as part of a drag: `join`, it joins the step the drag's
+    /// first change made (one step for the drag), else it makes one.
+    pub(super) fn joining<R>(&mut self, join: bool, step: impl FnOnce(&mut Self) -> R) -> R {
+        self.rigging.join_next = join;
+        let made = step(self);
+        self.rigging.join_next = false;
+        made
     }
 
     /// Escape while a joint is dragged: as it was, no step.
     pub fn cancel_joint(&mut self) -> bool {
-        let Some(d) = self.rigging.joint_drag.take() else { return false };
+        let Some(d) = self.rigging.handle_drag.take() else { return false };
         // A selection dragged: back where it was, no step.
         if let Some(s) = self.selecting.sel_drag.take() {
-            if d.moved && self.history.count() > d.steps {
+            if d.joins(self.history.count()) {
                 self.undo();
                 self.history.future.pop();
             }
@@ -555,13 +574,15 @@ impl Editor {
             return true;
         }
         // A pose dragged: as it was.
-        if self.rigging.posing && d.part && d.drag.as_ref().is_some_and(|(g, _)| matches!(g.grip, super::super::handles::Grip::Ring(_))) {
-            for (axis, rest) in d.rest.into_iter().enumerate() {
-                self.set_pose(axis, rest);
+        if let (true, Dragged::Part { drag, rest, .. }) = (self.rigging.posing, &d.dragged)
+            && matches!(drag.grip, Grip::Ring(_))
+        {
+            for (axis, rest) in rest.iter().enumerate() {
+                self.set_pose(axis, *rest);
             }
             return true;
         }
-        if d.moved && self.history.count() > d.steps {
+        if d.joins(self.history.count()) {
             self.undo();
             self.history.future.pop();
         }

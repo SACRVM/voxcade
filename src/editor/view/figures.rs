@@ -10,32 +10,39 @@ use super::*;
 /// body. And the models the level's pieces are made of (by their files),
 /// drawn as the game draws them (`session::model_cubes`).
 /// Each figure and model keeps its filled cells too, for a click to find
-/// the voxel it meets (`super::super::pick`).
-pub struct Figures(pub(super) BTreeMap<String, Figure>, pub(super) BTreeMap<String, crate::vox::VoxModel>, pub(super) BTreeMap<String, super::super::pick::Cells>);
+/// the voxel it meets (`crate::editor::pick`).
+pub struct Figures {
+    /// What things show as, by key (`key_in`): a kind's name, and `NAME@WAY`
+    /// a kind or a piece's model facing one of the four ways.
+    looks: BTreeMap<String, KindLook>,
+    /// The pieces' models and their filled cells, by their files.
+    pub(super) models: BTreeMap<String, crate::vox::VoxModel>,
+    cells: BTreeMap<String, crate::editor::pick::Cells>,
+}
 
-pub(super) struct Figure {
+pub(super) struct KindLook {
     /// Voxels and colours, from the spot it stands on.
     voxels: Vec<(IVec3, [u8; 3])>,
     /// The box around them, from that spot.
     lo: IVec3,
     hi: IVec3,
     /// Its filled cells, from `lo`.
-    cells: super::super::pick::Cells,
+    cells: crate::editor::pick::Cells,
 }
 
-impl Figure {
+impl KindLook {
     pub(super) fn new(voxels: Vec<(IVec3, [u8; 3])>) -> Self {
         let lo = voxels.iter().fold(IVec3::MAX, |a, v| a.min(v.0));
         let hi = voxels.iter().fold(IVec3::MIN, |a, v| a.max(v.0 + 1));
         let (lo, hi) = if voxels.is_empty() { (IVec3::ZERO, IVec3::ONE) } else { (lo, hi) };
-        let cells = super::super::pick::Cells::of(hi - lo, voxels.iter().map(|v| v.0 - lo));
+        let cells = crate::editor::pick::Cells::of(hi - lo, voxels.iter().map(|v| v.0 - lo));
         Self { voxels, lo, hi, cells }
     }
 }
 
 /// The cells a model's seen voxels fill (in its own box).
-pub(super) fn model_cells(m: &crate::vox::VoxModel) -> super::super::pick::Cells {
-    super::super::pick::Cells::of(m.size, m.visible.first().into_iter().flatten().map(|&k| m.frames[0][k as usize].0))
+pub(super) fn model_cells(m: &crate::vox::VoxModel) -> crate::editor::pick::Cells {
+    crate::editor::pick::Cells::of(m.size, m.visible.first().into_iter().flatten().map(|&k| m.frames[0][k as usize].0))
 }
 
 /// A model's voxel from its pivot turned clockwise, as seen from above,
@@ -73,7 +80,7 @@ impl Figures {
                     None => Vec::new(),
                 };
                 if !voxels.is_empty() {
-                    figures.insert(format!("{kind}@{}", way.name()), Figure::new(voxels));
+                    figures.insert(format!("{kind}@{}", way.name()), KindLook::new(voxels));
                 }
             }
             let voxels: Vec<(IVec3, [u8; 3])> = match model {
@@ -106,31 +113,39 @@ impl Figures {
                     column
                 }
             };
-            figures.insert(kind.clone(), Figure::new(voxels));
+            figures.insert(kind.clone(), KindLook::new(voxels));
         }
-        Self(figures, BTreeMap::new(), BTreeMap::new())
+        Self { looks: figures, models: BTreeMap::new(), cells: BTreeMap::new() }
     }
 
     /// The sizes of the models loaded, by their files (`Editor::sizes`).
     pub fn sizes(&self) -> BTreeMap<String, IVec3> {
-        self.1.iter().map(|(f, m)| (f.clone(), m.size)).collect()
+        self.models.iter().map(|(f, m)| (f.clone(), m.size)).collect()
+    }
+
+    /// `sizes()` kept in `sizes`: made anew only when models came (they
+    /// only ever come, never change), not on every frame.
+    pub fn keep_sizes(&self, sizes: &mut BTreeMap<String, IVec3>) {
+        if sizes.len() != self.models.len() {
+            *sizes = self.sizes();
+        }
     }
 
     /// The model of the file `model` (its path in the game folder), if it
     /// was loaded (`with_pieces`, `load_models`).
     pub fn model(&self, model: &str) -> Option<&crate::vox::VoxModel> {
-        self.1.get(model)
+        self.models.get(model)
     }
 
     /// Loads the models of `files` not loaded yet (a model that does not
     /// read is left out: the game says why).
     pub fn load_models<'a>(&mut self, dir: &Path, files: impl IntoIterator<Item = &'a str>) {
         for file in files {
-            if !self.1.contains_key(file)
+            if !self.models.contains_key(file)
                 && let Ok(m) = crate::vox::load_model(&dir.join(file))
             {
-                self.2.insert(file.to_string(), model_cells(&m));
-                self.1.insert(file.to_string(), m);
+                self.cells.insert(file.to_string(), model_cells(&m));
+                self.models.insert(file.to_string(), m);
             }
         }
     }
@@ -144,7 +159,7 @@ impl Figures {
         };
         let room = ed.context.iter().flat_map(|c| c.models().map(str::to_string));
         let files: Vec<String> = ed.level.things.iter().filter_map(|t| t.model.clone()).chain(hanging.map(str::to_string)).chain(room).collect();
-        if files.iter().any(|f| !self.1.contains_key(f)) {
+        if files.iter().any(|f| !self.models.contains_key(f)) {
             self.load_models(dir, files.iter().map(String::as_str));
         }
     }
@@ -167,7 +182,7 @@ impl Figures {
     /// not read is left out (the game says why).
     pub fn with_pieces(mut self, dir: &Path, level: &crate::grid::GridLevel) -> Self {
         for model in level.things.iter().filter_map(|t| t.model.as_ref()) {
-            if self.0.contains_key(&format!("{model}@north")) {
+            if self.looks.contains_key(&format!("{model}@north")) {
                 continue;
             }
             let Ok(m) = crate::vox::load_model(&dir.join(model)) else { continue };
@@ -183,10 +198,10 @@ impl Figures {
                         (turn(p - pivot), [color[0], color[1], color[2]])
                     })
                     .collect();
-                self.0.insert(format!("{model}@{}", way.name()), Figure::new(voxels));
+                self.looks.insert(format!("{model}@{}", way.name()), KindLook::new(voxels));
             }
-            self.2.insert(model.clone(), model_cells(&m));
-            self.1.insert(model.clone(), m);
+            self.cells.insert(model.clone(), model_cells(&m));
+            self.models.insert(model.clone(), m);
         }
         self
     }
@@ -207,29 +222,29 @@ impl Figures {
     /// without a model looks the same every way).
     pub fn key_in(&self, t: &crate::grid::Thing) -> String {
         let key = Self::key(t);
-        if self.0.contains_key(&key) { key } else { t.kind.clone() }
+        if self.looks.contains_key(&key) { key } else { t.kind.clone() }
     }
 
     /// A figure's filled cells and where its box begins, from the spot
     /// it stands on (`key`).
-    pub fn figure_cells(&self, key: &str) -> Option<(&super::super::pick::Cells, IVec3)> {
-        self.0.get(key).map(|f| (&f.cells, f.lo))
+    pub fn figure_cells(&self, key: &str) -> Option<(&crate::editor::pick::Cells, IVec3)> {
+        self.looks.get(key).map(|f| (&f.cells, f.lo))
     }
 
     /// A model's filled cells, from its box's low corner.
-    pub fn model_cells(&self, model: &str) -> Option<&super::super::pick::Cells> {
-        self.2.get(model)
+    pub fn model_cells(&self, model: &str) -> Option<&crate::editor::pick::Cells> {
+        self.cells.get(model)
     }
 
     /// The box around a kind's voxels, from the spot it stands on.
     pub fn bounds(&self, kind: &str) -> (IVec3, IVec3) {
-        self.0.get(kind).map_or((IVec3::new(-2, -2, 0), IVec3::new(2, 2, 8)), |f| (f.lo, f.hi))
+        self.looks.get(kind).map_or((IVec3::new(-2, -2, 0), IVec3::new(2, 2, 8)), |f| (f.lo, f.hi))
     }
 
     /// A kind standing at `at` as cubes: tinted halfway to `tint`, and
     /// see-through (opacity 0..255).
     pub(super) fn cubes(&self, kind: &str, at: IVec3, tint: Option<[u8; 3]>, opacity: u8, out: &mut Vec<Instance>) {
-        let Some(f) = self.0.get(kind) else { return };
+        let Some(f) = self.looks.get(kind) else { return };
         for &(l, c) in &f.voxels {
             let c = tint.map_or(c, |t| std::array::from_fn(|i| ((c[i] as u16 + t[i] as u16) / 2) as u8));
             let p = (at + l).as_vec3() + 0.5;
@@ -240,7 +255,7 @@ impl Figures {
     /// A kind seen from the front, as a picture at most `fit` pixels each
     /// way (rows from the top): its width, height and pixels.
     pub fn picture(&self, kind: &str, fit: i32) -> (i32, i32, Vec<Option<[u8; 3]>>) {
-        let Some(f) = self.0.get(kind) else { return (0, 0, Vec::new()) };
+        let Some(f) = self.looks.get(kind) else { return (0, 0, Vec::new()) };
         picture_of(&f.voxels, f.lo, f.hi, fit)
     }
 }
@@ -258,7 +273,7 @@ pub fn front_picture(voxels: &[(IVec3, [u8; 3])], fit: i32) -> (i32, i32, Vec<Op
 
 pub(super) fn picture_of(voxels: &[(IVec3, [u8; 3])], lo: IVec3, hi: IVec3, fit: i32) -> (i32, i32, Vec<Option<[u8; 3]>>) {
     {
-        let f = Figure { voxels: voxels.to_vec(), lo, hi, cells: Default::default() };
+        let f = KindLook { voxels: voxels.to_vec(), lo, hi, cells: Default::default() };
         let size = f.hi - f.lo;
         let mut front: Vec<Option<(i32, [u8; 3])>> = vec![None; (size.x * size.z) as usize];
         for &(l, c) in &f.voxels {

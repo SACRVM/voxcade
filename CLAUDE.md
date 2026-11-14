@@ -831,7 +831,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   nothing falls loose, in plain sums and our own value noise (`libm`'s
   tangent; test `the_simulation_does_its_own_math` scans it), 640 by 576
   voxels with every word in about 160 ms (640 by 400 plain about 50). The level editor's
-  TERRAIN (`editor/land.rs`): points on the land dragged up and down with
+  TERRAIN (`editor/model/land.rs`): points on the land dragged up and down with
   a brush (RADIUS), SELECT, FLATTEN, SMOOTH, PAINT, ROUGHEN, CALM, SHAPE,
   SPACING, POINTS, TERRACE, ROUGH, SEED with REROLL (`gui::dice`),
   LAYERS, MATERIALS, UNDER; the view built again only where points
@@ -1730,7 +1730,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (`View::rest`, `Editor::rest_view`), so the tools, the slice and its
   handles work in its own grid and the rest of the figure is drawn
   turned round it (`Figure::rest_map`, `session::part_at_rest`). Parts
-  as objects (`editor/parts.rs`): ADD PART (one voxel of the color held,
+  as objects (`editor/model/parts.rs`): ADD PART (one voxel of the color held,
   on top of the part chosen or the figure, touching it, its name to
   type), REMOVE (what hung on it hangs on its parent where it stands;
   not the root while parts hang on it), MERGE INTO its parent or WITH…
@@ -1765,7 +1765,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `--pose-part NAME --by DEG [--about ...]`, `--handles rotate`,
   `--add-part`, `--merge-into NAME`, `--mirror`, `--game-view`,
   `--move-part NAME --by X,Y,Z` (tenths into `offset`), `--menu
-  part:NAME` in a shot. SELECT (L; `editor/selection.rs`; the owner
+  part:NAME` in a shot. SELECT (L; `editor/model/selection.rs`; the owner
   2026-11-13: select 2D on the screen) in a block, a frame, a part or
   across the parts of the figure whole: a rectangle dragged on the
   screen (an outline while dragging, from anywhere in the view) takes
@@ -1883,7 +1883,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `pointer_trim_and_a_local_move_change_only_their_own`.
 - Where things are in the editor (the `Editor`'s state is in sub-structs:
   `ed.history`, `ed.forms`, `ed.pieces`, `ed.rigging`, `ed.selecting`):
-  `editor/tools.rs` `Editor::shift_pick`, `end_drag`, `release`; `rig.rs`
+  `editor/model/tools.rs` `Editor::shift_pick`, `end_drag`, `release`; `rig.rs`
   `follow_figure`, `move_part`, `move_part_by`, `grab_joint`, `rest_view`,
   `pin_rig`; `forms.rs` BOX and SPHERE; `history.rs` undo and redo;
   `shot.rs` `voxcade edit --shot` (`ShotOptions`, `shot` and its flags'
@@ -1924,7 +1924,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   goes no further than `model::FAR` from the pivot. Tests
   `a_drag_never_let_go_cleanly_is_ended_or_undone`,
   `a_part_drag_never_let_go_cleanly_is_ended_or_undone`.
-- A level of pieces (`grid::text`, `editor/room.rs`; asked by a game of
+- A level of pieces (`grid::text`, `editor/model/room.rs`; asked by a game of
   the owner's, 2026-11-12): a level's `[[thing]]` can be a piece (a
   `.vvx` set down anywhere, fixed, named for the code:
   `level:thing(name)`, kind "piece"), bring a light or be a light alone
@@ -1967,7 +1967,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `--terrain [--raise X,Y --by N --radius R] [--shape X,Y step]`.
 - An editor never writes an older state over a newer file (the level
   editor once wrote its level as it had opened it over an agent's
-  changes, the owner's lost work, 2026-11-12; `editor/disk.rs`): it
+  changes, the owner's lost work, 2026-11-12; `editor/model/disk.rs`): it
   remembers each file it holds (the level, its blocks, the model) by a
   BLAKE3 of what it last read or wrote, and looks once a second, when
   its window gets the focus, and right before every write. A file

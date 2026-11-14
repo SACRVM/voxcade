@@ -131,7 +131,7 @@ impl<G: Game> Project<'_, G> {
     /// step, the open text's save or look.
     fn wait(&mut self) -> Option<Event> {
         self.window.pads.settle();
-        let until = self.editors.iter().filter_map(|(_, e)| e.wakes_at()).chain(self.repaint_at).chain(self.window.pads.wakes_at()).chain(self.hands.wakes_at(Instant::now())).fold(self.tick_at, Instant::min);
+        let until = self.editors.iter().map(|(_, e)| e.wakes_at()).chain(self.repaint_at).chain(self.window.pads.wakes_at()).chain(self.hands.wakes_at(Instant::now())).fold(self.tick_at, Instant::min);
         self.window.wait(Some(until))
     }
 

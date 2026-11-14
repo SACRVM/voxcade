@@ -6,14 +6,7 @@ use super::*;
 impl Editor {
     /// Takes the last step back.
     pub fn undo(&mut self) {
-        self.release();
-        self.forms.fresh = None;
-        self.selecting.selection = None;
-        self.history.tuning = None;
-        self.pieces.tuned = None;
-        // Another program's change first: then there is nothing to take
-        // back (`look_at_disk`).
-        self.look_at_disk();
+        self.before_going();
         if let Some(step) = self.history.past.pop()
             && self.go(&step, false)
         {
@@ -23,17 +16,25 @@ impl Editor {
 
     /// Takes the last step taken back again.
     pub fn redo(&mut self) {
+        self.before_going();
+        if let Some(step) = self.history.future.pop()
+            && self.go(&step, true)
+        {
+            self.history.past.push(step);
+        }
+    }
+
+    /// What UNDO and REDO end first: the stroke, the fresh shape, the
+    /// selection, the steps a setting would join; and another program's
+    /// change is read first (then there is nothing to take back,
+    /// `look_at_disk`).
+    fn before_going(&mut self) {
         self.release();
         self.forms.fresh = None;
         self.selecting.selection = None;
         self.history.tuning = None;
         self.pieces.tuned = None;
         self.look_at_disk();
-        if let Some(step) = self.history.future.pop()
-            && self.go(&step, true)
-        {
-            self.history.past.push(step);
-        }
     }
 
     /// A step taken back or again, written; whether it still stands (the
@@ -91,18 +92,30 @@ impl Editor {
             self.scope = Scope::Level;
         }
         self.keep_choice();
-        // Taken back, the step goes the other way.
-        let back;
-        let saved = self.save(if forward {
-            step
-        } else {
-            back = step.reversed();
-            &back
-        });
+        self.history.remember(step, forward);
+        let saved = self.save(step, forward);
         if problem.is_some() {
             self.message = problem;
         }
         matches!(saved, disk::Saved::Kept)
+    }
+
+    /// A stroke's state brought back: as it was when it began (Escape, a
+    /// drag cancelled, the file changed under it).
+    pub(super) fn undo_stroke(&mut self, begun: Begun) {
+        match begun {
+            Begun::Level(before) => self.set_level(&before),
+            Begun::Block(i, before) => {
+                if let Some(b) = self.blocks.get_mut(i) {
+                    *b = before;
+                }
+            }
+            Begun::Model(before) => {
+                if let Some(m) = &mut self.model {
+                    m.reshape(&before);
+                }
+            }
+        }
     }
 
     pub(super) fn set_level(&mut self, s: &LevelState) {
@@ -139,12 +152,18 @@ impl Editor {
     /// program changed the file meanwhile.
     pub(super) fn commit(&mut self, mut step: Step) {
         self.follow_land(&mut step);
-        match self.save(&step) {
+        match self.save(&step, true) {
             disk::Saved::Kept => {
+                self.history.remember(&step, true);
                 self.history.past.push(step);
                 self.history.future.clear();
             }
-            disk::Saved::Rebased(kept) => self.history.past.extend(kept.map(|s| *s)),
+            disk::Saved::Rebased(kept) => {
+                if let Some(step) = &kept {
+                    self.history.remember(step, true);
+                }
+                self.history.past.extend(kept.map(|s| *s));
+            }
             disk::Saved::Dropped => {}
         }
         self.history.bound();
