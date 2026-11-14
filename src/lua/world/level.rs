@@ -52,38 +52,24 @@ fn spawn_options(v: Value) -> mlua::Result<SpawnOptions> {
     Ok(o)
 }
 
-/// A thing's own props are those its kind declares (`c.things.NAME.props`),
-/// each of the kind its default is.
-fn declared_props(kind: &str, declared: &toml::Table, given: &Table) -> mlua::Result<()> {
+/// `level:spawn`'s props as `conf.lua`'s values, each one its kind
+/// declares (`c.things.NAME.props`) of its default's type: checked as a
+/// level's file's are (`sim::things::check_prop`).
+fn own_props(kind: &str, declared: &toml::Table, given: &Table) -> mlua::Result<toml::Table> {
+    let mistake = |why: String| mlua::Error::runtime(format!("level:spawn: {why}"));
+    let mut own = toml::Table::new();
     for pair in given.pairs::<Value, Value>() {
         let (key, v) = pair?;
         let key = match key {
             Value::String(s) => s.to_str()?.to_string(),
-            other => return Err(mlua::Error::runtime(format!("level:spawn: props are named, not a {} key", other.type_name()))),
+            other => return Err(mistake(format!("props are named, not a {} key", other.type_name()))),
         };
-        let Some(default) = declared.get(&key) else {
-            let names: Vec<&str> = declared.keys().map(String::as_str).collect();
-            let has = if names.is_empty() { " declares none".to_string() } else { format!(": {}", names.join(", ")) };
-            return Err(mlua::Error::runtime(format!("level:spawn: props.{key}: a {kind} has no such prop (c.things.{kind}.props{has})")));
-        };
-        let same = matches!(
-            (default, &v),
-            (toml::Value::Integer(_) | toml::Value::Float(_), Value::Integer(_) | Value::Number(_))
-                | (toml::Value::String(_), Value::String(_))
-                | (toml::Value::Boolean(_), Value::Boolean(_))
-                | (toml::Value::Array(_) | toml::Value::Table(_), Value::Table(_))
-        );
-        if !same {
-            let is = match default {
-                toml::Value::Integer(_) | toml::Value::Float(_) => "number",
-                toml::Value::String(_) => "string",
-                toml::Value::Boolean(_) => "boolean",
-                _ => "table",
-            };
-            return Err(mlua::Error::runtime(format!("level:spawn: props.{key} is a {is} by its kind (c.things.{kind}.props.{key} = {default}), not a {}", v.type_name())));
-        }
+        let default = crate::sim::things::declared_prop(kind, declared, &key).map_err(mistake)?;
+        let value = crate::lua::conf::from_lua(&v, Some(default), &format!("props.{key}")).map_err(|e| mistake(format!("{e:#}")))?;
+        crate::sim::things::prop_of_its_type(kind, &key, default, &value).map_err(mistake)?;
+        own.insert(key, value);
     }
-    Ok(())
+    Ok(own)
 }
 
 impl UserData for LevelView {
@@ -169,11 +155,7 @@ impl UserData for LevelView {
                 None => None,
             };
             let props = match &o.props {
-                Some(p) => {
-                    let declared = look(lua, |h| Ok(h.kinds[h.kind(&kind)?].props.clone()))?;
-                    declared_props(&kind, &declared, p)?;
-                    crate::lua::value::capture(&Value::Table(p.clone()), "level:spawn's props", &mut Default::default(), false).map_err(|e| mlua::Error::runtime(format!("{e:#}")))?
-                }
+                Some(p) => Some(look(lua, |h| own_props(&kind, &h.kinds[h.kind(&kind)?].props, p))?).filter(|p| !p.is_empty()).map(Arc::new),
                 None => None,
             };
             if let Some(name) = &o.name

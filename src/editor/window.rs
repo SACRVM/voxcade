@@ -670,7 +670,10 @@ impl EditorWindow {
                 crate::gui::marker::paint(ui.ctx(), tip);
             }
         });
-        let acted = !drawn.clicked.is_empty() || drawn.renamed.is_some() || drawn.renamed_part.is_some();
+        let acted = !drawn.clicked.is_empty() || drawn.renamed.is_some() || drawn.renamed_part.is_some() || drawn.prop.is_some();
+        if let Some((key, value)) = drawn.prop.take() {
+            ed.set_prop(&key, value);
+        }
         if let Some((p, typed)) = drawn.renamed_part.take() {
             match ed.rename_part(p, &typed) {
                 Ok(()) => (view.renaming_part, view.rename_problem) = (None, None),

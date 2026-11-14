@@ -437,11 +437,42 @@ def read_level(path):
             "things": data.get("thing", []), "places": data.get("place", [])}
 
 
+def _toml_key(name):
+    return name if name and all(ch.isascii() and (ch.isalnum() or ch in "_-") for ch in name) else _quoted(name)
+
+
+def _quoted(text):
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _prop_text(v):
+    """A prop's value as the engine writes it (`grid::text::prop_text`):
+    tables inline, their keys in order (the engine's tables sort them)."""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, str):
+        return _quoted(v)
+    if isinstance(v, (list, tuple)):
+        return "[" + ", ".join(_prop_text(x) for x in v) + "]"
+    if isinstance(v, dict):
+        return "{ " + ", ".join(f"{_toml_key(k)} = {_prop_text(v[k])}" for k in sorted(v)) + " }" if v else "{}"
+    return repr(float(v)) if isinstance(v, float) else str(v)
+
+
+def _props_line(props):
+    """A thing's own props (`props = {...}`, a dict in its order), as
+    the engine writes them: none without any."""
+    if not props:
+        return ""
+    return "props = { " + ", ".join(f"{_toml_key(k)} = {_prop_text(v)}" for k, v in props.items()) + " }\n"
+
+
 def write_level(path, block, size, blocks, cells, things=(), places=(), kept=None, view=None):
     """A level of voxel blocks: `block` voxels each way, `size` cells (x
     across, y deep from the front, z up), `blocks` [(name, kind)],
     `cells` {(x, y, z): (block number from 1, orientation)}, `things`
-    [{"kind", "at"}], `places` [{"name", "at", "facing"?}]. As the editor
+    [{"kind", "at", "props"?}] (props: a dict over the kind's, in order),
+    `places` [{"name", "at", "facing"?}]. As the editor
     writes it: the signs of `kept` ({sign: (name, orientation)}, a level
     read) and its `view` kept; a new one seen from the front when taller
     than deep, else from above; a new sign a pair of block and
@@ -476,7 +507,7 @@ def write_level(path, block, size, blocks, cells, things=(), places=(), kept=Non
         taken.append(s)
         sign_of[c] = s
         legend.append(c)
-    key = lambda n: n if n and all(ch.isascii() and (ch.isalnum() or ch in "_-") for ch in n) else '"%s"' % n
+    key = _toml_key
     text = f'format = "{LEVEL_FORMAT}"\nblock = {block}            # a block is this many voxels each way\n'
     text += f"size = [{sx}, {sy}, {sz}]    # cells: across (x), deep (y, 0 in front), up (z)\n"
     if front:
@@ -515,6 +546,7 @@ def write_level(path, block, size, blocks, cells, things=(), places=(), kept=Non
     text += '"""\n'
     for t in things:
         text += '\n[[thing]]\nkind = "%s"\nat = [%d, %d, %d]\n' % (t["kind"], *t["at"])
+        text += _props_line(t.get("props"))
     for p in places:
         text += '\n[[place]]\nname = "%s"\nat = [%d, %d, %d]\n' % (p["name"], *p["at"])
         if p.get("facing"):
@@ -625,7 +657,8 @@ def terrain_text(t):
 def write_terrain_level(path, size, terrain, things=()):
     """A level without blocks, `size` voxels, its land `terrain` (as
     `read_terrain` gives it) and `things` [{"name"?, "kind"? or "model",
-    "at", "rotation"?, "solid"?, "shadow_only"?}], as the engine writes it."""
+    "at", "rotation"?, "solid"?, "shadow_only"?, "props"?}], as the engine
+    writes it."""
     text = f'format = "{LEVEL_FORMAT}"\nsize = [%d, %d, %d]    # voxels: across (x), deep (y, 0 in front), up (z); no grid of blocks\n' % tuple(size)
     text += "\n" + terrain_text(terrain)
     for t in things:
@@ -645,6 +678,7 @@ def write_terrain_level(path, size, terrain, things=()):
             text += "shadow_only = true\n"
         if t.get("scatter"):
             text += f"scatter = {int(t['scatter'])}\n"
+        text += _props_line(t.get("props"))
     with open(path, "w") as f:
         f.write(text)
 

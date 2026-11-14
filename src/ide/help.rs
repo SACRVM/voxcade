@@ -448,6 +448,83 @@ end
 "##,
     },
     Topic {
+        title: "DOORS WITH PROPS",
+        text: "A kind declares its props in conf.lua, each with its default: c.things.door.props = { to = \"01_hall\", at = \"start\", locked = false }. A door set down in a level's file gives its own over those, props = { to = \"02_crypt\", at = \"stairs\" } on its [[thing]] (in the level editor: PROPS in its rows), and thing.props reads them, the kind's where it gives none. Each must be one its kind declares, of the same type (a number, a string, true or false): a misspelt one is a mistake when the game loads, naming the file and the line. Here each door leads where its props say, and a locked one stays shut.",
+        conf: r##"c.world.size = nil             -- no world made in code: the levels are in levels/
+c.things.door = { props = { to = "01_hall", at = "start", locked = false } }"##,
+        files: &[
+            ("levels/01_hall.toml", r##"format = "voxcade level 1"
+size = [64, 48, 16]
+
+[[thing]]
+name = "ground"
+model = "ground.vvx"
+at = [32, 24, 0]
+solid = true
+
+[[thing]]
+kind = "door"
+at = [56, 24, 1]
+props = { to = "02_crypt", at = "stairs" }
+
+[[thing]]
+kind = "door"
+at = [8, 24, 1]
+props = { to = "02_crypt", locked = true }
+
+[[place]]
+name = "start"
+at = [32, 24, 1]
+"##),
+            ("levels/02_crypt.toml", r##"format = "voxcade level 1"
+size = [64, 48, 16]
+
+[[thing]]
+name = "ground"
+model = "ground.vvx"
+at = [32, 24, 0]
+solid = true
+
+[[thing]]
+kind = "door"
+at = [8, 24, 1]
+
+[[place]]
+name = "stairs"
+at = [16, 24, 1]
+facing = "east"
+"##),
+            ("ground.vvx", "format = \"voxcade voxel 1\"\nsize = [64, 48, 1]\n\n[palette]\na = { color = \"#5a5a66\" }\n\n[[frame]]\nlayers = \"\"\"\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *48\n\"\"\"\n"),
+        ],
+        code: r##"function on_touch(a, b)
+  if b.kind ~= "door" then return end
+  if b.props.locked then
+    level.state.said = "LOCKED"
+  else
+    -- where this door leads: its own props, else its kind's
+    world:go_to(b.props.to, b.props.at)
+  end
+end
+
+function on_tick()
+  for _, p in ipairs(level:players()) do
+    p:walk(p.input.dir, 40)
+  end
+end
+
+function on_draw(frame)
+  for _, d in ipairs(level:things("door")) do
+    local colour = d.props.locked and { 150, 60, 60 } or { 200, 160, 90 }
+    for z = 0, 9 do frame:cube(d.x, d.y, d.z + z, colour) end
+  end
+  for _, p in ipairs(level:players()) do
+    frame:model(p.seat == 2 and "hero2.vvx" or "hero.vvx", p)
+  end
+  frame:text(string.upper(level.name) .. "  " .. (level.state.said or ""), 4, 4)
+end
+"##,
+    },
+    Topic {
         title: "SAVE THE GAME",
         text: "Give the game save slots in conf.lua (c.saves): the pause menu then has SAVE and LOAD. world:save(slot) saves at the end of the tick, here at a flag; world:load(slot) goes on from a save like a level change, and on_level_start then says \"load\". world.saves tells what lies in each slot. A save keeps the states and where the player stands; the level comes from its file, its things too (a thing in level.state comes back as nil). Saves live in the player's config folder, never in the game's.",
         conf: r##"c.player.kind = "hero"
@@ -1188,6 +1265,7 @@ The top bar: BLOCKS, THINGS and PIECES (a level of blocks), + ADD, UNDO, REDO, a
 The outliner on the left: THINGS, PLACES and AREAS, each folding at its heading.
 The inspector on the right: the chosen one's rows, POSITION, ROTATE, its light.
 SHADOW ONLY in a piece's rows: it casts its shadow and is not drawn in the game (a ceiling the camera looks through). Here it shows as a ghost; GAME VIEW leaves it out.
+PROPS in a thing's rows: a row for each prop its kind declares (c.things.NAME.props), its own value or else its kind's in the quiet color. Type a string, drag or type a number, click TRUE or FALSE; its kind's value takes it out of the file. A table is only shown: change it in TEXT.
 # CHOOSING AND MOVING
 A click in the view chooses what it meets, voxel by voxel; a click on empty floor chooses nothing.
 The bar at the chosen one: MOVE shows its arrows, drag one to move it along that axis.

@@ -301,7 +301,7 @@ local Player = {}
 ---@field controls Controls What a player plays with, as controls is seat 1's: p.controls.device, p.controls:key("fire") (a key in braces in a text is the first of frame.players's).
 ---@field name string|nil Its name in this level: the name the level's file gives it (name = "lamp"), else a thing placed by the level file is called its kind and its number among them (door_1, door_2 in the file's order), a spawned one what level:spawn named it. nil for the player and for things the ready-made rules bring later. player.state.checkpoint and level:thing take it.
 ---@field families table<string, boolean> The families of its kind (c.things.NAME.family = { "enemies" }), as a set: if b.families.enemies then ... end. Only to read.
----@field props table Fixed values your code reads of this thing: its kind's props (c.things.NAME.props = { worth = 100 }) and what level:spawn gave it. Only to read; what changes goes in thing.state.
+---@field props table Fixed values your code reads of this thing: its kind's props (c.things.NAME.props = { worth = 100 }), over them what its level's file gave it (props = { worth = 500 } on its [[thing]], PROPS in the level editor) or level:spawn did. Only to read; what changes goes in thing.state.
 local Thing = {}
 
 ---Walks this tick the way given at this speed (voxels a second), facing it. Only the way's direction counts, not its length: { x = 0.3, y = 7 } walks at the full speed. It falls, steps up ledges and lands by itself. Only things your script moves (a kind with no behavior in c.things, or one whose behavior thing:enable switched off).
@@ -896,7 +896,7 @@ function on_pickup(thing, item) end
 ---@field width? number Its body across and deep, in voxels (c.physics.body_width unless set).
 ---@field height? number Its body's height, in voxels (its model's unless set).
 ---@field facing? number[] The way it faces as it comes in, { x, y } (x east, y north).
----@field props? table What your code reads of it, thing.props: props = { worth = 100 }.
+---@field props? table What your code reads of it, thing.props: props = { worth = 100 }. A level's thing or level:spawn may give one its own of these.
 ---@field family? string|string[] A family, or a list of them: level:things("enemies") finds them, thing.families says them.
 ---@field effect? string|table Shown once where one of its things goes: a model ("poof.vvx", or { model = "poof.vvx", fps = 20 }), or "burst": it bursts into its voxels.
 ---@field sound? string Heard where one of its things goes: a sound's name (sounds/NAME.toml).

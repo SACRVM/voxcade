@@ -70,6 +70,12 @@ fn open<G: Game>(dir: &Path, level: Option<&str>, block: Option<&str>, things: b
             ed.pieces.free_kinds.insert(kind.clone());
         }
     }
+    // (A mistake in the kinds is the game's to say; the editor opens.)
+    for (kind, table) in crate::config::resolve_like("things", &cfg.things).unwrap_or_default() {
+        if let Some(toml::Value::Table(props)) = table.get("props") {
+            ed.pieces.kind_props.insert(kind, props.clone());
+        }
+    }
     ed.pieces.free_turns = cfg.camera.rotates == crate::config::Rotates::Free;
     ed.game_light = cfg.light.clone();
     ed.pieces.scenes = crate::levels::scene_files(dir, &cfg);

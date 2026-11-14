@@ -64,6 +64,9 @@ pub enum Field {
     Nudge,
     /// A number of the terrain.
     Land(super::land::LandField),
+    /// A prop of the chosen thing that is a number, by its place among
+    /// those its kind declares.
+    Prop(usize),
 }
 
 /// Colours for a light to choose from at once, warm to cool, each with
@@ -677,6 +680,10 @@ impl Editor {
             return self.change(Some(field), |l| l.daylight = Some(day));
         }
         let Some(item) = self.pieces.chosen else { return };
+        if let (Field::Prop(k), Item::Thing(i)) = (field, item) {
+            let key = self.declared_props(&self.level.things[i]).and_then(|d| d.keys().nth(k)).cloned();
+            return key.map_or((), |key| self.set_prop_as(Some(field), &key, toml::Value::Float(v)));
+        }
         // A piece turned round, tipped: as its ring would, kept on its floor.
         if let (Field::Turn | Field::Pitch | Field::Roll, Item::Thing(i)) = (field, item) {
             let t = &self.level.things[i];
@@ -1208,6 +1215,64 @@ impl Editor {
         !t.is_piece() && self.pieces.still_kinds.contains(&t.kind)
     }
 
+    /// The props a thing's kind declares (`c.things.KIND.props`); none for
+    /// a piece, or a kind declaring none.
+    pub fn declared_props(&self, t: &Thing) -> Option<&toml::Table> {
+        self.pieces.kind_props.get(&t.kind).filter(|p| !p.is_empty() && !t.is_piece())
+    }
+
+    /// A prop of the chosen thing set (PROPS: over its kind's,
+    /// `thing.props`), one step writing its line only: its kind's default
+    /// takes it out of the file; a value not of the default's type is
+    /// refused. A new one goes among those set in its kind's order.
+    pub fn set_prop(&mut self, key: &str, value: toml::Value) {
+        self.set_prop_as(None, key, value);
+    }
+
+    /// As `set_prop`, a number dragged (`tune`) one step with the last.
+    fn set_prop_as(&mut self, tune: Option<Field>, key: &str, value: toml::Value) {
+        let Some(Item::Thing(i)) = self.pieces.chosen else { return };
+        let t = &self.level.things[i];
+        let Some(declared) = self.declared_props(t) else { return };
+        let Some(default) = declared.get(key) else { return };
+        // A number as its kind's: whole for a whole default.
+        let value = match (default, value) {
+            (toml::Value::Integer(_), toml::Value::Float(f)) => toml::Value::Integer(f.round() as i64),
+            (_, v) => v,
+        };
+        if crate::sim::things::prop_of_its_type(&t.kind, key, default, &value).is_err() {
+            return;
+        }
+        let rank = |k: &str| declared.keys().position(|d| d == k);
+        let mut props = t.props.clone();
+        match props.iter().position(|p| p.key == key) {
+            Some(n) if value == *default => _ = props.remove(n),
+            Some(n) => props[n].value = value,
+            None if value == *default => return,
+            None => {
+                let at = props.iter().position(|p| rank(&p.key) > rank(key)).unwrap_or(props.len());
+                props.insert(at, crate::grid::Prop { key: key.to_string(), value, line: 0 });
+            }
+        }
+        self.change(tune, |l| l.things[i].props = props);
+    }
+
+    /// A prop of the chosen thing as typed (`voxcade edit --prop
+    /// KEY=VALUE`), read by its kind's type: a number, true or false, a
+    /// string as it is, a table as TOML (`{ x = 1 }`).
+    pub fn typed_prop(&self, key: &str, text: &str) -> anyhow::Result<toml::Value> {
+        let t = self.chosen_thing().ok_or_else(|| anyhow::anyhow!("--prop {key}: choose a thing of a kind first (--choose NAME)"))?;
+        let declared = self.declared_props(t).ok_or_else(|| anyhow::anyhow!("--prop {key}: a {} declares no props (c.things.{}.props)", t.kind, t.kind))?;
+        let default = crate::sim::things::declared_prop(&t.kind, declared, key).map_err(|e| anyhow::anyhow!("--prop {e}"))?;
+        let wrong = || anyhow::anyhow!("--prop {key}={text}: props.{key} is a {} like {default}", match default { toml::Value::Integer(_) | toml::Value::Float(_) => "number", toml::Value::Boolean(_) => "boolean", _ => "table" });
+        Ok(match default {
+            toml::Value::String(_) => toml::Value::String(text.to_string()),
+            toml::Value::Integer(_) | toml::Value::Float(_) => toml::Value::Float(text.parse::<f64>().ok().filter(|v| v.abs() <= crate::vvx::MOST_WHOLE as f64).ok_or_else(wrong)?),
+            toml::Value::Boolean(_) => toml::Value::Boolean(text.parse().map_err(|_| wrong())?),
+            _ => toml::from_str::<toml::Table>(&format!("v = {text}")).ok().and_then(|mut t| t.remove("v")).filter(|v| v.is_table() || v.is_array()).ok_or_else(wrong)?,
+        })
+    }
+
     /// The game's models a piece can be made of, by their paths in the
     /// game folder (folders first, then names, in natural order): every
     /// `.vvx` but the blocks, the levels, the builds and the game's worlds
@@ -1580,6 +1645,58 @@ mod tests {
         assert!(ed.message.as_deref().is_some_and(|m| m.contains("only a piece in quarter turns can be solid")), "{:?}", ed.message);
         assert_eq!(saved(&dir), before, "nothing written");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// PROPS: a thing's prop set writes its one line in one step, UNDO
+    /// brings the file back to the byte; another in its kind's order on the
+    /// same line; a number dragged is one step; its kind's value takes it
+    /// out (the line gone with the last); a value of another type changes
+    /// nothing; a piece has none; COPY keeps them.
+    #[test]
+    fn a_things_props_are_set_in_one_step_each() {
+        let (mut ed, dir) = room("props", false);
+        let declared: toml::Table = toml::from_str("to = \"a\"\nlocked = false\nworth = 1\nspeed = 0.5\npath = [1]").unwrap();
+        ed.pieces.kind_props.insert("walker".into(), declared);
+        let walker = |ed: &Editor| ed.level.things[4].props.iter().map(|p| format!("{} = {}", p.key, crate::grid::text::prop_text(&p.value))).collect::<Vec<_>>();
+        ed.choose_item(Some(Item::Thing(4)));
+        ed.set_prop("to", "crypt".into());
+        let lines: Vec<String> = saved(&dir).lines().filter(|l| !PIECES.lines().any(|p| p == *l)).map(String::from).collect();
+        assert_eq!(lines, ["props = { to = \"crypt\" }"], "only its line");
+        assert!(saved(&dir).contains("at = [100, 20, 0]\nprops = {"));
+        ed.undo();
+        assert_eq!(saved(&dir), PIECES, "UNDO: the file to the byte");
+        ed.redo();
+        // In the kind's order (locked before to, by name), on the same line.
+        ed.set_prop("locked", true.into());
+        assert_eq!(walker(&ed), ["locked = true", "to = \"crypt\""]);
+        assert_eq!(read(&dir).things[4], ed.level.things[4]);
+        // A number dragged: one step, whole for a whole default.
+        let steps = ed.steps();
+        for v in [2.4, 3.6, 7.2] {
+            ed.set_field(Field::Prop(4), v);
+        }
+        assert_eq!((ed.steps(), walker(&ed)[2].as_str()), (steps + 1, "worth = 7"));
+        ed.set_field(Field::Prop(2), 0.75);
+        assert_eq!(walker(&ed), ["locked = true", "speed = 0.75", "to = \"crypt\"", "worth = 7"], "each in its kind's order");
+        // Another type: nothing; a piece: nothing.
+        let before = saved(&dir);
+        ed.set_prop("worth", "lots".into());
+        ed.set_prop("too", 1.into());
+        assert_eq!(saved(&dir), before);
+        // COPY keeps them.
+        ed.copy_item();
+        ed.hang_at(Some(IVec3::new(120, 20, 0)));
+        ed.set_down();
+        assert_eq!(ed.level.things.last().unwrap().props, ed.level.things[4].props);
+        ed.undo();
+        // Back to the kind's: out of the file, the last with its line.
+        ed.choose_item(Some(Item::Thing(4)));
+        for (key, value) in [("worth", toml::Value::Integer(1)), ("speed", 0.5.into()), ("locked", false.into()), ("to", "a".into())] {
+            ed.set_prop(key, value);
+        }
+        assert_eq!(saved(&dir), PIECES, "none left: the line gone");
+        ed.choose_item(Some(Item::Thing(0)));
+        assert!(ed.declared_props(&ed.level.things[0]).is_none(), "a piece has no kind declaring props");
     }
 
     /// SHADOW ONLY on a piece writes its one line, UNDO takes it back in

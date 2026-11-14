@@ -785,7 +785,14 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   blocks is `levels/NAME.toml` ("voxcade level 1", `grid::text`): `block`,
   `size`, `view`, `[blocks]` (name = kind), `[legend]` (a sign a block
   and its orientation: `s = "stone"`, `S = { block = "stone", orientation = 17 }`),
-  `[cells]` with `layers` as a `.vvx`'s, `[[thing]]` and `[[place]]`.
+  `[cells]` with `layers` as a `.vvx`'s, `[[thing]]` and `[[place]]`; a
+  thing of a kind may carry `props = { to = "02_crypt" }` over its kind's
+  declared ones (the owner, 2026-11-14: never a piece's), checked as the
+  game loads by the check `level:spawn`'s go through
+  (`sim::things::check_prop`, `levels::Made::check_props`; again when
+  `conf.lua` changes), `thing.props` reading them alike, PROPS in the
+  level editor's rows (`stage::prop_rows`, `Editor::set_prop`, `edit
+  --prop KEY=VALUE`).
   `view = "front"`: each layer the grid seen from the front, the front
   layer first, its top row first (a side view's room reads as the
   picture); `"above"`: the bottom layer first, its far row first (a farm

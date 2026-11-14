@@ -9,6 +9,7 @@ mod mistakes;
 mod music;
 mod picture;
 mod pieces;
+mod props;
 mod runs;
 mod sandbox;
 mod saves;

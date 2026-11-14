@@ -250,6 +250,38 @@ fn piece() -> Def {
     }
 }
 
+/// The default of the prop `key` a kind declares (`c.things.KIND.props`):
+/// a thing's own props are those, wherever they come from (`level:spawn`,
+/// a level's `[[thing]]`). The mistake names what it declares, and the
+/// name nearly meant.
+pub fn declared_prop<'a>(kind: &str, declared: &'a toml::Table, key: &str) -> std::result::Result<&'a toml::Value, String> {
+    declared.get(key).ok_or_else(|| {
+        let near = crate::audio::words::near(key, declared.keys().map(String::as_str)).map(|k| format!(": did you mean `{k}`?")).unwrap_or_default();
+        let has = if declared.is_empty() { " declares none".to_string() } else { format!(": {}", declared.keys().map(String::as_str).collect::<Vec<_>>().join(", ")) };
+        format!("props.{key}: a {kind} has no such prop (c.things.{kind}.props{has}){near}")
+    })
+}
+
+/// A thing's own prop is of the type its default is: a number for a
+/// number, a string, a boolean, a table (or list) for either.
+pub fn prop_of_its_type(kind: &str, key: &str, default: &toml::Value, value: &toml::Value) -> std::result::Result<(), String> {
+    let sort = |v: &toml::Value| match v {
+        toml::Value::Integer(_) | toml::Value::Float(_) => "number",
+        toml::Value::String(_) => "string",
+        toml::Value::Boolean(_) => "boolean",
+        _ => "table",
+    };
+    if sort(default) == sort(value) {
+        return Ok(());
+    }
+    Err(format!("props.{key} is a {} by its kind (c.things.{kind}.props.{key} = {default}), not a {}", sort(default), sort(value)))
+}
+
+/// A thing's own prop checked against its kind's declared ones.
+pub fn check_prop(kind: &str, declared: &toml::Table, key: &str, value: &toml::Value) -> std::result::Result<(), String> {
+    prop_of_its_type(kind, key, declared_prop(kind, declared, key)?, value)
+}
+
 /// What a wrong value was, for a mistake: ", not \"three\"".
 fn got(v: &toml::Value) -> String {
     match v {

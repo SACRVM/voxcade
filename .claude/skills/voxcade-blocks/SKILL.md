@@ -60,7 +60,9 @@ were tried and rejected as fake 3D. So:
   block = "stone", orientation = 17 }`, orientation 0..47), `[cells]` with `layers`
   (rows of signs, `.` empty, ` *N` and `*N` repeats as in a `.vvx`),
   `[[thing]]` (`kind`, `at = [x, y, z]` in voxels from the grid's low
-  corner, y = N/2 the middle of the front row), `[[place]]` (`name`,
+  corner, y = N/2 the middle of the front row; `props = { to = "02_crypt"
+  }` this one's props over its kind's `c.things.KIND.props`, each one the
+  kind declares, of its type; PROPS in the editor), `[[place]]` (`name`,
   `at`, `facing`: where a player arrives, `world:go_to(level, place)`).
   A game of several levels keeps them in `levels/`, in name order. A
   changed cell is a changed character: change one by hand by its sign,

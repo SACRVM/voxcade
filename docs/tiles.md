@@ -161,6 +161,7 @@ at = [45, 5, 12]      # where its feet stand, in voxels from the grid's low corn
 kind = "tuer"         # a kind without a behavior may face a way (or rotation = degrees)
 at = [80, 5, 0]
 facing = "east"
+props = { to = "02_crypt", locked = true }   # this one's, over its kind's c.things.tuer.props
 
 [[place]]
 name = "door"
@@ -239,6 +240,23 @@ facing = [0, -1]
   (`grid::text::rewrite`): what did not change stays to the character,
   comments too. A level turned off the grid in a game on the grid asks
   first: ALIGN ALL or DON'T OPEN. `grid::text` has the whole format.
+- **Props** (2026-11-14, the owner: "props am ding im level ja"): a
+  `[[thing]]` of a kind may give that one thing its own props, `props = {
+  to = "02_crypt", locked = true }`, over the ones its kind declares
+  (`c.things.tuer.props = { to = "01_hall", locked = false }`);
+  `thing.props` reads them merged, as for a thing `level:spawn` gave
+  props. Each key is one its kind declares and of its default's type (a
+  number, a string, true or false, a table where the default is one);
+  numbers at most a million either way. They are checked as the game
+  loads, as every name is: a mistake names the file, the line, the key
+  and `c.things.KIND.props`. A piece or a light alone has no kind to
+  declare props, so `props` there is a mistake. `props = {}` is none;
+  written last on the thing as one line, keys in the kind's order (the
+  editor's), only when there are any. Optional: older files read as
+  before. The level editor shows them under PROPS in the chosen thing's
+  rows, a row each: a number, a string to type, TRUE/FALSE to click, a
+  table only shown (changed in TEXT); its kind's value in the quiet
+  colour, setting it takes the prop out of the file.
 
 ## A terrain (2026-11-13)
 
