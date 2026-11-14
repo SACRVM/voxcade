@@ -19,11 +19,14 @@ impl Shell {
                 // system's dialog at once while there are none); NEW, one
                 // begun from a template.
                 let open = ui.button("OPEN").on_hover_text("Another game: one opened last, or a folder of your own.");
-                if self.forms.prefs.recent_games(Some(&self.dir)).is_empty() {
+                // (The games opened last looked for, on the disk, only while
+                // OPEN is pressed or its list shown.)
+                let asked = open.clicked() || egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&open));
+                if asked && self.forms.prefs.recent_games(Some(&self.dir)).is_empty() {
                     if open.clicked() {
                         self.asks.push(Ask::Project(Wish::Browse));
                     }
-                } else {
+                } else if asked {
                     egui::Popup::from_toggle_button_response(&open)
                         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                         .align(egui::RectAlign::BOTTOM_START)

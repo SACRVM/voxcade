@@ -59,6 +59,23 @@ enum Shown {
     Note(String),
 }
 
+/// What a file of the game is to the main area, worked out once as it
+/// loads (the answers read the disk, too slow for every frame).
+#[derive(Clone, Copy, Default)]
+struct OpenKind {
+    /// A level the level editor opens.
+    level: bool,
+    /// A world or a map's prefab: shown, never shaped as a model.
+    scene: bool,
+}
+
+impl OpenKind {
+    /// Whether an editor opens the file `path` of this kind.
+    fn editable(self, path: &str) -> bool {
+        self.level || (path.ends_with(".vvx") && !self.scene)
+    }
+}
+
 /// The window's state between frames: the game and its open file at the
 /// top, what each part of the window keeps in a group of its own.
 pub struct Shell {
@@ -76,6 +93,8 @@ pub struct Shell {
     /// file (one the agent made, clicked in the console): to look at, never
     /// remembered as open.
     outside: Option<PathBuf>,
+    /// What the open file is and its line of facts, worked out as it loads.
+    kind: OpenKind,
     facts: Option<String>,
     /// How the file just opened is shown at first.
     opening: Opening,
@@ -370,6 +389,7 @@ impl Shell {
             memory_path,
             shown: None,
             outside: None,
+            kind: OpenKind::default(),
             facts: None,
             opening: Opening { restore, goto: None, focus_code: false, opened_there: true, previous: None },
             console,
@@ -644,26 +664,26 @@ impl Shell {
     /// blocks, their blocks, the models (Voxcade's own: a MagicaVoxel file
     /// is brought in first).
     pub fn editable(&self, path: &str) -> bool {
-        self.is_level(path) || (path.ends_with(".vvx") && !self.is_scene(path))
+        self.kind_of(path).editable(path)
+    }
+
+    /// What `path` is to the main area.
+    fn kind_of(&self, path: &str) -> OpenKind {
+        OpenKind { level: self.is_level(path), scene: self.is_scene(path) }
     }
 
     /// Whether `path` is a level of blocks the level editor opens: the one
     /// the config names, and in a game of blocks each in `levels/`.
-    pub fn is_level(&self, path: &str) -> bool {
+    fn is_level(&self, path: &str) -> bool {
         let in_levels = path.starts_with("levels/") && path.ends_with(".toml");
         // (In a game of worlds a level of pieces says what it is.)
         self.level.as_deref() == Some(path) || (in_levels && (self.level.is_some() || crate::levels::says_level(&crate::files::Files::disk(), &self.dir.join(path))))
     }
 
-    /// Whether `path` is a map (`map.toml`): no editor, its text to change.
-    pub fn is_map(&self, path: &str) -> bool {
-        self.files.level_text(path) && !self.is_level(path)
-    }
-
     /// Whether `path` is a world or a map's prefab (`crate::scene`): shown,
     /// never shaped as a model, for its palette's order is its colours'
     /// numbers.
-    pub fn is_scene(&self, path: &str) -> bool {
+    fn is_scene(&self, path: &str) -> bool {
         path.ends_with(".vvx") && crate::levels::scene_files(&self.dir, &self.cfg).iter().any(|f| f == path)
     }
 

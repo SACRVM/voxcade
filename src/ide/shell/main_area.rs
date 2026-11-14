@@ -72,9 +72,13 @@ impl Shell {
             return;
         }
         if self.shown.is_none() {
+            let kind = self.kind_of(&path);
+            self.kind = kind;
             // Scripts and the texts they read, sounds and songs are to
-            // change, the rest to look at.
-            let to_change = self.files.logic.contains(&path) || self.files.scenarios.contains(&path) || path.ends_with(".mml") || (path.ends_with(".toml") && sounds::name_of(&path).is_some()) || (self.pictures.model_text && (path.ends_with(".vvx") || self.is_level(&path))) || self.is_map(&path);
+            // change, the rest to look at; a map (a level's text that is no
+            // level) too.
+            let map = self.files.level_text(&path) && !kind.level;
+            let to_change = self.files.logic.contains(&path) || self.files.scenarios.contains(&path) || path.ends_with(".mml") || (path.ends_with(".toml") && sounds::name_of(&path).is_some()) || (self.pictures.model_text && (path.ends_with(".vvx") || kind.level)) || map;
             self.shown = Some(if to_change {
                 match Buffer::open(&self.dir, &path, &self.journals()) {
                     Ok(buffer) => Shown::Code(Box::new(buffer)),
@@ -83,17 +87,16 @@ impl Shell {
             } else {
                 load(&self.dir.join(&path), &path, ui.ctx())
             });
-            let level = self.is_level(&path);
             self.facts = match () {
-                _ if self.is_scene(&path) => Some(scene_facts(&self.dir.join(&path), &path)),
-                _ if self.editable(&path) || is_model_file(&path) => Some(facts(&self.dir.join(&path), &path, level)),
+                _ if kind.scene => Some(scene_facts(&self.dir.join(&path), &path)),
+                _ if kind.editable(&path) || is_model_file(&path) => Some(facts(&self.dir.join(&path), &path, kind.level)),
                 _ if path.ends_with(".mml") => Some(song_facts(&self.dir.join(&path))),
                 _ => None,
             };
             // What an editor opens shows as a picture.
             let preview = match () {
-                _ if level && !self.pictures.model_text => Some(Preview::level(&self.dir, &path, &self.cfg)),
-                _ if self.is_scene(&path) && !self.pictures.model_text => Some(Preview::scene(&self.dir, &path, &self.cfg)),
+                _ if kind.level && !self.pictures.model_text => Some(Preview::level(&self.dir, &path, &self.cfg)),
+                _ if kind.scene && !self.pictures.model_text => Some(Preview::scene(&self.dir, &path, &self.cfg)),
                 _ if is_model_file(&path) && !self.pictures.model_text => Some(Preview::model(&self.dir, &path, &self.cfg).map(|p| p.on(self.model_background()))),
                 _ => None,
             };
@@ -122,45 +125,41 @@ impl Shell {
             // A song's line follows its text, a model's too.
             Some(Shown::Code(b)) if path.ends_with(".mml") => Some(b.code.song.clone().unwrap_or_else(|| "The song cannot be read.".into())),
             Some(Shown::Code(b)) if path.ends_with(".vvx") => Some(b.code.model.clone().unwrap_or_else(|| "The model cannot be read.".into())),
-            Some(Shown::Code(b)) if self.is_level(&path) => Some(b.code.model.clone().unwrap_or_else(|| "The level cannot be read.".into())),
+            Some(Shown::Code(b)) if self.kind.level => Some(b.code.model.clone().unwrap_or_else(|| "The level cannot be read.".into())),
             _ => self.facts.clone(),
         };
         let had_facts = facts.is_some();
         if let Some(facts) = facts {
             header_row(ui, &path, Some((&facts, "")), |ui| {
-                {
-                    if self.editable(&path) {
-                        if ui.button("EDIT").on_hover_text("Opens it in its editor, a window of its own (so does a double click in the list).").clicked() {
+                if self.kind.editable(&path) {
+                    if ui.button("EDIT").on_hover_text("Opens it in its editor, a window of its own (so does a double click in the list).").clicked() {
+                        self.flush();
+                        self.edits.push(path.clone());
+                    }
+                    // A model is text too: shown as its text to change,
+                    // or as its picture.
+                    let level = self.kind.level;
+                    if path.ends_with(".vvx") || level {
+                        let (word, tip) = match (self.pictures.model_text, level) {
+                            (true, false) => ("PICTURE", "Shows the model as the game draws it."),
+                            (false, false) => ("TEXT", "Shows the model's text, to read and change (its palette, its frames or parts, layer by layer)."),
+                            (true, true) => ("PICTURE", "Shows the level as its editor draws it."),
+                            (false, true) => ("TEXT", "Shows the level's text, to read and change (its blocks, its cells layer by layer, its things)."),
+                        };
+                        if ui.button(word).on_hover_text(tip).clicked() {
                             self.flush();
-                            self.edits.push(path.clone());
+                            self.pictures.model_text = !self.pictures.model_text;
+                            self.unload();
                         }
-                        // A model is text too: shown as its text to change,
-                        // or as its picture.
-                        let level = self.is_level(&path);
-                        if path.ends_with(".vvx") || level {
-                            let (word, tip) = match (self.pictures.model_text, level) {
-                                (true, false) => ("PICTURE", "Shows the model as the game draws it."),
-                                (false, false) => ("TEXT", "Shows the model's text, to read and change (its palette, its frames or parts, layer by layer)."),
-                                (true, true) => ("PICTURE", "Shows the level as its editor draws it."),
-                                (false, true) => ("TEXT", "Shows the level's text, to read and change (its blocks, its cells layer by layer, its things)."),
-                            };
-                            if ui.button(word).on_hover_text(tip).clicked() {
-                                self.flush();
-                                self.pictures.model_text = !self.pictures.model_text;
-                                self.unload();
-                            }
-                        }
-                    } else if !path.ends_with(".mml") {
-                    } else if self.sound.listening.is_some() {
-                        if ui.button("STOP SONG").on_hover_text("Ends the song.").clicked() {
-                            self.listen();
-                        }
-                    } else if ui.button("PLAY SONG").on_hover_text("Plays the song as it stands, at the game's music volume.").clicked() {
+                    }
+                } else if path.ends_with(".mml") {
+                    let (word, tip) = if self.sound.listening.is_some() { ("STOP SONG", "Ends the song.") } else { ("PLAY SONG", "Plays the song as it stands, at the game's music volume.") };
+                    if ui.button(word).on_hover_text(tip).clicked() {
                         self.listen();
                     }
-                    act = act.or(manage::buttons(ui, why_not));
-                    want_find |= saved_label(ui, saved);
                 }
+                act = act.or(manage::buttons(ui, why_not));
+                want_find |= saved_label(ui, saved);
             });
             // (A text to change shows it with its own messages.)
             if !matches!(self.shown, Some(Shown::Code(_))) && let Some(message) = &self.message {
