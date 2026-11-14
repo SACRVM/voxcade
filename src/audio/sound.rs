@@ -258,7 +258,7 @@ pub fn read_folder(files: &crate::files::Files) -> Result<BTreeMap<String, GameS
 /// in `dir`), new, changed or gone.
 pub fn in_folder(dir: &Path, path: &Path) -> bool {
     let folder = dir.join(FOLDER);
-    path.parent().is_some_and(|p| p == folder || (p.canonicalize().ok().is_some() && p.canonicalize().ok() == folder.canonicalize().ok()))
+    path.parent().is_some_and(|p| p == folder || p.canonicalize().is_ok_and(|p| folder.canonicalize().is_ok_and(|f| f == p)))
 }
 
 /// The sounds of a game: those its code brings (a kit's, the engine's:
