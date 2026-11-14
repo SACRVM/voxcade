@@ -214,7 +214,8 @@ fn mat_of(model: &VoxModel, f: usize, k: usize) -> Mat {
 struct Signs {
     width: usize,
     kept: Vec<(String, Mat)>,
-    of: HashMap<Mat, String>,
+    /// Each material's place in `order`.
+    of: HashMap<Mat, usize>,
     order: Vec<(String, Mat)>,
     next: usize,
 }
@@ -225,30 +226,35 @@ impl Signs {
         Self { width, kept, of: HashMap::new(), order: Vec::new(), next: 0 }
     }
 
-    fn sign(&mut self, mat: Mat) -> String {
-        if let Some(s) = self.of.get(&mat) {
-            return s.clone();
-        }
-        let s = match self.kept.iter().find(|(_, m)| *m == mat) {
-            Some((s, _)) => s.clone(),
-            None => loop {
-                let s = nth_sign(self.next, self.width);
-                self.next += 1;
-                if !self.kept.iter().any(|(k, _)| *k == s) && !self.order.iter().any(|(k, _)| *k == s) {
-                    break s;
-                }
-            },
+    /// The sign of `mat`, given out the first time it comes.
+    fn sign(&mut self, mat: Mat) -> &str {
+        let at = match self.of.get(&mat) {
+            Some(&at) => at,
+            None => {
+                let s = match self.kept.iter().find(|(_, m)| *m == mat) {
+                    Some((s, _)) => s.clone(),
+                    None => loop {
+                        let s = nth_sign(self.next, self.width);
+                        self.next += 1;
+                        if !self.kept.iter().any(|(k, _)| *k == s) && !self.order.iter().any(|(k, _)| *k == s) {
+                            break s;
+                        }
+                    },
+                };
+                self.of.insert(mat, self.order.len());
+                self.order.push((s, mat));
+                self.order.len() - 1
+            }
         };
-        self.of.insert(mat, s.clone());
-        self.order.push((s.clone(), mat));
-        s
+        &self.order[at].0
     }
 
     /// The palette's lines: the kept signs used (with `all` every kept
     /// one, used or not, but a second for a material another sign has), in
     /// the file's order, then the new ones as they came.
     fn lines(&self, all: bool) -> String {
-        let mut used: Vec<&(String, Mat)> = self.kept.iter().filter(|(s, m)| self.of.get(m).map_or(all && !self.kept.iter().take_while(|(k, _)| k != s).any(|(_, o)| o == m), |o| o == s)).collect();
+        let given = |m: &Mat| self.of.get(m).map(|&at| &self.order[at].0);
+        let mut used: Vec<&(String, Mat)> = self.kept.iter().filter(|(s, m)| given(m).map_or(all && !self.kept.iter().take_while(|(k, _)| k != s).any(|(_, o)| o == m), |o| o == s)).collect();
         used.extend(self.order.iter().filter(|(s, _)| !self.kept.iter().any(|(k, _)| k == s)));
         used.iter().map(|(s, m)| format!("{s} = {}\n", material_text(m))).collect()
     }
@@ -272,12 +278,14 @@ fn layers_of(voxels: &[(IVec3, Mat)], signs: &mut Signs) -> Option<(IVec3, Vec<V
             (0..dim.y)
                 .rev()
                 .map(|y| {
-                    (0..dim.x)
-                        .map(|x| match cells[((z * dim.y + y) * dim.x + x) as usize] {
-                            None => dots.clone(),
-                            Some(m) => signs.sign(m),
-                        })
-                        .collect()
+                    let mut row = String::with_capacity(dim.x as usize * signs.width);
+                    for cell in &cells[((z * dim.y + y) * dim.x) as usize..][..dim.x as usize] {
+                        row.push_str(match cell {
+                            None => &dots,
+                            Some(m) => signs.sign(*m),
+                        });
+                    }
+                    row
                 })
                 .collect()
         })
@@ -305,11 +313,14 @@ pub(crate) fn layers_text(layers: &[Vec<String>]) -> String {
             s.push('\n');
         }
         for (row, n) in runs(layer) {
-            s += row;
             if n >= REPEAT_FROM {
+                s += row;
                 s += &format!(" *{n}\n");
             } else {
-                s += &format!("\n{}", format!("{row}\n").repeat(n - 1));
+                for _ in 0..n {
+                    s += row;
+                    s.push('\n');
+                }
             }
         }
         if times > 1 {
