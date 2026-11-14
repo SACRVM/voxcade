@@ -196,20 +196,7 @@ impl<G: Game> Session<G> {
             aspect,
             stage: sim.world.stage_box(),
         });
-        let (mut cam, mut target) = match scene {
-            Scene::Play => viewing.as_ref().expect("the play's").seen(None),
-            Scene::Title { .. } => (self.title_camera(), self.title_target()),
-            Scene::Intro { t, .. } => {
-                // Eased, and not on the grid: a glide, not steps.
-                let e = t.clamp(0.0, 1.0);
-                let e = e * e * (3.0 - 2.0 * e);
-                let mut cam = self.title_camera();
-                let (from, to) = (camera::shown_width(&cam, aspect), camera::shown_width(&self.cfg.camera, aspect));
-                cam.show_width(from + (to - from) * e);
-                let end = self.within_stage(self.view_target(alpha), &self.cfg.camera, aspect);
-                (cam, between(self.title_target(), end, e))
-            }
-        };
+        let (mut cam, mut target) = self.scene_camera(scene, viewing.as_ref(), alpha, aspect);
         let mut view_proj = camera::view_proj(&cam, target, aspect);
         // The sun the game set last picture, if it sets one: what is drawn
         // is chosen by where its shadows fall.
@@ -229,29 +216,7 @@ impl<G: Game> Session<G> {
         // what is out of view is known only then.
         out.cull = viewing.is_none() || !self.game.moves_camera();
         out.viewing = viewing.clone();
-
-        // The title's models lie on the ground (`place_props`), and its flyby
-        // crosses, rotor turning.
-        let title = match scene {
-            Scene::Play => None,
-            Scene::Title { time } => Some((time, 1.0)),
-            Scene::Intro { time, t } => Some((time, 1.0 - t.clamp(0.0, 1.0))),
-        };
-        if let Some((time, opacity)) = title {
-            out.fade = opacity;
-            for (prop, &ground) in self.cfg.title_screen.props.iter().zip(&self.props_ground) {
-                let Some(m) = self.models.props.get(&prop.model) else { continue };
-                let look = prop.look();
-                let origin = IVec3::new(prop.at[0] as i32, prop.at[1] as i32, ground).as_vec3();
-                out.put_model(m, 0, origin, look, Quat::IDENTITY, None);
-            }
-            if let (Some(at), Some(m)) = (self.flyby_at(time), self.cfg.title_screen.flyby.as_ref().and_then(|f| self.models.props.get(f))) {
-                out.fade = 1.0;
-                out.put_model(m, (time * 30.0) as usize % m.frames.len(), at, IVec2::X, Quat::IDENTITY, None);
-            }
-            out.fade = 1.0;
-        }
-
+        self.draw_title(&mut out, scene);
         // The game's things, then the debris, fire, smoke and sparks. A
         // model drawn the first time was loaded meanwhile, drawn as cubes:
         // it goes in the bank and the picture is made again from there.
@@ -260,15 +225,7 @@ impl<G: Game> Session<G> {
             drop(out);
             return self.compose(alpha, aspect, scene, ui);
         }
-        for q in &sim.particles {
-            let at = between(q.prev, q.pos, alpha);
-            let (color, glow, opacity) = q.look();
-            if q.chunky() {
-                out.blob(at, color, glow, opacity);
-            } else {
-                out.cube(out.corner(at), color, glow, opacity);
-            }
-        }
+        draw_particles(&mut out, &sim.particles, alpha);
         let Drawing { mut voxels, draws: models, lights: game_lights, daylight, camera: picture, cull, bounds, cast_top, .. } = out;
         // Models only casting a shadow above the world (a ceiling over a
         // room standing higher): the shadows' box reaches up to them.
@@ -283,29 +240,10 @@ impl<G: Game> Session<G> {
             eye = camera::eye(&cam, target, aspect);
             (voxels.eye, voxels.moved) = (eye, true);
         }
-        // Another pitch or field of view than the camera's (a picture the
-        // game set), or a window wider than the meshes' faces were chosen
-        // for (`camera::corner_rays`): the faces its rays can hit kept in
-        // the meshes from now on, built anew once.
-        let other = picture.is_some() && (cam.pitch != self.cfg.camera.pitch || cam.fov != self.cfg.camera.fov);
-        if other || aspect > camera::WIDEST_KEPT {
-            let mut seen = self.seen_faces.get();
-            for (s, o) in seen.iter_mut().zip(mesh::face_mask(&camera::corner_rays(&cam, aspect), self.sun())) {
-                *s |= o;
-            }
-            self.seen_faces.set(seen);
-        }
-        // The daylight the game set for this picture, else its level's
-        // (`[light]`), else c.light's; the shadows fitted to its sun.
-        let level = self.game.daylight();
-        let day = daylight.unwrap_or_default();
-        let day = Daylight {
-            sun: day.sun.or(level.sun),
-            sun_color: day.sun_color.or(level.sun_color),
-            ambient: day.ambient.or(level.ambient),
-            shadow: day.shadow.or(level.shadow),
-            sky: day.sky.or(level.sky),
-        };
+        self.keep_faces_seen(&cam, aspect, picture.is_some());
+        // The daylight the game set for this picture, else its level's,
+        // else c.light's; the shadows fitted to its sun.
+        let day = self.daylight_of(daylight);
         let light = &self.cfg.light;
         let drawn = day.sun.map(|s| s.normalize_or(Vec3::NEG_Z));
         self.drawn_sun.set(drawn);
@@ -326,35 +264,10 @@ impl<G: Game> Session<G> {
         };
         let see_through = voxels.see_through.len();
         let instances = voxels.finish();
+        let lights = self.lights_of(game_lights, target);
+        let (ui, ui_models, ui_view_proj) = self.ui_of(ui, alpha, aspect);
 
-        // Light from flashes and explosions, and what the game lights (rockets
-        // in flight); the ones nearest the middle of the view when there are
-        // too many.
         let fx = &self.cfg.effects;
-        let mut lights: Vec<Light> = sim
-            .flares
-            .iter()
-            .map(|f| Light { pos: f.pos, radius: f.radius, color: f.color.map(|c| c * f.strength() * fx.lights) })
-            .chain(game_lights)
-            .collect();
-        lights.sort_by(|a, b| a.pos.distance_squared(target).total_cmp(&b.pos.distance_squared(target)));
-        self.count_lights(lights.len());
-        lights.truncate(crate::render::MAX_LIGHTS);
-
-        // What stopped the game or a reload, over everything until mended
-        // (in place of the HUD).
-        let problem = self.game.halted().or_else(|| self.problem.clone());
-        let (mut ui, ui_models, ui_view_proj) = ui.unwrap_or_else(|| {
-            let ui = &self.cfg.ui;
-            let camera = crate::ui::camera(&crate::ui::Layout::of(ui, aspect), ui.slant, ui.depth as f32);
-            let hud = if problem.is_some() { Vec::new() } else { self.game.hud(ui, alpha, aspect, self.font.as_deref()) };
-            let eye = crate::ui::eye(&crate::ui::Layout::of(ui, aspect), ui.slant, ui.depth as f32);
-            (self.hud_cubes(hud, eye), Vec::new(), camera)
-        });
-        if let Some(problem) = problem.filter(|_| self.problem_shown) {
-            ui.extend(crate::ui::error_panel(&problem, &self.cfg.ui, aspect));
-        }
-
         let haze_start = eye.distance(target);
         FrameData {
             view_proj,
@@ -402,6 +315,128 @@ impl<G: Game> Session<G> {
             cast_only: 0,
             ui,
             ui_view_proj,
+        }
+    }
+
+    /// The camera a scene is seen with, and where it looks: the play's
+    /// (`viewing`), the title's, or the glide from one to the other.
+    fn scene_camera(&self, scene: Scene, viewing: Option<&Viewing>, alpha: f32, aspect: f32) -> (crate::config::CameraConfig, Vec3) {
+        match scene {
+            Scene::Play => viewing.expect("the play's").seen(None),
+            Scene::Title { .. } => (self.title_camera(), self.title_target()),
+            Scene::Intro { t, .. } => {
+                // Eased, and not on the grid: a glide, not steps.
+                let e = t.clamp(0.0, 1.0);
+                let e = e * e * (3.0 - 2.0 * e);
+                let mut cam = self.title_camera();
+                let (from, to) = (camera::shown_width(&cam, aspect), camera::shown_width(&self.cfg.camera, aspect));
+                cam.show_width(from + (to - from) * e);
+                let end = self.within_stage(self.view_target(alpha), &self.cfg.camera, aspect);
+                (cam, between(self.title_target(), end, e))
+            }
+        }
+    }
+
+    /// The title's models lying on the ground (`place_props`), and its
+    /// flyby crossing, rotor turning; fading as the glide leaves them.
+    fn draw_title(&self, out: &mut Drawing, scene: Scene) {
+        let (time, opacity) = match scene {
+            Scene::Play => return,
+            Scene::Title { time } => (time, 1.0),
+            Scene::Intro { time, t } => (time, 1.0 - t.clamp(0.0, 1.0)),
+        };
+        out.fade = opacity;
+        for (prop, &ground) in self.cfg.title_screen.props.iter().zip(&self.props_ground) {
+            let Some(m) = self.models.props.get(&prop.model) else { continue };
+            let look = prop.look();
+            let origin = IVec3::new(prop.at[0] as i32, prop.at[1] as i32, ground).as_vec3();
+            out.put_model(m, 0, origin, look, Quat::IDENTITY, None);
+        }
+        if let (Some(at), Some(m)) = (self.flyby_at(time), self.cfg.title_screen.flyby.as_ref().and_then(|f| self.models.props.get(f))) {
+            out.fade = 1.0;
+            out.put_model(m, (time * 30.0) as usize % m.frames.len(), at, IVec2::X, Quat::IDENTITY, None);
+        }
+        out.fade = 1.0;
+    }
+
+    /// Another pitch or field of view than the camera's (a picture the
+    /// game set), or a window wider than the meshes' faces were chosen for
+    /// (`camera::corner_rays`): the faces its rays can hit kept in the
+    /// meshes from now on, built anew once.
+    fn keep_faces_seen(&self, cam: &crate::config::CameraConfig, aspect: f32, set_by_the_game: bool) {
+        let other = set_by_the_game && (cam.pitch != self.cfg.camera.pitch || cam.fov != self.cfg.camera.fov);
+        if other || aspect > camera::WIDEST_KEPT {
+            let mut seen = self.seen_faces.get();
+            for (s, o) in seen.iter_mut().zip(mesh::face_mask(&camera::corner_rays(cam, aspect), self.sun())) {
+                *s |= o;
+            }
+            self.seen_faces.set(seen);
+        }
+    }
+
+    /// The daylight the game set for this picture (`frame:daylight`), else
+    /// its level's (`[light]`); what neither sets stays c.light's.
+    fn daylight_of(&self, set: Option<Daylight>) -> Daylight {
+        let level = self.game.daylight();
+        let day = set.unwrap_or_default();
+        Daylight {
+            sun: day.sun.or(level.sun),
+            sun_color: day.sun_color.or(level.sun_color),
+            ambient: day.ambient.or(level.ambient),
+            shadow: day.shadow.or(level.shadow),
+            sky: day.sky.or(level.sky),
+        }
+    }
+
+    /// Light from flashes and explosions, and what the game lights (rockets
+    /// in flight); the ones nearest the middle of the view `target` when
+    /// there are too many.
+    fn lights_of(&self, game_lights: Vec<Light>, target: Vec3) -> Vec<Light> {
+        let strength = self.cfg.effects.lights;
+        let mut lights: Vec<Light> = self
+            .game
+            .sim()
+            .flares
+            .iter()
+            .map(|f| Light { pos: f.pos, radius: f.radius, color: f.color.map(|c| c * f.strength() * strength) })
+            .chain(game_lights)
+            .collect();
+        lights.sort_by(|a, b| a.pos.distance_squared(target).total_cmp(&b.pos.distance_squared(target)));
+        self.count_lights(lights.len());
+        lights.truncate(crate::render::MAX_LIGHTS);
+        lights
+    }
+
+    /// The UI layer: `ui` (the menus) when given, else the game's HUD; what
+    /// stopped the game or a reload over everything until mended (in place
+    /// of the HUD).
+    fn ui_of(&self, ui: Option<(Vec<Instance>, Vec<ModelDraw>, Mat4)>, alpha: f32, aspect: f32) -> (Vec<Instance>, Vec<ModelDraw>, Mat4) {
+        let problem = self.game.halted().or_else(|| self.problem.clone());
+        let (mut ui, ui_models, ui_view_proj) = ui.unwrap_or_else(|| {
+            let ui = &self.cfg.ui;
+            let layout = crate::ui::Layout::of(ui, aspect);
+            let camera = crate::ui::camera(&layout, ui.slant, ui.depth as f32);
+            let hud = if problem.is_some() { Vec::new() } else { self.game.hud(ui, alpha, aspect, self.font.as_deref()) };
+            let eye = crate::ui::eye(&layout, ui.slant, ui.depth as f32);
+            (self.hud_cubes(hud, eye), Vec::new(), camera)
+        });
+        if let Some(problem) = problem.filter(|_| self.problem_shown) {
+            ui.extend(crate::ui::error_panel(&problem, &self.cfg.ui, aspect));
+        }
+        (ui, ui_models, ui_view_proj)
+    }
+}
+
+/// The debris, fire, smoke and sparks, where they are `alpha` into the
+/// tick.
+fn draw_particles(out: &mut Drawing, particles: &[crate::sim::Particle], alpha: f32) {
+    for q in particles {
+        let at = between(q.prev, q.pos, alpha);
+        let (color, glow, opacity) = q.look();
+        if q.chunky() {
+            out.blob(at, color, glow, opacity);
+        } else {
+            out.cube(out.corner(at), color, glow, opacity);
         }
     }
 }
