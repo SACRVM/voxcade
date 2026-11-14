@@ -10,7 +10,7 @@ use wgpu::util::DeviceExt;
 
 use super::bank::{ACTOR_STRIDE, ActorData};
 use super::frame::{UI_AMBIENT, UI_SUN};
-use super::pipelines::{Memory, PostPass};
+use super::pipelines::{Memory, PostKind, PostPass};
 use super::shader::{Globals, LightData, PostParams};
 use super::{FrameData, Instance, MAX_LIGHTS, ModelDraw, Renderer, Stats, off_grid, on_screen};
 
@@ -92,7 +92,7 @@ impl Renderer {
         self.shadow_pass(encoder, frame, &mut stats);
         self.scene_pass(encoder, frame, remember, &mut stats);
         self.ui_pass(encoder, frame);
-        self.post_passes(encoder);
+        self.post_passes(encoder, frame);
         self.composite_pass(encoder, target);
         if let Some(t) = &self.pass_times {
             let count = 2 * t.labels.borrow().len() as u32;
@@ -378,13 +378,18 @@ impl Renderer {
         }
     }
 
-    /// The scene and the glow shrunk and blurred.
-    fn post_passes(&self, encoder: &mut wgpu::CommandEncoder) {
-        for (kind, source, dest) in &self.targets.passes {
+    /// The scene and the glow shrunk and blurred: each only where the
+    /// composite weighs it (tilt-shift, glow), else what its small target
+    /// holds from before is multiplied by 0 there.
+    fn post_passes(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameData) {
+        let t = &self.targets;
+        let scene = if frame.tilt_shift != 0.0 { &t.scene_blur[..] } else { &[] };
+        let glow = if frame.glow != 0.0 { &t.glow_blur[..] } else { &[] };
+        for PostPass { kind, source, dest } in scene.iter().chain(glow) {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("post"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.targets.small[*dest],
+                    view: &t.small[*dest],
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
@@ -395,8 +400,8 @@ impl Renderer {
                 multiview_mask: None,
             });
             pass.set_pipeline(match kind {
-                PostPass::Down => &self.post_down,
-                PostPass::Blur => &self.post_blur,
+                PostKind::Down => &self.post_down,
+                PostKind::Blur => &self.post_blur,
             });
             pass.set_bind_group(0, source, &[]);
             pass.draw(0..3, 0..1);

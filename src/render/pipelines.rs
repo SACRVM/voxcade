@@ -21,17 +21,25 @@ pub(super) struct Targets {
     /// Quarter size: scene blurred (0) and its scratch (1), glow blurred (2)
     /// and its scratch (3).
     pub(super) small: [wgpu::TextureView; 4],
-    /// The post passes in order: what they do, what they read, which small
-    /// target they write.
-    pub(super) passes: Vec<(PostPass, wgpu::BindGroup, usize)>,
+    /// The scene's blur and the glow's, each its passes in order: what they
+    /// do, what they read, which small target they write.
+    pub(super) scene_blur: Vec<PostPass>,
+    pub(super) glow_blur: Vec<PostPass>,
     /// The composite pass: the sharp scene plus the two blurred copies.
     pub(super) composite: wgpu::BindGroup,
     pub(super) blurred: wgpu::BindGroup,
     pub(super) composite_params: wgpu::Buffer,
 }
 
+/// A post pass: what it does, what it reads, which small target it writes.
+pub(super) struct PostPass {
+    pub(super) kind: PostKind,
+    pub(super) source: wgpu::BindGroup,
+    pub(super) dest: usize,
+}
+
 #[derive(Clone, Copy)]
-pub(super) enum PostPass {
+pub(super) enum PostKind {
     Down,
     Blur,
 }
@@ -543,17 +551,20 @@ impl Renderer {
         let across = PostParams { params: [0.0; 4], step: [quarter[0], quarter[1], 1.0, 0.0] };
         let upwards = PostParams { params: [0.0; 4], step: [quarter[0], quarter[1], 0.0, 1.0] };
 
+        let pass = |kind, source, params, dest| PostPass { kind, source: bind(source, params).0, dest };
         // Scene: shrink, blur across, blur up. Glow: shrink, then blur twice
         // for a wider halo.
-        let passes = vec![
-            (PostPass::Down, bind(&scene, down).0, 0),
-            (PostPass::Blur, bind(&small[0], across).0, 1),
-            (PostPass::Blur, bind(&small[1], upwards).0, 0),
-            (PostPass::Down, bind(&glow, down).0, 2),
-            (PostPass::Blur, bind(&small[2], across).0, 3),
-            (PostPass::Blur, bind(&small[3], upwards).0, 2),
-            (PostPass::Blur, bind(&small[2], across).0, 3),
-            (PostPass::Blur, bind(&small[3], upwards).0, 2),
+        let scene_blur = vec![
+            pass(PostKind::Down, &scene, down, 0),
+            pass(PostKind::Blur, &small[0], across, 1),
+            pass(PostKind::Blur, &small[1], upwards, 0),
+        ];
+        let glow_blur = vec![
+            pass(PostKind::Down, &glow, down, 2),
+            pass(PostKind::Blur, &small[2], across, 3),
+            pass(PostKind::Blur, &small[3], upwards, 2),
+            pass(PostKind::Blur, &small[2], across, 3),
+            pass(PostKind::Blur, &small[3], upwards, 2),
         ];
         let (composite, composite_params) = bind(&scene, down);
         let blurred = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -565,7 +576,7 @@ impl Renderer {
                 wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&ui) },
             ],
         });
-        Targets { depth, scene, glow, ui, small, passes, composite, blurred, composite_params }
+        Targets { depth, scene, glow, ui, small, scene_blur, glow_blur, composite, blurred, composite_params }
     }
 
     /// Whether the faces can remember their shadow: the pipelines with the
