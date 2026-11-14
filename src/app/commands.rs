@@ -2,11 +2,9 @@
 //! hosting and joining, saving and loading, restarting and going back to
 //! the title (the high score table on the way), the settings applied.
 
-use std::time::Instant;
-
 use anyhow::{Context, Result};
 
-use super::{App, Flow, apply_settings, begun, next_initials, pause_menu, planned, play_the_games_song, title_menu, trouble};
+use super::{App, Flow, apply_settings, failure, next_initials, pause_menu, planned, play_the_games_song, say_now, title_menu, trouble};
 use crate::game::Game;
 use crate::menu::{Command, Menu, Page};
 use crate::replay::{Playback, replay_session};
@@ -28,22 +26,13 @@ impl<G: Game> App<G> {
         match command {
             Command::Quit => return Ok(Flow::Quit),
             Command::Start => {
-                if !self.begin.is_empty() {
-                    begun(&self.begin, &mut self.game);
-                    self.renderer.rebuild_all(&self.screen.device, &self.screen.queue, self.game.world_mut(), &self.mask);
-                }
-                self.runs.start(&self.game);
-                self.seat_the_players();
-                self.front.glide_in();
-                play_the_games_song(&mut self.game, &self.settings);
+                self.begin_scenario();
+                self.start_run();
             }
             command @ (Command::Host | Command::HostNet) => {
                 // As START, the game open to the network at once: the
                 // LAN, or the internet (its ticket on the clipboard).
-                if !self.begin.is_empty() {
-                    begun(&self.begin, &mut self.game);
-                    self.renderer.rebuild_all(&self.screen.device, &self.screen.queue, self.game.world_mut(), &self.mask);
-                }
+                self.begin_scenario();
                 self.game.set_clock(crate::saves::now());
                 let hosted = if command == Command::HostNet { crate::network::Network::host_net(&self.game) } else { crate::network::Network::host(&self.game, self.host_port) };
                 match hosted {
@@ -53,12 +42,9 @@ impl<G: Game> App<G> {
                         println!("hosting {} at {}", self.game.cfg.title, n.found().join(", "));
                         self.net = Some(n);
                     }
-                    Err(e) => self.parting = Some((format!("{e:#}").to_uppercase(), Instant::now())),
+                    Err(e) => self.parting = say_now(failure(&e)),
                 }
-                self.runs.start(&self.game);
-                self.seat_the_players();
-                self.front.glide_in();
-                play_the_games_song(&mut self.game, &self.settings);
+                self.start_run();
             }
             Command::Join => {
                 // An address typed is kept for next time; a ticket is for
@@ -91,7 +77,7 @@ impl<G: Game> App<G> {
                     self.front.menu.stack.push((Page::Joining, 0));
                     self.queued.push(Command::JoinCode);
                 }
-                _ => self.parting = Some((crate::lang::say(self.settings.language(), "NO TICKET OR CODE ON THE CLIPBOARD").to_string(), Instant::now())),
+                _ => self.parting = say_now(crate::lang::say(self.settings.language(), "NO TICKET OR CODE ON THE CLIPBOARD").into()),
             },
             Command::CopyCode => {
                 if let Some(n) = &mut self.net
@@ -196,7 +182,7 @@ impl<G: Game> App<G> {
                     && let crate::network::Side::Host(h) = &mut n.side
                     && let Err(e) = h.restart(&self.game)
                 {
-                    n.say(format!("{e:#}").to_uppercase());
+                    n.say(failure(&e));
                 }
                 self.front.menu = Menu::default();
             }
@@ -204,14 +190,13 @@ impl<G: Game> App<G> {
             Command::Changed | Command::Fullscreen | Command::Song => {
                 crate::controls::label_keys(&mut self.settings);
                 if command == Command::Fullscreen {
-                    self.screen.window.set_fullscreen(self.settings.fullscreen).context("toggling fullscreen")?;
+                    self.display.screen.window.set_fullscreen(self.settings.fullscreen).context("toggling fullscreen")?;
                 }
                 if command == Command::Song && self.front.playing {
                     self.game.select_song(self.settings.song);
                 }
                 apply_settings(&mut self.game, &mut self.settings);
-                let crate::window::Screen { surface, device, config, .. } = &mut self.screen;
-                crate::window::set_frame_rate(surface, device, config, &self.adapter, self.settings.frame_rate);
+                self.display.set_frame_rate(self.settings.frame_rate);
                 self.save_settings();
             }
         }
@@ -223,7 +208,7 @@ impl<G: Game> App<G> {
         match joined {
             Ok(n) => self.net = Some(n),
             Err(e) => {
-                self.parting = Some((format!("{e:#}").to_uppercase(), Instant::now()));
+                self.parting = say_now(failure(&e));
                 self.front.menu = title_menu(&self.game);
             }
         }
@@ -287,10 +272,7 @@ impl<G: Game> App<G> {
             match &self.watching {
                 Some(replay) => self.playback = Some(Playback::new(replay, &mut self.game)?),
                 None => {
-                    if !self.begin.is_empty() {
-                        begun(&self.begin, &mut self.game);
-                        self.renderer.rebuild_all(&self.screen.device, &self.screen.queue, self.game.world_mut(), &self.mask);
-                    }
+                    self.begin_scenario();
                     self.runs.start(&self.game);
                 }
             }

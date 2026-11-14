@@ -11,14 +11,14 @@ use crate::sim::DT;
 
 impl<G: Game> App<G> {
     pub(super) fn draw(&mut self) -> Result<()> {
-        let App { renderer, screen, game, mask, front, net, settings, finder, net_finder, text_input, prompt, clock, parting, .. } = self;
-        let crate::window::Screen { device, queue, config, window, .. } = screen;
-        renderer.update_chunks(device, queue, game.world_mut(), mask);
+        let App { display, game, front, net, settings, finder, net_finder, text_input, prompt, clock, parting, .. } = self;
+        let crate::window::Screen { device, queue, window, .. } = &display.screen;
+        display.renderer.update_chunks(device, queue, game.world_mut(), &display.mask);
 
         // The picture's shape: the game's own (bars round it), else the
         // window's.
-        let aspect = game.picture_aspect(config.width as f32 / config.height as f32);
-        renderer.set_shape(device, game.cfg.camera.aspect);
+        let aspect = game.picture_aspect(display.screen.aspect());
+        display.renderer.set_shape(device, game.cfg.camera.aspect);
         let scene = front.scene();
         let menu = &mut front.menu;
         (menu.device, menu.pad_style) = (front.played_with, front.pad_kind);
@@ -87,19 +87,9 @@ impl<G: Game> App<G> {
         // (`frame:camera`) may need faces the meshes left out: built anew
         // with them, once.
         let faces = game.face_mask();
-        if faces != *mask {
-            *mask = faces;
-            renderer.rebuild_all(device, queue, game.world_mut(), mask);
+        if faces != display.mask {
+            display.remesh_with(game, faces);
         }
-
-        if let crate::window::Got::Picture(texture) = screen.texture()? {
-            let (device, queue) = (&screen.device, &screen.queue);
-            let view = texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-            renderer.render(device, queue, &mut encoder, &view, &frame);
-            queue.submit([encoder.finish()]);
-            queue.present(texture);
-        }
-        Ok(())
+        display.show(&frame)
     }
 }

@@ -3,10 +3,7 @@
 //! sent; a guest playing the host's bundles; the ticket and the code on the
 //! clipboard.
 
-use std::time::Instant;
-
-use super::{App, CATCH_UP_BUDGET, MAX_CATCH_UP, apply_settings, keys, play_the_games_song, rumble, title_menu};
-use crate::controls::Device;
+use super::{App, CATCH_UP_BUDGET, MAX_CATCH_UP, failure, pads_of, play_the_games_song, renew, say_now, seat_controls, seated, tick_sounds, title_menu};
 use crate::game::Game;
 use crate::menu::{Command, Page};
 use crate::saves::Slots;
@@ -19,11 +16,11 @@ impl<G: Game> App<G> {
     /// (and joins again once, where only what it was sent differed); a
     /// guest's game ended says why.
     pub(super) fn network(&mut self, commands: &mut Vec<Command>) {
-        let App { net, game, settings, mask, renderer, screen, seating, last_pad, pads, front, runs, parting, queued, rejoined, dir, .. } = self;
+        let App { net, game, settings, display, seating, last_pad, pads, front, runs, parting, queued, rejoined, dir, .. } = self;
         // The host's link across the internet would not start: its network
         // game is over, the game plays on alone.
         if let Some(why) = net.as_mut().and_then(|n| n.broken()) {
-            *parting = Some((why.to_uppercase(), Instant::now()));
+            *parting = say_now(why.to_uppercase());
             *net = None;
         }
         let Some(n) = net.as_mut() else { return };
@@ -34,19 +31,15 @@ impl<G: Game> App<G> {
             match j.catch_up(CATCH_UP_BUDGET) {
                 Ok(Some(caught)) => {
                     println!("caught up with the host at tick {}", caught.game.sim().tick);
-                    *game = caught;
-                    apply_settings(game, settings);
+                    renew(game, caught, settings, display);
                     game.fades = true;
-                    *mask = game.face_mask();
-                    renderer.rebuild_all(&screen.device, &screen.queue, game.world_mut(), mask);
-                    *seating = crate::seating::Seating::new(game.cfg.players);
-                    seating.begin(last_pad.filter(|_| front.played_with == Device::Gamepad), &crate::seating::resolve(&settings.players, &pads.named()));
+                    *seating = seated(game.cfg.players, *last_pad, front, settings, pads);
                     front.straight_in();
                     play_the_games_song(game, settings);
                 }
                 Ok(None) => {}
                 Err(e) => {
-                    let _ = j.end(&format!("{e:#}").to_uppercase());
+                    let _ = j.end(&failure(&e));
                 }
             }
         }
@@ -71,15 +64,12 @@ impl<G: Game> App<G> {
         {
             println!("the network game ended: {why}");
             n.keep_run(game, runs);
-            *parting = Some((crate::lang::say_line(settings.language(), &why), Instant::now()));
+            *parting = say_now(crate::lang::say_line(settings.language(), &why));
             *net = None;
             if rejoin {
                 // Back to the title's game, joining at once.
                 if let Ok(fresh) = Session::<G>::load_with(dir, Slots::on_disk(dir)) {
-                    *game = fresh;
-                    apply_settings(game, settings);
-                    *mask = game.face_mask();
-                    renderer.rebuild_all(&screen.device, &screen.queue, game.world_mut(), mask);
+                    renew(game, fresh, settings, display);
                 }
                 (front.playing, front.intro, front.title_time) = (false, None, 0.0);
                 front.menu = title_menu(game);
@@ -111,21 +101,14 @@ impl<G: Game> App<G> {
                 }
                 n.say(crate::lang::say(lang, "NO SEAT FREE: YOU WATCH").to_string());
             }
-            let of_seat = |seat: usize| pads.open.iter().filter(|p| p.id().ok().and_then(|id| seating.pad_seat(id.raw())) == Some(seat)).collect::<Vec<_>>();
             // A guest's own menu open, its players hold nothing.
             let away = !n.hosting() && front.menu.is_open();
             for local in 1..=seating.seats() {
                 let Some(seat) = n.locals.seat(local) else { continue };
                 let pad = if local == 1 { &settings.pad } else { settings.pad_of(local) };
-                let input = if away { crate::input::Input::default() } else { crate::controls::read_seat(Some(keyboard), seating.keys(local), &of_seat(local), pad, settings, game.actions()) };
-                let controls = match (local, seating.keys(local)) {
-                    (1, half @ (crate::seating::Keys::Left | crate::seating::Keys::Right)) if front.played_with == Device::Keyboard => crate::controls::Controls::of_half(game.actions(), half, settings),
-                    (1, crate::seating::Keys::Nothing) => game.player_controls(Device::Gamepad, front.pad_kind, settings),
-                    (1, _) => game.player_controls(front.played_with, front.pad_kind, settings),
-                    (_, crate::seating::Keys::Whole) => crate::controls::Controls::of(game.actions(), Device::Keyboard, front.pad_kind, settings),
-                    (_, crate::seating::Keys::Nothing) => crate::controls::Controls::of_pad(game.actions(), of_seat(local).first().map_or(front.pad_kind, |p| keys::pad_style(p.r#type())), pad, settings),
-                    (_, half) => crate::controls::Controls::of_half(game.actions(), half, settings),
-                };
+                let its_pads = pads_of(pads, seating, local);
+                let input = if away { crate::input::Input::default() } else { crate::controls::read_seat(Some(keyboard), seating.keys(local), &its_pads, pad, settings, game.actions()) };
+                let controls = seat_controls(game, settings, front, seating.keys(local), local, its_pads.first().copied());
                 n.read(seat, input, controls);
             }
             game.set_local(crate::game::Local { seats: Some(n.locals.seats()), language: Some(lang.to_string()) });
@@ -136,7 +119,7 @@ impl<G: Game> App<G> {
     /// open (its own menu stops nothing); a fade between them, the rest
     /// wait for it. The host's loop standing still pauses every machine.
     pub(super) fn guest_ticks(&mut self) {
-        let App { net, front, game, mask, renderer, screen, speaker, settings, pads, prompt, .. } = self;
+        let App { net, front, game, display, speaker, settings, pads, prompt, .. } = self;
         if let Some(n) = net
             && front.playing
         {
@@ -149,25 +132,14 @@ impl<G: Game> App<G> {
                     && let Some(b) = n.held.pop_front()
                 {
                     match j.play(game, &b) {
-                        Ok(renewed) => {
-                            if renewed {
-                                *mask = game.face_mask();
-                                renderer.rebuild_all(&screen.device, &screen.queue, game.world_mut(), mask);
-                            }
-                        }
+                        Ok(true) => display.remesh(game),
+                        Ok(false) => {}
                         Err(e) => {
-                            let _ = j.end(&format!("{e:#}").to_uppercase());
+                            let _ = j.end(&failure(&e));
                             break;
                         }
                     }
-                    if !game.game.sim().sounds.is_empty() {
-                        if let Some(mut mixer) = speaker.as_mut().and_then(|s| s.lock()) {
-                            game.play_sounds(&mut mixer, settings.sound_gain());
-                        }
-                        if settings.rumble {
-                            rumble(&mut pads.open, game);
-                        }
-                    }
+                    tick_sounds(game, speaker, pads, settings, 1.0, true);
                 }
             }
             if let crate::network::Side::Host(h) = &mut n.side {
