@@ -59,7 +59,10 @@ pub(super) enum Syntax {
 
 /// A text being edited.
 pub struct Code {
-    pub text: String,
+    /// The text, and which state of it this is (`revision`): what is made
+    /// from it keeps the number, not a copy.
+    text: String,
+    revision: u64,
     syntax: Syntax,
     /// The file's name, as its reader's messages name it.
     file: String,
@@ -74,8 +77,8 @@ pub struct Code {
     /// The line the game played stopped at (a script's error while it
     /// ran), marked as the one Lua cannot read.
     pub stopped: Option<usize>,
-    /// The text the error was looked for in.
-    checked: Option<String>,
+    /// The revision of the text the error was looked for in.
+    checked: Option<u64>,
     offer: Option<Offer>,
     /// Where the cursor stood when the offer was put away (Escape): not
     /// again there.
@@ -99,11 +102,11 @@ struct Laid {
     numbers: Option<(NumbersKey, std::sync::Arc<egui::Galley>)>,
 }
 
-/// What the text's layout is made from: the text, the find row's word,
-/// the brackets marked, the font and the screen's scale.
+/// What the text's layout is made from besides the text (which the
+/// layout holds itself): the find row's word, the brackets marked, the
+/// font and the screen's scale.
 #[derive(Clone, PartialEq)]
 struct TextKey {
-    text: String,
     marking: Option<(String, bool, Option<usize>)>,
     brackets: Option<[usize; 2]>,
     font: FontId,
@@ -118,6 +121,12 @@ struct NumbersKey {
     marked: Vec<usize>,
     font: FontId,
     scale: f32,
+}
+
+/// A revision no text had before (`Code::revision`).
+fn fresh_revision() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 /// How far a line goes in for each level (spaces), as the templates write.
@@ -140,15 +149,38 @@ impl Code {
             "vvx" => Syntax::Model,
             _ => Syntax::Plain,
         };
-        let mut code = Self { text, syntax, file: file.to_string(), error: None, sound: None, song: None, model: None, stopped: None, checked: None, offer: None, declined: None, marking: None, reveal: None, reader: mlua::Lua::new(), laid: Laid::default() };
+        let mut code = Self { text, revision: fresh_revision(), syntax, file: file.to_string(), error: None, sound: None, song: None, model: None, stopped: None, checked: None, offer: None, declined: None, marking: None, reveal: None, reader: mlua::Lua::new(), laid: Laid::default() };
         code.check();
         code
+    }
+
+    /// The text.
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// Which state of the text this is: a number no other text, nor this
+    /// one before a change, ever had.
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// The text changed to `text` from outside the editor (the file
+    /// changed on disk, the sound maker, a replacement).
+    pub fn set_text(&mut self, text: String) {
+        self.text = text;
+        self.changed();
+    }
+
+    /// The text changed: a new revision.
+    fn changed(&mut self) {
+        self.revision = fresh_revision();
     }
 
     /// Looks for a line its reader cannot read (Lua, or the sandbox
     /// refuses), if the text changed since.
     pub fn check(&mut self) {
-        if self.syntax == Syntax::Plain || self.checked.as_deref() == Some(self.text.as_str()) {
+        if self.syntax == Syntax::Plain || self.checked == Some(self.revision) {
             return;
         }
         match self.syntax {
@@ -171,7 +203,7 @@ impl Code {
                 Err(e) => (self.error, self.song) = (Some(song_trouble(&format!("{e:#}"))), None),
             },
         }
-        self.checked = Some(self.text.clone());
+        self.checked = Some(self.revision);
     }
 
     /// The editor in `ui` (its widget's `id`); whether the text changed.
@@ -232,13 +264,10 @@ impl Code {
         let scale = ui.ctx().pixels_per_point();
         let mut kept = std::mem::take(&mut self.laid.text);
         let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap: f32| {
-            let key = TextKey { text: String::new(), marking: marking.clone(), brackets: brackets.filter(|pair| pair.iter().all(|&i| text.as_str().as_bytes().get(i).is_some_and(|c| b"(){}[]".contains(c)))), font: font.clone(), scale };
+            let key = TextKey { marking: marking.clone(), brackets: brackets.filter(|pair| pair.iter().all(|&i| text.as_str().as_bytes().get(i).is_some_and(|c| b"(){}[]".contains(c)))), font: font.clone(), scale };
             if let Some((k, galley)) = &kept
-                && k.text == text.as_str()
-                && k.marking == key.marking
-                && k.brackets == key.brackets
-                && k.font == key.font
-                && k.scale == key.scale
+                && galley.job.text == text.as_str()
+                && *k == key
             {
                 return galley.clone();
             }
@@ -251,7 +280,7 @@ impl Code {
                 behind(&mut job, &pair, BRACKET);
             }
             let galley = ui.fonts_mut(|f| f.layout_job(job));
-            kept = Some((TextKey { text: text.as_str().to_string(), ..key }, galley.clone()));
+            kept = Some((key, galley.clone()));
             galley
         };
         let lines = self.text.split('\n').count();
@@ -308,7 +337,10 @@ impl Code {
         ui.painter().rect_filled(column, 0.0, crate::gui::GROUND);
         ui.painter().galley(egui::pos2(x, top_left.y), numbers.clone(), LINE_NUMBER);
         self.laid.numbers = Some((numbers_key, numbers));
-        changed |= out.response.changed();
+        if out.response.changed() {
+            self.changed();
+            changed = true;
+        }
         self.check();
 
         // The find row's current match in view.
@@ -381,7 +413,7 @@ impl Code {
         state.set_undoer(undoer);
         state.cursor.set_char_range(Some(at));
         state.store(ctx, id);
-        self.text = text;
+        self.set_text(text);
         self.check();
         true
     }
@@ -404,7 +436,7 @@ impl Code {
             return false;
         }
         self.mark(ctx, id);
-        self.text = text;
+        self.set_text(text);
         if let Some(mut state) = egui::TextEdit::load_state(ctx, id) {
             state.cursor.set_char_range(Some(cursor));
             state.store(ctx, id);
@@ -427,6 +459,7 @@ impl Code {
         };
         let (from, to) = (byte(&self.text, offer.from), byte(&self.text, at));
         self.text.replace_range(from..to, &insert);
+        self.changed();
         let end = offer.from + insert.chars().count();
         if let Some(mut state) = egui::TextEdit::load_state(ctx, id) {
             state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(end))));
@@ -867,18 +900,18 @@ mod tests {
     fn a_sound_or_song_mistake_names_its_line() {
         let mut code = Code::new("sounds/coin.toml", "wave = \"square\"\nfreq = 880\nhold = fast\n".into());
         assert!(code.sound.is_none() && matches!(&code.error, Some((3, _))), "{:?}", code.error);
-        code.text = "wave = \"square\"\nfrq = 880\n".into();
+        code.set_text("wave = \"square\"\nfrq = 880\n".into());
         code.check();
         assert!(code.error.as_ref().is_some_and(|(l, w)| *l == 2 && w.starts_with("frq: no such field") && !w.contains("coin.toml")), "{:?}", code.error);
-        code.text = "# a coin\nwave = \"sine\"\n".into();
+        code.set_text("# a coin\nwave = \"sine\"\n".into());
         code.check();
         assert!(code.error.is_none() && code.sound.is_some());
         let mut song = Code::new("music/t.mml", "#tempo fast\nA: c d e\n".into());
         assert!(matches!(&song.error, Some((1, w)) if w.contains("tempo") || !w.is_empty()), "{:?}", song.error);
-        song.text = "#tempo 100\n\nA: c d e\nB: c d zz\n".into();
+        song.set_text("#tempo 100\n\nA: c d e\nB: c d zz\n".into());
         song.check();
         assert!(matches!(&song.error, Some((4, _))), "inside a channel: its first line: {:?}", song.error);
-        song.text = "#title t\nA: c d e\n".into();
+        song.set_text("#title t\nA: c d e\n".into());
         song.check();
         assert!(song.error.is_none() && song.song.as_deref().is_some_and(|l| l.starts_with("t · ")));
     }

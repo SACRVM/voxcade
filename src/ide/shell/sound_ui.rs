@@ -39,7 +39,7 @@ impl Shell {
         let file = self.dir.join(path);
         // As the text stands now, saved or not.
         let text = match (&self.shown, self.memory.open.as_deref()) {
-            (Some(Shown::Code(b)), Some(open)) if open == path => b.code.text.clone(),
+            (Some(Shown::Code(b)), Some(open)) if open == path => b.code.text().to_string(),
             _ => std::fs::read_to_string(&file).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?,
         };
         let song = crate::audio::music::parse(&text).map_err(|e| anyhow::anyhow!("{path}: {e:#}"))?;
@@ -264,7 +264,7 @@ impl Shell {
                                 buffer.code.mark(&ctx, id);
                                 *fading = Some(fader);
                             }
-                            buffer.code.text = maker::faded(&buffer.code.text, s, fader, value);
+                            buffer.code.set_text(maker::faded(buffer.code.text(), s, fader, value));
                             buffer.code.check();
                             buffer.edited(now);
                         }
@@ -296,9 +296,9 @@ impl Shell {
         let Some(Shown::Code(buffer)) = &mut self.shown else { return };
         self.sound.rolls += 1;
         let clock = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64);
-        let fresh = maker::fresh(&buffer.code.text, &maker::roll(sort, clock ^ self.sound.rolls.rotate_left(32)));
+        let fresh = maker::fresh(buffer.code.text(), &maker::roll(sort, clock ^ self.sound.rolls.rotate_left(32)));
         buffer.code.mark(ctx, id);
-        buffer.code.text = fresh;
+        buffer.code.set_text(fresh);
         buffer.code.check();
         buffer.code.mark(ctx, id);
         buffer.edited(std::time::Instant::now());

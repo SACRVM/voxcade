@@ -118,8 +118,9 @@ pub struct Find {
     focus: Option<Field>,
     /// The row or the text had the keys last frame (so Escape closes it).
     pub had_keys: bool,
-    /// The matches as last counted, and of what (text, word, case).
-    counted: Option<(String, String, bool)>,
+    /// The matches as last counted, and of what (the text's revision,
+    /// the word, the case).
+    counted: Option<(u64, String, bool)>,
     ranges: Vec<Range<usize>>,
     /// A button pressed by the tests' hand, on the next frame.
     #[cfg(test)]
@@ -148,17 +149,18 @@ impl Find {
         self.focus = None;
     }
 
-    /// Counts the matches in `text` anew if it, the word or the case
-    /// changed; a new word (or case, or line to look from) makes the first
-    /// match from the anchor current, and shown.
-    pub fn update(&mut self, text: &str) {
+    /// Counts the matches in `text` (its `revision`, `Code::revision`)
+    /// anew if it, the word or the case changed; a new word (or case, or
+    /// line to look from) makes the first match from the anchor current,
+    /// and shown.
+    pub fn update(&mut self, text: &str, revision: u64) {
         if let Some(line) = self.line.take() {
             self.anchor = text.split_inclusive('\n').take(line.saturating_sub(1)).map(str::len).sum();
             self.counted = None;
         }
         let fresh = match &self.counted {
-            Some((t, w, c)) if *w == self.word && *c == self.match_case => {
-                if t == text {
+            Some((r, w, c)) if *w == self.word && *c == self.match_case => {
+                if *r == revision {
                     return;
                 }
                 false
@@ -166,7 +168,7 @@ impl Find {
             _ => true,
         };
         self.ranges = matches(text, &self.word, self.match_case);
-        self.counted = Some((text.to_string(), self.word.clone(), self.match_case));
+        self.counted = Some((revision, self.word.clone(), self.match_case));
         if fresh {
             self.current = self.ranges.iter().position(|r| r.start >= self.anchor).unwrap_or(0);
             self.reveal = !self.ranges.is_empty();
@@ -694,7 +696,7 @@ mod tests {
         assert_eq!(matches("aaaa", "aa", false), [0..2, 2..4], "never overlapping");
         let mut find = Find { word: "gem".into(), ..Find::default() };
         find.open(false, None, 5);
-        find.update(text);
+        find.update(text, 1);
         assert_eq!(find.count(), "3 OF 4", "the first from where the cursor stood");
         find.step(true);
         assert_eq!(find.count(), "4 OF 4");
@@ -703,13 +705,13 @@ mod tests {
         find.step(false);
         assert_eq!(find.count(), "4 OF 4", "and back round at the start");
         find.match_case = true;
-        find.update(text);
+        find.update(text, 1);
         assert_eq!(find.count(), "2 OF 2", "the first from the one current before");
         find.word = "zebra".into();
-        find.update(text);
+        find.update(text, 1);
         assert_eq!(find.count(), "NO MATCHES");
         find.word.clear();
-        find.update(text);
+        find.update(text, 1);
         assert_eq!(find.count(), "");
     }
 
@@ -720,10 +722,10 @@ mod tests {
         let mut find = Find { word: "a".into(), with: "aa".into(), ..Find::default() };
         find.open(true, None, 0);
         let text = "a b a";
-        find.update(text);
+        find.update(text, 1);
         let text = find.replace(text).unwrap();
         assert_eq!(text, "aa b a");
-        find.update(&text);
+        find.update(&text, 2);
         assert_eq!(find.current_range(), Some(5..6), "on after what was put in, not on it again");
         let mut all = Find { word: "A".into(), with: "x".into(), ..Find::default() };
         assert_eq!(all.replace_all("a b A"), Some(("x b x".to_string(), 2)));
@@ -739,7 +741,7 @@ mod tests {
     fn a_line_to_look_from_makes_its_match_current() {
         let mut find = Find { word: "x".into(), ..Find::default() };
         find.line = Some(3);
-        find.update("x\nx\nyx\nx\n");
+        find.update("x\nx\nyx\nx\n", 1);
         assert_eq!(find.current_range(), Some(5..6));
         assert_eq!(find.count(), "3 OF 4");
     }

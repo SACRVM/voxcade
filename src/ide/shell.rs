@@ -256,9 +256,10 @@ pub struct SoundPage {
     /// main area, by name.
     brought: Vec<(&'static str, SoundDef)>,
     builtin: Option<&'static str>,
-    /// A sound open: its line of words (with the text it was made from),
-    /// and where the game's code names it (looked for again now and then).
-    sound_line: Option<(String, String)>,
+    /// A sound open: its line of words (with the file and the text's
+    /// revision it was made from), and where the game's code names it
+    /// (looked for again now and then).
+    sound_line: Option<((String, Option<u64>), String)>,
     used: Option<Used>,
     /// What PLAY SOUND asked the speaker to play, and how loud.
     heard: Option<(std::sync::Arc<[f32]>, f32)>,

@@ -196,8 +196,8 @@ impl Shell {
         let mut play_sound = false;
         if sound_name.is_some() {
             let key = match &self.shown {
-                Some(Shown::Code(b)) => format!("{path}\0{}", b.code.text),
-                _ => path.clone(),
+                Some(Shown::Code(b)) => (path.clone(), Some(b.code.revision())),
+                _ => (path.clone(), None),
             };
             if self.sound.sound_line.as_ref().is_none_or(|(k, _)| *k != key) {
                 let line = match &self.shown {
@@ -247,7 +247,7 @@ impl Shell {
         // A line to go to (a game's error): the cursor there, in view.
         let mut focus = focus;
         if let (Some((line, keys)), Some(Shown::Code(buffer))) = (goto, &self.shown) {
-            let at: usize = buffer.code.text.split('\n').take(line.saturating_sub(1)).map(|l| l.chars().count() + 1).sum();
+            let at: usize = buffer.code.text().split('\n').take(line.saturating_sub(1)).map(|l| l.chars().count() + 1).sum();
             let mut state = egui::TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
             state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(at))));
             state.store(ui.ctx(), id);
@@ -263,7 +263,7 @@ impl Shell {
                 && let Some(&at) = self.memory.cursor.get(&path)
             {
                 let mut state = egui::text_edit::TextEditState::default();
-                state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(at.min(buffer.code.text.chars().count())))));
+                state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(at.min(buffer.code.text().chars().count())))));
                 state.store(ui.ctx(), id);
             }
             if focus {

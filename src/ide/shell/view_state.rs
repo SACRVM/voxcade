@@ -18,7 +18,7 @@ impl Shell {
         let mut file = json!({ "path": self.outside.as_ref().map(|p| p.display().to_string()).or_else(|| self.memory.open.clone()) });
         match (&self.shown, &self.memory.open) {
             (Some(Shown::Code(buffer)), Some(path)) => {
-                let text = &buffer.code.text;
+                let text = buffer.code.text();
                 let place = |at: usize| {
                     let before: String = text.chars().take(at).collect();
                     let line = before.matches('\n').count() + 1;

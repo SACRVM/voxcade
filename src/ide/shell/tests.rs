@@ -24,7 +24,7 @@ fn choosing_a_file_shows_it() {
     let ctx = egui::Context::default();
     frame(&ctx, &mut shell);
     let text = |shell: &Shell| match &shell.shown {
-        Some(Shown::Code(b)) => Some(b.code.text.clone()),
+        Some(Shown::Code(b)) => Some(b.code.text().to_string()),
         _ => None,
     };
     assert_eq!(text(&shell), std::fs::read_to_string(dir.join("main.lua")).ok(), "main.lua at first");
@@ -32,7 +32,7 @@ fn choosing_a_file_shows_it() {
     frame(&ctx, &mut shell);
     assert_eq!(text(&shell), std::fs::read_to_string(dir.join("conf.lua")).ok(), "conf.lua chosen");
     if let Some(Shown::Code(b)) = &mut shell.shown {
-        b.code.text.push_str("-- not saved yet\n");
+        b.code.set_text(format!("{}-- not saved yet\n", b.code.text()));
     }
     shell.refresh();
     assert!(text(&shell).is_some_and(|t| t.ends_with("-- not saved yet\n")), "kept when focus comes back");
@@ -528,7 +528,7 @@ fn a_sound_is_text_with_a_line_of_words_and_its_mistakes() {
     assert!(shell.errors().starts_with("sounds/coin.toml:7: frq: no such field"), "{}", shell.errors());
     // Mended: the line gone.
     if let Some(Shown::Code(b)) = &mut shell.shown {
-        b.code.text = b.code.text.replace("frq = 1\n", "");
+        b.code.set_text(b.code.text().replace("frq = 1\n", ""));
     }
     frame(&ctx, &mut shell);
     frame(&ctx, &mut shell);
@@ -559,7 +559,7 @@ fn a_sound_shows_where_it_is_used() {
     frame(&ctx, &mut shell);
     frame(&ctx, &mut shell);
     let cursor = egui::TextEdit::load_state(&ctx, egui::Id::unique(("code", "main.lua"))).and_then(|s| s.cursor.char_range()).map(|r| r.primary.index.0);
-    let text = &buffer(&shell).code.text;
+    let text = buffer(&shell).code.text();
     let line = text[..text.char_indices().nth(cursor.unwrap_or(0)).map_or(text.len(), |(b, _)| b)].matches('\n').count() + 1;
     assert_eq!(line, 3, "its cursor on the line");
     // Nothing names the bell.
@@ -617,7 +617,7 @@ fn the_maker_rolls_and_goes_back() {
     shell.open("sounds/coin.toml");
     frame(&ctx, &mut shell);
     frame(&ctx, &mut shell);
-    let text = |shell: &Shell| buffer(shell).code.text.clone();
+    let text = |shell: &Shell| buffer(shell).code.text().to_string();
     let first = text(&shell);
     shell.roll(&ctx, maker::Sort::Blast);
     let blast = text(&shell);
@@ -686,7 +686,7 @@ fn a_song_is_text_to_change() {
     let error = buffer(&shell).code.error.clone();
     assert!(error.as_ref().is_some_and(|(_, why)| why.contains("unknown #bogus")), "{error:?}");
     let line = error.unwrap().0;
-    assert_eq!(buffer(&shell).code.text.lines().nth(line - 1), Some("#bogus 1"), "the line is the one with the mistake");
+    assert_eq!(buffer(&shell).code.text().lines().nth(line - 1), Some("#bogus 1"), "the line is the one with the mistake");
     // Saved by the autosave, and PLAY SONG reads the text as it stands.
     assert!(shell.song("music/tune.mml").is_err(), "the text as it stands: it cannot be read now");
     shell.tick(std::time::Instant::now() + super::super::buffer::SAVE_AFTER);
@@ -804,7 +804,7 @@ fn the_open_file_stays_open_when_renamed() {
     assert!(!shell.memory.cursor.contains_key("tools.lua") && !shell.memory.scroll.contains_key("tools.lua"));
     frame(&ctx, &mut shell);
     frame(&ctx, &mut shell);
-    assert!(buffer(&shell).code.text.ends_with("-- typed\n") && !buffer(&shell).unsaved(), "shown under the new name");
+    assert!(buffer(&shell).code.text().ends_with("-- typed\n") && !buffer(&shell).unsaved(), "shown under the new name");
     // The IDE's memory on disk says so too.
     assert_eq!(Memory::load(&shell.memory_path).open.as_deref(), Some("kit.lua"));
     clean_up(&dir, &shell);
@@ -875,7 +875,7 @@ fn the_lines_naming_a_sound_are_asked_about() {
     assert_eq!(std::fs::read_to_string(dir.join("conf.lua")).unwrap(), conf.replace("\"coin\"", "\"ring\""));
     let main_now = std::fs::read_to_string(dir.join("main.lua")).unwrap();
     assert_eq!(main_now, format!("{}-- mine\n", main.replace("\"coin\"", "\"ring\"")), "the change and the new name both, on disk");
-    assert_eq!(buffer(&shell).code.text, main_now, "the open text took it in");
+    assert_eq!(buffer(&shell).code.text(), main_now, "the open text took it in");
     assert!(matches!(&shell.bar.notice, Some(Notice::Said(n)) if n.starts_with("RENAMED coin.toml TO ring.toml")));
     // A module, a model and a song are asked about by their own lines.
     std::fs::write(dir.join("main.lua"), "local tools = require \"tools\"\nm = \"hero.vvx\"\nplay(\"music/tune.mml\")\n").unwrap();
@@ -1236,7 +1236,7 @@ fn the_open_file_vanishing_is_said_and_not_recreated() {
     shell.tick(later + super::super::buffer::SAVE_AFTER * 3);
     shell.flush();
     assert!(!dir.join("scenarios/late.lua").exists(), "not made again by itself");
-    assert!(buffer(&shell).code.text.contains("-- mine"), "the text is kept");
+    assert!(buffer(&shell).code.text().contains("-- mine"), "the text is kept");
     // SAVE AGAIN writes it back, the changes in it.
     let at = drawn_text(&ctx, &mut shell, vec![]).into_iter().find(|(t, _)| t == "SAVE AGAIN").expect("the button").1;
     click(&ctx, &mut shell, at);
@@ -1595,7 +1595,7 @@ fn asked(ctx: &egui::Context, shell: &mut Shell, dir: &Path) -> (String, &'stati
     shell.open("tools.lua");
     frame(ctx, shell);
     type_into_text(ctx, shell, "-- mine\n");
-    let mine = buffer(shell).code.text.clone();
+    let mine = buffer(shell).code.text().to_string();
     assert!(mine.contains("-- mine") && buffer(shell).unsaved());
     let theirs = "return { theirs = true }\n";
     write_outside(&dir.join("tools.lua"), theirs);
@@ -1625,7 +1625,7 @@ fn a_question_left_open_keeps_the_text_when_another_file_is_chosen() {
     assert!(dir.join("tools.lua").is_file() && shell.message.as_deref().is_some_and(|m| m.contains("KEEP MINE")), "{:?}", shell.message);
     shell.open("tools.lua");
     let texts = drawn_text(&ctx, &mut shell, vec![]);
-    assert_eq!(buffer(&shell).code.text, mine, "the user's text back");
+    assert_eq!(buffer(&shell).code.text(), mine, "the user's text back");
     assert_eq!(buffer(&shell).theirs.as_deref(), Some(theirs), "asked again");
     assert!(says(&texts, "CHANGED OUTSIDE TOO"), "{texts:?}");
     let at = texts.iter().find(|(t, _)| t == "KEEP MINE").expect("the button").1;
@@ -1653,12 +1653,12 @@ fn a_question_left_open_keeps_the_text_when_the_ide_closes() {
     let ctx = egui::Context::default();
     let texts = drawn_text(&ctx, &mut shell, vec![]);
     assert_eq!(shell.opened(), Some("tools.lua"));
-    assert_eq!((buffer(&shell).code.text.as_str(), buffer(&shell).theirs.as_deref()), (mine.as_str(), Some(theirs)));
+    assert_eq!((buffer(&shell).code.text(), buffer(&shell).theirs.as_deref()), (mine.as_str(), Some(theirs)));
     assert!(says(&texts, "CHANGED OUTSIDE TOO"), "{texts:?}");
     // TAKE THE FILE'S: the user's text let go of, by the user.
     let at = texts.iter().find(|(t, _)| t == "TAKE THE FILE'S").expect("the button").1;
     click(&ctx, &mut shell, at);
-    assert_eq!(buffer(&shell).code.text, theirs);
+    assert_eq!(buffer(&shell).code.text(), theirs);
     assert!(!shell.journals().join("tools.lua").exists());
     clean_up(&dir, &shell);
 }
@@ -1737,14 +1737,14 @@ fn gems(name: &str) -> (crate::scratch::Scratch, Shell, egui::Context) {
 #[test]
 fn ctrl_f_finds_in_the_open_text() {
     let (_dir, mut shell, ctx) = gems("find");
-    let before = buffer(&shell).code.text.clone();
+    let before = buffer(&shell).code.text().to_string();
     chord(&ctx, &mut shell, egui::Key::F, egui::Modifiers::COMMAND);
     assert!(shell.find.shown, "Ctrl+F shows the row");
     frame_with(&ctx, &mut shell, vec![]);
     assert!(ctx.memory(|m| m.has_focus(super::super::find::word_id())), "with the keys in its field");
     frame_with(&ctx, &mut shell, vec![egui::Event::Text("gem".into())]);
     frame_with(&ctx, &mut shell, vec![]);
-    assert_eq!(buffer(&shell).code.text, before, "typed into the field, not the text");
+    assert_eq!(buffer(&shell).code.text(), before, "typed into the field, not the text");
     assert_eq!(shell.find.count(), "1 OF 3");
     assert!(buffer(&shell).code.marking.as_ref().is_some_and(|(w, case, _)| w == "gem" && !case), "marked in the text");
     key(&ctx, &mut shell, egui::Key::Enter);
@@ -1766,7 +1766,7 @@ fn ctrl_f_finds_in_the_open_text() {
     assert!(!shell.find.shown, "Escape puts it away");
     assert!(buffer(&shell).code.marking.is_none(), "no marks left");
     assert!(ctx.memory(|m| m.has_focus(shell.code_id().unwrap().1)), "the text has the keys again");
-    assert_eq!(buffer(&shell).code.text, before);
+    assert_eq!(buffer(&shell).code.text(), before);
 }
 
 /// REPLACE is one step of the text's undo, REPLACE ALL one step whole;
@@ -1774,7 +1774,7 @@ fn ctrl_f_finds_in_the_open_text() {
 #[test]
 fn replacing_is_one_step_back() {
     let (_dir, mut shell, ctx) = gems("replace");
-    let first = buffer(&shell).code.text.clone();
+    let first = buffer(&shell).code.text().to_string();
     let id = shell.code_id().unwrap().1;
     chord(&ctx, &mut shell, egui::Key::H, egui::Modifiers::COMMAND);
     assert!(shell.find.shown && shell.find.replacing, "Ctrl+H: the replace field too");
@@ -1784,18 +1784,18 @@ fn replacing_is_one_step_back() {
     shell.find.press = Some(super::super::find::Act::Replace);
     frame_with(&ctx, &mut shell, vec![]);
     frame_with(&ctx, &mut shell, vec![]);
-    assert_eq!(buffer(&shell).code.text, first.replacen("gem", "jewel", 1));
+    assert_eq!(buffer(&shell).code.text(), first.replacen("gem", "jewel", 1));
     assert_eq!(shell.find.count(), "1 OF 2", "on to the next");
     let back = |shell: &mut Shell| {
         let Some(Shown::Code(b)) = &mut shell.shown else { panic!("no text open") };
         assert!(b.code.go_back(&ctx, id), "a step to go back");
-        b.code.text.clone()
+        b.code.text().to_string()
     };
     assert_eq!(back(&mut shell), first, "one step back");
     shell.find.press = Some(super::super::find::Act::ReplaceAll);
     frame_with(&ctx, &mut shell, vec![]);
     frame_with(&ctx, &mut shell, vec![]);
-    assert_eq!(buffer(&shell).code.text, "-- a jewel\nfunction on_tick()\n  local jewel = jewel\nend\n");
+    assert_eq!(buffer(&shell).code.text(), "-- a jewel\nfunction on_tick()\n  local jewel = jewel\nend\n");
     assert!(buffer(&shell).unsaved(), "saved as typing is");
     assert_eq!(shell.find.count(), "NO MATCHES");
     assert_eq!(back(&mut shell), first, "REPLACE ALL: one step back whole");
@@ -1935,10 +1935,10 @@ fn a_level_found_by_search_opens_as_its_text() {
     frame(&ctx, &mut shell);
     let Some(Shown::Code(b)) = &mut shell.shown else { panic!("the level's text") };
     assert!(b.code.error.is_none() && b.code.model.as_deref().is_some_and(|l| l.contains("1 place")), "{:?}", b.code.model);
-    b.code.text = b.code.text.replace("size = [40, 40, 20]", "size = [40, 40");
+    b.code.set_text(b.code.text().replace("size = [40, 40, 20]", "size = [40, 40"));
     b.code.check();
     assert!(b.code.error.as_ref().is_some_and(|(line, _)| *line > 0), "a mistake with its line: {:?}", b.code.error);
-    b.code.text = b.code.text.replace("size = [40, 40", "size = [40, 40, 20]");
+    b.code.set_text(b.code.text().replace("size = [40, 40", "size = [40, 40, 20]"));
     b.code.check();
     let at = button_in_main(&ctx, &mut shell, "PICTURE");
     click(&ctx, &mut shell, at);
