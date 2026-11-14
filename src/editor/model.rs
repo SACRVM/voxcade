@@ -31,27 +31,16 @@ use super::frames::{ModelFile, Shaped};
 use crate::blocks::{self, Block, Turn};
 use crate::grid::{Area, BlockEntry, Cell, GridLevel, Kind, Place, Thing};
 
-#[path = "room.rs"]
 pub mod room;
-#[path = "disk.rs"]
 pub mod disk;
-#[path = "parts.rs"]
 pub mod parts;
-#[path = "selection.rs"]
 pub mod selection;
-#[path = "land.rs"]
 pub mod land;
-#[path = "tools.rs"]
 mod tools;
-#[path = "forms.rs"]
 mod forms;
-#[path = "history.rs"]
 mod history;
-#[path = "cells.rs"]
 mod cells;
-#[path = "model_file.rs"]
 mod model_file;
-#[path = "rig.rs"]
 mod rig;
 pub use room::{Field, Hanging, Item};
 pub use cells::MOST_CELLS;
@@ -904,5 +893,4 @@ fn rig_of(m: &ModelFile) -> Option<std::collections::BTreeMap<String, (Option<St
 }
 
 #[cfg(test)]
-#[path = "model_tests.rs"]
 pub(crate) mod tests;

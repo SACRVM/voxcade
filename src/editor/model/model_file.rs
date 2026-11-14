@@ -56,7 +56,7 @@ impl Editor {
             Some(_) => (-lo, hi - lo + 1),
             None => {
                 let p = crate::vvx::pivot(self.grid());
-                let size = super::super::frames::least(lo - p, hi - p);
+                let size = crate::editor::frames::least(lo - p, hi - p);
                 (crate::vvx::pivot(size) - p - IVec3::Z * lo.z, size)
             }
         };
@@ -97,7 +97,7 @@ impl Editor {
                     Some(_) => lo != IVec3::ZERO || hi + 1 != self.grid(),
                     None => {
                         let p = crate::vvx::pivot(self.grid());
-                        super::super::frames::least(lo - p, hi - p) != self.grid()
+                        crate::editor::frames::least(lo - p, hi - p) != self.grid()
                     }
                 }
             }

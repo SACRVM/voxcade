@@ -186,7 +186,7 @@ impl Editor {
     /// `part_handles` gave them): the part dragged along its axis by whole
     /// voxels, those hanging on it along, until let go (one step) or
     /// Escape (back as it was, no step).
-    pub fn grab_part(&mut self, drag: super::super::handles::Drag, h: super::super::handles::Handles) -> bool {
+    pub fn grab_part(&mut self, drag: crate::editor::handles::Drag, h: crate::editor::handles::Handles) -> bool {
         // A selection's arrow: its voxels dragged.
         if self.selection().is_some() && !self.rigging.posing {
             self.end_drag(false);
@@ -217,7 +217,7 @@ impl Editor {
         }
     }
 
-    pub fn part_handles(&self, view_proj: glam::Mat4) -> Option<super::super::handles::Handles> {
+    pub fn part_handles(&self, view_proj: glam::Mat4) -> Option<crate::editor::handles::Handles> {
         // A selection: its arrows (MOVE), whatever is chosen.
         if let Some(h) = self.selection_handles(view_proj) {
             return Some(h);
@@ -231,7 +231,7 @@ impl Editor {
 
     /// The chosen part's handles in ROTATE (`rotating`) or MOVE, whichever
     /// is lit (the bar at the part stands clear of both).
-    pub fn part_handles_as(&self, view_proj: glam::Mat4, rotating: bool) -> Option<super::super::handles::Handles> {
+    pub fn part_handles_as(&self, view_proj: glam::Mat4, rotating: bool) -> Option<crate::editor::handles::Handles> {
         if self.rigging.painting_whole {
             return None;
         }
@@ -251,7 +251,7 @@ impl Editor {
             }
         };
         let centre = size / 2.0;
-        let mut h = super::super::handles::Handles::at(centre, super::super::handles::world_size(view_proj, centre, 0.1));
+        let mut h = crate::editor::handles::Handles::at(centre, crate::editor::handles::world_size(view_proj, centre, 0.1));
         // MOVE's arrows: LOCAL along the part's own axes as it stands (its
         // parents' rests and its own; in the grid shown, which is its own),
         // GLOBAL along the figure's.
@@ -433,7 +433,7 @@ impl Editor {
         // it was at the press; whole voxels along the arrow (Shift: tenths),
         // into its `at` and `offset` (`move_part_by`).
         if let (Some((drag, h)), Some(p0)) = (&mut d.drag, d.press)
-            && matches!(drag.grip, super::super::handles::Grip::Arrow(_))
+            && matches!(drag.grip, crate::editor::handles::Grip::Arrow(_))
             && self.selecting.sel_drag.is_none()
         {
             let fix = self.local_to_pivot().inverse() * p0;
@@ -460,7 +460,7 @@ impl Editor {
             let amount = drag.amount(h, vp, screen, mouse, (ray.0 + back, ray.1));
             // A ring (ROTATE): the part's rest rotation about its joint,
             // by fives (Ctrl: by single degrees), one step for the drag.
-            if let super::super::handles::Grip::Ring(a) = drag.grip {
+            if let crate::editor::handles::Grip::Ring(a) = drag.grip {
                 let axis = [1, 2, 0][a.min(2)];
                 let way = if axis == 0 { -amount } else { amount };
                 // (Shift: by single degrees.)
@@ -481,7 +481,7 @@ impl Editor {
             // Its arrows lie along the axes the part moves by in the file
             // (its parent's, the part's own rest turned back).
             let to = match drag.grip {
-                super::super::handles::Grip::Arrow(a) => {
+                crate::editor::handles::Grip::Arrow(a) => {
                     let mut v = IVec3::ZERO;
                     v[a] = amount.round() as i32;
                     v
@@ -540,7 +540,7 @@ impl Editor {
             return true;
         }
         // A pose dragged: as it was.
-        if self.rigging.posing && d.part && d.drag.as_ref().is_some_and(|(g, _)| matches!(g.grip, super::super::handles::Grip::Ring(_))) {
+        if self.rigging.posing && d.part && d.drag.as_ref().is_some_and(|(g, _)| matches!(g.grip, crate::editor::handles::Grip::Ring(_))) {
             for (axis, rest) in d.rest.into_iter().enumerate() {
                 self.set_pose(axis, rest);
             }

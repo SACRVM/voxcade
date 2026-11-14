@@ -56,7 +56,7 @@ pub enum Action {
     /// BACKGROUND: the view's for this editor (None: the game's sky).
     Background(Option<[u8; 3]>),
     /// SELECT's mode (NEW, ADD, REMOVE); THROUGH on or off.
-    SelectMode(super::super::model::selection::SelectMode),
+    SelectMode(crate::editor::model::selection::SelectMode),
     SelectThrough,
     /// A part's row dropped on another's: hung there (`usize::MAX`: on the
     /// figure whole's row, refused).
@@ -220,20 +220,20 @@ pub enum Action {
     /// UNDER's); a material added, taken out, its row moved; SELECT's mode.
     AddTerrain,
     RemoveTerrain,
-    LandTool(super::super::model::land::LandTool),
+    LandTool(crate::editor::model::land::LandTool),
     LandShape(crate::terrain::Shape),
-    LandSet(super::super::model::land::LandField, f64),
+    LandSet(crate::editor::model::land::LandField, f64),
     LandCondition(u8, u8, bool),
     LandColour(u8, [u8; 3]),
     AddMaterial,
     RemoveMaterial(u8),
     MoveMaterial(u8, u8),
-    LandMode(super::super::model::selection::SelectMode),
+    LandMode(crate::editor::model::selection::SelectMode),
     /// The terrain's seed anew; its layers (a band more, one out, a row
     /// moved, a color); a material's tones (one set: material, tone,
     /// color; one more; the last out).
     Reroll,
-    LandRow(super::super::model::land::LandRow),
+    LandRow(crate::editor::model::land::LandRow),
     /// The terrain's scatter rules: one more, one out, a row moved; a
     /// rule's pieces set down or taken away; its model (its place in the
     /// game's models), how it turns, what it makes, a condition on or off.
@@ -372,10 +372,10 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::Pose => ed.set_posing(!ed.rigging.posing),
         Action::PoseValue(axis, v) => ed.set_pose(axis as usize, v),
         Action::PoseReset => ed.reset_pose(),
-        Action::SelRemove => ed.selection_step(super::super::model::selection::SelOp::Remove),
-        Action::SelPaint => ed.selection_step(super::super::model::selection::SelOp::Paint(ed.colour)),
-        Action::SelFlip(a) => ed.selection_step(super::super::model::selection::SelOp::Flip(a.min(2) as usize)),
-        Action::SelRotate(a) => ed.selection_step(super::super::model::selection::SelOp::Rotate(a.min(2) as usize)),
+        Action::SelRemove => ed.selection_step(crate::editor::model::selection::SelOp::Remove),
+        Action::SelPaint => ed.selection_step(crate::editor::model::selection::SelOp::Paint(ed.colour)),
+        Action::SelFlip(a) => ed.selection_step(crate::editor::model::selection::SelOp::Flip(a.min(2) as usize)),
+        Action::SelRotate(a) => ed.selection_step(crate::editor::model::selection::SelOp::Rotate(a.min(2) as usize)),
         Action::SelDuplicate => ed.duplicate_selection(),
         Action::SelNewPart => {
             if let Some(name) = ed.selection_to_new_part() {
@@ -432,7 +432,7 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::JointWorkedOut => ed.set_joint(None),
         Action::Material(which, v) => {
             if let Some(m) = ed.material() {
-                ed.set_material(super::super::frames::with_word(m, which as usize, v));
+                ed.set_material(crate::editor::frames::with_word(m, which as usize, v));
             }
         }
         Action::Forget(c) => ed.forget_colour(c),

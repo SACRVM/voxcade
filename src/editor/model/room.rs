@@ -1197,7 +1197,7 @@ impl Editor {
         self.pieces.wants_model = self.chosen_thing().and_then(|t| t.model.clone().or_else(|| self.pieces.kind_models.get(&t.kind).cloned()));
         // A piece: its model shaped in place, the level round it.
         self.wants_context = match self.pieces.chosen {
-            Some(Item::Thing(i)) if self.level.things[i].is_piece() && self.level.things[i].model.is_some() => Some(super::super::context::Seed { level: self.file.clone(), piece: i, hidden: self.hidden.clone() }),
+            Some(Item::Thing(i)) if self.level.things[i].is_piece() && self.level.things[i].model.is_some() => Some(crate::editor::context::Seed { level: self.file.clone(), piece: i, hidden: self.hidden.clone() }),
             _ => None,
         };
     }

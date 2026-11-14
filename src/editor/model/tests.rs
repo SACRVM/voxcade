@@ -598,8 +598,8 @@ fn a_colours_material_is_set_and_a_colour_taken_out() {
     ed.choose(crate::editor::model::Tool::Add);
     ed.colour = [200, 40, 40];
     let m = ed.material().unwrap();
-    ed.set_material(super::super::frames::with_word(m, 1, 0.5));
-    ed.set_material(super::super::frames::with_word(ed.material().unwrap(), 1, 0.8));
+    ed.set_material(crate::editor::frames::with_word(m, 1, 0.5));
+    ed.set_material(crate::editor::frames::with_word(ed.material().unwrap(), 1, 0.8));
     assert_eq!(ed.steps(), 1, "one step for the slider");
     let text = std::fs::read_to_string(dir.join("thing.vvx")).unwrap();
     assert!(text.contains("a = { color = \"#c82828\", metal = 0.8, rough = 0.3 }"), "{text}");

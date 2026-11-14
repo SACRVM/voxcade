@@ -7,7 +7,7 @@ use super::*;
 /// would stand on (on the voxels of `world`) and the nearest thing in
 /// front of them along it.
 pub fn things_along(ed: &Editor, world: &World, figures: &Figures, origin: Vec3, dir: Vec3) -> (Option<IVec3>, Option<usize>) {
-    let hit = super::super::model::pick(origin, dir, world.size, |c| c.cmpge(IVec3::ZERO).all() && world.get(c) != 0);
+    let hit = crate::editor::model::pick(origin, dir, world.size, |c| c.cmpge(IVec3::ZERO).all() && world.get(c) != 0);
     let spot = hit.and_then(|h| ed.thing_spot(h.cell, h.normal));
     let wall = hit.and_then(|h| ray_box(origin, dir, h.cell.as_vec3(), h.cell.as_vec3() + 1.0)).unwrap_or(f32::INFINITY);
     let under = ed
@@ -165,7 +165,7 @@ pub fn hit_along(ed: &Editor, figures: &Figures, origin: Vec3, dir: Vec3, marks:
 /// of the first voxel it meets, the level's or a piece's or a thing's
 /// (`hit_along`), else on the floor.
 pub fn set_down_spot(ed: &Editor, figures: &Figures, world: &World, origin: Vec3, dir: Vec3) -> Option<IVec3> {
-    let floor = super::super::model::pick(origin, dir, world.size, |c| c.cmpge(IVec3::ZERO).all() && world.get(c) != 0);
+    let floor = crate::editor::model::pick(origin, dir, world.size, |c| c.cmpge(IVec3::ZERO).all() && world.get(c) != 0);
     let floor_at = floor.and_then(|h| ray_box(origin, dir, h.cell.as_vec3(), h.cell.as_vec3() + 1.0)).unwrap_or(f32::INFINITY);
     match hit_along(ed, figures, origin, dir, false) {
         Some(m) if m.at < floor_at && m.normal != Vec3::ZERO => {
@@ -179,6 +179,6 @@ pub fn set_down_spot(ed: &Editor, figures: &Figures, world: &World, origin: Vec3
 /// The spot a ray (in voxels) points at to set something down: before the
 /// face of the level's voxels it meets, or on the floor.
 pub fn floor_spot(world: &World, origin: Vec3, dir: Vec3) -> Option<IVec3> {
-    let hit = super::super::model::pick(origin, dir, world.size, |c| c.cmpge(IVec3::ZERO).all() && world.get(c) != 0)?;
+    let hit = crate::editor::model::pick(origin, dir, world.size, |c| c.cmpge(IVec3::ZERO).all() && world.get(c) != 0)?;
     Some(hit.cell + if hit.normal == IVec3::ZERO { IVec3::Z } else { hit.normal })
 }

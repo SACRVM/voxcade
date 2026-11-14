@@ -28,7 +28,7 @@ pub struct Shown {
     /// frame took a fifth of a second (the owner's back wall: "ruckelig
     /// wie sau").
     room: std::cell::RefCell<RoomCache>,
-    pub(super) outline: std::cell::RefCell<super::super::model::selection::Outlines>,
+    pub(super) outline: std::cell::RefCell<crate::editor::model::selection::Outlines>,
 }
 
 /// The room round a model shaped in place as `frame` draws it: what it was
@@ -54,7 +54,7 @@ pub(super) struct RoomCache {
 /// figure's box and the grid they are drawn in.
 #[derive(Clone, PartialEq)]
 pub(super) struct RoomOf {
-    context: Option<super::super::context::Context>,
+    context: Option<crate::editor::context::Context>,
     models: usize,
     figure_box: Option<(IVec3, IVec3)>,
     seen: [f32; 16],

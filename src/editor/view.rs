@@ -21,22 +21,16 @@ use crate::grid::{Cell, Kind};
 use crate::render::{FrameData, Instance};
 use crate::world::World;
 
-#[path = "aim.rs"]
 mod aim;
 pub use aim::*;
-#[path = "shown.rs"]
 mod shown;
 pub use shown::*;
-#[path = "figures.rs"]
 mod figures;
 pub use figures::*;
-#[path = "actions.rs"]
 mod actions;
 pub use actions::*;
-#[path = "picture.rs"]
 mod picture;
 pub use picture::*;
-#[path = "marks.rs"]
 mod marks;
 pub use marks::*;
 

@@ -342,7 +342,7 @@ mod tests {
         // Of the cube's front, nothing; the lines are the wall's and what
         // shows of the cube's top over it.
         let front = |p: Vec2| {
-            let (q, _) = super::super::handles::project(vp, screen, Vec3::new(2.0, 0.0, 2.0)).unwrap();
+            let (q, _) = crate::editor::handles::project(vp, screen, Vec3::new(2.0, 0.0, 2.0)).unwrap();
             p.distance(q) < 2.0
         };
         assert!(!lines.iter().any(|[p, q]| front((*p + *q) / 2.0)), "the cube's front is hidden");

@@ -184,7 +184,7 @@ fn put_frame(m: &mut ModelFile, f: usize, cells: &Cells) -> Option<IVec3> {
     } else {
         let p = crate::vvx::pivot(old);
         let raise = IVec3::Z * (-lo.z).max(0);
-        let size = super::super::frames::fit(old + raise, lo - p + raise, hi - p + raise);
+        let size = crate::editor::frames::fit(old + raise, lo - p + raise, hi - p + raise);
         if size.cmpgt(IVec3::splat(256)).any() {
             return None;
         }
@@ -486,11 +486,11 @@ impl Editor {
     /// there, or (NEW) none selected.
     pub fn select_rect(&mut self, view_proj: glam::Mat4, size: glam::Vec2, from: glam::Vec2, to: glam::Vec2, mode: SelectMode, through: bool) {
         let all = self.selectable();
-        let place = |p: Vec3| super::super::handles::project(view_proj, size, p);
+        let place = |p: Vec3| crate::editor::handles::project(view_proj, size, p);
         let placed: Vec<(Owner, [i32; 3], glam::Vec2, f32)> = all.iter().filter_map(|&(o, c, p)| place(p).map(|(s, w)| (o, c, s, w))).collect();
         // How big a voxel shows: a voxel's own width on the screen.
         let voxel = all.first().and_then(|&(_, _, p)| Some(place(p + Vec3::X)?.0.distance(place(p)?.0).max(place(p + Vec3::Z)?.0.distance(place(p)?.0)))).unwrap_or(4.0).max(1.0);
-        let click = from.distance(to) < super::super::handles::TRAVEL;
+        let click = from.distance(to) < crate::editor::handles::TRAVEL;
         let (lo, hi) = if click { (from - voxel / 2.0, from + voxel / 2.0) } else { (from.min(to), from.max(to)) };
         let through = through && !click;
         // Seen: the nearest of the active voxels where it shows (by cells

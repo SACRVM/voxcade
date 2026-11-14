@@ -180,7 +180,7 @@ pub fn joint_marks(ed: &Editor, view: &View, aspect: f32, inset: glam::Vec2) -> 
     // Each joint where it shows at rest (`Figure::joint_shown`), seen as
     // the view draws: through the chosen part's rest (`View::rest`).
     let view_proj = Mat4::from_translation(Vec3::new(-inset.x, inset.y, 0.0)) * view.block.view_proj(aspect);
-    let on_screen = |p: Vec3| super::super::handles::project(view_proj, glam::Vec2::ONE, p).map(|(at, _)| at);
+    let on_screen = |p: Vec3| crate::editor::handles::project(view_proj, glam::Vec2::ONE, p).map(|(at, _)| at);
     let parts = figure.parts();
     (0..parts.len())
         .filter(|&p| !figure.hidden[p])

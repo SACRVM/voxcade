@@ -344,7 +344,7 @@ impl Editor {
             None => {
                 let p = crate::vvx::pivot(old);
                 let raise = IVec3::Z * (-lo.z).max(0);
-                let size = super::super::frames::fit(old + raise, lo - p + raise, hi - 1 - p + raise);
+                let size = crate::editor::frames::fit(old + raise, lo - p + raise, hi - 1 - p + raise);
                 if size.cmpgt(IVec3::splat(256)).any() {
                     return None;
                 }

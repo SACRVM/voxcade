@@ -10,14 +10,14 @@ use super::*;
 /// body. And the models the level's pieces are made of (by their files),
 /// drawn as the game draws them (`session::model_cubes`).
 /// Each figure and model keeps its filled cells too, for a click to find
-/// the voxel it meets (`super::super::pick`).
+/// the voxel it meets (`crate::editor::pick`).
 pub struct Figures {
     /// What things show as, by key (`key_in`): a kind's name, and `NAME@WAY`
     /// a kind or a piece's model facing one of the four ways.
     looks: BTreeMap<String, KindLook>,
     /// The pieces' models and their filled cells, by their files.
     pub(super) models: BTreeMap<String, crate::vox::VoxModel>,
-    cells: BTreeMap<String, super::super::pick::Cells>,
+    cells: BTreeMap<String, crate::editor::pick::Cells>,
 }
 
 pub(super) struct KindLook {
@@ -27,7 +27,7 @@ pub(super) struct KindLook {
     lo: IVec3,
     hi: IVec3,
     /// Its filled cells, from `lo`.
-    cells: super::super::pick::Cells,
+    cells: crate::editor::pick::Cells,
 }
 
 impl KindLook {
@@ -35,14 +35,14 @@ impl KindLook {
         let lo = voxels.iter().fold(IVec3::MAX, |a, v| a.min(v.0));
         let hi = voxels.iter().fold(IVec3::MIN, |a, v| a.max(v.0 + 1));
         let (lo, hi) = if voxels.is_empty() { (IVec3::ZERO, IVec3::ONE) } else { (lo, hi) };
-        let cells = super::super::pick::Cells::of(hi - lo, voxels.iter().map(|v| v.0 - lo));
+        let cells = crate::editor::pick::Cells::of(hi - lo, voxels.iter().map(|v| v.0 - lo));
         Self { voxels, lo, hi, cells }
     }
 }
 
 /// The cells a model's seen voxels fill (in its own box).
-pub(super) fn model_cells(m: &crate::vox::VoxModel) -> super::super::pick::Cells {
-    super::super::pick::Cells::of(m.size, m.visible.first().into_iter().flatten().map(|&k| m.frames[0][k as usize].0))
+pub(super) fn model_cells(m: &crate::vox::VoxModel) -> crate::editor::pick::Cells {
+    crate::editor::pick::Cells::of(m.size, m.visible.first().into_iter().flatten().map(|&k| m.frames[0][k as usize].0))
 }
 
 /// A model's voxel from its pivot turned clockwise, as seen from above,
@@ -219,12 +219,12 @@ impl Figures {
 
     /// A figure's filled cells and where its box begins, from the spot
     /// it stands on (`key`).
-    pub fn figure_cells(&self, key: &str) -> Option<(&super::super::pick::Cells, IVec3)> {
+    pub fn figure_cells(&self, key: &str) -> Option<(&crate::editor::pick::Cells, IVec3)> {
         self.looks.get(key).map(|f| (&f.cells, f.lo))
     }
 
     /// A model's filled cells, from its box's low corner.
-    pub fn model_cells(&self, model: &str) -> Option<&super::super::pick::Cells> {
+    pub fn model_cells(&self, model: &str) -> Option<&crate::editor::pick::Cells> {
         self.cells.get(model)
     }
 

@@ -431,9 +431,9 @@ mod tests {
             b
         };
         let (grass, pond) = (block([90, 160, 60]), block([70, 130, 220]));
-        assert_eq!(super::super::view::front(&grass)[8..], super::super::view::front(&pond)[8..], "the front's rows below the top alike");
+        assert_eq!(crate::editor::view::front(&grass)[8..], crate::editor::view::front(&pond)[8..], "the front's rows below the top alike");
         for above in [true, false] {
-            let (a, b) = (super::super::view::above_front(&grass, 32, above), super::super::view::above_front(&pond, 32, above));
+            let (a, b) = (crate::editor::view::above_front(&grass, 32, above), crate::editor::view::above_front(&pond, 32, above));
             assert_eq!((a.0, a.1), (b.0, b.1));
             let differ = a.2.iter().zip(&b.2).filter(|(p, q)| p != q).count();
             assert!(differ * 5 >= a.2.len(), "from {}: {differ} of {} pixels differ", if above { "above" } else { "the front" }, a.2.len());

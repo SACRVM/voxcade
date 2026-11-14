@@ -42,7 +42,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     // The floor: a cell deep under the grid, in two shades (the editor's,
     // after its BACKGROUND; not in the IDE's pictures).
     let background = view.background(ed.scope);
-    let floor_tones = super::super::background::floor(background);
+    let floor_tones = crate::editor::background::floor(background);
     let marks = view.marks(ed.scope);
     let mut instances = Vec::new();
     let u = unit as f32;

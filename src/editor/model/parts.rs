@@ -905,7 +905,7 @@ pub(crate) mod tests {
 
     /// The rig of every part by name (parent, joint from the pivot).
     fn rig(ed: &Editor) -> std::collections::BTreeMap<String, (Option<String>, Vec3)> {
-        super::super::rig_of(ed.model.as_ref().unwrap()).expect("a figure")
+        crate::editor::model::rig_of(ed.model.as_ref().unwrap()).expect("a figure")
     }
 
     /// No step re-hangs or re-hinges a part nobody acted on: a copy laid

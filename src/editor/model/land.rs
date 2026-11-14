@@ -233,7 +233,7 @@ impl Editor {
         for y in 0..t.rows {
             for x in 0..t.cols {
                 let p = IVec2::new(x, y);
-                if let Some((s, _)) = self.point_spot(p).and_then(|at| super::super::handles::project(view_proj, screen, at)) {
+                if let Some((s, _)) = self.point_spot(p).and_then(|at| crate::editor::handles::project(view_proj, screen, at)) {
                     out.push((p, s));
                 }
             }
@@ -1290,7 +1290,7 @@ mod tests {
         assert!(ed.stamp());
         let names: Vec<_> = ed.level.things.iter().map(|t| (t.name.clone().unwrap(), t.at)).collect();
         assert_eq!(names, [("fir".to_string(), a.to_array()), ("fir_2".to_string(), b.to_array())]);
-        assert!(matches!(&ed.pieces.hanging, Some(super::super::room::Hanging::Thing(t)) if t.name.as_deref() == Some("fir_3")), "the next on the mouse");
+        assert!(matches!(&ed.pieces.hanging, Some(crate::editor::model::room::Hanging::Thing(t)) if t.name.as_deref() == Some("fir_3")), "the next on the mouse");
         assert_eq!(ed.steps(), 2, "a step a fir");
         assert!(ed.drop_hanging());
     }
