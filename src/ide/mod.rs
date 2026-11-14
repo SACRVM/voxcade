@@ -767,7 +767,7 @@ fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) -> Result<Nex
         // (The editors' panels may want to be drawn again too.)
         // (And a pad plugged in opens once it has settled.)
         pads.settle();
-        let until = editors.iter().filter_map(|(_, e)| e.wakes_at()).chain(repaint_at).chain(pads.wakes_at()).chain(hands.wakes_at(Instant::now())).fold(tick_at, Instant::min);
+        let until = editors.iter().map(|(_, e)| e.wakes_at()).chain(repaint_at).chain(pads.wakes_at()).chain(hands.wakes_at(Instant::now())).fold(tick_at, Instant::min);
         let timeout = until.saturating_duration_since(Instant::now());
         let first = if timeout.is_zero() { events.poll_event() } else { events.wait_event_timeout(timeout.max(Duration::from_millis(1))) };
         woken.store(false, Ordering::Release);

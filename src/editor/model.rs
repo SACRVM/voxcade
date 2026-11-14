@@ -545,9 +545,6 @@ pub struct Pieces {
 /// list, a drag, a pose and the next step do to them.
 #[derive(Default)]
 pub struct Rigging {
-    /// FIGURE: the next part clicked in the list becomes the chosen part's
-    /// parent (PARENT ... CHOOSE).
-    pub picking_parent: bool,
     /// A figure's joint being dragged by its arrow, and whether the next
     /// change to the model joins the last step (the drag's).
     joint_drag: Option<JointDrag>,
@@ -680,6 +677,50 @@ pub struct Editor {
 }
 
 impl Editor {
+    /// An editor on `file` of the game in `dir` with nothing open yet: no
+    /// level, no model, every tool and choice as it starts.
+    fn blank(dir: &Path, file: &str) -> Self {
+        Self {
+            dir: dir.to_path_buf(),
+            file: file.to_string(),
+            level: GridLevel::new(1, IVec3::ZERO),
+            blocks: Vec::new(),
+            sheet: None,
+            scope: Scope::Level,
+            layer: Layer::Blocks,
+            tool: Tool::Pointer,
+            before_pick: Tool::Add,
+            shifted: false,
+            held: Cell::default(),
+            colour: [200, 200, 200],
+            kinds: Vec::new(),
+            held_kind: None,
+            anchor: [true; 3],
+            moving: None,
+            history: History::default(),
+            message: None,
+            model: None,
+            forms: Forms::default(),
+            symmetry: false,
+            figure: None,
+            rigging: Rigging::default(),
+            hint: None,
+            dry: false,
+            question: None,
+            source: String::new(),
+            source_level: GridLevel::new(1, IVec3::ZERO),
+            game_light: Default::default(),
+            pieces: Pieces::default(),
+            land: land::Land::default(),
+            disk: Default::default(),
+            hidden: Default::default(),
+            slice: None,
+            context: None,
+            wants_context: None,
+            selecting: Selecting::default(),
+        }
+    }
+
     /// Opens the level `file` of the game in `dir`, with its blocks and
     /// tileset.
     pub fn open(dir: &Path, file: &str) -> Result<Self> {
@@ -689,65 +730,26 @@ impl Editor {
         let blocks = level.load_blocks(dir)?;
         let sheet_path = dir.join(blocks::FOLDER).join(crate::tiled::SHEET);
         let sheet = if sheet_path.exists() && level.has_grid() { Some(Sheet::load(&sheet_path, level.n)?) } else { None };
-        let held = Cell { block: (!level.blocks.is_empty()) as u16, turn: Turn::NONE };
-        let colour = blocks.first().and_then(|b| b.colours().first().copied()).unwrap_or([200, 200, 200]);
+        let mut ed = Self::blank(dir, file);
+        ed.held = Cell { block: (!level.blocks.is_empty()) as u16, turn: Turn::NONE };
+        ed.colour = blocks.first().and_then(|b| b.colours().first().copied()).unwrap_or(ed.colour);
         // A level without blocks is its pieces.
-        let layer = if level.has_grid() { Layer::Blocks } else { Layer::Pieces };
-        Ok(Self {
-            dir: dir.to_path_buf(),
-            file: file.to_string(),
-            source_level: level.clone(),
-            source,
-            level,
-            blocks,
-            sheet,
-            scope: Scope::Level,
-            layer,
-            tool: Tool::Pointer,
-            before_pick: Tool::Add,
-            shifted: false,
-            held,
-            colour,
-            kinds: Vec::new(),
-            held_kind: None,
-            anchor: [true; 3],
-            moving: None,
-            message: None,
-            model: None,
-            symmetry: false,
-            figure: None,
-            hint: None,
-            dry: false,
-            question: None,
-            game_light: Default::default(),
-            land: land::Land::default(),
-            disk: Default::default(),
-            hidden: Default::default(),
-            slice: None,
-            context: None,
-            wants_context: None,
-            history: History::default(),
-            forms: Forms::default(),
-            rigging: Rigging::default(),
-            pieces: Pieces::default(),
-            selecting: Selecting::default(),
-        })
-        .map(|mut ed: Self| {
-            ed.remember_held();
-            ed
-        })
+        ed.layer = if level.has_grid() { Layer::Blocks } else { Layer::Pieces };
+        (ed.source_level, ed.source, ed.level, ed.blocks, ed.sheet) = (level.clone(), source, level, blocks, sheet);
+        ed.remember_held();
+        Ok(ed)
     }
 
     /// Opens the model `file` of the game in `dir`, at its first frame; a
     /// figure of parts whole (FIGURE).
     pub fn open_model(dir: &Path, file: &str) -> Result<Self> {
-        Self::with_model(dir, file, ModelFile::load(&dir.join(file))?)
+        Ok(Self::with_model(dir, file, ModelFile::load(&dir.join(file))?))
     }
 
     /// The model `file` of the game in `dir` to look at, a MagicaVoxel
     /// `.vox` too (the IDE's picture of it): nothing written.
     pub fn look_at_model(dir: &Path, file: &str) -> Result<Self> {
-        let mut ed = Self::with_model(dir, file, ModelFile::look(&dir.join(file))?)?;
+        let mut ed = Self::with_model(dir, file, ModelFile::look(&dir.join(file))?);
         ed.dry = true;
         Ok(ed)
     }
@@ -755,58 +757,19 @@ impl Editor {
     /// The world or map's prefab `file` of the game in `dir` to look at (the
     /// IDE's picture of it): nothing written.
     pub fn look_at_scene(dir: &Path, file: &str) -> Result<Self> {
-        let mut ed = Self::with_model(dir, file, ModelFile::look_at_scene(&dir.join(file))?)?;
+        let mut ed = Self::with_model(dir, file, ModelFile::look_at_scene(&dir.join(file))?);
         ed.dry = true;
         Ok(ed)
     }
 
-    fn with_model(dir: &Path, file: &str, model: ModelFile) -> Result<Self> {
-        let level = GridLevel::new(1, IVec3::ZERO);
-        let colour = model.colours().first().copied().unwrap_or([200, 200, 200]);
-        let (figure, message) = Figure::follow(None, &model, None);
-        Ok(Self {
-            dir: dir.to_path_buf(),
-            file: file.to_string(),
-            level,
-            blocks: Vec::new(),
-            sheet: None,
-            scope: if figure.is_some() { Scope::Figure } else { Scope::Frame(0) },
-            layer: Layer::Blocks,
-            tool: Tool::Pointer,
-            before_pick: Tool::Add,
-            shifted: false,
-            held: Cell::default(),
-            colour,
-            kinds: Vec::new(),
-            held_kind: None,
-            anchor: [true; 3],
-            moving: None,
-            message,
-            model: Some(model),
-            symmetry: false,
-            figure,
-            hint: None,
-            dry: false,
-            question: None,
-            source: String::new(),
-            source_level: GridLevel::new(1, IVec3::ZERO),
-            game_light: Default::default(),
-            land: land::Land::default(),
-            disk: Default::default(),
-            hidden: Default::default(),
-            slice: None,
-            context: None,
-            wants_context: None,
-            history: History::default(),
-            forms: Forms::default(),
-            rigging: Rigging::default(),
-            pieces: Pieces::default(),
-            selecting: Selecting::default(),
-        })
-        .map(|mut ed: Self| {
-            ed.remember_held();
-            ed
-        })
+    fn with_model(dir: &Path, file: &str, model: ModelFile) -> Self {
+        let mut ed = Self::blank(dir, file);
+        ed.colour = model.colours().first().copied().unwrap_or(ed.colour);
+        (ed.figure, ed.message) = Figure::follow(None, &model, None);
+        ed.scope = if ed.figure.is_some() { Scope::Figure } else { Scope::Frame(0) };
+        ed.model = Some(model);
+        ed.remember_held();
+        ed
     }
 
     /// The box of voxels shaped: the open block, or the model's frame.

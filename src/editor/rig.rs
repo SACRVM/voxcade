@@ -79,13 +79,8 @@ impl Editor {
     }
 
     /// A part chosen in the figure's list, to shape in the figure and to
-    /// rig; chosen again, none. While PARENT is being chosen, the part
-    /// clicked becomes the parent instead.
+    /// rig.
     pub fn choose_part(&mut self, p: usize) {
-        if self.rigging.picking_parent {
-            self.rigging.picking_parent = false;
-            return self.set_parent(Some(p));
-        }
         // (Chosen again: it stays chosen; the figure whole is its own row,
         // Escape, or a click on empty space.)
         let Some(frame) = self.figure.as_ref().and_then(|f| f.frames.get(p).copied()) else { return };
@@ -153,16 +148,6 @@ impl Editor {
         let chain = crate::vox::ring(&parents, p)?;
         let names: Vec<&str> = chain.iter().map(|&k| name(k)).collect();
         Some(format!("{} hangs on {} by hand: that would make a ring ({})", name(q), name(p), names.join(" on ")))
-    }
-
-    /// The chosen part's joint where the figure has it now (to the nearest
-    /// half voxel), moved by `by` (halves of a voxel), set by hand; a step.
-    pub fn move_joint(&mut self, by: Vec3) {
-        self.follow_figure();
-        let (Some(p), Some(figure)) = (self.chosen(), &self.figure) else { return };
-        // On halves of a voxel (a joint the rules found may lie between).
-        let at = ((figure.file_joint(p)) * 2.0).round() / 2.0 + by;
-        self.set_joint(Some(at));
     }
 
     /// The chosen part's joint set by hand at `at` (from the pivot), or

@@ -18,7 +18,7 @@
 
 use egui::{Color32, Pos2, Rect, RichText, TextStyle, Vec2};
 
-use super::panels::Shown;
+use super::panels::PanelsDrawn;
 use super::view::{Action, key_of};
 use crate::gui::{ACCENT, ERROR, QUIET, TEXT, WARNING};
 
@@ -43,7 +43,7 @@ const GAP: f32 = 4.0;
 /// on the columns, line up down the inspector, in both editors alike (the
 /// inspector is as wide in both; a row's own room differed by a few
 /// pixels between them).
-pub fn col(_ui: &egui::Ui, n: usize) -> f32 {
+pub fn col(n: usize) -> f32 {
     let one = (INSPECTOR - SIDE_LEFT - RIGHT_ROOM as f32 - LABEL - 3.0 * GAP) / 3.0;
     one * n as f32 + GAP * (n as f32 - 1.0)
 }
@@ -59,7 +59,7 @@ pub const AXIS_LIT: [Color32; 3] = [Color32::from_rgb(255, 170, 160), Color32::f
 /// The three zones: the top bar, the outliner and the inspector (its
 /// contents in one scroll), laid out with the contents given; where the
 /// view's room is (`shown.free`, and returned).
-pub fn layout(ui: &mut egui::Ui, shown: &mut Shown, top: impl FnOnce(&mut egui::Ui, &mut Shown), left: impl FnOnce(&mut egui::Ui, &mut Shown), right: impl FnOnce(&mut egui::Ui, &mut Shown)) -> Rect {
+pub fn layout(ui: &mut egui::Ui, shown: &mut PanelsDrawn, top: impl FnOnce(&mut egui::Ui, &mut PanelsDrawn), left: impl FnOnce(&mut egui::Ui, &mut PanelsDrawn), right: impl FnOnce(&mut egui::Ui, &mut PanelsDrawn)) -> Rect {
     let bar = egui::Frame::new().fill(crate::gui::PANEL).inner_margin(egui::Margin::symmetric(12, 6));
     // The side panels' scroll bars flush with their right edge, the rows
     // using the width up to them (no margin on the right: the bar's).
@@ -112,13 +112,13 @@ pub fn beside_bar(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
 
 /// A mistake over the view's top left: short, red, the whole words its
 /// tooltip.
-pub fn mistake(ui: &egui::Ui, free: Rect, text: &str, shown: &mut Shown) {
+pub fn mistake(ui: &egui::Ui, free: Rect, text: &str, shown: &mut PanelsDrawn) {
     say(ui, free, text, ERROR, shown);
 }
 
 /// What the editor did or would not, over the view's top left: short, in
 /// `colour`, the whole words its tooltip.
-pub fn say(ui: &egui::Ui, free: Rect, text: &str, colour: Color32, shown: &mut Shown) {
+pub fn say(ui: &egui::Ui, free: Rect, text: &str, colour: Color32, shown: &mut PanelsDrawn) {
     let short = short(text);
     let area = egui::Area::new(egui::Id::unique("zones mistake")).order(egui::Order::Foreground).fixed_pos(free.min + Vec2::new(12.0, 10.0)).show(ui.ctx(), |ui| {
         egui::Frame::new().fill(Color32::from_rgba_unmultiplied(24, 23, 30, 230)).corner_radius(4.0).inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
@@ -139,7 +139,7 @@ pub fn short(text: &str) -> String {
 /// a mistake is said there; where a file changed while a change of the
 /// editor's could not be written (a mistake said why), whose to keep,
 /// under it.
-pub fn from_disk(ui: &egui::Ui, free: Rect, ed: &super::model::Editor, shown: &mut Shown) {
+pub fn from_disk(ui: &egui::Ui, free: Rect, ed: &super::model::Editor, shown: &mut PanelsDrawn) {
     if let Some(path) = &ed.disk.clash {
         let name = path.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
         let area = egui::Area::new(egui::Id::unique("zones clash")).order(egui::Order::Foreground).fixed_pos(free.min + Vec2::new(12.0, 44.0)).show(ui.ctx(), |ui| {
@@ -162,7 +162,7 @@ pub fn from_disk(ui: &egui::Ui, free: Rect, ed: &super::model::Editor, shown: &m
 /// The mark at a row's left that hides it from the picture (in the
 /// editor only): a filled square while shown, an empty one while hidden;
 /// the figure's parts and the level's things alike.
-pub fn hide_mark(ui: &mut egui::Ui, hidden: bool, action: Action, shown: &mut Shown) {
+pub fn hide_mark(ui: &mut egui::Ui, hidden: bool, action: Action, shown: &mut PanelsDrawn) {
     let (rect, mark) = ui.allocate_exact_size(egui::vec2(18.0, ui.text_style_height(&TextStyle::Body) + 8.0), egui::Sense::click());
     let square = Rect::from_center_size(rect.center(), egui::vec2(9.0, 9.0));
     let colour = if mark.hovered() { TEXT } else { QUIET };
@@ -179,7 +179,7 @@ pub fn hide_mark(ui: &mut egui::Ui, hidden: bool, action: Action, shown: &mut Sh
 /// A button whose key follows its word, quiet; `on`: a toggle, lit while
 /// on (it still looks as a button does: what is clicked has a frame). Its
 /// key works while the panels show it.
-pub fn keyed(ui: &mut egui::Ui, shown: &mut Shown, label: &str, action: Action, on: Option<bool>, tip: &str) -> egui::Response {
+pub fn keyed(ui: &mut egui::Ui, shown: &mut PanelsDrawn, label: &str, action: Action, on: Option<bool>, tip: &str) -> egui::Response {
     let key = key_of(action);
     // UNDO and REDO: Ctrl+Z and Ctrl+Y as everywhere, their tooltips and
     // F1 say so; the letter works on, unsaid on the button.
@@ -221,7 +221,7 @@ pub fn main_keys(action: Action) -> Option<&'static str> {
 
 /// A key the panels show working while they show it (`action`), named in
 /// F1's overview by the word of its button.
-pub fn key_named(shown: &mut Shown, key: char, action: Action, word: &str) {
+pub fn key_named(shown: &mut PanelsDrawn, key: char, action: Action, word: &str) {
     // (Two buttons doing the same, + FRAME and COPY: named once, by the
     // first.)
     if shown.keys.contains(&(key, action)) {
@@ -242,7 +242,7 @@ pub fn tip_with_key(tip: &str, key: Option<char>) -> String {
 
 /// A small button of a word (`on`: lit, a toggle), its tooltip naming
 /// what it does and its key; the key works while it is shown.
-pub fn small(ui: &mut egui::Ui, shown: &mut Shown, word: &str, action: Action, on: Option<bool>, tip: &str) -> egui::Response {
+pub fn small(ui: &mut egui::Ui, shown: &mut PanelsDrawn, word: &str, action: Action, on: Option<bool>, tip: &str) -> egui::Response {
     let key = key_of(action);
     if let Some(k) = key {
         key_named(shown, k, action, word);
@@ -274,7 +274,7 @@ pub fn row(ui: &mut egui::Ui, word: &str, tip: &str, add: impl FnOnce(&mut egui:
 /// A row's word standing on one of its columns (quiet, as the rows'
 /// labels), to name the field after it.
 pub fn cell_word(ui: &mut egui::Ui, word: &str, tip: &str) {
-    let (rect, response) = ui.allocate_exact_size(Vec2::new(col(ui, 1), ui.text_style_height(&TextStyle::Body) + 6.0), egui::Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(col(1), ui.text_style_height(&TextStyle::Body) + 6.0), egui::Sense::hover());
     ui.painter().text(rect.left_center() + Vec2::new(2.0, 0.0), egui::Align2::LEFT_CENTER, word, TextStyle::Small.resolve(ui.style()), QUIET);
     if !tip.is_empty() {
         response.on_hover_text(tip);
@@ -289,11 +289,11 @@ const PAD: f32 = 3.0;
 /// (`axis` 0..2; else quiet), dragged sideways or typed, to `decimals`
 /// places at most; a change gives the action `set` makes of the new value.
 #[allow(clippy::too_many_arguments)]
-pub fn number(ui: &mut egui::Ui, shown: &mut Shown, letter: &str, axis: Option<usize>, value: f64, decimals: usize, speed: f64, range: std::ops::RangeInclusive<f64>, tip: &str, width: f32, set: impl FnOnce(f64) -> Action) {
+pub fn number(ui: &mut egui::Ui, shown: &mut PanelsDrawn, letter: &str, axis: Option<usize>, value: f64, decimals: usize, speed: f64, range: std::ops::RangeInclusive<f64>, tip: &str, width: f32, set: impl FnOnce(f64) -> Action) {
     let colour = axis.map_or(QUIET, |a| AXIS[a]);
     let mut v = value;
     // On the columns (`FIELD`: one, `FIELD2`: two), else as wide as asked.
-    let width = if width < 0.0 { col(ui, (-width) as usize) } else { width };
+    let width = if width < 0.0 { col((-width) as usize) } else { width };
     // The number right-aligned: padded to as many signs as the field
     // holds (one typeface, every sign as wide), so that the letters stand
     // at the same place in every field and 0, 120 and -18 end together.
@@ -501,7 +501,7 @@ pub fn list_row_aside(ui: &mut egui::Ui, sort: Sort, pic: Option<(egui::TextureI
 /// first; remembered while the editor is open), its count after it.
 /// `group`, with small buttons at the heading's right (SHOW ALL, +):
 /// always one click away, folded or not.
-pub fn group_with(ui: &mut egui::Ui, title: &str, count: Option<usize>, tip: &str, extras: &[(&str, Action, &str, bool)], shown: &mut Shown) -> bool {
+pub fn group_with(ui: &mut egui::Ui, title: &str, count: Option<usize>, tip: &str, extras: &[(&str, Action, &str, bool)], shown: &mut PanelsDrawn) -> bool {
     let (open, heading) = group_heading(ui, title, count, tip);
     let y = heading.center().y;
     let mut right = heading.right() - 4.0;
@@ -547,7 +547,7 @@ fn group_heading(ui: &mut egui::Ui, title: &str, count: Option<usize>, tip: &str
 /// A menu over the view at `at` (kept inside `free`): its entries, each
 /// with its key on the right; a click on one gives its action. Whether a
 /// left click fell elsewhere (it closes then).
-pub fn menu(ui: &egui::Ui, at: Pos2, free: Rect, entries: Vec<Entry>, shown: &mut Shown) -> bool {
+pub fn menu(ui: &egui::Ui, at: Pos2, free: Rect, entries: Vec<Entry>, shown: &mut PanelsDrawn) -> bool {
     let area = egui::Area::new(egui::Id::unique("zones menu")).order(egui::Order::Foreground).fixed_pos(at).constrain_to(free).show(ui.ctx(), |ui| {
         egui::Frame::popup(ui.style()).show(ui, |ui| {
             ui.set_width(200.0);
@@ -581,7 +581,7 @@ pub type Entry = (String, Action, Option<&'static str>, Option<String>);
 /// BACKGROUND in a top bar's right group: a small swatch of the view's
 /// background (`now`; none: the game's sky, `sky`); a click opens the
 /// four to choose from and a picker for any other, one click choosing.
-pub fn background_button(ui: &mut egui::Ui, now: Option<[u8; 3]>, sky: [u8; 3], shown: &mut Shown) {
+pub fn background_button(ui: &mut egui::Ui, now: Option<[u8; 3]>, sky: [u8; 3], shown: &mut PanelsDrawn) {
     let shows = now.unwrap_or(sky);
     let (rect, response) = ui.allocate_exact_size(Vec2::new(26.0, 22.0), egui::Sense::click());
     let stroke = if response.hovered() { ACCENT } else { QUIET };
@@ -612,12 +612,12 @@ pub fn background_button(ui: &mut egui::Ui, now: Option<[u8; 3]>, sky: [u8; 3], 
 }
 
 /// The marks over the view this frame (`set_marks`, by the panels).
-pub fn marks_of(ctx: &egui::Context) -> super::background::Marks {
-    ctx.data(|d| d.get_temp(egui::Id::unique("editor marks"))).unwrap_or(super::background::Marks { light: false })
+pub fn marks_of(ctx: &egui::Context) -> super::background::MarkColors {
+    ctx.data(|d| d.get_temp(egui::Id::unique("editor marks"))).unwrap_or(super::background::MarkColors { light: false })
 }
 
 /// The marks over the view for this frame, as its BACKGROUND asks.
-pub fn set_marks(ctx: &egui::Context, marks: super::background::Marks) {
+pub fn set_marks(ctx: &egui::Context, marks: super::background::MarkColors) {
     ctx.data_mut(|d| d.insert_temp(egui::Id::unique("editor marks"), marks));
 }
 
@@ -642,7 +642,7 @@ pub const ARM_TIME: f64 = 0.3;
 /// jumps to the other side), under the box where the top is near. `id` keeps
 /// its width from the last frame (`guess` before).
 #[allow(clippy::too_many_arguments)]
-pub fn bar_at(ui: &egui::Ui, id: &str, middle: f32, bounds: Rect, free: Rect, guess: f32, shown: &mut Shown, add: impl FnOnce(&mut egui::Ui, &mut Shown)) -> Rect {
+pub fn bar_at(ui: &egui::Ui, id: &str, middle: f32, bounds: Rect, free: Rect, guess: f32, shown: &mut PanelsDrawn, add: impl FnOnce(&mut egui::Ui, &mut PanelsDrawn)) -> Rect {
     let width_id = egui::Id::unique((id, "width"));
     let width: f32 = ui.data(|d| d.get_temp(width_id)).unwrap_or(guess).max(guess * 0.5);
     let x = (middle - 16.0).min(free.right() - 8.0 - width).max(free.left() + 8.0);
@@ -693,7 +693,7 @@ pub const PIECES_TIP: &str = "Everything set down, chosen and moved by its handl
 /// nearer; the mouse's ways to do the same on hover; GRID before them
 /// where `grid` says it is there (lit or not), and FRONT, SIDE, TOP where
 /// `straight` says they are (the one lit the view looks from).
-pub fn view_buttons(ui: &egui::Ui, free: Rect, grid: Option<bool>, straight: Option<Option<usize>>, shown: &mut Shown) {
+pub fn view_buttons(ui: &egui::Ui, free: Rect, grid: Option<bool>, straight: Option<Option<usize>>, shown: &mut PanelsDrawn) {
     let at = free.right_bottom() + Vec2::new(-12.0, -12.0);
     let area = egui::Area::new(egui::Id::unique("zones view buttons")).order(egui::Order::Foreground).pivot(egui::Align2::RIGHT_BOTTOM).fixed_pos(at).show(ui.ctx(), |ui| {
         ui.horizontal(|ui| {
@@ -770,11 +770,8 @@ mod tests {
     /// wide as two and the gap between: every row's X, Y and Z line up.
     #[test]
     fn the_three_columns_end_at_the_rows_edge() {
-        let ctx = egui::Context::default();
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
-            assert!((LABEL + GAP + col(ui, 3) - (INSPECTOR - SIDE_LEFT - RIGHT_ROOM as f32)).abs() < 0.01);
-            assert!((col(ui, 2) - (2.0 * col(ui, 1) + GAP)).abs() < 0.01);
-        });
+        assert!((LABEL + GAP + col(3) - (INSPECTOR - SIDE_LEFT - RIGHT_ROOM as f32)).abs() < 0.01);
+        assert!((col(2) - (2.0 * col(1) + GAP)).abs() < 0.01);
     }
 
     /// A small button's tooltip names its key at its end, once.

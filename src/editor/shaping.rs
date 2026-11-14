@@ -21,7 +21,7 @@ use glam::IVec3;
 
 use super::figure::Figure;
 use super::model::{Editor, Layer, Scope, Tool};
-use super::panels::{Shown, Thumbs};
+use super::panels::{PanelsDrawn, Thumbs};
 use super::view::{Action, Figures, MenuOn, View, above_front, key_of, seen};
 use super::zones::{self, FIELD, Sort, keyed, list_row, row, small};
 use crate::blocks::Turn;
@@ -29,7 +29,7 @@ use crate::grid::Kind;
 use crate::gui::{ACCENT, QUIET, TEXT};
 
 /// The panels of the voxel editor and of a level of blocks.
-pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs: &mut Thumbs, shown: &mut Shown) {
+pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs: &mut Thumbs, shown: &mut PanelsDrawn) {
     // (The pictures are made in the outliner and the inspector, one after
     // the other.)
     let pics = std::cell::RefCell::new(&mut *thumbs);
@@ -65,7 +65,7 @@ fn stem(file: &str) -> String {
 }
 
 /// The top bar.
-fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
+fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut PanelsDrawn) {
     match ed.scope {
         Scope::Level => {
             ui.label(RichText::new(stem(&ed.file).to_uppercase()).color(TEXT)).on_hover_text(&ed.file);
@@ -123,7 +123,7 @@ fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
 
 /// The bar at a figure's chosen part, over its arrows: what is done to a
 /// part there (HIDE).
-fn part_bar(ui: &mut egui::Ui, ed: &Editor, free: Rect, view: &View, shown: &mut Shown) {
+fn part_bar(ui: &mut egui::Ui, ed: &Editor, free: Rect, view: &View, shown: &mut PanelsDrawn) {
     // A selection: its arrows and outline only; its actions in the
     // inspector (`selection_rows`).
     if ed.selection().is_some() {
@@ -191,7 +191,7 @@ fn picture(ui: &mut egui::Ui, (id, px): (egui::TextureId, egui::Vec2), size: f32
 }
 
 /// The outliner.
-fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs: &mut Thumbs, shown: &mut Shown) {
+fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs: &mut Thumbs, shown: &mut PanelsDrawn) {
     // Playing: the frames one after another, over the list.
     if view.playing && ed.figure.is_none() && !ed.parted() && matches!(ed.scope, Scope::Frame(_)) && ed.frames().len() > 1 {
         let frames = ed.frames();
@@ -222,7 +222,7 @@ const HELD_HIGH: i32 = 64;
 
 /// The level's blocks, each its picture and name: chosen, the one held
 /// (or open); a click holds one, a second (or a double click) opens it.
-fn blocks(ui: &mut egui::Ui, ed: &Editor, thumbs: &mut Thumbs, shown: &mut Shown) {
+fn blocks(ui: &mut egui::Ui, ed: &Editor, thumbs: &mut Thumbs, shown: &mut PanelsDrawn) {
     let listed = ed.level.blocks.len();
     // Seen as the level is: from above (a farm), else from the front.
     let from_above = crate::grid::View::for_size(ed.level.size) == crate::grid::View::Above;
@@ -250,7 +250,7 @@ fn blocks(ui: &mut egui::Ui, ed: &Editor, thumbs: &mut Thumbs, shown: &mut Shown
 }
 
 /// The game's kinds of things, each its picture: chosen, the one held.
-fn kinds(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thumbs, shown: &mut Shown) {
+fn kinds(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thumbs, shown: &mut PanelsDrawn) {
     if !zones::group(ui, "KINDS", Some(ed.kinds.len()), "The game's kinds of things (c.things): the one held is put down") {
         return;
     }
@@ -264,7 +264,7 @@ fn kinds(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thumbs,
 
 /// A model's frames (a figure that cannot be rigged: its parts), each its
 /// picture; the one shaped chosen.
-fn frames(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, shown: &mut Shown) {
+fn frames(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, shown: &mut PanelsDrawn) {
     let parted = ed.parted();
     let frames = ed.frames();
     let now = match ed.scope {
@@ -295,7 +295,7 @@ fn frames(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, show
 /// A figure's parts by what they hang on, the root first: each its name
 /// (quiet while hidden), a sign and a word where it hangs oddly (the whole
 /// of it on hover), a mark at the left that hides it from the picture.
-fn parts(ui: &mut egui::Ui, ed: &Editor, view: &View, figure: &Figure, name: &str, shown: &mut Shown) {
+fn parts(ui: &mut egui::Ui, ed: &Editor, view: &View, figure: &Figure, name: &str, shown: &mut PanelsDrawn) {
     // The heading's own buttons: SHOW ALL (quiet while none is hidden), +
     // a new part (each one click, always in view).
     let hidden = figure.hidden.iter().any(|&h| h);
@@ -397,7 +397,7 @@ fn parts(ui: &mut egui::Ui, ed: &Editor, view: &View, figure: &Figure, name: &st
 }
 
 /// The inspector.
-fn inspector(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thumbs, shown: &mut Shown) {
+fn inspector(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thumbs, shown: &mut PanelsDrawn) {
     if ed.rigging.posing && ed.figure.is_some() {
         pose(ui, ed, shown);
     }
@@ -469,7 +469,7 @@ struct PartDrag(usize);
 
 /// TRIM: the box cut down to what the voxels need (the figure whole's,
 /// a part's own, a model of frames'); quiet when there is nothing to cut.
-fn trim_button(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+fn trim_button(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
     let can = ed.can_trim();
     let r = ui.add_enabled(can, egui::Button::new(RichText::new("TRIM").small()));
     if r.on_hover_text("Its box cut down to its voxels  M").on_disabled_hover_text("ALREADY TIGHT").clicked() {
@@ -479,18 +479,18 @@ fn trim_button(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
 
 /// SELECTION, while voxels are selected: what is done at them, on the
 /// column grid (each also in the menu a right click on them opens).
-fn selection_rows(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+fn selection_rows(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
     let count = ed.selection().map_or(0, |s| s.count());
     ui.separator();
     ui.label(RichText::new(format!("SELECTION {count}")).color(TEXT)).on_hover_text("Voxels selected: its arrows move them (Alt: what they land on stays); Escape: none");
     // A button a column wide (or two), on the grid.
-    let cell = |ui: &mut egui::Ui, shown: &mut Shown, word: &str, colour: egui::Color32, cols: usize, action: Action, refused: Option<&str>, tip: &str| {
+    let cell = |ui: &mut egui::Ui, shown: &mut PanelsDrawn, word: &str, colour: egui::Color32, cols: usize, action: Action, refused: Option<&str>, tip: &str| {
         let b = egui::Button::new(RichText::new(word).small().color(if refused.is_some() { QUIET } else { colour }));
         let r = ui
             .add_enabled_ui(refused.is_none(), |ui| {
                 // (Its word within its column: DUPLICATE too.)
                 ui.spacing_mut().button_padding.x = 2.0;
-                ui.add_sized([zones::col(ui, cols), ui.text_style_height(&egui::TextStyle::Body) + 6.0], b)
+                ui.add_sized([zones::col(cols), ui.text_style_height(&egui::TextStyle::Body) + 6.0], b)
             })
             .inner;
         let r = match refused {
@@ -526,7 +526,7 @@ fn selection_rows(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
             // MOVE TO PART…: the parts to choose from.
             let parts: Vec<String> = ed.figure.as_ref().map_or_else(Vec::new, |f| f.parts().iter().map(|p| p.name.clone()).collect());
             ui.add_enabled_ui(refused.is_none(), |ui| {
-                ui.set_width(zones::col(ui, 2));
+                ui.set_width(zones::col(2));
                 ui.menu_button(RichText::new("MOVE TO PART…").small().color(TEXT), |ui| {
                     for (q, name) in parts.iter().enumerate() {
                         if ui.button(name.to_uppercase()).clicked() {
@@ -549,7 +549,7 @@ fn selection_rows(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
 
 /// What a block or a frame (a part) is shaped with: the tools, BEVEL and
 /// SYMMETRY, a fresh box's DEPTH, the colours and the held one's material.
-fn shaping(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+fn shaping(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
     slice_rows(ui, ed, shown);
     tools(ui, ed, shown);
     // SELECT: what its rectangle does (Ctrl while dragging: ADD; Alt:
@@ -581,7 +581,7 @@ fn shaping(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
 }
 
 /// BOX or SPHERE: DEPTH, the fresh one's or the next one's.
-fn depth_row(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+fn depth_row(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
     if !ed.forms() {
         return;
     }
@@ -597,13 +597,13 @@ fn depth_row(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
 
 /// SLICE: X, Y, Z on the columns (lit the one cutting; again: off), and
 /// while it cuts its LAYER and OFF.
-fn slice_rows(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+fn slice_rows(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
     if !ed.can_slice() {
         return;
     }
     let on = ed.slice.as_ref().map(|s| s.axis);
     row(ui, "SLICE", "Cut the model across an axis: what lies before the plane is neither drawn nor touched; the file stays as it is", |ui| {
-        let width = zones::col(ui, 1);
+        let width = zones::col(1);
         for (a, letter) in ["X", "Y", "Z"].into_iter().enumerate() {
             let word = RichText::new(letter).color(if on == Some(a) { zones::AXIS_LIT[a] } else { zones::AXIS[a] });
             let tip = if on == Some(a) { format!("Slicing across {letter}: click for off") } else { format!("Slice across {letter}") };
@@ -616,7 +616,7 @@ fn slice_rows(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
         let room = ed.slice_room()[s.axis];
         row(ui, "LAYER", "Where the plane lies, in voxels from the box's low side (or drag its arrow)", |ui| {
             zones::number(ui, shown, ["X", "Y", "Z"][s.axis], Some(s.axis), s.at as f64, 0, 0.1, 0.0..=(room - 1).max(0) as f64, "Page Up, Page Down", FIELD, |v| Action::SliceAt(v.round() as i32));
-            let width = zones::col(ui, 1);
+            let width = zones::col(1);
             if ui.add_sized([width, ui.text_style_height(&TextStyle::Body) + 8.0], egui::Button::new("OFF")).on_hover_text("The whole model again").clicked() {
                 shown.clicked.push(Action::Slice(None));
             }
@@ -643,7 +643,7 @@ fn tool_tip(tool: Tool, key: Option<char>) -> String {
 }
 
 /// The tools in a row: their words, lit the one in hand, each its key.
-fn tools(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+fn tools(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
     let list = Tool::of(ed.scope, ed.layer);
     if list.is_empty() {
         return;
@@ -665,7 +665,7 @@ fn tools(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
 /// on 1 to 9 and 0, then the others' (a model's colour no voxel has any
 /// more: a right click takes it out); every colour, the held one's code;
 /// its material as one row.
-fn colours(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+fn colours(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
     let (mut own, all) = ed.colours();
     // A model's colors keep their numbers: the file's palette order (a new
     // color the next number; only taking one out renumbers), the frame's
@@ -718,7 +718,7 @@ fn colours(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
     row(ui, "HELD", "The color held: a click for every color", |ui| {
         let mut c = ed.colour;
         // On the first column, its code on the next.
-        ui.spacing_mut().interact_size.x = zones::col(ui, 1);
+        ui.spacing_mut().interact_size.x = zones::col(1);
         if egui::color_picker::color_edit_button_srgb(ui, &mut c).on_hover_text("Every color").changed() {
             shown.clicked.push(Action::Colour(c));
         }
@@ -729,7 +729,7 @@ fn colours(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
 
 /// The held colour's material in a model, as one row: GLASS, METAL, ROUGH
 /// (of metal or glass), GLOW, each 0 to 1.
-fn material(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+fn material(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
     let Some(m) = ed.material() else { return };
     let now = super::frames::words(m);
     let mirrors = m.metal != 0 || m.rgba[3] < 255;
@@ -740,13 +740,13 @@ fn material(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
         let words = super::frames::WORDS;
         // (The width taken in the row: inside `add_enabled_ui` the room
         // left is the child's.)
-        let field = |ui: &mut egui::Ui, shown: &mut Shown, i: usize, width: f32| {
+        let field = |ui: &mut egui::Ui, shown: &mut PanelsDrawn, i: usize, width: f32| {
             ui.add_enabled_ui(i != 2 || mirrors, |ui| {
                 zones::number(ui, shown, "", None, (now[i] as f64 * 100.0).round() / 100.0, 2, 0.01, 0.0..=1.0, &format!("{}: {} (of the color held, every voxel of it)", words[i], tips[i]), width, |v| Action::Material(i as u8, v as f32));
             });
         };
         row(ui, words[a], tips[a], |ui| {
-            let width = zones::col(ui, 1);
+            let width = zones::col(1);
             field(ui, shown, a, width);
             zones::cell_word(ui, words[b], tips[b]);
             field(ui, shown, b, width);
@@ -757,7 +757,7 @@ fn material(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
 /// A colour to click, its digit on it (a key) if it has one.
 /// A color's menu (a right click on its swatch): REPLACE WITH HELD, and
 /// REMOVE for a model's color no voxel has.
-fn swatch_menu(r: &egui::Response, ed: &Editor, c: [u8; 3], shown: &mut Shown) {
+fn swatch_menu(r: &egui::Response, ed: &Editor, c: [u8; 3], shown: &mut PanelsDrawn) {
     r.context_menu(|ui| {
         let held = c == ed.colour;
         let b = ui.add_enabled(!held, egui::Button::new("REPLACE WITH HELD"));
@@ -804,7 +804,7 @@ fn swatch(ui: &mut egui::Ui, c: [u8; 3], size: f32, chosen: bool, digit: Option<
 }
 
 /// What the block shown or held is to the game, to choose.
-fn kind(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+fn kind(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
     let Some(now) = ed.kind() else { return };
     egui::ComboBox::from_id_salt("kind").selected_text(now.name().to_uppercase()).show_ui(ui, |ui| {
         for k in Kind::ALL {
@@ -816,7 +816,7 @@ fn kind(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
 }
 
 /// POSE: the pose as Lua (`frame:model`'s pose table), COPY and RESET.
-fn pose(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+fn pose(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
     let lua = ed.pose_lua();
     ui.label(RichText::new("POSE").color(TEXT));
     ui.add(egui::Label::new(RichText::new(&lua).monospace().small().color(if ed.rigging.pose.is_empty() { QUIET } else { TEXT })).wrap()).on_hover_text("frame:model's pose: the parts by name, their rotation, pitch and roll in degrees");
@@ -835,7 +835,7 @@ fn pose(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
 /// The chosen part: its name, PARENT (a menu of the parts, or as the rules
 /// find it) and JOINT (where it turns, by halves of a voxel; or as the
 /// rules find it).
-fn rig(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, p: usize, shown: &mut Shown) {
+fn rig(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, p: usize, shown: &mut PanelsDrawn) {
     let part = &figure.parts()[p];
     ui.label(RichText::new(format!("PART {}", part.name.to_uppercase())).color(TEXT));
     let by_hand = part.hung == crate::vox::Hung::ByHand;
@@ -922,7 +922,7 @@ fn rig(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, p: usize, shown: &mut Sh
 
 /// A level of blocks: the block held (its picture, kind, turns, OPEN, COPY,
 /// REMOVE) or the kind held, and the tools.
-fn level(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thumbs, shown: &mut Shown) {
+fn level(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, thumbs: &mut Thumbs, shown: &mut PanelsDrawn) {
     if ed.layer == Layer::Things {
         if let Some(kind) = &ed.held_kind {
             ui.label(RichText::new(format!("HELD {}", kind.to_uppercase())).color(TEXT));
@@ -1054,7 +1054,7 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<zones::Entry> {
 
 /// The tileset's tiles (+ BLOCK) as pictures over the view, and EMPTY; a
 /// click makes a block of one.
-fn tiles(ui: &mut egui::Ui, ed: &Editor, free: Rect, thumbs: &mut Thumbs, shown: &mut Shown) {
+fn tiles(ui: &mut egui::Ui, ed: &Editor, free: Rect, thumbs: &mut Thumbs, shown: &mut PanelsDrawn) {
     let width = (free.width() - 80.0).clamp(300.0, 760.0);
     let at = Pos2::new(free.center().x - width / 2.0, free.top() + 24.0);
     let area = egui::Area::new(egui::Id::unique("shaping tiles")).order(egui::Order::Foreground).fixed_pos(at).show(ui.ctx(), |ui| {

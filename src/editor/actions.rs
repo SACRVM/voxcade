@@ -105,16 +105,12 @@ pub enum Action {
     Symmetry,
     /// FIGURE: a part chosen in the list to shape and rig (its place among
     /// the parts; chosen again, none: `Back` too), left out of the picture
-    /// or shown again, every part shown again. The chosen part's parent:
-    /// the next part clicked (CHOOSE), or as the rules find it; its joint
-    /// moved half a voxel along an axis (0 x, 1 y, 2 z; the sign the way),
-    /// or where the rules find it.
+    /// or shown again, every part shown again. The chosen part's parent
+    /// and joint where the rules find them.
     Part(usize),
     Hide(usize),
     ShowAll,
-    PickParent,
     ParentWorkedOut,
-    Joint(u8, i8),
     JointWorkedOut,
     /// The held colour's material: one of its words (`frames::WORDS`) set.
     Material(u8, f32),
@@ -432,13 +428,7 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::HideOthers(p) => ed.hide_other_parts(p),
         Action::TakeFile => ed.take_file(),
         Action::ShowAll => ed.show_all_parts(),
-        Action::PickParent => ed.rigging.picking_parent = !ed.rigging.picking_parent,
         Action::ParentWorkedOut => ed.set_parent(None),
-        Action::Joint(axis, way) => {
-            let mut by = Vec3::ZERO;
-            by[axis.min(2) as usize] = 0.5 * way.signum() as f32;
-            ed.move_joint(by);
-        }
         Action::JointWorkedOut => ed.set_joint(None),
         Action::Material(which, v) => {
             if let Some(m) = ed.material() {

@@ -63,10 +63,8 @@ pub fn run<G: Game>(dir: &Path, level: Option<&str>, block: Option<&str>, things
         }
         // Drawn only after something happened (or when its panels ask):
         // the editor sits still otherwise.
-        let first = match windows.iter().filter_map(EditorWindow::wakes_at).min() {
-            None => Some(events.wait_event()),
-            Some(at) => events.wait_event_timeout(at.saturating_duration_since(Instant::now()).max(Duration::from_millis(1))),
-        };
+        let at = windows.iter().map(EditorWindow::wakes_at).min().unwrap_or_else(Instant::now);
+        let first = events.wait_event_timeout(at.saturating_duration_since(Instant::now()).max(Duration::from_millis(1)));
         for event in first.into_iter().chain(events.poll_iter().collect::<Vec<_>>()) {
             let shift = shift_held(&events);
             // The left button let go: every other window's drag still open
@@ -330,14 +328,15 @@ impl EditorWindow {
         }
     }
 
-    /// When it wants to draw next (None: only after an event of its own).
-    pub fn wakes_at(&self) -> Option<Instant> {
+    /// When it wants to draw next: at once when dirty, else when its
+    /// panels ask or the disk is to be looked at again.
+    pub fn wakes_at(&self) -> Instant {
         // A drag open with the button found up: soon, to end it.
         if let Some(since) = self.view.up_since {
-            return Some(since + LOST_RELEASE);
+            return since + LOST_RELEASE;
         }
         let look = self.looked + LOOK_EVERY;
-        if self.dirty { Some(Instant::now()) } else { Some(self.repaint_at.map_or(look, |r| r.min(look))) }
+        if self.dirty { Instant::now() } else { self.repaint_at.map_or(look, |r| r.min(look)) }
     }
 
     /// Its window's SDL id: the events that are its.
@@ -663,7 +662,7 @@ impl EditorWindow {
         // The panels first: what was clicked there acts before the 3D view
         // is drawn.
         let raw = input.take(size, scale, density);
-        let mut drawn = panels::Shown::default();
+        let mut drawn = panels::PanelsDrawn::default();
         let marker = self.marker.map(|(x, y)| input.point(x, y));
         // A figure's parts as its frames stand now (a stroke, a step back),
         // the view kept on it; the pieces' models, a new one's too.
@@ -809,7 +808,6 @@ fn key_down(ed: &mut Editor, view: &mut View, keys: &[(char, view::Action)], key
         Keycode::Delete if matches!(ed.scope, Scope::Block(_)) || (ed.scope == Scope::Level && ed.layer == Layer::Blocks) => view::act(ed, view, view::Action::Delete),
         Keycode::Z if ctrl => ed.undo(),
         Keycode::Y if ctrl => ed.redo(),
-        // A model's frames, one by one.
         // SLICE's layer, a voxel at a time.
         Keycode::PageUp if ed.slice.is_some() => {
             let at = ed.slice.as_ref().map_or(0, |s| s.at);
@@ -819,6 +817,7 @@ fn key_down(ed: &mut Editor, view: &mut View, keys: &[(char, view::Action)], key
             let at = ed.slice.as_ref().map_or(0, |s| s.at);
             ed.set_slice_at(at - 1);
         }
+        // A model's frames, one by one.
         Keycode::Left => ed.step_frame(-1),
         Keycode::Right => ed.step_frame(1),
         Keycode::Escape => {
@@ -1217,3 +1216,6 @@ impl<'a> Here<'a> {
         }
     }
 }
+
+#[cfg(test)]
+pub(super) mod tests;

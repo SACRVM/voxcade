@@ -382,7 +382,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     let ctx = egui::Context::default();
     crate::gui::style(&ctx);
     let mut painter = crate::gui::Painter::new(canvas.gpu().0, wgpu::TextureFormat::Rgba8Unorm, true);
-    let (mut input, mut thumbs, mut drawn) = (crate::gui::input::Input::default(), panels::Thumbs::default(), panels::Shown::default());
+    let (mut input, mut thumbs, mut drawn) = (crate::gui::input::Input::default(), panels::Thumbs::default(), panels::PanelsDrawn::default());
     let mut last = None;
     // With --held or --stamp twice: the shape set, then all drawn again.
     let again = opts.stamp || opts.held.is_some() || opts.menu.is_some() || opts.hover.is_some() || opts.click.is_some() || opts.marquee.is_some();
@@ -903,5 +903,19 @@ mod tests {
         let opts = ShotOptions { level: Some("levels/01_hall.toml".into()), scatter: vec![1], dry: true, ..Default::default() };
         let e = scatter_level::<crate::Voxcade>(Path::new("games/voxkeep"), &opts).unwrap_err();
         assert!(format!("{e:#}").contains("--scatter 1: no scatter rule 1 that sets pieces: the level has no scatter rules"), "{e:#}");
+    }
+
+    /// `--joint X,Y,Z` (with `--part`) sets the joint from the pivot, as
+    /// its help, the file and the printed tree say: the tree then prints
+    /// those numbers (it once added the figure's low corner).
+    #[test]
+    fn the_joint_flag_is_from_the_pivot() {
+        let (mut win, _dir) = crate::editor::window::tests::owners_like("joint-flag");
+        let opts = ShotOptions { part: Some("nose".into()), joint: Some(glam::Vec3::new(1.0, -3.0, 9.5)), ..Default::default() };
+        choose_part(&mut win.ed, &mut win.view, &opts).unwrap();
+        let figure = win.ed.figure.as_ref().unwrap();
+        let p = figure.parts().iter().position(|p| p.name == "nose").unwrap();
+        assert_eq!(figure.file_joint(p), glam::Vec3::new(1.0, -3.0, 9.5));
+        assert!(figure.tree_lines().iter().any(|l| l.contains("nose on head, turning at 1, -3, 9.5")), "{:?}", figure.tree_lines());
     }
 }

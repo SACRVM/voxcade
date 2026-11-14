@@ -6,14 +6,7 @@ use super::*;
 impl Editor {
     /// Takes the last step back.
     pub fn undo(&mut self) {
-        self.release();
-        self.forms.fresh = None;
-        self.selecting.selection = None;
-        self.history.tuning = None;
-        self.pieces.tuned = None;
-        // Another program's change first: then there is nothing to take
-        // back (`look_at_disk`).
-        self.look_at_disk();
+        self.before_going();
         if let Some(step) = self.history.past.pop()
             && self.go(&step, false)
         {
@@ -23,17 +16,25 @@ impl Editor {
 
     /// Takes the last step taken back again.
     pub fn redo(&mut self) {
+        self.before_going();
+        if let Some(step) = self.history.future.pop()
+            && self.go(&step, true)
+        {
+            self.history.past.push(step);
+        }
+    }
+
+    /// What UNDO and REDO end first: the stroke, the fresh shape, the
+    /// selection, the steps a setting would join; and another program's
+    /// change is read first (then there is nothing to take back,
+    /// `look_at_disk`).
+    fn before_going(&mut self) {
         self.release();
         self.forms.fresh = None;
         self.selecting.selection = None;
         self.history.tuning = None;
         self.pieces.tuned = None;
         self.look_at_disk();
-        if let Some(step) = self.history.future.pop()
-            && self.go(&step, true)
-        {
-            self.history.past.push(step);
-        }
     }
 
     /// A step taken back or again, written; whether it still stands (the

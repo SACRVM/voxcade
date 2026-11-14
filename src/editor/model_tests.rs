@@ -799,7 +799,7 @@ fn the_size_of_a_level_of_blocks_grows_and_is_cut_on_any_side() {
     ed.undo();
     assert_eq!(ed.level, start, "UNDO: the block again, the gem where it stood");
     // A cut alone: one step.
-    ed.resize_level(IVec3::new(2, 2, 2), [false, true, true]);
+    ed.set_field(Field::LevelSize(0), 2.0);
     assert_eq!((ed.level.size.x, ed.level.cell(IVec3::ZERO).block, ed.steps()), (2, 0, 2));
     ed.undo();
     assert_eq!(ed.level, start);

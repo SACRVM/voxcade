@@ -20,11 +20,11 @@
 use egui::{Color32, Pos2, Rect, RichText, TextStyle, Vec2};
 use glam::IVec3;
 
-use super::background::Marks;
+use super::background::MarkColors;
 use super::handles::{self, Grip, What};
 use super::model::room::{self, Field, Item};
 use super::model::{Editor, Layer};
-use super::panels::{Shown, Thumbs};
+use super::panels::{PanelsDrawn, Thumbs};
 use super::view::{Action, Figures, MenuOn, View, key_of};
 use super::zones::{self, FIELD, LABEL, Sort, keyed, rgb, row, small};
 use crate::grid::Way;
@@ -39,7 +39,7 @@ const FILTER_FROM: usize = 15;
 /// The pieces' panels: the top bar, the outliner, the inspector, and over
 /// the view the buttons at the chosen one, a menu if one is open and ADD
 /// MODEL's pictures. Where the view's room is (`shown.free`).
-pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs: &mut Thumbs, shown: &mut Shown) {
+pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs: &mut Thumbs, shown: &mut PanelsDrawn) {
     let free = zones::layout(ui, shown, |ui, shown| top_bar(ui, ed, view, shown), |ui, shown| outliner(ui, ed, view, thumbs, shown), |ui, shown| inspector(ui, ed, view, figures, shown));
     if let Some(m) = &ed.message {
         zones::mistake(ui, free, m, shown);
@@ -57,7 +57,7 @@ pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
 
 /// The top bar: the level open (and in a level of blocks the three layers),
 /// ADD, UNDO, REDO; on the right GAME VIEW, LIGHTS, LEVEL.
-fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut Shown) {
+fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut PanelsDrawn) {
     {
         let name = std::path::Path::new(&ed.file).file_stem().map_or(String::new(), |s| s.to_string_lossy().into_owned());
         ui.label(RichText::new(name.to_uppercase()).color(TEXT)).on_hover_text(&ed.file);
@@ -154,7 +154,7 @@ fn what_of(ed: &Editor, item: Item) -> String {
 
 /// One row of the outliner: the item's sign, its name, its light's colour
 /// at the end; chosen, marked.
-fn outline_row(ui: &mut egui::Ui, ed: &Editor, item: Item, chosen: bool, shown: &mut Shown) -> egui::Response {
+fn outline_row(ui: &mut egui::Ui, ed: &Editor, item: Item, chosen: bool, shown: &mut PanelsDrawn) -> egui::Response {
     let (label, named) = ed.label_of(item);
     let light = match item {
         Item::Thing(i) => ed.level.things[i].lights.first().map(|l| rgb(bytes_of(l.color.as_deref()))),
@@ -174,7 +174,7 @@ fn outline_row(ui: &mut egui::Ui, ed: &Editor, item: Item, chosen: bool, shown: 
 
 /// The outliner: the three groups with their counts, each folding at its
 /// heading; a field to find by name when there are many; one scroll.
-fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, shown: &mut Shown) {
+fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, shown: &mut PanelsDrawn) {
     if ed.among_land() {
         return land_outliner(ui, ed, thumbs, shown);
     }
@@ -238,14 +238,14 @@ fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, sh
 /// A number field of the level (`zones::number`): its value set as `set`
 /// (degrees to a tenth, voxels and hundredths whole).
 #[allow(clippy::too_many_arguments)]
-fn field(ui: &mut egui::Ui, shown: &mut Shown, letter: &str, axis: Option<usize>, value: f64, set: Field, speed: f64, range: std::ops::RangeInclusive<f64>, tip: &str, width: f32) {
+fn field(ui: &mut egui::Ui, shown: &mut PanelsDrawn, letter: &str, axis: Option<usize>, value: f64, set: Field, speed: f64, range: std::ops::RangeInclusive<f64>, tip: &str, width: f32) {
     let decimals = if matches!(set, Field::Turn | Field::Pitch | Field::Roll | Field::SunFrom | Field::SunHeight) { 1 } else { 0 };
     zones::number(ui, shown, letter, axis, value, decimals, speed, range, tip, width, |v| Action::Set(set, v));
 }
 
 /// The inspector: the chosen one (or the level, with LEVEL or nothing
 /// chosen).
-fn inspector(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, shown: &mut Shown) {
+fn inspector(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, shown: &mut PanelsDrawn) {
     if ed.among_land() && !view.level_settings {
         return land(ui, ed, shown);
     }
@@ -258,7 +258,7 @@ fn inspector(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, sho
 /// The head: the name to type over (Enter keeps it, Escape leaves it; a
 /// name refused says why under it), and quiet under it what it is, a
 /// model's file with EDIT.
-fn head(ui: &mut egui::Ui, ed: &Editor, view: &View, item: Item, shown: &mut Shown) {
+fn head(ui: &mut egui::Ui, ed: &Editor, view: &View, item: Item, shown: &mut PanelsDrawn) {
     let id = egui::Id::unique(("stage name", format!("{item:?}")));
     let (label, named) = ed.label_of(item);
     let now = if named { label.clone() } else { String::new() };
@@ -330,7 +330,7 @@ fn head(ui: &mut egui::Ui, ed: &Editor, view: &View, item: Item, shown: &mut Sho
 }
 
 /// POSITION: three fields, X, Y, Z (an area's low corner).
-fn position(ui: &mut egui::Ui, ed: &Editor, item: Item, shown: &mut Shown) {
+fn position(ui: &mut egui::Ui, ed: &Editor, item: Item, shown: &mut PanelsDrawn) {
     let at = ed.at_of(item).unwrap_or_default();
     let v = ed.level.voxels();
     row(ui, "POSITION", "Where it stands, in voxels: X across, Y in depth, Z up. Or drag its arrows.", |ui| {
@@ -345,7 +345,7 @@ fn position(ui: &mut egui::Ui, ed: &Editor, item: Item, shown: &mut Shown) {
 }
 
 /// The chosen one's rows.
-fn chosen(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, item: Item, shown: &mut Shown) {
+fn chosen(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, item: Item, shown: &mut PanelsDrawn) {
     head(ui, ed, view, item, shown);
     ui.add_space(2.0);
     position(ui, ed, item, shown);
@@ -392,10 +392,10 @@ fn chosen(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, item: 
 }
 
 /// A light's colour (the picker on a click), its radius.
-fn light_controls(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, radius: f32, shown: &mut Shown) {
+fn light_controls(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, radius: f32, shown: &mut PanelsDrawn) {
     let mut c = bytes_of(l.color.as_deref());
     // The colour on the first column, RADIUS on the other two.
-    ui.spacing_mut().interact_size.x = zones::col(ui, 1);
+    ui.spacing_mut().interact_size.x = zones::col(1);
     if egui::color_picker::color_edit_button_srgb(ui, &mut c).on_hover_text("Its color").changed() {
         shown.clicked.push(Action::LightColour(k as u8, c));
     }
@@ -404,7 +404,7 @@ fn light_controls(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, radi
 
 /// A piece's rows: ROTATE, SOLID, SHADOW ONLY (and LIGHT + without one
 /// or it), its lights.
-fn piece_rows(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, t: &crate::grid::Thing, shown: &mut Shown) {
+fn piece_rows(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, t: &crate::grid::Thing, shown: &mut PanelsDrawn) {
     // On the grid (or solid) the turns step by quarters.
     let quarters = !ed.pieces.free_turns || t.solid;
     let speed = if quarters { 2.0 } else { 0.5 };
@@ -469,7 +469,7 @@ fn piece_rows(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, t: &crate::grid
                 shown.clicked.push(Action::ChooseLight(if chosen { None } else { Some(k as u8) }));
             }
             // RADIUS and × on the last two columns.
-            let radius = zones::col(ui, 2) - REMOVE_WIDTH - 4.0;
+            let radius = zones::col(2) - REMOVE_WIDTH - 4.0;
             light_controls(ui, l, k, radius, shown);
             if ui.add_sized([REMOVE_WIDTH, ui.text_style_height(&TextStyle::Body) + 8.0], egui::Button::new("×")).on_hover_text("Remove this light (UNDO brings it back)").clicked() {
                 shown.clicked.push(Action::RemoveLight(k as u8));
@@ -488,7 +488,7 @@ fn piece_rows(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, t: &crate::grid
 
 /// LEVEL: its size, its daylight (as the game's, or its own: the sun,
 /// its colour and the sky's, the light everywhere and the shadows).
-fn level(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+fn level(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
     ui.label(RichText::new("LEVEL").color(TEXT)).on_hover_text(&ed.file);
     let s = ed.level.size;
     if ed.level.has_grid() {
@@ -499,7 +499,7 @@ fn level(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
         });
         row(ui, "ANCHOR", "The side that stays when SIZE changes", |ui| {
             for (a, sides) in [["LEFT", "RIGHT"], ["FRONT", "BACK"], ["BOTTOM", "TOP"]].into_iter().enumerate() {
-                let width = zones::col(ui, 1);
+                let width = zones::col(1);
                 let word = sides[!ed.anchor[a] as usize];
                 if ui.add_sized([width, ui.text_style_height(&TextStyle::Body) + 8.0], egui::Button::new(RichText::new(word).small())).on_hover_text(format!("{word} stays; a click: {}", sides[ed.anchor[a] as usize])).clicked() {
                     shown.clicked.push(Action::Anchor(a as u8));
@@ -571,7 +571,7 @@ pub fn scatter_text(r: &crate::terrain::Scatter) -> String {
 /// A condition of a material or a scatter rule: its word (a click switches
 /// it on or off: `switch`), its number where on (`set`), on half a row.
 #[allow(clippy::too_many_arguments)]
-fn condition(ui: &mut egui::Ui, shown: &mut Shown, word: &str, value: Option<f64>, decimals: usize, tip: &str, switch: Action, set: impl FnOnce(f64) -> Action) {
+fn condition(ui: &mut egui::Ui, shown: &mut PanelsDrawn, word: &str, value: Option<f64>, decimals: usize, tip: &str, switch: Action, set: impl FnOnce(f64) -> Action) {
     let on = value.is_some();
     let (rect, response) = ui.allocate_exact_size(Vec2::new(44.0, 22.0), egui::Sense::click());
     let colour = if on { ACCENT } else { QUIET };
@@ -617,7 +617,7 @@ fn swatches(ui: &mut egui::Ui, colors: &[[u8; 3]]) {
 /// paints the rest) and LAYERS (from the top down); + at a heading adds,
 /// × takes out, a row dragged onto another moves it. The level's things
 /// are not listed here (they stay drawn).
-fn land_outliner(ui: &mut egui::Ui, ed: &Editor, thumbs: &mut Thumbs, shown: &mut Shown) {
+fn land_outliner(ui: &mut egui::Ui, ed: &Editor, thumbs: &mut Thumbs, shown: &mut PanelsDrawn) {
     use super::model::land::{LandField, LandRow};
     let Some(t) = ed.terrain() else { return };
     egui::ScrollArea::vertical().id_salt("land outliner").auto_shrink([false, false]).show(ui, |ui| {
@@ -720,7 +720,7 @@ fn land_outliner(ui: &mut egui::Ui, ed: &Editor, thumbs: &mut Thumbs, shown: &mu
 /// TERRAIN's inspector: the tool and its brush, the chosen points' height
 /// and shape, the terrain's numbers, and the fields of the material chosen
 /// in the outliner.
-fn land(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
+fn land(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
     use super::model::land::{LandField, LandRow, LandTool};
     use super::model::selection::SelectMode;
     use crate::terrain::Shape;
@@ -756,7 +756,7 @@ fn land(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
             (1, Some(p)) => format!("{} {}", p.x, p.y),
             (n, _) => format!("{n} SEL"),
         };
-        let (rect, _) = ui.allocate_exact_size(Vec2::new(zones::col(ui, 1), 20.0), egui::Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(Vec2::new(zones::col(1), 20.0), egui::Sense::hover());
         ui.painter().text(rect.left_center(), egui::Align2::LEFT_CENTER, word, TextStyle::Body.resolve(ui.style()), if chosen.is_empty() { QUIET } else { TEXT });
         if let Some(i) = first {
             zones::number(ui, shown, "HEIGHT", None, t.heights[i] as f64, 0, 0.3, 0.0..=crate::terrain::HIGHEST as f64, "The chosen points' height over the land's base, voxels", zones::FIELD2, |v| Action::LandSet(LandField::Height, v));
@@ -856,7 +856,7 @@ fn land(ui: &mut egui::Ui, ed: &Editor, shown: &mut Shown) {
         row(ui, "MODEL", "What it sets down (a game's model)", |ui| {
             let choices = ed.model_choices();
             let now = r.models.join(", ");
-            egui::ComboBox::from_id_salt(("scatter model", k)).selected_text(RichText::new(&now).small()).width(zones::col(ui, 3)).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt(("scatter model", k)).selected_text(RichText::new(&now).small()).width(zones::col(3)).show_ui(ui, |ui| {
                 for (n, c) in choices.iter().enumerate() {
                     if ui.selectable_label(r.models.len() == 1 && r.models[0] == *c, c).clicked() {
                         shown.clicked.push(Action::ScatterModel(kk, n as u16));
@@ -944,9 +944,9 @@ pub fn paint(painter: &egui::Painter, h: &handles::Handles, vp: glam::Mat4, scre
         let a = s.grip.axis();
         let on = lit == Some(s.grip) && !s.dim;
         // Seen end on: quiet, it does not grab.
-        // (Deeper on a light BACKGROUND: `background::Marks`.)
+        // (Deeper on a light BACKGROUND: `background::MarkColors`.)
         let marks = super::zones::marks_of(painter.ctx());
-        let (plain, lit_c) = (Marks::colour(marks.axis(a, false)), Marks::colour(marks.axis(a, true)));
+        let (plain, lit_c) = (MarkColors::colour(marks.axis(a, false)), MarkColors::colour(marks.axis(a, true)));
         let colour = if on { lit_c } else if s.dim { plain.gamma_multiply(0.3) } else { plain };
         match s.what {
             What::Ring => {
@@ -969,7 +969,7 @@ pub fn paint(painter: &egui::Painter, h: &handles::Handles, vp: glam::Mat4, scre
 
 /// The buttons at the chosen one, over its handles (`zones::bar_at`):
 /// MOVE or ROTATE, and what is done to it most, a word each.
-fn beside(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut Shown) {
+fn beside(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut PanelsDrawn) {
     let Some(item) = ed.pieces.chosen.filter(|_| ed.pieces.hanging.is_none() && ed.gripped().is_none() && ed.dragging().is_none() && !view.picker) else { return };
     let screen = ui.ctx().content_rect();
     let Some((h, vp, _)) = handles_on_screen(ed, view, screen) else { return };
@@ -1092,7 +1092,7 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<(String, Action, Option<&'st
 /// The open menu: a thing's (a right click on it, in the view or the
 /// outliner), empty floor's (what can be added there) or ADD's; each entry
 /// its key on the right.
-fn menu(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut Shown) {
+fn menu(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut PanelsDrawn) {
     let Some(m) = view.menu else { return };
     let at = match m.on {
         MenuOn::Add => ui.data(|d| d.get_temp(egui::Id::unique("stage add at"))).unwrap_or(free.min),
@@ -1111,7 +1111,7 @@ fn menu(ui: &mut egui::Ui, ed: &Editor, view: &View, free: Rect, shown: &mut Sho
 /// ADD MODEL: the game's models as pictures with their names, over the
 /// view; a field to find one by name when there are many; a click hangs
 /// one on the mouse (or sets it down at the spot a right click chose).
-fn picker(ui: &mut egui::Ui, ed: &Editor, free: Rect, thumbs: &mut Thumbs, shown: &mut Shown) {
+fn picker(ui: &mut egui::Ui, ed: &Editor, free: Rect, thumbs: &mut Thumbs, shown: &mut PanelsDrawn) {
     let choices = ed.model_choices();
     let width = (free.width() - 80.0).clamp(300.0, 760.0);
     let at = Pos2::new(free.center().x - width / 2.0, free.top() + 24.0);

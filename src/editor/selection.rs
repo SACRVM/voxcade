@@ -486,10 +486,7 @@ impl Editor {
     /// there, or (NEW) none selected.
     pub fn select_rect(&mut self, view_proj: glam::Mat4, size: glam::Vec2, from: glam::Vec2, to: glam::Vec2, mode: SelectMode, through: bool) {
         let all = self.selectable();
-        let place = |p: Vec3| -> Option<(glam::Vec2, f32)> {
-            let c = view_proj * p.extend(1.0);
-            (c.w > 1e-4).then(|| (glam::Vec2::new((c.x / c.w + 1.0) / 2.0 * size.x, (1.0 - c.y / c.w) / 2.0 * size.y), c.w))
-        };
+        let place = |p: Vec3| super::super::handles::project(view_proj, size, p);
         let placed: Vec<(Owner, [i32; 3], glam::Vec2, f32)> = all.iter().filter_map(|&(o, c, p)| place(p).map(|(s, w)| (o, c, s, w))).collect();
         // How big a voxel shows: a voxel's own width on the screen.
         let voxel = all.first().and_then(|&(_, _, p)| Some(place(p + Vec3::X)?.0.distance(place(p)?.0).max(place(p + Vec3::Z)?.0.distance(place(p)?.0)))).unwrap_or(4.0).max(1.0);

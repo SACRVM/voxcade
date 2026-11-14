@@ -223,13 +223,9 @@ impl Editor {
     pub fn back_to_level(&mut self) {
         self.release();
         if let Scope::Frame(_) | Scope::Figure = self.scope {
-            // Choosing a parent: no more; from a figure's part: the figure
-            // with none chosen.
-            if self.rigging.picking_parent {
-                self.rigging.picking_parent = false;
-            } else if self.figure.is_some() {
+            // From a figure's part: the figure with none chosen.
+            if self.figure.is_some() {
                 self.scope = Scope::Figure;
-                self.rigging.picking_parent = false;
                 self.sync_choice();
             }
             return;
@@ -315,23 +311,6 @@ impl Editor {
         }
         reframe(&mut self.level, IVec3::ZERO, old.max(c + 1));
         true
-    }
-
-    /// The grid `size` cells big, grown or cut on the side `anchor` does
-    /// not hold (true: the low side stays, it changes at the right, back,
-    /// top; false: there it stays, it changes at the left, front, bottom),
-    /// each way at least one cell and at most `MOST_CELLS`; the cells kept
-    /// where they stay, what is set down moved with them. One step (a cut
-    /// that loses blocks too: UNDO brings them back). LEVEL's SIZE fields
-    /// do it a number at a time (`set_field`).
-    pub fn resize_level(&mut self, size: IVec3, anchor: [bool; 3]) {
-        if !self.level.has_grid() {
-            return;
-        }
-        let size = size.clamp(IVec3::ONE, IVec3::splat(MOST_CELLS));
-        let old = self.level.size;
-        let lo = IVec3::from_array(std::array::from_fn(|a| if anchor[a] { 0 } else { old[a] - size[a] }));
-        self.change_level(|l| reframe(l, lo, size));
     }
 
     /// FILL among the level's blocks at a hit: the cells of the block

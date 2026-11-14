@@ -3,7 +3,7 @@
 //! what they hang on, each joint marked, and in plain words what is
 //! plainly wrong with the rig. A part chosen is shaped right there, the
 //! rest see-through round it, and its parent and joint may be set by hand
-//! (`Editor::set_parent`, `move_joint`; kept in the file). Which part
+//! (`Editor::set_parent`, `set_joint`; kept in the file). Which part
 //! hangs on which, and where it turns, are the game's rules
 //! (`vox::parts_of`), worked out afresh from the file as it would be
 //! saved now, so that what is shown is what the game does. A rig nobody
@@ -562,10 +562,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The chosen part's parent and joint set by hand: the parent the next
-    /// part clicked, the joint half a voxel a step; saved in the file,
-    /// read again the same; every step taken back and done again; a parent
-    /// that would make a ring refused, said why.
+    /// The chosen part's parent and joint set by hand (PARENT and JOINT):
+    /// saved in the file, read again the same; every step taken back and
+    /// done again; a parent that would make a ring refused, said why.
     #[test]
     fn a_parent_and_a_joint_are_set_by_hand_and_kept() {
         let dir = figure("rig");
@@ -576,12 +575,14 @@ mod tests {
         let was = on_disk(&file)["arm"].clone();
         assert_eq!((was.1.as_deref(), was.3), (Some("body"), false));
         act(&mut ed, &mut view, Action::Part(arm));
-        act(&mut ed, &mut view, Action::PickParent);
-        act(&mut ed, &mut view, Action::Part(head));
-        assert_eq!((ed.scope, ed.rigging.picking_parent), (Scope::Frame(2), false), "the arm still chosen");
-        act(&mut ed, &mut view, Action::Joint(2, 1));
-        act(&mut ed, &mut view, Action::Joint(2, 1));
-        act(&mut ed, &mut view, Action::Joint(0, -1));
+        act(&mut ed, &mut view, Action::ParentTo(Some(head as u16)));
+        assert_eq!(ed.scope, Scope::Frame(2), "the arm still chosen");
+        // The joint by halves along z, then x (from the pivot, as the file).
+        let joint = |ed: &Editor| ed.figure.as_ref().unwrap().file_joint(arm);
+        let j = (joint(&ed) * 2.0).round() / 2.0;
+        act(&mut ed, &mut view, Action::JointTo(2, j.z + 0.5));
+        act(&mut ed, &mut view, Action::JointTo(2, j.z + 1.0));
+        act(&mut ed, &mut view, Action::JointTo(0, j.x - 0.5));
         let set = on_disk(&file)["arm"].clone();
         let worked_out = ed.figure.as_ref().unwrap();
         assert_eq!(worked_out.parts()[arm].hung, Hung::ByHand);
@@ -601,8 +602,9 @@ mod tests {
         };
         assert_eq!(set.2, [on_head[0] - 0.5, on_head[1], on_head[2] + 1.0], "moved from where the rules put it");
         // Read again: the same figure (the file as the steps left it).
-        act(&mut ed, &mut view, Action::Joint(2, -1));
-        act(&mut ed, &mut view, Action::Joint(2, 1));
+        let j = joint(&ed);
+        act(&mut ed, &mut view, Action::JointTo(2, j.z - 0.5));
+        act(&mut ed, &mut view, Action::JointTo(2, j.z));
         let again = Editor::open_model(&dir, "figure.vvx").unwrap();
         assert_eq!(on_disk(&file)["arm"], set);
         assert_eq!(again.figure.as_ref().unwrap().parts()[arm].joint, ed.figure.as_ref().unwrap().parts()[arm].joint);
@@ -617,8 +619,7 @@ mod tests {
         assert_eq!(on_disk(&file)["arm"], set);
         // The head on the arm, which hangs on the head by hand: a ring.
         act(&mut ed, &mut view, Action::Part(head));
-        act(&mut ed, &mut view, Action::PickParent);
-        act(&mut ed, &mut view, Action::Part(arm));
+        act(&mut ed, &mut view, Action::ParentTo(Some(arm as u16)));
         assert!(ed.hint.as_deref().is_some_and(|h| h.contains("ring")), "{:?}", ed.hint);
         assert_eq!(on_disk(&file)["head"].1.as_deref(), Some("body"));
         // Given back to the rules.

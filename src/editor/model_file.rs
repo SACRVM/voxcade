@@ -49,14 +49,7 @@ impl Editor {
             return self.change_model_file(|m| m.size = m.tight_size());
         }
         let part = self.part_mode();
-        let mut bounds: Option<(IVec3, IVec3)> = None;
-        for (_, frame) in self.frames().iter().enumerate().filter(|&(k, _)| part.is_none_or(|f| f == k)) {
-            for k in (0..frame.voxels.len()).filter(|&k| frame.voxels[k] != 0) {
-                let p = frame.at(k);
-                bounds = Some(bounds.map_or((p, p), |(lo, hi)| (lo.min(p), hi.max(p))));
-            }
-        }
-        let Some((lo, hi)) = bounds else { return };
+        let Some((lo, hi)) = self.voxel_bounds(part) else { return };
         // Where the box shown moves to: the part's low corner, or the
         // smallest box about the pivot.
         let (shift, size) = match part {
@@ -83,6 +76,14 @@ impl Editor {
         });
     }
 
+    /// The lowest and highest voxel of the frames (`part`: of that frame
+    /// alone), in their boxes; None where they hold none.
+    fn voxel_bounds(&self, part: Option<usize>) -> Option<(IVec3, IVec3)> {
+        let frames = self.frames().iter().enumerate().filter(|&(k, _)| part.is_none_or(|f| f == k)).map(|(_, f)| f);
+        let cells = frames.flat_map(|f| (0..f.voxels.len()).filter(|&k| f.voxels[k] != 0).map(|k| f.at(k)));
+        cells.fold(None, |b, p| Some(b.map_or((p, p), |(lo, hi): (IVec3, IVec3)| (lo.min(p), hi.max(p)))))
+    }
+
     /// Whether TRIM has something to cut: the figure whole's box, a
     /// part's own box, a model of frames' box (about its pivot) larger
     /// than its voxels need. (A level's block keeps its N×N×N.)
@@ -91,14 +92,7 @@ impl Editor {
             Scope::Figure => self.model.as_ref().is_some_and(|m| !m.is_tight()),
             Scope::Frame(_) => {
                 let part = self.part_mode();
-                let mut bounds: Option<(IVec3, IVec3)> = None;
-                for (_, frame) in self.frames().iter().enumerate().filter(|&(k, _)| part.is_none_or(|f| f == k)) {
-                    for k in (0..frame.voxels.len()).filter(|&k| frame.voxels[k] != 0) {
-                        let p = frame.at(k);
-                        bounds = Some(bounds.map_or((p, p), |(lo, hi)| (lo.min(p), hi.max(p))));
-                    }
-                }
-                let Some((lo, hi)) = bounds else { return false };
+                let Some((lo, hi)) = self.voxel_bounds(part) else { return false };
                 match part {
                     Some(_) => lo != IVec3::ZERO || hi + 1 != self.grid(),
                     None => {

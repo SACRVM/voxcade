@@ -204,7 +204,7 @@ impl Shown {
     pub(super) fn room(&self, ed: &Editor, figures: &Figures, seen: Mat4, eye: Vec3, grid: IVec3) -> Vec<Instance> {
         let toward = eye - grid.as_vec3() / 2.0;
         let context = ed.context.as_ref().filter(|c| c.shown);
-        let (models, figure_box, seen_at, side) = (figures.1.len(), ed.figure_box(), seen.to_cols_array(), crate::render::see_through_side(toward));
+        let (models, figure_box, seen_at, side) = (figures.models.len(), ed.figure_box(), seen.to_cols_array(), crate::render::see_through_side(toward));
         let mut cache = self.room.borrow_mut();
         let same = cache.made_of.as_ref().is_some_and(|m| m.context.as_ref() == context && m.models == models && m.figure_box == figure_box && m.seen == seen_at);
         if !same {

@@ -1,8 +1,10 @@
-//! The editor's picture: the level or the open block in the engine's own
-//! light and shadows, seen from any side (an orbit around what is shown),
-//! and a few calm panels in the voxel UI: the tools on the right, the
-//! level's blocks (its kinds of things, or the block's colours) along the
-//! bottom. Words and pictures there are what the mouse clicks (`Spot`).
+//! The editor's view: the level, the open block, the model or the figure
+//! in the engine's own light and shadows, seen from any side (an orbit
+//! around what is shown). `View` holds the cameras, the pointer's state
+//! and what the panels have open; beside it what the mouse aims at
+//! (`aim.rs`), the world shown (`shown.rs`), how things and pieces look
+//! (`figures.rs`), what every click and key does (`actions.rs`), the
+//! picture (`picture.rs`) and the marks among the pieces (`marks.rs`).
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -625,8 +627,8 @@ impl View {
     }
 
     /// The marks over the view, as the background asks.
-    pub fn marks(&self, scope: Scope) -> super::background::Marks {
-        super::background::Marks::on(self.background(scope))
+    pub fn marks(&self, scope: Scope) -> super::background::MarkColors {
+        super::background::MarkColors::on(self.background(scope))
     }
 
     /// A figure's GAME VIEW: the game's camera (its turn, tilt, field of

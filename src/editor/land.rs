@@ -127,7 +127,7 @@ pub struct Land {
     /// (however far): the points round it are drawn, not the rest.
     pub hover: Option<IVec2>,
     pub near: Option<IVec2>,
-    drag: Option<Drag>,
+    drag: Option<PointDrag>,
 }
 
 impl Default for Land {
@@ -140,7 +140,7 @@ impl Default for Land {
 /// were, where on the vertical through the point the pointer was then
 /// (POINTER's), FLATTEN's height, the point brushed last.
 #[derive(Clone, Debug)]
-struct Drag {
+struct PointDrag {
     grabbed: IVec2,
     from: Vec<i32>,
     start: Option<f32>,
@@ -168,6 +168,12 @@ pub fn falloff(d: f32, radius: i32) -> f32 {
     }
     let t = d / r;
     (1.0 - t * t) * (1.0 - t * t)
+}
+
+/// `v` to the nearest `1 / per` (tenths, hundredths), kept within `lo`
+/// and `hi`: how the terrain's numbers are written.
+fn stepped(v: f64, per: f64, lo: f64, hi: f64) -> f64 {
+    ((v * per).round() / per).clamp(lo, hi)
 }
 
 impl Editor {
@@ -292,12 +298,12 @@ impl Editor {
                 self.land.shape = shape;
                 self.history.stroke = Some(Step::Level(self.level_state(), self.level_state()));
                 let start = self.point_spot(p).and_then(|at| height_along(at, ray.0, ray.1));
-                self.land.drag = Some(Drag { grabbed: p, from, start, target: 0, last: None });
+                self.land.drag = Some(PointDrag { grabbed: p, from, start, target: 0, last: None });
             }
             (_, p) => {
                 let target = height;
                 self.history.stroke = Some(Step::Level(self.level_state(), self.level_state()));
-                self.land.drag = Some(Drag { grabbed: p.unwrap_or_default(), from, start: None, target, last: None });
+                self.land.drag = Some(PointDrag { grabbed: p.unwrap_or_default(), from, start: None, target, last: None });
                 if let Some(p) = p {
                     self.brush(p);
                 }
@@ -511,7 +517,7 @@ impl Editor {
                 }
                 LandField::Hard(k) => {
                     if let Some(l) = t.layers.get_mut(k as usize) {
-                        l.hard = ((v * 100.0).round() / 100.0).clamp(0.0, 1.0);
+                        l.hard = stepped(v, 100.0, 0.0, 1.0);
                     }
                 }
                 LandField::Patch(k) => {
@@ -521,15 +527,15 @@ impl Editor {
                 }
                 LandField::Blend(k) => {
                     if let Some(m) = t.materials.get_mut(k as usize) {
-                        let b = ((v * 10.0).round() / 10.0).clamp(0.0, 1000.0);
+                        let b = stepped(v, 10.0, 0.0, 1000.0);
                         m.blend = (b > 0.0).then_some(b);
                     }
                 }
                 LandField::Density(k) | LandField::Apart(k) | LandField::Sink(k) | LandField::ScAbove(k) | LandField::ScBelow(k) | LandField::ScSteeper(k) | LandField::ScFlatter(k) | LandField::ScBlend(k) => {
                     if let Some(r) = t.scatter.get_mut(k as usize) {
-                        let deg = ((v * 10.0).round() / 10.0).clamp(0.0, 89.9);
+                        let deg = stepped(v, 10.0, 0.0, 89.9);
                         match field {
-                            LandField::Density(_) => r.density = ((v * 100.0).round() / 100.0).clamp(0.0, 10_000.0),
+                            LandField::Density(_) => r.density = stepped(v, 100.0, 0.0, 10_000.0),
                             LandField::Apart(_) => r.apart = Some(whole.clamp(0, HIGHEST)),
                             LandField::Sink(_) => r.sink = Some(whole.clamp(0, HIGHEST)),
                             LandField::ScAbove(_) => r.above = Some(whole.clamp(-HIGHEST, HIGHEST)),
@@ -537,18 +543,18 @@ impl Editor {
                             LandField::ScSteeper(_) => r.steeper = Some(deg),
                             LandField::ScFlatter(_) => r.flatter = Some(deg),
                             _ => {
-                                let b = ((v * 10.0).round() / 10.0).clamp(0.0, 1000.0);
+                                let b = stepped(v, 10.0, 0.0, 1000.0);
                                 r.blend = (b > 0.0).then_some(b);
                             }
                         }
                     }
                 }
                 LandField::Terrace => t.terrace = Some(whole.clamp(1, HIGHEST)),
-                LandField::Dip => t.dip = Some(((v * 10.0).round() / 10.0).clamp(0.0, 45.0)),
+                LandField::Dip => t.dip = Some(stepped(v, 10.0, 0.0, 45.0)),
                 LandField::DipTo => t.dip_to = Some(v.round().rem_euclid(360.0)),
-                LandField::Fold => t.fold = Some(((v * 100.0).round() / 100.0).clamp(0.0, 1.0)),
-                LandField::Fault => t.fault = Some(((v * 100.0).round() / 100.0).clamp(0.0, 1.0)),
-                LandField::Rough => t.rough = Some(((v * 100.0).round() / 100.0).clamp(0.0, 1.0)),
+                LandField::Fold => t.fold = Some(stepped(v, 100.0, 0.0, 1.0)),
+                LandField::Fault => t.fault = Some(stepped(v, 100.0, 0.0, 1.0)),
+                LandField::Rough => t.rough = Some(stepped(v, 100.0, 0.0, 1.0)),
                 LandField::Above(k) | LandField::Below(k) | LandField::Depth(k) => {
                     if let Some(k) = m(k, t) {
                         let mat = &mut t.materials[k];
@@ -561,8 +567,7 @@ impl Editor {
                 }
                 LandField::Steeper(k) | LandField::Flatter(k) => {
                     if let Some(k) = m(k, t) {
-                        let deg = (v * 10.0).round() / 10.0;
-                        let deg = deg.clamp(0.0, 89.9);
+                        let deg = stepped(v, 10.0, 0.0, 89.9);
                         match field {
                             LandField::Steeper(_) => t.materials[k].steeper = Some(deg),
                             _ => t.materials[k].flatter = Some(deg),
@@ -571,7 +576,7 @@ impl Editor {
                 }
                 LandField::Grain(k) => {
                     if let Some(k) = m(k, t) {
-                        let g = ((v * 100.0).round() / 100.0).clamp(0.0, 1.0);
+                        let g = stepped(v, 100.0, 0.0, 1.0);
                         t.materials[k].grain = (g > 0.0).then_some(g);
                     }
                 }
