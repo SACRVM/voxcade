@@ -129,7 +129,7 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
         let left = std::fs::read_to_string(text).with_context(|| format!("--journal {}", text.display()))?;
         buffer::leave(dir, path, &scratch.join("memory.journal"), &left)?;
     }
-    let mut shell = Shell::new(dir, cfg, scratch.join("memory.toml"), console).with_sounds(brought);
+    let mut shell = Shell::new(dir, cfg, scratch.join("memory.toml"), console).with_sounds(brought).with_conf(crate::session::config::<G>);
     shell.pictures.animate = false;
     // (Not the person's editor background: shots look the same anywhere.)
     shell.pictures.own_background = false;

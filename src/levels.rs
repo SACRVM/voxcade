@@ -526,6 +526,17 @@ fn folder_files(game: &Files, world: &crate::config::WorldConfig) -> Vec<PathBuf
     files
 }
 
+/// For a list of the level files: which of `names` (the files of
+/// `levels/`, in the game's order) a run begins in and which is the game's
+/// own title. None where there is nothing to tell: one level, or settings
+/// that name no level (the game's own mistake says so).
+pub fn marked(cfg: &GameConfig, names: &[String]) -> (Option<usize>, Option<usize>) {
+    match start_in(cfg, names) {
+        Ok((start, title)) if names.len() > 1 => (Some(start), title),
+        _ => (None, None),
+    }
+}
+
 /// Where a run begins (`c.start`) and the game's own title
 /// (`c.title_screen.level`), by their places among `names` (the files of
 /// `levels/`): the start the level named, else the first that is not the

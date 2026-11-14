@@ -306,7 +306,7 @@ nearest; its replay `tests/two_ships`);
   heading that folds (arrow on the right, one level only), the whole row
   clicked, its rows in the order of what they show (case ignored, numbers
   as numbers, a folder not counting; the levels as the game plays them;
-  `Files::order`, `by_label`); a FILTER field above the headings
+  `Files::order`, `by_label`; the level a run begins in says "start" at its row's end, the game's own title "title", from `conf.lua` as it is saved, `list::Starts`); a FILTER field above the headings
   (Ctrl+P, the owner: "sortieren und ne suchfunktion"; names only, SEARCH
   does the files' insides; a heading counts its matches and the others
   hide, folds neither read nor written meanwhile, NOTHING FOUND, Enter

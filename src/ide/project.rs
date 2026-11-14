@@ -73,7 +73,7 @@ pub(super) fn project<G: Game>(window: &mut Window, dir: &Path, remote: bool) ->
     let bridge = bridge::Bridge::open(&bridge::lock_path(dir), dir, window.wake.clone()).map_err(|e| eprintln!("no MCP bridge: {e:#}")).ok();
     let console = Console::new(dir.to_path_buf(), Start::Shell, window.wake.clone());
     let brought = G::sounds(&cfg);
-    let mut shell = Shell::new(dir, cfg, memory::Memory::path_for(dir), console).with_journals(memory::Memory::journals_for(dir)).with_sounds(brought).with_prefs(prefs::Prefs::path()).with_output(output::Output::path_for(dir));
+    let mut shell = Shell::new(dir, cfg, memory::Memory::path_for(dir), console).with_journals(memory::Memory::journals_for(dir)).with_sounds(brought).with_conf(crate::session::config::<G>).with_prefs(prefs::Prefs::path()).with_output(output::Output::path_for(dir));
     if let Some(said) = window.note.take() {
         shell.note(said);
     }

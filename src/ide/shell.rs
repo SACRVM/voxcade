@@ -114,6 +114,9 @@ pub struct Shell {
     journals: PathBuf,
     /// The game's settings (the light and camera previews use).
     cfg: crate::config::GameConfig,
+    /// The levels a run begins in and the game's own title is (`c.start`,
+    /// `c.title_screen.level`): their rows say so.
+    starts: list::Starts,
     /// The picture of a model, block or level open.
     pub pictures: Pictures,
     /// The game being played (the IDE runs it, `play.rs`), and what the
@@ -394,6 +397,7 @@ impl Shell {
             deleted_dir: crate::settings::kept_for(dir, crate::settings::Kept::IdeDeleted),
             journals,
             cfg,
+            starts: list::Starts::default(),
             pictures: Pictures { own_background: true, preview: None, model_text: false, spare: None, retired: Vec::new(), animate: true },
             stage: None,
             asks: Vec::new(),
@@ -413,6 +417,14 @@ impl Shell {
 
     /// The sounds the game's code brings (`Game::sounds`), listed under
     /// SOUNDS for the ones the game has no file for.
+    /// With the way `conf.lua` is read (the game's: its kit's sections),
+    /// so the list's marks follow the file as it is saved.
+    pub fn with_conf(mut self, read: fn(&Path) -> anyhow::Result<crate::config::GameConfig>) -> Self {
+        self.starts.read = Some(read);
+        self.starts.look(&self.dir, &self.cfg, &self.files);
+        self
+    }
+
     pub fn with_sounds(mut self, mut brought: Vec<(&'static str, SoundDef)>) -> Self {
         // In the order of the list's rows, below the game's own sounds.
         brought.sort_by(|(a, _), (b, _)| super::files::by_label(a, b));
@@ -541,6 +553,7 @@ impl Shell {
         let mut changed = built;
         if now >= self.polling.list_at {
             changed |= self.look_at_folder();
+            changed |= self.starts.look(&self.dir, &self.cfg, &self.files);
             self.polling.list_at = now + LIST_EVERY;
         }
         let to_list = self.polling.list_at.saturating_duration_since(now).min(wait.unwrap_or(LIST_EVERY));

@@ -252,7 +252,7 @@ impl Shell {
                             // The scripts by their paths; assets say what
                             // they are by their group (`Files::label`).
                             let on = open.as_deref() == Some(f.as_str());
-                            let response = crate::gui::row(ui, self.files.label(sort, f), TextStyle::Body, if on { ACCENT } else { TEXT }, on, None);
+                            let response = crate::gui::row(ui, self.files.label(sort, f), TextStyle::Body, if on { ACCENT } else { TEXT }, on, self.starts.of(f));
                             if response.clicked() {
                                 clicked = Some(f.clone());
                             }
@@ -356,5 +356,91 @@ impl Shell {
                 }
             }
         }
+    }
+}
+
+/// Which level a run begins in and which is the game's own title, said at
+/// their rows' right ends: from `conf.lua` as it lies in the folder, read
+/// anew when it or the levels' names change (looked at with the list).
+#[derive(Default)]
+pub(super) struct Starts {
+    /// How the game's `conf.lua` is read (`Shell::with_conf`); without it
+    /// the settings the IDE opened with tell.
+    pub read: Option<fn(&std::path::Path) -> anyhow::Result<crate::config::GameConfig>>,
+    /// What was looked at last: `conf.lua`'s text and the level files.
+    seen: Option<(Option<blake3::Hash>, Vec<String>)>,
+    start: Option<String>,
+    title: Option<String>,
+}
+
+impl Starts {
+    /// Looks at `conf.lua` and the levels; whether a mark moved.
+    pub fn look(&mut self, dir: &std::path::Path, opened: &crate::config::GameConfig, files: &Files) -> bool {
+        let levels: Vec<String> = files.headings().find(|(sort, _)| *sort == "Levels").map(|(_, f)| f.iter().filter(|f| f.starts_with("levels/")).cloned().collect()).unwrap_or_default();
+        let conf = std::fs::read(dir.join("conf.lua")).ok().map(|b| blake3::hash(&b));
+        if self.seen.as_ref().is_some_and(|(c, l)| *c == conf && *l == levels) {
+            return false;
+        }
+        // A conf.lua that does not read keeps the marks as they were.
+        let read = self.read.map(|read| read(dir));
+        let cfg = match &read {
+            Some(Ok(cfg)) => cfg,
+            Some(Err(_)) if self.seen.is_some() => {
+                self.seen = Some((conf, levels));
+                return false;
+            }
+            _ => opened,
+        };
+        let names: Vec<String> = levels.iter().map(|f| std::path::Path::new(f).file_stem().unwrap_or_default().to_string_lossy().into_owned()).collect();
+        let (start, title) = crate::levels::marked(cfg, &names);
+        let was = (self.start.take(), self.title.take());
+        self.start = start.map(|i| levels[i].clone());
+        self.title = title.map(|i| levels[i].clone());
+        self.seen = Some((conf, levels));
+        was != (self.start.clone(), self.title.clone())
+    }
+
+    /// The word at a file's row: "start" at the level a run begins in,
+    /// "title" at the game's own title.
+    pub fn of(&self, file: &str) -> Option<&'static str> {
+        if self.start.as_deref() == Some(file) {
+            Some("start")
+        } else if self.title.as_deref() == Some(file) {
+            Some("title")
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_level_a_run_begins_in_and_the_title_are_marked() {
+        let dir = crate::scratch::Scratch::new("ide-starts");
+        std::fs::create_dir_all(dir.join("levels")).unwrap();
+        for name in ["a", "b", "c"] {
+            std::fs::write(dir.join(format!("levels/{name}.toml")), "").unwrap();
+        }
+        let files = Files::from_names(&dir, Files::names(&dir));
+        let mut cfg = crate::config::GameConfig::default();
+        let mut starts = Starts::default();
+        starts.look(&dir, &cfg, &files);
+        assert_eq!((starts.of("levels/a.toml"), starts.of("levels/b.toml")), (Some("start"), None), "the first, unless said");
+        // Nothing changed in the folder: nothing is read again.
+        assert!(!starts.look(&dir, &cfg, &files));
+        cfg.start = Some("c".into());
+        cfg.title_screen.level = Some("a".into());
+        let mut starts = Starts::default();
+        starts.look(&dir, &cfg, &files);
+        assert_eq!((starts.of("levels/a.toml"), starts.of("levels/b.toml"), starts.of("levels/c.toml")), (Some("title"), None, Some("start")));
+        // One level alone says nothing.
+        std::fs::remove_file(dir.join("levels/b.toml")).unwrap();
+        std::fs::remove_file(dir.join("levels/c.toml")).unwrap();
+        let mut starts = Starts::default();
+        starts.look(&dir, &crate::config::GameConfig::default(), &Files::from_names(&dir, Files::names(&dir)));
+        assert_eq!(starts.of("levels/a.toml"), None);
     }
 }
