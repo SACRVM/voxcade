@@ -37,7 +37,7 @@ fn game_in(dir: &Path) -> Session<LuaGame> {
 
 /// The first text `on_draw` put on the HUD.
 fn first_text(g: &Session<LuaGame>) -> String {
-    g.game.overlay.borrow().iter().find_map(|c| match c { super::world::Cmd::Text { text, .. } => Some(text.clone()), _ => None }).expect("a text on the HUD")
+    g.game.drawn.borrow().iter().find_map(|c| match c { super::world::Cmd::Text { text, .. } => Some(text.clone()), _ => None }).expect("a text on the HUD")
 }
 
 fn steps(game: &mut Session<LuaGame>, n: usize) {
@@ -1292,7 +1292,7 @@ end
     steps(&mut g, 3);
     g.compose(0.0, 1.6, Scene::Play, None);
     assert_eq!(halted(&g), "");
-    let cmds = g.game.overlay.borrow().clone();
+    let cmds = g.game.drawn.borrow().clone();
     assert!(matches!(cmds[0], Cmd::Icon { .. }));
     let boxes: Vec<(f32, f32)> = cmds.iter().filter_map(|c| match c { Cmd::Box { x, width, .. } => Some((*x, *width)), _ => None }).collect();
     assert_eq!(boxes, [(4.0, 5.0), (9.0, 5.0)], "half filled, the rest beside it");
@@ -1328,7 +1328,7 @@ end
     assert_eq!(halted(&g), "");
     let at: std::collections::BTreeMap<String, (f32, f32)> = g
         .game
-        .overlay
+        .drawn
         .borrow()
         .iter()
         .filter_map(|c| match c { Cmd::Text { text, x, y, .. } => Some((text.clone(), (*x, *y))), _ => None })
@@ -1824,7 +1824,7 @@ end
     assert_eq!((state(&mut g, "down"), state(&mut g, "act")), ("Int(5)".into(), "Int(1)".into()), "at 1, 21, 27, 33 and 39 ticks held; a press");
     g.compose(0.0, 16.0 / 9.0, crate::session::Scene::Play, None);
     assert_eq!(halted(&g), "");
-    let overlay = g.game.overlay.borrow();
+    let overlay = g.game.drawn.borrow();
     let menu = overlay.iter().find_map(|c| match c { super::world::Cmd::Menu(m) => Some(m.clone()), _ => None }).expect("a menu");
     assert_eq!((menu.rows.len(), menu.at, menu.tab, menu.shown), (10, Some(6), 1, 4));
     assert_eq!((menu.rows[0].text.as_str(), menu.rows[1].dim, menu.rows[2].value.as_deref()), ("Plain", true, Some("9")));

@@ -25,7 +25,7 @@ impl<K: Kit> LuaGame<K> {
     /// Calls the script's handler `name` (if it has one) with `args`.
     pub(super) fn tell(&mut self, name: &'static str, args: Vec<Told>) -> Result<()> {
         let Some(f) = self.globals.as_ref().map(|g| Sandbox::function(g, name)).transpose()?.flatten() else { return Ok(()) };
-        self.sandbox.lua.unset_named_registry_value("voxcade.phase")?;
+        world::set_phase(&self.sandbox.lua, None);
         self.with_world(|sb, _| {
             let lua = &sb.lua;
             let mut values = Vec::new();

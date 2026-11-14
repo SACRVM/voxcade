@@ -80,9 +80,9 @@ impl<K: Kit> LuaGame<K> {
         self.start_states()?;
         if let Some(start) = Sandbox::function(env, "on_world_start")? {
             let lua = &self.sandbox.lua;
-            lua.set_named_registry_value("voxcade.phase", "world_start")?;
+            world::set_phase(lua, Some(world::Phase::WorldStart));
             let started = self.with_world(|sb, _| sb.call_start::<()>(&start, ()));
-            self.sandbox.lua.unset_named_registry_value("voxcade.phase")?;
+            world::set_phase(&self.sandbox.lua, None);
             started?;
         }
         if let Some(start) = Sandbox::function(env, "on_level_start")? {
@@ -177,7 +177,8 @@ impl<K: Kit> LuaGame<K> {
     /// its pivot, as tall as its model, facing its way, its light on. The
     /// camera keeps to what it followed.
     pub(super) fn spawn_pieces(&mut self) {
-        let level = self.stage.levels.list[self.stage.level].clone();
+        let levels = Arc::clone(&self.stage.levels);
+        let level = &levels.list[self.stage.level];
         (self.stage.pieces, self.stage.lights) = Default::default();
         let Some(kind) = self.stage.kinds.iter().position(|k| k.name == crate::grid::PIECE) else { return };
         let focus = self.plain().map(|h| h.focus);

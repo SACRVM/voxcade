@@ -993,7 +993,8 @@ impl Stage {
     pub fn name_things(&mut self) {
         (self.names, self.props, self.fallen, self.seen_at) = Default::default();
         let figures: Vec<Id> = (1..=self.seats.len()).filter_map(|n| self.figure(n)).collect();
-        let level = self.levels.list[self.level].clone();
+        let levels = Arc::clone(&self.levels);
+        let level = &levels.list[self.level];
         // The names the file gives its things of kinds, by kind, in order.
         let mut given: std::collections::BTreeMap<usize, std::collections::VecDeque<Option<String>>> = Default::default();
         for (i, m) in level.markers.iter().enumerate() {

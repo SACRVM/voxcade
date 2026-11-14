@@ -336,9 +336,9 @@ fn caller_line(lua: &Lua) -> String {
 /// and the like): not where there is no level to leave or it is being left
 /// already; a note for OUTPUT when an ask did not count.
 fn ask(lua: &Lua, what: &str, new: Ask) -> mlua::Result<()> {
-    match lua.named_registry_value::<Option<String>>("voxcade.phase")?.as_deref() {
-        Some("world_start") => return Err(mlua::Error::runtime(format!("{what}: there is no level to leave yet in on_world_start"))),
-        Some("level_end" | "world_end") => return Err(mlua::Error::runtime(format!("{what}: the level is being left already (on_level_end and on_world_end ask nothing more)"))),
+    match phase(lua) {
+        Some(Phase::WorldStart) => return Err(mlua::Error::runtime(format!("{what}: there is no level to leave yet in on_world_start"))),
+        Some(Phase::LevelEnd | Phase::WorldEnd) => return Err(mlua::Error::runtime(format!("{what}: the level is being left already (on_level_end and on_world_end ask nothing more)"))),
         _ => {}
     }
     // After the run's end nothing more counts (a standing `if … then
@@ -387,10 +387,29 @@ fn looking(lua: &Lua) -> bool {
 /// `level` is not there yet in `on_world_start`: the run begins before its
 /// first level.
 fn level_here(lua: &Lua, what: &str) -> mlua::Result<()> {
-    match lua.named_registry_value::<Option<String>>("voxcade.phase")? {
-        Some(phase) if phase == "world_start" => Err(mlua::Error::runtime(format!("{what}: there is no level yet in on_world_start; build it in on_level_start"))),
+    match phase(lua) {
+        Some(Phase::WorldStart) => Err(mlua::Error::runtime(format!("{what}: there is no level yet in on_world_start; build it in on_level_start"))),
         _ => Ok(()),
     }
+}
+
+/// Where the handler running now was called from, where that limits what
+/// it may do: no level yet (`on_world_start`, `on_save_loaded`), or the
+/// level being left (`on_level_end`, `on_world_end`). None: anywhere else.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phase {
+    WorldStart,
+    LevelEnd,
+    WorldEnd,
+}
+
+/// Sets where the calls from now on are (`Phase`).
+pub fn set_phase(lua: &Lua, phase: Option<Phase>) {
+    lua.set_app_data(phase);
+}
+
+fn phase(lua: &Lua) -> Option<Phase> {
+    lua.app_data_ref::<Option<Phase>>().and_then(|p| *p)
 }
 
 /// The handle of thing `id`: the same userdata every time while anything

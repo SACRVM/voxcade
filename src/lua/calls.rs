@@ -74,17 +74,13 @@ impl<K: Kit> LuaGame<K> {
     }
 
     /// Calls the script's handler `name` with `arg`, if it has one, the
-    /// registry's phase saying where the call is (`level_end`,
-    /// `world_end`: no more asks there).
-    pub(super) fn call_handler(&mut self, name: &'static str, arg: &'static str, phase: Option<&str>) -> Result<()> {
+    /// phase saying where the call is (the level being left: no more asks
+    /// there).
+    pub(super) fn call_handler(&mut self, name: &'static str, arg: &'static str, phase: Option<world::Phase>) -> Result<()> {
         let Some(f) = self.globals.as_ref().map(|g| Sandbox::function(g, name)).transpose()?.flatten() else { return Ok(()) };
-        let lua = &self.sandbox.lua;
-        match phase {
-            Some(phase) => lua.set_named_registry_value("voxcade.phase", phase)?,
-            None => lua.unset_named_registry_value("voxcade.phase")?,
-        }
+        world::set_phase(&self.sandbox.lua, phase);
         let called = if name == "on_level_start" { self.with_world(|sb, _| sb.call_start::<()>(&f, arg)) } else { self.with_world(|sb, _| sb.call::<()>(&f, arg, name)) };
-        self.sandbox.lua.unset_named_registry_value("voxcade.phase")?;
+        world::set_phase(&self.sandbox.lua, None);
         called
     }
 

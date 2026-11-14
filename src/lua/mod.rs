@@ -69,34 +69,35 @@ use world::{Absent, Cmd, ControlsView, Frame, InputView, LevelView, ScreenView, 
 
 /// An inventory (`state.inventory`, in the state at `path`) counts items of
 /// `c.items` by name, each from 0 to its stack.
-fn check_inventory(state: &Table, path: &str, items: &std::collections::BTreeMap<String, crate::config::ItemConfig>) -> Result<()> {
+/// `path` gives where the state sits, made only for a mistake.
+fn check_inventory(state: &Table, path: &dyn Fn() -> String, items: &std::collections::BTreeMap<String, crate::config::ItemConfig>) -> Result<()> {
     let inventory = match state.raw_get::<mlua::Value>("inventory")? {
         mlua::Value::Nil => return Ok(()),
         mlua::Value::Table(t) => t,
-        other => anyhow::bail!("{path}.inventory is {}: an inventory is a table of items by name and how many", value::a(other.type_name())),
+        other => anyhow::bail!("{}.inventory is {}: an inventory is a table of items by name and how many", path(), value::a(other.type_name())),
     };
     let mut entries: Vec<(mlua::Value, mlua::Value)> = inventory.pairs().collect::<mlua::Result<_>>()?;
     entries.sort_by(|a, b| format!("{:?}", a.0).cmp(&format!("{:?}", b.0)));
     for (key, count) in entries {
-        let mlua::Value::String(name) = &key else { anyhow::bail!("{}: items by name (c.items), not by a {}", value::key_path(&format!("{path}.inventory"), &key), key.type_name()) };
+        let mlua::Value::String(name) = &key else { anyhow::bail!("{}: items by name (c.items), not by a {}", value::key_path(&format!("{}.inventory", path()), &key), key.type_name()) };
         let name = name.to_string_lossy();
-        let at = format!("{path}.inventory.{name}");
+        let at = || format!("{}.inventory.{name}", path());
         let Some(item) = items.get(&name) else {
             let mut names: Vec<(&i32, &str)> = items.iter().map(|(n, i)| (&i.order, n.as_str())).collect();
             names.sort();
             let names: Vec<&str> = names.into_iter().map(|(_, n)| n).collect();
             if names.is_empty() {
-                anyhow::bail!("{at}: there are no items (c.items names them)");
+                anyhow::bail!("{}: there are no items (c.items names them)", at());
             }
-            anyhow::bail!("{at}: no item called '{name}' (c.items: {})", names.join(", "));
+            anyhow::bail!("{}: no item called '{name}' (c.items: {})", at(), names.join(", "));
         };
         let n = match count {
             mlua::Value::Integer(i) => i,
             mlua::Value::Number(f) if f.fract() == 0.0 => f as i64,
-            other => anyhow::bail!("{at} is {}: a count is a whole number", match other { mlua::Value::Number(f) => f.to_string(), o => value::a(o.type_name()) }),
+            other => anyhow::bail!("{} is {}: a count is a whole number", at(), match other { mlua::Value::Number(f) => f.to_string(), o => value::a(o.type_name()) }),
         };
         if n < 0 || n > item.stack as i64 {
-            anyhow::bail!("{at} = {n}: from 0 to {} (c.items.{name}.stack)", item.stack);
+            anyhow::bail!("{} = {n}: from 0 to {} (c.items.{name}.stack)", at(), item.stack);
         }
     }
     Ok(())
@@ -217,10 +218,9 @@ pub struct LuaGame<K: Kit> {
     seat_places: Vec<(usize, crate::levels::Place)>,
     /// The saves made since the session took them (`Game::saving`).
     written: Vec<(u32, String)>,
-    /// What `on_draw` asked for the last time it ran (shown while stopped).
+    /// What `on_draw` asked for the last time it ran (shown while stopped):
+    /// the picture's part drawn in `draw`, the HUD's in `hud`.
     drawn: RefCell<Vec<Cmd>>,
-    /// What `on_draw` put on the HUD, drawn there (`hud`).
-    overlay: RefCell<Vec<Cmd>>,
     kit: PhantomData<K>,
 }
 
@@ -398,16 +398,17 @@ impl<K: Kit> LuaGame<K> {
 
     /// Checks every state is plain data, as a snapshot would take it, after
     /// every tick and at the start, without copying it (the prelude's
-    /// `plain`); the first mistake, named where it sits.
+    /// `plain`); the first mistake, named where it sits (the path made
+    /// only then).
     fn check_states(&self) -> Result<()> {
         let lua = &self.sandbox.lua;
         let plain = self.sandbox.tool("plain")?;
         let is_thing: Function = lua.named_registry_value("voxcade.is_thing")?;
         let seen = lua.create_table()?;
-        let check = |table: Table, path: &str, things: bool| -> Result<()> {
+        let check = |table: Table, path: &dyn Fn() -> String, things: bool| -> Result<()> {
             let (why, keys): (Option<String>, Option<Table>) = self.sandbox.call_engine(&plain, (table, &seen, things, &is_thing))?;
             let Some(why) = why else { return Ok(()) };
-            let mut at = path.to_string();
+            let mut at = path();
             if let Some(keys) = keys {
                 let keys: Vec<mlua::Value> = keys.sequence_values().collect::<mlua::Result<_>>()?;
                 for k in keys.iter().rev() {
@@ -416,32 +417,33 @@ impl<K: Kit> LuaGame<K> {
             }
             Err(value::mistake(&at, &why))
         };
-        check(self.registry("voxcade.state")?, "world.state", false)?;
-        check(self.registry("voxcade.player")?, "player.state", false)?;
-        check(self.registry("voxcade.level")?, "level.state", true)?;
+        check(self.registry("voxcade.state")?, &|| "world.state".into(), false)?;
+        check(self.registry("voxcade.player")?, &|| "player.state".into(), false)?;
+        check(self.registry("voxcade.level")?, &|| "level.state".into(), true)?;
         let kept = self.registry("voxcade.kept")?;
         let mut names: Vec<String> = kept.pairs::<String, mlua::Value>().filter_map(|p| p.ok()).map(|(n, _)| n).collect();
         names.sort();
         for name in names {
-            check(kept.raw_get(name.as_str())?, &format!("level.kept of {name}"), false)?;
+            check(kept.raw_get(name.as_str())?, &|| format!("level.kept of {name}"), false)?;
         }
         let data = self.registry("voxcade.data")?;
         let mut ids: Vec<u32> = data.pairs::<u32, mlua::Value>().filter_map(|p| p.ok()).map(|(id, _)| id).collect();
         ids.sort_unstable();
         let items = &self.stage.host.sim().cfg.items;
         let player = self.registry("voxcade.player")?;
-        check_inventory(&player, "player.state", items)?;
+        check_inventory(&player, &|| "player.state".into(), items)?;
         for n in 2..=self.stage.seats.len() {
             if let Some(state) = self.registry("voxcade.seats")?.raw_get::<Option<Table>>(n)? {
-                let path = format!("player {n}'s state");
+                let path = || format!("player {n}'s state");
                 check(state.clone(), &path, false)?;
                 check_inventory(&state, &path, items)?;
             }
         }
         for id in ids {
             let state: Table = data.raw_get(id)?;
-            check(state.clone(), &format!("thing {id}'s state"), true)?;
-            check_inventory(&state, &format!("thing {id}'s state"), items)?;
+            let path = || format!("thing {id}'s state");
+            check(state.clone(), &path, true)?;
+            check_inventory(&state, &path, items)?;
             // A piece's pose, a part of it changed since it was set too.
             if self.stage.pieces.contains_key(&id) {
                 self.piece_pose(id, &state)?;
@@ -756,14 +758,14 @@ impl<K: Kit> Game for LuaGame<K> {
             seat_places: Vec::new(),
             written: Vec::new(),
             drawn: RefCell::new(Vec::new()),
-            overlay: RefCell::new(Vec::new()),
             kit: PhantomData,
         };
         // The first level's place called start, if it has one, as every
         // entry of it later.
         game.stage.arrived = game.stage.start(0);
         let (start, placed) = (game.stage.arrived.clone(), game.place_in(0, None).is_some());
-        let first = game.stage.levels.list[0].clone();
+        let levels = Arc::clone(&game.stage.levels);
+        let first = &levels.list[0];
         match game.kit_mut() {
             // The ready-made rules stood their player by their own rules
             // unless the level has a place called start.
@@ -947,7 +949,7 @@ impl<K: Kit> Game for LuaGame<K> {
         // An ask pending (its fade out under way) waits for the fade; an
         // ask of this on_level_start counts at once.
         let pending = self.stage.ask.take();
-        let reloaded = self.call_handler("on_level_end", "reload", Some("level_end")).and_then(|()| self.enter(index, place, "reload", None));
+        let reloaded = self.call_handler("on_level_end", "reload", Some(world::Phase::LevelEnd)).and_then(|()| self.enter(index, place, "reload", None));
         if let Err(e) = reloaded {
             self.halt(e);
         }
@@ -1120,7 +1122,7 @@ impl<K: Kit> Game for LuaGame<K> {
         }
         self.stage.ended = true;
         self.stage.ask = None;
-        let told = self.call_handler("on_level_end", "quit", Some("level_end")).and_then(|()| self.call_handler("on_world_end", "quit", Some("world_end")));
+        let told = self.call_handler("on_level_end", "quit", Some(world::Phase::LevelEnd)).and_then(|()| self.call_handler("on_world_end", "quit", Some(world::Phase::WorldEnd)));
         if let Err(e) = told {
             self.halt(e);
         }
@@ -1481,32 +1483,31 @@ impl<K: Kit> Game for LuaGame<K> {
                 }
             }
         }
-        let mut overlay = Vec::new();
-        for cmd in self.drawn.borrow().iter().cloned() {
+        for cmd in self.drawn.borrow().iter() {
             match cmd {
                 Cmd::Model { file, thing, frame, turn, pose } => {
-                    let Some(t) = self.stage.seen(thing) else { continue };
+                    let Some(t) = self.stage.seen(*thing) else { continue };
                     let kind = self.stage.kinds.get(t.kind);
-                    let frame = frame.unwrap_or_else(|| out.figure_frame(&file, kind.map_or(&NO_FRAMES, |k| &k.frames), t.body));
+                    let frame = frame.unwrap_or_else(|| out.figure_frame(file, kind.map_or(&NO_FRAMES, |k| &k.frames), t.body));
                     let origin = out.body_origin(t.body);
                     // Its kind may face exactly its way and spin; the
                     // script turns it further.
                     let facing = crate::session::facing(kind.is_some_and(|k| k.free_turn), t.body);
                     let spin = crate::session::spinning(kind.map_or(0.0, |k| k.spin), self.stage.host.sim().tick as f32 + out.alpha());
-                    let [round, pitch, roll] = turn;
+                    let [round, pitch, roll] = *turn;
                     let turn = facing * spin * crate::session::turning(round, pitch, roll);
                     // A figure of parts swings as its kind says, the
                     // script's pose on top.
-                    let tall = out.model_of(&file).map_or(1.0, |m| m.size.z as f32);
+                    let tall = out.model_of(file).map_or(1.0, |m| m.size.z as f32);
                     let swung = crate::session::swinging(kind.map_or(&NO_SWING, |k| &k.swing), t.body, tall);
-                    let posed = crate::session::posing(&pose, swung);
-                    out.model_posed(&file, frame, origin, t.body.look, turn, &posed, (t.flash > 0).then_some(FLASH));
+                    let posed = crate::session::posing(pose, swung);
+                    out.model_posed(file, frame, origin, t.body.look, turn, &posed, (t.flash > 0).then_some(FLASH));
                 }
                 // On the grid when the camera snaps, gliding as the models
                 // do otherwise.
-                Cmd::Cube { at, color, glow } => out.cube(out.snapped(at), color, glow, color[3] as f32 / 255.0),
-                Cmd::Light { at, radius, color } => out.light(Light { pos: at, radius, color }),
-                Cmd::Daylight(day) => out.daylight(day),
+                Cmd::Cube { at, color, glow } => out.cube(out.snapped(*at), *color, *glow, color[3] as f32 / 255.0),
+                Cmd::Light { at, radius, color } => out.light(Light { pos: *at, radius: *radius, color: *color }),
+                Cmd::Daylight(day) => out.daylight(*day),
                 // (Its code names it as Lua writes a call, or what is out
                 // of the game's own view would be missing.)
                 Cmd::Camera(_) if !self.moves_camera => {
@@ -1514,11 +1515,11 @@ impl<K: Kit> Game for LuaGame<K> {
                         self.halt(anyhow::anyhow!("frame:camera: call it as frame:camera({{ ... }}) in the game's code, so the engine knows the game sets its camera"));
                     }
                 }
-                Cmd::Camera(cam) => out.camera(cam),
-                hud => overlay.push(hud),
+                Cmd::Camera(cam) => out.camera(*cam),
+                // The HUD's, drawn by `hud`.
+                _ => {}
             }
         }
-        *self.overlay.borrow_mut() = overlay;
     }
 
     /// The HUD `on_draw` drew (from the top left in UI voxels), and the
@@ -1528,7 +1529,7 @@ impl<K: Kit> Game for LuaGame<K> {
         let mut out = Vec::new();
         let layout = ui::Layout::of(cfg, aspect);
         let (top, depth, finish) = (layout.height, cfg.depth, ui::Finish::of(cfg));
-        for cmd in self.overlay.borrow().iter() {
+        for cmd in self.drawn.borrow().iter() {
             match cmd {
                 Cmd::Text { text, x, y, color, size } => {
                     ui::line(&mut out, text, &layout, *x, top - y - ui::line_height(*size, font), *size, *color, depth, font, finish);

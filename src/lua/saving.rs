@@ -182,9 +182,9 @@ impl<K: Kit> LuaGame<K> {
         // made the save (an older one it brings up to date), before its
         // level is built.
         if let Some(f) = self.globals.as_ref().map(|g| Sandbox::function(g, "on_save_loaded")).transpose()?.flatten() {
-            lua.set_named_registry_value("voxcade.phase", "world_start")?;
+            world::set_phase(&lua, Some(world::Phase::WorldStart));
             let called = self.with_world(|sb, _| sb.call::<()>(&f, save.version, "on_save_loaded"));
-            lua.unset_named_registry_value("voxcade.phase")?;
+            world::set_phase(&self.sandbox.lua, None);
             called?;
         }
         let place = save.figure.as_ref().filter(|_| found.is_some()).map(|f| crate::levels::Place { name: "saved".into(), at: Vec3::from(f.at), facing: Some(glam::IVec2::from(f.facing)) });

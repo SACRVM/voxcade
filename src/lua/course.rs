@@ -20,7 +20,7 @@ impl<K: Kit> LuaGame<K> {
                 self.halt(anyhow::anyhow!("levels keep being left before a tick was played (a hundred times): does on_level_start ask again and again?"));
                 return;
             }
-            if let Err(e) = self.call_handler("on_level_end", ask.why(), Some("level_end")) {
+            if let Err(e) = self.call_handler("on_level_end", ask.why(), Some(world::Phase::LevelEnd)) {
                 // Nothing has changed yet: the ask waits for the file to be mended.
                 self.stage.ask = Some(ask);
                 self.halt(e);
@@ -94,7 +94,8 @@ impl<K: Kit> LuaGame<K> {
     /// `level.state` fresh (or a save's, with the voxels its file would not
     /// bring back), then `on_level_start(how)`.
     pub(super) fn enter(&mut self, index: usize, place: Option<crate::levels::Place>, how: &'static str, loaded: Option<Loaded>) -> Result<()> {
-        let level = self.stage.levels.list[index].clone();
+        let levels = Arc::clone(&self.stage.levels);
+        let level = &levels.list[index];
         let arrived = place.clone().unwrap_or_else(|| self.stage.start(index));
         self.stage.level = index;
         let mut world = level.world.clone();
@@ -227,7 +228,7 @@ impl<K: Kit> LuaGame<K> {
             Outcome::Won => "won",
             Outcome::Lost => "lost",
         };
-        if let Err(e) = self.call_handler("on_world_end", result, Some("world_end")) {
+        if let Err(e) = self.call_handler("on_world_end", result, Some(world::Phase::WorldEnd)) {
             self.halt(e);
         }
         self.stage.host.end(outcome);
