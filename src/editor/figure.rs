@@ -164,9 +164,14 @@ impl Figure {
     /// file to where they show, its rest rotation and its parents' about
     /// their joints (`session::part_at_rest`); the identity for a figure
     /// without rest rotations.
+    /// How part `p` shows, about the pivot: turned and moved by its rest
+    /// and its parents', and by the pose on top while one is set (POSE).
+    fn shown_turn(&self, p: usize) -> (Quat, Vec3) {
+        if self.pose.iter().any(|q| *q != crate::session::PartPose::REST) { crate::session::part_posed(&self.model, &self.pose, p) } else { crate::session::part_at_rest(&self.model, p) }
+    }
+
     pub fn rest_map(&self, p: usize, shift: IVec3) -> Mat4 {
-        // (Posed in the editor (POSE): the pose on top of the rest.)
-        let (turn, moved) = if self.pose.iter().any(|q| *q != crate::session::PartPose::REST) { crate::session::part_posed(&self.model, &self.pose, p) } else { crate::session::part_at_rest(&self.model, p) };
+        let (turn, moved) = self.shown_turn(p);
         let s = self.model.size;
         let o = (IVec3::new(s.x / 2, s.y / 2, 0) + shift).as_vec3();
         Mat4::from_translation(o + moved) * Mat4::from_quat(turn) * Mat4::from_translation(-o)
@@ -263,7 +268,7 @@ impl Figure {
         for p in (0..self.model.parts.len()).filter(|&p| !self.hidden[p] && self.selected != Some(p)) {
             let part = &self.model.parts[p];
             let map = seen_by * self.rest_map(p, shift);
-            let turn = seen_turn * crate::session::part_at_rest(&self.model, p).0;
+            let turn = seen_turn * self.shown_turn(p).0;
             let square = turn.dot(Quat::IDENTITY).abs() > 1.0 - 1e-6;
             let snorm = if square { [0; 4] } else { crate::render::snorm_turn(turn) };
             // Its own surface (the faces it shares with a part hidden
@@ -378,6 +383,32 @@ mod tests {
     /// logo, letters apart each with its joint by hand, warns of nothing,
     /// and opens from the side that reads the right way round (from +y
     /// the game's logo read "YNNUB MRAF").
+    /// A part posed (POSE) is drawn turned as it is placed: its cubes
+    /// carry the pose's turn, the others none. (They were set on the
+    /// turned places unturned once: a posed limb fell into specks.)
+    #[test]
+    fn a_posed_parts_cubes_turn_with_it() {
+        let dir = figure("posed");
+        let mut f = Figure::of(&ModelFile::load(&dir.join("figure.vvx")).unwrap()).unwrap().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        let arm = f.parts().iter().position(|p| p.name == "arm").unwrap();
+        let hangs_on_arm = |f: &Figure, mut p: usize| loop {
+            if p == arm { break true }
+            match f.parts()[p].parent { Some(q) => p = q, None => break false }
+        };
+        f.pose = vec![crate::session::PartPose::REST; f.parts().len()];
+        f.pose[arm] = crate::session::PartPose::turned(Quat::from_rotation_x(0.6));
+        for p in 0..f.parts().len() {
+            f.hidden = (0..f.parts().len()).map(|q| q != p).collect();
+            let mut opaque = Vec::new();
+            let through = f.cubes(IVec3::ZERO, &|_| false, &mut opaque);
+            assert!(!opaque.is_empty() || !through.is_empty(), "{} draws", f.parts()[p].name);
+            let turned = opaque.iter().chain(&through).all(|c| c.turn != [0; 4]);
+            let square = opaque.iter().chain(&through).all(|c| c.turn == [0; 4]);
+            assert!(if hangs_on_arm(&f, p) { turned } else { square }, "{}", f.parts()[p].name);
+        }
+    }
+
     #[test]
     fn a_joint_set_by_hand_is_not_loose() {
         let dir = figure("by-hand");
