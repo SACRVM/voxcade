@@ -163,8 +163,6 @@ impl<G: Game> Session<G> {
         std::mem::take(&mut self.limits.borrow_mut().new)
     }
 
-    /// A frame of `scene`; `ui` (the menus) instead of the HUD when given;
-    /// `aspect` the window's shape (or the picture's already).
     /// The HUD's cubes as the UI pass draws them, from those `on_draw` gave
     /// (`raw`), seen from `eye`: faces a neighbour covers hidden (else they
     /// show as seams, thin dark lines through the hearts at some sizes),
@@ -183,6 +181,8 @@ impl<G: Game> Session<G> {
         done
     }
 
+    /// A frame of `scene`; `ui` (the menus) instead of the HUD when given;
+    /// `aspect` the window's shape (or the picture's already).
     pub fn compose(&self, alpha: f32, aspect: f32, scene: Scene, ui: Option<(Vec<Instance>, Vec<ModelDraw>, Mat4)>) -> FrameData {
         let aspect = self.picture_aspect(aspect);
         let sim = self.game.sim();

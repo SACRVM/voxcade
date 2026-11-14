@@ -145,9 +145,8 @@ impl<G: Game> Session<G> {
         }
     }
 
-    /// Hands the sounds of the last tick to the mixer, placed by where they
-    /// happened in the view.
-    /// Hands the last tick's sounds to the mixer, `gain` the player's volume.
+    /// Hands the last tick's sounds to the mixer, placed by where they
+    /// happened in the view, `gain` the player's volume.
     pub fn play_sounds(&self, mixer: &mut Mixer, gain: f32) {
         let sim = self.game.sim();
         let listener = sim.cam_target;

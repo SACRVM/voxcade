@@ -93,6 +93,7 @@ impl From<Controls> for Input {
     }
 }
 
+#[cfg(test)]
 impl Controls {
     /// The engine's input these keys make, the game's actions by their
     /// names (a name the game has not: nothing).
@@ -136,9 +137,10 @@ pub fn sounds() -> Vec<(&'static str, SoundDef)> {
     Sfx::ALL.iter().map(|sfx| all.iter().find(|(n, _)| *n == sfx.name()).cloned().unwrap_or_else(|| panic!("the shooter's {} has no file", sfx.name()))).collect()
 }
 
+/// The shooter's input in its tests: the directions and More Blood's
+/// actions as switches, made into the engine's `Input` (`input`).
+#[cfg(test)]
 #[derive(Clone, Copy, Default, Debug)]
-/// The shooter's input: the directions and its actions as switches, made
-/// from the engine's `Input` (`controls`).
 pub struct Controls {
     pub left: bool,
     pub right: bool,
@@ -230,6 +232,7 @@ impl Sfx {
         }
     }
 
+    #[cfg(test)]
     pub fn from_name(name: &str) -> Option<Sfx> {
         Sfx::ALL.into_iter().find(|s| s.name() == name)
     }
@@ -349,9 +352,6 @@ impl Bullet {
     }
 }
 
-/// Where a body's shots leave its gun: `muzzle` is (ahead of the feet's
-/// centre, above them) in voxels; without one, just in front of the body at
-/// half its height.
 /// A player's body a tick on its keys (the one player's and each seat's
 /// alike): running the way held, turning to it (strafing keeps the way it
 /// looks), jumping; how far it had walked before.
@@ -402,6 +402,9 @@ fn walk(b: &mut Body, jump_held: &mut bool, input: &Input, sim: &mut Sim, binds:
     walked
 }
 
+/// Where a body's shots leave its gun: `muzzle` is (ahead of the feet's
+/// centre, above them) in voxels; without one, just in front of the body at
+/// half its height.
 fn muzzle_at(body: &Body, muzzle: Option<[f32; 2]>, half: f32) -> Vec3 {
     let [ahead, up] = muzzle.unwrap_or([half + 1.0, body.height * 0.55]);
     body.pos + body.facing * ahead + Vec3::Z * up
@@ -483,8 +486,9 @@ impl std::ops::DerefMut for Shooter {
 }
 
 impl Shooter {
-    /// With its sections read from `cfg`. Panics if they do not read (tools
-    /// and tests; a game folder loads through the session, which says why).
+    /// With its sections read from `cfg`, in tests. Panics if they do not
+    /// read (a game folder loads through the session, which says why).
+    #[cfg(test)]
     pub fn new(world: World, cfg: &GameConfig, shapes: Shapes, markers: &[Marker]) -> Self {
         let own = ShooterConfig::from_game(cfg).expect("the shooter's sections of the config");
         let rules = Rules::from_game(cfg, &own, &|file| shapes.height_of(file)).expect("the shooter's kinds and weapons in the config");
@@ -593,9 +597,8 @@ impl Shooter {
         p.prev = p.pos;
     }
 
-    /// One tick.
-    /// A tick with these keys held (tests and tools; the game's input is
-    /// `run`'s).
+    /// A tick with these keys held, in tests (the game's input is `run`'s).
+    #[cfg(test)]
     pub fn step(&mut self, keys: &Controls) {
         let input = keys.input(&self.rules.binds.actions);
         self.run(&input);
@@ -603,8 +606,7 @@ impl Shooter {
 
     /// One tick of its rules: the player, enemies, gunships, hostages,
     /// grenades and bullets, then the core's debris and light, the level's
-    /// rules, and the camera following the player. A question it asks the
-    /// game stays open (`asked`) until `settle_rules`.
+    /// rules, and the camera following the player.
     pub(crate) fn run(&mut self, input: &Input) {
         if !self.sim.begin_tick() {
             self.hold();
@@ -1178,8 +1180,6 @@ impl Shooter {
     }
 }
 
-/// A game's answer to a question of the shooter's (`Shooter::asked`), by
-/// its name; None: the kit's own rule holds.
 /// What the simulation needs to know of the models: sizes and the voxels to
 /// burst into. The player's is required; missing ones stand in with its
 /// size, a missing grenadier with the enemy.

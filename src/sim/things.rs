@@ -498,18 +498,6 @@ impl<B> Things<B> {
     }
 }
 
-/// A pickup's `item` (`c.things.NAME.item`) is one of `c.items`.
-pub fn check_item(cfg: &crate::config::GameConfig, kind: &str, item: Option<&str>) -> anyhow::Result<()> {
-    let Some(item) = item else { return Ok(()) };
-    if cfg.items.contains_key(item) {
-        return Ok(());
-    }
-    match cfg.item_names().as_slice() {
-        [] => anyhow::bail!("c.things.{kind}.item = \"{item}\": there are no items (c.items names them)"),
-        names => anyhow::bail!("c.things.{kind}.item = \"{item}\": no such item (c.items: {})", names.join(", ")),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use glam::Vec3;

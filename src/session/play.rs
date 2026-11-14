@@ -103,7 +103,6 @@ impl<G: Game> Session<G> {
         self.scenario.is_some() || !self.evals.is_empty() || self.applied
     }
 
-    /// The actions the game's input carries besides the directions.
     /// What the game's script printed since last asked.
     pub fn printed(&mut self) -> Vec<String> {
         self.game.printed()

@@ -1075,14 +1075,10 @@ impl Ledge {
     }
 }
 
-/// Moves a body by its velocity for one tick: axis by axis, in small
-/// sub-steps, stepping up low ledges while on the ground.
-pub fn move_body(world: &World, b: &mut Body, physics: &PhysicsConfig) {
-    move_body_in(world, b, physics, physics.body_width * 0.5, &[]);
-}
-
-/// `move_body` for a body `half` its width across, standing on one-way
-/// voxels and `ledges` only when it comes down onto them from above.
+/// Moves a body `half` its width across by its velocity for one tick: axis
+/// by axis, in small sub-steps, stepping up low ledges while on the ground,
+/// standing on one-way voxels and `ledges` only when it comes down onto
+/// them from above.
 pub fn move_body_in(world: &World, b: &mut Body, physics: &PhysicsConfig, half: f32, ledges: &[Ledge]) {
     let d = b.vel * DT;
     let steps = (d.abs().max_element() / 0.45).ceil().max(1.0) as i32;

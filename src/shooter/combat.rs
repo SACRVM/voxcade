@@ -1096,7 +1096,6 @@ impl Shooter {
             let hp = rules.kinds[kind].hp.max(1);
             self.things.spawn(kind, Body::new(at, height), hp, Brain::Soldier(Soldier::new(true)));
         }
-
     }
 }
 

@@ -334,7 +334,6 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     // Every tick timed, the simulation and the meshes it changed rebuilt as
     // the game does: blasts show as the slowest ticks.
     let mut ticks: Vec<(u32, f64, f64, usize)> = Vec::new();
-    let started = Instant::now();
     // What would have been heard: sounds per event, in the order they first came.
     let mut heard: Vec<(&'static str, u32)> = Vec::new();
     // A menu screen: the title's run their animations for the frames
@@ -437,9 +436,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     for line in &warnings {
         println!("warning: {line}");
     }
-    let _ = started;
     let sim_ms = ticks.iter().fold(0.0, |sum, t| sum + t.1);
-
 
     if let Some(screen @ ("pause" | "save" | "load" | "host-pause" | "host-alone" | "host-net-pause" | "guest-pause")) = opts.screen.as_deref() {
         let now = crate::saves::now();
