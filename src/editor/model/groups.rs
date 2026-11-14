@@ -252,6 +252,10 @@ group = "house"
         ed.choose_item(Some(Item::Thing(2)));
         ed.nudge(glam::IVec3::X);
         assert!(ed.is_locked(Item::Thing(2)), "locked through the step");
+        ed.undo();
+        assert!(ed.is_locked(Item::Thing(2)) && ed.group_locked("forest"), "and through its undo");
+        ed.redo();
+        assert!(ed.is_locked(Item::Thing(2)), "and its redo");
         ed.toggle_locked(Item::Thing(2));
         assert!(!ed.group_locked("forest") && ed.is_locked(Item::Thing(0)));
         ed.toggle_fold("house");

@@ -42,7 +42,15 @@ impl Editor {
     pub(super) fn go(&mut self, step: &Step, forward: bool) -> bool {
         let mut problem = None;
         match step {
-            Step::Level(before, after) => self.set_level(if forward { after } else { before }),
+            Step::Level(before, after) => {
+                // What was locked stays locked where the step leaves as many
+                // things (a move, a rename, a group: `Editor::change`'s rule).
+                let (locked, count) = (self.locked_things(), self.level.things.len());
+                self.set_level(if forward { after } else { before });
+                if !locked.is_empty() && self.level.things.len() == count {
+                    self.lock_again(&locked);
+                }
+            }
             Step::Block(i, before, after) => self.blocks[*i] = if forward { after } else { before }.clone(),
             Step::Model(before, after) => {
                 if let Some(model) = &mut self.model {
