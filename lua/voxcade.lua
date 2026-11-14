@@ -48,6 +48,9 @@
 ---@field from? string When it begins: at the next bar of the one playing (bar, unless said), beat or now.
 ---@field crossfade? number Seconds the old song fades out as this one fades in, 0 to 60 (0: the old ends, this begins); unless said, c.audio.crossfade.
 
+---@class LevelChange How the level is left (world:go_to, world:restart, world:load, world:win, world:lose).
+---@field fade? number Seconds the picture fades out through c.transition.color, and as many in, 0 to 10 (0: a cut); unless said, c.transition's.
+
 ---@class Menu A menu in the engine's look (frame:menu).
 ---@field rows (string|MenuRow)[] Its rows, from the top.
 ---@field at? integer The chosen row, from 1.
@@ -102,13 +105,17 @@
 local World = {}
 
 ---Leaves this level for another at the end of the tick (the code after it still runs): by name or number (world:go_to(level.next) goes on in order), arriving at the place called place, else where the level starts. player.state.checkpoint is forgotten. One ask counts in a tick: world.leaving.
+---- options: { fade = seconds } for this change alone, out and as many in, 0 to 10. 0 is a cut: world:go_to("b", "door", { fade = 0 }). 1.2 is a slow fade for a new chapter. Unless said, c.transition's. Without a place: world:go_to("b", { fade = 0 }).
 ---@param level string|integer
----@param place? string
-function World:go_to(level, place) end
+---@param place? string|LevelChange
+---@param options? LevelChange
+function World:go_to(level, place, options) end
 
 ---Enters this level afresh at the end of the tick: everything from its file again, level.state fresh; the player at place, else at the place player.state.checkpoint names, else where it starts. One ask counts in a tick: world.leaving.
----@param place? string
-function World:restart(place) end
+---- options: { fade = seconds } for this change alone, as world:go_to's: world:restart({ fade = 0 }) starts over at once.
+---@param place? string|LevelChange
+---@param options? LevelChange
+function World:restart(place, options) end
 
 ---The text of a file in the game folder, by its path there (world:read("levels/microban.txt")): only while main.lua starts: at its top, in on_world_start or the first on_level_start. The files read count for the replays, and saving one runs main.lua anew.
 ---@param name string
@@ -122,18 +129,24 @@ function World:read(name) end
 function World:save(slot) end
 
 ---Goes on from the save in a slot at the end of the tick, like a level change (on_level_end("load"), then on_level_start("load")): the states as they were saved, the level from its file with the voxels changed in it as they were, the player where it stood. An empty slot is a mistake: world.saves tells first. One ask counts in a tick: world.leaving.
+---- options: { fade = seconds } for this change alone, as world:go_to's.
 ---@param slot integer
-function World:load(slot) end
+---@param options? LevelChange
+function World:load(slot, options) end
 
 ---Holds the game still for this many ticks: a hit 2 or 3. Everything stops, on_tick too. 60 (a second) at most: more is cut to 60. It is part of the game, so replays see it.
 ---@param ticks integer
 function World:hitstop(ticks) end
 
 ---The run is won at the end of the tick (on_level_end, then on_world_end); after that the script hears nothing more. One ask counts in a tick: world.leaving.
-function World:win() end
+---- options: { fade = seconds } for this change alone, as world:go_to's.
+---@param options? LevelChange
+function World:win(options) end
 
 ---The run is lost at the end of the tick (on_level_end, then on_world_end); after that the script hears nothing more. One ask counts in a tick: a win or a go_to in the same tick counts before it (world.leaving).
-function World:lose() end
+---- options: { fade = seconds } for this change alone, as world:go_to's.
+---@param options? LevelChange
+function World:lose(options) end
 
 ---@class Level The level being played: its voxels, its things, what happens in it, its camera.
 ---@field state table Your game's data for this level while it is played: the things in it too, moves, time. Fresh each time the level is entered, a restart too; after world:load as it was saved (its things nil). The engine reads one key: level.state.held = true holds the level (the ready-made rules, the physics and touches wait; on_tick, on_draw and the time go on): for a message, a shop, a tally.

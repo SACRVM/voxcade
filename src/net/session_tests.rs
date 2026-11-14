@@ -329,13 +329,14 @@ fn copy_dir(from: &Path, to: &Path) {
 }
 
 /// A game for two that starts its level anew at ticks 300 and 600, where
-/// a check of the recording falls, with a fade.
-fn restarting_game() -> crate::scratch::Scratch {
+/// a check of the recording falls, with a fade (`c.transition`'s, or what
+/// each restart's `options` say).
+fn restarting_game(options: [&str; 2]) -> crate::scratch::Scratch {
     let dir = crate::scratch::Scratch::new("net-fades");
     std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 64, 64, 16 }\n  c.player.spawn = { 32, 32 }\n  c.actions = { \"jump\" }\n  c.players = 2\n  c.things.hero = {}\n  c.player.kind = \"hero\"\n  c.transition.fade = 0.4\nend\n").unwrap();
     std::fs::write(
         dir.join("main.lua"),
-        "function on_world_start()\n  world.state.ends = 0\nend\nfunction on_level_start()\n  level:fill(0, 0, 0, 63, 63, 0, 1)\nend\nfunction on_level_end()\n  world.state.ends = world.state.ends + 1\nend\nfunction on_tick()\n  for _, p in ipairs(level:players()) do\n    p:walk(p.input.dir, 20)\n  end\n  if world.tick == 300 or world.tick == 600 then\n    world:restart()\n  end\nend\n",
+        "function on_world_start()\n  world.state.ends = 0\nend\nfunction on_level_start()\n  level:fill(0, 0, 0, 63, 63, 0, 1)\nend\nfunction on_level_end()\n  world.state.ends = world.state.ends + 1\nend\nfunction on_tick()\n  for _, p in ipairs(level:players()) do\n    p:walk(p.input.dir, 20)\n  end\n  if world.tick == 300 then\n    world:restart({})\n  end\n  if world.tick == 600 then\n    world:restart({})\n  end\nend\n".replacen("{}", options[0], 1).replacen("{}", options[1], 1),
     )
     .unwrap();
     dir
@@ -347,12 +348,28 @@ fn restarting_game() -> crate::scratch::Scratch {
 /// and a guest coming after the changes plays the run so far through.
 #[test]
 fn level_changes_fade_on_every_machine_alike() {
-    let dir = restarting_game();
+    let dir = restarting_game(["", ""]);
     let mut game = Game::new(&dir, 7, Link::lan(), "right:60;left:60;up:60;down:600");
     game.game.fades = true;
     game.guest(0, "left:90;right:90;up+jump:30;down:900");
     game.guest(12_000_000, "right:300");
     game.to(14_000_000);
+    let recorded = game.agree();
+    assert!(recorded.ticks > 700, "{} ticks", recorded.ticks);
+    assert_eq!(game.game.game.eval("return world.state.ends").unwrap(), "2");
+}
+
+/// A change's own fade (`{ fade = 0 }` a cut, `{ fade = 1 }`) is the same
+/// on every machine: each takes it from the script it plays, so the
+/// bundles wait as long and every recording is the host's.
+#[test]
+fn a_changes_own_fade_is_alike_on_every_machine() {
+    let dir = restarting_game(["{ fade = 0 }", "{ fade = 1 }"]);
+    let mut game = Game::new(&dir, 7, Link::lan(), "right:60;left:60;up:60;down:600");
+    game.game.fades = true;
+    game.guest(0, "left:90;right:90;up+jump:30;down:900");
+    game.guest(13_000_000, "right:300");
+    game.to(16_000_000);
     let recorded = game.agree();
     assert!(recorded.ticks > 700, "{} ticks", recorded.ticks);
     assert_eq!(game.game.game.eval("return world.state.ends").unwrap(), "2");

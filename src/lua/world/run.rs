@@ -63,7 +63,8 @@ impl UserData for WorldView {
         m.add_meta_method(MetaMethod::ToString, |_, _, ()| Ok("world"));
         m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, Value)| -> mlua::Result<Value> { Err(no_such("world", &key, Some("world.state"))) });
         m.add_meta_function(MetaMethod::NewIndex, |_, (_, key, _): (AnyUserData, Value, Value)| -> mlua::Result<()> { Err(not_settable("world", &key, Some("world.state"))) });
-        m.add_function("go_to", |lua, (_, level, place): (AnyUserData, Value, Option<String>)| {
+        m.add_function("go_to", |lua, (_, level, place, options): (AnyUserData, Value, Value, Value)| {
+            let (place, fade) = place_and_fade(lua, place, options, "world:go_to")?;
             let index = look(lua, |h| {
                 let n = h.levels.list.len();
                 let index = match &level {
@@ -82,13 +83,14 @@ impl UserData for WorldView {
                 }
                 Ok(h.levels.list[index].name.clone())
             })?;
-            ask(lua, "world:go_to", Ask::GoTo { level: index, place })
+            ask(lua, "world:go_to", Ask::GoTo { level: index, place, fade })
         });
-        m.add_function("restart", |lua, (_, place): (AnyUserData, Option<String>)| {
+        m.add_function("restart", |lua, (_, place, options): (AnyUserData, Value, Value)| {
+            let (place, fade) = place_and_fade(lua, place, options, "world:restart")?;
             if let Some(p) = &place {
                 look(lua, |h| check_place(&h.levels.list[h.level], p, "world:restart"))?;
             }
-            ask(lua, "world:restart", Ask::Restart { place })
+            ask(lua, "world:restart", Ask::Restart { place, fade })
         });
         m.add_function("save", |lua, (_, n): (AnyUserData, i64)| {
             if phase(lua).is_some() {
@@ -102,7 +104,8 @@ impl UserData for WorldView {
                 Ok(())
             })
         });
-        m.add_function("load", |lua, (_, n): (AnyUserData, i64)| {
+        m.add_function("load", |lua, (_, n, options): (AnyUserData, i64, Value)| {
+            let fade = fade_of(options, "world:load")?;
             let n = look(lua, |h| {
                 let n = slot(h, n, "world:load")?;
                 match h.slots[n as usize - 1] {
@@ -110,7 +113,7 @@ impl UserData for WorldView {
                     None => Err(mlua::Error::runtime(format!("world:load: slot {n} is empty (world.saves[{n}] tells before)"))),
                 }
             })?;
-            ask(lua, "world:load", Ask::Load { slot: Some(n) })
+            ask(lua, "world:load", Ask::Load { slot: Some(n), fade })
         });
         m.add_function("hitstop", |lua, (_, ticks): (AnyUserData, u32)| {
             change(lua, "world:hitstop", |h| {
@@ -120,7 +123,36 @@ impl UserData for WorldView {
             })
         });
         m.add_function("read", |lua, (_, name): (AnyUserData, String)| lua.named_registry_value::<Function>("voxcade.read")?.call::<mlua::LuaString>(name));
-        m.add_function("win", |lua, _: AnyUserData| ask(lua, "world:win", Ask::Won));
-        m.add_function("lose", |lua, _: AnyUserData| ask(lua, "world:lose", Ask::Lost));
+        m.add_function("win", |lua, (_, options): (AnyUserData, Value)| ask(lua, "world:win", Ask::Won { fade: fade_of(options, "world:win")? }));
+        m.add_function("lose", |lua, (_, options): (AnyUserData, Value)| ask(lua, "world:lose", Ask::Lost { fade: fade_of(options, "world:lose")? }));
+    }
+}
+
+/// An ask's place and options: `(place)`, `(place, options)` or
+/// `(options)` alone (a place is a name, so a table there is the options).
+fn place_and_fade(lua: &Lua, place: Value, options: Value, what: &str) -> mlua::Result<(Option<String>, Option<f32>)> {
+    match place {
+        Value::Table(_) if options.is_nil() => Ok((None, fade_of(place, what)?)),
+        Value::Nil => Ok((None, fade_of(options, what)?)),
+        place => Ok((Some(lua.unpack(place)?), fade_of(options, what)?)),
+    }
+}
+
+/// An ask's options, `{ fade = seconds }`: this change's fade, in the
+/// sense and range of `c.transition.fade` (seconds out, as many in; 0: a
+/// cut). None: the setting's for the ask's reason.
+fn fade_of(options: Value, what: &str) -> mlua::Result<Option<f32>> {
+    let t = match options {
+        Value::Nil => return Ok(None),
+        Value::Table(t) => t,
+        other => return Err(mlua::Error::runtime(format!("{what}: the options are a table, {{ fade = seconds }}, not {}", shown(&other)))),
+    };
+    known_keys(&t, &["fade"], what)?;
+    let range = crate::config::bound("transition.fade").expect("c.transition.fade has a range");
+    match t.raw_get::<Value>("fade")? {
+        Value::Nil => Ok(None),
+        Value::Integer(i) if range.holds(i as f64) => Ok(Some(i as f32)),
+        Value::Number(n) if range.holds(n) => Ok(Some(n as f32)),
+        other => Err(mlua::Error::runtime(format!("{what}: fade is seconds {} (0: a cut), not {}", range.words(), shown(&other)))),
     }
 }

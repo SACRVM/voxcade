@@ -683,8 +683,8 @@ impl<K: Kit> Game for LuaGame<K> {
         }
     }
 
-    fn leaving(&self) -> Option<&'static str> {
-        self.stage.ask.as_ref().filter(|_| self.halted.borrow().is_none() && !self.stage.ended).map(Ask::why)
+    fn leaving(&self) -> Option<crate::game::Leaving> {
+        self.stage.ask.as_ref().filter(|_| self.halted.borrow().is_none() && !self.stage.ended).map(|a| crate::game::Leaving { why: a.why(), fade: a.fade() })
     }
 
     fn saving(&mut self) -> Vec<(u32, String)> {
@@ -702,7 +702,7 @@ impl<K: Kit> Game for LuaGame<K> {
     fn start_from(&mut self, text: &str) -> Result<()> {
         // Read first: a save that does not read leaves the run as it is.
         save::SaveData::read(text)?;
-        self.stage.ask = Some(Ask::Load { slot: None });
+        self.stage.ask = Some(Ask::Load { slot: None, fade: None });
         self.start_text = Some(text.to_string());
         self.change_levels();
         match self.halted() {

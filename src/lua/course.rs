@@ -27,9 +27,9 @@ impl<K: Kit> LuaGame<K> {
                 return;
             }
             let entered = match ask {
-                Ask::Won => return self.end_run(Outcome::Won),
-                Ask::Lost => return self.end_run(Outcome::Lost),
-                Ask::GoTo { level, place } => match self.stage.levels.find(&level) {
+                Ask::Won { .. } => return self.end_run(Outcome::Won),
+                Ask::Lost { .. } => return self.end_run(Outcome::Lost),
+                Ask::GoTo { level, place, .. } => match self.stage.levels.find(&level) {
                     Some(index) => {
                         // A checkpoint belongs to the level it was reached in
                         // (every player's).
@@ -46,7 +46,7 @@ impl<K: Kit> LuaGame<K> {
                     }
                     None => Err(anyhow::anyhow!("world:go_to: the level '{level}' is gone (its file was taken away while playing)")),
                 },
-                Ask::Restart { place } => {
+                Ask::Restart { place, .. } => {
                     let checkpoint = self.registry("voxcade.player").ok().and_then(|p| p.raw_get::<Option<String>>("checkpoint").ok().flatten());
                     let level = &self.stage.levels.list[self.stage.level];
                     // A checkpoint is a place, or a thing of the level by its
@@ -61,12 +61,12 @@ impl<K: Kit> LuaGame<K> {
                     self.arrive_at = thing;
                     self.enter(self.stage.level, place, "restart", None)
                 }
-                Ask::Load { slot: None } => match self.start_text.take() {
+                Ask::Load { slot: None, .. } => match self.start_text.take() {
                     Some(text) => self.load_save(&text).context("loading a save"),
                     None => Err(anyhow::anyhow!("no save to go on from")),
                 },
                 // A replay's load reads what its run read then.
-                Ask::Load { slot: Some(n) } => match self.stage.replayed.pop_front().or_else(|| self.stage.slot_texts.get(&n).cloned()) {
+                Ask::Load { slot: Some(n), .. } => match self.stage.replayed.pop_front().or_else(|| self.stage.slot_texts.get(&n).cloned()) {
                     Some(text) => {
                         self.stage.loaded.push(text.clone());
                         self.load_save(&text).with_context(|| format!("loading the save in slot {n}"))

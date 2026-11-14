@@ -782,20 +782,22 @@ impl Clone for Box<dyn Host> {
 }
 
 /// A change of the game's course the script asked for, done at the tick's
-/// end (`docs/game-model.md`, "Leaving a level").
+/// end (`docs/game-model.md`, "Leaving a level"). Each carries the seconds
+/// of its fade when the ask said them (`{ fade = 0 }`: a cut), else None:
+/// `c.transition`'s.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Ask {
     /// Another level (by its name: the levels may be read anew meanwhile),
     /// arriving at a place.
-    GoTo { level: String, place: Option<String> },
+    GoTo { level: String, place: Option<String>, fade: Option<f32> },
     /// This level afresh, arriving at a place (else the checkpoint, else
     /// its start).
-    Restart { place: Option<String> },
+    Restart { place: Option<String>, fade: Option<f32> },
     /// A save: from a slot (`world:load`), or the one the run goes on from
     /// at once (`Game::start_from`).
-    Load { slot: Option<u32> },
-    Won,
-    Lost,
+    Load { slot: Option<u32>, fade: Option<f32> },
+    Won { fade: Option<f32> },
+    Lost { fade: Option<f32> },
 }
 
 impl Ask {
@@ -805,8 +807,15 @@ impl Ask {
             Ask::GoTo { .. } => "go_to",
             Ask::Restart { .. } => "restart",
             Ask::Load { .. } => "load",
-            Ask::Won => "won",
-            Ask::Lost => "lost",
+            Ask::Won { .. } => "won",
+            Ask::Lost { .. } => "lost",
+        }
+    }
+
+    /// The seconds of its fade the script asked for, if it did.
+    pub fn fade(&self) -> Option<f32> {
+        match self {
+            Ask::GoTo { fade, .. } | Ask::Restart { fade, .. } | Ask::Load { fade, .. } | Ask::Won { fade } | Ask::Lost { fade } => *fade,
         }
     }
 
@@ -814,7 +823,7 @@ impl Ask {
     /// outranks starting over (a restart, a loss), so a death in the tick
     /// the goal is reached does not undo it.
     pub fn goes_on(&self) -> bool {
-        matches!(self, Ask::GoTo { .. } | Ask::Won)
+        matches!(self, Ask::GoTo { .. } | Ask::Won { .. })
     }
 
     /// Whether it takes the place of `held`, the ask that counted so far:

@@ -1094,7 +1094,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (`world:go_to`, `world:restart`, `world:win`, `world:lose`; one counts,
   going on before starting over) through `on_level_end(why)` and
   `on_level_start(how)`, faded in a window only (`c.transition`, no ticks
-  run, recordings skip it: `Session::ticked`); holds (`level.state.held`),
+  run, recordings skip it: `Session::ticked`; an ask's `{ fade = seconds
+  }` that change's own, 0 a cut, `Ask::fade`, `game::Leaving`); holds (`level.state.held`),
   events and save games as `docs/game-model.md` has them; globals are
   frozen after
   the start (`on_world_start`, the first `on_level_start`; a mistake there
