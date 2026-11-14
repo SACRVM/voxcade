@@ -275,8 +275,10 @@ pub(crate) use crate::vvx::hex;
 /// bodies up and stop them) or only casting a shadow (`shadow_only =
 /// true`: in the sun's shadow map, never drawn; a ceiling the camera looks
 /// through), or a light alone. `name` is its name in the
-/// level (else its kind's and a number, `walker_1`); `line` where the file
-/// says it, for mistakes (0: from no file).
+/// level (else its kind's and a number, `walker_1`); `props` what the game's
+/// code reads of this one thing over its kind's (`thing.props`; a thing of
+/// a kind only, its kind declaring each); `line` where the file says it,
+/// for mistakes (0: from no file).
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Thing {
@@ -309,14 +311,32 @@ pub struct Thing {
     #[serde(skip)]
     pub scatter: Option<u32>,
     #[serde(skip)]
+    pub props: Vec<Prop>,
+    #[serde(skip)]
     pub line: usize,
+}
+
+/// One of a thing's own props (`props = { to = "crypt" }`): its key, its
+/// value as the file has it, the line it is on (0: from no file), for a
+/// mistake. The same prop wherever the file says it.
+#[derive(Clone, Debug)]
+pub struct Prop {
+    pub key: String,
+    pub value: toml::Value,
+    pub line: usize,
+}
+
+impl PartialEq for Prop {
+    fn eq(&self, o: &Self) -> bool {
+        (&self.key, &self.value) == (&o.key, &o.value)
+    }
 }
 
 impl PartialEq for Thing {
     /// The same thing wherever its file says it.
     fn eq(&self, o: &Self) -> bool {
-        (&self.kind, self.at, &self.name, &self.model, self.facing, self.pitch, self.roll, &self.lights, self.solid, self.shadow_only, self.scatter)
-            == (&o.kind, o.at, &o.name, &o.model, o.facing, o.pitch, o.roll, &o.lights, o.solid, o.shadow_only, o.scatter)
+        (&self.kind, self.at, &self.name, &self.model, self.facing, self.pitch, self.roll, &self.lights, self.solid, self.shadow_only, self.scatter, &self.props)
+            == (&o.kind, o.at, &o.name, &o.model, o.facing, o.pitch, o.roll, &o.lights, o.solid, o.shadow_only, o.scatter, &o.props)
     }
 }
 
@@ -660,6 +680,7 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], fr
     let places = level.places.iter().map(|p| crate::levels::Place::new(&p.name, (origin + IVec3::from(p.at)).as_vec3() + glam::Vec3::new(0.5, 0.5, 0.0), p.facing)).collect();
     let marker_names = level.things.iter().filter(|t| !t.is_piece()).map(|t| t.name.clone()).collect();
     let marker_facings = level.things.iter().filter(|t| !t.is_piece()).map(|t| t.facing.map(Facing::bearing)).collect();
+    let marker_props = level.things.iter().filter(|t| !t.is_piece()).map(crate::levels::OwnProps::of).collect();
     let pieces = level
         .things
         .iter()
@@ -680,7 +701,7 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], fr
         .collect();
     let areas = level.areas.iter().map(|a| crate::levels::Area { name: a.name.clone(), at: origin + IVec3::from(a.at), size: IVec3::from(a.size) }).collect();
     let daylight = level.daylight.as_ref().map(Daylight::picture).unwrap_or_default();
-    Ok(crate::levels::Made { world, markers, files, places, marker_names, marker_facings, pieces, areas, daylight })
+    Ok(crate::levels::Made { world, markers, files, places, marker_names, marker_facings, marker_props, pieces, areas, daylight })
 }
 
 /// The mistake for the first thing, place or area of a level that lies
@@ -1537,6 +1558,83 @@ size = [40, 30, 40]
             let e = wrong(from, to);
             assert!(e.contains(says), "{from} -> {to}: {e}");
         }
+    }
+
+    /// A thing's own props (`props = {...}`): read in the file's order,
+    /// each with its line, written last as one inline table; a change
+    /// touches only that line (added after the thing's last, changed in
+    /// place, removed when none are left), comments kept; `props = {}` is
+    /// none; a piece's are refused, and what no prop can be.
+    #[test]
+    fn a_things_props_are_read_written_and_rewritten_on_their_line() {
+        let src = commented();
+        let was = GridLevel::from_text(&src).unwrap();
+        let legend = Legend::default();
+        let prop = |key: &str, value: toml::Value| Prop { key: key.into(), value, line: 0 };
+        let mut now = was.clone();
+        now.things[4].props = vec![prop("to", "02_crypt".into()), prop("locked", true.into())];
+        let out = text::rewrite(&src, &was, &now, &legend);
+        assert_eq!(changed_lines(&src, &out), ["props = { to = \"02_crypt\", locked = true }"], "{out}");
+        assert!(out.contains("at = [100, 20, 0]\nprops = {"), "after the thing's last line: {out}");
+        let read = GridLevel::from_text(&out).unwrap();
+        assert_eq!(read, now, "{out}");
+        assert_eq!((read.things[4].props[0].line, read.things[4].props[1].key.as_str()), (32, "locked"), "the file's order, each with its line");
+        assert_eq!(text::rewrite(&out, &read, &read, &legend), out, "unchanged: the same text");
+        // Changed in place, more of every sort a prop may be.
+        let mut more = now.clone();
+        let table: toml::Table = toml::from_str("x = 1.5\nways = [\"north\", \"east\"]").unwrap();
+        more.things[4].props = vec![prop("to", "tower".into()), prop("locked", true.into()), prop("worth", 50.into()), prop("my key", toml::Value::Table(table))];
+        let out2 = text::rewrite(&out, &now, &more, &legend);
+        assert_eq!(changed_lines(&out, &out2), ["props = { to = \"tower\", locked = true, worth = 50, \"my key\" = { ways = [\"north\", \"east\"], x = 1.5 } }"], "{out2}");
+        assert_eq!(GridLevel::from_text(&out2).unwrap(), more);
+        // None left: the line goes, the file as it was.
+        assert_eq!(text::rewrite(&out2, &more, &was, &legend), src);
+        // Written whole: the same, read back the same.
+        assert!(more.to_text().contains("at = [100, 20, 0]\nprops = { to = \"tower\""));
+        assert_eq!(GridLevel::from_text(&more.to_text()).unwrap(), more);
+        let with = |props: &str| PIECES.replacen("kind = \"walker\"\nat = [100, 20, 0]\n", &format!("kind = \"walker\"\nat = [100, 20, 0]\nprops = {props}\n"), 1);
+        assert!(GridLevel::from_text(&with("{}")).unwrap().things[4].props.is_empty(), "props = {{}} is none");
+        let wrong = |text: &str| format!("{:#}", GridLevel::from_text(text).unwrap_err());
+        for (text, says) in [
+            (PIECES.replacen("name = \"moon\"", "name = \"moon\"\nprops = { to = \"a\" }", 1), "line 18: props need a kind: a piece (a model or a light set down) has none to declare them"),
+            (PIECES.replacen("facing = \"south\"", "facing = \"south\"\nprops = { to = \"a\" }", 1), "line 9: props need a kind"),
+            (with("\"door\""), "line 30: props must be a table"),
+            (with("{ when = 1979-05-27 }"), "line 30: props.when: a prop is a number, a string, true or false, or a table of those"),
+            (with("{ far = -1000001 }"), "line 30: props.far = -1000001: past the limit, 1000000 at most either way"),
+            (with("{ far = { deep = [1e9] } }"), "line 30: props.far.deep = 1000000000: past the limit"),
+            (with("{ far = inf }"), "line 30: props.far must be a number"),
+        ] {
+            let e = wrong(&text);
+            assert!(e.contains(says), "{text}: {e}");
+        }
+    }
+
+    /// `tools/vvx.py` writes a level's things' props as the engine does
+    /// (`the_python_writer_writes_what_the_engine_writes` for models), and
+    /// reads them back.
+    #[test]
+    fn the_python_writer_writes_props_as_the_engine() {
+        if std::process::Command::new("python3").arg("--version").output().is_err() {
+            eprintln!("SKIPPED the_python_writer_writes_props_as_the_engine: no python3 on this machine");
+            return;
+        }
+        let out = crate::scratch::Scratch::new("grid-python-props");
+        let script = r#"
+import sys
+sys.path.insert(0, sys.argv[1])
+import vvx
+props = {"to": "02_crypt", "locked": True, "worth": 50, "speed": 1.5, "say \"hi\"": ["a", 2], "more": {"z": 1, "a": {}}}
+vvx.write_level(sys.argv[2], 4, [2, 1, 1], [("rock", "solid")], {(0, 0, 0): (1, 0)}, things=[{"kind": "door", "at": [1, 2, 3], "props": props}, {"kind": "door", "at": [5, 2, 3]}])
+assert vvx.read_level(sys.argv[2])["things"][0]["props"] == props
+"#;
+        let file = out.join("level.toml");
+        let run = std::process::Command::new("python3").arg("-B").arg("-c").arg(script).arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tools")).arg(&file).output().unwrap();
+        assert!(run.status.success(), "tools/vvx.py: {}", String::from_utf8_lossy(&run.stderr));
+        let wrote = std::fs::read_to_string(&file).unwrap();
+        let level = GridLevel::from_text(&wrote).unwrap();
+        assert_eq!(level.things[0].props.len(), 6);
+        assert!(wrote.contains("props = { to = \"02_crypt\", locked = true, worth = 50, speed = 1.5, \"say \\\"hi\\\"\" = [\"a\", 2], more = { a = {}, z = 1 } }\n"), "{wrote}");
+        assert_eq!(level.to_text(), wrote, "the engine writes it so too");
     }
 
     /// A level's own daylight (`[light]`, the words of `c.light`) reads,

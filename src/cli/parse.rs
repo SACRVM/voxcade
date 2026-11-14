@@ -592,6 +592,10 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
             }
             "--hover" => opts.hover = Some(value.clone()),
             "--hide" => opts.hide.push(value.clone()),
+            "--prop" => {
+                let (key, text) = value.split_once('=').with_context(|| format!("--prop KEY=VALUE: a prop of the chosen thing and its value, not {value}"))?;
+                opts.props.push((key.trim().to_string(), text.to_string()));
+            }
             "--context" => {
                 let (level, name) = value.rsplit_once(':').context("--context LEVEL:NAME (a level's file and a piece in it)")?;
                 opts.context = Some((level.to_string(), name.to_string()));

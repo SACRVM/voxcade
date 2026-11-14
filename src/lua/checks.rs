@@ -56,6 +56,16 @@ pub(super) fn check_facings(levels: &crate::levels::Levels, kinds: &[Kind]) -> R
     Ok(())
 }
 
+/// The props a level's file gives its things are their kinds' still
+/// (`conf.lua` changed while the game runs; the files were checked as they
+/// loaded, `levels::Made::check_props`).
+pub(super) fn check_props(levels: &crate::levels::Levels, kinds: &[Kind]) -> Result<()> {
+    for level in &levels.list {
+        level.check_props(|name| kinds.iter().find(|k| k.name == name).map(|k| &k.props)).with_context(|| format!("level {}", level.name))?;
+    }
+    Ok(())
+}
+
 /// The old API's handlers, refused with their new names.
 pub(super) const OLD_NAMES: [(&str, &str); 3] = [("load", "on_world_start()"), ("tick", "on_tick()"), ("draw", "on_draw(frame)")];
 

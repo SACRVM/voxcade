@@ -131,7 +131,7 @@ settings. Several players: `player` is seat 1, the others are in
 | `thing.name` | its name in its level, set in the level editor (`"door_west"`, or made up: `"door_3"`), unique in the level (checked at load); spawned things have none unless given |
 | `thing.kind`, `thing.families` | of what kind, in which families (read-only); `"piece"` for a model or light a level's file sets down |
 | `thing.state` | its state, as long as it lives |
-| `thing.props` | what the level editor set on this one thing (a door's `to` and `at`), typed and defaulted by its kind; read-only |
+| `thing.props` | what the level editor set on this one thing (a door's `to` and `at`: `props = { ... }` on its `[[thing]]`, PROPS in the editor) or `level:spawn` gave it, over its kind's declared props; typed and defaulted by its kind; read-only |
 | `thing.x`, `.y`, `.z`, `.on_ground`, `.facing`, `.wall` | its body, read-only: the physics' (`wall`: the way to a wall right beside it, or nil) |
 | `thing:walk(way, speed)`, `:face(way)`, `:jump(height)`, `:place(x, y, z?)` or `:place(place)` | moving things the script moves: kinds without behaviors, and things whose behaviors are all switched off; placed at a place, a thing faces its facing |
 | `thing:launch(way, speed, rise?)` | sets it moving, standing or not (a dash, a wall jump, a knockback): the script's things, those switched off, and the figures of ready-made rules, which steer on from there |
@@ -959,11 +959,14 @@ yet: areas' events, setting a light's colour or radius in code.
 - **`like = "other"`** builds a kind on another, as today.
 - **Props are declared** with their type and default:
   `c.things.door = { props = { to = "level", at = "place", locked = false } }`.
-  The editor shows them as fields; a misspelt or missing one is a mistake
-  with its place (`level:spawn{ props = }` checks them already: a key
-  the kind does not declare, or of another type, stops the game naming
-  `c.things.NAME.props`). `thing.props` and `thing.families` are only to
-  read.
+  A level's thing sets its own (`props = { to = "02_crypt" }` on its
+  `[[thing]]`, `docs/tiles.md`); the level editor shows them as a row
+  each under PROPS (its kind's value quiet, setting it takes the prop out
+  of the file). A key the kind does not declare, or a value of another
+  type, is a mistake naming `c.things.NAME.props`: in a level's file as
+  the game loads (its file and line), in `level:spawn{ props = }` when it
+  runs; one check for both. `thing.props` and `thing.families` are only
+  to read.
 
 ## Save games
 

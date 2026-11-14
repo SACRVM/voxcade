@@ -221,7 +221,9 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   door), `player:touching(...)` in `on_tick` for what lasts (an enemy's
   contact, spikes; `player:hurt` counts nothing while the player may not be
   hurt), `on_death` and `on_fall_out` for a life lost. What the code reads
-  of a kind is its `props` (`props = { worth = 100 }`), what kinds belong
+  of a kind is its `props` (`props = { worth = 100 }`; a level's
+  `[[thing]]` gives one thing its own over them, `props = { worth = 500 }`,
+  each one the kind declares: HELP's DOORS WITH PROPS), what kinds belong
   together their `family`; a kind's `effect` and `sound` show as one of
   its things goes. The platformer template's `main.lua` has the classic
   rules written out: copy and change them. `effect = "burst"` bursts a

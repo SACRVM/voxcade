@@ -65,6 +65,9 @@ pub struct ShotOptions {
     /// Among the pieces: things hidden in the editor (by name); a click
     /// at a pixel of the shot, what it chooses printed and chosen.
     pub hide: Vec<String>,
+    /// Props of the chosen thing set in turn (`--prop KEY=VALUE`), each
+    /// read by its kind's type.
+    pub props: Vec<(String, String)>,
     pub click: Option<(f32, f32)>,
     /// A block, a model or a figure sliced across an axis (0 x, 1 y, 2 z)
     /// at a layer.
@@ -631,6 +634,10 @@ fn try_pieces(dir: &Path, ed: &mut Editor, figures: &mut Figures, opts: &ShotOpt
         let item = ed.find_listed(name).with_context(|| format!("--choose {name}: the level has nothing called so"))?;
         ed.choose_item(Some(item));
     }
+    for (key, text) in &opts.props {
+        let value = ed.typed_prop(key, text)?;
+        ed.set_prop(key, value);
+    }
     for name in &opts.hide {
         let item = ed.find_listed(name).with_context(|| format!("--hide {name}: the level has nothing called so"))?;
         ed.set_hidden(item, true);
@@ -851,6 +858,10 @@ fn print_facts(ed: &Editor, view: &View, ctx: &egui::Context, opts: &ShotOptions
             let light = t.map_or(String::new(), |t| t.lights.iter().map(|l| format!(", light {l:?}")).collect());
             let light = if t.is_some_and(|t| t.solid) { format!("{light}, solid") } else { light };
             let light = if t.is_some_and(|t| t.shadow_only) { format!("{light}, shadow only") } else { light };
+            let light = match t.map(|t| &t.props).filter(|p| !p.is_empty()) {
+                Some(props) => format!("{light}, props {}", props.iter().map(|p| format!("{} = {}", p.key, crate::grid::text::prop_text(&p.value))).collect::<Vec<_>>().join(", ")),
+                None => light,
+            };
             println!("chosen: {} at {:?}{facing}{light}", ed.label_of(item).0, ed.at_of(item).unwrap_or_default());
         }
     }

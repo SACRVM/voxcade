@@ -206,7 +206,7 @@ fn renamed(c: &toml::Value) -> Result<()> {
 
 /// A setting back from Lua; `default` is what the engine had there (an
 /// empty table takes its shape: a list or a table).
-fn from_lua(v: &Value, default: Option<&toml::Value>, path: &str) -> Result<toml::Value> {
+pub(crate) fn from_lua(v: &Value, default: Option<&toml::Value>, path: &str) -> Result<toml::Value> {
     Ok(match v {
         Value::Boolean(b) => toml::Value::Boolean(*b),
         Value::Integer(i) => toml::Value::Integer(*i),

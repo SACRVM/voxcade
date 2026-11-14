@@ -29,6 +29,11 @@
 //! kind = "gem"
 //! at = [45, 5, 12]      # where its feet stand, in voxels from the grid's low corner
 //!
+//! [[thing]]
+//! kind = "door"
+//! at = [40, 5, 0]
+//! props = { to = "02_crypt", at = "stairs" }   # over its kind's (c.things.door.props), each one it declares
+//!
 //! [[thing]]             # a piece: a model set down by its pivot, fixed
 //! name = "lamp"         # its name in the level (level:thing("lamp")); else its kind's and a number
 //! model = "room/lamp.vvx"
@@ -333,7 +338,28 @@ fn thing_text(t: &Thing) -> String {
     if let Some((key, value)) = lights_field(&t.lights) {
         out += &format!("{key} = {value}\n");
     }
+    if let Some(value) = props_text(&t.props) {
+        out += &format!("props = {value}\n");
+    }
     out
+}
+
+/// A thing's own props as the file writes them, an inline table in their
+/// order; none without any.
+fn props_text(props: &[Prop]) -> Option<String> {
+    (!props.is_empty()).then(|| format!("{{ {} }}", props.iter().map(|p| format!("{} = {}", key(&p.key), prop_text(&p.value))).collect::<Vec<_>>().join(", ")))
+}
+
+/// A prop's value as the file writes it: tables inline, keys bare where
+/// they can be.
+pub fn prop_text(v: &toml::Value) -> String {
+    match v {
+        toml::Value::String(s) => vvx::quoted(s),
+        toml::Value::Array(a) => format!("[{}]", a.iter().map(prop_text).collect::<Vec<_>>().join(", ")),
+        toml::Value::Table(t) if t.is_empty() => "{}".to_string(),
+        toml::Value::Table(t) => format!("{{ {} }}", t.iter().map(|(k, v)| format!("{} = {}", key(k), prop_text(v))).collect::<Vec<_>>().join(", ")),
+        other => other.to_string(),
+    }
 }
 
 fn place_text(p: &Place) -> String {
@@ -834,6 +860,11 @@ fn thing_edits(src: &str, s: &Section, was: &Thing, now: &Thing, edits: &mut Vec
         let after = ["shadow_only", "solid", "roll", "pitch", "rotation", "facing", "at"].into_iter().find(|k| s.table.contains_key(k));
         field(src, s, "scatter", now.scatter.map(|n| n.to_string()), after, &mut mine)?;
     }
+    if was.props != now.props {
+        // Its line after the thing's last, in the order the writer's are.
+        let after = ["lights", "light", "scatter", "shadow_only", "solid", "roll", "pitch", "rotation", "facing", "at"].into_iter().find(|k| s.table.contains_key(k));
+        field(src, s, "props", props_text(&now.props), after, &mut mine)?;
+    }
     if was.lights != now.lights {
         // The key the file used, and the one the lights want now: one
         // light is `light = {...}`, more `lights = [...]`.
@@ -1185,6 +1216,48 @@ fn read_daylight(r: &Reader, item: &Item) -> Result<Daylight> {
     Ok(Daylight { sun, sun_color: colour("sun_color")?, ambient: unit("ambient")?, shadow: unit("shadow")?, sky: colour("sky")? })
 }
 
+/// A thing's own props (`props = { to = "crypt", locked = true }`), in the
+/// file's order, each with its line; `props = {}` is none. Their kind
+/// checks them as the game loads (`levels::Made::check_props`).
+fn read_props(r: &Reader, item: &Item) -> Result<Vec<Prop>> {
+    let t = item.as_table_like().ok_or_else(|| r.fail(item.span(), "props must be a table: props = { to = \"02_crypt\", locked = true }"))?;
+    let mut props = Vec::new();
+    for (key, value) in t.iter() {
+        let span = t.key(key).and_then(|k| k.span()).or_else(|| value.span());
+        let line = span.map_or(0, |s| vvx::line_of(r.src, s.start));
+        props.push(Prop { key: key.to_string(), value: prop_item(r, value, &format!("props.{key}"))?, line });
+    }
+    Ok(props)
+}
+
+/// A prop's value: a number (at most `vvx::MOST_WHOLE` either way), a
+/// string, true or false, or a list or table of those.
+fn prop_item(r: &Reader, item: &Item, path: &str) -> Result<toml::Value> {
+    match item {
+        Item::Value(v) => prop_value(r, v, path),
+        Item::Table(t) => Ok(toml::Value::Table(t.iter().map(|(k, v)| Ok((k.to_string(), prop_item(r, v, &format!("{path}.{k}"))?))).collect::<Result<_>>()?)),
+        Item::ArrayOfTables(a) => Ok(toml::Value::Array(a.iter().map(|t| prop_item(r, &Item::Table(t.clone()), path)).collect::<Result<_>>()?)),
+        Item::None => Err(anyhow!("{path} has no value")),
+    }
+}
+
+fn prop_value(r: &Reader, v: &toml_edit::Value, path: &str) -> Result<toml::Value> {
+    use toml_edit::Value as V;
+    let past = |shown: String| r.fail(v.span(), format!("{path} = {shown}: past the limit, {} at most either way", vvx::MOST_WHOLE));
+    Ok(match v {
+        V::String(s) => toml::Value::String(s.value().clone()),
+        V::Boolean(b) => toml::Value::Boolean(*b.value()),
+        V::Integer(i) if i.value().abs() > vvx::MOST_WHOLE => return Err(past(i.value().to_string())),
+        V::Integer(i) => toml::Value::Integer(*i.value()),
+        V::Float(f) if !f.value().is_finite() => return Err(r.fail(v.span(), format!("{path} must be a number"))),
+        V::Float(f) if f.value().abs() > vvx::MOST_WHOLE as f64 => return Err(past(f.value().to_string())),
+        V::Float(f) => toml::Value::Float(*f.value()),
+        V::Datetime(_) => return Err(r.fail(v.span(), format!("{path}: a prop is a number, a string, true or false, or a table of those"))),
+        V::Array(a) => toml::Value::Array(a.iter().map(|v| prop_value(r, v, path)).collect::<Result<_>>()?),
+        V::InlineTable(t) => toml::Value::Table(t.iter().map(|(k, v)| Ok((k.to_string(), prop_value(r, v, &format!("{path}.{k}"))?))).collect::<Result<_>>()?),
+    })
+}
+
 /// The things, places and areas of a level's text.
 fn read_set_down(r: &Reader, top: &toml_edit::Table, level: &mut GridLevel) -> Result<()> {
     let triple = |t: &dyn toml_edit::TableLike, key: &str, what: &str| -> Result<[i32; 3]> {
@@ -1204,7 +1277,7 @@ fn read_set_down(r: &Reader, top: &toml_edit::Table, level: &mut GridLevel) -> R
     if let Some(item) = top.get("thing") {
         for t in vvx::tables(item).ok_or_else(|| r.fail(item.span(), "things must be tables: [[thing]] with kind (or model) and at"))? {
             r.renamed(t, &[("turn", "rotation")], "a thing")?;
-            r.only(t, &["name", "kind", "model", "at", "facing", "rotation", "pitch", "roll", "solid", "shadow_only", "light", "lights", "scatter"], "a thing")?;
+            r.only(t, &["name", "kind", "model", "at", "facing", "rotation", "pitch", "roll", "solid", "shadow_only", "light", "lights", "scatter", "props"], "a thing")?;
             let line = line_of_table(r, t);
             let here = |why: &str| if line > 0 { anyhow!("line {line}: {why}") } else { anyhow!("{why}") };
             let name = text(t, "name", "a thing")?;
@@ -1292,7 +1365,14 @@ fn read_set_down(r: &Reader, top: &toml_edit::Table, level: &mut GridLevel) -> R
                     _ => return Err(r.fail(i.span(), "scatter must be the number of the terrain's scatter rule that set it down, from 1")),
                 },
             };
-            level.things.push(Thing { kind, at: triple(t, "at", "a thing")?, name, model, facing, pitch, roll, lights, solid, shadow_only, scatter, line });
+            let props = match t.get("props") {
+                None => Vec::new(),
+                Some(item) => read_props(r, item)?,
+            };
+            if !props.is_empty() && kind == PIECE {
+                return Err(r.fail(t.get("props").and_then(Item::span), "props need a kind: a piece (a model or a light set down) has none to declare them (c.things.NAME.props); a thing with props has kind = \"NAME\""));
+            }
+            level.things.push(Thing { kind, at: triple(t, "at", "a thing")?, name, model, facing, pitch, roll, lights, solid, shadow_only, scatter, props, line });
         }
     }
     if let Some(item) = top.get("place") {

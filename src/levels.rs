@@ -89,6 +89,28 @@ impl Area {
     }
 }
 
+/// What a level's file gives one of its things over its kind's props
+/// (`props = {...}` on a `[[thing]]`): its kind's name, the values
+/// `thing.props` reads, and the line each key is on, for a mistake.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OwnProps {
+    pub kind: String,
+    pub values: Arc<toml::Table>,
+    pub lines: Vec<(String, usize)>,
+}
+
+impl OwnProps {
+    /// A thing's props as its file has them; none without any.
+    pub fn of(thing: &crate::grid::Thing) -> Option<Self> {
+        let props = &thing.props;
+        (!props.is_empty()).then(|| Self {
+            kind: thing.kind.clone(),
+            values: Arc::new(props.iter().map(|p| (p.key.clone(), p.value.clone())).collect()),
+            lines: props.iter().map(|p| (p.key.clone(), p.line)).collect(),
+        })
+    }
+}
+
 /// A level as made from its file: its world, the markers that place its
 /// things, the files it came from, its places, its pieces and areas, its
 /// own daylight.
@@ -103,6 +125,8 @@ pub struct Made {
     /// The ways the file turns its markers' things (degrees clockwise
     /// seen from above, north 0), in the markers' order.
     pub marker_facings: Vec<Option<f64>>,
+    /// The props the file gives its markers' things, in the markers' order.
+    pub marker_props: Vec<Option<OwnProps>>,
     pub pieces: Vec<Piece>,
     pub areas: Vec<Area>,
     /// Its own daylight (`[light]` in its file): what it sets of the
@@ -115,7 +139,21 @@ impl Made {
     /// down, no places, the game's daylight.
     pub fn world(world: World, markers: Vec<Marker>, files: Vec<PathBuf>) -> Self {
         let daylight = Default::default();
-        Self { world, markers, files, places: Vec::new(), marker_names: Vec::new(), marker_facings: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight }
+        Self { world, markers, files, places: Vec::new(), marker_names: Vec::new(), marker_facings: Vec::new(), marker_props: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight }
+    }
+
+    /// Each of its things' own props is one its kind declares, of its
+    /// default's type (`sim::things::check_prop`); `declared` gives a
+    /// kind's props by its name (none for a kind the game lacks: a
+    /// mistake of its own).
+    pub fn check_props<'a>(&self, declared: impl Fn(&str) -> Option<&'a toml::Table>) -> Result<()> {
+        for own in self.marker_props.iter().flatten() {
+            let Some(props) = declared(&own.kind) else { continue };
+            for (key, line) in &own.lines {
+                crate::sim::things::check_prop(&own.kind, props, key, &own.values[key]).map_err(|why| anyhow::anyhow!("line {line}: {why}"))?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -352,19 +390,26 @@ pub(crate) fn says_level(game: &Files, path: &Path) -> bool {
 }
 
 /// One level from the file at `path`, of the kind `c.world` says (a level
-/// of pieces whatever it says).
+/// of pieces whatever it says), its things' props checked by their kinds
+/// as every link by name is, when the game loads.
 fn one(game: &Files, cfg: &GameConfig, kind: Kind, path: &Path) -> Result<Made> {
     let names = crate::sim::things::names(cfg);
     let free = cfg.camera.rotates == crate::config::Rotates::Free;
-    match (kind, &cfg.world.blocks) {
-        (Kind::Blocks, Some(blocks)) => crate::grid::load_at(game, blocks, path, &names, free),
-        (Kind::World, _) if says_level(game, path) => crate::grid::load_at(game, &crate::config::BlocksConfig::default(), path, &names, free),
-        (Kind::Map, _) => crate::map::load_map_at(game, path, &names),
+    let made = match (kind, &cfg.world.blocks) {
+        (Kind::Blocks, Some(blocks)) => crate::grid::load_at(game, blocks, path, &names, free)?,
+        (Kind::World, _) if says_level(game, path) => crate::grid::load_at(game, &crate::config::BlocksConfig::default(), path, &names, free)?,
+        (Kind::Map, _) => crate::map::load_map_at(game, path, &names)?,
         _ => {
             let (world, found) = crate::scene::load_in(game, path)?.world(&names).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
-            Ok(Made::world(world, found, vec![path.to_path_buf()]))
+            Made::world(world, found, vec![path.to_path_buf()])
         }
+    };
+    if made.marker_props.iter().any(Option::is_some) {
+        let kinds = crate::config::resolve_like("things", &cfg.things)?;
+        let none = toml::Table::new();
+        made.check_props(|kind| Some(kinds.get(kind)?.get("props").and_then(toml::Value::as_table).unwrap_or(&none)))?;
     }
+    Ok(made)
 }
 
 fn stem(path: &Path) -> String {

@@ -367,6 +367,7 @@ fn chosen(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, item: 
                     row(ui, "LIGHT", "Its color and how far it shines (its radius)", |ui| light_controls(ui, l, 0, zones::FIELD2, shown));
                 }
             }
+            prop_rows(ui, ed, i, shown);
         }
         Item::Place(i) => {
             let p = &ed.level.places[i];
@@ -388,6 +389,65 @@ fn chosen(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, item: 
                 }
             });
         }
+    }
+}
+
+/// PROPS: a row for each prop the chosen thing's kind declares, its key
+/// the label, its own value or else its kind's (quiet): a number, a
+/// string typed (Enter or a click elsewhere sets it, Escape leaves it), a
+/// boolean clicked; a table only shown (changed in TEXT). Its kind's
+/// value set takes it out of the file.
+fn prop_rows(ui: &mut egui::Ui, ed: &Editor, i: usize, shown: &mut PanelsDrawn) {
+    let t = &ed.level.things[i];
+    let Some(declared) = ed.declared_props(t) else { return };
+    ui.label(RichText::new("PROPS").small().color(QUIET)).on_hover_text(format!("What the game's code reads of this one thing (thing.props), over its kind's (c.things.{}.props)", t.kind));
+    let height = ui.text_style_height(&TextStyle::Body) + 8.0;
+    for (k, (key, default)) in declared.iter().enumerate() {
+        let own = t.props.iter().find(|p| &p.key == key).map(|p| &p.value);
+        let tip = match own {
+            Some(_) => format!("props.{key}: this one's; its kind's is {}", crate::grid::text::prop_text(default)),
+            None => format!("props.{key}: its kind's (c.things.{}.props)", t.kind),
+        };
+        let colour = if own.is_some() { TEXT } else { QUIET };
+        row(ui, key, &tip, |ui| {
+            ui.visuals_mut().override_text_color = Some(colour);
+            match own.unwrap_or(default) {
+                v @ (toml::Value::Integer(_) | toml::Value::Float(_)) => {
+                    let n = v.as_float().unwrap_or_else(|| v.as_integer().unwrap_or(0) as f64);
+                    let (decimals, speed) = if default.is_float() { (3, 0.05) } else { (0, 0.25) };
+                    let most = crate::vvx::MOST_WHOLE as f64;
+                    zones::number(ui, shown, "", None, n, decimals, speed, -most..=most, &tip, zones::FIELD2, |v| Action::Set(Field::Prop(k), v));
+                }
+                toml::Value::String(s) => {
+                    let id = egui::Id::unique(("stage prop", i, key.as_str()));
+                    let mut text: String = ui.data(|d| d.get_temp(id)).unwrap_or_else(|| s.clone());
+                    let response = ui.add_sized([zones::col(3), height], egui::TextEdit::singleline(&mut text).font(TextStyle::Body)).on_hover_text(&tip);
+                    let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                    if response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) || escape {
+                        response.surrender_focus();
+                    }
+                    if response.has_focus() {
+                        ui.data_mut(|d| d.insert_temp(id, text));
+                    } else {
+                        if response.lost_focus() && !escape && text != *s {
+                            shown.prop = Some((key.clone(), toml::Value::String(text)));
+                        }
+                        ui.data_mut(|d| d.remove::<String>(id));
+                    }
+                }
+                toml::Value::Boolean(b) => {
+                    let word = RichText::new(if *b { "TRUE" } else { "FALSE" }).color(if own.is_some() && *b { ACCENT } else { colour });
+                    if ui.add(egui::Button::new(word).selected(*b).min_size(Vec2::new(zones::col(1), 0.0))).on_hover_text(&tip).clicked() {
+                        shown.prop = Some((key.clone(), toml::Value::Boolean(!b)));
+                    }
+                }
+                v => {
+                    let mut job = egui::text::LayoutJob::simple_singleline(crate::grid::text::prop_text(v), TextStyle::Small.resolve(ui.style()), colour);
+                    job.wrap = egui::text::TextWrapping::truncate_at_width(zones::col(3));
+                    ui.label(job).on_hover_text(format!("{tip}\n{}\nA table: changed in TEXT", crate::grid::text::prop_text(v)));
+                }
+            }
+        });
     }
 }
 

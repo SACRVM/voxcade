@@ -561,8 +561,10 @@ pub struct Here {
     /// Where the things stood when touches were last looked for: how a
     /// touch began (`on_touch`'s `where`) is judged from there.
     pub seen_at: std::collections::BTreeMap<u32, Vec3>,
-    /// What `level:spawn` gave a thing besides its kind's props.
-    pub props: std::collections::BTreeMap<u32, super::value::Value>,
+    /// A thing's own props over its kind's (`thing.props`): what its
+    /// level's file or `level:spawn` gave it, checked by its kind. Fixed
+    /// once given, so shared, not copied, by a snapshot.
+    pub props: std::collections::BTreeMap<u32, Arc<toml::Table>>,
     /// Things told to have fallen out of the level (once each).
     pub fallen: std::collections::BTreeSet<u32>,
     /// The pieces the level set down (`grid::PIECE`), by their things'
@@ -956,21 +958,24 @@ impl Stage {
     /// `Here` fresh): the name
     /// the level's file gives one (a piece's, a thing's of a kind in the
     /// order its kind's markers come), else its kind's name and its number
-    /// among its kind (`door_1`), in the order they came; what the script
-    /// gave or the level kept goes with them.
+    /// among its kind (`door_1`), in the order they came; the way the file
+    /// turns it and the props it gives it go with them.
     pub fn name_things(&mut self) {
         let figures: Vec<Id> = (1..=self.seats.len()).filter_map(|n| self.figure(n)).collect();
         let levels = Arc::clone(&self.levels);
         let level = &levels.list[self.level];
-        // The names the file gives its things of kinds, by kind, in order.
-        let mut given: std::collections::BTreeMap<usize, std::collections::VecDeque<Option<String>>> = Default::default();
-        for (i, m) in level.markers.iter().enumerate() {
-            given.entry(m.kind).or_default().push_back(level.marker_names.get(i).cloned().flatten());
+        // What the file gives its things of kinds, by kind, in order: a
+        // name, a way (`levels::Made::marker_facings`), props.
+        #[derive(Default)]
+        struct Given {
+            name: Option<String>,
+            bearing: Option<f64>,
+            props: Option<Arc<toml::Table>>,
         }
-        // And the ways it turns them (`levels::Level::marker_facings`).
-        let mut ways: std::collections::BTreeMap<usize, std::collections::VecDeque<Option<f64>>> = Default::default();
+        let mut given: std::collections::BTreeMap<usize, std::collections::VecDeque<Given>> = Default::default();
         for (i, m) in level.markers.iter().enumerate() {
-            ways.entry(m.kind).or_default().push_back(level.marker_facings.get(i).copied().flatten());
+            let props = level.marker_props.get(i).and_then(|p| p.as_ref()).map(|p| Arc::clone(&p.values));
+            given.entry(m.kind).or_default().push_back(Given { name: level.marker_names.get(i).cloned().flatten(), bearing: level.marker_facings.get(i).copied().flatten(), props });
         }
         let mut counts: std::collections::BTreeMap<usize, u32> = Default::default();
         let mut turned = Vec::new();
@@ -985,10 +990,14 @@ impl Stage {
             let own = match self.here.pieces.get(&id.raw()) {
                 Some(p) => p.name.clone(),
                 None => {
-                    if let Some(bearing) = ways.get_mut(&kind).and_then(|q| q.pop_front()).flatten() {
+                    let Given { name, bearing, props } = given.get_mut(&kind).and_then(|q| q.pop_front()).unwrap_or_default();
+                    if let Some(bearing) = bearing {
                         turned.push((id, way_of(bearing, k.free_turn)));
                     }
-                    given.get_mut(&kind).and_then(|q| q.pop_front()).flatten()
+                    if let Some(props) = props {
+                        self.here.props.insert(id.raw(), props);
+                    }
+                    name
                 }
             };
             self.here.names.insert(id.raw(), own.unwrap_or_else(|| format!("{}_{n}", k.name)));

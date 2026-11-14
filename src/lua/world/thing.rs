@@ -81,19 +81,15 @@ impl UserData for ThingRef {
             if let Some(p) = cache.raw_get::<Option<Value>>(t.0)? {
                 return Ok(p);
             }
-            let (kind, own) = look(lua, |h| Ok((h.kinds.get(h.thing(t.0)?.kind).map(|k| k.props.clone()).unwrap_or_default(), h.here.props.get(&t.0).cloned())))?;
-            let props = lua.create_table()?;
-            for (k, v) in &kind {
-                props.raw_set(k.as_str(), from_toml(lua, v)?)?;
-            }
-            if let Some(own) = own
-                && let Value::Table(own) = crate::lua::value::restore(lua, &own).map_err(|e| mlua::Error::runtime(format!("{e:#}")))?
-            {
-                for pair in own.pairs::<Value, Value>() {
-                    let (k, v) = pair?;
-                    props.raw_set(k, v)?;
+            // Its own over its kind's.
+            let props = look(lua, |h| {
+                let props = lua.create_table()?;
+                let kind = h.kinds.get(h.thing(t.0)?.kind).map(|k| &k.props);
+                for (k, v) in kind.into_iter().flatten().chain(h.here.props.get(&t.0).into_iter().flat_map(|own| own.iter())) {
+                    props.raw_set(k.as_str(), from_toml(lua, v)?)?;
                 }
-            }
+                Ok(props)
+            })?;
             let props = readonly(lua, props, "thing.props")?;
             cache.raw_set(t.0, &props)?;
             Ok(props)

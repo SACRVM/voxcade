@@ -624,8 +624,10 @@ pub struct Pieces {
     put_away: Vec<(usize, Vec<crate::grid::ThingLight>)>,
     /// The game's kinds (`c.things`) as a level's things of them turn:
     /// their models' files; those without a behavior (only they face as
-    /// the file turns them); those that turn freely (`rotates = "free"`).
+    /// the file turns them); those that turn freely (`rotates = "free"`);
+    /// the props each declares (`props`, `like` filled in: PROPS).
     pub kind_models: std::collections::BTreeMap<String, String>,
+    pub kind_props: std::collections::BTreeMap<String, toml::Table>,
     /// The game's models a piece can be made of (`Editor::model_choices`),
     /// as last found.
     choices: std::cell::RefCell<Option<std::rc::Rc<[String]>>>,

@@ -263,7 +263,12 @@ pub fn row(ui: &mut egui::Ui, word: &str, tip: &str, add: impl FnOnce(&mut egui:
         ui.spacing_mut().item_spacing.x = GAP;
         ui.spacing_mut().button_padding = egui::vec2(6.0, 3.0);
         let (rect, response) = ui.allocate_exact_size(Vec2::new(LABEL, ui.text_style_height(&TextStyle::Body) + 6.0), egui::Sense::hover());
-        ui.painter().text(rect.left_center(), egui::Align2::LEFT_CENTER, word, TextStyle::Small.resolve(ui.style()), QUIET);
+        // A word longer than the room up to the controls cut with "…" (a
+        // prop's key, its tip naming it whole): the controls never move.
+        let mut job = egui::text::LayoutJob::simple_singleline(word.to_string(), TextStyle::Small.resolve(ui.style()), QUIET);
+        job.wrap = egui::text::TextWrapping::truncate_at_width(LABEL + GAP - 1.0);
+        let galley = ui.painter().layout_job(job);
+        ui.painter().galley(rect.left_center() - Vec2::new(0.0, galley.size().y / 2.0), galley, QUIET);
         if !tip.is_empty() {
             response.on_hover_text(tip);
         }

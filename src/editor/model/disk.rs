@@ -548,7 +548,7 @@ impl Listed for Thing {
         self.name.clone().unwrap_or_else(|| self.model.clone().unwrap_or_else(|| self.kind.clone()))
     }
     fn merged(b: &Self, a: &Self, d: &Self) -> Self {
-        take!(b, a, d; kind, at, name, model, facing, pitch, roll, lights, solid)
+        take!(b, a, d; kind, at, name, model, facing, pitch, roll, lights, solid, shadow_only, scatter, props)
     }
     fn unlined(mut self) -> Self {
         self.line = 0;

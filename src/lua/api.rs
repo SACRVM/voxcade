@@ -451,7 +451,8 @@ pub const API: &[Item] = &[
     Item { of: "thing", name: "families", what: Field { ty: "table<string, boolean>", set: false },
         doc: "The families of its kind (c.things.NAME.family = { \"enemies\" }), as a set: if b.families.enemies then ... end. Only to read." },
     Item { of: "thing", name: "props", what: Field { ty: "table", set: false }, doc: "Fixed values your code reads of this thing: its kind's \
-            props (c.things.NAME.props = { worth = 100 }) and what level:spawn gave it. Only to read; what changes goes in thing.state." },
+            props (c.things.NAME.props = { worth = 100 }), over them what its level's file gave it (props = { worth = 500 } on its \
+            [[thing]], PROPS in the level editor) or level:spawn did. Only to read; what changes goes in thing.state." },
     // input
     Item { of: "input", name: "left", what: Field { ty: "boolean", set: false }, doc: "Held this tick (input:pressed(\"left\") whether it \
             went down this tick)." },
@@ -866,7 +867,7 @@ pub const KIND_KEYS: &[(&str, &str, &str)] = &[
     ("width", "number", "Its body across and deep, in voxels (c.physics.body_width unless set)."),
     ("height", "number", "Its body's height, in voxels (its model's unless set)."),
     ("facing", "number[]", "The way it faces as it comes in, { x, y } (x east, y north)."),
-    ("props", "table", "What your code reads of it, thing.props: props = { worth = 100 }."),
+    ("props", "table", "What your code reads of it, thing.props: props = { worth = 100 }. A level's thing or level:spawn may give one its own of these."),
     ("family", "string|string[]", "A family, or a list of them: level:things(\"enemies\") finds them, thing.families says them."),
     ("effect", "string|table", "Shown once where one of its things goes: a model (\"poof.vvx\", or { model = \"poof.vvx\", fps = 20 }), or \"burst\": it bursts into its voxels."),
     ("sound", "string", "Heard where one of its things goes: a sound's name (sounds/NAME.toml)."),

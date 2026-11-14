@@ -1085,6 +1085,7 @@ impl<K: Kit> Game for LuaGame<K> {
         Self::player_kind(cfg, &kinds)?;
         Self::check_items(cfg)?;
         Self::check_kinds_sounds(cfg, &kinds)?;
+        check_props(&self.stage.levels, &kinds)?;
         // The views of things' states hold their kinds' keys (hp or not),
         // their props are their kinds' anew.
         self.sandbox.lua.set_named_registry_value("voxcade.views", self.sandbox.lua.create_table()?)?;

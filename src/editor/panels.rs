@@ -31,6 +31,9 @@ pub struct PanelsDrawn {
     /// A name typed for a figure's part and Enter pressed
     /// (`Editor::rename_part`).
     pub renamed_part: Option<(usize, String)>,
+    /// A prop of the chosen thing given a string typed or a boolean
+    /// clicked (`Editor::set_prop`; a number is an `Action::Set`).
+    pub prop: Option<(String, toml::Value)>,
     /// The room the panels leave the 3D view (egui's points), where it is
     /// not the room right of nothing and above the bottom bar.
     pub free: Option<egui::Rect>,
