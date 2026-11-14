@@ -16,6 +16,7 @@ mod sandbox;
 mod saves;
 mod scenarios;
 mod seats;
+mod start;
 mod states;
 
 use std::path::{Path, PathBuf};

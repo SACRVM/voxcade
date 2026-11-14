@@ -429,6 +429,10 @@ fn fingerprint_parts(cfg: &GameConfig, sections: &[&str], actions: &[&str], file
     if let Some(v) = all.get("players") {
         read.insert("players".into(), v.clone());
     }
+    // Where a run begins, if the game says (unset adds nothing).
+    if let Some(v) = all.get("start") {
+        read.insert("start".into(), v.clone());
+    }
     read.insert("actions".into(), toml::Value::Array(actions.iter().map(|a| toml::Value::String(a.to_string())).collect()));
     let mut parts = vec![("conf.lua".to_string(), toml::to_string(&read)?.into_bytes())];
     for (name, bytes) in files {

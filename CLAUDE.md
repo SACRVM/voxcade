@@ -1093,7 +1093,9 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `thing.state.hp`, are read and written through to where the engine
   keeps them, so hashes stay); `thing:remove` waits for the tick's end;
   levels are the files in `levels/` (`src/levels.rs`, all read at load,
-  natural order, places in the files), changed by asks at the tick's end
+  natural order, places in the files; a run begins in the first or in
+  `c.start`'s, `Levels::first`, restart-only, in the fingerprint only when
+  set), changed by asks at the tick's end
   (`world:go_to`, `world:restart`, `world:win`, `world:lose`; one counts,
   going on before starting over) through `on_level_end(why)` and
   `on_level_start(how)`, faded in a window only (`c.transition`, no ticks

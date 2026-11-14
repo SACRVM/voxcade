@@ -663,7 +663,7 @@ impl<K: Kit> Game for LuaGame<K> {
         let old = std::mem::replace(&mut self.stage.levels, levels);
         let visits: Vec<u32> = self.stage.levels.list.iter().map(|l| old.find(&l.name).map_or(0, |i| self.stage.visits[i])).collect();
         self.stage.visits = visits;
-        let index = self.stage.levels.find(&name).unwrap_or(0);
+        let index = self.stage.levels.find(&name).unwrap_or(self.stage.levels.start);
         // The player stays where its figure stands.
         let here = self.stage.host.player_seen().map(|t| t.body).or_else(|| self.focus());
         let place = match here {

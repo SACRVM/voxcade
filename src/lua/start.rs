@@ -63,9 +63,9 @@ impl<K: Kit> LuaGame<K> {
                 here: Default::default(),
                 kinds,
                 sounds: Self::sound_names(cfg),
-                visits: (0..levels.list.len()).map(|i| (i == 0) as u32).collect(),
+                visits: (0..levels.list.len()).map(|i| (i == levels.start) as u32).collect(),
+                level: levels.start,
                 levels,
-                level: 0,
                 ask: None,
                 arrived: crate::levels::Place::new("start", Vec3::ZERO, None),
                 ended: false,
@@ -113,10 +113,11 @@ impl<K: Kit> LuaGame<K> {
         };
         // The first level's place called start, if it has one, as every
         // entry of it later.
-        game.stage.arrived = game.stage.start(0);
-        let (start, placed) = (game.stage.arrived.clone(), game.place_in(0, None).is_some());
+        let at = game.stage.levels.start;
+        game.stage.arrived = game.stage.start(at);
+        let (start, placed) = (game.stage.arrived.clone(), game.place_in(at, None).is_some());
         let levels = Arc::clone(&game.stage.levels);
-        let first = &levels.list[0];
+        let first = levels.first();
         match game.kit_mut() {
             // The ready-made rules stood their player by their own rules
             // unless the level has a place called start.

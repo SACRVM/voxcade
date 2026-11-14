@@ -73,7 +73,8 @@ fn what_waits_for_a_restart_is_kept_until_then() {
     new.world.blocks = Some(BlocksConfig::default());
     new.markers = toml::from_str("rifleman = 240").unwrap();
     new.player.spawn = [1.0, 2.0];
-    assert_eq!(old.restart_only(&new).len(), 9, "{:?}", old.restart_only(&new));
+    new.start = Some("b".into());
+    assert_eq!(old.restart_only(&new).len(), 10, "{:?}", old.restart_only(&new));
     old.keep_for_restart(&mut new);
     assert!(old.restart_only(&new).is_empty(), "{:?}", old.restart_only(&new));
 }
