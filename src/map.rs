@@ -515,10 +515,31 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
     if let Some(why) = crate::world::too_big(size.as_i64vec3()) {
         bail!("{}: the map of {why}", path.display());
     }
+    // The ground's colours take the world's first numbers, then the
+    // prefabs' in the order of their names, each one's in its palette's.
     let mut palette = Palette::new();
+    let colours = ground_colours(&map.ground, &mut palette, path)?;
+    let heights = ground_heights(files, dir, &map.ground, size, &mut sources)?;
+    let kinds = ground_kinds(files, dir, &map.ground, size, &colours.keys, &mut sources)?;
+    let mut world = ground_world(size, &heights, &kinds, &colours.materials, colours.bedrock);
+    let prefabs = prefabs_of(map, prefab_scenes, names, &mut palette, &mut sources)?;
+    let found = put_all(map, path, names, &prefabs, &heights, &mut world)?;
+    world.palette = palette.colours;
+    world.soft = palette.soft;
+    world.mark_all_dirty();
+    let places = map.places.iter().map(|p| crate::levels::Place::new(&p.name, IVec3::from(p.at).as_vec3() + glam::Vec3::new(0.5, 0.5, 0.0), p.facing)).collect();
+    Ok(crate::levels::Made { world, markers: found, files: sources, places, marker_names: Vec::new(), marker_facings: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight: Default::default() })
+}
 
-    // --- ground ---
-    let ground = &map.ground;
+/// The ground's bedrock and materials in the world's numbers, and the
+/// material map's colour for each material (its place in `materials`).
+struct GroundColours {
+    bedrock: Option<u8>,
+    materials: Vec<Colours>,
+    keys: HashMap<[u8; 4], u8>,
+}
+
+fn ground_colours(ground: &Ground, palette: &mut Palette, path: &Path) -> Result<GroundColours> {
     if ground.materials.is_empty() {
         bail!("{}: ground needs at least one material", path.display());
     }
@@ -542,49 +563,66 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
             wobble: m.wobble,
         });
     }
+    Ok(GroundColours { bedrock, materials, keys })
+}
 
-    let columns = (size.x * size.y) as usize;
-    let height_path = dir.join(&ground.height);
-    let (w, h, pixels) = read_png_in(files, &height_path)?;
+/// Where a map's column (x, y) is in a picture of the ground: its rows
+/// run north to south, world y south to north.
+fn pixel_of(size: IVec3, x: i32, y: i32) -> usize {
+    (x + (size.y - 1 - y) * size.x) as usize
+}
+
+/// A picture of the ground as big as the map, its file noted.
+fn ground_picture(files: &Files, path: PathBuf, size: IVec3, sources: &mut Vec<PathBuf>) -> Result<Vec<[u8; 3]>> {
+    let (w, h, pixels) = read_png_in(files, &path)?;
     if (w as i32, h as i32) != (size.x, size.y) {
-        bail!("{}: {w}x{h}, but the map is {}x{}", height_path.display(), size.x, size.y);
+        bail!("{}: {w}x{h}, but the map is {}x{}", path.display(), size.x, size.y);
     }
-    sources.push(height_path);
-    // Image rows run north to south; world y runs south to north.
-    let column = |x: i32, y: i32| (x + (size.y - 1 - y) * size.x) as usize;
-    let mut heights = vec![0i32; columns];
+    sources.push(path);
+    Ok(pixels)
+}
+
+/// Every column's height from the height map, at most the map's.
+fn ground_heights(files: &Files, dir: &Path, ground: &Ground, size: IVec3, sources: &mut Vec<PathBuf>) -> Result<Vec<i32>> {
+    let pixels = ground_picture(files, dir.join(&ground.height), size, sources)?;
+    let mut heights = vec![0i32; (size.x * size.y) as usize];
     for y in 0..size.y {
         for x in 0..size.x {
-            heights[(x + y * size.x) as usize] = (pixels[column(x, y)][0] as i32).min(size.z);
+            heights[(x + y * size.x) as usize] = (pixels[pixel_of(size, x, y)][0] as i32).min(size.z);
         }
     }
-    let mut kinds = vec![0u8; columns];
-    if let Some(file) = &ground.material {
-        let material_path = dir.join(file);
-        let (w, h, pixels) = read_png_in(files, &material_path)?;
-        if (w as i32, h as i32) != (size.x, size.y) {
-            bail!("{}: {w}x{h}, but the map is {}x{}", material_path.display(), size.x, size.y);
-        }
-        let mut unknown = None;
-        for y in 0..size.y {
-            for x in 0..size.x {
-                let [r, g, b] = pixels[column(x, y)];
-                kinds[(x + y * size.x) as usize] = *keys.get(&[r, g, b, 255]).unwrap_or_else(|| {
-                    unknown.get_or_insert((r, g, b));
-                    &0
-                });
-            }
-        }
-        if let Some((r, g, b)) = unknown {
-            eprintln!(
-                "warning: {}: color #{r:02x}{g:02x}{b:02x} names no material; using the first",
-                material_path.display()
-            );
-        }
-        sources.push(material_path);
-    }
+    Ok(heights)
+}
 
+/// Every column's material from the material map (the first without one,
+/// and where its colour names none).
+fn ground_kinds(files: &Files, dir: &Path, ground: &Ground, size: IVec3, keys: &HashMap<[u8; 4], u8>, sources: &mut Vec<PathBuf>) -> Result<Vec<u8>> {
+    let mut kinds = vec![0u8; (size.x * size.y) as usize];
+    let Some(file) = &ground.material else { return Ok(kinds) };
+    let material_path = dir.join(file);
+    let shown = material_path.display().to_string();
+    let pixels = ground_picture(files, material_path, size, sources)?;
+    let mut unknown = None;
+    for y in 0..size.y {
+        for x in 0..size.x {
+            let [r, g, b] = pixels[pixel_of(size, x, y)];
+            kinds[(x + y * size.x) as usize] = *keys.get(&[r, g, b, 255]).unwrap_or_else(|| {
+                unknown.get_or_insert((r, g, b));
+                &0
+            });
+        }
+    }
+    if let Some((r, g, b)) = unknown {
+        eprintln!("warning: {shown}: color #{r:02x}{g:02x}{b:02x} names no material; using the first");
+    }
+    Ok(kinds)
+}
+
+/// The world of the ground: each column filled up to its height with its
+/// material's surface and strata.
+fn ground_world(size: IVec3, heights: &[i32], kinds: &[u8], materials: &[Colours], bedrock: Option<u8>) -> World {
     // Per column: where the strata bands sit and which surface patch it is in.
+    let columns = (size.x * size.y) as usize;
     let mut wobble = vec![0i32; columns];
     let mut patch = vec![0.5f32; columns];
     for y in 0..size.y {
@@ -621,7 +659,6 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
         let band = (p.z + wobble[i]).div_euclid(m.band).rem_euclid(m.strata.len() as i32);
         m.strata[band as usize]
     };
-
     let mut world = World::new(size, [[0; 4]; 256]);
     let chunks = (size + CHUNK - 1) / CHUNK;
     for cy in 0..chunks.y {
@@ -639,10 +676,12 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
             }
         }
     }
+    world
+}
 
-    // --- prefabs ---
-    // Their colours take the world's numbers in the order of their names,
-    // each one's in its palette's order.
+/// The prefabs by name: their voxels in the world's numbers and their
+/// markers, from their anchors.
+fn prefabs_of(map: &MapData, prefab_scenes: Vec<(String, crate::scene::Scene, PathBuf)>, names: &[&str], palette: &mut Palette, sources: &mut Vec<PathBuf>) -> Result<HashMap<String, Prefab>> {
     let mut prefabs = HashMap::new();
     for (name, scene, file) in prefab_scenes {
         let soft = map.prefabs.get(&name).is_some_and(|p| p.soft);
@@ -662,8 +701,13 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
         prefabs.insert(name, prefab);
         sources.push(file);
     }
+    Ok(prefabs)
+}
 
-    // --- placements ---
+/// What the map's `[[put]]`s set down, in order: prefabs into the world,
+/// their markers and things where they stand.
+fn put_all(map: &MapData, path: &Path, names: &[&str], prefabs: &HashMap<String, Prefab>, heights: &[i32], world: &mut World) -> Result<Vec<Marker>> {
+    let size = world.size;
     let mut found = Vec::new();
     let ground_at = |at: IVec2| {
         let x = at.x.clamp(0, size.x - 1);
@@ -679,9 +723,7 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
         };
         match (&place.prefab, &place.thing) {
             (Some(name), None) => {
-                let prefab = prefabs
-                    .get(name.as_str())
-                    .ok_or_else(|| anyhow!("{}: put {n}: no prefab named '{name}'", path.display()))?;
+                let prefab = prefabs.get(name.as_str()).ok_or_else(|| anyhow!("{}: put {n}: no prefab named '{name}'", path.display()))?;
                 for &(l, i) in &prefab.voxels {
                     world.set_raw(at + turn(l, place.quarters()), i);
                 }
@@ -690,21 +732,13 @@ pub(crate) fn build(map: &MapData, path: &Path, files: &Files, prefab_scenes: Ve
                 }
             }
             (None, Some(name)) => {
-                let kind = names
-                    .iter()
-                    .position(|m| m == name)
-                    .ok_or_else(|| anyhow!("{}: put {n}: '{name}' is no kind of thing (c.things: {})", path.display(), names.join(", ")))?;
+                let kind = names.iter().position(|m| m == name).ok_or_else(|| anyhow!("{}: put {n}: '{name}' is no kind of thing (c.things: {})", path.display(), names.join(", ")))?;
                 found.push(Marker { kind, cell: at });
             }
             _ => bail!("{}: put {n}: give either 'prefab' or 'thing'", path.display()),
         }
     }
-
-    world.palette = palette.colours;
-    world.soft = palette.soft;
-    world.mark_all_dirty();
-    let places = map.places.iter().map(|p| crate::levels::Place::new(&p.name, IVec3::from(p.at).as_vec3() + glam::Vec3::new(0.5, 0.5, 0.0), p.facing)).collect();
-    Ok(crate::levels::Made { world, markers: found, files: sources, places, marker_names: Vec::new(), marker_facings: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight: Default::default() })
+    Ok(found)
 }
 
 const SEED: i64 = 0x5EED;
