@@ -34,10 +34,7 @@ impl Shell {
                         }
                         // An error clicked: its file, at its line.
                         if let Some((file, line)) = self.below.output.ui(ui).filter(|(f, _)| self.files.has(f)) {
-                            self.hide_game();
-                            self.help = false;
-                            self.open(&file);
-                            self.opening.goto = Some((line, true));
+                            self.show_at(&file, line);
                         }
                     } else if self.agent.no_agent {
                         if agent_missing(ui, self.forms.prefs.agent) {

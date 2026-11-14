@@ -107,8 +107,10 @@ pub struct Buffer {
     whole: PathBuf,
     journal: PathBuf,
     pub code: Code,
-    /// What the file on disk holds, as last read or written.
+    /// What the file on disk holds, as last read or written, and its hash
+    /// (what a journal says its text was changed from).
     on_disk: String,
+    on_disk_hash: String,
     /// The file's time then.
     stamp: Option<SystemTime>,
     /// When the text changed with no save since.
@@ -150,12 +152,19 @@ impl Buffer {
         };
         let stamp = modified(&file);
         let changed = restored.then(Instant::now);
-        Ok(Self { file, whole, journal, code: Code::new(path, text), on_disk, stamp, changed, theirs, asked_from, restored, gone: false })
+        let on_disk_hash = hash(&on_disk);
+        Ok(Self { file, whole, journal, code: Code::new(path, text), on_disk, on_disk_hash, stamp, changed, theirs, asked_from, restored, gone: false })
+    }
+
+    /// The file on disk now holds `text`.
+    fn on_disk_is(&mut self, text: String) {
+        self.on_disk_hash = hash(&text);
+        self.on_disk = text;
     }
 
     /// Whether the text has changes not yet saved.
     pub fn unsaved(&self) -> bool {
-        self.code.text != self.on_disk
+        self.code.text() != self.on_disk
     }
 
     /// The text changed: into the journal at once, into the file a second
@@ -171,15 +180,15 @@ impl Buffer {
         if let Some(folder) = self.journal.parent() {
             let _ = std::fs::create_dir_all(folder);
         }
-        let base = if self.theirs.is_some() { self.asked_from.clone() } else { hash(&self.on_disk) };
-        let _ = crate::blocks::save_at_once(&self.journal, journal(&base, &self.whole, &self.code.text).as_bytes());
+        let base = if self.theirs.is_some() { &self.asked_from } else { &self.on_disk_hash };
+        let _ = crate::blocks::save_at_once(&self.journal, journal(base, &self.whole, self.code.text()).as_bytes());
     }
 
     /// The file changed outside to `text` while this one has changes of its
     /// own: whose to keep is asked.
     fn ask(&mut self, text: String) {
         if self.theirs.is_none() {
-            self.asked_from = hash(&self.on_disk);
+            self.asked_from = self.on_disk_hash.clone();
         }
         self.theirs = Some(text);
     }
@@ -210,8 +219,8 @@ impl Buffer {
         }
         self.changed = None;
         if self.unsaved() {
-            crate::blocks::save_at_once(&self.file, self.code.text.as_bytes())?;
-            self.on_disk = self.code.text.clone();
+            crate::blocks::save_at_once(&self.file, self.code.text().as_bytes())?;
+            self.on_disk_is(self.code.text().to_string());
             self.stamp = modified(&self.file);
         }
         let _ = std::fs::remove_file(&self.journal);
@@ -225,8 +234,8 @@ impl Buffer {
         if let Some(folder) = self.file.parent() {
             std::fs::create_dir_all(folder).with_context(|| format!("making {}", folder.display()))?;
         }
-        crate::blocks::save_at_once(&self.file, self.code.text.as_bytes())?;
-        self.on_disk = self.code.text.clone();
+        crate::blocks::save_at_once(&self.file, self.code.text().as_bytes())?;
+        self.on_disk_is(self.code.text().to_string());
         self.stamp = modified(&self.file);
         self.gone = false;
         self.theirs = None;
@@ -253,15 +262,15 @@ impl Buffer {
         if text == self.on_disk || self.theirs.as_ref() == Some(&text) {
             return flipped;
         }
-        if text == self.code.text {
+        if text == self.code.text() {
             // Written outside just as it is here: nothing to ask.
-            self.on_disk = text;
+            self.on_disk_is(text);
             self.theirs = None;
         } else if self.unsaved() {
             self.ask(text);
         } else {
-            self.code.text = text.clone();
-            self.on_disk = text;
+            self.code.set_text(text.clone());
+            self.on_disk_is(text);
         }
         true
     }
@@ -278,13 +287,13 @@ impl Buffer {
             return;
         }
         self.stamp = modified(&self.file);
-        if text == self.code.text {
-            self.on_disk = text;
+        if text == self.code.text() {
+            self.on_disk_is(text);
         } else if self.unsaved() {
             self.ask(text);
         } else {
-            self.code.text = text.clone();
-            self.on_disk = text;
+            self.code.set_text(text.clone());
+            self.on_disk_is(text);
         }
     }
 
@@ -293,7 +302,7 @@ impl Buffer {
     /// brings it back without asking again).
     pub fn keep_mine(&mut self) {
         if let Some(theirs) = self.theirs.take() {
-            self.on_disk = theirs;
+            self.on_disk_is(theirs);
             self.changed = Some(Instant::now());
             self.write_journal();
         }
@@ -302,8 +311,8 @@ impl Buffer {
     /// Takes the text changed from outside, letting this one's changes go.
     pub fn take_theirs(&mut self) {
         if let Some(theirs) = self.theirs.take() {
-            self.code.text = theirs.clone();
-            self.on_disk = theirs;
+            self.code.set_text(theirs.clone());
+            self.on_disk_is(theirs);
             self.changed = None;
             self.restored = false;
             let _ = std::fs::remove_file(&self.journal);
@@ -321,7 +330,6 @@ mod tests {
 
     fn folder(name: &str) -> (PathBuf, PathBuf, crate::scratch::Scratch) {
         let dir = crate::scratch::Scratch::new(&format!("buffer-{name}"));
-        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("game")).unwrap();
         std::fs::write(dir.join("game/main.lua"), "function on_tick() end\n").unwrap();
         (dir.join("game"), dir.join("journal"), dir)
@@ -333,15 +341,15 @@ mod tests {
     fn a_buffer_survives_a_crash_in_the_journal() {
         let (game, journals, _dir) = folder("crash");
         let mut b = Buffer::open(&game, "main.lua", &journals).unwrap();
-        b.code.text = "function on_tick() player.state.score = 1 end\n".into();
+        b.code.set_text("function on_tick() player.state.score = 1 end\n".into());
         b.edited(Instant::now());
         drop(b);
         assert_eq!(std::fs::read_to_string(game.join("main.lua")).unwrap(), "function on_tick() end\n", "not saved yet");
         let mut b = Buffer::open(&game, "main.lua", &journals).unwrap();
         assert!(b.restored && b.unsaved());
-        assert_eq!(b.code.text, "function on_tick() player.state.score = 1 end\n");
+        assert_eq!(b.code.text(), "function on_tick() player.state.score = 1 end\n");
         assert!(b.tick(Instant::now() + SAVE_AFTER).unwrap(), "saved when due");
-        assert_eq!(std::fs::read_to_string(game.join("main.lua")).unwrap(), b.code.text);
+        assert_eq!(std::fs::read_to_string(game.join("main.lua")).unwrap(), b.code.text());
         assert!(!Buffer::open(&game, "main.lua", &journals).unwrap().restored, "the journal gone once saved");
         let _ = std::fs::remove_dir_all(game.parent().unwrap());
     }
@@ -363,8 +371,8 @@ mod tests {
         };
         write("-- theirs\n");
         assert!(b.look());
-        assert_eq!((b.code.text.as_str(), b.theirs.is_none()), ("-- theirs\n", true), "taken in");
-        b.code.text = "-- mine\n".into();
+        assert_eq!((b.code.text(), b.theirs.is_none()), ("-- theirs\n", true), "taken in");
+        b.code.set_text("-- mine\n".into());
         b.edited(Instant::now());
         write("-- theirs again\n");
         assert!(b.look());
@@ -398,35 +406,35 @@ mod tests {
         let (game, journals, _dir) = folder("let-go");
         let file = game.join("main.lua");
         let mut b = Buffer::open(&game, "main.lua", &journals).unwrap();
-        b.code.text = "-- mine\n".into();
+        b.code.set_text("-- mine\n".into());
         b.edited(Instant::now());
         write_outside(&file, "-- theirs\n");
         assert!(b.look() && b.theirs.is_some(), "asked");
         // Typed on while asked.
-        b.code.text = "-- mine\n-- more\n".into();
+        b.code.set_text("-- mine\n-- more\n".into());
         b.edited(Instant::now());
         b.save().unwrap();
         drop(b);
         assert_eq!(read(&file), "-- theirs\n", "nothing written over theirs");
         let mut b = Buffer::open(&game, "main.lua", &journals).unwrap();
-        assert_eq!((b.code.text.as_str(), b.theirs.as_deref()), ("-- mine\n-- more\n", Some("-- theirs\n")), "both kept, asked again");
+        assert_eq!((b.code.text(), b.theirs.as_deref()), ("-- mine\n-- more\n", Some("-- theirs\n")), "both kept, asked again");
         assert!(!b.tick(Instant::now() + SAVE_AFTER * 2).unwrap() && b.due(Instant::now()).is_none(), "nothing saved while asked");
         // Typed on, let go of again: still both.
-        b.code.text = "-- mine\n".into();
+        b.code.set_text("-- mine\n".into());
         b.edited(Instant::now());
         b.save().unwrap();
         drop(b);
         let mut b = Buffer::open(&game, "main.lua", &journals).unwrap();
-        assert_eq!((b.code.text.as_str(), b.theirs.as_deref()), ("-- mine\n", Some("-- theirs\n")));
+        assert_eq!((b.code.text(), b.theirs.as_deref()), ("-- mine\n", Some("-- theirs\n")));
         b.take_theirs();
         assert!(!b.restored && !b.unsaved());
         drop(b);
         let b = Buffer::open(&game, "main.lua", &journals).unwrap();
-        assert!(b.theirs.is_none() && !b.restored && b.code.text == "-- theirs\n", "taken: the journal gone");
+        assert!(b.theirs.is_none() && !b.restored && b.code.text() == "-- theirs\n", "taken: the journal gone");
         drop(b);
         // KEEP MINE: saved over theirs.
         let mut b = Buffer::open(&game, "main.lua", &journals).unwrap();
-        b.code.text = "-- mine again\n".into();
+        b.code.set_text("-- mine again\n".into());
         b.edited(Instant::now());
         write_outside(&file, "-- theirs again\n");
         b.save().unwrap();
@@ -450,33 +458,33 @@ mod tests {
         let (game, journals, _dir) = folder("crash-then-outside");
         let file = game.join("main.lua");
         let mut b = Buffer::open(&game, "main.lua", &journals).unwrap();
-        b.code.text = "-- mine\n".into();
+        b.code.set_text("-- mine\n".into());
         b.edited(Instant::now());
         drop(b);
         write_outside(&file, "-- changed since\n");
         let mut b = Buffer::open(&game, "main.lua", &journals).unwrap();
         assert!(b.restored);
-        assert_eq!((b.code.text.as_str(), b.theirs.as_deref()), ("-- mine\n", Some("-- changed since\n")), "asked");
+        assert_eq!((b.code.text(), b.theirs.as_deref()), ("-- mine\n", Some("-- changed since\n")), "asked");
         assert!(!b.tick(Instant::now() + SAVE_AFTER * 2).unwrap());
         assert_eq!(read(&file), "-- changed since\n", "not written over");
         // Typed on while asked, and another crash: still asked.
-        b.code.text = "-- mine, more\n".into();
+        b.code.set_text("-- mine, more\n".into());
         b.edited(Instant::now());
         drop(b);
         let mut b = Buffer::open(&game, "main.lua", &journals).unwrap();
-        assert_eq!((b.code.text.as_str(), b.theirs.as_deref()), ("-- mine, more\n", Some("-- changed since\n")), "asked again");
+        assert_eq!((b.code.text(), b.theirs.as_deref()), ("-- mine, more\n", Some("-- changed since\n")), "asked again");
         // KEEP MINE, and a crash before it is saved: back without asking.
         b.keep_mine();
         drop(b);
         let mut b = Buffer::open(&game, "main.lua", &journals).unwrap();
-        assert!(b.restored && b.theirs.is_none() && b.code.text == "-- mine, more\n");
+        assert!(b.restored && b.theirs.is_none() && b.code.text() == "-- mine, more\n");
         assert!(b.tick(Instant::now() + SAVE_AFTER).unwrap());
         assert_eq!(read(&file), "-- mine, more\n");
         drop(b);
         // A journal left unasked (`ide --shot --journal`): asked about.
         leave(&game, "main.lua", &journals, "-- left\n").unwrap();
         let b = Buffer::open(&game, "main.lua", &journals).unwrap();
-        assert_eq!((b.code.text.as_str(), b.theirs.as_deref()), ("-- left\n", Some("-- mine, more\n")));
+        assert_eq!((b.code.text(), b.theirs.as_deref()), ("-- left\n", Some("-- mine, more\n")));
     }
 
     /// A journal names its file's whole path and is offered on that file
@@ -492,30 +500,30 @@ mod tests {
         std::fs::create_dir_all(&other).unwrap();
         std::fs::write(other.join("main.lua"), "function on_tick() end\n").unwrap();
         let mut b = Buffer::open(&game, "main.lua", &journals).unwrap();
-        b.code.text = "-- this game's\n".into();
+        b.code.set_text("-- this game's\n".into());
         b.edited(Instant::now());
         drop(b);
         assert!(read(&journals.join("main.lua")).starts_with(&format!("voxcade journal 2 base {} file {}\n", hash("function on_tick() end\n"), game.canonicalize().unwrap().join("main.lua").display())));
         // The other folder's main.lua, its journals in the same place.
         let theirs = Buffer::open(&other, "main.lua", &journals).unwrap();
-        assert!(!theirs.restored && theirs.theirs.is_none() && theirs.code.text == "function on_tick() end\n", "another path's journal offered");
+        assert!(!theirs.restored && theirs.theirs.is_none() && theirs.code.text() == "function on_tick() end\n", "another path's journal offered");
         assert!(!holds_unsaved(&other, "main.lua", &journals) && holds_unsaved(&game, "main.lua", &journals));
         drop(theirs);
         let mine = Buffer::open(&game, "main.lua", &journals).unwrap();
-        assert!(mine.restored && mine.code.text == "-- this game's\n", "its own path's journal");
+        assert!(mine.restored && mine.code.text() == "-- this game's\n", "its own path's journal");
         drop(mine);
         // Renamed: the journal goes along and names the new path.
         std::fs::rename(game.join("main.lua"), game.join("start.lua")).unwrap();
         rename_journal(&game, "main.lua", "start.lua", &journals);
         assert!(!journals.join("main.lua").exists());
         let moved = Buffer::open(&game, "start.lua", &journals).unwrap();
-        assert!(moved.restored && moved.code.text == "-- this game's\n" && moved.theirs.is_none());
+        assert!(moved.restored && moved.code.text() == "-- this game's\n" && moved.theirs.is_none());
         drop(moved);
         // Older IDEs' journals: by the name only, never offered.
         for old in ["-- from an older IDE\n".to_string(), format!("voxcade journal 1 base {}\n-- version 1\n", hash("function on_tick() end\n"))] {
             std::fs::write(journals.join("main.lua"), &old).unwrap();
             let b = Buffer::open(&other, "main.lua", &journals).unwrap();
-            assert!(!b.restored && b.theirs.is_none() && b.code.text == "function on_tick() end\n", "{old}");
+            assert!(!b.restored && b.theirs.is_none() && b.code.text() == "function on_tick() end\n", "{old}");
             assert!(!holds_unsaved(&other, "main.lua", &journals));
         }
     }
@@ -527,7 +535,7 @@ mod tests {
         let (game, journals, _dir) = folder("unseen");
         let file = game.join("main.lua");
         let mut b = Buffer::open(&game, "main.lua", &journals).unwrap();
-        b.code.text = "-- mine\n".into();
+        b.code.set_text("-- mine\n".into());
         b.edited(Instant::now());
         // Written with the time it had: only the text tells.
         let stamp = modified(&file).unwrap();

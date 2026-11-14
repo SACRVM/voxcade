@@ -7,7 +7,6 @@ use super::*;
 impl Shell {
     /// Leaving would end what runs in the console: asked first.
     pub(super) fn leaving_ui(&mut self, ui: &mut egui::Ui) {
-        // Leaving would end what runs in the console: asked first.
         if let Some(dir) = self.forms.leaving.clone() {
             let name = dir.file_name().map_or_else(|| dir.display().to_string(), |n| n.to_string_lossy().into_owned());
             let mut answer = None;

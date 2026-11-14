@@ -59,6 +59,23 @@ enum Shown {
     Note(String),
 }
 
+/// What a file of the game is to the main area, worked out once as it
+/// loads (the answers read the disk, too slow for every frame).
+#[derive(Clone, Copy, Default)]
+struct OpenKind {
+    /// A level the level editor opens.
+    level: bool,
+    /// A world or a map's prefab: shown, never shaped as a model.
+    scene: bool,
+}
+
+impl OpenKind {
+    /// Whether an editor opens the file `path` of this kind.
+    fn editable(self, path: &str) -> bool {
+        self.level || (path.ends_with(".vvx") && !self.scene)
+    }
+}
+
 /// The window's state between frames: the game and its open file at the
 /// top, what each part of the window keeps in a group of its own.
 pub struct Shell {
@@ -76,6 +93,8 @@ pub struct Shell {
     /// file (one the agent made, clicked in the console): to look at, never
     /// remembered as open.
     outside: Option<PathBuf>,
+    /// What the open file is and its line of facts, worked out as it loads.
+    kind: OpenKind,
     facts: Option<String>,
     /// How the file just opened is shown at first.
     opening: Opening,
@@ -162,12 +181,6 @@ struct Managing {
     renaming: Option<Renaming>,
     asking: Option<Question>,
     gone: Option<Gone>,
-    /// Where UNDO was drawn (for the tests' mouse).
-    #[cfg(test)]
-    undo_button: Option<egui::Rect>,
-    /// Where the pluses and their headings were drawn (for the tests' mouse).
-    #[cfg(test)]
-    headings: Vec<(String, egui::Rect, egui::Rect)>,
 }
 
 /// The picture of a model, block or level open.
@@ -237,9 +250,10 @@ pub struct SoundPage {
     /// main area, by name.
     brought: Vec<(&'static str, SoundDef)>,
     builtin: Option<&'static str>,
-    /// A sound open: its line of words (with the text it was made from),
-    /// and where the game's code names it (looked for again now and then).
-    sound_line: Option<(String, String)>,
+    /// A sound open: its line of words (with the file and the text's
+    /// revision it was made from), and where the game's code names it
+    /// (looked for again now and then).
+    sound_line: Option<((String, Option<u64>), String)>,
     used: Option<Used>,
     /// What PLAY SOUND asked the speaker to play, and how loud.
     heard: Option<(std::sync::Arc<[f32]>, f32)>,
@@ -254,9 +268,6 @@ pub struct SoundPage {
     fading: Option<maker::Fader>,
     /// The song playing (its file), started with PLAY SONG over it.
     pub listening: Option<String>,
-    /// Where the rows of USED were drawn (for the tests' mouse).
-    #[cfg(test)]
-    used_rows: Vec<egui::Rect>,
 }
 
 /// Where the agent's program is looked for, and whether it was not found
@@ -370,6 +381,7 @@ impl Shell {
             memory_path,
             shown: None,
             outside: None,
+            kind: OpenKind::default(),
             facts: None,
             opening: Opening { restore, goto: None, focus_code: false, opened_there: true, previous: None },
             console,
@@ -380,7 +392,7 @@ impl Shell {
             deleted_dir: crate::settings::kept_for(dir, crate::settings::Kept::IdeDeleted),
             journals,
             cfg,
-            pictures: Pictures { own_background: cfg!(not(test)), preview: None, model_text: false, spare: None, retired: Vec::new(), animate: true },
+            pictures: Pictures { own_background: true, preview: None, model_text: false, spare: None, retired: Vec::new(), animate: true },
             stage: None,
             asks: Vec::new(),
             bar: BarState::default(),
@@ -390,9 +402,6 @@ impl Shell {
             help_topic: 0,
             below: Below { output: Output::open(None), lua: crate::prompt::Prompt::default(), output_shown: false, console_seen: None, console_dragged: false, reported: None, output_saved: std::time::Instant::now() },
             sound: SoundPage::default(),
-            #[cfg(test)]
-            agent: AgentState { finder: super::claude::Finder::in_dirs(Vec::new()), no_agent: false },
-            #[cfg(not(test))]
             agent: AgentState { finder: super::claude::Finder::system(), no_agent: false },
             find: Default::default(),
             search: Default::default(),
@@ -607,6 +616,24 @@ impl Shell {
         self.opening.goto = line.map(|l| (l, false));
     }
 
+    /// Shows the file `path` at `line`, its text taking the keys (a line
+    /// clicked: an error's, a place that names a sound, a search's hit),
+    /// the game held still and HELP put away.
+    pub(super) fn show_at(&mut self, path: &str, line: usize) {
+        self.hide_game();
+        self.help = false;
+        self.open(path);
+        self.opening.goto = Some((line, true));
+    }
+
+    /// Shows the file `path` the IDE just made, its text taking the keys.
+    pub(super) fn show_made(&mut self, path: &str) {
+        self.rescan();
+        self.open(path);
+        self.back_to_file();
+        self.help = false;
+    }
+
     /// A path clicked in the console (resolved by it: an existing file,
     /// inside the game folder or a picture): a file of the game opens as a
     /// click in the list opens it, at `line` if given; a picture from
@@ -644,26 +671,26 @@ impl Shell {
     /// blocks, their blocks, the models (Voxcade's own: a MagicaVoxel file
     /// is brought in first).
     pub fn editable(&self, path: &str) -> bool {
-        self.is_level(path) || (path.ends_with(".vvx") && !self.is_scene(path))
+        self.kind_of(path).editable(path)
+    }
+
+    /// What `path` is to the main area.
+    fn kind_of(&self, path: &str) -> OpenKind {
+        OpenKind { level: self.is_level(path), scene: self.is_scene(path) }
     }
 
     /// Whether `path` is a level of blocks the level editor opens: the one
     /// the config names, and in a game of blocks each in `levels/`.
-    pub fn is_level(&self, path: &str) -> bool {
+    fn is_level(&self, path: &str) -> bool {
         let in_levels = path.starts_with("levels/") && path.ends_with(".toml");
         // (In a game of worlds a level of pieces says what it is.)
         self.level.as_deref() == Some(path) || (in_levels && (self.level.is_some() || crate::levels::says_level(&crate::files::Files::disk(), &self.dir.join(path))))
     }
 
-    /// Whether `path` is a map (`map.toml`): no editor, its text to change.
-    pub fn is_map(&self, path: &str) -> bool {
-        self.files.level_text(path) && !self.is_level(path)
-    }
-
     /// Whether `path` is a world or a map's prefab (`crate::scene`): shown,
     /// never shaped as a model, for its palette's order is its colours'
     /// numbers.
-    pub fn is_scene(&self, path: &str) -> bool {
+    fn is_scene(&self, path: &str) -> bool {
         path.ends_with(".vvx") && crate::levels::scene_files(&self.dir, &self.cfg).iter().any(|f| f == path)
     }
 

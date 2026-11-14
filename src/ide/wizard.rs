@@ -372,7 +372,6 @@ mod tests {
     /// a recording among its sounds.
     fn older_game(name: &str) -> crate::scratch::Scratch {
         let dir = crate::scratch::Scratch::new(&format!("wizard-{name}"));
-        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sounds")).unwrap();
         crate::vox::write_figure(&dir.join("robot.vox"), &[("body", glam::IVec3::new(4, 4, 8), glam::IVec3::ZERO), ("arm", glam::IVec3::new(1, 2, 5), glam::IVec3::new(6, 1, 3))]);
         std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.voxcade = \"0.5.0\"\n  c.things.robot = { model = \"robot.vox\" }\nend\n").unwrap();

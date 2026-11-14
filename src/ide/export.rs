@@ -12,7 +12,6 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use crate::gitignore::Ignore;
 
 /// The system the program is built for, as the zip's name says it.
 fn system() -> &'static str {
@@ -87,7 +86,7 @@ fn pack(dir: &Path, title: &str, program: &Path, temp: &Path, name: &str, top: &
     add(exe.into(), &std::fs::read(program).with_context(|| format!("reading {}", program.display()))?, runs)?;
     // The game.
     let (mut files, mut ignored) = (Vec::new(), Vec::new());
-    walk(dir, "", &Ignore::for_game(dir), &mut files, &mut ignored);
+    walk(dir, &mut files, &mut ignored);
     files.sort();
     for file in &files {
         add(format!("games/{name}/{file}"), &std::fs::read(dir.join(file))?, plain)?;
@@ -147,49 +146,33 @@ fn readme(title: &str, name: &str, launcher: &str) -> String {
     )
 }
 
-/// The files under `dir/prefix` a build takes, their paths from `dir`:
-/// not hidden, not the regression runs, not earlier builds or test renders,
-/// not an agent's notes, not what the `.gitignore` files ignore (those go
-/// to `ignored`, but for the folders that are never part of a game).
-fn walk(dir: &Path, prefix: &str, ignore: &Ignore, out: &mut Vec<String>, ignored: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(dir.join(prefix)) else { return };
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        let path = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
-        if name.starts_with('.') || path == "replays/tests" || (prefix.is_empty() && (matches!(name.as_str(), "builds" | "shots") || super::is_notes_file(&name))) {
-            continue;
+/// The files of the game folder `dir` a build takes: not hidden, not the
+/// regression runs, not earlier builds or test renders, not an agent's
+/// notes, not what the `.gitignore` files ignore (those go to `ignored`,
+/// so that what the game names but the build leaves out is said; but for
+/// the folders that are never part of a game).
+fn walk(dir: &Path, out: &mut Vec<String>, ignored: &mut Vec<String>) {
+    // (The regression runs are left out where `replays/` is not ignored
+    // whole: in an ignored folder, every file is said.)
+    let mut replays_ignored = false;
+    super::files::walk(dir, &mut |e| {
+        if e.path == "replays" {
+            replays_ignored = e.ignored;
         }
-        let Ok(kind) = entry.file_type() else { continue };
-        if ignore.ignores(&path, kind.is_dir()) {
-            // What the game names but the build leaves out is said.
-            if kind.is_dir() {
-                list_all(dir, &path, ignored);
-            } else {
-                ignored.push(path);
+        let never = (e.path == "replays/tests" && !replays_ignored) || (e.depth == 0 && (matches!(e.name, "builds" | "shots") || super::is_notes_file(e.name)));
+        match () {
+            _ if never => false,
+            _ if e.is_dir => true,
+            _ if e.ignored => {
+                ignored.push(e.path.to_string());
+                false
             }
-            continue;
+            _ => {
+                out.push(e.path.to_string());
+                false
+            }
         }
-        if kind.is_dir() {
-            walk(dir, &path, &ignore.entered(&path), out, ignored);
-        } else {
-            out.push(path);
-        }
-    }
-}
-
-/// Every file under `dir/prefix`, hidden ones left out (an ignored folder's).
-fn list_all(dir: &Path, prefix: &str, out: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(dir.join(prefix)) else { return };
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        let path = format!("{prefix}/{name}");
-        match entry.file_type() {
-            _ if name.starts_with('.') => {}
-            Ok(t) if t.is_dir() => list_all(dir, &path, out),
-            Ok(_) => out.push(path),
-            Err(_) => {}
-        }
-    }
+    });
 }
 
 #[cfg(test)]
@@ -201,15 +184,13 @@ mod tests {
     #[test]
     fn a_build_lands_in_the_games_folder_and_is_not_packed_again() {
         let dir = crate::scratch::Scratch::new("export-where");
-        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("builds")).unwrap();
         std::fs::write(dir.join("main.lua"), "x").unwrap();
         std::fs::write(dir.join("builds/old.zip"), "x").unwrap();
         assert_eq!(out_path(&dir).parent(), Some(dir.join("builds").as_path()));
         let mut files = Vec::new();
-        walk(&dir, "", &Ignore::for_game(&dir), &mut files, &mut Vec::new());
+        walk(&dir, &mut files, &mut Vec::new());
         assert_eq!(files, ["main.lua"]);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A build leaves out `shots/` (a `.gitignore` or none) and what the
@@ -218,7 +199,6 @@ mod tests {
     #[test]
     fn a_build_leaves_out_what_is_ignored_and_says_what_the_game_needs() {
         let dir = crate::scratch::Scratch::new("export-ignored");
-        let _ = std::fs::remove_dir_all(&dir);
         for (path, text) in [
             ("main.lua", "local m = \"models/hero.vvx\"\nsound(\"coin\")"),
             ("shots/a.png", "x"),
@@ -233,17 +213,16 @@ mod tests {
             std::fs::write(p, text).unwrap();
         }
         let (mut files, mut ignored) = (Vec::new(), Vec::new());
-        walk(&dir, "", &Ignore::for_game(&dir), &mut files, &mut ignored);
+        walk(&dir, &mut files, &mut ignored);
         files.sort();
         assert_eq!(files, ["kept.txt", "main.lua", "models/hero.vvx", "models/spare.vvx", "notes/ideas.txt", "sounds/coin.toml"], "shots/ out without a .gitignore");
         std::fs::write(dir.join(".gitignore"), "notes/\nmodels/\nsounds/*.toml\n").unwrap();
         (files, ignored) = (Vec::new(), Vec::new());
-        walk(&dir, "", &Ignore::for_game(&dir), &mut files, &mut ignored);
+        walk(&dir, &mut files, &mut ignored);
         files.sort();
         assert_eq!(files, ["kept.txt", "main.lua"]);
         ignored.sort();
         assert_eq!(needed(&dir, &files, &ignored), ["models/hero.vvx", "sounds/coin.toml"], "named by the game; the spare model and the notes are not");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A build that fails partway leaves no half a zip behind (`.zip.part`),
@@ -266,16 +245,14 @@ mod tests {
     #[test]
     fn a_build_leaves_the_agents_notes_out() {
         let dir = crate::scratch::Scratch::new("export-notes");
-        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("levels")).unwrap();
         for file in ["main.lua", "CLAUDE.md", "levels/CLAUDE.md", ".gitignore"] {
             std::fs::write(dir.join(file), "x").unwrap();
         }
         let mut files = Vec::new();
-        walk(&dir, "", &Ignore::for_game(&dir), &mut files, &mut Vec::new());
+        walk(&dir, &mut files, &mut Vec::new());
         files.sort();
         assert_eq!(files, ["levels/CLAUDE.md", "main.lua"]);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A build holds the program, the game (no hidden files, no regression
@@ -286,7 +263,6 @@ mod tests {
     fn an_export_holds_the_game_and_runs() {
         let dir = Path::new("games/voxkeep");
         let tmp = crate::scratch::Scratch::new("export");
-        let _ = std::fs::remove_dir_all(&tmp);
         // A stand-in for the program: the test's own.
         let program = std::env::current_exe().unwrap();
         let zip = tmp.join("voxkeep.zip");
@@ -307,6 +283,5 @@ mod tests {
             a.step(&crate::input::Input::default());
         }
         assert!(a.trouble().is_none());
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

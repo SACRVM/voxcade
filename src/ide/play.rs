@@ -76,6 +76,9 @@ pub struct Play<G: Game> {
     /// those that changed, for OUTPUT.
     guard: crate::lua::hidden::Watch,
     hidden: Vec<String>,
+    /// Seat 1's keys as the line under the game shows them (`keys_of`),
+    /// made anew only when the seating or the game changes.
+    keys: Vec<(String, String)>,
 }
 
 impl<G: Game> Play<G> {
@@ -97,8 +100,9 @@ impl<G: Game> Play<G> {
         runs.start(&game);
         let seating = crate::seating::Seating::new(game.cfg.players);
         let mark = game.start_mark();
-        let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), unloaded: Default::default(), accumulator: 0.0, last: None, scenario: scenario.map(str::to_string), seating, mark, notes: Vec::new(), guard: Default::default(), hidden: Vec::new() };
+        let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), unloaded: Default::default(), accumulator: 0.0, last: None, scenario: scenario.map(str::to_string), seating, mark, notes: Vec::new(), guard: Default::default(), hidden: Vec::new(), keys: Vec::new() };
         play.guard.begin(play.game.game.hidden());
+        play.name_keys();
         play.music();
         Ok(play)
     }
@@ -122,6 +126,7 @@ impl<G: Game> Play<G> {
         self.mask = self.game.face_mask();
         self.renderer.rebuild_all(device, queue, self.game.world_mut(), &self.mask);
         self.music();
+        self.name_keys();
     }
 
     /// A console line run in the game between two ticks (the line under
@@ -161,8 +166,13 @@ impl<G: Game> Play<G> {
 
     /// The keys of seat 1 as the window's controls menu would show them
     /// (`keys_of`): the keyboard's or the pad's, as that seat plays here.
-    pub fn keys(&self) -> Vec<(String, String)> {
-        keys_of(self.game.actions(), self.seating.keys(1), &self.settings)
+    pub fn keys(&self) -> &[(String, String)] {
+        &self.keys
+    }
+
+    /// Names seat 1's keys anew (the game begun, a seat taken).
+    fn name_keys(&mut self) {
+        self.keys = keys_of(self.game.actions(), self.seating.keys(1), &self.settings);
     }
 
     /// A pad's START: a seat taken (a pad no seat has), else nothing.
@@ -171,6 +181,7 @@ impl<G: Game> Play<G> {
             && let crate::seating::Start::Join(seat) = self.seating.pad_start(pad, plugged, None)
         {
             self.game.set_seat(seat, Some(crate::input::Input::default()));
+            self.name_keys();
         }
     }
 
@@ -183,6 +194,7 @@ impl<G: Game> Play<G> {
             && let crate::seating::Start::Join(seat) = self.seating.keyboard_start(None)
         {
             self.game.set_seat(seat, Some(crate::input::Input::default()));
+            self.name_keys();
         }
     }
 
@@ -577,7 +589,6 @@ mod tests {
             came |= play.reload(device, queue);
         }
         assert!(came && play.trouble().is_none(), "mended: {:?}", play.trouble());
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A game in a folder of its own with `main` as its `main.lua`: played
@@ -631,7 +642,6 @@ mod tests {
         assert_eq!(floor(&play), [255, 0, 0], "the new floor");
         assert_eq!(play.game.game.sim().tick, 0, "begun anew");
         assert!(noted(&mut play));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A number of the rules alone: the run goes on.
@@ -645,7 +655,6 @@ mod tests {
         assert_eq!(play.game.game.sim().tick, 5, "played on");
         assert_eq!(floor(&play), [0, 255, 0]);
         assert!(!noted(&mut play));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A setting that waits for a restart changed in `conf.lua`.
@@ -657,7 +666,6 @@ mod tests {
         saved(&dir, "conf.lua", "function conf(c)\n  c.world.size = { 32, 32, 8 }\n  c.player.spawn = { 10, 10 }\nend\n", &mut play, device, queue);
         assert_eq!(play.game.game.sim().tick, 0, "begun anew");
         assert!(noted(&mut play));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The run played is recorded: F9 puts it in the game's replays,
@@ -682,7 +690,6 @@ mod tests {
         assert!(replay.ticks > 0 && replay.score as u64 == replay.ticks, "{} ticks, {} points", replay.ticks, replay.score);
         assert!(matches!(crate::replay::play_through::<crate::Voxcade>(&dir, &replay).unwrap(), crate::replay::Verdict::Same));
         play.end(&mut egui);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// What OUTPUT shows as a mistake.
@@ -715,7 +722,6 @@ mod tests {
         play.step(180, &crate::input::Input::default());
         assert!(errors(&mut play).is_empty(), "{:?}", errors(&mut play));
         assert!(play.game.game.sim().tick > 200, "played on");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The common mistakes have plain words, the rest none.
@@ -762,7 +768,6 @@ mod tests {
         let canvas = crate::headless::Canvas::new(64, 64, false).unwrap();
         let (device, queue, _) = canvas.gpu();
         let dir = crate::scratch::Scratch::new("play-again");
-        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("scenarios")).unwrap();
         std::fs::write(dir.join("conf.lua"), CONF).unwrap();
         std::fs::write(dir.join("main.lua"), "function on_tick()\n  player.state.score = player.state.score + 1\nend\n").unwrap();
@@ -776,6 +781,5 @@ mod tests {
         assert_eq!(play.scenario.as_deref(), Some("late"), "the scenario again");
         let score = play.eval("player.state.score").unwrap();
         assert!(score.contains("1003"), "begun from the scenario's 1000, three ticks on: {score}");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

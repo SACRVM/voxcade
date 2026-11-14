@@ -18,6 +18,9 @@ pub struct Files {
     pub logic: Vec<String>,
     pub scenarios: Vec<String>,
     pub assets: Vec<Group>,
+    /// The files whose name another of their heading has too: listed by
+    /// their whole path.
+    shared_names: std::collections::HashSet<String>,
 }
 
 /// Assets of one sort.
@@ -48,7 +51,15 @@ impl Files {
     /// see whether `scan` has anything new to say.
     pub fn names(dir: &Path) -> Vec<String> {
         let mut all = Vec::new();
-        walk(dir, "", 0, &Ignore::for_game(dir), &mut all);
+        walk(dir, &mut |e| {
+            if e.is_dir {
+                return e.depth + 1 < DEPTH && !(e.depth == 0 && NEVER_LISTED.contains(&e.name)) && !e.ignored;
+            }
+            if !e.ignored {
+                all.push(e.path.to_string());
+            }
+            false
+        });
         all.sort();
         all
     }
@@ -98,7 +109,16 @@ impl Files {
         // IDE's plus there makes the first one); the other sorts show when
         // there are some.
         files.assets = GROUPS.iter().zip(groups).filter(|(name, g)| !g.is_empty() || ALWAYS.contains(name)).map(|(&name, files)| Group { name, files }).collect();
+        let headings = std::iter::once(&files.scenarios).chain(files.assets.iter().map(|g| &g.files));
+        files.shared_names = headings.flat_map(|list| list.iter().filter(|f| list.iter().filter(|g| base(g) == base(f)).count() > 1)).cloned().collect();
         files
+    }
+
+    /// How the list shows the file `path` under the heading `sort`: the
+    /// scripts by their paths, the rest by their names alone, by the path
+    /// where two of a heading have the same name.
+    pub fn label<'a>(&self, sort: &str, path: &'a str) -> &'a str {
+        if sort == "Logic" || self.shared_names.contains(path) { path } else { base(path) }
     }
 
     /// Whether the folder has this file.
@@ -106,14 +126,14 @@ impl Files {
         self.logic.iter().chain(&self.scenarios).chain(self.assets.iter().flat_map(|g| &g.files)).any(|f| f == path)
     }
 
-    /// The heading the list shows the file under: "Logic", "Scenarios" or
-    /// an asset group's name (None: the folder has no such file).
     /// Whether `path` is a level's or a map's text (a `.toml` among the
     /// levels): searched, and shown as text to change.
     pub fn level_text(&self, path: &str) -> bool {
         path.ends_with(".toml") && self.sort_of(path) == Some("Levels")
     }
 
+    /// The heading the list shows the file under: "Logic", "Scenarios" or
+    /// an asset group's name (None: the folder has no such file).
     pub fn sort_of(&self, path: &str) -> Option<&'static str> {
         if self.logic.iter().any(|f| f == path) {
             return Some("Logic");
@@ -125,28 +145,51 @@ impl Files {
     }
 }
 
+/// A file's name without its folders.
+fn base(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
 /// The folders at the top of a game folder that are never listed, however
 /// the `.gitignore` reads: the recorded runs, what BUILD made, test renders.
 pub const NEVER_LISTED: [&str; 3] = ["replays", "builds", "shots"];
 
-/// Every file under `dir/prefix` that belongs to the game (`ignore`: what
-/// the `.gitignore` files say), its path from `dir`.
-fn walk(dir: &Path, prefix: &str, depth: usize, ignore: &Ignore, out: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(dir.join(prefix)) else { return };
+/// A file or folder met walking a folder (`walk`).
+pub struct Entry<'a> {
+    /// Its path from the folder walked (`/` between folders), its name.
+    pub path: &'a str,
+    pub name: &'a str,
+    /// How many folders down it lies (0: in the folder walked).
+    pub depth: usize,
+    pub is_dir: bool,
+    /// What the `.gitignore` files say of it, or of a folder it lies in.
+    pub ignored: bool,
+}
+
+/// Walks the folder `root`, hidden files and folders left out, showing
+/// `visit` every entry; a folder is gone into where `visit` says so (the
+/// folder lists, BUILD and the search for games each have their own
+/// ways).
+pub fn walk(root: &Path, visit: &mut dyn FnMut(&Entry) -> bool) {
+    walk_in(root, "", 0, Some(&Ignore::for_game(root)), visit);
+}
+
+/// `walk` in the folder `prefix` of `root`, `depth` folders down (`ignore`
+/// None: within an ignored folder).
+fn walk_in(root: &Path, prefix: &str, depth: usize, ignore: Option<&Ignore>, visit: &mut dyn FnMut(&Entry) -> bool) {
+    let Ok(entries) = std::fs::read_dir(root.join(prefix)) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
+        let Ok(kind) = entry.file_type() else { continue };
         if name.starts_with('.') {
             continue;
         }
         let path = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
-        match entry.file_type() {
-            Ok(t) if t.is_dir() => {
-                if depth + 1 < DEPTH && !(prefix.is_empty() && NEVER_LISTED.contains(&name.as_str())) && !ignore.ignores(&path, true) {
-                    walk(dir, &path, depth + 1, &ignore.entered(&path), out);
-                }
-            }
-            Ok(_) if !ignore.ignores(&path, false) => out.push(path),
-            _ => {}
+        let is_dir = kind.is_dir();
+        let ignored = ignore.is_none_or(|i| i.ignores(&path, is_dir));
+        if visit(&Entry { path: &path, name: &name, depth, is_dir, ignored }) && is_dir {
+            let inner = ignore.filter(|_| !ignored).map(|i| i.entered(&path));
+            walk_in(root, &path, depth + 1, inner.as_ref(), visit);
         }
     }
 }
@@ -161,7 +204,6 @@ mod tests {
     #[test]
     fn a_game_folder_splits_into_logic_and_assets() {
         let dir = crate::scratch::Scratch::new("ide-files");
-        let _ = std::fs::remove_dir_all(&dir);
         for (path, text) in [
             ("main.lua", "-- see levels/README.txt\nlocal levels = read(\"levels/one.txt\")"),
             ("conf.lua", "function conf(c) end"),
@@ -204,7 +246,6 @@ mod tests {
             ]
         );
         assert!(files.has("blocks/stone.vvx") && !files.has("replays/tests/run.toml"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Test renders in `shots/` are never listed, with a `.gitignore` or
@@ -213,7 +254,6 @@ mod tests {
     #[test]
     fn the_list_leaves_out_what_is_ignored() {
         let dir = crate::scratch::Scratch::new("ide-ignored");
-        let _ = std::fs::remove_dir_all(&dir);
         for (path, text) in [
             ("main.lua", ""),
             ("shots/a.png", ""),
@@ -239,6 +279,5 @@ mod tests {
         assert_eq!(names, ["hero.vvx", "kept.vvx", "main.lua", "sounds/new.toml"].map(String::from), "ignored files, folders and the subfolder's own file are out");
         // A file ignored but open stays open: the list only does not name it.
         assert!(!Files::scan(&dir).has("notes/ideas.txt"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

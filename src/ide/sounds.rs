@@ -92,7 +92,6 @@ mod tests {
     #[test]
     fn a_sound_is_described_in_words() {
         let dir = crate::scratch::Scratch::new("ide-sounds");
-        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sounds")).unwrap();
         let ping = def("wave = \"square\"\nhold = 0.1\ndecay = 0.1\nsweep = -18\n");
         assert_eq!(describe(&ping), "0.20 s · square wave · falling an octave and a half");
@@ -102,7 +101,6 @@ mod tests {
         // PLAY SOUND's buffer: the synth as the mixer has it, a silent one empty.
         assert_eq!(render(&ping, &dir).unwrap().len(), (0.2 * crate::audio::SAMPLE_RATE as f32).ceil() as usize);
         assert!(render(&def("silent = true\n"), &dir).unwrap().is_empty());
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The places naming a sound are found, `"coin"` or `'coin'`, not
@@ -116,6 +114,5 @@ mod tests {
         let rows: Vec<(&str, usize, &str, bool)> = found.iter().map(|u| (u.file.as_str(), u.line, u.text.as_str(), u.sure)).collect();
         assert_eq!(rows, [("conf.lua", 3, "c.things.gem = { sound = 'coin' }", true), ("main.lua", 2, "level:sound(\"coin\", player)", true), ("main.lua", 4, "fx.fly(\"coin\")", false)]);
         assert!(used(&dir, &["main.lua".into()], "bell").is_empty());
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

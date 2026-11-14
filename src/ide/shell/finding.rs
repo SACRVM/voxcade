@@ -58,7 +58,7 @@ impl Shell {
         let (Some((_, id)), Some(Shown::Code(buffer))) = (self.code_id(), &self.shown) else { return (None, 0) };
         let Some(range) = egui::TextEdit::load_state(ctx, id).and_then(|s| s.cursor.char_range()) else { return (None, 0) };
         let [from, to] = [range.primary.index.0.min(range.secondary.index.0), range.primary.index.0.max(range.secondary.index.0)];
-        let text = &buffer.code.text;
+        let text = buffer.code.text();
         let byte = |c: usize| text.char_indices().nth(c).map_or(text.len(), |(i, _)| i);
         let (from, to) = (byte(from), byte(to));
         ((to > from).then(|| text[from..to].to_string()), from)
@@ -82,7 +82,7 @@ impl Shell {
             return;
         }
         let ctx = ui.ctx().clone();
-        self.find.update(&buffer.code.text);
+        self.find.update(buffer.code.text(), buffer.code.revision());
         let act = self.find.row(ui);
         ui.add_space(8.0);
         // A replacement: the text before it a step of the undo, the text
@@ -90,7 +90,7 @@ impl Shell {
         let mut changed = false;
         let mut change = |buffer: &mut Buffer, text: String| {
             buffer.code.mark(&ctx, id);
-            buffer.code.text = text;
+            buffer.code.set_text(text);
             buffer.code.check();
             changed = true;
         };
@@ -98,12 +98,12 @@ impl Shell {
             Some(crate::ide::find::Act::Next) => self.find.step(true),
             Some(crate::ide::find::Act::Previous) => self.find.step(false),
             Some(crate::ide::find::Act::Replace) => {
-                if let Some(text) = self.find.replace(&buffer.code.text) {
+                if let Some(text) = self.find.replace(buffer.code.text()) {
                     change(buffer, text);
                 }
             }
             Some(crate::ide::find::Act::ReplaceAll) => {
-                if let Some((text, _)) = self.find.replace_all(&buffer.code.text) {
+                if let Some((text, _)) = self.find.replace_all(buffer.code.text()) {
                     change(buffer, text);
                 }
             }
@@ -115,7 +115,7 @@ impl Shell {
             }
             None => {}
         }
-        self.find.update(&buffer.code.text);
+        self.find.update(buffer.code.text(), buffer.code.revision());
         buffer.code.marking = (!self.find.word.is_empty()).then(|| (self.find.word.clone(), self.find.match_case, Some(self.find.current)));
         if std::mem::take(&mut self.find.reveal)
             && let Some(range) = self.find.current_range()
@@ -123,7 +123,7 @@ impl Shell {
             // The cursor after it, so the keys in the text go on from there
             // (selected while the text has the keys: egui keeps no
             // selection in a text without them).
-            let text = &buffer.code.text;
+            let text = buffer.code.text();
             let (from, to) = (text[..range.start].chars().count(), text[..range.end].chars().count());
             let (from, to) = (egui::text::CCursor::new(from), egui::text::CCursor::new(to));
             let mut state = egui::TextEdit::load_state(&ctx, id).unwrap_or_default();
@@ -159,15 +159,12 @@ impl Shell {
     /// A line the project search found: its file open at it, the keys in
     /// the text, the word found there current in the find row.
     pub(super) fn go_to_hit(&mut self, file: &str, line: usize) {
-        self.hide_game();
-        self.help = false;
-        self.open(file);
+        self.show_at(file, line);
         // A model's or a level's line shows in its text.
         if (file.ends_with(".vvx") || self.is_level(file)) && !self.pictures.model_text {
             self.flush();
             self.model_as_text();
         }
-        self.opening.goto = Some((line, true));
         self.find.word = self.search.word.clone();
         self.find.match_case = self.search.match_case;
         self.find.shown = true;

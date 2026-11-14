@@ -51,9 +51,9 @@ impl Shell {
     /// The main area playing the game: its picture filling it (what stops
     /// it is said above, by `main`), the keys its while it has the focus.
     pub(super) fn game(&mut self, ui: &mut egui::Ui) {
-        let keys = self.stage.as_ref().map(|s| s.keys.clone()).unwrap_or_default();
         // The game's keys on a line under it (wrapping, never wider than
         // the room), the picture takes what is left.
+        let keys = self.stage.as_ref().map_or(&[][..], |s| s.keys.as_slice());
         if !keys.is_empty() {
             egui::Panel::bottom("keys line").frame(egui::Frame::new().inner_margin(egui::Margin { left: 0, right: 12, top: 6, bottom: 8 })).show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {

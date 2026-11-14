@@ -10,6 +10,7 @@ use alacritty_terminal::term::TermMode;
 use egui::{Color32, Event, EventFilter, FontId, Id, Key, Pos2, Rect, RichText, Sense, TextStyle, Vec2};
 
 use crate::gui::{ACCENT, ERROR, INSET, PANEL, QUIET, ROW_HOVERED, ROW_OPEN, TEXT, arrow};
+use super::claude;
 use super::prefs::Agent;
 use super::terminal::{self, Size, Terminal, BACKGROUND, FOREGROUND};
 
@@ -87,13 +88,26 @@ pub struct Console {
     /// now means news while it is folded or under OUTPUT.
     seen: u64,
     news: bool,
+    /// The terminal's cells as last drawn, and what they were made from:
+    /// made anew only when one of those changed.
+    picture: Option<(Drawn, terminal::Picture)>,
+}
+
+/// What the terminal's picture is made from: its output so far, the
+/// view's place in the history, the selection, the size.
+#[derive(PartialEq)]
+struct Drawn {
+    arrivals: u64,
+    offset: usize,
+    selection: Option<alacritty_terminal::selection::Selection>,
+    size: Size,
 }
 
 impl Console {
     /// A console in the game folder `dir` running `start`; `wake` wakes
     /// the window (from another thread) when there is output to draw.
     pub fn new(dir: PathBuf, start: Start, wake: Arc<dyn Fn() + Send + Sync>) -> Self {
-        Self { dir, start, wake, terminal: None, failed: None, typed: Vec::new(), take_keys: false, selected: None, wants_selection: false, held: None, told: None, wheel: 0.0, mcp: None, mcp_failed: None, link: None, opened: None, trouble: None, typed_once: false, started: false, seen: 0, news: false }
+        Self { dir, start, wake, terminal: None, failed: None, typed: Vec::new(), take_keys: false, selected: None, wants_selection: false, held: None, told: None, wheel: 0.0, mcp: None, mcp_failed: None, link: None, opened: None, trouble: None, typed_once: false, started: false, seen: 0, news: false, picture: None }
     }
 
     /// Whether the console was opened and drawn, so the shell was asked
@@ -290,10 +304,10 @@ impl Console {
             // .mcp.json names voxcade mcp: the button that writes it
             // (Claude Code started here then has the game's and the IDE's
             // tools; it asks once).
-            if !told_of_ide && !*self.mcp.get_or_insert_with(|| has_mcp(&self.dir)) {
+            if !told_of_ide && !*self.mcp.get_or_insert_with(|| claude::has_mcp(&self.dir)) {
                 let tip = "Writes .mcp.json into the game folder: Claude Code started here finds voxcade mcp, the game's tools and the IDE's (what you see, the game you play). It asks once whether to trust it.";
                 if ui.button("MCP").on_hover_text(tip).clicked() {
-                    self.mcp_failed = write_mcp(&self.dir).err().map(|e| format!("{e:#}"));
+                    self.mcp_failed = claude::add_mcp(&self.dir).err().map(|e| format!("{e:#}"));
                     self.mcp = None;
                 }
             }
@@ -330,7 +344,7 @@ impl Console {
             };
             let wake = self.wake.clone();
             match Terminal::start(&self.dir, command, size, cell_pixels, move || wake()) {
-                Ok(t) => self.terminal = Some(t),
+                Ok(t) => (self.terminal, self.picture) = (Some(t), None),
                 Err(e) => {
                     self.failed = Some(format!("{e:#}"));
                     return;
@@ -516,15 +530,19 @@ impl Console {
             }
         }
 
-        let mut picture = terminal.with(|t| terminal::picture(t));
-        if let Some(link) = &self.link {
-            for &(line, column) in &link.cells {
-                if let Some(glyph) = usize::try_from(line).ok().and_then(|y| picture.lines.get_mut(y)).and_then(|l| l.get_mut(column)) {
-                    glyph.underline = true;
-                }
+        // (The output counted inside the lock: the reader counts it there
+        // once the cells hold it.)
+        let kept = &mut self.picture;
+        terminal.with(|t| {
+            let drawn = Drawn { arrivals: terminal.arrivals(), offset: t.grid().display_offset(), selection: t.selection.clone(), size };
+            if kept.as_ref().is_none_or(|(was, _)| *was != drawn) {
+                *kept = Some((drawn, terminal::picture(t)));
             }
+        });
+        let link = self.link.as_ref().map_or(&[][..], |l| l.cells.as_slice());
+        if let Some((_, picture)) = &self.picture {
+            draw(ui, inner, cell, &font, picture, link, focused);
         }
-        draw(ui, inner, cell, &font, &picture, focused);
     }
 }
 
@@ -610,26 +628,9 @@ pub fn resolve(dir: &std::path::Path, path: &str) -> Option<PathBuf> {
     (picture || full.starts_with(dir.canonicalize().ok()?)).then_some(full)
 }
 
-/// Whether the game folder's `.mcp.json` names `voxcade mcp`.
-fn has_mcp(dir: &std::path::Path) -> bool {
-    std::fs::read_to_string(dir.join(".mcp.json")).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()).is_some_and(|v| v["mcpServers"]["voxcade"].is_object())
-}
-
-/// Writes `voxcade mcp` (this program) into the game folder's
-/// `.mcp.json`, keeping what else it names.
-fn write_mcp(dir: &std::path::Path) -> anyhow::Result<()> {
-    let path = dir.join(".mcp.json");
-    let mut config: serde_json::Value = match std::fs::read_to_string(&path) {
-        Ok(text) => serde_json::from_str(&text).map_err(|e| anyhow::anyhow!("{}: {e} (left as it is)", path.display()))?,
-        Err(_) => serde_json::json!({}),
-    };
-    let exe = crate::cli::program()?;
-    config["mcpServers"]["voxcade"] = serde_json::json!({ "type": "stdio", "command": exe, "args": ["mcp"] });
-    crate::blocks::save_at_once(&path, (serde_json::to_string_pretty(&config)? + "\n").as_bytes())
-}
-
-/// The terminal's cells into `inner`, `cell` points each.
-fn draw(ui: &egui::Ui, inner: Rect, cell: Vec2, font: &FontId, picture: &terminal::Picture, focused: bool) {
+/// The terminal's cells into `inner`, `cell` points each, the cells of
+/// `link` (line, column) underlined.
+fn draw(ui: &egui::Ui, inner: Rect, cell: Vec2, font: &FontId, picture: &terminal::Picture, link: &[(i32, usize)], focused: bool) {
     let painter = ui.painter_at(inner.expand2(MARGIN));
     let at = |x: usize, y: usize| egui::pos2(inner.left() + x as f32 * cell.x, inner.top() + y as f32 * cell.y);
     for (y, line) in picture.lines.iter().enumerate() {
@@ -643,6 +644,7 @@ fn draw(ui: &egui::Ui, inner: Rect, cell: Vec2, font: &FontId, picture: &termina
         }
         // Then the letters: runs of plain ones in one colour together,
         // every other letter at its own cell (its font may be wider).
+        let linked: Vec<usize> = link.iter().filter(|(l, _)| usize::try_from(*l) == Ok(y)).map(|&(_, c)| c).collect();
         let mut run = (0, FOREGROUND, String::new());
         let flush = |run: &mut (usize, Color32, String)| {
             if !run.2.trim().is_empty() {
@@ -654,7 +656,7 @@ fn draw(ui: &egui::Ui, inner: Rect, cell: Vec2, font: &FontId, picture: &termina
             if g.spacer {
                 continue;
             }
-            if g.underline {
+            if g.underline || linked.contains(&x) {
                 let bottom = at(x, y + 1).y - 1.0;
                 painter.hline(at(x, y).x..=at(x + 1, y).x, bottom, egui::Stroke::new(1.0, g.fg));
             }
@@ -701,17 +703,22 @@ mod tests {
     use super::*;
     use std::path::Path;
 
+    /// A frame's input for a console 800 by 400 points big: `events`, at
+    /// `time` if given.
+    fn input(events: Vec<egui::Event>, time: Option<f64>) -> egui::RawInput {
+        egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 400.0))), events, time, ..Default::default() }
+    }
+
     /// CLAUDE pressed gives the console the keys (asked for in the
     /// click's own frame, egui took them back: the click was elsewhere).
     #[test]
     fn claude_gives_the_console_the_keys() {
         let dir = crate::scratch::Scratch::new("console-keys");
-        std::fs::create_dir_all(&dir).unwrap();
         let mut console = Console::new(dir.to_path_buf(), Start::Nothing, Arc::new(|| {}));
         let ctx = egui::Context::default();
         let mut folded = false;
         let mut frame = |events: Vec<egui::Event>, console: &mut Console| {
-            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 400.0))), events, ..Default::default() };
+            let raw = input(events, None);
             let _ = ctx.run_ui(raw, |ui| {
                 // (The shell types the agent's command.)
                 if console.heading(ui, &mut folded, Agent::Claude, true, &mut false, 0).agent {
@@ -734,7 +741,6 @@ mod tests {
         assert_eq!(console.typed, b"claude\r", "CLAUDE was pressed");
         frame(Vec::new(), &mut console);
         assert_eq!(ctx.memory(|m| m.focused()), Some(Id::unique("terminal")), "the console has the keys");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Only the arrow folds the console: a click beside the tabs leaves it
@@ -742,13 +748,12 @@ mod tests {
     #[test]
     fn only_the_arrow_folds() {
         let dir = crate::scratch::Scratch::new("console-fold");
-        std::fs::create_dir_all(&dir).unwrap();
         let mut console = Console::new(dir.to_path_buf(), Start::Nothing, Arc::new(|| {}));
         let ctx = egui::Context::default();
         let mut folded = false;
         let mut click = |at: Pos2, folded: &mut bool| {
             for events in [vec![egui::Event::PointerMoved(at)], vec![true, false].into_iter().map(|pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }).collect()] {
-                let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 400.0))), events, ..Default::default() };
+                let raw = input(events, None);
                 let _ = ctx.run_ui(raw, |ui| {
                     console.heading(ui, folded, Agent::Claude, true, &mut false, 0);
                 });
@@ -758,7 +763,6 @@ mod tests {
         assert!(!folded, "a click beside the tabs");
         click(Pos2::new(800.0 - INSET - 4.0, 16.0), &mut folded);
         assert!(folded, "the arrow");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Text dragged over with the mouse goes to the system's selection,
@@ -766,11 +770,10 @@ mod tests {
     #[test]
     fn what_is_selected_is_copied() {
         let dir = crate::scratch::Scratch::new("console-copy");
-        std::fs::create_dir_all(&dir).unwrap();
         let mut console = Console::new(dir.to_path_buf(), Start::Command("printf 'hello world'; sleep 3".into()), Arc::new(|| {}));
         let ctx = egui::Context::default();
         let frame = |events: Vec<egui::Event>, console: &mut Console| {
-            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 400.0))), events, ..Default::default() };
+            let raw = input(events, None);
             let out = ctx.run_ui(raw, |ui| console.body(ui));
             out.platform_output.commands.iter().filter_map(|c| if let egui::OutputCommand::CopyText(t) = c { Some(t.clone()) } else { None }).collect::<Vec<_>>()
         };
@@ -795,7 +798,6 @@ mod tests {
         let shift = egui::Modifiers { ctrl: true, shift: true, command: true, ..Default::default() };
         let key = egui::Event::Key { key: Key::C, physical_key: None, pressed: true, repeat: false, modifiers: shift };
         assert_eq!(frame(vec![key], &mut console), ["hello"], "Ctrl+Shift+C");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A program that asked for the mouse (as Claude Code's full screen
@@ -803,7 +805,6 @@ mod tests {
     #[test]
     fn a_program_that_asks_for_the_mouse_hears_it() {
         let dir = crate::scratch::Scratch::new("console-mouse");
-        std::fs::create_dir_all(&dir).unwrap();
         let heard = dir.join("heard");
         let command = format!("printf '\\033[?1049h\\033[?1002h\\033[?1006h'; stty raw -echo; cat > '{}'", heard.display());
         let mut console = Console::new(dir.to_path_buf(), Start::Command(command), Arc::new(|| {}));
@@ -811,7 +812,7 @@ mod tests {
         let mut time = 0.0;
         let mut frame = |events: Vec<egui::Event>, console: &mut Console| {
             time += 1.0 / 60.0;
-            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 400.0))), events, time: Some(time), ..Default::default() };
+            let raw = input(events, Some(time));
             let _ = ctx.run_ui(raw, |ui| console.body(ui));
         };
         frame(Vec::new(), &mut console);
@@ -843,7 +844,6 @@ mod tests {
         assert!(got.contains("M") && got.contains("\x1b[<0;") && got.ends_with('m'), "pressed and let go: {got:?}");
         assert!(console.terminal.as_ref().unwrap().with(|t| t.selection.is_none()), "the console selected nothing");
         drop(console);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A path in the console's text lights while the mouse is over it and
@@ -856,7 +856,7 @@ mod tests {
         let mut time = 0.0;
         let mut frame = |events: Vec<egui::Event>, console: &mut Console| {
             time += 1.0 / 60.0;
-            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 400.0))), events, time: Some(time), ..Default::default() };
+            let raw = input(events, Some(time));
             let _ = ctx.run_ui(raw, |ui| console.body(ui));
         };
         frame(Vec::new(), &mut console);
@@ -929,21 +929,5 @@ mod tests {
         assert_eq!(resolve(&game, other.join("pic.png").to_str().unwrap()), Some(canonical(other.join("pic.png"))), "a picture elsewhere");
         assert_eq!(resolve(&game, other.join("notes.txt").to_str().unwrap()), None, "other files elsewhere");
         assert_eq!(resolve(&game, "../other/notes.txt"), None, "out of the folder by dots");
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    /// The MCP button names voxcade mcp in the game folder's .mcp.json,
-    /// keeping the servers it named already.
-    #[test]
-    fn the_mcp_button_names_voxcade_in_the_game_folder() {
-        let dir = crate::scratch::Scratch::new("mcp-json");
-        assert!(!has_mcp(&dir));
-        std::fs::write(dir.join(".mcp.json"), r#"{"mcpServers":{"other":{"command":"x"}}}"#).unwrap();
-        write_mcp(&dir).unwrap();
-        assert!(has_mcp(&dir));
-        let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join(".mcp.json")).unwrap()).unwrap();
-        assert_eq!(config["mcpServers"]["other"]["command"], "x", "kept");
-        assert_eq!(config["mcpServers"]["voxcade"]["args"][0], "mcp");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

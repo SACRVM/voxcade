@@ -39,7 +39,7 @@ impl Shell {
         let file = self.dir.join(path);
         // As the text stands now, saved or not.
         let text = match (&self.shown, self.memory.open.as_deref()) {
-            (Some(Shown::Code(b)), Some(open)) if open == path => b.code.text.clone(),
+            (Some(Shown::Code(b)), Some(open)) if open == path => b.code.text().to_string(),
             _ => std::fs::read_to_string(&file).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?,
         };
         let song = crate::audio::music::parse(&text).map_err(|e| anyhow::anyhow!("{path}: {e:#}"))?;
@@ -90,11 +90,7 @@ impl Shell {
                 return self.tell(format!("{path}: {e}"));
             }
         }
-        self.rescan();
-        self.sound.builtin = None;
-        self.unload();
-        self.open(&path);
-        self.back_to_file();
+        self.show_made(&path);
     }
 
     /// Where the game's code names the sound `name`, looked for afresh when
@@ -141,19 +137,15 @@ impl Shell {
         self.refresh_used(name);
         let rows = self.sound.used.as_ref().map(|u| u.rows.clone()).unwrap_or_default();
         let says = self.rules_say(name);
-        let (mut rects, mut go) = (Vec::new(), None);
+        let mut go = None;
         let text = sound::write(&def, &[]);
         egui::ScrollArea::both().id_salt(("builtin", name)).auto_shrink([false, false]).content_margin(egui::Margin { right: 12, bottom: 14, ..egui::Margin::ZERO }).show(ui, |ui| {
             let font = TextStyle::Monospace.resolve(ui.style());
             let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap: f32| ui.fonts_mut(|f| f.layout_job(crate::ide::code::highlight(text.as_str(), &font, crate::ide::code::Syntax::Sound)));
             let mut shown = text.as_str();
             ui.add(egui::TextEdit::multiline(&mut shown).code_editor().frame(egui::Frame::NONE).desired_width(f32::INFINITY).layouter(&mut layouter));
-            go = used_ui(ui, name, &says, &rows, &mut rects);
+            go = used_ui(ui, name, &says, &rows);
         });
-        #[cfg(test)]
-        {
-            self.sound.used_rows = rects;
-        }
         if play {
             self.play_sound();
         }
@@ -161,10 +153,7 @@ impl Shell {
             self.make_it_yours(name);
         }
         if let Some((file, line)) = go {
-            self.sound.builtin = None;
-            self.hide_game();
-            self.open(&file);
-            self.opening.goto = Some((line, true));
+            self.show_at(&file, line);
         }
     }
 
@@ -197,7 +186,7 @@ impl Shell {
             back = ui.add_enabled(can_go_back, egui::Button::new("UNDO")).on_hover_text("Back to the sound before the last change (a roll, a fader or typing); again for the one before. Ctrl+Z in the text does the same.").clicked();
         };
         let mut rolls = |ui: &mut egui::Ui| {
-            dice(ui).on_hover_text("These roll the dice: each press makes a new sound of that sort, never the same twice. Press one again for another.");
+            crate::gui::dice(ui).on_hover_text("These roll the dice: each press makes a new sound of that sort, never the same twice. Press one again for another.");
             for sort in maker::Sort::ALL {
                 if ui.button(sort.word()).on_hover_text(sort.hover()).clicked() {
                     rolled = Some(sort);
@@ -264,7 +253,7 @@ impl Shell {
                                 buffer.code.mark(&ctx, id);
                                 *fading = Some(fader);
                             }
-                            buffer.code.text = maker::faded(&buffer.code.text, s, fader, value);
+                            buffer.code.set_text(maker::faded(buffer.code.text(), s, fader, value));
                             buffer.code.check();
                             buffer.edited(now);
                         }
@@ -296,9 +285,9 @@ impl Shell {
         let Some(Shown::Code(buffer)) = &mut self.shown else { return };
         self.sound.rolls += 1;
         let clock = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64);
-        let fresh = maker::fresh(&buffer.code.text, &maker::roll(sort, clock ^ self.sound.rolls.rotate_left(32)));
+        let fresh = maker::fresh(buffer.code.text(), &maker::roll(sort, clock ^ self.sound.rolls.rotate_left(32)));
         buffer.code.mark(ctx, id);
-        buffer.code.text = fresh;
+        buffer.code.set_text(fresh);
         buffer.code.check();
         buffer.code.mark(ctx, id);
         buffer.edited(std::time::Instant::now());
@@ -319,19 +308,13 @@ impl Shell {
 /// How wide a fader of the sound maker is.
 pub(super) const FADER_WIDTH: f32 = 150.0;
 
-/// A dice showing five, drawn (no font has one we can count on): the sign
-/// that the buttons after it roll.
-pub(super) fn dice(ui: &mut egui::Ui) -> egui::Response {
-    crate::gui::dice(ui)
-}
-
 /// The pause between a sound's end and its next go under LOOP.
 pub(super) const LOOP_PAUSE: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// Where a sound is used, under its text: USED, then what the game's code
 /// says of it (`says`) and each line of it that names it, clicked to open
-/// there (the file and the line returned; `rects` where the rows are).
-pub(super) fn used_ui(ui: &mut egui::Ui, name: &str, says: &[String], rows: &[crate::ide::refs::Ref], rects: &mut Vec<egui::Rect>) -> Option<(String, usize)> {
+/// there (the file and the line returned).
+pub(super) fn used_ui(ui: &mut egui::Ui, name: &str, says: &[String], rows: &[crate::ide::refs::Ref]) -> Option<(String, usize)> {
     let mut go = None;
     ui.add_space(18.0);
     ui.label(RichText::new("USED").small().color(QUIET));
@@ -355,7 +338,6 @@ pub(super) fn used_ui(ui: &mut egui::Ui, name: &str, says: &[String], rows: &[cr
             let text = ui.add(egui::Label::new(RichText::new(shown).text_style(TextStyle::Monospace).color(QUIET)).sense(egui::Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand);
             place.clicked() || text.clicked()
         });
-        rects.push(at.response.rect);
         if at.inner {
             go = Some((row.file.clone(), row.line));
         }
