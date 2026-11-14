@@ -991,6 +991,9 @@ impl Stage {
             let props = level.marker_props.get(i).and_then(|p| p.as_ref()).map(|p| Arc::clone(&p.values));
             given.entry(m.kind).or_default().push_back(Given { name: level.marker_names.get(i).cloned().flatten(), bearing: level.marker_facings.get(i).copied().flatten(), props });
         }
+        // (Own names, which `levels::unused` numbers past.)
+        let owns: std::collections::BTreeSet<&str> = level.marker_names.iter().flatten().chain(level.pieces.iter().filter_map(|p| p.name.as_ref())).map(String::as_str).collect();
+        let mut numbered = std::collections::BTreeSet::new();
         let mut counts: std::collections::BTreeMap<usize, u32> = Default::default();
         let mut turned = Vec::new();
         for id in self.host.ids() {
@@ -1014,7 +1017,7 @@ impl Stage {
                     name
                 }
             };
-            self.here.names.insert(id.raw(), own.unwrap_or_else(|| crate::levels::called(&k.name, *n)));
+            self.here.names.insert(id.raw(), own.unwrap_or_else(|| crate::levels::unused(&k.name, *n, &owns, &mut numbered)));
         }
         // (Only kinds without a behavior have a way in a file: `LuaGame`
         // refuses the rest as it loads.)

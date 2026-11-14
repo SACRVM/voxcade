@@ -819,7 +819,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `"level"` prop names; a thing by `level:thing`'s name, the file's or
   `levels::called`'s `lift_1`); PROPS offers the names there are
   (`stage::name_choice`, `Editor::name_choices`, found anew only when
-  their sources change; `--menu prop:KEY`), a name not there in WARNING,
+  their sources change; `--menu prop:KEY`; a thing chosen by the name the
+  game gives it, `lever_2`, gets it as its own in the same step,
+  `Editor::names_to_fix`, so taking out `lever_1` moves no prop, the
+  numbers passing over names taken, `levels::unused`), a name not there in WARNING,
   and RENAME rewrites the props naming the thing or place in its step
   (`Editor::props_renamed`).
   `view = "front"`: each layer the grid seen from the front, the front

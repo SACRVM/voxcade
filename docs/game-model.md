@@ -927,7 +927,8 @@ hash); the meshes keep the faces every level's sun lights (`Game::suns`).
 `area:holds(thing or point)`. Names given in the file are the things'
 names (`level:thing(name)`); unnamed ones keep their kind and number
 (`lever_2`; the thing that becomes the player, the kit's hero, has none,
-`levels::thing_names`). Not
+`levels::thing_names`; a number whose name another thing has is passed
+over, `levels::unused`). Not
 yet: areas' events, setting a light's colour or radius in code.
 
 ## Items and the inventory

@@ -1446,7 +1446,34 @@ impl Editor {
                 props.insert(at, crate::grid::Prop { key: key.to_string(), value, line: 0 });
             }
         }
-        self.change(tune, |l| l.things[i].props = props);
+        let fixed = self.names_to_fix(t, key, props.iter().find(|p| p.key == key).map(|p| &p.value));
+        self.change(tune, |l| {
+            l.things[i].props = props;
+            for (n, name) in fixed {
+                l.things[n].name = Some(name);
+            }
+        });
+    }
+
+    /// The things a prop that names things (`key`, its `value`) names by
+    /// the name the game gives them (`lever_2`, none of their own), with
+    /// it: written as their own in the same step, so that a thing of the
+    /// kind taken out before them leaves the prop naming them still.
+    /// (`levels::thing_names` counts named things as it numbers, so the
+    /// others keep the names they have.)
+    fn names_to_fix(&self, t: &Thing, key: &str, value: Option<&toml::Value>) -> Vec<(usize, String)> {
+        let Some(value) = value else { return Vec::new() };
+        let named: Vec<&str> = match self.declared_names(t).and_then(|n| n.get(key)) {
+            Some(Named::Thing) => value.as_str().into_iter().collect(),
+            Some(Named::Things) => value.as_array().into_iter().flatten().filter_map(toml::Value::as_str).collect(),
+            _ => return Vec::new(),
+        };
+        let called = self.thing_names();
+        named
+            .into_iter()
+            .filter(|name| !name.is_empty() && self.level.things.iter().all(|o| o.name.as_deref() != Some(name)))
+            .filter_map(|name| called.iter().position(|c| c.as_deref() == Some(name)).map(|n| (n, name.to_string())))
+            .collect()
     }
 
     /// A prop of the chosen thing as typed (`voxcade edit --prop
@@ -1980,6 +2007,51 @@ mod tests {
         ed.set_prop("next", "ghost".into());
         assert!(saved(&dir).contains("next = \"ghost\"") && !ed.name_choices()["next"].contains(&"ghost".to_string()));
         assert!(Editor::open(&dir, "room.toml").is_ok_and(|e| e.level.things[4].props.iter().any(|p| p.value.as_str() == Some("ghost"))), "a level holding it opens");
+    }
+
+    /// A prop set to the name the game gives a thing (`lever_2`, none of
+    /// its own) writes that name into the thing in the same step: the
+    /// lever before it taken out, the prop names the same lever still, and
+    /// the levers after it keep their names (`levels::unused`); naming one
+    /// renumbers none of the others (counted named or not). UNDO brings the
+    /// file back to the byte.
+    #[test]
+    fn a_name_a_prop_chooses_is_written_into_the_thing() {
+        let dir = crate::scratch::Scratch::new("room-name-fixed");
+        let lever = |x: i32| format!("[[thing]]\nkind = \"lever\"\nat = [{x}, 20, 0]\n\n");
+        let text = format!("format = \"voxcade level 1\"\nsize = [360, 200, 120]\n\n[[thing]]\nkind = \"walker\"\nat = [100, 20, 0]\n\n{}{}{}{}", lever(10), lever(20), lever(30), lever(40));
+        let text = text.trim_end().to_string() + "\n";
+        std::fs::write(dir.join("room.toml"), &text).unwrap();
+        let mut ed = Editor::open(&dir, "room.toml").unwrap();
+        naming(&mut ed);
+        ed.choose_item(Some(Item::Thing(0)));
+        let names = |ed: &Editor| ed.thing_names().iter().map(|n| n.clone().unwrap_or_default()).collect::<Vec<_>>();
+        assert_eq!(names(&ed), ["walker_1", "lever_1", "lever_2", "lever_3", "lever_4"]);
+        let steps = ed.steps();
+        ed.set_prop("works", ed.typed_prop("works", "lever_2, lever_4").unwrap());
+        assert_eq!(ed.steps(), steps + 1, "one step");
+        assert_eq!(names(&ed), ["walker_1", "lever_1", "lever_2", "lever_3", "lever_4"], "every name as it was");
+        assert_eq!(ed.level.things.iter().map(|t| t.name.as_deref()).collect::<Vec<_>>(), [None, None, Some("lever_2"), None, Some("lever_4")], "the names chosen the levers' own");
+        let lines: Vec<String> = saved(&dir).lines().filter(|l| !text.lines().any(|p| p == *l)).map(String::from).collect();
+        assert_eq!(lines, ["props = { works = [\"lever_2\", \"lever_4\"] }", "name = \"lever_2\"", "name = \"lever_4\""], "only their lines");
+        ed.undo();
+        assert_eq!(saved(&dir), text, "UNDO: the file to the byte");
+        ed.redo();
+        // The first lever taken out: the prop's levers are the same, the
+        // third keeps its name.
+        ed.choose_item(Some(Item::Thing(1)));
+        ed.remove_item();
+        assert_eq!(names(&ed), ["walker_1", "lever_2", "lever_3", "lever_4"]);
+        assert_eq!(listed(&ed.level.things, &ed.thing_names(), "lever_2"), Some(1), "the lever at x 20");
+        assert_eq!(ed.level.things[1].at[0], 20);
+        // The game names them so too (`Host::name_things` the same rule).
+        assert_eq!(crate::levels::thing_names([("lever", None, false), ("lever", Some("lever_1"), false), ("lever", None, false)].into_iter()), [Some("lever_2".to_string()), Some("lever_1".into()), Some("lever_3".into())]);
+        // A name the game does not give, or a thing's own, writes no name.
+        ed.choose_item(Some(Item::Thing(0)));
+        let before = ed.level.things.clone();
+        ed.set_prop("next", "lever_4".into());
+        ed.set_prop("next", "ghost".into());
+        assert!(ed.level.things[1..].iter().zip(&before[1..]).all(|(a, b)| a.name == b.name));
     }
 
     /// SHADOW ONLY on a piece writes its one line, UNDO takes it back in
