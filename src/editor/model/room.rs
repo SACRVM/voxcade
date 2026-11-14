@@ -296,8 +296,9 @@ impl Editor {
     }
 
     /// How the list calls an item: its name, or (unnamed, `false`) the
-    /// name the game gives a thing, `lever_2` (`thing_names`), and for the
-    /// thing that becomes the player, which has none, what it is: its kind.
+    /// name the game gives a thing of a kind, `lever_2` (`thing_names`);
+    /// what it is for an unnamed piece (its model) and for the thing that
+    /// becomes the player, which has no name (its kind).
     pub fn label_of(&self, item: Item) -> (String, bool) {
         self.label_in(&self.thing_names(), item)
     }
@@ -309,7 +310,10 @@ impl Editor {
             return (name.to_string(), true);
         }
         let Item::Thing(i) = item else { return (String::new(), false) };
-        (called.get(i).cloned().flatten().unwrap_or_else(|| what_it_is(&self.level.things[i])), false)
+        // (An unnamed piece by its model: a list of `piece_17`s tells
+        // nobody which fir is which, and code names the pieces it means.)
+        let t = &self.level.things[i];
+        (called.get(i).cloned().flatten().filter(|_| !t.is_piece()).unwrap_or_else(|| what_it_is(t)), false)
     }
 
     /// Whether the thing becomes the player in the game: it has no name
