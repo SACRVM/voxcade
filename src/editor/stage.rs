@@ -436,9 +436,14 @@ fn prop_rows(ui: &mut egui::Ui, ed: &Editor, i: usize, shown: &mut PanelsDrawn) 
                     }
                 }
                 toml::Value::Boolean(b) => {
-                    let word = RichText::new(if *b { "TRUE" } else { "FALSE" }).color(if own.is_some() && *b { ACCENT } else { colour });
-                    if ui.add(egui::Button::new(word).selected(*b).min_size(Vec2::new(zones::col(1), 0.0))).on_hover_text(&tip).clicked() {
-                        shown.prop = Some((key.clone(), toml::Value::Boolean(!b)));
+                    // A checkbox at the controls' left; the kind's value quiet.
+                    let mut on = *b;
+                    let widgets = &mut ui.visuals_mut().widgets;
+                    for w in [&mut widgets.inactive, &mut widgets.hovered, &mut widgets.active] {
+                        w.fg_stroke.color = colour;
+                    }
+                    if ui.checkbox(&mut on, "").on_hover_text(&tip).changed() {
+                        shown.prop = Some((key.clone(), toml::Value::Boolean(on)));
                     }
                 }
                 v => {
