@@ -288,6 +288,13 @@ pub struct Hit {
 /// `origin` along `dir`), counting the floor one cell under the grid as
 /// filled; Amanatides and Woo's walk.
 pub fn pick(origin: Vec3, dir: Vec3, size: IVec3, filled: impl Fn(IVec3) -> bool) -> Option<Hit> {
+    pick_over(origin, dir, size, true, filled)
+}
+
+/// `pick` with the floor counted as filled or not (FLOOR off: a ray
+/// meets nothing under the grid and goes on through, so a model is worked
+/// on from below).
+pub fn pick_over(origin: Vec3, dir: Vec3, size: IVec3, floor: bool, filled: impl Fn(IVec3) -> bool) -> Option<Hit> {
     let lo = Vec3::new(0.0, 0.0, -1.0);
     let hi = size.as_vec3();
     // Into the box (the grid and its floor).
@@ -328,7 +335,7 @@ pub fn pick(origin: Vec3, dir: Vec3, size: IVec3, filled: impl Fn(IVec3) -> bool
     }
     let inside = |c: IVec3| c.x >= 0 && c.y >= 0 && c.z >= -1 && c.x < size.x && c.y < size.y && c.z < size.z;
     while inside(cell) {
-        if cell.z == -1 || filled(cell) {
+        if if cell.z == -1 { floor } else { filled(cell) } {
             return Some(Hit { cell, normal });
         }
         let a = if next.x < next.y && next.x < next.z { 0 } else if next.y < next.z { 1 } else { 2 };
@@ -780,8 +787,12 @@ pub struct Editor {
     pub disk: disk::Disk,
     /// What is hidden in the editor alone (`room::Hidden`).
     hidden: room::Hidden,
-    /// SLICE: the plane cutting the model in the view (`slice.rs`).
-    pub slice: Option<super::slice::Slice>,
+    /// SLICE: the planes cutting the model in the view (`slice.rs`).
+    pub slices: super::slice::Slices,
+    /// FLOOR (the voxel editor's): the plate under a block, a model or a
+    /// figure shown and met by the tools; off, neither (the person's,
+    /// `background::Backgrounds::floor`).
+    pub floor: bool,
     /// The level round the model, shaped in place (`context.rs`); the one
     /// EDIT asks the model's window to open it in.
     pub context: Option<super::context::Context>,
@@ -828,7 +839,8 @@ impl Editor {
             land: land::Land::default(),
             disk: Default::default(),
             hidden: Default::default(),
-            slice: None,
+            slices: Default::default(),
+            floor: true,
             context: None,
             wants_context: None,
             selecting: Selecting::default(),

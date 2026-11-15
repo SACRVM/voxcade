@@ -24,6 +24,8 @@ pub struct Backgrounds {
     pub level: Option<String>,
     /// The outliner's width where the person dragged it wider.
     pub outliner: Option<f32>,
+    /// The voxel editor's FLOOR (none: shown, as always).
+    pub floor: Option<bool>,
 }
 
 impl Backgrounds {

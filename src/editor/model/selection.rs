@@ -780,30 +780,45 @@ impl Editor {
         }
     }
 
-    /// Why the selection cannot become a part or go to another (None: it
-    /// can): only in a figure.
+    /// Why the selection cannot become a part (None: it can): in a figure,
+    /// or a model of one frame that becomes one (`cannot_have_parts`).
     pub fn cannot_part(&self) -> Option<&'static str> {
+        if matches!(self.scope, Scope::Block(_)) {
+            return Some("Only in a model");
+        }
+        self.cannot_have_parts()
+    }
+
+    /// Why the selection cannot go to another part (None: it can): only in
+    /// a figure.
+    pub fn cannot_move_to_part(&self) -> Option<&'static str> {
         (!self.parted() || self.figure.is_none()).then_some("Only in a figure of parts")
     }
 
     /// NEW PART: the selected voxels out of their part(s) into a new part
     /// (its name the next free `part`, to type), hanging on the part most
-    /// of them came from; the others keep their rig; one step.
+    /// of them came from; the others keep their rig; one step. A model of
+    /// one frame becomes a figure in that step: its frame the root part
+    /// (`root_name`), the new part hanging on it, all where it stood.
     pub fn selection_to_new_part(&mut self) -> Option<String> {
         if self.cannot_part().is_some() {
             return None;
         }
         let sel = self.selection().cloned()?;
         let name = self.free_part_name("part");
+        let root = self.root_name();
         let m = self.model.as_ref()?;
-        // The part most of it came from.
+        // The part most of it came from (a model of one frame: its root).
         let parent = sel.cells.iter().max_by_key(|(_, c)| c.len()).and_then(|(o, _)| match o {
+            Owner::Frame(f) if !m.parted() => (*f == 0).then(|| root.clone()),
             Owner::Frame(f) => m.parts.iter().find(|p| p.frame == *f).map(|p| p.name.clone()),
             Owner::Block(_) => None,
         });
         let new = name.clone();
         self.acting_on(vec![name.clone()]);
         self.change_model_file(move |m| {
+            let plain = !m.parted();
+            super::parts::made_figure(m, &root);
             let mut taken = Cells::new();
             for (o, set) in &sel.cells {
                 let Owner::Frame(f) = *o else { continue };
@@ -817,6 +832,10 @@ impl Editor {
                 put_frame(m, f, &all);
             }
             if taken.is_empty() {
+                // (Nothing taken: no figure made either.)
+                if plain {
+                    m.parts.clear();
+                }
                 return;
             }
             m.frames.push(Block::boxed(IVec3::ONE));
@@ -834,7 +853,7 @@ impl Editor {
     /// MOVE TO PART: the selected voxels out of their part(s) into part
     /// `into` (its box grown), where they lie; one step.
     pub fn selection_to_part(&mut self, into: usize) {
-        if self.cannot_part().is_some() {
+        if self.cannot_move_to_part().is_some() {
             return;
         }
         let Some(sel) = self.selection().cloned() else { return };

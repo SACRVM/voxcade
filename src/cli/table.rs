@@ -83,7 +83,7 @@ pub(super) struct Command {
 pub(super) const REPEATABLE: &[&str] = &[
     "--do", "--add", "--hang", "--move", "--copy", "--remove", "--light", "--add-light", "--solid", "--room-size", "--at", "--rotate", "--about", "--lay", "--move-part",
     "--move-joint", "--scatter", "--raise", "--shape", "--selection", "--rotate-part", "--pose-part", "--hide", "--clear", "--fill", "--rename", "--radius", "--color", "--prop",
-    "--fold", "--lock",
+    "--fold", "--lock", "--slice",
 ];
 
 /// Old names of options, refused with the new one.
@@ -181,7 +181,8 @@ pub(super) const COMMANDS: &[Command] = &[
             look("--hover", "WORD", "a handle lit as under the mouse: arrow-x, ring-z, face-y, face-y-low ... (a part's joint's too)"),
             look("--handles", "move|rotate", "the chosen one's arrows (move) or rings (rotate)"),
             look("--menu", "NAME|floor|voxel|selection|part:NAME|prop:KEY|keys", "a menu open: a thing's right-click menu, the floor's under the middle of the view, the voxel editor's, the selection's, a part's, the names a prop of the chosen thing may take, or F1's page of the keys"),
-            look("--slice", "x|y|z,LAYER", "SLICE across an axis at a layer"),
+            look("--slice", "x|y|z,LAYER[,flip]", "SLICE across an axis at a layer (again: another axis, up to three); flip: the other side cut away"),
+            look("--no-floor", "", "FLOOR off: the voxel editor's plate under the model neither drawn nor met"),
             look("--context", "LEVEL:NAME", "with --model: shaped in place, the level's other pieces faint round it"),
             look("--context-off", "", "CONTEXT switched off"),
             look("--game-view", "", "as the game's camera sees it (GAME VIEW)"),

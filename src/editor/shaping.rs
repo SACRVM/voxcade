@@ -44,7 +44,7 @@ pub fn ui(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, thumbs
         zones::from_disk(ui, free, ed, shown);
     }
     // GRID in the voxel editor, not in GAME VIEW (the game's look).
-    let grid = (ed.scope != Scope::Level && view.before_game.is_none()).then_some(view.grid);
+    let grid = (ed.scope != Scope::Level && view.before_game.is_none()).then_some((view.grid, ed.floor));
     let straight = (ed.scope != Scope::Level && view.before_game.is_none()).then(|| view.straight(ed.scope));
     zones::view_buttons(ui, free, grid, straight, shown);
     part_bar(ui, ed, free, view, shown);
@@ -272,7 +272,13 @@ fn frames(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, show
         _ => 0,
     };
     let title = if parted { "PARTS" } else { "FRAMES" };
-    if !zones::group(ui, title, Some(frames.len()), "Its frames: a click shapes one (V and X: the one before, the next)") {
+    // + PART: a model of one frame becomes a figure, its frame the root
+    // part (quiet with why for an animation of several).
+    let refused = ed.cannot_have_parts();
+    let tip = refused.unwrap_or("Add a part: the model becomes a figure, this frame its root part, a voxel of the color held on top of it the new part (named to type)");
+    let extras = [("+ PART", Action::AddPart(None), tip, refused.is_none())];
+    let extras = if parted { &extras[..0] } else { &extras[..] };
+    if !zones::group_with(ui, title, Some(frames.len()), "Its frames: a click shapes one (V and X: the one before, the next)", extras, shown) {
         return;
     }
     for (a, word) in [(Action::Frame(-1), "PREVIOUS FRAME"), (Action::Frame(1), "NEXT FRAME")] {
@@ -505,7 +511,8 @@ fn selection_rows(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
     // away, another color.
     let refused = ed.cannot_part();
     row(ui, "", "", |ui| {
-        cell(ui, shown, "NEW PART", TEXT, 1, Action::SelNewPart, refused, "A part of their own, hanging on the part most came from (named to type)");
+        let tip = if ed.parted() { "A part of their own, hanging on the part most came from (named to type)" } else { "A part of their own (named to type): the model becomes a figure, the rest its root part, all where it stands" };
+        cell(ui, shown, "NEW PART", TEXT, 1, Action::SelNewPart, refused, tip);
         cell(ui, shown, "REMOVE", TEXT, 1, Action::SelRemove, None, "Take them away  Del");
         cell(ui, shown, "PAINT", TEXT, 1, Action::SelPaint, None, "The color held onto them");
     });
@@ -525,7 +532,7 @@ fn selection_rows(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
         row(ui, "", "", |ui| {
             // MOVE TO PART…: the parts to choose from.
             let parts: Vec<String> = ed.figure.as_ref().map_or_else(Vec::new, |f| f.parts().iter().map(|p| p.name.clone()).collect());
-            ui.add_enabled_ui(refused.is_none(), |ui| {
+            ui.add_enabled_ui(ed.cannot_move_to_part().is_none(), |ui| {
                 ui.set_width(zones::col(2));
                 ui.menu_button(RichText::new("MOVE TO PART…").small().color(TEXT), |ui| {
                     for (q, name) in parts.iter().enumerate() {
@@ -595,30 +602,37 @@ fn depth_row(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
     });
 }
 
-/// SLICE: X, Y, Z on the columns (lit the one cutting; again: off), and
-/// while it cuts its LAYER and OFF.
+/// SLICE: X, Y, Z on the columns (lit the planes on; again: off), and for
+/// each plane on a row of its LAYER, FLIP and OFF.
 fn slice_rows(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
     if !ed.can_slice() {
         return;
     }
-    let on = ed.slice.as_ref().map(|s| s.axis);
-    row(ui, "SLICE", "Cut the model across an axis: what lies before the plane is neither drawn nor touched; the file stays as it is", |ui| {
-        let width = zones::col(1);
+    let on = |a: usize| ed.slices.planes[a].is_some();
+    let height = ui.text_style_height(&TextStyle::Body) + 8.0;
+    row(ui, "SLICE", "Cut the model across an axis, each on its own: what lies on a plane's far side from the eye (as switched on) is neither drawn nor touched; the file stays as it is", |ui| {
         for (a, letter) in ["X", "Y", "Z"].into_iter().enumerate() {
-            let word = RichText::new(letter).color(if on == Some(a) { zones::AXIS_LIT[a] } else { zones::AXIS[a] });
-            let tip = if on == Some(a) { format!("Slicing across {letter}: click for off") } else { format!("Slice across {letter}") };
-            if ui.add_sized([width, ui.text_style_height(&TextStyle::Body) + 8.0], egui::Button::new(word).selected(on == Some(a))).on_hover_text(tip).clicked() {
-                shown.clicked.push(Action::Slice(Some(a as u8)));
+            let word = RichText::new(letter).color(if on(a) { zones::AXIS_LIT[a] } else { zones::AXIS[a] });
+            let tip = if on(a) { format!("Slicing across {letter}: click for off") } else { format!("Slice across {letter}, the side the eye is on cut away") };
+            if ui.add_sized([zones::col(1), height], egui::Button::new(word).selected(on(a))).on_hover_text(tip).clicked() {
+                shown.clicked.push(Action::Slice(a as u8));
             }
         }
     });
-    if let Some(s) = &ed.slice {
-        let room = ed.slice_room()[s.axis];
-        row(ui, "LAYER", "Where the plane lies, in voxels from the box's low side (or drag its arrow)", |ui| {
-            zones::number(ui, shown, ["X", "Y", "Z"][s.axis], Some(s.axis), s.at as f64, 0, 0.1, 0.0..=(room - 1).max(0) as f64, "Page Up, Page Down", FIELD, |v| Action::SliceAt(v.round() as i32));
-            let width = zones::col(1);
-            if ui.add_sized([width, ui.text_style_height(&TextStyle::Body) + 8.0], egui::Button::new("OFF")).on_hover_text("The whole model again").clicked() {
-                shown.clicked.push(Action::Slice(None));
+    let last = ed.slices.last;
+    for s in ed.slices.on() {
+        let (a, letter) = (s.axis, ["X", "Y", "Z"][s.axis]);
+        let room = ed.slice_room()[a];
+        let keys = if last == Some(a) { ", Page Up, Page Down" } else { "" };
+        row(ui, "LAYER", "Where a plane lies, in voxels from the box's low side (or drag its arrow)", |ui| {
+            zones::number(ui, shown, letter, Some(a), s.at as f64, 0, 0.1, 0.0..=(room - 1).max(0) as f64, &format!("The plane across {letter}{keys}"), FIELD, |v| Action::SliceAt(a as u8, v.round() as i32));
+            let away = if s.side > 0 { "above" } else { "below" };
+            let flip = egui::Button::new(RichText::new("FLIP").small());
+            if ui.add_sized([zones::col(1), height], flip).on_hover_text(format!("Cut away the other side (now what lies {away} it along {letter})")).clicked() {
+                shown.clicked.push(Action::SliceFlip(a as u8));
+            }
+            if ui.add_sized([zones::col(1), height], egui::Button::new(RichText::new("OFF").small())).on_hover_text(format!("The plane across {letter} off")).clicked() {
+                shown.clicked.push(Action::Slice(a as u8));
             }
         });
     }
@@ -990,6 +1004,8 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<zones::Entry> {
             if ed.frames().len() > 1 {
                 out.push(("REMOVE".into(), Action::DeleteFrameOf(f), Some("Del"), None));
             }
+            // (A model of one frame becomes a figure: + PART at FRAMES.)
+            out.push(("ADD PART".into(), Action::AddPart(None), None, ed.cannot_have_parts().map(str::to_string)));
         }
         MenuOn::Part(p) => {
             let Some(figure) = &ed.figure else { return out };
@@ -1014,8 +1030,7 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<zones::Entry> {
             out.push(("REMOVE".into(), Action::RemovePart(p), Some("Del"), ed.cannot_remove(p).map(str::to_string)));
         }
         MenuOn::Selection => {
-            let part = ed.cannot_part().map(str::to_string);
-            out.push(("NEW PART".into(), Action::SelNewPart, None, part.clone()));
+            out.push(("NEW PART".into(), Action::SelNewPart, None, ed.cannot_part().map(str::to_string)));
             out.push(("REMOVE".into(), Action::SelRemove, Some("Del"), None));
             out.push(("PAINT".into(), Action::SelPaint, None, None));
             out.push(("DUPLICATE".into(), Action::SelDuplicate, None, None));
@@ -1025,7 +1040,7 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<zones::Entry> {
             for (a, w) in ["X", "Y", "Z"].iter().enumerate() {
                 out.push((format!("ROTATE {w}"), Action::SelRotate(a as u8), None, None));
             }
-            out.push(("MOVE TO PART…".into(), Action::SelToPartMenu([0.0, 0.0]), None, part));
+            out.push(("MOVE TO PART…".into(), Action::SelToPartMenu([0.0, 0.0]), None, ed.cannot_move_to_part().map(str::to_string)));
             out.push(("COPY".into(), Action::SelCopy, Some("Ctrl+C"), None));
             out.push(("PASTE".into(), Action::SelPaste, Some("Ctrl+V"), ed.selecting.clipboard.is_none().then(|| "Nothing copied yet".to_string())));
         }

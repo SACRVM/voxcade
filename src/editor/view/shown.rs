@@ -14,9 +14,14 @@ pub struct Shown {
     cells: Vec<Cell>,
     blocks: Vec<(Block, Kind)>,
     /// The block or frame shown, as built, and the slice it was cut by
-    /// (its axis, layer and side).
+    /// (each plane's layer and side).
     shape: Option<Block>,
-    slice: Option<(usize, i32, i32)>,
+    slice: [Option<(i32, i32)>; 3],
+    /// The frame's glass colors as built (each with its material), and
+    /// its glass voxels as the game draws them: see-through cubes in the
+    /// grid shown, never in the world (whose chunks are opaque).
+    glass_of: Vec<([u8; 3], crate::vvx::Mat)>,
+    pub glass: Vec<Instance>,
     /// The part shown is turned at rest (drawn as cubes, the world empty).
     turned: bool,
     /// The level's terrain as built, and its columns' heights.
@@ -115,14 +120,53 @@ pub(super) fn far_to_near_order(cubes: &[Instance], eye: Vec3) -> Vec<u32> {
     order
 }
 
-/// What of the slice the world shown depends on.
-pub(super) fn slice_key(ed: &Editor) -> Option<(usize, i32, i32)> {
-    ed.slice.as_ref().filter(|_| ed.can_slice()).map(|s| (s.axis, s.at, s.side))
+/// What of the slice the world shown depends on: each plane's layer and
+/// side.
+pub(super) fn slice_key(ed: &Editor) -> [Option<(i32, i32)>; 3] {
+    ed.slices.planes.each_ref().map(|s| s.as_ref().filter(|_| ed.can_slice()).map(|s| (s.at, s.side)))
+}
+
+/// The glass colors of the frame shown, each with its material (a block's
+/// colors are plain: none).
+pub(crate) fn glass_of(ed: &Editor) -> Vec<([u8; 3], crate::vvx::Mat)> {
+    let (Scope::Frame(_), Some(file), Some(b)) = (ed.scope, ed.model.as_ref(), ed.shape()) else { return Vec::new() };
+    b.colours().into_iter().map(|key| (key, file.material(key))).filter(|(_, m)| m.rgba[3] < 255).collect()
+}
+
+/// A block's glass voxels (of the colors `glass` lists, none `cut`) as
+/// the game draws them: see-through cubes at their cells' middles, as
+/// clear as their glass, mirroring as their material does, smooth glass
+/// glinting by its facets (`vox::VoxModel::new`).
+pub(crate) fn glass_cubes(b: &Block, glass: &[([u8; 3], crate::vvx::Mat)], cut: &dyn Fn(IVec3) -> bool) -> Vec<Instance> {
+    let mut voxels = Vec::new();
+    let mut mats = Vec::new();
+    for (k, &v) in b.voxels.iter().enumerate() {
+        let at = b.at(k);
+        if v == 0 || cut(at) {
+            continue;
+        }
+        let rgb = b.palette[v as usize - 1];
+        let mat = glass.iter().find(|(key, _)| *key == rgb).map_or(crate::editor::frames::plain(rgb), |(_, m)| *m);
+        voxels.push((at, mat.rgba));
+        mats.push(mat);
+    }
+    let metal = mats.iter().map(|m| m.metal).collect();
+    let model = crate::vox::VoxModel::new(b.size, vec![voxels], vec![metal]);
+    model.glass[0]
+        .iter()
+        .map(|&k| {
+            let (at, rgba) = model.frames[0][k as usize];
+            let m = mats[k as usize];
+            let shade = model.facets.first().and_then(|f| f.get(k as usize)).filter(|f| **f != [0; 3]).map_or([0; 4], |&[x, y, z]| [x, y, z, 0]);
+            let p = at.as_vec3() + 0.5;
+            Instance { pos_size: [p.x, p.y, p.z, 1.0], color: rgba, fx: [m.glow, rgba[3], 0, m.metal], shade, turn: [0; 4] }
+        })
+        .collect()
 }
 
 impl Shown {
     pub fn new(ed: &Editor) -> Result<Self> {
-        let mut shown = Self { world: World::new(IVec3::ONE, [[0; 4]; 256]), scope: ed.scope, size: IVec3::ZERO, cells: Vec::new(), blocks: Vec::new(), shape: None, slice: None, turned: false, terrain: None, surface: None, room: Default::default(), outline: Default::default(), game_view: Default::default() };
+        let mut shown = Self { world: World::new(IVec3::ONE, [[0; 4]; 256]), scope: ed.scope, size: IVec3::ZERO, cells: Vec::new(), blocks: Vec::new(), shape: None, slice: [None; 3], glass_of: Vec::new(), glass: Vec::new(), turned: false, terrain: None, surface: None, room: Default::default(), outline: Default::default(), game_view: Default::default() };
         shown.build(ed)?;
         Ok(shown)
     }
@@ -139,11 +183,17 @@ impl Shown {
             Scope::Frame(_) if ed.rest_view() != Mat4::IDENTITY => World::new(IVec3::ONE, [[0; 4]; 256]),
             Scope::Block(_) | Scope::Frame(_) => {
                 let block = ed.shape().expect("a block or frame shown");
+                let glass = glass_of(ed);
                 let mut world = World::new(block.size, [[0; 4]; 256]);
                 for (k, &v) in block.voxels.iter().enumerate() {
-                    // (What the slice cuts away is not drawn.)
+                    // (What the slice cuts away is not drawn; glass is
+                    // drawn as cubes, `glass_cubes`.)
                     if v != 0 && !ed.cut(block.at(k)) {
-                        let colour = world.colour(block.palette[v as usize - 1]).unwrap_or(1);
+                        let rgb = block.palette[v as usize - 1];
+                        if glass.iter().any(|(key, _)| *key == rgb) {
+                            continue;
+                        }
+                        let colour = world.colour(rgb).unwrap_or(1);
                         world.set_raw(block.at(k), colour);
                     }
                 }
@@ -157,6 +207,11 @@ impl Shown {
         self.scope = ed.scope;
         self.shape = ed.shape().cloned();
         self.slice = slice_key(ed);
+        self.glass_of = glass_of(ed);
+        self.glass = match (ed.shape(), ed.rest_view() == Mat4::IDENTITY) {
+            (Some(b), true) if !self.glass_of.is_empty() => glass_cubes(b, &self.glass_of, &|c| ed.cut(c)),
+            _ => Vec::new(),
+        };
         self.turned = ed.rest_view() != Mat4::IDENTITY;
         self.size = ed.level.size;
         self.cells = ed.level.cells.clone();
@@ -282,6 +337,7 @@ impl Shown {
         }
         let colour = |b: &Block, v: u8| (v != 0).then(|| b.palette[v as usize - 1]);
         let same_palette = was.palette == now.palette;
+        let glass = |c: Option<[u8; 3]>| c.is_some_and(|c| self.glass_of.iter().any(|(key, _)| *key == c));
         for (k, (&a, &b)) in was.voxels.iter().zip(&now.voxels).enumerate() {
             if a == b && same_palette {
                 continue;
@@ -289,6 +345,10 @@ impl Shown {
             let c = colour(now, b);
             if colour(was, a) == c {
                 continue;
+            }
+            // (Glass is drawn as cubes: built anew.)
+            if glass(c) || glass(colour(was, a)) {
+                return false;
             }
             let at = now.at(k);
             if ed.cut(at) {
@@ -314,7 +374,7 @@ impl Shown {
         let same_blocks = |shown: &Self| shown.blocks.len() == listed && shown.blocks.iter().zip(ed.level.blocks.iter().zip(&ed.blocks)).all(|((b, k), (e, m))| *k == e.kind && b == m);
         match ed.scope {
             Scope::Block(_) | Scope::Frame(_) | Scope::Figure => {
-                let same = self.scope == ed.scope && self.slice == slice_key(ed) && self.turned == (ed.rest_view() != Mat4::IDENTITY);
+                let same = self.scope == ed.scope && self.slice == slice_key(ed) && self.glass_of == glass_of(ed) && self.turned == (ed.rest_view() != Mat4::IDENTITY);
                 if same && self.shape.as_ref() == ed.shape() && (ed.scope != Scope::Figure || self.world.size == ed.grid()) {
                     return Ok(false);
                 }
