@@ -62,7 +62,7 @@ pub struct Colour {
 /// A part of a figure: its name, the frame it is made of, where that
 /// frame's voxel 0, 0, 0 stands from the model's pivot (the file's `at`),
 /// and the parent and joint (from the pivot) set by hand.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Placed {
     pub name: String,
     pub frame: usize,
@@ -73,6 +73,11 @@ pub struct Placed {
     pub rotation: [f32; 3],
     /// Moved by less than a voxel (`vvx::Piece::offset`), within ±0.5.
     pub offset: Vec3,
+    /// A clone: the part whose voxels it reuses (`vvx::Piece::like`), and
+    /// the axis they are mirrored along. Its frame holds them as they show,
+    /// its source's frame mirrored so, as big (`ModelFile::follow_links`).
+    pub like: Option<String>,
+    pub mirror: Option<usize>,
 }
 
 /// What of a model file an editor's step takes and gives back: its
@@ -199,7 +204,7 @@ impl ModelFile {
             }
             frames.push(block);
             if shape.parted {
-                parts.push(Placed { name: piece.name.clone(), frame: i, low, parent: piece.parent.clone(), joint: piece.joint, rotation: piece.rotation, offset: piece.offset });
+                parts.push(Placed { name: piece.name.clone(), frame: i, low, parent: piece.parent.clone(), joint: piece.joint, rotation: piece.rotation, offset: piece.offset, like: piece.like.clone(), mirror: piece.mirror });
             }
         }
         let loaded = Shaped { frames: frames.clone(), parts: parts.clone(), size: shape.size, palette: colours.clone() };
@@ -322,7 +327,7 @@ impl ModelFile {
             .map(|p| {
                 let frame = self.frames.get(p.frame);
                 let voxels = frame.map_or_else(Vec::new, |f| self.reading(f, p.low + raise));
-                Piece { name: p.name.clone(), voxels, parent: p.parent.clone(), joint: p.joint.map(|j| j + raise.as_vec3()), rotation: p.rotation, offset: p.offset }
+                Piece { name: p.name.clone(), voxels, parent: p.parent.clone(), joint: p.joint.map(|j| j + raise.as_vec3()), rotation: p.rotation, offset: p.offset, like: p.like.clone(), mirror: p.mirror }
             })
             .collect();
         Shape { size, parted: true, pieces }
@@ -451,6 +456,187 @@ impl ModelFile {
     }
 }
 
+/// A frame mirrored within its own box along `mirror` (None: as it is),
+/// its colours' numbers kept.
+pub fn mirrored(block: &Block, mirror: Option<usize>) -> Block {
+    let Some(a) = mirror else { return block.clone() };
+    let mut out = Block::boxed(block.size);
+    out.palette = block.palette.clone();
+    for k in 0..block.voxels.len() {
+        let mut c = block.at(k);
+        c[a] = block.size[a] - 1 - c[a];
+        let i = out.index(c).expect("inside the same box");
+        out.voxels[i] = block.voxels[k];
+    }
+    out
+}
+
+/// Whether two frames hold the same voxels in the same box (their
+/// colours' numbering aside).
+pub fn same_cells(a: &Block, b: &Block) -> bool {
+    a.size == b.size && a.cells() == b.cells()
+}
+
+impl ModelFile {
+    /// The part called `name`'s place among the parts.
+    pub fn part_named(&self, name: &str) -> Option<usize> {
+        self.parts.iter().position(|p| p.name == name)
+    }
+
+    /// The clones of the part called `name` (their places), in the file's
+    /// order.
+    pub fn clones_of(&self, name: &str) -> Vec<usize> {
+        (0..self.parts.len()).filter(|&k| self.parts[k].like.as_deref() == Some(name)).collect()
+    }
+
+    /// Before the part called `name` goes (REMOVE, MERGE): its first clone
+    /// becomes the source, its voxels as it shows them its own, and the
+    /// other clones are like it, each mirrored so that it shows as before;
+    /// one that would need two mirrors (one source mirrored in x, another
+    /// in y) keeps the voxels it shows as its own. The new source's name.
+    pub fn hand_down(&mut self, name: &str) -> Option<String> {
+        let clones = self.clones_of(name);
+        let (&first, rest) = clones.split_first()?;
+        let heir = self.parts[first].name.clone();
+        let theirs = self.parts[first].mirror;
+        (self.parts[first].like, self.parts[first].mirror) = (None, None);
+        for &k in rest {
+            let mine = self.parts[k].mirror;
+            let mirror = match (mine, theirs) {
+                (a, b) if a == b => Some(None),
+                (a, None) | (None, a) => Some(a),
+                _ => None,
+            };
+            match mirror {
+                Some(m) => (self.parts[k].like, self.parts[k].mirror) = (Some(heir.clone()), m),
+                None => (self.parts[k].like, self.parts[k].mirror) = (None, None),
+            }
+        }
+        Some(heir)
+    }
+
+    /// Whether any part is a clone.
+    pub fn has_links(&self) -> bool {
+        self.parts.iter().any(|p| p.like.is_some())
+    }
+
+    /// Every clone made anew from its source after a change (`synced`: the
+    /// model as it was, each clone its source's frame mirrored so): what
+    /// a step changed in a clone's voxels is laid on its source first,
+    /// through its mirror, then every clone is its source's frame again,
+    /// standing where it stood (a source grown on one side grows each
+    /// clone on that side, or on the other where it is mirrored). A part
+    /// moved, its voxels unchanged, takes no one along. A clone of a part
+    /// no longer there, or of a clone, keeps the voxels it shows as its
+    /// own.
+    pub fn follow_links(&mut self, synced: &Shaped) {
+        if !self.has_links() {
+            return;
+        }
+        // Clones without a source that has voxels of its own: unlinked.
+        for k in 0..self.parts.len() {
+            if let Some(source) = self.parts[k].like.clone()
+                && self.part_named(&source).is_none_or(|s| self.parts[s].like.is_some() || s == k)
+            {
+                (self.parts[k].like, self.parts[k].mirror) = (None, None);
+            }
+        }
+        let then = |name: &str| synced.parts.iter().find(|p| p.name == name).map(|p| (p, &synced.frames[p.frame]));
+        for s in 0..self.parts.len() {
+            let clones = self.clones_of(&self.parts[s].name);
+            if clones.is_empty() {
+                continue;
+            }
+            let (src, block) = (self.parts[s].clone(), self.frames[self.parts[s].frame].clone());
+            // The source's cells as the synced model laid them out (its box
+            // then, from its low corner): a source whose voxels changed
+            // kept its place in the figure; one moved (the same voxels)
+            // moved alone.
+            let was = then(&src.name).filter(|(p, b)| p.like.is_none() && !same_cells(b, &block));
+            let (src_low, shift, size) = match was {
+                Some((p, b)) => (p.low, src.low - p.low, b.size),
+                None => (src.low, IVec3::ZERO, block.size),
+            };
+            let mut cells: std::collections::BTreeMap<[i32; 3], [u8; 3]> = std::collections::BTreeMap::new();
+            for k in 0..block.voxels.len() {
+                if let Some(c) = block.colour_at(block.at(k)) {
+                    cells.insert((block.at(k) + shift).to_array(), c);
+                }
+            }
+            let (mut lo, mut hi) = (shift, shift + block.size - 1);
+            let flip = |mut c: IVec3, mirror: Option<usize>| {
+                if let Some(a) = mirror {
+                    c[a] = size[a] - 1 - c[a];
+                }
+                c
+            };
+            // Each clone's low corner in the synced layout, and what a
+            // stroke on it changed, laid on the source.
+            let mut lows = Vec::new();
+            for &k in &clones {
+                let (now, frame) = (self.parts[k].clone(), &self.frames[self.parts[k].frame]);
+                let past = then(&now.name).filter(|(p, b)| p.like == now.like && p.mirror == now.mirror && b.size == size && !same_cells(b, frame));
+                let Some((p, before)) = past else {
+                    lows.push(now.low);
+                    continue;
+                };
+                lows.push(p.low);
+                let at = now.low - p.low;
+                let mut seen = std::collections::BTreeSet::new();
+                for (b, off) in [(before, IVec3::ZERO), (frame, at)] {
+                    for i in 0..b.voxels.len() {
+                        seen.insert((b.at(i) + off).to_array());
+                    }
+                }
+                let colour = |b: &Block, c: IVec3| b.index(c).and_then(|_| b.colour_at(c));
+                for c in seen {
+                    let c = IVec3::from(c);
+                    let (old, new) = (colour(before, c), colour(frame, c - at));
+                    if old == new {
+                        continue;
+                    }
+                    let s = flip(c, now.mirror).to_array();
+                    match new {
+                        Some(colour) => cells.insert(s, colour),
+                        None => cells.remove(&s),
+                    };
+                }
+                for corner in [at, at + frame.size - 1] {
+                    let c = flip(corner, now.mirror);
+                    (lo, hi) = (lo.min(c), hi.max(c));
+                }
+            }
+            for c in cells.keys() {
+                (lo, hi) = (lo.min(IVec3::from(*c)), hi.max(IVec3::from(*c)));
+            }
+            // The source anew, where it stood.
+            let grown = hi - lo + 1;
+            let mut made = Block::boxed(grown);
+            for (c, colour) in &cells {
+                let _ = made.set(IVec3::from(*c) - lo, Some(*colour));
+            }
+            let made = if same_cells(&made, &block) { block } else { made };
+            self.parts[s].low = src_low + lo;
+            let f = self.parts[s].frame;
+            self.frames[f] = made;
+            // Each clone its source's frame mirrored, standing where it stood.
+            for (&k, low) in clones.iter().zip(lows) {
+                let mirror = self.parts[k].mirror;
+                let mut at = low + lo;
+                if let Some(a) = mirror {
+                    at[a] = low[a] + size[a] - grown[a] - lo[a];
+                }
+                let shown = mirrored(&self.frames[f], mirror);
+                let g = self.parts[k].frame;
+                if !same_cells(&shown, &self.frames[g]) {
+                    self.frames[g] = shown;
+                }
+                self.parts[k].low = at;
+            }
+        }
+    }
+}
+
 /// The box `size` grown (never shrunk) to hold `lo` to `hi` (from its
 /// pivot, z from the floor up) about the same pivot: across and deep
 /// on both sides of it as needed.
@@ -549,6 +735,7 @@ impl ModelFile {
         let mut changed = Changed::default();
         let box_size = |m: &Self| if m.parted() { m.fitted().1 } else { m.frames[f].size };
         let before = box_size(self);
+        let synced = self.shaped();
         for op in ops {
             let (a, b, key) = match op {
                 CellOp::Clear(a, b) => (*a, *b, None),
@@ -610,6 +797,8 @@ impl ModelFile {
                 }
             }
         }
+        // Cells of a clone are its source's: every clone shows them.
+        self.follow_links(&synced);
         self.list_new_colours();
         let after = box_size(self);
         changed.grown = (before != after).then_some((before, after));

@@ -549,6 +549,9 @@ pub struct History {
     /// number (`count` as it was taken; after: once the next step, UNDO or
     /// REDO has seen it, `Editor::seal`): UNDO and REDO bring it back.
     selections: Vec<(usize, Option<selection::Selection>, Option<Option<selection::Selection>>)>,
+    /// The model as the stroke going on last made its clones anew
+    /// (`Editor::follow_links`): what changed since is laid on the sources.
+    linked: Option<Arc<Shaped>>,
 }
 
 impl Default for History {
@@ -565,6 +568,7 @@ impl Default for History {
             grown: IVec3::ZERO,
             moved: IVec3::ZERO,
             selections: Vec::new(),
+            linked: None,
         }
     }
 }
@@ -966,3 +970,5 @@ fn rig_of(m: &ModelFile) -> Option<std::collections::BTreeMap<String, (Option<St
 
 #[cfg(test)]
 pub(crate) mod tests;
+#[cfg(test)]
+mod link_tests;

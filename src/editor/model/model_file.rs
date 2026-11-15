@@ -48,7 +48,7 @@ impl Editor {
         if self.scope == Scope::Figure {
             return self.change_model_file(|m| m.size = m.tight_size());
         }
-        let part = self.part_mode();
+        let part = self.part_mode().map(|f| self.source_frame(f));
         let Some((lo, hi)) = self.voxel_bounds(part) else { return };
         // Where the box shown moves to: the part's low corner, or the
         // smallest box about the pivot.
@@ -91,7 +91,7 @@ impl Editor {
         match self.scope {
             Scope::Figure => self.model.as_ref().is_some_and(|m| !m.is_tight()),
             Scope::Frame(_) => {
-                let part = self.part_mode();
+                let part = self.part_mode().map(|f| self.source_frame(f));
                 let Some((lo, hi)) = self.voxel_bounds(part) else { return false };
                 match part {
                     Some(_) => lo != IVec3::ZERO || hi + 1 != self.grid(),
@@ -139,6 +139,8 @@ impl Editor {
         let before = self.shaped();
         let Some(model) = &mut self.model else { return };
         change(model);
+        // What it did to a clone lands on its source; every clone shows it.
+        model.follow_links(&before);
         model.list_new_colours();
         // A figure's box as tight as its parts allow at every step's end
         // (a drag's at its let-go: `release`), as it grows: a part that
@@ -154,6 +156,14 @@ impl Editor {
         let step = Step::Model(before, self.shaped());
         self.commit(step);
         self.history.tuning = None;
+    }
+
+    /// The frame whose voxels frame `f` shows: a clone's source's, else
+    /// its own.
+    pub(super) fn source_frame(&self, f: usize) -> usize {
+        let Some(m) = &self.model else { return f };
+        let source = m.parts.iter().find(|p| p.frame == f).and_then(|p| p.like.as_deref()).and_then(|s| m.part_named(s));
+        source.map_or(f, |s| m.parts[s].frame)
     }
 
     /// What the colour held is made of in the model (None without one).

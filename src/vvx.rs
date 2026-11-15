@@ -199,6 +199,37 @@ pub struct Piece {
     /// A part moved by less than a voxel from its `at` (`offset`, each
     /// within a voxel), drawn so with what hangs on it: only the picture.
     pub offset: Vec3,
+    /// A part that reuses another part's voxels (`like`, the source's name;
+    /// `voxels` hold them as they come out, `clone_voxels`), mirrored
+    /// within the source's box along an axis (`mirror`, 0 x, 1 y, 2 z).
+    pub like: Option<String>,
+    pub mirror: Option<usize>,
+}
+
+/// The axes' words as `mirror` writes them.
+pub const AXES: [&str; 3] = ["x", "y", "z"];
+
+/// A clone's voxels (from the pivot): the source's, each first in its
+/// cell, mirrored within the source's box along `mirror`, that box's low
+/// corner at `at`; in the reading order its layers would have written out
+/// (layer by layer from the bottom, rows far to near, x left to right).
+pub fn clone_voxels(source: &[(IVec3, Mat)], at: IVec3, mirror: Option<usize>) -> Vec<(IVec3, Mat)> {
+    let Some(low) = source.iter().map(|v| v.0).reduce(IVec3::min) else { return Vec::new() };
+    let high = source.iter().map(|v| v.0).reduce(IVec3::max).expect("a voxel");
+    let mut seen = crate::world::CellSet::default();
+    let mut out: Vec<(IVec3, Mat)> = source
+        .iter()
+        .filter(|v| seen.insert(v.0))
+        .map(|&(p, m)| {
+            let mut d = p - low;
+            if let Some(a) = mirror {
+                d[a] = high[a] - low[a] - d[a];
+            }
+            (at + d, m)
+        })
+        .collect();
+    out.sort_by_key(|(p, _)| (p.z, -p.y, p.x));
+    out
 }
 
 // ---------------------------------------------------------------- writing
@@ -424,7 +455,7 @@ fn shape_of(model: &VoxModel, rig: &[Rig]) -> Shape {
             .enumerate()
             .map(|(i, p)| {
                 let (parent, joint) = rig.get(i).copied().unwrap_or_default();
-                Piece { name: p.name.clone(), voxels: voxels(0, &mut p.voxels.iter().map(|&k| k as usize)), parent: parent.map(|q| model.parts[q].name.clone()), joint, rotation: p.rest, offset: p.offset }
+                Piece { name: p.name.clone(), voxels: voxels(0, &mut p.voxels.iter().map(|&k| k as usize)), parent: parent.map(|q| model.parts[q].name.clone()), joint, rotation: p.rest, offset: p.offset, ..Piece::default() }
             })
             .collect()
     };
@@ -446,9 +477,17 @@ pub fn write_shape(shape: &Shape, kept: &Palette, all: bool) -> String {
     let box_low = -pivot(shape.size);
     let mut body = String::new();
     for piece in &shape.pieces {
-        let layers = layers_of(&piece.voxels, &mut signs);
+        // A clone's voxels are its source's: only where its box lies.
+        let linked = shape.parted && piece.like.is_some();
+        let layers = if linked { piece.voxels.iter().map(|v| v.0).reduce(IVec3::min).map(|low| (low, Vec::new())) } else { layers_of(&piece.voxels, &mut signs) };
         if shape.parted {
             body += &format!("\n[[part]]\nname = {}\n", quoted(&piece.name));
+            if let Some(source) = &piece.like {
+                body += &format!("like = {}\n", quoted(source));
+            }
+            if let Some(a) = piece.mirror.filter(|_| linked) {
+                body += &format!("mirror = \"{}\"\n", AXES[a.min(2)]);
+            }
             if let Some((low, _)) = &layers {
                 body += &format!("at = {}\n", triple_text(low.as_vec3()));
             }
@@ -475,6 +514,7 @@ pub fn write_shape(shape: &Shape, kept: &Palette, all: bool) -> String {
             }
         }
         match layers {
+            _ if linked => {}
             Some((_, layers)) => body += &layers_text(&layers),
             None => body += "layers = \"\"\n",
         }
@@ -1003,6 +1043,9 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
                 if let Some(v) = t.get("offset") {
                     return Err(r.fail(v.span(), "a frame has no offset: a figure's part does, [[part]] with offset = [x, y, z]"));
                 }
+                if let Some(v) = t.get("like").or_else(|| t.get("mirror")) {
+                    return Err(r.fail(v.span(), "a frame reuses no other's voxels: a figure's part does, [[part]] with like = \"NAME\""));
+                }
                 r.only(t, &["at", "layers"], "a frame")?;
                 let at = t.get("at").map_or(Ok(box_low), |a| r.ints(a, "at"))?;
                 let voxels = match t.get("layers") {
@@ -1021,6 +1064,9 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
             let list = tables(p).ok_or_else(|| r.fail(p.span(), "parts must be tables: [[part]] with a name"))?;
             let mut pieces: Vec<Piece> = Vec::new();
             let mut spans = Vec::new();
+            // The clones: each its place among the parts, where its `like`
+            // stands and its box's low corner (from the pivot).
+            let mut clones: Vec<(usize, Span, IVec3)> = Vec::new();
             if list.len() > MOST_PARTS {
                 return Err(r.fail(p.span(), format!("the figure has {} parts, {MOST_PARTS} at most", list.len())));
             }
@@ -1028,13 +1074,31 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
                 if let Some(v) = t.get("turn") {
                     return Err(r.fail(v.span(), "a part's 'turn' is called 'rotation' now (degrees round, clockwise seen from above)"));
                 }
-                r.only(t, &["name", "at", "offset", "parent", "joint", "rotation", "pitch", "roll", "layers"], "a part")?;
+                r.only(t, &["name", "like", "mirror", "at", "offset", "parent", "joint", "rotation", "pitch", "roll", "layers"], "a part")?;
                 let name_item = t.get("name").ok_or_else(|| anyhow!("a part has no name (name = \"arm\") before line {}", t.get("layers").and_then(Item::span).map_or(0, |s| line_of(src, s.start))))?;
                 let name = name_item.as_str().filter(|n| !n.trim().is_empty()).ok_or_else(|| r.fail(name_item.span(), "a part's name must be text, not empty"))?.to_string();
                 if pieces.iter().any(|p| p.name == name) {
                     return Err(r.fail(name_item.span(), format!("two parts are called '{name}': each part needs a name of its own")));
                 }
                 let at = t.get("at").map_or(Ok(box_low), |a| r.ints(a, "at"))?;
+                // Another part's voxels (`like`), perhaps mirrored: made
+                // once every part is read (a source may come later).
+                let like = match t.get("like") {
+                    None => None,
+                    Some(i) => {
+                        if let Some(l) = t.get("layers") {
+                            return Err(r.fail(l.span(), format!("part '{name}' is like another part (like = ...): its voxels are that part's, it has no layers of its own")));
+                        }
+                        let source = i.as_str().filter(|n| !n.trim().is_empty()).ok_or_else(|| r.fail(i.span(), "like must be the name of another part"))?;
+                        clones.push((pieces.len(), i.span(), at));
+                        Some(source.to_string())
+                    }
+                };
+                let mirror = match t.get("mirror") {
+                    None => None,
+                    Some(i) if like.is_none() => return Err(r.fail(i.span(), format!("part '{name}' has mirror but no like: mirror turns the voxels of the part it is like (like = \"NAME\")"))),
+                    Some(i) => Some(i.as_str().and_then(|w| AXES.iter().position(|a| *a == w)).ok_or_else(|| r.fail(i.span(), "mirror must be \"x\", \"y\" or \"z\": the axis the source's voxels are mirrored along"))?),
+                };
                 let voxels = match t.get("layers") {
                     Some(l) => r.layers(l, &palette, width, at, pivot, size)?,
                     None => Vec::new(),
@@ -1064,10 +1128,34 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
                         o
                     }
                 };
-                pieces.push(Piece { name, voxels: from_pivot(voxels), parent, joint, rotation, offset });
+                pieces.push(Piece { name, voxels: from_pivot(voxels), parent, joint, rotation, offset, like, mirror });
             }
             if pieces.is_empty() {
                 bail!("the model has no part: [[part]] with a name and its layers");
+            }
+            // The clones' voxels: their sources', each a part with layers
+            // of its own, counted as the clone's own.
+            for (i, span, at) in clones {
+                let source = pieces[i].like.clone().unwrap_or_default();
+                let name = pieces[i].name.clone();
+                let k = match pieces.iter().position(|p| p.name == source) {
+                    Some(k) if k == i => return Err(r.fail(span, format!("part '{name}' is like itself: like names another part"))),
+                    Some(k) => k,
+                    None => {
+                        let near = crate::audio::words::near(&source, pieces.iter().filter(|p| p.name != name).map(|p| p.name.as_str())).map_or(String::new(), |n| format!(" (did you mean '{n}'?)"));
+                        return Err(r.fail(span, format!("no part is called '{source}'{near}: like names another part of this figure")));
+                    }
+                };
+                if let Some(further) = &pieces[k].like {
+                    return Err(r.fail(span, format!("part '{name}' is like '{source}', which is like '{further}' itself: like names a part with voxels of its own (like = \"{further}\")")));
+                }
+                // (Counted before it is made.)
+                in_all(&mut held, pieces[k].voxels.len(), span.clone())?;
+                let voxels = clone_voxels(&pieces[k].voxels, at, pieces[i].mirror);
+                if let Some((p, _)) = voxels.iter().find(|(p, _)| (*p + pivot).cmplt(IVec3::ZERO).any() || (*p + pivot).cmpge(size).any()) {
+                    return Err(r.fail(span, format!("part '{name}': a voxel at [{}, {}, {}] (from the pivot) lies outside the model's size [{}, {}, {}]: make size bigger or move it in", p.x, p.y, p.z, size.x, size.y, size.z)));
+                }
+                pieces[i].voxels = voxels;
             }
             let names: Vec<&str> = pieces.iter().map(|p| p.name.as_str()).collect();
             let mut parents = Vec::new();
@@ -1289,7 +1377,7 @@ fn fitted(model: &VoxModel) -> Option<VoxModel> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn same(a: &VoxModel, b: &VoxModel) {
@@ -1488,6 +1576,79 @@ mod tests {
         assert!(write(&m, &Palette::default()).contains("\n9 = \"#"));
     }
 
+    /// A small car: half a body and its mirrored clone (the body 9 wide,
+    /// the middle column in both halves), one wheel and three clones, one
+    /// of them before its source.
+    pub(crate) fn car_text() -> String {
+        head("[9, 6, 3]")
+            + "\n[palette]\nb = \"#203040\"\na = \"#c03020\"\nc = \"#e0e0e0\"\n\
+               \n[[part]]\nname = \"wheel_fr\"\nlike = \"wheel_rl\"\nmirror = \"x\"\nat = [3, 2, 0]\nparent = \"body_left\"\n\
+               \n[[part]]\nname = \"wheel_rl\"\nat = [-4, -3, 0]\nlayers = \"\"\"\nb.\n\nbb\n\"\"\"\n\
+               \n[[part]]\nname = \"body_left\"\nat = [-4, -2, 1]\nlayers = \"\"\"\naaaac\naaaaa\naaaaa\nbaaaa\n\n..aac\n..aaa\n..aaa\n...aa\n\"\"\"\n\
+               \n[[part]]\nname = \"body_right\"\nlike = \"body_left\"\nmirror = \"x\"\nat = [0, -2, 1]\n\
+               \n[[part]]\nname = \"wheel_rr\"\nlike = \"wheel_rl\"\nmirror = \"x\"\nat = [3, -3, 0]\n\
+               \n[[part]]\nname = \"wheel_fl\"\nlike = \"wheel_rl\"\nat = [-4, 2, 0]\nrotation = 15\n"
+    }
+
+    /// A part `like` another holds that part's voxels, mirrored within its
+    /// box where it says so, its box's low corner at its own `at`: read, it
+    /// is the part written out, voxel for voxel in the same order; written
+    /// again, the text it was.
+    #[test]
+    fn a_clone_is_its_source_written_out() {
+        let text = car_text();
+        let (shape, palette) = read_shape(&text).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(write_shape(&shape, &palette, false), text, "written again, the same text");
+        let piece = |n: &str| shape.pieces.iter().find(|p| p.name == n).unwrap();
+        assert_eq!((piece("body_right").like.as_deref(), piece("body_right").mirror), (Some("body_left"), Some(0)));
+        let cell = |n: &str, at: [i32; 3]| piece(n).voxels.iter().find(|v| v.0 == IVec3::from(at)).map(|v| v.1.rgba[0]);
+        // The body's far left corner is grey at its high x; mirrored, at
+        // the right half's low x, its own place [0, 1, 1].
+        assert_eq!((cell("body_left", [0, 1, 1]), cell("body_right", [0, 1, 1])), (Some(0xe0), Some(0xe0)), "the middle column in both");
+        assert_eq!((cell("body_left", [-4, -2, 1]), cell("body_right", [4, -2, 1])), (Some(0x20), Some(0x20)), "the near left corner mirrored to the near right");
+        assert_eq!(cell("wheel_fl", [-4, 2, 0]), Some(0x20));
+        assert_eq!((cell("wheel_fr", [4, 2, 0]), cell("wheel_fr", [3, 2, 0])), (Some(0x20), None), "a wheel before its source, mirrored");
+        // The same figure with every clone's voxels written out.
+        let mut out = shape.clone();
+        for p in &mut out.pieces {
+            (p.like, p.mirror) = (None, None);
+        }
+        let written = write_shape(&out, &palette, false);
+        assert!(!written.contains("like"));
+        let (a, b) = (read(&text).unwrap(), read(&written).unwrap());
+        same(&a, &b);
+        assert_eq!(a.frames, b.frames, "every voxel in the same order");
+        assert_eq!(a.parts.iter().map(|p| (&p.name, &p.voxels, p.joint, p.parent)).collect::<Vec<_>>(), b.parts.iter().map(|p| (&p.name, &p.voxels, p.joint, p.parent)).collect::<Vec<_>>());
+        // Counted as its own: the parts' voxels together.
+        assert_eq!(a.frames[0].len(), 2 * piece("body_left").voxels.len() + 4 * piece("wheel_rl").voxels.len());
+    }
+
+    /// Every mistake of `like` and `mirror` is said with its line.
+    #[test]
+    fn a_clones_mistakes_say_their_line() {
+        let why = |text: String| read(&text).err().map(|e| e.to_string()).unwrap_or_else(|| panic!("read: {text}"));
+        let car = car_text();
+        // A clone with layers of its own.
+        let e = why(car.replace("at = [0, -2, 1]\n", "at = [0, -2, 1]\nlayers = \"\"\"\na\n\"\"\"\n"));
+        assert!(e.starts_with("line 45:") && e.contains("no layers of its own"), "{e}");
+        let e = why(car.replace("like = \"body_left\"\nmirror = \"x\"\n", "mirror = \"x\"\n"));
+        assert!(e.starts_with("line 42:") && e.contains("mirror but no like"), "{e}");
+        let e = why(car.replace("mirror = \"x\"\nat = [0, -2, 1]", "mirror = \"w\"\nat = [0, -2, 1]"));
+        assert!(e.starts_with("line 43:") && e.contains("\"x\", \"y\" or \"z\""), "{e}");
+        let e = why(car.replace("like = \"body_left\"", "like = \"body_lfet\""));
+        assert!(e.starts_with("line 42:") && e.contains("no part is called 'body_lfet'") && e.contains("did you mean 'body_left'"), "{e}");
+        let e = why(car.replace("like = \"body_left\"", "like = \"body_right\""));
+        assert!(e.contains("like itself"), "{e}");
+        let e = why(car.replace("like = \"wheel_rl\"\nat = [-4, 2, 0]", "like = \"wheel_rr\"\nat = [-4, 2, 0]"));
+        assert!(e.starts_with("line 54:") && e.contains("which is like 'wheel_rl' itself"), "{e}");
+        let e = why(car.replace("at = [3, -3, 0]", "at = [4, -3, 0]"));
+        assert!(e.starts_with("line 48:") && e.contains("outside the model's size"), "{e}");
+        let e = why(head("[1, 1, 1]") + "[palette]\na = \"#ff0000\"\n[[frame]]\nlike = \"x\"\nlayers = \"\"\"\na\n\"\"\"\n");
+        assert!(e.starts_with("line 6:") && e.contains("a frame reuses no other's voxels"), "{e}");
+        let e = why(car.replace("like = \"body_left\"", "like = 3"));
+        assert!(e.starts_with("line 42:") && e.contains("like must be the name"), "{e}");
+    }
+
     /// The format line first, a version known; then every mistake says
     /// its line and what is wrong.
     #[test]
@@ -1532,6 +1693,7 @@ mod tests {
         let long_row = model("[2, 1, 1]", &format!("{}\n", "a".repeat(10_000_000)));
         let many_parts = format!("{}[palette]\na = \"#ff0000\"\n{}", head("[1, 1, 1]"), (0..2000).map(|i| format!("[[part]]\nname = \"p{i}\"\n")).collect::<String>());
         let wide_land = land(&"0 ".repeat(2_100_000));
+        let likes = |parts: &str| format!("{}[palette]\na = \"#ff0000\"\n{parts}", head("[1, 1, 1]"));
         type Reading = fn(&str) -> Result<()>;
         let as_model: Reading = |t| read(t).map(drop);
         let as_world: Reading = |t| crate::scene::read(t).map(drop);
@@ -1549,6 +1711,10 @@ mod tests {
             ("a very long row", as_model, long_row, "line 7:"),
             ("deep nesting", as_model, deep, ""),
             ("a figure of too many parts", as_model, many_parts, "line 5:"),
+            ("parts like each other", as_model, likes("[[part]]\nname = \"a\"\nlike = \"b\"\n[[part]]\nname = \"b\"\nlike = \"a\"\n"), "line 7:"),
+            ("a clone far outside the box", as_model, likes("[[part]]\nname = \"a\"\nlayers = \"\"\"\na\n\"\"\"\n[[part]]\nname = \"b\"\nlike = \"a\"\nat = [999999, -999999, 999999]\n"), "line 12:"),
+            ("a clone of a part with no name", as_model, likes("[[part]]\nname = \"b\"\nlike = \"\"\n"), "line 7:"),
+            ("a clone mirrored along a number", as_model, likes("[[part]]\nname = \"a\"\nlayers = \"\"\"\na\n\"\"\"\n[[part]]\nname = \"b\"\nlike = \"a\"\nmirror = 1e300\n"), "line 13:"),
             ("a world's row repeated", as_world, world("[4, 4, 4]", "aaaa *99999999999\n"), "line 10:"),
             ("a world's layer repeated", as_world, world("[4, 4, 4]", "....\n*99999999999\n"), "line 11:"),
             ("a world too big", as_world, world("[1000000, 1000000, 1]", "a\n"), "line 2:"),
@@ -1694,6 +1860,42 @@ for n, f in enumerate(sys.argv[3:]):
         for (n, f) in files.iter().enumerate() {
             let wrote = std::fs::read_to_string(out.join(format!("{n}.vvx"))).unwrap();
             assert!(wrote == std::fs::read_to_string(f).unwrap(), "{}: tools/vvx.py writes it otherwise", f.display());
+        }
+    }
+
+    /// `tools/vvx.py` reads a figure with clones as the engine does (each
+    /// clone its source's cells, mirrored so) and writes it back as the
+    /// engine writes it, the links kept.
+    #[test]
+    fn the_python_writer_keeps_clones_as_the_engine() {
+        if std::process::Command::new("python3").arg("--version").output().is_err() {
+            eprintln!("SKIPPED the_python_writer_keeps_clones_as_the_engine: no python3 on this machine");
+            return;
+        }
+        let dir = crate::scratch::Scratch::new("vvx-python-clones");
+        let (from, to) = (dir.join("car.vvx"), dir.join("again.vvx"));
+        std::fs::write(&from, car_text()).unwrap();
+        let script = r##"
+import sys
+sys.path.insert(0, sys.argv[1])
+import vvx
+m = vvx.read(sys.argv[2])
+vvx.write_model(sys.argv[3], m, m["palette"])
+for name, cells, _ in m["parts"]:
+    print(name, sorted(cells))
+"##;
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let run = std::process::Command::new("python3").arg("-B").arg("-c").arg(script).arg(root.join("tools")).arg(&from).arg(&to).output().unwrap();
+        assert!(run.status.success(), "tools/vvx.py: {}", String::from_utf8_lossy(&run.stderr));
+        assert_eq!(std::fs::read_to_string(&to).unwrap(), car_text(), "tools/vvx.py writes it otherwise");
+        // Python's cells (in the box from 0) are the engine's.
+        let m = read(&car_text()).unwrap();
+        let printed = String::from_utf8(run.stdout).unwrap();
+        for part in &m.parts {
+            let mut cells: Vec<(i32, i32, i32)> = part.voxels.iter().map(|&k| m.frames[0][k as usize].0).map(|p| (p.x, p.y, p.z)).collect();
+            cells.sort();
+            let line = format!("{} {:?}", part.name, cells);
+            assert!(printed.lines().any(|l| l == line), "{line}\n{printed}");
         }
     }
 

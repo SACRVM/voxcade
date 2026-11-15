@@ -456,6 +456,9 @@ impl Editor {
         let now = rebase_model(b, a, &d)?;
         let part = self.chosen_part();
         fresh.reshape(&now);
+        // Each clone its source's voxels again, what the step did to either
+        // laid on the source.
+        fresh.follow_links(&d);
         fresh.list_new_colours();
         let written = fresh.save().map_err(|e| format!("{e:#}"))?;
         self.model = Some(fresh);
@@ -863,6 +866,9 @@ fn rebase_model(b: &Shaped, a: &Shaped, d: &Shaped) -> Result<Shaped, String> {
                 }
                 if pb.joint != pa.joint {
                     od.joint = pa.joint;
+                }
+                if (&pb.like, pb.mirror) != (&pa.like, pa.mirror) {
+                    (od.like, od.mirror) = (pa.like.clone(), pa.mirror);
                 }
             }
             None => {

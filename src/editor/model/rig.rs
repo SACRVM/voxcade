@@ -601,7 +601,20 @@ impl Editor {
         if !model.parted() {
             return;
         }
-        let acting = acting.unwrap_or_else(|| self.chosen().and_then(|p| self.figure.as_ref().map(|f| vec![f.parts()[p].name.clone()])).unwrap_or_default());
+        let mut acting = acting.unwrap_or_else(|| self.chosen().and_then(|p| self.figure.as_ref().map(|f| vec![f.parts()[p].name.clone()])).unwrap_or_default());
+        // A part acted on whose voxels changed acts on the parts whose
+        // voxels are its own: its source and every clone of that.
+        let source = |name: &str| model.parts.iter().find(|o| o.name == name).and_then(|o| o.like.clone()).unwrap_or_else(|| name.to_string());
+        let changed = |name: &str| {
+            let now = model.parts.iter().find(|o| o.name == name);
+            let was = before.parts.iter().find(|o| o.name == name);
+            match (now, was) {
+                (Some(n), Some(w)) => n.low != w.low || !crate::editor::frames::same_cells(&model.frames[n.frame], &before.frames[w.frame]),
+                _ => false,
+            }
+        };
+        let sources: Vec<String> = acting.iter().map(|n| source(n)).filter(|s| changed(s)).collect();
+        acting.extend(model.parts.iter().filter(|o| sources.contains(o.like.as_ref().unwrap_or(&o.name))).map(|o| o.name.clone()));
         // The rig before: the figure shown, where it is still the one made
         // of `before` (a stroke's), else made again.
         let was = match self.figure.as_ref().filter(|f| f.made_of(before)) {

@@ -88,6 +88,77 @@ hard on the eyes); calm, few tools in view, large and readable.
   figure as the game draws it (the game's angle, light, shading,
   outline) framed to fill the view, zoomed and turned as always, posed
   while POSE is lit.
+- Clones (2026-11-15, the owner's words `like` and `mirror`): a part may
+  show another part's voxels instead of its own: a car's four wheels as
+  one wheel and three clones, half a body and its mirrored half. In the
+  file a clone has `like` (the source: a part of the same file with
+  layers of its own, never a clone itself; before or after it), perhaps
+  `mirror` (`"x"`, `"y"` or `"z"`: the source's voxels mirrored within
+  the source's own box), and no `layers`; its box is the source's box,
+  its `at` that box's low corner where the clone stands, its `parent`,
+  `joint`, rest rotation and `offset` its own. The engine makes it an
+  ordinary part as it reads the file (`vvx::clone_voxels`: its voxels
+  in the order its layers would have written out, counted as its own), so
+  nothing downstream knows of it. A clone and its source may share cells
+  (the middle column of an odd body in both halves): the same voxel.
+
+```toml
+format = "voxcade voxel 1"
+size = [9, 6, 3]
+
+[palette]
+b = "#203040"
+a = "#c03020"
+
+[[part]]
+name = "body_left"
+at = [-4, -2, 1]
+layers = """
+aaaaa *4
+
+..aaa *4
+"""
+
+[[part]]
+name = "body_right"
+like = "body_left"
+mirror = "x"
+at = [0, -2, 1]
+
+[[part]]
+name = "wheel_rl"
+at = [-4, -3, 0]
+layers = """
+bb
+
+bb
+"""
+
+[[part]]
+name = "wheel_rr"
+like = "wheel_rl"
+at = [3, -3, 0]
+```
+
+- Clones in the voxel editor: a clone is drawn, chosen, moved, rotated,
+  posed, hidden and hung as any part, its row saying its source quietly at its
+  end; every tool on it (a stroke, BOX, SPHERE, FILL, SELECT's steps,
+  TRIM, SYMMETRY, from the figure whole too) lands on its source through
+  the mirror, and every clone shows it at once, each standing where it
+  stood (`ModelFile::follow_links`); the file keeps the link and never
+  writes a clone's voxels out. CLONE and CLONE MIRRORED (beside
+  DUPLICATE in the part's bar and menus) make one: where it stands, or
+  mirrored left to right across the figure's middle as MIRROR places a
+  partner (`arm_left`'s `arm_right`). The inspector's LIKE row links a
+  part to another (its own voxels thrown away) or MAKE UNIQUE writes the
+  clone's voxels out; MIRROR X Y Z, one lit or none. REMOVE or MERGE of a
+  source: its first clone becomes the source, the others like it with
+  their mirrors worked out (one that would need two mirrors keeps its
+  voxels as its own); a clone merged into, or merged away, is its own
+  first; RENAME of a source renames its clones' `like`. `voxcade edit
+  GAME --model FILE --shot OUT --clone NAME [--mirrored] --make-unique
+  NAME --like NAME=SOURCE`; `edit --shot` and `voxcade sheet` print the
+  clones.
 - A selection (2026-11-13): SELECT (L) is a rectangle dragged on the
   screen: the voxels of the active parts whose middles it holds (THROUGH:
   behind too; off: those seen); NEW, ADD, REMOVE beside the tools (Ctrl,

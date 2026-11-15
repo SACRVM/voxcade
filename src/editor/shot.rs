@@ -101,6 +101,9 @@ pub struct ShotOptions {
     pub merge_into: Option<String>,
     /// `--mirror`: MIRROR on the part `--part` chose.
     pub mirror: bool,
+    /// `--clone NAME [--mirrored]`, `--make-unique NAME`, `--like
+    /// NAME=SOURCE`: parts linked and unlinked, in turn.
+    pub links: Vec<LinkOp>,
     /// `--background #rrggbb`: the view's background (else the dark one of
     /// always, whatever the person chose).
     pub background: Option<[u8; 3]>,
@@ -147,6 +150,15 @@ pub fn scatter_level<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         println!("scatter {k}: {} pieces set down{}", ed.level.things.len() - before, if opts.dry { " (dry: nothing written)" } else { "" });
     }
     Ok(())
+}
+
+/// A part linked or unlinked (`--clone NAME [--mirrored]`, `--make-unique
+/// NAME`, `--like NAME=SOURCE`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum LinkOp {
+    Clone(String, bool),
+    Unique(String),
+    Like(String, String),
 }
 
 /// A change `--shot` makes to the terrain.
@@ -483,7 +495,7 @@ fn settle(ctx: &egui::Context, input: &mut crate::gui::input::Input, size: [u32;
     }
 }
 
-/// `--add-part`, `--mirror`, `--merge-into`, `--rotate-part`, `--pose-part`,
+/// `--add-part`, `--mirror`, `--clone`, `--make-unique`, `--like`, `--merge-into`, `--rotate-part`, `--pose-part`,
 /// `--move-part` and `--move-joint`: a figure's parts changed, in turn.
 fn shape_parts(ed: &mut Editor, view: &mut View, opts: &ShotOptions) -> Result<()> {
     if opts.add_part {
@@ -496,6 +508,34 @@ fn shape_parts(ed: &mut Editor, view: &mut View, opts: &ShotOptions) -> Result<(
         }
         ed.mirror_part(p);
         view.follow_origin(ed);
+    }
+    for op in &opts.links {
+        match op {
+            LinkOp::Clone(name, mirrored) => {
+                let p = part_of(ed, name)?;
+                if let Some(why) = ed.cannot_clone_mirrored(p).filter(|_| *mirrored) {
+                    bail!("--clone {name} --mirrored: {why}");
+                }
+                ed.clone_part(p, *mirrored);
+                view.follow_origin(ed);
+            }
+            LinkOp::Unique(name) => {
+                let p = part_of(ed, name)?;
+                ed.part_link(p).with_context(|| format!("--make-unique {name}: it is like no other part"))?;
+                ed.link_part(p, None);
+            }
+            LinkOp::Like(name, source) => {
+                let p = part_of(ed, name)?;
+                if let Some(why) = ed.cannot_link(p) {
+                    bail!("--like {name}={source}: {why}");
+                }
+                let sources = ed.possible_sources(p);
+                if !sources.contains(source) {
+                    bail!("--like {name}={source}: {name} can be like {}", sources.join(", "));
+                }
+                ed.link_part(p, Some(source));
+            }
+        }
     }
     if let Some(into) = &opts.merge_into {
         let src = ed.figure.as_ref().and_then(|f| f.selected).context("--merge-into NAME merges the part --part chose")?;

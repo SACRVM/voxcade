@@ -173,6 +173,7 @@ impl Editor {
             Scope::Frame(_) => Begun::Model(self.shaped()),
         });
         self.history.grown = IVec3::ZERO;
+        self.history.linked = None;
         let mut moved = IVec3::ZERO;
         if matches!(self.scope, Scope::Frame(_)) && !cut {
             let (lo, hi) = cells.iter().fold((cells[0], cells[0]), |(lo, hi), &c| (lo.min(c), hi.max(c)));

@@ -148,7 +148,9 @@ impl Figure {
                 (false, false) => "",
             };
             let chosen = if self.selected == Some(p) { " (chosen)" } else { "" };
-            lines.push(format!("{}{} {on}, turning at {}, {}, {}{by_hand}{chosen}{}", "  ".repeat(depth + 1), part.name, j.x, j.y, j.z, if self.hidden[p] { " (hidden)" } else { "" }));
+            // A clone: whose voxels it shows.
+            let like = self.of.parts.iter().find(|o| o.name == part.name).and_then(|o| Some(format!(" (like {}{})", o.like.as_ref()?, o.mirror.map_or(String::new(), |a| format!(", mirrored {}", crate::vvx::AXES[a]))))).unwrap_or_default();
+            lines.push(format!("{}{} {on}, turning at {}, {}, {}{by_hand}{like}{chosen}{}", "  ".repeat(depth + 1), part.name, j.x, j.y, j.z, if self.hidden[p] { " (hidden)" } else { "" }));
             for w in self.warnings(p) {
                 lines.push(format!("{}  ! {w}", "  ".repeat(depth + 1)));
             }
@@ -796,7 +798,7 @@ mod tests {
         let mut view = View::new(&ed, &crate::config::GameConfig::default());
         let words = |ed: &Editor, on| crate::editor::shaping::menu_entries(ed, on).into_iter().map(|(w, ..)| w).collect::<Vec<_>>();
         let (body, head) = (part(&ed, "body"), part(&ed, "head"));
-        assert_eq!(words(&ed, MenuOn::Part(head)), ["SELECT HEAD", "HIDE", "HIDE OTHERS", "ADD PART", "DUPLICATE", "MIRROR", "RENAME", "MERGE INTO BODY", "MERGE WITH…", "REMOVE"]);
+        assert_eq!(words(&ed, MenuOn::Part(head)), ["SELECT HEAD", "HIDE", "HIDE OTHERS", "ADD PART", "DUPLICATE", "CLONE", "CLONE MIRRORED", "MIRROR", "RENAME", "MERGE INTO BODY", "MERGE WITH…", "REMOVE"]);
         // From high above the figure's middle: the head on top.
         let (lo, size) = ed.figure_box().unwrap();
         let top = Vec3::new(lo.x as f32 + 2.5, lo.y as f32 + 2.5, 100.0);
