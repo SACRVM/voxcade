@@ -1,5 +1,6 @@
 //! The examples in `docs/tiles.md` are read by the engine's own readers, so
-//! the documentation cannot rot: a level, a map or a model written there
+//! the documentation cannot rot: a level, a map or a model (`.vvx`, its
+//! clones too) written there
 //! must load. A fenced `toml` block that names no format is a piece of a
 //! level (the terrain's) and is read as the level's body.
 
@@ -39,6 +40,8 @@ fn the_examples_in_the_docs_load() {
             GridLevel::from_text(&body).map(|_| ())
         } else if first.starts_with("format=\"voxcademap") {
             MapData::read(&body).map(|_| ())
+        } else if first.starts_with("format=\"voxcadevoxel") {
+            voxcade::vvx::read(&body).map(|_| ())
         } else if first.starts_with("format=") {
             panic!("docs/tiles.md line {line}: an example of a format this test does not know: {first}");
         } else {

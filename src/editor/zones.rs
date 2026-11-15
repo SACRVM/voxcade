@@ -496,6 +496,19 @@ pub fn list_row_sensed(ui: &mut egui::Ui, sort: Sort, pic: Option<(egui::Texture
 /// thing's place, so that rows of one kind differ), the name cut before it.
 #[allow(clippy::too_many_arguments)]
 pub fn list_row_aside(ui: &mut egui::Ui, sort: Sort, pic: Option<(egui::TextureId, Vec2)>, label: &str, indent: f32, chosen: bool, quiet: bool, dot: Option<Color32>, warn: Option<&str>, aside: Option<&str>, tip: &str, sense: egui::Sense) -> egui::Response {
+    row_with(ui, sort, pic, label, indent, chosen, quiet, dot, warn, aside.map(|a| (a, false)), tip, sense)
+}
+
+/// `list_row_aside` whose quiet words at the end only hint (a clone's
+/// source): the name whole first, the hint in the room left, cut, or left
+/// out where there is hardly any.
+#[allow(clippy::too_many_arguments)]
+pub fn list_row_hinted(ui: &mut egui::Ui, sort: Sort, label: &str, indent: f32, chosen: bool, quiet: bool, warn: Option<&str>, hint: Option<&str>, tip: &str, sense: egui::Sense) -> egui::Response {
+    row_with(ui, sort, None, label, indent, chosen, quiet, None, warn, hint.map(|h| (h, true)), tip, sense)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn row_with(ui: &mut egui::Ui, sort: Sort, pic: Option<(egui::TextureId, Vec2)>, label: &str, indent: f32, chosen: bool, quiet: bool, dot: Option<Color32>, warn: Option<&str>, aside: Option<(&str, bool)>, tip: &str, sense: egui::Sense) -> egui::Response {
     let height = if pic.is_some() { 40.0 } else { ui.text_style_height(&TextStyle::Body) + 8.0 };
     let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), sense);
     let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
@@ -534,8 +547,25 @@ pub fn list_row_aside(ui: &mut egui::Ui, sort: Sort, pic: Option<(egui::TextureI
         painter.add(egui::Shape::convex_polygon(vec![t + Vec2::new(0.0, -5.0), t + Vec2::new(5.0, 4.0), t + Vec2::new(-5.0, 4.0)], Color32::TRANSPARENT, egui::Stroke::new(1.3, WARNING)));
         right = at.x - 18.0;
     }
-    if let Some(words) = aside {
-        let g = painter.layout_no_wrap(words.to_string(), TextStyle::Small.resolve(ui.style()), QUIET);
+    // A hint: in the room the name leaves, cut, or none where that is
+    // hardly any.
+    let aside = match aside {
+        Some((words, true)) => {
+            let name = ui.fonts_mut(|f| f.layout_no_wrap(label.to_string(), font.clone(), colour)).size().x;
+            let left = right - text_at - name - 10.0;
+            (left >= 28.0).then_some((words, left))
+        }
+        Some((words, false)) => Some((words, f32::INFINITY)),
+        None => None,
+    };
+    if let Some((words, most)) = aside {
+        let g = if most.is_finite() {
+            let mut job = egui::text::LayoutJob::simple_singleline(words.to_string(), TextStyle::Small.resolve(ui.style()), QUIET);
+            job.wrap = egui::text::TextWrapping::truncate_at_width(most);
+            ui.fonts_mut(|f| f.layout_job(job))
+        } else {
+            painter.layout_no_wrap(words.to_string(), TextStyle::Small.resolve(ui.style()), QUIET)
+        };
         let at = Pos2::new(right - g.size().x, rect.center().y - g.size().y / 2.0);
         painter.galley(at, g, QUIET);
         right = at.x - 10.0;

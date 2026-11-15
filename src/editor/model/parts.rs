@@ -27,7 +27,7 @@ pub(super) fn made_figure(m: &mut ModelFile, root: &str) {
         return;
     }
     let low = -crate::vvx::pivot(m.size);
-    m.parts.push(Placed { name: root.to_string(), frame: 0, low, parent: None, joint: None, rotation: [0.0; 3], offset: Vec3::ZERO });
+    m.parts.push(Placed { name: root.to_string(), frame: 0, low, parent: None, joint: None, rotation: [0.0; 3], offset: Vec3::ZERO, ..Placed::default() });
 }
 
 /// A part's pose in the editor (POSE): its rotation, degrees as
@@ -232,13 +232,15 @@ impl Editor {
                 Some(k) => k,
                 None => {
                     m.frames.push(Block::boxed(IVec3::ONE));
-                    m.parts.push(Placed { name: name.clone(), frame: m.frames.len() - 1, low: IVec3::ZERO, parent: None, joint: None, rotation: [0.0; 3], offset: Vec3::ZERO });
+                    m.parts.push(Placed { name: name.clone(), frame: m.frames.len() - 1, low: IVec3::ZERO, parent: None, joint: None, rotation: [0.0; 3], offset: Vec3::ZERO, ..Placed::default() });
                     m.parts.len() - 1
                 }
             };
             set_cells(m, k, &cells);
             let o = &mut m.parts[k];
             (o.parent, o.joint, o.rotation) = (parent, joint, rotation);
+            // A copy: the voxels it shows its own.
+            (o.like, o.mirror) = (None, None);
             o.offset = Vec3::new(-source.offset.x, source.offset.y, source.offset.z);
         });
         self.follow_figure();
@@ -254,6 +256,11 @@ impl Editor {
         let (Some(p), Some(mid)) = (self.figure.as_ref().and_then(|f| f.selected), self.middle_x()) else { return };
         let (Some(k), Some(j)) = (self.placed(p), self.partner_placed(p)) else { return };
         let Some(m) = self.model.as_ref() else { return };
+        // Partners whose voxels are one (a clone of the other, or both of
+        // one source): the link already shows the stroke on both.
+        if source_of(m, k) == source_of(m, j) {
+            return;
+        }
         let mut old = m.clone();
         old.reshape(before);
         let (was, now) = (cells_of(&old, k), cells_of(m, k));
@@ -427,7 +434,7 @@ impl Editor {
             let mut voxel = Block::boxed(IVec3::ONE);
             let _ = voxel.set(IVec3::ZERO, Some(colour));
             m.frames.push(voxel);
-            m.parts.push(Placed { name: new, frame: m.frames.len() - 1, low: at, parent: Some(parent), joint: None, rotation: [0.0; 3], offset: Vec3::ZERO });
+            m.parts.push(Placed { name: new, frame: m.frames.len() - 1, low: at, parent: Some(parent), joint: None, rotation: [0.0; 3], offset: Vec3::ZERO, ..Placed::default() });
         });
         self.choose_named(&name);
     }
@@ -467,6 +474,10 @@ impl Editor {
         self.scope = Scope::Figure;
         self.acting_on(std::iter::once(gone).chain(kids.iter().map(|(n, ..)| n.clone())).collect());
         self.change_model_file(move |m| {
+            // Its clones keep showing what they showed: the first one the
+            // source now.
+            let name = m.parts[k].name.clone();
+            m.hand_down(&name);
             let gone = m.parts.remove(k);
             m.frames.remove(gone.frame);
             for o in &mut m.parts {
@@ -543,6 +554,12 @@ impl Editor {
         let acted = [gone, target.clone()].into_iter().chain(kids.iter().map(|(n, ..)| n.clone())).collect();
         self.acting_on(acted);
         self.change_model_file(move |m| {
+            // The part merged away hands its voxels down to its clones (the
+            // first the source); the part merged into keeps the voxels it
+            // shows as its own: a clone is no clone any more.
+            let name = m.parts[a].name.clone();
+            m.hand_down(&name);
+            (m.parts[b].like, m.parts[b].mirror) = (None, None);
             let (from, to) = (m.parts[a].clone(), m.parts[b].clone());
             let (fb, tb) = (&m.frames[from.frame], &m.frames[to.frame]);
             let cells = |block: &Block, low: IVec3| (0..block.voxels.len()).filter_map(|k| block.colour_at(block.at(k)).map(|c| (block.at(k) + low, c))).collect::<Vec<_>>();
@@ -600,9 +617,170 @@ impl Editor {
             let mut copy = m.parts[k].clone();
             m.frames.push(m.frames[copy.frame].clone());
             (copy.name, copy.frame, copy.parent) = (new, m.frames.len() - 1, parent);
+            // A copy: the voxels it shows its own.
+            (copy.like, copy.mirror) = (None, None);
             m.parts.push(copy);
         });
         self.choose_named(&name);
+    }
+
+    /// The source and mirror a clone of part `p` takes to show what `p`
+    /// shows (`flip`: mirrored in x on top): `p`'s own name and the flip,
+    /// or for a clone its source's and the mirrors put together. None
+    /// where that takes two mirrors (a clone mirrored in y, mirrored in x).
+    fn link_to_show(&self, p: usize, flip: bool) -> Option<(String, Option<usize>)> {
+        let o = &self.model.as_ref()?.parts[self.placed(p)?];
+        let source = o.like.clone().unwrap_or_else(|| o.name.clone());
+        match (o.mirror, flip) {
+            (m, false) => Some((source, m)),
+            (None, true) => Some((source, Some(0))),
+            (Some(0), true) => Some((source, None)),
+            (Some(_), true) => None,
+        }
+    }
+
+    /// Why part `p` cannot be cloned mirrored (None: it can): a clone
+    /// mirrored along y or z (two mirrors), a pair's partner already there.
+    pub fn cannot_clone_mirrored(&self, p: usize) -> Option<String> {
+        let name = &self.figure.as_ref()?.parts().get(p)?.name;
+        if self.link_to_show(p, true).is_none() {
+            return Some(format!("{name} is mirrored along another axis: a clone of it mirrored left to right would need two mirrors (MAKE UNIQUE first)"));
+        }
+        let other = partner_name(name)?;
+        self.model.as_ref()?.parts.iter().any(|o| o.name == other).then(|| format!("{other} is there already: its partner's name is taken"))
+    }
+
+    /// CLONE: a part like part `p` (its voxels shared: a stroke on either
+    /// shows on both) where it stands, named after it as DUPLICATE names
+    /// its copy, chosen in MOVE; with `mirrored` (CLONE MIRRORED) mirrored
+    /// left to right and set across the figure's middle as MIRROR sets a
+    /// partner (place, joint, rest rotation, offset; a pair's partner's
+    /// name, `arm_left`'s `arm_right`); a clone of a clone is like its
+    /// source. A step.
+    pub fn clone_part(&mut self, p: usize, mirrored: bool) {
+        self.follow_figure();
+        if mirrored && self.cannot_clone_mirrored(p).is_some() {
+            return;
+        }
+        let (Some(k), Some(figure), Some(mid), Some((like, mirror))) = (self.placed(p), &self.figure, self.middle_x(), self.link_to_show(p, mirrored)) else { return };
+        let own = figure.parts()[p].name.clone();
+        let parent = figure.parts()[p].parent.map(|q| figure.parts()[q].name.clone());
+        let name = match partner_name(&own).filter(|_| mirrored) {
+            Some(other) => other,
+            None => self.free_part_name(&own),
+        };
+        // Across the middle: a parent of a pair hangs it on its partner.
+        let parent = match parent {
+            Some(q) if mirrored => match partner_name(&q) {
+                Some(r) if self.model.as_ref().is_some_and(|m| m.parts.iter().any(|o| o.name == r)) => Some(r),
+                Some(_) => None,
+                None => Some(q),
+            },
+            other => other,
+        };
+        let new = name.clone();
+        self.acting_on(vec![name.clone()]);
+        self.change_model_file(move |m| {
+            let source = m.parts[k].clone();
+            let shows = &m.frames[source.frame];
+            let mut copy = source.clone();
+            copy.name = new;
+            copy.parent = parent;
+            (copy.like, copy.mirror) = (Some(like), mirror);
+            let frame = if mirrored {
+                // Each voxel at x across the middle at `mid - x`.
+                copy.low.x = mid - source.low.x - shows.size.x + 1;
+                copy.joint = source.joint.map(|j| Vec3::new(mid as f32 + 1.0 - j.x, j.y, j.z));
+                let [r, pitch, roll] = source.rotation;
+                let flip = |v: f32| if v == 0.0 { 0.0 } else { -v };
+                copy.rotation = [flip(r), pitch, flip(roll)];
+                copy.offset.x = -source.offset.x;
+                crate::editor::frames::mirrored(shows, Some(0))
+            } else {
+                shows.clone()
+            };
+            m.frames.push(frame);
+            copy.frame = m.frames.len() - 1;
+            m.parts.push(copy);
+        });
+        self.choose_named(&name);
+    }
+
+    /// Part `p`'s link: its source's name and the axis it is mirrored
+    /// along (None: a part with voxels of its own).
+    pub fn part_link(&self, p: usize) -> Option<(String, Option<usize>)> {
+        let o = &self.model.as_ref()?.parts[self.placed(p)?];
+        Some((o.like.clone()?, o.mirror))
+    }
+
+    /// The parts part `p` can be like (LIKE's list): those with voxels of
+    /// their own but itself; none for a part that has clones (they would
+    /// be clones of a clone).
+    pub fn possible_sources(&self, p: usize) -> Vec<String> {
+        let (Some(m), Some(k)) = (self.model.as_ref(), self.placed(p)) else { return Vec::new() };
+        if !m.clones_of(&m.parts[k].name).is_empty() {
+            return Vec::new();
+        }
+        m.parts.iter().enumerate().filter(|(i, o)| *i != k && o.like.is_none()).map(|(_, o)| o.name.clone()).collect()
+    }
+
+    /// Why part `p` cannot be linked to another (None: it can).
+    pub fn cannot_link(&self, p: usize) -> Option<String> {
+        let (m, k) = (self.model.as_ref()?, self.placed(p)?);
+        let name = &m.parts[k].name;
+        if !m.clones_of(name).is_empty() {
+            return Some(format!("Parts are like {name}: a source cannot be a clone (MAKE UNIQUE them first)"));
+        }
+        self.possible_sources(p).is_empty().then(|| "No other part has voxels of its own".to_string())
+    }
+
+    /// LIKE: part `p` made like part `source` (its own voxels thrown away;
+    /// its box's low corner stays where it was, its mirror kept), or with
+    /// None its voxels as it shows them its own (MAKE UNIQUE). A step.
+    pub fn link_part(&mut self, p: usize, source: Option<&str>) {
+        self.follow_figure();
+        let Some(k) = self.placed(p) else { return };
+        if let Some(s) = source
+            && !self.possible_sources(p).iter().any(|o| o == s)
+        {
+            return;
+        }
+        let source = source.map(str::to_string);
+        let name = self.model.as_ref().map(|m| m.parts[k].name.clone()).unwrap_or_default();
+        self.acting_on(vec![name]);
+        self.change_model_file(move |m| {
+            let o = m.parts[k].clone();
+            match source {
+                None => (m.parts[k].like, m.parts[k].mirror) = (None, None),
+                Some(s) => {
+                    let Some(from) = m.part_named(&s) else { return };
+                    m.frames[o.frame] = crate::editor::frames::mirrored(&m.frames[m.parts[from].frame], o.mirror.filter(|_| o.like.is_some()));
+                    m.parts[k].mirror = o.mirror.filter(|_| o.like.is_some());
+                    m.parts[k].like = Some(s);
+                }
+            }
+        });
+        self.follow_figure();
+    }
+
+    /// MIRROR (a clone's row): its source's voxels mirrored along `axis`
+    /// (0 x, 1 y, 2 z) or not at all; its box stays where it is. A step.
+    pub fn set_link_mirror(&mut self, p: usize, axis: Option<usize>) {
+        self.follow_figure();
+        let Some((source, now)) = self.part_link(p) else { return };
+        let Some(k) = self.placed(p) else { return };
+        if now == axis {
+            return;
+        }
+        let name = self.model.as_ref().map(|m| m.parts[k].name.clone()).unwrap_or_default();
+        self.acting_on(vec![name]);
+        self.change_model_file(move |m| {
+            let Some(from) = m.part_named(&source) else { return };
+            let f = m.parts[k].frame;
+            m.frames[f] = crate::editor::frames::mirrored(&m.frames[m.parts[from].frame], axis);
+            m.parts[k].mirror = axis;
+        });
+        self.follow_figure();
     }
 
     /// RENAME: part `p` called `name` (a word the game's code can use,
@@ -630,6 +808,9 @@ impl Editor {
             for o in &mut m.parts {
                 if o.parent.as_deref() == Some(old.as_str()) {
                     o.parent = Some(new.clone());
+                }
+                if o.like.as_deref() == Some(old.as_str()) {
+                    o.like = Some(new.clone());
                 }
             }
         });
@@ -710,6 +891,12 @@ pub fn partner_name(name: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// The name of the part whose voxels part `k` shows: its source, or its
+/// own.
+fn source_of(m: &ModelFile, k: usize) -> &str {
+    m.parts[k].like.as_deref().unwrap_or(&m.parts[k].name)
 }
 
 /// A part's voxels by where they lie from the pivot.

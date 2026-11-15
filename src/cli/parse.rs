@@ -476,6 +476,10 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
                 "--things" => opts.things = true,
                 "--stamp" => opts.stamp = true,
                 "--mirror" => opts.mirror = true,
+                "--mirrored" => match opts.links.last_mut() {
+                    Some(crate::editor::LinkOp::Clone(_, mirrored)) => *mirrored = true,
+                    _ => bail!("--mirrored follows --clone NAME"),
+                },
                 "--dry" => opts.dry = true,
                 "--context-off" => opts.context_off = true,
                 "--add-part" => opts.add_part = true,
@@ -542,6 +546,12 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
                 opts.part_moves.push((value.clone(), glam::Vec3::new(x, y, z), flag == "--move-joint"));
             }
             "--merge-into" => opts.merge_into = Some(value.clone()),
+            "--clone" => opts.links.push(crate::editor::LinkOp::Clone(value.clone(), false)),
+            "--make-unique" => opts.links.push(crate::editor::LinkOp::Unique(value.clone())),
+            "--like" => {
+                let (part, source) = value.split_once('=').filter(|(a, b)| !a.is_empty() && !b.is_empty()).context("--like NAME=SOURCE: a part, then the part whose voxels it shows")?;
+                opts.links.push(crate::editor::LinkOp::Like(part.to_string(), source.to_string()));
+            }
             "--material" => opts.material = Some(number("--material N (a terrain's material, from 1)", value)?),
             "--scatter" => opts.scatter.push(number("--scatter N (a terrain's scatter rule, from 1)", value)?),
             "--raise" | "--shape" => {

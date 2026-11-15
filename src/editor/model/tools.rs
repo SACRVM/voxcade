@@ -208,6 +208,7 @@ impl Editor {
             Scope::Figure => return,
         });
         self.history.grown = IVec3::ZERO;
+        self.history.linked = None;
         self.drag(hit);
     }
 
@@ -260,8 +261,23 @@ impl Editor {
                 for (p, normal) in std::iter::once((c, hit.normal)).chain(mirrored.map(|m| (m, flip))) {
                     self.touch(p, normal);
                 }
+                self.follow_links();
             }
         }
+    }
+
+    /// In a stroke on a model with clones: what it did since the clones
+    /// were last made (a clone's voxels too) laid on their sources, every
+    /// clone made anew, at once (`ModelFile::follow_links`).
+    pub(super) fn follow_links(&mut self) {
+        let synced = match (&self.history.linked, &self.history.stroke) {
+            (Some(s), _) => Arc::clone(s),
+            (None, Some(Begun::Model(before))) => Arc::clone(before),
+            _ => return,
+        };
+        let Some(m) = self.model.as_mut().filter(|m| m.has_links()) else { return };
+        m.follow_links(&synced);
+        self.history.linked = Some(self.shaped());
     }
 
     /// A block's or a model's voxel worked on by the tool (DEEP PAINT on
@@ -412,10 +428,19 @@ impl Editor {
                 Step::Block(i, before, self.blocks[i].clone())
             }
             Begun::Model(before) => {
+                self.history.stroke = Some(Begun::Model(Arc::clone(&before)));
+                self.follow_links();
+                self.history.stroke = None;
+                self.history.linked = None;
                 if let Some(m) = &mut self.model {
                     m.list_new_colours();
                 }
+                // (The partner's share of the stroke reaches its links too.)
+                let synced = self.shaped();
                 self.land_on_partner(&before);
+                if let Some(m) = self.model.as_mut() {
+                    m.follow_links(&synced);
+                }
                 if let Some(m) = self.model.as_mut().filter(|m| m.parted()) {
                     m.size = m.tight_size();
                 }

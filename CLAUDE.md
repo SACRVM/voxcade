@@ -746,7 +746,14 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   format: the format line first, signs a colour with its material,
   layers bottom first and the far row first, repeats `*N`, `at` and
   joints from the pivot, a part's rest rotation `rotation`, `pitch`,
-  `roll` about its joint, written only when not 0). MagicaVoxel's `.vox` is only brought in
+  `roll` about its joint, written only when not 0; a part `like` another
+  shows that part's voxels, `mirror` `"x"`/`"y"`/`"z"` within the
+  source's box, no layers, its `at` its own: the owner's, 2026-11-15, a
+  car's wheels, a mirrored half body; a source has layers of its own, a
+  clone counts as its own voxels; resolved as the file is read,
+  `vvx::clone_voxels`, so nothing downstream knows; tests
+  `a_clone_is_its_source_written_out`, `a_clones_mistakes_say_their_line`,
+  `the_python_writer_keeps_clones_as_the_engine`). MagicaVoxel's `.vox` is only brought in
   (`voxcade import`, `voxcade upgrade`); JSON is gone from a game (the
   owner: it only gets in the way of git's diffs), but for `.mcp.json`
   and LuaLS's `.luarc.json` (other programs' files) and a Tiled map read
@@ -1824,8 +1831,28 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   part's menu in the view and its bar, refused ones quiet with why on
   hover (`zones::Entry`). No step re-hangs or re-hinges a part it did
   not act on (`Editor::pin_rig`: such a part's parent and joint are
-  stated in the file first; test `no_step_rehangs_a_part_it_did_not_act_on`);
-  the JOINT row says the file's numbers (from the pivot). POSE (the top
+  stated in the file first; test `no_step_rehangs_a_part_it_did_not_act_on`;
+  a part acted on acts on its source and every clone of that);
+  the JOINT row says the file's numbers (from the pivot). Clones
+  (`like`, the owner's 0.6 feature): a clone's frame holds its source's
+  mirrored, as big, and the file keeps the link (never its voxels);
+  every step and stroke ends in `ModelFile::follow_links` (what changed
+  in a clone laid on its source through the mirror, every clone made
+  anew standing where it stood: `at` is where the clone's box stands,
+  so a source grown on its low side moves an unmirrored clone's `at`
+  and a mirrored one's not, or the other way on the high side), live in a
+  stroke (`Editor::follow_links`, `history.linked`); CLONE and CLONE
+  MIRRORED beside DUPLICATE (`clone_part`, a pair's partner's name),
+  LIKE (`link_part`, a source's list `possible_sources`; a part with
+  clones cannot become one) with MAKE UNIQUE, MIRROR X Y Z
+  (`set_link_mirror`), the row's quiet source name; REMOVE or MERGE of
+  a source hands down to its first clone (`ModelFile::hand_down`, the
+  others' mirrors put together; two axes: made unique), a clone merged
+  into or away is made unique, RENAME rewrites the `like`s; TRIM of a
+  clone trims its source; SYMMETRY's partner that is the same voxels
+  takes nothing twice (`land_on_partner`); `--clone NAME [--mirrored]`,
+  `--make-unique NAME`, `--like NAME=SOURCE`; tests in
+  `editor/model/link_tests.rs`. POSE (the top
   bar): the rings and the POSE row turn parts on top of their rest,
   nothing written (`Editor::pose`, `Figure::pose`, `session::part_posed`),
   the pose as Lua for `frame:model` with COPY and RESET; off, the rest

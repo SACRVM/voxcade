@@ -83,7 +83,7 @@ pub(super) struct Command {
 pub(super) const REPEATABLE: &[&str] = &[
     "--do", "--add", "--hang", "--move", "--copy", "--remove", "--light", "--add-light", "--solid", "--room-size", "--at", "--rotate", "--about", "--lay", "--move-part",
     "--move-joint", "--scatter", "--raise", "--shape", "--selection", "--rotate-part", "--pose-part", "--hide", "--clear", "--fill", "--rename", "--radius", "--color", "--prop",
-    "--fold", "--lock", "--slice",
+    "--fold", "--lock", "--slice", "--clone", "--make-unique", "--like",
 ];
 
 /// Old names of options, refused with the new one.
@@ -195,6 +195,10 @@ pub(super) const COMMANDS: &[Command] = &[
             look("--add-part", "", "ADD PART on the part --part chose"),
             look("--merge-into", "NAME", "the part --part chose merged into another"),
             look("--mirror", "", "MIRROR on the part --part chose"),
+            look("--clone", "NAME", "CLONE on a part: a part like it where it stands, chosen"),
+            look("--mirrored", "", "after --clone: CLONE MIRRORED, mirrored left to right across the figure's middle"),
+            look("--make-unique", "NAME", "MAKE UNIQUE on a clone: the voxels it shows its own"),
+            look("--like", "NAME=SOURCE", "a part made like another (its own voxels thrown away)"),
             look("--select", "X0,Y0,Z0 --to X1,Y1,Z1", "the voxels in that box selected (from the pivot)"),
             look("--selection", "OP", "done at the selection, in turn: remove, paint, duplicate, flip-x|y|z, rotate-x|y|z, new-part, move-to:PART, copy, paste, move:X,Y,Z"),
             look("--marquee", "X0,Y0,X1,Y1", "SELECT's rectangle dragged there (pixels of the picture)"),

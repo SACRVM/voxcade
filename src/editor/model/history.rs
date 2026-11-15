@@ -127,6 +127,7 @@ impl Editor {
     /// A stroke's state brought back: as it was when it began (Escape, a
     /// drag cancelled, the file changed under it).
     pub(super) fn undo_stroke(&mut self, begun: Begun) {
+        self.history.linked = None;
         match begun {
             Begun::Level(before) => self.set_level(&before),
             Begun::Block(i, before) => {

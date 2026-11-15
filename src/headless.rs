@@ -1382,6 +1382,14 @@ pub fn sheet<G: Game>(dir: &Path, opts: &SheetOptions) -> Result<()> {
         colours.len(),
         if m.parts.is_empty() { "every frame from the side".to_string() } else if frames.len() == 8 { format!("{} parts, its walk from the side in eight steps", m.parts.len()) } else { format!("{} parts (no kind swings them)", m.parts.len()) }
     );
+    // The parts that show another's voxels (`like`), as the file says.
+    let text = game.files.read(dir.join(&opts.model)).ok().and_then(|b| String::from_utf8(b).ok());
+    if let Some((shape, _)) = text.and_then(|t| crate::vvx::read_shape(&t).ok()) {
+        for piece in shape.pieces.iter().filter(|p| p.like.is_some()) {
+            let mirrored = piece.mirror.map_or(String::new(), |a| format!(", mirrored {}", crate::vvx::AXES[a]));
+            println!("  {}: like {}{mirrored}", piece.name, piece.like.as_deref().unwrap_or_default());
+        }
+    }
     Ok(())
 }
 

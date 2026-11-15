@@ -79,6 +79,12 @@ pub enum Action {
     MergeInto(usize, usize),
     MergeMenu(usize, [f32; 2]),
     DuplicatePart(usize),
+    /// CLONE (mirrored: CLONE MIRRORED): a part like it; a part made like
+    /// another part (its place among the figure's parts; None: MAKE
+    /// UNIQUE); a clone's mirror along an axis (None: none).
+    ClonePart(usize, bool),
+    LinkPart(usize, Option<usize>),
+    LinkMirror(usize, Option<usize>),
     RenamePart(usize),
     HideOthers(usize),
     Undo,
@@ -463,6 +469,18 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         // (From a menu: where that menu was.)
         Action::MergeMenu(p, at) => view.menu = Some(Menu { on: MenuOn::MergeWith(p), at: if at == [0.0, 0.0] { view.menu.map_or(at, |m| m.at) } else { at } }),
         Action::DuplicatePart(p) => ed.duplicate_part(p),
+        Action::ClonePart(p, mirrored) => {
+            match ed.cannot_clone_mirrored(p).filter(|_| mirrored) {
+                Some(why) => ed.hint = Some(why),
+                None => ed.clone_part(p, mirrored),
+            }
+            view.follow_origin(ed);
+        }
+        Action::LinkPart(p, q) => {
+            let source = q.and_then(|q| ed.figure.as_ref().and_then(|f| f.parts().get(q)).map(|o| o.name.clone()));
+            ed.link_part(p, source.as_deref());
+        }
+        Action::LinkMirror(p, axis) => ed.set_link_mirror(p, axis),
         // (usize::MAX: the typing left.)
         Action::RenamePart(p) => (view.renaming_part, view.rename_problem) = ((p != usize::MAX).then_some(p), None),
         Action::HideOthers(p) => ed.hide_other_parts(p),

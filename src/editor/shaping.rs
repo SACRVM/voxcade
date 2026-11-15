@@ -171,6 +171,12 @@ fn part_bar(ui: &mut egui::Ui, ed: &Editor, free: Rect, view: &View, shown: &mut
         ui.add_space(6.0);
         small(ui, shown, "HIDE", Action::Hide(p), None, "Hide it from the picture (the outliner's mark shows it again)  H");
         small(ui, shown, "DUPLICATE", Action::DuplicatePart(p), None, "A copy of it where it stands, chosen to be moved away");
+        small(ui, shown, "CLONE", Action::ClonePart(p, false), None, "A part like it where it stands: the same voxels, a stroke on either shows on both");
+        let refused = ed.cannot_clone_mirrored(p);
+        let tip = refused.clone().unwrap_or_else(|| "A part like it mirrored left to right, set across the figure's middle (a pair's partner: _left, _right)".into());
+        if ui.add_enabled(refused.is_none(), egui::Button::new(RichText::new("CLONE MIRRORED").small())).on_hover_text(&tip).on_disabled_hover_text(&tip).clicked() {
+            shown.clicked.push(Action::ClonePart(p, true));
+        }
         let refused = ed.cannot_mirror(p);
         let tip = refused.clone().unwrap_or_else(|| "Its partner of the pair (_left, _right) made or made anew, mirrored across the figure's middle".into());
         if ui.add_enabled(refused.is_none(), egui::Button::new(RichText::new("MIRROR").small())).on_hover_text(&tip).on_disabled_hover_text(&tip).clicked() {
@@ -337,8 +343,12 @@ fn parts(ui: &mut egui::Ui, ed: &Editor, view: &View, figure: &Figure, name: &st
             (false, true) => "joint set by hand",
             (false, false) => "parent and joint by the rules",
         };
+        // A clone: its source's name, quiet at the row's end.
+        let link = ed.part_link(p);
+        let aside = link.as_ref().map(|(source, _)| source.as_str());
+        let like = link.as_ref().map_or(String::new(), |(source, m)| format!("; like {source}{}", m.map_or(String::new(), |a| format!(", mirrored {}", crate::vvx::AXES[a]))));
         // (Its name as the game's code uses it: `thing.state.parts.NAME`.)
-        let tip = std::iter::once(format!("{} (in code: parts.{}): {by_hand}", part.name, part.name)).chain(warnings.iter().cloned()).collect::<Vec<_>>().join("\n");
+        let tip = std::iter::once(format!("{} (in code: parts.{}): {by_hand}{like}", part.name, part.name)).chain(warnings.iter().cloned()).collect::<Vec<_>>().join("\n");
         if view.renaming_part == Some(p) {
             ui.horizontal(|ui| {
                 ui.add_space(depth as f32 * 12.0 + 18.0);
@@ -373,7 +383,7 @@ fn parts(ui: &mut egui::Ui, ed: &Editor, view: &View, figure: &Figure, name: &st
                 ui.spacing_mut().item_spacing.x = 0.0;
                 ui.add_space(depth as f32 * 12.0);
                 zones::hide_mark(ui, hidden, Action::Hide(p), shown);
-                zones::list_row_sensed(ui, Sort::Part, None, &part.name, 0.0, chosen, hidden, None, zones::warning_word(&warnings), &tip, egui::Sense::click_and_drag())
+                zones::list_row_hinted(ui, Sort::Part, &part.name, 0.0, chosen, hidden, zones::warning_word(&warnings), aside, &tip, egui::Sense::click_and_drag())
             })
             .inner;
         shown.rows.push((part.name.clone(), r.rect));
@@ -863,6 +873,8 @@ fn rig(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, p: usize, shown: &mut Pa
             }
         });
     }
+    // LIKE: the part whose voxels it shows (a clone), or none.
+    like_rows(ui, ed, figure, p, shown);
     // Its own box, and TRIM when it holds more than its voxels.
     if let Some(b) = ed.shape() {
         let s = b.size;
@@ -931,6 +943,48 @@ fn rig(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, p: usize, shown: &mut Pa
             }
         });
     }
+    }
+}
+
+/// A part's LIKE row: the part a clone shows (a list of the parts it can
+/// be like, a part with voxels of its own made a clone by one, which
+/// throws those away) and MAKE UNIQUE; a clone's MIRROR row, X Y Z, one
+/// lit or none.
+fn like_rows(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, p: usize, shown: &mut PanelsDrawn) {
+    let link = ed.part_link(p);
+    let refused = ed.cannot_link(p);
+    let tip = match &link {
+        Some((source, _)) => format!("Its voxels are {source}'s: a stroke on either shows on both"),
+        None => "Its voxels its own; another part chosen here takes their place (UNDO brings them back)".to_string(),
+    };
+    row(ui, "LIKE", &tip, |ui| {
+        let now = link.as_ref().map_or("none".to_string(), |(s, _)| s.clone());
+        let sources = ed.possible_sources(p);
+        let r = ui.add_enabled_ui(refused.is_none() || link.is_some(), |ui| {
+            ui.menu_button(RichText::new(format!("{now} ▾")).color(if link.is_some() { ACCENT } else { TEXT }), |ui| {
+                for (q, other) in figure.parts().iter().enumerate().filter(|(_, o)| sources.contains(&o.name)) {
+                    if ui.add(egui::Button::new(&other.name).selected(link.as_ref().is_some_and(|(s, _)| *s == other.name))).clicked() {
+                        shown.clicked.push(Action::LinkPart(p, Some(q)));
+                        ui.close();
+                    }
+                }
+            })
+        });
+        if let Some(why) = refused.filter(|_| link.is_none()) {
+            r.response.on_disabled_hover_text(why);
+        }
+    });
+    if let Some((_, mirror)) = link {
+        // (A row of its own: the inspector keeps its width.)
+        row(ui, "", "", |ui| {
+            small(ui, shown, "MAKE UNIQUE", Action::LinkPart(p, None), None, "Its voxels as it shows them its own, linked to no other part");
+        });
+        row(ui, "MIRROR", "Its source's voxels mirrored within their box along an axis (none lit: as they are)", |ui| {
+            for (a, word) in ["X", "Y", "Z"].iter().enumerate() {
+                let lit = mirror == Some(a);
+                small(ui, shown, word, Action::LinkMirror(p, if lit { None } else { Some(a) }), Some(lit), &format!("Mirrored along {}", word));
+            }
+        });
     }
 }
 
@@ -1019,6 +1073,8 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<zones::Entry> {
             }
             out.push(("ADD PART".into(), Action::AddPart(Some(p)), None, None));
             out.push(("DUPLICATE".into(), Action::DuplicatePart(p), None, None));
+            out.push(("CLONE".into(), Action::ClonePart(p, false), None, None));
+            out.push(("CLONE MIRRORED".into(), Action::ClonePart(p, true), None, ed.cannot_clone_mirrored(p)));
             out.push(("MIRROR".into(), Action::MirrorPart(p), None, ed.cannot_mirror(p)));
             out.push(("RENAME".into(), Action::RenamePart(p), Some("F2"), None));
             // (Refused ones too, quiet, why on hover: every action is seen.)

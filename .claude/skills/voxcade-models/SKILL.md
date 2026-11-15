@@ -91,6 +91,17 @@ aaaaa *3
   voxel, after its rest rotation, its joint and what hangs on it along:
   for lining up the edges of turned parts; the editor's arrows with
   Shift write it. A pose entry takes `offset = { x, y, z }` too.
+- **Clones**: a part with `like = "wheel"` (right after `name`, no
+  `layers`) shows that part's voxels, `mirror = "x"` (or `"y"`, `"z"`)
+  mirrored within the source's own box; its `at` is where that box's low
+  corner stands, its rig and rest rotation its own. Four wheels are one
+  wheel and three clones; a symmetric body is its left half and a clone
+  `mirror = "x"` (an odd width: both halves hold the middle column, the
+  same voxel, fine). The source has layers of its own (no clone of a
+  clone), before or after it in the file. Write the source and let the
+  clones follow; `tools/vvx.py` reads and writes them (its `read` gives
+  each clone's cells and `"links"`). In the editor CLONE, CLONE MIRRORED,
+  the LIKE and MIRROR rows, MAKE UNIQUE.
 - **Signs stay**: written again (the editor, a tool), a model keeps the
   signs its file had and adds new ones; with more than 62 entries every
   sign is two characters. One cell, one voxel per frame or part.
