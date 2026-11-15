@@ -95,7 +95,7 @@ fn key_of(ed: &Editor, vp: Mat4, screen: Vec2) -> u64 {
     screen.x.to_bits().hash(&mut h);
     screen.y.to_bits().hash(&mut h);
     format!("{:?}", ed.scope).hash(&mut h);
-    ed.slice.as_ref().map(|s| (s.axis, s.at, s.side)).hash(&mut h);
+    ed.slices.planes.each_ref().map(|s| s.as_ref().map(|s| (s.at, s.side))).hash(&mut h);
     match ed.scope {
         Scope::Figure => {
             if let Some(f) = &ed.figure {

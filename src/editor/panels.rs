@@ -205,9 +205,10 @@ pub fn joints(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
         let lit = ed.handle_drag().and_then(super::model::HandleDrag::grip).or(view.grip_hover);
         stage::paint(&painter, &h, vp, screen, lit);
     }
-    // SLICE's arrow, lit under the mouse or dragged.
-    if let Some(h) = ed.slice_handles(vp) {
-        let lit = (view.slice_hover || ed.slicing()).then(|| ed.slice.as_ref().map(|s| super::handles::Grip::Arrow(s.axis))).flatten();
+    // SLICE's arrows, each lit under the mouse or dragged.
+    for (a, h) in ed.slice_handles(vp) {
+        let dragged = ed.slices.planes[a].as_ref().is_some_and(|s| s.drag.is_some());
+        let lit = (view.slice_hover == Some(a) || dragged).then_some(super::handles::Grip::Arrow(a));
         stage::paint(&painter, &h, vp, screen, lit);
     }
 }

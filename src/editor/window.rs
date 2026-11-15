@@ -235,11 +235,12 @@ impl EditorWindow {
         Self::with(video, &title, ed, view, cfg, dir, gpu)
     }
 
-    fn with(video: &sdl3::VideoSubsystem, title: &str, ed: Editor, mut view: View, cfg: crate::config::GameConfig, dir: &Path, gpu: Option<&crate::window::Gpu>) -> Result<Self> {
+    fn with(video: &sdl3::VideoSubsystem, title: &str, mut ed: Editor, mut view: View, cfg: crate::config::GameConfig, dir: &Path, gpu: Option<&crate::window::Gpu>) -> Result<Self> {
         // The person's BACKGROUND for each editor (not the game's), and
         // how wide they dragged the outliner.
         let kept = background::Backgrounds::load(&background::Backgrounds::path());
         view.backgrounds = kept.colours();
+        ed.floor = kept.floor.unwrap_or(true);
         let screen = crate::window::Screen::open_on(video, title, 1600, 900, false, gpu)?;
         // SDL sends typed text only to a window that asked for it: without
         // this no field of the editor (a name, a number) takes a key from a
@@ -643,6 +644,17 @@ impl EditorWindow {
             }
             self.dirty = true;
         }
+        // FLOOR switched: kept for the next window.
+        if self.view.floor_changed {
+            self.view.floor_changed = false;
+            let path = background::Backgrounds::path();
+            let kept = background::Backgrounds { floor: Some(self.ed.floor), ..background::Backgrounds::load(&path) };
+            // (A window without a window, a test's, keeps nothing.)
+            if let Some(Err(e)) = self.win.is_some().then(|| kept.save(&path)) {
+                eprintln!("floor: {e:#}");
+            }
+            self.dirty = true;
+        }
         // The outliner dragged to another width: kept too, once let go.
         let width = zones::outliner_width(&self.gui).round();
         if width != self.outliner && self.win.is_some() && !self.gui.input(|i| i.pointer.any_down()) {
@@ -676,7 +688,6 @@ impl EditorWindow {
         // the view kept on it; the pieces' models, a new one's too.
         ed.follow_figure();
         view.follow_origin(ed);
-        ed.slice_toward(view.block_eye(aspect));
         figures.follow(&ed.dir, ed);
         figures.keep_sizes(&mut ed.pieces.sizes);
         view.aspect = aspect;
@@ -831,14 +842,9 @@ fn key_down(ed: &mut Editor, view: &mut View, keys: &[(char, view::Action)], key
         Keycode::Z if ctrl => ed.undo(),
         Keycode::Y if ctrl => ed.redo(),
         // SLICE's layer, a voxel at a time.
-        Keycode::PageUp if ed.slice.is_some() => {
-            let at = ed.slice.as_ref().map_or(0, |s| s.at);
-            ed.set_slice_at(at + 1);
-        }
-        Keycode::PageDown if ed.slice.is_some() => {
-            let at = ed.slice.as_ref().map_or(0, |s| s.at);
-            ed.set_slice_at(at - 1);
-        }
+        // (The plane switched on last.)
+        Keycode::PageUp if ed.slices.any() => ed.step_slice(1),
+        Keycode::PageDown if ed.slices.any() => ed.step_slice(-1),
         // A model's frames, one by one.
         Keycode::Left => ed.step_frame(-1),
         Keycode::Right => ed.step_frame(1),
@@ -955,9 +961,9 @@ impl<'a> Here<'a> {
         }
         if !ed.among_pieces() {
             let free = !(over || left);
-            view.slice_hover = free && slice_under(ed, view, room, input.point(x, y)).is_some();
-            view.ring_hover = free && !view.slice_hover && on_ring(ed, view, room, input.point(x, y));
-            view.grip_hover = if !free || view.ring_hover || view.slice_hover { None } else { joint_under(ed, view, room, input.point(x, y)).map(|(g, ..)| g) };
+            view.slice_hover = if free { slice_under(ed, view, room, input.point(x, y)).map(|(g, ..)| g.axis()) } else { None };
+            view.ring_hover = free && view.slice_hover.is_none() && on_ring(ed, view, room, input.point(x, y));
+            view.grip_hover = if !free || view.ring_hover || view.slice_hover.is_some() { None } else { joint_under(ed, view, room, input.point(x, y)).map(|(g, ..)| g) };
         }
         if ed.among_pieces() {
             let (origin, dir) = view.voxel_ray(aspect, sx, sy);
@@ -1042,7 +1048,7 @@ impl<'a> Here<'a> {
         if let Some((grip, h, vp, mouse)) = sliced {
             // SLICE's arrow: dragged until let go.
             if let Some(drag) = handles::Drag::begin(&h, grip, vp, room.size(), mouse, view.ray(ed, aspect, sx, sy)) {
-                ed.grab_slice(drag, h);
+                ed.grab_slice(drag, grip, h);
             }
         } else if ring {
             // The joint's ring: dragged across the view.

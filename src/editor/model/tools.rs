@@ -142,10 +142,13 @@ impl Editor {
         if let Some((lo, figure)) = self.part_mode().and_then(|_| self.figure_box()) {
             let lo = lo.min(IVec3::ZERO);
             let hi = (lo + figure).max(size);
-            let hit = pick(origin - lo.as_vec3(), dir, hi - lo, |c| self.filled(c + lo, true) && !self.cut(c + lo))?;
+            let hit = pick_over(origin - lo.as_vec3(), dir, hi - lo, self.floor, |c| self.filled(c + lo, true) && !self.cut(c + lo))?;
             return Some(Hit { cell: hit.cell + lo, normal: hit.normal });
         }
-        pick(origin, dir, size, |c| c.cmpge(IVec3::ZERO).all() && self.filled(c, true) && !self.cut(c))
+        // (FLOOR off: the ray goes on under the grid; a level's floor is
+        // always there.)
+        let floor = self.floor || self.scope == Scope::Level;
+        pick_over(origin, dir, size, floor, |c| c.cmpge(IVec3::ZERO).all() && self.filled(c, true) && !self.cut(c))
     }
 
     /// The cell the tool works on at a hit (None: nothing there for it).

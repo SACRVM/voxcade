@@ -1774,8 +1774,22 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   --model FILE --shot OUT [--part NAME --parent NAME --joint X,Y,Z
   --move-part NAME --by X,Y,Z --move-joint NAME --by X,Y,Z --tool box
   --held X,Y,Z --stamp --view YAW,PITCH]` to look. SLICE cuts a block,
-  a frame or a figure across an axis (the eye's side neither drawn nor
-  touched; `editor/slice.rs`, `--slice z,12`); EDIT on a piece shapes its
+  a frame or a figure as a scan does (the owner's CT scan): a plane on
+  each axis, each on or off on its own, a voxel cut by any of them
+  neither drawn nor touched (`editor/slice.rs`, `Slices`); a plane's
+  side is the eye's as it is switched on and stays until its FLIP (it
+  no longer follows the camera: with three planes that confused); a
+  row a plane, its LAYER, FLIP, OFF; Page Up/Down the plane switched on
+  last; `--slice z,12 --slice x,20,flip`). FLOOR beside GRID (lit by
+  default, kept in `editors.toml`, `Backgrounds::floor`; `--no-floor`):
+  off, the plate under a block, model or figure is neither drawn nor
+  met (`model::pick_over`): rays go on under the grid, so a model is
+  worked on from below, and ADD on empty space sets nothing. Glass is
+  glass in the voxel editor (the owner: opaque, one could not see how
+  it would look): a frame's or part's glass colors are see-through
+  cubes beside the opaque world (`Shown::glass`, `view::glass_cubes`,
+  joined as the game's), the figure whole's carry metal and facets as
+  the game's; the tools still meet them. EDIT on a piece shapes its
   model in place, the level's other pieces faint round it as they stand
   (`editor/context.rs`, CONTEXT, `--context LEVEL:NAME`); `--clear` and
   `--fill` change a model's cells without the window, written as the
@@ -1790,7 +1804,13 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (`View::rest`, `Editor::rest_view`), so the tools, the slice and its
   handles work in its own grid and the rest of the figure is drawn
   turned round it (`Figure::rest_map`, `session::part_at_rest`). Parts
-  as objects (`editor/model/parts.rs`): ADD PART (one voxel of the color held,
+  as objects (`editor/model/parts.rs`; a model of one frame gets them
+  too, the owner: "die hat man ja selten von Anfang an": + PART at
+  FRAMES, ADD PART in a frame's menu or NEW PART on a selection makes
+  it a figure in the same step, `parts::made_figure`, its frame the
+  root part named as the file or `body`, every voxel where it stood,
+  UNDO the one frame byte for byte; several frames, an animation, are
+  refused, `Editor::cannot_have_parts`): ADD PART (one voxel of the color held,
   on top of the part chosen or the figure, touching it, its name to
   type), REMOVE (what hung on it hangs on its parent where it stands;
   not the root while parts hang on it), MERGE INTO its parent or WITH…
@@ -1846,8 +1866,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   grows, a block's keeps its size; no bar at it), SELECTION at the
   inspector's foot (nothing above it moves) and its menu: DUPLICATE (the
   next move leaves the voxels), REMOVE (Del), PAINT, FLIP X/Y/Z, ROTATE
-  X/Y/Z, in a figure NEW PART (hanging on the part most of it came
-  from) and MOVE TO PART…, COPY and PASTE (Ctrl+C, Ctrl+V: where it
+  X/Y/Z, NEW PART (hanging on the part most of it came from; a model
+  of one frame becomes a figure) and in a figure MOVE TO PART…, COPY and PASTE (Ctrl+C, Ctrl+V: where it
   lay); each one step. FILL (W): the connected voxels of the color
   clicked, Ctrl every one of it. A swatch's right-click menu: REPLACE
   WITH HELD, REMOVE (a model's unused color). `--select X0,Y0,Z0 --to

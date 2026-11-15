@@ -44,7 +44,7 @@ pub fn overview(ed: &Editor, named: &[(String, String)]) -> Vec<Group> {
             ("Del", "REMOVE (SELECTION)"),
             ("Ctrl+C, Ctrl+V", "COPY, PASTE"),
             ("Shift+drag", "FINE (HANDLES)"),
-            ("Page Up, Page Down", "SLICE LAYER"),
+            ("Page Up, Page Down", "SLICE LAYER (THE LAST ON)"),
         ];
         if ed.figure.is_some() {
             keys.extend([("F2", "RENAME PART"), ("Del", "REMOVE PART")]);

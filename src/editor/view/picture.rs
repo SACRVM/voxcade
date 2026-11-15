@@ -55,7 +55,8 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         (floor_lo, floor_size, u)
     };
     // (A level's GAME VIEW shows what the game shows: no editor's floor.)
-    let floor = view.floor && !(view.before_game.is_some() && ed.scope == Scope::Level);
+    // (FLOOR off in the voxel editor: none.)
+    let floor = view.floor && !(view.before_game.is_some() && ed.scope == Scope::Level) && (ed.floor || ed.scope == Scope::Level);
     for y in floor_lo.y..floor_lo.y + floor_size.y * floor as i32 {
         for x in floor_lo.x..floor_lo.x + floor_size.x {
             let shade = floor_tones[(x + y).rem_euclid(2) as usize];
@@ -157,7 +158,9 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         // The chosen part turned at rest: its own voxels (not the world
         // shown, which is drawn unturned) where it stands, solid.
         if turned && let Some(b) = ed.shape() {
-            let at = |c: IVec3| b.get(c) != 0 && !ed.cut(c);
+            let glass = super::shown::glass_of(ed);
+            let clear = |c: IVec3| b.colour_at(c).is_some_and(|k| glass.iter().any(|(g, _)| *g == k));
+            let at = |c: IVec3| b.get(c) != 0 && !ed.cut(c) && !clear(c);
             let cells: Vec<IVec3> = (0..b.voxels.len()).map(|k| b.at(k)).filter(|&c| at(c) && crate::mesh::DIRS.iter().any(|d| !at(c + *d))).collect();
             let mut own: Vec<Instance> = cells.iter().filter_map(|&c| b.colour_at(c).map(|k| (c, k))).map(|(c, k)| {
                 let p = c.as_vec3() + 0.5;
@@ -166,6 +169,12 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
             crate::render::hide_inner_faces(&mut own);
             place_turned(&mut own, rest);
             instances.extend(own);
+            // Its glass see-through, as the game draws it.
+            if !glass.is_empty() {
+                let mut clear = super::shown::glass_cubes(b, &glass, &|c| ed.cut(c));
+                place_turned(&mut clear, rest);
+                through.extend(clear);
+            }
         }
         // The faces between its own voxels left out, as the game's bank
         // leaves them (`vox::covered`): seen nearly edge on they won
@@ -176,8 +185,10 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         crate::render::hide_faces_against(&mut instances[start..], |c| c.cmpge(IVec3::ZERO).all() && c.cmplt(world.size).all() && world.get(c) != 0);
     }
     // The pieces' glass joined too, as the game joins it: one body, not a
-    // grid of every cube's faces blended over each other.
+    // grid of every cube's faces blended over each other; and the frame's
+    // own glass (`Shown::glass`).
     through.extend(glass);
+    through.extend(shown.glass.iter().copied());
     crate::render::join_see_through(&mut through, eye - grid.as_vec3() / 2.0);
     // From here the tools' marks: in the grid shown (a turned part's own).
     let local_from = instances.len();

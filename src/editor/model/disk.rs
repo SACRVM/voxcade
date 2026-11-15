@@ -807,6 +807,17 @@ fn rebase_model(b: &Shaped, a: &Shaped, d: &Shaped) -> Result<Shaped, String> {
     if b.size != a.size {
         out.size = if d.size == b.size { a.size } else { out.size.max(a.size) };
     }
+    // A model of one frame made a figure (NEW PART, ADD PART), or back
+    // (UNDO): laid only over the file as it was.
+    if b.parts.is_empty() != a.parts.is_empty() {
+        let same = d.parts == b.parts && d.size == b.size && d.frames.len() == b.frames.len() && b.frames.iter().zip(&d.frames).all(|(x, y)| looks(b, x) == looks(d, y));
+        if !same {
+            return Err(if a.parts.is_empty() { "the figure changed in the file too" } else { "the model changed in the file too" }.into());
+        }
+        out.frames = a.frames.iter().map(|f| carried(a, f, &mut out.palette)).collect();
+        (out.parts, out.size) = (a.parts.clone(), a.size);
+        return Ok(out);
+    }
     if b.parts.is_empty() && a.parts.is_empty() {
         if !d.parts.is_empty() {
             return Err("the model is a figure of parts in the file now".into());
@@ -1115,5 +1126,36 @@ mod tests {
         assert_eq!(model_text(&dir), gone, "nothing written");
         assert!(ed.disk.notice.as_deref().is_some_and(|n| n.starts_with("STEP NOT WRITTEN")), "{:?}", ed.disk.notice);
         assert!(ed.model.as_ref().unwrap().parts.iter().all(|p| p.name != "hand"));
+    }
+
+    /// A model of one frame made a figure (NEW PART, ADD PART) and back:
+    /// laid on the file as it was, the parts and box the step's; over a
+    /// file whose frame changed meanwhile, not written, said.
+    #[test]
+    fn a_frame_made_a_figure_is_laid_only_on_the_file_as_it_was() {
+        let mut frame = Block::boxed(IVec3::new(4, 4, 2));
+        for x in 0..4 {
+            let _ = frame.set(IVec3::new(x, 1, 0), Some([200, 60, 48]));
+        }
+        let mut m = crate::editor::frames::ModelFile::begun(std::path::Path::new("car.vvx"));
+        m.frames = vec![frame];
+        m.size = IVec3::new(4, 4, 2);
+        m.list_new_colours();
+        let b = m.shaped();
+        crate::editor::model::parts::made_figure(&mut m, "car");
+        let a = m.shaped();
+        assert_eq!(a.parts.len(), 1);
+        let out = rebase_model(&b, &a, &b).expect("over the file as it was");
+        assert_eq!((&out.parts, out.size, out.frames.len()), (&a.parts, a.size, 1));
+        // And back (UNDO): the plain frame again.
+        let back = rebase_model(&a, &b, &a).expect("UNDO over the figure as it was");
+        assert!(back.parts.is_empty());
+        // The file's frame changed meanwhile: refused, both ways.
+        let mut d = b.clone();
+        let _ = d.frames[0].set(IVec3::new(0, 0, 1), Some([200, 60, 48]));
+        assert_eq!(rebase_model(&b, &a, &d).unwrap_err(), "the model changed in the file too");
+        let mut d = a.clone();
+        d.parts[0].low += IVec3::X;
+        assert_eq!(rebase_model(&a, &b, &d).unwrap_err(), "the figure changed in the file too");
     }
 }

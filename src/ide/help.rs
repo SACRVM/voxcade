@@ -1366,12 +1366,14 @@ A click on a part's row (or a double click in the view) chooses it; the figure w
 MOVE | ROTATE at a part: its arrows move it with what hangs on it, its rings rotate it about its joint.
 PARENT and JOINT in the inspector set what it hangs on and where it turns; or drag its row onto another part's row: it hangs there, staying where it stands.
 A right click on a row: ADD PART, DUPLICATE, MIRROR (for NAME_left and NAME_right), RENAME, MERGE, REMOVE.
+A model of one frame gets parts too: + PART at FRAMES, or NEW PART on a selection, makes it a figure in one step, its frame the root part (named as the file), everything where it stood. A model of several frames is an animation and has none.
 # POSE
 The rings turn parts on top of their rest, nothing saved. COPY gives the pose as Lua for frame:model.
 # GAME VIEW
 The figure as the game lights and shades it, outline too, from the game's angle and filling the view. The wheel and the right button zoom and turn it as always; GAME VIEW again goes back to the editor's look.
 # SLICE AND CONTEXT
-SLICE cuts the model across an axis to reach inside; drag its arrow or use Page Up and Page Down.
+SLICE cuts the model across X, Y and Z, each plane on or off on its own, as a scan; what lies on a plane's far side from where you looked when you switched it on is hidden and untouched. Each plane's row: its layer (or drag its arrow), FLIP for the other side, OFF. Page Up and Page Down move the plane switched on last.
+FLOOR beside GRID hides the plate under the model, to see and work on it from below.
 CONTEXT (a model opened from a level's piece) shows the level round it, faint.
 # HIDE MARKS
 The mark at a part's row hides it from the picture; SHOW ALL at the PARTS heading shows every part.

@@ -19,6 +19,17 @@ fn is_word(name: &str) -> bool {
     chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// A model of one frame made a figure: its frame the root part `root`,
+/// standing where the frame stood (from the same pivot), so the picture
+/// stays as it was. A figure, or a model of several frames, unchanged.
+pub(super) fn made_figure(m: &mut ModelFile, root: &str) {
+    if m.parted() || m.frames.len() != 1 {
+        return;
+    }
+    let low = -crate::vvx::pivot(m.size);
+    m.parts.push(Placed { name: root.to_string(), frame: 0, low, parent: None, joint: None, rotation: [0.0; 3], offset: Vec3::ZERO });
+}
+
 /// A part's pose in the editor (POSE): its rotation, degrees as
 /// `frame:model` has them, and its offset in voxels.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -345,15 +356,51 @@ impl Editor {
         self.follow_figure();
     }
 
+    /// Why the model cannot have parts (None: it can): a figure has them, a
+    /// model of one frame becomes one (its frame the root part), a model
+    /// of several frames (an animation) not.
+    pub fn cannot_have_parts(&self) -> Option<&'static str> {
+        match &self.model {
+            None => Some("Only in a model"),
+            Some(m) if m.parted() => None,
+            Some(m) if m.frames.len() == 1 => None,
+            Some(_) => Some("Frames and parts do not mix: a model of several frames is an animation"),
+        }
+    }
+
+    /// The name a model of one frame gives its root part as it becomes a
+    /// figure: its file's (`car` of `car.vvx`) where that is a part's name,
+    /// else `body`.
+    pub(super) fn root_name(&self) -> String {
+        let stem = std::path::Path::new(&self.file).file_stem().map_or(String::new(), |s| s.to_string_lossy().into_owned());
+        if is_word(&stem) { stem } else { "body".to_string() }
+    }
+
     /// ADD PART: a new part of one voxel of the color held, set on top of
     /// the chosen part (on its top voxel nearest its middle, where it is
     /// seen), else on top of the figure (its highest part), hanging on that
     /// part; chosen, its name the next free `part`; a step. (A part with no
-    /// voxel would not be in the file, nor seen.)
+    /// voxel would not be in the file, nor seen.) A model of one frame
+    /// becomes a figure in the same step, its frame the root part
+    /// (`made_figure`).
     pub fn add_part(&mut self) {
+        if self.cannot_have_parts().is_some() {
+            return;
+        }
         self.follow_figure();
         let chosen = self.figure.as_ref().and_then(|f| f.selected).filter(|_| !self.rigging.painting_whole);
+        let root = self.root_name();
         let Some(m) = self.model.as_ref() else { return };
+        // (A model of one frame: as the figure it becomes.)
+        let figure;
+        let m = if m.parted() {
+            m
+        } else {
+            let mut made = m.clone();
+            made_figure(&mut made, &root);
+            figure = made;
+            &figure
+        };
         // Each part's top voxel nearest its box's middle (from the pivot).
         let top = |k: usize| -> Option<IVec3> {
             let o = &m.parts[k];
@@ -376,6 +423,7 @@ impl Editor {
         let new = name.clone();
         self.acting_on(vec![name.clone()]);
         self.change_model_file(move |m| {
+            made_figure(m, &root);
             let mut voxel = Block::boxed(IVec3::ONE);
             let _ = voxel.set(IVec3::ZERO, Some(colour));
             m.frames.push(voxel);
@@ -687,6 +735,7 @@ fn set_cells(m: &mut ModelFile, k: usize, cells: &std::collections::BTreeMap<[i3
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use std::collections::BTreeSet;
     use crate::editor::view::{Action, View, act};
 
     /// A figure: a body (the root), a head and an arm on it, a hand on the
@@ -1527,5 +1576,159 @@ pub(crate) mod tests {
         drag_x(&mut ed, &view, 2.0);
         let went = at(&ed) - before;
         assert!((went - Vec3::X * 2.0).length() < 0.15, "two voxels along the figure's X: went {went}");
+    }
+
+    /// A model of one frame (or `frames` alike) in a folder of its own,
+    /// `file`: a car, a body with a cabin of glass on it and its roof; the
+    /// box wider than its voxels.
+    fn one_frame(name: &str, file: &str, frames: usize) -> (Editor, View, crate::scratch::Scratch) {
+        let dir = crate::scratch::Scratch::new(&format!("parts-{name}"));
+        let layers = "......\n.aaaa.\n.aaaa.\n.aaaa.\n......\n\n......\n.aaaa.\n.aaaa.\n.aaaa.\n......\n\n......\n.g..g.\n......\n.g..g.\n......\n\n......\n.aaaa.\n.aaaa.\n.aaaa.\n......";
+        let frame = format!("\n[[frame]]\nlayers = \"\"\"\n{layers}\n\"\"\"\n");
+        let text = format!("format = \"{}\"\nsize = [6, 5, 4]\n\n[palette]\na = \"#c83c30\"\ng = {{ color = \"#9fd8ff\", glass = 0.6 }}\n{}", crate::vvx::FORMAT, frame.repeat(frames));
+        std::fs::write(dir.join(file), text).unwrap();
+        let ed = Editor::open_model(&dir, file).unwrap();
+        let view = View::new(&ed, &crate::config::GameConfig::default());
+        (ed, view, dir)
+    }
+
+    /// Every voxel of a model's text from its pivot, with its color, of
+    /// every frame or part: what the game draws.
+    fn drawn(text: &str) -> BTreeSet<([i32; 3], [u8; 4])> {
+        let (shape, _) = crate::vvx::read_shape(text).unwrap();
+        shape.pieces.iter().flat_map(|p| p.voxels.iter().map(|(v, m)| (v.to_array(), m.rgba))).collect()
+    }
+
+    /// NEW PART in a model of one frame (the owner's car, shaped before it
+    /// had parts): one step makes it a figure, its frame the root part
+    /// named as the file, the selection a part hanging on it, every voxel
+    /// where it stood; the file reads back; UNDO gives the one frame back
+    /// byte for byte, REDO the figure.
+    #[test]
+    fn a_model_of_one_frame_becomes_a_figure_by_new_part() {
+        let (mut ed, mut view, dir) = one_frame("one-frame", "car.vvx", 1);
+        let file = dir.join("car.vvx");
+        let before = std::fs::read_to_string(&file).unwrap();
+        assert!(ed.figure.is_none() && ed.cannot_part().is_none());
+        // The cabin's glass and the roof over it.
+        ed.select_from_pivot(IVec3::new(-3, -3, 2), IVec3::new(3, 3, 3));
+        assert_eq!(ed.selection().map(|s| s.count()), Some(16));
+        act(&mut ed, &mut view, Action::SelNewPart);
+        let after = std::fs::read_to_string(&file).unwrap();
+        crate::vvx::read(&after).expect("the figure reads back");
+        assert_eq!(drawn(&after), drawn(&before), "every voxel where it stood");
+        let m = ed.model.as_ref().unwrap();
+        assert_eq!(names(&ed), ["car", "part"]);
+        assert_eq!((m.parts[0].parent.clone(), m.parts[1].parent.as_deref()), (None, Some("car")));
+        assert!(ed.figure.as_ref().is_some_and(|f| f.selected == Some(part(&ed, "part"))), "the new part chosen");
+        ed.undo();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), before, "UNDO: the one frame back byte for byte");
+        ed.follow_figure();
+        assert!(ed.figure.is_none() && !ed.parted() && ed.scope == Scope::Frame(0));
+        crate::editor::view::Shown::new(&ed).expect("shown as a frame again");
+        ed.redo();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), after);
+    }
+
+    /// ADD PART in a model of one frame: the frame the root part (`body`
+    /// where the file's name is no part's name), a voxel on top of it the
+    /// new part; a model of several frames refuses, saying why.
+    #[test]
+    fn add_part_makes_a_model_of_one_frame_a_figure() {
+        let (mut ed, mut view, dir) = one_frame("add-one", "my car.vvx", 1);
+        let before = std::fs::read_to_string(dir.join("my car.vvx")).unwrap();
+        act(&mut ed, &mut view, Action::AddPart(None));
+        let after = std::fs::read_to_string(dir.join("my car.vvx")).unwrap();
+        assert_eq!(names(&ed), ["body", "part"]);
+        let (old, new) = (drawn(&before), drawn(&after));
+        assert!(old.is_subset(&new) && new.len() == old.len() + 1, "the frame as it stood, one voxel more");
+        let (one, _) = new.difference(&old).next().copied().unwrap();
+        assert_eq!(one[2], 4, "on top of it");
+        assert_eq!(view.renaming_part, ed.figure.as_ref().and_then(|f| f.selected), "named to type");
+        // An animation of two frames: refused, said.
+        let (mut ed, mut view, dir) = one_frame("add-two", "walk.vvx", 2);
+        let text = std::fs::read_to_string(dir.join("walk.vvx")).unwrap();
+        assert!(ed.cannot_have_parts().is_some_and(|w| w.contains("several frames")));
+        assert_eq!(ed.cannot_part(), ed.cannot_have_parts());
+        act(&mut ed, &mut view, Action::AddPart(None));
+        ed.select_from_pivot(IVec3::new(-3, -3, 0), IVec3::new(3, 3, 3));
+        act(&mut ed, &mut view, Action::SelNewPart);
+        assert!(!ed.parted() && std::fs::read_to_string(dir.join("walk.vvx")).unwrap() == text, "nothing changed");
+    }
+
+    /// Glass is seen as glass in the editor, as the game draws it (the
+    /// owner: opaque, one could not see how it would look): a frame's glass
+    /// voxels are see-through cubes, not the world's, and still met by the
+    /// tools; the same in the frame made a figure, the part chosen and the
+    /// figure whole; a material set to glass comes in at once.
+    #[test]
+    fn glass_is_drawn_see_through_and_met_by_the_tools() {
+        use crate::editor::view::{Figures, Shown, frame};
+        let (mut ed, mut view, dir) = one_frame("glass", "car.vvx", 1);
+        let figures = Figures::load(&dir, &crate::config::GameConfig::default());
+        let light = crate::config::LightConfig::default();
+        // The cabin's glass at x 1, y 1, z 2 of the box (the far row first).
+        let glass = IVec3::new(1, 1, 2);
+        let clear = |cubes: &[crate::render::Instance]| cubes.iter().filter(|c| c.fx[1] < 255 && c.fx[1] > 0).count();
+        let mut shown = Shown::new(&ed).unwrap();
+        assert_eq!(shown.world.get(glass), 0, "not in the opaque world");
+        assert_eq!(shown.glass.len(), 4, "the four panes");
+        assert!(shown.glass.iter().all(|c| c.color[3] < 255 && c.fx[1] == c.color[3]));
+        let pic = frame(&ed, &view, &shown, &figures, &light, 16.0 / 9.0);
+        assert_eq!(clear(&pic.instances), 4);
+        assert!(pic.see_through >= 4, "drawn far to near after the opaque ones");
+        // Met by the tools: straight down onto a pane (the roof cut away).
+        ed.set_slice(2, Vec3::new(1.5, 1.5, 50.0));
+        ed.set_slice_at(2, 2);
+        assert_eq!(ed.aim(Vec3::new(1.5, 1.5, 50.0), Vec3::NEG_Z).map(|h| h.cell), Some(glass));
+        ed.set_slice(2, Vec3::ZERO);
+        // Its material plain again: in the world at once.
+        ed.colour = [0x9f, 0xd8, 0xff];
+        let plain = crate::editor::frames::with_word(ed.material().unwrap(), 0, 0.0);
+        ed.set_material(plain);
+        shown.update(&ed).unwrap();
+        assert!(shown.world.get(glass) != 0 && shown.glass.is_empty(), "plain: opaque");
+        ed.undo();
+        shown.update(&ed).unwrap();
+        assert_eq!((shown.world.get(glass), shown.glass.len()), (0, 4), "glass again");
+        // Made a figure: the part chosen (the roof) round the root, and the
+        // figure whole, draw the panes see-through too.
+        ed.select_from_pivot(IVec3::new(-3, -3, 3), IVec3::new(3, 3, 3));
+        act(&mut ed, &mut view, Action::SelNewPart);
+        let shown = Shown::new(&ed).unwrap();
+        let pic = frame(&ed, &view, &shown, &figures, &light, 16.0 / 9.0);
+        assert!(pic.instances.iter().filter(|c| c.fx[1] < 255).count() >= 4);
+        let root = part(&ed, "car");
+        act(&mut ed, &mut view, Action::Part(root));
+        let shown = Shown::new(&ed).unwrap();
+        assert_eq!(shown.glass.len(), 4, "the root's panes, chosen");
+        act(&mut ed, &mut view, Action::WholeFigure);
+        let shown = Shown::new(&ed).unwrap();
+        let pic = frame(&ed, &view, &shown, &figures, &light, 16.0 / 9.0);
+        assert_eq!(pic.instances.iter().filter(|c| c.fx[1] < 255 && c.fx[1] != crate::editor::figure::DIMMED).count(), 4, "the figure whole: its panes");
+    }
+
+    /// FLOOR off: the plate under a model is neither drawn nor met, so a
+    /// ray from below reaches the model's underside; on again, as always.
+    /// A level keeps its floor.
+    #[test]
+    fn floor_off_lets_the_tools_work_from_below() {
+        use crate::editor::view::{Figures, Shown, frame};
+        let (mut ed, mut view, dir) = one_frame("floor", "car.vvx", 1);
+        let figures = Figures::load(&dir, &crate::config::GameConfig::default());
+        let light = crate::config::LightConfig::default();
+        let up = |ed: &Editor| ed.aim(Vec3::new(2.5, 2.5, -50.0), Vec3::Z);
+        assert_eq!(up(&ed).map(|h| h.cell.z), Some(-1), "the floor met first");
+        let shown = Shown::new(&ed).unwrap();
+        let with = frame(&ed, &view, &shown, &figures, &light, 16.0 / 9.0).instances.len();
+        act(&mut ed, &mut view, Action::Floor);
+        assert!(!ed.floor && view.floor_changed);
+        assert_eq!(up(&ed), Some(crate::editor::model::Hit { cell: IVec3::new(2, 2, 0), normal: IVec3::NEG_Z }), "the model's underside");
+        // Nothing under the model: nothing met.
+        assert_eq!(ed.aim(Vec3::new(0.5, 0.5, 50.0), Vec3::NEG_Z), None);
+        let without = frame(&ed, &view, &shown, &figures, &light, 16.0 / 9.0).instances.len();
+        assert_eq!(with - without, 6 * 5, "the plate's cells gone");
+        act(&mut ed, &mut view, Action::Floor);
+        assert_eq!(up(&ed).map(|h| h.cell.z), Some(-1));
     }
 }

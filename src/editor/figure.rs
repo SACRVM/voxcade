@@ -46,7 +46,7 @@ const NEAR_TIE: (u32, u32) = (3, 4);
 
 /// How opaque the parts not chosen are drawn: the chosen one shows
 /// through them.
-const DIMMED: u8 = 130;
+pub(crate) const DIMMED: u8 = 130;
 
 impl Figure {
     /// The figure the model file makes, if it is one (its objects have
@@ -302,7 +302,15 @@ impl Figure {
                 // (Dimmed too: a part seen through is its surface, not a
                 // grid of every cube's faces.)
                 let hidden = if c[3] < 255 { 0 } else { covered(n) };
-                let cube = Instance { pos_size: [pos.x, pos.y, pos.z, 1.0], color: [c[0], c[1], c[2], 255], fx: [0, opacity, hidden, 0], shade: [0; 4], turn: snorm };
+                // Glass as the game draws it: mirroring as its material
+                // does, smooth glass glinting by its facets.
+                let (metal, shade) = if c[3] < 255 {
+                    let facet = self.model.facets.first().and_then(|f| f.get(k as usize)).filter(|f| **f != [0; 3]).map_or([0; 4], |&[x, y, z]| [x, y, z, 0]);
+                    (self.model.metal_at(0, k as usize), facet)
+                } else {
+                    (0, [0; 4])
+                };
+                let cube = Instance { pos_size: [pos.x, pos.y, pos.z, 1.0], color: [c[0], c[1], c[2], 255], fx: [0, opacity, hidden, metal], shade, turn: snorm };
                 if opacity < 255 { through.push(cube) } else { out.push(cube) }
             }
         }

@@ -27,9 +27,11 @@ pub enum Action {
     GroupRename(u16),
     Ungroup(u16),
     GroupMenu(u16, [f32; 2]),
-    /// SLICE across an axis (the same again: off; None: off), its layer.
-    Slice(Option<u8>),
-    SliceAt(i32),
+    /// SLICE: the plane across an axis on (its side the one the eye is
+    /// on) or off, FLIP, its layer.
+    Slice(u8),
+    SliceFlip(u8),
+    SliceAt(u8, i32),
     /// CONTEXT: the level round a model shaped in place, shown or not.
     Context,
     /// The figure whole chosen (its row in the parts' list).
@@ -197,6 +199,9 @@ pub enum Action {
     /// GRID in the voxel editor: the voxels' edges drawn on the faces, or
     /// not.
     Grid,
+    /// FLOOR in the voxel editor: the plate under the model shown and met
+    /// by the tools, or neither.
+    Floor,
     /// The chosen one's handles: MOVE (false, its arrows) or ROTATE (true,
     /// its rings).
     HandleMode(bool),
@@ -398,8 +403,9 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::GroupMenu(g, at) => view.menu = Some(Menu { on: MenuOn::Group(g), at }),
         Action::OnlyItem(item) => ed.only(item),
         Action::ShowAllItems => ed.show_all(),
-        Action::Slice(axis) => ed.set_slice(axis.map(usize::from)),
-        Action::SliceAt(at) => ed.set_slice_at(at),
+        Action::Slice(axis) => ed.set_slice(axis.into(), view.block_eye(view.aspect)),
+        Action::SliceFlip(axis) => ed.flip_slice(axis.into()),
+        Action::SliceAt(axis, at) => ed.set_slice_at(axis.into(), at),
         Action::Context => ed.toggle_context(),
         Action::WholeFigure => ed.back_to_level(),
         Action::PartRotating(on) => ed.rigging.part_rotating = on,
@@ -538,6 +544,10 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
             view.leave_game_view(ed.scope);
         }
         Action::Grid => view.grid = !view.grid,
+        Action::Floor => {
+            ed.floor = !ed.floor;
+            view.floor_changed = true;
+        }
         Action::BlockMenu(i, at) => {
             if ed.scope == Scope::Level {
                 ed.hold(i);

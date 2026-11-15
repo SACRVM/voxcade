@@ -257,8 +257,8 @@ pub struct View {
     pub turning: Option<Item>,
     /// In a figure, the chosen part's joint's ring under the mouse (lit).
     pub ring_hover: bool,
-    /// SLICE's arrow under the mouse (lit).
-    pub slice_hover: bool,
+    /// SLICE: the axis of the plane whose arrow is under the mouse (lit).
+    pub slice_hover: Option<usize>,
     /// The chosen part's place at rest (`Editor::rest_view`), which the
     /// view looks through; ROTATE (its rings) rather than MOVE at it.
     pub rest: Mat4,
@@ -273,6 +273,8 @@ pub struct View {
     /// last kept them (`background::Backgrounds`).
     pub backgrounds: [Option<[u8; 3]>; 2],
     pub backgrounds_changed: bool,
+    /// FLOOR switched since the window last kept it (`Editor::floor`).
+    pub floor_changed: bool,
     /// The game's sky (what BACKGROUND's first choice shows).
     pub sky: [u8; 3],
     pub level_settings: bool,
@@ -538,7 +540,7 @@ impl View {
             grip_hover: None,
             turning: None,
             ring_hover: false,
-            slice_hover: false,
+            slice_hover: None,
             rest: Mat4::IDENTITY,
             part_rotate: false,
             menu: None,
@@ -549,6 +551,7 @@ impl View {
             },
             backgrounds: [None; 2],
             backgrounds_changed: false,
+            floor_changed: false,
             sky: cfg.light.sky.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8),
             level_settings: false,
             picker_spot: None,

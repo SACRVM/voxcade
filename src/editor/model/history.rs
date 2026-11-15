@@ -58,6 +58,10 @@ impl Editor {
                     if let Scope::Frame(f) = self.scope {
                         self.scope = Scope::Frame(f.min(model.frames.len() - 1));
                     }
+                    // (A figure made of one frame taken back: that frame.)
+                    if self.scope == Scope::Figure && !model.parted() {
+                        self.scope = Scope::Frame(0);
+                    }
                 }
             }
             Step::Delete(d) => {

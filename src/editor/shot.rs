@@ -74,9 +74,11 @@ pub struct ShotOptions {
     /// read by its kind's type.
     pub props: Vec<(String, String)>,
     pub click: Option<(f32, f32)>,
-    /// A block, a model or a figure sliced across an axis (0 x, 1 y, 2 z)
-    /// at a layer.
-    pub slice: Option<(usize, i32)>,
+    /// A block, a model or a figure sliced across axes (0 x, 1 y, 2 z),
+    /// each at a layer, flipped or not (`--slice x,20,flip`).
+    pub slices: Vec<(usize, i32, bool)>,
+    /// `--no-floor`: FLOOR off.
+    pub no_floor: bool,
     /// A model's cells changed (`--clear`, `--fill`) in its frame (from 1)
     /// or its part (`--part`); `dry`: printed, not written.
     pub cells: Vec<frames::CellOp>,
@@ -749,7 +751,7 @@ fn set_view(ed: &mut Editor, view: &mut View, opts: &ShotOptions, aspect: f32) -
     Ok(())
 }
 
-/// `--clear`, `--fill` (shown, not written) and `--slice`.
+/// `--clear`, `--fill` (shown, not written), `--slice` and `--no-floor`.
 fn cells_and_slice(ed: &mut Editor, view: &mut View, opts: &ShotOptions, aspect: f32) -> Result<()> {
     // Cells changed, to look at (nothing written).
     if !opts.cells.is_empty() {
@@ -759,12 +761,16 @@ fn cells_and_slice(ed: &mut Editor, view: &mut View, opts: &ShotOptions, aspect:
         ed.follow_figure();
         view.follow_origin(ed);
     }
-    if let Some((axis, at)) = opts.slice {
+    for &(axis, at, flip) in &opts.slices {
         anyhow::ensure!(ed.can_slice(), "--slice cuts a block, a model or a figure");
-        ed.set_slice(Some(axis));
-        ed.set_slice_at(at);
-        ed.slice_toward(view.block_eye(aspect));
+        anyhow::ensure!(ed.slices.planes[axis].is_none(), "--slice: one plane an axis");
+        ed.set_slice(axis, view.block_eye(aspect));
+        ed.set_slice_at(axis, at);
+        if flip {
+            ed.flip_slice(axis);
+        }
     }
+    ed.floor = !opts.no_floor;
     Ok(())
 }
 

@@ -483,6 +483,7 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
                 "--align" => opts.align = true,
                 "--terrain" => opts.terrain = true,
                 "--game-view" => opts.game_view = true,
+                "--no-floor" => opts.no_floor = true,
                 "--picker" => opts.picker = true,
                 "--lights-off" => opts.lights_off = true,
                 "--add-menu" => opts.add_menu = true,
@@ -617,9 +618,17 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
                 opts.cells.push(crate::editor::frames::CellOp::Fill(value.clone(), three("--from", from)?, three("--to", to)?));
             }
             "--slice" => {
-                let (axis, at) = value.split_once(',').context("--slice x|y|z,LAYER")?;
-                let axis = ["x", "y", "z"].iter().position(|a| *a == axis).context("--slice x|y|z,LAYER")?;
-                opts.slice = Some((axis, number("--slice x|y|z,LAYER", at)?));
+                const USAGE: &str = "--slice x|y|z,LAYER[,flip]";
+                let mut words = value.split(',');
+                let axis = words.next().and_then(|a| ["x", "y", "z"].iter().position(|x| *x == a)).context(USAGE)?;
+                let at = number(USAGE, words.next().context(USAGE)?)?;
+                let flip = match words.next() {
+                    None => false,
+                    Some("flip") => true,
+                    Some(other) => bail!("{USAGE}: flip or nothing after the layer, not {other}"),
+                };
+                anyhow::ensure!(words.next().is_none(), "{USAGE}: three words at most");
+                opts.slices.push((axis, at, flip));
             }
             "--click" => {
                 let n: Vec<f32> = numbers("--click X,Y (a pixel of the shot)", value)?;
