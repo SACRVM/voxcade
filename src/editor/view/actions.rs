@@ -428,7 +428,7 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::SelToPartMenu(at) => view.menu = Some(Menu { on: MenuOn::ToPart, at: if at == [0.0, 0.0] { view.menu.map_or(at, |m| m.at) } else { at } }),
         Action::SelCopy => ed.copy_selection(),
         Action::SelPaste => ed.paste(),
-        Action::SelClear => ed.clear_selection(),
+        Action::SelClear => ed.selecting(Editor::clear_selection),
         Action::ReplaceColour(c) => ed.replace_colour(c),
         Action::SelectMode(m) => ed.selecting.select_mode = m,
         Action::SelectThrough => ed.selecting.select_through = !ed.selecting.select_through,

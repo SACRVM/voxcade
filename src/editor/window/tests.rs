@@ -333,7 +333,14 @@ fn select_is_a_rectangle_on_the_screen() {
     let right = selected(&win).1;
     assert!(right < all && right > 0, "REMOVE: fewer ({right} of {all})");
     big::act(&mut win, view::Action::SelectMode(model::selection::SelectMode::New));
-    assert_eq!((file(&dir), win.ed.steps()), (start.clone(), 0), "selecting changes nothing");
+    // Selecting writes nothing, and each change of it is a step to take
+    // back: the selection as it was before.
+    assert_eq!(file(&dir), start, "selecting changes nothing");
+    assert!(win.ed.steps() > 0, "selecting is a step");
+    win.ed.undo();
+    assert_eq!(selected(&win).1, all, "UNDO: what REMOVE took out selected again");
+    win.ed.redo();
+    assert_eq!(selected(&win).1, right);
     // NEW PART, REMOVE, PAINT: each a step, undone byte for byte.
     for action in [view::Action::SelNewPart, view::Action::SelRemove, view::Action::SelPaint] {
         marquee(&mut win, h0, h1);

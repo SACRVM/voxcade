@@ -6,20 +6,31 @@ use super::*;
 impl Editor {
     /// Takes the last step back.
     pub fn undo(&mut self) {
+        self.seal(self.selecting.selection.clone());
         self.before_going();
         if let Some(step) = self.history.past.pop()
             && self.go(&step, false)
         {
+            let selected = matches!(step, Step::Selected(..));
             self.history.future.push(step);
+            let key = self.history.count();
+            if let Some((_, before, _)) = self.history.selections.iter().find(|s| s.0 == key && !selected) {
+                self.selecting.selection = before.clone();
+            }
         }
     }
 
     /// Takes the last step taken back again.
     pub fn redo(&mut self) {
+        self.seal(self.selecting.selection.clone());
         self.before_going();
         if let Some(step) = self.history.future.pop()
             && self.go(&step, true)
         {
+            let key = self.history.count();
+            if let Some((_, _, Some(after))) = self.history.selections.iter().find(|s| s.0 == key && !matches!(step, Step::Selected(..))) {
+                self.selecting.selection = after.clone();
+            }
             self.history.past.push(step);
         }
     }
@@ -52,6 +63,7 @@ impl Editor {
                 }
             }
             Step::Block(i, before, after) => self.blocks[*i] = if forward { after } else { before }.clone(),
+            Step::Selected(before, after) => self.selecting.selection = if forward { after } else { before }.clone(),
             Step::Model(before, after) => {
                 if let Some(model) = &mut self.model {
                     model.reshape(if forward { after } else { before });
@@ -163,6 +175,21 @@ impl Editor {
     /// kept to take back; as laid on the file, or dropped, where another
     /// program changed the file meanwhile.
     pub(super) fn commit(&mut self, mut step: Step) {
+        // The selection as this step finds it, for UNDO to bring back (as
+        // it leaves it: kept by `seal`, later); the newest 16 steps'.
+        let found = match &step {
+            Step::Selected(before, _) => before.clone(),
+            _ => self.selecting.selection.clone(),
+        };
+        self.seal(found.clone());
+        let key = self.history.count();
+        self.history.selections.retain(|s| s.0 < key);
+        if !matches!(step, Step::Selected(..)) {
+            self.history.selections.push((key, found, None));
+            if self.history.selections.len() > 16 {
+                self.history.selections.remove(0);
+            }
+        }
         self.follow_land(&mut step);
         match self.save(&step, true) {
             disk::Saved::Kept => {
@@ -179,6 +206,27 @@ impl Editor {
             disk::Saved::Dropped => {}
         }
         self.history.bound();
+    }
+
+    /// The newest step's selection after it, if not yet kept: `now`.
+    fn seal(&mut self, now: Option<selection::Selection>) {
+        if let Some(key) = self.history.count().checked_sub(1)
+            && let Some(kept) = self.history.selections.iter_mut().find(|s| s.0 == key && s.2.is_none())
+        {
+            kept.2 = Some(now);
+        }
+    }
+
+    /// A change of the selection alone (`change`: SELECT's rectangle let
+    /// go, a double click, CLEAR, Escape) is a step of its own to take
+    /// back, written nowhere.
+    pub fn selecting(&mut self, change: impl FnOnce(&mut Self)) {
+        let before = self.selection().cloned();
+        change(self);
+        let after = self.selection().cloned();
+        if before != after {
+            self.commit(Step::Selected(before, after));
+        }
     }
 
     /// Writes the level over the text it was opened from

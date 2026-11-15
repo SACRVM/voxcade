@@ -433,6 +433,10 @@ fn block_bytes(b: &Block) -> usize {
 }
 
 /// About how many bytes a model's step keeps of it.
+fn selection_bytes(s: &Option<selection::Selection>) -> usize {
+    s.as_ref().map_or(0, |s| s.count() * 2 * std::mem::size_of::<[i32; 3]>())
+}
+
 fn shaped_bytes(s: &Shaped) -> usize {
     s.frames.iter().map(block_bytes).sum::<usize>() + s.parts.len() * std::mem::size_of::<super::frames::Placed>() + s.palette.len() * std::mem::size_of::<super::frames::Colour>()
 }
@@ -447,6 +451,8 @@ enum Step {
     /// rigged (a stroke on one, or frames copied, taken out, turned, the
     /// box grown or trimmed, a part's parent or joint set).
     Model(Arc<Shaped>, Arc<Shaped>),
+    /// SELECT's selection made, grown, cut or cleared: nothing written.
+    Selected(Option<selection::Selection>, Option<selection::Selection>),
 }
 
 impl Step {
@@ -461,6 +467,7 @@ impl Step {
             Step::Block(_, b, a) => vec![(None, block_bytes(b)), (None, block_bytes(a))],
             Step::Delete(d) => vec![(None, block_bytes(&d.block)), level(&d.before), level(&d.after)],
             Step::Model(b, a) => vec![model(b), model(a)],
+            Step::Selected(b, a) => vec![(None, selection_bytes(b)), (None, selection_bytes(a))],
         }
     }
 
@@ -471,7 +478,7 @@ impl Step {
             Step::Level(b, a) => Some(Now::Level(Arc::clone(if forward { a } else { b }))),
             Step::Delete(d) => Some(Now::Level(Arc::clone(if forward { &d.after } else { &d.before }))),
             Step::Model(b, a) => Some(Now::Model(Arc::clone(if forward { a } else { b }))),
-            Step::Block(..) => None,
+            Step::Block(..) | Step::Selected(..) => None,
         }
     }
 }
@@ -538,6 +545,10 @@ pub struct History {
     /// grown on the low sides), and since the view last followed them.
     grown: IVec3,
     pub moved: IVec3,
+    /// The selection before and after the newest steps, by the step's
+    /// number (`count` as it was taken; after: once the next step, UNDO or
+    /// REDO has seen it, `Editor::seal`): UNDO and REDO bring it back.
+    selections: Vec<(usize, Option<selection::Selection>, Option<Option<selection::Selection>>)>,
 }
 
 impl Default for History {
@@ -553,6 +564,7 @@ impl Default for History {
             tuning: None,
             grown: IVec3::ZERO,
             moved: IVec3::ZERO,
+            selections: Vec::new(),
         }
     }
 }

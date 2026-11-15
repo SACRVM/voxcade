@@ -549,7 +549,7 @@ impl EditorWindow {
                         ed.select_points(view.view_proj(&view.level, aspect), size, at(m.from), at(m.to), m.mode);
                     } else {
                         let vp = view.view_proj(&view.block, aspect);
-                        ed.select_rect(vp, size, at(m.from), at(m.to), m.mode, ed.selecting.select_through);
+                        ed.selecting(|ed| ed.select_rect(vp, size, at(m.from), at(m.to), m.mode, ed.selecting.select_through));
                     }
                 }
             }
@@ -822,7 +822,7 @@ fn key_down(ed: &mut Editor, view: &mut View, keys: &[(char, view::Action)], key
         }
         // The selection: none selected; its voxels gone; copied,
         // pasted.
-        Keycode::Escape if ed.handle_drag().is_none() && view.menu.is_none() && ed.selection().is_some() => ed.clear_selection(),
+        Keycode::Escape if ed.handle_drag().is_none() && view.menu.is_none() && ed.selection().is_some() => ed.selecting(Editor::clear_selection),
         Keycode::Delete | Keycode::Backspace if ed.selection().is_some() => view::act(ed, view, view::Action::SelRemove),
         Keycode::C if ctrl && ed.selection().is_some() => view::act(ed, view, view::Action::SelCopy),
         Keycode::V if ctrl && ed.selecting.clipboard.is_some() => view::act(ed, view, view::Action::SelPaste),
@@ -1070,12 +1070,12 @@ impl<'a> Here<'a> {
                 match ed.scope {
                     Scope::Figure => {
                         if let Some((hit, p)) = ed.aim_whole(origin, dir) {
-                            ed.select_connected(hit.cell, Some(p), add);
+                            ed.selecting(|ed| ed.select_connected(hit.cell, Some(p), add));
                         }
                     }
                     _ => {
                         if let Some(hit) = view.aim(ed, aspect, sx, sy).filter(|h| h.cell.z >= 0) {
-                            ed.select_connected(hit.cell, None, add);
+                            ed.selecting(|ed| ed.select_connected(hit.cell, None, add));
                         }
                     }
                 }
@@ -1206,7 +1206,7 @@ impl<'a> Here<'a> {
             }
         } else if ed.selection().is_some() {
             // A click on empty space: none selected.
-            ed.clear_selection();
+            ed.selecting(Editor::clear_selection);
         } else if ed.part_mode().is_some() {
             // A part shaped, a click on empty space: the figure
             // whole again.

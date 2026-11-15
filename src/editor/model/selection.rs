@@ -1039,10 +1039,52 @@ mod tests {
         let m = ed.model.as_ref().unwrap();
         let o = m.parts.iter().find(|p| p.name == "arm").unwrap();
         assert!(block_cells(&m.frames[o.frame], o.low).is_empty(), "removed");
-        for _ in 0..5 {
+        // UNDO brings the selection back as it was before the step, REDO as
+        // after it.
+        ed.undo();
+        assert_eq!(ed.selection().map(Selection::count), Some(20), "selected again after UNDO");
+        ed.redo();
+        assert_eq!(ed.selection().map_or(0, Selection::count), 0, "gone again after REDO");
+        ed.undo();
+        assert_eq!(ed.selection().map(Selection::count), Some(20));
+        for _ in 0..4 {
             ed.undo();
         }
         assert_eq!(text(&dir), start, "five steps back");
+    }
+
+    /// Selecting is a step of its own, written nowhere: UNDO takes the
+    /// selection back to what it was, REDO makes it again; and a step that
+    /// left the selection alone (a color's material) keeps it through both.
+    #[test]
+    fn selecting_is_a_step_to_take_back() {
+        let (mut ed, mut view, dir) = figure("sel-undo");
+        let arm = part(&ed, "arm");
+        act(&mut ed, &mut view, Action::Part(arm));
+        let (start, n) = (text(&dir), ed.steps());
+        ed.selecting(|ed| ed.select_box_cells(IVec3::new(0, 0, 0), IVec3::new(1, 1, 1), false));
+        ed.selecting(|ed| ed.select_box_cells(IVec3::new(0, 0, 3), IVec3::new(1, 1, 4), true));
+        assert_eq!((ed.steps(), ed.selection().map(Selection::count)), (n + 2, Some(16)));
+        ed.selection_step(SelOp::Paint([9, 9, 9]));
+        assert_ne!(text(&dir), start);
+        ed.selecting(Editor::clear_selection);
+        assert!(ed.selection().is_none());
+        ed.undo();
+        assert_eq!(ed.selection().map(Selection::count), Some(16), "CLEAR taken back");
+        ed.undo();
+        assert_eq!((text(&dir), ed.selection().map(Selection::count)), (start.clone(), Some(16)), "the paint taken back, still selected");
+        ed.undo();
+        assert_eq!(ed.selection().map(Selection::count), Some(8), "the second rectangle taken back");
+        ed.undo();
+        assert!(ed.selection().is_none(), "and the first");
+        assert_eq!(text(&dir), start, "nothing written by selecting");
+        for _ in 0..3 {
+            ed.redo();
+        }
+        assert_eq!(ed.selection().map(Selection::count), Some(16));
+        assert_ne!(text(&dir), start, "painted again");
+        ed.redo();
+        assert!(ed.selection().is_none(), "cleared again");
     }
 
     /// DUPLICATE, then a move: the voxels stay where they were and a copy

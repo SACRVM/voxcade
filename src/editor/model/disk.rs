@@ -330,6 +330,7 @@ impl Editor {
             return Saved::Kept;
         }
         let (path, held) = match step {
+            Step::Selected(..) => return Saved::Kept,
             Step::Level(..) | Step::Delete(..) => (self.dir.join(&self.file), Held::Level),
             Step::Block(i, ..) => (blocks::path(&self.dir, &self.level.blocks[*i].name), Held::Block(*i)),
             Step::Model(..) => match &self.model {
@@ -356,6 +357,7 @@ impl Editor {
             Step::Level(..) | Step::Delete(..) => self.save_level(),
             Step::Block(i, ..) => self.blocks[*i].save_saying(&path),
             Step::Model(..) => self.model.as_mut().map_or(Ok(String::new()), ModelFile::save),
+            Step::Selected(..) => Ok(String::new()),
         };
         match written {
             Ok(text) => {
@@ -394,6 +396,7 @@ impl Editor {
                 let (b, a) = way(forward, b, a);
                 self.lay_model(b, a, path)
             }
+            Step::Selected(..) => return Saved::Kept,
         };
         self.history.past.clear();
         self.history.future.clear();

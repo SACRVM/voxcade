@@ -1870,7 +1870,15 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   of one frame becomes a figure) and in a figure MOVE TO PART…, COPY and PASTE (Ctrl+C, Ctrl+V: where it
   lay); each one step. FILL (W): the connected voxels of the color
   clicked, Ctrl every one of it. A swatch's right-click menu: REPLACE
-  WITH HELD, REMOVE (a model's unused color). `--select X0,Y0,Z0 --to
+  WITH HELD, REMOVE (a model's unused color).
+  The selection is part of UNDO and REDO (the owner, 2026-11-15): a
+  change of it alone (the rectangle let go, a double click, CLEAR,
+  Escape, a click on empty space) is a step that writes nothing
+  (`Step::Selected`, `Editor::selecting`), and every other step keeps
+  the selection as it found and left it (the newest 16,
+  `History::selections`, `Editor::seal`), so REMOVE taken back is
+  selected again; test `selecting_is_a_step_to_take_back`.
+  `--select X0,Y0,Z0 --to
   X1,Y1,Z1 [--selection remove|paint|duplicate|flip-x|rotate-z|new-part|move-to:PART|copy|paste|move:X,Y,Z]`,
   `--menu selection`, `--tool select|fill` in a shot; in a figure whole
   a part turned at rest is selected where the file has its voxels. A bar
