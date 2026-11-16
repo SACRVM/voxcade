@@ -171,7 +171,11 @@ fn part_bar(ui: &mut egui::Ui, ed: &Editor, free: Rect, view: &View, shown: &mut
         ui.add_space(6.0);
         small(ui, shown, "HIDE", Action::Hide(p), None, "Hide it from the picture (the outliner's mark shows it again)  H");
         small(ui, shown, "DUPLICATE", Action::DuplicatePart(p), None, "A copy of it where it stands, chosen to be moved away");
-        small(ui, shown, "CLONE", Action::ClonePart(p, false), None, "A part like it where it stands: the same voxels, a stroke on either shows on both");
+        let refused = ed.cannot_clone(p);
+        let tip = refused.clone().unwrap_or_else(|| "A part like it where it stands: the same voxels, a stroke on either shows on both".into());
+        if ui.add_enabled(refused.is_none(), egui::Button::new(RichText::new("CLONE").small())).on_hover_text(&tip).on_disabled_hover_text(&tip).clicked() {
+            shown.clicked.push(Action::ClonePart(p, false));
+        }
         let refused = ed.cannot_clone_mirrored(p);
         let tip = refused.clone().unwrap_or_else(|| "A part like it mirrored left to right, set across the figure's middle (a pair's partner: _left, _right)".into());
         if ui.add_enabled(refused.is_none(), egui::Button::new(RichText::new("CLONE MIRRORED").small())).on_hover_text(&tip).on_disabled_hover_text(&tip).clicked() {
@@ -282,10 +286,12 @@ fn frames(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, show
     // part (quiet with why for an animation of several).
     let refused = ed.cannot_have_parts();
     let tip = refused.unwrap_or("Add a part: the model becomes a figure, this frame its root part, a voxel of the color held on top of it the new part (named to type)");
-    let extras = [("+ PART", Action::AddPart(None), tip, refused.is_none())];
-    let extras = if parted { &extras[..0] } else { &extras[..] };
-    if !zones::group_with(ui, title, Some(frames.len()), "Its frames: a click shapes one (V and X: the one before, the next)", extras, shown) {
+    let empty_tip = refused.unwrap_or("Add an empty part: the model becomes a figure, the empty part (no voxels) its root and this frame a part hanging on it (named to type)");
+    if !zones::group(ui, title, Some(frames.len()), "Its frames: a click shapes one (V and X: the one before, the next)") {
         return;
+    }
+    if !parted {
+        adding(ui, shown, refused, tip, empty_tip);
     }
     for (a, word) in [(Action::Frame(-1), "PREVIOUS FRAME"), (Action::Frame(1), "NEXT FRAME")] {
         if let Some(k) = key_of(a) {
@@ -304,6 +310,23 @@ fn frames(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, show
     }
 }
 
+/// The buttons + PART and + EMPTY, left under a heading, at the hide marks' column
+/// (quiet with why, `refused`).
+fn adding(ui: &mut egui::Ui, shown: &mut PanelsDrawn, refused: Option<&str>, part_tip: &str, empty_tip: &str) {
+    ui.horizontal(|ui| {
+        ui.add_space(18.0);
+        for (word, action, tip) in [("+ PART", Action::AddPart(None), part_tip), ("+ EMPTY", Action::AddEmpty(None), empty_tip)] {
+            let tip = refused.unwrap_or(tip);
+            if ui.add_enabled(refused.is_none(), egui::Button::new(RichText::new(word).small())).on_hover_text(tip).on_disabled_hover_text(tip).clicked() {
+                shown.clicked.push(action);
+            }
+        }
+    });
+}
+
+/// What + EMPTY (ADD EMPTY) does, on hover.
+const EMPTY_TIP: &str = "Add an empty part: no voxels, a node parts hang on (as Blender's Empty), hanging on the part chosen at its joint; with the figure whole chosen, the new root everything hangs on (named to type)";
+
 /// A figure's parts by what they hang on, the root first: each its name
 /// (quiet while hidden), a sign and a word where it hangs oddly (the whole
 /// of it on hover), a mark at the left that hides it from the picture.
@@ -311,10 +334,13 @@ fn parts(ui: &mut egui::Ui, ed: &Editor, view: &View, figure: &Figure, name: &st
     // The heading's own buttons: SHOW ALL (quiet while none is hidden), +
     // a new part (each one click, always in view).
     let hidden = figure.hidden.iter().any(|&h| h);
-    let extras = [("SHOW ALL", Action::ShowAll, "Every part shown again", hidden), ("+", Action::AddPart(None), "Add a part: one voxel of the color held, on top of the part chosen, hanging on it (named to type)", true)];
+    let extras = [("SHOW ALL", Action::ShowAll, "Every part shown again", hidden)];
     if !zones::group_with(ui, "PARTS", Some(figure.parts().len()), "The figure's parts by what they hang on: a click shapes one, again the whole figure", &extras, shown) {
         return;
     }
+    // + PART and + EMPTY on a line of their own under the heading (three
+    // words on it ran over PARTS at the outliner's width).
+    adding(ui, shown, None, "Add a part: one voxel of the color held, on top of the part chosen, hanging on it (named to type)", EMPTY_TIP);
     // The figure whole first, the parts under it (the editor opens on it;
     // Escape or a click on empty space in the view comes back to it; a
     // stroke from it on a part keeps it chosen).
@@ -348,7 +374,8 @@ fn parts(ui: &mut egui::Ui, ed: &Editor, view: &View, figure: &Figure, name: &st
         let aside = link.as_ref().map(|(source, _)| source.as_str());
         let like = link.as_ref().map_or(String::new(), |(source, m)| format!("; like {source}{}", m.map_or(String::new(), |a| format!(", mirrored {}", crate::vvx::AXES[a]))));
         // (Its name as the game's code uses it: `thing.state.parts.NAME`.)
-        let tip = std::iter::once(format!("{} (in code: parts.{}): {by_hand}{like}", part.name, part.name)).chain(warnings.iter().cloned()).collect::<Vec<_>>().join("\n");
+        let empty = if part.empty.is_some() { "; empty: no voxels, the parts hanging on it move and turn with it" } else { "" };
+        let tip = std::iter::once(format!("{} (in code: parts.{}): {by_hand}{like}{empty}", part.name, part.name)).chain(warnings.iter().cloned()).collect::<Vec<_>>().join("\n");
         if view.renaming_part == Some(p) {
             ui.horizontal(|ui| {
                 ui.add_space(depth as f32 * 12.0 + 18.0);
@@ -381,9 +408,14 @@ fn parts(ui: &mut egui::Ui, ed: &Editor, view: &View, figure: &Figure, name: &st
         let r = ui
             .horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
-                ui.add_space(depth as f32 * 12.0);
+                // The hide marks in one column at the left edge, the rows
+                // indented by depth after it: the figure whole outermost,
+                // the root one step in under it (the owner saw the root's
+                // mark left of the figure's sign, as if outside it).
                 zones::hide_mark(ui, hidden, Action::Hide(p), shown);
-                zones::list_row_hinted(ui, Sort::Part, &part.name, 0.0, chosen, hidden, zones::warning_word(&warnings), aside, &tip, egui::Sense::click_and_drag())
+                ui.add_space(depth as f32 * 12.0);
+                let sort = if part.empty.is_some() { Sort::Empty } else { Sort::Part };
+                zones::list_row_hinted(ui, sort, &part.name, 0.0, chosen, hidden, zones::warning_word(&warnings), aside, &tip, egui::Sense::click_and_drag())
             })
             .inner;
         shown.rows.push((part.name.clone(), r.rect));
@@ -541,11 +573,12 @@ fn selection_rows(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
     if ed.figure.is_some() {
         row(ui, "", "", |ui| {
             // MOVE TO PART…: the parts to choose from.
-            let parts: Vec<String> = ed.figure.as_ref().map_or_else(Vec::new, |f| f.parts().iter().map(|p| p.name.clone()).collect());
+            // (Not into an empty part: it holds no voxels.)
+            let parts: Vec<(usize, String)> = ed.figure.as_ref().map_or_else(Vec::new, |f| f.parts().iter().enumerate().filter(|(_, p)| p.empty.is_none()).map(|(q, p)| (q, p.name.clone())).collect());
             ui.add_enabled_ui(ed.cannot_move_to_part().is_none(), |ui| {
                 ui.set_width(zones::col(2));
                 ui.menu_button(RichText::new("MOVE TO PART…").small().color(TEXT), |ui| {
-                    for (q, name) in parts.iter().enumerate() {
+                    for &(q, ref name) in &parts {
                         if ui.button(name.to_uppercase()).clicked() {
                             shown.clicked.push(Action::SelToPart(q));
                             ui.close();
@@ -875,8 +908,9 @@ fn rig(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, p: usize, shown: &mut Pa
     }
     // LIKE: the part whose voxels it shows (a clone), or none.
     like_rows(ui, ed, figure, p, shown);
-    // Its own box, and TRIM when it holds more than its voxels.
-    if let Some(b) = ed.shape() {
+    // Its own box, and TRIM when it holds more than its voxels (an empty
+    // part has none).
+    if let Some(b) = ed.shape().filter(|_| part.empty.is_none()) {
         let s = b.size;
         row(ui, "SIZE", "Its own box: voxels across, deep and up", |ui| {
             ui.label(format!("{} × {} × {}", s.x, s.y, s.z));
@@ -901,7 +935,8 @@ fn rig(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, p: usize, shown: &mut Pa
             }
         });
     }
-    // The root hangs on nothing and turns about no joint: neither row.
+    // The root hangs on nothing and turns about no joint: neither row; an
+    // empty root turns the figure about its joint: JOINT.
     let root = ed.root_chosen();
     if !root {
     row(ui, "PARENT", if by_hand { "What it hangs on: set by hand" } else { "What it hangs on: found by the rules" }, |ui| {
@@ -926,6 +961,8 @@ fn rig(ui: &mut egui::Ui, ed: &Editor, figure: &Figure, p: usize, shown: &mut Pa
             }
         });
     });
+    }
+    if !root || part.empty.is_some() {
     // From the pivot, halves of a voxel, as the file says it.
     let j = figure.file_joint(p);
     row(ui, "JOINT", if part.joint_by_hand { "Where it turns: set by hand (or drag its arrows)" } else { "Where it turns: found by the rules (or drag its arrows)" }, |ui| {
@@ -1060,6 +1097,7 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<zones::Entry> {
             }
             // (A model of one frame becomes a figure: + PART at FRAMES.)
             out.push(("ADD PART".into(), Action::AddPart(None), None, ed.cannot_have_parts().map(str::to_string)));
+            out.push(("ADD EMPTY".into(), Action::AddEmpty(None), None, ed.cannot_have_parts().map(str::to_string)));
         }
         MenuOn::Part(p) => {
             let Some(figure) = &ed.figure else { return out };
@@ -1072,8 +1110,9 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<zones::Entry> {
                 out.push(("SHOW ALL".into(), Action::ShowAll, None, None));
             }
             out.push(("ADD PART".into(), Action::AddPart(Some(p)), None, None));
+            out.push(("ADD EMPTY".into(), Action::AddEmpty(Some(p)), None, None));
             out.push(("DUPLICATE".into(), Action::DuplicatePart(p), None, None));
-            out.push(("CLONE".into(), Action::ClonePart(p, false), None, None));
+            out.push(("CLONE".into(), Action::ClonePart(p, false), None, ed.cannot_clone(p)));
             out.push(("CLONE MIRRORED".into(), Action::ClonePart(p, true), None, ed.cannot_clone_mirrored(p)));
             out.push(("MIRROR".into(), Action::MirrorPart(p), None, ed.cannot_mirror(p)));
             out.push(("RENAME".into(), Action::RenamePart(p), Some("F2"), None));
@@ -1102,7 +1141,7 @@ pub fn menu_entries(ed: &Editor, on: MenuOn) -> Vec<zones::Entry> {
         }
         MenuOn::ToPart => {
             if let Some(f) = &ed.figure {
-                for (q, o) in f.parts().iter().enumerate() {
+                for (q, o) in f.parts().iter().enumerate().filter(|(_, o)| o.empty.is_none()) {
                     out.push((o.name.to_uppercase(), Action::SelToPart(q), None, None));
                 }
             }

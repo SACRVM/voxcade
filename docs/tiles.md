@@ -159,6 +159,65 @@ at = [3, -3, 0]
   GAME --model FILE --shot OUT --clone NAME [--mirrored] --make-unique
   NAME --like NAME=SOURCE`; `edit --shot` and `voxcade sheet` print the
   clones.
+- An empty part (2026-11-16, Blender's Empty): a `[[part]]` with neither
+  `layers` nor `like` has no voxels; it is a node the others hang on.
+  Its `at` is where it stands (the pivot without one), and it takes
+  `parent`, `joint`, rest rotation and `offset` as any part. The first
+  empty part naming no parent is the root (before the biggest part
+  would be), turning about the middle of its cell unless its `joint`
+  says otherwise; a part hung on an empty part turns where that one
+  turns, an empty part where it stands. So a car's halves hang side by
+  side on an empty `car`, and a pose of `car` turns the whole car. A
+  clone of an empty part is a mistake, and so is a figure of empty parts
+  only. In the voxel editor its row has a sign of its own (three axes
+  crossing); + EMPTY (beside + PART at PARTS, ADD EMPTY in the menus)
+  makes one named `group`: on the part chosen, at its joint; with the
+  figure whole chosen, the new root at the pivot, the old root hanging on
+  it as it stood (a model of one frame becomes a figure so). The voxel
+  tools set nothing in it; CLONE, LIKE, MIRROR and MERGE are quiet with
+  why; MOVE, ROTATE, JOINT (an empty root's too), RENAME, REMOVE work as
+  for any part. `voxcade edit GAME --model FILE --shot OUT --add-empty
+  [NAME]`.
+
+```toml
+format = "voxcade voxel 1"
+size = [9, 6, 3]
+
+[palette]
+a = "#c03020"
+b = "#203040"
+
+[[part]]
+name = "car"
+at = [0, 0, 1]
+
+[[part]]
+name = "body_left"
+at = [-4, -2, 1]
+parent = "car"
+layers = """
+aaaaa *4
+
+..aaa *4
+"""
+
+[[part]]
+name = "body_right"
+like = "body_left"
+mirror = "x"
+at = [0, -2, 1]
+parent = "car"
+
+[[part]]
+name = "wheel_rl"
+at = [-4, -3, 0]
+parent = "car"
+layers = """
+bb
+
+bb
+"""
+```
 - A selection (2026-11-13): SELECT (L) is a rectangle dragged on the
   screen: the voxels of the active parts whose middles it holds (THROUGH:
   behind too; off: those seen); NEW, ADD, REMOVE beside the tools (Ctrl,

@@ -129,7 +129,9 @@ def _layers(cells, signs):
 def _write(path, size, blocks, kept=None):
     """blocks: (header lines, {(x, y, z): entry} in the model's box) a frame
     or part each, a third True for a clone (a part `like` another: its
-    `at`, no layers); a frame's header None."""
+    `at`, no layers), a fourth for an empty part (no layers, no like) where
+    it stands from the pivot (its `at`, written unless the pivot); a
+    frame's header None."""
     count = len({e for block in blocks for e in block[1].values()})
     signs = _Signs(count, kept)
     pivot = (size[0] // 2, size[1] // 2, 0)
@@ -137,6 +139,7 @@ def _write(path, size, blocks, kept=None):
     for block in blocks:
         head, cells = block[0], block[1]
         linked = len(block) > 2 and block[2]
+        empty = block[3] if len(block) > 3 else None
         low = tuple(min(p[a] for p in cells) for a in range(3)) if cells else (0, 0, 0)
         own = {tuple(p[a] - low[a] for a in range(3)): e for p, e in cells.items()}
         at = tuple(low[a] - pivot[a] for a in range(3))
@@ -146,10 +149,13 @@ def _write(path, size, blocks, kept=None):
                 body += "at = [%d, %d, %d]\n" % at
         else:
             body += "\n[[part]]\n" + head[0]
-            if cells:
+            if empty is not None:
+                if tuple(empty) != (0, 0, 0):
+                    body += "at = [%d, %d, %d]\n" % tuple(empty)
+            elif cells:
                 body += "at = [%d, %d, %d]\n" % at
             body += "".join(head[1:])
-        if not linked:
+        if not linked and empty is None:
             body += _layers(own, signs)
     text = f'format = "{FORMAT}"\nsize = [{size[0]}, {size[1]}, {size[2]}]\n\n[palette]\n' + signs.lines() + body
     with open(path, "w") as f:
@@ -222,10 +228,13 @@ def write_parts(path, parts, colours, materials=None):
 def read(path):
     """A model file as {"size", "palette": {sign: entry text}, "colours":
     {sign: (r, g, b)}, "frames": [{(x, y, z): sign}], "parts": [(name,
-    {(x, y, z): sign}, extra lines)], "links": {name: (source, mirror)}},
+    {(x, y, z): sign}, extra lines)], "links": {name: (source, mirror)},
+    "empties": {name: (x, y, z)}},
     places in the model's box from 0. A clone (`like`, perhaps `mirror` =
     "x", "y" or "z") has its source's cells, mirrored within the source's
-    box so, its box's low corner at its `at`. A world's or a prefab's
+    box so, its box's low corner at its `at`. An empty part (neither
+    `layers` nor `like`) has no cells; "empties" says where it stands from
+    the pivot (its `at`, the pivot unless set). A world's or a prefab's
     markers ({ marker = "kind" }) as "markers": {sign: kind}, their cells in
     the frame too."""
     with open(path, "rb") as f:
@@ -276,8 +285,10 @@ def read(path):
 
     box = [-pivot[0], -pivot[1], 0]
     frames = [cells(t, box) for t in data.get("frame", [])]
-    parts, links = [], {}
+    parts, links, empties = [], {}, {}
     for t in data.get("part", []):
+        if "layers" not in t and "like" not in t:
+            empties[t["name"]] = tuple(t.get("at", (0, 0, 0)))
         extra = _offset_line(t.get("offset", (0, 0, 0)))
         extra += "".join(f'{k} = "{t[k]}"\n' if isinstance(t[k], str) else f"{k} = [{', '.join(str(v) for v in t[k])}]\n" for k in ("parent", "joint") if k in t)
         extra += _rest_lines(t.get("rotation", 0), t.get("pitch", 0), t.get("roll", 0))
@@ -303,7 +314,7 @@ def read(path):
                     d[a] = hi[a] - lo[a] - d[a]
                 out[(at[0] + pivot[0] + d[0], at[1] + pivot[1] + d[1], at[2] + d[2])] = s
         parts[k] = (name, out, extra)
-    return {"size": size, "palette": palette, "colours": colours, "markers": markers, "frames": frames, "parts": parts, "links": links}
+    return {"size": size, "palette": palette, "colours": colours, "markers": markers, "frames": frames, "parts": parts, "links": links, "empties": empties}
 
 
 def write_model(path, model, kept=None):
@@ -321,7 +332,8 @@ def write_model(path, model, kept=None):
         return f'name = "{name}"\nlike = "{link[0]}"\n' + (f'mirror = "{link[1]}"\n' if link[1] else "")
 
     if model["parts"]:
-        blocks = [([head(name), extra], entries(cells), name in model.get("links", {})) for name, cells, extra in model["parts"]]
+        empties = model.get("empties", {})
+        blocks = [([head(name), extra], entries(cells), name in model.get("links", {}), empties.get(name)) for name, cells, extra in model["parts"]]
     else:
         blocks = [(None, entries(cells)) for cells in model["frames"]]
     _write(path, model["size"], blocks, kept)

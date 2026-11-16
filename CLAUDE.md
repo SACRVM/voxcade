@@ -755,7 +755,16 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   clone counts as its own voxels; resolved as the file is read,
   `vvx::clone_voxels`, so nothing downstream knows; tests
   `a_clone_is_its_source_written_out`, `a_clones_mistakes_say_their_line`,
-  `the_python_writer_keeps_clones_as_the_engine`). MagicaVoxel's `.vox` is only brought in
+  `the_python_writer_keeps_clones_as_the_engine`; a `[[part]]` with
+  neither `layers` nor `like` is an empty part, Blender's Empty, the
+  owner's 2026-11-16: no voxels, a node the others hang on, its `at`
+  where it stands (the pivot unless set; `vvx::Piece::empty`,
+  `vox::Part::empty`), the first naming no parent the root (`parts_of`,
+  turning about its cell's middle), a part on it turning where it turns;
+  no clone of one, no figure of empties only; tests
+  `an_empty_part_is_a_node_the_others_hang_on`,
+  `an_empty_parts_mistakes_say_their_line`,
+  `an_empty_roots_parts_turn_with_it`). MagicaVoxel's `.vox` is only brought in
   (`voxcade import`, `voxcade upgrade`); JSON is gone from a game (the
   owner: it only gets in the way of git's diffs), but for `.mcp.json`
   and LuaLS's `.luarc.json` (other programs' files) and a Tiled map read
@@ -1854,7 +1863,21 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   clone trims its source; SYMMETRY's partner that is the same voxels
   takes nothing twice (`land_on_partner`); `--clone NAME [--mirrored]`,
   `--make-unique NAME`, `--like NAME=SOURCE`; tests in
-  `editor/model/link_tests.rs`. POSE (the top
+  `editor/model/link_tests.rs`. An empty part in the editor
+  (`Placed::empty`, a frame of one voxel left empty): its own sign in
+  the tree (`zones::Sort::Empty`), never warned of as loose, nor what
+  hangs on it; + EMPTY beside + PART on a line under PARTS (and under
+  FRAMES), ADD EMPTY in the menus (`Editor::add_empty`, named `group`):
+  on the part chosen at its joint, with the figure whole the new root at
+  the pivot, the old root hanging on it as it stood (a model of one frame
+  becomes a figure so); the tools set nothing in it
+  (`Editor::shaping_empty`), CLONE, LIKE, MIRROR, MERGE quiet with why,
+  an empty root has JOINT and its ring; the last part with voxels is not
+  removed; `--add-empty [NAME]`; tests `an_empty_part_becomes_the_root_and_nothing_rehangs`,
+  `an_empty_part_on_a_part_holds_no_voxels`. The parts' hide marks
+  stand in one column at the left edge, the rows indented after it: the
+  figure whole outermost, the root one step in under it (test
+  `the_tree_reads_as_a_tree_and_an_empty_part_takes_no_voxel`). POSE (the top
   bar): the rings and the POSE row turn parts on top of their rest,
   nothing written (`Editor::pose`, `Figure::pose`, `session::part_posed`),
   the pose as Lua for `frame:model` with COPY and RESET; off, the rest

@@ -130,7 +130,8 @@ pub fn logo_model_parts(model: &crate::vox::VoxModel) -> (Vec3, Vec<(Vec<Instanc
     let front = frame.iter().map(|(p, _)| p.y).max().unwrap_or(0);
     let at = |p: IVec3| Vec3::new(p.x as f32, p.z as f32, p.y as f32);
     let all: Vec<u32> = (0..frame.len() as u32).collect();
-    let parts: Vec<&[u32]> = if model.parts.is_empty() { vec![&all] } else { model.parts.iter().map(|p| p.voxels.as_slice()).collect() };
+    // (An empty part has nothing to drop in.)
+    let parts: Vec<&[u32]> = if model.parts.is_empty() { vec![&all] } else { model.parts.iter().map(|p| p.voxels.as_slice()).filter(|v| !v.is_empty()).collect() };
     let parts = parts
         .into_iter()
         .map(|voxels| {

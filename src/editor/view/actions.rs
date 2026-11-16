@@ -75,6 +75,8 @@ pub enum Action {
     /// figure whole's row, refused).
     Reparent(usize, usize),
     AddPart(Option<usize>),
+    /// ADD EMPTY (+ EMPTY): an empty part, on the part given or chosen.
+    AddEmpty(Option<usize>),
     RemovePart(usize),
     MergeInto(usize, usize),
     MergeMenu(usize, [f32; 2]),
@@ -462,6 +464,13 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
                 ed.choose_part(p);
             }
             ed.add_part();
+            view.renaming_part = ed.figure.as_ref().and_then(|f| f.selected);
+        }
+        Action::AddEmpty(on) => {
+            if let Some(p) = on.filter(|&p| ed.figure.as_ref().is_some_and(|f| f.selected != Some(p))) {
+                ed.choose_part(p);
+            }
+            ed.add_empty(None);
             view.renaming_part = ed.figure.as_ref().and_then(|f| f.selected);
         }
         Action::RemovePart(p) => ed.remove_part(p),

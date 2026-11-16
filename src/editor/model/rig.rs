@@ -180,7 +180,8 @@ impl Editor {
     /// Where the chosen part's joint lies in the grid shown (its ring).
     pub fn joint_spot(&self) -> Option<Vec3> {
         let figure = self.figure.as_ref()?;
-        let p = figure.selected.filter(|_| self.part_mode().is_some() && !self.root_chosen())?;
+        // (An empty root turns the figure: its joint has a ring.)
+        let p = figure.selected.filter(|&p| self.part_mode().is_some() && (!self.root_chosen() || figure.parts()[p].empty.is_some()))?;
         let (lo, _) = self.figure_box()?;
         Some(figure.joint(p) + lo.as_vec3())
     }
