@@ -196,6 +196,9 @@ impl Editor {
     /// Why part `p` cannot be mirrored (None: it can): its name says no
     /// side.
     pub fn cannot_mirror(&self, p: usize) -> Option<String> {
+        if let Some(why) = self.cannot_clone(p) {
+            return Some(why);
+        }
         let name = &self.figure.as_ref()?.parts().get(p)?.name;
         partner_name(name).is_none().then(|| format!("Name it {name}_left or {name}_right (or _l, _r) first: its partner is named after it"))
     }
@@ -419,9 +422,11 @@ impl Editor {
                 .max_by(|a, c| a.z.cmp(&c.z).then_with(|| (c.truncate().as_vec2() - middle).length_squared().total_cmp(&(a.truncate().as_vec2() - middle).length_squared())))
                 .map(|c| c + o.low)
         };
+        // (On an empty part: in the cell it stands in.)
         let on = match chosen.and_then(|p| self.placed(p)) {
+            Some(k) if m.parts[k].empty => Some((k, m.parts[k].low - IVec3::Z)),
             Some(k) => top(k).map(|c| (k, c)),
-            None => (0..m.parts.len()).filter_map(|k| top(k).map(|c| (k, c))).max_by_key(|&(_, c)| c.z),
+            None => (0..m.parts.len()).filter(|&k| !m.parts[k].empty).filter_map(|k| top(k).map(|c| (k, c))).max_by_key(|&(_, c)| c.z),
         };
         let Some((k, below)) = on else { return };
         let name = self.free_part_name("part");
@@ -439,12 +444,101 @@ impl Editor {
         self.choose_named(&name);
     }
 
+    /// ADD EMPTY (+ EMPTY): a new empty part (no voxels, a node the others
+    /// hang on), named `name` where that is a free word, else the next
+    /// free `group`; chosen, a step. On the part chosen: hanging on it,
+    /// standing where its joint is (turning there). The figure whole
+    /// chosen: on the root, at the pivot, where the root is empty already;
+    /// else the new root at the pivot, the old root hanging on it where it
+    /// stands, turning where it turned. A model of one frame becomes a
+    /// figure in the same step: the empty part its root, the frame a part
+    /// hanging on it (`made_figure`).
+    pub fn add_empty(&mut self, name: Option<&str>) {
+        if self.cannot_have_parts().is_some() {
+            return;
+        }
+        self.follow_figure();
+        let chosen = self.figure.as_ref().and_then(|f| f.selected).filter(|_| !self.rigging.painting_whole);
+        let root = self.root_name();
+        let Some(m) = self.model.as_ref() else { return };
+        let one_frame = !m.parted();
+        let taken = |n: &str| m.parts.iter().any(|o| o.name == n) || (one_frame && n == root);
+        let name = match name.map(str::trim).filter(|n| is_word(n) && !taken(n)) {
+            Some(n) => n.to_string(),
+            None => {
+                let base = self.free_part_name(name.map(str::trim).filter(|n| is_word(n)).unwrap_or("group"));
+                if one_frame && base == root { self.free_part_name(&format!("{base}_2")) } else { base }
+            }
+        };
+        // Where it hangs and stands (from the pivot), its joint where that
+        // is not its cell's middle, and the old root it takes the place of
+        // (with the joint it turned about).
+        type Under = Option<(String, Vec3)>;
+        let (parent, at, joint, under): (Option<String>, IVec3, Option<Vec3>, Under) = match (chosen, self.figure.as_ref()) {
+            (Some(p), Some(f)) => {
+                let j = f.file_joint(p);
+                let at = j.floor().as_ivec3();
+                (Some(f.parts()[p].name.clone()), at, (j != at.as_vec3() + 0.5).then_some(j), None)
+            }
+            (None, Some(f)) => {
+                let r = f.tree.first().map_or(0, |&(r, _)| r);
+                match f.parts()[r].empty {
+                    Some(_) => (Some(f.parts()[r].name.clone()), IVec3::ZERO, None, None),
+                    None => (None, IVec3::ZERO, None, Some((f.parts()[r].name.clone(), f.file_joint(r)))),
+                }
+            }
+            // A model of one frame: the frame the part under it.
+            _ => (None, IVec3::ZERO, None, Some((root.clone(), Vec3::ZERO))),
+        };
+        let new = name.clone();
+        let acted = std::iter::once(name.clone()).chain(under.iter().map(|(n, _)| n.clone())).collect();
+        self.acting_on(acted);
+        self.change_model_file(move |m| {
+            let one_frame = !m.parted();
+            made_figure(m, &root);
+            if let Some((old, joint)) = &under
+                && let Some(o) = m.parts.iter_mut().find(|o| &o.name == old)
+            {
+                o.parent = Some(new.clone());
+                // (Turning where it turned as the root; a frame just made a
+                // part turns where the empty part does.)
+                if !one_frame && o.joint.is_none() {
+                    o.joint = Some(*joint);
+                }
+            }
+            m.frames.push(Block::boxed(IVec3::ONE));
+            m.parts.push(Placed { name: new, frame: m.frames.len() - 1, low: at, parent, joint, empty: true, ..Placed::default() });
+        });
+        self.choose_named(&name);
+    }
+
+    /// Whether part `p` is empty (no voxels: `vox::Part::empty`).
+    pub fn part_empty(&self, p: usize) -> bool {
+        self.figure.as_ref().and_then(|f| f.parts().get(p)).is_some_and(|o| o.empty.is_some())
+    }
+
+    /// Whether the part shaped now is an empty one: no tool sets a voxel
+    /// in it.
+    pub fn shaping_empty(&self) -> bool {
+        let (Some(f), Some(m)) = (self.part_mode(), self.model.as_ref()) else { return false };
+        m.parts.iter().any(|o| o.frame == f && o.empty)
+    }
+
+    /// Why part `p` cannot be cloned (None: it can): an empty part has no
+    /// voxels to share.
+    pub fn cannot_clone(&self, p: usize) -> Option<String> {
+        self.part_empty(p).then(|| "An empty part has no voxels to share".to_string())
+    }
+
     /// Why part `p` cannot be removed (None: it can): the root part while
-    /// others hang on it, the last part.
+    /// others hang on it, the last part, the last part with voxels.
     pub fn cannot_remove(&self, p: usize) -> Option<&'static str> {
         let figure = self.figure.as_ref()?;
         if figure.parts().len() < 2 {
             return Some("A figure keeps one part at least");
+        }
+        if figure.parts()[p].empty.is_none() && figure.parts().iter().enumerate().all(|(q, o)| q == p || o.empty.is_some()) {
+            return Some("A figure keeps one part with voxels at least");
         }
         let hangs = figure.parts().iter().any(|o| o.parent == Some(p));
         (figure.parts()[p].parent.is_none() && hangs).then_some("The root part: the others hang on it (merge into it, or hang them elsewhere first)")
@@ -523,6 +617,9 @@ impl Editor {
         let m = self.model.as_ref()?;
         if a == b {
             return Some("A part cannot be merged into itself");
+        }
+        if m.parts[a].empty || m.parts[b].empty {
+            return Some("An empty part has no voxels to merge: REMOVE it, or hang the parts elsewhere");
         }
         let alike = m.parts[a].rotation == m.parts[b].rotation;
         if !alike && self.merge_map(src, into).is_none() {
@@ -642,6 +739,9 @@ impl Editor {
     /// Why part `p` cannot be cloned mirrored (None: it can): a clone
     /// mirrored along y or z (two mirrors), a pair's partner already there.
     pub fn cannot_clone_mirrored(&self, p: usize) -> Option<String> {
+        if let Some(why) = self.cannot_clone(p) {
+            return Some(why);
+        }
         let name = &self.figure.as_ref()?.parts().get(p)?.name;
         if self.link_to_show(p, true).is_none() {
             return Some(format!("{name} is mirrored along another axis: a clone of it mirrored left to right would need two mirrors (MAKE UNIQUE first)"));
@@ -659,7 +759,7 @@ impl Editor {
     /// source. A step.
     pub fn clone_part(&mut self, p: usize, mirrored: bool) {
         self.follow_figure();
-        if mirrored && self.cannot_clone_mirrored(p).is_some() {
+        if self.cannot_clone(p).is_some() || mirrored && self.cannot_clone_mirrored(p).is_some() {
             return;
         }
         let (Some(k), Some(figure), Some(mid), Some((like, mirror))) = (self.placed(p), &self.figure, self.middle_x(), self.link_to_show(p, mirrored)) else { return };
@@ -721,13 +821,19 @@ impl Editor {
         if !m.clones_of(&m.parts[k].name).is_empty() {
             return Vec::new();
         }
-        m.parts.iter().enumerate().filter(|(i, o)| *i != k && o.like.is_none()).map(|(_, o)| o.name.clone()).collect()
+        if m.parts[k].empty {
+            return Vec::new();
+        }
+        m.parts.iter().enumerate().filter(|(i, o)| *i != k && o.like.is_none() && !o.empty).map(|(_, o)| o.name.clone()).collect()
     }
 
     /// Why part `p` cannot be linked to another (None: it can).
     pub fn cannot_link(&self, p: usize) -> Option<String> {
         let (m, k) = (self.model.as_ref()?, self.placed(p)?);
         let name = &m.parts[k].name;
+        if m.parts[k].empty {
+            return Some("An empty part has no voxels: it is like no other part".to_string());
+        }
         if !m.clones_of(name).is_empty() {
             return Some(format!("Parts are like {name}: a source cannot be a clone (MAKE UNIQUE them first)"));
         }
@@ -1917,5 +2023,136 @@ pub(crate) mod tests {
         assert_eq!(with - without, 6 * 5, "the plate's cells gone");
         act(&mut ed, &mut view, Action::Floor);
         assert_eq!(up(&ed).map(|h| h.cell.z), Some(-1));
+    }
+
+    /// ADD EMPTY with the figure whole chosen: an empty part `group` the new
+    /// root at the pivot, the old root hanging on it where it stands and
+    /// turning where it turned, every other part's rig as it was; one
+    /// step, UNDO gives the file back byte for byte. Chosen, named to type;
+    /// warned of nothing.
+    #[test]
+    fn an_empty_part_becomes_the_root_and_nothing_rehangs() {
+        let (mut ed, mut view, dir) = figure("empty-root");
+        let (before, file) = (rig(&ed), text(&dir));
+        let steps = ed.steps();
+        act(&mut ed, &mut view, Action::AddEmpty(None));
+        assert_eq!(ed.steps(), steps + 1, "one step");
+        assert_eq!(names(&ed), ["body", "head", "arm", "hand", "group"]);
+        let f = ed.figure.as_ref().unwrap();
+        let group = part(&ed, "group");
+        assert_eq!((f.selected, view.renaming_part), (Some(group), Some(group)), "chosen, named to type");
+        assert_eq!((f.parts()[group].parent, f.parts()[group].empty), (None, Some(IVec3::ZERO)), "the root, at the pivot");
+        assert_eq!(f.tree[0].0, group, "first in the list");
+        let now = rig(&ed);
+        assert_eq!(now["body"], (Some("group".to_string()), before["body"].1), "the old root on it, turning where it turned");
+        for name in ["head", "arm", "hand"] {
+            assert_eq!(now[name], before[name], "{name} re-hung");
+        }
+        assert!((0..f.parts().len()).all(|p| f.warnings(p).is_empty()), "nothing to warn of");
+        assert!(text(&dir).contains("\n[[part]]\nname = \"group\"\n") && !text(&dir).contains("name = \"group\"\nat"), "{}", text(&dir));
+        ed.undo();
+        assert_eq!(text(&dir), file, "UNDO: the file as it was");
+        ed.redo();
+        assert_eq!(rig(&ed), now);
+        // Again with the figure whole: on the empty root, at the pivot.
+        act(&mut ed, &mut view, Action::WholeFigure);
+        act(&mut ed, &mut view, Action::AddEmpty(None));
+        assert_eq!(rig(&ed)["group_2"].0.as_deref(), Some("group"));
+    }
+
+    /// ADD EMPTY on a part: an empty part hanging on it where its joint is;
+    /// the voxel tools set nothing in it (no step), TRIM has nothing to
+    /// cut, CLONE, MIRROR, LIKE and MERGE are refused with why; ADD PART on
+    /// it sets a voxel in its cell, hanging on it; MOVE takes what hangs on
+    /// it along; REMOVE hangs that on its parent where it stands.
+    #[test]
+    fn an_empty_part_on_a_part_holds_no_voxels() {
+        let (mut ed, mut view, dir) = figure("empty-on");
+        let arm = part(&ed, "arm");
+        act(&mut ed, &mut view, Action::Part(arm));
+        let joint = ed.figure.as_ref().unwrap().file_joint(arm);
+        act(&mut ed, &mut view, Action::AddEmpty(None));
+        let e = part(&ed, "group");
+        let f = ed.figure.as_ref().unwrap();
+        assert_eq!((f.parts()[e].parent, f.parts()[e].empty), (Some(arm), Some(joint.floor().as_ivec3())));
+        assert_eq!(f.file_joint(e), joint, "turning where the arm does");
+        assert!(ed.shaping_empty());
+        // The tools: nothing set, no step.
+        let (steps, file) = (ed.steps(), text(&dir));
+        for tool in [crate::editor::model::Tool::Add, crate::editor::model::Tool::Box, crate::editor::model::Tool::Fill] {
+            ed.choose(tool);
+            let hit = crate::editor::model::Hit { cell: IVec3::ZERO, normal: IVec3::Z };
+            if tool == crate::editor::model::Tool::Box {
+                ed.begin_form(hit, false);
+            } else {
+                ed.press(hit);
+            }
+            ed.release();
+        }
+        ed.choose(crate::editor::model::Tool::Pointer);
+        assert_eq!((ed.steps(), text(&dir)), (steps, file), "an empty part takes no voxel");
+        assert!(!ed.can_trim(), "TRIM quiet");
+        assert!(ed.cannot_clone(e).is_some() && ed.cannot_clone_mirrored(e).is_some() && ed.cannot_link(e).is_some());
+        assert!(ed.cannot_merge(e, arm).is_some() && ed.cannot_merge(arm, e).is_some());
+        assert!(!ed.possible_sources(arm).contains(&"group".to_string()), "no clone of an empty part");
+        act(&mut ed, &mut view, Action::ClonePart(e, false));
+        assert_eq!(ed.steps(), steps, "CLONE refused");
+        // ADD PART on it: a voxel in its cell, hanging on it.
+        act(&mut ed, &mut view, Action::AddPart(None));
+        let new = part(&ed, "part");
+        let m = ed.model.as_ref().unwrap();
+        let o = m.parts.iter().find(|o| o.name == "part").unwrap();
+        assert_eq!((o.low, o.parent.as_deref()), (joint.floor().as_ivec3(), Some("group")));
+        assert_eq!(ed.figure.as_ref().unwrap().parts()[new].parent, Some(part(&ed, "group")));
+        // MOVE the empty part: the new part along.
+        let e = part(&ed, "group");
+        act(&mut ed, &mut view, Action::Part(e));
+        let low = |ed: &Editor, n: &str| ed.model.as_ref().unwrap().parts.iter().find(|o| o.name == n).unwrap().low;
+        let (was_e, was_p) = (low(&ed, "group"), low(&ed, "part"));
+        ed.move_part(IVec3::X * 2);
+        assert_eq!((low(&ed, "group"), low(&ed, "part")), (was_e + IVec3::X * 2, was_p + IVec3::X * 2));
+        // REMOVE it: the part hangs on the arm where it stands.
+        let e = part(&ed, "group");
+        act(&mut ed, &mut view, Action::RemovePart(e));
+        assert_eq!(rig(&ed)["part"].0.as_deref(), Some("arm"));
+        assert_eq!(low(&ed, "part"), was_p + IVec3::X * 2);
+    }
+
+    /// The last part with voxels cannot go while empty parts remain; a
+    /// part's row dropped on an empty part's hangs it there.
+    #[test]
+    fn an_empty_part_takes_parts_dropped_on_it() {
+        let (mut ed, mut view, _dir) = figure("empty-drop");
+        act(&mut ed, &mut view, Action::AddEmpty(None));
+        let (group, head) = (part(&ed, "group"), part(&ed, "head"));
+        ed.reparent(head, group).unwrap();
+        assert_eq!(rig(&ed)["head"].0.as_deref(), Some("group"));
+        assert!(ed.reparent(part(&ed, "group"), part(&ed, "body")).is_err(), "the root hangs on nothing");
+        for name in ["head", "arm", "hand"] {
+            let p = part(&ed, name);
+            if ed.cannot_remove(p).is_none() {
+                act(&mut ed, &mut view, Action::RemovePart(p));
+            }
+        }
+        assert!(ed.cannot_remove(part(&ed, "body")).is_some_and(|w| w.contains("voxels")), "{:?}", ed.cannot_remove(part(&ed, "body")));
+    }
+
+    /// ADD EMPTY in a model of one frame: one step makes it a figure, the
+    /// empty part `group` its root at the pivot, the frame a part named as
+    /// the file hanging on it, every voxel where it stood; UNDO gives the
+    /// frame back byte for byte.
+    #[test]
+    fn a_model_of_one_frame_becomes_a_figure_by_add_empty() {
+        let (mut ed, mut view, dir) = one_frame("one-frame-empty", "car.vvx", 1);
+        let before = std::fs::read_to_string(dir.join("car.vvx")).unwrap();
+        act(&mut ed, &mut view, Action::AddEmpty(None));
+        let after = std::fs::read_to_string(dir.join("car.vvx")).unwrap();
+        assert_eq!(names(&ed), ["car", "group"]);
+        assert_eq!(drawn(&after), drawn(&before), "every voxel where it stood");
+        assert_eq!(rig(&ed)["car"].0.as_deref(), Some("group"));
+        let f = ed.figure.as_ref().unwrap();
+        assert_eq!((f.tree[0].0, f.selected), (part(&ed, "group"), Some(part(&ed, "group"))));
+        ed.undo();
+        assert_eq!(std::fs::read_to_string(dir.join("car.vvx")).unwrap(), before);
     }
 }

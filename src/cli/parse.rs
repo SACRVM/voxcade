@@ -471,6 +471,11 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
     let mut shot = false;
     let mut f = Flags::new("edit", rest);
     while let Some((flag, opt)) = f.next()? {
+        // ADD EMPTY, its name or none (`group`).
+        if flag == "--add-empty" {
+            opts.add_empty = Some(f.it.next_if(|w| !w.starts_with("--")).cloned().unwrap_or_default());
+            continue;
+        }
         if opt.value.is_empty() {
             match flag {
                 "--things" => opts.things = true,

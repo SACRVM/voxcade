@@ -71,7 +71,12 @@ pub struct VoxModel {
 /// `crate::vvx`). A parent so named wins, and the joint is then worked out
 /// against it (the middle of where they meet, else between their nearest
 /// voxels); a joint so placed wins over the one worked out. The root is
-/// the biggest part that names no parent. Halves are a joint's steps (a
+/// the biggest part that names no parent, but for an empty part (no
+/// voxels, `empty`, a node the others hang on): the first empty part
+/// naming no parent is the root, turning about the middle of the cell it
+/// stands in unless its joint is stated; an empty part naming no parent
+/// that is not the root hangs on the root, and any part hung on an empty
+/// part turns where that one turns, an empty part where it stands. Halves are a joint's steps (a
 /// corner, an edge's or a face's middle, a voxel's). A MagicaVoxel figure
 /// brought in may say the same as `_parent` and `_joint` on the transform
 /// node that carries the object's `_name` (a joint in the space of the
@@ -109,6 +114,9 @@ pub struct Part {
     /// the list, how many voxels): the game reads none of it.
     pub hung: Hung,
     pub overlaps: Vec<(usize, u32)>,
+    /// An empty part (`vvx::Piece::empty`): no voxels, where it stands from
+    /// the model's pivot. None for a part with voxels.
+    pub empty: Option<IVec3>,
 }
 
 /// How a part came to hang where it hangs (`parts_of`), so that the editor
@@ -175,9 +183,13 @@ pub fn ring(parents: &[Option<usize>], p: usize) -> Option<Vec<usize>> {
 /// The parts of a figure (`Part`): `owner` says whose each voxel of `frame`
 /// is, `names` the parts in order, `stated` what the file says of each
 /// (its parent, its joint from the frame's low corner; no ring among the
-/// parents, `ring`).
-pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<String>, size: IVec3, stated: &[(Option<usize>, Option<Vec3>)]) -> Vec<Part> {
+/// parents, `ring`), `empty` which parts are empty and the cell each
+/// stands in (from the frame's low corner).
+pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<String>, size: IVec3, stated: &[(Option<usize>, Option<Vec3>)], empty: &[Option<IVec3>]) -> Vec<Part> {
     let count = names.len();
+    let empty_at = |p: usize| empty.get(p).copied().flatten();
+    // Where an empty part stands: the middle of its cell.
+    let point = |p: usize| empty_at(p).map(|c| c.as_vec3() + 0.5);
     let cells: crate::world::CellMap<usize> = frame.iter().zip(owner).map(|((v, _), &o)| (*v, o)).collect();
     let pivot = IVec3::new(size.x / 2, size.y / 2, 0).as_vec3();
     // Faces two parts share, and the middles of those faces added up.
@@ -193,11 +205,15 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
     }
     let members: Vec<Vec<u32>> = (0..count).map(|p| (0..owner.len() as u32).filter(|&k| owner[k as usize] == p).collect()).collect();
     let middle = |p: usize| members[p].iter().map(|&k| frame[k as usize].0.as_vec3() + 0.5).sum::<Vec3>() / members[p].len().max(1) as f32;
-    // The root: the biggest part naming no parent.
-    let root = (0..count).filter(|&p| stated[p].0.is_none()).max_by_key(|&p| (members[p].len(), std::cmp::Reverse(p))).unwrap_or(0);
+    // The root: the first empty part naming no parent, else the biggest
+    // part naming none.
+    let root = (0..count)
+        .find(|&p| empty_at(p).is_some() && stated[p].0.is_none())
+        .or_else(|| (0..count).filter(|&p| stated[p].0.is_none()).max_by_key(|&p| (members[p].len(), std::cmp::Reverse(p))))
+        .unwrap_or(0);
     let mut parent: Vec<Option<usize>> = vec![None; count];
     let mut joint: Vec<Vec3> = vec![Vec3::ZERO; count];
-    joint[root] = stated[root].1.unwrap_or_else(|| middle(root));
+    joint[root] = stated[root].1.unwrap_or_else(|| point(root).unwrap_or_else(|| middle(root)));
     let mut hung = vec![false; count];
     hung[root] = true;
     // How each came to hang, for the editor to tell (read after the
@@ -235,7 +251,14 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
         // voxels.
         if let Some(p) = (0..count).find(|&p| !hung[p] && stated[p].0.is_some_and(|q| hung[q])) {
             let q = stated[p].0.unwrap_or(root);
-            let at = if touch[p][q].0 > 0 { touch[p][q].1 / touch[p][q].0 as f32 } else { nearest_pair(p, q, f32::MAX).1 };
+            // (An empty part where it stands; a part on an empty one where
+            // that one turns.)
+            let at = match (point(p), empty_at(q)) {
+                (Some(at), _) => at,
+                (None, Some(_)) => joint[q],
+                _ if touch[p][q].0 > 0 => touch[p][q].1 / touch[p][q].0 as f32,
+                _ => nearest_pair(p, q, f32::MAX).1,
+            };
             how[p] = Hung::ByHand;
             (parent[p], joint[p], hung[p]) = (Some(q), stated[p].1.unwrap_or(at), true);
             continue;
@@ -243,6 +266,13 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
         // Of the rest, the part touching the hung ones most; touching none,
         // the nearest.
         let free = |p: usize| !hung[p] && stated[p].0.is_none();
+        // An empty part naming no parent besides the root: on the root,
+        // where it stands.
+        if let Some(p) = (0..count).find(|&p| free(p) && empty_at(p).is_some()) {
+            how[p] = Hung::Nearest { touches: Vec::new(), as_near: None };
+            (parent[p], joint[p], hung[p]) = (Some(root), stated[p].1.unwrap_or_else(|| point(p).unwrap_or_default()), true);
+            continue;
+        }
         let touching = (0..count).filter(|&p| free(p)).flat_map(|p| (0..count).filter(|&q| hung[q]).map(move |q| (p, q))).max_by_key(|&(p, q)| (touch[p][q].0, std::cmp::Reverse((p, q))));
         let Some((p, q)) = touching else { break };
         let (p, q, at) = if touch[p][q].0 > 0 {
@@ -261,6 +291,11 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
                         best = (d, p, q, at);
                     }
                 }
+            }
+            // Nothing with voxels hung to come near (an empty root alone):
+            // on the root, where it turns.
+            if best.0 == f32::MAX && empty.iter().any(Option::is_some) {
+                best = (best.0, best.1, root, joint[root]);
             }
             let (p, q) = (best.1, best.2);
             let as_near = (0..count).filter(|&r| hung[r] && r != q).find(|&r| best.0 < f32::MAX && box_gap(p, r) <= best.0 && nearest_pair(p, r, f32::MAX).0 <= best.0);
@@ -286,7 +321,7 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
             let (seen, covered) = visible_voxels(&own);
             let visible: Vec<u32> = seen.into_iter().map(|i| members[p][i as usize]).collect();
             let glass = visible.iter().copied().filter(|&k| frame[k as usize].1[3] < 255).collect();
-            Part { name: names[p].clone(), voxels: members[p].clone(), parent: parent[p], joint: joint[p] - pivot, joint_by_hand: stated[p].1.is_some(), rest: [0.0; 3], offset: Vec3::ZERO, visible, glass, covered, bank: 0..0, hung: how[p].clone(), overlaps }
+            Part { name: names[p].clone(), voxels: members[p].clone(), parent: parent[p], joint: joint[p] - pivot, joint_by_hand: stated[p].1.is_some(), rest: [0.0; 3], offset: Vec3::ZERO, visible, glass, covered, bank: 0..0, hung: how[p].clone(), overlaps, empty: empty_at(p).map(|c| c - pivot.as_ivec3()) }
         })
         .collect()
 }
@@ -617,7 +652,7 @@ mod tests {
             }
             let size = frame.iter().fold(IVec3::ZERO, |s, (v, _)| s.max(*v + 1));
             let names = (0..count).map(|p| format!("p{p}")).collect();
-            let now: Vec<(Option<usize>, Vec3)> = parts_of(&frame, &owner, names, size, &vec![(None, None); count]).iter().map(|p| (p.parent, p.joint)).collect();
+            let now: Vec<(Option<usize>, Vec3)> = parts_of(&frame, &owner, names, size, &vec![(None, None); count], &[]).iter().map(|p| (p.parent, p.joint)).collect();
             assert_eq!(now, rig_before(&frame, &owner, count, size));
         }
     }

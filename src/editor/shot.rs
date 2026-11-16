@@ -98,6 +98,9 @@ pub struct ShotOptions {
     /// A part added to the one `--part` chose; that part merged into
     /// another (by name).
     pub add_part: bool,
+    /// `--add-empty [NAME]`: ADD EMPTY on the part `--part` chose (or the
+    /// figure whole), named so where the name is free (empty: `group`).
+    pub add_empty: Option<String>,
     pub merge_into: Option<String>,
     /// `--mirror`: MIRROR on the part `--part` chose.
     pub mirror: bool,
@@ -495,11 +498,19 @@ fn settle(ctx: &egui::Context, input: &mut crate::gui::input::Input, size: [u32;
     }
 }
 
-/// `--add-part`, `--mirror`, `--clone`, `--make-unique`, `--like`, `--merge-into`, `--rotate-part`, `--pose-part`,
+/// `--add-part`, `--add-empty`, `--mirror`, `--clone`, `--make-unique`, `--like`, `--merge-into`, `--rotate-part`, `--pose-part`,
 /// `--move-part` and `--move-joint`: a figure's parts changed, in turn.
 fn shape_parts(ed: &mut Editor, view: &mut View, opts: &ShotOptions) -> Result<()> {
     if opts.add_part {
         ed.add_part();
+    }
+    if let Some(name) = &opts.add_empty {
+        if let Some(why) = ed.cannot_have_parts() {
+            bail!("--add-empty: {why}");
+        }
+        ed.add_empty(Some(name.as_str()).filter(|n| !n.is_empty()));
+        // (The view kept on the figure, as a click's step keeps it.)
+        view.follow_origin(ed);
     }
     if opts.mirror {
         let p = ed.figure.as_ref().and_then(|f| f.selected).context("--mirror mirrors the part --part chose")?;

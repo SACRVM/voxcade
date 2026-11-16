@@ -78,6 +78,9 @@ pub struct Placed {
     /// its source's frame mirrored so, as big (`ModelFile::follow_links`).
     pub like: Option<String>,
     pub mirror: Option<usize>,
+    /// An empty part (`vvx::Piece::empty`): no voxels, standing at `low`;
+    /// its frame a box of one voxel left empty, which no tool fills.
+    pub empty: bool,
 }
 
 /// What of a model file an editor's step takes and gives back: its
@@ -185,7 +188,9 @@ impl ModelFile {
         let pivot = vvx::pivot(shape.size);
         let (mut frames, mut parts) = (Vec::new(), Vec::new());
         for (i, piece) in shape.pieces.iter().enumerate() {
-            let (low, size) = if shape.parted {
+            let (low, size) = if let Some(at) = piece.empty.filter(|_| shape.parted) {
+                (at, IVec3::ONE)
+            } else if shape.parted {
                 let lo = piece.voxels.iter().map(|v| v.0).reduce(IVec3::min);
                 let hi = piece.voxels.iter().map(|v| v.0).reduce(IVec3::max);
                 match (lo, hi) {
@@ -204,7 +209,7 @@ impl ModelFile {
             }
             frames.push(block);
             if shape.parted {
-                parts.push(Placed { name: piece.name.clone(), frame: i, low, parent: piece.parent.clone(), joint: piece.joint, rotation: piece.rotation, offset: piece.offset, like: piece.like.clone(), mirror: piece.mirror });
+                parts.push(Placed { name: piece.name.clone(), frame: i, low, parent: piece.parent.clone(), joint: piece.joint, rotation: piece.rotation, offset: piece.offset, like: piece.like.clone(), mirror: piece.mirror, empty: piece.empty.is_some() });
             }
         }
         let loaded = Shaped { frames: frames.clone(), parts: parts.clone(), size: shape.size, palette: colours.clone() };
@@ -326,8 +331,8 @@ impl ModelFile {
             .iter()
             .map(|p| {
                 let frame = self.frames.get(p.frame);
-                let voxels = frame.map_or_else(Vec::new, |f| self.reading(f, p.low + raise));
-                Piece { name: p.name.clone(), voxels, parent: p.parent.clone(), joint: p.joint.map(|j| j + raise.as_vec3()), rotation: p.rotation, offset: p.offset, like: p.like.clone(), mirror: p.mirror }
+                let voxels = frame.filter(|_| !p.empty).map_or_else(Vec::new, |f| self.reading(f, p.low + raise));
+                Piece { name: p.name.clone(), voxels, parent: p.parent.clone(), joint: p.joint.map(|j| j + raise.as_vec3()), rotation: p.rotation, offset: p.offset, like: p.like.clone(), mirror: p.mirror, empty: p.empty.then_some(p.low + raise) }
             })
             .collect();
         Shape { size, parted: true, pieces }

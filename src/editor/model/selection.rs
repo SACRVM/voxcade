@@ -729,6 +729,10 @@ impl Editor {
     /// selected, to be moved; one step.
     pub fn paste(&mut self) {
         let Some(clip) = self.selecting.clipboard.clone() else { return };
+        // (An empty part holds no voxels.)
+        if self.shaping_empty() {
+            return;
+        }
         let owner = match self.scope {
             Scope::Block(i) => Owner::Block(i),
             Scope::Frame(f) => Owner::Frame(f),
@@ -857,7 +861,7 @@ impl Editor {
             return;
         }
         let Some(sel) = self.selection().cloned() else { return };
-        let Some(target) = self.figure.as_ref().and_then(|f| f.parts().get(into)).map(|p| p.name.clone()) else { return };
+        let Some(target) = self.figure.as_ref().and_then(|f| f.parts().get(into)).filter(|p| p.empty.is_none()).map(|p| p.name.clone()) else { return };
         self.acting_on(vec![target.clone()]);
         self.change_model_file(move |m| {
             let Some(to) = m.parts.iter().find(|p| p.name == target).map(|p| p.frame) else { return };

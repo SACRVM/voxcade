@@ -279,7 +279,7 @@ fn figure_of_parts(path: &Path, data: &DotVoxData, objects: &[Object], alpha: &[
     if placed.iter().any(|p| p.4 != 0) {
         model.glow = vec![placed.iter().map(|p| p.4).collect()];
     }
-    model.parts = parts_of(&model.frames[0], &owner, objects.iter().map(|o| o.name.clone()).collect(), model.size, &stated);
+    model.parts = parts_of(&model.frames[0], &owner, objects.iter().map(|o| o.name.clone()).collect(), model.size, &stated, &[]);
     Ok((model, low))
 }
 

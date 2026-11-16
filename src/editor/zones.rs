@@ -420,6 +420,8 @@ pub enum Sort {
     Block,
     Frame,
     Part,
+    /// An empty part of a figure: no voxels, a node the others hang on.
+    Empty,
 }
 
 /// A small sign for what a row is, drawn in `colour` round `at`.
@@ -472,6 +474,12 @@ pub fn sign(painter: &egui::Painter, at: Pos2, sort: Sort, colour: Color32) {
             painter.line_segment([a, b], egui::Stroke::new(2.5, colour));
             painter.circle_filled(a, 2.5, colour);
             painter.circle_filled(b, 2.5, colour);
+        }
+        Sort::Empty => {
+            // Blender's Empty: three axes crossing, nothing round them.
+            painter.line_segment([at + Vec2::new(-r, 0.0), at + Vec2::new(r, 0.0)], s);
+            painter.line_segment([at + Vec2::new(0.0, -r), at + Vec2::new(0.0, r)], s);
+            painter.line_segment([at + Vec2::new(-r * 0.6, r * 0.6), at + Vec2::new(r * 0.6, -r * 0.6)], s);
         }
     }
 }

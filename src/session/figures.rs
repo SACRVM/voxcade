@@ -178,6 +178,10 @@ pub(super) fn draw_placed(
         };
         for i in 0..model.parts.len() {
             let (own, b) = part_chain(model, pose, i, &mut chain);
+            // (An empty part draws nothing; what hangs on it turns with it.)
+            if model.parts[i].voxels.is_empty() {
+                continue;
+            }
             let seen = quarter_turn * own * quarter_turn.inverse();
             let shift = about + rot * (-(seen * centre) + quarter_turn * (own * centre) + quarter_turn * (b - centre) + centre - about);
             let p = &model.parts[i];

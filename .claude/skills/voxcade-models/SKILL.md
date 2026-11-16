@@ -102,6 +102,17 @@ aaaaa *3
   clones follow; `tools/vvx.py` reads and writes them (its `read` gives
   each clone's cells and `"links"`). In the editor CLONE, CLONE MIRRORED,
   the LIKE and MIRROR rows, MAKE UNIQUE.
+- **Empty parts**: a `[[part]]` with a `name` and neither `layers` nor
+  `like` has no voxels: a node the others hang on (Blender's Empty). Its
+  `at` is where it stands (the pivot without one), `parent`, `joint`,
+  rest rotation and `offset` as any part. The first empty part naming no
+  parent is the root, turning about its cell's middle (or its `joint`);
+  a part hung on it turns where it turns. A car: an empty `car` the
+  root, `body_left` and its mirrored clone `body_right` hanging on it
+  side by side (`parent = "car"`), the wheels too; posing `car` turns
+  the whole car. No clone of an empty part, no figure of empty parts
+  only. `tools/vvx.py`'s `read` gives `"empties"` (name: where it
+  stands). In the editor + EMPTY at PARTS, ADD EMPTY in the menus.
 - **Signs stay**: written again (the editor, a tool), a model keeps the
   signs its file had and adds new ones; with more than 62 entries every
   sign is two characters. One cell, one voxel per frame or part.

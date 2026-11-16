@@ -717,6 +717,60 @@ fn a_figures_parts_turn_about_their_joints() {
     assert_eq!(nearer(&[Quat::IDENTITY, Quat::IDENTITY, turning(-90.0, 0.0, 0.0), Quat::IDENTITY]), [0.0, 1.0, 1.0, 2.0], "body, head, arm, hand");
 }
 
+/// A figure on an empty root (a part without voxels the others hang on):
+/// posed, the empty part turns about where it stands and every part
+/// hanging on it goes along, from the bank and as cubes alike; the empty
+/// part draws nothing of its own; a part posed under it turns on from it.
+#[test]
+fn an_empty_roots_parts_turn_with_it() {
+    let text = "format = \"voxcade voxel 1\"\nsize = [5, 3, 6]\n\n[palette]\na = \"#5a7aa8\"\nb = \"#d0c8b8\"\n\n[[part]]\nname = \"rig\"\n\n[[part]]\nname = \"body\"\nat = [-2, -1, 0]\nparent = \"rig\"\nlayers = \"\"\"\naaaaa\naaaaa\naaaaa\n*4\n\"\"\"\n\n[[part]]\nname = \"head\"\nat = [-1, -1, 4]\nparent = \"body\"\nlayers = \"\"\"\nbbb\nbbb\nbbb\n*2\n\"\"\"\n";
+    let mut m = crate::vvx::read(text).unwrap();
+    let mut bank = ModelBank::default();
+    bank.add(&mut m);
+    assert_eq!((m.parts[0].parent, m.parts[1].parent, m.parts[2].parent), (None, Some(0), Some(1)), "the empty part the root");
+    assert_eq!(m.parts[0].joint, Vec3::new(0.5, 0.5, 0.5), "the pivot cell's middle");
+    let origin = Vec3::new(10.0, 20.0, 3.0);
+    let cubes = |pose: &[Quat]| {
+        let pose: Vec<PartPose> = pose.iter().map(|q| PartPose::turned(*q)).collect();
+        let mut all: Vec<([u32; 3], [u8; 4])> = Vec::new();
+        draw(&mut |corner: Vec3, color, _, _, _, _, _| all.push(((corner + 0.5).to_array().map(f32::to_bits), color)), None, &m, 0, origin, IVec2::Y, Quat::IDENTITY, &pose, None);
+        let mut on_gpu = Vec::new();
+        draw(&mut |_, _, _, _, _, _, _| {}, Some(&mut on_gpu), &m, 0, origin, IVec2::Y, Quat::IDENTITY, &pose, None);
+        assert_eq!(on_gpu.len(), 2, "a draw a part with voxels");
+        let mut gpu: Vec<([u32; 3], [u8; 4])> = on_gpu.iter().flat_map(|d| bank.cubes(d)).map(|i| (Vec3::from_slice(&i.pos_size[..3]).to_array().map(f32::to_bits), i.color)).collect();
+        all.sort_unstable();
+        gpu.sort_unstable();
+        assert!(all == gpu, "the bank draws other cubes");
+        all.into_iter().map(|(c, colour)| (Vec3::from_array(c.map(f32::from_bits)), colour)).collect::<Vec<_>>()
+    };
+    let still = cubes(&[]);
+    // The root a quarter round (clockwise from above): every voxel turned
+    // about the pivot cell's middle, the head with the body. Both stand
+    // centred on that cell, so their middle stays where it was.
+    let turned = cubes(&[turning(90.0, 0.0, 0.0), Quat::IDENTITY, Quat::IDENTITY]);
+    let middle = |cubes: &[(Vec3, [u8; 4])]| cubes.iter().map(|c| c.0).sum::<Vec3>() / cubes.len() as f32;
+    let (m0, m1) = (middle(&still), middle(&turned));
+    assert!((m0 - m1).length() < 1e-3, "turned about another place: {m0} to {m1}");
+    let about = |v: Vec3| {
+        let d = v - m0;
+        Vec3::new(d.y, -d.x, d.z)
+    };
+    let mut want: Vec<(Vec3, [u8; 4])> = still.iter().map(|(v, c)| (about(*v), *c)).collect();
+    let mut got: Vec<(Vec3, [u8; 4])> = turned.iter().map(|(v, c)| (*v - m1, *c)).collect();
+    let order = |a: &(Vec3, [u8; 4]), b: &(Vec3, [u8; 4])| a.0.to_array().partial_cmp(&b.0.to_array()).unwrap();
+    want.sort_by(order);
+    got.sort_by(order);
+    assert_eq!(want.len(), got.len());
+    for (w, g) in want.iter().zip(&got) {
+        assert!((w.0 - g.0).length() < 1e-3 && w.1 == g.1, "turned otherwise: {w:?} against {g:?}");
+    }
+    // The head posed under the turned root: it turns on from it.
+    let nodded = cubes(&[turning(90.0, 0.0, 0.0), Quat::IDENTITY, turning(0.0, 30.0, 0.0)]);
+    let head = |cubes: &[(Vec3, [u8; 4])]| cubes.iter().filter(|c| c.1[0] == 0xd0).map(|c| c.0).collect::<Vec<_>>();
+    assert_ne!(head(&nodded), head(&turned));
+    assert_eq!(nodded.iter().filter(|c| c.1[0] == 0x5a).count(), turned.iter().filter(|c| c.1[0] == 0x5a).count());
+}
+
 /// A part turned at rest in its file (`rotation`, `pitch`, `roll`) is
 /// drawn exactly as the unturned figure posed so: from the bank and as
 /// cubes alike, what hangs on it carried along; a pose turns on from

@@ -193,6 +193,7 @@ pub(super) const COMMANDS: &[Command] = &[
             look("--rotate-part", "NAME --by DEG", "a part rotated at rest about its joint (--about after it)"),
             look("--pose-part", "NAME --by DEG", "a part posed, POSE lit (--about after it)"),
             look("--add-part", "", "ADD PART on the part --part chose"),
+            look("--add-empty", "[NAME]", "ADD EMPTY: an empty part (no voxels, a node the others hang on) on the part --part chose, or the figure's new root"),
             look("--merge-into", "NAME", "the part --part chose merged into another"),
             look("--mirror", "", "MIRROR on the part --part chose"),
             look("--clone", "NAME", "CLONE on a part: a part like it where it stands, chosen"),

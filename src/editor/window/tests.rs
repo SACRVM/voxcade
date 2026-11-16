@@ -72,6 +72,42 @@ fn click(win: &mut EditorWindow, at: egui::Pos2) {
     win.draw().unwrap();
 }
 
+/// The parts' tree reads as a tree (the owner saw the root's hide mark
+/// left of the figure whole's sign, as if outside it): the figure whole
+/// outermost, its root one step in under it, each part one step in from
+/// what it hangs on. An empty root made with + EMPTY is chosen by a click
+/// on its row; a press in the view with ADD then sets nothing: the file
+/// as it was, no step.
+#[test]
+fn the_tree_reads_as_a_tree_and_an_empty_part_takes_no_voxel() {
+    use crate::editor::view::{Action, act};
+    let (mut win, dir) = owners_like("empty-tree");
+    act(&mut win.ed, &mut win.view, Action::WholeFigure);
+    act(&mut win.ed, &mut win.view, Action::AddEmpty(None));
+    win.view.renaming_part = None;
+    for _ in 0..2 {
+        win.draw().unwrap();
+    }
+    let left = |name: &str| win.rows.iter().find(|(n, _)| n == name).unwrap_or_else(|| panic!("no row {name}: {:?}", win.rows)).1.left();
+    assert!(left("") < left("group"), "the root one step in under the figure whole: {} {}", left(""), left("group"));
+    assert!(left("group") < left("hips") && left("hips") < left("head") && left("head") < left("nose"), "{:?}", win.rows);
+    assert_eq!(left("nose"), left("hair"), "siblings alike");
+    for name in ["", "group"] {
+        let at = row(&win, name);
+        click(&mut win, at);
+    }
+    assert_eq!(chosen(&win), "group");
+    let (start, steps) = (file(&dir), win.ed.steps());
+    win.ed.choose(crate::editor::model::Tool::Add);
+    // On the hips seen through it: the empty part's grid holds nothing to
+    // meet, so the click is one on empty space, the figure whole again
+    // (as for any part), and sets nothing.
+    let at = part_on_screen(&win, "hips")[0];
+    click(&mut win, egui::Pos2::new(at.x, at.y));
+    assert_eq!(chosen(&win), "", "back to the figure whole");
+    assert_eq!((file(&dir), win.ed.steps()), (start, steps), "an empty part takes no voxel");
+}
+
 fn row(win: &EditorWindow, name: &str) -> egui::Pos2 {
     win.rows.iter().find(|(n, _)| n == name).unwrap_or_else(|| panic!("no row {name}: {:?}", win.rows)).1.center()
 }

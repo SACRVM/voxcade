@@ -21,6 +21,10 @@ impl Editor {
         if self.drag_open() {
             self.end_drag(false);
         }
+        // (An empty part holds no voxels.)
+        if self.shaping_empty() {
+            return;
+        }
         self.forms.fresh = None;
         let normal = way_out(hit);
         let start = if cut { hit.cell } else { hit.cell + normal };

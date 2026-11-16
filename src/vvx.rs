@@ -204,6 +204,11 @@ pub struct Piece {
     /// within the source's box along an axis (`mirror`, 0 x, 1 y, 2 z).
     pub like: Option<String>,
     pub mirror: Option<usize>,
+    /// An empty part (a `[[part]]` with neither `layers` nor `like`, as
+    /// Blender's Empty): no voxels, a node the others hang on; where it
+    /// stands from the pivot (its `at`, the pivot unless set). None for a
+    /// part with voxels and for a frame.
+    pub empty: Option<IVec3>,
 }
 
 /// The axes' words as `mirror` writes them.
@@ -455,7 +460,7 @@ fn shape_of(model: &VoxModel, rig: &[Rig]) -> Shape {
             .enumerate()
             .map(|(i, p)| {
                 let (parent, joint) = rig.get(i).copied().unwrap_or_default();
-                Piece { name: p.name.clone(), voxels: voxels(0, &mut p.voxels.iter().map(|&k| k as usize)), parent: parent.map(|q| model.parts[q].name.clone()), joint, rotation: p.rest, offset: p.offset, ..Piece::default() }
+                Piece { name: p.name.clone(), voxels: voxels(0, &mut p.voxels.iter().map(|&k| k as usize)), parent: parent.map(|q| model.parts[q].name.clone()), joint, rotation: p.rest, offset: p.offset, empty: p.empty, ..Piece::default() }
             })
             .collect()
     };
@@ -479,7 +484,8 @@ pub fn write_shape(shape: &Shape, kept: &Palette, all: bool) -> String {
     for piece in &shape.pieces {
         // A clone's voxels are its source's: only where its box lies.
         let linked = shape.parted && piece.like.is_some();
-        let layers = if linked { piece.voxels.iter().map(|v| v.0).reduce(IVec3::min).map(|low| (low, Vec::new())) } else { layers_of(&piece.voxels, &mut signs) };
+        let empty = piece.empty.filter(|_| shape.parted && !linked);
+        let layers = if linked { piece.voxels.iter().map(|v| v.0).reduce(IVec3::min).map(|low| (low, Vec::new())) } else if let Some(at) = empty { Some((at, Vec::new())) } else { layers_of(&piece.voxels, &mut signs) };
         if shape.parted {
             body += &format!("\n[[part]]\nname = {}\n", quoted(&piece.name));
             if let Some(source) = &piece.like {
@@ -488,7 +494,8 @@ pub fn write_shape(shape: &Shape, kept: &Palette, all: bool) -> String {
             if let Some(a) = piece.mirror.filter(|_| linked) {
                 body += &format!("mirror = \"{}\"\n", AXES[a.min(2)]);
             }
-            if let Some((low, _)) = &layers {
+            // (An empty part at the pivot says no `at`.)
+            if let Some((low, _)) = layers.as_ref().filter(|(low, _)| empty.is_none() || *low != IVec3::ZERO) {
                 body += &format!("at = {}\n", triple_text(low.as_vec3()));
             }
             // Moved by less than a voxel, only when it is.
@@ -514,7 +521,7 @@ pub fn write_shape(shape: &Shape, kept: &Palette, all: bool) -> String {
             }
         }
         match layers {
-            _ if linked => {}
+            _ if linked || empty.is_some() => {}
             Some((_, layers)) => body += &layers_text(&layers),
             None => body += "layers = \"\"\n",
         }
@@ -981,7 +988,8 @@ pub fn model_of(shape: &Shape) -> VoxModel {
         if glows.iter().any(|&g| g != 0) {
             model.glow = vec![glows];
         }
-        model.parts = crate::vox::parts_of(&frame, &owner, names, size, &stated);
+        let empty: Vec<Option<IVec3>> = shape.pieces.iter().map(|p| p.empty.map(|at| at + pivot)).collect();
+        model.parts = crate::vox::parts_of(&frame, &owner, names, size, &stated, &empty);
         for (part, piece) in model.parts.iter_mut().zip(&shape.pieces) {
             part.rest = piece.rotation;
             part.offset = piece.offset;
@@ -1080,7 +1088,10 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
                 if pieces.iter().any(|p| p.name == name) {
                     return Err(r.fail(name_item.span(), format!("two parts are called '{name}': each part needs a name of its own")));
                 }
-                let at = t.get("at").map_or(Ok(box_low), |a| r.ints(a, "at"))?;
+                // Neither layers nor like: an empty part, standing at the
+                // pivot unless its `at` says otherwise.
+                let empty = t.get("layers").is_none() && t.get("like").is_none();
+                let at = t.get("at").map_or(Ok(if empty { IVec3::ZERO } else { box_low }), |a| r.ints(a, "at"))?;
                 // Another part's voxels (`like`), perhaps mirrored: made
                 // once every part is read (a source may come later).
                 let like = match t.get("like") {
@@ -1128,10 +1139,14 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
                         o
                     }
                 };
-                pieces.push(Piece { name, voxels: from_pivot(voxels), parent, joint, rotation, offset, like, mirror });
+                pieces.push(Piece { name, voxels: from_pivot(voxels), parent, joint, rotation, offset, like, mirror, empty: empty.then_some(at) });
             }
             if pieces.is_empty() {
                 bail!("the model has no part: [[part]] with a name and its layers");
+            }
+            // Empty parts alone draw nothing: a figure needs voxels.
+            if pieces.iter().all(|p| p.empty.is_some()) {
+                return Err(r.fail(p.span(), "every part of the figure is empty (no layers, no like): one at least needs voxels, [[part]] with its layers"));
             }
             // The clones' voxels: their sources', each a part with layers
             // of its own, counted as the clone's own.
@@ -1146,6 +1161,9 @@ pub fn read_shape(src: &str) -> Result<(Shape, Palette)> {
                         return Err(r.fail(span, format!("no part is called '{source}'{near}: like names another part of this figure")));
                     }
                 };
+                if pieces[k].empty.is_some() {
+                    return Err(r.fail(span, format!("part '{name}' is like '{source}', which is an empty part (no layers): like names a part with voxels of its own")));
+                }
                 if let Some(further) = &pieces[k].like {
                     return Err(r.fail(span, format!("part '{name}' is like '{source}', which is like '{further}' itself: like names a part with voxels of its own (like = \"{further}\")")));
                 }
@@ -1649,6 +1667,82 @@ pub(crate) mod tests {
         assert!(e.starts_with("line 42:") && e.contains("like must be the name"), "{e}");
     }
 
+    /// The car of `car_text` on an empty root (`car`, no layers): its two
+    /// halves and a wheel hang on it by name, the wheel's clones on the
+    /// wheel.
+    pub(crate) fn empty_car_text() -> String {
+        head("[9, 6, 3]")
+            + "\n[palette]\na = \"#c03020\"\nc = \"#e0e0e0\"\nb = \"#203040\"\n\
+               \n[[part]]\nname = \"car\"\nat = [0, 0, 1]\n\
+               \n[[part]]\nname = \"body_left\"\nat = [-4, -2, 1]\nparent = \"car\"\nlayers = \"\"\"\naaaac\naaaaa\naaaaa\nbaaaa\n\n..aac\n..aaa\n..aaa\n...aa\n\"\"\"\n\
+               \n[[part]]\nname = \"body_right\"\nlike = \"body_left\"\nmirror = \"x\"\nat = [0, -2, 1]\nparent = \"car\"\n\
+               \n[[part]]\nname = \"axle\"\nat = [-4, -3, 0]\nparent = \"car\"\njoint = [-3.5, 0, 0.5]\n\
+               \n[[part]]\nname = \"wheel_rl\"\nat = [-4, -3, 0]\nparent = \"axle\"\nlayers = \"\"\"\nb.\n\nbb\n\"\"\"\n\
+               \n[[part]]\nname = \"wheel_fl\"\nlike = \"wheel_rl\"\nat = [-4, 2, 0]\nrotation = 15\n"
+    }
+
+    /// An empty part (neither layers nor like) has no voxels and is a node
+    /// the others hang on: the first naming no parent is the root, turning
+    /// about the middle of the cell it stands in (at the pivot without an
+    /// `at`); a part hung on it turns where it turns; one naming no parent
+    /// hangs as before. Saved unchanged, the same bytes.
+    #[test]
+    fn an_empty_part_is_a_node_the_others_hang_on() {
+        let text = empty_car_text();
+        let (shape, palette) = read_shape(&text).unwrap();
+        let piece = |n: &str| shape.pieces.iter().find(|p| p.name == n).unwrap();
+        assert_eq!((piece("car").empty, piece("car").voxels.len()), (Some(IVec3::new(0, 0, 1)), 0));
+        assert_eq!((piece("axle").empty, piece("body_left").empty), (Some(IVec3::new(-4, -3, 0)), None));
+        assert_eq!(write_shape(&shape, &palette, false), text, "written back as read");
+        let m = read(&text).unwrap();
+        let by = |n: &str| m.parts.iter().position(|p| p.name == n).unwrap();
+        let (car, body, right, axle, wheel, front) = (by("car"), by("body_left"), by("body_right"), by("axle"), by("wheel_rl"), by("wheel_fl"));
+        assert_eq!((m.parts[car].parent, m.parts[car].hung.clone()), (None, Hung::Root), "the empty part is the root, not the biggest");
+        assert_eq!(m.parts[car].joint, Vec3::new(0.5, 0.5, 1.5), "the middle of its cell");
+        assert!(m.parts[car].voxels.is_empty() && m.parts[car].visible.is_empty() && m.parts[car].empty == Some(IVec3::new(0, 0, 1)));
+        assert_eq!((m.parts[body].parent, m.parts[right].parent, m.parts[axle].parent), (Some(car), Some(car), Some(car)));
+        assert_eq!((m.parts[body].joint, m.parts[right].joint), (m.parts[car].joint, m.parts[car].joint), "on an empty part: where it turns");
+        assert_eq!((m.parts[axle].joint, m.parts[wheel].parent, m.parts[wheel].joint), (Vec3::new(-3.5, 0.0, 0.5), Some(axle), Vec3::new(-3.5, 0.0, 0.5)));
+        assert!(m.parts[front].parent.is_some_and(|q| q != front), "a part naming none hangs by the rules");
+        assert_eq!(m.frames[0].len(), m.parts.iter().map(|p| p.voxels.len()).sum::<usize>(), "an empty part adds no voxel");
+        // Without an `at`: at the pivot, its middle the pivot cell's.
+        let at_pivot = text.replace("name = \"car\"\nat = [0, 0, 1]\n", "name = \"car\"\n");
+        let m = read(&at_pivot).unwrap();
+        assert_eq!((m.parts[0].joint, m.parts[0].empty), (Vec3::new(0.5, 0.5, 0.5), Some(IVec3::ZERO)));
+        let (shape, palette) = read_shape(&at_pivot).unwrap();
+        assert_eq!(write_shape(&shape, &palette, false), at_pivot, "no `at` written for one at the pivot");
+        // Two empty parts naming no parent: the first is the root, the
+        // other hangs on it where it stands.
+        let two = text.replace("name = \"axle\"\nat = [-4, -3, 0]\nparent = \"car\"\n", "name = \"axle\"\nat = [-4, -3, 0]\n");
+        let m = read(&two).unwrap();
+        assert_eq!((m.parts[0].parent, m.parts[3].parent, m.parts[3].joint), (None, Some(0), Vec3::new(-3.5, 0.0, 0.5)));
+        // A pose turns the empty root and everything with it (the front
+        // wheel turned at rest besides).
+        let m = read(&text).unwrap();
+        let mut pose = vec![crate::session::PartPose::REST; m.parts.len()];
+        pose[car] = crate::session::PartPose::turned(glam::Quat::from_rotation_z(0.5));
+        for p in (0..m.parts.len()).filter(|&p| p != front) {
+            let (turn, _) = crate::session::part_posed(&m, &pose, p);
+            assert!(turn.angle_between(glam::Quat::from_rotation_z(0.5)) < 1e-4, "{} turns with the root", m.parts[p].name);
+        }
+    }
+
+    /// What an empty part cannot be is said with its line: the source of
+    /// a clone, mirrored, the only kind of part a figure has.
+    #[test]
+    fn an_empty_parts_mistakes_say_their_line() {
+        let why = |text: String| read(&text).err().map(|e| e.to_string()).unwrap();
+        let car = empty_car_text();
+        let e = why(car.replace("like = \"wheel_rl\"", "like = \"axle\""));
+        assert!(e.starts_with("line 54:") && e.contains("which is an empty part"), "{e}");
+        let e = why(car.replace("name = \"car\"\n", "name = \"car\"\nmirror = \"x\"\n"));
+        assert!(e.starts_with("line 11:") && e.contains("mirror but no like"), "{e}");
+        let e = why(head("[1, 1, 1]") + "[palette]\na = \"#ff0000\"\n[[part]]\nname = \"a\"\n[[part]]\nname = \"b\"\nparent = \"a\"\n");
+        assert!(e.starts_with("line 5:") && e.contains("every part of the figure is empty"), "{e}");
+        // A frame without layers stays a frame of no voxels.
+        assert!(read(&(head("[1, 1, 1]") + "[palette]\na = \"#ff0000\"\n[[frame]]\n")).is_ok_and(|m| m.frames[0].is_empty() && m.parts.is_empty()));
+    }
+
     /// The format line first, a version known; then every mistake says
     /// its line and what is wrong.
     #[test]
@@ -1714,6 +1808,8 @@ pub(crate) mod tests {
             ("parts like each other", as_model, likes("[[part]]\nname = \"a\"\nlike = \"b\"\n[[part]]\nname = \"b\"\nlike = \"a\"\n"), "line 7:"),
             ("a clone far outside the box", as_model, likes("[[part]]\nname = \"a\"\nlayers = \"\"\"\na\n\"\"\"\n[[part]]\nname = \"b\"\nlike = \"a\"\nat = [999999, -999999, 999999]\n"), "line 12:"),
             ("a clone of a part with no name", as_model, likes("[[part]]\nname = \"b\"\nlike = \"\"\n"), "line 7:"),
+            ("a figure of empty parts only", as_model, likes("[[part]]\nname = \"a\"\n[[part]]\nname = \"b\"\nat = [999999, -999999, 999999]\njoint = [1e30, -1e30, 0]\n"), "line 5:"),
+            ("a clone of an empty part", as_model, likes("[[part]]\nname = \"a\"\n[[part]]\nname = \"b\"\nlike = \"a\"\n[[part]]\nname = \"c\"\nlayers = \"\"\"\na\n\"\"\"\n"), "line 9:"),
             ("a clone mirrored along a number", as_model, likes("[[part]]\nname = \"a\"\nlayers = \"\"\"\na\n\"\"\"\n[[part]]\nname = \"b\"\nlike = \"a\"\nmirror = 1e300\n"), "line 13:"),
             ("a world's row repeated", as_world, world("[4, 4, 4]", "aaaa *99999999999\n"), "line 10:"),
             ("a world's layer repeated", as_world, world("[4, 4, 4]", "....\n*99999999999\n"), "line 11:"),
@@ -1865,7 +1961,7 @@ for n, f in enumerate(sys.argv[3:]):
 
     /// `tools/vvx.py` reads a figure with clones as the engine does (each
     /// clone its source's cells, mirrored so) and writes it back as the
-    /// engine writes it, the links kept.
+    /// engine writes it, the links kept; a figure on an empty root alike.
     #[test]
     fn the_python_writer_keeps_clones_as_the_engine() {
         if std::process::Command::new("python3").arg("--version").output().is_err() {
@@ -1873,9 +1969,10 @@ for n, f in enumerate(sys.argv[3:]):
             return;
         }
         let dir = crate::scratch::Scratch::new("vvx-python-clones");
-        let (from, to) = (dir.join("car.vvx"), dir.join("again.vvx"));
-        std::fs::write(&from, car_text()).unwrap();
-        let script = r##"
+        for (n, text) in [car_text(), empty_car_text()].into_iter().enumerate() {
+            let (from, to) = (dir.join(format!("car{n}.vvx")), dir.join(format!("again{n}.vvx")));
+            std::fs::write(&from, &text).unwrap();
+            let script = r##"
 import sys
 sys.path.insert(0, sys.argv[1])
 import vvx
@@ -1884,18 +1981,19 @@ vvx.write_model(sys.argv[3], m, m["palette"])
 for name, cells, _ in m["parts"]:
     print(name, sorted(cells))
 "##;
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let run = std::process::Command::new("python3").arg("-B").arg("-c").arg(script).arg(root.join("tools")).arg(&from).arg(&to).output().unwrap();
-        assert!(run.status.success(), "tools/vvx.py: {}", String::from_utf8_lossy(&run.stderr));
-        assert_eq!(std::fs::read_to_string(&to).unwrap(), car_text(), "tools/vvx.py writes it otherwise");
-        // Python's cells (in the box from 0) are the engine's.
-        let m = read(&car_text()).unwrap();
-        let printed = String::from_utf8(run.stdout).unwrap();
-        for part in &m.parts {
-            let mut cells: Vec<(i32, i32, i32)> = part.voxels.iter().map(|&k| m.frames[0][k as usize].0).map(|p| (p.x, p.y, p.z)).collect();
-            cells.sort();
-            let line = format!("{} {:?}", part.name, cells);
-            assert!(printed.lines().any(|l| l == line), "{line}\n{printed}");
+            let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+            let run = std::process::Command::new("python3").arg("-B").arg("-c").arg(script).arg(root.join("tools")).arg(&from).arg(&to).output().unwrap();
+            assert!(run.status.success(), "tools/vvx.py: {}", String::from_utf8_lossy(&run.stderr));
+            assert_eq!(std::fs::read_to_string(&to).unwrap(), text, "tools/vvx.py writes it otherwise");
+            // Python's cells (in the box from 0) are the engine's.
+            let m = read(&text).unwrap();
+            let printed = String::from_utf8(run.stdout).unwrap();
+            for part in &m.parts {
+                let mut cells: Vec<(i32, i32, i32)> = part.voxels.iter().map(|&k| m.frames[0][k as usize].0).map(|p| (p.x, p.y, p.z)).collect();
+                cells.sort();
+                let line = format!("{} {:?}", part.name, cells);
+                assert!(printed.lines().any(|l| l == line), "{line}\n{printed}");
+            }
         }
     }
 

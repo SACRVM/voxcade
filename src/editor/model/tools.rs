@@ -201,6 +201,10 @@ impl Editor {
             }
             return;
         }
+        // An empty part holds no voxels: nothing to set, no step.
+        if self.shaping_empty() {
+            return;
+        }
         self.history.stroke = Some(match self.scope {
             Scope::Level => Begun::Level(self.level_state()),
             Scope::Block(i) => Begun::Block(i, self.blocks[i].clone()),
