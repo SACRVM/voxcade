@@ -963,6 +963,24 @@ show(records) show(mixed) show(few) show(up) show(down)
 return table.concat(out, " ")
 "#;
 
+    /// The reference lists the maths a script has, name for name
+    /// (`math.rad` and `math.deg` were there and nowhere said), and each
+    /// other line of Lua's own names something a script sees.
+    #[test]
+    fn the_reference_lists_the_maths_a_script_has() {
+        let sandbox = Sandbox::new().unwrap();
+        let mut has: Vec<String> = maths(&sandbox.lua, &sandbox.lua.globals().raw_get::<Table>("math").unwrap()).unwrap().pairs::<String, Value>().map(|p| format!("math.{}", p.unwrap().0)).collect();
+        has.sort();
+        let mut listed: Vec<String> = crate::lua::api::LUA.iter().map(|(name, ..)| name.to_string()).filter(|n| n.starts_with("math.")).collect();
+        listed.sort();
+        assert_eq!(listed, has);
+        for (name, ..) in crate::lua::api::LUA.iter().filter(|(name, ..)| !name.starts_with("math.")) {
+            assert!(!matches!(sandbox.base.raw_get::<Value>(*name).unwrap(), Value::Nil), "{name}");
+        }
+        let shown = crate::lua::api::lookup(Some("math.rad")).unwrap();
+        assert!(shown.contains("LUA'S OWN") && shown.contains("math.rad(x: number) -> number"), "{shown}");
+    }
+
     /// `table.sort` sorts as Lua's own whenever Lua's keeps its middle
     /// pivot (records with ties in the same order, whole numbers and
     /// fractions alike), so no game sorts otherwise than before; and the

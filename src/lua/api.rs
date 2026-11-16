@@ -742,8 +742,56 @@ struct Entry {
     doc: String,
 }
 
+/// What a script has of Lua's own library, as `voxcade api` lists it after
+/// the engine's names: each name, what it takes and gives as a script writes it, then its
+/// words (apart, so the scan for the system's maths finds no call here). The maths are every name `sandbox::maths` gives (test
+/// `the_reference_lists_the_maths_a_script_has`); only where a name
+/// differs from Lua 5.4's does its line say more than what it gives.
+pub const LUA: &[(&str, &str, &str)] = &[
+    ("math.abs", "(x: number) -> number", "x without its sign."),
+    ("math.acos", "(x: number) -> number", "The angle whose cosine is x, in radians."),
+    ("math.asin", "(x: number) -> number", "The angle whose sine is x, in radians."),
+    ("math.atan", "(y: number, x?: number) -> number", "The angle of the line to (x, y), in radians; x is 1 when left out."),
+    ("math.ceil", "(x: number) -> integer", "x rounded up to a whole number."),
+    ("math.cos", "(x: number) -> number", "The cosine of an angle in radians."),
+    ("math.deg", "(x: number) -> number", "An angle in radians as degrees."),
+    ("math.exp", "(x: number) -> number", "e to the power of x."),
+    ("math.floor", "(x: number) -> integer", "x rounded down to a whole number."),
+    ("math.fmod", "(x: number, y: number) -> number", "What is left of x divided by y, with x's sign."),
+    ("math.huge", ": number", "A number greater than any other."),
+    ("math.log", "(x: number, base?: number) -> number", "The logarithm of x: natural, or to the base given."),
+    ("math.max", "(x: number, ...: number) -> number", "The greatest of its numbers."),
+    ("math.maxinteger", ": integer", "The greatest whole number there is."),
+    ("math.min", "(x: number, ...: number) -> number", "The least of its numbers."),
+    ("math.mininteger", ": integer", "The least whole number there is."),
+    ("math.modf", "(x: number) -> number, number", "x's whole part and its fraction."),
+    ("math.pi", ": number", "Pi."),
+    ("math.pow", "(x: number, y: number) -> number", "x to the power of y. Write this for any power but a square: x ^ 2 is allowed, any other ^ is refused as the game loads."),
+    ("math.rad", "(x: number) -> number", "An angle in degrees as radians: 90 degrees are half of math.pi."),
+    ("math.random", "(m?: integer, n?: integer) -> number", "A random number from the game's own random numbers, the same every time a run is played the same way \
+        (replays and saves keep them).\n- math.random(): from 0 up to 1, never 1.\n- math.random(n): a whole number from 1 to n.\n\
+        - math.random(m, n): a whole number from m to n.\nNot in on_draw: a picture draws no random number."),
+    ("math.randomseed", "()", "Refused: the engine seeds the game's random numbers, so that a run can be played again."),
+    ("math.sin", "(x: number) -> number", "The sine of an angle in radians."),
+    ("math.sqrt", "(x: number) -> number", "The square root of x."),
+    ("math.tan", "(x: number) -> number", "The tangent of an angle in radians."),
+    ("math.tointeger", "(x: any) -> integer?", "x as a whole number, nil where it is none."),
+    ("math.type", "(x: any) -> string?", "\"integer\", \"float\", or nil where x is no number."),
+    ("math.ult", "(m: integer, n: integer) -> boolean", "Whether m is below n, both read as unsigned."),
+    ("string", "", "Lua 5.4's string library whole (string.format, string.sub, string.find …). tostring and string.format show no memory address."),
+    ("table", "", "Lua 5.4's table library whole (table.insert, table.remove, table.concat, table.unpack …). table.sort sorts as Lua's does and \
+        the same on every run."),
+    ("utf8", "", "Lua 5.4's utf8 library whole."),
+    ("pairs", "(t: table)", "Goes over a table's keys in a fixed order (numbers, then strings, then true and false), the same on every run; \
+        next alike. ipairs is Lua's own."),
+    ("require", "(name: string) -> any", "Runs another Lua file of the game once and gives what it returns: require(\"farm\") is farm.lua. \
+        Only while the game starts."),
+    ("print", "(...)", "Writes a line to the IDE's OUTPUT and the terminal."),
+];
+
 fn entries() -> Vec<Entry> {
     let mut out: Vec<Entry> = API.iter().map(|i| Entry { name: written(i), head: signature(i), doc: i.doc.to_string() }).collect();
+    out.extend(LUA.iter().map(|(name, takes, doc)| Entry { name: format!("lua {name}"), head: format!("{name}{takes}"), doc: doc.to_string() }));
     for s in settings() {
         out.push(Entry { name: format!("c.{}", s.path), head: s.head(), doc: s.doc });
     }
@@ -756,7 +804,7 @@ fn entries() -> Vec<Entry> {
 /// A name as `voxcade api` compares it: small letters, a method's `:` a
 /// dot, no call's brackets (`Thing:Walk()` is `thing.walk`).
 fn compared(name: &str) -> String {
-    let name = name.trim().split('(').next().unwrap_or("");
+    let name = name.trim().trim_start_matches("lua ").split('(').next().unwrap_or("");
     name.to_lowercase().replace(':', ".")
 }
 
@@ -789,7 +837,15 @@ pub fn lookup(filter: Option<&str>) -> Result<String, String> {
     let mut out = String::new();
     let mut part = "";
     for e in shown {
-        let now = if e.name.starts_with("c.things.") { "KINDS: c.things.NAME = { ... } in conf.lua" } else if e.name.starts_with("c.") { "SETTINGS: conf.lua, function conf(c)" } else { "" };
+        let now = if e.name.starts_with("c.things.") {
+            "KINDS: c.things.NAME = { ... } in conf.lua"
+        } else if e.name.starts_with("c.") {
+            "SETTINGS: conf.lua, function conf(c)"
+        } else if e.name.starts_with("lua ") {
+            "LUA'S OWN: what a script has of Lua 5.4's library (no os, io, debug, coroutine, load)"
+        } else {
+            ""
+        };
         if now != part {
             out += &format!("\n== {now}\n\n");
             part = now;

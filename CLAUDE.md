@@ -198,7 +198,9 @@ nearest; its replay `tests/two_ships`);
   every frame from the side, the five sides at the game's size;
   `Session::still`). Making figures: the voxcade-models skill.
 - The Lua API: `voxcade api [NAME]` lists it, then every `conf.lua`
-  setting (type, default, range) and every key of a kind (the engine's,
+  setting (type, default, range), what a script has of Lua's own library
+  (`api::LUA`: every `math` name, test
+  `the_reference_lists_the_maths_a_script_has`) and every key of a kind (the engine's,
   each kit's behaviors' from its `kit.toml`, `api::KIT_WORDS` where that
   says too little); NAME as printed (`thing:walk`, `world.state`,
   `c.camera.fov`), in part, any case; an unknown one exits 1 naming the
