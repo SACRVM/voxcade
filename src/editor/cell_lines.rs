@@ -23,14 +23,28 @@ pub const MIN_VOXEL: f32 = 7.0;
 /// long to find, and stand too close to read).
 const MOST_FACES: usize = 60_000;
 
-/// The lines' colour: dark and faint over any voxel.
+/// The lines' color: dark and faint over a voxel, light over a dark one
+/// (black lines on black voxels showed nothing: the owner, 2026-11-16).
 pub const LINE: egui::Color32 = egui::Color32::from_rgba_premultiplied(0, 0, 0, 56);
+pub const LIGHT_LINE: egui::Color32 = egui::Color32::from_rgba_premultiplied(72, 72, 72, 72);
+
+/// A voxel as dark as this or darker (0.3 r + 0.59 g + 0.11 b of 255)
+/// gets the light lines.
+const DARK: f32 = 70.0;
+
+fn dark(c: [u8; 3]) -> bool {
+    0.3 * f32::from(c[0]) + 0.59 * f32::from(c[1]) + 0.11 * f32::from(c[2]) < DARK
+}
+
+/// An edge on the screen (points from its top left) and whether it lies on
+/// a dark voxel.
+pub type Line = ([Vec2; 2], bool);
 
 /// The lines last worked out and what they were worked out for.
 #[derive(Default)]
 pub struct Kept {
     key: Option<u64>,
-    lines: Vec<[Vec2; 2]>,
+    lines: Vec<Line>,
 }
 
 /// Whether GRID's lines are drawn now: lit, in the voxel editor, not in
@@ -48,41 +62,51 @@ fn shows(ed: &Editor, view: &View) -> bool {
 }
 
 /// The cells shown in the grid the view draws (`View::view_proj` of the
-/// block: a turned part's own grid), those SLICE cuts away left out.
-fn cells(ed: &Editor) -> CellSet {
+/// block: a turned part's own grid), those SLICE cuts away left out, and
+/// the dark ones among them.
+fn cells(ed: &Editor) -> (CellSet, CellSet) {
     let mut set = CellSet::default();
+    let mut darks = CellSet::default();
     match ed.scope {
         Scope::Level => {}
         Scope::Block(_) | Scope::Frame(_) => {
-            let Some(b) = ed.shape() else { return set };
+            let Some(b) = ed.shape() else { return (set, darks) };
             for z in 0..b.size.z {
                 for y in 0..b.size.y {
                     for x in 0..b.size.x {
                         let c = IVec3::new(x, y, z);
-                        if b.get(c) != 0 && !ed.cut(c) {
+                        let v = b.get(c);
+                        if v != 0 && !ed.cut(c) {
                             set.insert(c);
+                            if b.palette.get(v as usize - 1).is_some_and(|p| dark(*p)) {
+                                darks.insert(c);
+                            }
                         }
                     }
                 }
             }
         }
         Scope::Figure => {
-            let (Some(figure), Some((shift, _))) = (ed.figure.as_ref(), ed.figure_box()) else { return set };
-            let Some(frame) = figure.model.frames.first() else { return set };
+            let (Some(figure), Some((shift, _))) = (ed.figure.as_ref(), ed.figure_box()) else { return (set, darks) };
+            let Some(frame) = figure.model.frames.first() else { return (set, darks) };
             for (p, part) in figure.model.parts.iter().enumerate() {
                 if figure.hidden[p] {
                     continue;
                 }
                 for &k in &part.voxels {
-                    let c = frame[k as usize].0 + shift;
+                    let (at, color) = frame[k as usize];
+                    let c = at + shift;
                     if !ed.cut(c) {
                         set.insert(c);
+                        if dark([color[0], color[1], color[2]]) {
+                            darks.insert(c);
+                        }
                     }
                 }
             }
         }
     }
-    set
+    (set, darks)
 }
 
 /// What the lines depend on: the view's matrix, the screen, the voxels
@@ -118,7 +142,7 @@ fn key_of(ed: &Editor, vp: Mat4, screen: Vec2) -> u64 {
 
 /// The lines to draw over the view (points from the screen's top left),
 /// worked out anew only when the view or the voxels changed.
-pub fn lines(ed: &Editor, view: &View, screen: Vec2) -> Vec<[Vec2; 2]> {
+pub fn lines(ed: &Editor, view: &View, screen: Vec2) -> Vec<Line> {
     if !shows(ed, view) {
         return Vec::new();
     }
@@ -127,10 +151,10 @@ pub fn lines(ed: &Editor, view: &View, screen: Vec2) -> Vec<[Vec2; 2]> {
     let key = key_of(ed, vp, screen);
     let mut kept = view.grid_lines.borrow_mut();
     if kept.key != Some(key) {
-        let cells = cells(ed);
+        let (cells, darks) = cells(ed);
         // The eye in the grid shown (a turned part's own).
         let eye = view.rest.inverse().transform_point3(view.block_eye(aspect));
-        kept.lines = if cells.is_empty() { Vec::new() } else { work_out(&cells, vp, screen, eye) };
+        kept.lines = if cells.is_empty() { Vec::new() } else { work_out(&cells, &darks, vp, screen, eye) };
         kept.key = Some(key);
     }
     kept.lines.clone()
@@ -141,8 +165,9 @@ const DIRS: [IVec3; 6] = [IVec3::X, IVec3::NEG_X, IVec3::Y, IVec3::NEG_Y, IVec3:
 
 /// The edges of the faces of `cells` turned to `eye` whose middles the eye
 /// sees, projected (`vp`, `screen`); none where a voxel spans fewer than
-/// `MIN_VOXEL` points.
-pub fn work_out(cells: &CellSet, vp: Mat4, screen: Vec2, eye: Vec3) -> Vec<[Vec2; 2]> {
+/// `MIN_VOXEL` points. An edge is light where the face it was found on
+/// is a voxel of `darks`.
+pub fn work_out(cells: &CellSet, darks: &CellSet, vp: Mat4, screen: Vec2, eye: Vec3) -> Vec<Line> {
     let lo = cells.iter().fold(IVec3::MAX, |a, c| a.min(*c));
     let hi = cells.iter().fold(IVec3::MIN, |a, c| a.max(*c + 1));
     // How big a voxel is on the screen, at the cells' middle.
@@ -175,6 +200,7 @@ pub fn work_out(cells: &CellSet, vp: Mat4, screen: Vec2, eye: Vec3) -> Vec<[Vec2
     let mut out = Vec::new();
     for (c, d) in faces {
         let n = DIRS[d];
+        let light = darks.contains(&c);
         let a = d / 2;
         let (b, e) = ((a + 1) % 3, (a + 2) % 3);
         let mut corner = c;
@@ -196,7 +222,7 @@ pub fn work_out(cells: &CellSet, vp: Mat4, screen: Vec2, eye: Vec3) -> Vec<[Vec2
             }
             seen.insert(key);
             if let (Some((p, _)), Some((q, _))) = (super::handles::project(vp, screen, from.as_vec3()), super::handles::project(vp, screen, to.as_vec3())) {
-                out.push([p, q]);
+                out.push(([p, q], light));
             }
         }
     }
@@ -257,8 +283,8 @@ pub fn paint(ui: &egui::Ui, ed: &Editor, view: &View, free: egui::Rect) {
         return;
     }
     let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::unique("grid lines"))).with_clip_rect(free);
-    let stroke = egui::Stroke::new(1.0, LINE);
-    for [p, q] in lines {
+    for ([p, q], light) in lines {
+        let stroke = egui::Stroke::new(1.0, if light { LIGHT_LINE } else { LINE });
         painter.line_segment([screen.min + egui::vec2(p.x, p.y), screen.min + egui::vec2(q.x, q.y)], stroke);
     }
 }
@@ -296,12 +322,24 @@ mod tests {
     fn a_cube_seen_near_shows_its_cells_and_far_none() {
         let (vp, eye) = camera(14.0);
         let screen = Vec2::new(1600.0, 900.0);
-        let lines = work_out(&cube(4), vp, screen, eye);
+        let lines = work_out(&cube(4), &CellSet::default(), vp, screen, eye);
         // Three faces of 4 by 4: each 2 * 5 * 4 = 40 edges, the three
         // edges where two of them meet (4 each) counted once.
         assert_eq!(lines.len(), 3 * 40 - 3 * 4, "{}", lines.len());
         let (vp, eye) = camera(2000.0);
-        assert!(work_out(&cube(4), vp, screen, eye).is_empty(), "far off: none");
+        assert!(work_out(&cube(4), &CellSet::default(), vp, screen, eye).is_empty(), "far off: none");
+    }
+
+    /// Dark voxels get light lines, the rest the dark ones: a cube all
+    /// dark is ruled light, one with none dark.
+    #[test]
+    fn dark_voxels_are_ruled_light() {
+        let (vp, eye) = camera(14.0);
+        let screen = Vec2::new(1600.0, 900.0);
+        assert!(dark([0, 0, 0]) && dark([40, 40, 60]) && !dark([200, 60, 60]) && !dark([255, 255, 255]));
+        let all = work_out(&cube(4), &cube(4), vp, screen, eye);
+        assert!(!all.is_empty() && all.iter().all(|(_, light)| *light));
+        assert!(work_out(&cube(4), &CellSet::default(), vp, screen, eye).iter().all(|(_, light)| !*light));
     }
 
     /// GRID is lit when a model opens and its lines are drawn there (a
@@ -330,7 +368,7 @@ mod tests {
     fn faces_behind_the_shape_show_none() {
         let (vp, eye) = camera(14.0);
         let screen = Vec2::new(1600.0, 900.0);
-        let alone = work_out(&cube(4), vp, screen, eye).len();
+        let alone = work_out(&cube(4), &CellSet::default(), vp, screen, eye).len();
         // A tall thin wall right before the cube, the way the eye looks.
         let mut set = cube(4);
         for z in 0..12 {
@@ -338,14 +376,14 @@ mod tests {
                 set.insert(IVec3::new(x, -3, z));
             }
         }
-        let lines = work_out(&set, vp, screen, eye);
+        let lines = work_out(&set, &CellSet::default(), vp, screen, eye);
         // Of the cube's front, nothing; the lines are the wall's and what
         // shows of the cube's top over it.
         let front = |p: Vec2| {
             let (q, _) = crate::editor::handles::project(vp, screen, Vec3::new(2.0, 0.0, 2.0)).unwrap();
             p.distance(q) < 2.0
         };
-        assert!(!lines.iter().any(|[p, q]| front((*p + *q) / 2.0)), "the cube's front is hidden");
+        assert!(!lines.iter().any(|([p, q], _)| front((*p + *q) / 2.0)), "the cube's front is hidden");
         assert!(lines.len() > alone / 3, "the wall's own lines");
     }
 }

@@ -1955,7 +1955,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   F1 say those; U and R still work, unsaid on the buttons). GRID (beside
   the view's corner buttons, lit when the voxel editor opens; never in
   GAME VIEW or a level): faint lines along the voxels' edges on the faces
-  the eye sees, where a voxel spans 7 points or more
+  the eye sees (light ones on a dark voxel, `cell_lines::dark`, test
+  `dark_voxels_are_ruled_light`), where a voxel spans 7 points or more
   (`editor/cell_lines.rs`, egui lines over the view, an edge drawn where
   its middle is seen; kept while the view and the voxels stay; not over a
   figure whose parts are turned or posed). A level's blocks are pictured
