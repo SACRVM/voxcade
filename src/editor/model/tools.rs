@@ -213,6 +213,10 @@ impl Editor {
         });
         self.history.grown = IVec3::ZERO;
         self.history.linked = None;
+        self.rigging.rig_before = match (&self.history.stroke, &self.figure) {
+            (Some(Begun::Model(before)), Some(f)) if f.made_of(before) => Some((Arc::clone(before), f.rig())),
+            _ => None,
+        };
         self.drag(hit);
     }
 
@@ -447,6 +451,11 @@ impl Editor {
                 }
                 if let Some(m) = self.model.as_mut().filter(|m| m.parted()) {
                     m.size = m.tight_size();
+                }
+                // (Nothing changed: no rig to keep, no step.)
+                if self.model.as_ref().is_none_or(|m| m.is(&before)) {
+                    (self.rigging.acting, self.rigging.rig_before) = (None, None);
+                    return;
                 }
                 self.pin_rig(&before);
                 if self.model.as_ref().is_none_or(|m| m.is(&before)) {

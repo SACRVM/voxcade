@@ -190,20 +190,23 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
     let empty_at = |p: usize| empty.get(p).copied().flatten();
     // Where an empty part stands: the middle of its cell.
     let point = |p: usize| empty_at(p).map(|c| c.as_vec3() + 0.5);
-    let cells: crate::world::CellMap<usize> = frame.iter().zip(owner).map(|((v, _), &o)| (*v, o)).collect();
+    let cells = crate::world::DenseCells::of(frame.iter().zip(owner).map(|((v, _), &o)| (*v, o as u32)));
     let pivot = IVec3::new(size.x / 2, size.y / 2, 0).as_vec3();
     // Faces two parts share, and the middles of those faces added up.
     let mut touch = vec![vec![(0u32, Vec3::ZERO); count]; count];
     for ((v, _), &a) in frame.iter().zip(owner) {
         for d in crate::mesh::DIRS {
-            if let Some(&b) = cells.get(&(*v + d)).filter(|&&b| b != a) {
+            if let Some(b) = cells.get(*v + d).map(|b| b as usize).filter(|&b| b != a) {
                 let (n, at) = &mut touch[a][b];
                 *n += 1;
                 *at += v.as_vec3() + 0.5 + d.as_vec3() * 0.5;
             }
         }
     }
-    let members: Vec<Vec<u32>> = (0..count).map(|p| (0..owner.len() as u32).filter(|&k| owner[k as usize] == p).collect()).collect();
+    let mut members: Vec<Vec<u32>> = vec![Vec::new(); count];
+    for (k, &p) in owner.iter().enumerate().filter(|(_, p)| **p < count) {
+        members[p].push(k as u32);
+    }
     let middle = |p: usize| members[p].iter().map(|&k| frame[k as usize].0.as_vec3() + 0.5).sum::<Vec3>() / members[p].len().max(1) as f32;
     // The root: the first empty part naming no parent, else the biggest
     // part naming none.
@@ -307,7 +310,7 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
     // Voxels of two parts in one place (`cells` holds the later part's).
     let mut overlap = vec![vec![0u32; count]; count];
     for ((v, _), &a) in frame.iter().zip(owner) {
-        if let Some(&b) = cells.get(v)
+        if let Some(b) = cells.get(*v).map(|b| b as usize)
             && b != a
         {
             overlap[a][b] += 1;
@@ -411,12 +414,13 @@ impl VoxModel {
 /// The voxels of a frame that can be seen: glass, and those with open
 /// space or glass on a side.
 fn visible_voxels(frame: &[(IVec3, [u8; 4])]) -> (Vec<u32>, Vec<u8>) {
-    let opaque: crate::world::CellSet = frame.iter().filter(|(_, c)| c[3] == 255).map(|(v, _)| *v).collect();
+    let opaque = crate::world::DenseCells::of(frame.iter().filter(|(_, c)| c[3] == 255).map(|(v, _)| (*v, ())));
+    let filled = |c: IVec3| opaque.get(c).is_some();
     frame
         .iter()
         .enumerate()
-        .filter(|(_, (v, c))| c[3] < 255 || crate::mesh::DIRS.iter().any(|d| !opaque.contains(&(*v + *d))))
-        .map(|(k, (v, c))| (k as u32, if c[3] == 255 { covered(&opaque, *v) } else { 0 }))
+        .filter(|(_, (v, c))| c[3] < 255 || crate::mesh::DIRS.iter().any(|d| !filled(*v + *d)))
+        .map(|(k, (v, c))| (k as u32, if c[3] == 255 { covered_by(filled, *v) } else { 0 }))
         .unzip()
 }
 
@@ -428,7 +432,12 @@ fn visible_voxels(frame: &[(IVec3, [u8; 4])]) -> (Vec<u32>, Vec<u8>) {
 /// won single pixels there (dots in the neighbouring face's shade, all over
 /// a turned figure, and over the level editor's pieces in shade).
 pub fn covered(opaque: &crate::world::CellSet, v: IVec3) -> u8 {
-    crate::mesh::DIRS.iter().enumerate().filter(|(_, d)| opaque.contains(&(v + **d))).fold(0, |bits, (bit, _)| bits | 1 << bit)
+    covered_by(|c| opaque.contains(&c), v)
+}
+
+/// `covered` by whatever says which cells are opaque.
+fn covered_by(opaque: impl Fn(IVec3) -> bool, v: IVec3) -> u8 {
+    crate::mesh::DIRS.iter().enumerate().filter(|(_, d)| opaque(v + **d)).fold(0, |bits, (bit, _)| bits | 1 << bit)
 }
 
 /// Per voxel: the direction it is lit by (snorm xyz) and in w the faces

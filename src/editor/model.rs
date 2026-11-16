@@ -709,6 +709,11 @@ pub struct Rigging {
     /// The figure of the model as it is now, made by `pin_rig` at a step's
     /// end: `follow_figure` takes it rather than making it again.
     made_figure: Option<Figure>,
+    /// The rig as a stroke found it, and the model it is the rig of: for
+    /// `pin_rig` at the let-go, when the figure was made again meanwhile
+    /// (a clone following the stroke), rather than making that figure
+    /// again too.
+    rig_before: Option<(Arc<Shaped>, super::figure::Rig)>,
 }
 
 /// SELECT: the voxels selected, the box drawn last (for + and -), the
@@ -964,7 +969,7 @@ pub fn level_file(dir: &Path, cfg: &crate::config::GameConfig) -> Result<String>
 /// A figure's rig by part name: what each hangs on (by name) and its
 /// joint from the pivot, as the rules or the file have them (None: no
 /// figure, or one that cannot be made).
-fn rig_of(m: &ModelFile) -> Option<std::collections::BTreeMap<String, (Option<String>, Vec3)>> {
+fn rig_of(m: &ModelFile) -> Option<super::figure::Rig> {
     Some(Figure::of(m)?.ok()?.rig())
 }
 

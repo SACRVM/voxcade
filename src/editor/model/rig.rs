@@ -618,8 +618,10 @@ impl Editor {
         acting.extend(model.parts.iter().filter(|o| sources.contains(o.like.as_ref().unwrap_or(&o.name))).map(|o| o.name.clone()));
         // The rig before: the figure shown, where it is still the one made
         // of `before` (a stroke's), else made again.
+        let kept = self.rigging.rig_before.take().filter(|(of, _)| **of == *before);
         let was = match self.figure.as_ref().filter(|f| f.made_of(before)) {
             Some(f) => Some(f.rig()),
+            None if kept.is_some() => kept.map(|(_, rig)| rig),
             None => {
                 let mut old = model.clone();
                 old.reshape(before);

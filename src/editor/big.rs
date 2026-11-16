@@ -3,6 +3,7 @@
 //! cost there.
 
 use super::*;
+use glam::IVec3;
 use std::time::Instant;
 
 /// A wall like the owner's back wall: 169 wide, 12 deep, 116 high, solid
@@ -196,25 +197,97 @@ pub(crate) fn wall_figure_window(name: &str) -> (EditorWindow, crate::scratch::S
     (win, dir)
 }
 
+/// Whether the model is met at a point of the screen: the tool's aim,
+/// or with the figure whole the part a click works on.
+fn meets(win: &EditorWindow, x: f32, y: f32) -> bool {
+    let (sx, sy) = (x / 1600.0, y / 900.0);
+    if win.ed.scope == Scope::Figure {
+        let (origin, dir) = win.view.ray(&win.ed, 16.0 / 9.0, sx, sy);
+        return win.ed.figure.as_ref().zip(win.ed.figure_box()).is_some_and(|(f, (lo, _))| f.part_at(lo, origin, dir).is_some());
+    }
+    win.view.aim(&win.ed, 16.0 / 9.0, sx, sy).is_some()
+}
+
+/// A part's `layers` for a box `size` big: `sign(x, y, z)` each voxel
+/// ('.' none), the bottom layer first, the far row first.
+fn layers_of(size: IVec3, sign: impl Fn(i32, i32, i32) -> char) -> String {
+    let layer = |z: i32| (0..size.y).rev().map(|y| (0..size.x).map(|x| sign(x, y, z)).collect::<String>()).collect::<Vec<_>>().join("\n");
+    format!("layers = \"\"\"\n{}\n\"\"\"\n", (0..size.z).map(layer).collect::<Vec<_>>().join("\n\n"))
+}
+
+/// A big figure of parts like a car of the owner's (made here, nothing of
+/// theirs): an empty root, a big shell's left half and its right half a
+/// mirrored clone, a pane of glass, a block inside, a wheel and three
+/// clones of it (one mirrored); some 50,000 voxels in a box of 60 by 130
+/// by 50.
+pub(crate) fn car_text() -> String {
+    let half = IVec3::new(29, 130, 40);
+    // The half: its outer wall, floor and roof, a voxel thick, striped.
+    let shell = layers_of(half, |x, y, z| {
+        let wall = x == 0 || y == 0 || y == half.y - 1 || z == 0 || z == half.z - 1;
+        if !wall { '.' } else if (y / 6 + z / 5) % 2 == 0 { 'a' } else { 'b' }
+    });
+    let pane = layers_of(IVec3::new(40, 1, 16), |_, _, _| 'g');
+    let inside = layers_of(IVec3::new(40, 60, 14), |x, y, z| if (x + y + z) % 7 == 0 { 'c' } else { 'b' });
+    let wheel = IVec3::new(8, 24, 24);
+    let round = layers_of(wheel, |_, y, z| if (y * 2 - 23).pow(2) + (z * 2 - 23).pow(2) <= 24 * 24 { 'c' } else { '.' });
+    let part = |name: &str, at: [i32; 3], rest: &str| format!("\n[[part]]\nname = \"{name}\"\nat = [{}, {}, {}]\nparent = \"car\"\n{rest}", at[0], at[1], at[2]);
+    format!(
+        "format = \"{}\"\nsize = [60, 130, 50]\n\n[palette]\na = \"#b8322b\"\nb = \"#2d2e31\"\nc = \"#121214\"\ng = {{ color = \"#a9bfcc\", glass = 0.45 }}\n\n[[part]]\nname = \"car\"\n{}{}{}{}{}{}{}{}",
+        crate::vvx::FORMAT,
+        part("body_left", [-29, -65, 4], &shell),
+        part("body_right", [0, -65, 4], "like = \"body_left\"\nmirror = \"x\"\n"),
+        part("windscreen", [-20, 30, 26], &pane),
+        part("interior", [-20, -30, 5], &inside),
+        part("wheel_front_right", [22, 26, 0], &round),
+        part("wheel_rear_right", [22, -50, 0], "like = \"wheel_front_right\"\n"),
+        part("wheel_front_left", [-30, 26, 0], "like = \"wheel_front_right\"\nmirror = \"x\"\n"),
+        part("wheel_rear_left", [-30, -50, 0], "like = \"wheel_front_right\"\nmirror = \"x\"\n"),
+    )
+}
+
+/// A game holding the car, an editor window without a window on it.
+pub(crate) fn car_window(name: &str) -> (EditorWindow, crate::scratch::Scratch) {
+    let dir = crate::scratch::Scratch::new(&format!("big-{name}"));
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.voxcade = \"0.6.0\"\nend\n").unwrap();
+    std::fs::write(dir.join("main.lua"), "").unwrap();
+    std::fs::write(dir.join("car.vvx"), car_text()).unwrap();
+    let (ed, view, cfg) = open_model::<crate::Voxcade>(&dir, "car.vvx").unwrap();
+    let mut win = EditorWindow::headless(ed, view, cfg, &dir).unwrap();
+    for _ in 0..3 {
+        win.draw().unwrap();
+    }
+    (win, dir)
+}
+
+/// The longest run on row `y` (from x to x) where the model is met.
+fn run_at(win: &EditorWindow, y: f32) -> (f32, f32) {
+    let mut best = (0.0, 0.0);
+    let mut start = None;
+    for i in 0..=160 {
+        let x = 10.0 * i as f32;
+        match (i < 160 && meets(win, x, y), start) {
+            (true, None) => start = Some(x),
+            (false, Some(s)) => {
+                if x - 10.0 - s > best.1 - best.0 {
+                    best = (s, x - 10.0);
+                }
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    best
+}
+
 /// A row of the screen (y, from x to x) where the model is met all along.
 fn run_on(win: &EditorWindow) -> (f32, f32, f32) {
     let mut best = (0.0, 0.0, 0.0);
     for j in 0..90 {
         let y = 100.0 + j as f32 * 8.0;
-        let mut start = None;
-        for i in 0..=160 {
-            let x = 10.0 * i as f32;
-            let hit = i < 160 && win.view.aim(&win.ed, 16.0 / 9.0, x / 1600.0, y / 900.0).is_some();
-            match (hit, start) {
-                (true, None) => start = Some(x),
-                (false, Some(s)) => {
-                    if x - 10.0 - s > best.2 - best.1 {
-                        best = (y, s, x - 10.0);
-                    }
-                    start = None;
-                }
-                _ => {}
-            }
+        let (a, b) = run_at(win, y);
+        if b - a > best.2 - best.1 {
+            best = (y, a, b);
         }
     }
     best
@@ -656,4 +729,229 @@ fn a_stroke_on_a_figure_makes_it_again_when_let_go() {
     let now = win.ed.model.as_ref().unwrap().shaped();
     assert!(win.ed.figure.as_ref().unwrap().made_of(&now), "let go: made of the model as it is");
     assert_eq!(win.ed.steps(), 1);
+}
+
+/// Times what the window does on a big figure of parts with clones (the
+/// owner's car was sluggish to shape): the figure whole, a big part with a
+/// mirrored clone chosen, a wheel with three clones chosen. Run by hand
+/// with `cargo test --release --lib big_figure_timings -- --ignored
+/// --nocapture`.
+#[test]
+#[ignore]
+fn big_figure_timings() {
+    for part in [None, Some("body_left"), Some("wheel_front_right")] {
+        let t = Instant::now();
+        let (mut win, _dir) = car_window("figure-timings");
+        println!("== open + 3 frames: {:.1} ms", ms(t));
+        let mut last = (800.0, 450.0);
+        match part {
+            None => whole_figure_exercise(&mut win, &mut last),
+            Some(part) => part_exercise(&mut win, part, &mut last),
+        }
+    }
+}
+
+fn part_index(win: &EditorWindow, name: &str) -> usize {
+    win.ed.figure.as_ref().unwrap().parts().iter().position(|p| p.name == name).unwrap()
+}
+
+/// Ten frames drawn with nothing changed: what one cost.
+fn idle_frame(win: &mut EditorWindow) -> f64 {
+    let t = Instant::now();
+    for _ in 0..10 {
+        win.dirty = true;
+        win.draw().unwrap();
+    }
+    ms(t) / 10.0
+}
+
+fn idle(win: &mut EditorWindow, what: &str) {
+    println!("{what}: idle frame {:.2} ms, instances {}", idle_frame(win), win.last.as_ref().map_or(0, |l| l.0.instances.len()));
+    win.view.grid = !win.view.grid;
+    println!("{what}, GRID {}: idle frame {:.2} ms", if win.view.grid { "on" } else { "off" }, idle_frame(win));
+    win.view.grid = !win.view.grid;
+}
+
+/// A row to stroke along: on a part chosen away from its middle, where
+/// its arrows are.
+fn stroke_row(win: &EditorWindow) -> (f32, f32, f32) {
+    let (y, x0, x1) = run_on(win);
+    let (y, x0, x1) = match win.ed.part_mode() {
+        Some(_) => [-48.0, 48.0, -96.0, 96.0].iter().map(|d| (y + d, run_at(win, y + d))).find(|(_, (a, b))| b - a > 100.0).map_or((y, x0, x1), |(y, (a, b))| (y, a, b)),
+        None => (y, x0, x1),
+    };
+    (y, x0, x0 + (x1 - x0).min(300.0))
+}
+
+/// A stroke of `tool` along the row: its press, its frames on average
+/// and the worst, its let-go (ms).
+fn stroke(win: &mut EditorWindow, tool: Tool, (y, x0, x1): (f32, f32, f32), last: &mut (f32, f32)) -> (f64, f64, f64, f64) {
+    act(win, view::Action::Tool(tool));
+    win.draw().unwrap();
+    motion(win, x0, y, 0, last);
+    win.draw().unwrap();
+    let t = Instant::now();
+    button(win, x0, y, sdl3::mouse::MouseButton::Left, true);
+    win.draw().unwrap();
+    let press = ms(t);
+    let t = Instant::now();
+    let mut worst = 0.0f64;
+    for k in 1..=20 {
+        let s = Instant::now();
+        motion(win, x0 + (x1 - x0) * k as f32 / 20.0, y, 1, last);
+        win.draw().unwrap();
+        worst = worst.max(ms(s));
+    }
+    let drag = ms(t) / 20.0;
+    let t = Instant::now();
+    button(win, x1, y, sdl3::mouse::MouseButton::Left, false);
+    win.draw().unwrap();
+    (press, drag, worst, ms(t))
+}
+
+fn strokes(win: &mut EditorWindow, what: &str, last: &mut (f32, f32)) {
+    let row = stroke_row(win);
+    for tool in [Tool::Add, Tool::Remove, Tool::Paint] {
+        let (press, drag, worst, let_go) = stroke(win, tool, row, last);
+        println!("{what} {tool:?}: press {press:.1}, drag frame {drag:.2} (worst {worst:.1}), let go {let_go:.1} ms, steps {}", win.ed.steps());
+    }
+}
+
+fn orbit(win: &mut EditorWindow, last: &mut (f32, f32)) -> f64 {
+    button(win, 800.0, 450.0, sdl3::mouse::MouseButton::Right, true);
+    let t = Instant::now();
+    for k in 0..20 {
+        motion(win, 800.0 + k as f32 * 3.0, 450.0, 0b100, last);
+        win.draw().unwrap();
+    }
+    let each = ms(t) / 20.0;
+    button(win, 860.0, 450.0, sdl3::mouse::MouseButton::Right, false);
+    win.draw().unwrap();
+    each
+}
+
+fn hover(win: &mut EditorWindow, last: &mut (f32, f32)) -> f64 {
+    let (y, x0, x1) = run_on(win);
+    let t = Instant::now();
+    for k in 0..30 {
+        motion(win, x0 + (x1 - x0) * k as f32 / 30.0, y, 0, last);
+        win.draw().unwrap();
+    }
+    ms(t) / 30.0
+}
+
+fn whole_figure_exercise(win: &mut EditorWindow, last: &mut (f32, f32)) {
+    idle(win, "whole");
+    for tool in [Tool::Pointer, Tool::Add, Tool::Paint] {
+        act(win, view::Action::Tool(tool));
+        win.draw().unwrap();
+        println!("whole, hover with {tool:?}: {:.2} ms", hover(win, last));
+    }
+    println!("whole, orbit frame: {:.2} ms", orbit(win, last));
+    strokes(win, "whole", last);
+}
+
+fn part_exercise(win: &mut EditorWindow, part: &str, last: &mut (f32, f32)) {
+    orbit(win, last);
+    let t = Instant::now();
+    act(win, view::Action::Part(part_index(win, part)));
+    win.draw().unwrap();
+    println!("choose {part}: {:.1} ms", ms(t));
+    idle(win, part);
+    act(win, view::Action::Tool(Tool::Add));
+    win.draw().unwrap();
+    println!("{part}, hover with Add: {:.2} ms", hover(win, last));
+    println!("{part}, orbit frame: {:.2} ms", orbit(win, last));
+    strokes(win, part, last);
+    win.ed.symmetry = true;
+    strokes(win, &format!("{part}, SYMMETRY"), last);
+    win.ed.symmetry = false;
+    for (what, step) in [("undo", Editor::undo as fn(&mut Editor)), ("redo", Editor::redo)] {
+        let t = Instant::now();
+        step(&mut win.ed);
+        win.dirty = true;
+        win.draw().unwrap();
+        println!("{part}, {what}: {:.1} ms", ms(t));
+    }
+    let t = Instant::now();
+    win.ed.move_part(IVec3::X);
+    win.dirty = true;
+    win.draw().unwrap();
+    println!("{part}, moved by a voxel: {:.1} ms", ms(t));
+}
+
+/// With a part of a big figure chosen the others are drawn see-through
+/// round it and joined as the game joins glass: found once, joined again
+/// only when the eye goes round to another side, not on every frame
+/// (every frame they took the owner's car 7 to 11 ms), and drawn as
+/// joined afresh.
+#[test]
+fn a_figures_parts_round_the_chosen_one_are_joined_once() {
+    let (mut win, _dir) = car_window("joined-once");
+    let mut last = (800.0, 450.0);
+    let p = part_index(&win, "body_left");
+    act(&mut win, view::Action::Part(p));
+    win.draw().unwrap();
+    let same_as_afresh = |win: &EditorWindow, what: &str| {
+        let (frame, _) = win.last.as_ref().expect("a frame drawn");
+        let fresh = view::frame(&win.ed, &win.view, &Shown::new(&win.ed).unwrap(), &win.figures, &win.cfg.light, 1600.0 / 900.0);
+        assert!(frame.see_through > 10_000, "{what}: the other parts see-through ({})", frame.see_through);
+        assert!(bytemuck::cast_slice::<_, u8>(&frame.instances) == bytemuck::cast_slice::<_, u8>(&fresh.instances), "{what}: drawn as joined afresh");
+    };
+    same_as_afresh(&win, "chosen");
+    let joins = win.shown.see_through_joins();
+    act(&mut win, view::Action::Tool(Tool::Add));
+    hover(&mut win, &mut last);
+    idle_frame(&mut win);
+    same_as_afresh(&win, "hovered");
+    assert_eq!(win.shown.see_through_joins(), joins, "neither found nor joined again");
+    // Round to another side: joined again, not found again.
+    win.view.block.yaw += 90.0;
+    win.dirty = true;
+    win.draw().unwrap();
+    same_as_afresh(&win, "turned round");
+    assert_eq!(win.shown.see_through_joins(), (joins.0, joins.1 + 1));
+    // A stroke on the part with a clone: found again as the clone follows,
+    // drawn as afresh.
+    let row = stroke_row(&win);
+    stroke(&mut win, Tool::Add, row, &mut last);
+    assert_eq!(win.ed.steps(), 1, "the stroke made a step");
+    same_as_afresh(&win, "after a stroke");
+}
+
+/// What shaping a big figure with clones costs (the owner's car, 13 parts
+/// in a box of 59 by 130 by 50, was sluggish): a frame with a part chosen,
+/// and the clones following a stroke on their source or on a clone, at
+/// every voxel. Bounds far above what they cost (0.9, 0.7 and 4 ms here;
+/// they were 9, 8 and 27), for slower machines.
+#[test]
+fn a_big_figure_with_clones_is_quick_to_shape() {
+    let (mut win, _dir) = car_window("quick");
+    let p = part_index(&win, "body_left");
+    act(&mut win, view::Action::Part(p));
+    win.draw().unwrap();
+    let frame = idle_frame(&mut win);
+    assert!(frame < 6.0, "a frame with a part chosen: {frame:.1} ms");
+    let model = win.ed.model.clone().unwrap();
+    let synced = model.shaped();
+    let changed_in = |name: &str| {
+        let mut m = model.clone();
+        let f = m.parts[m.part_named(name).unwrap()].frame;
+        let k = m.frames[f].voxels.iter().position(|&v| v != 0).unwrap();
+        m.frames[f].voxels[k] = 0;
+        m
+    };
+    for (part, most) in [("body_left", 5.0), ("body_right", 20.0)] {
+        let m = changed_in(part);
+        let t = Instant::now();
+        for _ in 0..10 {
+            m.clone().follow_links(&synced);
+        }
+        let each = ms(t) / 10.0;
+        assert!(each < most, "the clones following a voxel of {part}: {each:.1} ms");
+        let mut m = m;
+        m.follow_links(&synced);
+        let (left, right) = (m.part_named("body_left").unwrap(), m.part_named("body_right").unwrap());
+        assert!(super::frames::same_cells(&super::frames::mirrored(&m.frames[m.parts[left].frame], Some(0)), &m.frames[m.parts[right].frame]), "{part}: the clone its source mirrored");
+    }
 }
