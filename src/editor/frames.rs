@@ -42,6 +42,10 @@ pub struct ModelFile {
     /// it came, the text it was.
     text: String,
     loaded: Shaped,
+    /// That text as `keep_text` reads it (its shape, and the same written
+    /// anew), worked out once: the text read never changes, and reading
+    /// and writing it at every step took a big figure 4 ms.
+    read_back: std::sync::Arc<std::sync::OnceLock<Option<(Shape, String)>>>,
     /// The signs of the text last read or written: a colour keeps its sign
     /// from one save to the next.
     signs: Palette,
@@ -213,7 +217,7 @@ impl ModelFile {
             }
         }
         let loaded = Shaped { frames: frames.clone(), parts: parts.clone(), size: shape.size, palette: colours.clone() };
-        Self { path: path.to_path_buf(), palette: colours, size: shape.size, frames, parts, foreign, signs: Palette::of_text(&text), text, loaded }
+        Self { path: path.to_path_buf(), palette: colours, size: shape.size, frames, parts, foreign, signs: Palette::of_text(&text), text, loaded, read_back: Default::default() }
     }
 
     /// A new model to begin with (the IDE's NEW MODEL): one frame, 8 voxels
@@ -230,7 +234,7 @@ impl ModelFile {
         }
         let palette = vec![Colour { key: [204, 112, 72], sign: None, mat: plain([204, 112, 72]) }];
         let loaded = Shaped::default();
-        Self { path: path.to_path_buf(), palette, size: frame.size, frames: vec![frame], parts: Vec::new(), foreign: false, text: String::new(), loaded, signs: Palette::default() }
+        Self { path: path.to_path_buf(), palette, size: frame.size, frames: vec![frame], parts: Vec::new(), foreign: false, text: String::new(), loaded, signs: Palette::default(), read_back: Default::default() }
     }
 
     /// Its frames, parts, box and palette as a step keeps them.
@@ -421,7 +425,11 @@ impl ModelFile {
         if self.text.is_empty() {
             return new;
         }
-        keep_text(&self.text, &new).unwrap_or(new)
+        let read = self.read_back.get_or_init(|| vvx::read_shape(&self.text).ok().map(|(shape, palette)| {
+            let norm = vvx::write_shape(&shape, &palette, true);
+            (shape, norm)
+        }));
+        read.as_ref().and_then(|read| keep_text(&self.text, read, &new)).unwrap_or(new)
     }
 
     /// The text written anew from what it holds (`text` without the
@@ -479,7 +487,10 @@ pub fn mirrored(block: &Block, mirror: Option<usize>) -> Block {
 /// Whether two frames hold the same voxels in the same box (their
 /// colours' numbering aside).
 pub fn same_cells(a: &Block, b: &Block) -> bool {
-    a.size == b.size && a.cells() == b.cells()
+    // (Voxel by voxel, nothing made: a big part's cells listed twice at
+    // every voxel of a stroke took milliseconds.)
+    let colour = |k: &Block, v: u8| (v != 0).then(|| k.palette[v as usize - 1]);
+    a.size == b.size && a.voxels.len() == b.voxels.len() && ((a.palette == b.palette && a.voxels == b.voxels) || a.voxels.iter().zip(&b.voxels).all(|(&x, &y)| colour(a, x) == colour(b, y)))
 }
 
 impl ModelFile {
@@ -562,12 +573,18 @@ impl ModelFile {
                 Some((p, b)) => (p.low, src.low - p.low, b.size),
                 None => (src.low, IVec3::ZERO, block.size),
             };
-            let mut cells: std::collections::BTreeMap<[i32; 3], [u8; 3]> = std::collections::BTreeMap::new();
-            for k in 0..block.voxels.len() {
-                if let Some(c) = block.colour_at(block.at(k)) {
-                    cells.insert((block.at(k) + shift).to_array(), c);
+            // Its cells by place, made only where a clone changed: else the
+            // source stays as it is (making them for a big source took 8 ms
+            // at every voxel of a stroke). Each place is set or emptied
+            // once: the order changes nothing until the frame is made.
+            let mut cells: Option<crate::world::CellMap<[u8; 3]>> = None;
+            let cells_of = |block: &Block| {
+                let mut cells = crate::world::CellMap::default();
+                for (k, &v) in block.voxels.iter().enumerate().filter(|(_, v)| **v != 0) {
+                    cells.insert(block.at(k) + shift, block.palette[v as usize - 1]);
                 }
-            }
+                cells
+            };
             let (mut lo, mut hi) = (shift, shift + block.size - 1);
             let flip = |mut c: IVec3, mirror: Option<usize>| {
                 if let Some(a) = mirror {
@@ -586,21 +603,18 @@ impl ModelFile {
                     continue;
                 };
                 lows.push(p.low);
+                let cells = cells.get_or_insert_with(|| cells_of(&block));
                 let at = now.low - p.low;
-                let mut seen = std::collections::BTreeSet::new();
-                for (b, off) in [(before, IVec3::ZERO), (frame, at)] {
-                    for i in 0..b.voxels.len() {
-                        seen.insert((b.at(i) + off).to_array());
-                    }
-                }
                 let colour = |b: &Block, c: IVec3| b.index(c).and_then(|_| b.colour_at(c));
-                for c in seen {
-                    let c = IVec3::from(c);
+                // Every place of either box once: the box before's, then
+                // the box now's that lie outside it.
+                let places = (0..before.voxels.len()).map(|i| before.at(i)).chain((0..frame.voxels.len()).map(|i| frame.at(i) + at).filter(|&c| before.index(c).is_none()));
+                for c in places {
                     let (old, new) = (colour(before, c), colour(frame, c - at));
                     if old == new {
                         continue;
                     }
-                    let s = flip(c, now.mirror).to_array();
+                    let s = flip(c, now.mirror);
                     match new {
                         Some(colour) => cells.insert(s, colour),
                         None => cells.remove(&s),
@@ -611,16 +625,26 @@ impl ModelFile {
                     (lo, hi) = (lo.min(c), hi.max(c));
                 }
             }
-            for c in cells.keys() {
-                (lo, hi) = (lo.min(IVec3::from(*c)), hi.max(IVec3::from(*c)));
-            }
-            // The source anew, where it stood.
+            // The source anew, where it stood (its own cells all lie in
+            // its box: as it is, unless a clone's stroke was laid on it).
+            let made = match cells {
+                None => block,
+                Some(cells) => {
+                    for c in cells.keys() {
+                        (lo, hi) = (lo.min(*c), hi.max(*c));
+                    }
+                    // (Set in the order of their places, x first, as the
+                    // palette of the frame made takes its colours.)
+                    let mut cells: Vec<([i32; 3], [u8; 3])> = cells.into_iter().map(|(c, colour)| (c.to_array(), colour)).collect();
+                    cells.sort_unstable_by_key(|(c, _)| *c);
+                    let mut made = Block::boxed(hi - lo + 1);
+                    for (c, colour) in cells {
+                        let _ = made.set(IVec3::from(c) - lo, Some(colour));
+                    }
+                    if same_cells(&made, &block) { block } else { made }
+                }
+            };
             let grown = hi - lo + 1;
-            let mut made = Block::boxed(grown);
-            for (c, colour) in &cells {
-                let _ = made.set(IVec3::from(*c) - lo, Some(*colour));
-            }
-            let made = if same_cells(&made, &block) { block } else { made };
             self.parts[s].low = src_low + lo;
             let f = self.parts[s].frame;
             self.frames[f] = made;
@@ -897,12 +921,11 @@ fn layers_span(body: &str) -> Option<std::ops::Range<usize>> {
 /// would give the old's; each part (by name) or frame (by its place)
 /// whose unit comes out the same, whole, its comments and repeats as
 /// written; one whose voxels did not change (it moved, its rig changed)
-/// with its old `layers` lines. None where either text cannot be cut so.
-fn keep_text(old: &str, new: &str) -> Option<String> {
-    let (shape, palette) = vvx::read_shape(old).ok()?;
-    let norm = vvx::write_shape(&shape, &palette, true);
+/// with its old `layers` lines (`read`: `old` read, and written anew).
+/// None where either text cannot be cut so.
+fn keep_text(old: &str, (shape, norm): &(Shape, String), new: &str) -> Option<String> {
     let (old_head, old_gap, old_units) = units(old)?;
-    let (norm_head, _, norm_units) = units(&norm)?;
+    let (norm_head, _, norm_units) = units(norm)?;
     let (new_head, new_gap, new_units) = units(new)?;
     if old_units.len() != norm_units.len() || old_units.len() != shape.pieces.len() {
         return None;

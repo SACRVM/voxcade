@@ -36,6 +36,23 @@ pub struct Shown {
     pub(super) outline: std::cell::RefCell<crate::editor::model::selection::Outlines>,
     /// GAME VIEW's figure as the game holds it, shaded, and its bank.
     game_view: std::cell::RefCell<Option<GameViewOf>>,
+    /// The see-through cubes `frame` joined last (a figure's parts round
+    /// the one chosen, its glass), kept: joined on every frame a big
+    /// figure's took 6 to 10 ms (the owner's car).
+    joined: std::cell::RefCell<JoinCache>,
+}
+
+/// See-through cubes as given, the body they make, and joined for the
+/// side the eye was last on (`render::join_see_through`).
+#[derive(Default)]
+struct JoinCache {
+    cubes: Vec<Instance>,
+    body: crate::render::SeeThroughBody,
+    joined_for: Option<([usize; 3], [bool; 3])>,
+    joined: Vec<Instance>,
+    /// How often the body was found, and joined (for tests).
+    found: usize,
+    joins: usize,
 }
 
 /// A figure as GAME VIEW draws it (`Shown::game_view_model`): what it was
@@ -166,7 +183,7 @@ pub(crate) fn glass_cubes(b: &Block, glass: &[([u8; 3], crate::vvx::Mat)], cut: 
 
 impl Shown {
     pub fn new(ed: &Editor) -> Result<Self> {
-        let mut shown = Self { world: World::new(IVec3::ONE, [[0; 4]; 256]), scope: ed.scope, size: IVec3::ZERO, cells: Vec::new(), blocks: Vec::new(), shape: None, slice: [None; 3], glass_of: Vec::new(), glass: Vec::new(), turned: false, terrain: None, surface: None, room: Default::default(), outline: Default::default(), game_view: Default::default() };
+        let mut shown = Self { world: World::new(IVec3::ONE, [[0; 4]; 256]), scope: ed.scope, size: IVec3::ZERO, cells: Vec::new(), blocks: Vec::new(), shape: None, slice: [None; 3], glass_of: Vec::new(), glass: Vec::new(), turned: false, terrain: None, surface: None, room: Default::default(), outline: Default::default(), game_view: Default::default(), joined: Default::default() };
         shown.build(ed)?;
         Ok(shown)
     }
@@ -294,6 +311,25 @@ impl Shown {
         cache.sorted.len()
     }
 
+    /// `cubes` joined as `render::join_see_through` joins them for `toward`:
+    /// the body found again only when the cubes differ from the last
+    /// ones, joined again only when the eye is on another side.
+    pub(super) fn join(&self, cubes: &mut [Instance], toward: Vec3) {
+        let mut cache = self.joined.borrow_mut();
+        if bytemuck::cast_slice::<_, u8>(cubes) != bytemuck::cast_slice::<_, u8>(&cache.cubes) {
+            let (found, joins) = (cache.found + 1, cache.joins);
+            *cache = JoinCache { body: crate::render::see_through_body(cubes), cubes: cubes.to_vec(), found, joins, ..JoinCache::default() };
+        }
+        let side = crate::render::see_through_side(toward);
+        if cache.joined_for != Some(side) {
+            let mut joined = cache.cubes.clone();
+            crate::render::join_by_body(&mut joined, &cache.body, toward);
+            (cache.joined, cache.joined_for) = (joined, Some(side));
+            cache.joins += 1;
+        }
+        cubes.copy_from_slice(&cache.joined);
+    }
+
     /// The editor's figure as the game holds it (GAME VIEW), shaded as the
     /// game shades it, and a model bank of it: made again only when the
     /// model or its shading changed. None where it is no figure.
@@ -323,6 +359,14 @@ impl Shown {
     #[cfg(test)]
     pub(crate) fn room_joins(&self) -> usize {
         self.room.borrow().joins
+    }
+
+    /// How often the see-through cubes' body was found, and joined (for
+    /// tests).
+    #[cfg(test)]
+    pub(crate) fn see_through_joins(&self) -> (usize, usize) {
+        let cache = self.joined.borrow();
+        (cache.found, cache.joins)
     }
 
     /// The block or frame shown changed but kept its size: the voxels whose

@@ -189,7 +189,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
     // own glass (`Shown::glass`).
     through.extend(glass);
     through.extend(shown.glass.iter().copied());
-    crate::render::join_see_through(&mut through, eye - grid.as_vec3() / 2.0);
+    shown.join(&mut through, eye - grid.as_vec3() / 2.0);
     // From here the tools' marks: in the grid shown (a turned part's own).
     let local_from = instances.len();
     // The selection (SELECT): its outline, thin and light, over all.

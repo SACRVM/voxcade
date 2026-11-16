@@ -1979,8 +1979,20 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   outline are kept between frames and made again only when what they
   are made of changes (`Shown::room`, `selection_edges_kept`); a stroke
   sets only its voxels (`Shown::retouch`); `editor/big.rs` has the timing
-  tests for a 169x12x116 wall. Still slow: strokes on a very big figure
-  of parts (every voxel rebuilds the figure).
+  tests for a 169x12x116 wall, and for a figure like the owner's car
+  (`car_text`: a big part with a mirrored clone, glass, a wheel with
+  three clones; `big_figure_timings`; tests
+  `a_figures_parts_round_the_chosen_one_are_joined_once`,
+  `a_big_figure_with_clones_is_quick_to_shape`): the see-through parts
+  round the one chosen are joined once and again only when they change
+  (`Shown::join`), the clones follow a voxel without listing the source's
+  cells unless a clone was stroked (`ModelFile::follow_links`), a figure
+  is made over `world::DenseCells`, a stroke's let-go takes the rig the
+  stroke began with (`pin_rig`) and makes nothing when nothing changed.
+  Still slow on such a figure (53,000 voxels): a stroke whose clones
+  follow makes the figure anew at every voxel (5 ms) and finds its
+  see-through body again (6 ms; a frame of 8 to 17 ms), a step saves the
+  whole text (6 ms), a let-go, UNDO or a part moved takes 15 to 25 ms.
 - A figure's box is never larger than its parts need (the owner's
   `size` stuck at 2001 after a part flew off): every step's end leaves
   `size` the tightest about the pivot (`ModelFile::tight_size`; a drag's

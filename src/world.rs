@@ -45,6 +45,63 @@ impl Hasher for CellHasher {
 pub type CellMap<V> = HashMap<IVec3, V, BuildHasherDefault<CellHasher>>;
 pub type CellSet = HashSet<IVec3, BuildHasherDefault<CellHasher>>;
 
+/// Cells by place, each with a value (the last given for a place wins):
+/// in a dense box where the box is small and the cells fill enough of it,
+/// else in a `CellMap`. Looked up as a map's cells, several times
+/// quicker: making a figure of 53,000 voxels spent half its time in a
+/// map's lookups.
+pub enum DenseCells<T> {
+    Dense { lo: IVec3, size: IVec3, at: Vec<Option<T>>, count: usize },
+    Map(CellMap<T>),
+}
+
+impl<T: Copy> DenseCells<T> {
+    /// At most this many places in a dense box, and at most this many
+    /// places a cell (or a few thousand) in it.
+    const DENSE_MOST: i64 = 1 << 22;
+    const DENSE_SPREAD: i64 = 16;
+
+    pub fn of(cells: impl Iterator<Item = (IVec3, T)> + Clone) -> Self {
+        let (lo, hi, n) = cells.clone().fold((IVec3::MAX, IVec3::MIN, 0i64), |(lo, hi, n), (c, _)| (lo.min(c), hi.max(c), n + 1));
+        let size = (hi.as_i64vec3() - lo.as_i64vec3() + 1).max(glam::I64Vec3::ZERO);
+        let places = size.x.saturating_mul(size.y).saturating_mul(size.z);
+        if n == 0 || places > Self::DENSE_MOST || places > Self::DENSE_SPREAD * n.max(256) {
+            return Self::Map(cells.collect());
+        }
+        let size = size.as_ivec3();
+        let (mut at, mut count) = (vec![None; places as usize], 0);
+        for (c, v) in cells {
+            let d = c - lo;
+            let slot = &mut at[(d.x + d.y * size.x + d.z * size.x * size.y) as usize];
+            count += slot.is_none() as usize;
+            *slot = Some(v);
+        }
+        Self::Dense { lo, size, at, count }
+    }
+
+    pub fn get(&self, c: IVec3) -> Option<T> {
+        match self {
+            Self::Dense { lo, size, at, .. } => {
+                let d = c - *lo;
+                if d.cmpge(IVec3::ZERO).all() && d.cmplt(*size).all() { at[(d.x + d.y * size.x + d.z * size.x * size.y) as usize] } else { None }
+            }
+            Self::Map(map) => map.get(&c).copied(),
+        }
+    }
+
+    /// How many places hold a cell.
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Dense { count, .. } => *count,
+            Self::Map(map) => map.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
 /// A number in [0, 1) for a cell and a seed, the same on every machine: a
 /// map's speckle, the grain of big letters.
 pub fn cell_hash(p: IVec3, seed: u32) -> f32 {
@@ -570,6 +627,25 @@ impl Reader<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Cells in a dense box are looked up as in a map: close together
+    /// (dense), spread far apart (a map), a place given twice (the last
+    /// wins), none.
+    #[test]
+    fn dense_cells_are_the_cells_of_a_map() {
+        let close: Vec<(IVec3, u32)> = (0..400u32).map(|k| (IVec3::new((k * 7 % 13) as i32, (k * 5 % 11) as i32, (k % 6) as i32 - 3), k)).collect();
+        let far = vec![(IVec3::new(-5000, 0, 0), 1), (IVec3::new(5000, 9, 40), 2), (IVec3::new(-5000, 0, 0), 3)];
+        for (cells, dense) in [(close, true), (far, false), (Vec::new(), false)] {
+            let made = DenseCells::of(cells.iter().copied());
+            let map: CellMap<u32> = cells.iter().copied().collect();
+            assert_eq!(matches!(made, DenseCells::Dense { .. }), dense);
+            assert_eq!(made.len(), map.len());
+            let probes = cells.iter().map(|(c, _)| *c).flat_map(|c| crate::mesh::DIRS.map(|d| c + d)).chain([IVec3::ZERO, IVec3::splat(-100)]);
+            for c in probes {
+                assert_eq!(made.get(c), map.get(&c).copied(), "at {c}");
+            }
+        }
+    }
 
     /// A colour set from a script is solid even where the palette holds the
     /// same colour soft or one-way: a wall set by colour must hold.

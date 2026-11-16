@@ -17,6 +17,10 @@ use super::frames::{ModelFile, Shaped};
 use crate::render::Instance;
 use crate::vox::{Hung, Part, VoxModel};
 
+/// A figure's rig by part name: what each hangs on (by name) and its
+/// joint from the pivot.
+pub type Rig = std::collections::BTreeMap<String, (Option<String>, Vec3)>;
+
 /// A figure shown whole, and what the editor does with it.
 pub struct Figure {
     /// As the game makes it of the file (its one frame, the parts).
@@ -115,7 +119,7 @@ impl Figure {
 
     /// Its rig by part name: what each hangs on (by name) and its joint
     /// from the pivot (`file_joint`).
-    pub fn rig(&self) -> std::collections::BTreeMap<String, (Option<String>, Vec3)> {
+    pub fn rig(&self) -> Rig {
         self.parts().iter().enumerate().map(|(p, o)| (o.name.clone(), (o.parent.map(|q| self.parts()[q].name.clone()), self.file_joint(p)))).collect()
     }
 
