@@ -217,19 +217,40 @@ impl Facing {
 
 /// The light a piece brings: where it shines from, in the model's own
 /// voxels from its pivot (turning with the piece; the pivot without), how
-/// far it reaches and its colour (`#rrggbb`; white without), each as the
+/// far it reaches and its colour (`#rrggbb`; white without), and how it
+/// shines (`render::LightShape`'s words: `falloff`, `cone`, `blend`,
+/// `rotation`, `pitch`, `shadows`, each unset as its default), each as the
 /// file wrote it.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ThingLight {
     pub at: Option<[i32; 3]>,
     pub radius: f64,
     pub color: Option<String>,
+    pub falloff: Option<f64>,
+    pub cone: Option<f64>,
+    pub blend: Option<f64>,
+    pub rotation: Option<f64>,
+    pub pitch: Option<f64>,
+    pub shadows: Option<bool>,
 }
 
 impl ThingLight {
     /// Its colour, 0 to 1 each.
     pub fn rgb(&self) -> [f32; 3] {
         self.color.as_deref().and_then(hex).map_or([1.0; 3], |c| c.map(|v| v as f32 / 255.0))
+    }
+
+    /// How it shines, what the file leaves out as its default.
+    pub fn shape(&self) -> crate::render::LightShape {
+        let d = crate::render::LightShape::default();
+        crate::render::LightShape {
+            falloff: self.falloff.map_or(d.falloff, |v| v as f32),
+            cone: self.cone.map(|v| v as f32),
+            blend: self.blend.map_or(d.blend, |v| v as f32),
+            rotation: self.rotation.map_or(d.rotation, |v| v as f32),
+            pitch: self.pitch.map_or(d.pitch, |v| v as f32),
+            shadows: self.shadows.unwrap_or(d.shadows),
+        }
     }
 }
 
@@ -698,7 +719,7 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], fr
             facing: t.facing.unwrap_or(Facing::Way(Way::South)),
             pitch: t.pitch as f32,
             roll: t.roll as f32,
-            lights: t.lights.iter().map(|l| crate::levels::PieceLight { at: IVec3::from(l.at.unwrap_or_default()), radius: l.radius as f32, color: l.rgb() }).collect(),
+            lights: t.lights.iter().map(|l| crate::levels::PieceLight { at: IVec3::from(l.at.unwrap_or_default()), radius: l.radius as f32, color: l.rgb(), shape: l.shape() }).collect(),
             solid: t.solid && t.model.is_some(),
             shadow_only: t.shadow_only && t.model.is_some(),
             index,
@@ -1401,7 +1422,7 @@ size = [40, 30, 40]
         let mut now = was.clone();
         now.things[4].name = Some("guard".into());
         now.things[1].lights[0].radius = 75.0;
-        now.things[0].lights = vec![ThingLight { at: Some([0, 0, 20]), radius: 40.0, color: None }];
+        now.things[0].lights = vec![ThingLight { at: Some([0, 0, 20]), radius: 40.0, ..Default::default() }];
         let out = text::rewrite(&src, &was, &now, &legend);
         assert_eq!(GridLevel::from_text(&out).unwrap(), now);
         assert!(out.contains("facing = \"south\"\nlight = { at = [0, 0, 20], radius = 40 }\n") && out.contains("[[thing]]\nname = \"guard\"\nkind = \"walker\""), "{out}");
@@ -1486,7 +1507,7 @@ size = [40, 30, 40]
         let legend = Legend::default();
         // A second light on the lamp: its one line becomes the list.
         let mut now = was.clone();
-        let glow = ThingLight { at: Some([3, 3, 41]), radius: 150.0, color: Some("#ffb060".into()) };
+        let glow = ThingLight { at: Some([3, 3, 41]), radius: 150.0, color: Some("#ffb060".into()), ..Default::default() };
         now.things[1].lights.push(glow.clone());
         let out = text::rewrite(&src, &was, &now, &legend);
         assert_eq!(GridLevel::from_text(&out).unwrap(), now, "{out}");

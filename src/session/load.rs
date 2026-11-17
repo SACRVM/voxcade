@@ -128,6 +128,7 @@ impl<G: Game> Session<G> {
             local: Default::default(),
             problem: None,
             drawn_sun: Default::default(),
+            lamps_drawn: Default::default(),
             seen_faces: Default::default(),
             hud_kept: Default::default(),
             limits: Default::default(),

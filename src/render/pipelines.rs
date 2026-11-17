@@ -72,7 +72,7 @@ pub(super) enum Memory {
 
 /// The main pass's bind group layout: the globals, the shadow map and its
 /// sampler, and with `memory` the faces' memory of their shadow.
-fn main_layout(device: &wgpu::Device, memory: bool) -> wgpu::BindGroupLayout {
+pub(super) fn main_layout(device: &wgpu::Device, memory: bool) -> wgpu::BindGroupLayout {
     let mut entries = vec![
         uniform_entry(0, wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT),
         wgpu::BindGroupLayoutEntry {
@@ -115,7 +115,7 @@ pub(super) fn face_buffers() -> [Option<wgpu::VertexBufferLayout<'static>>; 1] {
 }
 
 /// The scene's colour and glow targets, blended or not.
-fn scene_targets(blend: Option<wgpu::BlendState>) -> [Option<wgpu::ColorTargetState>; 2] {
+pub(super) fn scene_targets(blend: Option<wgpu::BlendState>) -> [Option<wgpu::ColorTargetState>; 2] {
     let target = Some(wgpu::ColorTargetState { format: HDR_FORMAT, blend, write_mask: wgpu::ColorWrites::ALL });
     [target.clone(), target]
 }
@@ -123,20 +123,20 @@ fn scene_targets(blend: Option<wgpu::BlendState>) -> [Option<wgpu::ColorTargetSt
 /// How a scene pipeline draws: into the sun's shadow map (no fragment
 /// stage, both sides, a depth bias), or with a fragment entry onto
 /// `targets` culling `cull` (the back faces; an outline the front ones).
-enum Draws<'a> {
+pub(super) enum Draws<'a> {
     Shadow,
     Scene { fs: &'a str, cull: wgpu::Face, targets: &'a [Option<wgpu::ColorTargetState>] },
 }
 
 /// What scene pipelines draw: back faces culled, through `fs_main`.
-fn scene(targets: &[Option<wgpu::ColorTargetState>]) -> Draws<'_> {
+pub(super) fn scene(targets: &[Option<wgpu::ColorTargetState>]) -> Draws<'_> {
     Draws::Scene { fs: "fs_main", cull: wgpu::Face::Back, targets }
 }
 
 /// A pipeline of the shader `module` that draws as `draws` says;
 /// `depth_write` false: the see-through cubes.
 #[allow(clippy::too_many_arguments)]
-fn scene_pipeline(
+pub(super) fn scene_pipeline(
     device: &wgpu::Device,
     module: &wgpu::ShaderModule,
     label: &str,
@@ -210,7 +210,7 @@ const FACE_ATTRS: [wgpu::VertexAttribute; 4] = [
 ];
 
 /// A target drawn into, and read after where `read`.
-fn texture(device: &wgpu::Device, label: &str, width: u32, height: u32, format: wgpu::TextureFormat, read: bool) -> wgpu::TextureView {
+pub(super) fn texture(device: &wgpu::Device, label: &str, width: u32, height: u32, format: wgpu::TextureFormat, read: bool) -> wgpu::TextureView {
     let usage = if read { wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING } else { wgpu::TextureUsages::RENDER_ATTACHMENT };
     device
         .create_texture(&wgpu::TextureDescriptor {
@@ -226,7 +226,7 @@ fn texture(device: &wgpu::Device, label: &str, width: u32, height: u32, format: 
         .create_view(&wgpu::TextureViewDescriptor::default())
 }
 
-fn uniform_entry(binding: u32, visibility: wgpu::ShaderStages) -> wgpu::BindGroupLayoutEntry {
+pub(super) fn uniform_entry(binding: u32, visibility: wgpu::ShaderStages) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,
         visibility,
@@ -463,6 +463,7 @@ impl Renderer {
             told_full: false,
             told_bank: false,
             said: Vec::new(),
+            lamps: super::lamps::Lamps::new(device),
         }
     }
 

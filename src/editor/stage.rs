@@ -94,8 +94,8 @@ fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut PanelsDrawn)
             }
             keyed(ui, shown, "LEVEL", Action::LevelSettings, Some(view.level_settings || (ed.pieces.chosen.is_none() && !ed.among_land())), "The level's size and daylight");
             let lights: usize = ed.level.things.iter().map(|t| t.lights.len()).sum();
-            let many = lights > crate::render::MAX_LIGHTS;
-            let tip = if many { format!("The pieces' lights in this view. {lights} lights: the game shows the {} nearest the middle of its view", crate::render::MAX_LIGHTS) } else { "The pieces' lights in this view".to_string() };
+            let many = lights > crate::render::MOST_LIGHTS;
+            let tip = if many { format!("The pieces' lights in this view. {lights} lights: the game shows the {} nearest the middle of its view", crate::render::MOST_LIGHTS) } else { "The pieces' lights in this view".to_string() };
             let mut job = egui::text::LayoutJob::default();
             job.append("LIGHTS", 0.0, egui::TextFormat { font_id: TextStyle::Button.resolve(ui.style()), color: if many { WARNING } else if view.lights { ACCENT } else { TEXT }, ..Default::default() });
             if ui.add(egui::Button::new(job).selected(view.lights)).on_hover_text(tip).clicked() {
@@ -363,7 +363,17 @@ fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, sh
 /// (degrees to a tenth, voxels and hundredths whole).
 #[allow(clippy::too_many_arguments)]
 fn field(ui: &mut egui::Ui, shown: &mut PanelsDrawn, letter: &str, axis: Option<usize>, value: f64, set: Field, speed: f64, range: std::ops::RangeInclusive<f64>, tip: &str, width: f32) {
-    let decimals = if matches!(set, Field::Turn | Field::Pitch | Field::Roll | Field::SunFrom | Field::SunHeight) { 1 } else { 0 };
+    let decimals = match set {
+        Field::Turn | Field::Pitch | Field::Roll | Field::SunFrom | Field::SunHeight => 1,
+        // A light's falloff and blend in hundredths, its way in tenths of
+        // a degree, its cone in whole degrees.
+        Field::LightWord(_, w) => match crate::render::LIGHT_WORDS.get(w).map(|(n, ..)| *n) {
+            Some("falloff" | "blend") => 2,
+            Some("cone") => 0,
+            _ => 1,
+        },
+        _ => 0,
+    };
     zones::number(ui, shown, letter, axis, value, decimals, speed, range, tip, width, |v| Action::Set(set, v));
 }
 
@@ -486,9 +496,10 @@ fn chosen(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, item: 
                     field(ui, shown, "Z", Some(2), room::bearing_of(t).rem_euclid(360.0), Field::Turn, if free { 0.5 } else { 2.0 }, -360.0..=720.0, tip, FIELD);
                 });
             } else if t.is_piece() {
-                // A light alone: its colour and radius.
+                // A light alone: its colour and radius, how it shines.
                 if let Some(l) = t.lights.first() {
                     row(ui, "LIGHT", "Its color and how far it shines (its radius)", |ui| light_controls(ui, l, 0, zones::FIELD2, shown));
+                    shape_rows(ui, l, 0, shown);
                 }
             }
             prop_rows(ui, ed, view, i, shown);
@@ -699,6 +710,39 @@ fn light_controls(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, radi
     field(ui, shown, "RADIUS", None, l.radius, Field::Radius(k), 1.0, 1.0..=2000.0, "How far it shines, in voxels (radius in the level's file)", radius);
 }
 
+/// How light `k` shines: FALLOFF, CONE (360: every way) and its BLEND, a
+/// spot's ROTATE (X its pitch, Z its rotation, as a piece's), SHADOWS. The
+/// file's words on hover.
+fn shape_rows(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, shown: &mut PanelsDrawn) {
+    let s = l.shape();
+    let word = |w: &str| crate::render::LIGHT_WORDS.iter().position(|(n, ..)| *n == w).expect("a light's word");
+    let range = |w: &str| {
+        let (_, low, high) = crate::render::LIGHT_WORDS[word(w)];
+        low..=high
+    };
+    row(ui, "FALLOFF", "How it fades to its radius: (1 - distance / radius) to this power; 2 as lights always were, lower reaches further bright (falloff in the level's file)", |ui| {
+        field(ui, shown, "", None, f64::from(s.falloff), Field::LightWord(k, word("falloff")), 0.02, range("falloff"), "", FIELD);
+    });
+    row(ui, "CONE", "A spot: its cone's whole opening angle in degrees, 360 every way (cone); and how much of its edge is soft, 0 to 1 (blend)", |ui| {
+        field(ui, shown, "", None, f64::from(s.cone.unwrap_or(360.0)), Field::LightWord(k, word("cone")), 1.0, range("cone"), "cone", FIELD);
+        field(ui, shown, "", None, f64::from(s.blend), Field::LightWord(k, word("blend")), 0.01, range("blend"), "blend", FIELD);
+    });
+    if s.cone.is_some() {
+        row(ui, "ROTATE", "The spot's way: X up or down (pitch), Z round, clockwise seen from above, north 0 (rotation); it turns with the piece", |ui| {
+            field(ui, shown, "X", Some(0), f64::from(s.pitch), Field::LightWord(k, word("pitch")), 0.5, range("pitch"), "pitch", FIELD);
+            field(ui, shown, "Z", Some(2), f64::from(s.rotation), Field::LightWord(k, word("rotation")), 0.5, range("rotation"), "rotation", FIELD);
+        });
+    }
+    row(ui, "", "", |ui| {
+        let mut job = egui::text::LayoutJob::default();
+        job.append("SHADOWS", 0.0, egui::TextFormat { font_id: TextStyle::Button.resolve(ui.style()), color: if s.shadows { ACCENT } else { TEXT }, ..Default::default() });
+        let tip = if s.shadows { "Walls stop it (the level's voxels and its pieces). Click: it shines through them (shadows = false)" } else { "It shines through walls (shadows = false). Click: walls stop it" };
+        if ui.add(egui::Button::new(job).selected(s.shadows)).on_hover_text(tip).clicked() {
+            shown.clicked.push(Action::LightShadows(k as u8, !s.shadows));
+        }
+    });
+}
+
 /// A piece's rows: ROTATE, SOLID, SHADOW ONLY (and LIGHT + without one
 /// or it), its lights.
 fn piece_rows(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, t: &crate::grid::Thing, shown: &mut PanelsDrawn) {
@@ -779,6 +823,7 @@ fn piece_rows(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, t: &crate::grid
                     field(ui, shown, ["X", "Y", "Z"][a], Some(a), at[a] as f64, Field::LightAt(k, a), 0.25, -1000.0..=1000.0, "", FIELD);
                 }
             });
+            shape_rows(ui, l, k, shown);
         }
     }
 }

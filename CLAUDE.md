@@ -1575,17 +1575,37 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   three times of BunnyFarm's morning: no face goes back and forth; one
   or two faces change a picture. It costs the small GPU (Radeon 610M)
   about 2.5 ms (test `a_moving_sun_has_the_faces_remember_their_shadow`).
+- Lamps (0.7, the owner's names; `docs/engine.md` "Light in the grid",
+  `docs/game-model.md`): a light's `falloff`, `cone`, `blend`,
+  `rotation`, `pitch`, `shadows` (a level's `light = {...}`,
+  `frame:light{ ... }`; `render::LightShape`, `LIGHT_WORDS` the ranges,
+  `Light::lamp`; the kits' flashes `Light::burst`, through walls as ever),
+  `c.light.lamp_shadows`. Walls stop a lamp (the level's opaque voxels
+  and its pieces but those bringing a light, `Drawing::piece`;
+  `FrameData::lamp_world`, `lamp_pieces`); a lamp in solid voxels leaves
+  them first (8 voxels at most). A picture with up to `FORWARD_LIGHTS`
+  (16) lights, none stopped, is drawn as before by the scene's shader
+  alone, byte for byte; else the lamps' pass (`render::lamps`, tiles of
+  32 pixels, a face's answer kept, `lamps.wgsl`; `light.wgsl` the sum both
+  share), up to `MOST_LIGHTS` (4096). Only the picture: test
+  `lamps_change_no_run`. The upgrade step "lamps stopped by walls"
+  (0.7.0) says which lights of a game and how to keep the old look; it
+  changes nothing. Moving things stop no lamp.
 - The renderer is `src/render/`: `mod.rs` the `Renderer` and `Instance`,
   `bank.rs` the model bank, `baked.rs` its runs baked into faces and the
   bank on the GPU, `cubes.rs` the CPU passes over a frame's
   cubes (`hide_inner_faces`, `join_see_through`), `frame.rs` `FrameData`,
   `shader.rs` the shader text and its uniforms, `pipelines.rs` the
   renderer made, `chunks.rs` the chunk meshes, `passes.rs` a frame drawn,
-  `limits.rs` the faces' memory's count. `Renderer::render` is
+  `limits.rs` the faces' memory's count, `lamps.rs` the lamps' pass,
+  `volume.rs` the level's solid voxels it walks. `Renderer::render` is
   `write_globals`, `upload_cubes`, `upload_models`, `draw_models`,
-  `shadow_pass`, `scene_pass`, `ui_pass`, `post_passes`,
+  `shadow_pass`, `scene_pass` (or with lamps `lit_scene_pass`,
+  `lamp_pass`, `see_through_pass`), `ui_pass`, `post_passes`,
   `composite_pass`. A limit a frame goes past is said once, never silent:
-  lights past `MAX_LIGHTS` (`Session::warnings`, counted in `look` too),
+  lights past `MOST_LIGHTS` (`Session::warnings`, counted in `look` too),
+  the lamps' limits (a GPU without fragment storage writes, lamps
+  reaching past `volume::MOST_BYTES`, their memory full: `lamps.rs`),
   the faces' memory full (the shader counts faces that found no room in
   the word after it, `render::limits`, read without waiting every 60
   pictures, at once by `shot`; `Renderer::warnings`), the model bank past

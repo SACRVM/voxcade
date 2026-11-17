@@ -64,12 +64,14 @@ pub struct Piece {
 
 /// A piece's light: where it shines from in the model's own voxels from
 /// its pivot (turning with the piece), how far it reaches, its colour (0
-/// to 1 each).
+/// to 1 each), how it shines (its way turning with the piece too). Only the
+/// picture's.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PieceLight {
     pub at: IVec3,
     pub radius: f32,
     pub color: [f32; 3],
+    pub shape: crate::render::LightShape,
 }
 
 /// A named box of a level (`level.areas.NAME`): its low corner in the

@@ -38,7 +38,16 @@ pub struct FrameData {
     pub haze_color: [f32; 3],
     pub haze_start: f32,
     pub haze_depth: f32,
+    /// The picture's lights, the nearest the middle of the view first (at
+    /// most `MOST_LIGHTS`).
     pub lights: Vec<Light>,
+    /// What stops its lamps (`Light::shadows`), given when one has to be
+    /// stopped: the level's world as the picture has it (a copy sharing its
+    /// chunks) and its pieces' draws, every one in view or not
+    /// (`ModelDraw`s of the bank). None: no lamp is stopped (the editors'
+    /// views, a game without lamps).
+    pub lamp_world: Option<crate::world::World>,
+    pub lamp_pieces: Vec<ModelDraw>,
     pub glow: f32,
     /// The shadow map's width and height (`light_vp` is snapped to it).
     pub shadow_map: u32,
@@ -128,4 +137,11 @@ pub struct Stats {
     /// Vertices of every chunk mesh, drawn or not (what sits in GPU memory).
     pub vertices_total: usize,
     pub vertices: usize,
+    /// Lights drawn by the lamps' pass (0: by the scene's shader, as
+    /// before), whether walls stopped its lamps, the level's volume's bytes
+    /// on the GPU and how long it took to make, ms.
+    pub lamps: usize,
+    pub walls: bool,
+    pub volume_bytes: u64,
+    pub volume_ms: f64,
 }

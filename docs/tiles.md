@@ -322,7 +322,10 @@ facing = [0, -1]
   (`at`, anywhere: on a wall, in the air), `facing = "east"` (or `rotation =
   30` where the game rotates things freely, `c.camera.rotates = "free"`),
   perhaps with a `light = { at, radius, color }` (or `lights = [ ... ]`
-  for several) and `solid = true` (its voxels hold bodies up, quarter
+  for several; 0.7: a light's `falloff`, `cone`, `blend`, `rotation`,
+  `pitch` and `shadows` too, each optional and range-checked, as
+  `docs/game-model.md` says: `light = { at = [0, 0, 20], radius = 90,
+  cone = 50, pitch = -60, shadows = false }`) and `solid = true` (its voxels hold bodies up, quarter
   turns only), or `shadow_only = true` (2026-11-14, the owner: a ceiling
   of voxels that does not block the view but blocks the sun: in the
   sun's shadow map as drawn, never drawn itself; no light with it; with

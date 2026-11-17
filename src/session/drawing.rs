@@ -40,6 +40,12 @@ pub struct Drawing<'a> {
     /// of the highest such model's box (the shadows' box reaches up to it).
     pub(super) shadow_only: bool,
     pub(super) cast_top: f32,
+    /// What is drawn now is a level's piece (`piece`), and whether pieces
+    /// are gathered (`pieces`), every one in view or not: what stops the
+    /// picture's lamps (`FrameData::lamp_pieces`).
+    pub(super) piece: bool,
+    pub(super) gather: bool,
+    pub(super) pieces: Vec<ModelDraw>,
 }
 
 impl<'a> Drawing<'a> {
@@ -187,6 +193,10 @@ impl<'a> Drawing<'a> {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn put_posed(&mut self, m: &VoxModel, frame: usize, origin: Vec3, look: IVec2, turn: Quat, pose: &[PartPose], tint: Option<[u8; 4]>) {
         let posed = pose.iter().any(|q| *q != PartPose::REST) || rests_turned(m);
+        // A piece stops lamps wherever it is, in view or not.
+        if self.piece && self.gather && self.fade >= 1.0 {
+            draw(&mut |_, _, _, _, _, _, _| {}, Some(&mut self.pieces), m, frame, origin, look, turn, pose, tint);
+        }
         let (lo, hi) = if turn == Quat::IDENTITY && !posed {
             let reach = (m.size.x.max(m.size.y) / 2 + 1) as f32;
             (origin - Vec3::new(reach, reach, 0.0), origin + Vec3::new(reach, reach, m.size.z as f32))
@@ -266,6 +276,13 @@ impl<'a> Drawing<'a> {
     /// camera looks through.
     pub fn shadow_only(&mut self, on: bool) {
         self.shadow_only = on;
+    }
+
+    /// The models drawn while `on` are a level's pieces, set down where
+    /// they stay: their opaque voxels stop lamps (`render::lamps`), the
+    /// figures and everything else moving does not.
+    pub fn piece(&mut self, on: bool) {
+        self.piece = on;
     }
 }
 

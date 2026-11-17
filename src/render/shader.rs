@@ -3,13 +3,39 @@
 
 use bytemuck::{Pod, Zeroable};
 
-use super::MAX_LIGHTS;
+use super::FORWARD_LIGHTS;
 
+/// A light as the shaders take it (`light.wgsl`'s `Light`).
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub(super) struct LightData {
     pub(super) pos_radius: [f32; 4],
+    /// rgb: colour times brightness, w: the falloff's power.
     pub(super) color: [f32; 4],
+    /// xyz: a spot's way, w: the cosine of half its cone (-2: every way).
+    pub(super) spot: [f32; 4],
+    /// x: the cosine within which the cone's edge is hard; y: 1 when walls
+    /// stop it (in the lamps' pass with walls only); z, w: its place's key.
+    pub(super) edge: [f32; 4],
+}
+
+impl LightData {
+    /// `l` as the shaders take it, walls stopping it where `walls` and it
+    /// says so.
+    pub(super) fn of(l: &super::Light, walls: bool) -> Self {
+        let (spot, inner) = match l.spot {
+            Some(s) => (s.way.extend(s.outer).to_array(), s.inner),
+            None => ([0.0, 0.0, 0.0, -2.0], -2.0),
+        };
+        let stopped = if walls && l.shadows { 1.0 } else { 0.0 };
+        // Its exact place as two whole numbers a float holds exactly: what
+        // the lamps' memory knows it by (`lamps.wgsl`'s `stopped`).
+        let mut h = crate::hash::Stable::default();
+        h.vec3(l.pos);
+        let place = h.finish();
+        let ids = [(place & 0xff_ffff) as f32, ((place >> 24) & 0xff_ffff) as f32];
+        Self { pos_radius: l.pos.extend(l.radius).to_array(), color: [l.color[0], l.color[1], l.color[2], l.falloff], spot, edge: [inner, stopped, ids[0], ids[1]] }
+    }
 }
 
 #[repr(C)]
@@ -31,16 +57,25 @@ pub(super) struct Globals {
     pub(super) sun_color: [f32; 4],
     /// x: the picture's number, y: 1 when the faces remember their shadow.
     pub(super) memory: [u32; 4],
-    pub(super) lights: [LightData; MAX_LIGHTS],
+    pub(super) lights: [LightData; FORWARD_LIGHTS],
 }
 
 /// The scene's shader as written (`shader.wgsl`), without the numbers it
 /// shares with the Rust side (`prelude`).
 const WRITTEN: &str = include_str!("../shader.wgsl");
 
-/// The scene's shader whole: the prelude, then its text; the faces'
-/// memory of their shadow in it (`plain_shader` takes it out).
-pub(super) static SHADER: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| prelude() + WRITTEN);
+/// What a light gives a point (`light.wgsl`): the scene's shader's and the
+/// lamps' pass's alike.
+const LIGHT: &str = include_str!("../light.wgsl");
+
+/// The scene's shader whole: the prelude, a light, then its text; the
+/// faces' memory of their shadow in it (`plain_shader` takes it out).
+pub(super) static SHADER: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| prelude() + LIGHT + WRITTEN);
+
+/// The lamps' pass's shader whole (`lamps.wgsl`, `render::lamps`): the
+/// prelude, a light, then its text; walls stopping lamps in it
+/// (`without_walls` takes them out).
+pub(super) static LAMPS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| prelude() + LIGHT + include_str!("../lamps.wgsl"));
 
 /// How a metal colour's metalness and smoothness share its byte
 /// (`vox::metal::pack`): metalness in the high bits, each in this many
@@ -57,7 +92,7 @@ pub(super) fn prelude() -> String {
     let face = |d: IVec3| DIRS.iter().position(|e| *e == d).expect("every way is one of DIRS");
     let mut out = String::from("// Written by render::shader::prelude: shared with the Rust side.\n");
     let mut put = |name: &str, value: String| out += &format!("const {name} = {value};\n");
-    put("MAX_LIGHTS", format!("{}u", super::MAX_LIGHTS));
+    put("MAX_LIGHTS", format!("{}u", super::FORWARD_LIGHTS));
     put("FACES", format!("{SHADOW_FACES}u"));
     put("FX_GLOW", format!("{}", super::FX_GLOW));
     put("FX_OPACITY", format!("{}", super::FX_OPACITY));
@@ -106,12 +141,26 @@ pub(super) struct PostParams {
 /// more with it, never used, on the Radeon 610M), and some GPUs have no
 /// such writes at all.
 pub(crate) fn plain_shader(src: &str) -> String {
+    without(src, "MEMORY")
+}
+
+/// The lamps' pass's shader without walls stopping lamps (what lies
+/// between its WALLS marks): for a GPU without storage written from a
+/// fragment shader, whose lamps light through walls.
+pub(super) fn without_walls(src: &str) -> String {
+    without(src, "WALLS")
+}
+
+/// The shader without what lies between the lines `// MARK {` and `// }
+/// MARK`.
+fn without(src: &str, mark: &str) -> String {
+    let (open, close) = (format!("// {mark} {{"), format!("// }} {mark}"));
     let mut out = String::with_capacity(src.len());
     let mut inside = false;
     for line in src.split_inclusive('\n') {
         match line.trim() {
-            "// MEMORY {" => inside = true,
-            "// } MEMORY" => inside = false,
+            l if l == open => inside = true,
+            l if l == close => inside = false,
             _ if !inside => out.push_str(line),
             _ => {}
         }
@@ -129,7 +178,8 @@ mod tests {
     fn the_shaders_are_valid() {
         use wgpu::naga;
         let plain = plain_shader(&SHADER);
-        for (name, src) in [("shader.wgsl", SHADER.as_str()), ("shader.wgsl without the memory", plain.as_str()), ("post.wgsl", include_str!("../post.wgsl"))] {
+        let lamps_plain = super::without_walls(&super::LAMPS);
+        for (name, src) in [("shader.wgsl", SHADER.as_str()), ("shader.wgsl without the memory", plain.as_str()), ("post.wgsl", include_str!("../post.wgsl")), ("lamps.wgsl", super::LAMPS.as_str()), ("lamps.wgsl without walls", lamps_plain.as_str())] {
             let module = naga::front::wgsl::parse_str(src).unwrap_or_else(|e| panic!("{name}: {}", e.emit_to_string(src)));
             naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::all())
                 .validate(&module)
@@ -140,6 +190,9 @@ mod tests {
         assert!(SHADER.contains("atomicCompareExchangeWeak") && SHADER.contains("var<storage, read_write>"));
         assert!(!plain.contains("atomic") && !plain.contains("var<storage") && !plain.contains("remembered("), "{plain}");
         assert_eq!(SHADER.matches("// MEMORY {").count(), SHADER.matches("// } MEMORY").count());
+        // The lamps' pass without walls reads no volume and writes nothing.
+        assert!(super::LAMPS.contains("var<storage, read_write>") && !lamps_plain.contains("var<storage") && !lamps_plain.contains("texture_3d") && !lamps_plain.contains("stopped("), "{lamps_plain}");
+        assert_eq!(super::LAMPS.matches("// WALLS {").count(), super::LAMPS.matches("// } WALLS").count());
         // Both composites are there by the names the renderer asks for.
         for entry in [composite_entry(wgpu::TextureFormat::Bgra8Unorm), composite_entry(wgpu::TextureFormat::Bgra8UnormSrgb)] {
             assert!(include_str!("../post.wgsl").contains(&format!("fn {entry}(")), "{entry}");
@@ -212,7 +265,7 @@ mod tests {
             ("memory", offset_of!(Globals, memory)),
             ("lights", offset_of!(Globals, lights)),
         ];
-        let light = [("pos_radius", offset_of!(LightData, pos_radius)), ("color", offset_of!(LightData, color))];
+        let light = [("pos_radius", offset_of!(LightData, pos_radius)), ("color", offset_of!(LightData, color)), ("spot", offset_of!(LightData, spot)), ("edge", offset_of!(LightData, edge))];
         let actor = [
             ("origin", offset_of!(ActorData, origin)),
             ("tint", offset_of!(ActorData, tint)),
@@ -306,9 +359,9 @@ mod tests {
     /// none of them a second time.
     #[test]
     fn the_shader_and_the_rust_side_share_one_table() {
-        use crate::render::{FX_COVERED, FX_GLOW, FX_METAL, FX_OPACITY, MAX_LIGHTS};
+        use crate::render::{FORWARD_LIGHTS, FX_COVERED, FX_GLOW, FX_METAL, FX_OPACITY};
         let prelude = super::prelude();
-        for (name, value) in [("MAX_LIGHTS", format!("{MAX_LIGHTS}u")), ("FACES", format!("{}u", super::SHADOW_FACES)), ("FX_GLOW", FX_GLOW.to_string()), ("FX_OPACITY", FX_OPACITY.to_string()), ("FX_COVERED", FX_COVERED.to_string()), ("FX_METAL", FX_METAL.to_string())] {
+        for (name, value) in [("MAX_LIGHTS", format!("{FORWARD_LIGHTS}u")), ("FACES", format!("{}u", super::SHADOW_FACES)), ("FX_GLOW", FX_GLOW.to_string()), ("FX_OPACITY", FX_OPACITY.to_string()), ("FX_COVERED", FX_COVERED.to_string()), ("FX_METAL", FX_METAL.to_string())] {
             assert!(prelude.contains(&format!("const {name} = {value};")), "{name} in {prelude}");
             assert!(!super::WRITTEN.contains(&format!("const {name}")), "shader.wgsl defines {name} itself");
         }

@@ -536,6 +536,18 @@ impl World {
         self.chunks.keys().copied().collect()
     }
 
+    /// The chunks not as they are in `base`, a copy of this world made
+    /// earlier (written since, come or gone), in the order z, y, x: a copy
+    /// shares its chunks until one is written (`Arc::make_mut`), so this
+    /// looks at no voxel. What the lamps' picture of the level takes anew
+    /// (`render::lamps`).
+    pub fn chunks_unlike(&self, base: &World) -> Vec<IVec3> {
+        let mut chunks: Vec<IVec3> = self.chunks.iter().filter(|(cc, c)| base.chunks.get(*cc).is_none_or(|b| !Arc::ptr_eq(c, b))).map(|(cc, _)| *cc).collect();
+        chunks.extend(base.chunks.keys().filter(|cc| !self.chunks.contains_key(*cc)));
+        chunks.sort_unstable_by_key(|c| (c.z, c.y, c.x));
+        chunks
+    }
+
     pub fn mark_all_dirty(&mut self) {
         let keys = self.chunk_keys();
         self.dirty.extend(keys);

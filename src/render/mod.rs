@@ -9,10 +9,12 @@ mod bank;
 mod chunks;
 mod cubes;
 mod frame;
+mod lamps;
 mod limits;
 mod passes;
 mod pipelines;
 mod shader;
+mod volume;
 
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Quat, Vec3, Vec4};
@@ -28,8 +30,16 @@ pub use cubes::{SeeThroughBody, hide_faces_against, hide_inner_faces, join_by_bo
 pub use frame::{FrameData, Stats};
 pub use shader::{METAL_SHIFT, METAL_STEPS};
 
-/// Flashes and explosions lit at once (the shader's MAX_LIGHTS).
-pub const MAX_LIGHTS: usize = 16;
+/// Lights a picture lights by the scene's own shader (the shader's
+/// MAX_LIGHTS, the nearest the middle of the view): every light of a
+/// picture with no more and none stopped by walls, and the see-through
+/// cubes' in any (glass, water). Past them, or with a lamp walls stop, the
+/// lights are drawn in a pass of their own (`lamps`), up to `MOST_LIGHTS`.
+pub const FORWARD_LIGHTS: usize = 16;
+/// The most lights a picture lights, the nearest the middle of the view
+/// (the rest said once, `Session::warnings`): a bound of the light pass's
+/// buffer, far past any picture's need.
+pub const MOST_LIGHTS: usize = 4096;
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// The scene and glow targets: room above 1 for glow, filterable for blur.
 const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
@@ -84,13 +94,94 @@ pub fn snorm_turn(rot: Quat) -> [i8; 4] {
     rot.normalize().to_array().map(|c| (c.clamp(-1.0, 1.0) * 127.0).round() as i8)
 }
 
-/// A light from a flash or an explosion.
-#[derive(Clone, Copy)]
+/// A light lighting what is round it in one picture: a flash or an
+/// explosion's (`burst`: round, through walls, as lights always were), or a
+/// lamp a level or the game sets (`lamp`, shaped by `LightShape`).
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Light {
     pub pos: Vec3,
     pub radius: f32,
     /// Colour times brightness.
     pub color: [f32; 3],
+    /// How it fades out to its radius: (1 - distance / radius) to this
+    /// power (2 as lights always did; lower reaches further bright).
+    pub falloff: f32,
+    /// A spot's way and cone; None: it shines every way.
+    pub spot: Option<Spot>,
+    /// Walls stop it (`lamps`): the level's voxels and its pieces lie
+    /// between it and a face it would light.
+    pub shadows: bool,
+}
+
+/// A spot's way and cone, as the shader takes them: the way it shines
+/// (unit), the cosine of half its cone and the cosine within which its
+/// edge is no longer soft (`LightShape::blend`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Spot {
+    pub way: Vec3,
+    pub outer: f32,
+    pub inner: f32,
+}
+
+impl Light {
+    /// A flash's or an explosion's light (a kit's): round, falling off as
+    /// lights always did, through walls.
+    pub fn burst(pos: Vec3, radius: f32, color: [f32; 3]) -> Self {
+        Self { pos, radius, color, falloff: 2.0, spot: None, shadows: false }
+    }
+
+    /// A lamp (a level's light, `frame:light`) shaped as `shape` says, its
+    /// way turned by `turn` (a piece's lights turn with the piece; the
+    /// identity for the level's own ways).
+    pub fn lamp(pos: Vec3, radius: f32, color: [f32; 3], shape: &LightShape, turn: impl Fn(Vec3) -> Vec3) -> Self {
+        let spot = shape.cone.filter(|c| *c < 360.0).map(|cone| {
+            let half = (cone * 0.5).to_radians();
+            Spot { way: turn(shape.way()).normalize_or(Vec3::Y), outer: crate::sim::math::cos(half), inner: crate::sim::math::cos(half * (1.0 - shape.blend)) }
+        });
+        Self { pos, radius, color, falloff: shape.falloff, spot, shadows: shape.shadows }
+    }
+}
+
+/// How a lamp shines beyond where, how far and its colour: the words a
+/// light is written with (a level's `light = { ... }`, `frame:light{ ...
+/// }`), each with its default (`Default`: round, as lights were before
+/// 0.7, but stopped by walls).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LightShape {
+    /// (1 - distance / radius) to this power: 2 unless set.
+    pub falloff: f32,
+    /// A spot's whole opening angle, degrees; None: every way.
+    pub cone: Option<f32>,
+    /// How much of the cone's edge is soft, 0 to 1 (0.15 unless set).
+    pub blend: f32,
+    /// The spot's way: degrees clockwise seen from above (north, +y, is
+    /// 0), and up (above 0) or down.
+    pub rotation: f32,
+    pub pitch: f32,
+    /// Walls stop it (true unless set; `c.light.lamp_shadows = false`
+    /// stops none of a game's).
+    pub shadows: bool,
+}
+
+impl Default for LightShape {
+    fn default() -> Self {
+        Self { falloff: 2.0, cone: None, blend: 0.15, rotation: 0.0, pitch: 0.0, shadows: true }
+    }
+}
+
+/// The words of a light beyond where, how far and its colour, and the
+/// range of each number (`LightShape`): what the level's reader, the
+/// editor and `frame:light` check alike.
+pub const LIGHT_WORDS: [(&str, f64, f64); 5] = [("falloff", 0.0, 16.0), ("cone", 1.0, 360.0), ("blend", 0.0, 1.0), ("rotation", -360.0, 360.0), ("pitch", -90.0, 90.0)];
+
+impl LightShape {
+    /// The way a spot shines, in the directions it is written in: north
+    /// (+y) turned clockwise by `rotation`, raised by `pitch`.
+    pub fn way(&self) -> Vec3 {
+        let (sr, cr) = crate::sim::math::sin_cos(self.rotation.to_radians());
+        let (sp, cp) = crate::sim::math::sin_cos(self.pitch.to_radians());
+        Vec3::new(sr * cp, cr * cp, sp)
+    }
 }
 
 pub struct Renderer {
@@ -165,6 +256,9 @@ pub struct Renderer {
     told_full: bool,
     told_bank: bool,
     said: Vec<String>,
+    /// The lamps' pass and what it reads (`lamps`), made when a picture
+    /// first asks.
+    lamps: lamps::Lamps,
 }
 
 /// Where a picture of the shape `shape` (width over height) lies in a
@@ -203,6 +297,7 @@ impl Renderer {
         self.window = (width, height);
         let (_, _, w, h) = self.picture();
         self.targets = Self::targets(device, &self.post_layout, &self.blurred_layout, &self.linear, w, h);
+        self.lamps.resized();
     }
 
     /// The picture's own shape, width over height (`c.camera.aspect`), or

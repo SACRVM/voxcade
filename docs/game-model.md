@@ -206,7 +206,10 @@ settings. Several players: `player` is seat 1, the others are in
   title's and the settings' songs never hear them. Later: a tempo the game sets, stingers, sounds
   that play in the song's chord (`shots/reviews/music-plan.md`).
 - `frame`, `on_draw`'s parameter: this picture alone (`frame:text`,
-  `frame:cube`, `frame:model`, `frame:light`). An action in braces in a
+  `frame:cube`, `frame:model`, `frame:light`; `frame:light{ at =, radius
+  =, color =, falloff =, cone =, blend =, rotation =, pitch =, shadows =
+  }` with a level's light's words, `frame:light(at, radius, color)` as
+  before 0.7, both a lamp walls stop unless `shadows = false`). An action in braces in a
   text is its key as the player sees it (`"PRESS {jump}"`, as
   `controls:key`), `{{` a brace.
   `frame:model` rotates a model further (`rotation`) and poses a figure
@@ -928,7 +931,22 @@ arrow (or the number) moves it up from there.
 A piece may bring a light (`light = { at, radius, color }`, `at` from the
 pivot in the model's voxels, turning with it) or several (`lights = [ {
 ... }, { ... } ]`: a lamp's flame and its wider glow; `light =` is a list
-of one, both on one thing a mistake), or be a light alone; all its
+of one, both on one thing a mistake), or be a light alone. A light takes
+the lamps' words too (0.7, the owner's names, each optional, as
+`frame:light{ ... }` takes them): `falloff` (how it fades to its radius,
+(1 - distance / radius) to this power, 0 to 16, 2 unless set: the look
+before 0.7), `cone` (a spot, its whole opening angle in degrees, 1 to
+360; unset it shines every way), `blend` (how much of the cone's edge is
+soft, 0 to 1, 0.15), `rotation` and `pitch` (the spot's way: degrees
+clockwise seen from above, north +y 0, and up or down, -90 to 90; a
+piece's turns with the piece) and `shadows` (true unless set: walls stop
+it, `render::lamps`; `c.light.lamp_shadows = false` turns walls off for
+every lamp of a game). A wall is the level's opaque voxels and its
+pieces; a piece that brings a light stops no light (a lantern's frame
+round its flame), and moving things (figures, the kits' things, cubes)
+stop none: they move every picture, and a lamp's answer is kept per face
+until the level or the lamp changes. Only the picture: no fingerprint,
+state hash, replay or save sees any of it. All its
 lights move and turn with it, and `thing.state.light` (0 to 1, 1 at
 first) dims them together (an engine key kept in `Stage::lights`:
 snapshots, saves by the piece's name, and the state hash only where a
@@ -961,8 +979,12 @@ blocks (later work). Only pieces: a thing of a kind without a behavior
 is drawn by the script (`frame:model`, which takes a pose), and the
 kits' own figures by their rules (the jump & run's `thing.state.pose`
 is a set of frames). A picture
-shows the 16 lights nearest the middle of the view
-(`render::MAX_LIGHTS`), each light of a piece counting. A piece with
+lights by every light it has, up to 4096 (`render::MOST_LIGHTS`, the
+nearest the middle of the view; past it said once), each light of a
+piece counting: up to 16 none of which walls stop by the scene's own
+shader (`render::FORWARD_LIGHTS`), more, or any walls stop, in a pass of
+their own (`render::lamps`; the see-through cubes, glass and water, by
+the 16 nearest, through walls). A piece with
 `solid = true` holds bodies up and stops them, rounds and debris too,
 exactly in the cells its model is drawn in (`session::quarter_cells`, its
 first frame, glass blocking as the rest): the level's world keeps them

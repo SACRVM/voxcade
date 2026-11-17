@@ -685,6 +685,10 @@ fn report_shot<G: Game>(canvas: &Canvas, game: &Session<G>, frames: u32, [load_m
         s.ui_instances,
         if canvas.timed { format!("{total:.2} ms ({})", passes.join(", ")) } else { "not timed (no timestamp queries)".to_string() }
     );
+    if s.lamps > 0 {
+        let walls = if s.walls { format!("walls stop them (the level's solid voxels {:.1} MB on the GPU, made in {:.0} ms)", s.volume_bytes as f64 / 1e6, s.volume_ms) } else { "through walls".to_string() };
+        println!("lamps: {} lights in their own pass, {walls}", s.lamps);
+    }
     if !played.ticks.is_empty() {
         let mut slow = played.ticks.clone();
         slow.sort_by(|a, b| (b.1 + b.2).total_cmp(&(a.1 + a.2)));

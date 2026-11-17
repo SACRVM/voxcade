@@ -8,7 +8,7 @@ pub enum Cmd {
     /// `turn`: degrees round, nose up, rolled right (`session::turning`).
     Model { file: String, thing: u32, frame: Option<usize>, turn: [f32; 3], pose: Vec<crate::session::PoseEntry> },
     Cube { at: Vec3, color: [u8; 4], glow: f32 },
-    Light { at: Vec3, radius: f32, color: [f32; 3] },
+    Light(crate::render::Light),
     /// The HUD's, from its top left in UI voxels.
     Text { text: String, x: f32, y: f32, color: [u8; 4], size: i32 },
     Box { x: f32, y: f32, width: f32, height: f32, color: [u8; 4] },
