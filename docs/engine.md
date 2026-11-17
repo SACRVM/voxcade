@@ -617,6 +617,29 @@ Nick's soles now show on the fading dog tags (they used to lose the cell).
 The small GPU pays half a millisecond for it (a draw per model instead of
 one for all); worth four and a half on the CPU.
 
+**Baked models** (2026-11-17, `c.effects.bake_models`, on by default):
+each run of the bank (a frame, a figure's part) is listed once as the
+faces of its voxels that are drawn, 12 bytes a face against a cube's 32
+a voxel, kept with its model so a bank made anew bakes only what is new
+(`render::baked`). A frame draws a face's four corners instead of a
+cube's 24 a voxel, the scene only the ways that can face the eye; the
+picture is the same (in the owner's big scene one pixel of two million
+differs, by 5 levels: two faces at one depth drawn in the other order).
+A run whose faces would take more than its cubes (thin ones: posts, a
+voxel alone) stays cubes, so the bank never takes more memory than
+before. 1920 x 1080, GPU a frame, the median of five, off against on:
+
+| | RX 9070 XT | Radeon 610M | the bank on the GPU |
+|---|---|---|---|
+| BunnyFarm | 1.38 to 0.87 ms | 15.3 to 11.9 ms | 2.90 to 2.19 MB |
+| Voxkeep (small, thin figures) | 0.27 to 0.27 ms | 3.95 to 3.94 ms | 0.70 to 0.65 MB |
+| More Blood, playing | 0.74 to 0.73 ms | 8.3 to 8.0 ms | 2.88 to 2.34 MB |
+| The owner's big scene (4.3 M model voxels drawn) | 16.9 to 5.3 ms | 135.4 to 39.5 ms | 76.9 to 37.5 MB |
+
+(The 9070 XT also ran the big scene at a higher clock in some runs, 9.0
+to 2.9 ms: the same third.) The CPU's frame is unchanged; the editors
+keep their cubes.
+
 Then the title (2026-10-15): the logo's letters, built every frame with
 their rounding, grain and cracks (25,000 cubes), lie in the bank too and
 are placed as they fall; the title's props found the ground under them

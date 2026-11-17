@@ -417,6 +417,104 @@ fn a_moving_sun_has_the_faces_remember_their_shadow() {
     assert_ne!(at(7.0), at(7.0 + 1.0 / 600.0), "the shadows follow the sun picture by picture");
 }
 
+/// `c.effects.bake_models` bakes the game's models (on unless the game
+/// says): changed in `conf.lua`, at once, the bank made anew; only the
+/// picture, so the run's fingerprint stays.
+#[test]
+fn baking_the_models_is_the_games_choice_and_only_the_picture() {
+    let dir = crate::scratch::Scratch::new("bake-models");
+    let conf = |bake: &str| format!("function conf(c)\n  c.world.size = {{ 32, 32, 8 }}\n  c.things.box = {{ model = \"box.vvx\" }}\n  {bake}\nend\n");
+    std::fs::write(dir.join("conf.lua"), conf("c.effects.bake_models = false")).unwrap();
+    std::fs::write(dir.join("main.lua"), "function on_level_start() level:fill(0, 0, 0, 31, 31, 0, '#5a6e4a') end\n").unwrap();
+    std::fs::write(dir.join("box.vvx"), "format = \"voxcade voxel 1\"\nsize = [3, 3, 3]\n\n[palette]\na = \"#b04030\"\n\n[[frame]]\nlayers = \"\"\"\naaa\naaa\naaa\n*3\n\"\"\"\n").unwrap();
+    let mut game = Session::<crate::Voxcade>::load(&dir).unwrap();
+    assert_eq!(game.bank().baked_runs(), 0, "off: every model as cubes");
+    let fingerprint = game.fingerprint().unwrap();
+    std::fs::write(dir.join("conf.lua"), conf("")).unwrap();
+    game.reload(&dir.join("conf.lua")).unwrap();
+    assert_eq!(game.bank().baked_runs(), 1, "on by default, at once");
+    assert_eq!(game.fingerprint().unwrap(), fingerprint, "only the picture");
+}
+
+/// On the GPU: baked (`c.effects.bake_models`), models draw the picture
+/// their cubes draw (`render::baked`): on the grid and a quarter turned
+/// every way, turned freely, flashing, a figure of parts posed (a part
+/// turned, one shifted), metal, glow, shaded smooth and by edges, one only
+/// casting its shadow, and among them runs too thin to bake (posts, a
+/// voxel alone) still cubes; under a sun that stands and one that moves
+/// (the faces' memory), outlined and not. Their faces come in another order
+/// than the cubes', so where two lie at the very same depth on a pixel
+/// the other may win: a handful of pixels at most, by a few levels.
+#[test]
+fn baked_models_draw_the_picture_their_cubes_draw() {
+    use crate::config::ModelShading;
+    let block = "format = \"voxcade voxel 1\"\nsize = [5, 4, 4]\n\n[palette]\na = \"#b04030\"\nm = { color = \"#a0a4a8\", metal = 1.0, rough = 0.3 }\ng = { color = \"#f0d060\", glow = 0.8 }\n\n[[frame]]\nlayers = \"\"\"\naaaaa\naamaa\naaaaa\naaaaa\n\naaaaa\naggga\naammm\naaaaa\n\naaaaa\naamma\naaaaa\naaaaa\n\n.aaa.\n.amg.\n.aaa.\n.....\n\"\"\"\n";
+    let figure = "format = \"voxcade voxel 1\"\nsize = [9, 3, 12]\n\n[palette]\np = \"#6a4a30\"\nl = \"#a07040\"\nh = { color = \"#d0b040\", metal = 0.6, rough = 0.5 }\n\n[[part]]\nname = \"frame\"\nat = [-4, 0, 0]\nlayers = \"\"\"\np.......p\n*11\n\nppppppppp\n\"\"\"\n\n[[part]]\nname = \"leaf\"\nat = [-3, 0, 0]\nparent = \"frame\"\njoint = [-3, 0.5, 5.5]\nlayers = \"\"\"\nlllllll\n*11\n\"\"\"\n\n[[part]]\nname = \"handle\"\nat = [2, -1, 5]\nparent = \"leaf\"\nlayers = \"\"\"\nh\n\"\"\"\n";
+    let mut smooth = crate::vvx::read(block).unwrap();
+    smooth.shade(ModelShading::Smooth, 0.5);
+    let mut edges = crate::vvx::read(figure).unwrap();
+    edges.shade(ModelShading::Edges, 0.5);
+    let mut plain = crate::vvx::read(block).unwrap();
+    // The same models in a bank of cubes and in one baked.
+    let mut banks = [ModelBank::default(), ModelBank::default()];
+    for bank in &mut banks {
+        for m in [&mut smooth, &mut edges, &mut plain] {
+            bank.add(m);
+        }
+    }
+    banks[1].bake();
+    let mut draws = Vec::new();
+    let mut put = |m: &VoxModel, at: [f32; 3], look: IVec2, rot: Quat, pose: &[PartPose], tint| draw(&mut |_, _, _, _, _, _, _| {}, Some(&mut draws), m, 0, Vec3::from_array(at), look, rot, pose, tint);
+    for (k, look) in [IVec2::Y, IVec2::X, IVec2::NEG_Y, IVec2::NEG_X].into_iter().enumerate() {
+        put(&smooth, [30.0 + 8.0 * k as f32, 38.0, 1.0], look, Quat::IDENTITY, &[], None);
+        put(&plain, [30.0 + 8.0 * k as f32, 46.0, 1.0], look, Quat::IDENTITY, &[], None);
+    }
+    put(&smooth, [34.0, 56.0, 4.0], IVec2::X, turning(30.0, 10.0, -20.0), &[], None);
+    put(&plain, [44.0, 56.0, 1.0], IVec2::Y, Quat::IDENTITY, &[], Some([255, 255, 255, 255]));
+    let posed = [PartPose::REST, PartPose::turned(turning(-70.0, 15.0, 0.0)), PartPose { turn: Quat::IDENTITY, offset: Vec3::new(0.3, -0.4, 0.0) }];
+    put(&edges, [56.0, 54.0, 1.0], IVec2::NEG_Y, Quat::IDENTITY, &posed, None);
+    put(&edges, [64.0, 40.0, 1.0], IVec2::X, Quat::IDENTITY, &[PartPose::REST, PartPose { turn: Quat::IDENTITY, offset: Vec3::new(0.0, 0.4, 0.3) }, PartPose::REST], None);
+    // Last, a ceiling only casting its shadow over the floor.
+    put(&plain, [40.0, 26.0, 9.0], IVec2::Y, Quat::IDENTITY, &[], None);
+    draws.last_mut().unwrap().shadow_only = true;
+    assert!(draws.iter().any(|d| d.nearer > 0.0) && draws.iter().any(|d| d.rot == Quat::IDENTITY && d.shift != Vec3::ZERO), "a part posed, a part shifted");
+
+    let mut cfg = GameConfig::default();
+    cfg.light.shadow_style = crate::config::ShadowStyle::Voxel;
+    cfg.camera.view_width = 60.0;
+    let mut game = game_on(crate::sim::tests::flat_world(IVec3::new(96, 96, 24)), cfg);
+    game.game.sim_mut().cam_target = Vec3::new(48.0, 48.0, 1.0);
+    game.game.sim_mut().cam_prev = Vec3::new(48.0, 48.0, 1.0);
+    let (w, h) = (640u32, 360u32);
+    // The pictures of a bank: under the standing sun, outlined, and three
+    // as the sun moves, remembering.
+    let mut pictures = |bank: &ModelBank| {
+        let bank = std::sync::Arc::new(bank.clone());
+        let mut canvas = crate::headless::Canvas::new(w, h, false).unwrap();
+        canvas.mesh_world(game.world_mut(), &[true; 6]);
+        let mut out = Vec::new();
+        for (outline, remember, sun) in [(0.0, false, 0.6), (1.0, false, 0.6), (0.0, true, 0.6), (0.0, true, 0.61), (0.0, true, 0.62)] {
+            game.cfg.light.sun = [f32::cos(sun) * 0.7, f32::sin(sun) * 0.7, -1.0];
+            let mut f = game.frame(1.0, w as f32 / h as f32);
+            (f.models, f.bank, f.remember) = (draws.clone(), bank.clone(), remember);
+            f.outline = [0.1, 0.05, 0.1, outline];
+            out.push(canvas.draw(&f).unwrap());
+        }
+        (out, canvas.stats().model_bytes)
+    };
+    let (cubes, cube_bytes) = pictures(&banks[0]);
+    let (faces, face_bytes) = pictures(&banks[1]);
+    assert!(face_bytes < cube_bytes, "the faces take less memory than the cubes: {face_bytes} bytes against {cube_bytes}");
+    for (k, (a, b)) in cubes.iter().zip(&faces).enumerate() {
+        let off: Vec<u8> = a.chunks(4).zip(b.chunks(4)).map(|(p, q)| (0..3).map(|c| p[c].abs_diff(q[c])).max().unwrap_or(0)).filter(|&d| d > 0).collect();
+        let lit = a.chunks(4).filter(|p| p[..3] != [0, 0, 0]).count();
+        eprintln!("picture {k}: {} pixels of {} differ, by up to {} levels", off.len(), a.len() / 4, off.iter().max().unwrap_or(&0));
+        assert!(lit > a.len() / 8, "picture {k} shows the scene");
+        assert!(off.len() <= 4 && off.iter().all(|&d| d <= 8), "picture {k}: {} pixels differ, by up to {:?} levels", off.len(), off.iter().max());
+    }
+    assert_ne!(cubes[0], cubes[1], "the outline shows");
+}
+
 /// On the GPU: posts' shadows creep over the floor as the sun goes
 /// round slowly, a little each picture (too little for a shadow to
 /// pass a face wholly). Remembering, no face of the floor turns lit

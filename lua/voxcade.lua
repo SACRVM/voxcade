@@ -900,6 +900,7 @@ function on_pickup(thing, item) end
 ---@field hitstop integer Ticks the game holds still when an enemy dies. (from 0 to 60)
 ---@field outline number A dark line round the models (figures, props), as round a sprite: how many voxels thick (0: none; 1 a voxel, as a sprite's pixel), and its colour (0..1). Hidden behind what stands in front, drawn where one part of a model stands before another too. (from 0 to 8)
 ---@field outline_color number[] The outline's colour, 0..1 per channel. (each from 0 to 1)
+---@field bake_models boolean Models drawn from lists of their faces that can be seen, made once, instead of a cube a voxel: the same picture, quicker and in less of the GPU's memory. false draws every voxel a cube.
 
 ---@class Conf.transition
 ---@field fade number Seconds out and seconds in; 0: a cut. (from 0 to 10)

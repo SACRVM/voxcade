@@ -181,12 +181,27 @@ fn vs_model(
     // Which faces the shade direction lights is counted in the model's own
     // directions: ask with the face turned back.
     let own = vec3<f32>(quarter(normal.xy, 4u - k), normal.z);
-    var c = color;
+    let lit = vec4<f32>(model_shade(shade.xyz), shade.w);
+    return model_out(cube_at(model_corner(pos_size.xyz, pos * pos_size.w), normal.xyz, own, model_centre(pos_size.xyz), model_color(color), fx, lit, actor.rot));
+}
+
+// A model's colour as it is drawn: its own, or the flash's while it flashes.
+fn model_color(color: vec4<f32>) -> vec4<f32> {
     if (actor.tint.w > 0.5) {
-        c = vec4<f32>(actor.tint.rgb, color.a);
+        return vec4<f32>(actor.tint.rgb, color.a);
     }
-    let lit = vec4<f32>(rotate(actor.rot, vec3<f32>(quarter(shade.xy, k), shade.z)), shade.w);
-    var out = cube_at(model_corner(pos_size.xyz, pos * pos_size.w), normal.xyz, own, model_centre(pos_size.xyz), c, fx, lit, actor.rot);
+    return color;
+}
+
+// The way a model's voxel is lit by (vox::VoxModel::shade, its own
+// directions), turned as the model is.
+fn model_shade(way: vec3<f32>) -> vec3<f32> {
+    return rotate(actor.rot, vec3<f32>(quarter(way.xy, u32(actor.origin.w)), way.z));
+}
+
+// A corner of a model's face as the draw places it.
+fn model_out(face: VOut) -> VOut {
+    var out = face;
     // Off the grid (a part shifted, if not turned): its shadow asks at the
     // voxel's middle.
     out.centre.w = max(out.centre.w, actor.pivot.w);
@@ -200,6 +215,36 @@ fn vs_model(
         out.clip.z = near.z / near.w * out.clip.w;
     }
     return out;
+}
+
+// A model's face baked (render::baked::Face): the same face of its voxel's
+// cube as vs_model draws, its four corners the unit cube's (`corner`, 0 to
+// 3, by the face's two triangles as the cube's are split): `cell` its
+// voxel's cell from the pivot, its own direction, lit, first; `look` its
+// colour and glow; `shade` the way it is lit by; `bytes.w` its metal.
+@vertex
+fn vs_face(
+    @builtin(vertex_index) corner: u32,
+    @location(0) cell: u32,
+    @location(1) look: vec4<f32>,
+    @location(2) shade: vec4<f32>,
+    @location(3) bytes: vec4<u32>,
+) -> VOut {
+    let own = FACE_DIRS[extractBits(cell, FACE_DIR_AT, 3u)];
+    let normal = vec3<f32>(quarter(own.xy, u32(actor.origin.w)), own.z);
+    let local = face_cell(cell);
+    let pos = CUBE_CORNERS[face_index(normal) * 4u + corner];
+    let lit = f32(extractBits(cell, FACE_LIT_AT, 1u));
+    return model_out(voxel_face(model_corner(local, pos), normal, model_centre(local), model_color(look), look.a, 1.0, bytes.w, model_shade(shade.xyz), lit, actor.rot));
+}
+
+// A baked face's voxel: its cell from the model's pivot cell
+// (render::baked::Face, x and y signed).
+fn face_cell(cell: u32) -> vec3<f32> {
+    let signed = bitcast<i32>(cell);
+    let x = extractBits(signed, 0u, FACE_CELL_BITS);
+    let y = extractBits(signed, FACE_CELL_BITS, FACE_CELL_BITS);
+    return vec3<f32>(f32(x), f32(y), f32(extractBits(cell, 2u * FACE_CELL_BITS, FACE_CELL_BITS)));
 }
 
 // How much nearer a figure's part is taken a step, in voxels: more than the
@@ -224,11 +269,32 @@ fn vs_model_outline(
     @location(1) normal: vec4<f32>,
     @location(2) pos_size: vec4<f32>,
 ) -> VOut {
-    let grown = pos_size.w + 2.0 * g.outline.w;
+    return outline_corner(pos_size.xyz, pos, normal.xyz, pos_size.w);
+}
+
+// The outline from a model's baked faces: each voxel's first face draws
+// the voxel's grown cube whole (`corner` the unit cube's, drawn by its
+// triangles), the others nothing.
+@vertex
+fn vs_face_outline(
+    @builtin(vertex_index) corner: u32,
+    @location(0) cell: u32,
+) -> VOut {
+    var out = outline_corner(face_cell(cell), CUBE_CORNERS[corner], CUBE_NORMALS[corner], 1.0);
+    if (extractBits(cell, FACE_FIRST_AT, 1u) == 0u) {
+        out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+    }
+    return out;
+}
+
+// A corner of the outline's grown cube about a model's voxel at `local`
+// (`size` voxels big): `pos` the unit cube's corner, `normal` its face's.
+fn outline_corner(local: vec3<f32>, pos: vec3<f32>, normal: vec3<f32>, size: f32) -> VOut {
+    let grown = size + 2.0 * g.outline.w;
     let flat = vec4<f32>(g.outline.rgb, 1.0);
     var fx = vec4<f32>(0.0);
     fx[FX_OPACITY] = 1.0;
-    var out = cube_at(model_corner(pos_size.xyz, pos * grown), normal.xyz, normal.xyz, model_centre(pos_size.xyz), flat, fx, vec4<f32>(0.0), actor.rot);
+    var out = cube_at(model_corner(local, pos * grown), normal, normal, model_centre(local), flat, fx, vec4<f32>(0.0), actor.rot);
     out.world += normalize(out.world - g.eye.xyz) * OUTLINE_BEHIND;
     out.clip = g.view_proj * vec4<f32>(out.world, 1.0);
     return out;
@@ -277,31 +343,49 @@ fn cube_at(
     shade: vec4<f32>,
     q: vec4<f32>,
 ) -> VOut {
-    var out: VOut;
-    out.clip = g.view_proj * vec4<f32>(world, 1.0);
+    // counted in the model's own directions, as the bits are
+    let face = face_index(own);
+    // shade.w: the faces lit by shade.xyz instead of their own (bits as
+    // below); with none, xyz is the way smooth glass's facet faces (or
+    // nothing). fx[FX_METAL]: metal, packed as vox::metal::pack.
+    let lit = u32(round(shade.w * SNORM8));
+    var out = voxel_face(world, normal, centre, color, fx[FX_GLOW], fx[FX_OPACITY], u32(round(fx[FX_METAL] * 255.0)), shade.xyz, f32((lit >> face) & 1u), q);
     // fx[FX_COVERED]: the faces a neighbouring cube covers (a bit each, in
     // mesh::DIRS order, face_index). They are not drawn: where they meet
     // the neighbour's surface at the same depth they would show as seams.
     let hidden = u32(round(fx[FX_COVERED] * 255.0));
-    // counted in the model's own directions, as the bits are
-    let face = face_index(own);
     if (((hidden >> face) & 1u) == 1u) {
         out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
     }
+    return out;
+}
+
+// A corner of a voxel's face at `world`: its colour, how much it glows,
+// how opaque, its metal (vox::metal::pack), the way it is lit by and
+// whether by that way (`lit`, 1) or its own, turned by `q` (zeros or 0 0 0
+// 1: square to the grid).
+fn voxel_face(
+    world: vec3<f32>,
+    normal: vec3<f32>,
+    centre: vec3<f32>,
+    color: vec4<f32>,
+    glow: f32,
+    opacity: f32,
+    metal: u32,
+    shade: vec3<f32>,
+    lit: f32,
+    q: vec4<f32>,
+) -> VOut {
+    var out: VOut;
+    out.clip = g.view_proj * vec4<f32>(world, 1.0);
     out.world = world;
     out.normal = rotate(q, normal);
     out.centre = vec4<f32>(centre, select(0.0, 1.0, turns(q)));
     out.color = color.rgb;
     out.ao = 1.0;
-    out.fx = vec2<f32>(fx[FX_GLOW], fx[FX_OPACITY]);
-    // fx[FX_METAL]: metal, packed as vox::metal::pack.
-    let m = u32(round(fx[FX_METAL] * 255.0));
-    out.metal = vec2<f32>(f32(m >> METAL_SHIFT) / f32(METAL_STEPS), f32(m & METAL_STEPS) / f32(METAL_STEPS));
-    // shade.w: the faces lit by shade.xyz instead of their own (bits as
-    // above); with none, xyz is the way smooth glass's facet faces (or
-    // nothing).
-    let lit = u32(round(shade.w * SNORM8));
-    out.shade = vec4<f32>(shade.xyz, f32((lit >> face_index(own)) & 1u));
+    out.fx = vec2<f32>(glow, opacity);
+    out.metal = vec2<f32>(f32(metal >> METAL_SHIFT) / f32(METAL_STEPS), f32(metal & METAL_STEPS) / f32(METAL_STEPS));
+    out.shade = vec4<f32>(shade, lit);
     return out;
 }
 
@@ -341,6 +425,18 @@ fn vs_model_shadow(
         return vec4<f32>(0.0, 0.0, 2.0, 1.0);
     }
     return g.light_vp * vec4<f32>(model_corner(pos_size.xyz, pos * pos_size.w), 1.0);
+}
+
+// A model's baked face into the shadow map (vs_face's corners).
+@vertex
+fn vs_face_shadow(
+    @builtin(vertex_index) corner: u32,
+    @location(0) cell: u32,
+) -> @builtin(position) vec4<f32> {
+    let own = FACE_DIRS[extractBits(cell, FACE_DIR_AT, 3u)];
+    let normal = vec3<f32>(quarter(own.xy, u32(actor.origin.w)), own.z);
+    let pos = CUBE_CORNERS[face_index(normal) * 4u + corner];
+    return g.light_vp * vec4<f32>(model_corner(face_cell(cell), pos), 1.0);
 }
 
 @vertex

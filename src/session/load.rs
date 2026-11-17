@@ -250,6 +250,15 @@ impl<G: Game> Session<G> {
         // The models loaded when needed last: the bank grows by those to
         // come (`bank_fresh`).
         self.models.needed.bank(&mut bank, true);
+        self.keep_bank(bank);
+    }
+
+    /// The bank from now on, its models baked where the game would have
+    /// them so (`c.effects.bake_models`; only the picture).
+    fn keep_bank(&self, mut bank: ModelBank) {
+        if self.cfg.effects.bake_models {
+            bank.bake();
+        }
         *self.bank.borrow_mut() = std::sync::Arc::new(bank);
     }
 
@@ -266,9 +275,9 @@ impl<G: Game> Session<G> {
         if !self.models.needed.fresh() {
             return false;
         }
-        let mut bank = ModelBank { voxels: self.bank.borrow().voxels.clone() };
+        let mut bank = ModelBank::clone(&self.bank.borrow());
         self.models.needed.bank(&mut bank, false);
-        *self.bank.borrow_mut() = std::sync::Arc::new(bank);
+        self.keep_bank(bank);
         true
     }
 

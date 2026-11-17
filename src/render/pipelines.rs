@@ -7,6 +7,7 @@ use super::bank::ActorData;
 use super::shader::{Globals, PostParams, SHADER, plain_shader};
 use super::bank::ACTOR_STRIDE;
 use super::Stats;
+use super::baked::Face;
 use super::{DEPTH_FORMAT, HDR_FORMAT, Instance, Renderer, SHRINK, composite_entry};
 use crate::mesh::{self, Vertex};
 
@@ -45,12 +46,14 @@ pub(super) enum PostKind {
 }
 
 /// The pipelines that draw the scene with `fs_main`: the chunks, the
-/// opaque cubes, the see-through ones, the models from the bank.
+/// opaque cubes, the see-through ones, the models from the bank (their
+/// cubes, their baked faces).
 pub(super) struct ScenePipelines {
     pub(super) chunk: wgpu::RenderPipeline,
     pub(super) inst: wgpu::RenderPipeline,
     pub(super) see_through: wgpu::RenderPipeline,
     pub(super) model: wgpu::RenderPipeline,
+    pub(super) faces: wgpu::RenderPipeline,
 }
 
 /// The faces' memory of their shadow (`FrameData::remember`, the shader's
@@ -102,6 +105,13 @@ pub(super) fn instance_buffers() -> [Option<wgpu::VertexBufferLayout<'static>>; 
         Some(wgpu::VertexBufferLayout { array_stride: size_of::<Vertex>() as u64, step_mode: wgpu::VertexStepMode::Vertex, attributes: &CUBE_ATTRS }),
         Some(wgpu::VertexBufferLayout { array_stride: size_of::<Instance>() as u64, step_mode: wgpu::VertexStepMode::Instance, attributes: &INSTANCE_ATTRS }),
     ]
+}
+
+/// The vertex buffer of models' baked faces (`baked::Face`), one an
+/// instance: its cell, its colour and glow, the way it is lit by, and the
+/// same four bytes again as whole numbers for the last, its metal.
+pub(super) fn face_buffers() -> [Option<wgpu::VertexBufferLayout<'static>>; 1] {
+    [Some(wgpu::VertexBufferLayout { array_stride: size_of::<Face>() as u64, step_mode: wgpu::VertexStepMode::Instance, attributes: &FACE_ATTRS })]
 }
 
 /// The scene's colour and glow targets, blended or not.
@@ -182,6 +192,7 @@ fn scene_pipelines(device: &wgpu::Device, module: &wgpu::ShaderModule, main: &wg
         inst: scene_pipeline(device, module, "instances", &main_pipeline_layout, "vs_inst", &instance_buffers(), scene(&opaque), true),
         see_through: scene_pipeline(device, module, "see-through", &main_pipeline_layout, "vs_inst", &instance_buffers(), scene(&see_through), false),
         model: scene_pipeline(device, module, "models", &model_main_layout, "vs_model", &instance_buffers(), scene(&opaque), true),
+        faces: scene_pipeline(device, module, "model faces", &model_main_layout, "vs_face", &face_buffers(), scene(&opaque), true),
     }
 }
 
@@ -191,6 +202,12 @@ const CUBE_ATTRS: [wgpu::VertexAttribute; 2] =
     wgpu::vertex_attr_array![0 => Float32x3, 1 => Snorm8x4];
 const INSTANCE_ATTRS: [wgpu::VertexAttribute; 5] =
     wgpu::vertex_attr_array![2 => Float32x4, 3 => Unorm8x4, 4 => Unorm8x4, 5 => Snorm8x4, 6 => Snorm8x4];
+const FACE_ATTRS: [wgpu::VertexAttribute; 4] = [
+    wgpu::VertexAttribute { format: wgpu::VertexFormat::Uint32, offset: std::mem::offset_of!(Face, cell) as u64, shader_location: 0 },
+    wgpu::VertexAttribute { format: wgpu::VertexFormat::Unorm8x4, offset: std::mem::offset_of!(Face, color) as u64, shader_location: 1 },
+    wgpu::VertexAttribute { format: wgpu::VertexFormat::Snorm8x4, offset: std::mem::offset_of!(Face, shade) as u64, shader_location: 2 },
+    wgpu::VertexAttribute { format: wgpu::VertexFormat::Uint8x4, offset: std::mem::offset_of!(Face, shade) as u64, shader_location: 3 },
+];
 
 /// A target drawn into, and read after where `read`.
 fn texture(device: &wgpu::Device, label: &str, width: u32, height: u32, format: wgpu::TextureFormat, read: bool) -> wgpu::TextureView {
@@ -342,9 +359,11 @@ impl Renderer {
         let chunk_shadow = scene_pipeline(device, &shader, "chunk shadows", &shadow_pipeline_layout, "vs_chunk_shadow", &chunk_buffers(), Draws::Shadow, true);
         let inst_shadow = scene_pipeline(device, &shader, "instance shadows", &shadow_pipeline_layout, "vs_inst_shadow", &instance_buffers(), Draws::Shadow, true);
         let model_shadow = scene_pipeline(device, &shader, "model shadows", &model_shadow_layout, "vs_model_shadow", &instance_buffers(), Draws::Shadow, true);
+        let face_shadow = scene_pipeline(device, &shader, "model face shadows", &model_shadow_layout, "vs_face_shadow", &face_buffers(), Draws::Shadow, true);
         // The outline: the far faces of the grown voxels, in a flat colour.
-        let outline = Draws::Scene { fs: "fs_outline", cull: wgpu::Face::Front, targets: &opaque_targets };
-        let model_outline = scene_pipeline(device, &shader, "model outlines", &model_main_layout, "vs_model_outline", &instance_buffers(), outline, true);
+        let outline = || Draws::Scene { fs: "fs_outline", cull: wgpu::Face::Front, targets: &opaque_targets };
+        let model_outline = scene_pipeline(device, &shader, "model outlines", &model_main_layout, "vs_model_outline", &instance_buffers(), outline(), true);
+        let face_outline = scene_pipeline(device, &shader, "model face outlines", &model_main_layout, "vs_face_outline", &face_buffers(), outline(), true);
 
         let post_pipeline = |label: &str, layout: &wgpu::PipelineLayout, fs: &str, format: wgpu::TextureFormat| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -384,6 +403,11 @@ impl Renderer {
             contents: bytemuck::cast_slice(&cube_i),
             usage: wgpu::BufferUsages::INDEX,
         });
+        let face_indices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("face indices"),
+            contents: bytemuck::cast_slice(&cube_i[..6]),
+            usage: wgpu::BufferUsages::INDEX,
+        });
 
         let instance_capacity = 4096;
         let instances = Self::instance_buffer(device, instance_capacity);
@@ -408,6 +432,8 @@ impl Renderer {
             inst_shadow,
             model_outline,
             model_shadow,
+            face_outline,
+            face_shadow,
             post_down,
             post_blur,
             post_composite,
@@ -418,6 +444,7 @@ impl Renderer {
             cube_vertices,
             cube_indices,
             cube_index_count: cube_i.len() as u32,
+            face_indices,
             instances,
             instance_capacity,
             bank: None,
@@ -434,6 +461,7 @@ impl Renderer {
             window: (width, height),
             shape: None,
             told_full: false,
+            told_bank: false,
             said: Vec::new(),
         }
     }

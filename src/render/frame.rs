@@ -115,9 +115,11 @@ pub(super) const UI_AMBIENT: f32 = 0.55;
 pub struct Stats {
     /// Cubes drawn: the world's (moving things) and the UI's.
     pub instances: usize,
-    /// Models drawn from the bank, and their cubes.
+    /// Models drawn from the bank, and their cubes; what the bank takes on
+    /// the GPU, in bytes (its cubes and its baked faces).
     pub models: usize,
     pub model_cubes: usize,
+    pub model_bytes: u64,
     pub ui_instances: usize,
     pub chunks: usize,
     pub drawn: usize,

@@ -7,6 +7,7 @@ use bytemuck::{Pod, Zeroable};
 use glam::{IVec3, Quat, Vec3};
 
 use super::Instance;
+use super::baked::{Baked, Faces};
 #[cfg(test)]
 use super::snorm_turn;
 #[cfg(test)]
@@ -16,10 +17,16 @@ use crate::mesh;
 /// (the renderer uploads a bank the first time a frame brings it). A model
 /// is then drawn with one entry, `ModelDraw`, instead of a cube per voxel:
 /// at 16-bit scale building those cubes was most of the CPU's frame.
-#[derive(Default)]
+/// Baked (`bake`), a model's runs go on the GPU as their faces instead
+/// (`render::baked`).
+#[derive(Default, Clone)]
 pub struct ModelBank {
     /// Relative to the model's pivot (`pos_size` xyz, before the turn).
     pub voxels: Vec<Instance>,
+    /// Every run put in, in order (a model's frame, a figure's part, a set
+    /// of cubes): its voxels, its model's faces (none for a set of cubes),
+    /// and whether this bank draws it from them (`bake`).
+    runs: Vec<(Range<u32>, Option<Baked>, bool)>,
 }
 
 /// One model frame drawn from the bank.
@@ -112,6 +119,7 @@ impl ModelBank {
             let [x, y, z, size] = c.pos_size;
             Instance { pos_size: [x - 0.5, y - 0.5, z - 0.5, size], ..*c }
         }));
+        self.runs.push((start..self.voxels.len() as u32, None, false));
         start..self.voxels.len() as u32
     }
 
@@ -125,6 +133,36 @@ impl ModelBank {
         for (part, bank) in model.parts.iter_mut().zip(banked) {
             part.bank = bank;
         }
+        // Its runs' faces, kept with it from bank to bank.
+        model.baked.resize_with(model.frames.len(), Baked::default);
+        let baked = model.baked.iter().chain(model.parts.iter().map(|p| &p.baked));
+        let runs = self.runs.len() - baked.clone().count();
+        for ((_, faces, _), baked) in self.runs[runs..].iter_mut().zip(baked) {
+            *faces = Some(baked.clone());
+        }
+    }
+
+    /// Draws the models' runs from their faces from now on, each baked
+    /// where its model has not been yet, all on the cores there are (in
+    /// the runs' order, so every run comes out the same).
+    pub fn bake(&mut self) {
+        let todo: Vec<(&Baked, &[Instance])> = self.runs.iter().filter_map(|(r, faces, _)| faces.as_ref().filter(|f| !f.is_made()).map(|f| (f, &self.voxels[r.start as usize..r.end as usize]))).collect();
+        crate::par::in_order(&todo, 1, |part| part.iter().map(|(faces, voxels)| faces.make(voxels)).collect());
+        for (_, faces, baked) in &mut self.runs {
+            *baked = faces.is_some();
+        }
+    }
+
+    /// How many runs it draws from their faces: the tests'.
+    #[cfg(test)]
+    pub(crate) fn baked_runs(&self) -> usize {
+        self.runs().filter(|(_, f)| f.is_some()).count()
+    }
+
+    /// Every run, in order: its voxels, and its faces where it is drawn
+    /// from them.
+    pub(super) fn runs(&self) -> impl Iterator<Item = (Range<u32>, Option<&Faces>)> {
+        self.runs.iter().map(|(r, faces, baked)| (r.clone(), faces.as_ref().filter(|_| *baked).and_then(Baked::faces)))
     }
 
     /// The opaque ones of `visible` (voxels of frame `f`, each with its
@@ -132,6 +170,7 @@ impl ModelBank {
     fn add_voxels(&mut self, model: &crate::vox::VoxModel, f: usize, visible: &[u32], covered: &[u8]) -> Range<u32> {
         let pivot = IVec3::new(model.size.x / 2, model.size.y / 2, 0);
         let start = self.voxels.len() as u32;
+        self.runs.push((start..start, None, false));
         for (i, &k) in visible.iter().enumerate() {
             let k = k as usize;
             let (v, color) = model.frames[f][k];
@@ -142,7 +181,11 @@ impl ModelBank {
             let fx = [model.glow_at(f, k), 255, covered.get(i).copied().unwrap_or(0), model.metal_at(f, k)];
             self.voxels.push(Instance { pos_size: [l.x, l.y, l.z, 1.0], color, fx, shade: model.shade_at(f, k), turn: [0; 4] });
         }
-        start..self.voxels.len() as u32
+        let end = self.voxels.len() as u32;
+        if let Some((run, ..)) = self.runs.last_mut() {
+            run.end = end;
+        }
+        start..end
     }
 
     /// The cubes a draw puts in the world, worked out as the GPU does
