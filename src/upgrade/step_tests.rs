@@ -98,6 +98,13 @@ fn old_games() -> Vec<(&'static str, crate::scratch::Scratch)> {
             }),
         ),
         (
+            "lamps stopped by walls",
+            game("step-lamps", &|d| {
+                put(d, "conf.lua", &conf(""));
+                put(d, "main.lua", "function on_draw(frame)\n  frame:light(player, 40, { 255, 200, 120 })\nend\n");
+            }),
+        ),
+        (
             "worlds and prefabs as text",
             game("step-worlds", &|d| {
                 put(d, "conf.lua", &conf("  c.world.file = \"world.vox\"\n"));
@@ -179,7 +186,8 @@ fn recordings_are_named_never_touched() {
 
 /// A game already stating 0.6.0 whose `conf.lua` still lists models (the
 /// step came while 0.6.0 was being made): it does not open, says why, and
-/// the upgrade takes the lines out, the rest of the file as it was.
+/// the upgrade takes the lines out, the rest of the file as it was (the
+/// version line saying this Voxcade's; a later step with nothing to do).
 #[test]
 fn a_game_of_this_version_listing_models_is_brought_over() {
     let dir = game("listed-now", &|d| {
@@ -187,13 +195,14 @@ fn a_game_of_this_version_listing_models_is_brought_over() {
         put(d, "main.lua", "function on_world_start() end\n");
     });
     let Standing::Older { made: Some(_), steps } = standing(&dir).unwrap() else { panic!("not older") };
-    assert_eq!(steps.iter().map(|s| s.name).collect::<Vec<_>>(), ["no list of models"]);
+    assert_eq!(steps.iter().map(|s| s.name).collect::<Vec<_>>(), ["no list of models", "lamps stopped by walls"]);
+    assert!(steps[1].would.is_empty(), "no lamps to speak of");
     let e = opens(&dir).unwrap_err().to_string();
-    assert!(e.contains("Voxcade 0.6.0 reads this no more (no list of models): c.models is no more"), "{e}");
+    assert!(e.contains("made for Voxcade 0.6.0"), "{e}");
     let dry = upgrade(&dir, true).unwrap().join("\n");
     assert!(dry.contains("conf.lua:4 taken out: c.models = { \"ship.vvx\" }"), "{dry}");
     upgrade(&dir, false).unwrap();
-    assert_eq!(std::fs::read_to_string(dir.join("conf.lua")).unwrap(), "function conf(c)\n  c.voxcade = \"0.6.0\"\n  c.things.ship = {}\nend\n");
+    assert_eq!(std::fs::read_to_string(dir.join("conf.lua")).unwrap(), format!("function conf(c)\n  c.voxcade = \"{}\"\n  c.things.ship = {{}}\nend\n", engine()));
     opens(&dir).unwrap();
     assert!(upgrade(&dir, false).unwrap().join("\n").contains("nothing to do"));
 }

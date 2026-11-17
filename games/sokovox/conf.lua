@@ -4,7 +4,7 @@
 -- (main.lua); the models come from tools/gen_sokovox.py.
 
 function conf(c)
-  c.voxcade = "0.6.0"   -- the Voxcade its files are for (voxcade upgrade brings an older game up to date)
+  c.voxcade = "0.7.0"   -- the Voxcade its files are for (voxcade upgrade brings an older game up to date)
   c.title = "Sokovox"
   c.languages = { "en", "de", "fr" }   -- the menus speak them
   c.world.size = { 288, 180, 24 }   -- a world made in code: 32 by 20 squares of 9 voxels

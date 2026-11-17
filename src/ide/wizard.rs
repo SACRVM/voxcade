@@ -474,7 +474,7 @@ mod tests {
         let root = crate::scratch::Scratch::new("wizard-page");
         let dir = root.join("sokovox");
         copy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("games/sokovox"), &dir);
-        let conf = std::fs::read_to_string(dir.join("conf.lua")).unwrap().replace("c.voxcade = \"0.6.0\"", "c.voxcade = \"0.3\"");
+        let conf = std::fs::read_to_string(dir.join("conf.lua")).unwrap().replace(&format!("c.voxcade = \"{}\"", crate::upgrade::engine()), "c.voxcade = \"0.3\"");
         std::fs::write(dir.join("conf.lua"), conf).unwrap();
         let mut w = Wizard::new(&dir, false);
         let Ok(Standing::Older { steps, .. }) = &w.standing else { panic!("older") };

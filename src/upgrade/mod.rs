@@ -45,6 +45,7 @@ const STEPS: &[Step] = &[
     Step { since: "0.6.0", name: "maps as text", plan: maps::plan, apply: maps::apply, left: Some(maps::left) },
     Step { since: "0.6.0", name: "worlds and prefabs as text", plan: worlds::plan, apply: worlds::apply, left: Some(worlds::left) },
     Step { since: "0.6.0", name: "no list of models", plan: listed::plan, apply: listed::apply, left: Some(listed::left) },
+    Step { since: "0.7.0", name: "lamps stopped by walls", plan: lamps::plan, apply: lamps::plan, left: None },
 ];
 
 impl Step {
@@ -422,6 +423,14 @@ mod models;
 /// says which sounds are recordings and what to do; it changes nothing
 /// and deletes nothing (the game says the same at load until it is done).
 mod recordings;
+
+/// Step 0.7.0: walls stop lamps (`render::lamps`): a level's lights and
+/// `frame:light` with no word of their own shine no more through walls,
+/// as the owner decided. A picture changes, nothing of the game's rules,
+/// so the step only says which lights and how to keep the old look
+/// (`shadows = false` on one, `c.light.lamp_shadows = false` for all); it
+/// changes nothing.
+mod lamps;
 
 /// The texts between quotes on a line of Lua.
 fn quoted_texts(line: &str) -> Vec<String> {

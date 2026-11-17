@@ -7,7 +7,7 @@
 -- and read the "ticks:" line. Lengths and speeds are More Blood's, doubled.
 
 function conf(c)
-  c.voxcade = "0.6.0"   -- the Voxcade its files are for (voxcade upgrade brings an older game up to date)
+  c.voxcade = "0.7.0"   -- the Voxcade its files are for (voxcade upgrade brings an older game up to date)
   c.title = "Bench"
   c.kit = "shooter"
 

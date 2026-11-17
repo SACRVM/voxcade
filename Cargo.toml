@@ -1,6 +1,6 @@
 [package]
 name = "voxcade"
-version = "0.6.0"
+version = "0.7.0"
 license = "Zlib"
 edition = "2024"
 # The oldest Rust it builds with: the dependencies ask 1.95 (egui 0.37),

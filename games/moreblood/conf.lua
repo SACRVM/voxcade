@@ -7,7 +7,7 @@
 -- in voxels and every speed in voxels per second.
 
 function conf(c)
-  c.voxcade = "0.6.0"   -- the Voxcade its files are for (voxcade upgrade brings an older game up to date)
+  c.voxcade = "0.7.0"   -- the Voxcade its files are for (voxcade upgrade brings an older game up to date)
   c.title = "More Blood"
   c.languages = { "en", "de", "fr" }   -- the menus speak them; the keys shown at the start too
   c.kit = "shooter"               -- soldiers, huts, hostages, pickups, the gunship (src/shooter)
