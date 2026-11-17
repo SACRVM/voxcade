@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use bytemuck::Zeroable;
 use glam::{Mat4, Vec3};
-use wgpu::util::DeviceExt;
 
+use super::baked::{self, Lies};
 use super::bank::{ACTOR_STRIDE, ActorData};
 use super::frame::{UI_AMBIENT, UI_SUN};
 use super::pipelines::{Memory, PostKind, PostPass};
@@ -45,6 +45,19 @@ impl PassTimes {
             end_of_pass_write_index: Some(2 * i + 1),
         })
     }
+}
+
+/// How a pass draws the models: its pipelines for their cubes and for
+/// their baked faces; `whole`: a face draws its voxel's whole cube (the
+/// outline's, from the voxel's first face); `cast`: into the sun's map
+/// (`ModelDraw::in_pass`); `eye`: the world's eye, a run's faces turned
+/// away from it left out.
+struct ModelPass<'a> {
+    cubes: &'a wgpu::RenderPipeline,
+    faces: &'a wgpu::RenderPipeline,
+    whole: bool,
+    cast: bool,
+    eye: Option<Vec3>,
 }
 
 /// A colour target of a pass, loaded as `load` says and stored.
@@ -89,6 +102,7 @@ impl Renderer {
             instances: instance_count,
             models: all_models,
             model_cubes: frame.models.iter().chain(&frame.ui_models).map(|m| m.voxels.len()).sum(),
+            model_bytes: self.bank.as_ref().map_or(0, |b| b.bytes),
             ui_instances: frame.ui.len(),
             chunks: self.meshes.len(),
             vertices_total: self.meshes.values().map(|m| m.vertex_count).sum(),
@@ -178,13 +192,15 @@ impl Renderer {
     /// reload), and every frame the places of its `all_models` draws: the
     /// world's, then the UI's.
     fn upload_models(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, frame: &FrameData, all_models: usize) {
-        if all_models > 0 && !self.bank.as_ref().is_some_and(|(b, _)| Arc::ptr_eq(b, &frame.bank)) {
-            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("model bank"),
-                contents: bytemuck::cast_slice(&frame.bank.voxels),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-            self.bank = Some((frame.bank.clone(), buffer));
+        if all_models > 0 && !self.bank.as_ref().is_some_and(|b| Arc::ptr_eq(&b.bank, &frame.bank)) {
+            let plan = baked::plan(&frame.bank, device.limits().max_buffer_size);
+            if !self.told_bank && !plan.said.is_empty() {
+                self.told_bank = true;
+                self.said.extend(plan.said.iter().cloned());
+            }
+            // (The bank before let go first: both would lie on the GPU.)
+            self.bank = None;
+            self.bank = Some(baked::OnGpu::new(device, frame.bank.clone(), plan));
         }
         if all_models > self.actor_capacity {
             self.actor_capacity = all_models.next_power_of_two();
@@ -203,21 +219,48 @@ impl Renderer {
         }
     }
 
-    /// Each model draw: its place (the `first` of all `all_models`
-    /// places), and its voxels in the bank; into the sun's map (`cast`)
-    /// those only casting too (`ModelDraw::shadow_only`), else not.
-    fn draw_models(&self, pass: &mut wgpu::RenderPass, pipeline: &wgpu::RenderPipeline, models: &[ModelDraw], first: usize, all_models: usize, cast: bool) {
-        let Some((_, bank)) = self.bank.as_ref().filter(|_| all_models > 0 && !models.is_empty()) else { return };
-        pass.set_pipeline(pipeline);
-        pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
-        pass.set_vertex_buffer(1, bank.slice(..));
-        pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
+    /// Each model draw as `how` says: its place (the `first` of all
+    /// `all_models` places), and its run of the bank, from its cubes or its
+    /// baked faces as it lies there (`baked::Lies`).
+    fn draw_models(&self, pass: &mut wgpu::RenderPass, how: ModelPass, models: &[ModelDraw], first: usize, all_models: usize) {
+        let Some(bank) = self.bank.as_ref().filter(|_| all_models > 0 && !models.is_empty()) else { return };
+        // The buffers bound: none yet, the cubes', the faces'.
+        let mut bound = None;
         for (i, m) in models.iter().enumerate() {
-            if !m.in_pass(cast) {
+            if !m.in_pass(how.cast) {
                 continue;
             }
-            pass.set_bind_group(1, &self.actor_bind, &[((first + i) * ACTOR_STRIDE) as u32]);
-            pass.draw_indexed(0..self.cube_index_count, 0, m.voxels.clone());
+            match (bank.lies(&m.voxels), &bank.cubes, &bank.faces) {
+                (Lies::Cubes(at), Some(cubes), _) => {
+                    if bound != Some(false) {
+                        bound = Some(false);
+                        pass.set_pipeline(how.cubes);
+                        pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
+                        pass.set_vertex_buffer(1, cubes.slice(..));
+                        pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
+                    }
+                    pass.set_bind_group(1, &self.actor_bind, &[((first + i) * ACTOR_STRIDE) as u32]);
+                    pass.draw_indexed(0..self.cube_index_count, 0, *at..at + m.voxels.len() as u32);
+                }
+                (Lies::Faces { dirs, lo, hi }, _, Some(faces)) => {
+                    // A face's corners by the triangles of the first of
+                    // the unit cube's faces (its four corners reused), or
+                    // the whole cube's.
+                    let (indices, count) = if how.whole { (&self.cube_indices, self.cube_index_count) } else { (&self.face_indices, 6) };
+                    if bound != Some(true) {
+                        bound = Some(true);
+                        pass.set_pipeline(how.faces);
+                        pass.set_vertex_buffer(0, faces.slice(..));
+                        pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
+                    }
+                    pass.set_bind_group(1, &self.actor_bind, &[((first + i) * ACTOR_STRIDE) as u32]);
+                    let own = how.eye.map_or(63, |eye| baked::facing(m, *lo, *hi, eye));
+                    for faces in baked::ranges(dirs, own) {
+                        pass.draw_indexed(0..count, 0, faces);
+                    }
+                }
+                _ => {}
+            }
         }
     }
 
@@ -246,7 +289,8 @@ impl Renderer {
             pass.set_index_buffer(mesh.indices.slice(..mesh.index_bytes()), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..mesh.index_count, 0, 0..1);
         }
-        self.draw_models(&mut pass, &self.model_shadow, &frame.models, 0, all_models, true);
+        let shadows = ModelPass { cubes: &self.model_shadow, faces: &self.face_shadow, whole: false, cast: true, eye: None };
+        self.draw_models(&mut pass, shadows, &frame.models, 0, all_models);
         // Only the opaque cubes: fire, smoke, dust, glass and what lies
         // faint behind everything cast no shadow.
         let casting = frame.shadow_cubes();
@@ -306,9 +350,11 @@ impl Renderer {
         // The models before the cubes: where a cube shares a cell with a
         // model's voxel (or a model with the world), the one drawn first
         // keeps it, at the same depth.
-        self.draw_models(&mut pass, &scene.model, &frame.models, 0, all_models, false);
+        let models = ModelPass { cubes: &scene.model, faces: &scene.faces, whole: false, cast: false, eye: Some(frame.eye) };
+        self.draw_models(&mut pass, models, &frame.models, 0, all_models);
         if frame.outline[3] > 0.0 {
-            self.draw_models(&mut pass, &self.model_outline, &frame.models, 0, all_models, false);
+            let outline = ModelPass { cubes: &self.model_outline, faces: &self.face_outline, whole: true, cast: false, eye: None };
+            self.draw_models(&mut pass, outline, &frame.models, 0, all_models);
         }
         if instance_count > 0 {
             pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
@@ -346,7 +392,8 @@ impl Renderer {
             multiview_mask: None,
         });
         pass.set_bind_group(0, &self.ui_bind, &[]);
-        self.draw_models(&mut pass, &self.plain.model, &frame.ui_models, frame.models.len(), all_models, false);
+        let models = ModelPass { cubes: &self.plain.model, faces: &self.plain.faces, whole: false, cast: false, eye: None };
+        self.draw_models(&mut pass, models, &frame.ui_models, frame.models.len(), all_models);
         if !frame.ui.is_empty() {
             pass.set_pipeline(&self.plain.inst);
             pass.set_vertex_buffer(0, self.cube_vertices.slice(..));

@@ -70,6 +70,21 @@ pub(super) fn prelude() -> String {
     for (name, d) in [("FACE_POS_X", IVec3::X), ("FACE_NEG_X", IVec3::NEG_X), ("FACE_POS_Y", IVec3::Y), ("FACE_NEG_Y", IVec3::NEG_Y), ("FACE_POS_Z", IVec3::Z), ("FACE_NEG_Z", IVec3::NEG_Z)] {
         put(name, format!("{}u", face(d)));
     }
+    // How a model's baked face packs its cell (`baked::Face::cell`).
+    put("FACE_CELL_BITS", format!("{}u", super::baked::CELL_BITS));
+    put("FACE_DIR_AT", format!("{}u", super::baked::DIR_AT));
+    put("FACE_LIT_AT", format!("{}u", super::baked::LIT_AT));
+    put("FACE_FIRST_AT", format!("{}u", super::baked::FIRST_AT));
+    // The unit cube the cubes are drawn with (`mesh::unit_cube`), for a
+    // baked face drawn as one of its faces: its corners (four a face, face
+    // after face in `mesh::DIRS` order) and their faces' ways, and those
+    // ways by face.
+    let (corners, _) = crate::mesh::unit_cube();
+    let vec3 = |v: [f32; 3]| format!("vec3<f32>({:?}, {:?}, {:?})", v[0], v[1], v[2]);
+    let array = |items: Vec<String>| format!("array<vec3<f32>, {}>({})", items.len(), items.join(", "));
+    put("CUBE_CORNERS", array(corners.iter().map(|c| vec3(c.pos)).collect()));
+    put("CUBE_NORMALS", array(corners.iter().map(|c| vec3([0, 1, 2].map(|k| f32::from(c.normal[k]) / f32::from(i8::MAX)))).collect()));
+    put("FACE_DIRS", array(DIRS.iter().map(|d| vec3(d.as_vec3().to_array())).collect()));
     out
 }
 
@@ -231,7 +246,8 @@ mod tests {
     fn the_vertex_inputs_are_the_rust_structs() {
         use crate::mesh::Vertex;
         use crate::render::Instance;
-        use crate::render::pipelines::{chunk_buffers, instance_buffers};
+        use crate::render::baked::Face;
+        use crate::render::pipelines::{chunk_buffers, face_buffers, instance_buffers};
         use std::mem::{offset_of, size_of};
         use wgpu::naga;
         let vertex = [(offset_of!(Vertex, pos), 12), (offset_of!(Vertex, normal), 4), (offset_of!(Vertex, color), 4)];
@@ -250,6 +266,12 @@ mod tests {
         let (cube, inst) = (cube.unwrap(), inst.unwrap());
         check(&cube, size_of::<Vertex>(), &vertex[..2]);
         check(&inst, size_of::<Instance>(), &instance);
+        // A baked face: its cell, colour, shade, and its shade's four bytes
+        // again as whole numbers (the last its metal).
+        let [face] = face_buffers();
+        let face = face.unwrap();
+        check(&face, size_of::<Face>(), &[(offset_of!(Face, cell), 4), (offset_of!(Face, color), 4), (offset_of!(Face, shade), 4), (offset_of!(Face, shade), 4)]);
+        assert_eq!((offset_of!(Face, metal), size_of::<Face>()), (offset_of!(Face, shade) + 3, 12), "the metal the shade's fourth byte, the last");
         let components = |f: wgpu::VertexFormat| match format!("{f:?}") {
             n if n.ends_with("x4") => 4,
             n if n.ends_with("x3") => 3,
@@ -258,7 +280,8 @@ mod tests {
         };
         let module = naga::front::wgsl::parse_str(&SHADER).unwrap();
         let cubes = [cube.attributes, inst.attributes].concat();
-        for (name, attrs) in [("vs_chunk", chunk.attributes), ("vs_chunk_shadow", chunk.attributes), ("vs_inst", &cubes[..]), ("vs_inst_shadow", &cubes[..]), ("vs_model", &cubes[..]), ("vs_model_shadow", &cubes[..]), ("vs_model_outline", &cubes[..])] {
+        let faces = [("vs_face", face.attributes), ("vs_face_shadow", face.attributes), ("vs_face_outline", face.attributes)];
+        for (name, attrs) in [("vs_chunk", chunk.attributes), ("vs_chunk_shadow", chunk.attributes), ("vs_inst", &cubes[..]), ("vs_inst_shadow", &cubes[..]), ("vs_model", &cubes[..]), ("vs_model_shadow", &cubes[..]), ("vs_model_outline", &cubes[..])].into_iter().chain(faces) {
             let entry = module.entry_points.iter().find(|e| e.name == name).unwrap_or_else(|| panic!("{name}"));
             for arg in &entry.function.arguments {
                 let Some(naga::Binding::Location { location, .. }) = arg.binding else { continue };
@@ -269,6 +292,9 @@ mod tests {
                     ref other => panic!("{name}: location {location} is {other:?}"),
                 };
                 assert_eq!(components(given.format), wanted, "{name}: location {location}");
+                // Whole numbers where the shader reads them whole.
+                let whole = matches!(module.types[arg.ty].inner, naga::TypeInner::Vector { scalar: naga::Scalar { kind: naga::ScalarKind::Uint, .. }, .. } | naga::TypeInner::Scalar(naga::Scalar { kind: naga::ScalarKind::Uint, .. }));
+                assert_eq!(whole, format!("{:?}", given.format).starts_with("Uint"), "{name}: location {location}");
             }
         }
     }
@@ -292,6 +318,27 @@ mod tests {
         for (k, d) in crate::mesh::DIRS.iter().enumerate() {
             let name = format!("FACE_{}_{}", if d.max_element() > 0 { "POS" } else { "NEG" }, ["X", "Y", "Z"][d.abs().max_position()]);
             assert!(prelude.contains(&format!("const {name} = {k}u;")), "{name} in {prelude}");
+        }
+        // A baked face's packing, and the unit cube a face of which it is
+        // drawn as: face `w`'s four corners `4w` to `4w + 3`, of its way,
+        // and its triangles the first face's moved on by `4w` (`vs_face`
+        // draws every face by the first's, `Renderer::face_indices`).
+        use crate::render::baked::{CELL_BITS, DIR_AT, FIRST_AT, LIT_AT};
+        for (name, value) in [("FACE_CELL_BITS", CELL_BITS), ("FACE_DIR_AT", DIR_AT), ("FACE_LIT_AT", LIT_AT), ("FACE_FIRST_AT", FIRST_AT)] {
+            assert!(prelude.contains(&format!("const {name} = {value}u;")), "{name} in {prelude}");
+        }
+        assert_eq!(FIRST_AT, 31, "a face's cell, way, lit and first in one word");
+        let (corners, triangles) = crate::mesh::unit_cube();
+        assert_eq!((corners.len(), triangles.len()), (24, 36));
+        for (w, d) in crate::mesh::DIRS.iter().enumerate() {
+            let first = triangles[..6].iter().map(|i| i + 4 * w as u32);
+            assert!(triangles[6 * w..6 * w + 6].iter().copied().eq(first), "face {w}");
+            for c in &corners[4 * w..4 * w + 4] {
+                assert_eq!(c.normal[..3], [d.x as i8 * 127, d.y as i8 * 127, d.z as i8 * 127], "face {w}");
+            }
+        }
+        for name in ["CUBE_CORNERS", "CUBE_NORMALS", "FACE_DIRS"] {
+            assert!(prelude.contains(&format!("const {name} = array<")) && !super::WRITTEN.contains(&format!("const {name}")), "{name}");
         }
         let m = |metal: f32, smooth: f32| u32::from(crate::vox::metal::pack(metal, smooth));
         assert_eq!(m(1.0, 0.0) >> super::METAL_SHIFT, super::METAL_STEPS, "metalness in the high bits");

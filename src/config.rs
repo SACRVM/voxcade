@@ -1116,6 +1116,10 @@ pub struct EffectsConfig {
     /// The outline's colour, 0..1 per channel.
     #[serde(deserialize_with = "color")]
     pub outline_color: [f32; 3],
+    /// Models drawn from lists of their faces that can be seen, made once,
+    /// instead of a cube a voxel: the same picture, quicker and in less of
+    /// the GPU's memory. false draws every voxel a cube.
+    pub bake_models: bool,
 }
 
 impl Default for EffectsConfig {
@@ -1130,6 +1134,7 @@ impl Default for EffectsConfig {
             hitstop: 2,
             outline: 0.0,
             outline_color: [0.07, 0.05, 0.09],
+            bake_models: true,
         }
     }
 }

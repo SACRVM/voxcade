@@ -1576,7 +1576,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   or two faces change a picture. It costs the small GPU (Radeon 610M)
   about 2.5 ms (test `a_moving_sun_has_the_faces_remember_their_shadow`).
 - The renderer is `src/render/`: `mod.rs` the `Renderer` and `Instance`,
-  `bank.rs` the model bank, `cubes.rs` the CPU passes over a frame's
+  `bank.rs` the model bank, `baked.rs` its runs baked into faces and the
+  bank on the GPU, `cubes.rs` the CPU passes over a frame's
   cubes (`hide_inner_faces`, `join_see_through`), `frame.rs` `FrameData`,
   `shader.rs` the shader text and its uniforms, `pipelines.rs` the
   renderer made, `chunks.rs` the chunk meshes, `passes.rs` a frame drawn,
@@ -1587,14 +1588,36 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   lights past `MAX_LIGHTS` (`Session::warnings`, counted in `look` too),
   the faces' memory full (the shader counts faces that found no room in
   the word after it, `render::limits`, read without waiting every 60
-  pictures, at once by `shot`; `Renderer::warnings`); `shot` prints
+  pictures, at once by `shot`; `Renderer::warnings`), the model bank past
+  the GPU's largest buffer (`baked::plan`: faces past it drawn as cubes,
+  cubes past it not at all; test
+  `what_the_gpu_cannot_hold_falls_back_and_is_said`); `shot` prints
   "warning: ...", `inspect` lists them under "warnings", the IDE's PLAY
-  puts them in OUTPUT (test `lights_past_the_limit_are_said_once`). Every
-  model voxel is still an instanced cube drawn in both passes (BunnyFarm
-  about 14 ms of GPU on the Radeon 610M at MEDIUM); covered faces are
-  already collapsed in `vs_model` and `vs_model_shadow`, an early return
-  for them measured slower (scene 8.6 against 7.9 ms): static models
-  meshed like chunks, or three faces a voxel picked by the eye, is 0.7's.
+  puts them in OUTPUT (test `lights_past_the_limit_are_said_once`).
+  Models are baked (`c.effects.bake_models`, on unless the game says;
+  live, the bank made anew; only the picture, never in the fingerprint):
+  `ModelBank::bake` lists each run's faces that are drawn
+  (`render::baked::Face`, 12 bytes against a cube's 32: the cell from the
+  pivot in 9 bits each, the way, lit, first; colour and glow; shade and
+  metal), by their own way, on all cores in the runs' order, kept with the
+  model (`VoxModel::baked`, `Part::baked`: a bank made anew, grown by
+  `bank_fresh` or after a level change bakes only models new to it; test
+  `a_bank_made_anew_bakes_only_what_is_new`). Every pass draws a baked
+  run's faces as the unit cube's own, its four corners by the first
+  face's triangles (`vs_face`, `vs_face_shadow`; the prelude's
+  `CUBE_CORNERS`), the outline each voxel's grown cube from its first face
+  (`vs_face_outline`); the scene leaves out the ways no face of a draw on
+  the axes can show the eye (`baked::facing`), the shadow pass none. The
+  same picture (test `baked_models_draw_the_picture_their_cubes_draw`;
+  faces in another order than the cubes' may win a tie of depth the other
+  way: one pixel of two million, by 5 levels, in the owner's big scene),
+  that scene 17 to 5.3 ms of GPU (135 to 39 on the Radeon 610M), its
+  bank 77 to 37 MB, BunnyFarm 15.3 to 11.9 ms on the 610M. Cubes still:
+  glass and fading models, `frame:cube`s, the logo's letters, a run a
+  face cannot carry (a voxel past 512 by 512 by 512 from the pivot) or
+  whose faces would take more memory than its cubes (thin: a post, a
+  voxel alone), the editors' views (their banks are never baked,
+  `Shown`). Static models meshed together is 0.7's.
 - Rendering goes scene (HDR colour + glow targets) -> quarter-size blur
   passes -> composite onto the surface (`src/post.wgsl`; a window takes
   a surface format that stores what it is given, `render::surface_format`,
@@ -1636,8 +1659,9 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   A game may draw a dark line round its models as round a sprite
   (`c.effects.outline`, voxels thick, 0 none by default; `outline_color`):
   their voxels drawn again grown, far faces only, pushed back along the
-  view rays (`vs_model_outline`), so it shows at the silhouette and where
-  a part stands well before another, not on every relief step.
+  view rays (`vs_model_outline`, `vs_face_outline`), so it shows at the
+  silhouette and where a part stands well before another, not on every
+  relief step.
   Rounded heads for More Blood's 22-voxel figures were tried and rejected
   (the user: "the old figures were prettier"): a 5-voxel head has too few
   voxels to round, the rounding pays off on bigger models. Tests:
@@ -1712,7 +1736,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   view and the shadow box (`Drawing::model`). Their opaque voxels lie on
   the GPU once (`render::ModelBank`, `Session::rebuild_bank`): a frame
   sends one `ModelDraw` per model (where, quarter turn, flash) and the
-  shader's `vs_model` places the voxels as `ModelBank::cubes` does (test
+  shader's `vs_model` places the voxels (`vs_face` a baked run's faces)
+  as `ModelBank::cubes` does (test
   `models_from_the_bank_match_their_cubes`), the faces another voxel
   covers left out, in the shadow pass too (`vs_model_shadow`: BunnyFarm's
   shadows 11.5 to 5.5 ms on the small GPU at HIGH); glass and fading models stay

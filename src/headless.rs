@@ -121,6 +121,12 @@ impl Canvas {
         self.renderer.remembers()
     }
 
+    /// What the last frame counted (`render::Stats`): the tests'.
+    #[cfg(test)]
+    pub(crate) fn stats(&self) -> crate::render::Stats {
+        self.renderer.stats
+    }
+
     /// Builds the meshes of the whole world.
     fn mesh_all<G: Game>(&mut self, game: &mut Session<G>) {
         self.mask = game.face_mask();
@@ -671,10 +677,11 @@ fn report_shot<G: Game>(canvas: &Canvas, game: &Session<G>, frames: u32, [load_m
     let passes: Vec<String> = gpu.iter().map(|(label, all)| format!("{label} {:.2}", median(all))).collect();
     let total: f64 = gpu.iter().map(|(_, all)| median(all)).sum();
     println!(
-        "frame: cpu {frame_ms:.1} ms ({} cubes + {} from {} models on the GPU, {} ui) | gpu {}",
+        "frame: cpu {frame_ms:.1} ms ({} cubes + {} from {} models on the GPU in {:.2} MB, {} ui) | gpu {}",
         s.instances,
         s.model_cubes,
         s.models,
+        s.model_bytes as f64 / 1e6,
         s.ui_instances,
         if canvas.timed { format!("{total:.2} ms ({})", passes.join(", ")) } else { "not timed (no timestamp queries)".to_string() }
     );

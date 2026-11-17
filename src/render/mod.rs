@@ -4,6 +4,7 @@
 //! picture put together on screen: glow on top, blur towards the top and
 //! bottom of the screen, a white flash after big blasts.
 
+mod baked;
 mod bank;
 mod chunks;
 mod cubes;
@@ -13,8 +14,6 @@ mod passes;
 mod pipelines;
 mod shader;
 
-use std::sync::Arc;
-
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Quat, Vec3, Vec4};
 
@@ -23,6 +22,7 @@ use chunks::ChunkMesh;
 use passes::PassTimes;
 use pipelines::{Memory, ScenePipelines, Targets};
 
+pub use baked::Baked;
 pub use bank::{ModelBank, ModelDraw, off_grid, quarter, turn_about, turn_centre, turned_centre};
 pub use cubes::{SeeThroughBody, hide_faces_against, hide_inner_faces, join_by_body, join_see_through, leave_out_unseen, see_through_body, see_through_side};
 pub use frame::{FrameData, Stats};
@@ -118,6 +118,9 @@ pub struct Renderer {
     /// (`c.effects.outline`).
     model_outline: wgpu::RenderPipeline,
     model_shadow: wgpu::RenderPipeline,
+    /// The same from the models' baked faces (`baked`).
+    face_outline: wgpu::RenderPipeline,
+    face_shadow: wgpu::RenderPipeline,
     post_down: wgpu::RenderPipeline,
     post_blur: wgpu::RenderPipeline,
     post_composite: wgpu::RenderPipeline,
@@ -128,10 +131,14 @@ pub struct Renderer {
     cube_vertices: wgpu::Buffer,
     cube_indices: wgpu::Buffer,
     cube_index_count: u32,
+    /// The unit cube's first face's triangles, every baked face drawn by
+    /// them (`vs_face`).
+    face_indices: wgpu::Buffer,
     instances: wgpu::Buffer,
     instance_capacity: usize,
-    /// The model bank on the GPU, and which bank it holds.
-    bank: Option<(Arc<ModelBank>, wgpu::Buffer)>,
+    /// The model bank on the GPU, which bank it holds and where its runs
+    /// lie.
+    bank: Option<baked::OnGpu>,
     /// The model draws' uniforms (`ActorData`), room for so many.
     actors: wgpu::Buffer,
     actor_capacity: usize,
@@ -152,9 +159,11 @@ pub struct Renderer {
     /// picture's size then.
     window: (u32, u32),
     shape: Option<f32>,
-    /// Whether the faces' memory was said to be full, and what is to be
-    /// said (`limits`, `warnings`).
+    /// Whether the faces' memory was said to be full, the model bank past
+    /// what the GPU holds (`baked::plan`), and what is to be said
+    /// (`limits`, `warnings`).
     told_full: bool,
+    told_bank: bool,
     said: Vec<String>,
 }
 

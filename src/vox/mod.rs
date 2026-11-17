@@ -50,6 +50,9 @@ pub struct VoxModel {
     /// bank (`render::ModelBank::add`); empty until it is put there, and
     /// then the model is drawn as cubes.
     pub bank: Vec<std::ops::Range<u32>>,
+    /// Per frame: its run of the bank as the faces drawn of it, once a
+    /// bank was baked (`render::ModelBank::bake`), kept for the next.
+    pub baked: Vec<crate::render::Baked>,
     /// A figure made of parts (the file's objects have names): each part
     /// of its one frame, turned about its joint when posed (`Part`); none
     /// for a model of frames.
@@ -107,8 +110,10 @@ pub struct Part {
     /// Per visible voxel: the faces another opaque voxel of the part lies
     /// against (`covered`).
     pub covered: Vec<u8>,
-    /// Its opaque visible voxels in the model bank.
+    /// Its opaque visible voxels in the model bank, and as faces once
+    /// baked (`VoxModel::baked`).
     pub bank: std::ops::Range<u32>,
+    pub baked: crate::render::Baked,
     /// How it came to hang on its parent (what the editor's FIGURE tells),
     /// and the other parts it lies in the same places as (their place in
     /// the list, how many voxels): the game reads none of it.
@@ -324,7 +329,7 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
             let (seen, covered) = visible_voxels(&own);
             let visible: Vec<u32> = seen.into_iter().map(|i| members[p][i as usize]).collect();
             let glass = visible.iter().copied().filter(|&k| frame[k as usize].1[3] < 255).collect();
-            Part { name: names[p].clone(), voxels: members[p].clone(), parent: parent[p], joint: joint[p] - pivot, joint_by_hand: stated[p].1.is_some(), rest: [0.0; 3], offset: Vec3::ZERO, visible, glass, covered, bank: 0..0, hung: how[p].clone(), overlaps, empty: empty_at(p).map(|c| c - pivot.as_ivec3()) }
+            Part { name: names[p].clone(), voxels: members[p].clone(), parent: parent[p], joint: joint[p] - pivot, joint_by_hand: stated[p].1.is_some(), rest: [0.0; 3], offset: Vec3::ZERO, visible, glass, covered, bank: 0..0, baked: Default::default(), hung: how[p].clone(), overlaps, empty: empty_at(p).map(|c| c - pivot.as_ivec3()) }
         })
         .collect()
 }
@@ -374,7 +379,7 @@ impl VoxModel {
         let glass = visible.iter().zip(&frames).map(|(seen, frame)| seen.iter().copied().filter(|&k| frame[k as usize].1[3] < 255).collect()).collect();
         let smooth_glass = |m: &u8| *m != 0 && *m >> 4 == 0;
         let facets = if metal.iter().flatten().any(smooth_glass) { frames.iter().zip(&metal).map(|(frame, m)| facets(frame, m)).collect() } else { Vec::new() };
-        Self { size, frames, metal, glow: Vec::new(), shade: Vec::new(), facets, visible, glass, covered, bank: Vec::new(), parts: Vec::new() }
+        Self { size, frames, metal, glow: Vec::new(), shade: Vec::new(), facets, visible, glass, covered, bank: Vec::new(), baked: Vec::new(), parts: Vec::new() }
     }
 
     /// How metal voxel `k` of frame `f` is (`metal`; 0 not at all).
@@ -408,6 +413,11 @@ impl VoxModel {
             ModelShading::Faces => Vec::new(),
             _ => self.frames.iter().map(|frame| shade_frame(frame, mode == ModelShading::Edges, tolerance)).collect(),
         };
+        // (Faces baked before were lit otherwise.)
+        self.baked.clear();
+        for part in &mut self.parts {
+            part.baked = Default::default();
+        }
     }
 }
 
