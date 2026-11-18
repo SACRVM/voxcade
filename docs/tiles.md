@@ -323,7 +323,7 @@ facing = [0, -1]
   30` where the game rotates things freely, `c.camera.rotates = "free"`),
   perhaps with a `light = { at, radius, color }` (or `lights = [ ... ]`
   for several; 0.7: a light's `falloff`, `cone`, `blend`, `rotation`,
-  `pitch` and `shadows` too, each optional and range-checked, as
+  `pitch`, `shadows` and `fog` too, each optional and range-checked, as
   `docs/game-model.md` says: `light = { at = [0, 0, 20], radius = 90,
   cone = 50, pitch = -60, shadows = "none" }`) and `solid = true` (its voxels hold bodies up, quarter
   turns only), or `shadow_only = true` (2026-11-14, the owner: a ceiling

@@ -818,8 +818,48 @@ lamps' volume is built only when some light is stopped.
   the volume's bound too.
 
 Later, not built: light flowing through the grid from glowing voxels
-(Minecraft's block light), sky light kept out of rooms, haze and beams,
-mirror glass (all tried in a trial branch, 2026-11-17).
+(Minecraft's block light), sky light kept out of rooms, mirror glass (all
+tried in a trial branch, 2026-11-17); the sun's beams in fog, moving
+things cutting beams, fog in the editors' views and the IDE's picture.
+
+**Fog and beams** (2026-11-18, the owner's names: `c.light.fog_density`,
+`fog_color`, `fog_anisotropy`, `frame:fog`, a light's `fog`; the
+classic smooth way, the owner's choice over beams in voxel cells;
+`render::fog`, `src/fog.wgsl`, `fog_beams.wgsl`, `fog_composite.wgsl`).
+
+- **Who pays.** A picture with fog (a density above 0) is drawn by the
+  lamps' pass, which keeps the scene's depth; a picture without fog runs
+  no pass and no pipeline of it, byte for byte as before, and the
+  player's FOG OFF draws none at all.
+- **The beams** go into a target half (FOG HIGH) or a quarter (LOW, the
+  start on the processor's own graphics, `Settings::load_for`) the
+  picture's size, after the see-through cubes, by the lamps' tiles and
+  walls: along each pixel's ray, the stretch within a light's ball and a
+  spot's cone, the light each point gets times what the fog sends on to
+  the eye (Henyey-Greenstein, `fog_anisotropy`), less what the fog took
+  on the way. No noise: the points are where the ray crosses planes
+  across the camera's way every 4 voxels (8, 16 for a light wider than
+  48 of them), fixed in the level, so a scrolling view and a turning spot
+  take the same points; the spot's hard core's edges are points too; the
+  light between two points is added up as a straight line; a lamp walls
+  stop lights a point only where its walk reaches it (the faces' memory
+  asked of the 2 by 2 by 2 voxels it is in, so neighbours ask alike), and
+  where that changes between two points four halvings find where. A wall
+  thinner than the planes' spacing between two points that both see the
+  lamp casts no shadow in the fog.
+- **Laid over** by the composite's own pipeline for fog (before the UI,
+  which is never fogged): the scene times what the fog left of it, the
+  fog's colour for the rest, the beams from the four nearest of their
+  pixels weighed by how alike the depth they were worked out at is. The
+  glow target is not fogged; see-through cubes (glass, water) are fogged
+  as if they were not there: a beam behind them shows in front of them,
+  untinted.
+- **Measured** (the trial hall, five lamps walls stop, 1920 by 1080): the
+  Radeon 610M without fog 9.4 ms, LOW 13.7 (beams 2.6, the composite
+  2.0 against 0.5), HIGH 21.1 (beams 9.2); Voxkeep's torches in fog 7.0,
+  LOW 10.4. The strong GPU: 0.5, LOW 0.8, HIGH 0.9. Two headlights moving
+  every picture: the lamps' pass 4.4 to 11.6 ms on the 610M (every face
+  asks anew), the beams at LOW 2.7 to 4.9.
 
 ## Multiplayer
 

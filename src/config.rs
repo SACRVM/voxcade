@@ -660,6 +660,9 @@ pub const RANGES: &[Bound] = &[
     within("light.reflection[]", 0.0, 1.0),
     within("light.metal_sweep", 0.0, 10.0),
     within("light.edge_tolerance", 0.0, 16.0),
+    within("light.fog_density", 0.0, 1.0),
+    within("light.fog_color[]", 0.0, 1.0),
+    within("light.fog_anisotropy", -0.9, 0.9),
     within("debris.settle", 0.0, 1.0),
     within("debris.max_particles", 0.0, 1_000_000.0),
     within("debris.gore", 0.0, 1.0),
@@ -766,7 +769,7 @@ pub fn check_ranges(c: &toml::Value) -> std::result::Result<(), String> {
 }
 
 /// The settings that are a colour (`color`), section and name.
-pub const COLORS: [(&str, &str); 6] = [("light", "sun_color"), ("light", "sky"), ("light", "reflection_horizon"), ("light", "reflection"), ("effects", "haze_color"), ("effects", "outline_color")];
+pub const COLORS: [(&str, &str); 7] = [("light", "sun_color"), ("light", "sky"), ("light", "reflection_horizon"), ("light", "reflection"), ("light", "fog_color"), ("effects", "haze_color"), ("effects", "outline_color")];
 
 /// What a colour must be, said when it is not.
 pub const COLOR_IS: &str = "a color is three numbers from 0 to 1, { 0.4, 0.6, 0.8 }, or \"#rrggbb\"";
@@ -981,6 +984,19 @@ pub struct LightConfig {
     /// or "none": it shines through walls, as before 0.7 (older hardware).
     /// A light's own shadows beats it, whatever it says.
     pub lamp_shadows: crate::render::LampShadows,
+    /// Fog in the level's air, how thick: 0 none, else a voxel of air
+    /// takes this share of the light passing through (0.01: a third is
+    /// left after 100 voxels). The lamps' light shows in it, a spot as a
+    /// beam, and what lies further fades to the fog's color. A game's
+    /// `frame:fog` sets it for one picture.
+    pub fog_density: f32,
+    /// The fog's own color where no lamp lights it, 0..1 per channel.
+    #[serde(deserialize_with = "color")]
+    pub fog_color: [f32; 3],
+    /// How much the fog sends a lamp's light on ahead rather than back,
+    /// -0.9 to 0.9: above 0 a beam is brighter looking towards its lamp
+    /// (0: every way alike).
+    pub fog_anisotropy: f32,
 }
 
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -1017,6 +1033,9 @@ impl Default for LightConfig {
             model_shading_for: BTreeMap::new(),
             edge_tolerance: 0.5,
             lamp_shadows: crate::render::LampShadows::Static,
+            fog_density: 0.0,
+            fog_color: [0.05, 0.05, 0.07],
+            fog_anisotropy: 0.0,
         }
     }
 }

@@ -16,7 +16,7 @@ pub enum Page {
     Settings,
     /// The volumes and the song.
     Audio,
-    /// The picture: fullscreen, shadows, blur, shake, flashes, the frame rate.
+    /// The picture: fullscreen, shadows, fog, blur, shake, flashes, the frame rate.
     Video,
     /// The keys and buttons of a game of one, and rumble.
     Controls,
@@ -97,6 +97,7 @@ pub enum Item {
     Flashes,
     Blur,
     Shadows,
+    Fog,
     /// How often the picture is drawn (`FrameRate`).
     FrameRate,
     ShowFps,
@@ -178,7 +179,7 @@ impl Page {
             Page::Pause => vec![Item::Resume, Item::Settings, Item::Restart, Item::ToTitle],
             Page::Settings => vec![Item::Audio, Item::Video, Item::Controls, Item::Back],
             Page::Audio => vec![Item::Music, Item::Sound, Item::Song, Item::Back],
-            Page::Video => vec![Item::Fullscreen, Item::Shadows, Item::FrameRate, Item::Blur, Item::Shake, Item::Flashes, Item::ShowFps, Item::Back],
+            Page::Video => vec![Item::Fullscreen, Item::Shadows, Item::Fog, Item::FrameRate, Item::Blur, Item::Shake, Item::Flashes, Item::ShowFps, Item::Back],
             Page::Controls => actions.iter().map(|&a| Item::Bind(a)).chain([Item::Rumble, Item::Reset, Item::Back]).collect(),
             Page::Network => vec![Item::Host, Item::HostNet, Item::Join, Item::Back],
             Page::Initials | Page::HighScores | Page::Save | Page::Load | Page::Players | Page::PlayerControls(_) | Page::Find | Page::Join | Page::Code | Page::Joining => Vec::new(),
@@ -245,6 +246,7 @@ impl Item {
             Item::Flashes => "FLASHES",
             Item::Blur => "BLUR",
             Item::Shadows => "SHADOWS",
+            Item::Fog => "FOG",
             Item::FrameRate => "FRAME RATE",
             Item::ShowFps => "SHOW FPS",
             Item::Rumble => "RUMBLE",
@@ -686,7 +688,7 @@ impl Menu {
             Item::Slot(n) if self.slots.get(n).is_some_and(Option::is_some) => self.closed(Command::Load(n as u32 + 1)),
             Item::Slot(_) => None,
             // Confirm steps as right does; the shadows coarser, as left.
-            Item::Shadows => stepped(item, settings, songs, -1),
+            Item::Shadows | Item::Fog => stepped(item, settings, songs, -1),
             Item::Song | Item::Language | Item::FrameRate | Item::SeatKeys(_) | Item::SeatPad(_) => stepped(item, settings, songs, 1),
             Item::Music | Item::Sound => None,
             Item::Bind(action) => {
@@ -881,6 +883,10 @@ fn stepped(item: Item, settings: &mut Settings, songs: usize, step: i32) -> Opti
         // Right: finer.
         Item::Shadows => {
             settings.shadows = settings.shadows.step(-step);
+            Some(Command::Changed)
+        }
+        Item::Fog => {
+            settings.fog = settings.fog.step(-step);
             Some(Command::Changed)
         }
         Item::FrameRate => {
@@ -1145,6 +1151,25 @@ mod tests {
         m.nav(Nav::Left, &mut s, 4);
         m.nav(Nav::Left, &mut s, 4);
         assert_eq!(s.shadows, Shadows::High, "the list goes round");
+    }
+
+    /// FOG steps HIGH, LOW, OFF as SHADOWS steps its qualities, right
+    /// finer, left coarser, round the list.
+    #[test]
+    fn fog_steps_through_its_qualities() {
+        use crate::settings::Fog;
+        let mut s = Settings::default();
+        let mut m = Menu::title();
+        let at = Page::Video.items(&[]).iter().position(|&i| i == Item::Fog).expect("no FOG in the settings");
+        m.stack.push((Page::Video, at));
+        assert_eq!(m.nav(Nav::Left, &mut s, 4), Some(Command::Changed));
+        assert_eq!(s.fog, Fog::Low);
+        m.nav(Nav::Confirm, &mut s, 4);
+        assert_eq!(s.fog, Fog::Off);
+        m.nav(Nav::Left, &mut s, 4);
+        assert_eq!(s.fog, Fog::High, "the list goes round");
+        m.nav(Nav::Right, &mut s, 4);
+        assert_eq!(s.fog, Fog::Off);
     }
 
     /// The pause button closes the pause menu, back closes a page on top

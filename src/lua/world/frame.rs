@@ -33,7 +33,7 @@ pub struct Frame {
 /// A text size: 1 the pixel font, 2 and up the big letters.
 /// The words of `frame:light`'s table: where, how far, its colour, and how
 /// it shines (`render::LightShape`, `render::LIGHT_WORDS`).
-const LIGHT_KEYS: [&str; 9] = ["at", "radius", "color", "falloff", "cone", "blend", "rotation", "pitch", "shadows"];
+const LIGHT_KEYS: [&str; 10] = ["at", "radius", "color", "falloff", "cone", "blend", "rotation", "pitch", "shadows", "fog"];
 
 /// A light as `frame:light{ ... }` writes it: `at` and `radius` needed, the
 /// rest as a level's light takes them, each checked (a mistake names the
@@ -75,6 +75,7 @@ fn light_of(lua: &Lua, t: &Table) -> mlua::Result<crate::render::Light> {
                     _ => return Err(fail(format!("shadows is one of {} (what stops it)", crate::render::LampShadows::list()))),
                 })
             }
+            "fog" => shape.fog = ranged(&v)?,
             other => {
                 let near = crate::audio::words::near(other, LIGHT_KEYS.into_iter()).map_or(String::new(), |n| format!(" (did you mean `{n}`?)"));
                 return Err(fail(format!("no `{other}`{near}: a light has {}", LIGHT_KEYS.join(", "))));
@@ -218,6 +219,11 @@ impl UserData for Frame {
         });
         m.add_method_mut("daylight", |_, o, t: Table| {
             o.cmds.push(Cmd::Daylight(daylight(&t)?));
+            Ok(())
+        });
+        m.add_method_mut("fog", |_, o, t: Value| {
+            let Value::Table(t) = t else { return Err(mlua::Error::runtime("frame:fog: a table of what it sets, frame:fog{ density = 0.01, color = { 20, 20, 30 } }")) };
+            o.cmds.push(Cmd::Fog(fog(&t)?));
             Ok(())
         });
         m.add_method_mut("camera", |lua, o, t: Value| {

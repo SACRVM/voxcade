@@ -633,6 +633,9 @@ pub(super) fn setting(out: &mut Vec<Instance>, view: &MenuView, item: Item, x: f
         Item::Shadows => {
             text(out, &chosen(crate::lang::say(lang, s.shadows.label()), selected), x, y, 1, color, depth);
         }
+        Item::Fog => {
+            text(out, &chosen(crate::lang::say(lang, s.fog.label()), selected), x, y, 1, color, depth);
+        }
         Item::FrameRate => {
             text(out, &chosen(crate::lang::say(lang, s.frame_rate.label()), selected), x, y, 1, color, depth);
         }

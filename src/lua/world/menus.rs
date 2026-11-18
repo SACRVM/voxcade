@@ -16,6 +16,8 @@ pub enum Cmd {
     Drop { text: String, x: f32, y: f32, ticks: f32, color: [u8; 4], size: i32 },
     /// This picture's daylight (`frame:daylight`).
     Daylight(crate::session::Daylight),
+    /// This picture's fog (`frame:fog`).
+    Fog(crate::session::FogSet),
     /// This picture's camera (`frame:camera`).
     Camera(crate::session::PictureCamera),
     /// A menu in the engine's look (`frame:menu`).

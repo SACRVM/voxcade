@@ -1567,6 +1567,45 @@ fn a_spot_lights_only_its_cone() {
     assert!(at_floor(&lit_far, 44.5) > at_floor(&lit_round, 44.5) + 10.0, "a falloff of 0.5 reaches further bright");
 }
 
+/// On the GPU: in fog a spot's light shows in the air as a beam, and the
+/// wall stops it as it stops the light (beyond the wall the air as without
+/// the spot), at FOG's HIGH and LOW; a picture with fog is drawn the same
+/// twice.
+#[test]
+fn fog_shows_a_beam_the_wall_stops() {
+    let mut s = LampScene::new();
+    let shape = crate::render::LightShape { cone: Some(30.0), rotation: 90.0, ..Default::default() };
+    let spot = crate::render::Light::lamp(Vec3::new(24.5, 48.5, 10.0), 60.0, [2.0; 3], &shape, |w| w).stated(crate::render::LampShadows::Static);
+    // How bright the picture is round where `at` shows: r + g + b over 5
+    // by 5 pixels.
+    let seen = |f: &FrameData, pixels: &[u8], at: Vec3| {
+        let (w, h) = LampScene::SIZE;
+        let p = f.view_proj.project_point3(at);
+        let (px, py) = (((p.x + 1.0) * 0.5 * w as f32) as i32, ((1.0 - p.y) * 0.5 * h as f32) as i32);
+        (-2..=2).flat_map(|dy| (-2..=2).map(move |dx| (dx, dy))).map(|(dx, dy)| {
+            let i = (((py + dy) * w as i32 + px + dx) * 4) as usize;
+            pixels[i..i + 3].iter().map(|&c| c as f32).sum::<f32>()
+        }).sum::<f32>() / 25.0
+    };
+    for scale in [2, 4] {
+        let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale };
+        let mut picture = |lights: &[crate::render::Light]| {
+            let (w, h) = LampScene::SIZE;
+            let mut f = s.game.frame(1.0, w as f32 / h as f32);
+            (f.lights, f.lamp_world, f.fog) = (lights.to_vec(), Some(s.game.game.sim().world.clone()), Some(fog));
+            let pixels = s.canvas.draw(&f).unwrap();
+            (f, pixels)
+        };
+        let (f, without) = picture(&[]);
+        let (_, with) = picture(&[spot]);
+        let (_, again) = picture(&[spot]);
+        assert!(with == again, "scale {scale}: the same picture twice");
+        let (near, far) = (Vec3::new(38.5, 48.5, 10.0), Vec3::new(62.5, 48.5, 10.0));
+        assert!(seen(&f, &with, near) > seen(&f, &without, near) + 30.0, "scale {scale}: the beam shows before the wall, {} against {}", seen(&f, &with, near), seen(&f, &without, near));
+        assert!((seen(&f, &with, far) - seen(&f, &without, far)).abs() < 4.0, "scale {scale}: beyond the wall none, {} against {}", seen(&f, &with, far), seen(&f, &without, far));
+    }
+}
+
 /// On the GPU: a light none of whose words are set draws the picture it
 /// always did: the lamps' pass (more lights than the scene's shader
 /// takes, or with walls stopping none) draws the same picture as the

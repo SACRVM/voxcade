@@ -861,6 +861,7 @@ pub(super) fn shot_options(args: &[String]) -> Result<headless::ShotOptions> {
         seats: Vec::new(),
         at: None,
         shadows: Default::default(),
+        fog: Default::default(),
         pad: None,
         width: 1920,
         height: 1080,
@@ -889,6 +890,9 @@ pub(super) fn shot_options(args: &[String]) -> Result<headless::ShotOptions> {
             "--out" => opts.out = PathBuf::from(value),
             "--shadows" => {
                 opts.shadows = toml::Value::String(value.clone()).try_into().context("--shadows: high, medium or low")?;
+            }
+            "--fog" => {
+                opts.fog = toml::Value::String(value.clone()).try_into().context("--fog: high, low or off")?;
             }
             "--pad" => opts.pad = Some(PadStyle::named(value).context("--pad: xbox, nintendo or playstation")?),
             "--size" => {

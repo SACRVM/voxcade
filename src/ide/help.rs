@@ -919,6 +919,35 @@ end
 "##,
     },
     Topic {
+        title: "FOG AND BEAMS",
+        text: "c.light.fog_density fills the level's air with fog: the lamps' light shows in it, a spot's cone as a beam, a lamp's ball as a glow, and what lies further fades to c.light.fog_color. Walls stop a beam where they stop the lamp, so a pillar cuts a dark slot into it. 0.003 is a light haze in a big hall, 0.03 thick fog in a small room. A light's fog says how strongly it shows (1 unless set, 0 not at all, up to 10 for a stage spot). frame:fog sets the fog for one picture (density, color, anisotropy), what it leaves out c.light's: here the haze thickens and thins every few seconds. Above 0 anisotropy makes a beam brighter looking towards its lamp. Only the picture: the game's rules do not see it, and a player can turn it off (SETTINGS, VIDEO, FOG).",
+        conf: r##"c.player.kind = "hero"
+c.things.hero = {}
+c.light.ambient = 0.15
+c.light.sun_color = { 0.3, 0.35, 0.5 }
+c.light.fog_density = 0.01
+c.light.fog_color = { 0.04, 0.04, 0.06 }"##,
+        files: &[],
+        code: r##"function on_level_start(how)
+  level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 1, "#3a3a44")
+  level:fill(46, 30, 2, 49, 33, 24, "#706870")   -- a pillar in the beam
+end
+
+function on_tick()
+  player:walk(input.dir, 40)
+end
+
+function on_draw(frame)
+  -- a spot high up, shining down past the pillar, bright in the fog
+  frame:light{ at = { x = 36, y = 32, z = 30 }, radius = 70, color = { 255, 220, 160 },
+    cone = 40, rotation = 90, pitch = -50, fog = 3 }
+  -- the haze thickening and thinning
+  local t = (world.tick + frame.alpha) / 60
+  frame:fog{ density = 0.01 + 0.006 * math.sin(t) }
+end
+"##,
+    },
+    Topic {
         title: "DAY AND NIGHT",
         text: "frame:daylight sets this picture's daylight: where the sun's light comes from (sun, traveling down), its color and strength (sun_color), the light every face gets (ambient), how dark shadows are (shadow) and the sky. Work it out in on_draw from your game's clock, every picture: here a day of 40 seconds, the sun rising in the east, white at noon, warm low down, and a blue night with a lamp (frame:light). What you leave out is c.light's. It is only the picture: the game's rules do not see it, so the clock that drives it is the game's own (world.tick here, or a state).",
         conf: r##"c.player.kind = "hero"

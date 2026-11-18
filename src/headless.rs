@@ -30,6 +30,8 @@ pub struct ShotOptions {
     /// Where the player starts instead of the level's spawn (x, y).
     pub at: Option<[f32; 2]>,
     pub shadows: crate::settings::Shadows,
+    /// How finely fog shows its beams (the settings' FOG).
+    pub fog: crate::settings::Fog,
     /// Hints for a gamepad of this kind instead of the keyboard.
     pub pad: Option<crate::controls::PadStyle>,
     pub width: u32,
@@ -349,7 +351,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         menu.stack.retain(|&(page, _)| page != Page::Title);
         title = false;
     }
-    game.options.shadow_map = opts.shadows.map_size();
+    (game.options.shadow_map, game.options.fog) = (opts.shadows.map_size(), opts.fog);
     let mut playback = replay.as_ref().map(|r| Playback::new(r, &mut game)).transpose()?;
     // Told once it began as the run did (a scenario's file counts).
     if replay.as_ref().is_some_and(|r| !r.fits(game.fingerprint().unwrap_or(0))) {
@@ -466,7 +468,7 @@ fn shot_menu<G: Game>(game: &Session<G>, opts: &ShotOptions) -> Result<(Menu, bo
         bail!("--screen {}: a game of several players (c.players) has it", opts.screen.as_deref().unwrap_or(""));
     }
     let mut settings = game_settings(game);
-    settings.shadows = opts.shadows;
+    (settings.shadows, settings.fog) = (opts.shadows, opts.fog);
     settings.adopt_scores(&game.cfg.high_scores);
     // A sample run: third in the game's table.
     let sample = settings.high_scores.get(1..3).map_or(1000, |h| (h[0].score + h[1].score) / 2);
@@ -688,6 +690,9 @@ fn report_shot<G: Game>(canvas: &Canvas, game: &Session<G>, frames: u32, [load_m
     if s.lamps > 0 {
         let walls = if s.walls { format!("walls stop them (the level's solid voxels {:.1} MB on the GPU, made in {:.0} ms)", s.volume_bytes as f64 / 1e6, s.volume_ms) } else { "through walls".to_string() };
         println!("lamps: {} lights in their own pass, {walls}", s.lamps);
+    }
+    if s.fog {
+        println!("fog: its beams and the fog laid over the picture");
     }
     if !played.ticks.is_empty() {
         let mut slow = played.ticks.clone();
@@ -1704,7 +1709,7 @@ mod tests {
     fn a_game_without_slots_has_no_save_screen() {
         let pulsar = Path::new(env!("CARGO_MANIFEST_DIR")).join("games/pulsar");
         for screen in ["save", "load", "continue"] {
-            let opts = ShotOptions { frames: Some(1), replay: None, record: None, screen: Some(screen.into()), input: String::new(), seats: Vec::new(), at: None, shadows: Default::default(), pad: None, width: 64, height: 64, out: PathBuf::from("unused.png"), begin: Default::default() };
+            let opts = ShotOptions { frames: Some(1), replay: None, record: None, screen: Some(screen.into()), input: String::new(), seats: Vec::new(), at: None, shadows: Default::default(), fog: Default::default(), pad: None, width: 64, height: 64, out: PathBuf::from("unused.png"), begin: Default::default() };
             let said = format!("{:#}", shot::<crate::Voxcade>(&pulsar, &opts).unwrap_err());
             assert_eq!(said, format!("--screen {screen}: a game with save slots (c.saves.slots) has it; Pulsar has none"));
         }

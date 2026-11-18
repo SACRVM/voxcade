@@ -325,11 +325,13 @@ pub struct Options {
     pub flashes: bool,
     pub blur: bool,
     pub shadow_map: u32,
+    /// How finely fog shows its beams (the player's FOG).
+    pub fog: crate::settings::Fog,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Self { shake: true, flashes: true, blur: true, shadow_map: crate::settings::Shadows::High.map_size() }
+        Self { shake: true, flashes: true, blur: true, shadow_map: crate::settings::Shadows::High.map_size(), fog: crate::settings::Fog::High }
     }
 }
 

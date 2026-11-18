@@ -75,6 +75,12 @@ const TYPES: &str = "\
 ---@field rotation? number The spot's way round, degrees clockwise seen from above, north (+y) 0.
 ---@field pitch? number The spot's way up (above 0) or down, -90 to 90 degrees.
 ---@field shadows? string What stops it: \"static\" (the level's voxels and its pieces) or \"none\" (it shines through). Left out, c.light.lamp_shadows says (\"static\" unless set); a light's own word beats it.
+---@field fog? number How strongly its light shows in fog, 0 to 10 (1 unless set; 0 not at all).
+
+---@class Fog A picture's fog (frame:fog); what it leaves out is c.light's (fog_density, fog_color, fog_anisotropy).
+---@field density? number How thick, 0 to 1: the share of light a voxel of air takes (0: no fog).
+---@field color? Color The fog's own color where no lamp lights it.
+---@field anisotropy? number How much it sends a lamp's light on ahead rather than back, -0.9 to 0.9 (0: every way alike).
 
 ---@class PictureCamera What a picture's camera sets (frame:camera); what it leaves out is c.camera's.
 ---@field look_at? Point|Thing|number[] The point the view centers on, { x, y, z } in voxels (z left out: the camera's height), or a thing; left out, the view follows what the camera follows.
@@ -590,13 +596,20 @@ pub const API: &[Item] = &[
             set.\n- cone: a spot, its whole opening angle in degrees; blend how much of its edge is soft (0.15). rotation and pitch its way: \
             degrees clockwise seen from above (north 0), and up or down.\n- shadows: what stops it, \"static\" or \"none\" (it shines through walls); left out, c.light.lamp_shadows says (\"static\" unless set). A wall is the level's \
             voxels and its pieces; figures and moving things stop no light, nor a piece that brings a light of its own (a lantern round its \
-            flame).\nOnly the picture: the game's rules do not see it." },
+            flame).\n- fog: how strongly it shows in fog (frame:fog), 0 to 10, 1 unless set.\nOnly the picture: the game's rules do not see it." },
     Item { of: "frame", name: "daylight", what: Method { params: &[("light", "Daylight")], returns: "" },
         doc: "Sets the sun and the sky for this picture: a day and a night. What you leave out is c.light's.\n- sun: the way its light \
             travels, { x, y, z } with z below 0.\n- sun_color: its color and strength, white unless set.\n- ambient: the light every face \
             gets, 0 to 1. shadow: how dark shadows are, 0 to 1.\n- sky: the sky's color.\nWork it out from your game's clock every picture: \
             the sun low and warm at dawn, white at noon, orange at dusk, a dim blue at night with frame:light lamps. Only the picture: the \
             game's rules do not see it. A game whose code names daylight has every face a sun above the horizon can light in its level." },
+    Item { of: "frame", name: "fog", what: Method { params: &[("fog", "Fog")], returns: "" },
+        doc: "Fills the level's air with fog for this picture: the lamps' light shows in it, a spot as a beam, and what lies further \
+            fades to the fog's color. What you leave out is c.light's.\n- density: how thick, 0 to 1 (0.005 a light haze in a big hall, \
+            0.03 thick; 0 none).\n- color: the fog's own color where no lamp lights it (dark at night).\n- anisotropy: above 0 a beam \
+            is brighter looking towards its lamp, below 0 looking away (0: alike).\nWalls stop a lamp's beam where they stop its light (shadows); a light's fog \
+            says how strongly it shows. The fog fills the level's box, not the air between the camera and the level. Only the picture: \
+            the game's rules do not see it." },
     Item { of: "frame", name: "camera", what: Method { params: &[("camera", "PictureCamera")], returns: "" },
         doc: "Moves the camera for this picture, for a scene: a zoom, a cut, a slow pan. What you leave out is the game's camera's \
             (c.camera): { width = 80 } zooms in on what the camera follows and keeps following it.\n- look_at: the point the view centers \

@@ -8,6 +8,7 @@ mod baked;
 mod bank;
 mod chunks;
 mod cubes;
+mod fog;
 mod frame;
 mod lamps;
 mod limits;
@@ -112,6 +113,9 @@ pub struct Light {
     /// word (`c.light.lamp_shadows`); the picture's lights are all
     /// stated once the game's word is laid over them (`Light::stated`).
     pub shadows: Option<LampShadows>,
+    /// How strongly its light shows in the picture's fog (`Fog`): 1 as
+    /// bright as it lights, 0 not at all.
+    pub fog: f32,
 }
 
 /// A spot's way and cone, as the shader takes them: the way it shines
@@ -128,7 +132,7 @@ impl Light {
     /// A flash's or an explosion's light (a kit's): round, falling off as
     /// lights always did, through walls.
     pub fn burst(pos: Vec3, radius: f32, color: [f32; 3]) -> Self {
-        Self { pos, radius, color, falloff: 2.0, spot: None, shadows: Some(LampShadows::None) }
+        Self { pos, radius, color, falloff: 2.0, spot: None, shadows: Some(LampShadows::None), fog: 1.0 }
     }
 
     /// A lamp (a level's light, `frame:light`) shaped as `shape` says, its
@@ -139,7 +143,7 @@ impl Light {
             let half = (cone * 0.5).to_radians();
             Spot { way: turn(shape.way()).normalize_or(Vec3::Y), outer: crate::sim::math::cos(half), inner: crate::sim::math::cos(half * (1.0 - shape.blend)) }
         });
-        Self { pos, radius, color, falloff: shape.falloff, spot, shadows: shape.shadows }
+        Self { pos, radius, color, falloff: shape.falloff, spot, shadows: shape.shadows, fog: shape.fog }
     }
 
     /// Whether the level's voxels and pieces stop it, `game` the game's
@@ -179,6 +183,8 @@ pub struct LightShape {
     /// What stops it; None: the game's word (`c.light.lamp_shadows`,
     /// `"static"` unless it says), which a stated word beats.
     pub shadows: Option<LampShadows>,
+    /// How strongly it shows in fog, 0 to 10 (1 unless set).
+    pub fog: f32,
 }
 
 /// What stops a lamp's light, the words of a light's `shadows` and of
@@ -258,14 +264,35 @@ impl serde::Serialize for LampShadows {
 
 impl Default for LightShape {
     fn default() -> Self {
-        Self { falloff: 2.0, cone: None, blend: 0.15, rotation: 0.0, pitch: 0.0, shadows: None }
+        Self { falloff: 2.0, cone: None, blend: 0.15, rotation: 0.0, pitch: 0.0, shadows: None, fog: 1.0 }
     }
+}
+
+/// Air that holds fog in a picture (`c.light.fog_density`, `frame:fog`):
+/// within the level's box (`lo`, `hi`, voxels) the light of the lamps
+/// shows in it as beams (stopped where walls stop the lamp), and what lies
+/// behind fades towards its colour. Only the picture.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Fog {
+    /// How much a voxel of air takes from the light passing through and
+    /// sends on, above 0 (1 / the distance at which a third is left).
+    pub density: f32,
+    /// The fog's own colour, where no lamp lights it (0..1 each).
+    pub color: [f32; 3],
+    /// How much it sends light on ahead rather than back, -0.9 to 0.9
+    /// (Henyey-Greenstein's g; 0 every way alike).
+    pub anisotropy: f32,
+    pub lo: Vec3,
+    pub hi: Vec3,
+    /// How many of the picture's pixels a pixel of its beams is each way
+    /// (the player's FOG setting, `settings::Fog`).
+    pub scale: u32,
 }
 
 /// The words of a light beyond where, how far and its colour, and the
 /// range of each number (`LightShape`): what the level's reader, the
 /// editor and `frame:light` check alike.
-pub const LIGHT_WORDS: [(&str, f64, f64); 5] = [("falloff", 0.0, 16.0), ("cone", 1.0, 360.0), ("blend", 0.0, 1.0), ("rotation", -360.0, 360.0), ("pitch", -90.0, 90.0)];
+pub const LIGHT_WORDS: [(&str, f64, f64); 6] = [("falloff", 0.0, 16.0), ("cone", 1.0, 360.0), ("blend", 0.0, 1.0), ("rotation", -360.0, 360.0), ("pitch", -90.0, 90.0), ("fog", 0.0, 10.0)];
 
 impl LightShape {
     /// The way a spot shines, in the directions it is written in: north
@@ -352,6 +379,10 @@ pub struct Renderer {
     /// The lamps' pass and what it reads (`lamps`), made when a picture
     /// first asks.
     lamps: lamps::Lamps,
+    /// The fog's passes (`fog`), made when a picture first has fog.
+    fog: Option<fog::FogPass>,
+    /// The format the pictures are put together in (the window's).
+    format: wgpu::TextureFormat,
 }
 
 /// Where a picture of the shape `shape` (width over height) lies in a
@@ -391,6 +422,9 @@ impl Renderer {
         let (_, _, w, h) = self.picture();
         self.targets = Self::targets(device, &self.post_layout, &self.blurred_layout, &self.linear, w, h);
         self.lamps.resized();
+        if let Some(fog) = &mut self.fog {
+            fog.resized();
+        }
     }
 
     /// The picture's own shape, width over height (`c.camera.aspect`), or

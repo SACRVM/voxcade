@@ -22,6 +22,8 @@ pub struct Drawing<'a> {
     pub(super) lights: Vec<Light>,
     /// The daylight the game set for this picture (`frame:daylight`).
     pub(super) daylight: Option<Daylight>,
+    /// The fog the game set for this picture (`frame:fog`).
+    pub(super) fog: Option<FogSet>,
     /// The HUD's grid this frame, in UI voxels across and up, and the big
     /// letters' font.
     pub(super) hud: crate::ui::Layout,
@@ -52,6 +54,11 @@ impl<'a> Drawing<'a> {
     /// This picture's daylight, as the game sets it.
     pub fn daylight(&mut self, day: Daylight) {
         self.daylight = Some(day);
+    }
+
+    /// This picture's fog, as the game sets it.
+    pub fn fog(&mut self, fog: FogSet) {
+        self.fog = Some(fog);
     }
 
     /// This picture's camera, as the game sets it (the play's only: the

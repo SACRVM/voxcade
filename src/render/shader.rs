@@ -77,6 +77,18 @@ pub(super) static SHADER: std::sync::LazyLock<String> = std::sync::LazyLock::new
 /// (`without_walls` takes them out).
 pub(super) static LAMPS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| prelude() + LIGHT + include_str!("../lamps.wgsl"));
 
+/// What the fog's two passes share (`fog.wgsl`, `render::fog`).
+const FOG: &str = include_str!("../fog.wgsl");
+
+/// The fog's beams (`fog_beams.wgsl`): drawn as the lamps' pass draws, its
+/// tiles and walls (`without_walls` takes them out), so its text follows
+/// the lamps'.
+pub(super) static FOG_BEAMS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| LAMPS.clone() + FOG + include_str!("../fog_beams.wgsl"));
+
+/// The picture put together with fog (`fog_composite.wgsl`): the
+/// composite's text (`post.wgsl`), then the fog's.
+pub(super) static FOG_COMPOSITE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| include_str!("../post.wgsl").to_string() + FOG + include_str!("../fog_composite.wgsl"));
+
 /// How a metal colour's metalness and smoothness share its byte
 /// (`vox::metal::pack`): metalness in the high bits, each in this many
 /// steps.
@@ -179,7 +191,17 @@ mod tests {
         use wgpu::naga;
         let plain = plain_shader(&SHADER);
         let lamps_plain = super::without_walls(&super::LAMPS);
-        for (name, src) in [("shader.wgsl", SHADER.as_str()), ("shader.wgsl without the memory", plain.as_str()), ("post.wgsl", include_str!("../post.wgsl")), ("lamps.wgsl", super::LAMPS.as_str()), ("lamps.wgsl without walls", lamps_plain.as_str())] {
+        let beams_plain = super::without_walls(&super::FOG_BEAMS);
+        for (name, src) in [
+            ("shader.wgsl", SHADER.as_str()),
+            ("shader.wgsl without the memory", plain.as_str()),
+            ("post.wgsl", include_str!("../post.wgsl")),
+            ("lamps.wgsl", super::LAMPS.as_str()),
+            ("lamps.wgsl without walls", lamps_plain.as_str()),
+            ("fog_beams.wgsl", super::FOG_BEAMS.as_str()),
+            ("fog_beams.wgsl without walls", beams_plain.as_str()),
+            ("fog_composite.wgsl", super::FOG_COMPOSITE.as_str()),
+        ] {
             let module = naga::front::wgsl::parse_str(src).unwrap_or_else(|e| panic!("{name}: {}", e.emit_to_string(src)));
             naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::all())
                 .validate(&module)
@@ -193,6 +215,9 @@ mod tests {
         // The lamps' pass without walls reads no volume and writes nothing.
         assert!(super::LAMPS.contains("var<storage, read_write>") && !lamps_plain.contains("var<storage") && !lamps_plain.contains("texture_3d") && !lamps_plain.contains("stopped("), "{lamps_plain}");
         assert_eq!(super::LAMPS.matches("// WALLS {").count(), super::LAMPS.matches("// } WALLS").count());
+        // Nor do the fog's beams without walls.
+        assert!(super::FOG_BEAMS.contains("stopped(") && !beams_plain.contains("var<storage") && !beams_plain.contains("texture_3d") && !beams_plain.contains("stopped("), "{beams_plain}");
+        assert_eq!(super::FOG_BEAMS.matches("// WALLS {").count(), super::FOG_BEAMS.matches("// } WALLS").count());
         // Both composites are there by the names the renderer asks for.
         for entry in [composite_entry(wgpu::TextureFormat::Bgra8Unorm), composite_entry(wgpu::TextureFormat::Bgra8UnormSrgb)] {
             assert!(include_str!("../post.wgsl").contains(&format!("fn {entry}(")), "{entry}");
@@ -274,12 +299,28 @@ mod tests {
             ("pivot", offset_of!(ActorData, pivot)),
         ];
         let params = [("params", offset_of!(PostParams, params)), ("step", offset_of!(PostParams, step))];
+        use crate::render::fog::FogGlobals;
+        use crate::render::lamps::LampGlobals;
+        let lamps = wgpu::naga::front::wgsl::parse_str(&super::LAMPS).unwrap();
+        let over = wgpu::naga::front::wgsl::parse_str(&super::FOG_COMPOSITE).unwrap();
+        let lamp = [("inv_view_proj", offset_of!(LampGlobals, inv_view_proj)), ("dims", offset_of!(LampGlobals, dims)), ("origin", offset_of!(LampGlobals, origin)), ("info", offset_of!(LampGlobals, info))];
+        let fog = [
+            ("inv_view_proj", offset_of!(FogGlobals, inv_view_proj)),
+            ("eye", offset_of!(FogGlobals, eye)),
+            ("color", offset_of!(FogGlobals, color)),
+            ("lo", offset_of!(FogGlobals, lo)),
+            ("hi", offset_of!(FogGlobals, hi)),
+            ("forward", offset_of!(FogGlobals, forward)),
+            ("size", offset_of!(FogGlobals, size)),
+        ];
         type Fields<'a> = &'a [(&'a str, usize)];
-        let pairs: [(&wgpu::naga::Module, &str, usize, Fields); 4] = [
+        let pairs: [(&wgpu::naga::Module, &str, usize, Fields); 6] = [
             (&scene, "Globals", size_of::<Globals>(), &globals),
             (&scene, "Light", size_of::<LightData>(), &light),
             (&scene, "Actor", size_of::<ActorData>(), &actor),
             (&post, "Post", size_of::<PostParams>(), &params),
+            (&lamps, "Lamps", size_of::<LampGlobals>(), &lamp),
+            (&over, "Fog", size_of::<FogGlobals>(), &fog),
         ];
         for (module, name, size, rust) in pairs {
             let (span, align, members) = wgsl_struct(module, name);

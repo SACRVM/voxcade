@@ -204,6 +204,15 @@ pub struct Daylight {
     pub sky: Option<[f32; 3]>,
 }
 
+/// A picture's fog as the game sets it (`frame:fog`); what it leaves out
+/// is `c.light`'s (`fog_density`, `fog_color`, `fog_anisotropy`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FogSet {
+    pub density: Option<f32>,
+    pub color: Option<[f32; 3]>,
+    pub anisotropy: Option<f32>,
+}
+
 /// A picture's camera as the game sets it (`frame:camera`): what it
 /// leaves out is the game's camera's. Not kept: the next picture without
 /// it is the game's camera's again.

@@ -97,6 +97,12 @@ impl Renderer {
         // date).
         let lamps = self.lamps_of(device, queue, frame, remember);
         let tiles = lamps.map_or(0, |lf| self.write_lamps(device, queue, frame, lf));
+        // Fog: its beams drawn as the lamps' pass draws, after it; the
+        // composite lays it over the picture.
+        let fog = match (lamps, &frame.fog) {
+            (Some(lf), Some(fog)) => Some(self.write_fog(device, queue, frame, fog, lf)),
+            _ => None,
+        };
         self.write_globals(queue, frame, remember);
         self.upload_cubes(device, queue, frame);
         let all_models = frame.models.len() + frame.ui_models.len();
@@ -118,6 +124,7 @@ impl Renderer {
             walls: lamps.is_some_and(|lf| lf.walls),
             volume_bytes: self.lamps.volume_bytes(),
             volume_ms: self.lamps.made_ms,
+            fog: fog.is_some(),
             ..Stats::default()
         };
         self.shadow_pass(encoder, frame, all_models, &mut stats);
@@ -126,12 +133,15 @@ impl Renderer {
             Some(lf) => {
                 self.lit_scene_pass(encoder, frame, all_models, remember, lf, &mut stats);
                 self.lamp_pass(encoder, lf, tiles);
-                self.see_through_pass(encoder, frame, remember);
+                self.see_through_pass(encoder, frame, remember, fog.is_some());
+                if let Some(count) = fog {
+                    self.beams_pass(encoder, lf, count);
+                }
             }
         }
         self.ui_pass(encoder, frame, all_models);
         self.post_passes(encoder, frame);
-        self.composite_pass(encoder, target);
+        self.composite_pass(encoder, target, fog.is_some());
         if let Some(t) = &self.pass_times {
             let count = 2 * t.labels.borrow().len() as u32;
             if count > 0 {
@@ -387,8 +397,9 @@ impl Renderer {
     }
 
     /// The see-through cubes after the lamps' pass, onto the scene it lit,
-    /// by the scene's own pipelines.
-    fn see_through_pass(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameData, remember: bool) {
+    /// by the scene's own pipelines; the depth kept for the fog after them
+    /// where `keep`.
+    fn see_through_pass(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameData, remember: bool, keep: bool) {
         let (_, opaque) = frame.cube_runs();
         if opaque as usize >= frame.instances.len() {
             return;
@@ -399,7 +410,7 @@ impl Renderer {
             color_attachments: &[color(&t.scene, wgpu::LoadOp::Load), color(&t.glow, wgpu::LoadOp::Load)],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: &lt.depth,
-                depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Discard }),
+                depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: if keep { wgpu::StoreOp::Store } else { wgpu::StoreOp::Discard } }),
                 stencil_ops: None,
             }),
             timestamp_writes: self.pass_times.as_ref().and_then(|t| t.writes("see-through")),
@@ -524,8 +535,9 @@ impl Renderer {
         }
     }
 
-    /// The picture put together on `target`.
-    fn composite_pass(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
+    /// The picture put together on `target`, with the fog laid over its
+    /// scene where `fogged` (`fog`).
+    fn composite_pass(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView, fogged: bool) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("composite"),
             color_attachments: &[color(target, wgpu::LoadOp::Clear(wgpu::Color::BLACK))],
@@ -540,7 +552,13 @@ impl Renderer {
             let (x, y, w, h) = self.picture();
             pass.set_viewport(x as f32, y as f32, w as f32, h as f32, 0.0, 1.0);
         }
-        pass.set_pipeline(&self.post_composite);
+        match self.fog.as_ref().filter(|_| fogged) {
+            Some(fog) => {
+                pass.set_pipeline(&fog.composite);
+                pass.set_bind_group(2, fog.composite_bind.as_ref().expect("made by write_fog"), &[]);
+            }
+            None => pass.set_pipeline(&self.post_composite),
+        }
         pass.set_bind_group(0, &self.targets.composite, &[]);
         pass.set_bind_group(1, &self.targets.blurred, &[]);
         pass.draw(0..3, 0..1);

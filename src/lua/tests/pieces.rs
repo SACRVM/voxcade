@@ -594,26 +594,27 @@ fn a_part_turned_at_rest_shows_in_the_sheet_and_the_level() {
 /// as before 0.7 and walls stop it.
 #[test]
 fn a_lights_words_are_read_and_wrong_ones_are_plain_mistakes() {
-    let words = "light = { radius = 40, falloff = 1, cone = 50, blend = 0.3, rotation = 90, pitch = -45, shadows = \"none\" }";
+    let words = "light = { radius = 40, falloff = 1, cone = 50, blend = 0.3, rotation = 90, pitch = -45, shadows = \"none\", fog = 2.5 }";
     let level = ROOM.replace("light = { radius = 40 }", words);
     let g = game_in(&pieces_folder("light-words", "", &level, ""));
     let frame = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
     let moon = frame.lights.iter().find(|l| l.radius == 40.0).expect("the moon");
-    assert_eq!((moon.falloff, moon.shadows), (1.0, Some(crate::render::LampShadows::None)));
+    assert_eq!((moon.falloff, moon.shadows, moon.fog), (1.0, Some(crate::render::LampShadows::None), 2.5));
     let spot = moon.spot.expect("a spot");
     assert!(spot.way.distance(glam::Vec3::new(1.0, 0.0, -1.0).normalize()) < 1e-3, "east and down: {:?}", spot.way);
     assert!((spot.outer - 25f32.to_radians().cos()).abs() < 1e-5 && spot.inner > spot.outer, "{spot:?}");
     let lamp = frame.lights.iter().find(|l| l.radius == 30.0).expect("the lamp");
-    assert_eq!((lamp.falloff, lamp.spot, lamp.shadows), (2.0, None, Some(crate::render::LampShadows::Static)), "unset: round, as before, the game's word (static) laid over it");
+    assert_eq!((lamp.falloff, lamp.spot, lamp.shadows, lamp.fog), (2.0, None, Some(crate::render::LampShadows::Static), 1.0), "unset: round, as before, the game's word (static) laid over it, as bright in fog as it lights");
     let read = crate::grid::GridLevel::from_text(&level).unwrap();
     let light = &read.things[2].lights[0];
-    assert_eq!((light.falloff, light.cone, light.blend, light.rotation, light.pitch, light.shadows), (Some(1.0), Some(50.0), Some(0.3), Some(90.0), Some(-45.0), Some(crate::render::LampShadows::None)));
+    assert_eq!((light.falloff, light.cone, light.blend, light.rotation, light.pitch, light.shadows, light.fog), (Some(1.0), Some(50.0), Some(0.3), Some(90.0), Some(-45.0), Some(crate::render::LampShadows::None), Some(2.5)));
     assert!(read.to_text().contains(&words.replace("light = ", "")), "written back as written: {}", read.to_text());
     // The moon's light is on the file's line 19.
     for (bad, says) in [
         ("cone = 500", "a light's cone must be a number from 1 to 360"),
         ("falloff = -1", "a light's falloff must be a number from 0 to 16"),
         ("pitch = 100", "a light's pitch must be a number from -90 to 90"),
+        ("fog = 20", "a light's fog must be a number from 0 to 10"),
         ("shadows = 1", "a light's shadows must be one of \"none\", \"static\""),
         ("shadow = false", "shadow"),
     ] {
@@ -721,5 +722,59 @@ fn the_games_word_is_the_default_and_a_lights_own_word_beats_it() {
         assert_eq!(lamp.stopped(), game == "static", "game {game}, frame:light unset");
         let any = f.lights.iter().any(|l| l.stopped());
         assert_eq!(f.lamp_world.is_some(), any, "the lamps' volume only when some light is stopped (game {game}, light {own:?})");
+    }
+}
+
+/// Fog is the picture's alone: `c.light.fog_density` changes neither the
+/// fingerprint nor a step of the run. Unset, a picture has none (every
+/// game before it is drawn as it was); a density of 0 is none too.
+#[test]
+fn fog_changes_no_run() {
+    let main = "function on_tick()\n  world.state.n = (world.state.n or 0) + 1\nend\nfunction on_draw(frame)\n  frame:light(level:thing('lamp'), 30)\nend\n";
+    let (plain_dir, fog_dir) = (pieces_folder("fog-off", "", ROOM, main), pieces_folder("fog-on", "  c.light.fog_density = 0.02\n", ROOM, main));
+    let (mut plain, mut fog) = (game_in(&plain_dir), game_in(&fog_dir));
+    assert_eq!(plain.fingerprint().unwrap(), fog.fingerprint().unwrap(), "the settings are no part of the fingerprint");
+    steps(&mut plain, 30);
+    steps(&mut fog, 30);
+    assert_eq!(plain.game.state_hash(), fog.game.state_hash());
+    let (a, b) = (plain.compose(0.0, 16.0 / 9.0, Scene::Play, None), fog.compose(0.0, 16.0 / 9.0, Scene::Play, None));
+    assert_eq!(a.fog, None, "unset: no fog");
+    let f = b.fog.expect("c.light's fog");
+    assert_eq!((f.density, f.lo, f.scale), (0.02, glam::Vec3::ZERO, 2), "the beams at half size: the default FOG, HIGH");
+    assert_eq!(f.hi, fog.game.sim().world.size.as_vec3(), "the level's box");
+    let off = game_in(&pieces_folder("fog-zero", "  c.light.fog_density = 0.02\n", ROOM, "function on_draw(frame)\n  frame:fog{ density = 0 }\nend\n"));
+    assert_eq!(off.compose(0.0, 16.0 / 9.0, Scene::Play, None).fog, None, "frame:fog's density 0: none");
+    fog.options.fog = crate::settings::Fog::Off;
+    assert_eq!(fog.compose(0.0, 16.0 / 9.0, Scene::Play, None).fog, None, "the player's FOG off: none drawn");
+    fog.options.fog = crate::settings::Fog::Low;
+    assert_eq!(fog.compose(0.0, 16.0 / 9.0, Scene::Play, None).fog.map(|f| f.scale), Some(4), "LOW: the beams at a quarter");
+}
+
+/// `frame:fog` sets this picture's fog, what it leaves out c.light's; a
+/// light's `fog` says how strongly it shows. A wrong word is a mistake at
+/// the script's line naming what it wants, or the word meant.
+#[test]
+fn frame_fog_takes_its_words() {
+    let draw = |name: &str, conf: &str, call: &str| {
+        let mut g = game_in(&pieces_folder(name, conf, ROOM, &format!("function on_draw(frame)\n  {call}\nend\n")));
+        let frame = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+        steps(&mut g, 1);
+        (frame, halted(&g))
+    };
+    let (frame, e) = draw("fog-words", "  c.light.fog_color = { 0.5, 0.5, 0.5 }\n", "frame:fog{ density = 0.05, anisotropy = 0.5 }");
+    let f = frame.fog.unwrap_or_else(|| panic!("{e}"));
+    assert_eq!((f.density, f.anisotropy, f.color), (0.05, 0.5, [0.5; 3]), "the color c.light's");
+    let (frame, e) = draw("fog-light", "", "frame:fog{ density = 0.01, color = { 255, 0, 0 } }\n  frame:light{ at = { x = 1, y = 2, z = 3 }, radius = 20, fog = 4 }");
+    assert_eq!(frame.fog.map(|f| f.color), Some([1.0, 0.0, 0.0]), "{e}");
+    assert_eq!(frame.lights.iter().find(|l| l.pos == glam::Vec3::new(1.0, 2.0, 3.0)).map(|l| l.fog), Some(4.0));
+    for (call, says) in [
+        ("frame:fog{ density = 2 }", "frame:fog: density is a number from 0 to 1"),
+        ("frame:fog{ densty = 0.1 }", "did you mean `density`?"),
+        ("frame:fog{ anisotropy = 1 }", "frame:fog: anisotropy is a number from -0.9 to 0.9"),
+        ("frame:fog(0.1)", "frame:fog: a table of what it sets"),
+        ("frame:light{ at = { x = 1, y = 2, z = 3 }, radius = 20, fog = 20 }", "frame:light: fog is a number from 0 to 10"),
+    ] {
+        let (_, e) = draw("fog-bad", "", call);
+        assert!(e.contains(says) && e.contains("main.lua:2"), "{call}: {e}");
     }
 }

@@ -464,6 +464,8 @@ impl Renderer {
             told_bank: false,
             said: Vec::new(),
             lamps: super::lamps::Lamps::new(device),
+            fog: None,
+            format,
         }
     }
 
