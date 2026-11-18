@@ -7,10 +7,10 @@
 //! floor or a pane a voxel thin only from a lamp in its own plane. So a
 //! voxel is thin where its run of solid voxels is shorter than the points'
 //! spacing one way (`RUNS`: 4, 8, 16) and shorter than `SECOND` another
-//! way, and the fog's beams take
-//! their points a voxel apart where a lamp's ray can pass the shadow of a
-//! block of `BLOCK` voxels holding one (`fog_beams.wgsl`'s `fine`), and
-//! every 4 voxels elsewhere as before.
+//! way (a piece's shell, the voxels it draws, counted with what it
+//! encloses), and the fog's beams take their points a voxel apart where a
+//! lamp's ray can pass the shadow of a block of `BLOCK` voxels holding one
+//! (`fog_beams.wgsl`'s `fine`), and every 4 voxels elsewhere as before.
 //!
 //! Read from the lamps' volume (`Volume`: the level's opaque voxels and its
 //! pieces'), whole rows of voxels a word at a time; made the first time a
@@ -128,9 +128,20 @@ fn scan(v: &Volume, lo: IVec3, hi: IVec3) -> Vec<((i32, i32, i32), u8)> {
     if solid.iter().all(|w| *w == 0) {
         return Vec::new();
     }
+    // A piece is drawn by its voxels that show, so the volume holds its
+    // shell: what lies within SECOND voxels of what is solid both ways
+    // along x and along y is taken as inside (a hollow post 7 across is no
+    // two walls a voxel thin; the gap between two posts is open along the
+    // other way).
+    let deep = n.y;
+    let inside: Vec<u64> = {
+        let (left, right) = (near_x(&solid, words, false), near_x(&solid, words, true));
+        let (front, back) = (near_rows(&solid, words, deep, false), near_rows(&solid, words, deep, true));
+        (0..solid.len()).map(|i| solid[i] | (left[i] & right[i] & front[i] & back[i])).collect()
+    };
     let mut found: BTreeMap<(i32, i32, i32), u8> = BTreeMap::new();
     // Runs along x, y, z at least each of RUNS long: the longest's first.
-    let along = |run| [covered_x(&solid, words, run), covered_rows(&solid, run, words, n.y), covered_rows(&solid, run, words * n.y as usize, n.z)];
+    let along = |run| [covered_x(&inside, words, run), covered_rows(&inside, run, words, n.y), covered_rows(&inside, run, words * n.y as usize, n.z)];
     let long = along(SECOND);
     for (k, &run) in RUNS.iter().enumerate() {
         let short = if run == SECOND { long.clone() } else { along(run) };
@@ -175,6 +186,35 @@ fn covered_x(solid: &[u64], words: usize, run: i32) -> Vec<u64> {
         s *= 2;
     }
     cover
+}
+
+/// Of the rows `solid` (`words` a row), the voxels with a solid one within
+/// `SECOND` of them along x, on the high side (`high`) or the low.
+fn near_x(solid: &[u64], words: usize, high: bool) -> Vec<u64> {
+    let shift = |r: &[u64], w: usize, s: i32| if high { shr(r, w, s) } else { shl(r, w, s) };
+    let mut near: Vec<u64> = solid.chunks(words).flat_map(|r| (0..words).map(move |w| shift(r, w, 1))).collect();
+    let mut s = 1;
+    while s < SECOND {
+        near = near.chunks(words).flat_map(|r| (0..words).map(move |w| r[w] | shift(r, w, s))).collect();
+        s *= 2;
+    }
+    near
+}
+
+/// The same along y (the words `stride` apart, `n` in a line).
+fn near_rows(solid: &[u64], stride: usize, n: i32, high: bool) -> Vec<u64> {
+    let place = |i: usize| (i / stride) as i32 % n;
+    let at = |v: &[u64], i: usize, s: i32| {
+        let q = if high { place(i) + s } else { place(i) - s };
+        if q < 0 || q >= n { 0 } else if high { v[i + s as usize * stride] } else { v[i - s as usize * stride] }
+    };
+    let mut near: Vec<u64> = (0..solid.len()).map(|i| at(solid, i, 1)).collect();
+    let mut s = 1;
+    while s < SECOND {
+        near = (0..near.len()).map(|i| near[i] | at(&near, i, s)).collect();
+        s *= 2;
+    }
+    near
 }
 
 /// Bit x of the row `r` shifted to x - `s` (word `w`).
@@ -261,6 +301,17 @@ mod tests {
         assert!(wider.contains(&IVec3::new(48, 8, 8)) && !thin_at(&t, 4).contains(&IVec3::new(48, 8, 8)), "the pillar for points 8 apart only: {wider:?}");
         assert!(!wider.iter().any(|b| b.x == 64 || b.x == 72), "never the wall");
         assert!(!wider.iter().any(|b| b.z == 0 && b.x > 96), "never the floor");
+        // A hollow post 7 across (a piece's shell, as the volume holds it):
+        // not thin; two posts a voxel thin 3 apart: both.
+        let mut shell = Vec::new();
+        for (x, y) in (0..7).flat_map(|x| (0..7).map(move |y| (x, y))).filter(|&(x, y)| x == 0 || x == 6 || y == 0 || y == 6) {
+            shell.push((IVec3::new(100 + x, 60 + y, 4), IVec3::new(1, 1, 20)));
+        }
+        shell.extend([up(20, 70, 1, 1), up(24, 70, 1, 1)]);
+        let (_, hollow) = volume_of(&shell);
+        let found = thin_at(&Thin::of(&hollow), 4);
+        assert!(!found.iter().any(|b| b.x >= 96), "the hollow post: {found:?}");
+        assert!(found.contains(&IVec3::new(16, 64, 8)) && found.contains(&IVec3::new(24, 64, 8)), "the two posts: {found:?}");
         // A post at (100, 70) set later, the thin one at (10, 10) taken away.
         for z in 4..24 {
             w.set(IVec3::new(100, 70, z), 1);

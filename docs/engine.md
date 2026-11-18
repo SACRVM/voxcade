@@ -952,7 +952,9 @@ classic smooth way, the owner's choice over beams in voxel cells;
   thin where its run of solid voxels is shorter than the planes' spacing
   one way (4, 8, 16) and shorter than 16 another (a post, a rail, a short
   wall; a long wall or a floor casts a thin shadow only from a lamp in its
-  plane and is left to the planes), read from the lamps' volume whole rows
+  plane and is left to the planes; what lies within 16 of solid voxels
+  both ways along x and along y counts as solid, since the volume holds a
+  piece's shell, the voxels it draws), read from the lamps' volume whole rows
   of voxels at a time, kept by blocks of 8 voxels, made the first time a
   picture of fog asks (a level 1024 by 1024 by 64 in 52 ms on all cores),
   brought up to date where the volume changes. Each light's row lists the
@@ -963,8 +965,8 @@ classic smooth way, the owner's choice over beams in voxel cells;
   whose lamps lights a thin thing draws its beams with a pipeline without
   that work (it cost a ray that never meets one too: 16 lamps' beams on
   the 610M 10.4 ms against 8.8). The test hall's fog stage with two posts
-  in a beam: its beams on the 610M 1.5 ms at LOW (2.1 with the posts'
-  shadows), 4.8 at HIGH (6.6). Not yet: thin moving things (an arm) in an
+  in a beam: its beams on the 610M 1.4 ms at LOW (2.1 with the posts'
+  shadows), 4.6 at HIGH (6.6); without the posts as before to a tenth. Not yet: thin moving things (an arm) in an
   "all" lamp's beam keep the planes.
 - **Laid over** by the composite's own pipeline for fog (before the UI,
   which is never fogged): the scene times what the fog left of it, the
