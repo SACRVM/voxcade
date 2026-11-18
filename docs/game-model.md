@@ -314,10 +314,13 @@ held, as dialogue and shops always were; light is the picture's, so
   meshes (others keep only what their one sun and the camera can hit).
   Colours as the other frame calls take them (`{ r, g, b }`, 0 to 255);
   HELP's DAY AND NIGHT shows a day of 40 seconds.
-- **Fog.** `frame:fog{ density =, color =, anisotropy = }` in
+- **Fog.** `frame:fog{ density =, color =, anisotropy =, glow = }` in
   `on_draw`: this picture's fog, what it leaves out `c.light`'s
   (`fog_density`, 0 none unless set; `fog_color`; `fog_anisotropy`,
-  -0.9 to 0.9, above 0 a beam brighter looking towards its lamp). The
+  -0.9 to 0.9, above 0 a beam brighter looking towards its lamp;
+  `fog_glow`, 0 to 20, 1 unless set: how brightly the lamps' light shows
+  in it against how much it dims, 4 a stage's haze, 0 a fog that only
+  dims; a lamp's glow never passes its own light). The
   level's box holds it (not the air between the camera and the level):
   the lamps' light shows in it, a spot as a beam a wall stops where it
   stops the lamp, and what lies further fades to its colour. A light's

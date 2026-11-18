@@ -190,10 +190,10 @@ pub(super) fn picture_camera(lua: &Lua, t: &Table, alpha: f32) -> mlua::Result<c
     Ok(cam)
 }
 
-/// `frame:fog{ density =, color =, anisotropy = }`: what it sets
+/// `frame:fog{ density =, color =, anisotropy =, glow = }`: what it sets
 /// of this picture's fog, the rest `c.light`'s (`fog_density` ...).
 pub(super) fn fog(t: &Table) -> mlua::Result<crate::session::FogSet> {
-    const WORDS: [&str; 3] = ["density", "color", "anisotropy"];
+    const WORDS: [&str; 4] = ["density", "color", "anisotropy", "glow"];
     let fail = |what: String| mlua::Error::runtime(format!("frame:fog: {what}"));
     let mut fog = crate::session::FogSet::default();
     let number = |v: &Value, key: &str, low: f64, high: f64| -> mlua::Result<f32> {
@@ -213,6 +213,7 @@ pub(super) fn fog(t: &Table) -> mlua::Result<crate::session::FogSet> {
         match key.as_str() {
             "density" => fog.density = Some(number(&v, "density", 0.0, 1.0)?),
             "anisotropy" => fog.anisotropy = Some(number(&v, "anisotropy", -0.9, 0.9)?),
+            "glow" => fog.glow = Some(number(&v, "glow", 0.0, 20.0)?),
             "color" => {
                 let Value::Table(c) = v else { return Err(fail("color is a color, { r, g, b } from 0 to 255".into())) };
                 let [r, g, b, _] = color(Some(c), [255; 4])?;

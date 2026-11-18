@@ -1588,7 +1588,7 @@ fn fog_shows_a_beam_the_wall_stops() {
         }).sum::<f32>() / 25.0
     };
     for scale in [2, 4] {
-        let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale };
+        let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale };
         let mut picture = |lights: &[crate::render::Light]| {
             let (w, h) = LampScene::SIZE;
             let mut f = s.game.frame(1.0, w as f32 / h as f32);
@@ -1604,6 +1604,22 @@ fn fog_shows_a_beam_the_wall_stops() {
         assert!(seen(&f, &with, near) > seen(&f, &without, near) + 30.0, "scale {scale}: the beam shows before the wall, {} against {}", seen(&f, &with, near), seen(&f, &without, near));
         assert!((seen(&f, &with, far) - seen(&f, &without, far)).abs() < 4.0, "scale {scale}: beyond the wall none, {} against {}", seen(&f, &with, far), seen(&f, &without, far));
     }
+    // fog_glow: a quarter of the density lit four times as brightly, the
+    // beam about as bright, the floor away from it far less dimmed.
+    let mut picture = |fog: crate::render::Fog| {
+        let (w, h) = LampScene::SIZE;
+        let mut f = s.game.frame(1.0, w as f32 / h as f32);
+        (f.lights, f.lamp_world, f.fog) = (vec![spot], Some(s.game.game.sim().world.clone()), Some(fog));
+        let pixels = s.canvas.draw(&f).unwrap();
+        (f, pixels)
+    };
+    let thick = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 2 };
+    let (f, dense) = picture(thick);
+    let (_, glowing) = picture(crate::render::Fog { density: 0.0125, glow: 4.0, ..thick });
+    let (near, floor) = (Vec3::new(38.5, 48.5, 10.0), Vec3::new(20.5, 80.5, 1.0));
+    let (a, b) = (seen(&f, &dense, near), seen(&f, &glowing, near));
+    assert!(b > a * 0.7, "glow 4 at a quarter of the density: the beam about as bright, {b} against {a}");
+    assert!(seen(&f, &glowing, floor) > seen(&f, &dense, floor) + 4.0, "the floor less dimmed: {} against {}", seen(&f, &glowing, floor), seen(&f, &dense, floor));
 }
 
 /// On the GPU: a light none of whose words are set draws the picture it

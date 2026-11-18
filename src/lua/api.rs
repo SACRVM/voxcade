@@ -77,10 +77,11 @@ const TYPES: &str = "\
 ---@field shadows? string What stops it: \"static\" (the level's voxels and its pieces) or \"none\" (it shines through). Left out, c.light.lamp_shadows says (\"static\" unless set); a light's own word beats it.
 ---@field fog? number How strongly its light shows in fog, 0 to 10 (1 unless set; 0 not at all).
 
----@class Fog A picture's fog (frame:fog); what it leaves out is c.light's (fog_density, fog_color, fog_anisotropy).
+---@class Fog A picture's fog (frame:fog); what it leaves out is c.light's (fog_density, fog_color, fog_anisotropy, fog_glow).
 ---@field density? number How thick, 0 to 1: the share of light a voxel of air takes (0: no fog).
 ---@field color? Color The fog's own color where no lamp lights it.
 ---@field anisotropy? number How much it sends a lamp's light on ahead rather than back, -0.9 to 0.9 (0: every way alike).
+---@field glow? number How brightly the lamps' light shows in it against how much it dims, 0 to 20 (1: as the air would; 4 a stage's haze).
 
 ---@class PictureCamera What a picture's camera sets (frame:camera); what it leaves out is c.camera's.
 ---@field look_at? Point|Thing|number[] The point the view centers on, { x, y, z } in voxels (z left out: the camera's height), or a thing; left out, the view follows what the camera follows.
@@ -607,7 +608,9 @@ pub const API: &[Item] = &[
         doc: "Fills the level's air with fog for this picture: the lamps' light shows in it, a spot as a beam, and what lies further \
             fades to the fog's color. What you leave out is c.light's.\n- density: how thick, 0 to 1 (0.005 a light haze in a big hall, \
             0.03 thick; 0 none).\n- color: the fog's own color where no lamp lights it (dark at night).\n- anisotropy: above 0 a beam \
-            is brighter looking towards its lamp, below 0 looking away (0: alike).\nWalls stop a lamp's beam where they stop its light (shadows); a light's fog \
+            is brighter looking towards its lamp, below 0 looking away (0: alike).\n- glow: how brightly the lamps' light shows in it against \
+            how much it dims, 0 to 20 (1 as the air would; 4 a stage's haze: bright beams, the room clear; 0 it only dims). A lamp's \
+            glow never gets brighter than its own light.\nWalls stop a lamp's beam where they stop its light (shadows); a light's fog \
             says how strongly it shows. The fog fills the level's box, not the air between the camera and the level. Only the picture: \
             the game's rules do not see it." },
     Item { of: "frame", name: "camera", what: Method { params: &[("camera", "PictureCamera")], returns: "" },

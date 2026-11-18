@@ -663,6 +663,7 @@ pub const RANGES: &[Bound] = &[
     within("light.fog_density", 0.0, 1.0),
     within("light.fog_color[]", 0.0, 1.0),
     within("light.fog_anisotropy", -0.9, 0.9),
+    within("light.fog_glow", 0.0, 20.0),
     within("debris.settle", 0.0, 1.0),
     within("debris.max_particles", 0.0, 1_000_000.0),
     within("debris.gore", 0.0, 1.0),
@@ -997,6 +998,12 @@ pub struct LightConfig {
     /// -0.9 to 0.9: above 0 a beam is brighter looking towards its lamp
     /// (0: every way alike).
     pub fog_anisotropy: f32,
+    /// How brightly the lamps' light shows in the fog against how much
+    /// the fog dims, 0..20: 1 as the air would (thicker fog, brighter
+    /// beams), 4 a stage's haze (bright beams while the room stays clear),
+    /// 0 a fog that only dims. However high, a lamp's glow in the fog never
+    /// gets brighter than its own light.
+    pub fog_glow: f32,
 }
 
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -1036,6 +1043,7 @@ impl Default for LightConfig {
             fog_density: 0.0,
             fog_color: [0.05, 0.05, 0.07],
             fog_anisotropy: 0.0,
+            fog_glow: 1.0,
         }
     }
 }

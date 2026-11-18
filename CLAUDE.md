@@ -1603,8 +1603,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   changes nothing. Moving things stop no lamp.
 - Fog (0.7, the owner's names, the classic smooth way; `docs/engine.md`
   "Fog and beams"): `c.light.fog_density` (0 none unless set),
-  `fog_color`, `fog_anisotropy`, `frame:fog{ density, color, anisotropy
-  }` per picture, a light's `fog` (0 to 10, 1; `LIGHT_WORDS`, a level's
+  `fog_color`, `fog_anisotropy`, `fog_glow` (0 to 20, 1: the beams lit
+  by and dimming themselves by density times it, the scene behind by the
+  density alone; a lamp's glow never passes its light), `frame:fog{
+  density, color, anisotropy, glow }` per picture, a light's `fog` (0 to
+  10, 1; `LIGHT_WORDS`, a level's
   light and the level editor's FOG row too). Air in the level's box, not
   between camera and level: lamps' beams in it, walls stopping them as
   their light, what lies further faded to its colour. A picture with fog

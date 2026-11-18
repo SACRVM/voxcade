@@ -823,7 +823,7 @@ tried in a trial branch, 2026-11-17); the sun's beams in fog, moving
 things cutting beams, fog in the editors' views and the IDE's picture.
 
 **Fog and beams** (2026-11-18, the owner's names: `c.light.fog_density`,
-`fog_color`, `fog_anisotropy`, `frame:fog`, a light's `fog`; the
+`fog_color`, `fog_anisotropy`, `fog_glow`, `frame:fog`, a light's `fog`; the
 classic smooth way, the owner's choice over beams in voxel cells;
 `render::fog`, `src/fog.wgsl`, `fog_beams.wgsl`, `fog_composite.wgsl`).
 
@@ -837,7 +837,12 @@ classic smooth way, the owner's choice over beams in voxel cells;
   walls: along each pixel's ray, the stretch within a light's ball and a
   spot's cone, the light each point gets times what the fog sends on to
   the eye (Henyey-Greenstein, `fog_anisotropy`), less what the fog took
-  on the way. No noise: the points are where the ray crosses planes
+  on the way. The beams are lit by, and take their own light by, the
+  density times `fog_glow` (1 as the air would), what lies behind dims by
+  the density alone: a stage's haze (`fog_glow = 4`, a quarter of the
+  density) has bright beams in a clear room, and a lamp's glow never
+  gets brighter than its light (the fog's own share of it takes as much
+  as it sends on). No noise: the points are where the ray crosses planes
   across the camera's way every 4 voxels (8, 16 for a light wider than
   48 of them), fixed in the level, so a scrolling view and a turning spot
   take the same points; the spot's hard core's edges are points too; the

@@ -282,6 +282,11 @@ pub struct Fog {
     /// How much it sends light on ahead rather than back, -0.9 to 0.9
     /// (Henyey-Greenstein's g; 0 every way alike).
     pub anisotropy: f32,
+    /// How brightly the lamps' light shows in it against how much it dims
+    /// (1: as the air would): the beams are lit by, and take their own
+    /// light by, `density` times this, so a lamp's glow never passes its
+    /// light; what lies behind dims by `density` alone.
+    pub glow: f32,
     pub lo: Vec3,
     pub hi: Vec3,
     /// How many of the picture's pixels a pixel of its beams is each way

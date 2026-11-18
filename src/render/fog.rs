@@ -201,7 +201,7 @@ impl Renderer {
             inv_view_proj: inverse.to_cols_array_2d(),
             eye: frame.eye.extend(fog.density).to_array(),
             color: [r, g, b, fog.anisotropy],
-            lo: fog.lo.extend(fog.density).to_array(),
+            lo: fog.lo.extend(fog.density * fog.glow).to_array(),
             hi: fog.hi.extend(0.0).to_array(),
             forward: ahead.normalize_or(glam::Vec3::NEG_Z).extend(0.0).to_array(),
             size: [size.0, size.1, scale, 0],
