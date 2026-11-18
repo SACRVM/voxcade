@@ -1617,8 +1617,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   goes through the lamps' pass; after its see-through cubes the beams
   (`render::fog`, `fog_beams.wgsl`: points on planes across the camera's
   way fixed in the level, the spot's core edges, halvings where a wall's
-  shadow begins, walls asked voxel by voxel by a careful walk that no wall
-  a voxel thin lets through, `walk`'s `off` 2; no noise, so no flicker
+  shadow begins, walls asked voxel by voxel, the faces' walk and memory;
+  no noise, so no flicker
   scrolling or turning; a thin post's shadow seen edge on can be missed)
   into a
   target half or a quarter the size, then the composite's own pipeline

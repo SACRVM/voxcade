@@ -798,7 +798,10 @@ lamps' volume is built only when some light is stopped.
   shadows): a walk from the lamp past empty space by the coarse copies,
   down a copy into a cell holding anything (`walk`). A lamp sitting in
   solid voxels leaves them first (at most 8 voxels; buried deeper it
-  lights nothing); a face off the grid looks past the half voxel its
+  lights nothing); a walk passing exactly through an edge or a corner
+  where two of the cells across it are solid (a diagonal wall of voxels
+  touching only at their edges) is closed there, one solid it only grazes
+  (test `a_lamp_does_not_leak_through_a_diagonal_wall`); a face off the grid looks past the half voxel its
   turned piece grows by. A face of the level turned away from a lamp
   gets none of it (a way to the lamp would only go through a gap);
   anything else keeps a burst's little round the back.
@@ -858,13 +861,9 @@ classic smooth way, the owner's choice over beams in voxel cells;
   between two points four halvings find where: a wall's shadow in the fog
   steps voxel by voxel, as the faces' light does, fixed in the level (the
   shadow's very edge walked from the point itself was clean but cost the
-  610M 4.4 ms more at LOW, 12 at HIGH). The fog's walk is careful: leaving
-  a cell through an edge or a corner, the cells across each face met there
-  count, so a wall a voxel thin stops a beam even slanting (a line of
-  voxels touching at their edges; test `a_wall_a_voxel_thin_stops_a_beam`).
-  The faces' walk does not (it would darken faces beside a lamp in its
-  wall, Voxkeep's torches): at exact alignments their light leaks through
-  such a diagonal, as it always did. A shadow thinner along the ray than
+  610M 4.4 ms more at LOW, 12 at HIGH). A wall a voxel thin stops a beam
+  even slanting (a line of voxels touching at their edges, the walk's rule
+  below; test `a_wall_a_voxel_thin_stops_a_beam`). A shadow thinner along the ray than
   the planes' spacing, between two points that both see the lamp (a thin
   post's, seen edge on), does not show in the fog: points a voxel apart
   cost the 610M 15 ms of beams at LOW instead of 3.
