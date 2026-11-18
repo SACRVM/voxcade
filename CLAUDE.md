@@ -1650,10 +1650,13 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   shadow begins, walls asked voxel by voxel, the faces' walk and memory;
   no noise, so no flicker
   scrolling or turning; where a ray can pass the shadow of a thin thing,
-  a post or a rail of the level's voxels or pieces, `render::thin`, its
-  points a voxel apart, so its shadow shows however thin along the ray,
-  test `a_thin_rail_darkens_the_beam_behind_it`; a picture none of whose
-  lamps lights one draws with a pipeline without that work, as before)
+  a post or a rail under 4 voxels thin of the level's voxels or pieces,
+  `render::thin`, its points as far apart as it is thin, at most 16 more
+  a ray a lamp, so its shadow shows however thin along the ray, test
+  `a_thin_rail_darkens_the_beam_behind_it`; a picture none of whose
+  lamps lights one draws with a pipeline without that work, as before;
+  the lamps' memory's slots by a mixed key and a second key's step,
+  `stopped`, or its odd slots crowded and said it full at 42 in 100)
   into a
   target half or a quarter the size, then the composite's own pipeline
   (`fog_composite.wgsl`) lays it under the UI; a picture without fog is

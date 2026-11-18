@@ -19,8 +19,9 @@
 // A shadow thinner along the ray than the planes' spacing (a post's, seen
 // edge on) could lie between two points that both see the lamp: where a
 // ray can pass the shadow of a thin thing (render::thin, the balls round
-// its blocks the lamp's row lists) its points are taken on planes a voxel
-// apart (FOG_FINE), fixed in the level too.
+// its blocks the lamp's row lists) its points are taken on planes as far
+// apart as the thing is thin (a voxel for one a voxel thin), at most
+// FOG_MOST_FINE of them a ray, fixed in the level too.
 
 @group(1) @binding(0) var<uniform> fog: Fog;
 // The picture's lights for the fog, as `lights` (their colour times how
@@ -37,10 +38,11 @@ const FOG_STEP: f32 = 4.0;
 const FOG_MOST_PLANES: f32 = 48.0;
 // Halvings seeking where a wall's shadow begins between two points.
 const FOG_EDGE_STEPS: i32 = 4;
-// The planes' spacing where a ray can pass a thin thing's shadow, and the
-// most planes taken so along a ray a lamp (past them the spacing doubles).
-const FOG_FINE: f32 = 1.0;
-const FOG_MOST_FINE: f32 = 96.0;
+// The most planes taken along a ray a lamp where it can pass a thin
+// thing's shadow (past them the spacing the thing needs doubles).
+const FOG_MOST_FINE: f32 = 16.0;
+// A ball's spacing kept in its radius's place (render::fog::SPACING_AT).
+const FOG_SPACING_AT: f32 = 65536.0;
 // The thin things' balls in a light's row of `fog_lights`: their count at
 // this column, the balls after it (render::fog::MOST_THIN).
 const FOG_THIN_AT: i32 = 4;
@@ -163,23 +165,25 @@ fn reaches(l: Light, p: vec3<f32>, movers: u32) -> bool {
 // (`fog.hi.w`) scales what it sends towards the eye: above 1 up to the
 // brightest light the lamp gives along the ray (`most`), so raising it
 // never makes a beam fainter anywhere, nor brighter than its lamp.
-fn beam(l: Light, dir: vec3<f32>, a: f32, b: f32, core: vec2<f32>, air: f32, movers: u32, fine: vec2<f32>) -> vec3<f32> {
+fn beam(l: Light, dir: vec3<f32>, a: f32, b: f32, core: vec2<f32>, air: f32, movers: u32, fine: vec3<f32>) -> vec3<f32> {
     let density = fog.eye.w;
     let eye = fog.eye.xyz;
     let ahead = max(dot(dir, fog.forward.xyz), 0.05);
     let step = FOG_STEP * exp2(max(ceil(log2(2.0 * l.pos_radius.w / (FOG_STEP * FOG_MOST_PLANES))), 0.0));
     let start = dot(eye, fog.forward.xyz);
-    // Where a thin thing's shadow may lie (`fine`): its planes a voxel
-    // apart (more where that would be past FOG_MOST_FINE), its ends on
-    // them; nowhere: past the ray.
+    // Where a thin thing's shadow may lie (`fine`): its planes the
+    // spacing it needs apart (`fine.z`; more where that would be past
+    // FOG_MOST_FINE), its ends on them; nowhere: past the ray.
     var fine_step = step;
     var fine_lo = 1e30;
     var fine_hi = 1e30;
     if (fine.y > fine.x) {
         let deep = vec2<f32>(start + fine.x * ahead, start + fine.y * ahead);
-        fine_step = min(FOG_FINE * exp2(max(ceil(log2((deep.y - deep.x) / (FOG_FINE * FOG_MOST_FINE))), 0.0)), step);
-        fine_lo = (floor(deep.x / fine_step) * fine_step - start) / ahead;
-        fine_hi = (ceil(deep.y / fine_step) * fine_step - start) / ahead;
+        fine_step = min(fine.z * exp2(max(ceil(log2((deep.y - deep.x) / (fine.z * FOG_MOST_FINE))), 0.0)), step);
+        if (fine_step < step) {
+            fine_lo = (floor(deep.x / fine_step) * fine_step - start) / ahead;
+            fine_hi = (ceil(deep.y / fine_step) * fine_step - start) / ahead;
+        }
     }
     let stopping = l.edge.y > 0.5;
     var t0 = a;
@@ -315,23 +319,25 @@ fn shading(l: Light, near: vec3<f32>, far: vec3<f32>) -> u32 {
 // shadow of a thin thing the lamp `l` (its row `row`) lights: within the
 // cone from the lamp round a ball the row lists (render::fog: round a
 // block of thin voxels, a voxel more), the stretch from where it enters
-// the first to where it leaves the last; none (x past y) where it meets
-// none.
-fn thin_span(row: i32, l: Light, dir: vec3<f32>, a: f32, b: f32) -> vec2<f32> {
-    var span = vec2<f32>(1e30, -1e30);
+// the first to where it leaves the last, and the finest spacing those
+// balls need (z); none (x past y) where it meets none.
+fn thin_span(row: i32, l: Light, dir: vec3<f32>, a: f32, b: f32) -> vec3<f32> {
+    var span = vec3<f32>(1e30, -1e30, 1e30);
     let count = i32(textureLoad(fog_lights, vec2<i32>(FOG_THIN_AT, row), 0).x);
     for (var i = 0; i < count; i += 1) {
         let ball = textureLoad(fog_lights, vec2<i32>(FOG_THIN_AT + 1 + i, row), 0);
+        let code = floor(ball.w / FOG_SPACING_AT);
+        let r = ball.w - code * FOG_SPACING_AT;
         let to = ball.xyz - l.pos_radius.xyz;
         let d = length(to);
         var s = vec2<f32>(a, b);
-        if (d > ball.w) {
-            let c = sqrt(1.0 - (ball.w / d) * (ball.w / d));
+        if (d > r) {
+            let c = sqrt(1.0 - (r / d) * (r / d));
             let cone = cone_span_from(l.pos_radius.xyz, to / d, dir, c);
             s = vec2<f32>(max(a, cone.x), min(b, cone.y));
         }
         if (s.y > s.x) {
-            span = vec2<f32>(min(span.x, s.x), max(span.y, s.y));
+            span = vec3<f32>(min(span.x, s.x), max(span.y, s.y), min(span.z, exp2(code)));
         }
     }
     return span;
@@ -365,7 +371,7 @@ fn beams_over(in: TileOut, dir: vec3<f32>, begin: f32, end: f32, air: f32) -> ve
         }
         if (b > a) {
             let movers = select(0u, shading(l, fog.eye.xyz + dir * a, fog.eye.xyz + dir * b), l.edge.y > 1.5);
-            var fine = vec2<f32>(1.0, 0.0);
+            var fine = vec3<f32>(1.0, 0.0, 1.0);
             // THIN {
             if (((in.count.y >> k) & 1u) != 0u) {
                 fine = thin_span(row, l, dir, a, b);

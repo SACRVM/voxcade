@@ -464,7 +464,7 @@ fn walk(cell: vec3<i32>, off: u32, lamp_at: vec3<f32>) -> bool {
 // second key (a word of another face's matches one time in 65535), so every
 // answer is the walk's for its key and the picture does not depend on what
 // the memory holds.
-const PROBES: u32 = 16u;
+const PROBES: u32 = 32u;
 const STALE: u32 = 1u;
 
 fn mix_hash(seed: u32, c: vec3<i32>) -> u32 {
@@ -491,7 +491,13 @@ fn stopped(cell: vec3<i32>, off: u32, lamp: vec3<f32>, ids: vec2<u32>, lamp_ids:
     let now = lamps.info.y & 0x3fu;
     let faces = (arrayLength(&seen) - 1u) / 2u;
     var free = faces;
-    var slot = key % faces;
+    // The slot from the key's bits mixed again (the key is odd, `| 1`: the
+    // even slots stood empty), the next ones a step apart that the second
+    // key gives (odd, so every slot of a memory a power of two long comes
+    // in turn): one slot after the other, the entries of a full stretch
+    // crowded on, a few in a million found no room at 42 in 100 taken.
+    var slot = ((key ^ (key >> 15u)) * 0x2c1b3c6du ^ (key >> 13u)) % faces;
+    let hop = (tag >> 15u) | 1u;
     for (var i = 0u; i < PROBES; i += 1u) {
         let k = slot * 2u;
         let found = seen[k];
@@ -520,7 +526,7 @@ fn stopped(cell: vec3<i32>, off: u32, lamp: vec3<f32>, ids: vec2<u32>, lamp_ids:
                 break;
             }
         }
-        slot = (slot + 1u) % faces;
+        slot = (slot + hop) % faces;
     }
     let b = walk(cell, off, lamp);
     if (free == faces) {

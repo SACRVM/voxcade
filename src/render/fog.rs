@@ -289,25 +289,30 @@ fn beam_step(l: &Light) -> i32 {
     4 << (planes as i32).min(8)
 }
 
+/// A ball's spacing is kept in its radius's place, this many times the
+/// spacing's power of two added (`fog_beams.wgsl`'s `thin_span`).
+const SPACING_AT: f32 = 65536.0;
+
 /// The balls round the thin things (`render::thin`) the light `l` can
 /// light, thin by its beam's spacing: centre and radius, a block's and a
-/// voxel more (a point stands for its voxel's middle). Past `MOST_THIN`
-/// the blocks are taken together by twice their size, and again, until
-/// that many hold them.
+/// voxel more (a point stands for its voxel's middle), with the spacing
+/// its points need there (`SPACING_AT`). Past `MOST_THIN` the blocks are
+/// taken together by twice their size, and again, until that many hold
+/// them, each the finest spacing of its blocks.
 fn thin_balls(thin: &Thin, l: &Light) -> Vec<[f32; 4]> {
-    let mut boxes: Vec<(Vec3, Vec3)> = thin.near(l.pos - l.radius, l.pos + l.radius, beam_step(l)).into_iter().filter(|(lo, hi)| lit(l, *lo, *hi)).collect();
+    let mut boxes: Vec<(Vec3, Vec3, i32)> = thin.near(l.pos - l.radius, l.pos + l.radius, beam_step(l)).into_iter().filter(|(lo, hi, _)| lit(l, *lo, *hi)).collect();
     let mut size = super::thin::BLOCK as f32;
     while boxes.len() > MOST_THIN {
         size *= 2.0;
-        let mut joined: std::collections::BTreeMap<(i32, i32, i32), (Vec3, Vec3)> = std::collections::BTreeMap::new();
-        for (lo, hi) in boxes {
+        let mut joined: std::collections::BTreeMap<(i32, i32, i32), (Vec3, Vec3, i32)> = std::collections::BTreeMap::new();
+        for (lo, hi, s) in boxes {
             let k = (lo / size).floor().as_ivec3();
-            let e = joined.entry((k.z, k.y, k.x)).or_insert((lo, hi));
-            *e = (e.0.min(lo), e.1.max(hi));
+            let e = joined.entry((k.z, k.y, k.x)).or_insert((lo, hi, s));
+            *e = (e.0.min(lo), e.1.max(hi), e.2.min(s));
         }
         boxes = joined.into_values().collect();
     }
-    boxes.iter().map(|(lo, hi)| ((*lo + *hi) * 0.5).extend((*hi - *lo).length() * 0.5 + 1.0).to_array()).collect()
+    boxes.iter().map(|(lo, hi, s)| ((*lo + *hi) * 0.5).extend((*hi - *lo).length() * 0.5 + 1.0 + SPACING_AT * s.ilog2() as f32).to_array()).collect()
 }
 
 impl Renderer {
