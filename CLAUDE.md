@@ -1646,7 +1646,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   way fixed in the level, the spot's core edges, halvings where a wall's
   shadow begins, walls asked voxel by voxel, the faces' walk and memory;
   no noise, so no flicker
-  scrolling or turning; a thin post's shadow seen edge on can be missed)
+  scrolling or turning; where a ray can pass the shadow of a thin thing,
+  a post or a rail of the level's voxels or pieces, `render::thin`, its
+  points a voxel apart, so its shadow shows however thin along the ray,
+  test `a_thin_rail_darkens_the_beam_behind_it`; a picture none of whose
+  lamps lights one draws with a pipeline without that work, as before)
   into a
   target half or a quarter the size, then the composite's own pipeline
   (`fog_composite.wgsl`) lays it under the UI; a picture without fog is
@@ -1668,8 +1672,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `shader.rs` the shader text and its uniforms, `pipelines.rs` the
   renderer made, `chunks.rs` the chunk meshes, `passes.rs` a frame drawn,
   `limits.rs` the faces' memory's count, `lamps.rs` the lamps' pass,
-  `volume.rs` the level's solid voxels it walks, `fog.rs` the fog's
-  beams and its composite. `Renderer::render` is
+  `volume.rs` the level's solid voxels it walks, `thin.rs` the thin
+  things among them, `fog.rs` the fog's beams and its composite. `Renderer::render` is
   `write_globals`, `upload_cubes`, `upload_models`, `draw_models`,
   `shadow_pass`, `scene_pass` (or with lamps `lit_scene_pass`,
   `lamp_pass`, `see_through_pass`, with fog `beams_pass`), `ui_pass`,

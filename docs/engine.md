@@ -940,10 +940,28 @@ classic smooth way, the owner's choice over beams in voxel cells;
   shadow's very edge walked from the point itself was clean but cost the
   610M 4.4 ms more at LOW, 12 at HIGH). A wall a voxel thin stops a beam
   even slanting (a line of voxels touching at their edges, the walk's rule
-  below; test `a_wall_a_voxel_thin_stops_a_beam`). A shadow thinner along the ray than
-  the planes' spacing, between two points that both see the lamp (a thin
-  post's, seen edge on), does not show in the fog: points a voxel apart
-  cost the 610M 15 ms of beams at LOW instead of 3.
+  below; test `a_wall_a_voxel_thin_stops_a_beam`). A shadow thinner along
+  the ray than the planes' spacing, between two points that both see the
+  lamp (a post's, seen edge on), showed as dashes or not at all: points a
+  voxel apart everywhere cost the 610M 15 ms of beams at LOW instead of 3.
+  So the thin things are found (`render::thin`, 2026-11-18): a voxel is
+  thin where its run of solid voxels is shorter than the planes' spacing
+  one way (4, 8, 16) and shorter than 16 another (a post, a rail, a short
+  wall; a long wall or a floor casts a thin shadow only from a lamp in its
+  plane and is left to the planes), read from the lamps' volume whole rows
+  of voxels at a time, kept by blocks of 8 voxels, made the first time a
+  picture of fog asks (a level 1024 by 1024 by 64 in 52 ms on all cores),
+  brought up to date where the volume changes. Each light's row lists the
+  balls round the blocks it lights (at most 16, more taken together in
+  bigger blocks), and along a ray within the cone from the lamp round any
+  of them the points lie on planes a voxel apart, fixed in the level too
+  (test `a_thin_rail_darkens_the_beam_behind_it`). A picture none of
+  whose lamps lights a thin thing draws its beams with a pipeline without
+  that work (it cost a ray that never meets one too: 16 lamps' beams on
+  the 610M 10.4 ms against 8.8). The test hall's fog stage with two posts
+  in a beam: its beams on the 610M 1.5 ms at LOW (2.1 with the posts'
+  shadows), 4.8 at HIGH (6.6). Not yet: thin moving things (an arm) in an
+  "all" lamp's beam keep the planes.
 - **Laid over** by the composite's own pipeline for fog (before the UI,
   which is never fogged): the scene times what the fog left of it, the
   fog's colour for the rest, the beams from the four nearest of their

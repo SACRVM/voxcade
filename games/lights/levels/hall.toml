@@ -147,6 +147,16 @@ model = "pieces/post.vvx"
 at = [272, 98, 4]
 
 [[thing]]
+name = "post_1"
+model = "pieces/post_1.vvx"
+at = [264, 142, 4]
+
+[[thing]]
+name = "post_2"
+model = "pieces/post_2.vvx"
+at = [284, 142, 4]
+
+[[thing]]
 name = "thin_wall"
 model = "pieces/thin_wall.vvx"
 at = [272, 120, 4]

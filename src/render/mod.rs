@@ -16,6 +16,7 @@ mod movers;
 mod passes;
 mod pipelines;
 mod shader;
+mod thin;
 mod volume;
 
 use bytemuck::{Pod, Zeroable};

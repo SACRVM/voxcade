@@ -33,6 +33,7 @@ use glam::{IVec3, Mat4, Vec4};
 use super::limits::FullWatch;
 use super::pipelines::{Draws, ScenePipelines, chunk_buffers, face_buffers, instance_buffers, scene_pipeline, texture, uniform_entry};
 use super::shader::{LAMPS, LightData, SHADER, plain_shader, without_walls};
+use super::thin::Thin;
 use super::volume::{self, LEVELS, Reach, Volume};
 use super::{DEPTH_FORMAT, FORWARD_LIGHTS, FrameData, HDR_FORMAT, Light, MOST_LIGHTS, Renderer};
 
@@ -290,6 +291,9 @@ struct Held {
     volume: Volume,
     view: wgpu::TextureView,
     texture: wgpu::Texture,
+    /// Its thin things (`render::thin`), found the first time a picture of
+    /// fog asks, brought up to date with it.
+    thin: Option<Thin>,
 }
 
 /// How a picture draws its lights: by the lamps' pass, walls stopping
@@ -346,6 +350,13 @@ impl Lamps {
             told_big: false,
             told_full: false,
         }
+    }
+
+    /// The thin things of the level's volume (`render::thin`), found the
+    /// first time asked; none without a volume.
+    pub(super) fn thin(&mut self) -> Option<&Thin> {
+        let held = self.volume.as_mut()?;
+        Some(held.thin.get_or_insert_with(|| Thin::of(&held.volume)))
     }
 
     /// What the level's volume takes on the GPU, bytes (0: none).
@@ -591,6 +602,9 @@ impl Renderer {
             let held = lamps.volume.as_mut().expect("held");
             let changed = held.volume.update(world);
             if !changed.is_empty() {
+                if let Some(thin) = &mut held.thin {
+                    thin.update(&held.volume, &changed);
+                }
                 for (lo, size) in changed {
                     for m in 0..LEVELS {
                         write(queue, &held.texture, m, lo >> m as i32, size >> m as i32, &held.volume.bytes_of(m, lo, size));
@@ -617,7 +631,7 @@ impl Renderer {
             write(queue, &texture, m, IVec3::ZERO, texels >> m as i32, &volume.copies[m as usize]);
         }
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        lamps.volume = Some(Held { volume, view, texture });
+        lamps.volume = Some(Held { volume, view, texture, thin: None });
         lamps.state = next_state(lamps.state);
         lamps.bind = None;
         lamps.made_ms = started.elapsed().as_secs_f64() * 1000.0;

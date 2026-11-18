@@ -277,7 +277,7 @@ impl Movers {
 
 /// Whether the light `l` can reach into the box from `lo` to `hi`: within
 /// its radius and, a spot, its cone (the box taken as the ball round it).
-fn lit(l: &Light, lo: Vec3, hi: Vec3) -> bool {
+pub(super) fn lit(l: &Light, lo: Vec3, hi: Vec3) -> bool {
     let (middle, r) = ((lo + hi) * 0.5, (hi - lo).length() * 0.5);
     let v = middle - l.pos;
     let d = v.length();
