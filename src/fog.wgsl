@@ -48,3 +48,36 @@ fn air_span(dir: vec3<f32>, far: f32) -> vec2<f32> {
     let t1 = min(min(min(max(a.x, b.x), max(a.y, b.y)), max(a.z, b.z)), far);
     return vec2<f32>(t0, t1);
 }
+
+// The beams at the picture's pixel `px` that sees `seen` voxels far, from
+// their smaller target `beams`: of its four pixels round this one, each
+// weighed by how near it is and how alike the distance it was worked out
+// at (its alpha) is to `seen`, so a beam behind a pillar does not bleed
+// over the pillar's edge.
+fn beams_at(beams: texture_2d<f32>, px: vec2<i32>, seen: f32) -> vec3<f32> {
+    let low = (vec2<f32>(px) + vec2<f32>(0.5)) / f32(fog.size.z) - vec2<f32>(0.5);
+    let base = floor(low);
+    let f = low - base;
+    let last = vec2<i32>(fog.size.xy) - vec2<i32>(1);
+    var sum = vec3<f32>(0.0);
+    var weight = 0.0;
+    var best = vec3<f32>(0.0);
+    var best_gap = 1e30;
+    for (var k = 0; k < 4; k += 1) {
+        let d = vec2<f32>(f32(k & 1), f32(k >> 1u));
+        let beam = textureLoad(beams, clamp(vec2<i32>(base + d), vec2<i32>(0), last), 0);
+        // How far the eye saw where that pixel was worked out (0: no
+        // light reaches there, nothing to weigh).
+        let gap = select(abs(beam.a - seen), 0.0, beam.a <= 0.0);
+        let near = (1.0 - abs(d.x - f.x)) * (1.0 - abs(d.y - f.y));
+        let alike = 1.0 / (1.0 + gap / (0.01 * seen + 1.0));
+        let w = near * alike * alike * alike * alike;
+        sum += beam.rgb * w;
+        weight += w;
+        if (gap < best_gap) {
+            best_gap = gap;
+            best = beam.rgb;
+        }
+    }
+    return select(best, sum / max(weight, 1e-6), weight > 1e-3);
+}

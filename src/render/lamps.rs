@@ -51,6 +51,9 @@ fn full_at(faces: u64) -> u64 {
 /// What each pixel's surface is (`fs_main_lamps`).
 const SURFACE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Uint;
 
+/// The lamps' asking's target (nothing is written into it).
+const ASK_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
+
 /// The lamps' pass's numbers (`lamps.wgsl`'s `Lamps`).
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -64,6 +67,14 @@ pub(super) struct LampGlobals {
 /// The screen's tiles each way, pixels: each drawn with the lights that
 /// reach it.
 const TILE: u32 = 32;
+
+/// The lamps' asking (`lamps.wgsl`'s `fs_lamp_ask`): before the lamps'
+/// pass, for lamps new to the faces' memory (moved since the last picture),
+/// a pixel every `ASK` each way asks for its face. All the pixels of a
+/// face asking at once in the pass would each walk (an entry being written
+/// is no answer yet): two moving headlights cost the Radeon 610M 7 ms so.
+/// The answers are the walks' either way: the picture is the same.
+pub(super) const ASK: u32 = 4;
 
 /// The most lights a tile is drawn with at once (two a word in
 /// `TileInstance::lights`); a tile with more is drawn again for the rest.
@@ -154,6 +165,17 @@ pub(super) struct Lamps {
     bound_walls: bool,
     /// How long the volume took to make last, ms (`shot` says it).
     pub(super) made_ms: f64,
+    /// The lamps walls stopped last picture, by their place's key: one not
+    /// among them is new to the faces' memory, asked for first (`ASK`).
+    known: std::collections::BTreeSet<[u32; 2]>,
+    /// The asking's tiles (at a pixel every `ASK`), how many this picture,
+    /// and its target (nothing is drawn into it).
+    ask_instances: wgpu::Buffer,
+    ask_capacity: usize,
+    ask_count: u32,
+    /// How many lamps were asked for first this picture (`Stats::asked`).
+    pub(super) asked: usize,
+    ask_target: Option<((u32, u32), wgpu::TextureView)>,
     told_big: bool,
     told_full: bool,
 }
@@ -167,6 +189,8 @@ enum Walls {
 struct LampPass {
     layout: wgpu::BindGroupLayout,
     pipeline: wgpu::RenderPipeline,
+    /// With walls: the lamps' asking (`ASK`).
+    ask: Option<wgpu::RenderPipeline>,
 }
 
 /// The scene's pipelines in a picture of the lamps' pass: the opaque ones
@@ -218,6 +242,12 @@ impl Lamps {
             bind: None,
             bound_walls: false,
             made_ms: 0.0,
+            known: std::collections::BTreeSet::new(),
+            ask_instances: instance_buffer(device, 16),
+            ask_capacity: 16,
+            ask_count: 0,
+            asked: 0,
+            ask_target: None,
             told_big: false,
             told_full: false,
         }
@@ -318,7 +348,21 @@ fn lamp_pass(device: &wgpu::Device, src: &str, walls: bool) -> LampPass {
         multiview_mask: None,
         cache: None,
     });
-    LampPass { layout, pipeline }
+    // The asking draws nothing: its target is only there to draw into.
+    let ask = walls.then(|| {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("lamps' asking"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState { module: &module, entry_point: Some("vs_lamp"), compilation_options: Default::default(), buffers: &lamp_buffers() },
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState { module: &module, entry_point: Some("fs_lamp_ask"), compilation_options: Default::default(), targets: &[Some(wgpu::ColorTargetState { format: ASK_FORMAT, blend: None, write_mask: wgpu::ColorWrites::empty() })] }),
+            multiview_mask: None,
+            cache: None,
+        })
+    });
+    LampPass { layout, pipeline, ask }
 }
 
 /// The scene's pipelines of the shader `src` (its main pass laid out as
@@ -507,6 +551,34 @@ impl Renderer {
             let r = h.volume.reach;
             ([r.texels.x, r.texels.y, r.texels.z, LEVELS as i32], [r.origin.x, r.origin.y, r.origin.z, 0])
         });
+        // The lamps walls stop that are new to the faces' memory: asked for
+        // first, at a pixel every ASK.
+        let mut known = std::collections::BTreeSet::new();
+        let mut fresh = Vec::new();
+        for (row, ((_, rect), data)) in shown.iter().zip(&rows).enumerate() {
+            if lf.walls && data.edge[1] > 0.5 {
+                let key = [data.edge[2] as u32, data.edge[3] as u32];
+                if !lamps.known.contains(&key) {
+                    fresh.push((row as u16, *rect));
+                }
+                known.insert(key);
+            }
+        }
+        lamps.known = known;
+        lamps.asked = fresh.len();
+        let asked = self::tiles((w.div_ceil(ASK), h.div_ceil(ASK)), &fresh);
+        lamps.ask_count = asked.len() as u32;
+        if !asked.is_empty() {
+            if asked.len() > lamps.ask_capacity {
+                lamps.ask_capacity = asked.len().next_power_of_two();
+                lamps.ask_instances = instance_buffer(device, lamps.ask_capacity);
+            }
+            queue.write_buffer(&lamps.ask_instances, 0, bytemuck::cast_slice(&asked));
+            let size = (w.div_ceil(ASK), h.div_ceil(ASK));
+            if lamps.ask_target.as_ref().is_none_or(|(s, _)| *s != size) {
+                lamps.ask_target = Some((size, texture(device, "lamps' asking", size.0, size.1, ASK_FORMAT, false)));
+            }
+        }
         let globals = LampGlobals { inv_view_proj: frame.view_proj.inverse().to_cols_array_2d(), dims, origin, info: [lamps.state, self.pictures, 0, 0] };
         queue.write_buffer(&lamps.globals, 0, bytemuck::bytes_of(&globals));
         if lamps.bind.is_none() || lf.walls != lamps.bound_walls {
@@ -519,6 +591,23 @@ impl Renderer {
     /// The lamps' pass: each tile of the screen with the lights that reach
     /// it, their light added onto the scene where it has a surface.
     pub(super) fn lamp_pass(&self, encoder: &mut wgpu::CommandEncoder, lf: LampFrame, count: u32) {
+        // Lamps new to the faces' memory asked for first (`ASK`).
+        if let (Walls::Ready { pass: walled, .. }, true, Some((_, target))) = (&self.lamps.walls, lf.walls, &self.lamps.ask_target)
+            && self.lamps.ask_count > 0
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("lamps' asking"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: target, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Discard } })],
+                depth_stencil_attachment: None,
+                timestamp_writes: self.pass_times.as_ref().and_then(|t| t.writes("lamps' asking")),
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(walled.ask.as_ref().expect("made with walls"));
+            pass.set_bind_group(0, self.lamps.bind.as_ref().expect("made by write_lamps"), &[]);
+            pass.set_vertex_buffer(0, self.lamps.ask_instances.slice(..));
+            pass.draw(0..6, 0..self.lamps.ask_count);
+        }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("lamps"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: &self.targets.scene, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store } })],

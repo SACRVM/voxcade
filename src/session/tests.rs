@@ -1473,10 +1473,18 @@ impl LampScene {
     const SIZE: (u32, u32) = (480, 270);
 
     fn new() -> Self {
+        Self::walled(|y| (48..49).map(move |x| (x, y)).collect(), 16)
+    }
+
+    /// The same with the wall's voxels (z 1 up to `top`) at the cells
+    /// `cells` gives for each y from 20 to 75.
+    fn walled(cells: impl Fn(i32) -> Vec<(i32, i32)>, top: i32) -> Self {
         let mut world = crate::sim::tests::flat_world(IVec3::new(96, 96, 24));
         for y in 20..76 {
-            for z in 1..16 {
-                world.set_raw(IVec3::new(48, y, z), 1);
+            for (x, y) in cells(y) {
+                for z in 1..top {
+                    world.set_raw(IVec3::new(x, y, z), 1);
+                }
             }
         }
         let mut cfg = GameConfig::default();
@@ -1588,7 +1596,7 @@ fn fog_shows_a_beam_the_wall_stops() {
         }).sum::<f32>() / 25.0
     };
     for scale in [2, 4] {
-        let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale };
+        let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale };
         let mut picture = |lights: &[crate::render::Light]| {
             let (w, h) = LampScene::SIZE;
             let mut f = s.game.frame(1.0, w as f32 / h as f32);
@@ -1603,6 +1611,147 @@ fn fog_shows_a_beam_the_wall_stops() {
         let (near, far) = (Vec3::new(38.5, 48.5, 10.0), Vec3::new(62.5, 48.5, 10.0));
         assert!(seen(&f, &with, near) > seen(&f, &without, near) + 30.0, "scale {scale}: the beam shows before the wall, {} against {}", seen(&f, &with, near), seen(&f, &without, near));
         assert!((seen(&f, &with, far) - seen(&f, &without, far)).abs() < 4.0, "scale {scale}: beyond the wall none, {} against {}", seen(&f, &with, far), seen(&f, &without, far));
+    }
+    // fog_glow: a quarter of the density lit four times as brightly, the
+    // beam about as bright, the floor away from it far less dimmed.
+    let mut picture = |fog: crate::render::Fog| {
+        let (w, h) = LampScene::SIZE;
+        let mut f = s.game.frame(1.0, w as f32 / h as f32);
+        (f.lights, f.lamp_world, f.fog) = (vec![spot], Some(s.game.game.sim().world.clone()), Some(fog));
+        let pixels = s.canvas.draw(&f).unwrap();
+        (f, pixels)
+    };
+    let thick = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 2 };
+    let (f, dense) = picture(thick);
+    let (_, glowing) = picture(crate::render::Fog { density: 0.0125, glow: 4.0, ..thick });
+    let (near, floor) = (Vec3::new(38.5, 48.5, 10.0), Vec3::new(20.5, 80.5, 1.0));
+    let (a, b) = (seen(&f, &dense, near), seen(&f, &glowing, near));
+    assert!(b > a * 0.7, "glow 4 at a quarter of the density: the beam about as bright, {b} against {a}");
+    assert!(seen(&f, &glowing, floor) > seen(&f, &dense, floor) + 4.0, "the floor less dimmed: {} against {}", seen(&f, &glowing, floor), seen(&f, &dense, floor));
+}
+
+/// On the GPU: a beam behind glass is seen through it, tinted and dimmed
+/// as the glass dims what lies behind it, never drawn over it untinted;
+/// beside the glass the picture is the one without it, byte for byte.
+#[test]
+fn a_beam_behind_glass_is_seen_through_it() {
+    let mut s = LampScene::new();
+    let shape = crate::render::LightShape { cone: Some(30.0), rotation: 90.0, ..Default::default() };
+    let spot = crate::render::Light::lamp(Vec3::new(24.5, 48.5, 10.0), 60.0, [2.0; 3], &shape, |w| w).stated(crate::render::LampShadows::Static);
+    // A dark pane over the beam's near part, a voxel thick, at z 20.
+    let opacity = 200u8;
+    let pane: Vec<crate::render::Instance> = (30..42).flat_map(|x| (40..58).map(move |y| (x, y))).map(|(x, y)| {
+        let mut fx = [0u8; 4];
+        fx[crate::render::FX_OPACITY] = opacity;
+        crate::render::Instance { pos_size: [x as f32 + 0.5, y as f32 + 0.5, 20.5, 1.0], color: [20, 30, 40, opacity], fx, shade: [0; 4], turn: [0; 4] }
+    }).collect();
+    let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 2 };
+    let mut picture = |lights: &[crate::render::Light], glass: bool| {
+        let (w, h) = LampScene::SIZE;
+        let mut f = s.game.frame(1.0, w as f32 / h as f32);
+        (f.lights, f.lamp_world, f.fog) = (lights.to_vec(), Some(s.game.game.sim().world.clone()), Some(fog));
+        if glass {
+            f.instances.extend(pane.iter().copied());
+            f.see_through += pane.len();
+        }
+        let pixels = s.canvas.draw(&f).unwrap();
+        (f, pixels)
+    };
+    let (f, clear_dark) = picture(&[], false);
+    let (_, clear_lit) = picture(&[spot], false);
+    let (_, glass_dark) = picture(&[], true);
+    let (_, glass_lit) = picture(&[spot], true);
+    let at = |pixels: &[u8], p: Vec3| {
+        let (w, h) = LampScene::SIZE;
+        let c = f.view_proj.project_point3(p);
+        let (x, y) = (((c.x + 1.0) * 0.5 * w as f32) as i32, ((1.0 - c.y) * 0.5 * h as f32) as i32);
+        (-1..=1).flat_map(|dy| (-1..=1).map(move |dx| (dx, dy))).map(|(dx, dy)| {
+            let i = (((y + dy) * w as i32 + x + dx) * 4) as usize;
+            pixels[i..i + 3].iter().map(|&c| c as f32).sum::<f32>()
+        }).sum::<f32>() / 9.0
+    };
+    // Under the pane, the beam at z 10: what the spot adds with the pane
+    // over it, against what it adds without.
+    let under = Vec3::new(36.5, 48.5, 10.0);
+    let (through, open) = (at(&glass_lit, under) - at(&glass_dark, under), at(&clear_lit, under) - at(&clear_dark, under));
+    assert!(open > 30.0, "the beam shows: {open}");
+    assert!(through < open * 0.5, "through the dark pane the beam is dimmed: {through} against {open}");
+    // Beside the pane: the same picture as without it.
+    let (w, _) = LampScene::SIZE;
+    let beside = |pixels: &[u8]| {
+        let c = f.view_proj.project_point3(Vec3::new(60.5, 30.5, 1.0));
+        let (x, y) = (((c.x + 1.0) * 0.5 * w as f32) as i32, ((1.0 - c.y) * 0.5 * LampScene::SIZE.1 as f32) as i32);
+        let i = ((y * w as i32 + x) * 4) as usize;
+        pixels[i..i + 4].to_vec()
+    };
+    assert_eq!(beside(&glass_lit), beside(&clear_lit), "beside the glass as without it");
+}
+
+/// On the GPU: a lamp new to the faces' memory (its first picture, or
+/// moved) is asked for first, at a pixel every `ASK` (two moving
+/// headlights cost the Radeon 610M 7 ms walked by every pixel of a face,
+/// 2.3 so); a lamp that stays is not. The picture is the walks' either
+/// way: the same as a renderer that never saw the lamp before draws.
+#[test]
+fn a_lamp_new_to_the_faces_memory_is_asked_for_first() {
+    let mut s = LampScene::new();
+    let lamp = |x: f32| crate::render::Light::lamp(Vec3::new(x, 48.5, 6.0), 30.0, [2.0; 3], &crate::render::LightShape::default(), |w| w).stated(crate::render::LampShadows::Static);
+    let (_, first) = s.picture(&[lamp(40.5)], true);
+    assert_eq!(s.canvas.stats().asked, 1, "its first picture");
+    let (_, again) = s.picture(&[lamp(40.5)], true);
+    assert_eq!(s.canvas.stats().asked, 0, "it stayed");
+    assert!(first == again);
+    let (_, moved) = s.picture(&[lamp(36.5)], true);
+    assert_eq!(s.canvas.stats().asked, 1, "moved");
+    let (_, fresh) = LampScene::new().picture(&[lamp(36.5)], true);
+    assert!(moved == fresh, "the same picture as a renderer drawing it the first time");
+}
+
+/// On the GPU: no wall a voxel thin lets a beam through, straight across
+/// it or slanting (a diagonal line of voxels touching at their edges): the
+/// fog behind it holds none of the spot's light, everywhere, at HIGH and
+/// LOW. (What the fog adds is taken apart from the scene's own light: the
+/// faces' walks leak through such a diagonal at exact alignments, as they
+/// always did, `lamps.wgsl`'s `walk`.)
+#[test]
+fn a_wall_a_voxel_thin_stops_a_beam() {
+    for (what, cells) in [("straight", (|y: i32| vec![(48, y)]) as fn(i32) -> Vec<(i32, i32)>), ("diagonal", |y: i32| vec![(y, y)])] {
+        // As high as the level: no light over its top.
+        let mut s = LampScene::walled(cells, 24);
+        let shape = crate::render::LightShape { cone: Some(50.0), rotation: 90.0, ..Default::default() };
+        let spot = crate::render::Light::lamp(Vec3::new(20.5, 48.5, 9.0), 70.0, [2.0; 3], &shape, |w| w).stated(crate::render::LampShadows::Static);
+        let behind: Vec<Vec3> = (0..6).flat_map(|i| (0..5).map(move |j| (i, j))).map(|(i, j)| Vec3::new(56.5 + 4.0 * i as f32, 40.5 + 4.0 * j as f32, 8.0)).filter(|p| what == "straight" || p.x > p.y + 3.0).collect();
+        for scale in [2, 4] {
+            let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale };
+            let mut picture = |lights: &[crate::render::Light], fog: Option<crate::render::Fog>| {
+                let (w, h) = LampScene::SIZE;
+                let mut f = s.game.frame(1.0, w as f32 / h as f32);
+                (f.lights, f.lamp_world, f.fog) = (lights.to_vec(), Some(s.game.game.sim().world.clone()), fog);
+                let pixels = s.canvas.draw(&f).unwrap();
+                (f, pixels)
+            };
+            let (f, without) = picture(&[], Some(fog));
+            let (_, with) = picture(&[spot], Some(fog));
+            let (_, clear_without) = picture(&[], None);
+            let (_, clear_with) = picture(&[spot], None);
+            if let Ok(dir) = std::env::var("VOXCADE_DUMP") {
+                let (w, h) = LampScene::SIZE;
+                crate::headless::write_png(&std::path::Path::new(&dir).join(format!("thin_{what}_{scale}.png")), w, h, &with).unwrap();
+            }
+            let at = |pixels: &[u8], p: Vec3| {
+                let (w, h) = LampScene::SIZE;
+                let c = f.view_proj.project_point3(p);
+                let (x, y) = (((c.x + 1.0) * 0.5 * w as f32) as i32, ((1.0 - c.y) * 0.5 * h as f32) as i32);
+                let i = ((y * w as i32 + x) * 4) as usize;
+                pixels[i..i + 3].iter().map(|&c| c as f32).sum::<f32>()
+            };
+            assert!(at(&with, Vec3::new(36.5, 48.5, 9.0)) > at(&without, Vec3::new(36.5, 48.5, 9.0)) + 30.0, "{what}, scale {scale}: the beam before the wall");
+            for p in &behind {
+                // What the spot adds with fog less what it adds without.
+                let (foggy, clear) = (at(&with, *p) - at(&without, *p), at(&clear_with, *p) - at(&clear_without, *p));
+                assert!(foggy - clear < 6.0, "{what}, scale {scale}: the spot's light in the fog behind the wall at {p:?}: {foggy} against {clear}");
+            }
+        }
     }
 }
 

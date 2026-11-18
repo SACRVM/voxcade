@@ -57,8 +57,9 @@ impl Shadows {
 /// lamps' beams: the beams worked out at half the picture's size each way
 /// (HIGH), at a quarter (LOW), or no fog drawn at all (OFF: the picture as
 /// without fog, nothing of its cost). On the CPU's own Radeon 610M LOW took
-/// about 2 ms of beams and 1 ms of laying the fog over a 1920 by 1080
-/// picture; a game without fog pays nothing at any setting.
+/// about 3 ms of beams and 1.5 ms of laying the fog over a 1920 by 1080
+/// picture, HIGH 10 ms of beams; a game without fog pays nothing at any
+/// setting.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Fog {

@@ -149,4 +149,7 @@ pub struct Stats {
     pub volume_ms: f64,
     /// Whether the picture had fog (`render::fog`).
     pub fog: bool,
+    /// Lamps walls stop that were new to the faces' memory, asked for
+    /// first (`render::lamps::ASK`).
+    pub asked: usize,
 }

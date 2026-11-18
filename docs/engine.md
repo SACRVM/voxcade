@@ -808,7 +808,13 @@ lamps' volume is built only when some light is stopped.
   once when full), asked again when the volume changes or after 8
   pictures unasked: a still scene walks its ways once. Every answer is
   its walk's, so `shot` draws the same to the byte. Without it the
-  station's lamps took 23 ms on the 610M, with it 4.
+  station's lamps took 23 ms on the 610M, with it 4. A lamp new to the
+  memory (its first picture, or moved since the last) is asked for first,
+  by a pixel every 4 each way (the lamps' asking, `ASK`): all the pixels
+  of a face asking at once in the pass would each walk, as an entry being
+  written is no answer yet. Two headlights moved every picture cost the
+  610M's lamps 4.4 ms still, 11.6 moving, 6.7 with the asking (1.2 of it
+  the asking); a lamp that stays is never asked again.
 - **Moving things** stop no light: they move every picture (written into
   the volume each picture and every face's memory with them, as the
   trial did, it cost a hitch a frame), and a figure's backside keeps a
@@ -823,7 +829,7 @@ tried in a trial branch, 2026-11-17); the sun's beams in fog, moving
 things cutting beams, fog in the editors' views and the IDE's picture.
 
 **Fog and beams** (2026-11-18, the owner's names: `c.light.fog_density`,
-`fog_color`, `fog_anisotropy`, `frame:fog`, a light's `fog`; the
+`fog_color`, `fog_anisotropy`, `fog_glow`, `frame:fog`, a light's `fog`; the
 classic smooth way, the owner's choice over beams in voxel cells;
 `render::fog`, `src/fog.wgsl`, `fog_beams.wgsl`, `fog_composite.wgsl`).
 
@@ -837,29 +843,55 @@ classic smooth way, the owner's choice over beams in voxel cells;
   walls: along each pixel's ray, the stretch within a light's ball and a
   spot's cone, the light each point gets times what the fog sends on to
   the eye (Henyey-Greenstein, `fog_anisotropy`), less what the fog took
-  on the way. No noise: the points are where the ray crosses planes
+  on the way. The beams are lit by, and take their own light by, the
+  density times `fog_glow` (1 as the air would), what lies behind dims by
+  the density alone: a stage's haze (`fog_glow = 4`, a quarter of the
+  density) has bright beams in a clear room, and a lamp's glow never
+  gets brighter than its light (the fog's own share of it takes as much
+  as it sends on). No noise: the points are where the ray crosses planes
   across the camera's way every 4 voxels (8, 16 for a light wider than
   48 of them), fixed in the level, so a scrolling view and a turning spot
   take the same points; the spot's hard core's edges are points too; the
   light between two points is added up as a straight line; a lamp walls
-  stop lights a point only where its walk reaches it (the faces' memory
-  asked of the 2 by 2 by 2 voxels it is in, so neighbours ask alike), and
-  where that changes between two points four halvings find where. A wall
-  thinner than the planes' spacing between two points that both see the
-  lamp casts no shadow in the fog.
+  stop lights a point only where its walk reaches the middle of its voxel
+  (the faces' memory asked, under keys of its own), and where that changes
+  between two points four halvings find where: a wall's shadow in the fog
+  steps voxel by voxel, as the faces' light does, fixed in the level (the
+  shadow's very edge walked from the point itself was clean but cost the
+  610M 4.4 ms more at LOW, 12 at HIGH). The fog's walk is careful: leaving
+  a cell through an edge or a corner, the cells across each face met there
+  count, so a wall a voxel thin stops a beam even slanting (a line of
+  voxels touching at their edges; test `a_wall_a_voxel_thin_stops_a_beam`).
+  The faces' walk does not (it would darken faces beside a lamp in its
+  wall, Voxkeep's torches): at exact alignments their light leaks through
+  such a diagonal, as it always did. A shadow thinner along the ray than
+  the planes' spacing, between two points that both see the lamp (a thin
+  post's, seen edge on), does not show in the fog: points a voxel apart
+  cost the 610M 15 ms of beams at LOW instead of 3.
 - **Laid over** by the composite's own pipeline for fog (before the UI,
   which is never fogged): the scene times what the fog left of it, the
   fog's colour for the rest, the beams from the four nearest of their
-  pixels weighed by how alike the depth they were worked out at is. The
-  glow target is not fogged; see-through cubes (glass, water) are fogged
-  as if they were not there: a beam behind them shows in front of them,
-  untinted.
+  pixels weighed by how alike the depth they were worked out at is. What
+  glows (the blurred glow target) is dimmed as the scene is, by what the
+  fog left at the pixel it shines on (`post.wgsl`'s `finish_seen`): a
+  torch in thin fog still blooms, in thick fog far less.
+- **Glass and water** (the see-through cubes) in a picture of fog: their
+  depth is drawn first (`glass_pass`, the scene's `vs_inst`, nothing
+  else), the beams are worked out before the nearer see-through cube and
+  behind it apart (`fs_beam_glass`, two targets), the fog behind it is
+  laid over the scene before the cubes are drawn onto it
+  (`fog_far.wgsl`), so they tint and dim it, and the composite lays the
+  fog before them (test `a_beam_behind_glass_is_seen_through_it`). Beside
+  the glass the picture is the one without it, byte for byte; a picture
+  of fog without see-through cubes runs none of it.
 - **Measured** (the trial hall, five lamps walls stop, 1920 by 1080): the
-  Radeon 610M without fog 9.4 ms, LOW 13.7 (beams 2.6, the composite
-  2.0 against 0.5), HIGH 21.1 (beams 9.2); Voxkeep's torches in fog 7.0,
-  LOW 10.4. The strong GPU: 0.5, LOW 0.8, HIGH 0.9. Two headlights moving
-  every picture: the lamps' pass 4.4 to 11.6 ms on the 610M (every face
-  asks anew), the beams at LOW 2.7 to 4.9.
+  Radeon 610M without fog 9.6 ms, LOW 14.2 (beams 3.1, the composite
+  2.0 against 0.5), HIGH 21.2 (beams 10.1); Voxkeep's torches in fog 7.1,
+  LOW 10.7 (its flames are see-through cubes: the fog behind them 0.15),
+  HIGH 14.1. The strong GPU: 0.6, LOW 0.8, HIGH 0.9. Two headlights moved
+  every picture: the lamps 6.7 ms (4.4 standing), the beams 6.7 at LOW
+  (3.1 standing) and 20.2 at HIGH (9.9): each point of a moving lamp's
+  beam walks anew, not yet asked for first.
 
 ## Multiplayer
 

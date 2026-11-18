@@ -98,9 +98,11 @@ impl Renderer {
         let lamps = self.lamps_of(device, queue, frame, remember);
         let tiles = lamps.map_or(0, |lf| self.write_lamps(device, queue, frame, lf));
         // Fog: its beams drawn as the lamps' pass draws, after it; the
-        // composite lays it over the picture.
+        // composite lays it over the picture. With see-through cubes in it
+        // (glass, water) the fog behind them apart, before they are drawn.
+        let glass = frame.fog.is_some() && (frame.cube_runs().1 as usize) < frame.instances.len();
         let fog = match (lamps, &frame.fog) {
-            (Some(lf), Some(fog)) => Some(self.write_fog(device, queue, frame, fog, lf)),
+            (Some(lf), Some(fog)) => Some(self.write_fog(device, queue, frame, fog, lf, glass)),
             _ => None,
         };
         self.write_globals(queue, frame, remember);
@@ -125,6 +127,7 @@ impl Renderer {
             volume_bytes: self.lamps.volume_bytes(),
             volume_ms: self.lamps.made_ms,
             fog: fog.is_some(),
+            asked: if lamps.is_some_and(|lf| lf.walls) { self.lamps.asked } else { 0 },
             ..Stats::default()
         };
         self.shadow_pass(encoder, frame, all_models, &mut stats);
@@ -133,15 +136,21 @@ impl Renderer {
             Some(lf) => {
                 self.lit_scene_pass(encoder, frame, all_models, remember, lf, &mut stats);
                 self.lamp_pass(encoder, lf, tiles);
-                self.see_through_pass(encoder, frame, remember, fog.is_some());
                 if let Some(count) = fog {
-                    self.beams_pass(encoder, lf, count);
+                    if glass {
+                        self.glass_pass(encoder, frame);
+                    }
+                    self.beams_pass(encoder, lf, count, glass);
+                    if glass {
+                        self.far_pass(encoder, frame);
+                    }
                 }
+                self.see_through_pass(encoder, frame, remember, fog.is_some());
             }
         }
         self.ui_pass(encoder, frame, all_models);
         self.post_passes(encoder, frame);
-        self.composite_pass(encoder, target, fog.is_some());
+        self.composite_pass(encoder, target, fog.map(|_| glass));
         if let Some(t) = &self.pass_times {
             let count = 2 * t.labels.borrow().len() as u32;
             if count > 0 {
@@ -536,8 +545,8 @@ impl Renderer {
     }
 
     /// The picture put together on `target`, with the fog laid over its
-    /// scene where `fogged` (`fog`).
-    fn composite_pass(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView, fogged: bool) {
+    /// scene where `fogged` (`fog`; true: before see-through cubes).
+    fn composite_pass(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView, fogged: Option<bool>) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("composite"),
             color_attachments: &[color(target, wgpu::LoadOp::Clear(wgpu::Color::BLACK))],
@@ -552,10 +561,11 @@ impl Renderer {
             let (x, y, w, h) = self.picture();
             pass.set_viewport(x as f32, y as f32, w as f32, h as f32, 0.0, 1.0);
         }
-        match self.fog.as_ref().filter(|_| fogged) {
-            Some(fog) => {
-                pass.set_pipeline(&fog.composite);
-                pass.set_bind_group(2, fog.composite_bind.as_ref().expect("made by write_fog"), &[]);
+        match self.fog.as_ref().zip(fogged) {
+            Some((fog, glass)) => {
+                let g = usize::from(glass);
+                pass.set_pipeline(&fog.composite[g]);
+                pass.set_bind_group(2, fog.composite_bind[g].as_ref().expect("made by write_fog"), &[]);
             }
             None => pass.set_pipeline(&self.post_composite),
         }

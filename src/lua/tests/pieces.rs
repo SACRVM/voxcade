@@ -761,9 +761,13 @@ fn frame_fog_takes_its_words() {
         steps(&mut g, 1);
         (frame, halted(&g))
     };
-    let (frame, e) = draw("fog-words", "  c.light.fog_color = { 0.5, 0.5, 0.5 }\n", "frame:fog{ density = 0.05, anisotropy = 0.5 }");
+    let (frame, e) = draw("fog-words", "  c.light.fog_color = { 0.5, 0.5, 0.5 }\n  c.light.fog_glow = 3\n", "frame:fog{ density = 0.05, anisotropy = 0.5 }");
     let f = frame.fog.unwrap_or_else(|| panic!("{e}"));
-    assert_eq!((f.density, f.anisotropy, f.color), (0.05, 0.5, [0.5; 3]), "the color c.light's");
+    assert_eq!((f.density, f.anisotropy, f.color, f.glow), (0.05, 0.5, [0.5; 3], 3.0), "the color and the glow c.light's");
+    let (frame, e) = draw("fog-glow", "", "frame:fog{ density = 0.01, glow = 4 }");
+    assert_eq!(frame.fog.map(|f| f.glow), Some(4.0), "{e}");
+    let (frame, e) = draw("fog-glow-unset", "", "frame:fog{ density = 0.01 }");
+    assert_eq!(frame.fog.map(|f| f.glow), Some(1.0), "unset: 1, as the air would: {e}");
     let (frame, e) = draw("fog-light", "", "frame:fog{ density = 0.01, color = { 255, 0, 0 } }\n  frame:light{ at = { x = 1, y = 2, z = 3 }, radius = 20, fog = 4 }");
     assert_eq!(frame.fog.map(|f| f.color), Some([1.0, 0.0, 0.0]), "{e}");
     assert_eq!(frame.lights.iter().find(|l| l.pos == glam::Vec3::new(1.0, 2.0, 3.0)).map(|l| l.fog), Some(4.0));
@@ -771,6 +775,7 @@ fn frame_fog_takes_its_words() {
         ("frame:fog{ density = 2 }", "frame:fog: density is a number from 0 to 1"),
         ("frame:fog{ densty = 0.1 }", "did you mean `density`?"),
         ("frame:fog{ anisotropy = 1 }", "frame:fog: anisotropy is a number from -0.9 to 0.9"),
+        ("frame:fog{ glow = 21 }", "frame:fog: glow is a number from 0 to 20"),
         ("frame:fog(0.1)", "frame:fog: a table of what it sets"),
         ("frame:light{ at = { x = 1, y = 2, z = 3 }, radius = 20, fog = 20 }", "frame:light: fog is a number from 0 to 10"),
     ] {

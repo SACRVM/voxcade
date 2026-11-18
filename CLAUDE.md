@@ -1598,28 +1598,41 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   alone, byte for byte; else the lamps' pass (`render::lamps`, tiles of
   32 pixels, a face's answer kept, `lamps.wgsl`; `light.wgsl` the sum both
   share), up to `MOST_LIGHTS` (4096). Only the picture: test
-  `lamps_change_no_run`. The upgrade step "lamps stopped by walls"
+  `lamps_change_no_run`. A lamp new to the faces' memory (moved) is asked
+  for first by a pixel every `lamps::ASK` (`fs_lamp_ask`), so a face's
+  pixels do not each walk (test
+  `a_lamp_new_to_the_faces_memory_is_asked_for_first`). The upgrade step "lamps stopped by walls"
   (0.7.0) says which lights of a game and how to keep the old look; it
   changes nothing. Moving things stop no lamp.
 - Fog (0.7, the owner's names, the classic smooth way; `docs/engine.md`
   "Fog and beams"): `c.light.fog_density` (0 none unless set),
-  `fog_color`, `fog_anisotropy`, `frame:fog{ density, color, anisotropy
-  }` per picture, a light's `fog` (0 to 10, 1; `LIGHT_WORDS`, a level's
+  `fog_color`, `fog_anisotropy`, `fog_glow` (0 to 20, 1: the beams lit
+  by and dimming themselves by density times it, the scene behind by the
+  density alone; a lamp's glow never passes its light), `frame:fog{
+  density, color, anisotropy, glow }` per picture, a light's `fog` (0 to
+  10, 1; `LIGHT_WORDS`, a level's
   light and the level editor's FOG row too). Air in the level's box, not
   between camera and level: lamps' beams in it, walls stopping them as
   their light, what lies further faded to its colour. A picture with fog
   goes through the lamps' pass; after its see-through cubes the beams
   (`render::fog`, `fog_beams.wgsl`: points on planes across the camera's
   way fixed in the level, the spot's core edges, halvings where a wall's
-  shadow begins; no noise, so no flicker scrolling or turning) into a
+  shadow begins, walls asked voxel by voxel by a careful walk that no wall
+  a voxel thin lets through, `walk`'s `off` 2; no noise, so no flicker
+  scrolling or turning; a thin post's shadow seen edge on can be missed)
+  into a
   target half or a quarter the size, then the composite's own pipeline
   (`fog_composite.wgsl`) lays it under the UI; a picture without fog is
   drawn byte for byte as before, at no cost. VIDEO's FOG (`settings::Fog`:
   HIGH half, LOW quarter, OFF none drawn; LOW on the processor's own
   graphics until chosen; `shot --fog`). Only the picture: test
-  `fog_changes_no_run`; GPU test `fog_shows_a_beam_the_wall_stops`. Not
-  built: glass and water in front of a beam (it shows over them,
-  untinted), the sun's beams, moving things cutting beams, fog in the
+  `fog_changes_no_run`; GPU test `fog_shows_a_beam_the_wall_stops`.
+  Glass and water: with see-through cubes on screen their depth is drawn
+  first (`glass_pass`), the beams before and behind the nearer one apart,
+  the fog behind it laid over the scene before they are drawn
+  (`fog_far.wgsl`), so they tint it (test
+  `a_beam_behind_glass_is_seen_through_it`); without them none of it runs.
+  Not built: the sun's beams, moving things cutting beams, fog in the
   editors and the IDE's picture.
 - The renderer is `src/render/`: `mod.rs` the `Renderer` and `Instance`,
   `bank.rs` the model bank, `baked.rs` its runs baked into faces and the

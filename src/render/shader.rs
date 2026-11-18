@@ -85,6 +85,9 @@ const FOG: &str = include_str!("../fog.wgsl");
 /// the lamps'.
 pub(super) static FOG_BEAMS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| LAMPS.clone() + FOG + include_str!("../fog_beams.wgsl"));
 
+/// The fog behind glass and water (`fog_far.wgsl`).
+pub(super) static FOG_FAR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| FOG.to_string() + include_str!("../fog_far.wgsl"));
+
 /// The picture put together with fog (`fog_composite.wgsl`): the
 /// composite's text (`post.wgsl`), then the fog's.
 pub(super) static FOG_COMPOSITE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| include_str!("../post.wgsl").to_string() + FOG + include_str!("../fog_composite.wgsl"));
@@ -132,6 +135,8 @@ pub(super) fn prelude() -> String {
     put("CUBE_CORNERS", array(corners.iter().map(|c| vec3(c.pos)).collect()));
     put("CUBE_NORMALS", array(corners.iter().map(|c| vec3([0, 1, 2].map(|k| f32::from(c.normal[k]) / f32::from(i8::MAX)))).collect()));
     put("FACE_DIRS", array(DIRS.iter().map(|d| vec3(d.as_vec3().to_array())).collect()));
+    // The lamps' asking: a pixel every so many each way (`lamps::ASK`).
+    put("LAMP_ASK", format!("{}u", super::lamps::ASK));
     out
 }
 
@@ -201,6 +206,7 @@ mod tests {
             ("fog_beams.wgsl", super::FOG_BEAMS.as_str()),
             ("fog_beams.wgsl without walls", beams_plain.as_str()),
             ("fog_composite.wgsl", super::FOG_COMPOSITE.as_str()),
+            ("fog_far.wgsl", super::FOG_FAR.as_str()),
         ] {
             let module = naga::front::wgsl::parse_str(src).unwrap_or_else(|e| panic!("{name}: {}", e.emit_to_string(src)));
             naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::all())

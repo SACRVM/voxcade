@@ -767,6 +767,16 @@ fn show_terrain(ed: &mut Editor, opts: &ShotOptions) -> Result<()> {
 
 /// The view as the flags set it: GAME VIEW, the chosen one in view, its
 /// light, LEVEL, the handles, ADD's menu, the camera, ADD MODEL, the lights.
+/// `--choose-light K`: the chosen piece's light K. A light alone is its
+/// one light, chosen with the thing (its rows are its light's: there is no
+/// light of a model to choose apart).
+fn choose_light(ed: &mut Editor, k: usize) -> Result<()> {
+    ed.choose_light(Some(k));
+    let alone = ed.chosen_thing().is_some_and(|t| t.model.is_none() && k < t.lights.len());
+    anyhow::ensure!(alone || ed.pieces.chosen_light == Some(k), "--choose-light {k}: the chosen piece has no light {k} (they count from 0)");
+    Ok(())
+}
+
 fn set_view(ed: &mut Editor, view: &mut View, opts: &ShotOptions, aspect: f32) -> Result<()> {
     view.aspect = aspect;
     // (Where the panels will lie, for the view's middle: as in a window.)
@@ -779,8 +789,7 @@ fn set_view(ed: &mut Editor, view: &mut View, opts: &ShotOptions, aspect: f32) -
         view.bring_into_view(ed);
     }
     if let Some(k) = opts.choose_light {
-        ed.choose_light(Some(k));
-        anyhow::ensure!(ed.pieces.chosen_light == Some(k), "--choose-light {k}: the chosen piece has no light {k} (they count from 0)");
+        choose_light(ed, k)?;
     }
     view.level_settings = opts.level_settings;
     if opts.turn_handles && ed.part_mode().is_some() {
@@ -999,6 +1008,25 @@ mod tests {
         let opts = ShotOptions { level: Some("levels/01_hall.toml".into()), scatter: vec![1], dry: true, ..Default::default() };
         let e = scatter_level::<crate::Voxcade>(Path::new("games/voxkeep"), &opts).unwrap_err();
         assert!(format!("{e:#}").contains("--scatter 1: no scatter rule 1 that sets pieces: the level has no scatter rules"), "{e:#}");
+    }
+
+    /// `--choose-light 0` on a light alone takes it as it is (it was
+    /// "the chosen piece has no light 0"); a piece's lights are counted
+    /// from 0, one it lacks a mistake.
+    #[test]
+    fn a_light_alone_is_its_own_light_zero() {
+        let dir = crate::scratch::Scratch::new("choose-light");
+        std::fs::create_dir_all(dir.join("levels")).unwrap();
+        std::fs::write(dir.join("box.vvx"), "format = \"voxcade voxel 1\"\nsize = [3, 3, 4]\n\n[palette]\na = { color = \"#808080\" }\n\n[[frame]]\nlayers = \"\"\"\naaa *3\n*4\n\"\"\"\n").unwrap();
+        std::fs::write(dir.join("levels/room.toml"), "format = \"voxcade level 1\"\nsize = [64, 48, 40]\n\n[[thing]]\nname = \"lamp\"\nmodel = \"box.vvx\"\nat = [40, 30, 12]\nlight = { at = [0, 0, 3], radius = 30 }\n\n[[thing]]\nname = \"moon\"\nat = [5, 5, 30]\nlight = { radius = 40 }\n").unwrap();
+        let mut ed = Editor::open(&dir, "levels/room.toml").unwrap();
+        let named = |ed: &Editor, name: &str| ed.level.things.iter().position(|t| t.name.as_deref() == Some(name)).map(Item::Thing);
+        ed.choose_item(named(&ed, "moon"));
+        assert!(choose_light(&mut ed, 0).is_ok(), "a light alone: its light 0");
+        assert!(choose_light(&mut ed, 1).is_err());
+        ed.choose_item(named(&ed, "lamp"));
+        assert!(choose_light(&mut ed, 0).is_ok() && ed.pieces.chosen_light == Some(0));
+        assert!(format!("{:#}", choose_light(&mut ed, 1).unwrap_err()).contains("the chosen piece has no light 1"));
     }
 
     /// `--joint X,Y,Z` (with `--part`) sets the joint from the pivot, as

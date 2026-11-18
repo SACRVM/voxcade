@@ -418,6 +418,7 @@ impl<G: Game> Session<G> {
             density,
             color: set.color.unwrap_or(light.fog_color),
             anisotropy: set.anisotropy.unwrap_or(light.fog_anisotropy),
+            glow: set.glow.unwrap_or(light.fog_glow),
             lo: Vec3::ZERO,
             hi: size,
             scale: self.options.fog.scale()?,

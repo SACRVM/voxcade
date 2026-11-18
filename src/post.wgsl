@@ -71,7 +71,13 @@ fn scene_color(in: PostOut) -> vec3<f32> {
 /// game gives are what the screen gets), from the scene's `color`: the UI
 /// over it, sharp; glow shining over both; the flash; the fade.
 fn finish(in: PostOut, scene: vec3<f32>) -> vec3<f32> {
-    let glow = textureSample(glow_blur, src_sampler, in.uv).rgb;
+    return finish_seen(in, scene, 1.0);
+}
+
+/// The same with the glow at `seen` of its strength (what fog left of it,
+/// fog_composite.wgsl).
+fn finish_seen(in: PostOut, scene: vec3<f32>, seen: f32) -> vec3<f32> {
+    let glow = textureSample(glow_blur, src_sampler, in.uv).rgb * seen;
     let ui = textureSample(ui_layer, src_sampler, in.uv);
     var color = mix(scene, ui.rgb, ui.a);
     color += glow * post.params.x;
