@@ -108,9 +108,10 @@ pub struct Light {
     pub falloff: f32,
     /// A spot's way and cone; None: it shines every way.
     pub spot: Option<Spot>,
-    /// Walls stop it (`lamps`): the level's voxels and its pieces lie
-    /// between it and a face it would light.
-    pub shadows: bool,
+    /// What stops it (`lamps`): None, the light leaves it to the game's
+    /// word (`c.light.lamp_shadows`); the picture's lights are all
+    /// stated once the game's word is laid over them (`Light::stated`).
+    pub shadows: Option<LampShadows>,
 }
 
 /// A spot's way and cone, as the shader takes them: the way it shines
@@ -127,7 +128,7 @@ impl Light {
     /// A flash's or an explosion's light (a kit's): round, falling off as
     /// lights always did, through walls.
     pub fn burst(pos: Vec3, radius: f32, color: [f32; 3]) -> Self {
-        Self { pos, radius, color, falloff: 2.0, spot: None, shadows: false }
+        Self { pos, radius, color, falloff: 2.0, spot: None, shadows: Some(LampShadows::None) }
     }
 
     /// A lamp (a level's light, `frame:light`) shaped as `shape` says, its
@@ -139,6 +140,23 @@ impl Light {
             Spot { way: turn(shape.way()).normalize_or(Vec3::Y), outer: crate::sim::math::cos(half), inner: crate::sim::math::cos(half * (1.0 - shape.blend)) }
         });
         Self { pos, radius, color, falloff: shape.falloff, spot, shadows: shape.shadows }
+    }
+
+    /// Whether the level's voxels and pieces stop it, `game` the game's
+    /// word for a light that states none.
+    pub fn stopped_by(&self, game: LampShadows) -> bool {
+        self.shadows.unwrap_or(game).stops_walls()
+    }
+
+    /// The light with its word stated: its own, else the game's.
+    pub fn stated(mut self, game: LampShadows) -> Self {
+        self.shadows = Some(self.shadows.unwrap_or(game));
+        self
+    }
+
+    /// Whether walls stop it, in a picture whose lights are stated.
+    pub fn stopped(&self) -> bool {
+        self.shadows == Some(LampShadows::Static)
     }
 }
 
@@ -158,14 +176,89 @@ pub struct LightShape {
     /// 0), and up (above 0) or down.
     pub rotation: f32,
     pub pitch: f32,
-    /// Walls stop it (true unless set; `c.light.lamp_shadows = false`
-    /// stops none of a game's).
-    pub shadows: bool,
+    /// What stops it; None: the game's word (`c.light.lamp_shadows`,
+    /// `"static"` unless it says), which a stated word beats.
+    pub shadows: Option<LampShadows>,
+}
+
+/// What stops a lamp's light, the words of a light's `shadows` and of
+/// `c.light.lamp_shadows`: `"none"` (it shines through everything) or
+/// `"static"` (the level's solid voxels and its pieces). A third,
+/// `"all"` (moving things too), is decided and not built: one variant to
+/// add here, its word in `WORDS`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LampShadows {
+    None,
+    #[default]
+    Static,
+}
+
+impl LampShadows {
+    /// The words there are, as written.
+    pub const WORDS: [&str; 2] = ["none", "static"];
+
+    /// The word as written in files and scripts.
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Static => "static",
+        }
+    }
+
+    /// A word read; the mistake names the words there are.
+    pub fn read(word: &str) -> Result<Self, String> {
+        match word {
+            "none" => Ok(Self::None),
+            "static" => Ok(Self::Static),
+            other => Err(format!("\"{other}\" is none of {}", Self::list())),
+        }
+    }
+
+    /// The mistake for `true` or `false` (the words before 0.7 came out):
+    /// what to write instead and the words there are.
+    pub fn boolean(on: bool) -> String {
+        format!("shadows takes words, not true or false: write \"{}\" for {on} (the words are {})", if on { "static" } else { "none" }, Self::list())
+    }
+
+    /// The words, quoted, for a mistake.
+    pub fn list() -> String {
+        Self::WORDS.iter().map(|w| format!("\"{w}\"")).collect::<Vec<_>>().join(", ")
+    }
+
+    /// Whether the level's voxels and pieces stop the light.
+    pub fn stops_walls(self) -> bool {
+        self == Self::Static
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for LampShadows {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct Words;
+        impl serde::de::Visitor<'_> for Words {
+            type Value = LampShadows;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "one of {}", LampShadows::list())
+            }
+            fn visit_bool<E: serde::de::Error>(self, on: bool) -> Result<LampShadows, E> {
+                Err(E::custom(LampShadows::boolean(on)))
+            }
+            fn visit_str<E: serde::de::Error>(self, word: &str) -> Result<LampShadows, E> {
+                LampShadows::read(word).map_err(E::custom)
+            }
+        }
+        d.deserialize_any(Words)
+    }
+}
+
+impl serde::Serialize for LampShadows {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.word())
+    }
 }
 
 impl Default for LightShape {
     fn default() -> Self {
-        Self { falloff: 2.0, cone: None, blend: 0.15, rotation: 0.0, pitch: 0.0, shadows: true }
+        Self { falloff: 2.0, cone: None, blend: 0.15, rotation: 0.0, pitch: 0.0, shadows: None }
     }
 }
 

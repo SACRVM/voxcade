@@ -428,7 +428,7 @@ mod recordings;
 /// `frame:light` with no word of their own shine no more through walls,
 /// as the owner decided. A picture changes, nothing of the game's rules,
 /// so the step only says which lights and how to keep the old look
-/// (`shadows = false` on one, `c.light.lamp_shadows = false` for all); it
+/// (`shadows = "none"` on one, `c.light.lamp_shadows = "none"` for all); it
 /// changes nothing.
 mod lamps;
 

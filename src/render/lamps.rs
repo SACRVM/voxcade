@@ -355,7 +355,7 @@ impl Renderer {
     /// date. Walls stop its lamps where the GPU can and the level fits;
     /// else said once, they shine through.
     pub(super) fn lamps_of(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, frame: &FrameData, remember: bool) -> Option<LampFrame> {
-        let stopped = frame.lamp_world.is_some() && frame.lights.iter().any(|l| l.shadows);
+        let stopped = frame.lamp_world.is_some() && frame.lights.iter().any(|l| l.stopped());
         if !stopped && frame.lights.len() <= FORWARD_LIGHTS {
             return None;
         }
@@ -407,7 +407,7 @@ impl Renderer {
     /// when the lamps reach too far apart for it.
     fn volume_for(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, frame: &FrameData) -> bool {
         let Some(world) = frame.lamp_world.as_ref() else { return false };
-        let lit: Vec<(glam::Vec3, f32)> = frame.lights.iter().filter(|l| l.shadows).map(|l| (l.pos, l.radius)).collect();
+        let lit: Vec<(glam::Vec3, f32)> = frame.lights.iter().filter(|l| l.stopped()).map(|l| (l.pos, l.radius)).collect();
         let key = volume::pieces_key(&frame.bank, &frame.lamp_pieces);
         let same = self.lamps.volume.as_ref().is_some_and(|h| h.volume.reach.holds(&lit, world.size) && h.volume.pieces_key == key && h.volume.same_level(world));
         let reach = if same { self.lamps.volume.as_ref().expect("held").volume.reach } else { Reach::of(&lit, world.size) };

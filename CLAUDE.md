@@ -1580,7 +1580,17 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `rotation`, `pitch`, `shadows` (a level's `light = {...}`,
   `frame:light{ ... }`; `render::LightShape`, `LIGHT_WORDS` the ranges,
   `Light::lamp`; the kits' flashes `Light::burst`, through walls as ever),
-  `c.light.lamp_shadows`. Walls stop a lamp (the level's opaque voxels
+  `c.light.lamp_shadows`; `shadows` takes words, `"static"` (walls
+  stop it) or `"none"` (`render::LampShadows`; `"all"`, moving things
+  too, is decided and not built; `true`/`false` are refused naming the
+  word to write). `c.light.lamp_shadows` is the game's word for every
+  light that leaves `shadows` unset (`"static"` unless set; unset is
+  carried as `None` in `LightShape`, `ThingLight` and `Light` until
+  `Light::stated` lays the game's word over it); a light's own word
+  beats the game's (game `"none"` and a light's `"static"`: the walls
+  stop it; test `the_games_word_is_the_default_and_a_lights_own_word_beats_it`).
+  The editor's SHADOWS row shows an unset light's inherited word quiet,
+  a light's own in the accent; a click on the lit own word clears it. Walls stop a lamp (the level's opaque voxels
   and its pieces but those bringing a light, `Drawing::piece`;
   `FrameData::lamp_world`, `lamp_pieces`); a lamp in solid voxels leaves
   them first (8 voxels at most). A picture with up to `FORWARD_LIGHTS`

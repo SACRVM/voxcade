@@ -17,7 +17,7 @@ pub fn plan(dir: &Path) -> Result<Vec<String>> {
         let lights: usize = level.things.iter().map(|t| t.lights.iter().filter(|l| l.shadows.is_none()).count()).sum();
         if lights > 0 {
             let s = if lights == 1 { "" } else { "s" };
-            out.push(format!("levels/{}: {lights} light{s}: walls stop them now; shadows = false on a light keeps it shining through", named(&p)));
+            out.push(format!("levels/{}: {lights} light{s}: walls stop them now; shadows = \"none\" on a light keeps it shining through", named(&p)));
         }
     }
     for lua in files_ending(dir, "lua") {
@@ -25,12 +25,12 @@ pub fn plan(dir: &Path) -> Result<Vec<String>> {
         for (i, line) in text.lines().enumerate() {
             let code = line.split("--").next().unwrap_or("");
             if [":light(", ":light{", ":light {"].iter().any(|c| code.contains(c)) && !code.contains("shadows") {
-                out.push(format!("{}:{}: frame:light: walls stop it now; frame:light{{ at =, radius =, color =, shadows = false }} keeps it shining through", named(&lua), i + 1));
+                out.push(format!("{}:{}: frame:light: walls stop it now; frame:light{{ at =, radius =, color =, shadows = \"none\" }} keeps it shining through", named(&lua), i + 1));
             }
         }
     }
     if !out.is_empty() {
-        out.push("lamps are stopped by walls since Voxcade 0.7 (the level's voxels and its pieces): c.light.lamp_shadows = false in conf.lua keeps the old look for every lamp of the game; nothing here is changed".into());
+        out.push("lamps are stopped by walls since Voxcade 0.7 (the level's voxels and its pieces): c.light.lamp_shadows = \"none\" in conf.lua keeps the old look for every lamp of the game; nothing here is changed".into());
     }
     Ok(out)
 }

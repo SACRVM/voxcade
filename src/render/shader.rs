@@ -27,7 +27,7 @@ impl LightData {
             Some(s) => (s.way.extend(s.outer).to_array(), s.inner),
             None => ([0.0, 0.0, 0.0, -2.0], -2.0),
         };
-        let stopped = if walls && l.shadows { 1.0 } else { 0.0 };
+        let stopped = if walls && l.stopped() { 1.0 } else { 0.0 };
         // Its exact place as two whole numbers a float holds exactly: what
         // the lamps' memory knows it by (`lamps.wgsl`'s `stopped`).
         let mut h = crate::hash::Stable::default();

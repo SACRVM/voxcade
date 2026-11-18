@@ -760,7 +760,11 @@ Built for 0.7 (the owner's names: `falloff`, `cone`, `blend`, `rotation`,
 `pitch`, `shadows`, `c.light.lamp_shadows`; `docs/game-model.md`): lamps
 walls stop, spots, a falloff of their own, and more than 16 lights a
 picture (`src/render/lamps.rs`, `volume.rs`, `src/lamps.wgsl`,
-`src/light.wgsl`).
+`src/light.wgsl`). A light's `shadows` takes words, `"static"` or
+`"none"` (`render::LampShadows`; `"all"`, moving things too, is decided,
+not built); unset, the light takes the game's `c.light.lamp_shadows`
+(`"static"` unless set), and a light's own word beats the game's. The
+lamps' volume is built only when some light is stopped.
 
 - **Who pays.** A picture with at most 16 lights (`FORWARD_LIGHTS`) and
   none walls stop is drawn as before, by the scene's shader alone: a game

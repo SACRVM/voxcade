@@ -594,27 +594,27 @@ fn a_part_turned_at_rest_shows_in_the_sheet_and_the_level() {
 /// as before 0.7 and walls stop it.
 #[test]
 fn a_lights_words_are_read_and_wrong_ones_are_plain_mistakes() {
-    let words = "light = { radius = 40, falloff = 1, cone = 50, blend = 0.3, rotation = 90, pitch = -45, shadows = false }";
+    let words = "light = { radius = 40, falloff = 1, cone = 50, blend = 0.3, rotation = 90, pitch = -45, shadows = \"none\" }";
     let level = ROOM.replace("light = { radius = 40 }", words);
     let g = game_in(&pieces_folder("light-words", "", &level, ""));
     let frame = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
     let moon = frame.lights.iter().find(|l| l.radius == 40.0).expect("the moon");
-    assert_eq!((moon.falloff, moon.shadows), (1.0, false));
+    assert_eq!((moon.falloff, moon.shadows), (1.0, Some(crate::render::LampShadows::None)));
     let spot = moon.spot.expect("a spot");
     assert!(spot.way.distance(glam::Vec3::new(1.0, 0.0, -1.0).normalize()) < 1e-3, "east and down: {:?}", spot.way);
     assert!((spot.outer - 25f32.to_radians().cos()).abs() < 1e-5 && spot.inner > spot.outer, "{spot:?}");
     let lamp = frame.lights.iter().find(|l| l.radius == 30.0).expect("the lamp");
-    assert_eq!((lamp.falloff, lamp.spot, lamp.shadows), (2.0, None, true), "unset: round, as before, walls stop it");
+    assert_eq!((lamp.falloff, lamp.spot, lamp.shadows), (2.0, None, Some(crate::render::LampShadows::Static)), "unset: round, as before, the game's word (static) laid over it");
     let read = crate::grid::GridLevel::from_text(&level).unwrap();
     let light = &read.things[2].lights[0];
-    assert_eq!((light.falloff, light.cone, light.blend, light.rotation, light.pitch, light.shadows), (Some(1.0), Some(50.0), Some(0.3), Some(90.0), Some(-45.0), Some(false)));
+    assert_eq!((light.falloff, light.cone, light.blend, light.rotation, light.pitch, light.shadows), (Some(1.0), Some(50.0), Some(0.3), Some(90.0), Some(-45.0), Some(crate::render::LampShadows::None)));
     assert!(read.to_text().contains(&words.replace("light = ", "")), "written back as written: {}", read.to_text());
     // The moon's light is on the file's line 19.
     for (bad, says) in [
         ("cone = 500", "a light's cone must be a number from 1 to 360"),
         ("falloff = -1", "a light's falloff must be a number from 0 to 16"),
         ("pitch = 100", "a light's pitch must be a number from -90 to 90"),
-        ("shadows = 1", "a light's shadows must be true or false"),
+        ("shadows = 1", "a light's shadows must be one of \"none\", \"static\""),
         ("shadow = false", "shadow"),
     ] {
         let level = ROOM.replace("light = { radius = 40 }", &format!("light = {{ radius = 40, {bad} }}"));
@@ -637,14 +637,14 @@ fn frame_light_takes_the_lamps_words() {
     };
     let (old, e) = draw("light-old", "frame:light({ x = 1, y = 2, z = 3 }, 20, { 255, 0, 0 })");
     let old = old.unwrap_or_else(|| panic!("{e}"));
-    assert_eq!((old.radius, old.color, old.falloff, old.spot, old.shadows), (20.0, [1.0, 0.0, 0.0], 2.0, None, true));
-    let (spot, e) = draw("light-table", "frame:light{ at = { x = 1, y = 2, z = 3 }, radius = 20, cone = 90, pitch = -90, falloff = 3, shadows = false }");
+    assert_eq!((old.radius, old.color, old.falloff, old.spot, old.shadows), (20.0, [1.0, 0.0, 0.0], 2.0, None, Some(crate::render::LampShadows::Static)));
+    let (spot, e) = draw("light-table", "frame:light{ at = { x = 1, y = 2, z = 3 }, radius = 20, cone = 90, pitch = -90, falloff = 3, shadows = \"none\" }");
     let spot = spot.unwrap_or_else(|| panic!("{e}"));
-    assert_eq!((spot.falloff, spot.shadows), (3.0, false));
+    assert_eq!((spot.falloff, spot.shadows), (3.0, Some(crate::render::LampShadows::None)));
     assert!(spot.spot.is_some_and(|s| s.way.distance(glam::Vec3::NEG_Z) < 1e-5), "straight down: {spot:?}");
     for (call, says) in [
         ("frame:light{ at = { x = 1, y = 2, z = 3 }, radius = 20, falloff = 20 }", "frame:light: falloff is a number from 0 to 16"),
-        ("frame:light{ at = { x = 1, y = 2, z = 3 }, radius = 20, shadow = false }", "did you mean `shadows`?"),
+        ("frame:light{ at = { x = 1, y = 2, z = 3 }, radius = 20, shadow = \"none\" }", "did you mean `shadows`?"),
         ("frame:light{ at = { x = 1, y = 2, z = 3 } }", "frame:light: radius is missing"),
         ("frame:light{ radius = 20, cone = 0 }", "frame:light: cone is a number from 1 to 360"),
     ] {
@@ -660,14 +660,66 @@ fn frame_light_takes_the_lamps_words() {
 #[test]
 fn lamps_change_no_run() {
     let main = "function on_tick()\n  world.state.n = (world.state.n or 0) + 1\nend\nfunction on_draw(frame)\n  frame:light(level:thing('lamp'), 30)\nend\n";
-    let (on_dir, off_dir) = (pieces_folder("lamps-on", "", ROOM, main), pieces_folder("lamps-off", "  c.light.lamp_shadows = false\n", ROOM, main));
+    let (on_dir, off_dir) = (pieces_folder("lamps-on", "", ROOM, main), pieces_folder("lamps-off", "  c.light.lamp_shadows = \"none\"\n", ROOM, main));
     let (mut on, mut off) = (game_in(&on_dir), game_in(&off_dir));
     assert_eq!(on.fingerprint().unwrap(), off.fingerprint().unwrap(), "the setting is no part of the fingerprint");
     steps(&mut on, 30);
     steps(&mut off, 30);
     assert_eq!(on.game.state_hash(), off.game.state_hash());
     let (a, b) = (on.compose(0.0, 16.0 / 9.0, Scene::Play, None), off.compose(0.0, 16.0 / 9.0, Scene::Play, None));
-    assert!(a.lamp_world.is_some() && a.lights.iter().any(|l| l.shadows), "walls stop the lamps");
-    assert!(b.lamp_world.is_none() && b.lights.iter().all(|l| !l.shadows), "off: none");
+    assert!(a.lamp_world.is_some() && a.lights.iter().any(|l| l.stopped()), "walls stop the lamps");
+    assert!(b.lamp_world.is_none() && b.lights.iter().all(|l| !l.stopped()), "off: none");
     assert!(!a.lamp_pieces.is_empty() && b.lamp_pieces.is_empty(), "the pieces that stop them, when they do");
+}
+
+/// A light's `shadows` and `c.light.lamp_shadows` take words: `true` and
+/// `false` are refused saying which word to write, an unknown word names
+/// the words there are, in a level's file (at its line), `frame:light` (at
+/// the script's line) and `conf.lua`.
+#[test]
+fn shadows_take_words_and_booleans_and_unknown_words_are_mistakes() {
+    for (bad, says) in [
+        ("shadows = true", "write \"static\" for true"),
+        ("shadows = false", "write \"none\" for false"),
+        ("shadows = \"all\"", "\"all\" is none of \"none\", \"static\""),
+    ] {
+        let level = ROOM.replace("light = { radius = 40 }", &format!("light = {{ radius = 40, {bad} }}"));
+        let e = start_error(&pieces_folder("shadows-level", "", &level, ""));
+        assert!(e.contains(says) && e.contains("19"), "{bad}: {e}");
+        let call = format!("frame:light{{ at = {{ x = 1, y = 2, z = 3 }}, radius = 20, {bad} }}");
+        let g = game_in(&pieces_folder("shadows-frame", "", ROOM, &format!("function on_draw(frame)\n  {call}\nend\n")));
+        let _ = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+        assert!(halted(&g).contains(says) && halted(&g).contains("main.lua:2"), "{call}: {}", halted(&g));
+        let conf = bad.replace("shadows", "c.light.lamp_shadows");
+        let e = start_error(&pieces_folder("shadows-conf", &format!("  {conf}\n"), ROOM, ""));
+        assert!(e.contains("c.light.lamp_shadows") && e.contains(says), "{conf}: {e}");
+    }
+}
+
+/// The game's `c.light.lamp_shadows` is the word of every light that
+/// states none; a light that states one has its own, whatever the game
+/// says. Game none + a light's "static": walls stop that light. The lamps'
+/// volume is built only when some light is stopped.
+#[test]
+fn the_games_word_is_the_default_and_a_lights_own_word_beats_it() {
+    let level = |word: &str| ROOM.replace("light = { radius = 40 }", &format!("light = {{ radius = 40{word} }}"));
+    for (game, own, stopped) in [
+        ("none", "", false),
+        ("none", ", shadows = \"none\"", false),
+        ("none", ", shadows = \"static\"", true),
+        ("static", "", true),
+        ("static", ", shadows = \"none\"", false),
+        ("static", ", shadows = \"static\"", true),
+    ] {
+        let dir = pieces_folder("lamp-default", &format!("  c.light.lamp_shadows = \"{game}\"\n"), &level(own), "function on_draw(frame)\n  frame:light(level:thing('lamp'), 30)\nend\n");
+        let g = game_in(&dir);
+        let f = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+        let moon = f.lights.iter().find(|l| l.radius == 40.0).expect("the level's light");
+        assert_eq!(moon.stopped(), stopped, "game {game}, light {own:?}");
+        // The lamp of frame:light says nothing itself: the game's word.
+        let lamp = f.lights.iter().find(|l| l.radius == 30.0).expect("frame:light's lamp");
+        assert_eq!(lamp.stopped(), game == "static", "game {game}, frame:light unset");
+        let any = f.lights.iter().any(|l| l.stopped());
+        assert_eq!(f.lamp_world.is_some(), any, "the lamps' volume only when some light is stopped (game {game}, light {own:?})");
+    }
 }

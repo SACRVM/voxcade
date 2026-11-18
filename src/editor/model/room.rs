@@ -1245,13 +1245,13 @@ impl Editor {
         });
     }
 
-    /// SHADOWS of the chosen thing's light `k`: whether walls stop it (the
-    /// file says `shadows = false` only when they do not).
-    pub fn set_light_shadows(&mut self, k: usize, on: bool) {
+    /// SHADOWS of the chosen thing's light `k`: what stops it; None leaves
+    /// it to the game's word and the file says nothing.
+    pub fn set_light_shadows(&mut self, k: usize, how: Option<crate::render::LampShadows>) {
         let Some(Item::Thing(i)) = self.pieces.chosen else { return };
         self.change(None, |l| {
             if let Some(light) = l.things[i].lights.get_mut(k) {
-                light.shadows = (!on).then_some(false);
+                light.shadows = how;
             }
         });
     }
@@ -1921,10 +1921,10 @@ mod tests {
         ed.set_field(Field::LightWord(0, word("cone")), 45.4);
         ed.set_field(Field::LightWord(0, word("pitch")), -120.0);
         ed.set_field(Field::LightWord(0, word("falloff")), 1.234);
-        ed.set_light_shadows(0, false);
-        assert!(saved(&dir).contains("light = { radius = 200, color = \"#a0b8ff\", falloff = 1.23, cone = 45, pitch = -90, shadows = false }"), "{}", saved(&dir));
+        ed.set_light_shadows(0, Some(crate::render::LampShadows::None));
+        assert!(saved(&dir).contains("light = { radius = 200, color = \"#a0b8ff\", falloff = 1.23, cone = 45, pitch = -90, shadows = \"none\" }"), "{}", saved(&dir));
         ed.set_field(Field::LightWord(0, word("cone")), 360.0);
-        ed.set_light_shadows(0, true);
+        ed.set_light_shadows(0, None);
         assert!(saved(&dir).contains("light = { radius = 200, color = \"#a0b8ff\", falloff = 1.23, pitch = -90 }"), "every way, walls stopping it again: {}", saved(&dir));
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -74,7 +74,7 @@ const TYPES: &str = "\
 ---@field blend? number How much of the cone's edge is soft, 0 to 1 (0.15 unless set).
 ---@field rotation? number The spot's way round, degrees clockwise seen from above, north (+y) 0.
 ---@field pitch? number The spot's way up (above 0) or down, -90 to 90 degrees.
----@field shadows? boolean Whether walls stop it (true unless set; c.light.lamp_shadows = false turns it off for every lamp).
+---@field shadows? string What stops it: \"static\" (the level's voxels and its pieces) or \"none\" (it shines through). Left out, c.light.lamp_shadows says (\"static\" unless set); a light's own word beats it.
 
 ---@class PictureCamera What a picture's camera sets (frame:camera); what it leaves out is c.camera's.
 ---@field look_at? Point|Thing|number[] The point the view centers on, { x, y, z } in voxels (z left out: the camera's height), or a thing; left out, the view follows what the camera follows.
@@ -588,7 +588,7 @@ pub const API: &[Item] = &[
         doc: "Lights the level round a thing or a point, in this picture: frame:light(at, radius, color), or frame:light{ at =, radius =, ... } \
             with the words a level's light takes too.\n- falloff: how it fades to its radius, (1 - distance / radius) to this power, 2 unless \
             set.\n- cone: a spot, its whole opening angle in degrees; blend how much of its edge is soft (0.15). rotation and pitch its way: \
-            degrees clockwise seen from above (north 0), and up or down.\n- shadows: walls stop it (true unless set). A wall is the level's \
+            degrees clockwise seen from above (north 0), and up or down.\n- shadows: what stops it, \"static\" or \"none\" (it shines through walls); left out, c.light.lamp_shadows says (\"static\" unless set). A wall is the level's \
             voxels and its pieces; figures and moving things stop no light, nor a piece that brings a light of its own (a lantern round its \
             flame).\nOnly the picture: the game's rules do not see it." },
     Item { of: "frame", name: "daylight", what: Method { params: &[("light", "Daylight")], returns: "" },

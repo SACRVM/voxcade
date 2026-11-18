@@ -231,7 +231,7 @@ pub struct ThingLight {
     pub blend: Option<f64>,
     pub rotation: Option<f64>,
     pub pitch: Option<f64>,
-    pub shadows: Option<bool>,
+    pub shadows: Option<crate::render::LampShadows>,
 }
 
 impl ThingLight {
@@ -249,7 +249,7 @@ impl ThingLight {
             blend: self.blend.map_or(d.blend, |v| v as f32),
             rotation: self.rotation.map_or(d.rotation, |v| v as f32),
             pitch: self.pitch.map_or(d.pitch, |v| v as f32),
-            shadows: self.shadows.unwrap_or(d.shadows),
+            shadows: self.shadows,
         }
     }
 }
