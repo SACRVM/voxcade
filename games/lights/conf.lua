@@ -29,11 +29,12 @@ function conf(c)
   c.camera.pitch = 50
   c.camera.view_width = 160
 
-  -- A dark hall: the lamps light it.
-  c.light.ambient = 0.16
-  c.light.shadow = 0.3
-  c.light.sun_color = { 0.15, 0.17, 0.25 }
-  c.light.sky = { 0.01, 0.01, 0.02 }
+  -- A dim hall, the lamps the light that counts, but the room itself
+  -- readable round them.
+  c.light.ambient = 0.3
+  c.light.shadow = 0.35
+  c.light.sun_color = { 0.3, 0.32, 0.42 }
+  c.light.sky = { 0.02, 0.02, 0.04 }
 
   c.title_screen.logo = { "LIGHTS" }
   c.title_screen.attract_after = 0

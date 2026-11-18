@@ -1,13 +1,13 @@
 # Voxcade replay: Lights, 640 ticks, quit, score 0
 version = 1
 game = "Lights"
-fingerprint = "966daac7151cc7a2"
+fingerprint = "ea03ba68f9367dea"
 ticks = 640
 outcome = "quit"
 score = 0
 input = "right:40;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;prev:1;left:40;none:26"
-checks = ["8c8c66191415b86a", "c6dd9310ddda074c", "43584921dcf4efc4", "74035093485c6f99", "85ee7c8ca86afc12", "5d22b929634664af", "6701ece11ff94bc0", "31cd7c156cb2e029", "d62ac465a3211c23", "189e058c27eb3e16"]
-final_state = "e299c1547d415861"
+checks = ["3f99c1c356f5e98a", "c710c0334aad9cf2", "89d2efc23326ee79", "998d31dcd21e070f", "d801dc272912f4b1", "814f13a41a65a654", "3a7fc75f423059f2", "194e14d39479d854", "c0f0a251c8d1cca2", "2ea78a657774886a"]
+final_state = "ed47fba5af92c38e"
 scenario = "dancers"
 
 [fingerprint_parts]
@@ -23,8 +23,8 @@ scenario = "dancers"
 "figures/guard.vvx" = "6d44cfbf00f46a12"
 "figures/hero.vvx" = "560fe3e5a4f71cad"
 "figures/posed.vvx" = "8e166bb009f8d77c"
-"levels/hall.toml" = "e7b79244cd166499"
-"main.lua" = "cae628b3d03f611a"
+"levels/hall.toml" = "cdf1849e5e86cbb2"
+"main.lua" = "a31a173bde178175"
 "pieces/diagonal_wall.vvx" = "c46c6b691d2cf68c"
 "pieces/low_wall_across.vvx" = "9da4c77db6b4f05e"
 "pieces/pane.vvx" = "4becb46f1c7d4a2c"

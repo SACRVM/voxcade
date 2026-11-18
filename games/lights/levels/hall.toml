@@ -187,57 +187,57 @@ light = { radius = 80, color = "#c8d8ff", falloff = 0.8 }
 [[thing]]
 name = "diagonal_lamp"
 at = [203, 34, 10]
-light = { radius = 90, color = "#fff0d8", falloff = 1 }
+light = { radius = 90, color = "#fff0d8", falloff = 0.6 }
 
 [[thing]]
 name = "spot_falloff_4"
 at = [268, 40, 24]
-light = { radius = 40, color = "#fff0d8", cone = 48, blend = 0, falloff = 4, pitch = -90 }
+light = { radius = 60, color = "#fff0d8", cone = 48, blend = 0, falloff = 4, pitch = -90 }
 
 [[thing]]
 name = "spot_falloff_2"
 at = [286, 40, 24]
-light = { radius = 40, color = "#fff0d8", cone = 48, blend = 0, falloff = 2, pitch = -90 }
+light = { radius = 60, color = "#fff0d8", cone = 48, blend = 0, falloff = 2, pitch = -90 }
 
 [[thing]]
 name = "spot_falloff_1"
 at = [304, 40, 24]
-light = { radius = 40, color = "#fff0d8", cone = 48, blend = 0, falloff = 1, pitch = -90 }
+light = { radius = 60, color = "#fff0d8", cone = 48, blend = 0, falloff = 1, pitch = -90 }
 
 [[thing]]
 name = "spot_soft"
 at = [322, 40, 24]
-light = { radius = 40, color = "#fff0d8", cone = 48, blend = 0.8, falloff = 1, pitch = -90 }
+light = { radius = 60, color = "#fff0d8", cone = 48, blend = 0.8, falloff = 1, pitch = -90 }
 
 [[thing]]
 name = "spot_narrow"
 at = [340, 40, 24]
-light = { radius = 40, color = "#fff0d8", cone = 24, blend = 0.8, falloff = 1, pitch = -90 }
+light = { radius = 60, color = "#fff0d8", cone = 24, blend = 0.8, falloff = 1, pitch = -90 }
 
 [[thing]]
 name = "spot_pitched"
 at = [358, 40, 24]
-light = { radius = 40, color = "#fff0d8", cone = 24, blend = 0.8, falloff = 1, pitch = -55 }
+light = { radius = 60, color = "#fff0d8", cone = 24, blend = 0.8, falloff = 1, pitch = -55 }
 
 [[thing]]
 name = "spot_rotated"
 at = [376, 40, 24]
-light = { radius = 40, color = "#fff0d8", cone = 24, blend = 0.8, falloff = 1, pitch = -55, rotation = 180 }
+light = { radius = 60, color = "#fff0d8", cone = 24, blend = 0.8, falloff = 1, pitch = -55, rotation = 180 }
 
 [[thing]]
 name = "bay_none"
-at = [165, 100, 20]
-light = { radius = 60, color = "#fff0d8", cone = 40, pitch = -35, falloff = 1, shadows = "none" }
+at = [165, 146, 60]
+light = { radius = 100, color = "#fff0d8", cone = 34, blend = 0.3, rotation = 180, pitch = -55, falloff = 1, shadows = "none" }
 
 [[thing]]
 name = "bay_static"
-at = [190, 100, 20]
-light = { radius = 60, color = "#fff0d8", cone = 40, pitch = -35, falloff = 1, shadows = "static" }
+at = [190, 146, 60]
+light = { radius = 100, color = "#fff0d8", cone = 34, blend = 0.3, rotation = 180, pitch = -55, falloff = 1, shadows = "static" }
 
 [[thing]]
 name = "bay_all"
-at = [215, 100, 20]
-light = { radius = 60, color = "#fff0d8", cone = 40, pitch = -35, falloff = 1, shadows = "all" }
+at = [215, 146, 60]
+light = { radius = 100, color = "#fff0d8", cone = 34, blend = 0.3, rotation = 180, pitch = -55, falloff = 1, shadows = "all" }
 
 [[thing]]
 name = "fog_cut"
