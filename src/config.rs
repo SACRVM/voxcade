@@ -981,8 +981,10 @@ pub struct LightConfig {
     /// from one smooth surface before it counts as an edge.
     pub edge_tolerance: f32,
     /// What stops a lamp that states no `shadows` of its own (a level's
-    /// lights, frame:light): "static" (the level's voxels and its pieces)
-    /// or "none": it shines through walls, as before 0.7 (older hardware).
+    /// lights, frame:light): "static" (the level's voxels and its pieces),
+    /// "all" (moving things too: figures, things, models drawn; costly, for
+    /// a few lamps) or "none": it shines through walls, as before 0.7 (older
+    /// hardware).
     /// A light's own shadows beats it, whatever it says.
     pub lamp_shadows: crate::render::LampShadows,
     /// Fog in the level's air, how thick: 0 none, else a voxel of air

@@ -682,7 +682,7 @@ fn shadows_take_words_and_booleans_and_unknown_words_are_mistakes() {
     for (bad, says) in [
         ("shadows = true", "write \"static\" for true"),
         ("shadows = false", "write \"none\" for false"),
-        ("shadows = \"all\"", "\"all\" is none of \"none\", \"static\""),
+        ("shadows = \"every\"", "\"every\" is none of \"none\", \"static\", \"all\""),
     ] {
         let level = ROOM.replace("light = { radius = 40 }", &format!("light = {{ radius = 40, {bad} }}"));
         let e = start_error(&pieces_folder("shadows-level", "", &level, ""));
@@ -700,7 +700,8 @@ fn shadows_take_words_and_booleans_and_unknown_words_are_mistakes() {
 /// The game's `c.light.lamp_shadows` is the word of every light that
 /// states none; a light that states one has its own, whatever the game
 /// says. Game none + a light's "static": walls stop that light. The lamps'
-/// volume is built only when some light is stopped.
+/// volume is built only when some light is stopped; "all" stops it too,
+/// and what moves as well.
 #[test]
 fn the_games_word_is_the_default_and_a_lights_own_word_beats_it() {
     let level = |word: &str| ROOM.replace("light = { radius = 40 }", &format!("light = {{ radius = 40{word} }}"));
@@ -711,18 +712,49 @@ fn the_games_word_is_the_default_and_a_lights_own_word_beats_it() {
         ("static", "", true),
         ("static", ", shadows = \"none\"", false),
         ("static", ", shadows = \"static\"", true),
+        ("static", ", shadows = \"all\"", true),
+        ("all", "", true),
+        ("all", ", shadows = \"static\"", true),
+        ("all", ", shadows = \"none\"", false),
     ] {
         let dir = pieces_folder("lamp-default", &format!("  c.light.lamp_shadows = \"{game}\"\n"), &level(own), "function on_draw(frame)\n  frame:light(level:thing('lamp'), 30)\nend\n");
         let g = game_in(&dir);
         let f = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
         let moon = f.lights.iter().find(|l| l.radius == 40.0).expect("the level's light");
         assert_eq!(moon.stopped(), stopped, "game {game}, light {own:?}");
+        let all = own.contains("all") || (game == "all" && own.is_empty());
+        assert_eq!(moon.stopped_by_movers(), all, "game {game}, light {own:?}: what moves stops it");
         // The lamp of frame:light says nothing itself: the game's word.
         let lamp = f.lights.iter().find(|l| l.radius == 30.0).expect("frame:light's lamp");
-        assert_eq!(lamp.stopped(), game == "static", "game {game}, frame:light unset");
+        assert_eq!(lamp.stopped(), game != "none", "game {game}, frame:light unset");
+        assert_eq!(lamp.stopped_by_movers(), game == "all", "game {game}, frame:light unset");
         let any = f.lights.iter().any(|l| l.stopped());
         assert_eq!(f.lamp_world.is_some(), any, "the lamps' volume only when some light is stopped (game {game}, light {own:?})");
     }
+}
+
+/// What moves stops a lamp whose shadows are "all" in view or not: a
+/// thing far out of the picture (its model left out of the drawn ones) is
+/// among the lamp's moving things while the lamp reaches it, so its shadow
+/// stays when it leaves the screen; one out of every such lamp's reach is
+/// not, and with no such lamp there are none.
+#[test]
+fn what_moves_out_of_view_still_stops_a_lamp_whose_shadows_are_all() {
+    let level = ROOM.replace("size = [64, 48, 40]", "size = [600, 48, 40]");
+    let main = |word: &str| {
+        format!(
+            "function on_level_start()\n  level:spawn('crate', 300, 24)\n  level:spawn('crate', 500, 24)\nend\nfunction on_draw(frame)\n  for _, th in ipairs(level:things()) do\n    if th.kind == 'crate' then frame:model('box.vvx', th) end\n  end\n  frame:light{{ at = {{ x = 290, y = 24, z = 10 }}, radius = 30, shadows = \"{word}\" }}\nend\n"
+        )
+    };
+    let conf = "  c.things.crate = { model = \"box.vvx\" }\n";
+    let g = game_in(&pieces_folder("movers-out-of-view", conf, &level, &main("all")));
+    let f = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+    let far = |x: f32| (x - 300.0).abs() < 4.0;
+    assert!(!f.models.iter().any(|m| far(m.origin.x)), "the crate at x 300 is out of the picture");
+    let groups: Vec<f32> = f.lamp_movers.iter().map(|d| d[0].origin.x).collect();
+    assert!(groups.len() == 1 && far(groups[0]), "the crate the lamp reaches, and only it: {groups:?}");
+    let g = game_in(&pieces_folder("movers-static", conf, &level, &main("static")));
+    assert!(g.compose(0.0, 16.0 / 9.0, Scene::Play, None).lamp_movers.is_empty(), "no lamp whose shadows are \"all\": none");
 }
 
 /// Fog is the picture's alone: `c.light.fog_density` changes neither the

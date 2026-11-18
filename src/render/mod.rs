@@ -12,6 +12,7 @@ mod fog;
 mod frame;
 mod lamps;
 mod limits;
+mod movers;
 mod passes;
 mod pipelines;
 mod shader;
@@ -160,7 +161,13 @@ impl Light {
 
     /// Whether walls stop it, in a picture whose lights are stated.
     pub fn stopped(&self) -> bool {
-        self.shadows == Some(LampShadows::Static)
+        self.shadows.is_some_and(LampShadows::stops_walls)
+    }
+
+    /// Whether moving things stop it too (`"all"`), in a picture whose
+    /// lights are stated.
+    pub fn stopped_by_movers(&self) -> bool {
+        self.shadows == Some(LampShadows::All)
     }
 }
 
@@ -188,26 +195,27 @@ pub struct LightShape {
 }
 
 /// What stops a lamp's light, the words of a light's `shadows` and of
-/// `c.light.lamp_shadows`: `"none"` (it shines through everything) or
-/// `"static"` (the level's solid voxels and its pieces). A third,
-/// `"all"` (moving things too), is decided and not built: one variant to
-/// add here, its word in `WORDS`.
+/// `c.light.lamp_shadows`: `"none"` (it shines through everything),
+/// `"static"` (the level's solid voxels and its pieces) or `"all"` (moving
+/// things too: figures, things, models drawn, cubes; `render::movers`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LampShadows {
     None,
     #[default]
     Static,
+    All,
 }
 
 impl LampShadows {
     /// The words there are, as written.
-    pub const WORDS: [&str; 2] = ["none", "static"];
+    pub const WORDS: [&str; 3] = ["none", "static", "all"];
 
     /// The word as written in files and scripts.
     pub fn word(self) -> &'static str {
         match self {
             Self::None => "none",
             Self::Static => "static",
+            Self::All => "all",
         }
     }
 
@@ -216,6 +224,7 @@ impl LampShadows {
         match word {
             "none" => Ok(Self::None),
             "static" => Ok(Self::Static),
+            "all" => Ok(Self::All),
             other => Err(format!("\"{other}\" is none of {}", Self::list())),
         }
     }
@@ -233,7 +242,7 @@ impl LampShadows {
 
     /// Whether the level's voxels and pieces stop the light.
     pub fn stops_walls(self) -> bool {
-        self == Self::Static
+        self != Self::None
     }
 }
 

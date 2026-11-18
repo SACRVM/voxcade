@@ -27,7 +27,12 @@ impl LightData {
             Some(s) => (s.way.extend(s.outer).to_array(), s.inner),
             None => ([0.0, 0.0, 0.0, -2.0], -2.0),
         };
-        let stopped = if walls && l.stopped() { 1.0 } else { 0.0 };
+        // 2: what moves stops it too (`"all"`, `render::movers`).
+        let stopped = match (walls && l.stopped(), l.stopped_by_movers()) {
+            (true, true) => 2.0,
+            (true, false) => 1.0,
+            _ => 0.0,
+        };
         // Its exact place as two whole numbers a float holds exactly: what
         // the lamps' memory knows it by (`lamps.wgsl`'s `stopped`).
         let mut h = crate::hash::Stable::default();
@@ -309,7 +314,14 @@ mod tests {
         use crate::render::lamps::LampGlobals;
         let lamps = wgpu::naga::front::wgsl::parse_str(&super::LAMPS).unwrap();
         let over = wgpu::naga::front::wgsl::parse_str(&super::FOG_COMPOSITE).unwrap();
-        let lamp = [("inv_view_proj", offset_of!(LampGlobals, inv_view_proj)), ("dims", offset_of!(LampGlobals, dims)), ("origin", offset_of!(LampGlobals, origin)), ("info", offset_of!(LampGlobals, info))];
+        let lamp = [
+            ("inv_view_proj", offset_of!(LampGlobals, inv_view_proj)),
+            ("dims", offset_of!(LampGlobals, dims)),
+            ("origin", offset_of!(LampGlobals, origin)),
+            ("info", offset_of!(LampGlobals, info)),
+            ("movers_dims", offset_of!(LampGlobals, movers_dims)),
+            ("movers_origin", offset_of!(LampGlobals, movers_origin)),
+        ];
         let fog = [
             ("inv_view_proj", offset_of!(FogGlobals, inv_view_proj)),
             ("eye", offset_of!(FogGlobals, eye)),

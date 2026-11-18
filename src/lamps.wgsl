@@ -24,6 +24,11 @@ struct Lamps {
     // x: the volume's state (changes when it does), y: the picture's
     // number
     info: vec4<u32>,
+    // The moving things' volume (render::movers, for lamps whose shadows
+    // are "all"): xyz its texels each way, w its copies (0: none); and its
+    // low corner in the level's voxels.
+    movers_dims: vec4<i32>,
+    movers_origin: vec4<i32>,
 };
 
 @group(0) @binding(0) var<uniform> lamps: Lamps;
@@ -35,6 +40,13 @@ struct Lamps {
 // WALLS {
 @group(0) @binding(4) var volume: texture_3d<u32>;
 @group(0) @binding(5) var<storage, read_write> seen: array<u32>;
+@group(0) @binding(6) var movers: texture_3d<u32>;
+// The boxes round the moving things, low corner and high, from the
+// volume's low corner (render::movers::Movers::boxes).
+@group(0) @binding(7) var<storage, read> mover_boxes: array<vec4<i32>>;
+// Each lamp's boxes, the ones it can light, one lamp's after another
+// (render::movers::Movers::lists; its light's `edge.y` says where).
+@group(0) @binding(8) var<storage, read> mover_lists: array<u32>;
 // } WALLS
 
 struct TileOut {
@@ -123,7 +135,7 @@ fn fs_lamp(in: TileOut) -> @location(0) vec4<f32> {
             continue;
         }
         // WALLS {
-        if (l.edge.y > 0.5 && ((of_level && dot(n, l.pos_radius.xyz - world) <= 0.0) || stopped(cell, off, l.pos_radius.xyz, ids, vec2<u32>(l.edge.zw)))) {
+        if (l.edge.y > 0.5 && ((of_level && dot(n, l.pos_radius.xyz - world) <= 0.0) || stopped(cell, off, l.pos_radius.xyz, ids, vec2<u32>(l.edge.zw)) || (l.edge.y > 1.5 && movers_stop(movers_from(cell, n, of_level), l.pos_radius.xyz, select(RIM, 0.0, of_level), u32(l.edge.y - 2.0), 0xffffffffu)))) {
             continue;
         }
         // } WALLS
@@ -165,6 +177,163 @@ fn fs_lamp_ask(in: TileOut) -> @location(0) vec4<f32> {
         _ = stopped(cell, off, l.pos_radius.xyz, ids, vec2<u32>(l.edge.zw));
     }
     return vec4<f32>(0.0);
+}
+
+// Whether the cell `c` (from the moving things' volume's low corner) of
+// its copy `level` holds anything.
+fn mover_solid(c: vec3<i32>, level: i32) -> bool {
+    let t = c >> vec3<u32>(1u);
+    let dims = lamps.movers_dims.xyz >> vec3<u32>(u32(level));
+    if (any(t < vec3<i32>(0)) || any(t >= dims)) {
+        return false;
+    }
+    let bits = textureLoad(movers, t, level).r;
+    let b = u32((c.x & 1) | ((c.y & 1) << 1u) | ((c.z & 1) << 2u));
+    return ((bits >> b) & 1u) == 1u;
+}
+
+// How far along the way `dir` from `origin` (the moving things' volume's)
+// it first leaves what moves, looking at most `most` voxels on: 0 when it
+// starts in the open, -1 when it is still inside there.
+fn leave_mover(origin: vec3<f32>, dir: vec3<f32>, most: f32) -> f32 {
+    let inv = 1.0 / dir;
+    var t = 0.0;
+    for (var i = 0; i < 64; i += 1) {
+        let c = vec3<i32>(floor(origin + dir * t));
+        if (!mover_solid(c, 0)) {
+            return t;
+        }
+        let lo = vec3<f32>(c);
+        let ts = (select(lo, lo + vec3<f32>(1.0), dir > vec3<f32>(0.0)) - origin) * inv;
+        t = min(ts.x, min(ts.y, ts.z)) + 0.001;
+        if (t > most) {
+            break;
+        }
+    }
+    return -1.0;
+}
+
+// Where a face's way to a lamp whose shadows are "all" begins: the middle
+// of the cell in front of it (`cell`), as for the walls; a moving thing's
+// face (not `of_level`) a voxel further out along its way `n`, so a way
+// grazing a turned figure's own surface does not catch its cells, which
+// change as a part moves a little (a face flicking dark for a picture).
+fn movers_from(cell: vec3<i32>, n: vec3<f32>, of_level: bool) -> vec3<f32> {
+    return vec3<f32>(cell) + vec3<f32>(0.5) + select(n, vec3<f32>(0.0), of_level);
+}
+
+// A lamp's word for its boxes (`list`, render::movers::Movers::lists)
+// meaning all of the volume.
+const EVERY_BOX: u32 = 255u;
+
+// The span of the way from `lamp` along `dir` (in the moving things'
+// volume, its inverse `inv`), up to `len`, within the boxes `list` names
+// (where they begin in `mover_lists`, times 256, and how many; of the
+// first 32 only those `mask` has a bit for): from where it enters the
+// first it meets to where it leaves the last; none (x past y) when it
+// meets none.
+fn in_boxes(lamp: vec3<f32>, inv: vec3<f32>, len: f32, list: u32, mask: u32) -> vec2<f32> {
+    var span = vec2<f32>(1e30, -1.0);
+    let n = list & 255u;
+    let start = list >> 8u;
+    for (var i = 0u; i < select(n, 0u, n == EVERY_BOX); i += 1u) {
+        if (i < 32u && ((mask >> i) & 1u) == 0u) {
+            continue;
+        }
+        let k = i32(mover_lists[start + i]);
+        let a = (vec3<f32>(mover_boxes[2 * k].xyz) - lamp) * inv;
+        let b = (vec3<f32>(mover_boxes[2 * k + 1].xyz) - lamp) * inv;
+        let t = max(max(max(min(a.x, b.x), min(a.y, b.y)), min(a.z, b.z)), 0.0);
+        let end = min(min(min(max(a.x, b.x), max(a.y, b.y)), max(a.z, b.z)), len);
+        if (t < end) {
+            span = vec2<f32>(min(span.x, t), max(span.y, end));
+        }
+    }
+    if (n == EVERY_BOX) {
+        // Every box: the whole volume.
+        let a = -lamp * inv;
+        let b = (vec3<f32>(lamps.movers_dims.xyz * 2) - lamp) * inv;
+        span = vec2<f32>(max(max(max(min(a.x, b.x), min(a.y, b.y)), min(a.z, b.z)), 0.0), min(min(min(max(a.x, b.x), max(a.y, b.y)), max(a.z, b.z)), len));
+    }
+    return span;
+}
+
+// Whether a moving thing (render::movers) stands between the lamp at
+// `lamp_at` and the point `to_at` (a face's, `movers_from`; a point of a
+// beam), for a lamp whose shadows are "all": the moving things' volume
+// walked as `walk` walks the level's, only where the way meets the boxes
+// the lamp can light (`list`, `mask`). The lamp in what moves (a car's
+// headlight) leaves it first (HOUSING); the point, in what moves, looks
+// past it for `rim` voxels (a moving thing's face where another part of it
+// lies right in front).
+fn movers_stop(to_at: vec3<f32>, lamp_at: vec3<f32>, rim: f32, list: u32, mask: u32) -> bool {
+    if (lamps.movers_dims.w == 0) {
+        return false;
+    }
+    let corner = vec3<f32>(lamps.movers_origin.xyz);
+    let lamp = lamp_at - corner;
+    let to = to_at - corner;
+    let d = to - lamp;
+    let len = length(d);
+    if (len < 0.5) {
+        return false;
+    }
+    let dir = select(d / len, vec3<f32>(1e-7), abs(d / len) < vec3<f32>(1e-7));
+    let inv = 1.0 / dir;
+    let span = in_boxes(lamp, inv, len, list, mask);
+    var t = span.x;
+    var end = span.y;
+    if (end <= t) {
+        return false;
+    }
+    if (t <= 0.0) {
+        let begin = leave_mover(lamp, dir, min(len, HOUSING));
+        if (begin < 0.0) {
+            return true;
+        }
+        t = begin;
+    }
+    if (rim > 0.0 && end >= len) {
+        end = len - max(leave_mover(to, -dir, rim), 0.0);
+    }
+    // The boxes are a thing each, a few voxels to a few dozen: the walk
+    // begins at cells of 4 voxels and goes no coarser than 8.
+    let top = min(lamps.movers_dims.w - 1, 3);
+    var level = min(top, 2);
+    for (var i = 0; i < MOST_STEPS; i += 1) {
+        if (t >= end) {
+            return false;
+        }
+        let p = lamp + dir * t;
+        let size = f32(1 << u32(level));
+        let c = vec3<i32>(floor(p / size));
+        if (mover_solid(c, level)) {
+            if (level == 0) {
+                return true;
+            }
+            level -= 1;
+        } else {
+            let lo = vec3<f32>(c) * size;
+            let ts = (select(lo, lo + vec3<f32>(size), dir > vec3<f32>(0.0)) - lamp) * inv;
+            let out = min(ts.x, min(ts.y, ts.z));
+            // Between two cells touching only at an edge: closed, as `walk`.
+            let tied = (ts - vec3<f32>(out)) < vec3<f32>(1e-3 * size);
+            if (u32(tied.x) + u32(tied.y) + u32(tied.z) > 1u) {
+                let ahead = select(vec3<i32>(-1), vec3<i32>(1), dir > vec3<f32>(0.0));
+                let beside = u32(tied.x && mover_solid(c + vec3<i32>(ahead.x, 0, 0), level)) + u32(tied.y && mover_solid(c + vec3<i32>(0, ahead.y, 0), level)) + u32(tied.z && mover_solid(c + vec3<i32>(0, 0, ahead.z), level));
+                if (beside > 1u) {
+                    if (level == 0) {
+                        return true;
+                    }
+                    level -= 1;
+                    continue;
+                }
+            }
+            t = max(out, t) + 0.001;
+            level = min(level + 1, top);
+        }
+    }
+    return false;
 }
 
 // Whether the cell `c` of the copy `level` (2^level voxels across) holds

@@ -736,9 +736,9 @@ fn shape_rows(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, game: cr
     row(ui, "FOG", "How strongly its light shows in the game's fog: 0 not at all, 1 as bright as it lights (fog in the level's file)", |ui| {
         field(ui, shown, "", None, f64::from(s.fog), Field::LightWord(k, word("fog")), 0.02, range("fog"), "", FIELD);
     });
-    row(ui, "SHADOWS", "What stops it: NONE, it shines through walls; STATIC, the level's voxels and its pieces (shadows in the level's file). Lit plain: the game's word (c.light.lamp_shadows), for a light that says none; a click on its own word clears it", |ui| {
+    row(ui, "SHADOWS", "What stops it: NONE, it shines through walls; STATIC, the level's voxels and its pieces; ALL, moving things too, in the game (the editor's views have none; shadows in the level's file). Lit plain: the game's word (c.light.lamp_shadows), for a light that says none; a click on its own word clears it", |ui| {
         use crate::render::LampShadows as L;
-        for (word, how) in [("NONE", L::None), ("STATIC", L::Static)] {
+        for (word, how) in [("NONE", L::None), ("STATIC", L::Static), ("ALL", L::All)] {
             // Both pressed in: its own word in the accent, the game's plain.
             let (own, inherited) = (l.shadows == Some(how), l.shadows.is_none() && game == how);
             let colour = if own { ACCENT } else { TEXT };

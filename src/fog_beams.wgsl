@@ -125,7 +125,7 @@ fn scatter(l: Light, p: vec3<f32>, dir: vec3<f32>) -> vec3<f32> {
 // Whether the lamp `l` reaches the middle of the voxel the point `p` is
 // in, walls stopping it: the faces' memory asked as for the face in front
 // of that voxel (the same walk, the same answer).
-fn reaches(l: Light, p: vec3<f32>) -> bool {
+fn reaches(l: Light, p: vec3<f32>, movers: u32) -> bool {
     // WALLS {
     if (l.edge.y > 0.5) {
         let cell = vec3<i32>(floor(p));
@@ -133,7 +133,9 @@ fn reaches(l: Light, p: vec3<f32>) -> bool {
             return false;
         }
         let ids = vec2<u32>(mix_hash(0x9e3779b9u, cell), mix_hash(0x85ebca6bu, cell));
-        return !stopped(cell, 0u, l.pos_radius.xyz, ids, vec2<u32>(l.edge.zw));
+        // A lamp whose shadows are "all": what moves too, asked afresh,
+        // only the boxes whose shadows the ray meets (`movers`, `shading`).
+        return !stopped(cell, 0u, l.pos_radius.xyz, ids, vec2<u32>(l.edge.zw)) && !(movers != 0u && movers_stop(vec3<f32>(cell) + vec3<f32>(0.5), l.pos_radius.xyz, 0.0, u32(l.edge.y - 2.0), movers));
     }
     // } WALLS
     return true;
@@ -145,7 +147,7 @@ fn reaches(l: Light, p: vec3<f32>) -> bool {
 // light bends there), each the light it gets (unstopped, `scatter`) and
 // whether it gets it; where that changes between two points, where it
 // changes.
-fn beam(l: Light, dir: vec3<f32>, a: f32, b: f32, core: vec2<f32>, air: f32) -> vec3<f32> {
+fn beam(l: Light, dir: vec3<f32>, a: f32, b: f32, core: vec2<f32>, air: f32, movers: u32) -> vec3<f32> {
     let density = fog.lo.w;
     let eye = fog.eye.xyz;
     let ahead = max(dot(dir, fog.forward.xyz), 0.05);
@@ -154,7 +156,7 @@ fn beam(l: Light, dir: vec3<f32>, a: f32, b: f32, core: vec2<f32>, air: f32) -> 
     let stopping = l.edge.y > 0.5;
     var t0 = a;
     var f0 = scatter(l, eye + dir * a, dir) * exp(-density * (a - air));
-    var v0 = !stopping || reaches(l, eye + dir * a);
+    var v0 = !stopping || reaches(l, eye + dir * a, movers);
     var sum = vec3<f32>(0.0);
     for (var k = 0; k < i32(FOG_MOST_PLANES) + 4; k += 1) {
         // The next plane, or the core's edge if it comes first.
@@ -168,7 +170,7 @@ fn beam(l: Light, dir: vec3<f32>, a: f32, b: f32, core: vec2<f32>, air: f32) -> 
         t1 = min(t1, b);
         let p1 = eye + dir * t1;
         let f1 = scatter(l, p1, dir) * exp(-density * (t1 - air));
-        let v1 = !stopping || reaches(l, p1);
+        let v1 = !stopping || reaches(l, p1, movers);
         if (v0 == v1) {
             if (v0) {
                 sum += (f0 + f1) * 0.5 * (t1 - t0);
@@ -179,7 +181,7 @@ fn beam(l: Light, dir: vec3<f32>, a: f32, b: f32, core: vec2<f32>, air: f32) -> 
             var hi = t1;
             for (var i = 0; i < FOG_EDGE_STEPS; i += 1) {
                 let mid = (lo + hi) * 0.5;
-                if (reaches(l, eye + dir * mid) == v0) {
+                if (reaches(l, eye + dir * mid, movers) == v0) {
                     lo = mid;
                 } else {
                     hi = mid;
@@ -201,6 +203,66 @@ fn beam(l: Light, dir: vec3<f32>, a: f32, b: f32, core: vec2<f32>, air: f32) -> 
         v0 = v1;
     }
     return sum * density;
+}
+
+// Whether the box round `middle`, `half` each way, meets the triangle
+// `a`, `b`, `c` (Akenine-Möller's separating axes: the box's three, the
+// triangle's plane, the nine across the edges).
+fn box_meets_triangle(middle: vec3<f32>, half: vec3<f32>, a: vec3<f32>, b: vec3<f32>, c: vec3<f32>) -> bool {
+    var v = array<vec3<f32>, 3>(a - middle, b - middle, c - middle);
+    if (any(min(min(v[0], v[1]), v[2]) > half) || any(max(max(v[0], v[1]), v[2]) < -half)) {
+        return false;
+    }
+    var e = array<vec3<f32>, 3>(v[1] - v[0], v[2] - v[1], v[0] - v[2]);
+    let n = cross(e[0], e[1]);
+    if (abs(dot(n, v[0])) > dot(half, abs(n))) {
+        return false;
+    }
+    for (var i = 0; i < 3; i += 1) {
+        let ed = e[i];
+        var axes = array<vec3<f32>, 3>(vec3<f32>(0.0, -ed.z, ed.y), vec3<f32>(ed.z, 0.0, -ed.x), vec3<f32>(-ed.y, ed.x, 0.0));
+        for (var j = 0; j < 3; j += 1) {
+            let ax = axes[j];
+            let p = vec3<f32>(dot(ax, v[0]), dot(ax, v[1]), dot(ax, v[2]));
+            let r = dot(half, abs(ax));
+            if (min(p.x, min(p.y, p.z)) > r || max(p.x, max(p.y, p.z)) < -r) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+// Which of the boxes of a lamp whose shadows are "all" (`l`, its list in
+// `edge.y`) can shade the stretch of a ray from `near` to `far`: those
+// that meet the triangle of the lamp and the stretch (the ways from the
+// lamp to every point of it; grown by a voxel, as a point is asked at its
+// voxel's middle), a bit each of the first 32
+// (past 32 all of them). Once a ray, so its points walk only those: most
+// rays through the fog pass no moving thing's shadow.
+fn shading(l: Light, near: vec3<f32>, far: vec3<f32>) -> u32 {
+    var mask = 0u;
+    // WALLS {
+    let list = u32(l.edge.y - 2.0);
+    let n = list & 255u;
+    if (lamps.movers_dims.w == 0) {
+        return 0u;
+    }
+    if (n > 32u) {
+        return 0xffffffffu;
+    }
+    let start = list >> 8u;
+    let corner = vec3<f32>(lamps.movers_origin.xyz);
+    for (var i = 0u; i < n; i += 1u) {
+        let k = i32(mover_lists[start + i]);
+        let lo = corner + vec3<f32>(mover_boxes[2 * k].xyz);
+        let hi = corner + vec3<f32>(mover_boxes[2 * k + 1].xyz);
+        if (box_meets_triangle((lo + hi) * 0.5, (hi - lo) * 0.5 + vec3<f32>(1.0), l.pos_radius.xyz, near, far)) {
+            mask |= 1u << i;
+        }
+    }
+    // } WALLS
+    return mask;
 }
 
 // The light the tile's lights send to the eye along the ray the way `dir`
@@ -230,7 +292,8 @@ fn beams_over(in: TileOut, dir: vec3<f32>, begin: f32, end: f32, air: f32) -> ve
             }
         }
         if (b > a) {
-            sum += beam(l, dir, a, b, core, air);
+            let movers = select(0u, shading(l, fog.eye.xyz + dir * a, fog.eye.xyz + dir * b), l.edge.y > 1.5);
+            sum += beam(l, dir, a, b, core, air, movers);
         }
     }
     return sum;

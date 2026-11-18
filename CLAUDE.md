@@ -1581,9 +1581,17 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `frame:light{ ... }`; `render::LightShape`, `LIGHT_WORDS` the ranges,
   `Light::lamp`; the kits' flashes `Light::burst`, through walls as ever),
   `c.light.lamp_shadows`; `shadows` takes words, `"static"` (walls
-  stop it) or `"none"` (`render::LampShadows`; `"all"`, moving things
-  too, is decided and not built; `true`/`false` are refused naming the
-  word to write). `c.light.lamp_shadows` is the game's word for every
+  stop it), `"all"` (moving things too: `render::movers`, a second bit
+  volume of the models and cubes drawn, gathered in view or not where an
+  "all" lamp reaches, `Drawing::movers`, made every picture, a cell
+  filled where its middle lies in a voxel; walked afresh after the walls'
+  kept answer, only within the boxes the lamp can light,
+  `Movers::lists`, a beam's ray only those that can shade it,
+  `shading`; `movers_from` and `RIM` against acne, `HOUSING`; tests
+  `a_moving_thing_stops_a_lamp_whose_shadows_are_all`,
+  `what_moves_out_of_view_still_stops_a_lamp_whose_shadows_are_all`) or `"none"`
+  (`render::LampShadows`; `true`/`false` are refused naming the word to
+  write). `c.light.lamp_shadows` is the game's word for every
   light that leaves `shadows` unset (`"static"` unless set; unset is
   carried as `None` in `LightShape`, `ThingLight` and `Light` until
   `Light::stated` lays the game's word over it); a light's own word
@@ -1603,7 +1611,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   pixels do not each walk (test
   `a_lamp_new_to_the_faces_memory_is_asked_for_first`). The upgrade step "lamps stopped by walls"
   (0.7.0) says which lights of a game and how to keep the old look; it
-  changes nothing. Moving things stop no lamp.
+  changes nothing. Moving things stop no `"static"` lamp.
 - Fog (0.7, the owner's names, the classic smooth way; `docs/engine.md`
   "Fog and beams"): `c.light.fog_density` (0 none unless set),
   `fog_color`, `fog_anisotropy`, `fog_glow` (0 to 20, 1: the beams lit

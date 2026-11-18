@@ -306,6 +306,10 @@ pub struct Session<G: Game> {
     /// the level's pieces, every one in view or not, for what stops them
     /// (`FrameData::lamp_pieces`).
     lamps_drawn: std::cell::Cell<bool>,
+    /// A picture had a lamp what moves stops (`"all"`): the pictures from
+    /// then on gather what moves, every thing in view or not
+    /// (`FrameData::lamp_movers`).
+    movers_drawn: std::cell::Cell<bool>,
     /// The faces pictures the game set with another pitch or field of view
     /// than its camera's could see (`frame:camera`): the meshes keep them
     /// too from then on (`face_mask`).
