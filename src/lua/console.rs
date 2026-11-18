@@ -123,7 +123,8 @@ impl<K: Kit> LuaGame<K> {
             game.with_world(|sb, _| {
                 let values = sb.run_in("console", &chunk, env, "the console")?;
                 let tostring = sb.tool("tostring")?;
-                Ok(values.iter().map(|v| shown(v, &tostring)).collect::<Vec<String>>())
+                let pairs = sb.tool("pairs")?;
+                Ok(values.iter().map(|v| shown(&sb.lua, v, &tostring, &pairs)).collect::<Vec<String>>())
             })
         });
         let printed: Vec<String> = {
@@ -162,14 +163,38 @@ fn scenario_table(path: &str, got: mlua::MultiValue) -> Result<Table> {
 }
 
 /// A value as the console shows it: plain data as a state is written in
-/// a save, anything else as `tostring` gives it (a thing, a function).
-fn shown(v: &mlua::Value, tostring: &Function) -> String {
+/// a save, anything else as `tostring` gives it (a thing, a function). A
+/// read-only view (a frozen global, `thing.props`, a top-level state) is
+/// shown as the table it shows; a top-level state's engine keys (`score`,
+/// `hp`) come with it, read through the script's own `pairs`.
+fn shown(lua: &mlua::Lua, v: &mlua::Value, tostring: &Function, pairs: &Function) -> String {
     match v {
-        mlua::Value::Table(_) => match value::capture(v, "", &mut value::Seen::default(), false) {
+        mlua::Value::Table(t) => match table_shown(lua, t, pairs) {
             Ok(Some(plain)) => data::write(&plain),
             _ => tostring.call::<String>(v.clone()).unwrap_or_default(),
         },
         mlua::Value::String(s) => format!("{:?}", s.to_string_lossy()),
         other => tostring.call::<String>(other.clone()).unwrap_or_default(),
     }
+}
+
+/// The data a table shows: a plain one as it is, a view by what the
+/// script's `pairs` walks in it (its top level only; nested views are
+/// read as the table they show).
+fn table_shown(lua: &mlua::Lua, t: &Table, pairs: &Function) -> Result<Option<crate::lua::Value>> {
+    if t.metatable().is_none() {
+        return value::capture(&mlua::Value::Table(t.clone()), "", &mut value::Seen::default(), false);
+    }
+    let (next, state, first): (Function, mlua::Value, mlua::Value) = pairs.call(t.clone())?;
+    let top = lua.create_table()?;
+    let mut key = first;
+    loop {
+        let (k, v): (mlua::Value, mlua::Value) = next.call((state.clone(), key))?;
+        if k.is_nil() {
+            break;
+        }
+        top.raw_set(k.clone(), v)?;
+        key = k;
+    }
+    value::capture_given(lua, &mlua::Value::Table(top), "", false)
 }

@@ -167,3 +167,37 @@ fn a_scenario_may_only_name_a_level() {
     let e = format!("{:#}", g.start_scenario("at_nothing").unwrap_err());
     assert!(e.contains("scenarios/at_nothing.lua: the level b has no place called nothing") && !halted(&g).is_empty(), "{e}");
 }
+
+/// The console shows a read-only view as the table it shows, as it shows a
+/// plain table: a frozen global, a state's nested table, `thing.props`
+/// and a top-level state (its engine keys too, as `pairs` walks them).
+/// What it prints is display only: the line, not its answer, is what a
+/// replay keeps.
+#[test]
+fn the_console_shows_a_views_contents() {
+    let main = r#"
+LEVELS = { "a", "b", n = { x = 1 } }
+function on_level_start()
+  level:spawn("door", 10, 10, { name = "d" })
+  player.state.nested = { hp = 3, tags = { "x" } }
+  player.state.plain = 7
+end
+"#;
+    let dir = folder("console-views", main);
+    let conf = CONF.replace("c.things.gem", "c.things.door = { props = { to = \"a\", locked = false } }\n  c.things.gem");
+    std::fs::write(dir.join("conf.lua"), conf).unwrap();
+    let mut g = game_in(&dir);
+    steps(&mut g, 2);
+    assert_eq!(halted(&g), "");
+    // The answer of a plain literal is the pattern each view must match.
+    let levels = said(&mut g, "{ 'a', 'b', n = { x = 1 } }");
+    assert!(levels.contains("\"a\"") && levels.contains("x = 1"), "{levels}");
+    assert_eq!(said(&mut g, "LEVELS"), levels, "a frozen global as the plain table");
+    let nested = said(&mut g, "{ hp = 3, tags = { 'x' } }");
+    assert_eq!(said(&mut g, "player.state.nested"), nested, "a state's nested table");
+    let props = said(&mut g, "{ locked = false, to = 'a' }");
+    assert_eq!(said(&mut g, "level:thing('d').props"), props, "thing.props");
+    let top = said(&mut g, "player.state");
+    assert!(top.contains("plain = 7") && top.contains("hp = 3") && top.contains("score = 0"), "{top}");
+    assert!(g.evals.iter().all(|line| !line.contains("score =")), "the replay keeps the lines, not the answers");
+}
