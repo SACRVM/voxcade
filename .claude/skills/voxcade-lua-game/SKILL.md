@@ -120,8 +120,11 @@ names the things (the editor offers ALIGN ALL). `light = { at = [0, 0,
 12], radius = 40, color = "#ffd9a0" }`: `at` from the pivot in the
 model's voxels, turning with it; `lights = [ {...}, {...} ]` for
 several (a flame and its glow); `thing.state.light` dims all of them, 0
-off to 1 (1 at first), kept by saves; more than 16 lights in view: the
-16 nearest the middle of the view shine, each light counting. A piece
+off to 1 (1 at first), kept by saves; a light takes `falloff`, `cone`,
+`blend`, `rotation`, `pitch` and `shadows` too (0.7: walls stop a lamp
+unless `shadows = false`; `c.light.lamp_shadows = false` for all;
+`frame:light{ at =, radius =, ... }` the same words); up to 4096 lights a
+picture, the nearest the middle of the view. A piece
 whose model is a figure of parts (a door: its frame, the leaf with
 `parent = "frame"` and its `joint` at the hinge) is posed by its state:
 `level:thing("door").state.parts = { leaf = { rotation = 90 } }`, the

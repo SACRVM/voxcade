@@ -322,6 +322,8 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         haze_start: 1.0,
         haze_depth: 1.0,
         lights: if view.lights && ed.scope == Scope::Level { lights(ed, orbit.target) } else { Vec::new() },
+        lamp_world: None,
+        lamp_pieces: Vec::new(),
         glow: 0.0,
         shadow_map: SHADOW_MAP,
         tilt_shift: 0.0,
@@ -348,8 +350,9 @@ pub const GHOST: u8 = 70;
 pub const ROOM_TILE: i32 = 10;
 
 /// The lights of the level's pieces as the game shows them at their
-/// brightest: the `MAX_LIGHTS` nearest `middle` (the view's), as the game
-/// takes those nearest its view's.
+/// brightest, shaped and turned with their pieces: the `MOST_LIGHTS`
+/// nearest `middle` (the view's), as the game takes those nearest its
+/// view's. (Walls do not stop them here.)
 pub fn lights(ed: &Editor, middle: Vec3) -> Vec<crate::render::Light> {
     // (A piece hidden in the editor is dark with it.)
     let mut lights: Vec<crate::render::Light> = ed
@@ -359,10 +362,10 @@ pub fn lights(ed: &Editor, middle: Vec3) -> Vec<crate::render::Light> {
         .enumerate()
         .filter(|&(i, _)| !ed.is_hidden(Item::Thing(i)))
         .map(|(_, t)| t)
-        .flat_map(|t| room::light_spots(t, ed.size_of(t)).map(|(pos, l)| crate::render::Light { pos, radius: l.radius as f32, color: l.rgb() }))
+        .flat_map(|t| room::light_spots(t, ed.size_of(t)).map(move |(pos, l)| crate::render::Light::lamp(pos, l.radius as f32, l.rgb(), &l.shape(), |w| if t.model.is_some() { room::rotation_of(t) * w } else { w })))
         .collect();
     lights.sort_by(|a, b| a.pos.distance_squared(middle).total_cmp(&b.pos.distance_squared(middle)));
-    lights.truncate(crate::render::MAX_LIGHTS);
+    lights.truncate(crate::render::MOST_LIGHTS);
     lights
 }
 

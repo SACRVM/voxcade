@@ -8,7 +8,7 @@
 -- voxels per second.
 
 function conf(c)
-  c.voxcade = "0.6.0"   -- the Voxcade version these files are for
+  c.voxcade = "0.7.0"   -- the Voxcade version these files are for
   c.title = "My Game"
   c.kit = "shooter"
   c.players = 2                     -- up to two players

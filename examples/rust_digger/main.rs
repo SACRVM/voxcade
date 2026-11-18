@@ -228,7 +228,7 @@ impl Game for Digger {
             out.cube(feet + turn(IVec3::new(x, y, z)).as_vec3(), color, 0.0, 1.0);
         }
         let ahead = Vec3::new(self.body.look.x as f32, self.body.look.y as f32, 0.0);
-        out.light(Light { pos: lamp + ahead * 4.0, radius: 14.0, color: [1.0, 0.9, 0.6] });
+        out.light(Light::burst(lamp + ahead * 4.0, 14.0, [1.0, 0.9, 0.6]));
     }
 
     fn focus(&self) -> Option<&Body> {

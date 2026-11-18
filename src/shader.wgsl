@@ -6,21 +6,16 @@
 // The numbers the Rust side shares with it (MAX_LIGHTS, FACES, the lanes
 // of an instance's fx, the faces' order, metal's packing) are not written
 // here: render::shader::prelude writes them ahead of this text, from the
-// one table both sides read.
-
-struct Light {
-    // xyz: position, w: radius
-    pos_radius: vec4<f32>,
-    // rgb: colour times brightness
-    color: vec4<f32>,
-};
+// one table both sides read; and `light.wgsl` (a light, what it gives a
+// point), which the lamps' pass shares.
 
 struct Globals {
     view_proj: mat4x4<f32>,
     light_vp: mat4x4<f32>,
     // xyz: direction the sunlight travels, w: shadow depth bias
     sun_dir: vec4<f32>,
-    // x: ambient, y: shadow strength, z: shadow texel size, w: light count
+    // x: ambient, y: shadow strength, z: shadow texel size, w: how many of
+    // `lights` this pass lights by (the nearest the middle of the view)
     params: vec4<f32>,
     // xyz: eye position, w: haze strength
     eye: vec4<f32>,
@@ -618,21 +613,13 @@ fn shadow_lookup(world: vec3<f32>, n: vec3<f32>) -> f32 {
     return sum / 9.0;
 }
 
-// Light from flashes and explosions near this point.
+// Light from flashes, explosions and lamps near this point (walls aside:
+// the lamps walls stop are the lamps' pass's, render::lamps).
 fn flare_light(world: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     var sum = vec3<f32>(0.0);
     let count = u32(g.params.w);
     for (var i = 0u; i < count; i += 1u) {
-        let l = g.lights[i];
-        let to = l.pos_radius.xyz - world;
-        let d = length(to);
-        let r = l.pos_radius.w;
-        if (d < r) {
-            let fall = 1.0 - d / r;
-            // Faces turned away still catch a little: it is a burst, not a lamp.
-            let facing = max(dot(n, to / max(d, 0.001)), 0.0) * 0.75 + 0.25;
-            sum += l.color.rgb * fall * fall * facing;
-        }
+        sum += light_on(g.lights[i], world, n);
     }
     return sum;
 }
@@ -660,7 +647,11 @@ fn flare_glint(world: vec3<f32>, n: vec3<f32>, v: vec3<f32>, power: f32) -> vec3
         let r = l.pos_radius.w;
         if (d < r) {
             let h = normalize(to / max(d, 0.001) + v);
-            sum += l.color.rgb * (1.0 - d / r) * pow(max(dot(n, h), 0.0), power) * (power + 8.0) / 24.0;
+            var glint = l.color.rgb * (1.0 - d / r) * pow(max(dot(n, h), 0.0), power) * (power + 8.0) / 24.0;
+            if (l.spot.w > -1.5) {
+                glint *= in_cone(l, -to / max(d, 0.001));
+            }
+            sum += glint;
         }
     }
     return sum;
@@ -680,8 +671,70 @@ fn fs_outline(in: VOut) -> FOut {
     return out;
 }
 
+// The outline in the lamps' scene (render::lamps): its pixels no surface
+// for the lamps to light.
+@fragment
+fn fs_outline_lamps(in: VOut) -> LampsOut {
+    var out: LampsOut;
+    out.color = vec4<f32>(in.color, 1.0);
+    out.glow = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    out.surface = vec4<u32>(0u);
+    return out;
+}
+
 @fragment
 fn fs_main(in: VOut) -> FOut {
+    return shade(in, true).out;
+}
+
+// The scene of a picture whose lights the lamps' pass draws
+// (render::lamps): each pixel as fs_main without the lights, and what the
+// pass needs of its surface (`surface`): x the colour the light falls on (8
+// bits each), bit 24 a surface there, bit 25 off the grid, bits 26 to 28
+// the face's way (`face_index`; 7 off the grid); y, z and w's
+// low 16 bits the cell in front of its face (lamps.wgsl's ways to a lamp
+// start in its middle: the voxel's neighbour across the face; off the grid
+// the cell a voxel out from its middle, so a face is lit or not as a
+// whole); w's high bits the way it is lit by (`lit_way`).
+struct LampsOut {
+    @location(0) color: vec4<f32>,
+    @location(1) glow: vec4<f32>,
+    @location(2) surface: vec4<u32>,
+};
+
+@fragment
+fn fs_main_lamps(in: VOut) -> LampsOut {
+    let s = shade(in, false);
+    var out: LampsOut;
+    out.color = s.out.color;
+    out.glow = s.out.glow;
+    let face = normalize(in.normal);
+    var n = face;
+    if (in.shade.w > 0.5) {
+        n = normalize(in.shade.xyz);
+    }
+    let off = in.centre.w > 0.5;
+    var cell = vec3<i32>(floor(in.world - face * 0.5) + face);
+    if (off) {
+        cell = vec3<i32>(floor(in.centre.xyz + face));
+    }
+    let keep = pack4x8unorm(vec4<f32>(clamp(s.keep, vec3<f32>(0.0), vec3<f32>(1.0)), 0.0)) & 0xffffffu;
+    let way = vec3<u32>(round(clamp(n, vec3<f32>(-1.0), vec3<f32>(1.0)) * 15.0) + 15.0);
+    let way_index = select(face_index(face), 7u, off);
+    out.surface = vec4<u32>(keep | (1u << 24u) | (select(0u, 1u, off) << 25u) | (way_index << 26u), bitcast<u32>(cell.x), bitcast<u32>(cell.y), (bitcast<u32>(cell.z) & 0xffffu) | (way.x << 16u) | (way.y << 21u) | (way.z << 26u));
+    return out;
+}
+
+// A fragment shaded, and the colour the lights fall on (what multiplies
+// their light in it: its own, less what glows, mirrors or the haze hides).
+struct Shaded {
+    out: FOut,
+    keep: vec3<f32>,
+};
+
+// The scene's shading of a fragment; with `lights` false without the
+// flashes', explosions' and lamps' light (the lamps' pass adds it).
+fn shade(in: VOut, lights: bool) -> Shaded {
     let face = normalize(in.normal);
     // A voxel shaded smooth is lit as a whole, by its surface's direction.
     var n = face;
@@ -697,10 +750,14 @@ fn fs_main(in: VOut) -> FOut {
     // the ambient light every face gets.
     let sun = vec3<f32>(ambient) + (1.0 - ambient) * diffuse * mix(1.0 - shadow, 1.0, vis) * g.sun_color.rgb;
     let ao = mix(0.5, 1.0, in.ao);
-    let lit = in.color * (sun * ao + flare_light(in.world, n));
+    var lit = in.color * (sun * ao);
+    if (lights) {
+        lit = in.color * (sun * ao + flare_light(in.world, n));
+    }
     // Glowing things shine in their own colour, whatever the light.
     let glow = in.fx.x;
     var color = mix(lit, in.color * 1.15, glow);
+    var keep = in.color * (1.0 - glow);
 
     // Metal is a mirror more than a colour: its colour is how much it
     // mirrors (more at a glancing look), and what it mirrors is the sky -
@@ -724,6 +781,7 @@ fn fs_main(in: VOut) -> FOut {
         let h = normalize(to_sun + v);
         let highlight = pow(max(dot(n, h), 0.0), power) * (power + 8.0) / 24.0 * mix(0.15, 1.0, vis);
         let m = in.metal.x;
+        keep *= 1.0 - m;
         // Shadows still darken it a little, so they read on metal too.
         let metal = (seen * 1.08 + vec3<f32>(sheen)) * reflectance * mix(0.72, 1.0, vis);
         color = mix(color, metal, m) + highlight * m * g.sun_color.rgb;
@@ -754,6 +812,7 @@ fn fs_main(in: VOut) -> FOut {
         let sun_glint = pow(max(dot(facet, h), 0.0), power) * (power + 8.0) / 24.0 * vis;
         let glint = sun_glint * g.sun_color.rgb + flare_glint(in.world, facet, v, power);
         color = mix(color, mirrored(reflect(-v, facet)), fresnel) + glint;
+        keep *= 1.0 - fresnel;
         opacity = mix(opacity, 1.0, clamp(fresnel + max(glint.r, max(glint.g, glint.b)), 0.0, 1.0));
         // The glints glow a little too, so they sparkle.
         shine = glint;
@@ -761,10 +820,11 @@ fn fs_main(in: VOut) -> FOut {
 
     let haze = clamp((distance(in.world, g.eye.xyz) - g.haze.w) * g.misc.x, 0.0, 1.0) * g.eye.w;
     color = mix(color, g.haze.rgb, haze * (1.0 - glow));
+    keep *= 1.0 - haze * (1.0 - glow);
 
     var out: FOut;
     out.color = vec4<f32>(color, opacity);
     // The sweep glows a little too, so it sparkles.
     out.glow = vec4<f32>(in.color * glow + shine * 0.3, opacity);
-    return out;
+    return Shaded(out, keep);
 }

@@ -123,7 +123,7 @@ impl Shooter {
         // Rockets in flight light what they pass.
         let lights = self.sim.cfg.effects.lights;
         for b in self.bullets.iter().filter(|b| b.rocket) {
-            out.light(Light { pos: out.between(b.prev, b.pos), radius: width * 5.0, color: [1.2 * lights, 0.7 * lights, 0.3 * lights] });
+            out.light(Light::burst(out.between(b.prev, b.pos), width * 5.0, [1.2 * lights, 0.7 * lights, 0.3 * lights]));
         }
     }
 }

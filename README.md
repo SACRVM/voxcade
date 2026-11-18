@@ -102,13 +102,13 @@ IDE's settings leave the whole console out.
 
 A game is a folder: `conf.lua` sets it up, `main.lua` is its rules,
 `.vvx` models beside them (Voxcade's own, text). `conf.lua` says which
-Voxcade the game is for (`c.voxcade = "0.6.0"`); a game made for an older
+Voxcade the game is for (`c.voxcade = "0.7.0"`); a game made for an older
 one is brought up to date with `voxcade upgrade <game>`.
 
 ```lua
 -- conf.lua
 function conf(c)
-  c.voxcade = "0.6.0"                    -- the Voxcade it is for
+  c.voxcade = "0.7.0"                    -- the Voxcade it is for
   c.title = "Walk"
   c.world.size = { 128, 128, 16 }        -- a world made in code
   c.actions = { "jump" }

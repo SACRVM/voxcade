@@ -53,6 +53,7 @@ fn game_on(world: World, cfg: GameConfig) -> Session<Shooter> {
         local: Default::default(),
         problem: None,
         drawn_sun: Default::default(),
+        lamps_drawn: Default::default(),
         seen_faces: Default::default(),
         hud_kept: Default::default(),
         limits: Default::default(),
@@ -1437,23 +1438,162 @@ fn a_window_wider_than_the_faces_were_chosen_for_adds_its_faces() {
     assert_eq!(game.face_mask(), wider, "kept from then on");
 }
 
-/// More lights in a picture than the renderer draws (`render::MAX_LIGHTS`)
-/// are said, once: in a picture and in `look` (`inspect`'s, without one).
+/// More lights in a picture than the scene's shader takes
+/// (`render::FORWARD_LIGHTS`) are all drawn (by the lamps' pass); past the
+/// renderer's bound (`render::MOST_LIGHTS`) they are said, once: in a
+/// picture and in `look` (`inspect`'s, without one).
 #[test]
 fn lights_past_the_limit_are_said_once() {
     let mut game = flat_game(256);
-    for i in 0..crate::render::MAX_LIGHTS {
-        game.game.explode(Vec3::new(20.0 + i as f32 * 12.0, 128.0, 30.0), 10.0);
+    for i in 0..crate::render::FORWARD_LIGHTS + 7 {
+        game.game.explode(Vec3::new(20.0 + i as f32 * 8.0, 128.0, 30.0), 10.0);
     }
-    game.compose(1.0, 16.0 / 9.0, Scene::Play, None);
-    assert!(game.warnings().is_empty(), "16 lights are all drawn");
-    for i in 0..7 {
-        game.game.explode(Vec3::new(20.0 + i as f32 * 12.0, 160.0, 30.0), 10.0);
-    }
+    let frame = game.compose(1.0, 16.0 / 9.0, Scene::Play, None);
+    assert_eq!(frame.lights.len(), 23, "every one drawn");
+    assert!(game.warnings().is_empty(), "23 lights are all drawn");
     game.look();
+    assert!(game.warnings().is_empty());
+    game.count_lights(crate::render::MOST_LIGHTS + 7);
     let said = game.warnings();
     assert_eq!(said.len(), 1, "{said:?}");
-    assert!(said[0].starts_with("lights: 23 asked, 16 drawn"), "{said:?}");
-    game.compose(1.0, 16.0 / 9.0, Scene::Play, None);
+    assert!(said[0].starts_with("lights: 4103 asked, 4096 drawn"), "{said:?}");
+    game.count_lights(crate::render::MOST_LIGHTS + 7);
     assert!(game.warnings().is_empty(), "said once");
+}
+
+/// A dark floor 96 by 96 with a wall across x 48 (z 1 to 16, y 20 to 76),
+/// seen from above, and the pictures of `lights` on it: with what stops
+/// lamps given (the level's world) or not.
+struct LampScene {
+    game: Session<Shooter>,
+    canvas: crate::headless::Canvas,
+}
+
+impl LampScene {
+    const SIZE: (u32, u32) = (480, 270);
+
+    fn new() -> Self {
+        let mut world = crate::sim::tests::flat_world(IVec3::new(96, 96, 24));
+        for y in 20..76 {
+            for z in 1..16 {
+                world.set_raw(IVec3::new(48, y, z), 1);
+            }
+        }
+        let mut cfg = GameConfig::default();
+        cfg.light.ambient = 0.05;
+        cfg.light.sun_color = [0.05; 3];
+        cfg.camera.view_width = 100.0;
+        cfg.camera.pitch = 70.0;
+        let mut game = game_on(world, cfg);
+        game.game.sim_mut().cam_target = Vec3::new(48.0, 48.0, 1.0);
+        game.game.sim_mut().cam_prev = Vec3::new(48.0, 48.0, 1.0);
+        let mut canvas = crate::headless::Canvas::new(Self::SIZE.0, Self::SIZE.1, false).unwrap();
+        canvas.mesh_world(game.world_mut(), &[true; 6]);
+        Self { game, canvas }
+    }
+
+    /// The picture of `lights`, walls given or not: the frame and its
+    /// pixels (RGBA).
+    fn picture(&mut self, lights: &[crate::render::Light], walls: bool) -> (FrameData, Vec<u8>) {
+        let (w, h) = Self::SIZE;
+        let mut f = self.game.frame(1.0, w as f32 / h as f32);
+        f.lights = lights.to_vec();
+        f.lamp_world = walls.then(|| self.game.game.sim().world.clone());
+        let pixels = self.canvas.draw(&f).unwrap();
+        (f, pixels)
+    }
+
+    /// How bright the floor's top shows round the point (x, y): the mean
+    /// of r + g + b over 5 by 5 pixels.
+    fn floor_at(f: &FrameData, pixels: &[u8], x: f32, y: f32) -> f32 {
+        let (w, h) = Self::SIZE;
+        let p = f.view_proj.project_point3(Vec3::new(x, y, 1.0));
+        let (px, py) = (((p.x + 1.0) * 0.5 * w as f32) as i32, ((1.0 - p.y) * 0.5 * h as f32) as i32);
+        let mut sum = 0.0;
+        for dy in -2..=2 {
+            for dx in -2..=2 {
+                let i = (((py + dy) * w as i32 + px + dx) * 4) as usize;
+                sum += pixels[i..i + 3].iter().map(|&c| c as f32).sum::<f32>();
+            }
+        }
+        sum / 25.0
+    }
+}
+
+/// On the GPU: a wall stops a lamp, the floor beyond it dark, the near side
+/// lit; a lamp with `shadows = false`, or a picture without the level's
+/// world (`c.light.lamp_shadows = false`, the editors), shines through as
+/// lights always did. A burst (a kit's flash) shines through too.
+#[test]
+fn a_wall_stops_a_lamp_and_shadows_false_does_not() {
+    let mut s = LampScene::new();
+    let shape = crate::render::LightShape::default();
+    let lamp = crate::render::Light::lamp(Vec3::new(40.5, 48.5, 6.0), 30.0, [2.0, 2.0, 2.0], &shape, |w| w);
+    let dark = {
+        let (f, p) = s.picture(&[], true);
+        LampScene::floor_at(&f, &p, 56.5, 48.5)
+    };
+    let (f, walled) = s.picture(&[lamp], true);
+    let (near, far) = (LampScene::floor_at(&f, &walled, 36.5, 48.5), LampScene::floor_at(&f, &walled, 56.5, 48.5));
+    assert!(near > dark + 60.0, "the near side lit: {near} against {dark}");
+    assert!((far - dark).abs() < 4.0, "beyond the wall as dark as without the lamp: {far} against {dark}");
+    for (what, light, walls) in [("shadows = false", crate::render::Light { shadows: false, ..lamp }, true), ("no walls given", lamp, false), ("a burst", crate::render::Light::burst(lamp.pos, lamp.radius, lamp.color), true)] {
+        let (f, p) = s.picture(&[light], walls);
+        let through = LampScene::floor_at(&f, &p, 56.5, 48.5);
+        assert!(through > dark + 20.0, "{what}: beyond the wall lit, {through} against {dark}");
+        assert!((LampScene::floor_at(&f, &p, 36.5, 48.5) - near).abs() < 4.0, "{what}: the near side as with walls");
+    }
+}
+
+/// On the GPU: a spot lights its cone only (straight down here, the floor
+/// under it lit, beside its cone dark, where a round lamp lights it), and
+/// a falloff of its own reaches further bright.
+#[test]
+fn a_spot_lights_only_its_cone() {
+    let mut s = LampScene::new();
+    let at = Vec3::new(30.5, 48.5, 20.0);
+    let round = crate::render::Light::lamp(at, 40.0, [2.0; 3], &crate::render::LightShape::default(), |w| w);
+    let spot = crate::render::Light::lamp(at, 40.0, [2.0; 3], &crate::render::LightShape { cone: Some(40.0), pitch: -90.0, ..Default::default() }, |w| w);
+    let (f, dark) = s.picture(&[], true);
+    let (_, lit_round) = s.picture(&[round], true);
+    let (_, lit_spot) = s.picture(&[spot], true);
+    let at_floor = |p: &[u8], x: f32| LampScene::floor_at(&f, p, x, 48.5);
+    assert!(at_floor(&lit_spot, 30.5) > at_floor(&dark, 30.5) + 40.0, "under the spot lit");
+    assert!((at_floor(&lit_spot, 30.5) - at_floor(&lit_round, 30.5)).abs() < 4.0, "inside its cone as bright as the round one");
+    assert!((at_floor(&lit_spot, 44.5) - at_floor(&dark, 44.5)).abs() < 4.0, "beside its cone dark: {}", at_floor(&lit_spot, 44.5));
+    assert!(at_floor(&lit_round, 44.5) > at_floor(&dark, 44.5) + 10.0, "where the round one lights");
+    let far = crate::render::Light { falloff: 0.5, ..round };
+    let (_, lit_far) = s.picture(&[far], true);
+    assert!(at_floor(&lit_far, 44.5) > at_floor(&lit_round, 44.5) + 10.0, "a falloff of 0.5 reaches further bright");
+}
+
+/// On the GPU: a light none of whose words are set draws the picture it
+/// always did: the lamps' pass (more lights than the scene's shader
+/// takes, or with walls stopping none) draws the same picture as the
+/// scene's shader, within a level or two a pixel; a picture of 16 such
+/// lights is drawn by the scene's shader alone, byte for byte as with
+/// bursts. Past 16 every light is drawn.
+#[test]
+fn unset_words_draw_the_old_picture_and_more_than_sixteen_lights_draw() {
+    let mut s = LampScene::new();
+    let shape = crate::render::LightShape { shadows: false, ..Default::default() };
+    let lights: Vec<crate::render::Light> = (0..16).map(|k| crate::render::Light::lamp(Vec3::new(10.5 + (k % 4) as f32 * 8.0, 20.5 + (k / 4) as f32 * 16.0, 4.0), 10.0, [1.5, 1.2, 0.8], &shape, |w| w)).collect();
+    let bursts: Vec<crate::render::Light> = lights.iter().map(|l| crate::render::Light::burst(l.pos, l.radius, l.color)).collect();
+    let (_, old) = s.picture(&bursts, true);
+    let (_, plain) = s.picture(&lights, true);
+    assert!(old == plain, "16 lamps without walls: the scene's shader, byte for byte");
+    // A 17th far away and black: the lamps' pass, the same picture.
+    let mut more = lights.clone();
+    more.push(crate::render::Light::burst(Vec3::new(-500.0, -500.0, 0.0), 1.0, [0.0; 3]));
+    let (_, passed) = s.picture(&more, true);
+    let off = old.chunks(4).zip(passed.chunks(4)).map(|(a, b)| (0..3).map(|c| a[c].abs_diff(b[c])).max().unwrap_or(0)).max().unwrap_or(0);
+    assert!(off <= 3, "the lamps' pass draws the scene's shader's picture: a pixel off by {off} levels at most");
+    // Twenty-four lights: each lights the floor under it.
+    let many: Vec<crate::render::Light> = (0..24).map(|k| crate::render::Light::lamp(Vec3::new(14.5 + (k % 6) as f32 * 5.0, 34.5 + (k / 6) as f32 * 7.0, 3.0), 2.5, [2.0; 3], &shape, |w| w)).collect();
+    let (f, dark) = s.picture(&[], true);
+    let (_, lit) = s.picture(&many, true);
+    for l in &many {
+        let (a, b) = (LampScene::floor_at(&f, &dark, l.pos.x, l.pos.y), LampScene::floor_at(&f, &lit, l.pos.x, l.pos.y));
+        assert!(b > a + 30.0, "the light at {:?} lit: {b} against {a}", l.pos);
+    }
 }

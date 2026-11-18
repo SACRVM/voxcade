@@ -927,9 +927,9 @@ mod tests {
         assert_eq!(shining.len(), 2);
         assert_eq!(shining[0].pos, Vec3::new(212.5, 40.5, 0.5) + room::rotation_of(&ed.level.things[1]) * Vec3::new(3.0, 3.0, 41.0), "the lamp's, from its model's voxels");
         for k in 0..20 {
-            ed.level.things.push(crate::grid::Thing { lights: vec![crate::grid::ThingLight { at: None, radius: 5.0, color: None }], ..crate::grid::Thing::new(crate::grid::PIECE, [k, 0, 0]) });
+            ed.level.things.push(crate::grid::Thing { lights: vec![crate::grid::ThingLight { at: None, radius: 5.0, color: None, ..Default::default() }], ..crate::grid::Thing::new(crate::grid::PIECE, [k, 0, 0]) });
         }
-        assert_eq!(lights(&ed, Vec3::ZERO).len(), crate::render::MAX_LIGHTS);
+        assert_eq!(lights(&ed, Vec3::ZERO).len(), 22, "every light, past the scene shader's 16 too");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

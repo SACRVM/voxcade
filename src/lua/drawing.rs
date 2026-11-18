@@ -37,12 +37,16 @@ impl<K: Kit> LuaGame<K> {
                 // Only casting a shadow (`shadow_only`): a ceiling the
                 // camera looks through.
                 out.shadow_only(p.shadow_only);
+                // It stops lamps, unless it brings a light of its own: a
+                // lantern's frame and glass round its flame stop none.
+                out.piece(p.lights.is_empty());
                 if pose.is_empty() {
                     out.model_turned(model, 0, out.body_origin(t.body), t.body.look, turn, None);
                 } else {
                     let posed = crate::session::posing_alone(&pose);
                     out.model_posed(model, 0, out.body_origin(t.body), t.body.look, turn, &posed, None);
                 }
+                out.piece(false);
                 out.shadow_only(false);
             }
             // Its lights, all as bright as its state says (one brightness for
@@ -54,16 +58,23 @@ impl<K: Kit> LuaGame<K> {
                 // centre (the voxel at half its height).
                 let size = p.model.as_ref().and_then(|m| out.model_of(m)).map(|m| m.size);
                 let tip = size.filter(|_| tipped).map(|size| (crate::session::turning(p.facing.bearing() as f32, p.pitch, p.roll), crate::render::turn_centre(size)));
+                // A way in the model's own directions, turned with it (a
+                // bearing clockwise seen from above, the model's forward +y);
+                // a light alone's as written.
+                let turned_way = |w: Vec3| match tip {
+                    Some((rot, _)) => rot * w,
+                    None => Vec3::new(w.x * cos + w.y * sin, -w.x * sin + w.y * cos, w.z),
+                };
+                let way = |w: Vec3| if p.model.is_some() { turned_way(w) } else { w };
                 for l in &p.lights {
-                    // Its offset in the model's own voxels, turned with it (a
-                    // bearing clockwise seen from above, the model's forward +y).
+                    // Its offset in the model's own voxels, turned with it.
                     let o = l.at.as_vec3();
                     let turned = match tip {
                         Some((rot, about)) => rot * (o + Vec3::splat(0.5) - about) + about - Vec3::splat(0.5),
-                        None => Vec3::new(o.x * cos + o.y * sin, -o.x * sin + o.y * cos, o.z),
+                        None => turned_way(o),
                     };
                     let at = t.body.pos + Vec3::Z * 0.5 + turned;
-                    out.light(Light { pos: at, radius: l.radius, color: l.color.map(|c| c * brightness) });
+                    out.light(Light::lamp(at, l.radius, l.color.map(|c| c * brightness), &l.shape, way));
                 }
             }
         }
@@ -135,7 +146,7 @@ impl<K: Kit> LuaGame<K> {
                 // On the grid when the camera snaps, gliding as the models
                 // do otherwise.
                 Cmd::Cube { at, color, glow } => out.cube(out.snapped(*at), *color, *glow, color[3] as f32 / 255.0),
-                Cmd::Light { at, radius, color } => out.light(Light { pos: *at, radius: *radius, color: *color }),
+                Cmd::Light(light) => out.light(*light),
                 Cmd::Daylight(day) => out.daylight(*day),
                 // (Its code names it as Lua writes a call, or what is out
                 // of the game's own view would be missing.)

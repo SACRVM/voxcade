@@ -756,30 +756,66 @@ Measured (2026-10-15, 1920 x 1080):
 
 ## Light in the grid
 
-The light today is the sun with its shadow map, plus up to 16 point lights
-for flashes and explosions that every pixel adds up. That is enough for
-More Blood's desert, not for a dungeon: fifty torches are too many lights,
-and point lights shine through walls (only the sun casts shadows).
+Built for 0.7 (the owner's names: `falloff`, `cone`, `blend`, `rotation`,
+`pitch`, `shadows`, `c.light.lamp_shadows`; `docs/game-model.md`): lamps
+walls stop, spots, a falloff of their own, and more than 16 lights a
+picture (`src/render/lamps.rs`, `volume.rs`, `src/lamps.wgsl`,
+`src/light.wgsl`).
 
-For dungeons, RPGs, adventures and the Doom homage, light spreads through
-the voxel grid, the way Minecraft's block light does:
+- **Who pays.** A picture with at most 16 lights (`FORWARD_LIGHTS`) and
+  none walls stop is drawn as before, by the scene's shader alone: a game
+  without lamps (More Blood, BunnyFarm by day) pays nothing, byte for
+  byte the same. The kits' flashes and explosions are bursts
+  (`Light::burst`): round, through walls, as ever.
+- **The lamps' pass.** Otherwise the opaque scene is drawn without its
+  lights (`fs_main_lamps`), each pixel's surface written beside its
+  colour (a 128-bit target: the colour the light falls on, the cell in
+  front of its face, the way it is lit by); then the screen in tiles of
+  32 pixels, each drawn once with the lights whose box can reach it (up
+  to 32 a draw, `render::lamps::tiles`), each pixel's surface read once
+  and its lights added by the scene's own sum (`light.wgsl`, shared);
+  then the see-through cubes onto it, by the 16 nearest, through walls.
+  Light volumes a light each read the surfaces once a light and blended
+  as often: on the Radeon 610M that cost 9 ms at the station's 14 lamps,
+  tiles 4.
+- **Walls.** The part of the level its lamps reach (`volume::Reach`, a
+  block of 64 voxels more each way) as a bit a voxel in a 3D texture
+  (R8Uint, 2 by 2 by 2 voxels a texel) with five coarser copies, a bit
+  for each child holding anything: the level's opaque voxels and its
+  pieces' (`FrameData::lamp_pieces`, every one in view or not; a piece
+  that brings a light stops none). Made when a picture first has a lamp
+  walls stop (the station's 1280 by 1200 by 288 voxels in 92 ms on all
+  cores, 60 MB; Voxkeep's 1 ms), brought up to date chunk by chunk where
+  the world changes (a blast: the blocks round it, every copy, only those
+  sent), made anew when a lamp reaches past it, the pieces change or
+  another level comes; at most 128 MB, past it said once and the lamps
+  shine through. A face asks whether a lamp reaches it from the middle of
+  the cell in front of it (lit or dark as a whole, as the sun's voxel
+  shadows): a walk from the lamp past empty space by the coarse copies,
+  down a copy into a cell holding anything (`walk`). A lamp sitting in
+  solid voxels leaves them first (at most 8 voxels; buried deeper it
+  lights nothing); a face off the grid looks past the half voxel its
+  turned piece grows by. A face of the level turned away from a lamp
+  gets none of it (a way to the lamp would only go through a gap);
+  anything else keeps a burst's little round the back.
+- **The faces' memory.** Each face's answer for each lamp is kept
+  (`seen`, a table of two words an entry by the cell, the lamp's exact
+  place and the volume's state; room for twice the picture's pixels, said
+  once when full), asked again when the volume changes or after 8
+  pictures unasked: a still scene walks its ways once. Every answer is
+  its walk's, so `shot` draws the same to the byte. Without it the
+  station's lamps took 23 ms on the 610M, with it 4.
+- **Moving things** stop no light: they move every picture (written into
+  the volume each picture and every face's memory with them, as the
+  trial did, it cost a hitch a frame), and a figure's backside keeps a
+  little of a lamp in front of it.
+- **Fallbacks, said once:** a GPU without storage written from a fragment
+  shader draws its lamps through walls; lamps reaching further apart than
+  the volume's bound too.
 
-- Light sources are torches, and glowing voxels in models and the world
-  (lava, crystals, mushrooms). From each, light flows voxel by voxel
-  through open cells, weaker every step, and stops at walls: no light
-  through walls, soft falloff round corners, no shadow map per lamp.
-- Coloured: warm torchlight, green poison, blue magic.
-- The result sits in a 3D texture on the GPU, and every face reads its
-  light there, lit or dark as a whole like the voxel shadows the user
-  chose; the GPU can work out the spreading itself too. A hundred torches
-  then cost next to nothing a frame, and the idle GPU finally has work.
-- When a wall is blown away the light flows anew, only in the chunks
-  touched, as the meshes are rebuilt.
-- Short, moving light stays as point lights (muzzle flashes, explosions);
-  for many of them at once, lights sorted into regions of the screen, so
-  each pixel only adds up the lights near it.
-
-Built when the first game plays indoors.
+Later, not built: light flowing through the grid from glowing voxels
+(Minecraft's block light), sky light kept out of rooms, haze and beams,
+mirror glass (all tried in a trial branch, 2026-11-17).
 
 ## Multiplayer
 

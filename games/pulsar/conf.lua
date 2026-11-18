@@ -8,7 +8,7 @@
 -- the keyboard), its ship in gold and green.
 
 function conf(c)
-  c.voxcade = "0.6.0"   -- the Voxcade its files are for (voxcade upgrade brings an older game up to date)
+  c.voxcade = "0.7.0"   -- the Voxcade its files are for (voxcade upgrade brings an older game up to date)
   c.title = "Pulsar"
   c.languages = { "en", "de", "fr" }   -- the menus speak them; the keys shown at the start too
   c.scored = true

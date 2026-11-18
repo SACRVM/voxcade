@@ -6,7 +6,7 @@
 -- (tools/gen_bunnyfarm.py first built the blocks, the farm and the
 -- figures; they are yours to shape in the editors now).
 function conf(c)
-  c.voxcade = "0.6.0"   -- the Voxcade its files are for (voxcade upgrade brings an older game up to date)
+  c.voxcade = "0.7.0"   -- the Voxcade its files are for (voxcade upgrade brings an older game up to date)
   c.title = "BunnyFarm"
   c.languages = { "de", "en", "fr" }
   -- Saved as the bunny goes to sleep; CONTINUE on the title goes on.

@@ -65,6 +65,17 @@ const TYPES: &str = "\
 ---@field shadow? number How much a shadow darkens, 0 to 1.
 ---@field sky? Color The background's color.
 
+---@class Light A light as frame:light{ ... } writes it, the words a level's light takes too; at and radius are needed.
+---@field at Thing|Point|number[] Where it shines from: a thing, or { x, y, z } in voxels.
+---@field radius number How far it reaches, voxels.
+---@field color? Color Its color and strength, white unless set.
+---@field falloff? number How it fades to its radius: (1 - distance / radius) to this power, 0 to 16 (2 unless set; lower reaches further bright).
+---@field cone? number A spot: its cone's whole opening angle, 1 to 360 degrees; left out, it shines every way.
+---@field blend? number How much of the cone's edge is soft, 0 to 1 (0.15 unless set).
+---@field rotation? number The spot's way round, degrees clockwise seen from above, north (+y) 0.
+---@field pitch? number The spot's way up (above 0) or down, -90 to 90 degrees.
+---@field shadows? boolean Whether walls stop it (true unless set; c.light.lamp_shadows = false turns it off for every lamp).
+
 ---@class PictureCamera What a picture's camera sets (frame:camera); what it leaves out is c.camera's.
 ---@field look_at? Point|Thing|number[] The point the view centers on, { x, y, z } in voxels (z left out: the camera's height), or a thing; left out, the view follows what the camera follows.
 ---@field width? number How many voxels the picture shows across where it looks.
@@ -573,8 +584,13 @@ pub const API: &[Item] = &[
             so facing -y or sideways it fills cells a voxel further on the flipped axis (use odd sizes where that matters)." },
     Item { of: "frame", name: "cube", what: Method { params: &[("x", "number"), ("y", "number"), ("z", "number"), ("color?", "Color"), ("glow?", "number")], returns: "" },
         doc: "Draws one voxel in the level, at x, y, z in the level's voxels (alpha below 255: see-through; glow from 0 to 1)." },
-    Item { of: "frame", name: "light", what: Method { params: &[("at", "Thing|Point"), ("radius", "number"), ("color?", "Color")], returns: "" },
-        doc: "Lights the level round a thing or a point, in this picture." },
+    Item { of: "frame", name: "light", what: Method { params: &[("at", "Thing|Point|Light"), ("radius?", "number"), ("color?", "Color")], returns: "" },
+        doc: "Lights the level round a thing or a point, in this picture: frame:light(at, radius, color), or frame:light{ at =, radius =, ... } \
+            with the words a level's light takes too.\n- falloff: how it fades to its radius, (1 - distance / radius) to this power, 2 unless \
+            set.\n- cone: a spot, its whole opening angle in degrees; blend how much of its edge is soft (0.15). rotation and pitch its way: \
+            degrees clockwise seen from above (north 0), and up or down.\n- shadows: walls stop it (true unless set). A wall is the level's \
+            voxels and its pieces; figures and moving things stop no light, nor a piece that brings a light of its own (a lantern round its \
+            flame).\nOnly the picture: the game's rules do not see it." },
     Item { of: "frame", name: "daylight", what: Method { params: &[("light", "Daylight")], returns: "" },
         doc: "Sets the sun and the sky for this picture: a day and a night. What you leave out is c.light's.\n- sun: the way its light \
             travels, { x, y, z } with z below 0.\n- sun_color: its color and strength, white unless set.\n- ambient: the light every face \

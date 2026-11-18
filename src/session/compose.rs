@@ -69,6 +69,9 @@ impl<G: Game> Session<G> {
             bounds: Vec::new(),
             shadow_only: false,
             cast_top: 0.0,
+            piece: false,
+            gather: false,
+            pieces: Vec::new(),
         }
     }
 
@@ -139,10 +142,10 @@ impl<G: Game> Session<G> {
     }
 
     /// A picture's lights, `asked` of them: past the renderer's
-    /// `MAX_LIGHTS` (the nearest the middle drawn, the rest not), said once
+    /// `MOST_LIGHTS` (the nearest the middle drawn, the rest not), said once
     /// (`warnings`).
-    fn count_lights(&self, asked: usize) {
-        let most = crate::render::MAX_LIGHTS;
+    pub(super) fn count_lights(&self, asked: usize) {
+        let most = crate::render::MOST_LIGHTS;
         if asked > most {
             self.say_once("lights", format!("lights: {asked} asked, {most} drawn (the {most} nearest the middle of the view; a picture lights {most} at most)"));
         }
@@ -220,13 +223,22 @@ impl<G: Game> Session<G> {
         // The game's things, then the debris, fire, smoke and sparks. A
         // model drawn the first time was loaded meanwhile, drawn as cubes:
         // it goes in the bank and the picture is made again from there.
+        out.gather = self.lamps_drawn.get();
         self.game.draw(&mut out);
         if self.bank_fresh() {
             drop(out);
             return self.compose(alpha, aspect, scene, ui);
         }
+        // The first picture with a lamp walls stop: made again, gathering
+        // the level's pieces that stop it (from then on every picture).
+        let stopped = self.cfg.light.lamp_shadows && out.lights.iter().any(|l| l.shadows);
+        if stopped && !out.gather {
+            self.lamps_drawn.set(true);
+            drop(out);
+            return self.compose(alpha, aspect, scene, ui);
+        }
         draw_particles(&mut out, &sim.particles, alpha);
-        let Drawing { mut voxels, draws: models, lights: game_lights, daylight, camera: picture, cull, bounds, cast_top, .. } = out;
+        let Drawing { mut voxels, draws: models, lights: game_lights, daylight, camera: picture, cull, bounds, cast_top, pieces: lamp_pieces, .. } = out;
         // Models only casting a shadow above the world (a ceiling over a
         // room standing higher): the shadows' box reaches up to them.
         let high = cast_top > world_size.z;
@@ -296,6 +308,8 @@ impl<G: Game> Session<G> {
             haze_color: fx.haze_color,
             haze_start,
             haze_depth: haze_start * 2.0,
+            lamp_world: stopped.then(|| sim.world.clone()),
+            lamp_pieces: if stopped { lamp_pieces } else { Vec::new() },
             lights,
             glow: fx.glow.max(0.0),
             shadow_map: self.options.shadow_map,
@@ -391,6 +405,8 @@ impl<G: Game> Session<G> {
     /// Light from flashes and explosions, and what the game lights (rockets
     /// in flight); the ones nearest the middle of the view `target` when
     /// there are too many.
+    /// A game that turned walls off for its lamps (`c.light.lamp_shadows =
+    /// false`) has every one shine through.
     fn lights_of(&self, game_lights: Vec<Light>, target: Vec3) -> Vec<Light> {
         let strength = self.cfg.effects.lights;
         let mut lights: Vec<Light> = self
@@ -398,12 +414,17 @@ impl<G: Game> Session<G> {
             .sim()
             .flares
             .iter()
-            .map(|f| Light { pos: f.pos, radius: f.radius, color: f.color.map(|c| c * f.strength() * strength) })
+            .map(|f| Light::burst(f.pos, f.radius, f.color.map(|c| c * f.strength() * strength)))
             .chain(game_lights)
             .collect();
+        if !self.cfg.light.lamp_shadows {
+            for l in &mut lights {
+                l.shadows = false;
+            }
+        }
         lights.sort_by(|a, b| a.pos.distance_squared(target).total_cmp(&b.pos.distance_squared(target)));
         self.count_lights(lights.len());
-        lights.truncate(crate::render::MAX_LIGHTS);
+        lights.truncate(crate::render::MOST_LIGHTS);
         lights
     }
 

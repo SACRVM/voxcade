@@ -45,6 +45,9 @@ pub enum Field {
     LightAt(usize, usize),
     Radius(usize),
     Colour(usize),
+    /// A light's word of how it shines, by its place in
+    /// `render::LIGHT_WORDS` (falloff, cone, blend, rotation, pitch).
+    LightWord(usize, usize),
     /// The level's daylight: where the sun stands (degrees round from
     /// north, clockwise seen from above) and how high (degrees over the
     /// horizon), the light every face gets and how dark shadows are (in
@@ -554,7 +557,7 @@ impl Editor {
     /// ADD LIGHT: a light alone on the mouse.
     pub fn add_light(&mut self) {
         let name = self.name_for(Item::Thing(0), "light");
-        let light = ThingLight { at: None, radius: LIGHT_RADIUS, color: Some(NEW_COLOUR.into()) };
+        let light = ThingLight { at: None, radius: LIGHT_RADIUS, color: Some(NEW_COLOUR.into()), ..Default::default() };
         self.hang(Hanging::Thing(Thing { name: Some(name), lights: vec![light], ..Thing::new(PIECE, [0; 3]) }));
     }
 
@@ -842,6 +845,19 @@ impl Editor {
             (Field::Radius(k), Item::Thing(i)) => {
                 if let Some(light) = l.things[i].lights.get_mut(k) {
                     light.radius = v.round().clamp(1.0, 2000.0);
+                }
+            }
+            (Field::LightWord(k, w), Item::Thing(i)) => {
+                if let (Some(light), Some(&(word, low, high))) = (l.things[i].lights.get_mut(k), crate::render::LIGHT_WORDS.get(w)) {
+                    // Hundredths, a cone in whole degrees: 360 is no cone.
+                    let v = if word == "cone" { v.round() } else { (v * 100.0).round() / 100.0 }.clamp(low, high);
+                    match word {
+                        "falloff" => light.falloff = Some(v),
+                        "cone" => light.cone = (v < 360.0).then_some(v),
+                        "blend" => light.blend = Some(v),
+                        "rotation" => light.rotation = Some(v),
+                        _ => light.pitch = Some(v),
+                    }
                 }
             }
             (Field::Size(a), Item::Area(i)) => l.areas[i].size[a.min(2)] = whole.clamp(1, 4096),
@@ -1201,7 +1217,7 @@ impl Editor {
             return;
         }
         let light = match self.level.things[i].lights.last() {
-            None => ThingLight { at: Some([0, 0, top]), radius: PIECE_RADIUS, color: Some(NEW_COLOUR.into()) },
+            None => ThingLight { at: Some([0, 0, top]), radius: PIECE_RADIUS, color: Some(NEW_COLOUR.into()), ..Default::default() },
             Some(last) => ThingLight { radius: (last.radius * 2.0).min(2000.0), ..last.clone() },
         };
         self.change(None, |l| l.things[i].lights.push(light));
@@ -1225,6 +1241,17 @@ impl Editor {
         self.change(Some(Field::Colour(k)), |l| {
             if let Some(light) = l.things[i].lights.get_mut(k) {
                 light.color = Some(hex);
+            }
+        });
+    }
+
+    /// SHADOWS of the chosen thing's light `k`: whether walls stop it (the
+    /// file says `shadows = false` only when they do not).
+    pub fn set_light_shadows(&mut self, k: usize, on: bool) {
+        let Some(Item::Thing(i)) = self.pieces.chosen else { return };
+        self.change(None, |l| {
+            if let Some(light) = l.things[i].lights.get_mut(k) {
+                light.shadows = (!on).then_some(false);
             }
         });
     }
@@ -1860,7 +1887,7 @@ mod tests {
         let (mut ed, dir) = room("light", false);
         ed.choose_item(Some(Item::Thing(0)));
         ed.add_piece_light(24);
-        assert_eq!(read(&dir).things[0].lights, [ThingLight { at: Some([0, 0, 24]), radius: PIECE_RADIUS, color: Some(NEW_COLOUR.into()) }]);
+        assert_eq!(read(&dir).things[0].lights, [ThingLight { at: Some([0, 0, 24]), radius: PIECE_RADIUS, color: Some(NEW_COLOUR.into()), ..Default::default() }]);
         ed.set_field(Field::LightAt(0, 1), 3.0);
         ed.set_field(Field::Radius(0), 90.4);
         ed.set_colour(0, "#a0b8ff");
@@ -1888,6 +1915,17 @@ mod tests {
         assert_eq!(ed.level.things[2].lights.len(), 1, "a light alone is its one light");
         ed.set_field(Field::Radius(0), 200.0);
         assert!(saved(&dir).contains("light = { radius = 200, color = \"#a0b8ff\" }"));
+        // How it shines (0.7): FALLOFF, CONE (360 every way), BLEND, a
+        // spot's ROTATE, SHADOWS; each a word of its line, in range.
+        let word = |w: &str| crate::render::LIGHT_WORDS.iter().position(|(n, ..)| *n == w).unwrap();
+        ed.set_field(Field::LightWord(0, word("cone")), 45.4);
+        ed.set_field(Field::LightWord(0, word("pitch")), -120.0);
+        ed.set_field(Field::LightWord(0, word("falloff")), 1.234);
+        ed.set_light_shadows(0, false);
+        assert!(saved(&dir).contains("light = { radius = 200, color = \"#a0b8ff\", falloff = 1.23, cone = 45, pitch = -90, shadows = false }"), "{}", saved(&dir));
+        ed.set_field(Field::LightWord(0, word("cone")), 360.0);
+        ed.set_light_shadows(0, true);
+        assert!(saved(&dir).contains("light = { radius = 200, color = \"#a0b8ff\", falloff = 1.23, pitch = -90 }"), "every way, walls stopping it again: {}", saved(&dir));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

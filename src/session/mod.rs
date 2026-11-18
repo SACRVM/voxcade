@@ -302,6 +302,10 @@ pub struct Session<G: Game> {
     /// The sun the game set for the last picture (`frame:daylight`), to fit
     /// the next picture's shadows to before it says again.
     drawn_sun: std::cell::Cell<Option<Vec3>>,
+    /// A picture had a lamp walls stop: the pictures from then on gather
+    /// the level's pieces, every one in view or not, for what stops them
+    /// (`FrameData::lamp_pieces`).
+    lamps_drawn: std::cell::Cell<bool>,
     /// The faces pictures the game set with another pitch or field of view
     /// than its camera's could see (`frame:camera`): the meshes keep them
     /// too from then on (`face_mask`).

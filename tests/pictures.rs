@@ -319,7 +319,7 @@ fn every_letter_reads_as_it_did() {
     std::fs::copy(root().join("games/moreblood/ui/display_font.png"), game.join("ui/display_font.png")).unwrap();
     std::fs::write(
         game.join("conf.lua"),
-        "function conf(c)\n  c.voxcade = \"0.6.0\"\n  c.title = \"Letters\"\n  c.world.size = { 16, 16, 8 }\n  c.ui.display_font = \"ui/display_font.png\"\n  c.light.sky = { 0.1, 0.12, 0.2 }\nend\n",
+        "function conf(c)\n  c.voxcade = \"VERSION\"\n  c.title = \"Letters\"\n  c.world.size = { 16, 16, 8 }\n  c.ui.display_font = \"ui/display_font.png\"\n  c.light.sky = { 0.1, 0.12, 0.2 }\nend\n".replace("VERSION", env!("CARGO_PKG_VERSION")),
     )
     .unwrap();
     // (a brace is written doubled: one alone names an action's key)
@@ -417,7 +417,7 @@ fn a_shadow_only_ceiling_shades_the_room_and_is_not_drawn() {
     let game = dir.path().join("room");
     std::fs::create_dir_all(game.join("levels")).unwrap();
     std::fs::create_dir_all(game.join("scenarios")).unwrap();
-    std::fs::write(game.join("conf.lua"), "function conf(c)\n  c.voxcade = \"0.6.0\"\n  c.things.hero = {}\n  c.player.kind = \"hero\"\n  c.camera.pitch = 60\n  c.camera.view_width = 90\nend\n").unwrap();
+    std::fs::write(game.join("conf.lua"), "function conf(c)\n  c.voxcade = \"VERSION\"\n  c.things.hero = {}\n  c.player.kind = \"hero\"\n  c.camera.pitch = 60\n  c.camera.view_width = 90\nend\n".replace("VERSION", env!("CARGO_PKG_VERSION"))).unwrap();
     std::fs::write(game.join("main.lua"), "").unwrap();
     std::fs::write(game.join("scenarios/room.lua"), "return {\n  about = \"the room\",\n}\n").unwrap();
     std::fs::write(game.join("floor.vvx"), model_text([48, 48, 1], "#c8b490", |_, _, _| true)).unwrap();

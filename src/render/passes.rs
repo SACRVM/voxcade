@@ -12,7 +12,9 @@ use super::bank::{ACTOR_STRIDE, ActorData};
 use super::frame::{UI_AMBIENT, UI_SUN};
 use super::pipelines::{Memory, PostKind, PostPass};
 use super::shader::{Globals, LightData, PostParams};
-use super::{FrameData, Instance, MAX_LIGHTS, ModelDraw, Renderer, Stats, off_grid, on_screen};
+use super::lamps::LampFrame;
+use super::pipelines::ScenePipelines;
+use super::{FORWARD_LIGHTS, FrameData, Instance, ModelDraw, Renderer, Stats, off_grid, on_screen};
 
 /// At most this many passes a frame are timed.
 const MAX_TIMED_PASSES: u32 = 32;
@@ -32,7 +34,7 @@ pub(super) struct PassTimes {
 
 impl PassTimes {
     /// Where pass `label` writes its timestamps (None once the set is full).
-    fn writes(&self, label: &'static str) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
+    pub(super) fn writes(&self, label: &'static str) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
         let mut labels = self.labels.borrow_mut();
         let i = labels.len() as u32;
         if i >= MAX_TIMED_PASSES {
@@ -89,6 +91,12 @@ impl Renderer {
         let remember = frame.remember && self.remembering(device);
         self.pictures = self.pictures.wrapping_add(1);
         self.watch_memory(device, encoder);
+        self.watch_lamps(device, encoder);
+        // Lamps walls stop, or more lights than the scene's shader takes:
+        // the lamps' pass (made the first time, the level's volume up to
+        // date).
+        let lamps = self.lamps_of(device, queue, frame, remember);
+        let tiles = lamps.map_or(0, |lf| self.write_lamps(device, queue, frame, lf));
         self.write_globals(queue, frame, remember);
         self.upload_cubes(device, queue, frame);
         let all_models = frame.models.len() + frame.ui_models.len();
@@ -106,10 +114,21 @@ impl Renderer {
             ui_instances: frame.ui.len(),
             chunks: self.meshes.len(),
             vertices_total: self.meshes.values().map(|m| m.vertex_count).sum(),
+            lamps: if lamps.is_some() { frame.lights.len().min(super::MOST_LIGHTS) } else { 0 },
+            walls: lamps.is_some_and(|lf| lf.walls),
+            volume_bytes: self.lamps.volume_bytes(),
+            volume_ms: self.lamps.made_ms,
             ..Stats::default()
         };
         self.shadow_pass(encoder, frame, all_models, &mut stats);
-        self.scene_pass(encoder, frame, all_models, remember, &mut stats);
+        match lamps {
+            None => self.scene_pass(encoder, frame, all_models, remember, &mut stats),
+            Some(lf) => {
+                self.lit_scene_pass(encoder, frame, all_models, remember, lf, &mut stats);
+                self.lamp_pass(encoder, lf, tiles);
+                self.see_through_pass(encoder, frame, remember);
+            }
+        }
         self.ui_pass(encoder, frame, all_models);
         self.post_passes(encoder, frame);
         self.composite_pass(encoder, target);
@@ -126,11 +145,14 @@ impl Renderer {
     /// The globals of the world's scene and the UI's, and the composite's
     /// numbers, for this frame.
     fn write_globals(&self, queue: &wgpu::Queue, frame: &FrameData, remember: bool) {
-        let mut lights = [LightData::zeroed(); MAX_LIGHTS];
+        // The nearest lights, as the scene's shader lights by them (all of
+        // the picture's, unless the lamps' pass draws them; then the
+        // see-through cubes'), through walls.
+        let mut lights = [LightData::zeroed(); FORWARD_LIGHTS];
         for (slot, l) in lights.iter_mut().zip(&frame.lights) {
-            *slot = LightData { pos_radius: l.pos.extend(l.radius).to_array(), color: [l.color[0], l.color[1], l.color[2], 0.0] };
+            *slot = LightData::of(l, false);
         }
-        let light_count = frame.lights.len().min(MAX_LIGHTS);
+        let light_count = frame.lights.len().min(FORWARD_LIGHTS);
         let [hr, hg, hb] = frame.haze_color;
         let globals = Globals {
             view_proj: frame.view_proj.to_cols_array_2d(),
@@ -163,7 +185,7 @@ impl Renderer {
             outline: [0.0; 4],
             sun_color: [1.0, 1.0, 1.0, 0.0],
             memory: [0; 4],
-            lights: [LightData::zeroed(); MAX_LIGHTS],
+            lights: [LightData::zeroed(); FORWARD_LIGHTS],
         };
         queue.write_buffer(&self.ui_globals, 0, bytemuck::bytes_of(&ui_globals));
         let composite = PostParams { params: [frame.glow, frame.tilt_shift, frame.screen_flash, 0.0], step: frame.fade };
@@ -307,8 +329,6 @@ impl Renderer {
     /// (their outline), the cubes, opaque then see-through; with the faces'
     /// memory where `remember`.
     fn scene_pass(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameData, all_models: usize, remember: bool, stats: &mut Stats) {
-        let instance_count = frame.instances.len();
-        let (behind, opaque) = frame.cube_runs();
         let [r, g, b] = frame.sky.map(f64::from);
         let t = &self.targets;
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -323,11 +343,80 @@ impl Renderer {
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        let (scene, bind) = match &self.memory {
+        let (scene, bind) = self.scene_of(remember);
+        pass.set_bind_group(0, bind, &[]);
+        self.draw_opaque(&mut pass, frame, scene, (&self.model_outline, &self.face_outline), all_models, stats);
+        self.draw_see_through(&mut pass, frame, scene);
+    }
+
+    /// The scene's own pipelines and what its main pass reads: with the
+    /// faces' memory where `remember`.
+    fn scene_of(&self, remember: bool) -> (&ScenePipelines, &wgpu::BindGroup) {
+        match &self.memory {
             Memory::Ready { scene, bind, .. } if remember => (scene, bind),
             _ => (&self.plain, &self.main_bind),
-        };
+        }
+    }
+
+    /// The opaque scene of a picture whose lights the lamps' pass draws
+    /// (`lamps`): as `scene_pass` without the lights and the see-through
+    /// cubes, each pixel's surface written beside its colour, the depth
+    /// kept for the lamps and the see-through cubes after them.
+    fn lit_scene_pass(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameData, all_models: usize, remember: bool, lf: LampFrame, stats: &mut Stats) {
+        let [r, g, b] = frame.sky.map(f64::from);
+        let (t, lt) = (&self.targets, self.lamps.targets());
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("scene"),
+            color_attachments: &[
+                color(&t.scene, wgpu::LoadOp::Clear(wgpu::Color { r, g, b, a: 1.0 })),
+                color(&t.glow, wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)),
+                color(&lt.surface, wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)),
+            ],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &lt.depth,
+                depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: self.pass_times.as_ref().and_then(|t| t.writes("scene")),
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        let ls = self.lamps.scenes(lf.shader);
+        pass.set_bind_group(0, self.scene_of(remember).1, &[]);
+        self.draw_opaque(&mut pass, frame, &ls.scene, (&ls.model_outline, &ls.face_outline), all_models, stats);
+    }
+
+    /// The see-through cubes after the lamps' pass, onto the scene it lit,
+    /// by the scene's own pipelines.
+    fn see_through_pass(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameData, remember: bool) {
+        let (_, opaque) = frame.cube_runs();
+        if opaque as usize >= frame.instances.len() {
+            return;
+        }
+        let (t, lt) = (&self.targets, self.lamps.targets());
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("see-through"),
+            color_attachments: &[color(&t.scene, wgpu::LoadOp::Load), color(&t.glow, wgpu::LoadOp::Load)],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &lt.depth,
+                depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Discard }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: self.pass_times.as_ref().and_then(|t| t.writes("see-through")),
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        let (scene, bind) = self.scene_of(remember);
         pass.set_bind_group(0, bind, &[]);
+        self.draw_see_through(&mut pass, frame, scene);
+    }
+
+    /// The scene's opaque part as `scene` draws it, with the models'
+    /// outline as `outline` (cubes, faces): what lies faint behind, the
+    /// chunks, the models, the opaque cubes.
+    fn draw_opaque(&self, pass: &mut wgpu::RenderPass, frame: &FrameData, scene: &ScenePipelines, outline: (&wgpu::RenderPipeline, &wgpu::RenderPipeline), all_models: usize, stats: &mut Stats) {
+        let instance_count = frame.instances.len();
+        let (behind, opaque) = frame.cube_runs();
         // What lies behind everything else, faint: first.
         if behind > 0 {
             pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
@@ -351,25 +440,32 @@ impl Renderer {
         // model's voxel (or a model with the world), the one drawn first
         // keeps it, at the same depth.
         let models = ModelPass { cubes: &scene.model, faces: &scene.faces, whole: false, cast: false, eye: Some(frame.eye) };
-        self.draw_models(&mut pass, models, &frame.models, 0, all_models);
+        self.draw_models(pass, models, &frame.models, 0, all_models);
         if frame.outline[3] > 0.0 {
-            let outline = ModelPass { cubes: &self.model_outline, faces: &self.face_outline, whole: true, cast: false, eye: None };
-            self.draw_models(&mut pass, outline, &frame.models, 0, all_models);
+            let outline = ModelPass { cubes: outline.0, faces: outline.1, whole: true, cast: false, eye: None };
+            self.draw_models(pass, outline, &frame.models, 0, all_models);
         }
-        if instance_count > 0 {
+        // (The last `cast_only` opaque cubes are the sun's map's alone.)
+        let drawn = opaque - (frame.cast_only as u32).min(opaque - behind);
+        if instance_count > 0 && drawn > behind {
             pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
             pass.set_vertex_buffer(1, self.instances.slice(..));
             pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
-            // (The last `cast_only` opaque cubes are the sun's map's alone.)
-            let drawn = opaque - (frame.cast_only as u32).min(opaque - behind);
-            if drawn > behind {
-                pass.set_pipeline(&scene.inst);
-                pass.draw_indexed(0..self.cube_index_count, 0, behind..drawn);
-            }
-            if (opaque as usize) < instance_count {
-                pass.set_pipeline(&scene.see_through);
-                pass.draw_indexed(0..self.cube_index_count, 0, opaque..instance_count as u32);
-            }
+            pass.set_pipeline(&scene.inst);
+            pass.draw_indexed(0..self.cube_index_count, 0, behind..drawn);
+        }
+    }
+
+    /// The see-through cubes, far to near, as `scene` draws them.
+    fn draw_see_through(&self, pass: &mut wgpu::RenderPass, frame: &FrameData, scene: &ScenePipelines) {
+        let instance_count = frame.instances.len();
+        let (_, opaque) = frame.cube_runs();
+        if (opaque as usize) < instance_count {
+            pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
+            pass.set_vertex_buffer(1, self.instances.slice(..));
+            pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
+            pass.set_pipeline(&scene.see_through);
+            pass.draw_indexed(0..self.cube_index_count, 0, opaque..instance_count as u32);
         }
     }
 

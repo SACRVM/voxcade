@@ -890,12 +890,13 @@ end
     },
     Topic {
         title: "LIGHT, SHAKE AND FLASH",
-        text: "frame:light puts a light into this picture. level:explode blows a hole into the level, screen:shake shakes the screen, screen:flash flashes it, world:hitstop holds the game still for a few ticks.",
+        text: "frame:light puts a light into this picture: walls stop it (the level's voxels and its pieces). With a table it takes more words: cone makes a spot (its opening angle in degrees), rotation and pitch point it, falloff says how it fades (2 unless set), shadows = false lets it shine through walls. level:explode blows a hole into the level, screen:shake shakes the screen, screen:flash flashes it, world:hitstop holds the game still for a few ticks.",
         conf: r##"c.player.kind = "hero"
 c.things.hero = {}"##,
         files: &[],
         code: r##"function on_level_start(how)
   level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 1, "#5a6e4a")
+  level:fill(40, 20, 2, 41, 44, 10, "#a08060")   -- a wall: it stops the lamps
 end
 
 function on_tick()
@@ -912,6 +913,8 @@ end
 function on_draw(frame)
   -- a warm light that walks with the player
   frame:light(player, 40, { 255, 180, 90 })
+  -- a spot by the wall, shining down and south
+  frame:light{ at = { x = 44, y = 40, z = 14 }, radius = 30, color = { 140, 200, 255 }, cone = 50, rotation = 180, pitch = -60 }
 end
 "##,
     },

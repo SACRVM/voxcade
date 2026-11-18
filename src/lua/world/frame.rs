@@ -31,6 +31,55 @@ pub struct Frame {
 }
 
 /// A text size: 1 the pixel font, 2 and up the big letters.
+/// The words of `frame:light`'s table: where, how far, its colour, and how
+/// it shines (`render::LightShape`, `render::LIGHT_WORDS`).
+const LIGHT_KEYS: [&str; 9] = ["at", "radius", "color", "falloff", "cone", "blend", "rotation", "pitch", "shadows"];
+
+/// A light as `frame:light{ ... }` writes it: `at` and `radius` needed, the
+/// rest as a level's light takes them, each checked (a mistake names the
+/// word and what it wants).
+fn light_of(lua: &Lua, t: &Table) -> mlua::Result<crate::render::Light> {
+    let fail = |what: String| mlua::Error::runtime(format!("frame:light: {what}"));
+    let mut shape = crate::render::LightShape::default();
+    let (mut at, mut radius, mut rgb) = (None, None, None);
+    for pair in t.pairs::<Value, Value>() {
+        let (key, v) = pair?;
+        let Value::String(key) = key else { return Err(fail(format!("its words are {}", LIGHT_KEYS.join(", ")))) };
+        let key = key.to_str()?.to_string();
+        let number = |v: &Value| match v {
+            Value::Integer(n) => Some(*n as f64),
+            Value::Number(n) if n.is_finite() => Some(*n),
+            _ => None,
+        };
+        let ranged = |v: &Value| -> mlua::Result<f32> {
+            let (_, low, high) = crate::render::LIGHT_WORDS.iter().find(|(w, ..)| *w == key).copied().expect("a word of the light's");
+            number(v).filter(|n| (low..=high).contains(n)).map(|n| n as f32).ok_or_else(|| fail(format!("{key} is a number from {low} to {high}")))
+        };
+        match key.as_str() {
+            "at" => at = Some(to_point(lua, &v, "frame:light")?),
+            "radius" => radius = Some(number(&v).filter(|r| *r > 0.0).ok_or_else(|| fail("radius is a number above 0 (how far it reaches, voxels)".into()))? as f32),
+            "color" => {
+                let Value::Table(c) = v else { return Err(fail("color is a color, { r, g, b } from 0 to 255".into())) };
+                let [r, g, b, _] = color(Some(c), [255; 4])?;
+                rgb = Some([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0]);
+            }
+            "falloff" => shape.falloff = ranged(&v)?,
+            "cone" => shape.cone = Some(ranged(&v)?),
+            "blend" => shape.blend = ranged(&v)?,
+            "rotation" => shape.rotation = ranged(&v)?,
+            "pitch" => shape.pitch = ranged(&v)?,
+            "shadows" => shape.shadows = v.as_boolean().ok_or_else(|| fail("shadows is true or false (whether walls stop it)".into()))?,
+            other => {
+                let near = crate::audio::words::near(other, LIGHT_KEYS.into_iter()).map_or(String::new(), |n| format!(" (did you mean `{n}`?)"));
+                return Err(fail(format!("no `{other}`{near}: a light has {}", LIGHT_KEYS.join(", "))));
+            }
+        }
+    }
+    let at = at.ok_or_else(|| fail("at is missing: where it shines from, a thing or a point { x, y, z }".into()))?;
+    let radius = radius.ok_or_else(|| fail("radius is missing: how far it reaches, voxels".into()))?;
+    Ok(crate::render::Light::lamp(at, radius, rgb.unwrap_or([1.0; 3]), &shape, |w| w))
+}
+
 fn text_size(size: Option<i32>, what: &str) -> mlua::Result<i32> {
     match size.unwrap_or(1) {
         n @ 1..=4 => Ok(n),
@@ -139,10 +188,18 @@ impl UserData for Frame {
             o.cmds.push(Cmd::Cube { at: Vec3::new(x, y, z), color: color(rgba, [255, 255, 255, 255])?, glow: glow.unwrap_or(0.0) });
             Ok(())
         });
-        m.add_method_mut("light", |lua, o, (at, radius, rgb): (Value, f32, Option<Table>)| {
-            let at = to_point(lua, &at, "frame:light")?;
-            let c = color(rgb, [255, 255, 255, 255])?;
-            o.cmds.push(Cmd::Light { at, radius, color: [c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0] });
+        m.add_method_mut("light", |lua, o, (at, radius, rgb): (Value, Option<f32>, Option<Table>)| {
+            let light = match (&at, radius) {
+                // frame:light{ at =, radius =, color =, falloff =, ... }
+                (Value::Table(t), None) if rgb.is_none() => light_of(lua, t)?,
+                (_, Some(radius)) => {
+                    let at = to_point(lua, &at, "frame:light")?;
+                    let c = color(rgb, [255, 255, 255, 255])?;
+                    crate::render::Light::lamp(at, radius, [c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0], &crate::render::LightShape::default(), |w| w)
+                }
+                _ => return Err(mlua::Error::runtime("frame:light: a light is frame:light(at, radius, color) or frame:light{ at =, radius =, ... }")),
+            };
+            o.cmds.push(Cmd::Light(light));
             Ok(())
         });
         m.add_method_mut("menu", |lua, o, t: Table| {
