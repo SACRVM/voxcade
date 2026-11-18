@@ -865,8 +865,10 @@ classic smooth way, the owner's choice over beams in voxel cells;
 - **Laid over** by the composite's own pipeline for fog (before the UI,
   which is never fogged): the scene times what the fog left of it, the
   fog's colour for the rest, the beams from the four nearest of their
-  pixels weighed by how alike the depth they were worked out at is. The
-  glow target is not fogged; see-through cubes (glass, water) are fogged
+  pixels weighed by how alike the depth they were worked out at is. What
+  glows (the blurred glow target) is dimmed as the scene is, by what the
+  fog left at the pixel it shines on (`post.wgsl`'s `finish_seen`): a
+  torch in thin fog still blooms, in thick fog far less. See-through cubes (glass, water) are fogged
   as if they were not there: a beam behind them shows in front of them,
   untinted.
 - **Measured** (the trial hall, five lamps walls stop, 1920 by 1080): the

@@ -10,7 +10,9 @@
 @group(2) @binding(1) var scene_depth: texture_depth_2d;
 @group(2) @binding(2) var beams: texture_2d<f32>;
 
-fn fogged(in: PostOut, scene: vec3<f32>) -> vec3<f32> {
+// The scene with the fog over it (rgb) and what the fog left of what lies
+// there (a: the glow is dimmed alike).
+fn fogged(in: PostOut, scene: vec3<f32>) -> vec4<f32> {
     let size = vec2<i32>(textureDimensions(scene_depth));
     let px = min(vec2<i32>(in.uv * vec2<f32>(size)), size - vec2<i32>(1));
     let ray = view_ray(vec2<f32>(px) + vec2<f32>(0.5), vec2<f32>(size), textureLoad(scene_depth, px, 0));
@@ -42,15 +44,17 @@ fn fogged(in: PostOut, scene: vec3<f32>) -> vec3<f32> {
         }
     }
     let beam = select(best, sum / max(weight, 1e-6), weight > 1e-3);
-    return scene * kept + fog.color.rgb * (1.0 - kept) + beam;
+    return vec4<f32>(scene * kept + fog.color.rgb * (1.0 - kept) + beam, kept);
 }
 
 @fragment
 fn fs_composite_fog(in: PostOut) -> @location(0) vec4<f32> {
-    return vec4<f32>(finish(in, fogged(in, scene_color(in))), 1.0);
+    let f = fogged(in, scene_color(in));
+    return vec4<f32>(finish_seen(in, f.rgb, f.a), 1.0);
 }
 
 @fragment
 fn fs_composite_fog_srgb(in: PostOut) -> @location(0) vec4<f32> {
-    return vec4<f32>(decoded(finish(in, fogged(in, scene_color(in)))), 1.0);
+    let f = fogged(in, scene_color(in));
+    return vec4<f32>(decoded(finish_seen(in, f.rgb, f.a)), 1.0);
 }
