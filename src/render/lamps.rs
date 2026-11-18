@@ -18,6 +18,9 @@
 //! lamps through walls, said once; lamps reaching too far apart for the
 //! volume too.
 //!
+//! A picture with fog (`render::fog`) is drawn by this pass too: its beams
+//! are drawn as its lights are, by its tiles and walls.
+//!
 //! Only the picture: nothing here is the game's (no fingerprint, state
 //! hash, replay or save sees it).
 
@@ -239,15 +242,29 @@ impl Lamps {
     pub(super) fn scenes(&self, shader: usize) -> &LampScenes {
         self.scenes[shader].as_ref().expect("made by lamps_of")
     }
+
+    /// What the pass reads, laid out with walls or without (the fog's
+    /// beams read it too, `render::fog`): made by `lamps_of`.
+    pub(super) fn layout(&self, walls: bool) -> &wgpu::BindGroupLayout {
+        match (&self.walls, walls) {
+            (Walls::Ready { pass, .. }, true) => &pass.layout,
+            _ => &self.plain.as_ref().expect("made by lamps_of").layout,
+        }
+    }
+
+    /// What the pass reads this picture: made by `write_lamps`.
+    pub(super) fn bind(&self) -> &wgpu::BindGroup {
+        self.bind.as_ref().expect("made by write_lamps")
+    }
 }
 
-fn instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
+pub(super) fn instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor { label: Some("lamps' tiles"), size: (capacity * size_of::<TileInstance>()) as u64, usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false })
 }
 
 /// The lights' texture, room for `rows` lights (a row each, `LightData`'s
 /// four parts across).
-fn lights_texture(device: &wgpu::Device, rows: u32) -> (wgpu::Texture, wgpu::TextureView) {
+pub(super) fn lights_texture(device: &wgpu::Device, rows: u32) -> (wgpu::Texture, wgpu::TextureView) {
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("lamps' lights"),
         size: wgpu::Extent3d { width: 4, height: rows, depth_or_array_layers: 1 },
@@ -356,7 +373,9 @@ impl Renderer {
     /// else said once, they shine through.
     pub(super) fn lamps_of(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, frame: &FrameData, remember: bool) -> Option<LampFrame> {
         let stopped = frame.lamp_world.is_some() && frame.lights.iter().any(|l| l.stopped());
-        if !stopped && frame.lights.len() <= FORWARD_LIGHTS {
+        // (A picture with fog too: its beams are drawn as this pass draws,
+        // after the scene it keeps the depth of.)
+        if !stopped && frame.lights.len() <= FORWARD_LIGHTS && frame.fog.is_none() {
             return None;
         }
         let walls = stopped && self.walling(device) && self.volume_for(device, queue, frame);

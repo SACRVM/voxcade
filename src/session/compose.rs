@@ -61,6 +61,7 @@ impl<G: Game> Session<G> {
             draws: Vec::new(),
             lights: Vec::new(),
             daylight: None,
+            fog: None,
             hud: crate::ui::Layout::of(&self.cfg.ui, aspect),
             font: self.font.clone(),
             viewing: None,
@@ -119,7 +120,7 @@ impl<G: Game> Session<G> {
         (f.view_proj, f.light_vp, f.remember, f.depth_bias, f.eye) = (view_proj, light_vp, false, 0.3 / depth_range, eye);
         (f.haze_start, f.haze_depth) = (haze_start, haze_start * 2.0);
         (f.models, f.instances, f.see_through, f.lights, f.ui) = (draws, instances, see_through, Vec::new(), Vec::new());
-        (f.tilt_shift, f.screen_flash, f.fade) = (0.0, 0.0, [0.0; 4]);
+        (f.tilt_shift, f.screen_flash, f.fade, f.fog) = (0.0, 0.0, [0.0; 4], None);
         Some(f)
     }
 
@@ -238,7 +239,7 @@ impl<G: Game> Session<G> {
             return self.compose(alpha, aspect, scene, ui);
         }
         draw_particles(&mut out, &sim.particles, alpha);
-        let Drawing { mut voxels, draws: models, lights: game_lights, daylight, camera: picture, cull, bounds, cast_top, pieces: lamp_pieces, .. } = out;
+        let Drawing { mut voxels, draws: models, lights: game_lights, daylight, fog, camera: picture, cull, bounds, cast_top, pieces: lamp_pieces, .. } = out;
         // Models only casting a shadow above the world (a ceiling over a
         // room standing higher): the shadows' box reaches up to them.
         let high = cast_top > world_size.z;
@@ -308,6 +309,7 @@ impl<G: Game> Session<G> {
             haze_color: fx.haze_color,
             haze_start,
             haze_depth: haze_start * 2.0,
+            fog: self.fog_of(fog, world_size),
             lamp_world: stopped.then(|| sim.world.clone()),
             lamp_pieces: if stopped { lamp_pieces } else { Vec::new() },
             lights,
@@ -400,6 +402,26 @@ impl<G: Game> Session<G> {
             shadow: day.shadow.or(level.shadow),
             sky: day.sky.or(level.sky),
         }
+    }
+
+    /// The fog the game set for this picture (`frame:fog`), else c.light's,
+    /// in the level's box `size` big; None where it is not there (density
+    /// 0, every game unless it says).
+    fn fog_of(&self, set: Option<FogSet>, size: Vec3) -> Option<crate::render::Fog> {
+        let light = &self.cfg.light;
+        let set = set.unwrap_or_default();
+        let density = set.density.unwrap_or(light.fog_density);
+        if density <= 0.0 {
+            return None;
+        }
+        Some(crate::render::Fog {
+            density,
+            color: set.color.unwrap_or(light.fog_color),
+            anisotropy: set.anisotropy.unwrap_or(light.fog_anisotropy),
+            lo: Vec3::ZERO,
+            hi: size,
+            scale: self.options.fog.scale()?,
+        })
     }
 
     /// Light from flashes and explosions, and what the game lights (rockets

@@ -46,7 +46,7 @@ pub enum Field {
     Radius(usize),
     Colour(usize),
     /// A light's word of how it shines, by its place in
-    /// `render::LIGHT_WORDS` (falloff, cone, blend, rotation, pitch).
+    /// `render::LIGHT_WORDS` (falloff, cone, blend, rotation, pitch, fog).
     LightWord(usize, usize),
     /// The level's daylight: where the sun stands (degrees round from
     /// north, clockwise seen from above) and how high (degrees over the
@@ -856,6 +856,7 @@ impl Editor {
                         "cone" => light.cone = (v < 360.0).then_some(v),
                         "blend" => light.blend = Some(v),
                         "rotation" => light.rotation = Some(v),
+                        "fog" => light.fog = Some(v),
                         _ => light.pitch = Some(v),
                     }
                 }
@@ -1916,7 +1917,7 @@ mod tests {
         ed.set_field(Field::Radius(0), 200.0);
         assert!(saved(&dir).contains("light = { radius = 200, color = \"#a0b8ff\" }"));
         // How it shines (0.7): FALLOFF, CONE (360 every way), BLEND, a
-        // spot's ROTATE, SHADOWS; each a word of its line, in range.
+        // spot's ROTATE, FOG, SHADOWS; each a word of its line, in range.
         let word = |w: &str| crate::render::LIGHT_WORDS.iter().position(|(n, ..)| *n == w).unwrap();
         ed.set_field(Field::LightWord(0, word("cone")), 45.4);
         ed.set_field(Field::LightWord(0, word("pitch")), -120.0);
@@ -1926,6 +1927,11 @@ mod tests {
         ed.set_field(Field::LightWord(0, word("cone")), 360.0);
         ed.set_light_shadows(0, None);
         assert!(saved(&dir).contains("light = { radius = 200, color = \"#a0b8ff\", falloff = 1.23, pitch = -90 }"), "every way, walls stopping it again: {}", saved(&dir));
+        // FOG: how strongly it shows in fog, in hundredths, in range.
+        ed.set_field(Field::LightWord(0, word("fog")), 12.345);
+        assert!(saved(&dir).contains("light = { radius = 200, color = \"#a0b8ff\", falloff = 1.23, pitch = -90, fog = 10 }"), "{}", saved(&dir));
+        ed.set_field(Field::LightWord(0, word("fog")), 0.456);
+        assert!(saved(&dir).contains("pitch = -90, fog = 0.46 }"), "{}", saved(&dir));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -48,6 +48,9 @@ pub struct FrameData {
     /// views, a game without lamps).
     pub lamp_world: Option<crate::world::World>,
     pub lamp_pieces: Vec<ModelDraw>,
+    /// The air's fog, if the picture has any (`Fog`): drawn by the lamps'
+    /// pass's picture (`render::fog`). None: as every picture before.
+    pub fog: Option<super::Fog>,
     pub glow: f32,
     /// The shadow map's width and height (`light_vp` is snapped to it).
     pub shadow_map: u32,
@@ -144,4 +147,6 @@ pub struct Stats {
     pub walls: bool,
     pub volume_bytes: u64,
     pub volume_ms: f64,
+    /// Whether the picture had fog (`render::fog`).
+    pub fog: bool,
 }

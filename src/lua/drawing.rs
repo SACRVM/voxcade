@@ -148,6 +148,7 @@ impl<K: Kit> LuaGame<K> {
                 Cmd::Cube { at, color, glow } => out.cube(out.snapped(*at), *color, *glow, color[3] as f32 / 255.0),
                 Cmd::Light(light) => out.light(*light),
                 Cmd::Daylight(day) => out.daylight(*day),
+                Cmd::Fog(fog) => out.fog(*fog),
                 // (Its code names it as Lua writes a call, or what is out
                 // of the game's own view would be missing.)
                 Cmd::Camera(_) if !self.code.moves_camera => {

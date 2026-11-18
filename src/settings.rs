@@ -53,6 +53,48 @@ impl Shadows {
     }
 }
 
+/// How finely a game's fog (`c.light.fog_density`, `frame:fog`) shows its
+/// lamps' beams: the beams worked out at half the picture's size each way
+/// (HIGH), at a quarter (LOW), or no fog drawn at all (OFF: the picture as
+/// without fog, nothing of its cost). On the CPU's own Radeon 610M LOW took
+/// about 2 ms of beams and 1 ms of laying the fog over a 1920 by 1080
+/// picture; a game without fog pays nothing at any setting.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Fog {
+    #[default]
+    High,
+    Low,
+    Off,
+}
+
+impl Fog {
+    pub const ALL: [Fog; 3] = [Fog::High, Fog::Low, Fog::Off];
+
+    /// How many of the picture's pixels a pixel of the beams is each way;
+    /// None: no fog drawn.
+    pub fn scale(self) -> Option<u32> {
+        match self {
+            Fog::High => Some(2),
+            Fog::Low => Some(4),
+            Fog::Off => None,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Fog::High => "HIGH",
+            Fog::Low => "LOW",
+            Fog::Off => "OFF",
+        }
+    }
+
+    /// `step` levels coarser (negative: finer), round the list.
+    pub fn step(self, step: i32) -> Self {
+        cycle(&Self::ALL, self, step)
+    }
+}
+
 /// How often the picture is drawn: what the window presents with
 /// (`Screen::set_present`). The simulation ticks on its own clock, so none
 /// of these changes how the game plays.
@@ -141,6 +183,8 @@ pub struct Settings {
     /// The tilt-shift blur at the top and bottom of the screen.
     pub blur: bool,
     pub shadows: Shadows,
+    /// How finely fog shows its beams (FOG).
+    pub fog: Fog,
     /// How often the picture is drawn (FRAME RATE).
     pub frame_rate: FrameRate,
     /// Gamepads rumble on hits and explosions.
@@ -214,6 +258,7 @@ impl Default for Settings {
             flashes: true,
             blur: true,
             shadows: Shadows::High,
+            fog: Fog::High,
             frame_rate: FrameRate::Unlimited,
             rumble: true,
             show_fps: false,
@@ -424,15 +469,16 @@ impl Settings {
     /// read, what happened: the file is copied to `NAME.toml.broken` first,
     /// so the defaults saved after it never wipe what the player had.
     /// `integrated`: the picture is drawn by the processor's own graphics,
-    /// where the shadows start at MEDIUM; a file that names the shadows
-    /// (the player chose) wins.
+    /// where the shadows start at MEDIUM and the fog at LOW; a file that
+    /// names them (the player chose) wins.
     pub fn load_for(path: &Path, integrated: bool) -> (Self, Option<String>) {
         let mut problem = None;
-        let mut named_shadows = false;
+        let (mut named_shadows, mut named_fog) = (false, false);
         let mut settings = match std::fs::read_to_string(path) {
             Ok(text) => match toml::from_str::<Settings>(&text) {
                 Ok(settings) => {
-                    named_shadows = toml::from_str::<toml::Table>(&text).is_ok_and(|t| t.contains_key("shadows"));
+                    let named = |key| toml::from_str::<toml::Table>(&text).is_ok_and(|t| t.contains_key(key));
+                    (named_shadows, named_fog) = (named("shadows"), named("fog"));
                     settings
                 }
                 Err(e) => {
@@ -458,6 +504,9 @@ impl Settings {
         if integrated && !named_shadows {
             settings.shadows = Shadows::Medium;
         }
+        if integrated && !named_fog {
+            settings.fog = Fog::Low;
+        }
         (settings, problem)
     }
 
@@ -470,7 +519,7 @@ impl Settings {
 
     /// What of the player's settings the game itself follows.
     pub fn options(&self) -> crate::session::Options {
-        crate::session::Options { shake: self.shake, flashes: self.flashes, blur: self.blur, shadow_map: self.shadows.map_size() }
+        crate::session::Options { shake: self.shake, flashes: self.flashes, blur: self.blur, shadow_map: self.shadows.map_size(), fog: self.fog }
     }
 }
 
@@ -613,6 +662,13 @@ mod tests {
         std::fs::write(&path, "shadows = \"low\"\n").unwrap();
         assert_eq!(Settings::load_for(&path, true).0.shadows, Shadows::Low);
         assert_eq!(Settings::default().shadows, Shadows::High, "shot's pictures stay as they were");
+        // The fog alike: LOW on the processor's graphics until chosen.
+        std::fs::write(&path, "shadows = \"low\"\n").unwrap();
+        assert_eq!(Settings::load_for(&path, true).0.fog, Fog::Low, "a file that never chose the fog");
+        assert_eq!(Settings::load_for(&path, false).0.fog, Fog::High);
+        std::fs::write(&path, "fog = \"off\"\n").unwrap();
+        assert_eq!(Settings::load_for(&path, true).0.fog, Fog::Off, "the player's choice");
+        assert_eq!((Settings::default().fog, Settings::default().options().fog), (Fog::High, Fog::High));
     }
 
     /// A run gets into the table by beating a line; as good as another, it

@@ -58,36 +58,43 @@ fn fs_blur(in: PostOut) -> @location(0) vec4<f32> {
 @group(1) @binding(1) var glow_blur: texture_2d<f32>;
 @group(1) @binding(2) var ui_layer: texture_2d<f32>;
 
-/// The picture as the screen shows it, in palette space (the colours the
-/// game gives are what the screen gets).
-fn composite(in: PostOut) -> vec3<f32> {
+/// The scene as the screen shows it: sharp over most of the screen,
+/// softening only near the top and bottom.
+fn scene_color(in: PostOut) -> vec3<f32> {
     let sharp = textureSample(src, src_sampler, in.uv).rgb;
     let soft = textureSample(scene_blur, src_sampler, in.uv).rgb;
-    let glow = textureSample(glow_blur, src_sampler, in.uv).rgb;
-    // Sharp over most of the screen, softening only near the top and bottom.
     let edge = smoothstep(0.6, 1.0, abs(in.uv.y - 0.5) * 2.0) * post.params.y;
-    var color = mix(sharp, soft, edge);
-    // The UI lies over the world, sharp; glow shines over both.
+    return mix(sharp, soft, edge);
+}
+
+/// The picture as the screen shows it, in palette space (the colours the
+/// game gives are what the screen gets), from the scene's `color`: the UI
+/// over it, sharp; glow shining over both; the flash; the fade.
+fn finish(in: PostOut, scene: vec3<f32>) -> vec3<f32> {
+    let glow = textureSample(glow_blur, src_sampler, in.uv).rgb;
     let ui = textureSample(ui_layer, src_sampler, in.uv);
-    color = mix(color, ui.rgb, ui.a);
+    var color = mix(scene, ui.rgb, ui.a);
     color += glow * post.params.x;
     color = mix(color, vec3<f32>(1.0), post.params.z);
     color = mix(color, post.step.rgb, post.step.w);
     return clamp(color, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
+/// Decoded once for an sRGB target, which encodes what it is given as
+/// sRGB: the encoding brings back the palette space's colours instead of
+/// brightening them twice.
+fn decoded(c: vec3<f32>) -> vec3<f32> {
+    return select(pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4)), c / 12.92, c <= vec3<f32>(0.04045));
+}
+
 /// Onto a target that stores what it is given (the usual surface).
 @fragment
 fn fs_composite(in: PostOut) -> @location(0) vec4<f32> {
-    return vec4<f32>(composite(in), 1.0);
+    return vec4<f32>(finish(in, scene_color(in)), 1.0);
 }
 
-/// Onto an sRGB target, which encodes what it is given as sRGB: the
-/// picture decoded once here, so the encoding brings back the palette
-/// space's colours instead of brightening them twice.
+/// Onto an sRGB target.
 @fragment
 fn fs_composite_srgb(in: PostOut) -> @location(0) vec4<f32> {
-    let c = composite(in);
-    let linear = select(pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4)), c / 12.92, c <= vec3<f32>(0.04045));
-    return vec4<f32>(linear, 1.0);
+    return vec4<f32>(decoded(finish(in, scene_color(in))), 1.0);
 }

@@ -190,6 +190,43 @@ pub(super) fn picture_camera(lua: &Lua, t: &Table, alpha: f32) -> mlua::Result<c
     Ok(cam)
 }
 
+/// `frame:fog{ density =, color =, anisotropy = }`: what it sets
+/// of this picture's fog, the rest `c.light`'s (`fog_density` ...).
+pub(super) fn fog(t: &Table) -> mlua::Result<crate::session::FogSet> {
+    const WORDS: [&str; 3] = ["density", "color", "anisotropy"];
+    let fail = |what: String| mlua::Error::runtime(format!("frame:fog: {what}"));
+    let mut fog = crate::session::FogSet::default();
+    let number = |v: &Value, key: &str, low: f64, high: f64| -> mlua::Result<f32> {
+        let n = match v {
+            Value::Integer(n) => Some(*n as f64),
+            Value::Number(n) if n.is_finite() => Some(*n),
+            _ => None,
+        };
+        n.filter(|n| (low..=high).contains(n)).map(|n| n as f32).ok_or_else(|| fail(format!("{key} is a number from {low} to {high}")))
+    };
+    for pair in t.pairs::<Value, Value>() {
+        let (key, v) = pair?;
+        let key = match &key {
+            Value::String(s) => s.to_str()?.to_string(),
+            _ => return Err(fail(format!("its words are {}", WORDS.join(", ")))),
+        };
+        match key.as_str() {
+            "density" => fog.density = Some(number(&v, "density", 0.0, 1.0)?),
+            "anisotropy" => fog.anisotropy = Some(number(&v, "anisotropy", -0.9, 0.9)?),
+            "color" => {
+                let Value::Table(c) = v else { return Err(fail("color is a color, { r, g, b } from 0 to 255".into())) };
+                let [r, g, b, _] = color(Some(c), [255; 4])?;
+                fog.color = Some([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0]);
+            }
+            other => {
+                let near = crate::audio::words::near(other, WORDS.into_iter()).map_or(String::new(), |n| format!(" (did you mean `{n}`?)"));
+                return Err(fail(format!("no `{other}`{near}: it sets {}", WORDS.join(", "))));
+            }
+        }
+    }
+    Ok(fog)
+}
+
 /// `frame:daylight{ sun =, sun_color =, ambient =, shadow =, sky = }`: what
 /// it sets of this picture's daylight, the rest `c.light`'s.
 pub(super) fn daylight(t: &Table) -> mlua::Result<crate::session::Daylight> {

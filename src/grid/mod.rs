@@ -219,8 +219,8 @@ impl Facing {
 /// voxels from its pivot (turning with the piece; the pivot without), how
 /// far it reaches and its colour (`#rrggbb`; white without), and how it
 /// shines (`render::LightShape`'s words: `falloff`, `cone`, `blend`,
-/// `rotation`, `pitch`, `shadows`, each unset as its default), each as the
-/// file wrote it.
+/// `rotation`, `pitch`, `shadows`, `fog`, each unset as its default), each
+/// as the file wrote it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ThingLight {
     pub at: Option<[i32; 3]>,
@@ -232,6 +232,7 @@ pub struct ThingLight {
     pub rotation: Option<f64>,
     pub pitch: Option<f64>,
     pub shadows: Option<crate::render::LampShadows>,
+    pub fog: Option<f64>,
 }
 
 impl ThingLight {
@@ -250,6 +251,7 @@ impl ThingLight {
             rotation: self.rotation.map_or(d.rotation, |v| v as f32),
             pitch: self.pitch.map_or(d.pitch, |v| v as f32),
             shadows: self.shadows,
+            fog: self.fog.map_or(d.fog, |v| v as f32),
         }
     }
 }

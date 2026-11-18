@@ -314,6 +314,16 @@ held, as dialogue and shops always were; light is the picture's, so
   meshes (others keep only what their one sun and the camera can hit).
   Colours as the other frame calls take them (`{ r, g, b }`, 0 to 255);
   HELP's DAY AND NIGHT shows a day of 40 seconds.
+- **Fog.** `frame:fog{ density =, color =, anisotropy = }` in
+  `on_draw`: this picture's fog, what it leaves out `c.light`'s
+  (`fog_density`, 0 none unless set; `fog_color`; `fog_anisotropy`,
+  -0.9 to 0.9, above 0 a beam brighter looking towards its lamp). The
+  level's box holds it (not the air between the camera and the level):
+  the lamps' light shows in it, a spot as a beam a wall stops where it
+  stops the lamp, and what lies further fades to its colour. A light's
+  `fog` (0 to 10, 1 unless set) says how strongly it shows. Only the
+  picture (`render::fog`); the player's FOG (VIDEO) draws its beams
+  finer or coarser, or none.
 - **A picture's camera.** `frame:camera{ look_at =, width =,
   height =, pitch =, fov = }` in `on_draw`: this picture's camera, for a
   scene the engine films (the point-and-click games' way: zoom in on
@@ -939,7 +949,8 @@ before 0.7), `cone` (a spot, its whole opening angle in degrees, 1 to
 360; unset it shines every way), `blend` (how much of the cone's edge is
 soft, 0 to 1, 0.15), `rotation` and `pitch` (the spot's way: degrees
 clockwise seen from above, north +y 0, and up or down, -90 to 90; a
-piece's turns with the piece) and `shadows` (a word: `"static"`, the
+piece's turns with the piece), `fog` (how strongly it shows in fog, 0 to
+10, 1 unless set) and `shadows` (a word: `"static"`, the
 level's voxels and its pieces stop it, `render::lamps`; `"none"`, it
 shines through; `true` and `false` are refused, naming the word to
 write; a third word, `"all"`, moving things too, is decided and not

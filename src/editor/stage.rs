@@ -365,10 +365,10 @@ fn outliner(ui: &mut egui::Ui, ed: &Editor, view: &View, thumbs: &mut Thumbs, sh
 fn field(ui: &mut egui::Ui, shown: &mut PanelsDrawn, letter: &str, axis: Option<usize>, value: f64, set: Field, speed: f64, range: std::ops::RangeInclusive<f64>, tip: &str, width: f32) {
     let decimals = match set {
         Field::Turn | Field::Pitch | Field::Roll | Field::SunFrom | Field::SunHeight => 1,
-        // A light's falloff and blend in hundredths, its way in tenths of
-        // a degree, its cone in whole degrees.
+        // A light's falloff, blend and fog in hundredths, its way in
+        // tenths of a degree, its cone in whole degrees.
         Field::LightWord(_, w) => match crate::render::LIGHT_WORDS.get(w).map(|(n, ..)| *n) {
-            Some("falloff" | "blend") => 2,
+            Some("falloff" | "blend" | "fog") => 2,
             Some("cone") => 0,
             _ => 1,
         },
@@ -711,8 +711,8 @@ fn light_controls(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, radi
 }
 
 /// How light `k` shines: FALLOFF, CONE (360: every way) and its BLEND, a
-/// spot's ROTATE (X its pitch, Z its rotation, as a piece's), SHADOWS. The
-/// file's words on hover.
+/// spot's ROTATE (X its pitch, Z its rotation, as a piece's), FOG,
+/// SHADOWS. The file's words on hover.
 fn shape_rows(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, game: crate::render::LampShadows, shown: &mut PanelsDrawn) {
     let s = l.shape();
     let word = |w: &str| crate::render::LIGHT_WORDS.iter().position(|(n, ..)| *n == w).expect("a light's word");
@@ -733,6 +733,9 @@ fn shape_rows(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, game: cr
             field(ui, shown, "Z", Some(2), f64::from(s.rotation), Field::LightWord(k, word("rotation")), 0.5, range("rotation"), "rotation", FIELD);
         });
     }
+    row(ui, "FOG", "How strongly its light shows in the game's fog: 0 not at all, 1 as bright as it lights (fog in the level's file)", |ui| {
+        field(ui, shown, "", None, f64::from(s.fog), Field::LightWord(k, word("fog")), 0.02, range("fog"), "", FIELD);
+    });
     row(ui, "SHADOWS", "What stops it: NONE, it shines through walls; STATIC, the level's voxels and its pieces (shadows in the level's file). Lit plain: the game's word (c.light.lamp_shadows), for a light that says none; a click on its own word clears it", |ui| {
         use crate::render::LampShadows as L;
         for (word, how) in [("NONE", L::None), ("STATIC", L::Static)] {

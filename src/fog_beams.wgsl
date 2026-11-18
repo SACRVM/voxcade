@@ -1,0 +1,256 @@
+// The beams (render::fog): the lamps' light the fog sends to the eye,
+// into a target a fraction of the picture's size. Drawn as the lamps' pass
+// draws (lamps.wgsl's tiles, `vs_lamp`, and its walls): each tile with the
+// lights whose box reaches it. Along each pixel's view ray, through the
+// stretch of it where a light can reach (its ball, a spot's cone too), the
+// light it gets at a point times what the fog sends on towards the eye,
+// less what the fog took before it got there. A lamp walls stop lights a
+// point only where no solid voxel lies between it and the point's voxels
+// (the faces' memory asked as for a face: a still scene walks each way
+// once), so a beam ends at a wall and a pillar cuts a dark slot into it.
+//
+// No noise: the stretch is taken at the planes across the camera's way
+// every FOG_STEP voxels (fixed in the level, so a scrolling view and a
+// turning spot take the same points), the light between them added up as
+// a straight line, and where a wall's shadow begins or ends between two
+// points it is sought out (FOG_EDGE_STEPS halvings) rather than guessed.
+// Something thinner than the planes' spacing between two points that both
+// see the lamp casts no shadow in the fog.
+
+@group(1) @binding(0) var<uniform> fog: Fog;
+// The picture's lights for the fog, as `lights` (their colour times how
+// strongly each shows in fog).
+@group(1) @binding(1) var fog_lights: texture_2d<f32>;
+
+// The planes' spacing, voxels along the camera's way, for a light whose
+// ball is at most FOG_MOST_PLANES of them across; twice (four times ...)
+// as far for a wider one.
+const FOG_STEP: f32 = 4.0;
+const FOG_MOST_PLANES: f32 = 48.0;
+// Halvings seeking where a wall's shadow begins between two points.
+const FOG_EDGE_STEPS: i32 = 4;
+
+// How much of the light travelling the way `cos_angle` from the eye's way
+// back (1: straight towards the eye) the fog sends on to the eye
+// (Henyey-Greenstein's, 1 for fog that sends every way alike).
+fn phase(cos_angle: f32) -> f32 {
+    let g = fog.color.w;
+    let d = 1.0 + g * g - 2.0 * g * cos_angle;
+    return (1.0 - g * g) / (d * sqrt(d));
+}
+
+// Where along the ray from the eye the way `dir` it lies within the
+// spot's cone (`l`, its front half) whose half's cosine is `c`: from (x)
+// to (y), to not past from: nowhere. A cone of 180 degrees or more:
+// everywhere.
+fn cone_span(l: Light, dir: vec3<f32>, c: f32) -> vec2<f32> {
+    let none = vec2<f32>(1.0, 0.0);
+    if (c <= 0.0) {
+        return vec2<f32>(-1e9, 1e9);
+    }
+    let axis = l.spot.xyz;
+    let co = fog.eye.xyz - l.pos_radius.xyz;
+    let da = dot(dir, axis);
+    let ca = dot(co, axis);
+    let c2 = c * c;
+    // Ahead of the apex: (co + t dir) . axis >= 0.
+    var lo = -1e9;
+    var hi = 1e9;
+    if (abs(da) < 1e-7) {
+        if (ca < 0.0) {
+            return none;
+        }
+    } else if (da > 0.0) {
+        lo = -ca / da;
+    } else {
+        hi = -ca / da;
+    }
+    // Within the double cone: a t^2 + b t + k >= 0.
+    let a = da * da - c2;
+    let b = 2.0 * (da * ca - c2 * dot(dir, co));
+    let k = ca * ca - c2 * dot(co, co);
+    if (abs(a) < 1e-7) {
+        if (abs(b) < 1e-9) {
+            return select(vec2<f32>(lo, hi), none, k < 0.0);
+        }
+        if (b > 0.0) {
+            return vec2<f32>(max(lo, -k / b), hi);
+        }
+        return vec2<f32>(lo, min(hi, -k / b));
+    }
+    let disc = b * b - 4.0 * a * k;
+    if (disc < 0.0) {
+        return select(vec2<f32>(lo, hi), none, a < 0.0);
+    }
+    let s = sqrt(disc);
+    let r = vec2<f32>((-b - s) / (2.0 * a), (-b + s) / (2.0 * a));
+    let r1 = min(r.x, r.y);
+    let r2 = max(r.x, r.y);
+    if (a < 0.0) {
+        return vec2<f32>(max(lo, r1), min(hi, r2));
+    }
+    // The ray goes through both halves: the front one is its far part
+    // going the cone's way, its near part going against it.
+    if (da > 0.0) {
+        return vec2<f32>(max(lo, r2), hi);
+    }
+    return vec2<f32>(lo, min(hi, r1));
+}
+
+// The light `l` sends towards the eye from the point `p` on the view ray
+// the way `dir`, per voxel of fog, walls aside.
+fn scatter(l: Light, p: vec3<f32>, dir: vec3<f32>) -> vec3<f32> {
+    let to = l.pos_radius.xyz - p;
+    let d = max(length(to), 0.001);
+    let fall = 1.0 - d / l.pos_radius.w;
+    if (fall <= 0.0) {
+        return vec3<f32>(0.0);
+    }
+    var lit = l.color.rgb * fall * fall;
+    if (l.color.w != 2.0) {
+        lit = l.color.rgb * pow(fall, l.color.w);
+    }
+    if (l.spot.w > -1.5) {
+        lit *= in_cone(l, -to / d);
+    }
+    return lit * phase(dot(to, dir) / d);
+}
+
+// Whether the lamp `l` reaches the voxel `cell` that stands for a point
+// in the voxel `own` (walls stopping it): `cell` unless it is solid (a
+// wall's, the floor's), then `own` (where the point is: in the air).
+fn reaches(l: Light, near: vec3<i32>, own: vec3<i32>) -> bool {
+    // WALLS {
+    if (l.edge.y > 0.5) {
+        var cell = near;
+        if (solid(cell - lamps.origin.xyz, 0)) {
+            if (all(own == near) || solid(own - lamps.origin.xyz, 0)) {
+                return false;
+            }
+            cell = own;
+        }
+        let ids = vec2<u32>(mix_hash(0x9e3779b9u, cell), mix_hash(0x85ebca6bu, cell));
+        return !stopped(cell, 0u, l.pos_radius.xyz, ids, vec2<u32>(l.edge.zw));
+    }
+    // } WALLS
+    return true;
+}
+
+
+// The voxel that stands for the point `p` in asking whether a lamp
+// reaches it: the middle one of the 2 by 2 by 2 voxels it is in, so
+// neighbouring pixels ask alike and the faces' memory answers quicker.
+fn reaches_point(l: Light, p: vec3<f32>) -> bool {
+    let own = vec3<i32>(floor(p));
+    return reaches(l, ((own >> vec3<u32>(1u)) << vec3<u32>(1u)) + vec3<i32>(1), own);
+}
+
+// The light `l` sends to the eye along the ray the way `dir` from `a` to
+// `b`, the fog taking its share from `air` on: points at the planes
+// between, and where it enters and leaves a spot's hard core (`core`: the
+// light bends there), each the light it gets (unstopped, `scatter`) and
+// whether it gets it; where that changes between two points, where it
+// changes.
+fn beam(l: Light, dir: vec3<f32>, a: f32, b: f32, core: vec2<f32>, air: f32) -> vec3<f32> {
+    let density = fog.lo.w;
+    let eye = fog.eye.xyz;
+    let ahead = max(dot(dir, fog.forward.xyz), 0.05);
+    let step = FOG_STEP * exp2(max(ceil(log2(2.0 * l.pos_radius.w / (FOG_STEP * FOG_MOST_PLANES))), 0.0));
+    let start = dot(eye, fog.forward.xyz);
+    let stopping = l.edge.y > 0.5;
+    var t0 = a;
+    var f0 = scatter(l, eye + dir * a, dir) * exp(-density * (a - air));
+    var v0 = !stopping || reaches_point(l, eye + dir * a);
+    var sum = vec3<f32>(0.0);
+    for (var k = 0; k < i32(FOG_MOST_PLANES) + 4; k += 1) {
+        // The next plane, or the core's edge if it comes first.
+        var t1 = ((floor((start + t0 * ahead) / step + 1e-4) + 1.0) * step - start) / ahead;
+        if (core.x > t0 + 1e-3) {
+            t1 = min(t1, core.x);
+        }
+        if (core.y > t0 + 1e-3) {
+            t1 = min(t1, core.y);
+        }
+        t1 = min(t1, b);
+        let p1 = eye + dir * t1;
+        let f1 = scatter(l, p1, dir) * exp(-density * (t1 - air));
+        let v1 = !stopping || reaches_point(l, p1);
+        if (v0 == v1) {
+            if (v0) {
+                sum += (f0 + f1) * 0.5 * (t1 - t0);
+            }
+        } else {
+            // Where the lamp's light begins or ends between them.
+            var lo = t0;
+            var hi = t1;
+            for (var i = 0; i < FOG_EDGE_STEPS; i += 1) {
+                let mid = (lo + hi) * 0.5;
+                if (reaches_point(l, eye + dir * mid) == v0) {
+                    lo = mid;
+                } else {
+                    hi = mid;
+                }
+            }
+            let edge = (lo + hi) * 0.5;
+            let between = mix(f0, f1, (edge - t0) / max(t1 - t0, 1e-6));
+            if (v0) {
+                sum += (f0 + between) * 0.5 * (edge - t0);
+            } else {
+                sum += (between + f1) * 0.5 * (t1 - edge);
+            }
+        }
+        if (t1 >= b) {
+            break;
+        }
+        t0 = t1;
+        f0 = f1;
+        v0 = v1;
+    }
+    return sum * density;
+}
+
+@fragment
+fn fs_beam(in: TileOut) -> @location(0) vec4<f32> {
+    let own = in.clip.xy;
+    let scale = f32(fog.size.z);
+    let full = vec2<i32>(textureDimensions(scene_depth));
+    // The picture's pixel in the middle of this one's: its depth, its ray.
+    let px = min(vec2<i32>(floor(own) * scale + vec2<f32>(scale * 0.5)), full - vec2<i32>(1));
+    let depth = textureLoad(scene_depth, px, 0);
+    let ray = view_ray(vec2<f32>(px) + vec2<f32>(0.5), vec2<f32>(full), depth);
+    let dir = ray.xyz;
+    // (Its alpha how far the eye sees there, for fog_composite.wgsl.)
+    let seen = min(ray.w, FOG_FAR);
+    let air = air_span(dir, ray.w);
+    if (air.y <= air.x) {
+        return vec4<f32>(0.0, 0.0, 0.0, seen);
+    }
+    var sum = vec3<f32>(0.0);
+    for (var k = 0u; k < in.count.x; k += 1u) {
+        let row = light_row(in, k);
+        let l = Light(textureLoad(fog_lights, vec2<i32>(0, row), 0), textureLoad(fog_lights, vec2<i32>(1, row), 0), textureLoad(fog_lights, vec2<i32>(2, row), 0), textureLoad(fog_lights, vec2<i32>(3, row), 0));
+        // Where the ray is within its ball, its cone, the air.
+        let oc = fog.eye.xyz - l.pos_radius.xyz;
+        let h = dot(dir, oc);
+        let disc = h * h - (dot(oc, oc) - l.pos_radius.w * l.pos_radius.w);
+        if (disc <= 0.0) {
+            continue;
+        }
+        let root = sqrt(disc);
+        var a = max(-h - root, air.x);
+        var b = min(-h + root, air.y);
+        var core = vec2<f32>(-1.0);
+        if (l.spot.w > -1.5) {
+            let cone = cone_span(l, dir, l.spot.w);
+            a = max(a, cone.x);
+            b = min(b, cone.y);
+            if (l.edge.x > l.spot.w) {
+                core = cone_span(l, dir, l.edge.x);
+            }
+        }
+        if (b > a) {
+            sum += beam(l, dir, a, b, core, air.x);
+        }
+    }
+    return vec4<f32>(sum, seen);
+}

@@ -299,6 +299,7 @@ pub(super) const COMMANDS: &[Command] = &[
             trial("--input2", "SCRIPT", "a game of several: seat 2's keys (--input3 and on the seats after it)"),
             trial("--at", "X,Y", "the player starting at X,Y"),
             trial("--shadows", "high|medium|low", "the shadow quality, as in the settings"),
+            trial("--fog", "high|low|off", "how finely fog shows its beams, as in the settings"),
             trial("--pad", "xbox|nintendo|playstation", "the hints for a gamepad of that kind"),
         ],
     },

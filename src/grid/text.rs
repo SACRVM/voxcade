@@ -249,6 +249,9 @@ fn light_text(l: &ThingLight) -> String {
     if let Some(s) = l.shadows {
         parts.push(format!("shadows = \"{}\"", s.word()));
     }
+    if let Some(v) = l.fog {
+        parts.push(format!("fog = {}", number(v)));
+    }
     format!("{{ {} }}", parts.join(", "))
 }
 
@@ -1182,7 +1185,7 @@ fn line_of_table(r: &Reader, t: &dyn toml_edit::TableLike) -> usize {
 /// One light of a thing (`light = {...}`, or one of `lights = [...]`);
 /// `span` where its field is, for a mistake without a place of its own.
 fn read_light(r: &Reader, l: &dyn toml_edit::TableLike, span: Option<std::ops::Range<usize>>) -> Result<ThingLight> {
-    r.only(l, &["at", "radius", "color", "falloff", "cone", "blend", "rotation", "pitch", "shadows"], "a light")?;
+    r.only(l, &["at", "radius", "color", "falloff", "cone", "blend", "rotation", "pitch", "shadows", "fog"], "a light")?;
     let at = l.get("at").map(|a| r.ints(a, "a light's at").map(|v| v.to_array())).transpose()?;
     // How it shines, each number in its range (`render::LIGHT_WORDS`).
     let word = |key: &str| -> Result<Option<f64>> {
@@ -1191,7 +1194,7 @@ fn read_light(r: &Reader, l: &dyn toml_edit::TableLike, span: Option<std::ops::R
         let v = item.as_float().or_else(|| item.as_integer().map(|i| i as f64)).filter(|v| (low..=high).contains(v));
         v.map(Some).ok_or_else(|| r.fail(item.span(), format!("a light's {key} must be a number from {low} to {high}")))
     };
-    let (falloff, cone, blend, rotation, pitch) = (word("falloff")?, word("cone")?, word("blend")?, word("rotation")?, word("pitch")?);
+    let (falloff, cone, blend, rotation, pitch, fog) = (word("falloff")?, word("cone")?, word("blend")?, word("rotation")?, word("pitch")?, word("fog")?);
     let shadows = l
         .get("shadows")
         .map(|item| match (item.as_str(), item.as_bool()) {
@@ -1210,7 +1213,7 @@ fn read_light(r: &Reader, l: &dyn toml_edit::TableLike, span: Option<std::ops::R
             None => return Err(r.fail(c.span(), "a light's color must be \"#rrggbb\", like \"#ffd9a0\"")),
         },
     };
-    Ok(ThingLight { at, radius, color, falloff, cone, blend, rotation, pitch, shadows })
+    Ok(ThingLight { at, radius, color, falloff, cone, blend, rotation, pitch, shadows, fog })
 }
 
 /// A level's own daylight (`[light]`), each word checked.

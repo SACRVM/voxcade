@@ -1601,6 +1601,26 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `lamps_change_no_run`. The upgrade step "lamps stopped by walls"
   (0.7.0) says which lights of a game and how to keep the old look; it
   changes nothing. Moving things stop no lamp.
+- Fog (0.7, the owner's names, the classic smooth way; `docs/engine.md`
+  "Fog and beams"): `c.light.fog_density` (0 none unless set),
+  `fog_color`, `fog_anisotropy`, `frame:fog{ density, color, anisotropy
+  }` per picture, a light's `fog` (0 to 10, 1; `LIGHT_WORDS`, a level's
+  light and the level editor's FOG row too). Air in the level's box, not
+  between camera and level: lamps' beams in it, walls stopping them as
+  their light, what lies further faded to its colour. A picture with fog
+  goes through the lamps' pass; after its see-through cubes the beams
+  (`render::fog`, `fog_beams.wgsl`: points on planes across the camera's
+  way fixed in the level, the spot's core edges, halvings where a wall's
+  shadow begins; no noise, so no flicker scrolling or turning) into a
+  target half or a quarter the size, then the composite's own pipeline
+  (`fog_composite.wgsl`) lays it under the UI; a picture without fog is
+  drawn byte for byte as before, at no cost. VIDEO's FOG (`settings::Fog`:
+  HIGH half, LOW quarter, OFF none drawn; LOW on the processor's own
+  graphics until chosen; `shot --fog`). Only the picture: test
+  `fog_changes_no_run`; GPU test `fog_shows_a_beam_the_wall_stops`. Not
+  built: glass and water in front of a beam (it shows over them,
+  untinted), the sun's beams, moving things cutting beams, fog in the
+  editors and the IDE's picture.
 - The renderer is `src/render/`: `mod.rs` the `Renderer` and `Instance`,
   `bank.rs` the model bank, `baked.rs` its runs baked into faces and the
   bank on the GPU, `cubes.rs` the CPU passes over a frame's
@@ -1608,11 +1628,12 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `shader.rs` the shader text and its uniforms, `pipelines.rs` the
   renderer made, `chunks.rs` the chunk meshes, `passes.rs` a frame drawn,
   `limits.rs` the faces' memory's count, `lamps.rs` the lamps' pass,
-  `volume.rs` the level's solid voxels it walks. `Renderer::render` is
+  `volume.rs` the level's solid voxels it walks, `fog.rs` the fog's
+  beams and its composite. `Renderer::render` is
   `write_globals`, `upload_cubes`, `upload_models`, `draw_models`,
   `shadow_pass`, `scene_pass` (or with lamps `lit_scene_pass`,
-  `lamp_pass`, `see_through_pass`), `ui_pass`, `post_passes`,
-  `composite_pass`. A limit a frame goes past is said once, never silent:
+  `lamp_pass`, `see_through_pass`, with fog `beams_pass`), `ui_pass`,
+  `post_passes`, `composite_pass`. A limit a frame goes past is said once, never silent:
   lights past `MOST_LIGHTS` (`Session::warnings`, counted in `look` too),
   the lamps' limits (a GPU without fragment storage writes, lamps
   reaching past `volume::MOST_BYTES`, their memory full: `lamps.rs`),
