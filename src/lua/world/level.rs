@@ -19,8 +19,8 @@ fn spawn_options(v: Value) -> mlua::Result<SpawnOptions> {
     match v {
         Value::Nil => {}
         Value::Table(t) => {
-            for pair in t.pairs::<Value, Value>() {
-                let (k, v) = pair?;
+            for pair in t.pairs::<Value, GivenValue>() {
+                let (k, GivenValue(v)) = pair?;
                 match k.to_string()?.as_str() {
                     "z" => {
                         o.z = Some(match v {
@@ -58,8 +58,8 @@ fn spawn_options(v: Value) -> mlua::Result<SpawnOptions> {
 fn own_props(kind: &str, declared: &toml::Table, given: &Table) -> mlua::Result<toml::Table> {
     let mistake = |why: String| mlua::Error::runtime(format!("level:spawn: {why}"));
     let mut own = toml::Table::new();
-    for pair in given.pairs::<Value, Value>() {
-        let (key, v) = pair?;
+    for pair in given.pairs::<Value, GivenValue>() {
+        let (key, GivenValue(v)) = pair?;
         let key = match key {
             Value::String(s) => s.to_str()?.to_string(),
             other => return Err(mistake(format!("props are named, not a {} key", other.type_name()))),
@@ -147,12 +147,12 @@ impl UserData for LevelView {
         m.add_meta_method(MetaMethod::ToString, |_, _, ()| Ok("level"));
         m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, Value)| -> mlua::Result<Value> { Err(no_such("level", &key, Some("level.state"))) });
         m.add_meta_function(MetaMethod::NewIndex, |_, (_, key, _): (AnyUserData, Value, Value)| -> mlua::Result<()> { Err(not_settable("level", &key, Some("level.state"))) });
-        m.add_function("spawn", |lua, (_, kind, x, y, options): (AnyUserData, String, f32, f32, Value)| {
+        m.add_function("spawn", |lua, (_, kind, x, y, GivenValue(options)): (AnyUserData, String, f32, f32, GivenValue)| {
             level_here(lua, "level:spawn")?;
             let o = spawn_options(options)?;
             // The options are checked before the thing comes.
             let first = match &o.state {
-                Some(first) => crate::lua::value::capture(&Value::Table(first.clone()), "level:spawn's state", &mut Default::default(), true).map_err(|e| mlua::Error::runtime(format!("{e:#}")))?,
+                Some(first) => crate::lua::value::capture_given(lua, &Value::Table(first.clone()), "level:spawn's state", true).map_err(|e| mlua::Error::runtime(format!("{e:#}")))?,
                 None => None,
             };
             let props = match &o.props {
@@ -250,7 +250,7 @@ impl UserData for LevelView {
                 Ok(h.ids_of(pick.as_ref()).len())
             })
         });
-        m.add_function("explode", |lua, (_, at, radius): (AnyUserData, Value, f32)| {
+        m.add_function("explode", |lua, (_, GivenValue(at), radius): (AnyUserData, GivenValue, f32)| {
             level_here(lua, "level:explode")?;
             let at = to_point(lua, &at, "level:explode")?;
             change(lua, "level:explode", |h| {
@@ -275,7 +275,7 @@ impl UserData for LevelView {
                 h.host.clear_rounds(team.as_deref()).map_err(mlua::Error::runtime)
             })
         });
-        m.add_function("sound", |lua, (_, name, at, volume): (AnyUserData, String, Value, Option<f32>)| {
+        m.add_function("sound", |lua, (_, name, GivenValue(at), volume): (AnyUserData, String, GivenValue, Option<f32>)| {
             level_here(lua, "level:sound")?;
             let at = to_point(lua, &at, "level:sound")?;
             change(lua, "level:sound", |h| {
@@ -284,7 +284,7 @@ impl UserData for LevelView {
                 Ok(())
             })
         });
-        m.add_function("effect", |lua, (_, model, at, fps): (AnyUserData, String, Value, Option<f32>)| {
+        m.add_function("effect", |lua, (_, model, GivenValue(at), fps): (AnyUserData, String, GivenValue, Option<f32>)| {
             level_here(lua, "level:effect")?;
             // Where a thing stands, or a point: the model's feet there.
             let at = match &at {
@@ -380,7 +380,7 @@ impl UserData for AreaView {
         m.add_meta_function(MetaMethod::NewIndex, |_, (_, key, _): (AnyUserData, Value, Value)| -> mlua::Result<()> { Err(not_settable("area", &key, None)) });
         // A thing's place (where its feet stand, its pivot), or a point:
         // inside the box or not; a point without z, at any height.
-        m.add_method("holds", |lua, a, v: Value| {
+        m.add_method("holds", |lua, a, GivenValue(v): GivenValue| {
             let area = Self::area(lua, a.0)?;
             let (x, y, z) = match &v {
                 Value::UserData(ud) if ud.is::<ThingRef>() => {

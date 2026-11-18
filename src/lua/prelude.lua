@@ -481,4 +481,7 @@ return {
   freeze = freeze,
   set_global = set_global,
   plain = plain,
+  -- For the engine alone (`given.rs`): the table a view shows, so a call
+  -- reads a table handed to it as the script sees it.
+  shows = shows,
 }

@@ -28,6 +28,7 @@ mod course;
 pub mod data;
 mod drawing;
 mod events;
+pub(crate) mod given;
 mod hashing;
 pub mod hidden;
 pub mod host;

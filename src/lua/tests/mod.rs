@@ -3,6 +3,7 @@
 
 mod course;
 mod events;
+mod given;
 mod input;
 mod kits;
 mod mistakes;

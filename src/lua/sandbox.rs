@@ -184,6 +184,9 @@ impl Sandbox {
                 Ok(())
             })?,
         )?;
+        // What each view shows, for the engine to read a table handed to
+        // it as the script sees it (`given::seen`); no script sees it.
+        lua.set_app_data(super::given::Shows(tools.raw_get("shows")?));
         let readonly: Function = tools.raw_get("readonly")?;
         lua.set_named_registry_value("voxcade.readonly", readonly.clone())?;
         lua.set_named_registry_value("voxcade.engine_state", tools.raw_get::<Function>("engine_state")?)?;

@@ -42,8 +42,8 @@ fn light_of(lua: &Lua, t: &Table) -> mlua::Result<crate::render::Light> {
     let fail = |what: String| mlua::Error::runtime(format!("frame:light: {what}"));
     let mut shape = crate::render::LightShape::default();
     let (mut at, mut radius, mut rgb) = (None, None, None);
-    for pair in t.pairs::<Value, Value>() {
-        let (key, v) = pair?;
+    for pair in t.pairs::<Value, GivenValue>() {
+        let (key, GivenValue(v)) = pair?;
         let Value::String(key) = key else { return Err(fail(format!("its words are {}", LIGHT_KEYS.join(", ")))) };
         let key = key.to_str()?.to_string();
         let number = |v: &Value| match v {
@@ -60,7 +60,7 @@ fn light_of(lua: &Lua, t: &Table) -> mlua::Result<crate::render::Light> {
             "radius" => radius = Some(number(&v).filter(|r| *r > 0.0).ok_or_else(|| fail("radius is a number above 0 (how far it reaches, voxels)".into()))? as f32),
             "color" => {
                 let Value::Table(c) = v else { return Err(fail("color is a color, { r, g, b } from 0 to 255".into())) };
-                let [r, g, b, _] = color(Some(c), [255; 4])?;
+                let [r, g, b, _] = color(Some(&c), [255; 4])?;
                 rgb = Some([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0]);
             }
             "falloff" => shape.falloff = ranged(&v)?,
@@ -162,7 +162,7 @@ impl UserData for Frame {
         m.add_meta_method(MetaMethod::ToString, |_, _, ()| Ok("frame"));
         m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, Value)| -> mlua::Result<Value> { Err(no_such("frame", &key, None)) });
         m.add_meta_function(MetaMethod::NewIndex, |_, (_, key, _): (AnyUserData, Value, Value)| -> mlua::Result<()> { Err(not_settable("frame", &key, None)) });
-        m.add_method_mut("model", |_, o, (file, thing, frame, rotation, pose): (String, Value, Option<usize>, Option<Table>, Option<Table>)| {
+        m.add_method_mut("model", |_, o, (file, thing, frame, rotation, pose): (String, Value, Option<usize>, Option<Given>, Option<Given>)| {
             // A model is drawn where a thing stands (at a point: not yet).
             if let Value::Table(_) = thing {
                 return Err(mlua::Error::runtime("frame:model(file, thing, ...): a model is drawn where a thing stands, so the second is a thing, not a point (for a model at a place: a thing of a kind without a behavior, placed there)"));
@@ -191,17 +191,17 @@ impl UserData for Frame {
             o.cmds.push(Cmd::Model { file, thing, frame, turn, pose: posed });
             Ok(())
         });
-        m.add_method_mut("cube", |_, o, (x, y, z, rgba, glow): (f32, f32, f32, Option<Table>, Option<f32>)| {
-            o.cmds.push(Cmd::Cube { at: Vec3::new(x, y, z), color: color(rgba, [255, 255, 255, 255])?, glow: glow.unwrap_or(0.0) });
+        m.add_method_mut("cube", |_, o, (x, y, z, rgba, glow): (f32, f32, f32, Option<Given>, Option<f32>)| {
+            o.cmds.push(Cmd::Cube { at: Vec3::new(x, y, z), color: color(rgba.as_deref(), [255, 255, 255, 255])?, glow: glow.unwrap_or(0.0) });
             Ok(())
         });
-        m.add_method_mut("light", |lua, o, (at, radius, rgb): (Value, Option<f32>, Option<Table>)| {
+        m.add_method_mut("light", |lua, o, (GivenValue(at), radius, rgb): (GivenValue, Option<f32>, Option<Given>)| {
             let light = match (&at, radius) {
                 // frame:light{ at =, radius =, color =, falloff =, ... }
                 (Value::Table(t), None) if rgb.is_none() => light_of(lua, t)?,
                 (_, Some(radius)) => {
                     let at = to_point(lua, &at, "frame:light")?;
-                    let c = color(rgb, [255, 255, 255, 255])?;
+                    let c = color(rgb.as_deref(), [255, 255, 255, 255])?;
                     crate::render::Light::lamp(at, radius, [c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0], &crate::render::LightShape::default(), |w| w)
                 }
                 _ => return Err(mlua::Error::runtime("frame:light: a light is frame:light(at, radius, color) or frame:light{ at =, radius =, ... }")),
@@ -209,24 +209,24 @@ impl UserData for Frame {
             o.cmds.push(Cmd::Light(light));
             Ok(())
         });
-        m.add_method_mut("menu", |lua, o, t: Table| {
+        m.add_method_mut("menu", |lua, o, t: Given| {
             o.cmds.push(Cmd::Menu(menu(lua, &t)?));
             Ok(())
         });
-        m.add_method_mut("grid", |lua, o, t: Table| {
+        m.add_method_mut("grid", |lua, o, t: Given| {
             o.cmds.push(Cmd::Grid(grid(lua, &t)?));
             Ok(())
         });
-        m.add_method_mut("daylight", |_, o, t: Table| {
+        m.add_method_mut("daylight", |_, o, t: Given| {
             o.cmds.push(Cmd::Daylight(daylight(&t)?));
             Ok(())
         });
-        m.add_method_mut("fog", |_, o, t: Value| {
+        m.add_method_mut("fog", |_, o, GivenValue(t): GivenValue| {
             let Value::Table(t) = t else { return Err(mlua::Error::runtime("frame:fog: a table of what it sets, frame:fog{ density = 0.01, color = { 20, 20, 30 } }")) };
             o.cmds.push(Cmd::Fog(fog(&t)?));
             Ok(())
         });
-        m.add_method_mut("camera", |lua, o, t: Value| {
+        m.add_method_mut("camera", |lua, o, GivenValue(t): GivenValue| {
             let Value::Table(t) = t else { return Err(mlua::Error::runtime("frame:camera: a table of what it sets, frame:camera({ look_at = { x, y, z }, width = 120 })")) };
             let cam = picture_camera(lua, &t, o.alpha)?;
             // Where points show from here on: the picture's camera.
@@ -236,15 +236,15 @@ impl UserData for Frame {
             o.cmds.push(Cmd::Camera(cam));
             Ok(())
         });
-        m.add_method_mut("text", |lua, o, (text, x, y, rgba, size): (String, f32, f32, Option<Table>, Option<i32>)| {
+        m.add_method_mut("text", |lua, o, (text, x, y, rgba, size): (String, f32, f32, Option<Given>, Option<i32>)| {
             let text = look(lua, |h| fill_keys(h.drawn_controls(), &text))?;
             let size = text_size(size, "frame:text")?;
-            o.cmds.push(Cmd::Text { text, x, y, color: color(rgba, crate::ui::TEXT)?, size });
+            o.cmds.push(Cmd::Text { text, x, y, color: color(rgba.as_deref(), crate::ui::TEXT)?, size });
             Ok(())
         });
         // Where a point of the level shows, in the HUD's measure: a thing
         // where its feet are drawn this picture, as its model is.
-        m.add_method("to_screen", |lua, o, (at, up): (Value, Option<f32>)| {
+        m.add_method("to_screen", |lua, o, (GivenValue(at), up): (GivenValue, Option<f32>)| {
             let at = match &at {
                 Value::UserData(ud) if ud.is::<ThingRef>() => {
                     let id = ud.borrow::<ThingRef>()?.0;
@@ -267,19 +267,19 @@ impl UserData for Frame {
             let text = look(lua, |h| fill_keys(h.drawn_controls(), &text))?;
             Ok(crate::ui::line_width(&text, text_size(size, "frame:text_width")?, o.font.as_deref()))
         });
-        m.add_method_mut("box", |_, o, (x, y, width, height, rgba): (f32, f32, f32, f32, Option<Table>)| {
-            o.cmds.push(Cmd::Box { x, y, width, height, color: color(rgba, crate::ui::TEXT)? });
+        m.add_method_mut("box", |_, o, (x, y, width, height, rgba): (f32, f32, f32, f32, Option<Given>)| {
+            o.cmds.push(Cmd::Box { x, y, width, height, color: color(rgba.as_deref(), crate::ui::TEXT)? });
             Ok(())
         });
-        m.add_method_mut("bar", |_, o, (x, y, width, height, fraction, rgba, back): (f32, f32, f32, f32, f32, Option<Table>, Option<Table>)| {
+        m.add_method_mut("bar", |_, o, (x, y, width, height, fraction, rgba, back): (f32, f32, f32, f32, f32, Option<Given>, Option<Given>)| {
             // The filled part, then the rest beside it (a voxel drawn first
             // keeps its cell).
             let filled = (fraction.clamp(0.0, 1.0) * width).ceil().min(width);
             if filled > 0.0 {
-                o.cmds.push(Cmd::Box { x, y, width: filled, height, color: color(rgba, crate::ui::RED)? });
+                o.cmds.push(Cmd::Box { x, y, width: filled, height, color: color(rgba.as_deref(), crate::ui::RED)? });
             }
             if filled < width {
-                o.cmds.push(Cmd::Box { x: x + filled, y, width: width - filled, height, color: color(back, BAR_BACK)? });
+                o.cmds.push(Cmd::Box { x: x + filled, y, width: width - filled, height, color: color(back.as_deref(), BAR_BACK)? });
             }
             Ok(())
         });
@@ -294,10 +294,10 @@ impl UserData for Frame {
             o.cmds.push(Cmd::Icon { name, x, y });
             Ok(())
         });
-        m.add_method_mut("drop_in", |lua, o, (text, x, y, ticks, rgba, size): (String, f32, f32, f32, Option<Table>, Option<i32>)| {
+        m.add_method_mut("drop_in", |lua, o, (text, x, y, ticks, rgba, size): (String, f32, f32, f32, Option<Given>, Option<i32>)| {
             let text = look(lua, |h| fill_keys(h.drawn_controls(), &text))?;
             let size = text_size(size, "frame:drop_in")?;
-            o.cmds.push(Cmd::Drop { text, x, y, ticks, color: color(rgba, crate::ui::TEXT)?, size });
+            o.cmds.push(Cmd::Drop { text, x, y, ticks, color: color(rgba.as_deref(), crate::ui::TEXT)?, size });
             Ok(())
         });
     }

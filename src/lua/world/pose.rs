@@ -27,7 +27,7 @@ fn turning_with(t: &Table, what: &str, offset: bool) -> mlua::Result<([f32; 3], 
             return Err(mlua::Error::runtime(format!("{what}: {words}, not '{name}'")));
         }
     }
-    let moved = match t.raw_get::<Value>("offset")? {
+    let moved = match t.raw_get::<GivenValue>("offset")?.0 {
         Value::Nil => [0.0; 3],
         Value::Table(o) => {
             let n = |k: i64| -> mlua::Result<f32> {
@@ -62,8 +62,8 @@ fn turning_with(t: &Table, what: &str, offset: bool) -> mlua::Result<([f32; 3], 
 /// (none: no figure); `what` names it in a mistake.
 pub fn pose_of(pose: &Table, file: &str, parts: Option<&Vec<String>>, what: &str) -> mlua::Result<Vec<crate::session::PoseEntry>> {
     let mut posed = Vec::new();
-    for pair in pose.pairs::<Value, Value>() {
-        let (part, t) = pair?;
+    for pair in pose.pairs::<Value, GivenValue>() {
+        let (part, GivenValue(t)) = pair?;
         let (Value::String(part), Value::Table(t)) = (part, t) else {
             return Err(mlua::Error::runtime(format!("{what}: a pose is parts by name, each a rotation: {{ head = {{ rotation = 20 }} }}")));
         };
@@ -104,7 +104,7 @@ pub fn piece_pose(v: &Value, model: Option<&str>, parts: &std::collections::BTre
 /// The empty part of `frame:bar`.
 pub(super) const BAR_BACK: [u8; 4] = [64, 46, 40, 255];
 
-pub(super) fn color(v: Option<Table>, default: [u8; 4]) -> mlua::Result<[u8; 4]> {
+pub(super) fn color(v: Option<&Table>, default: [u8; 4]) -> mlua::Result<[u8; 4]> {
     let Some(t) = v else { return Ok(default) };
     let c = |i: i64| -> mlua::Result<u8> { Ok(t.raw_get::<Option<u8>>(i)?.unwrap_or(255)) };
     Ok([c(1)?, c(2)?, c(3)?, c(4)?])
@@ -123,8 +123,8 @@ pub(super) fn picture_camera(lua: &Lua, t: &Table, alpha: f32) -> mlua::Result<c
             _ => Err(fail(format!("{key} is {says}, not {}", v.type_name()))),
         }
     };
-    for pair in t.pairs::<Value, Value>() {
-        let (key, v) = pair?;
+    for pair in t.pairs::<Value, GivenValue>() {
+        let (key, GivenValue(v)) = pair?;
         let key = match &key {
             Value::String(s) => s.to_str()?.to_string(),
             _ => return Err(fail("its keys are look_at, width, height, pitch and fov".into())),
@@ -204,8 +204,8 @@ pub(super) fn fog(t: &Table) -> mlua::Result<crate::session::FogSet> {
         };
         n.filter(|n| (low..=high).contains(n)).map(|n| n as f32).ok_or_else(|| fail(format!("{key} is a number from {low} to {high}")))
     };
-    for pair in t.pairs::<Value, Value>() {
-        let (key, v) = pair?;
+    for pair in t.pairs::<Value, GivenValue>() {
+        let (key, GivenValue(v)) = pair?;
         let key = match &key {
             Value::String(s) => s.to_str()?.to_string(),
             _ => return Err(fail(format!("its words are {}", WORDS.join(", ")))),
@@ -216,7 +216,7 @@ pub(super) fn fog(t: &Table) -> mlua::Result<crate::session::FogSet> {
             "glow" => fog.glow = Some(number(&v, "glow", 0.0, 20.0)?),
             "color" => {
                 let Value::Table(c) = v else { return Err(fail("color is a color, { r, g, b } from 0 to 255".into())) };
-                let [r, g, b, _] = color(Some(c), [255; 4])?;
+                let [r, g, b, _] = color(Some(&c), [255; 4])?;
                 fog.color = Some([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0]);
             }
             other => {
@@ -235,7 +235,7 @@ pub(super) fn daylight(t: &Table) -> mlua::Result<crate::session::Daylight> {
     let mut day = crate::session::Daylight::default();
     let rgb = |v: Value, key: &str| -> mlua::Result<[f32; 3]> {
         let Value::Table(c) = v else { return Err(fail(format!("{key} is a color, {{ r, g, b }} from 0 to 255"))) };
-        let [r, g, b, _] = color(Some(c), [255; 4])?;
+        let [r, g, b, _] = color(Some(&c), [255; 4])?;
         Ok([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0])
     };
     let unit = |v: Value, key: &str| -> mlua::Result<f32> {
@@ -245,8 +245,8 @@ pub(super) fn daylight(t: &Table) -> mlua::Result<crate::session::Daylight> {
             _ => Err(fail(format!("{key} is a number from 0 to 1"))),
         }
     };
-    for pair in t.pairs::<Value, Value>() {
-        let (key, v) = pair?;
+    for pair in t.pairs::<Value, GivenValue>() {
+        let (key, GivenValue(v)) = pair?;
         let key = match &key {
             Value::String(s) => s.to_str()?.to_string(),
             _ => return Err(fail("its keys are sun, sun_color, ambient, shadow and sky".into())),

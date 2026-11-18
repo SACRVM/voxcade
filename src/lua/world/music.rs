@@ -34,7 +34,7 @@ impl UserData for MusicView {
         m.add_meta_method(MetaMethod::ToString, |_, _, ()| Ok("music"));
         m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, Value)| -> mlua::Result<Value> { Err(no_such("music", &key, None)) });
         m.add_meta_function(MetaMethod::NewIndex, |_, (_, key, _): (AnyUserData, Value, Value)| -> mlua::Result<()> { Err(not_settable("music", &key, None)) });
-        m.add_function("play", |lua, (_, song, how): (AnyUserData, Option<String>, Value)| {
+        m.add_function("play", |lua, (_, song, GivenValue(how)): (AnyUserData, Option<String>, GivenValue)| {
             // From when as a word, or { from = ..., crossfade = seconds }.
             let (when, cross) = match &how {
                 Value::Nil => (None, None),

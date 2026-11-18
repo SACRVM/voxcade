@@ -26,15 +26,15 @@
 
 ---@class Daylight A picture's daylight (frame:daylight); what it leaves out is c.light's.
 ---@field sun? number[] The way the sunlight travels, { x, y, z } with z below 0 (towards the ground).
----@field sun_color? Color The sunlight's color and strength: white at noon, warm at dusk, a pale blue moon.
+---@field sun_color? Color The sunlight's color and strength, { r, g, b } from 0 to 255: white at noon, warm at dusk, a pale blue moon.
 ---@field ambient? number Light every face gets, 0 to 1.
 ---@field shadow? number How much a shadow darkens, 0 to 1.
----@field sky? Color The background's color.
+---@field sky? Color The background's color, { r, g, b } from 0 to 255.
 
 ---@class Light A light as frame:light{ ... } writes it, the words a level's light takes too; at and radius are needed.
 ---@field at Thing|Point|number[] Where it shines from: a thing, or { x, y, z } in voxels.
 ---@field radius number How far it reaches, voxels.
----@field color? Color Its color and strength, white unless set.
+---@field color? Color Its color and strength, { r, g, b } from 0 to 255, white unless set.
 ---@field falloff? number How it fades to its radius: (1 - distance / radius) to this power, 0 to 16 (2 unless set; lower reaches further bright).
 ---@field cone? number A spot: its cone's whole opening angle, 1 to 360 degrees; left out, it shines every way.
 ---@field blend? number How much of the cone's edge is soft, 0 to 1 (0.15 unless set).
@@ -45,7 +45,7 @@
 
 ---@class Fog A picture's fog (frame:fog); what it leaves out is c.light's (fog_density, fog_color, fog_anisotropy, fog_glow).
 ---@field density? number How thick, 0 to 1: the share of light a voxel of air takes (0: no fog).
----@field color? Color The fog's own color where no lamp lights it.
+---@field color? Color The fog's own color where no lamp lights it, { r, g, b } from 0 to 255.
 ---@field anisotropy? number How much it sends a lamp's light on ahead rather than back, -0.9 to 0.9 (0: every way alike).
 ---@field glow? number How brightly it shows the lamps' light, 0 to 20; the dimming is the density's alone (1: as the air would; 4 a stage's haze).
 
@@ -539,6 +539,7 @@ function Frame:model(file, thing, index, rotation, pose) end
 function Frame:cube(x, y, z, color, glow) end
 
 ---Lights the level round a thing or a point, in this picture: frame:light(at, radius, color), or frame:light{ at =, radius =, ... } with the words a level's light takes too.
+---- color: its color and strength, { r, g, b } from 0 to 255, white unless set.
 ---- falloff: how it fades to its radius, (1 - distance / radius) to this power, 2 unless set.
 ---- cone: a spot, its whole opening angle in degrees; blend how much of its edge is soft (0.15). rotation and pitch its way: degrees clockwise seen from above (north 0), and up or down.
 ---- shadows: what stops it, "static", "all" or "none" (it shines through walls); left out, c.light.lamp_shadows says ("static" unless set). A wall is the level's voxels and its pieces, not a piece that brings a light of its own (a lantern round its flame); with "all" the figures, things, models and cubes drawn stop it too, so they cast its shadow (it costs more: for a few chosen lamps).
@@ -551,16 +552,16 @@ function Frame:light(at, radius, color) end
 
 ---Sets the sun and the sky for this picture: a day and a night. What you leave out is c.light's.
 ---- sun: the way its light travels, { x, y, z } with z below 0.
----- sun_color: its color and strength, white unless set.
+---- sun_color: its color and strength, { r, g, b } from 0 to 255, white unless set.
 ---- ambient: the light every face gets, 0 to 1. shadow: how dark shadows are, 0 to 1.
----- sky: the sky's color.
+---- sky: the sky's color, { r, g, b } from 0 to 255.
 ---Work it out from your game's clock every picture: the sun low and warm at dawn, white at noon, orange at dusk, a dim blue at night with frame:light lamps. Only the picture: the game's rules do not see it. A game whose code names daylight has every face a sun above the horizon can light in its level.
 ---@param light Daylight
 function Frame:daylight(light) end
 
 ---Fills the level's air with fog for this picture: the lamps' light shows in it, a spot as a beam, and what lies further fades to the fog's color. What you leave out is c.light's.
 ---- density: how thick, 0 to 1 (0.005 a light haze in a big hall, 0.03 thick; 0 none).
----- color: the fog's own color where no lamp lights it (dark at night).
+---- color: the fog's own color where no lamp lights it, { r, g, b } from 0 to 255 (dark at night).
 ---- anisotropy: above 0 a beam is brighter looking towards its lamp, below 0 looking away (0: alike).
 ---- glow: how brightly it shows the lamps' light, 0 to 20; the dimming is the density's alone (1 as the air would; 4 a stage's haze: bright beams, the room clear; 0 it only dims). Higher is never fainter, and a beam never gets brighter than its lamp's light (times the light's fog).
 ---Walls stop a lamp's beam where they stop its light (shadows); a light's fog says how strongly it shows. The fog fills the level's box, not the air between the camera and the level. Only the picture: the game's rules do not see it.

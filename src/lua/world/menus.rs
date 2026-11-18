@@ -103,9 +103,9 @@ pub(super) fn menu(lua: &Lua, t: &Table) -> mlua::Result<Menu> {
     known_keys(t, &["x", "y", "width", "title", "tabs", "tab", "rows", "at", "shown", "hint"], WHAT)?;
     let fill = |s: String| look(lua, |h| fill_keys(h.drawn_controls(), &s));
     let mut rows = Vec::new();
-    if let Some(list) = t.raw_get::<Option<Table>>("rows")? {
-        for (n, v) in list.sequence_values::<Value>().enumerate() {
-            rows.push(match v? {
+    if let Some(list) = t.raw_get::<Option<Given>>("rows")? {
+        for (n, v) in list.sequence_values::<GivenValue>().enumerate() {
+            rows.push(match v?.0 {
                 Value::String(s) => MenuRow { text: fill(s.to_str()?.to_string())?, value: None, icon: None, dim: false },
                 Value::Table(r) => {
                     known_keys(&r, &["text", "value", "icon", "dim"], &format!("{WHAT}: rows[{}]", n + 1))?;
@@ -127,7 +127,7 @@ pub(super) fn menu(lua: &Lua, t: &Table) -> mlua::Result<Menu> {
             });
         }
     }
-    let tabs: Vec<String> = match t.raw_get::<Option<Table>>("tabs")? {
+    let tabs: Vec<String> = match t.raw_get::<Option<Given>>("tabs")? {
         Some(list) => list.sequence_values::<String>().map(|s| s.and_then(fill)).collect::<mlua::Result<_>>()?,
         None => Vec::new(),
     };
@@ -155,9 +155,9 @@ pub(super) fn grid(lua: &Lua, t: &Table) -> mlua::Result<Grid> {
     const WHAT: &str = "frame:grid";
     known_keys(t, &["x", "y", "columns", "cell", "title", "cells", "at"], WHAT)?;
     let mut cells = Vec::new();
-    if let Some(list) = t.raw_get::<Option<Table>>("cells")? {
-        for (n, v) in list.sequence_values::<Value>().enumerate() {
-            cells.push(match v? {
+    if let Some(list) = t.raw_get::<Option<Given>>("cells")? {
+        for (n, v) in list.sequence_values::<GivenValue>().enumerate() {
+            cells.push(match v?.0 {
                 Value::Table(c) => {
                     known_keys(&c, &["icon", "count", "dim"], &format!("{WHAT}: cells[{}]", n + 1))?;
                     GridCell { icon: c.raw_get("icon")?, count: c.raw_get("count")?, dim: c.raw_get::<Option<bool>>("dim")?.unwrap_or(false) }

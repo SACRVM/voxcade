@@ -71,7 +71,7 @@ impl UserData for WorldView {
         m.add_meta_method(MetaMethod::ToString, |_, _, ()| Ok("world"));
         m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, Value)| -> mlua::Result<Value> { Err(no_such("world", &key, Some("world.state"))) });
         m.add_meta_function(MetaMethod::NewIndex, |_, (_, key, _): (AnyUserData, Value, Value)| -> mlua::Result<()> { Err(not_settable("world", &key, Some("world.state"))) });
-        m.add_function("go_to", |lua, (_, level, place, options): (AnyUserData, Value, Value, Value)| {
+        m.add_function("go_to", |lua, (_, level, GivenValue(place), GivenValue(options)): (AnyUserData, Value, GivenValue, GivenValue)| {
             no_run_here(lua, "world:go_to")?;
             let (place, fade) = place_and_fade(lua, place, options, "world:go_to")?;
             let index = look(lua, |h| {
@@ -98,14 +98,14 @@ impl UserData for WorldView {
             })?;
             ask(lua, "world:go_to", Ask::GoTo { level: index, place, fade })
         });
-        m.add_function("restart", |lua, (_, place, options): (AnyUserData, Value, Value)| {
+        m.add_function("restart", |lua, (_, GivenValue(place), GivenValue(options)): (AnyUserData, GivenValue, GivenValue)| {
             let (place, fade) = place_and_fade(lua, place, options, "world:restart")?;
             if let Some(p) = &place {
                 look(lua, |h| check_place(&h.levels.list[h.level], p, "world:restart"))?;
             }
             ask(lua, "world:restart", Ask::Restart { place, fade })
         });
-        m.add_function("save", |lua, (_, n, options): (AnyUserData, i64, Value)| {
+        m.add_function("save", |lua, (_, n, GivenValue(options)): (AnyUserData, i64, GivenValue)| {
             if phase(lua).is_some() {
                 return Err(mlua::Error::runtime("world:save: only while a level is played (on_level_start, on_tick): there is none to save here"));
             }
@@ -131,7 +131,7 @@ impl UserData for WorldView {
                 Ok(())
             })
         });
-        m.add_function("load", |lua, (_, n, options): (AnyUserData, i64, Value)| {
+        m.add_function("load", |lua, (_, n, GivenValue(options)): (AnyUserData, i64, GivenValue)| {
             let fade = fade_of(options, "world:load")?;
             let n = look(lua, |h| {
                 let n = slot(h, n, "world:load")?;
@@ -150,15 +150,15 @@ impl UserData for WorldView {
             })
         });
         m.add_function("read", |lua, (_, name): (AnyUserData, String)| lua.named_registry_value::<Function>("voxcade.read")?.call::<mlua::LuaString>(name));
-        m.add_function("win", |lua, (_, options): (AnyUserData, Value)| {
+        m.add_function("win", |lua, (_, GivenValue(options)): (AnyUserData, GivenValue)| {
             no_run_here(lua, "world:win")?;
             ask(lua, "world:win", Ask::Won { fade: fade_of(options, "world:win")? })
         });
-        m.add_function("lose", |lua, (_, options): (AnyUserData, Value)| {
+        m.add_function("lose", |lua, (_, GivenValue(options)): (AnyUserData, GivenValue)| {
             no_run_here(lua, "world:lose")?;
             ask(lua, "world:lose", Ask::Lost { fade: fade_of(options, "world:lose")? })
         });
-        m.add_function("new_game", |lua, (_, options): (AnyUserData, Value)| {
+        m.add_function("new_game", |lua, (_, GivenValue(options)): (AnyUserData, GivenValue)| {
             if !look(lua, |h| Ok(h.on_title()))? {
                 return Err(mlua::Error::runtime("world:new_game: from the game's own title only (c.title_screen.level): in a run world:restart() begins the level again"));
             }
