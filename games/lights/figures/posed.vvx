@@ -1,0 +1,65 @@
+format = "voxcade voxel 1"
+size = [8, 6, 18]
+
+[palette]
+a = "#c0503c"
+b = "#f0d2b4"
+c = "#3c4c7c"
+
+[[part]]
+name = "body"
+at = [-2, -1, 8]
+layers = """
+aaaa
+aaaa
+*6
+"""
+
+[[part]]
+name = "head"
+at = [-2, -2, 14]
+parent = "body"
+layers = """
+bbbb *4
+*4
+"""
+
+[[part]]
+name = "arm_left"
+at = [-3, -1, 8]
+parent = "body"
+layers = """
+a
+a
+*6
+"""
+
+[[part]]
+name = "arm_right"
+at = [2, -1, 8]
+parent = "body"
+layers = """
+a
+a
+*6
+"""
+
+[[part]]
+name = "leg_left"
+at = [-2, -1, 0]
+parent = "body"
+layers = """
+cc
+cc
+*8
+"""
+
+[[part]]
+name = "leg_right"
+at = [0, -1, 0]
+parent = "body"
+layers = """
+cc
+cc
+*8
+"""

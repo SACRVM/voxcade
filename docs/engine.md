@@ -764,7 +764,12 @@ picture (`src/render/lamps.rs`, `volume.rs`, `src/lamps.wgsl`,
 `"static"`, `"all"` (moving things too, below) or `"none"`
 (`render::LampShadows`); unset, the light takes the game's `c.light.lamp_shadows`
 (`"static"` unless set), and a light's own word beats the game's. The
-lamps' volume is built only when some light is stopped.
+lamps' volume is built only when some light is stopped. The test hall
+`games/lights` shows each of these, a subject a scenario (lamps at
+walls, a diagonal wall, spots, the three words side by side, fog and
+beams, glass and water, dancers, a posed figure, a walk through a beam,
+out of view, headlights, 16 lamps and 50 figures); four are picture
+tests.
 
 - **Who pays.** A picture with at most 16 lights (`FORWARD_LIGHTS`) and
   none walls stop is drawn as before, by the scene's shader alone: a game

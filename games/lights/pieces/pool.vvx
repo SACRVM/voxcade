@@ -1,0 +1,10 @@
+format = "voxcade voxel 1"
+size = [31, 31, 1]
+
+[palette]
+a = { color = "#285aa0", glass = 0.4 }
+
+[[frame]]
+layers = """
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *31
+"""

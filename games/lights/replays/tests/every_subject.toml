@@ -1,0 +1,44 @@
+# Voxcade replay: Lights, 640 ticks, quit, score 0
+version = 1
+game = "Lights"
+fingerprint = "c0dee68e4ab9c180"
+ticks = 640
+outcome = "quit"
+score = 0
+input = "right:40;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;next:1;none:20;right+up:20;prev:1;left:40;none:26"
+checks = ["9caa4504ae187b1d", "f9de748cf7540ab5", "c278ea99b3e0244b", "2fea9965ec792cc9", "0c01135bbb3f3b6b", "18a7b0889fca07cc", "5b0e96ecef688c2d", "53dc89eb7fad8de0", "1d7c80a9d25683b4", "db94899d8843a9ff"]
+final_state = "b20d780ab561be0a"
+scenario = "dancers"
+
+[fingerprint_parts]
+"blocks/floor.vvx" = "21577d9cd96fd4da"
+"blocks/pillar.vvx" = "13fc9c925458dcef"
+"blocks/side.vvx" = "df64a7822ef1c448"
+"blocks/stage.vvx" = "1b0b9bfa95a66208"
+"blocks/tile_a.vvx" = "ca489e1992fe7ad2"
+"blocks/tile_b.vvx" = "bc3b47986530285c"
+"blocks/wall.vvx" = "e8df90cde0a98f7f"
+"conf.lua" = "301c55048e83b69b"
+"figures/dancer.vvx" = "945d3a1ed1af1220"
+"figures/guard.vvx" = "6d44cfbf00f46a12"
+"figures/hero.vvx" = "560fe3e5a4f71cad"
+"figures/posed.vvx" = "8e166bb009f8d77c"
+"levels/hall.toml" = "f9dd148a09a94198"
+"main.lua" = "cae628b3d03f611a"
+"pieces/diagonal_wall.vvx" = "c46c6b691d2cf68c"
+"pieces/low_wall_across.vvx" = "9da4c77db6b4f05e"
+"pieces/pane.vvx" = "4becb46f1c7d4a2c"
+"pieces/pool.vvx" = "ee8f7781d18047bc"
+"pieces/post.vvx" = "b146749fb1537ce5"
+"pieces/thin_wall.vvx" = "7f6e216392de5807"
+"scenarios/dancers.lua" = "b9c72f2a025456ec"
+
+[[controls]]
+at = 0
+device = "keyboard"
+language = "en"
+
+[controls.keys]
+next = "E"
+pause = "ESCAPE"
+prev = "Q"

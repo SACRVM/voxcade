@@ -579,6 +579,17 @@ nearest; its replay `tests/two_ships`);
   anywhere. Load test at 16-bit sprite scale:
   `python3 tools/gen_bench.py`, then `shot games/bench --screen title`.
   Numbers and the plan for the 16-bit scale: `docs/engine.md`.
+- The lamps and the fog: `games/lights`, a test hall as the Bench is a
+  load test (no cover, so the launcher lists it not; the packages leave
+  it out; `voxcade check` plays its replay `tests/every_subject`): a
+  level of blocks 4 voxels each way (`levels/hall.toml`), its lamps that
+  stand still as the level's lights (dark but in their subject), its thin
+  walls, glass and water as pieces; `main.lua`'s `SUBJECTS`, Q and E
+  stepping through them, the arrows walking the hero, each a scenario
+  (`voxcade shot games/lights --scenario fog`: walls, diagonal_wall,
+  spots, shadows, fog, glass, dancers, posed, beam, out_of_view,
+  headlights, load); four of them are picture tests (`lights_*` in
+  `tests/pictures.rs`).
 - Tests on every push (the owner's D1, 2026-11-13;
   `.github/workflows/tests.yml`, push to `main` and pull requests, Linux
   only, mesa's lavapipe standing in for the GPU): the release build,
@@ -618,7 +629,7 @@ nearest; its replay `tests/two_ships`);
   holds the packages back): Linux and Windows
   (macOS Intel only started by hand with it), SDL3 built in (`--features
   static-sdl`); `tools/package.py` puts the folder together (the games
-  but the Bench, `dist/README.txt` and `LIESMICH.txt`, players first; on
+  but the Arena, the Bench and Lights, `dist/README.txt` and `LIESMICH.txt`, players first; on
   Linux `start-voxcade.sh`; `THIRD-PARTY-LICENSES.txt` from
   `tools/third_party_licenses.py`: the licences of every crate linked,
   SDL, Lua and egui's fonts). The program started without anything opens
@@ -632,7 +643,7 @@ nearest; its replay `tests/two_ships`);
   its picture, `cover.png` in its folder, 480 by 270, a shot of the
   game; without one the card shows its name; of the games beside the
   program only those with a cover are listed, and the package leaves
-  the Arena and the Bench out: only the games we show, the user). New versions
+  the Arena, the Bench and Lights out: only the games we show, the user). New versions
   (`src/update.rs`, `voxcade update [--install]`): the feed is the
   website's `release.toml` (the version, each system's package and its
   SHA-256; `VOXCADE_UPDATE_FEED` another, a file's path too), nothing
