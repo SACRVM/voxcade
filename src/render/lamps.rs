@@ -13,8 +13,9 @@
 //! Walls: the level's solid voxels and its pieces' (`volume`) on the GPU,
 //! made when a picture first asks and brought up to date where the world
 //! changes; each voxel face asks once whether a lamp reaches it, and
-//! remembers (`seen`, room for twice the picture's pixels, said once when
-//! full). A GPU without storage written from a fragment shader draws its
+//! remembers (`seen`, room for twice the picture's pixels and its fog's
+//! beams' points, twice as large when found full, said once when it cannot
+//! grow). A GPU without storage written from a fragment shader draws its
 //! lamps through walls, said once; lamps reaching too far apart for the
 //! volume too.
 //!
@@ -35,12 +36,39 @@ use super::shader::{LAMPS, LightData, SHADER, plain_shader, without_walls};
 use super::volume::{self, LEVELS, Reach, Volume};
 use super::{DEPTH_FORMAT, FORWARD_LIGHTS, FrameData, HDR_FORMAT, Light, MOST_LIGHTS, Renderer};
 
-/// How many faces' answers the lamps' memory holds for a picture `w` by
-/// `h` pixels (two words each, the count of faces that found no room after
-/// them): twice its pixels (a face lit by several lamps takes an entry for
-/// each), a power of two, from 2^16 to 2^23 (64 MB).
-pub(super) fn faces_for(w: u32, h: u32) -> u64 {
-    (2 * u64::from(w) * u64::from(h)).next_power_of_two().clamp(1 << 16, 1 << 23)
+/// How many answers the lamps' memory holds to begin with for a picture
+/// `w` by `h` pixels (two words each, the count of those that found no room
+/// after them), with fog its beams' target `beams` (`render::fog`, half or
+/// a quarter the picture each way) or none: twice its pixels (a face lit by
+/// several lamps takes an entry for each) and `BEAM_POINTS` a pixel of the
+/// beams' target, a power of two, from 2^16 to 2^24 (128 MB). The beams'
+/// points and the faces share it: a point and the face in front of its
+/// voxel ask the same (the floor under a beam). Made twice as large when
+/// found full (`Renderer::too_small`).
+pub(super) fn faces_for(w: u32, h: u32, beams: Option<(u32, u32)>) -> u64 {
+    let points = beams.map_or(0, |(bw, bh)| BEAM_POINTS * u64::from(bw) * u64::from(bh));
+    (2 * u64::from(w) * u64::from(h) + points).next_power_of_two().clamp(1 << 16, 1 << 24)
+}
+
+/// The beams' points' room a pixel of their target: a ray takes a point
+/// every 4 voxels along the camera's way within a lamp's reach (8 or 16
+/// for a wide one, up to 52 a lamp), the lamps along a ray adding up, and
+/// where the rays lie closer than the voxels (FOG HIGH) neighbours share
+/// them. What they take comes by the voxels along the beams more than by
+/// the pixels: a hall of 14 lamps (radius 40 to 120) in fog seen whole,
+/// 400 voxels across, took some 4 million at 960 by 540 and at 1920 by
+/// 1080, at FOG HIGH and LOW alike, where twice the pixels gave the faces
+/// and the points 4 million together at 1920 by 1080 and 2 at 1280 by 720
+/// (2026-11-18): the points took it all, the faces found no room and
+/// walked every picture.
+const BEAM_POINTS: u64 = 16;
+
+/// The largest the lamps' memory may be on this GPU, answers (one buffer
+/// bound whole, two words each and the count).
+fn most_faces(device: &wgpu::Device) -> u64 {
+    let limits = device.limits();
+    let bytes = limits.max_storage_buffer_binding_size.min(limits.max_buffer_size);
+    1 << ((bytes - 4) / 8).ilog2()
 }
 
 /// Where the count lies in a memory for `faces` faces.
@@ -160,9 +188,14 @@ pub(super) struct Lamps {
     capacity: usize,
     lights: (wgpu::Texture, wgpu::TextureView),
     rows: u32,
-    /// The faces' memory of what stops lamps (`faces_for` the picture) and
-    /// how many it holds, made with the targets.
+    /// The faces' memory of what stops lamps (`faces_for` the picture and
+    /// its fog, or `grown`) and how many it holds, made with the targets,
+    /// anew when a picture asks for more.
     seen: Option<(u64, wgpu::Buffer)>,
+    /// How many answers pictures found the memory needs (a memory found
+    /// full doubled, `Renderer::too_small`): the least it is made, kept
+    /// while the window changes its size.
+    grown: u64,
     /// What the pass reads: made anew with new targets or a new volume.
     bind: Option<wgpu::BindGroup>,
     /// Whether `bind` is the one with walls.
@@ -284,6 +317,7 @@ impl Lamps {
             lights: lights_texture(device, 64),
             rows: 64,
             seen: None,
+            grown: 0,
             bind: None,
             bound_walls: false,
             made_ms: 0.0,
@@ -506,8 +540,12 @@ impl Renderer {
             self.lamps.seen = None;
             self.lamps.bind = None;
         }
-        if walls && self.lamps.seen.is_none() {
-            let faces = faces_for(w, h);
+        // As large as the picture and its fog's beams ask, or as pictures
+        // found it needs; never smaller while the picture's size stays (a
+        // game's fog coming and going would make it anew each time).
+        let beams = frame.fog.as_ref().map(|f| (w.div_ceil(f.scale.max(1)), h.div_ceil(f.scale.max(1))));
+        let faces = faces_for(w, h, beams).max(self.lamps.grown).min(most_faces(device));
+        if walls && self.lamps.seen.as_ref().is_none_or(|(held, _)| *held < faces) {
             let buffer = device.create_buffer(&wgpu::BufferDescriptor { label: Some("lamps' memory"), size: full_at(faces) + 4, usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC, mapped_at_creation: false });
             self.lamps.seen = Some((faces, buffer));
             self.lamps.bind = None;
@@ -739,39 +777,53 @@ impl Renderer {
     }
 
     /// A step of reading the count of faces the lamps' memory found no room
-    /// for, without waiting (`render`); said once.
+    /// for, without waiting (`render`): found full, made larger
+    /// (`too_small`).
     pub(super) fn watch_lamps(&mut self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder) {
         if self.lamps.told_full {
             return;
         }
         let (Walls::Ready { full, .. }, Some((faces, seen))) = (&mut self.lamps.walls, &self.lamps.seen) else { return };
-        if let Some(count) = full.step(device, encoder, seen, full_at(*faces), self.pictures)
-            && count > 0
-        {
-            self.lamps.told_full = true;
-            self.said.push(lamps_full(*faces, count));
+        let faces = *faces;
+        if let Some(count) = full.step(device, encoder, seen, full_at(faces), self.pictures) {
+            self.too_small(device, faces, count);
         }
     }
 
-    /// The same at once, waiting for the GPU (`shot`).
-    pub(super) fn lamps_now(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> anyhow::Result<()> {
-        let Some((faces, seen)) = &self.lamps.seen else { return Ok(()) };
+    /// The same at once, waiting for the GPU (`shot`): whether it was
+    /// found full and made larger (by the next picture).
+    pub fn lamps_now(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> anyhow::Result<bool> {
+        let Some((faces, seen)) = &self.lamps.seen else { return Ok(false) };
         if self.lamps.told_full {
-            return Ok(());
+            return Ok(false);
         }
-        let count = super::limits::read_now(device, queue, seen, full_at(*faces))?;
-        if count > 0 {
-            self.lamps.told_full = true;
-            self.said.push(lamps_full(*faces, count));
+        let faces = *faces;
+        let count = super::limits::read_now(device, queue, seen, full_at(faces))?;
+        Ok(self.too_small(device, faces, count))
+    }
+
+    /// The lamps' memory of `faces` answers found `count` that had no room:
+    /// made twice as large from the next picture on (every answer walked
+    /// once more), up to the GPU's largest buffer; past that said once.
+    /// Whether it grew.
+    fn too_small(&mut self, device: &wgpu::Device, faces: u64, count: u32) -> bool {
+        if count == 0 {
+            return false;
         }
-        Ok(())
+        if faces * 2 <= most_faces(device) {
+            self.lamps.grown = self.lamps.grown.max(faces * 2);
+            return true;
+        }
+        self.lamps.told_full = true;
+        self.said.push(lamps_full(faces, count));
+        false
     }
 }
 
 /// What is said of the lamps' memory full, `count` faces having found no
 /// room.
 pub fn lamps_full(faces: u64, count: u32) -> String {
-    format!("lamps: their memory is full ({faces} faces, {count} more found no room): those faces ask again every picture, the picture the same but slower")
+    format!("lamps: their memory is full ({faces} faces and points of beams, the most this GPU holds; {count} more found no room): those ask again every picture, the picture the same but slower")
 }
 
 impl Lamps {

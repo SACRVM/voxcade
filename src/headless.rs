@@ -45,6 +45,9 @@ pub struct ShotOptions {
 /// set the GPU up and do not count.
 const TIMED_DRAWS: usize = 8;
 const WARM_UP_DRAWS: usize = 3;
+/// How often a shot lets the lamps' memory grow before it times its
+/// pictures (`Renderer::lamps_now`): each time a part twice as large.
+const MEMORY_GROWTHS: usize = 4;
 
 /// A GPU without a window: frames drawn into a texture and read back
 /// (`shot`, `film`, the editor's `--shot`).
@@ -163,6 +166,18 @@ impl Canvas {
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         self.renderer.render(&self.device, &self.queue, &mut encoder, &self.view, frame);
         self.queue.submit([encoder.finish()]);
+    }
+
+    /// Whether a part of the lamps' memory was found full and made larger
+    /// for the next picture (`Renderer::lamps_now`), waiting for the GPU.
+    pub(crate) fn grow_lamps(&mut self) -> Result<bool> {
+        self.renderer.lamps_now(&self.device, &self.queue)
+    }
+
+    /// What the renderer has to say since last asked (`Renderer::warnings`).
+    #[cfg(test)]
+    pub(crate) fn warnings(&mut self) -> Vec<String> {
+        self.renderer.warnings()
     }
 
     /// Draws a frame and reads it back: RGBA, row after row.
@@ -404,6 +419,16 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     };
     let (frame, frame_ms) = shot_frame(&game, &mut menu, &settings, opts, scene, &answered);
     canvas.fit(&mut game);
+    // The lamps' memory grown as a window's grows it over its first
+    // seconds (a part found full made twice as large), so the timings are
+    // a picture's after that.
+    let lamps = frame.lamp_world.is_some() && frame.lights.iter().any(|l| l.stopped());
+    for _ in 0..if lamps { MEMORY_GROWTHS } else { 0 } {
+        canvas.render(&frame);
+        if !canvas.grow_lamps()? {
+            break;
+        }
+    }
     let gpu = time_passes(&mut canvas, &frame)?;
     let pixels = canvas.draw(&frame)?;
     write_png(&opts.out, width, height, &pixels)?;

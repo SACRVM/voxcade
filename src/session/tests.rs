@@ -1631,6 +1631,37 @@ fn fog_shows_a_beam_the_wall_stops() {
     assert!(seen(&f, &glowing, floor) > seen(&f, &dense, floor) + 4.0, "the floor less dimmed: {} against {}", seen(&f, &glowing, floor), seen(&f, &dense, floor));
 }
 
+/// On the GPU: the lamps' memory holds the fog's beams' points beside the
+/// faces (once sized for the faces alone, the points took it all); what
+/// the beams take comes by the voxels along them more than by the pixels,
+/// so a memory found full is made twice as large until it fits, nothing
+/// said, the picture the same.
+#[test]
+fn the_lamps_memory_grows_until_the_beams_fit() {
+    let mut s = LampScene::new();
+    let shape = crate::render::LightShape::default();
+    let lamps: Vec<_> = (0..16).map(|i| crate::render::Light::lamp(Vec3::new(10.5 + (i % 4) as f32 * 24.0, 10.5 + (i / 4) as f32 * 24.0, 12.0), 90.0, [0.5; 3], &shape, |w| w).stated(crate::render::LampShadows::Static)).collect();
+    let fog = crate::render::Fog { density: 0.02, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 4 };
+    let picture = |s: &mut LampScene| {
+        let (w, h) = LampScene::SIZE;
+        let mut f = s.game.frame(1.0, w as f32 / h as f32);
+        (f.lights, f.lamp_world, f.fog) = (lamps.clone(), Some(s.game.game.sim().world.clone()), Some(fog));
+        s.canvas.draw(&f).unwrap()
+    };
+    let first = picture(&mut s);
+    let mut grew = 0;
+    while s.canvas.grow_lamps().unwrap() {
+        grew += 1;
+        assert!(grew < 8, "it fits at last");
+        assert!(picture(&mut s) == first, "the picture the same whatever the memory holds");
+    }
+    assert!(grew > 0, "sixteen lamps' beams in fog take more than the beams' target's first part");
+    let said = s.canvas.warnings();
+    assert!(said.is_empty(), "grown, nothing said: {said:?}");
+    picture(&mut s);
+    assert!(!s.canvas.grow_lamps().unwrap(), "it fits");
+}
+
 /// On the GPU: a higher `fog_glow` never makes a beam fainter, near its
 /// lamp nor at its far end (the beams once took their own light by the
 /// density times the glow: seen through some air a glow of 4 made them

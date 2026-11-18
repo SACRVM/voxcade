@@ -812,9 +812,22 @@ tests.
   anything else keeps a burst's little round the back.
 - **The faces' memory.** Each face's answer for each lamp is kept
   (`seen`, a table of two words an entry by the cell, the lamp's exact
-  place and the volume's state; room for twice the picture's pixels, said
-  once when full), asked again when the volume changes or after 8
-  pictures unasked: a still scene walks its ways once. Every answer is
+  place and the volume's state; room for twice the picture's pixels to
+  begin with), asked again when the volume changes or after a picture
+  unasked (everything a picture shows is asked every picture; a lamp that
+  moves asks under a new key each picture, so its old entries make room at
+  once: they stayed 8 pictures until 2026-11-18): a still scene walks its
+  ways once. The fog's beams' points (below) are kept in it too (a point
+  and the face in front of its voxel ask the same), 16 entries more a
+  pixel of the beams' target to begin with; what they take comes by the
+  voxels along the beams more than by the pixels (a hall of 14 lamps in
+  fog, 400 voxels across, took 4 million at any picture size, where the
+  memory once held 2 or 4 for faces and points together: the points took
+  it all and the faces walked every picture). Found full (the shader
+  counts what found no room) it is made twice as large from the next
+  picture on, up to the GPU's largest buffer, and only past that said
+  once (`Renderer::too_small`; `shot` lets it grow before it times; test
+  `the_lamps_memory_grows_until_the_beams_fit`). Every answer is
   its walk's, so `shot` draws the same to the byte. Without it the
   station's lamps took 23 ms on the 610M, with it 4. A lamp new to the
   memory (its first picture, or moved since the last) is asked for first,

@@ -1676,14 +1676,19 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `post_passes`, `composite_pass`. A limit a frame goes past is said once, never silent:
   lights past `MOST_LIGHTS` (`Session::warnings`, counted in `look` too),
   the lamps' limits (a GPU without fragment storage writes, lamps
-  reaching past `volume::MOST_BYTES`, their memory full: `lamps.rs`),
+  reaching past `volume::MOST_BYTES`, their memory full past the GPU's
+  largest buffer: `lamps.rs`, sized for the faces and the fog's beams'
+  points, `faces_for`, made twice as large when found full,
+  `Renderer::too_small`, `shot` letting it grow before it times; test
+  `the_lamps_memory_grows_until_the_beams_fit`),
   the faces' memory full (the shader counts faces that found no room in
   the word after it, `render::limits`, read without waiting every 60
   pictures, at once by `shot`; `Renderer::warnings`), the model bank past
   the GPU's largest buffer (`baked::plan`: faces past it drawn as cubes,
   cubes past it not at all; test
   `what_the_gpu_cannot_hold_falls_back_and_is_said`); `shot` prints
-  "warning: ...", `inspect` lists them under "warnings", the IDE's PLAY
+  "warning: ...", `inspect` lists those `look` finds under "warnings" (it
+  draws no picture on the GPU, so not the GPU's), the IDE's PLAY
   puts them in OUTPUT (test `lights_past_the_limit_are_said_once`).
   Models are baked (`c.effects.bake_models`, on unless the game says;
   live, the bank made anew; only the picture, never in the fingerprint):

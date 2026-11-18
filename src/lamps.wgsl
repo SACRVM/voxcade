@@ -455,15 +455,17 @@ fn walk(cell: vec3<i32>, off: u32, lamp_at: vec3<f32>) -> bool {
 // the cell in front of a face and the lamp's exact place; and whether
 // stopped (bit 0), the volume's state (9 bits), the picture last asked (6
 // bits) and a second key (16 bits, never 0); then the count of faces that
-// found no room (render::lamps says it once). An entry not asked for STALE
-// pictures makes room (a lamp moving asks anew each picture) and is walked
-// again. Plain loads and stores, no atomics: pixels of a face read through
+// found no room (render::lamps makes the memory larger). An entry not asked
+// this picture or the last (STALE) makes room and is walked again:
+// everything a picture shows is asked every picture, and a lamp that moves
+// asks under a new key each picture, so its old entries go at once (they
+// stayed 8 pictures and, with two headlights in fog, filled the memory). Plain loads and stores, no atomics: pixels of a face read through
 // the caches; an entry another pixel is writing reads as no answer by its
 // second key (a word of another face's matches one time in 65535), so every
 // answer is the walk's for its key and the picture does not depend on what
 // the memory holds.
 const PROBES: u32 = 16u;
-const STALE: u32 = 8u;
+const STALE: u32 = 1u;
 
 fn mix_hash(seed: u32, c: vec3<i32>) -> u32 {
     var h = seed ^ (bitcast<u32>(c.x) * 0x27d4eb2du);
