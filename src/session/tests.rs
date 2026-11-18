@@ -1473,10 +1473,18 @@ impl LampScene {
     const SIZE: (u32, u32) = (480, 270);
 
     fn new() -> Self {
+        Self::walled(|y| (48..49).map(move |x| (x, y)).collect(), 16)
+    }
+
+    /// The same with the wall's voxels (z 1 up to `top`) at the cells
+    /// `cells` gives for each y from 20 to 75.
+    fn walled(cells: impl Fn(i32) -> Vec<(i32, i32)>, top: i32) -> Self {
         let mut world = crate::sim::tests::flat_world(IVec3::new(96, 96, 24));
         for y in 20..76 {
-            for z in 1..16 {
-                world.set_raw(IVec3::new(48, y, z), 1);
+            for (x, y) in cells(y) {
+                for z in 1..top {
+                    world.set_raw(IVec3::new(x, y, z), 1);
+                }
             }
         }
         let mut cfg = GameConfig::default();
@@ -1620,6 +1628,54 @@ fn fog_shows_a_beam_the_wall_stops() {
     let (a, b) = (seen(&f, &dense, near), seen(&f, &glowing, near));
     assert!(b > a * 0.7, "glow 4 at a quarter of the density: the beam about as bright, {b} against {a}");
     assert!(seen(&f, &glowing, floor) > seen(&f, &dense, floor) + 4.0, "the floor less dimmed: {} against {}", seen(&f, &glowing, floor), seen(&f, &dense, floor));
+}
+
+/// On the GPU: no wall a voxel thin lets a beam through, straight across
+/// it or slanting (a diagonal line of voxels touching at their edges): the
+/// fog behind it holds none of the spot's light, everywhere, at HIGH and
+/// LOW. (What the fog adds is taken apart from the scene's own light: the
+/// faces' walks leak through such a diagonal at exact alignments, as they
+/// always did, `lamps.wgsl`'s `walk`.)
+#[test]
+fn a_wall_a_voxel_thin_stops_a_beam() {
+    for (what, cells) in [("straight", (|y: i32| vec![(48, y)]) as fn(i32) -> Vec<(i32, i32)>), ("diagonal", |y: i32| vec![(y, y)])] {
+        // As high as the level: no light over its top.
+        let mut s = LampScene::walled(cells, 24);
+        let shape = crate::render::LightShape { cone: Some(50.0), rotation: 90.0, ..Default::default() };
+        let spot = crate::render::Light::lamp(Vec3::new(20.5, 48.5, 9.0), 70.0, [2.0; 3], &shape, |w| w).stated(crate::render::LampShadows::Static);
+        let behind: Vec<Vec3> = (0..6).flat_map(|i| (0..5).map(move |j| (i, j))).map(|(i, j)| Vec3::new(56.5 + 4.0 * i as f32, 40.5 + 4.0 * j as f32, 8.0)).filter(|p| what == "straight" || p.x > p.y + 3.0).collect();
+        for scale in [2, 4] {
+            let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale };
+            let mut picture = |lights: &[crate::render::Light], fog: Option<crate::render::Fog>| {
+                let (w, h) = LampScene::SIZE;
+                let mut f = s.game.frame(1.0, w as f32 / h as f32);
+                (f.lights, f.lamp_world, f.fog) = (lights.to_vec(), Some(s.game.game.sim().world.clone()), fog);
+                let pixels = s.canvas.draw(&f).unwrap();
+                (f, pixels)
+            };
+            let (f, without) = picture(&[], Some(fog));
+            let (_, with) = picture(&[spot], Some(fog));
+            let (_, clear_without) = picture(&[], None);
+            let (_, clear_with) = picture(&[spot], None);
+            if let Ok(dir) = std::env::var("VOXCADE_DUMP") {
+                let (w, h) = LampScene::SIZE;
+                crate::headless::write_png(&std::path::Path::new(&dir).join(format!("thin_{what}_{scale}.png")), w, h, &with).unwrap();
+            }
+            let at = |pixels: &[u8], p: Vec3| {
+                let (w, h) = LampScene::SIZE;
+                let c = f.view_proj.project_point3(p);
+                let (x, y) = (((c.x + 1.0) * 0.5 * w as f32) as i32, ((1.0 - c.y) * 0.5 * h as f32) as i32);
+                let i = ((y * w as i32 + x) * 4) as usize;
+                pixels[i..i + 3].iter().map(|&c| c as f32).sum::<f32>()
+            };
+            assert!(at(&with, Vec3::new(36.5, 48.5, 9.0)) > at(&without, Vec3::new(36.5, 48.5, 9.0)) + 30.0, "{what}, scale {scale}: the beam before the wall");
+            for p in &behind {
+                // What the spot adds with fog less what it adds without.
+                let (foggy, clear) = (at(&with, *p) - at(&without, *p), at(&clear_with, *p) - at(&clear_without, *p));
+                assert!(foggy - clear < 6.0, "{what}, scale {scale}: the spot's light in the fog behind the wall at {p:?}: {foggy} against {clear}");
+            }
+        }
+    }
 }
 
 /// On the GPU: a light none of whose words are set draws the picture it

@@ -847,11 +847,21 @@ classic smooth way, the owner's choice over beams in voxel cells;
   48 of them), fixed in the level, so a scrolling view and a turning spot
   take the same points; the spot's hard core's edges are points too; the
   light between two points is added up as a straight line; a lamp walls
-  stop lights a point only where its walk reaches it (the faces' memory
-  asked of the 2 by 2 by 2 voxels it is in, so neighbours ask alike), and
-  where that changes between two points four halvings find where. A wall
-  thinner than the planes' spacing between two points that both see the
-  lamp casts no shadow in the fog.
+  stop lights a point only where its walk reaches the middle of its voxel
+  (the faces' memory asked, under keys of its own), and where that changes
+  between two points four halvings find where: a wall's shadow in the fog
+  steps voxel by voxel, as the faces' light does, fixed in the level (the
+  shadow's very edge walked from the point itself was clean but cost the
+  610M 4.4 ms more at LOW, 12 at HIGH). The fog's walk is careful: leaving
+  a cell through an edge or a corner, the cells across each face met there
+  count, so a wall a voxel thin stops a beam even slanting (a line of
+  voxels touching at their edges; test `a_wall_a_voxel_thin_stops_a_beam`).
+  The faces' walk does not (it would darken faces beside a lamp in its
+  wall, Voxkeep's torches): at exact alignments their light leaks through
+  such a diagonal, as it always did. A shadow thinner along the ray than
+  the planes' spacing, between two points that both see the lamp (a thin
+  post's, seen edge on), does not show in the fog: points a voxel apart
+  cost the 610M 15 ms of beams at LOW instead of 3.
 - **Laid over** by the composite's own pipeline for fog (before the UI,
   which is never fogged): the scene times what the fog left of it, the
   fog's colour for the rest, the beams from the four nearest of their
