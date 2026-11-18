@@ -808,7 +808,13 @@ lamps' volume is built only when some light is stopped.
   once when full), asked again when the volume changes or after 8
   pictures unasked: a still scene walks its ways once. Every answer is
   its walk's, so `shot` draws the same to the byte. Without it the
-  station's lamps took 23 ms on the 610M, with it 4.
+  station's lamps took 23 ms on the 610M, with it 4. A lamp new to the
+  memory (its first picture, or moved since the last) is asked for first,
+  by a pixel every 4 each way (the lamps' asking, `ASK`): all the pixels
+  of a face asking at once in the pass would each walk, as an entry being
+  written is no answer yet. Two headlights moved every picture cost the
+  610M's lamps 4.4 ms still, 11.6 moving, 6.7 with the asking (1.2 of it
+  the asking); a lamp that stays is never asked again.
 - **Moving things** stop no light: they move every picture (written into
   the volume each picture and every face's memory with them, as the
   trial did, it cost a hitch a frame), and a figure's backside keeps a

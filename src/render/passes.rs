@@ -125,6 +125,7 @@ impl Renderer {
             volume_bytes: self.lamps.volume_bytes(),
             volume_ms: self.lamps.made_ms,
             fog: fog.is_some(),
+            asked: if lamps.is_some_and(|lf| lf.walls) { self.lamps.asked } else { 0 },
             ..Stats::default()
         };
         self.shadow_pass(encoder, frame, all_models, &mut stats);

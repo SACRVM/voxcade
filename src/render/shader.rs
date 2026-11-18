@@ -132,6 +132,8 @@ pub(super) fn prelude() -> String {
     put("CUBE_CORNERS", array(corners.iter().map(|c| vec3(c.pos)).collect()));
     put("CUBE_NORMALS", array(corners.iter().map(|c| vec3([0, 1, 2].map(|k| f32::from(c.normal[k]) / f32::from(i8::MAX)))).collect()));
     put("FACE_DIRS", array(DIRS.iter().map(|d| vec3(d.as_vec3().to_array())).collect()));
+    // The lamps' asking: a pixel every so many each way (`lamps::ASK`).
+    put("LAMP_ASK", format!("{}u", super::lamps::ASK));
     out
 }
 

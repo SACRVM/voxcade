@@ -1598,7 +1598,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   alone, byte for byte; else the lamps' pass (`render::lamps`, tiles of
   32 pixels, a face's answer kept, `lamps.wgsl`; `light.wgsl` the sum both
   share), up to `MOST_LIGHTS` (4096). Only the picture: test
-  `lamps_change_no_run`. The upgrade step "lamps stopped by walls"
+  `lamps_change_no_run`. A lamp new to the faces' memory (moved) is asked
+  for first by a pixel every `lamps::ASK` (`fs_lamp_ask`), so a face's
+  pixels do not each walk (test
+  `a_lamp_new_to_the_faces_memory_is_asked_for_first`). The upgrade step "lamps stopped by walls"
   (0.7.0) says which lights of a game and how to keep the old look; it
   changes nothing. Moving things stop no lamp.
 - Fog (0.7, the owner's names, the classic smooth way; `docs/engine.md`

@@ -133,6 +133,40 @@ fn fs_lamp(in: TileOut) -> @location(0) vec4<f32> {
 }
 
 // WALLS {
+// The lamps' asking (render::lamps): before the lamps' pass, a pixel every
+// LAMP_ASK each way asks the lamps new to the faces' memory (moved since
+// the last picture, or never seen) for its face, so the pass finds the
+// answers there: all the pixels of a face asking at once would each walk.
+// Asks only; what it draws is nothing.
+@fragment
+fn fs_lamp_ask(in: TileOut) -> @location(0) vec4<f32> {
+    let size = textureDimensions(scene_depth);
+    let px = min(vec2<i32>(floor(in.clip.xy)) * i32(LAMP_ASK) + vec2<i32>(i32(LAMP_ASK / 2u)), vec2<i32>(size) - vec2<i32>(1));
+    let s = textureLoad(surface, px, 0);
+    if ((s.x & (1u << 24u)) == 0u) {
+        return vec4<f32>(0.0);
+    }
+    let depth = textureLoad(scene_depth, px, 0);
+    let uv = (vec2<f32>(px) + vec2<f32>(0.5)) / vec2<f32>(size);
+    let at = lamps.inv_view_proj * vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
+    let world = at.xyz / at.w;
+    let n = lit_way(s.w);
+    let off = (s.x >> 25u) & 1u;
+    let cell = vec3<i32>(bitcast<i32>(s.y), bitcast<i32>(s.z), (bitcast<i32>(s.w) << 16u) >> 16u);
+    let way_index = (s.x >> 26u) & 7u;
+    let of_level = way_index < 6u && solid(cell - vec3<i32>(FACE_DIRS[way_index]) - lamps.origin.xyz, 0);
+    let ids = vec2<u32>(mix_hash(0x9e3779b9u + off, cell), mix_hash(0x85ebca6bu + off, cell));
+    for (var k = 0u; k < in.count.x; k += 1u) {
+        let row = light_row(in, k);
+        let l = Light(textureLoad(lights, vec2<i32>(0, row), 0), textureLoad(lights, vec2<i32>(1, row), 0), textureLoad(lights, vec2<i32>(2, row), 0), textureLoad(lights, vec2<i32>(3, row), 0));
+        if (all(light_on(l, world, n) <= vec3<f32>(0.0)) || (of_level && dot(n, l.pos_radius.xyz - world) <= 0.0)) {
+            continue;
+        }
+        _ = stopped(cell, off, l.pos_radius.xyz, ids, vec2<u32>(l.edge.zw));
+    }
+    return vec4<f32>(0.0);
+}
+
 // Whether the cell `c` of the copy `level` (2^level voxels across) holds
 // anything solid; outside the volume nothing does.
 fn solid(c: vec3<i32>, level: i32) -> bool {

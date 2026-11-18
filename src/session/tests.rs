@@ -1630,6 +1630,26 @@ fn fog_shows_a_beam_the_wall_stops() {
     assert!(seen(&f, &glowing, floor) > seen(&f, &dense, floor) + 4.0, "the floor less dimmed: {} against {}", seen(&f, &glowing, floor), seen(&f, &dense, floor));
 }
 
+/// On the GPU: a lamp new to the faces' memory (its first picture, or
+/// moved) is asked for first, at a pixel every `ASK` (two moving
+/// headlights cost the Radeon 610M 7 ms walked by every pixel of a face,
+/// 2.3 so); a lamp that stays is not. The picture is the walks' either
+/// way: the same as a renderer that never saw the lamp before draws.
+#[test]
+fn a_lamp_new_to_the_faces_memory_is_asked_for_first() {
+    let mut s = LampScene::new();
+    let lamp = |x: f32| crate::render::Light::lamp(Vec3::new(x, 48.5, 6.0), 30.0, [2.0; 3], &crate::render::LightShape::default(), |w| w).stated(crate::render::LampShadows::Static);
+    let (_, first) = s.picture(&[lamp(40.5)], true);
+    assert_eq!(s.canvas.stats().asked, 1, "its first picture");
+    let (_, again) = s.picture(&[lamp(40.5)], true);
+    assert_eq!(s.canvas.stats().asked, 0, "it stayed");
+    assert!(first == again);
+    let (_, moved) = s.picture(&[lamp(36.5)], true);
+    assert_eq!(s.canvas.stats().asked, 1, "moved");
+    let (_, fresh) = LampScene::new().picture(&[lamp(36.5)], true);
+    assert!(moved == fresh, "the same picture as a renderer drawing it the first time");
+}
+
 /// On the GPU: no wall a voxel thin lets a beam through, straight across
 /// it or slanting (a diagonal line of voxels touching at their edges): the
 /// fog behind it holds none of the spot's light, everywhere, at HIGH and
