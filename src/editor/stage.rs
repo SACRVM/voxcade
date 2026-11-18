@@ -499,7 +499,7 @@ fn chosen(ui: &mut egui::Ui, ed: &Editor, view: &View, figures: &Figures, item: 
                 // A light alone: its colour and radius, how it shines.
                 if let Some(l) = t.lights.first() {
                     row(ui, "LIGHT", "Its color and how far it shines (its radius)", |ui| light_controls(ui, l, 0, zones::FIELD2, shown));
-                    shape_rows(ui, l, 0, shown);
+                    shape_rows(ui, l, 0, ed.game_light.lamp_shadows, shown);
                 }
             }
             prop_rows(ui, ed, view, i, shown);
@@ -713,7 +713,7 @@ fn light_controls(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, radi
 /// How light `k` shines: FALLOFF, CONE (360: every way) and its BLEND, a
 /// spot's ROTATE (X its pitch, Z its rotation, as a piece's), SHADOWS. The
 /// file's words on hover.
-fn shape_rows(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, shown: &mut PanelsDrawn) {
+fn shape_rows(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, game: crate::render::LampShadows, shown: &mut PanelsDrawn) {
     let s = l.shape();
     let word = |w: &str| crate::render::LIGHT_WORDS.iter().position(|(n, ..)| *n == w).expect("a light's word");
     let range = |w: &str| {
@@ -733,12 +733,24 @@ fn shape_rows(ui: &mut egui::Ui, l: &crate::grid::ThingLight, k: usize, shown: &
             field(ui, shown, "Z", Some(2), f64::from(s.rotation), Field::LightWord(k, word("rotation")), 0.5, range("rotation"), "rotation", FIELD);
         });
     }
-    row(ui, "", "", |ui| {
-        let mut job = egui::text::LayoutJob::default();
-        job.append("SHADOWS", 0.0, egui::TextFormat { font_id: TextStyle::Button.resolve(ui.style()), color: if s.shadows { ACCENT } else { TEXT }, ..Default::default() });
-        let tip = if s.shadows { "Walls stop it (the level's voxels and its pieces). Click: it shines through them (shadows = false)" } else { "It shines through walls (shadows = false). Click: walls stop it" };
-        if ui.add(egui::Button::new(job).selected(s.shadows)).on_hover_text(tip).clicked() {
-            shown.clicked.push(Action::LightShadows(k as u8, !s.shadows));
+    row(ui, "SHADOWS", "What stops it: NONE, it shines through walls; STATIC, the level's voxels and its pieces (shadows in the level's file). Lit plain: the game's word (c.light.lamp_shadows), for a light that says none; a click on its own word clears it", |ui| {
+        use crate::render::LampShadows as L;
+        for (word, how) in [("NONE", L::None), ("STATIC", L::Static)] {
+            // Both pressed in: its own word in the accent, the game's plain.
+            let (own, inherited) = (l.shadows == Some(how), l.shadows.is_none() && game == how);
+            let colour = if own { ACCENT } else { TEXT };
+            let mut job = egui::text::LayoutJob::default();
+            job.append(word, 0.0, egui::TextFormat { font_id: TextStyle::Small.resolve(ui.style()), color: colour, ..Default::default() });
+            let tip = if own {
+                "Its own word. Click: leave it to the game's (c.light.lamp_shadows)"
+            } else if inherited {
+                "The game's word (c.light.lamp_shadows). Click: this light says so itself"
+            } else {
+                "Click: this light says so itself (shadows in the level's file)"
+            };
+            if ui.add(egui::Button::new(job).selected(own || inherited)).on_hover_text(tip).clicked() {
+                shown.clicked.push(Action::LightShadows(k as u8, if own { None } else { Some(how) }));
+            }
         }
     });
 }
@@ -823,7 +835,7 @@ fn piece_rows(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, t: &crate::grid
                     field(ui, shown, ["X", "Y", "Z"][a], Some(a), at[a] as f64, Field::LightAt(k, a), 0.25, -1000.0..=1000.0, "", FIELD);
                 }
             });
-            shape_rows(ui, l, k, shown);
+            shape_rows(ui, l, k, ed.game_light.lamp_shadows, shown);
         }
     }
 }

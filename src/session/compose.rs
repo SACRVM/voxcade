@@ -231,7 +231,7 @@ impl<G: Game> Session<G> {
         }
         // The first picture with a lamp walls stop: made again, gathering
         // the level's pieces that stop it (from then on every picture).
-        let stopped = self.cfg.light.lamp_shadows && out.lights.iter().any(|l| l.shadows);
+        let stopped = out.lights.iter().any(|l| l.stopped_by(self.cfg.light.lamp_shadows));
         if stopped && !out.gather {
             self.lamps_drawn.set(true);
             drop(out);
@@ -405,8 +405,8 @@ impl<G: Game> Session<G> {
     /// Light from flashes and explosions, and what the game lights (rockets
     /// in flight); the ones nearest the middle of the view `target` when
     /// there are too many.
-    /// A game that turned walls off for its lamps (`c.light.lamp_shadows =
-    /// false`) has every one shine through.
+    /// A lamp that states no word of its own takes the game's
+    /// (`c.light.lamp_shadows`); a bursts' light shines through walls.
     fn lights_of(&self, game_lights: Vec<Light>, target: Vec3) -> Vec<Light> {
         let strength = self.cfg.effects.lights;
         let mut lights: Vec<Light> = self
@@ -417,10 +417,8 @@ impl<G: Game> Session<G> {
             .map(|f| Light::burst(f.pos, f.radius, f.color.map(|c| c * f.strength() * strength)))
             .chain(game_lights)
             .collect();
-        if !self.cfg.light.lamp_shadows {
-            for l in &mut lights {
-                l.shadows = false;
-            }
+        for l in &mut lights {
+            *l = l.stated(self.cfg.light.lamp_shadows);
         }
         lights.sort_by(|a, b| a.pos.distance_squared(target).total_cmp(&b.pos.distance_squared(target)));
         self.count_lights(lights.len());

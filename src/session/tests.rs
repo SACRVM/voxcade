@@ -1521,14 +1521,14 @@ impl LampScene {
 }
 
 /// On the GPU: a wall stops a lamp, the floor beyond it dark, the near side
-/// lit; a lamp with `shadows = false`, or a picture without the level's
-/// world (`c.light.lamp_shadows = false`, the editors), shines through as
+/// lit; a lamp with `shadows = "none"`, or a picture without the level's
+/// world (`c.light.lamp_shadows = "none"`, the editors), shines through as
 /// lights always did. A burst (a kit's flash) shines through too.
 #[test]
 fn a_wall_stops_a_lamp_and_shadows_false_does_not() {
     let mut s = LampScene::new();
     let shape = crate::render::LightShape::default();
-    let lamp = crate::render::Light::lamp(Vec3::new(40.5, 48.5, 6.0), 30.0, [2.0, 2.0, 2.0], &shape, |w| w);
+    let lamp = crate::render::Light::lamp(Vec3::new(40.5, 48.5, 6.0), 30.0, [2.0, 2.0, 2.0], &shape, |w| w).stated(crate::render::LampShadows::Static);
     let dark = {
         let (f, p) = s.picture(&[], true);
         LampScene::floor_at(&f, &p, 56.5, 48.5)
@@ -1537,7 +1537,7 @@ fn a_wall_stops_a_lamp_and_shadows_false_does_not() {
     let (near, far) = (LampScene::floor_at(&f, &walled, 36.5, 48.5), LampScene::floor_at(&f, &walled, 56.5, 48.5));
     assert!(near > dark + 60.0, "the near side lit: {near} against {dark}");
     assert!((far - dark).abs() < 4.0, "beyond the wall as dark as without the lamp: {far} against {dark}");
-    for (what, light, walls) in [("shadows = false", crate::render::Light { shadows: false, ..lamp }, true), ("no walls given", lamp, false), ("a burst", crate::render::Light::burst(lamp.pos, lamp.radius, lamp.color), true)] {
+    for (what, light, walls) in [("shadows = none", crate::render::Light { shadows: Some(crate::render::LampShadows::None), ..lamp }, true), ("no walls given", lamp, false), ("a burst", crate::render::Light::burst(lamp.pos, lamp.radius, lamp.color), true)] {
         let (f, p) = s.picture(&[light], walls);
         let through = LampScene::floor_at(&f, &p, 56.5, 48.5);
         assert!(through > dark + 20.0, "{what}: beyond the wall lit, {through} against {dark}");
@@ -1552,8 +1552,8 @@ fn a_wall_stops_a_lamp_and_shadows_false_does_not() {
 fn a_spot_lights_only_its_cone() {
     let mut s = LampScene::new();
     let at = Vec3::new(30.5, 48.5, 20.0);
-    let round = crate::render::Light::lamp(at, 40.0, [2.0; 3], &crate::render::LightShape::default(), |w| w);
-    let spot = crate::render::Light::lamp(at, 40.0, [2.0; 3], &crate::render::LightShape { cone: Some(40.0), pitch: -90.0, ..Default::default() }, |w| w);
+    let round = crate::render::Light::lamp(at, 40.0, [2.0; 3], &crate::render::LightShape::default(), |w| w).stated(crate::render::LampShadows::Static);
+    let spot = crate::render::Light::lamp(at, 40.0, [2.0; 3], &crate::render::LightShape { cone: Some(40.0), pitch: -90.0, ..Default::default() }, |w| w).stated(crate::render::LampShadows::Static);
     let (f, dark) = s.picture(&[], true);
     let (_, lit_round) = s.picture(&[round], true);
     let (_, lit_spot) = s.picture(&[spot], true);
@@ -1576,7 +1576,7 @@ fn a_spot_lights_only_its_cone() {
 #[test]
 fn unset_words_draw_the_old_picture_and_more_than_sixteen_lights_draw() {
     let mut s = LampScene::new();
-    let shape = crate::render::LightShape { shadows: false, ..Default::default() };
+    let shape = crate::render::LightShape { shadows: Some(crate::render::LampShadows::None), ..Default::default() };
     let lights: Vec<crate::render::Light> = (0..16).map(|k| crate::render::Light::lamp(Vec3::new(10.5 + (k % 4) as f32 * 8.0, 20.5 + (k / 4) as f32 * 16.0, 4.0), 10.0, [1.5, 1.2, 0.8], &shape, |w| w)).collect();
     let bursts: Vec<crate::render::Light> = lights.iter().map(|l| crate::render::Light::burst(l.pos, l.radius, l.color)).collect();
     let (_, old) = s.picture(&bursts, true);

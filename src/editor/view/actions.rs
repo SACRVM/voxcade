@@ -170,7 +170,7 @@ pub enum Action {
     LightColour(u8, [u8; 3]),
     /// SHADOWS of a light (by its place among the chosen thing's): walls
     /// stop it or not.
-    LightShadows(u8, bool),
+    LightShadows(u8, Option<crate::render::LampShadows>),
     Solid(bool),
     ShadowOnly(bool),
     DayOwn,
@@ -712,7 +712,7 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::AddPieceLight(top) => ed.add_piece_light(top),
         Action::RemoveLight(k) => ed.remove_piece_light(k as usize),
         Action::LightColour(k, [r, g, b]) => ed.set_colour(k as usize, &format!("#{r:02x}{g:02x}{b:02x}")),
-        Action::LightShadows(k, on) => ed.set_light_shadows(k as usize, on),
+        Action::LightShadows(k, how) => ed.set_light_shadows(k as usize, how),
         Action::Solid(on) => ed.set_solid(on),
         Action::ShadowOnly(on) => ed.set_shadow_only(on),
         Action::DayOwn => ed.day_own(),

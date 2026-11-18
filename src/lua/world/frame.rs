@@ -68,7 +68,13 @@ fn light_of(lua: &Lua, t: &Table) -> mlua::Result<crate::render::Light> {
             "blend" => shape.blend = ranged(&v)?,
             "rotation" => shape.rotation = ranged(&v)?,
             "pitch" => shape.pitch = ranged(&v)?,
-            "shadows" => shape.shadows = v.as_boolean().ok_or_else(|| fail("shadows is true or false (whether walls stop it)".into()))?,
+            "shadows" => {
+                shape.shadows = Some(match &v {
+                    Value::String(w) => crate::render::LampShadows::read(&w.to_str()?).map_err(|e| fail(format!("shadows: {e}")))?,
+                    Value::Boolean(on) => return Err(fail(crate::render::LampShadows::boolean(*on))),
+                    _ => return Err(fail(format!("shadows is one of {} (what stops it)", crate::render::LampShadows::list()))),
+                })
+            }
             other => {
                 let near = crate::audio::words::near(other, LIGHT_KEYS.into_iter()).map_or(String::new(), |n| format!(" (did you mean `{n}`?)"));
                 return Err(fail(format!("no `{other}`{near}: a light has {}", LIGHT_KEYS.join(", "))));

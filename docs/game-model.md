@@ -209,7 +209,7 @@ settings. Several players: `player` is seat 1, the others are in
   `frame:cube`, `frame:model`, `frame:light`; `frame:light{ at =, radius
   =, color =, falloff =, cone =, blend =, rotation =, pitch =, shadows =
   }` with a level's light's words, `frame:light(at, radius, color)` as
-  before 0.7, both a lamp walls stop unless `shadows = false`). An action in braces in a
+  before 0.7, both a lamp walls stop unless `shadows = "none"`). An action in braces in a
   text is its key as the player sees it (`"PRESS {jump}"`, as
   `controls:key`), `{{` a brace.
   `frame:model` rotates a model further (`rotation`) and poses a figure
@@ -939,9 +939,14 @@ before 0.7), `cone` (a spot, its whole opening angle in degrees, 1 to
 360; unset it shines every way), `blend` (how much of the cone's edge is
 soft, 0 to 1, 0.15), `rotation` and `pitch` (the spot's way: degrees
 clockwise seen from above, north +y 0, and up or down, -90 to 90; a
-piece's turns with the piece) and `shadows` (true unless set: walls stop
-it, `render::lamps`; `c.light.lamp_shadows = false` turns walls off for
-every lamp of a game). A wall is the level's opaque voxels and its
+piece's turns with the piece) and `shadows` (a word: `"static"`, the
+level's voxels and its pieces stop it, `render::lamps`; `"none"`, it
+shines through; `true` and `false` are refused, naming the word to
+write; a third word, `"all"`, moving things too, is decided and not
+built, `render::LampShadows`). A light that leaves `shadows` unset takes
+`c.light.lamp_shadows`, the game's word (the same two words, `"static"`
+unless set); a light that states one has its own, whatever the game says:
+game `"none"` and a light's `"static"` is a light the walls stop. A wall is the level's opaque voxels and its
 pieces; a piece that brings a light stops no light (a lantern's frame
 round its flame), and moving things (figures, the kits' things, cubes)
 stop none: they move every picture, and a lamp's answer is kept per face

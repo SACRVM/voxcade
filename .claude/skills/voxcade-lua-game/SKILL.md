@@ -122,7 +122,7 @@ model's voxels, turning with it; `lights = [ {...}, {...} ]` for
 several (a flame and its glow); `thing.state.light` dims all of them, 0
 off to 1 (1 at first), kept by saves; a light takes `falloff`, `cone`,
 `blend`, `rotation`, `pitch` and `shadows` too (0.7: walls stop a lamp
-unless `shadows = false`; `c.light.lamp_shadows = false` for all;
+unless `shadows = "none"`; `c.light.lamp_shadows` the word of every light that leaves it out, a light's own beats it;
 `frame:light{ at =, radius =, ... }` the same words); up to 4096 lights a
 picture, the nearest the middle of the view. A piece
 whose model is a figure of parts (a door: its frame, the leaf with

@@ -40,7 +40,7 @@
 ---@field blend? number How much of the cone's edge is soft, 0 to 1 (0.15 unless set).
 ---@field rotation? number The spot's way round, degrees clockwise seen from above, north (+y) 0.
 ---@field pitch? number The spot's way up (above 0) or down, -90 to 90 degrees.
----@field shadows? boolean Whether walls stop it (true unless set; c.light.lamp_shadows = false turns it off for every lamp).
+---@field shadows? string What stops it: "static" (the level's voxels and its pieces) or "none" (it shines through). Left out, c.light.lamp_shadows says ("static" unless set); a light's own word beats it.
 
 ---@class PictureCamera What a picture's camera sets (frame:camera); what it leaves out is c.camera's.
 ---@field look_at? Point|Thing|number[] The point the view centers on, { x, y, z } in voxels (z left out: the camera's height), or a thing; left out, the view follows what the camera follows.
@@ -534,7 +534,7 @@ function Frame:cube(x, y, z, color, glow) end
 ---Lights the level round a thing or a point, in this picture: frame:light(at, radius, color), or frame:light{ at =, radius =, ... } with the words a level's light takes too.
 ---- falloff: how it fades to its radius, (1 - distance / radius) to this power, 2 unless set.
 ---- cone: a spot, its whole opening angle in degrees; blend how much of its edge is soft (0.15). rotation and pitch its way: degrees clockwise seen from above (north 0), and up or down.
----- shadows: walls stop it (true unless set). A wall is the level's voxels and its pieces; figures and moving things stop no light, nor a piece that brings a light of its own (a lantern round its flame).
+---- shadows: what stops it, "static" or "none" (it shines through walls); left out, c.light.lamp_shadows says ("static" unless set). A wall is the level's voxels and its pieces; figures and moving things stop no light, nor a piece that brings a light of its own (a lantern round its flame).
 ---Only the picture: the game's rules do not see it.
 ---@param at Thing|Point|Light
 ---@param radius? number
@@ -899,7 +899,7 @@ function on_pickup(thing, item) end
 ---@field model_shading string How models (actors, props) are lit: "faces" (every face of a voxel by its own direction), "smooth" (a whole voxel by the direction of the surface around it, so round shapes shade softly like pixel art) or "edges" (smooth, but where two flat surfaces meet the faces keep their own light, so hard edges stay hard).
 ---@field model_shading_for table<string, string> Models shaded otherwise, by file (relative to the game folder), e.g. { ["huey.vvx"] = "faces" } for a machine among smooth figures.
 ---@field edge_tolerance number With "edges": how far, in voxels, a voxel's surroundings may stray from one smooth surface before it counts as an edge. (from 0 to 16)
----@field lamp_shadows boolean Whether walls stop the game's lamps (a level's lights, frame:light): false, every lamp shines through walls, as before 0.7 (older hardware; a light's own shadows = false turns it off for that one alone).
+---@field lamp_shadows string What stops a lamp that states no shadows of its own (a level's lights, frame:light): "static" (the level's voxels and its pieces) or "none": it shines through walls, as before 0.7 (older hardware). A light's own shadows beats it, whatever it says.
 
 ---@class Conf.debris
 ---@field settle number Chance that a landed debris voxel becomes part of the world again. (from 0 to 1)

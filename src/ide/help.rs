@@ -890,7 +890,7 @@ end
     },
     Topic {
         title: "LIGHT, SHAKE AND FLASH",
-        text: "frame:light puts a light into this picture: walls stop it (the level's voxels and its pieces). With a table it takes more words: cone makes a spot (its opening angle in degrees), rotation and pitch point it, falloff says how it fades (2 unless set), shadows = false lets it shine through walls. level:explode blows a hole into the level, screen:shake shakes the screen, screen:flash flashes it, world:hitstop holds the game still for a few ticks.",
+        text: "frame:light puts a light into this picture: walls stop it (the level's voxels and its pieces). With a table it takes more words: cone makes a spot (its opening angle in degrees), rotation and pitch point it, falloff says how it fades (2 unless set), shadows = \"none\" lets it shine through walls, \"static\" has the level's voxels and its pieces stop it (left out, c.light.lamp_shadows says, \"static\" unless set). level:explode blows a hole into the level, screen:shake shakes the screen, screen:flash flashes it, world:hitstop holds the game still for a few ticks.",
         conf: r##"c.player.kind = "hero"
 c.things.hero = {}"##,
         files: &[],

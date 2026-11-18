@@ -976,11 +976,11 @@ pub struct LightConfig {
     /// With "edges": how far, in voxels, a voxel's surroundings may stray
     /// from one smooth surface before it counts as an edge.
     pub edge_tolerance: f32,
-    /// Whether walls stop the game's lamps (a level's lights,
-    /// frame:light): false, every lamp shines through walls, as before 0.7
-    /// (older hardware; a light's own shadows = false turns it off for that
-    /// one alone).
-    pub lamp_shadows: bool,
+    /// What stops a lamp that states no `shadows` of its own (a level's
+    /// lights, frame:light): "static" (the level's voxels and its pieces)
+    /// or "none": it shines through walls, as before 0.7 (older hardware).
+    /// A light's own shadows beats it, whatever it says.
+    pub lamp_shadows: crate::render::LampShadows,
 }
 
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -1016,7 +1016,7 @@ impl Default for LightConfig {
             model_shading: ModelShading::Faces,
             model_shading_for: BTreeMap::new(),
             edge_tolerance: 0.5,
-            lamp_shadows: true,
+            lamp_shadows: crate::render::LampShadows::Static,
         }
     }
 }

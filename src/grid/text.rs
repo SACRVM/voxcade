@@ -247,7 +247,7 @@ fn light_text(l: &ThingLight) -> String {
         }
     }
     if let Some(s) = l.shadows {
-        parts.push(format!("shadows = {s}"));
+        parts.push(format!("shadows = \"{}\"", s.word()));
     }
     format!("{{ {} }}", parts.join(", "))
 }
@@ -1192,7 +1192,14 @@ fn read_light(r: &Reader, l: &dyn toml_edit::TableLike, span: Option<std::ops::R
         v.map(Some).ok_or_else(|| r.fail(item.span(), format!("a light's {key} must be a number from {low} to {high}")))
     };
     let (falloff, cone, blend, rotation, pitch) = (word("falloff")?, word("cone")?, word("blend")?, word("rotation")?, word("pitch")?);
-    let shadows = l.get("shadows").map(|item| item.as_bool().ok_or_else(|| r.fail(item.span(), "a light's shadows must be true or false (whether walls stop it)"))).transpose()?;
+    let shadows = l
+        .get("shadows")
+        .map(|item| match (item.as_str(), item.as_bool()) {
+            (Some(w), _) => crate::render::LampShadows::read(w).map_err(|e| r.fail(item.span(), format!("a light's shadows: {e}"))),
+            (_, Some(on)) => Err(r.fail(item.span(), format!("a light's {}", crate::render::LampShadows::boolean(on)))),
+            _ => Err(r.fail(item.span(), format!("a light's shadows must be one of {} (what stops it)", crate::render::LampShadows::list()))),
+        })
+        .transpose()?;
     let radius_item = l.get("radius").ok_or_else(|| r.fail(span.clone(), "a light needs radius = N (how far it reaches, voxels)"))?;
     let radius = radius_item.as_float().or_else(|| radius_item.as_integer().map(|i| i as f64)).filter(|v| v.is_finite() && *v > 0.0);
     let radius = radius.ok_or_else(|| r.fail(radius_item.span(), "a light's radius must be a number above 0 (voxels)"))?;
