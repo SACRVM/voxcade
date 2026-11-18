@@ -85,6 +85,9 @@ const FOG: &str = include_str!("../fog.wgsl");
 /// the lamps'.
 pub(super) static FOG_BEAMS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| LAMPS.clone() + FOG + include_str!("../fog_beams.wgsl"));
 
+/// The fog behind glass and water (`fog_far.wgsl`).
+pub(super) static FOG_FAR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| FOG.to_string() + include_str!("../fog_far.wgsl"));
+
 /// The picture put together with fog (`fog_composite.wgsl`): the
 /// composite's text (`post.wgsl`), then the fog's.
 pub(super) static FOG_COMPOSITE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| include_str!("../post.wgsl").to_string() + FOG + include_str!("../fog_composite.wgsl"));
@@ -203,6 +206,7 @@ mod tests {
             ("fog_beams.wgsl", super::FOG_BEAMS.as_str()),
             ("fog_beams.wgsl without walls", beams_plain.as_str()),
             ("fog_composite.wgsl", super::FOG_COMPOSITE.as_str()),
+            ("fog_far.wgsl", super::FOG_FAR.as_str()),
         ] {
             let module = naga::front::wgsl::parse_str(src).unwrap_or_else(|e| panic!("{name}: {}", e.emit_to_string(src)));
             naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::all())

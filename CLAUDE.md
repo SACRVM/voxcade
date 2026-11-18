@@ -1626,9 +1626,13 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   drawn byte for byte as before, at no cost. VIDEO's FOG (`settings::Fog`:
   HIGH half, LOW quarter, OFF none drawn; LOW on the processor's own
   graphics until chosen; `shot --fog`). Only the picture: test
-  `fog_changes_no_run`; GPU test `fog_shows_a_beam_the_wall_stops`. Not
-  built: glass and water in front of a beam (it shows over them,
-  untinted), the sun's beams, moving things cutting beams, fog in the
+  `fog_changes_no_run`; GPU test `fog_shows_a_beam_the_wall_stops`.
+  Glass and water: with see-through cubes on screen their depth is drawn
+  first (`glass_pass`), the beams before and behind the nearer one apart,
+  the fog behind it laid over the scene before they are drawn
+  (`fog_far.wgsl`), so they tint it (test
+  `a_beam_behind_glass_is_seen_through_it`); without them none of it runs.
+  Not built: the sun's beams, moving things cutting beams, fog in the
   editors and the IDE's picture.
 - The renderer is `src/render/`: `mod.rs` the `Renderer` and `Instance`,
   `bank.rs` the model bank, `baked.rs` its runs baked into faces and the

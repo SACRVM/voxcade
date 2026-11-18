@@ -1630,6 +1630,63 @@ fn fog_shows_a_beam_the_wall_stops() {
     assert!(seen(&f, &glowing, floor) > seen(&f, &dense, floor) + 4.0, "the floor less dimmed: {} against {}", seen(&f, &glowing, floor), seen(&f, &dense, floor));
 }
 
+/// On the GPU: a beam behind glass is seen through it, tinted and dimmed
+/// as the glass dims what lies behind it, never drawn over it untinted;
+/// beside the glass the picture is the one without it, byte for byte.
+#[test]
+fn a_beam_behind_glass_is_seen_through_it() {
+    let mut s = LampScene::new();
+    let shape = crate::render::LightShape { cone: Some(30.0), rotation: 90.0, ..Default::default() };
+    let spot = crate::render::Light::lamp(Vec3::new(24.5, 48.5, 10.0), 60.0, [2.0; 3], &shape, |w| w).stated(crate::render::LampShadows::Static);
+    // A dark pane over the beam's near part, a voxel thick, at z 20.
+    let opacity = 200u8;
+    let pane: Vec<crate::render::Instance> = (30..42).flat_map(|x| (40..58).map(move |y| (x, y))).map(|(x, y)| {
+        let mut fx = [0u8; 4];
+        fx[crate::render::FX_OPACITY] = opacity;
+        crate::render::Instance { pos_size: [x as f32 + 0.5, y as f32 + 0.5, 20.5, 1.0], color: [20, 30, 40, opacity], fx, shade: [0; 4], turn: [0; 4] }
+    }).collect();
+    let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 2 };
+    let mut picture = |lights: &[crate::render::Light], glass: bool| {
+        let (w, h) = LampScene::SIZE;
+        let mut f = s.game.frame(1.0, w as f32 / h as f32);
+        (f.lights, f.lamp_world, f.fog) = (lights.to_vec(), Some(s.game.game.sim().world.clone()), Some(fog));
+        if glass {
+            f.instances.extend(pane.iter().copied());
+            f.see_through += pane.len();
+        }
+        let pixels = s.canvas.draw(&f).unwrap();
+        (f, pixels)
+    };
+    let (f, clear_dark) = picture(&[], false);
+    let (_, clear_lit) = picture(&[spot], false);
+    let (_, glass_dark) = picture(&[], true);
+    let (_, glass_lit) = picture(&[spot], true);
+    let at = |pixels: &[u8], p: Vec3| {
+        let (w, h) = LampScene::SIZE;
+        let c = f.view_proj.project_point3(p);
+        let (x, y) = (((c.x + 1.0) * 0.5 * w as f32) as i32, ((1.0 - c.y) * 0.5 * h as f32) as i32);
+        (-1..=1).flat_map(|dy| (-1..=1).map(move |dx| (dx, dy))).map(|(dx, dy)| {
+            let i = (((y + dy) * w as i32 + x + dx) * 4) as usize;
+            pixels[i..i + 3].iter().map(|&c| c as f32).sum::<f32>()
+        }).sum::<f32>() / 9.0
+    };
+    // Under the pane, the beam at z 10: what the spot adds with the pane
+    // over it, against what it adds without.
+    let under = Vec3::new(36.5, 48.5, 10.0);
+    let (through, open) = (at(&glass_lit, under) - at(&glass_dark, under), at(&clear_lit, under) - at(&clear_dark, under));
+    assert!(open > 30.0, "the beam shows: {open}");
+    assert!(through < open * 0.5, "through the dark pane the beam is dimmed: {through} against {open}");
+    // Beside the pane: the same picture as without it.
+    let (w, _) = LampScene::SIZE;
+    let beside = |pixels: &[u8]| {
+        let c = f.view_proj.project_point3(Vec3::new(60.5, 30.5, 1.0));
+        let (x, y) = (((c.x + 1.0) * 0.5 * w as f32) as i32, ((1.0 - c.y) * 0.5 * LampScene::SIZE.1 as f32) as i32);
+        let i = ((y * w as i32 + x) * 4) as usize;
+        pixels[i..i + 4].to_vec()
+    };
+    assert_eq!(beside(&glass_lit), beside(&clear_lit), "beside the glass as without it");
+}
+
 /// On the GPU: a lamp new to the faces' memory (its first picture, or
 /// moved) is asked for first, at a pixel every `ASK` (two moving
 /// headlights cost the Radeon 610M 7 ms walked by every pixel of a face,

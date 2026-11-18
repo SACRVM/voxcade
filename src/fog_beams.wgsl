@@ -24,6 +24,9 @@
 // The picture's lights for the fog, as `lights` (their colour times how
 // strongly each shows in fog).
 @group(1) @binding(1) var fog_lights: texture_2d<f32>;
+// The see-through cubes' depth, with glass or water in the picture
+// (`fs_beam_glass`).
+@group(1) @binding(2) var glass_depth: texture_depth_2d;
 
 // The planes' spacing, voxels along the camera's way, for a light whose
 // ball is at most FOG_MOST_PLANES of them across; twice (four times ...)
@@ -201,27 +204,14 @@ fn beam(l: Light, dir: vec3<f32>, a: f32, b: f32, core: vec2<f32>, air: f32) -> 
     return sum * density;
 }
 
-@fragment
-fn fs_beam(in: TileOut) -> @location(0) vec4<f32> {
-    let own = in.clip.xy;
-    let scale = f32(fog.size.z);
-    let full = vec2<i32>(textureDimensions(scene_depth));
-    // The picture's pixel in the middle of this one's: its depth, its ray.
-    let px = min(vec2<i32>(floor(own) * scale + vec2<f32>(scale * 0.5)), full - vec2<i32>(1));
-    let depth = textureLoad(scene_depth, px, 0);
-    let ray = view_ray(vec2<f32>(px) + vec2<f32>(0.5), vec2<f32>(full), depth);
-    let dir = ray.xyz;
-    // (Its alpha how far the eye sees there, for fog_composite.wgsl.)
-    let seen = min(ray.w, FOG_FAR);
-    let air = air_span(dir, ray.w);
-    if (air.y <= air.x) {
-        return vec4<f32>(0.0, 0.0, 0.0, seen);
-    }
+// The light the tile's lights send to the eye along the ray the way `dir`
+// from `begin` to `end`, the fog taking its share from `air` on.
+fn beams_over(in: TileOut, dir: vec3<f32>, begin: f32, end: f32, air: f32) -> vec3<f32> {
     var sum = vec3<f32>(0.0);
     for (var k = 0u; k < in.count.x; k += 1u) {
         let row = light_row(in, k);
         let l = Light(textureLoad(fog_lights, vec2<i32>(0, row), 0), textureLoad(fog_lights, vec2<i32>(1, row), 0), textureLoad(fog_lights, vec2<i32>(2, row), 0), textureLoad(fog_lights, vec2<i32>(3, row), 0));
-        // Where the ray is within its ball, its cone, the air.
+        // Where the ray is within its ball, its cone, the stretch.
         let oc = fog.eye.xyz - l.pos_radius.xyz;
         let h = dot(dir, oc);
         let disc = h * h - (dot(oc, oc) - l.pos_radius.w * l.pos_radius.w);
@@ -229,8 +219,8 @@ fn fs_beam(in: TileOut) -> @location(0) vec4<f32> {
             continue;
         }
         let root = sqrt(disc);
-        var a = max(-h - root, air.x);
-        var b = min(-h + root, air.y);
+        var a = max(-h - root, begin);
+        var b = min(-h + root, end);
         var core = vec2<f32>(-1.0);
         if (l.spot.w > -1.5) {
             let cone = cone_span(l, dir, l.spot.w);
@@ -241,8 +231,59 @@ fn fs_beam(in: TileOut) -> @location(0) vec4<f32> {
             }
         }
         if (b > a) {
-            sum += beam(l, dir, a, b, core, air.x);
+            sum += beam(l, dir, a, b, core, air);
         }
     }
-    return vec4<f32>(sum, seen);
+    return sum;
+}
+
+// The picture's pixel in the middle of this one's (of the beams' target).
+fn beams_pixel(own: vec2<f32>) -> vec2<i32> {
+    let scale = f32(fog.size.z);
+    let full = vec2<i32>(textureDimensions(scene_depth));
+    return min(vec2<i32>(floor(own) * scale + vec2<f32>(scale * 0.5)), full - vec2<i32>(1));
+}
+
+@fragment
+fn fs_beam(in: TileOut) -> @location(0) vec4<f32> {
+    let px = beams_pixel(in.clip.xy);
+    let full = vec2<f32>(textureDimensions(scene_depth));
+    let ray = view_ray(vec2<f32>(px) + vec2<f32>(0.5), full, textureLoad(scene_depth, px, 0));
+    // (Its alpha how far the eye sees there, for fog_composite.wgsl.)
+    let seen = min(ray.w, FOG_FAR);
+    let air = air_span(ray.xyz, ray.w);
+    if (air.y <= air.x) {
+        return vec4<f32>(0.0, 0.0, 0.0, seen);
+    }
+    return vec4<f32>(beams_over(in, ray.xyz, air.x, air.y, air.x), seen);
+}
+
+// With glass or water in the picture (`glass_depth`, the see-through
+// cubes' depth): the beams before the nearer see-through cube (`near`, for
+// the composite) and behind it (`far`, fog_far.wgsl, their light taken by
+// the fog from the cube on), each its alpha how far it reaches.
+struct BeamsOut {
+    @location(0) near: vec4<f32>,
+    @location(1) far: vec4<f32>,
+};
+
+@fragment
+fn fs_beam_glass(in: TileOut) -> BeamsOut {
+    let px = beams_pixel(in.clip.xy);
+    let full = vec2<f32>(textureDimensions(scene_depth));
+    let ray = view_ray(vec2<f32>(px) + vec2<f32>(0.5), full, textureLoad(scene_depth, px, 0));
+    let glass = min(view_ray(vec2<f32>(px) + vec2<f32>(0.5), full, textureLoad(glass_depth, px, 0)).w, ray.w);
+    let air = air_span(ray.xyz, ray.w);
+    var out: BeamsOut;
+    out.near = vec4<f32>(0.0, 0.0, 0.0, min(glass, FOG_FAR));
+    out.far = vec4<f32>(0.0, 0.0, 0.0, min(ray.w, FOG_FAR));
+    if (air.y <= air.x) {
+        return out;
+    }
+    let split = clamp(glass, air.x, air.y);
+    out.near = vec4<f32>(beams_over(in, ray.xyz, air.x, split, air.x), out.near.a);
+    if (split < air.y) {
+        out.far = vec4<f32>(beams_over(in, ray.xyz, split, air.y, split), out.far.a);
+    }
+    return out;
 }

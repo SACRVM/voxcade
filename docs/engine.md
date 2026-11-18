@@ -874,9 +874,16 @@ classic smooth way, the owner's choice over beams in voxel cells;
   pixels weighed by how alike the depth they were worked out at is. What
   glows (the blurred glow target) is dimmed as the scene is, by what the
   fog left at the pixel it shines on (`post.wgsl`'s `finish_seen`): a
-  torch in thin fog still blooms, in thick fog far less. See-through cubes (glass, water) are fogged
-  as if they were not there: a beam behind them shows in front of them,
-  untinted.
+  torch in thin fog still blooms, in thick fog far less.
+- **Glass and water** (the see-through cubes) in a picture of fog: their
+  depth is drawn first (`glass_pass`, the scene's `vs_inst`, nothing
+  else), the beams are worked out before the nearer see-through cube and
+  behind it apart (`fs_beam_glass`, two targets), the fog behind it is
+  laid over the scene before the cubes are drawn onto it
+  (`fog_far.wgsl`), so they tint and dim it, and the composite lays the
+  fog before them (test `a_beam_behind_glass_is_seen_through_it`). Beside
+  the glass the picture is the one without it, byte for byte; a picture
+  of fog without see-through cubes runs none of it.
 - **Measured** (the trial hall, five lamps walls stop, 1920 by 1080): the
   Radeon 610M without fog 9.4 ms, LOW 13.7 (beams 2.6, the composite
   2.0 against 0.5), HIGH 21.1 (beams 9.2); Voxkeep's torches in fog 7.0,
