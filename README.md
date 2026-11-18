@@ -36,7 +36,8 @@ LÖVE is: a game you make with it is yours, to give away or to sell.
 | **The Arena** (`games/arena`) | The shooter kit's playground: a yard to blow apart | the shooter kit, no code |
 | **Rust Digger** (`examples/rust_digger`) | A game in Rust on the engine alone | Rust |
 
-`games/bench` is no game: a load test at 16-bit sprite scale.
+`games/bench` is no game: a load test at 16-bit sprite scale; nor is
+`games/lights`, a test hall for the lamps, the fog and what stops them.
 
 ## Run it from source
 

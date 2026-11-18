@@ -44,6 +44,13 @@ const PICTURES: &[Picture] = &[
     Picture { name: "sokovox_title_menu", args: &["shot", "games/sokovox", "--screen", "title", "--size", "640x360", "--out", "{out}"] },
     Picture { name: "voxkeep_block_editor", args: &["edit", "games/voxkeep", "--block", "stone", "--size", "960x540", "--shot", "{out}"] },
     Picture { name: "sokovox_ide", args: &["ide", "games/sokovox", "--size", "960x540", "--shot", "{out}"] },
+    // The lamps and the fog (games/lights): lamps walls stop, beams in fog
+    // cut by a pillar and a thin wall, a beam through glass and onto
+    // water, figures casting the shadows of spots whose shadows are "all".
+    Picture { name: "lights_walls", args: &["shot", "games/lights", "--scenario", "walls", "--frames", "30", "--size", "640x360", "--out", "{out}"] },
+    Picture { name: "lights_fog", args: &["shot", "games/lights", "--scenario", "fog", "--frames", "30", "--size", "640x360", "--out", "{out}"] },
+    Picture { name: "lights_glass", args: &["shot", "games/lights", "--scenario", "glass", "--frames", "30", "--size", "640x360", "--out", "{out}"] },
+    Picture { name: "lights_all", args: &["shot", "games/lights", "--scenario", "dancers", "--frames", "60", "--size", "640x360", "--out", "{out}"] },
 ];
 
 fn root() -> PathBuf {
@@ -224,13 +231,19 @@ fn the_pictures_look_as_they_did() {
     let kept = read_text(&text);
     let tol = tolerance();
     let mut said = String::new();
+    // The numbers of the pictures that do not hold as drawn here, in the
+    // file's own form: pasted over their sections, one run (a CI's on
+    // another GPU) gives the references.
+    let mut measured = Vec::new();
     for (name, w, h, cells) in &drawn {
         let Some((_, kw, kh, expected)) = kept.iter().find(|k| &k.0 == name) else {
             writeln!(said, "picture {name}: no numbers in tests/pictures.txt (renew them)").unwrap();
+            measured.push((name.clone(), *w, *h, cells.clone()));
             continue;
         };
         if (kw, kh) != (w, h) || expected.len() != cells.len() {
             writeln!(said, "picture {name}: drawn {w}x{h}, kept {kw}x{kh}").unwrap();
+            measured.push((name.clone(), *w, *h, cells.clone()));
             continue;
         }
         let moved: Vec<String> = cells
@@ -255,7 +268,12 @@ fn the_pictures_look_as_they_did() {
         if !moved.is_empty() {
             let args = PICTURES.iter().find(|p| p.name == name).unwrap().args.join(" ");
             writeln!(said, "picture {name}: {} of {} regions moved by more than {tol} levels:\n  {}\n  look at it: voxcade {args}", moved.len(), cells.len(), moved.join("\n  ")).unwrap();
+            measured.push((name.clone(), *w, *h, cells.clone()));
         }
+    }
+    if !measured.is_empty() {
+        let text = write_text_as("", "", GRID, &measured);
+        writeln!(said, "the numbers drawn here, each picture's section as tests/pictures.txt has it:{}", text.trim_end()).unwrap();
     }
     for (name, ..) in &kept {
         if !PICTURES.iter().any(|p| p.name == name) {
@@ -278,6 +296,10 @@ fn a_picture_drawn_twice_is_the_same_to_the_byte() {
         Picture { name: "pulsar_frame", args: &["shot", "games/pulsar", "--frames", "90", "--size", "640x360", "--out", "{out}"] },
         // A game moving its sun: the faces remember their shadow.
         Picture { name: "bunnyfarm_frame", args: &["shot", "games/bunnyfarm", "--frames", "60", "--size", "640x360", "--out", "{out}"] },
+        // Lamps walls stop and fog's beams (the faces' memory, the beams'
+        // walks), moving things stopping lamps whose shadows are "all".
+        Picture { name: "lights_fog", args: &["shot", "games/lights", "--scenario", "fog", "--frames", "30", "--size", "640x360", "--out", "{out}"] },
+        Picture { name: "lights_all", args: &["shot", "games/lights", "--scenario", "dancers", "--frames", "60", "--size", "640x360", "--out", "{out}"] },
     ];
     let (one, two) = (Scratch::new_named("twice"), Scratch::new_named("again"));
     for p in TWICE {

@@ -1,0 +1,275 @@
+format = "voxcade level 1"
+block = 4            # a block is this many voxels each way
+size = [100, 40, 16]    # cells: across (x), deep (y, 0 in front), up (z)
+view = "above"        # each layer the grid seen from above, the bottom layer first, its far row first
+
+[blocks]              # blocks/NAME.vvx, each what it is to the game
+floor = "solid"
+tile_a = "solid"
+tile_b = "solid"
+wall = "solid"
+pillar = "solid"
+side = "solid"
+stage = "solid"
+
+[legend]              # a sign is a block as it lies: its name, or the name and an orientation (0 to 47)
+f = "floor"
+s = "side"
+S = "stage"
+t = "tile_b"
+T = "tile_a"
+w = "wall"
+p = "pillar"
+
+[cells]
+layers = """
+fffffffffffffffffffffffffffffffffffffssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+ftTTttTTttTTttTTttTTttTTttTTttTTttTTfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fTttTTttTTttTTttTTttTTttTTttTTttTTttfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fTttTTttTTttTTttTTttTTttTTttTTttTTttfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+ftTTttTTttTTttTTttTTttTTttTTttTTttTTfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+ftTTttTTttTTttTTttTTttTTttTTttTTttTTfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fTttTTttTTttTTttTTttTTttTTttTTttTTttfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fTttTTttTTttTTttTTttTTttTTttTTttTTttfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+ftTTttTTttTTttTTttTTttTTttTTttTTttTTfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+ftTTttTTttTTttTTttTTttTTttTTttTTttTTfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fTttTTttTTttTTttTTttTTttTTttTTttTTttfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fTttTTttTTttTTttTTttTTttTTttTTttTTttfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+ftTTttTTttTTttTTttTTttTTttTTttTTttTTfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+ftTTttTTttTTttTTttTTttTTttTTttTTttTTfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fTttTTttTTttTTttTTttTTttTTttTTttTTttfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fTttTTttTTttTTttTTttTTttTTttTTttTTttfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+ftTTttTTttTTttTTttTTttTTttTTttTTttTTfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+ftTTttTTttTTttTTttTTttTTttTTttTTttTTfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fTttTTttTTttTTttTTttTTttTTttTTttTTttfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fTttTTttTTttTTttTTttTTttTTttTTttTTttfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+ftTTttTTttTTttTTttTTttTTttTTttTTttTTfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+ftTTttTTttTTttTTttTTttTTttTTttTTttTTfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fTttTTttTTttTTttTTttTTttTTttTTttTTttfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fTttTTttTTttTTttTTttTTttTTttTTttTTttfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+ftTTttTTttTTttTTttTTttTTttTTttTTttTTfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+ftTTttTTttTTttTTttTTttTTttTTttTTttTTfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fTttTTttTTttTTttTTttTTttTTttTTttTTttfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fTttTTttTTttTTttTTttTTttTTttTTttTTttfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+ftTTttTTttTTttTTttTTttTTttTTttTTttTTfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+ftTTttTTttTTttTTttTTttTTttTTttTTttTTfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fTttTTttTTttTTttTTttTTttTTttTTttTTttfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fTttTTttTTttTTttTTttTTttTTttTTttTTttfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+ftTTttTTttTTttTTttTTttTTttTTttTTttTTfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+ftTTttTTttTTttTTttTTttTTttTTttTTttTTfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fTttTTttTTttTTttTTttTTttTTttTTttTTttfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fTttTTttTTttTTttTTttTTttTTttTTttTTttfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+ftTTttTTttTTttTTttTTttTTttTTttTTttTTfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+ftTTttTTttTTttTTttTTttTTttTTttTTttTTfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fTttTTttTTttTTttTTttTTttTTttTTttTTttfssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+fffffffffffffffffffffffffffffffffffffssssssssssssssssssssssfSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+
+wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+w...................................w......................w...................w...................w *10
+w............pp.........pp..........w......................w...................w...................w
+w............pp.........pp..........w......................w...................w...................w
+w...................................w......................w...................w...................w *4
+w..........................................................w...................w...................w
+w..........................................................w...................w...................w
+w..........................................................wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+w..........................................................w.......................................w
+w............pp.........pp.................................w.......................................w
+w............pp.........pp..........w......................w.......................................w
+w...................................w......................w.......................................w *16
+wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+
+wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+w...................................w......................w...................w...................w *10
+w............pp.........pp..........w......................w...................w...................w
+w............pp.........pp..........w......................w...................w...................w
+w...................................w......................w...................w...................w *4
+w..........................................................w...................w...................w
+w..........................................................w...................w...................w
+w..........................................................wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+w..........................................................w.......................................w
+w............pp.........pp.................................w.......................................w
+w............pp.........pp..........w......................w.......................................w
+w...................................w......................w.......................................w *16
+w..................................................................................................w
+
+wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+w...................................w......................w.......................................w *10
+w............pp.........pp..........w......................w.......................................w
+w............pp.........pp..........w......................w.......................................w
+w...................................w......................w.......................................w *4
+w..........................................................w.......................................w *4
+w............pp.........pp.................................w.......................................w
+w............pp.........pp..........w......................w.......................................w
+w...................................w......................w.......................................w *16
+w..................................................................................................w
+*6
+
+wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+w...................................w......................w.......................................w *10
+w............pp.........pp..........w......................w.......................................w
+w............pp.........pp..........w......................w.......................................w
+w...................................w......................w.......................................w *8
+w............pp.........pp..........w......................w.......................................w
+w............pp.........pp..........w......................w.......................................w
+w...................................w......................w.......................................w *16
+w..................................................................................................w
+*4
+
+.................................................................................................... *40
+*3
+"""
+
+# The pieces: walls a voxel thin, low walls, a post, glass and water.
+
+[[thing]]
+name = "diagonal_wall"
+model = "pieces/diagonal_wall.vvx"
+at = [212, 24, 4]
+
+[[thing]]
+name = "low_wall_none"
+model = "pieces/low_wall_across.vvx"
+at = [165, 128, 4]
+
+[[thing]]
+name = "low_wall_static"
+model = "pieces/low_wall_across.vvx"
+at = [190, 128, 4]
+
+[[thing]]
+name = "low_wall_all"
+model = "pieces/low_wall_across.vvx"
+at = [215, 128, 4]
+
+[[thing]]
+name = "post"
+model = "pieces/post.vvx"
+at = [272, 98, 4]
+
+[[thing]]
+name = "thin_wall"
+model = "pieces/thin_wall.vvx"
+at = [272, 120, 4]
+
+[[thing]]
+name = "pane"
+model = "pieces/pane.vvx"
+at = [365, 124, 4]
+
+[[thing]]
+name = "pool"
+model = "pieces/pool.vvx"
+at = [340, 100, 4]
+
+# The lamps that stand still, each named for main.lua's SUBJECTS (dark
+# but in its own subject).
+
+[[thing]]
+name = "door_lamp"
+at = [160, 82, 20]
+light = { radius = 120, color = "#ffbe78", falloff = 0.8 }
+
+[[thing]]
+name = "pillar_lamp"
+at = [84, 100, 26]
+light = { radius = 80, color = "#c8d8ff", falloff = 0.8 }
+
+[[thing]]
+name = "diagonal_lamp"
+at = [203, 34, 10]
+light = { radius = 90, color = "#fff0d8", falloff = 1 }
+
+[[thing]]
+name = "spot_falloff_4"
+at = [268, 40, 24]
+light = { radius = 40, color = "#fff0d8", cone = 48, blend = 0, falloff = 4, pitch = -90 }
+
+[[thing]]
+name = "spot_falloff_2"
+at = [286, 40, 24]
+light = { radius = 40, color = "#fff0d8", cone = 48, blend = 0, falloff = 2, pitch = -90 }
+
+[[thing]]
+name = "spot_falloff_1"
+at = [304, 40, 24]
+light = { radius = 40, color = "#fff0d8", cone = 48, blend = 0, falloff = 1, pitch = -90 }
+
+[[thing]]
+name = "spot_soft"
+at = [322, 40, 24]
+light = { radius = 40, color = "#fff0d8", cone = 48, blend = 0.8, falloff = 1, pitch = -90 }
+
+[[thing]]
+name = "spot_narrow"
+at = [340, 40, 24]
+light = { radius = 40, color = "#fff0d8", cone = 24, blend = 0.8, falloff = 1, pitch = -90 }
+
+[[thing]]
+name = "spot_pitched"
+at = [358, 40, 24]
+light = { radius = 40, color = "#fff0d8", cone = 24, blend = 0.8, falloff = 1, pitch = -55 }
+
+[[thing]]
+name = "spot_rotated"
+at = [376, 40, 24]
+light = { radius = 40, color = "#fff0d8", cone = 24, blend = 0.8, falloff = 1, pitch = -55, rotation = 180 }
+
+[[thing]]
+name = "bay_none"
+at = [165, 100, 20]
+light = { radius = 60, color = "#fff0d8", cone = 40, pitch = -35, falloff = 1, shadows = "none" }
+
+[[thing]]
+name = "bay_static"
+at = [190, 100, 20]
+light = { radius = 60, color = "#fff0d8", cone = 40, pitch = -35, falloff = 1, shadows = "static" }
+
+[[thing]]
+name = "bay_all"
+at = [215, 100, 20]
+light = { radius = 60, color = "#fff0d8", cone = 40, pitch = -35, falloff = 1, shadows = "all" }
+
+[[thing]]
+name = "fog_cut"
+at = [246, 98, 16]
+light = { radius = 80, color = "#ffe8c8", cone = 22, blend = 0.2, rotation = 90, pitch = -6, falloff = 0.7, fog = 8 }
+
+[[thing]]
+name = "fog_thin"
+at = [246, 120, 16]
+light = { radius = 80, color = "#c8e0ff", cone = 22, blend = 0.2, rotation = 90, pitch = -6, falloff = 0.7, fog = 8 }
+
+[[thing]]
+name = "fog_free"
+at = [246, 142, 16]
+light = { radius = 80, color = "#ffd0a0", cone = 22, blend = 0.2, rotation = 90, pitch = -6, falloff = 0.7, fog = 8 }
+
+[[thing]]
+name = "glass_spot"
+at = [365, 146, 40]
+light = { radius = 90, color = "#fff4e0", cone = 30, blend = 0.2, rotation = 180, pitch = -40, falloff = 0.7, fog = 3 }
+
+[[thing]]
+name = "water_spot"
+at = [340, 100, 44]
+light = { radius = 80, color = "#d8ecff", cone = 34, blend = 0.2, pitch = -90, falloff = 0.7, fog = 3 }
+
+[[thing]]
+name = "posed_spot"
+at = [196, 80, 40]
+light = { radius = 90, color = "#ffebd2", cone = 40, blend = 0.2, rotation = 90, pitch = -45, falloff = 0.6, shadows = "all" }
+
+[[thing]]
+name = "beam_spot"
+at = [78, 92, 50]
+light = { radius = 80, color = "#ffdc8c", cone = 30, blend = 0.2, pitch = -90, falloff = 0.7, shadows = "all", fog = 5 }
+
+[[thing]]
+name = "headlight_left"
+at = [8, 14, 20]
+light = { radius = 160, color = "#fff0c8", cone = 40, blend = 0.2, rotation = 90, pitch = -12, falloff = 0.6, shadows = "all", fog = 5 }
+
+[[thing]]
+name = "headlight_right"
+at = [8, 24, 20]
+light = { radius = 160, color = "#fff0c8", cone = 40, blend = 0.2, rotation = 90, pitch = -12, falloff = 0.6, shadows = "all", fog = 5 }
