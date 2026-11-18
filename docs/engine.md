@@ -812,9 +812,27 @@ tests.
   anything else keeps a burst's little round the back.
 - **The faces' memory.** Each face's answer for each lamp is kept
   (`seen`, a table of two words an entry by the cell, the lamp's exact
-  place and the volume's state; room for twice the picture's pixels, said
-  once when full), asked again when the volume changes or after 8
-  pictures unasked: a still scene walks its ways once. Every answer is
+  place and the volume's state; room for twice the picture's pixels to
+  begin with), asked again when the volume changes or after a picture
+  unasked (everything a picture shows is asked every picture; a lamp that
+  moves asks under a new key each picture, so its old entries make room at
+  once: they stayed 8 pictures until 2026-11-18): a still scene walks its
+  ways once. The fog's beams' points (below) are kept in it too (a point
+  and the face in front of its voxel ask the same), 16 entries more a
+  pixel of the beams' target to begin with; what they take comes by the
+  voxels along the beams more than by the pixels (a hall of 14 lamps in
+  fog, 400 voxels across, took 4 million at any picture size, where the
+  memory once held 2 or 4 for faces and points together: the points took
+  it all and the faces walked every picture). An entry's slot is its key
+  mixed, the next one tried a step apart its second key gives, 32 at
+  most: the key's low bit is always set and the slots were tried one after
+  the other, so the odd slots took it all and their runs grew long; at 42
+  in 100 slots taken a few hundred of four million points found no room
+  (most of what the scratch hall's warnings were, 2026-11-19). Found full
+  (the shader counts what found no room) it is made twice as large from the next
+  picture on, up to the GPU's largest buffer, and only past that said
+  once (`Renderer::too_small`; `shot` lets it grow before it times; test
+  `the_lamps_memory_grows_until_the_beams_fit`). Every answer is
   its walk's, so `shot` draws the same to the byte. Without it the
   station's lamps took 23 ms on the 610M, with it 4. A lamp new to the
   memory (its first picture, or moved since the last) is asked for first,
@@ -841,7 +859,11 @@ tests.
   The cells they fill (`render::movers`: a cell whose middle lies in a
   voxel, on the grid the voxel's own, turned freely those whose middles
   the turned cube holds; nothing grows, so a shadow is the shape of what
-  casts it and a steady move changes a cell once; not the level's
+  casts it and a steady move changes a cell once; a turned voxel that
+  holds no cell's middle (an eighth round, its middle at a cell's corner)
+  fills its middle's cell where nothing else of its thing lies on or
+  round that cell, so a cube alone or a rod a voxel thin still casts and
+  a body grows nothing, `movers::fill`, 2026-11-18; not the level's
   pieces, which are the level's volume; glowing and see-through voxels
   fill none) go into a second bit volume laid out as the level's, a box
   round them in blocks of 64 voxels, sent only when it changed, with a
@@ -927,10 +949,39 @@ classic smooth way, the owner's choice over beams in voxel cells;
   shadow's very edge walked from the point itself was clean but cost the
   610M 4.4 ms more at LOW, 12 at HIGH). A wall a voxel thin stops a beam
   even slanting (a line of voxels touching at their edges, the walk's rule
-  below; test `a_wall_a_voxel_thin_stops_a_beam`). A shadow thinner along the ray than
-  the planes' spacing, between two points that both see the lamp (a thin
-  post's, seen edge on), does not show in the fog: points a voxel apart
-  cost the 610M 15 ms of beams at LOW instead of 3.
+  below; test `a_wall_a_voxel_thin_stops_a_beam`). A shadow thinner along
+  the ray than the planes' spacing, between two points that both see the
+  lamp (a post's, seen edge on), showed as dashes or not at all: points a
+  voxel apart everywhere cost the 610M 15 ms of beams at LOW instead of 3.
+  So the thin things are found (`render::thin`, 2026-11-18): a voxel is
+  thin where its run of solid voxels is shorter than 4 one way and
+  shorter than 16 another (a post, a rail, a short
+  wall; a long wall or a floor casts a thin shadow only from a lamp in its
+  plane and is left to the planes; what lies within 16 of solid voxels
+  both ways along x and along y counts as solid, since the volume holds a
+  piece's shell, the voxels it draws), read from the lamps' volume whole rows
+  of voxels at a time, kept by blocks of 8 voxels, made the first time a
+  picture of fog asks (a level 1024 by 1024 by 64 in 52 ms on all cores),
+  brought up to date where the volume changes. Each light's row lists the
+  balls round the blocks it lights (at most 16, more taken together in
+  bigger blocks, each with the spacing its thinnest voxels need: a voxel
+  for a run of 1, 2 for 2 or 3), and along a ray within the cone from the
+  lamp round any of them the points lie on planes that far apart, at most
+  16 more a ray a lamp (past that the spacing doubles), fixed in the
+  level too (test `a_thin_rail_darkens_the_beam_behind_it`). Things 4 to
+  15 voxels thin are left to the planes even for a wide lamp whose points
+  lie 8 or 16 apart (taking them too cost two spots of radius 260 in the
+  scratch hall 2.5 times their beams on the 610M). A picture none of
+  whose lamps lights a thin thing draws its beams with a pipeline without
+  that work (it cost a ray that never meets one too: 16 lamps' beams on
+  the 610M 10.4 ms against 8.8), and costs what it did. Where a lamp
+  lights one, it costs its points: the test hall's fog stage with two
+  posts in a beam, the 610M's beams 4.9 ms at HIGH against 6.3 (1.5
+  against 2.0 at LOW); the scratch hall of 14 lamps and two spots
+  (2026-11-19, low walls 3 thick and a diagonal wall a voxel thin within
+  their reach) 33 against 48 ms at 1920 by 1080 HIGH, 11.2 against 16.4
+  LOW; its two spots alone 6.3 against 13.1. Not yet: thin moving things
+  (an arm) in an "all" lamp's beam keep the planes.
 - **Laid over** by the composite's own pipeline for fog (before the UI,
   which is never fogged): the scene times what the fog left of it, the
   fog's colour for the rest, the beams from the four nearest of their

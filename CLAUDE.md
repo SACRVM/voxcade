@@ -1601,7 +1601,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   stop it), `"all"` (moving things too: `render::movers`, a second bit
   volume of the models and cubes drawn, gathered in view or not where an
   "all" lamp reaches, `Drawing::movers`, made every picture, a cell
-  filled where its middle lies in a voxel; walked afresh after the walls'
+  filled where its middle lies in a voxel, a turned voxel holding no
+  cell's middle its middle's cell where nothing of its thing lies round
+  it, `movers::fill`, test
+  `a_post_of_turned_cubes_stops_a_lamp_whose_shadows_are_all`; walked afresh after the walls'
   kept answer, only within the boxes the lamp can light,
   `Movers::lists`, a beam's ray only those that can shade it,
   `shading`; `movers_from` and `RIM` against acne, `HOUSING`; tests
@@ -1646,7 +1649,14 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   way fixed in the level, the spot's core edges, halvings where a wall's
   shadow begins, walls asked voxel by voxel, the faces' walk and memory;
   no noise, so no flicker
-  scrolling or turning; a thin post's shadow seen edge on can be missed)
+  scrolling or turning; where a ray can pass the shadow of a thin thing,
+  a post or a rail under 4 voxels thin of the level's voxels or pieces,
+  `render::thin`, its points as far apart as it is thin, at most 16 more
+  a ray a lamp, so its shadow shows however thin along the ray, test
+  `a_thin_rail_darkens_the_beam_behind_it`; a picture none of whose
+  lamps lights one draws with a pipeline without that work, as before;
+  the lamps' memory's slots by a mixed key and a second key's step,
+  `stopped`, or its odd slots crowded and said it full at 42 in 100)
   into a
   target half or a quarter the size, then the composite's own pipeline
   (`fog_composite.wgsl`) lays it under the UI; a picture without fog is
@@ -1668,22 +1678,27 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `shader.rs` the shader text and its uniforms, `pipelines.rs` the
   renderer made, `chunks.rs` the chunk meshes, `passes.rs` a frame drawn,
   `limits.rs` the faces' memory's count, `lamps.rs` the lamps' pass,
-  `volume.rs` the level's solid voxels it walks, `fog.rs` the fog's
-  beams and its composite. `Renderer::render` is
+  `volume.rs` the level's solid voxels it walks, `thin.rs` the thin
+  things among them, `fog.rs` the fog's beams and its composite. `Renderer::render` is
   `write_globals`, `upload_cubes`, `upload_models`, `draw_models`,
   `shadow_pass`, `scene_pass` (or with lamps `lit_scene_pass`,
   `lamp_pass`, `see_through_pass`, with fog `beams_pass`), `ui_pass`,
   `post_passes`, `composite_pass`. A limit a frame goes past is said once, never silent:
   lights past `MOST_LIGHTS` (`Session::warnings`, counted in `look` too),
   the lamps' limits (a GPU without fragment storage writes, lamps
-  reaching past `volume::MOST_BYTES`, their memory full: `lamps.rs`),
+  reaching past `volume::MOST_BYTES`, their memory full past the GPU's
+  largest buffer: `lamps.rs`, sized for the faces and the fog's beams'
+  points, `faces_for`, made twice as large when found full,
+  `Renderer::too_small`, `shot` letting it grow before it times; test
+  `the_lamps_memory_grows_until_the_beams_fit`),
   the faces' memory full (the shader counts faces that found no room in
   the word after it, `render::limits`, read without waiting every 60
   pictures, at once by `shot`; `Renderer::warnings`), the model bank past
   the GPU's largest buffer (`baked::plan`: faces past it drawn as cubes,
   cubes past it not at all; test
   `what_the_gpu_cannot_hold_falls_back_and_is_said`); `shot` prints
-  "warning: ...", `inspect` lists them under "warnings", the IDE's PLAY
+  "warning: ...", `inspect` lists those `look` finds under "warnings" (it
+  draws no picture on the GPU, so not the GPU's), the IDE's PLAY
   puts them in OUTPUT (test `lights_past_the_limit_are_said_once`).
   Models are baked (`c.effects.bake_models`, on unless the game says;
   live, the bank made anew; only the picture, never in the fingerprint):

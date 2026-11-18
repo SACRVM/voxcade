@@ -173,6 +173,13 @@ pub(super) fn without_walls(src: &str) -> String {
     without(src, "WALLS")
 }
 
+/// The fog's beams' shader without its work for thin things (what lies
+/// between its THIN marks, `render::thin`): for a picture none of whose
+/// lamps light one.
+pub(super) fn without_thin(src: &str) -> String {
+    without(src, "THIN")
+}
+
 /// The shader without what lies between the lines `// MARK {` and `// }
 /// MARK`.
 fn without(src: &str, mark: &str) -> String {

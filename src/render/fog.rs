@@ -26,10 +26,13 @@
 
 use bytemuck::{Pod, Zeroable};
 
-use super::lamps::{LampFrame, TileInstance, instance_buffer, lamp_buffers, lights_texture, rect_of, tiles};
+use super::lamps::{LampFrame, TileInstance, instance_buffer, lamp_buffers, rect_of, tiles};
 use super::pipelines::{instance_buffers, texture, uniform_entry};
-use super::shader::{FOG_BEAMS, FOG_COMPOSITE, FOG_FAR, LightData, SHADER, plain_shader, without_walls};
-use super::{DEPTH_FORMAT, Fog, FrameData, HDR_FORMAT, MOST_LIGHTS, Renderer};
+use super::shader::{FOG_BEAMS, FOG_COMPOSITE, FOG_FAR, LightData, SHADER, plain_shader, without_thin, without_walls};
+use super::movers::lit;
+use super::thin::Thin;
+use super::{DEPTH_FORMAT, Fog, FrameData, HDR_FORMAT, Light, MOST_LIGHTS, Renderer};
+use glam::Vec3;
 
 /// The fog's numbers (`fog.wgsl`'s `Fog`).
 #[repr(C)]
@@ -57,9 +60,11 @@ pub(super) struct FogPass {
     /// The beams' own group (after the lamps' pass's): the numbers, the
     /// lights and the see-through cubes' depth.
     layout: wgpu::BindGroupLayout,
-    /// The beams' pipelines, without walls and with, without glass and with
-    /// (made when first asked).
-    beams: [[Option<wgpu::RenderPipeline>; 2]; 2],
+    /// The beams' pipelines, without walls and with, without glass and with,
+    /// without thin things' work and with (made when first asked).
+    beams: [[[Option<wgpu::RenderPipeline>; 2]; 2]; 2],
+    /// Whether this picture's beams look for thin things (`render::thin`).
+    thin: bool,
     /// The composite with fog: its third group (the numbers, the depth, the
     /// beams, the see-through cubes' depth) and its pipelines without glass
     /// and with.
@@ -132,7 +137,8 @@ impl FogPass {
         Self {
             globals,
             layout,
-            beams: [[None, None], [None, None]],
+            beams: Default::default(),
+            thin: false,
             composite_layout,
             composite,
             target: None,
@@ -207,8 +213,9 @@ fn glass(device: &wgpu::Device, main: &wgpu::BindGroupLayout) -> Glass {
 /// The beams' pipeline, with walls or without, with glass (two targets:
 /// before the see-through cubes and behind them) or without, its first
 /// group the lamps' pass's (`lamps`), its second the fog's own.
-fn beams_pipeline(device: &wgpu::Device, lamps: &wgpu::BindGroupLayout, own: &wgpu::BindGroupLayout, walls: bool, glass: bool) -> wgpu::RenderPipeline {
+fn beams_pipeline(device: &wgpu::Device, lamps: &wgpu::BindGroupLayout, own: &wgpu::BindGroupLayout, walls: bool, glass: bool, thin: bool) -> wgpu::RenderPipeline {
     let src = if walls { FOG_BEAMS.to_string() } else { without_walls(&FOG_BEAMS) };
+    let src = if thin { src } else { without_thin(&src) };
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("fog's beams"), source: wgpu::ShaderSource::Wgsl(src.into()) });
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("fog's beams"), bind_group_layouts: &[Some(lamps), Some(own)], immediate_size: 0 });
     // Each tile's light added; the alpha how far the eye sees there, the
@@ -232,6 +239,82 @@ fn beams_pipeline(device: &wgpu::Device, lamps: &wgpu::BindGroupLayout, own: &wg
     })
 }
 
+/// The most balls round thin things a light's row lists (`thin_balls`):
+/// past them the blocks are taken together in bigger ones.
+const MOST_THIN: usize = 16;
+
+/// The columns of a light's row in the fog's lights: the light as the
+/// lamps' pass takes it (`LightData`), how many balls round thin things,
+/// the balls (`fog_beams.wgsl`'s `FOG_THIN_AT`).
+const FOG_COLUMNS: u32 = 5 + MOST_THIN as u32;
+
+/// A light's row in the fog's lights.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct FogRow {
+    light: LightData,
+    count: [f32; 4],
+    balls: [[f32; 4]; MOST_THIN],
+}
+
+impl FogRow {
+    fn of(light: &LightData, balls: Vec<[f32; 4]>) -> Self {
+        let mut row = Self { light: *light, count: [balls.len() as f32, 0.0, 0.0, 0.0], balls: [[0.0; 4]; MOST_THIN] };
+        row.balls[..balls.len()].copy_from_slice(&balls);
+        row
+    }
+}
+
+/// The fog's lights' texture, room for `rows`.
+fn lights_texture(device: &wgpu::Device, rows: u32) -> (wgpu::Texture, wgpu::TextureView) {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("fog's lights"),
+        size: wgpu::Extent3d { width: FOG_COLUMNS, height: rows, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba32Float,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    (texture, view)
+}
+
+/// The spacing of a beam's points for the light `l` (`fog_beams.wgsl`'s
+/// `step`): 4 voxels, twice (four times ...) for a light wider than 48
+/// planes of them.
+fn beam_step(l: &Light) -> i32 {
+    let planes = (2.0 * l.radius / (4.0 * 48.0)).log2().ceil().max(0.0);
+    4 << (planes as i32).min(8)
+}
+
+/// A ball's spacing is kept in its radius's place, this many times the
+/// spacing's power of two added (`fog_beams.wgsl`'s `thin_span`).
+const SPACING_AT: f32 = 65536.0;
+
+/// The balls round the thin things (`render::thin`) the light `l` can
+/// light, thin by its beam's spacing: centre and radius, a block's and a
+/// voxel more (a point stands for its voxel's middle), with the spacing
+/// its points need there (`SPACING_AT`). Past `MOST_THIN` the blocks are
+/// taken together by twice their size, and again, until that many hold
+/// them, each the finest spacing of its blocks.
+fn thin_balls(thin: &Thin, l: &Light) -> Vec<[f32; 4]> {
+    let mut boxes: Vec<(Vec3, Vec3, i32)> = thin.near(l.pos - l.radius, l.pos + l.radius, beam_step(l)).into_iter().filter(|(lo, hi, _)| lit(l, *lo, *hi)).collect();
+    let mut size = super::thin::BLOCK as f32;
+    while boxes.len() > MOST_THIN {
+        size *= 2.0;
+        let mut joined: std::collections::BTreeMap<(i32, i32, i32), (Vec3, Vec3, i32)> = std::collections::BTreeMap::new();
+        for (lo, hi, s) in boxes {
+            let k = (lo / size).floor().as_ivec3();
+            let e = joined.entry((k.z, k.y, k.x)).or_insert((lo, hi, s));
+            *e = (e.0.min(lo), e.1.max(hi), e.2.min(s));
+        }
+        boxes = joined.into_values().collect();
+    }
+    boxes.iter().map(|(lo, hi, s)| ((*lo + *hi) * 0.5).extend((*hi - *lo).length() * 0.5 + 1.0 + SPACING_AT * s.ilog2() as f32).to_array()).collect()
+}
+
 impl Renderer {
     /// The fog's lights, tiles and numbers for this picture (its fog `fog`,
     /// drawn by the lamps' pass as `lf`; `glass`: with see-through cubes),
@@ -242,10 +325,7 @@ impl Renderer {
         let (_, _, w, h) = self.picture();
         let size = (w.div_ceil(scale), h.div_ceil(scale));
         let pass = self.fog.get_or_insert_with(|| FogPass::new(device, self.format, &self.post_layout, &self.blurred_layout));
-        let (walls, g) = (usize::from(lf.walls), usize::from(glass));
-        if pass.beams[walls][g].is_none() {
-            pass.beams[walls][g] = Some(beams_pipeline(device, self.lamps.layout(lf.walls), &pass.layout, lf.walls, glass));
-        }
+        let g = usize::from(glass);
         if pass.target.as_ref().is_none_or(|(s, k, _)| *s != size || *k != scale) {
             pass.target = Some((size, scale, texture(device, "fog's beams", size.0, size.1, HDR_FORMAT, true)));
             pass.composite_bind = [None, None];
@@ -261,8 +341,10 @@ impl Renderer {
                 pass.composite_bind[1] = None;
             }
         }
-        // The lights that show in fog, each as bright as it shows there.
-        let shown: Vec<(LightData, [f32; 4])> = frame
+        // The lights that show in fog, each as bright as it shows there,
+        // with the balls round the thin things it lights that walls stop it
+        // (`render::thin`).
+        let shown: Vec<(LightData, [f32; 4], &Light)> = frame
             .lights
             .iter()
             .take(MOST_LIGHTS)
@@ -273,10 +355,32 @@ impl Renderer {
                 for c in &mut data.color[..3] {
                     *c *= l.fog;
                 }
-                rect_of(&frame.view_proj, l).map(|rect| (data, rect))
+                rect_of(&frame.view_proj, l).map(|rect| (data, rect, l))
             })
             .collect();
-        let tiles: Vec<TileInstance> = tiles(size, &shown.iter().enumerate().map(|(row, (_, rect))| (row as u16, *rect)).collect::<Vec<_>>());
+        let thin = if lf.walls && shown.iter().any(|(d, _, _)| d.edge[1] > 0.5) { self.lamps.thin() } else { None };
+        let rows: Vec<FogRow> = shown.iter().map(|(d, _, l)| FogRow::of(d, thin.filter(|_| d.edge[1] > 0.5).map_or(Vec::new(), |t| thin_balls(t, l)))).collect();
+        let pass = self.fog.as_mut().expect("made above");
+        let mut tiles: Vec<TileInstance> = tiles(size, &shown.iter().enumerate().map(|(row, (_, rect, _))| (row as u16, *rect)).collect::<Vec<_>>());
+        // Each tile's lights with thin things (a bit each, `count.y`), and
+        // the beams' pipeline that looks for them only where some are: the
+        // work for them costs a ray that never meets one too (the Radeon
+        // 610M's beams of 16 lamps 8.8 against 10.4 ms).
+        let mut thin_here = false;
+        for t in &mut tiles {
+            for k in 0..t.count[0] as usize {
+                let row = (t.lights[k / 2] >> (16 * (k % 2))) & 0xffff;
+                if rows[row as usize].count[0] > 0.0 {
+                    t.count[1] |= 1 << k;
+                    thin_here = true;
+                }
+            }
+        }
+        let (walls, th) = (usize::from(lf.walls), usize::from(thin_here));
+        if pass.beams[walls][g][th].is_none() {
+            pass.beams[walls][g][th] = Some(beams_pipeline(device, self.lamps.layout(lf.walls), &pass.layout, lf.walls, glass, thin_here));
+        }
+        pass.thin = thin_here;
         if tiles.len() > pass.capacity {
             pass.capacity = tiles.len().next_power_of_two();
             pass.instances = instance_buffer(device, pass.capacity);
@@ -287,13 +391,12 @@ impl Renderer {
             pass.bind = [None, None];
         }
         if !tiles.is_empty() {
-            let rows: Vec<LightData> = shown.iter().map(|(d, _)| *d).collect();
             queue.write_buffer(&pass.instances, 0, bytemuck::cast_slice(&tiles));
             queue.write_texture(
                 wgpu::TexelCopyTextureInfo { texture: &pass.lights.0, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
                 bytemuck::cast_slice(&rows),
-                wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(size_of::<LightData>() as u32), rows_per_image: Some(rows.len() as u32) },
-                wgpu::Extent3d { width: 4, height: rows.len() as u32, depth_or_array_layers: 1 },
+                wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(size_of::<FogRow>() as u32), rows_per_image: Some(rows.len() as u32) },
+                wgpu::Extent3d { width: FOG_COLUMNS, height: rows.len() as u32, depth_or_array_layers: 1 },
             );
         }
         let inverse = frame.view_proj.inverse();
@@ -396,7 +499,7 @@ impl Renderer {
         });
         if count > 0 {
             let g = usize::from(glass);
-            pass.set_pipeline(pass_of.beams[usize::from(lf.walls)][g].as_ref().expect("made by write_fog"));
+            pass.set_pipeline(pass_of.beams[usize::from(lf.walls)][g][usize::from(pass_of.thin)].as_ref().expect("made by write_fog"));
             pass.set_bind_group(0, self.lamps.bind(), &[]);
             pass.set_bind_group(1, pass_of.bind[g].as_ref().expect("made by write_fog"), &[]);
             pass.set_vertex_buffer(0, pass_of.instances.slice(..));

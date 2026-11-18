@@ -1480,13 +1480,14 @@ impl LampScene {
     /// The same with the wall's voxels (z 1 up to `top`) at the cells
     /// `cells` gives for each y from 20 to 75.
     fn walled(cells: impl Fn(i32) -> Vec<(i32, i32)>, top: i32) -> Self {
+        Self::of((20..76).flat_map(|y| cells(y).into_iter().flat_map(|(x, y)| (1..top).map(move |z| IVec3::new(x, y, z)))))
+    }
+
+    /// The same with solid voxels at the cells `voxels` gives.
+    fn of(voxels: impl IntoIterator<Item = IVec3>) -> Self {
         let mut world = crate::sim::tests::flat_world(IVec3::new(96, 96, 24));
-        for y in 20..76 {
-            for (x, y) in cells(y) {
-                for z in 1..top {
-                    world.set_raw(IVec3::new(x, y, z), 1);
-                }
-            }
+        for c in voxels {
+            world.set_raw(c, 1);
         }
         let mut cfg = GameConfig::default();
         cfg.light.ambient = 0.05;
@@ -1629,6 +1630,78 @@ fn fog_shows_a_beam_the_wall_stops() {
     let (a, b) = (seen(&f, &dense, near), seen(&f, &glowing, near));
     assert!(b > a * 0.7, "glow 4 at a quarter of the density: the beam about as bright, {b} against {a}");
     assert!(seen(&f, &glowing, floor) > seen(&f, &dense, floor) + 4.0, "the floor less dimmed: {} against {}", seen(&f, &glowing, floor), seen(&f, &dense, floor));
+}
+
+/// On the GPU: a rail a voxel thin across a spot's beam darkens the beam
+/// behind it all along, seen from above: its shadow, a sheet the rays
+/// cross in about a voxel, thinner along each of them than the beams'
+/// planes are apart, showed only where it had grown thicker than them
+/// (points a voxel apart where a ray can pass a thin thing's shadow,
+/// `render::thin`), at FOG's HIGH and LOW.
+#[test]
+fn a_thin_rail_darkens_the_beam_behind_it() {
+    let spot = crate::render::Light::lamp(Vec3::new(20.5, 48.5, 10.5), 70.0, [2.0; 3], &crate::render::LightShape { cone: Some(40.0), rotation: 90.0, ..Default::default() }, |w| w).stated(crate::render::LampShadows::Static);
+    let seen = |f: &FrameData, pixels: &[u8], at: Vec3| {
+        let (w, h) = LampScene::SIZE;
+        let p = f.view_proj.project_point3(at);
+        let (px, py) = (((p.x + 1.0) * 0.5 * w as f32) as i32, ((1.0 - p.y) * 0.5 * h as f32) as i32);
+        let i = ((py * w as i32 + px) * 4) as usize;
+        pixels[i..i + 3].iter().map(|&c| c as f32).sum::<f32>()
+    };
+    // The level's voxels: a rail along y at x 30, z 10, its shadow a sheet
+    // the rays from above cross in about a voxel; and without it.
+    let mut posted = LampScene::of((40..57).map(|y| IVec3::new(30, y, 10)));
+    let mut bare = LampScene::of([]);
+    for scale in [2, 4] {
+        let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale };
+        let picture = |s: &mut LampScene| {
+            let (w, h) = LampScene::SIZE;
+            let mut f = s.game.frame(1.0, w as f32 / h as f32);
+            (f.lights, f.lamp_world, f.fog) = (vec![spot], Some(s.game.game.sim().world.clone()), Some(fog));
+            let pixels = s.canvas.draw(&f).unwrap();
+            (f, pixels)
+        };
+        let (f, with) = picture(&mut posted);
+        let (_, without) = picture(&mut bare);
+        // Along the post's shadow, at the beam's middle height: every
+        // voxel of it darker than the beam without the post.
+        for x in 34..70 {
+            let at = Vec3::new(x as f32 + 0.5, 48.5, 10.5);
+            let (shade, lit) = (seen(&f, &with, at), seen(&f, &without, at));
+            assert!(shade < lit * 0.95, "scale {scale}, x {x}: the rail's shadow shows, {shade} against {lit} without it");
+        }
+    }
+}
+
+/// On the GPU: the lamps' memory holds the fog's beams' points beside the
+/// faces (once sized for the faces alone, the points took it all); what
+/// the beams take comes by the voxels along them more than by the pixels,
+/// so a memory found full is made twice as large until it fits, nothing
+/// said, the picture the same.
+#[test]
+fn the_lamps_memory_grows_until_the_beams_fit() {
+    let mut s = LampScene::new();
+    let shape = crate::render::LightShape::default();
+    let lamps: Vec<_> = (0..16).map(|i| crate::render::Light::lamp(Vec3::new(10.5 + (i % 4) as f32 * 24.0, 10.5 + (i / 4) as f32 * 24.0, 12.0), 90.0, [0.5; 3], &shape, |w| w).stated(crate::render::LampShadows::Static)).collect();
+    let fog = crate::render::Fog { density: 0.02, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 4 };
+    let picture = |s: &mut LampScene| {
+        let (w, h) = LampScene::SIZE;
+        let mut f = s.game.frame(1.0, w as f32 / h as f32);
+        (f.lights, f.lamp_world, f.fog) = (lamps.clone(), Some(s.game.game.sim().world.clone()), Some(fog));
+        s.canvas.draw(&f).unwrap()
+    };
+    let first = picture(&mut s);
+    let mut grew = 0;
+    while s.canvas.grow_lamps().unwrap() {
+        grew += 1;
+        assert!(grew < 8, "it fits at last");
+        assert!(picture(&mut s) == first, "the picture the same whatever the memory holds");
+    }
+    assert!(grew > 0, "sixteen lamps' beams in fog take more than the beams' target's first part");
+    let said = s.canvas.warnings();
+    assert!(said.is_empty(), "grown, nothing said: {said:?}");
+    picture(&mut s);
+    assert!(!s.canvas.grow_lamps().unwrap(), "it fits");
 }
 
 /// On the GPU: a higher `fog_glow` never makes a beam fainter, near its
@@ -1824,6 +1897,36 @@ fn a_moving_thing_stops_a_lamp_whose_shadows_are_all() {
     };
     assert!(seen(&fog_static) > seen(&fog_dark) + 20.0, "\"static\": the beam shows behind the post, {} against {}", seen(&fog_static), seen(&fog_dark));
     assert!(seen(&fog_all) < seen(&fog_static) - 15.0, "\"all\": the post cuts the beam, {} against {}", seen(&fog_all), seen(&fog_static));
+}
+
+/// On the GPU: a post of single cubes each turned an eighth round, so that
+/// none holds a cell's middle, still stops a lamp whose shadows are "all":
+/// the floor behind it darker than without it.
+#[test]
+fn a_post_of_turned_cubes_stops_a_lamp_whose_shadows_are_all() {
+    use crate::render::{LampShadows, Light, LightShape};
+    let mut s = LampScene::new();
+    let lamp = Light::lamp(Vec3::new(28.5, 48.5, 6.0), 40.0, [2.0; 3], &LightShape { cone: Some(60.0), rotation: 90.0, pitch: -10.0, ..Default::default() }, |w| w).stated(LampShadows::All);
+    let turn = crate::render::snorm_turn(glam::Quat::from_rotation_z(std::f32::consts::FRAC_PI_4));
+    let post: Vec<crate::render::Instance> = (1..12).map(|z| {
+        let mut fx = [0u8; 4];
+        fx[crate::render::FX_OPACITY] = 255;
+        crate::render::Instance { pos_size: [40.0, 49.0, z as f32 + 0.5, 1.0], color: [90, 90, 90, 255], fx, shade: [0; 4], turn }
+    }).collect();
+    let mut picture = |with_post: bool| {
+        let (w, h) = LampScene::SIZE;
+        let mut f = s.game.frame(1.0, w as f32 / h as f32);
+        (f.lights, f.lamp_world) = (vec![lamp], Some(s.game.game.sim().world.clone()));
+        if with_post {
+            f.instances.extend(post.iter().copied());
+        }
+        let pixels = s.canvas.draw(&f).unwrap();
+        (f, pixels)
+    };
+    let (f, open) = picture(false);
+    let (_, shaded) = picture(true);
+    let (lit, dark) = (LampScene::floor_at(&f, &open, 44.5, 49.0), LampScene::floor_at(&f, &shaded, 44.5, 49.0));
+    assert!(dark < lit - 20.0, "the floor behind the post shaded, {dark} against {lit}");
 }
 
 /// On the GPU: no wall a voxel thin lets a beam through, straight across
