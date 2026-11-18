@@ -47,7 +47,7 @@
 ---@field density? number How thick, 0 to 1: the share of light a voxel of air takes (0: no fog).
 ---@field color? Color The fog's own color where no lamp lights it.
 ---@field anisotropy? number How much it sends a lamp's light on ahead rather than back, -0.9 to 0.9 (0: every way alike).
----@field glow? number How brightly the lamps' light shows in it against how much it dims, 0 to 20 (1: as the air would; 4 a stage's haze).
+---@field glow? number How brightly it shows the lamps' light, 0 to 20; the dimming is the density's alone (1: as the air would; 4 a stage's haze).
 
 ---@class PictureCamera What a picture's camera sets (frame:camera); what it leaves out is c.camera's.
 ---@field look_at? Point|Thing|number[] The point the view centers on, { x, y, z } in voxels (z left out: the camera's height), or a thing; left out, the view follows what the camera follows.
@@ -562,7 +562,7 @@ function Frame:daylight(light) end
 ---- density: how thick, 0 to 1 (0.005 a light haze in a big hall, 0.03 thick; 0 none).
 ---- color: the fog's own color where no lamp lights it (dark at night).
 ---- anisotropy: above 0 a beam is brighter looking towards its lamp, below 0 looking away (0: alike).
----- glow: how brightly the lamps' light shows in it against how much it dims, 0 to 20 (1 as the air would; 4 a stage's haze: bright beams, the room clear; 0 it only dims). A lamp's glow never gets brighter than its own light.
+---- glow: how brightly it shows the lamps' light, 0 to 20; the dimming is the density's alone (1 as the air would; 4 a stage's haze: bright beams, the room clear; 0 it only dims). Higher is never fainter, and a beam never gets brighter than its lamp's light (times the light's fog).
 ---Walls stop a lamp's beam where they stop its light (shadows); a light's fog says how strongly it shows. The fog fills the level's box, not the air between the camera and the level. Only the picture: the game's rules do not see it.
 ---@param fog Fog
 function Frame:fog(fog) end
@@ -920,7 +920,7 @@ function on_pickup(thing, item) end
 ---@field fog_density number Fog in the level's air, how thick: 0 none, else a voxel of air takes this share of the light passing through (0.01: a third is left after 100 voxels). The lamps' light shows in it, a spot as a beam, and what lies further fades to the fog's color. A game's frame:fog sets it for one picture. (from 0 to 1)
 ---@field fog_color number[] The fog's own color where no lamp lights it, 0..1 per channel. (each from 0 to 1)
 ---@field fog_anisotropy number How much the fog sends a lamp's light on ahead rather than back, -0.9 to 0.9: above 0 a beam is brighter looking towards its lamp (0: every way alike). (from -0.9 to 0.9)
----@field fog_glow number How brightly the lamps' light shows in the fog against how much the fog dims, 0..20: 1 as the air would (thicker fog, brighter beams), 4 a stage's haze (bright beams while the room stays clear), 0 a fog that only dims. However high, a lamp's glow in the fog never gets brighter than its own light. (from 0 to 20)
+---@field fog_glow number How brightly the fog shows the lamps' light, 0..20; the dimming is the density's alone: 1 as the air would (thicker fog, brighter beams), 4 a stage's haze (bright beams while the room stays clear), 0 a fog that only dims. Higher is never fainter, and however high, a lamp's glow in the fog never gets brighter than its own light (times the light's fog). (from 0 to 20)
 
 ---@class Conf.debris
 ---@field settle number Chance that a landed debris voxel becomes part of the world again. (from 0 to 1)

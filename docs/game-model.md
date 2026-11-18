@@ -318,9 +318,10 @@ held, as dialogue and shops always were; light is the picture's, so
   `on_draw`: this picture's fog, what it leaves out `c.light`'s
   (`fog_density`, 0 none unless set; `fog_color`; `fog_anisotropy`,
   -0.9 to 0.9, above 0 a beam brighter looking towards its lamp;
-  `fog_glow`, 0 to 20, 1 unless set: how brightly the lamps' light shows
-  in it against how much it dims, 4 a stage's haze, 0 a fog that only
-  dims; a lamp's glow never passes its own light). The
+  `fog_glow`, 0 to 20, 1 unless set: how brightly the fog shows the
+  lamps' light, the dimming its density's alone; 4 a stage's haze, 0 a
+  fog that only dims; higher never fainter, and a beam never brighter
+  than its lamp's light times its `fog`). The
   level's box holds it (not the air between the camera and the level):
   the lamps' light shows in it, a spot as a beam a wall stops where it
   stops the lamp, and what lies further fades to its colour. A light's

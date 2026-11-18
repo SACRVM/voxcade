@@ -906,12 +906,16 @@ classic smooth way, the owner's choice over beams in voxel cells;
   walls: along each pixel's ray, the stretch within a light's ball and a
   spot's cone, the light each point gets times what the fog sends on to
   the eye (Henyey-Greenstein, `fog_anisotropy`), less what the fog took
-  on the way. The beams are lit by, and take their own light by, the
-  density times `fog_glow` (1 as the air would), what lies behind dims by
-  the density alone: a stage's haze (`fog_glow = 4`, a quarter of the
-  density) has bright beams in a clear room, and a lamp's glow never
-  gets brighter than its light (the fog's own share of it takes as much
-  as it sends on). No noise: the points are where the ray crosses planes
+  on the way. The fog takes its share by the density alone, the beams'
+  own light too; `fog_glow` scales what the fog sends on to the eye (1 as
+  the air would): above 1 a beam shows brighter, up to the brightest light
+  the lamp gives along the ray (times its `fog`), never brighter, so a
+  higher glow never makes any part of a beam fainter; a stage's haze
+  (`fog_glow = 4`, a quarter of the density) has bright beams in a clear
+  room. Until 2026-11-18 the beams also took their own light by the
+  density times the glow: seen through much air (the length of a hall)
+  a glow above 2 made every beam fainter, at 16 gone (games/lights' fog
+  stage, measured; test `a_higher_glow_never_makes_a_beam_fainter`). No noise: the points are where the ray crosses planes
   across the camera's way every 4 voxels (8, 16 for a light wider than
   48 of them), fixed in the level, so a scrolling view and a turning spot
   take the same points; the spot's hard core's edges are points too; the

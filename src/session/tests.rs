@@ -1631,6 +1631,45 @@ fn fog_shows_a_beam_the_wall_stops() {
     assert!(seen(&f, &glowing, floor) > seen(&f, &dense, floor) + 4.0, "the floor less dimmed: {} against {}", seen(&f, &glowing, floor), seen(&f, &dense, floor));
 }
 
+/// On the GPU: a higher `fog_glow` never makes a beam fainter, near its
+/// lamp nor at its far end (the beams once took their own light by the
+/// density times the glow: seen through some air a glow of 4 made them
+/// fainter than 1), and a glow past what the lamp gives stays its lamp's
+/// light.
+#[test]
+fn a_higher_glow_never_makes_a_beam_fainter() {
+    let mut s = LampScene::new();
+    let shape = crate::render::LightShape { cone: Some(30.0), rotation: 90.0, ..Default::default() };
+    let spot = crate::render::Light::lamp(Vec3::new(4.5, 48.5, 10.0), 50.0, [2.0; 3], &shape, |w| w).stated(crate::render::LampShadows::Static);
+    let mut picture = |glow: f32| {
+        let (w, h) = LampScene::SIZE;
+        let mut f = s.game.frame(1.0, w as f32 / h as f32);
+        let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 2 };
+        (f.lights, f.lamp_world, f.fog) = (vec![spot], Some(s.game.game.sim().world.clone()), Some(fog));
+        let pixels = s.canvas.draw(&f).unwrap();
+        (f, pixels)
+    };
+    let seen = |f: &FrameData, pixels: &[u8], at: Vec3| {
+        let (w, h) = LampScene::SIZE;
+        let p = f.view_proj.project_point3(at);
+        let (px, py) = (((p.x + 1.0) * 0.5 * w as f32) as i32, ((1.0 - p.y) * 0.5 * h as f32) as i32);
+        (-1..=1).flat_map(|dy| (-1..=1).map(move |dx| (dx, dy))).map(|(dx, dy)| {
+            let i = (((py + dy) * w as i32 + px + dx) * 4) as usize;
+            pixels[i..i + 3].iter().map(|&c| c as f32).sum::<f32>()
+        }).sum::<f32>() / 9.0
+    };
+    let (f, one) = picture(1.0);
+    let (_, four) = picture(4.0);
+    let (_, most) = picture(20.0);
+    // Along the beam (it ends at the wall at x 48): near, middle, far.
+    for x in [14.5, 28.5, 42.5] {
+        let at = Vec3::new(x, 48.5, 10.0);
+        let (a, b, c) = (seen(&f, &one, at), seen(&f, &four, at), seen(&f, &most, at));
+        assert!(b >= a + 2.0, "x {x}: glow 4 brighter than glow 1, {b} against {a}");
+        assert!(c >= b, "x {x}: glow 20 no fainter than glow 4, {c} against {b}");
+    }
+}
+
 /// On the GPU: a beam behind glass is seen through it, tinted and dimmed
 /// as the glass dims what lies behind it, never drawn over it untinted;
 /// beside the glass the picture is the one without it, byte for byte.

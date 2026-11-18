@@ -11,10 +11,10 @@ struct Fog {
     // rgb: the fog's own colour, where no lamp lights it; w: how much it
     // sends the light on ahead (Henyey-Greenstein's g, -0.9 to 0.9)
     color: vec4<f32>,
-    // xyz: the air's low corner (the level's), w: the density the beams
-    // are lit by (what the fog sends on of a lamp's light per voxel)
+    // xyz: the air's low corner (the level's), w: unused
     lo: vec4<f32>,
-    // xyz: the air's high corner, w: unused
+    // xyz: the air's high corner, w: the glow (how brightly the fog sends
+    // a lamp's light on towards the eye, as against the density alone)
     hi: vec4<f32>,
     // xyz: the way the camera looks, w: unused
     forward: vec4<f32>,
