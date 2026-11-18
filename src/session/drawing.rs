@@ -48,6 +48,11 @@ pub struct Drawing<'a> {
     pub(super) piece: bool,
     pub(super) gather: bool,
     pub(super) pieces: Vec<ModelDraw>,
+    /// Whether what moves is gathered (`movers`), every model drawn in view
+    /// or not but the level's pieces, with its box: what stops the lamps
+    /// whose shadows are "all" (`FrameData::lamp_movers`).
+    pub(super) gather_movers: bool,
+    pub(super) movers: Vec<((Vec3, Vec3), Vec<ModelDraw>)>,
 }
 
 impl<'a> Drawing<'a> {
@@ -211,6 +216,15 @@ impl<'a> Drawing<'a> {
             let (middle, reach) = (origin + Vec3::new(0.5, 0.5, m.size.z as f32 * 0.5), m.size.as_vec3().length() * 0.5 + 1.0);
             (middle - reach, middle + reach)
         };
+        // What moves stops the lamps whose shadows are "all" wherever it is,
+        // in view or not: its shadow may fall into the picture.
+        if self.gather_movers && !self.piece && !self.shadow_only && self.fade >= 1.0 {
+            let mut draws = Vec::new();
+            draw(&mut |_, _, _, _, _, _, _| {}, Some(&mut draws), m, frame, origin, look, turn, pose, tint);
+            if !draws.is_empty() {
+                self.movers.push(((lo, hi), draws));
+            }
+        }
         if !self.shadow_only && self.cull && !crate::render::on_screen(&self.view_proj, lo, hi) && !crate::render::on_screen(&self.light_vp, lo, hi) {
             return;
         }

@@ -48,6 +48,12 @@ pub struct FrameData {
     /// views, a game without lamps).
     pub lamp_world: Option<crate::world::World>,
     pub lamp_pieces: Vec<ModelDraw>,
+    /// What moves and stops the lamps whose shadows are "all"
+    /// (`render::movers`): the models drawn that are not the level's pieces,
+    /// in view or not, within such a lamp's reach, each thing's draws
+    /// together (the opaque cubes are taken from `instances`). Empty unless
+    /// such a lamp is in the picture.
+    pub lamp_movers: Vec<Vec<ModelDraw>>,
     /// The air's fog, if the picture has any (`Fog`): drawn by the lamps'
     /// pass's picture (`render::fog`). None: as every picture before.
     pub fog: Option<super::Fog>,

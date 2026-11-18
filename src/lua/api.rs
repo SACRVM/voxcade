@@ -74,7 +74,7 @@ const TYPES: &str = "\
 ---@field blend? number How much of the cone's edge is soft, 0 to 1 (0.15 unless set).
 ---@field rotation? number The spot's way round, degrees clockwise seen from above, north (+y) 0.
 ---@field pitch? number The spot's way up (above 0) or down, -90 to 90 degrees.
----@field shadows? string What stops it: \"static\" (the level's voxels and its pieces) or \"none\" (it shines through). Left out, c.light.lamp_shadows says (\"static\" unless set); a light's own word beats it.
+---@field shadows? string What stops it: \"static\" (the level's voxels and its pieces), \"all\" (moving things too: figures, things, models drawn) or \"none\" (it shines through). Left out, c.light.lamp_shadows says (\"static\" unless set); a light's own word beats it.
 ---@field fog? number How strongly its light shows in fog, 0 to 10 (1 unless set; 0 not at all).
 
 ---@class Fog A picture's fog (frame:fog); what it leaves out is c.light's (fog_density, fog_color, fog_anisotropy, fog_glow).
@@ -595,9 +595,10 @@ pub const API: &[Item] = &[
         doc: "Lights the level round a thing or a point, in this picture: frame:light(at, radius, color), or frame:light{ at =, radius =, ... } \
             with the words a level's light takes too.\n- falloff: how it fades to its radius, (1 - distance / radius) to this power, 2 unless \
             set.\n- cone: a spot, its whole opening angle in degrees; blend how much of its edge is soft (0.15). rotation and pitch its way: \
-            degrees clockwise seen from above (north 0), and up or down.\n- shadows: what stops it, \"static\" or \"none\" (it shines through walls); left out, c.light.lamp_shadows says (\"static\" unless set). A wall is the level's \
-            voxels and its pieces; figures and moving things stop no light, nor a piece that brings a light of its own (a lantern round its \
-            flame).\n- fog: how strongly it shows in fog (frame:fog), 0 to 10, 1 unless set.\nOnly the picture: the game's rules do not see it." },
+            degrees clockwise seen from above (north 0), and up or down.\n- shadows: what stops it, \"static\", \"all\" or \"none\" (it shines through walls); left out, c.light.lamp_shadows says (\"static\" \
+            unless set). A wall is the level's voxels and its pieces, not a piece that brings a light of its own (a lantern round its \
+            flame); with \"all\" the figures, things, models and cubes drawn stop it too, so they cast its shadow (it costs more: for a \
+            few chosen lamps).\n- fog: how strongly it shows in fog (frame:fog), 0 to 10, 1 unless set.\nOnly the picture: the game's rules do not see it." },
     Item { of: "frame", name: "daylight", what: Method { params: &[("light", "Daylight")], returns: "" },
         doc: "Sets the sun and the sky for this picture: a day and a night. What you leave out is c.light's.\n- sun: the way its light \
             travels, { x, y, z } with z below 0.\n- sun_color: its color and strength, white unless set.\n- ambient: the light every face \

@@ -73,6 +73,8 @@ impl<G: Game> Session<G> {
             piece: false,
             gather: false,
             pieces: Vec::new(),
+            gather_movers: false,
+            movers: Vec::new(),
         }
     }
 
@@ -225,6 +227,7 @@ impl<G: Game> Session<G> {
         // model drawn the first time was loaded meanwhile, drawn as cubes:
         // it goes in the bank and the picture is made again from there.
         out.gather = self.lamps_drawn.get();
+        out.gather_movers = self.movers_drawn.get();
         self.game.draw(&mut out);
         if self.bank_fresh() {
             drop(out);
@@ -238,8 +241,16 @@ impl<G: Game> Session<G> {
             drop(out);
             return self.compose(alpha, aspect, scene, ui);
         }
+        // The first picture with a lamp what moves stops ("all"): made
+        // again, gathering what moves (from then on every picture).
+        let all = |l: &Light| l.shadows.unwrap_or(self.cfg.light.lamp_shadows) == crate::render::LampShadows::All;
+        if stopped && !out.gather_movers && out.lights.iter().any(all) {
+            self.movers_drawn.set(true);
+            drop(out);
+            return self.compose(alpha, aspect, scene, ui);
+        }
         draw_particles(&mut out, &sim.particles, alpha);
-        let Drawing { mut voxels, draws: models, lights: game_lights, daylight, fog, camera: picture, cull, bounds, cast_top, pieces: lamp_pieces, .. } = out;
+        let Drawing { mut voxels, draws: models, lights: game_lights, daylight, fog, camera: picture, cull, bounds, cast_top, pieces: lamp_pieces, movers, .. } = out;
         // Models only casting a shadow above the world (a ceiling over a
         // room standing higher): the shadows' box reaches up to them.
         let high = cast_top > world_size.z;
@@ -278,6 +289,12 @@ impl<G: Game> Session<G> {
         let see_through = voxels.see_through.len();
         let instances = voxels.finish();
         let lights = self.lights_of(game_lights, target);
+        // What moves stops the lamps whose shadows are "all": the models
+        // drawn that are not the level's pieces, in view or not, within
+        // such a lamp's reach.
+        let reaches: Vec<(Vec3, Vec3)> = lights.iter().filter(|l| stopped && l.stopped_by_movers()).map(|l| (l.pos - l.radius, l.pos + l.radius)).collect();
+        let lamp_movers: Vec<Vec<ModelDraw>> =
+            movers.into_iter().filter(|((lo, hi), _)| reaches.iter().any(|(a, b)| lo.cmple(*b).all() && hi.cmpge(*a).all())).map(|(_, d)| d).collect();
         let (ui, ui_models, ui_view_proj) = self.ui_of(ui, alpha, aspect);
 
         let fx = &self.cfg.effects;
@@ -312,6 +329,7 @@ impl<G: Game> Session<G> {
             fog: self.fog_of(fog, world_size),
             lamp_world: stopped.then(|| sim.world.clone()),
             lamp_pieces: if stopped { lamp_pieces } else { Vec::new() },
+            lamp_movers,
             lights,
             glow: fx.glow.max(0.0),
             shadow_map: self.options.shadow_map,

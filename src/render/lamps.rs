@@ -62,6 +62,10 @@ pub(super) struct LampGlobals {
     pub(super) dims: [i32; 4],
     pub(super) origin: [i32; 4],
     pub(super) info: [u32; 4],
+    /// The moving things' volume (`movers`): its texels each way and copies
+    /// (0: none), its low corner.
+    pub(super) movers_dims: [i32; 4],
+    pub(super) movers_origin: [i32; 4],
 }
 
 /// The screen's tiles each way, pixels: each drawn with the lights that
@@ -165,6 +169,19 @@ pub(super) struct Lamps {
     bound_walls: bool,
     /// How long the volume took to make last, ms (`shot` says it).
     pub(super) made_ms: f64,
+    /// The moving things' volume on the GPU, for lamps whose shadows are
+    /// "all" (`movers`), and a texture standing for it when there is none.
+    movers: Option<HeldMovers>,
+    no_movers: wgpu::TextureView,
+    /// The boxes round the moving things (`Movers::boxes`, room for
+    /// `MOST_BOXES`).
+    movers_boxes: wgpu::Buffer,
+    /// The lamps' lists of boxes (`Movers::lists`, room for `MOST_LISTED`)
+    /// and the picture's lights' words for them (by their place in the
+    /// frame's lights; the fog's beams take them too).
+    movers_lists: wgpu::Buffer,
+    pub(super) movers_words: Vec<Option<f32>>,
+    told_movers: bool,
     /// The lamps walls stopped last picture, by their place's key: one not
     /// among them is new to the faces' memory, asked for first (`ASK`).
     known: std::collections::BTreeSet<[u32; 2]>,
@@ -208,6 +225,34 @@ pub(super) struct LampTargets {
     pub(super) surface: wgpu::TextureView,
 }
 
+/// The moving things' volume on the GPU: what it holds (`Movers::key`),
+/// where, and its texture.
+struct HeldMovers {
+    reach: Reach,
+    key: u64,
+    texture: wgpu::Texture,
+    view: wgpu::TextureView,
+    /// Whether it holds anything this picture (else the shader is told none).
+    shown: bool,
+}
+
+/// A 3D texture of `texels` (R8Uint) with `levels` copies, for the moving
+/// things' volume.
+fn movers_texture(device: &wgpu::Device, texels: glam::IVec3, levels: u32) -> (wgpu::Texture, wgpu::TextureView) {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("the moving things' voxels"),
+        size: wgpu::Extent3d { width: texels.x as u32, height: texels.y as u32, depth_or_array_layers: texels.z as u32 },
+        mip_level_count: levels,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D3,
+        format: wgpu::TextureFormat::R8Uint,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    (texture, view)
+}
+
 struct Held {
     volume: Volume,
     view: wgpu::TextureView,
@@ -242,6 +287,22 @@ impl Lamps {
             bind: None,
             bound_walls: false,
             made_ms: 0.0,
+            movers: None,
+            no_movers: movers_texture(device, glam::IVec3::ONE, 1).1,
+            movers_boxes: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("the moving things' boxes"),
+                size: (super::movers::MOST_BOXES * 32) as u64,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            movers_lists: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("the lamps' lists of boxes"),
+                size: (super::movers::MOST_LISTED * 4) as u64,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            movers_words: Vec::new(),
+            told_movers: false,
             known: std::collections::BTreeSet::new(),
             ask_instances: instance_buffer(device, 16),
             ask_capacity: 16,
@@ -323,6 +384,10 @@ fn pass_layout(device: &wgpu::Device, walls: bool) -> wgpu::BindGroupLayout {
     if walls {
         entries.push(tex(4, wgpu::TextureSampleType::Uint, wgpu::TextureViewDimension::D3));
         entries.push(wgpu::BindGroupLayoutEntry { binding: 5, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None }, count: None });
+        entries.push(tex(6, wgpu::TextureSampleType::Uint, wgpu::TextureViewDimension::D3));
+        for binding in [7, 8] {
+            entries.push(wgpu::BindGroupLayoutEntry { binding, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None }, count: None });
+        }
     }
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some(if walls { "lamps, walls" } else { "lamps" }), entries: &entries })
 }
@@ -524,10 +589,50 @@ impl Renderer {
     /// The lights of the lamps' pass, its tiles and its numbers for this
     /// picture; how many tiles it draws.
     pub(super) fn write_lamps(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, frame: &FrameData, lf: LampFrame) -> u32 {
-        let shown: Vec<(&Light, [f32; 4])> = frame.lights.iter().take(MOST_LIGHTS).filter_map(|l| rect_of(&frame.view_proj, l).map(|rect| (l, rect))).collect();
-        let rows: Vec<LightData> = shown.iter().map(|(l, _)| LightData::of(l, lf.walls)).collect();
+        let shown: Vec<(usize, &Light, [f32; 4])> = frame.lights.iter().take(MOST_LIGHTS).enumerate().filter_map(|(i, l)| rect_of(&frame.view_proj, l).map(|rect| (i, l, rect))).collect();
+        // The moving things, for the lamps whose shadows are "all": made
+        // anew every picture, sent when they changed; each such lamp's
+        // boxes listed (`Movers::lists`), its word in its row.
+        let moving = lf.walls && shown.iter().any(|(_, l, _)| l.stopped_by_movers());
+        let built = if moving { super::movers::Movers::of(&frame.bank, &frame.lamp_movers, opaque_cubes(frame), device.limits().max_texture_dimension_3d) } else { None };
+        let lamps = &mut self.lamps;
+        if let Some(held) = &mut lamps.movers {
+            held.shown = false;
+        }
+        lamps.movers_words.clear();
+        match built {
+            Some(Ok(m)) => {
+                if lamps.movers.as_ref().is_none_or(|h| h.reach != m.reach) {
+                    let (texture, view) = movers_texture(device, m.reach.texels, LEVELS);
+                    lamps.movers = Some(HeldMovers { reach: m.reach, key: !m.key, texture, view, shown: false });
+                    lamps.bind = None;
+                }
+                let held = lamps.movers.as_mut().expect("made above");
+                if held.key != m.key {
+                    for k in 0..LEVELS {
+                        write(queue, &held.texture, k, IVec3::ZERO, m.reach.texels >> k as i32, &m.copies[k as usize]);
+                    }
+                    if !m.boxes.is_empty() {
+                        queue.write_buffer(&lamps.movers_boxes, 0, bytemuck::cast_slice(&m.boxes));
+                    }
+                    held.key = m.key;
+                }
+                held.shown = true;
+                let (list, words) = m.lists(&frame.lights[..frame.lights.len().min(MOST_LIGHTS)]);
+                if !list.is_empty() {
+                    queue.write_buffer(&lamps.movers_lists, 0, bytemuck::cast_slice(&list));
+                }
+                lamps.movers_words = words;
+            }
+            Some(Err(why)) if !lamps.told_movers => {
+                lamps.told_movers = true;
+                self.said.push(format!("lamps: {why}"));
+            }
+            _ => {}
+        }
+        let rows: Vec<LightData> = shown.iter().map(|(i, l, _)| lamps.data_of(*i, l, lf.walls)).collect();
         let (_, _, w, h) = self.picture();
-        let tiles = tiles((w, h), &shown.iter().enumerate().map(|(row, (_, rect))| (row as u16, *rect)).collect::<Vec<_>>());
+        let tiles = tiles((w, h), &shown.iter().enumerate().map(|(row, (_, _, rect))| (row as u16, *rect)).collect::<Vec<_>>());
         let lamps = &mut self.lamps;
         if tiles.len() > lamps.capacity {
             lamps.capacity = tiles.len().next_power_of_two();
@@ -547,6 +652,10 @@ impl Renderer {
                 wgpu::Extent3d { width: 4, height: rows.len() as u32, depth_or_array_layers: 1 },
             );
         }
+        let (movers_dims, movers_origin) = match lamps.movers.as_ref().filter(|h| h.shown) {
+            Some(h) => ([h.reach.texels.x, h.reach.texels.y, h.reach.texels.z, LEVELS as i32], [h.reach.origin.x, h.reach.origin.y, h.reach.origin.z, 0]),
+            None => ([0; 4], [0; 4]),
+        };
         let (dims, origin) = lamps.volume.as_ref().map_or(([0; 4], [0; 4]), |h| {
             let r = h.volume.reach;
             ([r.texels.x, r.texels.y, r.texels.z, LEVELS as i32], [r.origin.x, r.origin.y, r.origin.z, 0])
@@ -555,7 +664,7 @@ impl Renderer {
         // first, at a pixel every ASK.
         let mut known = std::collections::BTreeSet::new();
         let mut fresh = Vec::new();
-        for (row, ((_, rect), data)) in shown.iter().zip(&rows).enumerate() {
+        for (row, ((_, _, rect), data)) in shown.iter().zip(&rows).enumerate() {
             if lf.walls && data.edge[1] > 0.5 {
                 let key = [data.edge[2] as u32, data.edge[3] as u32];
                 if !lamps.known.contains(&key) {
@@ -579,7 +688,7 @@ impl Renderer {
                 lamps.ask_target = Some((size, texture(device, "lamps' asking", size.0, size.1, ASK_FORMAT, false)));
             }
         }
-        let globals = LampGlobals { inv_view_proj: frame.view_proj.inverse().to_cols_array_2d(), dims, origin, info: [lamps.state, self.pictures, 0, 0] };
+        let globals = LampGlobals { inv_view_proj: frame.view_proj.inverse().to_cols_array_2d(), dims, origin, info: [lamps.state, self.pictures, 0, 0], movers_dims, movers_origin };
         queue.write_buffer(&lamps.globals, 0, bytemuck::bytes_of(&globals));
         if lamps.bind.is_none() || lf.walls != lamps.bound_walls {
             let bind = lamps.make_bind(device, lf.walls);
@@ -668,6 +777,17 @@ pub fn lamps_full(faces: u64, count: u32) -> String {
 impl Lamps {
     /// What the pass reads, with walls (the volume and the faces' memory)
     /// or without.
+    /// The `i`th of the frame's lights as the shaders take it, walls
+    /// stopping it where `walls` and it says so; a lamp whose shadows are
+    /// "all" with its word for the moving things' boxes (`movers_words`).
+    pub(super) fn data_of(&self, i: usize, l: &Light, walls: bool) -> LightData {
+        let mut data = LightData::of(l, walls);
+        if data.edge[1] > 1.5 {
+            data.edge[1] = self.movers_words.get(i).copied().flatten().unwrap_or(2.0);
+        }
+        data
+    }
+
     fn make_bind(&mut self, device: &wgpu::Device, walls: bool) -> wgpu::BindGroup {
         self.bound_walls = walls;
         let t = self.targets.as_ref().expect("made by lamps_of");
@@ -681,12 +801,25 @@ impl Lamps {
             (Walls::Ready { pass, .. }, true, Some(held), Some((_, seen))) => {
                 entries.push(wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(&held.view) });
                 entries.push(wgpu::BindGroupEntry { binding: 5, resource: seen.as_entire_binding() });
+                let movers = self.movers.as_ref().map_or(&self.no_movers, |m| &m.view);
+                entries.push(wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::TextureView(movers) });
+                entries.push(wgpu::BindGroupEntry { binding: 7, resource: self.movers_boxes.as_entire_binding() });
+                entries.push(wgpu::BindGroupEntry { binding: 8, resource: self.movers_lists.as_entire_binding() });
                 &pass.layout
             }
             _ => &self.plain.as_ref().expect("made by lamps_of").layout,
         };
         device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("lamps"), layout, entries: &entries })
     }
+}
+
+/// The picture's opaque cubes drawn in the scene (`FrameData::cube_runs`;
+/// not those only casting): moving things, for lamps whose shadows are
+/// "all".
+fn opaque_cubes(frame: &FrameData) -> &[super::Instance] {
+    let (behind, opaque) = frame.cube_runs();
+    let drawn = opaque - (frame.cast_only as u32).min(opaque - behind);
+    &frame.instances[behind as usize..drawn as usize]
 }
 
 /// The volume's next state number (never 0: an entry of the faces' memory

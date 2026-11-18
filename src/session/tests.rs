@@ -54,6 +54,7 @@ fn game_on(world: World, cfg: GameConfig) -> Session<Shooter> {
         problem: None,
         drawn_sun: Default::default(),
         lamps_drawn: Default::default(),
+        movers_drawn: Default::default(),
         seen_faces: Default::default(),
         hud_kept: Default::default(),
         limits: Default::default(),
@@ -1733,6 +1734,57 @@ fn a_lamp_does_not_leak_through_a_diagonal_wall() {
         }
     }
     assert!(leaks.is_empty(), "floor lit behind the diagonal wall at {leaks:?}");
+}
+
+/// On the GPU: a lamp whose shadows are "all" is stopped by what moves too
+/// (a post of cubes between it and the floor: the floor behind it dark, its
+/// beam in fog cut there), one whose shadows are "static" shines past it;
+/// with nothing moving the two draw the same picture.
+#[test]
+fn a_moving_thing_stops_a_lamp_whose_shadows_are_all() {
+    use crate::render::{LampShadows, Light, LightShape};
+    let mut s = LampScene::new();
+    let shape = LightShape { cone: Some(60.0), rotation: 90.0, pitch: -10.0, ..Default::default() };
+    let lamp = |how| Light::lamp(Vec3::new(28.5, 48.5, 6.0), 40.0, [2.0; 3], &shape, |w| w).stated(how);
+    let post: Vec<crate::render::Instance> = (36..39).flat_map(|x| (45..52).flat_map(move |y| (1..12).map(move |z| (x, y, z)))).map(|(x, y, z)| {
+        let mut fx = [0u8; 4];
+        fx[crate::render::FX_OPACITY] = 255;
+        crate::render::Instance { pos_size: [x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5, 1.0], color: [90, 90, 90, 255], fx, shade: [0; 4], turn: [0; 4] }
+    }).collect();
+    let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 2 };
+    let mut picture = |lights: &[Light], with_post: bool, fogged: bool| {
+        let (w, h) = LampScene::SIZE;
+        let mut f = s.game.frame(1.0, w as f32 / h as f32);
+        (f.lights, f.lamp_world, f.fog) = (lights.to_vec(), Some(s.game.game.sim().world.clone()), fogged.then_some(fog));
+        if with_post {
+            f.instances.extend(post.iter().copied());
+        }
+        let pixels = s.canvas.draw(&f).unwrap();
+        (f, pixels)
+    };
+    let (f, dark) = picture(&[], true, false);
+    let (_, still) = picture(&[lamp(LampShadows::Static)], true, false);
+    let (_, all) = picture(&[lamp(LampShadows::All)], true, false);
+    let behind = |p: &[u8]| LampScene::floor_at(&f, p, 43.5, 48.5);
+    assert!(behind(&still) > behind(&dark) + 30.0, "\"static\": the floor behind the post lit, {} against {}", behind(&still), behind(&dark));
+    assert!((behind(&all) - behind(&dark)).abs() < 4.0, "\"all\": the floor behind the post as dark as without the lamp, {} against {}", behind(&all), behind(&dark));
+    let (_, open_static) = picture(&[lamp(LampShadows::Static)], false, false);
+    let (_, open_all) = picture(&[lamp(LampShadows::All)], false, false);
+    assert!(open_static == open_all, "nothing moving: \"all\" draws as \"static\"");
+    // In fog: the beam behind the post, in its shadow, holds none of the
+    // spot's light with "all".
+    let (_, fog_dark) = picture(&[], true, true);
+    let (_, fog_static) = picture(&[lamp(LampShadows::Static)], true, true);
+    let (_, fog_all) = picture(&[lamp(LampShadows::All)], true, true);
+    let seen = |p: &[u8]| {
+        let (w, h) = LampScene::SIZE;
+        let c = f.view_proj.project_point3(Vec3::new(43.5, 48.5, 5.0));
+        let (x, y) = (((c.x + 1.0) * 0.5 * w as f32) as i32, ((1.0 - c.y) * 0.5 * h as f32) as i32);
+        let i = ((y * w as i32 + x) * 4) as usize;
+        p[i..i + 3].iter().map(|&c| c as f32).sum::<f32>()
+    };
+    assert!(seen(&fog_static) > seen(&fog_dark) + 20.0, "\"static\": the beam shows behind the post, {} against {}", seen(&fog_static), seen(&fog_dark));
+    assert!(seen(&fog_all) < seen(&fog_static) - 15.0, "\"all\": the post cuts the beam, {} against {}", seen(&fog_all), seen(&fog_static));
 }
 
 /// On the GPU: no wall a voxel thin lets a beam through, straight across

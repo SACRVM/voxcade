@@ -266,9 +266,10 @@ impl Renderer {
             .lights
             .iter()
             .take(MOST_LIGHTS)
-            .filter(|l| l.fog > 0.0 && l.color.iter().any(|c| *c > 0.0))
-            .filter_map(|l| {
-                let mut data = LightData::of(l, lf.walls);
+            .enumerate()
+            .filter(|(_, l)| l.fog > 0.0 && l.color.iter().any(|c| *c > 0.0))
+            .filter_map(|(i, l)| {
+                let mut data = self.lamps.data_of(i, l, lf.walls);
                 for c in &mut data.color[..3] {
                     *c *= l.fog;
                 }

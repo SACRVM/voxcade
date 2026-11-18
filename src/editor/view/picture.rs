@@ -324,6 +324,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         lights: if view.lights && ed.scope == Scope::Level { lights(ed, orbit.target) } else { Vec::new() },
         lamp_world: None,
         lamp_pieces: Vec::new(),
+        lamp_movers: Vec::new(),
         fog: None,
         glow: 0.0,
         shadow_map: SHADOW_MAP,

@@ -956,15 +956,17 @@ piece's turns with the piece), `fog` (how strongly it shows in fog, 0 to
 10, 1 unless set) and `shadows` (a word: `"static"`, the
 level's voxels and its pieces stop it, `render::lamps`; `"none"`, it
 shines through; `true` and `false` are refused, naming the word to
-write; a third word, `"all"`, moving things too, is decided and not
-built, `render::LampShadows`). A light that leaves `shadows` unset takes
-`c.light.lamp_shadows`, the game's word (the same two words, `"static"`
-unless set); a light that states one has its own, whatever the game says:
+write; `"all"`, moving things too: figures, things, models drawn and
+opaque cubes cast that lamp's shadows, in view or not, for a few chosen
+lamps, it costs more, `render::LampShadows`, `render::movers`). A light that
+leaves `shadows` unset takes `c.light.lamp_shadows`, the game's word
+(the same three words, `"static"` unless set); a light that states one has its own, whatever the game says:
 game `"none"` and a light's `"static"` is a light the walls stop. A wall is the level's opaque voxels and its
 pieces; a piece that brings a light stops no light (a lantern's frame
 round its flame), and moving things (figures, the kits' things, cubes)
-stop none: they move every picture, and a lamp's answer is kept per face
-until the level or the lamp changes. Only the picture: no fingerprint,
+stop no `"static"` light: they move every picture, and a lamp's answer is
+kept per face until the level or the lamp changes; an `"all"` light asks
+them afresh every picture. Only the picture: no fingerprint,
 state hash, replay or save sees any of it. All its
 lights move and turn with it, and `thing.state.light` (0 to 1, 1 at
 first) dims them together (an engine key kept in `Stage::lights`:
