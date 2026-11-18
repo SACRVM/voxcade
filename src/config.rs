@@ -1000,11 +1000,12 @@ pub struct LightConfig {
     /// -0.9 to 0.9: above 0 a beam is brighter looking towards its lamp
     /// (0: every way alike).
     pub fog_anisotropy: f32,
-    /// How brightly the lamps' light shows in the fog against how much
-    /// the fog dims, 0..20: 1 as the air would (thicker fog, brighter
+    /// How brightly the fog shows the lamps' light, 0..20; the dimming is
+    /// the density's alone: 1 as the air would (thicker fog, brighter
     /// beams), 4 a stage's haze (bright beams while the room stays clear),
-    /// 0 a fog that only dims. However high, a lamp's glow in the fog never
-    /// gets brighter than its own light.
+    /// 0 a fog that only dims. Higher is never fainter, and however high, a
+    /// lamp's glow in the fog never gets brighter than its own light (times
+    /// the light's fog).
     pub fog_glow: f32,
 }
 

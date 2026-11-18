@@ -146,18 +146,23 @@ fn reaches(l: Light, p: vec3<f32>, movers: u32) -> bool {
 // between, and where it enters and leaves a spot's hard core (`core`: the
 // light bends there), each the light it gets (unstopped, `scatter`) and
 // whether it gets it; where that changes between two points, where it
-// changes.
+// changes. The fog takes its share by the density alone; the glow
+// (`fog.hi.w`) scales what it sends towards the eye: above 1 up to the
+// brightest light the lamp gives along the ray (`most`), so raising it
+// never makes a beam fainter anywhere, nor brighter than its lamp.
 fn beam(l: Light, dir: vec3<f32>, a: f32, b: f32, core: vec2<f32>, air: f32, movers: u32) -> vec3<f32> {
-    let density = fog.lo.w;
+    let density = fog.eye.w;
     let eye = fog.eye.xyz;
     let ahead = max(dot(dir, fog.forward.xyz), 0.05);
     let step = FOG_STEP * exp2(max(ceil(log2(2.0 * l.pos_radius.w / (FOG_STEP * FOG_MOST_PLANES))), 0.0));
     let start = dot(eye, fog.forward.xyz);
     let stopping = l.edge.y > 0.5;
     var t0 = a;
-    var f0 = scatter(l, eye + dir * a, dir) * exp(-density * (a - air));
+    let s0 = scatter(l, eye + dir * a, dir);
+    var f0 = s0 * exp(-density * (a - air));
     var v0 = !stopping || reaches(l, eye + dir * a, movers);
     var sum = vec3<f32>(0.0);
+    var most = select(vec3<f32>(0.0), s0, v0);
     for (var k = 0; k < i32(FOG_MOST_PLANES) + 4; k += 1) {
         // The next plane, or the core's edge if it comes first.
         var t1 = ((floor((start + t0 * ahead) / step + 1e-4) + 1.0) * step - start) / ahead;
@@ -169,8 +174,12 @@ fn beam(l: Light, dir: vec3<f32>, a: f32, b: f32, core: vec2<f32>, air: f32, mov
         }
         t1 = min(t1, b);
         let p1 = eye + dir * t1;
-        let f1 = scatter(l, p1, dir) * exp(-density * (t1 - air));
+        let s1 = scatter(l, p1, dir);
+        let f1 = s1 * exp(-density * (t1 - air));
         let v1 = !stopping || reaches(l, p1, movers);
+        if (v1) {
+            most = max(most, s1);
+        }
         if (v0 == v1) {
             if (v0) {
                 sum += (f0 + f1) * 0.5 * (t1 - t0);
@@ -202,7 +211,11 @@ fn beam(l: Light, dir: vec3<f32>, a: f32, b: f32, core: vec2<f32>, air: f32, mov
         f0 = f1;
         v0 = v1;
     }
-    return sum * density;
+    let glow = fog.hi.w;
+    if (glow > 1.0) {
+        return min(sum * density * glow, most);
+    }
+    return sum * density * glow;
 }
 
 // Whether the box round `middle`, `half` each way, meets the triangle

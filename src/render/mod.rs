@@ -291,10 +291,10 @@ pub struct Fog {
     /// How much it sends light on ahead rather than back, -0.9 to 0.9
     /// (Henyey-Greenstein's g; 0 every way alike).
     pub anisotropy: f32,
-    /// How brightly the lamps' light shows in it against how much it dims
-    /// (1: as the air would): the beams are lit by, and take their own
-    /// light by, `density` times this, so a lamp's glow never passes its
-    /// light; what lies behind dims by `density` alone.
+    /// How brightly it shows the lamps' light (1: as the air would): what
+    /// the fog sends on to the eye, times this; above 1 no brighter than
+    /// the lamp's light along the ray (`fog_beams.wgsl`'s `beam`). The
+    /// dimming, of the beams and what lies behind, is `density`'s alone.
     pub glow: f32,
     pub lo: Vec3,
     pub hi: Vec3,
