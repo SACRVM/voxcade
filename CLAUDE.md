@@ -1601,7 +1601,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   stop it), `"all"` (moving things too: `render::movers`, a second bit
   volume of the models and cubes drawn, gathered in view or not where an
   "all" lamp reaches, `Drawing::movers`, made every picture, a cell
-  filled where its middle lies in a voxel; walked afresh after the walls'
+  filled where its middle lies in a voxel, a turned voxel holding no
+  cell's middle its middle's cell where nothing of its thing lies round
+  it, `movers::fill`, test
+  `a_post_of_turned_cubes_stops_a_lamp_whose_shadows_are_all`; walked afresh after the walls'
   kept answer, only within the boxes the lamp can light,
   `Movers::lists`, a beam's ray only those that can shade it,
   `shading`; `movers_from` and `RIM` against acne, `HOUSING`; tests

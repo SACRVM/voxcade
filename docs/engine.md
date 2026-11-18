@@ -854,7 +854,11 @@ tests.
   The cells they fill (`render::movers`: a cell whose middle lies in a
   voxel, on the grid the voxel's own, turned freely those whose middles
   the turned cube holds; nothing grows, so a shadow is the shape of what
-  casts it and a steady move changes a cell once; not the level's
+  casts it and a steady move changes a cell once; a turned voxel that
+  holds no cell's middle (an eighth round, its middle at a cell's corner)
+  fills its middle's cell where nothing else of its thing lies on or
+  round that cell, so a cube alone or a rod a voxel thin still casts and
+  a body grows nothing, `movers::fill`, 2026-11-18; not the level's
   pieces, which are the level's volume; glowing and see-through voxels
   fill none) go into a second bit volume laid out as the level's, a box
   round them in blocks of 64 voxels, sent only when it changed, with a

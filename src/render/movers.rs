@@ -14,7 +14,12 @@
 //! turned cube holds. Nothing grows, so a shadow is the shape of what casts
 //! it, and a thing moving steadily changes a cell once as it passes; a
 //! turned surface a voxel thick leaves cells touching at least at their
-//! edges, which the walks close (`lamps.wgsl`). A face of a moving thing
+//! edges, which the walks close (`lamps.wgsl`). A turned voxel can hold no
+//! cell's middle at all (an eighth round, its middle at a cell's corner):
+//! where nothing else of its thing lies round it (a cube alone, a rod a
+//! voxel thin with a gap) it fills its middle's cell (`fill`), so the
+//! smallest thing still casts; a voxel of a body is left to the body's
+//! cells round it, which grows nothing. A face of a moving thing
 //! looks past what moves in the cells right in front of it
 //! (`lamps.wgsl`'s RIM), so a turned figure does not shade itself into
 //! specks.
@@ -55,12 +60,13 @@ pub struct Movers {
 
 /// The cells a voxel whose middle is `middle`, turned `rot`, fills: those
 /// whose middles it holds. On the grid (`rot` none, `middle` a cell's
-/// middle) its own cell.
-fn cells(middle: Vec3, rot: Option<Quat>, mut put: impl FnMut(IVec3)) {
+/// middle) its own cell. How many.
+fn cells(middle: Vec3, rot: Option<Quat>, mut put: impl FnMut(IVec3)) -> usize {
     let Some(rot) = rot else {
         put(middle.floor().as_ivec3());
-        return;
+        return 1;
     };
+    let mut n = 0;
     let back = rot.inverse();
     // A middle within a turned cube lies within half its diagonal of its
     // own middle.
@@ -72,16 +78,42 @@ fn cells(middle: Vec3, rot: Option<Quat>, mut put: impl FnMut(IVec3)) {
                 let q = back * (c.as_vec3() + 0.5 - middle);
                 if q.abs().max_element() <= 0.5 {
                     put(c);
+                    n += 1;
                 }
             }
         }
     }
+    n
+}
+
+/// The cells a thing fills: those its voxels' middles fill (`cells`, given
+/// whole by `each`, which tells a voxel that held no cell's middle by its
+/// middle), and of such a voxel its middle's cell where none of the
+/// others lies on it or round it (faces, edges or corners), so a cube
+/// alone or a thin rod's lost voxel still stops a lamp; a body's surface
+/// grows nothing, its cells round such a voxel already there.
+fn fill(each: impl FnOnce(&mut dyn FnMut(IVec3), &mut dyn FnMut(Vec3))) -> Vec<IVec3> {
+    let (mut filled, mut lost) = (Vec::new(), Vec::new());
+    each(&mut |c| filled.push(c), &mut |m| lost.push(m.floor().as_ivec3()));
+    if lost.is_empty() {
+        return filled;
+    }
+    let set: crate::world::CellSet = filled.iter().copied().collect();
+    let mut added = crate::world::CellSet::default();
+    for c in lost {
+        let alone = (-1..=1).all(|z| (-1..=1).all(|y| (-1..=1).all(|x| !set.contains(&(c + IVec3::new(x, y, z))))));
+        if alone && added.insert(c) {
+            filled.push(c);
+        }
+    }
+    filled
 }
 
 /// The cells a draw's opaque voxels fill (`cells`), placed as the shader
-/// places them (`vs_model`). A voxel that glows is left out: a lamp's bulb
-/// does not stop its own light.
-fn draw_cells(bank: &ModelBank, draw: &ModelDraw, mut put: impl FnMut(IVec3)) {
+/// places them (`vs_model`); `lost` the middle of a voxel that filled none
+/// (`fill`). A voxel that glows is left out: a lamp's bulb does not stop
+/// its own light.
+fn draw_cells(bank: &ModelBank, draw: &ModelDraw, put: &mut dyn FnMut(IVec3), lost: &mut dyn FnMut(Vec3)) {
     let free = off_grid(draw.rot, draw.shift).then_some(draw.rot);
     let Some(voxels) = bank.voxels.get(draw.voxels.start as usize..draw.voxels.end as usize) else { return };
     for v in voxels {
@@ -92,21 +124,29 @@ fn draw_cells(bank: &ModelBank, draw: &ModelDraw, mut put: impl FnMut(IVec3)) {
         let (x, y) = quarter(lx as i32, ly as i32, draw.turn);
         let local = Vec3::new(x as f32, y as f32, lz);
         match free {
-            Some(rot) => cells(turned_centre(draw.origin, local, draw.shift, rot), Some(rot), &mut put),
+            Some(rot) => {
+                let middle = turned_centre(draw.origin, local, draw.shift, rot);
+                if cells(middle, Some(rot), &mut *put) == 0 {
+                    lost(middle);
+                }
+            }
             None => put((draw.origin + local + 0.5).floor().as_ivec3()),
         }
     }
 }
 
 /// The cells a cube fills (a frame:cube, a spark, debris), as a model's
-/// voxel. Glowing ones and see-through ones stop nothing.
-fn cube_cells(c: &Instance, put: impl FnMut(IVec3)) {
+/// voxel (`lost` as `draw_cells`'). Glowing ones and see-through ones stop
+/// nothing.
+fn cube_cells(c: &Instance, put: &mut dyn FnMut(IVec3), lost: &mut dyn FnMut(Vec3)) {
     if c.fx[FX_GLOW] > 0 || c.fx[FX_OPACITY] < 255 {
         return;
     }
     let [x, y, z, _] = c.pos_size;
     let rot = (c.turn != [0; 4]).then(|| Quat::from_array(c.turn.map(|v| v as f32 / 127.0)).normalize());
-    cells(Vec3::new(x, y, z), rot, put);
+    if cells(Vec3::new(x, y, z), rot, put) == 0 {
+        lost(Vec3::new(x, y, z));
+    }
 }
 
 /// A box growing round the cells put into it.
@@ -166,11 +206,13 @@ impl Movers {
         let mut boxes = Vec::new();
         for draws in things {
             let mut b = Bounds::NONE;
-            for d in draws {
-                draw_cells(bank, d, |c| {
-                    b.put(c);
-                    filled.push(c);
-                });
+            for c in fill(|put, lost| {
+                for d in draws {
+                    draw_cells(bank, d, put, lost);
+                }
+            }) {
+                b.put(c);
+                filled.push(c);
             }
             if !b.is_empty() {
                 boxes.push(b);
@@ -178,22 +220,24 @@ impl Movers {
         }
         // The cubes boxed by the blocks they lie in.
         let mut blocks: Vec<(IVec3, Bounds)> = Vec::new();
-        for c in cubes {
-            cube_cells(c, |c| {
-                filled.push(c);
-                let key = c.div_euclid(IVec3::splat(CUBE_BLOCK));
-                match blocks.last_mut().filter(|(k, _)| *k == key) {
+        for c in fill(|put, lost| {
+            for c in cubes {
+                cube_cells(c, put, lost);
+            }
+        }) {
+            filled.push(c);
+            let key = c.div_euclid(IVec3::splat(CUBE_BLOCK));
+            match blocks.last_mut().filter(|(k, _)| *k == key) {
+                Some((_, b)) => b.put(c),
+                None => match blocks.iter_mut().find(|(k, _)| *k == key) {
                     Some((_, b)) => b.put(c),
-                    None => match blocks.iter_mut().find(|(k, _)| *k == key) {
-                        Some((_, b)) => b.put(c),
-                        None => {
-                            let mut b = Bounds::NONE;
-                            b.put(c);
-                            blocks.push((key, b));
-                        }
-                    },
-                }
-            });
+                    None => {
+                        let mut b = Bounds::NONE;
+                        b.put(c);
+                        blocks.push((key, b));
+                    }
+                },
+            }
         }
         boxes.extend(blocks.into_iter().map(|(_, b)| b));
         if filled.is_empty() {
@@ -335,6 +379,41 @@ mod tests {
         assert!(Movers::of(&bank, &[], &[cube(Vec3::ZERO, [0; 4], 0, 0)], 2048).is_none(), "nothing opaque: no volume");
         let far = Movers::of(&bank, &[], &[cube(Vec3::new(0.5, 0.5, 0.5), [0; 4], 255, 0), cube(Vec3::new(4000.5, 4000.5, 100.5), [0; 4], 255, 0)], 2048).unwrap();
         assert!(far.is_err_and(|e| e.contains("moving things stop no lamp")));
+    }
+
+    /// A cube turned so that it holds no cell's middle (an eighth round,
+    /// its middle at a cell's corner) still fills its middle's cell: alone,
+    /// or in a rod of such cubes along x a voxel apart; a turned body's
+    /// cells are those its voxels' middles fill, nothing grown round them
+    /// (its lost voxels lie by its cells).
+    #[test]
+    fn the_smallest_turned_thing_still_fills_a_cell() {
+        let bank = ModelBank::default();
+        let eighth = crate::render::snorm_turn(Quat::from_rotation_z(std::f32::consts::FRAC_PI_4));
+        let mut none = 0;
+        cells(Vec3::new(71.0, 4.0, 9.5), Some(Quat::from_rotation_z(std::f32::consts::FRAC_PI_4)), |_| none += 1);
+        assert_eq!(none, 0, "no cell's middle in it");
+        let m = Movers::of(&bank, &[], &[cube(Vec3::new(71.0, 4.0, 9.5), eighth, 255, 0)], 2048).expect("it fills a cell").unwrap();
+        assert!(filled(&m, IVec3::new(71, 4, 9)), "its middle's cell");
+        assert_eq!(m.copies[0].iter().map(|b| b.count_ones()).sum::<u32>(), 1);
+        let rod: Vec<Instance> = (0..6).map(|i| cube(Vec3::new(71.0 + 2.0 * i as f32, 4.0, 9.5), eighth, 255, 0)).collect();
+        let m = Movers::of(&bank, &[], &rod, 2048).unwrap().unwrap();
+        assert!((0..6).all(|i| filled(&m, IVec3::new(71 + 2 * i, 4, 9))), "every cube of the rod");
+        // A body 6 by 6 by 6 turned an eighth: the cells of its voxels'
+        // middles, no more.
+        let rot = Quat::from_rotation_z(std::f32::consts::FRAC_PI_4);
+        let body: Vec<Instance> = (0..216).map(|i| {
+            let at = Vec3::new(40.0, 40.0, 10.0) + rot * Vec3::new((i % 6) as f32, (i / 6 % 6) as f32, (i / 36) as f32);
+            cube(at, crate::render::snorm_turn(rot), 255, 0)
+        }).collect();
+        let mut own = crate::world::CellSet::default();
+        for c in &body {
+            cells(Vec3::from_slice(&c.pos_size[..3]), Some(Quat::from_array(c.turn.map(|v| v as f32 / 127.0)).normalize()), |c| {
+                own.insert(c);
+            });
+        }
+        let m = Movers::of(&bank, &[], &body, 2048).unwrap().unwrap();
+        assert_eq!(m.copies[0].iter().map(|b| b.count_ones()).sum::<u32>() as usize, own.len(), "nothing grown round the body");
     }
 
     /// A lamp whose shadows are "all" lists the boxes it can light: a spot

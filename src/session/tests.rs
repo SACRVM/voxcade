@@ -1899,6 +1899,36 @@ fn a_moving_thing_stops_a_lamp_whose_shadows_are_all() {
     assert!(seen(&fog_all) < seen(&fog_static) - 15.0, "\"all\": the post cuts the beam, {} against {}", seen(&fog_all), seen(&fog_static));
 }
 
+/// On the GPU: a post of single cubes each turned an eighth round, so that
+/// none holds a cell's middle, still stops a lamp whose shadows are "all":
+/// the floor behind it darker than without it.
+#[test]
+fn a_post_of_turned_cubes_stops_a_lamp_whose_shadows_are_all() {
+    use crate::render::{LampShadows, Light, LightShape};
+    let mut s = LampScene::new();
+    let lamp = Light::lamp(Vec3::new(28.5, 48.5, 6.0), 40.0, [2.0; 3], &LightShape { cone: Some(60.0), rotation: 90.0, pitch: -10.0, ..Default::default() }, |w| w).stated(LampShadows::All);
+    let turn = crate::render::snorm_turn(glam::Quat::from_rotation_z(std::f32::consts::FRAC_PI_4));
+    let post: Vec<crate::render::Instance> = (1..12).map(|z| {
+        let mut fx = [0u8; 4];
+        fx[crate::render::FX_OPACITY] = 255;
+        crate::render::Instance { pos_size: [40.0, 49.0, z as f32 + 0.5, 1.0], color: [90, 90, 90, 255], fx, shade: [0; 4], turn }
+    }).collect();
+    let mut picture = |with_post: bool| {
+        let (w, h) = LampScene::SIZE;
+        let mut f = s.game.frame(1.0, w as f32 / h as f32);
+        (f.lights, f.lamp_world) = (vec![lamp], Some(s.game.game.sim().world.clone()));
+        if with_post {
+            f.instances.extend(post.iter().copied());
+        }
+        let pixels = s.canvas.draw(&f).unwrap();
+        (f, pixels)
+    };
+    let (f, open) = picture(false);
+    let (_, shaded) = picture(true);
+    let (lit, dark) = (LampScene::floor_at(&f, &open, 44.5, 49.0), LampScene::floor_at(&f, &shaded, 44.5, 49.0));
+    assert!(dark < lit - 20.0, "the floor behind the post shaded, {dark} against {lit}");
+}
+
 /// On the GPU: no wall a voxel thin lets a beam through, straight across
 /// it or slanting (a diagonal line of voxels touching at their edges): the
 /// fog behind it holds none of the spot's light, everywhere, at HIGH and
