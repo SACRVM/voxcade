@@ -885,11 +885,13 @@ classic smooth way, the owner's choice over beams in voxel cells;
   the glass the picture is the one without it, byte for byte; a picture
   of fog without see-through cubes runs none of it.
 - **Measured** (the trial hall, five lamps walls stop, 1920 by 1080): the
-  Radeon 610M without fog 9.4 ms, LOW 13.7 (beams 2.6, the composite
-  2.0 against 0.5), HIGH 21.1 (beams 9.2); Voxkeep's torches in fog 7.0,
-  LOW 10.4. The strong GPU: 0.5, LOW 0.8, HIGH 0.9. Two headlights moving
-  every picture: the lamps' pass 4.4 to 11.6 ms on the 610M (every face
-  asks anew), the beams at LOW 2.7 to 4.9.
+  Radeon 610M without fog 9.6 ms, LOW 14.2 (beams 3.1, the composite
+  2.0 against 0.5), HIGH 21.2 (beams 10.1); Voxkeep's torches in fog 7.1,
+  LOW 10.7 (its flames are see-through cubes: the fog behind them 0.15),
+  HIGH 14.1. The strong GPU: 0.6, LOW 0.8, HIGH 0.9. Two headlights moved
+  every picture: the lamps 6.7 ms (4.4 standing), the beams 6.7 at LOW
+  (3.1 standing) and 20.2 at HIGH (9.9): each point of a moving lamp's
+  beam walks anew, not yet asked for first.
 
 ## Multiplayer
 
