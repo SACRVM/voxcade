@@ -257,17 +257,16 @@ fn walk(cell: vec3<i32>, off: u32, lamp_at: vec3<f32>) -> bool {
             let lo = vec3<f32>(c) * size;
             let ts = (select(lo, lo + vec3<f32>(size), dir > vec3<f32>(0.0)) - lamp) * inv;
             let out = min(ts.x, min(ts.y, ts.z));
-            // Asked carefully (`off` 2: the fog's beams), leaving through an
-            // edge or a corner past the lamp's housing, the cells across
-            // each face it meets there count too, so a wall of voxels that
-            // touch only at their edges lets no light through. (The faces
-            // walk as they always did: a face beside a lamp in its wall
-            // would go dark.)
+            // Leaving through an edge or a corner where two of the cells
+            // across the faces it meets there are solid (a wall of voxels
+            // touching only at their edges, a diagonal), it passes between
+            // them: closed, as the faces they leave between them are. One
+            // solid there is a wall it only grazes.
             let tied = (ts - vec3<f32>(out)) < vec3<f32>(1e-3 * size);
-            if (off == 2u && t > begin + 1.0 && u32(tied.x) + u32(tied.y) + u32(tied.z) > 1u) {
+            if (u32(tied.x) + u32(tied.y) + u32(tied.z) > 1u) {
                 let ahead = select(vec3<i32>(-1), vec3<i32>(1), dir > vec3<f32>(0.0));
-                let beside = (tied.x && solid(c + vec3<i32>(ahead.x, 0, 0), level)) || (tied.y && solid(c + vec3<i32>(0, ahead.y, 0), level)) || (tied.z && solid(c + vec3<i32>(0, 0, ahead.z), level));
-                if (beside) {
+                let beside = u32(tied.x && solid(c + vec3<i32>(ahead.x, 0, 0), level)) + u32(tied.y && solid(c + vec3<i32>(0, ahead.y, 0), level)) + u32(tied.z && solid(c + vec3<i32>(0, 0, ahead.z), level));
+                if (beside > 1u) {
                     if (level == 0) {
                         return true;
                     }

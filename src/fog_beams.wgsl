@@ -123,9 +123,8 @@ fn scatter(l: Light, p: vec3<f32>, dir: vec3<f32>) -> vec3<f32> {
 }
 
 // Whether the lamp `l` reaches the middle of the voxel the point `p` is
-// in, walls stopping it: asked carefully (`walk`'s `off` 2: a wall of
-// voxels touching only at their edges lets no light through), under keys
-// of its own in the faces' memory.
+// in, walls stopping it: the faces' memory asked as for the face in front
+// of that voxel (the same walk, the same answer).
 fn reaches(l: Light, p: vec3<f32>) -> bool {
     // WALLS {
     if (l.edge.y > 0.5) {
@@ -133,8 +132,8 @@ fn reaches(l: Light, p: vec3<f32>) -> bool {
         if (solid(cell - lamps.origin.xyz, 0)) {
             return false;
         }
-        let ids = vec2<u32>(mix_hash(0x9e3779b9u + 2u, cell), mix_hash(0x85ebca6bu + 2u, cell));
-        return !stopped(cell, 2u, l.pos_radius.xyz, ids, vec2<u32>(l.edge.zw));
+        let ids = vec2<u32>(mix_hash(0x9e3779b9u, cell), mix_hash(0x85ebca6bu, cell));
+        return !stopped(cell, 0u, l.pos_radius.xyz, ids, vec2<u32>(l.edge.zw));
     }
     // } WALLS
     return true;

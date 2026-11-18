@@ -1707,12 +1707,38 @@ fn a_lamp_new_to_the_faces_memory_is_asked_for_first() {
     assert!(moved == fresh, "the same picture as a renderer drawing it the first time");
 }
 
+/// On the GPU: a lamp lights no floor behind a diagonal wall a voxel thin
+/// (a line of voxels touching only at their edges): its walk passing
+/// exactly through such an edge is closed, as the faces either side close
+/// it (dots of light leaked through behind it along the lamp's rays).
+#[test]
+fn a_lamp_does_not_leak_through_a_diagonal_wall() {
+    let mut s = LampScene::walled(|y| vec![(y, y)], 24);
+    let lamp = crate::render::Light::lamp(Vec3::new(20.5, 48.5, 9.0), 70.0, [2.0; 3], &crate::render::LightShape::default(), |w| w).stated(crate::render::LampShadows::Static);
+    let (f, dark) = s.picture(&[], true);
+    let (_, lit) = s.picture(&[lamp], true);
+    let (w, h) = LampScene::SIZE;
+    let mut leaks = Vec::new();
+    for y in 30..66 {
+        for x in (y + 2)..(y + 30).min(90) {
+            let c = f.view_proj.project_point3(Vec3::new(x as f32 + 0.5, y as f32 + 0.5, 1.0));
+            let (px, py) = (((c.x + 1.0) * 0.5 * w as f32) as i32, ((1.0 - c.y) * 0.5 * h as f32) as i32);
+            if px < 0 || py < 0 || px >= w as i32 || py >= h as i32 {
+                continue;
+            }
+            let i = ((py * w as i32 + px) * 4) as usize;
+            if (0..3).any(|k| lit[i + k] > dark[i + k] + 2) {
+                leaks.push((x, y));
+            }
+        }
+    }
+    assert!(leaks.is_empty(), "floor lit behind the diagonal wall at {leaks:?}");
+}
+
 /// On the GPU: no wall a voxel thin lets a beam through, straight across
 /// it or slanting (a diagonal line of voxels touching at their edges): the
 /// fog behind it holds none of the spot's light, everywhere, at HIGH and
-/// LOW. (What the fog adds is taken apart from the scene's own light: the
-/// faces' walks leak through such a diagonal at exact alignments, as they
-/// always did, `lamps.wgsl`'s `walk`.)
+/// LOW. (What the fog adds is taken apart from the scene's own light.)
 #[test]
 fn a_wall_a_voxel_thin_stops_a_beam() {
     for (what, cells) in [("straight", (|y: i32| vec![(48, y)]) as fn(i32) -> Vec<(i32, i32)>), ("diagonal", |y: i32| vec![(y, y)])] {
