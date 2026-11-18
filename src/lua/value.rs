@@ -98,6 +98,17 @@ pub fn key_path(path: &str, key: &Lv) -> String {
 /// `things`: whether things may be in it (a state that cannot outlive
 /// them).
 pub fn capture(value: &Lv, path: &str, seen: &mut Seen, things: bool) -> Result<Option<Value>> {
+    capture_in(value, path, seen, things, None)
+}
+
+/// `capture` of a value a script hands the engine to copy (`level:spawn`'s
+/// state): its tables as the script sees them, a view the table it shows
+/// (`given::seen`).
+pub fn capture_given(lua: &Lua, value: &Lv, path: &str, things: bool) -> Result<Option<Value>> {
+    capture_in(value, path, &mut Seen::default(), things, Some(lua))
+}
+
+fn capture_in(value: &Lv, path: &str, seen: &mut Seen, things: bool, given: Option<&Lua>) -> Result<Option<Value>> {
     Ok(Some(match value {
         Lv::Nil => return Ok(None),
         Lv::Boolean(b) => Value::Bool(*b),
@@ -113,6 +124,14 @@ pub fn capture(value: &Lv, path: &str, seen: &mut Seen, things: bool) -> Result<
             Value::Thing(id)
         }
         Lv::Table(t) => {
+            let shown;
+            let t = match given {
+                Some(lua) => {
+                    shown = super::given::seen(lua, t.clone())?;
+                    &shown
+                }
+                None => t,
+            };
             if t.metatable().is_some() {
                 return Err(mistake(path, "view"));
             }
@@ -131,7 +150,7 @@ pub fn capture(value: &Lv, path: &str, seen: &mut Seen, things: bool) -> Result<
                     other => return Err(mistake(path, &format!("key {}", other.type_name()))),
                 };
                 let name = key_path(path, &k);
-                if let Some(v) = capture(&v, &name, seen, things)? {
+                if let Some(v) = capture_in(&v, &name, seen, things, given)? {
                     entries.push((key, v));
                 }
             }

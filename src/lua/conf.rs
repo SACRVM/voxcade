@@ -221,8 +221,10 @@ pub(crate) fn from_lua(v: &Value, default: Option<&toml::Value>, path: &str) -> 
 fn table(t: &Table, default: Option<&toml::Value>, path: &str) -> Result<toml::Value> {
     let mut list: Vec<(i64, Value)> = Vec::new();
     let mut named: Vec<(String, Value)> = Vec::new();
-    for pair in t.clone().pairs::<Value, Value>() {
-        let (k, v) = pair?;
+    // A table a script hands the engine (`level:spawn`'s props) as the
+    // script sees it: a view the table it shows.
+    for pair in t.clone().pairs::<Value, crate::lua::given::GivenValue>() {
+        let (k, crate::lua::given::GivenValue(v)) = pair?;
         match k {
             Value::Integer(i) => list.push((i, v)),
             Value::String(s) => named.push((s.to_str().map(|s| s.to_string()).map_err(|_| anyhow::anyhow!("{path}: a name that is no UTF-8"))?, v)),

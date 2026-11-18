@@ -1088,7 +1088,13 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   the object and the one meant (`world::no_such`, `not_settable`; their
   `__name` the script's, `world`, not `WorldView`; test
   `a_name_an_object_lacks_is_a_mistake`); the states, `props` and the
-  tables fields give stay plain tables. `level:spawn` outside the level
+  tables fields give stay plain tables. A table a script hands an
+  engine call is read as the script sees it: a read-only view (a
+  state's in `on_draw`, a global after the start, `thing.props`) as the
+  table it shows, which a raw read found empty (`src/lua/given.rs`:
+  `Given`, `GivenValue` for a reader's arguments and the values read out
+  of them; only read, never written, kept or handed back; test
+  `every_frame_method_reads_a_view_as_its_literal`). `level:spawn` outside the level
   is a mistake but for a kind with `fixed = true` (one coming in from off
   the screen). A register entry's doc is a short
   first sentence, then short sentences, a `\n` a part of its own and `- `

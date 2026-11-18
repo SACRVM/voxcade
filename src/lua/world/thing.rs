@@ -122,7 +122,7 @@ impl UserData for ThingRef {
                 None => format!("thing {}", t.0),
             })
         });
-        m.add_method("walk", |lua, t, (dir, speed): (Value, f32)| {
+        m.add_method("walk", |lua, t, (GivenValue(dir), speed): (GivenValue, f32)| {
             let wish = to_dir(&dir, "thing:walk")?.normalize_or_zero();
             change(lua, "thing:walk", |h| {
                 let (body, walk) = h.moved(t.0, "thing:walk")?;
@@ -131,7 +131,7 @@ impl UserData for ThingRef {
                 Ok(())
             })
         });
-        m.add_method("face", |lua, t, dir: Value| {
+        m.add_method("face", |lua, t, GivenValue(dir): GivenValue| {
             let way = to_dir(&dir, "thing:face")?;
             on_target(lua, t.0, "thing:face", |h, id| h.host.face(id, way))
         });
@@ -159,7 +159,7 @@ impl UserData for ThingRef {
             let flag = block_flag(&kind, "thing:in_block")?;
             look(lua, |h| h.in_block(t.0, flag))
         });
-        m.add_method("launch", |lua, t, (dir, speed, rise): (Value, f32, Option<f32>)| {
+        m.add_method("launch", |lua, t, (GivenValue(dir), speed, rise): (GivenValue, f32, Option<f32>)| {
             let way = to_dir(&dir, "thing:launch")?.normalize_or_zero();
             on_target(lua, t.0, "thing:launch", |h, id| {
                 let up = rise.map_or(0.0, |r| rise_speed(h.host.sim().cfg.physics.gravity, r));
@@ -186,7 +186,7 @@ impl UserData for ThingRef {
             let o = thing_id(&other, "thing:near")?;
             look(lua, |h| Ok(h.thing(t.0)?.body.pos.distance(h.thing(o)?.body.pos) < distance))
         });
-        m.add_method("place", |lua, t, (first, y, z): (Value, Option<f32>, Option<f32>)| {
+        m.add_method("place", |lua, t, (GivenValue(first), y, z): (GivenValue, Option<f32>, Option<f32>)| {
             // A place (`level.places.west`: where, and the way it faces), a
             // thing (where it stands) or x, y, z.
             let (x, y, z, facing) = match &first {
@@ -197,7 +197,7 @@ impl UserData for ThingRef {
                 }
                 Value::Table(p) => {
                     let at = to_point(lua, &first, "thing:place")?;
-                    let facing = p.raw_get::<Option<Value>>("facing")?.map(|f| to_dir(&f, "thing:place: facing")).transpose()?;
+                    let facing = p.raw_get::<Option<GivenValue>>("facing")?.map(|f| to_dir(&f.0, "thing:place: facing")).transpose()?;
                     (at.x, at.y, Some(at.z), facing)
                 }
                 Value::Integer(_) | Value::Number(_) => {
