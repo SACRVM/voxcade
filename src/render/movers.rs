@@ -1,155 +1,72 @@
 //! The moving things that stop the lamps whose shadows are "all"
-//! (`LampShadows::All`): every picture, the cells the models gathered for
-//! them fill (in view or not, within such a lamp's reach; not the level's
-//! pieces: they are the level's volume, `volume`) and the opaque cubes, as
-//! a bit a voxel with coarser copies, as the level's volume is laid out,
-//! in a box round them alone; and a box round each thing (`boxes`), so a
-//! way of light that meets none of them walks nothing. The lamps' pass and
-//! the fog's beams walk it after the level's volume, for those lamps only,
-//! and ask it afresh every picture (the faces' memory keeps only what the
-//! level's walls do: a moving thing changes its answers every picture).
+//! (`LampShadows::All`): every picture, each model drawn for them (in view
+//! or not, within such a lamp's reach; not the level's pieces: they are the
+//! level's volume, `volume`) and each opaque cube as a solid of its own:
+//! its voxels as bits in its own grid (`bits`, a model's shared by its
+//! draws) and where that grid lies (`Solid`: the draw's turn and place, as
+//! the shader draws it), with a box round each thing (`boxes`), so a way of
+//! light that meets none of them walks nothing. The lamps' pass and the
+//! fog's beams walk a way through each solid whose box it meets, in the
+//! solid's own grid (`lamps.wgsl`'s `movers_stop`), after the level's
+//! volume, for those lamps only, and afresh every picture (the faces'
+//! memory keeps only what the level's walls do).
 //!
-//! A cell is filled when its middle lies inside a voxel (`cells`): on the
-//! grid the voxel's own cell, turned freely the cells whose middles the
-//! turned cube holds. Nothing grows, so a shadow is the shape of what casts
-//! it, and a thing moving steadily changes a cell once as it passes; a
-//! turned surface a voxel thick leaves cells touching at least at their
-//! edges, which the walks close (`lamps.wgsl`). A turned voxel can hold no
-//! cell's middle at all (an eighth round, its middle at a cell's corner):
-//! where nothing else of its thing lies round it (a cube alone, a rod a
-//! voxel thin with a gap) it fills its middle's cell (`fill`), so the
-//! smallest thing still casts; a voxel of a body is left to the body's
-//! cells round it, which grows nothing. A face of a moving thing
-//! looks past what moves in the cells right in front of it
-//! (`lamps.wgsl`'s RIM), so a turned figure does not shade itself into
-//! specks.
+//! A shadow is the shape of what casts it, turned as it is drawn, nothing
+//! grown or lost: a thing turning slowly moves its shadow's edge smoothly,
+//! so a face changes once as the edge passes. Until 2026-11-19 the things
+//! filled the cells of a volume laid as the level's whose middles their
+//! turned voxels held: a turned arm a voxel thin left gaps between its
+//! cells that came and went as it turned, faces blinking for a picture.
 //!
 //! Only the picture: nothing here is the game's.
 
-use glam::{IVec3, Quat, Vec3};
+use bytemuck::{Pod, Zeroable};
+use glam::{IVec3, Mat3, Quat, Vec3};
 
-use super::volume::{LEVELS, Reach, coarsen};
-use super::{FX_GLOW, FX_OPACITY, Instance, Light, ModelBank, ModelDraw, off_grid, quarter, turned_centre};
+use super::{FX_GLOW, FX_OPACITY, Instance, Light, ModelBank, ModelDraw, quarter};
 
-/// The box is whole blocks of this many voxels each way (its coarsest
-/// copy's texel).
-const BLOCK_VOXELS: i32 = 2 << (LEVELS - 1);
-
-/// The most bytes the moving things' volume may take (every copy): moving
-/// things further apart stop no lamp, said once.
-pub const MOST_BYTES: u64 = 32 << 20;
-
-/// The most boxes the walks test (`boxes`): more things are boxed by the
-/// blocks they lie in, and past that the walks take the whole volume.
+/// The most boxes the walks test (`boxes`): more things are boxed together
+/// by the blocks they lie in, ever larger, until there are no more.
 pub const MOST_BOXES: usize = 256;
+
+/// The most bytes the solids and their bits may take: past them moving
+/// things stop no lamp, said once.
+pub const MOST_BYTES: usize = 32 << 20;
 
 /// The cubes' boxes are blocks of this many voxels each way.
 const CUBE_BLOCK: i32 = 8;
 
-/// The moving things' volume of a picture.
+/// A solid as the walks take it (`lamps.wgsl`'s `Solid`): `to_grid` the
+/// rows of the map from the level's voxels to its grid's (a cell a voxel,
+/// from the grid's low corner; a cube's grid one cell its size), `grid`
+/// its cells each way and where its bits begin in `Movers::bits` (x
+/// fastest, then y, then z, 32 a word).
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable, Debug, PartialEq)]
+pub struct Solid {
+    pub to_grid: [[f32; 4]; 3],
+    pub grid: [i32; 4],
+}
+
+/// The bits of a cube's grid: its one cell, filled (`Movers::bits`' first
+/// word).
+const FULL: i32 = 0;
+
+/// The moving things of a picture.
 pub struct Movers {
-    pub reach: Reach,
-    /// Every copy's bytes, x fastest, then y, then z.
-    pub copies: Vec<Vec<u8>>,
-    /// The boxes round what fills it, low corner and high (past the last
-    /// cell), from the volume's low corner; empty: the walks take all of it.
+    /// The boxes round them, low corner and high (past the last cell) in
+    /// the level's voxels, where their solids begin in `solids` and how
+    /// many (the low corner's w, the high's).
     pub boxes: Vec<[i32; 8]>,
-    /// What it holds, to send it to the GPU only when it changed.
+    pub solids: Vec<Solid>,
+    /// The models' voxels, a bit each in their grids; its first word a
+    /// cube's (`FULL`).
+    pub bits: Vec<u32>,
+    /// What `bits` holds, to send it to the GPU only when it changed.
     pub key: u64,
 }
 
-/// The cells a voxel whose middle is `middle`, turned `rot`, fills: those
-/// whose middles it holds. On the grid (`rot` none, `middle` a cell's
-/// middle) its own cell. How many.
-fn cells(middle: Vec3, rot: Option<Quat>, mut put: impl FnMut(IVec3)) -> usize {
-    let Some(rot) = rot else {
-        put(middle.floor().as_ivec3());
-        return 1;
-    };
-    let mut n = 0;
-    let back = rot.inverse();
-    // A middle within a turned cube lies within half its diagonal of its
-    // own middle.
-    let (lo, hi) = ((middle - 0.5 - 0.867).ceil().as_ivec3(), (middle - 0.5 + 0.867).floor().as_ivec3());
-    for z in lo.z..=hi.z {
-        for y in lo.y..=hi.y {
-            for x in lo.x..=hi.x {
-                let c = IVec3::new(x, y, z);
-                let q = back * (c.as_vec3() + 0.5 - middle);
-                if q.abs().max_element() <= 0.5 {
-                    put(c);
-                    n += 1;
-                }
-            }
-        }
-    }
-    n
-}
-
-/// The cells a thing fills: those its voxels' middles fill (`cells`, given
-/// whole by `each`, which tells a voxel that held no cell's middle by its
-/// middle), and of such a voxel its middle's cell where none of the
-/// others lies on it or round it (faces, edges or corners), so a cube
-/// alone or a thin rod's lost voxel still stops a lamp; a body's surface
-/// grows nothing, its cells round such a voxel already there.
-fn fill(each: impl FnOnce(&mut dyn FnMut(IVec3), &mut dyn FnMut(Vec3))) -> Vec<IVec3> {
-    let (mut filled, mut lost) = (Vec::new(), Vec::new());
-    each(&mut |c| filled.push(c), &mut |m| lost.push(m.floor().as_ivec3()));
-    if lost.is_empty() {
-        return filled;
-    }
-    let set: crate::world::CellSet = filled.iter().copied().collect();
-    let mut added = crate::world::CellSet::default();
-    for c in lost {
-        let alone = (-1..=1).all(|z| (-1..=1).all(|y| (-1..=1).all(|x| !set.contains(&(c + IVec3::new(x, y, z))))));
-        if alone && added.insert(c) {
-            filled.push(c);
-        }
-    }
-    filled
-}
-
-/// The cells a draw's opaque voxels fill (`cells`), placed as the shader
-/// places them (`vs_model`); `lost` the middle of a voxel that filled none
-/// (`fill`). A voxel that glows is left out: a lamp's bulb does not stop
-/// its own light.
-fn draw_cells(bank: &ModelBank, draw: &ModelDraw, put: &mut dyn FnMut(IVec3), lost: &mut dyn FnMut(Vec3)) {
-    let free = off_grid(draw.rot, draw.shift).then_some(draw.rot);
-    let Some(voxels) = bank.voxels.get(draw.voxels.start as usize..draw.voxels.end as usize) else { return };
-    for v in voxels {
-        if v.fx[FX_GLOW] > 0 {
-            continue;
-        }
-        let [lx, ly, lz, _] = v.pos_size;
-        let (x, y) = quarter(lx as i32, ly as i32, draw.turn);
-        let local = Vec3::new(x as f32, y as f32, lz);
-        match free {
-            Some(rot) => {
-                let middle = turned_centre(draw.origin, local, draw.shift, rot);
-                if cells(middle, Some(rot), &mut *put) == 0 {
-                    lost(middle);
-                }
-            }
-            None => put((draw.origin + local + 0.5).floor().as_ivec3()),
-        }
-    }
-}
-
-/// The cells a cube fills (a frame:cube, a spark, debris), as a model's
-/// voxel (`lost` as `draw_cells`'). Glowing ones and see-through ones stop
-/// nothing.
-fn cube_cells(c: &Instance, put: &mut dyn FnMut(IVec3), lost: &mut dyn FnMut(Vec3)) {
-    if c.fx[FX_GLOW] > 0 || c.fx[FX_OPACITY] < 255 {
-        return;
-    }
-    let [x, y, z, _] = c.pos_size;
-    let rot = (c.turn != [0; 4]).then(|| Quat::from_array(c.turn.map(|v| v as f32 / 127.0)).normalize());
-    if cells(Vec3::new(x, y, z), rot, put) == 0 {
-        lost(Vec3::new(x, y, z));
-    }
-}
-
-/// A box growing round the cells put into it.
+/// A box growing round what is put into it.
 #[derive(Clone, Copy)]
 struct Bounds {
     lo: IVec3,
@@ -159,124 +76,176 @@ struct Bounds {
 impl Bounds {
     const NONE: Self = Self { lo: IVec3::MAX, hi: IVec3::MIN };
 
-    fn put(&mut self, c: IVec3) {
-        (self.lo, self.hi) = (self.lo.min(c), self.hi.max(c));
+    /// Round the points `p`.
+    fn round(p: impl IntoIterator<Item = Vec3>) -> Self {
+        p.into_iter().fold(Self::NONE, |b, p| Self { lo: b.lo.min(p.floor().as_ivec3()), hi: b.hi.max(p.ceil().as_ivec3()) })
     }
 
     fn join(self, o: Self) -> Self {
         Self { lo: self.lo.min(o.lo), hi: self.hi.max(o.hi) }
     }
-
-    fn is_empty(&self) -> bool {
-        self.lo.x > self.hi.x
-    }
 }
 
-/// `boxes` joined by the blocks of `block` voxels their low corners lie
-/// in, in their order, until at most `MOST_BOXES` are left; none (the
-/// whole volume) when even blocks as big as `most` do not bring them down.
-fn fewer(boxes: Vec<Bounds>, most: i32) -> Vec<Bounds> {
-    let mut boxes = boxes;
+/// A grid of `size` cells, a point of the level `p` in it at
+/// `back · p + shift` (`back` a rotation and a scale), as a
+/// solid with its bits at `at`, and the box round it.
+fn solid(back: Mat3, shift: Vec3, size: IVec3, at: i32) -> (Solid, Bounds) {
+    let rows = back.transpose();
+    let row = |i: usize| [rows.col(i).x, rows.col(i).y, rows.col(i).z, shift[i]];
+    let to_level = back.inverse();
+    let corners = (0..8).map(|k| to_level * (IVec3::new(k & 1, k >> 1 & 1, k >> 2) * size).as_vec3() - to_level * shift);
+    (Solid { to_grid: [row(0), row(1), row(2)], grid: [size.x, size.y, size.z, at] }, Bounds::round(corners))
+}
+
+/// A model's voxels as a grid in its own directions: its low corner, its
+/// cells each way and where its bits begin in `Movers::bits`.
+#[derive(Clone, Copy)]
+struct Grid {
+    lo: IVec3,
+    size: IVec3,
+    at: i32,
+}
+
+/// A box and the solids in it.
+type Group = (Bounds, Vec<Solid>);
+
+/// The grid of a model's voxels (`range` in the bank), its bits written
+/// into `bits`; none when it holds no voxel that stops a lamp (a voxel that
+/// glows does not: a lamp's bulb does not stop its own light).
+fn grid_of(bank: &ModelBank, range: std::ops::Range<u32>, bits: &mut Vec<u32>) -> Option<Grid> {
+    let voxels = bank.voxels.get(range.start as usize..range.end as usize)?;
+    let cells = || voxels.iter().filter(|v| v.fx[FX_GLOW] == 0).map(|v| IVec3::new(v.pos_size[0] as i32, v.pos_size[1] as i32, v.pos_size[2] as i32));
+    let (lo, hi) = cells().fold((IVec3::MAX, IVec3::MIN), |(lo, hi), c| (lo.min(c), hi.max(c)));
+    if lo.x > hi.x {
+        return None;
+    }
+    let size = hi - lo + 1;
+    let at = bits.len();
+    bits.resize(at + (size.x as usize * size.y as usize * size.z as usize).div_ceil(32), 0);
+    for c in cells() {
+        let i = ((c.z - lo.z) * size.y + c.y - lo.y) as usize * size.x as usize + (c.x - lo.x) as usize;
+        bits[at + i / 32] |= 1 << (i % 32);
+    }
+    Some(Grid { lo, size, at: at as i32 })
+}
+
+/// A draw of a model (its `grid`) as a solid placed as the shader places
+/// its voxels
+/// (`vs_model`, `model_corner`): a point `u` of the model's own grid (a
+/// voxel `l` from `l` to `l + 1`) lies in the level at
+/// `origin + shift + rot · (Q · (u - ½) + ½)`, `Q` its quarter turns.
+fn draw_solid(draw: &ModelDraw, grid: Grid) -> (Solid, Bounds) {
+    let q = |x, y| {
+        let (x, y) = quarter(x, y, draw.turn);
+        Vec3::new(x as f32, y as f32, 0.0)
+    };
+    let turn = Mat3::from_quat(draw.rot) * Mat3::from_cols(q(1, 0), q(0, 1), Vec3::Z);
+    let half = Vec3::splat(0.5);
+    let place = draw.origin + draw.shift + draw.rot * half - turn * half;
+    // grid = turnᵀ · (voxel - place) - lo
+    let back = turn.transpose();
+    solid(back, -(back * place) - grid.lo.as_vec3(), grid.size, grid.at)
+}
+
+/// An opaque cube that does not glow as a solid of one cell its size (its
+/// bits `FULL`): a point `g` of its grid lies in the level at
+/// `centre + turn · size · (g - ½)`, as the shader draws it (`vs_inst`).
+fn cube_solid(c: &Instance) -> Option<(Solid, Bounds)> {
+    if c.fx[FX_GLOW] > 0 || c.fx[FX_OPACITY] < 255 {
+        return None;
+    }
+    let [x, y, z, size] = c.pos_size;
+    let turn = if c.turn == [0; 4] { Quat::IDENTITY } else { Quat::from_array(c.turn.map(|v| v as f32 / 127.0)).normalize() };
+    let back = Mat3::from_quat(turn).transpose() * (1.0 / size);
+    Some(solid(back, Vec3::splat(0.5) - back * Vec3::new(x, y, z), IVec3::ONE, FULL))
+}
+
+/// `groups` (a box and its solids) joined by the blocks of their low
+/// corners, ever larger, in their order, until at most `MOST_BOXES` are
+/// left.
+fn fewer(mut groups: Vec<Group>) -> Vec<Group> {
     let mut block = CUBE_BLOCK * 2;
-    while boxes.len() > MOST_BOXES {
-        if block > most {
-            return Vec::new();
-        }
-        let mut joined: Vec<(IVec3, Bounds)> = Vec::new();
-        for b in boxes {
+    while groups.len() > MOST_BOXES {
+        let mut joined: Vec<(IVec3, Group)> = Vec::new();
+        for (b, solids) in groups {
             let key = b.lo.div_euclid(IVec3::splat(block));
             match joined.iter_mut().find(|(k, _)| *k == key) {
-                Some((_, j)) => *j = j.join(b),
-                None => joined.push((key, b)),
+                Some((_, (j, s))) => {
+                    *j = j.join(b);
+                    s.extend(solids);
+                }
+                None => joined.push((key, (b, solids))),
             }
         }
-        boxes = joined.into_iter().map(|(_, b)| b).collect();
+        groups = joined.into_iter().map(|(_, g)| g).collect();
         block *= 2;
     }
-    boxes
+    groups
 }
 
 impl Movers {
-    /// The volume of the things `things` (each one's draws from `bank`)
-    /// and the cubes `cubes`: None when they fill no cell; a mistake, in
-    /// words, when they lie too far apart for `MOST_BYTES` or the GPU's 3D
-    /// textures (`most` texels each way).
-    pub fn of(bank: &ModelBank, things: &[Vec<ModelDraw>], cubes: &[Instance], most: u32) -> Option<Result<Self, String>> {
-        let mut filled = Vec::new();
-        let mut boxes = Vec::new();
+    /// The solids of the things `things` (each one's draws from `bank`)
+    /// and the cubes `cubes`: None when none stops a lamp; a mistake, in
+    /// words, when they take more than `MOST_BYTES`.
+    pub fn of(bank: &ModelBank, things: &[Vec<ModelDraw>], cubes: &[Instance]) -> Option<Result<Self, String>> {
+        let mut bits = vec![1u32];
+        let mut grids: std::collections::HashMap<(u32, u32), Option<Grid>> = Default::default();
+        let mut groups: Vec<Group> = Vec::new();
         for draws in things {
-            let mut b = Bounds::NONE;
-            for c in fill(|put, lost| {
-                for d in draws {
-                    draw_cells(bank, d, put, lost);
+            let (mut b, mut solids) = (Bounds::NONE, Vec::new());
+            for d in draws {
+                let grid = *grids.entry((d.voxels.start, d.voxels.end)).or_insert_with(|| grid_of(bank, d.voxels.clone(), &mut bits));
+                if let Some(grid) = grid {
+                    let (s, sb) = draw_solid(d, grid);
+                    b = b.join(sb);
+                    solids.push(s);
                 }
-            }) {
-                b.put(c);
-                filled.push(c);
             }
-            if !b.is_empty() {
-                boxes.push(b);
+            if !solids.is_empty() {
+                groups.push((b, solids));
             }
         }
-        // The cubes boxed by the blocks they lie in.
-        let mut blocks: Vec<(IVec3, Bounds)> = Vec::new();
-        for c in fill(|put, lost| {
-            for c in cubes {
-                cube_cells(c, put, lost);
-            }
-        }) {
-            filled.push(c);
-            let key = c.div_euclid(IVec3::splat(CUBE_BLOCK));
-            match blocks.last_mut().filter(|(k, _)| *k == key) {
-                Some((_, b)) => b.put(c),
-                None => match blocks.iter_mut().find(|(k, _)| *k == key) {
-                    Some((_, b)) => b.put(c),
-                    None => {
-                        let mut b = Bounds::NONE;
-                        b.put(c);
-                        blocks.push((key, b));
-                    }
-                },
+        // The cubes boxed by the blocks their middles lie in.
+        let mut blocks: Vec<(IVec3, Group)> = Vec::new();
+        for c in cubes {
+            let Some((s, sb)) = cube_solid(c) else { continue };
+            let key = Vec3::from_slice(&c.pos_size[..3]).floor().as_ivec3().div_euclid(IVec3::splat(CUBE_BLOCK));
+            match blocks.iter_mut().rev().find(|(k, _)| *k == key) {
+                Some((_, (b, solids))) => {
+                    *b = b.join(sb);
+                    solids.push(s);
+                }
+                None => blocks.push((key, (sb, vec![s]))),
             }
         }
-        boxes.extend(blocks.into_iter().map(|(_, b)| b));
-        if filled.is_empty() {
+        groups.extend(blocks.into_iter().map(|(_, g)| g));
+        if groups.is_empty() {
             return None;
         }
-        let all = boxes.iter().fold(Bounds::NONE, |a, b| a.join(*b));
-        let origin = all.lo.div_euclid(IVec3::splat(BLOCK_VOXELS)) * BLOCK_VOXELS;
-        let end = (all.hi + 1 + BLOCK_VOXELS - 1).div_euclid(IVec3::splat(BLOCK_VOXELS)) * BLOCK_VOXELS;
-        let reach = Reach { origin, texels: (end - origin) / 2 };
-        let (t, v) = (reach.texels, reach.texels * 2);
-        if reach.bytes() > MOST_BYTES || t.max_element() as u32 > most {
-            return Some(Err(format!("moving things stop no lamp: they lie {} by {} by {} voxels apart, past what their volume holds ({} MB, {} voxels each way)", v.x, v.y, v.z, MOST_BYTES >> 20, most * 2)));
+        let groups = fewer(groups);
+        let count: usize = groups.iter().map(|(_, s)| s.len()).sum();
+        if count * size_of::<Solid>() + bits.len() * 4 > MOST_BYTES {
+            return Some(Err(format!("moving things stop no lamp: their {count} models and cubes take more than {} MB", MOST_BYTES >> 20)));
         }
-        let mut copies = vec![vec![0u8; (t.x * t.y * t.z) as usize]];
-        for c in filled {
-            let tc: IVec3 = (c - origin) >> 1;
-            copies[0][(tc.x + t.x * (tc.y + t.y * tc.z)) as usize] |= 1 << ((c.x & 1) | (c.y & 1) << 1 | (c.z & 1) << 2);
-        }
-        for m in 1..LEVELS as i32 {
-            copies.push(vec![0; ((t.x >> m) * (t.y >> m) * (t.z >> m)) as usize]);
-        }
-        coarsen(&mut copies, t, IVec3::ZERO, t);
-        let boxes: Vec<[i32; 8]> = fewer(boxes, v.max_element()).iter().map(|b| {
-            let (lo, hi) = (b.lo - origin, b.hi + 1 - origin);
-            [lo.x, lo.y, lo.z, 0, hi.x, hi.y, hi.z, 0]
-        }).collect();
-        let mut h = crate::hash::Stable::default();
-        h.u64(origin.x as u64).u64(origin.y as u64).u64(origin.z as u64).u64(t.x as u64).u64(t.y as u64).u64(t.z as u64).bytes(&copies[0]);
-        h.bytes(bytemuck::cast_slice(&boxes));
-        Some(Ok(Self { reach, copies, boxes, key: h.finish() }))
+        let mut solids = Vec::with_capacity(count);
+        let boxes = groups
+            .into_iter()
+            .map(|(b, s)| {
+                let first = solids.len() as i32;
+                solids.extend(s);
+                [b.lo.x, b.lo.y, b.lo.z, first, b.hi.x, b.hi.y, b.hi.z, solids.len() as i32 - first]
+            })
+            .collect();
+        let key = crate::hash::Stable::default().bytes(bytemuck::cast_slice(&bits)).finish();
+        Some(Ok(Self { boxes, solids, bits, key }))
     }
 }
 
 /// The most entries the lights' lists of boxes take (`Movers::lists`): a
-/// light past them walks the whole volume.
+/// light past them walks every box.
 pub const MOST_LISTED: usize = 1 << 16;
 
-/// A light's word for the boxes it walks (`lists`) meaning all of the
-/// volume.
+/// A light's word for the boxes it walks (`lists`) meaning every one.
 const EVERY_BOX: u32 = 255;
 
 impl Movers {
@@ -284,12 +253,11 @@ impl Movers {
     /// a spot, its cone), one light's after another in the list given
     /// back, and each light's word for the shaders (`LightData`'s `edge.y`
     /// of a lamp whose shadows are "all"): 2, plus where its boxes begin
-    /// times 256, plus how many (255: every one, the whole volume walked);
-    /// None for the others. A box a light cannot reach casts nothing for
-    /// it, so the walks test a few boxes a light, not all of them.
+    /// times 256, plus how many (255: every one walked); None for the
+    /// others. A box a light cannot reach casts nothing for it, so the
+    /// walks test a few boxes a light, not all of them.
     pub fn lists(&self, lights: &[Light]) -> (Vec<u32>, Vec<Option<f32>>) {
         let mut list = Vec::new();
-        let corner = self.reach.origin.as_vec3();
         let words = lights
             .iter()
             .map(|l| {
@@ -297,16 +265,13 @@ impl Movers {
                     return None;
                 }
                 let start = list.len();
-                if !self.boxes.is_empty() {
-                    for (k, b) in self.boxes.iter().enumerate() {
-                        let (lo, hi) = (corner + Vec3::new(b[0] as f32, b[1] as f32, b[2] as f32), corner + Vec3::new(b[4] as f32, b[5] as f32, b[6] as f32));
-                        if lit(l, lo, hi) {
-                            list.push(k as u32);
-                        }
+                for (k, b) in self.boxes.iter().enumerate() {
+                    if lit(l, IVec3::new(b[0], b[1], b[2]).as_vec3(), IVec3::new(b[4], b[5], b[6]).as_vec3()) {
+                        list.push(k as u32);
                     }
                 }
                 let count = list.len() - start;
-                let code = if self.boxes.is_empty() || count >= EVERY_BOX as usize || list.len() > MOST_LISTED {
+                let code = if count >= EVERY_BOX as usize || list.len() > MOST_LISTED {
                     list.truncate(start);
                     EVERY_BOX
                 } else {
@@ -347,73 +312,120 @@ mod tests {
         Instance { pos_size: at.extend(1.0).to_array(), color: [255; 4], fx, shade: [0; 4], turn }
     }
 
-    fn filled(m: &Movers, c: IVec3) -> bool {
-        let tc: IVec3 = (c - m.reach.origin) >> 1;
-        let t = m.reach.texels;
-        m.copies[0][(tc.x + t.x * (tc.y + t.y * tc.z)) as usize] >> ((c.x & 1) | (c.y & 1) << 1 | (c.z & 1) << 2) & 1 == 1
+    /// Where the point `p` of the level lies in the solid's grid.
+    fn in_grid(s: &Solid, p: Vec3) -> Vec3 {
+        Vec3::from_array(s.to_grid.map(|r| r[0] * p.x + r[1] * p.y + r[2] * p.z + r[3]))
     }
 
-    /// A cube a voxel big fills its cell; turned, the cells whose middles
-    /// it holds; glowing or see-through, none. The box is whole blocks
-    /// round what fills it, its coarse copies holding what lies below.
+    /// Whether the solid holds the point `p` of the level (in a voxel of
+    /// its own).
+    fn holds(m: &Movers, s: &Solid, p: Vec3) -> bool {
+        let g = in_grid(s, p).floor().as_ivec3();
+        let size = IVec3::new(s.grid[0], s.grid[1], s.grid[2]);
+        if g.min_element() < 0 || (size - g).min_element() <= 0 {
+            return false;
+        }
+        let i = ((g.z * size.y + g.y) * size.x + g.x) as usize;
+        m.bits[s.grid[3] as usize + i / 32] >> (i % 32) & 1 == 1
+    }
+
+    /// A cube is a solid of one cell its size, turned as it is drawn: it
+    /// holds the points within it, no more; glowing or see-through it is
+    /// none. Its box is round it; cubes are boxed by the blocks they lie
+    /// in.
     #[test]
-    fn the_moving_things_fill_their_cells() {
+    fn a_cube_is_a_solid_as_it_is_drawn() {
         let bank = ModelBank::default();
-        let m = Movers::of(&bank, &[], &[cube(Vec3::new(70.5, 3.5, 9.5), [0; 4], 255, 0), cube(Vec3::new(5.5, 5.5, 5.5), [0; 4], 100, 0), cube(Vec3::new(9.5, 9.5, 9.5), [0; 4], 255, 9)], 2048).unwrap().unwrap();
-        assert_eq!((m.reach.origin, m.reach.texels * 2), (IVec3::new(64, 0, 0), IVec3::splat(64)), "the one opaque cube's block");
-        assert!(filled(&m, IVec3::new(70, 3, 9)) && !filled(&m, IVec3::new(71, 3, 9)));
-        assert_eq!(m.boxes, vec![[6, 3, 9, 0, 7, 4, 10, 0]], "its box, from the volume's corner");
-        assert_eq!(m.copies.len(), LEVELS as usize);
-        assert!(m.copies[LEVELS as usize - 1].iter().any(|b| *b != 0), "the coarsest copy holds it");
-        // Turned an eighth round its middle: at a cell's middle only its
-        // own cell; 0.4 off it, the middles of that cell and the next (its
-        // corner reaches 0.71 along the axes); none grown round it.
-        let count = |at: Vec3, turn| {
-            let m = Movers::of(&bank, &[], &[cube(at, turn, 255, 0)], 2048).unwrap().unwrap();
-            m.copies[0].iter().map(|b| b.count_ones()).sum::<u32>()
-        };
+        let m = Movers::of(&bank, &[], &[cube(Vec3::new(70.5, 3.5, 9.5), [0; 4], 255, 0), cube(Vec3::new(5.5, 5.5, 5.5), [0; 4], 100, 0), cube(Vec3::new(9.5, 9.5, 9.5), [0; 4], 255, 9)]).unwrap().unwrap();
+        assert_eq!(m.solids.len(), 1, "only the opaque cube that does not glow");
+        assert_eq!(m.boxes, vec![[70, 3, 9, 0, 71, 4, 10, 1]], "its box, its solid");
+        let s = &m.solids[0];
+        assert!(holds(&m, s, Vec3::new(70.1, 3.9, 9.5)) && !holds(&m, s, Vec3::new(71.1, 3.5, 9.5)));
+        // Turned an eighth round: its corner reaches 0.71 along the axes,
+        // the middle of a side 0.5.
         let eighth = crate::render::snorm_turn(Quat::from_rotation_z(std::f32::consts::FRAC_PI_4));
-        assert_eq!(count(Vec3::new(70.5, 3.5, 9.5), eighth), 1);
-        assert_eq!(count(Vec3::new(70.9, 3.5, 9.5), eighth), 2);
-        assert_eq!(count(Vec3::new(70.9, 3.5, 9.5), [0; 4]), 1, "on the grid: its middle's cell");
-        assert!(Movers::of(&bank, &[], &[cube(Vec3::ZERO, [0; 4], 0, 0)], 2048).is_none(), "nothing opaque: no volume");
-        let far = Movers::of(&bank, &[], &[cube(Vec3::new(0.5, 0.5, 0.5), [0; 4], 255, 0), cube(Vec3::new(4000.5, 4000.5, 100.5), [0; 4], 255, 0)], 2048).unwrap();
-        assert!(far.is_err_and(|e| e.contains("moving things stop no lamp")));
+        let m = Movers::of(&bank, &[], &[cube(Vec3::new(70.5, 3.5, 9.5), eighth, 255, 0)]).unwrap().unwrap();
+        let s = &m.solids[0];
+        assert!(holds(&m, s, Vec3::new(71.15, 3.5, 9.5)), "its corner, past the cell");
+        assert!(!holds(&m, s, Vec3::new(70.95, 3.95, 9.5)), "beside its side, within the cell");
+        assert!(Movers::of(&bank, &[], &[cube(Vec3::ZERO, [0; 4], 0, 0)]).is_none(), "nothing opaque: none");
     }
 
-    /// A cube turned so that it holds no cell's middle (an eighth round,
-    /// its middle at a cell's corner) still fills its middle's cell: alone,
-    /// or in a rod of such cubes along x a voxel apart; a turned body's
-    /// cells are those its voxels' middles fill, nothing grown round them
-    /// (its lost voxels lie by its cells).
+    /// A model drawn is a solid of its voxels in its own grid, placed as
+    /// the shader places them: on the grid each voxel's own cell, a
+    /// quarter turned the same, turned freely its voxels' middles where
+    /// `turned_centre` puts them. A voxel that glows stops nothing.
+    #[test]
+    fn a_model_is_a_solid_as_it_is_drawn() {
+        let text = "format = \"voxcade voxel 1\"\nsize = [3, 2, 2]\n\n[palette]\na = \"#b04030\"\ng = { color = \"#f0d060\", glow = 0.8 }\n\n[[frame]]\nlayers = \"\"\"\naag\na..\n\na..\n...\n\"\"\"\n";
+        let mut model = crate::vvx::read(text).unwrap();
+        let mut bank = ModelBank::default();
+        bank.add(&mut model);
+        let range = 0..bank.voxels.len() as u32;
+        let voxels: Vec<Vec3> = bank.voxels.iter().filter(|v| v.fx[FX_GLOW] == 0).map(|v| Vec3::new(v.pos_size[0], v.pos_size[1], v.pos_size[2])).collect();
+        assert_eq!(voxels.len(), 4, "the model's voxels but the glowing one");
+        let rot = Quat::from_rotation_z(0.4) * Quat::from_rotation_x(0.3);
+        for (turn, rot, shift) in [(0, Quat::IDENTITY, Vec3::ZERO), (1, Quat::IDENTITY, Vec3::ZERO), (3, Quat::IDENTITY, Vec3::ZERO), (2, rot, Vec3::new(0.3, -0.2, 0.1))] {
+            let draw = ModelDraw { voxels: range.clone(), origin: Vec3::new(20.0, 30.0, 4.0), turn, rot, shift, tint: None, nearer: 0.0, shadow_only: false };
+            let m = Movers::of(&bank, &[vec![draw.clone()]], &[]).unwrap().unwrap();
+            assert_eq!(m.solids.len(), 1);
+            let s = &m.solids[0];
+            for v in &voxels {
+                let (x, y) = quarter(v.x as i32, v.y as i32, turn);
+                let middle = crate::render::turned_centre(draw.origin, Vec3::new(x as f32, y as f32, v.z), shift, rot);
+                assert!(holds(&m, s, middle), "turn {turn}: the voxel at {v} in its middle {middle}");
+                assert!((in_grid(s, middle).fract() - Vec3::splat(0.5)).abs().max_element() < 1e-4, "turn {turn}: a voxel's middle is its cell's");
+            }
+            let all: usize = m.bits[1..].iter().map(|b| b.count_ones() as usize).sum();
+            assert_eq!(all, 4, "turn {turn}: its four voxels, not the glowing one");
+            let b = m.boxes[0];
+            for v in &voxels {
+                let (x, y) = quarter(v.x as i32, v.y as i32, turn);
+                let middle = crate::render::turned_centre(draw.origin, Vec3::new(x as f32, y as f32, v.z), shift, rot);
+                assert!(middle.cmpge(IVec3::new(b[0], b[1], b[2]).as_vec3()).all() && middle.cmple(IVec3::new(b[4], b[5], b[6]).as_vec3()).all(), "turn {turn}: the box holds {middle}");
+            }
+        }
+    }
+
+    /// The smallest turned thing still stops a lamp: a cube turned an
+    /// eighth round with its middle at a cell's corner (it holds no cell's
+    /// middle, which once left it out) holds the points round its middle,
+    /// alone or in a rod of such cubes a voxel apart; a turned body holds
+    /// its own voxels' points and nothing grown round them.
     #[test]
     fn the_smallest_turned_thing_still_fills_a_cell() {
         let bank = ModelBank::default();
-        let eighth = crate::render::snorm_turn(Quat::from_rotation_z(std::f32::consts::FRAC_PI_4));
-        let mut none = 0;
-        cells(Vec3::new(71.0, 4.0, 9.5), Some(Quat::from_rotation_z(std::f32::consts::FRAC_PI_4)), |_| none += 1);
-        assert_eq!(none, 0, "no cell's middle in it");
-        let m = Movers::of(&bank, &[], &[cube(Vec3::new(71.0, 4.0, 9.5), eighth, 255, 0)], 2048).expect("it fills a cell").unwrap();
-        assert!(filled(&m, IVec3::new(71, 4, 9)), "its middle's cell");
-        assert_eq!(m.copies[0].iter().map(|b| b.count_ones()).sum::<u32>(), 1);
-        let rod: Vec<Instance> = (0..6).map(|i| cube(Vec3::new(71.0 + 2.0 * i as f32, 4.0, 9.5), eighth, 255, 0)).collect();
-        let m = Movers::of(&bank, &[], &rod, 2048).unwrap().unwrap();
-        assert!((0..6).all(|i| filled(&m, IVec3::new(71 + 2 * i, 4, 9))), "every cube of the rod");
-        // A body 6 by 6 by 6 turned an eighth: the cells of its voxels'
-        // middles, no more.
         let rot = Quat::from_rotation_z(std::f32::consts::FRAC_PI_4);
-        let body: Vec<Instance> = (0..216).map(|i| {
-            let at = Vec3::new(40.0, 40.0, 10.0) + rot * Vec3::new((i % 6) as f32, (i / 6 % 6) as f32, (i / 36) as f32);
-            cube(at, crate::render::snorm_turn(rot), 255, 0)
-        }).collect();
-        let mut own = crate::world::CellSet::default();
-        for c in &body {
-            cells(Vec3::from_slice(&c.pos_size[..3]), Some(Quat::from_array(c.turn.map(|v| v as f32 / 127.0)).normalize()), |c| {
-                own.insert(c);
-            });
+        let eighth = crate::render::snorm_turn(rot);
+        let rod: Vec<Instance> = (0..6).map(|i| cube(Vec3::new(71.0 + 2.0 * i as f32, 4.0, 9.5), eighth, 255, 0)).collect();
+        let m = Movers::of(&bank, &[], &rod).expect("it stops lamps").unwrap();
+        for (i, s) in m.solids.iter().enumerate() {
+            let middle = Vec3::new(71.0 + 2.0 * i as f32, 4.0, 9.5);
+            assert!(holds(&m, s, middle) && holds(&m, s, middle + Vec3::new(0.6, 0.0, 0.0)), "the rod's cube {i} round its middle");
+            assert!(!holds(&m, s, middle + Vec3::new(0.4, 0.4, 0.0)), "the rod's cube {i}: nothing past its side");
         }
-        let m = Movers::of(&bank, &[], &body, 2048).unwrap().unwrap();
-        assert_eq!(m.copies[0].iter().map(|b| b.count_ones()).sum::<u32>() as usize, own.len(), "nothing grown round the body");
+        // A body 6 by 6 by 6 turned an eighth: the points within its
+        // voxels, none a tenth of a voxel past its faces.
+        let body: Vec<Instance> = (0..216).map(|i| cube(Vec3::new(40.0, 40.0, 10.0) + rot * Vec3::new((i % 6) as f32, (i / 6 % 6) as f32, (i / 36) as f32), eighth, 255, 0)).collect();
+        let m = Movers::of(&bank, &[], &body).unwrap().unwrap();
+        let held = |p: Vec3| m.solids.iter().any(|s| holds(&m, s, p));
+        for k in 0..6 {
+            let inner = Vec3::new(40.0, 40.0, 10.0) + rot * Vec3::new(k as f32, 2.0, 2.0);
+            assert!(held(inner), "inside the body at {inner}");
+            assert!(!held(Vec3::new(40.0, 40.0, 10.0) + rot * Vec3::new(k as f32, -0.6, 2.0)), "outside its face");
+        }
+    }
+
+    /// Many things are boxed together by the blocks they lie in until at
+    /// most `MOST_BOXES` boxes are left, every solid in one of them.
+    #[test]
+    fn many_things_are_boxed_together() {
+        let bank = ModelBank::default();
+        let cubes: Vec<Instance> = (0..40).flat_map(|x| (0..40).map(move |y| cube(Vec3::new(x as f32 * 9.0 + 0.5, y as f32 * 9.0 + 0.5, 1.5), [0; 4], 255, 0))).collect();
+        let m = Movers::of(&bank, &[], &cubes).unwrap().unwrap();
+        assert!(m.boxes.len() <= MOST_BOXES, "{} boxes", m.boxes.len());
+        assert_eq!(m.boxes.iter().map(|b| b[7]).sum::<i32>() as usize, cubes.len());
+        assert_eq!(m.solids.len(), cubes.len());
     }
 
     /// A lamp whose shadows are "all" lists the boxes it can light: a spot
@@ -424,7 +436,7 @@ mod tests {
     fn a_lamp_lists_the_boxes_it_can_light() {
         use crate::render::{LampShadows, LightShape};
         let bank = ModelBank::default();
-        let m = Movers::of(&bank, &[], &[cube(Vec3::new(10.5, 10.5, 1.5), [0; 4], 255, 0), cube(Vec3::new(40.5, 10.5, 1.5), [0; 4], 255, 0), cube(Vec3::new(200.5, 10.5, 1.5), [0; 4], 255, 0)], 2048).unwrap().unwrap();
+        let m = Movers::of(&bank, &[], &[cube(Vec3::new(10.5, 10.5, 1.5), [0; 4], 255, 0), cube(Vec3::new(40.5, 10.5, 1.5), [0; 4], 255, 0), cube(Vec3::new(200.5, 10.5, 1.5), [0; 4], 255, 0)]).unwrap().unwrap();
         assert_eq!(m.boxes.len(), 3);
         let spot = Light::lamp(Vec3::new(10.5, 10.5, 20.0), 60.0, [1.0; 3], &LightShape { cone: Some(30.0), pitch: -90.0, ..Default::default() }, |w| w).stated(LampShadows::All);
         let round = Light { spot: None, ..spot };
@@ -432,32 +444,5 @@ mod tests {
         let (list, words) = m.lists(&[spot, round, Light { shadows: Some(LampShadows::Static), ..other }]);
         assert_eq!(list, vec![0, 0, 1], "the spot the box under it; the round lamp both in reach, not the one 190 voxels off");
         assert_eq!(words, vec![Some(2.0 + 1.0), Some(2.0 + (1 << 8 | 2) as f32), None]);
-    }
-
-    /// A slab a voxel thick, turned any way, leaves no way through it but
-    /// along the edges and corners its cells touch at (which the walks
-    /// close): every line across it meets a filled cell or such a touch.
-    /// Checked here as every cell of the slab's middle plane having a
-    /// filled cell within one step, faces, edges or corners.
-    #[test]
-    fn a_turned_slab_a_voxel_thick_leaves_no_gap() {
-        for (yaw, pitch) in [(0.3f32, 0.0f32), (0.785, 0.0), (0.6, 0.5), (0.785, 0.615), (1.2, 0.2)] {
-            let rot = Quat::from_rotation_z(yaw) * Quat::from_rotation_x(pitch);
-            let mut set = crate::world::CellSet::default();
-            for v in -8..=8 {
-                for u in -8..=8 {
-                    cells(Vec3::new(40.0, 40.0, 40.0) + rot * Vec3::new(u as f32, v as f32, 0.0), Some(rot), |c| {
-                        set.insert(c);
-                    });
-                }
-            }
-            for v in -5..=5 {
-                for u in -5..=5 {
-                    let p = (Vec3::new(40.0, 40.0, 40.0) + rot * Vec3::new(u as f32 + 0.5, v as f32 + 0.5, 0.0)).floor().as_ivec3();
-                    let near = (-1..=1).any(|z| (-1..=1).any(|y| (-1..=1).any(|x| set.contains(&(p + IVec3::new(x, y, z))))));
-                    assert!(near, "yaw {yaw} pitch {pitch}: nothing filled round {p}");
-                }
-            }
-        }
     }
 }

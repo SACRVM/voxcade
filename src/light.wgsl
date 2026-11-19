@@ -3,6 +3,15 @@
 // aside. Written ahead of both (render::shader::SHADER, LAMPS), so the two
 // light alike.
 
+// A face's way to the moving things (lamps.wgsl's `movers_from`) begins
+// this far out of its middle; a voxel lit as a whole by the way its
+// surface faces (smooth) a voxel out of its own middle along that way, for
+// every face alike. A face off the grid writes where (fs_main_lamps) from
+// the corner of the cell in front of it, in 256ths from MOVERS_FROM below
+// it.
+const FACE_OUT: f32 = 0.25;
+const MOVERS_FROM: f32 = 1.5;
+
 struct Light {
     // xyz: position, w: radius
     pos_radius: vec4<f32>,

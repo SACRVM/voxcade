@@ -326,9 +326,10 @@ mod tests {
             ("dims", offset_of!(LampGlobals, dims)),
             ("origin", offset_of!(LampGlobals, origin)),
             ("info", offset_of!(LampGlobals, info)),
-            ("movers_dims", offset_of!(LampGlobals, movers_dims)),
-            ("movers_origin", offset_of!(LampGlobals, movers_origin)),
+            ("movers", offset_of!(LampGlobals, movers)),
         ];
+        use crate::render::movers::Solid;
+        let solid = [("to_grid", offset_of!(Solid, to_grid)), ("grid", offset_of!(Solid, grid))];
         let fog = [
             ("inv_view_proj", offset_of!(FogGlobals, inv_view_proj)),
             ("eye", offset_of!(FogGlobals, eye)),
@@ -339,12 +340,13 @@ mod tests {
             ("size", offset_of!(FogGlobals, size)),
         ];
         type Fields<'a> = &'a [(&'a str, usize)];
-        let pairs: [(&wgpu::naga::Module, &str, usize, Fields); 6] = [
+        let pairs: [(&wgpu::naga::Module, &str, usize, Fields); 7] = [
             (&scene, "Globals", size_of::<Globals>(), &globals),
             (&scene, "Light", size_of::<LightData>(), &light),
             (&scene, "Actor", size_of::<ActorData>(), &actor),
             (&post, "Post", size_of::<PostParams>(), &params),
             (&lamps, "Lamps", size_of::<LampGlobals>(), &lamp),
+            (&lamps, "Solid", size_of::<Solid>(), &solid),
             (&over, "Fog", size_of::<FogGlobals>(), &fog),
         ];
         for (module, name, size, rust) in pairs {

@@ -1598,17 +1598,22 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `frame:light{ ... }`; `render::LightShape`, `LIGHT_WORDS` the ranges,
   `Light::lamp`; the kits' flashes `Light::burst`, through walls as ever),
   `c.light.lamp_shadows`; `shadows` takes words, `"static"` (walls
-  stop it), `"all"` (moving things too: `render::movers`, a second bit
-  volume of the models and cubes drawn, gathered in view or not where an
-  "all" lamp reaches, `Drawing::movers`, made every picture, a cell
-  filled where its middle lies in a voxel, a turned voxel holding no
-  cell's middle its middle's cell where nothing of its thing lies round
-  it, `movers::fill`, test
-  `a_post_of_turned_cubes_stops_a_lamp_whose_shadows_are_all`; walked afresh after the walls'
-  kept answer, only within the boxes the lamp can light,
-  `Movers::lists`, a beam's ray only those that can shade it,
-  `shading`; `movers_from` and `RIM` against acne, `HOUSING`; tests
+  stop it), `"all"` (moving things too: `render::movers`, each model and
+  opaque cube drawn a solid of its own, its voxels as bits in its own
+  grid and the map into it as the shader places them (`movers::Solid`),
+  gathered in view or not where an "all" lamp reaches,
+  `Drawing::movers`, made every picture; walked afresh after the walls'
+  kept answer, each solid in its own grid, exactly, only those of the
+  boxes the lamp can light, `Movers::lists`, a beam's ray only those
+  that can shade it, `shading`; a face's way begins exactly at its
+  middle `FACE_OUT` out, a turned face's written by `fs_main_lamps`,
+  `movers_from`, a face turned from the lamp dark, `movers_stop_face`;
+  `HOUSING`; a part turning slowly shades each face once, test
+  `a_part_turning_slowly_shades_each_face_once` (until 2026-11-19 a
+  second bit volume, cells filled by their middles and asked from the
+  cell in front of a face: turned faces blinked); tests
   `a_moving_thing_stops_a_lamp_whose_shadows_are_all`,
+  `a_post_of_turned_cubes_stops_a_lamp_whose_shadows_are_all`,
   `what_moves_out_of_view_still_stops_a_lamp_whose_shadows_are_all`) or `"none"`
   (`render::LampShadows`; `true`/`false` are refused naming the word to
   write). `c.light.lamp_shadows` is the game's word for every
