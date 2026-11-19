@@ -13,10 +13,9 @@
 //!
 //! A shadow is the shape of what casts it, turned as it is drawn, nothing
 //! grown or lost: a thing turning slowly moves its shadow's edge smoothly,
-//! so a face changes once as the edge passes. Until 2026-11-19 the things
-//! filled the cells of a volume laid as the level's whose middles their
-//! turned voxels held: a turned arm a voxel thin left gaps between its
-//! cells that came and went as it turned, faces blinking for a picture.
+//! so a face changes once as the edge passes (cells of a grid laid as the
+//! level's, filled where they hold a turned voxel's middle, would leave
+//! gaps along a turned arm a voxel thin that come and go as it turns).
 //!
 //! Only the picture: nothing here is the game's.
 
@@ -415,9 +414,10 @@ mod tests {
 
     /// The smallest turned thing still stops a lamp: a cube turned an
     /// eighth round with its middle at a cell's corner (it holds no cell's
-    /// middle, which once left it out) holds the points round its middle,
-    /// alone or in a rod of such cubes a voxel apart; a turned body holds
-    /// its own voxels' points and nothing grown round them.
+    /// middle: cells filled by their middles would leave it out) holds the
+    /// points round its middle, alone or in a rod of such cubes a voxel
+    /// apart; a turned body holds its own voxels' points and nothing grown
+    /// round them.
     #[test]
     fn the_smallest_turned_thing_still_fills_a_cell() {
         let bank = ModelBank::default();

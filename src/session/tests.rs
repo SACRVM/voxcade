@@ -1557,9 +1557,9 @@ fn a_wall_stops_a_lamp_and_shadows_false_does_not() {
 
 /// On the GPU: a lamp flush with a wall's face (a wall 4 thick) lights its
 /// own side and none of the room behind; a lamp in its housing (a solid box
-/// of 3 round it) still shines out of it on every side. Until 2026-11-19
-/// each way left the solid voxels on its own, a way into the wall through
-/// it to the floor behind.
+/// of 3 round it) still shines out of it on every side. Each way leaving
+/// the solid voxels on its own would go into the wall and through it to the
+/// floor behind.
 #[test]
 fn a_lamp_flush_with_a_wall_lights_its_own_side_only() {
     let wall = (20..76).flat_map(|y| (48..52).flat_map(move |x| (1..16).map(move |z| IVec3::new(x, y, z))));
@@ -1983,10 +1983,10 @@ fn a_lamp_new_to_the_faces_memory_is_asked_for_first() {
 
 /// On the GPU: a lamp half a voxel over a long slab, 136 voxels from a
 /// wall 4 thick, lights none of the slab behind the wall, nor the fog's
-/// beam there: a way grazing a surface walks it to the wall. Until
-/// 2026-11-19 such a way went down a copy into the coarse cell holding the
-/// slab and up again at every voxel, two steps a voxel, and past its 256
-/// steps was taken as clear: the slab behind the wall was lit.
+/// beam there: a way grazing a surface walks it to the wall. Going down a
+/// copy into the coarse cell holding the slab and up again at every voxel,
+/// two steps a voxel, such a way would run out of a bound of 256 steps
+/// and be taken as clear: the slab behind the wall lit.
 #[test]
 fn a_way_grazing_a_long_surface_still_meets_the_wall() {
     let mut world = crate::sim::tests::flat_world(IVec3::new(320, 64, 24));
@@ -2209,11 +2209,11 @@ fn a_lamp_a_thing_carries_is_not_stopped_by_it() {
 /// edge passes it. A face's blink is a pixel's whose four neighbours
 /// blink with it while what it shows stays (the "static" picture there
 /// changing by `STEADY` levels at most a picture: an edge of the figure,
-/// or between two faces, passing a pixel is no blink). Until 2026-11-19 a
-/// turned face asked from the cell in front of it, which jumps a voxel as
-/// it moves, and what moved filled the cells whose middles its voxels
-/// held, a thin arm leaving gaps that came and went: faces blinked for a
-/// picture (170 pixels of them here).
+/// or between two faces, passing a pixel is no blink). A turned face
+/// asked from the cell in front of it, which jumps a voxel as it moves, or
+/// what moves filling the cells whose middles its voxels hold, a thin arm
+/// leaving gaps that come and go, blinks faces for a picture (170 pixels
+/// of them here).
 #[test]
 fn a_part_turning_slowly_shades_each_face_once() {
     use crate::render::{LampShadows, Light, LightShape};

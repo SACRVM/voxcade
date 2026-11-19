@@ -14,8 +14,10 @@ pub(super) struct LightData {
     pub(super) color: [f32; 4],
     /// xyz: a spot's way, w: the cosine of half its cone (-2: every way).
     pub(super) spot: [f32; 4],
-    /// x: the cosine within which the cone's edge is hard; y: 1 when walls
-    /// stop it (in the lamps' pass with walls only); z, w: its place's key.
+    /// x: the cosine within which the cone's edge is hard; y: what stops it
+    /// in the lamps' pass with walls (0: nothing, 1: walls, 2: what moves
+    /// too, plus its word for the moving things' boxes once they are known,
+    /// `lamps::Lamps::data_of`); z, w: its place's key.
     pub(super) edge: [f32; 4],
 }
 

@@ -61,7 +61,7 @@ pub struct FrameData {
     /// `instances`). Empty unless such a lamp is in the picture.
     pub lamp_movers: Vec<Mover>,
     /// The air's fog, if the picture has any (`Fog`): drawn by the lamps'
-    /// pass's picture (`render::fog`). None: as every picture before.
+    /// pass's picture (`render::fog`). None: no fog.
     pub fog: Option<super::Fog>,
     pub glow: f32,
     /// The shadow map's width and height (`light_vp` is snapped to it).
@@ -152,8 +152,8 @@ pub struct Stats {
     /// Vertices of every chunk mesh, drawn or not (what sits in GPU memory).
     pub vertices_total: usize,
     pub vertices: usize,
-    /// Lights drawn by the lamps' pass (0: by the scene's shader, as
-    /// before), whether walls stopped its lamps, the level's volume's bytes
+    /// Lights drawn by the lamps' pass (0: by the scene's shader alone),
+    /// whether walls stopped its lamps, the level's volume's bytes
     /// on the GPU and how long it took to make, ms, and the bytes of the
     /// faces' memory (`render::lamps`).
     pub lamps: usize,

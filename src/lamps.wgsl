@@ -475,13 +475,13 @@ const RIM: f32 = 2.0;
 // Whether a solid voxel lies on the way to the middle of the cell `cell`
 // (in front of a face) from where the lamp walks from (`start`, its row's
 // LAMP_FROM: the lamp itself, or out of the solid voxels it sits in; w 1:
-// buried, stopped everywhere): walked through the cells,
-// past empty space by the coarser copies, begun at the copy whose cells are
-// about as long as the way; down a copy into a cell holding anything, up
-// one only once out of the cell above the one just left (back into a cell
-// found solid, a way grazing a floor went down and up again at every voxel
-// and took two steps a voxel). Its steps are bounded by its cells, twice
-// those along it at copy 0: past them, which no way reaches, stopped.
+// buried, stopped everywhere): walked through the cells, past empty space
+// by the coarser copies, begun at the copy whose cells are about as long
+// as the way; down a copy into a cell holding anything, up one only once
+// out of the cell above the one just left (not back into a cell found
+// solid: a way grazing a floor would go down and up again at every voxel,
+// two steps a voxel). Its steps are bounded by its cells, twice those
+// along it at copy 0: past them, which no way reaches, stopped.
 fn walk(cell: vec3<i32>, off: u32, start: vec4<f32>) -> bool {
     if (start.w > 0.5) {
         return true;
@@ -558,21 +558,21 @@ fn walk(cell: vec3<i32>, off: u32, start: vec4<f32>) -> bool {
 // bits) and a second key (16 bits, never 0); then the counts of answers
 // that found the memory crowded (GROW_AT) and of those that found no room
 // (render::lamps makes it larger, or says it). An entry not asked this
-// picture or the last (STALE) makes room and is walked again:
-// everything a picture shows is asked every picture, and a lamp that moves
-// asks under a new key each picture, so its old entries go at once (they
-// stayed 8 pictures and, with two headlights in fog, filled the memory). Plain loads and stores, no atomics: pixels of a face read through
-// the caches; an entry another pixel is writing reads as no answer by its
-// second key (a word of another face's matches one time in 65535), so every
-// answer is the walk's for its key and the picture does not depend on what
-// the memory holds.
+// picture or the last (STALE) makes room and is walked again: everything a
+// picture shows is asked every picture, and a lamp that moves asks under a
+// new key each picture, so its old entries go at once and two headlights
+// in fog do not fill the memory. Plain loads and stores, no atomics:
+// pixels of a face read through the caches; an entry another pixel is
+// writing reads as no answer by its second key (a word of another face's
+// matches one time in 65535), so every answer is the walk's for its key
+// and the picture does not depend on what the memory holds.
 const PROBES: u32 = 32u;
 // An answer finding no room within this many slots counts the memory as
 // crowded: render::lamps makes it larger while it is small for the
-// picture, so its lookups stay short. Grown only when one found no room
-// at all (within PROBES), a memory a quarter of the picture's pixels to
-// begin with stood crowded, and the beams of a hall in fog took 10 to 15 %
-// longer than with room to spare.
+// picture, so its lookups stay short (grown only when one finds no room at
+// all, within PROBES, a memory a quarter of the picture's pixels stays
+// crowded and the beams of a hall in fog take 10 to 15 % longer than with
+// room to spare).
 const GROW_AT: u32 = 8u;
 const STALE: u32 = 1u;
 
@@ -604,12 +604,12 @@ fn stopped(cell: vec3<i32>, off: u32, lamp: vec4<f32>, ids: vec2<u32>, lamp_ids:
     // The slot from the key's bits mixed again (the key is odd, `| 1`: the
     // even slots stood empty), the next ones a step apart that the second
     // key gives (odd, so every slot of a memory a power of two long comes
-    // in turn): one slot after the other, the entries of a full stretch
-    // crowded on, a few in a million found no room at 42 in 100 taken.
+    // in turn; one slot after the other, the entries of a full stretch
+    // crowd on, and at 42 in 100 taken a few in a million find no room).
     // (`faces` is a power of two: render::lamps::faces_for, grown twice as
     // large.) The first empty slot ends a lookup; a stale one does not: an
-    // answer behind it would be walked again and kept twice, and ended
-    // there the beams of a hall in fog took a quarter longer.
+    // answer behind it would be walked again and kept twice, and the beams
+    // of a hall in fog would take a quarter longer.
     var slot = (((key ^ (key >> 15u)) * 0x2c1b3c6du) ^ (key >> 13u)) & (faces - 1u);
     let hop = (tag >> 15u) | 1u;
     for (var i = 0u; i < PROBES; i += 1u) {

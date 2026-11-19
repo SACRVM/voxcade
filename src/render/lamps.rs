@@ -6,9 +6,10 @@
 //! (`fs_main_lamps`, each pixel's surface written beside its colour), then
 //! the screen in tiles, each drawn with the lights whose box reaches it,
 //! their light added onto the pixels there (each pixel's surface read once
-//! a tile), then the see-through cubes (lit as before by the nearest
-//! `FORWARD_LIGHTS`, through walls). Every other picture is drawn as before,
-//! by the scene's shader alone: a game without lamps pays nothing.
+//! a tile), then the see-through cubes (lit by the nearest
+//! `FORWARD_LIGHTS` in the scene's shader, through walls). Every other
+//! picture is drawn by the scene's shader alone: a game without lamps pays
+//! nothing.
 //!
 //! Walls: the level's solid voxels and its pieces' (`volume`) on the GPU,
 //! made when a picture first asks and brought up to date where the world
@@ -48,7 +49,7 @@ use super::{DEPTH_FORMAT, FORWARD_LIGHTS, FrameData, HDR_FORMAT, Light, MOST_LIG
 /// voxels along the beams more than by the pixels (a level of 1600 by 900
 /// voxels in fog with 16 lamps of radius 300 grows to 2^25 at 1920 by
 /// 1080, FOG HIGH). Room for them up front, 16 a pixel of the beams'
-/// target, took 134 MB for a small hall.
+/// target, would take 134 MB for a small hall.
 pub(super) fn faces_for(w: u32, h: u32) -> u64 {
     (u64::from(w) * u64::from(h) / 4).next_power_of_two().max(1 << 16)
 }
@@ -616,8 +617,8 @@ pub(super) fn rect_of(view_proj: &Mat4, l: &Light) -> Option<[f32; 4]> {
 
 impl Renderer {
     /// How this picture draws its lights: None by the scene's own shader
-    /// (as every picture did before 0.7: at most `FORWARD_LIGHTS`, none
-    /// walls stop), else by the lamps' pass, everything it needs made (the
+    /// (at most `FORWARD_LIGHTS`, none walls stop, no fog), else by the
+    /// lamps' pass, everything it needs made (the
     /// first time a picture asks) and the level's volume brought up to
     /// date. Walls stop its lamps where the GPU can and the level fits;
     /// else said once, they shine through.
@@ -983,8 +984,6 @@ fn lamps_full(faces: u64, count: u32) -> String {
 }
 
 impl Lamps {
-    /// What the pass reads, with walls (the volume and the faces' memory)
-    /// or without.
     /// The `i`th of the frame's lights as the shaders take it, walls
     /// stopping it where `walls` and it says so, from where it walks (the
     /// level's volume's `start`); a lamp whose shadows are "all" with its
@@ -1030,6 +1029,8 @@ impl Lamps {
         Ok(())
     }
 
+    /// What the pass reads, with walls (the volume, the faces' memory and
+    /// the moving things) or without.
     fn make_bind(&mut self, device: &wgpu::Device, walls: bool) -> wgpu::BindGroup {
         self.bound_walls = walls;
         let t = self.targets.as_ref().expect("made by lamps_of");

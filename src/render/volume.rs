@@ -352,8 +352,8 @@ impl Volume {
     /// a lantern's housing) the middle of the nearest open voxel within
     /// `HOUSING`, the first of equals by z, y, x, so a lamp flush with a
     /// wall shines on its own side only; None buried deeper (it lights
-    /// nothing). Each way leaving the solid on its own went through a wall
-    /// up to `HOUSING` thick to the room behind it.
+    /// nothing). One place for every way: each leaving the solid on its own
+    /// would go through a wall up to `HOUSING` thick to the room behind it.
     pub fn start(&self, pos: Vec3) -> Option<Vec3> {
         let at = pos.floor().as_ivec3();
         if !self.solid(at, 0) {

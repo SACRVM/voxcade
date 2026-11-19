@@ -10,9 +10,9 @@
 //! whose box reaches each, walls stopping a lamp's beam as they stop its
 //! light (the same volume and faces' memory). The composite then lays the
 //! fog over the scene before the UI (`fog_composite.wgsl`, a pipeline of its
-//! own: a picture without fog is put together as it always was): what the
-//! fog took, and the beams, each pixel of them weighed by how alike its
-//! depth is. The UI is never in fog.
+//! own: a picture without fog is put together by the plain composite):
+//! what the fog took, and the beams, each pixel of them weighed by how
+//! alike its depth is. The UI is never in fog.
 //!
 //! Glass and water (the see-through cubes) in a picture with fog: their
 //! depth is drawn first (`glass_pass`), the beams are worked out before
@@ -43,9 +43,9 @@ pub(super) struct FogGlobals {
     pub(super) eye: [f32; 4],
     /// rgb: the fog's colour, w: its anisotropy.
     pub(super) color: [f32; 4],
-    /// xyz: the air's low corner, w: the density the beams are lit by.
+    /// xyz: the air's low corner, w: unused.
     pub(super) lo: [f32; 4],
-    /// xyz: its high corner.
+    /// xyz: its high corner, w: the glow (`Fog::glow`).
     pub(super) hi: [f32; 4],
     /// xyz: the way the camera looks.
     pub(super) forward: [f32; 4],
