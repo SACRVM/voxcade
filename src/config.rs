@@ -940,7 +940,7 @@ pub struct FollowHeight {
 pub struct LightConfig {
     /// Direction the sunlight travels (towards the ground).
     pub sun: [f32; 3],
-    /// The sunlight's colour and strength, 0..1 per channel: white unless
+    /// The sunlight's color and strength, 0..1 per channel: white unless
     /// set (warm at dusk, a pale blue for the moon). A game's
     /// `frame:daylight` sets it for one picture.
     #[serde(deserialize_with = "color")]
@@ -949,12 +949,12 @@ pub struct LightConfig {
     pub ambient: f32,
     /// How much a shadow darkens sunlit faces, 0..1.
     pub shadow: f32,
-    /// Background colour, 0..1 per channel.
+    /// Background color, 0..1 per channel.
     #[serde(deserialize_with = "color")]
     pub sky: [f32; 3],
-    /// The sky metal mirrors: its colour at the horizon and overhead, 0..1
+    /// The sky metal mirrors: its color at the horizon and overhead, 0..1
     /// per channel (below the horizon it mirrors the ground, in the haze's
-    /// colour).
+    /// color).
     #[serde(deserialize_with = "color")]
     pub reflection_horizon: [f32; 3],
     /// The sky metal mirrors overhead, 0..1 per channel.
@@ -990,8 +990,10 @@ pub struct LightConfig {
     /// Fog in the level's air, how thick: 0 none, else a voxel of air
     /// takes this share of the light passing through (0.01: a third is
     /// left after 100 voxels). The lamps' light shows in it, a spot as a
-    /// beam, and what lies further fades to the fog's color. A game's
-    /// `frame:fog` sets it for one picture.
+    /// beam, and what lies further fades to the fog's color (0.004 is a
+    /// light haze in a big hall). By day give `fog_color` the sky's color,
+    /// or what lies further fades to a dark veil. A game's `frame:fog` sets
+    /// it for one picture.
     pub fog_density: f32,
     /// The fog's own color where no lamp lights it, 0..1 per channel.
     #[serde(deserialize_with = "color")]
