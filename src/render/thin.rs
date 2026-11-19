@@ -87,11 +87,13 @@ impl Thin {
     /// `hi` (level voxels), row by row: low and high corner, and the
     /// spacing its points need there (half the shortest of `RUNS` its
     /// runs are shorter than: a voxel's shadow is at least as thick as its
-    /// run).
+    /// run). Its rows only where blocks are: a box of any size (a light of
+    /// any radius) walks no more of them.
     pub fn near(&self, lo: Vec3, hi: Vec3, step: i32) -> Vec<(Vec3, Vec3, i32)> {
+        let (Some((&(first, ..), _)), Some((&(last, ..), _))) = (self.blocks.first_key_value(), self.blocks.last_key_value()) else { return Vec::new() };
         let (a, b) = (lo.floor().as_ivec3().div_euclid(IVec3::splat(BLOCK)) * BLOCK, hi.floor().as_ivec3());
         let mut out = Vec::new();
-        for y in (a.y..=b.y).step_by(BLOCK as usize) {
+        for y in (a.y.max(first)..=b.y.min(last)).step_by(BLOCK as usize) {
             for (&(_, x, z), w) in self.blocks.range((y, a.x, i32::MIN)..=(y, b.x, i32::MAX)) {
                 let thinnest = RUNS[(w.trailing_zeros() as usize).min(RUNS.len() - 1)];
                 if *w != 0 && thinnest <= step.min(THINNEST) && z >= a.z && z <= b.z {
@@ -308,6 +310,10 @@ mod tests {
         let (mut w, mut v) = volume_of(&[up(10, 10, 1, 1), up(30, 10, 2, 4), up(50, 10, 6, 6), up(70, 10, 1, 40), (IVec3::new(90, 20, 12), IVec3::new(1, 30, 1))]);
         let mut t = Thin::of(&v);
         assert_eq!(thin_at(&t, 4), [IVec3::new(8, 8, 0), IVec3::new(24, 8, 0), IVec3::new(8, 8, 8), IVec3::new(24, 8, 8), IVec3::new(88, 16, 8), IVec3::new(88, 24, 8), IVec3::new(88, 32, 8), IVec3::new(88, 40, 8), IVec3::new(88, 48, 8), IVec3::new(8, 8, 16), IVec3::new(24, 8, 16)], "the posts, three blocks high each, and the rail");
+        // A box of any size (a light's of radius 1e9) finds them at once.
+        let started = std::time::Instant::now();
+        let far: Vec<IVec3> = t.near(Vec3::splat(-1e9), Vec3::splat(1e9), 4).into_iter().map(|(lo, _, _)| lo.as_ivec3()).collect();
+        assert!(started.elapsed().as_millis() < 100 && far.len() == 11, "{} ms, {} blocks", started.elapsed().as_millis(), far.len());
         let wider = thin_at(&t, 8);
         assert!(!wider.iter().any(|b| b.x == 48), "never the pillar, though a wide lamp's points lie 8 apart (THINNEST): {wider:?}");
         assert!(!wider.iter().any(|b| b.x == 64 || b.x == 72), "never the wall");

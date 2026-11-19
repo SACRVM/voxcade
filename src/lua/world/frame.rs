@@ -38,6 +38,12 @@ const LIGHT_KEYS: [&str; 10] = ["at", "radius", "color", "falloff", "cone", "ble
 /// What each word of `shadows` means, for a mistake in one.
 const SHADOW_MEANS: &str = "\"none\": it shines through walls, \"static\": the level's voxels and pieces stop it, \"all\": moving things too";
 
+/// A light's radius as a script gives it: a number above 0 that a float
+/// holds (no limit above it: every place that takes a radius takes any).
+fn radius_of(n: Option<f64>) -> mlua::Result<f32> {
+    n.map(|r| r as f32).filter(|r| r.is_finite() && *r > 0.0).ok_or_else(|| mlua::Error::runtime("frame:light: radius is a number above 0 (how far it reaches, voxels)"))
+}
+
 /// A light as `frame:light{ ... }` writes it: `at` and `radius` needed, the
 /// rest as a level's light takes them, each checked (a mistake names the
 /// word and what it wants).
@@ -60,7 +66,7 @@ fn light_of(lua: &Lua, t: &Table) -> mlua::Result<crate::render::Light> {
         };
         match key.as_str() {
             "at" => (at, of) = (Some(to_point(lua, &v, "frame:light")?), thing_key(lua, &v)?),
-            "radius" => radius = Some(number(&v).filter(|r| *r > 0.0).ok_or_else(|| fail("radius is a number above 0 (how far it reaches, voxels)".into()))? as f32),
+            "radius" => radius = Some(radius_of(number(&v))?),
             "color" => {
                 let Value::Table(c) = v else { return Err(fail("color is a color, { r, g, b } with each a whole number from 0 to 255".into())) };
                 rgb = Some(color_of(&c, "color").map_err(fail)?);
@@ -197,14 +203,18 @@ impl UserData for Frame {
             o.cmds.push(Cmd::Cube { at: Vec3::new(x, y, z), color: color(rgba.as_deref(), [255, 255, 255, 255])?, glow: glow.unwrap_or(0.0) });
             Ok(())
         });
-        m.add_method_mut("light", |lua, o, (GivenValue(at), radius, rgb, more): (GivenValue, Option<f32>, Option<Given>, Option<GivenValue>)| {
+        m.add_method_mut("light", |lua, o, (GivenValue(at), radius, rgb, more): (GivenValue, Option<f64>, Option<Given>, Option<GivenValue>)| {
             if more.is_some() {
                 return Err(mlua::Error::runtime("frame:light: a fourth argument is not taken; the rest of a light's words go in a table: frame:light{ at = player, radius = 30, color = { 255, 200, 120 }, cone = 30 }"));
             }
             let light = match (&at, radius) {
                 // frame:light{ at =, radius =, color =, falloff =, ... }
                 (Value::Table(t), None) if rgb.is_none() => light_of(lua, t)?,
+                // A radius of 0 or less lights nothing (a light faded out),
+                // as it always did; one no float holds is a mistake.
+                (_, Some(radius)) if radius <= 0.0 => return Ok(()),
                 (_, Some(radius)) => {
+                    let radius = radius_of(Some(radius))?;
                     let (of, at) = (thing_key(lua, &at)?, to_point(lua, &at, "frame:light")?);
                     let c = match rgb.as_deref() {
                         Some(t) => color_of(t, "color").map_err(|e| mlua::Error::runtime(format!("frame:light: {e}")))?,
