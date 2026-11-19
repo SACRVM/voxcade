@@ -549,7 +549,7 @@ fn stopped(cell: vec3<i32>, off: u32, lamp: vec4<f32>, ids: vec2<u32>, lamp_ids:
     // large.) The first empty slot ends a lookup; a stale one does not: an
     // answer behind it would be walked again and kept twice, and ended
     // there the beams of a hall in fog took a quarter longer.
-    var slot = ((key ^ (key >> 15u)) * 0x2c1b3c6du ^ (key >> 13u)) & (faces - 1u);
+    var slot = (((key ^ (key >> 15u)) * 0x2c1b3c6du) ^ (key >> 13u)) & (faces - 1u);
     let hop = (tag >> 15u) | 1u;
     for (var i = 0u; i < PROBES; i += 1u) {
         let k = slot * LAMP_ANSWER_WORDS;

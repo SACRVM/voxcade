@@ -368,7 +368,12 @@ fn beams_over(in: TileOut, dir: vec3<f32>, begin: f32, end: f32, air: f32) -> ve
             }
         }
         if (b > a) {
-            let movers = select(0u, shading(l, fog.eye.xyz + dir * a, fog.eye.xyz + dir * b), l.edge.y > 1.5);
+            // The moving things' boxes that can shade the ray, looked for
+            // only for a lamp whose shadows are "all" (`shading`).
+            var movers = 0u;
+            if (l.edge.y > 1.5) {
+                movers = shading(l, fog.eye.xyz + dir * a, fog.eye.xyz + dir * b);
+            }
             var fine = vec3<f32>(1.0, 0.0, 1.0);
             // THIN {
             if (((in.count.y >> k) & 1u) != 0u) {
