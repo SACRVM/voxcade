@@ -1383,9 +1383,13 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `the_shaders_are_valid` parses them in `cargo test`. The numbers the
   scene's shader shares with Rust (`MAX_LIGHTS`, `FACES`, the lanes of
   `Instance::fx`: `render::FX_GLOW`, `FX_OPACITY`, `FX_COVERED`,
-  `FX_METAL`; the faces' order of `mesh::DIRS`; metal's packing) are
-  written ahead of `shader.wgsl` by `render::shader::prelude` from the
-  Rust constants, never a literal in the WGSL; every struct written into
+  `FX_METAL`; the faces' order of `mesh::DIRS`; metal's packing; the
+  lamps' and the fog's: `LAMP_ASK`, `LAMP_FROM`, `HOUSING`, the lamps'
+  memory's layout, a lamp's list of boxes, the beams' planes and thin
+  things) are written ahead of `shader.wgsl`, `lamps.wgsl` and
+  `fog_beams.wgsl` by `render::shader::prelude` from the Rust constants,
+  never a literal in the WGSL, nor defined again there (test
+  `the_shader_and_the_rust_side_share_one_table`); every struct written into
   a buffer is compared with naga's layout of its WGSL struct, member by
   member (test `the_rust_structs_are_laid_out_as_the_shaders`), the vertex
   buffers with the entry points' inputs (test
@@ -1647,7 +1651,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `lamps_change_no_run`. A lamp new to the faces' memory (moved) is asked
   for first by a pixel every `lamps::ASK` (`fs_lamp_ask`), so a face's
   pixels do not each walk (test
-  `a_lamp_new_to_the_faces_memory_is_asked_for_first`). The upgrade step "lamps stopped by walls"
+  `a_lamp_new_to_the_faces_memory_is_asked_for_first`); the walls
+  changing while drawn (a wall taken away, set again) light and stop as
+  a fresh renderer draws them (test
+  `a_wall_taken_away_and_set_again_lets_a_lamp_through_and_stops_it`). The upgrade step "lamps stopped by walls"
   (0.7.0) says which lights of a game and how to keep the old look; it
   changes nothing. Moving things stop no `"static"` lamp.
 - Fog (0.7, the owner's names, the classic smooth way; `docs/engine.md`
