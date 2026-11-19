@@ -114,39 +114,48 @@ fn light_row(in: TileOut, k: u32) -> i32 {
     return i32((word[(k >> 1u) & 3u] >> ((k & 1u) * 16u)) & 0xffffu);
 }
 
+// The light of the row `row` of `rows` (render::lamps::LampRow, or the
+// fog's render::fog::FogRow): its four parts across.
+fn light_of(rows: texture_2d<f32>, row: i32) -> Light {
+    return Light(textureLoad(rows, vec2<i32>(0, row), 0), textureLoad(rows, vec2<i32>(1, row), 0), textureLoad(rows, vec2<i32>(2, row), 0), textureLoad(rows, vec2<i32>(3, row), 0));
+}
+
+// Whether fs_main_lamps wrote a surface for the pixel (`s`, its surface).
+fn has_surface(s: vec4<u32>) -> bool {
+    return (s.x & (1u << 24u)) != 0u;
+}
+
+// Where in the level the pixel `px`, its middle at `at` (the picture's
+// pixels), shows its surface.
+fn surface_point(px: vec2<i32>, at: vec2<f32>) -> vec3<f32> {
+    let depth = textureLoad(scene_depth, px, 0);
+    let uv = at / vec2<f32>(textureDimensions(scene_depth));
+    let p = lamps.inv_view_proj * vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
+    return p.xyz / p.w;
+}
+
 @fragment
 fn fs_lamp(in: TileOut) -> @location(0) vec4<f32> {
     let px = vec2<i32>(in.clip.xy);
     let s = textureLoad(surface, px, 0);
-    if ((s.x & (1u << 24u)) == 0u) {
+    if (!has_surface(s)) {
         return vec4<f32>(0.0);
     }
-    let depth = textureLoad(scene_depth, px, 0);
-    let uv = in.clip.xy / vec2<f32>(textureDimensions(scene_depth));
-    let at = lamps.inv_view_proj * vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
-    let world = at.xyz / at.w;
+    let world = surface_point(px, in.clip.xy);
     let n = lit_way(s.w);
-    let off = (s.x >> 25u) & 1u;
     // WALLS {
-    // The cell in front of the face, and its part of each lamp's key in
-    // the memory.
-    let cell = surface_cell(s);
-    // A face of the level itself (its voxel in the volume) gets nothing of
-    // a lamp behind it: a way to the lamp would only go through a gap.
-    let way_index = select((s.x >> 26u) & 7u, 7u, off == 1u);
-    let of_level = way_index < 6u && solid(cell - vec3<i32>(FACE_DIRS[way_index]) - lamps.origin.xyz, 0);
-    let ids = vec2<u32>(mix_hash(0x9e3779b9u + off, cell), mix_hash(0x85ebca6bu + off, cell));
+    let f = face_of(s);
     // } WALLS
     var sum = vec3<f32>(0.0);
     for (var k = 0u; k < in.count.x; k += 1u) {
         let row = light_row(in, k);
-        let l = Light(textureLoad(lights, vec2<i32>(0, row), 0), textureLoad(lights, vec2<i32>(1, row), 0), textureLoad(lights, vec2<i32>(2, row), 0), textureLoad(lights, vec2<i32>(3, row), 0));
+        let l = light_of(lights, row);
         let lit = light_on(l, world, n);
         if (all(lit <= vec3<f32>(0.0))) {
             continue;
         }
         // WALLS {
-        if (l.edge.y > 0.5 && ((of_level && dot(n, l.pos_radius.xyz - world) <= 0.0) || stopped(cell, off, textureLoad(lights, vec2<i32>(LAMP_FROM, row), 0), ids, vec2<u32>(l.edge.zw)) || (l.edge.y > 1.5 && movers_stop_face(movers_from(s, cell, n, way_index, of_level), n, l.pos_radius.xyz, u32(l.edge.y - 2.0))))) {
+        if (l.edge.y > 0.5 && (turned_from(f, n, l, world) || walls_stop(f, l, row) || (l.edge.y > 1.5 && movers_stop_face(movers_from(s, f, n), n, l.pos_radius.xyz, u32(l.edge.y - 2.0))))) {
             continue;
         }
         // } WALLS
@@ -166,28 +175,61 @@ fn fs_lamp_ask(in: TileOut) -> @location(0) vec4<f32> {
     let size = textureDimensions(scene_depth);
     let px = min(vec2<i32>(floor(in.clip.xy)) * i32(LAMP_ASK) + vec2<i32>(i32(LAMP_ASK / 2u)), vec2<i32>(size) - vec2<i32>(1));
     let s = textureLoad(surface, px, 0);
-    if ((s.x & (1u << 24u)) == 0u) {
+    if (!has_surface(s)) {
         return vec4<f32>(0.0);
     }
-    let depth = textureLoad(scene_depth, px, 0);
-    let uv = (vec2<f32>(px) + vec2<f32>(0.5)) / vec2<f32>(size);
-    let at = lamps.inv_view_proj * vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
-    let world = at.xyz / at.w;
+    let world = surface_point(px, vec2<f32>(px) + vec2<f32>(0.5));
     let n = lit_way(s.w);
-    let off = (s.x >> 25u) & 1u;
-    let cell = surface_cell(s);
-    let way_index = select((s.x >> 26u) & 7u, 7u, off == 1u);
-    let of_level = way_index < 6u && solid(cell - vec3<i32>(FACE_DIRS[way_index]) - lamps.origin.xyz, 0);
-    let ids = vec2<u32>(mix_hash(0x9e3779b9u + off, cell), mix_hash(0x85ebca6bu + off, cell));
+    let f = face_of(s);
     for (var k = 0u; k < in.count.x; k += 1u) {
         let row = light_row(in, k);
-        let l = Light(textureLoad(lights, vec2<i32>(0, row), 0), textureLoad(lights, vec2<i32>(1, row), 0), textureLoad(lights, vec2<i32>(2, row), 0), textureLoad(lights, vec2<i32>(3, row), 0));
-        if (all(light_on(l, world, n) <= vec3<f32>(0.0)) || (of_level && dot(n, l.pos_radius.xyz - world) <= 0.0)) {
+        let l = light_of(lights, row);
+        if (all(light_on(l, world, n) <= vec3<f32>(0.0)) || turned_from(f, n, l, world)) {
             continue;
         }
-        _ = stopped(cell, off, textureLoad(lights, vec2<i32>(LAMP_FROM, row), 0), ids, vec2<u32>(l.edge.zw));
+        _ = walls_stop(f, l, row);
     }
     return vec4<f32>(0.0);
+}
+
+// A pixel's face as the walls take it (fs_main_lamps wrote its surface):
+// whether off the grid (1), the cell in front of it, its way (FACE_DIRS'
+// index; 7 off the grid), whether it is a face of the level itself (its
+// voxel in the volume), and the cell's part of each lamp's key in the
+// memory (`stopped`).
+struct Face {
+    off: u32,
+    cell: vec3<i32>,
+    way: u32,
+    of_level: bool,
+    ids: vec2<u32>,
+};
+
+fn face_of(s: vec4<u32>) -> Face {
+    let off = (s.x >> 25u) & 1u;
+    let cell = surface_cell(s);
+    let way = select((s.x >> 26u) & 7u, 7u, off == 1u);
+    let of_level = way < 6u && solid(cell - vec3<i32>(FACE_DIRS[way]) - lamps.origin.xyz, 0);
+    return Face(off, cell, way, of_level, cell_ids(cell, off));
+}
+
+// The cell `cell`'s part of each lamp's key in the memory (`stopped`), a
+// face off the grid's (`off` 1) apart from one on it.
+fn cell_ids(cell: vec3<i32>, off: u32) -> vec2<u32> {
+    return vec2<u32>(mix_hash(0x9e3779b9u + off, cell), mix_hash(0x85ebca6bu + off, cell));
+}
+
+// Whether the face `f`, lit by the way `n` at `world`, is a face of the
+// level turned away from the lamp `l`: it gets nothing of a lamp behind
+// it, a way to the lamp would only go through a gap.
+fn turned_from(f: Face, n: vec3<f32>, l: Light, world: vec3<f32>) -> bool {
+    return f.of_level && dot(n, l.pos_radius.xyz - world) <= 0.0;
+}
+
+// Whether walls stop the lamp `l` of the row `row` lighting the face `f`
+// (the memory asked, `stopped`).
+fn walls_stop(f: Face, l: Light, row: i32) -> bool {
+    return stopped(f.cell, f.off, textureLoad(lights, vec2<i32>(LAMP_FROM, row), 0), f.ids, vec2<u32>(l.edge.zw));
 }
 
 // The cell in front of a pixel's face as fs_main_lamps writes it: on the
@@ -206,21 +248,20 @@ fn surface_cell(s: vec4<u32>) -> vec3<i32> {
 // a figure's feet shade the floor at their side; any other face just out
 // of its own middle (FACE_OUT), a voxel lit as a whole (smooth: lit by `n`,
 // not its face's way) a voxel out of the voxel's middle along `n`; exactly,
-// off the grid as fs_main_lamps wrote it. A face of a part turning slowly
-// begins its way a little further each picture, so it changes once as a
-// shadow's edge passes. Begun at the cell in front of it, it jumped a voxel
-// now and then as the part moved, and a voxel out it went in and out of a
-// part beside it: faces blinked (until 2026-11-19).
-fn movers_from(s: vec4<u32>, cell: vec3<i32>, n: vec3<f32>, way_index: u32, of_level: bool) -> vec3<f32> {
-    let middle = vec3<f32>(cell) + vec3<f32>(0.5);
-    if (of_level) {
+// off the grid as fs_main_lamps wrote it (`s`, the pixel's surface). A face
+// of a part turning slowly begins its way a little further each picture,
+// so it changes once as a shadow's edge passes, and no face's way begins
+// in a part beside it.
+fn movers_from(s: vec4<u32>, f: Face, n: vec3<f32>) -> vec3<f32> {
+    let middle = vec3<f32>(f.cell) + vec3<f32>(0.5);
+    if (f.of_level) {
         return middle;
     }
-    if (way_index == 7u) {
+    if (f.way == 7u) {
         let q = vec3<u32>((s.y >> 20u) & 1023u, (s.z >> 20u) & 1023u, (s.y >> 30u) | ((s.z >> 30u) << 2u) | ((s.x >> 26u) << 4u));
-        return vec3<f32>(cell) + vec3<f32>(q) / 256.0 - vec3<f32>(MOVERS_FROM);
+        return vec3<f32>(f.cell) + vec3<f32>(q) / 256.0 - vec3<f32>(MOVERS_FROM);
     }
-    let face = FACE_DIRS[way_index];
+    let face = FACE_DIRS[f.way];
     let centre = middle - face;
     return select(centre + n, centre + face * (0.5 + FACE_OUT), all(n == face));
 }
@@ -231,10 +272,42 @@ fn movers_from(s: vec4<u32>, cell: vec3<i32>, n: vec3<f32>, way_index: u32, of_l
 // the lamp is in its own shadow (as a face of the level is from any lamp
 // walls stop), but a face of the thing the lamp shines from (`carried`):
 // that walks as any other (`movers_stop`), the thing's own solids passed
-// over. Walked, a face turned away went dark or not as its way grazed its
-// own thing's edges.
+// over, so its own edges darken none of it.
 fn movers_stop_face(begins: vec3<f32>, n: vec3<f32>, lamp: vec3<f32>, list: u32) -> bool {
     return (dot(n, lamp - begins) <= 0.0 && !carried(begins - n * (0.5 + FACE_OUT), list)) || movers_stop(begins, lamp, list, 0xffffffffu);
+}
+
+// How many boxes a lamp's list `list` names (render::movers::Movers::lists:
+// its word, where its list begins and how many): every box where it says
+// EVERY_BOX.
+fn listed(list: u32) -> u32 {
+    let n = list & EVERY_BOX;
+    return select(n, u32(lamps.movers.x), n == EVERY_BOX);
+}
+
+// The `i`th box the lamp's list `list` names.
+fn listed_box(list: u32, i: u32) -> u32 {
+    return select(mover_lists[(list >> MOVERS_COUNT_BITS) + MOVERS_HEAD + i], i, (list & EVERY_BOX) == EVERY_BOX);
+}
+
+// The thing the lamp of the list `list` shines from, its list's head: its
+// key and 1, else two 0.
+fn list_owner(list: u32) -> vec2<u32> {
+    let head = list >> MOVERS_COUNT_BITS;
+    return vec2<u32>(mover_lists[head], mover_lists[head + 1u]);
+}
+
+// The point `p` of the level in the grid of the solid `m`.
+fn into_grid(m: Solid, p: vec3<f32>) -> vec3<f32> {
+    let r = m.to_grid;
+    return vec3<f32>(dot(r[0].xyz, p) + r[0].w, dot(r[1].xyz, p) + r[1].w, dot(r[2].xyz, p) + r[2].w);
+}
+
+// Where along a way the box whose planes it crosses at `a` and `b` (each
+// axis's two, along the way) holds it, from 0 up to `far`: from (x) to
+// (y); to not past from: nowhere.
+fn slab_span(a: vec3<f32>, b: vec3<f32>, far: f32) -> vec2<f32> {
+    return vec2<f32>(max(max(max(min(a.x, b.x), min(a.y, b.y)), min(a.z, b.z)), 0.0), min(min(min(max(a.x, b.x), max(a.y, b.y)), max(a.z, b.z)), far));
 }
 
 // Whether the point `p` (a face's voxel, `movers_stop_face`) lies in a
@@ -243,15 +316,12 @@ fn carried(p: vec3<f32>, list: u32) -> bool {
     if (lamps.movers.x == 0) {
         return false;
     }
-    let head = list >> MOVERS_COUNT_BITS;
-    let own = vec2<u32>(mover_lists[head], mover_lists[head + 1u]);
+    let own = list_owner(list);
     if (own.y != 1u) {
         return false;
     }
-    let n = list & EVERY_BOX;
-    let every = n == EVERY_BOX;
-    for (var i = 0u; i < select(n, u32(lamps.movers.x), every); i += 1u) {
-        let k = select(mover_lists[head + MOVERS_HEAD + i], i, every);
+    for (var i = 0u; i < listed(list); i += 1u) {
+        let k = listed_box(list, i);
         let lo = mover_boxes[2u * k];
         let hi = mover_boxes[2u * k + 1u];
         if (any(p < vec3<f32>(lo.xyz)) || any(p > vec3<f32>(hi.xyz))) {
@@ -259,9 +329,7 @@ fn carried(p: vec3<f32>, list: u32) -> bool {
         }
         for (var j = u32(lo.w); j < u32(lo.w + hi.w); j += 1u) {
             let m = mover_solids[j];
-            let r = m.to_grid;
-            let g = vec3<f32>(dot(r[0].xyz, p) + r[0].w, dot(r[1].xyz, p) + r[1].w, dot(r[2].xyz, p) + r[2].w);
-            if (all(m.owner.xy == own) && solid_holds(j, vec3<i32>(floor(g)))) {
+            if (all(m.owner.xy == own) && solid_holds(j, vec3<i32>(floor(into_grid(m, p))))) {
                 return true;
             }
         }
@@ -287,15 +355,14 @@ fn solid_holds(k: u32, c: vec3<i32>) -> bool {
 fn solid_stops(k: u32, lamp: vec3<f32>, dir: vec3<f32>, len: f32) -> bool {
     let m = mover_solids[k];
     let r = m.to_grid;
-    let a = vec3<f32>(dot(r[0].xyz, lamp) + r[0].w, dot(r[1].xyz, lamp) + r[1].w, dot(r[2].xyz, lamp) + r[2].w);
+    let a = into_grid(m, lamp);
     let way = vec3<f32>(dot(r[0].xyz, dir), dot(r[1].xyz, dir), dot(r[2].xyz, dir));
     let d = select(way, vec3<f32>(1e-7), abs(way) < vec3<f32>(1e-7));
     let inv = 1.0 / d;
     let size = m.grid.xyz;
-    let ta = -a * inv;
-    let tb = (vec3<f32>(size) - a) * inv;
-    var t = max(max(max(min(ta.x, tb.x), min(ta.y, tb.y)), min(ta.z, tb.z)), 0.0);
-    let end = min(min(min(max(ta.x, tb.x), max(ta.y, tb.y)), max(ta.z, tb.z)), len);
+    let span = slab_span(-a * inv, (vec3<f32>(size) - a) * inv, len);
+    var t = span.x;
+    let end = span.y;
     // In its housing while the walk has met nothing but what holds it.
     var housed = t <= 0.0;
     let ahead = select(vec3<i32>(-1), vec3<i32>(1), d > vec3<f32>(0.0));
@@ -343,22 +410,16 @@ fn movers_stop(to: vec3<f32>, lamp: vec3<f32>, list: u32, mask: u32) -> bool {
     }
     let dir = select(d / len, vec3<f32>(1e-7), abs(d / len) < vec3<f32>(1e-7));
     let inv = 1.0 / dir;
-    let n = list & EVERY_BOX;
-    let every = n == EVERY_BOX;
-    let head = list >> MOVERS_COUNT_BITS;
-    let own = vec2<u32>(mover_lists[head], mover_lists[head + 1u]);
-    for (var i = 0u; i < select(n, u32(lamps.movers.x), every); i += 1u) {
+    let own = list_owner(list);
+    for (var i = 0u; i < listed(list); i += 1u) {
         if (i < 32u && ((mask >> i) & 1u) == 0u) {
             continue;
         }
-        let k = select(mover_lists[head + MOVERS_HEAD + i], i, every);
+        let k = listed_box(list, i);
         let lo = mover_boxes[2u * k];
         let hi = mover_boxes[2u * k + 1u];
-        let a = (vec3<f32>(lo.xyz) - lamp) * inv;
-        let b = (vec3<f32>(hi.xyz) - lamp) * inv;
-        let t = max(max(max(min(a.x, b.x), min(a.y, b.y)), min(a.z, b.z)), 0.0);
-        let end = min(min(min(max(a.x, b.x), max(a.y, b.y)), max(a.z, b.z)), len);
-        if (t >= end) {
+        let span = slab_span((vec3<f32>(lo.xyz) - lamp) * inv, (vec3<f32>(hi.xyz) - lamp) * inv, len);
+        if (span.x >= span.y) {
             continue;
         }
         for (var j = u32(lo.w); j < u32(lo.w + hi.w); j += 1u) {

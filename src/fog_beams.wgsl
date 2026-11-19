@@ -146,10 +146,9 @@ fn reaches(l: Light, walks: vec4<f32>, p: vec3<f32>, movers: u32) -> bool {
         if (solid(cell - lamps.origin.xyz, 0)) {
             return false;
         }
-        let ids = vec2<u32>(mix_hash(0x9e3779b9u, cell), mix_hash(0x85ebca6bu, cell));
         // A lamp whose shadows are "all": what moves too, asked afresh,
         // only the boxes whose shadows the ray meets (`movers`, `shading`).
-        return !stopped(cell, 0u, walks, ids, vec2<u32>(l.edge.zw)) && !(movers != 0u && movers_stop(vec3<f32>(cell) + vec3<f32>(0.5), l.pos_radius.xyz, u32(l.edge.y - 2.0), movers));
+        return !stopped(cell, 0u, walks, cell_ids(cell, 0u), vec2<u32>(l.edge.zw)) && !(movers != 0u && movers_stop(vec3<f32>(cell) + vec3<f32>(0.5), l.pos_radius.xyz, u32(l.edge.y - 2.0), movers));
     }
     // } WALLS
     return true;
@@ -286,23 +285,22 @@ fn box_meets_triangle(middle: vec3<f32>, half: vec3<f32>, a: vec3<f32>, b: vec3<
 // `edge.y`) can shade the stretch of a ray from `near` to `far`: those
 // that meet the triangle of the lamp and the stretch (the ways from the
 // lamp to every point of it; grown by a voxel, as a point is asked at its
-// voxel's middle), a bit each of the first 32
-// (past 32 all of them). Once a ray, so its points walk only those: most
-// rays through the fog pass no moving thing's shadow.
+// voxel's middle), a bit each; a list of more than 32 (EVERY_BOX too) all
+// of them. Once a ray, so its points walk only those: most rays through
+// the fog pass no moving thing's shadow.
 fn shading(l: Light, near: vec3<f32>, far: vec3<f32>) -> u32 {
     var mask = 0u;
     // WALLS {
     let list = u32(l.edge.y - 2.0);
-    let n = list & EVERY_BOX;
     if (lamps.movers.x == 0) {
         return 0u;
     }
+    let n = list & EVERY_BOX;
     if (n > 32u) {
         return 0xffffffffu;
     }
-    let start = (list >> MOVERS_COUNT_BITS) + MOVERS_HEAD;
     for (var i = 0u; i < n; i += 1u) {
-        let k = mover_lists[start + i];
+        let k = listed_box(list, i);
         let lo = vec3<f32>(mover_boxes[2u * k].xyz);
         let hi = vec3<f32>(mover_boxes[2u * k + 1u].xyz);
         if (box_meets_triangle((lo + hi) * 0.5, (hi - lo) * 0.5 + vec3<f32>(1.0), l.pos_radius.xyz, near, far)) {
@@ -347,7 +345,7 @@ fn beams_over(in: TileOut, dir: vec3<f32>, begin: f32, end: f32, air: f32) -> ve
     var sum = vec3<f32>(0.0);
     for (var k = 0u; k < in.count.x; k += 1u) {
         let row = light_row(in, k);
-        let l = Light(textureLoad(fog_lights, vec2<i32>(0, row), 0), textureLoad(fog_lights, vec2<i32>(1, row), 0), textureLoad(fog_lights, vec2<i32>(2, row), 0), textureLoad(fog_lights, vec2<i32>(3, row), 0));
+        let l = light_of(fog_lights, row);
         // Where the ray is within its ball, its cone, the stretch.
         let oc = fog.eye.xyz - l.pos_radius.xyz;
         let h = dot(dir, oc);
