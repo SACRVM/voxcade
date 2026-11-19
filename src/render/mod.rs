@@ -302,6 +302,10 @@ pub struct Fog {
     /// How many of the picture's pixels a pixel of its beams is each way
     /// (the player's FOG setting, `settings::Fog`).
     pub scale: u32,
+    /// Whether the beams take the thin things' finer points (`render::thin`;
+    /// FOG HIGH): without, they are drawn as before thin things were looked
+    /// for, at no cost of theirs.
+    pub thin: bool,
 }
 
 /// The words of a light beyond where, how far and its colour, and the
@@ -422,6 +426,19 @@ pub fn letterbox(width: u32, height: u32, shape: f32) -> (u32, u32, u32, u32) {
 /// none.
 pub fn surface_format(formats: &[wgpu::TextureFormat]) -> Option<wgpu::TextureFormat> {
     formats.iter().copied().find(|f| !f.is_srgb()).or_else(|| formats.first().copied())
+}
+
+/// The limits to ask of a device on `adapter`: wgpu's defaults, but a
+/// storage buffer bound and a buffer as large as the lamps' memory may
+/// grow (`lamps::MOST_BYTES`), as far as the adapter allows (asking past
+/// its limits fails). Every device the renderer draws with is asked so.
+pub fn device_limits(adapter: &wgpu::Adapter) -> wgpu::Limits {
+    let (most, d) = (adapter.limits(), wgpu::Limits::default());
+    wgpu::Limits {
+        max_storage_buffer_binding_size: d.max_storage_buffer_binding_size.max(lamps::MOST_BYTES.min(most.max_storage_buffer_binding_size)),
+        max_buffer_size: d.max_buffer_size.max(lamps::MOST_BYTES.min(most.max_buffer_size)),
+        ..d
+    }
 }
 
 /// The composite's entry point for a target of `format`: an sRGB target

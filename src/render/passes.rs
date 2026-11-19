@@ -126,7 +126,9 @@ impl Renderer {
             walls: lamps.is_some_and(|lf| lf.walls),
             volume_bytes: self.lamps.volume_bytes(),
             volume_ms: self.lamps.made_ms,
+            memory_bytes: if lamps.is_some_and(|lf| lf.walls) { self.lamps.memory_bytes() } else { 0 },
             fog: fog.is_some(),
+            thin: fog.is_some() && self.fog.as_ref().is_some_and(|f| f.thin),
             asked: if lamps.is_some_and(|lf| lf.walls) { self.lamps.asked } else { 0 },
             ..Stats::default()
         };

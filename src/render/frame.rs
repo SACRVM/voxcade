@@ -148,13 +148,18 @@ pub struct Stats {
     pub vertices: usize,
     /// Lights drawn by the lamps' pass (0: by the scene's shader, as
     /// before), whether walls stopped its lamps, the level's volume's bytes
-    /// on the GPU and how long it took to make, ms.
+    /// on the GPU and how long it took to make, ms, and the bytes of the
+    /// faces' memory (`render::lamps`).
     pub lamps: usize,
     pub walls: bool,
     pub volume_bytes: u64,
     pub volume_ms: f64,
-    /// Whether the picture had fog (`render::fog`).
+    pub memory_bytes: u64,
+    /// Whether the picture had fog (`render::fog`), and whether its beams
+    /// took the thin things' finer points (`Fog::thin`, a lamp lighting
+    /// one).
     pub fog: bool,
+    pub thin: bool,
     /// Lamps walls stop that were new to the faces' memory, asked for
     /// first (`render::lamps::ASK`).
     pub asked: usize,

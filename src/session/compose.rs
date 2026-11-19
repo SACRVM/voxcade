@@ -440,6 +440,7 @@ impl<G: Game> Session<G> {
             lo: Vec3::ZERO,
             hi: size,
             scale: self.options.fog.scale()?,
+            thin: self.options.fog == crate::settings::Fog::High,
         })
     }
 
