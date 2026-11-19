@@ -110,6 +110,43 @@ pub(super) fn color(v: Option<&Table>, default: [u8; 4]) -> mlua::Result<[u8; 4]
     Ok([c(1)?, c(2)?, c(3)?, c(4)?])
 }
 
+/// A color given to a light, the fog or the daylight, `{ r, g, b }` as
+/// whole numbers from 0 to 255, as 0 to 1 each. A mistake says what is
+/// wanted and what came (the usual slip is the scale 0 to 1); the caller
+/// puts the call in front. A missing number is 255, as `color` has it.
+pub(super) fn color_of(t: &Table, key: &str) -> Result<[f32; 3], String> {
+    let mut shown = Vec::new();
+    let mut rgb = [255.0f64; 3];
+    let mut ok = true;
+    for i in 1..=4usize {
+        match t.raw_get::<Value>(i as i64).unwrap_or(Value::Nil) {
+            Value::Nil => {}
+            Value::Integer(n) => {
+                shown.push(n.to_string());
+                ok &= (0..=255).contains(&n);
+                if i <= 3 {
+                    rgb[i - 1] = n as f64;
+                }
+            }
+            Value::Number(n) if n.is_finite() => {
+                shown.push(n.to_string());
+                ok &= (0.0..=255.0).contains(&n) && n.fract() == 0.0;
+                if i <= 3 {
+                    rgb[i - 1] = n;
+                }
+            }
+            other => {
+                shown.push(format!("a {}", other.type_name()));
+                ok = false;
+            }
+        }
+    }
+    match ok {
+        true => Ok(rgb.map(|v| v as f32 / 255.0)),
+        false => Err(format!("{key} is a color, {{ r, g, b }} with each a whole number from 0 to 255 (not from 0 to 1), not {{ {} }}", shown.join(", "))),
+    }
+}
+
 /// `frame:camera{ look_at =, width =, height =, pitch =, fov = }`: what it
 /// sets of this picture's camera, the rest the game's (`c.camera`). A thing
 /// to look at is where it is drawn (at `alpha` into the tick, its middle).
@@ -215,9 +252,8 @@ pub(super) fn fog(t: &Table) -> mlua::Result<crate::session::FogSet> {
             "anisotropy" => fog.anisotropy = Some(number(&v, "anisotropy", -0.9, 0.9)?),
             "glow" => fog.glow = Some(number(&v, "glow", 0.0, 20.0)?),
             "color" => {
-                let Value::Table(c) = v else { return Err(fail("color is a color, { r, g, b } from 0 to 255".into())) };
-                let [r, g, b, _] = color(Some(&c), [255; 4])?;
-                fog.color = Some([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0]);
+                let Value::Table(c) = v else { return Err(fail("color is a color, { r, g, b } with each a whole number from 0 to 255".into())) };
+                fog.color = Some(color_of(&c, "color").map_err(fail)?);
             }
             other => {
                 let near = crate::audio::words::near(other, WORDS.into_iter()).map_or(String::new(), |n| format!(" (did you mean `{n}`?)"));
@@ -234,9 +270,8 @@ pub(super) fn daylight(t: &Table) -> mlua::Result<crate::session::Daylight> {
     let fail = |what: String| mlua::Error::runtime(format!("frame:daylight: {what}"));
     let mut day = crate::session::Daylight::default();
     let rgb = |v: Value, key: &str| -> mlua::Result<[f32; 3]> {
-        let Value::Table(c) = v else { return Err(fail(format!("{key} is a color, {{ r, g, b }} from 0 to 255"))) };
-        let [r, g, b, _] = color(Some(&c), [255; 4])?;
-        Ok([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0])
+        let Value::Table(c) = v else { return Err(fail(format!("{key} is a color, {{ r, g, b }} with each a whole number from 0 to 255"))) };
+        color_of(&c, key).map_err(fail)
     };
     let unit = |v: Value, key: &str| -> mlua::Result<f32> {
         match v {

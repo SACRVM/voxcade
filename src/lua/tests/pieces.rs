@@ -815,3 +815,33 @@ fn frame_fog_takes_its_words() {
         assert!(e.contains(says) && e.contains("main.lua:2"), "{call}: {e}");
     }
 }
+
+/// A color of a light, the fog or the daylight on the wrong scale says the
+/// call, the key, the form and the range wanted; a fourth argument of
+/// `frame:light(at, radius, color)` is refused naming the table form; a
+/// wrong word of `shadows` says what each word means; a level's light with
+/// a word one letter off names the one meant.
+#[test]
+fn the_lights_mistakes_say_what_is_wanted() {
+    for (call, says) in [
+        ("frame:light{ at = { x = 1, y = 2, z = 3 }, radius = 20, color = { 1, 0.5, 0.2 } }", "frame:light: color is a color, { r, g, b } with each a whole number from 0 to 255 (not from 0 to 1), not { 1, 0.5, 0.2 }"),
+        ("frame:light{ at = { x = 1, y = 2, z = 3 }, radius = 20, color = { 600, 0, 0 } }", "frame:light: color is a color, { r, g, b } with each a whole number from 0 to 255 (not from 0 to 1), not { 600, 0, 0 }"),
+        ("frame:light({ x = 1, y = 2, z = 3 }, 20, { 0.5, 0.5, 0.5 })", "frame:light: color is a color, { r, g, b } with each a whole number from 0 to 255 (not from 0 to 1), not { 0.5, 0.5, 0.5 }"),
+        ("frame:fog{ density = 0.01, color = { 0.1, 0.1, 0.2 } }", "frame:fog: color is a color, { r, g, b } with each a whole number from 0 to 255 (not from 0 to 1), not { 0.1, 0.1, 0.2 }"),
+        ("frame:daylight{ sky = { 0.1, 0.2, 0.9 } }", "frame:daylight: sky is a color, { r, g, b } with each a whole number from 0 to 255 (not from 0 to 1), not { 0.1, 0.2, 0.9 }"),
+        ("frame:daylight{ sun_color = { 300, 0, 0 } }", "frame:daylight: sun_color is a color, { r, g, b } with each a whole number from 0 to 255 (not from 0 to 1), not { 300, 0, 0 }"),
+        ("frame:light(player, 30, { 255, 200, 100 }, { cone = 30 })", "frame:light: a fourth argument is not taken; the rest of a light's words go in a table: frame:light{ at = player, radius = 30, color = { 255, 200, 120 }, cone = 30 }"),
+        ("frame:light{ at = { x = 1, y = 2, z = 3 }, radius = 20, shadows = \"dynamic\" }", "frame:light: shadows: \"dynamic\" is none of \"none\", \"static\", \"all\" (\"none\": it shines through walls, \"static\": the level's voxels and pieces stop it, \"all\": moving things too)"),
+    ] {
+        let g = game_in(&pieces_folder("light-says", "", ROOM, &format!("function on_draw(frame)\n  {call}\nend\n")));
+        let _ = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+        assert!(halted(&g).contains(says) && halted(&g).contains("main.lua:2"), "{call}: {}", halted(&g));
+    }
+    // Whole numbers on the right scale, and no fourth argument, still draw.
+    let g = game_in(&pieces_folder("light-fine", "", ROOM, "function on_draw(frame)\n  frame:light({ x = 1, y = 2, z = 3 }, 20, { 255, 128, 0 })\n  frame:fog{ density = 0.01, color = { 10, 20, 30 } }\nend\n"));
+    let _ = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+    assert_eq!(halted(&g), "", "a color on its scale is fine");
+    let level = ROOM.replace("light = { radius = 40 }", "light = { radius = 40, fallof = 2 }");
+    let e = start_error(&pieces_folder("light-near", "", &level, ""));
+    assert!(e.contains("'fallof' is no field of a light, did you mean 'falloff'?"), "{e}");
+}

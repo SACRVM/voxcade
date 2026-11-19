@@ -207,7 +207,7 @@ settings. Several players: `player` is seat 1, the others are in
   that play in the song's chord (`shots/reviews/music-plan.md`).
 - `frame`, `on_draw`'s parameter: this picture alone (`frame:text`,
   `frame:cube`, `frame:model`, `frame:light`; `frame:light{ at =, radius
-  =, color =, falloff =, cone =, blend =, rotation =, pitch =, shadows =
+  =, color =, falloff =, cone =, blend =, rotation =, pitch =, shadows =, fog =
   }` with a level's light's words, `frame:light(at, radius, color)` as
   before 0.7, both a lamp walls stop unless `shadows = "none"`). An action in braces in a
   text is its key as the player sees it (`"PRESS {jump}"`, as

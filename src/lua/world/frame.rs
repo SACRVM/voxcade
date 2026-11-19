@@ -35,6 +35,9 @@ pub struct Frame {
 /// it shines (`render::LightShape`, `render::LIGHT_WORDS`).
 const LIGHT_KEYS: [&str; 10] = ["at", "radius", "color", "falloff", "cone", "blend", "rotation", "pitch", "shadows", "fog"];
 
+/// What each word of `shadows` means, for a mistake in one.
+const SHADOW_MEANS: &str = "\"none\": it shines through walls, \"static\": the level's voxels and pieces stop it, \"all\": moving things too";
+
 /// A light as `frame:light{ ... }` writes it: `at` and `radius` needed, the
 /// rest as a level's light takes them, each checked (a mistake names the
 /// word and what it wants).
@@ -59,9 +62,8 @@ fn light_of(lua: &Lua, t: &Table) -> mlua::Result<crate::render::Light> {
             "at" => at = Some(to_point(lua, &v, "frame:light")?),
             "radius" => radius = Some(number(&v).filter(|r| *r > 0.0).ok_or_else(|| fail("radius is a number above 0 (how far it reaches, voxels)".into()))? as f32),
             "color" => {
-                let Value::Table(c) = v else { return Err(fail("color is a color, { r, g, b } from 0 to 255".into())) };
-                let [r, g, b, _] = color(Some(&c), [255; 4])?;
-                rgb = Some([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0]);
+                let Value::Table(c) = v else { return Err(fail("color is a color, { r, g, b } with each a whole number from 0 to 255".into())) };
+                rgb = Some(color_of(&c, "color").map_err(fail)?);
             }
             "falloff" => shape.falloff = ranged(&v)?,
             "cone" => shape.cone = Some(ranged(&v)?),
@@ -70,9 +72,9 @@ fn light_of(lua: &Lua, t: &Table) -> mlua::Result<crate::render::Light> {
             "pitch" => shape.pitch = ranged(&v)?,
             "shadows" => {
                 shape.shadows = Some(match &v {
-                    Value::String(w) => crate::render::LampShadows::read(&w.to_str()?).map_err(|e| fail(format!("shadows: {e}")))?,
+                    Value::String(w) => crate::render::LampShadows::read(&w.to_str()?).map_err(|e| fail(format!("shadows: {e} ({SHADOW_MEANS})")))?,
                     Value::Boolean(on) => return Err(fail(crate::render::LampShadows::boolean(*on))),
-                    _ => return Err(fail(format!("shadows is one of {} (what stops it)", crate::render::LampShadows::list()))),
+                    _ => return Err(fail(format!("shadows is one of {} ({SHADOW_MEANS})", crate::render::LampShadows::list()))),
                 })
             }
             "fog" => shape.fog = ranged(&v)?,
@@ -195,14 +197,20 @@ impl UserData for Frame {
             o.cmds.push(Cmd::Cube { at: Vec3::new(x, y, z), color: color(rgba.as_deref(), [255, 255, 255, 255])?, glow: glow.unwrap_or(0.0) });
             Ok(())
         });
-        m.add_method_mut("light", |lua, o, (GivenValue(at), radius, rgb): (GivenValue, Option<f32>, Option<Given>)| {
+        m.add_method_mut("light", |lua, o, (GivenValue(at), radius, rgb, more): (GivenValue, Option<f32>, Option<Given>, Option<GivenValue>)| {
+            if more.is_some() {
+                return Err(mlua::Error::runtime("frame:light: a fourth argument is not taken; the rest of a light's words go in a table: frame:light{ at = player, radius = 30, color = { 255, 200, 120 }, cone = 30 }"));
+            }
             let light = match (&at, radius) {
                 // frame:light{ at =, radius =, color =, falloff =, ... }
                 (Value::Table(t), None) if rgb.is_none() => light_of(lua, t)?,
                 (_, Some(radius)) => {
                     let at = to_point(lua, &at, "frame:light")?;
-                    let c = color(rgb.as_deref(), [255, 255, 255, 255])?;
-                    crate::render::Light::lamp(at, radius, [c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0], &crate::render::LightShape::default(), |w| w)
+                    let c = match rgb.as_deref() {
+                        Some(t) => color_of(t, "color").map_err(|e| mlua::Error::runtime(format!("frame:light: {e}")))?,
+                        None => [1.0; 3],
+                    };
+                    crate::render::Light::lamp(at, radius, c, &crate::render::LightShape::default(), |w| w)
                 }
                 _ => return Err(mlua::Error::runtime("frame:light: a light is frame:light(at, radius, color) or frame:light{ at =, radius =, ... }")),
             };

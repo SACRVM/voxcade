@@ -890,7 +890,7 @@ end
     },
     Topic {
         title: "LIGHT, SHAKE AND FLASH",
-        text: "frame:light puts a light into this picture: walls stop it (the level's voxels and its pieces). With a table it takes more words: cone makes a spot (its opening angle in degrees), rotation and pitch point it, falloff says how it fades (2 unless set), shadows = \"none\" lets it shine through walls, \"static\" has the level's voxels and its pieces stop it (left out, c.light.lamp_shadows says, \"static\" unless set). level:explode blows a hole into the level, screen:shake shakes the screen, screen:flash flashes it, world:hitstop holds the game still for a few ticks.",
+        text: "frame:light puts a light into this picture: walls stop it (the level's voxels and its pieces). With a table it takes more words: cone makes a spot (its opening angle in degrees), blend how soft the spot's edge is (0 to 1, 0.15 unless set), rotation and pitch point it (pitch below 0 points down), falloff says how it fades (2 unless set), fog how strongly it shows in fog (1 unless set, FOG AND BEAMS), shadows says what stops it: \"none\" lets it shine through walls, \"static\" has the level's voxels and its pieces stop it, \"all\" the figures, things and models drawn too, so they cast its shadow (it costs more: for a few lamps); left out, c.light.lamp_shadows says, \"static\" unless set. A lamp that stays in one place belongs in the level's file: LAMPS IN A LEVEL. level:explode blows a hole into the level, screen:shake shakes the screen, screen:flash flashes it, world:hitstop holds the game still for a few ticks.",
         conf: r##"c.player.kind = "hero"
 c.things.hero = {}"##,
         files: &[],
@@ -920,7 +920,7 @@ end
     },
     Topic {
         title: "FOG AND BEAMS",
-        text: "c.light.fog_density fills the level's air with fog: the lamps' light shows in it, a spot's cone as a beam, a lamp's ball as a glow, and what lies further fades to c.light.fog_color. Walls stop a beam where they stop the lamp, so a pillar cuts a dark slot into it. 0.003 is a light haze in a big hall, 0.03 thick fog in a small room. A light's fog says how strongly it shows (1 unless set, 0 not at all, up to 10 for a stage spot). frame:fog sets the fog for one picture (density, color, anisotropy, glow), what it leaves out c.light's: here the haze thickens and thins every few seconds. Above 0 anisotropy makes a beam brighter looking towards its lamp. c.light.fog_glow shows the beams more brightly than the fog dims: 4 with a quarter of the density is a stage's haze, bright beams in a clear room. Only the picture: the game's rules do not see it, and a player can turn it off (SETTINGS, VIDEO, FOG).",
+        text: "c.light.fog_density fills the level's air with fog: the lamps' light shows in it, a spot's cone as a beam, a lamp's ball as a glow, and what lies further fades to c.light.fog_color. Walls stop a beam where they stop the lamp, so a pillar cuts a dark slot into it. 0.004 is a light haze in a big hall, 0.03 thick fog in a small room. By day give c.light.fog_color the sky's color, or what lies further fades to a dark veil; here it is night, so a dark fog is right. A light's fog says how strongly it shows (1 unless set, 0 not at all, up to 10 for a stage spot). frame:fog sets the fog for one picture (density, color, anisotropy, glow), what it leaves out c.light's: here the haze thickens and thins every few seconds. Above 0 anisotropy makes a beam brighter looking towards its lamp. c.light.fog_glow shows the beams more brightly than the fog dims: 4 with a quarter of the density is a stage's haze, bright beams in a clear room. What makes the beams show in this example is the low ambient light (a dark room) and the fog_glow of 3. Only the picture: the game's rules do not see it, and a player can turn it off (SETTINGS, VIDEO, FOG).",
         conf: r##"c.player.kind = "hero"
 c.things.hero = {}
 c.light.ambient = 0.15
@@ -945,6 +945,54 @@ function on_draw(frame)
   -- the haze thickening and thinning
   local t = (world.tick + frame.alpha) / 60
   frame:fog{ density = 0.004 + 0.002 * math.sin(t) }
+end
+"##,
+    },
+    Topic {
+        title: "LAMPS IN A LEVEL",
+        text: "A lamp that stays where it is belongs in the level's file: a [[thing]] with light = { ... } and no model is a light alone, and a piece (a model set down) may bring one too, or several as lights = [ { ... }, { ... } ]. In the level editor the same words are in the rows of a light. The words, all but radius optional: at is where it shines from, three whole numbers in voxels from the thing's place (from the model's pivot for a piece, turning with it), [0, 0, 0] unless set. radius is how far it reaches, voxels, above 0, needed. color is \"#rrggbb\", white unless set. falloff is how it fades towards its radius, from 0 to 16, 2 unless set: lower reaches further bright, higher is a small bright core. cone makes a spot: its whole opening angle in degrees, from 1 to 360; left out it shines every way, as the first lamp here. blend is how much of the cone's edge is soft, from 0 to 1, 0.15 unless set. rotation is the way a spot points round, degrees clockwise seen from above, north (+y) 0, east 90, south 180, from -360 to 360, 0 unless set. pitch is its way up or down in degrees from -90 to 90: below 0 points down, -90 straight down, 0 level, above 0 up. shadows says what stops it: \"static\" the level's voxels and its pieces (the wall here casts a shadow), \"all\" moving things too (costly: for a few lamps), \"none\" nothing (it shines through walls); left out, c.light.lamp_shadows says, \"static\" unless set. fog from 0 to 10, 1 unless set, is how strongly its light shows in fog (0 not at all; the example has a little fog, c.light.fog_density, so the spot's beam shows). Glass neither stops a lamp nor tints it. Lights that move are frame:light in on_draw (LIGHT, SHAKE AND FLASH). Only the picture: the game's rules do not see lights.",
+        conf: r##"c.world.size = nil             -- no world made in code: the level is levels/hall.toml
+c.light.ambient = 0.2
+c.light.sun_color = { 0.25, 0.28, 0.4 }
+c.light.fog_density = 0.004
+c.light.fog_glow = 3
+c.light.fog_color = { 0.04, 0.04, 0.06 }"##,
+        files: &[
+            ("levels/hall.toml", r##"format = "voxcade level 1"
+size = [96, 64, 32]
+
+[[thing]]
+name = "ground"
+model = "ground.vvx"
+at = [48, 32, 0]
+solid = true
+
+[[thing]]
+name = "wall"
+model = "wall.vvx"
+at = [56, 32, 1]
+solid = true
+
+# A lamp shining every way: no cone. Every word it takes, but the spot's.
+[[thing]]
+name = "lamp"
+at = [30, 32, 12]
+light = { at = [0, 0, 3], radius = 40, color = "#ffb870", falloff = 2, shadows = "static", fog = 1 }
+
+# A spot: a cone 40 degrees wide with a soft edge, pointing south and
+# down at the middle of the floor, its beam bright in the fog.
+[[thing]]
+name = "spot"
+at = [20, 56, 26]
+light = { at = [0, 0, 0], radius = 70, color = "#a8c8ff", falloff = 1, cone = 40, blend = 0.2, rotation = 180, pitch = -50, shadows = "static", fog = 3 }
+"##),
+            ("ground.vvx", "format = \"voxcade voxel 1\"\nsize = [96, 64, 1]\n\n[palette]\na = { color = \"#5a5a66\" }\n\n[[frame]]\nlayers = \"\"\"\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *64\n\"\"\"\n"),
+            ("wall.vvx", "format = \"voxcade voxel 1\"\nsize = [3, 24, 14]\n\n[palette]\na = { color = \"#8a7a70\" }\n\n[[frame]]\nlayers = \"\"\"\naaa *24\n*14\n\"\"\"\n"),
+        ],
+        code: r##"function on_tick()
+  for _, p in ipairs(level:players()) do
+    p:walk(p.input.dir, 40)
+  end
 end
 "##,
     },

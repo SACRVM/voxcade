@@ -374,6 +374,26 @@ facing = [0, -1]
   (`grid::text::rewrite`): what did not change stays to the character,
   comments too. A level turned off the grid in a game on the grid asks
   first: ALIGN ALL or DON'T OPEN. `grid::text` has the whole format.
+
+  A level's light, every word (`render::LIGHT_WORDS` has the ranges, the
+  level reader checks each; a number out of its range is a mistake at its
+  line; HELP's LAMPS IN A LEVEL is the page for an author; `frame:light{}`
+  takes the same words, with `color` as `{ r, g, b }` from 0 to 255 and
+  `at` as a thing or a point):
+
+  | word | unit | range | default |
+  |---|---|---|---|
+  | `at` | voxels, whole numbers `[x, y, z]`, from the thing's place (a piece: from its model's pivot, turning with it) | any | `[0, 0, 0]` |
+  | `radius` | voxels, how far it reaches | above 0 | needed |
+  | `color` | `"#rrggbb"` | | white |
+  | `falloff` | (1 - distance / radius) to this power | 0 to 16 | 2 |
+  | `cone` | degrees, a spot's whole opening angle; 360 is every way | 1 to 360 | every way (no cone) |
+  | `blend` | share of the cone's edge that is soft | 0 to 1 | 0.15 |
+  | `rotation` | degrees clockwise seen from above, north (+y) 0 | -360 to 360 | 0 |
+  | `pitch` | degrees, above 0 up, below 0 down, -90 straight down | -90 to 90 | 0 |
+  | `shadows` | what stops it: `"static"`, `"all"`, `"none"` | those words | `c.light.lamp_shadows` (`"static"`) |
+  | `fog` | how strongly it shows in fog, 0 not at all | 0 to 10 | 1 |
+
 - **Props** (2026-11-14, the owner: "props am ding im level ja"): a
   `[[thing]]` of a kind may give that one thing its own props, `props = {
   to = "02_crypt", locked = true }`, over the ones its kind declares

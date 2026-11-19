@@ -32,14 +32,14 @@
 ---@field sky? Color The background's color, { r, g, b } from 0 to 255.
 
 ---@class Light A light as frame:light{ ... } writes it, the words a level's light takes too; at and radius are needed.
----@field at Thing|Point|number[] Where it shines from: a thing, or { x, y, z } in voxels.
+---@field at Thing|Point|number[] Where it shines from: a thing (its middle) or a point { x, y, z } in voxels.
 ---@field radius number How far it reaches, voxels.
 ---@field color? Color Its color and strength, { r, g, b } from 0 to 255, white unless set.
 ---@field falloff? number How it fades to its radius: (1 - distance / radius) to this power, 0 to 16 (2 unless set; lower reaches further bright).
 ---@field cone? number A spot: its cone's whole opening angle, 1 to 360 degrees; left out, it shines every way.
 ---@field blend? number How much of the cone's edge is soft, 0 to 1 (0.15 unless set).
----@field rotation? number The spot's way round, degrees clockwise seen from above, north (+y) 0.
----@field pitch? number The spot's way up (above 0) or down, -90 to 90 degrees.
+---@field rotation? number The spot's way round, degrees clockwise seen from above, north (+y) 0, -360 to 360.
+---@field pitch? number The spot's way up (above 0) or down (below 0: -90 straight down), -90 to 90 degrees.
 ---@field shadows? string What stops it: "static" (the level's voxels and its pieces), "all" (moving things too: figures, things, models drawn) or "none" (it shines through). Left out, c.light.lamp_shadows says ("static" unless set); a light's own word beats it.
 ---@field fog? number How strongly its light shows in fog, 0 to 10 (1 unless set; 0 not at all).
 
@@ -538,11 +538,16 @@ function Frame:model(file, thing, index, rotation, pose) end
 ---@param glow? number
 function Frame:cube(x, y, z, color, glow) end
 
----Lights the level round a thing or a point, in this picture: frame:light(at, radius, color), or frame:light{ at =, radius =, ... } with the words a level's light takes too.
----- color: its color and strength, { r, g, b } from 0 to 255, white unless set.
----- falloff: how it fades to its radius, (1 - distance / radius) to this power, 2 unless set.
----- cone: a spot, its whole opening angle in degrees; blend how much of its edge is soft (0.15). rotation and pitch its way: degrees clockwise seen from above (north 0), and up or down.
----- shadows: what stops it, "static", "all" or "none" (it shines through walls); left out, c.light.lamp_shadows says ("static" unless set). A wall is the level's voxels and its pieces, not a piece that brings a light of its own (a lantern round its flame); with "all" the figures, things, models and cubes drawn stop it too, so they cast its shadow (it costs more: for a few chosen lamps).
+---Lights the level round a thing or a point, in this picture: frame:light(at, radius, color), or frame:light{ at =, radius =, ... } with the words a level's light takes too. These two forms only: more words go in the table.
+---- at: where it shines from, in voxels: a thing (its middle, half its height over its feet) or a point, { x, y, z } or { x =, y =, z = }.
+---- radius: how far it reaches, voxels, above 0.
+---- color: its color and strength, { r, g, b } as whole numbers from 0 to 255, white unless set.
+---- falloff: how it fades to its radius, (1 - distance / radius) to this power, 0 to 16, 2 unless set. Lower reaches further bright.
+---- cone: a spot, its whole opening angle in degrees, 1 to 360; left out (or 360), it shines every way.
+---- blend: how much of the cone's edge is soft, 0 to 1, 0.15 unless set.
+---- rotation: the spot's way round, degrees clockwise seen from above, north (+y) 0, -360 to 360.
+---- pitch: the spot's way up or down, degrees, -90 to 90. Above 0 up, below 0 down: -90 straight down, 0 level.
+---- shadows: what stops it, "static", "all" or "none" (it shines through walls); left out, c.light.lamp_shadows says ("static" unless set). A wall is the level's voxels and its pieces, not a piece that brings a light of its own (a lantern round its flame); with "all" the figures, things, models and cubes drawn stop it too, so they cast its shadow (it costs more: for a few chosen lamps). Glass stops no light and tints none.
 ---- fog: how strongly it shows in fog (frame:fog), 0 to 10, 1 unless set.
 ---Only the picture: the game's rules do not see it.
 ---@param at Thing|Point|Light
@@ -560,7 +565,7 @@ function Frame:light(at, radius, color) end
 function Frame:daylight(light) end
 
 ---Fills the level's air with fog for this picture: the lamps' light shows in it, a spot as a beam, and what lies further fades to the fog's color. What you leave out is c.light's.
----- density: how thick, 0 to 1 (0.005 a light haze in a big hall, 0.03 thick; 0 none).
+---- density: how thick, 0 to 1 (0.004 a light haze in a big hall, 0.03 thick; 0 none).
 ---- color: the fog's own color where no lamp lights it, { r, g, b } from 0 to 255 (dark at night).
 ---- anisotropy: above 0 a beam is brighter looking towards its lamp, below 0 looking away (0: alike).
 ---- glow: how brightly it shows the lamps' light, 0 to 20; the dimming is the density's alone (1 as the air would; 4 a stage's haze: bright beams, the room clear; 0 it only dims). Higher is never fainter, and a beam never gets brighter than its lamp's light (times the light's fog).
@@ -906,11 +911,11 @@ function on_pickup(thing, item) end
 
 ---@class Conf.light
 ---@field sun number[] Direction the sunlight travels (towards the ground). (each from -1000 to 1000; [3] from -1000 to below 0)
----@field sun_color number[] The sunlight's colour and strength, 0..1 per channel: white unless set (warm at dusk, a pale blue for the moon). A game's frame:daylight sets it for one picture. (each from 0 to 1)
+---@field sun_color number[] The sunlight's color and strength, 0..1 per channel: white unless set (warm at dusk, a pale blue for the moon). A game's frame:daylight sets it for one picture. (each from 0 to 1)
 ---@field ambient number Light that reaches every face, 0..1. (from 0 to 1)
 ---@field shadow number How much a shadow darkens sunlit faces, 0..1. (from 0 to 1)
----@field sky number[] Background colour, 0..1 per channel. (each from 0 to 1)
----@field reflection_horizon number[] The sky metal mirrors: its colour at the horizon and overhead, 0..1 per channel (below the horizon it mirrors the ground, in the haze's colour). (each from 0 to 1)
+---@field sky number[] Background color, 0..1 per channel. (each from 0 to 1)
+---@field reflection_horizon number[] The sky metal mirrors: its color at the horizon and overhead, 0..1 per channel (below the horizon it mirrors the ground, in the haze's color). (each from 0 to 1)
 ---@field reflection number[] The sky metal mirrors overhead, 0..1 per channel. (each from 0 to 1)
 ---@field metal_sweep number A streak of light sweeping over metal now and then, this bright (0: none): metal reads as metal even where the sun cannot glint in it. (from 0 to 10)
 ---@field shadow_style string How shadow edges look: "smooth" (soft edges across the voxels), "voxel" (every voxel face is either lit or in shadow, edges step along the grid) or "voxel_soft" (as voxel, with half-shadowed faces in between).
@@ -918,7 +923,7 @@ function on_pickup(thing, item) end
 ---@field model_shading_for table<string, string> Models shaded otherwise, by file (relative to the game folder), e.g. { ["huey.vvx"] = "faces" } for a machine among smooth figures.
 ---@field edge_tolerance number With "edges": how far, in voxels, a voxel's surroundings may stray from one smooth surface before it counts as an edge. (from 0 to 16)
 ---@field lamp_shadows string What stops a lamp that states no shadows of its own (a level's lights, frame:light): "static" (the level's voxels and its pieces), "all" (moving things too: figures, things, models drawn; costly, for a few lamps) or "none": it shines through walls, as before 0.7 (older hardware). A light's own shadows beats it, whatever it says.
----@field fog_density number Fog in the level's air, how thick: 0 none, else a voxel of air takes this share of the light passing through (0.01: a third is left after 100 voxels). The lamps' light shows in it, a spot as a beam, and what lies further fades to the fog's color. A game's frame:fog sets it for one picture. (from 0 to 1)
+---@field fog_density number Fog in the level's air, how thick: 0 none, else a voxel of air takes this share of the light passing through (0.01: a third is left after 100 voxels). The lamps' light shows in it, a spot as a beam, and what lies further fades to the fog's color (0.004 is a light haze in a big hall). By day give fog_color the sky's color, or what lies further fades to a dark veil. A game's frame:fog sets it for one picture. (from 0 to 1)
 ---@field fog_color number[] The fog's own color where no lamp lights it, 0..1 per channel. (each from 0 to 1)
 ---@field fog_anisotropy number How much the fog sends a lamp's light on ahead rather than back, -0.9 to 0.9: above 0 a beam is brighter looking towards its lamp (0: every way alike). (from -0.9 to 0.9)
 ---@field fog_glow number How brightly the fog shows the lamps' light, 0..20; the dimming is the density's alone: 1 as the air would (thicker fog, brighter beams), 4 a stage's haze (bright beams while the room stays clear), 0 a fog that only dims. Higher is never fainter, and however high, a lamp's glow in the fog never gets brighter than its own light (times the light's fog). (from 0 to 20)
