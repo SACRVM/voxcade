@@ -93,6 +93,20 @@ fn culprit(value: &toml::Value, defaults: &toml::Value) -> Option<(Vec<String>, 
     found.map(|e| (path, e))
 }
 
+/// Settings a game author reaches for under a name they do not have:
+/// where it is written (`c.PARENT.NAME`), and what to write instead.
+const HINTS: [(&str, &str, &str); 4] = [
+    ("c.light", "shadows", "did you mean `lamp_shadows`, what stops a lamp: \"static\", \"all\" or \"none\"? `shadow` is how dark a shadow is"),
+    ("c.light", "fog", "did you mean `fog_density`? The fog's settings are fog_density, fog_color, fog_anisotropy and fog_glow"),
+    ("c.light", "density", "did you mean `fog_density`? The fog's settings are fog_density, fog_color, fog_anisotropy and fog_glow"),
+    ("c", "fog", "did you mean `c.light.fog_density`? The fog's settings are c.light.fog_density, fog_color, fog_anisotropy and fog_glow"),
+];
+
+/// What to write instead of a setting that is not one, where `HINTS` knows.
+pub(super) fn hint(parent: &str, name: &str) -> Option<&'static str> {
+    HINTS.iter().find(|(p, n, _)| *p == parent && *n == name).map(|(.., h)| *h)
+}
+
 /// serde's words for a setting's mistake in a game author's: what is
 /// wanted and what was given; an unknown name with the one meant and
 /// those there are.
@@ -104,7 +118,8 @@ fn plainly(message: &str, parent: &str, name: &str) -> String {
     }
     if let Some((_, list)) = message.strip_prefix("unknown field `").and_then(|m| m.split_once("`, expected ")) {
         let all = names(list);
-        return format!("not a setting of {parent}{}; it has {}", near(&all), all.join(", "));
+        let near = hint(parent, name).map_or_else(|| near(&all), |h| format!(" ({h})"));
+        return format!("not a setting of {parent}{near}; it has {}", all.join(", "));
     }
     if let Some(key) = message.strip_prefix("missing field `").and_then(|m| m.split('`').next()) {
         return format!("{key} is missing: it goes with the rest of {parent}.{name}");
@@ -289,7 +304,9 @@ mod tests {
             ("c.camera.pitch = 'steep'", "conf.lua: c.camera.pitch: a number wanted, not \"steep\""),
             ("c.camera.pitchh = 3", "conf.lua: c.camera.pitchh: not a setting of c.camera (did you mean `pitch`?); it has pitch, yaw"),
             ("c.physics.gravity = true", "conf.lua: c.physics.gravity: a number wanted, not true"),
-            ("c.players = 1.5", "conf.lua: c.players: a whole number wanted, not 1.5"),
+            ("c.light.shadows = 'all'", "conf.lua: c.light.shadows: not a setting of c.light (did you mean `lamp_shadows`, what stops a lamp: \"static\", \"all\" or \"none\"? `shadow` is how dark a shadow is)"),
+            ("c.light.density = 0.1", "conf.lua: c.light.density: not a setting of c.light (did you mean `fog_density`?"),
+            ("c.players = 1.5","conf.lua: c.players: a whole number wanted, not 1.5"),
             ("c.camera.rotates = 'fre'", "conf.lua: c.camera.rotates: \"fre\" is none of"),
             ("c.title = { 1 }", "conf.lua: c.title: text in quotes wanted, not a list"),
         ] {

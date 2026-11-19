@@ -236,6 +236,8 @@ fn a_slip_in_conf_names_the_setting_meant() {
     let dir = folder("conf-slip", "");
     std::fs::write(dir.join("conf.lua"), CONF.replace("c.things.miner = {}", "c.titel = 'X'")).unwrap();
     assert_eq!(start_error(&dir), "conf.lua: c.titel: no such setting (did you mean `c.title`?)");
+    std::fs::write(dir.join("conf.lua"), CONF.replace("c.things.miner = {}", "c.fog.density = 0.01")).unwrap();
+    assert_eq!(start_error(&dir), "conf.lua: c.fog: no such setting (did you mean `c.light.fog_density`? The fog's settings are c.light.fog_density, fog_color, fog_anisotropy and fog_glow)");
     std::fs::write(dir.join("conf.lua"), CONF.replace("c.things.miner = {}", "c.things.miner = { model = 'nope.vvx' }")).unwrap();
     assert_eq!(start_error(&dir), "c.things.miner.model: no file \"nope.vvx\" in the game folder");
 }

@@ -864,7 +864,8 @@ impl Reader<'_> {
     pub fn only(&self, table: &dyn TableLike, allowed: &[&str], what: &str) -> Result<()> {
         for (k, v) in table.iter() {
             if !allowed.contains(&k) {
-                return Err(self.fail(v.span(), format!("'{k}' is no field of {what} (it has {})", allowed.join(", "))));
+                let near = crate::audio::words::near(k, allowed.iter().copied()).map_or(String::new(), |n| format!(", did you mean '{n}'?"));
+                return Err(self.fail(v.span(), format!("'{k}' is no field of {what}{near} (it has {})", allowed.join(", "))));
             }
         }
         Ok(())
