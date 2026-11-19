@@ -346,6 +346,11 @@ pub const API: &[Item] = &[
     Item { of: "world", name: "quit", what: Method { params: &[], returns: "" }, doc: "Ends the program, as QUIT on the engine's title: for \
             your own title's menu. In the IDE's PLAY it stops the game; shot and inspect end the run there. Only the window does it: the \
             game plays the same without one." },
+    Item { of: "world", name: "to_title", what: Method { params: &[], returns: "" }, doc: "Back to the title after this tick, as QUIT TO \
+            TITLE in the pause menu: the run ends (on_level_end and on_world_end hear \"quit\"), a score that beats a line of the high \
+            score table asks for initials, then the title shows; a game with a title of its own (c.title_screen.level) goes back to that \
+            level. For your own menu's QUIT, a game over screen's button. On the title itself it is a mistake. In the IDE's PLAY it stops \
+            the game; shot and inspect end the run there. Only the window does it: the game plays the same without one." },
     // level
     Item { of: "level", name: "state", what: Field { ty: "table", set: false }, doc: "Your game's data for this level while it is played: \
             the things in it too, moves, time. Fresh each time the level is entered, a restart too; after world:load as it was saved (its \

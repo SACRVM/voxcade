@@ -305,7 +305,8 @@ impl<G: Game> Play<G> {
         }
         for asked in self.game.requests() {
             match asked {
-                crate::game::Request::Quit => self.quit = true,
+                // Back to the title: PLAY has none, it stops as at QUIT.
+                crate::game::Request::Quit | crate::game::Request::ToTitle => self.quit = true,
                 // PLAY has no menus: said, so a row that seems to do nothing is explained.
                 crate::game::Request::Open(page) => self.notes.push(format!("The game opens the engine's {} page here: shown when it plays in its own window, not in PLAY.", page.to_uppercase())),
             }

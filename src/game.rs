@@ -117,6 +117,9 @@ pub enum Anew {
 pub enum Request {
     Open(&'static str),
     Quit,
+    /// Back to the title, as the pause menu's QUIT TO TITLE
+    /// (`world:to_title()`).
+    ToTitle,
 }
 
 /// The engine's pages a game opens over itself (`world:open`).

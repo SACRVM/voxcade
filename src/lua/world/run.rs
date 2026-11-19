@@ -172,6 +172,10 @@ impl UserData for WorldView {
             request(lua, "world:open", crate::game::Request::Open(page))
         });
         m.add_function("quit", |lua, _: AnyUserData| request(lua, "world:quit", crate::game::Request::Quit));
+        m.add_function("to_title", |lua, _: AnyUserData| {
+            no_run_here(lua, "world:to_title")?;
+            request(lua, "world:to_title", crate::game::Request::ToTitle)
+        });
     }
 }
 

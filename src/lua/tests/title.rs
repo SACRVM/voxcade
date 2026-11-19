@@ -147,6 +147,37 @@ fn open_and_quit_are_the_machines_not_the_games() {
     assert!(e.contains("world:open: no page called 'map' (the engine's: settings)"), "{e}");
 }
 
+/// `world:to_title()` in a run is asked of the machine as `world:quit()`
+/// is: the game's state goes as without it, told once in its tick, in a
+/// game with its own title and one without. On the title itself it is a
+/// mistake, as the run's asks are there.
+#[test]
+fn to_title_is_the_machines_and_no_ask_on_the_title() {
+    let asks = "function on_tick()\n  world.state.n = (world.state.n or 0) + 1\n  if world.tick == 3 then world:to_title() world:to_title() end\nend\n";
+    let plain = "function on_tick()\n  world.state.n = (world.state.n or 0) + 1\nend\n";
+    let (titled, quiet) = (title_folder("to-title", asks), title_folder("to-title-plain", plain));
+    let untitled = folder("to-title-none", asks);
+    for (n, dir) in [&titled, &untitled].into_iter().enumerate() {
+        let (mut g, mut q) = (game_in(dir), game_in(&quiet));
+        let mut told = Vec::new();
+        for tick in 0..8 {
+            g.step(&Input::default());
+            q.step(&Input::default());
+            if n == 0 {
+                assert_eq!(g.game.state_hash(), q.game.state_hash(), "tick {tick}");
+            }
+            told.push(g.requests());
+        }
+        told.retain(|t| !t.is_empty());
+        assert_eq!(told, vec![vec![Request::ToTitle]], "once, in its tick");
+    }
+    let mut g = game_in(&titled);
+    g.begin_title().unwrap();
+    let e = said(&mut g, "world:to_title()");
+    assert!(e.contains("world:to_title: the title (c.title_screen.level) is no run"), "{e}");
+    assert!(g.requests().is_empty());
+}
+
 /// `c.title_screen.level` is checked as the game loads and as `conf.lua`
 /// is read anew: a name that is no level (the near one said), the level a
 /// run begins in, the only level.

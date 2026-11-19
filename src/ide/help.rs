@@ -565,13 +565,13 @@ end
     },
     Topic {
         title: "YOUR OWN TITLE",
-        text: "A game with save games may open on a title of its own: a level of the game (levels/title.toml here) that c.title_screen.level names, in place of the engine's title with its high scores. The window opens in it, and what happens there is your code: here a menu drawn with frame:menu and moved with the arrows. world:new_game() begins a run in the level a run begins in (the first but the title, or c.start's), world:load(slot) a run from a save (world.saves says what lies in the slots, world.saves.newest which was saved last: CONTINUE is world:load(world.saves.newest), nil while there is none), world:save(slot, { label = \"Meadow\" }) tells a save by a line of your own (world.saves[slot].label), world:delete_save(slot) empties a slot at the tick's end, world:open(\"settings\") shows the engine's SETTINGS over the game, world:quit() ends the program. The title is no run: it is never recorded, nothing is saved there, Escape is yours. level.name says where the game is. A run's end and QUIT TO TITLE come back to it; PLAY in the IDE begins the run at once (a scenario with level = \"title\" plays the title).",
+        text: "A game with save games may open on a title of its own: a level of the game (levels/title.toml here) that c.title_screen.level names, in place of the engine's title with its high scores. The window opens in it, and what happens there is your code: here a menu drawn with frame:menu and moved with the arrows. world:new_game() begins a run in the level a run begins in (the first but the title, or c.start's), world:load(slot) a run from a save (world.saves says what lies in the slots, world.saves.newest which was saved last: CONTINUE is world:load(world.saves.newest), nil while there is none), world:save(slot, { label = \"Meadow\" }) tells a save by a line of your own (world.saves[slot].label), world:delete_save(slot) empties a slot at the tick's end, world:open(\"settings\") shows the engine's SETTINGS over the game, world:quit() ends the program, and in a run world:to_title() goes back to the title (your own QUIT TO TITLE). The title is no run: it is never recorded, nothing is saved there, Escape is yours. level.name says where the game is. A run's end and QUIT TO TITLE come back to it; PLAY in the IDE begins the run at once (a scenario with level = \"title\" plays the title).",
         conf: r##"c.world.size = nil
 c.title_screen.level = "title"
 c.saves = { slots = 1 }
-c.actions = { "act" }
-c.keys = { act = { "Space" } }
-c.pad = { act = { "south" } }"##,
+c.actions = { "act", "back" }
+c.keys = { act = { "Space" }, back = { "X" } }
+c.pad = { act = { "south" }, back = { "east" } }"##,
         files: &[
             ("levels/title.toml", "format = \"voxcade level 1\"\nsize = [96, 64, 32]\n"),
             ("levels/meadow.toml", "format = \"voxcade level 1\"\nsize = [96, 64, 32]\n"),
@@ -603,6 +603,7 @@ function on_tick()
   if level.name == "title" then return title_tick() end
   player:walk(input.dir, 40)
   if input:pressed("act") then world:save(1, { label = "Meadow" }) end
+  if input:pressed("back") then world:to_title() end
 end
 
 function on_draw(frame)
@@ -613,7 +614,7 @@ function on_draw(frame)
     end
     frame:menu{ title = "My Game", rows = rows, at = level.state.at, hint = "{act} chooses" }
   else
-    frame:text("{act} saves", 4, 4)
+    frame:text("{act} saves, {back} to the title", 4, 4)
   end
 end
 "##,

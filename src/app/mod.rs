@@ -784,8 +784,10 @@ impl<G: Game> App<G> {
                 // What the game asked of the window: SETTINGS over it, the
                 // end (not a replay's, nor over the network yet).
                 let asked = game.requests();
-                if playback.is_none() && net.is_none() && front.asked(&asked) {
-                    queued.push(Command::Quit);
+                if playback.is_none() && net.is_none()
+                    && let Some(then) = front.asked(&asked)
+                {
+                    queued.push(then);
                 }
                 match playback {
                     Some(p) => {
@@ -1067,11 +1069,13 @@ mod tests {
         assert!(own_title(&mut game, &mut front).unwrap());
         assert!(front.playing && !front.menu.is_open() && !front.on_title() && game.on_title(), "the game's title, not the engine's");
         let mut settings = Settings::default();
-        assert!(!front.asked(&[Request::Open("settings")]));
+        assert_eq!(front.asked(&[Request::Open("settings")]), None);
         assert_eq!(front.menu.page(), Some(Page::Settings));
         assert_eq!(front.menu.nav(Nav::Back, &mut settings, 0), Some(Command::Resume), "back from it, the game goes on");
         assert!(!front.menu.is_open());
-        assert!(front.asked(&[Request::Quit]), "QUIT ends the window");
+        assert_eq!(front.asked(&[Request::Quit]), Some(Command::Quit), "QUIT ends the window");
+        assert_eq!(front.asked(&[Request::ToTitle]), Some(Command::ToTitle), "back to the title as QUIT TO TITLE");
+        assert_eq!(front.asked(&[Request::ToTitle, Request::Quit]), Some(Command::Quit), "quitting wins");
         game.eval("world.state.go = true").unwrap();
         game.step(&crate::input::Input::default());
         assert!(game.begun && !game.on_title(), "a run");

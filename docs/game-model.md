@@ -90,6 +90,7 @@ where nothing is (`thing.name`, `thing.wall`, `level.next`, `music.song`).
 | `world:new_game(options?)` | on the game's own title only (`c.title_screen.level`, below): a fresh run begins at the tick's end in the level a run begins in |
 | `world:open(page)` | a page of the engine's over the game, held while it shows (`"settings"`, the only one so far; another name is a mistake listing them): asked of the window, not of the run |
 | `world:quit()` | the program ends (the IDE's PLAY stops, `shot` and `inspect` end the run there): asked of the window, not of the run |
+| `world:to_title()` | back to the title after the tick, as the pause menu's QUIT TO TITLE (the run ends with `"quit"`, a score that beats a line asks for initials; a game with a title of its own goes back to its title level; the IDE's PLAY stops, `shot` and `inspect` end the run there; on the title itself a mistake): asked of the window, not of the run |
 
 ### `level`: the level being played
 
@@ -585,11 +586,16 @@ Then:
   still lists it, and `level.next` passes it over.
 - `world:open("settings")` (the title and a run alike) shows the
   engine's SETTINGS over the game, held as the pause holds it; back from
-  it the game goes on. `world:quit()` ends the program. Both are asked of
-  the machine, not the run (`game::Request`): no state, no hash, nothing
-  in a replay; a window does them, `shot`, `inspect` and `check` do not
-  (`world:quit()` ends their run there), the IDE's PLAY stops on
-  `world:quit()`. In a network game the window does neither yet.
+  it the game goes on. `world:quit()` ends the program. `world:to_title()`
+  in a run goes back to the title as the pause menu's QUIT TO TITLE does
+  (the run ends, `on_level_end("quit")` and `on_world_end("quit")`, a
+  score that beats a line asks for initials; this title level again,
+  begun anew); on the title it is a mistake, as the run's asks are there.
+  All three are asked of the machine, not the run (`game::Request`): no
+  state, no hash, nothing in a replay; a window does them, `shot`,
+  `inspect` and `check` do not (`world:quit()` and `world:to_title()` end
+  their run there), the IDE's PLAY stops on either. In a network game the
+  window does none of them yet.
 - The IDE's PLAY, `shot`, `inspect` and `check` begin in the level a run
   begins in, past the title, as they pass the engine's; a scenario with
   `level = "title"` plays the title. `voxcade shot GAME --screen title`
@@ -789,9 +795,10 @@ also close it.
 | a console line | yes | yes: done at once, before the next tick | yes | no | yes |
 
 On the game's own title only `restart`, `load` and `new_game` ask (the
-others are mistakes there), and `new_game` nowhere else. `world:open`
-and `world:quit` are no asks, nothing of the run: anywhere that changes
-the game (not `on_draw`), taking effect in the window after the tick.
+others are mistakes there), and `new_game` nowhere else. `world:open`,
+`world:quit` and `world:to_title` are no asks, nothing of the run:
+anywhere that changes the game (not `on_draw`; `to_title` not on the
+title), taking effect in the window after the tick.
 
 A mistake here names the handler and the line. A level that asks to be
 left in `on_level_start` again and again (a hub that sends on, a loop

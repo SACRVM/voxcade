@@ -575,8 +575,9 @@ fn play_ticks<G: Game>(game: &mut Session<G>, canvas: &mut Canvas, frames: u32, 
             watch.begin(game.game.hidden());
         }
         played.warnings.extend(watch.tick(|| game.game.hidden()));
-        // `world:quit()` ends the run here as the window would.
-        if game.game.halted().is_some() || game.requests().contains(&crate::game::Request::Quit) {
+        // `world:quit()` and `world:to_title()` end the run here as the
+        // window would.
+        if game.game.halted().is_some() || ends_the_run(&game.requests()) {
             break;
         }
     }
@@ -829,8 +830,9 @@ fn inspected<G: Game>(dir: &Path, frames: u32, input: &str, seats: &[(usize, Str
             watch.begin(game.game.hidden());
         }
         warnings.extend(watch.tick(|| game.game.hidden()));
-        // `world:quit()` ends the run here as the window would.
-        if game.game.halted().is_some() || game.requests().contains(&crate::game::Request::Quit) {
+        // `world:quit()` and `world:to_title()` end the run here as the
+        // window would.
+        if game.game.halted().is_some() || ends_the_run(&game.requests()) {
             break;
         }
     }
@@ -843,6 +845,12 @@ fn inspected<G: Game>(dir: &Path, frames: u32, input: &str, seats: &[(usize, Str
         standing["pointer"] = pointer_json(&game);
     }
     Ok(standing)
+}
+
+/// Whether a game's asks end a run without a window: `world:quit()`, and
+/// `world:to_title()` (there is no title to go back to).
+fn ends_the_run(asked: &[crate::game::Request]) -> bool {
+    asked.iter().any(|r| matches!(r, crate::game::Request::Quit | crate::game::Request::ToTitle))
 }
 
 /// The pointer of the tick played last of every seat that has one, as the
