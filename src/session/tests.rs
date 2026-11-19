@@ -1736,6 +1736,88 @@ fn the_lamps_memory_grows_until_the_beams_fit() {
     assert!(!s.canvas.grow_lamps().unwrap(), "it fits");
 }
 
+/// On the GPU: what the GPU cannot give the lamps (`render::lamps::made`,
+/// refused here as a GPU out of memory would) is said once and the picture
+/// drawn without it: a memory that cannot grow stays as it was (the
+/// picture the same), walls that cannot be had let the lamps shine
+/// through, moving things without room stop no lamp. wgpu's default for
+/// such a mistake ended the program.
+#[test]
+fn what_the_gpu_cannot_give_the_lamps_is_said_and_drawn_without() {
+    use crate::render::{LampShadows, Light, LightShape, REFUSED};
+    let refuse = |on: bool| REFUSED.with(|r| r.set(on));
+    // The memory: 16 lamps in fog grow it; refused, it stays.
+    let mut s = LampScene::new();
+    let lamps: Vec<_> = (0..16).map(|i| Light::lamp(Vec3::new(10.5 + (i % 4) as f32 * 24.0, 10.5 + (i / 4) as f32 * 24.0, 12.0), 90.0, [0.5; 3], &LightShape::default(), |w| w).stated(LampShadows::Static)).collect();
+    let fog = crate::render::Fog { density: 0.02, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 4, thin: false };
+    let frame = |s: &mut LampScene, lights: &[Light], fogged: bool| {
+        let (w, h) = LampScene::SIZE;
+        let mut f = s.game.frame(1.0, w as f32 / h as f32);
+        (f.lights, f.lamp_world, f.fog) = (lights.to_vec(), Some(s.game.game.sim().world.clone()), fogged.then_some(fog));
+        f
+    };
+    let f = frame(&mut s, &lamps, true);
+    let first = s.canvas.draw(&f).unwrap();
+    let held = s.canvas.stats().memory_bytes;
+    assert!(s.canvas.grow_lamps().unwrap(), "it would grow");
+    refuse(true);
+    let again = s.canvas.draw(&f).unwrap();
+    refuse(false);
+    let said = s.canvas.warnings();
+    assert!(said.iter().any(|w| w.contains("could not give their memory") && w.contains("it stays at")), "{said:?}");
+    assert_eq!(s.canvas.stats().memory_bytes, held, "kept as it was");
+    assert!(again == first, "the picture the same");
+    assert!(!s.canvas.grow_lamps().unwrap(), "grown no further");
+    // The walls: another level (here its palette) needs a volume anew;
+    // refused, the lamp's light goes through the wall.
+    let mut s = LampScene::new();
+    let lamp = Light::lamp(Vec3::new(40.5, 48.5, 6.0), 30.0, [2.0; 3], &LightShape::default(), |w| w).stated(LampShadows::Static);
+    let (_, dark) = s.picture(&[], true);
+    let (f, near) = s.picture(&[lamp], true);
+    let behind = |p: &[u8]| LampScene::floor_at(&f, p, 52.5, 48.5);
+    assert!(behind(&near) < behind(&dark) + 3.0, "the wall stops it");
+    refuse(true);
+    let (w, h) = LampScene::SIZE;
+    let mut other = s.game.frame(1.0, w as f32 / h as f32);
+    (other.lights, other.lamp_world) = (vec![lamp], Some(s.game.game.sim().world.clone()));
+    other.lamp_world.as_mut().expect("walls given").palette[9] = [10, 10, 10, 255];
+    let through = s.canvas.draw(&other).unwrap();
+    refuse(false);
+    let said = s.canvas.warnings();
+    assert!(said.iter().any(|w| w.contains("could not give their walls") && w.contains("shine through")), "{said:?}");
+    assert!(behind(&through) > behind(&near) + 20.0, "through the wall: {} against {}", behind(&through), behind(&near));
+    // The moving things: a post of 196 cubes needs more room than the
+    // first 64; refused, they stop no lamp (the floor behind lit), where a
+    // row of 28 of them did.
+    let mut s = LampScene::of([]);
+    let spot = Light::lamp(Vec3::new(28.5, 48.5, 6.0), 40.0, [2.0; 3], &LightShape { cone: Some(60.0), rotation: 90.0, pitch: -10.0, ..Default::default() }, |w| w).stated(LampShadows::All);
+    let cube = |x: i32, y: i32, z: i32| {
+        let mut fx = [0u8; 4];
+        fx[crate::render::FX_OPACITY] = 255;
+        crate::render::Instance { pos_size: [x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5, 1.0], color: [90, 90, 90, 255], fx, shade: [0; 4], turn: [0; 4] }
+    };
+    let post: Vec<_> = (36..38).flat_map(|x| (45..52).flat_map(move |y| (1..15).map(move |z| (x, y, z)))).map(|(x, y, z)| cube(x, y, z)).collect();
+    let picture = |s: &mut LampScene, cubes: &[crate::render::Instance]| {
+        let (w, h) = LampScene::SIZE;
+        let mut f = s.game.frame(1.0, w as f32 / h as f32);
+        (f.lights, f.lamp_world) = (vec![spot], Some(s.game.game.sim().world.clone()));
+        f.instances.extend(cubes.iter().copied());
+        let pixels = s.canvas.draw(&f).unwrap();
+        (f, pixels)
+    };
+    let (f, open) = picture(&mut s, &[]);
+    let row: Vec<_> = post.iter().filter(|c| c.pos_size[1] == 48.5).copied().collect();
+    let (_, one) = picture(&mut s, &row);
+    refuse(true);
+    let (_, all) = picture(&mut s, &post);
+    refuse(false);
+    let said = s.canvas.warnings();
+    assert!(said.iter().any(|w| w.contains("could not give the moving things") && w.contains("stop no lamp")), "{said:?}");
+    let behind = |p: &[u8]| LampScene::floor_at(&f, p, 43.5, 48.5);
+    assert!(behind(&one) < behind(&open) - 20.0, "a row of them in their room stops it: {} against {}", behind(&one), behind(&open));
+    assert!((behind(&all) - behind(&open)).abs() < 3.0, "without room, the post stops no lamp: {} against {}", behind(&all), behind(&open));
+}
+
 /// On the GPU: the lamps' memory starts at a quarter of the picture's
 /// pixels (512 KB here; room for the fog's beams' points up front made it
 /// 8 MB), and everything of the lamps is let go after `LET_GO` pictures

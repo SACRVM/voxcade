@@ -240,6 +240,9 @@ fn movers_stop_face(begins: vec3<f32>, n: vec3<f32>, lamp: vec3<f32>, list: u32)
 // Whether the point `p` (a face's voxel, `movers_stop_face`) lies in a
 // voxel of the thing the lamp of `list` shines from.
 fn carried(p: vec3<f32>, list: u32) -> bool {
+    if (lamps.movers.x == 0) {
+        return false;
+    }
     let head = list >> 8u;
     let own = vec2<u32>(mover_lists[head], mover_lists[head + 1u]);
     if (own.y != 1u) {

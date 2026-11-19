@@ -270,6 +270,12 @@ pub(super) struct Lamps {
     told_full: bool,
     /// Pictures in a row without the lamps' pass (`LET_GO`).
     idle: u32,
+    /// What the GPU could not give (`made`), the most tried again: the
+    /// faces' memory's answers, the volume's bytes, the moving things'
+    /// bytes. Said once as it failed.
+    memory_room: u64,
+    volume_room: u64,
+    movers_room: usize,
 }
 
 enum Walls {
@@ -370,7 +376,16 @@ impl Lamps {
             told_big: false,
             told_full: false,
             idle: 0,
+            memory_room: u64::MAX,
+            volume_room: u64::MAX,
+            movers_room: usize::MAX,
         }
+    }
+
+    /// The largest the faces' memory may be: the GPU's largest buffer
+    /// (`most_faces`), and less than it could not give.
+    fn most(&self, device: &wgpu::Device) -> u64 {
+        most_faces(device).min(self.memory_room)
     }
 
     /// A picture drawn with the lamps' pass (`used`) or without: after
@@ -607,15 +622,32 @@ impl Renderer {
         }
         // As large as the picture asks, or as pictures found it needs; never
         // smaller while the picture's size stays.
-        let faces = faces_for(w, h).max(self.lamps.grown).min(most_faces(device));
+        let faces = faces_for(w, h).max(self.lamps.grown).min(self.lamps.most(device));
+        let mut walls = walls && faces > 0;
         if walls && self.lamps.seen.as_ref().is_none_or(|(held, _)| *held < faces) {
-            // (A count read from the memory before is not this one's.)
-            if let Walls::Ready { full, .. } = &mut self.lamps.walls {
-                *full = FullWatch::new(device, GROWN_EVERY);
+            let bytes = full_at(faces) + COUNTS;
+            match made(device, || device.create_buffer(&wgpu::BufferDescriptor { label: Some("lamps' memory"), size: bytes, usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC, mapped_at_creation: false })) {
+                Ok(buffer) => {
+                    // (A count read from the memory before is not this one's.)
+                    if let Walls::Ready { full, .. } = &mut self.lamps.walls {
+                        *full = FullWatch::new(device, GROWN_EVERY);
+                    }
+                    self.lamps.seen = Some((faces, buffer));
+                    self.lamps.bind = None;
+                }
+                // Kept as it is, grown no further; without one, through
+                // walls.
+                Err(why) => {
+                    let kept = self.lamps.seen.as_ref().map(|(held, _)| *held);
+                    self.lamps.memory_room = kept.unwrap_or(0);
+                    self.lamps.told_full = true;
+                    self.said.push(match kept {
+                        Some(held) => format!("lamps: the GPU could not give their memory {} MB ({why}): it stays at {} MB, slower where it is full", bytes >> 20, (full_at(held) + COUNTS) >> 20),
+                        None => format!("lamps: the GPU could not give their memory {} MB ({why}): they shine through walls", bytes >> 20),
+                    });
+                    walls = kept.is_some();
+                }
             }
-            let buffer = device.create_buffer(&wgpu::BufferDescriptor { label: Some("lamps' memory"), size: full_at(faces) + COUNTS, usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC, mapped_at_creation: false });
-            self.lamps.seen = Some((faces, buffer));
-            self.lamps.bind = None;
         }
         Some(LampFrame { walls, shader })
     }
@@ -653,6 +685,10 @@ impl Renderer {
             return false;
         }
         let texels = reach.texels;
+        if reach.bytes() >= self.lamps.volume_room {
+            self.lamps.volume = None;
+            return false;
+        }
         let lamps = &mut self.lamps;
         if same {
             let held = lamps.volume.as_mut().expect("held");
@@ -672,17 +708,27 @@ impl Renderer {
         }
         let started = Instant::now();
         lamps.volume = None;
-        let volume = Volume::new(world, reach, &frame.bank, &frame.lamp_pieces, key);
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("the level's solid voxels"),
-            size: wgpu::Extent3d { width: texels.x as u32, height: texels.y as u32, depth_or_array_layers: texels.z as u32 },
-            mip_level_count: LEVELS,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D3,
-            format: wgpu::TextureFormat::R8Uint,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
+        let texture = made(device, || {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("the level's solid voxels"),
+                size: wgpu::Extent3d { width: texels.x as u32, height: texels.y as u32, depth_or_array_layers: texels.z as u32 },
+                mip_level_count: LEVELS,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D3,
+                format: wgpu::TextureFormat::R8Uint,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            })
         });
+        let texture = match texture {
+            Ok(texture) => texture,
+            Err(why) => {
+                lamps.volume_room = reach.bytes();
+                self.said.push(format!("lamps: the GPU could not give their walls {} MB ({why}): they shine through walls", reach.bytes() >> 20));
+                return false;
+            }
+        };
+        let volume = Volume::new(world, reach, &frame.bank, &frame.lamp_pieces, key);
         for m in 0..LEVELS {
             write(queue, &texture, m, IVec3::ZERO, texels >> m as i32, &volume.copies[m as usize]);
         }
@@ -706,17 +752,21 @@ impl Renderer {
         let lamps = &mut self.lamps;
         lamps.movers_shown = 0;
         lamps.movers_words.clear();
+        // Room for their solids and bits, made larger as needed: what the
+        // GPU could not give stops no lamp (said once).
+        let built = match built {
+            Some(Ok(m)) => match lamps.movers_fit(device, &m) {
+                Ok(()) => Some(Ok(m)),
+                Err(None) => None,
+                Err(Some(why)) => {
+                    self.said.push(why);
+                    None
+                }
+            },
+            other => other,
+        };
         match built {
             Some(Ok(m)) => {
-                if m.solids.len() > lamps.movers_solids.1 {
-                    lamps.movers_solids = solids_buffer(device, m.solids.len().next_power_of_two());
-                    lamps.bind = None;
-                }
-                if m.bits.len() > lamps.movers_bits.1 {
-                    lamps.movers_bits = bits_buffer(device, m.bits.len().next_power_of_two());
-                    lamps.movers_key = !m.key;
-                    lamps.bind = None;
-                }
                 if lamps.movers_key != m.key {
                     queue.write_buffer(&lamps.movers_bits.0, 0, bytemuck::cast_slice(&m.bits));
                     lamps.movers_key = m.key;
@@ -846,7 +896,7 @@ impl Renderer {
     /// they are said).
     fn grows_by(&self, device: &wgpu::Device, faces: u64) -> u64 {
         let (_, _, w, h) = self.picture();
-        if faces * 2 > most_faces(device) || faces >= CROWDED_UP_TO * u64::from(w) * u64::from(h) { 4 } else { 0 }
+        if faces * 2 > self.lamps.most(device) || faces >= CROWDED_UP_TO * u64::from(w) * u64::from(h) { 4 } else { 0 }
     }
 
     /// A step of reading the count that tells whether the lamps' memory
@@ -884,7 +934,7 @@ impl Renderer {
         if count == 0 {
             return false;
         }
-        if faces * 2 <= most_faces(device) {
+        if faces * 2 <= self.lamps.most(device) {
             self.lamps.grown = self.lamps.grown.max(faces * 2);
             return true;
         }
@@ -915,6 +965,37 @@ impl Lamps {
         let start = if light.edge[1] > 0.5 { self.volume.as_ref().map_or(Some(l.pos), |h| h.volume.start(l.pos)) } else { Some(l.pos) };
         let from = start.map_or([0.0, 0.0, 0.0, 1.0], |p| p.extend(0.0).to_array());
         LampRow { light, from }
+    }
+
+    /// Room for the moving things `m`'s solids and bits, made larger where
+    /// they need more; a mistake where the GPU could not give it, what to
+    /// say the first time (None after: they stop no lamp).
+    fn movers_fit(&mut self, device: &wgpu::Device, m: &super::movers::Movers) -> Result<(), Option<String>> {
+        let (count, words) = (m.solids.len().next_power_of_two(), m.bits.len().next_power_of_two());
+        let need = count * size_of::<super::movers::Solid>() + words * 4;
+        if need >= self.movers_room {
+            return Err(None);
+        }
+        let mut failed = |why: String| {
+            self.movers_room = need;
+            Some(format!("lamps: the GPU could not give the moving things {} MB ({why}): they stop no lamp", need >> 20))
+        };
+        if m.solids.len() > self.movers_solids.1 {
+            match made(device, || solids_buffer(device, count)) {
+                Ok(solids) => self.movers_solids = solids,
+                Err(why) => return Err(failed(why)),
+            }
+            self.bind = None;
+        }
+        if m.bits.len() > self.movers_bits.1 {
+            match made(device, || bits_buffer(device, words)) {
+                Ok(bits) => self.movers_bits = bits,
+                Err(why) => return Err(failed(why)),
+            }
+            self.movers_key = !m.key;
+            self.bind = None;
+        }
+        Ok(())
     }
 
     fn make_bind(&mut self, device: &wgpu::Device, walls: bool) -> wgpu::BindGroup {
@@ -973,13 +1054,33 @@ fn make_walls(device: &wgpu::Device) -> Result<Walls, String> {
     if device.limits().max_storage_buffers_per_shader_stage == 0 {
         return Err("no storage buffers".into());
     }
-    let internal = device.push_error_scope(wgpu::ErrorFilter::Internal);
-    let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
-    let pass = lamp_pass(device, &LAMPS, true);
-    let failed = [pollster::block_on(validation.pop()), pollster::block_on(internal.pop())];
+    let pass = made(device, || lamp_pass(device, &LAMPS, true))?;
+    Ok(Walls::Ready { pass, full: FullWatch::new(device, GROWN_EVERY) })
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Whether `made` fails in a test, as a GPU without the memory would
+    /// (no test can have a real one run out).
+    pub static REFUSED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// What `make` makes on the GPU (a buffer, a texture, a pipeline), or why the
+/// GPU could not give it, in words: out of memory, past what the device
+/// takes, a shader it would not take. wgpu's default for such a mistake
+/// ends the program; the callers keep what they had, or draw without it,
+/// and say it once.
+pub(super) fn made<T>(device: &wgpu::Device, make: impl FnOnce() -> T) -> Result<T, String> {
+    #[cfg(test)]
+    if REFUSED.with(std::cell::Cell::get) {
+        return Err("refused by the test".into());
+    }
+    let scopes = [wgpu::ErrorFilter::OutOfMemory, wgpu::ErrorFilter::Validation, wgpu::ErrorFilter::Internal].map(|f| device.push_error_scope(f));
+    let made = make();
+    let failed: Vec<Option<wgpu::Error>> = scopes.into_iter().rev().map(|s| pollster::block_on(s.pop())).collect();
     match failed.into_iter().flatten().next() {
         Some(e) => Err(e.to_string().lines().next().unwrap_or_default().to_string()),
-        None => Ok(Walls::Ready { pass, full: FullWatch::new(device, GROWN_EVERY) }),
+        None => Ok(made),
     }
 }
 
@@ -1026,5 +1127,9 @@ mod tests {
         if most.max_storage_buffer_binding_size.min(most.max_buffer_size) >= MOST_BYTES {
             assert_eq!(faces, MOST_FACES, "this GPU holds the largest memory");
         }
+        // A buffer past what the device takes is a mistake in words, not
+        // the end of the program.
+        let past = made(&device, || device.create_buffer(&wgpu::BufferDescriptor { label: None, size: device.limits().max_buffer_size + 4096, usage: wgpu::BufferUsages::STORAGE, mapped_at_creation: false }));
+        assert!(past.as_ref().is_err_and(|why| !why.is_empty()), "{:?}", past.err());
     }
 }
