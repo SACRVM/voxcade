@@ -960,7 +960,7 @@ impl Renderer {
 
 /// What is said of the lamps' memory full, `count` faces having found no
 /// room.
-pub fn lamps_full(faces: u64, count: u32) -> String {
+fn lamps_full(faces: u64, count: u32) -> String {
     format!("lamps: their memory is full ({faces} faces and points of beams, the most this GPU holds; {count} more found no room): those ask again every picture, the picture the same but slower")
 }
 
