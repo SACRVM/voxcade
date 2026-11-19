@@ -83,7 +83,9 @@ V: @singer o4 "l a" e8 "l a" g8 "s ae ng" a4 b4 q8 "h ei" e2 q7
 
 For every wave: `drive` (0 to 36 dB into tanh, before the filters, its
 DC taken off again; 12 rough, 19 the shout through a megaphone with
-`filter=bandpass cutoff=1150`) and the bit crusher `crush_rate` (Hz the
+`filter=bandpass cutoff=1150`; a voice's consonants join past the
+clipper, so they stay as far under the vowels as without it: the
+megaphone's band still takes about 12 dB off an s) and the bit crusher `crush_rate` (Hz the
 sound is held at, 6300 the speech of old games) and `crush_bits` (1 to
 16, after the envelope; 4 grainy). Checking a voice: render a copy of
 the song with only its channel, then its formants (LPC on the vowels),

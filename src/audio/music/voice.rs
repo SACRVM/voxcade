@@ -1,9 +1,12 @@
 //! The singing voice (`@name voice`): a formant synthesizer after Klatt
 //! (1980), without samples. An impulse train (the vocal cords) through a
 //! glottal low-pass and five resonators in a row (three set per vowel and
-//! gliding, two fixed), noise through a resonator of its own for the
+//! gliding, two fixed), noise through a band of its own (twice) for the
 //! hissing consonants, closure, burst and breath for the plosives, nasals
-//! and liquids as weak voiced formants, the lips' radiation last.
+//! and liquids as weak voiced formants, the lips' radiation last. Its
+//! noise (breath and hiss) comes out apart from its voicing, so an
+//! instrument's `drive` clips the voice alone and the consonants keep
+//! their distance from the vowels.
 //!
 //! A channel sings syllables: a quoted text before a note is what that note
 //! sings, its phonemes split by spaces (`"s ae ng" a4`): onset consonants, one
@@ -84,7 +87,12 @@ const IH: Formants = [430.0, 2030.0, 2680.0];
 const OE: Formants = [380.0, 1500.0, 2200.0];
 const UE: Formants = [280.0, 1700.0, 2100.0];
 
-/// Every phoneme a text may name, vowels first.
+/// Every phoneme a text may name, vowels first. The consonants lie under
+/// the vowel after them as in speech (relative phonetic powers after
+/// Sacia & Beck, tabled by Fletcher, 1953): sh about 13 dB, s, t, k and g
+/// about 15 to 16, ch and d 17, f, h and p 19 to 20; their loudest 10 ms
+/// against the vowel's (test `consonants_lie_under_the_vowels`). The noise
+/// bands: s 5 to 8 kHz, sh 2 to 4, ch 2 to 5.7.
 pub(super) const PHONEMES: &[Phoneme] = &[
     vowel("a", A), // father, German Vater
     vowel("ae", AE), // cat
@@ -109,19 +117,19 @@ pub(super) const PHONEMES: &[Phoneme] = &[
     sonorant("r", [350.0, 1100.0, 1500.0], 0.7, 0.06), // red
     sonorant("w", [300.0, 700.0, 2200.0], 0.7, 0.06), // we
     sonorant("j", [280.0, 2250.0, 3000.0], 0.7, 0.06), // yes, German ja
-    fricative("f", (0.08, 4500.0, 4000.0, 0.3), [300.0, 1300.0, 2400.0], 0.0), // fun
-    fricative("v", (0.07, 4500.0, 4000.0, 0.15), [300.0, 1300.0, 2400.0], 0.35), // very
-    fricative("s", (0.09, 6500.0, 3000.0, 0.16), [300.0, 1700.0, 2700.0], 0.0), // sun
-    fricative("z", (0.08, 6500.0, 3000.0, 0.08), [300.0, 1700.0, 2700.0], 0.35), // zoo, German See
-    fricative("sh", (0.09, 3000.0, 1800.0, 0.5), [300.0, 1800.0, 2400.0], 0.0), // she, German schon
-    fricative("ch", (0.09, 4000.0, 2500.0, 0.26), [280.0, 2200.0, 2900.0], 0.0), // German ich
-    Phoneme { name: "h", kind: Kind::Breath { length: 0.07, level: 0.1 } }, // hat
-    plosive("t", (0.045, false, 0.022), (4500.0, 2500.0, 0.5), 0.03, [250.0, 1800.0, 2700.0]), // top
-    plosive("k", (0.045, false, 0.028), (1900.0, 900.0, 0.9), 0.025, [250.0, 2000.0, 2200.0]), // cat
-    plosive("p", (0.05, false, 0.015), (900.0, 1200.0, 0.6), 0.03, [250.0, 900.0, 2300.0]), // pen
-    plosive("d", (0.035, true, 0.012), (4000.0, 2500.0, 0.45), 0.0, [250.0, 1700.0, 2600.0]), // do
-    plosive("g", (0.035, true, 0.015), (1800.0, 900.0, 0.45), 0.0, [250.0, 2000.0, 2200.0]), // go
-    plosive("b", (0.04, true, 0.01), (900.0, 1200.0, 0.4), 0.0, [250.0, 900.0, 2300.0]), // be
+    fricative("f", (0.08, 4500.0, 4000.0, 0.085), [300.0, 1300.0, 2400.0], 0.0), // fun
+    fricative("v", (0.07, 4500.0, 4000.0, 0.04), [300.0, 1300.0, 2400.0], 0.35), // very
+    fricative("s", (0.09, 6500.0, 3000.0, 0.031), [300.0, 1700.0, 2700.0], 0.0), // sun
+    fricative("z", (0.08, 6500.0, 3000.0, 0.015), [300.0, 1700.0, 2700.0], 0.35), // zoo, German See
+    fricative("sh", (0.09, 3000.0, 1800.0, 0.19), [300.0, 1800.0, 2400.0], 0.0), // she, German schon
+    fricative("ch", (0.09, 4000.0, 2500.0, 0.082), [280.0, 2200.0, 2900.0], 0.0), // German ich
+    Phoneme { name: "h", kind: Kind::Breath { length: 0.07, level: 0.03 } }, // hat
+    plosive("t", (0.045, false, 0.022), (4500.0, 2500.0, 0.088), 0.03, [250.0, 1800.0, 2700.0]), // top
+    plosive("k", (0.045, false, 0.028), (1900.0, 900.0, 0.25), 0.025, [250.0, 2000.0, 2200.0]), // cat
+    plosive("p", (0.05, false, 0.015), (900.0, 1200.0, 0.7), 0.03, [250.0, 900.0, 2300.0]), // pen
+    plosive("d", (0.035, true, 0.012), (4000.0, 2500.0, 0.13), 0.0, [250.0, 1700.0, 2600.0]), // do
+    plosive("g", (0.035, true, 0.015), (1800.0, 900.0, 0.28), 0.0, [250.0, 2000.0, 2200.0]), // go
+    plosive("b", (0.04, true, 0.01), (900.0, 1200.0, 0.45), 0.0, [250.0, 900.0, 2300.0]), // be
 ];
 
 fn phoneme(name: &str) -> Option<&'static Phoneme> {
@@ -271,7 +279,7 @@ impl Plan<'_> {
                 t = end;
                 if breath > 0.0 {
                     let end = t + samples(breath);
-                    self.add(Segment { aspiration: 0.25, ..Segment::new(t, end, locus) });
+                    self.add(Segment { aspiration: 0.07, ..Segment::new(t, end, locus) });
                     t = end;
                 }
                 t
@@ -386,9 +394,14 @@ pub(super) struct Singer {
 struct Tract {
     phase: f64,
     glottal: (f64, f64),
+    /// The resonators' states for the voicing and, apart, for the breath
+    /// (the same filters, run twice: a voice's noise does not go through
+    /// its clipper, `next`).
     resonators: [(f64, f64); 5],
-    hiss: (f64, f64),
-    last: f64,
+    breaths: [(f64, f64); 5],
+    hiss: [(f64, f64); 2],
+    /// The voiced and the noisy part's last sample, for the radiation.
+    last: (f64, f64),
     /// The tracks as they glide: formants, voicing, frication, aspiration.
     formants: [f64; 3],
     voicing: f64,
@@ -407,8 +420,9 @@ impl Default for Tract {
             phase: 0.0,
             glottal: (0.0, 0.0),
             resonators: [(0.0, 0.0); 5],
-            hiss: (0.0, 0.0),
-            last: 0.0,
+            breaths: [(0.0, 0.0); 5],
+            hiss: [(0.0, 0.0); 2],
+            last: (0.0, 0.0),
             formants: [500.0, 1500.0, 2500.0],
             voicing: 0.0,
             frication: 0.0,
@@ -491,8 +505,10 @@ impl Singer {
     }
 
     /// The next sample, `t` samples into the note whose segments are
-    /// `plan`, sung at `f0` Hz.
-    pub(super) fn next(&mut self, plan: &[Segment], t: u64, f0: f32) -> f32 {
+    /// `plan`, sung at `f0` Hz: its voiced part and its noise (breath and
+    /// hiss), apart, so a clipper can drive the voice without lifting the
+    /// noise with it.
+    pub(super) fn next(&mut self, plan: &[Segment], t: u64, f0: f32) -> (f32, f32) {
         let noise = self.noise();
         let v = &mut self.tract;
         while plan.get(v.cursor).is_some_and(|s| t >= s.to) {
@@ -532,22 +548,30 @@ impl Singer {
         let (ga, gb, gc) = self.glottal;
         let g = ga * pulse * 60.0 + gb * v.glottal.0 + gc * v.glottal.1;
         v.glottal = (g, v.glottal.0);
-        // Voice and breath through the resonators in a row, the formants first.
-        let mut x = g * v.voicing + noise * v.aspiration * 0.05;
-        for (k, state) in v.resonators.iter_mut().enumerate() {
+        // Voice and breath through the resonators in a row, the formants
+        // first, each through its own.
+        let mut x = g * v.voicing;
+        let mut h = noise * v.aspiration * 0.05;
+        for (k, (voiced, breath)) in v.resonators.iter_mut().zip(v.breaths.iter_mut()).enumerate() {
             let (a, b, c) = if k < 3 { coefficients(v.formants[k], self.poles[k]) } else { self.high[k - 3] };
-            let y = a * x + b * state.0 + c * state.1;
-            *state = (y, state.0);
-            x = y;
+            for (x, state) in [(&mut x, voiced), (&mut h, breath)] {
+                let y = a * *x + b * state.0 + c * state.1;
+                *state = (y, state.0);
+                *x = y;
+            }
         }
-        // A consonant's hiss beside them, through its own band.
+        // A consonant's hiss beside them, through its own band twice, so
+        // it falls off steeply above it, not a hiss over every height.
         let (fa, fb, fc) = v.band.2;
-        let hiss = fa * noise * v.frication * 0.012 + fb * v.hiss.0 + fc * v.hiss.1;
-        v.hiss = (hiss, v.hiss.0);
+        let mut hiss = noise * v.frication * 0.012;
+        for state in &mut v.hiss {
+            hiss = fa * hiss + fb * state.0 + fc * state.1;
+            *state = (hiss, state.0);
+        }
         // The lips' radiation: the difference from the sample before.
-        let y = x + hiss;
-        let out = y - v.last;
-        v.last = y;
-        (out * LOUDNESS) as f32
+        let noisy = h + hiss;
+        let out = (x - v.last.0, noisy - v.last.1);
+        v.last = (x, noisy);
+        ((out.0 * LOUDNESS) as f32, (out.1 * LOUDNESS) as f32)
     }
 }

@@ -1475,7 +1475,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   in phonemes (`"s ae ng" e4`, one table,
   `music::phonemes`, HELP lists it), the onset before the beat, a note
   without a text holding the vowel; `drive` (dB into tanh, a DC blocker
-  after) and `crush_rate`/`crush_bits` on every wave, MML only. Every
+  after; a voice's breath and hiss join past it, raised as it raises a
+  vowel, or a drive lifted the consonants to the vowels' level and they
+  hurt: the owner, 2026-11-19; the consonants as far under the vowels as
+  in speech, test `consonants_lie_under_the_vowels`) and
+  `crush_rate`/`crush_bits` on every wave, MML only. Every
   older song renders byte for byte as before (test
   `the_instruments_play_as_pinned`).
   The MML pulse wave is centred (no DC offset off duty 0.5, the owner's D6,

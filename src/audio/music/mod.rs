@@ -39,7 +39,8 @@
 //! `arp=0,4,7` and `arp_speed` (Hz), `sweep` (semitones over
 //! `sweep_time`), `freq` (a fixed pitch, for drums), `lowpass` (a gentle
 //! fixed one), `volume`; for every wave `drive` (decibels into a soft
-//! clipper, before the filters, as an amp before its speaker; 0 clean) and
+//! clipper, before the filters, as an amp before its speaker; 0 clean; a
+//! voice's breath and hiss join past it) and
 //! a bit crusher, `crush_rate` (Hz the sound is held at) and `crush_bits`
 //! (1 to 16, after the envelope).
 //!

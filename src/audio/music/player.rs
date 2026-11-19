@@ -34,6 +34,8 @@ pub(super) struct Voice {
     crush: Crusher,
     /// The drive's DC blocker: the last sample in and out.
     dc: (f32, f32),
+    /// What a voice's noise is raised by, joining past the clipper.
+    noise_gain: f32,
 }
 
 impl Voice {
@@ -47,6 +49,7 @@ impl Voice {
         let angle = (n.pan + 1.0) * std::f32::consts::FRAC_PI_4;
         self.pan = (angle.cos(), angle.sin());
         self.drive = if ins.drive > 0.0 { 10f32.powf(ins.drive / 20.0) } else { 0.0 };
+        self.noise_gain = if self.drive > 0.0 { (self.drive * SUNG).tanh() / SUNG } else { 1.0 };
         self.crush.set(ins);
         if ins.voice {
             self.from = if sounding { self.level } else { 0.0 };
@@ -168,6 +171,10 @@ const JUMP: i64 = SAMPLE_RATE as i64 / 20;
 /// How much of its last output the drive's DC blocker keeps a sample: a
 /// high-pass at about 10 Hz.
 const DC_BLOCK: f32 = 1.0 - std::f32::consts::TAU * 10.0 / SAMPLE_RATE as f32;
+
+/// A sung vowel's typical level (its RMS before the volumes): what the
+/// clipper raises a voice by at that level raises its noise past it.
+const SUNG: f32 = 0.4;
 
 /// Samples a jump fades in over (5 ms), so it does not click.
 const FADE_IN: u32 = SAMPLE_RATE / 200;
@@ -446,7 +453,7 @@ impl Player {
                     freq *= 1.0 + ins.vibrato * (std::f32::consts::TAU * ins.vibrato_speed * (t - ins.vibrato_delay)).sin();
                 }
                 let duty = (ins.duty + ins.pwm * (std::f32::consts::TAU * ins.pwm_speed * t).sin()).clamp(0.05, 0.95);
-                let mut s = if ins.voice { v.singer.next(sung(n, &self.song.segments), self.time - v.started, freq) } else { v.osc.next(ins.wave, freq / sr, duty, false) };
+                let (mut s, noise) = if ins.voice { v.singer.next(sung(n, &self.song.segments), self.time - v.started, freq) } else { (v.osc.next(ins.wave, freq / sr, duty, false), 0.0) };
                 // Driven into a soft clipper before the filters, as an amp
                 // before its speaker; a wave not even above and below zero
                 // (a voice's) clips to a middle off zero, taken off again.
@@ -454,6 +461,12 @@ impl Player {
                     let x = (s * v.drive).tanh();
                     s = x - v.dc.0 + DC_BLOCK * v.dc.1;
                     v.dc = (x, s);
+                }
+                // A voice's breath and hiss join past the clipper, raised as
+                // much as it raises a voice, so they keep their distance
+                // from the vowels however hard it drives.
+                if ins.voice {
+                    s += noise * v.noise_gain;
                 }
                 if ins.lowpass.is_some() {
                     s = v.low.next(s, v.alpha);
