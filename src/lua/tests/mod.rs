@@ -9,6 +9,7 @@ mod kits;
 mod mistakes;
 mod names;
 mod music;
+mod music_bars;
 mod picture;
 mod pointer;
 mod pieces;

@@ -674,7 +674,7 @@ end
     },
     Topic {
         title: "GO WITH THE MUSIC",
-        text: "Play a song of c.audio.music as your game's own (music:play, by its file's name) and the game can go with it: on_beat runs on each of its beats, before on_tick, and music.bar counts its bars. Here a blip comes on the first beat of every bar and the screen glows on each beat. The song keeps time with the game (a pause holds both), so replays play it the same.",
+        text: "Play a song of c.audio.music as your game's own (music:play, by its file's name) and the game can go with it: on_beat runs on each of its beats, before on_tick, and music.bar counts its bars. Here a blip comes on the first beat of every bar and the screen glows on each beat. The song keeps time with the game (a pause holds both), so replays play it the same. music:play(\"drive\", { at = 33 }) begins a song at its bar 33, past an intro, its beat 0 there; the beats count on and on as the song goes round, round its #loop too. c.title_screen.music_at = 33 begins the title's song so.",
         conf: r##"c.audio.music = { "music/drive.mml" }   -- your song: music:play calls it "drive"
 c.player.kind = "hero"
 c.things.hero = {}

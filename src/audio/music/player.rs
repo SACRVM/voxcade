@@ -334,6 +334,11 @@ impl Player {
         (beats * 60.0 / self.song.tempo as f64 * SAMPLE_RATE as f64) as u64
     }
 
+    /// Samples into the song bar `bar` (from 1) begins at.
+    pub fn at_bar(&self, bar: u32) -> u64 {
+        self.song.bar_start(bar)
+    }
+
     /// Jumps to `at` samples into the song (round its loop), each voice
     /// taking up the note that sounds there, faded in so it does not click.
     pub fn seek(&mut self, at: u64) {

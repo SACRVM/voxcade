@@ -1472,7 +1472,15 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   whole song going round, the audio folding the clock's place into the
   loop (test `the_audio_keeps_with_the_clock_round_a_loop`); `voxcade
   music` writes such a song to the loop's end and round into its first
-  four bars again, the seam in the file (`Song::once`), and says where. MIDI comes in through `tools/midi2mml.py` and an import file
+  four bars again, the seam in the file (`Song::once`), and says where.
+  A song begun at a bar: `music:play(song, { at = 33 })`, its beat 0
+  there (`lua::host::Music`'s `at`, in the hash only when not 1;
+  `MusicCue::start`), and the engine's title's song at
+  `c.title_screen.music_at` (checked as the game loads, `check_title_bar`;
+  a title level of the game's own uses `at`; the settings' preview plays
+  the chosen song from its start, as the game plays the player's song);
+  a bar past the song's end, or after its `#loop` (which it never
+  leaves), is a mistake (`Timing::bar_mistake`). MIDI comes in through `tools/midi2mml.py` and an import file
   (`games/moreblood/music/end_boss.import.toml`); the user makes music
   in Suno (Pro) and exports MIDI or audio stems. Audio stems go through
   `tools/audio2midi.py` first (the tempo must be known, e.g. from the zip's

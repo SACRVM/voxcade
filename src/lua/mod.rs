@@ -1074,19 +1074,21 @@ impl<K: Kit> Game for LuaGame<K> {
 
     fn music_switch(&self) -> crate::game::MusicSwitch {
         let m = &self.stage.music;
-        crate::game::MusicSwitch { pending: m.next.map(|(_, _, cross)| cross), began: m.crossed }
+        crate::game::MusicSwitch { pending: m.next.map(|(_, _, cross, _)| cross), began: m.crossed }
     }
 
     fn music(&self) -> Option<crate::game::MusicCue> {
         let m = &self.stage.music;
-        Some(crate::game::MusicCue { song: m.song?, beats: m.beats(&self.stage.songs)?, intensity: m.intensity })
+        let meter = self.stage.songs.get(m.song?)?.meter;
+        let start = f64::from(m.at.saturating_sub(1)) * f64::from(meter);
+        Some(crate::game::MusicCue { song: m.song?, beats: m.beats(&self.stage.songs)?, start, intensity: m.intensity })
     }
 
     /// A song gone from the list leaves the music to the player's choice.
     fn set_songs(&mut self, songs: &[crate::audio::music::Timing]) {
         self.stage.songs = Arc::new(songs.to_vec());
         let m = &mut self.stage.music;
-        if m.song.is_some_and(|s| s >= songs.len()) || m.next.is_some_and(|(s, _, _)| s.is_some_and(|s| s >= songs.len())) {
+        if m.song.is_some_and(|s| s >= songs.len()) || m.next.is_some_and(|(s, _, _, _)| s.is_some_and(|s| s >= songs.len())) {
             *m = host::Music { intensity: m.intensity, mix: m.mix, ..host::Music::default() };
         }
     }

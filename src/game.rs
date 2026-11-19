@@ -75,6 +75,9 @@ pub struct Setup<'a> {
 pub struct MusicCue {
     pub song: usize,
     pub beats: f64,
+    /// The beats into the song its beat 0 lies at (`music:play`'s `at`, a
+    /// bar's first beat; 0: its start).
+    pub start: f64,
     /// The game's tension, 0..1: the song's layers follow it (`#layer`).
     pub intensity: f32,
 }

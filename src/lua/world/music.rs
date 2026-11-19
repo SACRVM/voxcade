@@ -35,12 +35,12 @@ impl UserData for MusicView {
         m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, Value)| -> mlua::Result<Value> { Err(no_such("music", &key, None)) });
         m.add_meta_function(MetaMethod::NewIndex, |_, (_, key, _): (AnyUserData, Value, Value)| -> mlua::Result<()> { Err(not_settable("music", &key, None)) });
         m.add_function("play", |lua, (_, song, GivenValue(how)): (AnyUserData, Option<String>, GivenValue)| {
-            // From when as a word, or { from = ..., crossfade = seconds }.
-            let (when, cross) = match &how {
-                Value::Nil => (None, None),
-                Value::String(s) => (Some(s.to_str()?.to_string()), None),
+            // From when as a word, or { from = ..., crossfade = seconds, at = bar }.
+            let (when, cross, at) = match &how {
+                Value::Nil => (None, None, None),
+                Value::String(s) => (Some(s.to_str()?.to_string()), None, None),
                 Value::Table(t) => {
-                    known_keys(t, &["from", "crossfade"], "music:play")?;
+                    known_keys(t, &["from", "crossfade", "at"], "music:play")?;
                     let cross = match t.raw_get::<Value>("crossfade")? {
                         Value::Nil => None,
                         Value::Integer(i) if (0..=60).contains(&i) => Some(i as f32),
@@ -52,9 +52,15 @@ impl UserData for MusicView {
                         Value::String(s) => Some(s.to_str()?.to_string()),
                         other => return Err(mlua::Error::runtime(format!("music:play: from is \"bar\", \"beat\" or \"now\", not {}", shown(&other)))),
                     };
-                    (from, cross)
+                    let at = match t.raw_get::<Value>("at")? {
+                        Value::Nil => None,
+                        Value::Integer(i) if (1..=i64::from(u32::MAX)).contains(&i) => Some(i as u32),
+                        Value::Number(n) if n.fract() == 0.0 && (1.0..=f64::from(u32::MAX)).contains(&n) => Some(n as u32),
+                        other => return Err(mlua::Error::runtime(format!("music:play: at is the bar the song begins at, a whole number from 1 (its first bar), not {}", shown(&other)))),
+                    };
+                    (from, cross, at)
                 }
-                other => return Err(mlua::Error::runtime(format!("music:play: after the song, \"bar\", \"beat\" or \"now\", or {{ from = ..., crossfade = seconds }}, not {}", shown(other)))),
+                other => return Err(mlua::Error::runtime(format!("music:play: after the song, \"bar\", \"beat\" or \"now\", or {{ from = ..., crossfade = seconds, at = bar }}, not {}", shown(other)))),
             };
             change(lua, "music:play", |h| {
                 let when = match when.as_deref() {
@@ -74,8 +80,17 @@ impl UserData for MusicView {
                         }
                     },
                 };
+                // A bar within the song: the player's own begins at its start.
+                if let Some(at) = at {
+                    let Some(t) = song.and_then(|s| h.songs.get(s)) else {
+                        return Err(mlua::Error::runtime("music:play: at needs a song of yours (the player's own begins at its start)"));
+                    };
+                    if let Some(wrong) = t.bar_mistake(at) {
+                        return Err(mlua::Error::runtime(format!("music:play: at = {at} {wrong}")));
+                    }
+                }
                 // Asked for what plays already: it goes on, nothing else asked.
-                h.music.next = if song == h.music.song { None } else { Some((song, when, cross)) };
+                h.music.next = if song == h.music.song { None } else { Some((song, when, cross, at.unwrap_or(1))) };
                 Ok(())
             })
         });

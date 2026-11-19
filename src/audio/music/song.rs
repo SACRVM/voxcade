@@ -153,6 +153,19 @@ pub(super) fn bar_start(tempo: f32, meter: u32, bar: u32) -> u64 {
     (beats * 60.0 / f64::from(tempo) * SAMPLE_RATE as f64) as u64
 }
 
+impl Timing {
+    /// Why a song cannot begin at `bar` (from 1), if it cannot: a bar past
+    /// its end, or after its `#loop`, which it never comes to.
+    pub fn bar_mistake(&self, bar: u32) -> Option<String> {
+        let s = |n: u32| if n == 1 { "" } else { "s" };
+        match self.round {
+            _ if bar > self.bars => Some(format!("is past the end of \"{}\", which has {} bar{}", self.name, self.bars, s(self.bars))),
+            Some((from, Some(to))) if bar > to => Some(format!("lies after the loop of \"{}\" (#loop {from} {to}), which it never leaves", self.name)),
+            _ => None,
+        }
+    }
+}
+
 impl Song {
     /// A song of nothing, 120 beats a minute and 4 to a bar (in place of
     /// one that does not read).

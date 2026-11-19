@@ -391,7 +391,10 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   file's name, from the next bar; `music:play()` gives the player's
   choice back) and goes with it: `on_beat(beat)` before `on_tick`,
   `music.beat`, `music.bar` (waves on the bar, shots on the beat). Its
-  clock is the game's, so replays play it the same. `music.intensity`
+  clock is the game's, so replays play it the same; the beats count on
+  as the song goes round (its `#loop` too). `music:play("song", { at =
+  33 })` begins it at bar 33, past an intro (`c.title_screen.music_at`
+  for the title's song). `music.intensity`
   (0..1) is the game's tension: a song's layers (`adaptive = true` in a
   recipe) come and go with it (Pulsar sets it from the enemies on the
   screen). `music:volume(level, seconds)` (0..1 of the song's own

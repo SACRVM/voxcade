@@ -238,7 +238,13 @@ settings. Several players: `player` is seat 1, the others are in
   it; `on_beat(beat)` tells each beat, on and on as the song goes
   round: past its end, or round the bars its `#loop` names (`#loop 33
   80`: from its start once, then bars 33 to 80 for good), the beats and
-  bars count on, never beginning again. The clock is the game's: a step
+  bars count on, never beginning again. `music:play(song, { at = 33 })`
+  begins a song at its bar 33 (counted from 1) instead of its start,
+  its beat 0 there (an intro skipped), going round its `#loop` as
+  written; a bar past its end or after its loop is a mistake, and a song
+  asked for while it plays goes on whatever bar is asked. The engine's
+  title begins its song so with `c.title_screen.music_at`; a title level
+  of the game's own plays with `at`. The clock is the game's: a step
   every tick the game goes, a hit stop's too (so the music never waits),
   in the snapshot and the hash of a game whose code names `music` or
   `on_beat`, the songs' tempo, meter and `#loop` in its fingerprint; the audio

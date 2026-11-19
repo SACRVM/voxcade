@@ -157,7 +157,12 @@ c.audio.music = { "music/sunny_hills.mml" }   -- one or more: keys 1..9 switch w
 c.audio.music_volume = 0.4
 c.audio.drive = 0          -- how hard the game's sound is pushed into the limiter, in decibels: 0 as it is, more makes it denser and louder; music you listen to for long tires sooner when dense (0 to 12)
 c.title_screen.music = "music/storm.mml"      -- the title's own (default: the first song)
+c.title_screen.music_at = 33                  -- the bar the title's song begins at (1 unless set): past an intro
 ```
+
+A song begun at a bar: `music:play("storm", { at = 33 })` (counted from
+1) begins it there, its beat 0 there, going round its `#loop` as
+written; a bar past its end or after its loop is a mistake.
 
 Which song plays when is the game's code, never a kit's: More Blood's
 `main.lua` plays `end_boss` while its gunship flies (`music:play`) and

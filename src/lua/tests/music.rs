@@ -257,8 +257,8 @@ fn the_game_turns_its_music_down_and_muffles_it() {
         ("music:muffle(nil, 1)", "music:muffle: the amount first"),
         ("music:play('song', { crossfade = -1 })", "music:play: crossfade is seconds from 0 (none) to 60, not -1"),
         ("music:play('song', { from = 'soon' })", "music:play: from \"bar\", \"beat\" or \"now\", not \"soon\""),
-        ("music:play('song', { fade = 2 })", "music:play: no 'fade' (it takes from, crossfade)"),
-        ("music:play('song', 3)", "music:play: after the song, \"bar\", \"beat\" or \"now\", or { from = ..., crossfade = seconds }, not 3"),
+        ("music:play('song', { fade = 2 })", "music:play: no 'fade' (it takes from, crossfade, at)"),
+        ("music:play('song', 3)", "music:play: after the song, \"bar\", \"beat\" or \"now\", or { from = ..., crossfade = seconds, at = bar }, not 3"),
     ] {
         std::fs::write(dir.join("main.lua"), format!("function on_tick()\n  {line}\nend\n")).unwrap();
         let mut g = game_in(&dir);

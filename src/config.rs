@@ -490,6 +490,9 @@ impl Default for PlayerConfig {
 pub struct TitleScreenConfig {
     /// What plays on the title (a song of `c.audio.music`; none: the first).
     pub music: Option<String>,
+    /// The bar the title's song begins at, counted from 1 (its start): 33 for a song with 32 bars of intro.
+    /// It goes round as the song says (`#loop`). The engine's title only: a title level of the game's own picks with `music:play`'s `at`.
+    pub music_at: u32,
     /// The ground point the camera looks at (default: where the player starts).
     pub at: Option<[f32; 2]>,
     /// Voxels across the screen there (default: `c.camera.view_width`).
@@ -546,6 +549,7 @@ impl Default for TitleScreenConfig {
     fn default() -> Self {
         Self {
             music: None,
+            music_at: 1,
             at: None,
             view_width: None,
             logo: Vec::new(),
@@ -659,6 +663,7 @@ pub const RANGES: &[Bound] = &[
     within("title_screen.flyby_every", 0.0, 3600.0),
     within("title_screen.flyby_altitude", 0.0, SIDE),
     within("title_screen.attract_after", 0.0, 3600.0),
+    within("title_screen.music_at", 1.0, 9999.0),
     within("camera.pitch", -89.0, 90.0),
     within("camera.yaw", -360.0, 360.0),
     within("camera.fov", 10.0, 100.0),

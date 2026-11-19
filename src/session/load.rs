@@ -74,6 +74,7 @@ impl<G: Game> Session<G> {
     pub fn load_from(files: Files, mut slots: Slots) -> Result<Self> {
         let dir = files.dir().to_path_buf();
         let cfg = config_in::<G>(&files)?;
+        check_title_bar(&files, &cfg)?;
         slots.set_count(cfg.saves.slots);
         let levels = std::sync::Arc::new(crate::levels::load::<G>(&files, &cfg)?);
         let level_files = levels.files.clone();
@@ -363,6 +364,7 @@ impl<G: Game> Session<G> {
             let before = self.cfg.audio.music.clone();
             let mut cfg = config_in::<G>(&self.files)?;
             crate::levels::check_start::<G>(&self.files, &cfg)?;
+            check_title_bar(&self.files, &cfg)?;
             let waiting = self.cfg.restart_only(&cfg);
             if !waiting.is_empty() {
                 self.cfg.keep_for_restart(&mut cfg);
