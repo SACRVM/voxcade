@@ -169,7 +169,7 @@ fn a_run_with_pointer_sticks_and_text_replays_and_goes_back() {
     let mut recorder = crate::replay::Recorder::default();
     for _ in 0..140 {
         let mut input = script.next_input();
-        g.answer(&mut input, 16.0 / 9.0);
+        g.answer(&mut input, 1, 16.0 / 9.0);
         g.step(&input);
         g.look();
         recorder.record(&g);
@@ -215,4 +215,120 @@ end
     let got = g.game.eval("return table.concat(world.state.got, ' ')").unwrap();
     assert!(got.ends_with("1=yes 2=nil+click\""), "{got}");
     assert!(g.typing(1) && !g.typing(2));
+}
+
+/// A figure of parts: an empty root, a body, a head on it.
+const DOLL: &str = "format = \"voxcade voxel 1\"\nsize = [5, 3, 6]\n\n[palette]\na = \"#5a7aa8\"\nb = \"#d0c8b8\"\n\n[[part]]\nname = \"rig\"\n\n[[part]]\nname = \"body\"\nat = [-2, -1, 0]\nparent = \"rig\"\nlayers = \"\"\"\naaaaa\naaaaa\naaaaa\n*4\n\"\"\"\n\n[[part]]\nname = \"head\"\nat = [-1, -1, 4]\nparent = \"body\"\nlayers = \"\"\"\nbbb\nbbb\nbbb\n*2\n\"\"\"\n";
+
+/// A room for the pointer: a floor (a solid piece), a stove (a piece), an
+/// area over the floor, a second level; a crate and a doll spawned and
+/// drawn by `frame:model`, the doll's head posed. What `input.pointer`
+/// says each tick is noted.
+fn pointing_room(name: &str) -> crate::scratch::Scratch {
+    let level = "format = \"voxcade level 1\"\nsize = [64, 64, 40]\n\n[[thing]]\nname = \"floor\"\nmodel = \"slab.vvx\"\nat = [32, 32, 0]\nsolid = true\n\n[[thing]]\nname = \"stove\"\nmodel = \"box.vvx\"\nat = [24, 40, 4]\n\n[[place]]\nname = \"start\"\nat = [24, 24, 4]\n\n[[area]]\nname = \"door\"\nat = [40, 26, 4]\nsize = [4, 4, 12]\n";
+    let main = r#"
+function on_world_start()
+  world.state.seen = {}
+end
+function on_level_start()
+  if level.name == "room" then
+    level:spawn("crate", 32, 30, { z = 4 })
+    level:spawn("doll", 36, 36, { z = 4 })
+  end
+end
+function on_tick()
+  local p = input.pointer
+  if not p then table.insert(world.state.seen, "none") return end
+  table.insert(world.state.seen, string.format("%s|%s|%s|%s|%s", p.thing and p.thing.kind or "nil", p.part or "nil", p.area or "nil",
+    p.at and string.format("%g,%g,%g", p.at.x, p.at.y, p.at.z) or "nil", p.cell and (p.cell.x .. "," .. p.cell.y .. "," .. p.cell.z) or "nil"))
+end
+function on_draw(frame)
+  local p = frame.pointer
+  if p then frame:text((p.thing and p.thing.kind or "-") .. "/" .. (p.part or "-") .. "/" .. (p.area or "-"), 1, 1) end
+  for _, t in ipairs(level:things()) do
+    if t.kind == "crate" then frame:model("box.vvx", t) end
+    if t.kind == "doll" then frame:model("doll.vvx", t, nil, nil, { head = { rotation = 90 } }) end
+  end
+end
+"#;
+    let dir = pieces_folder(name, "  c.pointer = \"system\"\n  c.things.crate = {}\n  c.things.doll = {}\n", level, main);
+    std::fs::write(dir.join("slab.vvx"), "format = \"voxcade voxel 1\"\nsize = [20, 20, 4]\n\n[palette]\na = { color = \"#806040\" }\n\n[[frame]]\nlayers = \"\"\"\naaaaaaaaaaaaaaaaaaaa *20\n*4\n\"\"\"\n").unwrap();
+    std::fs::write(dir.join("doll.vvx"), DOLL).unwrap();
+    std::fs::write(dir.join("levels/zz_other.toml"), "format = \"voxcade level 1\"\nsize = [64, 64, 40]\n").unwrap();
+    dir
+}
+
+/// The level's answers: the pointer meets a thing's drawn voxels (a
+/// model `frame:model` drew with it, a level's piece), a posed figure's
+/// part by name, the level's area it enters before the floor, the point
+/// and the voxel where it meets the floor (a solid piece). A thing gone
+/// between the picture and the tick is nil; after a level change the
+/// answer of the old level's picture is nil whole.
+#[test]
+fn the_pointer_meets_things_parts_areas_and_the_level() {
+    let dir = pointing_room("pointer-level");
+    let mut g = game_in(&dir);
+    assert_eq!(halted(&g), "");
+    g.look();
+    let aspect = 16.0 / 9.0;
+    let at = |g: &Session<LuaGame>, p: glam::Vec3| {
+        let [x, y] = g.to_hud(p, aspect).expect("in view");
+        Input { pointer: Some(Box::new(g.point(x, y, aspect))), ..Input::default() }
+    };
+    // The crate (3 by 3 by 4 at 32, 30, its top at 8), the stove, the
+    // doll's head (its top at 10), the area over the floor, the floor.
+    let crate_top = at(&g, glam::Vec3::new(32.5, 30.5, 7.9));
+    let stove = at(&g, glam::Vec3::new(24.5, 40.5, 7.9));
+    let head = at(&g, glam::Vec3::new(36.5, 36.5, 9.9));
+    let door = at(&g, glam::Vec3::new(42.0, 28.0, 4.0));
+    let floor = at(&g, glam::Vec3::new(28.0, 24.0, 4.0));
+    for input in [&crate_top, &stove, &head, &door, &floor] {
+        g.step(input);
+    }
+    let s = seen(&mut g);
+    assert_eq!(s[0].split('|').take(3).collect::<Vec<_>>(), ["crate", "nil", "nil"], "{}", s[0]);
+    assert!(s[1].starts_with("piece|nil|nil|"), "{}", s[1]);
+    assert!(s[2].starts_with("doll|head|nil|"), "{}", s[2]);
+    // frame.pointer: the same of the picture before, the last pointer played.
+    g.compose(0.0, aspect, Scene::Play, None);
+    assert_eq!(first_text(&g), "piece/-/-", "over the floor");
+    // (The floor is a level's piece too: a thing drawn there.)
+    assert_eq!(s[3], "piece|nil|door|42,28,4|42,28,3");
+    assert_eq!(s[4], "piece|nil|nil|28,24,4|28,24,3");
+    // Gone between the picture and the tick: nil.
+    said(&mut g, "for _, t in ipairs(level:things()) do if t.kind == 'crate' then t:remove() end end");
+    g.step(&Input::default());
+    g.step(&crate_top);
+    let s = seen(&mut g);
+    assert!(s[6].starts_with("nil|nil|nil|"), "the crate gone: {}", s[6]);
+    // Another level's picture: nil whole.
+    said(&mut g, "world:go_to('zz_other')");
+    g.step(&Input::default());
+    g.step(&floor);
+    let s = seen(&mut g);
+    assert_eq!(s[8], "none", "{s:?}");
+}
+
+/// A run of the room with the level's answers plays back as recorded and
+/// survives going back every few ticks; a replay writes them as words.
+#[test]
+fn a_run_with_the_levels_answers_replays_and_goes_back() {
+    let dir = pointing_room("pointer-level-replay");
+    let mut g = game_in(&dir);
+    g.look();
+    let mut recorder = crate::replay::Recorder::default();
+    for tick in 0..130 {
+        let p = glam::Vec3::new(26.0 + (tick % 20) as f32, 30.0, 6.0);
+        let [x, y] = g.to_hud(p, 16.0 / 9.0).unwrap();
+        let input = Input { pointer: Some(Box::new(g.point(x, y, 16.0 / 9.0))), ..Input::default() };
+        g.step(&input);
+        g.look();
+        recorder.record(&g);
+    }
+    let replay = recorder.replay(&g).unwrap();
+    assert!(replay.input.contains("thing=") && replay.input.contains("at="), "{}", &replay.input[..300.min(replay.input.len())]);
+    std::fs::create_dir_all(dir.join("replays")).unwrap();
+    replay.save(&dir.join("replays/level.toml")).unwrap();
+    assert_eq!(crate::replay::play_through::<LuaGame>(&dir, &crate::replay::Replay::load(&dir.join("replays/level.toml")).unwrap()).unwrap(), crate::replay::Verdict::Same);
+    assert!(crate::replay::check_going_back::<LuaGame>(&dir, 4).unwrap());
 }

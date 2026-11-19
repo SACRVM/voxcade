@@ -288,7 +288,20 @@ pub trait Game: Sized + 'static {
     /// Where this machine's pointer is for the pictures to come, in the
     /// HUD's measure (`frame.pointer`; None: none, or the pad was used
     /// last). Only the picture follows it.
-    fn set_pointer_now(&mut self, _at: Option<[f32; 2]>) {}
+    fn set_pointer_now(&mut self, _at: Option<crate::input::Pointer>) {}
+
+    /// The level's areas being played (`[[area]]`), each its low and high
+    /// corner, in the level's order: what a pointer enters
+    /// (`input.pointer.area`).
+    fn areas(&self) -> Vec<(glam::Vec3, glam::Vec3)> {
+        Vec::new()
+    }
+
+    /// Where the figure of the player on seat `seat` stands (its feet), if
+    /// one does: `input.aim` from the mouse points from it.
+    fn seat_at(&self, seat: usize) -> Option<glam::Vec3> {
+        (seat == 1).then(|| self.focus().map(|b| b.pos)).flatten()
+    }
 
     /// Whether the player on seat `seat` types (`p.state.typing`): the
     /// machine sends the text typed, its keys that type hold no action.

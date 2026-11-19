@@ -40,12 +40,14 @@ impl<K: Kit> LuaGame<K> {
                 // It stops lamps, unless it brings a light of its own: a
                 // lantern's frame and glass round its flame stop none.
                 out.piece(p.lights.is_empty());
+                out.of_thing(Some(self.stage.drawn_key(id)));
                 if pose.is_empty() {
                     out.model_turned(model, 0, out.body_origin(t.body), t.body.look, turn, None);
                 } else {
                     let posed = crate::session::posing_alone(&pose);
                     out.model_posed(model, 0, out.body_origin(t.body), t.body.look, turn, &posed, None);
                 }
+                out.of_thing(None);
                 out.piece(false);
                 out.shadow_only(false);
             }
@@ -87,7 +89,7 @@ impl<K: Kit> LuaGame<K> {
             && !self.draw_failed.get()
         {
             let (width, height) = out.hud_size();
-            let pointer = self.pointer_now.map(|[x, y]| world::PointerNow { x, y, panel: self.panel_under(x, y, width, height) });
+            let pointer = self.pointer_now.clone();
             let mut rec = Frame {
                 pointer,
                 width,

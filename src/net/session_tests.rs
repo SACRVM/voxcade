@@ -429,10 +429,10 @@ fn console_lines_travel_whole_or_not_at_all() {
 /// makes its name.
 fn pointing_game() -> crate::scratch::Scratch {
     let dir = crate::scratch::Scratch::new("net-pointer");
-    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 64, 64, 16 }\n  c.player.spawn = { 32, 32 }\n  c.actions = { \"click\" }\n  c.keys.click = { \"mouse_left\" }\n  c.pointer = \"system\"\n  c.players = 2\n  c.things.hero = {}\n  c.player.kind = \"hero\"\nend\n").unwrap();
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 64, 64, 16 }\n  c.player.spawn = { 32, 32 }\n  c.actions = { \"click\" }\n  c.keys.click = { \"mouse_left\" }\n  c.pointer = \"system\"\n  c.players = 2\n  c.things.crate = {}\n  c.things.hero = {}\n  c.player.kind = \"hero\"\nend\n").unwrap();
     std::fs::write(
         dir.join("main.lua"),
-        "function on_world_start()\n  world.state.clicks = {}\n  world.state.name = \"\"\nend\nfunction on_level_start()\n  level:fill(0, 0, 0, 63, 63, 0, 1)\nend\nfunction on_player_join(p)\n  p.state.typing = true\nend\nfunction on_tick()\n  for _, p in ipairs(level:players()) do\n    if p.input:pressed(\"click\") then\n      local at = p.input.pointer\n      table.insert(world.state.clicks, p.seat .. \":\" .. (at and at.hud or \"none\") .. \":\" .. tostring(at and at.index))\n    end\n    local t = p.input.typed\n    if t then\n      world.state.name = world.state.name .. t.text\n      for _ = 1, t.erase do world.state.name = world.state.name:sub(1, -2) end\n      if t.done then p.state.typing = false end\n    end\n  end\nend\nfunction on_draw(frame)\n  frame:hud(\"door\", 10, 10, 20, 40)\nend\n",
+        "function on_world_start()\n  world.state.clicks = {}\n  world.state.name = \"\"\nend\nfunction on_level_start()\n  level:fill(0, 0, 0, 63, 63, 0, 1)\n  level:spawn(\"crate\", 20, 20)\nend\nfunction on_player_join(p)\n  p.state.typing = true\nend\nfunction on_tick()\n  for _, p in ipairs(level:players()) do\n    if p.input:pressed(\"click\") then\n      local at = p.input.pointer\n      table.insert(world.state.clicks, p.seat .. \":\" .. (at and (at.hud or at.thing and at.thing.kind) or \"none\") .. \":\" .. tostring(at and at.index))\n    end\n    local t = p.input.typed\n    if t then\n      world.state.name = world.state.name .. t.text\n      for _ = 1, t.erase do world.state.name = world.state.name:sub(1, -2) end\n      if t.done then p.state.typing = false end\n    end\n  end\nend\nfunction on_draw(frame)\n  frame:hud(\"door\", 10, 10, 20, 40)\nend\n",
     )
     .unwrap();
     dir
@@ -442,8 +442,8 @@ fn pointing_game() -> crate::scratch::Scratch {
 /// over the door (its answer of the moment) and the pointer flicked away
 /// the very next frame, then the text typed in pieces, Backspace among
 /// them.
-fn clicking_and_typing(picture: u16, wait: usize) -> Vec<crate::input::Input> {
-    use crate::input::{Input, Panel, Pointer, Typed};
+fn clicking_and_typing(picture: u16, crate_id: u32, wait: usize) -> Vec<crate::input::Input> {
+    use crate::input::{Input, Met, Panel, Pointer, Typed};
     let over = |name: &str, press: bool| Pointer { x: 15, y: 20, picture: Some(picture), panel: (!name.is_empty()).then(|| Panel { name: name.into(), index: 0, u: 250, v: 250 }), level: None, press };
     let mut keys = vec![Input::default(); wait];
     let mut click = Input { actions: 1, ..Input::default() };
@@ -451,6 +451,11 @@ fn clicking_and_typing(picture: u16, wait: usize) -> Vec<crate::input::Input> {
     keys.push(click);
     let away = Input { pointer: Some(Box::new(over("", false))), ..Input::default() };
     keys.extend(std::iter::repeat_n(away.clone(), 20));
+    // A click on the crate, the pointer over the floor the next frame.
+    let on_crate = Pointer { level: Some(Met { thing: Some(crate_id), part: None, area: 0, at: Some(([320, 320, 16], 4)) }), ..over("", true) };
+    keys.push(Input { actions: 1, pointer: Some(Box::new(on_crate)), ..Input::default() });
+    let floor = Pointer { level: Some(Met { thing: None, part: None, area: 0, at: Some(([400, 400, 16], 4)) }), ..over("", false) };
+    keys.extend(std::iter::repeat_n(Input { pointer: Some(Box::new(floor)), ..Input::default() }, 20));
     for piece in [Typed::text("N"), Typed::text("x"), Typed { erase: 1, ..Typed::default() }, Typed::text("ic"), Typed::text("k"), Typed { done: true, ..Typed::default() }] {
         keys.push(Input { typed: Some(Box::new(piece)), ..away.clone() });
         keys.extend(std::iter::repeat_n(away.clone(), 3));
@@ -468,8 +473,8 @@ impl Game {
 }
 
 /// Over a bad network (late, lost, doubled, out of order) a guest's click
-/// carries what the pointer was over as the button went down, though the
-/// pointer went elsewhere the next frame; its text comes once and in order,
+/// carries what the pointer was over as the button went down (a panel, a
+/// thing), though the pointer went elsewhere the next frame; its text comes once and in order,
 /// a Backspace among it; every recording is the host's, and it plays back
 /// and survives going back (`check --rollback`).
 #[test]
@@ -478,10 +483,11 @@ fn a_click_carries_its_answer_and_text_comes_once_over_a_bad_network() {
     for (seed, link) in [(11, Link::lan()), (12, Link::bad())] {
         let mut game = Game::new(&dir, seed, link, "none:3000");
         let picture = crate::input::picture_mark(game.game.game.level_mark());
-        game.guest_holding(0, clicking_and_typing(picture, 120));
+        let crate_id: u32 = game.game.eval("return level:things()[1].id").unwrap().parse().unwrap();
+        game.guest_holding(0, clicking_and_typing(picture, crate_id, 120));
         game.to(5_000_000);
         let recorded = game.agree();
-        assert_eq!(game.game.game.eval("return table.concat(world.state.clicks, ',')").unwrap(), "\"2:door:nil\"", "seed {seed}");
+        assert_eq!(game.game.game.eval("return table.concat(world.state.clicks, ',')").unwrap(), "\"2:door:nil,2:crate:nil\"", "seed {seed}");
         assert_eq!(game.game.game.eval("return world.state.name").unwrap(), "\"Nick\"", "seed {seed}");
         let replays = dir.join("replays");
         std::fs::create_dir_all(&replays).unwrap();

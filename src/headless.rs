@@ -544,7 +544,7 @@ fn play_ticks<G: Game>(game: &mut Session<G>, canvas: &mut Canvas, frames: u32, 
                 seats.next(game);
                 seats.answer(game, aspect);
                 let mut input = script.next_input();
-                game.answer(&mut input, aspect);
+                game.answer(&mut input, 1, aspect);
                 input
             }
         };
@@ -817,7 +817,7 @@ fn inspected<G: Game>(dir: &Path, frames: u32, input: &str, seats: &[(usize, Str
         // A script's pointer answered from the picture before.
         seat_scripts.answer(&mut game, 16.0 / 9.0);
         let mut input = script.next_input();
-        game.answer(&mut input, 16.0 / 9.0);
+        game.answer(&mut input, 1, 16.0 / 9.0);
         game.step(&input);
         // Drawn as a window draws it (without the picture), as `check`
         // does: a mistake in on_draw halts the game here too.
@@ -874,6 +874,24 @@ fn pointer_json<G: Game>(game: &Session<G>) -> serde_json::Value {
                     }
                     a["u"] = serde_json::json!(panel.u as f64 / steps);
                     a["v"] = serde_json::json!(panel.v as f64 / steps);
+                }
+                // What it meets in the level, as carried (the thing by the
+                // key it was drawn under, the area by its place from 1).
+                if let Some(m) = &p.level {
+                    if let Some(t) = m.thing {
+                        a["thing"] = serde_json::json!(t);
+                    }
+                    if let Some(part) = &m.part {
+                        a["part"] = serde_json::json!(part);
+                    }
+                    if m.area > 0 {
+                        a["area"] = serde_json::json!(m.area);
+                    }
+                    if let Some((at, face)) = m.at {
+                        a["at"] = serde_json::json!(at.map(|v| v as f64 / 16.0));
+                        let n = crate::mesh::DIRS[face as usize % 6].to_array();
+                        a["cell"] = serde_json::json!([0, 1, 2].map(|i| (at[i] - n[i]).div_euclid(16)));
+                    }
                 }
                 a
             }

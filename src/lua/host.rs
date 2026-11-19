@@ -920,6 +920,21 @@ impl Stage {
         self.in_play(seat) && (self.seen(seat_handle(seat)).is_some() || self.seat_kind(seat).is_none() && self.host.player_seen().is_none())
     }
 
+    /// The thing drawn under `key` (`Drawing::of_thing`, a pointer's
+    /// answer) as a script holds it, if it still stands: a player's figure
+    /// as the player, any other thing by its id; gone (removed, dead, out
+    /// of the level), none.
+    pub fn thing_of_key(&self, key: u32) -> Option<u32> {
+        if let Some(seat) = handle_seat(key) {
+            return (self.seen(key).is_some() && !self.here.dead.contains(&key) && self.in_play(seat)).then_some(key);
+        }
+        if let Some(handle) = self.figure_handle(Id::from_raw(key)) {
+            return Some(handle);
+        }
+        let living = self.host.get(Id::from_raw(key)).is_some();
+        (living && !self.here.dead.contains(&key)).then_some(key)
+    }
+
     /// The thing behind a handle's id (`PLAYER`: the player's figure; a
     /// seat's handle: its figure).
     pub fn seen(&self, id: u32) -> Option<Seen<'_>> {

@@ -88,7 +88,7 @@ impl<G: Game> App<G> {
     /// host (the host's own held back there), the seats they sit on asked
     /// for and given up; what the pictures show of them is theirs.
     pub(super) fn net_input(&mut self, keyboard: &sdl3::keyboard::KeyboardState) {
-        let (now, mouse_seat) = (self.pointer_now(), self.mouse_seat());
+        let (now, mouse_seat, aspect) = (self.pointer_now(), self.mouse_seat(), self.display.screen.aspect());
         let App { net, front, settings, seating, pads, game, mouse, .. } = self;
         let typing = crate::controls::WithMouse { keys: keyboard, mouse: &[], typing: mouse.typing };
         if let Some(n) = net
@@ -114,6 +114,7 @@ impl<G: Game> App<G> {
                 // The mouse's and the text typed, once a reading.
                 if local == mouse_seat && !away {
                     mouse.add_to(&mut input, &settings.keys, game.actions(), now.clone());
+                    game.mouse_aim(&mut input, seat as usize, aspect);
                 }
                 let controls = seat_controls(game, settings, front, seating.keys(local), local, its_pads.first().copied());
                 n.read(seat, input, controls);

@@ -54,12 +54,20 @@ const TYPES: &str = "\
 ---@field index? integer The menu's row or the grid's cell under it, from 1.
 ---@field u? number Where in that panel across, 0 at its left to 1 at its right.
 ---@field v? number Where in that panel down, 0 at its top to 1 at its bottom.
+---@field thing? Thing|Player The thing whose drawn voxels it is over (a figure, a level's piece, a model frame:model drew with it); nil once it is gone.
+---@field part? string That figure's part under it, by its name.
+---@field area? string The name of the level's area it enters first before it meets the level.
+---@field at? Point Where it meets the level's voxels and solid pieces (glass, water and things looked through); nil into the sky or off the level.
+---@field cell? Point The voxel it meets there, whole numbers.
 
 ---@class PointerNow This machine's pointer in this picture (frame.pointer).
 ---@field x number Where it is across, in UI voxels from the screen's left.
 ---@field y number Where it is down, in UI voxels from the screen's top.
 ---@field hud? string The name of the HUD panel under it in the picture before.
 ---@field index? integer The menu's row or the grid's cell under it, from 1.
+---@field thing? Thing|Player The thing under it in the picture before (a name to show on hover).
+---@field part? string That figure's part under it.
+---@field area? string The level's area it enters first.
 
 ---@class Typed What the player typed this tick (input.typed).
 ---@field text string The letters typed, \"\" mostly.
@@ -557,11 +565,17 @@ pub const API: &[Item] = &[
             each -1 to 1, never longer than 1 (a light lean is small, a full one 1). Without a stick it is the directions held: 1 one way, \
             about 0.71 each on a diagonal. A shooter that walks at any angle, a car's steering." },
     Item { of: "input", name: "aim", what: Field { ty: "Stick", set: false }, doc: "Where the right stick leans, { x, y } as input.move; \
-            { x = 0, y = 0 } without one. A twin-stick shooter's aim." },
+            with a mouse in a game with a pointer (c.pointer) the way on the screen from the player's figure to the pointer, length 1; \
+            { x = 0, y = 0 } with keys alone. A twin-stick shooter's aim, the same code for the pad and the mouse." },
     Item { of: "input", name: "pointer", what: Field { ty: "PointerAt|nil", set: false }, doc: "What the pointer is over this tick, in a \
             game with one (c.pointer): nil without, for a player on a pad, and when the pad was used last.\n- hud: the name of the HUD \
             panel under it (frame:hud, or a menu or grid with a name), the topmost; nil over none.\n- index: that menu's row or grid's \
-            cell, from 1.\n- u, v: where in the panel, 0 to 1 from its top left (a slider, a map).\nIt is what the player saw: a click \
+            cell, from 1.\n- u, v: where in the panel, 0 to 1 from its top left (a slider, a map).\n- thing: the thing whose drawn voxels \
+            it is over (a figure as drawn and posed, a level's piece, a model frame:model drew with it), part: that figure's part by \
+            name; nil once the thing is gone.\n- area: the name of the level's area it enters first before it meets the level (a door \
+            in a wall).\n- at: where it meets the level's voxels and solid pieces, { x, y, z } (glass, water and things looked \
+            through; nil into the sky or off the level), cell: the voxel it meets there, whole numbers (a grid game's cell).\nUnder a \
+            panel the level's answers are nil: a panel covers. It is what the player saw: a click \
             carries what was under the pointer as the button went down. The mouse's buttons are keys (c.keys.click = { \"mouse_left\" \
             }): input:pressed(\"click\") with input.pointer.hud is a click on a panel. A pointer from the picture of a level left is \
             nil." },
@@ -686,8 +700,8 @@ pub const API: &[Item] = &[
             is drawn. In on_tick input.pointer.hud is its name while the pointer is over it, u and v where in it. One named later lies \
             on top. A name is a word of letters, digits and _, up to 16 long. A menu or grid with a name is one too." },
     Item { of: "frame", name: "pointer", what: Field { ty: "PointerNow|nil", set: false }, doc: "This machine's pointer in this \
-            picture, in a game with one (c.pointer): x and y in UI voxels as frame:text's, and hud and index of what it is over in the \
-            picture before. Nil with the pad used last. To draw your own cursor (c.pointer = \"own\") or light the row under it. Only \
+            picture, in a game with one (c.pointer): x and y in UI voxels as frame:text's, and hud and index, thing, part and area of \
+            what it is over in the picture before (a name over a thing as the pointer rests on it). Nil with the pad used last. To draw your own cursor (c.pointer = \"own\") or light the row under it. Only \
             for drawing: on_tick reads input.pointer." },
     Item { of: "frame", name: "menu", what: Method { params: &[("menu", "Menu")], returns: "" },
         doc: "Draws a menu in the engine's look, on a plate. In the middle of the screen unless x and y say where (its top left), as wide as \

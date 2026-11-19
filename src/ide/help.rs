@@ -1161,6 +1161,56 @@ end
 "##,
     },
     Topic {
+        title: "POINT AND CLICK",
+        text: "In a game with a pointer (c.pointer) input.pointer says what the pointer is over in the level too: thing (the thing whose drawn voxels are under it, a figure as posed, a level's piece, a model drawn with frame:model), part (that figure's part by name), area (the level's area it enters first, a door in a wall), at and cell (where it meets the level: the ground to walk to, a cell of a grid). A click carries what was under the pointer as the button went down, and a thing gone since is nil. In on_draw frame.pointer says the same of the picture before: a name over a thing while the pointer rests on it. input.aim is the way from the player's figure to the pointer. Click the ground to walk, the chest to open it.",
+        conf: r##"c.player.kind = "hero"
+c.things.hero = {}
+c.things.chest = {}
+c.pointer = "system"
+c.actions = { "click" }
+c.keys = { click = { "mouse_left" } }
+c.pad = { click = { "south" } }"##,
+        files: &[],
+        code: r##"function on_level_start(how)
+  level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 0, "#5a6e4a")
+  level:spawn("chest", 60, 40)
+  level.state.said = "Click the ground to walk, the chest to open it"
+end
+
+function on_tick()
+  local p = input.pointer
+  if input:pressed("click") and p then
+    if p.thing and p.thing.kind == "chest" then
+      level.state.said = p.thing.state.open and "It is empty" or "Gold!"
+      p.thing.state.open = true
+    elseif p.cell then
+      level.state.walk_to = { x = p.cell.x, y = p.cell.y }
+    end
+  end
+  -- walking to the point clicked, straight
+  local to = level.state.walk_to
+  if to then
+    local dx, dy = to.x - player.x, to.y - player.y
+    if math.abs(dx) + math.abs(dy) < 2 then
+      level.state.walk_to = nil
+    else
+      player:walk({ x = dx, y = dy }, 40)
+    end
+  end
+end
+
+function on_draw(frame)
+  frame:model("hero.vvx", player)
+  for _, t in ipairs(level:things()) do
+    if t.kind == "chest" then frame:model("hero2.vvx", t) end
+  end
+  frame:text(level.state.said, 4, 4)
+  local p = frame.pointer
+  if p and p.thing and p.thing.kind == "chest" then frame:text("open", p.x + 6, p.y) end
+end
+"##,
+    },
+    Topic {
         title: "CLICKS AND A NAME",
         text: "c.pointer = \"system\" gives your game a pointer: the mouse moves it, and its buttons and wheel are keys you bind as any (c.keys.click = { \"mouse_left\" }). frame:hud names a rectangle of the screen, and a menu or grid with a name is one too: input.pointer.hud says which the pointer is over, index its row or slot, u and v where in it. A click carries what was under the pointer as the button went down. Typing: player.state.typing = true, then input.typed says what came each tick (text, erase, done, cancel), and the keys that type do nothing else meanwhile. c.pointer = \"own\" hides the arrow while the game plays: draw your own from frame.pointer. input.move is the left stick (or the directions) at any angle.",
         conf: r##"c.player.kind = "hero"

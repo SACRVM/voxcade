@@ -156,8 +156,10 @@ settings. Several players: `player` is seat 1, the others are in
     than 1, y up as `input.dir`'s: the left stick and the right, past the
     engine's dead zone, in steps of 1/127 (what replays and the network
     write); `move` without a stick the directions held (a diagonal about
-    0.71 each), `aim` `{ 0, 0 }`. In every game; the kits read the
-    directions as before (a stick past half holds one).
+    0.71 each); `aim` with a mouse in a game with a pointer the way on
+    the screen from the player's figure as drawn to the pointer, length 1
+    (`Session::mouse_aim`), else `{ 0, 0 }`. In every game; the kits read
+    the directions as before (a stick past half holds one).
   - `input.pointer`, in a game with a pointer (`c.pointer = "system"`, the
     system's arrow, or `"own"`, the arrow hidden while the game plays and
     the game draws its own from `frame.pointer`; restart-only, in the
@@ -167,13 +169,28 @@ settings. Several players: `player` is seat 1, the others are in
     topmost (`frame:hud(name, x, y, width, height)` names a rectangle of
     the picture; every `frame:menu` and `frame:grid` is a panel, named with
     `name =`, and covers what lies under it), `index` its row or cell from
-    1, `u` and `v` where in it, 0 to 1 from its top left. The tick never
+    1, `u` and `v` where in it, 0 to 1 from its top left. What it meets in
+    the level, all nil under a panel: `thing` (whose drawn voxels it meets
+    first: a kind's figure as drawn and posed, a level's piece, a model
+    `frame:model` drew with the thing; voxel-exact, `session::pick`),
+    `part` (that figure's part, by name: the model drawn is the picture's,
+    so the name travels, 16 bytes at most), `area` (the name of the level's
+    `[[area]]` it enters first before it meets the level: a door in a
+    wall), `at` (where it meets the level's voxels and solid pieces, glass,
+    water and things looked through; nil into the sky or off the level)
+    and `cell` (the voxel met there, whole numbers). Found on the CPU from
+    the picture as composed (`look` composes the same without a GPU, so
+    `inspect` and `check` have it), a thing `of_thing` drew kept
+    (`Drawing::picks`); a pointer costs some 0.002 to 0.016 ms (the Bench,
+    More Blood, the Lights' `load`), the picture none more. The tick never
     sees pixels: the machine answers from the picture it last drew, and the
     answers are the input (a replay plays the same in any window). A click
     carries the answers of the moment its button went down; the tick
     checks every answer before the game sees it (one from another level's
-    picture, `Game::level_mark`, is nil whole; a panel no panel can be, a
-    name not a word of 16 at most or `u`, `v` past its edge, is dropped);
+    picture, `Game::level_mark`, is nil whole; a thing gone since, removed
+    or dead, is nil, its part with it; an area the level has not is nil; a
+    panel no panel can be, a name not a word of 16 at most or `u`, `v`
+    past its edge, is dropped);
     on the wire a pointer is a few whole numbers (the panel's name whole,
     16 bytes at most: bundles are read one by one, so nothing is sent "as
     before"). One mouse a machine, the seat's that has the keyboard; over
@@ -256,8 +273,9 @@ settings. Several players: `player` is seat 1, the others are in
   title's and the settings' songs never hear them. Later: a tempo the game sets, stingers, sounds
   that play in the song's chord (`shots/reviews/music-plan.md`).
 - `frame.pointer`: this machine's pointer in this picture (`x`, `y` in
-  the HUD's measure, `hud` and `index` of what it is over in the picture
-  before), nil with the pad used last or no pointer: for the game's own
+  the HUD's measure, `hud`, `index`, `thing`, `part` and `area` of what
+  it is over in the picture before), nil with the pad used last or no
+  pointer: for the game's own
   cursor and hover marks; nothing of it may go into a state, the rules
   read `input.pointer`. Played back, the pointer the replay kept.
 - `frame`, `on_draw`'s parameter: this picture alone (`frame:text`,

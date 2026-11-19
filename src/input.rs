@@ -91,21 +91,23 @@ pub struct Panel {
 /// What the pointer's ray meets in the level, as the picture drew it.
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
 pub struct Met {
-    /// The thing whose drawn voxels it meets first, by id.
+    /// The thing whose drawn voxels it meets first, by the key it was
+    /// drawn under (`Drawing::of_thing`: its id, or a player's handle).
     pub thing: Option<u32>,
-    /// That figure's part, by its number in the model drawn (from 1); 0:
-    /// none.
-    pub part: u16,
-    /// The model drawn for the thing, by `model_mark` of its path (a
-    /// part's name is found in it); 0: none.
-    pub model: u32,
+    /// That figure's part, by its name (the model drawn is the picture's
+    /// alone: a `frame:model` file the tick does not know), at most
+    /// `MOST_PART_NAME` bytes.
+    pub part: Option<String>,
     /// The level's area it enters first before it meets the level, by its
-    /// number in the level (from 1); 0: none.
+    /// place in the level's list (from 1); 0: none.
     pub area: u16,
     /// Where it meets the level's voxels and solid pieces, in sixteenths
     /// of a voxel, and the face it meets (`mesh::DIRS`' order).
     pub at: Option<([i32; 3], u8)>,
 }
+
+/// A part's name at most, as a pointer's answer carries it.
+pub const MOST_PART_NAME: usize = 16;
 
 /// Text typed in a tick: one sort a tick, so its order is kept whatever a
 /// game's code reads first (`TypedQueue`).
@@ -209,14 +211,6 @@ impl TypedQueue {
 pub fn picture_mark(level_mark: u64) -> u16 {
     let h = crate::hash::mix(level_mark);
     (h ^ h >> 16 ^ h >> 32 ^ h >> 48) as u16
-}
-
-/// A model's path as one number (`Met::model`): the tick finds the
-/// model drawn among the game's by it.
-pub fn model_mark(path: &str) -> u32 {
-    let mut h = crate::hash::Stable::default();
-    h.bytes(path.as_bytes());
-    (h.finish() as u32).max(1)
 }
 
 /// Whether `name` may name a panel: a word of letters, digits and `_`, at

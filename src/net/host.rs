@@ -579,9 +579,13 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
         }
         let Bundle { seats: events, mut controls, extra, .. } = probe;
         controls.sort_by_key(|(seat, _)| *seat);
-        // The text typed, a sort a tick (a guest's came in its asks).
+        // The text typed, a sort a tick (a guest's came in its asks); a
+        // pointer as the wire carries it, so every machine plays the same.
         for (n, input) in held.iter_mut().enumerate() {
             if let Some(input) = input {
+                if let Some(p) = &mut input.pointer {
+                    **p = wire::carried(p);
+                }
                 let queue = if self.seats[n].owner == Some(0) { &mut self.own_typed[n] } else { &mut self.seats[n].typed };
                 input.typed = queue.take().map(Box::new);
             }

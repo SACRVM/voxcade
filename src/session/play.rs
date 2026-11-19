@@ -361,7 +361,7 @@ impl<G: Game> Session<G> {
         // the first seat played here that has one.
         if !self.pointer_live && self.has_pointer() {
             let seats = std::iter::once((1, Some(input))).chain(self.seats.iter().enumerate().map(|(n, s)| (n + 2, s.input.as_ref())));
-            let at = seats.filter(|(n, _)| self.local.has(*n)).find_map(|(_, i)| i?.pointer.as_ref()).map(|p| [p.x as f32, p.y as f32]);
+            let at = seats.filter(|(n, _)| self.local.has(*n)).find_map(|(_, i)| i?.pointer.as_deref()).cloned();
             self.game.set_pointer_now(at);
         }
         self.game.step(input);
@@ -455,23 +455,35 @@ impl<G: Game> Session<G> {
     pub fn point(&self, x: f32, y: f32, aspect: f32) -> crate::input::Pointer {
         let layout = crate::ui::Layout::of(&self.cfg.ui, self.picture_aspect(aspect));
         let place = |v: f32| v.round().clamp(-(i16::MAX as f32), i16::MAX as f32) as i32;
-        crate::input::Pointer {
-            x: place(x),
-            y: place(y),
-            picture: Some(crate::input::picture_mark(self.game.level_mark())),
-            panel: self.game.panel_at(x, y, layout.width, layout.height),
-            level: None,
-            press: false,
+        let panel = self.game.panel_at(x, y, layout.width, layout.height);
+        // Under a panel the level's answers are none: it covers.
+        let level = if panel.is_some() { None } else { self.meets(x, y, layout.width, layout.height) };
+        crate::input::Pointer { x: place(x), y: place(y), picture: Some(crate::input::picture_mark(self.game.level_mark())), panel, level, press: false }
+    }
+
+    /// `input.aim` from the mouse for seat `seat`'s pointer `p` in a window
+    /// of shape `aspect`: the way from its figure as drawn to the pointer,
+    /// length 1, where no stick aims (`aim` 0, 0) and the game has a
+    /// pointer.
+    pub fn mouse_aim(&self, input: &mut crate::input::Input, seat: usize, aspect: f32) {
+        if input.aim != [0, 0] {
+            return;
+        }
+        let Some(p) = input.pointer.as_ref() else { return };
+        let layout = crate::ui::Layout::of(&self.cfg.ui, self.picture_aspect(aspect));
+        if let Some(aim) = self.aim_at(p.x as f32, p.y as f32, layout.width, layout.height, seat) {
+            input.aim = aim;
         }
     }
 
     /// A script's pointer not answered yet (`pointer=X,Y` without its
     /// answers) answered from the picture drawn last, in the shape
     /// `aspect`; any other input as it is.
-    pub fn answer(&self, input: &mut crate::input::Input, aspect: f32) {
+    pub fn answer(&self, input: &mut crate::input::Input, seat: usize, aspect: f32) {
         if let Some(p) = input.pointer.as_mut().filter(|p| p.picture.is_none()) {
             let answered = self.point(p.x as f32, p.y as f32, aspect);
             **p = answered;
+            self.mouse_aim(input, seat, aspect);
         }
     }
 
@@ -479,9 +491,10 @@ impl<G: Game> Session<G> {
     /// (`frame.pointer`, the HUD's measure), from a window (None: none, or
     /// the pad was used last). Without a window the pictures show the
     /// pointer of the ticks played.
-    pub fn set_pointer(&mut self, at: Option<[f32; 2]>) {
+    pub fn set_pointer(&mut self, at: Option<[f32; 2]>, aspect: f32) {
         self.pointer_live = true;
-        self.game.set_pointer_now(at.filter(|_| self.has_pointer()));
+        let now = at.filter(|_| self.has_pointer()).map(|[x, y]| self.point(x, y, aspect));
+        self.game.set_pointer_now(now);
     }
 
     /// A script for this game (`shot`'s, `inspect`'s, `run --input`): its

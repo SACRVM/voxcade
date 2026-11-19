@@ -31,16 +31,7 @@ pub struct Frame {
     /// This machine's pointer now and what it is over in the picture
     /// before (`frame.pointer`): None with the pad used last, or no
     /// pointer.
-    pub pointer: Option<PointerNow>,
-}
-
-/// `frame.pointer`: where this machine's pointer is (the HUD's measure)
-/// and the panel under it in the last picture.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct PointerNow {
-    pub x: f32,
-    pub y: f32,
-    pub panel: Option<crate::input::Panel>,
+    pub pointer: Option<crate::input::Pointer>,
 }
 
 /// A text size: 1 the pixel font, 2 and up the big letters.
@@ -183,6 +174,9 @@ impl UserData for Frame {
             if let Some(panel) = p.panel.as_ref().filter(|panel| !panel.name.is_empty()) {
                 t.raw_set("hud", panel.name.as_str())?;
                 t.raw_set("index", (panel.index > 0).then_some(panel.index))?;
+            }
+            if let Some(met) = p.level.as_ref().filter(|_| p.panel.is_none()) {
+                super::input::met_answers(lua, met, &t, false)?;
             }
             Ok(Value::Table(t))
         });

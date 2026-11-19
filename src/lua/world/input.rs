@@ -135,6 +135,9 @@ impl UserData for InputView {
                 t.raw_set("u", panel.u as f64 / steps)?;
                 t.raw_set("v", panel.v as f64 / steps)?;
             }
+            if let Some(met) = &p.level {
+                met_answers(lua, met, &t, true)?;
+            }
             Ok(Value::Table(t))
         });
         f.add_field_method_get("typed", |lua, i| {
@@ -177,6 +180,41 @@ impl UserData for InputView {
         });
         m.add_method("repeated", |_, i, name: String| Ok(repeats(i.held_for[i.index(&name)?])));
     }
+}
+
+/// What the pointer meets in the level, as the tick takes it, into `t`:
+/// `thing` (the thing drawn there, nil once it is gone), `part` (that
+/// figure's, by name), `area` (the level's area by its name; one the
+/// level has not is nil), and with `point` the place it meets the level,
+/// `at` (a point in voxels) and `cell` (the voxel met, whole numbers).
+pub(super) fn met_answers(lua: &Lua, met: &crate::input::Met, t: &Table, point: bool) -> mlua::Result<()> {
+    let (thing, area) = look(lua, |h| {
+        let thing = met.thing.and_then(|key| h.thing_of_key(key));
+        let area = (met.area as usize).checked_sub(1).and_then(|i| h.levels.list.get(h.level)?.areas.get(i)).map(|a| a.name.clone());
+        Ok((thing, area))
+    })?;
+    if let Some(id) = thing {
+        t.raw_set("thing", super::handle(lua, id)?)?;
+        if let Some(part) = &met.part {
+            t.raw_set("part", part.as_str())?;
+        }
+    }
+    t.raw_set("area", area)?;
+    if let (true, Some((at, face))) = (point, met.at) {
+        let p = lua.create_table()?;
+        for (k, v) in ["x", "y", "z"].iter().zip(at) {
+            p.raw_set(*k, v as f64 / 16.0)?;
+        }
+        t.raw_set("at", p)?;
+        // The voxel met: a sixteenth back from the face it came in by.
+        let n = crate::mesh::DIRS.get(face as usize).copied().unwrap_or(glam::IVec3::ZERO);
+        let c = lua.create_table()?;
+        for (k, (v, n)) in ["x", "y", "z"].iter().zip(at.into_iter().zip(n.to_array())) {
+            c.raw_set(*k, (v - n).div_euclid(16))?;
+        }
+        t.raw_set("cell", c)?;
+    }
+    Ok(())
 }
 
 /// `input` outside `on_tick`, `screen` outside `on_draw`: using it says

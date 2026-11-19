@@ -144,8 +144,9 @@ pub struct LuaGame<K: Kit> {
     /// What `on_draw` asked for the last time it ran (shown while stopped):
     /// the picture's part drawn in `draw`, the HUD's in `hud`.
     drawn: RefCell<Vec<Cmd>>,
-    /// Where this machine's pointer is now (`frame.pointer`).
-    pointer_now: Option<[f32; 2]>,
+    /// Where this machine's pointer is now and what it is over in the
+    /// picture before (`frame.pointer`).
+    pointer_now: Option<crate::input::Pointer>,
     kit: PhantomData<K>,
 }
 
@@ -989,12 +990,21 @@ impl<K: Kit> Game for LuaGame<K> {
         self.panel_under(x, y, width, height)
     }
 
-    fn set_pointer_now(&mut self, at: Option<[f32; 2]>) {
+    fn set_pointer_now(&mut self, at: Option<crate::input::Pointer>) {
         self.pointer_now = at;
     }
 
     fn typing(&self, seat: usize) -> bool {
         self.stage.seats.get(seat.wrapping_sub(1)).is_some_and(|s| s.typing)
+    }
+
+    fn areas(&self) -> Vec<(glam::Vec3, glam::Vec3)> {
+        self.stage.levels.list.get(self.stage.level).map_or(Vec::new(), |l| l.areas.iter().map(|a| (a.at.as_vec3(), (a.at + a.size).as_vec3())).collect())
+    }
+
+    fn seat_at(&self, seat: usize) -> Option<glam::Vec3> {
+        let id = self.stage.figure(seat)?;
+        self.stage.host.get(id).map(|t| t.body.pos)
     }
 
     fn focus(&self) -> Option<&Body> {

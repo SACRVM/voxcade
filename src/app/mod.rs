@@ -596,7 +596,8 @@ impl<G: Game> App<G> {
         let on = self.game.has_pointer() && self.front.played_with == Device::Keyboard;
         let at = self.mouse.at.filter(|_| on).and_then(|at| self.hud_at(at));
         if self.game.has_pointer() {
-            self.game.set_pointer(at);
+            let aspect = self.display.screen.aspect();
+            self.game.set_pointer(at, aspect);
             let hide = self.game.cfg.pointer == Some(crate::config::PointerStyle::Own) && self.front.playing && !self.front.menu.is_open() && !self.prompt.open;
             self.mouse_util.show_cursor(!hide);
         }
@@ -743,9 +744,12 @@ impl<G: Game> App<G> {
                 // where it has the keyboard; a network's go as readings).
                 let input = if playback.is_none() && net.is_none() && self.mouse_seat() == 1 {
                     let now = self.pointer_now();
+                    let aspect = self.display.screen.aspect();
                     let App { mouse, settings, game, .. } = &mut *self;
                     let mut input = input;
                     mouse.add_to(&mut input, &settings.keys, game.actions(), now);
+                    // Aimed from the figure to the pointer where no stick aims.
+                    game.mouse_aim(&mut input, 1, aspect);
                     input
                 } else {
                     input

@@ -433,9 +433,38 @@ fn step_word(input: &mut Input, word: &str, value: &str, words: &Words) -> Resul
     Ok(())
 }
 
-/// The words of what the pointer meets in the level (a replay's).
-fn step_level_word(_input: &mut Input, word: &str, _value: &str, _words: &Words) -> Result<()> {
-    bail!("no word '{word}=' ({SCRIPT_WORDS})")
+/// The words of what the pointer meets in the level, as a replay writes
+/// them: `thing=KEY`, `part=NAME`, `area=N` (from 1), `at=X,Y,Z,FACE`
+/// (sixteenths of a voxel, the face in `mesh::DIRS`' order).
+fn step_level_word(input: &mut Input, word: &str, value: &str, words: &Words) -> Result<()> {
+    anyhow::ensure!(words.pointer != Some(false), "the game has no pointer (c.pointer = \"system\" or \"own\" in conf.lua)");
+    let met = input.pointer.get_or_insert_with(Default::default).level.get_or_insert_with(Default::default);
+    let whole = |v: &str| -> Result<i64> { v.trim().parse::<i64>().with_context(|| format!("{word}: '{v}' is no whole number")) };
+    match word {
+        "thing" => {
+            let n = whole(value)?;
+            anyhow::ensure!((0..=u32::MAX as i64).contains(&n), "thing: a thing's number");
+            met.thing = Some(n as u32);
+        }
+        "part" => {
+            let name = unescape(value)?;
+            anyhow::ensure!(!name.is_empty() && name.len() <= crate::input::MOST_PART_NAME, "part: a part's name, up to {} long", crate::input::MOST_PART_NAME);
+            met.part = Some(name);
+        }
+        "area" => {
+            let n = whole(value)?;
+            anyhow::ensure!((1..=u16::MAX as i64).contains(&n), "area: from 1");
+            met.area = n as u16;
+        }
+        "at" if value == "none" => {}
+        "at" => {
+            let v: Vec<i64> = value.split(',').map(whole).collect::<Result<_>>()?;
+            anyhow::ensure!(v.len() == 4 && v[..3].iter().all(|n| n.abs() < 1 << 20) && (0..6).contains(&v[3]), "at=X,Y,Z,FACE: sixteenths of a voxel and the face, 0 to 5");
+            met.at = Some(([v[0] as i32, v[1] as i32, v[2] as i32], v[3] as u8));
+        }
+        _ => bail!("no word '{word}=' ({SCRIPT_WORDS})"),
+    }
+    Ok(())
 }
 
 /// A text as a script writes it: `%XX` a byte.
@@ -523,9 +552,28 @@ fn step_words(input: &Input) -> Vec<String> {
     out
 }
 
-/// The words of what the pointer meets in the level.
-fn level_words(_p: &crate::input::Pointer) -> Vec<String> {
-    Vec::new()
+/// The words of what the pointer meets in the level (`step_level_word`
+/// reads them back).
+fn level_words(p: &crate::input::Pointer) -> Vec<String> {
+    let Some(m) = &p.level else { return Vec::new() };
+    let mut out = Vec::new();
+    if let Some(t) = m.thing {
+        out.push(format!("thing={t}"));
+    }
+    if let Some(part) = &m.part {
+        out.push(format!("part={}", escape(part)));
+    }
+    if m.area > 0 {
+        out.push(format!("area={}", m.area));
+    }
+    if let Some(([x, y, z], face)) = m.at {
+        out.push(format!("at={x},{y},{z},{face}"));
+    }
+    // Nothing met: the level's answers as none, kept apart from no answer.
+    if out.is_empty() {
+        out.push("at=none".into());
+    }
+    out
 }
 
 /// A seat's script while nobody sits there.
@@ -597,7 +645,7 @@ impl SeatScripts {
     pub fn answer<G: Game>(&self, game: &mut Session<G>, aspect: f32) {
         for (seat, _) in &self.seats {
             if let Some(mut input) = game.seats().get(seat - 2).and_then(|s| s.input.clone()) {
-                game.answer(&mut input, aspect);
+                game.answer(&mut input, *seat, aspect);
                 game.set_seat(*seat, Some(input));
             }
         }

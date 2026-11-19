@@ -1061,9 +1061,20 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `aim=X,Y`, `pointer=X,Y` (answered before the step: `Session::answer`;
   replays write `picture=`, `hud=`, `index=`, `uv=`), `text=` (`%3B`
   escapes), `erase=N`, `typed=done|cancel`, `mouse_left` and the like as
-  the game binds them; `inspect` prints `"pointer"`. Tests
-  `src/lua/tests/pointer.rs`,
-  `a_click_carries_its_answer_and_text_comes_once_over_a_bad_network`.
+  the game binds them; `inspect` prints `"pointer"`. The level's answers
+  (`input.pointer.thing`, `part`, `area`, `at`, `cell`; `frame.pointer`'s
+  `thing`, `part`, `area`; `input.aim` from the mouse, `Session::mouse_aim`):
+  `src/session/pick.rs` from the picture as composed or `look`ed
+  (`PickScene`: its camera and `Drawing::picks`, what `of_thing` drew;
+  `figures::each_voxel` where `draw` puts each voxel, test
+  `a_figures_voxels_are_picked_where_they_are_drawn`), the thing by the key
+  it was drawn under (`Stage::thing_of_key`: gone, nil), a part by name,
+  the area by its place, the point in sixteenths with its face; under a
+  panel none (`wire::carried` keeps a pointer to what the wire carries,
+  the host's bundles too); a replay writes `thing=`, `part=`, `area=`,
+  `at=X,Y,Z,FACE`. Tests `src/lua/tests/pointer.rs`,
+  `a_click_carries_its_answer_and_text_comes_once_over_a_bad_network`,
+  `a_pointer_is_answered_quickly_on_a_big_scene`.
   Not yet: the IDE's PLAY takes no mouse or typing.
 - Every game can be tried late without playing there (the user: without
   it testing a game is hardly possible): scenarios and the console are

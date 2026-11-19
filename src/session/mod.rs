@@ -42,6 +42,7 @@ mod drawing;
 mod figures;
 mod load;
 mod models;
+mod pick;
 mod play;
 mod sound;
 mod view;
@@ -51,6 +52,7 @@ mod tests;
 pub use drawing::*;
 pub use figures::*;
 pub use models::*;
+pub use pick::{Pick, PickScene};
 use sound::*;
 pub use view::*;
 
@@ -160,7 +162,7 @@ impl Tick {
                         s.bytes(panel.name.as_bytes()).u64(panel.index as u64).u64(panel.u as u64).u64(panel.v as u64);
                     }
                     if let Some(m) = &p.level {
-                        s.u64(m.thing.map_or(0, |t| t as u64 + 1)).u64(m.part as u64).u64(m.model as u64).u64(m.area as u64);
+                        s.u64(m.thing.map_or(0, |t| t as u64 + 1)).bytes(m.part.as_deref().unwrap_or("").as_bytes()).u64(m.area as u64);
                         if let Some((at, face)) = m.at {
                             s.u64(at[0] as u32 as u64).u64(at[1] as u32 as u64).u64(at[2] as u32 as u64).u64(face as u64);
                         }
@@ -319,6 +321,9 @@ pub struct Session<G: Game> {
     /// A window sets where its pointer is (`set_pointer`): the pictures no
     /// longer follow the ticks'.
     pointer_live: bool,
+    /// The last picture as the pointer is answered from (`Session::point`):
+    /// its camera, the models it drew with things.
+    picked: std::cell::RefCell<PickScene>,
     /// What the last reload ran into (shown over the game until a reload
     /// works).
     pub problem: Option<String>,

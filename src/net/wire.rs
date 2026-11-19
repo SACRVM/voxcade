@@ -294,14 +294,20 @@ fn pointer(w: &mut Writer, p: &crate::input::Pointer) {
     signed(w, p.x);
     signed(w, p.y);
     w.varint(p.picture.map_or(0, |n| n as u64 + 1));
-    let what = p.press as u8 | (p.panel.is_some() as u8) << 1 | (p.level.is_some() as u8) << 2;
+    // Under a panel the level's answers are none (`Pointer::checked`):
+    // never both on the wire.
+    let level = p.level.as_ref().filter(|_| p.panel.is_none());
+    let what = p.press as u8 | (p.panel.is_some() as u8) << 1 | (level.is_some() as u8) << 2;
     w.u8(what);
     if let Some(panel) = &p.panel {
         w.str(cut(&panel.name, crate::input::MOST_PANEL_NAME)).varint(panel.index as u64).varint(panel.u as u64).varint(panel.v as u64);
     }
-    if let Some(m) = &p.level {
-        let has = m.thing.is_some() as u8 | (m.at.is_some() as u8) << 1;
-        w.u8(has).varint(m.thing.unwrap_or(0) as u64).varint(m.part as u64).varint(m.model as u64).varint(m.area as u64);
+    if let Some(m) = level {
+        let has = m.thing.is_some() as u8 | (m.part.is_some() as u8) << 1 | (m.at.is_some() as u8) << 2;
+        w.u8(has).varint(m.thing.unwrap_or(0) as u64).varint(m.area as u64);
+        if let Some(part) = &m.part {
+            w.str(cut(part, crate::input::MOST_PART_NAME));
+        }
         if let Some((at, face)) = m.at {
             for v in at {
                 signed(w, v);
@@ -314,7 +320,9 @@ fn pointer(w: &mut Writer, p: &crate::input::Pointer) {
 /// The most a pointer's place is from the HUD's top left (whole UI
 /// voxels), and a point it meets from the level's corner (sixteenths).
 const MOST_PLACE: i32 = i16::MAX as i32;
-const MOST_POINT: i32 = 1 << 21;
+const MOST_POINT: i32 = (1 << 20) - 1;
+/// The most a thing's key is as a pointer's answer carries it.
+const MOST_THING: u32 = (1 << 21) - 1;
 
 fn read_pointer(r: &mut Reader) -> Read<crate::input::Pointer> {
     use crate::input::{Met, Panel, Pointer};
@@ -334,12 +342,16 @@ fn read_pointer(r: &mut Reader) -> Read<crate::input::Pointer> {
     let panel = if what & 2 != 0 { Some(Panel { name: r.str(crate::input::MOST_PANEL_NAME)?, index: small(r)?, u: small(r)?, v: small(r)? }) } else { None };
     let level = if what & 4 != 0 {
         let has = r.u8()?;
-        if has >> 2 != 0 {
+        if has >> 3 != 0 || what & 2 != 0 {
             return Err(Broken);
         }
         let thing = r.u32()?;
-        let (part, model, area) = (small(r)?, r.u32()?, small(r)?);
-        let at = if has & 2 != 0 {
+        if thing > MOST_THING {
+            return Err(Broken);
+        }
+        let area = small(r)?;
+        let part = if has & 2 != 0 { Some(r.str(crate::input::MOST_PART_NAME)?) } else { None };
+        let at = if has & 4 != 0 {
             let at = [read_signed(r)?, read_signed(r)?, read_signed(r)?];
             if at.iter().any(|v| v.abs() > MOST_POINT) {
                 return Err(Broken);
@@ -348,7 +360,7 @@ fn read_pointer(r: &mut Reader) -> Read<crate::input::Pointer> {
         } else {
             None
         };
-        Some(Met { thing: (has & 1 != 0).then_some(thing), part, model, area, at })
+        Some(Met { thing: (has & 1 != 0).then_some(thing), part, area, at })
     } else {
         None
     };
@@ -392,18 +404,36 @@ fn read_input(r: &mut Reader) -> Read<Input> {
 }
 
 /// The widest an input can be on the wire: a game of keys alone, or one
-/// with a pointer (`pointer`); with text typed either way. What a bundle
+/// with a pointer (`pointer`: what it meets in the level, wider than a
+/// panel, the two never both); with text typed either way. What a bundle
 /// keeps room for.
 pub fn widest(pointer: bool) -> Input {
-    use crate::input::{Met, Panel, Pointer, Typed};
+    use crate::input::{Met, Pointer, Typed};
     let mut i = Input { left: true, right: true, up: true, down: true, actions: u32::MAX, moves: [-127, -127], aim: [-127, -127], ..Input::default() };
     i.typed = Some(Box::new(Typed { text: "#".repeat(crate::input::MOST_TYPED), erase: crate::input::MOST_ERASE, done: true, cancel: true }));
     if pointer {
-        let panel = Panel { name: "#".repeat(crate::input::MOST_PANEL_NAME), index: u16::MAX, u: u16::MAX, v: u16::MAX };
-        let met = Met { thing: Some(u32::MAX), part: u16::MAX, model: u32::MAX, area: u16::MAX, at: Some(([-MOST_POINT; 3], 255)) };
-        i.pointer = Some(Box::new(Pointer { x: -MOST_PLACE - 1, y: -MOST_PLACE - 1, picture: Some(u16::MAX), panel: Some(panel), level: Some(met), press: true }));
+        let met = Met { thing: Some(MOST_THING), part: Some("#".repeat(crate::input::MOST_PART_NAME)), area: u16::MAX, at: Some(([-MOST_POINT; 3], 255)) };
+        i.pointer = Some(Box::new(Pointer { x: -MOST_PLACE - 1, y: -MOST_PLACE - 1, picture: Some(u16::MAX), panel: None, level: Some(met), press: true }));
     }
     i
+}
+
+/// A pointer as the wire carries it: under a panel no level's answers, a
+/// thing's key and a point in their bounds, a part's name cut (else what a
+/// machine reads would not be what it sent).
+pub fn carried(p: &crate::input::Pointer) -> crate::input::Pointer {
+    let mut p = p.clone();
+    p.x = p.x.clamp(-MOST_PLACE - 1, MOST_PLACE);
+    p.y = p.y.clamp(-MOST_PLACE - 1, MOST_PLACE);
+    if p.panel.is_some() {
+        p.level = None;
+    }
+    if let Some(m) = &mut p.level {
+        m.thing = m.thing.filter(|&t| t <= MOST_THING);
+        m.part = m.part.take().filter(|n| n.len() <= crate::input::MOST_PART_NAME);
+        m.at = m.at.filter(|(at, _)| at.iter().all(|v| v.abs() <= MOST_POINT));
+    }
+    p
 }
 
 /// A guest's first word: who it is (`MachineId`), this joining's own
@@ -917,12 +947,14 @@ mod tests {
         let mut old = Writer::bare();
         old.varint(1 | 8 | 0b101 << 4);
         assert_eq!(w.buf, old.buf, "as before");
-        let met = crate::input::Met { thing: Some(7), part: 2, model: 99, area: 1, at: Some(([16, -32, 48], 3)) };
-        let panel = crate::input::Panel { name: "bag".into(), index: 3, u: 1000, v: 0 };
+        let met = crate::input::Met { thing: Some(7), part: Some("arm".into()), area: 1, at: Some(([16, -32, 48], 3)) };
         let mut all = Input { moves: [-127, 5], aim: [0, 127], ..keys.clone() };
-        all.pointer = Some(Box::new(crate::input::Pointer { x: -3, y: 400, picture: Some(65535), panel: Some(panel), level: Some(met), press: true }));
+        all.pointer = Some(Box::new(crate::input::Pointer { x: -3, y: 400, picture: Some(65535), panel: None, level: Some(met), press: true }));
+        let panel = crate::input::Panel { name: "bag".into(), index: 3, u: 1000, v: 0 };
+        let mut over = keys.clone();
+        over.pointer = Some(Box::new(crate::input::Pointer { x: 9, y: 9, picture: None, panel: Some(panel), level: None, press: false }));
         all.typed = Some(Box::new(crate::input::Typed { text: "Nü!".into(), erase: 2, done: true, cancel: false }));
-        for i in [keys, all, widest(true), widest(false)] {
+        for i in [keys, all, over, widest(true), widest(false)] {
             let mut w = Writer::bare();
             input(&mut w, &i);
             let mut r = Reader::bare(&w.buf);
