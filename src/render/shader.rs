@@ -231,26 +231,38 @@ mod tests {
         let plain = plain_shader(&SHADER);
         let lamps_plain = super::without_walls(&super::LAMPS);
         let beams_plain = super::without_walls(&super::FOG_BEAMS);
-        // Every one the renderer builds (`render::fog::beams_pipeline`: with
-        // walls or without, with thin things' work or without).
+        // Every one the renderer builds, with the entry points it asks each
+        // for: the scene's with the faces' memory or without (the lamps'
+        // scenes too, `lamps::lamp_scenes`, and the see-through depth of a
+        // picture of fog, `fog::glass`); the lamps' pass with walls (and
+        // its asking) or without (`lamps::lamp_pass`); the beams with walls
+        // or without, with thin things' work or without, each with glass or
+        // without (`fog::beams_pipeline`); the fog behind glass; the
+        // composites with fog.
         let (beams_unthin, beams_bare) = (super::without_thin(&super::FOG_BEAMS), super::without_thin(&beams_plain));
-        for (name, src) in [
-            ("shader.wgsl", SHADER.as_str()),
-            ("shader.wgsl without the memory", plain.as_str()),
-            ("post.wgsl", include_str!("../post.wgsl")),
-            ("lamps.wgsl", super::LAMPS.as_str()),
-            ("lamps.wgsl without walls", lamps_plain.as_str()),
-            ("fog_beams.wgsl", super::FOG_BEAMS.as_str()),
-            ("fog_beams.wgsl without walls", beams_plain.as_str()),
-            ("fog_beams.wgsl without thin things", beams_unthin.as_str()),
-            ("fog_beams.wgsl without walls and thin things", beams_bare.as_str()),
-            ("fog_composite.wgsl", super::FOG_COMPOSITE.as_str()),
-            ("fog_far.wgsl", super::FOG_FAR.as_str()),
+        let scene = ["vs_chunk", "vs_inst", "vs_model", "vs_face", "vs_model_outline", "vs_face_outline", "fs_main", "fs_main_lamps", "fs_outline_lamps"];
+        let beams = ["vs_lamp", "fs_beam", "fs_beam_glass"];
+        let composites = ["vs_post", "fs_composite_fog", "fs_composite_fog_srgb", "fs_composite_fog_glass", "fs_composite_fog_glass_srgb"];
+        for (name, src, entries) in [
+            ("shader.wgsl", SHADER.as_str(), &scene[..]),
+            ("shader.wgsl without the memory", plain.as_str(), &scene[..]),
+            ("post.wgsl", include_str!("../post.wgsl"), &["vs_post"][..]),
+            ("lamps.wgsl", super::LAMPS.as_str(), &["vs_lamp", "fs_lamp", "fs_lamp_ask"][..]),
+            ("lamps.wgsl without walls", lamps_plain.as_str(), &["vs_lamp", "fs_lamp"][..]),
+            ("fog_beams.wgsl", super::FOG_BEAMS.as_str(), &beams[..]),
+            ("fog_beams.wgsl without walls", beams_plain.as_str(), &beams[..]),
+            ("fog_beams.wgsl without thin things", beams_unthin.as_str(), &beams[..]),
+            ("fog_beams.wgsl without walls and thin things", beams_bare.as_str(), &beams[..]),
+            ("fog_composite.wgsl", super::FOG_COMPOSITE.as_str(), &composites[..]),
+            ("fog_far.wgsl", super::FOG_FAR.as_str(), &["vs_far", "fs_fog_far"][..]),
         ] {
             let module = naga::front::wgsl::parse_str(src).unwrap_or_else(|e| panic!("{name}: {}", e.emit_to_string(src)));
             naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::all())
                 .validate(&module)
                 .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+            for entry in entries {
+                assert!(module.entry_points.iter().any(|e| e.name == *entry), "{name} has the entry point {entry}");
+            }
         }
         // The plain shader holds nothing of the memory: no storage, no
         // atomics (the whole one has both); the marks come in pairs.

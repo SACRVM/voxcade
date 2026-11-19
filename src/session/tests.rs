@@ -1532,8 +1532,8 @@ impl LampScene {
 
 /// On the GPU: a wall stops a lamp, the floor beyond it dark, the near side
 /// lit; a lamp with `shadows = "none"`, or a picture without the level's
-/// world (`c.light.lamp_shadows = "none"`, the editors), shines through as
-/// lights always did. A burst (a kit's flash) shines through too.
+/// world (`c.light.lamp_shadows = "none"`, the editors), shines through.
+/// A burst (a kit's flash) shines through too.
 #[test]
 fn a_wall_stops_a_lamp_and_shadows_false_does_not() {
     let mut s = LampScene::new();
@@ -1553,6 +1553,43 @@ fn a_wall_stops_a_lamp_and_shadows_false_does_not() {
         assert!(through > dark + 20.0, "{what}: beyond the wall lit, {through} against {dark}");
         assert!((LampScene::floor_at(&f, &p, 36.5, 48.5) - near).abs() < 4.0, "{what}: the near side as with walls");
     }
+}
+
+/// On the GPU: the level's walls change while a lamp they stop is drawn
+/// (the lamps' volume brought up to date, `Volume::update`, and every face
+/// asked again): the wall taken away voxel by voxel (as `level:set_voxel`
+/// or a blast does), the lamp lights the floor behind it, the picture a
+/// renderer drawing the level without the wall the first time draws; set
+/// again, the floor behind is dark again, the first picture.
+#[test]
+fn a_wall_taken_away_and_set_again_lets_a_lamp_through_and_stops_it() {
+    let mut s = LampScene::new();
+    let lamp = crate::render::Light::lamp(Vec3::new(40.5, 48.5, 6.0), 30.0, [2.0; 3], &crate::render::LightShape::default(), |w| w).stated(crate::render::LampShadows::Static);
+    let dark = {
+        let (f, p) = s.picture(&[], true);
+        LampScene::floor_at(&f, &p, 56.5, 48.5)
+    };
+    let (f, walled) = s.picture(&[lamp], true);
+    let behind = |p: &[u8]| LampScene::floor_at(&f, p, 56.5, 48.5);
+    assert!((behind(&walled) - dark).abs() < 4.0, "behind the wall dark: {} against {dark}", behind(&walled));
+    let mut wall = |voxel: u8| {
+        for y in 20..76 {
+            for z in 1..16 {
+                s.game.game.sim_mut().world.set(IVec3::new(48, y, z), voxel);
+            }
+        }
+        s.canvas.mesh_world(s.game.world_mut(), &[true; 6]);
+        let (_, p) = s.picture(&[lamp], true);
+        (p, s.canvas.stats().asked)
+    };
+    let (open, asked) = wall(0);
+    assert_eq!(asked, 1, "the walls changed: the lamp asked for first again");
+    assert!(behind(&open) > dark + 60.0, "the wall taken away: lit behind it, {} against {dark}", behind(&open));
+    let (_, fresh) = LampScene::of([]).picture(&[lamp], true);
+    assert!(open == fresh, "the picture of a renderer that never saw the wall");
+    let (closed, asked) = wall(1);
+    assert_eq!(asked, 1, "the walls changed again");
+    assert!(closed == walled, "the wall set again: the first picture, dark behind it");
 }
 
 /// On the GPU: a lamp flush with a wall's face (a wall 4 thick) lights its
