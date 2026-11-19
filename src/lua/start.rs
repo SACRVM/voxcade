@@ -82,6 +82,7 @@ impl<K: Kit> LuaGame<K> {
                 local: Default::default(),
                 ticking: false,
                 actions: actions.clone(),
+                pointer: cfg.pointer.is_some(),
                 languages: Arc::new(cfg.languages.clone()),
                 effects: Vec::new(),
                 requests: Vec::new(),
@@ -111,6 +112,7 @@ impl<K: Kit> LuaGame<K> {
             seat_places: Vec::new(),
             written: Vec::new(),
             drawn: RefCell::new(Vec::new()),
+            pointer_now: None,
             kit: PhantomData,
         };
         // The first level's place called start (or the scenario's place),

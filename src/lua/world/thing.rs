@@ -21,7 +21,7 @@ impl UserData for ThingRef {
                     return Err(mlua::Error::runtime("player.input: the keys held are only there in on_tick"));
                 }
                 let s = &h.seats[seat - 1];
-                Ok(InputView { now: s.input, before: s.before, actions: h.actions.clone(), held_for: s.held_for })
+                Ok(InputView::new(s.input.clone(), s.before.clone(), h.actions.clone(), s.held_for, h.gate(seat)))
             })?;
             lua.create_userdata(view)
         });

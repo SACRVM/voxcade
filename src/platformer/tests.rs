@@ -38,7 +38,7 @@ fn keys(right: bool, left: bool, jump: bool) -> Input {
     input
 }
 
-const NONE: Input = Input { left: false, right: false, up: false, down: false, actions: 0 };
+const NONE: Input = Input { left: false, right: false, up: false, down: false, actions: 0, moves: [0, 0], aim: [0, 0], pointer: None, typed: None };
 
 /// The highest the hero's feet get within `ticks`, holding jump for the
 /// first `held` of them.

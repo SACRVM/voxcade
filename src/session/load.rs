@@ -126,6 +126,7 @@ impl<G: Game> Session<G> {
             inputs: Default::default(),
             clock: crate::saves::now(),
             local: Default::default(),
+            pointer_live: false,
             problem: None,
             drawn_sun: Default::default(),
             lamps_drawn: Default::default(),

@@ -118,6 +118,9 @@ pub struct SeatState {
     pub out: bool,
     pub team: Option<String>,
     pub kind: Option<String>,
+    /// Its player types (`p.state.typing`): the keyboard's keys that type
+    /// hold no action, `p.input.typed` says what came.
+    pub typing: bool,
     /// The score of a seat after the first (seat 1's is the host's), and
     /// its hit points while its figure does not stand (its figure's while
     /// it does).
@@ -147,6 +150,7 @@ impl Default for SeatState {
             out: false,
             team: None,
             kind: None,
+            typing: false,
             score: 0,
             hp: None,
             coming: None,
@@ -515,6 +519,8 @@ pub struct Stage {
     pub ticking: bool,
     /// The game's actions (`p.input`).
     pub actions: Arc<Vec<&'static str>>,
+    /// The game has a pointer (`c.pointer`): `input.pointer` is there.
+    pub pointer: bool,
     /// The languages the game speaks (`c.languages`): `world.language` is
     /// the player's of them, else the first.
     pub languages: Arc<Vec<String>>,

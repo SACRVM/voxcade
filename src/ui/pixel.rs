@@ -150,6 +150,12 @@ pub(crate) fn glyph(ch: char) -> Option<&'static [&'static str; 9]> {
     FONT.iter().find(|(c, _)| *c == ch).map(|(_, g)| g)
 }
 
+/// Whether the pixel font writes `ch` (a space too): what a player may
+/// type (`input.typed`).
+pub fn writes(ch: char) -> bool {
+    ch == ' ' || glyph(ch).is_some()
+}
+
 /// The sign a sign that looks alike is drawn as (dashes, quotes, the
 /// times sign), in both fonts.
 pub(crate) fn alike(ch: char) -> char {

@@ -88,7 +88,9 @@ impl<G: Game> App<G> {
     /// host (the host's own held back there), the seats they sit on asked
     /// for and given up; what the pictures show of them is theirs.
     pub(super) fn net_input(&mut self, keyboard: &sdl3::keyboard::KeyboardState) {
-        let App { net, front, settings, seating, pads, game, .. } = self;
+        let (now, mouse_seat) = (self.pointer_now(), self.mouse_seat());
+        let App { net, front, settings, seating, pads, game, mouse, .. } = self;
+        let typing = crate::controls::WithMouse { keys: keyboard, mouse: &[], typing: mouse.typing };
         if let Some(n) = net
             && front.playing
         {
@@ -107,7 +109,12 @@ impl<G: Game> App<G> {
                 let Some(seat) = n.locals.seat(local) else { continue };
                 let pad = if local == 1 { &settings.pad } else { settings.pad_of(local) };
                 let its_pads = pads_of(pads, seating, local);
-                let input = if away { crate::input::Input::default() } else { crate::controls::read_seat(Some(keyboard), seating.keys(local), &its_pads, pad, settings, game.actions()) };
+                let keys: &dyn crate::controls::KeyState = if local == mouse_seat { &typing } else { keyboard };
+                let mut input = if away { crate::input::Input::default() } else { crate::controls::read_seat(Some(keys), seating.keys(local), &its_pads, pad, settings, game.actions()) };
+                // The mouse's and the text typed, once a reading.
+                if local == mouse_seat && !away {
+                    mouse.add_to(&mut input, &settings.keys, game.actions(), now.clone());
+                }
                 let controls = seat_controls(game, settings, front, seating.keys(local), local, its_pads.first().copied());
                 n.read(seat, input, controls);
             }

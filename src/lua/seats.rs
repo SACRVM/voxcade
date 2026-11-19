@@ -11,7 +11,7 @@ impl<K: Kit> LuaGame<K> {
     pub(super) fn take_seats(&mut self) -> Result<()> {
         for n in 2..=self.stage.seats.len() {
             let s = &mut self.stage.seats[n - 1];
-            let next = s.next;
+            let next = s.next.clone();
             if next.is_some() && !s.taken {
                 (s.taken, s.joined, s.coming) = (true, Some(if s.been { "back" } else { "new" }), None);
                 if !std::mem::replace(&mut s.been, true) {
@@ -21,7 +21,7 @@ impl<K: Kit> LuaGame<K> {
                 (s.taken, s.left) = (false, true);
             }
             let s = &mut self.stage.seats[n - 1];
-            (s.before, s.input) = (s.input, next.unwrap_or_default());
+            s.before = std::mem::replace(&mut s.input, next.unwrap_or_default());
             let dirs = s.input.directions();
             for (k, held) in s.held_for.iter_mut().enumerate() {
                 let on = if k < 4 { dirs[k] } else { s.input.held(k - 4) };

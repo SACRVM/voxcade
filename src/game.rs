@@ -275,6 +275,24 @@ pub trait Game: Sized + 'static {
         Vec::new()
     }
 
+    /// The HUD panel at (`x`, `y`) of the picture drawn last, the topmost
+    /// (`frame:hud`, a menu, a grid), in a HUD `width` by `height`: what a
+    /// pointer there is over (`Session::point`).
+    fn panel_at(&self, _x: f32, _y: f32, _width: f32, _height: f32) -> Option<crate::input::Panel> {
+        None
+    }
+
+    /// Where this machine's pointer is for the pictures to come, in the
+    /// HUD's measure (`frame.pointer`; None: none, or the pad was used
+    /// last). Only the picture follows it.
+    fn set_pointer_now(&mut self, _at: Option<[f32; 2]>) {}
+
+    /// Whether the player on seat `seat` types (`p.state.typing`): the
+    /// machine sends the text typed, its keys that type hold no action.
+    fn typing(&self, _seat: usize) -> bool {
+        false
+    }
+
     /// The body the camera keeps on screen: with `[camera] snap` the view
     /// sits on its drawn voxel.
     fn focus(&self) -> Option<&Body> {

@@ -43,6 +43,26 @@ pub struct MenuView<'a> {
     pub light_menu: bool,
 }
 
+thread_local! {
+    /// The rows `row` draws while `menu_rows` asks: each its index and box
+    /// (x, y from the bottom, width, height in UI voxels).
+    static ROWS: std::cell::RefCell<Option<Vec<RowBox>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// A menu's row and where it lies: its index, x, y, width, height.
+pub type RowBox = (usize, f32, f32, f32, f32);
+
+/// The rows of the menu's page as `menu` draws them, each its index and
+/// its box from the HUD's top left (x, y, width, height): which the
+/// pointer is over (a game with a pointer, `c.pointer`).
+pub fn menu_rows(view: &MenuView, cfg: &UiConfig, aspect: f32) -> Vec<RowBox> {
+    ROWS.with(|rows| *rows.borrow_mut() = Some(Vec::new()));
+    menu(view, cfg, 0.0, aspect);
+    let top = Layout::of(cfg, aspect).height;
+    let rows = ROWS.with(|rows| rows.borrow_mut().take()).unwrap_or_default();
+    rows.into_iter().map(|(i, x, y, w, h)| (i, x, top - y - h, w, h)).collect()
+}
+
 /// The menu's voxels for this frame, the logo's letters drawn from the
 /// model bank, and the camera that shows them: on the
 /// title the logo and the main items over the scene, the other pages over
@@ -580,6 +600,15 @@ pub(super) fn centred(out: &mut Vec<Instance>, layout: &Layout, s: &str, y: f32,
 /// A menu row: yellow and marked when selected, hopping a little.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn row(out: &mut Vec<Instance>, view: &MenuView, i: usize, label: &str, x: f32, y: f32, scale: i32, depth: i32, now: f32) {
+    // Where it lies, for the pointer (`menu_rows`): from its marker to the
+    // end of its label (a value at its right included), a little round
+    // its letters.
+    ROWS.with(|rows| {
+        if let Some(rows) = rows.borrow_mut().as_mut() {
+            let s = scale as f32;
+            rows.push((i, x - 9.0 * s, y - 2.0, 9.0 * s + text_width(label, scale).max(150.0), 7.0 * s + 4.0));
+        }
+    });
     // Over the bright sand of the title dark letters read, over a dark
     // title and the darkened pages light ones.
     let menu = view.menu;

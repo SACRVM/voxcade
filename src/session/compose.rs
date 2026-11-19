@@ -9,7 +9,24 @@ impl<G: Game> Session<G> {
     /// `aspect` is the window's shape (or the picture's already).
     pub fn menu_frame(&self, menu: &Menu, settings: &Settings, alpha: f32, aspect: f32, scene: Scene) -> FrameData {
         let aspect = self.picture_aspect(aspect);
-        let ui = menu.is_open().then(|| {
+        let ui = menu.is_open().then(|| self.menu_view(menu, settings, |view| crate::ui::menu(view, &self.cfg.ui, alpha, aspect)));
+        self.compose(alpha, aspect, scene, ui)
+    }
+
+    /// The rows of `menu`'s page as drawn in a window of shape `aspect`,
+    /// each its index and box from the HUD's top left: the one under the
+    /// pointer is chosen (`crate::ui::menu_rows`).
+    pub fn menu_rows(&self, menu: &Menu, settings: &Settings, aspect: f32) -> Vec<crate::ui::RowBox> {
+        let aspect = self.picture_aspect(aspect);
+        if !menu.is_open() {
+            return Vec::new();
+        }
+        self.menu_view(menu, settings, |view| crate::ui::menu_rows(view, &self.cfg.ui, aspect))
+    }
+
+    /// `then` with the engine's menu `menu` as it is drawn.
+    fn menu_view<R>(&self, menu: &Menu, settings: &Settings, then: impl FnOnce(&crate::ui::MenuView) -> R) -> R {
+        {
             let t = &self.cfg.title_screen;
             let logo = self.logo_lines();
             let view = crate::ui::MenuView {
@@ -27,9 +44,8 @@ impl<G: Game> Session<G> {
                 logo_bob: self.cfg.title_screen.logo_bob,
                 light_menu: self.cfg.title_screen.light_menu,
             };
-            crate::ui::menu(&view, &self.cfg.ui, alpha, aspect)
-        });
-        self.compose(alpha, aspect, scene, ui)
+            then(&view)
+        }
     }
 
     /// What the game draws into a frame seen as `view` (its projection,
@@ -134,8 +150,13 @@ impl<G: Game> Session<G> {
     /// where drawing would stop the game in the window, at a fraction of a
     /// frame's cost (no light, particles or HUD voxels).
     pub fn look(&self) {
+        self.look_in(16.0 / 9.0)
+    }
+
+    /// `look` in a window of shape `aspect` (`shot`'s).
+    pub fn look_in(&self, aspect: f32) {
         let sim = self.game.sim();
-        let (cam, aspect) = (&self.cfg.camera, self.picture_aspect(16.0 / 9.0));
+        let (cam, aspect) = (&self.cfg.camera, self.picture_aspect(aspect));
         let target = self.within_stage(self.view_target(1.0), cam, aspect);
         let sun = self.drawn_sun.get().unwrap_or_else(|| self.sun());
         let (light_vp, _) = camera::light_view_proj(cam, target, aspect, sun, sim.world.size.as_vec3(), sim.world.stage_box(), self.options.shadow_map);

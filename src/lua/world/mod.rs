@@ -645,7 +645,7 @@ fn player_state(lua: &Lua) -> mlua::Result<Value> {
 /// play, its team (the players' own unless set), its figure's kind
 /// (`c.player.kind`'s unless set; `thing.kind` is the figure's), each nil
 /// until set (`docs/game-model.md`, "Several players").
-const SEAT_KEYS: [&str; 3] = ["out", "team", "kind"];
+const SEAT_KEYS: [&str; 4] = ["out", "team", "kind", "typing"];
 
 /// One of `SEAT_KEYS` of seat `seat`'s player, None for another key.
 fn seat_key(lua: &Lua, seat: usize, key: &str) -> mlua::Result<Option<Value>> {
@@ -653,13 +653,15 @@ fn seat_key(lua: &Lua, seat: usize, key: &str) -> mlua::Result<Option<Value>> {
         return Ok(None);
     }
     // Nil until set, so a game of one sees its state as before (`pairs`).
-    let (out, team, kind) = look(lua, |h| {
+    let (out, team, kind, typing) = look(lua, |h| {
         let s = &h.seats[seat - 1];
-        Ok((s.out, s.team.clone(), s.kind.clone()))
+        Ok((s.out, s.team.clone(), s.kind.clone(), s.typing))
     })?;
     Ok(Some(match key {
         "out" if out => Value::Boolean(true),
         "out" => Value::Nil,
+        "typing" if typing => Value::Boolean(true),
+        "typing" => Value::Nil,
         "team" => team.map(|t| lua.create_string(t)).transpose()?.map_or(Value::Nil, Value::String),
         _ => kind.map(|k| lua.create_string(k)).transpose()?.map_or(Value::Nil, Value::String),
     }))
@@ -669,6 +671,17 @@ fn seat_key(lua: &Lua, seat: usize, key: &str) -> mlua::Result<Option<Value>> {
 fn set_seat_key(lua: &Lua, seat: usize, key: &str, v: Value) -> mlua::Result<()> {
     let what = if seat == 1 { format!("player.state.{key}") } else { format!("player {seat}'s state.{key}") };
     match key {
+        "typing" => {
+            let typing = match v {
+                Value::Boolean(b) => b,
+                Value::Nil => false,
+                other => return Err(mlua::Error::runtime(format!("{what}: true or false, not a {}", other.type_name()))),
+            };
+            change(lua, &what, |h| {
+                h.seats[seat - 1].typing = typing;
+                Ok(())
+            })
+        }
         "out" => {
             let out = match v {
                 Value::Boolean(b) => b,

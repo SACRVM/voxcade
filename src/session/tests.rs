@@ -51,6 +51,7 @@ fn game_on(world: World, cfg: GameConfig) -> Session<Shooter> {
         inputs: Default::default(),
         clock: 0,
         local: Default::default(),
+        pointer_live: false,
         problem: None,
         drawn_sun: Default::default(),
         lamps_drawn: Default::default(),

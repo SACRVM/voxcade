@@ -1036,6 +1036,35 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `matchmaker-protocol` the game takes in by git at a fixed `rev`: a
   change there is pushed first, then the `rev` here) serves both on
   127.0.0.1:7340.
+- The pointer, the sticks and typed text (the owner's "bau es" to
+  `shots/reviews/input-draft.md`, 2026-11-19; `docs/game-model.md`,
+  "input"): `src/input.rs` (`Input` holds `moves`, `aim` in 127ths, a
+  `Pointer` and `Typed`; it is `Clone`, no longer `Copy`), `c.pointer =
+  "system" | "own"` (restart-only, in the fingerprint only when set; the
+  mouse's key names `input::MOUSE_KEYS` in `c.keys` only with it). The
+  tick never sees pixels: the machine answers from the picture it last
+  drew (`Session::point`, `Game::panel_at`, the panels `on_draw` named:
+  `frame:hud`, named `frame:menu`/`frame:grid`, `ui::menu_place`,
+  `grid_place`), the tick checks (`Pointer::checked`: another level's
+  picture, `input::picture_mark` of `Game::level_mark`, is nil whole).
+  The window gathers the mouse and the text between ticks
+  (`src/app/mouse.rs`: a click carries the answers of its moment, a
+  wheel notch a press with a tick between, the text a sort a tick,
+  `TypedQueue`); the engine's menus take the mouse (`ui::menu_rows`,
+  `Menu::choose`). Typing is a player's state key, `p.state.typing`
+  (`SeatState::typing`, hashed and saved only when set). Wire version 2
+  (`wire::input`: keys alone as before, a flag bit for more; a guest's
+  text goes as `Ask::Typed`, once and in order; the host keeps the first
+  press's pointer of a tick, `Slot::pressed`, and makes a bundle fit with
+  the inputs as they are, the text as long as a tick's can be,
+  `wire::widest`). Scripts (`replay::SCRIPT_WORDS`): `move=X,Y`,
+  `aim=X,Y`, `pointer=X,Y` (answered before the step: `Session::answer`;
+  replays write `picture=`, `hud=`, `index=`, `uv=`), `text=` (`%3B`
+  escapes), `erase=N`, `typed=done|cancel`, `mouse_left` and the like as
+  the game binds them; `inspect` prints `"pointer"`. Tests
+  `src/lua/tests/pointer.rs`,
+  `a_click_carries_its_answer_and_text_comes_once_over_a_bad_network`.
+  Not yet: the IDE's PLAY takes no mouse or typing.
 - Every game can be tried late without playing there (the user: without
   it testing a game is hardly possible): scenarios and the console are
   part of every game (`docs/game-model.md`, "Scenarios and the console").

@@ -11,7 +11,8 @@ use crate::input::Input;
 /// under the Internet's smallest MTU less its headers.
 pub const MAX_DATAGRAM: usize = 1200;
 /// The protocol's version: machines that speak another do not play.
-pub const VERSION: u8 = 1;
+/// 2: inputs carry the sticks, the pointer's answers and text typed.
+pub const VERSION: u8 = 2;
 const MAGIC: &[u8; 3] = b"VXC";
 /// Bytes before a message's body: `VXC`, version, kind, key.
 pub const HEADER: usize = 3 + 1 + 1 + 8;
@@ -34,6 +35,8 @@ const MAX_NAME: usize = 32;
 /// The most bytes of a machine's name.
 pub const MAX_NAME_LEN: usize = MAX_NAME;
 pub const MAX_TEXT: usize = 200;
+/// The most bytes of text one ask of typed text carries.
+pub const MAX_TYPED_ASK: usize = 64;
 /// A piece's bytes, and the most pieces a thing sent in pieces has (the
 /// run so far for a guest coming late: 1100 × 60,000, 66 MB). The run so
 /// far is its recording as text, a few bytes a tick (More Blood's played
@@ -246,14 +249,161 @@ pub fn version_of(datagram: &[u8]) -> Option<u8> {
     datagram.get(3).copied()
 }
 
-fn input(w: &mut Writer, i: Input) {
-    w.varint(i.left as u64 | (i.right as u64) << 1 | (i.up as u64) << 2 | (i.down as u64) << 3 | (i.actions as u64) << 4);
+/// The bit after the keys' saying more follows (the sticks, the pointer,
+/// the text typed): an input of keys alone is written as before they came.
+const MORE: u64 = 1 << 36;
+
+fn input(w: &mut Writer, i: &Input) {
+    let keys = i.left as u64 | (i.right as u64) << 1 | (i.up as u64) << 2 | (i.down as u64) << 3 | (i.actions as u64) << 4;
+    if !i.has_more() {
+        w.varint(keys);
+        return;
+    }
+    w.varint(keys | MORE);
+    let what = (i.moves != [0, 0]) as u8 | ((i.aim != [0, 0]) as u8) << 1 | (i.pointer.is_some() as u8) << 2 | (i.typed.is_some() as u8) << 3;
+    w.u8(what);
+    if i.moves != [0, 0] {
+        w.u8(i.moves[0] as u8).u8(i.moves[1] as u8);
+    }
+    if i.aim != [0, 0] {
+        w.u8(i.aim[0] as u8).u8(i.aim[1] as u8);
+    }
+    if let Some(p) = &i.pointer {
+        pointer(w, p);
+    }
+    if let Some(t) = &i.typed {
+        w.str(cut(&t.text, crate::input::MOST_TYPED)).varint(t.erase as u64).u8(t.done as u8 | (t.cancel as u8) << 1);
+    }
+}
+
+/// A whole number either way, in as few bytes as it takes.
+fn signed(w: &mut Writer, v: i32) {
+    w.varint(((v << 1) ^ (v >> 31)) as u32 as u64);
+}
+
+fn read_signed(r: &mut Reader) -> Read<i32> {
+    let v = r.u32()?;
+    Ok((v >> 1) as i32 ^ -((v & 1) as i32))
+}
+
+/// A pointer's answers: where (HUD voxels), the picture, whether a press's,
+/// the panel (its name, row or cell, u and v), what it meets in the level
+/// (the thing, its part and model, the area, the point in sixteenths and
+/// its face).
+fn pointer(w: &mut Writer, p: &crate::input::Pointer) {
+    signed(w, p.x);
+    signed(w, p.y);
+    w.varint(p.picture.map_or(0, |n| n as u64 + 1));
+    let what = p.press as u8 | (p.panel.is_some() as u8) << 1 | (p.level.is_some() as u8) << 2;
+    w.u8(what);
+    if let Some(panel) = &p.panel {
+        w.str(cut(&panel.name, crate::input::MOST_PANEL_NAME)).varint(panel.index as u64).varint(panel.u as u64).varint(panel.v as u64);
+    }
+    if let Some(m) = &p.level {
+        let has = m.thing.is_some() as u8 | (m.at.is_some() as u8) << 1;
+        w.u8(has).varint(m.thing.unwrap_or(0) as u64).varint(m.part as u64).varint(m.model as u64).varint(m.area as u64);
+        if let Some((at, face)) = m.at {
+            for v in at {
+                signed(w, v);
+            }
+            w.u8(face);
+        }
+    }
+}
+
+/// The most a pointer's place is from the HUD's top left (whole UI
+/// voxels), and a point it meets from the level's corner (sixteenths).
+const MOST_PLACE: i32 = i16::MAX as i32;
+const MOST_POINT: i32 = 1 << 21;
+
+fn read_pointer(r: &mut Reader) -> Read<crate::input::Pointer> {
+    use crate::input::{Met, Panel, Pointer};
+    let (x, y) = (read_signed(r)?, read_signed(r)?);
+    if x.abs() > MOST_PLACE + 1 || y.abs() > MOST_PLACE + 1 {
+        return Err(Broken);
+    }
+    let picture = match r.varint()? {
+        0 => None,
+        n => Some(u16::try_from(n - 1).map_err(|_| Broken)?),
+    };
+    let what = r.u8()?;
+    if what >> 3 != 0 {
+        return Err(Broken);
+    }
+    let small = |r: &mut Reader| u16::try_from(r.varint()?).map_err(|_| Broken);
+    let panel = if what & 2 != 0 { Some(Panel { name: r.str(crate::input::MOST_PANEL_NAME)?, index: small(r)?, u: small(r)?, v: small(r)? }) } else { None };
+    let level = if what & 4 != 0 {
+        let has = r.u8()?;
+        if has >> 2 != 0 {
+            return Err(Broken);
+        }
+        let thing = r.u32()?;
+        let (part, model, area) = (small(r)?, r.u32()?, small(r)?);
+        let at = if has & 2 != 0 {
+            let at = [read_signed(r)?, read_signed(r)?, read_signed(r)?];
+            if at.iter().any(|v| v.abs() > MOST_POINT) {
+                return Err(Broken);
+            }
+            Some((at, r.u8()?))
+        } else {
+            None
+        };
+        Some(Met { thing: (has & 1 != 0).then_some(thing), part, model, area, at })
+    } else {
+        None
+    };
+    Ok(Pointer { x, y, picture, panel, level, press: what & 1 != 0 })
 }
 
 fn read_input(r: &mut Reader) -> Read<Input> {
     let v = r.varint()?;
-    let actions = u32::try_from(v >> 4).map_err(|_| Broken)?;
-    Ok(Input { left: v & 1 != 0, right: v & 2 != 0, up: v & 4 != 0, down: v & 8 != 0, actions })
+    let more = v & MORE != 0;
+    if v >> 37 != 0 {
+        return Err(Broken);
+    }
+    let actions = (v >> 4 & 0xffff_ffff) as u32;
+    let mut input = Input { left: v & 1 != 0, right: v & 2 != 0, up: v & 4 != 0, down: v & 8 != 0, actions, ..Input::default() };
+    if !more {
+        return Ok(input);
+    }
+    let what = r.u8()?;
+    if what == 0 || what >> 4 != 0 {
+        return Err(Broken);
+    }
+    if what & 1 != 0 {
+        input.moves = [r.u8()? as i8, r.u8()? as i8];
+    }
+    if what & 2 != 0 {
+        input.aim = [r.u8()? as i8, r.u8()? as i8];
+    }
+    if what & 4 != 0 {
+        input.pointer = Some(Box::new(read_pointer(r)?));
+    }
+    if what & 8 != 0 {
+        let text = r.str(crate::input::MOST_TYPED)?;
+        let erase = u16::try_from(r.varint()?).map_err(|_| Broken)?;
+        let flags = r.u8()?;
+        if flags >> 2 != 0 {
+            return Err(Broken);
+        }
+        input.typed = Some(Box::new(crate::input::Typed { text, erase, done: flags & 1 != 0, cancel: flags & 2 != 0 }));
+    }
+    Ok(input)
+}
+
+/// The widest an input can be on the wire: a game of keys alone, or one
+/// with a pointer (`pointer`); with text typed either way. What a bundle
+/// keeps room for.
+pub fn widest(pointer: bool) -> Input {
+    use crate::input::{Met, Panel, Pointer, Typed};
+    let mut i = Input { left: true, right: true, up: true, down: true, actions: u32::MAX, moves: [-127, -127], aim: [-127, -127], ..Input::default() };
+    i.typed = Some(Box::new(Typed { text: "#".repeat(crate::input::MOST_TYPED), erase: crate::input::MOST_ERASE, done: true, cancel: true }));
+    if pointer {
+        let panel = Panel { name: "#".repeat(crate::input::MOST_PANEL_NAME), index: u16::MAX, u: u16::MAX, v: u16::MAX };
+        let met = Met { thing: Some(u32::MAX), part: u16::MAX, model: u32::MAX, area: u16::MAX, at: Some(([-MOST_POINT; 3], 255)) };
+        i.pointer = Some(Box::new(Pointer { x: -MOST_PLACE - 1, y: -MOST_PLACE - 1, picture: Some(u16::MAX), panel: Some(panel), level: Some(met), press: true }));
+    }
+    i
 }
 
 /// A guest's first word: who it is (`MachineId`), this joining's own
@@ -378,6 +528,9 @@ pub enum Ask {
     Leave(u8),
     /// What the player on a seat plays with now (the session's bytes).
     Controls(u8, Vec<u8>),
+    /// Text typed on a seat (`input.typed`): an ask, so it comes once and
+    /// in order whatever the readings do.
+    Typed(u8, crate::input::Typed),
 }
 
 /// A seat's readings: its number, its generation, the first reading's
@@ -415,7 +568,7 @@ impl Up {
         w.varint(self.readings.len() as u64);
         for r in &self.readings {
             w.u8(r.seat).varint(r.generation as u64).varint(r.first as u64).varint(r.inputs.len() as u64);
-            for &i in &r.inputs {
+            for i in &r.inputs {
                 input(&mut w, i);
             }
         }
@@ -430,6 +583,9 @@ impl Up {
                 }
                 Ask::Controls(seat, bytes) => {
                     w.u8(3).u8(*seat).bytes(bytes);
+                }
+                Ask::Typed(seat, t) => {
+                    w.u8(4).u8(*seat).str(cut(&t.text, MAX_TYPED_ASK)).varint(t.erase as u64).u8(t.done as u8 | (t.cancel as u8) << 1);
                 }
             }
         }
@@ -457,6 +613,13 @@ impl Up {
                 1 => Ask::Take,
                 2 => Ask::Leave(r.u8()?),
                 3 => Ask::Controls(r.u8()?, r.bytes(MAX_CONTROLS)?.to_vec()),
+                4 => {
+                    let (seat, text, erase, flags) = (r.u8()?, r.str(MAX_TYPED_ASK)?, u16::try_from(r.varint()?).map_err(|_| Broken)?, r.u8()?);
+                    if flags >> 2 != 0 {
+                        return Err(Broken);
+                    }
+                    Ask::Typed(seat, crate::input::Typed { text, erase, done: flags & 1 != 0, cancel: flags & 2 != 0 })
+                }
                 _ => return Err(Broken),
             });
         }
@@ -498,7 +661,7 @@ impl Bundle {
         let present = self.inputs.iter().enumerate().filter(|(_, i)| i.is_some()).fold(0u8, |m, (n, _)| m | 1 << n);
         w.u8(present);
         for i in self.inputs.iter().flatten() {
-            input(w, *i);
+            input(w, i);
         }
         w.u8(self.seats.len() as u8);
         for e in &self.seats {
@@ -742,6 +905,34 @@ pub fn bundle_bytes(b: &Bundle) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An input of keys alone is written as before the sticks, the pointer
+    /// and the text came (one varint); one with all of them, the widest
+    /// too, reads back as written; a flag no input has is broken.
+    #[test]
+    fn an_input_reads_back_and_keys_alone_are_as_before() {
+        let keys = Input { left: true, down: true, actions: 0b101, ..Input::default() };
+        let mut w = Writer::bare();
+        input(&mut w, &keys);
+        let mut old = Writer::bare();
+        old.varint(1 | 8 | 0b101 << 4);
+        assert_eq!(w.buf, old.buf, "as before");
+        let met = crate::input::Met { thing: Some(7), part: 2, model: 99, area: 1, at: Some(([16, -32, 48], 3)) };
+        let panel = crate::input::Panel { name: "bag".into(), index: 3, u: 1000, v: 0 };
+        let mut all = Input { moves: [-127, 5], aim: [0, 127], ..keys.clone() };
+        all.pointer = Some(Box::new(crate::input::Pointer { x: -3, y: 400, picture: Some(65535), panel: Some(panel), level: Some(met), press: true }));
+        all.typed = Some(Box::new(crate::input::Typed { text: "Nü!".into(), erase: 2, done: true, cancel: false }));
+        for i in [keys, all, widest(true), widest(false)] {
+            let mut w = Writer::bare();
+            input(&mut w, &i);
+            let mut r = Reader::bare(&w.buf);
+            assert_eq!(read_input(&mut r).as_ref(), Ok(&i));
+            assert!(r.done().is_ok());
+        }
+        let mut w = Writer::bare();
+        w.varint(MORE).u8(0x10);
+        assert!(read_input(&mut Reader::bare(&w.buf)).is_err(), "a part no input has");
+    }
 
     /// Every number reads back from what the writer writes, in the fewest
     /// bytes; an overlong encoding, one past 64 bits and one cut short

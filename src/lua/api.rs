@@ -45,6 +45,28 @@ const TYPES: &str = "\
 ---@field x number
 ---@field y number
 
+---@class Stick A stick's value (input.move, input.aim): x right, y up, each -1 to 1, never longer than 1.
+---@field x number
+---@field y number
+
+---@class PointerAt What the pointer is over this tick (input.pointer).
+---@field hud? string The name of the HUD panel under it (frame:hud, a named menu or grid), the topmost; nil over none.
+---@field index? integer The menu's row or the grid's cell under it, from 1.
+---@field u? number Where in that panel across, 0 at its left to 1 at its right.
+---@field v? number Where in that panel down, 0 at its top to 1 at its bottom.
+
+---@class PointerNow This machine's pointer in this picture (frame.pointer).
+---@field x number Where it is across, in UI voxels from the screen's left.
+---@field y number Where it is down, in UI voxels from the screen's top.
+---@field hud? string The name of the HUD panel under it in the picture before.
+---@field index? integer The menu's row or the grid's cell under it, from 1.
+
+---@class Typed What the player typed this tick (input.typed).
+---@field text string The letters typed, \"\" mostly.
+---@field erase integer How many letters Backspace took away.
+---@field done boolean Enter was pressed.
+---@field cancel boolean Escape was pressed.
+
 ---@alias Color integer[] Red, green, blue (and alpha), 0 to 255.
 
 ---@class Place Where a player arrives in a level.
@@ -104,6 +126,7 @@ const TYPES: &str = "\
 ---@field fade? number Seconds the picture fades out through c.transition.color, and as many in, 0 to 10 (0: a cut); unless said, c.transition's.
 
 ---@class Menu A menu in the engine's look (frame:menu).
+---@field name? string Its name as the pointer says it (input.pointer.hud).
 ---@field rows (string|MenuRow)[] Its rows, from the top.
 ---@field at? integer The chosen row, from 1.
 ---@field title? string Above the rows.
@@ -117,10 +140,12 @@ const TYPES: &str = "\
 
 ---@class GridCell A slot (frame:grid).
 ---@field icon? string An icon of c.icons.
+---@field model? string A model file of the game, its front shown in the slot.
 ---@field count? integer A number at its corner.
 ---@field dim? boolean Darker.
 
 ---@class Grid Slots in rows (frame:grid).
+---@field name? string Its name as the pointer says it (input.pointer.hud).
 ---@field cells (GridCell|false)[] The slots, false for an empty one.
 ---@field columns? integer Across (up to 8 unless said).
 ---@field cell? number A slot's size in UI voxels (18).
@@ -408,7 +433,9 @@ pub const API: &[Item] = &[
             level. It starts as c.state.player says. Plain data, no things; lives and the like are your game's own keys. A script reads and \
             sets the engine's keys like its own.\n- score: a whole number.\n- inventory: items by name and how many \
             (player.state.inventory.key).\n- checkpoint: the name of a place or a thing in this level where world:restart goes. Forgotten on \
-            world:go_to.\n- hp: with a figure that has hit points, or with a kit.\nWith a kit (c.kit):\n- invulnerable: ticks left without \
+            world:go_to.\n- hp: with a figure that has hit points, or with a kit.\n- typing: true while the player types: the keyboard's \
+            letters, Backspace, Enter and Escape hold no action then (Escape does not pause), and input.typed says what came. Every \
+            player has it (p.state.typing).\nWith a kit (c.kit):\n- invulnerable: ticks left without \
             hits, or true until set back.\nWith the jump & run kit (c.kit = \"platformer\"):\n- pose: the hero's set of frames, as a thing's \
             thing.state.pose.\nWith the shooter kit (c.kit = \"shooter\"):\n- weapon: the gun in hand, by its name in c.player.weapons.\n- \
             inventory also holds the rounds of its guns and its grenades, by their names.\n- hp set above 0 brings a player who is down back \
@@ -521,6 +548,23 @@ pub const API: &[Item] = &[
     Item { of: "input", name: "down", what: Field { ty: "boolean", set: false }, doc: "Held this tick (input:pressed(\"down\") whether it \
             went down this tick)." },
     Item { of: "input", name: "dir", what: Field { ty: "Way", set: false }, doc: "The directions held as a way: x and y each -1, 0 or 1." },
+    Item { of: "input", name: "move", what: Field { ty: "Stick", set: false }, doc: "Where the left stick leans, { x, y }: x right, y up, \
+            each -1 to 1, never longer than 1 (a light lean is small, a full one 1). Without a stick it is the directions held: 1 one way, \
+            about 0.71 each on a diagonal. A shooter that walks at any angle, a car's steering." },
+    Item { of: "input", name: "aim", what: Field { ty: "Stick", set: false }, doc: "Where the right stick leans, { x, y } as input.move; \
+            { x = 0, y = 0 } without one. A twin-stick shooter's aim." },
+    Item { of: "input", name: "pointer", what: Field { ty: "PointerAt|nil", set: false }, doc: "What the pointer is over this tick, in a \
+            game with one (c.pointer): nil without, for a player on a pad, and when the pad was used last.\n- hud: the name of the HUD \
+            panel under it (frame:hud, or a menu or grid with a name), the topmost; nil over none.\n- index: that menu's row or grid's \
+            cell, from 1.\n- u, v: where in the panel, 0 to 1 from its top left (a slider, a map).\nIt is what the player saw: a click \
+            carries what was under the pointer as the button went down. The mouse's buttons are keys (c.keys.click = { \"mouse_left\" \
+            }): input:pressed(\"click\") with input.pointer.hud is a click on a panel. A pointer from the picture of a level left is \
+            nil." },
+    Item { of: "input", name: "typed", what: Field { ty: "Typed|nil", set: false }, doc: "What the player typed this tick while \
+            player.state.typing is true (else nil).\n- text: the letters typed, \"\" mostly; only those the small letters can write.\n- \
+            erase: how many letters Backspace took away.\n- done: Enter was pressed. cancel: Escape was pressed.\nThe letters come \
+            once and in order, in replays and over the network too. A name at the start: typing = true, add text, take erase away, \
+            typing = false on done." },
     Item { of: "input", name: "held", what: Method { params: &[("action", "string")], returns: "boolean" },
         doc: "Whether an action (c.actions, one the ready-made rules bring, or a direction: \"left\", \"right\", \"up\", \"down\") is held \
             this tick. The ready-made rules read the same keys and use none of them up." },
@@ -632,17 +676,27 @@ pub const API: &[Item] = &[
             frame.alpha, music.beat). The game's rules, the sounds and level.camera do not see it; frame:to_screen after it goes by it. The \
             camera does not turn round yet. Another pitch or fov than c.camera's needs faces the game's own view never shows: the level is \
             built anew with them once, a moment's hitch the first time." },
+    Item { of: "frame", name: "hud", what: Method { params: &[("name", "string"), ("x", "number"), ("y", "number"), ("width", "number"), ("height", "number")], returns: "" },
+        doc: "Names a rectangle of this picture's HUD the pointer can be over: x and y its top left, in UI voxels as frame:text's. Nothing \
+            is drawn. In on_tick input.pointer.hud is its name while the pointer is over it, u and v where in it. One named later lies \
+            on top. A name is a word of letters, digits and _, up to 16 long. A menu or grid with a name is one too." },
+    Item { of: "frame", name: "pointer", what: Field { ty: "PointerNow|nil", set: false }, doc: "This machine's pointer in this \
+            picture, in a game with one (c.pointer): x and y in UI voxels as frame:text's, and hud and index of what it is over in the \
+            picture before. Nil with the pad used last. To draw your own cursor (c.pointer = \"own\") or light the row under it. Only \
+            for drawing: on_tick reads input.pointer." },
     Item { of: "frame", name: "menu", what: Method { params: &[("menu", "Menu")], returns: "" },
         doc: "Draws a menu in the engine's look, on a plate. In the middle of the screen unless x and y say where (its top left), as wide as \
             it needs unless width says.\n- rows: each a text, or { text =, value =, icon =, dim = }: a value at the right, an icon of \
             c.icons before the text, dimmed when it cannot be had.\n- at: the chosen row, from 1, yellow with the engine's red marker.\n- \
             title, tabs (tab: the chosen one, from 1), hint below; an action in braces is its key.\n- shown: how many rows show at most; a \
             longer list scrolls to keep at in view.\nWhat is open and where the cursor stands is your game's: keep it in level.state, hold \
-            the level while it is open (level.state.held = true) and move it in on_tick (input:repeated)." },
+            the level while it is open (level.state.held = true) and move it in on_tick (input:repeated).\nA menu is a panel the \
+            pointer can be over: with a name (name = \"shop\") input.pointer.hud says it, index the row." },
     Item { of: "frame", name: "grid", what: Method { params: &[("grid", "Grid")], returns: "" },
-        doc: "Draws an inventory's slots in rows, on a plate: cells, each { icon =, count =, dim = } (an icon of c.icons, a number at its \
-            corner, darker when dim) or false for an empty slot; columns across (up to 8 unless said), cell its size in UI voxels (18), at \
-            the chosen slot (from 1) edged in yellow, an optional title. In the middle unless x and y say where." },
+        doc: "Draws an inventory's slots in rows, on a plate: cells, each { icon =, model =, count =, dim = } (an icon of c.icons, or a \
+            model file of the game shown from the front, a number at its corner, darker when dim) or false for an empty slot; columns across (up to 8 unless said), cell its size in UI voxels (18), at \
+            the chosen slot (from 1) edged in yellow, an optional title. In the middle unless x and y say where. With a name it is a panel the \
+            pointer says (input.pointer.hud), index the slot." },
     Item { of: "frame", name: "text", what: Method { params: &[("text", "string"), ("x", "number"), ("y", "number"), ("color?", "Color"), ("size?", "integer")], returns: "" },
         doc: "Writes text on the screen, over the level. x and y are its top left, in UI voxels from the screen's top left (frame.width \
             across, frame.height down).\n- size: 1 the small letters (7 voxels high), 2 to 4 the big ones (c.ui.display_font).\n- An action \

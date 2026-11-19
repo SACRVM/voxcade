@@ -260,9 +260,18 @@ impl<A: Copy + PartialEq + std::fmt::Debug> Guest<A> {
     }
 
     /// A player's keys on one of its seats, read this frame: sent at once.
-    pub fn read(&mut self, seat: u8, input: Input) {
+    pub fn read(&mut self, seat: u8, mut input: Input) {
         if !self.mine.contains_key(&seat) {
             return;
+        }
+        // Text typed goes as asks, once and in order, in pieces the wire
+        // carries.
+        if let Some(typed) = input.typed.take() {
+            let mut pieces = crate::input::TypedQueue::default();
+            pieces.push(&typed);
+            while let Some(piece) = pieces.take() {
+                self.push_ask(Ask::Typed(seat, piece));
+            }
         }
         let (next, list) = self.readings.entry(seat).or_insert((0, VecDeque::new()));
         list.push_back((*next, input));
@@ -513,7 +522,7 @@ impl<A: Copy + PartialEq + std::fmt::Debug> Guest<A> {
                 .iter()
                 .filter_map(|(&seat, (_, list))| {
                     let first = list.front()?.0;
-                    Some(Readings { seat, generation: self.mine.get(&seat)?.0, first, inputs: list.iter().map(|(_, i)| *i).collect() })
+                    Some(Readings { seat, generation: self.mine.get(&seat)?.0, first, inputs: list.iter().map(|(_, i)| i.clone()).collect() })
                 })
                 .collect();
             let asks_from = self.asks.front().map_or(self.next_ask, |(n, _)| *n);

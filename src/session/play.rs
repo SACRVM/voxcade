@@ -355,8 +355,15 @@ impl<G: Game> Session<G> {
         if !self.seats.is_empty() {
             self.game.set_seats(&self.seats);
         }
-        self.played = Tick { events: std::mem::take(&mut self.pending), when: self.clock, controls: self.controls.clone(), input: *input, seats: self.seats.clone() };
+        self.played = Tick { events: std::mem::take(&mut self.pending), when: self.clock, controls: self.controls.clone(), input: input.clone(), seats: self.seats.clone() };
         self.played.hash_into(&mut self.inputs);
+        // The pictures show the pointer played where no window sets it:
+        // the first seat played here that has one.
+        if !self.pointer_live && self.has_pointer() {
+            let seats = std::iter::once((1, Some(input))).chain(self.seats.iter().enumerate().map(|(n, s)| (n + 2, s.input.as_ref())));
+            let at = seats.filter(|(n, _)| self.local.has(*n)).find_map(|(_, i)| i?.pointer.as_ref()).map(|p| [p.x as f32, p.y as f32]);
+            self.game.set_pointer_now(at);
+        }
         self.game.step(input);
         self.saves_due();
         if let Some(leaving) = self.game.leaving() {
@@ -430,10 +437,72 @@ impl<G: Game> Session<G> {
         self.clock = tick.when;
         self.set_controls(tick.controls.clone());
         for (n, seat) in tick.seats.iter().enumerate() {
-            self.set_seat(n + 2, seat.input);
+            self.set_seat(n + 2, seat.input.clone());
             self.set_seat_controls(n + 2, seat.controls.clone());
         }
         self.step(&tick.input);
+    }
+
+    /// Whether the game has a pointer (`c.pointer`).
+    pub fn has_pointer(&self) -> bool {
+        self.cfg.pointer.is_some()
+    }
+
+    /// A pointer at (`x`, `y`) of the HUD (its measure, from the top left),
+    /// in a window of shape `aspect`, answered from the picture drawn last:
+    /// the panel under it, the level's picture it is (`Pointer::picture`).
+    /// What a machine puts in its reading.
+    pub fn point(&self, x: f32, y: f32, aspect: f32) -> crate::input::Pointer {
+        let layout = crate::ui::Layout::of(&self.cfg.ui, self.picture_aspect(aspect));
+        let place = |v: f32| v.round().clamp(-(i16::MAX as f32), i16::MAX as f32) as i32;
+        crate::input::Pointer {
+            x: place(x),
+            y: place(y),
+            picture: Some(crate::input::picture_mark(self.game.level_mark())),
+            panel: self.game.panel_at(x, y, layout.width, layout.height),
+            level: None,
+            press: false,
+        }
+    }
+
+    /// A script's pointer not answered yet (`pointer=X,Y` without its
+    /// answers) answered from the picture drawn last, in the shape
+    /// `aspect`; any other input as it is.
+    pub fn answer(&self, input: &mut crate::input::Input, aspect: f32) {
+        if let Some(p) = input.pointer.as_mut().filter(|p| p.picture.is_none()) {
+            let answered = self.point(p.x as f32, p.y as f32, aspect);
+            **p = answered;
+        }
+    }
+
+    /// Where this machine's pointer is now, for the pictures to come
+    /// (`frame.pointer`, the HUD's measure), from a window (None: none, or
+    /// the pad was used last). Without a window the pictures show the
+    /// pointer of the ticks played.
+    pub fn set_pointer(&mut self, at: Option<[f32; 2]>) {
+        self.pointer_live = true;
+        self.game.set_pointer_now(at.filter(|_| self.has_pointer()));
+    }
+
+    /// A script for this game (`shot`'s, `inspect`'s, `run --input`): its
+    /// actions, the mouse's keys as `c.keys` binds them, the pointer where
+    /// it has one.
+    pub fn script(&self, text: &str) -> Result<Vec<(crate::input::Input, u32)>> {
+        crate::replay::parse_script_with(text, &self.script_words())
+    }
+
+    /// The seats' scripts for this game (`--input2` and on), as `script`.
+    pub fn seat_scripts(&self, scripts: &[(usize, String)]) -> Result<crate::replay::SeatScripts> {
+        crate::replay::SeatScripts::parse_with(scripts, &self.script_words(), self.cfg.players)
+    }
+
+    fn script_words(&self) -> crate::replay::Words<'_> {
+        crate::replay::Words { actions: &self.actions, keys: Some(&self.cfg.keys), pointer: Some(self.has_pointer()) }
+    }
+
+    /// Whether the player on seat `seat` types (`p.state.typing`).
+    pub fn typing(&self, seat: usize) -> bool {
+        self.game.typing(seat)
     }
 
     /// The last tick played, with what happened before it.

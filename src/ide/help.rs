@@ -1160,6 +1160,67 @@ end
 "##,
     },
     Topic {
+        title: "CLICKS AND A NAME",
+        text: "c.pointer = \"system\" gives your game a pointer: the mouse moves it, and its buttons and wheel are keys you bind as any (c.keys.click = { \"mouse_left\" }). frame:hud names a rectangle of the screen, and a menu or grid with a name is one too: input.pointer.hud says which the pointer is over, index its row or slot, u and v where in it. A click carries what was under the pointer as the button went down. Typing: player.state.typing = true, then input.typed says what came each tick (text, erase, done, cancel), and the keys that type do nothing else meanwhile. c.pointer = \"own\" hides the arrow while the game plays: draw your own from frame.pointer. input.move is the left stick (or the directions) at any angle.",
+        conf: r##"c.player.kind = "hero"
+c.things.hero = {}
+c.pointer = "system"
+c.actions = { "click", "next" }
+c.keys = { click = { "mouse_left" }, next = { "wheel_down", "Tab" } }
+c.pad = { click = { "south" }, next = { "rightshoulder" } }"##,
+        files: &[],
+        code: r##"local SEEDS = { "Carrot", "Wheat", "Tomato" }
+
+function on_world_start()
+  world.state.name = ""
+  world.state.seed = 1
+  world.state.planted = 0
+  player.state.typing = true   -- a name first
+end
+
+function on_level_start(how)
+  level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 0, "#5a6e4a")
+end
+
+function on_tick()
+  local typed = input.typed
+  if typed then
+    -- the letters typed this tick, Backspace, Enter
+    local name = world.state.name .. typed.text
+    for _ = 1, typed.erase do name = name:sub(1, -2) end
+    world.state.name = name:sub(1, 12)
+    if typed.done and world.state.name ~= "" then player.state.typing = false end
+    return
+  end
+  -- walking at any angle, with a stick or the arrows
+  local move = input.move
+  player:walk({ x = move.x, y = move.y }, 40)
+  if input:pressed("next") then world.state.seed = world.state.seed % #SEEDS + 1 end
+  local at = input.pointer
+  if input:pressed("click") and at and at.hud == "seeds" and at.index then
+    world.state.seed = at.index
+  elseif input:pressed("click") and at and at.hud == "field" then
+    world.state.planted = world.state.planted + 1
+  end
+end
+
+function on_draw(frame)
+  if player.state.typing then
+    frame:text("Your name: " .. world.state.name .. "_", 8, 8)
+    frame:text("Enter when done", 8, 20)
+    return
+  end
+  frame:text(world.state.name .. " planted " .. world.state.planted, 8, 8)
+  frame:menu{ name = "seeds", x = 8, y = 24, rows = SEEDS, at = world.state.seed, hint = "click or {next}" }
+  -- the field: a rectangle the pointer can be over
+  frame:box(frame.width - 88, 24, 80, 50, { 90, 70, 40 })
+  frame:hud("field", frame.width - 88, 24, 80, 50)
+  local p = frame.pointer
+  if p and p.hud == "field" then frame:text("plant " .. SEEDS[world.state.seed], frame.width - 88, 78) end
+end
+"##,
+    },
+    Topic {
         title: "SPEAK THE PLAYER'S LANGUAGE",
         text: "List the languages your game speaks in conf.lua (c.languages, two small letters each). SETTINGS then offers LANGUAGE, the player's system language at first, and the engine's own menus speak it too (German, English and French). world.language says which the player chose; it can change while playing, so pick your texts by it every picture. Lower case, the letters of German and French and signs such as → or … are all there.",
         conf: r##"c.languages = { "en", "de", "fr" }"##,

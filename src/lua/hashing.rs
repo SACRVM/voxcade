@@ -92,7 +92,7 @@ impl<K: Kit> LuaGame<K> {
         // The seats: once a second was taken, or a player's own keys set
         // (a game of one hashes as it did).
         for (i, seat) in stage.seats.iter().enumerate() {
-            let plain = !seat.out && seat.team.is_none() && seat.kind.is_none();
+            let plain = !seat.out && seat.team.is_none() && seat.kind.is_none() && !seat.typing;
             if (i == 0 || !seat.been) && plain {
                 continue;
             }
@@ -100,6 +100,10 @@ impl<K: Kit> LuaGame<K> {
             s.bytes(seat.team.as_deref().unwrap_or("").as_bytes()).bytes(seat.kind.as_deref().unwrap_or("").as_bytes());
             let figure = stage.figure(i + 1).map_or(u64::MAX, |f| f.raw() as u64);
             s.u64(figure);
+            // Typing, where it is (a seat's hash before it came stays).
+            if seat.typing {
+                s.u64(0x7479_7065);
+            }
         }
         for (n, v) in &script.seats {
             s.u64(*n as u64);

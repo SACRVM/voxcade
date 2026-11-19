@@ -10,6 +10,7 @@ mod mistakes;
 mod names;
 mod music;
 mod picture;
+mod pointer;
 mod pieces;
 mod props;
 mod runs;

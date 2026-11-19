@@ -145,11 +145,31 @@ impl Tick {
     /// plays through with its own), and the controls of a seat nobody sits
     /// on.
     fn hash_into(&self, s: &mut crate::hash::Stable) {
-        fn input(s: &mut crate::hash::Stable, i: Option<crate::input::Input>) {
+        fn input(s: &mut crate::hash::Stable, i: Option<&crate::input::Input>) {
             match i {
                 Some(i) => s.u64(1 + (i.left as u64 | (i.right as u64) << 1 | (i.up as u64) << 2 | (i.down as u64) << 3 | (i.actions as u64) << 4)),
                 None => s.u64(0),
             };
+            // The sticks, the pointer and the text where there are some (a
+            // run of keys alone hashes as before they came).
+            if let Some(i) = i.filter(|i| i.has_more()) {
+                s.u64(0x6d6f_7265).u64(u16::from_le_bytes(i.moves.map(|v| v as u8)) as u64).u64(u16::from_le_bytes(i.aim.map(|v| v as u8)) as u64);
+                if let Some(p) = &i.pointer {
+                    s.u64(1).u64(p.x as u32 as u64).u64(p.y as u32 as u64).u64(p.picture.map_or(0, |n| n as u64 + 1));
+                    if let Some(panel) = &p.panel {
+                        s.bytes(panel.name.as_bytes()).u64(panel.index as u64).u64(panel.u as u64).u64(panel.v as u64);
+                    }
+                    if let Some(m) = &p.level {
+                        s.u64(m.thing.map_or(0, |t| t as u64 + 1)).u64(m.part as u64).u64(m.model as u64).u64(m.area as u64);
+                        if let Some((at, face)) = m.at {
+                            s.u64(at[0] as u32 as u64).u64(at[1] as u32 as u64).u64(at[2] as u32 as u64).u64(face as u64);
+                        }
+                    }
+                }
+                if let Some(t) = &i.typed {
+                    s.u64(2).bytes(t.text.as_bytes()).u64(t.erase as u64).u64(t.done as u64 | (t.cancel as u64) << 1);
+                }
+            }
         }
         fn controls(s: &mut crate::hash::Stable, c: &Controls) {
             s.u64(c.device.map_or(0, |d| 1 + d as u64));
@@ -175,9 +195,9 @@ impl Tick {
             }
         }
         controls(s, &self.controls);
-        input(s, Some(self.input));
+        input(s, Some(&self.input));
         for seat in &self.seats {
-            input(s, seat.input);
+            input(s, seat.input.as_ref());
             if seat.input.is_some() {
                 controls(s, &seat.controls);
             }
@@ -296,6 +316,9 @@ pub struct Session<G: Game> {
     clock: u64,
     /// What this machine has of the game (`set_local`).
     local: crate::game::Local,
+    /// A window sets where its pointer is (`set_pointer`): the pictures no
+    /// longer follow the ticks'.
+    pointer_live: bool,
     /// What the last reload ran into (shown over the game until a reload
     /// works).
     pub problem: Option<String>,
@@ -394,6 +417,12 @@ pub fn config_in<G: Game>(files: &Files) -> Result<GameConfig> {
     if cfg.models.is_some() {
         anyhow::bail!("c.models is no more: frame:model draws any model file of the game by its path (\"sheet.vvx\", \"props/sheet.vvx\"), loaded when it is first drawn; take the c.models lines out (`voxcade upgrade {}` does it)", files.dir().display());
     }
+    // The mouse's buttons and wheel are keys only where it points.
+    if cfg.pointer.is_none()
+        && let Some((action, key)) = cfg.keys.pairs().find(|(_, k)| crate::input::MOUSE_KEYS.contains(&k.to_lowercase().as_str()))
+    {
+        anyhow::bail!("c.keys.{action}: \"{key}\" is the mouse's, and the game has no pointer: c.pointer = \"system\" (the system's arrow) or \"own\" (the game draws its own) in conf.lua");
+    }
     if cfg.audio.boss_music.is_some() {
         anyhow::bail!("c.audio.boss_music is no more: which song plays when is your game's code, music:play(\"end_boss\") while the boss is up and music:play() after (the song in c.audio.music)");
     }
@@ -446,6 +475,10 @@ fn fingerprint_parts(cfg: &GameConfig, sections: &[&str], actions: &[&str], file
     // Where a run begins, if the game says (unset adds nothing).
     if let Some(v) = all.get("start") {
         read.insert("start".into(), v.clone());
+    }
+    // A pointer, if the game has one (unset adds nothing).
+    if let Some(v) = all.get("pointer") {
+        read.insert("pointer".into(), v.clone());
     }
     // The game's own title, if it has one: the start is the first level
     // but it.

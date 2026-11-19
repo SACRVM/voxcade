@@ -166,6 +166,11 @@ impl Bindings {
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.0.values().flatten().map(String::as_str)
     }
+
+    /// Every action with each key or button it has, in the actions' order.
+    pub fn pairs(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.0.iter().flat_map(|(a, keys)| keys.iter().map(move |k| (a.as_str(), k.as_str())))
+    }
 }
 
 /// Which letters a gamepad prints on its buttons.
@@ -237,8 +242,12 @@ pub fn pad_label(name: &str, style: PadStyle) -> String {
     .to_string()
 }
 
-/// How a key is shown: its SDL name in capitals.
+/// How a key is shown: its SDL name in capitals; the mouse's as words
+/// ("MOUSE LEFT", "WHEEL DOWN").
 pub fn key_label(name: &str) -> String {
+    if crate::input::MOUSE_KEYS.contains(&name.to_lowercase().as_str()) {
+        return name.replace('_', " ").to_uppercase();
+    }
     name.to_uppercase()
 }
 
@@ -294,6 +303,51 @@ pub fn pad_held(pad: &Gamepad, name: &str) -> bool {
 /// besides by another session driving the IDE (`ide::remote`).
 pub trait KeyState {
     fn pressed(&self, key: Scancode) -> bool;
+
+    /// Whether the mouse's button or wheel `name` (`input::MOUSE_KEYS`)
+    /// holds this tick: only where the keyboard has the mouse.
+    fn mouse(&self, _name: &str) -> bool {
+        false
+    }
+
+    /// Whether the player types (`player.state.typing`): the keys that type
+    /// hold no action then.
+    fn typing(&self) -> bool {
+        false
+    }
+}
+
+/// The keyboard with the mouse's buttons and wheel as keys, and whether its
+/// player types (the window's).
+pub struct WithMouse<'a> {
+    pub keys: &'a dyn KeyState,
+    /// The mouse's key names held this tick.
+    pub mouse: &'a [&'static str],
+    pub typing: bool,
+}
+
+impl KeyState for WithMouse<'_> {
+    fn pressed(&self, key: Scancode) -> bool {
+        self.keys.pressed(key)
+    }
+
+    fn mouse(&self, name: &str) -> bool {
+        self.mouse.iter().any(|m| m.eq_ignore_ascii_case(name))
+    }
+
+    fn typing(&self) -> bool {
+        self.typing
+    }
+}
+
+/// Whether a key types (a letter, a digit, a sign, space, Backspace, Enter,
+/// Escape): while its player types it holds no action.
+pub fn types(key: Scancode) -> bool {
+    use Scancode as S;
+    let name = key.name();
+    (name.chars().count() == 1 && !name.starts_with(|c: char| c.is_whitespace()))
+        || matches!(key, S::Space | S::Backspace | S::Return | S::KpEnter | S::Escape | S::Tab | S::Delete)
+        || name.starts_with("Keypad")
 }
 
 impl KeyState for KeyboardState<'_> {
@@ -325,9 +379,14 @@ pub fn read_seat(keys: Option<&dyn KeyState>, half: crate::seating::Keys, pads: 
     use crate::seating::Keys;
     // (No keyboard: the pads alone, while the keys are elsewhere.)
     let keys = keys.filter(|_| half != Keys::Nothing);
-    let held = |c: Scancode| keys.is_some_and(|k| k.pressed(c));
+    let held = |c: Scancode| keys.is_some_and(|k| k.pressed(c) && !(k.typing() && types(c)));
     let own = settings.keys_of(half);
-    let named = |names: &[String]| names.iter().filter_map(|n| Scancode::from_name(n)).any(held);
+    let named = |names: &[String]| {
+        names.iter().any(|n| match Scancode::from_name(n) {
+            Some(c) => held(c),
+            None => keys.is_some_and(|k| k.mouse(n)),
+        })
+    };
     let any = |codes: &[Scancode], way: &str| match half {
         // A half: its own keys for the way.
         Keys::Left | Keys::Right => own.is_some_and(|b| named(b.get(way))),
@@ -337,6 +396,7 @@ pub fn read_seat(keys: Option<&dyn KeyState>, half: crate::seating::Keys, pads: 
     let stick = |axis: Axis| pads.iter().map(|p| p.axis(axis) as f32 / 32767.0).fold(0.0f32, |a, v| if v.abs() > a.abs() { v } else { a });
     let dpad = |button: Button| pads.iter().any(|p| p.button(button));
     let (sx, sy) = (stick(Axis::LeftX), stick(Axis::LeftY));
+    let (rx, ry) = (stick(Axis::RightX), stick(Axis::RightY));
     // Eight ways from the stick: past a dead zone, and a direction only when
     // the stick leans that way enough (not every diagonal wobble).
     const DEAD: f32 = 0.3;
@@ -346,7 +406,11 @@ pub fn read_seat(keys: Option<&dyn KeyState>, half: crate::seating::Keys, pads: 
         right: any(&[Scancode::Right, Scancode::D], "right") || dpad(Button::DPadRight) || (sx > 0.0 && lean(sx, sy)),
         up: any(&[Scancode::Up, Scancode::W], "up") || dpad(Button::DPadUp) || (sy < 0.0 && lean(sy, sx)),
         down: any(&[Scancode::Down, Scancode::S], "down") || dpad(Button::DPadDown) || (sy > 0.0 && lean(sy, sx)),
-        actions: 0,
+        // The sticks as values (`input.move`, `input.aim`), past the same
+        // dead zone.
+        moves: crate::input::stick(sx, sy, DEAD),
+        aim: crate::input::stick(rx, ry, DEAD),
+        ..Default::default()
     };
     for (n, action) in actions.iter().enumerate() {
         input.hold(n, bound(action));

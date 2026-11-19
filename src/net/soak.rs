@@ -113,7 +113,7 @@ impl Node {
     /// a third action pressed for one frame now and then.
     pub(crate) fn keys(&self, addr: usize) -> Input {
         let h = mix((self.frames / 23) ^ ((addr as u64) << 40));
-        let mut input = Input { left: h & 1 != 0, right: h & 2 != 0, up: h & 4 != 0, down: h & 8 != 0, actions: (h >> 4 & 3) as u32 };
+        let mut input = Input { left: h & 1 != 0, right: h & 2 != 0, up: h & 4 != 0, down: h & 8 != 0, actions: (h >> 4 & 3) as u32, ..Input::default() };
         if self.taps && self.frames.is_multiple_of(37) {
             input.actions |= 4;
         }
@@ -260,7 +260,7 @@ pub(crate) fn frame(node: &mut Node, addr: usize, now: u64, dt: u64) -> Vec<(usi
                     game.play(&b);
                 }
                 for (seat, _) in g.mine() {
-                    g.read(seat, keys);
+                    g.read(seat, keys.clone());
                     node.tapped += (keys.actions & 4 != 0) as u64;
                 }
                 for b in g.due(now) {
