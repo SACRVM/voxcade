@@ -1972,6 +1972,13 @@ fn a_lamp_new_to_the_faces_memory_is_asked_for_first() {
     assert_eq!(s.canvas.stats().asked, 1, "moved");
     let (_, fresh) = LampScene::new().picture(&[lamp(36.5)], true);
     assert!(moved == fresh, "the same picture as a renderer drawing it the first time");
+    s.picture(&[lamp(36.5)], true);
+    assert_eq!(s.canvas.stats().asked, 0, "it stayed");
+    // The level changed (a voxel set): every answer is walked again, so
+    // the lamp is asked for first again.
+    s.game.game.sim_mut().world.set(IVec3::new(70, 70, 3), 1);
+    s.picture(&[lamp(36.5)], true);
+    assert_eq!(s.canvas.stats().asked, 1, "the walls changed");
 }
 
 /// On the GPU: a lamp half a voxel over a long slab, 136 voxels from a

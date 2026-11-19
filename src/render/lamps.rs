@@ -399,12 +399,19 @@ impl Lamps {
             return false;
         }
         (self.targets, self.seen, self.grown, self.bind, self.volume, self.ask_target) = (None, None, 0, None, None, None);
-        self.state = next_state(self.state);
+        self.walls_changed();
         self.movers_solids = solids_buffer(device, 64);
         self.movers_bits = bits_buffer(device, 1024);
         self.movers_key = 0;
-        self.known.clear();
         true
+    }
+
+    /// The volume's state moved on (`state`; the faces' answers from
+    /// before walked again): no lamp is known to the memory now, every one
+    /// asked for first (`ASK`).
+    fn walls_changed(&mut self) {
+        self.state = next_state(self.state);
+        self.known.clear();
     }
 
     /// Whether it holds anything a picture made (`used`): the tests'.
@@ -570,12 +577,14 @@ fn lamp_scenes(device: &wgpu::Device, src: &str, main: &wgpu::BindGroupLayout, a
 }
 
 /// The rectangle of the screen a light can reach, seen through
-/// `view_proj` (its low and high corner, -1 to 1): its box's corners'; the
-/// whole screen when one lies behind the eye; None when off the screen.
+/// `view_proj` (its low and high corner, -1 to 1): its box's corners'
+/// (`Light::bounds`: a spot's its cone's, so its tiles and its beams' are
+/// those the cone can light); the whole screen when one lies behind the
+/// eye; None when off the screen.
 pub(super) fn rect_of(view_proj: &Mat4, l: &Light) -> Option<[f32; 4]> {
-    let r = glam::Vec3::splat(l.radius);
+    let (bl, bh) = l.bounds();
     let (mut lo, mut hi) = (glam::Vec2::splat(f32::MAX), glam::Vec2::splat(f32::MIN));
-    for corner in crate::camera::box_corners(l.pos - r, l.pos + r) {
+    for corner in crate::camera::box_corners(bl, bh) {
         let c: Vec4 = *view_proj * corner.extend(1.0);
         if c.w <= 1e-3 {
             return Some([-1.0, -1.0, 1.0, 1.0]);
@@ -634,6 +643,7 @@ impl Renderer {
                     }
                     self.lamps.seen = Some((faces, buffer));
                     self.lamps.bind = None;
+                    self.lamps.known.clear();
                 }
                 // Kept as it is, grown no further; without one, through
                 // walls.
@@ -702,7 +712,7 @@ impl Renderer {
                         write(queue, &held.texture, m, lo >> m as i32, size >> m as i32, &held.volume.bytes_of(m, lo, size));
                     }
                 }
-                lamps.state = next_state(lamps.state);
+                lamps.walls_changed();
             }
             return true;
         }
@@ -734,7 +744,7 @@ impl Renderer {
         }
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         lamps.volume = Some(Held { volume, view, texture, thin: None });
-        lamps.state = next_state(lamps.state);
+        lamps.walls_changed();
         lamps.bind = None;
         lamps.made_ms = started.elapsed().as_secs_f64() * 1000.0;
         true
@@ -1107,6 +1117,33 @@ mod tests {
         let eye = crate::camera::eye(&crate::config::CameraConfig::default(), glam::Vec3::new(50.0, 50.0, 0.0), 16.0 / 9.0);
         assert_eq!(rect_of(&view, &Light::burst(eye, 5.0, [1.0; 3])), Some([-1.0, -1.0, 1.0, 1.0]), "round the eye: the whole screen");
         assert_eq!(rect_of(&view, &Light::burst(glam::Vec3::new(5000.0, 50.0, 0.0), 5.0, [1.0; 3])), None, "far off the screen");
+    }
+
+    /// A spot's box is its cone's within its ball (its tiles and its beams'
+    /// those): every point it lights lies in it, and a narrow spot's is a
+    /// fraction of its ball's; a round light's is its ball's.
+    #[test]
+    fn a_spots_box_holds_its_cone_and_no_more() {
+        use crate::render::LightShape;
+        for (cone, rotation, pitch) in [(30.0, 0.0, -90.0), (50.0, 25.0, -50.0), (120.0, 90.0, 10.0), (300.0, 200.0, 0.0)] {
+            let l = Light::lamp(glam::Vec3::new(10.0, 20.0, 30.0), 60.0, [1.0; 3], &LightShape { cone: Some(cone), rotation, pitch, ..Default::default() }, |w| w);
+            let s = l.spot.expect("a spot");
+            let (lo, hi) = l.bounds();
+            for i in 0..4000 {
+                // Points of the ball spread evenly (a fixed sequence).
+                let f = |k: u32| ((i * k) % 1000) as f32 / 1000.0;
+                let way = glam::Vec3::new(f(37) * 2.0 - 1.0, f(91) * 2.0 - 1.0, f(53) * 2.0 - 1.0).normalize_or_zero();
+                let p = l.pos + way * 60.0 * f(13);
+                if way.dot(s.way) > s.outer {
+                    assert!(p.cmpge(lo).all() && p.cmple(hi).all(), "cone {cone}: {p} in {lo}..{hi}");
+                }
+            }
+        }
+        let down = Light::lamp(glam::Vec3::ZERO, 60.0, [1.0; 3], &LightShape { cone: Some(30.0), pitch: -90.0, ..Default::default() }, |w| w);
+        let (lo, hi) = down.bounds();
+        assert!(hi.x - lo.x < 36.0 && hi.z - lo.z <= 62.0 && hi.z <= 1.0, "straight down: {lo}..{hi}");
+        let round = Light::lamp(glam::Vec3::ZERO, 60.0, [1.0; 3], &LightShape::default(), |w| w);
+        assert_eq!(round.bounds(), (glam::Vec3::splat(-61.0), glam::Vec3::splat(61.0)));
     }
 
     /// On the GPU: a device is asked for room for the lamps' memory up to

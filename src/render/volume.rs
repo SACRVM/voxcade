@@ -127,11 +127,12 @@ pub struct Volume {
     pub pieces_key: u64,
 }
 
-/// A key of the pieces' draws and the bank they are drawn from: the volume
-/// is made anew when it changes.
+/// A key of the pieces' draws and the bank they are drawn from (which, not
+/// how far it has grown: a model put in after, drawn the first time, leaves
+/// the pieces' runs as they were): the volume is made anew when it changes.
 pub fn pieces_key(bank: &ModelBank, pieces: &[ModelDraw]) -> u64 {
     let mut h = crate::hash::Stable::default();
-    h.u64(bank as *const ModelBank as u64).u64(bank.voxels.len() as u64);
+    h.u64(bank.made);
     for d in pieces {
         h.u64(u64::from(d.voxels.start)).u64(u64::from(d.voxels.end)).vec3(d.origin).u64(u64::from(d.turn)).vec3(d.shift);
         for c in d.rot.to_array() {
@@ -459,6 +460,26 @@ mod tests {
         let all = Reach::of(&[(Vec3::ZERO, 1.0), (size.as_vec3(), 1.0)], size);
         assert!(Reach::of(&[(Vec3::ZERO, 1.0), (Vec3::new(4000.0, 4000.0, 100.0), 1.0)], IVec3::new(4000, 4000, 100)).fits(4096).unwrap_err().contains("past 128 MB"), "the whole of a very big level is too much");
         assert!(all.fits(2048).is_ok(), "a big level whole fits");
+    }
+
+    /// The pieces' key is the bank's (which one, not how far it grew) and
+    /// the pieces' draws: a model drawn the first time mid-level, put in
+    /// the bank after the pieces' (`Session::bank_fresh`), makes no volume
+    /// anew; another bank (a level entered) does.
+    #[test]
+    fn a_model_drawn_the_first_time_leaves_the_pieces_key() {
+        let text = "format = \"voxcade voxel 1\"\nsize = [2, 1, 1]\n\n[palette]\na = \"#b04030\"\n\n[[frame]]\nlayers = \"\"\"\naa\n\"\"\"\n";
+        let (mut piece, mut later) = (crate::vvx::read(text).unwrap(), crate::vvx::read(text).unwrap());
+        let mut bank = ModelBank::default();
+        bank.add(&mut piece);
+        let draws = [ModelDraw { voxels: piece.bank[0].clone(), origin: Vec3::new(5.0, 5.0, 1.0), turn: 0, rot: glam::Quat::IDENTITY, shift: Vec3::ZERO, tint: None, nearer: 0.0, shadow_only: false }];
+        let key = pieces_key(&bank, &draws);
+        let mut grown = bank.clone();
+        grown.add(&mut later);
+        assert_eq!(pieces_key(&grown, &draws), key, "grown by a model drawn later");
+        let mut anew = ModelBank::default();
+        anew.add(&mut piece);
+        assert_ne!(pieces_key(&anew, &draws), key, "another bank");
     }
 
     /// A lamp walks from where it is in the open; in solid voxels from the

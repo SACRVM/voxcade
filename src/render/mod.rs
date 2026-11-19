@@ -176,6 +176,24 @@ impl Light {
     pub fn stopped_by_movers(&self) -> bool {
         self.shadows == Some(LampShadows::All)
     }
+
+    /// The box of what it can light, low and high corner: its ball, a
+    /// spot's cone within it (the apex and the cap of the ball the cone
+    /// cuts: along each way of the axes as far as the cap reaches it), a
+    /// voxel more each way.
+    pub fn bounds(&self) -> (Vec3, Vec3) {
+        let r = self.radius;
+        let Some(s) = self.spot else { return (self.pos - r - 1.0, self.pos + r + 1.0) };
+        let (cos, sin) = (s.outer.clamp(-1.0, 1.0), (1.0 - s.outer.clamp(-1.0, 1.0).powi(2)).sqrt());
+        // How far the cap reaches along a unit way whose cosine with the
+        // axis is `c`: all of the radius where the way lies in the cone,
+        // else as far as the cone's nearest edge goes that way.
+        let reach = |c: f32| if c >= cos { r } else { r * (c * cos + (1.0 - c * c).max(0.0).sqrt() * sin) };
+        let way = s.way.to_array();
+        let hi = Vec3::from_array(way.map(|a| reach(a).max(0.0)));
+        let lo = Vec3::from_array(way.map(|a| reach(-a).max(0.0)));
+        (self.pos - lo - 1.0, self.pos + hi + 1.0)
+    }
 }
 
 /// How a lamp shines beyond where, how far and its colour: the words a

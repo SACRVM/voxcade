@@ -549,7 +549,11 @@ fn stopped(cell: vec3<i32>, off: u32, lamp: vec4<f32>, ids: vec2<u32>, lamp_ids:
     // key gives (odd, so every slot of a memory a power of two long comes
     // in turn): one slot after the other, the entries of a full stretch
     // crowded on, a few in a million found no room at 42 in 100 taken.
-    var slot = ((key ^ (key >> 15u)) * 0x2c1b3c6du ^ (key >> 13u)) % faces;
+    // (`faces` is a power of two: render::lamps::faces_for, grown twice as
+    // large.) The first empty slot ends a lookup; a stale one does not: an
+    // answer behind it would be walked again and kept twice, and ended
+    // there the beams of a hall in fog took a quarter longer.
+    var slot = ((key ^ (key >> 15u)) * 0x2c1b3c6du ^ (key >> 13u)) & (faces - 1u);
     let hop = (tag >> 15u) | 1u;
     for (var i = 0u; i < PROBES; i += 1u) {
         let k = slot * 2u;
@@ -557,8 +561,15 @@ fn stopped(cell: vec3<i32>, off: u32, lamp: vec4<f32>, ids: vec2<u32>, lamp_ids:
         let word = seen[k + 1u];
         if (found == key) {
             if ((word & 0xffff0000u) != tag) {
-                // being written by another pixel of the face: walked here
-                return walk(cell, off, lamp);
+                // Being written by another pixel of the face, or another
+                // face's whose key is the same: walked here; one asked long
+                // ago is this one's from now on, or a key written with
+                // another's second key (two pixels at once) stood so.
+                let b = walk(cell, off, lamp);
+                if (!fresh(word, now)) {
+                    seen[k + 1u] = tag | (now << 10u) | state | select(0u, 1u, b);
+                }
+                return b;
             }
             if ((word & 0x3feu) == state && fresh(word, now)) {
                 if (((word >> 10u) & 0x3fu) != now) {
@@ -580,7 +591,7 @@ fn stopped(cell: vec3<i32>, off: u32, lamp: vec4<f32>, ids: vec2<u32>, lamp_ids:
                 break;
             }
         }
-        slot = (slot + hop) % faces;
+        slot = (slot + hop) & (faces - 1u);
     }
     let b = walk(cell, off, lamp);
     if (free == faces || at >= GROW_AT) {

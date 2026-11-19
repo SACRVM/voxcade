@@ -69,10 +69,12 @@ impl Thin {
     }
 
     /// The blocks of the volume's regions `changed` (copy 0's texels, as
-    /// `Volume::update` gives them) found anew.
+    /// `Volume::update` gives them) found anew, and those `APRON` round
+    /// them, whose runs reach into them (in whole blocks).
     pub fn update(&mut self, v: &Volume, changed: &[Region]) {
         for &(lo, size) in changed {
-            let (lo, hi) = (lo * 2, ((lo + size) * 2).min(v.reach.texels * 2));
+            let (block, a, b) = (IVec3::splat(BLOCK), lo * 2 - APRON, (lo + size) * 2 + APRON);
+            let (lo, hi) = ((a.div_euclid(block) * block).max(IVec3::ZERO), ((b + block - 1).div_euclid(block) * block).min(v.reach.texels * 2));
             let corner = v.reach.origin;
             self.blocks.retain(|&(y, x, z), _| {
                 let b = IVec3::new(x, y, z) - corner;
@@ -340,6 +342,27 @@ mod tests {
         assert!(now.contains(&IVec3::new(96, 64, 8)), "the new post: {now:?}");
         assert!(!now.contains(&IVec3::new(8, 8, 8)), "the old one gone");
         assert_eq!(now, thin_at(&Thin::of(&v), 4), "as found anew");
+    }
+
+    /// A change in one of the volume's regions makes the thin things round
+    /// it anew in the next region too, as far as their runs look: a bar 4
+    /// long ending at a region's edge, thin, grown on past it into a wall 20
+    /// long, is thin no more.
+    #[test]
+    fn a_change_at_a_regions_edge_is_seen_beside_it() {
+        let (mut w, mut v) = volume_of(&[(IVec3::new(60, 10, 4), IVec3::new(4, 1, 20))]);
+        let mut t = Thin::of(&v);
+        assert!(thin_at(&t, 4).contains(&IVec3::new(56, 8, 8)), "the bar is thin");
+        for x in 64..80 {
+            for z in 4..24 {
+                w.set(IVec3::new(x, 10, z), 1);
+            }
+        }
+        let changed = v.update(&w);
+        assert!(changed.iter().all(|(lo, _)| lo.x * 2 >= 64), "the change lies in the next region: {changed:?}");
+        t.update(&v, &changed);
+        assert_eq!(thin_at(&t, 4), thin_at(&Thin::of(&v), 4), "as found anew");
+        assert!(!thin_at(&t, 4).contains(&IVec3::new(56, 8, 8)), "the bar, now a wall, thin no more");
     }
 
     /// Runs told a word at a time: along x across a word's end, along y.
