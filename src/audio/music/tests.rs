@@ -388,6 +388,50 @@ fn every_phoneme_sings() {
     }
 }
 
+/// The consonants lie under the vowels as in speech (relative phonetic
+/// powers after Sacia & Beck, tabled by Fletcher, 1953: sh about 9 dB
+/// under a, s and t about 16, f and p about 20), by class: each one's
+/// loudest 10 ms against the loudest of the a after it. Driven, the
+/// noise joins past the clipper, so an unvoiced one keeps its distance
+/// (it was lifted to the vowel's level and hurt).
+#[test]
+fn consonants_lie_under_the_vowels() {
+    use super::voice::Kind;
+    // The loudest 10 ms between two times, in dB.
+    let loudest = |x: &[f32], from: f32, to: f32| {
+        let (a, b, n) = ((from * SR) as usize, (to * SR) as usize, (0.01 * SR) as usize);
+        let top = (a..b.saturating_sub(n).max(a + 1)).step_by(n / 4).map(|i| (x[i..i + n].iter().map(|s| s * s).sum::<f32>() / n as f32).sqrt()).fold(0.0, f32::max);
+        20.0 * top.log10()
+    };
+    for p in super::voice::PHONEMES {
+        let (heard, voiced) = match p.kind {
+            Kind::Fricative { length, voicing, .. } => (length, voicing > 0.0),
+            Kind::Breath { length, .. } => (length, false),
+            Kind::Plosive { burst, breath, voiced, .. } => (burst + breath, voiced),
+            _ => continue,
+        };
+        let (lo, hi) = match p.name {
+            "s" | "sh" => (-17.0, -11.0),
+            "f" | "ch" | "h" => (-22.0, -15.0),
+            "v" | "z" => (-19.0, -12.0),
+            "b" => (-30.0, -23.0),
+            _ => (-22.0, -13.0),
+        };
+        let level = |drive: &str| {
+            let x = play(&sung(&format!("r2 \"{} a\" a2", p.name)).replace("volume=1", &format!("volume=1 {drive}")), 2.0);
+            loudest(&x, 1.0 - heard, 1.0) - loudest(&x, 1.1, 1.5)
+        };
+        let plain = level("");
+        assert!((lo..=hi).contains(&plain), "{}: {plain:.1} dB under the vowel, not {lo} to {hi}", p.name);
+        if !voiced {
+            for drive in ["drive=10", "drive=19"] {
+                let driven = level(drive);
+                assert!((driven - plain).abs() < 2.0, "{} with {drive}: {driven:.1} dB against {plain:.1} plain", p.name);
+            }
+        }
+    }
+}
+
 /// A sung line joins its syllables without a click: no step from sample
 /// to sample where a syllable is taken up greater than within a vowel.
 #[test]
