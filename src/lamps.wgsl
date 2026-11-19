@@ -32,8 +32,9 @@ struct Lamps {
 @group(0) @binding(0) var<uniform> lamps: Lamps;
 @group(0) @binding(1) var scene_depth: texture_depth_2d;
 @group(0) @binding(2) var surface: texture_2d<u32>;
-// The picture's lights, a row each, its four parts (light.wgsl's Light)
-// across.
+// The picture's lights, a row each (render::lamps::LampRow): its four
+// parts (light.wgsl's Light) across, then where a lamp walls stop walks
+// from (column LAMP_FROM: xyz, w 1 buried; render::volume::Volume::start).
 @group(0) @binding(3) var lights: texture_2d<f32>;
 // WALLS {
 @group(0) @binding(4) var volume: texture_3d<u32>;
@@ -145,7 +146,7 @@ fn fs_lamp(in: TileOut) -> @location(0) vec4<f32> {
             continue;
         }
         // WALLS {
-        if (l.edge.y > 0.5 && ((of_level && dot(n, l.pos_radius.xyz - world) <= 0.0) || stopped(cell, off, l.pos_radius.xyz, ids, vec2<u32>(l.edge.zw)) || (l.edge.y > 1.5 && movers_stop_face(movers_from(s, cell, n, way_index, of_level), n, l.pos_radius.xyz, u32(l.edge.y - 2.0))))) {
+        if (l.edge.y > 0.5 && ((of_level && dot(n, l.pos_radius.xyz - world) <= 0.0) || stopped(cell, off, textureLoad(lights, vec2<i32>(LAMP_FROM, row), 0), ids, vec2<u32>(l.edge.zw)) || (l.edge.y > 1.5 && movers_stop_face(movers_from(s, cell, n, way_index, of_level), n, l.pos_radius.xyz, u32(l.edge.y - 2.0))))) {
             continue;
         }
         // } WALLS
@@ -184,7 +185,7 @@ fn fs_lamp_ask(in: TileOut) -> @location(0) vec4<f32> {
         if (all(light_on(l, world, n) <= vec3<f32>(0.0)) || (of_level && dot(n, l.pos_radius.xyz - world) <= 0.0)) {
             continue;
         }
-        _ = stopped(cell, off, l.pos_radius.xyz, ids, vec2<u32>(l.edge.zw));
+        _ = stopped(cell, off, textureLoad(lights, vec2<i32>(LAMP_FROM, row), 0), ids, vec2<u32>(l.edge.zw));
     }
     return vec4<f32>(0.0);
 }
@@ -388,7 +389,7 @@ fn solid(c: vec3<i32>, level: i32) -> bool {
 
 // How far along the way `dir` from `origin` it first leaves solid voxels,
 // looking at most `most` voxels on: 0 when it starts in the open, -1 when
-// it is still in solid voxels there.
+// it is still in solid voxels there (a face off the grid, RIM).
 fn leave_solid(origin: vec3<f32>, dir: vec3<f32>, most: f32) -> f32 {
     let inv = 1.0 / dir;
     var t = 0.0;
@@ -407,27 +408,27 @@ fn leave_solid(origin: vec3<f32>, dir: vec3<f32>, most: f32) -> f32 {
     return -1.0;
 }
 
-// The lamp sitting in its own housing (a lantern's frame, the bulb's
-// socket): its way begins where it first leaves the solid voxels it sits
-// in, at most this many voxels on (deeper in, it is buried and lights
-// nothing).
-const HOUSING: f32 = 8.0;
 // A face off the grid looks past the solid its own voxels fill round it
 // (render::volume grows a turned piece by half a voxel), this far.
 const RIM: f32 = 2.0;
 
-// Whether a solid voxel lies on the way from the lamp at `lamp` to the
-// middle of the cell `cell` (in front of a face): walked through the cells,
+// Whether a solid voxel lies on the way to the middle of the cell `cell`
+// (in front of a face) from where the lamp walks from (`start`, its row's
+// LAMP_FROM: the lamp itself, or out of the solid voxels it sits in; w 1:
+// buried, stopped everywhere): walked through the cells,
 // past empty space by the coarser copies, begun at the copy whose cells are
 // about as long as the way; down a copy into a cell holding anything, up
 // one only once out of the cell above the one just left (back into a cell
 // found solid, a way grazing a floor went down and up again at every voxel
 // and took two steps a voxel). Its steps are bounded by its cells, twice
 // those along it at copy 0: past them, which no way reaches, stopped.
-fn walk(cell: vec3<i32>, off: u32, lamp_at: vec3<f32>) -> bool {
+fn walk(cell: vec3<i32>, off: u32, start: vec4<f32>) -> bool {
+    if (start.w > 0.5) {
+        return true;
+    }
     // From the volume's low corner, as its cells are.
     let to = vec3<f32>(cell - lamps.origin.xyz) + vec3<f32>(0.5);
-    let lamp = lamp_at - vec3<f32>(lamps.origin.xyz);
+    let lamp = start.xyz - vec3<f32>(lamps.origin.xyz);
     let d = to - lamp;
     let len = length(d);
     if (len < 0.5) {
@@ -436,10 +437,6 @@ fn walk(cell: vec3<i32>, off: u32, lamp_at: vec3<f32>) -> bool {
     // No way exactly along an axis: its zero a tiny step on, so the walk's
     // crossings all lie ahead.
     let dir = select(d / len, vec3<f32>(1e-7), abs(d / len) < vec3<f32>(1e-7));
-    let begin = leave_solid(lamp, dir, min(len, HOUSING));
-    if (begin < 0.0) {
-        return true;
-    }
     var end = len;
     if (off == 1u) {
         let rim = leave_solid(to, -dir, RIM);
@@ -447,8 +444,8 @@ fn walk(cell: vec3<i32>, off: u32, lamp_at: vec3<f32>) -> bool {
     }
     let inv = 1.0 / dir;
     let top = lamps.dims.w - 1;
-    var t = begin;
-    var level = clamp(i32(floor(log2(max(end - begin, 1.0)))), 0, top);
+    var t = 0.0;
+    var level = clamp(i32(floor(log2(max(end, 1.0)))), 0, top);
     let most = 2 * i32(abs(d.x) + abs(d.y) + abs(d.z)) + 4 * top + 8;
     for (var i = 0; i < most; i += 1) {
         if (t >= end) {
@@ -528,7 +525,7 @@ fn fresh(word: u32, now: u32) -> bool {
 // `cell`: `ids` the cell's part of the key, `lamp_ids` the lamp's (a hash of
 // its exact place, render::shader::LightData::of), so a key costs a few
 // operations a lamp.
-fn stopped(cell: vec3<i32>, off: u32, lamp: vec3<f32>, ids: vec2<u32>, lamp_ids: vec2<u32>) -> bool {
+fn stopped(cell: vec3<i32>, off: u32, lamp: vec4<f32>, ids: vec2<u32>, lamp_ids: vec2<u32>) -> bool {
     let key = (ids.x ^ (lamp_ids.x * 0x9e3779b1u) ^ (lamp_ids.y << 8u)) | 1u;
     let tag = (((ids.y ^ (lamp_ids.y * 0x85ebca77u) ^ lamp_ids.x) % 65535u) + 1u) << 16u;
     let state = (lamps.info.x & 0x1ffu) << 1u;

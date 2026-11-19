@@ -1555,6 +1555,30 @@ fn a_wall_stops_a_lamp_and_shadows_false_does_not() {
     }
 }
 
+/// On the GPU: a lamp flush with a wall's face (a wall 4 thick) lights its
+/// own side and none of the room behind; a lamp in its housing (a solid box
+/// of 3 round it) still shines out of it on every side. Until 2026-11-19
+/// each way left the solid voxels on its own, a way into the wall through
+/// it to the floor behind.
+#[test]
+fn a_lamp_flush_with_a_wall_lights_its_own_side_only() {
+    let wall = (20..76).flat_map(|y| (48..52).flat_map(move |x| (1..16).map(move |z| IVec3::new(x, y, z))));
+    let lantern = (24..27).flat_map(|x| (47..50).flat_map(move |y| (5..8).map(move |z| IVec3::new(x, y, z))));
+    let mut s = LampScene::of(wall.chain(lantern));
+    let lamp = |at: Vec3| crate::render::Light::lamp(at, 30.0, [2.0; 3], &crate::render::LightShape::default(), |w| w).stated(crate::render::LampShadows::Static);
+    let (f, dark) = s.picture(&[], true);
+    let (_, flush) = s.picture(&[lamp(Vec3::new(48.0, 60.5, 6.0))], true);
+    let floor = |p: &[u8], x: f32, y: f32| LampScene::floor_at(&f, p, x, y);
+    assert!(floor(&flush, 44.5, 60.5) > floor(&dark, 44.5, 60.5) + 60.0, "its own side lit: {} against {}", floor(&flush, 44.5, 60.5), floor(&dark, 44.5, 60.5));
+    for y in [56.5, 60.5, 64.5] {
+        assert!(floor(&flush, 54.5, y) <= floor(&dark, 54.5, y) + 2.0, "behind the wall at y {y} dark: {} against {}", floor(&flush, 54.5, y), floor(&dark, 54.5, y));
+    }
+    let (_, housed) = s.picture(&[lamp(Vec3::new(25.5, 48.5, 6.5))], true);
+    for (x, y) in [(18.5, 48.5), (32.5, 48.5), (25.5, 41.5), (25.5, 55.5)] {
+        assert!(floor(&housed, x, y) > floor(&dark, x, y) + 40.0, "out of its housing at ({x}, {y}): {} against {}", floor(&housed, x, y), floor(&dark, x, y));
+    }
+}
+
 /// On the GPU: a spot lights its cone only (straight down here, the floor
 /// under it lit, beside its cone dark, where a round lamp lights it), and
 /// a falloff of its own reaches further bright.

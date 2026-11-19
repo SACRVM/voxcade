@@ -107,6 +107,16 @@ pub(super) struct LampGlobals {
     pub(super) movers: [i32; 4],
 }
 
+/// A light's row in the lamps' lights (`lamps.wgsl`'s `lights`): the light
+/// as the shaders take it and, walls stopping it, where its walks begin
+/// (`Volume::start`; w 1: buried, it lights nothing).
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub(super) struct LampRow {
+    pub(super) light: LightData,
+    pub(super) from: [f32; 4],
+}
+
 /// The screen's tiles each way, pixels: each drawn with the lights that
 /// reach it.
 const TILE: u32 = 32;
@@ -394,16 +404,19 @@ impl Lamps {
     }
 }
 
+/// The texels of a `LampRow`.
+const ROW_TEXELS: u32 = (size_of::<LampRow>() / 16) as u32;
+
 pub(super) fn instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor { label: Some("lamps' tiles"), size: (capacity * size_of::<TileInstance>()) as u64, usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false })
 }
 
-/// The lights' texture, room for `rows` lights (a row each, `LightData`'s
-/// four parts across).
+/// The lights' texture, room for `rows` lights (a row each, `LampRow`'s
+/// parts across).
 pub(super) fn lights_texture(device: &wgpu::Device, rows: u32) -> (wgpu::Texture, wgpu::TextureView) {
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("lamps' lights"),
-        size: wgpu::Extent3d { width: 4, height: rows, depth_or_array_layers: 1 },
+        size: wgpu::Extent3d { width: ROW_TEXELS, height: rows, depth_or_array_layers: 1 },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -679,7 +692,7 @@ impl Renderer {
             }
             _ => {}
         }
-        let rows: Vec<LightData> = shown.iter().map(|(i, l, _)| lamps.data_of(*i, l, lf.walls)).collect();
+        let rows: Vec<LampRow> = shown.iter().map(|(i, l, _)| lamps.data_of(*i, l, lf.walls)).collect();
         let (_, _, w, h) = self.picture();
         let tiles = tiles((w, h), &shown.iter().enumerate().map(|(row, (_, _, rect))| (row as u16, *rect)).collect::<Vec<_>>());
         let lamps = &mut self.lamps;
@@ -697,8 +710,8 @@ impl Renderer {
             queue.write_texture(
                 wgpu::TexelCopyTextureInfo { texture: &lamps.lights.0, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
                 bytemuck::cast_slice(&rows),
-                wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(size_of::<LightData>() as u32), rows_per_image: Some(rows.len() as u32) },
-                wgpu::Extent3d { width: 4, height: rows.len() as u32, depth_or_array_layers: 1 },
+                wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(size_of::<LampRow>() as u32), rows_per_image: Some(rows.len() as u32) },
+                wgpu::Extent3d { width: ROW_TEXELS, height: rows.len() as u32, depth_or_array_layers: 1 },
             );
         }
         let (dims, origin) = lamps.volume.as_ref().map_or(([0; 4], [0; 4]), |h| {
@@ -710,8 +723,8 @@ impl Renderer {
         let mut known = std::collections::BTreeSet::new();
         let mut fresh = Vec::new();
         for (row, ((_, _, rect), data)) in shown.iter().zip(&rows).enumerate() {
-            if lf.walls && data.edge[1] > 0.5 {
-                let key = [data.edge[2] as u32, data.edge[3] as u32];
+            if lf.walls && data.light.edge[1] > 0.5 {
+                let key = [data.light.edge[2] as u32, data.light.edge[3] as u32];
                 if !lamps.known.contains(&key) {
                     fresh.push((row as u16, *rect));
                 }
@@ -837,14 +850,17 @@ impl Lamps {
     /// What the pass reads, with walls (the volume and the faces' memory)
     /// or without.
     /// The `i`th of the frame's lights as the shaders take it, walls
-    /// stopping it where `walls` and it says so; a lamp whose shadows are
-    /// "all" with its word for the moving things' boxes (`movers_words`).
-    pub(super) fn data_of(&self, i: usize, l: &Light, walls: bool) -> LightData {
-        let mut data = LightData::of(l, walls);
-        if data.edge[1] > 1.5 {
-            data.edge[1] = self.movers_words.get(i).copied().flatten().unwrap_or(2.0);
+    /// stopping it where `walls` and it says so, from where it walks (the
+    /// level's volume's `start`); a lamp whose shadows are "all" with its
+    /// word for the moving things' boxes (`movers_words`).
+    pub(super) fn data_of(&self, i: usize, l: &Light, walls: bool) -> LampRow {
+        let mut light = LightData::of(l, walls);
+        if light.edge[1] > 1.5 {
+            light.edge[1] = self.movers_words.get(i).copied().flatten().unwrap_or(2.0);
         }
-        data
+        let start = if light.edge[1] > 0.5 { self.volume.as_ref().map_or(Some(l.pos), |h| h.volume.start(l.pos)) } else { Some(l.pos) };
+        let from = start.map_or([0.0, 0.0, 0.0, 1.0], |p| p.extend(0.0).to_array());
+        LampRow { light, from }
     }
 
     fn make_bind(&mut self, device: &wgpu::Device, walls: bool) -> wgpu::BindGroup {

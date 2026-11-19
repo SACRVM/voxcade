@@ -142,6 +142,10 @@ pub(super) fn prelude() -> String {
     put("FACE_DIRS", array(DIRS.iter().map(|d| vec3(d.as_vec3().to_array())).collect()));
     // The lamps' asking: a pixel every so many each way (`lamps::ASK`).
     put("LAMP_ASK", format!("{}u", super::lamps::ASK));
+    // Where a lamp walks from, the column of its row after the light's
+    // (`lamps::LampRow`); how far it leaves solid voxels it sits in.
+    put("LAMP_FROM", format!("{}", size_of::<LightData>() / 16));
+    put("HOUSING", format!("{:?}", super::volume::HOUSING));
     out
 }
 

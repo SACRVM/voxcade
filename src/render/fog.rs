@@ -26,9 +26,9 @@
 
 use bytemuck::{Pod, Zeroable};
 
-use super::lamps::{LampFrame, TileInstance, instance_buffer, lamp_buffers, rect_of, tiles};
+use super::lamps::{LampFrame, LampRow, TileInstance, instance_buffer, lamp_buffers, rect_of, tiles};
 use super::pipelines::{instance_buffers, texture, uniform_entry};
-use super::shader::{FOG_BEAMS, FOG_COMPOSITE, FOG_FAR, LightData, SHADER, plain_shader, without_thin, without_walls};
+use super::shader::{FOG_BEAMS, FOG_COMPOSITE, FOG_FAR, SHADER, plain_shader, without_thin, without_walls};
 use super::movers::lit;
 use super::thin::Thin;
 use super::{DEPTH_FORMAT, Fog, FrameData, HDR_FORMAT, Light, MOST_LIGHTS, Renderer};
@@ -243,22 +243,22 @@ fn beams_pipeline(device: &wgpu::Device, lamps: &wgpu::BindGroupLayout, own: &wg
 /// past them the blocks are taken together in bigger ones.
 const MOST_THIN: usize = 16;
 
-/// The columns of a light's row in the fog's lights: the light as the
-/// lamps' pass takes it (`LightData`), how many balls round thin things,
-/// the balls (`fog_beams.wgsl`'s `FOG_THIN_AT`).
-const FOG_COLUMNS: u32 = 5 + MOST_THIN as u32;
+/// The columns of a light's row in the fog's lights (`FogRow`).
+const FOG_COLUMNS: u32 = (size_of::<FogRow>() / 16) as u32;
 
-/// A light's row in the fog's lights.
+/// A light's row in the fog's lights: the light as the lamps' pass takes it
+/// (`LampRow`), how many balls round thin things, the balls
+/// (`fog_beams.wgsl`'s `FOG_THIN_AT`).
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct FogRow {
-    light: LightData,
+    light: LampRow,
     count: [f32; 4],
     balls: [[f32; 4]; MOST_THIN],
 }
 
 impl FogRow {
-    fn of(light: &LightData, balls: Vec<[f32; 4]>) -> Self {
+    fn of(light: &LampRow, balls: Vec<[f32; 4]>) -> Self {
         let mut row = Self { light: *light, count: [balls.len() as f32, 0.0, 0.0, 0.0], balls: [[0.0; 4]; MOST_THIN] };
         row.balls[..balls.len()].copy_from_slice(&balls);
         row
@@ -344,7 +344,7 @@ impl Renderer {
         // The lights that show in fog, each as bright as it shows there,
         // with the balls round the thin things it lights that walls stop it
         // (`render::thin`).
-        let shown: Vec<(LightData, [f32; 4], &Light)> = frame
+        let shown: Vec<(LampRow, [f32; 4], &Light)> = frame
             .lights
             .iter()
             .take(MOST_LIGHTS)
@@ -352,14 +352,14 @@ impl Renderer {
             .filter(|(_, l)| l.fog > 0.0 && l.color.iter().any(|c| *c > 0.0))
             .filter_map(|(i, l)| {
                 let mut data = self.lamps.data_of(i, l, lf.walls);
-                for c in &mut data.color[..3] {
+                for c in &mut data.light.color[..3] {
                     *c *= l.fog;
                 }
                 rect_of(&frame.view_proj, l).map(|rect| (data, rect, l))
             })
             .collect();
-        let thin = if fog.thin && lf.walls && shown.iter().any(|(d, _, _)| d.edge[1] > 0.5) { self.lamps.thin() } else { None };
-        let rows: Vec<FogRow> = shown.iter().map(|(d, _, l)| FogRow::of(d, thin.filter(|_| d.edge[1] > 0.5).map_or(Vec::new(), |t| thin_balls(t, l)))).collect();
+        let thin = if fog.thin && lf.walls && shown.iter().any(|(d, _, _)| d.light.edge[1] > 0.5) { self.lamps.thin() } else { None };
+        let rows: Vec<FogRow> = shown.iter().map(|(d, _, l)| FogRow::of(d, thin.filter(|_| d.light.edge[1] > 0.5).map_or(Vec::new(), |t| thin_balls(t, l)))).collect();
         let pass = self.fog.as_mut().expect("made above");
         let mut tiles: Vec<TileInstance> = tiles(size, &shown.iter().enumerate().map(|(row, (_, rect, _))| (row as u16, *rect)).collect::<Vec<_>>());
         // Each tile's lights with thin things (a bit each, `count.y`), and
