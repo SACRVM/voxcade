@@ -31,21 +31,19 @@
 // (`fs_beam_glass`).
 @group(1) @binding(2) var glass_depth: texture_depth_2d;
 
-// The planes' spacing, voxels along the camera's way, for a light whose
-// ball is at most FOG_MOST_PLANES of them across; twice (four times ...)
-// as far for a wider one.
-const FOG_STEP: f32 = 4.0;
-const FOG_MOST_PLANES: f32 = 48.0;
+// FOG_STEP, the planes' spacing, voxels along the camera's way, for a
+// light whose ball is at most FOG_MOST_PLANES of them across, twice (four
+// times ...) as far for a wider one; FOG_SPACING_AT, how a ball's spacing
+// is kept in its radius's place; FOG_THIN_AT, the column of a light's row
+// in `fog_lights` with the count of its thin things' balls, the balls
+// after it: render::fog's numbers, written ahead by
+// render::shader::prelude.
+
 // Halvings seeking where a wall's shadow begins between two points.
 const FOG_EDGE_STEPS: i32 = 4;
 // The most planes taken along a ray a lamp where it can pass a thin
 // thing's shadow (past them the spacing the thing needs doubles).
 const FOG_MOST_FINE: f32 = 16.0;
-// A ball's spacing kept in its radius's place (render::fog::SPACING_AT).
-const FOG_SPACING_AT: f32 = 65536.0;
-// The thin things' balls in a light's row of `fog_lights`: their count at
-// this column, the balls after it (render::fog::FogRow, MOST_THIN).
-const FOG_THIN_AT: i32 = LAMP_FROM + 1;
 
 // How much of the light travelling the way `cos_angle` from the eye's way
 // back (1: straight towards the eye) the fog sends on to the eye
@@ -295,14 +293,14 @@ fn shading(l: Light, near: vec3<f32>, far: vec3<f32>) -> u32 {
     var mask = 0u;
     // WALLS {
     let list = u32(l.edge.y - 2.0);
-    let n = list & 255u;
+    let n = list & EVERY_BOX;
     if (lamps.movers.x == 0) {
         return 0u;
     }
     if (n > 32u) {
         return 0xffffffffu;
     }
-    let start = (list >> 8u) + 2u;
+    let start = (list >> MOVERS_COUNT_BITS) + MOVERS_HEAD;
     for (var i = 0u; i < n; i += 1u) {
         let k = mover_lists[start + i];
         let lo = vec3<f32>(mover_boxes[2u * k].xyz);

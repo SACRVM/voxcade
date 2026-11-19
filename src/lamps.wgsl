@@ -243,15 +243,15 @@ fn carried(p: vec3<f32>, list: u32) -> bool {
     if (lamps.movers.x == 0) {
         return false;
     }
-    let head = list >> 8u;
+    let head = list >> MOVERS_COUNT_BITS;
     let own = vec2<u32>(mover_lists[head], mover_lists[head + 1u]);
     if (own.y != 1u) {
         return false;
     }
-    let n = list & 255u;
+    let n = list & EVERY_BOX;
     let every = n == EVERY_BOX;
     for (var i = 0u; i < select(n, u32(lamps.movers.x), every); i += 1u) {
-        let k = select(mover_lists[head + 2u + i], i, every);
+        let k = select(mover_lists[head + MOVERS_HEAD + i], i, every);
         let lo = mover_boxes[2u * k];
         let hi = mover_boxes[2u * k + 1u];
         if (any(p < vec3<f32>(lo.xyz)) || any(p > vec3<f32>(hi.xyz))) {
@@ -268,10 +268,6 @@ fn carried(p: vec3<f32>, list: u32) -> bool {
     }
     return false;
 }
-
-// A lamp's word for its boxes (`list`, render::movers::Movers::lists)
-// meaning every one.
-const EVERY_BOX: u32 = 255u;
 
 // Whether the cell `c` of the solid `k` holds a voxel.
 fn solid_holds(k: u32, c: vec3<i32>) -> bool {
@@ -347,15 +343,15 @@ fn movers_stop(to: vec3<f32>, lamp: vec3<f32>, list: u32, mask: u32) -> bool {
     }
     let dir = select(d / len, vec3<f32>(1e-7), abs(d / len) < vec3<f32>(1e-7));
     let inv = 1.0 / dir;
-    let n = list & 255u;
+    let n = list & EVERY_BOX;
     let every = n == EVERY_BOX;
-    let head = list >> 8u;
+    let head = list >> MOVERS_COUNT_BITS;
     let own = vec2<u32>(mover_lists[head], mover_lists[head + 1u]);
     for (var i = 0u; i < select(n, u32(lamps.movers.x), every); i += 1u) {
         if (i < 32u && ((mask >> i) & 1u) == 0u) {
             continue;
         }
-        let k = select(mover_lists[head + 2u + i], i, every);
+        let k = select(mover_lists[head + MOVERS_HEAD + i], i, every);
         let lo = mover_boxes[2u * k];
         let hi = mover_boxes[2u * k + 1u];
         let a = (vec3<f32>(lo.xyz) - lamp) * inv;
@@ -539,9 +535,9 @@ fn fresh(word: u32, now: u32) -> bool {
 fn stopped(cell: vec3<i32>, off: u32, lamp: vec4<f32>, ids: vec2<u32>, lamp_ids: vec2<u32>) -> bool {
     let key = (ids.x ^ (lamp_ids.x * 0x9e3779b1u) ^ (lamp_ids.y << 8u)) | 1u;
     let tag = (((ids.y ^ (lamp_ids.y * 0x85ebca77u) ^ lamp_ids.x) % 65535u) + 1u) << 16u;
-    let state = (lamps.info.x & 0x1ffu) << 1u;
+    let state = (lamps.info.x & LAMP_STATES) << 1u;
     let now = lamps.info.y & 0x3fu;
-    let faces = (arrayLength(&seen) - 2u) / 2u;
+    let faces = (arrayLength(&seen) - LAMP_COUNT_WORDS) / LAMP_ANSWER_WORDS;
     var free = faces;
     var at = 0u;
     // The slot from the key's bits mixed again (the key is odd, `| 1`: the
@@ -556,7 +552,7 @@ fn stopped(cell: vec3<i32>, off: u32, lamp: vec4<f32>, ids: vec2<u32>, lamp_ids:
     var slot = ((key ^ (key >> 15u)) * 0x2c1b3c6du ^ (key >> 13u)) & (faces - 1u);
     let hop = (tag >> 15u) | 1u;
     for (var i = 0u; i < PROBES; i += 1u) {
-        let k = slot * 2u;
+        let k = slot * LAMP_ANSWER_WORDS;
         let found = seen[k];
         let word = seen[k + 1u];
         if (found == key) {
@@ -571,7 +567,7 @@ fn stopped(cell: vec3<i32>, off: u32, lamp: vec4<f32>, ids: vec2<u32>, lamp_ids:
                 }
                 return b;
             }
-            if ((word & 0x3feu) == state && fresh(word, now)) {
+            if ((word & (LAMP_STATES << 1u)) == state && fresh(word, now)) {
                 if (((word >> 10u) & 0x3fu) != now) {
                     seen[k + 1u] = (word & 0xffff03ffu) | (now << 10u);
                 }
@@ -595,14 +591,14 @@ fn stopped(cell: vec3<i32>, off: u32, lamp: vec4<f32>, ids: vec2<u32>, lamp_ids:
     }
     let b = walk(cell, off, lamp);
     if (free == faces || at >= GROW_AT) {
-        seen[faces * 2u] += 1u;
+        seen[faces * LAMP_ANSWER_WORDS] += 1u;
     }
     if (free == faces) {
-        seen[faces * 2u + 1u] += 1u;
+        seen[faces * LAMP_ANSWER_WORDS + 1u] += 1u;
         return b;
     }
-    seen[free * 2u] = key;
-    seen[free * 2u + 1u] = tag | (now << 10u) | state | select(0u, 1u, b);
+    seen[free * LAMP_ANSWER_WORDS] = key;
+    seen[free * LAMP_ANSWER_WORDS + 1u] = tag | (now << 10u) | state | select(0u, 1u, b);
     return b;
 }
 // } WALLS

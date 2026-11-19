@@ -82,25 +82,37 @@ const MOST_FACES: u64 = 1 << 26;
 
 /// The bytes of the largest lamps' memory (`MOST_FACES`), what a device is
 /// asked to bind and hold (`render::device_limits`).
-pub(super) const MOST_BYTES: u64 = MOST_FACES * 8 + COUNTS;
+pub(super) const MOST_BYTES: u64 = MOST_FACES * ANSWER_BYTES + COUNTS;
 
-/// The words after the lamps' memory's answers: how many found no room
-/// within `lamps.wgsl`'s GROW_AT slots (it grows), and how many within
-/// PROBES, none (said, where it cannot grow).
-const COUNTS: u64 = 8;
+/// The words of an answer in the lamps' memory (`lamps.wgsl`'s `stopped`:
+/// its key; whether stopped, when and its second key): the shaders'
+/// LAMP_ANSWER_WORDS.
+pub(super) const ANSWER_WORDS: u64 = 2;
+
+/// An answer's bytes.
+const ANSWER_BYTES: u64 = ANSWER_WORDS * 4;
+
+/// The words after the lamps' memory's answers (the shaders'
+/// LAMP_COUNT_WORDS): how many found no room within `lamps.wgsl`'s GROW_AT
+/// slots (it grows), and how many within PROBES, none (said, where it
+/// cannot grow).
+pub(super) const COUNT_WORDS: u64 = 2;
+
+/// Their bytes.
+const COUNTS: u64 = COUNT_WORDS * 4;
 
 /// The largest the lamps' memory may be on this GPU, answers (one buffer
 /// bound whole, two words each and the counts), `MOST_FACES` at most.
 fn most_faces(device: &wgpu::Device) -> u64 {
     let limits = device.limits();
     let bytes = limits.max_storage_buffer_binding_size.min(limits.max_buffer_size);
-    (1 << ((bytes - COUNTS) / 8).ilog2()).min(MOST_FACES)
+    (1 << ((bytes - COUNTS) / ANSWER_BYTES).ilog2()).min(MOST_FACES)
 }
 
 /// Where the counts lie in a memory for `faces` faces: first the crowded
 /// one, then the one of those that found no room.
 fn full_at(faces: u64) -> u64 {
-    faces * 2 * 4
+    faces * ANSWER_BYTES
 }
 
 /// What each pixel's surface is (`fs_main_lamps`).
@@ -159,6 +171,12 @@ pub(super) struct TileInstance {
 }
 
 const TILE_ATTRS: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![0 => Float32x4, 1 => Uint32x4, 2 => Uint32x4, 3 => Uint32x4, 4 => Uint32x4, 5 => Uint32x4];
+
+// A tile's lights: after its rectangle and count, eight a vertex input
+// (four words of two), as `lamps.wgsl`'s `vs_lamp` reads them (test
+// `the_vertex_inputs_are_the_rust_structs`); a bit each in `count.y` for
+// the fog's beams (`render::fog`).
+const _: () = assert!(TILE_ATTRS.len() == 2 + LIGHTS_A_TILE / 8 && LIGHTS_A_TILE <= 32);
 
 /// The lamps' pass's vertex buffer: a tile an instance.
 pub(super) fn lamp_buffers() -> [Option<wgpu::VertexBufferLayout<'static>>; 1] {
@@ -1046,10 +1064,14 @@ fn opaque_cubes(frame: &FrameData) -> &[super::Instance] {
     &frame.instances[behind as usize..drawn as usize]
 }
 
+/// The volume's state numbers, 1 to this (the shaders' LAMP_STATES: the
+/// bits an answer keeps of it).
+pub(super) const STATES: u32 = 0x1ff;
+
 /// The volume's next state number (never 0: an entry of the faces' memory
 /// never written has 0).
 fn next_state(state: u32) -> u32 {
-    (state % 0x1ff) + 1
+    (state % STATES) + 1
 }
 
 /// Writes `data` (`size` texels) at `origin` of copy `m`.
