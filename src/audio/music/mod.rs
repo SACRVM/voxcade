@@ -44,16 +44,20 @@
 //! a bit crusher, `crush_rate` (Hz the sound is held at) and `crush_bits`
 //! (1 to 16, after the envelope).
 //!
-//! A voice: `@singer voice ...` sings (`voice.rs`, a formant synthesizer
-//! after Klatt). A quoted text before a note is the syllable it sings,
+//! Two voices sing: `@vox singer ...` the clear one, made for words to be
+//! understood (`clear.rs`, a cascade/parallel formant synthesizer after
+//! Klatt with a glottal pulse, formants gliding by their loci, voice onset
+//! times), and `@vox voice ...` the first, rougher one (`voice.rs`, the
+//! port of the owner's script, kept to the sample). A quoted text before a note is the syllable it sings,
 //! phonemes split by spaces: onset consonants, one vowel or diphthong, coda
-//! consonants (`V: @singer "l a" c8 "l ae" d8 "s ae ng" e4`). The vowel
+//! consonants (`V: @vox "l a" c8 "l ae" d8 "s ae ng" e4`). The vowel
 //! starts on the beat, the onset before it, the coda ends where the note is
 //! let go (`q`). A voice note without a text holds the vowel before (a
 //! melisma: tied notes share it, the coda on the last); after a rest it
 //! sings the vowel alone. The phonemes: vowels a ae e eh i ih o u ax oe
-//! ue, diphthongs aw ow ai oi ei, consonants m n ng l r w j f v s z sh ch h
-//! t k p d g b. `duty`, `pwm` and `pwm_speed` mean nothing on a voice and
+//! ue, diphthongs aw ow ai oi ei, consonants m n ng l r w j f v s z sh ch x
+//! h rr t k p d g b (x the German ach, rr a trilled r). `consonants` (dB,
+//! -24 to 12) moves a voice's hiss, bursts and breath against its vowels. `duty`, `pwm` and `pwm_speed` mean nothing on a voice and
 //! are refused; the other words apply (the attack starts from where the
 //! voice was, so a line never drops to silence between its syllables).
 //!
@@ -80,6 +84,7 @@ mod song;
 #[cfg(test)]
 mod tests;
 mod voice;
+mod clear;
 
 pub use mix::{Glide, Mix, muffle_cutoff};
 pub use parse::parse;

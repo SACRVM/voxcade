@@ -1470,11 +1470,16 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   a C64 echo instead (`delay` in the import file), quiet: a third of the
   line's volume (two thirds sounded like the melody doubled, too much for
   the user).
-  A voice sings (`@singer voice`, `src/audio/music/voice.rs`, a formant
-  synthesizer after Klatt): a quoted text before a note is its syllable
+  Two voices sing: `singer` (`src/audio/music/clear.rs`, the clear one,
+  the owner's wish 2026-11-20: words understood on first hearing; a
+  glottal pulse, five formants, loci and voice onset times, a parallel
+  branch for the hiss; its name is `clear::WAVE`) and `voice`
+  (`src/audio/music/voice.rs`, the first, kept to the sample: test
+  `the_voice_sings_as_pinned`): a quoted text before a note is its syllable
   in phonemes (`"s ae ng" e4`, one table,
   `music::phonemes`, HELP lists it), the onset before the beat, a note
-  without a text holding the vowel; `drive` (dB into tanh, a DC blocker
+  without a text holding the vowel, `consonants` (dB) their hiss against
+  the vowels; `drive` (dB into tanh, a DC blocker
   after; a voice's breath and hiss join past it, raised as it raises a
   vowel, or a drive lifted the consonants to the vowels' level and they
   hurt: the owner, 2026-11-19; the consonants as far under the vowels as

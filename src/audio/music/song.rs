@@ -1,14 +1,19 @@
 //! A song as read: its instruments, notes per channel and timing (`parse` makes it).
 
 use super::parse::parse_song;
+use super::clear::Seg;
 use super::voice::Segment;
 use super::{SAMPLE_RATE, Wave};
 
 #[derive(Clone, Debug)]
 pub struct Instrument {
     pub wave: Wave,
-    /// Sings (`voice`, `super::voice`) instead of playing `wave`.
-    pub voice: bool,
+    /// Sings instead of playing `wave`: `voice` (`super::voice`) or the
+    /// clear voice (`super::clear`).
+    pub voice: Option<Voicing>,
+    /// A voice's consonants (their hiss, bursts and breath) against its
+    /// vowels, in decibels.
+    pub consonants: f32,
     pub duty: f32,
     pub pwm: f32,
     pub pwm_speed: f32,
@@ -46,6 +51,15 @@ pub struct Instrument {
     pub crush_bits: Option<u32>,
 }
 
+/// Which voice sings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Voicing {
+    /// `voice`: the first, the script's port.
+    Formants,
+    /// The clear voice (`super::clear::WAVE`).
+    Clear,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FilterMode {
     Low,
@@ -57,7 +71,8 @@ impl Default for Instrument {
     fn default() -> Self {
         Self {
             wave: Wave::Square,
-            voice: false,
+            voice: None,
+            consonants: 0.0,
             duty: 0.5,
             pwm: 0.0,
             pwm_speed: 1.0,
@@ -117,8 +132,10 @@ pub struct Song {
     pub names: Vec<char>,
     pub(super) instruments: Vec<Instrument>,
     pub(super) channels: Vec<Vec<Note>>,
-    /// What the voices' notes sing, each note a range of it.
+    /// What the voices' notes sing, each note a range of it: `voice`'s
+    /// and the clear voice's.
     pub(super) segments: Vec<Segment>,
+    pub(super) clear: Vec<Seg>,
     /// Samples until it starts over.
     pub length: u64,
     pub looping: bool,

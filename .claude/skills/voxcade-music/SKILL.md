@@ -52,14 +52,19 @@ judge by ear.
 
 ## A singing voice
 
-An instrument sings with the wave `voice` (`src/audio/music/voice.rs`, a
-formant synthesizer after Klatt: no samples). A quoted text before a note
+An instrument sings with the wave `singer` (`src/audio/music/clear.rs`,
+the clear voice, for words to be understood: a glottal pulse, five
+formants, formants gliding from each consonant's locus, voice onset
+times, a parallel branch for the hiss) or `voice` (`voice.rs`, the first,
+rougher one, kept to the sample: good for short shouts). No samples. A
+quoted text before a note
 is the syllable that note sings, phonemes split by spaces, in small
 letters: onset consonants, one vowel or diphthong, coda consonants.
 
 ```
-@singer voice attack=0.005 decay=0 sustain=1 release=0.05 vibrato=0.006 vibrato_speed=5.5 drive=19 filter=bandpass cutoff=1150 volume=0.6
-V: @singer o4 "l a" e8 "l a" g8 "s ae ng" a4 b4 q8 "h ei" e2 q7
+@vox singer attack=0.005 decay=0 sustain=1 release=0.06 vibrato=0.006 vibrato_speed=5.5 vibrato_delay=0.1 volume=0.5
+@shout voice attack=0.005 decay=0 sustain=1 release=0.05 drive=19 filter=bandpass cutoff=1150 volume=0.6
+V: @vox o4 "l a" e8 "l a" g8 "s ae ng" a4 b4 q8 "h ei" e2 q7
 ```
 
 - The vowel starts on the note's beat, the onset just before it (never
@@ -72,8 +77,12 @@ V: @singer o4 "l a" e8 "l a" g8 "s ae ng" a4 b4 q8 "h ei" e2 q7
   it sings the vowel alone. A voice's first note needs a text.
 - The phonemes (HELP's A SONG IN MML lists them, the mistake of an unknown
   one too): vowels a ae e eh i ih o u ax oe ue, diphthongs aw ow ai oi
-  ei, consonants m n ng l r w j f v s z sh ch h t k p d g b. Written in
-  English or German sounds: "f ae n", "z ai n", "ch".
+  ei, consonants m n ng l r w j f v s z sh ch x h rr t k p d g b (x the
+  German ach, rr a trilled r). Written in English or German sounds: "f
+  ae n", "z ai n", "ih ch", "a x".
+- `consonants` (dB, -24 to 12, 0 unless set) moves a voice's hiss,
+  bursts and breath against its vowels, both voices. Unset they lie as
+  in speech (sh about 13 dB under the vowel, s 15, f 20).
 - `duty`, `pwm`, `pwm_speed` are refused on a voice; every other word
   applies. The attack starts from where the voice was, so a line does
   not drop to silence between syllables.
