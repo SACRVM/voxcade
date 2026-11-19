@@ -1,11 +1,14 @@
 //! A song as read: its instruments, notes per channel and timing (`parse` makes it).
 
 use super::parse::parse_song;
+use super::voice::Segment;
 use super::{SAMPLE_RATE, Wave};
 
 #[derive(Clone, Debug)]
 pub struct Instrument {
     pub wave: Wave,
+    /// Sings (`voice`, `super::voice`) instead of playing `wave`.
+    pub voice: bool,
     pub duty: f32,
     pub pwm: f32,
     pub pwm_speed: f32,
@@ -34,6 +37,13 @@ pub struct Instrument {
     /// How far this instrument follows the ducking.
     pub duck: f32,
     pub volume: f32,
+    /// How hard the sound is pushed into a soft clipper, in decibels (0:
+    /// not at all).
+    pub drive: f32,
+    /// The bit crusher: the rate the sound is held at (Hz) and the bits it
+    /// is rounded to, each off when None.
+    pub crush_rate: Option<f32>,
+    pub crush_bits: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,6 +57,7 @@ impl Default for Instrument {
     fn default() -> Self {
         Self {
             wave: Wave::Square,
+            voice: false,
             duty: 0.5,
             pwm: 0.0,
             pwm_speed: 1.0,
@@ -72,6 +83,9 @@ impl Default for Instrument {
             sidechain_release: 0.2,
             duck: 1.0,
             volume: 0.5,
+            drive: 0.0,
+            crush_rate: None,
+            crush_bits: None,
         }
     }
 }
@@ -87,6 +101,8 @@ pub(super) struct Note {
     pub(super) instrument: usize,
     pub(super) volume: f32,
     pub(super) pan: f32,
+    /// A voice's: the range of the song's `segments` it sings.
+    pub(super) sung: Option<(u32, u32)>,
 }
 
 #[derive(Debug)]
@@ -101,6 +117,8 @@ pub struct Song {
     pub names: Vec<char>,
     pub(super) instruments: Vec<Instrument>,
     pub(super) channels: Vec<Vec<Note>>,
+    /// What the voices' notes sing, each note a range of it.
+    pub(super) segments: Vec<Segment>,
     /// Samples until it starts over.
     pub length: u64,
     pub looping: bool,

@@ -1,8 +1,9 @@
 //! Music written as MML (Music Macro Language): plain text, one line of
 //! notes per channel, played by SID-like voices (pulse with width
 //! modulation, saw, triangle, sine, noise; ADSR, vibrato, sweeps, chords as
-//! fast arpeggios, a low-pass filter). Text, so a person or an agent can
-//! write it, and the game plays it again on every save.
+//! fast arpeggios, a low-pass filter) and a voice that sings. Text, so a
+//! person or an agent can write it, and the game plays it again on every
+//! save.
 //!
 //! ```text
 //! ; a comment
@@ -37,7 +38,23 @@
 //! (a level 0..1) `release`, `vibrato` `vibrato_speed` `vibrato_delay`,
 //! `arp=0,4,7` and `arp_speed` (Hz), `sweep` (semitones over
 //! `sweep_time`), `freq` (a fixed pitch, for drums), `lowpass` (a gentle
-//! fixed one), `volume`.
+//! fixed one), `volume`; for every wave `drive` (decibels into a soft
+//! clipper, before the filters, as an amp before its speaker; 0 clean) and
+//! a bit crusher, `crush_rate` (Hz the sound is held at) and `crush_bits`
+//! (1 to 16, after the envelope).
+//!
+//! A voice: `@singer voice ...` sings (`voice.rs`, a formant synthesizer
+//! after Klatt). A quoted text before a note is the syllable it sings,
+//! phonemes split by spaces: onset consonants, one vowel or diphthong, coda
+//! consonants (`V: @singer "l a" c8 "l ae" d8 "s ae ng" e4`). The vowel
+//! starts on the beat, the onset before it, the coda ends where the note is
+//! let go (`q`). A voice note without a text holds the vowel before (a
+//! melisma: tied notes share it, the coda on the last); after a rest it
+//! sings the vowel alone. The phonemes: vowels a ae e eh i ih o u ax oe
+//! ue, diphthongs aw ow ai oi ei, consonants m n ng l r w j f v s z sh ch h
+//! t k p d g b. `duty`, `pwm` and `pwm_speed` mean nothing on a voice and
+//! are refused; the other words apply (the attack starts from where the
+//! voice was, so a line never drops to silence between its syllables).
 //!
 //! The SID's filter: `filter=lowpass|bandpass|highpass` (12 dB per octave),
 //! `cutoff` (Hz), `resonance` (0..1; it overdrives softly instead of
@@ -61,6 +78,7 @@ mod player;
 mod song;
 #[cfg(test)]
 mod tests;
+mod voice;
 
 pub use mix::{Glide, Mix, muffle_cutoff};
 pub use parse::parse;
