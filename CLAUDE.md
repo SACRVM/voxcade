@@ -1652,7 +1652,9 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   scrolling or turning; where a ray can pass the shadow of a thin thing,
   a post or a rail under 4 voxels thin of the level's voxels or pieces,
   `render::thin`, its points as far apart as it is thin, at most 16 more
-  a ray a lamp, so its shadow shows however thin along the ray, test
+  a ray a lamp, so its shadow shows however thin along the ray, at FOG
+  HIGH only (`Fog::thin`; LOW draws the beams without that work, as
+  before thin things, `Stats::thin`), test
   `a_thin_rail_darkens_the_beam_behind_it`; a picture none of whose
   lamps lights one draws with a pipeline without that work, as before;
   the lamps' memory's slots by a mixed key and a second key's step,
@@ -1686,11 +1688,14 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `post_passes`, `composite_pass`. A limit a frame goes past is said once, never silent:
   lights past `MOST_LIGHTS` (`Session::warnings`, counted in `look` too),
   the lamps' limits (a GPU without fragment storage writes, lamps
-  reaching past `volume::MOST_BYTES`, their memory full past the GPU's
-  largest buffer: `lamps.rs`, sized for the faces and the fog's beams'
-  points, `faces_for`, made twice as large when found full,
-  `Renderer::too_small`, `shot` letting it grow before it times; test
-  `the_lamps_memory_grows_until_the_beams_fit`),
+  reaching past `volume::MOST_BYTES`, their memory full past
+  `lamps::MOST_FACES` (2^26, 512 MB) or the GPU's largest buffer: `lamps.rs`,
+  sized for the faces and the fog's beams' points, `faces_for`, made twice
+  as large when found full, `Renderer::too_small`, `shot` letting it grow
+  before it times and saying its size; every device asks the adapter for
+  that much, never past its limits, `render::device_limits`; tests
+  `the_lamps_memory_grows_until_the_beams_fit`,
+  `the_device_holds_the_lamps_memory_as_far_as_the_gpu_allows`),
   the faces' memory full (the shader counts faces that found no room in
   the word after it, `render::limits`, read without waiting every 60
   pictures, at once by `shot`; `Renderer::warnings`), the model bank past

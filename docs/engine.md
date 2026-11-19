@@ -830,9 +830,16 @@ tests.
   in 100 slots taken a few hundred of four million points found no room
   (most of what the scratch hall's warnings were, 2026-11-19). Found full
   (the shader counts what found no room) it is made twice as large from the next
-  picture on, up to the GPU's largest buffer, and only past that said
-  once (`Renderer::too_small`; `shot` lets it grow before it times; test
-  `the_lamps_memory_grows_until_the_beams_fit`). Every answer is
+  picture on, up to 2^26 entries (512 MB, `lamps::MOST_FACES`) or the
+  GPU's largest buffer, and only past that said once
+  (`Renderer::too_small`; `shot` lets it grow before it times and says
+  its size; test `the_lamps_memory_grows_until_the_beams_fit`). Every
+  device asks the adapter for a storage buffer and a buffer that large,
+  never past what it gives (`render::device_limits`; wgpu's defaults
+  held 2^23, 64 MB; test
+  `the_device_holds_the_lamps_memory_as_far_as_the_gpu_allows`): a level
+  of 1600 by 900 voxels in fog with 16 lamps of radius 300 to 375 takes
+  134 MB at 1280 by 720 and 268 MB at 1920 by 1080, FOG HIGH. Every answer is
   its walk's, so `shot` draws the same to the byte. Without it the
   station's lamps took 23 ms on the 610M, with it 4. A lamp new to the
   memory (its first picture, or moved since the last) is asked for first,
@@ -968,7 +975,12 @@ classic smooth way, the owner's choice over beams in voxel cells;
   for a run of 1, 2 for 2 or 3), and along a ray within the cone from the
   lamp round any of them the points lie on planes that far apart, at most
   16 more a ray a lamp (past that the spacing doubles), fixed in the
-  level too (test `a_thin_rail_darkens_the_beam_behind_it`). Things 4 to
+  level too (test `a_thin_rail_darkens_the_beam_behind_it`). Only at FOG
+  HIGH (`render::Fog::thin`): at LOW the beams are drawn without that
+  work, the picture and the time as before thin things were looked for
+  (a thin thing's shadow in a beam as dashes again; the scratch hall's 14
+  lamps and two spots on the 610M at 1920 by 1080 10.8 ms of beams at LOW
+  against 15.4 with the thin things' points). Things 4 to
   15 voxels thin are left to the planes even for a wide lamp whose points
   lie 8 or 16 apart (taking them too cost two spots of radius 260 in the
   scratch hall 2.5 times their beams on the 610M). A picture none of
