@@ -625,7 +625,7 @@ impl Renderer {
         let failed = [pollster::block_on(validation.pop()), pollster::block_on(internal.pop())];
         match failed.into_iter().flatten().next() {
             Some(e) => Err(e.to_string().lines().next().unwrap_or_default().to_string()),
-            None => Ok(Memory::Ready { scene, layout, bind, faces, full: super::limits::FullWatch::new(device) }),
+            None => Ok(Memory::Ready { scene, layout, bind, faces, full: super::limits::FullWatch::new(device, super::limits::EVERY) }),
         }
     }
 

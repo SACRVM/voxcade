@@ -1736,6 +1736,46 @@ fn the_lamps_memory_grows_until_the_beams_fit() {
     assert!(!s.canvas.grow_lamps().unwrap(), "it fits");
 }
 
+/// On the GPU: the lamps' memory starts at a quarter of the picture's
+/// pixels (512 KB here; room for the fog's beams' points up front made it
+/// 8 MB), and everything of the lamps is let go after `LET_GO` pictures
+/// in a row without their pass (a level without lamps, the title), not
+/// while a lamp flickers on and off; drawn again after, the picture is the
+/// same.
+#[test]
+fn the_lamps_memory_starts_small_and_is_let_go() {
+    let mut s = LampScene::new();
+    let lamp = crate::render::Light::lamp(Vec3::new(40.5, 48.5, 6.0), 30.0, [2.0; 3], &crate::render::LightShape::default(), |w| w).stated(crate::render::LampShadows::Static);
+    let fog = crate::render::Fog { density: 0.02, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 2, thin: true };
+    let frame = |s: &mut LampScene, on: bool| {
+        let (w, h) = LampScene::SIZE;
+        let mut f = s.game.frame(1.0, w as f32 / h as f32);
+        if on {
+            (f.lights, f.fog) = (vec![lamp], Some(fog));
+        }
+        f.lamp_world = Some(s.game.game.sim().world.clone());
+        f
+    };
+    let f = frame(&mut s, true);
+    let first = s.canvas.draw(&f).unwrap();
+    assert_eq!(s.canvas.stats().memory_bytes, (1 << 16) * 8 + 8, "a quarter of the pixels, at least 2^16, and its two counts");
+    // On for 100 pictures, off for 100, on at last: kept.
+    for k in 0..crate::render::LET_GO as usize * 2 + 1 {
+        let f = frame(&mut s, k / 100 % 2 == 0);
+        s.canvas.render(&f);
+    }
+    assert!(s.canvas.lamps_held(), "a lamp flickering on and off keeps it");
+    let f = frame(&mut s, false);
+    for _ in 0..crate::render::LET_GO - 1 {
+        s.canvas.render(&f);
+    }
+    assert!(s.canvas.lamps_held(), "kept until LET_GO pictures without");
+    s.canvas.render(&f);
+    assert!(!s.canvas.lamps_held(), "let go");
+    let f = frame(&mut s, true);
+    assert!(s.canvas.draw(&f).unwrap() == first, "drawn again, the same picture");
+}
+
 /// On the GPU: a higher `fog_glow` never makes a beam fainter, near its
 /// lamp nor at its far end (the beams once took their own light by the
 /// density times the glow: seen through some air a glow of 4 made them

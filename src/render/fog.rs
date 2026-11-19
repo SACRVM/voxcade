@@ -152,7 +152,8 @@ impl FogPass {
         }
     }
 
-    /// The picture's size changed: the beams' target is made anew.
+    /// The picture's size changed, or the lamps were let go
+    /// (`Lamps::used`): the beams' targets made anew when next asked.
     pub(super) fn resized(&mut self) {
         self.target = None;
         self.bind = [None, None];
@@ -316,6 +317,13 @@ fn thin_balls(thin: &Thin, l: &Light) -> Vec<[f32; 4]> {
 }
 
 impl Renderer {
+    /// Whether the lamps' pass or the fog hold anything a picture made (let
+    /// go after `lamps::LET_GO` pictures without them): the tests'.
+    #[cfg(test)]
+    pub fn lamps_held(&self) -> bool {
+        self.lamps.holds() || self.fog.as_ref().is_some_and(|f| f.target.is_some() || f.glass.as_ref().is_some_and(|g| g.targets.is_some()))
+    }
+
     /// The fog's lights, tiles and numbers for this picture (its fog `fog`,
     /// drawn by the lamps' pass as `lf`; `glass`: with see-through cubes),
     /// everything it needs made the first time; how many tiles its beams

@@ -495,9 +495,10 @@ fn walk(cell: vec3<i32>, off: u32, start: vec4<f32>) -> bool {
 // the buffer holds, render::lamps::faces_for the picture's size): a key of
 // the cell in front of a face and the lamp's exact place; and whether
 // stopped (bit 0), the volume's state (9 bits), the picture last asked (6
-// bits) and a second key (16 bits, never 0); then the count of faces that
-// found no room (render::lamps makes the memory larger). An entry not asked
-// this picture or the last (STALE) makes room and is walked again:
+// bits) and a second key (16 bits, never 0); then the counts of answers
+// that found the memory crowded (GROW_AT) and of those that found no room
+// (render::lamps makes it larger, or says it). An entry not asked this
+// picture or the last (STALE) makes room and is walked again:
 // everything a picture shows is asked every picture, and a lamp that moves
 // asks under a new key each picture, so its old entries go at once (they
 // stayed 8 pictures and, with two headlights in fog, filled the memory). Plain loads and stores, no atomics: pixels of a face read through
@@ -506,6 +507,13 @@ fn walk(cell: vec3<i32>, off: u32, start: vec4<f32>) -> bool {
 // answer is the walk's for its key and the picture does not depend on what
 // the memory holds.
 const PROBES: u32 = 32u;
+// An answer finding no room within this many slots counts the memory as
+// crowded: render::lamps makes it larger while it is small for the
+// picture, so its lookups stay short. Grown only when one found no room
+// at all (within PROBES), a memory a quarter of the picture's pixels to
+// begin with stood crowded, and the beams of a hall in fog took 10 to 15 %
+// longer than with room to spare.
+const GROW_AT: u32 = 8u;
 const STALE: u32 = 1u;
 
 fn mix_hash(seed: u32, c: vec3<i32>) -> u32 {
@@ -530,8 +538,9 @@ fn stopped(cell: vec3<i32>, off: u32, lamp: vec4<f32>, ids: vec2<u32>, lamp_ids:
     let tag = (((ids.y ^ (lamp_ids.y * 0x85ebca77u) ^ lamp_ids.x) % 65535u) + 1u) << 16u;
     let state = (lamps.info.x & 0x1ffu) << 1u;
     let now = lamps.info.y & 0x3fu;
-    let faces = (arrayLength(&seen) - 1u) / 2u;
+    let faces = (arrayLength(&seen) - 2u) / 2u;
     var free = faces;
+    var at = 0u;
     // The slot from the key's bits mixed again (the key is odd, `| 1`: the
     // even slots stood empty), the next ones a step apart that the second
     // key gives (odd, so every slot of a memory a power of two long comes
@@ -562,6 +571,7 @@ fn stopped(cell: vec3<i32>, off: u32, lamp: vec4<f32>, ids: vec2<u32>, lamp_ids:
         if (found == 0u || !fresh(word, now)) {
             if (free == faces) {
                 free = slot;
+                at = i;
             }
             if (found == 0u) {
                 break;
@@ -570,8 +580,11 @@ fn stopped(cell: vec3<i32>, off: u32, lamp: vec4<f32>, ids: vec2<u32>, lamp_ids:
         slot = (slot + hop) % faces;
     }
     let b = walk(cell, off, lamp);
-    if (free == faces) {
+    if (free == faces || at >= GROW_AT) {
         seen[faces * 2u] += 1u;
+    }
+    if (free == faces) {
+        seen[faces * 2u + 1u] += 1u;
         return b;
     }
     seen[free * 2u] = key;

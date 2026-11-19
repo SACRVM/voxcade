@@ -31,6 +31,8 @@ pub use baked::Baked;
 pub use bank::{ModelBank, ModelDraw, off_grid, quarter, turn_about, turn_centre, turned_centre};
 pub use cubes::{SeeThroughBody, hide_faces_against, hide_inner_faces, join_by_body, join_see_through, leave_out_unseen, see_through_body, see_through_side};
 pub use frame::{FrameData, Mover, Stats};
+#[cfg(test)]
+pub use lamps::LET_GO;
 pub use shader::{METAL_SHIFT, METAL_STEPS};
 
 /// Lights a picture lights by the scene's own shader (the shader's
