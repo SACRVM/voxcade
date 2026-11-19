@@ -40,12 +40,20 @@ const CUBE_BLOCK: i32 = 8;
 /// rows of the map from the level's voxels to its grid's (a cell a voxel,
 /// from the grid's low corner; a cube's grid one cell its size), `grid`
 /// its cells each way and where its bits begin in `Movers::bits` (x
-/// fastest, then y, then z, 32 a word).
+/// fastest, then y, then z, 32 a word), `owner` the thing it is (x its key,
+/// y 1; `Drawing::of_thing`), whose own lights it stops not (`Light::of`).
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug, PartialEq)]
 pub struct Solid {
     pub to_grid: [[f32; 4]; 3],
     pub grid: [i32; 4],
+    pub owner: [u32; 4],
+}
+
+/// A thing's key as the walks take it (`Solid::owner`, a light's list's
+/// head): the key and 1, or nothing.
+fn owner(key: Option<u32>) -> [u32; 2] {
+    key.map_or([0, 0], |k| [k, 1])
 }
 
 /// The bits of a cube's grid: its one cell, filled (`Movers::bits`' first
@@ -94,7 +102,7 @@ fn solid(back: Mat3, shift: Vec3, size: IVec3, at: i32) -> (Solid, Bounds) {
     let row = |i: usize| [rows.col(i).x, rows.col(i).y, rows.col(i).z, shift[i]];
     let to_level = back.inverse();
     let corners = (0..8).map(|k| to_level * (IVec3::new(k & 1, k >> 1 & 1, k >> 2) * size).as_vec3() - to_level * shift);
-    (Solid { to_grid: [row(0), row(1), row(2)], grid: [size.x, size.y, size.z, at] }, Bounds::round(corners))
+    (Solid { to_grid: [row(0), row(1), row(2)], grid: [size.x, size.y, size.z, at], owner: [0; 4] }, Bounds::round(corners))
 }
 
 /// A model's voxels as a grid in its own directions: its low corner, its
@@ -184,19 +192,21 @@ fn fewer(mut groups: Vec<Group>) -> Vec<Group> {
 }
 
 impl Movers {
-    /// The solids of the things `things` (each one's draws from `bank`)
-    /// and the cubes `cubes`: None when none stops a lamp; a mistake, in
-    /// words, when they take more than `MOST_BYTES`.
-    pub fn of(bank: &ModelBank, things: &[Vec<ModelDraw>], cubes: &[Instance]) -> Option<Result<Self, String>> {
+    /// The solids of the things `things` (each one's key and draws from
+    /// `bank`) and the cubes `cubes`: None when none stops a lamp; a
+    /// mistake, in words, when they take more than `MOST_BYTES`.
+    pub fn of(bank: &ModelBank, things: &[super::Mover], cubes: &[Instance]) -> Option<Result<Self, String>> {
         let mut bits = vec![1u32];
         let mut grids: std::collections::HashMap<(u32, u32), Option<Grid>> = Default::default();
         let mut groups: Vec<Group> = Vec::new();
-        for draws in things {
+        for (key, draws) in things {
             let (mut b, mut solids) = (Bounds::NONE, Vec::new());
+            let [k, owned] = owner(*key);
             for d in draws {
                 let grid = *grids.entry((d.voxels.start, d.voxels.end)).or_insert_with(|| grid_of(bank, d.voxels.clone(), &mut bits));
                 if let Some(grid) = grid {
-                    let (s, sb) = draw_solid(d, grid);
+                    let (mut s, sb) = draw_solid(d, grid);
+                    s.owner = [k, owned, 0, 0];
                     b = b.join(sb);
                     solids.push(s);
                 }
@@ -242,8 +252,13 @@ impl Movers {
 }
 
 /// The most entries the lights' lists of boxes take (`Movers::lists`): a
-/// light past them walks every box.
+/// light past them walks every box. Each light's list begins with its
+/// thing's key (`HEAD`), kept room for whatever the boxes take.
 pub const MOST_LISTED: usize = 1 << 16;
+
+/// The words a light's list begins with: its thing's key and 1, or two 0
+/// (`owner`), so the walks pass over that thing's solids.
+const HEAD: usize = 2;
 
 /// A light's word for the boxes it walks (`lists`) meaning every one.
 const EVERY_BOX: u32 = 255;
@@ -251,13 +266,16 @@ const EVERY_BOX: u32 = 255;
 impl Movers {
     /// Each of `lights`' boxes, those it can light (within its reach and,
     /// a spot, its cone), one light's after another in the list given
-    /// back, and each light's word for the shaders (`LightData`'s `edge.y`
-    /// of a lamp whose shadows are "all"): 2, plus where its boxes begin
-    /// times 256, plus how many (255: every one walked); None for the
-    /// others. A box a light cannot reach casts nothing for it, so the
-    /// walks test a few boxes a light, not all of them.
+    /// back, each light's after its thing's key (`HEAD`), and each light's
+    /// word for the shaders (`LightData`'s `edge.y` of a lamp whose shadows
+    /// are "all"): 2, plus where its list begins times 256, plus how many
+    /// boxes (255: every one walked); None for the others. A box a light
+    /// cannot reach casts nothing for it, so the walks test a few boxes a
+    /// light, not all of them.
     pub fn lists(&self, lights: &[Light]) -> (Vec<u32>, Vec<Option<f32>>) {
         let mut list = Vec::new();
+        // Room kept for every light's head, so the last one's fits.
+        let room = MOST_LISTED - HEAD * lights.len().min(super::MOST_LIGHTS);
         let words = lights
             .iter()
             .map(|l| {
@@ -265,19 +283,20 @@ impl Movers {
                     return None;
                 }
                 let start = list.len();
+                list.extend(owner(l.of));
                 for (k, b) in self.boxes.iter().enumerate() {
                     if lit(l, IVec3::new(b[0], b[1], b[2]).as_vec3(), IVec3::new(b[4], b[5], b[6]).as_vec3()) {
                         list.push(k as u32);
                     }
                 }
-                let count = list.len() - start;
-                let code = if count >= EVERY_BOX as usize || list.len() > MOST_LISTED {
-                    list.truncate(start);
+                let count = list.len() - start - HEAD;
+                let count = if count >= EVERY_BOX as usize || list.len() > room {
+                    list.truncate(start + HEAD);
                     EVERY_BOX
                 } else {
-                    (start as u32) << 8 | count as u32
+                    count as u32
                 };
-                Some(2.0 + code as f32)
+                Some(2.0 + ((start as u32) << 8 | count) as f32)
             })
             .collect();
         (list, words)
@@ -367,7 +386,7 @@ mod tests {
         let rot = Quat::from_rotation_z(0.4) * Quat::from_rotation_x(0.3);
         for (turn, rot, shift) in [(0, Quat::IDENTITY, Vec3::ZERO), (1, Quat::IDENTITY, Vec3::ZERO), (3, Quat::IDENTITY, Vec3::ZERO), (2, rot, Vec3::new(0.3, -0.2, 0.1))] {
             let draw = ModelDraw { voxels: range.clone(), origin: Vec3::new(20.0, 30.0, 4.0), turn, rot, shift, tint: None, nearer: 0.0, shadow_only: false };
-            let m = Movers::of(&bank, &[vec![draw.clone()]], &[]).unwrap().unwrap();
+            let m = Movers::of(&bank, &[(None, vec![draw.clone()])], &[]).unwrap().unwrap();
             assert_eq!(m.solids.len(), 1);
             let s = &m.solids[0];
             for v in &voxels {
@@ -441,8 +460,9 @@ mod tests {
         let spot = Light::lamp(Vec3::new(10.5, 10.5, 20.0), 60.0, [1.0; 3], &LightShape { cone: Some(30.0), pitch: -90.0, ..Default::default() }, |w| w).stated(LampShadows::All);
         let round = Light { spot: None, ..spot };
         let other = spot.stated(LampShadows::Static);
-        let (list, words) = m.lists(&[spot, round, Light { shadows: Some(LampShadows::Static), ..other }]);
-        assert_eq!(list, vec![0, 0, 1], "the spot the box under it; the round lamp both in reach, not the one 190 voxels off");
-        assert_eq!(words, vec![Some(2.0 + 1.0), Some(2.0 + (1 << 8 | 2) as f32), None]);
+        let carried = Light { of: Some(7), ..round };
+        let (list, words) = m.lists(&[spot, round, Light { shadows: Some(LampShadows::Static), ..other }, carried]);
+        assert_eq!(list, vec![0, 0, 0, 0, 0, 0, 1, 7, 1, 0, 1], "each light's thing (none, none, the thing 7), then its boxes: the spot the box under it; the round lamps both in reach, not the one 190 voxels off");
+        assert_eq!(words, vec![Some(2.0 + 1.0), Some(2.0 + (3 << 8 | 2) as f32), None, Some(2.0 + (7 << 8 | 2) as f32)]);
     }
 }

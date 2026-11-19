@@ -1937,6 +1937,51 @@ fn a_post_of_turned_cubes_stops_a_lamp_whose_shadows_are_all() {
     assert!(dark < lit - 20.0, "the floor behind the post shaded, {dark} against {lit}");
 }
 
+/// On the GPU: a lamp whose shadows are "all" at a thing (`Light::of`, a
+/// lantern a figure carries, `frame:light{ at = player }`) is not stopped
+/// by that thing's own models: the floor round the figure lit as by a
+/// lamp whose shadows are "static". Another figure still casts its
+/// shadow. The same lamp at no thing was dark round the figure (its own
+/// parts round it stopped it).
+#[test]
+fn a_lamp_a_thing_carries_is_not_stopped_by_it() {
+    use crate::render::{LampShadows, Light, LightShape};
+    let mut s = LampScene::of([]);
+    let mut figure = crate::vvx::read(&std::fs::read_to_string("games/lights/figures/posed.vvx").unwrap()).unwrap();
+    let mut bank = ModelBank::default();
+    bank.add(&mut figure);
+    let bank = std::sync::Arc::new(bank);
+    let drawn = |at: Vec3| {
+        let mut draws = Vec::new();
+        draw(&mut |_, _, _, _, _, _, _| {}, Some(&mut draws), &figure, 0, at, IVec2::NEG_Y, Quat::IDENTITY, &[], None);
+        draws
+    };
+    let (carrier, other) = (drawn(Vec3::new(48.0, 48.0, 1.0)), drawn(Vec3::new(62.0, 48.0, 1.0)));
+    let lamp = |how, of| Light { of, ..Light::lamp(Vec3::new(48.5, 48.5, 10.0), 40.0, [2.0; 3], &LightShape::default(), |w| w).stated(how) };
+    let mut picture = |light: Option<Light>| {
+        let (w, h) = LampScene::SIZE;
+        let mut f = s.game.frame(1.0, w as f32 / h as f32);
+        (f.lights, f.lamp_world, f.bank) = (light.into_iter().collect(), Some(s.game.game.sim().world.clone()), bank.clone());
+        f.models = [carrier.clone(), other.clone()].concat();
+        f.lamp_movers = vec![(Some(7), carrier.clone()), (Some(8), other.clone())];
+        let pixels = s.canvas.draw(&f).unwrap();
+        (f, pixels)
+    };
+    let (f, dark) = picture(None);
+    let (_, still) = picture(Some(lamp(LampShadows::Static, None)));
+    let (_, carried) = picture(Some(lamp(LampShadows::All, Some(7))));
+    let (_, alone) = picture(Some(lamp(LampShadows::All, None)));
+    // The floor round the carrier, but towards the other figure.
+    let round = |p: &[u8]| [(40.5, 48.5), (48.5, 40.5), (48.5, 56.5), (42.5, 42.5), (54.5, 54.5), (42.5, 54.5)].iter().map(|&(x, y)| LampScene::floor_at(&f, p, x, y)).sum::<f32>() / 6.0;
+    let (lit, own, lost, none) = (round(&still), round(&carried), round(&alone), round(&dark));
+    assert!(lit > none + 40.0, "\"static\" lights the floor round the figure: {lit} against {none}");
+    assert!((own - lit).abs() < 2.0, "carried, it lights the floor round its thing as \"static\" does: {own} against {lit}");
+    assert!(lost < lit - 20.0, "at no thing, the figure's own parts stop it: {lost} against {lit}");
+    // Behind the other figure, away from the lamp: in its shadow.
+    let behind = |p: &[u8]| LampScene::floor_at(&f, p, 70.5, 48.5);
+    assert!(behind(&carried) < behind(&still) - 20.0, "the other figure casts its shadow: {} against {}", behind(&carried), behind(&still));
+}
+
 /// On the GPU: a figure of parts turned off the grid under a spot whose
 /// shadows are "all", its arm swept slowly in front of its chest (half a
 /// degree a picture), then the whole figure turning slowly (a quarter
@@ -1999,7 +2044,7 @@ fn a_part_turning_slowly_shades_each_face_once() {
             let mut picture = |lights: Vec<Light>| {
                 let mut f = game.frame(1.0, w as f32 / h as f32);
                 (f.lights, f.lamp_world, f.bank) = (lights, Some(game.game.sim().world.clone()), bank.clone());
-                (f.models, f.lamp_movers) = (draws.clone(), vec![draws.clone()]);
+                (f.models, f.lamp_movers) = (draws.clone(), vec![(None, draws.clone())]);
                 canvas.draw(&f).unwrap()
             };
             let (still, all, dark) = (picture(vec![spot(LampShadows::Static)]), picture(vec![spot(LampShadows::All)]), picture(Vec::new()));

@@ -301,7 +301,7 @@ fn shading(l: Light, near: vec3<f32>, far: vec3<f32>) -> u32 {
     if (n > 32u) {
         return 0xffffffffu;
     }
-    let start = list >> 8u;
+    let start = (list >> 8u) + 2u;
     for (var i = 0u; i < n; i += 1u) {
         let k = mover_lists[start + i];
         let lo = vec3<f32>(mover_boxes[2u * k].xyz);

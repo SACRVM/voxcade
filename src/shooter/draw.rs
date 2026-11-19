@@ -24,6 +24,8 @@ impl Shooter {
         let blinking = p.invulnerable > 0 && blink > 0 && (tick / blink) % 2 == 1;
         if !out.title() && !self.several() && self.status.phase == Phase::Playing && !blinking {
             let origin = out.body_origin(&p.body);
+            // (No thing of the level: known by the player's handle.)
+            out.of_thing(Some(crate::lua::host::PLAYER));
             out.figure("player", &self.rules.player_frames, &self.rules.player_swing, &p.body, origin, p.body.look, glam::Quat::IDENTITY, None);
         }
         let model = |kind: usize| self.rules.kinds[kind].model.as_deref();
@@ -46,17 +48,20 @@ impl Shooter {
             let own = frames(t.kind).is_empty();
             let (frames, swing) = if own { (&self.rules.player_frames, &self.rules.player_swing) } else { (frames(t.kind), swing(t.kind)) };
             let origin = out.body_origin(&t.body);
+            out.of_thing(Some(t.id.raw()));
             out.figure(file, frames, swing, &t.body, origin, t.body.look, turn(t.kind, &t.body), None);
         }
         for (t, _) in self.enemies() {
             let Some(file) = model(t.kind) else { continue };
             let origin = out.body_origin(&t.body);
             let tint = (t.flash > 0).then_some(FLASH);
+            out.of_thing(Some(t.id.raw()));
             out.figure(file, frames(t.kind), swing(t.kind), &t.body, origin, t.body.look, turn(t.kind, &t.body), tint);
         }
         for t in self.things.iter().filter(|t| matches!(t.brain, Brain::Captive(_))) {
             let Some(file) = model(t.kind) else { continue };
             let origin = out.body_origin(&t.body);
+            out.of_thing(Some(t.id.raw()));
             out.figure(file, frames(t.kind), swing(t.kind), &t.body, origin, t.body.look, turn(t.kind, &t.body), None);
         }
         // The gunship: its kind's frames parked (idle) and flying (fly;
@@ -72,6 +77,7 @@ impl Shooter {
             let frame = frames(t.kind).get(name).unwrap_or(&own).at(since, 0.0).min(rotor - 1);
             let tint = (t.flash > 0).then_some(FLASH);
             let origin = out.snapped(out.between(t.body.prev, t.body.pos));
+            out.of_thing(Some(t.id.raw()));
             out.model_turned(file, frame, origin, t.body.look, turn(t.kind, &t.body), tint);
         }
         // Pickups bob up and down (`bob`, `bob_ticks`).
@@ -83,8 +89,10 @@ impl Shooter {
             let bob = Vec3::Z * if up { r.bob as f32 } else { 0.0 };
             let frame = r.frame.min(m.frames.len() - 1);
             let spin = crate::session::spinning(self.rules.kinds[t.kind].spin, ticks);
+            out.of_thing(Some(t.id.raw()));
             out.model_turned(file, frame, t.body.pos + bob, IVec2::NEG_Y, spin, None);
         }
+        out.of_thing(None);
         for g in &self.grenades {
             out.blob(out.between(g.prev, g.pos), [70, 92, 48, 255], 0.0, 1.0);
         }

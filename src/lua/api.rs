@@ -605,7 +605,8 @@ pub const API: &[Item] = &[
             - shadows: what stops it, \"static\", \"all\" or \"none\" (it shines through walls); left out, c.light.lamp_shadows says (\"static\" \
             unless set). A wall is the level's voxels and its pieces, not a piece that brings a light of its own (a lantern round its \
             flame); with \"all\" the figures, things, models and cubes drawn stop it too, so they cast its shadow (it costs more: for a \
-            few chosen lamps). Glass stops no light and tints none.\n\
+            few chosen lamps), but a light at a thing is never stopped by that thing's own models (a lantern a figure carries). Glass \
+            stops no light and tints none.\n\
             - fog: how strongly it shows in fog (frame:fog), 0 to 10, 1 unless set.\nOnly the picture: the game's rules do not see it." },
     Item { of: "frame", name: "daylight", what: Method { params: &[("light", "Daylight")], returns: "" },
         doc: "Sets the sun and the sky for this picture: a day and a night. What you leave out is c.light's.\n- sun: the way its light \

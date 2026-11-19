@@ -30,7 +30,7 @@ use pipelines::{Memory, ScenePipelines, Targets};
 pub use baked::Baked;
 pub use bank::{ModelBank, ModelDraw, off_grid, quarter, turn_about, turn_centre, turned_centre};
 pub use cubes::{SeeThroughBody, hide_faces_against, hide_inner_faces, join_by_body, join_see_through, leave_out_unseen, see_through_body, see_through_side};
-pub use frame::{FrameData, Stats};
+pub use frame::{FrameData, Mover, Stats};
 pub use shader::{METAL_SHIFT, METAL_STEPS};
 
 /// Lights a picture lights by the scene's own shader (the shader's
@@ -118,6 +118,10 @@ pub struct Light {
     /// How strongly its light shows in the picture's fog (`Fog`): 1 as
     /// bright as it lights, 0 not at all.
     pub fog: f32,
+    /// The thing it shines from (`frame:light`'s `at` a thing, by
+    /// `Drawing::of_thing`'s key): none of that thing's own voxels stop it,
+    /// as a piece's own voxels stop none of its lights (`render::movers`).
+    pub of: Option<u32>,
 }
 
 /// A spot's way and cone, as the shader takes them: the way it shines
@@ -134,7 +138,7 @@ impl Light {
     /// A flash's or an explosion's light (a kit's): round, falling off as
     /// lights always did, through walls.
     pub fn burst(pos: Vec3, radius: f32, color: [f32; 3]) -> Self {
-        Self { pos, radius, color, falloff: 2.0, spot: None, shadows: Some(LampShadows::None), fog: 1.0 }
+        Self { pos, radius, color, falloff: 2.0, spot: None, shadows: Some(LampShadows::None), fog: 1.0, of: None }
     }
 
     /// A lamp (a level's light, `frame:light`) shaped as `shape` says, its
@@ -145,7 +149,7 @@ impl Light {
             let half = (cone * 0.5).to_radians();
             Spot { way: turn(shape.way()).normalize_or(Vec3::Y), outer: crate::sim::math::cos(half), inner: crate::sim::math::cos(half * (1.0 - shape.blend)) }
         });
-        Self { pos, radius, color, falloff: shape.falloff, spot, shadows: shape.shadows, fog: shape.fog }
+        Self { pos, radius, color, falloff: shape.falloff, spot, shadows: shape.shadows, fog: shape.fog, of: None }
     }
 
     /// Whether the level's voxels and pieces stop it, `game` the game's

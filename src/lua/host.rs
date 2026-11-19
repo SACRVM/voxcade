@@ -880,6 +880,13 @@ impl Stage {
         if seat == 1 { self.host.player_id() } else { self.host.seat_figure(seat) }
     }
 
+    /// The key a thing is drawn under (`Drawing::of_thing`), from its id
+    /// or handle: a player's figure's own id, else the handle (a player
+    /// who is no thing of the level, the shooter's in a game of one).
+    pub fn drawn_key(&self, id: u32) -> u32 {
+        handle_seat(id).and_then(|seat| self.figure(seat)).map_or(id, Id::raw)
+    }
+
     /// The handle of the player whose figure `id` is, if it is a player's.
     pub fn figure_handle(&self, id: Id) -> Option<u32> {
         (1..=self.seats.len()).find(|&n| self.figure(n) == Some(id)).map(seat_handle)

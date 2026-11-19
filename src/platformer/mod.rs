@@ -1134,8 +1134,10 @@ impl Game for Platformer {
             // A kind that spins turns round (a gem), a figure of parts
             // swings its parts with its steps.
             let swung = crate::session::swinging(&k.swing, &t.body, k.height);
+            out.of_thing(Some(t.id.raw()));
             out.model_posed(model, self.frame(t), origin, look, crate::session::spinning(k.spin, ticks), &swung, None);
         }
+        out.of_thing(None);
     }
 
     fn focus(&self) -> Option<&Body> {

@@ -329,7 +329,7 @@ mod tests {
             ("movers", offset_of!(LampGlobals, movers)),
         ];
         use crate::render::movers::Solid;
-        let solid = [("to_grid", offset_of!(Solid, to_grid)), ("grid", offset_of!(Solid, grid))];
+        let solid = [("to_grid", offset_of!(Solid, to_grid)), ("grid", offset_of!(Solid, grid)), ("owner", offset_of!(Solid, owner))];
         let fog = [
             ("inv_view_proj", offset_of!(FogGlobals, inv_view_proj)),
             ("eye", offset_of!(FogGlobals, eye)),

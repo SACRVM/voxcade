@@ -141,7 +141,9 @@ impl<K: Kit> LuaGame<K> {
                     let tall = out.model_of(file).map_or(1.0, |m| m.size.z as f32);
                     let swung = crate::session::swinging(kind.map_or(&NO_SWING, |k| &k.swing), t.body, tall);
                     let posed = crate::session::posing(pose, swung);
+                    out.of_thing(Some(self.stage.drawn_key(*thing)));
                     out.model_posed(file, frame, origin, t.body.look, turn, &posed, (t.flash > 0).then_some(FLASH));
+                    out.of_thing(None);
                 }
                 // On the grid when the camera snaps, gliding as the models
                 // do otherwise.

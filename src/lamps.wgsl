@@ -41,18 +41,20 @@ struct Lamps {
 // The moving things' solids (render::movers::Solid): the rows of the map
 // from the level's voxels into a solid's grid; its cells each way and
 // where its bits begin in `mover_bits` (x fastest, then y, then z, 32 a
-// word).
+// word); the thing it is (x its key, y 1; else both 0).
 struct Solid {
     to_grid: array<vec4<f32>, 3>,
     grid: vec4<i32>,
+    owner: vec4<u32>,
 };
 @group(0) @binding(6) var<storage, read> mover_solids: array<Solid>;
 // The boxes round the moving things, low corner and high in the level's
 // voxels, the low corner's w where their solids begin, the high one's how
 // many (render::movers::Movers::boxes).
 @group(0) @binding(7) var<storage, read> mover_boxes: array<vec4<i32>>;
-// Each lamp's boxes, the ones it can light, one lamp's after another
-// (render::movers::Movers::lists; its light's `edge.y` says where).
+// Each lamp's list, one lamp's after another (render::movers::Movers::lists;
+// its light's `edge.y` says where): the thing it shines from (its key and
+// 1, else two 0), then the boxes it can light.
 @group(0) @binding(8) var<storage, read> mover_lists: array<u32>;
 @group(0) @binding(9) var<storage, read> mover_bits: array<u32>;
 // } WALLS
@@ -226,10 +228,41 @@ fn movers_from(s: vec4<u32>, cell: vec3<i32>, n: vec3<f32>, way_index: u32, of_l
 // its boxes `list`) lighting a face whose way to it begins at `begins`
 // (`movers_from`) and that is lit by the way `n`: a face turned away from
 // the lamp is in its own shadow (as a face of the level is from any lamp
-// walls stop), any other walks (`movers_stop`). Walked, a face turned away
-// went dark or not as its way grazed its own thing's edges.
+// walls stop), but a face of the thing the lamp shines from (`carried`):
+// that walks as any other (`movers_stop`), the thing's own solids passed
+// over. Walked, a face turned away went dark or not as its way grazed its
+// own thing's edges.
 fn movers_stop_face(begins: vec3<f32>, n: vec3<f32>, lamp: vec3<f32>, list: u32) -> bool {
-    return dot(n, lamp - begins) <= 0.0 || movers_stop(begins, lamp, list, 0xffffffffu);
+    return (dot(n, lamp - begins) <= 0.0 && !carried(begins - n * (0.5 + FACE_OUT), list)) || movers_stop(begins, lamp, list, 0xffffffffu);
+}
+
+// Whether the point `p` (a face's voxel, `movers_stop_face`) lies in a
+// voxel of the thing the lamp of `list` shines from.
+fn carried(p: vec3<f32>, list: u32) -> bool {
+    let head = list >> 8u;
+    let own = vec2<u32>(mover_lists[head], mover_lists[head + 1u]);
+    if (own.y != 1u) {
+        return false;
+    }
+    let n = list & 255u;
+    let every = n == EVERY_BOX;
+    for (var i = 0u; i < select(n, u32(lamps.movers.x), every); i += 1u) {
+        let k = select(mover_lists[head + 2u + i], i, every);
+        let lo = mover_boxes[2u * k];
+        let hi = mover_boxes[2u * k + 1u];
+        if (any(p < vec3<f32>(lo.xyz)) || any(p > vec3<f32>(hi.xyz))) {
+            continue;
+        }
+        for (var j = u32(lo.w); j < u32(lo.w + hi.w); j += 1u) {
+            let m = mover_solids[j];
+            let r = m.to_grid;
+            let g = vec3<f32>(dot(r[0].xyz, p) + r[0].w, dot(r[1].xyz, p) + r[1].w, dot(r[2].xyz, p) + r[2].w);
+            if (all(m.owner.xy == own) && solid_holds(j, vec3<i32>(floor(g)))) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 // A lamp's word for its boxes (`list`, render::movers::Movers::lists)
@@ -298,7 +331,8 @@ fn solid_stops(k: u32, lamp: vec3<f32>, dir: vec3<f32>, len: f32) -> bool {
 // `lamp` and the point `to` (a face's, `movers_from`; a point of a beam),
 // for a lamp whose shadows are "all": each solid of the boxes the lamp can
 // light (`list`; of the first 32 only those `mask` has a bit for) whose
-// box the way meets, walked (`solid_stops`).
+// box the way meets, walked (`solid_stops`), but the solids of the thing
+// the lamp shines from (a lantern a figure carries).
 fn movers_stop(to: vec3<f32>, lamp: vec3<f32>, list: u32, mask: u32) -> bool {
     let d = to - lamp;
     let len = length(d);
@@ -309,11 +343,13 @@ fn movers_stop(to: vec3<f32>, lamp: vec3<f32>, list: u32, mask: u32) -> bool {
     let inv = 1.0 / dir;
     let n = list & 255u;
     let every = n == EVERY_BOX;
+    let head = list >> 8u;
+    let own = vec2<u32>(mover_lists[head], mover_lists[head + 1u]);
     for (var i = 0u; i < select(n, u32(lamps.movers.x), every); i += 1u) {
         if (i < 32u && ((mask >> i) & 1u) == 0u) {
             continue;
         }
-        let k = select(mover_lists[(list >> 8u) + i], i, every);
+        let k = select(mover_lists[head + 2u + i], i, every);
         let lo = mover_boxes[2u * k];
         let hi = mover_boxes[2u * k + 1u];
         let a = (vec3<f32>(lo.xyz) - lamp) * inv;
@@ -324,6 +360,9 @@ fn movers_stop(to: vec3<f32>, lamp: vec3<f32>, list: u32, mask: u32) -> bool {
             continue;
         }
         for (var j = u32(lo.w); j < u32(lo.w + hi.w); j += 1u) {
+            if (own.y == 1u && all(mover_solids[j].owner.xy == own)) {
+                continue;
+            }
             if (solid_stops(j, lamp, dir, len)) {
                 return true;
             }

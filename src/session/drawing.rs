@@ -52,7 +52,10 @@ pub struct Drawing<'a> {
     /// or not but the level's pieces, with its box: what stops the lamps
     /// whose shadows are "all" (`FrameData::lamp_movers`).
     pub(super) gather_movers: bool,
-    pub(super) movers: Vec<((Vec3, Vec3), Vec<ModelDraw>)>,
+    pub(super) movers: Vec<((Vec3, Vec3), crate::render::Mover)>,
+    /// The thing what is drawn now is (`of_thing`), its moving draws kept
+    /// with its key.
+    pub(super) thing: Option<u32>,
 }
 
 impl<'a> Drawing<'a> {
@@ -222,7 +225,7 @@ impl<'a> Drawing<'a> {
             let mut draws = Vec::new();
             draw(&mut |_, _, _, _, _, _, _| {}, Some(&mut draws), m, frame, origin, look, turn, pose, tint);
             if !draws.is_empty() {
-                self.movers.push(((lo, hi), draws));
+                self.movers.push(((lo, hi), (self.thing, draws)));
             }
         }
         if !self.shadow_only && self.cull && !crate::render::on_screen(&self.view_proj, lo, hi) && !crate::render::on_screen(&self.light_vp, lo, hi) {
@@ -288,6 +291,14 @@ impl<'a> Drawing<'a> {
     /// A light lighting what is around it this frame.
     pub fn light(&mut self, light: Light) {
         self.lights.push(light);
+    }
+
+    /// What is drawn while `thing` is Some is that thing (its key: a
+    /// thing's raw id, or a seat's handle for a player who is no thing of
+    /// the level): a light of it (`Light::of`) is not stopped by its own
+    /// voxels.
+    pub fn of_thing(&mut self, thing: Option<u32>) {
+        self.thing = thing;
     }
 
     /// The models drawn while `on` only cast a shadow: their opaque voxels

@@ -751,7 +751,7 @@ fn what_moves_out_of_view_still_stops_a_lamp_whose_shadows_are_all() {
     let f = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
     let far = |x: f32| (x - 300.0).abs() < 4.0;
     assert!(!f.models.iter().any(|m| far(m.origin.x)), "the crate at x 300 is out of the picture");
-    let groups: Vec<f32> = f.lamp_movers.iter().map(|d| d[0].origin.x).collect();
+    let groups: Vec<f32> = f.lamp_movers.iter().map(|(_, d)| d[0].origin.x).collect();
     assert!(groups.len() == 1 && far(groups[0]), "the crate the lamp reaches, and only it: {groups:?}");
     let g = game_in(&pieces_folder("movers-static", conf, &level, &main("static")));
     assert!(g.compose(0.0, 16.0 / 9.0, Scene::Play, None).lamp_movers.is_empty(), "no lamp whose shadows are \"all\": none");
