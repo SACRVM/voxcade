@@ -486,6 +486,35 @@ fn the_drive_is_from_0_to_12() {
     assert_eq!(Session::<crate::Voxcade>::load(&dir).unwrap().cfg.audio.drive, 6.0);
 }
 
+/// `c.audio.ceiling` is the limiter's ceiling in decibels of true peak,
+/// -6 to 0 (-1 unless set, as it always was); outside that a mistake
+/// naming it. The game's music as `voxcade music GAME` writes it, driven
+/// hard, stays under the game's ceiling and comes up to it.
+#[test]
+fn the_ceiling_is_the_games() {
+    use crate::audio::limiter::{db_tp, true_peak_stereo};
+    let dir = crate::scratch::Scratch::new("lua-ceiling");
+    std::fs::write(dir.join("main.lua"), "function on_tick() end\n").unwrap();
+    for bad in ["0.5", "-7", "0/0"] {
+        std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.world.size = {{ 16, 16, 8 }}\n  c.audio.ceiling = {bad}\nend\n")).unwrap();
+        assert!(start_error(&dir).contains("c.audio.ceiling"), "{bad}: {}", start_error(&dir));
+    }
+    std::fs::create_dir_all(dir.join("music")).unwrap();
+    std::fs::write(dir.join("music/loud.mml"), "#tempo 120\n@a saw attack=0.001 sustain=1 volume=1\n@b square volume=1\nA: @a o3 l8 [c e g >c<]4\nB: @b o4 l4 [c g]4\n").unwrap();
+    for ceiling in [-3.0, -0.5] {
+        std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.world.size = {{ 16, 16, 8 }}\n  c.audio.music = {{ \"music/loud.mml\" }}\n  c.audio.music_volume = 1\n  c.audio.drive = 12\n  c.audio.ceiling = {ceiling}\nend\n")).unwrap();
+        assert_eq!(Session::<crate::Voxcade>::load(&dir).unwrap().cfg.audio.ceiling, ceiling);
+        let out = dir.join("loud.wav");
+        crate::headless::music::<crate::Voxcade>(&dir, &out, Some(3.0)).unwrap();
+        let wav = std::fs::read(&out).unwrap();
+        let samples: Vec<f32> = wav[44..].chunks(2).map(|b| f32::from(i16::from_le_bytes([b[0], b[1]])) / 32767.0).collect();
+        let peak = db_tp(true_peak_stereo(&samples));
+        assert!(peak <= f64::from(ceiling) + 0.01 && peak > f64::from(ceiling) - 0.3, "ceiling {ceiling}: {peak:.3} dBTP");
+    }
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 16, 16, 8 }\nend\n").unwrap();
+    assert_eq!(Session::<crate::Voxcade>::load(&dir).unwrap().cfg.audio.ceiling, -1.0);
+}
+
 /// A sound is a file: `sounds/x.toml` plays as "x"; `c.sounds` in
 /// conf.lua is refused with the way out; a name with no file halts the
 /// script saying where sounds come from.

@@ -383,7 +383,8 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
 - The sound's pressure: `c.audio.drive` (0 to 12, default 0), how hard the
   game's sound is pushed into the limiter, in decibels: 0 as it is, more
   makes it denser and louder; music you listen to for long tires sooner
-  when dense.
+  when dense. `c.audio.ceiling` (-6 to 0, default -1): the loudest it may
+  get after the drive, in decibels of true peak.
 - Music: `c.audio.music = { "music/song.mml" }`. For a new song write a
   recipe for `tools/compose.py` (styles calm, mysterious, dark, action, space,
   bright) or pick one from the library `music/`; copy it into the game.

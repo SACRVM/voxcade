@@ -1230,6 +1230,7 @@ fn film_sound<G: Game>(dir: &Path, replay: &Replay, first: u64, last: u64, wav: 
         game.feed_music(&mut mixer, false);
         mixer.set_music_volume(game.cfg.audio.music_volume * settings.music_gain());
         mixer.set_drive(game.cfg.audio.drive);
+        mixer.set_ceiling(game.cfg.audio.ceiling);
         game.play_sounds(&mut mixer, settings.sound_gain());
         mixer.mix(&mut buf);
         if tick >= first {
@@ -1551,7 +1552,7 @@ pub fn sounds<G: Game>(dir: &Path, out: &Path, only: Option<&str>) -> Result<()>
         }
         all.extend(std::iter::repeat_n(0.0, pause));
     }
-    let (limited, said) = limit(&all, 1, cfg.audio.drive);
+    let (limited, said) = limit(&all, 1, cfg.audio.drive, cfg.audio.ceiling);
     write_wav(out, &limited, 1)?;
     println!("wrote {} ({:.1}s; {said})", out.display(), all.len() as f32 / SAMPLE_RATE as f32);
     Ok(())
@@ -1690,7 +1691,7 @@ pub(crate) fn sound_statements(lines: &[&str]) -> Vec<Statement> {
 pub fn music<G: Game>(dir: &Path, out: &Path, seconds: Option<f32>) -> Result<()> {
     let game = Session::<G>::load(dir)?;
     let file = game.song_file().context("conf.lua names no music (c.audio.music)")?.to_string();
-    song(&dir.join(&file), Some((game.cfg.audio.music_volume, game.cfg.audio.drive)), out, seconds)
+    song(&dir.join(&file), Some((game.cfg.audio.music_volume, game.cfg.audio.drive, game.cfg.audio.ceiling)), out, seconds)
 }
 
 /// Seconds as a clock shows them: 2:40.0.
@@ -1704,9 +1705,9 @@ fn song_name(title: &str, file: &Path) -> String {
     if title.trim().is_empty() { file.file_name().map_or_else(|| file.display().to_string(), |n| n.to_string_lossy().into_owned()) } else { title.to_string() }
 }
 
-/// Writes one song file as a stereo WAV, at a game's music volume and
-/// drive (the engine's defaults without a game).
-pub fn song(file: &Path, game: Option<(f32, f32)>, out: &Path, seconds: Option<f32>) -> Result<()> {
+/// Writes one song file as a stereo WAV, at a game's music volume, drive
+/// and ceiling (the engine's defaults without a game, said so).
+pub fn song(file: &Path, game: Option<(f32, f32, f32)>, out: &Path, seconds: Option<f32>) -> Result<()> {
     use crate::audio::SAMPLE_RATE;
 
     let text = std::fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
@@ -1719,7 +1720,13 @@ pub fn song(file: &Path, game: Option<(f32, f32)>, out: &Path, seconds: Option<f
         println!("warning: channels differ in length: {}", list.join(", "));
     }
     let defaults = crate::config::AudioConfig::default();
-    let (volume, drive) = game.unwrap_or((defaults.music_volume, defaults.drive));
+    if game.is_none() {
+        println!(
+            "a song alone: at the engine's music volume {}, drive {} dB and ceiling {} dBTP, not a game's (a game plays it with its c.audio.music_volume, drive and ceiling, often louder and limited)",
+            defaults.music_volume, defaults.drive, defaults.ceiling
+        );
+    }
+    let (volume, drive, ceiling) = game.unwrap_or((defaults.music_volume, defaults.drive, defaults.ceiling));
     // A song with `#loop`: written to its loop's end and round into its
     // first bars again, so the seam is in the file.
     if let (Some((from, to)), Some((start, end)), None) = (song.round, song.round_seconds(), seconds) {
@@ -1728,7 +1735,7 @@ pub fn song(file: &Path, game: Option<(f32, f32)>, out: &Path, seconds: Option<f
         println!("the loop: bar {from} ({}) to {to} ({}); written to there and round again into its first {again} bar{}: the seam at {}", clock(start), clock(end), if again == 1 { "" } else { "s" }, clock(end));
     }
     let samples = crate::audio::music::Player::new(song, volume).render(seconds);
-    let (limited, said) = limit(&samples, 2, drive);
+    let (limited, said) = limit(&samples, 2, drive, ceiling);
     write_wav(out, &limited, 2)?;
     let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
     println!(
@@ -1739,13 +1746,14 @@ pub fn song(file: &Path, game: Option<(f32, f32)>, out: &Path, seconds: Option<f
     Ok(())
 }
 
-/// A recording through the mixer's limiter at the game's drive, on time
+/// A recording through the mixer's limiter at the game's drive and
+/// ceiling, on time
 /// (`limiter::limit_whole`): what the speaker plays. With what the limiter
 /// did and how loud it is.
-fn limit(samples: &[f32], channels: usize, drive: f32) -> (Vec<f32>, String) {
+fn limit(samples: &[f32], channels: usize, drive: f32, ceiling: f32) -> (Vec<f32>, String) {
     use crate::audio::{SAMPLE_RATE, limiter, loudness};
 
-    let mut lim = limiter::Limiter::with(SAMPLE_RATE, limiter::Options { drive_db: f64::from(drive), ..limiter::Options::default() });
+    let mut lim = limiter::Limiter::with(SAMPLE_RATE, limiter::Options { drive_db: f64::from(drive), ceiling_db_tp: f64::from(ceiling), ..limiter::Options::default() });
     let limited = limiter::limit_whole(&mut lim, samples, channels);
     let t = lim.read_telemetry();
     let limiting = if t.duty_cycle > 0.0 { format!("limited {:.1} dB at most, {:.1} % of the time", -t.gain_reduction_db, t.duty_cycle * 100.0) } else { "never limited".into() };

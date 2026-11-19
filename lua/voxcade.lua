@@ -1026,6 +1026,7 @@ function on_pickup(thing, item) end
 ---@field music string|string[] Music as MML text, relative to the game folder: one file, or a list the keys 1..9 switch between while playing.
 ---@field music_volume number Loudness of the music, 0..1, times the player's music volume. (from 0 to 1)
 ---@field drive number How hard the game's sound is pushed into the limiter, in decibels: 0 as it is, more makes it denser and louder; music you listen to for long tires sooner when dense. 0 to 12. The limiter's drive (the JUST mastering stage's own input gain), on sounds and music together, after the player's volumes; the game's choice, not the player's. (from 0 to 12)
+---@field ceiling number The loudest the game's sound may get, in decibels of true peak (between the samples too), -6 to 0; -1 unless set. The limiter holds everything under it, sounds and music together, after the drive; 0 is full scale. Hard-edged waves (squares, noise) can still peak a few tenths of a decibel over it between samples, so -1 leaves room. (from -6 to 0)
 ---@field crossfade number Seconds one song crossfades into the next when the game's code changes the song (music:play; one call may say otherwise): the old fading out as the new fades in, equal in power. 0: the old ends and the new begins, a level's fade between them silent. (from 0 to 60)
 
 ---@class Conf.ui

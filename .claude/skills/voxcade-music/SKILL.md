@@ -156,6 +156,7 @@ The user makes songs in Suno (Pro) and exports MIDI or audio stems.
 c.audio.music = { "music/sunny_hills.mml" }   -- one or more: keys 1..9 switch while playing
 c.audio.music_volume = 0.4
 c.audio.drive = 0          -- how hard the game's sound is pushed into the limiter, in decibels: 0 as it is, more makes it denser and louder; music you listen to for long tires sooner when dense (0 to 12)
+c.audio.ceiling = -1       -- the loudest it may get, in dB true peak, after the drive (-6 to 0; -1 unless set)
 c.title_screen.music = "music/storm.mml"      -- the title's own (default: the first song)
 c.title_screen.music_at = 33                  -- the bar the title's song begins at (1 unless set): past an intro
 ```
@@ -229,7 +230,10 @@ cargo build --release        # first, after any change to the MML parser or synt
 ```
 
 `voxcade music` prints the length, the peak and warnings about channels
-of different lengths (a bar too many on one line). `spectro.py` adds the
+of different lengths (a bar too many on one line). A game's song it
+writes as the game plays it (its music volume, drive and ceiling); a
+song file alone at the engine's defaults, and it says so: the game may
+play it louder and limited. `spectro.py` adds the
 loudness per section (pass the length of 8 bars: 8 × 4 × 60 / tempo
 seconds), the share above 4 kHz (harshness: the library's songs stay well
 under 1 %), the DC offset, left against right, and the loop's seam. Then

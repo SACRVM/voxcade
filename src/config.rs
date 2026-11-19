@@ -714,6 +714,7 @@ pub const RANGES: &[Bound] = &[
     within("audio.volume", 0.0, 1.0),
     within("audio.music_volume", 0.0, 1.0),
     within("audio.drive", 0.0, 12.0),
+    within("audio.ceiling", -6.0, 0.0),
     within("audio.crossfade", 0.0, 60.0),
     within("items.*.stack", 1.0, 1_000_000.0),
     within("saves.slots", 0.0, 9.0),
@@ -1248,6 +1249,10 @@ pub struct AudioConfig {
     /// mastering stage's own input gain), on sounds and music together,
     /// after the player's volumes; the game's choice, not the player's.
     pub drive: f32,
+    /// The loudest the game's sound may get, in decibels of true peak (between the samples too), -6 to 0; -1 unless set.
+    /// The limiter holds everything under it, sounds and music together, after the drive; 0 is full scale.
+    /// Hard-edged waves (squares, noise) can still peak a few tenths of a decibel over it between samples, so -1 leaves room.
+    pub ceiling: f32,
     /// Seconds one song crossfades into the next when the game's code
     /// changes the song (`music:play`; one call may say otherwise): the
     /// old fading out as the new fades in, equal in power. 0: the old ends
@@ -1285,7 +1290,7 @@ impl Songs {
 
 impl Default for AudioConfig {
     fn default() -> Self {
-        Self { volume: 0.8, music: Songs::None, music_volume: 0.5, drive: 0.0, crossfade: 0.0, boss_music: None }
+        Self { volume: 0.8, music: Songs::None, music_volume: 0.5, drive: 0.0, ceiling: -1.0, crossfade: 0.0, boss_music: None }
     }
 }
 

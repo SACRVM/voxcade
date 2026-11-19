@@ -120,7 +120,8 @@ pub struct Mixer {
     apart: (Vec<f32>, Vec<f32>),
     /// The music held where it is (a game that reads its beats, paused).
     music_held: bool,
-    /// The last stage: holds the mix under -1 dBTP (`limiter`).
+    /// The last stage: holds the mix under its ceiling (`limiter`; -1
+    /// dBTP, or the game's `c.audio.ceiling`).
     limiter: limiter::Limiter,
 }
 
@@ -221,6 +222,11 @@ impl Mixer {
     /// How hard the mix goes into the limiter, in dB (`c.audio.drive`).
     pub fn set_drive(&mut self, drive_db: f32) {
         self.limiter.set_drive_db(f64::from(drive_db));
+    }
+
+    /// The limiter's ceiling, in dB true peak (`c.audio.ceiling`).
+    pub fn set_ceiling(&mut self, ceiling_db: f32) {
+        self.limiter.set_ceiling_db(f64::from(ceiling_db));
     }
 
     pub fn set_music_volume(&mut self, volume: f32) {

@@ -624,4 +624,62 @@ fn a_whole_recording_comes_back_on_time() {
     assert_eq!(limit_whole(&mut Limiter::new(RATE), &stereo, 2), stereo);
 }
 
+/// A game's song as the speaker plays it pushed hard into the limiter: a
+/// repo song, 8 seconds, at the game's music volume (0.5), driven 12 dB.
+fn a_driven_song() -> Vec<f32> {
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/games/pulsar/music/pulsar_drive.mml")).unwrap();
+    let mut song = crate::audio::music::Player::new(crate::audio::music::parse(&text).unwrap(), 0.5).render(Some(8.0));
+    for s in &mut song {
+        *s *= 10f32.powf(12.0 / 20.0);
+    }
+    song
+}
+
+/// The ceiling is the game's (`c.audio.ceiling`, -6 to 0 dBTP): at its
+/// highest, a tenth of a decibel under full scale, the limiter holds it
+/// by BS.1770's meter, the one it reads, within 0.01 dB, on a game's song
+/// driven hard and on the nasty inputs; the finer 8x meter sees what
+/// BS.1770's short filter lets through above about 18 kHz (the engine's
+/// waves are not band-limited), each case held to what it measured when
+/// this was written (a little over): the song -0.034 dBTP, under full
+/// scale; squares, pulses and many voices +0.1 to +0.27, full-scale noise
+/// +1.7. A new ceiling while it plays is taken at once.
+#[test]
+fn a_ceiling_a_tenth_under_full_scale_holds() {
+    const AT: f64 = -0.1;
+    let finer_allows = [
+        ("a game's song driven 12 dB", 0.0),
+        ("full-scale square", 0.2),
+        ("fs/4 sine at 45 degrees", -0.05),
+        ("48 loud voices", 0.35),
+        ("DC-heavy pulse", 0.15),
+        ("silence then an impulse", -0.05),
+        ("20 Hz sine at +6 dBFS", -0.05),
+        ("full-scale noise", 1.8),
+    ];
+    let inputs = std::iter::once(("a game's song driven 12 dB", a_driven_song())).chain(nasty_inputs());
+    for ((name, mut input), (named, allowed)) in inputs.zip(finer_allows) {
+        assert_eq!(name, named);
+        input.extend(std::iter::repeat_n(0.0, RATE as usize / 5));
+        let mut lim = Limiter::new(RATE);
+        lim.set_ceiling_db(AT);
+        let mut out = input.clone();
+        lim.process_interleaved_stereo(&mut out);
+        let (bs1770, fine) = (db_tp(true_peak_stereo(&out)), db_tp(meter_8x(&out)));
+        println!("{name:<28} out: BS.1770 {bs1770:+7.3}, 8x {fine:+7.3} dBTP, at a ceiling of {AT}");
+        assert!(bs1770 <= AT + 0.01, "{name}: {bs1770:.3} dBTP by the BS.1770 meter");
+        assert!(fine <= allowed, "{name}: {fine:.3} dBTP by the 8x meter, {allowed} allowed");
+    }
+    // Set while it plays: from -1 to -6 dBTP, a hot sine follows down.
+    let mut lim = Limiter::new(RATE);
+    let mut out = stereo_sine(1.0, 997.0, 1.0, 1.0);
+    lim.process_interleaved_stereo(&mut out);
+    lim.set_ceiling_db(-6.0);
+    let mut after = stereo_sine(1.0, 997.0, 1.0, 1.0);
+    lim.process_interleaved_stereo(&mut after);
+    let settled = &after[RATE as usize..];
+    assert!((db_tp(true_peak_stereo(settled)) - -6.0).abs() < 0.05, "{:.3}", db_tp(true_peak_stereo(settled)));
+    assert_eq!(lim.options().ceiling_db_tp, -6.0);
+}
+
 

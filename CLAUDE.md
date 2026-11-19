@@ -568,7 +568,13 @@ nearest; its replay `tests/two_ships`);
 - Hear without playing: `cargo run --release -- sounds <game>` (every sound
   in a row; `--list` says each one's file or that it is built in, its
   length and peak) and `-- music <game>` (the song; or `-- music FILE.mml`, one
-  song) write WAVs to `shots/`. You
+  song) write WAVs to `shots/`, through the limiter as the game plays
+  them: its `c.audio.drive` and `c.audio.ceiling` (the limiter's
+  ceiling in dB true peak, -6 to 0, -1 unless set, live as the drive;
+  BS.1770's 4x meter holds it to 0.01 dB, a finer 8x meter sees up to a
+  few tenths more on hard-edged waves, test
+  `a_ceiling_a_tenth_under_full_scale_holds`); a song file alone at the
+  engine's defaults, which it says. You
   cannot listen: check them as a spectrogram (numpy + PIL), and the
   printed lengths, peaks and channel-length warnings. `shot` prints which
   sounds a run made.
