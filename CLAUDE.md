@@ -1146,7 +1146,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   and `music` (the game's own song, `music:play`, and its clock: a step
   every tick the game goes, hit stop too, `on_beat` before `on_tick`,
   `music.beat`, `music.bar`; `lua::host::Music`, in the snapshot, and in
-  the hash and the fingerprint (the songs' `#tempo`, `#meter`) of a game
+  the hash and the fingerprint (the songs' `#tempo`, `#meter`, a
+  `#loop` where one has it) of a game
   whose code names `music` or `on_beat`, `Game::uses_music`; the audio
   follows it, `Session::feed_music`, `music::Player::follow`;
   `music.intensity` the game's tension, which a song's layers follow,
@@ -1458,8 +1459,20 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
 - Music is MML (`src/audio/music/`: `song.rs` `Song`, `Instrument`,
   `Timing`; `parse.rs` MML to `Song`, refusing an empty song, a channel
   with no notes and a non-letter channel; `player.rs` `Player`, voices,
-  sidechain, bus; `mix.rs` `Glide`, `Mix`, `muffle_cutoff`; `tests.rs`), text so the user and agents can
-  write it. MIDI comes in through `tools/midi2mml.py` and an import file
+  sidechain, bus; `mix.rs` `Glide`, `Mix`, `muffle_cutoff`; `tests.rs`,
+  `loop_tests.rs`), text so the user and agents can
+  write it. `#loop 33 80` (the owner's, 2026-11-20: songs with 32 bars
+  of intro and outro for mixing) plays a song from its start once, then
+  bars 33 to 80 round and round (counted from 1, both in; `#loop 33` to
+  the end; `#loop no` once), the rest never reached; a note held over
+  the loop's end is cut there as at a song's end (`Song::span`, its ends
+  `LOOP_SLACK` samples before the bar lines so a note on the line, a sum
+  of lengths, is never a sample off; `Player::within` folds a place
+  into the song); the game's clock counts on through it as through a
+  whole song going round, the audio folding the clock's place into the
+  loop (test `the_audio_keeps_with_the_clock_round_a_loop`); `voxcade
+  music` writes such a song to the loop's end and round into its first
+  four bars again, the seam in the file (`Song::once`), and says where. MIDI comes in through `tools/midi2mml.py` and an import file
   (`games/moreblood/music/end_boss.import.toml`); the user makes music
   in Suno (Pro) and exports MIDI or audio stems. Audio stems go through
   `tools/audio2midi.py` first (the tempo must be known, e.g. from the zip's

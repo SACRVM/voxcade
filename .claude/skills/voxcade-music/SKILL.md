@@ -192,6 +192,18 @@ in the room, the muffle back up in the hall behind the door. Only heard
 (no replay changes with it); a film of a replay carries it. Checked by
 measurement in `lua::tests::the_music_sounds_as_the_game_asks`.
 
+A loop of its own: `#loop 33 80` in a song plays it from its start once,
+then bars 33 to 80 (counted from 1, both in, `#meter` beats each) round
+and round, what lies after bar 80 never reached: a song made with 32
+bars of intro and outro for mixing plays its middle in the game.
+`#loop 33` goes round from bar 33 to the end, `#loop no` plays it once.
+A note still held as bar 80 ends is cut there (as at a song's end), so
+end the loop's last bar with its notes let go. The game's beats count
+on through the loop (`music.beat`, `on_beat`), as through a whole song
+going round. `voxcade music FILE.mml` writes such a song to the loop's
+end and round into its first four bars again, and says where the seam
+is: look at the seam there (`spectro.py`), and let the user listen.
+
 Layers by tension: `#layer D C 0.35` in a song puts channels in a layer
 that sounds while the game's `music.intensity` (0..1, 1 unless set) is at
 least 0.35, fading in and out over a bar. `compose.py` writes them with

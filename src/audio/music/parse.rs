@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result, bail};
 
-use super::song::{FilterMode, Instrument, Note, Song};
+use super::song::{self, FilterMode, Instrument, Note, Song};
 use super::voice::{self, Sing, Syllable};
 use super::{SAMPLE_RATE, Wave, words};
 
@@ -19,6 +19,9 @@ const MOST_REPEATS: f32 = 999.0;
 const TEMPOS: (f32, f32) = (1.0, 999.0);
 const LENGTHS: (f32, f32) = (1.0, 192.0);
 const OCTAVES: (i32, i32) = (0, 9);
+/// Samples a loop's ends lie before its bar lines (`#loop`): a note on the
+/// bar line, its start a sum of lengths, may lie a sample before it.
+const LOOP_SLACK: u64 = 2;
 
 /// Frequency of a note: octave 4's A is 440 Hz.
 pub(super) fn note_freq(octave: i32, semitone: i32) -> f32 {
@@ -462,6 +465,9 @@ pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
     let mut tempo = 120.0;
     let mut meter = 4;
     let mut looping = true;
+    // `#loop`: its bars, and its line once given.
+    let mut round: Option<(u32, Option<u32>)> = None;
+    let mut loop_line: Option<usize> = None;
     let mut layered: Vec<(char, f32)> = Vec::new();
     let mut instruments = Vec::new();
     let mut names = HashMap::new();
@@ -502,7 +508,27 @@ pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
                     let beats = value.trim().split('/').next().unwrap_or("");
                     meter = beats.trim().parse::<u32>().ok().filter(|&n| n > 0).with_context(|| format!("{}: #meter is the beats in a bar, like 4 or 3/4", at()))?;
                 }
-                "loop" => looping = !matches!(value.trim(), "no" | "off" | "false"),
+                "loop" => {
+                    if loop_line.is_some() {
+                        bail!("{}: #loop is given twice (a song takes one)", at());
+                    }
+                    loop_line = Some(n + 1);
+                    let wrong = || format!("{}: #loop is the bars that go round, whole numbers from 1: like 33 80, or 33 (from bar 33 to the end), or no (it plays once); not '{}'", at(), value.trim());
+                    let bar = |w: &str| -> Result<u32> {
+                        match w.parse::<u32>() {
+                            Ok(0) => bail!("{}: #loop: bars count from 1 (the song's first), not 0", at()),
+                            Ok(b) => Ok(b),
+                            Err(_) => bail!(wrong()),
+                        }
+                    };
+                    match value.split_whitespace().collect::<Vec<_>>().as_slice() {
+                        [] | ["yes" | "on" | "true"] => {}
+                        ["no" | "off" | "false"] => looping = false,
+                        [from] => round = Some((bar(from)?, None)),
+                        [from, to] => round = Some((bar(from)?, Some(bar(to)?))),
+                        _ => bail!(wrong()),
+                    }
+                }
                 "inst" | "instrument" => bail!("{}: an instrument is written @name options, like @lead square duty=0.25 (not #{key})", at()),
                 other => bail!("{}: unknown #{other}", at()),
             }
@@ -574,5 +600,24 @@ pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
         bail!("#layer names channel {c}, which plays nothing");
     }
     let layers = letters.iter().map(|c| layered.iter().rev().find(|(l, _)| l == c).map_or(0.0, |(_, f)| *f)).collect();
-    Ok(Song { title, tempo, meter, layers, names: letters, instruments, channels, segments, length, looping })
+    // Bars begun (a sum of note lengths a sample short of a bar line
+    // begins none more).
+    let bar = f64::from(meter) * 60.0 / f64::from(tempo) * SAMPLE_RATE as f64;
+    let bars = (length.saturating_sub(LOOP_SLACK) as f64 / bar).ceil().clamp(1.0, f64::from(u32::MAX)) as u32;
+    let mut span = (0, length);
+    if let Some((from, to)) = round {
+        let line = loop_line.unwrap_or(0);
+        for b in std::iter::once(from).chain(to) {
+            if b > bars {
+                bail!("line {line}: #loop: bar {b} is past the song's end (it has {bars} bar{})", if bars == 1 { "" } else { "s" });
+            }
+        }
+        if let Some(to) = to.filter(|&to| to < from) {
+            bail!("line {line}: #loop from bar {from} to bar {to}: the first bar comes first (like #loop {to} {from})");
+        }
+        // A note held over the loop's end is cut there, as at a song's end.
+        let end = to.map_or(length, |to| song::bar_start(tempo, meter, to + 1).saturating_sub(LOOP_SLACK));
+        span = (song::bar_start(tempo, meter, from).saturating_sub(LOOP_SLACK), end);
+    }
+    Ok(Song { title, tempo, meter, layers, names: letters, instruments, channels, segments, length, looping, round, span, bars })
 }

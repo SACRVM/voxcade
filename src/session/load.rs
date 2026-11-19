@@ -214,7 +214,13 @@ impl<G: Game> Session<G> {
         files.extend(self.game.code());
         // A game that reads or picks its music: the songs' beats.
         if self.game.uses_music() {
-            let beats: String = self.songs.iter().map(|t| format!("{} {} {}\n", t.name, t.tempo, t.meter)).collect();
+            // `#loop` only where a song has one, so the others stay as they were.
+            let looped = |t: &audio::music::Timing| match t.round {
+                None => String::new(),
+                Some((from, None)) => format!(" loop {from}"),
+                Some((from, Some(to))) => format!(" loop {from} {to}"),
+            };
+            let beats: String = self.songs.iter().map(|t| format!("{} {} {}{}\n", t.name, t.tempo, t.meter, looped(t))).collect();
             files.push(("music".into(), beats.into_bytes()));
         }
         Ok(files)

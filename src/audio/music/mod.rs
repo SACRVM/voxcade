@@ -33,6 +33,15 @@
 //! unless a game sets it) is at least 0.35, fading in and out over a bar;
 //! a channel in no layer always sounds.
 //!
+//! A song goes round whole when it ends, unless `#loop` says otherwise:
+//! `#loop 33 80` plays it from its start once, then bars 33 to 80 (counted
+//! from 1, both in, `#meter` beats of `#tempo` each) round and round, what
+//! lies after bar 80 never reached (an outro for mixing); `#loop 33` goes
+//! round from bar 33 to the song's end; `#loop no` plays it once. A note
+//! still sounding as the loop's last bar ends is cut there, as at a song's
+//! end. A game's clock counts on through the loop as through a whole
+//! song going round (`music.beat`, `music.bar`).
+//!
 //! Instrument options: a wave (`square saw triangle sine noise`), `duty`,
 //! `pwm` and `pwm_speed` (pulse width wobble), `attack` `decay` `sustain`
 //! (a level 0..1) `release`, `vibrato` `vibrato_speed` `vibrato_delay`,
@@ -73,6 +82,8 @@
 //! `music:muffle`): a part of its loudness and a low-pass over the whole
 //! song, as through a wall (`Mix`), each gliding to what the game asked.
 
+#[cfg(test)]
+mod loop_tests;
 mod mix;
 mod parse;
 mod player;

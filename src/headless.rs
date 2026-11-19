@@ -1693,6 +1693,12 @@ pub fn music<G: Game>(dir: &Path, out: &Path, seconds: Option<f32>) -> Result<()
     song(&dir.join(&file), Some((game.cfg.audio.music_volume, game.cfg.audio.drive)), out, seconds)
 }
 
+/// Seconds as a clock shows them: 2:40.0.
+fn clock(seconds: f32) -> String {
+    let tenths = (seconds * 10.0).round() as u64;
+    format!("{}:{:02}.{}", tenths / 600, tenths / 10 % 60, tenths % 10)
+}
+
 /// What `voxcade music` calls a song: its `#title`, else its file's name.
 fn song_name(title: &str, file: &Path) -> String {
     if title.trim().is_empty() { file.file_name().map_or_else(|| file.display().to_string(), |n| n.to_string_lossy().into_owned()) } else { title.to_string() }
@@ -1714,6 +1720,13 @@ pub fn song(file: &Path, game: Option<(f32, f32)>, out: &Path, seconds: Option<f
     }
     let defaults = crate::config::AudioConfig::default();
     let (volume, drive) = game.unwrap_or((defaults.music_volume, defaults.drive));
+    // A song with `#loop`: written to its loop's end and round into its
+    // first bars again, so the seam is in the file.
+    if let (Some((from, to)), Some((start, end)), None) = (song.round, song.round_seconds(), seconds) {
+        let again = (to.unwrap_or(song.bars) + 1 - from).min(4);
+        let to = to.map_or_else(|| "the song's end".to_string(), |to| format!("bar {to}"));
+        println!("the loop: bar {from} ({}) to {to} ({}); written to there and round again into its first {again} bar{}: the seam at {}", clock(start), clock(end), if again == 1 { "" } else { "s" }, clock(end));
+    }
     let samples = crate::audio::music::Player::new(song, volume).render(seconds);
     let (limited, said) = limit(&samples, 2, drive);
     write_wav(out, &limited, 2)?;
