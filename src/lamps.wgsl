@@ -281,9 +281,9 @@ fn solid_holds(k: u32, c: vec3<i32>) -> bool {
 
 // Whether a voxel of the solid `k` lies on the way from `lamp` along `dir`
 // (in the level's voxels) up to `len`: the way taken into the solid's grid
-// and walked through its cells as `walk` walks the level's, closed between
-// two of them touching only at an edge. The lamp in it (a car's headlight
-// in its body) leaves it first (HOUSING).
+// and walked through its cells a cell a step, closed between two of them
+// touching only at an edge as `walk` closes the level's. The lamp in it (a
+// car's headlight in its body) leaves it first (HOUSING).
 fn solid_stops(k: u32, lamp: vec3<f32>, dir: vec3<f32>, len: f32) -> bool {
     let m = mover_solids[k];
     let r = m.to_grid;
@@ -299,7 +299,9 @@ fn solid_stops(k: u32, lamp: vec3<f32>, dir: vec3<f32>, len: f32) -> bool {
     // In its housing while the walk has met nothing but what holds it.
     var housed = t <= 0.0;
     let ahead = select(vec3<i32>(-1), vec3<i32>(1), d > vec3<f32>(0.0));
-    for (var i = 0; i < MOST_STEPS; i += 1) {
+    // A cell a step: past the grid's cells along every axis, which no way
+    // reaches, stopped.
+    for (var i = 0; i < size.x + size.y + size.z + 3; i += 1) {
         if (t >= end) {
             return false;
         }
@@ -324,7 +326,7 @@ fn solid_stops(k: u32, lamp: vec3<f32>, dir: vec3<f32>, len: f32) -> bool {
         }
         t = max(out, t) + 0.001;
     }
-    return false;
+    return true;
 }
 
 // Whether a moving thing (render::movers) stands between the lamp at
@@ -405,8 +407,6 @@ fn leave_solid(origin: vec3<f32>, dir: vec3<f32>, most: f32) -> f32 {
     return -1.0;
 }
 
-// How many cells a way looks at most: one longer is taken as clear.
-const MOST_STEPS: i32 = 256;
 // The lamp sitting in its own housing (a lantern's frame, the bulb's
 // socket): its way begins where it first leaves the solid voxels it sits
 // in, at most this many voxels on (deeper in, it is buried and lights
@@ -418,8 +418,12 @@ const RIM: f32 = 2.0;
 
 // Whether a solid voxel lies on the way from the lamp at `lamp` to the
 // middle of the cell `cell` (in front of a face): walked through the cells,
-// past empty space by the coarser copies (up a copy after each empty
-// cell, down one into a cell holding anything).
+// past empty space by the coarser copies, begun at the copy whose cells are
+// about as long as the way; down a copy into a cell holding anything, up
+// one only once out of the cell above the one just left (back into a cell
+// found solid, a way grazing a floor went down and up again at every voxel
+// and took two steps a voxel). Its steps are bounded by its cells, twice
+// those along it at copy 0: past them, which no way reaches, stopped.
 fn walk(cell: vec3<i32>, off: u32, lamp_at: vec3<f32>) -> bool {
     // From the volume's low corner, as its cells are.
     let to = vec3<f32>(cell - lamps.origin.xyz) + vec3<f32>(0.5);
@@ -444,8 +448,9 @@ fn walk(cell: vec3<i32>, off: u32, lamp_at: vec3<f32>) -> bool {
     let inv = 1.0 / dir;
     let top = lamps.dims.w - 1;
     var t = begin;
-    var level = top;
-    for (var i = 0; i < MOST_STEPS; i += 1) {
+    var level = clamp(i32(floor(log2(max(end - begin, 1.0)))), 0, top);
+    let most = 2 * i32(abs(d.x) + abs(d.y) + abs(d.z)) + 4 * top + 8;
+    for (var i = 0; i < most; i += 1) {
         if (t >= end) {
             return false;
         }
@@ -479,10 +484,14 @@ fn walk(cell: vec3<i32>, off: u32, lamp_at: vec3<f32>) -> bool {
                 }
             }
             t = max(out, t) + 0.001;
-            level = min(level + 1, top);
+            // Out of the cell above through a face it crosses: the far one
+            // of its two cells that way (odd going up, even going down).
+            if (level < top && any(tied & (((c & vec3<i32>(1)) == vec3<i32>(1)) == (dir > vec3<f32>(0.0))))) {
+                level += 1;
+            }
         }
     }
-    return false;
+    return true;
 }
 
 // The faces' memory of what stops lamps: entries of two words (as many as

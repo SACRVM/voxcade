@@ -1828,6 +1828,69 @@ fn a_lamp_new_to_the_faces_memory_is_asked_for_first() {
     assert!(moved == fresh, "the same picture as a renderer drawing it the first time");
 }
 
+/// On the GPU: a lamp half a voxel over a long slab, 136 voxels from a
+/// wall 4 thick, lights none of the slab behind the wall, nor the fog's
+/// beam there: a way grazing a surface walks it to the wall. Until
+/// 2026-11-19 such a way went down a copy into the coarse cell holding the
+/// slab and up again at every voxel, two steps a voxel, and past its 256
+/// steps was taken as clear: the slab behind the wall was lit.
+#[test]
+fn a_way_grazing_a_long_surface_still_meets_the_wall() {
+    let mut world = crate::sim::tests::flat_world(IVec3::new(320, 64, 24));
+    for x in 4..316 {
+        for y in 16..48 {
+            if !(150..154).contains(&x) {
+                world.set_raw(IVec3::new(x, y, 4), 1);
+            }
+        }
+    }
+    for x in 150..154 {
+        for y in 0..64 {
+            for z in 1..24 {
+                world.set_raw(IVec3::new(x, y, z), 1);
+            }
+        }
+    }
+    let mut cfg = GameConfig::default();
+    cfg.light.ambient = 0.05;
+    cfg.light.sun_color = [0.05; 3];
+    cfg.camera.view_width = 100.0;
+    cfg.camera.pitch = 70.0;
+    let mut game = game_on(world, cfg);
+    game.game.sim_mut().cam_target = Vec3::new(176.0, 32.0, 5.0);
+    game.game.sim_mut().cam_prev = Vec3::new(176.0, 32.0, 5.0);
+    let (w, h) = LampScene::SIZE;
+    let mut canvas = crate::headless::Canvas::new(w, h, false).unwrap();
+    canvas.mesh_world(game.world_mut(), &[true; 6]);
+    let lamp = crate::render::Light::lamp(Vec3::new(14.5, 32.5, 5.5), 300.0, [2.0; 3], &crate::render::LightShape::default(), |w| w).stated(crate::render::LampShadows::Static);
+    let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(320.0, 64.0, 24.0), scale: 2, thin: false };
+    let mut picture = |lights: &[crate::render::Light], fog: Option<crate::render::Fog>| {
+        let mut f = game.frame(1.0, w as f32 / h as f32);
+        (f.lights, f.lamp_world, f.fog) = (lights.to_vec(), Some(game.game.sim().world.clone()), fog);
+        let pixels = canvas.draw(&f).unwrap();
+        (f, pixels)
+    };
+    let (f, dark) = picture(&[], None);
+    let (_, lit) = picture(&[lamp], None);
+    let (_, fog_dark) = picture(&[], Some(fog));
+    let (_, fog_lit) = picture(&[lamp], Some(fog));
+    if let Ok(dir) = std::env::var("VOXCADE_DUMP") {
+        crate::headless::write_png(&std::path::Path::new(&dir).join("grazing.png"), w, h, &lit).unwrap();
+        crate::headless::write_png(&std::path::Path::new(&dir).join("grazing_fog.png"), w, h, &fog_lit).unwrap();
+    }
+    // The slab's top behind the wall, along the lamp's line and beside it.
+    let at = |p: &[u8], x: f32, y: f32| {
+        let c = f.view_proj.project_point3(Vec3::new(x, y, 5.0));
+        let (px, py) = (((c.x + 1.0) * 0.5 * w as f32) as i32, ((1.0 - c.y) * 0.5 * h as f32) as i32);
+        let i = ((py * w as i32 + px) * 4) as usize;
+        p[i..i + 3].iter().map(|&c| c as f32).sum::<f32>()
+    };
+    for (x, y) in [(160.5, 32.5), (176.5, 32.5), (200.5, 32.5), (176.5, 24.5), (190.5, 40.5)] {
+        assert!(at(&lit, x, y) <= at(&dark, x, y) + 2.0, "the slab behind the wall at ({x}, {y}) lit: {} against {}", at(&lit, x, y), at(&dark, x, y));
+        assert!(at(&fog_lit, x, y) <= at(&fog_dark, x, y) + 2.0, "the beam behind the wall at ({x}, {y}): {} against {}", at(&fog_lit, x, y), at(&fog_dark, x, y));
+    }
+}
+
 /// On the GPU: a lamp lights no floor behind a diagonal wall a voxel thin
 /// (a line of voxels touching only at their edges): its walk passing
 /// exactly through such an edge is closed, as the faces either side close
