@@ -1555,6 +1555,30 @@ fn a_wall_stops_a_lamp_and_shadows_false_does_not() {
     }
 }
 
+/// On the GPU: a lamp flush with a wall's face (a wall 4 thick) lights its
+/// own side and none of the room behind; a lamp in its housing (a solid box
+/// of 3 round it) still shines out of it on every side. Until 2026-11-19
+/// each way left the solid voxels on its own, a way into the wall through
+/// it to the floor behind.
+#[test]
+fn a_lamp_flush_with_a_wall_lights_its_own_side_only() {
+    let wall = (20..76).flat_map(|y| (48..52).flat_map(move |x| (1..16).map(move |z| IVec3::new(x, y, z))));
+    let lantern = (24..27).flat_map(|x| (47..50).flat_map(move |y| (5..8).map(move |z| IVec3::new(x, y, z))));
+    let mut s = LampScene::of(wall.chain(lantern));
+    let lamp = |at: Vec3| crate::render::Light::lamp(at, 30.0, [2.0; 3], &crate::render::LightShape::default(), |w| w).stated(crate::render::LampShadows::Static);
+    let (f, dark) = s.picture(&[], true);
+    let (_, flush) = s.picture(&[lamp(Vec3::new(48.0, 60.5, 6.0))], true);
+    let floor = |p: &[u8], x: f32, y: f32| LampScene::floor_at(&f, p, x, y);
+    assert!(floor(&flush, 44.5, 60.5) > floor(&dark, 44.5, 60.5) + 60.0, "its own side lit: {} against {}", floor(&flush, 44.5, 60.5), floor(&dark, 44.5, 60.5));
+    for y in [56.5, 60.5, 64.5] {
+        assert!(floor(&flush, 54.5, y) <= floor(&dark, 54.5, y) + 2.0, "behind the wall at y {y} dark: {} against {}", floor(&flush, 54.5, y), floor(&dark, 54.5, y));
+    }
+    let (_, housed) = s.picture(&[lamp(Vec3::new(25.5, 48.5, 6.5))], true);
+    for (x, y) in [(18.5, 48.5), (32.5, 48.5), (25.5, 41.5), (25.5, 55.5)] {
+        assert!(floor(&housed, x, y) > floor(&dark, x, y) + 40.0, "out of its housing at ({x}, {y}): {} against {}", floor(&housed, x, y), floor(&dark, x, y));
+    }
+}
+
 /// On the GPU: a spot lights its cone only (straight down here, the floor
 /// under it lit, beside its cone dark, where a round lamp lights it), and
 /// a falloff of its own reaches further bright.
@@ -1712,6 +1736,128 @@ fn the_lamps_memory_grows_until_the_beams_fit() {
     assert!(!s.canvas.grow_lamps().unwrap(), "it fits");
 }
 
+/// On the GPU: what the GPU cannot give the lamps (`render::lamps::made`,
+/// refused here as a GPU out of memory would) is said once and the picture
+/// drawn without it: a memory that cannot grow stays as it was (the
+/// picture the same), walls that cannot be had let the lamps shine
+/// through, moving things without room stop no lamp. wgpu's default for
+/// such a mistake ended the program.
+#[test]
+fn what_the_gpu_cannot_give_the_lamps_is_said_and_drawn_without() {
+    use crate::render::{LampShadows, Light, LightShape, REFUSED};
+    let refuse = |on: bool| REFUSED.with(|r| r.set(on));
+    // The memory: 16 lamps in fog grow it; refused, it stays.
+    let mut s = LampScene::new();
+    let lamps: Vec<_> = (0..16).map(|i| Light::lamp(Vec3::new(10.5 + (i % 4) as f32 * 24.0, 10.5 + (i / 4) as f32 * 24.0, 12.0), 90.0, [0.5; 3], &LightShape::default(), |w| w).stated(LampShadows::Static)).collect();
+    let fog = crate::render::Fog { density: 0.02, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 4, thin: false };
+    let frame = |s: &mut LampScene, lights: &[Light], fogged: bool| {
+        let (w, h) = LampScene::SIZE;
+        let mut f = s.game.frame(1.0, w as f32 / h as f32);
+        (f.lights, f.lamp_world, f.fog) = (lights.to_vec(), Some(s.game.game.sim().world.clone()), fogged.then_some(fog));
+        f
+    };
+    let f = frame(&mut s, &lamps, true);
+    let first = s.canvas.draw(&f).unwrap();
+    let held = s.canvas.stats().memory_bytes;
+    assert!(s.canvas.grow_lamps().unwrap(), "it would grow");
+    refuse(true);
+    let again = s.canvas.draw(&f).unwrap();
+    refuse(false);
+    let said = s.canvas.warnings();
+    assert!(said.iter().any(|w| w.contains("could not give their memory") && w.contains("it stays at")), "{said:?}");
+    assert_eq!(s.canvas.stats().memory_bytes, held, "kept as it was");
+    assert!(again == first, "the picture the same");
+    assert!(!s.canvas.grow_lamps().unwrap(), "grown no further");
+    // The walls: another level (here its palette) needs a volume anew;
+    // refused, the lamp's light goes through the wall.
+    let mut s = LampScene::new();
+    let lamp = Light::lamp(Vec3::new(40.5, 48.5, 6.0), 30.0, [2.0; 3], &LightShape::default(), |w| w).stated(LampShadows::Static);
+    let (_, dark) = s.picture(&[], true);
+    let (f, near) = s.picture(&[lamp], true);
+    let behind = |p: &[u8]| LampScene::floor_at(&f, p, 52.5, 48.5);
+    assert!(behind(&near) < behind(&dark) + 3.0, "the wall stops it");
+    refuse(true);
+    let (w, h) = LampScene::SIZE;
+    let mut other = s.game.frame(1.0, w as f32 / h as f32);
+    (other.lights, other.lamp_world) = (vec![lamp], Some(s.game.game.sim().world.clone()));
+    other.lamp_world.as_mut().expect("walls given").palette[9] = [10, 10, 10, 255];
+    let through = s.canvas.draw(&other).unwrap();
+    refuse(false);
+    let said = s.canvas.warnings();
+    assert!(said.iter().any(|w| w.contains("could not give their walls") && w.contains("shine through")), "{said:?}");
+    assert!(behind(&through) > behind(&near) + 20.0, "through the wall: {} against {}", behind(&through), behind(&near));
+    // The moving things: a post of 196 cubes needs more room than the
+    // first 64; refused, they stop no lamp (the floor behind lit), where a
+    // row of 28 of them did.
+    let mut s = LampScene::of([]);
+    let spot = Light::lamp(Vec3::new(28.5, 48.5, 6.0), 40.0, [2.0; 3], &LightShape { cone: Some(60.0), rotation: 90.0, pitch: -10.0, ..Default::default() }, |w| w).stated(LampShadows::All);
+    let cube = |x: i32, y: i32, z: i32| {
+        let mut fx = [0u8; 4];
+        fx[crate::render::FX_OPACITY] = 255;
+        crate::render::Instance { pos_size: [x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5, 1.0], color: [90, 90, 90, 255], fx, shade: [0; 4], turn: [0; 4] }
+    };
+    let post: Vec<_> = (36..38).flat_map(|x| (45..52).flat_map(move |y| (1..15).map(move |z| (x, y, z)))).map(|(x, y, z)| cube(x, y, z)).collect();
+    let picture = |s: &mut LampScene, cubes: &[crate::render::Instance]| {
+        let (w, h) = LampScene::SIZE;
+        let mut f = s.game.frame(1.0, w as f32 / h as f32);
+        (f.lights, f.lamp_world) = (vec![spot], Some(s.game.game.sim().world.clone()));
+        f.instances.extend(cubes.iter().copied());
+        let pixels = s.canvas.draw(&f).unwrap();
+        (f, pixels)
+    };
+    let (f, open) = picture(&mut s, &[]);
+    let row: Vec<_> = post.iter().filter(|c| c.pos_size[1] == 48.5).copied().collect();
+    let (_, one) = picture(&mut s, &row);
+    refuse(true);
+    let (_, all) = picture(&mut s, &post);
+    refuse(false);
+    let said = s.canvas.warnings();
+    assert!(said.iter().any(|w| w.contains("could not give the moving things") && w.contains("stop no lamp")), "{said:?}");
+    let behind = |p: &[u8]| LampScene::floor_at(&f, p, 43.5, 48.5);
+    assert!(behind(&one) < behind(&open) - 20.0, "a row of them in their room stops it: {} against {}", behind(&one), behind(&open));
+    assert!((behind(&all) - behind(&open)).abs() < 3.0, "without room, the post stops no lamp: {} against {}", behind(&all), behind(&open));
+}
+
+/// On the GPU: the lamps' memory starts at a quarter of the picture's
+/// pixels (512 KB here; room for the fog's beams' points up front made it
+/// 8 MB), and everything of the lamps is let go after `LET_GO` pictures
+/// in a row without their pass (a level without lamps, the title), not
+/// while a lamp flickers on and off; drawn again after, the picture is the
+/// same.
+#[test]
+fn the_lamps_memory_starts_small_and_is_let_go() {
+    let mut s = LampScene::new();
+    let lamp = crate::render::Light::lamp(Vec3::new(40.5, 48.5, 6.0), 30.0, [2.0; 3], &crate::render::LightShape::default(), |w| w).stated(crate::render::LampShadows::Static);
+    let fog = crate::render::Fog { density: 0.02, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 2, thin: true };
+    let frame = |s: &mut LampScene, on: bool| {
+        let (w, h) = LampScene::SIZE;
+        let mut f = s.game.frame(1.0, w as f32 / h as f32);
+        if on {
+            (f.lights, f.fog) = (vec![lamp], Some(fog));
+        }
+        f.lamp_world = Some(s.game.game.sim().world.clone());
+        f
+    };
+    let f = frame(&mut s, true);
+    let first = s.canvas.draw(&f).unwrap();
+    assert_eq!(s.canvas.stats().memory_bytes, (1 << 16) * 8 + 8, "a quarter of the pixels, at least 2^16, and its two counts");
+    // On for 100 pictures, off for 100, on at last: kept.
+    for k in 0..crate::render::LET_GO as usize * 2 + 1 {
+        let f = frame(&mut s, k / 100 % 2 == 0);
+        s.canvas.render(&f);
+    }
+    assert!(s.canvas.lamps_held(), "a lamp flickering on and off keeps it");
+    let f = frame(&mut s, false);
+    for _ in 0..crate::render::LET_GO - 1 {
+        s.canvas.render(&f);
+    }
+    assert!(s.canvas.lamps_held(), "kept until LET_GO pictures without");
+    s.canvas.render(&f);
+    assert!(!s.canvas.lamps_held(), "let go");
+    let f = frame(&mut s, true);
+    assert!(s.canvas.draw(&f).unwrap() == first, "drawn again, the same picture");
+}
+
 /// On the GPU: a higher `fog_glow` never makes a beam fainter, near its
 /// lamp nor at its far end (the beams once took their own light by the
 /// density times the glow: seen through some air a glow of 4 made them
@@ -1826,6 +1972,76 @@ fn a_lamp_new_to_the_faces_memory_is_asked_for_first() {
     assert_eq!(s.canvas.stats().asked, 1, "moved");
     let (_, fresh) = LampScene::new().picture(&[lamp(36.5)], true);
     assert!(moved == fresh, "the same picture as a renderer drawing it the first time");
+    s.picture(&[lamp(36.5)], true);
+    assert_eq!(s.canvas.stats().asked, 0, "it stayed");
+    // The level changed (a voxel set): every answer is walked again, so
+    // the lamp is asked for first again.
+    s.game.game.sim_mut().world.set(IVec3::new(70, 70, 3), 1);
+    s.picture(&[lamp(36.5)], true);
+    assert_eq!(s.canvas.stats().asked, 1, "the walls changed");
+}
+
+/// On the GPU: a lamp half a voxel over a long slab, 136 voxels from a
+/// wall 4 thick, lights none of the slab behind the wall, nor the fog's
+/// beam there: a way grazing a surface walks it to the wall. Until
+/// 2026-11-19 such a way went down a copy into the coarse cell holding the
+/// slab and up again at every voxel, two steps a voxel, and past its 256
+/// steps was taken as clear: the slab behind the wall was lit.
+#[test]
+fn a_way_grazing_a_long_surface_still_meets_the_wall() {
+    let mut world = crate::sim::tests::flat_world(IVec3::new(320, 64, 24));
+    for x in 4..316 {
+        for y in 16..48 {
+            if !(150..154).contains(&x) {
+                world.set_raw(IVec3::new(x, y, 4), 1);
+            }
+        }
+    }
+    for x in 150..154 {
+        for y in 0..64 {
+            for z in 1..24 {
+                world.set_raw(IVec3::new(x, y, z), 1);
+            }
+        }
+    }
+    let mut cfg = GameConfig::default();
+    cfg.light.ambient = 0.05;
+    cfg.light.sun_color = [0.05; 3];
+    cfg.camera.view_width = 100.0;
+    cfg.camera.pitch = 70.0;
+    let mut game = game_on(world, cfg);
+    game.game.sim_mut().cam_target = Vec3::new(176.0, 32.0, 5.0);
+    game.game.sim_mut().cam_prev = Vec3::new(176.0, 32.0, 5.0);
+    let (w, h) = LampScene::SIZE;
+    let mut canvas = crate::headless::Canvas::new(w, h, false).unwrap();
+    canvas.mesh_world(game.world_mut(), &[true; 6]);
+    let lamp = crate::render::Light::lamp(Vec3::new(14.5, 32.5, 5.5), 300.0, [2.0; 3], &crate::render::LightShape::default(), |w| w).stated(crate::render::LampShadows::Static);
+    let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(320.0, 64.0, 24.0), scale: 2, thin: false };
+    let mut picture = |lights: &[crate::render::Light], fog: Option<crate::render::Fog>| {
+        let mut f = game.frame(1.0, w as f32 / h as f32);
+        (f.lights, f.lamp_world, f.fog) = (lights.to_vec(), Some(game.game.sim().world.clone()), fog);
+        let pixels = canvas.draw(&f).unwrap();
+        (f, pixels)
+    };
+    let (f, dark) = picture(&[], None);
+    let (_, lit) = picture(&[lamp], None);
+    let (_, fog_dark) = picture(&[], Some(fog));
+    let (_, fog_lit) = picture(&[lamp], Some(fog));
+    if let Ok(dir) = std::env::var("VOXCADE_DUMP") {
+        crate::headless::write_png(&std::path::Path::new(&dir).join("grazing.png"), w, h, &lit).unwrap();
+        crate::headless::write_png(&std::path::Path::new(&dir).join("grazing_fog.png"), w, h, &fog_lit).unwrap();
+    }
+    // The slab's top behind the wall, along the lamp's line and beside it.
+    let at = |p: &[u8], x: f32, y: f32| {
+        let c = f.view_proj.project_point3(Vec3::new(x, y, 5.0));
+        let (px, py) = (((c.x + 1.0) * 0.5 * w as f32) as i32, ((1.0 - c.y) * 0.5 * h as f32) as i32);
+        let i = ((py * w as i32 + px) * 4) as usize;
+        p[i..i + 3].iter().map(|&c| c as f32).sum::<f32>()
+    };
+    for (x, y) in [(160.5, 32.5), (176.5, 32.5), (200.5, 32.5), (176.5, 24.5), (190.5, 40.5)] {
+        assert!(at(&lit, x, y) <= at(&dark, x, y) + 2.0, "the slab behind the wall at ({x}, {y}) lit: {} against {}", at(&lit, x, y), at(&dark, x, y));
+        assert!(at(&fog_lit, x, y) <= at(&fog_dark, x, y) + 2.0, "the beam behind the wall at ({x}, {y}): {} against {}", at(&fog_lit, x, y), at(&fog_dark, x, y));
+    }
 }
 
 /// On the GPU: a lamp lights no floor behind a diagonal wall a voxel thin
@@ -1937,6 +2153,51 @@ fn a_post_of_turned_cubes_stops_a_lamp_whose_shadows_are_all() {
     assert!(dark < lit - 20.0, "the floor behind the post shaded, {dark} against {lit}");
 }
 
+/// On the GPU: a lamp whose shadows are "all" at a thing (`Light::of`, a
+/// lantern a figure carries, `frame:light{ at = player }`) is not stopped
+/// by that thing's own models: the floor round the figure lit as by a
+/// lamp whose shadows are "static". Another figure still casts its
+/// shadow. The same lamp at no thing was dark round the figure (its own
+/// parts round it stopped it).
+#[test]
+fn a_lamp_a_thing_carries_is_not_stopped_by_it() {
+    use crate::render::{LampShadows, Light, LightShape};
+    let mut s = LampScene::of([]);
+    let mut figure = crate::vvx::read(&std::fs::read_to_string("games/lights/figures/posed.vvx").unwrap()).unwrap();
+    let mut bank = ModelBank::default();
+    bank.add(&mut figure);
+    let bank = std::sync::Arc::new(bank);
+    let drawn = |at: Vec3| {
+        let mut draws = Vec::new();
+        draw(&mut |_, _, _, _, _, _, _| {}, Some(&mut draws), &figure, 0, at, IVec2::NEG_Y, Quat::IDENTITY, &[], None);
+        draws
+    };
+    let (carrier, other) = (drawn(Vec3::new(48.0, 48.0, 1.0)), drawn(Vec3::new(62.0, 48.0, 1.0)));
+    let lamp = |how, of| Light { of, ..Light::lamp(Vec3::new(48.5, 48.5, 10.0), 40.0, [2.0; 3], &LightShape::default(), |w| w).stated(how) };
+    let mut picture = |light: Option<Light>| {
+        let (w, h) = LampScene::SIZE;
+        let mut f = s.game.frame(1.0, w as f32 / h as f32);
+        (f.lights, f.lamp_world, f.bank) = (light.into_iter().collect(), Some(s.game.game.sim().world.clone()), bank.clone());
+        f.models = [carrier.clone(), other.clone()].concat();
+        f.lamp_movers = vec![(Some(7), carrier.clone()), (Some(8), other.clone())];
+        let pixels = s.canvas.draw(&f).unwrap();
+        (f, pixels)
+    };
+    let (f, dark) = picture(None);
+    let (_, still) = picture(Some(lamp(LampShadows::Static, None)));
+    let (_, carried) = picture(Some(lamp(LampShadows::All, Some(7))));
+    let (_, alone) = picture(Some(lamp(LampShadows::All, None)));
+    // The floor round the carrier, but towards the other figure.
+    let round = |p: &[u8]| [(40.5, 48.5), (48.5, 40.5), (48.5, 56.5), (42.5, 42.5), (54.5, 54.5), (42.5, 54.5)].iter().map(|&(x, y)| LampScene::floor_at(&f, p, x, y)).sum::<f32>() / 6.0;
+    let (lit, own, lost, none) = (round(&still), round(&carried), round(&alone), round(&dark));
+    assert!(lit > none + 40.0, "\"static\" lights the floor round the figure: {lit} against {none}");
+    assert!((own - lit).abs() < 2.0, "carried, it lights the floor round its thing as \"static\" does: {own} against {lit}");
+    assert!(lost < lit - 20.0, "at no thing, the figure's own parts stop it: {lost} against {lit}");
+    // Behind the other figure, away from the lamp: in its shadow.
+    let behind = |p: &[u8]| LampScene::floor_at(&f, p, 70.5, 48.5);
+    assert!(behind(&carried) < behind(&still) - 20.0, "the other figure casts its shadow: {} against {}", behind(&carried), behind(&still));
+}
+
 /// On the GPU: a figure of parts turned off the grid under a spot whose
 /// shadows are "all", its arm swept slowly in front of its chest (half a
 /// degree a picture), then the whole figure turning slowly (a quarter
@@ -1999,7 +2260,7 @@ fn a_part_turning_slowly_shades_each_face_once() {
             let mut picture = |lights: Vec<Light>| {
                 let mut f = game.frame(1.0, w as f32 / h as f32);
                 (f.lights, f.lamp_world, f.bank) = (lights, Some(game.game.sim().world.clone()), bank.clone());
-                (f.models, f.lamp_movers) = (draws.clone(), vec![draws.clone()]);
+                (f.models, f.lamp_movers) = (draws.clone(), vec![(None, draws.clone())]);
                 canvas.draw(&f).unwrap()
             };
             let (still, all, dark) = (picture(vec![spot(LampShadows::Static)]), picture(vec![spot(LampShadows::All)]), picture(Vec::new()));

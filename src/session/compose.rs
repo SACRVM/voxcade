@@ -75,6 +75,7 @@ impl<G: Game> Session<G> {
             pieces: Vec::new(),
             gather_movers: false,
             movers: Vec::new(),
+            thing: None,
         }
     }
 
@@ -293,8 +294,7 @@ impl<G: Game> Session<G> {
         // drawn that are not the level's pieces, in view or not, within
         // such a lamp's reach.
         let reaches: Vec<(Vec3, Vec3)> = lights.iter().filter(|l| stopped && l.stopped_by_movers()).map(|l| (l.pos - l.radius, l.pos + l.radius)).collect();
-        let lamp_movers: Vec<Vec<ModelDraw>> =
-            movers.into_iter().filter(|((lo, hi), _)| reaches.iter().any(|(a, b)| lo.cmple(*b).all() && hi.cmpge(*a).all())).map(|(_, d)| d).collect();
+        let lamp_movers: Vec<crate::render::Mover> = movers.into_iter().filter(|((lo, hi), _)| reaches.iter().any(|(a, b)| lo.cmple(*b).all() && hi.cmpge(*a).all())).map(|(_, m)| m).collect();
         let (ui, ui_models, ui_view_proj) = self.ui_of(ui, alpha, aspect);
 
         let fx = &self.cfg.effects;

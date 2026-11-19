@@ -45,9 +45,6 @@ pub struct ShotOptions {
 /// set the GPU up and do not count.
 const TIMED_DRAWS: usize = 8;
 const WARM_UP_DRAWS: usize = 3;
-/// How often a shot lets the lamps' memory grow before it times its
-/// pictures (`Renderer::lamps_now`): each time a part twice as large.
-const MEMORY_GROWTHS: usize = 4;
 
 /// A GPU without a window: frames drawn into a texture and read back
 /// (`shot`, `film`, the editor's `--shot`).
@@ -173,6 +170,12 @@ impl Canvas {
     /// for the next picture (`Renderer::lamps_now`), waiting for the GPU.
     pub(crate) fn grow_lamps(&mut self) -> Result<bool> {
         self.renderer.lamps_now(&self.device, &self.queue)
+    }
+
+    /// Whether the lamps' pass holds anything (`Renderer::lamps_held`).
+    #[cfg(test)]
+    pub(crate) fn lamps_held(&self) -> bool {
+        self.renderer.lamps_held()
     }
 
     /// What the renderer has to say since last asked (`Renderer::warnings`).
@@ -421,13 +424,13 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     let (frame, frame_ms) = shot_frame(&game, &mut menu, &settings, opts, scene, &answered);
     canvas.fit(&mut game);
     // The lamps' memory grown as a window's grows it over its first
-    // seconds (a part found full made twice as large), so the timings are
-    // a picture's after that.
-    let lamps = frame.lamp_world.is_some() && frame.lights.iter().any(|l| l.stopped());
-    for _ in 0..if lamps { MEMORY_GROWTHS } else { 0 } {
+    // seconds (found full, made twice as large) until it is no longer full
+    // or is the most this GPU holds (said then), so the timings are a
+    // picture's after that.
+    if frame.lamp_world.is_some() && frame.lights.iter().any(|l| l.stopped()) {
         canvas.render(&frame);
-        if !canvas.grow_lamps()? {
-            break;
+        while canvas.grow_lamps()? {
+            canvas.render(&frame);
         }
     }
     let gpu = time_passes(&mut canvas, &frame)?;

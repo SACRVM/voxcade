@@ -30,7 +30,9 @@ use pipelines::{Memory, ScenePipelines, Targets};
 pub use baked::Baked;
 pub use bank::{ModelBank, ModelDraw, off_grid, quarter, turn_about, turn_centre, turned_centre};
 pub use cubes::{SeeThroughBody, hide_faces_against, hide_inner_faces, join_by_body, join_see_through, leave_out_unseen, see_through_body, see_through_side};
-pub use frame::{FrameData, Stats};
+pub use frame::{FrameData, Mover, Stats};
+#[cfg(test)]
+pub use lamps::{LET_GO, REFUSED};
 pub use shader::{METAL_SHIFT, METAL_STEPS};
 
 /// Lights a picture lights by the scene's own shader (the shader's
@@ -118,6 +120,10 @@ pub struct Light {
     /// How strongly its light shows in the picture's fog (`Fog`): 1 as
     /// bright as it lights, 0 not at all.
     pub fog: f32,
+    /// The thing it shines from (`frame:light`'s `at` a thing, by
+    /// `Drawing::of_thing`'s key): none of that thing's own voxels stop it,
+    /// as a piece's own voxels stop none of its lights (`render::movers`).
+    pub of: Option<u32>,
 }
 
 /// A spot's way and cone, as the shader takes them: the way it shines
@@ -134,7 +140,7 @@ impl Light {
     /// A flash's or an explosion's light (a kit's): round, falling off as
     /// lights always did, through walls.
     pub fn burst(pos: Vec3, radius: f32, color: [f32; 3]) -> Self {
-        Self { pos, radius, color, falloff: 2.0, spot: None, shadows: Some(LampShadows::None), fog: 1.0 }
+        Self { pos, radius, color, falloff: 2.0, spot: None, shadows: Some(LampShadows::None), fog: 1.0, of: None }
     }
 
     /// A lamp (a level's light, `frame:light`) shaped as `shape` says, its
@@ -145,7 +151,7 @@ impl Light {
             let half = (cone * 0.5).to_radians();
             Spot { way: turn(shape.way()).normalize_or(Vec3::Y), outer: crate::sim::math::cos(half), inner: crate::sim::math::cos(half * (1.0 - shape.blend)) }
         });
-        Self { pos, radius, color, falloff: shape.falloff, spot, shadows: shape.shadows, fog: shape.fog }
+        Self { pos, radius, color, falloff: shape.falloff, spot, shadows: shape.shadows, fog: shape.fog, of: None }
     }
 
     /// Whether the level's voxels and pieces stop it, `game` the game's
@@ -169,6 +175,24 @@ impl Light {
     /// lights are stated.
     pub fn stopped_by_movers(&self) -> bool {
         self.shadows == Some(LampShadows::All)
+    }
+
+    /// The box of what it can light, low and high corner: its ball, a
+    /// spot's cone within it (the apex and the cap of the ball the cone
+    /// cuts: along each way of the axes as far as the cap reaches it), a
+    /// voxel more each way.
+    pub fn bounds(&self) -> (Vec3, Vec3) {
+        let r = self.radius;
+        let Some(s) = self.spot else { return (self.pos - r - 1.0, self.pos + r + 1.0) };
+        let (cos, sin) = (s.outer.clamp(-1.0, 1.0), (1.0 - s.outer.clamp(-1.0, 1.0).powi(2)).sqrt());
+        // How far the cap reaches along a unit way whose cosine with the
+        // axis is `c`: all of the radius where the way lies in the cone,
+        // else as far as the cone's nearest edge goes that way.
+        let reach = |c: f32| if c >= cos { r } else { r * (c * cos + (1.0 - c * c).max(0.0).sqrt() * sin) };
+        let way = s.way.to_array();
+        let hi = Vec3::from_array(way.map(|a| reach(a).max(0.0)));
+        let lo = Vec3::from_array(way.map(|a| reach(-a).max(0.0)));
+        (self.pos - lo - 1.0, self.pos + hi + 1.0)
     }
 }
 
@@ -220,13 +244,17 @@ impl LampShadows {
         }
     }
 
-    /// A word read; the mistake names the words there are.
+    /// What each word means, for a mistake in one.
+    pub const MEANS: &str = "\"none\": it shines through walls, \"static\": the level's voxels and pieces stop it, \"all\": moving things too";
+
+    /// A word read; the mistake names the words there are and what each
+    /// means.
     pub fn read(word: &str) -> Result<Self, String> {
         match word {
             "none" => Ok(Self::None),
             "static" => Ok(Self::Static),
             "all" => Ok(Self::All),
-            other => Err(format!("\"{other}\" is none of {}", Self::list())),
+            other => Err(format!("\"{other}\" is none of {} ({})", Self::list(), Self::MEANS)),
         }
     }
 
@@ -253,7 +281,7 @@ impl<'de> serde::Deserialize<'de> for LampShadows {
         impl serde::de::Visitor<'_> for Words {
             type Value = LampShadows;
             fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "one of {}", LampShadows::list())
+                write!(f, "one of {} ({})", LampShadows::list(), LampShadows::MEANS)
             }
             fn visit_bool<E: serde::de::Error>(self, on: bool) -> Result<LampShadows, E> {
                 Err(E::custom(LampShadows::boolean(on)))

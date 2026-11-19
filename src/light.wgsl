@@ -36,6 +36,14 @@ fn light_on(l: Light, world: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     if (d >= r) {
         return vec3<f32>(0.0);
     }
+    // A spot's cone first: outside it, nothing more to work out.
+    var cone = 1.0;
+    if (l.spot.w > -1.5) {
+        cone = in_cone(l, -to / max(d, 0.001));
+        if (cone <= 0.0) {
+            return vec3<f32>(0.0);
+        }
+    }
     let fall = 1.0 - d / r;
     // Faces turned away still catch a little: a burst lights round it.
     let facing = max(dot(n, to / max(d, 0.001)), 0.0) * 0.75 + 0.25;
@@ -44,7 +52,7 @@ fn light_on(l: Light, world: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
         lit = l.color.rgb * pow(fall, l.color.w) * facing;
     }
     if (l.spot.w > -1.5) {
-        lit *= in_cone(l, -to / max(d, 0.001));
+        lit *= cone;
     }
     return lit;
 }

@@ -475,6 +475,17 @@ fn to_point(lua: &Lua, v: &Value, what: &str) -> mlua::Result<Vec3> {
     }
 }
 
+/// The key of the thing `v` is (`Stage::drawn_key`), if it is one.
+fn thing_key(lua: &Lua, v: &Value) -> mlua::Result<Option<u32>> {
+    match v {
+        Value::UserData(ud) if ud.is::<ThingRef>() => {
+            let id = ud.borrow::<ThingRef>()?.0;
+            look(lua, |h| Ok(Some(h.drawn_key(id))))
+        }
+        _ => Ok(None),
+    }
+}
+
 /// A way on the ground from a table with x and y (or the first two numbers).
 fn to_dir(v: &Value, what: &str) -> mlua::Result<Vec3> {
     let Value::Table(t) = v else { return Err(mlua::Error::runtime(format!("{what}: a way {{x=, y=}}"))) };

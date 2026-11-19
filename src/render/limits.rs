@@ -20,14 +20,16 @@ pub(super) const FULL_AT: u64 = SHADOW_FACES * 3 * 4;
 /// The memory's buffer: its entries and the count after them.
 pub(super) const MEMORY_BYTES: u64 = FULL_AT + 4;
 
-/// How often a window reads the count: every this many pictures.
-const EVERY: u32 = 60;
+/// How often a window reads the faces' memory's count: every this many
+/// pictures.
+pub(super) const EVERY: u32 = 60;
 
 /// The count read back without waiting: copied after a picture, mapped
-/// once that picture was sent, read once mapped.
+/// once that picture was sent, read once mapped; every `every` pictures.
 pub(super) struct FullWatch {
     buffer: wgpu::Buffer,
     state: State,
+    every: u32,
 }
 
 enum State {
@@ -38,17 +40,17 @@ enum State {
 }
 
 impl FullWatch {
-    pub(super) fn new(device: &wgpu::Device) -> Self {
-        Self { buffer: readback(device), state: State::Idle }
+    pub(super) fn new(device: &wgpu::Device, every: u32) -> Self {
+        Self { buffer: readback(device), state: State::Idle, every }
     }
 
     /// A step of reading the count at `at` of `source` without waiting,
-    /// once a frame: copied every `EVERY` pictures (`pictures`, the
+    /// once a frame: copied every `every` pictures (`pictures`, the
     /// renderer's number), mapped a frame later, read when mapped: then
     /// the count.
     pub(super) fn step(&mut self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, source: &wgpu::Buffer, at: u64, pictures: u32) -> Option<u32> {
         match &self.state {
-            State::Idle if pictures.is_multiple_of(EVERY) => {
+            State::Idle if pictures.is_multiple_of(self.every) => {
                 encoder.copy_buffer_to_buffer(source, at, &self.buffer, 0, 4);
                 self.state = State::Copied;
             }

@@ -96,6 +96,11 @@ impl Renderer {
         // the lamps' pass (made the first time, the level's volume up to
         // date).
         let lamps = self.lamps_of(device, queue, frame, remember);
+        if self.lamps.used(lamps.is_some(), device)
+            && let Some(fog) = &mut self.fog
+        {
+            fog.resized();
+        }
         let tiles = lamps.map_or(0, |lf| self.write_lamps(device, queue, frame, lf));
         // Fog: its beams drawn as the lamps' pass draws, after it; the
         // composite lays it over the picture. With see-through cubes in it

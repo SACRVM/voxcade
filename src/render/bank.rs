@@ -19,7 +19,7 @@ use crate::mesh;
 /// at 16-bit scale building those cubes was most of the CPU's frame.
 /// Baked (`bake`), a model's runs go on the GPU as their faces instead
 /// (`render::baked`).
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct ModelBank {
     /// Relative to the model's pivot (`pos_size` xyz, before the turn).
     pub voxels: Vec<Instance>,
@@ -27,6 +27,17 @@ pub struct ModelBank {
     /// of cubes): its voxels, its model's faces (none for a set of cubes),
     /// and whether this bank draws it from them (`bake`).
     runs: Vec<(Range<u32>, Option<Baked>, bool)>,
+    /// Which bank it is: another for every bank made, the same for a copy
+    /// grown by models put in after (`Session::bank_fresh`), whose runs
+    /// stay what they were (`volume::pieces_key`).
+    pub made: u64,
+}
+
+impl Default for ModelBank {
+    fn default() -> Self {
+        static MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        Self { voxels: Vec::new(), runs: Vec::new(), made: MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) }
+    }
 }
 
 /// One model frame drawn from the bank.

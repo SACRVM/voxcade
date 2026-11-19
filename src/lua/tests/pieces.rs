@@ -675,14 +675,14 @@ fn lamps_change_no_run() {
 
 /// A light's `shadows` and `c.light.lamp_shadows` take words: `true` and
 /// `false` are refused saying which word to write, an unknown word names
-/// the words there are, in a level's file (at its line), `frame:light` (at
-/// the script's line) and `conf.lua`.
+/// the words there are and what each means, in a level's file (at its
+/// line), `frame:light` (at the script's line) and `conf.lua`.
 #[test]
 fn shadows_take_words_and_booleans_and_unknown_words_are_mistakes() {
     for (bad, says) in [
         ("shadows = true", "write \"static\" for true"),
         ("shadows = false", "write \"none\" for false"),
-        ("shadows = \"every\"", "\"every\" is none of \"none\", \"static\", \"all\""),
+        ("shadows = \"every\"", "\"every\" is none of \"none\", \"static\", \"all\" (\"none\": it shines through walls, \"static\": the level's voxels and pieces stop it, \"all\": moving things too)"),
     ] {
         let level = ROOM.replace("light = { radius = 40 }", &format!("light = {{ radius = 40, {bad} }}"));
         let e = start_error(&pieces_folder("shadows-level", "", &level, ""));
@@ -751,7 +751,7 @@ fn what_moves_out_of_view_still_stops_a_lamp_whose_shadows_are_all() {
     let f = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
     let far = |x: f32| (x - 300.0).abs() < 4.0;
     assert!(!f.models.iter().any(|m| far(m.origin.x)), "the crate at x 300 is out of the picture");
-    let groups: Vec<f32> = f.lamp_movers.iter().map(|d| d[0].origin.x).collect();
+    let groups: Vec<f32> = f.lamp_movers.iter().map(|(_, d)| d[0].origin.x).collect();
     assert!(groups.len() == 1 && far(groups[0]), "the crate the lamp reaches, and only it: {groups:?}");
     let g = game_in(&pieces_folder("movers-static", conf, &level, &main("static")));
     assert!(g.compose(0.0, 16.0 / 9.0, Scene::Play, None).lamp_movers.is_empty(), "no lamp whose shadows are \"all\": none");
@@ -832,16 +832,24 @@ fn the_lights_mistakes_say_what_is_wanted() {
         ("frame:daylight{ sun_color = { 300, 0, 0 } }", "frame:daylight: sun_color is a color, { r, g, b } with each a whole number from 0 to 255 (not from 0 to 1), not { 300, 0, 0 }"),
         ("frame:light(player, 30, { 255, 200, 100 }, { cone = 30 })", "frame:light: a fourth argument is not taken; the rest of a light's words go in a table: frame:light{ at = player, radius = 30, color = { 255, 200, 120 }, cone = 30 }"),
         ("frame:light{ at = { x = 1, y = 2, z = 3 }, radius = 20, shadows = \"dynamic\" }", "frame:light: shadows: \"dynamic\" is none of \"none\", \"static\", \"all\" (\"none\": it shines through walls, \"static\": the level's voxels and pieces stop it, \"all\": moving things too)"),
+        // A radius the short form gave unchecked, and one past a float.
+        ("frame:light(player, 0 / 0)", "frame:light: radius is a number above 0 (how far it reaches, voxels)"),
+        ("frame:light(player, math.huge)", "frame:light: radius is a number above 0 (how far it reaches, voxels)"),
+        ("frame:light{ at = { x = 1, y = 2, z = 3 }, radius = 1e39 }", "frame:light: radius is a number above 0 (how far it reaches, voxels)"),
     ] {
         let g = game_in(&pieces_folder("light-says", "", ROOM, &format!("function on_draw(frame)\n  {call}\nend\n")));
         let _ = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
         assert!(halted(&g).contains(says) && halted(&g).contains("main.lua:2"), "{call}: {}", halted(&g));
     }
-    // Whole numbers on the right scale, and no fourth argument, still draw.
-    let g = game_in(&pieces_folder("light-fine", "", ROOM, "function on_draw(frame)\n  frame:light({ x = 1, y = 2, z = 3 }, 20, { 255, 128, 0 })\n  frame:fog{ density = 0.01, color = { 10, 20, 30 } }\nend\n"));
-    let _ = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+    // Whole numbers on the right scale, and no fourth argument, still draw;
+    // a light faded to a radius of 0 or less lights nothing, as before.
+    let g = game_in(&pieces_folder("light-fine", "", ROOM, "function on_draw(frame)\n  frame:light({ x = 1, y = 2, z = 3 }, 20, { 255, 128, 0 })\n  frame:light({ x = 4, y = 5, z = 6 }, 0)\n  frame:light({ x = 4, y = 5, z = 6 }, -5, { 255, 128, 0 })\n  frame:fog{ density = 0.01, color = { 10, 20, 30 } }\nend\n"));
+    let f = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
     assert_eq!(halted(&g), "", "a color on its scale is fine");
+    assert!(!f.lights.iter().any(|l| l.pos == glam::Vec3::new(4.0, 5.0, 6.0)), "faded out: no light");
     let level = ROOM.replace("light = { radius = 40 }", "light = { radius = 40, fallof = 2 }");
     let e = start_error(&pieces_folder("light-near", "", &level, ""));
     assert!(e.contains("'fallof' is no field of a light, did you mean 'falloff'?"), "{e}");
+    let e = start_error(&pieces_folder("light-far", "", &ROOM.replace("light = { radius = 40 }", "light = { radius = 1e39 }"), ""));
+    assert!(e.contains("a light's radius must be a number above 0 (voxels)"), "a radius past a float: {e}");
 }

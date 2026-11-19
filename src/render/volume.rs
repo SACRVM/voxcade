@@ -38,6 +38,12 @@ const BLOCK_VOXELS: i32 = 2 * BLOCK;
 /// 17 MB.
 pub const MOST_BYTES: u64 = 128 << 20;
 
+/// A lamp in solid voxels (a lamp set into a wall, a lantern's housing)
+/// walks from the nearest open voxel at most this far (`Volume::start`);
+/// buried deeper, it lights nothing. The moving things' walks leave the
+/// thing a lamp sits in as far (`lamps.wgsl`'s `solid_stops`).
+pub const HOUSING: f32 = 8.0;
+
 /// A box of copy 0's texels from the volume's low corner, low corner and
 /// size (whole blocks): what changed, to go to the GPU.
 pub type Region = (IVec3, IVec3);
@@ -121,11 +127,12 @@ pub struct Volume {
     pub pieces_key: u64,
 }
 
-/// A key of the pieces' draws and the bank they are drawn from: the volume
-/// is made anew when it changes.
+/// A key of the pieces' draws and the bank they are drawn from (which, not
+/// how far it has grown: a model put in after, drawn the first time, leaves
+/// the pieces' runs as they were): the volume is made anew when it changes.
 pub fn pieces_key(bank: &ModelBank, pieces: &[ModelDraw]) -> u64 {
     let mut h = crate::hash::Stable::default();
-    h.u64(bank as *const ModelBank as u64).u64(bank.voxels.len() as u64);
+    h.u64(bank.made);
     for d in pieces {
         h.u64(u64::from(d.voxels.start)).u64(u64::from(d.voxels.end)).vec3(d.origin).u64(u64::from(d.turn)).vec3(d.shift);
         for c in d.rot.to_array() {
@@ -348,10 +355,38 @@ impl Volume {
         self.world.size == world.size && self.world.palette == world.palette
     }
 
+    /// Where the lamp at `pos` walks from (`lamps.wgsl`'s `walk`), once a
+    /// picture: itself in the open; in solid voxels (a lamp set into a wall,
+    /// a lantern's housing) the middle of the nearest open voxel within
+    /// `HOUSING`, the first of equals by z, y, x, so a lamp flush with a
+    /// wall shines on its own side only; None buried deeper (it lights
+    /// nothing). Each way leaving the solid on its own went through a wall
+    /// up to `HOUSING` thick to the room behind it.
+    pub fn start(&self, pos: Vec3) -> Option<Vec3> {
+        let at = pos.floor().as_ivec3();
+        if !self.solid(at, 0) {
+            return Some(pos);
+        }
+        let r = HOUSING as i32;
+        let mut best: Option<(f32, Vec3)> = None;
+        for z in -r..=r {
+            for y in -r..=r {
+                for x in -r..=r {
+                    let c = at + IVec3::new(x, y, z);
+                    let middle = c.as_vec3() + 0.5;
+                    let d = middle.distance_squared(pos);
+                    if d <= HOUSING * HOUSING && best.is_none_or(|(b, _)| d < b) && !self.solid(c, 0) {
+                        best = Some((d, middle));
+                    }
+                }
+            }
+        }
+        best.map(|(_, m)| m)
+    }
+
     /// Whether the world's voxel `c` is solid in copy `level`'s cell of it
     /// (2^level voxels across), as the shader asks (`lamps.wgsl`'s
-    /// `solid`): the tests'.
-    #[cfg(test)]
+    /// `solid`); outside the volume nothing is.
     pub fn solid(&self, c: IVec3, level: i32) -> bool {
         let cell: IVec3 = (c - self.reach.origin) >> level;
         let t: IVec3 = cell >> 1;
@@ -361,58 +396,6 @@ impl Volume {
         }
         let bits = self.copies[level as usize][(t.x + dims.x * (t.y + dims.y * t.z)) as usize];
         bits >> ((cell.x & 1) | (cell.y & 1) << 1 | (cell.z & 1) << 2) & 1 == 1
-    }
-
-    /// Whether a solid voxel lies between the middle of the cell `cell` and
-    /// the lamp at `lamp`, walked as `lamps.wgsl`'s `walk` walks it (the
-    /// lamp in its housing; a face on the grid): the tests'.
-    #[cfg(test)]
-    pub fn stopped(&self, cell: IVec3, lamp: Vec3) -> bool {
-        let o = self.reach.origin.as_vec3();
-        let (to, lamp) = (cell.as_vec3() + 0.5 - o, lamp - o);
-        let local = |c: IVec3, level: i32| self.solid((c << level) + self.reach.origin, level);
-        let d = to - lamp;
-        let len = d.length();
-        if len < 0.5 {
-            return false;
-        }
-        let dir = d / len;
-        let dir = Vec3::select(dir.abs().cmplt(Vec3::splat(1e-7)), Vec3::splat(1e-7), dir);
-        let inv = Vec3::ONE / dir;
-        // The housing: out of the solid voxels the lamp sits in first.
-        let mut t = 0.0f32;
-        for _ in 0..64 {
-            let c = (lamp + dir * t).floor().as_ivec3();
-            if !local(c, 0) {
-                break;
-            }
-            let lo = c.as_vec3();
-            t = ((Vec3::select(dir.cmpgt(Vec3::ZERO), lo + 1.0, lo) - lamp) * inv).min_element() + 0.001;
-            if t > len.min(8.0) {
-                return true;
-            }
-        }
-        let top = LEVELS as i32 - 1;
-        let mut level = top;
-        for _ in 0..256 {
-            if t >= len {
-                return false;
-            }
-            let p = lamp + dir * t;
-            let size = (1 << level) as f32;
-            let c = (p / size).floor().as_ivec3();
-            if local(c, level) {
-                if level == 0 {
-                    return true;
-                }
-                level -= 1;
-            } else {
-                let lo = c.as_vec3() * size;
-                t = ((Vec3::select(dir.cmpgt(Vec3::ZERO), lo + size, lo) - lamp) * inv).min_element().max(t) + 0.001;
-                level = (level + 1).min(top);
-            }
-        }
-        false
     }
 }
 
@@ -479,19 +462,41 @@ mod tests {
         assert!(all.fits(2048).is_ok(), "a big level whole fits");
     }
 
-    /// A wall between a lamp and a face stops it; a lamp in its own
-    /// housing (the solid voxels round it) shines out of it; glass stops
-    /// nothing; a ray past the walls goes through.
+    /// The pieces' key is the bank's (which one, not how far it grew) and
+    /// the pieces' draws: a model drawn the first time mid-level, put in
+    /// the bank after the pieces' (`Session::bank_fresh`), makes no volume
+    /// anew; another bank (a level entered) does.
     #[test]
-    fn a_wall_stops_a_lamp_and_its_housing_does_not() {
+    fn a_model_drawn_the_first_time_leaves_the_pieces_key() {
+        let text = "format = \"voxcade voxel 1\"\nsize = [2, 1, 1]\n\n[palette]\na = \"#b04030\"\n\n[[frame]]\nlayers = \"\"\"\naa\n\"\"\"\n";
+        let (mut piece, mut later) = (crate::vvx::read(text).unwrap(), crate::vvx::read(text).unwrap());
+        let mut bank = ModelBank::default();
+        bank.add(&mut piece);
+        let draws = [ModelDraw { voxels: piece.bank[0].clone(), origin: Vec3::new(5.0, 5.0, 1.0), turn: 0, rot: glam::Quat::IDENTITY, shift: Vec3::ZERO, tint: None, nearer: 0.0, shadow_only: false }];
+        let key = pieces_key(&bank, &draws);
+        let mut grown = bank.clone();
+        grown.add(&mut later);
+        assert_eq!(pieces_key(&grown, &draws), key, "grown by a model drawn later");
+        let mut anew = ModelBank::default();
+        anew.add(&mut piece);
+        assert_ne!(pieces_key(&anew, &draws), key, "another bank");
+    }
+
+    /// A lamp walks from where it is in the open; in solid voxels from the
+    /// middle of the nearest open voxel (a lantern in its housing, a lamp
+    /// flush with a wall's face on its own side); buried past `HOUSING`,
+    /// from nowhere.
+    #[test]
+    fn a_lamp_in_solid_voxels_walks_from_the_nearest_open_one() {
         let mut w = world_with(&[]);
         for y in 0..70 {
             for z in 0..40 {
-                w.set(IVec3::new(50, y, z), 1);
-                w.set(IVec3::new(60, y, z), 2);
+                for x in 50..54 {
+                    w.set(IVec3::new(x, y, z), 1);
+                }
             }
         }
-        // A lantern at (20, 20, 20): its lamp in a solid box of 3.
+        // A lantern round (20, 20, 20): a solid box of 3.
         for x in 19..22 {
             for y in 19..22 {
                 for z in 19..22 {
@@ -499,11 +504,19 @@ mod tests {
                 }
             }
         }
-        let lamp = Vec3::new(20.5, 20.5, 20.5);
-        let v = Volume::new(&w, Reach::of(&[(lamp, 80.0)], w.size), &ModelBank::default(), &[], 0);
-        assert!(v.stopped(IVec3::new(70, 20, 20), lamp), "the wall at x 50 stops it");
-        assert!(!v.stopped(IVec3::new(40, 20, 20), lamp), "out of its housing, nothing stops it this side");
-        assert!(!v.stopped(IVec3::new(55, 20, 20), Vec3::new(65.5, 20.5, 20.5)), "glass stops nothing");
-        assert!(!v.stopped(IVec3::new(20, 60, 20), lamp));
+        // A block 20 thick round (80, 35, 20).
+        for x in 70..90 {
+            for y in 25..45 {
+                for z in 10..30 {
+                    w.set(IVec3::new(x, y, z), 1);
+                }
+            }
+        }
+        let v = Volume::new(&w, Reach::of(&[(Vec3::new(50.0, 35.0, 20.0), 80.0)], w.size), &ModelBank::default(), &[], 0);
+        assert_eq!(v.start(Vec3::new(30.2, 20.7, 6.1)), Some(Vec3::new(30.2, 20.7, 6.1)), "in the open: itself");
+        assert_eq!(v.start(Vec3::new(20.5, 20.5, 20.5)), Some(Vec3::new(20.5, 20.5, 18.5)), "the lantern: out of its housing, the first of the nearest");
+        assert_eq!(v.start(Vec3::new(50.0, 30.5, 12.5)), Some(Vec3::new(49.5, 30.5, 12.5)), "flush with the wall's face: its own side");
+        assert_eq!(v.start(Vec3::new(51.8, 30.5, 12.5)), Some(Vec3::new(49.5, 30.5, 12.5)), "in the wall, nearer this side");
+        assert_eq!(v.start(Vec3::new(80.5, 35.5, 20.5)), None, "buried");
     }
 }

@@ -69,10 +69,12 @@ impl Thin {
     }
 
     /// The blocks of the volume's regions `changed` (copy 0's texels, as
-    /// `Volume::update` gives them) found anew.
+    /// `Volume::update` gives them) found anew, and those `APRON` round
+    /// them, whose runs reach into them (in whole blocks).
     pub fn update(&mut self, v: &Volume, changed: &[Region]) {
         for &(lo, size) in changed {
-            let (lo, hi) = (lo * 2, ((lo + size) * 2).min(v.reach.texels * 2));
+            let (block, a, b) = (IVec3::splat(BLOCK), lo * 2 - APRON, (lo + size) * 2 + APRON);
+            let (lo, hi) = ((a.div_euclid(block) * block).max(IVec3::ZERO), ((b + block - 1).div_euclid(block) * block).min(v.reach.texels * 2));
             let corner = v.reach.origin;
             self.blocks.retain(|&(y, x, z), _| {
                 let b = IVec3::new(x, y, z) - corner;
@@ -87,11 +89,13 @@ impl Thin {
     /// `hi` (level voxels), row by row: low and high corner, and the
     /// spacing its points need there (half the shortest of `RUNS` its
     /// runs are shorter than: a voxel's shadow is at least as thick as its
-    /// run).
+    /// run). Its rows only where blocks are: a box of any size (a light of
+    /// any radius) walks no more of them.
     pub fn near(&self, lo: Vec3, hi: Vec3, step: i32) -> Vec<(Vec3, Vec3, i32)> {
+        let (Some((&(first, ..), _)), Some((&(last, ..), _))) = (self.blocks.first_key_value(), self.blocks.last_key_value()) else { return Vec::new() };
         let (a, b) = (lo.floor().as_ivec3().div_euclid(IVec3::splat(BLOCK)) * BLOCK, hi.floor().as_ivec3());
         let mut out = Vec::new();
-        for y in (a.y..=b.y).step_by(BLOCK as usize) {
+        for y in (a.y.max(first)..=b.y.min(last)).step_by(BLOCK as usize) {
             for (&(_, x, z), w) in self.blocks.range((y, a.x, i32::MIN)..=(y, b.x, i32::MAX)) {
                 let thinnest = RUNS[(w.trailing_zeros() as usize).min(RUNS.len() - 1)];
                 if *w != 0 && thinnest <= step.min(THINNEST) && z >= a.z && z <= b.z {
@@ -308,6 +312,10 @@ mod tests {
         let (mut w, mut v) = volume_of(&[up(10, 10, 1, 1), up(30, 10, 2, 4), up(50, 10, 6, 6), up(70, 10, 1, 40), (IVec3::new(90, 20, 12), IVec3::new(1, 30, 1))]);
         let mut t = Thin::of(&v);
         assert_eq!(thin_at(&t, 4), [IVec3::new(8, 8, 0), IVec3::new(24, 8, 0), IVec3::new(8, 8, 8), IVec3::new(24, 8, 8), IVec3::new(88, 16, 8), IVec3::new(88, 24, 8), IVec3::new(88, 32, 8), IVec3::new(88, 40, 8), IVec3::new(88, 48, 8), IVec3::new(8, 8, 16), IVec3::new(24, 8, 16)], "the posts, three blocks high each, and the rail");
+        // A box of any size (a light's of radius 1e9) finds them at once.
+        let started = std::time::Instant::now();
+        let far: Vec<IVec3> = t.near(Vec3::splat(-1e9), Vec3::splat(1e9), 4).into_iter().map(|(lo, _, _)| lo.as_ivec3()).collect();
+        assert!(started.elapsed().as_millis() < 100 && far.len() == 11, "{} ms, {} blocks", started.elapsed().as_millis(), far.len());
         let wider = thin_at(&t, 8);
         assert!(!wider.iter().any(|b| b.x == 48), "never the pillar, though a wide lamp's points lie 8 apart (THINNEST): {wider:?}");
         assert!(!wider.iter().any(|b| b.x == 64 || b.x == 72), "never the wall");
@@ -334,6 +342,27 @@ mod tests {
         assert!(now.contains(&IVec3::new(96, 64, 8)), "the new post: {now:?}");
         assert!(!now.contains(&IVec3::new(8, 8, 8)), "the old one gone");
         assert_eq!(now, thin_at(&Thin::of(&v), 4), "as found anew");
+    }
+
+    /// A change in one of the volume's regions makes the thin things round
+    /// it anew in the next region too, as far as their runs look: a bar 4
+    /// long ending at a region's edge, thin, grown on past it into a wall 20
+    /// long, is thin no more.
+    #[test]
+    fn a_change_at_a_regions_edge_is_seen_beside_it() {
+        let (mut w, mut v) = volume_of(&[(IVec3::new(60, 10, 4), IVec3::new(4, 1, 20))]);
+        let mut t = Thin::of(&v);
+        assert!(thin_at(&t, 4).contains(&IVec3::new(56, 8, 8)), "the bar is thin");
+        for x in 64..80 {
+            for z in 4..24 {
+                w.set(IVec3::new(x, 10, z), 1);
+            }
+        }
+        let changed = v.update(&w);
+        assert!(changed.iter().all(|(lo, _)| lo.x * 2 >= 64), "the change lies in the next region: {changed:?}");
+        t.update(&v, &changed);
+        assert_eq!(thin_at(&t, 4), thin_at(&Thin::of(&v), 4), "as found anew");
+        assert!(!thin_at(&t, 4).contains(&IVec3::new(56, 8, 8)), "the bar, now a wall, thin no more");
     }
 
     /// Runs told a word at a time: along x across a word's end, along y.

@@ -547,7 +547,7 @@ function Frame:cube(x, y, z, color, glow) end
 ---- blend: how much of the cone's edge is soft, 0 to 1, 0.15 unless set.
 ---- rotation: the spot's way round, degrees clockwise seen from above, north (+y) 0, -360 to 360.
 ---- pitch: the spot's way up or down, degrees, -90 to 90. Above 0 up, below 0 down: -90 straight down, 0 level.
----- shadows: what stops it, "static", "all" or "none" (it shines through walls); left out, c.light.lamp_shadows says ("static" unless set). A wall is the level's voxels and its pieces, not a piece that brings a light of its own (a lantern round its flame); with "all" the figures, things, models and cubes drawn stop it too, so they cast its shadow (it costs more: for a few chosen lamps). Glass stops no light and tints none.
+---- shadows: what stops it, "static", "all" or "none" (it shines through walls); left out, c.light.lamp_shadows says ("static" unless set). A wall is the level's voxels and its pieces, not a piece that brings a light of its own (a lantern round its flame); with "all" the figures, things, models and cubes drawn stop it too, so they cast its shadow (it costs more: for a few chosen lamps), but a light at a thing is never stopped by that thing's own models (a lantern a figure carries). Glass stops no light and tints none.
 ---- fog: how strongly it shows in fog (frame:fog), 0 to 10, 1 unless set.
 ---Only the picture: the game's rules do not see it.
 ---@param at Thing|Point|Light

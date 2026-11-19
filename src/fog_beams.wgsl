@@ -25,7 +25,7 @@
 
 @group(1) @binding(0) var<uniform> fog: Fog;
 // The picture's lights for the fog, as `lights` (their colour times how
-// strongly each shows in fog).
+// strongly each shows in fog), each row its thin things' balls after.
 @group(1) @binding(1) var fog_lights: texture_2d<f32>;
 // The see-through cubes' depth, with glass or water in the picture
 // (`fs_beam_glass`).
@@ -44,8 +44,8 @@ const FOG_MOST_FINE: f32 = 16.0;
 // A ball's spacing kept in its radius's place (render::fog::SPACING_AT).
 const FOG_SPACING_AT: f32 = 65536.0;
 // The thin things' balls in a light's row of `fog_lights`: their count at
-// this column, the balls after it (render::fog::MOST_THIN).
-const FOG_THIN_AT: i32 = 4;
+// this column, the balls after it (render::fog::FogRow, MOST_THIN).
+const FOG_THIN_AT: i32 = LAMP_FROM + 1;
 
 // How much of the light travelling the way `cos_angle` from the eye's way
 // back (1: straight towards the eye) the fog sends on to the eye
@@ -137,10 +137,11 @@ fn scatter(l: Light, p: vec3<f32>, dir: vec3<f32>) -> vec3<f32> {
     return lit * phase(dot(to, dir) / d);
 }
 
-// Whether the lamp `l` reaches the middle of the voxel the point `p` is
-// in, walls stopping it: the faces' memory asked as for the face in front
-// of that voxel (the same walk, the same answer).
-fn reaches(l: Light, p: vec3<f32>, movers: u32) -> bool {
+// Whether the lamp `l` (walking from `walks`, its row's LAMP_FROM) reaches
+// the middle of the voxel the point `p` is in, walls stopping it: the
+// faces' memory asked as for the face in front of that voxel (the same
+// walk, the same answer).
+fn reaches(l: Light, walks: vec4<f32>, p: vec3<f32>, movers: u32) -> bool {
     // WALLS {
     if (l.edge.y > 0.5) {
         let cell = vec3<i32>(floor(p));
@@ -150,7 +151,7 @@ fn reaches(l: Light, p: vec3<f32>, movers: u32) -> bool {
         let ids = vec2<u32>(mix_hash(0x9e3779b9u, cell), mix_hash(0x85ebca6bu, cell));
         // A lamp whose shadows are "all": what moves too, asked afresh,
         // only the boxes whose shadows the ray meets (`movers`, `shading`).
-        return !stopped(cell, 0u, l.pos_radius.xyz, ids, vec2<u32>(l.edge.zw)) && !(movers != 0u && movers_stop(vec3<f32>(cell) + vec3<f32>(0.5), l.pos_radius.xyz, u32(l.edge.y - 2.0), movers));
+        return !stopped(cell, 0u, walks, ids, vec2<u32>(l.edge.zw)) && !(movers != 0u && movers_stop(vec3<f32>(cell) + vec3<f32>(0.5), l.pos_radius.xyz, u32(l.edge.y - 2.0), movers));
     }
     // } WALLS
     return true;
@@ -165,7 +166,7 @@ fn reaches(l: Light, p: vec3<f32>, movers: u32) -> bool {
 // (`fog.hi.w`) scales what it sends towards the eye: above 1 up to the
 // brightest light the lamp gives along the ray (`most`), so raising it
 // never makes a beam fainter anywhere, nor brighter than its lamp.
-fn beam(l: Light, dir: vec3<f32>, a: f32, b: f32, core: vec2<f32>, air: f32, movers: u32, fine: vec3<f32>) -> vec3<f32> {
+fn beam(l: Light, walks: vec4<f32>, dir: vec3<f32>, a: f32, b: f32, core: vec2<f32>, air: f32, movers: u32, fine: vec3<f32>) -> vec3<f32> {
     let density = fog.eye.w;
     let eye = fog.eye.xyz;
     let ahead = max(dot(dir, fog.forward.xyz), 0.05);
@@ -189,7 +190,7 @@ fn beam(l: Light, dir: vec3<f32>, a: f32, b: f32, core: vec2<f32>, air: f32, mov
     var t0 = a;
     let s0 = scatter(l, eye + dir * a, dir);
     var f0 = s0 * exp(-density * (a - air));
-    var v0 = !stopping || reaches(l, eye + dir * a, movers);
+    var v0 = !stopping || reaches(l, walks, eye + dir * a, movers);
     var sum = vec3<f32>(0.0);
     var most = select(vec3<f32>(0.0), s0, v0);
     for (var k = 0; k < i32(FOG_MOST_PLANES + FOG_MOST_FINE) + 8; k += 1) {
@@ -213,7 +214,7 @@ fn beam(l: Light, dir: vec3<f32>, a: f32, b: f32, core: vec2<f32>, air: f32, mov
         let p1 = eye + dir * t1;
         let s1 = scatter(l, p1, dir);
         let f1 = s1 * exp(-density * (t1 - air));
-        let v1 = !stopping || reaches(l, p1, movers);
+        let v1 = !stopping || reaches(l, walks, p1, movers);
         if (v1) {
             most = max(most, s1);
         }
@@ -227,7 +228,7 @@ fn beam(l: Light, dir: vec3<f32>, a: f32, b: f32, core: vec2<f32>, air: f32, mov
             var hi = t1;
             for (var i = 0; i < FOG_EDGE_STEPS; i += 1) {
                 let mid = (lo + hi) * 0.5;
-                if (reaches(l, eye + dir * mid, movers) == v0) {
+                if (reaches(l, walks, eye + dir * mid, movers) == v0) {
                     lo = mid;
                 } else {
                     hi = mid;
@@ -301,7 +302,7 @@ fn shading(l: Light, near: vec3<f32>, far: vec3<f32>) -> u32 {
     if (n > 32u) {
         return 0xffffffffu;
     }
-    let start = list >> 8u;
+    let start = (list >> 8u) + 2u;
     for (var i = 0u; i < n; i += 1u) {
         let k = mover_lists[start + i];
         let lo = vec3<f32>(mover_boxes[2u * k].xyz);
@@ -376,7 +377,7 @@ fn beams_over(in: TileOut, dir: vec3<f32>, begin: f32, end: f32, air: f32) -> ve
                 fine = thin_span(row, l, dir, a, b);
             }
             // } THIN
-            sum += beam(l, dir, a, b, core, air, movers, fine);
+            sum += beam(l, textureLoad(fog_lights, vec2<i32>(LAMP_FROM, row), 0), dir, a, b, core, air, movers, fine);
         }
     }
     return sum;

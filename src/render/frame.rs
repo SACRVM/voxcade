@@ -7,6 +7,11 @@ use glam::{Mat4, Vec3};
 
 use super::{Instance, Light, ModelBank, ModelDraw};
 
+/// A moving thing as the lamps whose shadows are "all" take it
+/// (`FrameData::lamp_movers`): its key (`Drawing::of_thing`) and its
+/// draws.
+pub type Mover = (Option<u32>, Vec<ModelDraw>);
+
 /// Everything the renderer needs for one frame.
 pub struct FrameData {
     pub view_proj: Mat4,
@@ -51,9 +56,10 @@ pub struct FrameData {
     /// What moves and stops the lamps whose shadows are "all"
     /// (`render::movers`): the models drawn that are not the level's pieces,
     /// in view or not, within such a lamp's reach, each thing's draws
-    /// together (the opaque cubes are taken from `instances`). Empty unless
-    /// such a lamp is in the picture.
-    pub lamp_movers: Vec<Vec<ModelDraw>>,
+    /// together with the thing's key (`Drawing::of_thing`; a light of it,
+    /// `Light::of`, is not stopped by them; the opaque cubes are taken from
+    /// `instances`). Empty unless such a lamp is in the picture.
+    pub lamp_movers: Vec<Mover>,
     /// The air's fog, if the picture has any (`Fog`): drawn by the lamps'
     /// pass's picture (`render::fog`). None: as every picture before.
     pub fog: Option<super::Fog>,
