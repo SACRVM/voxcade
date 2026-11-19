@@ -1937,6 +1937,98 @@ fn a_post_of_turned_cubes_stops_a_lamp_whose_shadows_are_all() {
     assert!(dark < lit - 20.0, "the floor behind the post shaded, {dark} against {lit}");
 }
 
+/// On the GPU: a figure of parts turned off the grid under a spot whose
+/// shadows are "all", its arm swept slowly in front of its chest (half a
+/// degree a picture), then the whole figure turning slowly (a quarter
+/// degree a picture) with the arm bent at it: where what moves shades the
+/// floor and the figure itself (a pixel where the spot "all" gives it less
+/// than half of what "static" does, the same geometry, and "static" lights
+/// it clearly), no face goes into the shadow and out again, or out and
+/// back in, within `BLINK` pictures: a face changes once as a shadow's
+/// edge passes it. A face's blink is a pixel's whose four neighbours
+/// blink with it while what it shows stays (the "static" picture there
+/// changing by `STEADY` levels at most a picture: an edge of the figure,
+/// or between two faces, passing a pixel is no blink). Until 2026-11-19 a
+/// turned face asked from the cell in front of it, which jumps a voxel as
+/// it moves, and what moved filled the cells whose middles its voxels
+/// held, a thin arm leaving gaps that came and went: faces blinked for a
+/// picture (170 pixels of them here).
+#[test]
+fn a_part_turning_slowly_shades_each_face_once() {
+    use crate::render::{LampShadows, Light, LightShape};
+    const PICTURES: usize = 120;
+    const BLINK: usize = 2;
+    const STEADY: i32 = 3;
+    let (w, h) = (960, 540);
+    let mut cfg = GameConfig::default();
+    (cfg.light.ambient, cfg.light.shadow, cfg.light.sun_color) = (0.3, 0.35, [0.3, 0.32, 0.42]);
+    (cfg.camera.view_width, cfg.camera.pitch) = (44.0, 50.0);
+    let mut game = game_on(crate::sim::tests::flat_world(IVec3::new(96, 96, 24)), cfg);
+    game.game.sim_mut().cam_target = Vec3::new(48.0, 48.0, 8.0);
+    game.game.sim_mut().cam_prev = Vec3::new(48.0, 48.0, 8.0);
+    let mut canvas = crate::headless::Canvas::new(w as u32, h as u32, false).unwrap();
+    canvas.mesh_world(game.world_mut(), &[true; 6]);
+    let mut figure = crate::vvx::read(&std::fs::read_to_string("games/lights/figures/posed.vvx").unwrap()).unwrap();
+    let mut bank = ModelBank::default();
+    bank.add(&mut figure);
+    let bank = std::sync::Arc::new(bank);
+    let shape = LightShape { cone: Some(50.0), blend: 0.2, rotation: 25.0, pitch: -50.0, falloff: 0.6, ..Default::default() };
+    let spot = |how| Light::lamp(Vec3::new(42.0, 36.0, 25.0), 60.0, [1.0, 0.92, 0.82], &shape, |w| w).stated(how);
+    let part = |name: &str| figure.parts.iter().position(|p| p.name == name).unwrap();
+    // The pose of picture `k` of a run: the figure's turn and its parts'.
+    let pose = |run: usize, k: f32| {
+        let mut parts = vec![PartPose::REST; figure.parts.len()];
+        let turn = if run == 0 {
+            parts[part("arm_left")] = PartPose::turned(turning(-40.0 + 0.5 * k, 90.0, 0.0));
+            Quat::IDENTITY
+        } else {
+            parts[part("arm_left")] = PartPose::turned(turning(-50.0, 70.0, 0.0));
+            turning(20.0 + 0.25 * k, 0.0, 0.0)
+        };
+        (turn, parts)
+    };
+    let (mut blinks, mut shaded) = (0, 0);
+    for run in 0..2 {
+        // Each picture's pixels in the shadow of what moves, where the
+        // spot lights them clearly, and the "static" picture's colour.
+        let (mut masks, mut lit, mut stills) = (Vec::<Vec<bool>>::new(), Vec::<Vec<bool>>::new(), Vec::<Vec<[i32; 3]>>::new());
+        for k in 0..PICTURES {
+            let (turn, parts) = pose(run, k as f32);
+            let mut draws = Vec::new();
+            draw(&mut |_, _, _, _, _, _, _| {}, Some(&mut draws), &figure, 0, Vec3::new(48.0, 48.0, 1.0), IVec2::NEG_Y, turn, &parts, None);
+            let mut picture = |lights: Vec<Light>| {
+                let mut f = game.frame(1.0, w as f32 / h as f32);
+                (f.lights, f.lamp_world, f.bank) = (lights, Some(game.game.sim().world.clone()), bank.clone());
+                (f.models, f.lamp_movers) = (draws.clone(), vec![draws.clone()]);
+                canvas.draw(&f).unwrap()
+            };
+            let (still, all, dark) = (picture(vec![spot(LampShadows::Static)]), picture(vec![spot(LampShadows::All)]), picture(Vec::new()));
+            let sum = |p: &[u8], i: usize| (0..3).map(|c| p[4 * i + c] as i32).sum::<i32>();
+            masks.push((0..w * h).map(|i| (sum(&still, i) - sum(&all, i)) * 2 > sum(&still, i) - sum(&dark, i)).collect());
+            lit.push((0..w * h).map(|i| sum(&still, i) - sum(&dark, i) > 48).collect());
+            stills.push(still.chunks(4).map(|p| [p[0] as i32, p[1] as i32, p[2] as i32]).collect());
+        }
+        shaded += (0..w * h).filter(|&i| (0..PICTURES).any(|k| masks[k][i] && lit[k][i])).count();
+        // Each pixel's blinks, by the picture they begin at.
+        let blinked: Vec<Vec<usize>> = (0..w * h)
+            .map(|i| {
+                let changes: Vec<usize> = (1..PICTURES).filter(|&k| masks[k][i] != masks[k - 1][i]).collect();
+                let steady = |from: usize, to: usize| (from..to).all(|k| lit[k][i] && lit[k - 1][i] && (0..3).all(|c| (stills[k][i][c] - stills[k - 1][i][c]).abs() <= STEADY));
+                changes.windows(2).filter(|c| c[1] - c[0] <= BLINK && steady(c[0], c[1] + 1)).map(|c| c[0]).collect()
+            })
+            .collect();
+        for (i, at) in blinked.iter().enumerate() {
+            let (x, y) = (i % w, i / w);
+            if x > 0 && y > 0 && x + 1 < w && y + 1 < h {
+                blinks += at.iter().filter(|k| [i - 1, i + 1, i - w, i + w].iter().all(|&n| blinked[n].contains(k))).count();
+            }
+        }
+    }
+    eprintln!("pixels the moving figure shades: {shaded}; of faces blinking: {blinks}");
+    assert!(shaded > 20000, "the figure shades the floor and itself ({shaded} pixels)");
+    assert_eq!(blinks, 0, "no face goes into the moving figure's shadow and out again within {BLINK} pictures");
+}
+
 /// On the GPU: no wall a voxel thin lets a beam through, straight across
 /// it or slanting (a diagonal line of voxels touching at their edges): the
 /// fog behind it holds none of the spot's light, everywhere, at HIGH and

@@ -863,52 +863,64 @@ tests.
   (`FrameData::lamp_movers`): a figure off the screen whose shadow falls
   into it keeps it, no pop as it leaves (test
   `what_moves_out_of_view_still_stops_a_lamp_whose_shadows_are_all`).
-  The cells they fill (`render::movers`: a cell whose middle lies in a
-  voxel, on the grid the voxel's own, turned freely those whose middles
-  the turned cube holds; nothing grows, so a shadow is the shape of what
-  casts it and a steady move changes a cell once; a turned voxel that
-  holds no cell's middle (an eighth round, its middle at a cell's corner)
-  fills its middle's cell where nothing else of its thing lies on or
-  round that cell, so a cube alone or a rod a voxel thin still casts and
-  a body grows nothing, `movers::fill`, 2026-11-18; not the level's
-  pieces, which are the level's volume; glowing and see-through voxels
-  fill none) go into a second bit volume laid out as the level's, a box
-  round them in blocks of 64 voxels, sent only when it changed, with a
-  box round each thing (cubes boxed by blocks of 8) and each "all"
-  lamp's list of the boxes it can light (its reach and, a spot, its
-  cone; `Movers::lists`, its place in the light's `edge.y`). After a
-  face's kept answer from the walls such a lamp walks that volume too,
-  afresh every picture (`movers_stop`), only where the way meets its
-  boxes, from cells of 4 voxels; a beam's ray first finds which boxes
-  can shade any of its points (the triangle of the lamp and the ray's
+  Each model drawn (a figure's part each) and each opaque cube is a
+  solid of its own (`render::movers`, `Solid`): its voxels as bits in
+  its own grid (a model's shared by its draws, sent only when they
+  change) and the map from the level into that grid, the draw's turn and
+  place exactly as the shader places its voxels; not the level's pieces,
+  which are the level's volume; glowing and see-through voxels are in
+  none. A box round each thing (cubes boxed by blocks of 8) and each
+  "all" lamp's list of the boxes it can light (its reach and, a spot,
+  its cone; `Movers::lists`, its place in the light's `edge.y`). After a
+  face's kept answer from the walls such a lamp walks, afresh every
+  picture (`movers_stop`), each solid of the boxes its way meets, the
+  way taken into the solid's grid and walked through its cells as the
+  level's (`solid_stops`); a beam's ray first finds which boxes can
+  shade any of its points (the triangle of the lamp and the ray's
   stretch against each box, `shading`), and its points walk only those.
-  Voxel-exact, as the walls' shadows: a face is lit or not as a whole.
-  Against acne a moving thing's own face asks from a voxel further out
-  along its way (`movers_from`: a way grazing a turned figure's surface
-  caught its cells, which change as a part moves a little, a face
-  flicking dark for a picture) and looks past what moves right in front
-  of it (`RIM`); a face of the level asks from the middle of the cell in
-  front of it, so a figure's feet shade the floor at their side (no
-  peter-panning there), and a figure's own contact shadows start up to a
-  voxel later. A lamp inside what moves (a car's headlight in its body)
-  leaves it first (`HOUSING`, 8 voxels). Chosen over a depth map per
-  lamp (a cube map per round lamp, six passes of every moving model, a
-  bias to tune per lamp, soft by its texels, not on the grid): the
-  volume costs one upload a picture whatever the number of lamps, and
-  its shadows are the walls' own. Long shadows from low lamps (a car's
-  headlights) are true and busy: a figure's legs drawn out over the
-  floor. Costs at 1080p (the test hall, spots straight down over the
-  floor, figures walking; GPU ms of the picture, without fog / with FOG
-  HIGH, "static" against "all"): 4 lamps and 50 figures 0.56/0.74
-  against 0.54/1.05 on the strong GPU, 9.0/12.9 against 10.1/18.5 on the
-  Radeon 610M (FOG LOW, its default: 11.3 against 14.2); 16 lamps and 50
-  figures 0.72/1.09 against 0.83/2.31, and 16.5/25.7 against 19.8/43.2 on
-  the 610M (LOW: 20.3 against 29.9). The beams walk it at every point
-  where a ray passes a thing's shadow, unkept; most of the cost. Limits:
-  things further apart than `movers::MOST_BYTES` (32 MB) or the GPU's 3D
-  texture size stop no lamp, said once; past `MOST_BOXES` things are
-  boxed by blocks, past `MOST_LISTED` listed boxes a lamp walks the whole
-  volume; see-through and glowing voxels cast nothing. Not built: the
+  A shadow is the exact shape of what casts it, turned as it is drawn,
+  and a face is lit or not as a whole, as by the walls: a face of the
+  level asks from the middle of the cell in front of it, so a figure's
+  feet shade the floor at their side (no peter-panning there); any other
+  face from its own middle a quarter voxel out (`FACE_OUT`), a voxel
+  shaded smooth a voxel out of its middle along the way it is lit by,
+  exactly (a turned face's point written beside its cell by
+  `fs_main_lamps`, in 256ths; `movers_from`), and a face turned from the
+  lamp is in its own shadow (`movers_stop_face`). So a part turning
+  slowly moves its shadow's edge smoothly and its own faces' points
+  smoothly: a face changes once as an edge passes (test
+  `a_part_turning_slowly_shades_each_face_once`). Until 2026-11-19 the
+  things filled a second bit volume laid out as the level's, a cell
+  where its middle lay in a turned voxel, and a moving face asked from
+  the cell in front of it a voxel out, looking past what moved right in
+  front of it: a thin turned arm left gaps between its cells that came
+  and went, a face's start jumped a voxel as it moved and went in and out
+  of the part beside it, and faces blinked for a picture where a part
+  nearly touched another (a figure turning slowly at a quarter degree a
+  picture under a spot, 120 pictures at 960 by 540: 276 pixels blinked,
+  185 of them inside a face; after, 21, none inside a face, on edges
+  between two faces; in the test 170 inside a face, after none). A lamp
+  inside what moves (a car's headlight in its body) leaves it first
+  (`HOUSING`, 8 voxels). Chosen over a depth map per lamp (a cube map
+  per round lamp, six passes of every moving model, a bias to tune per
+  lamp, soft by its texels, not on the grid): the solids cost a small
+  upload a picture whatever the number of lamps, and their shadows are
+  the walls' own. Long shadows from low lamps (a car's headlights) are
+  true and busy: a figure's legs drawn out over the floor. Costs at
+  1080p (the test hall, spots straight down over the floor, figures
+  walking; GPU ms of the picture, without fog / with FOG HIGH, "static"
+  against "all"): 4 lamps and 50 figures 0.56/0.74 against 0.54/1.05 on
+  the strong GPU, 9.0/12.9 against 10.1/18.5 on the Radeon 610M (FOG
+  LOW, its default: 11.3 against 14.2); 16 lamps and 50 figures
+  0.72/1.09 against 0.83/2.31, and 16.5/25.7 against 19.8/43.2 on the
+  610M (LOW: 20.3 against 29.9; measured with the volume; the solids,
+  2026-11-19, the scenario `load`: the beams 1.31 to 1.53 ms on the
+  strong GPU, 21.3 to 23.1 on the 610M, the faces the same). The beams
+  walk them at every point where a ray passes a thing's shadow, unkept;
+  most of the cost. Limits: solids and bits past `movers::MOST_BYTES`
+  (32 MB) stop no lamp, said once; past `MOST_BOXES` things are boxed
+  together by blocks, past `MOST_LISTED` listed boxes a lamp walks every
+  box; see-through and glowing voxels cast nothing. Not built: the
   faces' memory keeping moving answers, a cheaper beam (a walk shared by
   neighbouring points).
 - **Fallbacks, said once:** a GPU without storage written from a fragment

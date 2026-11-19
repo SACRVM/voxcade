@@ -691,11 +691,14 @@ fn fs_main(in: VOut) -> FOut {
 // (render::lamps): each pixel as fs_main without the lights, and what the
 // pass needs of its surface (`surface`): x the colour the light falls on (8
 // bits each), bit 24 a surface there, bit 25 off the grid, bits 26 to 28
-// the face's way (`face_index`; 7 off the grid); y, z and w's
-// low 16 bits the cell in front of its face (lamps.wgsl's ways to a lamp
-// start in its middle: the voxel's neighbour across the face; off the grid
-// the cell a voxel out from its middle, so a face is lit or not as a
-// whole); w's high bits the way it is lit by (`lit_way`).
+// the face's way (`face_index`); y, z and w's low 16 bits the cell in front
+// of its face (lamps.wgsl's ways to a lamp start in its middle: the
+// voxel's neighbour across the face; off the grid the cell a voxel out
+// from its middle, so a face is lit or not as a whole); w's high bits the
+// way it is lit by (`lit_way`). Off the grid the cell's x and y take 20
+// bits, and the rest of y and z and x's bits from 26 on where its way to
+// the moving things begins, exactly (lamps.wgsl's `surface_cell`,
+// `movers_from`).
 struct LampsOut {
     @location(0) color: vec4<f32>,
     @location(1) glow: vec4<f32>,
@@ -720,8 +723,16 @@ fn fs_main_lamps(in: VOut) -> LampsOut {
     }
     let keep = pack4x8unorm(vec4<f32>(clamp(s.keep, vec3<f32>(0.0), vec3<f32>(1.0)), 0.0)) & 0xffffffu;
     let way = vec3<u32>(round(clamp(n, vec3<f32>(-1.0), vec3<f32>(1.0)) * 15.0) + 15.0);
-    let way_index = select(face_index(face), 7u, off);
-    out.surface = vec4<u32>(keep | (1u << 24u) | (select(0u, 1u, off) << 25u) | (way_index << 26u), bitcast<u32>(cell.x), bitcast<u32>(cell.y), (bitcast<u32>(cell.z) & 0xffffu) | (way.x << 16u) | (way.y << 21u) | (way.z << 26u));
+    let w = (bitcast<u32>(cell.z) & 0xffffu) | (way.x << 16u) | (way.y << 21u) | (way.z << 26u);
+    if (off) {
+        // Where its way to the moving things begins (lamps.wgsl's
+        // `movers_from`), from the cell's corner.
+        let begins = select(in.centre.xyz + face * (0.5 + FACE_OUT), in.centre.xyz + n, in.shade.w > 0.5);
+        let q = vec3<u32>(clamp(round((begins - vec3<f32>(cell) + MOVERS_FROM) * 256.0), vec3<f32>(0.0), vec3<f32>(1023.0)));
+        out.surface = vec4<u32>(keep | (3u << 24u) | ((q.z >> 4u) << 26u), (bitcast<u32>(cell.x) & 0xfffffu) | (q.x << 20u) | ((q.z & 3u) << 30u), (bitcast<u32>(cell.y) & 0xfffffu) | (q.y << 20u) | (((q.z >> 2u) & 3u) << 30u), w);
+        return out;
+    }
+    out.surface = vec4<u32>(keep | (1u << 24u) | (face_index(face) << 26u), bitcast<u32>(cell.x), bitcast<u32>(cell.y), w);
     return out;
 }
 
