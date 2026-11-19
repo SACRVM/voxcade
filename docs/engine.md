@@ -797,13 +797,23 @@ tests.
   cores, 60 MB; Voxkeep's 1 ms), brought up to date chunk by chunk where
   the world changes (a blast: the blocks round it, every copy, only those
   sent), made anew when a lamp reaches past it, the pieces change or
-  another level comes; at most 128 MB, past it said once and the lamps
+  another level comes (not when a model drawn the first time joins the
+  model bank: `ModelBank::made`); at most 128 MB, past it said once and the lamps
   shine through. A face asks whether a lamp reaches it from the middle of
   the cell in front of it (lit or dark as a whole, as the sun's voxel
   shadows): a walk from the lamp past empty space by the coarse copies,
-  down a copy into a cell holding anything (`walk`). A lamp sitting in
-  solid voxels leaves them first (at most 8 voxels; buried deeper it
-  lights nothing); a walk passing exactly through an edge or a corner
+  begun at the copy as long as the way, down a copy into a cell holding
+  anything, up one only once out of the cell above the one it left
+  (`walk`; back into a cell found solid, a way half a voxel over a floor
+  went down and up at every voxel and gave up after 256 steps taken as
+  clear: a slab behind a wall 136 voxels on was lit; test
+  `a_way_grazing_a_long_surface_still_meets_the_wall`); bounded by its
+  cells, past them stopped. A lamp sitting in solid voxels walks from the
+  nearest open voxel's middle within `HOUSING` (8 voxels), settled once a
+  picture (`Volume::start`; buried deeper it lights nothing): each way
+  leaving on its own went through a wall up to 8 thick, a lamp flush
+  with a wall lit the room behind (test
+  `a_lamp_flush_with_a_wall_lights_its_own_side_only`); a walk passing exactly through an edge or a corner
   where two of the cells across it are solid (a diagonal wall of voxels
   touching only at their edges) is closed there, one solid it only grazes
   (test `a_lamp_does_not_leak_through_a_diagonal_wall`); a face off the grid looks past the half voxel its
@@ -812,28 +822,40 @@ tests.
   anything else keeps a burst's little round the back.
 - **The faces' memory.** Each face's answer for each lamp is kept
   (`seen`, a table of two words an entry by the cell, the lamp's exact
-  place and the volume's state; room for twice the picture's pixels to
-  begin with), asked again when the volume changes or after a picture
+  place and the volume's state; room for a quarter of the picture's
+  pixels to begin with, 4 MB at 1920 by 1080, where every subject of
+  `games/lights` fits 512 KB), asked again when the volume changes or after a picture
   unasked (everything a picture shows is asked every picture; a lamp that
   moves asks under a new key each picture, so its old entries make room at
   once: they stayed 8 pictures until 2026-11-18): a still scene walks its
   ways once. The fog's beams' points (below) are kept in it too (a point
-  and the face in front of its voxel ask the same), 16 entries more a
-  pixel of the beams' target to begin with; what they take comes by the
-  voxels along the beams more than by the pixels (a hall of 14 lamps in
-  fog, 400 voxels across, took 4 million at any picture size, where the
-  memory once held 2 or 4 for faces and points together: the points took
-  it all and the faces walked every picture). An entry's slot is its key
-  mixed, the next one tried a step apart its second key gives, 32 at
-  most: the key's low bit is always set and the slots were tried one after
-  the other, so the odd slots took it all and their runs grew long; at 42
-  in 100 slots taken a few hundred of four million points found no room
-  (most of what the scratch hall's warnings were, 2026-11-19). Found full
-  (the shader counts what found no room) it is made twice as large from the next
-  picture on, up to 2^26 entries (512 MB, `lamps::MOST_FACES`) or the
-  GPU's largest buffer, and only past that said once
-  (`Renderer::too_small`; `shot` lets it grow before it times and says
-  its size; test `the_lamps_memory_grows_until_the_beams_fit`). Every
+  and the face in front of its voxel ask the same); what they take comes
+  by the voxels along the beams more than by the pixels (a hall of 14
+  lamps in fog, 400 voxels across, took 4 million at any picture size).
+  Room for them up front, 16 a pixel of the beams' target, took 134 MB
+  for a small hall at 1920 by 1080 (until 2026-11-19). An entry's slot
+  is its key mixed (a mask: the memory is a power of two), the next one
+  tried a step apart its second key gives, 32 at most, the first empty
+  one ending a lookup (a stale one does not: ended there, an answer
+  behind it was walked again and kept twice, and the beams of a hall in
+  fog took a quarter longer); a stale slot whose key another face's
+  holds is taken back. Found crowded (an answer found no room within 8
+  slots, `GROW_AT`) while it holds fewer than 8 answers a pixel, past
+  that when one found none at all (the shader counts both), it is made
+  twice as large from the next picture on (read every 8 pictures), up to
+  2^26 entries (512 MB, `lamps::MOST_FACES`) or the GPU's largest
+  buffer, and only past that said once (`Renderer::too_small`; `shot`
+  lets it grow until it fits before it times and says its size; tests
+  `the_lamps_memory_grows_until_the_beams_fit`,
+  `the_lamps_memory_starts_small_and_is_let_go`). Grown only when none
+  found room, a memory standing crowded drew the beams of a hall in fog
+  10 to 15 % slower than with room to spare; so a hall in fog takes 67 or
+  134 MB at 1920 by 1080, FOG HIGH, a level of 1600 by 900 voxels with 16
+  lamps of radius 300 268 MB, both as fast as with the room they had
+  before. Everything of the lamps (the memory, the volume and its thin
+  things, the targets, the moving things' room) is let go after 600
+  pictures in a row without their pass (`Lamps::used`, `LET_GO`: ten
+  seconds at 60 a second, so a lamp flickering on and off keeps it). Every
   device asks the adapter for a storage buffer and a buffer that large,
   never past what it gives (`render::device_limits`; wgpu's defaults
   held 2^23, 64 MB; test
@@ -925,7 +947,23 @@ tests.
   neighbouring points).
 - **Fallbacks, said once:** a GPU without storage written from a fragment
   shader draws its lamps through walls; lamps reaching further apart than
-  the volume's bound too.
+  the volume's bound too. What the GPU cannot give (`lamps::made`: out
+  of memory, past what the device takes) is said, not the end of the
+  program (wgpu's default): the memory stays as it was, walls not had let
+  the lamps shine through, moving things without room stop no lamp
+  (test `what_the_gpu_cannot_give_the_lamps_is_said_and_drawn_without`).
+  A pass with walls that would not build is said in wgpu's words, and a
+  test fails (a mistake in its shader once drew no walls, quietly).
+- **A light at a thing** (`frame:light`'s `at` a thing, `Light::of`) is
+  not stopped by that thing's own solids with `"all"`, as a piece's own
+  voxels stop none of its lights; its faces turned from the light are
+  lit as by `"static"`; other things still cast its shadow (test
+  `a_lamp_a_thing_carries_is_not_stopped_by_it`).
+- **A spot's tiles**, the lamps' and its beams', are those its cone can
+  light (`Light::bounds`, the apex and the cap the cone cuts from its
+  ball), and its cone is tested before the rest of its light: the test
+  hall's `spots` 6.8 to 3.6 ms of lamps on the Radeon 610M at 1920 by
+  1080, `load` 17.1 to 10.2, the pictures the same.
 
 Later, not built: light flowing through the grid from glowing voxels
 (Minecraft's block light), sky light kept out of rooms, mirror glass (all

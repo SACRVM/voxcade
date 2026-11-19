@@ -1608,7 +1608,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   that can shade it, `shading`; a face's way begins exactly at its
   middle `FACE_OUT` out, a turned face's written by `fs_main_lamps`,
   `movers_from`, a face turned from the lamp dark, `movers_stop_face`;
-  `HOUSING`; a part turning slowly shades each face once, test
+  `HOUSING`; a light at a thing, `Light::of` (`frame:light`'s `at` a
+  thing; `Drawing::of_thing` keys what is drawn, `Stage::drawn_key`), is
+  not stopped by that thing's own solids, its faces lit as by
+  `"static"`, test `a_lamp_a_thing_carries_is_not_stopped_by_it`; a
+  part turning slowly shades each face once, test
   `a_part_turning_slowly_shades_each_face_once` (until 2026-11-19 a
   second bit volume, cells filled by their middles and asked from the
   cell in front of a face: turned faces blinked); tests
@@ -1625,8 +1629,17 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   The editor's SHADOWS row shows an unset light's inherited word quiet,
   a light's own in the accent; a click on the lit own word clears it. Walls stop a lamp (the level's opaque voxels
   and its pieces but those bringing a light, `Drawing::piece`;
-  `FrameData::lamp_world`, `lamp_pieces`); a lamp in solid voxels leaves
-  them first (8 voxels at most). A picture with up to `FORWARD_LIGHTS`
+  `FrameData::lamp_world`, `lamp_pieces`); a lamp in solid voxels walks
+  from the nearest open voxel's middle within `volume::HOUSING` (8),
+  settled once a picture on the CPU (`Volume::start`, a column of its
+  row, `LampRow`; buried deeper it lights nothing), so a lamp flush with
+  a wall lights its own side only (test
+  `a_lamp_flush_with_a_wall_lights_its_own_side_only`). A walk climbs a
+  copy only once out of the cell above the one it left and is bounded
+  by its cells, past them stopped, never clear (test
+  `a_way_grazing_a_long_surface_still_meets_the_wall`). A spot's tiles,
+  the lamps' and its beams', are its cone's (`Light::bounds`). A
+  picture with up to `FORWARD_LIGHTS`
   (16) lights, none stopped, is drawn as before by the scene's shader
   alone, byte for byte; else the lamps' pass (`render::lamps`, tiles of
   32 pixels, a face's answer kept, `lamps.wgsl`; `light.wgsl` the sum both
@@ -1695,11 +1708,20 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   the lamps' limits (a GPU without fragment storage writes, lamps
   reaching past `volume::MOST_BYTES`, their memory full past
   `lamps::MOST_FACES` (2^26, 512 MB) or the GPU's largest buffer: `lamps.rs`,
-  sized for the faces and the fog's beams' points, `faces_for`, made twice
-  as large when found full, `Renderer::too_small`, `shot` letting it grow
-  before it times and saying its size; every device asks the adapter for
-  that much, never past its limits, `render::device_limits`; tests
+  a quarter of the picture's pixels to begin with, `faces_for`, made twice
+  as large when crowded below `CROWDED_UP_TO` answers a pixel, past that
+  when an answer found no room, `Renderer::too_small`, read every
+  `GROWN_EVERY` pictures, `shot` letting it grow until it fits before it
+  times and saying its size; every device asks the adapter for that
+  much, never past its limits, `render::device_limits`; everything of the
+  lamps let go after `lamps::LET_GO` pictures without their pass,
+  `Lamps::used`; what the GPU cannot give them, their memory, walls or
+  the moving things' room, `lamps::made`, kept as it was or drawn
+  without, said once, and a pass with walls that would not build said
+  too (a test fails); tests
   `the_lamps_memory_grows_until_the_beams_fit`,
+  `the_lamps_memory_starts_small_and_is_let_go`,
+  `what_the_gpu_cannot_give_the_lamps_is_said_and_drawn_without`,
   `the_device_holds_the_lamps_memory_as_far_as_the_gpu_allows`),
   the faces' memory full (the shader counts faces that found no room in
   the word after it, `render::limits`, read without waiting every 60
