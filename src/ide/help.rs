@@ -565,13 +565,13 @@ end
     },
     Topic {
         title: "YOUR OWN TITLE",
-        text: "A game with save games may open on a title of its own: a level of the game (levels/title.toml here) that c.title_screen.level names, in place of the engine's title with its high scores. The window opens in it, and what happens there is your code: here a menu drawn with frame:menu and moved with the arrows. world:new_game() begins a run in the level a run begins in (the first but the title, or c.start's), world:load(slot) a run from a save (world.saves says what lies in the slots, world.saves.newest which was saved last: CONTINUE is world:load(world.saves.newest), nil while there is none), world:save(slot, { label = \"Meadow\" }) tells a save by a line of your own (world.saves[slot].label), world:delete_save(slot) empties a slot at the tick's end, world:open(\"settings\") shows the engine's SETTINGS over the game, world:quit() ends the program. The title is no run: it is never recorded, nothing is saved there, Escape is yours. level.name says where the game is. A run's end and QUIT TO TITLE come back to it; PLAY in the IDE begins the run at once (a scenario with level = \"title\" plays the title).",
+        text: "A game with save games may open on a title of its own: a level of the game (levels/title.toml here) that c.title_screen.level names, in place of the engine's title with its high scores. The window opens in it, and what happens there is your code: here a menu drawn with frame:menu and moved with the arrows. world:new_game() begins a run in the level a run begins in (the first but the title, or c.start's), world:load(slot) a run from a save (world.saves says what lies in the slots, world.saves.newest which was saved last: CONTINUE is world:load(world.saves.newest), nil while there is none), world:save(slot, { label = \"Meadow\" }) tells a save by a line of your own (world.saves[slot].label), world:delete_save(slot) empties a slot at the tick's end, world:open(\"settings\") shows the engine's SETTINGS over the game, world:quit() ends the program, and in a run world:to_title() goes back to the title (your own QUIT TO TITLE). The title is no run: it is never recorded, nothing is saved there, Escape is yours. level.name says where the game is. A run's end and QUIT TO TITLE come back to it; PLAY in the IDE begins the run at once (a scenario with level = \"title\" plays the title).",
         conf: r##"c.world.size = nil
 c.title_screen.level = "title"
 c.saves = { slots = 1 }
-c.actions = { "act" }
-c.keys = { act = { "Space" } }
-c.pad = { act = { "south" } }"##,
+c.actions = { "act", "back" }
+c.keys = { act = { "Space" }, back = { "X" } }
+c.pad = { act = { "south" }, back = { "east" } }"##,
         files: &[
             ("levels/title.toml", "format = \"voxcade level 1\"\nsize = [96, 64, 32]\n"),
             ("levels/meadow.toml", "format = \"voxcade level 1\"\nsize = [96, 64, 32]\n"),
@@ -603,6 +603,7 @@ function on_tick()
   if level.name == "title" then return title_tick() end
   player:walk(input.dir, 40)
   if input:pressed("act") then world:save(1, { label = "Meadow" }) end
+  if input:pressed("back") then world:to_title() end
 end
 
 function on_draw(frame)
@@ -613,7 +614,7 @@ function on_draw(frame)
     end
     frame:menu{ title = "My Game", rows = rows, at = level.state.at, hint = "{act} chooses" }
   else
-    frame:text("{act} saves", 4, 4)
+    frame:text("{act} saves, {back} to the title", 4, 4)
   end
 end
 "##,
@@ -1156,6 +1157,117 @@ function on_draw(frame)
   elseif near_stall() then
     frame:text("{act} opens the stall", 4, frame.height - 12)
   end
+end
+"##,
+    },
+    Topic {
+        title: "POINT AND CLICK",
+        text: "In a game with a pointer (c.pointer) input.pointer says what the pointer is over in the level too: thing (the thing whose drawn voxels are under it, a figure as posed, a level's piece, a model drawn with frame:model), part (that figure's part by name), area (the level's area it enters first, a door in a wall), at and cell (where it meets the level: the ground to walk to, a cell of a grid). A click carries what was under the pointer as the button went down, and a thing gone since is nil. In on_draw frame.pointer says the same of the picture before: a name over a thing while the pointer rests on it. input.aim is the way from the player's figure to the pointer. Click the ground to walk, the chest to open it.",
+        conf: r##"c.player.kind = "hero"
+c.things.hero = {}
+c.things.chest = {}
+c.pointer = "system"
+c.actions = { "click" }
+c.keys = { click = { "mouse_left" } }
+c.pad = { click = { "south" } }"##,
+        files: &[],
+        code: r##"function on_level_start(how)
+  level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 0, "#5a6e4a")
+  level:spawn("chest", 60, 40)
+  level.state.said = "Click the ground to walk, the chest to open it"
+end
+
+function on_tick()
+  local p = input.pointer
+  if input:pressed("click") and p then
+    if p.thing and p.thing.kind == "chest" then
+      level.state.said = p.thing.state.open and "It is empty" or "Gold!"
+      p.thing.state.open = true
+    elseif p.cell then
+      level.state.walk_to = { x = p.cell.x, y = p.cell.y }
+    end
+  end
+  -- walking to the point clicked, straight
+  local to = level.state.walk_to
+  if to then
+    local dx, dy = to.x - player.x, to.y - player.y
+    if math.abs(dx) + math.abs(dy) < 2 then
+      level.state.walk_to = nil
+    else
+      player:walk({ x = dx, y = dy }, 40)
+    end
+  end
+end
+
+function on_draw(frame)
+  frame:model("hero.vvx", player)
+  for _, t in ipairs(level:things()) do
+    if t.kind == "chest" then frame:model("hero2.vvx", t) end
+  end
+  frame:text(level.state.said, 4, 4)
+  local p = frame.pointer
+  if p and p.thing and p.thing.kind == "chest" then frame:text("open", p.x + 6, p.y) end
+end
+"##,
+    },
+    Topic {
+        title: "CLICKS AND A NAME",
+        text: "c.pointer = \"system\" gives your game a pointer: the mouse moves it, and its buttons and wheel are keys you bind as any (c.keys.click = { \"mouse_left\" }). frame:hud names a rectangle of the screen, and a menu or grid with a name is one too: input.pointer.hud says which the pointer is over, index its row or slot, u and v where in it. A click carries what was under the pointer as the button went down. Typing: player.state.typing = true, then input.typed says what came each tick (text, erase, done, cancel), and the keys that type do nothing else meanwhile. c.pointer = \"own\" hides the arrow while the game plays: draw your own from frame.pointer. input.move is the left stick (or the directions) at any angle.",
+        conf: r##"c.player.kind = "hero"
+c.things.hero = {}
+c.pointer = "system"
+c.actions = { "click", "next" }
+c.keys = { click = { "mouse_left" }, next = { "wheel_down", "Tab" } }
+c.pad = { click = { "south" }, next = { "rightshoulder" } }"##,
+        files: &[],
+        code: r##"local SEEDS = { "Carrot", "Wheat", "Tomato" }
+
+function on_world_start()
+  world.state.name = ""
+  world.state.seed = 1
+  world.state.planted = 0
+  player.state.typing = true   -- a name first
+end
+
+function on_level_start(how)
+  level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 0, "#5a6e4a")
+end
+
+function on_tick()
+  local typed = input.typed
+  if typed then
+    -- the letters typed this tick, Backspace, Enter
+    local name = world.state.name .. typed.text
+    for _ = 1, typed.erase do name = name:sub(1, -2) end
+    world.state.name = name:sub(1, 12)
+    if typed.done and world.state.name ~= "" then player.state.typing = false end
+    return
+  end
+  -- walking at any angle, with a stick or the arrows
+  local move = input.move
+  player:walk({ x = move.x, y = move.y }, 40)
+  if input:pressed("next") then world.state.seed = world.state.seed % #SEEDS + 1 end
+  local at = input.pointer
+  if input:pressed("click") and at and at.hud == "seeds" and at.index then
+    world.state.seed = at.index
+  elseif input:pressed("click") and at and at.hud == "field" then
+    world.state.planted = world.state.planted + 1
+  end
+end
+
+function on_draw(frame)
+  if player.state.typing then
+    frame:text("Your name: " .. world.state.name .. "_", 8, 8)
+    frame:text("Enter when done", 8, 20)
+    return
+  end
+  frame:text(world.state.name .. " planted " .. world.state.planted, 8, 8)
+  frame:menu{ name = "seeds", x = 8, y = 24, rows = SEEDS, at = world.state.seed, hint = "click or {next}" }
+  -- the field: a rectangle the pointer can be over
+  frame:box(frame.width - 88, 24, 80, 50, { 90, 70, 40 })
+  frame:hud("field", frame.width - 88, 24, 80, 50)
+  local p = frame.pointer
+  if p and p.hud == "field" then frame:text("plant " .. SEEDS[world.state.seed], frame.width - 88, 78) end
 end
 "##,
     },

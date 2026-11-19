@@ -11,6 +11,36 @@
 ---@field x number
 ---@field y number
 
+---@class Stick A stick's value (input.move, input.aim): x right, y up, each -1 to 1, never longer than 1.
+---@field x number
+---@field y number
+
+---@class PointerAt What the pointer is over this tick (input.pointer).
+---@field hud? string The name of the HUD panel under it (frame:hud, a named menu or grid), the topmost; nil over none.
+---@field index? integer The menu's row or the grid's cell under it, from 1.
+---@field u? number Where in that panel across, 0 at its left to 1 at its right.
+---@field v? number Where in that panel down, 0 at its top to 1 at its bottom.
+---@field thing? Thing|Player The thing whose drawn voxels it is over (a figure, a level's piece, a model frame:model drew with it); nil once it is gone.
+---@field part? string That figure's part under it, by its name.
+---@field area? string The name of the level's area it enters first before it meets the level.
+---@field at? Point Where it meets the level's voxels and solid pieces (glass, water and things looked through); nil into the sky or off the level.
+---@field cell? Point The voxel it meets there, whole numbers.
+
+---@class PointerNow This machine's pointer in this picture (frame.pointer).
+---@field x number Where it is across, in UI voxels from the screen's left.
+---@field y number Where it is down, in UI voxels from the screen's top.
+---@field hud? string The name of the HUD panel under it in the picture before.
+---@field index? integer The menu's row or the grid's cell under it, from 1.
+---@field thing? Thing|Player The thing under it in the picture before (a name to show on hover).
+---@field part? string That figure's part under it.
+---@field area? string The level's area it enters first.
+
+---@class Typed What the player typed this tick (input.typed).
+---@field text string The letters typed, "" mostly.
+---@field erase integer How many letters Backspace took away.
+---@field done boolean Enter was pressed.
+---@field cancel boolean Escape was pressed.
+
 ---@alias Color integer[] Red, green, blue (and alpha), 0 to 255.
 
 ---@class Place Where a player arrives in a level.
@@ -70,6 +100,7 @@
 ---@field fade? number Seconds the picture fades out through c.transition.color, and as many in, 0 to 10 (0: a cut); unless said, c.transition's.
 
 ---@class Menu A menu in the engine's look (frame:menu).
+---@field name? string Its name as the pointer says it (input.pointer.hud).
 ---@field rows (string|MenuRow)[] Its rows, from the top.
 ---@field at? integer The chosen row, from 1.
 ---@field title? string Above the rows.
@@ -83,10 +114,12 @@
 
 ---@class GridCell A slot (frame:grid).
 ---@field icon? string An icon of c.icons.
+---@field model? string A model file of the game, its front shown in the slot.
 ---@field count? integer A number at its corner.
 ---@field dim? boolean Darker.
 
 ---@class Grid Slots in rows (frame:grid).
+---@field name? string Its name as the pointer says it (input.pointer.hud).
 ---@field cells (GridCell|false)[] The slots, false for an empty one.
 ---@field columns? integer Across (up to 8 unless said).
 ---@field cell? number A slot's size in UI voxels (18).
@@ -195,6 +228,9 @@ function World:open(page) end
 
 ---Ends the program, as QUIT on the engine's title: for your own title's menu. In the IDE's PLAY it stops the game; shot and inspect end the run there. Only the window does it: the game plays the same without one.
 function World:quit() end
+
+---Back to the title after this tick, as QUIT TO TITLE in the pause menu: the run ends (on_level_end and on_world_end hear "quit"), a score that beats a line of the high score table asks for initials, then the title shows; a game with a title of its own (c.title_screen.level) goes back to that level. For your own menu's QUIT, a game over screen's button. On the title itself it is a mistake. In the IDE's PLAY it stops the game; shot and inspect end the run there. Only the window does it: the game plays the same without one.
+function World:to_title() end
 
 ---@class Level The level being played: its voxels, its things, what happens in it, its camera.
 ---@field state table Your game's data for this level while it is played: the things in it too, moves, time. Fresh each time the level is entered, a restart too; after world:load as it was saved (its things nil). The engine reads one key: level.state.held = true holds the level (the ready-made rules, the physics and touches wait; on_tick, on_draw and the time go on): for a message, a shop, a tally.
@@ -324,6 +360,7 @@ function Camera:look_at(x, y) end
 ---- inventory: items by name and how many (player.state.inventory.key).
 ---- checkpoint: the name of a place or a thing in this level where world:restart goes. Forgotten on world:go_to.
 ---- hp: with a figure that has hit points, or with a kit.
+---- typing: true while the player types: the keyboard's letters, Backspace, Enter and Escape hold no action then (Escape does not pause), and input.typed says what came. Every player has it (p.state.typing).
 ---With a kit (c.kit):
 ---- invulnerable: ticks left without hits, or true until set back.
 ---With the jump & run kit (c.kit = "platformer"):
@@ -471,6 +508,23 @@ function Area:holds(at) end
 ---@field up boolean Held this tick (input:pressed("up") whether it went down this tick).
 ---@field down boolean Held this tick (input:pressed("down") whether it went down this tick).
 ---@field dir Way The directions held as a way: x and y each -1, 0 or 1.
+---@field move Stick Where the left stick leans, { x, y }: x right, y up, each -1 to 1, never longer than 1 (a light lean is small, a full one 1). Without a stick it is the directions held: 1 one way, about 0.71 each on a diagonal. A shooter that walks at any angle, a car's steering.
+---@field aim Stick Where the right stick leans, { x, y } as input.move; with a mouse in a game with a pointer (c.pointer) the way on the screen from the player's figure to the pointer, length 1; { x = 0, y = 0 } with keys alone. A twin-stick shooter's aim, the same code for the pad and the mouse.
+---What the pointer is over this tick, in a game with one (c.pointer): nil without, for a player on a pad, and when the pad was used last.
+---- hud: the name of the HUD panel under it (frame:hud, or a menu or grid with a name), the topmost; nil over none.
+---- index: that menu's row or grid's cell, from 1.
+---- u, v: where in the panel, 0 to 1 from its top left (a slider, a map).
+---- thing: the thing whose drawn voxels it is over (a figure as drawn and posed, a level's piece, a model frame:model drew with it), part: that figure's part by name; nil once the thing is gone.
+---- area: the name of the level's area it enters first before it meets the level (a door in a wall).
+---- at: where it meets the level's voxels and solid pieces, { x, y, z } (glass, water and things looked through; nil into the sky or off the level), cell: the voxel it meets there, whole numbers (a grid game's cell).
+---Under a panel the level's answers are nil: a panel covers. It is what the player saw: a click carries what was under the pointer as the button went down. The mouse's buttons are keys (c.keys.click = { "mouse_left" }): input:pressed("click") with input.pointer.hud is a click on a panel. A pointer from the picture of a level left is nil.
+---@field pointer PointerAt|nil
+---What the player typed this tick while player.state.typing is true (else nil).
+---- text: the letters typed, "" mostly; only those the small letters can write.
+---- erase: how many letters Backspace took away.
+---- done: Enter was pressed. cancel: Escape was pressed.
+---The letters come once and in order, in replays and over the network too. A name at the start: typing = true, add text, take erase away, typing = false on done.
+---@field typed Typed|nil
 local Input = {}
 
 ---Whether an action (c.actions, one the ready-made rules bring, or a direction: "left", "right", "up", "down") is held this tick. The ready-made rules read the same keys and use none of them up.
@@ -512,6 +566,7 @@ function Screen:burst(icon, x, y) end
 function Screen:flash(strength) end
 
 ---@class Frame The picture on_draw makes (function on_draw(frame)): only there, only for this picture.
+---@field pointer PointerNow|nil This machine's pointer in this picture, in a game with one (c.pointer): x and y in UI voxels as frame:text's, and hud and index, thing, part and area of what it is over in the picture before (a name over a thing as the pointer rests on it). Nil with the pad used last. To draw your own cursor (c.pointer = "own") or light the row under it. Only for drawing: on_tick reads input.pointer.
 ---@field players Player[] The players at the machine this picture is drawn for, in seat order (at one machine every taken seat, the out too; over the network that machine's own): their HUD. A key in braces in a text, and controls in on_draw, are the first of them's (seat 1's where none plays there); another player's is p.controls:key.
 ---@field width number How many UI voxels the HUD is across: it follows the screen's shape, so put things at the right edge from it (frame.width - 3 - frame:text_width(score)).
 ---@field height number How many UI voxels the HUD is from top to bottom (c.ui.height).
@@ -581,16 +636,25 @@ function Frame:fog(fog) end
 ---@param camera PictureCamera
 function Frame:camera(camera) end
 
+---Names a rectangle of this picture's HUD the pointer can be over: x and y its top left, in UI voxels as frame:text's. Nothing is drawn. In on_tick input.pointer.hud is its name while the pointer is over it, u and v where in it. One named later lies on top. A name is a word of letters, digits and _, up to 16 long. A menu or grid with a name is one too.
+---@param name string
+---@param x number
+---@param y number
+---@param width number
+---@param height number
+function Frame:hud(name, x, y, width, height) end
+
 ---Draws a menu in the engine's look, on a plate. In the middle of the screen unless x and y say where (its top left), as wide as it needs unless width says.
 ---- rows: each a text, or { text =, value =, icon =, dim = }: a value at the right, an icon of c.icons before the text, dimmed when it cannot be had.
 ---- at: the chosen row, from 1, yellow with the engine's red marker.
 ---- title, tabs (tab: the chosen one, from 1), hint below; an action in braces is its key.
 ---- shown: how many rows show at most; a longer list scrolls to keep at in view.
 ---What is open and where the cursor stands is your game's: keep it in level.state, hold the level while it is open (level.state.held = true) and move it in on_tick (input:repeated).
+---A menu is a panel the pointer can be over: with a name (name = "shop") input.pointer.hud says it, index the row.
 ---@param menu Menu
 function Frame:menu(menu) end
 
----Draws an inventory's slots in rows, on a plate: cells, each { icon =, count =, dim = } (an icon of c.icons, a number at its corner, darker when dim) or false for an empty slot; columns across (up to 8 unless said), cell its size in UI voxels (18), at the chosen slot (from 1) edged in yellow, an optional title. In the middle unless x and y say where.
+---Draws an inventory's slots in rows, on a plate: cells, each { icon =, model =, count =, dim = } (an icon of c.icons, or a model file of the game shown from the front, a number at its corner, darker when dim) or false for an empty slot; columns across (up to 8 unless said), cell its size in UI voxels (18), at the chosen slot (from 1) edged in yellow, an optional title. In the middle unless x and y say where. With a name it is a panel the pointer says (input.pointer.hud), index the slot.
 ---@param grid Grid
 function Frame:grid(grid) end
 
@@ -830,6 +894,7 @@ function on_pickup(thing, item) end
 ---@field languages string[] The languages the game speaks ({ "de", "en", "fr" }, two letters each): SETTINGS offers them, world.language says which the player chose, the engine's menus speak it. None: English.
 ---@field players integer The seats the game has, how many play at once (c.players = 4; docs/game-model.md, "Several players"): 1, a game of one, unless set. (from 1 to 16)
 ---@field team_score boolean The high score table takes the run as one line, every seat's score added, instead of a line for each player.
+---@field pointer string A pointer the mouse moves over the game (c.pointer = "system": the system's arrow; "own": none shown, the game draws its own in on_draw from frame.pointer): input.pointer says what it is over, the mouse's buttons and wheel are keys (c.keys.click = { "mouse_left" }), the engine's menus take it. Unset: no pointer. Takes effect after a restart (F5).
 
 ---@class Conf.world.blocks.backdrops
 ---@field image string The picture, relative to the game folder.

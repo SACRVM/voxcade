@@ -118,6 +118,9 @@ pub struct SeatState {
     pub out: bool,
     pub team: Option<String>,
     pub kind: Option<String>,
+    /// Its player types (`p.state.typing`): the keyboard's keys that type
+    /// hold no action, `p.input.typed` says what came.
+    pub typing: bool,
     /// The score of a seat after the first (seat 1's is the host's), and
     /// its hit points while its figure does not stand (its figure's while
     /// it does).
@@ -147,6 +150,7 @@ impl Default for SeatState {
             out: false,
             team: None,
             kind: None,
+            typing: false,
             score: 0,
             hp: None,
             coming: None,
@@ -515,6 +519,8 @@ pub struct Stage {
     pub ticking: bool,
     /// The game's actions (`p.input`).
     pub actions: Arc<Vec<&'static str>>,
+    /// The game has a pointer (`c.pointer`): `input.pointer` is there.
+    pub pointer: bool,
     /// The languages the game speaks (`c.languages`): `world.language` is
     /// the player's of them, else the first.
     pub languages: Arc<Vec<String>>,
@@ -912,6 +918,21 @@ impl Stage {
     /// game without figures for its players plays them all the same).
     pub fn playing(&self, seat: usize) -> bool {
         self.in_play(seat) && (self.seen(seat_handle(seat)).is_some() || self.seat_kind(seat).is_none() && self.host.player_seen().is_none())
+    }
+
+    /// The thing drawn under `key` (`Drawing::of_thing`, a pointer's
+    /// answer) as a script holds it, if it still stands: a player's figure
+    /// as the player, any other thing by its id; gone (removed, dead, out
+    /// of the level), none.
+    pub fn thing_of_key(&self, key: u32) -> Option<u32> {
+        if let Some(seat) = handle_seat(key) {
+            return (self.seen(key).is_some() && !self.here.dead.contains(&key) && self.in_play(seat)).then_some(key);
+        }
+        if let Some(handle) = self.figure_handle(Id::from_raw(key)) {
+            return Some(handle);
+        }
+        let living = self.host.get(Id::from_raw(key)).is_some();
+        (living && !self.here.dead.contains(&key)).then_some(key)
     }
 
     /// The thing behind a handle's id (`PLAYER`: the player's figure; a

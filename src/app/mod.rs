@@ -16,6 +16,7 @@ mod draw;
 mod events;
 mod front;
 mod keys;
+mod mouse;
 mod network;
 
 use std::path::{Path, PathBuf};
@@ -129,6 +130,10 @@ struct App<G: Game> {
     begin: crate::session::Begin,
     /// The maker's keys work (`voxcade run --maker`).
     maker: bool,
+    /// The mouse and the text typed (a game with a pointer; any game a
+    /// player types in).
+    mouse: mouse::Mouse,
+    mouse_util: sdl3::mouse::MouseUtil,
 }
 
 /// The window's picture: the renderer, the surface it draws on, and the
@@ -217,7 +222,7 @@ pub fn run<G: Game>(dir: &Path, options: RunOptions) -> Result<()> {
     }
     crate::controls::label_keys(&mut settings);
     for name in settings.keys.names() {
-        if Scancode::from_name(name).is_none() {
+        if Scancode::from_name(name).is_none() && !crate::input::MOUSE_KEYS.contains(&name.to_lowercase().as_str()) {
             eprintln!("settings: no key named '{name}'");
         }
     }
@@ -295,8 +300,9 @@ pub fn run<G: Game>(dir: &Path, options: RunOptions) -> Result<()> {
             parting = say_now(said.join("  "));
         }
     }
-    let scripted = keys.map(|k| crate::replay::parse_script(&k, game.actions()).map(crate::replay::Script::new)).transpose()?.map(|s| (s, 0.0f32, crate::input::Input::default()));
+    let scripted = keys.map(|k| game.script(&k).map(crate::replay::Script::new)).transpose()?.map(|s| (s, 0.0f32, crate::input::Input::default()));
     let text_input = video.text_input();
+    let mouse_util = sdl.mouse();
     let watch = FolderWatch::new(dir);
 
     let mut app = App {
@@ -332,6 +338,8 @@ pub fn run<G: Game>(dir: &Path, options: RunOptions) -> Result<()> {
         watching,
         begin,
         maker,
+        mouse: Default::default(),
+        mouse_util,
     };
     if on_title {
         app.play_own_title();
@@ -355,6 +363,7 @@ pub fn run<G: Game>(dir: &Path, options: RunOptions) -> Result<()> {
         app.hot_reload();
         app.music();
         let keyboard = events.keyboard_state();
+        app.pointer_and_typing();
         let input = app.read_input(&keyboard);
         app.net_input(&keyboard);
         let elapsed = app.elapsed();
@@ -513,7 +522,15 @@ impl<G: Game> App<G> {
     /// several each other seat's given to the game (a replay brings its
     /// own); the players page shows the seats.
     fn read_input(&mut self, keyboard: &sdl3::keyboard::KeyboardState) -> crate::input::Input {
-        let App { game, pads, settings, seating, front, playback, net, .. } = self;
+        let mouse_seat = self.mouse_seat();
+        let App { game, pads, settings, seating, front, playback, net, mouse, .. } = self;
+        // The keyboard's seat types: its keys that type hold nothing then.
+        let typing = mouse.typing;
+        let keys = crate::controls::WithMouse { keys: keyboard, mouse: &[], typing };
+        let plain = crate::controls::WithMouse { keys: keyboard, mouse: &[], typing: false };
+        let keyboard: &dyn crate::controls::KeyState = &keys;
+        let other: &dyn crate::controls::KeyState = &plain;
+        let keys_of = |seat: usize| if seat == mouse_seat { keyboard } else { other };
         // The players page shows the run's seats while playing, else the
         // plan (a game of several); only an open menu shows them.
         if game.cfg.players > 1 && front.menu.is_open() {
@@ -522,20 +539,82 @@ impl<G: Game> App<G> {
             front.menu.seats = crate::menu::SeatLine::all(&shown, &named);
         }
         if seating.alone() {
-            crate::controls::read_input(Some(keyboard), &pads.open, settings, game.actions())
+            crate::controls::read_input(Some(keys_of(1)), &pads.open, settings, game.actions())
         } else {
             // Each seat its keys and pads; who sits there for the ticks to
             // come (a replay brings its own).
             for seat in 2..=seating.seats() {
                 let its_pads = pads_of(pads, seating, seat);
-                let input = crate::controls::read_seat(Some(keyboard), seating.keys(seat), &its_pads, settings.pad_of(seat), settings, game.actions());
+                let mut input = crate::controls::read_seat(Some(keys_of(seat)), seating.keys(seat), &its_pads, settings.pad_of(seat), settings, game.actions());
                 if playback.is_none() && front.playing && net.is_none() {
+                    // The mouse's, where this seat has the keyboard.
+                    if seat == mouse_seat {
+                        mouse.add_to(&mut input, &settings.keys, game.actions(), None);
+                    }
                     let controls = seat_controls(game, settings, front, seating.keys(seat), seat, its_pads.first().copied());
                     game.set_seat(seat, seating.taken(seat).then_some(input));
                     game.set_seat_controls(seat, controls);
                 }
             }
-            crate::controls::read_seat(Some(keyboard), seating.keys(1), &pads_of(pads, seating, 1), &settings.pad, settings, game.actions())
+            crate::controls::read_seat(Some(keys_of(1)), seating.keys(1), &pads_of(pads, seating, 1), &settings.pad, settings, game.actions())
+        }
+    }
+
+    /// The seat the mouse is (`docs/game-model.md`: one mouse a machine,
+    /// the seat's that has the keyboard): the first with a part of it.
+    fn mouse_seat(&self) -> usize {
+        (1..=self.seating.seats()).find(|&s| self.seating.keys(s) != Keys::Nothing).unwrap_or(1)
+    }
+
+    /// Where the pointer is in the HUD's measure (window points `at`), or
+    /// None outside the picture.
+    fn hud_at(&self, at: [f32; 2]) -> Option<[f32; 2]> {
+        let (w, h) = self.display.screen.window.size();
+        let aspect = self.game.picture_aspect(self.display.screen.aspect());
+        let layout = crate::ui::Layout::of(&self.game.cfg.ui, aspect);
+        let (x0, y0, across, high) = match self.game.cfg.camera.aspect {
+            Some(shape) => crate::render::letterbox(w, h, shape),
+            None => (0, 0, w, h),
+        };
+        let (u, v) = ((at[0] - x0 as f32) / across.max(1) as f32, (at[1] - y0 as f32) / high.max(1) as f32);
+        ((0.0..=1.0).contains(&u) && (0.0..=1.0).contains(&v)).then_some([u * layout.width, v * layout.height])
+    }
+
+    /// The pointer answered where it is now, for a tick or a reading: in a
+    /// game with one, the mouse used last (the pad's player has none).
+    fn pointer_now(&self) -> Option<crate::input::Pointer> {
+        let on = self.game.has_pointer() && self.front.played_with == Device::Keyboard;
+        let [x, y] = self.mouse.at.filter(|_| on).and_then(|at| self.hud_at(at))?;
+        Some(self.game.point(x, y, self.display.screen.aspect()))
+    }
+
+    /// Every frame: the pictures shown the pointer where it is
+    /// (`frame.pointer`), the system's arrow shown or hidden
+    /// (`c.pointer = "own"` hides it while the game plays), the window's
+    /// text input on while the keyboard's player types.
+    fn pointer_and_typing(&mut self) {
+        let on = self.game.has_pointer() && self.front.played_with == Device::Keyboard;
+        let at = self.mouse.at.filter(|_| on).and_then(|at| self.hud_at(at));
+        if self.game.has_pointer() {
+            let aspect = self.display.screen.aspect();
+            self.game.set_pointer(at, aspect);
+            let hide = self.game.cfg.pointer == Some(crate::config::PointerStyle::Own) && self.front.playing && !self.front.menu.is_open() && !self.prompt.open;
+            self.mouse_util.show_cursor(!hide);
+        }
+        let typing = self.front.playing && !self.front.menu.is_open() && !self.prompt.open && self.watching.is_none() && self.game.typing(self.mouse_seat());
+        if typing != self.mouse.typing {
+            self.mouse.typing = typing;
+            if !typing {
+                self.mouse.typed.clear();
+            }
+            // The console and the address typed use it too.
+            if !self.prompt.open && !self.front.typing_address {
+                if typing {
+                    self.text_input.start(&self.display.screen.window);
+                } else {
+                    self.text_input.stop(&self.display.screen.window);
+                }
+            }
         }
     }
 
@@ -563,9 +642,9 @@ impl<G: Game> App<G> {
                     && let Some(seat) = n.locals.seat(1)
                 {
                     let controls = game.player_controls(Device::Keyboard, front.pad_kind, settings);
-                    n.read(seat, *held, controls);
+                    n.read(seat, held.clone(), controls);
                 }
-                *held
+                held.clone()
             }
             _ => input,
         };
@@ -641,7 +720,7 @@ impl<G: Game> App<G> {
     fn ticks(&mut self, input: crate::input::Input) {
         let mut ticks = 0;
         while self.clock.accumulator >= DT && ticks < MAX_CATCH_UP {
-            let App { front, playback, net, game, prompt, parting, speaker, settings, .. } = self;
+            let App { front, playback, net, game, prompt, speaker, settings, .. } = self;
             if front.menu.is_open() {
                 front.menu.update();
             }
@@ -659,8 +738,23 @@ impl<G: Game> App<G> {
             } else if front.playing && !front.menu.is_open() && !prompt.open && !replay_over {
                 let input = match playback {
                     Some(p) => p.next_input(game),
-                    None => input,
+                    None => input.clone(),
                 };
+                // The mouse's and the text typed, taken once a tick (seat 1's
+                // where it has the keyboard; a network's go as readings).
+                let input = if playback.is_none() && net.is_none() && self.mouse_seat() == 1 {
+                    let now = self.pointer_now();
+                    let aspect = self.display.screen.aspect();
+                    let App { mouse, settings, game, .. } = &mut *self;
+                    let mut input = input;
+                    mouse.add_to(&mut input, &settings.keys, game.actions(), now);
+                    // Aimed from the figure to the pointer where no stick aims.
+                    game.mouse_aim(&mut input, 1, aspect);
+                    input
+                } else {
+                    input
+                };
+                let App { playback, net, game, parting, .. } = self;
                 // Level changes fade where someone plays; replays cut.
                 game.fades = playback.is_none();
                 // The host builds the tick's bundle and plays it.
@@ -694,8 +788,10 @@ impl<G: Game> App<G> {
                 // What the game asked of the window: SETTINGS over it, the
                 // end (not a replay's, nor over the network yet).
                 let asked = game.requests();
-                if playback.is_none() && net.is_none() && front.asked(&asked) {
-                    queued.push(Command::Quit);
+                if playback.is_none() && net.is_none()
+                    && let Some(then) = front.asked(&asked)
+                {
+                    queued.push(then);
                 }
                 match playback {
                     Some(p) => {
@@ -977,11 +1073,13 @@ mod tests {
         assert!(own_title(&mut game, &mut front).unwrap());
         assert!(front.playing && !front.menu.is_open() && !front.on_title() && game.on_title(), "the game's title, not the engine's");
         let mut settings = Settings::default();
-        assert!(!front.asked(&[Request::Open("settings")]));
+        assert_eq!(front.asked(&[Request::Open("settings")]), None);
         assert_eq!(front.menu.page(), Some(Page::Settings));
         assert_eq!(front.menu.nav(Nav::Back, &mut settings, 0), Some(Command::Resume), "back from it, the game goes on");
         assert!(!front.menu.is_open());
-        assert!(front.asked(&[Request::Quit]), "QUIT ends the window");
+        assert_eq!(front.asked(&[Request::Quit]), Some(Command::Quit), "QUIT ends the window");
+        assert_eq!(front.asked(&[Request::ToTitle]), Some(Command::ToTitle), "back to the title as QUIT TO TITLE");
+        assert_eq!(front.asked(&[Request::ToTitle, Request::Quit]), Some(Command::Quit), "quitting wins");
         game.eval("world.state.go = true").unwrap();
         game.step(&crate::input::Input::default());
         assert!(game.begun && !game.on_title(), "a run");

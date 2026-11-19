@@ -28,6 +28,10 @@ pub struct Frame {
     /// How the play is seen unless `frame:camera` says otherwise (None on
     /// the title), so `to_screen` after it goes by the picture's camera.
     pub viewing: Option<crate::session::Viewing>,
+    /// This machine's pointer now and what it is over in the picture
+    /// before (`frame.pointer`): None with the pad used last, or no
+    /// pointer.
+    pub pointer: Option<crate::input::Pointer>,
 }
 
 /// A text size: 1 the pixel font, 2 and up the big letters.
@@ -160,6 +164,22 @@ impl UserData for Frame {
             handles(lua, seats.into_iter().map(seat_handle))
         });
         f.add_field_method_get("height", |_, o| Ok(o.height));
+        // This machine's pointer now and the panel under it (the picture
+        // before's): nil with the pad used last, or no pointer.
+        f.add_field_method_get("pointer", |lua, o| {
+            let Some(p) = &o.pointer else { return Ok(Value::Nil) };
+            let t = lua.create_table()?;
+            t.raw_set("x", p.x)?;
+            t.raw_set("y", p.y)?;
+            if let Some(panel) = p.panel.as_ref().filter(|panel| !panel.name.is_empty()) {
+                t.raw_set("hud", panel.name.as_str())?;
+                t.raw_set("index", (panel.index > 0).then_some(panel.index))?;
+            }
+            if let Some(met) = p.level.as_ref().filter(|_| p.panel.is_none()) {
+                super::input::met_answers(lua, met, &t, false)?;
+            }
+            Ok(Value::Table(t))
+        });
         f.add_field_method_get("alpha", |_, o| Ok(o.alpha));
     }
 
@@ -229,7 +249,28 @@ impl UserData for Frame {
             Ok(())
         });
         m.add_method_mut("grid", |lua, o, t: Given| {
-            o.cmds.push(Cmd::Grid(grid(lua, &t)?));
+            let mut g = grid(lua, &t)?;
+            // A slot's model: any model file of the game, loaded the first
+            // time, its front shown small.
+            let inside = (g.cell.round() as i32 - 2).max(1);
+            for (n, c) in g.cells.iter_mut().enumerate() {
+                let Some(file) = &c.model else { continue };
+                let Some(needed) = &o.needed else { return Err(mlua::Error::runtime(format!("frame:grid: cells[{}]: no model \"{file}\"", n + 1))) };
+                let model = needed.load(file).map_err(|e| mlua::Error::runtime(format!("frame:grid: cells[{}]: {e:#}", n + 1)))?;
+                c.thumb = Some(Arc::new(super::menus::thumbnail(&model, inside)));
+            }
+            o.cmds.push(Cmd::Grid(g));
+            Ok(())
+        });
+        m.add_method_mut("hud", |_, o, (name, x, y, width, height): (String, f32, f32, f32, f32)| {
+            super::menus::check_panel_name(&name, "frame:hud")?;
+            if name.is_empty() {
+                return Err(mlua::Error::runtime("frame:hud: a name first, frame:hud(\"bag\", x, y, width, height)"));
+            }
+            if ![x, y, width, height].iter().all(|v| v.is_finite()) || width < 0.0 || height < 0.0 {
+                return Err(mlua::Error::runtime("frame:hud: x, y, width and height are numbers, width and height 0 or more"));
+            }
+            o.cmds.push(Cmd::Hud { name, x, y, width, height });
             Ok(())
         });
         m.add_method_mut("daylight", |_, o, t: Given| {

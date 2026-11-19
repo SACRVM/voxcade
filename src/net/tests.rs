@@ -14,7 +14,7 @@ fn presses(log: &[Bundle], seat: usize, action: u32) -> u64 {
     let mut before = false;
     let mut n = 0;
     for b in log {
-        let now = b.inputs.get(seat).copied().flatten().is_some_and(|i| i.actions & action != 0);
+        let now = b.inputs.get(seat).cloned().flatten().is_some_and(|i| i.actions & action != 0);
         n += (now && !before) as u64;
         before = now;
     }
@@ -176,10 +176,10 @@ fn a_former_generation_steers_nobody() {
     let b = host.tick(Vec::new()).unwrap();
     let SeatEvent::Taken { generation, .. } = b.seats[0] else { panic!("seat 2 taken: {b:?}") };
     let right = Input { right: true, ..Input::default() };
-    let old = wire::Readings { seat: 2, generation: generation - 1, first: 0, inputs: vec![right] };
+    let old = wire::Readings { seat: 2, generation: generation - 1, first: 0, inputs: vec![right.clone()] };
     host.receive(2, 1, &up(Vec::new(), vec![old], 1));
     assert_eq!(host.tick(Vec::new()).unwrap().inputs[1], Some(Input::default()), "the old generation's keys steer nobody");
-    let own = wire::Readings { seat: 2, generation, first: 0, inputs: vec![right] };
+    let own = wire::Readings { seat: 2, generation, first: 0, inputs: vec![right.clone()] };
     host.receive(3, 1, &up(Vec::new(), vec![own], 1));
     assert_eq!(host.tick(Vec::new()).unwrap().inputs[1], Some(right));
 }
@@ -279,21 +279,25 @@ fn guest_on_eight_seats(limit: usize) -> Guest<usize> {
     guest
 }
 
-/// An input as wide as one is on the wire.
-const WIDE: Input = Input { left: true, right: true, up: true, down: true, actions: u32::MAX };
+/// A reading as wide as one is on the wire, of a game with a pointer or
+/// without (the text typed goes in asks).
+fn wide(pointer: bool) -> Input {
+    Input { typed: None, ..wire::widest(pointer) }
+}
 
 /// A guest's every datagram fits its transport's, however much it has to
 /// say (eight seats of readings not yet acknowledged, as wide as they
 /// come; forty controls asked; four checks of sixteen parts): the host
 /// reads each, the newest reading of every seat and every check go in
-/// the first, the asks in order over the next.
+/// the first (with eight pointers' widest answers: as many checks as fit,
+/// the rest in the next), the asks in order over the next.
 #[test]
 fn a_guests_datagrams_always_fit() {
-    for limit in [MAX_DATAGRAM, super::link::NET_LIMIT] {
+    for (limit, pointer) in [(MAX_DATAGRAM, false), (super::link::NET_LIMIT, false), (MAX_DATAGRAM, true), (super::link::NET_LIMIT, true)] {
         let mut guest = guest_on_eight_seats(limit);
         for _ in 0..40 {
             for seat in 1..=8 {
-                guest.read(seat, WIDE);
+                guest.read(seat, wide(pointer));
             }
         }
         for n in 0..40u8 {
@@ -315,7 +319,7 @@ fn a_guests_datagrams_always_fit() {
         let first = &ups[0];
         assert_eq!(first.readings.len(), 8, "every seat's readings");
         assert!(first.readings.iter().all(|r| r.first as usize + r.inputs.len() == 32 + 8 && !r.inputs.is_empty()), "up to the newest");
-        assert_eq!(first.checks.len(), 4, "every check");
+        assert!(first.checks.len() == 4 || (pointer && !first.checks.is_empty()), "every check: {}", first.checks.len());
         let mut asks = Vec::new();
         for up in &ups {
             assert_eq!(up.asks_from as usize, asks.len(), "the asks in order");
@@ -331,9 +335,15 @@ fn a_guests_datagrams_always_fit() {
 /// every seat is taken and its controls told in the end.
 #[test]
 fn asks_that_do_not_fit_wait_for_the_next_bundle() {
-    for limit in [MAX_DATAGRAM, super::link::NET_LIMIT] {
+    for (limit, pointer) in [(MAX_DATAGRAM, false), (super::link::NET_LIMIT, false), (MAX_DATAGRAM, true), (super::link::NET_LIMIT, true)] {
         let mut host: Host<usize> = Host::new(7, "host", 8);
         host.set_limit(limit);
+        // A game with a pointer keeps room for eight pointers' widest
+        // answers and text typed on every seat.
+        host.set_pointer(pointer);
+        if pointer {
+            assert!(host.extra_room() >= 64, "room for the session's own: {}", host.extra_room());
+        }
         for _ in 0..7 {
             host.ask(wire::Ask::Take);
         }

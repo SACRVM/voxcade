@@ -5,7 +5,7 @@
 
 use crate::controls::{Device, Nav, PadStyle};
 use crate::game::Request;
-use crate::menu::{Menu, Page};
+use crate::menu::{Command, Menu, Page};
 use crate::session::{INTRO_TIME, Scene};
 
 /// Ticks the high score table shows before the title (or the replay of the
@@ -127,16 +127,18 @@ impl Front {
     /// What the game asked of the window in a tick (`Session::requests`):
     /// SETTINGS opened over it, the game held while it shows; whether to
     /// quit.
-    pub fn asked(&mut self, requests: &[Request]) -> bool {
-        let mut quit = false;
+    pub fn asked(&mut self, requests: &[Request]) -> Option<Command> {
+        let mut then = None;
         for request in requests {
             match request {
                 Request::Open("settings") => self.menu = Menu::settings(),
                 Request::Open(_) => {}
-                Request::Quit => quit = true,
+                Request::Quit => then = Some(Command::Quit),
+                // Quitting wins over going to the title.
+                Request::ToTitle => then = then.or(Some(Command::ToTitle)),
             }
         }
-        quit
+        then
     }
 
     /// A key or button while the title plays a replay: it asks the replay to

@@ -246,6 +246,54 @@ pub(super) fn draw_placed(
     }
 }
 
+/// Every voxel of a model that can be seen, where `draw` puts it (its
+/// middle in the world and its turn) with its part (a figure's, by its
+/// place among the model's parts) and colour: what a pointer meets of a
+/// drawn, posed figure (`Session::point`). The same places as `draw`'s,
+/// test `a_figures_voxels_are_picked_where_they_are_drawn`.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn each_voxel(model: &VoxModel, frame: usize, origin: Vec3, look: IVec2, free_turn: Quat, pose: &[PartPose], f: &mut dyn FnMut(Option<usize>, Vec3, Quat, [u8; 4])) {
+    let quarter_turn = look_turn(look);
+    let rot = if free_turn == Quat::IDENTITY { free_turn } else { quarter_turn * free_turn * quarter_turn.inverse() };
+    let pivot = IVec3::new(model.size.x / 2, model.size.y / 2, 0);
+    let frame = if model.parts.is_empty() { frame.min(model.frames.len() - 1) } else { 0 };
+    let turn = match (look.x, look.y) {
+        (0, 1) => 0,
+        (1, 0) => 1,
+        (0, -1) => 2,
+        _ => 3,
+    };
+    let about = crate::render::turn_centre(model.size);
+    let mut pieces: Vec<(Option<usize>, &[u32], Quat, Vec3)> = Vec::new();
+    if model.parts.is_empty() {
+        pieces.push((None, &model.visible[frame], rot, crate::render::turn_about(rot, about)));
+    } else {
+        let mut chain: Vec<Option<(Quat, Vec3)>> = vec![None; model.parts.len()];
+        let centre = Vec3::new(0.5, 0.5, 0.0);
+        for i in 0..model.parts.len() {
+            let (own, b) = part_chain(model, pose, i, &mut chain);
+            if model.parts[i].voxels.is_empty() {
+                continue;
+            }
+            let seen = quarter_turn * own * quarter_turn.inverse();
+            let shift = about + rot * (-(seen * centre) + quarter_turn * (own * centre) + quarter_turn * (b - centre) + centre - about);
+            pieces.push((Some(i), &model.parts[i].visible, rot * seen, shift));
+        }
+    }
+    let voxels = &model.frames[frame];
+    for (part, visible, rot, shift) in pieces {
+        let free = crate::render::off_grid(rot, shift);
+        for &k in visible {
+            let (v, color) = &voxels[k as usize];
+            let l = *v - pivot;
+            let (x, y) = crate::render::quarter(l.x, l.y, turn);
+            let local = IVec3::new(x, y, l.z).as_vec3();
+            let middle = if free { crate::render::turned_centre(origin, local, shift, rot) } else { origin + local + 0.5 };
+            f(part, middle, if free { rot } else { Quat::IDENTITY }, *color);
+        }
+    }
+}
+
 /// The cells a model's first frame fills (every voxel, glass too: a
 /// figure's parts as they stand), facing `look` in quarter turns, from its
 /// pivot's cell: exactly where `draw` puts its voxels on the grid. What a

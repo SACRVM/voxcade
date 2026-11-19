@@ -93,7 +93,15 @@ pub(super) const INPUT_SCRIPT: &str = "\
 INPUT SCRIPT: segments separated by ';', each 'keys:ticks', keys joined by
 '+' from: left right up down, the game's own actions by name (`voxcade api`
 and its conf.lua list them; More Blood: jump fire grenade strafe) and none.
+A step may hold besides: move=X,Y and aim=X,Y the sticks (-1 to 1 each, y
+up); in a game with c.pointer pointer=X,Y where the pointer is (UI voxels
+from the top left, the HUD's measure; what it is over is found in the
+picture before the step) and mouse_left mouse_right mouse_middle wheel_up
+wheel_down as c.keys binds them; text=WORDS typed (%3B for ;, %2B for +,
+%25 for %), erase=N backspaces, typed=done (Enter) or typed=cancel
+(Escape), while the player types (player.state.typing).
   example: --input \"right+fire:40;none:20;up+jump:15\"
+  example: --input \"pointer=120,60:1;pointer=120,60+mouse_left:1;text=Nick:1;typed=done:1\"
 ";
 
 /// Every command the program answers to, a person's first.

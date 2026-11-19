@@ -56,6 +56,8 @@ pub struct Drawing<'a> {
     /// The thing what is drawn now is (`of_thing`), its moving draws kept
     /// with its key.
     pub(super) thing: Option<u32>,
+    /// What is drawn with a thing, for the pointer to find (`pick`).
+    pub(super) picks: Vec<super::Pick>,
 }
 
 impl<'a> Drawing<'a> {
@@ -172,7 +174,17 @@ impl<'a> Drawing<'a> {
     pub fn model_turned(&mut self, name: &str, frame: usize, origin: Vec3, look: IVec2, turn: Quat, tint: Option<[u8; 4]>) {
         let models = self.models;
         if let Some(m) = models.drawn(name) {
+            self.picked(name, frame, origin, look, turn, &[]);
             self.put_model(&m, frame, origin, look, turn, tint);
+        }
+    }
+
+    /// A model drawn with a thing (`of_thing`), kept for the pointer to
+    /// find (`Session::point`): not one only casting a shadow, nor the
+    /// title's.
+    fn picked(&mut self, name: &str, frame: usize, origin: Vec3, look: IVec2, turn: Quat, pose: &[PartPose]) {
+        if let Some(thing) = self.thing.filter(|_| !self.shadow_only && !self.title) {
+            self.picks.push(super::Pick { thing, model: name.to_string(), frame, origin, look, turn, pose: pose.to_vec() });
         }
     }
 
@@ -184,6 +196,7 @@ impl<'a> Drawing<'a> {
         let models = self.models;
         if let Some(m) = models.drawn(name) {
             let turns: Vec<PartPose> = m.parts.iter().map(|p| pose(&p.name)).collect();
+            self.picked(name, frame, origin, look, turn, &turns);
             self.put_posed(&m, frame, origin, look, turn, &turns, tint);
         }
     }
@@ -198,6 +211,7 @@ impl<'a> Drawing<'a> {
         let frame = crate::sim::things::figure_frame(sets, body, m.frames.len(), m.size.z as f32);
         let swung = swinging(swing, body, m.size.z as f32);
         let turns: Vec<PartPose> = m.parts.iter().map(|p| swung(&p.name)).collect();
+        self.picked(name, frame, origin, look, turn, &turns);
         self.put_posed(&m, frame, origin, look, turn, &turns, tint);
     }
 

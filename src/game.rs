@@ -117,6 +117,9 @@ pub enum Anew {
 pub enum Request {
     Open(&'static str),
     Quit,
+    /// Back to the title, as the pause menu's QUIT TO TITLE
+    /// (`world:to_title()`).
+    ToTitle,
 }
 
 /// The engine's pages a game opens over itself (`world:open`).
@@ -273,6 +276,37 @@ pub trait Game: Sized + 'static {
     /// Its HUD: voxels in the UI's scene (`ui`'s text and icons).
     fn hud(&self, _cfg: &UiConfig, _alpha: f32, _aspect: f32, _font: Option<&DisplayFont>) -> Vec<Instance> {
         Vec::new()
+    }
+
+    /// The HUD panel at (`x`, `y`) of the picture drawn last, the topmost
+    /// (`frame:hud`, a menu, a grid), in a HUD `width` by `height`: what a
+    /// pointer there is over (`Session::point`).
+    fn panel_at(&self, _x: f32, _y: f32, _width: f32, _height: f32) -> Option<crate::input::Panel> {
+        None
+    }
+
+    /// Where this machine's pointer is for the pictures to come, in the
+    /// HUD's measure (`frame.pointer`; None: none, or the pad was used
+    /// last). Only the picture follows it.
+    fn set_pointer_now(&mut self, _at: Option<crate::input::Pointer>) {}
+
+    /// The level's areas being played (`[[area]]`), each its low and high
+    /// corner, in the level's order: what a pointer enters
+    /// (`input.pointer.area`).
+    fn areas(&self) -> Vec<(glam::Vec3, glam::Vec3)> {
+        Vec::new()
+    }
+
+    /// Where the figure of the player on seat `seat` stands (its feet), if
+    /// one does: `input.aim` from the mouse points from it.
+    fn seat_at(&self, seat: usize) -> Option<glam::Vec3> {
+        (seat == 1).then(|| self.focus().map(|b| b.pos)).flatten()
+    }
+
+    /// Whether the player on seat `seat` types (`p.state.typing`): the
+    /// machine sends the text typed, its keys that type hold no action.
+    fn typing(&self, _seat: usize) -> bool {
+        false
     }
 
     /// The body the camera keeps on screen: with `[camera] snap` the view

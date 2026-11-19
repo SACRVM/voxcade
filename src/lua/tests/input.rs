@@ -117,7 +117,7 @@ end
         ("frame:menu{ rows = { \"a\" }, at = 2 }", "frame:menu: at = 2, but there are 1 (from 1)"),
         ("frame:menu{ rows = { \"a\" }, colour = 1 }", "frame:menu: no 'colour'"),
         ("frame:menu{ rows = { \"a\", 7 } }", "rows[2] is a text or"),
-        ("frame:grid{ cells = { 1 } }", "cells[1] is { icon =, count =, dim = }"),
+        ("frame:grid{ cells = { 1 } }", "cells[1] is { icon =, model =, count =, dim = }"),
     ] {
         let g = game("menus-bad", &format!("function on_draw(frame) {bad} end\n"));
         g.compose(0.0, 16.0 / 9.0, crate::session::Scene::Play, None);
@@ -131,7 +131,7 @@ fn directions_are_pressed_like_actions() {
     let main = "function on_tick()\n  if input:pressed('right') then world.state.steps = (world.state.steps or 0) + 1 end\n  if input:released('right') then world.state.ups = (world.state.ups or 0) + 1 end\n  world.state.held = input:held('right')\nend\n";
     let mut g = game("directions", main);
     let right = Input { right: true, ..Input::default() };
-    for input in [right, right, right, Input::default(), right, Input::default()] {
+    for input in [right.clone(), right.clone(), right.clone(), Input::default(), right, Input::default()] {
         g.step(&input);
     }
     assert_eq!(halted(&g), "");

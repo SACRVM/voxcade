@@ -144,6 +144,9 @@ pub struct LuaGame<K: Kit> {
     /// What `on_draw` asked for the last time it ran (shown while stopped):
     /// the picture's part drawn in `draw`, the HUD's in `hud`.
     drawn: RefCell<Vec<Cmd>>,
+    /// Where this machine's pointer is now and what it is over in the
+    /// picture before (`frame.pointer`).
+    pointer_now: Option<crate::input::Pointer>,
     kit: PhantomData<K>,
 }
 
@@ -531,12 +534,12 @@ impl<K: Kit> Game for LuaGame<K> {
     fn snapshot(&self) -> Result<LuaSnapshot> {
         // (Taken between ticks: `on_tick` runs in none.)
         let stage = Stage { ticking: false, ..self.stage.clone() };
-        Ok(LuaSnapshot { stage, script: self.capture()?, before: self.before, held_for: self.held_for })
+        Ok(LuaSnapshot { stage, script: self.capture()?, before: self.before.clone(), held_for: self.held_for })
     }
 
     fn restore(&mut self, kept: &LuaSnapshot) {
         self.stage = kept.stage.clone();
-        self.before = kept.before;
+        self.before = kept.before.clone();
         self.held_for = kept.held_for;
         let lua = &self.sandbox.lua;
         let restored = (|| -> Result<()> {
@@ -730,7 +733,7 @@ impl<K: Kit> Game for LuaGame<K> {
 
     fn set_seats(&mut self, seats: &[crate::game::Seat]) {
         for (s, seat) in self.stage.seats.iter_mut().skip(1).zip(seats) {
-            (s.next, s.controls) = (seat.input, seat.controls.clone());
+            (s.next, s.controls) = (seat.input.clone(), seat.controls.clone());
         }
     }
 
@@ -834,7 +837,7 @@ impl<K: Kit> Game for LuaGame<K> {
                 return;
             }
         };
-        let seat_inputs: Vec<Option<Input>> = self.stage.seats.iter().skip(1).map(|s| s.next).collect();
+        let seat_inputs: Vec<Option<Input>> = self.stage.seats.iter().skip(1).map(|s| s.next.clone()).collect();
         let seat_teams: Vec<Option<&'static str>> = self.stage.seats.iter().map(|s| s.team.as_deref().map(crate::names::intern)).collect();
         let ticked = match self.kit_mut() {
             Some(kit) if held => kit.held(),
@@ -915,16 +918,16 @@ impl<K: Kit> Game for LuaGame<K> {
         }
         if let Some(tick) = self.code.tick.clone().filter(|_| self.halted.borrow().is_none() && !over) {
             // A press an on_interact used is no new press for on_tick.
-            let mut before = self.before;
+            let mut before = self.before.clone();
             let mut held_for = self.held_for;
             if let Some(a) = used {
                 before.hold(a, true);
                 held_for[4 + a] = held_for[4 + a].max(2);
             }
-            let view = InputView { now: *input, before, actions: self.actions.clone(), held_for };
+            let view = InputView::new(input.clone(), before.clone(), self.actions.clone(), held_for, self.stage.gate(1));
             // Seat 1's keys are `player.input` too.
             let first = &mut self.stage.seats[0];
-            (first.input, first.before, first.held_for) = (*input, before, held_for);
+            (first.input, first.before, first.held_for) = (input.clone(), before, held_for);
             self.stage.ticking = true;
             if let Err(e) = self.with_world(|sb, _| {
                 sb.provide("input", view)?;
@@ -946,7 +949,7 @@ impl<K: Kit> Game for LuaGame<K> {
             self.halt(anyhow::anyhow!("{e:#} (at the end of tick {tick})"));
             self.state_failed.set(true);
         }
-        self.before = *input;
+        self.before = input.clone();
         // A hold the script set this tick holds this tick's moves too.
         if !held && !self.held() {
             self.move_scripted();
@@ -981,6 +984,27 @@ impl<K: Kit> Game for LuaGame<K> {
     /// voxels of icons that burst.
     fn hud(&self, cfg: &UiConfig, alpha: f32, aspect: f32, font: Option<&DisplayFont>) -> Vec<Instance> {
         self.draw_hud(cfg, alpha, aspect, font)
+    }
+
+    fn panel_at(&self, x: f32, y: f32, width: f32, height: f32) -> Option<crate::input::Panel> {
+        self.panel_under(x, y, width, height)
+    }
+
+    fn set_pointer_now(&mut self, at: Option<crate::input::Pointer>) {
+        self.pointer_now = at;
+    }
+
+    fn typing(&self, seat: usize) -> bool {
+        self.stage.seats.get(seat.wrapping_sub(1)).is_some_and(|s| s.typing)
+    }
+
+    fn areas(&self) -> Vec<(glam::Vec3, glam::Vec3)> {
+        self.stage.levels.list.get(self.stage.level).map_or(Vec::new(), |l| l.areas.iter().map(|a| (a.at.as_vec3(), (a.at + a.size).as_vec3())).collect())
+    }
+
+    fn seat_at(&self, seat: usize) -> Option<glam::Vec3> {
+        let id = self.stage.figure(seat)?;
+        self.stage.host.get(id).map(|t| t.body.pos)
     }
 
     fn focus(&self) -> Option<&Body> {

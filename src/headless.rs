@@ -14,7 +14,7 @@ use crate::session::{Scene, Session};
 use crate::menu::{Menu, Page};
 use crate::render::{FrameData, Renderer};
 use crate::settings::Settings;
-use crate::replay::{Playback, Recorder, Replay, Script, SeatScripts, parse_script};
+use crate::replay::{Playback, Recorder, Replay, Script, SeatScripts};
 
 pub struct ShotOptions {
     /// Ticks to run; by default 90, or a replay's length.
@@ -360,8 +360,8 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     if opts.record.is_some() && game.on_title() {
         bail!("--record: the title (c.title_screen.level) is no run and is never recorded");
     }
-    let mut script = Script::new(parse_script(&opts.input, game.actions())?);
-    let mut seats = SeatScripts::parse(&opts.seats, game.actions(), game.cfg.players)?;
+    let mut script = Script::new(game.script(&opts.input)?);
+    let mut seats = game.seat_scripts(&opts.seats)?;
     if let Some([x, y]) = opts.at {
         game.game.place_player(x, y);
     }
@@ -396,7 +396,7 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
         }
         Played::default()
     } else {
-        play_ticks(&mut game, &mut canvas, frames, &mut playback, &mut script, &mut seats, &mut recorder)
+        play_ticks(&mut game, &mut canvas, frames, &mut playback, &mut script, &mut seats, &mut recorder, width as f32 / height as f32)
     };
     for line in &played.warnings {
         println!("warning: {line}");
@@ -529,7 +529,8 @@ struct Played {
 /// Plays `frames` ticks of a shot, each timed, the simulation and the
 /// meshes it changed rebuilt as the game does (blasts show as the slowest
 /// ticks); a script's error ends them (the frame shows it).
-fn play_ticks<G: Game>(game: &mut Session<G>, canvas: &mut Canvas, frames: u32, playback: &mut Option<Playback>, script: &mut Script, seats: &mut SeatScripts, recorder: &mut Option<Recorder>) -> Played {
+#[allow(clippy::too_many_arguments)]
+fn play_ticks<G: Game>(game: &mut Session<G>, canvas: &mut Canvas, frames: u32, playback: &mut Option<Playback>, script: &mut Script, seats: &mut SeatScripts, recorder: &mut Option<Recorder>, aspect: f32) -> Played {
     let mut played = Played::default();
     // The hidden-state guard as the IDE's PLAY has it (`inspect` too).
     let mut watch = crate::lua::hidden::Watch::default();
@@ -539,12 +540,21 @@ fn play_ticks<G: Game>(game: &mut Session<G>, canvas: &mut Canvas, frames: u32, 
         let input = match playback {
             Some(p) => p.next_input(game),
             None => {
+                // A script's pointer answered from the picture before.
                 seats.next(game);
-                script.next_input()
+                seats.answer(game, aspect);
+                let mut input = script.next_input();
+                game.answer(&mut input, 1, aspect);
+                input
             }
         };
         game.step(&input);
         let sim_tick = ms(step);
+        // Drawn without the picture for the next step's pointer to be
+        // answered from (`on_draw`'s panels).
+        if game.has_pointer() {
+            game.look_in(aspect);
+        }
         if let Some(Err(a)) = playback.as_mut().map(|p| p.check(game)) {
             played.apart.get_or_insert(a);
         }
@@ -565,8 +575,9 @@ fn play_ticks<G: Game>(game: &mut Session<G>, canvas: &mut Canvas, frames: u32, 
             watch.begin(game.game.hidden());
         }
         played.warnings.extend(watch.tick(|| game.game.hidden()));
-        // `world:quit()` ends the run here as the window would.
-        if game.game.halted().is_some() || game.requests().contains(&crate::game::Request::Quit) {
+        // `world:quit()` and `world:to_title()` end the run here as the
+        // window would.
+        if game.game.halted().is_some() || ends_the_run(&game.requests()) {
             break;
         }
     }
@@ -787,8 +798,8 @@ fn inspected<G: Game>(dir: &Path, frames: u32, input: &str, seats: &[(usize, Str
     if let Some([x, y]) = at {
         game.game.place_player(x, y);
     }
-    let mut script = Script::new(parse_script(input, game.actions())?);
-    let mut seat_scripts = SeatScripts::parse(seats, game.actions(), game.cfg.players)?;
+    let mut script = Script::new(game.script(input)?);
+    let mut seat_scripts = game.seat_scripts(seats)?;
     // Someone plays on the keyboard, as in `shot`.
     let controls = keyboard(&game);
     for &(seat, _) in seats {
@@ -803,7 +814,11 @@ fn inspected<G: Game>(dir: &Path, frames: u32, input: &str, seats: &[(usize, Str
     let mut warnings = Vec::new();
     for _ in 0..frames {
         seat_scripts.next(&mut game);
-        game.step(&script.next_input());
+        // A script's pointer answered from the picture before.
+        seat_scripts.answer(&mut game, 16.0 / 9.0);
+        let mut input = script.next_input();
+        game.answer(&mut input, 1, 16.0 / 9.0);
+        game.step(&input);
         // Drawn as a window draws it (without the picture), as `check`
         // does: a mistake in on_draw halts the game here too.
         game.look();
@@ -815,8 +830,9 @@ fn inspected<G: Game>(dir: &Path, frames: u32, input: &str, seats: &[(usize, Str
             watch.begin(game.game.hidden());
         }
         warnings.extend(watch.tick(|| game.game.hidden()));
-        // `world:quit()` ends the run here as the window would.
-        if game.game.halted().is_some() || game.requests().contains(&crate::game::Request::Quit) {
+        // `world:quit()` and `world:to_title()` end the run here as the
+        // window would.
+        if game.game.halted().is_some() || ends_the_run(&game.requests()) {
             break;
         }
     }
@@ -824,7 +840,65 @@ fn inspected<G: Game>(dir: &Path, frames: u32, input: &str, seats: &[(usize, Str
     warnings.extend(game.warnings());
     let mut standing = standing(&game, &heard);
     standing["warnings"] = serde_json::json!(warnings);
+    // What the pointer of the last tick answered, as the tick took it.
+    if game.has_pointer() {
+        standing["pointer"] = pointer_json(&game);
+    }
     Ok(standing)
+}
+
+/// Whether a game's asks end a run without a window: `world:quit()`, and
+/// `world:to_title()` (there is no title to go back to).
+fn ends_the_run(asked: &[crate::game::Request]) -> bool {
+    asked.iter().any(|r| matches!(r, crate::game::Request::Quit | crate::game::Request::ToTitle))
+}
+
+/// The pointer of the tick played last of every seat that has one, as the
+/// tick took it (`Pointer::checked`): `inspect`'s "pointer".
+fn pointer_json<G: Game>(game: &Session<G>) -> serde_json::Value {
+    let picture = crate::input::picture_mark(game.game.level_mark());
+    let tick = game.played();
+    let seats = std::iter::once((1, Some(&tick.input))).chain(tick.seats.iter().enumerate().map(|(n, s)| (n + 2, s.input.as_ref())));
+    let mut out = serde_json::Map::new();
+    for (seat, input) in seats {
+        let Some(p) = input.and_then(|i| i.pointer.as_ref()) else { continue };
+        let answer = match p.checked(picture) {
+            None => serde_json::json!({ "x": p.x, "y": p.y, "answered": "another level's picture" }),
+            Some(p) => {
+                let mut a = serde_json::json!({ "x": p.x, "y": p.y });
+                if let Some(panel) = p.panel.as_ref().filter(|panel| !panel.name.is_empty()) {
+                    let steps = crate::input::PANEL_STEPS as f64;
+                    a["hud"] = serde_json::json!(panel.name);
+                    if panel.index > 0 {
+                        a["index"] = serde_json::json!(panel.index);
+                    }
+                    a["u"] = serde_json::json!(panel.u as f64 / steps);
+                    a["v"] = serde_json::json!(panel.v as f64 / steps);
+                }
+                // What it meets in the level, as carried (the thing by the
+                // key it was drawn under, the area by its place from 1).
+                if let Some(m) = &p.level {
+                    if let Some(t) = m.thing {
+                        a["thing"] = serde_json::json!(t);
+                    }
+                    if let Some(part) = &m.part {
+                        a["part"] = serde_json::json!(part);
+                    }
+                    if m.area > 0 {
+                        a["area"] = serde_json::json!(m.area);
+                    }
+                    if let Some((at, face)) = m.at {
+                        a["at"] = serde_json::json!(at.map(|v| v as f64 / 16.0));
+                        let n = crate::mesh::DIRS[face as usize % 6].to_array();
+                        a["cell"] = serde_json::json!([0, 1, 2].map(|i| (at[i] - n[i]).div_euclid(16)));
+                    }
+                }
+                a
+            }
+        };
+        out.insert(seat.to_string(), answer);
+    }
+    serde_json::Value::Object(out)
 }
 
 /// How `inspect` plays over the network: hosting on a port, or joining a
@@ -888,7 +962,7 @@ pub fn inspect_net<G: Game>(dir: &Path, frames: u32, input: &str, begin: &crate:
             };
             begin.apply(&mut game, |line, said| eprintln!("> {line}\n{said}"))?;
             game.set_clock(crate::saves::now());
-            let mut script = Script::new(parse_script(input, game.actions())?);
+            let mut script = Script::new(game.script(input)?);
             let mut hosting = Hosting::<G, Where>::new(&game, machine::random(), &machine::machine_name())?;
             hosting.reports_to = Some(crate::net::play::reports());
             hosting.host.set_limit(socket.limit());
@@ -1017,7 +1091,7 @@ pub fn inspect_net<G: Game>(dir: &Path, frames: u32, input: &str, begin: &crate:
                     if let Some(seat) = locals.seat(1) {
                         let keys = match &mut script {
                             Some(s) => s,
-                            None => script.insert(Script::new(parse_script(input, game.actions())?)),
+                            None => script.insert(Script::new(game.script(input)?)),
                         };
                         joining.read(seat, keys.next_input());
                         joining.set_controls(seat, keyboard(game));

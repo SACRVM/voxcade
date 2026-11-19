@@ -181,7 +181,7 @@ impl RunSoFar {
 /// differ from the tick before's), the clock, and the events it brings.
 fn tick_of<'a>(tick: &'a mut Tick, b: &Bundle, known: &[Controls], when: u64, events: Vec<Event>) -> &'a Tick {
     (tick.events, tick.when) = (events, when);
-    tick.input = b.inputs.first().copied().flatten().unwrap_or_default();
+    tick.input = b.inputs.first().cloned().flatten().unwrap_or_default();
     tick.seats.resize_with(known.len().saturating_sub(1), Seat::default);
     for (to, from) in std::iter::once(&mut tick.controls).chain(tick.seats.iter_mut().map(|s| &mut s.controls)).zip(known) {
         if to != from {
@@ -189,7 +189,7 @@ fn tick_of<'a>(tick: &'a mut Tick, b: &Bundle, known: &[Controls], when: u64, ev
         }
     }
     for (n, seat) in tick.seats.iter_mut().enumerate() {
-        seat.input = b.inputs.get(n + 1).copied().flatten();
+        seat.input = b.inputs.get(n + 1).cloned().flatten();
     }
     tick
 }
@@ -447,8 +447,10 @@ impl<G: Game, A: Copy + Ord + std::fmt::Debug> Hosting<G, A> {
     /// lines), under `key` (64 random bits), as `name`.
     pub fn new(game: &Session<G>, key: u64, name: &str) -> Result<Self> {
         let seats = game.cfg.players.max(1) as usize;
+        let mut host = Host::new(key, name, seats);
+        host.set_pointer(game.cfg.pointer.is_some());
         Ok(Self {
-            host: Host::new(key, name, seats),
+            host,
             run: Run::new(&game.dir, game.fingerprint()?, nobody(game)),
             own: BTreeMap::new(),
             when: None,

@@ -51,6 +51,8 @@ fn game_on(world: World, cfg: GameConfig) -> Session<Shooter> {
         inputs: Default::default(),
         clock: 0,
         local: Default::default(),
+        pointer_live: false,
+            picked: Default::default(),
         problem: None,
         drawn_sun: Default::default(),
         lamps_drawn: Default::default(),
@@ -753,6 +755,32 @@ fn models_from_the_bank_match_their_cubes() {
                 }
             }
         }
+    }
+}
+
+/// What the pointer meets of a figure is where it is drawn: every voxel
+/// `each_voxel` gives lies where `draw` puts its cube, quartered, turned
+/// freely and posed, each with its part.
+#[test]
+fn a_figures_voxels_are_picked_where_they_are_drawn() {
+    let dir = crate::scratch::Scratch::new("pick-parts");
+    let file = dir.join("figure.vox");
+    crate::vox::write_figure(&file, &[("body", IVec3::new(4, 4, 8), IVec3::ZERO), ("head", IVec3::new(4, 4, 4), IVec3::new(0, 0, 8)), ("arm", IVec3::new(3, 2, 1), IVec3::new(4, 1, 6))]);
+    let m = crate::vox::load_model(&file).unwrap();
+    let origin = Vec3::new(10.0, 20.0, 3.0);
+    for (look, rot, pose) in [(IVec2::Y, Quat::IDENTITY, vec![]), (IVec2::X, turning(30.0, 10.0, 0.0), vec![]), (IVec2::NEG_Y, Quat::IDENTITY, vec![PartPose::REST, PartPose::turned(turning(0.0, 45.0, 0.0)), PartPose::turned(turning(0.0, 0.0, 60.0))])] {
+        let mut drawn: Vec<[u32; 3]> = Vec::new();
+        draw(&mut |corner: Vec3, _, _, _, _, _, _| drawn.push((corner + 0.5).to_array().map(f32::to_bits)), None, &m, 0, origin, look, rot, &pose, None);
+        let mut picked: Vec<[u32; 3]> = Vec::new();
+        let mut parts = std::collections::BTreeSet::new();
+        each_voxel(&m, 0, origin, look, rot, &pose, &mut |part, centre, _, _| {
+            picked.push(centre.to_array().map(f32::to_bits));
+            parts.insert(part);
+        });
+        drawn.sort_unstable();
+        picked.sort_unstable();
+        assert!(!drawn.is_empty() && drawn == picked, "{look} {rot}: picked where drawn");
+        assert_eq!(parts.len(), 3, "each voxel with its part");
     }
 }
 

@@ -44,6 +44,81 @@ pub(super) fn icon_size(icon: &crate::config::IconConfig) -> (f32, f32) {
     (icon.rows.iter().map(|r| r.chars().count()).max().unwrap_or(0) as f32, icon.rows.len() as f32)
 }
 
+/// Where a game's menu or grid lies on the HUD (from its top left, y
+/// down) and its rows or cells there, each by its index from 0: what the
+/// pointer is over (`frame:menu`, `frame:grid`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PanelPlace {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    /// Each row's or cell's box: its index, x, y, width, height.
+    pub parts: Vec<(usize, f32, f32, f32, f32)>,
+}
+
+impl PanelPlace {
+    /// Whether (x, y) lies on it.
+    pub fn holds(&self, x: f32, y: f32) -> bool {
+        x >= self.x && y >= self.y && x < self.x + self.width && y < self.y + self.height
+    }
+
+    /// The row or cell at (x, y), if one is.
+    pub fn part_at(&self, x: f32, y: f32) -> Option<usize> {
+        self.parts.iter().find(|&&(_, px, py, w, h)| x >= px && y >= py && x < px + w && y < py + h).map(|p| p.0)
+    }
+}
+
+/// The rows a menu shows: the first, and how many.
+fn menu_window(m: &crate::lua::world::Menu) -> (usize, usize) {
+    let n = m.rows.len();
+    let shown = m.shown.min(n);
+    let first = match m.at {
+        Some(at) if n > shown => (at as i64 - shown as i64 / 2).clamp(0, (n - shown) as i64) as usize,
+        _ => 0,
+    };
+    (first, shown)
+}
+
+/// Where a game's menu lies and its rows shown (`game_menu` draws it so).
+pub fn menu_place(m: &crate::lua::world::Menu, layout: &Layout, icons: &std::collections::BTreeMap<String, crate::config::IconConfig>) -> PanelPlace {
+    let (first, shown) = menu_window(m);
+    let n = m.rows.len();
+    let icon_of = |row: &crate::lua::world::MenuRow| row.icon.as_ref().and_then(|i| icons.get(i));
+    let row_width = |row: &crate::lua::world::MenuRow| {
+        let icon = icon_of(row).map_or(0.0, |i| icon_size(i).0 + 3.0);
+        10.0 + icon + small_width(&row.text) + row.value.as_deref().map_or(0.0, |v| 12.0 + small_width(v))
+    };
+    let mut inner = m.rows.iter().map(row_width).fold(0.0f32, f32::max);
+    inner = inner.max(m.title.as_deref().map_or(0.0, small_width));
+    inner = inner.max(m.tabs.iter().map(|t| small_width(t) + 10.0).sum::<f32>() - 10.0);
+    inner = inner.max(m.hint.as_deref().map_or(0.0, small_width));
+    let scrolled = n > shown;
+    let width = m.width.unwrap_or(inner + 2.0 * PAD + if scrolled { 4.0 } else { 0.0 }).round();
+    let height = PAD + if m.title.is_some() { 12.0 } else { 0.0 } + if m.tabs.is_empty() { 0.0 } else { 13.0 } + shown as f32 * ROW + if m.hint.is_some() { 13.0 } else { 0.0 } + PAD - 3.0;
+    let x = m.x.unwrap_or(((layout.width - width) / 2.0).round());
+    let y = m.y.unwrap_or(((layout.height - height) / 2.0).round());
+    let rows_top = y + PAD + if m.title.is_some() { 12.0 } else { 0.0 } + if m.tabs.is_empty() { 0.0 } else { 13.0 };
+    // A row's box: the plate's width, from a little above its letters to
+    // the next row's.
+    let parts = (first..first + shown).map(|i| (i, x, rows_top + (i - first) as f32 * ROW - 1.5, width, ROW)).collect();
+    PanelPlace { x, y, width, height, parts }
+}
+
+/// Where a game's grid lies and its cells (`game_grid` draws it so).
+pub fn grid_place(g: &crate::lua::world::Grid, layout: &Layout) -> PanelPlace {
+    let n = g.cells.len();
+    let rows = n.div_ceil(g.columns).max(1);
+    let (cell, gap) = (g.cell.round(), 2.0);
+    let width = 2.0 * PAD + g.columns as f32 * (cell + gap) - gap;
+    let head = if g.title.is_some() { 12.0 } else { 0.0 };
+    let height = 2.0 * PAD + head + rows as f32 * (cell + gap) - gap;
+    let x = g.x.unwrap_or(((layout.width - width) / 2.0).round());
+    let y = g.y.unwrap_or(((layout.height - height) / 2.0).round());
+    let parts = (0..n).map(|i| (i, x + PAD + (i % g.columns) as f32 * (cell + gap), y + PAD + head + (i / g.columns) as f32 * (cell + gap), cell, cell)).collect();
+    PanelPlace { x, y, width, height, parts }
+}
+
 /// A game's menu (`frame:menu`) in the engine's look: on a plate, its
 /// title and tabs above, the chosen row yellow behind the engine's red
 /// marker, values at the right, a long list scrolled to keep the chosen
@@ -51,11 +126,7 @@ pub(super) fn icon_size(icon: &crate::config::IconConfig) -> (f32, f32) {
 pub fn game_menu(out: &mut Vec<Instance>, m: &crate::lua::world::Menu, layout: &Layout, depth: i32, icons: &std::collections::BTreeMap<String, crate::config::IconConfig>, tick: u64) {
     let top = layout.height;
     let n = m.rows.len();
-    let shown = m.shown.min(n);
-    let first = match m.at {
-        Some(at) if n > shown => (at as i64 - shown as i64 / 2).clamp(0, (n - shown) as i64) as usize,
-        _ => 0,
-    };
+    let (first, shown) = menu_window(m);
     let icon_of = |row: &crate::lua::world::MenuRow| row.icon.as_ref().and_then(|i| icons.get(i));
     let row_width = |row: &crate::lua::world::MenuRow| {
         let icon = icon_of(row).map_or(0.0, |i| icon_size(i).0 + 3.0);
@@ -159,6 +230,14 @@ pub fn game_grid(out: &mut Vec<Instance>, g: &crate::lua::world::Grid, layout: &
         if let Some(icon) = c.icon.as_ref().and_then(|i| icons.get(i)) {
             let (w, h) = icon_size(icon);
             hud_icon(out, icon, cx + ((cell - w) / 2.0).floor(), cy + ((cell - h) / 2.0).floor(), top, depth);
+        }
+        if let Some(thumb) = &c.thumb {
+            let (ox, oy) = (((cell - thumb.width as f32) / 2.0).floor(), ((cell - thumb.height as f32) / 2.0).floor());
+            for &(col, row, color) in &thumb.voxels {
+                for z in 0..2 {
+                    voxel(out, cx + ox + col as f32, top - cy - oy - 1.0 - row as f32, z as f32, color);
+                }
+            }
         }
         if let Some(count) = c.count {
             let digits = count.to_string();

@@ -100,7 +100,7 @@ impl Controls {
     /// The engine's input these keys make, the game's actions by their
     /// names (a name the game has not: nothing).
     pub fn input(&self, actions: &[&str]) -> Input {
-        let mut input = Input { left: self.left, right: self.right, up: self.up, down: self.down, actions: 0 };
+        let mut input = Input { left: self.left, right: self.right, up: self.up, down: self.down, ..Input::default() };
         for (name, on) in [("fire", self.fire), ("jump", self.jump), ("grenade", self.grenade), ("strafe", self.strafe)] {
             if let Some(n) = actions.iter().position(|a| *a == name) {
                 input.hold(n, on);
@@ -595,7 +595,7 @@ impl Shooter {
             self.hold();
             return;
         }
-        let input = if self.status.phase == Phase::Playing { *input } else { Input::default() };
+        let input = if self.status.phase == Phase::Playing { input.clone() } else { Input::default() };
         self.busy.retain(|_, n| {
             *n -= 1;
             *n > 0
@@ -714,8 +714,8 @@ impl Shooter {
     fn update_seats(&mut self, input: &Input) {
         for (seat, id) in self.seats() {
             let held = match seat {
-                1 => *input,
-                n => self.seat_inputs.get(n - 2).copied().flatten().unwrap_or_default(),
+                1 => input.clone(),
+                n => self.seat_inputs.get(n - 2).cloned().flatten().unwrap_or_default(),
             };
             let held = if self.status.phase == Phase::Playing { held } else { Input::default() };
             self.update_seated(id, &held);
@@ -730,7 +730,7 @@ impl Shooter {
         if s.down && t.hp > 0 {
             s.down = false;
         }
-        let input = if s.down { Input::default() } else { *input };
+        let input = if s.down { Input::default() } else { input.clone() };
         t.body.prev = t.body.pos;
         let walked = walk(&mut t.body, &mut s.jump_held, &input, &mut self.sim, &self.rules.binds);
         self.footsteps(Some(id), walked);

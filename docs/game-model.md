@@ -90,6 +90,7 @@ where nothing is (`thing.name`, `thing.wall`, `level.next`, `music.song`).
 | `world:new_game(options?)` | on the game's own title only (`c.title_screen.level`, below): a fresh run begins at the tick's end in the level a run begins in |
 | `world:open(page)` | a page of the engine's over the game, held while it shows (`"settings"`, the only one so far; another name is a mistake listing them): asked of the window, not of the run |
 | `world:quit()` | the program ends (the IDE's PLAY stops, `shot` and `inspect` end the run there): asked of the window, not of the run |
+| `world:to_title()` | back to the title after the tick, as the pause menu's QUIT TO TITLE (the run ends with `"quit"`, a score that beats a line asks for initials; a game with a title of its own goes back to its title level; the IDE's PLAY stops, `shot` and `inspect` end the run there; on the title itself a mistake): asked of the window, not of the run |
 
 ### `level`: the level being played
 
@@ -147,8 +148,74 @@ settings. Several players: `player` is seat 1, the others are in
 - `input`: the keys held this tick (`input.dir`, `input:held`,
   `input:pressed`, `input:released`), in `on_tick` only (reading it in
   `on_draw` or at the start is a mistake that says so). With several players each has its own
-  (`p.input`), `input` staying seat 1's; later a pointer for
-  point-and-click games.
+  (`p.input`), `input` staying seat 1's. Besides the keys (the owner's
+  "bau es" to `shots/reviews/input-draft.md`, 2026-11-19; whatever comes
+  from the player's machine is input: a replay, the network and `shot
+  --input` carry it):
+  - `input.move` and `input.aim`, `{ x, y }`, each -1 to 1, never longer
+    than 1, y up as `input.dir`'s: the left stick and the right, past the
+    engine's dead zone, in steps of 1/127 (what replays and the network
+    write); `move` without a stick the directions held (a diagonal about
+    0.71 each); `aim` with a mouse in a game with a pointer the way on
+    the screen from the player's figure as drawn to the pointer, length 1
+    (`Session::mouse_aim`), else `{ 0, 0 }`. In every game; the kits read
+    the directions as before (a stick past half holds one).
+  - `input.pointer`, in a game with a pointer (`c.pointer = "system"`, the
+    system's arrow, or `"own"`, the arrow hidden while the game plays and
+    the game draws its own from `frame.pointer`; restart-only, in the
+    fingerprint only when set; unset, no pointer, as every game before):
+    what it is over, nil without one, for a player on a pad and when the
+    pad was used last. `hud` the name of the HUD panel under it, the
+    topmost (`frame:hud(name, x, y, width, height)` names a rectangle of
+    the picture; every `frame:menu` and `frame:grid` is a panel, named with
+    `name =`, and covers what lies under it), `index` its row or cell from
+    1, `u` and `v` where in it, 0 to 1 from its top left. What it meets in
+    the level, all nil under a panel: `thing` (whose drawn voxels it meets
+    first: a kind's figure as drawn and posed, a level's piece, a model
+    `frame:model` drew with the thing; voxel-exact, `session::pick`),
+    `part` (that figure's part, by name: the model drawn is the picture's,
+    so the name travels, 16 bytes at most), `area` (the name of the level's
+    `[[area]]` it enters first before it meets the level: a door in a
+    wall), `at` (where it meets the level's voxels and solid pieces, glass,
+    water and things looked through; nil into the sky or off the level)
+    and `cell` (the voxel met there, whole numbers). Found on the CPU from
+    the picture as composed (`look` composes the same without a GPU, so
+    `inspect` and `check` have it), a thing `of_thing` drew kept
+    (`Drawing::picks`); a pointer costs some 0.002 to 0.016 ms (the Bench,
+    More Blood, the Lights' `load`), the picture none more. The tick never
+    sees pixels: the machine answers from the picture it last drew, and the
+    answers are the input (a replay plays the same in any window). A click
+    carries the answers of the moment its button went down; the tick
+    checks every answer before the game sees it (one from another level's
+    picture, `Game::level_mark`, is nil whole; a thing gone since, removed
+    or dead, is nil, its part with it; an area the level has not is nil; a
+    panel no panel can be, a name not a word of 16 at most or `u`, `v`
+    past its edge, is dropped);
+    on the wire a pointer is a few whole numbers (the panel's name whole,
+    16 bytes at most: bundles are read one by one, so nothing is sent "as
+    before"). One mouse a machine, the seat's that has the keyboard; over
+    the network each machine's own answers. No x and y in the tick, on
+    purpose: a HUD's layout hangs on `frame.width`, which differs between
+    machines (a replay keeps where the pointer was, for the picture).
+    With a pointer the engine's menus (the title, the pause, the
+    settings' pages) take the mouse too, with no name for it: the row
+    under it is chosen, a left click confirms it, a right one goes back.
+  - The mouse's buttons and wheel are keys in `c.keys` (a game with a
+    pointer; elsewhere a mistake naming `c.pointer`): `mouse_left`,
+    `mouse_right`, `mouse_middle`, `wheel_up`, `wheel_down`, shown and
+    rebound on CONTROLS and named by `controls:key` ("MOUSE LEFT"). A
+    click shorter than a tick still holds its tick; a wheel's notch is one
+    press, several queued one a tick with a tick between, none lost (over
+    the network two readings a tick merge as keys do).
+  - `input.typed` while the player types (`player.state.typing = true`,
+    `p.state.typing`, the engine's key of a player's state, nil until
+    set): `text` (only the signs the small letters write, at most 8 bytes
+    a tick, the rest in the ticks after), `erase` (Backspace), `done`
+    (Enter), `cancel` (Escape), one sort a tick so the order holds; nil
+    while the player does not type. The keyboard's keys that type hold no
+    action meanwhile and pausing gives way. The text comes once and in
+    order: a guest sends it as asks (`wire::Ask::Typed`), never in its
+    readings.
 - `controls`: what the player plays with, there everywhere:
   `controls.device` (`"keyboard"` or `"gamepad"`, the one used last; nil
   before the run's first tick and where nobody plays) and
@@ -205,6 +272,12 @@ settings. Several players: `player` is seat 1, the others are in
   save (a game loaded from one sets them in `on_level_start`); the
   title's and the settings' songs never hear them. Later: a tempo the game sets, stingers, sounds
   that play in the song's chord (`shots/reviews/music-plan.md`).
+- `frame.pointer`: this machine's pointer in this picture (`x`, `y` in
+  the HUD's measure, `hud`, `index`, `thing`, `part` and `area` of what
+  it is over in the picture before), nil with the pad used last or no
+  pointer: for the game's own
+  cursor and hover marks; nothing of it may go into a state, the rules
+  read `input.pointer`. Played back, the pointer the replay kept.
 - `frame`, `on_draw`'s parameter: this picture alone (`frame:text`,
   `frame:cube`, `frame:model`, `frame:light`; `frame:light{ at =, radius
   =, color =, falloff =, cone =, blend =, rotation =, pitch =, shadows =, fog =
@@ -373,7 +446,9 @@ held, as dialogue and shops always were; light is the picture's, so
   a text, a value at the right, an icon of `c.icons`, dimmed when
   `dim = true`; the row `at` marked as the engine's menus mark theirs,
   scrolled into view) and `frame:grid{ x, y, columns, cells, at }` (an
-  inventory's slots: an icon and a count each). `input:repeated(action)`
+  inventory's slots: an icon or a model's front, `model = "key.vvx"`,
+  drawn small in the slot, and a count each). With `name =` either is a
+  panel the pointer says (`input.pointer.hud`). `input:repeated(action)`
   is true when the key is pressed and again and again while it is held
   (as the engine's menus move), for cursors and walking on a grid: after
   20 ticks held, every 6, counted per key in the game and kept in its
@@ -529,11 +604,16 @@ Then:
   still lists it, and `level.next` passes it over.
 - `world:open("settings")` (the title and a run alike) shows the
   engine's SETTINGS over the game, held as the pause holds it; back from
-  it the game goes on. `world:quit()` ends the program. Both are asked of
-  the machine, not the run (`game::Request`): no state, no hash, nothing
-  in a replay; a window does them, `shot`, `inspect` and `check` do not
-  (`world:quit()` ends their run there), the IDE's PLAY stops on
-  `world:quit()`. In a network game the window does neither yet.
+  it the game goes on. `world:quit()` ends the program. `world:to_title()`
+  in a run goes back to the title as the pause menu's QUIT TO TITLE does
+  (the run ends, `on_level_end("quit")` and `on_world_end("quit")`, a
+  score that beats a line asks for initials; this title level again,
+  begun anew); on the title it is a mistake, as the run's asks are there.
+  All three are asked of the machine, not the run (`game::Request`): no
+  state, no hash, nothing in a replay; a window does them, `shot`,
+  `inspect` and `check` do not (`world:quit()` and `world:to_title()` end
+  their run there), the IDE's PLAY stops on either. In a network game the
+  window does none of them yet.
 - The IDE's PLAY, `shot`, `inspect` and `check` begin in the level a run
   begins in, past the title, as they pass the engine's; a scenario with
   `level = "title"` plays the title. `voxcade shot GAME --screen title`
@@ -733,9 +813,10 @@ also close it.
 | a console line | yes | yes: done at once, before the next tick | yes | no | yes |
 
 On the game's own title only `restart`, `load` and `new_game` ask (the
-others are mistakes there), and `new_game` nowhere else. `world:open`
-and `world:quit` are no asks, nothing of the run: anywhere that changes
-the game (not `on_draw`), taking effect in the window after the tick.
+others are mistakes there), and `new_game` nowhere else. `world:open`,
+`world:quit` and `world:to_title` are no asks, nothing of the run:
+anywhere that changes the game (not `on_draw`; `to_title` not on the
+title), taking effect in the window after the tick.
 
 A mistake here names the handler and the line. A level that asks to be
 left in `on_level_start` again and again (a hub that sends on, a loop
@@ -814,7 +895,8 @@ numbers that follow a state (enemies faster on the second loop).
 ### A tick, in order
 
 1. Input is read (with several players each seat's, and the seats
-   taken and left this tick).
+   taken and left this tick); the pointer's answers are checked
+   (`input.pointer` of another level's picture is nil).
 2. The ready-made behaviors run, kind by kind in their list's order
    (not while the level is held).
 3. The events go to the script, every one, none dropped: first seats

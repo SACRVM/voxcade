@@ -40,6 +40,11 @@ struct Slot {
     used: Option<u32>,
     held: u32,
     repeats: u32,
+    /// The pointer of the first reading since the last tick whose mouse
+    /// button went down: a click carries the answers of its moment.
+    pressed: Option<Box<crate::input::Pointer>>,
+    /// The text typed on it (its asks), a sort a tick.
+    typed: crate::input::TypedQueue,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -127,6 +132,13 @@ pub struct Host<A> {
     /// before, held back by `delay`.
     own: VecDeque<(u64, u8, Input)>,
     own_last: Vec<Input>,
+    /// What the host's own players typed and the press each clicked, for
+    /// the ticks their readings go into.
+    own_typed: Vec<crate::input::TypedQueue>,
+    own_pressed: Vec<Option<Box<crate::input::Pointer>>>,
+    /// Whether the game has a pointer (`c.pointer`): a bundle keeps room
+    /// for its answers.
+    pointer: bool,
     delay: u32,
     /// Ticks the measured delay has differed from `delay`, and which way.
     drift: (i32, u32),
@@ -184,9 +196,6 @@ const CLOSE_AFTER: u64 = 1_000_000;
 /// of a datagram (`Host::max_bundle`): it always fits, whatever the head.
 const MAX_HEAD: usize = wire::HEADER + 5 + 5 + (1 + wire::MAX_SEATS * 6) + 1 + 1 + (1 + 10 + 1 + 32 + 1) + (1 + 2 + wire::MAX_TEXT) + 1;
 
-/// An input as wide as one is on the wire: every direction, every action.
-const WIDEST: Input = Input { left: true, right: true, up: true, down: true, actions: u32::MAX };
-
 /// A bundle too big for a datagram (the session's bytes were too many).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TooBig;
@@ -207,6 +216,9 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
             history: History::default(),
             own: VecDeque::new(),
             own_last: vec![Input::default(); seats],
+            own_typed: vec![Default::default(); seats],
+            own_pressed: vec![None; seats],
+            pointer: false,
             delay: 0,
             drift: (0, 0),
             asks: VecDeque::new(),
@@ -224,6 +236,12 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
             answered: BTreeMap::new(),
             limit: wire::MAX_DATAGRAM,
         }
+    }
+
+    /// The game has a pointer (`c.pointer`): every bundle keeps room for
+    /// its answers.
+    pub fn set_pointer(&mut self, pointer: bool) {
+        self.pointer = pointer;
     }
 
     /// The biggest datagram its transport carries (iroh's QUIC carries
@@ -459,11 +477,12 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
     }
 
     /// The most bytes of the session's own (`extra`) a bundle carries: with
-    /// every seat's keys it still fits a datagram (seats taken and controls
+    /// every taken seat's keys it still fits a datagram (seats taken and controls
     /// changed wait for the next bundle where they do not fit).
     pub fn extra_room(&self) -> usize {
         // The extra's length takes two bytes.
-        let fixed = Bundle { tick: u64::MAX, inputs: vec![Some(WIDEST); self.seats.len()], ..Bundle::default() }.size() + 2;
+        // (Every seat someone sits on, its keys as wide as they come.)
+        let fixed = Bundle { tick: u64::MAX, inputs: self.seats.iter().map(|s| s.owner.map(|_| wire::widest(self.pointer))).collect(), ..Bundle::default() }.size() + 2;
         self.max_bundle().saturating_sub(fixed).min(wire::MAX_EXTRA)
     }
 
@@ -478,8 +497,29 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
         }
         let tick = self.next_tick();
         let most = self.max_bundle();
-        // The bundle as it grows, every seat's keys as wide as they come.
-        let mut probe = Bundle { tick, inputs: vec![Some(WIDEST); self.seats.len()], seats: Vec::new(), controls: Vec::new(), extra };
+        // What every seat holds, its text typed aside: the bundle is made
+        // to fit with them as they are (a seat taken in it holds nothing
+        // yet), the text as long as a tick's can be.
+        let own = self.own_inputs(tick);
+        let mut stopped = 0;
+        let mut held: Vec<Option<Input>> = self
+            .seats
+            .iter_mut()
+            .enumerate()
+            .map(|(n, s)| match s.owner {
+                None => None,
+                Some(0) => Some(own[n].clone()),
+                Some(_) => {
+                    let (input, late) = take(s);
+                    stopped += late as u64;
+                    Some(input)
+                }
+            })
+            .collect();
+        self.stopped += stopped;
+        let room_to_type = |i: &Option<Input>| i.clone().map(|i| Input { typed: wire::widest(false).typed, ..i });
+        // The bundle as it grows.
+        let mut probe = Bundle { tick, inputs: held.iter().map(room_to_type).collect(), seats: Vec::new(), controls: Vec::new(), extra };
         while let Some((owner, ask_no, ask)) = self.asks.pop_front() {
             let (mut events, mut controls) = (probe.seats.clone(), probe.controls.clone());
             match &ask {
@@ -492,6 +532,14 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
                         events.push(SeatEvent::Left { seat: *seat });
                         controls.retain(|(c, _)| c != seat);
                     }
+                }
+                Ask::Typed(seat, typed) => {
+                    // Its seat's, for the ticks to come (a seat it does not
+                    // own types nothing).
+                    if let Some(n) = (*seat as usize).checked_sub(1).filter(|&n| self.seats.get(n).is_some_and(|s| s.owner == Some(owner))) {
+                        self.seats[n].typed.push(&typed.checked());
+                    }
+                    continue;
                 }
                 Ask::Controls(seat, bytes) => {
                     // More than a guest reads is never sent: the seat keeps
@@ -518,32 +566,31 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
                     let n = seat as usize - 1;
                     self.seats[n] = Slot { owner: Some(owner), generation, ..Slot::default() };
                     self.own_last[n] = Input::default();
+                    (self.own_typed[n], self.own_pressed[n]) = Default::default();
+                    held[n] = Some(Input::default());
                 }
-                Some(&SeatEvent::Left { seat }) if grown.seats.len() > probe.seats.len() => self.seats[seat as usize - 1].owner = None,
+                Some(&SeatEvent::Left { seat }) if grown.seats.len() > probe.seats.len() => {
+                    self.seats[seat as usize - 1].owner = None;
+                    held[seat as usize - 1] = None;
+                }
                 _ => {}
             }
-            probe = grown;
+            probe = Bundle { inputs: held.iter().map(room_to_type).collect(), ..grown };
         }
         let Bundle { seats: events, mut controls, extra, .. } = probe;
         controls.sort_by_key(|(seat, _)| *seat);
-        let own = self.own_inputs(tick);
-        let mut stopped = 0;
-        let inputs = self
-            .seats
-            .iter_mut()
-            .enumerate()
-            .map(|(n, s)| match s.owner {
-                None => None,
-                Some(0) => Some(own[n]),
-                Some(_) => {
-                    let (input, late) = take(s);
-                    stopped += late as u64;
-                    Some(input)
+        // The text typed, a sort a tick (a guest's came in its asks); a
+        // pointer as the wire carries it, so every machine plays the same.
+        for (n, input) in held.iter_mut().enumerate() {
+            if let Some(input) = input {
+                if let Some(p) = &mut input.pointer {
+                    **p = wire::carried(p);
                 }
-            })
-            .collect();
-        self.stopped += stopped;
-        let bundle = Bundle { tick, inputs, seats: events, controls, extra };
+                let queue = if self.seats[n].owner == Some(0) { &mut self.own_typed[n] } else { &mut self.seats[n].typed };
+                input.typed = queue.take().map(Box::new);
+            }
+        }
+        let bundle = Bundle { tick, inputs: held, seats: events, controls, extra };
         let bytes = wire::bundle_bytes(&bundle);
         debug_assert!(bytes.len() <= most, "a bundle of {} bytes", bytes.len());
         self.history.push(&bytes);
@@ -556,21 +603,42 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
     /// seat without one goes on with its last.
     fn own_inputs(&mut self, tick: u64) -> Vec<Input> {
         let mut merged: Vec<Option<Input>> = vec![None; self.seats.len()];
-        while let Some(&(read, seat, input)) = self.own.front() {
+        while let Some((read, _, _)) = self.own.front() {
             if read + self.delay as u64 > tick {
                 break;
             }
-            self.own.pop_front();
+            let Some((_, seat, mut input)) = self.own.pop_front() else { break };
             let n = seat as usize - 1;
             if self.seats[n].owner != Some(0) {
                 continue;
             }
-            self.own_last[n] = input;
-            let m = merged[n].get_or_insert(input);
+            if let Some(typed) = input.typed.take() {
+                self.own_typed[n].push(&typed);
+            }
+            if input.pointer.as_ref().is_some_and(|p| p.press) && self.own_pressed[n].is_none() {
+                self.own_pressed[n] = input.pointer.clone();
+            }
+            self.own_last[n] = input.held_on();
+            let m = merged[n].get_or_insert_with(|| input.clone());
             m.actions |= input.actions;
-            (m.left, m.right, m.up, m.down) = (input.left, input.right, input.up, input.down);
+            (m.left, m.right, m.up, m.down, m.moves, m.aim) = (input.left, input.right, input.up, input.down, input.moves, input.aim);
+            m.pointer = input.pointer;
         }
-        merged.iter().enumerate().map(|(n, m)| m.unwrap_or(self.own_last[n])).collect()
+        merged
+            .into_iter()
+            .enumerate()
+            .map(|(n, m)| {
+                let mut input = m.unwrap_or_else(|| self.own_last[n].clone());
+                if let Some(p) = self.own_pressed[n].take() {
+                    input.pointer = Some(p);
+                }
+                if let Some(p) = &mut input.pointer {
+                    p.press = false;
+                }
+                input.typed = None;
+                input
+            })
+            .collect()
     }
 
     /// The delay a guest's keys have (its round trip in ticks and its
@@ -767,11 +835,16 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
             if s.owner != Some(index) || s.generation != readings.generation {
                 continue;
             }
-            for (n, &input) in readings.inputs.iter().enumerate() {
+            for (n, input) in readings.inputs.iter().enumerate() {
                 let seq = readings.first.wrapping_add(n as u32);
                 if s.newest_seq.is_none_or(|newest| seq > newest) {
                     s.held |= input.actions;
-                    (s.newest, s.newest_seq) = (input, Some(seq));
+                    // The first press since the last tick keeps its answers.
+                    if input.pointer.as_ref().is_some_and(|p| p.press) && s.pressed.is_none() {
+                        s.pressed = input.pointer.clone();
+                    }
+                    // Text comes in asks only: a reading's is never taken.
+                    (s.newest, s.newest_seq) = (Input { typed: None, ..input.clone() }, Some(seq));
                 }
             }
         }
@@ -929,21 +1002,29 @@ const MAX_HAND: u8 = 6;
 /// came since the last tick, with every action held in any that came;
 /// else the last again for a while, then nothing held.
 fn take(s: &mut Slot) -> (Input, bool) {
-    match s.newest_seq {
+    let (mut input, late) = match s.newest_seq {
         Some(seq) if s.used.is_none_or(|used| seq != used) => {
-            let mut input = s.newest;
+            let mut input = s.newest.clone();
             input.actions |= s.held;
             (s.used, s.held, s.repeats) = (Some(seq), 0, 0);
             (input, false)
         }
         Some(_) if s.repeats < REPEAT => {
             s.repeats += 1;
-            (s.newest, false)
+            (s.newest.held_on(), false)
         }
         // Nothing came for a while: its figure stops.
         Some(_) => (Input::default(), true),
         None => (Input::default(), false),
+    };
+    if let Some(p) = s.pressed.take() {
+        input.pointer = Some(p);
     }
+    if let Some(p) = &mut input.pointer {
+        p.press = false;
+    }
+    input.typed = None;
+    (input, late)
 }
 
 fn sending(id: u32, data: Arc<[u8]>) -> Sending {

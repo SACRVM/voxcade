@@ -115,6 +115,14 @@ pub struct GameConfig {
     /// added, instead of a line for each player.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub team_score: bool,
+    /// A pointer the mouse moves over the game (`c.pointer = "system"`:
+    /// the system's arrow; `"own"`: none shown, the game draws its own in
+    /// `on_draw` from `frame.pointer`): `input.pointer` says what it is
+    /// over, the mouse's buttons and wheel are keys (`c.keys.click = {
+    /// "mouse_left" }`), the engine's menus take it. Unset: no pointer.
+    /// Takes effect after a restart (F5).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pointer: Option<PointerStyle>,
     /// The sections the game adds (the shooter's `[weapons]`): it reads
     /// them itself, and a section nobody reads is an error there.
     #[serde(flatten)]
@@ -156,8 +164,20 @@ impl Default for GameConfig {
             players: 1,
             team_score: false,
             start: None,
+            pointer: None,
         }
     }
+}
+
+/// How a game shows its pointer (`c.pointer`).
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PointerStyle {
+    /// The system's arrow over the game.
+    System,
+    /// The system's arrow hidden while the game plays: the game draws its
+    /// own (`frame.pointer`), or none.
+    Own,
 }
 
 fn is_one(n: &u32) -> bool {
@@ -1324,6 +1344,7 @@ impl GameConfig {
             ("start", self.start != new.start),
             ("title_screen.level", self.title_screen.level != new.title_screen.level),
             ("camera.rotates", self.camera.rotates != new.camera.rotates),
+            ("pointer", self.pointer != new.pointer),
         ] {
             if differs {
                 changed.push(name);
@@ -1347,6 +1368,7 @@ impl GameConfig {
         new.player.kind = self.player.kind.clone();
         new.players = self.players;
         new.start = self.start.clone();
+        new.pointer = self.pointer;
         new.title_screen.level = self.title_screen.level.clone();
         new.camera.rotates = self.camera.rotates;
     }

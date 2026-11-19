@@ -10,6 +10,61 @@ pub struct InputView {
     /// How many ticks each direction (the first four) and action has been
     /// held (`input:repeated`).
     pub held_for: [u16; KEYS],
+    /// The pointer as the tick takes it (`input.pointer`; checked), and
+    /// the text typed while its player types (`input.typed`).
+    pub pointer: Option<crate::input::Pointer>,
+    pub typed: Option<crate::input::Typed>,
+}
+
+/// What a seat's `input` shows besides its keys: whether the game has a
+/// pointer and the level's picture now (`input::picture_mark`), whether
+/// its player types.
+#[derive(Clone, Copy, Debug)]
+pub struct Gate {
+    pub picture: Option<u16>,
+    pub typing: bool,
+}
+
+impl Stage {
+    /// What seat `seat`'s `input` shows besides its keys now.
+    pub fn gate(&self, seat: usize) -> Gate {
+        let mark = (self.level as u64) << 32 | self.visits.get(self.level).copied().unwrap_or(0) as u64;
+        Gate { picture: self.pointer.then(|| crate::input::picture_mark(mark)), typing: self.seats.get(seat - 1).is_some_and(|s| s.typing) }
+    }
+}
+
+impl InputView {
+    /// A seat's `input`: its keys now and before, its pointer and text as
+    /// `gate` lets them through.
+    pub fn new(now: Input, before: Input, actions: Arc<Vec<&'static str>>, held_for: [u16; KEYS], gate: Gate) -> Self {
+        let pointer = gate.picture.and_then(|picture| now.pointer.as_ref()?.checked(picture));
+        let typed = gate.typing.then(|| now.typed.as_ref().map(|t| t.checked()).unwrap_or_default());
+        Self { now, before, actions, held_for, pointer, typed }
+    }
+}
+
+/// A stick's value as the script reads it: `{ x, y }`, each -1 to 1.
+fn stick_table(lua: &Lua, x: f64, y: f64) -> mlua::Result<Table> {
+    let t = lua.create_table()?;
+    t.raw_set("x", x)?;
+    t.raw_set("y", y)?;
+    Ok(t)
+}
+
+/// `input.move`: the left stick, else the directions held (a diagonal
+/// about 0.71 each way, never longer than 1).
+fn moved(i: &Input) -> (f64, f64) {
+    if i.moves != [0, 0] {
+        let [x, y] = crate::input::stick_checked(i.moves);
+        return (x as f64 / 127.0, y as f64 / 127.0);
+    }
+    let x = i.right as i32 - i.left as i32;
+    let y = i.up as i32 - i.down as i32;
+    if x != 0 && y != 0 {
+        let d = std::f64::consts::FRAC_1_SQRT_2;
+        return (x as f64 * d, y as f64 * d);
+    }
+    (x as f64, y as f64)
 }
 
 /// The four directions and the game's actions, each with its count of
@@ -62,6 +117,38 @@ impl UserData for InputView {
             t.raw_set("y", y)?;
             Ok(t)
         });
+        f.add_field_method_get("move", |lua, i| {
+            let (x, y) = moved(&i.now);
+            stick_table(lua, x, y)
+        });
+        f.add_field_method_get("aim", |lua, i| {
+            let [x, y] = crate::input::stick_checked(i.now.aim);
+            stick_table(lua, x as f64 / 127.0, y as f64 / 127.0)
+        });
+        f.add_field_method_get("pointer", |lua, i| {
+            let Some(p) = &i.pointer else { return Ok(Value::Nil) };
+            let t = lua.create_table()?;
+            if let Some(panel) = p.panel.as_ref().filter(|panel| !panel.name.is_empty()) {
+                let steps = crate::input::PANEL_STEPS as f64;
+                t.raw_set("hud", panel.name.as_str())?;
+                t.raw_set("index", (panel.index > 0).then_some(panel.index))?;
+                t.raw_set("u", panel.u as f64 / steps)?;
+                t.raw_set("v", panel.v as f64 / steps)?;
+            }
+            if let Some(met) = &p.level {
+                met_answers(lua, met, &t, true)?;
+            }
+            Ok(Value::Table(t))
+        });
+        f.add_field_method_get("typed", |lua, i| {
+            let Some(typed) = &i.typed else { return Ok(Value::Nil) };
+            let t = lua.create_table()?;
+            t.raw_set("text", typed.text.as_str())?;
+            t.raw_set("erase", typed.erase)?;
+            t.raw_set("done", typed.done)?;
+            t.raw_set("cancel", typed.cancel)?;
+            Ok(Value::Table(t))
+        });
     }
 
     fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
@@ -93,6 +180,41 @@ impl UserData for InputView {
         });
         m.add_method("repeated", |_, i, name: String| Ok(repeats(i.held_for[i.index(&name)?])));
     }
+}
+
+/// What the pointer meets in the level, as the tick takes it, into `t`:
+/// `thing` (the thing drawn there, nil once it is gone), `part` (that
+/// figure's, by name), `area` (the level's area by its name; one the
+/// level has not is nil), and with `point` the place it meets the level,
+/// `at` (a point in voxels) and `cell` (the voxel met, whole numbers).
+pub(super) fn met_answers(lua: &Lua, met: &crate::input::Met, t: &Table, point: bool) -> mlua::Result<()> {
+    let (thing, area) = look(lua, |h| {
+        let thing = met.thing.and_then(|key| h.thing_of_key(key));
+        let area = (met.area as usize).checked_sub(1).and_then(|i| h.levels.list.get(h.level)?.areas.get(i)).map(|a| a.name.clone());
+        Ok((thing, area))
+    })?;
+    if let Some(id) = thing {
+        t.raw_set("thing", super::handle(lua, id)?)?;
+        if let Some(part) = &met.part {
+            t.raw_set("part", part.as_str())?;
+        }
+    }
+    t.raw_set("area", area)?;
+    if let (true, Some((at, face))) = (point, met.at) {
+        let p = lua.create_table()?;
+        for (k, v) in ["x", "y", "z"].iter().zip(at) {
+            p.raw_set(*k, v as f64 / 16.0)?;
+        }
+        t.raw_set("at", p)?;
+        // The voxel met: a sixteenth back from the face it came in by.
+        let n = crate::mesh::DIRS.get(face as usize).copied().unwrap_or(glam::IVec3::ZERO);
+        let c = lua.create_table()?;
+        for (k, (v, n)) in ["x", "y", "z"].iter().zip(at.into_iter().zip(n.to_array())) {
+            c.raw_set(*k, (v - n).div_euclid(16))?;
+        }
+        t.raw_set("cell", c)?;
+    }
+    Ok(())
 }
 
 /// `input` outside `on_tick`, `screen` outside `on_draw`: using it says

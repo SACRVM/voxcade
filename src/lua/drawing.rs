@@ -40,12 +40,14 @@ impl<K: Kit> LuaGame<K> {
                 // It stops lamps, unless it brings a light of its own: a
                 // lantern's frame and glass round its flame stop none.
                 out.piece(p.lights.is_empty());
+                out.of_thing(Some(self.stage.drawn_key(id)));
                 if pose.is_empty() {
                     out.model_turned(model, 0, out.body_origin(t.body), t.body.look, turn, None);
                 } else {
                     let posed = crate::session::posing_alone(&pose);
                     out.model_posed(model, 0, out.body_origin(t.body), t.body.look, turn, &posed, None);
                 }
+                out.of_thing(None);
                 out.piece(false);
                 out.shadow_only(false);
             }
@@ -87,7 +89,9 @@ impl<K: Kit> LuaGame<K> {
             && !self.draw_failed.get()
         {
             let (width, height) = out.hud_size();
+            let pointer = self.pointer_now.clone();
             let mut rec = Frame {
+                pointer,
                 width,
                 height,
                 font: out.font(),
@@ -209,6 +213,30 @@ impl<K: Kit> LuaGame<K> {
             out.push(Instance { pos_size: (at + 0.5).extend(size).to_array(), color: b.color, fx: [0, 255, 0, 0], shade: [0; 4], turn: [0; 4] });
         }
         out
+    }
+}
+
+impl<K: Kit> LuaGame<K> {
+    /// The HUD panel at (`x`, `y`) of the picture `on_draw` drew last, the
+    /// topmost: a `frame:hud` rectangle, a menu or a grid, in a HUD `width`
+    /// by `height`; a menu's row or a grid's cell its index from 1.
+    pub(super) fn panel_under(&self, x: f32, y: f32, width: f32, height: f32) -> Option<crate::input::Panel> {
+        let layout = crate::ui::Layout { width, height };
+        let steps = crate::input::PANEL_STEPS as f32;
+        let within = |v: f32, from: f32, size: f32| ((v - from) / size.max(1e-6) * steps).round().clamp(0.0, steps) as u16;
+        for cmd in self.drawn.borrow().iter().rev() {
+            let (name, place) = match cmd {
+                Cmd::Hud { name, x, y, width, height } => (name, crate::ui::PanelPlace { x: *x, y: *y, width: *width, height: *height, parts: Vec::new() }),
+                Cmd::Menu(m) => (&m.name, crate::ui::menu_place(m, &layout, &self.stage.hud.icons)),
+                Cmd::Grid(g) => (&g.name, crate::ui::grid_place(g, &layout)),
+                _ => continue,
+            };
+            if place.holds(x, y) {
+                let index = place.part_at(x, y).map_or(0, |i| (i + 1).min(u16::MAX as usize) as u16);
+                return Some(crate::input::Panel { name: name.clone(), index, u: within(x, place.x, place.width), v: within(y, place.y, place.height) });
+            }
+        }
+        None
     }
 }
 

@@ -37,6 +37,25 @@ impl<G: Game> App<G> {
             Event::GamepadRemoved { which, .. } => self.pads.removed(which),
             Event::TextInput { text, .. } if self.prompt.open => self.prompt.type_text(&text),
             Event::TextInput { text, .. } if self.front.typing_address => text.chars().for_each(|c| self.front.menu.type_address(c)),
+            Event::TextInput { text, .. } if self.mouse.typing => self.mouse.type_text(crate::input::Typed { text: text.chars().filter(|&c| crate::ui::writes(c)).collect(), ..Default::default() }),
+            Event::Window { win_event: WindowEvent::FocusLost, .. } => self.mouse.let_go(),
+            Event::Window { win_event: WindowEvent::MouseLeave, .. } => self.mouse.at = None,
+            Event::MouseMotion { x, y, .. } if self.game.has_pointer() => self.mouse_moved([x, y]),
+            Event::MouseButtonDown { mouse_btn, x, y, .. } if self.game.has_pointer() => self.mouse_down(mouse_btn, [x, y], commands),
+            Event::MouseButtonUp { mouse_btn, .. } if self.game.has_pointer() => {
+                if let Some(i) = super::mouse::Mouse::index(mouse_btn) {
+                    self.mouse.up(i);
+                }
+            }
+            Event::MouseWheel { y, .. } if self.game.has_pointer() && self.front.menu.rebinding.is_some() && self.front.menu.page() == Some(Page::Controls) && y != 0.0 => {
+                let name = if y > 0.0 { "wheel_up" } else { "wheel_down" };
+                commands.extend(self.front.menu.bind(Device::Keyboard, name, false, &mut self.settings));
+            }
+            Event::MouseWheel { y, direction, .. } if self.game.has_pointer() && self.front.playing && !self.front.menu.is_open() => {
+                let flip = if matches!(direction, sdl3::mouse::MouseWheelDirection::Flipped) { -1.0 } else { 1.0 };
+                self.front.played_with = Device::Keyboard;
+                self.mouse.turned(y * flip);
+            }
             Event::KeyDown { scancode: Some(code), keycode, keymod, repeat, .. } => return self.key_down(code, keycode, keymod, repeat, phase_over, commands),
             Event::GamepadButtonDown { which, button, .. } => self.button_down(which, button, phase_over, commands),
             Event::GamepadAxisMotion { axis, value, .. } => self.axis_motion(axis, value, commands),
@@ -65,6 +84,23 @@ impl<G: Game> App<G> {
         if self.front.typing_address {
             self.address_key(code, repeat, commands);
             return Flow::Go;
+        }
+        // The keyboard's player types: Backspace, Enter and Escape are the
+        // text's (the letters come as text), nothing pauses.
+        if self.mouse.typing && self.front.playing && !self.front.menu.is_open() {
+            let typed = match code {
+                Scancode::Backspace => Some(crate::input::Typed { erase: 1, ..Default::default() }),
+                Scancode::Return | Scancode::KpEnter if !repeat => Some(crate::input::Typed { done: true, ..Default::default() }),
+                Scancode::Escape if !repeat => Some(crate::input::Typed { cancel: true, ..Default::default() }),
+                _ => None,
+            };
+            let swallowed = typed.is_some() || (crate::controls::types(code) && code != Scancode::Grave);
+            if let Some(t) = typed {
+                self.mouse.type_text(t);
+            }
+            if swallowed {
+                return Flow::Go;
+            }
         }
         let App { prompt, text_input, display, net, game, front, settings, seating, runs, dir, watching, maker, .. } = self;
         // A guest's console would change its game alone.
@@ -196,6 +232,71 @@ impl<G: Game> App<G> {
             Scancode::Escape if !repeat => commands.extend(menu.nav(Nav::Back, settings, 0)),
             _ => {}
         }
+    }
+
+    /// The mouse moved to `at` (window points): the keyboard's player uses
+    /// it; over an engine's menu the row under it is chosen.
+    fn mouse_moved(&mut self, at: [f32; 2]) {
+        let moved = self.mouse.at.is_some_and(|was| (was[0] - at[0]).abs() + (was[1] - at[1]).abs() > 2.0);
+        self.mouse.at = Some(at);
+        if moved {
+            self.front.played_with = Device::Keyboard;
+            self.attract.input();
+        }
+        if let Some(row) = self.menu_row_at(at) {
+            self.front.menu.choose(row);
+        }
+    }
+
+    /// A mouse button went down at `at`: over an engine's menu the left
+    /// one confirms the row under it, the right goes back; playing, it is
+    /// the game's, with what the pointer is over now.
+    fn mouse_down(&mut self, button: sdl3::mouse::MouseButton, at: [f32; 2], commands: &mut Vec<Command>) {
+        self.mouse.at = Some(at);
+        self.front.played_with = Device::Keyboard;
+        self.attract.input();
+        if self.front.leaves_attract() {
+            return;
+        }
+        // CONTROLS waits for a key: the mouse's button is one (a game of
+        // one's, the keyboard's bindings).
+        if self.front.menu.rebinding.is_some() {
+            if self.front.menu.page() == Some(Page::Controls)
+                && let Some(i) = super::mouse::Mouse::index(button)
+            {
+                commands.extend(self.front.menu.bind(Device::Keyboard, crate::input::MOUSE_KEYS[i], false, &mut self.settings));
+            }
+            return;
+        }
+        if self.front.menu.is_open() {
+            let songs = self.game.cfg.audio.music.files().len();
+            let App { front, settings, .. } = self;
+            match button {
+                sdl3::mouse::MouseButton::Left => {
+                    if let Some(row) = self.menu_row_at(at) {
+                        self.front.menu.choose(row);
+                        commands.extend(self.front.menu.nav(Nav::Confirm, &mut self.settings, songs));
+                    }
+                }
+                sdl3::mouse::MouseButton::Right => commands.extend(front.menu.nav(Nav::Back, settings, songs)),
+                _ => {}
+            }
+            return;
+        }
+        if let Some(i) = super::mouse::Mouse::index(button).filter(|_| self.front.playing && self.watching.is_none()) {
+            let answer = self.pointer_now();
+            self.mouse.down(i, answer);
+        }
+    }
+
+    /// The engine's menu row under window point `at`, if one is.
+    fn menu_row_at(&self, at: [f32; 2]) -> Option<usize> {
+        if !self.front.menu.is_open() || self.front.menu.rebinding.is_some() {
+            return None;
+        }
+        let [x, y] = self.hud_at(at)?;
+        let rows = self.game.menu_rows(&self.front.menu, &self.settings, self.display.screen.aspect());
+        rows.into_iter().find(|&(_, rx, ry, w, h)| x >= rx && y >= ry && x < rx + w && y < ry + h).map(|(i, ..)| i)
     }
 
     /// A gamepad's button: the pad's kind noted, a menu's, a seat taken or

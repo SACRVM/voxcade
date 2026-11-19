@@ -286,20 +286,48 @@ pub fn hex(v: u64) -> String {
 }
 
 /// Reads a script: `keys:ticks` segments joined by `;`, keys joined by `+`:
-/// the directions (`left right up down`), the game's `actions`, or `none`.
+/// the directions (`left right up down`), the game's `actions`, or `none`;
+/// and what else a tick holds (`SCRIPT_WORDS`).
 pub fn parse_script(text: &str, actions: &[&str]) -> Result<Vec<(Input, u32)>> {
-    parse_seat_script(text, actions)?
+    parse_script_with(text, &Words { actions, ..Words::default() })
+}
+
+/// `parse_script` with the words a game's script may use besides
+/// (`Words`: the mouse's keys, the pointer).
+pub fn parse_script_with(text: &str, words: &Words) -> Result<Vec<(Input, u32)>> {
+    parse_seat_script_with(text, words)?
         .into_iter()
         .map(|(input, ticks)| input.map(|i| (i, ticks)).context("away is for the seats after the first (--input2 and on)"))
         .collect()
 }
 
+/// What a script's keys may name: the game's actions; the mouse's keys as
+/// the game binds them (`c.keys`: `mouse_left` holds what it is bound
+/// to); whether the game has a pointer (else `pointer=` is a mistake).
+#[derive(Clone, Copy, Default)]
+pub struct Words<'a> {
+    pub actions: &'a [&'a str],
+    pub keys: Option<&'a crate::controls::Bindings>,
+    /// None: anything a replay may hold; Some(false): a game without a
+    /// pointer, which is told so.
+    pub pointer: Option<bool>,
+}
+
+/// What a step of a script holds besides keys, as `word=value` (the help
+/// table says them too): the sticks, the pointer and its answers, text.
+pub const SCRIPT_WORDS: &str = "move=X,Y and aim=X,Y the sticks (-1 to 1, y up); pointer=X,Y where the pointer is in the HUD's measure (its answers are found in the picture before the step: a game with c.pointer); text=WORDS typed (%3B for ;, %2B for +, %25 for %), erase=N backspaces, typed=done (Enter) or typed=cancel (Escape); mouse_left mouse_right mouse_middle wheel_up wheel_down as the game binds them";
+
 /// Reads a seat's script: as `parse_script`, and `away:ticks` while nobody
 /// sits there (None).
 pub fn parse_seat_script(text: &str, actions: &[&str]) -> Result<SeatSegments> {
+    parse_seat_script_with(text, &Words { actions, ..Words::default() })
+}
+
+pub fn parse_seat_script_with(text: &str, words: &Words) -> Result<SeatSegments> {
+    let actions = words.actions;
     let mut script = Vec::new();
     for segment in text.split(';').map(str::trim).filter(|s| !s.is_empty()) {
-        let (keys, ticks) = segment.split_once(':').with_context(|| format!("input segment '{segment}' must be 'keys:ticks'"))?;
+        let (keys, ticks) = segment.rsplit_once(':').with_context(|| format!("input segment '{segment}' must be 'keys:ticks'"))?;
         let ticks = ticks.trim().parse().with_context(|| format!("ticks in '{segment}'"))?;
         if keys.trim() == AWAY {
             script.push((None, ticks));
@@ -307,17 +335,245 @@ pub fn parse_seat_script(text: &str, actions: &[&str]) -> Result<SeatSegments> {
         }
         let mut input = Input::default();
         for key in keys.split('+').map(str::trim).filter(|k| !k.is_empty() && *k != "none") {
-            if let Some(d) = DIRECTIONS.iter().position(|d| *d == key) {
+            if let Some((word, value)) = key.split_once('=') {
+                step_word(&mut input, word.trim(), value, words).with_context(|| format!("'{key}' in '{segment}'"))?;
+            } else if let Some(d) = DIRECTIONS.iter().position(|d| *d == key) {
                 input.set_direction(d, true);
             } else if let Some(a) = actions.iter().position(|a| *a == key) {
                 input.hold(a, true);
+            } else if crate::input::MOUSE_KEYS.contains(&key) && words.pointer == Some(false) {
+                bail!("{key}: the game has no pointer (c.pointer = \"system\" or \"own\" in conf.lua)");
+            } else if crate::input::MOUSE_KEYS.contains(&key) && let Some(bound) = words.keys {
+                let held: Vec<usize> = bound.pairs().filter(|(_, k)| k.eq_ignore_ascii_case(key)).filter_map(|(a, _)| actions.iter().position(|x| *x == a)).collect();
+                if held.is_empty() {
+                    bail!("{key}: the game binds it to no action (c.keys)");
+                }
+                held.into_iter().for_each(|a| input.hold(a, true));
             } else {
-                bail!("unknown key '{key}' (use {} {} none)", DIRECTIONS.join(" "), actions.join(" "));
+                bail!("unknown key '{key}' (use {} {} none, or {SCRIPT_WORDS})", DIRECTIONS.join(" "), actions.join(" "));
             }
         }
         script.push((Some(input), ticks));
     }
     Ok(script)
+}
+
+/// A step's `word=value` taken into its input.
+fn step_word(input: &mut Input, word: &str, value: &str, words: &Words) -> Result<()> {
+    use crate::input::{Panel, Pointer, Typed};
+    let numbers = |n: usize| -> Result<Vec<f64>> {
+        let v: Vec<f64> = value.split(',').map(|x| x.trim().parse::<f64>().with_context(|| format!("{word}: '{x}' is no number"))).collect::<Result<_>>()?;
+        anyhow::ensure!(v.len() == n && v.iter().all(|x| x.is_finite()), "{word} takes {n} numbers, as {word}={}", ["0.5"; 4][..n].join(","));
+        Ok(v)
+    };
+    let stick = |v: Vec<f64>| -> Result<[i8; 2]> {
+        anyhow::ensure!(v.iter().all(|x| (-1.0..=1.0).contains(x)), "{word}: each from -1 to 1");
+        let [x, y] = [v[0], v[1]].map(|x| (x * 127.0).round() as i32);
+        anyhow::ensure!(x * x + y * y <= 127 * 127, "{word}: no longer than 1 (a diagonal is 0.7,0.7)");
+        Ok([x as i8, y as i8])
+    };
+    let whole = |v: f64, most: f64| -> Result<i64> {
+        anyhow::ensure!(v.fract() == 0.0 && v.abs() <= most, "{word}: a whole number up to {most}");
+        Ok(v as i64)
+    };
+    fn pointer<'a>(input: &'a mut Input, words: &Words) -> Result<&'a mut Pointer> {
+        anyhow::ensure!(words.pointer != Some(false), "the game has no pointer (c.pointer = \"system\" or \"own\" in conf.lua)");
+        Ok(input.pointer.get_or_insert_with(Default::default))
+    }
+    match word {
+        "move" => input.moves = stick(numbers(2)?)?,
+        "aim" => input.aim = stick(numbers(2)?)?,
+        "pointer" => {
+            let v = numbers(2)?;
+            let (x, y) = (whole(v[0], i16::MAX as f64)? as i32, whole(v[1], i16::MAX as f64)? as i32);
+            let p = pointer(input, words)?;
+            (p.x, p.y) = (x, y);
+        }
+        "picture" => {
+            let n = whole(numbers(1)?[0], u16::MAX as f64)?;
+            anyhow::ensure!(n >= 0, "picture: from 0");
+            pointer(input, words)?.picture = Some(n as u16);
+        }
+        "hud" => {
+            anyhow::ensure!(crate::input::panel_name(value), "hud: a panel's name, letters, digits and _");
+            pointer(input, words)?.panel.get_or_insert_with(Panel::default).name = value.to_string();
+        }
+        "index" => {
+            let n = whole(numbers(1)?[0], u16::MAX as f64)?;
+            anyhow::ensure!(n >= 1, "index: from 1");
+            pointer(input, words)?.panel.get_or_insert_with(Panel::default).index = n as u16;
+        }
+        "uv" => {
+            let v = numbers(2)?;
+            anyhow::ensure!(v.iter().all(|x| (0.0..=1.0).contains(x)), "uv: each from 0 to 1");
+            let panel = pointer(input, words)?.panel.get_or_insert_with(Panel::default);
+            let steps = crate::input::PANEL_STEPS as f64;
+            (panel.u, panel.v) = ((v[0] * steps).round() as u16, (v[1] * steps).round() as u16);
+        }
+        "text" => {
+            let text = unescape(value)?;
+            let t = input.typed.get_or_insert_with(Default::default);
+            t.text.push_str(&Typed::text(&text).text);
+        }
+        "erase" => {
+            let n = whole(numbers(1)?[0], crate::input::MOST_ERASE as f64)?;
+            anyhow::ensure!(n >= 1, "erase: from 1");
+            input.typed.get_or_insert_with(Default::default).erase = n as u16;
+        }
+        "typed" => {
+            let t = input.typed.get_or_insert_with(Default::default);
+            match value {
+                "done" => t.done = true,
+                "cancel" => t.cancel = true,
+                _ => bail!("typed=done (Enter) or typed=cancel (Escape)"),
+            }
+        }
+        _ => step_level_word(input, word, value, words)?,
+    }
+    Ok(())
+}
+
+/// The words of what the pointer meets in the level, as a replay writes
+/// them: `thing=KEY`, `part=NAME`, `area=N` (from 1), `at=X,Y,Z,FACE`
+/// (sixteenths of a voxel, the face in `mesh::DIRS`' order).
+fn step_level_word(input: &mut Input, word: &str, value: &str, words: &Words) -> Result<()> {
+    anyhow::ensure!(words.pointer != Some(false), "the game has no pointer (c.pointer = \"system\" or \"own\" in conf.lua)");
+    let met = input.pointer.get_or_insert_with(Default::default).level.get_or_insert_with(Default::default);
+    let whole = |v: &str| -> Result<i64> { v.trim().parse::<i64>().with_context(|| format!("{word}: '{v}' is no whole number")) };
+    match word {
+        "thing" => {
+            let n = whole(value)?;
+            anyhow::ensure!((0..=u32::MAX as i64).contains(&n), "thing: a thing's number");
+            met.thing = Some(n as u32);
+        }
+        "part" => {
+            let name = unescape(value)?;
+            anyhow::ensure!(!name.is_empty() && name.len() <= crate::input::MOST_PART_NAME, "part: a part's name, up to {} long", crate::input::MOST_PART_NAME);
+            met.part = Some(name);
+        }
+        "area" => {
+            let n = whole(value)?;
+            anyhow::ensure!((1..=u16::MAX as i64).contains(&n), "area: from 1");
+            met.area = n as u16;
+        }
+        "at" if value == "none" => {}
+        "at" => {
+            let v: Vec<i64> = value.split(',').map(whole).collect::<Result<_>>()?;
+            anyhow::ensure!(v.len() == 4 && v[..3].iter().all(|n| n.abs() < 1 << 20) && (0..6).contains(&v[3]), "at=X,Y,Z,FACE: sixteenths of a voxel and the face, 0 to 5");
+            met.at = Some(([v[0] as i32, v[1] as i32, v[2] as i32], v[3] as u8));
+        }
+        _ => bail!("no word '{word}=' ({SCRIPT_WORDS})"),
+    }
+    Ok(())
+}
+
+/// A text as a script writes it: `%XX` a byte.
+fn unescape(text: &str) -> Result<String> {
+    let mut bytes = Vec::new();
+    let mut it = text.bytes();
+    while let Some(b) = it.next() {
+        if b == b'%' {
+            let hex: Vec<u8> = it.by_ref().take(2).collect();
+            let s = std::str::from_utf8(&hex).ok().filter(|h| h.len() == 2).context("text: % takes two hex digits (%3B for ;)")?;
+            bytes.push(u8::from_str_radix(s, 16).context("text: % takes two hex digits (%3B for ;)")?);
+        } else {
+            bytes.push(b);
+        }
+    }
+    String::from_utf8(bytes).context("text: not UTF-8")
+}
+
+/// A text as a script writes it (`unescape` reads it back): what would
+/// end a word, a step or the script as `%XX`, spaces at its ends too.
+fn escape(text: &str) -> String {
+    let n = text.chars().count();
+    let mut out = String::new();
+    for (i, c) in text.chars().enumerate() {
+        let edge = c == ' ' && (i == 0 || i + 1 == n);
+        if matches!(c, '%' | ';' | '+') || c.is_control() || edge {
+            let mut buf = [0u8; 4];
+            for b in c.encode_utf8(&mut buf).bytes() {
+                out.push_str(&format!("%{b:02X}"));
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// A number as a script writes it: as few decimals as it takes.
+fn decimal(v: f64) -> String {
+    let s = format!("{v:.3}");
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+    if s == "-0" { "0".into() } else { s.to_string() }
+}
+
+/// A step's `word=value`s for what it holds besides keys (`step_word`
+/// reads them back).
+fn step_words(input: &Input) -> Vec<String> {
+    let mut out = Vec::new();
+    let stick = |v: [i8; 2]| format!("{},{}", decimal(v[0] as f64 / 127.0), decimal(v[1] as f64 / 127.0));
+    if input.moves != [0, 0] {
+        out.push(format!("move={}", stick(input.moves)));
+    }
+    if input.aim != [0, 0] {
+        out.push(format!("aim={}", stick(input.aim)));
+    }
+    if let Some(p) = &input.pointer {
+        out.push(format!("pointer={},{}", p.x, p.y));
+        if let Some(n) = p.picture {
+            out.push(format!("picture={n}"));
+        }
+        if let Some(panel) = &p.panel {
+            out.push(format!("hud={}", panel.name));
+            if panel.index > 0 {
+                out.push(format!("index={}", panel.index));
+            }
+            let steps = crate::input::PANEL_STEPS as f64;
+            out.push(format!("uv={},{}", decimal(panel.u as f64 / steps), decimal(panel.v as f64 / steps)));
+        }
+        out.extend(level_words(p));
+    }
+    if let Some(t) = &input.typed {
+        if !t.text.is_empty() {
+            out.push(format!("text={}", escape(&t.text)));
+        }
+        if t.erase > 0 {
+            out.push(format!("erase={}", t.erase));
+        }
+        if t.done {
+            out.push("typed=done".into());
+        }
+        if t.cancel {
+            out.push("typed=cancel".into());
+        }
+    }
+    out
+}
+
+/// The words of what the pointer meets in the level (`step_level_word`
+/// reads them back).
+fn level_words(p: &crate::input::Pointer) -> Vec<String> {
+    let Some(m) = &p.level else { return Vec::new() };
+    let mut out = Vec::new();
+    if let Some(t) = m.thing {
+        out.push(format!("thing={t}"));
+    }
+    if let Some(part) = &m.part {
+        out.push(format!("part={}", escape(part)));
+    }
+    if m.area > 0 {
+        out.push(format!("area={}", m.area));
+    }
+    if let Some(([x, y, z], face)) = m.at {
+        out.push(format!("at={x},{y},{z},{face}"));
+    }
+    // Nothing met: the level's answers as none, kept apart from no answer.
+    if out.is_empty() {
+        out.push("at=none".into());
+    }
+    out
 }
 
 /// A seat's script while nobody sits there.
@@ -326,7 +582,7 @@ const AWAY: &str = "away";
 /// Writes runs of held keys as a script (`parse_script` reads it back),
 /// runs of the same keys as one: the directions, then the game's `actions`.
 pub fn write_script(script: &[(Input, u32)], actions: &[&str]) -> String {
-    let seated: Vec<(Option<Input>, u32)> = script.iter().map(|&(input, ticks)| (Some(input), ticks)).collect();
+    let seated: Vec<(Option<Input>, u32)> = script.iter().map(|(input, ticks)| (Some(input.clone()), *ticks)).collect();
     write_seat_script(&seated, actions)
 }
 
@@ -334,19 +590,19 @@ pub fn write_script(script: &[(Input, u32)], actions: &[&str]) -> String {
 /// (`parse_seat_script` reads it back).
 pub fn write_seat_script(script: &[(Option<Input>, u32)], actions: &[&str]) -> String {
     let mut runs: Vec<(Option<Input>, u32)> = Vec::new();
-    for &(input, ticks) in script.iter().filter(|(_, ticks)| *ticks > 0) {
+    for (input, ticks) in script.iter().filter(|(_, ticks)| *ticks > 0) {
         match runs.last_mut() {
-            Some((last, n)) if *last == input => *n += ticks,
-            _ => runs.push((input, ticks)),
+            Some((last, n)) if last == input => *n += ticks,
+            _ => runs.push((input.clone(), *ticks)),
         }
     }
     let segments: Vec<String> = runs
         .iter()
-        .map(|&(input, ticks)| {
+        .map(|(input, ticks)| {
             let Some(input) = input else { return format!("{AWAY}:{ticks}") };
-            let directions = DIRECTIONS.iter().zip(input.directions()).filter(|(_, on)| *on).map(|(d, _)| *d);
-            let held = actions.iter().enumerate().filter(|(n, _)| input.held(*n)).map(|(_, a)| *a);
-            let keys: Vec<&str> = directions.chain(held).collect();
+            let directions = DIRECTIONS.iter().zip(input.directions()).filter(|(_, on)| *on).map(|(d, _)| d.to_string());
+            let held = actions.iter().enumerate().filter(|(n, _)| input.held(*n)).map(|(_, a)| a.to_string());
+            let keys: Vec<String> = directions.chain(held).chain(step_words(input)).collect();
             format!("{}:{ticks}", if keys.is_empty() { "none".to_string() } else { keys.join("+") })
         })
         .collect();
@@ -369,14 +625,30 @@ type SeatSegments = Vec<(Option<Input>, u32)>;
 impl SeatScripts {
     /// Reads `(seat, script)` pairs for a game with `seats` seats.
     pub fn parse(scripts: &[(usize, String)], actions: &[&str], seats: u32) -> Result<Self> {
+        Self::parse_with(scripts, &Words { actions, ..Words::default() }, seats)
+    }
+
+    /// `parse` with the words of a game's own scripts (`Words`).
+    pub fn parse_with(scripts: &[(usize, String)], words: &Words, seats: u32) -> Result<Self> {
         let mut read = Vec::new();
         for (seat, text) in scripts {
             if *seat < 2 || *seat > seats as usize {
                 bail!("--input{seat}: the game has {seats} seat{} (c.players)", if seats == 1 { "" } else { "s" });
             }
-            read.push((*seat, Segments::new(parse_seat_script(text, actions).with_context(|| format!("--input{seat}"))?)));
+            read.push((*seat, Segments::new(parse_seat_script_with(text, words).with_context(|| format!("--input{seat}"))?)));
         }
         Ok(Self { seats: read })
+    }
+
+    /// Answers each seat's pointer for the next step from the picture
+    /// drawn last (`Session::answer`), in the shape `aspect`.
+    pub fn answer<G: Game>(&self, game: &mut Session<G>, aspect: f32) {
+        for (seat, _) in &self.seats {
+            if let Some(mut input) = game.seats().get(seat - 2).and_then(|s| s.input.clone()) {
+                game.answer(&mut input, *seat, aspect);
+                game.set_seat(*seat, Some(input));
+            }
+        }
     }
 
     /// Sets each seat's input for the next step on `game`.
@@ -402,17 +674,17 @@ struct Segments<T> {
     used: u32,
 }
 
-impl<T: Copy> Segments<T> {
+impl<T: Clone> Segments<T> {
     fn new(all: Vec<(T, u32)>) -> Self {
         Self { all, at: 0, used: 0 }
     }
 
     /// The next tick's value; None after the last run.
     fn next(&mut self) -> Option<T> {
-        while let Some(&(value, ticks)) = self.all.get(self.at) {
-            if self.used < ticks {
+        while let Some((value, ticks)) = self.all.get(self.at) {
+            if self.used < *ticks {
                 self.used += 1;
-                return Some(value);
+                return Some(value.clone());
             }
             self.at += 1;
             self.used = 0;
@@ -422,7 +694,7 @@ impl<T: Copy> Segments<T> {
 
     /// The last run's value.
     fn last(&self) -> Option<T> {
-        self.all.last().map(|&(value, _)| value)
+        self.all.last().map(|(value, _)| value.clone())
     }
 }
 
@@ -504,13 +776,13 @@ impl Recorder {
         }
         match self.script.last_mut() {
             Some((last, ticks)) if *last == tick.input => *ticks += 1,
-            _ => self.script.push((tick.input, 1)),
+            _ => self.script.push((tick.input.clone(), 1)),
         }
         self.seats.resize_with(tick.seats.len(), Default::default);
         for ((script, controls), seat) in self.seats.iter_mut().zip(&tick.seats) {
             match script.last_mut() {
                 Some((last, ticks)) if *last == seat.input => *ticks += 1,
-                _ => script.push((seat.input, 1)),
+                _ => script.push((seat.input.clone(), 1)),
             }
             if seat.input.is_some() && controls.last().is_none_or(|c| c.controls != seat.controls) {
                 controls.push(ControlsAt { at: self.steps, controls: seat.controls.clone() });
@@ -1663,7 +1935,7 @@ mod tests {
         for input in &mut ticks[250..310] {
             input.hold(0, true);
         }
-        let changed = Replay { input: write_script(&ticks.iter().map(|&i| (i, 1)).collect::<Vec<_>>(), &ACTIONS), ..replay.clone() };
+        let changed = Replay { input: write_script(&ticks.iter().map(|i| (i.clone(), 1)).collect::<Vec<_>>(), &ACTIONS), ..replay.clone() };
         assert!(matches!(play_through::<Shooter>(dir, &changed).unwrap(), Verdict::RunsApart(Apart { second: 5 | 6, at_end: false })));
 
         let other = Replay { fingerprint: hex(1), ..replay };

@@ -49,13 +49,13 @@ fn a_run_of_two_replays_the_same() {
     for tick in 0..300 {
         let seat = match tick {
             0..40 => None,
-            40..120 => Some(right),
-            120..130 => Some(fire),
+            40..120 => Some(right.clone()),
+            120..130 => Some(fire.clone()),
             130..200 => None,
             _ => Some(Input { left: true, ..Input::default() }),
         };
         g.set_seat(2, seat);
-        let input = if tick % 50 < 20 { right } else { Input::default() };
+        let input = if tick % 50 < 20 { right.clone() } else { Input::default() };
         g.step(&input);
         recorder.record(&g);
     }

@@ -97,6 +97,9 @@ pub struct SavedSeat {
     pub hp: Option<i32>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub out: bool,
+    /// Its player typed (`p.state.typing`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub typing: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

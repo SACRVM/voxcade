@@ -460,7 +460,7 @@ impl Platformer {
         // The other seats' heroes, each by its own keys and hearts.
         for i in 0..self.seat_heroes.len() {
             let Some(id) = self.seat_heroes[i] else { continue };
-            let input = self.seat_inputs.get(i).copied().flatten().unwrap_or_default();
+            let input = self.seat_inputs.get(i).cloned().flatten().unwrap_or_default();
             let down = self.things.get(id).is_none_or(|t| t.hp <= 0);
             self.hero_step(id, &input, down, ledges, moves);
         }

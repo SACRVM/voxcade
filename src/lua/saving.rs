@@ -27,7 +27,7 @@ impl<K: Kit> LuaGame<K> {
         let seats = (1..=stage.seats.len())
             .filter(|&n| {
                 let s = &stage.seats[n - 1];
-                (n > 1 && s.been) || s.out || s.team.is_some() || s.kind.is_some()
+                (n > 1 && s.been) || s.out || s.team.is_some() || s.kind.is_some() || s.typing
             })
             .map(|n| {
                 let s = &stage.seats[n - 1];
@@ -39,6 +39,7 @@ impl<K: Kit> LuaGame<K> {
                     score: s.score,
                     hp: standing.as_ref().map(|t| t.hp).or(s.hp),
                     out: s.out,
+                    typing: s.typing,
                     team: s.team.clone(),
                     kind: s.kind.clone(),
                     figure: standing.map(|t| save::Figure { at: t.body.pos.to_array(), facing: t.body.look.to_array() }),
@@ -186,7 +187,7 @@ impl<K: Kit> LuaGame<K> {
                 self.note(&format!("the save's player {} is dropped: the game has {} seats (c.players)", saved.seat, self.stage.seats.len()));
                 continue;
             };
-            (s.out, s.team, s.kind) = (saved.out, saved.team.clone(), saved.kind.clone());
+            (s.out, s.team, s.kind, s.typing) = (saved.out, saved.team.clone(), saved.kind.clone(), saved.typing);
             if saved.seat > 1 {
                 (s.been, s.score, s.hp) = (true, saved.score, saved.hp);
                 let state = if saved.state.is_empty() { Value::Table(Vec::new()) } else { read(&saved.state, &format!("player {}'s state", saved.seat))? };

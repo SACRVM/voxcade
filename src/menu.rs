@@ -530,6 +530,22 @@ impl Menu {
         self.stack.last().map_or(0, |&(_, c)| c)
     }
 
+    /// The row `row` of the page chosen (the pointer over it), as a step
+    /// to it would; whether it moved.
+    pub fn choose(&mut self, row: usize) -> bool {
+        if self.rebinding.is_some() {
+            return false;
+        }
+        match self.stack.last_mut() {
+            Some((_, at)) if *at != row => {
+                *at = row;
+                self.moved = self.tick;
+                true
+            }
+            _ => false,
+        }
+    }
+
     #[cfg(test)]
     pub fn selected(&self) -> Option<Item> {
         let (page, cursor) = *self.stack.last()?;

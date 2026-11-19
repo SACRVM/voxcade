@@ -1036,6 +1036,46 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `matchmaker-protocol` the game takes in by git at a fixed `rev`: a
   change there is pushed first, then the `rev` here) serves both on
   127.0.0.1:7340.
+- The pointer, the sticks and typed text (the owner's "bau es" to
+  `shots/reviews/input-draft.md`, 2026-11-19; `docs/game-model.md`,
+  "input"): `src/input.rs` (`Input` holds `moves`, `aim` in 127ths, a
+  `Pointer` and `Typed`; it is `Clone`, no longer `Copy`), `c.pointer =
+  "system" | "own"` (restart-only, in the fingerprint only when set; the
+  mouse's key names `input::MOUSE_KEYS` in `c.keys` only with it). The
+  tick never sees pixels: the machine answers from the picture it last
+  drew (`Session::point`, `Game::panel_at`, the panels `on_draw` named:
+  `frame:hud`, named `frame:menu`/`frame:grid`, `ui::menu_place`,
+  `grid_place`), the tick checks (`Pointer::checked`: another level's
+  picture, `input::picture_mark` of `Game::level_mark`, is nil whole).
+  The window gathers the mouse and the text between ticks
+  (`src/app/mouse.rs`: a click carries the answers of its moment, a
+  wheel notch a press with a tick between, the text a sort a tick,
+  `TypedQueue`); the engine's menus take the mouse (`ui::menu_rows`,
+  `Menu::choose`). Typing is a player's state key, `p.state.typing`
+  (`SeatState::typing`, hashed and saved only when set). Wire version 2
+  (`wire::input`: keys alone as before, a flag bit for more; a guest's
+  text goes as `Ask::Typed`, once and in order; the host keeps the first
+  press's pointer of a tick, `Slot::pressed`, and makes a bundle fit with
+  the inputs as they are, the text as long as a tick's can be,
+  `wire::widest`). Scripts (`replay::SCRIPT_WORDS`): `move=X,Y`,
+  `aim=X,Y`, `pointer=X,Y` (answered before the step: `Session::answer`;
+  replays write `picture=`, `hud=`, `index=`, `uv=`), `text=` (`%3B`
+  escapes), `erase=N`, `typed=done|cancel`, `mouse_left` and the like as
+  the game binds them; `inspect` prints `"pointer"`. The level's answers
+  (`input.pointer.thing`, `part`, `area`, `at`, `cell`; `frame.pointer`'s
+  `thing`, `part`, `area`; `input.aim` from the mouse, `Session::mouse_aim`):
+  `src/session/pick.rs` from the picture as composed or `look`ed
+  (`PickScene`: its camera and `Drawing::picks`, what `of_thing` drew;
+  `figures::each_voxel` where `draw` puts each voxel, test
+  `a_figures_voxels_are_picked_where_they_are_drawn`), the thing by the key
+  it was drawn under (`Stage::thing_of_key`: gone, nil), a part by name,
+  the area by its place, the point in sixteenths with its face; under a
+  panel none (`wire::carried` keeps a pointer to what the wire carries,
+  the host's bundles too); a replay writes `thing=`, `part=`, `area=`,
+  `at=X,Y,Z,FACE`. Tests `src/lua/tests/pointer.rs`,
+  `a_click_carries_its_answer_and_text_comes_once_over_a_bad_network`,
+  `a_pointer_is_answered_quickly_on_a_big_scene`.
+  Not yet: the IDE's PLAY takes no mouse or typing.
 - Every game can be tried late without playing there (the user: without
   it testing a game is hardly possible): scenarios and the console are
   part of every game (`docs/game-model.md`, "Scenarios and the console").
@@ -1263,9 +1303,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   none, no `world:save`, no pause); its code asks `world:new_game()` or
   `world:load(slot)` (save games: `world:save(slot, { label })`, `world:delete_save(slot)` at the tick's end through `Game::saving`'s `saves::Change`, `world.saves.newest` by the order saves were made in the run, `lua::host::Stage::newest_save`; `Game::anew`: the session begins the run in its
   place, `Session::new_run`, `begun` for the window to record),
-  `world:open("settings")` and `world:quit()` (`game::Request`, the
+  `world:open("settings")`, `world:quit()` and `world:to_title()` (in a
+  run, any game: back to the title as QUIT TO TITLE, `Command::ToTitle`;
+  on the title a mistake) (`game::Request`, the
   machine's, never the run's: `Session::requests`, `Front::asked`;
-  `shot`/`inspect` end at a quit, the IDE's PLAY stops); PLAY, `shot`,
+  `shot`/`inspect` end at a quit or `to_title`, the IDE's PLAY stops); PLAY, `shot`,
   `inspect` begin past it, `shot --screen title` shows it (tests in
   `src/lua/tests/title.rs`); the menus (`src/menu.rs`,
   drawn in `src/ui/menus.rs`) work with keyboard and gamepad alike, Escape pauses

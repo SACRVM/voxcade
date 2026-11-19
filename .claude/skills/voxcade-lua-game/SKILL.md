@@ -214,6 +214,23 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   level to level (`player:walk(input.dir, 40)`, `player.x`). It is never
   in `level:things()` and has no id; without `c.player.kind` it stands
   nowhere (Sokovox moves its own hero thing).
+- Sticks, the mouse and typing (`docs/game-model.md`, "input"):
+  `input.move` (the left stick, else the directions; walk at any angle)
+  and `input.aim` (the right stick), `{ x, y }` -1 to 1. A game played
+  with the mouse sets `c.pointer = "system"` (or `"own"` and draws its
+  cursor from `frame.pointer` in `on_draw`) and binds the buttons as keys,
+  `c.keys.click = { "mouse_left" }`, `c.keys.next = { "wheel_down" }`;
+  `frame:hud("map", x, y, w, h)` names a rectangle, a `frame:menu` or
+  `frame:grid` with `name =` is one too, and `input.pointer.hud`,
+  `.index` (the row or slot), `.u`, `.v` say what the pointer is over:
+  `if input:pressed("click") and input.pointer and input.pointer.hud ==
+  "shop" then buy(input.pointer.index) end`. A grid's slot shows an
+  item's model with `model = "key.vvx"`. A name typed:
+  `player.state.typing = true`, then `input.typed.text` (add it),
+  `.erase` (Backspace), `.done` (Enter: set typing back to false),
+  `.cancel` (Escape). Try them without a window: `shot`/`inspect --input
+  "pointer=120,60:1;pointer=120,60+mouse_left:1;text=Nick:1;typed=done:1"`
+  (`move=0.5,1`, `aim=-1,0`; `inspect` prints what the pointer answered).
 - Items: `c.items.key = { model = "key.vvx", stack = 3 }`;
   `player.state.inventory.key` counts them (an empty inventory from the
   start), `world.items` lists them in order to draw. The code takes them:
