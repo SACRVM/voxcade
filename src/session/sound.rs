@@ -54,16 +54,16 @@ fn title_song(cfg: &GameConfig) -> Option<&str> {
 
 /// `c.title_screen.music_at` within the title's song: a bar past its
 /// end or after its `#loop` is a mistake naming the setting (a song that
-/// does not read says its own mistake when it is played).
+/// does not read says its own mistake when it is played; without a song
+/// there is nothing to begin).
 pub(super) fn check_title_bar(files: &Files, cfg: &GameConfig) -> Result<()> {
     let at = cfg.title_screen.music_at;
     if at <= 1 {
         return Ok(());
     }
-    let Some(file) = title_song(cfg) else {
-        anyhow::bail!("conf.lua: c.title_screen.music_at = {at}, but the title has no song (c.audio.music names none)");
-    };
-    if let Some(song) = files.read_to_string(file).ok().and_then(|t| audio::music::parse(&t).ok())
+    // Without a song for the title there is nothing to begin.
+    if let Some(file) = title_song(cfg)
+        && let Some(song) = files.read_to_string(file).ok().and_then(|t| audio::music::parse(&t).ok())
         && let Some(wrong) = song.timing(file).bar_mistake(at)
     {
         anyhow::bail!("conf.lua: c.title_screen.music_at = {at} {wrong} ({file})");

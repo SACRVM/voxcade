@@ -616,7 +616,7 @@ pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
             bail!("line {line}: #loop from bar {from} to bar {to}: the first bar comes first (like #loop {to} {from})");
         }
         // A note held over the loop's end is cut there, as at a song's end.
-        let end = to.map_or(length, |to| song::bar_start(tempo, meter, to + 1).saturating_sub(LOOP_SLACK));
+        let end = to.map_or(length, |to| song::bar_start(tempo, meter, to.saturating_add(1)).saturating_sub(LOOP_SLACK));
         span = (song::bar_start(tempo, meter, from).saturating_sub(LOOP_SLACK), end);
     }
     Ok(Song { title, tempo, meter, layers, names: letters, instruments, channels, segments, length, looping, round, span, bars })

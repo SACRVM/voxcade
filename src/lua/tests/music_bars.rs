@@ -169,9 +169,11 @@ fn the_title_song_begins_at_its_bar() {
         ("  c.title_screen.music_at = 6", "c.title_screen.music_at = 6 is past the end of \"song\", which has 5 bars (music/song.mml)"),
         ("  c.title_screen.music_at = 5", "c.title_screen.music_at = 5 lies after the loop of \"song\" (#loop 3 4)"),
         ("  c.title_screen.music_at = 0", "c.title_screen.music_at"),
-        ("  c.audio.music = nil\n  c.title_screen.music_at = 2", "the title has no song"),
     ] {
         let dir = bars_folder("title-music-wrong", "function on_tick() end\n", line);
         assert!(start_error(&dir).contains(says), "{line}: {}", start_error(&dir));
     }
+    // Without a song for the title there is nothing to begin: no mistake.
+    let silent = bars_folder("title-music-none", "function on_tick() end\n", "  c.audio.music = nil\n  c.title_screen.music_at = 2");
+    assert_eq!(start_error(&silent), "");
 }
