@@ -155,8 +155,11 @@ pub struct Stats {
     pub volume_bytes: u64,
     pub volume_ms: f64,
     pub memory_bytes: u64,
-    /// Whether the picture had fog (`render::fog`).
+    /// Whether the picture had fog (`render::fog`), and whether its beams
+    /// took the thin things' finer points (`Fog::thin`, a lamp lighting
+    /// one).
     pub fog: bool,
+    pub thin: bool,
     /// Lamps walls stop that were new to the faces' memory, asked for
     /// first (`render::lamps::ASK`).
     pub asked: usize,

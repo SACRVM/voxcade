@@ -64,7 +64,7 @@ pub(super) struct FogPass {
     /// without thin things' work and with (made when first asked).
     beams: [[[Option<wgpu::RenderPipeline>; 2]; 2]; 2],
     /// Whether this picture's beams look for thin things (`render::thin`).
-    thin: bool,
+    pub(super) thin: bool,
     /// The composite with fog: its third group (the numbers, the depth, the
     /// beams, the see-through cubes' depth) and its pipelines without glass
     /// and with.
@@ -358,7 +358,7 @@ impl Renderer {
                 rect_of(&frame.view_proj, l).map(|rect| (data, rect, l))
             })
             .collect();
-        let thin = if lf.walls && shown.iter().any(|(d, _, _)| d.edge[1] > 0.5) { self.lamps.thin() } else { None };
+        let thin = if fog.thin && lf.walls && shown.iter().any(|(d, _, _)| d.edge[1] > 0.5) { self.lamps.thin() } else { None };
         let rows: Vec<FogRow> = shown.iter().map(|(d, _, l)| FogRow::of(d, thin.filter(|_| d.edge[1] > 0.5).map_or(Vec::new(), |t| thin_balls(t, l)))).collect();
         let pass = self.fog.as_mut().expect("made above");
         let mut tiles: Vec<TileInstance> = tiles(size, &shown.iter().enumerate().map(|(row, (_, rect, _))| (row as u16, *rect)).collect::<Vec<_>>());

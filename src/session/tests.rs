@@ -1598,7 +1598,7 @@ fn fog_shows_a_beam_the_wall_stops() {
         }).sum::<f32>() / 25.0
     };
     for scale in [2, 4] {
-        let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale };
+        let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale, thin: scale == 2 };
         let mut picture = |lights: &[crate::render::Light]| {
             let (w, h) = LampScene::SIZE;
             let mut f = s.game.frame(1.0, w as f32 / h as f32);
@@ -1623,7 +1623,7 @@ fn fog_shows_a_beam_the_wall_stops() {
         let pixels = s.canvas.draw(&f).unwrap();
         (f, pixels)
     };
-    let thick = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 2 };
+    let thick = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 2, thin: true };
     let (f, dense) = picture(thick);
     let (_, glowing) = picture(crate::render::Fog { density: 0.0125, glow: 4.0, ..thick });
     let (near, floor) = (Vec3::new(38.5, 48.5, 10.0), Vec3::new(20.5, 80.5, 1.0));
@@ -1637,7 +1637,9 @@ fn fog_shows_a_beam_the_wall_stops() {
 /// cross in about a voxel, thinner along each of them than the beams'
 /// planes are apart, showed only where it had grown thicker than them
 /// (points a voxel apart where a ray can pass a thin thing's shadow,
-/// `render::thin`), at FOG's HIGH and LOW.
+/// `render::thin`), at FOG HIGH (`Fog::thin`). At LOW the beams are drawn
+/// without that work, as before thin things were looked for: a picture
+/// of its own, not the one the thin things' points draw at that scale.
 #[test]
 fn a_thin_rail_darkens_the_beam_behind_it() {
     let spot = crate::render::Light::lamp(Vec3::new(20.5, 48.5, 10.5), 70.0, [2.0; 3], &crate::render::LightShape { cone: Some(40.0), rotation: 90.0, ..Default::default() }, |w| w).stated(crate::render::LampShadows::Static);
@@ -1652,17 +1654,23 @@ fn a_thin_rail_darkens_the_beam_behind_it() {
     // the rays from above cross in about a voxel; and without it.
     let mut posted = LampScene::of((40..57).map(|y| IVec3::new(30, y, 10)));
     let mut bare = LampScene::of([]);
+    let fog = |scale, thin| crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale, thin };
+    let picture = |s: &mut LampScene, fog: crate::render::Fog| {
+        let (w, h) = LampScene::SIZE;
+        let mut f = s.game.frame(1.0, w as f32 / h as f32);
+        (f.lights, f.lamp_world, f.fog) = (vec![spot], Some(s.game.game.sim().world.clone()), Some(fog));
+        let pixels = s.canvas.draw(&f).unwrap();
+        (f, pixels, s.canvas.stats().thin)
+    };
+    // LOW: no thin things' work, whatever the rail.
+    let (_, low, looked) = picture(&mut posted, fog(4, false));
+    assert!(!looked, "LOW: the beams drawn without the thin things' work");
+    let (_, low_thin, looked) = picture(&mut posted, fog(4, true));
+    assert!(looked && low != low_thin, "the thin things' points draw another picture at that scale (else this test tells nothing)");
     for scale in [2, 4] {
-        let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale };
-        let picture = |s: &mut LampScene| {
-            let (w, h) = LampScene::SIZE;
-            let mut f = s.game.frame(1.0, w as f32 / h as f32);
-            (f.lights, f.lamp_world, f.fog) = (vec![spot], Some(s.game.game.sim().world.clone()), Some(fog));
-            let pixels = s.canvas.draw(&f).unwrap();
-            (f, pixels)
-        };
-        let (f, with) = picture(&mut posted);
-        let (_, without) = picture(&mut bare);
+        let (f, with, looked) = picture(&mut posted, fog(scale, true));
+        assert!(looked, "scale {scale}: the beams look for the rail");
+        let (_, without, _) = picture(&mut bare, fog(scale, true));
         // Along the post's shadow, at the beam's middle height: every
         // voxel of it darker than the beam without the post.
         for x in 34..70 {
@@ -1683,7 +1691,7 @@ fn the_lamps_memory_grows_until_the_beams_fit() {
     let mut s = LampScene::new();
     let shape = crate::render::LightShape::default();
     let lamps: Vec<_> = (0..16).map(|i| crate::render::Light::lamp(Vec3::new(10.5 + (i % 4) as f32 * 24.0, 10.5 + (i / 4) as f32 * 24.0, 12.0), 90.0, [0.5; 3], &shape, |w| w).stated(crate::render::LampShadows::Static)).collect();
-    let fog = crate::render::Fog { density: 0.02, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 4 };
+    let fog = crate::render::Fog { density: 0.02, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 4, thin: false };
     let picture = |s: &mut LampScene| {
         let (w, h) = LampScene::SIZE;
         let mut f = s.game.frame(1.0, w as f32 / h as f32);
@@ -1717,7 +1725,7 @@ fn a_higher_glow_never_makes_a_beam_fainter() {
     let mut picture = |glow: f32| {
         let (w, h) = LampScene::SIZE;
         let mut f = s.game.frame(1.0, w as f32 / h as f32);
-        let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 2 };
+        let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 2, thin: true };
         (f.lights, f.lamp_world, f.fog) = (vec![spot], Some(s.game.game.sim().world.clone()), Some(fog));
         let pixels = s.canvas.draw(&f).unwrap();
         (f, pixels)
@@ -1758,7 +1766,7 @@ fn a_beam_behind_glass_is_seen_through_it() {
         fx[crate::render::FX_OPACITY] = opacity;
         crate::render::Instance { pos_size: [x as f32 + 0.5, y as f32 + 0.5, 20.5, 1.0], color: [20, 30, 40, opacity], fx, shade: [0; 4], turn: [0; 4] }
     }).collect();
-    let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 2 };
+    let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 2, thin: true };
     let mut picture = |lights: &[crate::render::Light], glass: bool| {
         let (w, h) = LampScene::SIZE;
         let mut f = s.game.frame(1.0, w as f32 / h as f32);
@@ -1863,7 +1871,7 @@ fn a_moving_thing_stops_a_lamp_whose_shadows_are_all() {
         fx[crate::render::FX_OPACITY] = 255;
         crate::render::Instance { pos_size: [x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5, 1.0], color: [90, 90, 90, 255], fx, shade: [0; 4], turn: [0; 4] }
     }).collect();
-    let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 2 };
+    let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale: 2, thin: true };
     let mut picture = |lights: &[Light], with_post: bool, fogged: bool| {
         let (w, h) = LampScene::SIZE;
         let mut f = s.game.frame(1.0, w as f32 / h as f32);
@@ -1942,7 +1950,7 @@ fn a_wall_a_voxel_thin_stops_a_beam() {
         let spot = crate::render::Light::lamp(Vec3::new(20.5, 48.5, 9.0), 70.0, [2.0; 3], &shape, |w| w).stated(crate::render::LampShadows::Static);
         let behind: Vec<Vec3> = (0..6).flat_map(|i| (0..5).map(move |j| (i, j))).map(|(i, j)| Vec3::new(56.5 + 4.0 * i as f32, 40.5 + 4.0 * j as f32, 8.0)).filter(|p| what == "straight" || p.x > p.y + 3.0).collect();
         for scale in [2, 4] {
-            let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale };
+            let fog = crate::render::Fog { density: 0.05, color: [0.0; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(96.0, 96.0, 24.0), scale, thin: scale == 2 };
             let mut picture = |lights: &[crate::render::Light], fog: Option<crate::render::Fog>| {
                 let (w, h) = LampScene::SIZE;
                 let mut f = s.game.frame(1.0, w as f32 / h as f32);

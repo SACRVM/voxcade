@@ -302,6 +302,10 @@ pub struct Fog {
     /// How many of the picture's pixels a pixel of its beams is each way
     /// (the player's FOG setting, `settings::Fog`).
     pub scale: u32,
+    /// Whether the beams take the thin things' finer points (`render::thin`;
+    /// FOG HIGH): without, they are drawn as before thin things were looked
+    /// for, at no cost of theirs.
+    pub thin: bool,
 }
 
 /// The words of a light beyond where, how far and its colour, and the
