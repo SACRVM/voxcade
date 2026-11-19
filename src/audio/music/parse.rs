@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use anyhow::{Context, Result, bail};
 
 use super::song::{FilterMode, Instrument, Note, Song};
+use super::voice::{self, Sing, Syllable};
 use super::{SAMPLE_RATE, Wave, words};
 
 /// The most a song may ask of the reader: notes in a channel, steps of
@@ -27,6 +28,8 @@ pub(super) fn note_freq(octave: i32, semitone: i32) -> f32 {
 
 fn parse_instrument(spec: &str) -> Result<Instrument> {
     let mut ins = Instrument::default();
+    // A word of the pulse wave's, which a voice has none of.
+    let mut pulse = None;
     for word in spec.split_whitespace() {
         let (key, value) = match word.split_once('=') {
             Some((k, v)) => (k, Some(v)),
@@ -46,14 +49,15 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
             Ok(v)
         };
         match key {
-            "square" | "pulse" => ins.wave = Wave::Square,
-            "saw" => ins.wave = Wave::Saw,
-            "triangle" => ins.wave = Wave::Triangle,
-            "sine" => ins.wave = Wave::Sine,
-            "noise" => ins.wave = Wave::Noise,
-            "duty" => ins.duty = num()?,
-            "pwm" => ins.pwm = num()?,
-            "pwm_speed" => ins.pwm_speed = num()?,
+            "square" | "pulse" => (ins.wave, ins.voice) = (Wave::Square, false),
+            "saw" => (ins.wave, ins.voice) = (Wave::Saw, false),
+            "triangle" => (ins.wave, ins.voice) = (Wave::Triangle, false),
+            "sine" => (ins.wave, ins.voice) = (Wave::Sine, false),
+            "noise" => (ins.wave, ins.voice) = (Wave::Noise, false),
+            "voice" => ins.voice = true,
+            "duty" => (ins.duty, pulse) = (num()?, Some(key)),
+            "pwm" => (ins.pwm, pulse) = (num()?, Some(key)),
+            "pwm_speed" => (ins.pwm_speed, pulse) = (num()?, Some(key)),
             "attack" => ins.attack = num()?,
             "decay" => ins.decay = num()?,
             "sustain" => ins.sustain = num()?,
@@ -98,15 +102,27 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
             "sidechain_release" => ins.sidechain_release = num()?,
             "duck" => ins.duck = num()?.clamp(0.0, 1.0),
             "volume" => ins.volume = num()?,
-            "wave" => bail!("the wave is a bare word, not wave=...: square, pulse, saw, triangle, sine or noise (like @lead square duty=0.25)"),
+            "drive" => ins.drive = num()?,
+            "crush_rate" => ins.crush_rate = Some(num()?),
+            "crush_bits" => {
+                let bits = num()?;
+                if bits.fract() != 0.0 {
+                    bail!("crush_bits={} is no whole number of bits", value.unwrap_or(""));
+                }
+                ins.crush_bits = Some(bits as u32);
+            }
+            "wave" => bail!("the wave is a bare word, not wave=...: square, pulse, saw, triangle, sine, noise or voice (like @lead square duty=0.25)"),
             other => {
-                let known = words::WORDS.iter().filter(|w| w.mml.is_some() && w.name != "wave" && w.name != other).map(|w| w.name).chain(["pulse"]).chain(Wave::ALL.iter().map(|(n, _)| *n)).filter(|w| *w != other);
+                let known = words::WORDS.iter().filter(|w| w.mml.is_some() && w.name != "wave" && w.name != other).map(|w| w.name).chain(["pulse", "voice"]).chain(Wave::ALL.iter().map(|(n, _)| *n)).filter(|w| *w != other);
                 match words::near(other, known) {
                     Some(near) => bail!("unknown instrument option '{other}': did you mean '{near}'?"),
                     None => bail!("unknown instrument option '{other}'"),
                 }
             }
         }
+    }
+    if let Some(word) = pulse.filter(|_| ins.voice) {
+        bail!("{word} means nothing on a voice: it shapes the pulse of a square wave, and a voice sings");
     }
     Ok(ins)
 }
@@ -200,6 +216,15 @@ struct Parser<'a> {
     /// Steps of reading so far, repeats counted every pass.
     steps: usize,
     instruments: &'a HashMap<String, usize>,
+    /// Which instruments sing (`voice`).
+    voices: &'a [bool],
+    /// A quoted text read, for the next note to sing.
+    text: Option<Syllable>,
+    /// The voice notes so far, and whether one sang a text yet.
+    sings: Vec<Sing>,
+    sung: bool,
+    /// The song names no instrument: its channels play the plain square.
+    plain: bool,
 }
 
 impl Parser<'_> {
@@ -324,6 +349,21 @@ impl Parser<'_> {
                         beats += self.duration(state)?;
                     }
                     let seconds = beats as f64 * 60.0 / state.tempo as f64;
+                    let text = self.text.take();
+                    if self.voices[state.instrument] {
+                        if text.is_none() && !self.sung {
+                            bail!("a voice's first note needs a text, the syllable it sings, like \"l a\" c4 (a note without one holds the vowel before)");
+                        }
+                        self.sung = true;
+                        let end = state.time + seconds;
+                        self.sings.push(Sing { note: notes.len(), text, at: (state.time * rate) as u64, end: (end * rate) as u64 });
+                    } else if text.is_some() {
+                        let name = match self.instruments.iter().find(|(_, i)| **i == state.instrument) {
+                            Some((name, _)) if !self.plain => format!("@{name}"),
+                            _ => "the plain square".to_string(),
+                        };
+                        bail!("a text is sung only by a voice, and {name} plays no voice (an instrument like @singer voice)");
+                    }
                     notes.push(Note {
                         start: (state.time * rate) as u64,
                         held: (seconds * state.gate as f64 * rate) as u64,
@@ -331,10 +371,24 @@ impl Parser<'_> {
                         instrument: state.instrument,
                         volume: state.volume,
                         pan: state.pan,
+                        sung: None,
                     });
                     state.time += seconds;
                 }
+                '"' => {
+                    let start = self.at;
+                    let Some(len) = self.chars[start..].iter().position(|&c| c == '"') else { bail!("a text without its closing quote") };
+                    self.at = start + len + 1;
+                    if self.text.is_some() {
+                        bail!("two texts before one note: each note sings one syllable");
+                    }
+                    let text: String = self.chars[start..start + len].iter().collect();
+                    self.text = Some(voice::syllable(&text)?);
+                }
                 'r' => {
+                    if self.text.is_some() {
+                        bail!("a text before a rest: the note after a text sings it");
+                    }
                     let beats = self.duration(state)?;
                     state.time += beats as f64 * 60.0 / state.tempo as f64;
                 }
@@ -391,6 +445,9 @@ impl Parser<'_> {
         }
         if until.is_some() {
             bail!("[ without ]");
+        }
+        if self.text.is_some() {
+            bail!("a text with no note after it to sing it");
         }
         Ok(())
     }
@@ -475,7 +532,8 @@ pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
     if lines.is_empty() && !may_be_empty {
         bail!("the song has no channel: write one like 'A: c d e f' (a letter, a colon, notes)");
     }
-    if instruments.is_empty() {
+    let plain = instruments.is_empty();
+    if plain {
         instruments.push(Instrument::default());
         names.insert("default".into(), 0);
     }
@@ -492,20 +550,23 @@ pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
         text.extend(notes.chars().map(|c| (c, n)));
     }
     let mut channels = Vec::new();
+    let mut segments = Vec::new();
+    let voices: Vec<bool> = instruments.iter().map(|i: &Instrument| i.voice).collect();
     let letters = order.clone();
     for channel in order {
         let (text, lines) = expand_lines(&texts[&channel], &macros).with_context(|| format!("channel {channel}"))?;
         let mut state = State { octave: 4, length: 4.0, volume: 0.8, gate: 0.875, pan: 0.0, tempo, instrument: 0, time: 0.0 };
         let mut notes = Vec::new();
-        let mut parser = Parser { chars: text, lines, at: 0, steps: 0, instruments: &names };
+        let mut parser = Parser { chars: text, lines, at: 0, steps: 0, instruments: &names, voices: &voices, text: None, sings: Vec::new(), sung: false, plain };
         parser.sequence(&mut state, &mut notes, None).with_context(|| {
             let around: String = parser.chars[parser.at.saturating_sub(12)..(parser.at + 4).min(parser.chars.len())].iter().collect();
             let line = parser.lines.get(parser.at.saturating_sub(1)).or(parser.lines.last()).copied().unwrap_or(0);
             format!("line {line}: channel {channel}, near '{}'", around.trim())
         })?;
+        voice::lay_out(&mut notes, &parser.sings, &mut segments);
         // The channel's end is where its last note or rest ends.
         let end = (state.time * SAMPLE_RATE as f64) as u64;
-        notes.push(Note { start: end, held: 0, freq: None, instrument: 0, volume: 0.0, pan: 0.0 });
+        notes.push(Note { start: end, held: 0, freq: None, instrument: 0, volume: 0.0, pan: 0.0, sung: None });
         channels.push(notes);
     }
     let length = channels.iter().filter_map(|c| c.last().map(|n| n.start)).max().unwrap_or(0).max(1);
@@ -513,5 +574,5 @@ pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
         bail!("#layer names channel {c}, which plays nothing");
     }
     let layers = letters.iter().map(|c| layered.iter().rev().find(|(l, _)| l == c).map_or(0.0, |(_, f)| *f)).collect();
-    Ok(Song { title, tempo, meter, layers, names: letters, instruments, channels, length, looping })
+    Ok(Song { title, tempo, meter, layers, names: letters, instruments, channels, segments, length, looping })
 }

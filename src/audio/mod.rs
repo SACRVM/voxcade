@@ -559,13 +559,14 @@ mod tests {
     /// and the device's feed are made once, `MIX_BLOCK` big, and a request
     /// longer than that is mixed block by block into the same samples as
     /// in one piece (they were resized to every request, on the thread
-    /// that must never wait).
+    /// that must never wait). A singing voice, driven and crushed, plays
+    /// meanwhile (its syllables laid out as the song is read).
     #[test]
     fn the_audio_thread_takes_no_memory() {
         let song = |text: &str| Some(music::Player::new(music::parse(text).unwrap(), 1.0));
         let crossfading = || {
             let mut mixer = Mixer::default();
-            mixer.set_music(song("#tempo 120\nA: c d e f g a b > c"));
+            mixer.set_music(song("#tempo 120\n@s square\n@v voice drive=12 crush_rate=6000 crush_bits=4\nA: @s c d e f g a b > c\nB: @v \"l a\" c \"s i ng\" d e \"t oi\" f"));
             let mut warm = vec![0.0f32; SAMPLE_RATE as usize];
             mixer.mix(&mut warm);
             mixer.crossfade_music(song("#tempo 90\n@n noise\nA: o2 c4 e g\nB: @n c8 c8 c8"), 2.0);

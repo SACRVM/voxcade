@@ -22,6 +22,10 @@ pub enum Unit {
     YesNo,
     /// Semitone steps as a list, `0,4,7`.
     SemitoneList,
+    /// Loudness against loudness: 6 is about twice as loud a wave.
+    Decibels,
+    /// A whole number of bits.
+    Bits,
 }
 
 impl Unit {
@@ -31,6 +35,8 @@ impl Unit {
             Unit::Seconds => " seconds",
             Unit::Hz => " Hz",
             Unit::Semitones => " semitones",
+            Unit::Decibels => " dB",
+            Unit::Bits => " bits",
             _ => "",
         }
     }
@@ -80,7 +86,7 @@ pub const WORDS: &[Word] = &[
     Word {
         name: "wave",
         sound: sound(Choice, None, "square", "the oscillator's wave: square, saw, triangle, sine or noise; pulse is square"),
-        mml: mml(Choice, None, "square", "the same waves, written as a bare word: @lead square ..."),
+        mml: mml(Choice, None, "square", "the same waves, written as a bare word: @lead square ...; or voice, which sings the text in quotes before each note"),
     },
     Word {
         name: "freq",
@@ -174,6 +180,9 @@ pub const WORDS: &[Word] = &[
     Word { name: "sidechain", sound: None, mml: mml(Share, Some((0.0, 1.0)), "0", "how far this instrument's notes duck the other channels") },
     Word { name: "sidechain_release", sound: None, mml: mml(Seconds, SONG_TIMES, "0.2", "how long the others take to come back") },
     Word { name: "duck", sound: None, mml: mml(Share, Some((0.0, 1.0)), "1", "how far this instrument follows the ducking") },
+    Word { name: "drive", sound: None, mml: mml(Decibels, Some((0.0, 36.0)), "0", "how hard the sound is pushed into a soft clipper before the filters: 0 leaves it clean, 12 rough, 20 a megaphone's shout") },
+    Word { name: "crush_rate", sound: None, mml: mml(Hz, Some((100.0, 44_100.0)), "none", "a bit crusher: the sound held at this rate, as an early sampler played it; 6000 the speech of old games") },
+    Word { name: "crush_bits", sound: None, mml: mml(Bits, Some((1.0, 16.0)), "none", "a bit crusher: the sound rounded to this many bits, after the envelope; 4 a grainy 8-bit voice") },
 ];
 
 /// Names a sound once had (in `c.sounds`), and what says it now.
@@ -251,7 +260,7 @@ mod tests {
         for line in body.lines().filter(|l| l.starts_with("            \"")) {
             for word in line.split("=>").next().unwrap().split('|') {
                 let word = word.trim().trim_matches('"');
-                taken.push(if crate::audio::Wave::ALL.iter().any(|(n, _)| *n == word) || word == "pulse" { "wave" } else { word });
+                taken.push(if crate::audio::Wave::ALL.iter().any(|(n, _)| *n == word) || word == "pulse" || word == "voice" { "wave" } else { word });
             }
         }
         taken.sort();

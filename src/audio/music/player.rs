@@ -3,6 +3,7 @@
 use super::SAMPLE_RATE;
 use super::mix::{Mix, SHORTEST, muffle_cutoff};
 use super::song::{FilterMode, Instrument, Note, Song};
+use super::voice::{Segment, Singer};
 use crate::audio::synth::{OnePole, Oscillator};
 
 /// One channel's voice: the note it plays and where the oscillator is.
@@ -21,16 +22,80 @@ pub(super) struct Voice {
     /// each side.
     alpha: f32,
     pan: (f32, f32),
+    /// The envelope's level at the last sample, and where a voice's attack
+    /// starts from (the level it was at: a sung line never jumps to
+    /// silence between its syllables).
+    level: f32,
+    from: f32,
+    /// The singing voice (`voice`), and the note's drive (a gain, 0 off)
+    /// and bit crusher.
+    pub(super) singer: Singer,
+    drive: f32,
+    crush: Crusher,
+    /// The drive's DC blocker: the last sample in and out.
+    dc: (f32, f32),
 }
 
 impl Voice {
-    /// Takes up `notes[index]` (played by `ins`) from its start.
-    fn take_up(&mut self, notes: &[Note], index: usize, ins: &Instrument) {
+    /// Takes up `notes[index]` (played by `ins`) from its start; a voice
+    /// note sings `segments`' part of it.
+    fn take_up(&mut self, notes: &[Note], index: usize, ins: &Instrument, segments: &[Segment]) {
         let n = &notes[index];
+        let sounding = self.note.is_some();
         (self.note, self.started, self.osc.phase) = (Some(index), n.start, 0.0);
         self.alpha = ins.lowpass.map_or(0.0, OnePole::alpha);
         let angle = (n.pan + 1.0) * std::f32::consts::FRAC_PI_4;
         self.pan = (angle.cos(), angle.sin());
+        self.drive = if ins.drive > 0.0 { 10f32.powf(ins.drive / 20.0) } else { 0.0 };
+        self.crush.set(ins);
+        if ins.voice {
+            self.from = if sounding { self.level } else { 0.0 };
+            self.singer.start(sung(n, segments), !sounding);
+        }
+    }
+}
+
+/// The segments a voice note sings (none for another note).
+fn sung<'a>(n: &Note, segments: &'a [Segment]) -> &'a [Segment] {
+    n.sung.map_or(&[], |(from, to)| &segments[from as usize..to as usize])
+}
+
+/// A bit crusher: the sound held at a rate (sample and hold) and rounded
+/// to a number of bits, as an early sampler played it.
+#[derive(Default)]
+pub(super) struct Crusher {
+    /// A rate's share of a sample (0: none), and the steps either side of
+    /// zero (0: none).
+    step: f32,
+    steps: f32,
+    phase: f32,
+    held: f32,
+}
+
+impl Crusher {
+    fn set(&mut self, ins: &Instrument) {
+        self.step = ins.crush_rate.map_or(0.0, |r| (r / SAMPLE_RATE as f32).min(1.0));
+        self.steps = ins.crush_bits.map_or(0.0, |b| 2f32.powi(b as i32 - 1));
+    }
+
+    fn on(&self) -> bool {
+        self.step > 0.0 || self.steps > 0.0
+    }
+
+    fn next(&mut self, x: f32) -> f32 {
+        let mut x = x;
+        if self.step > 0.0 {
+            if self.phase <= 0.0 {
+                self.held = x;
+                self.phase += 1.0;
+            }
+            self.phase -= self.step;
+            x = self.held;
+        }
+        if self.steps > 0.0 {
+            x = ((x * self.steps).round() / self.steps).clamp(-1.0, 1.0);
+        }
+        x
     }
 }
 
@@ -99,6 +164,10 @@ impl Duck {
 /// A jump this far off (samples, 50 ms) when keeping time with a game;
 /// less is caught up by going a little faster or slower.
 const JUMP: i64 = SAMPLE_RATE as i64 / 20;
+
+/// How much of its last output the drive's DC blocker keeps a sample: a
+/// high-pass at about 10 Hz.
+const DC_BLOCK: f32 = 1.0 - std::f32::consts::TAU * 10.0 / SAMPLE_RATE as f32;
 
 /// Samples a jump fades in over (5 ms), so it does not click.
 const FADE_IN: u32 = SAMPLE_RATE / 200;
@@ -216,7 +285,7 @@ impl Player {
     }
 
     pub fn new(song: Song, volume: f32) -> Self {
-        let voices = (0..song.channels.len()).map(|i| Voice { osc: Oscillator::new(0x1234_5678 ^ (i as u32 * 7919)), ..Voice::default() }).collect();
+        let voices = (0..song.channels.len()).map(|i| Voice { osc: Oscillator::new(0x1234_5678 ^ (i as u32 * 7919)), singer: Singer::new(0x2545_f491 ^ (i as u32 * 7919)), ..Voice::default() }).collect();
         let loud = song.layers.iter().map(|_| 1.0).collect();
         Self { song, voices, time: 0, duck: None, volume, rate: 1.0, carry: 0.0, since_jump: FADE_IN, intensity: 1.0, loud, bus: Bus::default() }
     }
@@ -266,9 +335,9 @@ impl Player {
         for (ch, v) in self.voices.iter_mut().enumerate() {
             let notes = &self.song.channels[ch];
             v.next = notes.partition_point(|n| n.start <= at);
-            v.note = v.next.checked_sub(1).filter(|&i| notes[i].freq.is_some());
-            if let Some(i) = v.note {
-                v.take_up(notes, i, &self.song.instruments[notes[i].instrument]);
+            v.note = None;
+            if let Some(i) = v.next.checked_sub(1).filter(|&i| notes[i].freq.is_some()) {
+                v.take_up(notes, i, &self.song.instruments[notes[i].instrument], &self.song.segments);
             }
         }
     }
@@ -330,7 +399,7 @@ impl Player {
                     // Rests and the end marker have no pitch: the note before rings out.
                     if notes[v.next].freq.is_some() {
                         let ins = &self.song.instruments[notes[v.next].instrument];
-                        v.take_up(notes, v.next, ins);
+                        v.take_up(notes, v.next, ins, &self.song.segments);
                         if ins.sidechain > 0.0 {
                             self.duck = Some(Duck { from: self.time, depth: ins.sidechain, release: ins.sidechain_release });
                         }
@@ -343,10 +412,10 @@ impl Player {
                 let t = (self.time - v.started) as f32 / sr;
                 let held = n.held as f32 / sr;
 
-                // ADSR.
+                // ADSR (a voice's attack from where it was).
                 let level = if t < held {
                     let l = if t < ins.attack {
-                        t / ins.attack.max(1e-4)
+                        if ins.voice { v.from + (1.0 - v.from) * (t / ins.attack.max(1e-4)) } else { t / ins.attack.max(1e-4) }
                     } else {
                         let d = (t - ins.attack) / ins.decay.max(1e-4);
                         if d < 1.0 { 1.0 + (ins.sustain - 1.0) * d } else { ins.sustain }
@@ -356,11 +425,12 @@ impl Player {
                 } else {
                     let r = (t - held) / ins.release.max(1e-4);
                     if r >= 1.0 {
-                        v.note = None;
+                        (v.note, v.level) = (None, 0.0);
                         continue;
                     }
                     v.released_at * (1.0 - r)
                 };
+                v.level = level;
 
                 // Pitch: the note (or a fixed one), a sweep, the arpeggio, vibrato.
                 let mut freq = ins.freq.unwrap_or(n.freq.unwrap_or(0.0));
@@ -376,7 +446,15 @@ impl Player {
                     freq *= 1.0 + ins.vibrato * (std::f32::consts::TAU * ins.vibrato_speed * (t - ins.vibrato_delay)).sin();
                 }
                 let duty = (ins.duty + ins.pwm * (std::f32::consts::TAU * ins.pwm_speed * t).sin()).clamp(0.05, 0.95);
-                let mut s = v.osc.next(ins.wave, freq / sr, duty, false);
+                let mut s = if ins.voice { v.singer.next(sung(n, &self.song.segments), self.time - v.started, freq) } else { v.osc.next(ins.wave, freq / sr, duty, false) };
+                // Driven into a soft clipper before the filters, as an amp
+                // before its speaker; a wave not even above and below zero
+                // (a voice's) clips to a middle off zero, taken off again.
+                if v.drive > 0.0 {
+                    let x = (s * v.drive).tanh();
+                    s = x - v.dc.0 + DC_BLOCK * v.dc.1;
+                    v.dc = (x, s);
+                }
                 if ins.lowpass.is_some() {
                     s = v.low.next(s, v.alpha);
                 }
@@ -392,7 +470,12 @@ impl Player {
                 // Ducked under a sidechain note, unless this is one.
                 let duck = if ins.sidechain > 0.0 { 1.0 } else { 1.0 - ducked * ins.duck };
                 let fade = if self.since_jump < FADE_IN { self.since_jump as f32 / FADE_IN as f32 } else { 1.0 };
-                let gain = s * level * ins.volume * n.volume * self.volume * duck * fade * self.loud[ch];
+                // Crushed after the envelope, before the volumes: its steps are the instrument's own.
+                let mut s = s * level;
+                if v.crush.on() {
+                    s = v.crush.next(s);
+                }
+                let gain = s * ins.volume * n.volume * self.volume * duck * fade * self.loud[ch];
                 sum[0] += gain * v.pan.0 * std::f32::consts::SQRT_2;
                 sum[1] += gain * v.pan.1 * std::f32::consts::SQRT_2;
             }

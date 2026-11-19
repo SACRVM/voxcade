@@ -233,3 +233,172 @@ fn a_channel_without_an_instrument_plays_the_plain_square() {
     assert!(plain.iter().any(|s| s.abs() > 0.01), "it sounds");
     assert_eq!(plain, named);
 }
+
+/// A hash of samples rounded to 12 bits (as `audio::digest_tests`).
+fn digest(samples: &[f32]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for s in samples {
+        for b in ((s * 2048.0).round() as i16).to_le_bytes() {
+            hash = (hash ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    hash
+}
+
+/// The samples and their hash a song of every instrument word but the
+/// voice's, drive and the crusher made before those came.
+const PINNED: (usize, u64) = (320_726, 0xc41e_aa83_c7d1_56ab);
+
+/// Every instrument word but the voice's, drive and the crusher plays as
+/// before they came: the song pinned by the samples it made then.
+#[test]
+fn the_instruments_play_as_pinned() {
+    let song = "#tempo 132\n#layer C 0.4\n\
+        @lead square duty=0.25 pwm=0.2 pwm_speed=3 attack=0.01 decay=0.1 sustain=0.6 release=0.1 vibrato=0.01 vibrato_delay=0.1\n\
+        @chord saw arp=0,4,7 arp_speed=40 lowpass=3000 volume=0.3\n\
+        @acid square cutoff=3000 cutoff_end=400 cutoff_time=0.1 resonance=0.8 volume=0.3\n\
+        @kick triangle freq=150 sweep=-24 sweep_time=0.06 decay=0.15 sustain=0 sidechain=0.6 sidechain_release=0.2\n\
+        @hat noise freq=12000 decay=0.03 sustain=0 filter=highpass cutoff=5000 duck=0\n\
+        @pad sine filter=bandpass cutoff=900 resonance=0.3 attack=0.2 release=0.4\n\
+        A: @lead o5 l8 c d e g a g e d | c4 e4 g4 >c4<\nB: @chord o4 l2 c a- f g\nC: @acid o2 l16 [c c >c< c d+ c >c< c]4\n\
+        D: @kick l4 [c c c c]2\nE: @hat l8 [r c]8\nF: @pad o3 p-50 l1 c e\n";
+    let samples = Player::new(parse(song).unwrap(), 1.0).render(None);
+    assert_eq!((samples.len(), digest(&samples)), PINNED, "the instruments no longer play as they did");
+    // Written out at its default, drive changes nothing.
+    let quiet = song.replace("volume=0.3\n", "volume=0.3 drive=0\n");
+    assert_eq!(digest(&Player::new(parse(&quiet).unwrap(), 1.0).render(None)), PINNED.1);
+}
+
+/// A voice's song: one instrument that sings, notes at 120 (a quarter is
+/// 22,050 samples).
+fn sung(notes: &str) -> String {
+    format!("#tempo 120\n@v voice attack=0.005 decay=0 sustain=1 release=0.05 volume=1\nA: @v o3 {notes}\n")
+}
+
+/// A text is the syllable its note sings: the onset before the beat, the
+/// vowel from it, the coda ending where the note is let go; a note
+/// without a text holds the vowel (the coda moving to the last of the
+/// melisma), and after a rest sings the vowel alone.
+#[test]
+fn a_text_is_the_syllable_its_note_sings() {
+    let quarter = SAMPLE_RATE as u64 / 2;
+    let song = parse(&sung("r4 \"s ae n\" a4 \"l a\" a4 b4 c4 r4 d4")).unwrap();
+    let notes = &song.channels[0];
+    let segs = |i: usize| -> &[super::voice::Segment] {
+        let (a, b) = notes[i].sung.unwrap();
+        &song.segments[a as usize..b as usize]
+    };
+    // "s ae n": the s 90 ms before the beat, the n at the end of the held note.
+    let onset = (0.09 * SR).round() as u64;
+    assert_eq!(notes[0].start, quarter - onset);
+    let s = segs(0);
+    assert!(s[0].frication > 0.0 && s[0].from == 0 && s[0].to == onset, "{s:?}");
+    assert!(s[1].voicing == 1.0 && s[1].from == onset, "the vowel on the beat: {s:?}");
+    let held = (0.5 * 0.875 * SR) as u64;
+    assert_eq!(s.last().unwrap().to, onset + held, "the n ends where the note is let go");
+    // "l a" and its melisma: tied to the end, the vowel alone after a rest.
+    assert_eq!(notes[1].held, (0.06 * SR).round() as u64 + quarter, "tied to the next");
+    assert_eq!((notes[2].start, notes[2].held), (3 * quarter, quarter), "held on to the next");
+    assert!(segs(2).iter().all(|s| s.voicing == 1.0), "no onset in a melisma");
+    let after_rest = segs(4);
+    assert!(after_rest.len() == 1 && after_rest[0].voicing == 1.0 && notes[4].start == 6 * quarter, "{after_rest:?}");
+    // The coda goes to a melisma's last note.
+    let song = parse(&sung("\"m ae n\" a4 b4")).unwrap();
+    let last = song.channels[0][1].sung.unwrap();
+    assert!(song.segments[last.1 as usize - 1].voicing < 1.0, "the n on the second note");
+    let first = song.channels[0][0].sung.unwrap();
+    assert_eq!(song.segments[first.1 as usize - 1].voicing, 1.0, "the first ends on the vowel");
+    // A voice's channel is as long as its notes, the onsets moved or not.
+    assert_eq!(song.length, 2 * quarter);
+}
+
+/// A text's mistakes say their line and what was meant.
+#[test]
+fn a_texts_mistakes_say_their_line() {
+    let said = |text: &str| format!("{:#}", parse(text).unwrap_err());
+    for (song, says) in [
+        (sung("\"sch a\" c4"), "unknown phoneme 'sch': did you mean 'sh'?"),
+        (sung("\"L a\" c4"), "unknown phoneme 'L': did you mean 'l'?"),
+        (sung("\"l a o\" c4"), "two vowels, 'a' and 'o'"),
+        (sung("\"s t\" c4"), "has no vowel"),
+        (sung("\"\" c4"), "an empty text"),
+        (sung("\"l a\" r4 c4"), "a text before a rest"),
+        (sung("\"l a\" c4 \"l a\""), "a text with no note after it"),
+        (sung("\"l a\" \"l a\" c4"), "two texts before one note"),
+        (sung("\"l a c4"), "without its closing quote"),
+        (sung("c4"), "a voice's first note needs a text"),
+        ("@sq square\nA: @sq \"l a\" c4\n".to_string(), "@sq plays no voice"),
+        ("A: \"l a\" c4\n".to_string(), "the plain square plays no voice"),
+    ] {
+        let e = said(&song);
+        assert!(e.contains(says) && e.contains("line "), "{song}: {e}");
+    }
+    let e = said("#tempo 120\n@v voice duty=0.3\nA: @v \"l a\" c4\n");
+    assert!(e.contains("line 2") && e.contains("duty means nothing on a voice"), "{e}");
+    // The list a mistake gives is the table's.
+    assert!(said(&sung("\"q a\" c4")).contains(&super::voice::phonemes()));
+}
+
+/// The new words' ranges: drive in decibels, the crusher's rate and its
+/// whole bits.
+#[test]
+fn drive_and_crush_take_their_ranges() {
+    for (words, says) in [("drive=40", "from 0 to 36 dB"), ("drive=-1", "out of range"), ("crush_rate=50", "from 100 to 44100 Hz"), ("crush_bits=0", "from 1 to 16 bits"), ("crush_bits=17", "out of range"), ("crush_bits=4.5", "no whole number")] {
+        let e = format!("{:#}", parse(&format!("@x saw {words}\nA: @x c")).unwrap_err());
+        assert!(e.contains(says) && e.contains("line 1"), "{words}: {e}");
+    }
+    parse("@x saw drive=36 crush_rate=44100 crush_bits=16\nA: @x c").unwrap();
+}
+
+/// Drive pushes a sine towards a square (its harmonics, louder) and
+/// leaves no middle off zero; the crusher holds the sound at its rate and
+/// rounds it to its bits (one bit: -1, 0 or 1).
+#[test]
+fn drive_clips_softly_and_the_crusher_steps() {
+    let clean = play("@x sine sustain=1\nA: @x o4 a1", 0.5);
+    let driven = play("@x sine sustain=1 drive=24\nA: @x o4 a1", 0.5);
+    assert!(edge(&driven, 0.1, 0.4) > edge(&clean, 0.1, 0.4) * 3.0, "no harmonics");
+    assert!(rms(&driven, 0.1, 0.4) > rms(&clean, 0.1, 0.4) * 1.2, "not louder");
+    assert!(driven.iter().all(|s| s.abs() <= 1.0));
+    let held = play("@x saw sustain=1 crush_rate=1000\nA: @x o5 a1", 0.3);
+    let part = &held[(0.1 * SR) as usize..(0.2 * SR) as usize];
+    let changes = part.windows(2).filter(|w| w[0] != w[1]).count();
+    assert!((95..=105).contains(&changes), "held at 1000 Hz: {changes} changes in 0.1 s");
+    let bits = play("@x sine sustain=1 volume=1 crush_bits=1\nA: @x v15 o4 a1", 0.3);
+    assert!(bits.iter().all(|s| [-1.0, 0.0, 1.0].iter().any(|l| (s - l).abs() < 1e-5)), "one bit is three levels");
+    // A voice through drive keeps to zero.
+    let shout = play(&sung("\"l a\" c2 \"l ae\" e2").replace("volume=1", "volume=1 drive=20"), 2.0);
+    let mean = shout.iter().sum::<f32>() / shout.len() as f32;
+    assert!(mean.abs() < 0.002, "a driven voice's middle {mean}");
+}
+
+/// Every phoneme sings: in a syllable with a, finite, heard, below full
+/// scale; a consonant heard before the beat as an onset too.
+#[test]
+fn every_phoneme_sings() {
+    for p in super::voice::PHONEMES {
+        let vowel = matches!(p.kind, super::voice::Kind::Vowel(_) | super::voice::Kind::Diphthong(..));
+        let text = if vowel { format!("\"{}\"", p.name) } else { format!("\"{0} a {0}\"", p.name) };
+        let samples = play(&sung(&format!("r4 {text} a4 r2")), 2.0);
+        assert!(samples.iter().all(|s| s.is_finite() && s.abs() < 1.0), "{}", p.name);
+        assert!(rms(&samples, 0.5, 0.95) > 0.02, "{} is nearly silent", p.name);
+        if !vowel {
+            assert!(rms(&samples, 0.46, 0.5) > 0.001, "{} as an onset", p.name);
+        }
+    }
+}
+
+/// A sung line joins its syllables without a click: no step from sample
+/// to sample where a syllable is taken up greater than within a vowel.
+#[test]
+fn a_voice_joins_its_syllables_without_clicks() {
+    let line = sung("\"l a\" a8 \"l ae\" a8 \"m a\" g8 \"n o\" e8 \"j u\" a4 b4 > c2");
+    let samples = play(&line, 3.2);
+    let song = parse(&line).unwrap();
+    let step = |from: usize, to: usize| samples[from..to].windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0f32, f32::max);
+    let within = step((0.05 * SR) as usize, (0.2 * SR) as usize);
+    for n in song.channels[0].iter().filter(|n| n.freq.is_some()).skip(1) {
+        let at = n.start as usize;
+        assert!(step(at - 20, at + 20) < within * 1.5, "a click at {at}: {} against {within}", step(at - 20, at + 20));
+    }
+}

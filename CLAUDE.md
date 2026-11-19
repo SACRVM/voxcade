@@ -1470,6 +1470,14 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   a C64 echo instead (`delay` in the import file), quiet: a third of the
   line's volume (two thirds sounded like the melody doubled, too much for
   the user).
+  A voice sings (`@singer voice`, `src/audio/music/voice.rs`, a formant
+  synthesizer after Klatt): a quoted text before a note is its syllable
+  in phonemes (`"s ae ng" e4`, one table,
+  `music::phonemes`, HELP lists it), the onset before the beat, a note
+  without a text holding the vowel; `drive` (dB into tanh, a DC blocker
+  after) and `crush_rate`/`crush_bits` on every wave, MML only. Every
+  older song renders byte for byte as before (test
+  `the_instruments_play_as_pinned`).
   The MML pulse wave is centred (no DC offset off duty 0.5, the owner's D6,
   2026-11-13; it changed the sound of End Boss slightly), so no song has
   thumps or lost headroom. MML refuses out-of-range values and names its

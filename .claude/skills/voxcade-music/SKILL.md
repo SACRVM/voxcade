@@ -50,6 +50,47 @@ judge by ear.
   unit (`sweep` in semitones, `attack` and `decay` in seconds). MML's
   `sustain` is a level; a sound's time at full volume is `hold`.
 
+## A singing voice
+
+An instrument sings with the wave `voice` (`src/audio/music/voice.rs`, a
+formant synthesizer after Klatt: no samples). A quoted text before a note
+is the syllable that note sings, phonemes split by spaces, in small
+letters: onset consonants, one vowel or diphthong, coda consonants.
+
+```
+@singer voice attack=0.005 decay=0 sustain=1 release=0.05 vibrato=0.006 vibrato_speed=5.5 drive=19 filter=bandpass cutoff=1150 volume=0.6
+V: @singer o4 "l a" e8 "l a" g8 "s ae ng" a4 b4 q8 "h ei" e2 q7
+```
+
+- The vowel starts on the note's beat, the onset just before it (never
+  before the note before), the coda ends where the note is let go (`q`:
+  `q7`, the default, ends a syllable 26 ms before the next eighth at
+  144; `q8` holds it to the end). A later consonant cuts into the vowel
+  before it.
+- A voice note without a text holds the vowel (a melisma): tied notes
+  share it, the coda and a diphthong's glide on the last; after a rest
+  it sings the vowel alone. A voice's first note needs a text.
+- The phonemes (HELP's A SONG IN MML lists them, the mistake of an unknown
+  one too): vowels a ae e eh i ih o u ax oe ue, diphthongs aw ow ai oi
+  ei, consonants m n ng l r w j f v s z sh ch h t k p d g b. Written in
+  English or German sounds: "f ae n", "z ai n", "ch".
+- `duty`, `pwm`, `pwm_speed` are refused on a voice; every other word
+  applies. The attack starts from where the voice was, so a line does
+  not drop to silence between syllables.
+- An echo is a second voice channel with the same notes, a rest of the
+  delay before (`r8.` a dotted eighth), quieter (`v4` against `v15`) and
+  panned (`p31`); MML has no echo.
+
+For every wave: `drive` (0 to 36 dB into tanh, before the filters, its
+DC taken off again; 12 rough, 19 the shout through a megaphone with
+`filter=bandpass cutoff=1150`) and the bit crusher `crush_rate` (Hz the
+sound is held at, 6300 the speech of old games) and `crush_bits` (1 to
+16, after the envelope; 4 grainy). Checking a voice: render a copy of
+the song with only its channel, then its formants (LPC on the vowels),
+its noise bands, the levels of its syllables and its steps at the joins;
+the voice peaks near 1 before its volume, a driven one at about 0.4 of
+its peak in RMS.
+
 ## A song from a recipe
 
 ```bash
