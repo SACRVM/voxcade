@@ -35,9 +35,6 @@ pub struct Frame {
 /// it shines (`render::LightShape`, `render::LIGHT_WORDS`).
 const LIGHT_KEYS: [&str; 10] = ["at", "radius", "color", "falloff", "cone", "blend", "rotation", "pitch", "shadows", "fog"];
 
-/// What each word of `shadows` means, for a mistake in one.
-const SHADOW_MEANS: &str = "\"none\": it shines through walls, \"static\": the level's voxels and pieces stop it, \"all\": moving things too";
-
 /// A light's radius as a script gives it: a number above 0 that a float
 /// holds (no limit above it: every place that takes a radius takes any).
 fn radius_of(n: Option<f64>) -> mlua::Result<f32> {
@@ -78,9 +75,9 @@ fn light_of(lua: &Lua, t: &Table) -> mlua::Result<crate::render::Light> {
             "pitch" => shape.pitch = ranged(&v)?,
             "shadows" => {
                 shape.shadows = Some(match &v {
-                    Value::String(w) => crate::render::LampShadows::read(&w.to_str()?).map_err(|e| fail(format!("shadows: {e} ({SHADOW_MEANS})")))?,
+                    Value::String(w) => crate::render::LampShadows::read(&w.to_str()?).map_err(|e| fail(format!("shadows: {e}")))?,
                     Value::Boolean(on) => return Err(fail(crate::render::LampShadows::boolean(*on))),
-                    _ => return Err(fail(format!("shadows is one of {} ({SHADOW_MEANS})", crate::render::LampShadows::list()))),
+                    _ => return Err(fail(format!("shadows is one of {} ({})", crate::render::LampShadows::list(), crate::render::LampShadows::MEANS))),
                 })
             }
             "fog" => shape.fog = ranged(&v)?,

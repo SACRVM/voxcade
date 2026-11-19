@@ -1200,7 +1200,7 @@ fn read_light(r: &Reader, l: &dyn toml_edit::TableLike, span: Option<std::ops::R
         .map(|item| match (item.as_str(), item.as_bool()) {
             (Some(w), _) => crate::render::LampShadows::read(w).map_err(|e| r.fail(item.span(), format!("a light's shadows: {e}"))),
             (_, Some(on)) => Err(r.fail(item.span(), format!("a light's {}", crate::render::LampShadows::boolean(on)))),
-            _ => Err(r.fail(item.span(), format!("a light's shadows must be one of {} (what stops it)", crate::render::LampShadows::list()))),
+            _ => Err(r.fail(item.span(), format!("a light's shadows must be one of {} ({})", crate::render::LampShadows::list(), crate::render::LampShadows::MEANS))),
         })
         .transpose()?;
     let radius_item = l.get("radius").ok_or_else(|| r.fail(span.clone(), "a light needs radius = N (how far it reaches, voxels)"))?;

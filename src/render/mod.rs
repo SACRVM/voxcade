@@ -244,13 +244,17 @@ impl LampShadows {
         }
     }
 
-    /// A word read; the mistake names the words there are.
+    /// What each word means, for a mistake in one.
+    pub const MEANS: &str = "\"none\": it shines through walls, \"static\": the level's voxels and pieces stop it, \"all\": moving things too";
+
+    /// A word read; the mistake names the words there are and what each
+    /// means.
     pub fn read(word: &str) -> Result<Self, String> {
         match word {
             "none" => Ok(Self::None),
             "static" => Ok(Self::Static),
             "all" => Ok(Self::All),
-            other => Err(format!("\"{other}\" is none of {}", Self::list())),
+            other => Err(format!("\"{other}\" is none of {} ({})", Self::list(), Self::MEANS)),
         }
     }
 
@@ -277,7 +281,7 @@ impl<'de> serde::Deserialize<'de> for LampShadows {
         impl serde::de::Visitor<'_> for Words {
             type Value = LampShadows;
             fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "one of {}", LampShadows::list())
+                write!(f, "one of {} ({})", LampShadows::list(), LampShadows::MEANS)
             }
             fn visit_bool<E: serde::de::Error>(self, on: bool) -> Result<LampShadows, E> {
                 Err(E::custom(LampShadows::boolean(on)))

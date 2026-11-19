@@ -675,14 +675,14 @@ fn lamps_change_no_run() {
 
 /// A light's `shadows` and `c.light.lamp_shadows` take words: `true` and
 /// `false` are refused saying which word to write, an unknown word names
-/// the words there are, in a level's file (at its line), `frame:light` (at
-/// the script's line) and `conf.lua`.
+/// the words there are and what each means, in a level's file (at its
+/// line), `frame:light` (at the script's line) and `conf.lua`.
 #[test]
 fn shadows_take_words_and_booleans_and_unknown_words_are_mistakes() {
     for (bad, says) in [
         ("shadows = true", "write \"static\" for true"),
         ("shadows = false", "write \"none\" for false"),
-        ("shadows = \"every\"", "\"every\" is none of \"none\", \"static\", \"all\""),
+        ("shadows = \"every\"", "\"every\" is none of \"none\", \"static\", \"all\" (\"none\": it shines through walls, \"static\": the level's voxels and pieces stop it, \"all\": moving things too)"),
     ] {
         let level = ROOM.replace("light = { radius = 40 }", &format!("light = {{ radius = 40, {bad} }}"));
         let e = start_error(&pieces_folder("shadows-level", "", &level, ""));
