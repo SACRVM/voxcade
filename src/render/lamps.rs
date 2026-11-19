@@ -64,12 +64,24 @@ pub(super) fn faces_for(w: u32, h: u32, beams: Option<(u32, u32)>) -> u64 {
 /// walked every picture.
 const BEAM_POINTS: u64 = 16;
 
+/// The most answers the lamps' memory holds on any GPU: 2^26, 512 MB. It
+/// is taken only as pictures find a smaller one full, so a picture that
+/// fits keeps its smaller memory; a level of 1600 by 900 voxels in fog
+/// with nine lamps of radius 170 to 210 took 2^25 (256 MB) at 1920 by
+/// 1080, FOG HIGH, and this leaves room for twice its pixels (wgpu's
+/// default limits held 2^23, 64 MB).
+const MOST_FACES: u64 = 1 << 26;
+
+/// The bytes of the largest lamps' memory (`MOST_FACES`), what a device is
+/// asked to bind and hold (`render::device_limits`).
+pub(super) const MOST_BYTES: u64 = MOST_FACES * 8 + 4;
+
 /// The largest the lamps' memory may be on this GPU, answers (one buffer
-/// bound whole, two words each and the count).
+/// bound whole, two words each and the count), `MOST_FACES` at most.
 fn most_faces(device: &wgpu::Device) -> u64 {
     let limits = device.limits();
     let bytes = limits.max_storage_buffer_binding_size.min(limits.max_buffer_size);
-    1 << ((bytes - 4) / 8).ilog2()
+    (1 << ((bytes - 4) / 8).ilog2()).min(MOST_FACES)
 }
 
 /// Where the count lies in a memory for `faces` faces.
@@ -362,6 +374,12 @@ impl Lamps {
     /// What the level's volume takes on the GPU, bytes (0: none).
     pub(super) fn volume_bytes(&self) -> u64 {
         self.volume.as_ref().map_or(0, |h| h.volume.reach.bytes())
+    }
+
+    /// The bytes of the faces' memory (none before walls first stopped a
+    /// lamp).
+    pub(super) fn memory_bytes(&self) -> u64 {
+        self.seen.as_ref().map_or(0, |(faces, _)| full_at(*faces) + 4)
     }
 
     /// The picture's size changed: the targets are made anew.
@@ -943,5 +961,25 @@ mod tests {
         let eye = crate::camera::eye(&crate::config::CameraConfig::default(), glam::Vec3::new(50.0, 50.0, 0.0), 16.0 / 9.0);
         assert_eq!(rect_of(&view, &Light::burst(eye, 5.0, [1.0; 3])), Some([-1.0, -1.0, 1.0, 1.0]), "round the eye: the whole screen");
         assert_eq!(rect_of(&view, &Light::burst(glam::Vec3::new(5000.0, 50.0, 0.0), 5.0, [1.0; 3])), None, "far off the screen");
+    }
+
+    /// On the GPU: a device is asked for room for the lamps' memory up to
+    /// `MOST_FACES`, never past what the adapter gives (the asking would
+    /// fail) and never less than wgpu's defaults; the memory may grow as
+    /// far as the device holds.
+    #[test]
+    fn the_device_holds_the_lamps_memory_as_far_as_the_gpu_allows() {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() })).expect("a GPU");
+        let (asked, most, d) = (crate::render::device_limits(&adapter), adapter.limits(), wgpu::Limits::default());
+        for (a, m, d) in [(asked.max_storage_buffer_binding_size, most.max_storage_buffer_binding_size, d.max_storage_buffer_binding_size), (asked.max_buffer_size, most.max_buffer_size, d.max_buffer_size)] {
+            assert!(a >= d && a <= MOST_BYTES.max(d) && (a <= m || a == d), "asked {a}, the adapter {m}, the default {d}");
+        }
+        let (device, _) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { required_limits: asked.clone(), ..Default::default() })).expect("the device asked so");
+        let faces = most_faces(&device);
+        assert!(full_at(faces) + 4 <= asked.max_storage_buffer_binding_size.min(asked.max_buffer_size) && faces <= MOST_FACES);
+        if most.max_storage_buffer_binding_size.min(most.max_buffer_size) >= MOST_BYTES {
+            assert_eq!(faces, MOST_FACES, "this GPU holds the largest memory");
+        }
     }
 }

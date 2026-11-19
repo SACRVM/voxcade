@@ -424,6 +424,19 @@ pub fn surface_format(formats: &[wgpu::TextureFormat]) -> Option<wgpu::TextureFo
     formats.iter().copied().find(|f| !f.is_srgb()).or_else(|| formats.first().copied())
 }
 
+/// The limits to ask of a device on `adapter`: wgpu's defaults, but a
+/// storage buffer bound and a buffer as large as the lamps' memory may
+/// grow (`lamps::MOST_BYTES`), as far as the adapter allows (asking past
+/// its limits fails). Every device the renderer draws with is asked so.
+pub fn device_limits(adapter: &wgpu::Adapter) -> wgpu::Limits {
+    let (most, d) = (adapter.limits(), wgpu::Limits::default());
+    wgpu::Limits {
+        max_storage_buffer_binding_size: d.max_storage_buffer_binding_size.max(lamps::MOST_BYTES.min(most.max_storage_buffer_binding_size)),
+        max_buffer_size: d.max_buffer_size.max(lamps::MOST_BYTES.min(most.max_buffer_size)),
+        ..d
+    }
+}
+
 /// The composite's entry point for a target of `format`: an sRGB target
 /// encodes what it is given, so its picture is decoded first; else the
 /// picture as it is.

@@ -91,7 +91,7 @@ impl Gpu {
     fn new(win: &mut EditorWindow) -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() })).ok()?;
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { required_limits: crate::render::device_limits(&adapter), ..Default::default() })).ok()?;
         let format = wgpu::TextureFormat::Rgba8Unorm;
         let mut renderer = crate::render::Renderer::new(&device, format, 1600, 900);
         let target = device.create_texture(&wgpu::TextureDescriptor {

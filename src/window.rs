@@ -82,6 +82,7 @@ impl Screen {
                 .context("no suitable GPU")?;
                 let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
                     label: Some("voxcade"),
+                    required_limits: crate::render::device_limits(&adapter),
                     ..Default::default()
                 }))
                 .context("creating GPU device")?;

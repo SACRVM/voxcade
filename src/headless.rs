@@ -81,6 +81,7 @@ impl Canvas {
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("voxcade headless"),
             required_features,
+            required_limits: crate::render::device_limits(&adapter),
             ..Default::default()
         }))
         .context("creating GPU device")?;
@@ -713,7 +714,7 @@ fn report_shot<G: Game>(canvas: &Canvas, game: &Session<G>, frames: u32, [load_m
         if canvas.timed { format!("{total:.2} ms ({})", passes.join(", ")) } else { "not timed (no timestamp queries)".to_string() }
     );
     if s.lamps > 0 {
-        let walls = if s.walls { format!("walls stop them (the level's solid voxels {:.1} MB on the GPU, made in {:.0} ms)", s.volume_bytes as f64 / 1e6, s.volume_ms) } else { "through walls".to_string() };
+        let walls = if s.walls { format!("walls stop them (the level's solid voxels {:.1} MB on the GPU, made in {:.0} ms; their memory {:.0} MB)", s.volume_bytes as f64 / 1e6, s.volume_ms, s.memory_bytes as f64 / 1e6) } else { "through walls".to_string() };
         println!("lamps: {} lights in their own pass, {walls}", s.lamps);
     }
     if s.fog {
@@ -1353,7 +1354,7 @@ pub fn sheet<G: Game>(dir: &Path, opts: &SheetOptions) -> Result<()> {
     let small = ((size.x.max(size.y) * 1.6).max(size.z * 1.3) * per_voxel).ceil().max(16.0) as u32;
     // What the GPU cannot hold is said before anything is drawn: the row
     // at the game's size as one picture, the floor under the model as
-    // cubes (the device asks for wgpu's default limits).
+    // cubes (wgpu's default limits, which every device has at least).
     let limits = wgpu::Limits::default();
     let across = m.size.x.max(m.size.y) as u64 + 8;
     let floor_bytes = across * across * std::mem::size_of::<crate::render::Instance>() as u64;
