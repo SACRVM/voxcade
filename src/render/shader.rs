@@ -213,6 +213,9 @@ mod tests {
         let plain = plain_shader(&SHADER);
         let lamps_plain = super::without_walls(&super::LAMPS);
         let beams_plain = super::without_walls(&super::FOG_BEAMS);
+        // Every one the renderer builds (`render::fog::beams_pipeline`: with
+        // walls or without, with thin things' work or without).
+        let (beams_unthin, beams_bare) = (super::without_thin(&super::FOG_BEAMS), super::without_thin(&beams_plain));
         for (name, src) in [
             ("shader.wgsl", SHADER.as_str()),
             ("shader.wgsl without the memory", plain.as_str()),
@@ -221,6 +224,8 @@ mod tests {
             ("lamps.wgsl without walls", lamps_plain.as_str()),
             ("fog_beams.wgsl", super::FOG_BEAMS.as_str()),
             ("fog_beams.wgsl without walls", beams_plain.as_str()),
+            ("fog_beams.wgsl without thin things", beams_unthin.as_str()),
+            ("fog_beams.wgsl without walls and thin things", beams_bare.as_str()),
             ("fog_composite.wgsl", super::FOG_COMPOSITE.as_str()),
             ("fog_far.wgsl", super::FOG_FAR.as_str()),
         ] {
@@ -240,6 +245,12 @@ mod tests {
         // Nor do the fog's beams without walls.
         assert!(super::FOG_BEAMS.contains("stopped(") && !beams_plain.contains("var<storage") && !beams_plain.contains("texture_3d") && !beams_plain.contains("stopped("), "{beams_plain}");
         assert_eq!(super::FOG_BEAMS.matches("// WALLS {").count(), super::FOG_BEAMS.matches("// } WALLS").count());
+        // Nor without thin things do they look for them.
+        assert!(super::FOG_BEAMS.contains("= thin_span(") && !beams_unthin.contains("= thin_span(") && !beams_bare.contains("= thin_span("), "{beams_bare}");
+        assert_eq!(super::FOG_BEAMS.matches("// THIN {").count(), super::FOG_BEAMS.matches("// } THIN").count());
+        for (src, mark) in [(SHADER.as_str(), "MEMORY"), (super::LAMPS.as_str(), "WALLS"), (super::FOG_BEAMS.as_str(), "WALLS"), (super::FOG_BEAMS.as_str(), "THIN")] {
+            assert!(src.matches(&format!("// {mark} {{")).count() > 0, "{mark} marks are there");
+        }
         // Both composites are there by the names the renderer asks for.
         for entry in [composite_entry(wgpu::TextureFormat::Bgra8Unorm), composite_entry(wgpu::TextureFormat::Bgra8UnormSrgb)] {
             assert!(include_str!("../post.wgsl").contains(&format!("fn {entry}(")), "{entry}");

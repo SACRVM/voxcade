@@ -663,11 +663,15 @@ impl Renderer {
     }
 
     /// Whether walls can stop lamps on this GPU: the pass with walls, made
-    /// the first time (said once where it cannot be).
+    /// the first time (said once where it cannot be). A test whose pass
+    /// would not build fails: a mistake in its shader drew no walls and no
+    /// shadows of what moves, the picture otherwise as it should be.
     fn walling(&mut self, device: &wgpu::Device) -> bool {
         if matches!(self.lamps.walls, Walls::Unasked) {
             self.lamps.walls = make_walls(device).unwrap_or_else(|why| {
-                self.said.push(format!("lamps: this GPU cannot stop lamps at walls ({why}): they shine through"));
+                #[cfg(test)]
+                assert!(REFUSED.with(std::cell::Cell::get), "lamps: the pass with walls would not build: {why}");
+                self.said.push(format!("lamps: the pass with walls would not build on this GPU ({why}): they shine through walls"));
                 Walls::Lacking
             });
             self.lamps.bind = None;
@@ -1089,7 +1093,9 @@ pub(super) fn made<T>(device: &wgpu::Device, make: impl FnOnce() -> T) -> Result
     let made = make();
     let failed: Vec<Option<wgpu::Error>> = scopes.into_iter().rev().map(|s| pollster::block_on(s.pop())).collect();
     match failed.into_iter().flatten().next() {
-        Some(e) => Err(e.to_string().lines().next().unwrap_or_default().to_string()),
+        // wgpu's words over several lines (a heading, what it was making,
+        // the cause): on one.
+        Some(e) => Err(e.to_string().lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ")),
         None => Ok(made),
     }
 }
@@ -1165,8 +1171,10 @@ mod tests {
             assert_eq!(faces, MOST_FACES, "this GPU holds the largest memory");
         }
         // A buffer past what the device takes is a mistake in words, not
-        // the end of the program.
+        // the end of the program; a shader that would not build says why.
         let past = made(&device, || device.create_buffer(&wgpu::BufferDescriptor { label: None, size: device.limits().max_buffer_size + 4096, usage: wgpu::BufferUsages::STORAGE, mapped_at_creation: false }));
         assert!(past.as_ref().is_err_and(|why| !why.is_empty()), "{:?}", past.err());
+        let broken = made(&device, || device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("broken"), source: wgpu::ShaderSource::Wgsl("struct S { of: u32 };".into()) }));
+        assert!(broken.as_ref().is_err_and(|why| why.contains("reserved") && !why.contains('\n')), "{:?}", broken.err());
     }
 }
