@@ -10,9 +10,9 @@
 //! whose box reaches each, walls stopping a lamp's beam as they stop its
 //! light (the same volume and faces' memory). The composite then lays the
 //! fog over the scene before the UI (`fog_composite.wgsl`, a pipeline of its
-//! own: a picture without fog is put together as it always was): what the
-//! fog took, and the beams, each pixel of them weighed by how alike its
-//! depth is. The UI is never in fog.
+//! own: a picture without fog is put together by the plain composite):
+//! what the fog took, and the beams, each pixel of them weighed by how
+//! alike its depth is. The UI is never in fog.
 //!
 //! Glass and water (the see-through cubes) in a picture with fog: their
 //! depth is drawn first (`glass_pass`), the beams are worked out before
@@ -43,9 +43,9 @@ pub(super) struct FogGlobals {
     pub(super) eye: [f32; 4],
     /// rgb: the fog's colour, w: its anisotropy.
     pub(super) color: [f32; 4],
-    /// xyz: the air's low corner, w: the density the beams are lit by.
+    /// xyz: the air's low corner, w: unused.
     pub(super) lo: [f32; 4],
-    /// xyz: its high corner.
+    /// xyz: its high corner, w: the glow (`Fog::glow`).
     pub(super) hi: [f32; 4],
     /// xyz: the way the camera looks.
     pub(super) forward: [f32; 4],
@@ -248,8 +248,8 @@ const MOST_THIN: usize = 16;
 const FOG_COLUMNS: u32 = (size_of::<FogRow>() / 16) as u32;
 
 /// A light's row in the fog's lights: the light as the lamps' pass takes it
-/// (`LampRow`), how many balls round thin things, the balls
-/// (`fog_beams.wgsl`'s `FOG_THIN_AT`).
+/// (`LampRow`), how many balls round thin things (at the column
+/// `THIN_AT`), the balls.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct FogRow {
@@ -257,6 +257,10 @@ struct FogRow {
     count: [f32; 4],
     balls: [[f32; 4]; MOST_THIN],
 }
+
+/// The column of a light's row in the fog's lights where its balls round
+/// thin things begin, their count (the shaders' FOG_THIN_AT).
+pub(super) const THIN_AT: usize = std::mem::offset_of!(FogRow, count) / 16;
 
 impl FogRow {
     fn of(light: &LampRow, balls: Vec<[f32; 4]>) -> Self {
@@ -282,17 +286,24 @@ fn lights_texture(device: &wgpu::Device, rows: u32) -> (wgpu::Texture, wgpu::Tex
     (texture, view)
 }
 
+/// The planes a beam's points lie on are this many voxels apart along the
+/// camera's way (the shaders' FOG_STEP) for a light whose ball is at most
+/// `MOST_PLANES` of them across (FOG_MOST_PLANES); twice (four times ...)
+/// as far for a wider one.
+pub(super) const STEP: f32 = 4.0;
+pub(super) const MOST_PLANES: f32 = 48.0;
+
 /// The spacing of a beam's points for the light `l` (`fog_beams.wgsl`'s
-/// `step`): 4 voxels, twice (four times ...) for a light wider than 48
-/// planes of them.
+/// `step`).
 fn beam_step(l: &Light) -> i32 {
-    let planes = (2.0 * l.radius / (4.0 * 48.0)).log2().ceil().max(0.0);
-    4 << (planes as i32).min(8)
+    let planes = (2.0 * l.radius / (STEP * MOST_PLANES)).log2().ceil().max(0.0);
+    (STEP as i32) << (planes as i32).min(8)
 }
 
 /// A ball's spacing is kept in its radius's place, this many times the
-/// spacing's power of two added (`fog_beams.wgsl`'s `thin_span`).
-const SPACING_AT: f32 = 65536.0;
+/// spacing's power of two added (`fog_beams.wgsl`'s `thin_span`, the
+/// shaders' FOG_SPACING_AT).
+pub(super) const SPACING_AT: f32 = 65536.0;
 
 /// The balls round the thin things (`render::thin`) the light `l` can
 /// light, thin by its beam's spacing: centre and radius, a block's and a

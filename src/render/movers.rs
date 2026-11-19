@@ -13,10 +13,9 @@
 //!
 //! A shadow is the shape of what casts it, turned as it is drawn, nothing
 //! grown or lost: a thing turning slowly moves its shadow's edge smoothly,
-//! so a face changes once as the edge passes. Until 2026-11-19 the things
-//! filled the cells of a volume laid as the level's whose middles their
-//! turned voxels held: a turned arm a voxel thin left gaps between its
-//! cells that came and went as it turned, faces blinking for a picture.
+//! so a face changes once as the edge passes (cells of a grid laid as the
+//! level's, filled where they hold a turned voxel's middle, would leave
+//! gaps along a turned arm a voxel thin that come and go as it turns).
 //!
 //! Only the picture: nothing here is the game's.
 
@@ -257,19 +256,26 @@ impl Movers {
 pub const MOST_LISTED: usize = 1 << 16;
 
 /// The words a light's list begins with: its thing's key and 1, or two 0
-/// (`owner`), so the walks pass over that thing's solids.
-const HEAD: usize = 2;
+/// (`owner`), so the walks pass over that thing's solids (the shaders'
+/// MOVERS_HEAD).
+pub(super) const HEAD: usize = 2;
 
-/// A light's word for the boxes it walks (`lists`) meaning every one.
-const EVERY_BOX: u32 = 255;
+/// The low bits of a light's word for its boxes (`lists`) that say how
+/// many (the shaders' MOVERS_COUNT_BITS), the rest where its list begins.
+pub(super) const COUNT_BITS: u32 = 8;
+
+/// A light's word for the boxes it walks (`lists`) meaning every one (the
+/// shaders' EVERY_BOX): the most its count says.
+pub(super) const EVERY_BOX: u32 = (1 << COUNT_BITS) - 1;
 
 impl Movers {
     /// Each of `lights`' boxes, those it can light (within its reach and,
     /// a spot, its cone), one light's after another in the list given
     /// back, each light's after its thing's key (`HEAD`), and each light's
     /// word for the shaders (`LightData`'s `edge.y` of a lamp whose shadows
-    /// are "all"): 2, plus where its list begins times 256, plus how many
-    /// boxes (255: every one walked); None for the others. A box a light
+    /// are "all"): 2, plus where its list begins times 2^`COUNT_BITS`, plus
+    /// how many boxes (`EVERY_BOX`: every one walked); None for the
+    /// others. A box a light
     /// cannot reach casts nothing for it, so the walks test a few boxes a
     /// light, not all of them.
     pub fn lists(&self, lights: &[Light]) -> (Vec<u32>, Vec<Option<f32>>) {
@@ -296,7 +302,7 @@ impl Movers {
                 } else {
                     count as u32
                 };
-                Some(2.0 + ((start as u32) << 8 | count) as f32)
+                Some(2.0 + ((start as u32) << COUNT_BITS | count) as f32)
             })
             .collect();
         (list, words)
@@ -408,9 +414,10 @@ mod tests {
 
     /// The smallest turned thing still stops a lamp: a cube turned an
     /// eighth round with its middle at a cell's corner (it holds no cell's
-    /// middle, which once left it out) holds the points round its middle,
-    /// alone or in a rod of such cubes a voxel apart; a turned body holds
-    /// its own voxels' points and nothing grown round them.
+    /// middle: cells filled by their middles would leave it out) holds the
+    /// points round its middle, alone or in a rod of such cubes a voxel
+    /// apart; a turned body holds its own voxels' points and nothing grown
+    /// round them.
     #[test]
     fn the_smallest_turned_thing_still_fills_a_cell() {
         let bank = ModelBank::default();

@@ -14,8 +14,10 @@ pub(super) struct LightData {
     pub(super) color: [f32; 4],
     /// xyz: a spot's way, w: the cosine of half its cone (-2: every way).
     pub(super) spot: [f32; 4],
-    /// x: the cosine within which the cone's edge is hard; y: 1 when walls
-    /// stop it (in the lamps' pass with walls only); z, w: its place's key.
+    /// x: the cosine within which the cone's edge is hard; y: what stops it
+    /// in the lamps' pass with walls (0: nothing, 1: walls, 2: what moves
+    /// too, plus its word for the moving things' boxes once they are known,
+    /// `lamps::Lamps::data_of`); z, w: its place's key.
     pub(super) edge: [f32; 4],
 }
 
@@ -144,8 +146,24 @@ pub(super) fn prelude() -> String {
     put("LAMP_ASK", format!("{}u", super::lamps::ASK));
     // Where a lamp walks from, the column of its row after the light's
     // (`lamps::LampRow`); how far it leaves solid voxels it sits in.
-    put("LAMP_FROM", format!("{}", size_of::<LightData>() / 16));
+    put("LAMP_FROM", format!("{}", std::mem::offset_of!(super::lamps::LampRow, from) / 16));
     put("HOUSING", format!("{:?}", super::volume::HOUSING));
+    // The lamps' memory (`render::lamps`): an answer's words, the counts'
+    // after the answers, the volume's state numbers it keeps.
+    put("LAMP_ANSWER_WORDS", format!("{}u", super::lamps::ANSWER_WORDS));
+    put("LAMP_COUNT_WORDS", format!("{}u", super::lamps::COUNT_WORDS));
+    put("LAMP_STATES", format!("{}u", super::lamps::STATES));
+    // A lamp's list of the moving things' boxes and its word for it
+    // (`movers::Movers::lists`).
+    put("MOVERS_HEAD", format!("{}u", super::movers::HEAD));
+    put("MOVERS_COUNT_BITS", format!("{}u", super::movers::COUNT_BITS));
+    put("EVERY_BOX", format!("{}u", super::movers::EVERY_BOX));
+    // The fog's beams' planes, and a light's balls round thin things
+    // (`render::fog`).
+    put("FOG_STEP", format!("{:?}", super::fog::STEP));
+    put("FOG_MOST_PLANES", format!("{:?}", super::fog::MOST_PLANES));
+    put("FOG_SPACING_AT", format!("{:?}", super::fog::SPACING_AT));
+    put("FOG_THIN_AT", format!("{}", super::fog::THIN_AT));
     out
 }
 
@@ -213,26 +231,38 @@ mod tests {
         let plain = plain_shader(&SHADER);
         let lamps_plain = super::without_walls(&super::LAMPS);
         let beams_plain = super::without_walls(&super::FOG_BEAMS);
-        // Every one the renderer builds (`render::fog::beams_pipeline`: with
-        // walls or without, with thin things' work or without).
+        // Every one the renderer builds, with the entry points it asks each
+        // for: the scene's with the faces' memory or without (the lamps'
+        // scenes too, `lamps::lamp_scenes`, and the see-through depth of a
+        // picture of fog, `fog::glass`); the lamps' pass with walls (and
+        // its asking) or without (`lamps::lamp_pass`); the beams with walls
+        // or without, with thin things' work or without, each with glass or
+        // without (`fog::beams_pipeline`); the fog behind glass; the
+        // composites with fog.
         let (beams_unthin, beams_bare) = (super::without_thin(&super::FOG_BEAMS), super::without_thin(&beams_plain));
-        for (name, src) in [
-            ("shader.wgsl", SHADER.as_str()),
-            ("shader.wgsl without the memory", plain.as_str()),
-            ("post.wgsl", include_str!("../post.wgsl")),
-            ("lamps.wgsl", super::LAMPS.as_str()),
-            ("lamps.wgsl without walls", lamps_plain.as_str()),
-            ("fog_beams.wgsl", super::FOG_BEAMS.as_str()),
-            ("fog_beams.wgsl without walls", beams_plain.as_str()),
-            ("fog_beams.wgsl without thin things", beams_unthin.as_str()),
-            ("fog_beams.wgsl without walls and thin things", beams_bare.as_str()),
-            ("fog_composite.wgsl", super::FOG_COMPOSITE.as_str()),
-            ("fog_far.wgsl", super::FOG_FAR.as_str()),
+        let scene = ["vs_chunk", "vs_inst", "vs_model", "vs_face", "vs_model_outline", "vs_face_outline", "fs_main", "fs_main_lamps", "fs_outline_lamps"];
+        let beams = ["vs_lamp", "fs_beam", "fs_beam_glass"];
+        let composites = ["vs_post", "fs_composite_fog", "fs_composite_fog_srgb", "fs_composite_fog_glass", "fs_composite_fog_glass_srgb"];
+        for (name, src, entries) in [
+            ("shader.wgsl", SHADER.as_str(), &scene[..]),
+            ("shader.wgsl without the memory", plain.as_str(), &scene[..]),
+            ("post.wgsl", include_str!("../post.wgsl"), &["vs_post"][..]),
+            ("lamps.wgsl", super::LAMPS.as_str(), &["vs_lamp", "fs_lamp", "fs_lamp_ask"][..]),
+            ("lamps.wgsl without walls", lamps_plain.as_str(), &["vs_lamp", "fs_lamp"][..]),
+            ("fog_beams.wgsl", super::FOG_BEAMS.as_str(), &beams[..]),
+            ("fog_beams.wgsl without walls", beams_plain.as_str(), &beams[..]),
+            ("fog_beams.wgsl without thin things", beams_unthin.as_str(), &beams[..]),
+            ("fog_beams.wgsl without walls and thin things", beams_bare.as_str(), &beams[..]),
+            ("fog_composite.wgsl", super::FOG_COMPOSITE.as_str(), &composites[..]),
+            ("fog_far.wgsl", super::FOG_FAR.as_str(), &["vs_far", "fs_fog_far"][..]),
         ] {
             let module = naga::front::wgsl::parse_str(src).unwrap_or_else(|e| panic!("{name}: {}", e.emit_to_string(src)));
             naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::all())
                 .validate(&module)
                 .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+            for entry in entries {
+                assert!(module.entry_points.iter().any(|e| e.name == *entry), "{name} has the entry point {entry}");
+            }
         }
         // The plain shader holds nothing of the memory: no storage, no
         // atomics (the whole one has both); the marks come in pairs.
@@ -375,9 +405,9 @@ mod tests {
     }
 
     /// The vertex buffers the pipelines give (`chunk_buffers`,
-    /// `instance_buffers`) lie as the Rust structs they are made of, field
-    /// by field, and every input a vertex entry point reads is one of them
-    /// with as many components.
+    /// `instance_buffers`, the lamps' tiles' `lamp_buffers`) lie as the
+    /// Rust structs they are made of, field by field, and every input a
+    /// vertex entry point reads is one of them with as many components.
     #[test]
     fn the_vertex_inputs_are_the_rust_structs() {
         use crate::mesh::Vertex;
@@ -414,10 +444,22 @@ mod tests {
             n if n.ends_with("x2") => 2,
             _ => 1,
         };
-        let module = naga::front::wgsl::parse_str(&SHADER).unwrap();
+        let scene = naga::front::wgsl::parse_str(&SHADER).unwrap();
         let cubes = [cube.attributes, inst.attributes].concat();
         let faces = [("vs_face", face.attributes), ("vs_face_shadow", face.attributes), ("vs_face_outline", face.attributes)];
-        for (name, attrs) in [("vs_chunk", chunk.attributes), ("vs_chunk_shadow", chunk.attributes), ("vs_inst", &cubes[..]), ("vs_inst_shadow", &cubes[..]), ("vs_model", &cubes[..]), ("vs_model_shadow", &cubes[..]), ("vs_model_outline", &cubes[..])].into_iter().chain(faces) {
+        // A tile of the lamps' pass and the fog's beams (`lamps::TileInstance`:
+        // its rectangle, count and lights, `LIGHTS_A_TILE`), as `vs_lamp`
+        // reads it, every input given.
+        use crate::render::lamps::{TileInstance, lamp_buffers};
+        let [tile] = lamp_buffers();
+        let tile = tile.unwrap();
+        let lights = offset_of!(TileInstance, lights);
+        check(&tile, size_of::<TileInstance>(), &[(offset_of!(TileInstance, rect), 16), (offset_of!(TileInstance, count), 16), (lights, 16), (lights + 16, 16), (lights + 32, 16), (lights + 48, 16)]);
+        let lamps = naga::front::wgsl::parse_str(&super::LAMPS).unwrap();
+        let vs_lamp = lamps.entry_points.iter().find(|e| e.name == "vs_lamp").expect("vs_lamp");
+        assert_eq!(vs_lamp.function.arguments.iter().filter(|a| matches!(a.binding, Some(naga::Binding::Location { .. }))).count(), tile.attributes.len(), "vs_lamp reads every input of a tile");
+        let scene_inputs = [("vs_chunk", chunk.attributes), ("vs_chunk_shadow", chunk.attributes), ("vs_inst", &cubes[..]), ("vs_inst_shadow", &cubes[..]), ("vs_model", &cubes[..]), ("vs_model_shadow", &cubes[..]), ("vs_model_outline", &cubes[..])].into_iter().chain(faces).map(|(n, a)| (&scene, n, a));
+        for (module, name, attrs) in scene_inputs.chain([(&lamps, "vs_lamp", tile.attributes)]) {
             let entry = module.entry_points.iter().find(|e| e.name == name).unwrap_or_else(|| panic!("{name}"));
             for arg in &entry.function.arguments {
                 let Some(naga::Binding::Location { location, .. }) = arg.binding else { continue };
@@ -438,10 +480,12 @@ mod tests {
     /// The numbers the shader shares with the Rust side are the prelude's,
     /// written from the Rust table: the lanes of `fx` as the bank fills
     /// them, the faces' order as `mesh::DIRS`, metal's packing as
-    /// `vox::metal::pack`, the limits; and the shader's own text defines
+    /// `vox::metal::pack`, the limits, the lamps' and the fog's numbers;
+    /// and the shaders' own text defines
     /// none of them a second time.
     #[test]
     fn the_shader_and_the_rust_side_share_one_table() {
+        use super::{FOG, LIGHT, WRITTEN};
         use crate::render::{FORWARD_LIGHTS, FX_COVERED, FX_GLOW, FX_METAL, FX_OPACITY};
         let prelude = super::prelude();
         for (name, value) in [("MAX_LIGHTS", format!("{FORWARD_LIGHTS}u")), ("FACES", format!("{}u", super::SHADOW_FACES)), ("FX_GLOW", FX_GLOW.to_string()), ("FX_OPACITY", FX_OPACITY.to_string()), ("FX_COVERED", FX_COVERED.to_string()), ("FX_METAL", FX_METAL.to_string())] {
@@ -476,6 +520,33 @@ mod tests {
         for name in ["CUBE_CORNERS", "CUBE_NORMALS", "FACE_DIRS"] {
             assert!(prelude.contains(&format!("const {name} = array<")) && !super::WRITTEN.contains(&format!("const {name}")), "{name}");
         }
+        // The lamps' and the fog's numbers: the Rust side's, and no
+        // shader's own text defines one the prelude writes.
+        use crate::render::{fog, lamps, movers};
+        for (name, value) in [
+            ("LAMP_ASK", format!("{}u", lamps::ASK)),
+            ("LAMP_FROM", (std::mem::offset_of!(lamps::LampRow, from) / 16).to_string()),
+            ("LAMP_ANSWER_WORDS", format!("{}u", lamps::ANSWER_WORDS)),
+            ("LAMP_COUNT_WORDS", format!("{}u", lamps::COUNT_WORDS)),
+            ("LAMP_STATES", format!("{}u", lamps::STATES)),
+            ("MOVERS_HEAD", format!("{}u", movers::HEAD)),
+            ("MOVERS_COUNT_BITS", format!("{}u", movers::COUNT_BITS)),
+            ("EVERY_BOX", format!("{}u", movers::EVERY_BOX)),
+            ("FOG_STEP", format!("{:?}", fog::STEP)),
+            ("FOG_MOST_PLANES", format!("{:?}", fog::MOST_PLANES)),
+            ("FOG_SPACING_AT", format!("{:?}", fog::SPACING_AT)),
+            ("FOG_THIN_AT", fog::THIN_AT.to_string()),
+        ] {
+            assert!(prelude.contains(&format!("const {name} = {value};")), "{name} in {prelude}");
+        }
+        let written: Vec<&str> = prelude.lines().filter_map(|l| l.strip_prefix("const ")?.split(' ').next()).collect();
+        let texts = [("shader.wgsl", WRITTEN), ("light.wgsl", LIGHT), ("lamps.wgsl", include_str!("../lamps.wgsl")), ("fog.wgsl", FOG), ("fog_beams.wgsl", include_str!("../fog_beams.wgsl")), ("fog_far.wgsl", include_str!("../fog_far.wgsl")), ("fog_composite.wgsl", include_str!("../fog_composite.wgsl"))];
+        for (file, text) in texts {
+            for name in &written {
+                assert!(!text.contains(&format!("const {name} ")) && !text.contains(&format!("const {name}:")), "{file} defines {name} itself");
+            }
+        }
+        assert!(written.len() > 30, "{written:?}");
         let m = |metal: f32, smooth: f32| u32::from(crate::vox::metal::pack(metal, smooth));
         assert_eq!(m(1.0, 0.0) >> super::METAL_SHIFT, super::METAL_STEPS, "metalness in the high bits");
         assert_eq!(m(0.0, 1.0) & super::METAL_STEPS, super::METAL_STEPS, "smoothness in the low bits");

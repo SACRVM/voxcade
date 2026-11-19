@@ -148,7 +148,7 @@ pub fn pieces_key(bank: &ModelBank, pieces: &[ModelDraw]) -> u64 {
 /// leaves no gap a way of light slips through (it grows by about half a
 /// voxel; a face of it looks past that, `lamps.wgsl`'s RIM). A voxel that
 /// glows is left out: a lamp's bulb does not stop its own light.
-pub fn draw_cells(bank: &ModelBank, draw: &ModelDraw, mut put: impl FnMut(IVec3)) {
+fn draw_cells(bank: &ModelBank, draw: &ModelDraw, mut put: impl FnMut(IVec3)) {
     let free = off_grid(draw.rot, draw.shift);
     let Some(voxels) = bank.voxels.get(draw.voxels.start as usize..draw.voxels.end as usize) else { return };
     let corners: [Vec3; 8] = std::array::from_fn(|k| Vec3::new(if k & 1 == 0 { -0.3 } else { 0.3 }, if k & 2 == 0 { -0.3 } else { 0.3 }, if k & 4 == 0 { -0.3 } else { 0.3 }));
@@ -295,46 +295,38 @@ impl Volume {
         }
     }
 
-    /// The coarser copies of the box of copy 0's texels at `lo`, `size`
-    /// big (whole blocks), made anew from copy 0.
+    /// The coarser copies (`copies[1..]`) of the box of copy 0's texels at
+    /// `lo`, `size` big (whole blocks), made anew from copy 0.
     fn coarse(&mut self, lo: IVec3, size: IVec3) {
-        coarsen(&mut self.copies, self.reach.texels, lo, size);
-    }
-}
-
-/// The coarser copies (`copies[1..]`) of the box of copy 0's texels at
-/// `lo`, `size` big (whole blocks) in a volume `texels` big, made anew from
-/// copy 0: the level's (`Volume`) and the moving things' (`render::movers`).
-pub fn coarsen(copies: &mut [Vec<u8>], texels: IVec3, lo: IVec3, size: IVec3) {
-    for m in 1..LEVELS as i32 {
-        let (below, here) = (texels >> (m - 1), texels >> m);
-        let (blo, bsize) = (lo >> (m - 1), size >> (m - 1));
-        let (src, rest) = copies.split_at_mut(m as usize);
-        let (src, out) = (&src[(m - 1) as usize], &mut rest[0]);
-        // This copy's texels of the box emptied, then a bit set for each
-        // child that holds anything.
-        for z in (blo.z >> 1)..((blo.z + bsize.z) >> 1) {
-            for y in (blo.y >> 1)..((blo.y + bsize.y) >> 1) {
-                let row = (here.x * (y + here.y * z)) as usize;
-                out[row + (blo.x >> 1) as usize..row + ((blo.x + bsize.x) >> 1) as usize].fill(0);
+        let (copies, texels) = (&mut self.copies, self.reach.texels);
+        for m in 1..LEVELS as i32 {
+            let (below, here) = (texels >> (m - 1), texels >> m);
+            let (blo, bsize) = (lo >> (m - 1), size >> (m - 1));
+            let (src, rest) = copies.split_at_mut(m as usize);
+            let (src, out) = (&src[(m - 1) as usize], &mut rest[0]);
+            // This copy's texels of the box emptied, then a bit set for each
+            // child that holds anything.
+            for z in (blo.z >> 1)..((blo.z + bsize.z) >> 1) {
+                for y in (blo.y >> 1)..((blo.y + bsize.y) >> 1) {
+                    let row = (here.x * (y + here.y * z)) as usize;
+                    out[row + (blo.x >> 1) as usize..row + ((blo.x + bsize.x) >> 1) as usize].fill(0);
+                }
             }
-        }
-        for z in blo.z..blo.z + bsize.z {
-            for y in blo.y..blo.y + bsize.y {
-                let row = (below.x * (y + below.y * z)) as usize;
-                let parent = (here.x * ((y >> 1) + here.y * (z >> 1))) as usize;
-                let bits = ((y & 1) << 1 | (z & 1) << 2) as u8;
-                for x in blo.x..blo.x + bsize.x {
-                    if src[row + x as usize] != 0 {
-                        out[parent + (x >> 1) as usize] |= 1 << (bits | (x & 1) as u8);
+            for z in blo.z..blo.z + bsize.z {
+                for y in blo.y..blo.y + bsize.y {
+                    let row = (below.x * (y + below.y * z)) as usize;
+                    let parent = (here.x * ((y >> 1) + here.y * (z >> 1))) as usize;
+                    let bits = ((y & 1) << 1 | (z & 1) << 2) as u8;
+                    for x in blo.x..blo.x + bsize.x {
+                        if src[row + x as usize] != 0 {
+                            out[parent + (x >> 1) as usize] |= 1 << (bits | (x & 1) as u8);
+                        }
                     }
                 }
             }
         }
     }
-}
 
-impl Volume {
     /// The bytes of copy `m` in the box of copy 0's texels at `lo`, `size`
     /// big: what goes to the GPU for it.
     pub fn bytes_of(&self, m: u32, lo: IVec3, size: IVec3) -> Vec<u8> {
@@ -360,8 +352,8 @@ impl Volume {
     /// a lantern's housing) the middle of the nearest open voxel within
     /// `HOUSING`, the first of equals by z, y, x, so a lamp flush with a
     /// wall shines on its own side only; None buried deeper (it lights
-    /// nothing). Each way leaving the solid on its own went through a wall
-    /// up to `HOUSING` thick to the room behind it.
+    /// nothing). One place for every way: each leaving the solid on its own
+    /// would go through a wall up to `HOUSING` thick to the room behind it.
     pub fn start(&self, pos: Vec3) -> Option<Vec3> {
         let at = pos.floor().as_ivec3();
         if !self.solid(at, 0) {

@@ -6,12 +6,12 @@
 //! a frame casts such a shadow from wherever the lamp is; a long wall, a
 //! floor or a pane a voxel thin only from a lamp in its own plane. So a
 //! voxel is thin where its run of solid voxels is shorter than 4 one way
-//! (`RUNS`: 2, 4; `THINNEST`) and shorter than `SECOND` another way (a
-//! piece's shell, the voxels it draws, counted with what it encloses), and
-//! the fog's beams take their points as far apart as the run (a voxel, 2)
-//! where a lamp's ray can pass the shadow of a block of `BLOCK` voxels
-//! holding one (`fog_beams.wgsl`'s `fine`, at most 16 a ray a lamp), and
-//! as before elsewhere.
+//! (`RUNS`: 2, 4) and shorter than `SECOND` another way (a piece's shell,
+//! the voxels it draws, counted with what it encloses), and the fog's
+//! beams take their points as far apart as the run (a voxel, 2) where a
+//! lamp's ray can pass the shadow of a block of `BLOCK` voxels holding one
+//! (`fog_beams.wgsl`'s `fine`, at most `FOG_MOST_FINE` a ray a lamp), and
+//! on the planes elsewhere.
 //!
 //! Read from the lamps' volume (`Volume`: the level's opaque voxels and its
 //! pieces'), whole rows of voxels a word at a time; made the first time a
@@ -25,15 +25,13 @@ use glam::{IVec3, Vec3};
 use super::volume::{Region, Volume};
 
 /// The points' spacings along a beam's ray a voxel's runs are told
-/// against: bit k of a block's word, runs shorter than `RUNS[k]`.
+/// against: bit k of a block's word, runs shorter than `RUNS[k]`. The
+/// thin things the beams take finer points for are thinner than the last
+/// (posts, rails, bars of 1 to 3 voxels): a wide lamp's beam (points 8 or
+/// 16 apart) steps over a shadow thinner than its spacing but 4 voxels
+/// thick or more, as taking its points finer there costs two big spots in
+/// a hall 2.5 times their beams on the Radeon 610M.
 pub const RUNS: [i32; 2] = [2, 4];
-
-/// The thin things the beams take finer points for: thinner than this
-/// (posts, rails, bars of 1 to 3 voxels). A wide lamp's beam (points 8 or
-/// 16 apart) still steps over a shadow thinner than its spacing but this
-/// thick: taking its points finer there cost two big spots in a hall 2.5
-/// times their beams on the Radeon 610M (2026-11-19).
-pub const THINNEST: i32 = 4;
 
 /// A block of thin voxels, voxels each way.
 pub const BLOCK: i32 = 8;
@@ -45,7 +43,15 @@ const SECOND: i32 = 16;
 
 /// How far round what is read the runs are looked along: the longest of
 /// `RUNS` and `SECOND`.
-const APRON: i32 = 16;
+const APRON: i32 = SECOND;
+
+const _: () = {
+    let mut k = 0;
+    while k < RUNS.len() {
+        assert!(RUNS[k] <= APRON, "the apron holds every run");
+        k += 1;
+    }
+};
 
 /// The slabs `Thin::of` reads on the cores, voxels thick.
 const SLAB: i32 = 32;
@@ -98,7 +104,7 @@ impl Thin {
         for y in (a.y.max(first)..=b.y.min(last)).step_by(BLOCK as usize) {
             for (&(_, x, z), w) in self.blocks.range((y, a.x, i32::MIN)..=(y, b.x, i32::MAX)) {
                 let thinnest = RUNS[(w.trailing_zeros() as usize).min(RUNS.len() - 1)];
-                if *w != 0 && thinnest <= step.min(THINNEST) && z >= a.z && z <= b.z {
+                if *w != 0 && thinnest <= step && z >= a.z && z <= b.z {
                     let lo = Vec3::new(x as f32, y as f32, z as f32);
                     out.push((lo, lo + BLOCK as f32, thinnest / 2));
                 }
@@ -159,7 +165,7 @@ fn scan(v: &Volume, lo: IVec3, hi: IVec3) -> Vec<((i32, i32, i32), u8)> {
     let along = |run| [covered_x(&inside, words, run), covered_rows(&inside, run, words, n.y), covered_rows(&inside, run, words * n.y as usize, n.z)];
     let long = along(SECOND);
     for (k, &run) in RUNS.iter().enumerate() {
-        let short = if run == SECOND { long.clone() } else { along(run) };
+        let short = along(run);
         for z in (lo.z - rlo.z)..(hi.z - rlo.z) {
             for y in (lo.y - rlo.y)..(hi.y - rlo.y) {
                 let at = row(y, z);
@@ -304,7 +310,7 @@ mod tests {
     /// two ways of the three: a post a voxel thin and one of 2 by 4 voxels,
     /// a rail; not a wall a voxel thin (its shadow is thin only from a lamp
     /// in its plane), not the floor, not a pillar 6 by 6 (not even for a
-    /// beam whose points lie 8 apart: `THINNEST`). A post set later is found
+    /// beam whose points lie 8 apart: `RUNS`). A post set later is found
     /// where the volume changed, one taken away goes.
     #[test]
     fn posts_and_rails_are_thin_walls_and_floors_are_not() {
@@ -317,7 +323,7 @@ mod tests {
         let far: Vec<IVec3> = t.near(Vec3::splat(-1e9), Vec3::splat(1e9), 4).into_iter().map(|(lo, _, _)| lo.as_ivec3()).collect();
         assert!(started.elapsed().as_millis() < 100 && far.len() == 11, "{} ms, {} blocks", started.elapsed().as_millis(), far.len());
         let wider = thin_at(&t, 8);
-        assert!(!wider.iter().any(|b| b.x == 48), "never the pillar, though a wide lamp's points lie 8 apart (THINNEST): {wider:?}");
+        assert!(!wider.iter().any(|b| b.x == 48), "never the pillar, though a wide lamp's points lie 8 apart (RUNS): {wider:?}");
         assert!(!wider.iter().any(|b| b.x == 64 || b.x == 72), "never the wall");
         assert!(!wider.iter().any(|b| b.z == 0 && b.x > 96), "never the floor");
         // A hollow post 7 across (a piece's shell, as the volume holds it):

@@ -114,39 +114,48 @@ fn light_row(in: TileOut, k: u32) -> i32 {
     return i32((word[(k >> 1u) & 3u] >> ((k & 1u) * 16u)) & 0xffffu);
 }
 
+// The light of the row `row` of `rows` (render::lamps::LampRow, or the
+// fog's render::fog::FogRow): its four parts across.
+fn light_of(rows: texture_2d<f32>, row: i32) -> Light {
+    return Light(textureLoad(rows, vec2<i32>(0, row), 0), textureLoad(rows, vec2<i32>(1, row), 0), textureLoad(rows, vec2<i32>(2, row), 0), textureLoad(rows, vec2<i32>(3, row), 0));
+}
+
+// Whether fs_main_lamps wrote a surface for the pixel (`s`, its surface).
+fn has_surface(s: vec4<u32>) -> bool {
+    return (s.x & (1u << 24u)) != 0u;
+}
+
+// Where in the level the pixel `px`, its middle at `at` (the picture's
+// pixels), shows its surface.
+fn surface_point(px: vec2<i32>, at: vec2<f32>) -> vec3<f32> {
+    let depth = textureLoad(scene_depth, px, 0);
+    let uv = at / vec2<f32>(textureDimensions(scene_depth));
+    let p = lamps.inv_view_proj * vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
+    return p.xyz / p.w;
+}
+
 @fragment
 fn fs_lamp(in: TileOut) -> @location(0) vec4<f32> {
     let px = vec2<i32>(in.clip.xy);
     let s = textureLoad(surface, px, 0);
-    if ((s.x & (1u << 24u)) == 0u) {
+    if (!has_surface(s)) {
         return vec4<f32>(0.0);
     }
-    let depth = textureLoad(scene_depth, px, 0);
-    let uv = in.clip.xy / vec2<f32>(textureDimensions(scene_depth));
-    let at = lamps.inv_view_proj * vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
-    let world = at.xyz / at.w;
+    let world = surface_point(px, in.clip.xy);
     let n = lit_way(s.w);
-    let off = (s.x >> 25u) & 1u;
     // WALLS {
-    // The cell in front of the face, and its part of each lamp's key in
-    // the memory.
-    let cell = surface_cell(s);
-    // A face of the level itself (its voxel in the volume) gets nothing of
-    // a lamp behind it: a way to the lamp would only go through a gap.
-    let way_index = select((s.x >> 26u) & 7u, 7u, off == 1u);
-    let of_level = way_index < 6u && solid(cell - vec3<i32>(FACE_DIRS[way_index]) - lamps.origin.xyz, 0);
-    let ids = vec2<u32>(mix_hash(0x9e3779b9u + off, cell), mix_hash(0x85ebca6bu + off, cell));
+    let f = face_of(s);
     // } WALLS
     var sum = vec3<f32>(0.0);
     for (var k = 0u; k < in.count.x; k += 1u) {
         let row = light_row(in, k);
-        let l = Light(textureLoad(lights, vec2<i32>(0, row), 0), textureLoad(lights, vec2<i32>(1, row), 0), textureLoad(lights, vec2<i32>(2, row), 0), textureLoad(lights, vec2<i32>(3, row), 0));
+        let l = light_of(lights, row);
         let lit = light_on(l, world, n);
         if (all(lit <= vec3<f32>(0.0))) {
             continue;
         }
         // WALLS {
-        if (l.edge.y > 0.5 && ((of_level && dot(n, l.pos_radius.xyz - world) <= 0.0) || stopped(cell, off, textureLoad(lights, vec2<i32>(LAMP_FROM, row), 0), ids, vec2<u32>(l.edge.zw)) || (l.edge.y > 1.5 && movers_stop_face(movers_from(s, cell, n, way_index, of_level), n, l.pos_radius.xyz, u32(l.edge.y - 2.0))))) {
+        if (l.edge.y > 0.5 && (turned_from(f, n, l, world) || walls_stop(f, l, row) || (l.edge.y > 1.5 && movers_stop_face(movers_from(s, f, n), n, l.pos_radius.xyz, u32(l.edge.y - 2.0))))) {
             continue;
         }
         // } WALLS
@@ -166,28 +175,61 @@ fn fs_lamp_ask(in: TileOut) -> @location(0) vec4<f32> {
     let size = textureDimensions(scene_depth);
     let px = min(vec2<i32>(floor(in.clip.xy)) * i32(LAMP_ASK) + vec2<i32>(i32(LAMP_ASK / 2u)), vec2<i32>(size) - vec2<i32>(1));
     let s = textureLoad(surface, px, 0);
-    if ((s.x & (1u << 24u)) == 0u) {
+    if (!has_surface(s)) {
         return vec4<f32>(0.0);
     }
-    let depth = textureLoad(scene_depth, px, 0);
-    let uv = (vec2<f32>(px) + vec2<f32>(0.5)) / vec2<f32>(size);
-    let at = lamps.inv_view_proj * vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
-    let world = at.xyz / at.w;
+    let world = surface_point(px, vec2<f32>(px) + vec2<f32>(0.5));
     let n = lit_way(s.w);
-    let off = (s.x >> 25u) & 1u;
-    let cell = surface_cell(s);
-    let way_index = select((s.x >> 26u) & 7u, 7u, off == 1u);
-    let of_level = way_index < 6u && solid(cell - vec3<i32>(FACE_DIRS[way_index]) - lamps.origin.xyz, 0);
-    let ids = vec2<u32>(mix_hash(0x9e3779b9u + off, cell), mix_hash(0x85ebca6bu + off, cell));
+    let f = face_of(s);
     for (var k = 0u; k < in.count.x; k += 1u) {
         let row = light_row(in, k);
-        let l = Light(textureLoad(lights, vec2<i32>(0, row), 0), textureLoad(lights, vec2<i32>(1, row), 0), textureLoad(lights, vec2<i32>(2, row), 0), textureLoad(lights, vec2<i32>(3, row), 0));
-        if (all(light_on(l, world, n) <= vec3<f32>(0.0)) || (of_level && dot(n, l.pos_radius.xyz - world) <= 0.0)) {
+        let l = light_of(lights, row);
+        if (all(light_on(l, world, n) <= vec3<f32>(0.0)) || turned_from(f, n, l, world)) {
             continue;
         }
-        _ = stopped(cell, off, textureLoad(lights, vec2<i32>(LAMP_FROM, row), 0), ids, vec2<u32>(l.edge.zw));
+        _ = walls_stop(f, l, row);
     }
     return vec4<f32>(0.0);
+}
+
+// A pixel's face as the walls take it (fs_main_lamps wrote its surface):
+// whether off the grid (1), the cell in front of it, its way (FACE_DIRS'
+// index; 7 off the grid), whether it is a face of the level itself (its
+// voxel in the volume), and the cell's part of each lamp's key in the
+// memory (`stopped`).
+struct Face {
+    off: u32,
+    cell: vec3<i32>,
+    way: u32,
+    of_level: bool,
+    ids: vec2<u32>,
+};
+
+fn face_of(s: vec4<u32>) -> Face {
+    let off = (s.x >> 25u) & 1u;
+    let cell = surface_cell(s);
+    let way = select((s.x >> 26u) & 7u, 7u, off == 1u);
+    let of_level = way < 6u && solid(cell - vec3<i32>(FACE_DIRS[way]) - lamps.origin.xyz, 0);
+    return Face(off, cell, way, of_level, cell_ids(cell, off));
+}
+
+// The cell `cell`'s part of each lamp's key in the memory (`stopped`), a
+// face off the grid's (`off` 1) apart from one on it.
+fn cell_ids(cell: vec3<i32>, off: u32) -> vec2<u32> {
+    return vec2<u32>(mix_hash(0x9e3779b9u + off, cell), mix_hash(0x85ebca6bu + off, cell));
+}
+
+// Whether the face `f`, lit by the way `n` at `world`, is a face of the
+// level turned away from the lamp `l`: it gets nothing of a lamp behind
+// it, a way to the lamp would only go through a gap.
+fn turned_from(f: Face, n: vec3<f32>, l: Light, world: vec3<f32>) -> bool {
+    return f.of_level && dot(n, l.pos_radius.xyz - world) <= 0.0;
+}
+
+// Whether walls stop the lamp `l` of the row `row` lighting the face `f`
+// (the memory asked, `stopped`).
+fn walls_stop(f: Face, l: Light, row: i32) -> bool {
+    return stopped(f.cell, f.off, textureLoad(lights, vec2<i32>(LAMP_FROM, row), 0), f.ids, vec2<u32>(l.edge.zw));
 }
 
 // The cell in front of a pixel's face as fs_main_lamps writes it: on the
@@ -206,21 +248,20 @@ fn surface_cell(s: vec4<u32>) -> vec3<i32> {
 // a figure's feet shade the floor at their side; any other face just out
 // of its own middle (FACE_OUT), a voxel lit as a whole (smooth: lit by `n`,
 // not its face's way) a voxel out of the voxel's middle along `n`; exactly,
-// off the grid as fs_main_lamps wrote it. A face of a part turning slowly
-// begins its way a little further each picture, so it changes once as a
-// shadow's edge passes. Begun at the cell in front of it, it jumped a voxel
-// now and then as the part moved, and a voxel out it went in and out of a
-// part beside it: faces blinked (until 2026-11-19).
-fn movers_from(s: vec4<u32>, cell: vec3<i32>, n: vec3<f32>, way_index: u32, of_level: bool) -> vec3<f32> {
-    let middle = vec3<f32>(cell) + vec3<f32>(0.5);
-    if (of_level) {
+// off the grid as fs_main_lamps wrote it (`s`, the pixel's surface). A face
+// of a part turning slowly begins its way a little further each picture,
+// so it changes once as a shadow's edge passes, and no face's way begins
+// in a part beside it.
+fn movers_from(s: vec4<u32>, f: Face, n: vec3<f32>) -> vec3<f32> {
+    let middle = vec3<f32>(f.cell) + vec3<f32>(0.5);
+    if (f.of_level) {
         return middle;
     }
-    if (way_index == 7u) {
+    if (f.way == 7u) {
         let q = vec3<u32>((s.y >> 20u) & 1023u, (s.z >> 20u) & 1023u, (s.y >> 30u) | ((s.z >> 30u) << 2u) | ((s.x >> 26u) << 4u));
-        return vec3<f32>(cell) + vec3<f32>(q) / 256.0 - vec3<f32>(MOVERS_FROM);
+        return vec3<f32>(f.cell) + vec3<f32>(q) / 256.0 - vec3<f32>(MOVERS_FROM);
     }
-    let face = FACE_DIRS[way_index];
+    let face = FACE_DIRS[f.way];
     let centre = middle - face;
     return select(centre + n, centre + face * (0.5 + FACE_OUT), all(n == face));
 }
@@ -231,10 +272,42 @@ fn movers_from(s: vec4<u32>, cell: vec3<i32>, n: vec3<f32>, way_index: u32, of_l
 // the lamp is in its own shadow (as a face of the level is from any lamp
 // walls stop), but a face of the thing the lamp shines from (`carried`):
 // that walks as any other (`movers_stop`), the thing's own solids passed
-// over. Walked, a face turned away went dark or not as its way grazed its
-// own thing's edges.
+// over, so its own edges darken none of it.
 fn movers_stop_face(begins: vec3<f32>, n: vec3<f32>, lamp: vec3<f32>, list: u32) -> bool {
     return (dot(n, lamp - begins) <= 0.0 && !carried(begins - n * (0.5 + FACE_OUT), list)) || movers_stop(begins, lamp, list, 0xffffffffu);
+}
+
+// How many boxes a lamp's list `list` names (render::movers::Movers::lists:
+// its word, where its list begins and how many): every box where it says
+// EVERY_BOX.
+fn listed(list: u32) -> u32 {
+    let n = list & EVERY_BOX;
+    return select(n, u32(lamps.movers.x), n == EVERY_BOX);
+}
+
+// The `i`th box the lamp's list `list` names.
+fn listed_box(list: u32, i: u32) -> u32 {
+    return select(mover_lists[(list >> MOVERS_COUNT_BITS) + MOVERS_HEAD + i], i, (list & EVERY_BOX) == EVERY_BOX);
+}
+
+// The thing the lamp of the list `list` shines from, its list's head: its
+// key and 1, else two 0.
+fn list_owner(list: u32) -> vec2<u32> {
+    let head = list >> MOVERS_COUNT_BITS;
+    return vec2<u32>(mover_lists[head], mover_lists[head + 1u]);
+}
+
+// The point `p` of the level in the grid of the solid `m`.
+fn into_grid(m: Solid, p: vec3<f32>) -> vec3<f32> {
+    let r = m.to_grid;
+    return vec3<f32>(dot(r[0].xyz, p) + r[0].w, dot(r[1].xyz, p) + r[1].w, dot(r[2].xyz, p) + r[2].w);
+}
+
+// Where along a way the box whose planes it crosses at `a` and `b` (each
+// axis's two, along the way) holds it, from 0 up to `far`: from (x) to
+// (y); to not past from: nowhere.
+fn slab_span(a: vec3<f32>, b: vec3<f32>, far: f32) -> vec2<f32> {
+    return vec2<f32>(max(max(max(min(a.x, b.x), min(a.y, b.y)), min(a.z, b.z)), 0.0), min(min(min(max(a.x, b.x), max(a.y, b.y)), max(a.z, b.z)), far));
 }
 
 // Whether the point `p` (a face's voxel, `movers_stop_face`) lies in a
@@ -243,15 +316,12 @@ fn carried(p: vec3<f32>, list: u32) -> bool {
     if (lamps.movers.x == 0) {
         return false;
     }
-    let head = list >> 8u;
-    let own = vec2<u32>(mover_lists[head], mover_lists[head + 1u]);
+    let own = list_owner(list);
     if (own.y != 1u) {
         return false;
     }
-    let n = list & 255u;
-    let every = n == EVERY_BOX;
-    for (var i = 0u; i < select(n, u32(lamps.movers.x), every); i += 1u) {
-        let k = select(mover_lists[head + 2u + i], i, every);
+    for (var i = 0u; i < listed(list); i += 1u) {
+        let k = listed_box(list, i);
         let lo = mover_boxes[2u * k];
         let hi = mover_boxes[2u * k + 1u];
         if (any(p < vec3<f32>(lo.xyz)) || any(p > vec3<f32>(hi.xyz))) {
@@ -259,19 +329,13 @@ fn carried(p: vec3<f32>, list: u32) -> bool {
         }
         for (var j = u32(lo.w); j < u32(lo.w + hi.w); j += 1u) {
             let m = mover_solids[j];
-            let r = m.to_grid;
-            let g = vec3<f32>(dot(r[0].xyz, p) + r[0].w, dot(r[1].xyz, p) + r[1].w, dot(r[2].xyz, p) + r[2].w);
-            if (all(m.owner.xy == own) && solid_holds(j, vec3<i32>(floor(g)))) {
+            if (all(m.owner.xy == own) && solid_holds(j, vec3<i32>(floor(into_grid(m, p))))) {
                 return true;
             }
         }
     }
     return false;
 }
-
-// A lamp's word for its boxes (`list`, render::movers::Movers::lists)
-// meaning every one.
-const EVERY_BOX: u32 = 255u;
 
 // Whether the cell `c` of the solid `k` holds a voxel.
 fn solid_holds(k: u32, c: vec3<i32>) -> bool {
@@ -291,15 +355,14 @@ fn solid_holds(k: u32, c: vec3<i32>) -> bool {
 fn solid_stops(k: u32, lamp: vec3<f32>, dir: vec3<f32>, len: f32) -> bool {
     let m = mover_solids[k];
     let r = m.to_grid;
-    let a = vec3<f32>(dot(r[0].xyz, lamp) + r[0].w, dot(r[1].xyz, lamp) + r[1].w, dot(r[2].xyz, lamp) + r[2].w);
+    let a = into_grid(m, lamp);
     let way = vec3<f32>(dot(r[0].xyz, dir), dot(r[1].xyz, dir), dot(r[2].xyz, dir));
     let d = select(way, vec3<f32>(1e-7), abs(way) < vec3<f32>(1e-7));
     let inv = 1.0 / d;
     let size = m.grid.xyz;
-    let ta = -a * inv;
-    let tb = (vec3<f32>(size) - a) * inv;
-    var t = max(max(max(min(ta.x, tb.x), min(ta.y, tb.y)), min(ta.z, tb.z)), 0.0);
-    let end = min(min(min(max(ta.x, tb.x), max(ta.y, tb.y)), max(ta.z, tb.z)), len);
+    let span = slab_span(-a * inv, (vec3<f32>(size) - a) * inv, len);
+    var t = span.x;
+    let end = span.y;
     // In its housing while the walk has met nothing but what holds it.
     var housed = t <= 0.0;
     let ahead = select(vec3<i32>(-1), vec3<i32>(1), d > vec3<f32>(0.0));
@@ -347,22 +410,16 @@ fn movers_stop(to: vec3<f32>, lamp: vec3<f32>, list: u32, mask: u32) -> bool {
     }
     let dir = select(d / len, vec3<f32>(1e-7), abs(d / len) < vec3<f32>(1e-7));
     let inv = 1.0 / dir;
-    let n = list & 255u;
-    let every = n == EVERY_BOX;
-    let head = list >> 8u;
-    let own = vec2<u32>(mover_lists[head], mover_lists[head + 1u]);
-    for (var i = 0u; i < select(n, u32(lamps.movers.x), every); i += 1u) {
+    let own = list_owner(list);
+    for (var i = 0u; i < listed(list); i += 1u) {
         if (i < 32u && ((mask >> i) & 1u) == 0u) {
             continue;
         }
-        let k = select(mover_lists[head + 2u + i], i, every);
+        let k = listed_box(list, i);
         let lo = mover_boxes[2u * k];
         let hi = mover_boxes[2u * k + 1u];
-        let a = (vec3<f32>(lo.xyz) - lamp) * inv;
-        let b = (vec3<f32>(hi.xyz) - lamp) * inv;
-        let t = max(max(max(min(a.x, b.x), min(a.y, b.y)), min(a.z, b.z)), 0.0);
-        let end = min(min(min(max(a.x, b.x), max(a.y, b.y)), max(a.z, b.z)), len);
-        if (t >= end) {
+        let span = slab_span((vec3<f32>(lo.xyz) - lamp) * inv, (vec3<f32>(hi.xyz) - lamp) * inv, len);
+        if (span.x >= span.y) {
             continue;
         }
         for (var j = u32(lo.w); j < u32(lo.w + hi.w); j += 1u) {
@@ -418,13 +475,13 @@ const RIM: f32 = 2.0;
 // Whether a solid voxel lies on the way to the middle of the cell `cell`
 // (in front of a face) from where the lamp walks from (`start`, its row's
 // LAMP_FROM: the lamp itself, or out of the solid voxels it sits in; w 1:
-// buried, stopped everywhere): walked through the cells,
-// past empty space by the coarser copies, begun at the copy whose cells are
-// about as long as the way; down a copy into a cell holding anything, up
-// one only once out of the cell above the one just left (back into a cell
-// found solid, a way grazing a floor went down and up again at every voxel
-// and took two steps a voxel). Its steps are bounded by its cells, twice
-// those along it at copy 0: past them, which no way reaches, stopped.
+// buried, stopped everywhere): walked through the cells, past empty space
+// by the coarser copies, begun at the copy whose cells are about as long
+// as the way; down a copy into a cell holding anything, up one only once
+// out of the cell above the one just left (not back into a cell found
+// solid: a way grazing a floor would go down and up again at every voxel,
+// two steps a voxel). Its steps are bounded by its cells, twice those
+// along it at copy 0: past them, which no way reaches, stopped.
 fn walk(cell: vec3<i32>, off: u32, start: vec4<f32>) -> bool {
     if (start.w > 0.5) {
         return true;
@@ -501,21 +558,21 @@ fn walk(cell: vec3<i32>, off: u32, start: vec4<f32>) -> bool {
 // bits) and a second key (16 bits, never 0); then the counts of answers
 // that found the memory crowded (GROW_AT) and of those that found no room
 // (render::lamps makes it larger, or says it). An entry not asked this
-// picture or the last (STALE) makes room and is walked again:
-// everything a picture shows is asked every picture, and a lamp that moves
-// asks under a new key each picture, so its old entries go at once (they
-// stayed 8 pictures and, with two headlights in fog, filled the memory). Plain loads and stores, no atomics: pixels of a face read through
-// the caches; an entry another pixel is writing reads as no answer by its
-// second key (a word of another face's matches one time in 65535), so every
-// answer is the walk's for its key and the picture does not depend on what
-// the memory holds.
+// picture or the last (STALE) makes room and is walked again: everything a
+// picture shows is asked every picture, and a lamp that moves asks under a
+// new key each picture, so its old entries go at once and two headlights
+// in fog do not fill the memory. Plain loads and stores, no atomics:
+// pixels of a face read through the caches; an entry another pixel is
+// writing reads as no answer by its second key (a word of another face's
+// matches one time in 65535), so every answer is the walk's for its key
+// and the picture does not depend on what the memory holds.
 const PROBES: u32 = 32u;
 // An answer finding no room within this many slots counts the memory as
 // crowded: render::lamps makes it larger while it is small for the
-// picture, so its lookups stay short. Grown only when one found no room
-// at all (within PROBES), a memory a quarter of the picture's pixels to
-// begin with stood crowded, and the beams of a hall in fog took 10 to 15 %
-// longer than with room to spare.
+// picture, so its lookups stay short (grown only when one finds no room at
+// all, within PROBES, a memory a quarter of the picture's pixels stays
+// crowded and the beams of a hall in fog take 10 to 15 % longer than with
+// room to spare).
 const GROW_AT: u32 = 8u;
 const STALE: u32 = 1u;
 
@@ -539,24 +596,24 @@ fn fresh(word: u32, now: u32) -> bool {
 fn stopped(cell: vec3<i32>, off: u32, lamp: vec4<f32>, ids: vec2<u32>, lamp_ids: vec2<u32>) -> bool {
     let key = (ids.x ^ (lamp_ids.x * 0x9e3779b1u) ^ (lamp_ids.y << 8u)) | 1u;
     let tag = (((ids.y ^ (lamp_ids.y * 0x85ebca77u) ^ lamp_ids.x) % 65535u) + 1u) << 16u;
-    let state = (lamps.info.x & 0x1ffu) << 1u;
+    let state = (lamps.info.x & LAMP_STATES) << 1u;
     let now = lamps.info.y & 0x3fu;
-    let faces = (arrayLength(&seen) - 2u) / 2u;
+    let faces = (arrayLength(&seen) - LAMP_COUNT_WORDS) / LAMP_ANSWER_WORDS;
     var free = faces;
     var at = 0u;
     // The slot from the key's bits mixed again (the key is odd, `| 1`: the
     // even slots stood empty), the next ones a step apart that the second
     // key gives (odd, so every slot of a memory a power of two long comes
-    // in turn): one slot after the other, the entries of a full stretch
-    // crowded on, a few in a million found no room at 42 in 100 taken.
+    // in turn; one slot after the other, the entries of a full stretch
+    // crowd on, and at 42 in 100 taken a few in a million find no room).
     // (`faces` is a power of two: render::lamps::faces_for, grown twice as
     // large.) The first empty slot ends a lookup; a stale one does not: an
-    // answer behind it would be walked again and kept twice, and ended
-    // there the beams of a hall in fog took a quarter longer.
-    var slot = ((key ^ (key >> 15u)) * 0x2c1b3c6du ^ (key >> 13u)) & (faces - 1u);
+    // answer behind it would be walked again and kept twice, and the beams
+    // of a hall in fog would take a quarter longer.
+    var slot = (((key ^ (key >> 15u)) * 0x2c1b3c6du) ^ (key >> 13u)) & (faces - 1u);
     let hop = (tag >> 15u) | 1u;
     for (var i = 0u; i < PROBES; i += 1u) {
-        let k = slot * 2u;
+        let k = slot * LAMP_ANSWER_WORDS;
         let found = seen[k];
         let word = seen[k + 1u];
         if (found == key) {
@@ -571,7 +628,7 @@ fn stopped(cell: vec3<i32>, off: u32, lamp: vec4<f32>, ids: vec2<u32>, lamp_ids:
                 }
                 return b;
             }
-            if ((word & 0x3feu) == state && fresh(word, now)) {
+            if ((word & (LAMP_STATES << 1u)) == state && fresh(word, now)) {
                 if (((word >> 10u) & 0x3fu) != now) {
                     seen[k + 1u] = (word & 0xffff03ffu) | (now << 10u);
                 }
@@ -595,14 +652,14 @@ fn stopped(cell: vec3<i32>, off: u32, lamp: vec4<f32>, ids: vec2<u32>, lamp_ids:
     }
     let b = walk(cell, off, lamp);
     if (free == faces || at >= GROW_AT) {
-        seen[faces * 2u] += 1u;
+        seen[faces * LAMP_ANSWER_WORDS] += 1u;
     }
     if (free == faces) {
-        seen[faces * 2u + 1u] += 1u;
+        seen[faces * LAMP_ANSWER_WORDS + 1u] += 1u;
         return b;
     }
-    seen[free * 2u] = key;
-    seen[free * 2u + 1u] = tag | (now << 10u) | state | select(0u, 1u, b);
+    seen[free * LAMP_ANSWER_WORDS] = key;
+    seen[free * LAMP_ANSWER_WORDS + 1u] = tag | (now << 10u) | state | select(0u, 1u, b);
     return b;
 }
 // } WALLS

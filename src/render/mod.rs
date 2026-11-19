@@ -100,7 +100,7 @@ pub fn snorm_turn(rot: Quat) -> [i8; 4] {
 }
 
 /// A light lighting what is round it in one picture: a flash or an
-/// explosion's (`burst`: round, through walls, as lights always were), or a
+/// explosion's (`burst`: round, the falloff 2, through walls), or a
 /// lamp a level or the game sets (`lamp`, shaped by `LightShape`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Light {
@@ -198,8 +198,8 @@ impl Light {
 
 /// How a lamp shines beyond where, how far and its colour: the words a
 /// light is written with (a level's `light = { ... }`, `frame:light{ ...
-/// }`), each with its default (`Default`: round, as lights were before
-/// 0.7, but stopped by walls).
+/// }`), each with its default (`Default`: round, the falloff 2, its
+/// shadows the game's word).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LightShape {
     /// (1 - distance / radius) to this power: 2 unless set.
@@ -331,8 +331,8 @@ pub struct Fog {
     /// (the player's FOG setting, `settings::Fog`).
     pub scale: u32,
     /// Whether the beams take the thin things' finer points (`render::thin`;
-    /// FOG HIGH): without, they are drawn as before thin things were looked
-    /// for, at no cost of theirs.
+    /// FOG HIGH): without, their points lie on the planes alone, at no cost
+    /// of thin things.
     pub thin: bool,
 }
 

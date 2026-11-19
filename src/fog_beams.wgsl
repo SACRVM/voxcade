@@ -31,21 +31,19 @@
 // (`fs_beam_glass`).
 @group(1) @binding(2) var glass_depth: texture_depth_2d;
 
-// The planes' spacing, voxels along the camera's way, for a light whose
-// ball is at most FOG_MOST_PLANES of them across; twice (four times ...)
-// as far for a wider one.
-const FOG_STEP: f32 = 4.0;
-const FOG_MOST_PLANES: f32 = 48.0;
+// FOG_STEP, the planes' spacing, voxels along the camera's way, for a
+// light whose ball is at most FOG_MOST_PLANES of them across, twice (four
+// times ...) as far for a wider one; FOG_SPACING_AT, how a ball's spacing
+// is kept in its radius's place; FOG_THIN_AT, the column of a light's row
+// in `fog_lights` with the count of its thin things' balls, the balls
+// after it: render::fog's numbers, written ahead by
+// render::shader::prelude.
+
 // Halvings seeking where a wall's shadow begins between two points.
 const FOG_EDGE_STEPS: i32 = 4;
 // The most planes taken along a ray a lamp where it can pass a thin
 // thing's shadow (past them the spacing the thing needs doubles).
 const FOG_MOST_FINE: f32 = 16.0;
-// A ball's spacing kept in its radius's place (render::fog::SPACING_AT).
-const FOG_SPACING_AT: f32 = 65536.0;
-// The thin things' balls in a light's row of `fog_lights`: their count at
-// this column, the balls after it (render::fog::FogRow, MOST_THIN).
-const FOG_THIN_AT: i32 = LAMP_FROM + 1;
 
 // How much of the light travelling the way `cos_angle` from the eye's way
 // back (1: straight towards the eye) the fog sends on to the eye
@@ -148,10 +146,9 @@ fn reaches(l: Light, walks: vec4<f32>, p: vec3<f32>, movers: u32) -> bool {
         if (solid(cell - lamps.origin.xyz, 0)) {
             return false;
         }
-        let ids = vec2<u32>(mix_hash(0x9e3779b9u, cell), mix_hash(0x85ebca6bu, cell));
         // A lamp whose shadows are "all": what moves too, asked afresh,
         // only the boxes whose shadows the ray meets (`movers`, `shading`).
-        return !stopped(cell, 0u, walks, ids, vec2<u32>(l.edge.zw)) && !(movers != 0u && movers_stop(vec3<f32>(cell) + vec3<f32>(0.5), l.pos_radius.xyz, u32(l.edge.y - 2.0), movers));
+        return !stopped(cell, 0u, walks, cell_ids(cell, 0u), vec2<u32>(l.edge.zw)) && !(movers != 0u && movers_stop(vec3<f32>(cell) + vec3<f32>(0.5), l.pos_radius.xyz, u32(l.edge.y - 2.0), movers));
     }
     // } WALLS
     return true;
@@ -288,23 +285,22 @@ fn box_meets_triangle(middle: vec3<f32>, half: vec3<f32>, a: vec3<f32>, b: vec3<
 // `edge.y`) can shade the stretch of a ray from `near` to `far`: those
 // that meet the triangle of the lamp and the stretch (the ways from the
 // lamp to every point of it; grown by a voxel, as a point is asked at its
-// voxel's middle), a bit each of the first 32
-// (past 32 all of them). Once a ray, so its points walk only those: most
-// rays through the fog pass no moving thing's shadow.
+// voxel's middle), a bit each; a list of more than 32 (EVERY_BOX too) all
+// of them. Once a ray, so its points walk only those: most rays through
+// the fog pass no moving thing's shadow.
 fn shading(l: Light, near: vec3<f32>, far: vec3<f32>) -> u32 {
     var mask = 0u;
     // WALLS {
     let list = u32(l.edge.y - 2.0);
-    let n = list & 255u;
     if (lamps.movers.x == 0) {
         return 0u;
     }
+    let n = list & EVERY_BOX;
     if (n > 32u) {
         return 0xffffffffu;
     }
-    let start = (list >> 8u) + 2u;
     for (var i = 0u; i < n; i += 1u) {
-        let k = mover_lists[start + i];
+        let k = listed_box(list, i);
         let lo = vec3<f32>(mover_boxes[2u * k].xyz);
         let hi = vec3<f32>(mover_boxes[2u * k + 1u].xyz);
         if (box_meets_triangle((lo + hi) * 0.5, (hi - lo) * 0.5 + vec3<f32>(1.0), l.pos_radius.xyz, near, far)) {
@@ -349,7 +345,7 @@ fn beams_over(in: TileOut, dir: vec3<f32>, begin: f32, end: f32, air: f32) -> ve
     var sum = vec3<f32>(0.0);
     for (var k = 0u; k < in.count.x; k += 1u) {
         let row = light_row(in, k);
-        let l = Light(textureLoad(fog_lights, vec2<i32>(0, row), 0), textureLoad(fog_lights, vec2<i32>(1, row), 0), textureLoad(fog_lights, vec2<i32>(2, row), 0), textureLoad(fog_lights, vec2<i32>(3, row), 0));
+        let l = light_of(fog_lights, row);
         // Where the ray is within its ball, its cone, the stretch.
         let oc = fog.eye.xyz - l.pos_radius.xyz;
         let h = dot(dir, oc);
@@ -370,7 +366,12 @@ fn beams_over(in: TileOut, dir: vec3<f32>, begin: f32, end: f32, air: f32) -> ve
             }
         }
         if (b > a) {
-            let movers = select(0u, shading(l, fog.eye.xyz + dir * a, fog.eye.xyz + dir * b), l.edge.y > 1.5);
+            // The moving things' boxes that can shade the ray, looked for
+            // only for a lamp whose shadows are "all" (`shading`).
+            var movers = 0u;
+            if (l.edge.y > 1.5) {
+                movers = shading(l, fog.eye.xyz + dir * a, fog.eye.xyz + dir * b);
+            }
             var fine = vec3<f32>(1.0, 0.0, 1.0);
             // THIN {
             if (((in.count.y >> k) & 1u) != 0u) {

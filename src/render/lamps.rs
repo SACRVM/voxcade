@@ -6,9 +6,10 @@
 //! (`fs_main_lamps`, each pixel's surface written beside its colour), then
 //! the screen in tiles, each drawn with the lights whose box reaches it,
 //! their light added onto the pixels there (each pixel's surface read once
-//! a tile), then the see-through cubes (lit as before by the nearest
-//! `FORWARD_LIGHTS`, through walls). Every other picture is drawn as before,
-//! by the scene's shader alone: a game without lamps pays nothing.
+//! a tile), then the see-through cubes (lit by the nearest
+//! `FORWARD_LIGHTS` in the scene's shader, through walls). Every other
+//! picture is drawn by the scene's shader alone: a game without lamps pays
+//! nothing.
 //!
 //! Walls: the level's solid voxels and its pieces' (`volume`) on the GPU,
 //! made when a picture first asks and brought up to date where the world
@@ -48,7 +49,7 @@ use super::{DEPTH_FORMAT, FORWARD_LIGHTS, FrameData, HDR_FORMAT, Light, MOST_LIG
 /// voxels along the beams more than by the pixels (a level of 1600 by 900
 /// voxels in fog with 16 lamps of radius 300 grows to 2^25 at 1920 by
 /// 1080, FOG HIGH). Room for them up front, 16 a pixel of the beams'
-/// target, took 134 MB for a small hall.
+/// target, would take 134 MB for a small hall.
 pub(super) fn faces_for(w: u32, h: u32) -> u64 {
     (u64::from(w) * u64::from(h) / 4).next_power_of_two().max(1 << 16)
 }
@@ -82,25 +83,37 @@ const MOST_FACES: u64 = 1 << 26;
 
 /// The bytes of the largest lamps' memory (`MOST_FACES`), what a device is
 /// asked to bind and hold (`render::device_limits`).
-pub(super) const MOST_BYTES: u64 = MOST_FACES * 8 + COUNTS;
+pub(super) const MOST_BYTES: u64 = MOST_FACES * ANSWER_BYTES + COUNTS;
 
-/// The words after the lamps' memory's answers: how many found no room
-/// within `lamps.wgsl`'s GROW_AT slots (it grows), and how many within
-/// PROBES, none (said, where it cannot grow).
-const COUNTS: u64 = 8;
+/// The words of an answer in the lamps' memory (`lamps.wgsl`'s `stopped`:
+/// its key; whether stopped, when and its second key): the shaders'
+/// LAMP_ANSWER_WORDS.
+pub(super) const ANSWER_WORDS: u64 = 2;
+
+/// An answer's bytes.
+const ANSWER_BYTES: u64 = ANSWER_WORDS * 4;
+
+/// The words after the lamps' memory's answers (the shaders'
+/// LAMP_COUNT_WORDS): how many found no room within `lamps.wgsl`'s GROW_AT
+/// slots (it grows), and how many within PROBES, none (said, where it
+/// cannot grow).
+pub(super) const COUNT_WORDS: u64 = 2;
+
+/// Their bytes.
+const COUNTS: u64 = COUNT_WORDS * 4;
 
 /// The largest the lamps' memory may be on this GPU, answers (one buffer
 /// bound whole, two words each and the counts), `MOST_FACES` at most.
 fn most_faces(device: &wgpu::Device) -> u64 {
     let limits = device.limits();
     let bytes = limits.max_storage_buffer_binding_size.min(limits.max_buffer_size);
-    (1 << ((bytes - COUNTS) / 8).ilog2()).min(MOST_FACES)
+    (1 << ((bytes - COUNTS) / ANSWER_BYTES).ilog2()).min(MOST_FACES)
 }
 
 /// Where the counts lie in a memory for `faces` faces: first the crowded
 /// one, then the one of those that found no room.
 fn full_at(faces: u64) -> u64 {
-    faces * 2 * 4
+    faces * ANSWER_BYTES
 }
 
 /// What each pixel's surface is (`fs_main_lamps`).
@@ -159,6 +172,12 @@ pub(super) struct TileInstance {
 }
 
 const TILE_ATTRS: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![0 => Float32x4, 1 => Uint32x4, 2 => Uint32x4, 3 => Uint32x4, 4 => Uint32x4, 5 => Uint32x4];
+
+// A tile's lights: after its rectangle and count, eight a vertex input
+// (four words of two), as `lamps.wgsl`'s `vs_lamp` reads them (test
+// `the_vertex_inputs_are_the_rust_structs`); a bit each in `count.y` for
+// the fog's beams (`render::fog`).
+const _: () = assert!(TILE_ATTRS.len() == 2 + LIGHTS_A_TILE / 8 && LIGHTS_A_TILE <= 32);
 
 /// The lamps' pass's vertex buffer: a tile an instance.
 pub(super) fn lamp_buffers() -> [Option<wgpu::VertexBufferLayout<'static>>; 1] {
@@ -598,8 +617,8 @@ pub(super) fn rect_of(view_proj: &Mat4, l: &Light) -> Option<[f32; 4]> {
 
 impl Renderer {
     /// How this picture draws its lights: None by the scene's own shader
-    /// (as every picture did before 0.7: at most `FORWARD_LIGHTS`, none
-    /// walls stop), else by the lamps' pass, everything it needs made (the
+    /// (at most `FORWARD_LIGHTS`, none walls stop, no fog), else by the
+    /// lamps' pass, everything it needs made (the
     /// first time a picture asks) and the level's volume brought up to
     /// date. Walls stop its lamps where the GPU can and the level fits;
     /// else said once, they shine through.
@@ -960,13 +979,11 @@ impl Renderer {
 
 /// What is said of the lamps' memory full, `count` faces having found no
 /// room.
-pub fn lamps_full(faces: u64, count: u32) -> String {
+fn lamps_full(faces: u64, count: u32) -> String {
     format!("lamps: their memory is full ({faces} faces and points of beams, the most this GPU holds; {count} more found no room): those ask again every picture, the picture the same but slower")
 }
 
 impl Lamps {
-    /// What the pass reads, with walls (the volume and the faces' memory)
-    /// or without.
     /// The `i`th of the frame's lights as the shaders take it, walls
     /// stopping it where `walls` and it says so, from where it walks (the
     /// level's volume's `start`); a lamp whose shadows are "all" with its
@@ -1012,6 +1029,8 @@ impl Lamps {
         Ok(())
     }
 
+    /// What the pass reads, with walls (the volume, the faces' memory and
+    /// the moving things) or without.
     fn make_bind(&mut self, device: &wgpu::Device, walls: bool) -> wgpu::BindGroup {
         self.bound_walls = walls;
         let t = self.targets.as_ref().expect("made by lamps_of");
@@ -1046,10 +1065,14 @@ fn opaque_cubes(frame: &FrameData) -> &[super::Instance] {
     &frame.instances[behind as usize..drawn as usize]
 }
 
+/// The volume's state numbers, 1 to this (the shaders' LAMP_STATES: the
+/// bits an answer keeps of it).
+pub(super) const STATES: u32 = 0x1ff;
+
 /// The volume's next state number (never 0: an entry of the faces' memory
 /// never written has 0).
 fn next_state(state: u32) -> u32 {
-    (state % 0x1ff) + 1
+    (state % STATES) + 1
 }
 
 /// Writes `data` (`size` texels) at `origin` of copy `m`.

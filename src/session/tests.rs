@@ -1532,8 +1532,8 @@ impl LampScene {
 
 /// On the GPU: a wall stops a lamp, the floor beyond it dark, the near side
 /// lit; a lamp with `shadows = "none"`, or a picture without the level's
-/// world (`c.light.lamp_shadows = "none"`, the editors), shines through as
-/// lights always did. A burst (a kit's flash) shines through too.
+/// world (`c.light.lamp_shadows = "none"`, the editors), shines through.
+/// A burst (a kit's flash) shines through too.
 #[test]
 fn a_wall_stops_a_lamp_and_shadows_false_does_not() {
     let mut s = LampScene::new();
@@ -1555,11 +1555,48 @@ fn a_wall_stops_a_lamp_and_shadows_false_does_not() {
     }
 }
 
+/// On the GPU: the level's walls change while a lamp they stop is drawn
+/// (the lamps' volume brought up to date, `Volume::update`, and every face
+/// asked again): the wall taken away voxel by voxel (as `level:set_voxel`
+/// or a blast does), the lamp lights the floor behind it, the picture a
+/// renderer drawing the level without the wall the first time draws; set
+/// again, the floor behind is dark again, the first picture.
+#[test]
+fn a_wall_taken_away_and_set_again_lets_a_lamp_through_and_stops_it() {
+    let mut s = LampScene::new();
+    let lamp = crate::render::Light::lamp(Vec3::new(40.5, 48.5, 6.0), 30.0, [2.0; 3], &crate::render::LightShape::default(), |w| w).stated(crate::render::LampShadows::Static);
+    let dark = {
+        let (f, p) = s.picture(&[], true);
+        LampScene::floor_at(&f, &p, 56.5, 48.5)
+    };
+    let (f, walled) = s.picture(&[lamp], true);
+    let behind = |p: &[u8]| LampScene::floor_at(&f, p, 56.5, 48.5);
+    assert!((behind(&walled) - dark).abs() < 4.0, "behind the wall dark: {} against {dark}", behind(&walled));
+    let mut wall = |voxel: u8| {
+        for y in 20..76 {
+            for z in 1..16 {
+                s.game.game.sim_mut().world.set(IVec3::new(48, y, z), voxel);
+            }
+        }
+        s.canvas.mesh_world(s.game.world_mut(), &[true; 6]);
+        let (_, p) = s.picture(&[lamp], true);
+        (p, s.canvas.stats().asked)
+    };
+    let (open, asked) = wall(0);
+    assert_eq!(asked, 1, "the walls changed: the lamp asked for first again");
+    assert!(behind(&open) > dark + 60.0, "the wall taken away: lit behind it, {} against {dark}", behind(&open));
+    let (_, fresh) = LampScene::of([]).picture(&[lamp], true);
+    assert!(open == fresh, "the picture of a renderer that never saw the wall");
+    let (closed, asked) = wall(1);
+    assert_eq!(asked, 1, "the walls changed again");
+    assert!(closed == walled, "the wall set again: the first picture, dark behind it");
+}
+
 /// On the GPU: a lamp flush with a wall's face (a wall 4 thick) lights its
 /// own side and none of the room behind; a lamp in its housing (a solid box
-/// of 3 round it) still shines out of it on every side. Until 2026-11-19
-/// each way left the solid voxels on its own, a way into the wall through
-/// it to the floor behind.
+/// of 3 round it) still shines out of it on every side. Each way leaving
+/// the solid voxels on its own would go into the wall and through it to the
+/// floor behind.
 #[test]
 fn a_lamp_flush_with_a_wall_lights_its_own_side_only() {
     let wall = (20..76).flat_map(|y| (48..52).flat_map(move |x| (1..16).map(move |z| IVec3::new(x, y, z))));
@@ -1983,10 +2020,10 @@ fn a_lamp_new_to_the_faces_memory_is_asked_for_first() {
 
 /// On the GPU: a lamp half a voxel over a long slab, 136 voxels from a
 /// wall 4 thick, lights none of the slab behind the wall, nor the fog's
-/// beam there: a way grazing a surface walks it to the wall. Until
-/// 2026-11-19 such a way went down a copy into the coarse cell holding the
-/// slab and up again at every voxel, two steps a voxel, and past its 256
-/// steps was taken as clear: the slab behind the wall was lit.
+/// beam there: a way grazing a surface walks it to the wall. Going down a
+/// copy into the coarse cell holding the slab and up again at every voxel,
+/// two steps a voxel, such a way would run out of a bound of 256 steps
+/// and be taken as clear: the slab behind the wall lit.
 #[test]
 fn a_way_grazing_a_long_surface_still_meets_the_wall() {
     let mut world = crate::sim::tests::flat_world(IVec3::new(320, 64, 24));
@@ -2209,11 +2246,11 @@ fn a_lamp_a_thing_carries_is_not_stopped_by_it() {
 /// edge passes it. A face's blink is a pixel's whose four neighbours
 /// blink with it while what it shows stays (the "static" picture there
 /// changing by `STEADY` levels at most a picture: an edge of the figure,
-/// or between two faces, passing a pixel is no blink). Until 2026-11-19 a
-/// turned face asked from the cell in front of it, which jumps a voxel as
-/// it moves, and what moved filled the cells whose middles its voxels
-/// held, a thin arm leaving gaps that came and went: faces blinked for a
-/// picture (170 pixels of them here).
+/// or between two faces, passing a pixel is no blink). A turned face
+/// asked from the cell in front of it, which jumps a voxel as it moves, or
+/// what moves filling the cells whose middles its voxels hold, a thin arm
+/// leaving gaps that come and go, blinks faces for a picture (170 pixels
+/// of them here).
 #[test]
 fn a_part_turning_slowly_shades_each_face_once() {
     use crate::render::{LampShadows, Light, LightShape};

@@ -655,19 +655,39 @@ fn frame_light_takes_the_lamps_words() {
     }
 }
 
+/// Plays `ticks` ticks of `g`, its picture composed and drawn on the GPU
+/// after each, as a window draws it: the last picture and what drawing it
+/// counted.
+fn play_drawn(g: &mut Session<LuaGame>, ticks: usize) -> (crate::render::FrameData, crate::render::Stats) {
+    let mut canvas = crate::headless::Canvas::new(320, 180, false).expect("a GPU");
+    canvas.mesh_world(g.world_mut(), &[true; 6]);
+    let mut last = None;
+    for _ in 0..ticks {
+        steps(g, 1);
+        let f = g.compose(1.0, 16.0 / 9.0, Scene::Play, None);
+        canvas.draw(&f).expect("the picture drawn");
+        last = Some(f);
+    }
+    (last.expect("a tick played"), canvas.stats())
+}
+
 /// Lamps are the picture's alone: `c.light.lamp_shadows` changes neither
-/// the fingerprint nor a step of the run; off, no picture has walls stop a
-/// lamp (no level's picture given to the renderer for it).
+/// the fingerprint nor a step of the run, drawn every tick with walls
+/// stopping its lamps, or not, or never drawn; off, no picture has walls
+/// stop a lamp (no level's picture given to the renderer for it).
 #[test]
 fn lamps_change_no_run() {
     let main = "function on_tick()\n  world.state.n = (world.state.n or 0) + 1\nend\nfunction on_draw(frame)\n  frame:light(level:thing('lamp'), 30)\nend\n";
     let (on_dir, off_dir) = (pieces_folder("lamps-on", "", ROOM, main), pieces_folder("lamps-off", "  c.light.lamp_shadows = \"none\"\n", ROOM, main));
-    let (mut on, mut off) = (game_in(&on_dir), game_in(&off_dir));
+    let (mut on, mut off, mut undrawn) = (game_in(&on_dir), game_in(&off_dir), game_in(&on_dir));
     assert_eq!(on.fingerprint().unwrap(), off.fingerprint().unwrap(), "the setting is no part of the fingerprint");
-    steps(&mut on, 30);
-    steps(&mut off, 30);
-    assert_eq!(on.game.state_hash(), off.game.state_hash());
-    let (a, b) = (on.compose(0.0, 16.0 / 9.0, Scene::Play, None), off.compose(0.0, 16.0 / 9.0, Scene::Play, None));
+    let (a, drawn) = play_drawn(&mut on, 30);
+    let (b, plain) = play_drawn(&mut off, 30);
+    steps(&mut undrawn, 30);
+    assert!(drawn.lamps > 0 && drawn.walls, "the lamps' pass drew, walls stopping its lamps");
+    assert!(!plain.walls, "off: no walls");
+    let hash = undrawn.game.state_hash();
+    assert_eq!((on.game.state_hash(), off.game.state_hash()), (hash, hash), "the run as never drawn");
     assert!(a.lamp_world.is_some() && a.lights.iter().any(|l| l.stopped()), "walls stop the lamps");
     assert!(b.lamp_world.is_none() && b.lights.iter().all(|l| !l.stopped()), "off: none");
     assert!(!a.lamp_pieces.is_empty() && b.lamp_pieces.is_empty(), "the pieces that stop them, when they do");
@@ -758,17 +778,21 @@ fn what_moves_out_of_view_still_stops_a_lamp_whose_shadows_are_all() {
 }
 
 /// Fog is the picture's alone: `c.light.fog_density` changes neither the
-/// fingerprint nor a step of the run. Unset, a picture has none (every
-/// game before it is drawn as it was); a density of 0 is none too.
+/// fingerprint nor a step of the run, drawn every tick with fog or
+/// without, or never drawn. Unset, a picture has none; a density of 0 is
+/// none too.
 #[test]
 fn fog_changes_no_run() {
     let main = "function on_tick()\n  world.state.n = (world.state.n or 0) + 1\nend\nfunction on_draw(frame)\n  frame:light(level:thing('lamp'), 30)\nend\n";
     let (plain_dir, fog_dir) = (pieces_folder("fog-off", "", ROOM, main), pieces_folder("fog-on", "  c.light.fog_density = 0.02\n", ROOM, main));
-    let (mut plain, mut fog) = (game_in(&plain_dir), game_in(&fog_dir));
+    let (mut plain, mut fog, mut undrawn) = (game_in(&plain_dir), game_in(&fog_dir), game_in(&fog_dir));
     assert_eq!(plain.fingerprint().unwrap(), fog.fingerprint().unwrap(), "the settings are no part of the fingerprint");
-    steps(&mut plain, 30);
-    steps(&mut fog, 30);
-    assert_eq!(plain.game.state_hash(), fog.game.state_hash());
+    let (_, clear) = play_drawn(&mut plain, 30);
+    let (_, fogged) = play_drawn(&mut fog, 30);
+    steps(&mut undrawn, 30);
+    assert!(fogged.fog && !clear.fog, "the picture with fog drew it, the other none");
+    let hash = undrawn.game.state_hash();
+    assert_eq!((plain.game.state_hash(), fog.game.state_hash()), (hash, hash), "the run as never drawn");
     let (a, b) = (plain.compose(0.0, 16.0 / 9.0, Scene::Play, None), fog.compose(0.0, 16.0 / 9.0, Scene::Play, None));
     assert_eq!(a.fog, None, "unset: no fog");
     let f = b.fog.expect("c.light's fog");

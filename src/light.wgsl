@@ -16,14 +16,16 @@ struct Light {
     // xyz: position, w: radius
     pos_radius: vec4<f32>,
     // rgb: colour times brightness, w: the falloff's power ((1 - distance
-    // / radius) to it; 2 as lights always were)
+    // / radius) to it; 2 unless a lamp says otherwise)
     color: vec4<f32>,
     // xyz: the way a spot shines, w: the cosine of half its cone (below
     // -1: it shines every way)
     spot: vec4<f32>,
-    // x: the cosine within which the cone's edge is no longer soft; y: 1
-    // when walls stop it; z, w: two 24-bit hashes of its exact place (the
-    // lamps' memory's key, lamps.wgsl)
+    // x: the cosine within which the cone's edge is hard; y: what stops it
+    // in the lamps' pass with walls (0 nothing, 1 walls, 2 and more what
+    // moves too, less 2 its list of the moving things' boxes, lamps.wgsl's
+    // `listed`); z, w: two 24-bit hashes of its exact place (the lamps'
+    // memory's key, lamps.wgsl)
     edge: vec4<f32>,
 };
 
