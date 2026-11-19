@@ -392,6 +392,16 @@ game's settings are code (the user's choice: "nur im Code, fertig").
   it. `c.sounds` in `conf.lua` is refused (`voxcade sounds GAME
   --to-files` writes an older game's as files). Sounds count for no
   replay: they are in neither the fingerprint nor the state hash.
+- **Music** (`src/audio/music/`): a song is MML text (the format at the
+  top of `src/audio/music/mod.rs`, HELP's "A SONG IN MML"), played by
+  SID-like voices and by a voice that sings: `@singer voice`, a formant
+  synthesizer after Klatt (`src/audio/music/voice.rs`), a quoted text
+  before a note the syllable that note sings, in phonemes split by
+  spaces (`"s ae ng" e4`: the vowel on the beat, the consonants before
+  it just before, the ones after it ending where the note is let go; a
+  note without a text holds the vowel). Every instrument takes `drive`
+  (decibels into a soft clipper, before the filters) and a bit crusher
+  (`crush_rate`, `crush_bits`).
 - **Levels** (`src/levels.rs`): the files in a game's `levels/` folder,
   all read when it loads, in the order of their names (numbers as
   numbers); a level of blocks, a map or a world (`.toml`, `.toml`, `.vvx`) as `c.world` says,

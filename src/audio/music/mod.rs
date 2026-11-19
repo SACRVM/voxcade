@@ -84,6 +84,7 @@ pub use mix::{Glide, Mix, muffle_cutoff};
 pub use parse::parse;
 pub use player::Player;
 pub use song::{FilterMode, Instrument, Song, Timing};
+pub use voice::phonemes;
 
 use super::synth::{SAMPLE_RATE, Wave};
 use super::words;

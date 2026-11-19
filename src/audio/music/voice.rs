@@ -130,7 +130,7 @@ fn phoneme(name: &str) -> Option<&'static Phoneme> {
 
 /// The phonemes by sort, as HELP and a mistake list them: "vowels a ae
 /// ..., diphthongs aw ..., consonants m ...".
-pub(super) fn listing() -> String {
+pub fn phonemes() -> String {
     let of = |vowel: bool, glide: bool| -> String {
         let names = PHONEMES.iter().filter(|p| matches!(p.kind, Kind::Vowel(_)) == vowel && matches!(p.kind, Kind::Diphthong(..)) == glide);
         names.map(|p| p.name).collect::<Vec<_>>().join(" ")
@@ -166,7 +166,7 @@ pub(super) fn syllable(text: &str) -> Result<Syllable> {
                 None => crate::audio::words::near(word, PHONEMES.iter().map(|p| p.name)),
             };
             let hint = near.map_or(String::new(), |n| format!(": did you mean '{n}'?"));
-            bail!("unknown phoneme '{word}'{hint} (in small letters: {})", listing());
+            bail!("unknown phoneme '{word}'{hint} (in small letters: {})", phonemes());
         };
         let is_vowel = matches!(p.kind, Kind::Vowel(_) | Kind::Diphthong(..));
         match (is_vowel, vowel) {
@@ -180,7 +180,7 @@ pub(super) fn syllable(text: &str) -> Result<Syllable> {
         if text.trim().is_empty() {
             bail!("an empty text: write the syllable's phonemes, like \"l a\"");
         }
-        bail!("\"{text}\" has no vowel: a syllable needs one ({})", listing());
+        bail!("\"{text}\" has no vowel: a syllable needs one ({})", phonemes());
     };
     Ok(Syllable { onset, vowel, coda })
 }

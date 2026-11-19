@@ -336,7 +336,7 @@ fn a_texts_mistakes_say_their_line() {
     let e = said("#tempo 120\n@v voice duty=0.3\nA: @v \"l a\" c4\n");
     assert!(e.contains("line 2") && e.contains("duty means nothing on a voice"), "{e}");
     // The list a mistake gives is the table's.
-    assert!(said(&sung("\"q a\" c4")).contains(&super::voice::listing()));
+    assert!(said(&sung("\"q a\" c4")).contains(&super::voice::phonemes()));
 }
 
 /// The new words' ranges: drive in decibels, the crusher's rate and its
