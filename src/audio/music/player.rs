@@ -2,7 +2,8 @@
 
 use super::SAMPLE_RATE;
 use super::mix::{Mix, SHORTEST, muffle_cutoff};
-use super::song::{FilterMode, Instrument, Note, Song};
+use super::clear::{self, Seg};
+use super::song::{FilterMode, Instrument, Note, Song, Voicing};
 use super::voice::{Segment, Singer};
 use crate::audio::synth::{OnePole, Oscillator};
 
@@ -27,9 +28,10 @@ pub(super) struct Voice {
     /// silence between its syllables).
     level: f32,
     from: f32,
-    /// The singing voice (`voice`), and the note's drive (a gain, 0 off)
-    /// and bit crusher.
+    /// The singing voices (`voice`, and the clear one), and the note's
+    /// drive (a gain, 0 off) and bit crusher.
     pub(super) singer: Singer,
+    pub(super) clear: clear::Singer,
     drive: f32,
     crush: Crusher,
     /// The drive's DC blocker: the last sample in and out.
@@ -40,8 +42,8 @@ pub(super) struct Voice {
 
 impl Voice {
     /// Takes up `notes[index]` (played by `ins`) from its start; a voice
-    /// note sings `segments`' part of it.
-    fn take_up(&mut self, notes: &[Note], index: usize, ins: &Instrument, segments: &[Segment]) {
+    /// note sings its part of `segments` (`voice`'s) or `clear`.
+    fn take_up(&mut self, notes: &[Note], index: usize, ins: &Instrument, (segments, clear): (&[Segment], &[Seg])) {
         let n = &notes[index];
         let sounding = self.note.is_some();
         (self.note, self.started, self.osc.phase) = (Some(index), n.start, 0.0);
@@ -49,17 +51,25 @@ impl Voice {
         let angle = (n.pan + 1.0) * std::f32::consts::FRAC_PI_4;
         self.pan = (angle.cos(), angle.sin());
         self.drive = if ins.drive > 0.0 { 10f32.powf(ins.drive / 20.0) } else { 0.0 };
-        self.noise_gain = if self.drive > 0.0 { (self.drive * SUNG).tanh() / SUNG } else { 1.0 };
+        let vowels = if ins.voice == Some(Voicing::Clear) { clear::SUNG } else { SUNG };
+        self.noise_gain = if self.drive > 0.0 { (self.drive * vowels).tanh() / vowels } else { 1.0 };
+        if ins.consonants != 0.0 {
+            self.noise_gain *= 10f32.powf(ins.consonants / 20.0);
+        }
         self.crush.set(ins);
-        if ins.voice {
+        if ins.voice.is_some() {
             self.from = if sounding { self.level } else { 0.0 };
-            self.singer.start(sung(n, segments), !sounding);
+        }
+        match ins.voice {
+            Some(Voicing::Formants) => self.singer.start(sung(n, segments), !sounding),
+            Some(Voicing::Clear) => self.clear.start(sung(n, clear), !sounding),
+            None => {}
         }
     }
 }
 
 /// The segments a voice note sings (none for another note).
-fn sung<'a>(n: &Note, segments: &'a [Segment]) -> &'a [Segment] {
+fn sung<'a, S>(n: &Note, segments: &'a [S]) -> &'a [S] {
     n.sung.map_or(&[], |(from, to)| &segments[from as usize..to as usize])
 }
 
@@ -292,7 +302,9 @@ impl Player {
     }
 
     pub fn new(song: Song, volume: f32) -> Self {
-        let voices = (0..song.channels.len()).map(|i| Voice { osc: Oscillator::new(0x1234_5678 ^ (i as u32 * 7919)), singer: Singer::new(0x2545_f491 ^ (i as u32 * 7919)), ..Voice::default() }).collect();
+        let voices = (0..song.channels.len())
+            .map(|i| Voice { osc: Oscillator::new(0x1234_5678 ^ (i as u32 * 7919)), singer: Singer::new(0x2545_f491 ^ (i as u32 * 7919)), clear: clear::Singer::new(0x5bd1_e995 ^ (i as u32 * 7919)), ..Voice::default() })
+            .collect();
         let loud = song.layers.iter().map(|_| 1.0).collect();
         Self { song, voices, time: 0, duck: None, volume, rate: 1.0, carry: 0.0, since_jump: FADE_IN, intensity: 1.0, loud, bus: Bus::default() }
     }
@@ -349,7 +361,7 @@ impl Player {
             v.next = notes.partition_point(|n| n.start <= at);
             v.note = None;
             if let Some(i) = v.next.checked_sub(1).filter(|&i| notes[i].freq.is_some()) {
-                v.take_up(notes, i, &self.song.instruments[notes[i].instrument], &self.song.segments);
+                v.take_up(notes, i, &self.song.instruments[notes[i].instrument], (&self.song.segments, &self.song.clear));
             }
         }
     }
@@ -427,7 +439,7 @@ impl Player {
                     // Rests and the end marker have no pitch: the note before rings out.
                     if notes[v.next].freq.is_some() {
                         let ins = &self.song.instruments[notes[v.next].instrument];
-                        v.take_up(notes, v.next, ins, &self.song.segments);
+                        v.take_up(notes, v.next, ins, (&self.song.segments, &self.song.clear));
                         if ins.sidechain > 0.0 {
                             self.duck = Some(Duck { from: self.time, depth: ins.sidechain, release: ins.sidechain_release });
                         }
@@ -443,7 +455,7 @@ impl Player {
                 // ADSR (a voice's attack from where it was).
                 let level = if t < held {
                     let l = if t < ins.attack {
-                        if ins.voice { v.from + (1.0 - v.from) * (t / ins.attack.max(1e-4)) } else { t / ins.attack.max(1e-4) }
+                        if ins.voice.is_some() { v.from + (1.0 - v.from) * (t / ins.attack.max(1e-4)) } else { t / ins.attack.max(1e-4) }
                     } else {
                         let d = (t - ins.attack) / ins.decay.max(1e-4);
                         if d < 1.0 { 1.0 + (ins.sustain - 1.0) * d } else { ins.sustain }
@@ -471,10 +483,16 @@ impl Player {
                     freq *= 2f32.powf(ins.arp[step] / 12.0);
                 }
                 if ins.vibrato > 0.0 && t > ins.vibrato_delay {
-                    freq *= 1.0 + ins.vibrato * (std::f32::consts::TAU * ins.vibrato_speed * (t - ins.vibrato_delay)).sin();
+                    // The clear voice's vibrato grows in over a third of a second, as a singer's.
+                    let depth = if ins.voice == Some(Voicing::Clear) { ins.vibrato * ((t - ins.vibrato_delay) / 0.3).min(1.0) } else { ins.vibrato };
+                    freq *= 1.0 + depth * (std::f32::consts::TAU * ins.vibrato_speed * (t - ins.vibrato_delay)).sin();
                 }
                 let duty = (ins.duty + ins.pwm * (std::f32::consts::TAU * ins.pwm_speed * t).sin()).clamp(0.05, 0.95);
-                let (mut s, noise) = if ins.voice { v.singer.next(sung(n, &self.song.segments), self.time - v.started, freq) } else { (v.osc.next(ins.wave, freq / sr, duty, false), 0.0) };
+                let (mut s, noise) = match ins.voice {
+                    Some(Voicing::Formants) => v.singer.next(sung(n, &self.song.segments), self.time - v.started, freq),
+                    Some(Voicing::Clear) => v.clear.next(sung(n, &self.song.clear), self.time - v.started, freq),
+                    None => (v.osc.next(ins.wave, freq / sr, duty, false), 0.0),
+                };
                 // Driven into a soft clipper before the filters, as an amp
                 // before its speaker; a wave not even above and below zero
                 // (a voice's) clips to a middle off zero, taken off again.
@@ -486,7 +504,7 @@ impl Player {
                 // A voice's breath and hiss join past the clipper, raised as
                 // much as it raises a voice, so they keep their distance
                 // from the vowels however hard it drives.
-                if ins.voice {
+                if ins.voice.is_some() {
                     s += noise * v.noise_gain;
                 }
                 if ins.lowpass.is_some() {
