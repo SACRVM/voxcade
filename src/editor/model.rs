@@ -390,6 +390,8 @@ struct LevelState {
     /// (Boxed: the steps stay small.)
     daylight: Option<Box<crate::grid::Daylight>>,
     terrain: Option<Box<crate::terrain::Terrain>>,
+    location: Option<String>,
+    persistent: bool,
 }
 
 impl LevelState {
@@ -404,6 +406,8 @@ impl LevelState {
             areas: l.areas.clone(),
             daylight: l.daylight.clone().map(Box::new),
             terrain: l.terrain.clone().map(Box::new),
+            location: l.location.clone(),
+            persistent: l.persistent,
         }
     }
 
@@ -417,6 +421,8 @@ impl LevelState {
             && self.areas == l.areas
             && self.daylight.as_deref() == l.daylight.as_ref()
             && self.terrain.as_deref() == l.terrain.as_ref()
+            && self.location == l.location
+            && self.persistent == l.persistent
     }
 
     /// About how many bytes it holds.
@@ -663,6 +669,9 @@ pub struct Pieces {
     /// with what they were found for; the game's levels, as last found.
     names: std::cell::RefCell<Option<(u64, std::rc::Rc<room::NameChoices>)>>,
     levels: std::cell::RefCell<Option<room::GameLevels>>,
+    /// The locations the game's levels say (`Editor::locations`), as last
+    /// found.
+    locations: std::cell::RefCell<Option<std::rc::Rc<Vec<String>>>>,
     pub still_kinds: std::collections::BTreeSet<String>,
     pub free_kinds: std::collections::BTreeSet<String>,
     /// The kinds the ready-made rules stand the player as

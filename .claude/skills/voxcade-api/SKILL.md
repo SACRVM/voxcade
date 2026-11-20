@@ -103,7 +103,9 @@ to play, an RPG's zone too), state (what changes), props (what the level
 editor set on one thing; a kind's `names` say which name a level,
 a place, a thing or things), place (a named spot in a level), item, inventory,
 ready-made rules (behaviors, a list per kind; families group kinds),
-kept (a kind or a level's memory across visits). Handlers say what
+kept (`level.kept`, the game's own notes across visits), location and
+persistent (levels that remember: a location's levels as left while the
+player stays among them, a level's or a kind's for the run). Handlers say what
 happened: `on_world_start`, `on_world_end(result)`,
 `on_level_start(how)`, `on_level_end(why)`, `on_tick`, `on_draw`,
 `on_touch`, `on_touch_end`, `on_interact`, `on_hit`, `on_death`, `on_fall_out`,

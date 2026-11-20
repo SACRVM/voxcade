@@ -73,7 +73,7 @@ impl UserData for WorldView {
         m.add_meta_function(MetaMethod::NewIndex, |_, (_, key, _): (AnyUserData, Value, Value)| -> mlua::Result<()> { Err(not_settable("world", &key, Some("world.state"))) });
         m.add_function("go_to", |lua, (_, level, GivenValue(place), GivenValue(options)): (AnyUserData, Value, GivenValue, GivenValue)| {
             no_run_here(lua, "world:go_to")?;
-            let (place, fade) = place_and_fade(lua, place, options, "world:go_to")?;
+            let (place, fade, fresh) = place_and_fade(lua, place, options, "world:go_to")?;
             let index = look(lua, |h| {
                 let n = h.levels.list.len();
                 let index = match &level {
@@ -96,14 +96,14 @@ impl UserData for WorldView {
                 }
                 Ok(name.clone())
             })?;
-            ask(lua, "world:go_to", Ask::GoTo { level: index, place, fade })
+            ask(lua, "world:go_to", Ask::GoTo { level: index, place, fade, fresh })
         });
         m.add_function("restart", |lua, (_, GivenValue(place), GivenValue(options)): (AnyUserData, GivenValue, GivenValue)| {
-            let (place, fade) = place_and_fade(lua, place, options, "world:restart")?;
+            let (place, fade, fresh) = place_and_fade(lua, place, options, "world:restart")?;
             if let Some(p) = &place {
                 look(lua, |h| check_place(&h.levels.list[h.level], p, "world:restart"))?;
             }
-            ask(lua, "world:restart", Ask::Restart { place, fade })
+            ask(lua, "world:restart", Ask::Restart { place, fade, fresh })
         });
         m.add_function("save", |lua, (_, n, GivenValue(options)): (AnyUserData, i64, GivenValue)| {
             if phase(lua).is_some() {
@@ -198,14 +198,25 @@ fn request(lua: &Lua, what: &str, new: crate::game::Request) -> mlua::Result<()>
     })
 }
 
-/// An ask's place and options: `(place)`, `(place, options)` or
-/// `(options)` alone (a place is a name, so a table there is the options).
-fn place_and_fade(lua: &Lua, place: Value, options: Value, what: &str) -> mlua::Result<(Option<String>, Option<f32>)> {
-    match place {
-        Value::Table(_) if options.is_nil() => Ok((None, fade_of(place, what)?)),
-        Value::Nil => Ok((None, fade_of(options, what)?)),
-        place => Ok((Some(lua.unpack(place)?), fade_of(options, what)?)),
-    }
+/// An ask's place and options (`world:go_to`, `world:restart`): `(place)`,
+/// `(place, options)` or `(options)` alone (a place is a name, so a table
+/// there is the options); the options' fade, and `fresh` (the level from
+/// its file, what it kept forgotten: `lua::memory`).
+fn place_and_fade(lua: &Lua, place: Value, options: Value, what: &str) -> mlua::Result<(Option<String>, Option<f32>, bool)> {
+    let (place, options) = match place {
+        Value::Table(_) if options.is_nil() => (None, place),
+        Value::Nil => (None, options),
+        place => (Some(lua.unpack(place)?), options),
+    };
+    let fresh = match &options {
+        Value::Table(t) => match t.raw_get::<Value>("fresh")? {
+            Value::Nil => false,
+            Value::Boolean(b) => b,
+            other => return Err(mlua::Error::runtime(format!("{what}: fresh is true or false (true: the level from its file, what it kept of earlier visits forgotten), not {}", shown(&other)))),
+        },
+        _ => false,
+    };
+    Ok((place, options_fade(options, what, &["fade", "fresh"])?, fresh))
 }
 
 /// `world:save`'s options, `{ label = "..." }`: the label, one line of at
@@ -239,12 +250,17 @@ const MOST_LABEL: usize = 80;
 /// sense and range of `c.transition.fade` (seconds out, as many in; 0: a
 /// cut). None: the setting's for the ask's reason.
 fn fade_of(options: Value, what: &str) -> mlua::Result<Option<f32>> {
+    options_fade(options, what, &["fade"])
+}
+
+/// `fade_of` of options that may hold `keys`.
+fn options_fade(options: Value, what: &str, keys: &[&str]) -> mlua::Result<Option<f32>> {
     let t = match options {
         Value::Nil => return Ok(None),
         Value::Table(t) => t,
         other => return Err(mlua::Error::runtime(format!("{what}: the options are a table, {{ fade = seconds }}, not {}", shown(&other)))),
     };
-    known_keys(&t, &["fade"], what)?;
+    known_keys(&t, keys, what)?;
     let range = crate::config::bound("transition.fade").expect("c.transition.fade has a range");
     match t.raw_get::<Value>("fade")? {
         Value::Nil => Ok(None),

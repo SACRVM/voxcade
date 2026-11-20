@@ -206,7 +206,7 @@ fn an_ask_takes_its_own_fade() {
 #[test]
 fn an_asks_options_are_checked() {
     for (call, said) in [
-        ("world:go_to('b', nil, { fad = 0 })", "world:go_to: no 'fad' (it takes fade)"),
+        ("world:go_to('b', nil, { fad = 0 })", "world:go_to: no 'fad' (it takes fade, fresh)"),
         ("world:go_to('b', { fade = 'slow' })", "world:go_to: fade is seconds from 0 to 10 (0: a cut), not \"slow\""),
         ("world:restart({ fade = -1 })", "world:restart: fade is seconds from 0 to 10 (0: a cut), not -1"),
         ("world:win({ fade = 11 })", "world:win: fade is seconds from 0 to 10 (0: a cut), not 11"),

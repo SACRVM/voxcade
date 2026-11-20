@@ -32,10 +32,16 @@ impl<K: Kit> LuaGame<K> {
                 Ask::Lost { .. } => return self.end_run(Outcome::Lost),
                 // Never here: the session begins it (`anew`).
                 Ask::NewGame { .. } => Err(anyhow::anyhow!("world:new_game: from the game's own title only")),
-                Ask::GoTo { level, place, .. } => match self.stage.levels.find(&level) {
+                Ask::GoTo { level, place, fresh, .. } => match self.stage.levels.find(&level) {
                     Some(index) => {
+                        // What the level left keeps, what the next is given.
+                        if let Err(e) = self.leave_for(index, fresh) {
+                            self.halt(e);
+                            return;
+                        }
                         // A checkpoint belongs to the level it was reached in
-                        // (every player's).
+                        // (every player's), a room of the same location's
+                        // another.
                         if let Ok(player) = self.registry("voxcade.player") {
                             let _ = player.raw_set("checkpoint", mlua::Value::Nil);
                         }
@@ -49,7 +55,9 @@ impl<K: Kit> LuaGame<K> {
                     }
                     None => Err(anyhow::anyhow!("world:go_to: the level '{level}' is gone (its file was taken away while playing)")),
                 },
-                Ask::Restart { place, .. } => {
+                Ask::Restart { place, fresh, .. } => {
+                    // As it was entered this visit.
+                    self.again(fresh);
                     let checkpoint = self.registry("voxcade.player").ok().and_then(|p| p.raw_get::<Option<String>>("checkpoint").ok().flatten());
                     let level = &self.stage.levels.list[self.stage.level];
                     // A checkpoint is a place, or a thing of the level by its
@@ -101,7 +109,18 @@ impl<K: Kit> LuaGame<K> {
         let level = &levels.list[index];
         let arrived = place.clone().unwrap_or_else(|| self.stage.start(index));
         self.stage.level = index;
+        // What it kept of how it was left (`memory`), and the level.state
+        // it goes on with.
+        let memory::Laying { record, state: carried } = self.laying.take().unwrap_or_default();
         let mut world = level.world.clone();
+        if let Some(r) = record.as_ref().filter(|r| r.size == world.size) {
+            for &(i, colour) in &r.palette {
+                world.palette[i] = colour;
+            }
+            for &(p, v) in &r.voxels {
+                world.set(p, v);
+            }
+        }
         if let Some(l) = &loaded {
             for &(i, colour) in &l.palette {
                 world.palette[i] = colour;
@@ -155,8 +174,20 @@ impl<K: Kit> LuaGame<K> {
         // The level's things are new: nothing touches, nothing died yet,
         // none named or set down.
         self.stage.here = host::Here::default();
+        let lua = self.sandbox.lua.clone();
+        for name in ["voxcade.level", "voxcade.data", "voxcade.views", "voxcade.props"] {
+            lua.set_named_registry_value(name, lua.create_table()?)?;
+        }
         self.spawn_pieces();
         self.stage.name_things();
+        // What it kept laid over it: the things by their names.
+        if let Some(r) = &record {
+            if r.size != level.world.size && !r.voxels.is_empty() {
+                self.note(&format!("level {} changed its size since it was left: what was blown away or built there is as its file has it", level.name));
+            }
+            self.lay(r)?;
+        }
+        self.stage.away = record.as_ref().map_or(0, |r| self.stage.host.sim().tick.saturating_sub(r.left));
         // A save's lights as they were, by the pieces' names.
         if let Some(l) = &loaded {
             for (name, brightness) in &l.lights {
@@ -195,13 +226,17 @@ impl<K: Kit> LuaGame<K> {
                 }
             }
         }
-        let lua = &self.sandbox.lua;
-        for name in ["voxcade.level", "voxcade.data", "voxcade.views", "voxcade.props"] {
-            lua.set_named_registry_value(name, lua.create_table()?)?;
+        // The level.state it goes on with: a save's, the location's, else
+        // fresh; as entered, where it belongs to a location (a restart gives
+        // it back).
+        let state = match loaded {
+            Some(l) => Some(l.level_state),
+            None => carried,
+        };
+        if let Some(v) = &state {
+            lua.set_named_registry_value("voxcade.level", value::restore(&lua, v)?)?;
         }
-        if let Some(l) = loaded {
-            lua.set_named_registry_value("voxcade.level", value::restore(lua, &l.level_state)?)?;
-        }
+        self.stage.entered = state.filter(|v| level.location.is_some() && !v.is_empty()).map(Arc::new);
         self.call_handler("on_level_start", how, None)?;
         self.stage.settle();
         self.seat_figures(true);

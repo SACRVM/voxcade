@@ -480,7 +480,19 @@ def read_level(path):
                     name, orientation = legend[sign]
                     cells[p] = (names.index(name) + 1, orientation)
     return {"block": data["block"], "size": data["size"], "view": view, "blocks": blocks, "legend": legend, "cells": cells,
-            "things": data.get("thing", []), "places": data.get("place", [])}
+            "things": data.get("thing", []), "places": data.get("place", []),
+            "location": data.get("location"), "persistent": data.get("persistent", False)}
+
+
+def _remembers_lines(location, persistent):
+    """What a level says of remembering (`location`, `persistent`), after
+    its size (and view), as the engine writes it: each only where set."""
+    text = ""
+    if location:
+        text += f"location = {_quoted(location)}    # levels of one location are as left while the player stays among them\n"
+    if persistent:
+        text += "persistent = true     # what it sets down, and its voxels, stay as left for the whole run\n"
+    return text
 
 
 def _toml_key(name):
@@ -519,7 +531,7 @@ def _props_line(props):
     return "props = { " + ", ".join(f"{_toml_key(k)} = {_prop_text(v)}" for k, v in props.items()) + " }\n"
 
 
-def write_level(path, block, size, blocks, cells, things=(), places=(), kept=None, view=None):
+def write_level(path, block, size, blocks, cells, things=(), places=(), kept=None, view=None, location=None, persistent=False):
     """A level of voxel blocks: `block` voxels each way, `size` cells (x
     across, y deep from the front, z up), `blocks` [(name, kind)],
     `cells` {(x, y, z): (block number from 1, orientation)}, `things`
@@ -529,7 +541,9 @@ def write_level(path, block, size, blocks, cells, things=(), places=(), kept=Non
     writes it: the signs of `kept` ({sign: (name, orientation)}, a level
     read) and its `view` kept; a new one seen from the front when taller
     than deep, else from above; a new sign a pair of block and
-    orientation, its name's letters first."""
+    orientation, its name's letters first. `location` and `persistent`:
+    what it says of remembering (docs/game-model.md, "Levels that
+    remember")."""
     sx, sy, sz = size
     front = view == "front" if view else sz > sy
     order = _level_order(size, front)
@@ -567,6 +581,7 @@ def write_level(path, block, size, blocks, cells, things=(), places=(), kept=Non
         text += 'view = "front"        # each layer the grid seen from the front, the front layer first, its top row first\n'
     else:
         text += 'view = "above"        # each layer the grid seen from above, the bottom layer first, its far row first\n'
+    text += _remembers_lines(location, persistent)
     text += "\n[blocks]              # blocks/NAME.vvx, each what it is to the game\n"
     text += "".join(f'{key(n)} = "{k}"\n' for n, k in blocks)
     text += "\n[legend]              # a sign is a block as it lies: its name, or the name and an orientation (0 to 47)\n"
@@ -708,12 +723,13 @@ def terrain_text(t):
     return text
 
 
-def write_terrain_level(path, size, terrain, things=()):
+def write_terrain_level(path, size, terrain, things=(), location=None, persistent=False):
     """A level without blocks, `size` voxels, its land `terrain` (as
     `read_terrain` gives it) and `things` [{"name"?, "kind"? or "model",
     "at", "rotation"?, "solid"?, "shadow_only"?, "props"?, "group"?}], as the engine
     writes it."""
     text = f'format = "{LEVEL_FORMAT}"\nsize = [%d, %d, %d]    # voxels: across (x), deep (y, 0 in front), up (z); no grid of blocks\n' % tuple(size)
+    text += _remembers_lines(location, persistent)
     text += "\n" + terrain_text(terrain)
     for t in things:
         text += "\n[[thing]]\n"

@@ -157,6 +157,15 @@ impl Body {
         self.pos + Vec3::Z * self.height * 0.5
     }
 
+    /// Stands it still at `pos`, facing `facing` with its model's quarter
+    /// turn `look`, on the ground or not: as a level that remembers left it
+    /// (`lua::memory`).
+    pub fn stand_still(&mut self, pos: Vec3, facing: Vec3, look: IVec2, on_ground: bool) {
+        (self.pos, self.prev, self.vel) = (pos, pos, Vec3::ZERO);
+        (self.facing, self.look, self.on_ground) = (facing, look, on_ground);
+        (self.ground_z, self.fell) = (pos.z, 0.0);
+    }
+
     /// Distance from `p` to the nearest point of the body's axis, feet to
     /// head: how far a blast at `p` has to reach to touch it.
     pub fn distance_to(&self, p: Vec3) -> f32 {

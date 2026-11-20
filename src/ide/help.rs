@@ -526,6 +526,125 @@ end
 "##,
     },
     Topic {
+        title: "ROOMS THAT REMEMBER",
+        text: "Levels whose files say the same location = \"station\" are one place of the game: while the player goes among them, each is as it was left (a lever pulled, a crate pushed, a key taken: its things by their names, where they stood, thing.state, its voxels), and they share one level.state, which goes on from room to room and is fresh when the station is entered from outside. Leaving the station forgets it, but for what is persistent: persistent = true in a level's file keeps all of it for the whole run, c.things.chest.persistent = true a kind's things in any level. Nothing happens in a room nobody is in: level.away says how many ticks it was left, so on_level_start can make up for the time (here a lamp's oil). world:restart() gives the room as it was entered this visit; { fresh = true } on world:go_to or world:restart takes it from its file. A sequence that ends in world:go_to clears its step and its hold before it asks, since level.state goes along into the next room.",
+        conf: r##"c.world.size = nil             -- no world made in code: the levels are in levels/
+c.things.door = { props = { to = "hall", at = "start" }, names = { to = "level", at = "place" } }
+c.things.lever = {}
+c.things.lamp = {}"##,
+        files: &[
+            ("levels/forecourt.toml", r##"format = "voxcade level 1"
+size = [64, 48, 16]
+location = "station"
+
+[[thing]]
+name = "ground"
+model = "ground.vvx"
+at = [32, 24, 0]
+solid = true
+
+[[thing]]
+kind = "door"
+at = [56, 24, 1]
+
+[[thing]]
+kind = "lamp"
+at = [20, 30, 1]
+
+[[place]]
+name = "start"
+at = [32, 24, 1]
+
+[[place]]
+name = "door"
+at = [48, 24, 1]
+facing = "west"
+"##),
+            ("levels/hall.toml", r##"format = "voxcade level 1"
+size = [64, 48, 16]
+location = "station"
+
+[[thing]]
+name = "ground"
+model = "ground.vvx"
+at = [32, 24, 0]
+solid = true
+
+[[thing]]
+kind = "door"
+at = [8, 24, 1]
+props = { to = "forecourt", at = "door" }
+
+[[thing]]
+kind = "lever"
+at = [40, 30, 1]
+
+[[place]]
+name = "start"
+at = [16, 24, 1]
+facing = "east"
+"##),
+            ("ground.vvx", "format = \"voxcade voxel 1\"\nsize = [64, 48, 1]\n\n[palette]\na = { color = \"#5a5a66\" }\n\n[[frame]]\nlayers = \"\"\"\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *48\n\"\"\"\n"),
+        ],
+        code: r##"local OIL = 1200   -- ticks a lamp burns
+
+function on_level_start(how)
+  -- the lamp burned on while nobody was here: make up for the time away
+  local lamp = level:thing("lamp_1")
+  if lamp then
+    lamp.state.oil = math.max(0, (lamp.state.oil or OIL) - level.away)
+  end
+  -- the station's level.state goes along from room to room
+  level.state.rooms = (level.state.rooms or 0) + 1
+end
+
+function on_touch(a, b)
+  if b.kind == "lever" then
+    b.state.on = not b.state.on   -- still so when you come back
+  elseif b.kind == "door" and not level.state.leaving then
+    -- a moment's hold at the door, then through it
+    level.state.leaving = { to = b.props.to, at = b.props.at, wait = 20 }
+    level.state.held = true
+  end
+end
+
+function on_tick()
+  local leaving = level.state.leaving
+  if leaving then
+    leaving.wait = leaving.wait - 1
+    if leaving.wait == 0 then
+      -- cleared first: level.state goes along into the next room
+      level.state.leaving, level.state.held = nil, nil
+      world:go_to(leaving.to, leaving.at, { fade = 0 })
+    end
+    return
+  end
+  local lamp = level:thing("lamp_1")
+  if lamp then lamp.state.oil = math.max(0, (lamp.state.oil or OIL) - 1) end
+  for _, p in ipairs(level:players()) do
+    p:walk(p.input.dir, 40)
+  end
+end
+
+function on_draw(frame)
+  for _, d in ipairs(level:things("door")) do
+    for z = 0, 9 do frame:cube(d.x, d.y, d.z + z, { 200, 160, 90 }) end
+  end
+  for _, v in ipairs(level:things("lever")) do
+    frame:cube(v.x, v.y, v.z + 2, v.state.on and { 90, 220, 90 } or { 150, 60, 60 })
+  end
+  for _, lamp in ipairs(level:things("lamp")) do
+    local lit = (lamp.state.oil or OIL) > 0
+    frame:cube(lamp.x, lamp.y, lamp.z + 6, lit and { 255, 220, 120 } or { 60, 60, 70 }, lit and 1 or 0)
+  end
+  for _, p in ipairs(level:players()) do
+    frame:model(p.seat == 2 and "hero2.vvx" or "hero.vvx", p)
+  end
+  frame:text(string.upper(level.name .. " of the " .. level.location) .. "  ROOMS " .. (level.state.rooms or 0), 4, 4)
+end
+"##,
+    },
+    Topic {
         title: "SAVE THE GAME",
         text: "Give the game save slots in conf.lua (c.saves): the pause menu then has SAVE and LOAD. world:save(slot) saves at the end of the tick, here at a flag; world:load(slot) goes on from a save like a level change, and on_level_start then says \"load\". world.saves tells what lies in each slot. A save keeps the states and where the player stands; the level comes from its file, its things too (a thing in level.state comes back as nil). Saves live in the player's config folder, never in the game's.",
         conf: r##"c.player.kind = "hero"

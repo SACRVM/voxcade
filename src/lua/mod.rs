@@ -34,6 +34,7 @@ pub mod hidden;
 pub mod host;
 mod inspect;
 pub mod lex;
+pub mod memory;
 mod sandbox;
 pub mod save;
 mod saving;
@@ -139,6 +140,9 @@ pub struct LuaGame<K: Kit> {
     /// Where a save stood the players of the seats after the first, for the
     /// level it enters.
     seat_places: Vec<(usize, crate::levels::Place)>,
+    /// What the level entered next is given of what it kept, and the
+    /// `level.state` it goes on with (`memory`).
+    laying: Option<memory::Laying>,
     /// The saves made since the session took them (`Game::saving`).
     written: Vec<crate::saves::Change>,
     /// What `on_draw` asked for the last time it ran (shown while stopped):
@@ -668,6 +672,8 @@ impl<K: Kit> Game for LuaGame<K> {
     /// player where it stood.
     fn replace_levels(&mut self, levels: Arc<crate::levels::Levels>) {
         let name = self.stage.levels.list[self.stage.level].name.clone();
+        // As it was entered this visit, with what it kept then.
+        self.again(false);
         let old = std::mem::replace(&mut self.stage.levels, levels);
         let visits: Vec<u32> = self.stage.levels.list.iter().map(|l| old.find(&l.name).map_or(0, |i| self.stage.visits[i])).collect();
         self.stage.visits = visits;

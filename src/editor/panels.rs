@@ -38,6 +38,8 @@ pub struct PanelsDrawn {
     /// a group's name typed in its row (RENAME).
     pub grouped: Option<String>,
     pub group_renamed: Option<(u16, String)>,
+    /// The level's location typed or chosen (LOCATION; empty: none).
+    pub located: Option<String>,
     /// The room the panels leave the 3D view (egui's points), where it is
     /// not the room right of nothing and above the bottom bar.
     pub free: Option<egui::Rect>,

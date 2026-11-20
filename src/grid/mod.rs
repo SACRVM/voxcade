@@ -463,12 +463,19 @@ pub struct GridLevel {
     pub daylight: Option<Daylight>,
     /// Its landscape (`[terrain]`, `crate::terrain`).
     pub terrain: Option<crate::terrain::Terrain>,
+    /// The location it belongs to (`location = "station"`): levels of one
+    /// location remember each other while the player stays among them
+    /// (`docs/game-model.md`, "Levels that remember").
+    pub location: Option<String>,
+    /// Everything it sets down, and its voxels, stay as left for the whole
+    /// run (`persistent = true`).
+    pub persistent: bool,
 }
 
 impl GridLevel {
     pub fn new(n: i32, size: IVec3) -> Self {
         let cells = if n > 0 { (size.x * size.y * size.z).max(0) as usize } else { 0 };
-        Self { n, size, blocks: Vec::new(), cells: vec![Cell::default(); cells], things: Vec::new(), places: Vec::new(), areas: Vec::new(), daylight: None, terrain: None }
+        Self { n, size, blocks: Vec::new(), cells: vec![Cell::default(); cells], things: Vec::new(), places: Vec::new(), areas: Vec::new(), daylight: None, terrain: None, location: None, persistent: false }
     }
 
     /// Whether it has a grid of blocks (else only what is set down).
@@ -729,7 +736,8 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], fr
         .collect();
     let areas = level.areas.iter().map(|a| crate::levels::Area { name: a.name.clone(), at: origin + IVec3::from(a.at), size: IVec3::from(a.size) }).collect();
     let daylight = level.daylight.as_ref().map(Daylight::picture).unwrap_or_default();
-    Ok(crate::levels::Made { world, markers, files, places, marker_names, marker_facings, marker_props, pieces, areas, daylight })
+    let (location, persistent) = (level.location.clone(), level.persistent);
+    Ok(crate::levels::Made { world, markers, files, places, marker_names, marker_facings, marker_props, pieces, areas, daylight, location, persistent })
 }
 
 /// The mistake for the first thing, place or area of a level that lies
@@ -1670,9 +1678,10 @@ size = [40, 30, 40]
         }
     }
 
-    /// `tools/vvx.py` writes a level's things' props and group as the
-    /// engine does (`the_python_writer_writes_what_the_engine_writes` for
-    /// models), and reads them back.
+    /// `tools/vvx.py` writes a level's things' props and group, and its
+    /// location and persistent, as the engine does
+    /// (`the_python_writer_writes_what_the_engine_writes` for models), and
+    /// reads them back.
     #[test]
     fn the_python_writer_writes_props_as_the_engine() {
         if std::process::Command::new("python3").arg("--version").output().is_err() {
@@ -1685,9 +1694,10 @@ import sys
 sys.path.insert(0, sys.argv[1])
 import vvx
 props = {"to": "02_crypt", "locked": True, "worth": 50, "speed": 1.5, "say \"hi\"": ["a", 2], "more": {"z": 1, "a": {}}}
-vvx.write_level(sys.argv[2], 4, [2, 1, 1], [("rock", "solid")], {(0, 0, 0): (1, 0)}, things=[{"kind": "door", "at": [1, 2, 3], "props": props, "group": "gates"}, {"kind": "door", "at": [5, 2, 3]}])
+vvx.write_level(sys.argv[2], 4, [2, 1, 1], [("rock", "solid")], {(0, 0, 0): (1, 0)}, things=[{"kind": "door", "at": [1, 2, 3], "props": props, "group": "gates"}, {"kind": "door", "at": [5, 2, 3]}], location="station", persistent=True)
 assert vvx.read_level(sys.argv[2])["things"][0]["props"] == props
 assert vvx.read_level(sys.argv[2])["things"][0]["group"] == "gates"
+assert (vvx.read_level(sys.argv[2])["location"], vvx.read_level(sys.argv[2])["persistent"]) == ("station", True)
 "#;
         let file = out.join("level.toml");
         let run = std::process::Command::new("python3").arg("-B").arg("-c").arg(script).arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tools")).arg(&file).output().unwrap();
@@ -1695,6 +1705,7 @@ assert vvx.read_level(sys.argv[2])["things"][0]["group"] == "gates"
         let wrote = std::fs::read_to_string(&file).unwrap();
         let level = GridLevel::from_text(&wrote).unwrap();
         assert_eq!((level.things[0].props.len(), level.things[0].group.as_deref(), level.things[1].group.as_deref()), (6, Some("gates"), None));
+        assert_eq!((level.location.as_deref(), level.persistent), (Some("station"), true));
         assert!(wrote.contains("props = { to = \"02_crypt\", locked = true, worth = 50, speed = 1.5, \"say \\\"hi\\\"\" = [\"a\", 2], more = { a = {}, z = 1 } }\n"), "{wrote}");
         assert_eq!(level.to_text(), wrote, "the engine writes it so too");
     }
